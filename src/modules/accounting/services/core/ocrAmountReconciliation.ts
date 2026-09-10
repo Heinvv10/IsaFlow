@@ -101,16 +101,27 @@ export function reconcileNetAgainstTotal(
  * rather than resolved: `selectTotalAmount` offers a guess, and
  * `unattendedPostingGate` refuses to post it unattended. Adding a section noun
  * is no longer a thing anyone has to do.
+ *
+ * EVERY pattern is consulted, not the first one that hits, and that is the
+ * whole of it. While the loop returned on the first productive pattern, a slip
+ * printing a plain `Total` above its payable never reached `TOTAL_PATTERNS[1]`
+ * (`Amount Due` / `Balance Due` / `Payable`) or `[2]` (`Amount Incl VAT`) at
+ * all — so `Sub Total 200.00 / VAT 15% 30.00 / Total 230.00 / Gratuity 23.00 /
+ * Amount Due 253.00` yielded ONE candidate, 230.00, which equalled the total
+ * read, raised no warning and posted unattended: measured, R230.00 credited to
+ * the bank against a payable of R253.00. The labels were in the vocabulary the
+ * whole time; the loop is what dropped them. Hits are ordered by MATCH POSITION
+ * so `selectTotalAmount`'s "the bottom one" still means the figure printed
+ * lowest on the document, whichever pattern read it.
  */
 export function extractTotalCandidates(text: string): number[] {
+  const hits: Array<{ at: number; value: number }> = [];
   for (const pattern of GLOBAL_TOTAL_PATTERNS) {
-    const values: number[] = [];
     for (const match of text.matchAll(pattern)) {
-      if (match[1]) values.push(parseAmount(match[1]));
+      if (match[1]) hits.push({ at: match.index, value: parseAmount(match[1]) });
     }
-    if (values.length > 0) return values;
   }
-  return [];
+  return hits.sort((a, b) => a.at - b.at).map((h) => h.value);
 }
 
 /** `TOTAL_PATTERNS` are single-match; `matchAll` requires the global flag. */

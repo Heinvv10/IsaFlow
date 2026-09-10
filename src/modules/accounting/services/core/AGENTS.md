@@ -54,6 +54,18 @@ Invoked by `withCompany`-wrapped API routes in `pages/api/accounting/**`. Most f
 
 ## Recent changes
 
+- 2026-09-10 (round 11): **`extractTotalCandidates` collects across EVERY `TOTAL_PATTERNS` entry,
+  ordered by match position.** It returned on the first productive pattern, so a plain `Total` above
+  the payable made `Amount Due` / `Balance Due` / `Payable` / `Amount Incl VAT` unreachable — one
+  candidate, no warning, R230.00 posted against a payable of R253.00. `TOTAL_WORD` (`Totaa?l`) and
+  `PAYABLE_LABEL` (`… |Balance|TO PAY|TE BETAAL|TTL`) are the single alternations every guard,
+  pattern and `SUMMARY_LINE_START` share. `unattendedPostingRefusal` now re-reads the VAT from
+  `rawText` with `extractAmounts` and refuses a stored net/VAT the text does not print — a VLM's own
+  15% split of a zero-rated slip claimed R13.04 of input tax the document denies. New
+  `isAmbiguousTotal(doc)` (stored reconciliation warning OR >1 distinct total in `rawText`) is the
+  part of the gate the AP invoice routes take: `ai-invoice-pipeline` and `capture/[id]/post` sent
+  A1/A2/A4 to `approved` at R230.00 of R253.00, worse than master. They cannot take the WHOLE gate —
+  a VLM-read PDF has `rawText: ''`, which the gate refuses outright.
 - 2026-09-10 (round 10): **extraction guesses, `unattendedPostingGate` decides.** Four rounds tried to
   PICK the payable out of several printed totals and each rule was beaten by a slip it had not seen
   (last: a VAT-analysis block under the tender read R230 of R253). `selectTotalAmount` now offers the

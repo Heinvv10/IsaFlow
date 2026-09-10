@@ -27,7 +27,7 @@
  * read directly) cannot show that it is unambiguous, and is refused.
  */
 import type { ExtractedDocument } from '@/modules/accounting/types/documentCapture.types';
-import { detectDocumentType } from './ocrExtractionService';
+import { detectDocumentType, extractAmounts } from './ocrExtractionService';
 import { extractTotalCandidates, isUnreconciled } from './ocrAmountReconciliation';
 
 export type UnattendedPostingInput = Pick<
@@ -72,5 +72,44 @@ export function unattendedPostingRefusal(doc: UnattendedPostingInput): string | 
   if (printed.length === 0) return 'no printed total could be read from the document text';
   if (printed.length > 1) return `the document prints ${printed.length} different totals`;
   if (printed[0] !== total) return 'the total read is not the total the document prints';
+
+  // The TOTAL was re-read; the VAT was not, and a stored net and VAT are a
+  // second number the entry is built from. Measured: a zero-rated slip whose
+  // text prints only `Maize Meal 1 100.00 100.00 / Total 100.00`, stored by the
+  // VLM as net 86.96 / VAT 13.04 / total 100.00, satisfied every check above —
+  // the arithmetic adds up, the total agrees with the text — and posted EXP
+  // 86.96 / VAT-in 13.04, R13.04 of input tax the document does not state. That
+  // is the X2 defect ("no VAT figure was read") reached through the VLM instead
+  // of the regex reader, so the answer is the same one: re-read, and refuse
+  // what the text cannot corroborate.
+  //
+  // `extractAmounts` rather than `extractVatAmount` because the VAT selection
+  // cross-checks against the PRINTED net and the bottom-most printed total, and
+  // the stored `subtotal` may be a derived one. Feeding it the reader's own
+  // inputs is what makes this re-read identical, by construction, to what a
+  // regex-extracted document already holds.
+  const reread = extractAmounts(doc.rawText ?? '');
+  if (reread.vatAmount === null) return 'no VAT figure is printed on the document';
+  if (reread.vatAmount !== vat) return 'the VAT figure read is not the VAT the document prints';
   return null;
+}
+
+/**
+ * Is more than one figure in play for this document's payable total?
+ *
+ * The AP invoice routes do not consult `unattendedPostingRefusal` — they cannot,
+ * because a PDF invoice read by the VLM carries no `rawText` to re-read and the
+ * gate refuses that outright, which would send every one of them to a person.
+ * But they auto-APPROVE, and on a document whose own totals are ambiguous that
+ * approves a wrong number: measured, the mixed-basket slips A1/A2/A4 were
+ * approved at R230.00 against a payable of R253.00, which is worse than the
+ * behaviour they replaced. This is the part of the gate they can afford — a
+ * document with no text to read yields no candidates and is not ambiguous, so
+ * the VLM path is untouched.
+ */
+export function isAmbiguousTotal(
+  doc: Pick<ExtractedDocument, 'rawText' | 'warnings'>,
+): boolean {
+  if (isUnreconciled(doc.warnings)) return true;
+  return new Set(extractTotalCandidates(doc.rawText ?? '')).size > 1;
 }

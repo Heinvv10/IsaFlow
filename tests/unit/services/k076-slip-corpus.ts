@@ -91,4 +91,37 @@ export const SLIPS: Slip[] = [
   { name: 'X1 registration number glued to a dash', text: `Waltons Stationery\nVAT-4123456789\nDate: 2026-09-01\nInvoice No: 55123\nCopy Paper 1 1000.00 1000.00\nSub Total 1000.00\nVAT 150.00\nTotal 1150.00`, payable: 1150, outcome: 'post' },
   { name: 'X2 no VAT line at all (the builder would invent 15%)', text: `${WALTONS}Total 1150.00`, payable: 1150, outcome: 'refuse' },
   { name: 'X3 a TOTAL column header (honest slip, refused)', text: 'Spar Rivonia\nDate: 2026-09-01\nReceipt No: 88001\nQTY ITEM TOTAL\n1 Bread 23.00\nSub Total 20.00\nVAT 3.00\nTotal 23.00', payable: 23, outcome: 'refuse' },
+
+  // Round 10 review — the payable printed under a SECOND total label.
+  //
+  // Every row above came from a previous reviewer, so none of them printed its
+  // payable under a label other than `Total`, and the whole class passed the
+  // corpus silently: `extractTotalCandidates` returned on the first productive
+  // pattern, so `Amount Due` and `Amount Incl VAT` — labels the vocabulary has
+  // always known — were never even consulted once a plain `Total` had matched.
+  // Measured, each of these posted R230.00 against its printed payable.
+  ...([
+    ['Amount Due', 253], ['Balance Due', 253], ['Amount Payable', 253],
+    ['Amount Incl VAT', 253], ['Grand Total', 253], ['TOTAAL', 253],
+    ['TO PAY', 253], ['TE BETAAL', 253], ['Balance', 253], ['TTL', 253],
+    ['NETT PAYABLE', 253],
+  ] as Array<[string, number]>).map(([label, payable]): Slip => ({
+    name: `U "${label}" below a plain Total`,
+    text: `${OCEAN}Sub Total 200.00\nVAT 15% 30.00\nTotal 230.00\nGratuity 23.00\n${label} 253.00`,
+    payable, outcome: 'refuse',
+  })),
+  { name: 'U AMOUNT DUE above a VAT-analysis block', text: `${CHECKERS}${BASKET}AMOUNT DUE 253.00\nCASH 300.00\nVAT ANALYSIS\nSub Total 200.00\nVAT 15% 30.00\nTotal 230.00`, payable: 253, outcome: 'refuse' },
+  { name: 'U Payable below a delivery line', text: `${OCEAN}Sub Total 200.00\nVAT 15% 30.00\nTotal 230.00\nDelivery 57.50\nPayable 287.50`, payable: 287.5, outcome: 'refuse' },
+
+  // Round 10 review — ORDINARY receipts, in the proportion a real till roll
+  // prints them. A corpus of nothing but counter-examples cannot show an
+  // over-refusal, and the rows above only ever move a slip towards one.
+  { name: 'N1 Woolworths, VAT under a label the reader cannot read', text: 'Woolworths Sandton City\nTAX INVOICE\nVAT Reg 4930118273\nDate: 2026-09-01\nSlip 004512\nMilk 2L 1 32.99 32.99\nChicken Breasts 1 109.99 109.99\nTOTAL 142.98\nVAT INCLUDED 18.65\nCARD 142.98', payable: 142.98, outcome: 'refuse' },
+  { name: 'N2 Engen fuel', text: 'Engen Rivonia\nTAX INVOICE\nVAT No 4001234567\nDate: 2026-09-01\nUnleaded 95 45.00L 22.50 1012.50\nSub Total 880.43\nVAT 132.07\nTotal 1012.50\nCARD 1012.50', payable: 1012.5, outcome: 'refuse' },
+  { name: 'N3 Uber trip', text: 'Uber SA\nTAX INVOICE\nDate: 2026-09-01\nTrip 1 120.00 120.00\nSub Total 104.35\nVAT 15.65\nTotal 120.00', payable: 120, outcome: 'post' },
+  { name: 'N4 Mugg and Bean', text: 'Mugg and Bean Fourways\nTAX INVOICE\nDate: 2026-09-01\nBottomless Coffee 2 39.00 78.00\nSub Total 67.83\nVAT 15% 10.17\nTotal 78.00', payable: 78, outcome: 'post' },
+  { name: 'N5 Spar with cash and change', text: 'Spar Rivonia\nTAX INVOICE\nVAT No 4111222333\nDate: 2026-09-01\nBread 1 23.00 23.00\nSub Total 20.00\nVAT 3.00\nTOTAL 23.00\nCASH 50.00\nCHANGE 27.00', payable: 23, outcome: 'post' },
+  { name: 'N6 Takealot, description-first column header', text: 'Takealot\nTAX INVOICE\nDate: 2026-09-01\nDescription Qty Unit Price Total\nUSB Cable 1 149.00 149.00\nSub Total 129.57\nVAT 19.43\nTotal 149.00', payable: 149, outcome: 'post' },
+  { name: 'N7 Pick n Pay zero-rated basket', text: 'Pick n Pay Bryanston\nTAX INVOICE\nVAT No 4123456780\nDate: 2026-09-01\nMaize Meal 1 89.99 89.99\nTOTAL 89.99\nVAT 0.00', payable: 89.99, outcome: 'refuse' },
+  { name: 'N8 Builders Warehouse', text: 'Builders Warehouse\nTAX INVOICE\nVAT No 4055667788\nDate: 2026-09-01\nCement 5 89.00 445.00\nSub Total 386.96\nVAT 15% 58.04\nTotal Due 445.00', payable: 445, outcome: 'post' },
 ];
