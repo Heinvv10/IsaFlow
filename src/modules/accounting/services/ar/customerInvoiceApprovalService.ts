@@ -12,7 +12,7 @@ import { als, assertTxUsable } from '@/lib/als';
 import type { DbRow } from '@/lib/neon';
 import { log } from '@/lib/logger';
 import {postCustomerInvoiceFinancialEffect,type ArParentControl} from './customerInvoiceFinancialEffect';
-import {runArControlled,type ArApprovalOptions} from './arControlBoundary';
+import {requireArControl,runArControlled,type ArApprovalOptions} from './arControlBoundary';
 import {canonicalIntentId} from '../controls/intentIdentity';
 import { snapshotInvoicePdf } from '@/modules/accounting/services/ar/invoicePdfSnapshotService';
 import type { PostingActorOpts } from '../gl/journalEntryMeta';
@@ -173,6 +173,8 @@ async function approveCustomerInvoiceEffect(
 }
 
 export async function approveCustomerInvoice(companyId:string,rawInvoiceId:string,userId:string,opts?:PostingActorOpts&ArApprovalOptions):Promise<ApproveCustomerInvoiceResult>{
+ // The active principal is proven before any caller value is inspected.
+ requireArControl(companyId,userId);
  // One spelling for the whole operation: the REST route and the MCP tool both pass the
  // caller's id through, so the receipt read, the control ref and the result must agree.
  const invoiceId=canonicalIntentId(rawInvoiceId);
