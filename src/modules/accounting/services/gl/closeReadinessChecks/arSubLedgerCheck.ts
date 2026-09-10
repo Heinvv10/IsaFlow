@@ -7,13 +7,17 @@
  * AR_OPEN_STATUSES = ['approved', 'sent', 'partially_paid', 'overdue']
  * Canonical set per src/lib/constants/invoiceStatuses.ts and debtorsManagerService.
  *
- * account_subtype = 'receivable' is the canonical seeded value
- * (see migrations 204, 254 and migrationValidationService.ts).
+ * `receivable` is the canonical seeded subtype (migrations 204, 254), but a
+ * migrated or hand-built chart spells its debtors control `debtors`,
+ * `trade_receivables` or `accounts_receivable`. The literal read those charts'
+ * control account as ZERO and failed the gate on correct books, so the filter
+ * is RECEIVABLE_SUBTYPES — the same vocabulary the AR reports resolve.
  */
 
 import { sql } from '@/lib/neon';
 import type { DbRow } from '@/lib/neon';
 import type { ChecklistItem } from '../periodCloseReadinessService';
+import { RECEIVABLE_SUBTYPES } from '../accountSubtypes';
 
 type Row = DbRow;
 
@@ -39,7 +43,6 @@ export async function arSubLedgerCheck(
   `) as Row[];
 
   // GL control account: net debit balance from posted receivable lines.
-  // account_subtype = 'receivable' is canonical (migrations 204 + 254).
   const glRows = (await sql`
     SELECT COALESCE(SUM(jl.debit - jl.credit), 0) AS gl_balance
     FROM gl_journal_lines jl
@@ -49,7 +52,7 @@ export async function arSubLedgerCheck(
       AND jl.company_id = ${companyId}::UUID
       AND ga.company_id = ${companyId}::UUID
       AND je.status = 'posted'
-      AND ga.account_subtype = 'receivable'
+      AND ga.account_subtype = ANY(${RECEIVABLE_SUBTYPES as string[]}::TEXT[])
       AND je.entry_date <= ${period.endDate}::date
   `) as Row[];
 

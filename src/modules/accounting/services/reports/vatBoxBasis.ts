@@ -70,7 +70,14 @@ const GENERIC_TAX_SUBTYPE = 'tax';
  * GROSS, VAT-INCLUSIVE amount was counted as the value of the supply and
  * over-stated boxes 1 and 15 by the whole settlement leg.
  */
-export const VAT_SETTLEMENT_SUBTYPES = ['bank', 'cash', 'receivable', 'payable'] as const;
+export const VAT_SETTLEMENT_SUBTYPES = [
+  'bank', 'cash', 'receivable', 'payable',
+  // A card or a sundry creditor settles an invoice exactly as a bank account
+  // does. Both are offerable subtypes in the Add Account dialog and the MCP
+  // write path, and against the four-token list the gross leg fell through to
+  // `base`, reporting a NEGATIVE box-15 base of -(the VAT).
+  'credit_card', 'other_current_liability',
+] as const;
 
 /** Default when a tax leg carries no `vat_type`, matching the existing box-1/box-15 fallback. */
 export const DEFAULT_VAT_TYPE = 'standard';

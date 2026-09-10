@@ -9,13 +9,17 @@
  * Note: supplier_invoices do NOT use an 'overdue' status — past-due invoices
  * remain 'approved' in this system (see AP_OPEN_STATUSES comment).
  *
- * account_subtype = 'payable' is the canonical seeded value
- * (see migrations 204, 254 and migrationValidationService.ts).
+ * `payable` is the canonical seeded subtype (migrations 204, 254), but a
+ * migrated or hand-built chart spells its creditors control `creditors`,
+ * `trade_payables` or `accounts_payable`. The literal read those charts'
+ * control account as ZERO and failed the gate on correct books, so the filter
+ * is PAYABLE_SUBTYPES — the same vocabulary the AP reports resolve.
  */
 
 import { sql } from '@/lib/neon';
 import type { DbRow } from '@/lib/neon';
 import type { ChecklistItem } from '../periodCloseReadinessService';
+import { PAYABLE_SUBTYPES } from '../accountSubtypes';
 
 type Row = DbRow;
 
@@ -41,7 +45,6 @@ export async function apSubLedgerCheck(
   `) as Row[];
 
   // GL control account: net credit balance from posted payable lines.
-  // account_subtype = 'payable' is canonical (migrations 204 + 254).
   const glRows = (await sql`
     SELECT COALESCE(SUM(jl.credit - jl.debit), 0) AS gl_balance
     FROM gl_journal_lines jl
@@ -51,7 +54,7 @@ export async function apSubLedgerCheck(
       AND jl.company_id = ${companyId}::UUID
       AND ga.company_id = ${companyId}::UUID
       AND je.status = 'posted'
-      AND ga.account_subtype = 'payable'
+      AND ga.account_subtype = ANY(${PAYABLE_SUBTYPES as string[]}::TEXT[])
       AND je.entry_date <= ${period.endDate}::date
   `) as Row[];
 

@@ -10,7 +10,7 @@
  */
 import { sql } from '@/lib/neon';
 import type { DbRow } from '@/lib/neon';
-import { CASH_SUBTYPES } from '../accountSubtypes';
+import { CASH_SUBTYPES, rawSubtypesFor } from '../accountSubtypes';
 import { num, r2, str, type IntegrityCheckContext, type IntegrityCheckResult, type IntegritySampleRow } from './types';
 
 function sample(rows: DbRow[]): IntegritySampleRow[] {
@@ -161,7 +161,7 @@ export async function costOfSalesTypedAsExpense(ctx: IntegrityCheckContext): Pro
            'typed ' || COALESCE(b.account_subtype, 'no subtype') || ', reported as an operating expense' AS detail
     FROM (${b}) b
     WHERE b.account_type = 'expense'
-      AND COALESCE(b.account_subtype, '') <> 'cost_of_sales'
+      AND COALESCE(b.account_subtype, '') <> ALL(${rawSubtypesFor('cost_of_sales')}::TEXT[])
       AND b.account_name ~* '(cost of sale|^cos[ -]|direct material|direct cost|cost of good)'
   `;
   const totals = (await sql`SELECT COUNT(*)::INT AS count, COALESCE(SUM(f.amount), 0) AS amount FROM (${failing}) f`) as DbRow[];

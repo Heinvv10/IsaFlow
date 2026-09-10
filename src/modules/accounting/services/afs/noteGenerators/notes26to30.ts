@@ -77,11 +77,16 @@ export async function generateNote27GoingConcern(
         -- understating both sides of the current ratio.
         -- vat_payable, overdraft and current_tax_liability are not in the
         -- canonical vocabulary at all and stay as literals.
-        SUM(CASE WHEN ga.account_subtype = ANY(${[
+        -- account_type guards both arms: production carries 27 paycards typed
+        -- 'liability' with a bank subtype, and without the guard they counted
+        -- as current ASSETS at a negative balance. Widening the subtype list
+        -- to bank_account/petty_cash/cash_on_hand made that leak larger, not
+        -- smaller, so the guard goes on in the same round.
+        SUM(CASE WHEN ga.account_type = 'asset' AND ga.account_subtype = ANY(${[
           ...CASH_SUBTYPES, ...RECEIVABLE_SUBTYPES, ...INVENTORY_SUBTYPES,
         ] as string[]}::TEXT[])
                  THEN gjl.debit - gjl.credit ELSE 0 END) AS current_assets,
-        SUM(CASE WHEN ga.account_subtype = ANY(${[
+        SUM(CASE WHEN ga.account_type = 'liability' AND ga.account_subtype = ANY(${[
           ...PAYABLE_SUBTYPES, 'vat_payable', 'overdraft', 'current_tax_liability',
         ] as string[]}::TEXT[])
                  THEN gjl.credit - gjl.debit ELSE 0 END) AS current_liabilities

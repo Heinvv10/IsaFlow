@@ -6,6 +6,7 @@ import { log } from '@/lib/logger';
 import type { NoteContent } from '@/modules/accounting/services/afs/afsTypes';
 import { fmt, toNum } from './noteHelpers';
 import { getFiscalRange } from '@/modules/accounting/services/afs/afsFiscalPeriod';
+import { rawSubtypesFor } from '@/modules/accounting/services/gl/accountSubtypes';
 
 type DbRow = Record<string, unknown>;
 
@@ -165,9 +166,10 @@ export async function generateNote19OtherIncome(
     JOIN gl_accounts ga ON ga.id = gjl.gl_account_id
     JOIN gl_journal_entries gje ON gje.id = gjl.journal_entry_id
     WHERE gjl.company_id = ${companyId}
-      AND ga.account_subtype IN (
-        'other_income', 'interest_income', 'dividend_income', 'rental_income', 'gain_on_disposal'
-      )
+      AND ga.account_subtype = ANY(${[
+        ...rawSubtypesFor('other_income'),
+        'interest_income', 'dividend_income', 'rental_income', 'gain_on_disposal',
+      ]}::TEXT[])
       AND gje.entry_date BETWEEN ${start} AND ${end} AND gje.status = 'posted'
     GROUP BY ga.account_name, ga.account_subtype
     HAVING SUM(ABS(gjl.credit - gjl.debit)) > 0
@@ -207,9 +209,12 @@ export async function generateNote20OperatingExpenses(
     JOIN gl_journal_entries gje ON gje.id = gjl.journal_entry_id
     WHERE gjl.company_id = ${companyId}
       AND ga.account_type = 'expense'
-      AND ga.account_subtype NOT IN (
-        'income_tax_expense', 'deferred_tax_expense', 'interest_expense', 'finance_cost'
-      )
+      -- COALESCE: NOT IN is NULL for a NULL subtype, which dropped every
+      -- unclassified expense out of the note. 'finance_costs' (plural) was
+      -- not excluded and appeared here AND in note 21.
+      AND COALESCE(ga.account_subtype, '') <> ALL(${[
+        'income_tax_expense', 'deferred_tax_expense', ...rawSubtypesFor('finance_cost'),
+      ]}::TEXT[])
       AND gje.entry_date BETWEEN ${start} AND ${end} AND gje.status = 'posted'
     GROUP BY ga.account_name, ga.account_subtype
     HAVING SUM(gjl.debit - gjl.credit) > 0

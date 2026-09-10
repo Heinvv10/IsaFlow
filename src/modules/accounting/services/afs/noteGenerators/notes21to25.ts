@@ -8,6 +8,7 @@ import type { DbRow } from '@/types/db';
 import { fmt, toNum } from './noteHelpers';
 import { getCompanyTerminology } from '../entityTerminology';
 import { getFiscalRange } from '@/modules/accounting/services/afs/afsFiscalPeriod';
+import { rawSubtypesFor } from '@/modules/accounting/services/gl/accountSubtypes';
 
 // ── Note 21 — Finance Costs ───────────────────────────────────────────────────
 
@@ -26,7 +27,9 @@ export async function generateNote21FinanceCosts(
     JOIN gl_accounts ga ON ga.id = gjl.gl_account_id
     JOIN gl_journal_entries gje ON gje.id = gjl.journal_entry_id
     WHERE gjl.company_id = ${companyId}
-      AND ga.account_subtype IN ('interest_expense', 'finance_cost', 'bank_charges')
+      AND ga.account_subtype = ANY(${[
+        ...rawSubtypesFor('finance_cost'), 'bank_charges',
+      ]}::TEXT[])
       AND gje.entry_date BETWEEN ${start} AND ${end}
       AND gje.status = 'posted'
     GROUP BY ga.account_name, ga.account_subtype
@@ -81,8 +84,10 @@ export async function generateNote22EmployeeBenefits(
     JOIN gl_accounts ga ON ga.id = gjl.gl_account_id
     JOIN gl_journal_entries gje ON gje.id = gjl.journal_entry_id
     WHERE gjl.company_id = ${companyId}
-      AND ga.account_subtype IN ('salaries', 'wages', 'uif', 'medical_aid',
-                                 'provident_fund', 'leave_pay', 'bonuses')
+      AND ga.account_subtype = ANY(${[
+        ...rawSubtypesFor('payroll_expense'),
+        'uif', 'medical_aid', 'provident_fund', 'leave_pay', 'bonuses',
+      ]}::TEXT[])
       AND gje.entry_date BETWEEN ${start} AND ${end}
       AND gje.status = 'posted'
     GROUP BY ga.account_subtype
