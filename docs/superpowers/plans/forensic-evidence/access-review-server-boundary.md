@@ -8,10 +8,12 @@ source inventory at 43bd03477:access-review-fileplan.md. Not runtime proof.
 Use a private metadata-only server reader, not a SQL function callable by
 app_user. The exported reader takes an issued ControlTx and rechecks current
 read:access through the existing permission engine before acquiring a separate
-auth-pool client. Those current principal/grant/override locks remain held by
+bounded private metadata-pool client. Those current principal/grant/override locks remain held by
 the original transaction. No reviewed subject receives an executable context.
 
-The private client runs a read-only transaction with row_security=off: a role
+A separate two-client pool prevents auth-pool exhaustion: cookie requests already
+hold an auth client, so waiting for a second from the same saturated pool is
+unsafe. The private client runs a read-only transaction with row_security=off: a role
 whose reads would be filtered must fail instead of reporting an incomplete
 tenant census. This requires the application's existing privileged server DB
 login; it grants no new table privileges. Query text is built with the existing
@@ -59,3 +61,18 @@ table name, role or principal is accepted. Always rollback/release on failure.
 Each source change needs focused tests, actual relevant PG, static checks and
 independent named review before integration. This plan resolves an architectural
 decision; tenant-wide access review is not implemented or verified yet.
+
+Independent plan review: invoice identified shared-auth-pool saturation risk.
+Use separate max-two pool, five-second acquisition, ten-second query deadline;
+SQL bounds scope and per-subject override sizes, and failed rollback destroys
+the client. Actual restricted-role and concurrent saturation tests are required.
+
+Implementation verification checkpoint: missing-module REDs for policy/input/metadata/service;
+actual rollback-destruction RED then corrected,11 focused unit cases pass. Real PG
+12432 first failed synthetic OAuth fixture UUID/text parameter inference, five cases
+skipped (not product RED); corrected explicit UUID-to-text casts. Actual71275 all
+five PG cases passed in1.21s: hidden-other-person OAuth, independent PAT traversal,
+current review denial, orphan membership, restricted-role failclosed, four concurrent
+reviews while both auth-pool clients held. All pools closed. Full source/dedicated
+test TS and full-rule scoped lint27913 terminal0. Independent named source review
+and MCP adapter/default-registry HTTP remain pending; not integrated or production proof.

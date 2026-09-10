@@ -10,8 +10,8 @@ let f:Awaited<ReturnType<typeof transferControlFixture>>,ownGrant:string,foreign
 beforeAll(async()=>{
  process.env.DATABASE_URL=validateFixtureTarget(fixtureConfigFromEnv(process.env)).connectionString;process.env.DATABASE_SSL='disable';process.env.AUTH_POOL_MAX='2';
  f=await transferControlFixture();const app=randomUUID();ownGrant=randomUUID();foreignGrant=randomUUID();
- await f.pool.query("INSERT INTO oauth_apps(id,name,redirect_uris,client_id,client_secret_hash,client_secret_prefix,owner_user_id) VALUES($1,'Synthetic metadata',ARRAY['http://localhost/callback'],$1::text,'synthetic-private-hash','synthetic-private-prefix',$2)",[app,f.f.u2.id]);
- for(const [id,user] of [[ownGrant,f.f.u2],[foreignGrant,f.f.u3]] as const)await f.pool.query("INSERT INTO oauth_authorisations(id,oauth_app_id,user_id,company_id,scopes,access_token_hash,access_token_prefix,access_token_expires_at,refresh_token_hash,refresh_token_prefix,refresh_token_expires_at) VALUES($1,$2,$3,$4,ARRAY['read:reports'],'synthetic-private-access-hash','synthetic-private-access-prefix',now()-interval '1 day',$1::text,'synthetic-private-refresh-prefix',now()+interval '1 day')",[id,app,user.id,user.companyId]);
+ await f.pool.query("INSERT INTO oauth_apps(id,name,redirect_uris,client_id,client_secret_hash,client_secret_prefix,owner_user_id) VALUES($1,'Synthetic metadata',ARRAY['http://localhost/callback'],$1::uuid::text,'synthetic-private-hash','synthetic-private-prefix',$2)",[app,f.f.u2.id]);
+ for(const [id,user] of [[ownGrant,f.f.u2],[foreignGrant,f.f.u3]] as const)await f.pool.query("INSERT INTO oauth_authorisations(id,oauth_app_id,user_id,company_id,scopes,access_token_hash,access_token_prefix,access_token_expires_at,refresh_token_hash,refresh_token_prefix,refresh_token_expires_at) VALUES($1,$2,$3,$4,ARRAY['read:reports'],'synthetic-private-access-hash','synthetic-private-access-prefix',now()-interval '1 day',$1::uuid::text,'synthetic-private-refresh-prefix',now()+interval '1 day')",[id,app,user.id,user.companyId]);
 },30000);
 afterAll(async()=>{const results=await Promise.allSettled([f?.close(),closeAccessReviewPool(),getAuthPool().end()]);const failed=results.filter((r):r is PromiseRejectedResult=>r.status==='rejected');if(failed.length)throw new AggregateError(failed.map(r=>r.reason),'Access review fixture cleanup failed');});
 it('includes another person’s OAuth grant hidden by owner RLS with exact owned census and no secrets',async()=>{
@@ -20,7 +20,7 @@ it('includes another person’s OAuth grant hidden by owner RLS with exact owned
  expect(result.populationTotal).toBe(1);expect(result.items).toHaveLength(1);expect(result.items[0]).toMatchObject({id:ownGrant,personId:f.f.u2.id,permissions:[],refreshEligible:true});expect(result.nextCursor).toBeNull();
  const text=JSON.stringify(result);expect(text).not.toContain(foreignGrant);expect(text).not.toMatch(/synthetic-private|token_hash|token_prefix|last_used_ip/);
 });
-it('paginates the independent PAT census and refuses foreign cursor and current permission loss',async()=>{
+it('paginates the independent PAT census and refuses current permission loss',async()=>{
  const expected=Number((await f.pool.query('SELECT count(*) FROM personal_access_tokens WHERE company_id=$1',[f.f.companyA])).rows[0].count);
  const ids:string[]=[];let cursor:string|null=null;
  do{const page=await f.actor(ctx=>reviewAccessControl(ctx,{kind:'pat',limit:1,...cursor?{cursor}:{}}));expect(page.populationTotal).toBe(expected);ids.push(...page.items.map(row=>row.id));cursor=page.nextCursor;}while(cursor);
