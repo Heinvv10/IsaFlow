@@ -11427,6 +11427,39 @@
       "severity": "low",
       "source": "Measured by the R-059 round-7 blind reviewer on the schema fixture; pre-existing on master.",
       "processNotes": "Route the population through shared/documentPopulation.documentInPopulationExpr (R-059) instead of a hand-written status list."
+    },
+    {
+      "id": "R-087",
+      "claim": "",
+      "area": "accounting/ap",
+      "affectedPaths": [
+        "src/modules/accounting/services/ap"
+      ],
+      "sourceLabel": "",
+      "sourceIds": [],
+      "correctedTrigger": "",
+      "severityRationale": "The only thing stopping a reconciliation with an unexplained difference is the UI's canReconcile flag; an API caller (or an MCP tool, if one is added) can mark it reconciled regardless. A reconciled statement is what an auditor relies on, so a false one hides a real supplier balance difference.",
+      "auditedSha": "",
+      "currentSha": "",
+      "status": "confirmed",
+      "dependencies": [
+        "R-059"
+      ],
+      "testNames": [],
+      "evidencePaths": [
+        "docs/audits/remediation/R-059/fix.md"
+      ],
+      "fixCommit": null,
+      "pr": null,
+      "deployedSha": null,
+      "historicalDataImpact": "Unknown; production not measured. Count supplier statements marked reconciled whose recomputed variance is non-zero.",
+      "canonicalItem": null,
+      "reportedSeverity": "",
+      "branch": null,
+      "title": "Supplier statement mark-reconciled has no server-side gate: the service marks a statement reconciled while it still carries a variance",
+      "severity": "medium",
+      "source": "Measured by the R-059 round-8 blind reviewer: the service marked a statement with a variance of 300 as reconciled. Pre-existing on master.",
+      "processNotes": "Fix: the mark-reconciled service recomputes the variance under the same rules as the UI and refuses a non-zero one (a 4xx before any write), with a test through the real route."
     }
   ],
   "sourceInventory": [
