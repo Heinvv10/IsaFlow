@@ -196,10 +196,10 @@ export async function executeControlledOperation<T>(ctx: ControlTx, input: Opera
     const row = await lockPolicyThenApproval(ctx, ref, approvalId, authorities);
     const operationId = row?.operation_id ?? ctx.principal.operationId;
     // Defence in depth: every writer canonicalizes entity_id, so no duplicate differing only by
-    // case should exist. If one ever did, lower(entity_id) matches both — refuse, never pick one.
+    // case should exist. If one ever did, entity_id_canonical matches both — refuse, never pick one.
     const committedRows = await ctx.sql`
       SELECT id,result FROM control_operation_effects WHERE company_id=${ctx.principal.companyId}::uuid
-        AND operation=${ref.operation} AND entity_type=${ref.entityType} AND lower(entity_id)=${ref.entityId}
+        AND operation=${ref.operation} AND entity_type=${ref.entityType} AND entity_id_canonical=${ref.entityId}
         AND operation_id=${operationId}::uuid LIMIT 2
     ` as Array<{ id: string; result: T }>;
     if (committedRows.length > 1) throw new Error('Committed operation effect is ambiguous');
@@ -213,7 +213,7 @@ export async function executeControlledOperation<T>(ctx: ControlTx, input: Opera
     if (row) await markSuppliedApprovalFailure(async () => assertApprovalExecutable(row, material.bindingHash));
     const prior = await ctx.sql`
       SELECT id FROM control_operation_effects WHERE company_id=${ctx.principal.companyId}::uuid
-        AND operation=${ref.operation} AND entity_type=${ref.entityType} AND lower(entity_id)=${ref.entityId}
+        AND operation=${ref.operation} AND entity_type=${ref.entityType} AND entity_id_canonical=${ref.entityId}
         AND binding_hash=${material.bindingHash}
     `;
     if (prior.length) throw new Error('Operation effect already committed');

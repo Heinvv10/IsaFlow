@@ -37,12 +37,12 @@ export async function queryUnappliedCashHistory(companyId:string,kind:'customer'
    FROM control_change_events e JOIN LATERAL(SELECT f.committed_at FROM control_operation_effects f
     WHERE f.company_id=e.company_id AND f.operation_id=e.operation_id AND (
      (e.action=${kind}||'_payment.'||CASE WHEN ${kind}='customer' THEN 'cancel' ELSE 'void' END
-       AND f.operation=e.action AND lower(f.entity_id)=p.id::text AND f.entity_type=e.entity_type AND f.binding_hash=e.binding_hash)
+       AND f.operation=e.action AND f.entity_id_canonical=p.id::text AND f.entity_type=e.entity_type AND f.binding_hash=e.binding_hash)
      OR (e.action='bank_allocation.payment_cancelled' AND f.operation='bank_allocation.reverse'
        AND f.result->>'originalJournalEntryId'=je.id::text))
     -- Twin receipts of one operation are one cancellation.
     ORDER BY f.committed_at,f.id LIMIT 1) f ON true
-   WHERE e.company_id=p.company_id AND e.entity_type=${kind}||'_payment' AND lower(e.entity_id)=p.id::text
+   WHERE e.company_id=p.company_id AND e.entity_type=${kind}||'_payment' AND e.entity_id_canonical=p.id::text
     AND e.accounting_date IS NOT NULL),'[]'::jsonb) AS cancellations,
   COALESCE((SELECT jsonb_agg(jsonb_build_object('amount',a.amount_allocated::text,'createdAt',a.created_at,
     'applicationId',a.application_intent_id,'applicationDate',app.accounting_date,'applicationCreatedAt',app.created_at,

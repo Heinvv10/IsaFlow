@@ -22,7 +22,7 @@ export async function withGlAccountChanges<T>(companyId:string,selection:GlAccou
   if(owned.codes?.some(code=>!before.some(row=>row.account_code===code)))await assertEffectivePermission(ctx,'write:accounts');
   if(owned.ids?.some(id=>!before.some(row=>row.id===id))||(owned.descendantsOf&&!before.some(row=>row.id===owned.descendantsOf)))throw new Error('Account not found');
   const versions=before.length?await ctx.sql`SELECT entity_id,version FROM control_entity_versions WHERE company_id=${companyId}::uuid
-   AND entity_type='gl_account' AND lower(entity_id)=ANY(${before.map(row=>row.id.toLowerCase())}::text[]) ORDER BY entity_id FOR UPDATE` as {entity_id:string;version:number|string}[]:[];
+   AND entity_type='gl_account' AND entity_id_canonical=ANY(${before.map(row=>row.id.toLowerCase())}::text[]) ORDER BY entity_id FOR UPDATE` as {entity_id:string;version:number|string}[]:[];
   const result=await mutate(before);
   const after=await readGlChangeRows(ctx,{ids:before.map(row=>row.id),codes:owned.codes??[]});
   if(before.some(row=>!after.some(next=>next.id===row.id))||owned.codes?.some(code=>!after.some(row=>row.account_code===code)))throw new Error('Expected GL mutation was not retained');

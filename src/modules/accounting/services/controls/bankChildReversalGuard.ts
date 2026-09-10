@@ -37,7 +37,7 @@ export async function assertBankPaymentInverseIdentity(ctx:ControlTx,kind:'custo
    AND id=${paymentId}::uuid AND gl_journal_entry_id=${journalId}::uuid FOR SHARE`;
  const receipts=await ctx.sql`SELECT e.id FROM control_bank_allocation_intents i
   JOIN control_operation_effects e ON e.company_id=i.company_id AND e.entity_type='bank_allocation_intent'
-   AND lower(e.entity_id)=i.id::text AND e.operation='bank_allocation.post'
+   AND e.entity_id_canonical=i.id::text AND e.operation='bank_allocation.post'
   JOIN bank_transactions b ON b.company_id=i.company_id AND b.id=i.bank_transaction_id
   JOIN gl_journal_lines l ON l.company_id=b.company_id AND l.id=b.matched_journal_line_id
   JOIN gl_journal_entries j ON j.company_id=l.company_id AND j.id=l.journal_entry_id

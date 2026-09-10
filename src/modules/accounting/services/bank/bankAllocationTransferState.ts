@@ -35,7 +35,7 @@ export async function loadBankTransferState(ctx:ControlTx,input:BankTransferPlan
  let originalIdentity:Row|undefined;
  if(plan.transfer.mode==='link'){
   const identities=await ctx.sql`SELECT i.bank_transaction_id,e.result->>'journalEntryId' AS journal_id FROM control_bank_allocation_intents i
-   JOIN control_operation_effects e ON e.company_id=i.company_id AND lower(e.entity_id)=i.id::text AND e.entity_type='bank_allocation_intent' AND e.operation='bank_allocation.post'
+   JOIN control_operation_effects e ON e.company_id=i.company_id AND e.entity_id_canonical=i.id::text AND e.entity_type='bank_allocation_intent' AND e.operation='bank_allocation.post'
    WHERE i.company_id=${company}::uuid AND i.id=${plan.transfer.originalIntentId}::uuid LIMIT 2` as Row[];
   if(identities.length!==1)throw new Error('Saved transfer original receipt unavailable');originalIdentity=identities[0]!;
  }

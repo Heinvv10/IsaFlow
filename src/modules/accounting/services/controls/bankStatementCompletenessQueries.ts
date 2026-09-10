@@ -16,10 +16,10 @@ export async function loadBankStatementCompleteness(ctx:ControlTx,cutoff:string|
     AND decision.person_id<>i.requester_person_id) AS review_valid
   FROM control_bank_statement_attestation_intents i
   JOIN LATERAL(SELECT fx.*,array_agg(fx.id::text) OVER() AS receipt_ids FROM control_operation_effects fx WHERE fx.company_id=i.company_id AND fx.entity_type='bank_statement_attestation_intent'
-   AND lower(fx.entity_id)=i.id::text AND fx.operation='bank_statement.attest'
+   AND fx.entity_id_canonical=i.id::text AND fx.operation='bank_statement.attest'
    ORDER BY EXISTS(SELECT 1 FROM control_operation_approvals ap WHERE ap.company_id=fx.company_id AND ap.consumed_effect_id=fx.id AND ap.status='consumed') DESC,(fx.entity_id=i.id::text) DESC,fx.committed_at,fx.id LIMIT 1) e ON true
   LEFT JOIN control_operation_approvals a ON a.company_id=i.company_id AND a.consumed_effect_id=e.id AND a.status='consumed'
-   AND a.operation_id=e.operation_id AND a.entity_type=e.entity_type AND lower(a.entity_id)=lower(e.entity_id) AND a.operation=e.operation
+   AND a.operation_id=e.operation_id AND a.entity_type=e.entity_type AND a.entity_id_canonical=e.entity_id_canonical AND a.operation=e.operation
    AND a.requester_person_id=i.requester_person_id
   WHERE i.company_id=${ctx.principal.companyId}::uuid AND (${cutoff}::date IS NULL OR i.period_end<=${cutoff}::date)
  ),roots AS(
@@ -65,7 +65,7 @@ export async function loadBankStatementCompleteness(ctx:ControlTx,cutoff:string|
  FROM roots r JOIN companies c ON c.id=${ctx.principal.companyId}::uuid
  LEFT JOIN gl_accounts a ON a.company_id=c.id AND a.id=r.bank_account_id AND a.account_subtype='bank'
  LEFT JOIN captured_documents d ON d.company_id=c.id AND d.id=r.source_document_id
- LEFT JOIN LATERAL(SELECT cv.* FROM control_entity_versions cv WHERE cv.company_id=c.id AND cv.entity_type=r.entity_type AND lower(cv.entity_id)=r.id::text ORDER BY cv.version DESC,(cv.entity_id=r.id::text) DESC,cv.entity_id COLLATE "C" LIMIT 1) v ON true
+ LEFT JOIN LATERAL(SELECT cv.* FROM control_entity_versions cv WHERE cv.company_id=c.id AND cv.entity_type=r.entity_type AND cv.entity_id_canonical=r.id::text ORDER BY cv.version DESC,(cv.entity_id=r.id::text) DESC,cv.entity_id COLLATE "C" LIMIT 1) v ON true
  ORDER BY r.id LIMIT 10001` as (BankStatementSource&{bank_account_id:string;source_document_id:string;source_fingerprint:string;expected_source_hash:string;
   review_currency:string;review_result:StatementReviewProof['result'];review_valid:boolean;account_type:string|null;account_subtype:string|null;
   is_active:boolean|null;document_status:string|null;uncoveredCount:string;uncoveredFingerprint:string;receipt_ids?:string[]|null})[];

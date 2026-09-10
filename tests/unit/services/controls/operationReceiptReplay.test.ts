@@ -34,7 +34,7 @@ it('joins only an approval that consumed this effect or shares its operation and
  const query=(mocks.sql.mock.calls.at(-1)![0] as string[]).join('?').replace(/\s+/g,' ');
  // Approval entity ids are canonical today; the comparison stays case-insensitive so a
  // non-canonical row cannot slip past the arm that catches an erased consumed link.
- expect(query).toContain('(a.consumed_effect_id=e.id OR (a.operation_id=e.operation_id AND a.operation=e.operation AND a.entity_type=e.entity_type AND lower(a.entity_id)=lower(e.entity_id)))');
+ expect(query).toContain('(a.consumed_effect_id=e.id OR (a.operation_id=e.operation_id AND a.operation=e.operation AND a.entity_type=e.entity_type AND a.entity_id_canonical=e.entity_id_canonical))');
 });
 
 it('stops before effect SQL when current caller permission has been revoked',async()=>{

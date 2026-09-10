@@ -21,7 +21,7 @@ export async function readPayrollPostingReceipt(ctx:ControlTx,inputRunId:string)
   if(!journal || journal.status!=='posted' || journal.reversed_at)throw new Error('Payroll posting receipt state is inconsistent');
   // Legacy receipts may carry a non-canonical entity_id; a case-only duplicate is ambiguous, never picked.
   const effects=await ctx.sql`SELECT id,result FROM control_operation_effects WHERE company_id=${company}::uuid
-    AND entity_type='payroll_run' AND lower(entity_id)=${runId} AND operation='payroll_run.post'
+    AND entity_type='payroll_run' AND entity_id_canonical=${runId} AND operation='payroll_run.post'
     AND result->>'journalEntryId'=${run.journal_entry_id} LIMIT 2` as {id:string;result:PayrollPostResult}[];
   if(effects.length>1)throw new Error('Ambiguous payroll posting receipt');
   const effect=effects[0],receiptRunId=effect?.result?.run?.id;

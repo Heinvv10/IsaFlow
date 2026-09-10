@@ -31,7 +31,7 @@ export async function readControlEntityVersion(ctx: ControlTx, ref: EntityRef): 
   // wins when it was retained; otherwise the single retained spelling is the lineage, and two are ambiguous.
   const rows = (await ctx.sql`SELECT entity_id,version,material_hash FROM control_entity_versions
     WHERE company_id=${ctx.principal.companyId}::uuid AND entity_type=${ref.entityType}
-      AND lower(entity_id)=lower(${ref.entityId}) ORDER BY version DESC,(entity_id=lower(${ref.entityId})) DESC,entity_id LIMIT 2`) as
+      AND entity_id_canonical=lower(${ref.entityId}) ORDER BY version DESC,(entity_id=lower(${ref.entityId})) DESC,entity_id LIMIT 2`) as
     { entity_id: string; version: string | number; material_hash: string }[];
   const row = retainedLineage(rows, ref.entityId);
   if (!row) return null;

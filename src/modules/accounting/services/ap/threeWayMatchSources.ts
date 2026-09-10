@@ -19,7 +19,7 @@ export async function readThreeWayMatchSources(ctx:ControlTx,cutoff:string|null,
  LEFT JOIN po_items pi ON pi.purchase_order_id=p.id AND pi.id=l.po_item_id
  LEFT JOIN supplier_purchase_orders sp ON sp.company_id=i.company_id AND sp.id=i.purchase_order_id AND sp.supplier_id=i.supplier_id
  LEFT JOIN supplier_purchase_order_items spi ON spi.purchase_order_id=sp.id AND spi.id=l.po_item_id
- LEFT JOIN LATERAL(SELECT cv.* FROM control_entity_versions cv WHERE cv.company_id=i.company_id AND cv.entity_type='supplier_invoice' AND lower(cv.entity_id)=i.id::text ORDER BY cv.version DESC,(cv.entity_id=i.id::text) DESC,cv.entity_id COLLATE "C" LIMIT 1) v ON true
+ LEFT JOIN LATERAL(SELECT cv.* FROM control_entity_versions cv WHERE cv.company_id=i.company_id AND cv.entity_type='supplier_invoice' AND cv.entity_id_canonical=i.id::text ORDER BY cv.version DESC,(cv.entity_id=i.id::text) DESC,cv.entity_id COLLATE "C" LIMIT 1) v ON true
  LEFT JOIN LATERAL (SELECT jsonb_agg(x.facts ORDER BY x.id) AS bills FROM (
   SELECT bl.id,jsonb_build_object('id',bl.id,'invoiceId',bi.id,'quantity',bl.quantity::text,
    'unitPrice',bl.unit_price::text,'date',bi.invoice_date::text,'status',bi.status) AS facts
