@@ -1,7 +1,7 @@
 import {createCipheriv,createDecipheriv,createHash,createHmac,pbkdf2Sync,randomBytes,timingSafeEqual} from 'node:crypto';
 import {canonicalJson} from './canonical';
 import type {SnapshotIndexEnvelope} from './auditSnapshotIndexContract';
-export type IndexDomain='header'|'item'|'chunk'|'export-header'|'export-file'|'export-chunk'|'comparison-source-header'|'comparison-source-item';
+export type IndexDomain='header'|'item'|'chunk'|'export-header'|'export-file'|'export-chunk'|'comparison-source-header'|'comparison-source-item'|'comparison-result-header'|'comparison-result-item';
 let cached:{secret:string;key:Buffer}|undefined;
 export const indexHash=(value:string|Uint8Array)=>createHash('sha256').update(value).digest('hex');
 function detachEnvelope(input:SnapshotIndexEnvelope):SnapshotIndexEnvelope{
