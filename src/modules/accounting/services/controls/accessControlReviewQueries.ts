@@ -5,15 +5,15 @@ export function accessReviewQuery(company:string,input:AccessReviewInput){
  return sql`WITH population AS MATERIALIZED (
   SELECT cu.user_id::text AS id,cu.user_id,'membership'::text AS kind,NULL::text[] AS scopes,
    cu.created_at,NULL::timestamptz AS last_used_at,NULL::timestamptz AS revoked_at,
-   NULL::timestamptz AS access_expires_at,NULL::timestamptz AS refresh_expires_at,false AS scopes_oversized
+   NULL::timestamptz AS access_expires_at,NULL::timestamptz AS refresh_expires_at,false AS scopes_oversized,NULL::boolean AS oauth_app_active
    FROM company_users cu WHERE cu.company_id=${company}::uuid AND ${input.kind}='membership'
   UNION ALL
   SELECT p.id::text,p.user_id,'pat',CASE WHEN pg_column_size(p.scopes)<=8192 THEN p.scopes ELSE NULL END,
-   p.created_at,p.last_used_at,p.revoked_at,p.expires_at,NULL::timestamptz,pg_column_size(p.scopes)>8192
+   p.created_at,p.last_used_at,p.revoked_at,p.expires_at,NULL::timestamptz,pg_column_size(p.scopes)>8192,NULL::boolean
    FROM personal_access_tokens p WHERE p.company_id=${company}::uuid AND ${input.kind}='pat'
   UNION ALL
   SELECT a.id::text,a.user_id,'oauth',CASE WHEN pg_column_size(a.scopes)<=8192 THEN a.scopes ELSE NULL END,
-   a.created_at,a.last_used_at,a.revoked_at,a.access_token_expires_at,a.refresh_token_expires_at,pg_column_size(a.scopes)>8192
+   a.created_at,a.last_used_at,a.revoked_at,a.access_token_expires_at,a.refresh_token_expires_at,pg_column_size(a.scopes)>8192,EXISTS(SELECT 1 FROM oauth_apps app WHERE app.id=a.oauth_app_id AND app.revoked_at IS NULL)
    FROM oauth_authorisations a WHERE a.company_id=${company}::uuid AND ${input.kind}='oauth'
  ), page AS (
   SELECT * FROM population WHERE (${input.after}::text IS NULL OR id COLLATE "C">${input.after}::text COLLATE "C")
@@ -23,7 +23,7 @@ export function accessReviewQuery(company:string,input:AccessReviewInput){
   CASE WHEN p.id IS NULL THEN NULL ELSE jsonb_build_object(
    'id',p.id,'personId',p.user_id,'kind',p.kind,'role',cu.role,
    'profile',CASE WHEN u.id IS NULL THEN NULL ELSE jsonb_build_object('is_active',u.is_active,'status',u.status,'suspended_at',u.suspended_at) END,
-   'scopes',p.scopes,'createdAt',p.created_at,'lastUsedAt',p.last_used_at,'revokedAt',p.revoked_at,
+   'scopes',p.scopes,'oauthAppActive',p.oauth_app_active,'createdAt',p.created_at,'lastUsedAt',p.last_used_at,'revokedAt',p.revoked_at,
    'accessExpiresAt',p.access_expires_at,'refreshExpiresAt',p.refresh_expires_at,'overrides',COALESCE(o.items,'[]'::jsonb)) END AS subject,
   COALESCE(p.scopes_oversized,false) OR COALESCE(o.oversized,false) AS oversized
  FROM census LEFT JOIN page p ON true

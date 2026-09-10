@@ -3,7 +3,7 @@ import type {ModulePermission} from '@/lib/auth/permissionService';
 import {isActiveUserAccount,type UserAccountRow} from '@/lib/auth/userAccountStatus';
 export interface AccessSubject {
  id:string;personId:string;kind:'membership'|'pat'|'oauth';role:string|null;profile:UserAccountRow|null;
- scopes:string[]|null;overrides:ModulePermission[];createdAt:Date|string;lastUsedAt:Date|string|null;
+ oauthAppActive:boolean|null;scopes:string[]|null;overrides:ModulePermission[];createdAt:Date|string;lastUsedAt:Date|string|null;
  revokedAt:Date|string|null;accessExpiresAt:Date|string|null;refreshExpiresAt:Date|string|null;
 }
 const instant=(value:Date|string|null)=>value===null?null:new Date(value).toISOString();
@@ -19,6 +19,7 @@ export function reviewAccessSubject(row:AccessSubject,evaluatedAt:string,dormant
   if(expires===null||Date.parse(expires)<=now)standingReasons.push('access_expired');
   if(!Array.isArray(row.scopes)||row.scopes.some(scope=>typeof scope!=='string'))throw new Error('Invalid stored grant scopes');
  }
+ if(row.kind==='oauth'&&row.oauthAppActive!==true)findings.push('oauth_app_revoked_or_missing');
  const modules=row.overrides.map(value=>value.moduleKey);
  if(new Set(modules).size!==modules.length)findings.push('duplicate_module_override');
  if(row.overrides.some(value=>value.restrictions===null||typeof value.restrictions!=='object'||Array.isArray(value.restrictions)))findings.push('malformed_module_constraints');
@@ -34,6 +35,7 @@ export function reviewAccessSubject(row:AccessSubject,evaluatedAt:string,dormant
  return{id:row.id,personId:row.personId,kind:row.kind,role:row.role,
   authorityBasis:row.kind==='membership'?'cookie_potential':'stored_grant_current_access',permissions,denied,standingReasons,
   storedScopes:scopes===null?null:[...new Set(scopes)].sort(),findings:findings.sort(),
-  refreshEligible:row.kind==='oauth'&&refresh!==null&&Date.parse(refresh)>now&&revoked===null&&standingReasons.every(reason=>reason==='access_expired'),
+  oauthAppActive:row.kind==='oauth'?row.oauthAppActive:null,
+  refreshEligible:row.kind==='oauth'&&row.oauthAppActive===true&&refresh!==null&&Date.parse(refresh)>now&&revoked===null&&standingReasons.every(reason=>reason==='access_expired'),
   createdAt,lastUsedAt,revokedAt:revoked,accessExpiresAt:expires,refreshExpiresAt:refresh,dormancy};
 }

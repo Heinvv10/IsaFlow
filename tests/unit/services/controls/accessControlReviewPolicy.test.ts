@@ -2,7 +2,7 @@ import {expect,it} from 'vitest';
 import {reviewAccessSubject,type AccessSubject} from '@/modules/accounting/services/controls/accessControlReviewPolicy';
 import type {ModulePermission} from '@/lib/auth/permissionService';
 const now='2026-09-10T01:00:00.000Z';
-const subject=(patch:Partial<AccessSubject>={}):AccessSubject=>({id:'subject',personId:'person',kind:'membership',role:'owner',profile:{is_active:true,status:'active',suspended_at:null},scopes:null,overrides:[],createdAt:'2025-01-01T00:00:00Z',lastUsedAt:null,revokedAt:null,accessExpiresAt:null,refreshExpiresAt:null,...patch});
+const subject=(patch:Partial<AccessSubject>={}):AccessSubject=>({id:'subject',personId:'person',kind:'membership',oauthAppActive:true,role:'owner',profile:{is_active:true,status:'active',suspended_at:null},scopes:null,overrides:[],createdAt:'2025-01-01T00:00:00Z',lastUsedAt:null,revokedAt:null,accessExpiresAt:null,refreshExpiresAt:null,...patch});
 const override=(patch:Partial<ModulePermission>={}):ModulePermission=>({moduleKey:'banking',moduleName:'banking',canRead:false,canWrite:false,canDelete:false,canExport:false,canApprove:false,accountRangeFrom:null,accountRangeTo:null,restrictions:{},...patch});
 it('uses current policy for owner denial and viewer ceiling without impersonating reviewed people',()=>{
  const owner=reviewAccessSubject(subject({overrides:[override()]}),now,90);
