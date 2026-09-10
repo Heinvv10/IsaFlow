@@ -21,6 +21,8 @@ import { assertDisposable } from './mfa-impersonation-postgres.helpers';
 
 /** Set to a company id to make that company's captured_documents INSERT fail. */
 let poisonEvidenceFor: string | null = null;
+/** Set to a company id to make that company's email_status UPDATE fail. */
+let poisonStatusFor: string | null = null;
 
 vi.mock('@/lib/neon', async (importOriginal) => {
   const original = await importOriginal<typeof import('@/lib/neon')>();
@@ -33,6 +35,14 @@ vi.mock('@/lib/neon', async (importOriginal) => {
     ) {
       poisonEvidenceFor = null;
       // A genuine server-side error on the transaction's own connection.
+      return original.sql`SELECT 1 / 0 AS boom`;
+    }
+    if (
+      poisonStatusFor &&
+      /UPDATE\s+dunning_sends\s+SET\s+email_status/.test(text) &&
+      values.includes(poisonStatusFor)
+    ) {
+      poisonStatusFor = null;
       return original.sql`SELECT 1 / 0 AS boom`;
     }
     return original.sql(strings, ...values);
@@ -56,13 +66,14 @@ const pool = new Pool({ connectionString: process.env.DATABASE_URL });
 const company = crypto.randomUUID(), user = crypto.randomUUID(), customer = crypto.randomUUID();
 const template = crypto.randomUUID();
 const disputed = crypto.randomUUID(), plain = crypto.randomUUID();
+const statusPoisoned = crypto.randomUUID();
 const dispute = crypto.randomUUID(), creditNote = crypto.randomUUID();
 
-async function makeInvoice(id: string, number: string) {
+async function makeInvoice(id: string, number: string, dueDate = '2026-01-31') {
   await pool.query(
     `INSERT INTO customer_invoices(id,company_id,invoice_number,customer_id,client_id,invoice_date,due_date,subtotal,tax_amount,total_amount,status,created_by)
-     VALUES($1,$2,$3,$4,$4,'2026-01-01','2026-01-31',1000,150,1150,'approved',$5)`,
-    [id, company, number, customer, user]);
+     VALUES($1,$2,$3,$4,$4,'2026-01-01',$6,1000,150,1150,'approved',$5)`,
+    [id, company, number, customer, user, dueDate]);
 }
 
 beforeAll(async () => {
@@ -72,6 +83,9 @@ beforeAll(async () => {
     [customer, company, 'K122d customer', 'k122d@test.local']);
   await makeInvoice(disputed, 'K122D-INV-1-DISPUTED');
   await makeInvoice(plain, 'K122D-INV-2-PLAIN');
+  // Not yet due, so the cron never picks it up and the two cron assertions
+  // above keep counting only INV-1/INV-2. This test drives sendDunning directly.
+  await makeInvoice(statusPoisoned, 'K122D-INV-3-STATUS', '2026-12-31');
   await pool.query(
     `INSERT INTO dunning_templates(id,company_id,name,days_overdue_min,subject_template,body_template)
      VALUES($1,$2,'K122d reminder',1,'Invoice {{invoice_number}} is overdue','Pay online at {{portal_link}}')`,
@@ -190,4 +204,48 @@ it('keeps the record of a delivered email when the evidence row fails', async ()
   expect(rows).toHaveLength(1);
   expect(rows[0].email_status).toBe('sent');
   expect(rows[0].source_document_id).toBeNull();
+});
+
+// Round-5 LOW-2: the email_status UPDATE is itself after the dispatch and can
+// itself fail. Unsavepointed, a PG error there propagated and took the whole
+// dunning_sends row with it — the customer keeps the email, the database
+// forgets it, and the cron's "no existing send" gate re-sends the same
+// escalation next run. That is the re-send the ordering above exists to
+// prevent, so the UPDATE gets its own savepoint: the row survives as 'pending'.
+it('keeps the send row when the email_status UPDATE itself fails', async () => {
+  const { als } = await import('../../src/lib/als');
+  const { sql } = await import('../../src/lib/neon');
+  const { sendDunning } = await import('../../src/modules/accounting/services/ar/dunningService');
+
+  poisonStatusFor = company;
+  const client = await pool.connect();
+  let afterRows: unknown[];
+  try {
+    await client.query('BEGIN');
+    afterRows = await als.run(
+      { client, userId: user, companyId: company, claims: {} },
+      async () => {
+        await sendDunning({
+          companyId: company, templateId: template, invoiceId: statusPoisoned, portalBaseUrl: PORTAL,
+        });
+        return (await sql`SELECT 1 AS still_alive`) as unknown[];
+      },
+    );
+    await client.query('COMMIT');
+    client.release();
+  } catch (err) {
+    client.release(true);
+    throw err;
+  }
+
+  // The transaction is still usable: the failure was rolled back to its own
+  // savepoint, not left to abort the connection with 25P02.
+  expect(afterRows).toHaveLength(1);
+
+  const { rows } = await pool.query(
+    `SELECT email_status FROM dunning_sends
+      WHERE company_id=$1 AND customer_invoice_id=$2`, [company, statusPoisoned]);
+  expect(rows).toHaveLength(1);
+  // 'pending' is an honest unknown — and enough for the re-send gate.
+  expect(rows[0].email_status).not.toBe('sent');
 });

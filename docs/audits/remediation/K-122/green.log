@@ -129,3 +129,41 @@ $ env -u DATABASE_URL bunx vitest run           # fixture env UNSET
 $ bunx tsc --noEmit                              # clean
 $ bunx eslint <14 changed src/pages files>       # clean
 $ bun run agent-docs:check                       # OK: 74 mirrors match
+
+════════════════════════════════════════════════════════════════════════════
+ROUND 6 — closing review-k122-r5.md (1 MEDIUM, 5 LOW)
+════════════════════════════════════════════════════════════════════════════
+
+Gates
+  bunx tsc --noEmit                                       clean (exit 0)
+  bunx eslint <5 changed src/pages files>                 clean (exit 0)
+  bun run agent-docs:check                                OK: 74 mirrors match
+  integration k122*/k123*/k124*/k125* --no-file-parallelism
+                                                          11 files / 47 tests, all pass
+  full unit suite, DATABASE_URL UNSET (env -u DATABASE_URL bunx vitest run)
+                                                          802 passed | 40 skipped (842 files)
+                                                          9626 passed | 243 skipped (9869 tests)
+
+Mutation proofs (production code mutated, test observed RED, code restored)
+  L-3  six route mutants, `err instanceof ArRequestError` -> `err instanceof Error`:
+         disputes/[id]/resolve.ts                         2 failed | 16 passed (18)  RED
+         disputes/[id]/withdraw.ts                        2 failed | 16 passed (18)  RED
+         disputes/index.ts                                2 failed | 16 passed (18)  RED
+         dunning/send.ts                                  2 failed | 16 passed (18)  RED
+         dunning/templates/[id]/preview.ts                2 failed | 16 passed (18)  RED
+         dunning/overrides/index.ts                       2 failed | 16 passed (18)  RED
+  L-1  setOverride throws bare Error again
+         tests/unit/services/ar/dunningOverridesService   1 failed | 7 passed (8)    RED
+  L-4  embedded select/from sanitiser rule deleted
+         tests/unit/services/ar/k127-...-sanitiser        4 failed | 38 passed (42)  RED
+  L-5b link-UPDATE fall-through restored (`if (linked[0]) Object.assign(...)`)
+         tests/unit/services/ar/disputeService            1 failed | 21 passed (22)  RED
+  L-2  withSavepoint('dunning_send_status') removed from the email_status UPDATE
+         tests/integration/k122d-...-durability           1 failed | 4 passed (5)    RED
+         ("error: division by zero" escapes and takes the dunning_sends row with it)
+
+  Restoration verified after each mutant: `git diff --stat` showed only the
+  intended round-6 changes.
+
+M-1 (fix.md's false historical-data claim) is a document correction; no test.
+No migration in this round — no prefix taken.

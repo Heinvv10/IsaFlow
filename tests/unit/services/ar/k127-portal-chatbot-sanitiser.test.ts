@@ -184,3 +184,34 @@ describe('K-127 round-5 review — the clause-free, snake_case-free residue', ()
     expect(sanitizeClientResponse(reply)).toBe(reply);
   });
 });
+
+describe('K-127 round-6 review — the same residue EMBEDDED in a sentence', () => {
+  // LOW-4 (round 5): the round-5 rule is anchored to the whole sentence, so a
+  // leaked query wrapped in prose still reached the customer verbatim. Both
+  // strings below were measured returning unchanged by the reviewer.
+  it.each([
+    'The result of select id from invoices is 5.',
+    'I ran select balance from acct and got R100.',
+    'Here you go: select total from arledger for you.',
+  ])('drops %j', (leaked) => {
+    expect(sanitizeClientResponse(leaked)).toBe(SANITIZED_FALLBACK);
+  });
+
+  // The embedded rule must not eat portal prose. An article or an adjective
+  // between select and from is two words, which the rule cannot match; the
+  // one-word forms are covered by the stop-word guards.
+  it.each([
+    'You may select one from the options shown.',
+    'Please select any from your outstanding invoices.',
+    'Pick the invoice you want and select it from the list.',
+    'Your outstanding balance is R1 200 and payment is due on Friday.',
+  ])('leaves %j untouched', (reply) => {
+    expect(sanitizeClientResponse(reply)).toBe(reply);
+  });
+
+  // Only the offending sentence goes; the useful half of the reply survives.
+  it('drops only the embedded-query sentence', () => {
+    const mixed = 'Your balance is R1 200. The result of select id from invoices is 5.';
+    expect(sanitizeClientResponse(mixed)).toBe('Your balance is R1 200.');
+  });
+});

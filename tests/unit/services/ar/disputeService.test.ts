@@ -483,6 +483,43 @@ describe('resolveDispute', () => {
     ).rejects.toThrow(/not open/i);
     expect(mockCreateCreditNote).not.toHaveBeenCalled();
   });
+
+  // Round-5 LOW-5(b): the link UPDATE used to fall through when it matched no
+  // row, returning a Dispute with creditNoteId null while the credit note
+  // existed — the exact half-state this item closes, and reported to the caller
+  // as a success. It must throw, and throw UNTYPED so withAuth answers 5xx and
+  // ROLLBACKs rather than committing a 4xx.
+  it('refuses, untyped, when the credit-note link UPDATE matches no row', async () => {
+    const openDispute = {
+      id: DISPUTE_ID,
+      company_id: COMPANY_ID,
+      customer_invoice_id: INVOICE_ID,
+      customer_invoice_line_id: null,
+      status: 'open',
+      disputed_amount: '1500.00',
+    };
+
+    mockSql
+      .mockResolvedValueOnce([openDispute])
+      .mockResolvedValueOnce([{ client_id: CLIENT_ID, subtotal: '10000.00', tax_amount: '1500.00' }])
+      .mockResolvedValueOnce([]); // the link UPDATE matched nothing
+
+    mockCreateCreditNote.mockResolvedValueOnce({
+      id: CREDIT_NOTE_ID,
+      creditNoteNumber: 'CN-001',
+      type: 'customer',
+      status: 'draft',
+    } as never);
+
+    const thrown = await resolveDispute(COMPANY_ID, DISPUTE_ID, USER_ID, {
+      mode: 'resolve_with_credit',
+      creditDate: '2026-04-23',
+    }).then(() => null, (e: unknown) => e);
+
+    expect(thrown).toBeInstanceOf(Error);
+    expect(thrown).not.toBeInstanceOf(ArRequestError);
+    expect(String((thrown as Error).message)).toMatch(/could not be linked/i);
+  });
 });
 
 describe('withdrawDispute', () => {

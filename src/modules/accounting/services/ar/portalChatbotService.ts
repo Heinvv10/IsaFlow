@@ -159,6 +159,13 @@ const SQL_SENTENCE_PATTERNS: RegExp[] = [
   // Without this the one shape that carries no star, no clause, no comma list
   // and no snake_case reached the customer verbatim.
   /^\s*select\s+[a-z_][a-z0-9_.]*(?:\s*,\s*[a-z_][a-z0-9_.]*)*\s+from\s+[a-z_][a-z0-9_.]*\s*[.;!?]?\s*$/i,
+  // `The result of select id from invoices is 5.` — the same bare select/from
+  // pair EMBEDDED in prose, which the anchored rule above cannot see. One
+  // identifier either side of FROM is SQL shape wherever it sits: prose puts an
+  // article or an adjective in between ("select the invoice from the list"), so
+  // it carries two or more words there and cannot match. The stop-word guards
+  // cover the one-word prose forms ("select one from the menu").
+  /\bselect\s+(?!(?:the|a|an|any|one|it|this|that|these|those|your|our|my|their|each|all|both|either|some)\b)[a-z_][a-z0-9_.]*\s+from\s+(?!(?:the|a|an|any|it|this|that|these|those|your|our|my|their|here|there|them|us|below|above)\b)[a-z_][a-z0-9_.]*\b/i,
   // Predicates and internal identifiers, which leak tenant ids on their own.
   // The WHERE rule requires a qualified or snake_case column: "your balance
   // where applicable = 0" is prose, `where ci.company_id = '…'` is not.

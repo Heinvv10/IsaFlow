@@ -134,12 +134,30 @@ export async function sendDunning(input: SendDunningInput): Promise<SendResult> 
   // savepoint, and a rollback there would erase the dunning_sends row while
   // the customer keeps the email — the cron's "no existing send for this
   // (invoice, template)" gate would then re-send the same escalation tomorrow.
-  await sql`
-    UPDATE dunning_sends
-    SET email_status = ${result.success ? 'sent' : 'failed'},
-        email_error  = ${result.success ? null : (result.error ?? 'unknown')}
-    WHERE id = ${sendId}::uuid AND company_id = ${input.companyId}::uuid
-  `;
+  //
+  // This UPDATE is itself after the dispatch and can itself fail, so it gets
+  // its own savepoint: unsavepointed, a PG error here would propagate and take
+  // the whole dunning_sends row down with it, which is the exact re-send the
+  // ordering above exists to prevent. Rolled back to its own savepoint the row
+  // survives with email_status still 'pending' — an honest unknown, and enough
+  // for the gate. That is the residual window: the send is recorded, its
+  // delivery status may not be.
+  try {
+    await withSavepoint('dunning_send_status', async () => {
+      await sql`
+        UPDATE dunning_sends
+        SET email_status = ${result.success ? 'sent' : 'failed'},
+            email_error  = ${result.success ? null : (result.error ?? 'unknown')}
+        WHERE id = ${sendId}::uuid AND company_id = ${input.companyId}::uuid
+      `;
+    });
+  } catch (err) {
+    log.warn('Dunning email_status update failed; the send row stands as pending', {
+      sendId,
+      invoiceId: input.invoiceId,
+      error: err instanceof Error ? err.message : String(err),
+    }, 'ar-dunning');
+  }
 
   // Seal a captured_documents row so every dunning send is a first-class
   // evidence row per PRD §4.6. Bytes-only — no storage upload, since the
