@@ -1,4 +1,5 @@
 import {createServer} from 'node:http';
+import {listenExceptionServer,rethrowAfterExceptionCleanup} from './exceptionHttpLifecycle';
 import {randomBytes} from 'node:crypto';
 import {SignJWT} from 'jose';
 import {apiResolver} from 'next/dist/server/api-utils/node/api-resolver';
@@ -25,7 +26,7 @@ export async function exceptionHttpFixture(){
   const mcp=(await import('../../../pages/api/mcp/index')).default,rest=(await import('../../../pages/api/accounting/control-exceptions')).default;
   server=createServer((req,res)=>{const url=new URL(req.url!,'http://127.0.0.1');void apiResolver(req,res,Object.fromEntries(url.searchParams),{default:url.pathname==='/api/mcp'?mcp:rest},
    {previewModeId:'synthetic',previewModeEncryptionKey:'synthetic',previewModeSigningKey:'synthetic'},true,false,url.pathname).catch(()=>{res.statusCode=500;res.end('Synthetic exception HTTP failure');});});
-  await new Promise<void>(resolve=>server!.listen(0,'127.0.0.1',resolve));const address=server.address();if(!address||typeof address==='string')throw new Error('Missing synthetic listener');
+  await listenExceptionServer(server);const address=server.address();if(!address||typeof address==='string')throw new Error('Missing synthetic listener');
   const origin=`http://127.0.0.1:${address.port}`,client=mcpHttpClient(origin);
   const rpc=(name:string,args:Record<string,unknown>,person:'u1'|'u2'|'u3'='u1',index=0)=>client.rpc(f.f[person].tokens[index]!.raw,'tools/call',{name,arguments:args});
   async function refusal(name:string,args:Record<string,unknown>,person:'u1'|'u2'|'u3'='u1',index=0){
@@ -40,5 +41,5 @@ export async function exceptionHttpFixture(){
    return{status:response.status,body:await response.json()};
   }
   return{...f,rpc,refusal,request,close};
- }catch(error){await close();throw error;}
+ }catch(error){return rethrowAfterExceptionCleanup(error,close);}
 }
