@@ -10837,10 +10837,10 @@
       "sourceLabel": "",
       "sourceIds": [],
       "correctedTrigger": "",
-      "severityRationale": "UNVERIFIED by the orchestrator — Under RLS as app_user the read is scoped and nothing leaks. On a path that runs as the connection superuser — the customer-portal routes are the known ones — it would take the maximum across all tenants, revealing another tenant's quote volume in a number and creating gaps in this tenant's sequence.",
+      "severityRationale": "CLOSED — fixed on master before this entry existed. Historically it derived company A's next quote number from whichever quote was newest ACROSS THE PLATFORM, leaking another tenant's numbering and silently re-issuing a number A had already used, since nothing enforced uniqueness.",
       "auditedSha": "",
       "currentSha": "",
-      "status": "confirmed",
+      "status": "fixed-on-master",
       "dependencies": [],
       "testNames": [],
       "evidencePaths": [
@@ -10849,14 +10849,14 @@
       "fixCommit": null,
       "pr": null,
       "deployedSha": null,
-      "historicalDataImpact": "None to data. Quote numbers may have gaps if a superuser path ever reached it; production not measured.",
+      "historicalDataImpact": "Quote numbers issued before K-107 may repeat within a company or follow another tenant's sequence. Migration 666 will refuse to apply where duplicates exist and names them. Production not measured.",
       "canonicalItem": null,
       "reportedSeverity": "",
       "branch": null,
       "title": "nextQuoteNumber reads customer_quotes with no company_id filter, so a superuser path numbers a quote from another tenant's sequence",
       "severity": "low",
-      "source": "Noted by the R-067 fixer, 2026-09-10. NOT independently verified: the orchestrator's search for the symbol on origin/master returned nothing, so the file and line are the fixer's, unconfirmed. Verify before acting.",
-      "processNotes": "`quoteService.ts` `nextQuoteNumber()` selects from `customer_quotes` without `company_id`. Every other numbering path in the repo scopes by company. Fix: add the predicate. Pre-existing and unrelated to R-067; not fixed there."
+      "source": "Noted by the R-067 fixer against its base `ec669170e`, 2026-09-10. CLOSED on evidence read from origin/master, not inference: `ar/quoteService.ts` states 'The quote number comes from the company's own quotation sequence' and describes the replaced code as the unscoped `SELECT quote_number FROM customer_quotes ORDER BY created_at DESC LIMIT 1`. Fixed by K-107's numbering work plus migration 666 (`uq_customer_quotes_company_number`).",
+      "processNotes": "`quoteService.ts` `nextQuoteNumber()` selects from `customer_quotes` without `company_id`. Every other numbering path in the repo scopes by company. Fix: add the predicate. Pre-existing and unrelated to R-067; not fixed there.\n\nCLOSED 2026-09-10 on evidence. Note for whoever owns K-060: master's quoteService accepts TWO constraint names — `uq_customer_quotes_company_number` (K-107, now on master) and `uq_customer_quotes_company_quote_number` (K-060's name for the same index). If both migrations reach a database, it gets two unique indexes on the same columns."
     }
   ],
   "sourceInventory": [
