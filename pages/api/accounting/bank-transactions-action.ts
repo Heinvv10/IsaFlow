@@ -14,6 +14,7 @@ import { log } from '@/lib/logger';
 import { sql } from '@/lib/neon';
 import { UUID } from '@/lib/schemas/common';
 import { assertCustomerInCompany } from '@/modules/accounting/services/core/contactDirectoryService';
+import { assertJournalAnalysisDimensions } from '@/modules/accounting/services/gl/journalCostCentreValidation';
 import {
   matchTransaction,
   unmatchTransaction,
@@ -164,6 +165,11 @@ async function handler(req: CompanyAuthedRequest, res: NextApiResponse) {
         return apiResponse.success(res, { saved: true });
       }
       case 'save_dimensions': {
+        await assertJournalAnalysisDimensions(companyId, [{
+          cc1Id: body.cc1Id,
+          cc2Id: body.cc2Id,
+          buId: body.buId,
+        }]);
         await sql`
           UPDATE bank_transactions
           SET cc1_id = ${body.cc1Id || null}::UUID,
