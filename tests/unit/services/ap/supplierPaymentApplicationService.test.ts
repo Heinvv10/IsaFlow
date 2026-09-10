@@ -279,6 +279,32 @@ describe('planSupplierPaymentApplication', () => {
     ).rejects.toThrow(/cancelled/i);
   });
 
+  // EVERY refusal the plan raises is the typed class and nothing else. The
+  // route classifies on it (`isSupplierPaymentRefusal`) and re-throws the rest,
+  // so a bare `Error` left here reaches the caller as a 500 — or, before that
+  // catch was narrowed, handed a driver's raw text to the user as a 400.
+  it.each([
+    ['no allocations', () => { lockMock.mockResolvedValue(paymentRow()); }, [] as const],
+    ['a payment not in this company', () => { lockMock.mockResolvedValue(null); }, undefined],
+    ['a cancelled payment', () => { lockMock.mockResolvedValue(paymentRow({ status: 'cancelled' })); }, undefined],
+    ['an unposted payment', () => { lockMock.mockResolvedValue(paymentRow({ status: 'draft' })); }, undefined],
+    ['an over-application', () => {
+      lockMock.mockResolvedValue(paymentRow({ allocated_amount: '900.00' }));
+      billRows([billRow(BILL_A)]);
+    }, undefined],
+  ])('raises %s as a typed SupplierPaymentRefusal, not a bare Error', async (_l, arrange, allocs) => {
+    arrange();
+    const allocations = allocs ?? [{ invoiceId: BILL_A, amount: 200 }];
+    const err = await planSupplierPaymentApplication(COMPANY, PAYMENT, allocations)
+      .then(() => null, (e: unknown) => e);
+
+    expect(err).toBeInstanceOf(Error);
+    expect((err as { code?: unknown }).code).toBe('SUPPLIER_PAYMENT_REFUSED');
+    // Contention is the ONLY retryable refusal; a books refusal must stay
+    // false, or the route would answer 409 and invite a retry that repeats it.
+    expect((err as { retryable?: unknown }).retryable).toBe(false);
+  });
+
   it('refuses when the allocations exceed the unapplied remainder', async () => {
     lockMock.mockResolvedValue(paymentRow({ allocated_amount: '900.00' }));
     billRows([billRow(BILL_A)]);
