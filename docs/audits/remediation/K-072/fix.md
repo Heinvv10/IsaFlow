@@ -655,3 +655,118 @@ written directly, because no route can build them now.
   is 277. The lifecycle gate was extracted to `captureLifecycleGate.ts` rather than pushing the
   route over the cap; splitting `expenseClaimService` is a refactor no finding named.
 - The supplier-invoice unique index and the hard-DELETE residual carry over from round 7 unchanged.
+
+---
+
+## Round 9 — R-060: the endorsement inverted the defect, and the minus sign was never read
+
+### HIGH-1 — `subtotal + VAT` may endorse only the BOTTOM figure
+
+`ocrAmountReconciliation.ts` `selectTotalAmount`. Round 8 replaced the section-total denylist
+with "the candidate the document's own arithmetic endorses, anywhere in the list". That rule
+under-refuses in the mirror direction, on the ordinary SA layout that prints a gratuity, a
+delivery fee or a rounding line BELOW the Sub Total / VAT / Total block:
+
+```
+Sub Total 200.00 / VAT 15% 30.00 / Total 230.00 / Gratuity 23.00 / Total Due 253.00
+```
+
+200 + 30 endorsed the INTERMEDIATE 230.00 **and suppressed the warning**, so the branch that
+was supposed to add evidence is precisely what converted a correct refusal into a silent wrong
+number. Measured end to end before the change (probe output,
+`<scratchpad>/agents/fix-k072g/out.txt`):
+
+| slip | total read | payable | warnings | autoPost |
+|---|---|---|---|---|
+| gratuity below the block | 230.00 | 253.00 | 0 | **true** |
+| delivery below the block | 230.00 | 287.50 | 0 | **true** |
+| rounding below the block | 230.00 | 230.05 | 0 | **true** |
+
+After (`out3.txt`): 253.00 / 287.50 / 230.05, two warnings each, `autoPost: false`.
+
+The rule is now `subtotal + VAT === last`. Because `last` is always in `distinct`, the
+"exactly one endorsed candidate" filter collapses to that one comparison.
+
+**Both directions proved.** The round-8 cases that must NOT regress into refusals are
+unchanged and still measured green in the same probe run: `Delivery Total 250 / Sub Total 1000
+/ VAT 150 / Total Due 1150` → 1150, no warning, `autoPost: true`; the ten unknown section
+nouns → 1150; the Tashas multi-section slip → 287.50 refused; the one-total-printed-twice and
+the plain single-total slips unchanged.
+
+**The cost, stated rather than hidden.** Where the endorsed figure IS the payable and something
+LARGER is printed under it (a cash-tendered line), the reader now refuses instead of getting it
+right by accident. That document is indistinguishable from the gratuity case by arithmetic, and
+by label only to a denylist — which is what this module abolished. On an unattended posting path
+the correct default for an ambiguous document is a person, so this is deliberate; it is pinned
+as an outcome by `refuses rather than guesses when the endorsed figure is not the bottom one`.
+No round-8 test covers that shape, so nothing regressed.
+
+### LOW-1 — a printed minus sign is read, and a negative total never auto-posts
+
+`AMOUNT` carried no sign and BOTH separators ate a hyphen unconditionally — the label separator
+`[:-]?` and the word separator `SEP` (`[\s._/-]*`), which sits between `Total` and its figure in
+`TOTAL_PATTERNS[0]`. Fixing only the first would have left the totals line reading `+115`.
+
+Measured before: `CREDIT NOTE / Sub Total -100.00 / VAT 15% -15.00 / Total -115.00` →
+`{100, 15, 115}`, `warnings: []`, `autoPost: true` — a refund read as a purchase, balanced, and
+inside the unattended gate. `detectDocumentType` answers `credit_note` on the same text, and
+nothing in the posting path consults it.
+
+- `AMOUNT` gains a capture-group-internal `-?`.
+- `SEP` and the new shared `VALUE_SEP` consume a hyphen only when a digit does NOT follow it
+  (`-(?!\d)`), so `Total - 115.00` and `Total -  115.00` stay positive and `Total -115.00`
+  reads the sign. A dash printed as a separator with no space after it is the one ambiguous
+  spelling and now reads negative — the safe way round, because the gate below refuses it.
+- `isPlausibleVatAmount` compares MAGNITUDE. Signed, `-15 <= -115` is false, so a credit note's
+  VAT line printed without cents would have been refused as a registration number and lost.
+- `shouldAutoPostReceipt` refuses `totalAmount <= 0`. `buildExpenseJournalFromReceipt` would
+  otherwise build a REVERSED expense entry from a negative total — balanced, negative debits,
+  a negative bank credit, unattended. A refund is a real accounting event and not this route's.
+
+Not fixed, and named: a parenthesised negative `Total (115.00)` is consumed by the
+qualifier group in `TOTAL_PATTERNS[0]` and comes back null (the document is refused, not
+mis-read). No finding names it and it is not a wrong-number class.
+
+### LOW-2 — the migration test no longer fails on a peer's rows
+
+`k072-draft-claim-release.int.test.ts`. Migration 672's duplicate check scans
+`gl_journal_entries` globally, as it must in production, and the fixture database is shared with
+six other worktrees — a peer's duplicate `auto_expense_receipt` pair would `RAISE EXCEPTION` and
+fail this branch's test for a reason that is not this branch's. Inside the SAME rolled-back
+transaction the test now stands OTHER companies' duplicate groups down to one live row each
+(`company_id <> $1`), leaving this company's rows exactly as the sequence built them. The
+`BEGIN … ROLLBACK` and the execution of the real migration file are unchanged, so M13's pinning
+of the backfill predicate is unaffected. The residual table locks the reviewer noted are
+inherent to executing the real file and are transaction-short.
+
+### Mutations, round 9 (file copies, restored and byte-compared identical)
+
+Suite: the seven k075/k076 unit files, 332 tests.
+
+| # | Mutation | Outcome |
+|---|---|---|
+| N1 | endorsement accepts a candidate anywhere (the round-8 rule) | RED (4) |
+| N2 | drop the endorsement entirely (`if (false)`) | RED (1) |
+| N3 | drop `-?` from `AMOUNT` | RED (2) |
+| N4 | `SEP` back to `[\s._/-]*` | RED (1) |
+| N5 | `VALUE_SEP` back to `[:-]?` | RED (1) |
+| N6 | drop the `totalAmount <= 0` gate | RED (2) |
+| N7 | `isPlausibleVatAmount` back to a signed comparison | RED (1) |
+
+| N8 | `extractVatAmount` ignores its arithmetic endorsement (after the move below) | RED (2) |
+
+N1 and N2 are the two directions of the same line: N1 is the over-trusting rule this round
+replaced, N2 the over-refusing one it must not become. All eight were re-run AFTER the move
+below, against the moved code, with fresh backups.
+
+### File-size cap
+
+`ocrAmountPatterns.ts` was already 312 lines at `421000e2f` — over the 300 cap, on this branch —
+and `VALUE_SEP` would have taken it to 329. `extractVatAmount` moved to `ocrAmountReconciliation.ts`:
+it cross-checks `subtotal + VAT === total`, which is document arithmetic, and the patterns file's own
+header says nothing in it knows what a document is. One production importer
+(`ocrExtractionService`), no direct test importer; the body is unchanged and N8 pins it in its new
+home. Now: patterns 283, reconciliation 235, parsing 90, extraction service 295.
+
+The LOW-2 change is test hygiene against a shared fixture and has no production line to mutate;
+its correctness is that the 7 integration files still pass 49 tests unchanged.

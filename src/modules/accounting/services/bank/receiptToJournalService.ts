@@ -235,6 +235,13 @@ export function buildExpenseJournalFromReceipt(
  * this gate is the unattended one, and it refuses what the reader could not
  * settle. Neither `totalAmount` nor `confidence` carries that fact — confidence
  * is computed from which FIELDS were found, not from whether they agree.
+ *
+ * A total of zero or less is refused outright. `ocrAmountParsing` now reads a
+ * printed minus sign, so a credit note ("Total -115.00") reaches here as a
+ * negative — and `buildExpenseJournalFromReceipt` would build a REVERSED
+ * expense entry from it, balanced, with negative debits and a negative bank
+ * credit, unattended. A refund is a real accounting event and not this route's:
+ * it goes to a person.
  */
 export function shouldAutoPostReceipt(
   totalAmount: number,
@@ -243,6 +250,7 @@ export function shouldAutoPostReceipt(
   warnings?: readonly string[] | null,
 ): boolean {
   if (isUnreconciled(warnings)) return false;
+  if (totalAmount <= 0) return false;
   return totalAmount < config.maxAmount && confidence >= config.minConfidence;
 }
 

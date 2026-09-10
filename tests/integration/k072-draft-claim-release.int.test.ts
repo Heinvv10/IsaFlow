@@ -371,6 +371,27 @@ describe("K-072 migration 672's backfill agrees with the release", () => {
         'UPDATE captured_documents SET posted_at = NULL WHERE id=ANY($1::uuid[])',
         [[duplicateMatchedDoc, backfillLiveDoc]],
       );
+      // The migration's duplicate check scans gl_journal_entries GLOBALLY, as it
+      // must in production — but the fixture database is shared with six other
+      // worktrees, and a peer's duplicate would abort this file's transaction
+      // for a reason that has nothing to do with this branch. Inside the same
+      // rolled-back transaction, stand the OTHER companies' duplicate groups
+      // down to one live row each; this company's rows are left exactly as the
+      // sequence above built them, which is what the assertions read.
+      await client.query(
+        `UPDATE gl_journal_entries SET reversed_at = NOW()
+          WHERE company_id <> $1 AND id IN (
+            SELECT id FROM (
+              SELECT id, ROW_NUMBER() OVER (PARTITION BY company_id, source_document_id ORDER BY id) AS rn
+                FROM gl_journal_entries
+               WHERE source_document_id IS NOT NULL
+                 AND source = 'auto_expense_receipt'
+                 AND reversed_at IS NULL
+                 AND company_id <> $1
+            ) ranked WHERE ranked.rn > 1
+          )`,
+        [company],
+      );
       await client.query(readFileSync('scripts/migrations/sql/672_capture_posting_claim_fence.sql', 'utf8'));
 
       const claimed = await client.query(

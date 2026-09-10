@@ -39,7 +39,7 @@
  * built from `ABBREV_TAIL`; every net label is `NET_LABEL`.
  */
 
-import { AMOUNT, isPlausibleVatAmount, parseAmount } from './ocrAmountParsing';
+import { AMOUNT } from './ocrAmountParsing';
 
 /* ------------------------------------------------------------------------- *
  * THE LABEL VOCABULARY
@@ -59,7 +59,24 @@ import { AMOUNT, isPlausibleVatAmount, parseAmount } from './ocrAmountParsing';
  * `*` also subsumes the joined `SubTotal`. JavaScript (unlike most engines)
  * allows a variable-length lookbehind, which is what lets the guards reuse it.
  */
-const SEP = String.raw`[\s._/-]*`;
+const SEP = String.raw`(?:[\s._/]|-(?!\d))*`;
+
+/**
+ * What stands between a label and its figure: an optional colon or dash, an
+ * optional currency mark, and whatever whitespace the column layout printed.
+ *
+ * A hyphen GLUED to the digits is a minus sign and not a separator, here and in
+ * `SEP` above. While both classes ate it unconditionally, a credit note
+ * printing "Total -115.00" came back +115 with no warning — `detectDocumentType`
+ * answers `credit_note` correctly, so the sign was the only thing lost, and a
+ * refund read as a purchase reverses the direction of the posting. `-(?!\d)`
+ * is what separates the two spellings: `Total - 115.00` and `Total -  115.00`
+ * keep the dash as a separator, `Total -115.00` reads the sign. A dash printed
+ * as a separator with NO space after it is the one ambiguous spelling, and it
+ * now reads negative; that is the safe way round, because a negative total is
+ * refused by the auto-post gate and a person looks at it.
+ */
+const VALUE_SEP = String.raw`\s*(?::|-(?!\d))?\s*(?:ZAR|R)?\s*`;
 
 /**
  * "Excluding" and "Including", in every abbreviation a document prints.
@@ -176,8 +193,8 @@ export const TOTAL_PATTERNS: RegExp[] = [
   // common SA till-slip spellings. Nothing could cross the bracket, so the
   // document came back with NO total — not a wrong figure, a 400 on an
   // otherwise readable slip.
-  new RegExp(String.raw`${NOT_A_SUBTOTAL}(?:(?:Grand|Invoice)${SEP})?Total${SEP}(?:\([^)]*\))?\s*(?:Due|Amount|Payable)?\s*[:-]?\s*(?:ZAR|R)?\s*${AMOUNT}`, 'i'),
-  new RegExp(String.raw`(?<![A-Za-z])(?<!\bAccounts${SEP})(?:(?:Amount|Balance)${SEP}(?:Due|Owing|Payable)|Payable)\s*[:-]?\s*(?:ZAR|R)?\s*${AMOUNT}`, 'i'),
+  new RegExp(String.raw`${NOT_A_SUBTOTAL}(?:(?:Grand|Invoice)${SEP})?Total${SEP}(?:\([^)]*\))?\s*(?:Due|Amount|Payable)?${VALUE_SEP}${AMOUNT}`, 'i'),
+  new RegExp(String.raw`(?<![A-Za-z])(?<!\bAccounts${SEP})(?:(?:Amount|Balance)${SEP}(?:Due|Owing|Payable)|Payable)${VALUE_SEP}${AMOUNT}`, 'i'),
   // The inclusive marker, with its prefix OPTIONAL — the same shape
   // `SUBTOTAL_PATTERNS[1]` gives the exclusive twin. While the prefix was
   // mandatory here, a bare `Incl VAT 1150.00` was refused by
@@ -185,7 +202,7 @@ export const TOTAL_PATTERNS: RegExp[] = [
   // subtotal and VAT all null, and `validateReceiptExtraction` answered 400 on
   // a legible slip. A guard narrower than its pattern loses the figure; this
   // was a guard with no pattern behind it.
-  new RegExp(String.raw`${NOT_A_SUBTOTAL}(?:${NET_PREFIX}${SEP})?${INCL}${SEP}${TAX_WORD}\s*[:-]?\s*(?:ZAR|R)?\s*${AMOUNT}`, 'i'),
+  new RegExp(String.raw`${NOT_A_SUBTOTAL}(?:${NET_PREFIX}${SEP})?${INCL}${SEP}${TAX_WORD}${VALUE_SEP}${AMOUNT}`, 'i'),
 ];
 
 /**
@@ -212,11 +229,11 @@ export const TOTAL_PATTERNS: RegExp[] = [
  * tax unclaimed and the VAT201 input box short by the same.
  */
 export const VAT_PATTERNS: RegExp[] = [
-  new RegExp(String.raw`${NOT_A_TAX_LABEL}${VAT_WORD}${TAX_NOUN}\s*(?:@|\()?\s*\d+(?:[.,]\d+)?\s*%\s*\)?\s*[:-]?\s*(?:ZAR|R)?\s*${AMOUNT}`, 'gi'),
-  new RegExp(String.raw`${NOT_A_TAX_LABEL}${VAT_WORD}${TAX_NOUN}\s*[:-]\s*(?:ZAR|R)?\s*${AMOUNT}`, 'gi'),
+  new RegExp(String.raw`${NOT_A_TAX_LABEL}${VAT_WORD}${TAX_NOUN}\s*(?:@|\()?\s*\d+(?:[.,]\d+)?\s*%\s*\)?${VALUE_SEP}${AMOUNT}`, 'gi'),
+  new RegExp(String.raw`${NOT_A_TAX_LABEL}${VAT_WORD}${TAX_NOUN}\s*(?::|-(?!\d))\s*(?:ZAR|R)?\s*${AMOUNT}`, 'gi'),
   new RegExp(String.raw`${NOT_A_TAX_LABEL}${VAT_WORD}${TAX_NOUN}\s+(?:ZAR|R)\s*${AMOUNT}`, 'gi'),
   new RegExp(String.raw`${NOT_A_TAX_LABEL}${VAT_WORD}${TAX_NOUN}\s+${AMOUNT}(?![\d.,]*\s*%)`, 'gi'),
-  new RegExp(String.raw`${NOT_A_TAX_LABEL}(?:(?:Output|Input)${SEP})?Tax${TAX_NOUN}\s*[:-]?\s*(?:ZAR|R)?\s*${AMOUNT}`, 'gi'),
+  new RegExp(String.raw`${NOT_A_TAX_LABEL}(?:(?:Output|Input)${SEP})?Tax${TAX_NOUN}${VALUE_SEP}${AMOUNT}`, 'gi'),
 ];
 
 /**
@@ -229,9 +246,9 @@ export const VAT_PATTERNS: RegExp[] = [
  * correspondence label by label.
  */
 export const SUBTOTAL_PATTERNS: RegExp[] = [
-  new RegExp(String.raw`(?<![A-Za-z])${NET_LABEL}\s*[:-]?\s*(?:ZAR|R)?\s*${AMOUNT}`, 'i'),
-  new RegExp(String.raw`(?<![A-Za-z])(?:${NET_PREFIX}${SEP})?${EXCL}${SEP}(?:of${SEP})?${TAX_WORD}\s*[:-]?\s*(?:ZAR|R)?\s*${AMOUNT}`, 'i'),
-  new RegExp(String.raw`(?<![A-Za-z])${NET_PREFIX}${SEP}${EXCL_LONG}(?![A-Za-z])\s*[:-]?\s*(?:ZAR|R)?\s*${AMOUNT}`, 'i'),
+  new RegExp(String.raw`(?<![A-Za-z])${NET_LABEL}${VALUE_SEP}${AMOUNT}`, 'i'),
+  new RegExp(String.raw`(?<![A-Za-z])(?:${NET_PREFIX}${SEP})?${EXCL}${SEP}(?:of${SEP})?${TAX_WORD}${VALUE_SEP}${AMOUNT}`, 'i'),
+  new RegExp(String.raw`(?<![A-Za-z])${NET_PREFIX}${SEP}${EXCL_LONG}(?![A-Za-z])${VALUE_SEP}${AMOUNT}`, 'i'),
 ];
 
 /**
@@ -264,49 +281,3 @@ export const SUMMARY_LINE_START = new RegExp(
   + String.raw`)`,
   'i',
 );
-
-/**
- * The VAT amount, from the first label form that yields a plausible candidate.
- *
- * Every occurrence of that form is collected, not just the first, for two
- * reasons. A registration number printed above the real VAT line used to
- * consume the whole pattern; and a slip that splits its VAT summary across
- * several lines used to report only the first, under-claiming.
- *
- * Summing is allowed ONLY where the arithmetic proves it: subtotal + sum must
- * equal the stated total. Without that check a document printing both a
- * per-line VAT and a "Total VAT" of the same figure would double it, and the
- * result would still balance well enough to post.
- */
-export function extractVatAmount(
-  text: string,
-  subtotal: number | null,
-  totalAmount: number | null,
-): number | null {
-  for (const pattern of VAT_PATTERNS) {
-    const candidates: number[] = [];
-    for (const match of text.matchAll(pattern)) {
-      if (match[1] && isPlausibleVatAmount(match[1], totalAmount)) {
-        candidates.push(parseAmount(match[1]));
-      }
-    }
-    if (candidates.length === 0) continue;
-
-    if (candidates.length > 1 && subtotal !== null && totalAmount !== null) {
-      // Prefer the candidate the DOCUMENT'S OWN ARITHMETIC endorses over the
-      // one that happens to be printed first. Where a slip prints both a levy
-      // and the VAT under the same label form, subtotal + candidate === total
-      // picks the tax out of the pair; falling through to `candidates[0]` picks
-      // by page order, which is not evidence of anything.
-      const reconciling = candidates.filter(
-        (c) => Math.round((subtotal + c) * 100) / 100 === totalAmount,
-      );
-      if (reconciling.length === 1) return reconciling[0]!;
-
-      const sum = Math.round(candidates.reduce((a, c) => a + c, 0) * 100) / 100;
-      if (Math.round((subtotal + sum) * 100) / 100 === totalAmount) return sum;
-    }
-    return candidates[0]!;
-  }
-  return null;
-}

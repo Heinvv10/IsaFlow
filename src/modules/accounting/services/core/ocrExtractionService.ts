@@ -7,12 +7,12 @@
 import type { ExtractedDocument } from '@/modules/accounting/types/documentCapture.types';
 import { parseAmount } from './ocrAmountParsing';
 import {
-  extractVatAmount,
   SUBTOTAL_PATTERNS,
   SUMMARY_LINE_START,
 } from './ocrAmountPatterns';
 import {
   extractTotalCandidates,
+  extractVatAmount,
   reconcileNetAgainstTotal,
   selectTotalAmount,
 } from './ocrAmountReconciliation';
