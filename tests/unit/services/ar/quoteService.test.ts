@@ -28,6 +28,7 @@ vi.mock('@/lib/neon', () => {
   return {
     sql: sqlMock,
     withTransaction: vi.fn(),
+    withSavepoint: vi.fn((_n: string, fn: () => unknown) => fn()),
     // Minimal faithful fmtDate: mapQuote serializes pg DATE via fmtDate (P1.2).
     fmtDate: (d: unknown) =>
       d instanceof Date
@@ -143,6 +144,7 @@ describe('getQuote — reads real customer_quote_lines columns', () => {
 
 describe('createQuote — writes real customer_quote_lines columns', () => {
   it('inserts lines using sort_order/amount/gl_account_id, not line_number/line_total/account_id', async () => {
+    mockSql.mockResolvedValueOnce([{ ok: 1 }]); // R-067 ownership fence — clientId is this company's
     mockSql.mockResolvedValueOnce([]); // nextQuoteNumber — no existing quotes
     mockSql.mockResolvedValueOnce([quoteHeaderRow()]); // INSERT customer_quotes RETURNING *
     mockSql.mockResolvedValueOnce([]); // INSERT line 1

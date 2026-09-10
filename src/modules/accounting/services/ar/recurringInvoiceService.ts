@@ -15,6 +15,7 @@ import {
   RecurringInvoiceTemplateError,
 } from './recurringInvoiceTemplate';
 import { lockRecurringTemplate, RecurringInvoiceLockTimeoutError } from './recurringInvoiceLock';
+import { assertCustomerInCompany } from '../core/contactDirectoryService';
 import type {
   RecurringInvoice,
   RecurringInvoiceCreateInput,
@@ -71,6 +72,10 @@ export async function createRecurringInvoice(companyId: string,
   input: RecurringInvoiceCreateInput,
   userId: string
 ): Promise<RecurringInvoice> {
+  // R-067: the runner re-mints an invoice from this template EVERY period, so
+  // a foreign client_id accepted here becomes a recurring cross-tenant document.
+  await assertCustomerInCompany(companyId, input.clientId);
+
   const taxRate = input.taxRate ?? 15;
   // W1 family (P2.1): a template with negative lines re-mints a negative
   // approved invoice EVERY period.

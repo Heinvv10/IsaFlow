@@ -13,6 +13,7 @@ import { fmtDate } from '@/lib/fmtDate';
 import type { DbRow } from '@/lib/neon';
 import { log } from '@/lib/logger';
 import { reserveNextDocumentNumber } from '@/modules/accounting/services/core/companyService';
+import { assertCustomerInCompany } from '@/modules/accounting/services/core/contactDirectoryService';
 import type { PostingActorOpts } from '../gl/journalEntryMeta';
 
 type Row = DbRow;
@@ -54,6 +55,11 @@ export async function createDraftCustomerInvoice(
     clientId, invoiceDate, dueDate, billingPeriodStart, billingPeriodEnd,
     taxRate, notes, items, currencyCode, exchangeRate,
   } = input;
+
+  // R-067: the tenant fence, BEFORE the first write. reserveNextDocumentNumber
+  // below UPDATEs the company's counter, and withAuth COMMITs a 4xx returned
+  // after a write — so this must precede it, not follow it.
+  await assertCustomerInCompany(companyId, clientId);
 
   // W1 (P2.1): server-side line validation — the July-4 audit created a
   // -R115.00 invoice through this handler (no client OR server guard).
