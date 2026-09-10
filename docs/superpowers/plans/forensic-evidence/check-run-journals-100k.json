@@ -1,0 +1,81 @@
+{
+ "environment": {
+  "head": "0201f87b18aac6871bebce022e046625feed308a",
+  "artifactSha256": "82a7ab2388d40f0b6d3e8fbc68840a1614c12552102defc8cb9a22e99d38d572",
+  "node": "v22.23.1",
+  "container": "isaflow-t2e-scale-pg-20260910",
+  "server": "PostgreSQL 16.11 (Debian 16.11-1.pgdg12+1) on x86_64-pc-linux-gnu, compiled by gcc (Debian 12.2.0-14+deb12u1) 12.2.0, 64-bit",
+  "workerHeapMb": 1536,
+  "harness": "real worker artifact as a direct child process; no systemd-run unit, so no RuntimeMaxSec/MemoryMax wall and no unit readback"
+ },
+ "fixture": {
+  "journals": 100000,
+  "lines": 649440,
+  "changes": 999873,
+  "versions": 90238,
+  "rules": 10,
+  "seedMs": 30092,
+  "profile": "mixed",
+  "loadAfterSeed": [
+   6.87,
+   11.42,
+   13.89
+  ]
+ },
+ "scaleRun": {
+  "jobId": "f8164fa9-66fe-4e60-a432-28ac7ba68b49",
+  "elapsedMs": 33076,
+  "peakRssBytes": 705961984,
+  "vmHwmBytes": 705961984,
+  "loadBefore": [
+   6.87,
+   11.42,
+   13.89
+  ],
+  "loadAfter": [
+   11.37,
+   12.01,
+   13.99
+  ],
+  "populationCount": 100000,
+  "findingCount": 100000,
+  "status": "fail",
+  "statements": {
+   "total": 546,
+   "byVerb": {
+    "BEGIN": 2,
+    "SET": 3,
+    "SELECT": 231,
+    "SAVEPOINT": 3,
+    "UPDATE": 2,
+    "RELEASE": 3,
+    "COMMIT": 2,
+    "DECLARE": 1,
+    "FETCH": 101,
+    "INSERT": 197,
+    "CLOSE": 1
+   },
+   "mentioning": {
+    "control_change_events": 1,
+    "gl_journal_lines": 2,
+    "control_audit_check_findings": 393
+   }
+  }
+ },
+ "hardKill": {
+  "jobId": "cbf1f089-2a6b-4f0f-8989-09820385e053",
+  "killedAfterMs": 8765,
+  "leaseWaitMs": 356799,
+  "rerunElapsedMs": 35377,
+  "generation": 2,
+  "attempts": 2,
+  "findingCount": 100000
+ },
+ "slabBound": {
+  "bound": 25000,
+  "atElapsedMs": 871,
+  "overElapsedMs": 786,
+  "atPeakRssBytes": 145379328,
+  "overPeakRssBytes": 127479808
+ }
+}
