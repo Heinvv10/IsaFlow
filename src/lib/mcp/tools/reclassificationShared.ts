@@ -67,8 +67,10 @@ export async function planFromArgs(
   args: Record<string, unknown>,
   ctx: McpToolContext,
   /**
-   * TRUE only on the path that is about to write. A preview must not hold a
-   * lock that blocks every real batch on the account for its duration.
+   * TRUE only on the path that is about to write. It decides BOTH locks the
+   * plan can take — the candidate lines and, on a leaf-rule target, the target
+   * account itself. A preview must not hold a lock that blocks every real batch
+   * on the account for its duration.
    */
   lockCandidateLines = false,
 ): Promise<ReclassPlan | McpToolResult> {
@@ -92,14 +94,29 @@ export async function planFromArgs(
       lockCandidateLines,
     });
   } catch (err) {
-    // The candidate-line lock timed out: another batch is mid-flight on lines
-    // this one wants. Write-free by construction — the lock is taken before
-    // anything is posted — so this is a PRE-write refusal and a toolError is
-    // the correct shape. The registry audits it with a NULL idempotency key,
-    // leaving the key usable for the retry the message asks for. Anything else
-    // rethrows: only this one condition is known to be write-free.
-    if (typeof err === 'object' && err !== null
-        && (err as { code?: unknown }).code === 'RECLASS_LINE_LOCK_TIMEOUT') {
+    // A lock timed out: either the candidate LINES (another batch is mid-flight
+    // on lines this one wants) or the TARGET ACCOUNT (a merge or a chart edit
+    // holds it). Both are write-free by construction — both locks are taken
+    // before anything is posted — so these are PRE-write refusals and a
+    // toolError is the correct shape. The registry audits them with a NULL
+    // idempotency key, leaving the key usable for the retry the message asks
+    // for. `GL_ACCOUNT_LOCK_TIMEOUT` is matched here for the same reason
+    // `writeMergeGlAccounts` matches it: uncaught, `registry.call` renders it
+    // as GENERIC_FAILURE and the wording that names the account is discarded.
+    // Anything else rethrows: only these two conditions are known write-free.
+    //
+    // BOTH LOCKS RUN IN THEIR OWN SAVEPOINT (`plan.ts`, `planGuards.ts`), and
+    // that is what makes this catch work at all rather than merely look like it
+    // does. A `lock_timeout` is SQLSTATE 55P03, which ABORTS the
+    // subtransaction; returning from here leaves the registry's enclosing
+    // savepoint to `RELEASE` an aborted one, which raises 25P02 and hands the
+    // agent GENERIC_FAILURE anyway — the exact outcome this catch exists to
+    // avoid, plus a clean 5s wait reported as a transaction fault. Catching a
+    // SQL error does not un-poison a transaction; only a savepoint rollback
+    // does.
+    const code = typeof err === 'object' && err !== null
+      ? (err as { code?: unknown }).code : undefined;
+    if (code === 'RECLASS_LINE_LOCK_TIMEOUT' || code === 'GL_ACCOUNT_LOCK_TIMEOUT') {
       return toolError((err as Error).message);
     }
     throw err;

@@ -5,7 +5,7 @@ import { fmtDate } from '@/lib/fmtDate';
 import type { DbRow } from '@/lib/neon';
 import { log } from '@/lib/logger';
 import { validateJournalEntry } from '../../utils/doubleEntry';
-import type { JournalEntry, JournalLineInput } from '../../types/gl.types';
+import type { JournalEntry } from '../../types/gl.types';
 import {
   getJournalEntryById,
   createJournalEntry,
@@ -13,6 +13,7 @@ import {
   mapEntryRow,
 } from './journalEntryCrudService';
 import { defaultHumanMeta, actorMeta, type PostingActorOpts } from './journalEntryMeta';
+import { buildReversalLines, type ReversalEntry } from './reversalLines';
 import {
   claimJournalReversal,
   releaseJournalReversalClaim,
@@ -20,8 +21,9 @@ import {
 } from './journalEntryReversalClaim';
 import { resolveReversalDate } from './journalEntryReversalDate';
 
-// Re-exported: the MCP reverse tool and journalEntryService import it from here.
+// Re-exported: the MCP reverse tool and journalEntryService import them from here.
 export { resolveReversalDate };
+export type { ReversalEntry } from './reversalLines';
 
 type Row = DbRow;
 
@@ -137,13 +139,21 @@ export async function postJournalEntry(companyId: string, id: string, userId: st
   }
 }
 
-/** Automated callers stamp the contra via opts; omitted opts keep human attribution. */
+/**
+ * Post the contra entry that reverses `id`.
+ *
+ * `opts.postingAgent` stamps the CONTRA (the original keeps whatever it was
+ * posted with). A reversal is a real posted journal, so an automated caller
+ * that does not stamp it lands on `human:<userId>` and its correction becomes
+ * invisible to every posting_agent-based review surface. Callers that pass
+ * nothing keep exactly that human default.
+ */
 export async function reverseJournalEntry(
   companyId: string,
   id: string,
   userId: string,
   opts?: PostingActorOpts & { reversalDate?: string },
-): Promise<JournalEntry> {
+): Promise<ReversalEntry> {
   // One transaction around the whole reversal. Inside a request there already
   // is one and this runs on it; outside one (scripts/fixes, cron) it opens and
   // commits its own. That is what keeps the claim below from outliving the
@@ -160,18 +170,13 @@ export async function reverseJournalEntry(
     if (entry.reversedAt) throw new Error('Journal entry already reversed');
     if (!entry.lines || entry.lines.length === 0) throw new Error('Entry has no lines');
 
-    const reversalLines: JournalLineInput[] = entry.lines.map(l => ({
-      glAccountId: l.glAccountId,
-      debit: l.credit,
-      credit: l.debit,
-      description: `Reversal: ${l.description || ''}`,
-      projectId: l.projectId,
-      costCenterId: l.costCenterId,
-      cc1Id: l.cc1Id,
-      cc2Id: l.cc2Id,
-      buId: l.buId,
-      vatType: l.vatType,
-    }));
+    // Debits and credits swap; every dimension and the VAT classification come
+    // across unchanged EXCEPT a legacy tag naming another company's project,
+    // cost centre, business unit or CC1/CC2 analysis code, which is dropped
+    // rather than copied into a journal `assertJournalLinesOwned` would refuse —
+    // refusing here would leave the entry permanently un-reversible. See
+    // reversalLines.ts.
+    const carried = await buildReversalLines(companyId, entry.lines);
 
     // Only entryDate is chosen here; createJournalEntry still derives the
     // fiscal period FROM that date, so the period can never disagree with it.
@@ -195,7 +200,7 @@ export async function reverseJournalEntry(
         entryDate: reversalDate,
         description: `Reversal of ${entry.entryNumber}`,
         source: entry.source,
-        lines: reversalLines,
+        lines: carried.lines,
       }, userId, actorMeta(opts) ?? defaultHumanMeta(userId));
     } catch (err) {
       // Nothing exists yet, but the claim does. Inside a request transaction the
@@ -281,7 +286,10 @@ export async function reverseJournalEntry(
     }
 
     log.info('Reversed journal entry', { originalId: id, reversalId: reversalEntry.id }, 'accounting');
-    return reversalEntry;
+    // The count rides on the returned entry so every caller — the REST action
+    // route passes this straight through — can tell the operator that the
+    // contra is not tag-for-tag identical to what it reverses.
+    return { ...reversalEntry, foreignDimensionDroppedLines: carried.droppedLineCount };
   } catch (err) {
     log.error('Failed to reverse journal entry', { id, error: err }, 'accounting');
     throw err;
