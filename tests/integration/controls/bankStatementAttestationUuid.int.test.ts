@@ -89,3 +89,21 @@ it('reads a statement back as active when its retained version row kept a legacy
  await f.attempt(()=>execute(p.intentId));
  expect((await forked()).map(r=>r.entity_id)).toEqual([upper(p.intentId)]);
 });
+/**
+ * SYNTHESIZED legacy state, not old-code output: the retained effect's entity_id is rewritten by hand
+ * to the spelling old code stored, because no fad0f57f7 baseline seed exists for this operation.
+ * UNIQUE(company_id,operation,entity_id,binding_hash) is case-sensitive, so the database would happily
+ * hold a second lowercase effect beside the legacy one; only the case-insensitive receipt read stops it.
+ */
+it('cannot execute a second statement attestation beside a receipt that kept a legacy uppercase entity_id',async()=>{
+ const p=await prepared(),first=await execute(p.intentId,await f.approve(p.operation));
+ const rewritten=await f.pool.query(`UPDATE control_operation_effects SET entity_id=upper(entity_id)
+  WHERE company_id=$1 AND entity_type='bank_statement_attestation_intent' AND operation='bank_statement.attest' AND entity_id=$2 RETURNING entity_id`,[f.f.companyA,p.intentId]);
+ expect(rewritten.rows).toEqual([{entity_id:upper(p.intentId)}]);
+ // A fresh approval carries a new operation_id and a new binding_hash, so neither kernel guard
+ // sees the legacy effect; the receipt read is the only thing that refuses the second execution.
+ const second=await f.attempt(async()=>execute(p.intentId,await f.approve(p.operation)));
+ expect(second.error instanceof Error?second.error.message:second.value).toBe('Unexecuted statement attestation belonging to requester required');
+ expectOneAttestation(await state(p.intentId));
+ await expect(execute(p.intentId)).resolves.toEqual(first);
+});
