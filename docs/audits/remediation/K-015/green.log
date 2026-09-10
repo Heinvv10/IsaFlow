@@ -311,3 +311,38 @@ Mutation proof (each production change reverted in turn, then restored):
   3. 670's DO $$ cross-tenant guard removed         -> int "670 refuses…" failed
   4. purge DELETEs unscoped (company_id removed)    -> int "expiry purge…" failed
   5. blank-row remedy text reverted                 -> int "blank-numbered bill…" failed
+
+=== ROUND 7 (2026-09-10) ===
+$ bunx vitest run tests/unit/services/capturePostFingerprint.test.ts tests/unit/services/capture/duplicateDetectionService.test.ts
+ Test Files  2 passed (2)
+      Tests  27 passed (27)
+
+MUTATION (unit) — post.ts supplierVatNumber -> extracted.vendorVatNumber (both call sites),
+and toColumnScale's `if (cents === 0n) return '0.00';` + unsignZero removed:
+     x drops the sign on a negative amount that rounds to zero - NUMERIC has none
+     x binds exactly what computeFingerprint produces
+     x takes the VAT segment from the supplier row, not the OCR extraction
+     x uses 'no-vat' when the supplier record has none, even if the document does
+     x gives the duplicate gate the same VAT it stores
+ Test Files  2 failed (2)
+      Tests  5 failed | 22 passed (27)
+Restored; re-ran: 27 passed (27).
+
+$ source fixture.env && bun run test:integration -- tests/integration/k015-ap-migration-balance-due-column.int.test.ts
+ Test Files  1 passed (1)
+      Tests  25 passed (25)
+
+MUTATION (integration) — 670's coalesce(s.vat_number,'no-vat') replaced with the literal 'no-vat':
+     x a capture-path fingerprint converges with 670, and the exact-match lookup still finds it
+ Test Files  1 failed (1)
+Restored.
+
+$ env -u DATABASE_URL bunx vitest run     # FULL unit suite, fixture env NOT sourced
+ Test Files  793 passed | 36 skipped (829)
+      Tests  9443 passed | 234 skipped (9677)
+
+$ bunx tsc --noEmit                       # exit 0, no output
+$ bunx eslint 'pages/api/accounting/capture/[id]/post.ts' \
+              src/modules/accounting/services/capture/captureDeduplicationService.ts   # exit 0
+$ bun run agent-docs:check
+OK: 74 agent document mirror(s) match canonical sources.

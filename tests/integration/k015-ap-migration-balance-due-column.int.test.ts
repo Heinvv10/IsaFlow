@@ -880,6 +880,75 @@ describeIfDb('K-015 AP migration import writes only real columns', () => {
     }
   }, 60000);
 
+  it('a capture-path fingerprint converges with 670, and the exact-match lookup still finds it', async () => {
+    // The VAT segment must come from the SAME SOURCE in every producer, not
+    // merely from the same function. The capture route used to pass the OCR'd
+    // `extracted.vendorVatNumber`; 670 and the other seven producers read
+    // `suppliers.vat_number`. Running 670 therefore rewrote every capture-written
+    // row away from what the next capture of that bill computes, and the
+    // exact-match step of `findDuplicate` — the guard this branch exists to make
+    // reliable — found nothing at all. Both halves are asserted here: the
+    // supplier-sourced key survives 670 and is found, the document-sourced key
+    // does not and is not.
+    const c = await pool.connect();
+    await c.query('BEGIN');
+    try {
+      await c.query(`SET LOCAL lock_timeout = '3s'`);
+      const supplier = (await c.query(
+        `SELECT id FROM public.suppliers WHERE company_id = $1 AND name = $2`,
+        [COMPANY, `ACME ${TAG}`],
+      )).rows[0].id as string;
+      const SUPPLIER_VAT = '4150165685';
+      const DOCUMENT_VAT = '4999999999';
+      await c.query(
+        `UPDATE public.suppliers SET vat_number = $1 WHERE id = $2 AND company_id = $3`,
+        [SUPPLIER_VAT, supplier, COMPANY],
+      );
+
+      await c.query(`SET LOCAL search_path = ${NO_INDEX_SCHEMA}, public`);
+      const stamp = async (num: string, fp: string) => c.query(
+        `INSERT INTO supplier_invoices
+           (company_id, supplier_id, invoice_number, invoice_date, due_date,
+            subtotal, tax_amount, total_amount, status, duplicate_fingerprint, created_by)
+         VALUES ($1, $2, $3, '2026-06-30', '2026-07-30', 100, 15, 115, 'approved', $4, $5)`,
+        [COMPANY, supplier, num, fp, USER],
+      );
+      const goodNum = `${TAG}-cap-good`;
+      const badNum = `${TAG}-cap-old`;
+      await stamp(goodNum, computeFingerprint(SUPPLIER_VAT, goodNum, 115));
+      await stamp(badNum, computeFingerprint(DOCUMENT_VAT, badNum, 115));
+
+      await c.query(readFileSync(
+        'scripts/migrations/sql/670_supplier_invoice_fingerprint_canonical_backfill.sql', 'utf8',
+      ));
+
+      // findDuplicate's step 1, verbatim in shape: company + supplier + key.
+      const hits = async (fp: string) => Number((await c.query(
+        `SELECT count(*) AS n FROM supplier_invoices
+          WHERE company_id = $1 AND supplier_id = $2 AND duplicate_fingerprint = $3`,
+        [COMPANY, supplier, fp],
+      )).rows[0].n);
+
+      const stored = async (num: string) => (await c.query(
+        `SELECT duplicate_fingerprint FROM supplier_invoices
+          WHERE company_id = $1 AND invoice_number = $2`,
+        [COMPANY, num],
+      )).rows[0].duplicate_fingerprint as string;
+
+      // What the route now writes is what 670 leaves, and it is FOUND.
+      expect(await stored(goodNum)).toBe(computeFingerprint(SUPPLIER_VAT, goodNum, 115));
+      expect(await hits(computeFingerprint(SUPPLIER_VAT, goodNum, 115))).toBe(1);
+
+      // What the route used to write is rewritten by 670, and the key the old
+      // code would compute on the next capture finds nothing — the regression.
+      expect(await stored(badNum)).toBe(computeFingerprint(SUPPLIER_VAT, badNum, 115));
+      expect(await hits(computeFingerprint(DOCUMENT_VAT, badNum, 115))).toBe(0);
+    } finally {
+      await c.query('ROLLBACK').catch(() => {});
+      c.release();
+    }
+  }, 60000);
+
   it('the expiry purge does not hard-delete an invoice whose take-on journal is posted', async () => {
     // Soft-deleting a migrated bill leaves its take-on entry in the GL, which is
     // why the duplicate lookup deliberately ignores `deleted_at`. Five minutes

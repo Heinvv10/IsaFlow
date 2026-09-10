@@ -114,6 +114,20 @@ describe('computeFingerprint', () => {
     expect(computeFingerprint(null, 'a', 1.0049)).toBe('no-vat|a|1.00');
   });
 
+  it('drops the sign on a negative amount that rounds to zero — NUMERIC has none', () => {
+    // `-0.001::numeric(15,2)` is `0.00`, not `-0.00`. total_amount carries no
+    // non-negative CHECK, so a supplier credit of -0.001 is storable; rendering
+    // it `-0.00` would store a key the column's own value can never reproduce,
+    // which is the exact failure the fixed-scale rendering exists to close.
+    expect(computeFingerprint(null, 'a', -0.001)).toBe('no-vat|a|0.00');
+    expect(computeFingerprint(null, 'a', -0.004)).toBe('no-vat|a|0.00');
+    expect(computeFingerprint(null, 'a', -0.0049999)).toBe('no-vat|a|0.00');
+    // Just past the rounding boundary the sign survives, as the column keeps it.
+    expect(computeFingerprint(null, 'a', -0.005)).toBe('no-vat|a|-0.01');
+    // Exponential form (|n| < 1e-6) takes the toFixed branch — same rule.
+    expect(computeFingerprint(null, 'a', -1e-7)).toBe('no-vat|a|0.00');
+  });
+
   it('distinguishes different amounts', () => {
     const fp1 = computeFingerprint(VAT_NUMBER, INVOICE_NUM, 1000);
     const fp2 = computeFingerprint(VAT_NUMBER, INVOICE_NUM, 1001);

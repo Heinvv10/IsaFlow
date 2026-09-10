@@ -509,3 +509,75 @@ own INSERT, not the helper), `duplicateDetectionService.test.ts` +1 rounding cas
 cross-tenant purge survivor and the two message assertions. Mutation-proved: restoring the inline
 SQL, `toFixed`, the DO block's removal, the unscoped DELETEs and the old message each turn the
 matching test RED.
+
+---
+
+## Round 7 — the blind review's four findings
+
+**HIGH-1 — same function, different argument: the VAT segment had two sources. FIXED.**
+Round 6 unified the FUNCTION and stopped there. `post.ts` called `computeFingerprint`, but fed it
+`extracted.vendorVatNumber` — the number OCR'd off the document — while the other seven producers
+and migration 670 read `suppliers.vat_number`. Running 670 therefore rewrote every capture-written
+row to the supplier-record VAT, which is not what the next capture of that bill computes: exact-match
+hits dropped to zero and the bill was accrued a second time. The route now takes `vat_number` from
+the company-scoped supplier row it already loads, and passes that same value to `decide(...)` and to
+`computeFingerprint`.
+
+*Which source is authoritative, and why.* `suppliers.vat_number`. Not because seven producers
+outvote one: the supplier record is the identity the invoice is actually booked against and is
+under the tenant's control, whereas `extracted.vendorVatNumber` is a per-scan OCR reading that
+varies with image quality and is absent whenever the document does not print a VAT number — two
+captures of the same bill can disagree, which is fatal for a dedupe key. A capture always has a
+linked supplier here (the route returns `manual_review` before this point when
+`matchSupplierFromExtraction` finds none), and a supplier with no VAT number folds to the literal
+`no-vat`, exactly as 670's `coalesce(s.vat_number, 'no-vat')` does.
+
+**Census re-run by ARGUMENT, not by callee.** For each producer, where each segment's value comes
+from:
+
+| # | Site | VAT segment | Invoice-number segment | Amount segment |
+|---|------|-------------|------------------------|----------------|
+| 1 | `pages/api/accounting/capture/[id]/post.ts` | `suppliers.vat_number` (company-scoped `SELECT` at :86) — **was `extracted.vendorVatNumber`** | `buildInvoiceFromExtraction(...).invoiceNumber` | same, `.totalAmount` |
+| 2 | `pages/api/accounting/ai-invoice-pipeline.ts:94-100` | `SELECT vat_number FROM suppliers WHERE id AND company_id` | `invoiceInput.invoiceNumber` | `invoiceInput.totalAmount` |
+| 3 | `services/ap/supplierInvoiceService.ts:114-119` | same `SELECT` | `input.invoiceNumber` | computed `totalAmount` |
+| 4 | `services/ap/migrationApService.ts:67,119` | `vat_number` from the company-scoped supplier list | `inv.invoiceNumber` (CSV row) | `inv.totalAmount` |
+| 5 | `services/core/recurringTransactionService.ts:205-214` | same `SELECT`; `null` when the template has no supplier | generated `RSINV-<slug>-<period>` | `Number(data.totalAmount)` |
+| 6 | `services/core/sageSupplierInvoiceImportService.ts:84-92` | same `SELECT` | `inv.invoice_number` or `SAGE-<id>` | computed `totalAmount` |
+| 7 | `scripts/migrations/sql/412_supplier_coding_rules.sql:71` | `coalesce(s.vat_number,'no-vat')` | `coalesce(si.invoice_number,'no-inv')` | `total_amount::text` (superseded) |
+| 8 | `scripts/migrations/sql/670_…:56` | `coalesce(s.vat_number,'no-vat')` | `coalesce(si.invoice_number,'no-inv')` | `::NUMERIC(15,2)::TEXT` |
+
+All eight now agree on every segment. The lesson recorded for the next census: checking that a
+producer CALLS the shared helper proves nothing about what it PASSES.
+
+**670 convergence, proved.** `k015-…int.test.ts` stamps two rows — one keyed the way the fixed route
+keys it (supplier VAT), one the way the old route did (document VAT) — runs 670 verbatim, then runs
+`findDuplicate`'s step-1 predicate. The supplier-VAT row is untouched by 670 and found (1 hit); the
+document-VAT key finds 0. Mutation-proved: replacing 670's `coalesce(s.vat_number,'no-vat')` with a
+literal turns it RED.
+
+**LOW-1 — `-0.00`. FIXED.** `toColumnScale` prepended the sign unconditionally, so `-0.001` rendered
+`-0.00` where `NUMERIC(15,2)` renders `0.00` (NUMERIC has no signed zero). `total_amount` carries no
+non-negative CHECK, so negative bills are storable and such a row's fingerprint was one the column
+could never reproduce. The sign is now dropped when the rounded magnitude is zero, on both the
+decimal and the exponential branch. `-0.005` still renders `-0.01`, as the column does.
+
+**LOW-2 — unbounded `string_agg` in 670's refusal. FIXED.** The pre-check now counts the offending
+rows and names at most 20: `… cannot be canonicalised: N row(s), first up to 20: <ids>`. The count is
+the real total, not the sample size.
+
+**LOW-3 — out-of-band inserts keep a NULL fingerprint. DOCUMENTED, no code change.**
+`scripts/import-sage-britech.ts`, `scripts/qa-seed/transactions.ts` and
+`scripts/seed-historical-data.mjs` omit the column; 670 canonicalises the NULLs present when it runs,
+but rows these write afterwards stay NULL and are invisible to the exact-match step (the fuzzy step
+still covers them). Pre-existing, confined to import/seed tooling, out of this branch's scope —
+recorded as a business rule in `src/modules/accounting/services/capture/.claude.md` together with the
+one-source-per-segment rule, so the next author of a producer reads it.
+
+**Round-7 tests.** `tests/unit/services/capturePostFingerprint.test.ts` 2 → 5 (supplier-row VAT wins
+over the OCR value; `no-vat` when the supplier has none even though the document does; the gate and
+the INSERT get the same string). `duplicateDetectionService.test.ts` +1 (signed-zero cases, both
+branches). `k015-ap-migration-balance-due-column.int.test.ts` +1 (670 convergence, real DB). Unit
+27 passed for the two files; integration file 25 passed; full unit suite with `DATABASE_URL` unset:
+793 files, 9443 passed / 234 skipped, 0 failed. `tsc --noEmit` clean; `eslint` on both changed
+source files clean. No migration added (670 is unmerged and fixture-only, so it was edited in
+place). No historical-data impact beyond what 670 already performs.
