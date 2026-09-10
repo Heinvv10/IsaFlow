@@ -1,19 +1,7 @@
-/**
- * Sage migration, AP invoices — the one posting path that keeps its direct
- * `UPDATE gl_journal_entries SET status = 'posted'`.
- *
- * The bypass is deliberate and pre-dates this work: "Post JE directly —
- * bypasses workflow helper that blocks backdated periods." A migrated supplier
- * invoice belongs in its ORIGINAL fiscal period, which is usually closed, so
- * postJournalEntry (the canonical path) would refuse every one of them. 955
- * such journals already sit in closed periods in production.
- *
- * The period guard therefore cannot apply here. Every OTHER guard still must,
- * and the inactive-account check is made explicitly — before the status
- * UPDATE, so a refusal rolls back the surrounding savepoint with nothing
- * half-posted.
- *
- * All DB calls are mocked — no real connection required.
+/** Current Sage AP adapter forwarding only. Actual inactive/closed-period accounting and
+ * historical source approval are verified in apCiInvoiceCancellation/apCiHistoricalIngress PG.
+ * The legacy admin ingress has no saved historical authority contract; that capability remains
+ * explicit follow-up, never an unconditional raw SQL posted-status exception.
  */
 
 import { describe, it, expect, vi, beforeEach } from 'vitest';
@@ -27,6 +15,7 @@ vi.mock('@/lib/neon', () => ({
 vi.mock('@/lib/logger', () => ({ log: { info: vi.fn(), warn: vi.fn(), error: vi.fn(), debug: vi.fn() } }));
 
 const createJournalEntry = vi.fn(async () => ({ id: 'je-ap-1' }));
+const approveSupplierInvoice = vi.fn(async () => ({ id: 'si-1' }));
 const createSupplierInvoice = vi.fn(async () => ({ id: 'si-1' }));
 const assertNoInactiveAccountLines = vi.fn(async () => undefined);
 
@@ -36,6 +25,7 @@ vi.mock('@/modules/accounting/services/gl/journalEntryCrudService', () => ({
 }));
 vi.mock('@/modules/accounting/services/ap/supplierInvoiceService', () => ({
   createSupplierInvoice: (...a: unknown[]) => createSupplierInvoice(...(a as [])),
+  approveSupplierInvoice: (...a: unknown[]) => approveSupplierInvoice(...(a as [])),
 }));
 vi.mock('@/modules/accounting/services/gl/systemAccountResolver', () => ({
   getSystemAccount: vi.fn(async (role: string) => ({ id: `acct-${role}` })),
@@ -77,6 +67,7 @@ beforeEach(() => {
   vi.clearAllMocks();
   createJournalEntry.mockResolvedValue({ id: 'je-ap-1' });
   createSupplierInvoice.mockResolvedValue({ id: 'si-1' });
+  approveSupplierInvoice.mockResolvedValue({ id: 'si-1' });
   postCustomerInvoiceToGL.mockResolvedValue('je-ar-1');
   assertNoInactiveAccountLines.mockResolvedValue(undefined);
   sqlMock.mockImplementation(async (strings: readonly string[]) => {
@@ -119,47 +110,33 @@ describe('commitARInvoice opts into the historical path', () => {
   });
 });
 
-describe('commitAPInvoice keeps the direct post but not the missing guard', () => {
-  it('checks for deactivated accounts before posting', async () => {
+describe('commitAPInvoice delegates to the controlled supplier invoice service', () => {
+  it('preserves original dates and exact invoice/tax inputs before shared approval', async () => {
     await commitAPInvoice(COMPANY, USER, AP_INVOICE);
-
-    expect(assertNoInactiveAccountLines).toHaveBeenCalledWith(COMPANY, 'je-ap-1');
-    expect(statusWrites()).toHaveLength(1);
-  });
-
-  it('refuses and writes no status when a line hits a deactivated account', async () => {
-    assertNoInactiveAccountLines.mockRejectedValue(
-      new Error('Cannot post to deactivated GL account: 1121 Loan Account - Blitz Fibre'),
-    );
-
-    await expect(commitAPInvoice(COMPANY, USER, AP_INVOICE)).rejects.toThrow(/deactivated/i);
-    // The throw unwinds the caller's savepoint; nothing may be half-posted.
+    expect(createSupplierInvoice).toHaveBeenCalledWith(COMPANY, expect.objectContaining({
+      invoiceNumber:'SI-2023-114',invoiceDate:'2023-11-14',dueDate:'2023-12-14',taxRate:15,
+      items:[{description:'PO-9912',quantity:1,unitPrice:1000,taxRate:15}],
+    }), USER);
+    expect(approveSupplierInvoice).toHaveBeenCalledWith(COMPANY,'si-1',USER);
     expect(statusWrites()).toHaveLength(0);
   });
-
-  it('runs the guard AFTER the entry exists but BEFORE it is posted', async () => {
-    const order: string[] = [];
-    createJournalEntry.mockImplementation(async () => { order.push('create'); return { id: 'je-ap-1' }; });
-    assertNoInactiveAccountLines.mockImplementation(async () => { order.push('guard'); });
-    sqlMock.mockImplementation(async (strings: readonly string[]) => {
-      const q = strings.join(' ');
-      if (/UPDATE gl_journal_entries/i.test(q)) order.push('post');
-      if (/FROM supplier_invoices/i.test(q)) return [];
-      if (/FROM suppliers/i.test(q)) return [{ id: 'sup-1' }];
-      return [];
-    });
-
-    await commitAPInvoice(COMPANY, USER, AP_INVOICE);
-
-    expect(order).toEqual(['create', 'guard', 'post']);
+  it('propagates current shared inactive-account refusal without a direct posted-status write', async () => {
+    approveSupplierInvoice.mockRejectedValue(new Error('Cannot post to deactivated GL account'));
+    await expect(commitAPInvoice(COMPANY,USER,AP_INVOICE)).rejects.toThrow('deactivated');
+    expect(statusWrites()).toHaveLength(0);expect(createJournalEntry).not.toHaveBeenCalled();
   });
-
-  it('does not apply a fiscal-period check — a migrated invoice keeps its original period', async () => {
-    await commitAPInvoice(COMPANY, USER, AP_INVOICE);
-
-    // 2023-11-14 sits in a long-closed period. Refusing here would block the
-    // entire migration, which is why this path diverges from postJournalEntry.
-    expect(texts().some((q) => /FROM fiscal_periods/i.test(q))).toBe(false);
-    expect(statusWrites()).toHaveLength(1);
+  it('creates the supplier document before requesting its real shared approval boundary', async () => {
+    const order:string[]=[];
+    createSupplierInvoice.mockImplementation(async()=>{order.push('document');return{id:'si-1'};});
+    approveSupplierInvoice.mockImplementation(async()=>{order.push('shared-approval');return{id:'si-1'};});
+    await commitAPInvoice(COMPANY,USER,AP_INVOICE);
+    expect(order).toEqual(['document','shared-approval']);expect(createJournalEntry).not.toHaveBeenCalled();
+    expect(statusWrites()).toHaveLength(0);
+  });
+  it('does not invent a closed-period exemption or swallow its shared refusal', async () => {
+    approveSupplierInvoice.mockRejectedValue(new Error('Closed fiscal period'));
+    await expect(commitAPInvoice(COMPANY,USER,AP_INVOICE)).rejects.toThrow('Closed fiscal period');
+    expect(approveSupplierInvoice).toHaveBeenCalledWith(COMPANY,'si-1',USER);
+    expect(statusWrites()).toHaveLength(0);
   });
 });
