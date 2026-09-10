@@ -71,3 +71,21 @@ it('cannot attest one statement twice through a second same-case approval reques
  expect(second.error instanceof Error?second.error.message:second.value).toBe('Unexecuted statement attestation belonging to requester required');
  expect(first).toBeDefined();
 });
+/**
+ * SYNTHESIZED legacy state, not old-code output: the retained control_entity_versions row is rewritten
+ * by hand to the spelling old code would have stored, because no fad0f57f7 baseline seed exists for
+ * this operation. A receipt found but a version join missed still reports the review dead.
+ */
+it('reads a statement back as active when its retained version row kept a legacy uppercase entity_id',async()=>{
+ const p=await prepared();
+ await execute(p.intentId,await f.approve(p.operation));
+ const forked=async()=>(await f.pool.query(`SELECT entity_id,version FROM control_entity_versions
+  WHERE company_id=$1 AND entity_type='bank_statement_attestation_intent' AND lower(entity_id)=$2 ORDER BY entity_id`,[f.f.companyA,p.intentId])).rows;
+ const rewritten=await f.pool.query(`UPDATE control_entity_versions SET entity_id=upper(entity_id)
+  WHERE company_id=$1 AND entity_type='bank_statement_attestation_intent' AND entity_id=$2 RETURNING entity_id`,[f.f.companyA,p.intentId]);
+ expect(rewritten.rows).toEqual([{entity_id:upper(p.intentId)}]);
+ expectOneAttestation(await state(p.intentId));
+ // The lineage is extended in place, so a later write never forks a second spelling beside it.
+ await f.attempt(()=>execute(p.intentId));
+ expect((await forked()).map(r=>r.entity_id)).toEqual([upper(p.intentId)]);
+});

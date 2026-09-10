@@ -19,7 +19,7 @@ export async function queryInvoiceMatchOverrides(ctx:ControlTx,rawInvoiceId:stri
    AND lower(e.entity_id)=i.id::text AND e.operation='invoice_match.override'
   LEFT JOIN control_operation_approvals a ON a.company_id=i.company_id AND a.consumed_effect_id=e.id AND a.status='consumed'
    AND a.entity_type='invoice_match_override_intent' AND lower(a.entity_id)=i.id::text AND a.operation='invoice_match.override'
-  LEFT JOIN control_entity_versions v ON v.company_id=i.company_id AND v.entity_type='invoice_match_override_intent' AND v.entity_id=i.id::text
+  LEFT JOIN control_entity_versions v ON v.company_id=i.company_id AND v.entity_type='invoice_match_override_intent' AND lower(v.entity_id)=i.id::text
   WHERE i.company_id=${ctx.principal.companyId}::uuid AND i.invoice_id=${invoiceId}::uuid ORDER BY i.created_at DESC,i.id LIMIT 101` as AnnotationRow[];
  const populationCount=rows[0]?.population_count??0,missing:string[]=[];
  if(populationCount>100)missing.push('override_annotation_population_exceeds_100');

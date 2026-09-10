@@ -30,7 +30,7 @@ export async function queryVerifiedBankStatements(ctx:ControlTx,cutoff:string|nu
   JOIN companies c ON c.id=i.company_id
   LEFT JOIN gl_accounts b ON b.company_id=i.company_id AND b.id=i.bank_account_id
   LEFT JOIN captured_documents d ON d.company_id=i.company_id AND d.id=i.source_document_id
-  LEFT JOIN control_entity_versions v ON v.company_id=i.company_id AND v.entity_type='bank_statement_attestation_intent' AND v.entity_id=i.id::text
+  LEFT JOIN control_entity_versions v ON v.company_id=i.company_id AND v.entity_type='bank_statement_attestation_intent' AND lower(v.entity_id)=i.id::text
   WHERE i.company_id=${ctx.principal.companyId}::uuid AND (${cutoff}::date IS NULL OR i.period_end<=${cutoff}::date)
   ORDER BY i.id,e.id LIMIT 10001` as ReviewRow[];
  const evidence=await scanCapturedEvidence(ctx,rows.length>10000?[]:rows.map(row=>row.document_id),'read:bank-tx');
