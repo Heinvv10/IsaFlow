@@ -37,15 +37,21 @@ import { assertDisposable } from './mfa-impersonation-postgres.helpers';
 import { getIncomeStatement } from '../../src/modules/accounting/services/reports/incomeStatementService';
 import { getKpiScorecard } from '../../src/modules/accounting/services/afs/afsKpiService';
 import {
+  generateNote17IncomeTax,
   generateNote18RevenueDisaggregation,
   generateNote19OtherIncome,
   generateNote20OperatingExpenses,
 } from '../../src/modules/accounting/services/afs/noteGenerators/notes16to20';
+import { generateNote11CashAndCashEquivalents } from '../../src/modules/accounting/services/afs/noteGenerators/notes11to15';
+import { fetchClosingCash } from '../../src/modules/accounting/services/afs/afsKpiCash';
 import { generateNote21FinanceCosts } from '../../src/modules/accounting/services/afs/noteGenerators/notes21to25';
 import { generateNote27GoingConcern } from '../../src/modules/accounting/services/afs/noteGenerators/notes26to30';
-import { noteRevenue } from '../../src/modules/accounting/services/reports/disclosureNoteGenerators';
+import { noteCash, noteRevenue } from '../../src/modules/accounting/services/reports/disclosureNoteGenerators';
 import { duplicateControlAccounts } from '../../src/modules/accounting/services/gl/integrityChecks/accountChecks';
-import { getVatReconciliation } from '../../src/modules/accounting/services/reports/vatReconciliationService';
+import {
+  getVatMultiYearSummary,
+  getVatReconciliation,
+} from '../../src/modules/accounting/services/reports/vatReconciliationService';
 
 assertDisposable();
 const pool = new Pool({ connectionString: process.env.DATABASE_URL });
@@ -53,6 +59,13 @@ const pool = new Pool({ connectionString: process.env.DATABASE_URL });
 const co = crypto.randomUUID();
 /** Second tenant, so the control-account check cannot see the first one's book. */
 const ctrlCo = crypto.randomUUID();
+/**
+ * Third tenant, for note 17 alone. The tax charge lands in the income
+ * statement's OTHER EXPENSES band, which `co`'s note 21 assertion pins to the
+ * finance cost exactly; seeding tax into `co` would have moved that figure and
+ * note 27's net profit with it, so the tax book gets its own company.
+ */
+const taxCo = crypto.randomUUID();
 
 /**
  * `companies.financial_year_start` defaults to 3, so fiscal 2026 is
@@ -112,7 +125,7 @@ const bs: Record<string, string> = {};
 const pl: Record<string, string> = {};
 
 beforeAll(async () => {
-  for (const company of [co, ctrlCo]) {
+  for (const company of [co, ctrlCo, taxCo]) {
     await pool.query(
       `INSERT INTO companies (id, name, is_active) VALUES ($1,$2,true) ON CONFLICT (id) DO NOTHING`,
       [company, `k091e ${company.slice(0, 8)}`],
@@ -131,6 +144,10 @@ beforeAll(async () => {
   bs.fixed = await account(co, 'B130', 'Vehicles', 'asset', 'fixed_asset', 'debit');
   bs.creditors = await account(co, 'B200', 'Trade creditors', 'liability', 'trade_payable', 'credit');
   bs.equity = await account(co, 'B300', 'Share capital', 'equity', 'equity', 'credit');
+  // A LIABILITY carrying a bank subtype — an overdraft or a paycard. AFS note
+  // 11, the IFRS cash note and the cash KPI tile print in the same export and
+  // must agree that this is not cash on hand.
+  bs.paycard = await account(co, 'B210', 'Fuel paycard', 'liability', 'bank', 'credit');
   // Every P&L journal below balances against retained earnings, NOT the bank:
   // routing them through a current asset would move the current ratio this
   // fixture exists to pin, and equity is neither a current asset nor a current
@@ -145,7 +162,8 @@ beforeAll(async () => {
     { account: bs.vatInput, debit: 200, credit: 0 },
     { account: bs.fixed, debit: 4000, credit: 0 },
     { account: bs.creditors, debit: 0, credit: 900 },
-    { account: bs.equity, debit: 0, credit: 4800 },
+    { account: bs.paycard, debit: 0, credit: 300 },
+    { account: bs.equity, debit: 0, credit: 4500 },
   ]);
 
   for (const y of YEARS) {
@@ -161,6 +179,11 @@ beforeAll(async () => {
     // trigger stores them as 'cogs' and 'finance_cost'.
     pl[k('cogs')] = await account(co, `E200-${y.fiscalYear}`, `Cost of sales ${y.fiscalYear}`, 'expense', 'COGS', 'debit');
     pl[k('finance')] = await account(co, `E300-${y.fiscalYear}`, `Interest paid ${y.fiscalYear}`, 'expense', ' Finance Cost ', 'debit');
+    // 'bank_charges' was absent from SUBTYPE_ALIASES, so it canonicalised to
+    // NULL: `expenseBand` called it an OPERATING expense and it printed inside
+    // note 20 AND note 21, and note 21's total no longer equalled the income
+    // statement's finance-cost line.
+    pl[k('charges')] = await account(co, `E310-${y.fiscalYear}`, `Bank charges ${y.fiscalYear}`, 'expense', 'bank_charges', 'debit');
 
     // Turnover R100,000s less an R8,000s credit note → net R92,000s.
     await post(co, y.postedOn, [
@@ -212,6 +235,39 @@ beforeAll(async () => {
       { account: pl[k('finance')]!, debit: 400 * s, credit: 0 },
       { account: bs.re, debit: 0, credit: 400 * s },
     ]);
+    await post(co, y.postedOn, [
+      { account: pl[k('charges')]!, debit: 250 * s, credit: 0 },
+      { account: bs.re, debit: 0, credit: 250 * s },
+    ]);
+  }
+
+  // ── Note 17: a tax charge with an overprovision credited back to it ─────────
+  // `SUM(debit)` with no credit side is GROSS THROUGHPUT, so the reversal of an
+  // overprovision was not subtracted and the note printed more tax than the
+  // income statement charged. Its own tenant, per the comment on `taxCo`.
+  const taxRe = await account(taxCo, 'T300', 'Retained earnings', 'equity', 'retained_earnings', 'credit');
+  for (const y of YEARS) {
+    const s = y.scale;
+    const current = await account(taxCo, `T100-${y.fiscalYear}`, `Income tax ${y.fiscalYear}`, 'expense', 'income_tax_expense', 'debit');
+    const deferred = await account(taxCo, `T110-${y.fiscalYear}`, `Deferred tax ${y.fiscalYear}`, 'expense', 'deferred_tax_expense', 'debit');
+    // Current tax: R5,000s charged, R2,000s overprovision reversed → R3,000s.
+    await post(taxCo, y.postedOn, [
+      { account: current, debit: 5000 * s, credit: 0 },
+      { account: taxRe, debit: 0, credit: 5000 * s },
+    ]);
+    await post(taxCo, y.postedOn, [
+      { account: current, debit: 0, credit: 2000 * s },
+      { account: taxRe, debit: 2000 * s, credit: 0 },
+    ]);
+    // Deferred tax: R1,200s raised, R200s released → R1,000s.
+    await post(taxCo, y.postedOn, [
+      { account: deferred, debit: 1200 * s, credit: 0 },
+      { account: taxRe, debit: 0, credit: 1200 * s },
+    ]);
+    await post(taxCo, y.postedOn, [
+      { account: deferred, debit: 0, credit: 200 * s },
+      { account: taxRe, debit: 200 * s, credit: 0 },
+    ]);
   }
 
   // ── Control-account check: two receivable controls, one settled in full ─────
@@ -226,7 +282,7 @@ beforeAll(async () => {
 });
 
 afterAll(async () => {
-  for (const company of [co, ctrlCo]) {
+  for (const company of [co, ctrlCo, taxCo]) {
     await pool.query(
       `DELETE FROM gl_journal_lines WHERE company_id = $1`, [company]);
     await pool.query(`DELETE FROM gl_journal_entries WHERE company_id = $1`, [company]);
@@ -312,6 +368,8 @@ describe.each(YEARS)('fiscal $fiscalYear', (y) => {
     // LOW-1: 'COGS' normalised to 'cogs' bands as cost of sales on BOTH sides,
     // so it is out of note 20 and inside the statement's cost-of-sales line.
     expect(rows.map((r) => r[0])).not.toContain(`Cost of sales ${y.fiscalYear}`);
+    // …and bank charges belong to note 21 alone, not to both notes at once.
+    expect(rows.map((r) => r[0])).not.toContain(`Bank charges ${y.fiscalYear}`);
     expect(is.totalCostOfSales).toBeCloseTo(700 * y.scale, 2);
   });
 
@@ -320,8 +378,11 @@ describe.each(YEARS)('fiscal $fiscalYear', (y) => {
     const note = await generateNote21FinanceCosts(co, y.fiscalYear);
     const rows = tableRows(note.content.blocks as Array<{ type: string; rows?: string[][] }>);
 
-    expect(is.totalOtherExpenses).toBeCloseTo(400 * y.scale, 2);
-    expect(bodyTotal(rows, 2)).toBeCloseTo(400 * y.scale, 2);
+    // Bank charges ride along: aliased to finance_cost, they are a finance
+    // cost to note 21 and to `expenseBand` at once, so the note still foots.
+    expect(is.totalOtherExpenses).toBeCloseTo((400 + 250) * y.scale, 2);
+    expect(bodyTotal(rows, 2)).toBeCloseTo(is.totalOtherExpenses, 2);
+    expect(rows.map((r) => r[0])).toContain(`Bank charges ${y.fiscalYear}`);
   });
 
   it('note 27 reports the income statement net profit, not twice the rebate off it', async () => {
@@ -329,7 +390,7 @@ describe.each(YEARS)('fiscal $fiscalYear', (y) => {
     const note = await generateNote27GoingConcern(co, y.fiscalYear);
     const snap = note.dataSnapshot as { netResult: number };
 
-    expect(is.netProfit).toBeCloseTo((100000 - 8000 - 1500 + 3000 - 1000 - 6000 + 5000 - 700 - 400) * y.scale, 2);
+    expect(is.netProfit).toBeCloseTo((100000 - 8000 - 1500 + 3000 - 1000 - 6000 + 5000 - 700 - 400 - 250) * y.scale, 2);
     expect(snap.netResult).toBeCloseTo(is.netProfit, 2);
     const text = (note.content.blocks[0] as { text: string }).text;
     expect(text).toContain('profit of');
@@ -356,6 +417,36 @@ describe.each(YEARS)('fiscal $fiscalYear', (y) => {
     // side twice the credit note larger and the reconciliation blamed the
     // ledger for a variance the reconciliation itself had invented.
     expect(recon.totals.glRevenue).toBeCloseTo(is.totalRevenue + is.totalOtherIncome, 2);
+  });
+
+  it('note 17 nets the overprovision against the tax charge, and foots to other expenses', async () => {
+    const is = await getIncomeStatement(taxCo, y.start, y.end);
+    const note = await generateNote17IncomeTax(taxCo, y.fiscalYear);
+    const rows = tableRows(note.content.blocks as Array<{ type: string; rows?: string[][] }>);
+    const cell = (label: string) => parseZa(String(rows.find((r) => r[0] === label)![1]));
+
+    // Gross debits printed 5,000s and 1,200s; the credits are contra lines.
+    expect(cell('Current tax expense')).toBeCloseTo((5000 - 2000) * y.scale, 2);
+    expect(cell('Deferred tax expense/(income)')).toBeCloseTo((1200 - 200) * y.scale, 2);
+    expect(cell('Total tax expense')).toBeCloseTo((3000 + 1000) * y.scale, 2);
+    // Both spellings alias to `tax_expense`, so the whole charge is the income
+    // statement's Other Expenses line for this tenant.
+    expect(is.totalOtherExpenses).toBeCloseTo((3000 + 1000) * y.scale, 2);
+    expect(cell('Total tax expense')).toBeCloseTo(is.totalOtherExpenses, 2);
+  });
+
+  it('the cash note, the IFRS cash note and the cash KPI agree a paycard is not cash', async () => {
+    const note = await generateNote11CashAndCashEquivalents(co, y.fiscalYear);
+    const rows = tableRows(note.content.blocks as Array<{ type: string; rows?: string[][] }>);
+    const ifrs = (await noteCash(co, y.fiscalYear)).tables?.[0]?.rows ?? [];
+
+    // The balance sheet is seeded as at 2024-06-30, so both fiscal years close
+    // on the same cash: bank 1,000, and the paycard is a LIABILITY.
+    expect(await fetchClosingCash(co, y.end)).toBeCloseTo(1000, 2);
+    expect(bodyTotal(rows, 2)).toBeCloseTo(await fetchClosingCash(co, y.end), 2);
+    expect(bodyTotal(ifrs, 2)).toBeCloseTo(await fetchClosingCash(co, y.end), 2);
+    expect(rows.map((r) => r[0])).not.toContain('Fuel paycard');
+    expect(ifrs.map((r) => r[0])).not.toContain('Fuel paycard');
   });
 
   it('the IFRS disclosure revenue note nets the credit note too', async () => {
@@ -392,6 +483,22 @@ it('migration 674 normalises the subtype on write, in both directions', async ()
     [co, 'R200-2026'],
   );
   expect(after.rows[0].account_subtype).toBe('other_income');
+});
+
+it('the multi-year VAT summary nets the credit note in every year it spans', async () => {
+  // The function windows on CALENDAR years back from today, so ask for enough
+  // of them to reach the fixture's 2025 postings rather than hard-coding 3.
+  const summary = await getVatMultiYearSummary(co, new Date().getFullYear() - 2025 + 1);
+  const revenueFor = (year: number) => summary.find((r) => r.year === year);
+
+  // Every revenue-typed account, both bands: turnover net of the credit note,
+  // the net-debit returns account with its sign, and sundry income.
+  for (const y of YEARS) {
+    const calendarYear = Number(y.postedOn.slice(0, 4));
+    const row = revenueFor(calendarYear);
+    expect(row).toBeDefined();
+    expect(row!.totalRevenue).toBeCloseTo((100000 - 8000 - 1500 + 3000 - 1000) * y.scale, 2);
+  }
 });
 
 it('duplicate control accounts report the BALANCE at stake, not gross throughput', async () => {
