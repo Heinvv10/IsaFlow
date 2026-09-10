@@ -9,11 +9,12 @@
  *   from        — ISO date YYYY-MM-DD (required)
  *   to          — ISO date YYYY-MM-DD (required)
  *   posted_only — "false" to include drafts (default: true)
- *   source      — "tb" | "bs" (controls the back-link label)
+ *   cost_centre_id / business_unit_id — optional dimension filters
+ *   source      — "tb" | "bs" | "is" (controls the back-link label)
  *   page        — page number (default: 1)
  */
 
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, useRef } from 'react';
 import { useRouter } from 'next/router';
 import Link from 'next/link';
 import { AppLayout } from '@/components/layout/AppLayout';
@@ -43,6 +44,7 @@ export default function AccountDetailPage() {
   const from = typeof router.query.from === 'string' ? router.query.from : '';
   const to = typeof router.query.to === 'string' ? router.query.to : '';
   const costCentreId = typeof router.query.cost_centre_id === 'string' ? router.query.cost_centre_id : '';
+  const businessUnitId = typeof router.query.business_unit_id === 'string' ? router.query.business_unit_id : '';
   const postedOnly = router.query.posted_only !== 'false';
   const sourceParam = typeof router.query.source === 'string' ? router.query.source : '';
   const pageParam =
@@ -53,9 +55,15 @@ export default function AccountDetailPage() {
   const [data, setData] = useState<AccountLedgerResult | null>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
+  const requestRef = useRef(0);
 
   const load = useCallback(async () => {
-    if (!accountId || typeof accountId !== 'string' || !from || !to) return;
+    if (!accountId || typeof accountId !== 'string' || !from || !to) {
+      requestRef.current += 1;
+      return;
+    }
+    const requestId = ++requestRef.current;
+    setData(null);
     setLoading(true);
     setError('');
     try {
@@ -67,6 +75,7 @@ export default function AccountDetailPage() {
         offset: String(offset),
       });
       if (costCentreId) params.set('cost_centre_id', costCentreId);
+      if (businessUnitId) params.set('business_unit_id', businessUnitId);
       if (UUID_RE.test(accountId)) {
         params.set('account_id', accountId);
       } else {
@@ -83,20 +92,22 @@ export default function AccountDetailPage() {
         throw new Error(json.message ?? 'Failed to load ledger');
       }
       const json = (await res.json()) as { data?: AccountLedgerResult };
-      setData(json.data ?? null);
+      if (requestId === requestRef.current) setData(json.data ?? null);
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Failed to load ledger');
+      if (requestId === requestRef.current)
+        setError(err instanceof Error ? err.message : 'Failed to load ledger');
     } finally {
-      setLoading(false);
+      if (requestId === requestRef.current) setLoading(false);
     }
-  }, [accountId, from, to, postedOnly, offset, costCentreId]);
+  }, [accountId, from, to, postedOnly, offset, costCentreId, businessUnitId]);
 
   useEffect(() => { void load(); }, [load]);
 
   const totalPages = data ? Math.ceil(data.total / PAGE_SIZE) : 1;
 
   const backHref = accountReportBackHref(router.query);
-  const backLabel = sourceParam === 'bs' ? 'Back to Balance Sheet' : 'Back to Trial Balance';
+  const backLabel = sourceParam === 'bs' ? 'Back to Balance Sheet'
+    : sourceParam === 'is' ? 'Back to Income Statement' : 'Back to Trial Balance';
 
   function goPage(p: number) {
     void router.push({ pathname: router.pathname, query: { ...router.query, page: String(p) } });

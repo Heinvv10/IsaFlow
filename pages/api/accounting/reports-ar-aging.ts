@@ -77,13 +77,15 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
         ci.due_date::text                            AS due_date,
         ci.total_amount,
         ci.amount_paid,
-        (ci.total_amount - ci.amount_paid)           AS balance_due,
+        (ci.total_amount - COALESCE(ci.amount_paid, 0)) AS balance_due,
         GREATEST(0, (${asAtStr}::date - COALESCE(ci.due_date, ci.invoice_date, ci.created_at::date))) AS days_overdue
       FROM customer_invoices ci
-      JOIN customers c ON c.id = COALESCE(ci.client_id, ci.customer_id)
+      JOIN customers c
+        ON c.id = COALESCE(ci.client_id, ci.customer_id)
+       AND c.company_id = ci.company_id
       WHERE ci.company_id = ${companyId}
         AND ci.status NOT IN ('paid', 'cancelled', 'draft')
-        AND (ci.total_amount - ci.amount_paid) > 0
+        AND (ci.total_amount - COALESCE(ci.amount_paid, 0)) > 0
       ORDER BY COALESCE(ci.due_date, ci.invoice_date, ci.created_at::date), ci.id
       LIMIT ${limit + 1} OFFSET ${offset}
     `) as Row[];
@@ -100,7 +102,7 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
         invoice_date: String(r.invoice_date ?? ''),
         due_date: String(r.due_date ?? ''),
         total_amount: Number(r.total_amount),
-        amount_paid: Number(r.amount_paid),
+        amount_paid: Number(r.amount_paid ?? 0),
         balance_due: Number(r.balance_due),
         days_overdue: daysOverdue,
         bucket: classifyBucket(daysOverdue),
@@ -119,11 +121,11 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
           ELSE '90+'
         END AS bucket,
         COUNT(*)::int AS count,
-        SUM(ci.total_amount - ci.amount_paid)::numeric AS total
+        SUM(ci.total_amount - COALESCE(ci.amount_paid, 0))::numeric AS total
       FROM customer_invoices ci
       WHERE ci.company_id = ${companyId}
         AND ci.status NOT IN ('paid', 'cancelled', 'draft')
-        AND (ci.total_amount - ci.amount_paid) > 0
+        AND (ci.total_amount - COALESCE(ci.amount_paid, 0)) > 0
       GROUP BY bucket
     `) as Row[];
 

@@ -1,0 +1,54 @@
+$ node scripts/check-runtime.mjs && vitest run --config vitest.integration.config.ts "tests/integration/k113-year-end-close-rerun.int.test.ts"
+
+ RUN  v4.1.2 /home/hein/Workspace/IsaFlow/.worktrees/audit-remediation-20260908
+
+{"level":"info","message":"Year-end processed","timestamp":"2026-09-09T09:38:25.752Z","data":{"year":"2026","entryId":"8f90295a-bc9b-454e-836c-cb8ed54865e9","netIncome":600,"module":"accounting"}}
+{"level":"error","message":"withTransaction rolled back","timestamp":"2026-09-09T09:38:25.818Z","component":"DB","data":{"message":"duplicate key value violates unique constraint \"uq_gl_je_company_entry_number\""}}
+ ❯ tests/integration/k113-year-end-close-rerun.int.test.ts (2 tests | 2 failed) 322ms
+   × refuses a second close of an already-closed year instead of previewing R0.00 and then 500ing 91ms
+   × refuses the live second close in its own vocabulary rather than throwing a Postgres error code 25ms
+
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 2 ⎯⎯⎯⎯⎯⎯⎯
+
+ FAIL  tests/integration/k113-year-end-close-rerun.int.test.ts > refuses a second close of an already-closed year instead of previewing R0.00 and then 500ing
+AssertionError: expected { dryRun: true, netIncome: +0, …(1) } to have property "error" with value 'already_closed'
+
+- Expected:
+"already_closed"
+
++ Received:
+undefined
+
+ ❯ tests/integration/k113-year-end-close-rerun.int.test.ts:71:19
+     69|   // Half one: the preview a user reads before committing to the secon…
+     70|   const preview = await closeFiscalYear(company, '2026', user, { dryRu…
+     71|   expect(preview).toHaveProperty('error', 'already_closed');
+       |                   ^
+     72|
+     73| });
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[1/2]⎯
+
+ FAIL  tests/integration/k113-year-end-close-rerun.int.test.ts > refuses the live second close in its own vocabulary rather than throwing a Postgres error code
+AssertionError: expected '23505 duplicate key value violates un…' to be 'a typed refusal, not a raw Postgres e…' // Object.is equality
+
+Expected: "a typed refusal, not a raw Postgres error"
+Received: "23505 duplicate key value violates unique constraint "uq_gl_je_company_entry_number""
+
+ ❯ tests/integration/k113-year-end-close-rerun.int.test.ts:81:65
+     79|   );
+     80|   // Stated as a string so a regression names the Postgres code it rai…
+     81|   expect('threw' in second ? second.threw : 'returned a value').toBe('…
+       |                                                                 ^
+     82|   expect(second).toHaveProperty('error', 'already_closed');
+     83|
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[2/2]⎯
+
+
+ Test Files  1 failed (1)
+      Tests  2 failed (2)
+   Start at  11:38:24
+   Duration  1.58s (transform 584ms, setup 0ms, import 751ms, tests 322ms, environment 0ms)
+
+error: script "test:integration" exited with code 1

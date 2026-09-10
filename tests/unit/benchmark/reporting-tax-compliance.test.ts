@@ -288,7 +288,9 @@ describe('getFieldDef', () => {
 
   it('returns the balance field with correct sqlExpr for customer_invoices', () => {
     const def = getFieldDef('customer_invoices', 'balance');
-    expect(def?.sqlExpr).toBe('(ci.total_amount - ci.amount_paid)');
+    // amount_paid is nullable, so the subtraction must COALESCE or the balance
+    // of an unpaid invoice comes back NULL.
+    expect(def?.sqlExpr).toBe('(ci.total_amount - COALESCE(ci.amount_paid, 0))');
   });
 
   it('returns the vat_number field for suppliers', () => {

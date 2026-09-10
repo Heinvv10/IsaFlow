@@ -111,22 +111,22 @@ export async function noteReceivables(companyId: string, fiscalYear: number): Pr
 
   const rows = await sql`
     SELECT
-      SUM(ci.total_amount - ci.amount_paid) FILTER (WHERE ci.status NOT IN ('paid','cancelled','void')) AS gross_receivables,
-      SUM(ci.total_amount - ci.amount_paid) FILTER (
+      SUM(ci.total_amount - COALESCE(ci.amount_paid, 0)) FILTER (WHERE ci.status NOT IN ('paid','cancelled','void')) AS gross_receivables,
+      SUM(ci.total_amount - COALESCE(ci.amount_paid, 0)) FILTER (
         WHERE ci.status NOT IN ('paid','cancelled','void')
           AND ci.due_date <= ${end}::date AND ci.due_date > ${end}::date - INTERVAL '30 days'
       ) AS current_amount,
-      SUM(ci.total_amount - ci.amount_paid) FILTER (
+      SUM(ci.total_amount - COALESCE(ci.amount_paid, 0)) FILTER (
         WHERE ci.status NOT IN ('paid','cancelled','void')
           AND ci.due_date <= ${end}::date - INTERVAL '30 days'
           AND ci.due_date > ${end}::date - INTERVAL '60 days'
       ) AS days_30,
-      SUM(ci.total_amount - ci.amount_paid) FILTER (
+      SUM(ci.total_amount - COALESCE(ci.amount_paid, 0)) FILTER (
         WHERE ci.status NOT IN ('paid','cancelled','void')
           AND ci.due_date <= ${end}::date - INTERVAL '60 days'
           AND ci.due_date > ${end}::date - INTERVAL '90 days'
       ) AS days_60,
-      SUM(ci.total_amount - ci.amount_paid) FILTER (
+      SUM(ci.total_amount - COALESCE(ci.amount_paid, 0)) FILTER (
         WHERE ci.status NOT IN ('paid','cancelled','void')
           AND ci.due_date <= ${end}::date - INTERVAL '90 days'
       ) AS days_90_plus
@@ -156,17 +156,17 @@ export async function notePayables(companyId: string, fiscalYear: number): Promi
 
   const rows = await sql`
     SELECT
-      SUM(si.total_amount - si.amount_paid) FILTER (WHERE si.status NOT IN ('paid','cancelled','void')) AS gross_payables,
-      SUM(si.total_amount - si.amount_paid) FILTER (
+      SUM(si.total_amount - COALESCE(si.amount_paid, 0)) FILTER (WHERE si.status NOT IN ('paid','cancelled','void')) AS gross_payables,
+      SUM(si.total_amount - COALESCE(si.amount_paid, 0)) FILTER (
         WHERE si.status NOT IN ('paid','cancelled','void')
           AND si.due_date <= ${end}::date AND si.due_date > ${end}::date - INTERVAL '30 days'
       ) AS current_amount,
-      SUM(si.total_amount - si.amount_paid) FILTER (
+      SUM(si.total_amount - COALESCE(si.amount_paid, 0)) FILTER (
         WHERE si.status NOT IN ('paid','cancelled','void')
           AND si.due_date <= ${end}::date - INTERVAL '30 days'
           AND si.due_date > ${end}::date - INTERVAL '60 days'
       ) AS days_30,
-      SUM(si.total_amount - si.amount_paid) FILTER (
+      SUM(si.total_amount - COALESCE(si.amount_paid, 0)) FILTER (
         WHERE si.status NOT IN ('paid','cancelled','void')
           AND si.due_date <= ${end}::date - INTERVAL '60 days'
       ) AS days_60_plus

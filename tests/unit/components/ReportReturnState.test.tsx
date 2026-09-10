@@ -4,12 +4,14 @@ import { apiFetch } from '@/lib/apiFetch';
 import TrialBalancePage from '@/../pages/accounting/trial-balance';
 import BalanceSheetPage from '@/../pages/accounting/reports/balance-sheet';
 import AccountDetailPage from '@/../pages/accounting/reports/account-detail/[accountId]';
+import { accountReportBackHref, reportHref } from '@/components/reports/reportReturnState';
 vi.mock('@/lib/apiFetch', () => ({ apiFetch: vi.fn() }));
 vi.mock('@/components/layout/AppLayout', () => ({ AppLayout: ({children}: {children: React.ReactNode}) => <>{children}</> }));
 vi.mock('@/contexts/TableDensityContext', () => ({ useTableDensity: () => ({rowClass: ''}) }));
 const route = vi.hoisted(() => ({query: {} as Record<string, string | string[]>, isReady: true, pathname: '', push: vi.fn()}));
 vi.mock('next/router', () => ({useRouter: () => route}));
 const cc = 'cf7d365f-0962-4fd8-be02-bb0cdef72c83';
+const bu = 'd8173fa2-8d1e-42a8-98e7-151720a62eab';
 const periods = [
   {id:'current', periodName:'Current', startDate:'2026-09-01', endDate:'2026-09-30', status:'open'},
   {id:'historic', periodName:'Historic', startDate:'2026-04-01', endDate:'2026-04-30', status:'closed'},
@@ -19,11 +21,21 @@ const response = (data: unknown) => new Response(JSON.stringify({data}));
 const params = (fragment: string) => vi.mocked(apiFetch).mock.calls.filter(([url]) => String(url).includes(fragment)).map(([url]) => new URL(String(url), 'http://localhost').searchParams);
 function navigate(href: string) { route.query = Object.fromEntries(new URL(href, 'http://localhost').searchParams); }
 afterEach(cleanup);
+
+it('allows only known income-statement controls in a return URL', () => {
+  const returnTo = reportHref('is', {
+    period_start:'2026-04-01', period_end:'2026-04-30', cost_centre_id:cc,
+    business_unit_id:bu, hostile:'drop-me',
+  });
+  expect(returnTo).toBe(`/accounting/reports/income-statement?period_start=2026-04-01&period_end=2026-04-30&cost_centre_id=${cc}&business_unit_id=${bu}`);
+  expect(accountReportBackHref({source:'is', return_to:returnTo})).toBe(returnTo);
+});
 beforeEach(() => {
   route.query = {}; route.isReady = true;
   vi.mocked(apiFetch).mockReset().mockImplementation(async url => {
     const path = String(url);
     return response(path.includes('cost-centres') ? {items:[{id:cc, code:'CC2', name:'Project'}]}
+      : path.includes('business-units') ? {items:[{id:bu, code:'OPS', name:'Operations'}]}
       : path.includes('fiscal-periods?') ? {endDate:'2026-09-30'}
       : path.includes('fiscal-periods') ? periods
       : path.includes('reports-trial-balance') ? {rows:[account], balanced:false, totalDebit:17}
@@ -32,14 +44,16 @@ beforeEach(() => {
   });
 });
 
-it('restores the actual TB link round trip including period, centre, comparison and movement', async () => {
+it('restores the actual TB link round trip including period, centre, business unit, comparison and movement', async () => {
   let view = render(<TrialBalancePage />);
   await screen.findByRole('link', {name:'Bank'});
   fireEvent.change(screen.getByDisplayValue('Current (open)'), {target:{value:'historic'}});
   fireEvent.change(screen.getByDisplayValue('No comparison'), {target:{value:'current'}});
   fireEvent.change(screen.getByDisplayValue('All Cost Centres'), {target:{value:cc}});
+  fireEvent.change(screen.getByDisplayValue('All Business Units'), {target:{value:bu}});
   fireEvent.click(screen.getByRole('button', {name:'Show movement'}));
   await waitFor(() => expect(params('reports-trial-balance').at(-1)?.get('cost_centre_id')).toBe(cc));
+  expect(params('reports-trial-balance').at(-1)?.get('business_unit_id')).toBe(bu);
   navigate((await screen.findByRole('link', {name:'Bank'})).getAttribute('href')!);
   route.query.accountId = '1110'; view.unmount();
   view = render(<AccountDetailPage />);
@@ -47,6 +61,7 @@ it('restores the actual TB link round trip including period, centre, comparison 
   view.unmount(); render(<TrialBalancePage />);
   await screen.findByRole('link', {name:'Bank'});
   expect(screen.getByDisplayValue('CC2 — Project')).toBeInTheDocument();
+  expect(screen.getByDisplayValue('OPS — Operations')).toBeInTheDocument();
   expect(screen.getByDisplayValue('Historic (closed)')).toBeInTheDocument();
   expect(screen.getByDisplayValue('Current')).toBeInTheDocument();
   expect(screen.getByRole('button', {name:'Hide movement'})).toHaveAttribute('aria-pressed','true');

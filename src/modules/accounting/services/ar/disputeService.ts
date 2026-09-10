@@ -17,100 +17,29 @@
 
 import { sql, type DbRow } from '@/lib/neon';
 import { log } from '@/lib/logger';
-import { createCreditNote } from '@/modules/accounting/services/ar/creditNoteService';
+import { ArRequestError } from './arErrors';
+import {
+  ELIGIBLE_STATUSES,
+  mapRow,
+  type Dispute,
+  type ListDisputesFilters,
+  type ListDisputesResult,
+  type RaiseDisputeInput,
+} from './disputeTypes';
 
-export type DisputeStatus = 'open' | 'resolved' | 'withdrawn' | 'rejected';
-export type DisputeResolutionMode =
-  | 'resolve_with_credit'
-  | 'resolve_no_credit'
-  | 'rejected'
-  | 'withdrawn';
-
-const ELIGIBLE_STATUSES = ['sent', 'approved', 'partially_paid', 'overdue'] as const;
-
-export interface Dispute {
-  id: string;
-  companyId: string;
-  customerInvoiceId: string;
-  customerInvoiceLineId: string | null;
-  reason: string;
-  raisedBy: string;
-  raisedAt: string;
-  status: DisputeStatus;
-  resolvedAt: string | null;
-  resolvedBy: string | null;
-  resolutionNote: string | null;
-  resolutionMode: DisputeResolutionMode | null;
-  creditNoteId: string | null;
-  disputedAmount: number;
-  sourceDocumentId: string | null;
-  ipAddress: string | null;
-  userAgent: string | null;
-}
-
-export interface RaiseDisputeInput {
-  customerInvoiceId: string;
-  customerInvoiceLineId?: string | null;
-  reason: string;
-  disputedAmount: number;
-  raisedBy: string;
-  sourceDocumentId?: string | null;
-  ipAddress?: string | null;
-  userAgent?: string | null;
-}
-
-export interface ListDisputesFilters {
-  status?: DisputeStatus;
-  customerInvoiceId?: string;
-  limit?: number;
-  offset?: number;
-}
-
-export interface ResolveDisputeInput {
-  mode: 'resolve_with_credit' | 'resolve_no_credit' | 'rejected';
-  note?: string;
-  creditDate?: string;
-}
-
-function toIsoOrNull(value: unknown): string | null {
-  if (value == null) return null;
-  if (value instanceof Date) return value.toISOString();
-  return String(value);
-}
-
-function mapRow(r: DbRow): Dispute {
-  return {
-    id: String(r.id),
-    companyId: String(r.company_id),
-    customerInvoiceId: String(r.customer_invoice_id),
-    customerInvoiceLineId:
-      r.customer_invoice_line_id != null ? String(r.customer_invoice_line_id) : null,
-    reason: String(r.reason),
-    raisedBy: String(r.raised_by),
-    raisedAt: toIsoOrNull(r.raised_at) ?? '',
-    status: String(r.status) as DisputeStatus,
-    resolvedAt: toIsoOrNull(r.resolved_at),
-    resolvedBy: r.resolved_by != null ? String(r.resolved_by) : null,
-    resolutionNote: r.resolution_note != null ? String(r.resolution_note) : null,
-    resolutionMode:
-      r.resolution_mode != null ? (String(r.resolution_mode) as DisputeResolutionMode) : null,
-    creditNoteId: r.credit_note_id != null ? String(r.credit_note_id) : null,
-    disputedAmount: Number(r.disputed_amount),
-    sourceDocumentId: r.source_document_id != null ? String(r.source_document_id) : null,
-    ipAddress: r.ip_address != null ? String(r.ip_address) : null,
-    userAgent: r.user_agent != null ? String(r.user_agent) : null,
-  };
-}
+export * from './disputeTypes';
+export { ArRequestError } from './arErrors';
+export { resolveDispute, withdrawDispute } from './disputeResolution';
 
 export async function raiseDispute(
   companyId: string,
   input: RaiseDisputeInput,
 ): Promise<Dispute> {
   if (!Number.isFinite(input.disputedAmount) || input.disputedAmount <= 0) {
-    throw new Error('Disputed amount must be greater than zero');
+    throw new ArRequestError('Disputed amount must be greater than zero');
   }
   if (!input.reason || input.reason.trim().length === 0) {
-    throw new Error('Dispute reason is required');
+    throw new ArRequestError('Dispute reason is required');
   }
 
   const invoiceRows = (await sql`
@@ -124,16 +53,20 @@ export async function raiseDispute(
   `) as DbRow[];
 
   if (!invoiceRows[0]) {
-    throw new Error(
+    throw new ArRequestError(
       `Invoice not found or not eligible for dispute: ${input.customerInvoiceId}`,
+      400,
+      'DISPUTE_INVOICE_INELIGIBLE',
     );
   }
 
   const invoice = invoiceRows[0];
   const outstanding = Number(invoice.total_amount) - Number(invoice.amount_paid ?? 0);
   if (input.disputedAmount > outstanding + 0.01) {
-    throw new Error(
+    throw new ArRequestError(
       `Disputed amount ${input.disputedAmount} exceeds outstanding balance ${outstanding}`,
+      400,
+      'DISPUTE_AMOUNT_EXCEEDS_OUTSTANDING',
     );
   }
 
@@ -177,7 +110,11 @@ export async function raiseDispute(
   } catch (err) {
     const code = (err as { code?: string }).code;
     if (code === '23505') {
-      throw new Error('There is already an open dispute on this invoice or line');
+      throw new ArRequestError(
+        'There is already an open dispute on this invoice or line',
+        409,
+        'DISPUTE_EXISTS',
+      );
     }
     throw err;
   }
@@ -186,56 +123,29 @@ export async function raiseDispute(
 export async function listDisputes(
   companyId: string,
   filters: ListDisputesFilters = {},
-): Promise<{ disputes: Dispute[]; total: number }> {
+): Promise<ListDisputesResult> {
   const limit = Math.min(Math.max(1, filters.limit ?? 50), 200);
   const offset = Math.max(0, filters.offset ?? 0);
+  const statusFilter = filters.status ?? null;
+  const invoiceFilter = filters.customerInvoiceId ?? null;
 
-  let rows: DbRow[];
-  if (filters.status && filters.customerInvoiceId) {
-    rows = (await sql`
-      SELECT d.*, ci.invoice_number, ci.client_id, c.name AS client_name
-      FROM customer_invoice_disputes d
-      JOIN customer_invoices ci ON ci.id = d.customer_invoice_id
-      LEFT JOIN customers c ON c.id = ci.client_id
-      WHERE d.company_id = ${companyId}::uuid
-        AND d.status = ${filters.status}
-        AND d.customer_invoice_id = ${filters.customerInvoiceId}::uuid
-      ORDER BY d.raised_at DESC
-      LIMIT ${limit} OFFSET ${offset}
-    `) as DbRow[];
-  } else if (filters.status) {
-    rows = (await sql`
-      SELECT d.*, ci.invoice_number, ci.client_id, c.name AS client_name
-      FROM customer_invoice_disputes d
-      JOIN customer_invoices ci ON ci.id = d.customer_invoice_id
-      LEFT JOIN customers c ON c.id = ci.client_id
-      WHERE d.company_id = ${companyId}::uuid
-        AND d.status = ${filters.status}
-      ORDER BY d.raised_at DESC
-      LIMIT ${limit} OFFSET ${offset}
-    `) as DbRow[];
-  } else if (filters.customerInvoiceId) {
-    rows = (await sql`
-      SELECT d.*, ci.invoice_number, ci.client_id, c.name AS client_name
-      FROM customer_invoice_disputes d
-      JOIN customer_invoices ci ON ci.id = d.customer_invoice_id
-      LEFT JOIN customers c ON c.id = ci.client_id
-      WHERE d.company_id = ${companyId}::uuid
-        AND d.customer_invoice_id = ${filters.customerInvoiceId}::uuid
-      ORDER BY d.raised_at DESC
-      LIMIT ${limit} OFFSET ${offset}
-    `) as DbRow[];
-  } else {
-    rows = (await sql`
-      SELECT d.*, ci.invoice_number, ci.client_id, c.name AS client_name
-      FROM customer_invoice_disputes d
-      JOIN customer_invoices ci ON ci.id = d.customer_invoice_id
-      LEFT JOIN customers c ON c.id = ci.client_id
-      WHERE d.company_id = ${companyId}::uuid
-      ORDER BY d.raised_at DESC
-      LIMIT ${limit} OFFSET ${offset}
-    `) as DbRow[];
-  }
+  // One query with NULL-guarded predicates rather than four hand-written
+  // branches: the count below has to repeat these predicates exactly, and four
+  // copies is four chances for the page and the count to drift apart.
+  const rows = (await sql`
+    SELECT d.*, ci.invoice_number, COALESCE(ci.client_id, ci.customer_id) AS client_id,
+           c.name AS client_name
+    FROM customer_invoice_disputes d
+    JOIN customer_invoices ci
+      ON ci.id = d.customer_invoice_id AND ci.company_id = d.company_id
+    LEFT JOIN customers c
+      ON c.id = COALESCE(ci.client_id, ci.customer_id) AND c.company_id = d.company_id
+    WHERE d.company_id = ${companyId}::uuid
+      AND (${statusFilter}::text IS NULL OR d.status = ${statusFilter})
+      AND (${invoiceFilter}::uuid IS NULL OR d.customer_invoice_id = ${invoiceFilter}::uuid)
+    ORDER BY d.raised_at DESC
+    LIMIT ${limit} OFFSET ${offset}
+  `) as DbRow[];
 
   const disputes = rows.map((r) => ({
     ...mapRow(r),
@@ -243,7 +153,32 @@ export async function listDisputes(
     clientName: r.client_name != null ? String(r.client_name) : null,
   })) as Dispute[];
 
-  return { disputes, total: disputes.length };
+  // Deliberately a second round trip and not COUNT(*) OVER () on the page
+  // query: a window count is computed over the rows the page returns, so a page
+  // past the end (offset >= total) would report total 0 and break the caller's
+  // pagination. The open_* aggregates ignore `status` on purpose — the queue
+  // header shows what is open however the list is filtered.
+  const aggRows = (await sql`
+    SELECT
+      COUNT(*) FILTER (
+        WHERE ${statusFilter}::text IS NULL OR d.status = ${statusFilter}
+      )::int AS cnt,
+      COUNT(*) FILTER (WHERE d.status = 'open')::int AS open_cnt,
+      COALESCE(SUM(d.disputed_amount) FILTER (WHERE d.status = 'open'), 0)::numeric
+        AS open_amount
+    FROM customer_invoice_disputes d
+    JOIN customer_invoices ci
+      ON ci.id = d.customer_invoice_id AND ci.company_id = d.company_id
+    WHERE d.company_id = ${companyId}::uuid
+      AND (${invoiceFilter}::uuid IS NULL OR d.customer_invoice_id = ${invoiceFilter}::uuid)
+  `) as DbRow[];
+
+  return {
+    disputes,
+    total: Number(aggRows[0]?.cnt ?? 0),
+    openTotal: Number(aggRows[0]?.open_cnt ?? 0),
+    openDisputedAmount: Number(aggRows[0]?.open_amount ?? 0),
+  };
 }
 
 export async function getDispute(
@@ -257,118 +192,6 @@ export async function getDispute(
   `) as DbRow[];
 
   return rows[0] ? mapRow(rows[0]) : null;
-}
-
-export async function resolveDispute(
-  companyId: string,
-  id: string,
-  userId: string,
-  input: ResolveDisputeInput,
-): Promise<Dispute> {
-  const existing = (await sql`
-    SELECT d.*, ci.client_id
-    FROM customer_invoice_disputes d
-    LEFT JOIN customer_invoices ci ON ci.id = d.customer_invoice_id
-    WHERE d.id = ${id}::uuid AND d.company_id = ${companyId}::uuid
-    LIMIT 1
-  `) as DbRow[];
-
-  if (!existing[0]) {
-    throw new Error(`Dispute ${id} not found`);
-  }
-  if (String(existing[0].status) !== 'open') {
-    throw new Error(`Dispute ${id} is not open (current status: ${existing[0].status})`);
-  }
-
-  let creditNoteId: string | null = null;
-
-  if (input.mode === 'resolve_with_credit') {
-    if (!input.creditDate) {
-      throw new Error('creditDate is required when resolving with credit');
-    }
-
-    const invoiceRows = (await sql`
-      SELECT client_id FROM customer_invoices
-      WHERE id = ${existing[0].customer_invoice_id}::uuid
-        AND company_id = ${companyId}::uuid
-      LIMIT 1
-    `) as DbRow[];
-
-    const clientId = invoiceRows[0]?.client_id != null ? String(invoiceRows[0].client_id) : null;
-    if (!clientId) {
-      throw new Error('Cannot auto-create credit note: invoice has no client');
-    }
-
-    const cn = await createCreditNote(
-      companyId,
-      {
-        type: 'customer',
-        clientId,
-        customerInvoiceId: String(existing[0].customer_invoice_id),
-        creditDate: input.creditDate,
-        reason: `Dispute resolution: ${existing[0].reason ?? ''}`.slice(0, 500),
-        subtotal: Number(existing[0].disputed_amount),
-        taxRate: 0,
-      },
-      userId,
-    );
-    creditNoteId = String(cn.id);
-  }
-
-  const newStatus: DisputeStatus = input.mode === 'rejected' ? 'rejected' : 'resolved';
-
-  const rows = (await sql`
-    UPDATE customer_invoice_disputes
-    SET status = ${newStatus},
-        resolution_mode = ${input.mode},
-        resolution_note = ${input.note ?? null},
-        credit_note_id = ${creditNoteId},
-        resolved_at = NOW(),
-        resolved_by = ${userId}
-    WHERE id = ${id}::uuid AND company_id = ${companyId}::uuid
-    RETURNING *
-  `) as DbRow[];
-
-  log.info(
-    'Dispute resolved',
-    { disputeId: id, mode: input.mode, creditNoteId, userId },
-    'dispute',
-  );
-
-  return mapRow(rows[0]!);
-}
-
-export async function withdrawDispute(
-  companyId: string,
-  id: string,
-  userId: string,
-  note?: string,
-): Promise<Dispute> {
-  const existing = (await sql`
-    SELECT status FROM customer_invoice_disputes
-    WHERE id = ${id}::uuid AND company_id = ${companyId}::uuid
-    LIMIT 1
-  `) as DbRow[];
-
-  if (!existing[0]) {
-    throw new Error(`Dispute ${id} not found`);
-  }
-  if (String(existing[0].status) !== 'open') {
-    throw new Error(`Dispute ${id} is not open (current status: ${existing[0].status})`);
-  }
-
-  const rows = (await sql`
-    UPDATE customer_invoice_disputes
-    SET status = 'withdrawn',
-        resolution_mode = 'withdrawn',
-        resolution_note = ${note ?? null},
-        resolved_at = NOW(),
-        resolved_by = ${userId}
-    WHERE id = ${id}::uuid AND company_id = ${companyId}::uuid
-    RETURNING *
-  `) as DbRow[];
-
-  return mapRow(rows[0]!);
 }
 
 /**
