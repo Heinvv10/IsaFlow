@@ -63,3 +63,23 @@ it('serializes concurrently executed independently approved lower and uppercase 
  expect(fulfilled).toHaveLength(1);
  expectOneDepreciation(await population(p.intentId,p.asset),fulfilled[0]!.value);
 });
+/**
+ * SYNTHESIZED legacy state, not old-code output: the retained effect's entity_id is rewritten by hand
+ * to the spelling old code stored, because no fad0f57f7 baseline seed exists for this operation. The
+ * id is server-minted but every caller echoes it back, so an uppercase-addressed execute did reach
+ * old code. UNIQUE(company_id,operation,entity_id,binding_hash) is case-sensitive, so the database
+ * holds a lowercase effect beside a legacy uppercase one without complaint.
+ */
+it('cannot depreciate a second time beside a receipt that kept a legacy uppercase entity_id',async()=>{
+ const p=await prepared(),first=await execute(p.intentId,await f.approve(p.operation));
+ const rewritten=await f.pool.query(`UPDATE control_operation_effects SET entity_id=upper(entity_id)
+  WHERE company_id=$1 AND entity_type='asset_depreciation_intent' AND operation='asset_depreciation.post'
+   AND entity_id=$2 RETURNING entity_id`,[f.f.companyA,p.intentId]);
+ expect(rewritten.rows).toEqual([{entity_id:upper(p.intentId)}]);
+ // A fresh approval carries a new operation_id and a new binding_hash, so neither kernel guard sees
+ // the legacy effect; the case-insensitive receipt read is the only thing that refuses.
+ const second=await f.attempt(async()=>execute(p.intentId,await f.approve(p.operation)));
+ expect(second.error instanceof Error?second.error.message:second.value).toBe('Depreciation intent already executed');
+ expectOneDepreciation(await population(p.intentId,p.asset),first);
+ await expect(execute(p.intentId)).resolves.toEqual(first);
+});
