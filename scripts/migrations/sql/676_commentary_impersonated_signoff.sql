@@ -8,3 +8,10 @@
 ALTER TABLE report_commentary ADD COLUMN IF NOT EXISTS approved_by_impersonator text;
 COMMENT ON COLUMN report_commentary.approved_by_impersonator IS
   'Platform administrator impersonating the approver at sign-off; NULL for an ordinary session.';
+
+-- The same truthfulness for the other two commentary decisions. Rejection recorded
+-- nobody at all until now; a withdrawal recorded the person but not the actor behind
+-- them when that person's session was being driven.
+ALTER TABLE report_commentary ADD COLUMN IF NOT EXISTS rejected_by text;
+ALTER TABLE report_commentary ADD COLUMN IF NOT EXISTS rejected_by_impersonator text;
+ALTER TABLE report_commentary ADD COLUMN IF NOT EXISTS withdrawn_by_impersonator text;

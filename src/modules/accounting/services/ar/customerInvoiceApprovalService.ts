@@ -8,6 +8,7 @@
  */
 
 import { sql, withSavepoint } from '@/lib/neon';
+import {assertIndependentRequestReview} from '@/modules/accounting/services/controls/independentReview';
 import { als, assertTxUsable } from '@/lib/als';
 import type { DbRow } from '@/lib/neon';
 import { log } from '@/lib/logger';
@@ -172,6 +173,7 @@ async function approveCustomerInvoiceEffect(
 }
 
 export async function approveCustomerInvoice(companyId:string,invoiceId:string,userId:string,opts?:PostingActorOpts&ArApprovalOptions):Promise<ApproveCustomerInvoiceResult>{
+ assertIndependentRequestReview();
  const parent={entityType:'customer_invoice',entityId:invoiceId,operation:'customer_invoice.post'} as const;
  return runArControlled(companyId,userId,parent,opts,permit=>approveCustomerInvoiceEffect(companyId,invoiceId,userId,opts,{permit,parent}));
 }

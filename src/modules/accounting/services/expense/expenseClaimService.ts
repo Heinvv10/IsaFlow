@@ -371,6 +371,7 @@ export async function rejectClaim(
   approverUserId: string,
   reason: string,
 ): Promise<ExpenseClaim | null> {
+  assertIndependentRequestReview();
   const claim = await getClaim(id, companyId);
   if (!claim) return null;
   if (claim.status !== 'submitted') throw new Error(`Cannot reject claim in status '${claim.status}'`);
