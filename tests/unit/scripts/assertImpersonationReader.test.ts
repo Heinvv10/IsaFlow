@@ -1,5 +1,5 @@
 import {expect,it,vi} from 'vitest';
-import {runImpersonationReaderGate} from '@/lib/auth/sessionImpersonation';
+import {runImpersonationReaderGate,IMPERSONATION_READER_GATE_SUCCESS} from '@/lib/auth/sessionImpersonation';
 
 /**
  * scripts/** is outside tsconfig and no CI step runs this gate: without this test its
@@ -30,4 +30,15 @@ it('runs the gate however the script is invoked, so a wrapped or renamed run can
   {encoding:'utf8',env:{...process.env,DATABASE_URL:''}});
  expect(run.status).not.toBe(0);
  expect(run.stderr).toContain('DATABASE_URL required');
+});
+
+it('is checked by deploy.sh against exactly the line the gate prints',async()=>{
+ const {readFileSync}=await import('node:fs');
+ // A drift here would block a legitimate production deploy after migrations have run.
+ expect(IMPERSONATION_READER_GATE_SUCCESS).toBeTruthy();
+ const deploy=readFileSync('scripts/deploy.sh','utf8');
+ expect(deploy).toContain(`grep -q '^${IMPERSONATION_READER_GATE_SUCCESS}$'`);
+ const out=vi.fn();
+ await runImpersonationReaderGate(async()=>[{reader:true,liveness:true,reader_exec:true,liveness_exec:true}],out);
+ expect(out).toHaveBeenCalledWith(`${IMPERSONATION_READER_GATE_SUCCESS}\n`);
 });

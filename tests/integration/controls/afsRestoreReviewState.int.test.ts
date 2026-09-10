@@ -52,8 +52,15 @@ describe('AFS version restore and review state: actual PostgreSQL',()=>{
   try{
    await reviewer.query('BEGIN');
    await reviewer.query("UPDATE afs_sections SET status='reviewed',reviewed_by=$3 WHERE company_id=$1 AND id=$2",[h.f.companyA,id,h.f.u1.id]);
+   const reviewerPid=(await reviewer.query('SELECT pg_backend_pid() AS pid')).rows[0].pid as number;
    restore=as(()=>restoreVersion(h.f.companyA,id,1,h.f.u2.id));
-   await new Promise(resolve=>setTimeout(resolve,400));
+   // Commit only once the restore's backend is actually blocked behind the reviewer's row
+   // lock - never on a timer, which under load could commit before the restore reads.
+   const deadline=Date.now()+15000;
+   while((await h.pool.query('SELECT count(*)::int AS n FROM pg_stat_activity WHERE $1=ANY(pg_blocking_pids(pid))',[reviewerPid])).rows[0].n===0){
+    if(Date.now()>deadline)throw new Error('restore never blocked behind the reviewer lock');
+    await new Promise(resolve=>setTimeout(resolve,20));
+   }
    await reviewer.query('COMMIT');
   }finally{reviewer.release();}
   await restore;
