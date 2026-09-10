@@ -30,6 +30,32 @@
  * Fixture: the ordinary production shape — a document raised in a month that
  * has since CLOSED, so reverseJournalEntry dates the delete's reversal to TODAY
  * rather than to the document.
+ *
+ * WHAT THIS FILE DOES AND DOES NOT ASSERT. It does not reconcile every fixed
+ * surface on its own — round 7's commit message said it did, and that was
+ * wrong. It calls the ageing services and both ageing ROUTES, the customer and
+ * supplier statement routes, dashboard-stats, kpiDashboardService, bureau
+ * client metrics, debtorsManagerService, the sales-by-customer and
+ * purchases-by-supplier reports, kpiChartsService's ageing chart, the cash-flow
+ * horizon's payable leg, the sub-ledger/control reconciliation (both bridges),
+ * the supplier-statement loader and the multi-tenant fragment. The surfaces
+ * that need a fixture of their own now have one, and each names this file:
+ * k053-afs-notes-tie-to-gl (the AFS note generators and the disclosure notes,
+ * which are dated by a FISCAL YEAR END), k053-group-and-integrity-tie-to-gl
+ * (the group consolidation, and the two integrity checks, which need a null
+ * due date and a journal with no revenue line), and
+ * k053-statement-recon-variance (the variance, which needs an imported
+ * statement). The two that cannot be reconciled at all are named per file in
+ * docs/audits/remediation/K-053/fix.md.
+ *
+ * The route-vs-service equalities below are equalities ON THIS FIXTURE, not a
+ * proof that route and service ask the same question: neither ageing route
+ * bounds by invoice_date <= as_at and both read the CURRENT amount_paid rather
+ * than rewinding it, so they still disagree with the services on any book with
+ * settlement activity after the as-at date. This fixture has no document dated
+ * after AS_AT_BEFORE and no payments, so it cannot see that difference.
+ * k053-aging-route-vs-service-rewind seeds both and measures the gap; the
+ * defect itself is a separate open item, R-056.
  */
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { randomUUID } from 'crypto';
@@ -44,6 +70,10 @@ import { getDashboardKPIs } from '@/modules/accounting/services/reports/kpiDashb
 import { clientMetricsSnapshot } from '@/modules/bureau/services/bureauClientMetricsService';
 import { getDebtorsSummary, getCollectionStats } from '@/modules/accounting/services/ar/debtorsManagerService';
 import { getUnpostedSubledgerDocuments } from '@/modules/accounting/services/reconciliation/unpostedDocumentService';
+import { getUnappliedControlCash } from '@/modules/accounting/services/reconciliation/unappliedCashService';
+import { getVatReconciliation } from '@/modules/accounting/services/reports/vatReconciliationService';
+import { getAgingBreakdown } from '@/modules/accounting/services/reports/kpiChartsService';
+import { getUpcomingReceivablesAndPayables } from '@/modules/accounting/services/reports/cashFlowForecastDataService';
 import { loadSupplierInvoices } from '@/modules/accounting/services/capture/supplierStatementReconDb';
 import { documentInLedgerAsAtFragmentForRowTenant } from '@/modules/accounting/services/shared/softDeleteLedgerPresence';
 import { postCustomerInvoiceToGL } from '@/modules/accounting/services/ar/customerPaymentAllocationService';
@@ -54,6 +84,8 @@ import apAgingRoute from '../../pages/api/accounting/reports-ap-aging';
 import supplierStatementDetailRoute from '../../pages/api/accounting/supplier-statement-detail';
 import customerStatementDetailRoute from '../../pages/api/accounting/customer-statement-detail';
 import customerStatementsRoute from '../../pages/api/accounting/customer-statements';
+import salesByCustomerRoute from '../../pages/api/accounting/reports/sales-by-customer';
+import purchasesBySupplierRoute from '../../pages/api/accounting/reports/purchases-by-supplier';
 import dashboardStatsRoute from '../../pages/api/accounting/dashboard-stats';
 import { assertDisposable, request, response } from './mfa-impersonation-postgres.helpers';
 
@@ -80,6 +112,8 @@ const DUE_DATE = shift(-100);
 /** Inside the closed period, after the document, well before the delete. */
 const AS_AT_BEFORE = shift(-90);
 const KPI_FROM = shift(-365);
+/** One day before the documents, so a range report spans them. */
+const RANGE_FROM = shift(-121);
 
 const SUB = 1000;
 const VAT = 150;
@@ -382,6 +416,91 @@ describeIfDb('K-053 every AR/AP figure surface ties to the GL at the same as-at 
     expect(before.map((i) => i.id).sort()).toEqual([apInvoice, legacyApInvoice].sort());
     const after = await loadSupplierInvoices(COMPANY, supplier, null, TODAY);
     expect(after.map((i) => i.id)).toEqual([legacyApInvoice]);
+  });
+
+  /**
+   * H-1 (round 8). The delete's reversal is a control movement the invoice
+   * never points at — it keeps pointing at the ORIGINAL so the undo can find
+   * it — so it passed every `NOT EXISTS` in mechanism 2 and stood as a
+   * permanent orphan for the document's full gross value on BOTH reconcilers.
+   * The both-directions half of this proof (a genuine orphan is still
+   * reported) is k053-unapplied-cash-delete-reversal.int.test.ts.
+   */
+  it('the delete reversal is not reported as control movement without a document', async () => {
+    for (const asAt of [AS_AT_BEFORE, TODAY]) {
+      const ar = await getUnappliedControlCash(COMPANY, 'ar', asAt, [receivable]);
+      const ap = await getUnappliedControlCash(COMPANY, 'ap', asAt, [payable]);
+      expect(ar.withoutPaymentRecord).toEqual([]);
+      expect(ap.withoutPaymentRecord).toEqual([]);
+      expect(ar.total).toBe(0);
+      expect(ap.total).toBe(0);
+    }
+  });
+
+  /**
+   * M-2 (round 8). The VAT reconciliation ties a GL leg to an INVOICE leg that
+   * is deliberately undated — it keeps a deleted invoice in the month it was
+   * raised, which is what the document-based VAT201 did when that period was
+   * filed. Counting the delete's reversal on the GL leg therefore raised a
+   * revenue variance, in the reversal's month, that no operator can reconcile
+   * away; and because the revenue arm takes ABS(credit - debit) it read as
+   * MORE revenue, not less.
+   */
+  it('the VAT reconciliation raises no variance from the delete reversal', async () => {
+    const recon = await getVatReconciliation(COMPANY, RANGE_FROM, TODAY);
+    // Both documents are still on the invoice leg, in the month they were
+    // raised, and the GL leg carries exactly their approval journals.
+    expect(recon.totals.glRevenue).toBeCloseTo(SUB + LEG_SUB, 2);
+    expect(recon.totals.invoiceRevenue).toBeCloseTo(SUB + LEG_SUB, 2);
+    expect(recon.totals.revenueVariance).toBeCloseTo(0, 2);
+    for (const m of recon.months) expect(m.revenueVariance).toBeCloseTo(0, 2);
+    expect(recon.issues.filter((i) => i.message.includes('Revenue variance'))).toEqual([]);
+  });
+
+  /**
+   * M-2 (round 8). Four surfaces this fixture could already reach and simply
+   * did not call, so reverting their predicate left the whole suite green. The
+   * rest are covered by the three sibling files named at the top; the two that
+   * cannot be reached at all are named per file in
+   * docs/audits/remediation/K-053/fix.md.
+   */
+  it('the two range reports draw the period they are asked for', async () => {
+    type SalesRow = { clientId: string; outstanding: number };
+    type PurchRow = { supplierId: string; outstanding: number };
+
+    const salesBefore = await callRoute<SalesRow[]>(salesByCustomerRoute, {
+      from: RANGE_FROM, to: AS_AT_BEFORE,
+    });
+    expect(salesBefore.reduce((s, r) => s + r.outstanding, 0))
+      .toBeCloseTo(await controlBalance(receivable, AS_AT_BEFORE), 2);
+
+    const salesAfter = await callRoute<SalesRow[]>(salesByCustomerRoute, { from: RANGE_FROM, to: TODAY });
+    expect(salesAfter.reduce((s, r) => s + r.outstanding, 0))
+      .toBeCloseTo(await controlBalance(receivable, TODAY), 2);
+
+    const purchBefore = await callRoute<PurchRow[]>(purchasesBySupplierRoute, {
+      from: RANGE_FROM, to: AS_AT_BEFORE,
+    });
+    expect(purchBefore.reduce((s, r) => s + r.outstanding, 0))
+      .toBeCloseTo(-(await controlBalance(payable, AS_AT_BEFORE)), 2);
+
+    const purchAfter = await callRoute<PurchRow[]>(purchasesBySupplierRoute, { from: RANGE_FROM, to: TODAY });
+    expect(purchAfter.reduce((s, r) => s + r.outstanding, 0))
+      .toBeCloseTo(-(await controlBalance(payable, TODAY)), 2);
+  });
+
+  it('the dashboard ageing chart and the cash-flow horizon read as at today', async () => {
+    const ar = await controlBalance(receivable, TODAY);
+    const buckets = await getAgingBreakdown(COMPANY, 'ar');
+    expect(buckets.reduce((s, b) => s + b.value, 0)).toBeCloseTo(ar, 2);
+
+    // The receivable leg of this one filters to statuses the fixture's
+    // invoices do not carry ('sent', 'overdue', 'partially_paid'), so only the
+    // payable leg is asserted here.
+    const upcoming = await getUpcomingReceivablesAndPayables(COMPANY, 30);
+    const payables = upcoming.filter((u) => u.type === 'payable');
+    expect(payables.reduce((s, u) => s + u.amount, 0))
+      .toBeCloseTo(-(await controlBalance(payable, TODAY)), 2);
   });
 
   it('the multi-tenant roll-up fragment answers per row, scoped to the row own tenant', async () => {
