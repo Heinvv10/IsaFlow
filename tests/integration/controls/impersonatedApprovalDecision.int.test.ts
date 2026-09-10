@@ -277,6 +277,26 @@ describe('control approval decisions under actual impersonated sessions: actual 
   expect(await endRow('impersonation_end',sessionId)).toBe(0);
  });
 
+ it('still completes the exit when the revocation record cannot be written',async()=>{
+  const {sessionId,stashId,cookies}=await liveImpersonation();
+  const name=`pi_rev_${randomUUID().replaceAll('-','')}`;
+  await h.pool.query(`CREATE FUNCTION public.${name}() RETURNS trigger LANGUAGE plpgsql AS $$
+   BEGIN IF NEW.action='impersonation_revoked' AND NEW.details->>'target_session_id'='${sessionId}'
+    THEN RAISE EXCEPTION 'Synthetic impersonation_revoked INSERT failure'; END IF; RETURN NEW; END $$`);
+  await h.pool.query(`CREATE TRIGGER ${name} BEFORE INSERT ON admin_audit_log FOR EACH ROW EXECUTE FUNCTION public.${name}()`);
+  let ended;
+  try{ended=await endImpersonation(cookies,stashId,204);}
+  finally{
+   await h.pool.query(`DROP TRIGGER IF EXISTS ${name} ON admin_audit_log`);await h.pool.query(`DROP FUNCTION IF EXISTS public.${name}()`);
+  }
+  // GoTrue has already revoked the session; the revocation row is audit-only (the end row
+  // killed the proof). Failing here would strand the admin in a 502 loop, so it must not.
+  expect(ended.status).toBe(200);
+  expect((await h.pool.query('SELECT stash_id FROM admin_impersonation_stash WHERE stash_id=$1',[stashId])).rowCount).toBe(0);
+  expect(await endRow('impersonation_end',sessionId)).toBe(1);
+  expect((await list(cookies)).status).toBe(401);
+ });
+
  it('still lets the same tenant administrator approve and the maker post from an unimpersonated session',async()=>{
   const p=await h.prepared(),approval=await h.request(p.ref);
   const result=await decide(await ordinary(`ordinary-${randomUUID()}`),approval.id);
