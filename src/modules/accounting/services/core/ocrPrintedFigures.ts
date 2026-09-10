@@ -105,9 +105,22 @@ function startsWithTender(after: string): boolean {
  */
 const SUMMARY_CONNECTOR = /^(?:[\s:.=*#()\/-]|@|R\b|ZAR\b|\d+(?:[.,]\d+)?\s*%)*$/i;
 
+/**
+ * Tax lines the summary vocabulary does not open with (round 26): `Plus VAT`,
+ * `Add: VAT`, `15% VAT`, `Add 15% VAT`, `Value Added Tax`. Read as ITEM rows,
+ * they tripped the item column's tax-row rule on honest unpaid invoices. As
+ * summary lines they are explained only by value — `Plus VAT 350.00` is not
+ * the tax and still refuses — so a spelling missing here costs a refusal.
+ */
+const TAX_LINE_START = /^(?:(?:Plus|Add)(?![A-Za-z])[\s:]*)?(?:\d{1,2}(?:[.,]\d+)?\s*%\s*)?(?:VAT|Value\s+Added\s+Tax)(?![A-Za-z])/i;
+
+function summaryStart(line: string): RegExpExecArray | null {
+  return SUMMARY_LINE_START.exec(line) ?? TAX_LINE_START.exec(line);
+}
+
 function summaryAdjacent(line: string, index: number): boolean {
   const lead = line.length - line.trimStart().length;
-  const match = SUMMARY_LINE_START.exec(line.trimStart());
+  const match = summaryStart(line.trimStart());
   return match !== null && SUMMARY_CONNECTOR.test(line.slice(lead + match[0].length, index));
 }
 
@@ -163,7 +176,7 @@ export function printedFigures(text: string, isCounter: CountIsCounter = NO_COUN
       const segment = line.slice(labelFrom, f.index);
       const isTender = labelsTender(segment, f.whole);
       const isChange = CHANGE_LABEL.test(segment);
-      const isSummary = f.whole ? summaryAdjacent(line, f.index) : SUMMARY_LINE_START.test(line.trimStart());
+      const isSummary = f.whole ? summaryAdjacent(line, f.index) : summaryStart(line.trimStart()) !== null;
       const roled = f.moneyMark || isTender || isChange || isSummary;
       const label = f.whole && !roled ? counterLabel(segment, f.value) : null;
       onLine.push({

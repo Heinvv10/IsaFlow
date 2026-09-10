@@ -66,8 +66,8 @@ const spaced = (word: string) => [...word].join(String.raw`[\s.]`);
 const REPRINT = new RegExp(String.raw`(?<![A-Za-z])(?:RE[\s-]?PRINT\w*|RE-?PR(?:N?T|\.)|RPRNT|RPT|RE[\s-]?ISSUE\w*|DUPLICAT\w*|DUPL?`
   + String.raw`|DUPLIKAAT|HERDRUK\w*|HERUITREIK\w*|KOPIE(?:ER)?|AFSKRIF|TRAINING\s+MODE|NOT\s+(?:AN?\s+)?ORIGINAL|SECOND\s+PRINT\w*|PRINTED\s+AGAIN`
   + `|${['COPY', 'REPRINT', 'DUPLICATE', 'KOPIE'].map(spaced).join('|')}`
-  + String.raw`|COPY(?=[\s*)\]=-]*$)|COPY\s+OF|IS\s+A\s+COPY|COPY\s+(?:(?:TAX\s+)?INV\w*|RE?C(?:EI)?PT|SLIP|ONLY)|COPY\s*[-–:](?=\s)`
-  // `Copy 2 of 2` opening its line — `A4 COPY 50` and `Colour copy 10 x 2.50` are photocopies, a purchase.
+  + String.raw`|COPY(?=[\s*)\]=-]*$)|COPY\s+OF|IS\s+A\s+COPY|COPY\s+(?:(?:TAX\s+)?INV\w*|RE?C(?:EI)?PT|SLIP|ONLY)|COPY\s*[-–:](?=\s)|COPY\s+(?:No\.?\s*)?\d{1,2}\s+OF\s+\d{1,2}|COPY\s*#\s*\d{1,2}`
+  // `Copy 2 of 2` anywhere; `Copy 2` only opening its line — `A4 COPY 50` and `Colour copy 10 x 2.50` are photocopies.
   + String.raw`|^[\s*[(=-]*COPY\s+(?:No\.?\s*)?\d{1,2}(?:\s+OF\s+\d{1,2})?(?=[\s*)\]=-]*$))(?![A-Za-z])`, 'im');
 const MONEY_FIGURE = /\d[.,]\d{2}(?!\d)/;
 /** A date, a time printed after a date, or a labelled time — never the first money figure. */

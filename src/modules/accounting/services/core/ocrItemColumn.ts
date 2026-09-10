@@ -62,6 +62,11 @@ export function unexplainedItem(
         || inBlock.some((g, j) => j !== i && g.isSummary && near(f.value + g.value, total)));
     const stray = inBlock.find((f, i) => f.value !== 0 && !explained(f, i));
     if (stray) return stray.value;
+    // The tax is ONE figure, explained once (round 26): a second figure equal
+    // to it (`Total Delivery 150.00` beside `VAT 15% 150.00`) is a charge its
+    // value disguises — it passes both the tax test and the pair test above.
+    const taxLike = net !== null && !near(net, total - net) ? inBlock.filter((f) => near(f.value, total - net)) : [];
+    if (taxLike.length > 1) return taxLike[1]!.value;
   }
   const body = block < 0 ? lines : lines.slice(0, block);
   const items = body.map((line) => printedFigures(line, isCounter));

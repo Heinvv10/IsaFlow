@@ -2336,3 +2336,43 @@ A1 no total − VAT net (1) · A2 the block explained by role alone (2) · A3 no
 whole numbers (1) · A8 the change label's END anchor removed (1) · A9 `COPY RCPT/INV/ONLY` gone (1) · A10
 `REPRT/RE-PRT/REPR./RPT` gone (1) · A11 spaced letters gone (1) · A12 `NOT AN ORIGINAL`/`SECOND PRINT` gone (1) ·
 A13 `COPY` + digit anywhere again (1).
+
+---
+
+## Round 26 — the tax is explained once; `Copy N of M` anywhere; six VAT spellings
+
+Review: `review-k072-r25.md` (1H/1M/3L). The reviewer's `agents/rev-k072z/v1.diff` was read and applied
+deliberately; its two changes are kept as written, and three LOWs are closed beyond it. Harness as in round 25
+plus the reviewer's `z25`/`z25b` (118 probes): **2 825 rows**, run as stored and with every subtotal nulled.
+
+| Finding | Disposition |
+|---|---|
+| HIGH `Sub Total 1000 / Total Delivery 150.00 / VAT 15% 150.00 / TOTAL 1150` posted and approved (42 of 42) | FIXED (v1). A figure equal to the tax passed the block twice — as the tax (round 25's addition) and through the pair `150 + 1000` (v6's) — so a summary-labelled charge that coincides with the VAT hid in both. The tax is ONE figure: a second figure in the block equal to total − net refuses. 42 of 42 refuse on both routes, stored and with subtotal null (pinned, every label × three layouts plus the 2000 + 300 variants). **Stated fail-closed cost:** an honest block printing the VAT twice (`VAT 15% 150.00 / Total VAT 150.00`) refuses (2 of the reviewer's probes). |
+| MEDIUM `TAX INVOICE COPY 2 OF 2`, `Invoice copy 2 of 2`, `Page 1 of 1  Copy 2 of 2` posted twice (a round-25 regression) | FIXED (v1): `COPY [No] N OF M` matches anywhere on a line; bare `Copy N` still only opening its line. `COPY #2` (posting at every SHA, the one z-rp wrong row) added too. The copy shop still posts R115 (pinned). z-rp 4 → 0. |
+| LOW the re-pinned rebase test no longer pinned the warning | FIXED: the paid twin (`… Total Due 1160.00 / CARD 1160.00`) is the warning's own test — a paid document is spared the block check, so the warning is its only defence. Deleting `isUnreconciled(doc.warnings)` (`unattendedPostingGate.ts:105`) turns that test red (verified in isolation). |
+| LOW the pair rule's `j !== i` was unpinned | PINNED: `Total Delivery 575.00` (half the total) refuses as `stray 575`. |
+| LOW 6 honest VAT spellings refused on unpaid invoices | FIXED. `Plus VAT`, `Add: VAT`, `15% VAT`, `Add 15% VAT`, `Value Added Tax` open a tax line (`TAX_LINE_START`, `ocrPrintedFigures.ts`), so their figure is a summary figure explained by value, not an item row tripping the tax-row rule. **`Tax 15%` was different:** it was already a summary line; the regex VAT reader's generic `Tax` form read the RATE (15) as the amount, so the re-read VAT disagreed. That form now takes the optional rate and the same `(?![\d.,]*\s*%)` guard the bare VAT column has (`ocrAmountPatterns.ts`, still 299 lines). All six post at R1 150. The list fails closed and is pinned both ways for each spelling: `<spelling> 350.00` refuses (not the tax), and the same prefix before a non-tax word (`Plus Delivery 150.00`) is an item row and refuses. `BTW` was left out deliberately: added, it turned two BTW-only probes that the approval route passed into refusals, because the regex reader reads no VAT from `BTW` and a lone summary figure with no net is unexplained. |
+
+**Correction to the reviewer's LOW-3 baseline:** `Tax 15% 150.00` did not post at `45e49cb48` on the auto-post
+route — it refused there with "the VAT figure read is not the VAT the document prints" (the rate misread above).
+Only the approval route passed it.
+
+### Re-measured — head vs `5923eaf3c`, 2 825 rows (stored ≡ subtotal-null, row for row)
+
+| | `5923eaf3c` | **head** |
+|---|---|---|
+| unattended / WRONG, all rows | 414 / 89 | **372 / 43** |
+| tax-valued summary charges (z-taxsum; 42) | 42 / 42 | **0 / 0** |
+| reprint markings (z-rp; 24) | 4 / 4 | **0 / 0** |
+| VAT spellings and tax rows (z-taxrow; 18) | 9 / 0 | **15 / 0** |
+| the reviewer's ordinary documents (z-ord; 14) | 9 / 0 | **9 / 0** |
+
+Newly refused: **2**, both the stated double-VAT cost (zb-dbltax). Newly wrong: **0**. The 43 WRONG left are the
+accepted classes only (24 number-word references, 6 glued hours, 8 six-figure branch rows, 3 artefacts, 2 correct
+w-cnt posts). R-088 remains the real double-post exposure.
+
+### Mutations — 8, all RED, restored byte-identically
+
+B1 no second-tax check (1) · B2 a third tax figure needed (1) · B3 a figure pairs with itself (1) · B4 no tax-line
+vocabulary (1) · B5 the `Tax` form reads the rate (1) · B6 `Copy N of M` only on its own line (1) · B7 `COPY #2`
+gone (1) · B8 the rebase warning ignored (2 — the paid twin, and corpus R28).
