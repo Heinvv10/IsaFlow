@@ -11,6 +11,7 @@ import { log } from '@/lib/logger';
 import { vfStorage } from '@/services/vfStorageAdapter';
 import { extractFromPdf, extractFromImage } from '@/modules/accounting/services/core/ocrService';
 import { isVlmAvailable } from '@/modules/accounting/services/bank/vlmService';
+import { runAfterCommit } from '@/lib/afterCommit';
 import type {
   LinkedDocument,
   AccountingDocumentType,
@@ -93,6 +94,8 @@ export async function verifyEntityOwnership(entityId: string, companyId: string)
 }
 
 export interface UploadDocumentInput {
+  /** Owning tenant. Threaded through so the background extraction can fence itself. */
+  companyId: string;
   entityType: string;
   entityId: string;
   documentType: string;
@@ -108,7 +111,7 @@ export interface UploadDocumentInput {
 /** Upload file to VF Storage, insert DB record, and fire background VLM extraction */
 export async function uploadDocument(input: UploadDocumentInput): Promise<LinkedDocument> {
   const {
-    entityType, entityId, documentType, notes,
+    companyId, entityType, entityId, documentType, notes,
     filePath: tempFilePath, mimeType, size, originalFilename,
     uploadedBy, uploadedByName,
   } = input;
@@ -140,11 +143,11 @@ export async function uploadDocument(input: UploadDocumentInput): Promise<Linked
   }
 
   if (isVlmAvailable()) {
-    extractAndStoreDocMetadata(buffer, mimeType, docId).catch(err =>
+    runAfterCommit('procurement document extraction', () => extractAndStoreDocMetadata(buffer, mimeType, docId, companyId).catch(err =>
       log.warn('Background VLM extraction failed', {
         error: err instanceof Error ? err.message : String(err),
       }, 'accounting-docs'),
-    );
+    ));
   }
 
   return mapRow(row as Record<string, unknown>, 'direct');
@@ -216,8 +219,19 @@ export async function autoLinkSupplierInvoice(docId: string, invoiceId: string) 
   }
 }
 
-/** Background VLM extraction — stores result in extracted_data JSONB column */
-export async function extractAndStoreDocMetadata(buffer: Buffer, mimeType: string, docId: string) {
+/**
+ * Background VLM extraction — stores result in extracted_data JSONB column.
+ *
+ * Runs after the request COMMITs, on the pool's role with no RLS (R-075), so
+ * the UPDATE must fence itself. procurement_documents carries NO company_id:
+ * its tenancy lives in (entity_type, entity_id) -> parent row. The predicate
+ * below is the table's own `tenant_isolation_via_parent` policy with the
+ * membership subquery replaced by this request's company — all six entity
+ * types, so a row whose parent belongs to another tenant matches nothing.
+ */
+export async function extractAndStoreDocMetadata(
+  buffer: Buffer, mimeType: string, docId: string, companyId: string,
+) {
   const isPdf = mimeType === 'application/pdf';
   const isImage = mimeType.startsWith('image/');
 
@@ -228,11 +242,26 @@ export async function extractAndStoreDocMetadata(buffer: Buffer, mimeType: strin
     : await extractFromImage(buffer, mimeType);
 
   if (extracted && extracted.confidence > 0) {
-    await sql`
-      UPDATE procurement_documents
+    const stored = await sql`
+      UPDATE procurement_documents d
       SET extracted_data = ${JSON.stringify(extracted)}::jsonb
-      WHERE id = ${docId}::uuid
+      WHERE d.id = ${docId}::uuid
+        AND (
+          (d.entity_type = 'supplier_invoice' AND EXISTS (SELECT 1 FROM sage_supplier_invoices p WHERE p.id = d.entity_id AND p.company_id = ${companyId}::uuid))
+          OR (d.entity_type = 'customer_invoice' AND EXISTS (SELECT 1 FROM customer_invoices p WHERE p.id = d.entity_id AND p.company_id = ${companyId}::uuid))
+          OR (d.entity_type = 'supplier_payment' AND EXISTS (SELECT 1 FROM supplier_payments p WHERE p.id = d.entity_id AND p.company_id = ${companyId}::uuid))
+          OR (d.entity_type = 'customer_payment' AND EXISTS (SELECT 1 FROM customer_payments p WHERE p.id = d.entity_id AND p.company_id = ${companyId}::uuid))
+          OR (d.entity_type = 'credit_note' AND EXISTS (SELECT 1 FROM credit_notes p WHERE p.id = d.entity_id AND p.company_id = ${companyId}::uuid))
+          OR (d.entity_type = 'purchase_order' AND EXISTS (SELECT 1 FROM purchase_orders p WHERE p.id = d.entity_id AND p.company_id = ${companyId}::uuid))
+        )
+      RETURNING d.id
     `;
-    log.info('VLM extraction stored for document', { docId, confidence: extracted.confidence }, 'accounting-docs');
+    // By outcome: the fence can match nothing, and a success log there would be
+    // the same false "extraction complete" R-075 itself produced.
+    if (stored.length === 0) {
+      log.warn('VLM extraction discarded — document is not this company\'s', { docId, companyId }, 'accounting-docs');
+    } else {
+      log.info('VLM extraction stored for document', { docId, confidence: extracted.confidence }, 'accounting-docs');
+    }
   }
 }
