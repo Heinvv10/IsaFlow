@@ -1174,3 +1174,40 @@ Round 18 was 34 files / 18 tests; the k071, k140, k107 and two k144 failures are
 failed / 13 tests, identical set — none branch-only.** They are auth/2FA/impersonation, AFS,
 aging, K-035 webhooks, CSP/CSRF and fixture-data files; no bank, k071, k074, k107, k140, k143
 or k144 file among them.
+
+## Round 20 — blind review of `a67510130` (0 HIGH · 0 MEDIUM · 3 LOW), all fixed
+
+- **LOW-1** — `bank/.claude.md` (`tableLockUnavailable` bullet) and the
+  `k144-match-table-lock-not-a-race` docblock still said `lock_timeout` bounds every wait in the
+  request. Both now say the match UPDATE runs under `withBankLockBudget`'s 5s budget, which the
+  row lock does not leave behind. `AGENTS.md` regenerated; `agent-docs:check` 74/74.
+- **LOW-2** — `retryableContention.ts`: the two r19 continuation lines regained their ` * `.
+- **LOW-3** — `AutoPostRunsPanel.tsx` treated every 2xx as success and reloaded silently, so a
+  run with a skipped line (never recorded undone) stayed listed and Undo looked inert forever.
+  It now shows "Reversed N lines; M could not be undone because they are reconciled or still in
+  use. Unreconcile those lines, then undo the run again." when `undone` is false, and a 409 as
+  "Another request is working on this run's lines — try again in a moment." Found on the way:
+  every other failure rendered **"[object Object]"** — the error envelope's `error` is an
+  object — so the panel now reads `error.message`.
+  `tests/unit/components/autoPostRunsPanelUndoResult.test.tsx`: 4 cases; against the previous
+  panel 3 fail (partial notice, 409 wording, `[object Object]`), the full-undo case passes.
+- **Browser proof** (headless Chromium via Playwright, dev server from this worktree on
+  `isaflow_dev`, `reporting-qa@isaflow.dev`, Brightsphere). Seeded a run with one reconciled and
+  one stale-tagged line, loaded `/accounting/bank-transactions`, clicked Undo. POST answered
+  `200 {"reversed":0,"skipped":1,"alreadyUndone":1,"undone":false}`; the amber notice read
+  "Reversed 0 lines; 1 could not be undone because they are reconciled or still in use.
+  Unreconcile those lines, then undo the run again."; the run stayed listed. The 409 path was
+  not exercised in the browser (it needs a held row lock) — component test only. Seed rows
+  deleted afterwards; the dev server was stopped.
+- **Also noted by the review**: the K-107 bare-Error mutant was caught only by integration at the
+  process site. `supplierPaymentWorkflowService.test.ts` now pins `SupplierPaymentNotFoundError`
+  when the payment lock finds no row; with `supplierPaymentVoid.test.ts` (r19), reverting either
+  throw site to a bare `Error` turns a unit test red (measured, one site at a time).
+
+### Gates (round 20, foreground)
+
+`env -u DATABASE_URL bun run ci` (load 42.03 at start): unit-tests PASS, component-tests PASS,
+build PASS, `[ci] all checks passed`, EXIT=0.
+
+Integration, `--no-file-parallelism`, `k071-*`, `k140-*`, `k143-undo-*`, `k144-*`,
+`k107-supplier-payment-double-post`: **17 files passed, 51 tests passed, 1 skipped.**
