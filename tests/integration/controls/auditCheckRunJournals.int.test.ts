@@ -67,6 +67,10 @@ it('refuses a duplicate finding key, a tampered seal, an unpublished generation 
  await expect(actor(()=>readAuditCheckRunHeader(requireControlTx(),randomUUID()))).rejects.toEqual(unavailable('not_found'));
  const other=await actor(()=>enqueueAuditCheckRuns(requireControlTx(),{cutoff:CUTOFF,checks:['journal_risk_checks'],idempotencyKey:randomUUID()}));
  await expect(actor(()=>readAuditCheckRunHeader(requireControlTx(),other.jobs[0]!.id))).rejects.toEqual(unavailable('not_ready'));
+ // Whether someone else's run exists and is pending is the requester's to know: a colleague gets not_found, as
+ // getAuditJob shows a job's status only to the person who enqueued it.
+ await expect(actor(()=>readAuditCheckRunHeader(requireControlTx(),other.jobs[0]!.id),'u2'),'a colleague learned that a pending run exists')
+  .rejects.toEqual(unavailable('not_found'));
  await expect(actor(()=>readAuditCheckRunHeader(requireControlTx(),jobId),'u3')).rejects.toEqual(unavailable('not_found'));
  // The writer's RETURNING identity check rests on this constraint: one key may occupy only one ordinal per generation.
  await expect(pool.query(`INSERT INTO control_audit_check_findings(company_id,job_id,generation,lease_id,ordinal,finding_key,protected_item)
