@@ -170,6 +170,16 @@ Round 6's FOR SHARE on the `companies` row made every unrelated company write (l
 
 The tie test had to be built against the plan: the planner walks the `(document_id, section_type)` index, so the test gives the higher id the alphabetically first section type and writes it first; no scan order then agrees with id order.
 
+### Round 9 — warnings from the fingerprint, not a field list
+
+| # | Mutation | Result | Failing assertion |
+|---|---|---|---|
+| V1 | a footer comparison put back in the shared warning helper | killed (1) | a footer-only save claimed it would void a signature |
+| V2 | a footer comparison put back in the brand-profile route | killed (1) | a footer-only save claimed it would void a signature |
+| V3 | the helper warns for every document out for signature | killed (1) | a save that changed nothing warned anyway |
+| V4 | the helper never warns | killed (1) | the branding change gave no warning |
+| V5 | the company PUT bypasses the helper | killed (1) | the company change gave no warning |
+
 ### Why the survivors are not gaps
 
 - **N2** — the `AND status = <from>` predicate on the transition UPDATE is redundant *while the row lock stands* (N1/N2b prove the lock is what the tests hold). It is kept as defence for a caller that runs outside a request transaction, where `FOR UPDATE` releases at once.
@@ -192,6 +202,8 @@ No test was written to kill a redundant mutant.
 - **The logo is covered by its URL, not its image.** The posted HTML carries `<img src=logo_url>` and Signum fetches the image itself, so the picture behind an unchanged URL can change between the send and a signature, or between two signatories. Fix direction, for Hein to decide: embed the image bytes in the render (e.g. a data URI) and hash those bytes into the fingerprint.
 - **The report footer is never printed.** `brand_profiles.report_footer_text` is saved but the AFS renderer never reads it (only management-pack branding does). A latent defect, reported, not fixed here; the fingerprint now leaves it out because it is not printed.
 - **The fiscal year is fingerprinted even when a period is set.** The cover prints the period when there is one and falls back to the fiscal year; the fingerprint carries both raw fields rather than duplicate that rule in SQL, so a fiscal-year edit on a document that has a period voids a signature over identical bytes. Bounded (documents with a period are management packs) and deliberate.
+- **A suppressed note is still printed.** `suppress.ts` writes `data_snapshot.suppressReason`, but `renderDocumentHtml` does not filter suppressed sections, so a note the user suppressed appears in the signed statements. Pre-existing, outside this branch; for Hein.
+- **Accepted over-inclusions, reachable only out of band** (every section write is refused while signing): the sort_order VALUES are hashed although the render prints only the order, so a renumber that keeps order voids a signature; and `overrides` is hashed whole although a title-only override with empty blocks is not rendered.
 - **`lockAfsDocument` (afsDocumentService.ts) is dead code that would bypass signing.** It moves any non-signed status to `signed_off` with no lock, no section count and no delivery-hold release, and has no callers. Report only.
 
 - The platform-admin company page (`pages/admin/companies/[id].tsx`) does not display the rename warning the admin PATCH now returns. The file is 606 lines, already over the 300-line limit, so it was not grown; displaying the warning there needs that page split first.
