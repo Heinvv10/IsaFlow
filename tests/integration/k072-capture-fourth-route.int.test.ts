@@ -48,9 +48,10 @@ const reversedJournalDoc = crypto.randomUUID();
 const cancelledInvoiceDoc = crypto.randomUUID();
 const bothRoutesDoc = crypto.randomUUID();
 const twoLiveRowsDoc = crypto.randomUUID();
+const creditNoteDoc = crypto.randomUUID();
 const documents = [
   journalThenPipelineDoc, pipelineTwiceDoc, rejectedPipelineDoc,
-  reversedJournalDoc, cancelledInvoiceDoc, bothRoutesDoc, twoLiveRowsDoc,
+  reversedJournalDoc, cancelledInvoiceDoc, bothRoutesDoc, twoLiveRowsDoc, creditNoteDoc,
 ];
 
 const today = new Date().toISOString().slice(0, 10);
@@ -72,7 +73,10 @@ const extracted = (reference: string, total: number) => ({
     unitPrice: Math.round((total / 1.15) * 100) / 100,
     total: Math.round((total / 1.15) * 100) / 100,
   }],
-  rawText: '', confidence: 0.9, warnings: [], extractionMethod: 'vlm',
+  // The text the auto-post gate re-reads — without it nothing posts unattended.
+  rawText: `Sub Total ${(Math.round((total / 1.15) * 100) / 100).toFixed(2)}\n`
+    + `VAT ${(Math.round((total - total / 1.15) * 100) / 100).toFixed(2)}\nTotal ${total.toFixed(2)}`,
+  confidence: 0.9, warnings: [], extractionMethod: 'vlm',
 });
 
 /** The input tax the slip itself states — every assertion below reads it back. */
@@ -155,6 +159,24 @@ async function invoiceIds(documentId: string): Promise<string[]> {
     'SELECT id FROM supplier_invoices WHERE company_id=$1 AND source_document_id=$2 ORDER BY created_at',
     [company, documentId],
   )).rows.map((r) => String(r.id));
+}
+
+/** The statuses of the supplier invoices a document produced — 'approved' is unattended. */
+async function invoiceStatuses(documentId: string): Promise<string[]> {
+  return (await pool.query(
+    'SELECT status FROM supplier_invoices WHERE company_id=$1 AND source_document_id=$2 ORDER BY created_at',
+    [company, documentId],
+  )).rows.map((r) => String(r.status));
+}
+
+/** Reclassify a seeded document as a credit note, its figures printed positive. */
+async function markCreditNote(documentId: string): Promise<void> {
+  await pool.query(
+    `UPDATE captured_documents
+        SET extracted_data = jsonb_set(extracted_data, '{documentType}', '"credit_note"')
+      WHERE id=$1 AND company_id=$2`,
+    [documentId, company],
+  );
 }
 
 async function journalIds(documentId: string): Promise<string[]> {
@@ -263,6 +285,17 @@ describe('K-072 r7 HIGH-1 ai-invoice-pipeline is inside the fence', () => {
     expect(await postedAt(bothRoutesDoc)).toBeNull();
     expect((await pipeline(bothRoutesDoc)).state.statusCode).toBe(200);
     expect(await postedAt(bothRoutesDoc)).not.toBeNull();
+    // Approved unattended — the case the credit-note refusal below must not become.
+    expect(await invoiceStatuses(bothRoutesDoc)).toEqual(['approved']);
+  });
+
+  it('never approves a credit note unattended, whatever sign its figures carry', async () => {
+    // A refund booked as a supplier INVOICE raises the liability it should
+    // reduce. Positive figures are the usual credit-note layout, so the sign
+    // cannot be what stops it; the classification is.
+    await markCreditNote(creditNoteDoc);
+    expect((await pipeline(creditNoteDoc)).state.statusCode).toBe(200);
+    expect(await invoiceStatuses(creditNoteDoc)).toEqual(['draft']);
   });
 });
 

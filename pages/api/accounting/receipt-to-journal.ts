@@ -143,10 +143,7 @@ async function handler(req: CompanyAuthedRequest, res: NextApiResponse) {
     { accountVatDenied: accountDenial.denied },
   );
   const receiptType = parseReceiptType(extracted);
-  const autoPost = shouldAutoPostReceipt(
-    extracted.totalAmount || 0, extracted.confidence,
-    { maxAmount: 5000, minConfidence: 0.85 }, extracted.warnings,
-  );
+  const autoPost = shouldAutoPostReceipt(extracted, { maxAmount: 5000, minConfidence: 0.85 });
 
   // Create the entry through the validated posting service.
   //

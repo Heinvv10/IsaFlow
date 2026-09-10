@@ -13,9 +13,9 @@
  *
  * The nouns below are deliberately ones no denylist in this repo has ever
  * contained. Adding them to a denylist is the move that produced this defect
- * twice; the reader now collects every candidate and picks the one the
- * document's own arithmetic endorses, or the BOTTOM one with the disagreement
- * declared so `shouldAutoPostReceipt` refuses.
+ * twice; the reader now collects every candidate, offers the BOTTOM one as a
+ * guess and declares the disagreement, and `shouldAutoPostReceipt` refuses any
+ * slip that prints more than one total (`k076-unattended-posting-gate`).
  */
 
 import { describe, expect, it } from 'vitest';
@@ -29,7 +29,7 @@ function read(text: string) {
   const amounts = extractAmounts(text);
   return {
     ...amounts,
-    autoPost: shouldAutoPostReceipt(amounts.totalAmount ?? 0, 0.95, AUTO_POST, amounts.warnings),
+    autoPost: shouldAutoPostReceipt({ documentType: 'receipt', rawText: text, ...amounts, confidence: 0.95 }, AUTO_POST),
   };
 }
 
@@ -56,14 +56,17 @@ describe('K-076 — a section total is never the payable total', () => {
     expect(result.autoPost).toBe(false);
   });
 
-  it('lets the document arithmetic pick the payable when a net is printed', () => {
-    // `Delivery Total` is a candidate and `Sub Total` is not; 1000 + 150 picks
-    // 1150 out of the pair on evidence, so this posts unattended as before.
+  it('does not let the document arithmetic pick one of several totals', () => {
+    // `Delivery Total` is a candidate and `Sub Total` is not. Round 8 let
+    // 1000 + 150 pick 1150 out of the pair and post it; the same rule, on the
+    // VAT-analysis slip, picked the standard-rated 230.00 under a payable of
+    // 253.00. Arithmetic proves a figure is A total, not THE total — so the
+    // bottom figure is offered as the guess and the slip goes to a person.
     const result = read('Delivery Total 250.00\nSub Total 1000.00\nVAT 150.00\nTotal Due 1150.00');
     expect(result.totalAmount).toBe(1150);
     expect(result.subtotal).toBe(1000);
-    expect(result.warnings).toEqual([]);
-    expect(result.autoPost).toBe(true);
+    expect(isUnreconciled(result.warnings)).toBe(true);
+    expect(result.autoPost).toBe(false);
   });
 
   // The MIRROR of the section-total defect, and the one the first version of

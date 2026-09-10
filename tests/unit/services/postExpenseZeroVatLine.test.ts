@@ -157,6 +157,8 @@ const ZERO_VAT = {
   date: '2026-08-13',
   vendorName: 'Standard Bank',
   confidence: 0.95,
+  // The text the auto-post gate re-reads: one printed total, a VAT figure.
+  rawText: 'Standard Bank\nSub Total 500.00\nVAT 0.00\nTotal 500.00',
 };
 
 beforeEach(() => {
@@ -275,6 +277,17 @@ describe('capture post-expense — zero-VAT receipts', () => {
     // it looked up `WHERE id = <userId> AND company_id = <jeId>`, threw, and was
     // swallowed — auto-post never actually posted.
     expect(postMock).toHaveBeenCalledWith(COMPANY_ID, 'je-pe-1', USER_ID);
+  });
+
+  it('does not auto-post a credit note, though its figures are the same', async () => {
+    // The receipt above auto-posts; only the classification differs. A refund
+    // booked here is EXP / VAT-in / bank credit — the direction reversed.
+    stubDb({ ...ZERO_VAT, documentType: 'credit_note' });
+
+    await handler(req(), res());
+
+    expect(createMock).toHaveBeenCalled();
+    expect(postMock).not.toHaveBeenCalled();
   });
 });
 

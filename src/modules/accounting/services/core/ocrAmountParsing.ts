@@ -62,7 +62,8 @@ export function parseAmount(str: string): number {
     ? `${compact.slice(0, decimal.index).replace(/[.,]/g, '')}.${decimal[1]}`
     : compact.replace(/[.,]/g, '');
   const num = parseFloat(cleaned);
-  return isNaN(num) ? 0 : Math.round(num * 100) / 100;
+  // `+ 0` folds the -0 that a printed `-0.00` parses to into a plain zero.
+  return isNaN(num) ? 0 : Math.round(num * 100) / 100 + 0;
 }
 
 /** Does the printed form carry a decimal part? A registration number never does. */

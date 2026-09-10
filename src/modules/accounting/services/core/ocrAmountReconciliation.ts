@@ -96,10 +96,11 @@ export function reconcileNetAgainstTotal(
  * A denylist cannot be finished. `Goods Total` proved that — `NET_LABEL`
  * already knew `Goods Value`, so the vocabulary knew the noun and still read
  * the section as the payable — and `Items`, `Line`, `Order`, `Deposit` and
- * `Previous` all behaved the same way. So the total is now chosen POSITIVELY:
- * collect every candidate, and pick by the document's own arithmetic, or by
- * position (the grand total is the one at the BOTTOM) with the disagreement
- * declared. Adding a section noun is no longer a thing anyone has to do.
+ * `Previous` all behaved the same way. So every candidate is collected, and a
+ * document that prints more than one distinct figure is DECLARED ambiguous
+ * rather than resolved: `selectTotalAmount` offers a guess, and
+ * `unattendedPostingGate` refuses to post it unattended. Adding a section noun
+ * is no longer a thing anyone has to do.
  */
 export function extractTotalCandidates(text: string): number[] {
   for (const pattern of GLOBAL_TOTAL_PATTERNS) {
@@ -125,62 +126,41 @@ export interface SelectedTotal {
 }
 
 /**
- * The payable total out of the candidates, and whether the choice is safe to
- * post unattended.
+ * The best guess at the payable total, for the person reviewing the capture.
  *
- * One distinct figure is not a choice at all. Where several disagree, the LAST
- * one wins, because a grand total is printed below the sections it sums, and
- * the disagreement is declared under the `UNRECONCILED_WARNING` prefix so
- * `shouldAutoPostReceipt` refuses. An operator looking at the capture screen
- * then reads both figures; nobody is looking on the unattended path, which is
- * where the R87.50 went.
+ * It no longer decides money on its own, and that is the whole change. Four
+ * rounds tried to PICK the payable out of several printed totals, and each
+ * picking rule was beaten by a slip it was not written for. The last of them —
+ * "`subtotal + VAT` may endorse only the bottom figure" — read R230.00 off a
+ * mixed basket whose VAT-analysis block is printed UNDER the tender:
  *
- * The warning is dropped ONLY when the printed net plus the printed tax comes
- * to the BOTTOM figure. `subtotal + VAT` matching a candidate ANYWHERE was the
- * previous rule and it inverted the defect it was written for: on the ordinary
- * layout that prints a gratuity, a delivery fee or a rounding line BELOW the
- * Sub Total / VAT / Total block —
+ *     TOTAL 253.00 / CASH 300.00 / CHANGE 47.00 /
+ *     VAT ANALYSIS / Sub Total 200.00 / VAT 15% 30.00 / Total 230.00
  *
- *     Sub Total 200.00 / VAT 30.00 / Total 230.00 / Gratuity 23.00 / Total Due 253.00
+ * That block's own arithmetic covers only the standard-rated part, so the
+ * endorsement matched it, the warning was suppressed and the slip posted R23
+ * short. The text is genuinely ambiguous; no ordering rule can be finished.
  *
- * — 200 + 30 endorsed the INTERMEDIATE 230.00, and because the endorsement
- * branch also suppressed the warning it converted a correct refusal into a
- * silent wrong number: measured, total 230.00 against a payable of 253.00,
- * `warnings: []`, `autoPost: true`, the journal balancing by construction and
- * the bank credited R230.00. `subtotal + VAT` proves a figure is *a* total of
- * the VAT-bearing part; it is no evidence that nothing was added below it.
- *
- * Requiring the endorsed figure to be the bottom one costs the case where the
- * payable is endorsed and something LARGER is printed under it (a cash-tendered
- * line). That document is genuinely ambiguous from the labels alone — which is
- * the denylist this module abolished — and on an unattended posting path the
- * correct default for an ambiguous document is to refuse, not to guess.
+ * So one distinct figure is a fact, and several are a question. The BOTTOM one
+ * is offered as the guess, because a grand total is usually printed below what
+ * it sums, and the ambiguity is always declared under `UNRECONCILED_WARNING` so
+ * the capture screen says so. Whether the document may post with nobody
+ * looking is `unattendedPostingRefusal`'s decision, and it refuses every
+ * document that prints more than one. Do not add a rule here that makes one of
+ * several candidates safe to post.
  */
-export function selectTotalAmount(
-  candidates: readonly number[],
-  subtotal: number | null,
-  vatAmount: number | null,
-): SelectedTotal {
+export function selectTotalAmount(candidates: readonly number[]): SelectedTotal {
   if (candidates.length === 0) return { totalAmount: null, warning: null };
 
   const last = candidates[candidates.length - 1]!;
   const distinct = [...new Set(candidates)];
   if (distinct.length === 1) return { totalAmount: last, warning: null };
 
-  const endorsed = subtotal !== null && vatAmount !== null
-    ? Math.round((subtotal + vatAmount) * 100) / 100
-    : null;
-  if (endorsed !== null && endorsed === last) return { totalAmount: last, warning: null };
-
   const figures = distinct.map((c) => c.toFixed(2)).join(', ');
-  const arithmetic = endorsed !== null
-    ? `its own subtotal and VAT come to ${endorsed.toFixed(2)}, which is not the bottom figure`
-    : 'its own subtotal and VAT settle none of them';
   return {
     totalAmount: last,
     warning: `${UNRECONCILED_WARNING} (totals ${figures}) — the document prints more than one `
-      + `total and ${arithmetic}; read the payable as `
-      + `${last.toFixed(2)}. Check it before posting.`,
+      + `total; the bottom one, ${last.toFixed(2)}, is shown as the payable. Check it before posting.`,
   };
 }
 

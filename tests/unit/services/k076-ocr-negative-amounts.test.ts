@@ -24,7 +24,7 @@ function read(text: string) {
   const amounts = extractAmounts(text);
   return {
     ...amounts,
-    autoPost: shouldAutoPostReceipt(amounts.totalAmount ?? 0, 0.95, AUTO_POST, amounts.warnings),
+    autoPost: shouldAutoPostReceipt({ documentType: 'receipt', rawText: text, ...amounts, confidence: 0.95 }, AUTO_POST),
   };
 }
 
@@ -63,7 +63,43 @@ describe('K-076 — the sign of a printed amount', () => {
   });
 
   it('still refuses a zero total unattended', () => {
-    expect(shouldAutoPostReceipt(0, 0.99, AUTO_POST, [])).toBe(false);
-    expect(shouldAutoPostReceipt(1150, 0.99, AUTO_POST, [])).toBe(true);
+    expect(read('Sub Total 0.00\nVAT 0.00\nTotal 0.00').autoPost).toBe(false);
+    expect(read('Sub Total 1150.00\nVAT 0.00\nTotal 1150.00').autoPost).toBe(true);
+  });
+
+  // The VAT line's separator is REQUIRED. Round 9 stopped it consuming a dash
+  // glued to the figure, which did not make `VAT-0.00` negative — it made it
+  // NULL, and the builder replaces a null VAT with 15% of the total: an
+  // invented R13.04 claim on a zero-rated slip, auto-posted.
+  it('reads VAT-0.00 as a zero, not as nothing', () => {
+    expect(read('Sub Total 100.00\nVAT-0.00\nTotal 100.00').vatAmount).toBe(0);
+    expect(read('VAT-0.00\nTotal 100.00').vatAmount).toBe(0);
+  });
+
+  it('reads VAT-150.00 with its sign, and refuses it', () => {
+    const result = read('Sub Total 1000.00\nVAT-150.00\nTotal Due 1150.00');
+    expect(result.vatAmount).toBe(-150);
+    expect(result.autoPost).toBe(false);
+  });
+
+  it('still refuses a registration number glued to a dash as the VAT', () => {
+    // The glued dash is now read as a SIGN here, so `-4123456789` reaches the
+    // plausibility test — which compares magnitude, and refuses it.
+    const result = read('VAT-4123456789\nSub Total 1000.00\nVAT 150.00\nTotal 1150.00');
+    expect(result.vatAmount).toBe(150);
+  });
+
+  // `VALUE_SEP` at every label it sits behind: a dash glued to the figure is a
+  // minus sign. Each row fails if its site reverts to consuming the dash.
+  const GLUED_MINUS: [string, string, Partial<Record<'subtotal' | 'vatAmount' | 'totalAmount', number>>][] = [
+    ['Amount Due', 'Amount Due -115.00', { totalAmount: -115 }],
+    ['Incl VAT', 'Incl VAT -115.00', { totalAmount: -115 }],
+    ['Tax Amount', 'Sub Total -100.00\nTax Amount -15.00', { vatAmount: -15 }],
+    ['Excl VAT', 'Excl VAT -100.00', { subtotal: -100 }],
+    ['Nett Excl', 'Nett Excl -100.00', { subtotal: -100 }],
+  ];
+
+  it.each(GLUED_MINUS)('reads a minus sign glued to the figure after "%s"', (_label, text, expected) => {
+    expect(extractAmounts(text)).toMatchObject(expected);
   });
 });
