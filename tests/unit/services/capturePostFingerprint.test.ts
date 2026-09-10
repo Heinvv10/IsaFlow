@@ -25,6 +25,17 @@ vi.mock('@/lib/auth', () => ({
   withAuth: (fn: unknown) => fn,
   withWriteAccess: (fn: unknown) => fn,
 }));
+// The capture posting routes now read the event through
+// `captureEventLock.lockCaptureEventForPosting`, which takes a `FOR UPDATE`
+// row lock and refuses to run outside a request transaction. These tests drive
+// the handler directly, with no `withAuth`, so stand in a client whose only job
+// is to accept the `SET LOCAL lock_timeout`. The SELECT itself still reaches
+// sqlMock, so the stubbing below is unchanged.
+vi.mock('@/lib/als', () => ({
+  als: { getStore: () => ({ client: { query: async () => undefined } }) },
+  assertTxUsable: () => undefined,
+}));
+
 vi.mock('@/lib/auth/withCsrf', () => ({ withCsrf: (fn: unknown) => fn }));
 vi.mock('@/lib/api-error-handler', () => ({ withErrorHandler: (fn: unknown) => fn }));
 vi.mock('@/lib/apiResponse', () => ({
