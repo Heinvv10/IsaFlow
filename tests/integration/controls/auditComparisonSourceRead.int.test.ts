@@ -29,13 +29,16 @@ it('independent census refuses omitted source rows and swapped encrypted positio
  try{await expect(f.actor(async ctx=>{const h=await readComparisonSourceHeader(ctx,f.id,f.hash);for await(const row of iterateComparisonSourceItems(ctx,h,'records'))void row;})).rejects.toThrow(/identity/);}
  finally{await f.pool.query("UPDATE control_audit_comparison_source_items SET protected_item=$3::jsonb WHERE company_id=$1 AND snapshot_id=$2 AND section='records' AND position=1",[f.f.companyA,f.id,JSON.stringify(f.projection.items[1]!.protectedItem)]);}
 });
-it('reports a real retained snapshot without a projection explicitly and does no conversion',async()=>{
+it('reports an explicitly simulated pre-projection retained snapshot and does no read-time conversion',async()=>{
  const {enqueueAuditSnapshot}=await import('@/modules/accounting/services/controls/auditJobService');
  const {runAuditSnapshotJob}=await import('@/modules/accounting/services/controls/auditJobRunner');
  const {randomUUID}=await import('node:crypto');
  const job=await f.actor(ctx=>enqueueAuditSnapshot(ctx,{cutoff:'2026-09-09',sources:['journals'],checks:[],idempotencyKey:randomUUID()}));
  expect(await runAuditSnapshotJob({companyId:f.f.companyA,personId:f.f.u1.id,jobId:job.id},{pool:f.pool})).toMatchObject({state:'succeeded'});
  const saved=(await f.pool.query('SELECT canonical_hash FROM control_audit_snapshots WHERE company_id=$1 AND id=$2',[f.f.companyA,job.id])).rows[0];
+ // Remove only this synthetic companion to model pre-upgrade retention; preserve the real original/index.
+ await f.pool.query('DELETE FROM control_audit_comparison_source_items WHERE company_id=$1 AND snapshot_id=$2',[f.f.companyA,job.id]);
+ await f.pool.query('DELETE FROM control_audit_comparison_sources WHERE company_id=$1 AND snapshot_id=$2',[f.f.companyA,job.id]);
  await expect(f.actor(ctx=>readComparisonSourceHeader(ctx,job.id,saved.canonical_hash))).rejects.toThrow('Comparison source projection unavailable');
  expect((await f.pool.query('SELECT snapshot_id FROM control_audit_comparison_sources WHERE company_id=$1 AND snapshot_id=$2',[f.f.companyA,job.id])).rows).toHaveLength(0);
 });

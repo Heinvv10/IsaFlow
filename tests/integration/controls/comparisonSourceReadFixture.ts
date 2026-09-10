@@ -7,7 +7,8 @@ import {withControlRequest,requireControlTx} from '@/modules/accounting/services
 import {enqueueAuditSnapshot} from '@/modules/accounting/services/controls/auditJobService';
 import {runAuditSnapshotJob} from '@/modules/accounting/services/controls/auditJobRunner';
 import {readRetainedAuditSnapshot} from '@/modules/accounting/services/controls/auditSnapshotPublication';
-import {sealComparisonSource} from '@/modules/accounting/services/controls/auditComparisonSourceProtection';
+import type {SnapshotIndexEnvelope} from '@/modules/accounting/services/controls/auditSnapshotIndexContract';
+import type {ComparisonSection} from '@/modules/accounting/services/controls/auditSnapshotComparisonMaterial';
 import type {ControlTx} from '@/modules/accounting/services/controls/contracts';
 export async function comparisonSourceReadFixture(){
  const config=fixtureConfigFromEnv(process.env),target=validateFixtureTarget(config);
@@ -24,11 +25,11 @@ export async function comparisonSourceReadFixture(){
   const outcome=await runAuditSnapshotJob({companyId:f.companyA,personId:f.u1.id,jobId:job.id},{pool});
   if(outcome.state!=='succeeded')throw new Error('Synthetic retained snapshot worker failed');
   const retained=await actor(ctx=>readRetainedAuditSnapshot(ctx,job.id));
-  const projection=await sealComparisonSource(retained.sealed,{companyId:f.companyA,snapshotId:job.id},['read:payroll','read:reports']);
-  // Fixture-only storage of genuine authenticated projections; source publication service is not implemented here.
-  const lease=randomUUID();
-  await pool.query('INSERT INTO control_audit_comparison_sources(company_id,snapshot_id,build_job_id,build_generation,build_lease_id,protected_header) VALUES($1,$2,$2,1,$3,$4::jsonb)',[f.companyA,job.id,lease,JSON.stringify(projection.protectedHeader)]);
-  await pool.query('INSERT INTO control_audit_comparison_source_items(company_id,snapshot_id,build_job_id,build_generation,build_lease_id,section,position,protected_item) SELECT $1,$2,$2,1,$3,r.section,r.position,r.envelope FROM jsonb_to_recordset($4::jsonb) AS r(section text,position integer,envelope jsonb)',[f.companyA,job.id,lease,JSON.stringify(projection.items.map(row=>({section:row.section,position:row.position,envelope:row.protectedItem})))]);
+  // Read the real producer's envelopes for precise tamper/restore tests; this fixture publishes no companion rows.
+  const source=(await pool.query('SELECT protected_header FROM control_audit_comparison_sources WHERE company_id=$1 AND snapshot_id=$2',[f.companyA,job.id])).rows[0];
+  if(!source)throw new Error('Synthetic snapshot omitted comparison source');
+  const items=(await pool.query('SELECT section,position,protected_item FROM control_audit_comparison_source_items WHERE company_id=$1 AND snapshot_id=$2 ORDER BY section,position',[f.companyA,job.id])).rows as {section:ComparisonSection;position:number;protected_item:SnapshotIndexEnvelope}[];
+  const projection={protectedHeader:source.protected_header as SnapshotIndexEnvelope,items:items.map(row=>({section:row.section,position:row.position,protectedItem:row.protected_item}))};
   return{f,pool,actor,id:job.id,hash:retained.sealed.canonicalHash,projection,close:()=>pool.end()};
  }catch(error){await pool.end();throw error;}
 }
