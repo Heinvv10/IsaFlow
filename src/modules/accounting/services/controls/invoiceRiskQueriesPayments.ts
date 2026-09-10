@@ -11,7 +11,7 @@ export async function loadPaymentRiskPopulation(ctx:ControlTx,cutoff:string|null
    COALESCE(a.allocations,'[]'::jsonb) AS allocations,COALESCE(a.n,0)::int AS allocation_count,
    COALESCE(r.attempts,'[]'::jsonb) AS attempts,COALESCE(r.n,0)::int AS attempt_count,b.verified_at::text AS legacy_verified_at
   FROM supplier_payments p LEFT JOIN suppliers s ON s.company_id=p.company_id AND s.id=p.supplier_id
-  LEFT JOIN LATERAL(SELECT cv.* FROM control_entity_versions cv WHERE cv.company_id=p.company_id AND cv.entity_type='supplier_payment' AND lower(cv.entity_id)=p.id::text ORDER BY (cv.entity_id=p.id::text) DESC,cv.entity_id COLLATE "C" LIMIT 1) v ON true
+  LEFT JOIN LATERAL(SELECT cv.* FROM control_entity_versions cv WHERE cv.company_id=p.company_id AND cv.entity_type='supplier_payment' AND lower(cv.entity_id)=p.id::text ORDER BY cv.version DESC,(cv.entity_id=p.id::text) DESC,cv.entity_id COLLATE "C" LIMIT 1) v ON true
   LEFT JOIN LATERAL (SELECT jsonb_agg(jsonb_build_object('invoice_id',x.invoice_id,'amount',x.amount_allocated::text,'currency',x.currency) ORDER BY x.invoice_id) AS allocations,max(x.n) AS n
    FROM (SELECT pa.invoice_id,pa.amount_allocated,i.currency,count(*) OVER() AS n FROM payment_allocations pa
     LEFT JOIN supplier_invoices i ON i.company_id=p.company_id AND i.id=pa.invoice_id AND i.supplier_id=p.supplier_id

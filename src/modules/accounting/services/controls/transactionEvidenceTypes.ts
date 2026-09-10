@@ -6,7 +6,7 @@ export interface EvidenceIdentity { entityType: EvidenceEntityType; entityId: st
 export interface EvidenceNode extends EvidenceIdentity {
   status: string; version: number | null; recordedSince: string | null;
   hashAvailability: 'available' | 'missing' | 'not_applicable';
-  flags: Array<'missing'|'ambiguous'|'reversed'|'untracked'>;
+  flags: Array<'missing'|'ambiguous'|'reversed'|'untracked'|'forked'>;
 }
 export interface EvidenceEdge { from: EvidenceIdentity; to: EvidenceIdentity; relation: string; provenance: 'recorded' }
 export interface CoverageGap { source: EvidenceIdentity; reason: string }

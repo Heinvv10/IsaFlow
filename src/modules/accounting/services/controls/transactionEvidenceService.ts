@@ -79,6 +79,8 @@ export async function inspectTransactionEvidence(ctx: ControlTx,input:{entityTyp
     if(n.entityType==='bank_attachment')documentCounts.bank_attachment++;
     if(n.flags.includes('untracked'))gap(n,'HISTORICAL_VERSION_UNTRACKED');
     if(n.flags.includes('ambiguous'))gap(n,'AMBIGUOUS_RECORDED_PARENT',true);
+    // A fork is reported, never hidden; a fork with no lineage to follow is also an incomplete answer.
+    if(n.flags.includes('forked'))gap(n,n.version===null?'CONTROL_LINEAGE_AMBIGUOUS':'CONTROL_LINEAGE_FORKED',n.version===null);
     if(n.hashAvailability==='missing')gap(n,'DOCUMENT_HASH_OR_BYTES_UNAVAILABLE');
   }
   if(Object.values(documentCounts).every(n=>n===0))gap(root,'NO_DOCUMENT_IN_VISITED_GRAPH');
