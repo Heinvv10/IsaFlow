@@ -4,7 +4,7 @@ const shared=vi.hoisted(()=>({enqueue:vi.fn(),page:vi.fn(),ctx:{synthetic:'adapt
 vi.mock('@/modules/accounting/services/controls/context',()=>({requireControlTx:()=>shared.ctx}));
 vi.mock('@/modules/accounting/services/controls/auditComparisonJobService',()=>({enqueueAuditComparison:shared.enqueue}));
 vi.mock('@/modules/accounting/services/controls/auditComparisonPageService',()=>({getAuditComparisonPage:shared.page}));
-import {auditComparisonsHandler} from '../../../../pages/api/accounting/audit-comparisons';
+import {auditComparisonsHandler} from '../../../pages/api/accounting/audit-comparisons';
 const id='11111111-1111-4111-8111-111111111111';
 function response(){const res={status:vi.fn(),json:vi.fn(),setHeader:vi.fn()};res.status.mockReturnValue(res);return res;}
 async function invoke(method:string,body:unknown={},query:unknown={}){const res=response();await auditComparisonsHandler({method,body,query} as NextApiRequest,res as unknown as NextApiResponse);return res;}
