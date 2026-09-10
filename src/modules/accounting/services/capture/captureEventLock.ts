@@ -1,5 +1,6 @@
 /**
- * Row-lock helper for the two capture POSTING routes.
+ * Row-lock helpers and the postable-status vocabulary for the capture write
+ * routes — `post.ts`, `post-expense.ts` and `discard.ts`.
  *
  * `capture/[id]/post.ts` and `capture/[id]/post-expense.ts` both read
  * `capture_events.status`, refuse in JavaScript when it is already `'posted'`,
@@ -20,6 +21,11 @@
  * Only `ce` is locked. `captured_documents` is joined for `extracted_data` and
  * must not be locked here — the extraction pipeline writes that row.
  *
+ * `discard.ts` locks too (`lockCaptureEventRow`): it is the third writer of the
+ * column the post guard reads, and its own unpredicated
+ * `UPDATE ... SET status = 'discarded'` used to land AFTER a concurrent post
+ * and leave a posted bill on an event the inbox showed as discarded.
+ *
  * Write paths ONLY — the inbox list queries must never take this lock.
  */
 
@@ -33,6 +39,44 @@ import { als, assertTxUsable } from '@/lib/als';
  * holds this capture event, try again.
  */
 const RETRYABLE_LOCK_ERRORS = new Set(['55P03', '40P01']);
+
+/**
+ * The closed status vocabulary of `capture_events`, transcribed from the CHECK
+ * constraint migration 409 created and no later migration has altered.
+ */
+const CAPTURE_EVENT_STATUSES = [
+  'received', 'extracting', 'extracted', 'posted', 'discarded', 'failed',
+] as const;
+
+export type CaptureEventStatus = (typeof CAPTURE_EVENT_STATUSES)[number];
+
+/**
+ * The statuses a capture event may still be posted FROM.
+ *
+ * Expressed as an allow-list, not as a list of statuses to refuse. The guard's
+ * question is "is this event still open for posting?", and the two routes used
+ * to answer it by naming ONE value — `status === 'posted'` — which made every
+ * other non-postable state postable. `'discarded'` was the live case: a user
+ * discards a captured bill, the post route sees a status that is not
+ * `'posted'`, and accrues it to payables anyway. No race needed.
+ *
+ * `'received'` / `'extracting'` stay postable because they always were, and the
+ * routes' own `!extracted_data` refusal is what actually stops an event whose
+ * extraction has not finished. `'failed'` stays postable because it is a RETRY
+ * state, not a terminal one — `post.ts` itself parks a duplicate there, and
+ * `routeEvent` parks an extraction error there.
+ *
+ * Anything outside the vocabulary fails CLOSED: a status added to the CHECK
+ * constraint tomorrow is not postable until someone decides here that it is.
+ */
+const POSTABLE_CAPTURE_EVENT_STATUSES: ReadonlySet<string> = new Set<CaptureEventStatus>([
+  'received', 'extracting', 'extracted', 'failed',
+]);
+
+/** Terminal for posting: the work is either done or abandoned. */
+export function isCaptureEventPostable(status: unknown): boolean {
+  return typeof status === 'string' && POSTABLE_CAPTURE_EVENT_STATUSES.has(status);
+}
 
 /**
  * Raised when another request holds the capture event longer than the 5s
@@ -73,6 +117,64 @@ export async function lockCaptureEventForPosting(
   companyId: string,
   eventId: string,
 ): Promise<DbRow | null> {
+  return lockWithTimeout(eventId, async () => (await sql`
+    SELECT ce.id AS event_id, ce.status AS event_status,
+           ce.captured_document_id, cd.extracted_data
+    FROM capture_events ce
+    JOIN captured_documents cd ON cd.id = ce.captured_document_id
+    WHERE ce.id = ${eventId}::uuid
+      AND ce.company_id = ${companyId}
+      AND cd.company_id = ${companyId}
+    LIMIT 1
+    FOR UPDATE OF ce
+  `) as DbRow[]);
+}
+
+/**
+ * Lock ONE capture event row, with no join to `captured_documents`.
+ *
+ * `discard.ts` needs the same serialisation as the post routes — it is the
+ * third writer of the column the post guard reads — but it must not inherit
+ * the posting read's INNER JOIN: `capture_events.captured_document_id` is
+ * nullable, so an event that never produced a document would stop being
+ * discardable, which is a guard failing in the other direction.
+ */
+export async function lockCaptureEventRow(
+  companyId: string,
+  eventId: string,
+): Promise<DbRow | null> {
+  return lockWithTimeout(eventId, async () => (await sql`
+    SELECT id, status
+    FROM capture_events
+    WHERE id = ${eventId}::uuid
+      AND company_id = ${companyId}
+    LIMIT 1
+    FOR UPDATE
+  `) as DbRow[]);
+}
+
+/**
+ * Run one `FOR UPDATE` read under a bounded lock wait.
+ *
+ * The 5s `lock_timeout` is RESET the moment the lock is granted. `SET LOCAL`
+ * otherwise bounds every lock wait for the REST of the transaction, so a
+ * downstream 55P03 — JE numbering, `gl_account_balances`, a relation lock
+ * during DDL — escaped as an opaque 500 while the identical contention one
+ * statement earlier answered 409. Resetting keeps ONE contract on this path:
+ * lock contention on the capture event is a 409 (`apiResponse.conflict`, the
+ * convention `bank/bankTxLock.ts` and the bank routes already use on this
+ * codebase — NOT `apiDocumentLock`'s 503 + `Retry-After`, which the capture
+ * routes have never spoken), and everything downstream behaves exactly as it
+ * did before this lock existed.
+ *
+ * The reset runs only after a GRANTED lock. A 55P03 aborts the transaction, so
+ * issuing any further statement in a `finally` would raise 25P02 and mask the
+ * real error.
+ */
+async function lockWithTimeout(
+  eventId: string,
+  read: () => Promise<DbRow[]>,
+): Promise<DbRow | null> {
   const client = als.getStore()?.client;
   if (!client) {
     throw new Error(
@@ -83,17 +185,8 @@ export async function lockCaptureEventForPosting(
   assertTxUsable();
   await client.query("SET LOCAL lock_timeout = '5s'");
   try {
-    const rows = (await sql`
-      SELECT ce.id AS event_id, ce.status AS event_status,
-             ce.captured_document_id, cd.extracted_data
-      FROM capture_events ce
-      JOIN captured_documents cd ON cd.id = ce.captured_document_id
-      WHERE ce.id = ${eventId}::uuid
-        AND ce.company_id = ${companyId}
-        AND cd.company_id = ${companyId}
-      LIMIT 1
-      FOR UPDATE OF ce
-    `) as DbRow[];
+    const rows = await read();
+    await client.query('SET LOCAL lock_timeout = DEFAULT');
     return rows[0] ?? null;
   } catch (err) {
     if (isRetryableLockError(err)) throw new CaptureEventLockedError(eventId);
