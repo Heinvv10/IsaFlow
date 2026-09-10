@@ -11198,6 +11198,39 @@
       "severity": "medium",
       "source": "Measured by the K-071 round-22 fixer on isaflow_dev: {\"afterHand\":{\"e1\":0,\"e2\":40},\"afterUndo\":{\"e1\":-60,\"e2\":0},\"undone\":true} — account E1 ends at -60 after the undo.",
       "processNotes": "K-071 round 22 fixed the re-reversed-contra case (a recursive CTE counts posted contras: odd = off the books, even = the posting is back, routed to a failed skip). The hand-offset case is NOT covered and was left deliberately. Decide the contract first: refuse to undo when the net movement is already zero by other means, require the user to reverse rather than offset, or surface the net and ask. Related: [[K-071]]."
+    },
+    {
+      "id": "R-080",
+      "claim": "",
+      "area": "accounting/procurement",
+      "affectedPaths": [
+        "src/modules/accounting/services/core/documentStorageService.ts"
+      ],
+      "sourceLabel": "",
+      "sourceIds": [],
+      "correctedTrigger": "",
+      "severityRationale": "Fails closed: an upload against a purchase_orders parent is refused by the helper even though the policy would allow it. No leak, but the application check and the database policy state different rules, and the next person to change either will not know which is authoritative.",
+      "auditedSha": "",
+      "currentSha": "",
+      "status": "confirmed",
+      "dependencies": [
+        "R-075"
+      ],
+      "testNames": [],
+      "evidencePaths": [
+        "docs/audits/remediation/R-075/fix.md"
+      ],
+      "fixCommit": null,
+      "pr": null,
+      "deployedSha": null,
+      "historicalDataImpact": "None known; a refused upload leaves no wrong data. Count procurement_documents rows whose entity_type is purchase_orders to see whether the path is used at all.",
+      "canonicalItem": null,
+      "reportedSeverity": "",
+      "branch": null,
+      "title": "verifyEntityOwnership and procurement_documents' RLS policy disagree: the helper covers 5 of the policy's 6 parent tables (purchase_orders missing)",
+      "severity": "low",
+      "source": "Found by the R-075 round-3 fixer while making the after-commit callback reproduce tenant_isolation_via_parent verbatim from pg_policies.",
+      "processNotes": "Decide which is authoritative and make the other match. Read the policy from pg_policies, not from the migration text, since policies have been edited in place."
     }
   ],
   "sourceInventory": [
