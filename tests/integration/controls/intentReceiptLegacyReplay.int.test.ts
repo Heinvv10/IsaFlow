@@ -120,6 +120,11 @@ it('a legacy uppercase transfer is readable provenance and still linkable',async
  const prepared=await actorAs(pool,user,ctx=>prepareBankAllocation(ctx,{version:1,kind:'transfer',bankTransactionId:opposite,counterpartyAccountId:source.bank_account_id}));
  const [saved]=(await pool.query('SELECT payload FROM control_bank_allocation_intents WHERE company_id=$1 AND id=$2',[company,prepared.intentId])).rows;
  expect(saved.payload.transfer).toMatchObject({mode:'link',originalIntentId:outcome.intentId});
+ // Executing the link reloads the saved plan, which resolves the legacy original by its own receipt.
+ const approvalId=await approve(seed,prepared.operation);
+ await actorAs(pool,user,ctx=>executeBankAllocation(ctx,prepared.intentId,{approvalId}));
+ expect((await pool.query('SELECT status FROM bank_transactions WHERE company_id=$1 AND id=$2',[company,opposite])).rows[0].status).toBe('allocated');
+ expect(await receiptsFor(pool,company,prepared.intentId,'bank_allocation.post')).toHaveLength(1);
 },60000);
 it('the legacy bank reversal adapter resolves a legacy uppercase allocation as provenance',async()=>{
  const seed=seeds.upper,outcome=committed(seed,'bankAdapter'),user=seed.fixture.u1;applySeedKeys(seed);

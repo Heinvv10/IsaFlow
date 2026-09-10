@@ -29,10 +29,9 @@ export async function recordCommittedChange(ctx: ControlTx, input: ChangeEventIn
       ORDER BY (entity_id=${input.entityId}) DESC,entity_id LIMIT 1` as { entity_id: string }[];
     const entityId = retained ? retained.entity_id : input.entityId;
     const versions = input.previousVersion === null
+      // The baseline targets the retained spelling, so a lineage retained under any spelling conflicts and refuses.
       ? await ctx.sql`INSERT INTO control_entity_versions(company_id,entity_type,entity_id,version,material_hash)
-          SELECT ${p.companyId}::uuid,${input.entityType},${entityId},${input.newVersion},${materialHash}
-          WHERE NOT EXISTS(SELECT 1 FROM control_entity_versions WHERE company_id=${p.companyId}::uuid
-            AND entity_type=${input.entityType} AND lower(entity_id)=lower(${entityId}))
+          VALUES(${p.companyId}::uuid,${input.entityType},${entityId},${input.newVersion},${materialHash})
           ON CONFLICT(company_id,entity_type,entity_id) DO NOTHING RETURNING version`
       : await ctx.sql`UPDATE control_entity_versions SET version=${input.newVersion},material_hash=${materialHash},updated_at=clock_timestamp()
           WHERE company_id=${p.companyId}::uuid AND entity_type=${input.entityType} AND entity_id=${entityId}
