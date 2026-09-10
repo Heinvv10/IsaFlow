@@ -23,7 +23,7 @@ it('refuses a foreign bank at current material preparation before any GL effects
 it('refuses voiding unprocessed and reconciled payments without financial changes',async()=>{
  const invoice=await f.invoice();await f.post(invoice);const payment=await f.payment(invoice);let before=await f.state();
  await expect(f.voidPayment(payment)).rejects.toThrow();expect(await f.state()).toEqual(before);
- await f.process(payment);await f.pool.query('UPDATE supplier_payments SET is_reconciled=true WHERE company_id=$1 AND id=$2',[f.f.companyA,payment]);before=await f.state();
+ await f.process(payment);await f.pool.query("UPDATE supplier_payments SET status='reconciled' WHERE company_id=$1 AND id=$2",[f.f.companyA,payment]);before=await f.state();
  await expect(f.voidPayment(payment)).rejects.toThrow();expect(await f.state()).toEqual(before);
 });
 it('rolls back journal and invoice changes when final payment cancellation fails',async()=>{
