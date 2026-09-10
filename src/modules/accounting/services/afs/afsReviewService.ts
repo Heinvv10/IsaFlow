@@ -1,5 +1,6 @@
 // src/modules/accounting/services/afs/afsReviewService.ts
 import { sql } from '@/lib/neon';
+import {assertIndependentRequestReview} from '@/modules/accounting/services/controls/independentReview';
 import { log } from '@/lib/logger';
 import type { SectionStatus, DocumentStatus } from './afsTypes';
 import { SECTION_STATUS_ORDER } from './afsTypes';
@@ -136,6 +137,7 @@ export async function markSectionReviewed(
   sectionId: string,
   userId: string
 ): Promise<{ sectionId: string; newStatus: SectionStatus }> {
+  assertIndependentRequestReview();
   const { section, document } = await getSectionWithDocument(companyId, sectionId);
 
   if (!section || !document || document.id !== documentId) {
@@ -167,6 +169,7 @@ export async function signOffSection(
   sectionId: string,
   userId: string
 ): Promise<{ sectionId: string; newStatus: SectionStatus }> {
+  assertIndependentRequestReview();
   const { section, document } = await getSectionWithDocument(companyId, sectionId);
 
   if (!section || !document || document.id !== documentId) {
@@ -240,6 +243,7 @@ export async function signOffDocument(
   documentId: string,
   userId: string
 ): Promise<{ documentId: string; newStatus: DocumentStatus }> {
+  assertIndependentRequestReview();
   const doc = await getDocument(companyId, documentId);
   if (!doc) throw new ReviewError('Document not found', 'NOT_FOUND');
 

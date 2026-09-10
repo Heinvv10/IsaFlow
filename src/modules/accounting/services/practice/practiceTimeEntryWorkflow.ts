@@ -1,4 +1,5 @@
 import { sql } from '@/lib/neon';
+import {assertIndependentRequestReview} from '@/modules/accounting/services/controls/independentReview';
 import { log } from '@/lib/logger';
 import type { DbRow } from '@/types/db';
 import { resolveRate } from './practiceStaffRateService';
@@ -185,6 +186,7 @@ export async function approvePracticeEntries(
   ids: string[],
   approverUserId: string,
 ): Promise<number> {
+  assertIndependentRequestReview();
   if (!ids.length) return 0;
   const rows = (await sql`
     UPDATE time_entries

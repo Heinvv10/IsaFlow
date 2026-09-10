@@ -1,5 +1,6 @@
 import { createHmac } from 'crypto';
 import { jwtVerify, SignJWT, type JWTPayload } from 'jose';
+import { log } from '@/lib/logger';
 
 const ISSUER = 'isaflow';
 const AUDIENCE = 'isaflow-impersonation';
@@ -16,6 +17,8 @@ interface DelegationInput {
   actorUserId: string;
   targetUserId: string;
   targetSessionId: string;
+  /** The stash row this delegation belongs to: deleting it ends the delegation. */
+  stashId: string;
   /** Unix seconds, from the verified actor JWT and persisted stash respectively. */
   actorExpiresAt: number;
   stashExpiresAt: number;
@@ -24,14 +27,14 @@ interface DelegationInput {
 /** Call only after platform-admin authorization and successful stash/audit writes. */
 export async function mintImpersonationProof(input: DelegationInput): Promise<string> {
   const now = Math.floor(Date.now() / 1000);
-  if (![input.actorUserId, input.targetUserId, input.targetSessionId].every(identifier)
+  if (![input.actorUserId, input.targetUserId, input.targetSessionId, input.stashId].every(identifier)
     || ![input.actorExpiresAt, input.stashExpiresAt].every(Number.isSafeInteger)) {
     throw new Error('Invalid impersonation identity or expiration');
   }
   const expiresAt = Math.min(input.actorExpiresAt, input.stashExpiresAt, now + 3600);
   if (expiresAt <= now) throw new Error('Impersonation authorization expired');
   // No sub claim and a separate key: this envelope cannot act as a GoTrue JWT.
-  return new SignJWT({ version: 1, actorUserId: input.actorUserId,
+  return new SignJWT({ version: 1, actorUserId: input.actorUserId, stashId: input.stashId,
     targetUserId: input.targetUserId, targetSessionId: input.targetSessionId })
     .setProtectedHeader({ alg: 'HS256' }).setIssuer(ISSUER).setAudience(AUDIENCE)
     .setIssuedAt(now).setExpirationTime(expiresAt).sign(key());
@@ -39,18 +42,49 @@ export async function mintImpersonationProof(input: DelegationInput): Promise<st
 
 /** The target JWT must already have passed its own signature/expiry verification. */
 export async function validateImpersonationProof(proof: string, target: JWTPayload): Promise<boolean> {
-  if (!identifier(target.sub) || !identifier(target.session_id)) return false;
+  return await impersonationActor(proof, target) !== null;
+}
+
+/**
+ * The platform administrator this session is delegated to, or null when the
+ * proof does not authorize this exact target session, or the delegation it
+ * claims is no longer live. Authority decisions that
+ * require an independent human need the actor, not just the fact of validity.
+ */
+export async function impersonationActor(proof: string, target: JWTPayload): Promise<string | null> {
+  if (!identifier(target.sub) || !identifier(target.session_id)) return null;
   try {
     const { payload } = await jwtVerify(proof, key(), {
       algorithms: ['HS256'], issuer: ISSUER, audience: AUDIENCE,
       requiredClaims: ['exp', 'iat'], maxTokenAge: '1h',
     });
-    return payload.version === 1 && identifier(payload.actorUserId)
+    const valid = payload.version === 1 && identifier(payload.actorUserId) && identifier(payload.stashId)
       && payload.targetUserId === target.sub && payload.targetSessionId === target.session_id
       && Number.isSafeInteger(payload.exp) && Number.isSafeInteger(payload.iat)
       && payload.exp! > payload.iat! && payload.exp! - payload.iat! <= 3600;
+    if (!valid) return null;
+    return await delegationIfLive(String(payload.stashId), String(payload.actorUserId), target.sub, target.session_id);
   } catch {
     // Invalid delegation never authorizes: the caller retains ordinary MFA checks.
-    return false;
+    return null;
+  }
+}
+
+/**
+ * A liveness check that cannot run (missing function, missing EXECUTE for the DATABASE_URL
+ * login role, database unavailable) refuses the proof: the request falls back to ordinary
+ * MFA checks, so the impersonation MFA bypass is off. That is fail-closed, not a 500 - and
+ * it is logged, because it is otherwise indistinguishable from an ended delegation.
+ */
+async function delegationIfLive(stashId: string, actorUserId: string, targetUserId: string,
+  targetSessionId: string): Promise<string | null> {
+  try {
+    // Lazy so the signature-only surface stays importable without a database.
+    const { impersonationDelegationLive } = await import('./impersonationDelegation');
+    return await impersonationDelegationLive(stashId, actorUserId, targetUserId, targetSessionId) ? actorUserId : null;
+  } catch (error) {
+    log.error('impersonation delegation liveness could not be checked; proof refused',
+      { stashId, message: error instanceof Error ? error.message : String(error) }, 'Auth');
+    return null;
   }
 }

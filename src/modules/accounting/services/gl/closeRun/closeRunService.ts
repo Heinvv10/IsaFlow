@@ -17,6 +17,7 @@
  */
 
 import { log } from '@/lib/logger';
+import {assertIndependentRequestReview} from '@/modules/accounting/services/controls/independentReview';
 import { withSavepoint } from '@/lib/neon';
 import { getCloseReadiness } from '../periodCloseReadinessService';
 import { postJournalEntry, ClosedFiscalPeriodError } from '../journalEntryPostingService';
@@ -109,6 +110,7 @@ export async function decideProposal(
   decision: Decision,
   userId: string,
 ): Promise<CloseProposal> {
+  assertIndependentRequestReview();
   const proposal = await repo.getProposalById(companyId, proposalId);
   if (!proposal || proposal.closeRunId !== runId) {
     throw new CloseRunNotFoundError(`Proposal ${proposalId} not found in close run ${runId}`);

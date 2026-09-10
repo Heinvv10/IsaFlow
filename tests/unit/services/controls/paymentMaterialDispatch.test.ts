@@ -1,5 +1,5 @@
 import { beforeEach, expect, it, vi } from 'vitest';
-import type { ControlTx, OperationRef } from '@/modules/accounting/services/controls/contracts';
+import type { ControlPrincipal, ControlTx, OperationRef } from '@/modules/accounting/services/controls/contracts';
 const mocks = vi.hoisted(() => ({ batch: vi.fn(), release: vi.fn(), permit: vi.fn() }));
 vi.mock('@/modules/accounting/services/ap/paymentBatchMaterializer', () => ({ materializePaymentBatchOperation: mocks.batch }));
 vi.mock('@/modules/accounting/services/ap/paymentReleaseMaterializer', () => ({ materializePaymentReleaseOperation: mocks.release }));
@@ -8,13 +8,15 @@ import { canonicalOperationRef, materializeOperation } from '@/modules/accountin
 import { registerGeneratedJournal, type ParentJournalControl } from '@/modules/accounting/services/controls/generatedJournalPermit';
 beforeEach(() => { vi.clearAllMocks(); });
 const id = '11111111-1111-4111-8111-111111111111';
+const principal: ControlPrincipal = { companyId: id, personId: '33333333-3333-4333-8333-333333333333', authMethod: 'cookie', provenance: 'human',
+  connectionId: null, grantId: null, actingFirmId: null, delegatedByPersonId: null, grantedScopes: null, requestId: 'request', operationId: 'operation' };
 it.each([
   ['supplier_payment_batch', 'supplier_payment_batch.process', 'batch'],
   ['payment_release_intent', 'payment_release.dispatch', 'release'],
 ] as const)('routes %s through the authoritative payment materializer', async (entityType, operation, target) => {
   const ref: OperationRef = { entityType, entityId: id, operation };
   expect(canonicalOperationRef(ref)).toEqual(ref);
-  const ctx = {} as ControlTx; mocks[target].mockResolvedValue({ binding: { amount: '115', currency: 'ZAR' } });
+  const ctx = { principal } as ControlTx; mocks[target].mockResolvedValue({ binding: { amount: '115', currency: 'ZAR' } });
   expect(await materializeOperation(ctx, ref)).toEqual({ binding: { amount: '115', currency: 'ZAR' } });
   expect(mocks[target]).toHaveBeenCalledWith(ctx, ref);
 });

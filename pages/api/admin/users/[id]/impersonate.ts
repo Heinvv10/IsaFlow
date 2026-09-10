@@ -72,6 +72,31 @@ async function handler(req: PlatformAdminRequest, res: NextApiResponse): Promise
     targetUserId: target.userId,
   });
 
+  // The minted session id is recorded below: control decisions read it to see
+  // an impersonated session even when the delegation-proof cookie is dropped.
+  let proof: string;
+  let targetSessionId: string;
+  try {
+    const [actorClaims, targetClaims, stash] = await Promise.all([
+      verifyTokenSignature(adminAccess), verifyTokenSignature(targetTokens.access_token), loadStash(stashId),
+    ]);
+    if (actorClaims.sub !== req.user.id || targetClaims.sub !== target.userId
+      || !stash || stash.admin_user_id !== req.user.id || stash.target_user_id !== target.userId
+      || typeof targetClaims.session_id !== 'string' || typeof actorClaims.exp !== 'number') {
+      throw new Error('Impersonation session identity mismatch');
+    }
+    targetSessionId = targetClaims.session_id;
+    proof = await mintImpersonationProof({
+      actorUserId: req.user.id, targetUserId: target.userId, targetSessionId: targetClaims.session_id, stashId,
+      actorExpiresAt: actorClaims.exp, stashExpiresAt: Math.floor(new Date(stash.expires_at).getTime() / 1000),
+    });
+  } catch (proofErr) {
+    await deleteStash(stashId).catch((cleanupErr: unknown) =>
+      log.error('impersonate: proof setup cleanup failed', { stashId, error: String(cleanupErr) }, 'Admin'),
+    );
+    throw proofErr;
+  }
+
   // Pentest H11: impersonation_start is a CRITICAL_ACTION. withAdmin opens NO
   // transaction, so ordering is the guarantee: the audit INSERT is awaited
   // BEFORE cookies are set — if it throws, impersonation never starts. On
@@ -85,7 +110,7 @@ async function handler(req: PlatformAdminRequest, res: NextApiResponse): Promise
         'impersonation_start',
         'user',
         ${target.userId},
-        ${JSON.stringify({ stash_id: stashId, target_email: target.email })}::jsonb
+        ${JSON.stringify({ stash_id: stashId, target_email: target.email, target_session_id: targetSessionId })}::jsonb
       )
     `;
   } catch (auditErr) {
@@ -97,27 +122,6 @@ async function handler(req: PlatformAdminRequest, res: NextApiResponse): Promise
       ),
     );
     throw auditErr;
-  }
-
-  let proof: string;
-  try {
-    const [actorClaims, targetClaims, stash] = await Promise.all([
-      verifyTokenSignature(adminAccess), verifyTokenSignature(targetTokens.access_token), loadStash(stashId),
-    ]);
-    if (actorClaims.sub !== req.user.id || targetClaims.sub !== target.userId
-      || !stash || stash.admin_user_id !== req.user.id || stash.target_user_id !== target.userId
-      || typeof targetClaims.session_id !== 'string' || typeof actorClaims.exp !== 'number') {
-      throw new Error('Impersonation session identity mismatch');
-    }
-    proof = await mintImpersonationProof({
-      actorUserId: req.user.id, targetUserId: target.userId, targetSessionId: targetClaims.session_id,
-      actorExpiresAt: actorClaims.exp, stashExpiresAt: Math.floor(new Date(stash.expires_at).getTime() / 1000),
-    });
-  } catch (proofErr) {
-    await deleteStash(stashId).catch((cleanupErr: unknown) =>
-      log.error('impersonate: proof setup cleanup failed', { stashId, error: String(cleanupErr) }, 'Admin'),
-    );
-    throw proofErr;
   }
 
   setAuthCookies(res, {

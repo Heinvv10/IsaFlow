@@ -77,13 +77,14 @@ beforeEach(async () => {
   fixture.validateImpersonationTarget.mockResolvedValue({ userId: targetId, email: 'target@test.local' });
   fixture.generateLink.mockResolvedValue({ token: 'synthetic-link' });
   fixture.verifyMagicLink.mockResolvedValue({ access_token: targetToken, refresh_token: 'target-refresh', expires_in: 3600 });
-  fixture.stashAdminTokens.mockResolvedValue('synthetic-stash');
+  fixture.stashAdminTokens.mockResolvedValue('33333333-3333-4333-8333-333333333333');
   fixture.deleteStash.mockResolvedValue(undefined);
-  fixture.loadStash.mockResolvedValue({ stash_id: 'synthetic-stash', admin_user_id: adminId,
+  fixture.loadStash.mockResolvedValue({ stash_id: '33333333-3333-4333-8333-333333333333', admin_user_id: adminId,
     target_user_id: targetId, admin_access_token: adminToken, admin_refresh_token: 'admin-refresh',
     expires_at: new Date(Date.now() + 3_600_000) });
   fixture.sql.mockImplementation(async (parts: TemplateStringsArray) =>
-    parts.join('').includes('SELECT company_id') ? [{ company_id: companyId }]
+    parts.join('').includes('impersonation_delegation_live') ? [{ live: true }]
+      : parts.join('').includes('SELECT company_id') ? [{ company_id: companyId }]
       : parts.join('').includes('FROM users') ? [{ is_active: true, status: 'active', suspended_at: null }] : []);
   fixture.query.mockImplementation(async (sql: string) => ({ command: sql.trim().split(/\s+/)[0]!.toUpperCase(), rows: sql.includes('FROM company_users')
     ? [{ role: 'admin', account_user_id: targetId, is_active: true, status: 'active', suspended_at: null }] : [] }));
@@ -114,7 +115,10 @@ it('starts an authorized MFA-target impersonation, uses the emitted cookies on w
   expect(decodeJwt(proof).exp).toBeLessThanOrEqual(Math.floor(stash.expires_at.getTime() / 1000));
   const rotatedToken = await new SignJWT({ ...decodeJwt(targetToken), rotation: 1 })
     .setProtectedHeader({ alg: 'HS256' }).sign(new TextEncoder().encode(process.env.JWT_SECRET));
+  const calls: string[] = [];
   vi.stubGlobal('fetch', vi.fn(async (url: string | URL | Request, init?: RequestInit) => {
+    calls.push(String(url));
+    if (String(url).includes('/logout')) return new Response(null, { status: 204 });
     expect(String(url)).toContain('/token?grant_type=refresh_token');
     expect(JSON.parse(String(init?.body))).toEqual({ refresh_token: 'target-refresh' });
     return Response.json({ access_token: rotatedToken, refresh_token: 'rotated-refresh',
@@ -136,13 +140,34 @@ it('starts an authorized MFA-target impersonation, uses the emitted cookies on w
   applyCookies(jar, ended);
   expect(jar['sb-access-token']).toBe(adminToken);
   expect(jar['sb-impersonation-proof']).toBeUndefined();
-  expect(fixture.deleteStash).toHaveBeenCalledWith('synthetic-stash');
+  expect(fixture.deleteStash).toHaveBeenCalledWith('33333333-3333-4333-8333-333333333333');
+  // The impersonated GoTrue session must not outlive the impersonation: its refresh
+  // token would otherwise keep working, unflagged, for as long as the member is enrolled.
+  expect(calls.some(url => url.includes('/logout?scope=local'))).toBe(true);
   const restored = response();
   await withAuth(async (req: PlatformAdminRequest, res: NextApiResponse) => {
     expect(req.user.id).toBe(adminId);
     res.status(200).json({ restored: true });
   })(request(jar, 'GET'), restored.res);
   expect(restored.state.statusCode).toBe(200);
+});
+
+it('records the impersonated target session and carries the actor into the control principal', async () => {
+  const jar: Record<string, string> = { 'sb-access-token': adminToken, 'sb-refresh-token': 'admin-refresh' };
+  const started = response();
+  await start(request(jar), started.res);
+  expect(started.state.statusCode).toBe(200);
+  const audit = fixture.sql.mock.calls.find(call => String((call[0] as string[]).join('')).includes('admin_audit_log'));
+  const details = (audit ?? []).slice(1).find(value => typeof value === 'string' && value.startsWith('{'));
+  expect(JSON.parse(String(details))).toMatchObject({ target_session_id: 'target-magiclink-session' });
+  applyCookies(jar, started);
+  const { als } = await import('@/lib/als');
+  const seen = response();
+  await withAuth(async (_req: PlatformAdminRequest, res: NextApiResponse) => {
+    expect(als.getStore()?.controlPrincipal?.impersonatorPersonId).toBe(adminId);
+    res.status(200).json({ ok: true });
+  })(request(jar, 'GET'), seen.res);
+  expect(seen.state.statusCode).toBe(200);
 });
 
 it('denies a pending MFA token copied into the access cookie without delegation proof', async () => {
@@ -161,7 +186,7 @@ it.each(['stash', 'audit'])('does not emit delegation or target cookies when %s 
   await expect(start(request({ 'sb-access-token': adminToken, 'sb-refresh-token': 'admin-refresh' }), result.res))
     .rejects.toThrow(`${failure} unavailable`);
   expect(result.headers.get('set-cookie')).toBeUndefined();
-  if (failure === 'audit') expect(fixture.deleteStash).toHaveBeenCalledWith('synthetic-stash');
+  if (failure === 'audit') expect(fixture.deleteStash).toHaveBeenCalledWith('33333333-3333-4333-8333-333333333333');
 });
 
 
@@ -192,5 +217,5 @@ it('refuses issuance when the provider target token has no session_id', async ()
   await expect(start(request({ 'sb-access-token': adminToken, 'sb-refresh-token': 'admin-refresh' }), result.res))
     .rejects.toThrow();
   expect(result.headers.get('set-cookie')).toBeUndefined();
-  expect(fixture.deleteStash).toHaveBeenCalledWith('synthetic-stash');
+  expect(fixture.deleteStash).toHaveBeenCalledWith('33333333-3333-4333-8333-333333333333');
 });

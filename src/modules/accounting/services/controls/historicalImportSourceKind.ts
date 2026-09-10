@@ -3,6 +3,7 @@ import {UUID_RE} from '@/lib/validation';
 import {assertControlTx} from './context';
 import {openProtectedChange,type ProtectedChange} from './changeProtection';
 import {decodeHistoricalImportSource} from './historicalImportSourceService';
+import {assertPlatformImportSourceRead} from './platformImportConfinement';
 import type {ControlTx} from './contracts';
 import type {HistoricalImportKind} from './historicalImportTypes';
 const kinds=['gl','opening_balance','customer_invoice','supplier_invoice'];
@@ -12,6 +13,7 @@ type Row={id:string;content_hash:string;normalized_hash:string;source_digest:str
 export async function readHistoricalImportSourceKind(ctx:ControlTx,id:string):Promise<HistoricalImportKind|null>{
  assertControlTx(ctx);await assertEffectivePermission(ctx,'read:imports');
  if(!UUID_RE.test(id))throw new Error('Invalid historical source identity');id=id.toLowerCase();
+ await assertPlatformImportSourceRead(ctx,id);
  const rows=await ctx.sql`SELECT s.id,s.content_hash,s.normalized_hash,
   encode(sha256(convert_to(s.payload_envelope->>'ciphertext','UTF8')),'hex') AS source_digest,
   s.payload_envelope->>'keyId' AS source_key,(s.payload_envelope->>'version')::int AS source_version,

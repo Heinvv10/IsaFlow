@@ -3,6 +3,7 @@
  * Handles leave types, balances, and requests.
  */
 import { sql } from '@/lib/neon';
+import {assertIndependentRequestReview} from '@/modules/accounting/services/controls/independentReview';
 import { fmtDate } from '@/lib/fmtDate';
 import type { DbRow } from '@/lib/neon';
 import { log } from '@/lib/logger';
@@ -263,6 +264,8 @@ export async function updateLeaveRequest(
   companyId: string,
   update: { status: 'approved' | 'rejected' | 'cancelled'; approvedBy?: string },
 ): Promise<LeaveRequest> {
+  // Approving or rejecting leave records an approver; cancelling is the requester's own act.
+  if (update.status !== 'cancelled') assertIndependentRequestReview();
   const now = new Date().toISOString();
   await sql`
     UPDATE payroll_leave_requests

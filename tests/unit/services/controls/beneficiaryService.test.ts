@@ -20,9 +20,9 @@ const bank = { ...oldBank, accountNumber: '00987654321' };
 const evidence = [{ store: 'captured' as const, evidenceId: '44444444-4444-4444-8444-444444444444', entityType: 'supplier_invoice', entityId: ref.entityId, hash: 'a'.repeat(64), version: null }];
 const proposalId = '33333333-3333-4333-8333-333333333333';
 const client = { query: vi.fn().mockResolvedValue({ rows: [] }) } as unknown as PoolClient;
-function run<T>(personId: string, fn: (ctx: ReturnType<typeof requireControlTx>) => Promise<T>, authMethod: 'cookie' | 'pat' = 'cookie') {
+function run<T>(personId: string, fn: (ctx: ReturnType<typeof requireControlTx>) => Promise<T>, authMethod: 'cookie' | 'pat' = 'cookie', impersonatorPersonId: string | null = null) {
   return withControlRequest({ client, userId: personId, companyId, claims: {} },
-    { personId, companyId, authMethod, connectionId: proposalId, grantId: proposalId, grantedScopes: ['write:beneficiaries'] }, () => fn(requireControlTx()));
+    { personId, companyId, authMethod, connectionId: proposalId, grantId: proposalId, grantedScopes: ['write:beneficiaries'], impersonatorPersonId }, () => fn(requireControlTx()));
 }
 beforeEach(() => {
   vi.clearAllMocks();
@@ -112,6 +112,14 @@ it('rejection releases the proposal hold without activating banking', async () =
   expect(result).toEqual({ proposalId, status: 'rejected' });
   expect(q.markTerminal).toHaveBeenCalledWith(expect.anything(), proposalId, 'rejected');
   expect(q.activateBank).not.toHaveBeenCalled();
+});
+it('never accepts an impersonated session as the independent beneficiary reviewer', async () => {
+  await expect(run('u2', ctx => service.verifyBeneficiaryChange(ctx, proposalId, evidence), 'cookie', 'u1'))
+    .rejects.toThrow('Impersonated self approval is not permitted');
+  await expect(run('u2', ctx => service.rejectBeneficiaryChange(ctx, proposalId, 'reject'), 'cookie', 'platform-admin'))
+    .rejects.toThrow('An impersonated session cannot record an independent review');
+  expect(q.activateBank).not.toHaveBeenCalled();
+  expect(q.markTerminal).not.toHaveBeenCalled();
 });
 it('only the cookie requester can cancel, and cannot self-reject', async () => {
   await expect(run('u2', ctx => service.cancelBeneficiaryChange(ctx, proposalId, 'withdraw'))).rejects.toThrow('REQUESTER_REQUIRED');

@@ -1,3 +1,4 @@
+import {assertPlatformImportOperation} from './platformImportConfinement';
 import {randomUUID} from 'node:crypto';
 import {assertControlTx} from './context';
 import {UUID_RE} from '@/lib/validation';
@@ -27,7 +28,7 @@ function postingActor(ctx:ControlTx){
   if(principal.provenance!=='agent'||!token)throw new Error('Historical import credential provenance is unavailable');
   return{actorType:'agent',actorTokenJti:token,postingAgent:'mcp:historical_import:v1'};
  }
- if(principal.authMethod!=='cookie'||principal.provenance!=='human')throw new Error('Historical import requires authenticated member provenance');
+ if(!['cookie','platform_import'].includes(principal.authMethod)||principal.provenance!=='human')throw new Error('Historical import requires authenticated member provenance');
  return{actorType:'human',actorTokenJti:null,postingAgent:`human:${principal.personId}`};
 }
 async function receipt(ctx:ControlTx,ref:OperationRef):Promise<HistoricalImportEffect|null>{
@@ -51,6 +52,7 @@ export async function executeHistoricalImport(ctx:ControlTx,input:OperationRef,a
  assertControlTx(ctx);
  const ref=canonicalOperationRef(input);
  if(ref.entityType!=='historical_import'||ref.operation!=='historical_import.post'||!UUID_RE.test(ref.entityId))throw new Error('Invalid historical import operation');
+ await assertPlatformImportOperation(ctx,ref,'execute');
  const company=ctx.principal.companyId,user=ctx.principal.personId;
  const [intent]=await ctx.sql`SELECT requester_person_id,kind FROM control_historical_imports WHERE company_id=${company}::uuid AND id=${ref.entityId}::uuid` as Row[];
  if(!intent||intent.requester_person_id!==user)throw new Error('Historical import belongs to another requester or is unavailable');

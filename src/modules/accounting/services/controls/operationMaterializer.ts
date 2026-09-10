@@ -1,3 +1,4 @@
+import {assertPlatformImportOperation} from './platformImportConfinement';
 import {materializeCashApplicationOperation} from '../shared/cashApplicationMaterial';
 import {materializeBankStatementAttestation} from './bankStatementAttestationMaterial';
 import {materializePayrollCompensationOperation} from './payrollCompensationMaterial';
@@ -68,6 +69,7 @@ export interface OperationMaterial extends ApMaterial {
 export async function loadOperationMaterial(ctx: ControlTx, input: OperationRef): Promise<OperationMaterial> {
   assertControlTx(ctx);
   const ref = canonicalOperationRef(input);
+  await assertPlatformImportOperation(ctx,ref,'materialize');
   // Root627 policy mutations take the same tenant lock, including INSERT phantoms.
   await ctx.sql`SELECT pg_advisory_xact_lock(hashtextextended(${`control-policy:${ctx.principal.companyId}`},0))`;
   const rules = await loadApprovalRules(ctx, operationRuleType(ref.operation));
@@ -106,6 +108,7 @@ export async function reserveOperationExposure(ctx: ControlTx, material: Operati
 
 /** Authoritative source material is shared by approval, execution and after-effect evidence. */
 export async function materializeOperation(ctx:ControlTx,ref:OperationRef):Promise<ApMaterial>{
+  await assertPlatformImportOperation(ctx,ref,'materialize');
   if(['cash_application_intent','cash_application_reversal_intent'].includes(ref.entityType))return materializeCashApplicationOperation(ctx,ref);
   if(ref.entityType==='bank_statement_attestation_intent')return materializeBankStatementAttestation(ctx,ref);
   if(ref.entityType==='payroll_compensation_intent')return materializePayrollCompensationOperation(ctx,ref);

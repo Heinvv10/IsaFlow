@@ -1,4 +1,5 @@
 import {assertStandalonePaymentVoid,assertStandalonePaymentProcess} from './batchPaymentValidation';
+import {assertIndependentRequestReview} from '@/modules/accounting/services/controls/independentReview';
 import {assertCashApplicationsUnapplied} from '../shared/cashApplicationCancellation';
 /**
  * Supplier Payment Workflow Service
@@ -24,6 +25,7 @@ import { recordPaymentStatusApproval } from './supplierPaymentStatusControl';
 type Row = DbRow;
 
 export async function approveSupplierPayment(companyId: string, id: string, userId: string): Promise<SupplierPayment> {
+  assertIndependentRequestReview();
   return recordPaymentStatusApproval(companyId, id, userId, () => approveSupplierPaymentEffect(companyId, id, userId));
 }
 

@@ -1,3 +1,4 @@
+import {assertPlatformImportOperation} from './platformImportConfinement';
 import {UUID_RE} from '@/lib/validation';
 import {assertEffectivePermission} from '@/lib/auth/effectivePermissions';
 import {assertControlTx} from './context';
@@ -8,6 +9,7 @@ import type {ControlTx,OperationRef} from './contracts';
 /** Replay proves present authority; knowledge of an old effect ID does not grant execution or read access. */
 export async function replayKnownOperationEffect<T>(ctx:ControlTx,input:OperationRef,effectId:string):Promise<T>{
  assertControlTx(ctx);const ref=canonicalOperationRef(input);
+ await assertPlatformImportOperation(ctx,ref,'execute');
  await assertEffectivePermission(ctx,operationPermission(ref.operation,'write'));
  if(operationRequiresPosting(ref.operation))await assertEffectivePermission(ctx,'write:post');
  if(!UUID_RE.test(effectId))throw new Error('Invalid operation effect association');

@@ -22,7 +22,7 @@ export async function loadAuthorizedPaymentRelease(ctx:ControlTx,inputIntentId:s
  assertReleaseApprovalCurrent(approval);
  if(approval.status!=='consumed'||approval.binding.entityId!==intentId||approval.binding.operation!=='payment_release.dispatch'
   ||approval.requester_person_id!==ctx.principal.personId||!approval.binding.policies.some(p=>p.mandatory))throw new Error('Consumed independent release authority required');
- await assertRequesterAuthority(approval,authorities);await validateDecisions(ctx,approval,await approvalDecisions(ctx,approval.id),authorities);
+ await assertRequesterAuthority(ctx,approval,authorities);await validateDecisions(ctx,approval,await approvalDecisions(ctx,approval.id),authorities);
  const [outbox]=await ctx.sql`SELECT *,intent_id AS id FROM control_payment_release_outbox WHERE company_id=${company}::uuid AND intent_id=${intentId}::uuid FOR UPDATE` as Array<Record<string,unknown>>;
  if(!outbox)throw new Error('Release outbox missing');
  const material=await loadOperationMaterial(ctx,{entityType:'payment_release_intent',entityId:intentId,operation:'payment_release.dispatch'});

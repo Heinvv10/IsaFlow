@@ -2,6 +2,7 @@ import { finalizeRequestTransaction } from './transactionFinalization';
 import { settleControlTransaction } from '@/modules/accounting/services/controls/transactionObservers';
 import { getCompanyMembership, type CompanyMembershipRow } from './companyMembership';
 import { IMPERSONATION_PROOF_COOKIE } from './impersonation-cookies';
+import { resolveImpersonatingActor } from './sessionImpersonation';
 // src/lib/auth/withAuth.ts
 import type { NextApiRequest, NextApiResponse, NextApiHandler } from 'next';
 import * as Sentry from '@sentry/nextjs';
@@ -157,6 +158,9 @@ export function withAuth(handler: Handler): NextApiHandler {
         return res.status(403).json({ success: false, error: { ...SUSPENDED_ACCOUNT_ERROR } });
       }
 
+      // Who is driving the session: an impersonated principal keeps every
+      // ordinary permission but never counts as an independent human reviewer.
+      const impersonatorPersonId = await resolveImpersonatingActor(client, claims, cookies[IMPERSONATION_PROOF_COOKIE]);
       (req as CompanyAuthedRequest).user = {
         id: claims.sub,
         email: typeof claims.email === 'string' ? claims.email : undefined,
@@ -207,7 +211,7 @@ export function withAuth(handler: Handler): NextApiHandler {
         try {
           await withControlRequest(
             { client, userId: claims.sub, companyId: activeCompanyId, claims: claims as Record<string, unknown> },
-            { personId: claims.sub, companyId: activeCompanyId, authMethod: 'cookie' },
+            { personId: claims.sub, companyId: activeCompanyId, authMethod: 'cookie', impersonatorPersonId },
             async () => { await handler(req, res); }
           );
         } catch (error) {

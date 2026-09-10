@@ -19,6 +19,7 @@
  */
 
 import { sql } from '@/lib/neon';
+import {assertIndependentRequestReview} from '@/modules/accounting/services/controls/independentReview';
 import { fmtDate } from '@/lib/fmtDate';
 import { log } from '@/lib/logger';
 import {
@@ -350,6 +351,7 @@ export async function approveClaim(
   companyId: string,
   approverUserId: string,
 ): Promise<ExpenseClaim | null> {
+  assertIndependentRequestReview();
   const claim = await getClaim(id, companyId);
   if (!claim) return null;
   if (claim.status !== 'submitted') throw new Error(`Cannot approve claim in status '${claim.status}'`);
@@ -369,6 +371,7 @@ export async function rejectClaim(
   approverUserId: string,
   reason: string,
 ): Promise<ExpenseClaim | null> {
+  assertIndependentRequestReview();
   const claim = await getClaim(id, companyId);
   if (!claim) return null;
   if (claim.status !== 'submitted') throw new Error(`Cannot reject claim in status '${claim.status}'`);

@@ -1,7 +1,7 @@
 import {randomUUID} from 'node:crypto';
 import {z} from 'zod';
 import {als,assertTxUsable,type RequestContext} from '@/lib/als';
-import {sql} from '@/lib/neon';
+import {sql,type TxSql} from '@/lib/neon';
 import {assertControlTx,withControlPlatformImportRequest} from '@/modules/accounting/services/controls/context';
 import type {ControlPrincipal,ControlTx} from '@/modules/accounting/services/controls/contracts';
 import {isActiveUserAccount,type UserAccountRow} from './userAccountStatus';
@@ -42,6 +42,8 @@ export async function withPlatformImportRequest<T>(store:RequestContext,handler:
   finally{life.active=false;registered.delete(store);}
  });
 }
+/** True while a verified global-administrator request is open on this store. */
+export function isPlatformAdminRequest(store:RequestContext):boolean{return registered.has(store);}
 /** Context issuance and every later context use must retain this private target association. */
 export function assertPlatformImportPrincipal(principal:ControlPrincipal,store:RequestContext):void{
  const life=principals.get(principal);
@@ -55,10 +57,10 @@ export function readPlatformImportTarget(ctx:ControlTx):PlatformImportTarget{
  return life.target;
 }
 /** Current role/standing is verified on the same privileged transaction, never inferred from the body. */
-async function currentStanding(personId:string,companyId:string){
+async function currentStanding(personId:string,companyId:string,query:TxSql=sql){
  // Match the shared member/approval authority order before acquiring row locks.
- await sql`SELECT pg_advisory_xact_lock(hashtextextended(${`control-authority:${companyId}`},0))`;
- const rows=await sql`SELECT u.role,u.is_active,u.status,u.suspended_at,c.status AS company_status,c.suspended_at AS company_suspended_at
+ await query`SELECT pg_advisory_xact_lock(hashtextextended(${`control-authority:${companyId}`},0))`;
+ const rows=await query`SELECT u.role,u.is_active,u.status,u.suspended_at,c.status AS company_status,c.suspended_at AS company_suspended_at
   FROM users u CROSS JOIN companies c WHERE u.id::text=${personId} AND c.id=${companyId}::uuid FOR UPDATE OF u FOR SHARE OF c` as (UserAccountRow&{role:string;company_status:string|null;company_suspended_at:unknown})[];
  const row=rows[0];
  if(rows.length!==1||row?.role!=='super_admin'||!isActiveUserAccount(row)||row.company_suspended_at!=null
@@ -71,7 +73,7 @@ export async function withPlatformImportTarget<T>(capability:PlatformImportReque
  requestCurrent(request);assertTxUsable();request.busy=true;
  const store:RequestContext={client:request.client,userId:request.personId,companyId:target.companyId,claims:request.store.claims};
  const principal:ControlPrincipal=Object.freeze({companyId:target.companyId,personId:request.personId,connectionId:null,grantId:null,actingFirmId:null,
-  requestId:capability.requestId,operationId:randomUUID(),authMethod:'platform_import',provenance:'human',delegatedByPersonId:null,grantedScopes:null});
+  requestId:capability.requestId,operationId:randomUUID(),authMethod:'platform_import',provenance:'human',delegatedByPersonId:null,impersonatorPersonId:null,grantedScopes:null});
  const life:TargetLife={active:true,request,store,target};principals.set(principal,life);
  try{
   return await als.run(store,async()=>{
@@ -95,4 +97,10 @@ export async function withPlatformImportTarget<T>(capability:PlatformImportReque
 async function handlerContext<T>(handler:(ctx:ControlTx)=>Promise<T>){
  const {requireControlTx}=await import('@/modules/accounting/services/controls/context');
  return handler(requireControlTx());
+}
+
+/** Rechecks remain bound to a live target even when the caller detaches an async permission lookup. */
+export async function assertCurrentPlatformImportStanding(ctx:ControlTx):Promise<void>{
+ const target=readPlatformImportTarget(ctx);
+ await currentStanding(ctx.principal.personId,target.companyId,ctx.sql);assertControlTx(ctx);
 }

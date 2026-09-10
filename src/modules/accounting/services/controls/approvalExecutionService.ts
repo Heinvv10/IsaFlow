@@ -1,3 +1,4 @@
+import {assertPlatformImportOperation} from './platformImportConfinement';
 import {assertOperationRequester} from './operationRequester';
 import { operationPermission,operationRequiresPosting } from './operationPermissions';
 import { randomUUID } from 'node:crypto';
@@ -33,6 +34,7 @@ export async function executeControlledOperation<T>(ctx: ControlTx, input: Opera
   assertControlTx(ctx);
   if (executing.has(ctx.principal)) throw new Error('Nested execution requires the parent effect permit');
   const ref = canonicalOperationRef(input);
+  await assertPlatformImportOperation(ctx,ref,'execute');
   const authorities = approvalId ? await approvalAuthorities(ctx, approvalId) : [];
   const { assertEffectivePermission } = await import('@/lib/auth/effectivePermissions');
   await assertEffectivePermission(ctx, operationPermission(ref.operation,'write'));
@@ -43,7 +45,7 @@ export async function executeControlledOperation<T>(ctx: ControlTx, input: Opera
     const row = approvalId ? await lockApproval(ctx, approvalId) : null;
     if (row) {
       await assertOperationRequester(ctx,ref,row.requester_person_id);
-      await assertRequesterAuthority(row, authorities);
+      await assertRequesterAuthority(ctx, row, authorities);
       await validateDecisions(ctx, row, await approvalDecisions(ctx, row.id), authorities);
     }
     const operationId = row?.operation_id ?? ctx.principal.operationId;

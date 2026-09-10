@@ -4,6 +4,7 @@
  */
 
 import { sql } from '@/lib/neon';
+import {assertIndependentRequestReview} from '@/modules/accounting/services/controls/independentReview';
 import { fmtDate } from '@/lib/fmtDate';
 import type { DbRow } from '@/lib/neon';
 import { log } from '@/lib/logger';
@@ -96,6 +97,7 @@ export async function createWriteOff(companyId: string,
 }
 
 export async function approveWriteOff(companyId: string, id: string, userId: string): Promise<CustomerWriteOff> {
+  assertIndependentRequestReview();
   const woRows = (await sql`
     SELECT wo.*, ci.invoice_number FROM customer_write_offs wo
     LEFT JOIN customer_invoices ci ON ci.id = wo.invoice_id

@@ -4,6 +4,7 @@ import {als} from '@/lib/als';
 import {withSavepoint} from '@/lib/neon';
 import {assertEffectivePermission} from '@/lib/auth/effectivePermissions';
 import {assertControlTx} from './context';
+import {assertIndependentHumanReview} from './independentReview';
 import type {ControlCheckResult,ControlTx} from './contracts';
 import {assertExceptionReadPermission,runExceptionCheck} from './controlExceptionRecheck';
 import {canFixException,exceptionCheckId,exceptionCheckSummary,exceptionView,parseExceptionAssignment,
@@ -94,6 +95,7 @@ export async function resolveControlException(ctx:ControlTx,input:unknown){
  const parsed=parseExceptionResolution(input);
  return mutation(ctx,async()=>{
   const row=await transition(ctx,parsed.exceptionId,parsed.expectedVersion),p=ctx.principal;
+  if(row.severity==='high')assertIndependentHumanReview(p,row.reporter_person_id);
   if(row.severity==='high'&&(p.authMethod!=='cookie'||p.provenance!=='human'||p.personId===row.reporter_person_id||p.personId===row.owner_person_id))throw new Error('Independent permitted human reviewer required');
   const result=parsed.resolution==='fixed'?await recheck(ctx,row):null;
   const outcome=result&&!canFixException(result,row.check_id,row.check_version)?'recheck_blocked':parsed.resolution;

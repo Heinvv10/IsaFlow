@@ -73,6 +73,8 @@ export interface AfsSectionVersionEntry {
   savedBy: string;
   content: NoteContent;
   overrides?: Partial<NoteContent> | null;
+  /** Why this snapshot was taken, when it records more than a plain save. */
+  note?: string;
 }
 
 export interface AfsSection {
