@@ -440,6 +440,28 @@ it('post-expense: answers 409 when another transaction holds the event', async (
   expect(await journalsFor(documentId)).toBe(1);
 }, 30_000);
 
+// K-072 merge review LOW-1: nothing pinned post.ts's own 409 — changing its
+// `conflict` to `badRequest` left every r058/k072 capture test green. The bill
+// route claims the DOCUMENT as well as locking the event, so it also proves the
+// claim did not leak on the refusal: `posted_at` stays NULL and the retry posts.
+it('post: answers 409 when another transaction holds the event', async () => {
+  const { eventId, documentId } = await seedEvent(BILL, 'locked-bill', bill(11550));
+  const release = await holdEventRow(eventId);
+  try {
+    const blocked = await call(post as typeof postExpense, eventId, {});
+    expect(blocked.state.statusCode).toBe(409);
+    expect(await invoicesFor(documentId)).toBe(0);
+  } finally {
+    await release();
+  }
+  const { rows } = await pool.query('SELECT posted_at FROM captured_documents WHERE id = $1', [documentId]);
+  expect(rows[0].posted_at).toBeNull();
+
+  const retry = await call(post as typeof postExpense, eventId, {});
+  expect(retry.state.statusCode).toBe(200);
+  expect(await invoicesFor(documentId)).toBe(1);
+}, 30_000);
+
 it('discard: answers 409 when another transaction holds the event', async () => {
   const { eventId } = await seedEvent(RECEIPT, 'locked-discard');
   const release = await holdEventRow(eventId);

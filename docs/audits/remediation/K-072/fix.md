@@ -1919,3 +1919,22 @@ unchanged. **Rollback:** revert the two commits.
 
 **Not mine, mentioned not changed:** `captureEventLock.ts:47` has a pre-existing lint warning
 (`CAPTURE_EVENT_STATUSES` used only as a type).
+
+### Round 18, addition — the merge review's LOW-1: `post.ts`'s 409 is now pinned
+
+The merge review of `b53754e8e` (0H/0M/1L) found that nothing tested `capture/[id]/post.ts`'s own 409
+on lock contention: changing its `conflict` to `badRequest` left every r058/k072 capture test green.
+`r058-capture-post-double-post.int.test.ts` gains `post: answers 409 when another transaction holds
+the event`, adapted from the reviewer's PROBE7 and shaped like its post-expense twin: hold the event
+row, post the bill → 409, no supplier invoice, `captured_documents.posted_at` still NULL (the claim did
+not leak on the refusal), and once the holder lets go the retry posts one invoice.
+
+- **At head** (`fdef9416e` + this test): 19/19 green. Mutation `conflict` → `badRequest` at
+  `post.ts:75`: **RED** (`expected 400 to be 409`), file restored (`md5sum -c` OK).
+- **Before the 300-line split** (a `git archive` of `b53754e8e`, post.ts at 337 lines, the same test
+  file copied in): 19/19 green, and the same mutation there is **RED** too. The split preserved that
+  line's behaviour, proven on both sides of it.
+
+Gates after the addition: `env -u DATABASE_URL bun run ci` → `[ci] all checks passed`, `CI_EXIT=0`
+(878 files / 11052 tests passed, component 84/530, build PASS); integration `k072-*` + `r058-*` →
+9 files / **85** tests passed, `INT_EXIT=0`.
