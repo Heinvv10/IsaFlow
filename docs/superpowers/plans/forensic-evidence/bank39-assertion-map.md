@@ -50,3 +50,25 @@ Counts above total53. Each economic assertion remains required even when helper 
 - Correct command: `bunx vitest run --config vitest.integration.config.ts tests/integration/controls/bank39Lifecycle.int.test.ts`, explicit validated synthetic environment. Handle87318 terminal0: **5 actual PostgreSQL cases passed**,1.87s, pool closed. Log `/tmp/isaflow-bank39-lifecycle-first-pg.log`.
 - Four additional lock/batch cases committed `5cdd4344c`; not yet run. No old test retired.
 - Root approved the two narrow observability/targeted-child compatibility decisions above. Financial totals, user-visible refusal messages and provenance remain required.
+
+## Replacement coverage matrix (pending final mandatory run)
+
+| Original assertion | Named replacement |
+| --- | --- |
+| Account/split/receipt SAST March1, never February28 | bank39Lifecycle three adapter cases: actual journal entry_date and actual payment_date. Five lifecycle cases already passed. |
+| Caller agent attribution and human default | bank39Lifecycle two inverse cases: actual actor_type/token; PAT label preserved, cookie principal authoritative. |
+| Reset company predicate | bank39Lifecycle actual owned bank reset plus bank39Receipt foreign-person refusal; later foreign bank/source assertions remain required. |
+| Account/split/reverse FOR UPDATE | bank39LockBatch three actual two-session tests using pg_blocking_pids and selected owned row; four existing lock-helper bodies will remain unchanged. |
+| Both batch stamp assertions | bank39LockBatch real prior batch before allocation and inverse; matched line/status/batch final state. |
+| Missing VAT diagnostic; subtype and1140 exact tax | bank39Vat missing config/no writes; canonical and legacy selection retained in payload+fingerprint, actual DR100+DR15/CR115. |
+| No VAT on nonstandard account code | Existing bankVatFallback zero/exempt/none real PG case, must rerun. |
+| All four party directions, gross balance120290 and115 | New bank39PartyLines eight real pure plan cases passed; existing bankRefundControls and bankAllocationControls real PG lifecycle rerun still mandatory. |
+| Party no VAT even if caller passes standard | bankRefundControls real adapter standard-code replay plus actual lines; normal selected supplier/customer suite and dedicated noVAT GL assertion still required. |
+| Default customer/supplier strategy and explicit optout | Existing bankDefaultAllocation actual prepared immutable list and executions, must rerun. No execution-time strategy helper expectation. |
+| Targeted supplier invoice / no duplicate documents | Existing bankAllocationControls actual approved supplier invoice, independently verified beneficiary, one effect-bound child and exact application; rerun mandatory. |
+| Confirm full1000, apply600, remainder400, exact customer and child | bank39Receipt actual shared confirmation and DB state, pending. |
+| Missing child must throw and unwind | bank39Receipt actual RETURN NULL INSERT injection expects earlier shared `Allocation payment insert failed`; no financial effects/consumption survive. Helper unexpected-success test proves DDL rollback. |
+| Customer lookup tenant predicate | bank39Receipt foreign issued tenant refusal/no writes, actual owned child matching journal; retain focused query predicate assertion if still independently meaningful. |
+| Receipt eight validation messages and no allocation on refusal | Preserve existing nine meaningful validation bodies byte-for-byte. |
+
+Root resource queue after crash recovery: AP16 actual cases/static, comparison reader, then this worker's11 new PostgreSQL cases. No heavy operation started without renewed lease.
