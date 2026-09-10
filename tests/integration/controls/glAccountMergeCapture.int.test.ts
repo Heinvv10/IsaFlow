@@ -16,6 +16,8 @@ it('captures the actual merge with complete journal images and exact recovery id
  expect(journal[0].values.before).toMatchObject({header:{id:m.journal},lines:before.map(line=>expect.objectContaining(line))});
  expect(journal[0].values.after).toMatchObject({header:{id:m.journal},lines:after.map(line=>expect.objectContaining(line))});
  expect((journal[0].values.before?.lines as unknown[])).toHaveLength(3);expect((journal[0].values.after?.lines as unknown[])).toHaveLength(3);
+ expect(journal[0].values.before?.accounts).toEqual(expect.arrayContaining([expect.objectContaining({id:m.source,account_type:'asset'}),expect.objectContaining({id:m.target}),expect.objectContaining({id:m.contra})]));
+ expect(journal[0].values.after?.accounts).toHaveLength(2);
  expect(await evidence('gl_account',m.target)).toEqual([]);
  expect(after.map(({gl_account_id:ignored,...row})=>{void ignored;return row;})).toEqual(before.map(({gl_account_id:ignored,...row})=>{void ignored;return row;}));
  expect(after.filter(row=>row.gl_account_id===m.target)).toHaveLength(2);
@@ -54,6 +56,17 @@ it('rolls back lines, tree, versions and recovery when mandatory journal evidenc
   expect((await pool.query('SELECT id FROM gl_account_merges WHERE company_id=$1 AND source_account_id=$2',[f.companyA,m.source])).rows).toEqual([]);
   expect(await evidence('gl_account',m.source)).toEqual([]);expect(await evidence('journal_entry',m.journal)).toEqual([]);
  }finally{await pool.query('DROP TRIGGER IF EXISTS synthetic_merge_evidence_failure ON control_change_events');await pool.query('DROP FUNCTION IF EXISTS public.synthetic_merge_evidence_failure()');}
+});
+
+it('refuses a same-count suppressed classification update and retains the original books',async()=>{
+ const f=glFixture(),m=await mergeFixture(),before=await journalRows(m.journal);
+ await pool.query(`CREATE FUNCTION public.synthetic_merge_line_suppression() RETURNS trigger LANGUAGE plpgsql AS $$ BEGIN IF OLD.company_id='${f.companyA}'::uuid AND OLD.journal_entry_id='${m.journal}'::uuid THEN RETURN OLD; END IF; RETURN NEW; END $$`);
+ await pool.query('CREATE TRIGGER synthetic_merge_line_suppression BEFORE UPDATE ON gl_journal_lines FOR EACH ROW EXECUTE FUNCTION public.synthetic_merge_line_suppression()');
+ try{
+  await expect(merge(m.source,m.target)).rejects.toThrow();expect(await journalRows(m.journal)).toEqual(before);
+  expect((await pool.query('SELECT id FROM gl_account_merges WHERE company_id=$1 AND source_account_id=$2',[f.companyA,m.source])).rows).toEqual([]);
+  expect(await evidence('gl_account',m.source)).toEqual([]);expect(await evidence('journal_entry',m.journal)).toEqual([]);
+ }finally{await pool.query('DROP TRIGGER IF EXISTS synthetic_merge_line_suppression ON gl_journal_lines');await pool.query('DROP FUNCTION IF EXISTS public.synthetic_merge_line_suppression()');}
 });
 
 it('keeps concurrent ordinary posting and merge atomic with safe retry after lock refusal',async()=>{
