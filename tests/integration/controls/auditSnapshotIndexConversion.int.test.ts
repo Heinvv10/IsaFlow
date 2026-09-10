@@ -10,6 +10,8 @@ import {enqueueAuditComparison} from '@/modules/accounting/services/controls/aud
 import {runAuditSnapshotJob} from '@/modules/accounting/services/controls/auditJobRunner';
 import {claimAuditJob,type AuditJobLease} from '@/modules/accounting/services/controls/auditJobLease';
 import {getAuditSnapshotPage,readAuditSnapshotChunk} from '@/modules/accounting/services/controls/auditSnapshotPageService';
+import {openProtectedChange,protectChangeValues} from '@/modules/accounting/services/controls/changeProtection';
+import {auditRequestHash} from '@/modules/accounting/services/controls/auditJobProtection';
 import {evidenceScaleStorage} from './auditEvidenceScaleFixture';
 const config=fixtureConfigFromEnv(process.env),pool=new Pool({connectionString:validateFixtureTarget(config).connectionString,ssl:false,max:2});
 process.env.ENCRYPTION_KEY=randomBytes(32).toString('hex');process.env.CONTROL_SNAPSHOT_SIGNING_KEY=randomBytes(32).toString('hex');
@@ -23,8 +25,16 @@ async function prepared(uppercase=false){
  const original=await actor('u1',()=>enqueueAuditSnapshot(requireControlTx(),{cutoff:'2026-09-09',sources:['journals','bank'],checks:[],idempotencyKey:randomUUID()}));
  expect(await runAuditSnapshotJob({companyId:f.companyA,personId:f.u1.id,jobId:original.id},{pool})).toMatchObject({state:'succeeded'});
  // Enqueue before synthetic removal deliberately exercises the immutable v1 pinned hash too.
- const comparison=await actor('u2',()=>enqueueAuditComparison(requireControlTx(),{firstSnapshotId:uppercase?original.id.toUpperCase():original.id,secondSnapshotId:uppercase?original.id.toUpperCase():original.id,idempotencyKey:randomUUID()}));
+ const comparison=await actor('u2',()=>enqueueAuditComparison(requireControlTx(),{firstSnapshotId:original.id,secondSnapshotId:original.id,idempotencyKey:randomUUID()}));
  const lease=await actor('u2',()=>claimAuditJob(requireControlTx(),comparison.id));if(!lease)throw new Error('Missing comparison lease');
+ if(uppercase){
+  // Local compatibility fixture: authenticate a valid legacy v1 representation after claiming its real job.
+  const row=(await pool.query('SELECT protected_request FROM control_audit_job_intents WHERE company_id=$1 AND id=$2',[f.companyA,comparison.id])).rows[0];
+  const body=openProtectedChange(row.protected_request).after!;
+  const request={...(body.request as Record<string,unknown>),firstSnapshotId:original.id.toUpperCase(),secondSnapshotId:original.id.toUpperCase()};
+  const protectedRequest=protectChangeValues('audit_job',null,{...body,request}).protectedPayload;
+  await pool.query('UPDATE control_audit_job_intents SET request_hash=$3,protected_request=$4::jsonb WHERE company_id=$1 AND id=$2',[f.companyA,comparison.id,auditRequestHash(request),JSON.stringify(protectedRequest)]);
+ }
  const retained=(await pool.query('SELECT canonical_hash,protected_snapshot FROM control_audit_snapshots WHERE company_id=$1 AND id=$2',[f.companyA,original.id])).rows[0];
  const artifacts=(await pool.query('SELECT artifact_id,protected_artifact FROM control_audit_snapshot_artifacts WHERE company_id=$1 AND snapshot_id=$2 ORDER BY artifact_id',[f.companyA,original.id])).rows;
  return{id:original.id,lease,retained,artifacts};
