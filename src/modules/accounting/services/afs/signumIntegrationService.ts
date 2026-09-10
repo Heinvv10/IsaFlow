@@ -44,6 +44,9 @@ export async function sendForSigning(
   html: string,
   title: string,
   signers: Array<{ email: string; name: string }>,
+  // contentFingerprint is the CONTROL the webhook enforces. payloadSha256 is EVIDENCE only:
+  // the provider returns a signed, annotated PDF, which can never byte-match the HTML posted
+  // here, so nothing can verify one against the other. It records what left this system.
   evidence: { contentFingerprint: string; payloadSha256: string },
 ): Promise<{ signumDocumentId: string; signingTokens: Array<{ email: string; signingToken: string }> }> {
   const apiUrl = getRequiredEnv('SIGNUM_API_URL');

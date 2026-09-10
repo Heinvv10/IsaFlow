@@ -106,13 +106,13 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
     // skipChecks: the pre-export blocker gate is the export's own policy and runs there. What
     // matters here is that the bytes are DERIVED from the current rows rather than read from a
     // stored artifact; a render that cannot be produced at all refuses the send.
-    html = await renderDocumentHtml(documentId, companyId, { skipChecks: true });
+    html = await renderDocumentHtml(documentId, companyId, { skipChecks: true, allowDefaultBrandProfile: true });
   } catch (err) {
     log.warn('Signing refused — the statements could not be rendered from the current content',
       { companyId, documentId, error: err instanceof Error ? err.message : String(err) }, 'send-for-signing-api');
     return apiResponse.conflict(
       res,
-      `Cannot send for signing: the statements could not be rendered from the current content (${err instanceof Error ? err.message : 'render failed'})`,
+      `Cannot send for signing: the statements could not be rendered from the current content — ${err instanceof Error ? err.message : 'render failed'}`,
     );
   }
 

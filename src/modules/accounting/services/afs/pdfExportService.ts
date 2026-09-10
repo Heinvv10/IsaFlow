@@ -2,7 +2,7 @@
 import { sql } from '@/lib/neon';
 import { log } from '@/lib/logger';
 import type { AfsDocument, AfsSection, SectionType, SectionStatus, DocumentType, DocumentStatus, ReportingFramework, NoteContent, AfsSectionVersionEntry } from './afsTypes';
-import { getBrandProfile } from './brandProfileService';
+import { DEFAULT_BRAND_PROFILE, getBrandProfile } from './brandProfileService';
 import { runPreExportChecks } from './afsPreExportChecks';
 import { renderAfsToHtml } from './afsHtmlRendererService';
 import { buildAfsCharts } from './serverChartSvg';
@@ -17,6 +17,13 @@ export { runPreExportChecks } from './afsPreExportChecks';
 export interface PdfExportOptions {
   watermark?: 'DRAFT — NOT FOR DISTRIBUTION';
   skipChecks?: boolean;
+  /**
+   * Render with the documented default branding when the company has saved none. The export
+   * still refuses (a downloaded PDF should carry the firm's own branding), but signing uses it:
+   * nothing creates a brand profile at company creation, so requiring one would leave most
+   * companies permanently unable to send for signature.
+   */
+  allowDefaultBrandProfile?: boolean;
 }
 
 // ── DB row mappers ────────────────────────────────────────────────────────────
@@ -105,10 +112,11 @@ export async function renderDocumentHtml(
   const sections = sectionRows.map(mapSectionRow);
 
   // 3. Load brand profile
-  const brandProfile = await getBrandProfile(companyId);
-  if (brandProfile === null) {
+  const savedProfile = await getBrandProfile(companyId);
+  if (savedProfile === null && !options?.allowDefaultBrandProfile) {
     throw new Error(`Brand profile not found for company: ${companyId}`);
   }
+  const brandProfile = savedProfile ?? { ...DEFAULT_BRAND_PROFILE, id: 'default', companyId, createdAt: new Date(), updatedAt: new Date() };
 
   // 4. Run pre-export checks unless skipChecks is set
   if (!options?.skipChecks) {

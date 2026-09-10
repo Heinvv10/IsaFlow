@@ -44,28 +44,37 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
   // sending the same sections in different case take the row locks in the same order and
   // cannot deadlock against each other.
   const requested = sections.map(s => ({ ...s, key: s.id.toLowerCase() }));
+  const keys = new Set(requested.map(s => s.key));
+  if (keys.size !== requested.length) {
+    return apiResponse.badRequest(res, 'Reorder must name each section once');
+  }
+
+  const ordered = [...requested].sort((a, b) => (a.key < b.key ? -1 : a.key > b.key ? 1 : 0));
+  const locked = [];
+  for (const { id } of ordered) {
+    try {
+      locked.push(await lockSectionForWrite(companyId, documentId, id));
+    } catch (err) {
+      // Named by the section that was refused, not by the document.
+      if (sendReviewError(res, err, 'AFS section', id)) return;
+      throw err;
+    }
+  }
+
+  // Read UNDER the locks: a section renumbered between an unlocked read and the write would
+  // escape being voided, and a document whose section list changed would pass the count.
   const existing = (await sql`
     SELECT id, sort_order FROM afs_sections
     WHERE document_id = ${documentId}::UUID AND company_id = ${companyId}::UUID
   `) as Array<{ id: string; sort_order: number }>;
   const current = new Map(existing.map(row => [row.id.toLowerCase(), Number(row.sort_order)]));
+  const missing = requested.find(s => !current.has(s.key));
+  if (missing) return apiResponse.notFound(res, 'AFS section', missing.id);
   if (requested.length !== current.size) {
     return apiResponse.badRequest(
       res,
       `Reorder must renumber every section of the document: ${current.size} section(s) exist, ${requested.length} supplied`,
     );
-  }
-
-  const ordered = [...requested].sort((a, b) => (a.key < b.key ? -1 : a.key > b.key ? 1 : 0));
-  const locked = [];
-  try {
-    for (const { id, key } of ordered) {
-      if (!current.has(key)) return apiResponse.notFound(res, 'AFS section', id);
-      locked.push(await lockSectionForWrite(companyId, documentId, id));
-    }
-  } catch (err) {
-    if (sendReviewError(res, err, 'AFS section', documentId)) return;
-    throw err;
   }
 
   const changed = new Set(requested.filter(s => current.get(s.key) !== s.newSortOrder).map(s => s.key));

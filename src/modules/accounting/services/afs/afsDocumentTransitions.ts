@@ -7,6 +7,7 @@
 // UPDATE repeats the status it decided on, so a transition can never move a document twice.
 import { sql } from '@/lib/neon';
 import { log } from '@/lib/logger';
+import { logAuditOrThrow } from '@/modules/accounting/services/core/auditTrailService';
 import { assertPersonalReview, asLockTimeout, setLockTimeout } from './afsSectionAttestation';
 import { ReviewError } from './afsReviewError';
 import type { DocumentStatus, SectionStatus } from './afsTypes';
@@ -192,6 +193,31 @@ export async function signOffDocument(
   }
 
   await applyTransition(companyId, documentId, doc.status, 'signed_off', { userId });
-  log.info('Document signed off', { documentId, companyId, userId }, 'afsDocumentTransitions');
+
+  // Signing off is what releases a pack that was generated without review: it is the human
+  // attestation the hold was waiting for, and the release is recorded where a reviewer reads it.
+  const released = (await sql`
+    UPDATE afs_documents
+    SET delivery_withheld_reason = NULL, updated_at = now()
+    WHERE id = ${documentId}::UUID
+      AND company_id = ${companyId}::UUID
+      AND delivery_withheld_reason IS NOT NULL
+    RETURNING id
+  `) as Record<string, unknown>[];
+  if (released.length > 0) {
+    await logAuditOrThrow({
+      companyId,
+      userId,
+      action: 'approve',
+      entityType: 'afs_document',
+      entityId: documentId,
+      changes: {
+        fields: [{ field: 'delivery_withheld_reason', old: 'withheld', new: null, label: 'Delivery hold' }],
+        metadata: { reason: 'Released for delivery by document sign-off', event: 'afs_pack_delivery_released' },
+      },
+    });
+  }
+
+  log.info('Document signed off', { documentId, companyId, userId, deliveryReleased: released.length > 0 }, 'afsDocumentTransitions');
   return { documentId, newStatus: 'signed_off' };
 }

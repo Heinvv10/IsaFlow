@@ -11,8 +11,11 @@ import { log } from '@/lib/logger';
 export type Query = (strings: TemplateStringsArray, ...values: unknown[]) => Promise<unknown[]>;
 
 /**
- * sha256 over every section of the document: identity, order, status, signatory, and every
- * field that reaches the rendered statements. Any of them changing changes the fingerprint.
+ * sha256 over EVERY input the statements are rendered from — not only the sections: the
+ * document's own year, period, type, framework and status, the registered company name and
+ * number that go on the cover, and the firm branding (or the marker for the documented default
+ * used when a company has no profile of its own). Change any of them after the send and the
+ * signature no longer describes what the database holds.
  */
 export async function documentContentFingerprint(
   q: Query,
@@ -20,15 +23,31 @@ export async function documentContentFingerprint(
   documentId: string,
 ): Promise<string> {
   const rows = (await q`
-    SELECT encode(sha256(convert_to(COALESCE(string_agg(
-      concat_ws('|', s.id::text, s.sort_order::text, s.status, COALESCE(s.signed_off_by, ''),
-                COALESCE(s.content::text, ''), COALESCE(s.overrides::text, ''),
-                COALESCE(s.ai_narrative, ''), s.ai_narrative_accepted::text,
-                COALESCE(s.data_snapshot::text, '')),
-      E'\n' ORDER BY s.id), ''), 'UTF8')), 'hex') AS fingerprint
-    FROM afs_sections s
-    WHERE s.document_id = ${documentId}::UUID
-      AND s.company_id = ${companyId}::UUID
+    SELECT (
+      SELECT encode(sha256(convert_to(concat_ws('|',
+        'afs-signing-fingerprint-v2',
+        COALESCE(d.fiscal_year::text, ''), COALESCE(d.period, ''), d.document_type,
+        d.reporting_framework, d.status,
+        c.name, COALESCE(c.registration_number, ''),
+        CASE WHEN b.company_id IS NULL THEN 'default-brand-profile'
+             ELSE concat_ws('~', COALESCE(b.logo_url, ''), b.primary_colour, b.secondary_colour,
+                            b.font_family, b.cover_style, COALESCE(b.report_footer_text, '')) END,
+        COALESCE(sec.sections, '')
+      ), 'UTF8')), 'hex')
+      FROM afs_documents d
+      JOIN companies c ON c.id = d.company_id
+      LEFT JOIN brand_profiles b ON b.company_id = d.company_id
+      LEFT JOIN LATERAL (
+        SELECT string_agg(concat_ws('|', s.id::text, s.sort_order::text, s.status,
+                 COALESCE(s.signed_off_by, ''), COALESCE(s.content::text, ''),
+                 COALESCE(s.overrides::text, ''), COALESCE(s.ai_narrative, ''),
+                 s.ai_narrative_accepted::text, COALESCE(s.data_snapshot::text, '')),
+               E'\n' ORDER BY s.id) AS sections
+        FROM afs_sections s
+        WHERE s.document_id = d.id AND s.company_id = d.company_id
+      ) sec ON TRUE
+      WHERE d.id = ${documentId}::UUID AND d.company_id = ${companyId}::UUID
+    ) AS fingerprint
   `) as Record<string, unknown>[];
   return String(rows[0]?.fingerprint ?? '');
 }
@@ -82,6 +101,7 @@ export async function recordSignatureRefusal(
         signum_document_id          = NULL,
         signing_requested_at        = NULL,
         signing_content_fingerprint = NULL,
+        signing_payload_sha256      = NULL,
         updated_at                  = now()
     WHERE id = ${documentId}::UUID AND company_id = ${companyId}::UUID
   `;
