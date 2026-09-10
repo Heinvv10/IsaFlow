@@ -14,6 +14,10 @@ import writeOffRoute from '../../../pages/api/accounting/write-offs-action';
 import vatAdjustmentRoute from '../../../pages/api/accounting/vat-adjustments-action';
 import expenseClaimRoute from '../../../pages/api/accounting/expense-claims/[id]/approve';
 import commentaryRoute from '../../../pages/api/accounting/commentary/[id]/approve';
+import commentaryRejectRoute from '../../../pages/api/accounting/commentary/[id]/reject';
+import customerInvoiceRoute from '../../../pages/api/accounting/customer-invoices-detail';
+import {generateDrafts} from '@/modules/accounting/services/commentary/commentaryService';
+import type {CommentaryPackData} from '@/modules/accounting/services/commentary/commentaryDraft';
 
 const csrf='approver-of-record-csrf-01234567890123456';
 type Route=(req:NextApiRequest,res:NextApiResponse)=>Promise<unknown>|unknown;
@@ -126,6 +130,53 @@ describe('approver-of-record workflows under an actual impersonated session',()=
   expect(await state('expense_claims',id)).toEqual({status:'approved',approved_by:target});
  });
 
+ it('refuses a customer invoice approval recorded through an impersonated session',async()=>{
+  const id=randomUUID();
+  await h.pool.query(`INSERT INTO customer_invoices(id,company_id,invoice_number,customer_id,created_by,invoice_date,subtotal,tax_amount,total_amount,status)
+   VALUES($1,$2,$3,$4,$5,'2024-03-01',1000,150,1150,'draft')`,[id,h.f.companyA,`AOR-AR-${id.slice(0,8)}`,customer,h.f.u1.id]);
+  const refused=await post(customerInvoiceRoute as Route,'/api/accounting/customer-invoices-detail',{id,action:'approve'},await impersonated());
+  expect(refused.status).toBe(400);
+  expect(refused.body.error?.message).toBe(REFUSAL);
+  expect(await state('customer_invoices',id)).toMatchObject({status:'draft'});
+ });
+
+ it('refuses a supplier invoice approval when only the recorded session identifies the actor',async()=>{
+  const id=randomUUID(),sessionId=`impersonation-${randomUUID()}`;
+  await h.pool.query(`INSERT INTO supplier_invoices(id,company_id,invoice_number,supplier_id,invoice_date,subtotal,tax_amount,total_amount,status,created_by)
+   VALUES($1,$2,$3,$4,'2024-03-01',1000,150,1150,'draft',$5)`,[id,h.f.companyA,`AOR-SD-${id.slice(0,8)}`,h.supplier,h.f.u1.id]);
+  await h.pool.query(`INSERT INTO admin_audit_log(admin_user_id,action,target_type,target_id,details)
+   VALUES($1::uuid,'impersonation_start','user',$2::uuid,$3::jsonb)`,[h.admin,target,JSON.stringify({target_session_id:sessionId})]);
+  // The delegation proof is dropped: only control_session_impersonator() can still see this.
+  const cookies={[ACCESS_COOKIE]:await session(target,sessionId,'aal2'),[ACTIVE_COMPANY_COOKIE]:h.f.companyA};
+  const refused=await post(supplierInvoiceRoute as Route,'/api/accounting/supplier-invoices-action',{action:'approve',invoiceId:id},cookies);
+  expect(refused.status).toBe(400);
+  expect(refused.body.error?.message).toBe(REFUSAL);
+  expect(await state('supplier_invoices',id)).toEqual({status:'draft',approved_by:null});
+ });
+
+ it('records the actor on a commentary rejection and a withdrawn approval',async()=>{
+  const id=randomUUID();
+  await h.pool.query(`INSERT INTO report_commentary(id,company_id,report_kind,params_hash,period_start,period_end,section_ref,row_ref,draft_text,generated_by,status)
+   VALUES($1,$2,'pack',$3,'2024-03-01','2024-03-31','balance_sheet','equity','Commentary awaiting a decision',$4,'draft')`,
+   [id,h.f.companyA,randomUUID().replaceAll('-',''),h.f.u1.id]);
+  const rejected=await post(commentaryRejectRoute as Route,'/api/accounting/commentary/[id]/reject',{},await impersonated(),{id});
+  expect(rejected.status).toBe(200);
+  expect((await h.pool.query('SELECT status,rejected_by::text,rejected_by_impersonator::text FROM report_commentary WHERE company_id=$1 AND id=$2',
+   [h.f.companyA,id])).rows[0]).toEqual({status:'rejected',rejected_by:target,rejected_by_impersonator:h.admin});
+ });
+
+ it('records the actor who withdrew an approval by regenerating the pack',async()=>{
+  const params={from:'2024-03-01',to:'2024-03-31'} as Parameters<typeof generateDrafts>[0]['params'];
+  const data={priorPeriod:null,balanceSheet:{debtEquityRatio:null,equity:0,
+   debtEquityUnavailableReason:'Debt-to-equity is not meaningful for this balance sheet'}} as unknown as CommentaryPackData;
+  await h.member(target,()=>generateDrafts({companyId:h.f.companyA,userId:target,params,data}),false,null);
+  const row=(await h.pool.query("SELECT id FROM report_commentary WHERE company_id=$1 AND section_ref='balance_sheet' AND row_ref='equity' AND status='draft' ORDER BY created_at DESC LIMIT 1",[h.f.companyA])).rows[0];
+  await post(commentaryRoute as Route,'/api/accounting/commentary/[id]/approve',{},await ordinary(),{id:row.id});
+  await h.member(target,()=>generateDrafts({companyId:h.f.companyA,userId:target,params,data,replace:true}),false,h.admin);
+  expect((await h.pool.query('SELECT status,withdrawn_by::text,withdrawn_by_impersonator::text FROM report_commentary WHERE company_id=$1 AND id=$2',
+   [h.f.companyA,row.id])).rows[0]).toEqual({status:'draft',withdrawn_by:target,withdrawn_by_impersonator:h.admin});
+ });
+
  it('records the impersonating actor on a commentary sign-off instead of blocking it',async()=>{
   const insert=async()=>{
    const id=randomUUID();
@@ -137,6 +188,7 @@ describe('approver-of-record workflows under an actual impersonated session',()=
   const signed=await insert();
   const underImpersonation=await post(commentaryRoute as Route,'/api/accounting/commentary/[id]/approve',{},await impersonated(),{id:signed});
   expect(underImpersonation.status).toBe(200);
+  expect((underImpersonation.body.data as {commentary?:{approvedByImpersonator?:string|null}}).commentary?.approvedByImpersonator).toBe(h.admin);
   expect((await h.pool.query('SELECT status,approved_by::text,approved_by_impersonator::text FROM report_commentary WHERE company_id=$1 AND id=$2',
    [h.f.companyA,signed])).rows[0]).toEqual({status:'approved',approved_by:target,approved_by_impersonator:h.admin});
   const own=await insert();

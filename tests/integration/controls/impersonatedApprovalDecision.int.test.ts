@@ -37,6 +37,15 @@ async function post(route:Route,url:string,body:unknown,cookies:Record<string,st
  await route(req,res as unknown as NextApiResponse);
  return {status:res.statusCode,body:res.body as Decision['body']};
 }
+async function list(cookies:Record<string,string>):Promise<Decision>{
+ const jar={...cookies,isaflow_csrf:csrf};
+ const req={method:'GET',url:'/api/accounting/control-approvals',query:{action:'pending'},cookies:jar,
+  headers:{cookie:Object.entries(jar).map(([k,v])=>`${k}=${v}`).join('; ')},
+  socket:{remoteAddress:'127.0.0.91'}} as unknown as NextApiRequest;
+ const res=response();
+ await (approvalsRoute as Route)(req,res as unknown as NextApiResponse);
+ return {status:res.statusCode,body:res.body as Decision['body']};
+}
 const decide=(cookies:Record<string,string>,approvalId:string)=>
  post(approvalsRoute as Route,'/api/accounting/control-approvals',{action:'decide',approvalId,decision:'approved'},cookies);
 
@@ -138,6 +147,32 @@ describe('control approval decisions under actual impersonated sessions: actual 
   expect(allowed.status).toBe(200);
   expect((await h.pool.query('SELECT status,reviewer_person_id FROM control_exceptions WHERE company_id=$1 AND id=$2',[h.f.companyA,exceptionId])).rows[0])
    .toEqual({status:'accepted_risk',reviewer_person_id:target});
+ });
+ it('stops accepting the delegation proof once the impersonation has ended',async()=>{
+  const sessionId=`impersonation-${randomUUID()}`,now=Math.floor(Date.now()/1000);
+  const stash=(await h.pool.query(`INSERT INTO admin_impersonation_stash(admin_user_id,admin_access_token,admin_refresh_token,target_user_id,expires_at)
+   VALUES($1,'ciphertext','ciphertext',$2,NOW()+interval '1 hour') RETURNING stash_id`,[h.admin,target])).rows[0].stash_id;
+  const cookies={[ACCESS_COOKIE]:await session(target,sessionId,'aal1'),[ACTIVE_COMPANY_COOKIE]:h.f.companyA,
+   [IMPERSONATION_PROOF_COOKIE]:await mintImpersonationProof({actorUserId:h.admin,targetUserId:target,
+    targetSessionId:sessionId,actorExpiresAt:now+3600,stashExpiresAt:now+3600})};
+  // While the delegation lives the proof still satisfies the session gate.
+  expect((await list(cookies)).status).toBe(200);
+  // Ending impersonation deletes the stash; the copied cookies must stop authenticating.
+  await h.pool.query('DELETE FROM admin_impersonation_stash WHERE stash_id=$1',[stash]);
+  expect((await list(cookies)).status).toBe(401);
+ });
+ it('stops accepting the delegation proof once an end is recorded for that session',async()=>{
+  const sessionId=`impersonation-${randomUUID()}`,now=Math.floor(Date.now()/1000);
+  const stash=(await h.pool.query(`INSERT INTO admin_impersonation_stash(admin_user_id,admin_access_token,admin_refresh_token,target_user_id,expires_at)
+   VALUES($1,'ciphertext','ciphertext',$2,NOW()+interval '1 hour') RETURNING stash_id`,[h.admin,target])).rows[0].stash_id;
+  const cookies={[ACCESS_COOKIE]:await session(target,sessionId,'aal1'),[ACTIVE_COMPANY_COOKIE]:h.f.companyA,
+   [IMPERSONATION_PROOF_COOKIE]:await mintImpersonationProof({actorUserId:h.admin,targetUserId:target,
+    targetSessionId:sessionId,actorExpiresAt:now+3600,stashExpiresAt:now+3600})};
+  expect((await list(cookies)).status).toBe(200);
+  await h.pool.query(`INSERT INTO admin_audit_log(admin_user_id,action,target_type,target_id,details)
+   VALUES($1::uuid,'impersonation_end','user',$2::uuid,$3::jsonb)`,[h.admin,target,JSON.stringify({target_session_id:sessionId})]);
+  expect((await list(cookies)).status).toBe(401);
+  await h.pool.query('DELETE FROM admin_impersonation_stash WHERE stash_id=$1',[stash]);
  });
  it('still lets the same tenant administrator approve and the maker post from an unimpersonated session',async()=>{
   const p=await h.prepared(),approval=await h.request(p.ref);
