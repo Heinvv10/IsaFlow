@@ -28,7 +28,7 @@ beforeAll(async()=>{
 afterAll(async()=>{await closePaymentReleasePool();await f?.close();vi.unstubAllGlobals();});
 type Queued=Awaited<ReturnType<typeof enqueuePaymentRelease>>;
 /** A processed one-payment batch to an independently verified beneficiary, prepared as an immutable EFT release. */
-async function prepared(){
+async function prepared(channel:'eft'|'netcash'='eft'){
  const company=f.f.companyA,user=f.f.u1.id,supplier=await seedReleaseSupplier(f.pool,f.f,(person,fn)=>f.actor(fn,person)),invoice=randomUUID();
  await f.pool.query(`INSERT INTO supplier_invoices(id,company_id,supplier_id,invoice_number,invoice_date,subtotal,tax_rate,tax_amount,total_amount,currency,status,created_by)
   VALUES($1,$2,$3,$4,'2026-09-09',100,15,15,115,'ZAR','draft',$5)`,[invoice,company,supplier.supplier,invoice,user]);
@@ -38,7 +38,7 @@ async function prepared(){
  const batch=await f.actor(()=>createBatch(company,{batchDate:'2026-09-09',paymentMethod:'eft',bankAccountId:accounts.bank,
   payments:[{supplierId:supplier.supplier,invoiceAllocations:[{invoiceId:invoice,amount:115}]}]},user));
  await f.actor(()=>approveBatch(company,batch.id,user));await f.actor(()=>processBatch(company,batch.id,user));
- const intent=await f.actor(ctx=>createPaymentReleaseIntent(ctx,{batchId:batch.id,channel:'eft',bankFormat:'fnb'}));
+ const intent=await f.actor(ctx=>createPaymentReleaseIntent(ctx,channel==='eft'?{batchId:batch.id,channel,bankFormat:'fnb'}:{batchId:batch.id,channel}));
  upper(intent.intentId);
  return{...intent,supplier,operation:{entityType:'payment_release_intent',entityId:intent.intentId,operation:'payment_release.dispatch' as const}};
 }
@@ -85,4 +85,21 @@ it('serializes concurrently enqueued independently approved lower and uppercase 
  const outcomes=await Promise.allSettled([enqueue(p.intentId,lowerApproval),enqueue(upper(p.intentId),upperApproval)]);
  expect(outcomes.filter((o):o is PromiseFulfilledResult<Queued>=>o.status==='fulfilled')).toHaveLength(1);
  expectOneQueuedRelease(await state(p.intentId));
+});
+/**
+ * A refused post-commit claim used to leave no trace at all: settleControlTransaction only logs the
+ * observer error, and 'ready' is indistinguishable from a release nobody has dispatched yet.
+ */
+it('records a durable refusal when the post-commit release claim cannot run',async()=>{
+ const company=f.f.companyA;
+ await f.pool.query("UPDATE companies SET netcash_enabled=true,netcash_service_key='synthetic-service',netcash_payouts_key='synthetic-payouts' WHERE id=$1",[company]);
+ const p=await prepared('netcash');
+ await enqueue(p.intentId,await f.approve(p.operation));
+ await f.pool.query('UPDATE companies SET netcash_service_key=NULL,netcash_payouts_key=NULL WHERE id=$1',[company]);
+ const dispatch=await f.attempt(()=>f.actor(ctx=>schedulePaymentReleaseDispatch(ctx,p.intentId)));
+ const saved=await state(p.intentId);
+ expect({error:dispatch.error instanceof Error?dispatch.error.message:null,state:saved.outbox[0]?.state}).toEqual({error:null,state:'ready'});
+ const refusals=(await f.pool.query(`SELECT after_values->>'reason' AS reason FROM control_change_events
+  WHERE company_id=$1 AND lower(entity_id)=lower($2) AND action='payment_release.claim_refused'`,[company,p.intentId])).rows;
+ expect(refusals).toEqual([{reason:'Release provider configuration changed'}]);
 });
