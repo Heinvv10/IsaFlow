@@ -76,3 +76,14 @@ for(const damage of ['missing','corrupt'] as const)it(`refuses ${damage} retaine
   expect((await pool.query(`SELECT snapshot_id FROM ${table} WHERE company_id=$1 AND snapshot_id=$2`,[f.companyA,id])).rows).toEqual([]);
  }
 });
+it('refuses incomplete chunks in an existing authenticated original index',async()=>{
+ const {id,lease}=await prepared();
+ await pool.query("DELETE FROM control_audit_snapshot_index_chunks WHERE company_id=$1 AND snapshot_id=$2 AND section='records' AND ordinal=0 AND chunk_ordinal=0",[f.companyA,id]);
+ await expect(convert(lease,id)).rejects.toThrow(/incomplete|population|census/i);
+});
+it('reuses an existing complete index without rewriting its protected header',async()=>{
+ const {id,lease}=await prepared();
+ const before=(await pool.query('SELECT protected_header FROM control_audit_snapshot_indexes WHERE company_id=$1 AND snapshot_id=$2',[f.companyA,id])).rows;
+ const header=await convert(lease,id);expect(header.snapshotId).toBe(id);
+ expect((await pool.query('SELECT protected_header FROM control_audit_snapshot_indexes WHERE company_id=$1 AND snapshot_id=$2',[f.companyA,id])).rows).toEqual(before);
+});
