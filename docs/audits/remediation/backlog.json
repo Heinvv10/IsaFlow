@@ -11394,6 +11394,39 @@
       "severity": "medium",
       "source": "Confirmed on origin/master by the orchestrating session: lines ~106-110 do asked.find(...)! after waiting only for the Regenerate button, and the manager test (~:138-144) asserts asked.some(commentary) with no waitFor. Failed the full gate twice on 2026-09-10, on K-071 round 22 and on the R-075 test fix, at load ~19-22; passed alone both times.",
       "processNotes": "Fix: waitFor the condition the assertion depends on (the fetch having fired), then find; never assert on asynchronously collected state outside a waitFor; do not raise timeouts. Prove it by reproducing the flake under artificial CPU load before and after."
+    },
+    {
+      "id": "R-086",
+      "claim": "",
+      "area": "accounting/migration",
+      "affectedPaths": [
+        "src/modules/accounting/services"
+      ],
+      "sourceLabel": "",
+      "sourceIds": [],
+      "correctedTrigger": "",
+      "severityRationale": "The migration validation compares its AR total with the GL control account, but excludes 'sent' invoices, so any migrated company with sent, posted invoices shows a false AR-vs-GL failure. It misleads the migration sign-off rather than moving money.",
+      "auditedSha": "",
+      "currentSha": "",
+      "status": "confirmed",
+      "dependencies": [
+        "R-059"
+      ],
+      "testNames": [],
+      "evidencePaths": [
+        "docs/audits/remediation/R-059/fix.md"
+      ],
+      "fixCommit": null,
+      "pr": null,
+      "deployedSha": null,
+      "historicalDataImpact": "No ledger data is wrong; past validation reports for migrated companies may show false failures.",
+      "canonicalItem": null,
+      "reportedSeverity": "",
+      "branch": null,
+      "title": "migrationValidationService's AR status list omits 'sent', so a posted 'sent' invoice fails the AR-vs-GL check (R0 vs R1150)",
+      "severity": "low",
+      "source": "Measured by the R-059 round-7 blind reviewer on the schema fixture; pre-existing on master.",
+      "processNotes": "Route the population through shared/documentPopulation.documentInPopulationExpr (R-059) instead of a hand-written status list."
     }
   ],
   "sourceInventory": [
