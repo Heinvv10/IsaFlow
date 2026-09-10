@@ -147,6 +147,28 @@ export async function lockBankTransactionForUpdate(
   }
 }
 
+/**
+ * Run `fn` under the same 5s `lock_timeout`, for a WRITE whose own wait must be
+ * bounded: `matchTransaction`'s UPDATE waits on `uq_bank_tx_matched_line`
+ * behind a peer's uncommitted binding. It used to inherit the budget
+ * `lockBankTransactionForUpdate` left behind; that helper now restores the
+ * default, and the inherited wait became unbounded — a slow peer pinned the
+ * request instead of answering LINE_CLAIMED.
+ *
+ * Call it INSIDE a savepoint. A timeout is then undone by ROLLBACK TO, which
+ * restores the previous value too; on success the default is restored here,
+ * so the budget ends with the write it was set for.
+ */
+export async function withBankLockBudget<T>(fn: () => Promise<T>): Promise<T> {
+  const client = als.getStore()?.client;
+  if (!client) throw new Error('withBankLockBudget requires a request transaction (withAuth / als.run).');
+  assertTxUsable();
+  await client.query("SET LOCAL lock_timeout = '5s'");
+  const out = await fn();
+  await client.query('SET LOCAL lock_timeout = DEFAULT');
+  return out;
+}
+
 /** Is this the `lock_timeout` firing, on any statement in the request? */
 export function isLockNotAvailable(err: unknown): boolean {
   return (err as { code?: string } | null)?.code === LOCK_NOT_AVAILABLE;
@@ -174,9 +196,9 @@ const MATCH_LOCK_PROBE_SAVEPOINT = 'bank_tx_match_lock_probe';
 /**
  * Did the failed UPDATE wait on the TABLE, or on the row?
  *
- * `lockBankTransactionForUpdate` issues `SET LOCAL lock_timeout = '5s'`, which
- * bounds EVERY lock wait for the rest of the request — not only the row and
- * index waits. So a raw 55P03 out of the match UPDATE has two readings: a peer
+ * The match UPDATE runs under `withBankLockBudget`'s 5s `lock_timeout`, which
+ * bounds EVERY lock wait that statement takes — not only the row and index
+ * waits. So a raw 55P03 out of the match UPDATE has two readings: a peer
  * holding the journal line's index entry past 5s (genuine contention), or a
  * relation-level lock held by DDL (infrastructure). Reported as one, an index
  * build tells every user mid-deploy that their line is "already matched to

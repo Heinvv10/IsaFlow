@@ -6,7 +6,8 @@
  * is the route's only contention raiser (scripted reverse call graph, fix.md).
  * The service swallowed the typed error on an aborted transaction, so the next
  * statement raised 25P02 and this route answered 400 "Undo failed" — the retry
- * wording gone. The service now re-throws it; this pins the route's half.
+ * wording gone. The service now skips a contended row under its own savepoint
+ * and re-throws only when no row was written; this pins the route's half.
  */
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import type { NextApiRequest, NextApiResponse } from 'next';
@@ -64,6 +65,18 @@ describe('POST /api/accounting/bank-auto-post (undo)', () => {
 
     expect(res.statusCode).toBe(409);
     expect(JSON.stringify(res.sent)).toMatch(/retry in a moment/i);
+  });
+
+  // K-071 r19: once a row is reversed the counts are the answer — a 4xx here
+  // would COMMIT that reversal under a failure status.
+  it('answers a partly-undone run 200 with the counts', async () => {
+    vi.mocked(undoRun).mockResolvedValue({ reversed: 1, skipped: 1, alreadyUndone: 0, undone: false });
+    const { req, res } = mockReqRes();
+    await (handler as (q: NextApiRequest, s: NextApiResponse) => Promise<unknown>)(req, res);
+
+    expect(res.statusCode).toBe(200);
+    expect(JSON.stringify(res.sent)).toContain('"undone":false');
+    expect(JSON.stringify(res.sent)).toContain('"skipped":1');
   });
 
   it('keeps 400 for a failure that is not contention', async () => {

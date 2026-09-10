@@ -10,10 +10,11 @@
  *    sweep had already posted. Now: 200, the held line counted in
  *    `autoPostSkippedLocked`, the posted line kept, and a later run posts it.
  * 2. `bank-auto-post` (undo) → `undoRun` → `reverseReconciledTransaction` → a
- *    held bank LINE, locked on the request transaction itself. `undoRun`
- *    swallowed the typed error on the aborted transaction, the next statement
- *    raised 25P02, and the route answered 400. Now: 409, and the line reversed
- *    before the held one is rolled back with it — the run stays undoable.
+ *    held bank LINE. `undoRun` swallowed the typed error on the aborted
+ *    transaction, the next statement raised 25P02, and the route answered 400.
+ *    Now (r19, merged with master's K-140 per-row savepoint): every line held →
+ *    409 with nothing committed; some held → 200 with the counts, the reversed
+ *    lines committed, and the run NOT marked undone so a retry finishes it.
  */
 import { afterAll, beforeAll, expect, it, vi } from 'vitest';
 import { Pool } from 'pg';
@@ -71,7 +72,7 @@ async function run(route: string, body: unknown) {
   return { status: result.state.statusCode, body: result.state.body as Record<string, unknown>, committed };
 }
 
-async function holding<T>(lockSql: string, param: string, fn: () => Promise<T>): Promise<T> {
+async function holding<T>(lockSql: string, param: unknown, fn: () => Promise<T>): Promise<T> {
   const holder = await pool.connect();
   try {
     await holder.query('BEGIN');
@@ -121,7 +122,7 @@ it('rule sweep: a held bill is skipped and counted; the rest of the run still po
   await pool.query('DELETE FROM bank_categorisation_rules WHERE company_id=$1', [fx.company]);
 }, 60000);
 
-it('undo: a held line answers 409 and rolls back the lines reversed before it', async () => {
+it('undo: all held → 409, nothing committed; some held → 200, the rest committed, run left open', async () => {
   const lines = [await seedBankLine(pool, fx, -50), await seedBankLine(pool, fx, -70)];
   for (const id of lines) {
     const r = await run(ACTION, { action: 'allocate', bankTransactionId: id, allocationType: 'account', contraAccountId: expense });
@@ -132,25 +133,40 @@ it('undo: a held line answers 409 and rolls back the lines reversed before it', 
      VALUES($1,'categorization',0.9,1000,2,120) RETURNING id`, [fx.company]);
   const runId = String(runRows[0].id);
   await pool.query('UPDATE bank_transactions SET auto_post_run_id=$1 WHERE id=ANY($2::UUID[])', [runId, lines]);
+  const undoneAt = async () => (await pool.query(
+    'SELECT undone_at FROM bank_auto_post_runs WHERE id=$1', [runId])).rows[0].undone_at;
   // Hold the line undoRun's own SELECT returns LAST, so one line is reversed
-  // before the contention — the case that proves the rollback, not a no-op.
+  // before the contention — the case that proves what commits, not a no-op.
   const { rows: order } = await pool.query(
     'SELECT id FROM bank_transactions WHERE auto_post_run_id=$1 AND company_id=$2', [runId, fx.company]);
+  const first = String(order[0].id);
   const last = String(order[order.length - 1].id);
 
-  const held = await holding('SELECT id FROM bank_transactions WHERE id=$1 FOR UPDATE', last,
+  // 1. Every line held: nothing was written, so the contention is the answer.
+  const allHeld = await holding('SELECT id FROM bank_transactions WHERE id=ANY($1::UUID[]) FOR UPDATE', lines,
     () => run(UNDO, { action: 'undo', runId }));
-
   // Was 400 "Undo failed" (a 25P02 from the swallowed 55P03).
-  expect(held.status).toBe(409);
-  expect(JSON.stringify(held.body)).toMatch(/retry in a moment/i);
+  expect(allHeld.status).toBe(409);
+  expect(JSON.stringify(allHeld.body)).toMatch(/retry in a moment/i);
   for (const id of lines) expect(await status(id)).toBe('allocated');
-  const { rows: runAfter } = await pool.query('SELECT undone_at FROM bank_auto_post_runs WHERE id=$1', [runId]);
-  expect(runAfter[0].undone_at).toBeNull();
+  expect(await undoneAt()).toBeNull();
 
-  // Control: nobody holding — the same undo reverses both.
-  const control = await run(UNDO, { action: 'undo', runId });
-  expect(control.status).toBe(200);
-  expect((control.body.data ?? control.body)).toMatchObject({ reversed: 2, skipped: 0 });
+  // 2. One line held: the other is reversed and COMMITTED behind a 200 that
+  // says so; the held one is skipped and the run is not recorded undone.
+  const oneHeld = await holding('SELECT id FROM bank_transactions WHERE id=$1 FOR UPDATE', last,
+    () => run(UNDO, { action: 'undo', runId }));
+  expect(oneHeld.status).toBe(200);
+  expect(oneHeld.committed).toBe(true);
+  expect(oneHeld.body.data ?? oneHeld.body).toMatchObject({ reversed: 1, skipped: 1, alreadyUndone: 0, undone: false });
+  expect(await status(first)).toBe('imported');
+  expect(await status(last)).toBe('allocated');
+  expect(await undoneAt()).toBeNull();
+
+  // 3. Retry with nobody holding: only the line still tagged is left, and
+  // reversing it completes the run.
+  const retry = await run(UNDO, { action: 'undo', runId });
+  expect(retry.status).toBe(200);
+  expect(retry.body.data ?? retry.body).toMatchObject({ reversed: 1, skipped: 0, alreadyUndone: 0, undone: true });
   for (const id of lines) expect(await status(id)).toBe('imported');
+  expect(await undoneAt()).not.toBeNull();
 }, 60000);

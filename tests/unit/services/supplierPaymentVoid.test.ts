@@ -62,7 +62,9 @@ vi.mock('@/modules/accounting/services/ap/supplierPaymentService', () => ({
 import { sql, withSavepoint } from '@/lib/neon';
 import { reverseJournalEntry } from '@/modules/accounting/services/gl/journalEntryService';
 import { getSupplierPaymentById } from '@/modules/accounting/services/ap/supplierPaymentService';
-import { voidSupplierPayment } from '@/modules/accounting/services/ap/supplierPaymentWorkflowService';
+import {
+  SupplierPaymentNotFoundError, voidSupplierPayment,
+} from '@/modules/accounting/services/ap/supplierPaymentWorkflowService';
 
 const mockSql = sql as unknown as MockedFunction<(...args: unknown[]) => Promise<unknown[]>>;
 const mockReverse = reverseJournalEntry as unknown as MockedFunction<
@@ -172,7 +174,9 @@ describe('voidSupplierPayment (P2.1 / audit W4)', () => {
 
   it('refuses a payment that does not exist for this tenant, before any write', async () => {
     mockSql.mockResolvedValue([]);
-    await expect(voidSupplierPayment(COMPANY_ID, PAYMENT_ID, USER_ID)).rejects.toThrow(/not found/i);
+    // TYPED: the lock-first refusal is the same pre-write event the route
+    // answers 404, so it must be the class the route keys on (K-107).
+    await expect(voidSupplierPayment(COMPANY_ID, PAYMENT_ID, USER_ID)).rejects.toBeInstanceOf(SupplierPaymentNotFoundError);
     expect(mockGetPayment).not.toHaveBeenCalled();
   });
 

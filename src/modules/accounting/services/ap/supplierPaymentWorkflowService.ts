@@ -104,7 +104,7 @@ export async function processSupplierPayment(
     // bills through `fetchBillCandidates`. Both reach the same payment and the
     // same bill, from `supplier-payments-action` and `supplier-allocations`.
     if (!(await lockSupplierPaymentForUpdate(companyId, id))) {
-      throw new Error(`Payment ${id} not found`);
+      throw new SupplierPaymentNotFoundError(id);
     }
     const payment = await getSupplierPaymentById(companyId, id);
     if (!payment) throw new SupplierPaymentNotFoundError(id);
@@ -232,7 +232,7 @@ async function voidSupplierPaymentInner(
     // same supplier payment. Two agents voiding one payment from its two
     // entrances held a row each and Postgres killed one with 40P01.
     if (!(await lockSupplierPaymentForUpdate(companyId, id))) {
-      throw new Error(`Payment ${id} not found`);
+      throw new SupplierPaymentNotFoundError(id);
     }
     const payment = await getSupplierPaymentById(companyId, id);
     if (!payment) throw new SupplierPaymentNotFoundError(id);
