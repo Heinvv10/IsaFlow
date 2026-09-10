@@ -9,7 +9,7 @@ it('captures the actual existing POST settings and every changed account row',as
  const before=await f.state(),response=await f.rest('POST',{mappings:{accounts_receivable:replacement,primary_bank:''}});
  expect(response.status).toBe(200);expect(response.body.data).toMatchObject({saved:true});
  const after=await f.state(),events=await f.changes('accounting_default_accounts',f.f.companyA);
- expect(after.settings.value).toEqual({accounts_receivable:replacement,primary_bank:''});
+ expect(typeof after.settings.value==='string'?JSON.parse(after.settings.value):after.settings.value).toEqual({accounts_receivable:replacement,primary_bank:''});
  expect(after.accounts.find((r:{id:string})=>r.id===old).is_system_account).toBe(false);
  expect(after.accounts.find((r:{id:string})=>r.id===replacement)).toMatchObject({is_system_account:true,account_subtype:'receivable'});
  expect(events).toHaveLength(1);expect(events[0].previous_version).toBeNull();expect(Number(events[0].new_version)).toBe(1);
