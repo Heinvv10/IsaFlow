@@ -106,6 +106,25 @@ export async function controlledOperationApprovalRequiredForAmount(ctx: ControlT
   return matchApprovalRules(rules, amount, new Map()).length > 0;
 }
 
+/**
+ * A preview given an approval must accept it exactly when the live call would:
+ * the same requester, authority, decision and binding checks the execution
+ * path runs below, in its own savepoint, executing nothing. Throws as the live
+ * path throws.
+ */
+export async function assertSuppliedApprovalExecutable(ctx: ControlTx, input: OperationRef, approvalId: string): Promise<void> {
+  assertControlTx(ctx);
+  const ref = canonicalOperationRef(input);
+  const authorities = await approvalAuthorities(ctx, approvalId);
+  await withSavepoint('preview_supplied_approval', async () => {
+    const row = await lockApproval(ctx, approvalId);
+    await assertOperationRequester(ctx, ref, row.requester_person_id);
+    await assertRequesterAuthority(row, authorities);
+    await validateDecisions(ctx, row, await approvalDecisions(ctx, row.id), authorities);
+    assertApprovalExecutable(row, (await loadOperationMaterial(ctx, ref)).bindingHash);
+  });
+}
+
 /** Kernel only: owning domain services must call this before their financial effect. */
 export async function executeControlledOperation<T>(ctx: ControlTx, input: OperationRef, approvalId: string | null,
   effect: (permit: ControlledEffectPermit) => Promise<T>): Promise<T> {
