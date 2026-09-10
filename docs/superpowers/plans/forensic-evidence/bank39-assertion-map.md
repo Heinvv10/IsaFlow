@@ -74,3 +74,12 @@ Counts above total53. Each economic assertion remains required even when helper 
 Root resource queue after crash recovery: AP16 actual cases/static, comparison reader, then this worker's11 new PostgreSQL cases. No heavy operation started without renewed lease.
 
 The **14 currently passing callback bodies** are frozen before editing. TypeScript AST traversal in file order `bankAllocationRowLock.test.ts`, then `ar/receiptMatchConfirmService.test.ts`, selecting each direct `it` callback except the three first-read spies and the two failing confirmation cases, yields14 callbacks. Joined with one newline their SHA256 is `509e3d30fdad7442b15c4edd988d390d8c36e061b1519e64c3177ad6cf1fa5be`. Final verification must reproduce this exact hash. This includes the narrow company-bound payment lookup assertion; it is retained alongside real tenant integration proof.
+
+## Actual replacement gate and remaining label finding
+
+- `88851` terminal0: all11 new PostgreSQL cases passed in2.37s; all pools closed. Exact tests `79f19f487`. Log `/tmp/isaflow-bank39-eleven-pg.log`.
+- `90600` terminal0: all49 existing mapped PostgreSQL cases passed in6.03s across bankRefundControls, bankDefaultAllocation, bankVatFallback, bankAllocationControls. Log `/tmp/isaflow-bank39-mapped-existing-pg.log`.
+- Only after these65 total new/existing real cases passed, six obsolete spy-only files were retired, three first-read SQL spies moved to real two-session tests, two confirmation assertions were adapted to immutable parent applications and current missing-association error.
+- All14 retained passing callback bodies reproduce the frozen SHA256 exactly after edits.
+- Initial corrected focused24 units passed, but source audit caught a lost original diagnostic assertion: `confirmReceiptMatch` documents legacy `params.postingAgent` yet forwards only `params.postingOpts`. Restored that old label expectation alongside the new exact applications. Now **one focused genuine RED /11 PASS** in receipt suite: expected `postingAgent: mcp:x:v1` is absent. Raw `/tmp/isaflow-bank39-legacy-label-red.log`. Root notified; no production edit authorized yet. Token/person authority remains separately protected and is not inferred from the caller label.
+- PG/heavy lease explicitly released before further edits; root publication/seal tests and AP correction next. Dedicated/source TS and lint pending.
