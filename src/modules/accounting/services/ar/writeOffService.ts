@@ -10,6 +10,7 @@ import { log } from '@/lib/logger';
 import { createJournalEntry, postJournalEntry } from '../gl/journalEntryService';
 import { getSystemAccount } from '../gl/systemAccountResolver';
 import { assertCustomerInCompany } from '../core/contactDirectoryService';
+import { claimUnderLockTimeout } from '../core/documentClaimLock';
 import type { CustomerWriteOff, WriteOffCreateInput } from '../../types/ar.types';
 import type { JournalLineInput } from '../../types/gl.types';
 
@@ -99,6 +100,20 @@ export async function createWriteOff(companyId: string,
   return mapRow(rows[0]!);
 }
 
+/**
+ * Raised when the write-off is not 'draft' when the claim runs — because it
+ * never was, or because a concurrent request has already approved it. Raised
+ * BEFORE the journal is created, so a route may answer it with a 4xx without
+ * `withAuth` committing a half-approved write-off.
+ */
+export class WriteOffNotApprovableError extends Error {
+  readonly code = 'WRITE_OFF_NOT_APPROVABLE';
+  constructor(readonly writeOffStatus: string) {
+    super(`Write-off is ${writeOffStatus}, not draft — it cannot be approved.`);
+    this.name = 'WriteOffNotApprovableError';
+  }
+}
+
 export async function approveWriteOff(companyId: string, id: string, userId: string): Promise<CustomerWriteOff> {
   const woRows = (await sql`
     SELECT wo.*, ci.invoice_number FROM customer_write_offs wo
@@ -106,7 +121,25 @@ export async function approveWriteOff(companyId: string, id: string, userId: str
     WHERE wo.id = ${id} AND wo.company_id = ${companyId}
   `) as Row[];
   if (!woRows[0]) throw new Error('Write-off not found');
-  if (woRows[0].status !== 'draft') throw new Error('Write-off is not in draft status');
+
+  // CLAIM before anything is posted. What this replaced read
+  // `woRows[0].status !== 'draft'` and then posted DR Bad Debt / CR AR (plus
+  // the §22(3) VAT recovery) and added the write-off amount to the invoice's
+  // `amount_paid`, with the write-off's own row rewritten unconditionally: two
+  // concurrent approvals credited AR twice and marked the invoice paid against
+  // money that was written off once. The status-predicated UPDATE is the guard.
+  const claimed = await claimUnderLockTimeout('write-off', async () => (await sql`
+    UPDATE customer_write_offs
+    SET status = 'approved', approved_by = ${userId}::UUID, approved_at = NOW()
+    WHERE id = ${id} AND company_id = ${companyId} AND status = 'draft'
+    RETURNING id
+  `) as Row[]);
+  if (claimed.length === 0) {
+    const now = (await sql`
+      SELECT status FROM customer_write_offs WHERE id = ${id} AND company_id = ${companyId}
+    `) as Row[];
+    throw new WriteOffNotApprovableError(now[0] ? String(now[0].status) : 'missing');
+  }
 
   const wo = woRows[0];
   const amount = Number(wo.amount);
@@ -166,10 +199,11 @@ export async function approveWriteOff(companyId: string, id: string, userId: str
     WHERE id = ${wo.invoice_id}::UUID AND company_id = ${companyId}
   `;
 
+  // Only the journal link is left to write — the status, approver and timestamp
+  // were set by the claim above.
   const updated = (await sql`
     UPDATE customer_write_offs
-    SET status = 'approved', approved_by = ${userId}::UUID, approved_at = NOW(),
-        gl_journal_entry_id = ${je.id}::UUID
+    SET gl_journal_entry_id = ${je.id}::UUID
     WHERE id = ${id} AND company_id = ${companyId} RETURNING *
   `) as Row[];
 

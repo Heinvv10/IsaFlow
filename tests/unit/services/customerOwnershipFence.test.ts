@@ -53,6 +53,14 @@ vi.mock('@/modules/accounting/services/bank/bankTxLock', () => ({
   tableLockUnavailable: async () => false,
 }));
 
+// executeRecurring takes a real FOR UPDATE on the template row (it needs a live
+// request transaction); stubbed to hand back the due template the test supplies.
+const lockRecurringTransactionTemplate = vi.hoisted(() => vi.fn());
+vi.mock('@/modules/accounting/services/core/recurringTemplateLock', () => ({
+  lockRecurringTransactionTemplate,
+  RecurringTemplateLockTimeoutError: class extends Error {},
+}));
+
 import { sql } from '@/lib/neon';
 import { CustomerNotInCompanyError } from '@/modules/accounting/services/core/contactDirectoryService';
 import { createDraftCustomerInvoice } from '@/modules/accounting/services/ar/customerInvoiceCreateService';
@@ -217,27 +225,24 @@ describe('R-067 — a recurring template carries a caller-supplied id in opaque 
   it('executeRecurring refuses the foreign client_id before minting the invoice', async () => {
     // The template row itself is company-scoped; its templateData is not — the
     // id inside it was supplied by whoever saved the template.
-    let call = 0;
     mockSql.mockImplementation((strings: unknown) => {
       sqlTexts.push((strings as TemplateStringsArray).join('?'));
-      call += 1;
-      if (call === 1) {
-        return Promise.resolve([{
-          id: '66666666-6666-4666-8666-666666666666',
-          company_id: COMPANY,
-          name: 'Monthly retainer',
-          entity_type: 'customer_invoice',
-          template_data: { clientId: FOREIGN, subtotal: 100, totalAmount: 115 },
-          frequency: 'monthly',
-          next_run_date: '2026-10-01',
-          last_run_date: null,
-          is_active: true,
-          auto_post: false,
-          created_by: USER,
-          created_at: '2026-09-01T00:00:00.000Z',
-        }]);
-      }
       return Promise.resolve([]);
+    });
+    lockRecurringTransactionTemplate.mockResolvedValueOnce({
+      id: '66666666-6666-4666-8666-666666666666',
+      company_id: COMPANY,
+      name: 'Monthly retainer',
+      entity_type: 'customer_invoice',
+      template_data: { clientId: FOREIGN, subtotal: 100, totalAmount: 115 },
+      frequency: 'monthly',
+      next_run_date: '2026-10-01',
+      is_due: true,
+      last_run_date: null,
+      is_active: true,
+      auto_post: false,
+      created_by: USER,
+      created_at: '2026-09-01T00:00:00.000Z',
     });
 
     await expect(executeRecurring(COMPANY, '66666666-6666-4666-8666-666666666666', USER))

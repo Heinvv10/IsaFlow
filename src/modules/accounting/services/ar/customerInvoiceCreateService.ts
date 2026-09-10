@@ -12,8 +12,8 @@ import { sql, withSavepoint } from '@/lib/neon';
 import { fmtDate } from '@/lib/fmtDate';
 import type { DbRow } from '@/lib/neon';
 import { log } from '@/lib/logger';
-import { reserveNextDocumentNumber } from '@/modules/accounting/services/core/companyService';
 import { assertCustomerInCompany } from '@/modules/accounting/services/core/contactDirectoryService';
+import { insertWithReservedNumber } from '@/modules/accounting/services/core/documentNumberRetry';
 import type { PostingActorOpts } from '../gl/journalEntryMeta';
 
 type Row = DbRow;
@@ -56,7 +56,7 @@ export async function createDraftCustomerInvoice(
     taxRate, notes, items, currencyCode, exchangeRate,
   } = input;
 
-  // R-067: the tenant fence, BEFORE the first write. reserveNextDocumentNumber
+  // R-067: the tenant fence, BEFORE the first write. insertWithReservedNumber
   // below UPDATEs the company's counter, and withAuth COMMITs a 4xx returned
   // after a write — so this must precede it, not follow it.
   await assertCustomerInCompany(companyId, clientId);
@@ -105,60 +105,41 @@ export async function createDraftCustomerInvoice(
     return (projRows[0]?.['id'] as string | undefined) ?? null;
   }).catch(() => null);
 
-  // Reserve invoice number from the company's configured sequence.
-  // The reservation is atomic — the only collision that can occur is with
-  // a pre-existing invoice_number from before sequence-based generation
-  // (e.g. legacy rows or a Sage import). On that residual clash, re-reserve.
+  // The invoice number comes from the company's configured sequence, and
+  // `insertWithReservedNumber` owns the reserve-and-retry loop every other
+  // minting caller uses. What this replaced was a sixth inline copy of it,
+  // still carrying the defect LOW-1 fixed in the shared helper: it renumbered on
+  // ANY 23505, so a clash on a different unique constraint touched by the header
+  // burned four more sequence numbers and then surfaced an error naming the
+  // wrong cause. Only a clash on the numbering index renumbers now.
   //
-  // Trade-off: the reservation happens BEFORE the INSERT and is not rolled
-  // back if the INSERT fails for any reason (FK violation, unique clash,
-  // anything). Each failed attempt permanently burns one sequence slot.
-  // Gaps are acceptable for accountancy purposes here — a user can resync
-  // next_number from Settings → Document Numbers if they ever need to.
-  // We accept this over wrapping in a transaction because a transactional
-  // counter would serialize all invoice creates company-wide.
-  // The INSERT must run in a SAVEPOINT — without it, a unique-violation on
-  // invoice_number poisons the outer request tx (set up by withAuth for RLS),
-  // and the very next statement (the retry's reserveNextDocumentNumber UPDATE)
-  // returns "current transaction is aborted, commands ignored until end of
-  // transaction block". The savepoint isolates each INSERT attempt so the
-  // outer tx survives a clash and the retry can reserve a fresh number.
-  let invoiceId = '';
-  let invoiceNumber = await reserveNextDocumentNumber(companyId, 'customer_invoice');
-  for (let attempt = 0; attempt < 5; attempt++) {
-    try {
-      invoiceId = await withSavepoint(`inv_insert_${attempt}`, async () => {
-        const invRows = (await sql`
-          INSERT INTO customer_invoices (
-            company_id, invoice_number, project_id, customer_id, client_id,
-            billing_period_start, billing_period_end,
-            subtotal, tax_rate, tax_amount, total_amount, invoice_date, due_date,
-            notes, status, created_by,
-            currency_code, exchange_rate, functional_total,
-            actor_type, actor_token_jti
-          ) VALUES (
-            ${companyId}, ${invoiceNumber}, ${projectId}, ${clientId}::UUID, ${clientId}::UUID,
-            ${bpStart}, ${bpEnd},
-            ${subtotal}, ${rate}, ${taxAmount}, ${totalAmount}, ${invDate},
-            ${dueDate || null}, ${notes || null}, 'draft', ${userId},
-            ${invCurrencyCode}, ${invExchangeRate}, ${functionalTotal},
-            ${actor?.actorType ?? null}, ${actor?.actorTokenJti ?? null}
-          ) RETURNING id
-        `) as Row[];
-        return String(invRows[0]!.id);
-      });
-      break;
-    } catch (insertErr) {
-      // Detect unique-violation by SQLSTATE, not message text (pg localises
-      // and rewords messages; err.code survives the driver untouched).
-      const code = (insertErr as { code?: string }).code;
-      if (code === '23505' && attempt < 4) {
-        invoiceNumber = await reserveNextDocumentNumber(companyId, 'customer_invoice');
-        continue;
-      }
-      throw insertErr;
-    }
-  }
+  // The reservation runs OUTSIDE the savepoint on purpose (see the helper): a
+  // failed attempt permanently burns one sequence slot rather than handing the
+  // same number back forever. Gaps are acceptable here — a user can resync
+  // next_number from Settings → Document Numbers.
+  const { invoiceId, invoiceNumber } = await insertWithReservedNumber(
+    companyId, 'customer_invoice', 'inv_insert_', 'uq_customer_invoices_company_number',
+    async (number) => {
+      const invRows = (await sql`
+        INSERT INTO customer_invoices (
+          company_id, invoice_number, project_id, customer_id, client_id,
+          billing_period_start, billing_period_end,
+          subtotal, tax_rate, tax_amount, total_amount, invoice_date, due_date,
+          notes, status, created_by,
+          currency_code, exchange_rate, functional_total,
+          actor_type, actor_token_jti
+        ) VALUES (
+          ${companyId}, ${number}, ${projectId}, ${clientId}::UUID, ${clientId}::UUID,
+          ${bpStart}, ${bpEnd},
+          ${subtotal}, ${rate}, ${taxAmount}, ${totalAmount}, ${invDate},
+          ${dueDate || null}, ${notes || null}, 'draft', ${userId},
+          ${invCurrencyCode}, ${invExchangeRate}, ${functionalTotal},
+          ${actor?.actorType ?? null}, ${actor?.actorTokenJti ?? null}
+        ) RETURNING id
+      `) as Row[];
+      return { invoiceId: String(invRows[0]!.id), invoiceNumber: number };
+    },
+  );
 
   for (const item of items) {
     const qty = item.quantity || 1;

@@ -123,7 +123,9 @@ describe('generateWipInvoice', () => {
         work_item_name: 'Bank recon', job_category_name: 'Accounting',
       },
     ]);
-    sqlMock.mockResolvedValueOnce([{ max_num: 0 }]);     // max invoice number
+    // The number now comes from the company sequence (K-107/K-120), not a
+    // MAX(invoice_number)+1 read beside it.
+    sqlMock.mockResolvedValueOnce([{ used: 1, prefix: 'INV', padding: 7 }]);
     sqlMock.mockResolvedValueOnce([{ id: INVOICE_ID }]); // INSERT invoice
     sqlMock.mockResolvedValueOnce([]);                   // INSERT line item A
     sqlMock.mockResolvedValueOnce([]);                   // INSERT line item B
@@ -136,7 +138,9 @@ describe('generateWipInvoice', () => {
     expect(result.taxAmount).toBe(637.5);
     expect(result.totalAmount).toBe(4887.5);
     expect(result.invoiceId).toBe(INVOICE_ID);
-    expect(result.invoiceNumber).toMatch(/^INV-\d{5}$/);
+    // The company sequence's own format (prefix + padding), not the MAX(...)+1
+    // 'INV-nnnnn' this path used to mint beside it.
+    expect(result.invoiceNumber).toBe('INV0000001');
     expect(markEntriesBilledMock).toHaveBeenCalledWith(COMPANY, [ENTRY_A, ENTRY_B], INVOICE_ID);
 
     const insertLineItemCalls = sqlMock.mock.calls.filter((c) => {
@@ -168,7 +172,7 @@ describe('generateWipInvoice', () => {
         job_category_id: 'cat-1', job_category_name: 'Accounting',
       },
     ]);
-    sqlMock.mockResolvedValueOnce([{ max_num: 0 }]);
+    sqlMock.mockResolvedValueOnce([{ used: 1, prefix: 'INV', padding: 7 }]); // reserve from the company sequence
     sqlMock.mockResolvedValueOnce([{ id: INVOICE_ID }]);
     sqlMock.mockResolvedValueOnce([]); // ONE line item (grouped)
     markEntriesBilledMock.mockResolvedValueOnce(2);
@@ -203,7 +207,7 @@ describe('generateWipInvoice', () => {
         work_item_name: 'Bank recon', job_category_name: 'Accounting',
       },
     ]);
-    sqlMock.mockResolvedValueOnce([{ max_num: 0 }]);
+    sqlMock.mockResolvedValueOnce([{ used: 1, prefix: 'INV', padding: 7 }]); // reserve from the company sequence
     sqlMock.mockResolvedValueOnce([{ id: INVOICE_ID }]);
     sqlMock.mockResolvedValueOnce([]); // single grouped line
     markEntriesBilledMock.mockResolvedValueOnce(2);
@@ -243,7 +247,7 @@ describe('generateWipInvoice', () => {
         work_item_name: null, job_category_name: 'Accounting',
       },
     ]);
-    sqlMock.mockResolvedValueOnce([{ max_num: 0 }]);
+    sqlMock.mockResolvedValueOnce([{ used: 1, prefix: 'INV', padding: 7 }]); // reserve from the company sequence
     sqlMock.mockResolvedValueOnce([{ id: INVOICE_ID }]);
     sqlMock.mockResolvedValueOnce([]);
     sqlMock.mockResolvedValueOnce([]);

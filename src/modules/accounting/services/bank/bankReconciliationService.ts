@@ -10,6 +10,7 @@ import { createJournalEntry, postJournalEntry } from '../gl/journalEntryService'
 import type { BankReconciliation } from '../../types/bank.types';
 import type { JournalLineInput } from '../../types/gl.types';
 import type { DbRow } from '@/types/db';
+import { isBankSubtype } from '../gl/accountSubtypes';
 
 
 // ── Reconciliation CRUD ───────────────────────────────────────────────────────
@@ -248,8 +249,8 @@ function mapReconRow(row: DbRow): BankReconciliation {
     unmatchedCount: row.unmatched_count !== undefined ? Number(row.unmatched_count) : undefined,
     // Only treat the parent as an umbrella group when it is itself a bank-subtype
     // account (mirrors the bank-accounts grouping rule); otherwise leave ungrouped.
-    groupId: row.parent_subtype === 'bank' && row.group_id ? String(row.group_id) : undefined,
-    groupName: row.parent_subtype === 'bank' && row.group_name ? String(row.group_name) : undefined,
+    groupId: isBankSubtype(row.parent_subtype as string | null) && row.group_id ? String(row.group_id) : undefined,
+    groupName: isBankSubtype(row.parent_subtype as string | null) && row.group_name ? String(row.group_name) : undefined,
   };
 }
 

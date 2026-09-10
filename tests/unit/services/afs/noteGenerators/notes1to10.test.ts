@@ -1,6 +1,7 @@
 import { describe, it, expect, vi, beforeEach, type MockedFunction } from 'vitest';
+import { mockUnsafe } from '../../../helpers/sqlFragmentMock';
 
-vi.mock('@/lib/neon', () => ({ sql: vi.fn() }));
+vi.mock('@/lib/neon', () => ({ sql: Object.assign(vi.fn(), { unsafe: mockUnsafe }) }));
 vi.mock('@/lib/logger', () => ({
   log: { info: vi.fn(), error: vi.fn(), warn: vi.fn() },
 }));

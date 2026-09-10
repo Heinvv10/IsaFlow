@@ -142,11 +142,18 @@ export async function createInvoice(data: {
     const yyyymm = new Date().toISOString().slice(0, 7).replace('-', '');
     const prefix = `INV-${yyyymm}-`;
 
+    // MAX of the numbers already minted this month, not a COUNT of the month's
+    // rows: `admin_invoices.invoice_number` is UNIQUE, and count is not max —
+    // after a single invoice in the month was deleted every later create
+    // re-issued a number that already existed and 23505'd, permanently, since
+    // the count never caught up. The scope is deliberately platform-wide and
+    // not per company: this is the platform's own billing sequence.
     const seqRows = (await tx`
-      SELECT COUNT(*) AS count FROM admin_invoices
+      SELECT COALESCE(MAX(CAST(SUBSTRING(invoice_number FROM '[0-9]+$') AS INTEGER)), 0) AS max_num
+      FROM admin_invoices
       WHERE invoice_number LIKE ${prefix + '%'}
     `) as Row[];
-    const seq = parseInt((seqRows[0] as Row).count as string, 10) + 1;
+    const seq = Number((seqRows[0] as Row).max_num ?? 0) + 1;
     const invoice_number = `${prefix}${String(seq).padStart(4, '0')}`;
 
     const rows = (await tx`

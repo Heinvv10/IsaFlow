@@ -1,0 +1,299 @@
+# K-053 GREEN (branch fix/audit-k053-aging-soft-deleted, base origin/master 0f16391e)
+
+## Integration (fixture DB, real Postgres)
+$ node scripts/check-runtime.mjs && vitest run --config vitest.integration.config.ts "tests/integration/k053-aging-includes-soft-deleted.int.test.ts" "tests/integration/k053-aging-soft-delete-adjacent.int.test.ts"
+
+ RUN  v4.1.2 /home/hein/Workspace/IsaFlow/.worktrees/fix-K-053
+
+
+ Test Files  2 passed (2)
+      Tests  6 passed (6)
+   Start at  11:26:19
+   Duration  2.46s (transform 1.33s, setup 0ms, import 2.55s, tests 477ms, environment 0ms)
+
+
+## Mutation check
+Production change reverted (git checkout of the three files), same two test
+files re-run: 5 failed | 1 passed (6). The two summary tests, both detail tests
+and the supplier-ledger test all went RED. The sixth ("a second company keeps
+its own live bill") passes either way by design — it is the no-leak guard, not
+the defect. Change restored via git apply; git diff --stat back to
+3 files changed, 20 insertions(+).
+
+## Full unit suite (DATABASE_URL unset)
+bunx vitest run
+  Test Files  792 passed | 36 skipped (828)
+       Tests  9434 passed | 234 skipped (9668)
+
+## Static gates
+bunx tsc --noEmit                          -> clean (exit 0)
+bunx eslint <3 changed src/pages files>    -> clean (exit 0)
+
+## Round 2 (review findings) — fixture DB
+$ bun run test:integration -- tests/integration/k053-aging-includes-soft-deleted.int.test.ts \
+    tests/integration/k053-aging-soft-delete-adjacent.int.test.ts \
+    tests/integration/k053-soft-delete-gl-tie.int.test.ts \
+    tests/integration/k053-soft-delete-chase-surfaces.int.test.ts
+  Test Files  4 passed (4)
+       Tests  16 passed (16)
+
+### Mutation checks (each reverted, run, restored)
+M1 reverseDocumentJournalForDelete returns null   -> 3 failed | 3 passed (6)  [gl-tie]
+M2 deleted_at dropped from ar/apSubledgerService  -> 2 failed | 4 passed (6)  [gl-tie]
+M3 amount_paid guard disabled                     -> 1 failed | 5 passed (6)  [gl-tie]
+M4 deleted_at dropped from statementEmailService,
+   dunningService, supplierStatementService,
+   smart-reminder.ts                              -> 4 failed (4)             [chase-surfaces]
+git diff --stat identical to pre-mutation after each restore.
+
+## Full unit suite (DATABASE_URL unset)
+env -u DATABASE_URL -u ISAFLOW_DISPOSABLE_AUTH_TEST bunx vitest run
+  run A: 1 failed | 791 passed | 36 skipped (828 files) — tests/unit/services/cashFlowReport.test.ts (10778ms, 10s timeout)
+  run B: 1 failed | 788 passed | 36 skipped — tests/unit/services/bank/bankAllocationUnwind.test.ts
+  Both files re-run together in isolation: 2 passed (2), 17 tests passed.
+  Host load average 128.70 during the suite runs; these are timeout flakes, not
+  regressions — neither file imports anything this change touches.
+
+## Static gates
+bunx tsc --noEmit                       -> clean (exit 0)
+bunx eslint <14 changed src/pages files>-> clean (exit 0)
+bun run agent-docs:check                -> OK: 74 mirrors match
+
+## Round 3 (re-review findings) — fixture DB, migration 653 applied
+$ psql "$DATABASE_URL" -f scripts/migrations/sql/653_soft_delete_journal_reversals.sql
+  CREATE TABLE / CREATE INDEX / ALTER TABLE x2 / DO / COMMENT
+$ bunx tsx scripts/ci/check-migration-rls.ts
+  OK: every company_id table created by a migration is under RLS.
+
+$ bun run test:integration -- <the six k053 files>
+  Test Files  6 passed (6)
+       Tests  27 passed (27)
+
+### Mutation checks (each reverted, run, restored)
+M1 undo infers from the chain (round-2 behaviour)  -> 1 failed | 7 passed  [undo-identity]
+     the failing test is the reviewer's own manual-reversal probe
+M2 close-readiness predicate removed               -> 3 failed (3)         [close-readiness-tie]
+M2b predicate replaced by plain deleted_at IS NULL -> 1 failed | 2 passed  [close-readiness-tie]
+     fails ONLY the historical-era test, which is the evidence for the
+     journal-aware form over the literal one the finding proposed
+M3 live-allocation guard disabled                  -> 2 failed | 6 passed  [undo-identity]
+M4 unreachable journal link skipped silently       -> 1 failed | 7 passed  [undo-identity]
+M5 undo catch always 500                           -> 2 failed | 6 passed  [undo-identity]
+     the second is a cascade: the 400 test aborts before restoring state
+M6 FOR UPDATE removed from the journal read        -> 1 failed | 7 passed  [undo-identity]
+git status --porcelain identical to pre-mutation after every restore.
+
+## Full unit suite (DATABASE_URL unset)
+env -u DATABASE_URL -u ISAFLOW_DISPOSABLE_AUTH_TEST bunx vitest run
+  Test Files  792 passed | 36 skipped (828)
+       Tests  9434 passed | 234 skipped (9668)
+  Host load average 103; no failures this run.
+
+## Static gates
+bunx tsc --noEmit                        -> clean (exit 0)
+bunx eslint <5 changed src/pages files>  -> clean (exit 0)
+bun run agent-docs:check                 -> OK: 74 mirrors match
+
+## Round 3b — migration renamed 645 -> 653, dunning cron covered
+Prefix 645 collides with K-081's 645_loan_reclass_postings.sql on an unmerged
+branch. Renamed with git mv; every reference updated (service header, the
+undo-identity test header, core/.claude.md + regenerated mirror, fix-round3.md,
+this log's round-3 heading).
+
+$ psql "$DATABASE_URL" -c "DROP TABLE IF EXISTS soft_delete_journal_reversals;"
+    (first attempt hit a deadlock against another session on the shared fixture
+     DB; retried under SET lock_timeout='10s' and dropped on the next attempt)
+$ psql "$DATABASE_URL" -c "SELECT to_regclass('public.soft_delete_journal_reversals');"
+    -> NULL  (proves the apply below starts from nothing)
+$ psql "$DATABASE_URL" -f scripts/migrations/sql/653_soft_delete_journal_reversals.sql
+    CREATE TABLE / CREATE INDEX / ALTER TABLE x2 / DO / COMMENT
+$ psql -c "... FROM pg_class WHERE relname='soft_delete_journal_reversals'"
+    relrowsecurity = t, relforcerowsecurity = t
+
+$ bun run test:integration -- <the seven k053 files>
+  Test Files  7 passed (7)
+       Tests  28 passed (28)
+
+### Mutation check on the new cron test
+deleted_at IS NULL removed from dunningCronService -> 1 failed (1)
+  AssertionError: expected [ …(2) ] to not include '<deleted invoice id>'
+  i.e. the cron handed the soft-deleted invoice to the sender. Restored;
+  git diff on that file empty afterwards.
+
+## Migration gates
+$ bun scripts/audit-migration-naming.ts   -> Scanned 339 files. No new duplicate prefixes found.
+$ bunx tsx scripts/ci/check-migration-rls.ts -> OK: every company_id table created by a migration is under RLS.
+
+## Full unit suite (DATABASE_URL unset)
+env -u DATABASE_URL -u ISAFLOW_DISPOSABLE_AUTH_TEST bunx vitest run
+  Test Files  2 failed | 790 passed | 36 skipped (828)
+       Tests  2 failed | 9432 passed | 234 skipped (9668)
+  Failing: tests/unit/services/bank/bankAllocationUnwind.test.ts and
+  tests/unit/services/cashFlowReport.test.ts — the same two 10s-timeout flakes
+  seen in round 2 at high load. Re-run together in isolation immediately after:
+  2 passed (2), 17 tests passed. Host load average 113. Neither file imports
+  anything this change touches.
+
+## Static gates
+bunx tsc --noEmit         -> clean (exit 0)
+bunx eslint               -> clean (exit 0)
+bun run agent-docs:check  -> OK: 74 mirrors match
+
+=== ROUND 4 (2026-09-09) ===
+Integration (fixture Postgres, migration 653 applied), `bun run test:integration -- tests/integration/k053`:
+  Test Files  8 passed (8)
+  Tests       35 passed (35)
+  incl. NEW k053-aging-as-at-reversal-date.int.test.ts  5 passed
+  incl. k053-soft-delete-undo-identity.int.test.ts     10 passed (was 8)
+
+Mutation proof (each reverted, run, restored):
+  1. softDeleteLedgerPresence.documentInLedgerAsAt -> `(<alias>.deleted_at IS NULL)`
+     k053-aging-as-at-reversal-date: 4 failed | 1 passed (5)
+     (with round 3's nested-template shape: 3 failed | 2 passed)
+  2. `AND deleted_at IS NULL` removed from both cancel FOR UPDATE reads
+     k053-soft-delete-undo-identity: 1 failed | 8 passed (9)
+     "promise resolved instead of rejecting" — cancel SUCCEEDS on a deleted document
+  3. isUserFixable -> round 3's substring list
+     k053-soft-delete-undo-identity: 1 failed | 9 passed (10)
+     "expected 500 to be 400" — the un-posted-reversal chain refusal answered 500
+
+Full unit suite, fixture env UNSET (env -u DATABASE_URL -u PLATFORM_ADMIN_DATABASE_URL
+-u ISAFLOW_DISPOSABLE_AUTH_TEST bunx vitest run):
+  Test Files  792 passed | 36 skipped (828)
+  Tests       9434 passed | 234 skipped (9668)
+  BEFORE round 4 this was 25 failed across periodCloseReadinessService.test.ts and
+  mcp/w2/subledgerSnapshot.test.ts — round 3's nested `sql` fragment consumed queued
+  mockResolvedValueOnce rows. Fixed by building the fragment with a single sql.unsafe
+  and adding `unsafe` to periodCloseReadinessService's neon mock.
+
+bunx tsc --noEmit           : clean (no output)
+bunx eslint <changed files> : clean (no output)
+bun run agent-docs:check    : OK: 74 agent document mirror(s) match canonical sources.
+
+═══════════════════════════════════════════════════════════════════════════════
+ROUND 5 — the seven findings of review-k053-r4.md (0 HIGH, 2 MEDIUM, 5 LOW)
+═══════════════════════════════════════════════════════════════════════════════
+
+GREEN (fixture PostgreSQL, migration 653 present):
+  bun run test:integration -- tests/integration/k053
+    Test Files  11 passed (11)
+    Tests       47 passed (47)
+  New this round:
+    k053-statements-as-at-reversal-date.int.test.ts   7 passed
+    k053-out-of-order-reversal-chain.int.test.ts      3 passed
+    k053-purge-expired-deletes-cascade.int.test.ts    2 passed
+  New unit file:
+    tests/unit/services/core/softDeleteRouteErrorClass.test.ts   5 passed
+
+MUTATION PROOF (production change reverted, test re-run, then restored):
+  A. the four statement surfaces back to an undated `deleted_at IS NULL`
+     (statementEmailService, supplierStatementService,
+      supplierStatementBalancesService, customer-statement)
+     k053-statements-as-at-reversal-date: 4 failed | 3 passed (7)
+     — AR statement, customer-statement route, AP statement, on-account leg
+  B. reports-supplier-ledger back to `si.deleted_at IS NULL`
+     k053-statements-as-at-reversal-date: 1 failed | 6 passed (7)
+     — "the supplier ledger running balance is drawn to its own window end"
+  C. the soft_delete_journal_reversals cascade removed from purgeExpiredDeletes
+     k053-purge-expired-deletes-cascade: 1 failed | 1 passed (2)
+  D. isUserFixable given back its `includes('fiscal period')` arm
+     softDeleteRouteErrorClass: 1 failed | 4 passed (5)
+     — "a plain fault that MENTIONS a fiscal period is a 500 and is logged"
+  E. resolveReversalDate's `requested < originalDate` guard disabled
+     k053-out-of-order-reversal-chain: 2 failed | 1 passed (3)
+  F. ReversalPeriodError reverted to a plain Error at both throw sites
+     k053-out-of-order-reversal-chain: 1 failed | 2 passed (3)
+
+Full unit suite, fixture env UNSET
+(env -u DATABASE_URL -u PLATFORM_ADMIN_DATABASE_URL bunx vitest run):
+  Test Files  793 passed | 36 skipped (829)
+  Tests       9439 passed | 234 skipped (9673)
+  Three mocked suites first went RED with `sql.unsafe is not a function` —
+  supplierStatementService, statementDataCompleteness and
+  supplierStatementBalancesService stub `@/lib/neon` without `unsafe`. Each mock
+  gained it as a plain passthrough, NOT as the same spy as `sql`: a fragment
+  build is not a query and must not consume a queued mockResolvedValueOnce.
+
+bunx tsc --noEmit           : clean (no output)
+bunx eslint <changed files> : clean (no output)
+bun run agent-docs:check    : OK: 74 agent document mirror(s) match canonical sources.
+
+=== ROUND 6 (2026-09-09) — census closed, MEDIUM + 5 LOW ===
+bun run test:integration -- tests/integration/k053*
+  Test Files  11 passed (11)
+  Tests       51 passed (51)          [round 5: 47]
+
+bunx vitest run tests/unit/services/{ap/supplierStatementService,ar/statementDataCompleteness,gl/periodCloseReadinessService,ap/supplierStatementBalancesService,p21InputValidation}.test.ts
+  Test Files  5 passed (5)   Tests 84 passed (84)   [+1 new fidelity assertion => 85 with it]
+
+FULL unit suite, DATABASE_URL UNSET (env -u DATABASE_URL bunx vitest run):
+  Test Files  793 passed | 36 skipped (829)
+  Tests       9440 passed | 234 skipped (9674)
+
+bunx tsc --noEmit                 -> clean
+bunx eslint <changed src/pages>   -> clean
+bun run agent-docs:check          -> OK: 74 mirrors match
+
+MUTATION PROOFS (each applied, observed RED, then restored):
+ 1. customerLedgerService: both fragment calls -> `(ci.deleted_at IS NULL OR ci.deleted_at > NOW())`
+    x the AR customer ledger, both statements and the GL all foot, at every as-at date
+      AssertionError: ledger vs GL @ 2026-06-11: expected +0 to be close to 1150
+    x the customer ledger OPENING balance is dated too, so a delete inside the window still foots
+ 2. supplierStatementService.test.ts: `unsafe: mockUnsafe` -> `unsafe: (text) => text`
+    x asks the DATED soft-delete question, bound to the as-at date
+      AssertionError: expected '\n      SELECT si.id, ...' to contain 'si.deleted_at IS NULL'
+ 3. statementEmailService: drop `AND deleted_at IS NULL` from the customer lookup
+    x no statement is drawn for a soft-deleted customer
+      AssertionError: expected { customer: {...}, ... } to be null
+ 4. softDeleteService.purgeInvoices: `(r.company_id, r.entity_id) IN (SELECT p.company_id, p.id ...)`
+    -> `r.entity_id IN (SELECT p.id ...)`
+    x the purge removes the reversal rows of the documents it purged, and only those
+      AssertionError: expected +0 to be 1
+
+## Round 7 — 2026-09-10
+
+Census redone from the tables (137 readers of customer_invoices/supplier_invoices), not from
+`deleted_at`. 24 queries across 17 files fixed. See fix-round7.md.
+
+bunx vitest run --config vitest.integration.config.ts tests/integration/k053 --no-file-parallelism
+  Test Files  12 passed (12)
+  Tests       59 passed (59)
+same, parallel
+  Test Files  12 passed (12)
+  Tests       59 passed (59)
+
+Full unit suite, DATABASE_URL UNSET (env -u DATABASE_URL bunx vitest run)
+  Test Files  793 passed | 36 skipped (829)
+  Tests       9440 passed | 234 skipped (9674)
+
+bunx tsc --noEmit                                    exit 0
+bunx eslint <every changed src/pages file>           exit 0, no output
+
+MUTATION PROOF — each mutation turns one surface's dated fragment into the undated
+`deleted_at IS NULL` (or removes it), runs k053-figure-surfaces-tie-to-gl.int.test.ts, and
+is restored. All 13 go RED:
+
+  reports-ar-aging row leg -> undated                        Tests  1 failed | 7 passed (8)
+  reports-ar-aging bucket aggregate -> undated               Tests  1 failed | 7 passed (8)
+  reports-ap-aging bucket aggregate -> undated               Tests  1 failed | 7 passed (8)
+  supplier-statement-detail totals aggregate -> undated      Tests  1 failed | 7 passed (8)
+  customer-statement-detail rows -> undated                  Tests  1 failed | 7 passed (8)
+  customer-statements summary -> undated                     Tests  1 failed | 7 passed (8)
+  dashboard-stats AR total -> undated                        Tests  1 failed | 7 passed (8)
+  dashboard-stats AP total -> undated                        Tests  1 failed | 7 passed (8)
+  kpiDashboardService receivables -> undated                 Tests  1 failed | 7 passed (8)
+  bureauClientMetricsService AR -> undated                   Tests  1 failed | 7 passed (8)
+  debtorsManagerService summary -> undated                   Tests  1 failed | 7 passed (8)
+  supplierStatementReconDb loader -> undated                 Tests  1 failed | 7 passed (8)
+  softDeleteLedgerPresence row-tenant variant -> undated     Tests  1 failed | 7 passed (8)
+
+A mutation of a today-only surface is only detectable because the fixture carries a SECOND
+document in the pre-branch shape (deleted_at set, journal never reversed): for a document
+deleted after this change the undated and the dated predicate agree at today, and a test
+built on that document alone would have scored the mutation as passing.
+
+DELIBERATE REVERT, recorded because it was built and measured: dating the sub-ledger half of
+reconciliation/unpostedDocumentService made its own reconciliation test RED —
+"expected [ { amount: -1150, reason: document_not_on_control_account } ] to deeply equal []" —
+because that service's GL half reads only the document's own journal, never the reversal.
+Both halves must move together; the change was reverted and the invariant pinned instead.

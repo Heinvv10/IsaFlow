@@ -10,6 +10,7 @@ import { apiResponse } from '@/lib/apiResponse';
 import { withAuth, type CompanyAuthedRequest, type AuthenticatedNextApiRequest, withWriteAccess } from '@/lib/auth';
 import { withCsrf } from '@/lib/auth/withCsrf';
 import { confirmSalesOrder, convertSalesOrderToInvoice } from '@/modules/accounting/services/ar/salesOrderService';
+import { SalesOrderNotInvoiceableError } from '@/modules/accounting/services/ar/salesOrderWorkflowService';
 
 async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse) {
   if (req.method !== 'POST') {
@@ -36,7 +37,21 @@ async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse) {
         const result = await convertSalesOrderToInvoice(companyId, id, userId);
         return apiResponse.success(res, result);
       } catch (err) {
-        return apiResponse.badRequestFromError(res, err, 'Action failed');
+        // ONLY the pre-write refusals may be answered with a 4xx: `withAuth`
+        // COMMITs the request transaction on a 4xx and ROLLBACKs only on a 5xx,
+        // so the old blanket `badRequestFromError` committed whatever a
+        // half-finished conversion had already written. 409 rather than 400 for
+        // the status refusal, handing back the winner's invoice id.
+        if (err instanceof SalesOrderNotInvoiceableError) {
+          return apiResponse.conflict(res, err.message, {
+            orderStatus: err.orderStatus,
+            invoiceId: err.existingInvoiceId,
+          });
+        }
+        if (err instanceof Error && err.message === 'Sales order not found') {
+          return apiResponse.notFound(res, 'Sales order', id);
+        }
+        throw err;
       }
     }
     default:

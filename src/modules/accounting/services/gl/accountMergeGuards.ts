@@ -19,6 +19,7 @@
  */
 import { sql } from '@/lib/neon';
 import { reportingClassFor } from './accountReportingClass';
+import { isBankSubtype } from './accountSubtypes';
 import { hasChildAccounts, isSubjectToLeafRule } from './isReportVisibleLeaf';
 import {
   CONFIGURATION_REFERENCE_EXCLUSIONS,
@@ -257,7 +258,7 @@ export async function assertMergeable(
     );
   }
   await assertTargetStaysOnTheReports(companyId, source, target);
-  if (source.accountSubtype === 'bank') {
+  if (isBankSubtype(source.accountSubtype)) {
     const count = await countBankTransactions(companyId, source.id);
     if (count > 0) {
       throw new AccountMergeError(

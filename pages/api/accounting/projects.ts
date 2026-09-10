@@ -41,8 +41,17 @@ async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse) {
       throw err;
     }
 
-    const countRes = await sql`SELECT COUNT(*) as cnt FROM projects WHERE company_id = ${companyId}::UUID` as Row[];
-    const projNum = `PROJ-${String(Number(countRes[0]?.cnt ?? 0) + 1).padStart(4, '0')}`;
+    // MAX, not COUNT: projects carries UNIQUE(company_id, project_number), and
+    // count is not max — after a single project was deleted every later create
+    // re-issued an existing number and 23505'd permanently, since the count
+    // never caught up. Concurrent creates still collide on the index and fail
+    // the request rather than duplicating; there is no `project` sequence in
+    // company_document_numbers to reserve from.
+    const maxRes = await sql`
+      SELECT COALESCE(MAX(CAST(SUBSTRING(project_number FROM '[0-9]+$') AS INTEGER)), 0) AS max_num
+      FROM projects WHERE company_id = ${companyId}::UUID AND project_number ~ '^PROJ-[0-9]+$'
+    ` as Row[];
+    const projNum = `PROJ-${String(Number(maxRes[0]?.max_num ?? 0) + 1).padStart(4, '0')}`;
 
     const inserted = await sql`
       INSERT INTO projects (company_id, project_number, name, description, client_id, billing_method, start_date, end_date, budget_amount, created_by)
