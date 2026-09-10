@@ -132,12 +132,31 @@ export async function routeEvent(captureEventId: string, companyId: string): Pro
   const documentId = event.captured_document_id as string;
   const fileType = event.file_type as string;
 
-  // Mark as extracting
-  await sql`
+  // Mark as extracting. Predicated: this is the only write in this function
+  // reachable from a status a POST can also be sitting on. `!extracted_data`
+  // does NOT protect a fresh event — `captured_documents.extracted_data`
+  // defaults to `'{}'` (migration 233), which is truthy — so a client can
+  // post-expense a 'received' event straight from the empty default, and a
+  // routeEvent that then runs unpredicated would flip that 'posted' event
+  // back to 'extracting' (still postable via the allow-list) and let a
+  // second post through with no race needed. `AND status = 'received'`
+  // closes that: a routeEvent that loses this claim stops here and touches
+  // nothing else. (The empty-extraction post itself is a separate defect,
+  // registered R-077, not fixed here.)
+  const extractingRows = await sql`
     UPDATE capture_events
     SET status = 'extracting', updated_at = NOW()
     WHERE id = ${captureEventId}::uuid AND company_id = ${companyId}
-  `;
+      AND status = 'received'
+    RETURNING id
+  ` as Row[];
+  if (extractingRows.length === 0) {
+    log.warn('routeEvent: event was not \'received\' — a post, a discard or a concurrent '
+      + 'routeEvent already moved it on, so extraction is skipped entirely', {
+      captureEventId, companyId,
+    }, 'capture-router');
+    return;
+  }
 
   try {
     const mimeType = fileTypeToMime(fileType);
@@ -156,21 +175,12 @@ export async function routeEvent(captureEventId: string, companyId: string): Pro
       const vatAmt: number | null = extracted.vatAmount ?? null;
       const category = detectDocumentCategory(extracted);
 
-      await sql`
-        UPDATE captured_documents
-        SET extracted_data     = ${extractedData}::jsonb,
-            document_type      = ${docType},
-            vendor_name        = ${vendorName},
-            document_date      = ${docDate}::date,
-            reference_number   = ${refNum},
-            total_amount       = ${totalAmt},
-            vat_amount         = ${vatAmt},
-            document_category  = ${category},
-            status             = 'pending',
-            updated_at         = NOW()
-        WHERE id = ${documentId}::uuid AND company_id = ${companyId}
-      `;
-
+      // Claim the event transition FIRST. routeEvent has no transaction (two
+      // separate autocommit statements), so a "dropped" result must not have
+      // written anything — writing captured_documents before this check used
+      // to leave a posted event's document rewritten to a DIFFERENT
+      // extracted_data/status ('matched' → 'pending') even though the event
+      // transition itself was correctly refused.
       const extractedRows = await sql`
         UPDATE capture_events
         SET status            = 'extracted',
@@ -187,6 +197,21 @@ export async function routeEvent(captureEventId: string, companyId: string): Pro
         }, 'capture-router');
         return;
       }
+
+      await sql`
+        UPDATE captured_documents
+        SET extracted_data     = ${extractedData}::jsonb,
+            document_type      = ${docType},
+            vendor_name        = ${vendorName},
+            document_date      = ${docDate}::date,
+            reference_number   = ${refNum},
+            total_amount       = ${totalAmt},
+            vat_amount         = ${vatAmt},
+            document_category  = ${category},
+            status             = 'pending',
+            updated_at         = NOW()
+        WHERE id = ${documentId}::uuid AND company_id = ${companyId}
+      `;
     } else {
       const extractedRows = await sql`
         UPDATE capture_events
