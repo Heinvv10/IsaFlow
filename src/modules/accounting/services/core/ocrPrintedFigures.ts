@@ -124,6 +124,23 @@ export function opensWithBlockOnlyTax(line: string): boolean {
   return !SUMMARY_LINE_START.test(trimmed) && TAX_LINE_START.test(trimmed);
 }
 
+/**
+ * A line that IS the tax — `VAT 15% 150.00`, `Total VAT`, `VAT INCL`, `Output
+ * Tax` — and not a charge that mentions it (`Tax on levy`, `VAT on delivery`).
+ * Only such a line may carry the tax's value below the total (round 27).
+ */
+const TAX_ONLY_LINE = /^[\s*:=@()/-]*(?:(?:Total|Output|Input)\s+)?(?:V\.?A\.?T\.?|BTW|Tax|Value\s+Added\s+Tax)(?:\s+(?:Amount|Total|Incl\w*|Excl\w*|Summary|Analysis|Breakdown|Recap|Opsomming|Analise))?[\s*:=@()/.%-]*$/i;
+/** A line's LABEL: its figures, rand marks and rates blanked. */
+const labelOf = (line: string) => line.replace(/R?\s?\d[\d\s.,]*%?/g, ' ').trim();
+export const isTaxOnlyLine = (line: string) => TAX_ONLY_LINE.test(labelOf(line));
+/**
+ * A line whose label is a summary label and nothing else — `TOTAL`, `Total
+ * Due`, `Sub Total`, `Total Incl VAT` — or the tax line; not `Total Freight`.
+ * A qualifier missing here only refuses (round 28).
+ */
+const SUMMARY_ONLY_LINE = new RegExp(String.raw`${SUMMARY_LINE_START.source}(?:[\s:=@()/.%*-]|(?<![A-Za-z])(?:Due|Amount|Payable|Incl\w*|Excl\w*|Inclusive|Exclusive|of|VAT|Tax|ZAR)(?![A-Za-z]))*$`, 'i');
+export const isSummaryOnlyLine = (line: string) => SUMMARY_ONLY_LINE.test(labelOf(line)) || isTaxOnlyLine(line);
+
 function summaryStart(line: string): RegExpExecArray | null {
   return SUMMARY_LINE_START.exec(line) ?? TAX_LINE_START.exec(line);
 }

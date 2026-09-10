@@ -105,6 +105,11 @@ const ALLOWED: Record<string, string> = {
     + 'user-chosen GL account, so no guard could fire by construction.',
   'src/modules/accounting/services/ar/receiptMatchConfirmService.ts':
     'allocType customer — VAT routes to the AR control account. Same reason.',
+  'src/modules/accounting/services/core/unattendedPostingGate.ts':
+    'The rate only BOUNDS the VAT an inclusive total can contain, so that the '
+    + 'gate REFUSES unattended posting and approval when the VAT read exceeds it '
+    + '(K-072 r28). It computes no VAT, picks no account and forwards no claim: '
+    + 'a refusal sends the document to a person.',
 };
 
 function walk(dir: string, out: string[] = []): string[] {

@@ -24,7 +24,7 @@
  */
 import { parseAmount } from './ocrAmountParsing';
 import { UNRECONCILED_WARNING, totalPrintedEnd, totalPrintedLastEnd } from './ocrAmountReconciliation';
-import { opensWithBlockOnlyTax, printedFigures, type CountIsCounter, type PrintedFigure } from './ocrPrintedFigures';
+import { isSummaryOnlyLine, isTaxOnlyLine, opensWithBlockOnlyTax, printedFigures, type CountIsCounter, type PrintedFigure } from './ocrPrintedFigures';
 import { unexplainedItem } from './ocrItemColumn';
 
 /**
@@ -47,14 +47,6 @@ const ADDITION_LABEL = /(?<![A-Za-z])(?:Tips?|Gratuit(?:y|ies)|Fooi|Service\s*(?
  * total read is the pre-tax figure, and the payable is more.
  */
 const PLUS_LINE = /^[\s*]*(?:Plus|Add)(?![A-Za-z])[^\n]*?(\d+(?:[.,]\d{1,2})?)(?![\d.,]*\d)/gim;
-
-/**
- * A line that IS the tax — `VAT 15% 150.00`, `Total VAT`, `VAT INCL`, `Output
- * Tax` — and not a charge that mentions it (`Tax on levy`, `VAT on delivery`).
- * Only such a line may carry the tax's value below the total (round 27).
- */
-const TAX_ONLY_LINE = /^[\s*:=@()/-]*(?:(?:Total|Output|Input)\s+)?(?:V\.?A\.?T\.?|BTW|Tax|Value\s+Added\s+Tax)(?:\s+(?:Amount|Total|Incl\w*|Excl\w*|Summary|Analysis|Breakdown|Recap|Opsomming|Analise))?[\s*:=@()/.%-]*$/i;
-const isTaxOnlyLine = (line: string) => TAX_ONLY_LINE.test(line.replace(/R?\s?\d[\d\s.,]*%?/g, ' '));
 
 /**
  * The first printed figure larger than `total` that a tender and its change do
@@ -236,11 +228,15 @@ export function unreconciledFigure(
     .flatMap((line) => printedFigures(line, isCounter)).find((f) => f.isSummary && Math.abs(f.value - vat) <= 0.01);
   if (disguised) return { reason: 'stray', value: disguised.value };
   const belowFigures = printedFigures(below, isCounter);
+  // Explained by ROLE, not value alone (round 28): a figure equal to the total
+  // or the net is a reprinted summary only on a line that is a summary label
+  // and nothing else — `Total Freight 1150.00` under `TOTAL 1150.00` is a charge.
+  const pure = belowLines.flatMap((line) => printedFigures(line, isCounter).map(() => isSummaryOnlyLine(line)));
   const recap = recapRows(below, belowFigures, total, known.vatAmount ?? null, isCounter);
   const roleValues = new Set([0, total, known.subtotal ?? total, known.vatAmount ?? total]);
   const stray = belowFigures.find((f, i) => {
     if (f.value === 0 || f.isTender || (f.isChange && cashChange) || recap.has(i)) return false;
-    if (f.isSummary) return !roleValues.has(f.value);
+    if (f.isSummary) return !(roleValues.has(f.value) && pure[i]);
     if (f.isUnroled) return true;
     return true;
   });
