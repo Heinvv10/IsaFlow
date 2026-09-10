@@ -133,7 +133,6 @@ import {
 import { getCompany } from '@/modules/accounting/services/core/companyService';
 import { getTrialBalanceReport } from '@/modules/accounting/services/gl/trialBalanceService';
 import { getFiscalPeriodIdForDate } from '@/modules/accounting/services/gl/fiscalPeriodService';
-import { getIncomeStatement } from '@/modules/accounting/services/reports/incomeStatementService';
 import { getFinancialFigures } from '@/modules/accounting/services/gl/financialFiguresService';
 import { getBalanceSheet } from '@/modules/accounting/services/reports/balanceSheetService';
 import { getARAging } from '@/modules/accounting/services/ar/arAgingService';
@@ -167,7 +166,6 @@ interface CompactRow {
 }
 
 const COMPANY_ID = '22222222-2222-2222-2222-222222222222';
-const OTHER_COMPANY = '99999999-9999-9999-9999-999999999999';
 
 function ctx(scopes: string[] = ['read:reports', 'read:invoices', 'read:contacts', 'read:bank-tx', 'read:vat']): McpToolContext {
   return { userId: 'user-1', companyId: COMPANY_ID, scopes, tokenJti: 'jti-1', oauthAppId: null };
@@ -658,7 +656,7 @@ describe('suite-wide invariants', () => {
     const write = mcpRegistry.getManifest().find((m) => m.name === 'create_draft_journal')!;
     const desc = String(
       ((write.inputSchema as { properties: Record<string, { description?: string }> })
-        .properties.company_id.description),
+        .properties.company_id!.description),
     );
     expect(desc).toMatch(/never redirect|cannot redirect|not a selector/i);
   });
