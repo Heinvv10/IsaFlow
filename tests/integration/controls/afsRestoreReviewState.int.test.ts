@@ -45,7 +45,7 @@ describe('AFS version restore and review state: actual PostgreSQL',()=>{
 
  it('decides invalidation on the committed status when a review lands during the restore',async()=>{
   const id=await section('pending');
-  await as(()=>saveVersion(h.f.companyA,id,h.f.u2.id));
+  await as(()=>saveVersion(h.f.companyA,document,id,h.f.u2.id));
   // A reviewer's UPDATE is in flight and holds the row; the restore starts while the
   // section still reads 'pending' to anyone not waiting for that lock.
   const reviewer=await h.pool.connect();
@@ -53,7 +53,7 @@ describe('AFS version restore and review state: actual PostgreSQL',()=>{
   try{
    await reviewer.query('BEGIN');
    await reviewer.query("UPDATE afs_sections SET status='reviewed',reviewed_by=$3 WHERE company_id=$1 AND id=$2",[h.f.companyA,id,h.f.u1.id]);
-   restore=as(()=>restoreVersion(h.f.companyA,id,1,h.f.u2.id));
+   restore=as(()=>restoreVersion(h.f.companyA,document,id,1,h.f.u2.id));
    await new Promise(resolve=>setTimeout(resolve,400));
    await reviewer.query('COMMIT');
   }finally{reviewer.release();}
@@ -63,6 +63,7 @@ describe('AFS version restore and review state: actual PostgreSQL',()=>{
   const row=await read(id);
   expect(row.status).toBe('pending');
   expect(JSON.stringify(row.version_history)).toContain("invalidated the section's prior reviewed review");
+  expect(row.reviewed_by,'the concurrent reviewer stayed on the restored content').toBeNull();
  });
 
  it('refuses an impersonated restore that would change review state, and allows one that would not',async()=>{
