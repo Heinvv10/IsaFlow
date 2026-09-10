@@ -6,13 +6,13 @@
  * to suppliers" into a set of annual financial statements — so contamination
  * here is a mis-statement in a signed document, not just a screen.
  *
- * Its exposure is narrower than the other readers and worth writing down: it
- * sums `debit` on vat_input and `credit` on vat_output only, and the clearing
- * entry posts on the OPPOSITE side of both (DR VAT Output, CR VAT Input) in
- * both the payable and the refundable case. So the forward clearing entry
- * misses it by direction — but `reverseJournalEntry` COPIES `source`, and a
- * reversed submission posts CR VAT Output / DR VAT Input, which lands squarely
- * in both FILTERs. A cancelled or re-filed return is exactly what produces one.
+ * The note NETS both control accounts (`credit - debit` on vat_output, `debit -
+ * credit` on vat_input), as `vatControlMovement` does, so a credit note reduces
+ * the VAT it reverses. The forward clearing entry (DR VAT Output, CR VAT Input,
+ * in both the payable and the refundable case) would therefore zero both
+ * figures, and `reverseJournalEntry` COPIES `source`, so a reversed submission
+ * (a cancelled or re-filed return) would add them back. The predicate keeps both
+ * out.
  *
  * This test WRITES, so it refuses to run against production. Every row goes
  * into a transaction that is always rolled back.
@@ -73,9 +73,9 @@ describe('noteTaxation — V-05 excludes the VAT submission clearing journal', (
         noteTaxation(f.companyId, FISCAL_YEAR),
       );
 
-      // Without the predicate the reversal doubles both figures (2000 / 600)
-      // and the net stays 700 by luck — a statement that is wrong on every
-      // line but the last.
+      // Netted, the forward entry and its reversal cancel, so this test alone
+      // cannot see the predicate dropped (the forward-only test below does).
+      // It pins that a reversal is not counted as trade VAT.
       expect(amount(note, 'Output VAT')).toBeCloseTo(1000, 2);
       expect(amount(note, 'Input VAT')).toBeCloseTo(300, 2);
       expect(amount(note, 'Net VAT')).toBeCloseTo(700, 2);
@@ -93,9 +93,8 @@ describe('noteTaxation — V-05 excludes the VAT submission clearing journal', (
         noteTaxation(f.companyId, FISCAL_YEAR),
       );
 
-      // Documents the asymmetry the header explains: the forward settlement is
-      // out of reach of these one-directional FILTERs. If this ever starts
-      // failing, the clearing entry's shape has changed.
+      // The predicate's load-bearing case: netted, the forward settlement would
+      // take both figures to zero.
       expect(amount(note, 'Output VAT')).toBeCloseTo(1000, 2);
       expect(amount(note, 'Input VAT')).toBeCloseTo(300, 2);
     });

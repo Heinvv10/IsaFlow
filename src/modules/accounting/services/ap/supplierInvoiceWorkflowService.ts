@@ -293,9 +293,12 @@ async function cancelSupplierInvoiceInner(
   try {
     // FOR UPDATE: serialise concurrent cancels — both passing the guards
     // would double-reverse the same approval journal.
+    // K-053: a soft-deleted bill is not cancellable — same reasoning as
+    // customerInvoiceCancelService, where it is spelled out.
     const lockRows = (await sql`
       SELECT id, status, gl_journal_entry_id FROM supplier_invoices
       WHERE id = ${id} AND company_id = ${companyId}::UUID
+        AND deleted_at IS NULL
       FOR UPDATE
     `) as Row[];
     if (lockRows.length === 0) throw new Error(`Supplier invoice ${id} not found`);

@@ -8,6 +8,7 @@ import {
   NON_SUPPLY_ADVICE, NON_SUPPLY_LABEL, shouldWarnOnNonSupply,
 } from '@/modules/accounting/services/gl/nonSupplyAccounts';
 import { Loader2 } from 'lucide-react';
+import { isBankSubtype } from '@/modules/accounting/services/gl/accountSubtypes';
 import type { VatCode } from './BankRuleRow';
 import type { PreviewState } from './useBankRules';
 
@@ -71,7 +72,7 @@ export function BankRuleForm({
   // 'standard' alive on rules created before those changes.
   const isSettlementRule = Boolean(form.supplierId || form.clientId);
   const isTransferRule = !isSettlementRule
-    && accounts.find(a => a.id === form.glAccountId)?.accountSubtype === 'bank';
+    && isBankSubtype(accounts.find(a => a.id === form.glAccountId)?.accountSubtype);
   const postsNoVat = isSettlementRule || isTransferRule;
   // Clear it, do not merely hide it. This is the EDIT path too, so a rule saved
   // with 'standard' before K-016/K-017 loads here with the code still on it;

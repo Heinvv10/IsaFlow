@@ -6,6 +6,7 @@
  */
 
 import { sql } from '@/lib/neon';
+import { asAtTodayStr, documentInLedgerAsAtFragment } from '@/modules/accounting/services/shared/softDeleteLedgerPresence';
 import {
   toDateStr,
   toNum,
@@ -33,14 +34,18 @@ export async function loadSupplierInvoices(
   periodEnd: string | null,
 ): Promise<InvoiceRecord[]> {
   const rows = (await sql`
-    SELECT id, invoice_number, invoice_date, total_amount
-    FROM supplier_invoices
-    WHERE company_id = ${companyId}
-      AND supplier_id = ${supplierId}::uuid
-      AND status NOT IN ('cancelled')
-      AND (${periodStart}::date IS NULL OR invoice_date >= ${periodStart}::date)
-      AND (${periodEnd}::date IS NULL OR invoice_date <= ${periodEnd}::date)
-    ORDER BY invoice_date
+    SELECT si.id, si.invoice_number, si.invoice_date, si.total_amount
+    FROM supplier_invoices si
+    WHERE si.company_id = ${companyId}
+      AND si.supplier_id = ${supplierId}::uuid
+      -- Asked at the statement period end, so a bill deleted after that period
+      -- still matches the supplier's statement lines for it.
+      -- See shared/softDeleteLedgerPresence.
+      AND ${documentInLedgerAsAtFragment('si', periodEnd ?? asAtTodayStr(), companyId)}
+      AND si.status NOT IN ('cancelled')
+      AND (${periodStart}::date IS NULL OR si.invoice_date >= ${periodStart}::date)
+      AND (${periodEnd}::date IS NULL OR si.invoice_date <= ${periodEnd}::date)
+    ORDER BY si.invoice_date
   `) as DbRow[];
   return rows.map((r) => ({
     id: r.id as string,

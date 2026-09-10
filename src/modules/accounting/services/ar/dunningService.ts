@@ -141,6 +141,8 @@ export async function loadInvoiceCtx(
     JOIN companies co ON co.id = ci.company_id
     WHERE ci.id = ${invoiceId}::uuid
       AND ci.company_id = ${companyId}::uuid
+      -- A deleted invoice is not chased. Undated on purpose — see dunningCronService.
+      AND ci.deleted_at IS NULL
     LIMIT 1
   `) as DbRow[];
   if (rows.length === 0) return null;

@@ -139,8 +139,8 @@ export async function seedClearingEntry(
 /**
  * A REVERSAL of the clearing entry. `reverseJournalEntry` copies `source`
  * verbatim, so the reversal is also 'auto_vat_submission' — and it posts on the
- * opposite side of both control accounts, which is how it reaches an
- * aggregation that only sums one direction per account (noteTaxation).
+ * opposite side of both control accounts, so a netting aggregation that
+ * dropped the predicate would count it against the forward entry.
  */
 export async function seedClearingReversal(
   client: PoolClient, f: VatFixture, entryDate: string,

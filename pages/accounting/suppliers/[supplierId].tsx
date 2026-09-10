@@ -59,7 +59,7 @@ export default function SupplierDetailPage() {
   const [deleting, setDeleting] = useState(false);
   const handleDelete = async () => {
     if (!supplierId) return;
-    if (!window.confirm(`Delete supplier "${supplier?.name}"? This can be undone within 5 minutes.`)) return;
+    if (!window.confirm(`Delete supplier "${supplier?.name}"? The record is hidden rather than erased, and can be restored.`)) return;
     setDeleting(true);
     try {
       const res = await apiFetch('/api/accounting/soft-delete', {

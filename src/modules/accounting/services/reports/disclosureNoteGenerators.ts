@@ -8,7 +8,8 @@ import type { DisclosureNote } from './disclosureNoteService';
 import type { DbRow } from '@/types/db';
 import { isVatRegistered, normalizeVatBasis } from '@/modules/bureau/services/vatPeriodHelper';
 import { getFiscalRange } from '@/modules/accounting/services/afs/afsFiscalPeriod';
-
+import { CASH_SUBTYPES } from '@/modules/accounting/services/gl/accountSubtypes';
+import { documentInLedgerAsAtFragment } from '@/modules/accounting/services/shared/softDeleteLedgerPresence';
 
 function fmt(n: number | null | undefined): string {
   if (n == null) return '—';
@@ -131,7 +132,7 @@ export async function noteReceivables(companyId: string, fiscalYear: number): Pr
           AND ci.due_date <= ${end}::date - INTERVAL '90 days'
       ) AS days_90_plus
     FROM customer_invoices ci
-    WHERE ci.company_id = ${companyId} AND ci.invoice_date <= ${end}
+    WHERE ci.company_id = ${companyId} AND ci.invoice_date <= ${end} AND ${documentInLedgerAsAtFragment('ci', end, companyId)}
   ` as DbRow[];
 
   const r = rows[0] ?? {};
@@ -171,7 +172,7 @@ export async function notePayables(companyId: string, fiscalYear: number): Promi
           AND si.due_date <= ${end}::date - INTERVAL '60 days'
       ) AS days_60_plus
     FROM supplier_invoices si
-    WHERE si.company_id = ${companyId} AND si.invoice_date <= ${end}
+    WHERE si.company_id = ${companyId} AND si.invoice_date <= ${end} AND ${documentInLedgerAsAtFragment('si', end, companyId)}
   ` as DbRow[];
 
   const r = rows[0] ?? {};
@@ -196,7 +197,7 @@ export async function noteRevenue(companyId: string, fiscalYear: number): Promis
 
   const rows = await sql`
     SELECT ga.account_name, ga.account_code,
-      SUM(ABS(gjl.credit - gjl.debit)) AS net_amount
+      SUM(gjl.credit - gjl.debit) AS net_amount -- NET: see AFS note 18
     FROM gl_journal_lines gjl
     JOIN gl_accounts ga ON ga.id = gjl.gl_account_id
     JOIN gl_journal_entries gje ON gje.id = gjl.journal_entry_id
@@ -204,7 +205,7 @@ export async function noteRevenue(companyId: string, fiscalYear: number): Promis
       AND ga.account_type = 'revenue'
       AND gje.entry_date BETWEEN ${start} AND ${end}
       AND gje.status = 'posted'
-    GROUP BY ga.account_name, ga.account_code
+    GROUP BY ga.id, ga.account_name, ga.account_code HAVING ABS(SUM(gjl.credit - gjl.debit)) > 0.001
     ORDER BY net_amount DESC
   ` as DbRow[];
 
@@ -234,7 +235,7 @@ export async function noteCash(companyId: string, fiscalYear: number): Promise<D
     LEFT JOIN gl_journal_entries gje ON gje.id = gjl.journal_entry_id
       AND gje.entry_date <= ${end} AND gje.status = 'posted'
     WHERE ga.company_id = ${companyId}
-      AND ga.account_subtype IN ('bank', 'cash', 'petty_cash')
+      AND ga.account_type = 'asset' AND ga.account_subtype = ANY(${CASH_SUBTYPES as string[]}::TEXT[])
     GROUP BY ga.account_name, ga.account_code
     ORDER BY ga.account_code
   ` as DbRow[];
@@ -259,8 +260,8 @@ export async function noteTaxation(companyId: string, fiscalYear: number): Promi
 
   const rows = await sql`
     SELECT
-      SUM(gjl.debit) FILTER (WHERE ga.account_subtype = 'vat_input') AS vat_input,
-      SUM(gjl.credit) FILTER (WHERE ga.account_subtype = 'vat_output') AS vat_output
+      SUM(gjl.debit - gjl.credit) FILTER (WHERE ga.account_subtype = 'vat_input') AS vat_input,
+      SUM(gjl.credit - gjl.debit) FILTER (WHERE ga.account_subtype = 'vat_output') AS vat_output
     FROM gl_journal_lines gjl
     JOIN gl_accounts ga ON ga.id = gjl.gl_account_id
     JOIN gl_journal_entries gje ON gje.id = gjl.journal_entry_id
@@ -268,14 +269,13 @@ export async function noteTaxation(companyId: string, fiscalYear: number): Promi
       AND ga.account_subtype IN ('vat_input', 'vat_output')
       AND gje.entry_date BETWEEN ${start} AND ${end}
       AND gje.status = 'posted'
-      -- V-05: exclude vatSubmissionService's clearing journal. The FORWARD
-      -- settlement posts DR VAT Output / CR VAT Input, the opposite side to the
-      -- two FILTERs above, so it misses this note by direction. A REVERSAL does
-      -- not: reverseJournalEntry copies the source value verbatim and posts CR VAT
-      -- Output / DR VAT Input, which lands in both FILTERs and inflates a
-      -- signed set of financial statements. IS DISTINCT FROM, not <>: source is
-      -- nullable. 'auto_vat_adjustment' is a separate source value and is still
-      -- counted. Full rationale at the same predicate in vatReturnService.
+      -- V-05: exclude vatSubmissionService's clearing journal. Both sums NET, as
+      -- vatControlMovement does, so a credit note reduces the VAT it reverses;
+      -- the FORWARD settlement (DR VAT Output / CR VAT Input) would therefore
+      -- zero both figures, and its REVERSAL, which reverseJournalEntry posts
+      -- under the same source, would restore them. IS DISTINCT FROM, not <>:
+      -- source is nullable. 'auto_vat_adjustment' is a separate source value and
+      -- is still counted. Full rationale at the same predicate in vatReturnService.
       AND gje.source IS DISTINCT FROM 'auto_vat_submission'
   ` as DbRow[];
 

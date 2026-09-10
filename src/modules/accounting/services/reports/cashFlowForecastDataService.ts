@@ -7,6 +7,8 @@ import { sql } from '@/lib/neon';
 import { fmtDate } from '@/lib/fmtDate';
 import { log } from '@/lib/logger';
 import type { DbRow } from '@/lib/neon';
+import { CASH_SUBTYPES } from '../gl/accountSubtypes';
+import { asAtTodayStr, documentInLedgerAsAtFragment } from '@/modules/accounting/services/shared/softDeleteLedgerPresence';
 
 export interface CashFlowPeriod {
   weekStart: string;
@@ -43,7 +45,7 @@ export function toDateStr(val: unknown): string {
 export async function getCurrentCashBalance(companyId: string): Promise<number> {
   const rows = (await sql`
     SELECT COALESCE(SUM(
-      CASE WHEN ga.account_subtype IN ('bank', 'cash')
+      CASE WHEN ga.account_subtype = ANY(${CASH_SUBTYPES as string[]}::TEXT[])
         THEN COALESCE(
           (SELECT SUM(jl.debit) - SUM(jl.credit)
            FROM gl_journal_lines jl
@@ -61,7 +63,10 @@ export async function getCurrentCashBalance(companyId: string): Promise<number> 
       AND ga.account_type = 'asset'
       -- No is_active filter: it is a picker flag, and a deactivated bank or
       -- cash account still holds real money that opening cash must include.
-      AND ga.account_subtype IN ('bank', 'cash')
+      -- CASH_SUBTYPES rather than the literal pair: the forecast's opening cash
+      -- and cash.balance.v1 must not disagree about which accounts are cash,
+      -- and the literal missed bank_account, cash_on_hand and petty_cash.
+      AND ga.account_subtype = ANY(${CASH_SUBTYPES as string[]}::TEXT[])
   `) as Record<string, unknown>[];
   return Number(rows[0]?.total_cash ?? 0);
 }
@@ -76,8 +81,8 @@ export async function getHistoricalCashFlows(companyId: string, months: number):
     WITH monthly AS (
       SELECT
         date_trunc('month', je.entry_date) AS month,
-        COALESCE(SUM(CASE WHEN jl.debit > 0 AND ga.account_subtype IN ('bank', 'cash') THEN jl.debit ELSE 0 END), 0) AS inflow,
-        COALESCE(SUM(CASE WHEN jl.credit > 0 AND ga.account_subtype IN ('bank', 'cash') THEN jl.credit ELSE 0 END), 0) AS outflow
+        COALESCE(SUM(CASE WHEN jl.debit > 0 AND ga.account_subtype = ANY(${CASH_SUBTYPES as string[]}::TEXT[]) THEN jl.debit ELSE 0 END), 0) AS inflow,
+        COALESCE(SUM(CASE WHEN jl.credit > 0 AND ga.account_subtype = ANY(${CASH_SUBTYPES as string[]}::TEXT[]) THEN jl.credit ELSE 0 END), 0) AS outflow
       FROM gl_journal_lines jl
       JOIN gl_journal_entries je ON je.id = jl.journal_entry_id
       JOIN gl_accounts ga ON ga.id = jl.gl_account_id
@@ -85,7 +90,7 @@ export async function getHistoricalCashFlows(companyId: string, months: number):
         AND jl.company_id = ${companyId}::UUID
         AND je.status = 'posted'
         AND ga.account_type = 'asset'
-        AND ga.account_subtype IN ('bank', 'cash')
+        AND ga.account_subtype = ANY(${CASH_SUBTYPES as string[]}::TEXT[])
         AND je.entry_date >= ${startStr}::DATE
       GROUP BY date_trunc('month', je.entry_date)
     )
@@ -110,10 +115,11 @@ export async function getHistoricalCashFlows(companyId: string, months: number):
 export async function getExpectedReceivables(companyId: string): Promise<Array<{ dueDate: string; amount: number }>> {
   const rows = (await sql`
     SELECT due_date, SUM(total_amount - COALESCE(amount_paid, 0)) AS amount_due
-    FROM customer_invoices
-    WHERE company_id = ${companyId}
-      AND status IN ('sent', 'overdue', 'approved')
-      AND due_date >= CURRENT_DATE
+    FROM customer_invoices ci
+    WHERE ci.company_id = ${companyId}
+      AND ${documentInLedgerAsAtFragment('ci', asAtTodayStr(), companyId)}
+      AND ci.status IN ('sent', 'overdue', 'approved')
+      AND ci.due_date >= CURRENT_DATE
       AND (total_amount - COALESCE(amount_paid, 0)) > 0
     GROUP BY due_date
     ORDER BY due_date ASC
@@ -129,10 +135,11 @@ export async function getExpectedReceivables(companyId: string): Promise<Array<{
 export async function getExpectedPayables(companyId: string): Promise<Array<{ dueDate: string; amount: number }>> {
   const rows = (await sql`
     SELECT due_date, SUM(total_amount - COALESCE(amount_paid, 0)) AS amount_due
-    FROM supplier_invoices
-    WHERE company_id = ${companyId}
-      AND status IN ('approved', 'received', 'overdue')
-      AND due_date >= CURRENT_DATE
+    FROM supplier_invoices si
+    WHERE si.company_id = ${companyId}
+      AND ${documentInLedgerAsAtFragment('si', asAtTodayStr(), companyId)}
+      AND si.status IN ('approved', 'received', 'overdue')
+      AND si.due_date >= CURRENT_DATE
       AND (total_amount - COALESCE(amount_paid, 0)) > 0
     GROUP BY due_date
     ORDER BY due_date ASC
@@ -214,10 +221,11 @@ export async function getUpcomingReceivablesAndPayables(
     SELECT due_date,
            (total_amount - COALESCE(amount_paid, 0)) AS outstanding,
            status
-    FROM customer_invoices
-    WHERE company_id = ${companyId}
-      AND status IN ('sent', 'overdue', 'partially_paid')
-      AND due_date <= CURRENT_DATE + ${horizonDays}::INT
+    FROM customer_invoices ci
+    WHERE ci.company_id = ${companyId}
+      AND ${documentInLedgerAsAtFragment('ci', asAtTodayStr(), companyId)}
+      AND ci.status IN ('sent', 'overdue', 'partially_paid')
+      AND ci.due_date <= CURRENT_DATE + ${horizonDays}::INT
       AND due_date IS NOT NULL
       AND (total_amount - COALESCE(amount_paid, 0)) > 0
     ORDER BY due_date ASC
@@ -227,10 +235,11 @@ export async function getUpcomingReceivablesAndPayables(
     SELECT due_date,
            (total_amount - COALESCE(amount_paid, 0)) AS outstanding,
            status
-    FROM supplier_invoices
-    WHERE company_id = ${companyId}
-      AND status IN ('approved', 'partially_paid')
-      AND due_date <= CURRENT_DATE + ${horizonDays}::INT
+    FROM supplier_invoices si
+    WHERE si.company_id = ${companyId}
+      AND ${documentInLedgerAsAtFragment('si', asAtTodayStr(), companyId)}
+      AND si.status IN ('approved', 'partially_paid')
+      AND si.due_date <= CURRENT_DATE + ${horizonDays}::INT
       AND due_date IS NOT NULL
       AND (total_amount - COALESCE(amount_paid, 0)) > 0
     ORDER BY due_date ASC
