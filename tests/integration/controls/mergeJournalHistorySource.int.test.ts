@@ -6,7 +6,7 @@ import {readControlEntityHistory} from '@/modules/accounting/services/controls/c
 import {withControlRequest,requireControlTx} from '@/modules/accounting/services/controls/context';
 let f:Awaited<ReturnType<typeof transferControlFixture>>,manual:string,payroll:string;
 async function retained(source:string){
- const id=randomUUID();await f.pool.query("INSERT INTO gl_journal_entries(id,company_id,entry_number,entry_date,description,source,status,created_by) VALUES($1,$2,$1::text,'2026-09-09','Synthetic individual directive detail',$3,'draft',$4)",[id,f.f.companyA,source,f.f.u1.id]);
+ const id=randomUUID();await f.pool.query("INSERT INTO gl_journal_entries(id,company_id,entry_number,entry_date,description,source,status,created_by) VALUES($1::uuid,$2,$1::text,'2026-09-09','Synthetic individual directive detail',$3,'draft',$4)",[id,f.f.companyA,source,f.f.u1.id]);
  await f.pool.query("INSERT INTO gl_journal_lines(company_id,journal_entry_id,gl_account_id,debit,credit,description) VALUES($1,$2,$3,42,0,'Synthetic individual gross'),($1,$2,$4,0,42,'Synthetic individual net')",[f.f.companyA,id,f.from,f.to]);
  const header=(await f.pool.query('SELECT * FROM gl_journal_entries WHERE company_id=$1 AND id=$2',[f.f.companyA,id])).rows[0];
  const lines=(await f.pool.query('SELECT * FROM gl_journal_lines WHERE company_id=$1 AND journal_entry_id=$2 ORDER BY id',[f.f.companyA,id])).rows;

@@ -1,6 +1,7 @@
 import {beforeEach,expect,it,vi} from 'vitest';
 const mock=vi.hoisted(()=>({permission:vi.fn()}));
 vi.mock('@/lib/auth/effectivePermissions',()=>({assertEffectivePermission:mock.permission}));
+vi.mock('@/modules/accounting/services/controls/context',()=>({assertControlTx:vi.fn()}));
 import {assertJournalMergeHistorySources,JOURNAL_MERGE_SOURCE_PERMISSIONS} from '@/modules/accounting/services/controls/controlChangeHistoryJournalSources';
 import {GL_ENTRY_SOURCES} from '@/modules/accounting/types/gl.types';
 import type {ControlTx} from '@/modules/accounting/services/controls/contracts';
@@ -22,3 +23,11 @@ for(const source of [null,'unknown'])it(`refuses absent or unsupported retained 
  await expect(assertJournalMergeHistorySources(ctx,event,{before:source===null?null:image(source),after:image('manual')})).rejects.toThrow();
 });
 it('refuses foreign retained image identity',async()=>{const before=image('manual');before.header.company_id=id;await expect(assertJournalMergeHistorySources(ctx,event,{before,after:image('manual')})).rejects.toThrow();});
+it('refuses foreign line, foreign account and missing referenced account metadata',async()=>{
+ const line={company_id:company,journal_entry_id:id,gl_account_id:id},account={company_id:company,id};
+ for(const before of [
+  {...image('manual'),lines:[{...line,company_id:id}],accounts:[account]},
+  {...image('manual'),lines:[line],accounts:[{...account,company_id:id}]},
+  {...image('manual'),lines:[line],accounts:[]},
+ ])await expect(assertJournalMergeHistorySources(ctx,event,{before,after:image('manual')})).rejects.toThrow();
+});
