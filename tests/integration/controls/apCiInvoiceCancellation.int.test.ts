@@ -34,7 +34,7 @@ it('rolls back an inverse prefix when the final bill status write fails, even wh
  const id=await f.invoice();await f.post(id);const approvalId=await f.approve(f.ref('supplier_invoice.cancel',id)),before=await f.state();
  await f.pool.query(`CREATE FUNCTION public.synthetic_ap_ci_cancel_failure() RETURNS trigger LANGUAGE plpgsql AS $$ BEGIN IF NEW.company_id='${f.f.companyA}'::uuid AND NEW.id='${id}'::uuid AND NEW.status='cancelled' THEN RAISE EXCEPTION 'Synthetic AP cancel failure'; END IF; RETURN NEW; END $$`);
  try{await f.pool.query('CREATE TRIGGER synthetic_ap_ci_cancel_failure BEFORE UPDATE ON supplier_invoices FOR EACH ROW EXECUTE FUNCTION public.synthetic_ap_ci_cancel_failure()');
-  const errors:string[]=[];await expect(f.actor(async()=>{try{const {cancelSupplierInvoice}=await import('@/modules/accounting/services/ap/supplierInvoiceWorkflowService');await cancelSupplierInvoice(f.f.companyA,id,f.f.u1.id,{approvalId});}catch(error){errors.push(String(error));}})).rejects.toThrow();
+  const errors:string[]=[];await f.actor(async()=>{try{const {cancelSupplierInvoice}=await import('@/modules/accounting/services/ap/supplierInvoiceWorkflowService');await cancelSupplierInvoice(f.f.companyA,id,f.f.u1.id,{approvalId});}catch(error){errors.push(String(error));}});
   expect(errors.join()).toContain('Synthetic AP cancel failure');expect(await f.state()).toEqual(before);
  }finally{await f.pool.query('DROP TRIGGER IF EXISTS synthetic_ap_ci_cancel_failure ON supplier_invoices');await f.pool.query('DROP FUNCTION public.synthetic_ap_ci_cancel_failure()');}
  expect((await f.cancel(id,approvalId)).status).toBe('cancelled');
