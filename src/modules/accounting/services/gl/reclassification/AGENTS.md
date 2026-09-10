@@ -78,7 +78,6 @@ createReclassBatch / recordReclassBatchLines / getReclassBatch
 - **Skip reasons**, machine-stable, in the order they are reported:
   `entry_reversed`, `entry_is_reversal`, `reclassification_contra`,
   `appeared_after_lock`, `already_reclassified`, `zero_amount`,
-  `unreproducible_analysis_coding`,
   `unknown_vat_type`, `vat_period_locked`, `source_period_missing`,
   `source_period_closed`.
 - **A REVERSAL IS A PAIR, AND BOTH HALVES ARE SKIPPED.** `reversed_at` marks the
@@ -320,6 +319,8 @@ by the depreciation workstream, which is deleting the constant; this module
 picks the fix up when it lands rather than forking the shared service.
 
 ## Recent changes
+
+- 2026-09-10: CC1 and CC2 now travel through candidate mapping, ownership sanitisation and both reclassification journal legs, alongside the business unit. Lines carrying analysis coding are no longer skipped as `unreproducible_analysis_coding`; the shared writer's explicit `historical-copy` mode preserves owned inactive references while continuing to reject a foreign or wrong-slot reference.
 
 - 2026-09-04 (review round): two HIGH defects closed. **HIGH-1**, the reversal
   pair split above — the first cut moved the reversing half of every pair whose
