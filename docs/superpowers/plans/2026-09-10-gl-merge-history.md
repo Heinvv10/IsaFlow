@@ -1,6 +1,6 @@
 # GL merge capture and actual CRUD history HTTP
 
-Base:68fe45ffa, isolated mcp-gl-merge-history-20260910. This supersedes the empty planning tree at67caf1661. Root froze complete journal before/after and new merge-only helpers; no existing public capture contract changes, opening/admin writers, migrations, registry or principal edits. This document is the concrete pre-implementation proposal; tests/PG have not run.
+Base:68fe45ffa, isolated mcp-gl-merge-history-20260910. This supersedes the empty planning tree at67caf1661. Root froze complete journal before/after and new merge-only helpers; no existing public capture contract changes, opening/admin writers, migrations, registry or principal edits. Root froze this scope. Initial real producer RED completed (one failure/five skipped): the merge moved its line and retained recovery identity, but account and journal events were absent. Pool closed and lease returned before implementation.
 
 ## Actual caller/effect inventory
 
@@ -11,8 +11,8 @@ Merge changes gl_journal_lines.gl_account_id and updated_at; amounts and other d
 ## Owned implementation proposal
 
 - accountMergeService.ts: wrap current real operation with new merge-only capture boundary; preserve public signature and result. Keep existing movable-line SQL/classifier agreement and moved-ID count/digest checks. Tighten explicit header company predicate and verify captured ID set equals RETURNING actual set, not count alone. Compare expected account after-state so suppressed child/deactivation writes cannot pass.
-- new glAccountMergeChangeControl.ts: issued context, fixed current accounts+post authority, company/advisory ordering, exact affected account selection, merge transaction and journal/account evidence. Use existing readGlChangeRows/meaningfulGlRow/recordCommittedChange primitives; do not alter withGlAccountChanges public contract.
-- new glAccountMergeJournalRows.ts: complete owned header/line/account material with exact decimal text and real accounting date, deterministic IDs/fingerprints. Reuse canonicalJson/canonicalMoney; do not reuse capped posting eligibility as merge eligibility.
+- new glMergeChangeControl.ts: issued context, fixed current accounts+post authority, company/advisory ordering, exact affected account selection, merge transaction and journal/account evidence. Use existing readGlChangeRows/meaningfulGlRow/recordCommittedChange primitives; do not alter withGlAccountChanges public contract.
+- new glMergeChangeRows.ts: complete owned header/line/account material with exact decimal text and real accounting date, deterministic IDs/fingerprints. Reuse canonicalJson/canonicalMoney; do not reuse capped posting eligibility as merge eligibility.
 - new glAccountMergeCapture.int.test.ts +small glAccountMergeCaptureFixture.ts: real issued actor/current permissions, actual merge service and injected failures. Additional small pure tests only where canonical projection needs independent assertions.
 - new glAccountHistoryHttp.int.test.ts +small glAccountHistoryHttpFixture.ts: actual loopback apiResolver/default MCP handler and actual cookie chart routes. Use validated disposable fixture, real stored PAT/default auth/cookie JWT+CSRF; no handler/auth/service substitutions. All setup failures and teardown attempt every server/pool cleanup using independently settled cleanup; scoped fault triggers must never affect other fixtures.
 - This plan only. Root owns contracts/crypto/schema/default registration and integration; any necessary shared helper change returns for explicit review before editing.
@@ -40,3 +40,5 @@ Merge changes gl_journal_lines.gl_account_id and updated_at; amounts and other d
 8. Actual HTTP: REST create/rename/update/reclassification/delete, then MCP entity_change_history reads real events with cookie/PAT provenance. MCP create/update/deactivate repeats through same service; idempotent replay produces no duplicate event, current write revocation refuses replay, independent history-domain revocation refuses reads, foreign entity unavailable. Exact authorized nested/classification fields preserved, bank credentials redacted. Existing route failure mapped400 must still roll back mandatory evidence failure through transaction poison semantics.
 
 Historical actor and omitted pre-programme capture remain unknown. No old economic data repair, new merge approval operation, UI completion, built Next proof or production access is claimed by this tranche. First tests run only after root freezes this detailed proposal and grants the next synthetic PG slot.
+
+Implementation is WIP. Scoped source lint passed; full PG/HTTP and static verification await the next serialized lease. Root owns the confirmed history source-family enforcement gap for payroll journals; payroll-enabled capture must not be integrated before that correction is verified. No permanent source exclusion is proposed.
