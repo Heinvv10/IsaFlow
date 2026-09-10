@@ -1,4 +1,5 @@
 import { sql } from '@/lib/neon';
+import {assertIndependentRequestReview} from '@/modules/accounting/services/controls/independentReview';
 import { log } from '@/lib/logger';
 import type {
   AfsDocument,
@@ -112,6 +113,7 @@ export async function lockAfsDocument(
   companyId: string,
   lockedBy: string
 ): Promise<AfsDocument> {
+  assertIndependentRequestReview();
   log.info('Locking AFS document', { documentId, companyId, lockedBy }, 'afsDocumentService');
 
   const rows = await sql`

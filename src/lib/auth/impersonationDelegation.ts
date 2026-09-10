@@ -12,16 +12,11 @@ import { sql } from '@/lib/neon';
 export async function impersonationDelegationLive(stashId: string, actorUserId: string,
   targetUserId: string, targetSessionId: string): Promise<boolean> {
   if (!/^[0-9a-f-]{36}$/i.test(stashId)) return false;
-  const rows = await sql<{ live: boolean; ended: boolean }>`
-    SELECT
-      EXISTS(SELECT 1 FROM admin_impersonation_stash
-        WHERE stash_id = ${stashId}::uuid AND admin_user_id = ${actorUserId}
-          AND target_user_id = ${targetUserId} AND expires_at > NOW()) AS live,
-      EXISTS(SELECT 1 FROM admin_audit_log
-        WHERE action IN ('impersonation_end','impersonation_end_failed') AND target_type = 'user'
-          AND target_id::text = ${targetUserId}
-          AND details->>'target_session_id' = ${targetSessionId}) AS ended
+  // Migration 677 owns both reads: the request path needs no grant on the stash table, and
+  // a permission failure cannot come back looking like an ended delegation.
+  const rows = await sql<{ live: boolean }>`
+    SELECT public.impersonation_delegation_live(${stashId}::uuid, ${actorUserId}, ${targetUserId},
+      ${targetSessionId}) AS live
   `;
-  const row = rows[0];
-  return row?.live === true && row.ended !== true;
+  return rows[0]?.live === true;
 }

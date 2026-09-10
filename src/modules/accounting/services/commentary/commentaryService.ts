@@ -12,6 +12,7 @@
  */
 import { sql, type DbRow } from '@/lib/neon';
 import { requestImpersonator } from '@/modules/accounting/services/controls/independentReview';
+import { IMPERSONATION_UNVERIFIED } from '@/lib/auth/impersonationState';
 import { log } from '@/lib/logger';
 import { nextStatus, type CommentaryStatus } from './commentaryState';
 import { buildDraftSentences, type CommentaryPackData } from './commentaryDraft';
@@ -46,6 +47,18 @@ export type CommentaryResult =
   | { ok: true; row: CommentaryRow }
   | { ok: false; code: CommentaryFailureCode; reason: string };
 
+/**
+ * The actor columns hold a user id or nothing. The unverified marker is neither: storing it
+ * would put a string that joins to no user into a column an auditor reads as a person, so a
+ * session whose impersonation state could not be established does not get to decide here.
+ */
+function recordableImpersonator(): string | null {
+  const actor = requestImpersonator();
+  if (actor === IMPERSONATION_UNVERIFIED) {
+    throw new Error('Impersonation state is unverified; this decision cannot be attributed');
+  }
+  return actor;
+}
 function toRow(r: DbRow): CommentaryRow {
   return {
     id: String(r.id),
@@ -135,7 +148,7 @@ export async function generateDrafts(input: {
         withdrawn_by = CASE WHEN report_commentary.status = 'approved' THEN ${input.userId} ELSE report_commentary.withdrawn_by END,
         withdrawn_at = CASE WHEN report_commentary.status = 'approved' THEN NOW() ELSE report_commentary.withdrawn_at END,
         withdrawn_by_impersonator = CASE WHEN report_commentary.status = 'approved'
-          THEN ${requestImpersonator()} ELSE report_commentary.withdrawn_by_impersonator END,
+          THEN ${recordableImpersonator()} ELSE report_commentary.withdrawn_by_impersonator END,
         generated_by = EXCLUDED.generated_by,
         updated_at = NOW()
       WHERE report_commentary.status = 'draft' OR ${overwrite}::boolean
@@ -195,7 +208,7 @@ export async function approveCommentary(companyId: string, id: string, userId: s
   const rows = (await sql`
     UPDATE report_commentary
     SET status = 'approved', approved_text = draft_text, approved_by = ${userId},
-        approved_by_impersonator = ${requestImpersonator()}, approved_at = NOW(), updated_at = NOW()
+        approved_by_impersonator = ${recordableImpersonator()}, approved_at = NOW(), updated_at = NOW()
     WHERE id = ${id}::uuid AND company_id = ${companyId}::uuid
       AND status = 'draft' AND btrim(draft_text) <> ''
     RETURNING *
@@ -215,7 +228,7 @@ export async function rejectCommentary(companyId: string, id: string, userId: st
 
   const rows = (await sql`
     UPDATE report_commentary
-    SET status = 'rejected', rejected_by = ${userId}, rejected_by_impersonator = ${requestImpersonator()},
+    SET status = 'rejected', rejected_by = ${userId}, rejected_by_impersonator = ${recordableImpersonator()},
         updated_at = NOW()
     WHERE id = ${id}::uuid AND company_id = ${companyId}::uuid AND status = 'draft'
     RETURNING *

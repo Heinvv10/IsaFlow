@@ -55,13 +55,11 @@ const handler: NextApiHandler = async (req, res) => {
   // withPlatformAdmin. The other end is closed too — userImpersonationService
   // refuses to START impersonation of an inactive target (TARGET_INACTIVE).
   let callerId: string;
-  let callerSessionId: string | null = null;
   try {
     // Restoring the owned admin stash must work even when the target needs MFA.
     // The restored session is subject to the normal completed-session gate.
     const claims = await verifyTokenSignature(accessToken);
     callerId = claims.sub;
-    callerSessionId = typeof claims.session_id === 'string' ? claims.session_id : null;
   } catch {
     clearAuthCookies(res);
     clearImpersonationCookies(res);
@@ -91,6 +89,18 @@ const handler: NextApiHandler = async (req, res) => {
   // scope=local revokes only the presented (impersonated) session, so the member's
   // own sessions survive; when the caller is the admin we no longer hold that
   // token and must fall back to revoking the target's sessions globally.
+  // The session that was impersonated, taken from the record the impersonation route
+  // wrote for THIS stash. The caller's own claims are the admin's restored session on the
+  // global path, and it is this id that stops the delegation proof - so reading it from
+  // the caller would leave the proof alive exactly where the exit failed.
+  const started = await sql<{ target_session_id: string | null }>`
+    SELECT details->>'target_session_id' AS target_session_id FROM admin_audit_log
+    WHERE action = 'impersonation_start' AND target_type = 'user'
+      AND target_id::text = ${stash.target_user_id} AND details->>'stash_id' = ${stashId}
+    ORDER BY created_at DESC LIMIT 1
+  `;
+  const targetSessionId = started[0]?.target_session_id ?? null;
+
   const revocationScope = callerId === stash.target_user_id ? 'local' : 'global';
   try {
     if (revocationScope === 'local') await logout(accessToken, 'local');
@@ -104,7 +114,7 @@ const handler: NextApiHandler = async (req, res) => {
     await sql`
       INSERT INTO admin_audit_log (admin_user_id, action, target_type, target_id, details)
       VALUES (${stash.admin_user_id}, 'impersonation_end_failed', 'user', ${stash.target_user_id},
-        ${JSON.stringify({ stash_id: stashId, target_session_id: callerSessionId,
+        ${JSON.stringify({ stash_id: stashId, target_session_id: targetSessionId,
           reason: revokeErr instanceof Error ? revokeErr.message : String(revokeErr) })}::jsonb)
     `;
     return res.status(502).json({ success: false,
@@ -134,7 +144,7 @@ const handler: NextApiHandler = async (req, res) => {
       'impersonation_end',
       'user',
       ${stash.target_user_id},
-      ${JSON.stringify({ stash_id: stashId, target_session_id: callerSessionId, scope: revocationScope })}::jsonb
+      ${JSON.stringify({ stash_id: stashId, target_session_id: targetSessionId, scope: revocationScope })}::jsonb
     )
   `;
 
