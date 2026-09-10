@@ -8,7 +8,7 @@ import type { DisclosureNote } from './disclosureNoteService';
 import type { DbRow } from '@/types/db';
 import { isVatRegistered, normalizeVatBasis } from '@/modules/bureau/services/vatPeriodHelper';
 import { getFiscalRange } from '@/modules/accounting/services/afs/afsFiscalPeriod';
-import { documentInLedgerAsAtFragment } from '@/modules/accounting/services/shared/softDeleteLedgerPresence';
+import { agedBucketTable, getAgedBucketTotals } from './agedBucketTotals';
 
 
 function fmt(n: number | null | undefined): string {
@@ -106,45 +106,20 @@ export async function notePPE(companyId: string, fiscalYear: number): Promise<Di
 }
 
 // ── Note 3: Trade & Other Receivables ─────────────────────────────────────────
+// Notes 3 and 4 are the aged report at the year end, summed (R-059): see
+// agedBucketTotals for why they no longer run a query of their own.
 
 export async function noteReceivables(companyId: string, fiscalYear: number): Promise<DisclosureNote> {
   const { end } = await getFiscalRange(companyId, fiscalYear);
-
-  const rows = await sql`
-    SELECT
-      SUM(ci.total_amount - COALESCE(ci.amount_paid, 0)) FILTER (WHERE ci.status NOT IN ('paid','cancelled','void')) AS gross_receivables,
-      SUM(ci.total_amount - COALESCE(ci.amount_paid, 0)) FILTER (
-        WHERE ci.status NOT IN ('paid','cancelled','void')
-          AND ci.due_date <= ${end}::date AND ci.due_date > ${end}::date - INTERVAL '30 days'
-      ) AS current_amount,
-      SUM(ci.total_amount - COALESCE(ci.amount_paid, 0)) FILTER (
-        WHERE ci.status NOT IN ('paid','cancelled','void')
-          AND ci.due_date <= ${end}::date - INTERVAL '30 days'
-          AND ci.due_date > ${end}::date - INTERVAL '60 days'
-      ) AS days_30,
-      SUM(ci.total_amount - COALESCE(ci.amount_paid, 0)) FILTER (
-        WHERE ci.status NOT IN ('paid','cancelled','void')
-          AND ci.due_date <= ${end}::date - INTERVAL '60 days'
-          AND ci.due_date > ${end}::date - INTERVAL '90 days'
-      ) AS days_60,
-      SUM(ci.total_amount - COALESCE(ci.amount_paid, 0)) FILTER (
-        WHERE ci.status NOT IN ('paid','cancelled','void')
-          AND ci.due_date <= ${end}::date - INTERVAL '90 days'
-      ) AS days_90_plus
-    FROM customer_invoices ci
-    WHERE ci.company_id = ${companyId} AND ci.invoice_date <= ${end} AND ${documentInLedgerAsAtFragment('ci', end, companyId)}
-  ` as DbRow[];
-
-  const r = rows[0] ?? {};
-  const gross = Number(r.gross_receivables) || 0;
+  const aged = await getAgedBucketTotals(companyId, 'ar', end);
 
   return {
     noteNumber: 3,
     title: 'Trade and Other Receivables',
     content: `Trade receivables are carried at original invoice amount less any provision for doubtful debts assessed at the reporting date based on objective evidence of impairment.`,
     tables: [
-      { headers: ['', 'Amount (R)'], rows: [['Gross trade receivables', fmt(gross)], ['Less: Provision for doubtful debts', fmt(0)], ['Net trade receivables', fmt(gross)]] },
-      { headers: ['Current', '30 days', '60 days', '90+ days', 'Total'], rows: [[fmt(r.current_amount as number | null), fmt(r.days_30 as number | null), fmt(r.days_60 as number | null), fmt(r.days_90_plus as number | null), fmt(gross)]] },
+      { headers: ['', 'Amount (R)'], rows: [['Gross trade receivables', fmt(aged.gross)], ['Less: Provision for doubtful debts', fmt(0)], ['Net trade receivables', fmt(aged.gross)]] },
+      agedBucketTable(aged, fmt),
     ],
     source: 'auto',
   };
@@ -154,37 +129,15 @@ export async function noteReceivables(companyId: string, fiscalYear: number): Pr
 
 export async function notePayables(companyId: string, fiscalYear: number): Promise<DisclosureNote> {
   const { end } = await getFiscalRange(companyId, fiscalYear);
-
-  const rows = await sql`
-    SELECT
-      SUM(si.total_amount - COALESCE(si.amount_paid, 0)) FILTER (WHERE si.status NOT IN ('paid','cancelled','void')) AS gross_payables,
-      SUM(si.total_amount - COALESCE(si.amount_paid, 0)) FILTER (
-        WHERE si.status NOT IN ('paid','cancelled','void')
-          AND si.due_date <= ${end}::date AND si.due_date > ${end}::date - INTERVAL '30 days'
-      ) AS current_amount,
-      SUM(si.total_amount - COALESCE(si.amount_paid, 0)) FILTER (
-        WHERE si.status NOT IN ('paid','cancelled','void')
-          AND si.due_date <= ${end}::date - INTERVAL '30 days'
-          AND si.due_date > ${end}::date - INTERVAL '60 days'
-      ) AS days_30,
-      SUM(si.total_amount - COALESCE(si.amount_paid, 0)) FILTER (
-        WHERE si.status NOT IN ('paid','cancelled','void')
-          AND si.due_date <= ${end}::date - INTERVAL '60 days'
-      ) AS days_60_plus
-    FROM supplier_invoices si
-    WHERE si.company_id = ${companyId} AND si.invoice_date <= ${end} AND ${documentInLedgerAsAtFragment('si', end, companyId)}
-  ` as DbRow[];
-
-  const r = rows[0] ?? {};
-  const gross = Number(r.gross_payables) || 0;
+  const aged = await getAgedBucketTotals(companyId, 'ap', end);
 
   return {
     noteNumber: 4,
     title: 'Trade and Other Payables',
     content: `Trade and other payables are carried at cost which is the fair value of the consideration to be paid in the future for goods and services received, whether or not billed to the entity.`,
     tables: [
-      { headers: ['', 'Amount (R)'], rows: [['Trade payables', fmt(gross)], ['Accrued liabilities', fmt(0)], ['Total trade and other payables', fmt(gross)]] },
-      { headers: ['Current', '30 days', '60+ days', 'Total'], rows: [[fmt(r.current_amount as number | null), fmt(r.days_30 as number | null), fmt(r.days_60_plus as number | null), fmt(gross)]] },
+      { headers: ['', 'Amount (R)'], rows: [['Trade payables', fmt(aged.gross)], ['Accrued liabilities', fmt(0)], ['Total trade and other payables', fmt(aged.gross)]] },
+      agedBucketTable(aged, fmt),
     ],
     source: 'auto',
   };

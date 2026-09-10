@@ -12,11 +12,16 @@
  *   S  total 1000, 400 paid by a payment dated PAY_S — still open today;
  *   P  total  500, fully paid by a payment dated PAY_P — status 'paid' today.
  *
- * Asserted at four as-at dates, as figures and as buckets, route AND service:
- *   BEFORE  (before INV_DATE)           0
- *   BETWEEN (after INV_DATE, before any payment)  1000 + 500 = 1500, 1-30
- *   AFTER   (after both payments)       600, 31-60
+ * Asserted at six as-at dates, as figures and buckets (route AND service) and
+ * as the route's per-invoice rows:
+ *   BEFORE   (before INV_DATE)          0, no rows
+ *   INV_DATE (the invoice day itself)   1500, current — raised that day counts
+ *   BETWEEN  (after INV_DATE, before any payment)  1000 + 500 = 1500, 1-30
+ *   PAY_S    (S's payment day itself)   600 + 500 = 1100, 31-60 — paid that
+ *                                       day counts as paid
+ *   AFTER    (after both payments)      600, 31-60
  *   TODAY                               600, 61-90  — unchanged by the fix
+ * The two boundary days are what pin the direction of each bound.
  *
  * The one row the fix DOES change at today is a status='paid' document that
  * still carries a balance: the service always aged it, the route did not. It
@@ -165,11 +170,13 @@ describeIfDb('R-059 the ageing routes are point-in-time and agree with the servi
     await sql`DELETE FROM users WHERE id = ${USER}`;
   }, 120000);
 
-  const CASES: { label: string; asAt: () => string; total: number; buckets: Record<string, number> }[] = [
-    { label: 'before the invoice date', asAt: () => BEFORE, total: 0, buckets: {} },
-    { label: 'between invoice and payment', asAt: () => BETWEEN, total: 1500, buckets: { '1-30': 1500 } },
-    { label: 'after both payments', asAt: () => AFTER, total: 600, buckets: { '31-60': 600 } },
-    { label: 'today', asAt: () => TODAY, total: 600, buckets: { '61-90': 600 } },
+  const CASES: { label: string; asAt: () => string; total: number; buckets: Record<string, number>; rows: number }[] = [
+    { label: 'before the invoice date', asAt: () => BEFORE, total: 0, buckets: {}, rows: 0 },
+    { label: 'on the invoice date', asAt: () => INV_DATE, total: 1500, buckets: { current: 1500 }, rows: 2 },
+    { label: 'between invoice and payment', asAt: () => BETWEEN, total: 1500, buckets: { '1-30': 1500 }, rows: 2 },
+    { label: "on S's payment day", asAt: () => PAY_S, total: 1100, buckets: { '31-60': 1100 }, rows: 2 },
+    { label: 'after both payments', asAt: () => AFTER, total: 600, buckets: { '31-60': 600 }, rows: 1 },
+    { label: 'today', asAt: () => TODAY, total: 600, buckets: { '61-90': 600 }, rows: 1 },
   ];
 
   for (const side of SIDES) {
@@ -181,6 +188,10 @@ describeIfDb('R-059 the ageing routes are point-in-time and agree with the servi
         expect(svcTotal(svc)).toBeCloseTo(c.total, 2);
         expect(nonZeroBuckets(body)).toEqual(c.buckets);
         expect(svcBuckets(svc)).toEqual(c.buckets);
+        // The per-invoice rows the page renders come from a SEPARATE query with
+        // its own bounds; the summary above cannot vouch for them.
+        expect(body.rows).toHaveLength(c.rows);
+        expect(body.rows.reduce((s, r) => s + Number(r.balance_due), 0)).toBeCloseTo(c.total, 2);
       });
     }
 

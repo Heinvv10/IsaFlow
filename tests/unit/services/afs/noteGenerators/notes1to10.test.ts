@@ -12,8 +12,18 @@ vi.mock('@/lib/logger', () => ({
 vi.mock('@/modules/accounting/services/afs/afsFiscalPeriod', () => ({
   getFiscalRange: vi.fn(async () => ({ start: '2026-01-01', end: '2026-12-31' })),
 }));
+// Notes 10 and 16 are the aged report at the year end, summed (R-059). The
+// ageing's own arithmetic is pinned against a database in
+// tests/integration/r059-year-end-notes-agree-with-ageing.int.test.ts; here the
+// totals are stubbed so these tests stay about the note CONTENT and the date
+// it asks for.
+vi.mock('@/modules/accounting/services/reports/agedBucketTotals', async (orig) => {
+  const actual = await orig<typeof import('@/modules/accounting/services/reports/agedBucketTotals')>();
+  return { ...actual, getAgedBucketTotals: vi.fn() };
+});
 
 import { sql } from '@/lib/neon';
+import { getAgedBucketTotals } from '@/modules/accounting/services/reports/agedBucketTotals';
 import {
   generateNote1AccountingPolicies,
   generateNote2SignificantEstimates,
@@ -283,87 +293,39 @@ describe('notes1to10 generators', () => {
   // ── Note 10 ───────────────────────────────────────────────────────────────
 
   describe('generateNote10TradeReceivables', () => {
-    it('returns dataSnapshot and content', async () => {
-      mockSql.mockResolvedValueOnce([
-        {
-          gross_receivables: '120000',
-          current_amount: '80000',
-          days_30: '25000',
-          days_60: '10000',
-          days_90_plus: '5000',
-        },
-      ]);
+    const mockAged = vi.mocked(getAgedBucketTotals);
+
+    it('asks the AR ageing for the fiscal year END, and prints its gross', async () => {
+      mockAged.mockResolvedValueOnce({ current: 80000, days30: 25000, days60: 10000, days90: 3000, days120Plus: 2000, disputed: 0, gross: 120000 });
       const result = await generateNote10TradeReceivables(COMPANY_ID, FISCAL_YEAR);
-      expect(result).toHaveProperty('dataSnapshot');
-      expect(result).toHaveProperty('content');
+      expect(mockAged).toHaveBeenCalledWith(COMPANY_ID, 'ar', '2026-12-31');
+      const [summary] = result.content.blocks.filter((b) => b.type === 'table') as { rows: string[][] }[];
+      expect(summary!.rows[0]).toEqual(['Gross trade receivables', '120\u00a0000,00']);
+      expect(summary!.rows.some((r) => r[0] === 'Net trade receivables')).toBe(true);
+      expect(result.dataSnapshot).toHaveProperty('receivables.0.gross_receivables', 120000);
     });
 
-    it('content includes two table blocks', async () => {
-      mockSql.mockResolvedValueOnce([
-        {
-          gross_receivables: '100000',
-          current_amount: '60000',
-          days_30: '20000',
-          days_60: '15000',
-          days_90_plus: '5000',
-        },
-      ]);
+    it('the age table is the ageing\'s five buckets and foots to gross', async () => {
+      mockAged.mockResolvedValueOnce({ current: 60000, days30: 20000, days60: 15000, days90: 3000, days120Plus: 2000, disputed: 0, gross: 100000 });
       const { content } = await generateNote10TradeReceivables(COMPANY_ID, FISCAL_YEAR);
-      const tables = content.blocks.filter((b) => b.type === 'table');
-      expect(tables.length).toBe(2);
+      const table = content.blocks.filter((b) => b.type === 'table')[1] as { headers: string[]; rows: string[][] };
+      expect(table.headers).toEqual(['Current', '30 days', '60 days', '90 days', '120+ days', 'Total']);
+      expect(table.rows[0]).toEqual(['60\u00a0000,00', '20\u00a0000,00', '15\u00a0000,00', '3\u00a0000,00', '2\u00a0000,00', '100\u00a0000,00']);
     });
 
-    it('first table has net receivables row', async () => {
-      mockSql.mockResolvedValueOnce([
-        {
-          gross_receivables: '50000',
-          current_amount: '30000',
-          days_30: '10000',
-          days_60: '5000',
-          days_90_plus: '5000',
-        },
-      ]);
+    it('open disputes get their own column, so the row still foots', async () => {
+      mockAged.mockResolvedValueOnce({ current: 400, days30: 0, days60: 0, days90: 0, days120Plus: 0, disputed: 600, gross: 1000 });
       const { content } = await generateNote10TradeReceivables(COMPANY_ID, FISCAL_YEAR);
-      const table = content.blocks.filter((b) => b.type === 'table')[0] as {
-        type: 'table';
-        headers: string[];
-        rows: string[][];
-      };
-      expect(table.rows.some((r) => r[0] === 'Net trade receivables')).toBe(true);
-    });
-
-    it('second table has aging headers', async () => {
-      mockSql.mockResolvedValueOnce([
-        {
-          gross_receivables: '0',
-          current_amount: '0',
-          days_30: '0',
-          days_60: '0',
-          days_90_plus: '0',
-        },
-      ]);
-      const { content } = await generateNote10TradeReceivables(COMPANY_ID, FISCAL_YEAR);
-      const table = content.blocks.filter((b) => b.type === 'table')[1] as {
-        type: 'table';
-        headers: string[];
-        rows: string[][];
-      };
-      expect(table.headers).toEqual(['Current', '30 days', '60 days', '90+ days', 'Total']);
+      const table = content.blocks.filter((b) => b.type === 'table')[1] as { headers: string[]; rows: string[][] };
+      expect(table.headers).toEqual(['Current', '30 days', '60 days', '90 days', '120+ days', 'Disputed', 'Total']);
+      expect(table.rows[0]![5]).toBe('600,00');
+      expect(table.rows[0]![6]).toBe('1\u00a0000,00');
     });
 
     it('always includes both tables even when gross = 0', async () => {
-      mockSql.mockResolvedValueOnce([
-        {
-          gross_receivables: null,
-          current_amount: null,
-          days_30: null,
-          days_60: null,
-          days_90_plus: null,
-        },
-      ]);
+      mockAged.mockResolvedValueOnce({ current: 0, days30: 0, days60: 0, days90: 0, days120Plus: 0, disputed: 0, gross: 0 });
       const { content } = await generateNote10TradeReceivables(COMPANY_ID, FISCAL_YEAR);
-      const tables = content.blocks.filter((b) => b.type === 'table');
-      expect(tables.length).toBe(2);
+      expect(content.blocks.filter((b) => b.type === 'table')).toHaveLength(2);
     });
   });
 });

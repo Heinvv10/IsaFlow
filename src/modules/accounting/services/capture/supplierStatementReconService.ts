@@ -9,7 +9,8 @@
 
 import { sql } from '@/lib/neon';
 import { log } from '@/lib/logger';
-import { asAtTodayStr, documentInLedgerAsAtFragment } from '@/modules/accounting/services/shared/softDeleteLedgerPresence';
+import { asAtTodayStr } from '@/modules/accounting/services/shared/softDeleteLedgerPresence';
+import { getAPAgingDetail } from '@/modules/accounting/services/ap/apAgingService';
 import { fetchRawBytes } from '@/lib/documentStorage';
 import { extractSupplierStatementWithVlm } from '@/modules/accounting/services/bank/vlmSupplierStatementService';
 import {
@@ -96,21 +97,17 @@ export async function createReconciliation(
     log.warn('Supplier statement extraction warnings', { warnings: extraction.warnings }, 'recon-service');
   }
 
-  const statementDate = extraction.statementDate ?? new Date().toISOString().slice(0, 10);
+  const statementDate = extraction.statementDate ?? asAtTodayStr();
   const supplierBalance = extraction.closingBalance ?? 0;
 
-  const [balRow] = (await sql`
-    SELECT COALESCE(SUM(si.balance), 0) AS isaflow_balance
-    FROM supplier_invoices si
-    WHERE si.company_id = ${companyId}
-      AND si.supplier_id = ${supplierId}::uuid
-      -- The variance below is against the supplier's own statement, so this
-      -- side must be the balance our ledger actually carries today.
-      -- See shared/softDeleteLedgerPresence.
-      AND ${documentInLedgerAsAtFragment('si', asAtTodayStr(), companyId)}
-      AND si.status NOT IN ('paid', 'cancelled')
-  `) as DbRow[];
-  const isaflowBalance = toNum(balRow?.isaflow_balance);
+  // Our side of the variance is what we owed this supplier ON THE STATEMENT
+  // DATE — the date the supplier's closing balance is struck at — from the AP
+  // ageing's own rewind (R-059). It used to be today's si.balance over every
+  // non-paid, non-cancelled bill, drafts included: a payment made after the
+  // statement date showed as a variance the supplier could never explain, and
+  // a bill raised after it was compared against a statement that predates it.
+  const aged = await getAPAgingDetail(companyId, supplierId, statementDate);
+  const isaflowBalance = Math.round(aged.invoices.reduce((s, inv) => s + inv.balance, 0) * 100) / 100;
   const variance = Math.round((supplierBalance - isaflowBalance) * 100) / 100;
 
   const [headerRow] = (await sql`
