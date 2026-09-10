@@ -2,12 +2,12 @@
 import type { NextApiRequest, NextApiResponse } from 'next';
 import { z } from 'zod';
 import { withErrorHandler } from '@/lib/api-error-handler';
-import { apiResponse, ErrorCode } from '@/lib/apiResponse';
+import { apiResponse } from '@/lib/apiResponse';
 import { withAuth, type CompanyAuthedRequest } from '@/lib/auth';
 import { withCsrf } from '@/lib/auth/withCsrf';
 import { requireUuidParam } from '@/lib/schemas/common';
 import { log } from '@/lib/logger';
-import { ReviewError } from '@/modules/accounting/services/afs/afsReviewService';
+import { sendReviewError } from '@/modules/accounting/services/afs/afsReviewErrorResponse';
 import {
   listVersions,
   restoreVersion,
@@ -55,10 +55,7 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
       }, 'Version restored');
     } catch (err) {
       // restoreVersion binds the section to this document and refuses a locked one.
-      if (err instanceof ReviewError) {
-        if (err.code === 'NOT_FOUND') return apiResponse.notFound(res, 'Section', sectionId);
-        return apiResponse.error(res, ErrorCode.CONFLICT, err.message);
-      }
+      if (sendReviewError(res, err, 'Section', sectionId)) return;
       if (err instanceof VersionHistoryError) {
         if (err.code === 'NOT_FOUND') return apiResponse.notFound(res, 'Section', sectionId);
         if (err.code === 'VERSION_NOT_FOUND') return apiResponse.notFound(res, 'Version', String(version));

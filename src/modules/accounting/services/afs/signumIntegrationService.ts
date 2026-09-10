@@ -33,8 +33,10 @@ function getRequiredEnv(name: string): string {
  * Send an AFS document for signing via the Signum API.
  *
  * Posts rendered HTML to POST /documents/from-html.
- * Stores signumDocumentId + signing_requested_at on the afs_document record.
- * Status stays 'partner_review' — webhook moves it to 'signed_off'.
+ * Stores signumDocumentId + signing_requested_at + the content fingerprint on the afs_document
+ * record: from here on the section write guard refuses every edit to the document, and the
+ * webhook signs it off only while that fingerprint still holds.
+ * Status stays 'partner_review' — the webhook moves it to 'signed_off'.
  */
 export async function sendForSigning(
   documentId: string,
@@ -42,6 +44,7 @@ export async function sendForSigning(
   html: string,
   title: string,
   signers: Array<{ email: string; name: string }>,
+  contentFingerprint: string,
 ): Promise<{ signumDocumentId: string; signingTokens: Array<{ email: string; signingToken: string }> }> {
   const apiUrl = getRequiredEnv('SIGNUM_API_URL');
   const apiKey = getRequiredEnv('SIGNUM_API_KEY');
@@ -62,6 +65,8 @@ export async function sendForSigning(
       callbackBaseUrl,
       expiresInDays,
     }),
+    // The request holds the document's row lock while this runs.
+    signal: AbortSignal.timeout(30_000),
   });
 
   if (!res.ok) {
@@ -71,12 +76,15 @@ export async function sendForSigning(
 
   const json = (await res.json()) as SignumApiResponse;
 
-  // Store signumDocumentId + signing_requested_at — status stays 'partner_review'
+  // Store signumDocumentId + signing_requested_at + fingerprint — status stays 'partner_review'
   await sql`
     UPDATE afs_documents
-    SET signum_document_id   = ${json.documentId},
-        signing_requested_at = now(),
-        updated_at           = now()
+    SET signum_document_id          = ${json.documentId},
+        signing_requested_at        = now(),
+        signing_content_fingerprint = ${contentFingerprint},
+        signing_refused_at          = NULL,
+        signing_refused_reason      = NULL,
+        updated_at                  = now()
     WHERE id = ${documentId}::UUID AND company_id = ${companyId}::UUID
   `;
 
@@ -127,6 +135,7 @@ export async function downloadSignedPdf(signumDocumentId: string): Promise<Buffe
 
   const res = await fetch(`${apiUrl}/documents/${signumDocumentId}/download`, {
     headers: { 'x-api-key': apiKey },
+    signal: AbortSignal.timeout(60_000),
   });
 
   if (!res.ok) {

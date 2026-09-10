@@ -1,14 +1,12 @@
 // pages/api/accounting/afs/[documentId]/sections/[sectionId]/sign-off.ts
 import type { NextApiRequest, NextApiResponse } from 'next';
 import { withErrorHandler } from '@/lib/api-error-handler';
-import { apiResponse, ErrorCode } from '@/lib/apiResponse';
+import { apiResponse } from '@/lib/apiResponse';
 import { withAuth, type CompanyAuthedRequest } from '@/lib/auth';
 import { withCsrf } from '@/lib/auth/withCsrf';
 import { log } from '@/lib/logger';
-import {
-  signOffSection,
-  ReviewError,
-} from '@/modules/accounting/services/afs/afsReviewService';
+import { signOffSection } from '@/modules/accounting/services/afs/afsReviewService';
+import { sendReviewError } from '@/modules/accounting/services/afs/afsReviewErrorResponse';
 
 async function handler(req: NextApiRequest, res: NextApiResponse) {
   if (req.method !== 'POST') {
@@ -27,10 +25,7 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
     const result = await signOffSection(companyId, documentId, sectionId, userId);
     return apiResponse.success(res, result, 'Section signed off');
   } catch (err) {
-    if (err instanceof ReviewError) {
-      if (err.code === 'NOT_FOUND') return apiResponse.notFound(res, 'AFS section', sectionId);
-      return apiResponse.error(res, ErrorCode.CONFLICT, err.message);
-    }
+    if (sendReviewError(res, err, 'AFS section', sectionId)) return;
     throw err;
   }
 }

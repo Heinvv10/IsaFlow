@@ -6,10 +6,24 @@ import { createAfsDocument } from './afsDocumentService';
 import { createAfsSection, updateAfsSection } from './afsSectionService';
 import { getKpiScorecard } from './afsKpiService';
 import { generateExecutiveSummary, generateSectionCommentary } from './packAiSummaryService';
-import { deliverPack } from './packDeliveryService';
 import type { ManagementPackConfig, NoteContent, KpiResult } from './afsTypes';
 
 type Row = DbRow;
+
+/**
+ * A pack generated without review used to be written straight to 'signed_off' — the status that
+ * LOCKS a document — with no signatory, and delivered. There is no status for "published without
+ * a signature" yet (the follow-up), and inventing one here would change a vocabulary the review
+ * workflow, the portal and the section write guard all read. Until it exists, such a pack is not
+ * generated at all.
+ */
+export class UnreviewedPackUnavailableError extends Error {
+  constructor() {
+    super('Management packs that skip review need a published status that is not yet available — '
+      + 'turn review on for this company, or wait for the published state.');
+    this.name = 'UnreviewedPackUnavailableError';
+  }
+}
 
 export class DuplicatePackError extends Error {
   constructor(message: string) {
@@ -28,7 +42,7 @@ export interface GeneratePackOptions {
 export interface GeneratePackResult {
   documentId: string;
   sectionsGenerated: number;
-  status: 'draft' | 'signed_off';
+  status: 'draft';
   deliveryScheduled: boolean;
 }
 
@@ -162,6 +176,9 @@ export async function generateManagementPack(options: GeneratePackOptions): Prom
   const { companyId, period, config, triggeredBy } = options;
   log.info('Starting management pack generation', { companyId, period, triggeredBy }, 'managementPackGeneratorService');
 
+  // Refused before anything is written or delivered.
+  if (!config.reviewRequired) throw new UnreviewedPackUnavailableError();
+
   if (await checkExisting(companyId, period)) {
     throw new DuplicatePackError(`Management pack already generated for period ${period}`);
   }
@@ -259,18 +276,15 @@ export async function generateManagementPack(options: GeneratePackOptions): Prom
     });
   }
 
-  const finalStatus: 'draft' | 'signed_off' = config.reviewRequired ? 'draft' : 'signed_off';
+  // reviewRequired is enforced above: a generated pack is always a draft awaiting review.
+  const finalStatus: 'draft' = 'draft';
 
   await sql`
     UPDATE afs_documents SET status = ${finalStatus}, updated_at = NOW()
     WHERE id = ${doc.id}::UUID AND company_id = ${companyId}::UUID
   `;
 
-  let deliveryScheduled = false;
-  if (!config.reviewRequired) {
-    await deliverPack(doc.id, companyId);
-    deliveryScheduled = true;
-  }
+  const deliveryScheduled = false;
 
   log.info('Pack generated', { companyId, period, documentId: doc.id, finalStatus }, 'managementPackGeneratorService');
   return { documentId: doc.id, sectionsGenerated: sectionRows.length, status: finalStatus, deliveryScheduled };
