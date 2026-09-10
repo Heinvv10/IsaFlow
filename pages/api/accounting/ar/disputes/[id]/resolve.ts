@@ -18,7 +18,7 @@ import { apiResponse } from '@/lib/apiResponse';
 import { withAuth, type CompanyAuthedRequest, withWriteAccess } from '@/lib/auth';
 import { withCsrf } from '@/lib/auth/withCsrf';
 import { UUID } from '@/lib/schemas/common';
-import { resolveDispute } from '@/modules/accounting/services/ar/disputeService';
+import { ArRequestError, resolveDispute } from '@/modules/accounting/services/ar/disputeService';
 
 const BodySchema = z.object({
   mode: z.enum(['resolve_with_credit', 'resolve_no_credit', 'rejected']),
@@ -59,9 +59,14 @@ async function handler(req: NextApiRequest, res: NextApiResponse): Promise<void>
     });
     apiResponse.success(res, dispute);
   } catch (err) {
-    const message = err instanceof Error ? err.message : String(err);
-    if (/not open/i.test(message) || /not found/i.test(message)) {
-      apiResponse.badRequest(res, message);
+    // Classify by TYPE, never by message text. `createCreditNote` throws the
+    // bare literal 'Not found' from deep below this route, and the old
+    // /not found/i match answered that with a 400 — which withAuth COMMITs,
+    // leaving the dispute claimed as resolved with no credit note behind it.
+    // Anything that is not the service's own refusal must reach withAuth as a
+    // 5xx so the transaction ROLLBACKs.
+    if (err instanceof ArRequestError) {
+      apiResponse.badRequest(res, err.message);
       return;
     }
     throw err;

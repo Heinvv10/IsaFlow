@@ -26,6 +26,9 @@ vi.mock('@/lib/neon', async (importOriginal) => ({
   sql: sqlMock,
   transaction: vi.fn(),
   withTransaction: vi.fn(),
+  // Pass-through: there is no ALS client under a unit test, which is exactly
+  // what the real `withSavepoint` does when `als.getStore()` is empty.
+  withSavepoint: (_name: string, fn: () => Promise<unknown>) => fn(),
 }));
 vi.mock('@/lib/logger', () => ({
   log: { info: vi.fn(), error: vi.fn(), warn: vi.fn() },
@@ -33,6 +36,7 @@ vi.mock('@/lib/logger', () => ({
 
 import { sql, transaction } from '@/lib/neon';
 import { importBankStatement } from '@/modules/accounting/services/bank/bankImportService';
+import { StatementNotImportableError } from '@/modules/accounting/services/bank/bankStatementImportErrors';
 import {
   getBankTransactions,
   matchTransaction,
@@ -261,6 +265,18 @@ describe('importBankStatement', () => {
     ).rejects.toThrow('Unable to detect bank format');
   });
 
+  // K-145/L-2: this entry point used to call the parsers directly and return a
+  // clean `{transactionCount: 0}` for a file it could not read — the same
+  // misleading success `requireTransactions` was written to stop on the
+  // preview/commit path. It now goes through `parseStatement`, so it inherits
+  // the guard: a file WITH rows that yields nothing is refused.
+  it('refuses a file with rows that parses to nothing', async () => {
+    await expect(
+      importBankStatement(COMPANY_ID, FNB_CSV, BANK_ACCOUNT_ID, '2026-03-31', 'capitec')
+    ).rejects.toBeInstanceOf(StatementNotImportableError);
+    expect(vi.mocked(transaction)).not.toHaveBeenCalled();
+  });
+
   it('propagates transaction() errors', async () => {
     vi.mocked(transaction).mockRejectedValueOnce(new Error('DB write failed') as never);
 
@@ -371,8 +387,13 @@ describe('matchTransaction', () => {
 
   it('sets status to matched and links journal line id', async () => {
     // matchTransaction now locks the row first and refuses on an already-posted
-    // one; the locked read is the sql call before the UPDATE.
+    // one; the locked read is the sql call before the UPDATE. It then checks
+    // (K-144) that the journal line is this company's and unclaimed, and — when
+    // a reconciliationId is supplied — that the reconciliation is this
+    // company's too.
     vi.mocked(sql).mockResolvedValueOnce([makeTxRow({ status: 'imported' })] as never);
+    vi.mocked(sql).mockResolvedValueOnce([{ id: JL_ID }] as never);
+    vi.mocked(sql).mockResolvedValueOnce([] as never);
     vi.mocked(sql).mockResolvedValueOnce([
       makeTxRow({ status: 'matched', matched_journal_line_id: JL_ID }),
     ] as never);
@@ -386,8 +407,14 @@ describe('matchTransaction', () => {
     // The service uses a different SQL branch when reconciliationId is supplied.
     // The returned DB row will include the reconciliation_id that was set.
     // matchTransaction now locks the row first and refuses on an already-posted
-    // one; the locked read is the sql call before the UPDATE.
+    // one; the locked read is the sql call before the UPDATE. It then checks
+    // (K-144) that the journal line is this company's and unclaimed, and — when
+    // a reconciliationId is supplied — that the reconciliation is this
+    // company's too.
     vi.mocked(sql).mockResolvedValueOnce([makeTxRow({ status: 'imported' })] as never);
+    vi.mocked(sql).mockResolvedValueOnce([{ id: JL_ID }] as never);
+    vi.mocked(sql).mockResolvedValueOnce([] as never);
+    vi.mocked(sql).mockResolvedValueOnce([{ id: RECON_ID }] as never);
     vi.mocked(sql).mockResolvedValueOnce([
       makeTxRow({
         status: 'matched',
@@ -406,8 +433,13 @@ describe('matchTransaction', () => {
     // Without a reconciliationId arg, the UPDATE does not touch the column;
     // the returned row has reconciliation_id = null → mapped to undefined.
     // matchTransaction now locks the row first and refuses on an already-posted
-    // one; the locked read is the sql call before the UPDATE.
+    // one; the locked read is the sql call before the UPDATE. It then checks
+    // (K-144) that the journal line is this company's and unclaimed, and — when
+    // a reconciliationId is supplied — that the reconciliation is this
+    // company's too.
     vi.mocked(sql).mockResolvedValueOnce([makeTxRow({ status: 'imported' })] as never);
+    vi.mocked(sql).mockResolvedValueOnce([{ id: JL_ID }] as never);
+    vi.mocked(sql).mockResolvedValueOnce([] as never);
     vi.mocked(sql).mockResolvedValueOnce([
       makeTxRow({
         status: 'matched',
@@ -492,6 +524,10 @@ describe('autoMatchTransactions', () => {
     ] as never);
     // matchTransaction's locked read — the row is still unallocated.
     vi.mocked(sql).mockResolvedValueOnce([makeTxRow({ status: 'imported' })] as never);
+    // matchTransaction's ownership reads (K-144): the line is in this company,
+    // and no other bank transaction already holds it.
+    vi.mocked(sql).mockResolvedValueOnce([{ id: JL_ID }] as never);
+    vi.mocked(sql).mockResolvedValueOnce([] as never);
     // matchTransaction UPDATE — called because confidence >= 0.9
     vi.mocked(sql).mockResolvedValueOnce([
       makeTxRow({ amount: 5000, status: 'matched', matched_journal_line_id: JL_ID }),
@@ -528,6 +564,10 @@ describe('autoMatchTransactions', () => {
     ] as never);
     // matchTransaction's locked read — the row is still unallocated.
     vi.mocked(sql).mockResolvedValueOnce([makeTxRow({ status: 'imported' })] as never);
+    // matchTransaction's ownership reads (K-144): the line is in this company,
+    // and no other bank transaction already holds it.
+    vi.mocked(sql).mockResolvedValueOnce([{ id: JL_ID }] as never);
+    vi.mocked(sql).mockResolvedValueOnce([] as never);
     // matchTransaction UPDATE
     vi.mocked(sql).mockResolvedValueOnce([
       makeTxRow({ amount: -2500, status: 'matched', matched_journal_line_id: JL_ID }),

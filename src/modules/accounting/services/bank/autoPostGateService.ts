@@ -7,25 +7,28 @@
  * orchestration and settings logic to this file.
  */
 
-import { sql } from '@/lib/neon';
+import { sql, withSavepoint } from '@/lib/neon';
 import type { DbRow } from '@/lib/neon';
 import { log } from '@/lib/logger';
 import { allocateTransaction } from './bankAllocationService';
 import { resolveRuleVatCode } from '../gl/ruleVatResolution';
 import { postProvisional } from '../capture/provisionalPostingService';
+import { getAutoPostSettings, autoPostRunSnapshot, type AutoPostSettings } from './autoPostSettingsService';
+
+// Settings live in the sibling `autoPostSettingsService`, re-exported here
+// because every caller has always imported them from this file. Split out to
+// bring this one back under the repo's 300-line ceiling.
+export {
+  getAutoPostSettings,
+  updateAutoPostSettings,
+  autoPostRunSnapshot,
+  type AutoPostSettings,
+  type AutoPostSettingsPatch,
+} from './autoPostSettingsService';
 
 type Row = DbRow;
 
 // ── Types ────────────────────────────────────────────────────────────────────
-
-export interface AutoPostSettings {
-  enabled: boolean;
-  minConfidence: number;
-  amountCap: number; // 0 = uncapped
-  llmEnabled: boolean;
-  llmMinConfidence: number;
-  llmAmountCap: number; // 0 = uncapped
-}
 
 export interface GateTx {
   status: string;
@@ -104,113 +107,6 @@ export function evaluate(
   return { outcome: 'post' };
 }
 
-/**
- * The (min_confidence, amount_cap) pair to record on a bank_auto_post_runs row,
- * chosen by the posting strategy. An 'llm' post is gated by the LLM pair; every
- * other strategy (and the provisional import path) uses the standard pair.
- * NOTE: a run row is created lazily on the first post, so for a (rare) mixed-
- * strategy sweep the snapshot reflects the FIRST posted row's tier.
- */
-export function autoPostRunSnapshot(
-  strategy: string | null,
-  settings: AutoPostSettings,
-): { minConfidence: number; amountCap: number } {
-  return strategy === 'llm'
-    ? { minConfidence: settings.llmMinConfidence, amountCap: settings.llmAmountCap }
-    : { minConfidence: settings.minConfidence, amountCap: settings.amountCap };
-}
-
-// ── Settings accessors ───────────────────────────────────────────────────────
-
-const DEFAULTS: AutoPostSettings = {
-  enabled: false, minConfidence: 0.9, amountCap: 10000,
-  llmEnabled: false, llmMinConfidence: 0.95, llmAmountCap: 2000,
-};
-
-function mapSettings(row: Row): AutoPostSettings {
-  return {
-    enabled: Boolean(row.enabled),
-    minConfidence: Number(row.min_confidence),
-    amountCap: Number(row.amount_cap),
-    llmEnabled: Boolean(row.llm_enabled),
-    llmMinConfidence: Number(row.llm_min_confidence),
-    llmAmountCap: Number(row.llm_amount_cap),
-  };
-}
-
-export async function getAutoPostSettings(companyId: string): Promise<AutoPostSettings> {
-  const rows = (await sql`
-    SELECT enabled, min_confidence, amount_cap, llm_enabled, llm_min_confidence, llm_amount_cap
-    FROM bank_auto_post_settings
-    WHERE company_id = ${companyId}::UUID
-    LIMIT 1
-  `) as Row[];
-  return rows.length === 0 ? { ...DEFAULTS } : mapSettings(rows[0]!);
-}
-
-export interface AutoPostSettingsPatch {
-  enabled?: boolean;
-  minConfidence?: number;
-  amountCap?: number;
-  llmEnabled?: boolean;
-  llmMinConfidence?: number;
-  llmAmountCap?: number;
-}
-
-export async function updateAutoPostSettings(
-  companyId: string,
-  patch: AutoPostSettingsPatch,
-  userId: string,
-): Promise<AutoPostSettings> {
-  if (patch.minConfidence != null && (patch.minConfidence <= 0 || patch.minConfidence > 1)) {
-    throw new Error('min_confidence must be within (0, 1]');
-  }
-  if (patch.amountCap != null && patch.amountCap < 0) {
-    throw new Error('amount_cap must be >= 0');
-  }
-  if (patch.llmMinConfidence != null && (patch.llmMinConfidence <= 0 || patch.llmMinConfidence > 1)) {
-    throw new Error('llm_min_confidence must be within (0, 1]');
-  }
-  if (patch.llmAmountCap != null && patch.llmAmountCap < 0) {
-    throw new Error('llm_amount_cap must be >= 0');
-  }
-
-  const enabled = patch.enabled ?? null;
-  const minConfidence = patch.minConfidence ?? null;
-  const amountCap = patch.amountCap ?? null;
-  const llmEnabled = patch.llmEnabled ?? null;
-  const llmMinConfidence = patch.llmMinConfidence ?? null;
-  const llmAmountCap = patch.llmAmountCap ?? null;
-
-  const rows = (await sql`
-    INSERT INTO bank_auto_post_settings (company_id, enabled, min_confidence, amount_cap, llm_enabled, llm_min_confidence, llm_amount_cap, updated_by, updated_at)
-    VALUES (
-      ${companyId}::UUID,
-      COALESCE(${enabled}, FALSE),
-      COALESCE(${minConfidence}::NUMERIC, 0.90),
-      COALESCE(${amountCap}::NUMERIC, 10000),
-      COALESCE(${llmEnabled}, FALSE),
-      COALESCE(${llmMinConfidence}::NUMERIC, 0.95),
-      COALESCE(${llmAmountCap}::NUMERIC, 2000),
-      ${userId}::UUID,
-      NOW()
-    )
-    ON CONFLICT (company_id) DO UPDATE SET
-      enabled            = COALESCE(${enabled}, bank_auto_post_settings.enabled),
-      min_confidence     = COALESCE(${minConfidence}::NUMERIC, bank_auto_post_settings.min_confidence),
-      amount_cap         = COALESCE(${amountCap}::NUMERIC, bank_auto_post_settings.amount_cap),
-      llm_enabled        = COALESCE(${llmEnabled}, bank_auto_post_settings.llm_enabled),
-      llm_min_confidence = COALESCE(${llmMinConfidence}::NUMERIC, bank_auto_post_settings.llm_min_confidence),
-      llm_amount_cap     = COALESCE(${llmAmountCap}::NUMERIC, bank_auto_post_settings.llm_amount_cap),
-      updated_by         = ${userId}::UUID,
-      updated_at         = NOW()
-    RETURNING enabled, min_confidence, amount_cap, llm_enabled, llm_min_confidence, llm_amount_cap
-  `) as Row[];
-
-  log.info('Updated auto-post settings', { companyId, patch }, 'auto-post-gate');
-  return mapSettings(rows[0]!);
-}
-
 // ── Sweep ────────────────────────────────────────────────────────────────────
 
 interface SweepRow {
@@ -230,6 +126,12 @@ interface SweepRow {
  * else uses the suggestion (allocate) path. The run row is created lazily on
  * the first successful post — a sweep that posts nothing leaves no run row.
  */
+/**
+ * Savepoint name for one row of the sweep. `withSavepoint` caps names at 31
+ * characters, so this is a constant rather than an interpolation.
+ */
+const SWEEP_ROW_SAVEPOINT = 'auto_post_gate_line';
+
 export async function sweep(
   companyId: string,
   txIds: string[],
@@ -289,64 +191,82 @@ export async function sweep(
       continue;
     }
 
-    let jePosted = false;
+    // One row per savepoint, exactly as the rule sweep does
+    // (bankRulesMatchingService). Every request is ONE PostgreSQL transaction
+    // on the ALS client, and `allocateTransaction` opens with a
+    // `SELECT … FOR UPDATE` under `SET LOCAL lock_timeout` that sits OUTSIDE
+    // its own withTransaction — so a row a peer is holding raises a real 55P03
+    // that aborts the whole request. Without the savepoint the catch below
+    // swallowed it, every later row failed 25P02 with a skip reason about the
+    // abort rather than about itself, and the COMMIT threw away the posts this
+    // sweep had already made while the response still reported success.
+    //
+    // `runId` is restored on rollback: `ensureRun` INSERTs the run row inside
+    // the savepoint, so a row that mints the run and then fails leaves the
+    // in-memory id pointing at a row that no longer exists — which the next row
+    // would write into `auto_post_run_id`.
+    const runIdBeforeRow: string | null = runId;
     try {
-      if (isImport) {
-        const res = await postProvisional(companyId, row.id, userId, { minConfidence: settings.minConfidence });
-        if (!res.journalEntryId) {
-          skipped.push({ txId: row.id, reason: res.skipped ?? 'no target' });
-          continue;
+      const skipReason = await withSavepoint(SWEEP_ROW_SAVEPOINT, async (): Promise<string | null> => {
+        if (isImport) {
+          const res = await postProvisional(companyId, row.id, userId, { minConfidence: settings.minConfidence });
+          if (!res.journalEntryId) {
+            return res.skipped ?? 'no target';
+          }
+        } else {
+          // THE UNATTENDED POSTING BOUNDARY. `allocateTransaction` is the
+          // ATTENDED path and deliberately coerces nothing — the screen warned
+          // and the user's choice stands. Nobody is watching here, so the two
+          // VAT guards run before the call rather than inside it: s17(2)(a)
+          // entertainment denial, and the accounts on which no supply can arise
+          // at all. Without this the gate posts `suggested_vat_code` verbatim,
+          // and a high-confidence LLM suggestion of 'standard' on a salary
+          // account is exactly the R237,021.60 shape this feature exists to
+          // stop — just arriving through a different door than the rule sweep.
+          const requestedVat = row.suggested_vat_code ?? undefined;
+          const guarded = await resolveRuleVatCode({
+            allocType: 'account',
+            companyId,
+            requestedVatCode: requestedVat ?? 'none',
+            glAccountId: row.suggested_gl_account_id,
+            denialContext: { bankTxId: row.id, source: 'auto_post_gate' },
+            guardContext: { bankTxId: row.id, ruleName: 'auto-post gate' },
+          });
+          // Only substitute when a guard actually fired. Otherwise pass the
+          // original value through untouched, `undefined` included, so a row
+          // nobody objected to posts exactly as it did before this guard existed.
+          const effectiveVat = guarded.denied || guarded.nonSupplyCoerced
+            ? guarded.vatCode : requestedVat;
+          await allocateTransaction(
+            companyId, row.id, row.suggested_gl_account_id, userId,
+            row.description ?? undefined, 'account', undefined,
+            effectiveVat,
+            undefined, undefined, undefined, undefined,
+            { postingAgent: AUTO_POST_AGENT },
+          );
+          if (guarded.denied) vatDenied += 1;
+          if (guarded.nonSupplyCoerced) nonSupplyCoerced += 1;
         }
-        jePosted = true;
-      } else {
-        // THE UNATTENDED POSTING BOUNDARY. `allocateTransaction` is the
-        // ATTENDED path and deliberately coerces nothing — the screen warned
-        // and the user's choice stands. Nobody is watching here, so the two
-        // VAT guards run before the call rather than inside it: s17(2)(a)
-        // entertainment denial, and the accounts on which no supply can arise
-        // at all. Without this the gate posts `suggested_vat_code` verbatim,
-        // and a high-confidence LLM suggestion of 'standard' on a salary
-        // account is exactly the R237,021.60 shape this feature exists to
-        // stop — just arriving through a different door than the rule sweep.
-        const requestedVat = row.suggested_vat_code ?? undefined;
-        const guarded = await resolveRuleVatCode({
-          allocType: 'account',
-          companyId,
-          requestedVatCode: requestedVat ?? 'none',
-          glAccountId: row.suggested_gl_account_id,
-          denialContext: { bankTxId: row.id, source: 'auto_post_gate' },
-          guardContext: { bankTxId: row.id, ruleName: 'auto-post gate' },
-        });
-        // Only substitute when a guard actually fired. Otherwise pass the
-        // original value through untouched, `undefined` included, so a row
-        // nobody objected to posts exactly as it did before this guard existed.
-        const effectiveVat = guarded.denied || guarded.nonSupplyCoerced
-          ? guarded.vatCode : requestedVat;
-        await allocateTransaction(
-          companyId, row.id, row.suggested_gl_account_id, userId,
-          row.description ?? undefined, 'account', undefined,
-          effectiveVat,
-          undefined, undefined, undefined, undefined,
-          { postingAgent: AUTO_POST_AGENT },
-        );
-        if (guarded.denied) vatDenied += 1;
-        if (guarded.nonSupplyCoerced) nonSupplyCoerced += 1;
-        jePosted = true;
+        const id = await ensureRun(isImport ? null : (row.suggested_strategy ?? null));
+        await sql`
+          UPDATE bank_transactions SET auto_post_run_id = ${id}::UUID
+          WHERE id = ${row.id}::UUID AND company_id = ${companyId}::UUID
+        `;
+        return null;
+      });
+      if (skipReason !== null) {
+        skipped.push({ txId: row.id, reason: skipReason });
+        continue;
       }
-      const id = await ensureRun(isImport ? null : (row.suggested_strategy ?? null));
-      await sql`
-        UPDATE bank_transactions SET auto_post_run_id = ${id}::UUID
-        WHERE id = ${row.id}::UUID AND company_id = ${companyId}::UUID
-      `;
       posted += 1;
       totalAmount += Math.abs(Number(row.amount));
     } catch (err) {
+      // The savepoint took the JE and the run-tag back together, so the
+      // orphaned-JE case this used to report can no longer arise. It also took
+      // back the `bank_auto_post_runs` row if THIS row minted it.
+      runId = runIdBeforeRow;
       const reason = err instanceof Error ? err.message : String(err);
-      if (jePosted) {
-        log.error('Auto-post JE posted but run-tag failed — JE orphaned (needs manual reconciliation)', { companyId, txId: row.id, reason }, 'auto-post-gate');
-      } else {
-        log.warn('Auto-post failed for bank transaction — skipping', { companyId, txId: row.id, reason }, 'auto-post-gate');
-      }
+      log.warn('Auto-post failed for bank transaction — skipping', { companyId, txId: row.id, reason }, 'auto-post-gate');
       skipped.push({ txId: row.id, reason });
     }
   }

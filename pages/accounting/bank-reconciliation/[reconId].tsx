@@ -130,10 +130,14 @@ export default function ReconciliationDetailPage() {
       });
       const json = await res.json();
       if (!res.ok) throw new Error(json?.error?.message || 'Auto-match failed');
-      const data = (json?.data ?? {}) as { matched?: number; skippedRaced?: number };
+      const data = (json?.data ?? {}) as {
+        matched?: number; skippedRaced?: number; skippedUnavailable?: number;
+      };
       setNotice(
         `Auto-matched ${data.matched ?? 0}` +
-        (data.skippedRaced ? ` — ${data.skippedRaced} skipped (allocated by another request)` : ''),
+        (data.skippedRaced ? ` — ${data.skippedRaced} skipped (allocated by another request)` : '') +
+        (data.skippedUnavailable
+          ? ` — ${data.skippedUnavailable} skipped (bank table busy, retry in a moment)` : ''),
       );
       await loadData();
     } catch (err) {

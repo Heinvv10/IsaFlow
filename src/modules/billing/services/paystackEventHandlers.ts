@@ -11,6 +11,12 @@ import { sql } from '@/lib/neon';
 import { log } from '@/lib/logger';
 import { recordGatewayInvoiceReceipt } from '@/modules/accounting/services/ar/gatewayInvoiceReceiptService';
 import { completeBundlePurchase, failBundlePurchase } from './flowWalletService';
+import {
+  activateAuthorisedMandate,
+  noteAuthorisationNotAttached,
+  resolveAuthorisedMandate,
+} from './paystackMandateActivation';
+import { settleSubscriptionCharge } from './subscriptionPeriod';
 
 export interface PaystackWebhookEvent {
   event: string;
@@ -93,6 +99,7 @@ async function handleChargeSuccess(
     customer_invoice_id: string | null;
     flow_purchase_id: string | null;
     subscription_charge_id: string | null;
+    mandate_id: string | null;
     amount_cents: string;
     status: string;
   }>`
@@ -105,7 +112,7 @@ async function handleChargeSuccess(
         channel = COALESCE(${event.data.channel ?? null}, channel)
     WHERE paystack_reference = ${reference}
       AND status <> 'completed'
-    RETURNING id, company_id, purpose, customer_invoice_id, flow_purchase_id, subscription_charge_id, amount_cents, status
+    RETURNING id, company_id, purpose, customer_invoice_id, flow_purchase_id, subscription_charge_id, mandate_id, amount_cents, status
   `;
   const pr = prRows[0];
   if (!pr) {
@@ -172,34 +179,50 @@ async function handleChargeSuccess(
   }
 
   if (pr.purpose === 'authorization' && auth.authorization_code) {
-    // Auth capture — promote the captured authorization onto the company's
-    // mandate row so subsequent recurring debits can charge it.
-    await sql`
-      UPDATE subscription_mandates
-      SET status = 'active',
-          gateway = 'paystack',
-          paystack_authorization_code = ${auth.authorization_code},
-          paystack_customer_code = ${customer.customer_code ?? null},
-          card_last4 = ${auth.last4 ?? null},
-          card_brand = ${auth.brand ?? null},
-          card_exp_month = ${auth.exp_month ?? null},
-          card_exp_year = ${auth.exp_year ?? null},
-          bank_name = COALESCE(${auth.bank ?? null}, bank_name),
-          authorised_at = COALESCE(authorised_at, now()),
-          updated_at = now()
-      WHERE company_id = ${pr.company_id} AND status IN ('pending','active')
-    `;
+    // Auth capture — promote the authorization onto the ONE mandate this
+    // checkout was started for, and never at the cost of a 23505 on
+    // ux_sub_mandates_company_active: that throw rolls the event back, leaves
+    // processed = FALSE, answers 500 and makes every Paystack redelivery repeat
+    // it forever while the card has already been charged. See
+    // paystackMandateActivation.ts for how the constraint stays the arbiter.
+    const mandate = await resolveAuthorisedMandate(pr.company_id, pr.mandate_id);
+    if (!mandate) {
+      log.error(
+        'charge.success authorisation has no mandate row to activate',
+        { reference, companyId: pr.company_id },
+        'PaystackWebhook',
+      );
+      await noteAuthorisationNotAttached(pr.id, pr.company_id, 'authorisation_no_mandate_row');
+      return;
+    }
+    const outcome = await activateAuthorisedMandate(pr.company_id, mandate, {
+      authorizationCode: auth.authorization_code,
+      customerCode: customer.customer_code ?? null,
+      last4: auth.last4 ?? null,
+      brand: auth.brand ?? null,
+      expMonth: auth.exp_month ?? null,
+      expYear: auth.exp_year ?? null,
+      bank: auth.bank ?? null,
+    });
+    if (outcome === 'activated' || outcome === 'already_active') return;
+    // 'blocked' (the company already has a different active mandate),
+    // 'already_active_other_code' (the pre-651 fallback landed on an earlier
+    // checkout's mandate) and 'not_pending' (revoked/expired/failed) are all
+    // settled states, not transient ones: throwing would only buy an
+    // unbreakable redelivery loop. Logged at error level because the card was
+    // charged and nothing was activated.
+    log.error(
+      'charge.success authorisation could not activate its mandate',
+      { reference, companyId: pr.company_id, mandateId: mandate.id, status: mandate.status, outcome },
+      'PaystackWebhook',
+    );
+    await noteAuthorisationNotAttached(pr.id, pr.company_id, `authorisation_${outcome}`);
     return;
   }
 
   if (pr.purpose === 'subscription_charge' && pr.subscription_charge_id) {
-    await sql`
-      UPDATE subscription_charges
-      SET status = 'settled',
-          settled_at = COALESCE(settled_at, now()),
-          updated_at = now()
-      WHERE id = ${pr.subscription_charge_id} AND company_id = ${pr.company_id}
-    `;
+    // The paid-up period only moves once the money has actually arrived.
+    await settleSubscriptionCharge(pr.subscription_charge_id, pr.company_id);
   }
 }
 

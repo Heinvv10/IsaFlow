@@ -82,41 +82,46 @@ export async function getDebtorsSummary(companyId: string): Promise<DebtorSummar
   try {
     const rows = (await sql`
       SELECT
-        ci.client_id,
-        c.name AS client_name,
+        COALESCE(ci.client_id, ci.customer_id) AS client_id,
+        -- LEFT JOIN + placeholder: an id naming another company's customer, or no
+        -- customer at all (client_id carries no FK), must not surface that name —
+        -- but the debt is this company's, so the row and its amount stay visible.
+        -- The id fragment keeps two un-nameable debtors apart, in the table and in
+        -- the client-side name search, without disclosing anything about either.
+        COALESCE(c.name, 'Unknown customer ' || left(COALESCE(ci.client_id, ci.customer_id)::text, 8)) AS client_name,
         COUNT(ci.id)::int AS invoice_count,
         SUM(
           CASE WHEN ci.due_date IS NULL OR ci.due_date >= CURRENT_DATE
-               THEN (ci.total_amount - ci.amount_paid) ELSE 0 END
+               THEN (ci.total_amount - COALESCE(ci.amount_paid, 0)) ELSE 0 END
         ) AS current,
         SUM(
           CASE WHEN ci.due_date IS NOT NULL
                 AND ci.due_date < CURRENT_DATE
                 AND (CURRENT_DATE - ci.due_date) <= 30
-               THEN (ci.total_amount - ci.amount_paid) ELSE 0 END
+               THEN (ci.total_amount - COALESCE(ci.amount_paid, 0)) ELSE 0 END
         ) AS days30,
         SUM(
           CASE WHEN ci.due_date IS NOT NULL
                 AND (CURRENT_DATE - ci.due_date) BETWEEN 31 AND 60
-               THEN (ci.total_amount - ci.amount_paid) ELSE 0 END
+               THEN (ci.total_amount - COALESCE(ci.amount_paid, 0)) ELSE 0 END
         ) AS days60,
         SUM(
           CASE WHEN ci.due_date IS NOT NULL
                 AND (CURRENT_DATE - ci.due_date) BETWEEN 61 AND 90
-               THEN (ci.total_amount - ci.amount_paid) ELSE 0 END
+               THEN (ci.total_amount - COALESCE(ci.amount_paid, 0)) ELSE 0 END
         ) AS days90,
         SUM(
           CASE WHEN ci.due_date IS NOT NULL
                 AND (CURRENT_DATE - ci.due_date) > 90
-               THEN (ci.total_amount - ci.amount_paid) ELSE 0 END
+               THEN (ci.total_amount - COALESCE(ci.amount_paid, 0)) ELSE 0 END
         ) AS days90_plus,
-        SUM(ci.total_amount - ci.amount_paid) AS total_outstanding
+        SUM(ci.total_amount - COALESCE(ci.amount_paid, 0)) AS total_outstanding
       FROM customer_invoices ci
-      JOIN customers c ON c.id = ci.client_id
+      LEFT JOIN customers c ON c.id = COALESCE(ci.client_id, ci.customer_id) AND c.company_id = ci.company_id
       WHERE ci.company_id = ${companyId}
         AND ci.status IN ('approved', 'sent', 'partially_paid', 'overdue')
-        AND (ci.total_amount - ci.amount_paid) > 0
-      GROUP BY ci.client_id, c.name
+        AND (ci.total_amount - COALESCE(ci.amount_paid, 0)) > 0
+      GROUP BY COALESCE(ci.client_id, ci.customer_id), c.name
       ORDER BY total_outstanding DESC
     `) as Row[];
 
@@ -152,7 +157,7 @@ export async function getDebtorDetail(companyId: string, clientId: string): Prom
         ci.due_date,
         ci.total_amount,
         ci.amount_paid,
-        (ci.total_amount - ci.amount_paid) AS outstanding,
+        (ci.total_amount - COALESCE(ci.amount_paid, 0)) AS outstanding,
         ci.status,
         CASE
           WHEN ci.due_date IS NULL THEN 0
@@ -160,9 +165,9 @@ export async function getDebtorDetail(companyId: string, clientId: string): Prom
         END AS days_overdue
       FROM customer_invoices ci
       WHERE ci.company_id = ${companyId}
-        AND ci.client_id = ${clientId}::UUID
+        AND COALESCE(ci.client_id, ci.customer_id) = ${clientId}::UUID
         AND ci.status IN ('approved', 'sent', 'partially_paid', 'overdue')
-        AND (ci.total_amount - ci.amount_paid) > 0
+        AND (ci.total_amount - COALESCE(ci.amount_paid, 0)) > 0
       ORDER BY ci.due_date ASC NULLS LAST, ci.invoice_date ASC
     `) as Row[];
 
@@ -201,23 +206,23 @@ export async function getOverdueInvoices(companyId: string, daysOverdue?: number
       SELECT
         ci.id,
         ci.invoice_number,
-        ci.client_id,
-        c.name AS client_name,
+        COALESCE(ci.client_id, ci.customer_id) AS client_id,
+        COALESCE(c.name, 'Unknown customer ' || left(COALESCE(ci.client_id, ci.customer_id)::text, 8)) AS client_name,
         ci.invoice_date,
         ci.due_date,
         ci.total_amount,
         ci.amount_paid,
-        (ci.total_amount - ci.amount_paid) AS outstanding,
+        (ci.total_amount - COALESCE(ci.amount_paid, 0)) AS outstanding,
         (CURRENT_DATE - ci.due_date)::int AS days_overdue,
         ci.status
       FROM customer_invoices ci
-      JOIN customers c ON c.id = ci.client_id
+      LEFT JOIN customers c ON c.id = COALESCE(ci.client_id, ci.customer_id) AND c.company_id = ci.company_id
       WHERE ci.company_id = ${companyId}
         AND ci.due_date IS NOT NULL
         AND ci.due_date < CURRENT_DATE
         AND (CURRENT_DATE - ci.due_date) >= ${minDays}
         AND ci.status IN ('approved', 'sent', 'partially_paid', 'overdue')
-        AND (ci.total_amount - ci.amount_paid) > 0
+        AND (ci.total_amount - COALESCE(ci.amount_paid, 0)) > 0
       ORDER BY days_overdue DESC, ci.total_amount DESC
     `) as Row[];
 
@@ -250,25 +255,25 @@ export async function getCollectionStats(companyId: string): Promise<CollectionS
   try {
     const rows = (await sql`
       SELECT
-        SUM(ci.total_amount - ci.amount_paid)                            AS total_outstanding,
+        SUM(ci.total_amount - COALESCE(ci.amount_paid, 0))                            AS total_outstanding,
         SUM(CASE WHEN ci.due_date < CURRENT_DATE
-                 THEN (ci.total_amount - ci.amount_paid) ELSE 0 END)     AS total_overdue,
+                 THEN (ci.total_amount - COALESCE(ci.amount_paid, 0)) ELSE 0 END)     AS total_overdue,
         COALESCE(AVG(
           CASE WHEN ci.due_date IS NOT NULL AND ci.due_date < CURRENT_DATE
                THEN (CURRENT_DATE - ci.due_date)::numeric END
         ), 0)                                                             AS avg_days_outstanding,
-        COUNT(DISTINCT ci.client_id)::int                                AS client_count,
+        COUNT(DISTINCT COALESCE(ci.client_id, ci.customer_id))::int      AS client_count,
         COUNT(CASE WHEN ci.due_date < CURRENT_DATE THEN 1 END)::int      AS overdue_count
       FROM customer_invoices ci
       WHERE ci.company_id = ${companyId}
         AND ci.status IN ('approved', 'sent', 'partially_paid', 'overdue')
-        AND (ci.total_amount - ci.amount_paid) > 0
+        AND (ci.total_amount - COALESCE(ci.amount_paid, 0)) > 0
     `) as Row[];
 
     const rateRows = (await sql`
       SELECT
         SUM(ci.total_amount)  AS invoiced,
-        SUM(ci.amount_paid)   AS collected
+        SUM(COALESCE(ci.amount_paid, 0)) AS collected
       FROM customer_invoices ci
       WHERE ci.company_id = ${companyId}
         AND ci.status NOT IN ('draft', 'cancelled')
