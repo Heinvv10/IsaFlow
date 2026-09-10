@@ -21,6 +21,7 @@
 import { sql } from '@/lib/neon';
 import { fmtDate } from '@/lib/fmtDate';
 import { log } from '@/lib/logger';
+import { releaseClaimDocuments } from '@/modules/accounting/services/capture/capturePostingClaimRelease';
 import {
   createJournalEntry,
   postJournalEntry,
@@ -380,6 +381,14 @@ export async function rejectClaim(
         rejection_reason = ${reason}
     WHERE id = ${id}::uuid AND company_id = ${companyId}::uuid
   `;
+  // The captured slips this claim was holding go back to the capture inbox.
+  // `post-expense` stamps `captured_documents.posted_at` before it creates the
+  // claim, and the claim's posting journal carries `source_document_id = NULL`
+  // (a claim has many source documents) — so the journal-reversal release can
+  // never reach them. Rejecting the claim is the undo, and until it did this a
+  // rejected claim left its documents claimed for good: unpostable, and
+  // refused by the confirm and reject buttons too.
+  await releaseClaimDocuments(id, companyId);
   return await getClaim(id, companyId);
 }
 
@@ -394,6 +403,8 @@ export async function cancelClaim(id: string, companyId: string): Promise<Expens
     SET status = 'cancelled'
     WHERE id = ${id}::uuid AND company_id = ${companyId}::uuid
   `;
+  // Same undo as rejection — see `rejectClaim`.
+  await releaseClaimDocuments(id, companyId);
   return await getClaim(id, companyId);
 }
 

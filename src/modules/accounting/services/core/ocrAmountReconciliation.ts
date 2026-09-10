@@ -16,6 +16,9 @@
  * tax line does not (12/1138 = 1.1%). Anything else keeps the printed figures
  * and the caller's refusal, with the discrepancy named rather than implied.
  */
+import { parseAmount } from './ocrAmountParsing';
+import { TOTAL_PATTERNS } from './ocrAmountPatterns';
+
 const STANDARD_RATE_MIN = 0.13;
 const STANDARD_RATE_MAX = 0.17;
 
@@ -71,5 +74,92 @@ export function reconcileNetAgainstTotal(
   return {
     subtotal,
     warning: `${UNRECONCILED_WARNING} (${figures}) — check them before posting.`,
+  };
+}
+
+/* ------------------------------------------------------------------------- *
+ * WHICH FIGURE IS THE PAYABLE TOTAL
+ * ------------------------------------------------------------------------- */
+
+/**
+ * Every figure `TOTAL_PATTERNS` can read, in the order the document prints them.
+ *
+ * `String.match` returns the LEFTMOST hit, and the guard in front of the total
+ * pattern is a DENYLIST of net labels — so a till slip that prints its sections
+ * ("Food Total 200.00 / Drinks Total 50.00 / VAT 32.61 / TOTAL 287.50") had its
+ * FIRST section read as the amount payable. Measured, that credited the bank
+ * R200.00 for an R287.50 slip, and it did so silently: with no printed net the
+ * subtotal is DERIVED as total − VAT, so the journal balances by construction,
+ * the callers' balance pre-check passes, nothing warns and the auto-post gate
+ * lets it through.
+ *
+ * A denylist cannot be finished. `Goods Total` proved that — `NET_LABEL`
+ * already knew `Goods Value`, so the vocabulary knew the noun and still read
+ * the section as the payable — and `Items`, `Line`, `Order`, `Deposit` and
+ * `Previous` all behaved the same way. So the total is now chosen POSITIVELY:
+ * collect every candidate, and pick by the document's own arithmetic, or by
+ * position (the grand total is the one at the BOTTOM) with the disagreement
+ * declared. Adding a section noun is no longer a thing anyone has to do.
+ */
+export function extractTotalCandidates(text: string): number[] {
+  for (const pattern of GLOBAL_TOTAL_PATTERNS) {
+    const values: number[] = [];
+    for (const match of text.matchAll(pattern)) {
+      if (match[1]) values.push(parseAmount(match[1]));
+    }
+    if (values.length > 0) return values;
+  }
+  return [];
+}
+
+/** `TOTAL_PATTERNS` are single-match; `matchAll` requires the global flag. */
+const GLOBAL_TOTAL_PATTERNS: RegExp[] = TOTAL_PATTERNS.map(
+  (p) => new RegExp(p.source, p.flags.includes('g') ? p.flags : `${p.flags}g`),
+);
+
+export interface SelectedTotal {
+  /** The payable total, or null when the document printed none. */
+  totalAmount: number | null;
+  /** Why the reader could not settle which figure it was, or null. */
+  warning: string | null;
+}
+
+/**
+ * The payable total out of the candidates, and whether the choice is safe to
+ * post unattended.
+ *
+ * One distinct figure is not a choice at all. Where several disagree, the
+ * document's own arithmetic decides first — a printed net plus the printed tax
+ * equals exactly one of them on an ordinary invoice, which is evidence rather
+ * than page order. Failing that the LAST one wins, because a grand total is
+ * printed below the sections it sums, and the disagreement is declared under
+ * the `UNRECONCILED_WARNING` prefix so `shouldAutoPostReceipt` refuses. An
+ * operator looking at the capture screen then reads both figures; nobody is
+ * looking on the unattended path, which is where the R87.50 went.
+ */
+export function selectTotalAmount(
+  candidates: readonly number[],
+  subtotal: number | null,
+  vatAmount: number | null,
+): SelectedTotal {
+  if (candidates.length === 0) return { totalAmount: null, warning: null };
+
+  const last = candidates[candidates.length - 1]!;
+  const distinct = [...new Set(candidates)];
+  if (distinct.length === 1) return { totalAmount: last, warning: null };
+
+  if (subtotal !== null && vatAmount !== null) {
+    const endorsed = distinct.filter(
+      (c) => Math.round((subtotal + vatAmount) * 100) / 100 === c,
+    );
+    if (endorsed.length === 1) return { totalAmount: endorsed[0]!, warning: null };
+  }
+
+  const figures = distinct.map((c) => c.toFixed(2)).join(', ');
+  return {
+    totalAmount: last,
+    warning: `${UNRECONCILED_WARNING} (totals ${figures}) — the document prints more than one `
+      + `total and its own subtotal and VAT settle none of them; read the payable as `
+      + `${last.toFixed(2)}. Check it before posting.`,
   };
 }
