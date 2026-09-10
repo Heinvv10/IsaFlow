@@ -11097,6 +11097,40 @@
       "severity": "low",
       "source": "Found by the K-071 round-20 blind reviewer: fails identically on a clean origin/master e86b10664 archive. Shadow tables confirmed on master by the orchestrator (test lines 17-21 create suppliers/supplier_invoices/supplier_payments/credit_notes TEMP tables with no deleted_at).",
       "processNotes": "Fix: add deleted_at TIMESTAMPTZ to the shadow tables the service reads (or drive the test through the real schema). Measure which shadow tables the service's queries now filter on deleted_at before editing."
+    },
+    {
+      "id": "R-077",
+      "claim": "",
+      "area": "accounting/capture",
+      "affectedPaths": [
+        "pages/api/accounting/capture/[id]/post-expense.ts"
+      ],
+      "sourceLabel": "",
+      "sourceIds": [],
+      "correctedTrigger": "",
+      "severityRationale": "Posting before extraction books an expense from caller-supplied or empty data with no document behind it. It combined with R-071 to double-post; R-058 round 5 closes that combination, leaving the premature post itself. There is no in-app caller of post-expense, so only API clients can reach it.",
+      "auditedSha": "",
+      "currentSha": "",
+      "status": "confirmed",
+      "dependencies": [
+        "R-058",
+        "R-075"
+      ],
+      "testNames": [],
+      "evidencePaths": [
+        "docs/audits/remediation/R-058/fix.md"
+      ],
+      "fixCommit": null,
+      "pr": null,
+      "deployedSha": null,
+      "historicalDataImpact": "Unknown; production not measured. Look for expense claims or journals whose capture event was posted while the document's extracted_data was '{}'.",
+      "canonicalItem": null,
+      "reportedSeverity": "",
+      "branch": null,
+      "title": "post-expense posts a capture event that was never extracted: captured_documents.extracted_data defaults to '{}', which is truthy, so the empty-extraction refusal at post-expense.ts:93 never fires",
+      "severity": "medium",
+      "source": "Measured by the R-058 round-4 blind reviewer on isaflow_dev: post-expense on a 'received' event returned 200. The default is at migration 233:8.",
+      "processNotes": "Fix: refuse to post when extracted_data is empty (jsonb = '{}' or has no total), or when the event has not reached 'extracted'. Guards fail both ways: a manual-entry flow that supplies the fields in the body, if one exists, must keep working. Measure that first. R-075's fix (routeEvent after COMMIT) widens the 'received' window."
     }
   ],
   "sourceInventory": [
