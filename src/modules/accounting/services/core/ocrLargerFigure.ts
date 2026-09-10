@@ -117,22 +117,35 @@ function recapRows(
  * over `Sub Total 200.00 / VAT 15% 30.00 / Total 230.00` (round-17 review,
  * posted R230.00 against R253.00). Nothing below the total mentions it, so
  * rules 1 to 3 cannot see it. What can is the item column's own sum: the last
- * figure of every item line must add up to the net or to the total. Checked
- * only where an item line prints a whole number and nothing else, so a
- * cents-only document is judged exactly as before; `Cappuccino 35 / Muffin
- * 30 / TOTAL 65.00` adds up and passes.
+ * figure of every item line must add up to the net or to the total where an
+ * item line prints a whole number and nothing else (`Cappuccino 35 / Muffin
+ * 30 / TOTAL 65.00` adds up and passes), and must not EXCEED both anywhere.
  */
+/** A balance carried from a PRIOR document — not an item of this one. */
+const PRIOR_BALANCE = /(?<![A-Za-z])(?:Balance\s+(?:brought\s+forward|b\/?f|forward)|Previous\s+balance|Opening\s+balance|Vorige\s+saldo|Saldo\s+oorgebring)(?![A-Za-z])/i;
+
 function unexplainedItem(text: string, total: number, net: number | null, isCounter: CountIsCounter): number | null {
   const lines = text.split(/\r?\n/);
   // The block starts at the first line printing a SUMMARY figure — the header's
   // `VAT No 4123456789` prints none, and `Total Items 350` or `Tax Class 350`
   // above the sub total opens with a summary word but its figure is not one.
   const block = lines.findIndex((line) => printedFigures(line, isCounter).some((f) => f.isSummary));
-  const items = (block < 0 ? lines : lines.slice(0, block)).map((line) => printedFigures(line, isCounter));
+  const body = block < 0 ? lines : lines.slice(0, block);
+  const items = body.map((line) => printedFigures(line, isCounter));
+  const lineSum = (rows: typeof items) => Math.round(rows.reduce((acc, row) => acc + (row[row.length - 1]?.value ?? 0), 0) * 100) / 100;
   const isLoose = (row: typeof items[number]) => row.length === 1 && row[0]!.isUnroled;
   const loose = items.find(isLoose);
-  if (!loose) return null;
-  const lineSum = (rows: typeof items) => Math.round(rows.reduce((acc, row) => acc + (row[row.length - 1]?.value ?? 0), 0) * 100) / 100;
+  if (!loose) {
+    // Round 23: rows that sum to MORE than both the net and the total carry a
+    // charge neither covers (`Labour 1000.00 / Delivery 350.00` under `Sub
+    // Total 1000.00`). Under-summing rows (a dropped line, `40.00L` on a fuel
+    // slip) leave the printed total the payable, so they pass. A payment row
+    // and a balance carried from a prior document are not items.
+    const rows = body.filter((line) => !PRIOR_BALANCE.test(line)).map((line) => printedFigures(line, isCounter))
+      .filter((row) => row.length > 0 && !row.some((f) => f.isTender || f.isChange));
+    const sum = lineSum(rows);
+    return sum > total + 0.01 && (net === null || sum > net + 0.01) ? sum : null;
+  }
   const matches = (sum: number) => [total, net].some((target) => target !== null && Math.abs(sum - target) <= 0.01);
   // If the priced rows ALREADY add up to the net or the total, the loose whole
   // number is an extra on top of them, however neatly the grand sum lands:

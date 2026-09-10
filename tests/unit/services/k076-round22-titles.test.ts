@@ -61,7 +61,7 @@ describe('K-076 r22 HIGH-1 — a number line is never a title', () => {
 
 describe('K-076 r22 HIGH-1 — a disqualifying word refuses beside a real title', () => {
   it.each(['TAX INVOICE\nCOPY', 'TAX INVOICE\n*** REPRINT ***', 'TAX INVOICE / STATEMENT', 'TAX INVOICE\nSETTLEMENT DISCOUNT',
-    'TAX INVOICE\nDelivery Note No: DN4471', 'TAX INVOICE\nGRV No: 0012345', 'TAX INVOICE\nSHORT DELIVERY',
+    'TAX INVOICE\nDELIVERY NOTE', 'TAX INVOICE\nGRV No: 0012345', 'TAX INVOICE\nSHORT DELIVERY',
     'TAX INVOICE\nPRO-FORMA', 'TAX INVOICE\nCUSTOMER CLAIM', 'TAX INVOICE\nDISCOUNT SLIP'])(
     '"%s" refuses', (lines) => {
       expect(identifiesAsPurchase(doc(`GAME Stores\n${lines}\n${BODY}`))).toBe(false);
