@@ -40,3 +40,18 @@ it('fails closed before any transaction when the worker class is missing or unkn
   await expect(runAuditJob(identity,options as never)).rejects.toThrow(/worker class/i);
  expect(withAuditWorkerTransaction).not.toHaveBeenCalled();
 });
+it('anchors the work deadline at the parent spawn timestamp while the claim keeps its own bound from now',async()=>{
+ const spawnedAt=Date.now()-20000;
+ await runAuditJob(identity,{pool,workerClass:'check_run',startedAt:spawnedAt});
+ const [claim,work]=calls,now=Date.now();
+ expect(work!.deadlineAt).toBe(spawnedAt+300000);
+ expect(claim!.deadlineAt).toBeGreaterThan(now+4000);expect(claim!.deadlineAt).toBeLessThanOrEqual(now+5000);
+ calls=[];const late=Date.now()-299000;
+ await runAuditJob(identity,{pool,workerClass:'check_run',startedAt:late});
+ expect(calls[0]!.deadlineAt).toBeLessThanOrEqual(late+300000);
+});
+it('refuses a spawn timestamp that is not an integer in the past',async()=>{
+ for(const startedAt of [Date.now()+60000,1.5,Number.NaN])
+  await expect(runAuditJob(identity,{pool,workerClass:'check_run',startedAt})).rejects.toThrow(/spawn timestamp/i);
+ expect(withAuditWorkerTransaction).not.toHaveBeenCalled();
+});

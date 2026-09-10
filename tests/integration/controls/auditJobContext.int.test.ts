@@ -41,7 +41,7 @@ async function actor<T>(mode:'cookie'|'pat'|'oauth'|AuditJobLease,fn:()=>Promise
 }
 async function leased(mode:'cookie'|'pat'|'oauth'='cookie'){
  const job=await actor(mode,()=>enqueueAuditSnapshot(requireControlTx(),{cutoff:'2026-09-09',sources:['journals'],checks:[],idempotencyKey:randomUUID()}));
- const lease=await actor(mode,()=>claimAuditJob(requireControlTx(),job.id));expect(lease).not.toBeNull();return lease!;
+ const lease=await actor(mode,()=>claimAuditJob(requireControlTx(),job.id,AUDIT_WORKER_CLASS_KINDS.audit));expect(lease).not.toBeNull();return lease!;
 }
 it('issues real job provenance with saved read-only source authority, never an invented cookie',async()=>{
  const lease=await leased();
@@ -98,7 +98,7 @@ it('checks the signed delegation expiry independently of an otherwise live queue
 it('does not admit a capability whose claim was rolled back',async()=>{
  const job=await actor('cookie',()=>enqueueAuditSnapshot(requireControlTx(),{cutoff:'2026-09-09',sources:['journals'],checks:[],idempotencyKey:randomUUID()}));
  let lease:AuditJobLease|null=null;
- await expect(actor('cookie',async()=>{lease=await claimAuditJob(requireControlTx(),job.id);throw new Error('Synthetic rollback');})).rejects.toThrow('Synthetic rollback');
+ await expect(actor('cookie',async()=>{lease=await claimAuditJob(requireControlTx(),job.id,AUDIT_WORKER_CLASS_KINDS.audit);throw new Error('Synthetic rollback');})).rejects.toThrow('Synthetic rollback');
  expect(lease).not.toBeNull();await expect(actor(lease!,async()=>undefined)).rejects.toThrow(/lease/);
 });
 async function coldClaim(jobId:string,person:'u1'|'u3'='u1',catchPermissionFailure=false){

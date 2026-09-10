@@ -1,4 +1,5 @@
 import {afterAll,beforeAll,expect,it} from 'vitest';
+import {AUDIT_WORKER_CLASS_KINDS} from '@/modules/accounting/services/controls/auditJobContract';
 import {randomBytes,randomUUID} from 'node:crypto';
 import {Pool} from 'pg';
 import {als,type RequestContext} from '@/lib/als';
@@ -28,7 +29,7 @@ async function leased(){
  await pool.query("UPDATE personal_access_tokens SET revoked_at=NULL,scopes=ARRAY['read:reports'] WHERE company_id=$1 AND user_id=$2 AND id=$3",[fixture.companyA,fixture.u1.id,fixture.u1.tokens[0]!.id]);
  return transaction(store=>withControlRequest(store,{personId:store.userId,companyId:store.companyId!,authMethod:'pat',connectionId:fixture.u1.tokens[0]!.id,grantId:fixture.u1.tokens[0]!.id,grantedScopes:['read:reports']},async()=>{
   const job=await enqueueAuditSnapshot(requireControlTx(),{cutoff:'2026-09-09',sources:['journals'],checks:[],idempotencyKey:randomUUID()});
-  const lease=await claimAuditJob(requireControlTx(),job.id);expect(lease).not.toBeNull();return lease!;
+  const lease=await claimAuditJob(requireControlTx(),job.id,AUDIT_WORKER_CLASS_KINDS.audit);expect(lease).not.toBeNull();return lease!;
  }));
 }
 async function state(lease:AuditJobLease){return(await pool.query('SELECT state,last_error_code,lease_id FROM control_audit_jobs WHERE company_id=$1 AND job_id=$2',[lease.companyId,lease.jobId])).rows[0];}

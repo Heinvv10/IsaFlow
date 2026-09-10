@@ -36,17 +36,19 @@ async function script(workerClass:WorkerClass,name:string,source:string){
  const path=join(directory,`${name}-${workerClass}.cjs`);await writeFile(path,source);return createIsolatedAuditJobRunner({nodePath:process.execPath,entryPath:path,workerClass});
 }
 const reply=(result:unknown)=>`process.stdin.once('data',()=>process.stdout.write(JSON.stringify({version:1,result:${JSON.stringify(result)}})+'\\n'));process.stdin.on('end',()=>process.exit(0));`;
-it('a real unit of each class runs with the class runtime, memory, heap and class variable',async()=>{
- const expected={audit:{runtime:'1min 5s',memory:8589934592,heap:'--max-old-space-size=4096'},check_run:{runtime:'5min 40s',memory:2147483648,heap:'--max-old-space-size=1536'}};
+it('a real unit of each class runs with the class runtime, memory, heap, class variable and spawn timestamp',async()=>{
+ const testStart=Date.now(),expected={audit:{runtime:'1min 5s',memory:8589934592,heap:'--max-old-space-size=4096'},check_run:{runtime:'5min 40s',memory:2147483648,heap:'--max-old-space-size=1536'}};
  for(const workerClass of ['audit','check_run'] as const){
   const marker=join(directory,`caps-${workerClass}.json`);
   const runner=await script(workerClass,'caps',`const fs=require('node:fs'),cp=require('node:child_process');
    const group=fs.readFileSync('/proc/self/cgroup','utf8').trim().split('::')[1],unit=group.split('/').pop();
    const runtime=cp.execFileSync('/usr/bin/systemctl',['--user','show',unit,'--property=RuntimeMaxUSec','--value'],{encoding:'utf8'}).trim();
    fs.writeFileSync(${JSON.stringify(marker)},JSON.stringify({runtime,memory:Number(fs.readFileSync('/sys/fs/cgroup'+group+'/memory.max','utf8')),
-    heap:process.execArgv.find(a=>a.startsWith('--max-old-space-size'))??null,workerClass:process.env.ISAFLOW_AUDIT_WORKER_CLASS}));${reply({state:'not_claimed'})}`);
+    heap:process.execArgv.find(a=>a.startsWith('--max-old-space-size'))??null,workerClass:process.env.ISAFLOW_AUDIT_WORKER_CLASS,startedAt:Number(process.env.ISAFLOW_AUDIT_WORKER_STARTED_AT)}));${reply({state:'not_claimed'})}`);
   expect((await runner.runIsolatedAuditJob(identity())).result).toEqual({state:'not_claimed'});
-  expect(JSON.parse(await readFile(marker,'utf8'))).toEqual({...expected[workerClass],workerClass});
+  const {startedAt,...seen}=JSON.parse(await readFile(marker,'utf8')) as {startedAt:number};
+  expect(seen).toEqual({...expected[workerClass],workerClass});expect(Number.isSafeInteger(startedAt)).toBe(true);
+  expect(startedAt).toBeGreaterThanOrEqual(testStart);expect(startedAt).toBeLessThanOrEqual(Date.now());
  }
 });
 it('reads real unit caps over D-Bus and refuses a unit whose RuntimeMaxSec differs from the class',async()=>{
@@ -77,17 +79,18 @@ it('a real child of either class returns not_claimed for an out-of-class job and
  expect((await checks.runIsolatedAuditJob(identity(snap))).result).toEqual({state:'not_claimed'});
  expect([await row(check),await row(snap)]).toEqual(before);
 });
-it('a child started without a valid class variable exits non-zero before claiming',async()=>{
+it('a child started without a valid class variable or spawn timestamp exits non-zero before claiming',async()=>{
  const snap=await snapshot(),before=await row(snap);
- for(const value of [undefined,'admin']){
+ for(const [value,startedAt] of [[undefined,String(Date.now())],['admin',String(Date.now())],['audit',undefined],['audit',String(Date.now()+60000)],['audit','soon']] as const){
   const env:NodeJS.ProcessEnv={NODE_ENV:'production',ISAFLOW_AUDIT_WORKER_DATABASE_URL:target.connectionString,DATABASE_SSL:'disable'};
-  for(const [name,entry] of Object.entries({PATH:process.env.PATH,ENCRYPTION_KEY:process.env.ENCRYPTION_KEY,PGPASSWORD:process.env.PGPASSWORD,ISAFLOW_AUDIT_WORKER_CLASS:value}))if(entry!==undefined)env[name]=entry;
+  for(const [name,entry] of Object.entries({PATH:process.env.PATH,ENCRYPTION_KEY:process.env.ENCRYPTION_KEY,PGPASSWORD:process.env.PGPASSWORD,
+   ISAFLOW_AUDIT_WORKER_CLASS:value,ISAFLOW_AUDIT_WORKER_STARTED_AT:startedAt}))if(entry!==undefined)env[name]=entry;
   const child=spawn(process.execPath,[resolve(artifact!)],{env,stdio:['pipe','pipe','pipe']});let stdout='',stderr='',pipe:string|null=null;
   child.stdout.on('data',(chunk:Buffer)=>{stdout+=chunk.toString();});child.stderr.on('data',(chunk:Buffer)=>{stderr+=chunk.toString();});
   child.stdin.on('error',(error:Error)=>{pipe=error.message;});
   child.stdin.end(JSON.stringify({version:1,...identity(snap)})+'\n');
   const code=await new Promise<number|null>(done=>child.once('close',done));
-  expect(code,pipe??'').not.toBe(0);expect(stdout).toBe('');expect(stderr.length).toBeLessThanOrEqual(256);expect(stderr).toMatch(/worker class/i);
+  expect(code,pipe??'').not.toBe(0);expect(stdout).toBe('');expect(stderr.length).toBeLessThanOrEqual(256);expect(stderr).toMatch(/worker class|spawn timestamp/i);
  }
  expect(await row(snap)).toBe(before);
 },20000);
@@ -99,11 +102,14 @@ it('a snapshot completes in an audit unit while a check-run unit is still runnin
  expect(done.result).toMatchObject({state:'succeeded',snapshotId:snap});
  const slept=await sleeper;expect(slept.value.result).toEqual({state:'not_claimed'});expect(snapshotAt).toBeLessThan(slept.at);
 },30000);
-it('the worker CLI --class selects the kinds it polls and rejects an unknown class',async()=>{
+it('the worker CLI --class selects the kinds it polls and rejects an unknown or repeated class',async()=>{
  const snap=await snapshot(),env={...process.env,DATABASE_SSL:'disable',ISAFLOW_AUDIT_WORKER_DATABASE_URL:target.connectionString,
   ISAFLOW_AUDIT_WORKER_NODE_PATH:process.execPath,ISAFLOW_AUDIT_WORKER_ENTRY_PATH:artifact};
- const cli=(workerClass:string)=>exec('bun',['scripts/forensic/run-audit-worker.ts','--company',fixture.companyA,'--once','--class',workerClass],{cwd:resolve('.'),timeout:20000,maxBuffer:32768,env});
+ const run=(args:string[])=>exec('bun',['scripts/forensic/run-audit-worker.ts',...args],{cwd:resolve('.'),timeout:20000,maxBuffer:32768,env});
+ const cli=(workerClass:string)=>run(['--company',fixture.companyA,'--once','--class',workerClass]);
  expect((await cli('check_run')).stdout).toContain('Audit queue worker stopped');
+ expect((await run(['--class','check_run','--once',`--companies=${fixture.companyA}`])).stdout).toContain('Audit queue worker stopped');
+ await expect(run(['--class','check_run','--once',`--companies=${fixture.companyA}`,'--class','audit'])).rejects.toMatchObject({code:1});
  expect((await pool.query('SELECT state,attempts FROM control_audit_jobs WHERE company_id=$1 AND job_id=$2',[fixture.companyA,snap])).rows[0]).toEqual({state:'queued',attempts:0});
  await expect(cli('admin')).rejects.toMatchObject({code:1});
 },45000);

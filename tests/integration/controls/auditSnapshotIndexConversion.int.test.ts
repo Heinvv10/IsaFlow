@@ -1,4 +1,5 @@
 import {beforeAll,afterAll,it,expect} from 'vitest';
+import {AUDIT_WORKER_CLASS_KINDS} from '@/modules/accounting/services/controls/auditJobContract';
 import {randomBytes,randomUUID} from 'node:crypto';
 import {Pool} from 'pg';
 import {fixtureConfigFromEnv} from '../../../scripts/forensic/fixture-bootstrap';
@@ -26,7 +27,7 @@ async function prepared(uppercase=false){
  expect(await runAuditSnapshotJob({companyId:f.companyA,personId:f.u1.id,jobId:original.id},{pool})).toMatchObject({state:'succeeded'});
  // Genuine current enqueue precedes removal; the uppercase case explicitly retains a legacy v1 representation.
  const comparison=await actor('u2',()=>enqueueAuditComparison(requireControlTx(),{firstSnapshotId:original.id,secondSnapshotId:original.id,idempotencyKey:randomUUID()}));
- const lease=await actor('u2',()=>claimAuditJob(requireControlTx(),comparison.id));if(!lease)throw new Error('Missing comparison lease');
+ const lease=await actor('u2',()=>claimAuditJob(requireControlTx(),comparison.id,AUDIT_WORKER_CLASS_KINDS.audit));if(!lease)throw new Error('Missing comparison lease');
  const retained=(await pool.query('SELECT canonical_hash,protected_snapshot FROM control_audit_snapshots WHERE company_id=$1 AND id=$2',[f.companyA,original.id])).rows[0];
  if(uppercase){
   // Local compatibility fixture: authenticate a valid legacy v1 representation after claiming its real job.

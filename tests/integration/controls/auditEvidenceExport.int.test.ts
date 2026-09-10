@@ -1,4 +1,5 @@
 import {afterAll,beforeAll,expect,it} from 'vitest';
+import {AUDIT_WORKER_CLASS_KINDS} from '@/modules/accounting/services/controls/auditJobContract';
 import {createHash,randomBytes,randomUUID} from 'node:crypto';
 import {Pool} from 'pg';
 import {fixtureConfigFromEnv} from '../../../scripts/forensic/fixture-bootstrap';
@@ -30,7 +31,7 @@ async function published(){
  await pool.query("INSERT INTO gl_journal_entries(id,company_id,entry_number,entry_date,status,source,created_by,description) VALUES($1,$2,$3,'2026-09-09','posted','auto_migration',$4,'Original retained description')",[id,fixture.companyA,id,fixture.u1.id]);
  const original=(await pool.query('SELECT description FROM gl_journal_entries WHERE company_id=$1 AND id=$2',[fixture.companyA,id])).rows[0];
  const job=await actor(()=>enqueueAuditSnapshot(requireControlTx(),{cutoff:'2026-09-09',sources:['journals','payroll'],checks:[],idempotencyKey:randomUUID()}));
- const lease=(await actor(()=>claimAuditJob(requireControlTx(),job.id)))!;
+ const lease=(await actor(()=>claimAuditJob(requireControlTx(),job.id,AUDIT_WORKER_CLASS_KINDS.audit)))!;
  const bytes=Buffer.from('synthetic original attachment');
  const data={version:1 as const,companyId:fixture.companyA,snapshotId:job.id,cutoff:'2026-09-09',capturedAt:new Date().toISOString(),
   records:[{source:'journal_entry',id,version:1,data:{description:original.description}}],
