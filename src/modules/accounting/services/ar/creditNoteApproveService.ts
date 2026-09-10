@@ -9,6 +9,7 @@
  */
 
 import { sql } from '@/lib/neon';
+import { assertIndependentRequestReview } from '@/modules/accounting/services/controls/independentReview';
 import { log } from '@/lib/logger';
 import { createJournalEntry, postJournalEntry } from '../gl/journalEntryService';
 import {mutateArRelatedEntity} from './arRelatedEntityEffect';
@@ -208,6 +209,7 @@ async function approveCreditNoteEffect(
 
 
 export async function approveCreditNote(companyId:string,id:string,userId:string,opts?:PostingActorOpts&ArApprovalOptions):Promise<CreditNote>{
+ assertIndependentRequestReview();
  const parent={entityType:'credit_note',entityId:id,operation:'credit_note.approve'} as const;
  return runArControlled(companyId,userId,parent,opts,permit=>approveCreditNoteEffect(companyId,id,userId,opts,{permit,parent}));
 }

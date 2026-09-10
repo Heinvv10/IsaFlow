@@ -11,6 +11,7 @@
  * CHECK constraint can never observe a half-approved row.
  */
 import { sql, type DbRow } from '@/lib/neon';
+import { requestImpersonator } from '@/modules/accounting/services/controls/independentReview';
 import { log } from '@/lib/logger';
 import { nextStatus, type CommentaryStatus } from './commentaryState';
 import { buildDraftSentences, type CommentaryPackData } from './commentaryDraft';
@@ -155,6 +156,13 @@ async function currentRow(
   return r ? { status: String(r.status) as CommentaryStatus, draftText: String(r.draft_text ?? '') } : null;
 }
 
+/**
+ * Sign-off is not blocked under impersonation - an admin helping a client finish
+ * a report is legitimate and the text carries no ledger effect - but the record
+ * must be truthful: `approved_by` stays the member whose session signed, and
+ * `approved_by_impersonator` names the administrator who drove it (or the
+ * unverified marker when the impersonation state could not be established).
+ */
 export async function approveCommentary(companyId: string, id: string, userId: string): Promise<CommentaryResult> {
   const row = await currentRow(companyId, id);
   if (!row) return { ok: false, code: 'not_found', reason: 'Commentary not found.' };
@@ -175,7 +183,7 @@ export async function approveCommentary(companyId: string, id: string, userId: s
   const rows = (await sql`
     UPDATE report_commentary
     SET status = 'approved', approved_text = draft_text, approved_by = ${userId},
-        approved_at = NOW(), updated_at = NOW()
+        approved_by_impersonator = ${requestImpersonator()}, approved_at = NOW(), updated_at = NOW()
     WHERE id = ${id}::uuid AND company_id = ${companyId}::uuid
       AND status = 'draft' AND btrim(draft_text) <> ''
     RETURNING *
