@@ -1,0 +1,20 @@
+import {beforeAll,afterAll,it,expect} from 'vitest';
+import {seedReleaseSupplier} from './paymentReleaseFixture';
+import {apCiWorkflowFixture} from './apCiWorkflowFixture';
+import {createBatch,approveBatch,processBatch} from '@/modules/accounting/services/ap/batchPaymentService';
+let f:Awaited<ReturnType<typeof apCiWorkflowFixture>>;
+beforeAll(async()=>{f=await apCiWorkflowFixture();},30000);afterAll(async()=>{if(f)await f.close();});
+it('posts a real approved nonempty batch with exact parent and child journal links and no document FK misuse',async()=>{
+ const supplier=await seedReleaseSupplier(f.pool,f.f,(person,action)=>f.actor(action,person)),invoice=await f.invoice();
+ await f.pool.query('UPDATE supplier_invoices SET supplier_id=$3 WHERE company_id=$1 AND id=$2',[f.f.companyA,invoice,supplier.supplier]);await f.post(invoice);
+ const batch=await f.actor(()=>createBatch(f.f.companyA,{batchDate:'2026-09-09',paymentMethod:'eft',bankAccountId:f.accounts.bank,payments:[{supplierId:supplier.supplier,invoiceAllocations:[{invoiceId:invoice,amount:115}]}]},f.f.u1.id));
+ await f.actor(()=>approveBatch(f.f.companyA,batch.id,f.f.u1.id));const before=await f.state();
+ await expect(f.actor(()=>processBatch(f.f.companyA,batch.id,f.f.u1.id))).rejects.toThrow('approval');expect(await f.state()).toEqual(before);
+ const approvalId=await f.approve(f.ref('supplier_payment_batch.process',batch.id));await f.actor(()=>processBatch(f.f.companyA,batch.id,f.f.u1.id,{approvalId}));
+ const [stored]=(await f.pool.query('SELECT status,gl_journal_entry_id FROM supplier_payment_batches WHERE company_id=$1 AND id=$2',[f.f.companyA,batch.id])).rows;
+ expect(stored.status).toBe('processed');expect(stored.gl_journal_entry_id).toBeTruthy();
+ const journals=(await f.pool.query('SELECT id,source,source_record_id,source_document_id FROM gl_journal_entries WHERE company_id=$1 AND id=$2',[f.f.companyA,stored.gl_journal_entry_id])).rows;
+ expect(journals).toEqual([{id:stored.gl_journal_entry_id,source:'auto_batch_payment',source_record_id:batch.id,source_document_id:null}]);
+ expect((await f.pool.query('SELECT status,gl_journal_entry_id FROM supplier_payments WHERE company_id=$1 AND batch_id=$2',[f.f.companyA,batch.id])).rows).toEqual([{status:'processed',gl_journal_entry_id:stored.gl_journal_entry_id}]);
+ expect((await f.pool.query('SELECT sum(debit)::text AS debit,sum(credit)::text AS credit FROM gl_journal_lines WHERE company_id=$1 AND journal_entry_id=$2',[f.f.companyA,stored.gl_journal_entry_id])).rows).toEqual([{debit:'115.00',credit:'115.00'}]);
+});
