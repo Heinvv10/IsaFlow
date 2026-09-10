@@ -12,6 +12,7 @@ describe('trial balance CSV selection', () => {
   it('exports the cost centre selected on screen and clears it when All is selected', async () => {
     vi.mocked(apiFetch).mockImplementation(async (url) => {
       const data = String(url).includes('cost-centres') ? { items: [{ id: 'cc2', code: 'PROJECT', name: 'Project' }] }
+        : String(url).includes('business-units') ? { items: [{ id: 'bu1', code: 'OPS', name: 'Operations' }] }
         : String(url).includes('fiscal-periods') ? [{ id: 'period', periodName: 'April', startDate: '2026-04-01', endDate: '2026-04-30', status: 'open' }]
         : { rows: [{ accountCode: '5000', accountName: 'Expense', accountType: 'expense', debitBalance: 17, creditBalance: 0 }], totalDebit: 17, totalCredit: 0, difference: 17, balanced: false };
       return new Response(JSON.stringify({ data }), {status: 200});
@@ -19,12 +20,15 @@ describe('trial balance CSV selection', () => {
     const open = vi.spyOn(window, 'open').mockReturnValue(null);
     render(<TrialBalancePage />);
     const select = await screen.findByDisplayValue('All Cost Centres');
+    const businessUnit = await screen.findByDisplayValue('All Business Units');
     await screen.findByRole('option', {name: 'PROJECT — Project'});
     fireEvent.change(select, {target: {value:'cc2'}});
+    fireEvent.change(businessUnit, {target: {value:'bu1'}});
     await waitFor(() => expect(screen.getByRole('button', {name:'Export CSV'})).toBeEnabled());
     fireEvent.click(screen.getByRole('button', {name:'Export CSV'}));
-    expect(open).toHaveBeenLastCalledWith('/api/accounting/trial-balance-export?fiscal_period_id=period&cost_centre_id=cc2', '_blank');
+    expect(open).toHaveBeenLastCalledWith('/api/accounting/trial-balance-export?fiscal_period_id=period&cost_centre_id=cc2&business_unit_id=bu1', '_blank');
     fireEvent.change(select, {target: {value:''}});
+    fireEvent.change(businessUnit, {target: {value:''}});
     await waitFor(() => expect(screen.getByRole('button', {name:'Export CSV'})).toBeEnabled());
     fireEvent.click(screen.getByRole('button', {name:'Export CSV'}));
     expect(open).toHaveBeenLastCalledWith('/api/accounting/trial-balance-export?fiscal_period_id=period', '_blank');

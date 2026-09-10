@@ -27,6 +27,7 @@ export async function getAccountLedger(
     accountId,
     accountCode,
     costCentreId,
+    businessUnitId,
     fromDate,
     toDate,
     postedOnly = true,
@@ -35,6 +36,7 @@ export async function getAccountLedger(
   } = params;
 
   const cc = costCentreId ?? null;
+  const bu = businessUnitId ?? null;
 
   if (!accountId && !accountCode) {
     throw new Error('Either accountId or accountCode is required');
@@ -89,6 +91,7 @@ export async function getAccountLedger(
             AND jl.gl_account_id = ${resolvedAccountId}::UUID
             AND (${cc}::uuid IS NULL OR jl.cost_center_id = ${cc}::uuid
               OR jl.cc1_id = ${cc}::uuid OR jl.cc2_id = ${cc}::uuid)
+            AND (${bu}::uuid IS NULL OR jl.business_unit_id = ${bu}::uuid)
             AND je.entry_date    < ${fromDate}
             AND je.status        = 'posted'
         `) as Row[]
@@ -103,6 +106,7 @@ export async function getAccountLedger(
             AND jl.gl_account_id = ${resolvedAccountId}::UUID
             AND (${cc}::uuid IS NULL OR jl.cost_center_id = ${cc}::uuid
               OR jl.cc1_id = ${cc}::uuid OR jl.cc2_id = ${cc}::uuid)
+            AND (${bu}::uuid IS NULL OR jl.business_unit_id = ${bu}::uuid)
             AND je.entry_date    < ${fromDate}
         `) as Row[];
 
@@ -124,6 +128,7 @@ export async function getAccountLedger(
             AND jl.gl_account_id = ${resolvedAccountId}::UUID
             AND (${cc}::uuid IS NULL OR jl.cost_center_id = ${cc}::uuid
               OR jl.cc1_id = ${cc}::uuid OR jl.cc2_id = ${cc}::uuid)
+            AND (${bu}::uuid IS NULL OR jl.business_unit_id = ${bu}::uuid)
             AND je.entry_date   >= ${fromDate}
             AND je.entry_date   <= ${toDate}
             AND je.status        = 'posted'
@@ -137,6 +142,7 @@ export async function getAccountLedger(
             AND jl.gl_account_id = ${resolvedAccountId}::UUID
             AND (${cc}::uuid IS NULL OR jl.cost_center_id = ${cc}::uuid
               OR jl.cc1_id = ${cc}::uuid OR jl.cc2_id = ${cc}::uuid)
+            AND (${bu}::uuid IS NULL OR jl.business_unit_id = ${bu}::uuid)
             AND je.entry_date   >= ${fromDate}
             AND je.entry_date   <= ${toDate}
         `) as Row[];
@@ -162,6 +168,7 @@ export async function getAccountLedger(
             AND jl.gl_account_id = ${resolvedAccountId}::UUID
             AND (${cc}::uuid IS NULL OR jl.cost_center_id = ${cc}::uuid
               OR jl.cc1_id = ${cc}::uuid OR jl.cc2_id = ${cc}::uuid)
+            AND (${bu}::uuid IS NULL OR jl.business_unit_id = ${bu}::uuid)
             AND je.entry_date   >= ${fromDate}
             AND je.entry_date   <= ${toDate}
             AND je.status        = 'posted'
@@ -186,6 +193,7 @@ export async function getAccountLedger(
             AND jl.gl_account_id = ${resolvedAccountId}::UUID
             AND (${cc}::uuid IS NULL OR jl.cost_center_id = ${cc}::uuid
               OR jl.cc1_id = ${cc}::uuid OR jl.cc2_id = ${cc}::uuid)
+            AND (${bu}::uuid IS NULL OR jl.business_unit_id = ${bu}::uuid)
             AND je.entry_date   >= ${fromDate}
             AND je.entry_date   <= ${toDate}
           ORDER BY je.entry_date ASC, je.id ASC
@@ -227,6 +235,7 @@ export async function getAccountLedger(
             AND jl.gl_account_id = ${resolvedAccountId}::UUID
             AND (${cc}::uuid IS NULL OR jl.cost_center_id = ${cc}::uuid
               OR jl.cc1_id = ${cc}::uuid OR jl.cc2_id = ${cc}::uuid)
+            AND (${bu}::uuid IS NULL OR jl.business_unit_id = ${bu}::uuid)
             AND je.entry_date   >= ${fromDate}
             AND je.entry_date   <= ${toDate}
             AND je.status        = 'posted'
@@ -242,6 +251,7 @@ export async function getAccountLedger(
             AND jl.gl_account_id = ${resolvedAccountId}::UUID
             AND (${cc}::uuid IS NULL OR jl.cost_center_id = ${cc}::uuid
               OR jl.cc1_id = ${cc}::uuid OR jl.cc2_id = ${cc}::uuid)
+            AND (${bu}::uuid IS NULL OR jl.business_unit_id = ${bu}::uuid)
             AND je.entry_date   >= ${fromDate}
             AND je.entry_date   <= ${toDate}
         `) as Row[];

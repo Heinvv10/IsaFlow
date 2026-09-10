@@ -81,10 +81,11 @@ export interface JeEvidenceDetail {
 export async function resolveAccountEvidence(
   companyId: string,
   glAccountId: string,
-  opts?: { fromDate?: string; toDate?: string; limit?: number; costCentreId?: string },
+  opts?: { fromDate?: string; toDate?: string; limit?: number; costCentreId?: string; businessUnitId?: string },
 ): Promise<AccountEvidenceRow[]> {
   const limit = opts?.limit ?? 100;
   const cc = opts?.costCentreId ?? null;
+  const bu = opts?.businessUnitId ?? null;
   const fromDate = opts?.fromDate ?? null;
   const toDate = opts?.toDate ?? null;
 
@@ -125,6 +126,7 @@ export async function resolveAccountEvidence(
         AND je.status = 'posted'
         AND (${cc}::uuid IS NULL OR jl.cost_center_id = ${cc}::uuid
           OR jl.cc1_id = ${cc}::uuid OR jl.cc2_id = ${cc}::uuid)
+        AND (${bu}::uuid IS NULL OR jl.business_unit_id = ${bu}::uuid)
         AND (${fromDate}::date IS NULL OR je.entry_date >= ${fromDate}::date)
         AND (${toDate}::date   IS NULL OR je.entry_date <= ${toDate}::date)
       ORDER BY je.entry_date DESC
