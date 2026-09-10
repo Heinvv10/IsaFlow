@@ -286,6 +286,9 @@ describe('reverseJournalEntry — contra attribution', () => {
     expect(mockCreate.mock.calls[0]![3]).toEqual({
       postingAgent: 'mcp:reverse_bank_allocation:v1',
     });
+    expect(mockCreate.mock.calls[0]![4]).toEqual({
+      dimensionAssignmentMode: 'historical-copy',
+    });
   });
 
   it('keeps the human default when no posting agent is supplied (existing callers)', async () => {
@@ -294,5 +297,8 @@ describe('reverseJournalEntry — contra attribution', () => {
     await reverseJournalEntry(COMPANY_ID, ENTRY_ID, USER_ID);
 
     expect(mockCreate.mock.calls[0]![3]).toEqual({ postingAgent: 'human' });
+    expect(mockCreate.mock.calls[0]![4]).toEqual({
+      dimensionAssignmentMode: 'historical-copy',
+    });
   });
 });
