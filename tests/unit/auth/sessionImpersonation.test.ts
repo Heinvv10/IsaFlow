@@ -1,6 +1,8 @@
 import {beforeEach,expect,it,vi} from 'vitest';
 import type {PoolClient} from 'pg';
 import {mintImpersonationProof} from '@/lib/auth/impersonationAssurance';
+const delegation=vi.hoisted(()=>({live:vi.fn(async()=>true)}));
+vi.mock('@/lib/auth/impersonationDelegation',()=>({impersonationDelegationLive:delegation.live}));
 import {resolveImpersonatingActor,resetImpersonationReaderCache} from '@/lib/auth/sessionImpersonation';
 import {assertIndependentHumanReview,IMPERSONATION_UNVERIFIED} from '@/modules/accounting/services/controls/independentReview';
 import type {ControlPrincipal} from '@/modules/accounting/services/controls/contracts';
@@ -18,7 +20,7 @@ beforeEach(()=>{vi.stubEnv('JWT_SECRET','synthetic-session-impersonation-secret-
 it('names the delegated actor from the proof without consulting the database',async()=>{
  const now=Math.floor(Date.now()/1000);
  const proof=await mintImpersonationProof({actorUserId:actor,targetUserId:target,targetSessionId:'target-session',
-  actorExpiresAt:now+3600,stashExpiresAt:now+3600});
+  stashId:'22222222-2222-4222-8222-222222222222',actorExpiresAt:now+3600,stashExpiresAt:now+3600});
  reader(true,{actor:null});
  expect(await resolveImpersonatingActor(client,claims,proof)).toBe(actor);
  expect(query).not.toHaveBeenCalled();

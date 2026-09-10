@@ -77,13 +77,14 @@ beforeEach(async () => {
   fixture.validateImpersonationTarget.mockResolvedValue({ userId: targetId, email: 'target@test.local' });
   fixture.generateLink.mockResolvedValue({ token: 'synthetic-link' });
   fixture.verifyMagicLink.mockResolvedValue({ access_token: targetToken, refresh_token: 'target-refresh', expires_in: 3600 });
-  fixture.stashAdminTokens.mockResolvedValue('synthetic-stash');
+  fixture.stashAdminTokens.mockResolvedValue('33333333-3333-4333-8333-333333333333');
   fixture.deleteStash.mockResolvedValue(undefined);
-  fixture.loadStash.mockResolvedValue({ stash_id: 'synthetic-stash', admin_user_id: adminId,
+  fixture.loadStash.mockResolvedValue({ stash_id: '33333333-3333-4333-8333-333333333333', admin_user_id: adminId,
     target_user_id: targetId, admin_access_token: adminToken, admin_refresh_token: 'admin-refresh',
     expires_at: new Date(Date.now() + 3_600_000) });
   fixture.sql.mockImplementation(async (parts: TemplateStringsArray) =>
-    parts.join('').includes('SELECT company_id') ? [{ company_id: companyId }]
+    parts.join('').includes('admin_impersonation_stash') ? [{ live: true, ended: false }]
+      : parts.join('').includes('SELECT company_id') ? [{ company_id: companyId }]
       : parts.join('').includes('FROM users') ? [{ is_active: true, status: 'active', suspended_at: null }] : []);
   fixture.query.mockImplementation(async (sql: string) => ({ command: sql.trim().split(/\s+/)[0]!.toUpperCase(), rows: sql.includes('FROM company_users')
     ? [{ role: 'admin', account_user_id: targetId, is_active: true, status: 'active', suspended_at: null }] : [] }));
@@ -139,7 +140,7 @@ it('starts an authorized MFA-target impersonation, uses the emitted cookies on w
   applyCookies(jar, ended);
   expect(jar['sb-access-token']).toBe(adminToken);
   expect(jar['sb-impersonation-proof']).toBeUndefined();
-  expect(fixture.deleteStash).toHaveBeenCalledWith('synthetic-stash');
+  expect(fixture.deleteStash).toHaveBeenCalledWith('33333333-3333-4333-8333-333333333333');
   // The impersonated GoTrue session must not outlive the impersonation: its refresh
   // token would otherwise keep working, unflagged, for as long as the member is enrolled.
   expect(calls.some(url => url.includes('/logout?scope=local'))).toBe(true);
@@ -185,7 +186,7 @@ it.each(['stash', 'audit'])('does not emit delegation or target cookies when %s 
   await expect(start(request({ 'sb-access-token': adminToken, 'sb-refresh-token': 'admin-refresh' }), result.res))
     .rejects.toThrow(`${failure} unavailable`);
   expect(result.headers.get('set-cookie')).toBeUndefined();
-  if (failure === 'audit') expect(fixture.deleteStash).toHaveBeenCalledWith('synthetic-stash');
+  if (failure === 'audit') expect(fixture.deleteStash).toHaveBeenCalledWith('33333333-3333-4333-8333-333333333333');
 });
 
 
@@ -216,5 +217,5 @@ it('refuses issuance when the provider target token has no session_id', async ()
   await expect(start(request({ 'sb-access-token': adminToken, 'sb-refresh-token': 'admin-refresh' }), result.res))
     .rejects.toThrow();
   expect(result.headers.get('set-cookie')).toBeUndefined();
-  expect(fixture.deleteStash).toHaveBeenCalledWith('synthetic-stash');
+  expect(fixture.deleteStash).toHaveBeenCalledWith('33333333-3333-4333-8333-333333333333');
 });
