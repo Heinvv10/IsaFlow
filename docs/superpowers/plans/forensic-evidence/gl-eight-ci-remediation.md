@@ -76,3 +76,11 @@ subtype/import/template bodies remain unchanged. Unissued writer unit cases
 now explicitly assert the current control-context boundary without a mock
 that grants authority. Adapted focused units passed; source/dedicated test
 TypeScript and typed scoped lint remain queued, no full-CI claim.
+
+Final static verification on `45d403e6c`: serialized handle `98646` terminal 0.
+Full source TypeScript, dedicated four-file test/helper TypeScript, typed
+scoped ESLint all pass with empty diagnostic logs. Final focused units:
+12/12 pass, 832 ms (`gl-eight-units-final.log`). No production edits and no
+additional PG run. All processes/pools closed; static lease released to root.
+Acceptance is the nine focused actual scenarios plus these static/unit checks;
+full integrated CI remains root-owned and is not claimed here.
