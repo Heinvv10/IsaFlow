@@ -84,9 +84,11 @@ function mapSectionRow(row: Record<string, unknown>): AfsSection {
 // ── Render ────────────────────────────────────────────────────────────────────
 
 /**
- * Renders the document's CURRENT rows to HTML. Every consumer of the rendered statements —
- * the PDF export and the signing request — derives its bytes here, from the same rows the
- * signing fingerprint is taken over, so what is signed is what the database holds.
+ * Renders the statements to HTML. Every consumer — the PDF export and the signing request —
+ * derives its bytes here. The document and its sections are read from their rows (in note
+ * order, then id, so tied note numbers always print in one order); the company and branding
+ * come either from their rows or, for signing, from the `inputs` the caller fingerprinted, so
+ * what is signed is exactly what was fingerprinted.
  */
 export async function renderDocumentHtml(
   documentId: string,
@@ -113,7 +115,7 @@ export async function renderDocumentHtml(
     FROM   afs_sections
     WHERE  document_id = ${documentId}::UUID
       AND  company_id  = ${companyId}::UUID
-    ORDER  BY sort_order ASC
+    ORDER  BY sort_order ASC, id
   `) as Record<string, unknown>[];
 
   const sections = sectionRows.map(mapSectionRow);
