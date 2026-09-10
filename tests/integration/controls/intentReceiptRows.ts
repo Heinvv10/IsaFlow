@@ -41,6 +41,12 @@ export async function entityVersions(pool:Pool,company:string,entityType:string,
  return (await pool.query(`SELECT entity_id,version::int AS version FROM control_entity_versions
   WHERE company_id=$1 AND entity_type=$2 AND lower(entity_id)=$3 ORDER BY entity_id`,[company,entityType,entityId.toLowerCase()])).rows as {entity_id:string;version:number}[];
 }
+export async function eventSpellings(pool:Pool,company:string,entityType:string,entityId:string){
+ const rows=async(table:string,column:string)=>(await pool.query(`SELECT DISTINCT ${column} AS entity_id FROM ${table}
+  WHERE company_id=$1 AND entity_type=$2 AND lower(${column})=$3 ORDER BY 1`,[company,entityType,entityId.toLowerCase()])).rows as {entity_id:string}[];
+ return{events:(await rows('control_change_events','entity_id')).map(r=>r.entity_id),
+  evidence:(await rows('control_protected_evidence','entity_id')).map(r=>r.entity_id)};
+}
 export async function receiptsFor(pool:Pool,company:string,intentId:string,operation:string){
  return (await pool.query('SELECT id,entity_id,result FROM control_operation_effects WHERE company_id=$1 AND lower(entity_id)=$2 AND operation=$3 ORDER BY id',
   [company,intentId.toLowerCase(),operation])).rows as {id:string;entity_id:string;result:Record<string,unknown>}[];

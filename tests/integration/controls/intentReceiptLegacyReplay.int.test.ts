@@ -4,7 +4,9 @@ import {fixtureConfigFromEnv} from '../../../scripts/forensic/fixture-bootstrap'
 import {validateFixtureTarget} from '../forensic-fixture';
 import {requestOperationApproval,decideOperationApproval} from '@/modules/accounting/services/controls/approvalRequestService';
 import type {ControlTx,OperationRef} from '@/modules/accounting/services/controls/contracts';
-import {executeBankAllocation} from '@/modules/accounting/services/bank/bankAllocationControl';
+import {randomUUID} from 'node:crypto';
+import {prepareBankAllocation,executeBankAllocation} from '@/modules/accounting/services/bank/bankAllocationControl';
+import {readBankCurrentOriginal} from '@/modules/accounting/services/bank/bankControlReadProvenance';
 import {prepareBankAllocationReversal,executeBankAllocationReversal} from '@/modules/accounting/services/bank/bankAllocationReversal';
 import {prepareCashApplication,executeCashApplication} from '@/modules/accounting/services/shared/cashApplicationControl';
 import {reverseReconciledTransaction} from '@/modules/accounting/services/bank/bankAllocationService';
@@ -17,20 +19,21 @@ const seeds={} as Record<Baseline,LegacySeed>;
 beforeAll(async()=>{seeds.upper=await runLegacySeed('upper');seeds.window=await runLegacySeed('window');},700000);
 afterAll(async()=>{await pool.end();});
 const operationOf:Record<LegacyOp,string>={bank:'bank_allocation.post',bankOriginal:'bank_allocation.post',bankAdapter:'bank_allocation.post',
- bankPayment:'bank_allocation.post',bankReversal:'bank_allocation.reverse',
+ bankPayment:'bank_allocation.post',bankTransfer:'bank_allocation.post',bankReversal:'bank_allocation.reverse',
  cash:'cash_application.apply',cashReversal:'cash_application.reverse',compensation:'payroll_compensation.change'};
 const approval=(id?:string)=>id?{approvalId:id}:undefined;
 const executeOf:Record<LegacyOp,(ctx:ControlTx,id:string,approvalId?:string)=>Promise<unknown>>={
  bank:(ctx,id,a)=>executeBankAllocation(ctx,id,approval(a)),bankOriginal:(ctx,id,a)=>executeBankAllocation(ctx,id,approval(a)),
  bankAdapter:(ctx,id,a)=>executeBankAllocation(ctx,id,approval(a)),bankPayment:(ctx,id,a)=>executeBankAllocation(ctx,id,approval(a)),
+ bankTransfer:(ctx,id,a)=>executeBankAllocation(ctx,id,approval(a)),
  bankReversal:(ctx,id,a)=>executeBankAllocationReversal(ctx,id,approval(a)),cash:(ctx,id,a)=>executeCashApplication(ctx,id,approval(a)),
  cashReversal:(ctx,id,a)=>executeCashApplicationReversal(ctx,id,approval(a)),compensation:(ctx,id,a)=>executePayrollCompensation(ctx,id,approval(a)??{}),
 };
 // Traced from source: a legacy run succeeds only when its own post-effect re-materialization agrees with
 // the receipt it just wrote; every other uppercase-first run rolled back and left no receipt at all.
 const traced:Record<Baseline,Record<LegacyOp,boolean>>={
- upper:{bank:true,bankOriginal:true,bankAdapter:true,bankPayment:true,bankReversal:true,cash:false,cashReversal:false,compensation:true},
- window:{bank:false,bankOriginal:false,bankAdapter:false,bankPayment:false,bankReversal:true,cash:true,cashReversal:false,compensation:false},
+ upper:{bank:true,bankOriginal:true,bankAdapter:true,bankPayment:true,bankTransfer:true,bankReversal:true,cash:false,cashReversal:false,compensation:true},
+ window:{bank:false,bankOriginal:false,bankAdapter:false,bankPayment:false,bankTransfer:false,bankReversal:true,cash:true,cashReversal:false,compensation:false},
 };
 async function snapshot(seed:LegacySeed){return{effects:await effectRows(pool,seed.fixture.companyA),ledger:await ledgerRows(pool,seed.fixture.companyA)};}
 it('baseline worktrees wrote exactly the traced legacy receipt population and spellings',async()=>{
@@ -105,6 +108,18 @@ it('a cash application finds the legacy uppercase bank origin of its own payment
  const approvalId=await approve(seed,prepared.operation);
  await actorAs(pool,user,ctx=>executeCashApplication(ctx,prepared.intentId,{approvalId}));
  expect((await pool.query('SELECT amount_paid::text FROM customer_invoices WHERE company_id=$1 AND id=$2',[seed.fixture.companyA,invoiceId])).rows).toEqual([{amount_paid:'115.00'}]);
+},60000);
+it('a legacy uppercase transfer is readable provenance and still linkable',async()=>{
+ const seed=seeds.upper,outcome=committed(seed,'bankTransfer'),user=seed.fixture.u1,company=seed.fixture.companyA;applySeedKeys(seed);
+ const [source]=(await pool.query('SELECT id,status,amount::text,transaction_date,bank_account_id,matched_journal_line_id FROM bank_transactions WHERE company_id=$1 AND id=$2',
+  [company,seed.extras.transferTransaction])).rows;
+ expect(await actorAs(pool,user,ctx=>readBankCurrentOriginal(ctx,source))).toMatchObject({currentOriginalIntentId:outcome.intentId,legacyProvenanceUnavailable:false});
+ const opposite=randomUUID();
+ await pool.query("INSERT INTO bank_transactions(id,company_id,bank_account_id,transaction_date,amount,description,status) VALUES($1,$2,$3,'2026-09-09',123.45,'Synthetic legacy transfer in','imported')",
+  [opposite,company,seed.extras.transferCounterpartyAccount]);
+ const prepared=await actorAs(pool,user,ctx=>prepareBankAllocation(ctx,{version:1,kind:'transfer',bankTransactionId:opposite,counterpartyAccountId:source.bank_account_id}));
+ const [saved]=(await pool.query('SELECT payload FROM control_bank_allocation_intents WHERE company_id=$1 AND id=$2',[company,prepared.intentId])).rows;
+ expect(saved.payload.transfer).toMatchObject({mode:'link',originalIntentId:outcome.intentId});
 },60000);
 it('the legacy bank reversal adapter resolves a legacy uppercase allocation as provenance',async()=>{
  const seed=seeds.upper,outcome=committed(seed,'bankAdapter'),user=seed.fixture.u1;applySeedKeys(seed);

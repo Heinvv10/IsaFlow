@@ -40,6 +40,16 @@ async function bankPayment(){
  const outcome=await upperFirst(p.intentId,p.operation,(id,approvalId)=>executeBankAllocation(requireControlTx(),id,{approvalId}));
  return{outcome,invoice,bankTransactionId:tx};
 }
+/** An uppercase-first transfer receipt: the provenance reader and later link mode both have to find it. */
+async function bankTransfer(){
+ const counterparty=randomUUID(),tx=randomUUID();
+ await pool.query("INSERT INTO gl_accounts(id,company_id,account_code,account_name,account_type,account_subtype,normal_balance,is_active,is_system_account,level) VALUES($1,$2,$3,'Synthetic legacy transfer bank','asset','bank','debit',true,true,3)",[counterparty,fixture.companyA,counterparty.slice(0,12)]);
+ await pool.query("INSERT INTO bank_accounts(company_id,account_name,gl_account_id,currency) VALUES($1,'Synthetic legacy transfer bank',$2,'ZAR')",[fixture.companyA,counterparty]);
+ await pool.query("INSERT INTO bank_transactions(id,company_id,bank_account_id,transaction_date,amount,description,status) VALUES($1,$2,$3,'2026-09-09',-123.45,'Synthetic legacy transfer out','imported')",[tx,fixture.companyA,bank]);
+ const p=await actor(()=>prepareBankAllocation(requireControlTx(),{version:1,kind:'transfer',bankTransactionId:tx,counterpartyAccountId:counterparty}));
+ const outcome=await upperFirst(p.intentId,p.operation,(id,approvalId)=>executeBankAllocation(requireControlTx(),id,{approvalId}));
+ return{outcome,bankTransactionId:tx,counterpartyAccountId:counterparty};
+}
 async function bankReversal(){
  const {posted}=await postedCash();
  const p=await actor(()=>prepareBankAllocationReversal(requireControlTx(),{originalIntentId:posted.intentId,reversalDate:'2026-09-11',reason:'Synthetic legacy UUID reversal'}));
@@ -66,11 +76,12 @@ async function compensation(){
 }
 it('seeds uppercase-first receipts with the baseline source',async()=>{
  const output=process.env.ISAFLOW_INTENT_SEED_OUT;if(!output)throw new Error('ISAFLOW_INTENT_SEED_OUT is required');
- const payment=await bankPayment();
+ const payment=await bankPayment(),transfer=await bankTransfer();
  const ops={bank:await bankReceipt(),bankOriginal:await bankReceipt(),bankAdapter:await bankReceipt(),bankReversal:await bankReversal(),
-  cash:await cashApplication(),cashReversal:await cashReversal(),compensation:await compensation(),bankPayment:payment.outcome};
+  cash:await cashApplication(),cashReversal:await cashReversal(),compensation:await compensation(),bankPayment:payment.outcome,bankTransfer:transfer.outcome};
  const identity=(user:{id:string;companyId:string})=>({id:user.id,companyId:user.companyId});
  await writeFile(output,JSON.stringify({fixture:{companyA:fixture.companyA,u1:identity(fixture.u1),u2:identity(fixture.u2)},
   keys:{encryption:process.env.ENCRYPTION_KEY,fingerprint:process.env.CONTROL_FINGERPRINT_KEY},ops,
-  extras:{bankPaymentInvoice:payment.invoice,bankPaymentTransaction:payment.bankTransactionId}}),{mode:0o600});
+  extras:{bankPaymentInvoice:payment.invoice,bankPaymentTransaction:payment.bankTransactionId,
+   transferTransaction:transfer.bankTransactionId,transferCounterpartyAccount:transfer.counterpartyAccountId}}),{mode:0o600});
 },300000);

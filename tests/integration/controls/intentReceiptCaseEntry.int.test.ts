@@ -10,7 +10,8 @@ import {prepareCashApplicationReversal,executeCashApplicationReversal} from '@/m
 import {applyLegacyCashPlan} from '@/modules/accounting/services/shared/cashApplicationLegacyAdapter';
 import {preparePayrollCompensation} from '@/modules/accounting/services/controls/payrollCompensationControl';
 import {executeCompensationCaller} from '@/modules/accounting/services/controls/payrollCompensationLegacyAdapter';
-import {appendEntityVersion,effectRows,entityVersions,insertCaseVariantReceipt,ledgerRows,receiptsFor} from './intentReceiptRows';
+import {recordBankRuleChange} from '@/modules/accounting/services/bank/bankRuleChangeControl';
+import {appendEntityVersion,effectRows,entityVersions,eventSpellings,insertCaseVariantReceipt,ledgerRows,receiptsFor} from './intentReceiptRows';
 async function approved(ref:OperationRef){const approval=await actor(()=>requestOperationApproval(requireControlTx(),ref));await actor(()=>decideOperationApproval(requireControlTx(),approval.id,'approved'),'u2');return approval.id;}
 async function oneCanonicalEffect(id:string,operation:string){
  const rows=await receiptsFor(pool,fixture.companyA,id,operation);
@@ -47,7 +48,10 @@ for(const uppercaseFirst of [true,false]){
   expect((await pool.query('SELECT a.amount::text FROM payroll_employee_components a JOIN payroll_employees e ON e.id=a.employee_id WHERE e.company_id=$1 AND e.id=$2',[fixture.companyA,employee])).rows).toEqual([{amount:'123.45'}]);
  });
 }
-it('an entity whose retained version is spelled in uppercase is extended, not forked',async()=>{
+// bank_transaction ids always come from a pg uuid, so this spelling cannot arise for one in production. It stands
+// in for the entity types whose first version row was written from an operation reference before canonicalization —
+// the fixture database holds customer_invoice rows in exactly this state, with no lowercase twin.
+it('an entity whose retained version is spelled in uppercase is extended, not forked, and keeps one event lineage',async()=>{
  const tx=randomUUID();
  await pool.query("INSERT INTO bank_transactions(id,company_id,bank_account_id,transaction_date,amount,description,status) VALUES($1,$2,$3,'2026-09-09',123.45,'Synthetic legacy version bank','imported')",[tx,fixture.companyA,bank]);
  await appendEntityVersion(pool,{id:fixture.u1.id,companyId:fixture.companyA},'bank_transaction',tx.toUpperCase());
@@ -55,6 +59,17 @@ it('an entity whose retained version is spelled in uppercase is extended, not fo
  const approvalId=await approved(p.operation);
  await actor(()=>executeBankAllocation(requireControlTx(),p.intentId,{approvalId}));
  expect(await entityVersions(pool,fixture.companyA,'bank_transaction',tx)).toEqual([{entity_id:tx.toUpperCase(),version:2}]);
+ // The event and its evidence belong to the same lineage as the version row they advance.
+ expect(await eventSpellings(pool,fixture.companyA,'bank_transaction',tx)).toEqual({events:[tx.toUpperCase()],evidence:[tx.toUpperCase()]});
+});
+it('a case-sensitive version reader refuses instead of forking when a legacy spelling is retained',async()=>{
+ const rule=randomUUID();
+ await appendEntityVersion(pool,{id:fixture.u1.id,companyId:fixture.companyA},'bank_categorisation_rule',rule.toUpperCase());
+ // recordBankRuleChange reads versions by exact spelling, so it still offers previousVersion null here.
+ await expect(actor(()=>recordBankRuleChange(requireControlTx(),rule,null,{id:rule,name:'Synthetic legacy rule'},'created')))
+  .rejects.toThrow('Control entity version is stale');
+ expect(await entityVersions(pool,fixture.companyA,'bank_categorisation_rule',rule)).toEqual([{entity_id:rule.toUpperCase(),version:1}]);
+ expect((await eventSpellings(pool,fixture.companyA,'bank_categorisation_rule',rule)).events).toEqual([]);
 });
 it('two retained spellings and no canonical lineage fail closed instead of forking a third',async()=>{
  const tx=randomUUID(),mixed=`${tx.slice(0,8).toUpperCase()}${tx.slice(8)}`;
