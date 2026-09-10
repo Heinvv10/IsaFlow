@@ -9,7 +9,7 @@ import {prepareBankAllocationReversal,executeBankAllocationReversal} from '@/mod
 import {executeCashApplication} from '@/modules/accounting/services/shared/cashApplicationControl';
 import {prepareCashApplicationReversal,executeCashApplicationReversal} from '@/modules/accounting/services/shared/cashApplicationReversalControl';
 import {executePayrollCompensation} from '@/modules/accounting/services/controls/payrollCompensationControl';
-import {committed,runLegacySeed,useSeedKeys,type Baseline,type LegacyOp,type LegacySeed} from './intentReceiptLegacyHarness';
+import {committed,runLegacySeed,applySeedKeys,type Baseline,type LegacyOp,type LegacySeed} from './intentReceiptLegacyHarness';
 import {actorAs,effectRows,insertCaseVariantReceipt,ledgerRows,receiptsFor} from './intentReceiptRows';
 const pool=new Pool({connectionString:validateFixtureTarget(fixtureConfigFromEnv(process.env)).connectionString,ssl:false,max:3,statement_timeout:10000});
 const seeds={} as Record<Baseline,LegacySeed>;
@@ -47,7 +47,7 @@ it('baseline worktrees wrote exactly the traced legacy receipt population and sp
  expect(committed(seeds.window,'bankReversal').result.intentId).toBe(seeds.window.ops.bankReversal.intentId.toUpperCase());
 });
 async function replaysUnchangedThenRefusesTwin(kind:Baseline,op:LegacyOp,twinProbe?:()=>Promise<unknown>){
- const seed=seeds[kind],outcome=committed(seed,op),user=seed.fixture.u1;useSeedKeys(seed);
+ const seed=seeds[kind],outcome=committed(seed,op),user=seed.fixture.u1;applySeedKeys(seed);
  const before=await snapshot(seed);
  for(const [id,approvalId] of [[outcome.intentId,undefined],[outcome.intentId.toUpperCase(),undefined],[outcome.intentId,outcome.approvalId],[outcome.intentId.toUpperCase(),outcome.approvalId]] as const)
   expect(await actorAs(pool,user,ctx=>executeOf[op](ctx,id,approvalId)),`${kind} ${op} ${id} ${approvalId??'no approval'}`).toEqual(outcome.result);
@@ -72,7 +72,7 @@ async function approve(seed:LegacySeed,ref:OperationRef){
  return request.id;
 }
 it('upper baseline allocation is reversible at HEAD without rewriting its receipt; a twin original is then refused',async()=>{
- const seed=seeds.upper,outcome=committed(seed,'bankOriginal'),user=seed.fixture.u1,company=seed.fixture.companyA;useSeedKeys(seed);
+ const seed=seeds.upper,outcome=committed(seed,'bankOriginal'),user=seed.fixture.u1,company=seed.fixture.companyA;applySeedKeys(seed);
  const originals=await receiptsFor(pool,company,outcome.intentId,'bank_allocation.post');
  const prepared=await actorAs(pool,user,ctx=>prepareBankAllocationReversal(ctx,{originalIntentId:outcome.intentId,reversalDate:'2026-09-11',reason:'Synthetic HEAD inverse of legacy receipt'}));
  const approvalId=await approve(seed,prepared.operation);

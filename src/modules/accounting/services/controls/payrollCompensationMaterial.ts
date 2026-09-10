@@ -3,6 +3,7 @@ import {assertControlTx} from './context';
 import type {ControlTx,OperationRef} from './contracts';
 import type {ApMaterial} from './apOperationMaterializer';
 import {readControlEntityVersion} from './operationVersions';
+import {loadIntentReceipt,sameIntentId} from './intentIdentity';
 import {parsePayrollCompensationPayload,type PayrollCompensationPayload} from './payrollCompensationPlan';
 import {loadPayrollCompensationSources,compensationFingerprint,assignmentState} from './payrollCompensationSource';
 import {expandPayrollCompensation} from './payrollCompensationExpand';
@@ -20,9 +21,9 @@ export async function loadPayrollCompensationIntent(ctx:ControlTx,id:string){
  const [intent]=await ctx.sql`SELECT *,effective_date::text,amount::text FROM control_payroll_compensation_intents WHERE company_id=${ctx.principal.companyId}::uuid AND id=${id}::uuid` as Intent[];
  if(!intent)throw new Error('Owned compensation intent required');
  const plan=parsePayrollCompensationPayload(intent.payload),sources=await loadPayrollCompensationSources(ctx,plan.source),fingerprint=compensationFingerprint(sources);
- const [effect]=await ctx.sql`SELECT id,result FROM control_operation_effects WHERE company_id=${ctx.principal.companyId}::uuid AND entity_type='payroll_compensation_intent' AND entity_id=${id} AND operation='payroll_compensation.change'` as {id:string;result:CompensationEffectResult}[];
+ const effect=await loadIntentReceipt<CompensationEffectResult>(ctx,{entityType:'payroll_compensation_intent',entityId:id,operation:'payroll_compensation.change'});
  if(effect){
-  if(effect.result.intentId!==id||effect.result.afterFingerprint!==fingerprint)throw new Error('Compensation receipt source changed');
+  if(!sameIntentId(effect.result.intentId,id)||effect.result.afterFingerprint!==fingerprint)throw new Error('Compensation receipt source changed');
   for(const action of plan.actions){const row=sources.assignments.find(r=>r.id===action.assignmentId);
    if(!row||compensationFingerprint(assignmentState(row,action.kind))!==compensationFingerprint(action))throw new Error('Compensation receipt assignment changed');
   }

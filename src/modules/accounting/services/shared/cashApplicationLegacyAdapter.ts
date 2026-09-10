@@ -2,6 +2,7 @@ import Decimal from 'decimal.js';
 import {z} from 'zod';
 import {requireControlTx} from '../controls/context';
 import {canonicalJson} from '../controls/canonical';
+import {canonicalIntentId} from '../controls/intentIdentity';
 import {loadCashApplicationIntent} from './cashApplicationMaterial';
 import {executeCashApplication} from './cashApplicationControl';
 import {cashApplicationMoney} from './cashApplicationPlan';
@@ -22,8 +23,8 @@ export async function applyLegacyCashPlan(companyId:string,userId:string,kind:'c
   if(!Number.isFinite(line.amount)||new D(String(line.amount)).mul(100).gt(Number.MAX_SAFE_INTEGER))throw new Error('Legacy numeric cash amount requires exact decimal interface');
   return{invoiceId:line.invoiceId.toLowerCase(),amount:cashApplicationMoney(String(line.amount))};
  }).sort(compareIds);
- const material=await loadCashApplicationIntent(ctx,captured.intentId);
+ const intentId=canonicalIntentId(captured.intentId),material=await loadCashApplicationIntent(ctx,intentId);
  const frozen=[...material.plan.applications].sort(compareIds);
  if(material.plan.kind!==kind||material.plan.paymentId!==preview.paymentId.toLowerCase()||canonicalJson(requested)!==canonicalJson(frozen))throw new Error('Legacy cash preview does not match immutable intent');
- return executeCashApplication(ctx,captured.intentId,{approvalId:captured.approvalId});
+ return executeCashApplication(ctx,intentId,{approvalId:captured.approvalId});
 }
