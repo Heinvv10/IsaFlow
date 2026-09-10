@@ -6,7 +6,7 @@
 Annual Financial Statements engine — IFRS / IFRS-for-SMEs packs (BS/IS/CF/notes) from GL, renders to HTML/DOCX/PDF, review workflow, portal delivery. Largest single module (42 files).
 
 ## Modules
-- **Document + version**: `afsDocumentService.ts` (a "document" = one year × company), `afsSectionService.ts` (20+ ordered sections), `afsVersionHistoryService.ts`, `afsGenerationJobService.ts` (async job queue `queued → running → complete|failed`), `afsTypes.ts`.
+- **Document + version**: `afsDocumentService.ts` (a "document" = one year × company), `afsSectionService.ts` (20+ ordered sections), `afsSectionAttestation.ts` (the section write guard), `afsVersionHistoryService.ts`, `afsGenerationJobService.ts` (async job queue `queued → running → complete|failed`), `afsTypes.ts` (re-exports `afsKpiTypes.ts`, `afsPortalTypes.ts`, `afsComplianceTypes.ts`).
 - **Mapping**: `afsMappingService.ts` — COA → AFS line mapping.
 - **Note engine**: `noteEngineService.ts` (4-stage: fetch → generate → suppress → persist), `noteDataQueryService.ts`, `noteTemplateRegistry.ts`, `noteRendererService.ts`, `noteAiService.ts` (AI narrative for qualitative), `noteGenerators/` (one file per note: PPE, intangibles, tax, leases…).
 - **Statement calculators**: `cashFlowDirectService.ts`, `cashFlowReconciliationService.ts`, `changesInEquityService.ts`, `pisCalculatorService.ts` (Public Interest Score — Companies Act reg 26 → audit/review/compiled), `kpiScorecardService.ts`.
@@ -38,6 +38,7 @@ Invoked by `withCompany`-wrapped API routes in `pages/api/accounting/afs/*` and 
 - Portal contacts are a separate auth path — magic link only, no password; tenant scope enforced by joining `portal_contacts.company_id`.
 - WeasyPrint runs out-of-process — handle timeouts; large packs may hit connection reset.
 - Version history: every generation snapshots the rendered output so earlier drafts are recoverable; callers NEVER overwrite in place.
+- A section's review/sign-off attests to its content. Every section write calls `lockSectionForWrite(companyId, documentId, sectionId)` first — bound to the URL's document, `ReviewError` NOT_FOUND for a section of another document, DOCUMENT_LOCKED for a signed-off/filed one, row lock on section + document — and every content change calls `voidSectionAttestation` before writing: reviewed/signed_off → pending, reviewer and signatory fields cleared, `audit_log` row (`entity_type='afs_section'`, `metadata.event='afs_section_review_invalidated'`). An impersonated session may not void a review. `saveVersion` is a snapshot only and never changes status. `updateAfsSection` needs `updatedBy` to change attested content.
 
 ## Related files
 - `pages/api/accounting/afs/*.ts`, `pages/api/portal/afs/*.ts` — routes.
@@ -45,6 +46,7 @@ Invoked by `withCompany`-wrapped API routes in `pages/api/accounting/afs/*` and 
 - `scripts/migrations/sql/333-345_*` — AFS engine schema (documents, sections, jobs, portal, PIS).
 
 ## Recent changes
+- 2026-09-10: section review integrity — `afsSectionAttestation.ts` guard on overrides, AI accept/generate, restore, regenerate, suppress and `updateAfsSection`; `saveVersion` no longer demotes signed_off → reviewed; version reads/writes bound to the document; `afsTypes.ts` split (438 → 266 lines).
 - 2026-09-06: `serverChartSvg.ts` moved in from `services/packs/`. It renders an ECharts option to an SVG STRING because the statutory PDF path goes through WeasyPrint, which runs no JavaScript — so a chart has to arrive already drawn. It registers its own narrow ECharts module set (SVG renderer only) rather than `src/lib/charts/echarts.ts`, which registers the canvas renderer and is client-only, so it is safe to import in a Node request handler. Its only consumer is `pdfExportService.ts`. The default palette still comes from `services/packs/packChartOptions.ts`, so an AFS chart and a pack chart are the same colours.
 - 2026-04-23: unit-test drift fixes after PRD-05 ship.
 - 2026-04-21: three schema-mismatch 500s from PR #31.
