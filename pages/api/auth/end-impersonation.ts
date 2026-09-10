@@ -15,7 +15,7 @@ import {
 } from '@/lib/auth/cookies';
 import { ADMIN_STASH_COOKIE, clearImpersonationCookies } from '@/lib/auth/impersonation-cookies';
 import { loadStash, deleteStash } from '@/modules/admin/services/userImpersonationService';
-import { verifyTokenSignature } from '@/lib/auth/gotrue';
+import { adminRevokeAllUserSessions, logout, verifyTokenSignature } from '@/lib/auth/gotrue';
 import { verifyCsrf } from '@/lib/auth/csrf';
 import { sql } from '@/lib/neon';
 import { log } from '@/lib/logger';
@@ -80,6 +80,23 @@ const handler: NextApiHandler = async (req, res) => {
       stashTarget: stash.target_user_id,
     }, 'Admin');
     return res.status(403).json({ success: false, error: { code: 'FORBIDDEN', message: 'Not authorised to end this impersonation' } });
+  }
+
+  // The impersonated GoTrue session outlives the stash and the delegation proof:
+  // its refresh token would keep minting access tokens that nothing marks as
+  // impersonated. Kill it BEFORE restoring the admin, and keep the stash so a
+  // GoTrue outage leaves a retryable exit rather than a live orphan session.
+  // scope=local revokes only the presented (impersonated) session, so the member's
+  // own sessions survive; when the caller is the admin we no longer hold that
+  // token and must fall back to revoking the target's sessions globally.
+  try {
+    if (callerId === stash.target_user_id) await logout(accessToken, 'local');
+    else await adminRevokeAllUserSessions(stash.target_user_id);
+  } catch (revokeErr) {
+    log.error('end-impersonation: impersonated session revocation failed',
+      { stashId, message: revokeErr instanceof Error ? revokeErr.message : String(revokeErr) }, 'Admin');
+    return res.status(502).json({ success: false,
+      error: { code: 'REVOCATION_FAILED', message: 'Could not revoke the impersonated session — please retry' } });
   }
 
   setAuthCookies(res, {

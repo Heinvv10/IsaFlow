@@ -26,17 +26,27 @@ ALTER TABLE control_historical_imports
   );
 DO $$
 DECLARE v_shape text[];
+  v_auth text[];
 BEGIN
+  -- Every surviving check on the grant columns must be the single named replacement.
   SELECT array_agg(conname ORDER BY conname) INTO v_shape FROM pg_constraint
     WHERE conrelid='public.control_historical_imports'::regclass AND contype='c'
-      AND pg_get_constraintdef(oid) LIKE '%requester_grant_id%'
-      AND pg_get_constraintdef(oid) LIKE '%platform_import%';
+      AND pg_get_constraintdef(oid) LIKE '%requester_grant_id%';
   IF v_shape IS DISTINCT FROM ARRAY['control_historical_imports_requester_grant_shape']
-    OR EXISTS(SELECT 1 FROM pg_constraint
-      WHERE conrelid='public.control_historical_imports'::regclass AND contype='c'
-        AND pg_get_constraintdef(oid) LIKE '%requester_grant_id%'
-        AND pg_get_constraintdef(oid) NOT LIKE '%platform_import%')
+    OR NOT EXISTS(SELECT 1 FROM pg_constraint
+      WHERE conrelid='public.control_historical_imports'::regclass
+        AND conname='control_historical_imports_requester_grant_shape'
+        AND pg_get_constraintdef(oid) LIKE '%platform_import%')
   THEN RAISE EXCEPTION 'control_historical_imports grant-shape constraints are not the platform-import replacement: %',v_shape;
+  END IF;
+  -- The auth-method check is dropped by its deterministic column-level name, which is
+  -- only safe if what remains actually admits a platform requester. Assert it.
+  SELECT array_agg(pg_get_constraintdef(oid) ORDER BY conname) INTO v_auth FROM pg_constraint
+    WHERE conrelid='public.control_historical_imports'::regclass AND contype='c'
+      AND pg_get_constraintdef(oid) LIKE '%requester_auth_method%'
+      AND pg_get_constraintdef(oid) NOT LIKE '%requester_grant_id%';
+  IF coalesce(array_length(v_auth,1),0)<>1 OR v_auth[1] NOT LIKE '%platform_import%'
+  THEN RAISE EXCEPTION 'control_historical_imports does not admit a platform_import requester: %',v_auth;
   END IF;
 END $$;
 
