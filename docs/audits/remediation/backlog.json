@@ -10767,7 +10767,9 @@
       "affectedPaths": [
         "src/modules/accounting/services/ar/customerInvoiceCreateService.ts",
         "pages/api/accounting/customer-invoices-create.ts",
-        "src/modules/accounting/services/ar/recurringInvoiceService.ts"
+        "src/modules/accounting/services/ar/recurringInvoiceService.ts",
+        "src/modules/accounting/services/bank/bankAllocationService.ts",
+        "pages/api/accounting/bank-transactions-action.ts"
       ],
       "sourceLabel": "",
       "sourceIds": [],
@@ -10788,10 +10790,10 @@
       "canonicalItem": null,
       "reportedSeverity": "",
       "branch": null,
-      "title": "Invoice create accepts a customer id from any tenant: nothing checks the customer belongs to the company",
+      "title": "Invoice create AND bank allocation accept a customer id from any tenant: nothing checks the customer belongs to the company",
       "severity": "high",
       "source": "Found by the orchestrating session while assessing R-066, 2026-09-10; confirmed on origin/master by reading every use of clientId.",
-      "processNotes": "customer-invoices-create.ts checks only that clientId is present, then passes it to createDraftCustomerInvoice. Every use of clientId there is accounted for: the type (:27), the destructure (:54), a company-scoped PROJECT lookup (:96) whose failure is swallowed, and the INSERT (:134) writing it into both customer_id and client_id. No ownership check exists. client_id has no FK; customer_id's FK is tenant-agnostic; the RLS WITH CHECK on customer_invoices checks only the invoice's own company_id. recurringInvoiceService inserts input.clientId the same way, and its runner re-mints an invoice from that template every period. Fix: on every create/convert path, SELECT 1 FROM customers WHERE id = $clientId AND company_id = $companyId and refuse before any write. Not on any branch."
+      "processNotes": "customer-invoices-create.ts checks only that clientId is present, then passes it to createDraftCustomerInvoice. Every use of clientId there is accounted for: the type (:27), the destructure (:54), a company-scoped PROJECT lookup (:96) whose failure is swallowed, and the INSERT (:134) writing it into both customer_id and client_id. No ownership check exists. client_id has no FK; customer_id's FK is tenant-agnostic; the RLS WITH CHECK on customer_invoices checks only the invoice's own company_id. recurringInvoiceService inserts input.clientId the same way, and its runner re-mints an invoice from that template every period. Fix: on every create/convert path, SELECT 1 FROM customers WHERE id = $clientId AND company_id = $companyId and refuse before any write. Not on any branch.\n\nWIDENED 2026-09-10 by the R-067 r1 blind review, which MEASURED it on isaflow_dev: company A allocated a +R115 receipt against company B's customer — the journal posted and the `customer_payments` row carried B's `client_id`. `bank/bankAllocationService.ts:423-431` writes `entityId` into `customer_payments.client_id` with no ownership check; `entityId` comes from the request body (`bank-transactions-action.ts:40` validates UUID shape only, `:118` passes it through), and the only customer lookup (`:283`) fetches a name, falls back to `Customer #<id>` on a miss and continues. Also reachable via `writeBankAllocate` / `writeBankBulkAllocate`. The r1 census had filed this row as exempt — the classification failure mode. Being fixed in r2."
     },
     {
       "id": "R-068",
