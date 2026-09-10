@@ -8,7 +8,7 @@ import { fmtDate } from '@/lib/fmtDate';
 import type { DbRow } from '@/lib/neon';
 import { log } from '@/lib/logger';
 import { validateJournalEntry } from '../../utils/doubleEntry';
-import type { JournalEntry, JournalLineInput } from '../../types/gl.types';
+import type { JournalEntry } from '../../types/gl.types';
 import {
   getJournalEntryById,
   createJournalEntry,
@@ -16,6 +16,7 @@ import {
   mapEntryRow,
 } from './journalEntryCrudService';
 import { defaultHumanMeta, actorMeta, type PostingActorOpts } from './journalEntryMeta';
+import { buildReversalLines } from './reversalLines';
 import { getPeriodStatusForDate } from './periodStatusService';
 
 type Row = DbRow;
@@ -231,12 +232,19 @@ export async function resolveReversalDate(
   return requested;
 }
 
+/**
+ * The reversal entry, plus how many of its lines lost a dimension the company
+ * does not own (see reversalLines.ts). Additive: every existing caller reads it
+ * as a `JournalEntry`.
+ */
+export type ReversalEntry = JournalEntry & { foreignDimensionDroppedLines: number };
+
 export async function reverseJournalEntry(
   companyId: string,
   id: string,
   userId: string,
   opts?: PostingActorOpts & { reversalDate?: string },
-): Promise<JournalEntry> {
+): Promise<ReversalEntry> {
   try {
     const entry = await getJournalEntryById(companyId, id);
     if (!entry) throw new Error(`Journal entry ${id} not found`);
@@ -247,15 +255,12 @@ export async function reverseJournalEntry(
     if (entry.reversedAt) throw new Error('Journal entry already reversed');
     if (!entry.lines || entry.lines.length === 0) throw new Error('Entry has no lines');
 
-    const reversalLines: JournalLineInput[] = entry.lines.map(l => ({
-      glAccountId: l.glAccountId,
-      debit: l.credit,
-      credit: l.debit,
-      description: `Reversal: ${l.description || ''}`,
-      projectId: l.projectId,
-      costCenterId: l.costCenterId,
-      buId: l.buId,
-    }));
+    // Debits and credits swap; the dimensions come across unchanged EXCEPT a
+    // legacy tag naming another company's project, cost centre or business
+    // unit, which is dropped rather than copied into a journal
+    // `assertJournalLinesOwned` would refuse — refusing here would leave the
+    // entry permanently un-reversible. See reversalLines.ts.
+    const carried = await buildReversalLines(companyId, entry.lines);
 
     // A correction belongs in the period it corrects. Dating every reversal to
     // TODAY moved the correction into a later period than the entry it undoes:
@@ -282,7 +287,7 @@ export async function reverseJournalEntry(
       entryDate: reversalDate,
       description: `Reversal of ${entry.entryNumber}`,
       source: entry.source,
-      lines: reversalLines,
+      lines: carried.lines,
     }, userId, actorMeta(opts) ?? defaultHumanMeta(userId));
 
     try {
@@ -335,7 +340,10 @@ export async function reverseJournalEntry(
     `;
 
     log.info('Reversed journal entry', { originalId: id, reversalId: reversalEntry.id }, 'accounting');
-    return reversalEntry;
+    // The count rides on the returned entry so every caller — the REST action
+    // route passes this straight through — can tell the operator that the
+    // contra is not tag-for-tag identical to what it reverses.
+    return { ...reversalEntry, foreignDimensionDroppedLines: carried.droppedLineCount };
   } catch (err) {
     log.error('Failed to reverse journal entry', { id, error: err }, 'accounting');
     throw err;

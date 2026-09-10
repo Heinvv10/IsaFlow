@@ -146,3 +146,48 @@ Such a row is a cross-tenant ledger line: the other company's account carries a 
 **Both directions, proved on the disposable fixture DB.** `k051-reclassification-foreign-dimension.int.test.ts` seeds a posted source line tagged to another company's project, cost centre AND business unit, plus a second line tagged to this company's own cost centre. The batch posts; the foreign-tagged pair carries NULL on all three columns on both legs and nets to zero; the own cost centre is carried forward unchanged; the journals balance to R1,400 debit = R1,400 credit; the source account nets to zero; the original posted line is untouched. Mutations: pass `movable` instead of `carried.lines` and the batch dies with "name a project outside this company" (the reported defect, reproduced); make the keep-predicate drop everything and the own-cost-centre assertion goes red.
 
 **Unrelated, not touched:** `plan.ts` declares `export interface ReclassPlan` twice with identical members (pre-existing at the merge base; TypeScript merges them silently).
+
+## Round-8 dispositions (blind re-review `f48b2b663`, 1 HIGH / 0 MEDIUM / 3 LOW)
+
+| Finding | Disposition |
+|---|---|
+| HIGH-1 — `reverseJournalEntry` is the SECOND copy-forward path and still aborted on a legacy foreign dimension, so such an entry could never be reversed | **Fixed, and the whole class enumerated (below).** `journalEntryPostingService` no longer maps the historical lines itself: `gl/reversalLines.ts` builds the contra, resolving the three dimensions once per entry through `ownedDimensions` and dropping what this company does not own — per line, per dimension, both legs of the pair losing the same tag because the contra IS the mirror. `log.warn` per line, and the count rides back on the returned entry (`foreignDimensionDroppedLines`), which the REST action route already passes straight through and the MCP tool renders as a `foreign_dimension_dropped` warning in the LIVE response and in the DRY RUN, computed the same way. The account arm stays refusing on this path: a line needs an account, so there is nothing to drop, and migration 664's composite FK refuses the mirrored row regardless — that failure is the FK's, not the guard's. |
+| LOW-1 — "there is no read-side disclosure" is contradicted by an unscoped join | **Fixed both ways.** The claim in `journalLineOwnership.ts` now names `projectProfitabilityService` and `ar/invoicePdfBuilder` as the exception, and both `LEFT JOIN projects` clauses are scoped (`AND p.company_id = jl.company_id` / `ci.company_id`), so a foreign tag keeps its bucket but no longer renders another company's project NAME. |
+| LOW-2 — "already outside every one of its dimension reports" is not quite true for the one report that enumerates raw ids | **Fixed.** `reclassification/dimensions.ts` now says "no dimension report it can meaningfully run" and states what `getProjectProfitability` actually does with a foreign id, before and after a drop. |
+| LOW-3 — duplicate `export interface ReclassPlan` | **Left, as the reviewer ruled.** Pre-existing at the merge base; a separate cleanup. |
+
+**The copy-forward census — enumerated from the WRITERS of `gl_journal_lines` and the readers of `project_id` / `cost_center_id` / `bu_id`, not by grepping for the guard.**
+
+| Path | Where the dimension comes from | Disposition |
+|---|---|---|
+| `reclassification/plan.ts` -> `journals.ts` | a posted `gl_journal_lines` row | copy-forward — drop-and-warn (round 7) |
+| `journalEntryPostingService#reverseJournalEntry` (and its 13 callers: invoice/credit-note cancel, payment void, bank allocation undo, provisional dismiss, payroll, the REST action route, the MCP tool) | a posted `gl_journal_lines` row, via `mapLineRow` | copy-forward — **drop-and-warn (this round)** |
+| `core/archiveExecutionService` | `gl_journal_lines` | reads them into `archive_gl_journal_lines`; writes no journal line, no guard involved |
+| `gl/yearEndCloseService`, `pages/api/accounting/bank-transfers`, `gl/assetDepreciationPosting` | nothing — their INSERTs name no dimension column | not a copy-forward |
+| `gl/recurringJournalService`, `core/recurringTransactionService` | a template, which carries no dimension | not a copy-forward |
+| `pages/api/accounting/journal-entries` (POST), MCP `create_draft_journal`, `glImportExecuteService` (resolves a cost-centre CODE against this company's own `cost_centres`), the migration/Sage importers | the request body or an import file | caller-claim — guard applies, unchanged |
+| `capture/provisionalPostingService` (predicts from `supplier_coding_history`), `ap/supplierInvoiceWorkflowService` and `expense/expenseClaimService` (from the document being posted) | a NON-journal-line table | caller-claim — guard applies. A foreign tag there refuses the posting, which is recoverable: the source row is editable and the document can be posted after correcting it. No `gl_journal_lines` value reaches these paths |
+| `pages/api/.../journal-entries` UPDATE | there is none — journal entries have no update path | n/a |
+
+**Files (this round).** `src/modules/accounting/services/gl/reversalLines.ts` (new, 79 lines) · `journalEntryPostingService.ts` (uses it; returns `ReversalEntry`) · `journalLineOwnership.ts` (`ownedOrNull`, shared by both copy-forward paths; boundary comment) · `reclassification/dimensions.ts` (uses `ownedOrNull`) · `src/lib/mcp/tools/writeJournalReverse.ts` (warning, dry run + live) · `reports/projectProfitabilityService.ts`, `ar/invoicePdfBuilder.ts` (scoped joins).
+
+**Tests.** `tests/integration/k051-reversal-foreign-dimension.int.test.ts` — 4 tests, real disposable Postgres: the foreign-tagged entry reverses (contra untagged on all three columns, debits = credits, the pair nets to zero on the account, the original keeps `status='posted'` with `reversed_at` set, and the posted line is untouched); an OWN cost centre is carried forward with `foreignDimensionDroppedLines === 0`; a CALLER naming another company's project on a new line is still refused with nothing written; and the MCP dry run emits the same `foreign_dimension_dropped` warning while writing nothing. `tests/unit/services/gl/journalEntryReversal.test.ts` — one new case (an unowned `buId` is dropped, not refused) and the existing business-unit case now primes the ownership SELECT. Mutations: copy the dimensions raw -> 2 integration tests red (the live one with the reported defect verbatim); make `droppedLineCount` never increment -> the same 2 red; copy raw -> the new unit case red. Full unit suite with `DATABASE_URL` unset: **9439 passed / 234 skipped, 0 failed**. All 7 K-051/K-052 integration files: 42 passed. `k021-reversal-atomicity`: 6 passed.
+
+**Migration.** None this round (664 unchanged).
+
+**Historical-data impact.** No existing row changes. Reversals that were REFUSED between this branch's first commit and this fix were never written, so there is nothing to repair; from here they post with the foreign tag left off the contra only. Census of the entries that were affected (read-only, NOT run against production):
+
+```sql
+SELECT je.company_id, je.id, je.entry_number, COUNT(*) AS foreign_tagged_lines
+FROM gl_journal_entries je
+JOIN gl_journal_lines jl ON jl.journal_entry_id = je.id AND jl.company_id = je.company_id
+WHERE je.status = 'posted' AND je.reversed_at IS NULL
+  AND (
+    (jl.project_id     IS NOT NULL AND NOT EXISTS (SELECT 1 FROM projects p       WHERE p.id  = jl.project_id     AND p.company_id  = jl.company_id))
+ OR (jl.cost_center_id IS NOT NULL AND NOT EXISTS (SELECT 1 FROM cost_centres c   WHERE c.id  = jl.cost_center_id AND c.company_id  = jl.company_id))
+ OR (jl.bu_id          IS NOT NULL AND NOT EXISTS (SELECT 1 FROM business_units b WHERE b.id  = jl.bu_id          AND b.company_id  = jl.company_id))
+  )
+GROUP BY 1, 2, 3 ORDER BY 4 DESC;
+```
+
+**Limits.** The REST reversal surfaces the drop as a field on the response and a `log.warn`; there is no UI element rendering it yet. The two scoped report joins remove a NAME disclosure, not the bucket: a foreign `project_id` still forms an unnamed row in `getProjectProfitability`, which is the pre-existing behaviour for any id `projects` does not match.

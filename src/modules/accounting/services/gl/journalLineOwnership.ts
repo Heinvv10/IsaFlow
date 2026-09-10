@@ -18,17 +18,31 @@
  *   so a line can be tagged to a dimension this company cannot see or manage,
  *   invisible to every dimension filter and to `costCentreService`'s
  *   company-scoped usage guard — which lets the OWNING tenant delete the row
- *   out from under it. There is no read-side disclosure (the reports filter on
- *   these columns, none joins the dimension table for a name), so this is
- *   integrity, not exposure — but it is the same defect on the same INSERT.
+ *   out from under it. Mostly integrity rather than exposure — the reports
+ *   filter on these columns — with one exception: `projectProfitabilityService`
+ *   enumerates `DISTINCT jl.project_id` and LEFT JOINs `projects` for a name,
+ *   so a foreign tag rendered another company's project name until that join
+ *   was scoped (same shape in `ar/invoicePdfBuilder`). Either way it is the
+ *   same defect on the same INSERT.
  *
- * THE BOUNDARY. This is a check on what a CALLER ASSERTS about a new line. One
- * writer does not assert anything: `reclassification/journals.ts` copies the
- * three dimensions off a HISTORICAL posted line, which may already hold a
- * foreign id — the very rows this defect created. Refusing there would unwind a
- * whole remediation batch over one legacy tag, so that path resolves ownership
- * itself through `ownedDimensions` and drops what it does not own, per line.
- * See `reclassification/dimensions.ts`. Every other caller stays refused.
+ * THE BOUNDARY. This is a check on what a CALLER ASSERTS about a new line. TWO
+ * writers assert nothing — they COPY the three dimensions off a HISTORICAL
+ * posted line, which may already hold a foreign id, the very rows this defect
+ * created:
+ *
+ * - `reclassification/journals.ts` — refusing would unwind a whole remediation
+ *   batch over one legacy tag. See `reclassification/dimensions.ts`.
+ * - `journalEntryPostingService#reverseJournalEntry` — refusing would leave the
+ *   entry permanently un-reversible, and reversal is the ONLY correction
+ *   mechanism in this schema (supplier-invoice cancel, credit-note cancel, the
+ *   MCP `reverse_journal_entry` tool and nine other callers all route through
+ *   it). See `reversalLines.ts`.
+ *
+ * Both resolve ownership themselves through `ownedDimensions` and drop what
+ * they do not own, per line and per dimension, with a `log.warn` and a warning
+ * the operator sees. Every other caller stays refused — including these two on
+ * the ACCOUNT arm, which cannot be dropped (a line needs an account) and which
+ * migration 664's composite FK refuses on the new row regardless.
  */
 
 import { sql } from '@/lib/neon';
@@ -80,10 +94,10 @@ export interface OwnedDimensions {
  * Which of the ids in `refs` this company actually owns — the same three reads
  * as the assertion above, without the refusal.
  *
- * For the ONE caller that does not assert a caller's claim but carries a
- * HISTORICAL value forward: see `reclassification/dimensions.ts`. Resolved once
- * for the whole batch, so a 400-journal reclassification pays three SELECTs and
- * not three per journal.
+ * For the two callers that do not assert a caller's claim but carry a
+ * HISTORICAL value forward: see `reclassification/dimensions.ts` and
+ * `reversalLines.ts`. Resolved once for the whole batch, so a 400-journal
+ * reclassification pays three SELECTs and not three per journal.
  */
 export async function ownedDimensions(companyId: string, refs: DimensionRefs): Promise<OwnedDimensions> {
   return {
@@ -91,6 +105,15 @@ export async function ownedDimensions(companyId: string, refs: DimensionRefs): P
     costCentre: await ownedIds('cost centre', companyId, present(refs.costCentre)),
     businessUnit: await ownedIds('business unit', companyId, present(refs.businessUnit)),
   };
+}
+
+/**
+ * The id when this company owns it, `null` when it does not or there is none —
+ * the one decision both copy-forward paths make, so they cannot drift apart on
+ * what counts as "owned".
+ */
+export function ownedOrNull(owned: ReadonlySet<string>, id: string | null | undefined): string | null {
+  return typeof id === 'string' && id !== '' && owned.has(id) ? id : null;
 }
 
 /**

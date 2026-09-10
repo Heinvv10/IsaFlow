@@ -209,3 +209,35 @@ bunx vitest run (full unit suite, DATABASE_URL UNSET) -> 792 files passed | 36 s
   9438 passed | 234 skipped (was 9437 before the new warnings case)
 bunx tsc --noEmit -> clean.  bunx eslint <4 changed src files> -> clean.
 No migration in round 7.
+
+=== Round 8 (HIGH-1: reverseJournalEntry copy-forward) ===
+$ bunx vitest run --config vitest.integration.config.ts tests/integration/k051-reversal-foreign-dimension.int.test.ts
+  Test Files 1 passed (1) / Tests 4 passed (4)
+$ ... k051-reversal + k051-reclassification-foreign-dimension + k051-cross-company-journal-line
+      + k052-reclassification-lock-savepoint + k052-reclassification-onto-header-account
+      + k051-account-merge-header-concurrency + k051-account-merge-into-header-hides-balance
+  Test Files 7 passed (7) / Tests 42 passed (42)
+$ bunx vitest run --config vitest.integration.config.ts tests/integration/k021-reversal-atomicity.int.test.ts
+  Test Files 1 passed (1) / Tests 6 passed (6)
+
+MUTATION PROOF (production code reverted, then restored; 0 MUTANT markers left):
+  1. reversalLines.ts copies l.projectId / l.costCenterId / l.buId raw (the pre-fix behaviour):
+     × reverses a journal carrying another company's dimensions  (throws "One or more journal
+       lines name a project outside this company" — the reported defect, reproduced)
+     × says the same thing in the MCP dry run as the live call
+     -> 2 failed | 2 passed
+  2. droppedLineCount never increments:
+     × the same 2 tests -> 2 failed | 2 passed
+  3. same as (1), unit level:
+     × drops a business unit this company does not own instead of refusing the reversal
+     -> 1 failed | 7 passed
+
+$ env -u DATABASE_URL bunx vitest run          # FULL unit suite, no fixture env
+  Test Files 792 passed | 36 skipped (828)
+  Tests 9439 passed | 234 skipped (9673)      [before the test fixture update: 5 failed in
+                                               tests/unit/services/gl/journalEntryReversal.test.ts
+                                               — the ownership SELECT shifts that file's mocked
+                                               sql queue; fixture updated, not the production code]
+$ bunx tsc --noEmit                            clean
+$ bunx eslint <7 changed src files>            clean
+$ bun run agent-docs:check                     OK: 74 mirrors match
