@@ -82,6 +82,11 @@ async function postHandler(req: NextApiRequest, res: NextApiResponse) {
           );
         case 'year_not_found':
           return apiResponse.notFound(res, 'Fiscal year');
+        case 'approval_required':
+          // Not a success: the close cannot run until an independent approval
+          // is supplied as approvalId.
+          return apiResponse.conflict(res,
+            'An independent approval is required to close this financial year. Request one, then retry with its approvalId.');
         case 'no_retained_earnings':
           return apiResponse.badRequest(
             res,
