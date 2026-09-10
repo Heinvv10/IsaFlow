@@ -11,6 +11,7 @@ import {applyLegacyCashPlan} from '@/modules/accounting/services/shared/cashAppl
 import {preparePayrollCompensation} from '@/modules/accounting/services/controls/payrollCompensationControl';
 import {executeCompensationCaller} from '@/modules/accounting/services/controls/payrollCompensationLegacyAdapter';
 import {recordBankRuleChange} from '@/modules/accounting/services/bank/bankRuleChangeControl';
+import {readControlEntityHistory} from '@/modules/accounting/services/controls/controlChangeHistoryService';
 import {appendEntityVersion,effectRows,entityVersions,eventSpellings,insertCaseVariantReceipt,ledgerRows,receiptsFor} from './intentReceiptRows';
 async function approved(ref:OperationRef){const approval=await actor(()=>requestOperationApproval(requireControlTx(),ref));await actor(()=>decideOperationApproval(requireControlTx(),approval.id,'approved'),'u2');return approval.id;}
 async function oneCanonicalEffect(id:string,operation:string){
@@ -61,15 +62,17 @@ it('an entity whose retained version is spelled in uppercase is extended, not fo
  expect(await entityVersions(pool,fixture.companyA,'bank_transaction',tx)).toEqual([{entity_id:tx.toUpperCase(),version:2}]);
  // The event and its evidence belong to the same lineage as the version row they advance.
  expect(await eventSpellings(pool,fixture.companyA,'bank_transaction',tx)).toEqual({events:[tx.toUpperCase()],evidence:[tx.toUpperCase()]});
+ // And a tenant asking for that entity's history is answered from the lineage, not refused.
+ const history=await actor(()=>readControlEntityHistory(requireControlTx(),{entityType:'bank_transaction',entityId:tx}));
+ expect(history.available).toBe(true);
+ expect(history.available&&history.items.map(item=>item.newVersion)).toEqual([2]);
 });
-it('a case-sensitive version reader refuses instead of forking when a legacy spelling is retained',async()=>{
+it('a rule change extends the lineage retained under a legacy spelling instead of being blocked by it',async()=>{
  const rule=randomUUID();
  await appendEntityVersion(pool,{id:fixture.u1.id,companyId:fixture.companyA},'bank_categorisation_rule',rule.toUpperCase());
- // recordBankRuleChange reads versions by exact spelling, so it still offers previousVersion null here.
- await expect(actor(()=>recordBankRuleChange(requireControlTx(),rule,null,{id:rule,name:'Synthetic legacy rule'},'created')))
-  .rejects.toThrow('Control entity version is stale');
- expect(await entityVersions(pool,fixture.companyA,'bank_categorisation_rule',rule)).toEqual([{entity_id:rule.toUpperCase(),version:1}]);
- expect((await eventSpellings(pool,fixture.companyA,'bank_categorisation_rule',rule)).events).toEqual([]);
+ await actor(()=>recordBankRuleChange(requireControlTx(),rule,null,{id:rule,name:'Synthetic legacy rule'},'created'));
+ expect(await entityVersions(pool,fixture.companyA,'bank_categorisation_rule',rule)).toEqual([{entity_id:rule.toUpperCase(),version:2}]);
+ expect((await eventSpellings(pool,fixture.companyA,'bank_categorisation_rule',rule)).events).toEqual([rule.toUpperCase()]);
 });
 it('two retained spellings and no canonical lineage fail closed instead of forking a third',async()=>{
  const tx=randomUUID(),mixed=`${tx.slice(0,8).toUpperCase()}${tx.slice(8)}`;
