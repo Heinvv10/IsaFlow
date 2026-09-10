@@ -106,50 +106,66 @@ describe('the fingerprint covers every input the statements are rendered from',(
 });
 
 describe('an edit that lands while the send is rendering',()=>{
- /** Runs `statement` on its own connection from inside the render; returns once it is blocked or done. */
+ /**
+  * Commits `statement` on its own connection from inside the send, just before the renderer
+  * runs — after the send has read and fingerprinted its inputs. Records whether the edit had to
+  * wait for the send: nothing that edits the company or its branding should.
+  */
  function landMidRender(statement:string,params:unknown[]){
-  const landed:{done?:Promise<unknown>}={};
+  const landed={waited:false};
   vi.mocked(renderDocumentHtml).mockImplementationOnce(async(...args)=>{
-   const html=await realRenderDocumentHtml(...args);
    const client=await h.pool.connect();
-   const pid=(await client.query('SELECT pg_backend_pid() AS pid')).rows[0].pid as number;
-   let finished=false;
-   landed.done=client.query(statement,params).finally(()=>{finished=true;client.release();});
-   for(let attempt=0;attempt<300&&!finished;attempt++){
-    const blocked=(await h.pool.query('SELECT cardinality(pg_blocking_pids($1))>0 AS b',[pid])).rows[0].b as boolean;
-    if(blocked)break;
-    await new Promise(done=>setTimeout(done,10));
-   }
-   return html;
+   try{
+    const done=client.query(statement,params);
+    const outcome=await Promise.race([done.then(()=>'done'),new Promise(resolve=>setTimeout(()=>resolve('waiting'),3000))]);
+    // If the send holds a lock the edit needs, let it finish after the send commits instead of
+    // deadlocking the test — and record that it had to wait.
+    if(outcome==='waiting'){landed.waited=true;void done.finally(()=>client.release());}
+    else client.release();
+   }catch(error){client.release();throw error;}
+   return realRenderDocumentHtml(...args);
   });
   return landed;
  }
 
- it('cannot sign branding changed under the send: the edit waits, and the signature is then refused',async()=>{
+ it('signs exactly what it fingerprinted when the branding is edited under it, and refuses the signature after',async()=>{
   const {doc,contact}=await s.readyToSign();
   try{
    const landed=landMidRender("UPDATE brand_profiles SET primary_colour='#abcdef' WHERE company_id=$1",[h.f.companyA]);
+   s.posted.length=0;
    const signum=await s.send(doc,contact);
-   await landed.done;
+   expect(landed.waited,'a branding save had to wait for a signing request').toBe(false);
+   const html=s.posted.at(-1)!;
+   expect(html,'the statements were rendered from values other than the ones fingerprinted').toContain('#123456');
+   expect(html).not.toContain('#abcdef');
    const row=await s.signed(signum,doc);
-   expect(row.status,'Signum got the old branding while the fingerprint recorded the new').toBe('partner_review');
+   expect(row.status,'a signature over the old branding was accepted after it changed').toBe('partner_review');
    expect(String(row.signing_refused_reason)).toMatch(/branding/i);
   }finally{await h.pool.query("UPDATE brand_profiles SET primary_colour='#123456' WHERE company_id=$1",[h.f.companyA]);}
  });
 
- it('refuses the send when a first brand profile is saved while it renders',async()=>{
+ it('signs on the default branding it saw when a first brand profile is saved under it, and refuses the signature after',async()=>{
   const {doc,contact}=await s.readyToSign();
   await h.pool.query('DELETE FROM brand_profiles WHERE company_id=$1',[h.f.companyA]);
   try{
    const landed=landMidRender(`INSERT INTO brand_profiles(company_id,primary_colour,secondary_colour,font_family,cover_style)
     VALUES($1,'#123456','#654321','professional','classic')`,[h.f.companyA]);
    s.posted.length=0;
-   const res=await s.sendRequest(doc,contact);
-   await landed.done;
-   expect(res.status,`a render on the default branding was signed as the new profile: ${JSON.stringify(res.body)}`).toBe(409);
-   expect(s.posted,'the document went to the signatories anyway').toHaveLength(0);
-   expect((await h.readDocument(doc)).signing_requested_at).toBeNull();
+   const signum=await s.send(doc,contact);
+   expect(landed.waited).toBe(false);
+   expect(s.posted.at(-1)!,'the render picked up a profile the fingerprint never saw').not.toContain('#123456');
+   const row=await s.signed(signum,doc);
+   expect(row.status).toBe('partner_review');
+   expect(String(row.signing_refused_reason)).toMatch(/branding/i);
   }finally{await h.brandProfile();}
+ });
+
+ it('lets an unrelated company setting be saved during a send, promptly, without voiding the signature',async()=>{
+  const {doc,contact}=await s.readyToSign();
+  const landed=landMidRender('UPDATE companies SET chase_grace_days=7 WHERE id=$1',[h.f.companyA]);
+  const signum=await s.send(doc,contact);
+  expect(landed.waited,'a chase-settings save waited on a signing request').toBe(false);
+  expect((await s.signed(signum,doc)).status,'an unrelated setting voided the signature').toBe('signed_off');
  });
 });
 
