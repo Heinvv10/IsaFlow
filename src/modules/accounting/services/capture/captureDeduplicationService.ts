@@ -25,9 +25,12 @@ type Row = Record<string, unknown>;
 
 /**
  * Compute the duplicate-detection fingerprint — the ONE producer of this
- * string in TypeScript. Its SQL mirror is the expression in migration 670,
- * which is the same expression migration 412's backfill used except for the
- * amount segment.
+ * string in TypeScript. Its SQL mirror is the expression in migration 670, and
+ * ONLY that one. Migration 412's backfill is not a second mirror: it differs in
+ * the amount segment (`total_amount::text`, which renders a NULL as `0` rather
+ * than `0.00`) and in the fold (`lower()`, which is collation-driven — see
+ * asciiLower below). 670 rewrites every row 412 wrote, so the disagreement is
+ * historical, but do not read 412 as agreeing by construction.
  *
  * THE AMOUNT IS FIXED-2 BECAUSE THE COLUMN IS. `total_amount` is
  * NUMERIC(15,2), so the SQL side renders 115 as `115.00`, while template
@@ -47,7 +50,25 @@ export function computeFingerprint(
   const vat = vatNumber ?? 'no-vat';
   const inv = invoiceNumber ?? 'no-inv';
   const amt = toColumnScale(totalAmount ?? 0);
-  return `${vat}|${inv}|${amt}`.toLowerCase();
+  return asciiLower(`${vat}|${inv}|${amt}`);
+}
+
+/**
+ * Fold A–Z, and nothing else.
+ *
+ * NOT `toLowerCase()`. Its SQL mirror is `lower()`, and the two disagree on
+ * Unicode: in an `en_US.utf8` database `lower('İNV-1')` is `inv-1` while
+ * `'İNV-1'.toLowerCase()` is `i̇nv-1` (six characters — it appends U+0307), and
+ * `lower('ΣΟΣ')` is `σοσ` while JS gives `σος` (final sigma). `invoice_number`
+ * is free text off a CSV or an OCR read, so one such character would put the
+ * stored key and the looked-up key out of step — the same miss this branch
+ * exists to close, one character class over. Folding only the ASCII letters is
+ * a mapping both sides can perform identically (`translate()` in migration
+ * 670, which is collation-independent), and it is the only range South African
+ * VAT numbers, bill numbers and the fixed-2 amount ever occupy.
+ */
+function asciiLower(s: string): string {
+  return s.replace(/[A-Z]/g, c => String.fromCharCode(c.charCodeAt(0) + 32));
 }
 
 /**

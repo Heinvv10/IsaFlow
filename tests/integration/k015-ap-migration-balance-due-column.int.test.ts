@@ -793,9 +793,12 @@ describeIfDb('K-015 AP migration import writes only real columns', () => {
     const c = await pool.connect();
     await c.query('BEGIN');
     try {
+      // The fold is translate() over A-Z, exactly as 670 does it — NOT lower(),
+      // which is collation-driven and has no TypeScript equivalent.
       const canonical = async (vat: string | null, num: string, amt: number) => (await c.query(
-        `SELECT lower(coalesce($1::text, 'no-vat') || '|' || coalesce($2::text, 'no-inv')
-                || '|' || coalesce($3::numeric, 0)::NUMERIC(15,2)::TEXT) AS fp`,
+        `SELECT translate(coalesce($1::text, 'no-vat') || '|' || coalesce($2::text, 'no-inv')
+                || '|' || coalesce($3::numeric, 0)::NUMERIC(15,2)::TEXT,
+                'ABCDEFGHIJKLMNOPQRSTUVWXYZ', 'abcdefghijklmnopqrstuvwxyz') AS fp`,
         [vat, num, amt],
       )).rows[0].fp as string;
 
@@ -810,6 +813,14 @@ describeIfDb('K-015 AP migration import writes only real columns', () => {
         // forever, which is this branch's defect one rounding mode over.
         [null, 'x', 1.005], [null, 'x', 100.005], [null, 'x', 2.675],
         [null, 'x', 0.005], [null, 'x', 1.0049], ['ABC', 'A', 9_999_999.995],
+        // The two characters on which `lower()` and `toLowerCase()` disagree.
+        // `İ` (U+0130) gains a U+0307 in JS and does not in SQL; a trailing
+        // sigma becomes a final sigma in JS and a plain one in SQL. Both are
+        // storable in invoice_number, which is free text off a CSV or an OCR
+        // read. With either side folding by case rather than by A-Z these two
+        // rows produce different strings and the exact-match lookup misses.
+        [null, 'İNV-1', 115], [null, 'ΣΟΣ', 115],
+        ['İΣ', 'İNV-2', 1.005],
       ] as [string | null, string, number][]) {
         expect(computeFingerprint(vat, num, amt)).toBe(await canonical(vat, num, amt));
       }
@@ -828,6 +839,16 @@ describeIfDb('K-015 AP migration import writes only real columns', () => {
          VALUES ($1, $2, $3, '2026-06-30', '2026-07-30', 100, 15, 115, 'approved', 'no-vat|k015-stale|115', $4)`,
         [COMPANY, supplier, `${TAG}-stale`, USER],
       );
+      // The same, on a number carrying the two characters the two fold
+      // implementations disagree about: 670 must leave a key computeFingerprint
+      // reproduces, or the row it just rewrote is invisible to the lookup.
+      await c.query(
+        `INSERT INTO supplier_invoices
+           (company_id, supplier_id, invoice_number, invoice_date, due_date,
+            subtotal, tax_amount, total_amount, status, duplicate_fingerprint, created_by)
+         VALUES ($1, $2, $3, '2026-06-30', '2026-07-30', 100, 15, 115, 'approved', 'no-vat|k015-stale|115', $4)`,
+        [COMPANY, supplier, `${TAG}-İΣ`, USER],
+      );
       await c.query(readFileSync(
         'scripts/migrations/sql/670_supplier_invoice_fingerprint_canonical_backfill.sql', 'utf8',
       ));
@@ -838,6 +859,15 @@ describeIfDb('K-015 AP migration import writes only real columns', () => {
       )).rows[0].duplicate_fingerprint as string;
       expect(after).toBe(computeFingerprint(null, `${TAG}-stale`, 115));
       expect(after.endsWith('|115.00')).toBe(true);
+
+      const afterUnicode = (await c.query(
+        `SELECT duplicate_fingerprint FROM supplier_invoices
+          WHERE company_id = $1 AND invoice_number = $2`,
+        [COMPANY, `${TAG}-İΣ`],
+      )).rows[0].duplicate_fingerprint as string;
+      expect(afterUnicode).toBe(computeFingerprint(null, `${TAG}-İΣ`, 115));
+      // And it is not the string either fold-by-case implementation would give.
+      expect(afterUnicode).not.toBe(`no-vat|${TAG}-İΣ|115.00`.toLowerCase());
     } finally {
       await c.query('ROLLBACK').catch(() => {});
       c.release();

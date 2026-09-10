@@ -128,7 +128,7 @@ export async function importAPInvoices(
       const rowImported = await withSavepoint('mig_ap_invoice_row', async () => {
         // Idempotency by lookup, not by constraint, and keyed on the bill's
         // IDENTITY — supplier plus invoice number — rather than on its amount.
-        // The fingerprint carries the total (lower(vat|invoice_number|total)),
+        // The fingerprint carries the total (asciiLower(vat|invoice_number|total)),
         // so the ordinary operator loop — import, notice a wrong total, correct
         // the CSV, re-run — produced a different key, missed, and posted the
         // same bill a second time against the AP control account. AR is spared
