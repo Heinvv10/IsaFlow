@@ -167,7 +167,7 @@ export const approvePayRunTool: McpTool = {
 
 
     if (args.dry_run === true) {
-      const refusal = await payrollPreviewRefusal(ctx.companyId, run.id);
+      const refusal = await payrollPreviewRefusal(ctx.companyId, run.id, approvePayRunTool);
       if (refusal) return toolError(refusal);
       return ok({
         dryRun: true,

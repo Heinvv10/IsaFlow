@@ -38,8 +38,8 @@ export const EFFECTIVE_PERMISSION_RULES: Readonly<Record<string, PermissionRule>
 export type PermissionReason = 'UNKNOWN_PERMISSION' | 'ROLE_CEILING' | 'MISSING_SCOPE' | 'MODULE_DENIED' | 'ENTITY_REQUIRED';
 /**
  * A refusal can also be an account CHECKED and found outside the permitted
- * range, or one the company-scoped lookup did not return at all — missing and
- * other-tenant alike, which is why they share one reason.
+ * range, or one the company-scoped lookup did not return at all — a missing
+ * account and another tenant's alike, which is why those two share one reason.
  */
 export type PermissionRefusalReason = PermissionReason | 'ACCOUNT_OUT_OF_RANGE' | 'ACCOUNT_NOT_FOUND';
 export function hasConstraints(p: ModulePermission): boolean {

@@ -225,13 +225,6 @@ export const yearEndCloseTool: McpTool = {
           + 'false, that is the thing to fix, and this close will work once it is.',
         );
       }
-      if (result.error === 'no_fiscal_period') {
-        return toolError(
-          `No fiscal period covers ${result.entryDate}, where the closing journal would be dated. `
-          + 'Posting it without one would leave it outside the trial balance, the VAT201 and the '
-          + 'AFS permanently. Nothing was posted.',
-        );
-      }
       if (result.error === 'ambiguous_retained_earnings') {
         return toolError(
           `More than one account could be retained earnings (${result.accountCodes.join(', ')}) `
