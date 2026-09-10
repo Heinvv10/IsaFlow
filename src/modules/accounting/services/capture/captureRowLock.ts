@@ -38,9 +38,20 @@
  * `WHERE posted_at IS NULL` (migration 672).
  *
  * Behind it, `uq_gl_je_capture_source_document` (same migration) is a partial
- * UNIQUE index on `gl_journal_entries(company_id, source_document_id)` for the
- * capture posting sources, so a route that forgets to claim — or one invented
- * later — still cannot land a second posting journal against one receipt.
+ * UNIQUE index on `gl_journal_entries(company_id, source_document_id)` for
+ * `source = 'auto_expense_receipt'` and unreversed rows only, so a JOURNAL route
+ * that forgets to claim — or one invented later — still cannot land a second
+ * live posting journal against one receipt.
+ *
+ * IT REACHES TWO OF THE FOUR ROUTES, and saying otherwise is how the fourth got
+ * built without a claim. `capture/[id]/post` and `ai-invoice-pipeline` write
+ * `supplier_invoices`, a different table the index does not touch; the claim is
+ * the whole fence there. `fix.md` tables every writer and what covers it.
+ *
+ * `releaseCapturedDocumentPostingClaim` is the way back: reversing the journal
+ * or cancelling the invoice clears `posted_at`, which is what makes the refusal
+ * message's "Reverse the journal or invoice first" a true instruction rather
+ * than a dead end.
  *
  * Write paths ONLY.
  */

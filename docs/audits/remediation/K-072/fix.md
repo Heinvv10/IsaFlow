@@ -335,6 +335,158 @@ JOIN supplier_invoices si
 WHERE je.source = 'auto_expense_receipt' AND je.source_document_id IS NOT NULL;
 ```
 
+## Round 7 — the fourth route, the census, and the way out
+
+### HIGH-1 — `ai-invoice-pipeline` was a FOURTH posting route with no claim
+
+FIXED. It read `captured_documents.status` and nothing else: no `FOR UPDATE`, no `posted_at`, no
+claim. `receipt-to-journal` then this endpoint on one R1 150 receipt gives a posted GL journal
+claiming R150 of input tax AND an auto-approved supplier invoice carrying `tax_amount` 150.00 —
+R300 in front of the VAT201 from a slip that says R150. It now locks the document, refuses on
+`refusalForPosting`, and claims immediately before the `supplier_invoices` INSERT, after the
+duplicate-blocked branch (which has already written and answers 409). Proved in
+`tests/integration/k072-capture-fourth-route.int.test.ts`.
+
+**The sentence at fix.md:341 was false and is retracted.** It said "only the application claim
+stops a second invoice there". That route had no claim at all — the sentence described a defence
+that did not exist on the path it named. The table below replaces it.
+
+### The census — every writer that can put a captured document into the ledger
+
+Enumerated from the WRITERS of `gl_journal_entries` / `supplier_invoices` carrying a
+`source_document_id`, not by grepping for the fence. `journalEntryCrudService` is the only INSERT
+into `gl_journal_entries`, so its callers are the complete journal set; `INSERT INTO
+supplier_invoices` has six sites, of which two stamp `source_document_id`.
+
+| # | Writer | Row it creates | `source` | Claims? | Index reach |
+|---|---|---|---|---|---|
+| 1 | `receipt-to-journal.ts` | `gl_journal_entries` | `auto_expense_receipt` | YES | covered by `uq_gl_je_capture_source_document` |
+| 2 | `capture/[id]/post-expense.ts` → `pettyCashJournalService` | `gl_journal_entries` | `auto_expense_receipt` | YES | covered |
+| 3 | `capture/[id]/post-expense.ts` → `expenseClaimService` | `expense_claim_lines`, later a JE | `auto_expense_claim` | YES | n/a — the claim JE header carries **no** `source_document_id` (a claim has many source docs), so it can never collide |
+| 4 | `capture/[id]/post.ts` | `supplier_invoices` | n/a | YES | **NOT covered** — different table |
+| 5 | `ai-invoice-pipeline.ts` | `supplier_invoices` | n/a | **NO → now YES** | **NOT covered** — different table |
+
+Not posting events, and deliberately outside the fence:
+
+| Writer | What it does | Why it is not a posting |
+|---|---|---|
+| `evidenceAttachmentService`, `provisional/[jeId]/attach.ts` | UPDATEs `source_document_id` onto an existing provisional bank journal | attaches evidence; creates no ledger row. An unscoped unique index would 23505 these — which is why the index is scoped to `source = 'auto_expense_receipt'` |
+| `bankAllocationService.ts:369` | copies an invoice's `source_document_id` onto an allocation journal | lineage stamp under a different `source` |
+| `ar/disputes/index.ts` → `disputeService` | writes `ar_disputes.source_document_id` | not a ledger table |
+| `writeOffService`, `migrationApService`, `creditNoteApproveService`, `adjustmentService`, `batchPaymentService`, `vatAdjustmentService`, `migrationImportService` | each carries an explicit `// No sourceDocumentId` comment | the column stays NULL |
+
+**Does the index cover route 5's `source`?** No — and not because of a `source` mismatch. Routes 4
+and 5 write `supplier_invoices`; `uq_gl_je_capture_source_document` is a unique index on
+`gl_journal_entries`. It cannot reach either of them at any `source` value. On those two paths the
+application claim is the whole fence, and `captureRowLock.ts` now says so in its header instead of
+implying the index covers every route.
+
+### HIGH-2 — the "single vocabulary" had two members spelling their own parts
+
+FIXED. `NET_LABEL` carried a hardcoded `S[./]` while `SEP` is `[\s._/-]*`, so `S-Total`, `S_Total`
+and `S Total` were refused by neither guard nor pattern: measured, `S-Total 1000.00 / VAT 150.00 /
+Total Due 1150.00` came back total=1000, subtotal=850, vat=150 — balanced, inside the auto-post
+gate, bank credited R150 short. `NOT_A_TAX_LABEL` carried a hardcoded `[\s-]*`, so `Total Excl_VAT
+1000.00 / Total Due 1150.00` measured vat=1000: an R1 000 input-tax claim on an R1 150 invoice.
+
+Every member was then audited and rebuilt from the shared parts:
+
+| Member | Was | Now |
+|---|---|---|
+| `NET_LABEL` | `S[./]${SEP}Total` | `S${SEP}Total` |
+| `NOT_A_SUBTOTAL` | `(?:Sub\|Nett?\|S[./]\|TAX)${SEP}` | `(?:Sub\|Nett?\|S\|TAX)${SEP}` |
+| `NOT_A_TAX_LABEL` | `(?:EXCL\|INCL)[\s-]*` | `(?:EXCL\|INCL)${SEP}` |
+| `NET_PREFIX` | hand-spelled `Sub${SEP}Total` | `${NET_LABEL}` — all four members |
+| `EXCL`/`INCL` | two copies of the `c(?:l(?:uding)?)?` stem | both from `ABBREV_TAIL` |
+| `SUBTOTAL_PATTERNS[2]` | its own `Exc(?:l(?:uding)?)?\.?` | `EXCL_LONG`, from `ABBREV_TAIL` |
+| `TOTAL_PATTERNS[0..2]`, `VAT_PATTERNS[4]`, `SUMMARY_LINE_START` | `\s*` / `[\s-]*` between label words | `${SEP}` throughout |
+
+`tests/unit/services/k076-ocr-vocabulary-separators.test.ts` walks each member across every
+separator `SEP` admits, in both directions (`Sales Total`, `Taxi fare`, `Exclusive of delivery` and
+`Index VAT` must NOT be swallowed). 132 assertions.
+
+### MEDIUM — migration 672's WARNING was provably swallowed
+
+FIXED: it now `RAISE EXCEPTION`s. Measured on the fixture with two live duplicate journals seeded:
+
+- the committed pre-fix file (`git show 10f0abaef:...672...`) → **psql exit 0**, index absent. The
+  deploy proceeds and the database ships without the constraint.
+- the fixed file → **psql exit 3**, index absent, message `K-072: 1 captured document(s) carry more
+  than one LIVE posting journal…`.
+- after the operator remedy below → **exit 0**, index created.
+
+There is no `notice` listener in `scripts/apply-migrations.ts` on this branch or on master (the one
+that surfaces migration warnings is R-041, still unmerged), so `RAISE WARNING` went to a callback
+nothing was listening on.
+
+**What an operator must do when 672 aborts.** List the offenders:
+
+```sql
+SELECT company_id, source_document_id, COUNT(*), array_agg(entry_number)
+  FROM gl_journal_entries
+ WHERE source_document_id IS NOT NULL AND source = 'auto_expense_receipt' AND reversed_at IS NULL
+ GROUP BY company_id, source_document_id
+HAVING COUNT(*) > 1;
+```
+
+For each pair, REVERSE the journal that should not exist (Accounting → General Ledger → the entry →
+Reverse), then re-run the migration. Reversal, never DELETE: the incorrect input VAT has already
+been claimed in a VAT201 and must be corrected in the period that carries it. The reversal also
+releases the document's posting claim, so the receipt can be re-posted correctly.
+
+### MEDIUM — `posted_at` had no clearing path
+
+FIXED. `document-capture-action` refuses a confirm/reject with "Reverse the journal or invoice
+first"; nothing cleared `posted_at`, so that instruction was a dead end and the document stayed
+refused by every route permanently.
+
+`releaseCapturedDocumentPostingClaim` (`src/modules/accounting/services/capture/capturePostingClaimRelease.ts`)
+clears it, and is called from the two undo paths: `reverseJournalEntry` (when the reversed entry
+carries a `source_document_id`) and `cancelSupplierInvoice`. It refuses unless **both** NOT EXISTS
+clauses hold — no unreversed `auto_expense_receipt` journal and no uncancelled supplier invoice
+still reference the document — so undoing ONE of two live rows does not hand the document back.
+That case is asserted directly.
+
+Migration 672's index gained `AND reversed_at IS NULL` for the same reason: without it the re-post
+the release permits would 23505 against the row it had just reversed, making the release a promise
+the database refused to keep. The 672 backfill now uses the same two predicates, so the fence and
+its undo cannot disagree about what "posted" means.
+
+### MEDIUM — the `INCL` half of the vocabulary had a guard but no pattern
+
+FIXED. `NOT_A_TAX_LABEL` refused `Incl VAT` as the tax with no prefix required, while
+`TOTAL_PATTERNS` read it back only behind a MANDATORY prefix and `SUMMARY_LINE_START` had no branch
+at all. Measured, a bare `Incl VAT 1150.00` came back total/subtotal/vat all NULL — a 400 on a
+legible slip — and the line was collected as a phantom R1 150 expense item. The prefix is now
+optional in `TOTAL_PATTERNS[2]` (the same shape `SUBTOTAL_PATTERNS[1]` gives the exclusive twin) and
+`SUMMARY_LINE_START` carries one branch per pattern.
+
+### Also fixed, because the fence could not be proved without it
+
+`ai-invoice-pipeline` inserted `company_id` into `supplier_invoice_items` — a column that table has
+never had (no migration adds it; `supplierInvoiceService`, the canonical AP insert, omits it).
+`buildInvoiceFromExtraction` synthesises an "As per invoice" line when the document has none, so
+there was ALWAYS at least one item: every call raised 42703, `withAuth` rolled the request back and
+the route had never created an invoice. That is why HIGH-1's double claim was latent rather than
+live — one repaired line away from posting. The column is removed from the INSERT; tenancy rides on
+`supplier_invoice_id`, whose invoice is company-scoped, exactly as `supplierInvoiceService` does.
+
+### Round-7 limits, disclosed
+
+- **`journalEntryPostingService.ts` is 358 lines and `supplierInvoiceWorkflowService.ts` is 524** —
+  both were already over the 300-line cap before this branch (345 and 513); this round added 8 and
+  11 lines respectively. Splitting either is a refactor of code the findings did not name.
+- **`expenses/[id].tsx` is 420 lines**, below its pre-branch 431. Disclosed and accepted in round 6.
+- **No unique index on `supplier_invoices(company_id, source_document_id)`.** Routes 4 and 5 are
+  fenced by the application claim only. The follow-up index is still deferred: its production
+  duplicate risk has not been measured, and unlike the journal index there is no `reversed_at`
+  equivalent to make it undo-safe (`status = 'cancelled'` would have to be in the predicate).
+- **The backfill still treats a hard-DELETEd ledger row as un-posted.** A document whose journal was
+  deleted outright rather than reversed becomes postable again. Deleting a posted journal is itself
+  blocked elsewhere, so this is a residual, not a live path.
+- The three round-6 LOW findings could not be recovered — the review file was lost with the
+  scratchpad and neither `fix.md` nor `green.log` records their text. Stated rather than guessed.
+
 **Round-6 limits.** The backfill treats "has a journal, a supplier invoice, or a
 `matched_invoice_id`" as posted; a document whose ledger row was later deleted outright becomes
 postable again. The unique index does not cover the supplier-invoice path — `capture/[id]/post` and
