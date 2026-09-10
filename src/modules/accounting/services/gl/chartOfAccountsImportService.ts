@@ -5,6 +5,10 @@
  */
 
 import { sql } from '@/lib/neon';
+import {withGlAccountChanges} from './glAccountChangeControl';
+import {canonicalJson} from '../controls/canonical';
+import {requireControlTx} from '../controls/context';
+import {readGlChangeRows} from './glAccountChangeRows';
 import { log } from '@/lib/logger';
 import { cache } from '@/lib/cache';
 import type { GLAccountType } from '../../types/gl.types';
@@ -150,11 +154,11 @@ export function getTemplateLines(template: CoaTemplate): readonly TemplateLine[]
  * Seed a Chart of Accounts for a newly-created company from the chosen template.
  * Two-pass insert: first without parent_account_id, then wire up parents.
  */
-export async function seedChartOfAccountsFromTemplate(
+async function seedChartOfAccountsRaw(
   companyId: string,
   template: CoaTemplate,
+  lines: readonly TemplateLine[],
 ): Promise<void> {
-  const lines = getTemplateLines(template);
   if (lines.length === 0) return; // 'blank' — no seeding
 
   // Pass 1: insert all accounts (no parent yet)
@@ -225,4 +229,16 @@ export async function getAccountBalance(
     log.error('Failed to get account balance', { accountId, error: err }, 'accounting');
     throw err;
   }
+}
+
+export async function seedChartOfAccountsFromTemplate(companyId:string,template:CoaTemplate):Promise<void>{
+ const lines=JSON.parse(canonicalJson(getTemplateLines(template))) as TemplateLine[];
+ return withGlAccountChanges(companyId,{codes:lines.map(row=>row.code)},'template_seeded',async()=>{
+  await seedChartOfAccountsRaw(companyId,template,lines);
+  const rows=await readGlChangeRows(requireControlTx(),{codes:lines.map(row=>row.code)});
+  for(const line of lines.filter(row=>row.parentCode)){
+   const child=rows.find(row=>row.account_code===line.code),parent=rows.find(row=>row.account_code===line.parentCode);
+   if(!child||!parent||child.parent_account_id!==parent.id)throw new Error('Expected template parent was not retained');
+  }
+ });
 }

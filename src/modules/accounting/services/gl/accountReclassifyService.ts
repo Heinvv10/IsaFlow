@@ -19,6 +19,9 @@
  */
 
 import { sql } from '@/lib/neon';
+import {withGlAccountChanges} from './glAccountChangeControl';
+import {detachGlInput,readGlChangeRows} from './glAccountChangeRows';
+import {requireControlTx} from '../controls/context';
 import { log } from '@/lib/logger';
 import { cache } from '@/lib/cache';
 import type { GLAccount, GLAccountSubtype, GLAccountType } from '../../types/gl.types';
@@ -179,7 +182,7 @@ async function assertParentAllowed(
   return childLevel;
 }
 
-export async function reclassifyAccount(
+async function reclassifyAccountRaw(
   companyId: string,
   id: string,
   input: ReclassifyAccountInput,
@@ -249,4 +252,22 @@ export async function reclassifyAccount(
   const updated = await getAccountById(companyId, id);
   if (!updated) throw new ReclassifyError('Account not found');
   return updated;
+}
+
+export async function reclassifyAccount(companyId:string,id:string,input:ReclassifyAccountInput):Promise<GLAccount>{
+ const safe=detachGlInput(input);
+ return withGlAccountChanges(companyId,safe.parentAccountId===undefined?{ids:[id]}:{descendantsOf:id,parentId:safe.parentAccountId},'reclassified',async before=>{
+  const original=before.find(row=>row.id===id)!;
+  const result=await reclassifyAccountRaw(companyId,id,safe);
+  const after=await readGlChangeRows(requireControlTx(),{ids:before.map(row=>row.id)});
+  const delta=result.level-Number(original.level);
+  for(const prior of before){
+   const current=after.find(row=>row.id===prior.id);
+   const expectedParent=prior.id===id&&safe.parentAccountId!==undefined?safe.parentAccountId:prior.parent_account_id;
+   const expectedSubtype=prior.id===id&&safe.accountSubtype!==undefined?safe.accountSubtype:prior.account_subtype;
+   if(!current||current.level!==Number(prior.level)+delta||current.parent_account_id!==expectedParent||current.account_subtype!==expectedSubtype)
+    throw new Error('Expected GL reclassification was not retained');
+  }
+  return result;
+ });
 }
