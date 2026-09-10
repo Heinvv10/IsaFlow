@@ -70,9 +70,10 @@ export const settleByContraTool: McpTool = {
     + 'commercial reason (create_credit_note), or writing a debt off to bad debts, which is a '
     + 'policy decision rather than a settlement. '
     + 'Run with dry_run first: it reports the journal that would post and writes nothing.',
-  // Both sides settle through a payment, whose authority is write:bank-tx; no
-  // path here asserts write:invoices.
-  scope: 'write:bank-tx',
+  // write:invoices is required on both sides (the AP side approves the supplier
+  // payment under it, supplierPaymentStatusControl.ts); write:bank-tx is asserted
+  // additionally, on the preview too, and a refusal names it.
+  scope: 'write:invoices',
   write: true,
   requiresPost: true,
   inputSchema: {
