@@ -20,6 +20,7 @@ import {
 import {
   ApprovalDocumentNotFoundError, resolveApprovalDocument,
 } from '@/modules/accounting/services/gl/approvalDocuments';
+import { ApprovalRequestLockTimeoutError } from '@/modules/accounting/services/gl/approvalRequestLock';
 import { isUuidParam } from '@/lib/validation';
 
 const DOCUMENT_TYPES = new Set<DocumentType>(['customer_invoice', 'supplier_invoice', 'payment', 'journal_entry', 'credit_note']);
@@ -127,6 +128,11 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
         // outcome — a 404, not the 500 a bare Error used to produce.
         if (error instanceof ApprovalRequestNotFoundError) {
           return apiResponse.notFound(res, error.message);
+        }
+        // Another request held the row past the 5s budget — the decide never
+        // ran, so it is a retry, not a fault.
+        if (error instanceof ApprovalRequestLockTimeoutError) {
+          return apiResponse.conflict(res, error.message, { reason: error.code });
         }
         throw error;
       }

@@ -309,10 +309,17 @@ re-examined**: `ruleId` was already unread (round 4), `documentReference` is now
 the query `amount`, so the advisory answer is the rule the request path would actually bind.
 *The pin.* `checkApproval` no longer short-circuits on an existing pending request — it returns
 the governing rule ALONGSIDE it — and `rebindPendingRequest` moves a pending row onto the rule
-today's facts choose (status-predicated UPDATE; a row decided in between is left alone). Both
-inputs are server-derived, so re-binding cannot be steered by a caller. A pending request survives
-unchanged only when it is already on the governing rule at the stored amount, or when no active
-rule governs the document any more.
+today's facts choose (status-predicated UPDATE; a row decided in between is left alone). A pending
+request survives unchanged only when it is already on the governing rule at the stored amount and
+snapshot, when no active rule governs the document any more, or when the rule today's facts choose
+is LAXER than the one it was raised under.
+
+*Correction (round 6).* An earlier revision of this paragraph said "both inputs are server-derived,
+so re-binding cannot be steered by a caller". The two inputs are; **the rule SET they are matched
+against is not** — rule authority deliberately lets an actor edit any rule at or below their own
+rank, so an admin could raise the bound rule's `condition_value` out of range, or deactivate it,
+and re-POST to move their own pending request onto the `manager any` rule beside it. Re-binding IS
+steerable. What closes it is the ratchet in round 6 below, not the server-derived inputs.
 
 **M1 — "one pending request per document" was a comment. FIXED by migration 665.**
 `uq_approval_requests_pending`, a partial unique index on
@@ -405,3 +412,101 @@ WHERE approver_role NOT IN ('super_admin','owner','system','admin','manager',
                             'accountant','bookkeeper','storeman','technician','user','viewer');
 ```
 No rows are rewritten by the code change; migration 665 cancels duplicate PENDING requests only.
+
+---
+
+## Round 6 (blind review of `70ce13391`) — 1 HIGH, 2 MEDIUM, 3 LOW, all closed
+
+**HIGH-1 — a pending request's authority could be LOWERED by its own subject. FIXED (migration 669).**
+The review named one lever: `rebindPendingRequest` moved a pending row onto whatever rule today's
+facts choose, in either direction, so an admin raised the bound rule's `condition_value` out of
+range through `PUT /api/accounting/approval-rules` (a rule at their own rank, which rule authority
+permits), re-POSTed, and the request rebound to the `manager any` rule beside it — a manager then
+cleared a R500 000 bill.
+
+Enumerating the lever rather than patching it found **a second one the review did not name**:
+`assertMayDecide` reads `approval_rules.approver_role` LIVE, so the same admin could simply
+`PUT { approverRole: 'manager' }` on the BOUND rule and skip the rebind entirely. Reproduced red
+before the fix (`k-043-r6-authority-ratchet.int.test.ts`, lever B). Deactivating the bound rule is
+lever A by a different field, also red before the fix. The reviewer's suggested one-line ratchet on
+the rebind would have left lever B live.
+
+The closure is a ratchet on the request, not a guard on any lever. Migration **669** adds
+`approval_requests.required_role`, written from the matched rule when the request is raised and
+backfilled for pending rows from the bound rule (company-scoped through the join).
+`rebindPendingRequest` refuses any rebind whose rule ranks BELOW that snapshot and raises it
+otherwise; `assertMayDecide` demands the HIGHER of the snapshot and the bound rule's live role.
+New facts may make a pending request stricter; nothing may make it laxer, and a policy change still
+applies in full to every request raised after it. Rows raised before 669 carry NULL and are governed
+by the live rule exactly as they always were.
+
+**M-2 — `decideRequest` authorised against a row it did not hold. FIXED.**
+`assertMayDecide`'s SELECT was unlocked and the status-predicated UPDATE is a separate statement, so
+a concurrent rebind could move the row between them and the decide would still commit.
+`approvalRequestLock.ts` (`lockApprovalRequestForUpdate`) takes `FOR UPDATE` with the module's usual
+5s `lock_timeout` before the authority is computed; the route answers 409 on a timeout. Same idiom as
+`bank/bankTxLock.ts` and `gl/glAccountLock.ts`, and pinned deterministically rather than by racing:
+`tests/integration/api/approvalRequestLock.test.ts`.
+
+**M-1 — the docs stated the opposite of HIGH-1 as settled. FIXED.** The round-5 paragraph in this
+file and the round-5 entry in `services/gl/.claude.md` both said re-binding "cannot be steered by a
+caller". The inputs are server-derived; the rule SET they are matched against is not. Both now say
+so and point at the ratchet.
+
+**L-1 — the 23505 recovery arm was untested. FIXED.** No integration test can reach it (the handlers
+serialise in-process, so the second call returns through `rebindPendingRequest` and the INSERT is
+never issued). `tests/unit/services/gl/approvalRequestRaceRecovery.test.ts` drives it at the driver:
+the savepoint name and its 31-character limit, the re-read, the racer's row returned, the re-bind
+ratcheting up but never down, and re-throw on a 23505 no re-read explains and on any other code.
+
+**L-2 — the 23503 arm answered the wrong sentence on create and update. FIXED.** It is gated to the
+DELETE branch; a foreign-key violation on a create or update now propagates rather than telling the
+caller their rule "cannot be deleted".
+
+**L-3 — `condition_field` was settable and never evaluated. FIXED.** Validated against
+`['total','amount']` (`ApprovalFieldInvalidError`, 400). It stays descriptive — `checkApproval`
+matches the resolved document amount whichever word is stored — but it is not decorative: the rules
+page renders `${conditionField} > ${conditionValue}`, so an unvalidated `vat` read as a VAT
+threshold while governing the total.
+
+**Round-6 files.** `scripts/migrations/sql/669_approval_requests_required_role_ratchet.sql` (new);
+`src/modules/accounting/services/gl/approvalRequestLock.ts` (new); `approvalDocuments.ts`,
+`approvalAuthority.ts`, `approvalMatching.ts`, `approvalService.ts`,
+`pages/api/accounting/approval-{requests,rules}.ts`, `services/gl/.claude.md` (+ mirror).
+
+**Round-6 tests.** `tests/integration/k-043-r6-authority-ratchet.int.test.ts` (8, real DB) —
+levers A, B and B', the ratchet turning upwards, a legacy NULL-snapshot row, a foreign-tenant rule
+edit, and an idempotent re-POST. `tests/integration/api/approvalRequestLock.test.ts` (5, real DB).
+`tests/unit/services/gl/approvalRequestRaceRecovery.test.ts` (6).
+`tests/unit/services/gl/approvalRuleOperatorGuard.test.ts` +4 and
+`tests/unit/api/approvalRulesSavepoint.test.ts` +3. Approval integration total 60 → **73**; full
+unit suite 9517 passed / 234 skipped with `DATABASE_URL` unset.
+
+**Round-6 mutations** (all red, restored from file copies): rebind ratchet removed (2 red);
+`assertMayDecide` reading the live role only (1 red — lever B); the INSERT not writing the snapshot
+(4 red); the lock's `FOR UPDATE` removed (2 red); the 23503 arm ungated (2 red);
+`assertConditionField` a no-op (3 red); the 23505 arm re-throwing instead of re-reading (4 red).
+
+**Round-6 rollback.** `ALTER TABLE approval_requests DROP COLUMN required_role;` — the column is
+additive and nothing outside this module reads it. Dropping it restores round-5 behaviour exactly
+(both levers with it).
+
+**Round-6 historical impact.** 669 writes only `required_role`, only on PENDING rows, only from the
+rule already bound — no request changes hands and no decision is revisited. Decisions ALREADY taken
+under a lowered rule are not detectable from the request row (the rule's old role is not stored, and
+`approval_rules` kept no history before round 3's audit rows), so the closest read-only probe is
+decided requests whose rule was updated after the request was raised. Read-only, not run here:
+```sql
+SELECT ar.id, ar.company_id, ar.document_type, ar.document_id, ar.amount,
+       ar.requested_by, ar.decided_by, ar.decided_at,
+       rl.name AS rule_name, rl.approver_role, rl.updated_at AS rule_updated_at
+FROM approval_requests ar
+JOIN approval_rules rl ON rl.id = ar.rule_id AND rl.company_id = ar.company_id
+WHERE ar.status IN ('approved','rejected')
+  AND rl.updated_at > ar.requested_at
+  AND rl.updated_at <= ar.decided_at
+ORDER BY ar.decided_at DESC;
+```
+Cross-check each hit against `audit_log` (`entity_type = 'approval_rule'`, round 3 onwards) for an
+`approver_role` or `is_active` change by the requester themselves. No rows are rewritten by 669
+beyond the snapshot backfill.

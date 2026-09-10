@@ -25,6 +25,7 @@ vi.mock('@/modules/accounting/services/core/auditTrailService', () => ({
 import { sql } from '@/lib/neon';
 import {
   createRule, updateRule, ApprovalOperatorInvalidError, ApprovalRoleInvalidError,
+  ApprovalFieldInvalidError,
 } from '@/modules/accounting/services/gl/approvalService';
 import type { RuleActor } from '@/modules/accounting/services/gl/approvalRuleGuards';
 
@@ -80,5 +81,43 @@ describe('updateRule operator allowlist', () => {
       .mockResolvedValueOnce([{ id: RULE, name: 'r', approver_role: 'admin', is_active: false }]);
     await expect(updateRule(COMPANY, RULE, { isActive: false }, actor))
       .resolves.toMatchObject({ id: RULE });
+  });
+});
+
+/**
+ * K-043 round 6 (LOW-3): `condition_field` was settable, stored, and never
+ * evaluated — `checkApproval` matches the resolved document amount whatever the
+ * column says. That is worse than decorative, because the rules page renders
+ * `${conditionField} > ${conditionValue}`: a rule authored as `vat` read as a
+ * VAT threshold while it governed the total. Both accepted spellings name the
+ * same number; nothing branches on which one is stored.
+ */
+describe('conditionField allowlist', () => {
+  it('refuses a create naming a field nothing evaluates, without touching the database', async () => {
+    await expect(createRule(COMPANY, {
+      name: 'r', documentType: 'payment', conditionField: 'vat',
+    }, actor)).rejects.toBeInstanceOf(ApprovalFieldInvalidError);
+    expect(sqlMock).not.toHaveBeenCalled();
+  });
+
+  it('refuses an update naming one, without touching the database', async () => {
+    await expect(updateRule(COMPANY, RULE, { conditionField: 'lines' }, actor))
+      .rejects.toBeInstanceOf(ApprovalFieldInvalidError);
+    expect(sqlMock).not.toHaveBeenCalled();
+  });
+
+  it('names the accepted fields in the message', async () => {
+    await expect(createRule(COMPANY, {
+      name: 'r', documentType: 'payment', conditionField: 'vat',
+    }, actor)).rejects.toThrow(/conditionField must be one of: total, amount/);
+  });
+
+  it('accepts both spellings and an omitted field', async () => {
+    for (const conditionField of ['total', 'amount', undefined]) {
+      sqlMock.mockReset();
+      sqlMock.mockResolvedValueOnce([{ id: RULE, name: 'r', approver_role: 'admin' }]);
+      await expect(createRule(COMPANY, { name: 'r', documentType: 'payment', conditionField }, actor))
+        .resolves.toMatchObject({ id: RULE });
+    }
   });
 });

@@ -12,7 +12,7 @@
  * 400 is written. Everything below the route is mocked: the subject is the
  * route's own error plumbing.
  */
-import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import type { NextApiRequest, NextApiResponse } from 'next';
 
 const savepoints: string[] = [];
@@ -133,5 +133,45 @@ describe('a caught 23514 unwinds the savepoint before the 400 is written', () =>
     const { req, res } = mockReqRes('PUT', { id: RULE, isActive: true });
     await expect(call(req, res)).rejects.toThrow('connection reset');
     expect(rolledBack).toEqual(['approval_rule_write']);
+  });
+});
+
+/**
+ * K-043 round 6 (LOW-2): `respondToRuleWriteError` is shared by POST, PUT and
+ * DELETE, and its 23503 arm answered every one of them with "this rule has
+ * approval requests recorded against it and cannot be deleted. Deactivate it
+ * instead." A foreign-key violation on a CREATE or an UPDATE is a different
+ * constraint entirely, and that sentence describes an operation the caller did
+ * not perform.
+ */
+describe('the foreign-key arm answers only the DELETE that can raise it', () => {
+  const fkViolation = () => Object.assign(
+    new Error('violates foreign key constraint'), { code: '23503' });
+
+  // clearAllMocks clears calls, not implementations: a rejection set here would
+  // otherwise still be armed in the next describe.
+  afterEach(() => {
+    createRuleMock.mockReset(); updateRuleMock.mockReset(); deleteRuleMock.mockReset();
+  });
+
+  it('tells a delete that the rule is in use', async () => {
+    deleteRuleMock.mockRejectedValue(fkViolation());
+    const { req, res } = mockReqRes('DELETE', { id: RULE });
+    await call(req, res);
+    expect(res.statusCode).toBe(400);
+    expect(JSON.stringify(res.sent)).toMatch(/cannot be deleted/);
+  });
+
+  it('does not tell a create it cannot be deleted', async () => {
+    createRuleMock.mockRejectedValue(fkViolation());
+    const { req, res } = mockReqRes('POST', { name: 'r', documentType: 'payment' });
+    await expect(call(req, res)).rejects.toMatchObject({ code: '23503' });
+    expect(rolledBack).toEqual(['approval_rule_write']);
+  });
+
+  it('does not tell an update it cannot be deleted', async () => {
+    updateRuleMock.mockRejectedValue(fkViolation());
+    const { req, res } = mockReqRes('PUT', { id: RULE, isActive: false });
+    await expect(call(req, res)).rejects.toMatchObject({ code: '23503' });
   });
 });

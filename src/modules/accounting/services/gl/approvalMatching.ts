@@ -25,8 +25,13 @@ export async function checkApproval(
   amount: number
 ): Promise<ApprovalCheckResult> {
   // Check for existing pending request
+  // `effective_required_role` is the authority the row demands TODAY: its own
+  // snapshot, or — for a row raised before migration 669 — the bound rule's live
+  // role, which is exactly the authority such a row has always carried. The
+  // rebind ranks the incoming rule against this, so it can only ratchet upwards.
   const existing = (await sql`
-    SELECT ar.*, rl.name AS rule_name
+    SELECT ar.*, rl.name AS rule_name,
+           COALESCE(ar.required_role, rl.approver_role) AS effective_required_role
     FROM approval_requests ar
     LEFT JOIN approval_rules rl ON rl.id = ar.rule_id AND rl.company_id = ar.company_id
     WHERE ar.company_id = ${companyId}
@@ -118,6 +123,11 @@ export function mapRequest(r: Record<string, unknown>): ApprovalRequest {
     id: String(r.id),
     ruleId: r.rule_id != null ? String(r.rule_id) : null,
     ruleName: r.rule_name ? String(r.rule_name) : undefined,
+    // checkApproval resolves the fallback in SQL; every other reader sees the
+    // stored snapshot, which is NULL only on rows predating migration 669.
+    requiredRole: r.effective_required_role != null
+      ? String(r.effective_required_role)
+      : r.required_role != null ? String(r.required_role) : null,
     documentType: String(r.document_type) as DocumentType,
     documentId: String(r.document_id),
     documentReference: r.document_reference != null ? String(r.document_reference) : null,

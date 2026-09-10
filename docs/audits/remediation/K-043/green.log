@@ -286,3 +286,34 @@ bun run agent-docs:check OK (74 mirrors); bun scripts/audit-migration-naming.ts
 no new duplicate prefixes; bunx tsx scripts/ci/check-migration-rls.ts OK.
 
 Migration 665 applied twice to the fixture; second run a no-op.
+
+── Round 6 ─────────────────────────────────────────────────────────────────────
+RED (against 70ce13391 with 669 applied so the column exists but is never written):
+  6 failed / 8 in tests/integration/k-043-r6-authority-ratchet.int.test.ts
+    lever A  rebind onto the manager rule after conditionValue raised   403 -> 200
+    lever A' rebind after the bound rule is deactivated                 403 -> 200
+    lever B  bound rule's approver_role handed down to manager          403 -> 200
+    (+3 snapshot assertions, required_role NULL)
+
+GREEN:
+  tests/integration/k-043-r6-authority-ratchet.int.test.ts        8 / 8   (real DB)
+  tests/integration/api/approvalRequestLock.test.ts               5 / 5   (real DB)
+  tests/unit/services/gl/approvalRequestRaceRecovery.test.ts      6 / 6
+  tests/unit/services/gl/approvalRuleOperatorGuard.test.ts       10 / 10  (+4)
+  tests/unit/api/approvalRulesSavepoint.test.ts                   9 / 9   (+3)
+  all eight approval integration files                           73 / 73  (was 60)
+  FULL unit suite, DATABASE_URL unset:  9517 passed | 234 skipped (838 files)
+
+Mutations (production code reverted from file copies, never via git checkout):
+  M1 rebind ratchet removed                               2 failed / 8
+  M2 assertMayDecide demands the live rule role only      1 failed / 8   (lever B)
+  M3 the INSERT stops writing required_role               4 failed / 8
+  M4 lockApprovalRequestForUpdate drops FOR UPDATE        2 failed / 5
+  M5 the 23503 arm ungated by onDelete                    2 failed / 9
+  M6 assertConditionField becomes a no-op                 3 failed / 10
+  M7 the 23505 arm re-throws instead of re-reading        4 failed / 6
+
+Gates: bunx tsc --noEmit clean; eslint on every changed src/pages file clean;
+bun run agent-docs:check OK (74 mirrors).
+Migration 669 applied to the fixture; ALTER ... IF NOT EXISTS and the backfill's
+`required_role IS NULL` predicate make a second run a no-op.

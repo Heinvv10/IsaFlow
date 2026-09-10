@@ -12,6 +12,7 @@ import {
 } from './approvalAuthority';
 import { mapRule, mapRequest, isConditionOperator, CONDITION_OPERATORS } from './approvalMatching';
 import { assertMayDemand, assertMayEditRule, auditRuleChange, type RuleActor } from './approvalRuleGuards';
+import { lockApprovalRequestForUpdate } from './approvalRequestLock';
 
 // Re-exported so every existing import site keeps working after the
 // checkApproval/mapper split that kept this file under the 300-line ceiling.
@@ -44,6 +45,13 @@ export interface ApprovalRequest {
   /** Nullable on the live schema; rows predating the scoped insert can carry NULL. */
   ruleId: string | null;
   ruleName?: string;
+  /**
+   * The approver role this request was raised under, snapshot at raise time
+   * (migration 669). It ratchets up and never down, so lowering the bound rule
+   * — or rebinding the request to a laxer one — cannot weaken a pending request.
+   * NULL on rows raised before 669: those are governed by the live rule.
+   */
+  requiredRole: string | null;
   documentType: DocumentType;
   documentId: string;
   documentReference: string | null;
@@ -70,6 +78,24 @@ export class ApprovalOperatorInvalidError extends Error {
   constructor(operator: string) {
     super(`conditionOperator must be one of: ${CONDITION_OPERATORS.join(', ')} (got ${operator})`);
     this.name = 'ApprovalOperatorInvalidError';
+  }
+}
+
+/**
+ * The only two values `condition_field` may take.
+ *
+ * checkApproval matches on the resolved document amount and never reads this
+ * column, so both of these name the SAME number — the field is descriptive, not
+ * a selector. It was neither validated nor evaluated, which made it worse than
+ * decorative: the rules page renders `${conditionField} > ${conditionValue}`, so
+ * a rule authored as `vat` read as a VAT threshold while it governed the total.
+ */
+export const CONDITION_FIELDS = ['total', 'amount'] as const;
+
+export class ApprovalFieldInvalidError extends Error {
+  constructor(field: string) {
+    super(`conditionField must be one of: ${CONDITION_FIELDS.join(', ')} (got ${field})`);
+    this.name = 'ApprovalFieldInvalidError';
   }
 }
 
@@ -103,6 +129,16 @@ function assertConditionOperator(operator: string | undefined): void {
   }
 }
 
+/**
+ * Both accepted values mean the document's resolved amount; the column records
+ * which word the author used, and nothing branches on it.
+ */
+function assertConditionField(field: string | undefined): void {
+  if (field !== undefined && !(CONDITION_FIELDS as readonly string[]).includes(field)) {
+    throw new ApprovalFieldInvalidError(field);
+  }
+}
+
 export async function listRules(companyId?: string): Promise<ApprovalRule[]> {
   if (!companyId) return [];
   const rows = (await sql`
@@ -121,6 +157,7 @@ export async function createRule(companyId: string, input: {
 }, actor: RuleActor): Promise<ApprovalRule> {
   assertApproverRole(input.approverRole);
   assertConditionOperator(input.conditionOperator);
+  assertConditionField(input.conditionField);
   // The rank the NEW rule will demand, defaulted the same way the INSERT does.
   // Without this an admin refused a weakening of the owner-only rule simply
   // creates a manager-level rule beside it and the control is gone.
@@ -148,6 +185,7 @@ export async function updateRule(companyId: string, id: string, input: Partial<{
 }>, actor: RuleActor): Promise<ApprovalRule> {
   assertApproverRole(input.approverRole);
   assertConditionOperator(input.conditionOperator);
+  assertConditionField(input.conditionField);
   // Both ends: assertMayEditRule ranks the role the rule demands TODAY, this
   // ranks the one it is being moved to. Ranking only the current role let an
   // admin lower an admin-level rule to `viewer`.
@@ -219,6 +257,10 @@ export async function decideRequest(companyId: string,
   decidedBy: string,
   notes?: string
 ): Promise<ApprovalRequest> {
+  // Lock BEFORE the authority is computed, so the row assertMayDecide reads is
+  // the row this UPDATE writes. A concurrent rebind can otherwise move the
+  // request onto a different rule between the two statements.
+  await lockApprovalRequestForUpdate(companyId, requestId);
   await assertMayDecide(companyId, requestId, decidedBy);
   const rows = (await sql`
     UPDATE approval_requests SET
