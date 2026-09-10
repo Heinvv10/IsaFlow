@@ -7,13 +7,19 @@ const hash=z.string().regex(/^[a-f0-9]{64}$/),reason=z.string().min(1).max(256);
 const maxFindings=AUDIT_CHECK_RUN_LIMITS.journal_risk_checks.maxFindings;
 /**
  * `message` is the detector's proven maximum (6 fixed signals plus at most 100 threshold reasons of uuid id and bigint
- * version — 8 663 characters, measured) rounded up, so no message sync writes is refused. Currency and amount are
- * unbounded text on the synchronous path, and no finite seal can take "any" of them: the real limit is the table's
- * 64 KiB envelope CHECK after hex encoding. The bounds sit where the widest item still fits it, so it is the seal that
- * refuses, never the database mid-run. A default_currency longer than 16 384 characters is the one thing sync would
- * accept that the stream refuses — stated, not hidden.
+ * version — 8 663 ASCII characters, measured) rounded up, so no message sync writes is refused. Amount is numeric text.
+ * The currency is the company's unbounded default_currency, and the table's limit is BYTES: octet_length of the
+ * hex-encoded envelope <= 64 KiB. So the currency is bounded by what it costs inside the sealed plaintext — canonical
+ * JSON, then UTF-8, where a U+0001 escapes to six bytes — never by UTF-16 code units, which let 16 384 non-ASCII
+ * characters past the seal and into the CHECK mid-run. A run checks its company's currency against the same measure
+ * before streaming and publishes `unknown` if it does not fit: sync would accept such a currency, the stream cannot seal
+ * it, and that divergence is stated, not hidden. 1 024 bytes also keeps what a run holds per staged finding small.
  */
-export const CHECK_RUN_ITEM_BOUNDS=Object.freeze({message:9216,currency:16384,amount:1024});
+export const CHECK_RUN_ITEM_BOUNDS=Object.freeze({message:9216,currencyBytes:1024,amount:1024});
+/** A currency's cost inside the sealed plaintext, measured as the seal encodes it. */
+export function checkRunCurrencyFits(currency:string):boolean{
+ return Buffer.byteLength(JSON.stringify(currency),'utf8')-2<=CHECK_RUN_ITEM_BOUNDS.currencyBytes;
+}
 const identitySchema=z.object({companyId:z.string().uuid(),checkRunId:z.string().uuid(),generation:z.number().int().positive(),leaseId:z.string().uuid()}).strict();
 const money=z.record(z.string().regex(/^[A-Z]{3}$/),z.string().regex(/^-?\d+(\.\d+)?$/));
 const headerSchema=identitySchema.extend({version:z.literal(1),checkId:z.enum(AUDIT_CHECK_RUN_IDS),checkVersion:z.literal(1),
@@ -29,7 +35,7 @@ const findingSchema=z.object({key:hash,kind:z.string().min(1).max(128),severity:
  classification:z.enum(['candidate','confirmed']),entities:z.array(entity).max(8),message:z.string().min(1).max(CHECK_RUN_ITEM_BOUNDS.message),
  evidence:z.tuple([])}).strict();
 const itemSchema=identitySchema.extend({version:z.literal(1),ordinal:z.number().int().min(0).max(maxFindings-1),
- amount:z.string().max(CHECK_RUN_ITEM_BOUNDS.amount),currency:z.string().max(CHECK_RUN_ITEM_BOUNDS.currency),finding:findingSchema}).strict();
+ amount:z.string().max(CHECK_RUN_ITEM_BOUNDS.amount),currency:z.string().refine(checkRunCurrencyFits,'Check run currency exceeds its sealed-byte bound'),finding:findingSchema}).strict();
 export type CheckRunIdentity=z.infer<typeof identitySchema>;
 export type CheckRunHeader=z.infer<typeof headerSchema>;
 export type CheckRunItem=z.infer<typeof itemSchema>;
