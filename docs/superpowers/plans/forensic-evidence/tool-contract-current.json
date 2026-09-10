@@ -3,8 +3,8 @@
   "method": "Runtime executable declarations; no handlers executed. This is a contract baseline, not workflow or authorization proof.",
   "historicalInventory": "tool-matrix.json",
   "counts": {
-    "total": 152,
-    "reads": 84,
+    "total": 155,
+    "reads": 87,
     "writes": 68,
     "requires_post": 32
   },
@@ -2597,6 +2597,90 @@
       }
     },
     {
+      "name": "entity_change_history",
+      "scope": "read:audit",
+      "write": false,
+      "requires_post": false,
+      "per_user_idempotency": false,
+      "input_schema": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "entity_type": {
+            "type": "string",
+            "enum": [
+              "supplier",
+              "customer",
+              "beneficiary_supplier",
+              "beneficiary_supplier_proposal",
+              "supplier_invoice",
+              "sage_supplier_invoice",
+              "customer_invoice",
+              "credit_note",
+              "credit_note_application",
+              "recurring_invoice_run",
+              "purchase_order",
+              "goods_received_note",
+              "invoice_match_override_intent",
+              "supplier_payment",
+              "supplier_payment_batch",
+              "customer_payment",
+              "bank_transaction",
+              "bank_rule",
+              "bank_categorisation_rule",
+              "bank_allocation_intent",
+              "bank_allocation_reversal_intent",
+              "cash_application_intent",
+              "cash_application_reversal_intent",
+              "bank_transfer_intent",
+              "payment_preparation",
+              "payment_release_intent",
+              "bank_statement_attestation_intent",
+              "gl_account",
+              "journal_entry",
+              "fiscal_period",
+              "fiscal_year",
+              "company",
+              "company_gl_settings",
+              "company_lockdown_intent",
+              "vat_period",
+              "employee",
+              "payroll_run",
+              "payroll_employee_component",
+              "payroll_compensation_intent",
+              "employee_beneficiary_evidence",
+              "beneficiary_employee",
+              "beneficiary_employee_proposal",
+              "asset",
+              "asset_depreciation_intent",
+              "historical_import",
+              "historical_import_source",
+              "operation_approval"
+            ]
+          },
+          "entity_id": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 80
+          },
+          "limit": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 100
+          },
+          "cursor": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 2048
+          }
+        },
+        "required": [
+          "entity_type",
+          "entity_id"
+        ]
+      }
+    },
+    {
       "name": "execute_bank_operation",
       "scope": "write:bank-tx",
       "write": true,
@@ -4232,6 +4316,29 @@
       }
     },
     {
+      "name": "mcp_call_history",
+      "scope": "read:audit",
+      "write": false,
+      "requires_post": false,
+      "per_user_idempotency": false,
+      "input_schema": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "after_id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "limit": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 100
+          }
+        },
+        "required": []
+      }
+    },
+    {
       "name": "merge_gl_accounts",
       "scope": "write:accounts",
       "write": true,
@@ -5616,6 +5723,60 @@
             "description": "Inclusive accounting date cutoff, YYYY-MM-DD. Current source values are observed."
           }
         }
+      }
+    },
+    {
+      "name": "transaction_evidence_chain",
+      "scope": null,
+      "write": false,
+      "requires_post": false,
+      "per_user_idempotency": false,
+      "input_schema": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "entity_type": {
+            "type": "string",
+            "enum": [
+              "supplier",
+              "supplier_invoice",
+              "sage_supplier_invoice",
+              "supplier_payment",
+              "bank_transaction",
+              "journal_entry",
+              "operation_approval",
+              "captured_document",
+              "procurement_document",
+              "bank_attachment",
+              "customer_invoice",
+              "customer_payment",
+              "credit_note",
+              "purchase_order",
+              "goods_received_note",
+              "gl_account",
+              "fiscal_period",
+              "company_gl_settings"
+            ]
+          },
+          "entity_id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "limit": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 100
+          },
+          "cursor": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 2048
+          }
+        },
+        "required": [
+          "entity_type",
+          "entity_id"
+        ]
       }
     },
     {
