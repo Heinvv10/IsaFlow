@@ -47,7 +47,8 @@ export async function executeControlledOperation<T>(ctx: ControlTx, input: Opera
       await validateDecisions(ctx, row, await approvalDecisions(ctx, row.id), authorities);
     }
     const operationId = row?.operation_id ?? ctx.principal.operationId;
-    // A legacy non-canonical entity_id can leave a case-only duplicate; never pick one of them arbitrarily.
+    // Defence in depth: every writer canonicalizes entity_id, so no duplicate differing only by
+    // case should exist. If one ever did, lower(entity_id) matches both — refuse, never pick one.
     const committedRows = await ctx.sql`
       SELECT id,result FROM control_operation_effects WHERE company_id=${ctx.principal.companyId}::uuid
         AND operation=${ref.operation} AND entity_type=${ref.entityType} AND lower(entity_id)=${ref.entityId}
