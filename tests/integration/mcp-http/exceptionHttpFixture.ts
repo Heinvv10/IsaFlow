@@ -28,11 +28,17 @@ export async function exceptionHttpFixture(){
   await new Promise<void>(resolve=>server!.listen(0,'127.0.0.1',resolve));const address=server.address();if(!address||typeof address==='string')throw new Error('Missing synthetic listener');
   const origin=`http://127.0.0.1:${address.port}`,client=mcpHttpClient(origin);
   const rpc=(name:string,args:Record<string,unknown>,person:'u1'|'u2'|'u3'='u1',index=0)=>client.rpc(f.f[person].tokens[index]!.raw,'tools/call',{name,arguments:args});
+  async function refusal(name:string,args:Record<string,unknown>,person:'u1'|'u2'|'u3'='u1',index=0){
+   await new Promise(resolve=>setTimeout(resolve,650));
+   const response=await fetch(`${origin}/api/mcp`,{method:'POST',redirect:'error',headers:{'content-type':'application/json',Authorization:`Bearer ${f.f[person].tokens[index]!.raw}`},
+    body:JSON.stringify({jsonrpc:'2.0',id:777,method:'tools/call',params:{name,arguments:args}}),signal:AbortSignal.timeout(15000)});
+   return{status:response.status,body:await response.json()};
+  }
   async function request(body:unknown,person:'u1'|'u2'|'u3'='u1',validCsrf=true){const user=f.f[person];
    const token=await new SignJWT({role:'authenticated',aal:'aal2'}).setProtectedHeader({alg:'HS256'}).setSubject(user.id).setIssuedAt().setExpirationTime('5m').sign(new TextEncoder().encode(jwtKey));
    const response=await fetch(`${origin}/api/accounting/control-exceptions`,{method:'POST',redirect:'error',headers:{'content-type':'application/json',cookie:`sb-access-token=${token}; active_company_id=${user.companyId}; isaflow_csrf=${csrf}`,'x-csrf-token':validCsrf?csrf:'invalid'},body:JSON.stringify(body),signal:AbortSignal.timeout(15000)});
    return{status:response.status,body:await response.json()};
   }
-  return{...f,rpc,request,close};
+  return{...f,rpc,refusal,request,close};
  }catch(error){await close();throw error;}
 }

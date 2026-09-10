@@ -5,6 +5,12 @@ import {seedExceptionMismatch} from './exceptionSourceFixture';
 import type {RpcReply} from './client';
 let f:Awaited<ReturnType<typeof exceptionHttpFixture>>,source:Awaited<ReturnType<typeof seedExceptionMismatch>>,id:string;
 const check_id='three_way_match_exceptions';
+async function refused(call:ReturnType<typeof f.refusal>){
+ const response=await call;
+ if(response.status===500)expect(response.body).toEqual({success:false,data:null,message:'An unexpected error occurred',code:'CONTROL_INTEGRITY_FAILED'});
+ else{expect(response.status).toBe(200);expect(response.body.result?.isError).toBe(true);}
+ expect(JSON.stringify(response.body)).not.toMatch(/stack|SELECT |control_exceptions|Independent permitted/);
+}
 const dto=<T>(r:RpcReply):T=>{expect(r.result?.isError).not.toBe(true);return JSON.parse(r.result!.content!.map(row=>row.text).join('\n')) as T;};
 beforeAll(async()=>{f=await exceptionHttpFixture();source=await seedExceptionMismatch(f.pool,f.f);},30000);afterAll(async()=>{if(f)await f.close();});
 it('captures actual findings, reads without writes and assigns once despite retries with current-domain replay authority',async()=>{
@@ -13,14 +19,15 @@ it('captures actual findings, reads without writes and assigns once despite retr
  const before=await counts();const retained=dto<{exceptions:Array<{id:string;severity:string;version:number}>}>(await f.rpc('control_exceptions',{check_id,limit:1}));expect(retained.exceptions[0]).toMatchObject({id,severity:'high',version:1});expect(await counts()).toBe(before);
  const assign={exception_id:id,expected_version:1,owner_person_id:f.f.u1.id,due_at:null,idempotency_key:randomUUID()};
  const assigned=dto<{version:number}>(await f.rpc('assign_exception',assign));expect(assigned.version).toBe(2);expect(dto(await f.rpc('assign_exception',assign))).toEqual(assigned);expect(await counts()).toBe(before+1);
- expect((await f.rpc('assign_exception',{...assign,idempotency_key:randomUUID()})).result?.isError).toBe(true);
+ await refused(f.refusal('assign_exception',{...assign,idempotency_key:randomUUID()}));
  await f.pool.query("INSERT INTO company_user_permissions(company_id,user_id,module_key,can_read) VALUES($1,$2,'suppliers',false)",[f.f.companyA,f.f.u1.id]);
- try{expect((await f.rpc('assign_exception',assign)).result?.isError).toBe(true);}finally{await f.pool.query("DELETE FROM company_user_permissions WHERE company_id=$1 AND user_id=$2 AND module_key='suppliers'",[f.f.companyA,f.f.u1.id]);}
- expect((await f.rpc('assign_exception',{...assign,expected_version:2,idempotency_key:randomUUID()},'u3')).result?.isError).toBe(true);
+ try{await refused(f.refusal('assign_exception',assign));}finally{await f.pool.query("DELETE FROM company_user_permissions WHERE company_id=$1 AND user_id=$2 AND module_key='suppliers'",[f.f.companyA,f.f.u1.id]);}
+ await refused(f.refusal('assign_exception',{...assign,expected_version:2,idempotency_key:randomUUID()},'u3'));expect(await counts()).toBe(before+1);
 },30000);
 it('requires independent actual human, retains failed recheck, accepted risk expiry and reopened recurrence',async()=>{
  const resolve={exception_id:id,expected_version:2,resolution:'fixed',reason:'Synthetic corrective review',idempotency_key:randomUUID()};
- expect((await f.rpc('resolve_exception',resolve,'u1',1)).result?.isError).toBe(true);expect((await f.rpc('resolve_exception',{...resolve,idempotency_key:randomUUID()},'u2')).result?.isError).toBe(true);
+ await refused(f.refusal('resolve_exception',resolve,'u1',1));await refused(f.refusal('resolve_exception',{...resolve,idempotency_key:randomUUID()},'u2'));
+ expect((await f.pool.query('SELECT status,version FROM control_exceptions WHERE company_id=$1 AND id=$2',[f.f.companyA,id])).rows[0]).toEqual({status:'open',version:2});
  const human={action:'resolve',exceptionId:id,expectedVersion:2,resolution:'fixed',reason:'Synthetic independent review'};
  expect((await f.request(human,'u2',false)).status).toBe(403);expect((await f.request(human,'u1')).status).not.toBe(200);
  const blocked=await f.request(human,'u2');expect(blocked.status).toBe(200);expect(blocked.body.data).toMatchObject({outcome:'recheck_blocked',exception:{status:'open',version:3,lastRecheck:{status:'fail'}}});
