@@ -10470,7 +10470,7 @@
       "severityRationale": "Duplicate expense claims and duplicate GL postings from a double-click, on a route any capture user can reach.",
       "auditedSha": "",
       "currentSha": "",
-      "status": "confirmed",
+      "status": "fixed",
       "dependencies": [
         "K-107"
       ],
@@ -10478,8 +10478,8 @@
       "evidencePaths": [
         "docs/audits/remediation/K-107/fix.md"
       ],
-      "fixCommit": null,
-      "pr": null,
+      "fixCommit": "9563dbfbb",
+      "pr": "419",
       "deployedSha": null,
       "historicalDataImpact": "Unknown and must be measured before Hein decides. Duplicate expense journals would already exist wherever two posts raced. Do not query production from an agent; the impact SQL belongs in fix.md.",
       "canonicalItem": null,
@@ -10488,7 +10488,7 @@
       "title": "post-expense reads capture_events.status without a lock and flips it unpredicated: two concurrent posts both mint an expense claim",
       "severity": "high",
       "source": "Found by the K-107 r8 census re-run from consumers; the check-then-act window independently confirmed on origin/master by the orchestrating session, 2026-09-10",
-      "processNotes": "The route SELECTs `ce.status` with no FOR UPDATE, refuses in JS when it equals 'posted', then later runs `UPDATE capture_events SET status='posted' ...` with NO `AND status <> 'posted'` predicate. Two concurrent requests both pass the check and both post. Confirmed on origin/master (read at :57-75 and :177). Registered, NOT fixed -- it is outside the K-107 brief and needs its own branch."
+      "processNotes": "The route SELECTs `ce.status` with no FOR UPDATE, refuses in JS when it equals 'posted', then later runs `UPDATE capture_events SET status='posted' ...` with NO `AND status <> 'posted'` predicate. Two concurrent requests both pass the check and both post. Confirmed on origin/master (read at :57-75 and :177). Registered, NOT fixed -- it is outside the K-107 brief and needs its own branch.\n\n2026-09-10: merged to master in PR #419 (9563dbfbb). NOT yet deployed — production still runs the pre-merge build."
     },
     {
       "id": "R-059",
@@ -10777,14 +10777,14 @@
       "severityRationale": "It lets a tenant attach another tenant's customer to its own invoice, which R-066's portal path then discloses. On its own it also corrupts that tenant's receivables.",
       "auditedSha": "",
       "currentSha": "",
-      "status": "confirmed",
+      "status": "fixed",
       "dependencies": [
         "R-066"
       ],
       "testNames": [],
       "evidencePaths": [],
-      "fixCommit": null,
-      "pr": null,
+      "fixCommit": "14634c86e",
+      "pr": "416",
       "deployedSha": null,
       "historicalDataImpact": "Unknown; production not measured. Impact SQL for Hein — must run as an owner or superuser, because forced RLS hides cross-tenant rows from app_user: SELECT count(*) FROM customer_invoices ci JOIN customers c ON c.id = COALESCE(ci.client_id, ci.customer_id) WHERE c.company_id <> ci.company_id;",
       "canonicalItem": null,
@@ -10793,7 +10793,7 @@
       "title": "Invoice create AND bank allocation accept a customer id from any tenant: nothing checks the customer belongs to the company",
       "severity": "high",
       "source": "Found by the orchestrating session while assessing R-066, 2026-09-10; confirmed on origin/master by reading every use of clientId.",
-      "processNotes": "customer-invoices-create.ts checks only that clientId is present, then passes it to createDraftCustomerInvoice. Every use of clientId there is accounted for: the type (:27), the destructure (:54), a company-scoped PROJECT lookup (:96) whose failure is swallowed, and the INSERT (:134) writing it into both customer_id and client_id. No ownership check exists. client_id has no FK; customer_id's FK is tenant-agnostic; the RLS WITH CHECK on customer_invoices checks only the invoice's own company_id. recurringInvoiceService inserts input.clientId the same way, and its runner re-mints an invoice from that template every period. Fix: on every create/convert path, SELECT 1 FROM customers WHERE id = $clientId AND company_id = $companyId and refuse before any write. Not on any branch.\n\nWIDENED 2026-09-10 by the R-067 r1 blind review, which MEASURED it on isaflow_dev: company A allocated a +R115 receipt against company B's customer — the journal posted and the `customer_payments` row carried B's `client_id`. `bank/bankAllocationService.ts:423-431` writes `entityId` into `customer_payments.client_id` with no ownership check; `entityId` comes from the request body (`bank-transactions-action.ts:40` validates UUID shape only, `:118` passes it through), and the only customer lookup (`:283`) fetches a name, falls back to `Customer #<id>` on a miss and continues. Also reachable via `writeBankAllocate` / `writeBankBulkAllocate`. The r1 census had filed this row as exempt — the classification failure mode. Being fixed in r2."
+      "processNotes": "customer-invoices-create.ts checks only that clientId is present, then passes it to createDraftCustomerInvoice. Every use of clientId there is accounted for: the type (:27), the destructure (:54), a company-scoped PROJECT lookup (:96) whose failure is swallowed, and the INSERT (:134) writing it into both customer_id and client_id. No ownership check exists. client_id has no FK; customer_id's FK is tenant-agnostic; the RLS WITH CHECK on customer_invoices checks only the invoice's own company_id. recurringInvoiceService inserts input.clientId the same way, and its runner re-mints an invoice from that template every period. Fix: on every create/convert path, SELECT 1 FROM customers WHERE id = $clientId AND company_id = $companyId and refuse before any write. Not on any branch.\n\nWIDENED 2026-09-10 by the R-067 r1 blind review, which MEASURED it on isaflow_dev: company A allocated a +R115 receipt against company B's customer — the journal posted and the `customer_payments` row carried B's `client_id`. `bank/bankAllocationService.ts:423-431` writes `entityId` into `customer_payments.client_id` with no ownership check; `entityId` comes from the request body (`bank-transactions-action.ts:40` validates UUID shape only, `:118` passes it through), and the only customer lookup (`:283`) fetches a name, falls back to `Customer #<id>` on a miss and continues. Also reachable via `writeBankAllocate` / `writeBankBulkAllocate`. The r1 census had filed this row as exempt — the classification failure mode. Being fixed in r2.\n\n2026-09-10: merged to master in PR #416 (14634c86e). NOT yet deployed — production still runs the pre-merge build."
     },
     {
       "id": "R-068",
@@ -10908,7 +10908,7 @@
       "severityRationale": "LATENT, not live. Reachability measured NEGATIVE by the R-058 blind reviewer: a repo-wide census found exactly four production call sites (`capture/upload.ts:173`, `capture/inbound-email.ts:51`, `whatsAppInboundService.ts:234`, `imapMirrorService.ts:266`), and every one routes an event it created microseconds earlier from an `INSERT … RETURNING id`. No script, cron or worker calls it, and there is no re-extract or retry endpoint. Nothing can hand it an already-posted id. It becomes a LIVE double post the day such an endpoint is added — see the measurement below.",
       "auditedSha": "",
       "currentSha": "",
-      "status": "confirmed",
+      "status": "fixed",
       "dependencies": [
         "R-058"
       ],
@@ -10916,8 +10916,8 @@
       "evidencePaths": [
         "docs/audits/remediation/R-058/fix.md"
       ],
-      "fixCommit": null,
-      "pr": null,
+      "fixCommit": "9563dbfbb",
+      "pr": "419",
       "deployedSha": null,
       "historicalDataImpact": "None: not reachable, so it has never fired. The live variant of the same defect is `capture/[id]/discard.ts`, which CAN reset the status and is being fixed under R-058.",
       "canonicalItem": null,
@@ -10926,7 +10926,7 @@
       "title": "routeEvent would revert a POSTED capture event to 'extracting', defeating the posted guard — latent: no caller can reach it today",
       "severity": "medium",
       "source": "Noted by the R-058 fixer; confirmed on origin/master by the orchestrating session — the UPDATE carries no status predicate.",
-      "processNotes": "`captureRouterService.routeEvent` runs `UPDATE capture_events SET status = 'extracting', updated_at = NOW() WHERE id = $1 AND company_id = $2` — no `AND status <> 'posted'`. The documented flow is received → extracting → extracted | failed, so 'posted' is outside it and should be refused. Fix: predicate the UPDATE and refuse when it matches no row. R-058's reviewer has been asked to judge whether this belongs inside R-058, since it defeats that branch's own guard.\n\nSEVERITY CORRECTED 2026-09-10 from high to medium, on the R-058 reviewer's measurement — I had registered it without testing reachability. It also measured what happens IF reached, by applying routeEvent's exact statement to a posted event and re-posting through the real handlers:\n  - post.ts: re-post 409 — stopped by the duplicate-fingerprint gate, NOT by the guard.\n  - post-expense (GL path): re-post 500 — stopped by `uq_gl_je_capture_source_document`, NOT by the guard.\n  - post-expense (employee expense claim): re-post **200, claims 1 → 2 — a DOUBLE POST with no backstop**; `expense_claim_lines` carries only the non-unique `idx_expense_lines_source_doc`.\nSo both the 'already posted' refusal and R-058's FOR UPDATE lock see a non-posted row and let it through. Two of the three paths are saved by constraints unrelated to this guard. Fix the predicate anyway — the protection is an accident of the call graph, and the expense-claim path has nothing behind it.\n\nRECOMMENDED BACKSTOP (2026-09-10, R-058 reviewer): give `expense_claim_lines` a partial-unique index on its source document, as `gl_journal_entries` already has (`uq_gl_je_capture_source_document`). The employee expense-claim path is the only capture path with NO constraint behind its guard — measured: a re-post there creates a second claim where the other two paths are stopped by a unique index or a fingerprint gate. A database constraint also protects routes that have no guard at all (R-070). Not built in R-058 round 2 — it needs a migration and was not one of that round's scored findings. Pre-flight: count existing duplicate source documents in expense_claim_lines before creating the index, since it will refuse to build over them."
+      "processNotes": "`captureRouterService.routeEvent` runs `UPDATE capture_events SET status = 'extracting', updated_at = NOW() WHERE id = $1 AND company_id = $2` — no `AND status <> 'posted'`. The documented flow is received → extracting → extracted | failed, so 'posted' is outside it and should be refused. Fix: predicate the UPDATE and refuse when it matches no row. R-058's reviewer has been asked to judge whether this belongs inside R-058, since it defeats that branch's own guard.\n\nSEVERITY CORRECTED 2026-09-10 from high to medium, on the R-058 reviewer's measurement — I had registered it without testing reachability. It also measured what happens IF reached, by applying routeEvent's exact statement to a posted event and re-posting through the real handlers:\n  - post.ts: re-post 409 — stopped by the duplicate-fingerprint gate, NOT by the guard.\n  - post-expense (GL path): re-post 500 — stopped by `uq_gl_je_capture_source_document`, NOT by the guard.\n  - post-expense (employee expense claim): re-post **200, claims 1 → 2 — a DOUBLE POST with no backstop**; `expense_claim_lines` carries only the non-unique `idx_expense_lines_source_doc`.\nSo both the 'already posted' refusal and R-058's FOR UPDATE lock see a non-posted row and let it through. Two of the three paths are saved by constraints unrelated to this guard. Fix the predicate anyway — the protection is an accident of the call graph, and the expense-claim path has nothing behind it.\n\nRECOMMENDED BACKSTOP (2026-09-10, R-058 reviewer): give `expense_claim_lines` a partial-unique index on its source document, as `gl_journal_entries` already has (`uq_gl_je_capture_source_document`). The employee expense-claim path is the only capture path with NO constraint behind its guard — measured: a re-post there creates a second claim where the other two paths are stopped by a unique index or a fingerprint gate. A database constraint also protects routes that have no guard at all (R-070). Not built in R-058 round 2 — it needs a migration and was not one of that round's scored findings. Pre-flight: count existing duplicate source documents in expense_claim_lines before creating the index, since it will refuse to build over them.\n\n2026-09-10: merged to master in PR #419 (9563dbfbb). NOT yet deployed — production still runs the pre-merge build."
     },
     {
       "id": "R-072",
