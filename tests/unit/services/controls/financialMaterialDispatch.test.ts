@@ -1,5 +1,7 @@
 import {beforeEach,expect,it,vi} from 'vitest';
-import type {ControlTx,OperationRef} from '@/modules/accounting/services/controls/contracts';
+import type {ControlPrincipal,ControlTx,OperationRef} from '@/modules/accounting/services/controls/contracts';
+const principal:ControlPrincipal={companyId:'22222222-2222-4222-8222-222222222222',personId:'33333333-3333-4333-8333-333333333333',authMethod:'cookie',provenance:'human',
+ connectionId:null,grantId:null,actingFirmId:null,delegatedByPersonId:null,grantedScopes:null,requestId:'request',operationId:'operation'};
 const mocks=vi.hoisted(()=>({bank:vi.fn(),asset:vi.fn(),ar:vi.fn()}));
 vi.mock('@/modules/accounting/services/controls/bankTransferOperationMaterializer',()=>({materializeBankTransferOperation:mocks.bank}));
 vi.mock('@/modules/accounting/services/controls/assetDepreciationOperationMaterializer',()=>({materializeAssetDepreciationOperation:mocks.asset}));
@@ -16,7 +18,7 @@ it.each([
  const ref:OperationRef={entityType,operation,entityId:'11111111-1111-4111-8111-111111111111'};
  expect(canonicalOperationRef(ref)).toEqual(ref);
  mocks[target].mockResolvedValue({binding:{amount:'115.1',currency:'ZAR'}});
- const ctx={} as ControlTx;expect(await materializeOperation(ctx,ref)).toEqual({binding:{amount:'115.1',currency:'ZAR'}});
+ const ctx={principal} as ControlTx;expect(await materializeOperation(ctx,ref)).toEqual({binding:{amount:'115.1',currency:'ZAR'}});
  expect(mocks[target]).toHaveBeenCalledWith(ctx,ref);
 });
 it.each(['customer_invoice','customer_payment','credit_note'])('recovers the frozen reversal date for %s',entityType=>{

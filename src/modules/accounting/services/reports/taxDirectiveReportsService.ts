@@ -5,6 +5,7 @@
  */
 
 import { sql } from '@/lib/neon';
+import {assertIndependentRequestReview} from '@/modules/accounting/services/controls/independentReview';
 import { log } from '@/lib/logger';
 
 // ─── Types ────────────────────────────────────────────────────────────────────
@@ -145,6 +146,7 @@ export async function updateTaxDirectiveStatus(
   status: string,
   userId: string
 ): Promise<TaxDirective> {
+  if (status === 'approved') assertIndependentRequestReview();
   const validStatuses: DirectiveStatus[] = ['pending', 'approved', 'expired', 'cancelled'];
   if (!validStatuses.includes(status as DirectiveStatus)) {
     throw new Error(`Invalid status: ${status}`);

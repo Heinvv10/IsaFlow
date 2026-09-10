@@ -4,6 +4,7 @@
  */
 
 import { sql } from '@/lib/neon';
+import {assertIndependentRequestReview} from '@/modules/accounting/services/controls/independentReview';
 import { fmtDate } from '@/lib/fmtDate';
 import type { DbRow } from '@/lib/neon';
 import { log } from '@/lib/logger';
@@ -68,6 +69,7 @@ export async function approveVATAdjustment(companyId: string,
   id: string,
   userId: string
 ): Promise<VATAdjustment> {
+  assertIndependentRequestReview();
   const safeUserId = await resolveUserUuid(userId);
   const vaRows = (await sql`SELECT * FROM vat_adjustments WHERE id = ${id} AND company_id = ${companyId}`) as Row[];
   if (!vaRows[0]) throw new Error('VAT adjustment not found');

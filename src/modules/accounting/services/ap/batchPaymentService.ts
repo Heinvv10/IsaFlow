@@ -4,6 +4,7 @@
  */
 
 import { sql } from '@/lib/neon';
+import {assertIndependentRequestReview} from '@/modules/accounting/services/controls/independentReview';
 import { fmtDate } from '@/lib/fmtDate';
 import type { DbRow } from '@/lib/neon';
 import type { SupplierPaymentBatch, BatchPaymentCreateInput } from '../../types/ap.types';
@@ -63,6 +64,7 @@ export async function createBatch(companyId: string, input: BatchPaymentCreateIn
   return (await getBatchById(companyId, id))!;
 }
 export async function approveBatch(companyId: string, id: string, userId: string): Promise<void> {
+  assertIndependentRequestReview();
   await changeBatchStatus(companyId,id,userId,'approved');
 }
 

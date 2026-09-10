@@ -4,6 +4,12 @@ import type {ControlTx} from './contracts';
 import type {HistoricalImportKind} from './historicalImportTypes';
 export async function assertHistoricalImportAuthority(ctx:ControlTx,kind:HistoricalImportKind,access:'read'|'write'){
  assertControlTx(ctx);
+ if(ctx.principal.authMethod==='platform_import'){
+  // The kind's tenant domain read is not part of the platform ceiling: the selected
+  // source and import - not a domain permission - are what authorize this artifact.
+  await assertEffectivePermission(ctx,access==='write'?'write:imports':'read:imports');
+  return;
+ }
  if(!['cookie','pat','oauth'].includes(ctx.principal.authMethod))throw new Error('Historical imports require authenticated member authority');
  await assertEffectivePermission(ctx,access==='write'?'write:imports':'read:imports');
  const invoice=kind==='customer_invoice'||kind==='supplier_invoice';

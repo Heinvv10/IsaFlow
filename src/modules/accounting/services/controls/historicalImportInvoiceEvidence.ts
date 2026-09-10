@@ -10,7 +10,10 @@ type Row=Record<string,unknown>;
 export interface HistoricalInvoiceSummary {subtotal:string;taxAmount:string;totalAmount:string;currency:'ZAR';accountingDate:string;importId:string;sourceId:string;journalEntryId:string}
 /** Ordinary invoice operations may use verified archival totals without access to raw import artifacts. */
 export async function historicalImportInvoiceEvidence(ctx:ControlTx,kind:'customer_invoice'|'supplier_invoice',invoiceId:string):Promise<HistoricalInvoiceSummary|null>{
- assertControlTx(ctx);await assertEffectivePermission(ctx,'read:invoices');
+ assertControlTx(ctx);
+ // Only ordinary invoice operations read this; platform authority never reaches them and must not read other imports' summaries.
+ if(ctx.principal.authMethod==='platform_import')throw new Error('Platform import authority cannot read historical invoice evidence');
+ await assertEffectivePermission(ctx,'read:invoices');
  if(!UUID_RE.test(invoiceId)||!['customer_invoice','supplier_invoice'].includes(kind))throw new Error('Invalid historical invoice evidence identity');
  const company=ctx.principal.companyId;
  const receipts=await ctx.sql`SELECT e.result,(to_jsonb(i)||jsonb_build_object('amount',i.amount::text,'accounting_date',i.accounting_date::text)) AS intent,to_jsonb(s) AS source FROM control_operation_effects e

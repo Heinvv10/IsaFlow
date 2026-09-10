@@ -1,4 +1,5 @@
 import { sql } from '@/lib/neon';
+import {assertIndependentRequestReview} from '@/modules/accounting/services/controls/independentReview';
 import { log } from '@/lib/logger';
 import type {
   AfsSection,
@@ -70,6 +71,12 @@ export async function updateAfsSection(
   companyId: string,
   input: UpdateAfsSectionInput
 ): Promise<AfsSection> {
+  // Keyed on the transition as well as the actor: a caller-supplied reviewer or signatory
+  // is an approver of record arriving as input, and so is moving the section's status to
+  // reviewed or signed off without naming one.
+  if (input.reviewedBy || input.signedOffBy || input.status === 'reviewed' || input.status === 'signed_off') {
+    assertIndependentRequestReview();
+  }
   log.info('Updating AFS section', { sectionId, documentId, status: input.status }, 'afsSectionService');
 
   const rows = await sql`

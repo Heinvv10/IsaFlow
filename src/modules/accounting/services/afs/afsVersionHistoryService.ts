@@ -1,6 +1,7 @@
 // src/modules/accounting/services/afs/afsVersionHistoryService.ts
 import { sql } from '@/lib/neon';
 import { log } from '@/lib/logger';
+import { assertIndependentRequestReview } from '@/modules/accounting/services/controls/independentReview';
 import type { AfsSectionVersionEntry, NoteContent } from './afsTypes';
 
 // ── Error ───────────────────────────────────────────────────────────────────
@@ -25,9 +26,16 @@ interface SectionContentRow {
 
 async function getSectionContent(
   companyId: string,
-  sectionId: string
+  sectionId: string,
+  lock = false
 ): Promise<SectionContentRow | null> {
-  const rows = (await sql`
+  const rows = (lock ? await sql`
+    SELECT id, content, overrides, version_history, status
+    FROM afs_sections
+    WHERE id = ${sectionId}
+      AND company_id = ${companyId}
+    FOR UPDATE
+  ` : await sql`
     SELECT id, content, overrides, version_history, status
     FROM afs_sections
     WHERE id = ${sectionId}
@@ -49,7 +57,8 @@ async function getSectionContent(
 export async function saveVersion(
   companyId: string,
   sectionId: string,
-  userId: string
+  userId: string,
+  note?: string
 ): Promise<AfsSectionVersionEntry> {
   const section = await getSectionContent(companyId, sectionId);
   if (!section) {
@@ -64,6 +73,7 @@ export async function saveVersion(
     savedBy: userId,
     content: section.content ?? { title: '', blocks: [] },
     overrides: section.overrides ?? null,
+    ...(note ? { note } : {}),
   };
 
   await sql`
@@ -99,7 +109,10 @@ export async function listVersions(
  * 1. Saves current state as a new version (restore is reversible)
  * 2. Sets section.content = target version's content snapshot
  * 3. Clears section.overrides
- * 4. Resets status to 'reviewed'
+ * 4. Never raises the review status. A restore replaces content, so whatever review
+ *    covered the current content no longer covers the section: a reviewed or signed-off
+ *    section drops to 'pending' and the saved snapshot records that the restore
+ *    invalidated its review; any lower status is kept as it is.
  */
 export async function restoreVersion(
   companyId: string,
@@ -107,7 +120,9 @@ export async function restoreVersion(
   version: number,
   userId: string
 ): Promise<AfsSectionVersionEntry> {
-  const section = await getSectionContent(companyId, sectionId);
+  // Locked: whether this restore invalidates a review is decided on the status a
+  // concurrent reviewer has COMMITTED, not on a snapshot that review is about to replace.
+  const section = await getSectionContent(companyId, sectionId, true);
   if (!section) {
     throw new VersionHistoryError(`Section ${sectionId} not found for company ${companyId}`, 'NOT_FOUND');
   }
@@ -118,15 +133,23 @@ export async function restoreVersion(
     throw new VersionHistoryError(`Version ${version} not found for section ${sectionId}`, 'VERSION_NOT_FOUND');
   }
 
+  // Dropping a review is a change of review state; an impersonated session may not make it.
+  const reviewInvalidated = section.status === 'reviewed' || section.status === 'signed_off';
+  if (reviewInvalidated) assertIndependentRequestReview();
+
   // Save current state as a new version first (so restore is reversible)
-  const saveEntry = await saveVersion(companyId, sectionId, userId);
+  const saveEntry = await saveVersion(companyId, sectionId, userId, reviewInvalidated
+    ? `Restoring version ${version} invalidated the section's prior ${section.status} review`
+    : undefined);
 
   // Now apply the target version's content and overrides
   await sql`
     UPDATE afs_sections
     SET content = ${JSON.stringify(target.content)}::jsonb,
         overrides = ${target.overrides != null ? JSON.stringify(target.overrides) : null}::jsonb,
-        status = 'reviewed',
+        -- Decided in SQL as well: even without an enclosing transaction to hold the lock,
+        -- restored content never carries a review forward.
+        status = CASE WHEN status IN ('reviewed','signed_off') THEN 'pending' ELSE status END,
         updated_at = now()
     WHERE id = ${sectionId}
       AND company_id = ${companyId}

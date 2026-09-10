@@ -1,4 +1,5 @@
 import { sql } from '@/lib/neon';
+import {assertIndependentRequestReview} from '@/modules/accounting/services/controls/independentReview';
 import type { DbRow } from '@/lib/neon';
 import { log } from '@/lib/logger';
 import { createJournalEntry, postJournalEntry, reverseJournalEntry } from '../gl/journalEntryService';
@@ -99,6 +100,7 @@ async function approveSupplierInvoiceEffect(
 
 export async function approveSupplierInvoice(companyId: string, id: string, userId: string,
   opts?: PostingActorOpts & ApApprovalOptions): Promise<SupplierInvoice> {
+  assertIndependentRequestReview();
   return runApControlled(companyId, userId, { operation: 'supplier_invoice.post', entityType: 'supplier_invoice', entityId: id },
     opts, permit => approveSupplierInvoiceEffect(companyId, id, userId, opts, permit));
 }

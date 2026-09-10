@@ -8,6 +8,7 @@
  */
 
 import { sql, withSavepoint } from '@/lib/neon';
+import {assertIndependentRequestReview} from '@/modules/accounting/services/controls/independentReview';
 import { als, assertTxUsable } from '@/lib/als';
 import type { DbRow } from '@/lib/neon';
 import { log } from '@/lib/logger';
@@ -175,6 +176,9 @@ async function approveCustomerInvoiceEffect(
 export async function approveCustomerInvoice(companyId:string,rawInvoiceId:string,userId:string,opts?:PostingActorOpts&ArApprovalOptions):Promise<ApproveCustomerInvoiceResult>{
  // The active principal is proven before any caller value is inspected.
  requireArControl(companyId,userId);
+ // An impersonated session is never the independent review this approval records, and that is
+ // decided before the caller's id is validated so the refusal names the real reason.
+ assertIndependentRequestReview();
  // One spelling for the whole operation: the REST route and the MCP tool both pass the
  // caller's id through, so the receipt read, the control ref and the result must agree.
  const invoiceId=canonicalIntentId(rawInvoiceId);

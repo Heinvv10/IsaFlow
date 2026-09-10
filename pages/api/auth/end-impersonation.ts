@@ -15,7 +15,7 @@ import {
 } from '@/lib/auth/cookies';
 import { ADMIN_STASH_COOKIE, clearImpersonationCookies } from '@/lib/auth/impersonation-cookies';
 import { loadStash, deleteStash } from '@/modules/admin/services/userImpersonationService';
-import { verifyTokenSignature } from '@/lib/auth/gotrue';
+import { adminRevokeAllUserSessions, logout, verifyTokenSignature } from '@/lib/auth/gotrue';
 import { verifyCsrf } from '@/lib/auth/csrf';
 import { sql } from '@/lib/neon';
 import { log } from '@/lib/logger';
@@ -82,6 +82,80 @@ const handler: NextApiHandler = async (req, res) => {
     return res.status(403).json({ success: false, error: { code: 'FORBIDDEN', message: 'Not authorised to end this impersonation' } });
   }
 
+  // The impersonated GoTrue session outlives the stash and the delegation proof:
+  // its refresh token would keep minting access tokens that nothing marks as
+  // impersonated. Kill it BEFORE restoring the admin, and keep the stash so a
+  // GoTrue outage leaves a retryable exit rather than a live orphan session.
+  // scope=local revokes only the presented (impersonated) session, so the member's
+  // own sessions survive; when the caller is the admin we no longer hold that
+  // token and must fall back to revoking the target's sessions globally.
+  // The session that was impersonated, taken from the record the impersonation route
+  // wrote for THIS stash. The caller's own claims are the admin's restored session on the
+  // global path, and it is this id that stops the delegation proof - so reading it from
+  // the caller would leave the proof alive exactly where the exit failed.
+  const started = await sql<{ target_session_id: string | null }>`
+    SELECT details->>'target_session_id' AS target_session_id FROM admin_audit_log
+    WHERE action = 'impersonation_start' AND target_type = 'user'
+      AND target_id::text = ${stash.target_user_id} AND details->>'stash_id' = ${stashId}
+    ORDER BY created_at DESC LIMIT 1
+  `;
+  const targetSessionId = started[0]?.target_session_id ?? null;
+
+  const revocationScope = callerId === stash.target_user_id ? 'local' : 'global';
+
+  // The end is recorded BEFORE GoTrue is asked to revoke. That row is what stops the
+  // delegation proof; if it were written after, a revocation that succeeded followed by a
+  // failed INSERT would leave a revoked session whose still-valid access token keeps
+  // passing the proof branch for up to an hour. If this INSERT fails, nothing has been
+  // revoked and the impersonation simply continues - the pre-exit state, retryable.
+  await sql`
+    INSERT INTO admin_audit_log (admin_user_id, action, target_type, target_id, details)
+    VALUES (
+      ${stash.admin_user_id},
+      'impersonation_end',
+      'user',
+      ${stash.target_user_id},
+      ${JSON.stringify({ stash_id: stashId, target_session_id: targetSessionId, scope: revocationScope,
+        // Written before GoTrue is asked, so it cannot claim the revocation happened.
+        revoked: false })}::jsonb
+    )
+  `;
+
+  try {
+    if (revocationScope === 'local') await logout(accessToken, 'local');
+    else await adminRevokeAllUserSessions(stash.target_user_id);
+  } catch (revokeErr) {
+    log.error('end-impersonation: impersonated session revocation failed',
+      { stashId, message: revokeErr instanceof Error ? revokeErr.message : String(revokeErr) }, 'Admin');
+    // The end is already on record (above), so the proof is dead; this row says the
+    // revocation itself did not happen. The stash stays for the retry.
+    await sql`
+      INSERT INTO admin_audit_log (admin_user_id, action, target_type, target_id, details)
+      VALUES (${stash.admin_user_id}, 'impersonation_end_failed', 'user', ${stash.target_user_id},
+        ${JSON.stringify({ stash_id: stashId, target_session_id: targetSessionId, revoked: false,
+          reason: revokeErr instanceof Error ? revokeErr.message : String(revokeErr) })}::jsonb)
+    `;
+    return res.status(502).json({ success: false,
+      error: { code: 'REVOCATION_FAILED', message: 'Could not revoke the impersonated session — please retry' } });
+  }
+
+  // Append-only: the revocation GoTrue actually performed is its own record. It is
+  // audit-only - the end row above already stopped the proof - and GoTrue has revoked by
+  // now, so failing here would strand the admin: a retry's local logout with an already
+  // revoked token fails, giving a 502 loop until the stash expires. Log and carry on.
+  try {
+    await sql`
+      INSERT INTO admin_audit_log (admin_user_id, action, target_type, target_id, details)
+      VALUES (${stash.admin_user_id}, 'impersonation_revoked', 'user', ${stash.target_user_id},
+        ${JSON.stringify({ stash_id: stashId, target_session_id: targetSessionId, scope: revocationScope,
+          revoked: true })}::jsonb)
+    `;
+  } catch (recordErr) {
+    log.error('end-impersonation: revocation succeeded but its audit record could not be written',
+      { stashId, targetSessionId, scope: revocationScope,
+        message: recordErr instanceof Error ? recordErr.message : String(recordErr) }, 'Admin');
+  }
+
   setAuthCookies(res, {
     accessToken: stash.admin_access_token,
     refreshToken: stash.admin_refresh_token,
@@ -98,22 +172,17 @@ const handler: NextApiHandler = async (req, res) => {
 
   clearImpersonationCookies(res);
 
-  await sql`
-    INSERT INTO admin_audit_log (admin_user_id, action, target_type, target_id, details)
-    VALUES (
-      ${stash.admin_user_id},
-      'impersonation_end',
-      'user',
-      ${stash.target_user_id},
-      ${JSON.stringify({ stash_id: stashId })}::jsonb
-    )
-  `;
-
   await deleteStash(stashId);
 
   log.info('impersonation ended', { admin: stash.admin_user_id, target: stash.target_user_id }, 'Admin');
 
-  return res.status(200).json({ success: true, data: { redirect: '/admin' } });
+  // A global revocation signs the member out of every device they own, not just the
+  // impersonated session. The caller is told so it can be shown rather than discovered.
+  return res.status(200).json({ success: true, data: { redirect: '/admin',
+    revokedScope: revocationScope,
+    warning: revocationScope === 'global'
+      ? 'Your own session had already replaced the impersonated one, so every session belonging to that user was signed out.'
+      : undefined } });
 };
 
 export default handler;

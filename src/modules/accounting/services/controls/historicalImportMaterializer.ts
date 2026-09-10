@@ -1,3 +1,4 @@
+import {assertPlatformImportOperation} from './platformImportConfinement';
 import {assertEffectivePermission} from '@/lib/auth/effectivePermissions';
 import {importMoney} from './historicalImportExactPlan';
 import {UUID_RE} from '@/lib/validation';
@@ -11,7 +12,7 @@ import type {ApMaterial,ObservedSource} from './apOperationMaterializer';
 import type {ControlTx,OperationRef} from './contracts';
 type Row=Record<string,unknown>;
 export async function materializeHistoricalImportOperation(ctx:ControlTx,ref:OperationRef):Promise<ApMaterial>{
- assertControlTx(ctx);await assertEffectivePermission(ctx,'read:imports');
+ assertControlTx(ctx);await assertPlatformImportOperation(ctx,ref,'materialize');await assertEffectivePermission(ctx,'read:imports');
  if(ref.entityType!=='historical_import'||ref.operation!=='historical_import.post'||!UUID_RE.test(ref.entityId))throw new Error('Unsupported historical import operation');
  const rows=await ctx.sql`SELECT *,accounting_date::text,amount::text FROM control_historical_imports
   WHERE company_id=${ctx.principal.companyId}::uuid AND id=${ref.entityId}::uuid` as Row[];
