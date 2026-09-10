@@ -18,6 +18,8 @@ const foreign = '10000000-0000-4000-8000-000000000002';
 const legacy = '30000000-0000-4000-8000-000000000001';
 const cc1 = '30000000-0000-4000-8000-000000000002';
 const cc2 = '30000000-0000-4000-8000-000000000003';
+const bu = '30000000-0000-4000-8000-000000000004';
+const otherBu = '30000000-0000-4000-8000-000000000005';
 const account = '50000000-0000-4000-8000-000000000001';
 const range = { from: '2026-04-01', to: '2026-04-30', period_start: '2026-04-01', period_end: '2026-04-30' };
 
@@ -42,7 +44,7 @@ async function withLedger(run: () => Promise<void>) {
         entry_number text, description text, reference text, source text, created_at timestamp,
         posting_agent text, extraction_confidence numeric, source_document_id uuid) ON COMMIT DROP`;
       await sql`CREATE TEMP TABLE IF NOT EXISTS gl_journal_lines (company_id uuid, journal_entry_id uuid, gl_account_id uuid,
-        debit numeric, credit numeric, cost_center_id uuid, cc1_id uuid, cc2_id uuid) ON COMMIT DROP`;
+        debit numeric, credit numeric, cost_center_id uuid, cc1_id uuid, cc2_id uuid, bu_id uuid) ON COMMIT DROP`;
       await sql`CREATE TEMP TABLE IF NOT EXISTS captured_documents (id uuid, company_id uuid, vendor_name text,
         reference_number text, document_date date) ON COMMIT DROP`;
       await sql`CREATE TEMP TABLE IF NOT EXISTS customer_invoices (id uuid, company_id uuid, gl_journal_entry_id uuid,
@@ -65,7 +67,8 @@ async function withLedger(run: () => Promise<void>) {
           ${String(n)}, 'Fixture', '', 'manual', ${date}::timestamp, NULL, NULL, NULL)`;
         await sql`INSERT INTO gl_journal_lines VALUES (${lineOwner}::uuid, ${id}::uuid, ${account}::uuid, ${amount}, 0,
           ${dimension === 'none' ? null : legacy}::uuid, ${dimension === 'explicit' ? cc1 : null}::uuid,
-          ${dimension === 'explicit' ? cc2 : null}::uuid)`;
+          ${dimension === 'explicit' ? cc2 : null}::uuid,
+          ${dimension === 'explicit' ? bu : dimension === 'legacy' ? otherBu : null}::uuid)`;
       }
       await run();
     });
@@ -82,6 +85,13 @@ describe('report drilldown filters', () => {
       expect(res.json.mock.calls[0]?.[0]).toMatchObject({ error: { message: 'cost_centre_id must be a valid UUID' } });
     }
   });
+  it.each([transactions, ledger, evidence])('rejects malformed or repeated business-unit filters before querying', async handler => {
+    for (const invalid of ['broken', '', [bu], [bu, foreign]]) {
+      const res = await call(handler as typeof transactions, { business_unit_id: invalid });
+      expect(res.status).toHaveBeenCalledWith(400);
+      expect(res.json.mock.calls[0]?.[0]).toMatchObject({ error: { message: 'business_unit_id must be a valid UUID' } });
+    }
+  });
 });
 
 describe('report drilldown dimensions (Postgres)', async () => {
@@ -96,6 +106,26 @@ describe('report drilldown dimensions (Postgres)', async () => {
         const data = ev.json.mock.calls[0]?.[0].data;
         expect(data.count).toBe(count);
         expect(data.rows.reduce((sum: number, row: { debit: number }) => sum + row.debit, 0)).toBe(net);
+      }
+    });
+  });
+  it.skipIf(!reachable)('carries business-unit and combined dimension filters through every drilldown endpoint', async () => {
+    await withLedger(async () => {
+      for (const handler of [transactions, ledger, evidence]) {
+        const byBusinessUnit = await call(handler as typeof transactions, { business_unit_id: bu });
+        const buData = byBusinessUnit.json.mock.calls[0]?.[0].data;
+        if (handler === evidence) expect(buData).toMatchObject({ count: 2 });
+        else if (handler === ledger) expect(buData).toMatchObject({ openingBalance: 11, total: 2, periodNet: 36, periodClosingBalance: 47 });
+        else expect(buData).toMatchObject({ openingBalance: 11, closingBalance: 47, transactions: [{ debit: 17 }, { debit: 19 }] });
+
+        const combined = await call(handler as typeof transactions, {
+          cost_centre_id: legacy,
+          business_unit_id: otherBu,
+        });
+        const combinedData = combined.json.mock.calls[0]?.[0].data;
+        if (handler === evidence) expect(combinedData).toMatchObject({ count: 1 });
+        else if (handler === ledger) expect(combinedData).toMatchObject({ openingBalance: 0, total: 1, periodNet: 3, periodClosingBalance: 3 });
+        else expect(combinedData).toMatchObject({ openingBalance: 0, closingBalance: 3, transactions: [{ debit: 3 }] });
       }
     });
   });
