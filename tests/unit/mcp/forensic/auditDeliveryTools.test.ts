@@ -37,7 +37,8 @@ it('accepts only a matching registry company assertion without forwarding it as 
 });
 it('declares bounded explicit contracts for enqueue and retained delivery',()=>{
  expect(auditDeliveryTools.map(tool=>tool.name)).toEqual(['audit_snapshot','export_audit_evidence','audit_job_status','audit_snapshot_manifest','audit_snapshot_items','audit_snapshot_chunk','audit_export_files','audit_export_chunk','compare_audit_snapshots','audit_comparison_items']);
- for(const tool of auditDeliveryTools){expect(tool.scope).toBe('read:reports');expect(tool.inputSchema.additionalProperties).toBe(false);expect(tool.requiresPost).not.toBe(true);}
+ // Starting forensic work is a write on the opt-in write:audit; reading what it produced stays on read:reports.
+ for(const tool of auditDeliveryTools){expect(tool.scope,tool.name).toBe(tool.write?'write:audit':'read:reports');expect(tool.inputSchema.additionalProperties).toBe(false);expect(tool.requiresPost).not.toBe(true);}
  expect(auditDeliveryTools.filter(tool=>tool.write).map(tool=>tool.name)).toEqual(['audit_snapshot','export_audit_evidence','compare_audit_snapshots']);
  for(const tool of auditDeliveryTools.filter(tool=>tool.write)){expect(tool.perUserIdempotency).toBe(true);expect(tool.authorize).toBeTypeOf('function');}
 });
