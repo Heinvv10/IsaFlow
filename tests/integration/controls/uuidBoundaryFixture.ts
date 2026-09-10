@@ -19,7 +19,13 @@ export async function uuidBoundaryFixture(){
  process.env.ENCRYPTION_KEY=randomBytes(32).toString('hex');process.env.CONTROL_FINGERPRINT_KEY=randomBytes(32).toString('hex');
  const config=fixtureConfigFromEnv(process.env),target=validateFixtureTarget(config);
  process.env.DATABASE_URL=target.connectionString;process.env.DATABASE_SSL='disable';
- const pool=new Pool({connectionString:target.connectionString,ssl:false,max:4,statement_timeout:15000});
+ // Every backend this test process opens is labelled, because the fixture database is SHARED:
+ // other suites and other agents hold connections on it, so "no stray backend" can only be
+ // asked of our own. PGAPPNAME is read by pg's defaults, so the lazily-created application pool
+ // carries the same label as the pool below without touching production pool options.
+ const appName=`isaflow-uuid-boundary-${randomBytes(6).toString('hex')}`;
+ process.env.PGAPPNAME=appName;
+ const pool=new Pool({connectionString:target.connectionString,ssl:false,max:4,statement_timeout:15000,application_name:appName});
  try{
   const f=await provisionForensicFixture(config);
   async function actor<T>(fn:(ctx:ControlTx)=>Promise<T>,person:Person='u1',as?:Identity):Promise<T>{
@@ -51,7 +57,7 @@ export async function uuidBoundaryFixture(){
   async function attempt<T>(fn:()=>Promise<T>):Promise<{value?:T;error?:unknown}>{
    try{return{value:await fn()};}catch(error){return{error};}
   }
-  return{pool,f,actor,approve,effects,approvals,attempt,close:()=>pool.end()};
+  return{pool,f,appName,actor,approve,effects,approvals,attempt,close:()=>pool.end()};
  }catch(error){await pool.end();throw error;}
 }
 /**
