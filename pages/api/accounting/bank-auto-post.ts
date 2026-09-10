@@ -16,6 +16,7 @@ import {
   updateAutoPostSettings,
 } from '@/modules/accounting/services/bank/autoPostGateService';
 import { undoRun } from '@/modules/accounting/services/bank/autoPostUndoService';
+import { isRetryableContention } from '@/modules/accounting/services/core/retryableContention';
 
 type Row = Record<string, unknown>;
 
@@ -96,6 +97,14 @@ async function handler(req: CompanyAuthedRequest, res: NextApiResponse) {
       );
       return apiResponse.success(res, result);
     } catch (err) {
+      // A peer holds one of the run's bank lines. `undoRun` re-throws that
+      // rather than skipping it, and the lock that raised it ran on the request
+      // transaction, so the COMMIT withAuth issues for this 4xx is a rollback:
+      // nothing of the undo survives, and retrying is the whole remedy.
+      if (isRetryableContention(err)) {
+        log.info('Auto-post undo hit a contended line', { companyId, runId: body.runId }, 'bank-auto-post');
+        return apiResponse.conflict(res, (err as Error).message);
+      }
       return apiResponse.badRequestFromError(res, err, 'Undo failed');
     }
   }

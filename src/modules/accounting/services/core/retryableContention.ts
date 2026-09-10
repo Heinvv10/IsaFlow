@@ -16,11 +16,27 @@
  * So a route that catches everything gets the UNION, not a guess at which
  * subset its verb can raise.
  *
- * Every member is pre-write by construction: the two lock timeouts are raised
- * by the `FOR UPDATE` that never acquired the row, and the two `retryable`
- * refusals by `plan*AllocationLines` locking an invoice or a bill — the plan
- * phase writes nothing and returns before `apply*`. That is what makes the 4xx
- * `withAuth` COMMITs safe: there is nothing committed behind it.
+ * Every member is raised by a lock that was NEVER ACQUIRED — the two lock
+ * timeouts by the `FOR UPDATE` itself, the two `retryable` refusals by
+ * `fetch{Invoice,Bill}Candidates` in the plan phase, before `apply*` writes.
+ * That makes the event pre-write for THE CALL THAT RAISED IT, and for nothing
+ * else. It is NOT a property of the request. `withAuth` COMMITs every 4xx, and
+ * whether a 409 on this is safe depends on the shape in which it surfaces:
+ *
+ *   1. ABORTED — raised on the request transaction itself. 55P03/40P01 abort
+ *      it, the COMMIT degrades to a rollback, and nothing survives however
+ *      much the request wrote first (`undoRun` → `reverseReconciledTransaction`).
+ *   2. CONFINED — raised inside a `withSavepoint` whose ROLLBACK TO succeeded.
+ *      The request transaction is LIVE, and everything written before that
+ *      savepoint COMMITs behind the 4xx. Safe only when nothing was written
+ *      before it — true of the four action routes' verbs; false of a loop that
+ *      has already posted earlier items. `applyRules` re-threw a held bill on
+ *      line B after posting line A: 400, line A committed (K-071 r14).
+ *
+ * So: "pre-write, OR confined to a savepoint that rolled back" — and a caller
+ * MUST establish which before it answers 409. A loop over savepointed items
+ * should not re-throw at all: it skips and counts every member, as `applyRules`
+ * does.
  *
  * NOT included: `PaymentPostedDuringVoidError`. It is equally retryable, but it
  * is raised only by `voidPaymentDocument`, which no HTTP route reaches —
