@@ -3,7 +3,7 @@ import type {ControlCheckResult,ControlFinding} from './contracts';
 import {canonicalJson} from './canonical';
 import {riskOptions,type RiskCheckOptions} from './invoiceRiskQueriesResult';
 export const EXCEPTION_CHECK_VERSIONS={duplicate_invoice_checks:1,payment_risk_checks:1,three_way_match_exceptions:1,
- journal_risk_checks:1,bank_statement_completeness:1} as const;
+ journal_risk_checks:1,bank_statement_completeness:1,payroll_control_checks:1} as const;
 export type ExceptionCheckId=keyof typeof EXCEPTION_CHECK_VERSIONS;
 export type ExceptionStatus='open'|'fixed'|'accepted_risk';
 export interface ExceptionCheckInput extends RiskCheckOptions {checkId:ExceptionCheckId}
