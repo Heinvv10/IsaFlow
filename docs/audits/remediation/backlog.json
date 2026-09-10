@@ -11131,6 +11131,40 @@
       "severity": "medium",
       "source": "Measured by the R-058 round-4 blind reviewer on isaflow_dev: post-expense on a 'received' event returned 200. The default is at migration 233:8.",
       "processNotes": "Fix: refuse to post when extracted_data is empty (jsonb = '{}' or has no total), or when the event has not reached 'extracted'. Guards fail both ways: a manual-entry flow that supplies the fields in the body, if one exists, must keep working. Measure that first. R-075's fix (routeEvent after COMMIT) widens the 'received' window."
+    },
+    {
+      "id": "R-078",
+      "claim": "",
+      "area": "accounting/practice",
+      "affectedPaths": [
+        "pages/api/accounting/practice/time-entries-invoice.ts",
+        "src/modules/accounting/services/practice/wipAsOf.ts"
+      ],
+      "sourceLabel": "",
+      "sourceIds": [],
+      "correctedTrigger": "",
+      "severityRationale": "Work billed to a draft invoice disappears from WIP without appearing in receivables, so the two reports together understate what the practice is owed for as long as the invoice stays draft. It moves TODAY's WIP figure, not only historical as-at figures.",
+      "auditedSha": "",
+      "currentSha": "",
+      "status": "confirmed",
+      "dependencies": [
+        "R-059"
+      ],
+      "testNames": [],
+      "evidencePaths": [
+        "docs/audits/remediation/R-059/fix.md"
+      ],
+      "fixCommit": null,
+      "pr": null,
+      "deployedSha": null,
+      "historicalDataImpact": "Unknown; production not measured. Count approved time entries linked to invoices still in draft, per company.",
+      "canonicalItem": null,
+      "reportedSeverity": "",
+      "branch": null,
+      "title": "Billed time is in neither WIP nor debtors: time-entries-invoice always creates a DRAFT invoice, so the entry leaves WIP before the invoice is approved",
+      "severity": "medium",
+      "source": "Found by the R-059 round-2 blind reviewer (the wipAsOf comment claimed an entry is never in both WIP and AR, or in neither) and confirmed by the R-059 round-3 fixer.",
+      "processNotes": "Not fixed in R-059: correcting it moves today's WIP and needs an approval date the schema does not carry, so it is a scope change. Decide first what the right treatment is — keep the entry in WIP until the invoice is approved, or recognise a draft invoice in AR — then fix."
     }
   ],
   "sourceInventory": [
