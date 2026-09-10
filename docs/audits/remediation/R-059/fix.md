@@ -1669,3 +1669,51 @@ master: R-076, its shadow tables lack `deleted_at`.
 - Fixture integration, `--no-file-parallelism`: every `r059-*` (13 files), every
   `k053-*`, `k091*`, `k093*` — **38 files / 246 tests passed**.
 - `isaflow_dev`: `aging-point-in-time` + `ar-ap-aging-undated`, 2 files / 29 tests.
+
+---
+
+# Round 12
+
+## LOW-1: the `FOR UPDATE` in `rematchLines` was load-bearing and unpinned — PINNED
+
+Round 11 locked the reconciliation header so that the "already reconciled?"
+check and the writes after it cannot be split by a concurrent `markReconciled`.
+Deleting the lock left every test green.
+
+**RACE**, adapted from the review's two-client probe, is now in
+`r059-statement-recon-rematch`:
+1. A second connection B marks the statement reconciled and holds that
+   UNCOMMITTED.
+2. Rematch runs through the real route.
+3. The test polls `pg_blocking_pids` until Rematch is blocked on B (or has
+   already returned), then B commits.
+4. It asserts the route's answer and the stored row.
+
+**Measured:**
+
+| | route | status | isaflow | variance |
+|---|---|---|---|---|
+| with the lock | **409** | reconciled | 300 | **0** |
+| `FOR UPDATE` deleted | 200 | reconciled | **500** | **−200** |
+
+Without the lock, Rematch passes the status check before B commits, then its
+header UPDATE waits on B's row and goes through once B commits. The row ends up
+marked reconciled against figures nobody reconciled. The mutation turns RACE red
+(1 of 3). The file was restored and `cmp`-verified.
+
+**It cannot hang.** Every wait is bounded:
+- B's statements run under `statement_timeout = 15s`;
+- the "is Rematch blocked yet" poll gives up after 10 s;
+- the route call races a 20 s timer;
+- the whole test has a 60 s limit;
+- B is rolled back if still open, and closed, in `finally`.
+
+The probe's `console.log` and fixed 2 s sleep were replaced by the bounded poll,
+and B's UPDATE is company-scoped.
+
+## Round 12 gates
+
+- `env -u DATABASE_URL bun run ci`: 15/15 PASS, unit 854 files / 10093 tests,
+  component 85 / 539, `[ci] all checks passed`, `CI_EXIT=0`.
+- Fixture integration, `--no-file-parallelism`: every `r059-*`, `k053-*`,
+  `k091*`, `k093*` — **38 files / 247 tests passed**.
