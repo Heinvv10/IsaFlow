@@ -7,6 +7,7 @@ import {materializeHistoricalImportOperation} from './historicalImportMaterializ
 import {executeControlledOperation} from './approvalExecutionService';
 import {registerGeneratedJournal} from './generatedJournalPermit';
 import {replayKnownOperationEffect} from './operationReceiptReplay';
+import {canonicalOperationRef} from './operationMaterializer';
 import {postJournalEntry} from '../gl/journalEntryPostingService';
 import {writeHistoricalImportDocument} from './historicalImportDocumentWriter';
 import type {ControlTx,OperationRef} from './contracts';
@@ -46,8 +47,9 @@ async function receipt(ctx:ControlTx,ref:OperationRef):Promise<HistoricalImportE
  return replayKnownOperationEffect<HistoricalImportEffect>(ctx,ref,row.id);
 }
 /** The only historical financial write accepts persisted source identity and independent approval. */
-export async function executeHistoricalImport(ctx:ControlTx,ref:OperationRef,approvalId?:string):Promise<HistoricalImportEffect>{
+export async function executeHistoricalImport(ctx:ControlTx,input:OperationRef,approvalId?:string):Promise<HistoricalImportEffect>{
  assertControlTx(ctx);
+ const ref=canonicalOperationRef(input);
  if(ref.entityType!=='historical_import'||ref.operation!=='historical_import.post'||!UUID_RE.test(ref.entityId))throw new Error('Invalid historical import operation');
  const company=ctx.principal.companyId,user=ctx.principal.personId;
  const [intent]=await ctx.sql`SELECT requester_person_id,kind FROM control_historical_imports WHERE company_id=${company}::uuid AND id=${ref.entityId}::uuid` as Row[];

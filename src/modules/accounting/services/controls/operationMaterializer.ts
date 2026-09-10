@@ -55,7 +55,7 @@ export function canonicalOperationRef(ref: OperationRef): OperationRef {
   const reverses = ['journal.reverse','supplier_payment.void','supplier_invoice.cancel','payroll_run.reopen','customer_invoice.cancel','customer_payment.cancel','credit_note.cancel'].includes(ref.operation);
   const reversalDate = ref.reversalDate ?? (reverses && 'accountingDate' in ref ? ref.accountingDate : undefined);
   if (reversalDate !== undefined && (!reverses || typeof reversalDate !== 'string' || !isRealCalendarDate(reversalDate))) throw new Error('Invalid reversal date');
-  return { entityType: ref.entityType, entityId: ref.entityId,
+  return { entityType: ref.entityType, entityId: ref.entityId.toLowerCase(),
     ...(ref.expectedVersion === undefined ? {} : { expectedVersion: ref.expectedVersion }),
     ...(reversalDate === undefined ? {} : { reversalDate }),
     operation: ref.operation === 'supplier_invoice.approve' ? 'supplier_invoice.post' : ref.operation };
