@@ -253,3 +253,33 @@ it('says the same thing in the MCP dry run as the live call, and writes nothing'
   expect(seen.count).toBe(3);
   expect(seen.reversed).toBeNull();
 }, 60_000);
+
+it('renders the same warning on the LIVE MCP call, which really does write the contra', async () => {
+  const seen = await inRequestTx(async (client) => {
+    const result = await reverseJournalEntryTool.handler(
+      { journal_entry_id: dryEntry, idempotency_key: crypto.randomUUID() },
+      { userId: user, companyId: company, scopes: ['write:journals'], tokenJti: null, oauthAppId: null },
+    );
+    const payload = JSON.parse(result.content[0]!.text) as {
+      reversal_entry_id: string; warnings: { code: string }[];
+    };
+    const { rows } = await client.query(
+      `SELECT project_id, cost_center_id, bu_id FROM gl_journal_lines
+        WHERE company_id = $1 AND journal_entry_id = $2`,
+      [company, payload.reversal_entry_id]);
+    return { result, payload, rows };
+  });
+
+  expect(seen.result.isError).toBeFalsy();
+  expect(seen.result.wroteNothing).toBeFalsy();
+  // The live response carries the drop, not only the dry run: deleting
+  // `warnings:` from the live payload object turns this red.
+  expect(seen.payload.warnings.map((w) => w.code)).toContain('foreign_dimension_dropped');
+  // And it is a real contra, with the foreign tags left off.
+  expect(seen.rows.length).toBeGreaterThan(0);
+  for (const r of seen.rows) {
+    expect(r.project_id).toBeNull();
+    expect(r.cost_center_id).toBeNull();
+    expect(r.bu_id).toBeNull();
+  }
+}, 60_000);

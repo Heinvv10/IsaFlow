@@ -19,11 +19,27 @@
  * refusing does not protect anything, it costs the operator the only remedy
  * they have and leaves the bad row untouched.
  *
- * So the foreign id is dropped, per LINE and per DIMENSION. BOTH legs of the
- * pair lose the same tag — the contra is built from the original in one pass —
- * so the two land in the same (untagged) bucket and net to zero there. What it
- * costs is nothing this company can see: an id it does not own matches no
- * dimension filter it can run.
+ * So the foreign id is dropped, per LINE and per DIMENSION. What that costs
+ * differs by path, and only one of the two nets out — state it exactly, because
+ * this is the justification for a silent drop on a ledger write.
+ *
+ * On the RECLASSIFICATION path both legs are newly written from the same source
+ * line and both lose the tag, so the pair lands in the untagged bucket together
+ * and nets to zero there.
+ *
+ * On a REVERSAL only the CONTRA is written. The original posted line is
+ * deliberately left untouched and KEEPS its foreign tag, so the pair sits in
+ * TWO buckets and does NOT net. For every report that reads a dimension only
+ * through a filter the user supplies — trial balance, balance sheet, income
+ * statement — that is invisible, because an id this company does not own
+ * matches no filter it can run. The one exception is `getProjectProfitability`,
+ * which enumerates `DISTINCT jl.project_id` and excludes untagged lines: the
+ * original keeps its unnamed foreign bucket at the FULL amount and the contra
+ * lands in no bucket at all, so reversing does not take that bucket to zero.
+ * Carrying the tag instead is not available — `assertJournalLinesOwned` refuses
+ * it and migration 664's composite FK refuses the row — and refusing the
+ * reversal costs the operator the only remedy they have. The residual is
+ * declared in K-051's fix.md under Limits.
  *
  * The count comes back so the caller can tell the operator: the REST reversal
  * returns it on the entry, the MCP tool renders it as a
@@ -32,7 +48,14 @@
 
 import { log } from '@/lib/logger';
 import { ownedDimensions, ownedOrNull } from './journalLineOwnership';
-import type { JournalLine, JournalLineInput } from '../../types/gl.types';
+import type { JournalEntry, JournalLine, JournalLineInput } from '../../types/gl.types';
+
+/**
+ * The reversal entry, plus how many of its lines lost a dimension the company
+ * does not own (see reversalLines.ts). Additive: every existing caller reads it
+ * as a `JournalEntry`.
+ */
+export type ReversalEntry = JournalEntry & { foreignDimensionDroppedLines: number };
 
 export interface ReversalLines {
   /** The contra lines, with any dimension this company does not own left off. */
@@ -41,10 +64,18 @@ export interface ReversalLines {
   droppedLineCount: number;
 }
 
-/** Three SELECTs for the whole entry, not three per line. */
+/**
+ * Three SELECTs for the whole entry, not three per line.
+ *
+ * `preview` only changes the log line. The MCP dry run builds the contra to
+ * show what a post WOULD do and then writes nothing, so the write-tense warning
+ * asserted a mutation an operator reading journalctl could not tell apart from
+ * a real one.
+ */
 export async function buildReversalLines(
   companyId: string,
   lines: readonly JournalLine[],
+  opts?: { preview?: boolean },
 ): Promise<ReversalLines> {
   const owned = await ownedDimensions(companyId, {
     project: lines.map((l) => l.projectId),
@@ -60,7 +91,9 @@ export async function buildReversalLines(
     if (projectId !== l.projectId || costCenterId !== l.costCenterId || buId !== l.buId) {
       droppedLineCount += 1;
       log.warn(
-        'Reversal dropped a dimension that does not belong to this company',
+        opts?.preview === true
+          ? 'Reversal preview: a dimension that does not belong to this company would be dropped (nothing written)'
+          : 'Reversal dropped a dimension that does not belong to this company',
         { companyId, lineId: l.id, journalEntryId: l.journalEntryId },
         'accounting',
       );

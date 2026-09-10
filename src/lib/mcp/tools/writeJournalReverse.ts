@@ -126,7 +126,7 @@ export const reverseJournalEntryTool: McpTool = {
       // The same resolution the write does, so the preview cannot promise a
       // tag the post would drop. The live path below reads the count off the
       // reversal instead of paying for these three SELECTs twice.
-      const carried = await buildReversalLines(ctx.companyId, entry.lines);
+      const carried = await buildReversalLines(ctx.companyId, entry.lines, { preview: true });
       const result: DryRunResult = {
         dryRun: true,
         journals: [{
