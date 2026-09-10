@@ -160,6 +160,24 @@ describe('an edit that lands while the send is rendering',()=>{
   }finally{await h.brandProfile();}
  });
 
+ it('signs the registered name it fingerprinted when the company is renamed under it, and refuses the signature after',async()=>{
+  const before=await company();
+  await h.pool.query("UPDATE companies SET name='Name At Send' WHERE id=$1",[h.f.companyA]);
+  try{
+   const {doc,contact}=await s.readyToSign();
+   const landed=landMidRender("UPDATE companies SET name='Renamed Mid Send' WHERE id=$1",[h.f.companyA]);
+   s.posted.length=0;
+   const signum=await s.send(doc,contact);
+   expect(landed.waited,'a company rename had to wait for a signing request').toBe(false);
+   const html=s.posted.at(-1)!;
+   expect(html,'the cover carries a name the fingerprint never saw').toContain('Name At Send');
+   expect(html).not.toContain('Renamed Mid Send');
+   const row=await s.signed(signum,doc);
+   expect(row.status).toBe('partner_review');
+   expect(String(row.signing_refused_reason)).toMatch(/registered company/i);
+  }finally{await restore(before);}
+ });
+
  it('lets an unrelated company setting be saved during a send, promptly, without voiding the signature',async()=>{
   const {doc,contact}=await s.readyToSign();
   const landed=landMidRender('UPDATE companies SET chase_grace_days=7 WHERE id=$1',[h.f.companyA]);
