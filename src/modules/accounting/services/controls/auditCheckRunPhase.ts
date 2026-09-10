@@ -12,7 +12,7 @@ import {analyseJournalRisks,journalRiskThresholdGroup} from './journalRiskAnalys
 import {buildJournalRiskFinding,JOURNAL_RISK_COVERAGE} from './journalRiskShared';
 import {journalRiskPolicySql,journalRiskThresholds,type JournalRiskPolicyRow} from './journalRiskPopulationSql';
 import {checkStatus,riskAmountTotals} from './invoiceRiskQueriesResult';
-import {openRetainedAuditCheckRunItem,sealAuditCheckRunHeader,sealAuditCheckRunItem,type CheckRunHeader,type CheckRunIdentity} from './auditCheckRunProtection';
+import {checkRunCurrencyFits,openRetainedAuditCheckRunItem,sealAuditCheckRunHeader,sealAuditCheckRunItem,type CheckRunHeader,type CheckRunIdentity} from './auditCheckRunProtection';
 import {streamJournalRiskSlabs,type CheckRunLimits} from './auditCheckRunStream';
 import {writeAuditCheckRunFindings,type StagedCheckRunFinding} from './auditCheckRunWriter';
 export interface CheckRunPhaseOptions {signal?:AbortSignal;deadlineAt:number}
@@ -65,6 +65,10 @@ export async function runAuditCheckRunPhase(ctx:ControlTx,lease:AuditJobLease,op
   // journal (spike M5), and a re-check inside this repeatable-read snapshot could not see a revocation anyway. Readers
   // re-authorise against their own current permissions on every read.
   await assertEffectivePermission(ctx,'read:reports');check();
+  // The one per-finding value the seal could refuse is company-wide, so it is checked once, here, and a currency that
+  // cannot be sealed publishes `unknown` before any work rather than failing the table CHECK mid-stream.
+  const [company]=await ctx.sql`SELECT default_currency FROM companies WHERE id=${lease.companyId}::uuid` as {default_currency:string|null}[];
+  if(company?.default_currency&&!checkRunCurrencyFits(company.default_currency))throw new CheckRunResourceLimitError('currency_exceeds_limit');
   const [snapshot]=await ctx.sql`SELECT pg_current_snapshot()::text AS snapshot_text,pg_current_xact_id()::text AS capture_xid,
    clock_timestamp() AS captured_at` as {snapshot_text:string;capture_xid:string;captured_at:Date}[];
   if(!snapshot)throw new Error('Check run transaction snapshot unavailable');
