@@ -44,3 +44,16 @@ it('answers the live approval refusal plainly and rolls back the draft payment i
  expect(text(reply)).not.toMatch(/then retry/i);
  expect(await payments(),'the draft supplier payment was rolled back').toBe(before);
 },60000);
+it('below the threshold the live AP contra posts, as its preview said it would',async()=>{
+ const company=f.fixture.companyA,token=await f.scopedToken(['write:invoices','write:post','write:bank-tx']);
+ const count=async(query:string)=>Number((await f.pool.query<{n:number}>(query,[company])).rows[0]!.n);
+ const payments=()=>count('SELECT count(*)::int AS n FROM supplier_payments WHERE company_id=$1');
+ const journals=()=>count('SELECT count(*)::int AS n FROM gl_journal_entries WHERE company_id=$1');
+ const before={payments:await payments(),journals:await journals()};
+ const preview=await f.rpcToken(token,'settle_by_contra',settle('ap',40,true));
+ expect(preview.result?.isError,text(preview)).toBeFalsy();
+ const live=await f.rpcToken(token,'settle_by_contra',settle('ap',40,false));
+ expect(live.result?.isError,text(live)).toBeFalsy();
+ expect({payments:await payments(),journals:await journals()}).toEqual({payments:before.payments+1,journals:before.journals+1});
+ expect(Number((await f.pool.query<{paid:string}>('SELECT amount_paid::text AS paid FROM supplier_invoices WHERE company_id=$1 AND id=$2',[company,bill])).rows[0]!.paid)).toBe(40);
+},90000);
