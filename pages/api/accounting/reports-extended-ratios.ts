@@ -9,6 +9,7 @@ import { apiResponse } from '@/lib/apiResponse';
 import { withAuth, type CompanyAuthedRequest, withWriteAccess} from '@/lib/auth';
 import { sql } from '@/lib/neon';
 import { rawSubtypesFor } from '@/modules/accounting/services/gl/accountSubtypes';
+import { TAX_EXPENSE_SUBTYPES } from '@/modules/accounting/services/gl/accountClassification';
 import {
   getFinancialFigures,
   toFinancialData,
@@ -60,7 +61,11 @@ async function buildFinancialData(
         COALESCE(SUM(CASE WHEN ga.account_subtype = ANY(${[...rawSubtypesFor('payroll_expense'),
           'uif', 'medical_aid', 'provident_fund', 'leave_pay', 'bonuses']}::TEXT[])
           THEN jl.debit - jl.credit ELSE 0 END), 0) as employee_costs,
-        COALESCE(SUM(CASE WHEN ga.account_subtype IN ('income_tax_expense', 'deferred_tax_expense')
+        -- Two hand-picked spellings reported R0.00 tax for a company whose tax
+        -- accounts use the vocabulary's own. account_type = 'expense' keeps the
+        -- raw 'tax' a VAT control account carries out of an income-tax figure.
+        COALESCE(SUM(CASE WHEN ga.account_type = 'expense'
+            AND ga.account_subtype = ANY(${TAX_EXPENSE_SUBTYPES as string[]}::TEXT[])
           THEN jl.debit - jl.credit ELSE 0 END), 0) as tax_expense,
         COALESCE(SUM(CASE WHEN ga.account_subtype = 'raw_materials'
           THEN jl.debit - jl.credit ELSE 0 END), 0) as direct_materials

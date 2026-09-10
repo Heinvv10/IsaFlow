@@ -201,7 +201,13 @@ async function fetchIncomeSnapshot(companyId: string, periodStart: string, perio
   return { revenue, cogs, grossProfit, ebitda, ebit, netProfit };
 }
 
-async function fetchBalanceSnapshot(companyId: string, periodEnd: string): Promise<Pick<FinancialSnapshot, 'currentAssets' | 'currentLiabilities' | 'inventory' | 'tradeReceivables' | 'tradePayables' | 'totalDebt' | 'totalEquity'>> {
+/**
+ * Exported so the management pack reads the SAME current/non-current split
+ * rather than a byte-identical copy of it. The copy is what let the KPI
+ * denominator stay wrong through three review rounds: two surfaces agreeing by
+ * observation agree only until one is edited.
+ */
+export async function fetchBalanceSnapshot(companyId: string, periodEnd: string): Promise<Pick<FinancialSnapshot, 'currentAssets' | 'currentLiabilities' | 'inventory' | 'tradeReceivables' | 'tradePayables' | 'totalDebt' | 'totalEquity'>> {
   const rows = (await sql`
     SELECT
       -- Current = NOT non-current, on the shared vocabulary. The literal
