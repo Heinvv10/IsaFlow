@@ -46,7 +46,7 @@ beforeAll(async()=>{
 afterAll(async()=>{await pool.end();});
 let runCount=0;
 async function calculatedRun(){
-  // Each case needs its own period; roll into the next fiscal year past twelve.
+  // Each case needs its own period and this file runs more than twelve, so they continue into 2027.
   const index=runCount++,year=2026+Math.floor(index/12),month=index%12+1,id=randomUUID();
   const end=new Date(Date.UTC(year,month,0)).toISOString().slice(0,10);
   await pool.query(`INSERT INTO fiscal_periods(id,company_id,period_name,period_number,fiscal_year,start_date,end_date,status)
@@ -170,6 +170,15 @@ it('replays a consumed approval whose request also requested another run approva
   expect(await settle(post(current.id)),'fresh retry with shared request').toEqual({ok:true,value:first});
   expect(await withRole(fixture.u2,'viewer',()=>settle(post(current.id))),'revoked reviewer').toEqual({ok:false,error:'Approval authority is no longer valid'});
   expect(await ledger(current.id)).toEqual(before);
+});
+
+it('grants app_user update on only the approval columns the replay join does not trust',async()=>{
+  // The join's second arm compares entity_id and operation_id; a tenant able to edit those
+  // could re-point an approval and defeat the linkage check the arm exists to make.
+  const {rows}=await pool.query(`SELECT column_name FROM information_schema.column_privileges
+    WHERE table_schema='public' AND table_name='control_operation_approvals' AND grantee='app_user'
+      AND privilege_type='UPDATE' ORDER BY column_name`);
+  expect(rows.map(row=>row.column_name)).toEqual(['consumed_at','consumed_effect_id','decided_at','status']);
 });
 
 // The same request requests approval for a run, then posts that run without it (no policy applies).

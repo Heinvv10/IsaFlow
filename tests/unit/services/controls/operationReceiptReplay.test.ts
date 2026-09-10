@@ -28,6 +28,15 @@ it('refuses absent or ambiguous effect association and altered approval links',a
  await expect(replayKnownOperationEffect(ctx,ref,effect)).rejects.toThrow('linkage');
 });
 
+it('joins only an approval that consumed this effect or shares its operation and entity',async()=>{
+ mocks.sql.mockResolvedValue([{id:effect,result:{ok:true},approval_id:null,approval_status:null,consumed_effect_id:null}]);
+ await replayKnownOperationEffect(ctx,ref,effect);
+ const query=(mocks.sql.mock.calls.at(-1)![0] as string[]).join('?').replace(/\s+/g,' ');
+ // Approval entity ids are canonical today; the comparison stays case-insensitive so a
+ // non-canonical row cannot slip past the arm that catches an erased consumed link.
+ expect(query).toContain('(a.consumed_effect_id=e.id OR (a.operation_id=e.operation_id AND a.operation=e.operation AND a.entity_type=e.entity_type AND lower(a.entity_id)=lower(e.entity_id)))');
+});
+
 it('stops before effect SQL when current caller permission has been revoked',async()=>{
  mocks.permission.mockRejectedValueOnce(new Error('Permission denied'));
  await expect(replayKnownOperationEffect(ctx,ref,effect)).rejects.toThrow('Permission denied');
