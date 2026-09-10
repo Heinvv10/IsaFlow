@@ -66,12 +66,11 @@ describe('K-076 r18 HIGH-1 — one figure reader for all three rules', () => {
     expect(unreconciledFigure(text.replace('\nCARD 65.00', ''), 65, { subtotal: 56.52, vatAmount: 8.48 })).toBeNull();
   });
 
-  it('THE TRADE-OFF, pinned: a whole number on its own line under a payment that equals the total is a count', () => {
-    // `Table 12`, `Pump 5` and `Car Guard 23` have one shape. Where the
-    // payments prove the total is what was paid (the round-16 reviewer scored
-    // `Car Guard 23 / … / VISA 230.00` as payable 230), the number is a count.
-    // The same line in CENTS is money by its format and still refuses.
-    expect(unreconciledFigure(`${OCEAN}${BLOCK}CARD 230.00\nCar Guard 23`, 230, K)).toBeNull();
+  it('the round-18 trade-off is WITHDRAWN (round 19): an unknown label with a whole number refuses', () => {
+    // Round 18 read `Car Guard 23` under a card equal to the total as a count,
+    // and a handwritten `Tip: ____ 23` rode the same licence. Only a COUNTER
+    // label makes a whole number a count now, so both refuse, like the cents twin.
+    expect(unreconciledFigure(`${OCEAN}${BLOCK}CARD 230.00\nCar Guard 23`, 230, K)).toEqual({ reason: 'stray', value: 23 });
     expect(unreconciledFigure(`${OCEAN}${BLOCK}CARD 230.00\nCar Guard 23.00`, 230, K)).not.toBeNull();
   });
 });
@@ -89,13 +88,16 @@ describe('K-076 r18 MEDIUM-1 — a counter is a labelled small integer, not mone
       expect(unreconciledFigure(`${PAID}${footer}`, 115, known)).toBeNull();
     });
 
-  it('the SAME counter on a document that proves no payment refuses — fail closed', () => {
-    const unpaid = `${HDR('Pick n Pay')}Milk 115.00\nSub Total 100.00\nVAT 15% 15.00\nTOTAL 115.00\nTable 12`;
-    expect(unreconciledFigure(unpaid, 115, known)).toEqual({ reason: 'stray', value: 12 });
+  it('round 19: a COUNTER label makes a count whatever was paid; an unknown label refuses either way', () => {
+    const unpaid = `${HDR('Pick n Pay')}Milk 115.00\nSub Total 100.00\nVAT 15% 15.00\nTOTAL 115.00\n`;
+    expect(unreconciledFigure(`${unpaid}Table 12`, 115, known)).toBeNull();
+    expect(unreconciledFigure(`${unpaid}Car Guard 12`, 115, known)).toEqual({ reason: 'stray', value: 12 });
+    expect(unreconciledFigure(`${PAID}Car Guard 12`, 115, known)).toEqual({ reason: 'stray', value: 12 });
   });
 
-  it('a count larger than the total refuses even under a settled payment', () => {
-    expect(unreconciledFigure(`${PAID}Batch 123`, 115, known)).toEqual({ reason: 'larger', value: 123 });
+  it('round 19: a counter larger than the total is still a count, an unlabelled one is not', () => {
+    expect(unreconciledFigure(`${PAID}Batch 123`, 115, known)).toBeNull();
+    expect(unreconciledFigure(`${PAID}Attendant 123`, 115, known)).toEqual({ reason: 'larger', value: 123 });
   });
 });
 

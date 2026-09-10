@@ -56,12 +56,29 @@ function ocrTolerant(word: string): string {
  * only, since `REVERSE` is also "see reverse" and the reverse-charge VAT line.
  */
 const CREDIT_STEMS = [
-  'CREDIT', 'KREDIET', 'KREDIT', 'REFUND', 'TERUGBETA', 'TERUGGEBETAAL', 'TERUGGAWE',
-  'TERUGSTUUR', 'TERUGGESTUUR', 'RETURN', 'RETOER', 'RETOUR', 'VOID', 'CANCEL', 'KANSELL',
-  'EXCHANG', 'OMRUIL', 'KORREKSIE', 'STORNO', 'GUTSCHRIFT', 'AVOIR',
+  'CREDIT', 'KREDIET', 'REFUND', 'REIMBURS', 'RETURN', 'RETOER', 'RETOUR', 'VOID', 'CANCEL', 'ANNUL',
+  'EXCHANG', 'KORREKSIE', 'STORNO', 'GUTSCHRIFT', 'AVOIR', 'RÜCKGABE', 'RUCKGABE', 'MINUS',
 ];
+
+/**
+ * Afrikaans VERBS, as `[particle, stem]`, because an Afrikaans past participle
+ * does not start with its stem and no prefix can reach it: `GE-` goes in front
+ * (`KANSELLEER` → `GEKANSELLEER`, `KREDITEER` → `GEKREDITEER`) or, on a
+ * separable verb, after the particle (`OMRUIL` → `OMGERUIL`, `TERUGGEE` →
+ * `TERUGGEGEE`). Each is generated with and without the `GE`, so the
+ * participle is a rule and not another row somebody has to remember.
+ */
+const AFRIKAANS_VERBS: ReadonlyArray<readonly [string, string]> = [
+  ['', 'KANSELL'], ['', 'KREDIT'], ['', 'ANNULEER'], ['', 'KORRIGEER'], ['', 'RETOURNEER'],
+  ['OM', 'RUIL'], ['UIT', 'RUIL'], ['TERUG', 'BETA'], ['TERUG', 'GEBETAAL'], ['TERUG', 'GAWE'],
+  ['TERUG', 'GEE'], ['TERUG', 'STUUR'],
+];
+const AFRIKAANS_FORMS = AFRIKAANS_VERBS.flatMap(([particle, stem]) => [
+  `${particle}${stem}`, `${particle}GE${stem}`,
+]);
+
 const CREDIT_WORDS = [
-  ...CREDIT_STEMS.map((stem) => `${ocrTolerant(stem)}(?![O0]R)\\w*`),
+  ...[...CREDIT_STEMS, ...AFRIKAANS_FORMS].map((stem) => `${ocrTolerant(stem)}(?![O0]R)\\w*`),
   `${ocrTolerant('REVERS')}(?:AL|ED|ING)`,
 ];
 
@@ -91,14 +108,15 @@ const CREDIT_WORDS = [
  * hand-spelling failure the mechanical map exists to prevent.
  */
 const CREDIT_MARKINGS = [
-  'CR NOTE', 'CRD NOTE', 'CRED NOTE', 'KRED NOTA', 'CRN', 'C N', 'K N', 'C R', 'CR', 'C/M',
-  'RTN', 'RTRN', 'RFND', 'RFD', 'RMA', 'CANX', 'CANC', 'CNCL', 'R/A',
+  'CR NOTE', 'CRD NOTE', 'CRED NOTE', 'KRED NOTA', 'KR NOTA', 'CRN', 'C N', 'K N', 'C R', 'CR', 'C/M',
+  'RTN', 'RTRN', 'RTV', 'RETD', 'RFND', 'RFD', 'REFD', 'RVSL', 'REVSL', 'RMA', 'CANX', 'CANC', 'CNCL',
+  'CXL', 'CNX', 'R/A', 'REVERSE SALE', 'NEG SALE', 'VE SALE', 'RET D', 'ADJ NOTE', 'MONEY BACK', 'KANS',
   'ADJUSTMENT NOTE', 'DEBIT NOTE', 'ALLOWANCE NOTE', 'REBATE NOTE', 'REBATE',
   'CLAIM NOTE', 'CORRECTION SLIP', 'NEGATIVE SALE', 'MINUS SALE', 'NO SALE',
-  'GOEDERE TERUG', 'OMRUIL', 'TERUGGAWE', 'TERUGSTUUR', 'KORREKSIE',
+  'GOEDERE TERUG',
 ];
 
-const SEPARATOR = String.raw`[\s./-]`;
+const SEPARATOR = String.raw`[\s./'-]`;
 
 /** `CR NOTE` → `CR[\s./-]*N[O0]TE`; `R/A` → `R[\s./-]A`. */
 function ocrTolerantMarking(marking: string): string {
@@ -115,19 +133,27 @@ const CREDIT_WORD = new RegExp(
 
 /**
  * The Sage/Pastel `CR` printed against its figure, with or without the space
- * OCR so often drops: `TOTAL 499.00CR`, `R499.00 CR`. The lookbehind above
- * refuses a marking glued to a digit, which is right for words and wrong for
- * this one mark.
+ * OCR so often drops, in any case: `TOTAL 499.00CR`, `R499.00 cr.`, and its
+ * Afrikaans twin `TOTAL 499.00 KT` (kt, krediet). The lookbehind above refuses
+ * a marking glued to a digit, which is right for words and wrong for this mark.
  */
-const AMOUNT_CR = /\d\s*C[Rr](?![A-Za-z0-9])/;
+const AMOUNT_CR = /\d\s*(?:CR|KT)\.?(?![A-Za-z0-9])/i;
 
 /**
- * A credit memo or a reversal NUMBERED: `CM 0012`, `REV 0012`. Bare, both are
+ * A credit memo, reversal, return or return authorisation NUMBERED: `CM 0012`,
+ * `REV 0012`, `RET 0012`, `RA 0012`. Bare, the first two are
  * everyday words on a purchase (`Ruler 30 CM 115.00`, `Rev B`), so they count
  * only where a number follows AND none precedes on the line — a length is the
  * number before it, and the price after it is not a document number.
  */
-const NUMBERED_MARKING = /(?<![A-Za-z0-9])(?<!\d[ \t]*)(?:CM|REV)[\s#:.-]*\d/i;
+const NUMBERED_MARKING = /(?<![A-Za-z0-9])(?<!\d[ \t]*)(?:CM|REV|RET|RA|VD|GRV)[\s#:.-]*\d/i;
+
+/**
+ * A Pastel credit-note NUMBER glued to its prefix: `CRN00045`, `CN0012`,
+ * `KN00123`. The word wrapper refuses a marking followed by a digit, so
+ * `CRN-00045` refused while the glued form posted.
+ */
+const GLUED_CREDIT_NUMBER = /(?<![A-Za-z0-9])(?:CRN|CN|KN)\d/i;
 
 /** `TAX INVOICE (CR)` — the marker printed in brackets beside the type. */
 const BRACKETED_CREDIT = /\(\s*CR\s*\)/i;
@@ -172,6 +198,7 @@ const BENIGN_PHRASES: RegExp[] = [
   /(?:returned|exchanged)\s+(?:with)?in\s+\d+\s+days[^\n]*/gi,
   /exchange\s+rate[^\n]*/gi,
   /less\s+credit\s+note[^\n]*/gi,
+  /money[\s-]*back\s+guarantee[^\n]*/gi,
 ];
 
 /** The document with every benign phrase blanked out. */
@@ -226,6 +253,6 @@ export function hasCreditIndicator(
 ): boolean {
   const scrubbed = scrubBenign(scrubVendorIdentity(text, vendorIdentity));
   if (CREDIT_WORD.test(scrubbed) || BRACKETED_CREDIT.test(scrubbed)) return true;
-  if (AMOUNT_CR.test(scrubbed) || NUMBERED_MARKING.test(scrubbed)) return true;
+  if (AMOUNT_CR.test(scrubbed) || NUMBERED_MARKING.test(scrubbed) || GLUED_CREDIT_NUMBER.test(scrubbed)) return true;
   return total !== null && total !== undefined && total !== 0 && totalPrintedSigned(text, total);
 }

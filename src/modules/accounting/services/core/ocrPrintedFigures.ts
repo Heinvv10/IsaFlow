@@ -81,7 +81,7 @@ const LOYALTY_LABEL = /^(?:Points|Loyalty|eBucks|UCount|Miles)$/i;
  * counting as a payment, and rule 3 of `unreconciledFigure` then refuses the
  * document because nothing explains it.
  */
-const TENDER_CONNECTOR = /^(?:[\s:.=*#()\/-]|\d+|R\b|ZAR\b|Credit\b|Debit\b|Cr\b|Dr\b|Amount\b|Amt\b|Total\b|Due\b|Tendered\b|Paid\b|Payment\b|No\b)*$/i;
+const TENDER_CONNECTOR = /^(?:[\s:.=*#()\/-]|\d+|R\b|ZAR\b|Credit\b|Debit\b|Cr\b|Dr\b|Amount\b|Amt\b|Total\b|Due\b|Tendered\b|Paid\b|Payment\b|Received\b|No\b)*$/i;
 
 /** Does a payment label stand IMMEDIATELY before this figure on its line? */
 function labelsTender(segment: string, whole = false): boolean {
@@ -110,6 +110,20 @@ function summaryAdjacent(line: string, index: number): boolean {
   return match !== null && SUMMARY_CONNECTOR.test(line.slice(lead + match[0].length, index));
 }
 
+/**
+ * The labels of a COUNT or a REFERENCE — the one list in this gate that says a
+ * number is NOT money. It is closed and it FAILS CLOSED: a whole number whose
+ * label is not here, and that no payment, change or summary label claims, is
+ * read as an amount nobody explained, and the document goes to a person.
+ *
+ * Round 18 had it the other way round: any whole number no role claimed was a
+ * count wherever the payments balanced. A handwritten tip on the printed blank
+ * (`Tip: ____ 23`, `Tip - 23`, `Gratuity ___ 23`) under `CARD 230.00` was then
+ * a "count" too, and 47 of 59 tip probes posted the pre-tip total. A counter
+ * label missing from this list costs a refusal; it never costs money.
+ */
+const COUNTER_LABEL = /(?<![A-Za-z])(?:Items?|Qty|Quantity|Units?|Pieces|Parcels?|Packages?|Boxes|Cartons?|Lane|Till|Pump|Table|Tafel|Cashier|Kassier|Operator|Op|Clerk|Server|Page|Bladsy|Batch|Seq(?:uence)?|Store|Shop|Branch|Terminal|Trans(?:action)?|Receipt|Slip|Invoice|Order|Ref(?:erence)?|Acc(?:ount)?|Auth(?:ori[sz]ation)?(?:\s*Code)?|Approval(?:\s*Code)?|Code|Covers|Seats?|Guests?|Pax|Points|Odometer|Est(?:ablished)?|Since|Copy|Floor|Room|Aisle|Register|Lot|Serial|Version|Address|Adres)(?:\s+(?:Sold|Earned|Balance|Count|Total))?[\s:#.=-]*$/i;
+
 export interface PrintedFigure {
   value: number;
   /** A change label stands between this figure and the one before it on its line. */
@@ -120,23 +134,20 @@ export interface PrintedFigure {
   isTender: boolean;
   /** The figure's own LINE begins with a net, tax, total or payable label. */
   isSummary: boolean;
-  /** A whole number that nothing marks as money and no role claims. */
+  /** A whole number no role claims and no counter label names: unexplained money. */
   isUnroled: boolean;
-  /** Another money figure is printed on the same line. */
-  besideMoney: boolean;
 }
 
 /**
  * Every figure the document prints, cents and whole, in reading order, each
  * with the role its own line gives it. ONE reader for all three rules of the
- * whitelist — round 17 read whole numbers for rule 3 alone, and a whole-rand
- * payment was excused by rule 3 without ever reaching rule 1's sum.
+ * whitelist. A whole number named by a counter label is not a figure at all.
  */
 export function printedFigures(text: string): PrintedFigure[] {
   const figures: PrintedFigure[] = [];
   for (const line of text.split(/\r?\n/)) {
     const cents = [...line.matchAll(FIGURE)].map((m) => ({
-      value: parseAmount(m[1]!), index: m.index, end: m.index + m[0].length, whole: false, moneyMark: true, identifier: false,
+      value: parseAmount(m[1]!), index: m.index, end: m.index + m[0].length, whole: false, moneyMark: true,
     }));
     const lastCents = cents[cents.length - 1];
     const grouped = lastCents && [...line.matchAll(SPACE_GROUPED)].find((m) => m.index + m[0].length === lastCents.end);
@@ -144,25 +155,24 @@ export function printedFigures(text: string): PrintedFigure[] {
       lastCents!.value = parseAmount(grouped[1]!);
       lastCents!.index = grouped.index;
     }
-    const whole = wholeTokens(line, cents.map((c) => [c.index, c.end] as const), startsWithTender)
-      .map((t) => ({ ...t, whole: true }));
-    const onLine: Array<PrintedFigure & { end: number; identifier: boolean }> = [];
+    const whole = wholeTokens(line, cents.map((c) => [c.index, c.end] as const)).map((t) => ({ ...t, whole: true }));
+    const onLine: Array<PrintedFigure & { end: number; counter: boolean }> = [];
     let labelFrom = 0;
     for (const f of [...cents, ...whole].sort((x, y) => x.index - y.index)) {
       const segment = line.slice(labelFrom, f.index);
       const isTender = labelsTender(segment, f.whole);
       const isChange = CHANGE_LABEL.test(segment);
       const isSummary = f.whole ? summaryAdjacent(line, f.index) : SUMMARY_LINE_START.test(line.trimStart());
+      const roled = f.moneyMark || isTender || isChange || isSummary;
       onLine.push({
         value: f.value,
         isChange,
         isCash: CASH_LABEL.test(segment),
         isTender,
         isSummary,
-        isUnroled: f.whole && !f.moneyMark && !isTender && !isChange && !isSummary,
-        besideMoney: false,
+        isUnroled: f.whole && !roled,
         end: f.end,
-        identifier: f.identifier,
+        counter: f.whole && !roled && COUNTER_LABEL.test(segment),
       });
       labelFrom = f.end;
     }
@@ -175,14 +185,10 @@ export function printedFigures(text: string): PrintedFigure[] {
     if (last && startsWithTender(line.slice(last.end))) {
       last.isTender = true;
       last.isUnroled = false;
+      last.counter = false;
     }
-    // A reference carries no role unless one claims it (`EFT 1500` is a
-    // payment; `Terminal 12345` is not an amount at all).
-    const kept = onLine.filter((f) => !f.identifier || !f.isUnroled);
-    const money = kept.filter((f) => !f.isUnroled).length;
-    figures.push(...kept.map(({ value, isChange, isCash, isTender, isSummary, isUnroled }) => ({
-      value, isChange, isCash, isTender, isSummary, isUnroled, besideMoney: money - (isUnroled ? 0 : 1) > 0,
-    })));
+    figures.push(...onLine.filter((f) => !f.counter).map(({ value, isChange, isCash, isTender, isSummary, isUnroled }) => (
+      { value, isChange, isCash, isTender, isSummary, isUnroled })));
   }
   return figures;
 }
