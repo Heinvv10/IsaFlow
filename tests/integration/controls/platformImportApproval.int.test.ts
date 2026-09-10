@@ -74,7 +74,8 @@ describe('platform historical import persisted maker and independent tenant appr
  it('refuses an ordinary journal approval through the target-bound import context',async()=>{
   const journal=randomUUID();
   await h.pool.query("INSERT INTO gl_journal_entries(id,company_id,entry_number,entry_date,status,source,created_by) VALUES($1,$2,$3,'2023-02-28','draft','manual',$4)",[journal,h.f.companyA,`PI-${journal}`,h.admin]);
-  await expect(h.maker({action:'request',importId:randomUUID()},ctx=>requestOperationApproval(ctx,{entityType:'journal',entityId:journal,operation:'journal.post'}))).rejects.toThrow();
+  await h.pool.query("INSERT INTO gl_journal_lines(company_id,journal_entry_id,gl_account_id,debit,credit) SELECT company_id,$2,id,CASE WHEN account_code='PI-C' THEN 1150 ELSE 0 END,CASE WHEN account_code='PI-R' THEN 1150 ELSE 0 END FROM gl_accounts WHERE company_id=$1 AND account_code IN ('PI-C','PI-R')",[h.f.companyA,journal]);
+  await expect(h.maker({action:'request',importId:randomUUID()},ctx=>requestOperationApproval(ctx,{entityType:'journal_entry',entityId:journal,operation:'journal.post'}))).rejects.toThrow();
   expect((await h.pool.query('SELECT status FROM gl_journal_entries WHERE company_id=$1 AND id=$2',[h.f.companyA,journal])).rows[0].status).toBe('draft');
  });
 });
