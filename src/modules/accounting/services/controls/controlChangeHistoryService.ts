@@ -7,6 +7,7 @@ import {openProtectedChange} from './changeProtection';
 import {openHistoryCursor,sealHistoryCursor} from './controlChangeHistoryCursor';
 import {assertHistoryEntity,assertHistoryOperationSources} from './controlChangeHistoryPolicy';
 import {projectHistoryValues} from './controlChangeHistoryProjection';
+import {assertJournalMergeHistorySources} from './controlChangeHistoryJournalSources';
 import type {ControlTx} from './contracts';
 const inputSchema=z.object({entityType:z.string().min(1).max(80),entityId:z.string().min(1).max(80),limit:z.number().int().min(1).max(100).optional(),cursor:z.string().min(1).max(2048).optional()}).strict();
 export interface HistoryInput{entityType:string;entityId:string;limit?:number;cursor?:string}
@@ -46,9 +47,16 @@ export async function readControlEntityHistory(ctx:ControlTx,input:HistoryInput)
   ON p.company_id=e.company_id AND p.id=e.protected_evidence_id AND p.entity_type=e.entity_type AND p.entity_id=e.entity_id
   WHERE e.company_id=${company}::uuid AND e.entity_type=${entityType} AND e.entity_id=${entityId} AND e.id=ANY(${page.map(row=>row.id)}::uuid[])` as {id:string;ciphertext:string;key_id:string;envelope_version:number}[]:[];
  const byId=new Map(evidence.map(row=>[row.id,row]));
+ const decoded=new Map<string,ReturnType<typeof openProtectedChange>>();
+ for(const row of page){
+  const protectedRow=byId.get(row.id);
+  const values=protectedRow?openProtectedChange({version:protectedRow.envelope_version as 1,keyId:protectedRow.key_id,ciphertext:protectedRow.ciphertext}):{before:null,after:null};
+  await assertJournalMergeHistorySources(ctx,{entityType,entityId,action:row.action},values);
+  if(protectedRow)decoded.set(row.id,values);
+ }
  const items=page.map(row=>{
   const protectedRow=byId.get(row.id),retained=!!protectedRow;
-  const values=retained?projectHistoryValues(openProtectedChange({version:protectedRow!.envelope_version as 1,keyId:protectedRow!.key_id,ciphertext:protectedRow!.ciphertext})):{before:null,after:null,redactedPaths:[] as string[]};
+  const values=retained?projectHistoryValues(decoded.get(row.id)!):{before:null,after:null,redactedPaths:[] as string[]};
   return{eventId:row.id,occurredAt:iso(row.occurred_at),accountingDate:row.accounting_date===null?null:iso(row.accounting_date).slice(0,10),previousVersion:row.previous_version===null?null:integer(row.previous_version),newVersion:integer(row.new_version),action:row.action,operationId:row.operation_id,
    actor:{personId:row.person_id,connectionId:row.connection_id,grantId:row.grant_id,actingFirmId:row.acting_firm_id,requestId:row.request_id,provenance:row.provenance,recorded:true as const},...values,protectedEvidence:{retained,availability:retained?'available' as const:'missing' as const}};
  });
