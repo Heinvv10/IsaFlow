@@ -1,0 +1,50 @@
+$ node scripts/check-runtime.mjs && vitest run --config vitest.integration.config.ts "tests/integration/k058-debtors-drops-null-client-id.int.test.ts"
+
+ RUN  v4.1.2 /home/hein/Workspace/IsaFlow/.worktrees/audit-remediation-20260908
+
+ ❯ tests/integration/k058-debtors-drops-null-client-id.int.test.ts (3 tests | 2 failed) 165ms
+     × the debtors summary agrees with AR aging 8ms
+     × the overdue list shows the NULL client_id invoice 5ms
+
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 2 ⎯⎯⎯⎯⎯⎯⎯
+
+ FAIL  tests/integration/k058-debtors-drops-null-client-id.int.test.ts > K-058 debtors dashboard drops invoices with a NULL client_id > the debtors summary agrees with AR aging
+AssertionError: expected 1000 to be close to 1750, received difference is 750, but expected 0.005
+ ❯ tests/integration/k058-debtors-drops-null-client-id.int.test.ts:69:19
+     67|     const summary = await getDebtorsSummary(COMPANY);
+     68|     const total = summary.reduce((s, d) => s + d.totalOutstanding, 0);
+     69|     expect(total).toBeCloseTo(LINKED + LEGACY, 2);
+       |                   ^
+     70|   });
+     71|
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[1/2]⎯
+
+ FAIL  tests/integration/k058-debtors-drops-null-client-id.int.test.ts > K-058 debtors dashboard drops invoices with a NULL client_id > the overdue list shows the NULL client_id invoice
+AssertionError: expected [ 'K058-1788945433691-384294-LINKED' ] to deeply equal [ …(2) ]
+
+- Expected
++ Received
+
+  [
+-   "K058-1788945433691-384294-LEGACY",
+    "K058-1788945433691-384294-LINKED",
+  ]
+
+ ❯ tests/integration/k058-debtors-drops-null-client-id.int.test.ts:74:56
+     72|   it('the overdue list shows the NULL client_id invoice', async () => {
+     73|     const overdue = await getOverdueInvoices(COMPANY);
+     74|     expect(overdue.map((i) => i.invoiceNumber).sort()).toEqual(
+       |                                                        ^
+     75|       [TAG + '-LEGACY', TAG + '-LINKED'],
+     76|     );
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[2/2]⎯
+
+
+ Test Files  1 failed (1)
+      Tests  2 failed | 1 passed (3)
+   Start at  11:17:12
+   Duration  909ms (transform 357ms, setup 0ms, import 484ms, tests 165ms, environment 0ms)
+
+error: script "test:integration" exited with code 1
