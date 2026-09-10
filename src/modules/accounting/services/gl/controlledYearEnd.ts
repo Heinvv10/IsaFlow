@@ -6,7 +6,7 @@ import {fmtDate} from '@/lib/fmtDate';
 import {assertEffectivePermission} from '@/lib/auth/effectivePermissions';
 import {requireControlTx} from '../controls/context';
 import {loadOperationMaterial} from '../controls/operationMaterializer';
-import {executeControlledOperation} from '../controls/approvalExecutionService';
+import {assertSuppliedApprovalExecutable,executeControlledOperation} from '../controls/approvalExecutionService';
 import {registerGeneratedJournal} from '../controls/generatedJournalPermit';
 import {readControlEntityVersion} from '../controls/operationVersions';
 import {recordCommittedChange} from '../controls/changeEventService';
@@ -60,7 +60,11 @@ export async function closeFiscalYear(companyId:string,yearLabel:string,userId:s
  if(facts.closing.retained.is_active!==true)throw new Error('Retained earnings account is inactive');
  // The kernel's own approval condition, already bound on this material: a
  // preview must not show a close the live call refuses for want of an approval.
- if(options.dryRun&&material.binding.policies.length)return{error:'approval_required'};
+ if(options.dryRun&&material.binding.policies.length){
+  // A supplied approval is accepted exactly when the live close would accept it.
+  if(!options.approvalId)return{error:'approval_required'};
+  await assertSuppliedApprovalExecutable(ctx,parent,options.approvalId);
+ }
  if(options.dryRun)return{dryRun:true,netIncome:Number(facts.closing.netIncome),netIncomeExact:facts.closing.netIncome,preview:preview(yearLabel,facts)};
  return executeControlledOperation(ctx,parent,options.approvalId??null,async permit=>{
   if(await prior(ctx,yearLabel))throw new Error('Financial year already closed');
