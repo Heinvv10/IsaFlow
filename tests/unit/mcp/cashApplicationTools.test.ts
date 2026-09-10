@@ -36,6 +36,12 @@ vi.mock('@/modules/accounting/services/core/contraSettlementService', () => ({
   assertContraAccountUsable: vi.fn(),
   loadContraDocument: vi.fn(),
 }));
+vi.mock('@/modules/accounting/services/controls/approvalExecutionService', () => ({
+  assertControlledOperationAuthority: vi.fn(),
+}));
+vi.mock('@/modules/accounting/services/ap/apControlBoundary', () => ({
+  requireApControl: vi.fn(() => ({ synthetic: 'ap-control' })),
+}));
 vi.mock('@/modules/accounting/services/bank/bankAllocationService', () => ({
   assertBankAllocationAuthority: vi.fn(),
 }));
