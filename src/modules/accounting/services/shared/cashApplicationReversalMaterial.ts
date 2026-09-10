@@ -6,6 +6,7 @@ import {assertControlTx} from '../controls/context';
 import {assertControlledEffectPermit,type ControlledEffectPermit} from '../controls/approvalExecutionService';
 import {canonicalJson} from '../controls/canonical';
 import {readControlEntityVersion} from '../controls/operationVersions';
+import {loadIntentReceipt,sameIntentId} from '../controls/intentIdentity';
 import {loadOriginalCashApplication,assertCashApplicationReversible} from './cashApplicationReversalSources';
 import {cashApplicationTotal} from './cashApplicationPlan';
 type Row=Record<string,unknown>;
@@ -20,9 +21,8 @@ export async function loadCashApplicationReversal(ctx:ControlTx,id:string,permit
  const periods=await ctx.sql`SELECT * FROM fiscal_periods WHERE company_id=${company}::uuid AND start_date<=${intent.reversal_date}::date AND end_date>=${intent.reversal_date}::date ORDER BY id FOR UPDATE` as Row[];
  const vatLocks=await ctx.sql`SELECT * FROM vat_period_locks WHERE company_id=${company}::uuid AND period_start<=${intent.reversal_date}::date AND period_end>=${intent.reversal_date}::date ORDER BY id FOR SHARE` as Row[];
  const facts={intent,original,periods,vatLocks},fingerprint=createHash('sha256').update(canonicalJson(facts)).digest('hex');
- const [effect]=await ctx.sql`SELECT id,result FROM control_operation_effects WHERE company_id=${company}::uuid AND entity_type='cash_application_reversal_intent'
-  AND entity_id=${id} AND operation='cash_application.reverse' ORDER BY committed_at DESC LIMIT 1` as {id:string;result:{intentId:string;afterFingerprint:string}}[];
- if(effect){if(effect.result.intentId!==id||effect.result.afterFingerprint!==fingerprint||original.rows.some(a=>!a.reversed_at||a.reversal_intent_id!==id))throw new Error('Cash reversal receipt material changed');}
+ const effect=await loadIntentReceipt<{intentId:string;afterFingerprint:string}>(ctx,{entityType:'cash_application_reversal_intent',entityId:id,operation:'cash_application.reverse'});
+ if(effect){if(!sameIntentId(effect.result.intentId,id)||effect.result.afterFingerprint!==fingerprint||original.rows.some(a=>!a.reversed_at||a.reversal_intent_id!==id))throw new Error('Cash reversal receipt material changed');}
  else if(!permit&&original.rows.some(a=>a.reversed_at!=null||a.reversal_intent_id!=null))throw new Error('Cash application already reversed');
  return{...facts,fingerprint,effect};
 }

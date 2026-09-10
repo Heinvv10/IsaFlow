@@ -8,6 +8,7 @@ import {executeControlledOperation} from './approvalExecutionService';
 import {registerGeneratedJournal} from './generatedJournalPermit';
 import {replayKnownOperationEffect} from './operationReceiptReplay';
 import {canonicalOperationRef} from './operationMaterializer';
+import {loadIntentReceipt,sameIntentId} from './intentIdentity';
 import {postJournalEntry} from '../gl/journalEntryPostingService';
 import {writeHistoricalImportDocument} from './historicalImportDocumentWriter';
 import type {ControlTx,OperationRef} from './contracts';
@@ -30,10 +31,9 @@ function postingActor(ctx:ControlTx){
  return{actorType:'human',actorTokenJti:null,postingAgent:`human:${principal.personId}`};
 }
 async function receipt(ctx:ControlTx,ref:OperationRef):Promise<HistoricalImportEffect|null>{
- const rows=await ctx.sql`SELECT id,result FROM control_operation_effects WHERE company_id=${ctx.principal.companyId}::uuid
-  AND entity_type='historical_import' AND lower(entity_id)=${ref.entityId} AND operation='historical_import.post' LIMIT 2` as {id:string;result:HistoricalImportEffect}[];
- if(!rows.length)return null;
- const row=rows[0]!;if(rows.length!==1||row.result.importId.toLowerCase()!==ref.entityId||!UUID_RE.test(row.result.journalEntryId))throw new Error('Historical import receipt association invalid');
+ const row=await loadIntentReceipt<HistoricalImportEffect>(ctx,{entityType:'historical_import',entityId:ref.entityId,operation:'historical_import.post'});
+ if(!row)return null;
+ if(!sameIntentId(row.result.importId,ref.entityId)||!UUID_RE.test(row.result.journalEntryId))throw new Error('Historical import receipt association invalid');
  const journals=await ctx.sql`SELECT id FROM gl_journal_entries WHERE company_id=${ctx.principal.companyId}::uuid
   AND id=${row.result.journalEntryId}::uuid AND status='posted' AND reversed_at IS NULL FOR SHARE`;
  if(journals.length!==1)throw new Error('Historical import receipt journal changed');

@@ -34,14 +34,16 @@ export async function queryUnappliedCashHistory(companyId:string,kind:'customer'
   COALESCE((SELECT jsonb_agg(jsonb_build_object('date',j.entry_date,'id',j.id,'createdAt',j.created_at))
    FROM gl_journal_entries j WHERE j.company_id=p.company_id AND j.reversal_of_id=je.id AND j.status='posted'),'[]'::jsonb) AS contras,
   COALESCE((SELECT jsonb_agg(jsonb_build_object('date',e.accounting_date,'occurredAt',e.occurred_at,'committedAt',f.committed_at))
-   FROM control_change_events e JOIN control_operation_effects f ON f.company_id=e.company_id AND f.operation_id=e.operation_id
-   WHERE e.company_id=p.company_id AND e.entity_type=${kind}||'_payment' AND e.entity_id=p.id::text
-    AND e.accounting_date IS NOT NULL AND (
+   FROM control_change_events e JOIN LATERAL(SELECT f.committed_at FROM control_operation_effects f
+    WHERE f.company_id=e.company_id AND f.operation_id=e.operation_id AND (
      (e.action=${kind}||'_payment.'||CASE WHEN ${kind}='customer' THEN 'cancel' ELSE 'void' END
-       AND f.operation=e.action AND f.entity_id=p.id::text AND f.entity_type=e.entity_type AND f.binding_hash=e.binding_hash)
+       AND f.operation=e.action AND lower(f.entity_id)=p.id::text AND f.entity_type=e.entity_type AND f.binding_hash=e.binding_hash)
      OR (e.action='bank_allocation.payment_cancelled' AND f.operation='bank_allocation.reverse'
-       AND f.result->>'originalJournalEntryId'=je.id::text)
-    )),'[]'::jsonb) AS cancellations,
+       AND f.result->>'originalJournalEntryId'=je.id::text))
+    -- Twin receipts of one operation are one cancellation.
+    ORDER BY f.committed_at,f.id LIMIT 1) f ON true
+   WHERE e.company_id=p.company_id AND e.entity_type=${kind}||'_payment' AND lower(e.entity_id)=p.id::text
+    AND e.accounting_date IS NOT NULL),'[]'::jsonb) AS cancellations,
   COALESCE((SELECT jsonb_agg(jsonb_build_object('amount',a.amount_allocated::text,'createdAt',a.created_at,
     'applicationId',a.application_intent_id,'applicationDate',app.accounting_date,'applicationCreatedAt',app.created_at,
     'inverseId',a.reversal_intent_id,'reversedAt',a.reversed_at,'inverseDate',inv.reversal_date,'inverseCreatedAt',inv.created_at))

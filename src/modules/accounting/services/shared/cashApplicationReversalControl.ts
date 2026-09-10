@@ -1,3 +1,4 @@
+import {canonicalIntentId} from '../controls/intentIdentity';
 import {randomUUID} from 'node:crypto';
 import {withSavepoint} from '@/lib/neon';
 import {assertEffectivePermission} from '@/lib/auth/effectivePermissions';
@@ -26,7 +27,8 @@ export async function prepareCashApplicationReversal(ctx:ControlTx,input:unknown
 }
 
 export async function executeCashApplicationReversal(ctx:ControlTx,intentId:string,options?:{approvalId?:string}){
- assertControlTx(ctx);await assertEffectivePermission(ctx,'write:bank-tx');await assertEffectivePermission(ctx,'write:post');
+ assertControlTx(ctx);intentId=canonicalIntentId(intentId);
+ await assertEffectivePermission(ctx,'write:bank-tx');await assertEffectivePermission(ctx,'write:post');
  const {loadCashApplicationReversal}=await import('./cashApplicationReversalMaterial');
  const {executeControlledOperation}=await import('../controls/approvalExecutionService');
  const {replayKnownOperationEffect}=await import('../controls/operationReceiptReplay');
