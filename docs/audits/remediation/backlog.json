@@ -10725,6 +10725,39 @@
       "severity": "medium",
       "source": "Found by the K-071 r14 blind reviewer; reserved and registered by the K-071 r15 fixer, 2026-09-10. Not independently verified by the orchestrator.",
       "processNotes": "`autoPostGateService.sweep` catches the typed contention error per row and continues, but with no savepoint the transaction is already aborted, so the next SQL statement raises 25P02 — the caught-error-poisons-the-transaction class. Reached from smart-categorize, bank-transactions-bulk-commit and bank-feeds extension-ingest (via a TypeScript-resolved reverse call graph). Not fixed: outside the K-071 round. Fix by giving each row its own savepoint, as bankRulesMatchingService does after K-071 r15."
+    },
+    {
+      "id": "R-066",
+      "claim": "",
+      "area": "accounting/ar",
+      "affectedPaths": [
+        "src/modules/accounting/services/ar/invoicePdfBuilder.ts"
+      ],
+      "sourceLabel": "",
+      "sourceIds": [],
+      "correctedTrigger": "",
+      "severityRationale": "Violates the hard rule that every query carries company_id, on a customer-facing tax invoice. MEDIUM as defence in depth; HIGH (a POPIA disclosure) if any write path can store another tenant's customer id in client_id/customer_id — that is being checked.",
+      "auditedSha": "",
+      "currentSha": "",
+      "status": "confirmed",
+      "dependencies": [
+        "K-091"
+      ],
+      "testNames": [],
+      "evidencePaths": [
+        "docs/audits/remediation/K-091/fix.md"
+      ],
+      "fixCommit": null,
+      "pr": null,
+      "deployedSha": null,
+      "historicalDataImpact": "Unknown; production not measured. Any invoice whose client_id/customer_id resolves to another tenant's customer has printed that tenant's data. Impact SQL for Hein: invoices whose customer row belongs to a different company.",
+      "canonicalItem": null,
+      "reportedSeverity": "",
+      "branch": null,
+      "title": "The tax-invoice PDF joins the customer by id alone, with no company_id: a foreign customer id prints another tenant's name, VAT number and address",
+      "severity": "medium",
+      "source": "Surfaced by the K-091 branch, which fixes it; confirmed on origin/master by the orchestrating session, 2026-09-10",
+      "processNotes": "origin/master invoicePdfBuilder.ts:34 is `LEFT JOIN customers c ON c.id = COALESCE(ci.client_id, ci.customer_id)` with no `c.company_id = ci.company_id`. The invoice itself is scoped (`ci.company_id = companyId`, :39) and master already scopes the projects join (:37); the customer join is the gap. `customer_invoices.client_id` has no FK, so nothing in the schema stops a foreign id. K-091 adds the predicate on its branch. Impact SQL: SELECT count(*) FROM customer_invoices ci JOIN customers c ON c.id = COALESCE(ci.client_id, ci.customer_id) WHERE c.company_id <> ci.company_id;"
     }
   ],
   "sourceInventory": [
