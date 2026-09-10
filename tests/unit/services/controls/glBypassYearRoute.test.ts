@@ -25,3 +25,13 @@ it('answers an approval-bound close with a non-2xx status, not 200 with an error
  expect(res.status).toHaveBeenCalledWith(409);
  expect(res.status).not.toHaveBeenCalledWith(200);
 });
+it('answers a close with no covering fiscal period with a non-2xx status and its reason',async()=>{
+ // The controlled close cannot produce this outcome today (the range check runs first),
+ // so only a stubbed service can reach it; the route must still never answer it 200.
+ close.mockResolvedValueOnce({error:'no_fiscal_period',entryDate:'2025-12-31'} as never);
+ const req={method:'POST',companyId:'company',user:{id:'person'},body:{action:'close',yearLabel:'2025'}} as unknown as NextApiRequest;
+ const res={status:vi.fn(),json:vi.fn(),setHeader:vi.fn()};res.status.mockReturnValue(res);
+ await handler(req,res as unknown as NextApiResponse);
+ expect(res.status).toHaveBeenCalledWith(409);
+ expect(JSON.stringify(res.json.mock.calls)).toMatch(/2025-12-31/);
+});
