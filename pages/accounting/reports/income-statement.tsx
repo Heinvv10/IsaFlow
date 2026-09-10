@@ -145,6 +145,7 @@ export default function IncomeStatementPage() {
       return;
     }
     const requestId = ++reportRequestRef.current;
+    setReport(null);
     setIsLoading(true);
     setError('');
     try {
