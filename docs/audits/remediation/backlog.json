@@ -10419,6 +10419,73 @@
       "severity": "high",
       "source": "Found by the K-091 r5 blind reviewer; the shape independently confirmed on origin/master by the orchestrating session, 2026-09-10",
       "processNotes": "`SUM(ABS(gjl.credit - gjl.debit))` applies ABS to each LINE before summing, so a contra line adds instead of subtracting. Correct is `ABS(SUM(...))` or a plain signed SUM. Confirmed present on origin/master at notes16to20.ts:125,163,173 and notes26to30.ts:82,85 -- i.e. deployed, not branch-introduced. Measured on the fixture: R100,000 sales less an R8,000 credit note prints R108,000 in note 18 while the income statement says R92,000; note 19 prints R4,000 vs R2,000; note 27 prints a 'profit of R 9 000,00' where net profit is R19,000. `bun run ci` passes all 15 gates at exit 0 because integration-tests self-skips without DATABASE_URL, so the gate cannot catch it. The code fix is in flight on K-091 r6; what needs Hein is the question of already-issued packs."
+    },
+    {
+      "id": "R-057",
+      "claim": "",
+      "area": "accounting/payroll",
+      "affectedPaths": [
+        "src/modules/accounting/services/payroll/taxDirectivePaymentService.ts",
+        "src/modules/accounting/services/loans/loanPaymentService.ts"
+      ],
+      "sourceLabel": "",
+      "sourceIds": [],
+      "correctedTrigger": "",
+      "severityRationale": "A payroll posting route that has never once succeeded on any tenant, with no test covering it.",
+      "auditedSha": "",
+      "currentSha": "",
+      "status": "confirmed",
+      "dependencies": [
+        "K-107"
+      ],
+      "testNames": [],
+      "evidencePaths": [
+        "docs/audits/remediation/K-107/fix.md"
+      ],
+      "fixCommit": null,
+      "pr": null,
+      "deployedSha": null,
+      "historicalDataImpact": "None -- nothing was ever written. Every call raised 42703 at the first GL lookup. There is no historical output to correct; the exposure is that tax-directive payments were never posted to the GL at all, so the liability may be unrecorded.",
+      "canonicalItem": null,
+      "reportedSeverity": "",
+      "branch": null,
+      "title": "The tax-directive apply route has never worked: glByCode selects gl_accounts.code, a column that does not exist",
+      "severity": "high",
+      "source": "Found by the K-107 r8 fixer; column absence independently confirmed against the schema fixture by the orchestrating session, 2026-09-10",
+      "processNotes": "`glByCode` runs `SELECT id FROM gl_accounts WHERE company_id = $1 AND code = $2`. The column on this schema is `account_code`; `code` does not exist, so every call raises 42703. Confirmed on origin/master at taxDirectivePaymentService.ts:78-82, and the same shape in loans/loanPaymentService. Fixed on the K-107 branch and mutation-proved. Registered so the ACCOUNTING question -- whether tax-directive liabilities are missing from the GL and for how long -- reaches Hein; that is not a code question and no agent may query production to size it."
+    },
+    {
+      "id": "R-058",
+      "claim": "",
+      "area": "accounting/capture",
+      "affectedPaths": [
+        "pages/api/accounting/capture/[id]/post-expense.ts"
+      ],
+      "sourceLabel": "",
+      "sourceIds": [],
+      "correctedTrigger": "",
+      "severityRationale": "Duplicate expense claims and duplicate GL postings from a double-click, on a route any capture user can reach.",
+      "auditedSha": "",
+      "currentSha": "",
+      "status": "confirmed",
+      "dependencies": [
+        "K-107"
+      ],
+      "testNames": [],
+      "evidencePaths": [
+        "docs/audits/remediation/K-107/fix.md"
+      ],
+      "fixCommit": null,
+      "pr": null,
+      "deployedSha": null,
+      "historicalDataImpact": "Unknown and must be measured before Hein decides. Duplicate expense journals would already exist wherever two posts raced. Do not query production from an agent; the impact SQL belongs in fix.md.",
+      "canonicalItem": null,
+      "reportedSeverity": "",
+      "branch": null,
+      "title": "post-expense reads capture_events.status without a lock and flips it unpredicated: two concurrent posts both mint an expense claim",
+      "severity": "high",
+      "source": "Found by the K-107 r8 census re-run from consumers; the check-then-act window independently confirmed on origin/master by the orchestrating session, 2026-09-10",
+      "processNotes": "The route SELECTs `ce.status` with no FOR UPDATE, refuses in JS when it equals 'posted', then later runs `UPDATE capture_events SET status='posted' ...` with NO `AND status <> 'posted'` predicate. Two concurrent requests both pass the check and both post. Confirmed on origin/master (read at :57-75 and :177). Registered, NOT fixed -- it is outside the K-107 brief and needs its own branch."
     }
   ],
   "sourceInventory": [
