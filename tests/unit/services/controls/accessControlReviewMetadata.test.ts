@@ -3,7 +3,7 @@ import type {ControlTx} from '@/modules/accounting/services/controls/contracts';
 const mocks=vi.hoisted(()=>({assert:vi.fn(),permission:vi.fn(),connect:vi.fn()}));
 vi.mock('@/modules/accounting/services/controls/context',()=>({assertControlTx:mocks.assert}));
 vi.mock('@/lib/auth/effectivePermissions',()=>({assertEffectivePermission:mocks.permission}));
-vi.mock('@/lib/auth/authPool',()=>({getAuthPool:()=>({connect:mocks.connect})}));
+vi.mock('@/modules/accounting/services/controls/accessControlReviewPool',()=>({getAccessReviewPool:()=>({connect:mocks.connect})}));
 import {readAccessReviewMetadata} from '@/modules/accounting/services/controls/accessControlReviewMetadata';
 it('never acquires privileged metadata access before issued current read authority',async()=>{
  mocks.permission.mockRejectedValueOnce(new Error('Current permission denied'));
