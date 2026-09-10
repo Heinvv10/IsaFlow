@@ -2828,6 +2828,7 @@
               "fiscal_year",
               "company",
               "company_gl_settings",
+              "accounting_default_accounts",
               "company_lockdown_intent",
               "vat_period",
               "employee",
