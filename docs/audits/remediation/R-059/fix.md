@@ -1717,3 +1717,53 @@ and B's UPDATE is company-scoped.
   component 85 / 539, `[ci] all checks passed`, `CI_EXIT=0`.
 - Fixture integration, `--no-file-parallelism`: every `r059-*`, `k053-*`,
   `k091*`, `k093*` — **38 files / 247 tests passed**.
+
+---
+
+# Round 13 — the merge with master's refusal census
+
+PR #424's CI failed `tests/unit/mcp/typedRefusalReachesAgent.test.ts` with
+"RECONCILIATION_CLOSED is declared in src/ but missing from REFUSAL_CODES in
+toolHelpers.ts". The census arrived on master with K-071 (#421).
+`ReconciliationClosedError` arrived here in round 11. Each side was green on
+its own.
+
+**Merged** `origin/master` (`6c4b68d4a`, 42 commits ahead), with no rebase and no
+textual conflicts. No file changed on both sides. Per the untyped-fixtures
+lesson, I checked every module this branch's tests import against master's diff.
+Three of them changed on master:
+- `src/lib/als.ts` adds optional `finished` / `afterCommit` fields, so the
+  tests' ALS contexts stay valid;
+- `customerPaymentAllocationService.confirmCustomerPayment` now wraps an inner
+  function with the same parameters;
+- `supplierPaymentWorkflowService.processSupplierPayment` keeps its signature.
+
+Nothing the tests call was re-signed.
+
+**Classification: a refusal, added to `REFUSAL_CODES`.** Reasons:
+- The message is fixed text: "This statement is already marked reconciled;
+  Rematch would overwrite the variance it was reconciled at." It names no id,
+  amount, table or internal machinery.
+- The `reconciliationId` rides on the error object, not in the message.
+- `rematchLines` reads the header `WHERE id AND company_id`, so another tenant's
+  id is "not found" and never "closed". The refusal can only ever describe the
+  caller's own statement.
+- It is a remedy the caller can act on: the statement is closed, so don't
+  rematch it.
+
+No MCP tool calls `rematchLines` today. The entry costs nothing, and a future
+tool would surface the reason rather than the generic fallback. It is not a
+`NOT_A_REFUSAL_CODES` case, because that list is for programmer errors whose
+text names internal machinery.
+
+**Pinned by the census itself.** On the merged tip WITHOUT the entry, the census
+fails with exactly the CI message (1 of 15 red). With the entry, it passes 15 of
+15.
+
+## Round 13 gates (on the merged tip)
+
+- `env -u DATABASE_URL bun run ci`: 15/15 PASS, unit **871 files / 10271 tests**
+  (the census among them), component 86 / 545, `[ci] all checks passed`,
+  `CI_EXIT=0`.
+- Fixture integration, `--no-file-parallelism`: every `r059-*`, `k053-*`,
+  `k091*`, `k093*` — **38 files / 247 tests passed**.
