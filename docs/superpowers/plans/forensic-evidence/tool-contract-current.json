@@ -3,9 +3,9 @@
   "method": "Runtime executable declarations; no handlers executed. This is a contract baseline, not workflow or authorization proof.",
   "historicalInventory": "tool-matrix.json",
   "counts": {
-    "total": 163,
-    "reads": 91,
-    "writes": 72,
+    "total": 166,
+    "reads": 93,
+    "writes": 73,
     "requires_post": 32
   },
   "tools": [
@@ -612,6 +612,45 @@
           "idempotency_key"
         ],
         "additionalProperties": false
+      }
+    },
+    {
+      "name": "audit_comparison_items",
+      "scope": "read:reports",
+      "write": false,
+      "requires_post": false,
+      "per_user_idempotency": false,
+      "input_schema": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "comparison_id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "section": {
+            "type": "string",
+            "enum": [
+              "records",
+              "checks",
+              "evidence",
+              "evidenceGaps"
+            ]
+          },
+          "limit": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 100
+          },
+          "cursor": {
+            "type": "string",
+            "pattern": "^(0|[1-9][0-9]{0,5})$"
+          }
+        },
+        "required": [
+          "comparison_id",
+          "section"
+        ]
       }
     },
     {
@@ -1653,6 +1692,38 @@
       }
     },
     {
+      "name": "compare_audit_snapshots",
+      "scope": "read:reports",
+      "write": true,
+      "requires_post": false,
+      "per_user_idempotency": true,
+      "input_schema": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "first_snapshot_id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "second_snapshot_id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "idempotency_key": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 128,
+            "pattern": "^[A-Za-z0-9_.:-]+$"
+          }
+        },
+        "required": [
+          "first_snapshot_id",
+          "second_snapshot_id",
+          "idempotency_key"
+        ]
+      }
+    },
+    {
       "name": "connection_permissions",
       "scope": null,
       "write": false,
@@ -1663,6 +1734,55 @@
         "additionalProperties": false,
         "properties": {},
         "required": []
+      }
+    },
+    {
+      "name": "control_check_run",
+      "scope": "read:reports",
+      "write": false,
+      "requires_post": false,
+      "per_user_idempotency": false,
+      "input_schema": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "check_run_id": {
+            "type": "string",
+            "format": "uuid"
+          }
+        },
+        "required": [
+          "check_run_id"
+        ]
+      }
+    },
+    {
+      "name": "control_check_run_findings",
+      "scope": "read:reports",
+      "write": false,
+      "requires_post": false,
+      "per_user_idempotency": false,
+      "input_schema": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "check_run_id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "limit": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 100
+          },
+          "cursor": {
+            "type": "string",
+            "pattern": "^(0|[1-9][0-9]{0,5})$"
+          }
+        },
+        "required": [
+          "check_run_id"
+        ]
       }
     },
     {
@@ -5604,6 +5724,45 @@
       }
     },
     {
+      "name": "run_control_checks",
+      "scope": "read:reports",
+      "write": true,
+      "requires_post": false,
+      "per_user_idempotency": true,
+      "input_schema": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "cutoff": {
+            "type": "string",
+            "format": "date"
+          },
+          "checks": {
+            "type": "array",
+            "items": {
+              "type": "string",
+              "enum": [
+                "journal_risk_checks"
+              ]
+            },
+            "minItems": 1,
+            "maxItems": 6
+          },
+          "idempotency_key": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 128,
+            "pattern": "^[A-Za-z0-9_.:-]+$"
+          }
+        },
+        "required": [
+          "cutoff",
+          "checks",
+          "idempotency_key"
+        ]
+      }
+    },
+    {
       "name": "run_depreciation",
       "scope": "write:assets",
       "write": true,
@@ -6739,77 +6898,6 @@
           "idempotency_key"
         ],
         "additionalProperties": false
-      }
-    },
-    {
-      "name": "audit_comparison_items",
-      "scope": "read:reports",
-      "write": false,
-      "requires_post": false,
-      "per_user_idempotency": false,
-      "input_schema": {
-        "type": "object",
-        "additionalProperties": false,
-        "properties": {
-          "comparison_id": {
-            "type": "string",
-            "format": "uuid"
-          },
-          "section": {
-            "type": "string",
-            "enum": [
-              "records",
-              "checks",
-              "evidence",
-              "evidenceGaps"
-            ]
-          },
-          "limit": {
-            "type": "integer",
-            "minimum": 1,
-            "maximum": 100
-          },
-          "cursor": {
-            "type": "string",
-            "pattern": "^(0|[1-9][0-9]{0,5})$"
-          }
-        },
-        "required": [
-          "comparison_id",
-          "section"
-        ]
-      }
-    },
-    {
-      "name": "compare_audit_snapshots",
-      "scope": "read:reports",
-      "write": true,
-      "requires_post": false,
-      "per_user_idempotency": true,
-      "input_schema": {
-        "type": "object",
-        "additionalProperties": false,
-        "properties": {
-          "first_snapshot_id": {
-            "type": "string",
-            "format": "uuid"
-          },
-          "second_snapshot_id": {
-            "type": "string",
-            "format": "uuid"
-          },
-          "idempotency_key": {
-            "type": "string",
-            "minLength": 1,
-            "maxLength": 128,
-            "pattern": "^[A-Za-z0-9_.:-]+$"
-          }
-        },
-        "required": [
-          "first_snapshot_id",
-          "second_snapshot_id",
-          "idempotency_key"
-        ]
       }
     }
   ]

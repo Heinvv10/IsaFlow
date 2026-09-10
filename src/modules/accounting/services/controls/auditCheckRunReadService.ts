@@ -57,11 +57,30 @@ export async function getAuditCheckRunPage(ctx:ControlTx,input:unknown){
   return openAuditCheckRunItem(row.protected_item,header,row.ordinal).finding;
  });
  const next=start+findings.length;
- return{version:header.version,companyId:header.companyId,checkRunId:request.checkRunId,generation:header.generation,
+ return{...checkRunResult(header,request.checkRunId),findings,nextCursor:next<header.findingCount?String(next):null};
+}
+const summarySchema=z.object({checkRunId:z.string().uuid().transform(id=>id.toLowerCase())}).strict();
+/** The run's summary without its findings: the same authenticated header, for a caller that only wants the verdict. */
+export async function getAuditCheckRunSummary(ctx:ControlTx,input:unknown):Promise<CheckRunResult>{
+ assertControlTx(ctx);const request=summarySchema.parse(JSON.parse(canonicalJson(input)));
+ return checkRunResult(await readAuditCheckRunHeader(ctx,request.checkRunId),request.checkRunId);
+}
+export interface CheckRunResult {
+ version:1;companyId:string;checkRunId:string;generation:number;canonicalHash:string;permissions:readonly string[];
+ checkId:string;checkVersion:1;cutoff:string;status:'pass'|'fail'|'unknown';populationCount:number;excludedCount:number;
+ findingCount:number;populationCountBasis:'streamed'|'recount_after_limit';amountTotals:Readonly<Record<string,string>>;
+ coverage:readonly string[];missingSources:readonly string[];populationDigest:string;
+ /**
+  * Per-row source versions are deferred (plan v6 A8 finding 12): a complete-population run does not page them, and
+  * declaring their absence is the only honest alternative to inventing a truncated list.
+  */
+ sourceVersions:{available:false;reason:'deferred_paged_source_versions';count:number};
+}
+function checkRunResult(header:CheckRunHeader,checkRunId:string):CheckRunResult{
+ return{version:header.version,companyId:header.companyId,checkRunId,generation:header.generation,
   canonicalHash:header.canonicalHash,permissions:header.permissions,checkId:header.checkId,checkVersion:header.checkVersion,
   cutoff:header.cutoff,status:header.status,populationCount:header.populationCount,excludedCount:header.excludedCount,
   findingCount:header.findingCount,populationCountBasis:header.populationCountBasis,amountTotals:header.amountTotals,
   coverage:header.coverage,missingSources:header.missingSources,populationDigest:header.populationDigest,
-  sourceVersions:{available:false,reason:'deferred_paged_source_versions',count:header.sourceVersionCount},
-  findings,nextCursor:next<header.findingCount?String(next):null};
+  sourceVersions:{available:false,reason:'deferred_paged_source_versions',count:header.sourceVersionCount}};
 }
