@@ -19,6 +19,7 @@ import { sql } from '@/lib/neon';
 import {
   allocateTransaction,
 } from '@/modules/accounting/services/bank/bankReconciliationService';
+import { isRetryableContention } from '@/modules/accounting/services/core/retryableContention';
 
 const ManualTxSchema = z.object({
   type: z.enum(['spend', 'receive']),
@@ -118,6 +119,20 @@ async function handler(req: CompanyAuthedRequest, res: NextApiResponse) {
       bankTransaction: result.bankTransaction,
     }, 'Transaction recorded and allocated successfully');
   } catch (err) {
+    // Contention is a 409, not a 500. This route calls `allocateTransaction`,
+    // so it raises the identical events the four settlement routes answer 409 —
+    // and `internalError` replaces the service's "retry in a moment" with "An
+    // internal error occurred", which is the one wording the caller can act on.
+    // The INSERT above is NOT rolled back by the choice of status — every
+    // member of `isRetryableContention` descends from 55P03/40P01, which abort
+    // the Postgres transaction, so `withAuth`'s COMMIT on a 4xx is a no-op and
+    // the manual row is discarded either way. What changes is the wording the
+    // caller reads. A blanket catch on a route that writes BEFORE it can refuse
+    // is still a hazard for any non-aborting throw — registered as R-060.
+    if (isRetryableContention(err)) {
+      log.info('Manual bank transaction hit a contended row', { error: err }, 'accounting-api');
+      return apiResponse.conflict(res, (err as Error).message);
+    }
     const message = err instanceof Error ? err.message : 'Failed to record transaction';
     log.error('Manual bank transaction failed', { error: err }, 'accounting-api');
     return apiResponse.internalError(res, err, message);

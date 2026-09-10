@@ -537,3 +537,121 @@ the agent now reads the remedy where it previously got the generic fallback.
 | drop `\|\| isRetryableReceiptRefusal(err)` from `customer-allocations.ts` | `customerAllocationsRefusalStatus.test.ts` — 1 failed / 5 passed |
 | restore the catch-all `badRequest(message)` in `supplier-allocations.ts` | `supplierAllocationsPartialCommit.test.ts` — 5 failed / 6 passed |
 | untype one `SupplierPaymentRefusal` back to `Error` in `planSupplierPaymentApplication` | `supplierPaymentApplicationService.test.ts` — 1 failed / 28 passed |
+
+---
+
+## Round 13 — the census walked DIRECT importers, and three more routes reach the event
+
+### MEDIUM-1 — `bank/.claude.md` said FOUR routes; there are EIGHT (code + doc)
+
+Round 11 derived its list as "every caller of `plan{Receipt,SupplierPayment}Application` and
+`validateBank{ReceiptApplication,SupplierPayment}` that can answer HTTP". That is a census of the
+files that IMPORT those symbols. It cannot see a route that reaches them through an intermediary,
+and four do:
+
+```
+bank-transactions-action  ─┐
+bank-transactions-manual  ─┴─→ allocateTransaction
+                                 ├─ lockBankTransactionForUpdate      → BANK_TX_LOCK_TIMEOUT
+                                 ├─ recordSupplierBankPayment  (ap/supplierAutoAllocate.ts:224)
+                                 │    → planSupplierPaymentApplication → PAYMENT_LOCK_TIMEOUT
+                                 │      → planSupplierAllocationLines  → SupplierPaymentRefusal{retryable}
+                                 └─ autoApplyCustomerReceipt   (ar/customerAutoAllocate.ts:132)
+                                      → planReceiptApplication         → PAYMENT_LOCK_TIMEOUT
+                                        → planAllocationLines          → ReceiptRefusal{retryable}
+supplier-payments-action  ──→ processSupplierPayment / voidSupplierPayment
+                                 → lockSupplierPaymentForUpdate        → PAYMENT_LOCK_TIMEOUT
+customer-payments-action  ──→ confirmCustomerPayment / cancelCustomerPayment
+                                 → lockCustomerPaymentForUpdate        → PAYMENT_LOCK_TIMEOUT
+```
+
+Three of the four answered **400** from a blanket catch (`bank-transactions-action.ts:181`,
+`supplier-payments-action.ts:54`, `customer-payments-action.ts:45`) — the status this codebase
+reserves for the caller's own mistake and monitors as such — for the identical event
+`k071-lock-order-deadlock.int.test.ts:195` pins at 409 through `bank-match-confirm`.
+`bank-transactions-manual.ts:120` answered **500**, and `apiResponse.internalError` replaces the
+service's "retry in a moment" with "An internal error occurred", deleting the only wording the
+caller can act on. `bankTxLock.ts:31` conceded the split in prose ("as a 400, or as the 409
+`bank-match-confirm` answers") while `bank/.claude.md:79`/`:111` called the census finished; the
+source comment was the evidence and both are now corrected.
+
+**Fix.** `src/modules/accounting/services/core/retryableContention.ts` —
+`isRetryableContention(err)`, the UNION of `isBankTransactionLockTimeout`, `isPaymentLockTimeout`,
+`isRetryableReceiptRefusal` and `isRetryableSupplierPaymentRefusal` — tested before the blanket
+branch in all four routes, answering `apiResponse.conflict` with the service's own wording. The
+four narrow routes keep their two-predicate checks: they each reach exactly one settlement call and
+a precise predicate there is better documentation than a union. A blanket-catch route gets the
+union because it cannot know which subset its nine verbs can raise, which is the mistake that
+produced this finding.
+
+`PaymentPostedDuringVoidError` is deliberately NOT in the union. It is equally retryable, but it is
+raised only by `voidPaymentDocument`, which no HTTP route reaches — `voidSupplierPayment` names it
+in a comment and does not call it. An unreachable arm cannot be proved at a route.
+
+**How the enumeration was re-done — PATHS, not directories.** Reverse call graph from the two
+`retryable: true` throw sites (`ar/receiptAllocationLines.ts:182`, `ap/supplierAllocationLines.ts:161`)
+and the three lock helpers (`lockBankTransactionForUpdate`, `lock{Customer,Supplier}PaymentForUpdate`),
+to their enclosing exported service functions (`allocateTransaction`, `splitAllocateTransaction`,
+`reverseReconciledTransaction`, `lockForStatusWrite` → `match`/`unmatch`/`exclude`/`delete`,
+`autoPostRuleLine`, `confirm{Customer,Supplier}Match`, `confirmCustomerPayment`,
+`cancelCustomerPayment`, `processSupplierPayment`, `voidSupplierPayment`, `voidPaymentDocument`,
+`plan{Receipt,SupplierPayment}Application`), then to every file under `pages/api/` and `src/lib/mcp/`
+naming any of them. That yields nine HTTP routes and the MCP tools. Eight classify contention (four
+already did, four fixed here). The ninth, `pages/api/accounting/provisional/[jeId]/attach.ts`, names
+`reverseReconciledTransaction` and `voidPaymentDocument` **in a comment only** and calls neither —
+verified by reading the handler, not by grep. MCP is not a gap: every tool goes through
+`safeErrorText`, whose `REFUSAL_CODES` allowlist carries all four codes, and MCP has no HTTP status
+to get wrong.
+
+**Both directions proved**, per route (`tests/unit/api/actionRouteContentionStatus.test.ts`, 12
+cases): contention → 409 with the retry wording, AND a non-retryable books refusal → the route's
+original 400 with its own message, AND a bare `Error` → still 400 on the three action routes, AND a
+`TypeError` → still 500 on the manual route. Every classification is pre-write with respect to the
+allocation: the lock timeouts are raised by a `FOR UPDATE` that never acquired the row, and the two
+`retryable` refusals by `fetch{Invoice,Bill}Candidates`, which the plan phase runs before `apply*`.
+
+**Why 409 is safe on a route that catches AFTER a write.** Every member of the union descends from
+`isLockContention`, i.e. from `55P03` or `40P01`, and both abort the Postgres transaction — so
+`withAuth`'s COMMIT on a 4xx is a no-op and nothing survives. That holds even on
+`bank-transactions-manual`, which INSERTs its row before allocating: the row is discarded whether
+the status is 409 or 500. Only the wording changes.
+
+**REGISTERED, NOT FIXED — R-060.** The four blanket catches remain a partial-commit hazard for any
+**non-aborting** post-write throw. `allocateTransaction` has posted a journal, moved
+`bank_transactions` and may have created a payment document by the time a `TypeError` or a
+`23505` reaches the catch; `voidSupplierPayment` has reversed a journal. Three of the four answer
+that 4xx, which `withAuth` COMMITs. This branch deliberately does not widen into it: the remedy is a
+plan/apply split per verb (the shape `customer-allocations` and `supplier-allocations` already have),
+not a status change, and it is pre-existing rather than introduced here.
+
+### LOW-1 — `k071-void-lock-order.int.test.ts:199` asserted `< 500`, which passes at 400 and 409 alike
+
+The branch's only outcome test on `supplier-payments-action`'s contention answer could not go red
+for the defect above, in either direction. Now `expect(result.status).toBe(409)`, matching its two
+siblings `k071-{bill,invoice}-lock-concurrency`.
+
+### LOW-2 — `receiptAllocationLines.ts:158` documented "the 400 the caller answers with"
+
+Every caller now answers 409, so the word is corrected. The AP mirror carried no equivalent
+sentence at all — `supplierAllocationLines.ts` now states the same rule, and each names the other,
+so the two files can no longer drift apart silently.
+
+### Mutation proof (file copies in `<scratchpad>/agents/fix-k071m/bak/`, restored after each)
+
+Against `tests/unit/api/actionRouteContentionStatus.test.ts` (12 passing).
+
+| # | Mutation | Result |
+|---|---|---|
+| M1 | delete the `isRetryableContention` arm from `bank-transactions-action.ts` | 4 failed / 8 passed |
+| M2 | delete it from `bank-transactions-manual.ts` | 1 failed / 11 passed |
+| M3 | delete it from `supplier-payments-action.ts` | 1 failed / 11 passed |
+| M4 | delete it from `customer-payments-action.ts` | 1 failed / 11 passed |
+| M5 | disable the `isBankTransactionLockTimeout` arm of the union | 2 failed / 10 passed |
+| M6 | drop the `isRetryableReceiptRefusal` arm | 1 failed / 11 passed |
+| M7 | drop the `isRetryableSupplierPaymentRefusal` arm | 1 failed / 11 passed |
+| M8 | drop the `isPaymentLockTimeout` arm | 3 failed / 9 passed |
+| M9 | union → always `true` (does the 400 direction survive?) | 5 failed / 7 passed |
+| M10 | union → `isPaymentLockTimeout` only | 2 failed / 10 passed |
+
+Ten of ten red; M9 is the both-directions proof — sweeping everything into 409 kills the five cases
+that pin 400/500.
