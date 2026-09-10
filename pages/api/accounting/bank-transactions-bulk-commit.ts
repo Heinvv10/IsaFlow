@@ -56,6 +56,7 @@ import {
 } from '@/modules/billing/services/flowWalletService';
 import { getFlowCost } from '@/modules/billing/services/flowOperationCatalog';
 import { log } from '@/lib/logger';
+import { runAfterCommit } from '@/lib/afterCommit';
 import { sql } from '@/lib/neon';
 import { importParsedTransactions } from '@/modules/accounting/services/bank/bankImportService';
 import { BANK_SUBTYPES } from '@/modules/accounting/services/gl/accountSubtypes';
@@ -298,11 +299,11 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
     }
 
     if (isPayg && didDebit) {
-      void recalculateNudge(companyId).catch((err: unknown) => {
+      runAfterCommit('recalculateNudge after bulk commit', () => recalculateNudge(companyId).catch((err: unknown) => {
         log.warn('recalculateNudge failed after bulk commit',
           err instanceof Error ? { message: err.message } : { err },
           'BILLING');
-      });
+      }));
     }
 
     return apiResponse.success(res, {

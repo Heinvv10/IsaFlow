@@ -11,6 +11,7 @@ import { log } from '@/lib/logger';
 import { sql } from '@/lib/neon';
 import type { DbRow } from '@/lib/neon';
 import { checkAndAlert } from '@/modules/admin/services/healthAlertService';
+import { runAfterCommit } from '@/lib/afterCommit';
 
 type Row = DbRow;
 
@@ -217,10 +218,11 @@ async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse) {
 
     log.info('System health check', { overall_status, db_latency: db.latency_ms }, 'admin-health-api');
 
-    // Fire-and-forget: never fail the health response because alerting failed
-    checkAndAlert(payload).catch((err: unknown) =>
+    // Never fail the health response because alerting failed. Starts after the
+    // admin transaction COMMITs, on its own connection (R-075).
+    runAfterCommit('health alert check', () => checkAndAlert(payload).catch((err: unknown) =>
       log.error('Health alert check failed', { error: err }, 'admin-health-api'),
-    );
+    ));
 
     return apiResponse.success(res, payload);
   } catch (err) {

@@ -24,6 +24,7 @@ import { sql } from '@/lib/neon';
 import { magicBytesMatchMime, decodeUploadPayload } from '@/lib/fileMagic';
 import { extractFromPdf, extractFromImage } from '@/modules/accounting/services/core/ocrService';
 import { isVlmAvailable } from '@/modules/accounting/services/bank/vlmService';
+import { runAfterCommit } from '@/lib/afterCommit';
 
 // ── Local Types ───────────────────────────────────────────────────────────────
 
@@ -156,9 +157,9 @@ async function handler(req: CompanyAuthedRequest, res: NextApiResponse) {
 
     // Fire-and-forget VLM extraction on the attachment
     if (isVlmAvailable() && mime && attachment?.id) {
-      extractAttachmentData(fileData, mime, attachment.id as string).catch(err =>
+      runAfterCommit('bank tx attachment extraction', () => extractAttachmentData(fileData, mime, attachment.id as string).catch(err =>
         log.warn('Background attachment extraction failed', { error: err instanceof Error ? err.message : String(err) }, 'bank-tx-attachments')
-      );
+      ));
     }
 
     return apiResponse.created(res, attachment, 'Attachment uploaded');

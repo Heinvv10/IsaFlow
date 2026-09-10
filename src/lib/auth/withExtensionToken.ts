@@ -19,7 +19,8 @@ import pg from 'pg';
 // in this process. This file builds its own Pool, so it must not depend on
 // src/lib/neon.ts having been imported first. See src/lib/pgTypes.ts.
 import '@/lib/pgTypes';
-import { als } from '@/lib/als';
+import type { RequestContext } from '@/lib/als';
+import { runOwnedContext, drainAfterCommit } from '@/lib/afterCommit';
 import { log } from '@/lib/logger';
 import { extractBearerToken } from './captureApiKeyAuth';
 import { verifyExtensionToken } from './extensionJwt';
@@ -134,11 +135,12 @@ export function withExtensionToken(handler: Handler): NextApiHandler {
         bankAccountId: row.bank_account_id,
       };
 
-      await als.run(
-        { client, userId: claims.userId, companyId: claims.companyId, claims: { sub: claims.userId } },
-        async () => { await handler(req, res); },
-      );
+      const ctx: RequestContext = {
+        client, userId: claims.userId, companyId: claims.companyId, claims: { sub: claims.userId }, afterCommit: [],
+      };
+      await runOwnedContext(ctx, async () => { await handler(req, res); });
       await client.query('COMMIT');
+      drainAfterCommit(ctx);
     } catch (err) {
       try { await client.query('ROLLBACK'); } catch { /* secondary */ }
       log.error(
