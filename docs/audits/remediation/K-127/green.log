@@ -1,0 +1,34 @@
+# K-127 GREEN + mutation + suite evidence (branch fix/audit-k122-k127-ar-portal-disputes)
+
+$ source scratchpad/fixture.env
+$ bun run test:integration -- tests/integration/k122-dunning-portal-link-404.int.test.ts \
+    tests/integration/k123-list-disputes-total.int.test.ts \
+    tests/integration/k124-dispute-credit-legacy-customer-id.int.test.ts \
+    tests/integration/k125-debtors-null-amount-paid.int.test.ts
+ Test Files  4 passed (4)
+      Tests  21 passed (21)
+
+$ bunx vitest run tests/unit/services/ar/k127-portal-chatbot-sanitiser.test.ts
+ Test Files  1 passed (1)
+      Tests  10 passed (10)
+
+## Mutation proof (production file reverted to origin/master, test re-run, then restored)
+K-122  dunningService.ts        -> k122 int:  3 failed | 2 passed (5)
+K-125  debtorsManagerService.ts -> k125 int:  4 failed | 2 passed (6)
+K-123  `total: disputes.length` -> k123 int:  3 failed | 2 passed (5)
+K-124  COALESCE joins dropped   -> k124 int:  3 failed | 2 passed (5)
+K-127  portalChatbotService.ts  -> k127 unit: 5 failed | 5 passed (10)
+
+## Full unit suite, DATABASE_URL and ISAFLOW_DISPOSABLE_AUTH_TEST unset
+$ env -u DATABASE_URL -u ISAFLOW_DISPOSABLE_AUTH_TEST bunx vitest run
+ Test Files  801 passed | 40 skipped (841)
+      Tests  9563 passed | 243 skipped (9806)
+
+Two pre-existing mocked suites needed their fixtures widened for the new queries
+(they failed before the update, so the addendum check earned its keep):
+ - tests/unit/services/ar/disputeService.test.ts  — 2 tests: queue a row for the new COUNT(*).
+ - tests/unit/services/ar/dunningService.test.ts  — 1 test: queue the portal_token row and
+   assert the link carries that token.
+
+$ bunx tsc --noEmit                 -> exit 0
+$ bunx eslint <the 4 changed src files> -> exit 0

@@ -10,6 +10,8 @@ import { ArrowLeft, Package, Loader2, AlertCircle, Trash2, Calendar, CheckCircle
 import { AssetDualTrackPanel } from '@/components/assets/AssetDualTrackPanel';
 import { apiFetch } from '@/lib/apiFetch';
 import { log } from '@/lib/logger';
+import { toDepreciationMethod } from '@/modules/accounting/services/items/farDepreciationService';
+import { buildDepreciationSchedule } from '@/modules/accounting/services/items/depreciationSchedule';
 
 // ---- Types ----
 
@@ -20,9 +22,9 @@ interface Asset {
   status: string | null; location: string | null; serial_number: string | null;
   supplier_name: string | null; sars_category: string | null; sars_rate: number | null;
   tax_life: number | null; created_at: string | Date;
+  salvage_value: number | null; depreciation_method: string | null;
 }
 
-interface DepRow { year: number; open: number; dep: number; close: number; accum: number; }
 interface DispForm { disposal_date: string; disposal_method: string; disposal_amount: string; reason: string; }
 
 // ---- Helpers ----
@@ -35,19 +37,6 @@ const fmtD = (v: string | Date | null | undefined): string => {
   return (v instanceof Date ? v.toISOString() : v).split('T')[0] ?? '—';
 };
 
-function buildSchedule(a: Asset): DepRow[] {
-  const yrs = a.useful_life_years; const cost = Number(a.purchase_price ?? 0);
-  if (!yrs || yrs <= 0 || cost <= 0) return [];
-  const cap = Math.min(yrs, 30); const ann = cost / yrs;
-  let accum = 0;
-  return Array.from({ length: cap }, (_, i) => {
-    const yr = i + 1; const open = cost - accum;
-    const dep = yr < cap ? ann : open;
-    accum += dep;
-    return { year: yr, open, dep, close: Math.max(0, cost - accum), accum };
-  });
-}
-
 function currentYear(a: Asset): number {
   if (!a.purchase_date) return -1;
   const ms = Date.now() - new Date(fmtD(a.purchase_date)).getTime();
@@ -57,14 +46,19 @@ function currentYear(a: Asset): number {
 // ---- Sub-components ----
 
 function DepTable({ asset }: { asset: Asset }) {
-  const rows = buildSchedule(asset);
+  const rows = buildDepreciationSchedule(asset);
   const cur = currentYear(asset);
   if (!rows.length) return null;
   return (
     <div className="bg-[var(--ff-bg-secondary)] rounded-lg border border-[var(--ff-border-light)] overflow-hidden">
       <div className="px-4 py-3 border-b border-[var(--ff-border-light)]">
-        <h2 className="text-sm font-semibold text-[var(--ff-text-primary)]">Straight-Line Depreciation Schedule</h2>
-        <p className="text-xs text-[var(--ff-text-tertiary)] mt-0.5">{asset.useful_life_years}-year life · Cost {fmtC(asset.purchase_price)}</p>
+        <h2 className="text-sm font-semibold text-[var(--ff-text-primary)]">Depreciation Schedule</h2>
+        <p className="text-xs text-[var(--ff-text-tertiary)] mt-0.5">
+          {toDepreciationMethod(asset.depreciation_method).replace(/_/g, ' ')} · {asset.useful_life_years}-year life · Cost {fmtC(asset.purchase_price)}
+        </p>
+        <p className="text-xs text-[var(--ff-text-tertiary)] mt-0.5">
+          Annual figures. Year one is before the run&apos;s first-month pro-rate, so the twelve posted journals total slightly less.
+        </p>
       </div>
       <div className="overflow-x-auto">
         <table className="w-full text-sm">

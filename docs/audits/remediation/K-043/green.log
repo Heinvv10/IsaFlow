@@ -1,0 +1,319 @@
+=== K-043 GREEN ===
+
+--- integration (fixture DB), both K-043 files ---
+$ node scripts/check-runtime.mjs && vitest run --config vitest.integration.config.ts "tests/integration/k-043"
+
+ RUN  v4.1.2 /home/hein/Workspace/IsaFlow/.worktrees/fix-K-043
+
+
+ Test Files  2 passed (2)
+      Tests  6 passed (6)
+   Start at  11:36:55
+   Duration  6.11s (transform 2.12s, setup 0ms, import 7.85s, tests 1.01s, environment 0ms)
+
+
+--- mutation proof (production code temporarily reverted, then restored) ---
+A. self-approval throw replaced with `if (false)`:
+     Tests  1 failed | 5 passed (6)   × refuses the requester even when their own role satisfies the rule
+B. `deciderRank(userRole) < requiredRank(ruleRole)` replaced with `< 0`:
+     Tests  3 failed | 3 passed (6)   × manager-not-owner refused / owner approves / rejection path
+C. `await assertMayDecide(...)` call removed from decideRequest:
+     Tests  5 failed | 1 passed (6)   (only the cross-tenant case survives — it is caught by the UPDATE's company_id predicate)
+Restored: Test Files 2 passed (2) / Tests 6 passed (6).
+
+--- tsc --noEmit ---
+TSC_EXIT=0
+
+--- eslint (approvalAuthority.ts, approvalService.ts, approval-requests.ts) ---
+ESLINT_EXIT=0
+
+--- full unit suite (DATABASE_URL unset) ---
+bunx vitest run: Test Files 3 failed | 789 passed | 36 skipped (828)
+                 Tests 6 failed | 9432 passed | 234 skipped (9672)
+The failing files are trackerExclusion, bankAllocationService, bankAllocationDateShift,
+bankAllocationUnwind and cashFlowReport — none of them touch approvals, the failing set
+differed between two consecutive runs, and every one of them is a 10s vitest timeout under
+machine load (many parallel agents). Re-run in isolation on this branch:
+  bunx vitest run <those 5 files> → Test Files 5 passed (5) / Tests 27 passed (27).
+
+=== Review follow-up round (2026-09-09, second fixer after the first died mid-task) ===
+
+Note on the log above and K-108/K-109's: the K-109 `describe` block it counts (7 tests in
+k108-k109-approval-rules.int.test.ts) was NOT in the file — the previous agent died before
+writing it. Those three cases have been written and are counted below. Everything else in the
+earlier logs reproduces.
+
+--- integration (fixture DB) ---
+k-043-self-approval-and-approver-role.int.test.ts   1 passed
+k-043-approval-authority.int.test.ts                8 passed  (5 original + 3 review cases)
+k108-k109-approval-rules.int.test.ts                9 passed  (4 K-108 + 2 approver_role + 3 K-109)
+                                                   ── 3 files, 18 passed
+
+--- unit ---
+tests/unit/services/gl/approvalOperatorFailClosed.test.ts   3 passed
+tests/unit/services/gl/approverRankLadder.test.ts           5 passed  (new, review L1)
+
+--- components (vitest.components.config.ts) ---
+tests/unit/components/approvalDecisionErrorSurface.test.tsx 3 passed  (new, review M2)
+
+--- mutation proof (production code temporarily reverted, then restored) ---
+G. handleDecision reverted to `if (!res.ok) throw new Error('Failed')`:
+     3 failed | 0 passed (3)  — the server's reason no longer reaches the screen.
+H. the foreign-rule refusal in assertMayDecide replaced with `if (false)`:
+     1 failed | 7 passed (8)  × refuses a decider when the request names a rule another company owns
+     (the discriminator is an admin decider against an owner-only rule: without the guard the
+      `?? APPROVER_RANK.admin` fallback lets him through)
+I. the ApprovalRequestNotFoundError → notFound mapping removed from the route:
+     2 failed | 6 passed (8)  × already-decided / unknown id (both answer 500 again)
+J. assertApproverRole's condition ANDed with false:
+     2 failed | 7 passed (9)  × create refused / update refused
+K. ladder drift, manager↔accountant: 1 failed | 4 passed (5)  × extra roles ranked correctly
+K2. ladder drift, super_admin↔owner: 1 failed | 4 passed (5)  × shared pairs ordered alike
+L. requestApproval reverted to the unscoped VALUES insert:
+     2 failed | 7 passed (9)  × another tenant's rule id / a rule id that exists nowhere
+All six files restored and re-run green afterwards.
+
+--- tsc --noEmit ---            TSC_EXIT=0
+--- eslint (6 changed src/pages files) ---  ESLINT_EXIT=0
+
+--- full unit suite (DATABASE_URL / JWT_SECRET / ISAFLOW_DISPOSABLE_AUTH_TEST unset) ---
+run 1: Test Files 5 failed | 789 passed | 36 skipped (830)  Tests 10 failed | 9436 passed (9680)
+run 2: Test Files 2 failed | 792 passed | 36 skipped (830)  Tests  2 failed | 9444 passed (9680)
+The failing SET differs between runs and every failure is a 10s vitest timeout; load average was
+121 with many parallel agents on the box. Re-run in isolation on this branch:
+  bankAllocationUnwind, cashFlowReport, bankAllocationService, approvalOperatorFailClosed,
+  approverRankLadder → Test Files 5 passed (5) / Tests 28 passed (28).
+No approvals test appears in either failing set.
+
+=== Migration prefix rename 632 → 647 (2026-09-09) ===
+`632_forensic_lockdown_intents.sql` on an unmerged branch already holds that prefix; 626–644 are
+taken. Renamed with `git mv`; references updated in approvalMatching.ts (2 comments),
+approvalOperatorFailClosed.test.ts, services/gl/.claude.md + its AGENTS.md mirror, and the K-108 /
+K-109 fix.md and green.log files. The constraint NAME is unchanged.
+
+Proof, not a skip: the fixture's constraint was dropped first, then the renamed file applied twice.
+  ALTER TABLE approval_rules DROP CONSTRAINT approval_rules_condition_operator_check → DROPPED
+  psql -f scripts/migrations/sql/647_approval_rules_condition_operator_check.sql → DO
+  re-ran the same file                                                             → DO (idempotent)
+  conname=approval_rules_condition_operator_check convalidated=f
+  CHECK ((condition_operator = ANY (ARRAY['any','greater_than','greater_equal']))) NOT VALID
+
+Re-ran after the rename:
+  3 integration files → 18 passed        (k-043 ×2, k108-k109)
+  approvalOperatorFailClosed.test.ts     → 3 passed
+  bun scripts/audit-migration-naming.ts  → 339 files scanned, no new duplicate prefixes
+  bun scripts/ci/check-migration-rls.ts  → OK
+  bun run agent-docs:check               → OK, 74 mirrors match
+  bunx tsc --noEmit → 0   bunx eslint approvalMatching.ts → 0
+
+=== Round-2 review fixes (2026-09-09) — 2 MEDIUM / 7 LOW, all nine closed ===
+
+--- integration (fixture DB) ---
+k-043-self-approval-and-approver-role   1 passed
+k-043-approval-authority               10 passed  (+2: malformed request id → 404, rule id → 400)
+k108-k109-approval-rules               12 passed  (+3: deactivate / reactivate / correct a legacy
+                                                   unreadable rule)
+                                       ── 3 files, 23 passed
+Every test in both files also passes run alone with `-t` (round-2 LOW-1):
+  k108 ×8 checked individually, k-043 "refuses a manager…" and "already decided" likewise.
+
+--- unit ---
+approvalOperatorFailClosed    3 passed
+approverRankLadder            7 passed  (+2: covers both role allowlists)
+approvalDecisionAuthority    10 passed  (new — the two rank fallbacks)
+approvalRequestMapper         3 passed  (new — NULL rule_id)
+                              ── 4 files, 23 passed
+--- components --- approvalDecisionErrorSurface 3 passed
+
+--- migration 647 re-applied after scoping the CHECK ---
+DROP, apply, apply again → DO / DO (idempotent)
+CHECK (((condition_operator = ANY (ARRAY['any','greater_than','greater_equal']))
+        OR (is_active IS NOT TRUE))) NOT VALID
+
+--- mutation proof (restored after each) ---
+M.  deciderRank fallback 0 → 99            2 failed | 7 passed  (unknown role / prototype key)
+N.  requiredRank admin floor → 0           2 failed | 7 passed  (legacy 'Owner' / prototype key)
+O.  no-membership refusal → if (false)     2 failed | 7 passed  (no row / viewer rule)
+P2. 'bookkeeper' removed from the ladder   3 failed | 14 passed (2 ladder, 1 decision)
+Q.  route id validation removed            2 failed | 8 passed  (404 and 400 cases)
+R2. CHECK unscoped on the fixture          2 failed | 10 passed (deactivate / reactivate)
+S.  23514 → 400 mapping removed            1 failed | 11 passed (reactivate answers 500)
+T.  mapRequest NULL handling removed       1 failed | 2 passed
+R (first attempt) SURVIVED and the test was wrong, not the code: `plantLegacyRule` restated the
+constraint text when restoring it, so it reinstated the scoped form even under an unscoped
+migration. It now reads `pg_get_constraintdef` back out of the catalogue; R2 is the re-run.
+
+--- tsc --noEmit --- 0     --- eslint (7 files) --- 0
+--- agent-docs:check --- OK, 74 mirrors
+--- file sizes --- approvalAuthority 140, approvalService 228, approvalMatching 127,
+                   approval-rules 88, approval-requests 119, approvals/index.tsx 261
+
+--- full unit suite (fixture env unset) ---
+Test Files 5 failed | 791 passed | 36 skipped (832)   Tests 10 failed | 9451 passed (9695)
+(+15 tests over the previous round, which is exactly the new unit cases.) All five failures are
+10s timeouts at load average 143; re-run in isolation → 5 files / 27 tests passed.
+
+════════════════════════════════════════════════════════════════════════════
+ROUND 3 — 2026-09-09 (2 HIGH / 2 MEDIUM / 4 LOW from scratchpad/review-k043-r3.md)
+Fixture: postgres://…@127.0.0.1:33140/isaflow_schema_fixture (disposable)
+════════════════════════════════════════════════════════════════════════════
+
+GREEN — integration, all four K-043 files together (they share the fixture):
+  bun run test:integration -- k-043-r3-rule-authority k-043-approval-authority \
+      k-043-self-approval-and-approver-role k108-k109-approval-rules
+  Test Files  4 passed (4)      Tests  38 passed (38)
+  Run three consecutive times, 38/38 each time. The first attempt was 2 failed:
+  k108-k109 drops and re-adds approval_rules_condition_operator_check at
+  AUTO-COMMIT on the shared fixture, so the r3 migration cases were racing it.
+  Fixed in the test, not by serialising the suite: every starting state is now
+  CONSTRUCTED inside the transaction (DROP CONSTRAINT IF EXISTS + explicit ADD)
+  behind LOCK TABLE approval_rules IN ACCESS EXCLUSIVE MODE, and nothing is read
+  off the ambient fixture.
+
+GREEN — unit:
+  approvalRuleAuthority.test.ts + approverRankLadder.test.ts   19 passed
+  approvalRuleOperatorGuard.test.ts + approvalRulesSavepoint.test.ts  12 passed
+
+MIGRATION 658 applied OUT of transaction to the fixture (scratch schema
+k043_658_proof holding a LIKE-copy of approval_rules, dropped afterwards):
+  CASE A — database that ran the PRE-EDIT 647:
+    before      CHECK ((condition_operator = ANY (ARRAY['any','greater_than','greater_equal'])))  NOT VALID
+    after 658   CHECK (((condition_operator = ANY (...)) OR (is_active IS NOT TRUE))) NOT VALID
+    after twice identical — idempotent
+  CASE B — database that ran the CURRENT 647 (already scoped):
+    pg_constraint.oid before=26765 after=26765 — not dropped and re-added
+  Both directions converge. 647 itself was NOT edited.
+
+MUTATION PROOF — one mutant per finding, production code only, each restored:
+  1 H2  guard disabled (`if (false && actorRank(...) < requiredRank(...))`)
+        approvalRuleAuthority  5 failed / 6 passed
+        k-043-r3 integration   3 failed / 12 passed
+  2 H1  658's definition test removed, leaving the name-only guard (the 647 defect)
+        k-043-r3 integration   2 failed / 13 passed
+  3 M1  isUuidParam removed from the PUT and DELETE id
+        k-043-r3 integration   2 failed / 13 passed
+  4 L4  deleteRule returns true for a row it never touched
+        k-043-r3 integration   1 failed / 14 passed
+  5 L2  assertConditionOperator made a no-op
+        approvalRuleOperatorGuard  3 failed / 3 passed
+  6 L3  updateRule called outside withSavepoint
+        approvalRulesSavepoint     3 failed / 3 passed
+  7 L1  'auditor' added to userAccessService VALID_ROLES (assignable, not on the ladder)
+        approverRankLadder         1 failed / 7 passed
+  All seven restored; `grep -rn MUTANT pages/ src/ scripts/` returns nothing and the
+  suites above are green again (38/38 integration).
+
+FULL UNIT SUITE, fixture env UNSET (env -u DATABASE_URL -u JWT_SECRET bunx vitest run):
+  Test Files  799 passed | 36 skipped (835)
+  Tests       9485 passed | 234 skipped (9719)
+
+GATES:
+  bunx tsc --noEmit                         clean
+  bunx eslint <7 changed src/pages files>   clean
+  bun run agent-docs:check                  OK: 74 mirrors match
+  bun scripts/audit-migration-naming.ts     No new duplicate prefixes found
+  bun scripts/ci/check-migration-rls.ts     OK
+  (eslint on tests/** reports "not found by the project service" — tsconfig
+   excludes tests/**; that is the repo's standing condition, not a new error.)
+
+MIGRATION PREFIX: renamed 655 → 658. 655 was taken by K-041's committed
+655_invite_company_name_definer_hardening.sql on another branch; 656 (K-095) and
+657 (K-140/K-144) are reserved. Every prose reference renumbered with it.
+
+=== Round 4 (2026-09-09) ===
+Fixture: disposable PostgreSQL, production schema, zero rows.
+
+Integration (bun run test:integration):
+  k-043-r4-rule-rank.int.test.ts ............................ 9 passed  (new)
+  five approval files together .............................. 47 passed (5 files)
+    k-043-r4-rule-rank / k-043-r3-rule-authority / k108-k109-approval-rules /
+    k-043-approval-authority / k-043-self-approval-and-approver-role
+  LOW-1 order coupling: 6 x --sequence.shuffle over the three rule files .. 36/36 each
+    (before the fix the same loop was red 4 of 5 runs; the first failure it
+     exposed was in the NEW r4 file, not the old one — the idempotency case shared
+     document_type 'payment' with the rank block, and two owner-rank rules tie on
+     created_at. Moved to customer_invoice.)
+  LOW-2 writer isolation: 10 x k108-k109 + k-043-r3 in parallel ......... 27/27 each
+
+Unit (DATABASE_URL unset):
+  approvalRuleRankGuard.test.ts ............................. 11 passed (new)
+  approvalStrictestRule.test.ts ............................. 6 passed  (new)
+  FULL SUITE: 801 files passed | 36 skipped, 9502 tests passed | 234 skipped
+
+Mutation proof (production change reverted, tests re-run, then restored):
+  M1 createRule: assertMayDemand removed
+       -> k-043-r4 3 failed / 6 passed; approvalRuleRankGuard 3 failed / 8 passed
+  M2 updateRule: assertMayDemand(new role) removed
+       -> k-043-r4 1 failed / 8 passed; approvalRuleRankGuard 1 failed / 10 passed
+  M3 requestApproval + route: caller-supplied ruleId honoured again
+       -> k-043-r4 1 failed / 8 passed (the bypass sequence itself)
+  M4 checkApproval: first match wins instead of strictest
+       -> k-043-r4 1 failed / 8 passed; approvalStrictestRule 2 failed / 4 passed
+  M5 checkApproval: ORDER BY priority ASC only
+       -> approvalStrictestRule 1 failed / 5 passed
+  Not mutation-proofed: LOW-2 (a race window; proven instead by 10 parallel runs)
+  and LOW-3 (doc ordering).
+
+bunx tsc --noEmit ... clean
+bunx eslint (4 service files + approval-requests.ts) ... clean
+bun run agent-docs:check ... OK, 74 mirrors match
+
+=== Round 5 (2026-09-09) — server-derived governing rule ===
+
+Integration (disposable fixture Postgres, fixture.env):
+  k-043-r5-server-derived-rule.int.test.ts                13 passed
+  all six approval integration files                      60 passed
+  --sequence.shuffle x3 over the three request-path files 34 passed each run
+
+Unit (no DATABASE_URL):
+  eight approval unit files                               60 passed
+  FULL suite, DATABASE_URL unset                          801 files, 9504 passed / 234 skipped
+
+Mutations (each applied, run, restored byte-identical):
+  M1 requestApproval honours input.amount again           5 failed / 12
+  M2 resolveApprovalDocument returns a default instead of throwing
+                                                          4 failed / 12
+  M3 rebindPendingRequest returns `existing` unconditionally
+                                                          1 failed / 12  (the pin test)
+  M4 DROP INDEX uq_approval_requests_pending              1 failed / 13  (the constraint test)
+  M5 23503 arm removed from respondToRuleWriteError       1 failed / 12
+  NOT covered by a red test: removing `AND rl.is_active = true` from the
+  INSERT ... SELECT. The window it closes is not reachable through the route in
+  one process; recorded as defence in depth in fix.md (LOW-1).
+
+Gates: bunx tsc --noEmit clean; eslint on the five changed src/pages files clean;
+bun run agent-docs:check OK (74 mirrors); bun scripts/audit-migration-naming.ts
+no new duplicate prefixes; bunx tsx scripts/ci/check-migration-rls.ts OK.
+
+Migration 665 applied twice to the fixture; second run a no-op.
+
+── Round 6 ─────────────────────────────────────────────────────────────────────
+RED (against 70ce13391 with 669 applied so the column exists but is never written):
+  6 failed / 8 in tests/integration/k-043-r6-authority-ratchet.int.test.ts
+    lever A  rebind onto the manager rule after conditionValue raised   403 -> 200
+    lever A' rebind after the bound rule is deactivated                 403 -> 200
+    lever B  bound rule's approver_role handed down to manager          403 -> 200
+    (+3 snapshot assertions, required_role NULL)
+
+GREEN:
+  tests/integration/k-043-r6-authority-ratchet.int.test.ts        8 / 8   (real DB)
+  tests/integration/api/approvalRequestLock.test.ts               5 / 5   (real DB)
+  tests/unit/services/gl/approvalRequestRaceRecovery.test.ts      6 / 6
+  tests/unit/services/gl/approvalRuleOperatorGuard.test.ts       10 / 10  (+4)
+  tests/unit/api/approvalRulesSavepoint.test.ts                   9 / 9   (+3)
+  all eight approval integration files                           73 / 73  (was 60)
+  FULL unit suite, DATABASE_URL unset:  9517 passed | 234 skipped (838 files)
+
+Mutations (production code reverted from file copies, never via git checkout):
+  M1 rebind ratchet removed                               2 failed / 8
+  M2 assertMayDecide demands the live rule role only      1 failed / 8   (lever B)
+  M3 the INSERT stops writing required_role               4 failed / 8
+  M4 lockApprovalRequestForUpdate drops FOR UPDATE        2 failed / 5
+  M5 the 23503 arm ungated by onDelete                    2 failed / 9
+  M6 assertConditionField becomes a no-op                 3 failed / 10
+  M7 the 23505 arm re-throws instead of re-reading        4 failed / 6
+
+Gates: bunx tsc --noEmit clean; eslint on every changed src/pages file clean;
+bun run agent-docs:check OK (74 mirrors).
+Migration 669 applied to the fixture; ALTER ... IF NOT EXISTS and the backfill's
+`required_role IS NULL` predicate make a second run a no-op.
