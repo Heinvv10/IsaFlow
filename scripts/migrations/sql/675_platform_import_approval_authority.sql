@@ -112,3 +112,22 @@ $$;
 ALTER FUNCTION public.control_approval_authorities(uuid,uuid) OWNER TO migration_admin;
 REVOKE ALL ON FUNCTION public.control_approval_authorities(uuid,uuid) FROM PUBLIC;
 GRANT EXECUTE ON FUNCTION public.control_approval_authorities(uuid,uuid) TO app_user,platform_admin;
+
+-- An impersonated browser session presents the impersonated member's own JWT,
+-- so nothing in the tenant schema can tell it apart from that member working.
+-- The impersonation route records the target session it minted; this is the
+-- durable side of that fact, readable by the tenant role for exactly the
+-- current session and surviving a dropped delegation-proof cookie or a refresh.
+DROP FUNCTION IF EXISTS public.control_session_impersonator();
+CREATE FUNCTION public.control_session_impersonator()
+RETURNS text LANGUAGE sql STABLE SECURITY DEFINER SET search_path=pg_catalog,public,auth AS $$
+  SELECT l.admin_user_id::text FROM public.admin_audit_log l
+  WHERE l.action='impersonation_start' AND l.target_type='user'
+    AND l.target_id::text=auth.uid()
+    AND l.details->>'target_session_id'=
+      (nullif(current_setting('request.jwt.claims',true),'')::jsonb->>'session_id')
+  ORDER BY l.created_at DESC LIMIT 1
+$$;
+ALTER FUNCTION public.control_session_impersonator() OWNER TO migration_admin;
+REVOKE ALL ON FUNCTION public.control_session_impersonator() FROM PUBLIC;
+GRANT EXECUTE ON FUNCTION public.control_session_impersonator() TO app_user,platform_admin;

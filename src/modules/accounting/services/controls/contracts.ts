@@ -25,6 +25,8 @@ export interface ControlPrincipal {
   authMethod: 'cookie' | 'pat' | 'oauth' | 'job' | 'platform_import';
   provenance: 'human' | 'agent' | 'job';
   delegatedByPersonId: string | null;
+  /** The platform administrator driving this session; a decision taken here is never the member's own. */
+  impersonatorPersonId: string | null;
   /** Null for cookies; bearer/job grant is an authority ceiling, never proof. */
   grantedScopes: readonly string[] | null;
   /** Present only on a job principal issued from protected delegation and an active server lease. */

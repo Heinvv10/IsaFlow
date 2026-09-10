@@ -1,5 +1,6 @@
 import {assertPlatformImportOperation} from './platformImportConfinement';
 import {assertOperationRequester} from './operationRequester';
+import {assertIndependentHumanReview} from './independentReview';
 import type { ApMaterial } from './apOperationMaterializer';
 import { operationPermission } from './operationPermissions';
 import { withSavepoint } from '@/lib/neon';
@@ -82,6 +83,7 @@ export async function decideOperationApproval(ctx: ControlTx, id: string,
     if (decision === 'cancelled') {
       if (ctx.principal.personId !== row.requester_person_id) throw new Error('Only the requester can cancel approval');
     } else {
+      assertIndependentHumanReview(ctx.principal, row.requester_person_id);
       if (ctx.principal.personId === row.requester_person_id) throw new Error('Self approval is not permitted');
       await assertRequesterAuthority(ctx, row, authorities);
       const decisions = await approvalDecisions(ctx, id);

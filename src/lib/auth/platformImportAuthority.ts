@@ -71,7 +71,7 @@ export async function withPlatformImportTarget<T>(capability:PlatformImportReque
  requestCurrent(request);assertTxUsable();request.busy=true;
  const store:RequestContext={client:request.client,userId:request.personId,companyId:target.companyId,claims:request.store.claims};
  const principal:ControlPrincipal=Object.freeze({companyId:target.companyId,personId:request.personId,connectionId:null,grantId:null,actingFirmId:null,
-  requestId:capability.requestId,operationId:randomUUID(),authMethod:'platform_import',provenance:'human',delegatedByPersonId:null,grantedScopes:null});
+  requestId:capability.requestId,operationId:randomUUID(),authMethod:'platform_import',provenance:'human',delegatedByPersonId:null,impersonatorPersonId:null,grantedScopes:null});
  const life:TargetLife={active:true,request,store,target};principals.set(principal,life);
  try{
   return await als.run(store,async()=>{

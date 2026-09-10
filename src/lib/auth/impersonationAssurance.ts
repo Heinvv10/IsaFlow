@@ -39,18 +39,28 @@ export async function mintImpersonationProof(input: DelegationInput): Promise<st
 
 /** The target JWT must already have passed its own signature/expiry verification. */
 export async function validateImpersonationProof(proof: string, target: JWTPayload): Promise<boolean> {
-  if (!identifier(target.sub) || !identifier(target.session_id)) return false;
+  return await impersonationActor(proof, target) !== null;
+}
+
+/**
+ * The platform administrator this session is delegated to, or null when the
+ * proof does not authorize this exact target session. Authority decisions that
+ * require an independent human need the actor, not just the fact of validity.
+ */
+export async function impersonationActor(proof: string, target: JWTPayload): Promise<string | null> {
+  if (!identifier(target.sub) || !identifier(target.session_id)) return null;
   try {
     const { payload } = await jwtVerify(proof, key(), {
       algorithms: ['HS256'], issuer: ISSUER, audience: AUDIENCE,
       requiredClaims: ['exp', 'iat'], maxTokenAge: '1h',
     });
-    return payload.version === 1 && identifier(payload.actorUserId)
+    const valid = payload.version === 1 && identifier(payload.actorUserId)
       && payload.targetUserId === target.sub && payload.targetSessionId === target.session_id
       && Number.isSafeInteger(payload.exp) && Number.isSafeInteger(payload.iat)
       && payload.exp! > payload.iat! && payload.exp! - payload.iat! <= 3600;
+    return valid ? String(payload.actorUserId) : null;
   } catch {
     // Invalid delegation never authorizes: the caller retains ordinary MFA checks.
-    return false;
+    return null;
   }
 }
