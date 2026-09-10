@@ -14,6 +14,10 @@ import type { OperationRef } from '@/modules/accounting/services/controls/contra
 export const APPROVAL_REQUIRED_REASON =
   'an independent approval is required for this operation — request one with '
   + 'request_operation_approval, then retry';
+/** Deliberately not an approval instruction: something else stopped the question. */
+export const APPROVAL_UNKNOWN_REASON =
+  'could not be previewed — this document\'s posting material could not be built; an '
+  + 'independent approval may also be required';
 
 export interface ApprovalPartition {
   postable: { index: number; id: string }[];
@@ -27,11 +31,15 @@ export async function partitionApprovalBound(
 ): Promise<ApprovalPartition> {
   const partition: ApprovalPartition = { postable: [], skipped: [] };
   for (const candidate of candidates) {
-    const required = await controlledOperationApprovalRequiredForPreview(requireControlTx(),
+    const answer = await controlledOperationApprovalRequiredForPreview(requireControlTx(),
       { entityType: ref.entityType, entityId: candidate.id, operation: ref.operation });
-    if (required) {
-      partition.skipped.push({ index: candidate.index, document_id: candidate.id, reason: APPROVAL_REQUIRED_REASON });
-    } else partition.postable.push(candidate);
+    const reason = answer.kind === 'answered'
+      ? (answer.required ? APPROVAL_REQUIRED_REASON : null)
+      // No policy binds it, so nothing is being withheld: leave the document to
+      // the rest of the partition, which reports its own reasons.
+      : (answer.policiesExist ? APPROVAL_UNKNOWN_REASON : null);
+    if (reason) partition.skipped.push({ index: candidate.index, document_id: candidate.id, reason });
+    else partition.postable.push(candidate);
   }
   return partition;
 }
