@@ -258,7 +258,7 @@ each writer back to where the id enters. Directories walked in addition to round
 | S26 | `time_entries`, `practice_jobs`, `practice_entry_templates` `.practice_client_id` | practice services | — | **not a customer id** — each FKs `practice_clients`, a different parent table; handed to R-073 with S24, whose scope is exactly that table |
 
 Columns a name- or FK-based query cannot find — the polymorphic ones — are walked in
-round 4 below (P1–P8); round 3 left four of them "not walked", and one of those was a
+round 4 below (P1–P12); round 3 left four of them "not walked", and one of those was a
 live cross-tenant write. Customer ids inside JSONB: `recurring_transactions.template_data`
 is row 8; other JSONB is not enumerable from `information_schema`, and that limit is
 stated rather than assumed away.
@@ -283,13 +283,15 @@ rendered by the portal superuser route today, so their name joins stay inside RL
 
 The r3 review measured `accounting_adjustments.entity_id` taking company B's customer
 through `adjustments.ts` POST (HTTP 200, row stored under A). Round 3 had listed that
-column as "not walked", which is neither a fence nor a reason. Every polymorphic id
-column on `isaflow_dev` (`entity_id` / `*_entity_id` / `target_id` / `counterparty_id`,
-from `information_schema.columns`) is now walked to its writers:
+column as "not walked", which is neither a fence nor a reason. Rows P1–P8 below were
+found BY NAME PATTERN (`entity_id` / `*_entity_id` / `target_id` / `counterparty_id` in
+`information_schema.columns`) — a census by spelling. The r4 review swept FK-less
+`*_id` columns instead and found four more polymorphic columns (P9–P12), each read at
+its write site here. All twelve are walked to their writers:
 
 | # | Column | Writer(s) | Can it hold a body-supplied customer id? | Disposition |
 |---|---|---|---|---|
-| P1 | `accounting_adjustments.entity_id` | `items/adjustmentService.ts` `createAdjustment` ← `adjustments.ts:32` POST | yes — `req.body.entityId`; CHECK limits `entity_type` to `customer`/`supplier` | **FIXED (r4)** — `if (entityType === 'customer') assertCustomerInCompany(…)` before the INSERT; the route's catch answers 400 with nothing written. The **supplier arm** is the same shape and goes to **R-068** (supplier twin, already holding `bankAllocationService`'s supplier arm): its fence needs an `assertSupplierInCompany` that R-068 is to build, and adding one here would fork that work. A unit case pins that the supplier arm issues no customer read |
+| P1 | `accounting_adjustments.entity_id` | `items/adjustmentService.ts` `createAdjustment` ← `adjustments.ts:32` POST | yes — `req.body.entityId`; CHECK limits `entity_type` to `customer`/`supplier` | **FIXED (r4)** — `if (entityType === 'customer') assertCustomerInCompany(…)` before the INSERT; the route's catch answers 400 with nothing written. The **supplier arm** is the same shape and goes to **R-068** (supplier twin, already holding `bankAllocationService`'s supplier arm): this is a SCOPE choice, not a blocker — `supplierBelongsToCompany` already exists and could fence it in one line — but the supplier twin is R-068's finding and its sites are fixed together there. A unit case pins that the supplier arm issues no customer read |
 | P2 | `procurement_documents.entity_id` | `core/documentStorageService.ts:124` `uploadDocument` ← `documents.ts` POST; `documents.ts:183` UPDATE | no — `documents.ts:118` calls `verifyEntityOwnership` first, which admits only this company's supplier/customer invoices, payments and credit notes; the UPDATE writes `is_active` only, after the same check (`:178`) | **walked, already fenced** |
 | P3 | `document_links.linked_entity_id` | `documentStorageService.ts:169-205` `autoLinkSupplierInvoice` | no — writes PO / GRN / supplier-invoice ids read from a supplier invoice already checked by P2 | **walked, not a customer id** |
 | P4 | `document_validation_results.entity_id` | `document-validation.ts:113` | no — every `entityType` arm first reads the entity `WHERE company_id` and 404s on a miss; there is no customer arm | **walked, already fenced** |
@@ -297,6 +299,10 @@ from `information_schema.columns`) is now walked to its writers:
 | P6 | `close_run_proposals.target_entity_id` | `gl/closeRun/closeRunRepo.ts:141` ← `closeRunService.ts:72` | no — `closeRunProposalBuilder.ts:75,93` sets it to a journal id from the company's own close run, or `null` | **walked, not a customer id** |
 | P7 | `entity_udf_values.entity_id` | `core/udfService.ts:152` `setEntityUdfValues` | its only writer has no caller (`rg setEntityUdfValues`: definition only) | **walked, no caller** |
 | P8 | `loans.counterparty_id` | `loans/loanService.ts:107,184` | a caller-supplied uuid, but no FK and no reader resolves it against `customers` or any table (`rg counterparty_id`: loanService's own mapper only; `contraSettlementService`'s is an unrelated alias) | **walked, references nothing** |
+| P9 | `gl_journal_entries.source_record_id` (FK-less by design, `gl/.claude.md:84`) | `gl/journalEntryCrudService.ts:245` `createJournalEntry`, from `input.sourceRecordId` | no — the only callers that set it pass a reconciliation id (`bank/bankReconciliationService.ts:171`) or a supplier-invoice id (`reports/drcVatService.ts:88`); `journal-entries.ts:44` destructures the body and never reads `sourceRecordId`; the other three INSERTs (`assetDepreciationPosting.ts:118`, `yearEndJournalPoster.ts:169`, `bank-transfers.ts:78`) do not write the column | **walked, not a customer id** |
+| P10 | `approval_requests.document_id` | `gl/approvalDocuments.ts:205` `requestApproval` | no — `resolveApprovalDocument` (`:187`) reads the document `WHERE company_id` by type (invoices, payments, …) and throws `ApprovalDocumentNotFoundError` on a miss before the INSERT; the id is a document, never a customer | **walked, already fenced** |
+| P11 | `stock_movements.reference_id` | `pages/api/accounting/stock-adjustments.ts:47` | no — it is the id of the `stock_adjustments` row inserted two statements earlier | **walked, not a customer id** |
+| P12 | `flow_ledger.reference_id` | `billing/services/flowWalletService.ts:193`, via `completeBundlePurchase` (`:329`, a purchase id), `deductFlows` / `refundFlows` (`null` from the meters; `bulkImportId` from `bank-transactions-bulk-commit.ts:237,325`) | `bulkImportId` IS a client-minted UUID from the body — but it is an opaque batch-correlation id: `listLedger` returns it raw with no join and the admin PAYG report does not read it, so it names nothing | **walked, references nothing** |
 | — | `admin_audit_log.target_id` (varchar) | platform-admin audit | same purpose as P5, and outside the tenant model | **exempt by purpose** |
 
 **Measured.** `adjustments POST (customer)` is a new case in
@@ -317,7 +323,8 @@ only the MCP tools call it. Out of scope here per the brief.
 
 **R-068 also owns `adjustmentService.ts` `createAdjustment`'s supplier arm** (P1 above):
 `entity_type = 'supplier'` with a body `entityId`, joined to `suppliers` for the name
-and posted against AP control on approval.
+and posted against AP control on approval. `supplierBelongsToCompany` already exists,
+so nothing blocks the fence; it is deferred because the supplier twin is R-068's scope.
 
 **R-068 also owns `bankAllocationService.ts:246-249`** — the supplier arm of
 `allocateTransaction`, identical in shape to the customer arm fixed above:
