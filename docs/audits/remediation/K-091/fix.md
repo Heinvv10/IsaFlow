@@ -1513,3 +1513,30 @@ applied to no checksum-tracked database (see above). Rollback: revert the commit
 * The five one-sided `HAVING`s from round 9's H1b remain un-dispositioned.
 * Production is not measured anywhere in this round. Every figure above is `isaflow_dev` or
   the fixture.
+
+## Round 13 — what the master merge required
+
+The merge of `origin/master` at `2131296a4` brought in code the K-091 census refuses, and
+the census failed with four hits, all in one file:
+
+| Site | Disposition |
+|---|---|
+| `migrationWizardOpeningBalanceService.ts:137-141` — `subtype === 'receivable'` / `=== 'payable'` on the R-020 control-account interlock | **FIXED**, not allow-listed. This is a live defect, not a false positive: the gate that refuses an AR/AP control total once the document steps have taken those documents on recognised exactly one spelling each. A chart carrying `debtors`, `accounts_receivable`, `creditors` or `trade_payables` — every one of them in `SUBTYPE_ALIASES` — walked straight through it, and the opening control total posted on top of the per-document take-on. It now reads `canonicalSubtype(subtype)`; the operator-facing message names the canonical token. |
+
+No entry was added to the census `ALLOWED` list. The list is unchanged.
+
+**Both directions proven.**
+
+* *The guard still catches a literal.* Reverting line 143 to `subtype === 'receivable' || subtype === 'payable'` (file copy, restored) puts the census back to red on both literals at `:143`.
+* *The changed site behaves identically for what it already handled.* `r001-r002-r020-takeon-posting.int.test.ts` — which spells the two control accounts `receivable` and `payable` — passes unchanged, 20/20 before the new case.
+* *The widening is real.* That suite gains one case: two more accounts, `1101 Debtors` (`debtors`) and `2101 Creditors` (`creditors`), and the interlock must refuse their opening totals once the document steps have run. Mutating `canonicalSubtype(subtype)` back to a two-literal check turns that one test red and leaves the other 20 green.
+
+`ReportPageDrillDimensions.test.tsx` also failed in the same gate run, on a `waitFor`
+timeout at load 26. **Load flake, no branch interaction.** Alone under
+`vitest.components.config.ts` it passes 4/4 at load 30, and the whole component suite passes
+81 files / 520 tests at load 29. Nothing was changed for it. (The root vitest config includes
+only `tests/unit/**/*.test.ts`, so a bare `vitest run` on a `.tsx` component test reports
+"No test files found" — the components config is required.)
+
+Merge conflict resolutions from `2131296a4` (`accountMergeGuards.ts`, `invoicePdfBuilder.ts`)
+were not touched.
