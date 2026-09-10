@@ -35,7 +35,7 @@ it('rejects invalid input before SQL and missing or shifted item positions',asyn
  rows();sql.mockResolvedValueOnce([]);await expect(getAuditComparisonPage(ctx,{comparisonId,section:'records'})).rejects.toThrow(/incomplete/i);
 });
 it('refuses a signed result inconsistent with authenticated original metadata or current permissions',async()=>{
- sql.mockResolvedValueOnce([{generation:1,lease_id:header.leaseId,protected_header:{}}]);mocks.header.mockReturnValueOnce({...header,first:{...first,cutoff:'2026-09-08'}});
+ sql.mockResolvedValueOnce([{generation:1,lease_id:header.leaseId,protected_header:{}}]);mocks.header.mockReturnValueOnce({...header,first:{...first,id:second.id}});
  await expect(readAuditComparisonHeader(ctx,comparisonId)).rejects.toThrow(/source|identity/i);
  sql.mockResolvedValueOnce([{generation:1,lease_id:header.leaseId,protected_header:{}}]);mocks.inputs.mockRejectedValueOnce(new Error('Current payroll denied'));
  await expect(readAuditComparisonHeader(ctx,comparisonId)).rejects.toThrow('Current payroll denied');
