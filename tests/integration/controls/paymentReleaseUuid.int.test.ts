@@ -40,7 +40,7 @@ async function prepared(channel:'eft'|'netcash'='eft'){
  await f.actor(()=>approveBatch(company,batch.id,user));await f.actor(()=>processBatch(company,batch.id,user));
  const intent=await f.actor(ctx=>createPaymentReleaseIntent(ctx,channel==='eft'?{batchId:batch.id,channel,bankFormat:'fnb'}:{batchId:batch.id,channel}));
  upper(intent.intentId);
- return{...intent,supplier,operation:{entityType:'payment_release_intent',entityId:intent.intentId,operation:'payment_release.dispatch' as const}};
+ return{...intent,supplier,batchId:batch.id,operation:{entityType:'payment_release_intent',entityId:intent.intentId,operation:'payment_release.dispatch' as const}};
 }
 const enqueue=(id:string,approvalId:string)=>f.actor(ctx=>enqueuePaymentRelease(ctx,id,approvalId));
 async function state(id:string){
@@ -102,4 +102,20 @@ it('records a durable refusal when the post-commit release claim cannot run',asy
  const refusals=(await f.pool.query(`SELECT after_values->>'reason' AS reason FROM control_change_events
   WHERE company_id=$1 AND lower(entity_id)=lower($2) AND action='payment_release.claim_refused'`,[company,p.intentId])).rows;
  expect(refusals).toEqual([{reason:'Release provider configuration changed'}]);
+});
+/**
+ * paymentInvoiceSource reads the settlement receipt by an id the database owns, so the only reachable
+ * mismatch is a receipt old code retained under the caller's spelling. Rewriting the retained entity_id
+ * to that spelling reproduces it without touching the receipt's result or its approval linkage.
+ */
+it('loads a payment settlement whose retained receipt kept a legacy uppercase entity_id',async()=>{
+ const p=await prepared(),company=f.f.companyA;
+ const rewritten=await f.pool.query(`UPDATE control_operation_effects SET entity_id=upper(entity_id)
+  WHERE company_id=$1 AND operation IN('supplier_payment.process','supplier_payment_batch.process')
+   AND lower(entity_id) IN(SELECT lower(id::text) FROM supplier_payment_batches WHERE company_id=$1 AND id=$2::uuid
+    UNION SELECT lower(id::text) FROM supplier_payments WHERE company_id=$1 AND batch_id=$2::uuid) RETURNING entity_id`,[company,p.batchId]);
+ expect(rewritten.rows.length).toBeGreaterThan(0);
+ expect(rewritten.rows.every(r=>r.entity_id===r.entity_id.toUpperCase())).toBe(true);
+ const again=await f.attempt(()=>f.actor(ctx=>createPaymentReleaseIntent(ctx,{batchId:p.batchId,channel:'eft',bankFormat:'fnb'})));
+ expect({error:again.error instanceof Error?again.error.message:null,status:again.value?.status}).toEqual({error:null,status:'prepared'});
 });
