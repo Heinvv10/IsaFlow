@@ -89,7 +89,7 @@ export async function runAuditCheckRunPhase(ctx:ControlTx,lease:AuditJobLease,op
   const missing=[...new Set([...population.missing,...missingPolicy?['unsupported_or_bounded_current_journal_policy']:[],
    ...thresholds.length?[]:['no_supported_current_journal_threshold']])].sort();
   const amountTotals=riskAmountTotals(staged);
-  await verifyRetainedFindings(ctx,lease,identity,staged,amountTotals,check);
+  await verifyRetainedFindings(ctx,lease,identity,staged,check);
   const header:CheckRunHeader={...identity,version:1,checkId,checkVersion:1,cutoff,status:checkStatus(staged.length,missing.length),
    populationCount:population.populationCount,excludedCount:0,findingCount:staged.length,populationCountBasis:'streamed',
    amountTotals,coverage:[...JOURNAL_RISK_COVERAGE],missingSources:missing,populationDigest:population.populationDigest,
@@ -136,30 +136,29 @@ async function assertPopulationTotals(ctx:ControlTx,cutoff:string,streamedCount:
 }
 /**
  * Persistence check: every sealed finding is read back inside the same transaction before the header is written, one
- * page at a time. Each item must hash to what was staged at its ordinal; the money is re-totalled page by page from the
- * re-read bytes with the shared normalisation. No page, and no full finding, outlives its loop.
+ * page at a time. Each item must hash to what was staged at its ordinal and carry the staged amount and currency, and
+ * the count must match. No page, and no full finding, outlives its loop. The money is not re-totalled: equal amount
+ * and currency at every ordinal, plus an equal count, make the totals equal by arithmetic — a mutation removing a
+ * page-by-page re-total left every gate green, so it would have been a check nothing could prove.
  */
 async function verifyRetainedFindings(ctx:ControlTx,lease:AuditJobLease,identity:CheckRunIdentity,staged:readonly StagedFinding[],
- amountTotals:Record<string,string>,check:()=>void):Promise<void>{
- const Money=Decimal.clone({precision:80}),totals:Record<string,string>={};let count=0,after=-1;
+ check:()=>void):Promise<void>{
+ let count=0,after=-1;
  for(;;){
   check();
   const page=await ctx.sql`SELECT ordinal,finding_key,protected_item FROM control_audit_check_findings
    WHERE company_id=${lease.companyId}::uuid AND job_id=${lease.jobId}::uuid AND generation=${lease.generation}
     AND lease_id=${lease.leaseId}::uuid AND ordinal>${after} ORDER BY ordinal LIMIT 512` as {ordinal:number;finding_key:string;protected_item:never}[];
   if(!page.length)break;
-  const money:Array<{amount:string;currency:string}>=[];
   for(const row of page){
    const expected=staged[row.ordinal];
    if(!expected||row.ordinal!==count||row.finding_key!==expected.key)throw new Error('Retained check run findings do not match the streamed run');
    const item=openRetainedAuditCheckRunItem(row.protected_item,identity,staged.length,row.ordinal);
    if(item.finding.key!==expected.key||itemHash(item.finding)!==expected.itemHash||item.amount!==expected.amount||item.currency!==expected.currency)
     throw new Error('Retained check run findings do not match the streamed run');
-   money.push({amount:item.amount,currency:item.currency});count++;
+   count++;
   }
-  for(const [currency,total] of Object.entries(riskAmountTotals(money)))totals[currency]=new Money(totals[currency]??'0').add(total).toFixed();
   after=page[page.length-1]!.ordinal;
  }
- if(count!==staged.length||canonicalJson(totals)!==canonicalJson(amountTotals))
-  throw new Error('Retained check run findings do not match the streamed run');
+ if(count!==staged.length)throw new Error('Retained check run findings do not match the streamed run');
 }
