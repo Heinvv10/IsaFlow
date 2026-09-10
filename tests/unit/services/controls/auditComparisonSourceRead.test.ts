@@ -31,3 +31,11 @@ it('rejects forged headers, incorrect positions and changed current permissions'
  mocks.original.mockRejectedValueOnce(new Error('Current permissions denied'));
  await expect(iterateComparisonSourceItems(ctx,verified,'records').next()).rejects.toThrow('Current permissions denied');
 });
+it('rejects signed header count or permission disagreement and expired iteration before SQL',async()=>{
+ sql.mockResolvedValueOnce([{protected_header:{}}]);mocks.openHeader.mockReturnValueOnce({...header,counts:{...header.counts,records:1}});
+ await expect(readComparisonSourceHeader(ctx,snapshotId,canonicalHash)).rejects.toThrow(/differs/);
+ sql.mockResolvedValueOnce([{protected_header:{}}]);mocks.openHeader.mockReturnValueOnce({...header,permissions:['read:reports','read:payroll']});
+ await expect(readComparisonSourceHeader(ctx,snapshotId,canonicalHash)).rejects.toThrow(/differs/);
+ const calls=sql.mock.calls.length;
+ await expect(iterateComparisonSourceItems(ctx,header,'records',{deadlineAt:Date.now()-1}).next()).rejects.toThrow(/deadline/);expect(sql.mock.calls).toHaveLength(calls);
+});
