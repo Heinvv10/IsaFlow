@@ -55,7 +55,7 @@
  * settlement activity after the as-at date. This fixture has no document dated
  * after AS_AT_BEFORE and no payments, so it cannot see that difference.
  * k053-aging-route-vs-service-rewind seeds both and measures the gap; the
- * defect itself is a separate open item, R-056.
+ * defect itself is a separate open item, R-059.
  */
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { randomUUID } from 'crypto';

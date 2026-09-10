@@ -155,5 +155,5 @@ WHERE ci.deleted_at IS NOT NULL AND ci.gl_journal_entry_id IS NOT NULL
   earlier as-at date the routes report `LATE - PAID` more than the services (R500 − R800 =
   −R300 on this fixture) on AR and on AP alike, and zero at today — which is why no earlier
   fixture could see it. That is a pre-existing defect in the two routes, not a soft-delete
-  question; it is measured and named here as R-056 rather than silently fixed inside a
+  question; it is measured and named here as R-059 rather than silently fixed inside a
   soft-delete branch.

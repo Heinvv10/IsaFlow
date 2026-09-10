@@ -46,7 +46,7 @@ the GL still carries and keeping what it has released turn the assertions red.
 - `pages/api/portal/chat.ts` and `ar/portalService.ts` — 42703 before the predicate is
   reached (R-055). Verified against the fixture and against `master`; deliberately untouched.
 - The ageing routes' divergence from the ageing services on `invoice_date <= as-at` and on
-  the `amount_paid` rewind — measured at `LATE - PAID` and registered as R-056. It predates
+  the `amount_paid` rewind — measured at `LATE - PAID` and registered as R-059. It predates
   this branch and is not a soft-delete question.
 
 ## Over the 300-line cap
