@@ -85,6 +85,7 @@ export interface IncomeStatementReport {
   periodEnd: string;
   projectId?: string;
   costCentreId?: string;
+  businessUnitId?: string;
   revenue: IncomeStatementLineItem[];
   /** Revenue-typed accounts whose subtype is other income — NOT trading revenue. */
   otherIncome: IncomeStatementLineItem[];
