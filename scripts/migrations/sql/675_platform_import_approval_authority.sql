@@ -6,13 +6,39 @@ ALTER TABLE control_historical_imports
 ALTER TABLE control_historical_imports
   ADD CONSTRAINT control_historical_imports_requester_auth_method_check
   CHECK(requester_auth_method IN('cookie','pat','oauth','platform_import'));
+-- The grant-shape check was created unnamed (639), so its generated name depends
+-- on how many unnamed checks preceded it: dropping a guessed name can leave the
+-- cookie-only original in place, silently refusing every platform requester.
+-- Drop whatever constrains the grant columns, name the replacement explicitly,
+-- and assert the resulting shape.
+DO $$
+DECLARE v_name text;
+BEGIN
+  FOR v_name IN SELECT conname FROM pg_constraint
+    WHERE conrelid='public.control_historical_imports'::regclass AND contype='c'
+      AND pg_get_constraintdef(oid) LIKE '%requester_grant_id%'
+  LOOP EXECUTE format('ALTER TABLE public.control_historical_imports DROP CONSTRAINT %I',v_name); END LOOP;
+END $$;
 ALTER TABLE control_historical_imports
-  DROP CONSTRAINT IF EXISTS control_historical_imports_check1;
-ALTER TABLE control_historical_imports
-  ADD CONSTRAINT control_historical_imports_check1 CHECK(
+  ADD CONSTRAINT control_historical_imports_requester_grant_shape CHECK(
     (requester_auth_method IN('cookie','platform_import') AND requester_grant_id IS NULL AND requester_granted_scopes IS NULL)
     OR (requester_auth_method IN('pat','oauth') AND requester_grant_id IS NOT NULL AND requester_granted_scopes IS NOT NULL)
   );
+DO $$
+DECLARE v_shape text[];
+BEGIN
+  SELECT array_agg(conname ORDER BY conname) INTO v_shape FROM pg_constraint
+    WHERE conrelid='public.control_historical_imports'::regclass AND contype='c'
+      AND pg_get_constraintdef(oid) LIKE '%requester_grant_id%'
+      AND pg_get_constraintdef(oid) LIKE '%platform_import%';
+  IF v_shape IS DISTINCT FROM ARRAY['control_historical_imports_requester_grant_shape']
+    OR EXISTS(SELECT 1 FROM pg_constraint
+      WHERE conrelid='public.control_historical_imports'::regclass AND contype='c'
+        AND pg_get_constraintdef(oid) LIKE '%requester_grant_id%'
+        AND pg_get_constraintdef(oid) NOT LIKE '%platform_import%')
+  THEN RAISE EXCEPTION 'control_historical_imports grant-shape constraints are not the platform-import replacement: %',v_shape;
+  END IF;
+END $$;
 
 DROP POLICY IF EXISTS tenant_create ON control_historical_imports;
 CREATE POLICY tenant_create ON control_historical_imports FOR INSERT TO app_user
