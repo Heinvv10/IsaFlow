@@ -11,7 +11,7 @@ async function count(query:string,params:unknown[]){return Number((await f.pool.
 const jobs=()=>count('SELECT count(*)::int AS n FROM control_audit_jobs WHERE company_id=$1',[f.fixture.companyA]);
 async function retained(){
  const job=await f.call<{id:string}>('audit_snapshot',{cutoff:'2026-09-09',sources:['journals'],checks:[],idempotency_key:randomUUID()});
- expect(await runAuditJob({companyId:f.fixture.companyA,personId:f.fixture.u1.id,jobId:job.id},{pool:f.pool})).toMatchObject({state:'succeeded'});
+ expect(await runAuditJob({companyId:f.fixture.companyA,personId:f.fixture.u1.id,jobId:job.id},{pool:f.pool,workerClass:'audit'})).toMatchObject({state:'succeeded'});
  return job.id;
 }
 it('audit job enqueue tools refuse read-only and write-only authority and enqueue with read:reports plus write:audit',async()=>{
