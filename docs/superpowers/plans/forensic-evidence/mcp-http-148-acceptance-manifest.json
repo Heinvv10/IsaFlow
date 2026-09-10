@@ -1,0 +1,94 @@
+{
+  "scope": "Named 148-tool built MCP refusal contracts only",
+  "productCommit": "c4b2c9859d15e295447ad1691d5d7d1c47b76d05",
+  "buildId": "gA68wVUXyzUBNPeonyd_6",
+  "harnessCommit": "31a7a891d9b0228d2b9b945bd5911762a8133e07",
+  "verifiedCases": 1934,
+  "remainingCases": 0,
+  "completeRefusalMatrix": true,
+  "runtimeProvenance": {
+    "originalPid": 1000732,
+    "replacementPid": 2042048,
+    "change": "Fresh synthetic snapshot signing key configured before causal proofs; same source/build, different runtime",
+    "attestation": "Externally verified local process cwd and artifact, not server-signed"
+  },
+  "causalReplacement": {
+    "rawCompletedCases": 1000,
+    "byteIdenticalReused": 999,
+    "excludedOldCase": "export_audit_evidence:current",
+    "newOwnedSourceCases": 2,
+    "subsequentOrdinaryCases": [
+      500,
+      433
+    ]
+  },
+  "limits": [
+    "Not current 160/161-tool registry coverage",
+    "Not successful execution of every tool",
+    "Financial workflows are separate evidence",
+    "Synthetic private database and localhost only; no production verification",
+    "Original shard0 raw report retained separately from explicit metadata annotation"
+  ],
+  "archive": {
+    "name": "mcp-http-148-acceptance.tar.gz",
+    "byteLength": 156952,
+    "sha256": "6d38c1e8a58f656fc0971924f40b7b249e53f006bcd7ee605dae4cdc166ca7a0"
+  },
+  "entries": [
+    {
+      "name": "isaflow-mcp-http-d82-old-plan.json",
+      "byteLength": 950234,
+      "sha256": "9fe9b52ae18ff5afcb88421a105ae833c6d959599801c5145494e7041b5c8627"
+    },
+    {
+      "name": "isaflow-mcp-http-c4b2-shard0.json.original",
+      "byteLength": 173454,
+      "sha256": "76b014a297d3dc4165404ef57752be20d7a1f6273ff4027dcbf03bea97acca0a"
+    },
+    {
+      "name": "isaflow-mcp-http-c4b2-shard0.json",
+      "byteLength": 173880,
+      "sha256": "b02d5ea94b345a2b1d1ec555f6faae11f2917c299bd891057176b7a5ed747c42"
+    },
+    {
+      "name": "isaflow-mcp-http-c4b2-shard1.json",
+      "byteLength": 169362,
+      "sha256": "2eb6fc9890e00a85c9207792bee4e57a272764cb80b17e73a434ae98fa031e10"
+    },
+    {
+      "name": "isaflow-mcp-http-c4b2-shard2.json",
+      "byteLength": 171240,
+      "sha256": "24cd34297df103ba66f809fb08c2bdc82953f828434c6d779aacd55a65bac37f"
+    },
+    {
+      "name": "isaflow-mcp-http-c4b2-shard3.json",
+      "byteLength": 157982,
+      "sha256": "19173927d27ad414ebb7d81c08f4bda01c0495fe5d7ea7c69a1e68ee75edbc42"
+    },
+    {
+      "name": "isaflow-mcp-http-c4b2-migration.json",
+      "byteLength": 1638647,
+      "sha256": "6650335e7d8d8478ea31d47d3a8d498a308865dbb7a11bfafb628aecc93b13aa"
+    },
+    {
+      "name": "isaflow-mcp-http-c4b2-sources.json",
+      "byteLength": 1834,
+      "sha256": "51e8fda07d7dac368a1ed8f950ae70ff5b770c30affa19e04412dfe72301ce42"
+    },
+    {
+      "name": "isaflow-mcp-http-c4b2-reads.json",
+      "byteLength": 1006,
+      "sha256": "12f0ba6249a3cc6d37f46eb0e162455dabb02253b5d9dbaa84d2e0cfb1f455ef"
+    },
+    {
+      "name": "isaflow-mcp-http-c4b2-final-aggregate.json",
+      "byteLength": 91074,
+      "sha256": "c685cfd0043a2e8bec956855af6a751006c1b10df27b28235043134058576321"
+    },
+    {
+      "name": "isaflow-mcp-http-source-prereq-failure-evidence.txt",
+      "byteLength": 350,
+      "sha256": "f4fb0691dcf2753ac1380bce36d71f6345cc45fc55df32a49478d0842ede2af5"
+    }
+  ]
+}
