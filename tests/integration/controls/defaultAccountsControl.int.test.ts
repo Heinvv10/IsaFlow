@@ -43,15 +43,15 @@ it('enforces current account write permission and real CSRF before mutation',asy
  try{expect((await f.rest('POST',{mappings:{primary_bank:replacement}})).status).toBe(403);}finally{await f.pool.query('DELETE FROM company_user_permissions WHERE company_id=$1 AND user_id=$2 AND module_key=$3',[f.f.companyA,f.f.u1.id,'accounts']);}
  expect((await f.rest('POST',{mappings:{primary_bank:replacement}},false)).status).toBe(403);expect(await f.state()).toEqual(before);
 });
-for(const table of ['app_settings','gl_accounts','control_protected_evidence','control_change_events']){
+for(const table of ['accounting_settings','gl_accounts','control_protected_evidence','control_change_events']){
  it(`rolls back all state when ${table} suppresses its mandatory write`,async()=>{
   const account=await f.account(),before=await f.state();
   const snapshot=async()=>Promise.all(['control_entity_versions','control_protected_evidence','control_change_events'].map(async t=>(await f.pool.query(`SELECT to_jsonb(t) AS row FROM ${t} t WHERE company_id=$1 ORDER BY entity_type,entity_id`,[f.f.companyA])).rows));
   const history=await snapshot();
   await f.pool.query(`CREATE FUNCTION public.synthetic_default_suppression() RETURNS trigger LANGUAGE plpgsql AS $$ BEGIN IF NEW.company_id='${f.f.companyA}'::uuid THEN RETURN NULL; END IF; RETURN NEW; END $$`);
-  await f.pool.query(`CREATE TRIGGER synthetic_default_suppression BEFORE INSERT OR UPDATE ON ${table} FOR EACH ROW EXECUTE FUNCTION public.synthetic_default_suppression()`);
-  try{expect((await f.rest('POST',{mappings:{primary_bank:account}})).status).toBeGreaterThanOrEqual(400);expect(await f.state()).toEqual(before);expect(await snapshot()).toEqual(history);}
-  finally{await f.pool.query(`DROP TRIGGER synthetic_default_suppression ON ${table}`);await f.pool.query('DROP FUNCTION public.synthetic_default_suppression()');}
+  try{await f.pool.query(`CREATE TRIGGER synthetic_default_suppression BEFORE INSERT OR UPDATE ON ${table} FOR EACH ROW EXECUTE FUNCTION public.synthetic_default_suppression()`);
+  expect((await f.rest('POST',{mappings:{primary_bank:account}})).status).toBeGreaterThanOrEqual(400);expect(await f.state()).toEqual(before);expect(await snapshot()).toEqual(history);}
+  finally{await f.pool.query(`DROP TRIGGER IF EXISTS synthetic_default_suppression ON ${table}`);await f.pool.query('DROP FUNCTION public.synthetic_default_suppression()');}
  });
 }
 it('captures every old designation beyond a preview page and exposes real authorized history',async()=>{

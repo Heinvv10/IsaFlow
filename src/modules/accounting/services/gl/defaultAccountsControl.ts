@@ -20,9 +20,9 @@ export async function saveDefaultAccounts(ctx:ControlTx,value:unknown):Promise<{
  return withTransaction(async()=>{
   const ids=await defaultAccountIds(ctx,mappings),before=await readGlChangeRows(ctx,{ids});
   if(canonicalJson(ids)!==canonicalJson(await defaultAccountIds(ctx,mappings)))throw new Error('Default account population changed');
-  const expected=expectedDefaultRows(before,mappings);
   for(const row of before)await assertEffectivePermission(ctx,'write:accounts',{entityType:'gl_account',entityId:row.id});
   if(!before.length)await assertEffectivePermission(ctx,'write:accounts');
+  const expected=expectedDefaultRows(before,mappings);
   const prior=await readDefaultSettings(ctx),settingsChanged=!sameMappings(prior,mappings);
   const changed=expected.filter((row,i)=>meaningfulGlRow(row)!==meaningfulGlRow(before[i]!));
   if(!settingsChanged&&!changed.length)return{saved:true};
