@@ -22,13 +22,18 @@ export async function recordCommittedChange(ctx: ControlTx, input: ChangeEventIn
     // This digest protects retained ciphertext; it is not a public bank-data hash.
     const materialHash = createHash('sha256').update(protectedValues.protectedPayload.ciphertext).digest('hex');
     const p = ctx.principal;
+    // A lineage retained under another spelling of the same id is extended in place, never forked beside.
     const versions = input.previousVersion === null
       ? await ctx.sql`INSERT INTO control_entity_versions(company_id,entity_type,entity_id,version,material_hash)
-          VALUES(${p.companyId}::uuid,${input.entityType},${input.entityId},${input.newVersion},${materialHash})
+          SELECT ${p.companyId}::uuid,${input.entityType},${input.entityId},${input.newVersion},${materialHash}
+          WHERE NOT EXISTS(SELECT 1 FROM control_entity_versions WHERE company_id=${p.companyId}::uuid
+            AND entity_type=${input.entityType} AND lower(entity_id)=lower(${input.entityId}))
           ON CONFLICT(company_id,entity_type,entity_id) DO NOTHING RETURNING version`
       : await ctx.sql`UPDATE control_entity_versions SET version=${input.newVersion},material_hash=${materialHash},updated_at=clock_timestamp()
-          WHERE company_id=${p.companyId}::uuid AND entity_type=${input.entityType} AND entity_id=${input.entityId}
-            AND version=${input.previousVersion} RETURNING version`;
+          WHERE company_id=${p.companyId}::uuid AND entity_type=${input.entityType} AND version=${input.previousVersion}
+            AND entity_id=(SELECT entity_id FROM control_entity_versions WHERE company_id=${p.companyId}::uuid
+              AND entity_type=${input.entityType} AND lower(entity_id)=lower(${input.entityId})
+              ORDER BY (entity_id=${input.entityId}) DESC,entity_id LIMIT 1) RETURNING version`;
     if (versions.length !== 1) throw new Error('Control entity version is stale');
     const evidenceId = randomUUID(), eventId = randomUUID();
     const envelope = protectedValues.protectedPayload;
