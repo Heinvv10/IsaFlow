@@ -27,3 +27,35 @@ Execution: read actual material/producer dependencies and finish case-level mapp
 Tests-first implementation state (no original unit retired):1d58db164 adds issued AP producer fixture and seven cancellation cases;7ba1062a2/acb89741e adds four payment and one actual nonempty batch case with real beneficiary verification/local evidence storage;cb6ed77b5 strengthens status cases to obtain actual approval before asserting financial refusal;24be67f9c adds inactive/ordinary closed-period post refusal;1da6caec3 adds three distinct historical AP/legacy admin cases. Total16 new PG cases, queued under root's exclusive lease protocol. Original23 failed units remain unchanged until the relevant producer cases actually pass.
 
 The old Sage test title claims an unconditional direct-post exception. Current named commitAPInvoice instead calls ordinary approveSupplierInvoice, has no approval/import reference parameter, and its platform-admin callers do not issue the ordinary ControlTx. New historical AP tests do not establish that admin capability: they deliberately distinguish supported CSV retained-source execution from actual admin invoice ingress refusal/rollback. This is a required remaining authority/adapter capability, not permission to reintroduce a raw posted-status write or to claim all migration paths work.
+
+## Exact failing-case traceability
+
+C = apCiInvoiceCancellation.int.test.ts; P = apCiPaymentWorkflow.int.test.ts; B = apCiBatch.int.test.ts; H = apCiHistoricalIngress.int.test.ts. The names below identify actual test cases, not inferred production coverage. Existing two passing AR Sage unit assertions remain unchanged. No real authority, kernel, posting, inverse, beneficiary verification or financial DB write is mocked in C/P/B/H.
+
+| Historical failing unit case | Current assertion location |
+|---|---|
+| Sage checks deactivated accounts before posting | C `refuses inactive posting...` (no retained prefix); Sage forwarding unit delegates exact original input |
+| Sage inactive refusal writes no posted status | C inactive refusal exact state; Sage shared inactive refusal propagates and raw status writes remain zero |
+| Sage create→guard→post ordering | Sage document→shared approval order, zero raw JE create/post; C actual inactive/closed guard leaves no retained prefix |
+| Sage unconditional no-period-check post | H `retains the separately supported historical AP source date...` proves approved R1150/date/closed period; H distinct legacy admin refusal preserves state. Unconditional bypass intentionally not restored; admin saved-authority ingress remains REQUIRED gap |
+| Cancel locks row then reverses journal | C `waits for the actual owned invoice row lock...` + `reverses the real approved invoice...` |
+| Cancel skips already reversed journal | C legitimate committed cancellation receipt replay creates exactly one inverse; no fabricated prior receipt |
+| Cancel reversal failure does not flip status | C `rolls back an inverse prefix...` exact complete before/after plus approval retry |
+| Cancel blocks invoices with payments | C approved paid and partially_paid refusal cases, exact unchanged state |
+| Cancel blocks already-cancelled invoice | C first case distinguishes same approved receipt replay from a newly approved operation (04006942b final focused PG pending at documentation time) |
+| Cancel unposted invoice without reversal | C `cancels an unposted bill...` compares entire journal population |
+| Cancel concurrent winner | C `serializes two independently requested cancellations...` exactly one inverse |
+| Cancel savepoint/400 failure | C caught final status SQL failure preserves journals, lines, invoices, payments, versions, effects and protected/event rows; ordinary savepoint rollback does not require poisoning unrelated outer work |
+| Cancelled invoice cannot repost | C `refuses cancelled and foreign invoice posting...` specific cancelled refusal, unchanged state |
+| Wrong tenant cannot post | Same C case uses actual other-company issued caller and owned missing-source refusal |
+| Void reverses/unapplies/cancels | P first case exact bank credit115, invoice paid0, retained positive allocation115, cancelled payment, one contra |
+| Void nonprocessed refusal | P status case obtains actual independent approval then requires `Only processed` refusal |
+| Void reconciled refusal | P status case uses actual reconciled status and independent approval then requires reconciled refusal |
+| Void savepoint failure | P final status failure exact unchanged financial/history state and successful same-approval retry |
+| Void prior reversal | P actual committed void receipt replay returns identical result and exactly one inverse |
+| Process owned bank query | P actual owned bank GL credit0/115, correct company/journal/account association |
+| Process foreign bank refusal | P foreign source account cannot produce any financial change or foreign GL leg |
+| Batch no invalid document FK | B real approved nonempty producer journal has source_document_id=null |
+| Batch persisted journal association | B exact processed batch journal ID equals every child payment journal and owned posted source_record_id; totals115/115 |
+
+Actual run53295:14 passed/3 failures (two historical fixture levels, one overstrong outer-rejection expectation). Corrections d6618e0af use real level3 accounts and exact savepoint-state assertion. Full17 PG61630 then passed2.65s; all pools/local storage listeners/triggers closed. Focused old five-file group after adaptation96e0a7181:11 passed539ms, including both unchanged AR forwarding cases. Full source TS, dedicated test TS and typed scoped lint93540 terminal0. No production file changed. Final04006942b assertion needs focused real PG verification; no final integrated CI claim, root owns re-run after reviewed integration.
