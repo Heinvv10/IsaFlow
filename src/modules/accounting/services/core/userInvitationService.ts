@@ -5,6 +5,7 @@
 
 import crypto from 'crypto';
 import { sql } from '@/lib/neon';
+import { hashInviteToken } from '@/lib/auth/inviteToken';
 import { log } from '@/lib/logger';
 import type { PendingInvitation, InvitationWithToken, InvitationResult } from './userAccessService';
 import type { DbRow } from '@/types/db';
@@ -15,10 +16,6 @@ type CompanyRole = (typeof VALID_ROLES)[number];
 
 function isValidRole(role: string): role is CompanyRole {
   return (VALID_ROLES as readonly string[]).includes(role);
-}
-
-function hashToken(token: string): string {
-  return crypto.createHash('sha256').update(token).digest('hex');
 }
 
 function toIso(val: Date | string | null): string | null {
@@ -77,7 +74,7 @@ export async function createInvitation(
   }
 
   const rawToken = crypto.randomBytes(32).toString('hex');
-  const tokenHash = hashToken(rawToken);
+  const tokenHash = hashInviteToken(rawToken);
   const expiresAt = new Date(Date.now() + 7 * 24 * 60 * 60 * 1000).toISOString();
 
   const rows = (await sql`
@@ -139,7 +136,7 @@ export async function cancelInvitation(invitationId: string, companyId: string):
 }
 
 export async function acceptInvitation(token: string, userId: string): Promise<void> {
-  const tokenHash = hashToken(token);
+  const tokenHash = hashInviteToken(token);
   const rows = (await sql`
     SELECT * FROM company_invitations
     WHERE token = ${tokenHash}
