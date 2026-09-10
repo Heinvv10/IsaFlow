@@ -23,6 +23,14 @@ vi.mock('@/lib/logger', () => ({
   log: { info: vi.fn(), error: vi.fn(), warn: vi.fn() },
 }));
 
+// The as-at rewind (R-059) is built from nested sql fragments that would each
+// consume one of the queued results below; its arithmetic is pinned against a
+// database in tests/integration/r059-period-reports-as-at-period-end.int.test.ts.
+vi.mock('@/modules/accounting/services/shared/agingRewind', () => ({
+  rewindAmount: vi.fn(() => 'REWIND'),
+  effectivePaidExpr: vi.fn(() => 'PAID'),
+}));
+
 // Re-export stubs so the barrel re-exports in transactionReportingService don't
 // try to import from the real GL service (which has its own DB dependencies).
 vi.mock('@/modules/accounting/services/gl/transactionLedgerService', () => ({

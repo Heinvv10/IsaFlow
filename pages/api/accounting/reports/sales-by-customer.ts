@@ -12,6 +12,7 @@ import { log } from '@/lib/logger';
 import { withErrorHandler } from '@/lib/api-error-handler';
 import { csvCell } from '@/lib/csv';
 import { documentInLedgerAsAtFragment } from '@/modules/accounting/services/shared/softDeleteLedgerPresence';
+import { rewindAmount, effectivePaidExpr } from '@/modules/accounting/services/shared/agingRewind';
 
 async function handler(req: NextApiRequest, res: NextApiResponse) {
   if (req.method !== 'GET') return apiResponse.methodNotAllowed(res, req.method ?? 'UNKNOWN', ['GET']);
@@ -22,24 +23,34 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
     const format = typeof req.query.format === 'string' ? req.query.format : undefined;
 
     const { companyId } = req as CompanyAuthedRequest;
+    const paid = effectivePaidExpr('ar');
     const rows = await sql`
       SELECT
         ci.client_id,
         c.name AS client_name,
         COUNT(ci.id)::int AS invoice_count,
         COALESCE(SUM(ci.total_amount), 0)::numeric AS total_sales,
-        COALESCE(SUM(ci.amount_paid), 0)::numeric AS payments_received,
-        COALESCE(SUM(ci.total_amount - ci.amount_paid), 0)::numeric AS outstanding
+        COALESCE(SUM(${sql.unsafe(paid)}), 0)::numeric AS payments_received,
+        COALESCE(SUM(ci.total_amount - ${sql.unsafe(paid)}), 0)::numeric AS outstanding
       FROM customer_invoices ci
       JOIN customers c ON c.id = ci.client_id
+      LEFT JOIN LATERAL (
+        ${rewindAmount({ companyId, asAtStr: to, todayStr: fmtDate(new Date()), side: 'ar' })}
+      ) unpaid ON TRUE
       WHERE ci.company_id = ${companyId}
-        -- Dated to the period end this report is drawn to, so the outstanding
-        -- column agrees with the ageing and the control account at that date.
-        -- See shared/softDeleteLedgerPresence.
+        -- Everything here is AS AT "to": the invoices raised in the period,
+        -- and what had been received on them and was still outstanding on the
+        -- period end — the ageing at "to" restricted to these invoices. It is
+        -- NOT the ageing's total, which also carries invoices raised before
+        -- "from". Received/outstanding used to be TODAY's amount_paid, so a
+        -- past period showed settlement made after it (R-059); the rewind is
+        -- the aged report's own (shared/agingRewind). Drafts are excluded for
+        -- the same reason the ageing excludes them: nothing was sold or owed.
+        -- The soft-delete leg is dated to "to" — shared/softDeleteLedgerPresence.
         AND ${documentInLedgerAsAtFragment('ci', to, companyId)}
         AND ci.invoice_date >= ${from}
         AND ci.invoice_date <= ${to}
-        AND ci.status != 'cancelled'
+        AND ci.status NOT IN ('draft', 'cancelled')
       GROUP BY ci.client_id, c.name
       ORDER BY total_sales DESC
     `;

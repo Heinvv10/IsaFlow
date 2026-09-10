@@ -7,7 +7,7 @@ import type { DbRow } from '@/types/db';
 import type { NoteContent } from '@/modules/accounting/services/afs/afsTypes';
 import { fmt, toNum } from './noteHelpers';
 import { getFiscalRange } from '@/modules/accounting/services/afs/afsFiscalPeriod';
-import { documentInLedgerAsAtFragment } from '@/modules/accounting/services/shared/softDeleteLedgerPresence';
+import { agedBucketTable, getAgedBucketTotals } from '@/modules/accounting/services/reports/agedBucketTotals';
 
 type NoteResult = { dataSnapshot: Record<string, unknown>; content: NoteContent };
 
@@ -187,65 +187,28 @@ export async function generateNote10TradeReceivables(
 
   log.info('Generating note 10 — trade receivables', { companyId, fiscalYear }, 'noteGenerators');
 
-  const rows = (await sql`
-    SELECT
-      SUM(ci.total_amount) FILTER (WHERE ci.status NOT IN ('paid','cancelled','void')) AS gross_receivables,
-      SUM(ci.total_amount) FILTER (
-        WHERE ci.status NOT IN ('paid','cancelled','void')
-          AND ci.due_date <= ${end}::DATE AND ci.due_date > ${end}::DATE - INTERVAL '30 days'
-      ) AS current_amount,
-      SUM(ci.total_amount) FILTER (
-        WHERE ci.status NOT IN ('paid','cancelled','void')
-          AND ci.due_date <= ${end}::DATE - INTERVAL '30 days'
-          AND ci.due_date > ${end}::DATE - INTERVAL '60 days'
-      ) AS days_30,
-      SUM(ci.total_amount) FILTER (
-        WHERE ci.status NOT IN ('paid','cancelled','void')
-          AND ci.due_date <= ${end}::DATE - INTERVAL '60 days'
-          AND ci.due_date > ${end}::DATE - INTERVAL '90 days'
-      ) AS days_60,
-      SUM(ci.total_amount) FILTER (
-        WHERE ci.status NOT IN ('paid','cancelled','void')
-          AND ci.due_date <= ${end}::DATE - INTERVAL '90 days'
-      ) AS days_90_plus
-    FROM customer_invoices ci
-    WHERE ci.company_id = ${companyId} AND ci.invoice_date <= ${end}
-      -- The note must show what the control account showed at year end, so it
-      -- asks the soft-delete question at year end too: a document deleted AFTER
-      -- the year end is still receivable in these figures, and one deleted
-      -- before this change was ever made has a standing journal the GL carries.
-      -- See shared/softDeleteLedgerPresence.
-      AND ${documentInLedgerAsAtFragment('ci', end, companyId)}
-  `) as DbRow[];
-
-  const row = rows[0] ?? {};
-  const gross = toNum(row.gross_receivables);
-  const current = toNum(row.current_amount);
-  const d30 = toNum(row.days_30);
-  const d60 = toNum(row.days_60);
-  const d90plus = toNum(row.days_90_plus);
-  const agingTotal = current + d30 + d60 + d90plus;
+  // The aged report at the year end, summed (R-059) — see reports/agedBucketTotals.
+  // This used to be its own query over SUM(total_amount) with 'paid' excluded:
+  // no settlement netted at all, a document settled after the year end dropped,
+  // and drafts counted.
+  const aged = await getAgedBucketTotals(companyId, 'ar', end);
 
   const summaryTable = {
     type: 'table' as const,
     headers: ['', 'Amount (R)'],
     rows: [
-      ['Gross trade receivables', fmt(gross)],
+      ['Gross trade receivables', fmt(aged.gross)],
       ['Less: Provision for doubtful debts', fmt(0)],
-      ['Net trade receivables', fmt(gross)],
+      ['Net trade receivables', fmt(aged.gross)],
     ],
   };
 
-  const agingTable = {
-    type: 'table' as const,
-    headers: ['Current', '30 days', '60 days', '90+ days', 'Total'],
-    rows: [[fmt(current), fmt(d30), fmt(d60), fmt(d90plus), fmt(agingTotal)]],
-  };
+  const agingTable = { type: 'table' as const, ...agedBucketTable(aged, fmt) };
 
   const content: NoteContent = {
     title: 'Trade and Other Receivables',
     blocks: [summaryTable, agingTable],
   };
 
-  return { dataSnapshot: { receivables: rows }, content };
+  return { dataSnapshot: { receivables: [{ gross_receivables: aged.gross, ...aged }] }, content };
 }

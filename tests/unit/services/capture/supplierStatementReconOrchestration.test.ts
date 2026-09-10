@@ -26,6 +26,9 @@ vi.mock('@/lib/documentStorage', () => ({
 vi.mock('@/modules/accounting/services/bank/vlmSupplierStatementService', () => ({
   extractSupplierStatementWithVlm: vi.fn(),
 }));
+vi.mock('@/modules/accounting/services/ap/apAgingService', () => ({
+  getAPAgingDetail: vi.fn(),
+}));
 vi.mock('@/modules/accounting/services/capture/supplierStatementReconDb', () => ({
   loadSupplierInvoices: vi.fn(),
   persistLinesAndUpdateCounts: vi.fn(),
@@ -33,6 +36,7 @@ vi.mock('@/modules/accounting/services/capture/supplierStatementReconDb', () => 
 }));
 
 import { fetchRawBytes } from '@/lib/documentStorage';
+import { getAPAgingDetail } from '@/modules/accounting/services/ap/apAgingService';
 import { extractSupplierStatementWithVlm } from '@/modules/accounting/services/bank/vlmSupplierStatementService';
 import {
   loadSupplierInvoices,
@@ -91,6 +95,18 @@ function makeFullReconRow(overrides: Record<string, unknown> = {}) {
   };
 }
 
+/** An AP ageing drill-down whose open invoices carry these balances. */
+function agedAt(...balances: number[]) {
+  return {
+    supplier: { id: SUPPLIER_ID, name: 'Acme Supplies' },
+    invoices: balances.map((balance, i) => ({
+      id: `inv-${i}`, entityId: SUPPLIER_ID, entityName: 'Acme Supplies', dueDate: '2026-04-30',
+      totalAmount: balance, amountPaid: 0, balance,
+    })),
+    buckets: null,
+  };
+}
+
 describe('createReconciliation — orchestration', () => {
   beforeEach(() => {
     vi.clearAllMocks();
@@ -102,10 +118,9 @@ describe('createReconciliation — orchestration', () => {
     vi.mocked(loadSupplierInvoices).mockResolvedValue([]);
     vi.mocked(persistLinesAndUpdateCounts).mockResolvedValue(undefined);
     vi.mocked(fetchFullReconciliation).mockResolvedValue(makeFullReconRow());
-    // isaflow_balance SELECT + recon INSERT RETURNING id
-    vi.mocked(sqlMock)
-      .mockResolvedValueOnce([{ isaflow_balance: 500 }] as never)
-      .mockResolvedValueOnce([{ id: RECON_ID }] as never);
+    vi.mocked(getAPAgingDetail).mockResolvedValue(agedAt(500));
+    // recon INSERT RETURNING id
+    vi.mocked(sqlMock).mockResolvedValueOnce([{ id: RECON_ID }] as never);
   });
 
   it('throws when fetchRawBytes returns null (document missing from Storage)', async () => {
@@ -139,15 +154,13 @@ describe('createReconciliation — orchestration', () => {
     vi.mocked(extractSupplierStatementWithVlm).mockResolvedValueOnce(
       makeExtraction({ closingBalance: 2500 }),
     );
-    // Reset + re-queue sql: isaflow_balance 1000, then recon INSERT returning.
-    vi.mocked(sqlMock).mockReset();
-    vi.mocked(sqlMock)
-      .mockResolvedValueOnce([{ isaflow_balance: 1000 }] as never)
-      .mockResolvedValueOnce([{ id: RECON_ID }] as never);
+    vi.mocked(getAPAgingDetail).mockResolvedValueOnce(agedAt(600, 400));
 
     await createReconciliation(COMPANY_ID, SUPPLIER_ID, DOC_ID, USER_ID);
 
-    const insertCall = vi.mocked(sqlMock).mock.calls[1]!;
+    // Our side is the AP ageing for this supplier AS AT the statement date.
+    expect(vi.mocked(getAPAgingDetail)).toHaveBeenCalledWith(COMPANY_ID, SUPPLIER_ID, '2026-04-20');
+    const insertCall = vi.mocked(sqlMock).mock.calls[0]!;
     // tagged-template interpolation values land after the template strings;
     // assert that 1500 (supplier - isaflow) appears somewhere in the args.
     const flat = JSON.stringify(insertCall);
@@ -218,9 +231,7 @@ describe('createReconciliation — orchestration', () => {
 
   it('throws when the header INSERT returns no row', async () => {
     vi.mocked(sqlMock).mockReset();
-    vi.mocked(sqlMock)
-      .mockResolvedValueOnce([{ isaflow_balance: 500 }] as never)
-      .mockResolvedValueOnce([] as never);
+    vi.mocked(sqlMock).mockResolvedValueOnce([] as never);
 
     await expect(
       createReconciliation(COMPANY_ID, SUPPLIER_ID, DOC_ID, USER_ID),
