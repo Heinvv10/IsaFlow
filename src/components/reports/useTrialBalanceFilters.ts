@@ -14,6 +14,7 @@ export function useTrialBalanceFilters() {
   const [restoredKey, setRestoredKey] = useState('');
   const [selectedPeriod, setSelectedPeriod] = useState('');
   const [costCentreId, setCostCentreId] = useState('');
+  const [businessUnitId, setBusinessUnitId] = useState('');
   const [comparePeriodId, setComparePeriodId] = useState('');
   const [showMovement, setShowMovement] = useState(false);
 
@@ -31,6 +32,7 @@ export function useTrialBalanceFilters() {
     if (!ready) return;
     const query = Object.fromEntries(new URL(queryKey, 'https://report.invalid').searchParams);
     setCostCentreId(queryText(query, 'cost_centre_id'));
+    setBusinessUnitId(queryText(query, 'business_unit_id'));
     setShowMovement(query.show_movement === 'true');
   }, [ready, queryKey]);
 
@@ -49,9 +51,11 @@ export function useTrialBalanceFilters() {
 
   const returnTo = reportHref('tb', {
     fiscal_period_id: selectedPeriod, cost_centre_id: costCentreId,
+    business_unit_id: businessUnitId,
     compare_period_id: comparePeriodId, show_movement: String(showMovement),
   });
   return { periods, selectedPeriod, setSelectedPeriod, costCentreId, setCostCentreId,
+    businessUnitId, setBusinessUnitId,
     comparePeriodId, setComparePeriodId, showMovement, setShowMovement, returnTo,
     filtersReady: ready && periodsLoaded && restoredKey === queryKey };
 }
