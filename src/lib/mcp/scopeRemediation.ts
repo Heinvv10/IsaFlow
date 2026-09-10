@@ -75,6 +75,13 @@ export function permissionRefusalMessage(permission: string, reason?: Permission
       + 'owner or admin, and this operation cannot be checked against it. Ask an owner or admin to '
       + 'remove that restriction for you.';
   }
+  if (reason === 'ACCOUNT_NOT_FOUND') {
+    // The account was never returned by the company-scoped lookup, so the
+    // reply must not assert it exists — and says the same thing whether it is
+    // missing or another tenant's, which is what keeps it from being an oracle.
+    return `The account this operation names was not found in this company, so it could not be checked against `
+      + `the account range your ${permission} access allows. Check the account id.`;
+  }
   if (reason === 'ACCOUNT_OUT_OF_RANGE') {
     // Here the account WAS checked and fell outside the permitted range.
     return `The account this operation touches is outside the account range your ${permission} access `

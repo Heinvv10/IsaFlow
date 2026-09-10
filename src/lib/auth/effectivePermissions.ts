@@ -41,7 +41,10 @@ export async function assertEffectivePermission(ctx: ControlTx, permission: stri
     FOR SHARE
   ` as Array<{ account_code: string }>;
   const code = rows[0]?.account_code;
-  if (rows.length !== 1 || typeof code !== 'string' || constrained.some(p =>
+  // No account to check: the lookup is company-scoped, so a missing one and
+  // another tenant's are the same answer and must stay indistinguishable.
+  if (rows.length !== 1 || typeof code !== 'string') throw new EffectivePermissionError(permission, 'ACCOUNT_NOT_FOUND');
+  if (constrained.some(p =>
     (p.accountRangeFrom !== null && code < p.accountRangeFrom)
     || (p.accountRangeTo !== null && code > p.accountRangeTo))) throw new EffectivePermissionError(permission, 'ACCOUNT_OUT_OF_RANGE');
 }

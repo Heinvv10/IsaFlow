@@ -36,8 +36,12 @@ export const EFFECTIVE_PERMISSION_RULES: Readonly<Record<string, PermissionRule>
   'read:payroll-sensitive': { ...rule(['payroll_sensitive'], 'canRead', true), requires: ['read:payroll'] },
 };
 export type PermissionReason = 'UNKNOWN_PERMISSION' | 'ROLE_CEILING' | 'MISSING_SCOPE' | 'MODULE_DENIED' | 'ENTITY_REQUIRED';
-/** A refusal can also be an account CHECKED and found outside the permitted range. */
-export type PermissionRefusalReason = PermissionReason | 'ACCOUNT_OUT_OF_RANGE';
+/**
+ * A refusal can also be an account CHECKED and found outside the permitted
+ * range, or one the company-scoped lookup did not return at all — missing and
+ * other-tenant alike, which is why they share one reason.
+ */
+export type PermissionRefusalReason = PermissionReason | 'ACCOUNT_OUT_OF_RANGE' | 'ACCOUNT_NOT_FOUND';
 export function hasConstraints(p: ModulePermission): boolean {
   return p.accountRangeFrom !== null || p.accountRangeTo !== null
     || p.restrictions === null || typeof p.restrictions !== 'object'
