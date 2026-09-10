@@ -15,6 +15,7 @@ export async function apCiWorkflowFixture(){
  const pool=new Pool({connectionString:target.connectionString,ssl:false,max:4,statement_timeout:10000});
  try{
  const f=await provisionForensicFixture(config),accounts=await seedApAccounts(pool,f.companyA),supplier=randomUUID();
+ await pool.query('UPDATE gl_accounts SET level=3 WHERE company_id=$1 AND id=ANY($2::uuid[])',[f.companyA,Object.values(accounts)]);
  await pool.query("INSERT INTO suppliers(id,company_id,name) VALUES($1,$2,'Synthetic AP CI supplier')",[supplier,f.companyA]);
  await pool.query("INSERT INTO fiscal_periods(company_id,period_name,period_number,fiscal_year,start_date,end_date,status) VALUES($1,'AP CI September',9,2026,'2026-09-01','2026-09-30','open')",[f.companyA]);
  for(const type of ['supplier_invoice','payment'])await pool.query("INSERT INTO approval_rules(company_id,name,document_type,condition_field,condition_operator,condition_value,approver_role) VALUES($1,'AP CI independent policy',$2,'amount','any',0,'admin')",[f.companyA,type]);
