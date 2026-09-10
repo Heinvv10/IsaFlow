@@ -71,7 +71,11 @@ export async function schedulePaymentReleaseDispatch(ctx:ControlTx,inputIntentId
  let settled=false;
  observeControlTransaction(async outcome=>{
   if(settled)return;settled=true;if(outcome!=='committed')return;
-  const claim=await transaction(identity,current=>claimPaymentRelease(current,intentId));
+  let claim:ReleaseClaim|null;
+  // settleControlTransaction only logs an observer error, so a refused claim left the outbox
+  // 'ready' — indistinguishable from never dispatched — while the caller saw success.
+  try{claim=await transaction(identity,current=>claimPaymentRelease(current,intentId));}
+  catch(error){await recordReleaseClaimRefusal(identity,intentId,error);throw error;}
   if(!claim)return;
   // Only this lexical continuation owns the once-only capability after actual COMMIT.
   const result=await transmit(claim);
@@ -79,6 +83,21 @@ export async function schedulePaymentReleaseDispatch(ctx:ControlTx,inputIntentId
  });
 }
 
+/** A queued release that never reached its provider must leave a durable, tenant-visible trace. */
+async function recordReleaseClaimRefusal(identity:Identity,intentId:string,error:unknown):Promise<void>{
+ const reason=error instanceof Error?error.message:'Release claim refused';
+ try{
+  await transaction(identity,async ctx=>{
+   const [outbox]=await ctx.sql`SELECT *,intent_id AS id FROM control_payment_release_outbox
+    WHERE company_id=${ctx.principal.companyId}::uuid AND intent_id=${intentId}::uuid` as Array<Record<string,unknown>>;
+   if(!outbox)throw new Error('Refused release has no outbox row');
+   await recordBatchEntity(ctx,'payment_release_outbox',outbox,{...outbox,reason},'payment_release.claim_refused');
+  });
+ }catch(recordError){
+  log.error('Release claim refusal could not be recorded; queued release requires reconciliation',
+   {intentId,reason,error:recordError instanceof Error?recordError.message:'unknown'},'payment-release');
+ }
+}
 /** Only the lexical committed-claim transport continuation may acknowledge a provider result. */
 async function completePaymentRelease(ctx:ControlTx,claim:ReleaseClaim,
  outcome:{state:'accepted'|'unknown'|'failed'|'exported';code:string;providerBatchReference?:string}){
