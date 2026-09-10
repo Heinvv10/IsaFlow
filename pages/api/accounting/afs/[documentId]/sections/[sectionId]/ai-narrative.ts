@@ -1,15 +1,41 @@
 // pages/api/accounting/afs/[documentId]/sections/[sectionId]/ai-narrative.ts
 import type { NextApiRequest, NextApiResponse } from 'next';
 import { withErrorHandler } from '@/lib/api-error-handler';
-import { apiResponse } from '@/lib/apiResponse';
+import { apiResponse, ErrorCode } from '@/lib/apiResponse';
 import { withAuth, type CompanyAuthedRequest } from '@/lib/auth';
 import { withCsrf } from '@/lib/auth/withCsrf';
 import { checkAiRateLimit } from '@/lib/rateLimit';
 import { log } from '@/lib/logger';
 import { sql } from '@/lib/neon';
 import { generateNoteNarrative, type CompanyContext } from '@/modules/accounting/services/afs/noteAiService';
+import { ReviewError } from '@/modules/accounting/services/afs/afsReviewService';
+import {
+  lockSectionForWrite,
+  voidSectionAttestation,
+  type LockedSection,
+} from '@/modules/accounting/services/afs/afsSectionAttestation';
 import type { NoteContent, ReportingFramework, SectionType } from '@/modules/accounting/services/afs/afsTypes';
 import type { DbRow } from '@/types/db';
+
+/**
+ * Both handlers write the section, so both bind it to the URL's document and refuse a
+ * signed-off or filed one. Null means the refusal has already been sent.
+ */
+async function lockOrRefuse(
+  res: NextApiResponse,
+  companyId: string,
+  documentId: string,
+  sectionId: string,
+): Promise<LockedSection | null> {
+  try {
+    return await lockSectionForWrite(companyId, documentId, sectionId);
+  } catch (err) {
+    if (!(err instanceof ReviewError)) throw err;
+    if (err.code === 'NOT_FOUND') apiResponse.notFound(res, 'Section', sectionId);
+    else apiResponse.error(res, ErrorCode.CONFLICT, err.message);
+    return null;
+  }
+}
 
 // ── POST — generate AI narrative ─────────────────────────────────────────────
 
@@ -21,6 +47,9 @@ async function handleGenerate(
   sectionId: string,
 ): Promise<void> {
   log.info('Generating AI narrative', { companyId, documentId, sectionId }, 'afs-ai-narrative-api');
+  // A draft narrative is not rendered content until accepted, so it voids no review — but it
+  // is still a write, and a locked document takes none.
+  if (!(await lockOrRefuse(res, companyId, documentId, sectionId))) return;
 
   const rows = await sql`
     SELECT s.section_type, s.content,
@@ -82,10 +111,13 @@ async function handleAccept(
   _req: NextApiRequest,
   res: NextApiResponse,
   companyId: string,
+  userId: string,
   documentId: string,
   sectionId: string,
 ): Promise<void> {
   log.info('Accepting AI narrative', { companyId, documentId, sectionId }, 'afs-ai-narrative-api');
+  const section = await lockOrRefuse(res, companyId, documentId, sectionId);
+  if (!section) return;
 
   const rows = await sql`
     SELECT s.ai_narrative, s.content
@@ -119,6 +151,8 @@ async function handleAccept(
     blocks: mergedBlocks,
   };
 
+  // Accepting replaces the rendered content, so the review of the old content is void.
+  await voidSectionAttestation(companyId, section, userId, 'AI narrative accepted into the section');
   await sql`
     UPDATE afs_sections
     SET ai_narrative_accepted = true,
@@ -137,7 +171,8 @@ async function handleAccept(
 // ── Router ───────────────────────────────────────────────────────────────────
 
 async function handler(req: NextApiRequest, res: NextApiResponse) {
-  const { companyId } = req as CompanyAuthedRequest;
+  const companyReq = req as CompanyAuthedRequest;
+  const { companyId } = companyReq;
   const { documentId, sectionId } = req.query as { documentId: string; sectionId: string };
 
   if (req.method === 'POST') {
@@ -148,7 +183,7 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
     return handleGenerate(req, res, companyId, documentId, sectionId);
   }
   if (req.method === 'PUT') {
-    return handleAccept(req, res, companyId, documentId, sectionId);
+    return handleAccept(req, res, companyId, companyReq.user.id, documentId, sectionId);
   }
   return apiResponse.methodNotAllowed(res, req.method ?? 'UNKNOWN', ['POST', 'PUT']);
 }

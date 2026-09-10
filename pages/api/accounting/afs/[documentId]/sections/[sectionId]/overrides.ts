@@ -8,14 +8,13 @@ import { withCsrf } from '@/lib/auth/withCsrf';
 import { requireUuidParam } from '@/lib/schemas/common';
 import { log } from '@/lib/logger';
 import { sql } from '@/lib/neon';
+import { ReviewError } from '@/modules/accounting/services/afs/afsReviewService';
 import {
-  assertDocumentEditable,
-  ReviewError,
-} from '@/modules/accounting/services/afs/afsReviewService';
-import {
-  saveVersion,
-  VersionHistoryError,
-} from '@/modules/accounting/services/afs/afsVersionHistoryService';
+  lockSectionForWrite,
+  voidSectionAttestation,
+  type LockedSection,
+} from '@/modules/accounting/services/afs/afsSectionAttestation';
+import { saveVersion } from '@/modules/accounting/services/afs/afsVersionHistoryService';
 
 // `overrides` is a free-form JSONB blob (per-tenant section overrides).
 // Validate it's a JSON object; the structure varies by note generator.
@@ -42,26 +41,22 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
 
   log.info('Section overrides update', { companyId, documentId, sectionId, userId }, 'afs-overrides-api');
 
+  // Bound to the URL's document, refused while it is locked, and held until commit.
+  let section: LockedSection;
   try {
-    await assertDocumentEditable(companyId, documentId);
+    section = await lockSectionForWrite(companyId, documentId, sectionId);
   } catch (err) {
     if (err instanceof ReviewError) {
-      if (err.code === 'NOT_FOUND') return apiResponse.notFound(res, 'AFS document', documentId);
+      if (err.code === 'NOT_FOUND') return apiResponse.notFound(res, 'Section', sectionId);
       return apiResponse.error(res, ErrorCode.CONFLICT, err.message);
     }
     throw err;
   }
 
+  // New overrides are new content: whatever review covered the old content no longer does.
+  await voidSectionAttestation(companyId, section, userId, 'Section overrides changed');
   // Save version snapshot BEFORE applying overrides
-  let versionEntry;
-  try {
-    versionEntry = await saveVersion(companyId, sectionId, userId);
-  } catch (err) {
-    if (err instanceof VersionHistoryError && err.code === 'NOT_FOUND') {
-      return apiResponse.notFound(res, 'Section', sectionId);
-    }
-    throw err;
-  }
+  const versionEntry = await saveVersion(companyId, documentId, sectionId, userId);
 
   // Apply new overrides
   await sql`

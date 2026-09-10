@@ -2,13 +2,18 @@
 import type { NextApiRequest, NextApiResponse } from 'next';
 import { z } from 'zod';
 import { withErrorHandler } from '@/lib/api-error-handler';
-import { apiResponse } from '@/lib/apiResponse';
+import { apiResponse, ErrorCode } from '@/lib/apiResponse';
 import { withAuth, type CompanyAuthedRequest } from '@/lib/auth';
 import { withCsrf } from '@/lib/auth/withCsrf';
 import { requireUuidParam } from '@/lib/schemas/common';
 import { log } from '@/lib/logger';
 import { sql } from '@/lib/neon';
-import type { DbRow } from '@/lib/neon';
+import { ReviewError } from '@/modules/accounting/services/afs/afsReviewService';
+import {
+  lockSectionForWrite,
+  voidSectionAttestation,
+  type LockedSection,
+} from '@/modules/accounting/services/afs/afsSectionAttestation';
 
 const BodySchema = z.object({
   suppress: z.boolean(),
@@ -25,7 +30,8 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
     return apiResponse.methodNotAllowed(res, req.method ?? 'UNKNOWN', ['POST']);
   }
 
-  const { companyId } = req as CompanyAuthedRequest;
+  const companyReq = req as CompanyAuthedRequest;
+  const { companyId } = companyReq;
   const documentId = requireUuidParam(req, res, 'documentId');
   if (!documentId) return;
   const sectionId = requireUuidParam(req, res, 'sectionId');
@@ -35,25 +41,25 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
   if (!parsed.success) return apiResponse.zodValidationError(res, parsed.error);
   const { suppress, reason } = parsed.data;
 
-  // Step 1 — Check current status
-  const rows = (await sql`
-    SELECT s.status
-    FROM afs_sections s
-    WHERE s.id = ${sectionId}::UUID
-      AND s.document_id IN (
-        SELECT id FROM afs_documents WHERE id = ${documentId}::UUID AND company_id = ${companyId}::UUID
-      )
-    LIMIT 1
-  `) as DbRow[];
-
-  if (rows.length === 0) {
-    return apiResponse.notFound(res, 'Section not found');
+  // Step 1 — Lock the section of this document; a signed-off or filed document takes no write
+  let section: LockedSection;
+  try {
+    section = await lockSectionForWrite(companyId, documentId, sectionId);
+  } catch (err) {
+    if (err instanceof ReviewError) {
+      if (err.code === 'NOT_FOUND') return apiResponse.notFound(res, 'Section', sectionId);
+      return apiResponse.error(res, ErrorCode.CONFLICT, err.message);
+    }
+    throw err;
   }
 
-  const section = rows[0] as DbRow;
-  if (section['status'] === 'signed_off') {
+  if (section.status === 'signed_off') {
     return apiResponse.badRequest(res, 'Cannot suppress a signed-off section');
   }
+
+  // Suppressing or restoring a note changes what the statements show: the review is void.
+  await voidSectionAttestation(companyId, section, companyReq.user.id,
+    suppress ? 'Section suppressed' : 'Section suppression removed');
 
   // Step 2 — Apply or remove suppression
   if (suppress) {
