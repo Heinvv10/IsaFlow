@@ -1211,3 +1211,46 @@ build PASS, `[ci] all checks passed`, EXIT=0.
 
 Integration, `--no-file-parallelism`, `k071-*`, `k140-*`, `k143-undo-*`, `k144-*`,
 `k107-supplier-payment-double-post`: **17 files passed, 51 tests passed, 1 skipped.**
+
+## Round 21 — blind review of `1e40c6698` (0 HIGH · 0 MEDIUM · 2 LOW), both fixed
+
+- **LOW-1, fixed at the cause.** An `allocated` line whose provisional JE the user had already
+  reversed by hand made `undoRun` call `reverseJournalEntry` again, which refuses ("Journal
+  entry already reversed"). The refusal counted as a skip on every retry, so the run could never
+  close — and the panel told the user to unreconcile a line that was not reconciled.
+  - The journal already nets to zero, so the undo now finishes such a line (`imported`,
+    `provisional_je_id` and tag cleared) **without posting** and counts it `alreadyUndone`. The
+    predicate is `reversed_at IS NOT NULL`, the reversal claim's own marker.
+  - **Mirror guard (guards fail both ways):** a tagged row with nothing linked to reverse is
+    `alreadyUndone` only if its status does not claim a posting. `allocated`/`matched` with no
+    link is a `failed` skip, its tag is kept, and the run stays open. `reconciled` is skipped
+    before any of this. So no path can close a run while a row is posted, allocated or reconciled.
+  - Skips are counted per reason, `skippedBy: {reconciled, contended, failed}` (`skipped` is
+    their sum). The panel names each reason that applies, with its own remedy: unreconcile, try
+    again in a moment, or check those lines.
+  - `tests/integration/k071-undo-hand-reversed-je.int.test.ts`, through the route under a
+    withAuth-shaped transaction. Hand-reverse a real posted JE and undo: 200, `{reversed 0,
+    skipped 0, alreadyUndone 1, undone true}`, line `imported` with links and tag cleared, run
+    undone, and **exactly one** entry with `reversal_of_id` = the JE. Adjacent case: an
+    unreversed JE is reversed exactly once.
+  - Mutations, all caught: always reverse → integration and unit red; never reverse → both red;
+    count an unlinked allocated row as already undone → 2 unit cases red (`it.each`
+    allocated/matched); skip the line reset on the hand-reversed path → both red.
+- **LOW-2** — the stale-notice clear is pinned. The component test gains a partial-then-complete
+  retry case (red with `setUndoNotice(null)` deleted), plus "names only the reasons that apply".
+  Against the r20 panel the two reason cases fail.
+- **Browser proof** (headless Chromium, dev server from this worktree, `isaflow_dev`,
+  reporting-qa, Brightsphere). A seeded run with one reconciled line and one allocated line with
+  nothing linked. The Undo POST answered 200 `{"reversed":0,"skipped":2,"skippedBy":
+  {"reconciled":1,"contended":0,"failed":1},"alreadyUndone":0,"undone":false}`. The notice read
+  "Reversed 0 lines. Not undone: 1 reconciled — unreconcile them first; 1 could not be reversed
+  (for example, a closed period) — check those lines."; the run stayed listed. Seed rows
+  deleted, dev server stopped.
+
+### Gates (round 21, foreground)
+
+`env -u DATABASE_URL bun run ci` (load 16.25 at start): unit-tests PASS, component-tests PASS,
+build PASS, `[ci] all checks passed`, EXIT=0.
+
+Integration, `--no-file-parallelism`, `k071-*`, `k140-*`, `k143-*`, `k144-*`: **17 files
+passed, 47 tests passed, 1 skipped.**
