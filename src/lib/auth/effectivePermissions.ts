@@ -1,3 +1,4 @@
+import {platformImportPermissions,assertPlatformImportPermission} from './platformImportPermissions';
 import type { ControlTx, EntityRef } from '@/modules/accounting/services/controls/contracts';
 import { EFFECTIVE_PERMISSION_RULES, hasConstraints, permissionReason, type PermissionReason } from './effectivePermissionPolicy';
 import { EffectivePermissionError, loadPermissionState } from './effectivePermissionQueries';
@@ -12,6 +13,7 @@ export interface EffectivePermissions {
 }
 /** Current authority is reloaded for every call; the context must be issued by the active authenticated request. */
 export async function resolveEffectivePermissions(ctx: ControlTx): Promise<EffectivePermissions> {
+  if(ctx.principal.authMethod==='platform_import')return platformImportPermissions(ctx);
   const state = await loadPermissionState(ctx);
   const permissions: string[] = [], denied: Record<string, PermissionReason> = {};
   for (const permission of Object.keys(EFFECTIVE_PERMISSION_RULES)) {
@@ -22,6 +24,7 @@ export async function resolveEffectivePermissions(ctx: ControlTx): Promise<Effec
     role: state.role, permissions, denied };
 }
 export async function assertEffectivePermission(ctx: ControlTx, permission: string, entity?: EntityRef): Promise<void> {
+  if(ctx.principal.authMethod==='platform_import')return assertPlatformImportPermission(ctx,permission);
   const state = await loadPermissionState(ctx);
   if (permissionReason(state.role, permission, state.scopes, state.overrides, true)) throw new EffectivePermissionError();
   const spec = EFFECTIVE_PERMISSION_RULES[permission]!;
