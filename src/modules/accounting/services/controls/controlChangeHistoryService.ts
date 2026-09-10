@@ -9,6 +9,7 @@ import {assertHistoryEntity,assertHistoryOperationSources} from './controlChange
 import {projectHistoryValues} from './controlChangeHistoryProjection';
 import {assertJournalMergeHistorySources} from './controlChangeHistoryJournalSources';
 import type {ControlTx} from './contracts';
+import {lineageChoice} from './operationVersions';
 const inputSchema=z.object({entityType:z.string().min(1).max(80),entityId:z.string().min(1).max(80),limit:z.number().int().min(1).max(100).optional(),cursor:z.string().min(1).max(2048).optional(),lineage:z.string().min(1).max(80).optional()}).strict();
 export interface HistoryInput{entityType:string;entityId:string;limit?:number;cursor?:string;lineage?:string}
 type Row={id:string;new_version:string|number;previous_version:string|number|null;occurred_at:Date|string;accounting_date:Date|string|null;action:string;operation_id:string;person_id:string;connection_id:string|null;grant_id:string|null;acting_firm_id:string|null;request_id:string;provenance:'human'|'agent'|'job';byte_length:string|number|null};
@@ -30,8 +31,9 @@ export async function readControlEntityHistory(ctx:ControlTx,input:HistoryInput)
  // An explicit lineage must be a spelling of this entity; on an entity with nothing retained it reads as untracked.
  if(options.lineage!==undefined&&(options.lineage.toLowerCase()!==entityId.toLowerCase()||(lineages.length>0&&!lineages.some(row=>row.entity_id===options.lineage))))throw new Error('History lineage is not retained for this entity');
  const lineage=options.lineage??(lineages.length>1?null:lineages[0]?.entity_id??entityId);
+ const writer=lineageChoice(lineages.filter(row=>row.version!==null).map(row=>({entity_id:row.entity_id,version:row.version!})),entityId);
  if(lineage===null)return{available:false as const,code:'FORKED_LINEAGE' as const,entity:{entityType,entityId},items:[],nextCursor:null,
-  lineages:lineages.map(row=>({entityId:row.entity_id,eventCount:row.eventCount,version:row.version===null?null:integer(row.version)}))};
+  writerLineage:writer.row?.entity_id??null,lineages:lineages.map(row=>({entityId:row.entity_id,eventCount:row.eventCount,version:row.version===null?null:integer(row.version)}))};
  if(cursor&&cursor.lineage===undefined&&lineages.length>1)throw new Error('History cursor predates lineage selection; restart the read for one lineage');
  if(cursor&&(cursor.companyId!==company||cursor.entityType!==entityType||cursor.entityId!==entityId||(cursor.lineage??cursor.entityId)!==lineage||cursor.permissionsHash!==permissionsHash))throw new Error('History cursor no longer matches authorized query');
  const [latest]=await ctx.sql`SELECT
