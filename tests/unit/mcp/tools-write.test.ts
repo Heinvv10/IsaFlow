@@ -558,6 +558,7 @@ describe('write-tool manifest invariants', () => {
       audit_snapshot: { cutoff: '2026-09-09', sources: [], checks: [], ...KEY },
       export_audit_evidence: { snapshot_id: 'not-a-uuid', ...KEY },
       compare_audit_snapshots: { first_snapshot_id: 'not-a-uuid', second_snapshot_id: 'not-a-uuid', ...KEY },
+      run_control_checks: { cutoff: '2026-09-09', checks: [], ...KEY },
       create_draft_invoice: { customer_id: 'd0ac03be-abe5-44c4-80a2-0d99d9d3e3e6', items: [{ description: 'x', unit_price: 1 }], ...KEY },
       create_draft_quote: { customer_name: 'A', items: [{ description: 'x', unit_price: 1 }], ...KEY },
       create_draft_journal: { date: '2026-06-30', lines: [{ account_id: 'ddd887ce-a246-46cb-898c-2bd2f4ddecfe', debit: 1, credit: 0 }, { account_id: '3413c139-d94c-48bd-8513-baff94ff4818', debit: 0, credit: 1 }], ...KEY },
