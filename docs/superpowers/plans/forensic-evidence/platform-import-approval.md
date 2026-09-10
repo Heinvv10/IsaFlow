@@ -298,3 +298,50 @@ Migration 676 was only ever applied to the synthetic fixture database, not to `i
 frozen from here and later DDL goes into 677. `independentReview` now imports
 `platformImportAuthority`, which itself imports the controls context: that joins an existing
 context/platformImportAuthority cycle rather than creating a new one, and is not fixed here.
+
+
+## Sixth round: the Sage exception was built on a false premise
+
+**Correction.** Round five allowed the platform-admin request context because refusing it would
+"break the Sage migration commit". That was wrong. Inside a platform-admin request,
+`approveSupplierInvoice -> runApControlled -> requireApControl -> requireControlTx` already throws
+*Authenticated control transaction required*, because that request has no control principal; the
+census test's own note ("fails on something else entirely") was the evidence, misread. No Sage AP
+invoice can be approved on that path today, and the AR half of the same route already fails every
+invoice. So the exception protected nothing, its error-level log line claimed an approver of record
+for saves that were rolled back - false forensic evidence - and it left plain-SQL approver writes
+(AFS sign-off and lock, tax directives, leave, commentary) open to any future admin route. It is
+removed: the platform-admin request is refused by name like every other principal-less context, and
+the log line is gone with it. Proven on a guarded service that goes through requireControlTx and on
+two plain-SQL AFS writers; mutation `m47` red in both suites.
+
+**Follow-up, not a gate:** the Sage migration commit route needs its own confined design before it
+can create or approve tenant invoices at all.
+
+**Deploy gate widened.** It now checks that both `control_session_impersonator()` and
+`impersonation_delegation_live(uuid,text,text,text)` exist AND that `app_user` has EXECUTE on each;
+missing EXECUTE would make every authenticated request 500 while an existence check passed. The
+missing-function and missing-grant failures are named apart (different remediation). `scripts/**` is
+outside `tsconfig` and no CI step runs this gate, so its first real run is mid-deploy against
+production; `tests/unit/scripts/assertImpersonationReader.test.ts` is the only thing exercising it
+before then. Mutations `m48`-`m50` red.
+
+**End before revoke.** A revocation that succeeded followed by a failed `impersonation_end` INSERT
+left a revoked session with no end on record, whose still-valid access token kept passing the proof
+branch for up to an hour. The end marker is now written before GoTrue is asked; if that INSERT fails
+nothing has been revoked. Proven by a trigger that makes the INSERT fail: GoTrue is never called.
+Mutation `m51` red. The admin-exits-and-GoTrue-fails case is added; it passes now and **fails on the
+round-four code at 88f5aea0b** (zero `impersonation_end_failed` rows for the impersonated session),
+which is the genuine RED the earlier target-cookie case could not give.
+
+**Guards keyed on the transition.** The tax-directive approval and the AFS section update refuse on
+`status = 'approved'` / `'reviewed'` / `'signed_off'`, not only when an approver id is passed.
+Mutations `m52`, `m53` red.
+
+**Migration 677's index is built without CONCURRENTLY.** `apply-migrations.ts` runs each file inside
+`BEGIN`, where CONCURRENTLY is not allowed, so the build takes a SHARE lock on `admin_audit_log`:
+production audit INSERTs (every admin action) block for the duration of the build. It is a partial
+index over three impersonation actions, so the build is short, but it is not zero.
+
+Suites: units 10 948 passed with the five known pre-existing failures; integration 240 passed over 16
+files with the known `apSharedWriters` failure (identical at base).
