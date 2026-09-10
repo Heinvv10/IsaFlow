@@ -127,6 +127,19 @@ export function extractTotalCandidates(text: string): number[] {
   return nonZero.length > 0 ? nonZero : values;
 }
 
+/**
+ * Where the LAST printed total equal to `total` ENDS, or null when none is.
+ *
+ * The bottom occurrence, not the first: an invoice that repeats its payable in
+ * a header box (`AMOUNT DUE 1150.00` above the line items) would otherwise put
+ * every line item "below the total block", and every one of them would have to
+ * be explained.
+ */
+export function totalPrintedLastEnd(text: string, total: number): number | null {
+  const hits = totalHits(text).filter((h) => h.value === total);
+  return hits.length > 0 ? hits[hits.length - 1]!.end : null;
+}
+
 /** Where the first printed total equal to `total` ENDS, or null when none is. */
 export function totalPrintedEnd(text: string, total: number): number | null {
   const hit = totalHits(text).find((h) => h.value === total);

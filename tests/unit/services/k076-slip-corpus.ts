@@ -177,7 +177,12 @@ export const SLIPS: Slip[] = [
   // real till roll and an AP inbox actually contain.
   { name: 'R1 Checkers card', text: `${RECEIPT('Checkers Fourways', '100201')}Chicken Braai Pack 1 129.99 129.99\nWhite Bread 1 23.00 23.00\nMilk 2L 1 47.01 47.01\nSub Total 173.91\nVAT 15% 26.09\nTOTAL 200.00\nCARD 200.00`, payable: 200, outcome: 'post' },
   { name: 'R2 Woolworths Food, cash and change', text: `${RECEIPT('Woolworths Food Rosebank', '100202')}Salad 1 54.99 54.99\nJuice 1 32.99 32.99\nSub Total 76.50\nVAT 15% 11.48\nTOTAL 87.98\nCASH 100.00\nCHANGE 12.02`, payable: 87.98, outcome: 'post' },
-  { name: 'R3 Clicks, points and savings', text: `${RECEIPT('Clicks Sandton', '100203')}Panado 24s 1 39.99 39.99\nToothpaste 1 29.99 29.99\nSub Total 60.84\nVAT 15% 9.14\nTOTAL 69.98\nCARD 69.98\nClubCard Points Earned 7\nYou saved R5.00`, payable: 69.98, outcome: 'post' },
+  // Round 16 turned this row from 'post' to 'refuse'. `You saved R5.00` is
+  // printed below the total and the end-to-end whitelist explains nothing there
+  // but a payment, change, zero, the total, the net or the tax — so a loyalty
+  // savings line now sends the slip to a person. Measured cost, not a defect;
+  // the invariant (refuse, or post exactly the payable) still holds.
+  { name: 'R3 Clicks, points and savings', text: `${RECEIPT('Clicks Sandton', '100203')}Panado 24s 1 39.99 39.99\nToothpaste 1 29.99 29.99\nSub Total 60.84\nVAT 15% 9.14\nTOTAL 69.98\nCARD 69.98\nClubCard Points Earned 7\nYou saved R5.00`, payable: 69.98, outcome: 'refuse' },
   { name: 'R4 Dis-Chem', text: `${RECEIPT('Dis-Chem Bryanston', '100204')}Vitamin C 1 119.95 119.95\nSub Total 104.30\nVAT 15.65\nTotal 119.95\nCARD 119.95`, payable: 119.95, outcome: 'post' },
   { name: 'R5 Shell fuel', text: `${RECEIPT('Shell Rivonia', '100205')}Unleaded 95 40.00L 22.90 916.00\nSub Total 796.52\nVAT 119.48\nTotal 916.00\nCARD 916.00`, payable: 916, outcome: 'post' },
   { name: 'R6 Nandos, card, no tip', text: `${RECEIPT('Nandos Fourways', '100206')}Quarter Chicken 2 89.90 179.80\nCoke 2 24.90 49.80\nSub Total 199.65\nVAT 15% 29.95\nTotal 229.60\nCARD 229.60`, payable: 229.6, outcome: 'post' },
