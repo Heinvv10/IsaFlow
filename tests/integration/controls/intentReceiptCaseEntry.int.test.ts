@@ -1,6 +1,7 @@
 import {expect,it} from 'vitest';
 import {randomUUID} from 'node:crypto';
-import {actor,fixture,pool,postedCash} from './cashApplicationFixture';
+import {actor,bank,customer,fixture,pool,postedCash} from './cashApplicationFixture';
+import {prepareBankAllocation,executeBankAllocation} from '@/modules/accounting/services/bank/bankAllocationControl';
 import {requireControlTx} from '@/modules/accounting/services/controls/context';
 import {requestOperationApproval,decideOperationApproval} from '@/modules/accounting/services/controls/approvalRequestService';
 import type {OperationRef} from '@/modules/accounting/services/controls/contracts';
@@ -9,7 +10,7 @@ import {prepareCashApplicationReversal,executeCashApplicationReversal} from '@/m
 import {applyLegacyCashPlan} from '@/modules/accounting/services/shared/cashApplicationLegacyAdapter';
 import {preparePayrollCompensation} from '@/modules/accounting/services/controls/payrollCompensationControl';
 import {executeCompensationCaller} from '@/modules/accounting/services/controls/payrollCompensationLegacyAdapter';
-import {effectRows,insertCaseVariantReceipt,ledgerRows,receiptsFor} from './intentReceiptRows';
+import {appendEntityVersion,effectRows,entityVersions,insertCaseVariantReceipt,ledgerRows,receiptsFor} from './intentReceiptRows';
 async function approved(ref:OperationRef){const approval=await actor(()=>requestOperationApproval(requireControlTx(),ref));await actor(()=>decideOperationApproval(requireControlTx(),approval.id,'approved'),'u2');return approval.id;}
 async function oneCanonicalEffect(id:string,operation:string){
  const rows=await receiptsFor(pool,fixture.companyA,id,operation);
@@ -46,6 +47,15 @@ for(const uppercaseFirst of [true,false]){
   expect((await pool.query('SELECT a.amount::text FROM payroll_employee_components a JOIN payroll_employees e ON e.id=a.employee_id WHERE e.company_id=$1 AND e.id=$2',[fixture.companyA,employee])).rows).toEqual([{amount:'123.45'}]);
  });
 }
+it('an entity whose retained version is spelled in uppercase is extended, not forked',async()=>{
+ const tx=randomUUID();
+ await pool.query("INSERT INTO bank_transactions(id,company_id,bank_account_id,transaction_date,amount,description,status) VALUES($1,$2,$3,'2026-09-09',123.45,'Synthetic legacy version bank','imported')",[tx,fixture.companyA,bank]);
+ await appendEntityVersion(pool,{id:fixture.u1.id,companyId:fixture.companyA},'bank_transaction',tx.toUpperCase());
+ const p=await actor(()=>prepareBankAllocation(requireControlTx(),{version:1,kind:'customer',bankTransactionId:tx,partyId:customer,applications:[]}));
+ const approvalId=await approved(p.operation);
+ await actor(()=>executeBankAllocation(requireControlTx(),p.intentId,{approvalId}));
+ expect(await entityVersions(pool,fixture.companyA,'bank_transaction',tx)).toEqual([{entity_id:tx.toUpperCase(),version:2}]);
+});
 it('cash reversal refuses a case-variant twin receipt without another effect or ledger change',async()=>{
  const {p,approvalId}=await cashIntent();
  await actor(()=>executeCashApplication(requireControlTx(),p.intentId,{approvalId}));
