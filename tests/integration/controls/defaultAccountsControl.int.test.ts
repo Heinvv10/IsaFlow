@@ -61,7 +61,7 @@ it('captures every old designation beyond a preview page and exposes real author
  const {readControlEntityHistory}=await import('@/modules/accounting/services/controls/controlChangeHistoryService');
  const read=()=>f.actor(ctx=>readControlEntityHistory(ctx,{entityType:'accounting_default_accounts',entityId:f.f.companyA}));
  const result=await read(),retained=await f.changes('accounting_default_accounts',f.f.companyA);
- expect(result.items).toHaveLength(retained.length);expect(result.items[0].before).toEqual(retained[0].values.before);
+ expect(result.items).toHaveLength(retained.length);expect(result.items[0]!.before).toEqual(retained[0].values.before);
  expect(result.items.at(-1)?.after).toEqual(after.settings);expect(result.items.at(-1)?.newVersion).toBe(Number(retained.at(-1).new_version));
  await f.pool.query('INSERT INTO company_user_permissions(company_id,user_id,module_key,can_read) VALUES($1,$2,$3,false)',[f.f.companyA,f.f.u1.id,'reports']);
  try{await expect(read()).rejects.toThrow();}finally{await f.pool.query('DELETE FROM company_user_permissions WHERE company_id=$1 AND user_id=$2 AND module_key=$3',[f.f.companyA,f.f.u1.id,'reports']);}
@@ -74,7 +74,7 @@ it('serializes simultaneous settings and ordinary chart updates with consecutive
  expect(events[0].values.after).toEqual(events[1].values.before);expect(events[1].values.after).toEqual(row);
 });
 it('requires issued context and detaches input before the first awaited authority read',async()=>{
- const {saveDefaultAccounts}=await import('@/modules/accounting/services/gl/defaultAccountsControl'),id=await f.account(),input={mappings:{primary_bank:id}};
+ const {saveDefaultAccounts}=await import('@/modules/accounting/services/gl/defaultAccountsControl'),id=await f.account(),input:{mappings:{primary_bank:string}}={mappings:{primary_bank:id}};
  await expect(saveDefaultAccounts({} as Parameters<typeof saveDefaultAccounts>[0],input)).rejects.toThrow();
  await f.actor(async ctx=>{const pending=saveDefaultAccounts(ctx,input);input.mappings.primary_bank='invalid';await pending;});
  expect(JSON.parse((await f.state()).settings.value)).toEqual({primary_bank:id});
