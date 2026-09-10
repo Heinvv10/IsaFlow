@@ -72,8 +72,11 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
           AND ga.company_id = ${companyId}::UUID
         ORDER BY ga.account_code
       `,
-      // Accounts Payable total (from supplier_invoices, matching AP aging)
-      // Uses AP_OPEN_STATUSES allowlist — same set as apAgingService so dashbord == aging report
+      // Accounts Payable total, TODAY, on the LIVE open set (AP_OPEN_STATUSES).
+      // NOT the ageing's population, and this comment used to claim it was
+      // ("same set as apAgingService so dashboard == aging report"). The
+      // ageing uses shared/documentPopulation, which is wider — see
+      // src/lib/constants/invoiceStatuses.ts for the rows the two differ on.
       sql`
         SELECT COALESCE(SUM(si.total_amount - COALESCE(si.amount_paid, 0)), 0) AS total
         FROM supplier_invoices si
@@ -81,8 +84,9 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
           AND ${documentInLedgerAsAtFragment('si', asAtStr, companyId)}
           AND si.status = ANY(${Array.from(AP_OPEN_STATUSES)}::text[])
       `,
-      // Accounts Receivable total (from customer_invoices, matching AR aging)
-      // Uses AR_OPEN_STATUSES allowlist — same set as arAgingService so dashboard == aging report
+      // Accounts Receivable total, TODAY, on the LIVE open set (AR_OPEN_STATUSES).
+      // NOT the ageing's population, and this comment used to claim it was.
+      // Same caveat as the AP total above.
       sql`
         SELECT COALESCE(SUM(ci.total_amount - COALESCE(ci.amount_paid, 0)), 0) AS total
         FROM customer_invoices ci

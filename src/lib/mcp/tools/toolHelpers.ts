@@ -165,6 +165,10 @@ const REFUSAL_CODES: ReadonlySet<string> = new Set([
   'PAYROLL_RUN_JOURNAL_POSTED',
   'RECEIPT_REFUSED',
   'RECLASS_LINE_LOCK_TIMEOUT',
+  // Rematch of a statement already marked reconciled (R-059 r11). The message
+  // names no id, amount or table, and the service reads the statement by
+  // company_id, so it can only ever describe the caller's own statement.
+  'RECONCILIATION_CLOSED',
   'RECURRING_INVOICE_LOCK_TIMEOUT',
   'RECURRING_INVOICE_NOT_DUE',
   'RECURRING_INVOICE_TEMPLATE_INVALID',

@@ -9,6 +9,12 @@ vi.mock('@/lib/neon', () => ({ sql: sqlMock }));
 vi.mock('@/lib/logger', () => ({
   log: { info: vi.fn(), error: vi.fn(), warn: vi.fn() },
 }));
+// The as-of WIP predicate is a nested sql fragment; built by the real `sql` it
+// would consume one of the queued results below. Its behaviour is pinned
+// against a database in tests/integration/r059-wip-aging-as-of.int.test.ts.
+vi.mock('@/modules/accounting/services/practice/wipAsOf', () => ({
+  wipInForceAsOf: vi.fn(() => 'TRUE'),
+}));
 
 import {
   getStaffUtilisation,

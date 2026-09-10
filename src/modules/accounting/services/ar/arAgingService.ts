@@ -12,6 +12,7 @@ import { fmtDate } from '@/lib/fmtDate';
 import { getOpenDisputeTotals } from './disputeService';
 import { rewindAmount, effectivePaidExpr } from '@/modules/accounting/services/shared/agingRewind';
 import { documentInLedgerAsAtFragment } from '@/modules/accounting/services/shared/softDeleteLedgerPresence';
+import { documentInPopulationExpr } from '@/modules/accounting/services/shared/documentPopulation';
 type Row = DbRow;
 
 
@@ -52,7 +53,8 @@ export async function getARAging(companyId: string, asAtDate?: string): Promise<
         ${rewindAmount({ companyId, asAtStr, todayStr, side: 'ar' })}
       ) unpaid ON TRUE
       WHERE ci.company_id = ${companyId}
-        AND ci.status NOT IN ('draft', 'cancelled')
+        -- Status rule: shared/documentPopulation (NULL-safe, one definition).
+        AND ${sql.unsafe(documentInPopulationExpr('ci'))}
         -- A soft-deleted invoice leaves this report exactly when the delete's
         -- reversal reaches the ledger, and not one day earlier: the reversal is
         -- dated TODAY whenever the invoice's own period is closed, so an undated
@@ -84,7 +86,9 @@ export async function getARAging(companyId: string, asAtDate?: string): Promise<
     `) as Row[];
 
     const invoiceIds = rows.map((r: Row) => String(r.id));
-    const disputedTotals = await getOpenDisputeTotals(companyId, invoiceIds);
+    // Disputes are rewound to the same date as the balances (R-059): a
+    // dispute raised after asAtStr had not moved anything out of a bucket then.
+    const disputedTotals = await getOpenDisputeTotals(companyId, invoiceIds, asAtStr);
 
     const invoices: AgingInvoice[] = rows.map((r: Row) => ({
       id: String(r.id),
@@ -178,7 +182,8 @@ export async function getARAgingDetail(companyId: string,
       ) unpaid ON TRUE
       WHERE ci.company_id = ${companyId}
         AND COALESCE(ci.client_id, ci.customer_id) = ${clientId}::UUID
-        AND ci.status NOT IN ('draft', 'cancelled')
+        -- Status rule: shared/documentPopulation (NULL-safe, one definition).
+        AND ${sql.unsafe(documentInPopulationExpr('ci'))}
         -- A soft-deleted invoice leaves this report exactly when the delete's
         -- reversal reaches the ledger, and not one day earlier: the reversal is
         -- dated TODAY whenever the invoice's own period is closed, so an undated
@@ -197,7 +202,9 @@ export async function getARAgingDetail(companyId: string,
     `) as Row[];
 
     const invoiceIds = rows.map((r: Row) => String(r.id));
-    const disputedTotals = await getOpenDisputeTotals(companyId, invoiceIds);
+    // Disputes are rewound to the same date as the balances (R-059): a
+    // dispute raised after asAtStr had not moved anything out of a bucket then.
+    const disputedTotals = await getOpenDisputeTotals(companyId, invoiceIds, asAtStr);
 
     const invoices: AgingInvoice[] = rows.map((r: Row) => ({
       id: String(r.id),

@@ -1,8 +1,13 @@
 /**
  * Client-home metric snapshot for the bureau Level 2 home.
  *
- * The query shapes are copied from pages/api/accounting/dashboard-stats.ts so
- * these numbers match the Trial Balance / aging reports. Reads on the
+ * The query shapes are copied from pages/api/accounting/dashboard-stats.ts, and
+ * each figure is exactly what that page shows: cash, revenue and expenses are
+ * GL balances, so they match the Trial Balance; AR and AP are TODAY's open
+ * balances on the LIVE open-status allowlists, which do NOT match the aging
+ * reports — the aging's population is wider (src/lib/constants/invoiceStatuses.ts
+ * lists the rows the two differ on). This header used to say they matched the
+ * aging reports (corrected in R-059 round 8). Reads on the
  * RLS-bypassing @/lib/neon pool — the CALLER must have already verified that the
  * companyId belongs to the authenticated user: either via getBureauClientForUser
  * (the firm/bureau path, /api/bureau/client/[companyId]) OR via withAuth's
@@ -86,7 +91,8 @@ export async function clientMetricsSnapshot(companyId: string): Promise<ClientMe
         ) b ON b.gl_account_id = ga.id
        WHERE ga.account_subtype = ANY(${BANK_SUBTYPES as string[]}) AND ga.company_id = ${companyId}::UUID
     `,
-    // AR open (same allowlist as arAgingService)
+    // AR open, on the LIVE allowlist — NOT arAgingService's population, which
+    // this used to claim (see src/lib/constants/invoiceStatuses.ts).
     sql`
       SELECT COALESCE(SUM(total_amount - COALESCE(amount_paid, 0)), 0) AS total
         FROM customer_invoices ci
@@ -94,7 +100,7 @@ export async function clientMetricsSnapshot(companyId: string): Promise<ClientMe
          AND ${documentInLedgerAsAtFragment('ci', metricsAsAtStr, companyId)}
          AND ci.status = ANY(${Array.from(AR_OPEN_STATUSES)}::text[])
     `,
-    // AP open (same allowlist as apAgingService)
+    // AP open, on the LIVE allowlist — NOT apAgingService's population.
     sql`
       SELECT COALESCE(SUM(total_amount - COALESCE(amount_paid, 0)), 0) AS total
         FROM supplier_invoices si

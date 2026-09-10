@@ -17,6 +17,8 @@ import { sql } from '@/lib/neon';
 import { fmtDate } from '@/lib/fmtDate';
 import { parsePagination } from '@/lib/pagination';
 import { documentInLedgerAsAtFragment } from '@/modules/accounting/services/shared/softDeleteLedgerPresence';
+import { rewindAmount, effectivePaidExpr } from '@/modules/accounting/services/shared/agingRewind';
+import { documentInPopulationExpr } from '@/modules/accounting/services/shared/documentPopulation';
 
 type Bucket = 'current' | '1-30' | '31-60' | '61-90' | '90+';
 
@@ -68,6 +70,12 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
     // Local date — toISOString() rolls back a day between 00:00–02:00 SAST
     // (UTC+2 server); same fix as reports-ar-aging (P1.4 date family).
     const asAtStr = fmtDate(asAt);
+    // The rewind window's upper bound comes from the SAME clock as asAtStr, not
+    // from CURRENT_DATE: the session is UTC and the business runs UTC+2, so for
+    // two hours nightly CURRENT_DATE is the previous day. Taking both bounds
+    // from one clock makes "the window is empty at today" hold by construction.
+    const todayStr = fmtDate(new Date());
+    const paid = effectivePaidExpr('ap');
 
     const rows = (await sql`
       SELECT
@@ -77,11 +85,14 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
         si.invoice_date::text                           AS invoice_date,
         si.due_date::text                               AS due_date,
         si.total_amount,
-        si.amount_paid,
-        si.balance                                      AS balance_due,
+        ${sql.unsafe(paid)}                             AS amount_paid,
+        (si.total_amount - ${sql.unsafe(paid)})         AS balance_due,
         GREATEST(0, (${asAtStr}::date - COALESCE(si.due_date, si.invoice_date)))  AS days_overdue
       FROM supplier_invoices si
       JOIN suppliers s ON s.id = si.supplier_id
+      LEFT JOIN LATERAL (
+        ${rewindAmount({ companyId, asAtStr, todayStr, side: 'ap' })}
+      ) unpaid ON TRUE
       WHERE si.company_id = ${companyId}::UUID
         -- A soft-deleted document leaves this figure exactly when the delete's
         -- GL reversal reaches the ledger, and not one day earlier: the reversal
@@ -89,8 +100,22 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
         -- undated exclusion drops it from every earlier as-at date while the
         -- control account still carries it. See shared/softDeleteLedgerPresence.
         AND ${documentInLedgerAsAtFragment('si', asAtStr, companyId)}
-        AND si.status NOT IN ('paid', 'cancelled', 'draft')
-        AND si.balance > 0
+        -- POINT IN TIME (R-059). as_at_date used to reach only the days_overdue
+        -- term: the population was bounded by nothing and the balance came from
+        -- si.balance, a STORED GENERATED column over TODAY's amount_paid, so a
+        -- past-dated report showed bills raised since and netted off payments
+        -- made since. Both bounds now match apAgingService, through the same
+        -- shared rewind, so the route and the service cannot drift apart again.
+        -- 'paid' leaves the status filter for the same reason: a bill settled
+        -- TODAY was outstanding then, and excluding it is what erased settled
+        -- debt from historical ageing.
+        -- COALESCE: status is NULLABLE and NULL NOT IN (...) is NULL, not TRUE,
+        -- so the bare comparison silently DROPPED every null-status invoice —
+        -- the under-reporting K-091 fixed on sales-by-customer.
+        -- Status rule: shared/documentPopulation (NULL-safe, one definition).
+        AND ${sql.unsafe(documentInPopulationExpr('si'))}
+        AND si.invoice_date <= ${asAtStr}::date
+        AND (si.total_amount - ${sql.unsafe(paid)}) > 0
       ORDER BY COALESCE(si.due_date, si.invoice_date), si.id
       LIMIT ${limit + 1} OFFSET ${offset}
     `) as Row[];
@@ -126,12 +151,17 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
           ELSE '90+'
         END AS bucket,
         COUNT(*)::int AS count,
-        SUM(si.balance)::numeric AS total
+        SUM(si.total_amount - ${sql.unsafe(paid)})::numeric AS total
       FROM supplier_invoices si
+      LEFT JOIN LATERAL (
+        ${rewindAmount({ companyId, asAtStr, todayStr, side: 'ap' })}
+      ) unpaid ON TRUE
       WHERE si.company_id = ${companyId}::UUID
         AND ${documentInLedgerAsAtFragment('si', asAtStr, companyId)}
-        AND si.status NOT IN ('paid', 'cancelled', 'draft')
-        AND si.balance > 0
+        -- Status rule: shared/documentPopulation (NULL-safe, one definition).
+        AND ${sql.unsafe(documentInPopulationExpr('si'))}
+        AND si.invoice_date <= ${asAtStr}::date
+        AND (si.total_amount - ${sql.unsafe(paid)}) > 0
       GROUP BY bucket
     `) as Row[];
 

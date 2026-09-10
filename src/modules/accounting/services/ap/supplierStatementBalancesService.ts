@@ -1,6 +1,7 @@
 import { sql } from '@/lib/neon';
 import { getAPAging } from './apAgingService';
 import { documentInLedgerAsAtFragment } from '../shared/softDeleteLedgerPresence';
+import { documentInPopulationExpr } from '../shared/documentPopulation';
 import type { AgingBucket } from '../../types/ap.types';
 
 export interface SupplierStatementBalance extends AgingBucket {
@@ -21,8 +22,13 @@ export async function getSupplierStatementBalances(companyId: string, asAtDate: 
         JOIN supplier_invoices si ON si.id = pa.invoice_id
         WHERE pa.payment_id = sp.id AND si.company_id = ${companyId}::UUID
           AND si.supplier_id = sp.supplier_id
-          AND si.status NOT IN ('draft', 'cancelled')
-          -- Same population as apAgingService, dated the same way: the
+          -- Same population as apAgingService — the status half is the shared
+          -- rule (shared/documentPopulation), so a bill the ageing nets a
+          -- payment off is a bill that ABSORBS that payment here. The bare
+          -- spelling dropped a null-status bill, and its payment was then
+          -- deducted twice: once by the ageing and again as on-account funds.
+          AND ${sql.unsafe(documentInPopulationExpr('si'))}
+          -- Dated the same way as the ageing: the
           -- delete's reversal is dated to the delete, so as at any earlier
           -- date the bill is still payable and still absorbs these funds.
           AND ${documentInLedgerAsAtFragment('si', asAtDate, companyId)}
@@ -37,8 +43,13 @@ export async function getSupplierStatementBalances(companyId: string, asAtDate: 
         SELECT 1 FROM supplier_invoices si
         WHERE si.id = cn.supplier_invoice_id AND si.company_id = ${companyId}::UUID
           AND si.supplier_id = cn.supplier_id
-          AND si.status NOT IN ('draft', 'cancelled')
-          -- Same population as apAgingService, dated the same way: the
+          -- Same population as apAgingService — the status half is the shared
+          -- rule (shared/documentPopulation), so a bill the ageing nets a
+          -- payment off is a bill that ABSORBS that payment here. The bare
+          -- spelling dropped a null-status bill, and its payment was then
+          -- deducted twice: once by the ageing and again as on-account funds.
+          AND ${sql.unsafe(documentInPopulationExpr('si'))}
+          -- Dated the same way as the ageing: the
           -- delete's reversal is dated to the delete, so as at any earlier
           -- date the bill is still payable and still absorbs these funds.
           AND ${documentInLedgerAsAtFragment('si', asAtDate, companyId)}

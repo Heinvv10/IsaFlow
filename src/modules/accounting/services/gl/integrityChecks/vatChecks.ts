@@ -10,7 +10,11 @@
  */
 import { sql } from '@/lib/neon';
 import type { DbRow } from '@/lib/neon';
+import { fmtDate } from '@/lib/fmtDate';
+import { documentInLedgerAsAtFragment } from '../../shared/softDeleteLedgerPresence';
+import { rewindAmount, effectivePaidExpr } from '../../shared/agingRewind';
 import { num, r2, str, type IntegrityCheckContext, type IntegrityCheckResult, type IntegritySampleRow } from './types';
+import { documentInPopulationExpr } from '@/modules/accounting/services/shared/documentPopulation';
 
 function sample(rows: DbRow[]): IntegritySampleRow[] {
   return rows.map((r) => ({
@@ -76,24 +80,42 @@ export async function vatDisplayedDiffersFromPosted(ctx: IntegrityCheckContext):
 const TEST_NAME_PATTERN = '(^|[^a-z])(test|demo|dummy|sample|qa|stresstest|e2e|delete[ -]?me)([^a-z]|$)';
 
 export async function testRecordsInProduction(ctx: IntegrityCheckContext): Promise<IntegrityCheckResult> {
+  // "Its balance is in the aging": so it is the ageing's balance AT ctx.asAt —
+  // the shared rewind and population (R-059). This summed TODAY's amount_paid
+  // over every document, drafts, cancelled and deleted ones included.
+  const todayStr = fmtDate(new Date());
   const candidates = sql`
     SELECT cu.id::TEXT AS id, 'customer' AS kind, cu.name,
            COALESCE((
-             SELECT SUM(ci.total_amount - COALESCE(ci.amount_paid, 0))
+             SELECT SUM(ci.total_amount - ${sql.unsafe(effectivePaidExpr('ar'))})
              FROM customer_invoices ci
+             LEFT JOIN LATERAL (
+               ${rewindAmount({ companyId: ctx.companyId, asAtStr: ctx.asAt, todayStr, side: 'ar' })}
+             ) unpaid ON TRUE
              WHERE ci.company_id = cu.company_id
                AND COALESCE(ci.client_id, ci.customer_id) = cu.id
-               AND ci.invoice_date <= ${ctx.asAt}::DATE
+               AND ${documentInLedgerAsAtFragment('ci', ctx.asAt, ctx.companyId)}
+               AND COALESCE(ci.invoice_date, ci.created_at::date) <= ${ctx.asAt}::DATE
+               -- Status rule: shared/documentPopulation (NULL-safe, one definition).
+               AND ${sql.unsafe(documentInPopulationExpr('ci'))}
+               AND (ci.total_amount - ${sql.unsafe(effectivePaidExpr('ar'))}) > 0
            ), 0) AS amount
     FROM customers cu
     WHERE cu.company_id = ${ctx.companyId}::UUID AND cu.name ~* ${TEST_NAME_PATTERN}
     UNION ALL
     SELECT s.id::TEXT, 'supplier', s.name,
            COALESCE((
-             SELECT SUM(si.total_amount - COALESCE(si.amount_paid, 0))
+             SELECT SUM(si.total_amount - ${sql.unsafe(effectivePaidExpr('ap'))})
              FROM supplier_invoices si
+             LEFT JOIN LATERAL (
+               ${rewindAmount({ companyId: ctx.companyId, asAtStr: ctx.asAt, todayStr, side: 'ap' })}
+             ) unpaid ON TRUE
              WHERE si.company_id = s.company_id AND si.supplier_id = s.id
+               AND ${documentInLedgerAsAtFragment('si', ctx.asAt, ctx.companyId)}
                AND si.invoice_date <= ${ctx.asAt}::DATE
+               -- Status rule: shared/documentPopulation (NULL-safe, one definition).
+               AND ${sql.unsafe(documentInPopulationExpr('si'))}
+               AND (si.total_amount - ${sql.unsafe(effectivePaidExpr('ap'))}) > 0
            ), 0)
     FROM suppliers s
     WHERE s.company_id = ${ctx.companyId}::UUID AND s.name ~* ${TEST_NAME_PATTERN}

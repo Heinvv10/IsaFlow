@@ -126,7 +126,11 @@ describe('getARSubledger', () => {
     // aging report uses — settled-today invoices included.
     expect(invoiceQuery).toContain('LEAST(GREATEST(COALESCE(ci.amount_paid, 0)');
     expect(invoiceQuery).toContain('unpaid.amount');
-    expect(invoiceQuery).toContain("ci.status NOT IN ('draft', 'cancelled')");
+    // COALESCE, not the bare form: status is nullable and NULL NOT IN (...) is
+    // NULL, so the bare spelling selected a NARROWER population than the ageing
+    // — and reconcile_subledger then books the difference as an unexplained
+    // residual. Pinned by outcome in r059-subledger-population-equals-ageing.
+    expect(invoiceQuery).toContain("COALESCE(ci.status, '') NOT IN ('draft', 'cancelled')");
     // A credit note granted later had not reduced the balance then.
     const creditQuery = statements.find((t) => t.includes('FROM credit_notes'))!;
     expect(creditQuery).toContain('cn.credit_date <=');

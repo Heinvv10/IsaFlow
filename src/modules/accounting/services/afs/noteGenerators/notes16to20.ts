@@ -6,6 +6,7 @@ import { log } from '@/lib/logger';
 import type { NoteContent } from '@/modules/accounting/services/afs/afsTypes';
 import { fmt, toNum } from './noteHelpers';
 import { getFiscalRange } from '@/modules/accounting/services/afs/afsFiscalPeriod';
+import { agedBucketTable, getAgedBucketTotals } from '@/modules/accounting/services/reports/agedBucketTotals';
 import {
   NON_OPERATING_EXPENSE_SUBTYPES,
   OTHER_INCOME_SUBTYPES,
@@ -19,7 +20,6 @@ import {
  */
 const DEFERRED_TAX_SUBTYPE = 'deferred_tax_expense';
 const CURRENT_TAX_SUBTYPES = TAX_EXPENSE_SUBTYPES.filter((s) => s !== DEFERRED_TAX_SUBTYPE);
-import { documentInLedgerAsAtFragment } from '@/modules/accounting/services/shared/softDeleteLedgerPresence';
 
 type DbRow = Record<string, unknown>;
 
@@ -32,46 +32,18 @@ export async function generateNote16TradePayables(
   const { end } = await getFiscalRange(companyId, fiscalYear);
   log.info('generateNote16TradePayables', { companyId, fiscalYear }, 'AfsNote');
 
-  const rows = (await sql`
-    SELECT
-      SUM(si.total_amount) FILTER (WHERE si.status NOT IN ('paid','cancelled','void')) AS gross_payables,
-      SUM(si.total_amount) FILTER (
-        WHERE si.status NOT IN ('paid','cancelled','void')
-          AND si.due_date <= ${end}::DATE AND si.due_date > ${end}::DATE - INTERVAL '30 days'
-      ) AS current_amount,
-      SUM(si.total_amount) FILTER (
-        WHERE si.status NOT IN ('paid','cancelled','void')
-          AND si.due_date <= ${end}::DATE - INTERVAL '30 days'
-          AND si.due_date > ${end}::DATE - INTERVAL '60 days'
-      ) AS days_30,
-      SUM(si.total_amount) FILTER (
-        WHERE si.status NOT IN ('paid','cancelled','void')
-          AND si.due_date <= ${end}::DATE - INTERVAL '60 days'
-      ) AS days_60_plus
-    FROM supplier_invoices si
-    WHERE si.company_id = ${companyId} AND si.invoice_date <= ${end}
-      -- K-053: dated to the figure's own as-at date, so a soft-deleted
-      -- document leaves this note exactly when its GL reversal does.
-      -- See shared/softDeleteLedgerPresence.
-      AND ${documentInLedgerAsAtFragment('si', end, companyId)}
-  `) as DbRow[];
-
-  const r = rows[0] ?? {};
-  const gross = toNum(r.gross_payables);
-  const current = toNum(r.current_amount);
-  const d30 = toNum(r.days_30);
-  const d60plus = toNum(r.days_60_plus);
-  const total = current + d30 + d60plus;
+  // The aged report at the year end, summed (R-059) — see reports/agedBucketTotals
+  // and note 10.
+  const aged = await getAgedBucketTotals(companyId, 'ap', end);
 
   return {
-    dataSnapshot: { payables: rows },
+    dataSnapshot: { payables: [{ gross_payables: aged.gross, ...aged }] },
     content: {
       title: 'Trade and Other Payables',
       blocks: [
         { type: 'table', headers: ['', 'Amount (R)'],
-          rows: [['Trade payables', fmt(gross)], ['Accrued liabilities', fmt(0)], ['Total', fmt(gross)]] },
-        { type: 'table', headers: ['Current', '30 days', '60+ days', 'Total'],
-          rows: [[fmt(current), fmt(d30), fmt(d60plus), fmt(total)]] },
+          rows: [['Trade payables', fmt(aged.gross)], ['Accrued liabilities', fmt(0)], ['Total', fmt(aged.gross)]] },
+        { type: 'table', ...agedBucketTable(aged, fmt) },
       ],
     },
   };
