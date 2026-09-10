@@ -23,6 +23,16 @@
  * (reconciliation/orphanReversalPairs) drops them, and the third shape in this
  * fixture proves it does not over-reach: a bare journal reversed by hand LATER,
  * which must still be reported at an as-at date that sees only its first leg.
+ *
+ * Round 12 runs the round trip AGAIN, and a third time. One cycle could not see
+ * the defect: with only R and R2 there is one pair and any order finds it. From
+ * the second cycle the chain is O <- R <- R2 <- R3 <- R4, every delete reversal
+ * is dated TODAY, and `ORDER BY je.entry_date, je.id` therefore leaves a random
+ * UUID deciding which link a greedy pass reaches first — R3 pairing with R2 and
+ * leaving R and R4 reported for the document's full gross value each. The
+ * orderings themselves are pinned deterministically in the sibling unit test
+ * `tests/unit/services/reconciliation/orphanReversalPairs.test.ts`; what these
+ * cases add is that a real `softDelete`/`undoDelete` builds exactly that chain.
  */
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { randomUUID } from 'crypto';
@@ -242,5 +252,66 @@ describeIfDb('K-053 a soft-delete reversal is not an unapplied-cash orphan', () 
     const cash = await getUnappliedControlCash(COMPANY, 'ar', TODAY, [receivable]);
     expect(cash.withoutPaymentRecord.map((i) => i.id)).toEqual([orphanEntry]);
     expect(cash.total).toBeCloseTo(ORPHAN, 2);
+  });
+
+  it('a SECOND round trip extends the chain and still leaves nothing behind', async () => {
+    await inTx(() => softDelete(COMPANY, 'customer_invoice', invoice, USER));
+    await inTx(() => undoDelete(COMPANY, 'customer_invoice', invoice, USER));
+
+    // The premise: four unclaimed reversals on the document's chain now, all
+    // dated TODAY, so nothing but the chain itself distinguishes their order.
+    const chain = (await sql`
+      SELECT COUNT(*)::int AS n FROM gl_journal_entries je
+      WHERE je.company_id = ${COMPANY}::UUID AND je.status = 'posted'
+        AND je.reversal_of_id IS NOT NULL
+        AND je.entry_date = ${TODAY}::date
+        AND NOT EXISTS (SELECT 1 FROM customer_invoices d
+                        WHERE d.company_id = ${COMPANY}::UUID AND d.gl_journal_entry_id = je.id)
+    `) as { n: number }[];
+    expect(chain[0]!.n).toBe(4);
+
+    const restored = (await sql`
+      SELECT deleted_at FROM customer_invoices
+      WHERE company_id = ${COMPANY}::UUID AND id = ${invoice}::UUID
+    `) as { deleted_at: unknown }[];
+    expect(restored[0]!.deleted_at).toBeNull();
+
+    const cash = await getUnappliedControlCash(COMPANY, 'ar', TODAY, [receivable]);
+    expect(cash.withoutPaymentRecord.map((i) => i.id)).toEqual([orphanEntry]);
+    expect(cash.total).toBeCloseTo(ORPHAN, 2);
+  });
+
+  it('a THIRD round trip is no different', async () => {
+    await inTx(() => softDelete(COMPANY, 'customer_invoice', invoice, USER));
+    await inTx(() => undoDelete(COMPANY, 'customer_invoice', invoice, USER));
+
+    const chain = (await sql`
+      SELECT COUNT(*)::int AS n FROM gl_journal_entries je
+      WHERE je.company_id = ${COMPANY}::UUID AND je.status = 'posted'
+        AND je.reversal_of_id IS NOT NULL
+        AND je.entry_date = ${TODAY}::date
+        AND NOT EXISTS (SELECT 1 FROM customer_invoices d
+                        WHERE d.company_id = ${COMPANY}::UUID AND d.gl_journal_entry_id = je.id)
+    `) as { n: number }[];
+    expect(chain[0]!.n).toBe(6);
+
+    const cash = await getUnappliedControlCash(COMPANY, 'ar', TODAY, [receivable]);
+    expect(cash.withoutPaymentRecord.map((i) => i.id)).toEqual([orphanEntry]);
+    expect(cash.total).toBeCloseTo(ORPHAN, 2);
+  });
+
+  it('mid-chain, with the document still deleted, exactly one leg is reported', async () => {
+    await inTx(() => softDelete(COMPANY, 'customer_invoice', invoice, USER));
+
+    // R7 is recorded in `soft_delete_journal_reversals`, so the query excludes
+    // it by that row and the six restored legs pair off. The reconciler is back
+    // to the bare journal alone — the delete has moved the control account and
+    // the dated presence predicate has taken the document off the sub-ledger
+    // side with it, so there is nothing to reconcile.
+    const cash = await getUnappliedControlCash(COMPANY, 'ar', TODAY, [receivable]);
+    expect(cash.withoutPaymentRecord.map((i) => i.id)).toEqual([orphanEntry]);
+    expect(cash.total).toBeCloseTo(ORPHAN, 2);
+
+    await inTx(() => undoDelete(COMPANY, 'customer_invoice', invoice, USER));
   });
 });

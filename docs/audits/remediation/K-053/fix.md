@@ -244,3 +244,123 @@ WHERE ci.deleted_at IS NOT NULL AND ci.gl_journal_entry_id IS NOT NULL
 
 - **The mutation-sweep figure.** Corrected to include the two sdjr-predicate files round 8
   left out, and re-run from scratch over the round-10 tree — see below.
+
+---
+
+## Round 12
+
+Two findings from the blind review of `1ec945ccf` (0 HIGH / 1 MEDIUM / 1 LOW), plus a
+merge of `origin/master`.
+
+### Merge of `origin/master` (its own commit, `01e28c4ea`)
+
+Nine conflicts, none resolved with `-X ours`/`-X theirs`. The three source ones and how both
+sides' intent was kept:
+
+- `ar/debtorsManagerService.ts` — master widened the client predicate to
+  `COALESCE(ci.client_id, ci.customer_id)`; this branch had added
+  `documentInLedgerAsAtFragment`. The COALESCE form now carries the fragment.
+- `core/softDeleteService.ts` — master made `purgeExpiredDeletes` per-tenant (a `company_id`
+  on every DELETE) and refused an invoice still carrying `gl_journal_entry_id`; this branch
+  had replaced the two invoice DELETEs with `purgeInvoices()`, a data-modifying CTE that
+  takes the `soft_delete_journal_reversals` row out in the same statement. `purgeInvoices`
+  now takes `companyId`, scopes both the DELETE and the cascade by it, and carries master's
+  `gl_journal_entry_id IS NULL` guard.
+- `gl/journalEntryPostingService.ts` — master MOVED `resolveReversalDate` into
+  `gl/journalEntryReversalDate.ts` to hold the 300-line cap; this branch had changed that
+  function's two period throws to `ReversalPeriodError`, which
+  `pages/api/accounting/soft-delete.ts` classifies 400-vs-500 on. The move stands and the two
+  throws are ported into the moved file. `ReversalPeriodError` moved with them rather than
+  being imported back (that would be a cycle) and is re-exported from
+  `journalEntryPostingService`, so the route and both test files are untouched.
+
+The three `AGENTS.md` mirrors were REGENERATED (`bun run agent-docs:generate`,
+`agent-docs:check` = 74 match), never hand-merged. The three `.claude.md` conflicts were both
+sides appending a `2026-09-09` entry to the head of "Recent changes"; both sets are kept.
+
+One test broke on the merge and is fixed in it: `k053-purge-expired-deletes-cascade` called
+`purgeExpiredDeletes()` with no argument. `tests/**` is outside `tsconfig`, so the new
+required `companyId` was invisible to `tsc` and the purge swept nothing
+(`company_id = NULL::uuid`). It passes `COMPANY` now and gains a case pinning master's other
+intent: an invoice inside the 5-minute window but still carrying `gl_journal_entry_id` is
+left in place.
+
+### MEDIUM-1 — the pairing was greedy in ROW order
+
+FIXED in `reconciliation/orphanReversalPairs.ts`. `getUnappliedControlCash` orders candidates
+`ORDER BY je.entry_date, je.id` and every delete reversal lands on TODAY, so a random UUID
+decided which link a greedy pass reached first. From the SECOND round trip the chain is
+`O <- R <- R2 <- R3 <- R4`, and when R3 sorted first it paired with R2, leaving R and R4
+reported for the document's full gross value each. The reviewer measured 8 phantom items of
+±R1,150 on a fixture of 8 restored, reconciled invoices where the correct answer is `[]`.
+
+The pass now walks the CHAIN: it starts only at a HEAD — a candidate whose `reversal_of_id`
+is not itself a candidate — and pairs consecutive links forward from there, which is a
+property of the chain and not of the arrival order. A link whose pair does not net to zero is
+left standing and the walk continues past it, so a partial correction mid-chain surfaces
+without dragging its neighbours out. `reverserOf` is a single-valued map because the UNIQUE on
+`(company_id, reversal_of_id)` forbids two reversals of one entry, and a per-walk `seen` set
+makes a self-referencing or cyclic row terminate instead of spinning.
+
+Proof is in two places, because the integration shape is a coin flip on UUID order and the
+unit shape is not:
+
+- `tests/unit/services/reconciliation/orphanReversalPairs.test.ts` (10 cases) feeds the
+  orderings EXPLICITLY — including `[R3, R2, R4, R1]`, the one that broke the greedy pass —
+  so each case is a fixed input with a fixed answer. Two round trips, three round trips (every
+  rotation), a delete still pending, a lone manual reversal, an as-at date that sees one leg,
+  amounts that do not cancel, a chain whose head is a genuine orphan, a self-reference, and
+  rows with no `reversal_of_id`. **Mutation: restoring the greedy body turns 4 of the 10 RED.**
+- `k053-unapplied-cash-delete-reversal.int.test.ts` gains a second and a third real
+  `softDelete`/`undoDelete` cycle (4 and then 6 unclaimed reversals dated TODAY, the invoice
+  restored, `withoutPaymentRecord` = `[orphanEntry]` each time) and a mid-chain case with the
+  document still deleted. **Mutation: with the greedy body these went RED on 1 of 3 runs** —
+  which is the defect's own nature, and precisely why the deterministic unit test carries the
+  gate.
+
+**The guard still fails in both directions.** Each of the reviewer's attacks is a case in the
+unit file above and each still holds: wrong amounts kept, a one-sided pair kept, a chain
+leaving exactly one item, a lone manual reversal kept, an as-at date seeing one leg keeping
+it. Cross-tenant pairing remains impossible — both candidate queries scope every `je`, `jl`
+and `NOT EXISTS` by `company_id` and the maps are built only from those rows. A dropped pair
+nets to zero, so `total` cannot move; only the itemisation changes.
+
+### LOW-1 — `dashboard-todos` chased soft-deleted documents
+
+FIXED rather than registered, because consistency with the chase siblings is the point: a
+to-do list that chases a deleted invoice wastes the user's time, and `dunningService`,
+`dunningCronService` and `smart-reminder` all carry the undated `deleted_at IS NULL` for
+exactly that reason. The predicate is UNDATED here too — this is a workflow queue asked as at
+NOW, not a balance that has to tie to a control account, so the dated
+`documentInLedgerAsAtFragment` would be the wrong question.
+
+Three queries, not the two named: the overdue-invoice leg, the overdue-bill leg, and the
+DRAFT INVOICE COUNT, which had the same omission and would have counted a deleted draft.
+(`bank_transactions` is not soft-deletable, so the fourth query is not in the class.)
+
+`tests/integration/k053-dashboard-todos-soft-deleted.int.test.ts` (4 cases) carries a live
+twin for every deleted shape, so the guard is proved in both directions, and asserts the
+premise first (the deleted invoice keeps `status = 'approved'` and its due date).
+**Mutation: removing each of the three predicates in turn turns exactly its own case RED.**
+
+### Settled — recorded so it is not re-derived
+
+- **The mutation figure is 39 files, 37 RED / 2 GREEN**, independently re-derived by the
+  round-11 reviewer from its own carrier set. The two GREEN are `pages/api/portal/chat.ts`
+  and `ar/portalService.ts` (R-055): they 42703 before the predicate is reached.
+- **K-091's flag about `unappliedCashService.ts:146,167` is NOT a defect here.** Raised twice
+  now, so: `SUM(jl.credit)` / `SUM(jl.debit)` per payment equals the signed net for every
+  reachable payment journal. Measured on `isaflow_dev` — 606 of 606 AR payment journals are
+  one-sided and none is shared by two payments. By code: refunds create no payment row
+  (`bankAllocationService` gates both INSERTs on direction, `:384` and `:459`); batch payments
+  put their journal on `supplier_payment_batches`, not `supplier_payments`
+  (`batchPaymentService:177-180`); and migration 615 mints money-out documents only, checking
+  `ap_debit = amount`.
+- r10's MEDIUM-1 (`transactionReportingService`) and LOW-1 (`sales-by-item`) are verified by
+  outcome, and the as-at semantics match `sales-by-customer`.
+
+### Still out of scope
+
+R-055, R-059 and **R-063**. `vatReconciliationService` has the same undo gap and would be
+fixed by reusing `orphanReversalPairs`, but K-091 is rewriting that file's revenue arm; doing
+it here would be a semantic conflict on a money figure. Fix after both branches merge.
