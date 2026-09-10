@@ -65,8 +65,9 @@ const refusal=(reason:string)=>expect.objectContaining({name:'CheckRunResourceLi
  * production path, so the job stops counting as active. Without it, every refusal here would hold an active slot.
  */
 async function refused(lease:AuditJobLease,limits:Partial<typeof PRODUCTION>):Promise<unknown>{
+ // A phase that PUBLISHED returns null, and the caller's expectation of a refusal fails on its own message.
  const error=await phase(lease,limits).then(()=>null,(caught:unknown)=>caught);
- await withAuditWorkerTransaction(pool,{companyId:lease.companyId,personId:lease.personId,jobId:lease.jobId},'read committed',Date.now()+5000,undefined,
+ if(error!==null)await withAuditWorkerTransaction(pool,{companyId:lease.companyId,personId:lease.personId,jobId:lease.jobId},'read committed',Date.now()+5000,undefined,
   store=>failAuditJobForWorker(store,lease,'RESOURCE_LIMIT',false));
  return error;
 }
@@ -79,12 +80,12 @@ it('counts only rows that can join a threshold group, and accepts a slab at exac
  expect(await actor(slab,()=>getAuditCheckRunSummary(requireControlTx(),{checkRunId:lease.jobId}))).toMatchObject({status:'fail',populationCount:9,findingCount:9});
 });
 it('refuses the first groupable row past the slab bound',async()=>{
- expect(await refused(await leased(slab,WIDE),{maxSlabRows:3})).toEqual(refusal('slab_rows_exceed_limit'));
+ expect(await refused(await leased(slab,WIDE),{maxSlabRows:3}),'one groupable row past the bound was accepted').toEqual(refusal('slab_rows_exceed_limit'));
 });
 it('accepts exactly maxFindings and refuses the first finding past it',async()=>{
  const at=await leased(slab,NARROW);
  expect(await phase(at,{maxFindings:9}),'exactly maxFindings findings was refused').toMatchObject({checkRunId:at.jobId});
- expect(await refused(await leased(slab,WIDE),{maxFindings:9})).toEqual(refusal('findings_exceed_limit'));
+ expect(await refused(await leased(slab,WIDE),{maxFindings:9}),'one finding past maxFindings was accepted').toEqual(refusal('findings_exceed_limit'));
 });
 it('lets a caller tighten the limits but never widen one',async()=>{
  for(const widened of [{maxSlabRows:PRODUCTION.maxSlabRows+1},{maxFindings:PRODUCTION.maxFindings+1},{fetchRows:PRODUCTION.fetchRows+1}])
