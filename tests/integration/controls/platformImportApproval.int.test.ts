@@ -131,6 +131,18 @@ describe('platform historical import persisted maker and independent tenant appr
   expect((await h.pool.query('SELECT status FROM control_operation_approvals WHERE company_id=$1 AND id=$2',[h.f.companyA,approval.id])).rows[0].status).toBe('approved');
   expect((await h.execute(p.ref,approval.id)).documentId).toBeTruthy();
  });
+ it.each(['prepare','execute'] as const)('refuses every unconfined tenant reader under a %s target',async action=>{
+  const p=await h.prepared();
+  const selection=action==='prepare'?{action,sourceId:p.retained.sourceId} as const:{action,importId:p.ref.entityId} as const;
+  const {loadJournalRiskPopulation}=await import('@/modules/accounting/services/controls/journalRiskQueries');
+  const {queryThreeWayMatch}=await import('@/modules/accounting/services/ap/threeWayMatchQueryService');
+  const {readSupplierBankChangeStatus}=await import('@/modules/accounting/services/controls/beneficiaryStatusService');
+  // The ceiling must cover only what the confined import path itself needs: a generic
+  // reader reaching assertEffectivePermission on the BYPASSRLS platform client is refused.
+  await expect(h.maker(selection,ctx=>loadJournalRiskPopulation(ctx,null))).rejects.toThrow(/Current permissions do not allow/);
+  await expect(h.maker(selection,ctx=>queryThreeWayMatch(ctx,{}))).rejects.toThrow(/Current permissions do not allow/);
+  await expect(h.maker(selection,ctx=>readSupplierBankChangeStatus(ctx,{supplierId:h.supplier}))).rejects.toThrow(/Current permissions do not allow/);
+ });
  it('refuses an ordinary journal approval through the target-bound import context',async()=>{
   const journal=randomUUID();
   await h.pool.query("INSERT INTO gl_journal_entries(id,company_id,entry_number,entry_date,status,source,created_by) VALUES($1,$2,$3,'2023-02-28','draft','manual',$4)",[journal,h.f.companyA,`PI-${journal}`,h.admin]);

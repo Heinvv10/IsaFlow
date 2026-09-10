@@ -19,11 +19,21 @@ it.each(['retain','prepare','request','execute','read'] as const)('never resolve
   }
  });
 });
+const tenantReads=['read:reports','read:invoices','read:accounts','read:contacts'];
+it.each(['retain','prepare','request','execute','read'] as const)('never grants %s a generic tenant read',async action=>{
+ await run(action,async ctx=>{
+  const result=await resolveEffectivePermissions(ctx);
+  for(const permission of tenantReads){
+   expect(result.permissions).not.toContain(permission);
+   await expect(assertEffectivePermission(ctx,permission)).rejects.toMatchObject({code:'CONTROL_FORBIDDEN'});
+  }
+ });
+});
 it.each([
- {action:'retain' as const,allow:['write:imports'],deny:['write:post','write:approvals']},
- {action:'prepare' as const,allow:['write:imports'],deny:['write:post','write:approvals']},
- {action:'request' as const,allow:['write:imports','write:approvals'],deny:['write:post']},
- {action:'execute' as const,allow:['write:imports','write:post'],deny:['write:approvals']},
+ {action:'retain' as const,allow:['write:imports'],deny:['read:imports','write:post','write:approvals']},
+ {action:'prepare' as const,allow:['write:imports','read:imports'],deny:['write:post','write:approvals']},
+ {action:'request' as const,allow:['write:imports','write:approvals','read:imports'],deny:['write:post']},
+ {action:'execute' as const,allow:['write:imports','write:post','read:imports'],deny:['write:approvals']},
  {action:'read' as const,allow:['read:imports'],deny:['write:imports','write:post','write:approvals']},
 ])('uses a fixed action ceiling for $action',async({action,allow,deny})=>{
  await run(action,async ctx=>{
