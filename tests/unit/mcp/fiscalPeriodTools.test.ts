@@ -402,11 +402,12 @@ describe('year_end_close', () => {
       .rejects.toThrow('boom');
   });
 
-  it('names request_operation_approval when the close needs an approval', async () => {
+  it('says where an approval-bound close can be completed', async () => {
     vi.mocked(closeFiscalYear).mockResolvedValue({ error: 'approval_required' } as never);
     const res = await yearEndCloseTool.handler({ fiscal_year: 2027, dry_run: true, ...KEY }, ctx);
     expect(res.isError).toBe(true);
-    expect(res.content[0]?.text).toMatch(/request_operation_approval/);
+    expect(res.content[0]?.text).toMatch(/cannot carry/i);
+    expect(res.content[0]?.text).toMatch(/year-end close in the IsaFlow app/i);
     expect(res.content[0]?.text).not.toMatch(/has no periods/);
   });
 

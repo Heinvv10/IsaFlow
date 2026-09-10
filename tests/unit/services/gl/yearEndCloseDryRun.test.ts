@@ -2,12 +2,12 @@
 import {beforeEach,describe,it,expect,vi} from 'vitest';
 import type {ControlTx} from '@/modules/accounting/services/controls/contracts';
 import type {YearClosingSources} from '@/modules/accounting/services/controls/yearEndFinancialMaterial';
-const m=vi.hoisted(()=>({sql:vi.fn(),load:vi.fn(),permission:vi.fn(),execute:vi.fn(),register:vi.fn(),post:vi.fn(),event:vi.fn()}));
+const m=vi.hoisted(()=>({supplied:vi.fn(),sql:vi.fn(),load:vi.fn(),permission:vi.fn(),execute:vi.fn(),register:vi.fn(),post:vi.fn(),event:vi.fn()}));
 const COMPANY='aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa',USER='bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb';
 vi.mock('@/modules/accounting/services/controls/context',()=>({requireControlTx:()=>ctx,assertControlTx:vi.fn()}));
 vi.mock('@/lib/auth/effectivePermissions',()=>({assertEffectivePermission:m.permission}));
 vi.mock('@/modules/accounting/services/controls/operationMaterializer',()=>({loadOperationMaterial:m.load}));
-vi.mock('@/modules/accounting/services/controls/approvalExecutionService',()=>({executeControlledOperation:m.execute}));
+vi.mock('@/modules/accounting/services/controls/approvalExecutionService',()=>({executeControlledOperation:m.execute,assertSuppliedApprovalExecutable:m.supplied}));
 vi.mock('@/modules/accounting/services/controls/generatedJournalPermit',()=>({registerGeneratedJournal:m.register}));
 vi.mock('@/modules/accounting/services/gl/journalEntryPostingService',()=>({postJournalEntry:m.post}));
 vi.mock('@/modules/accounting/services/controls/operationVersions',()=>({readControlEntityVersion:vi.fn(async()=>null)}));
@@ -43,6 +43,14 @@ describe('financial-year exact preview',()=>{
   bound=true;
   expect(await close()).toEqual({error:'approval_required'});
   expect(writes()).toEqual([]);expect(m.execute).not.toHaveBeenCalled();
+ });
+ it('honours a supplied approval the way the live close does, and refuses one it would reject',async()=>{
+  bound=true;m.supplied.mockResolvedValueOnce(undefined);
+  expect(await closeFiscalYear(COMPANY,'2027',USER,{dryRun:true,approvalId:'approval'})).toMatchObject({dryRun:true});
+  expect(m.supplied).toHaveBeenCalledWith(ctx,{entityType:'fiscal_year',entityId:'2027',operation:'year.close'},'approval');
+  m.supplied.mockRejectedValueOnce(new Error('Approval is not executable'));
+  await expect(closeFiscalYear(COMPANY,'2027',USER,{dryRun:true,approvalId:'approval'})).rejects.toThrow(/not executable/);
+  expect(writes()).toEqual([]);
  });
  it('shows every exact balanced closing line and writes nothing',async()=>{
   const result=await close();expect(result).toMatchObject({dryRun:true,netIncome:600000,netIncomeExact:'600000'});

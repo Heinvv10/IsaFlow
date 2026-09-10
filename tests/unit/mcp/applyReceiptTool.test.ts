@@ -143,6 +143,12 @@ beforeEach(() => {
 });
 
 describe('apply_receipt_to_invoice — request shape', () => {
+  it('does not describe payment_id as a path that applies anything', async () => {
+    const r = await applyReceiptToInvoiceTool.handler({ ...ALLOC, ...KEY }, ctx());
+    expect(errText(r)).not.toMatch(/applies a (receipt|payment) already in the ledger/);
+    expect(errText(r)).toMatch(/refused/i);
+  });
+
   it('refuses when neither source is named', async () => {
     const r = await applyReceiptToInvoiceTool.handler({ ...ALLOC, ...KEY }, ctx());
     expect(errText(r)).toMatch(/exactly one of payment_id or bank_transaction_id/i);
