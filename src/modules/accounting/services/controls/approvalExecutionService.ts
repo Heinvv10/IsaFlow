@@ -27,6 +27,17 @@ export function assertApprovalExecutable(row: ApprovalRow, currentHash: string):
   if (row.binding_hash !== currentHash) throw new Error('Approval material changed');
 }
 
+/**
+ * The authority this kernel asserts for an operation, callable on its own by a
+ * preview that skips only the write. One owner for the rule: the execution path
+ * below calls this too.
+ */
+export async function assertControlledOperationAuthority(ctx: ControlTx, operation: OperationRef['operation']): Promise<void> {
+  const { assertEffectivePermission } = await import('@/lib/auth/effectivePermissions');
+  await assertEffectivePermission(ctx, operationPermission(operation,'write'));
+  if(operationRequiresPosting(operation)) await assertEffectivePermission(ctx, 'write:post');
+}
+
 /** Kernel only: owning domain services must call this before their financial effect. */
 export async function executeControlledOperation<T>(ctx: ControlTx, input: OperationRef, approvalId: string | null,
   effect: (permit: ControlledEffectPermit) => Promise<T>): Promise<T> {
@@ -34,9 +45,7 @@ export async function executeControlledOperation<T>(ctx: ControlTx, input: Opera
   if (executing.has(ctx.principal)) throw new Error('Nested execution requires the parent effect permit');
   const ref = canonicalOperationRef(input);
   const authorities = approvalId ? await approvalAuthorities(ctx, approvalId) : [];
-  const { assertEffectivePermission } = await import('@/lib/auth/effectivePermissions');
-  await assertEffectivePermission(ctx, operationPermission(ref.operation,'write'));
-  if(operationRequiresPosting(ref.operation)) await assertEffectivePermission(ctx, 'write:post');
+  await assertControlledOperationAuthority(ctx, ref.operation);
   return withSavepoint('controlled_ap_operation', async () => {
     // Preserve policy-before-approval lock order, including replay lookups.
     await ctx.sql`SELECT pg_advisory_xact_lock(hashtextextended(${`control-policy:${ctx.principal.companyId}`},0))`;
