@@ -2,7 +2,7 @@ import {beforeAll,expect,it} from 'vitest';
 import {randomBytes,randomUUID} from 'node:crypto';
 import {analyseJournalRisks,type JournalRiskRow,type JournalThreshold} from '@/modules/accounting/services/controls/journalRiskAnalysis';
 import {buildJournalRiskFinding,type JournalRiskSourceRow} from '@/modules/accounting/services/controls/journalRiskShared';
-import {CHECK_RUN_ITEM_BOUNDS,sealAuditCheckRunItem} from '@/modules/accounting/services/controls/auditCheckRunProtection';
+import {CHECK_RUN_ITEM_BOUNDS,checkRunCurrencyFits,sealAuditCheckRunItem} from '@/modules/accounting/services/controls/auditCheckRunProtection';
 beforeAll(()=>{process.env.ENCRYPTION_KEY=randomBytes(32).toString('hex');process.env.CONTROL_SNAPSHOT_SIGNING_KEY=randomBytes(32).toString('hex');});
 const identity={companyId:randomUUID(),checkRunId:randomUUID(),generation:1,leaseId:randomUUID()};
 /**
@@ -29,14 +29,29 @@ it('seals the longest message the detector can produce, and states that bound',(
  expect(built.finding.message.length,'the detector can exceed the declared message bound').toBeLessThanOrEqual(CHECK_RUN_ITEM_BOUNDS.message);
  expect(()=>sealAuditCheckRunItem(identity,0,{amount:built.amount,currency:built.currency,finding:built.finding})).not.toThrow();
 });
-it('seals the widest currency and amount the table envelope can hold beside the longest message, and no wider',()=>{
+/** What one character of a currency costs inside the sealed plaintext: canonical JSON, then UTF-8. */
+const sealedBytes=(text:string)=>Buffer.byteLength(JSON.stringify(text),'utf8')-2;
+// Two-, three- and six-byte characters once sealed (U+0001 is escaped as \u0001): the reviewer's probes, never 'X'.
+const PROBES=['\u00e9','\u4e2d','\u0001'];
+it('bounds the currency by its sealed bytes, so the widest one of every encoding fits the table CHECK beside the longest message',()=>{
  // companies.default_currency is unbounded text, so no finite seal bound accepts "any" currency: the real limit is the
- // table's CHECK octet_length(protected_item::text) <= 65 536, after hex encoding doubles the plaintext. The bound must
- // sit where the widest item still fits that CHECK, so the seal — not the database, mid-run — is what refuses.
- const built=worstCase(),currency='X'.repeat(CHECK_RUN_ITEM_BOUNDS.currency),amount='9'.repeat(CHECK_RUN_ITEM_BOUNDS.amount);
- const envelope=sealAuditCheckRunItem(identity,0,{amount,currency,finding:built.finding});
- // jsonb::text renders ", " and ": " where JSON.stringify writes "," and ":"; four keys add at most eight octets.
- expect(Buffer.byteLength(JSON.stringify(envelope))+8,'the widest sealed item would breach the table CHECK').toBeLessThanOrEqual(65536);
- expect(CHECK_RUN_ITEM_BOUNDS.currency,'the currency bound leaves most of the envelope unused').toBeGreaterThanOrEqual(16384);
- expect(()=>sealAuditCheckRunItem(identity,0,{amount,currency:`${currency}X`,finding:built.finding})).toThrow();
+ // table's CHECK octet_length(protected_item::text) <= 65 536, after hex encoding doubles the plaintext. A bound
+ // counted in UTF-16 code units lets a non-ASCII currency past the seal and into that CHECK, mid-run.
+ const built=worstCase(),amount='9'.repeat(CHECK_RUN_ITEM_BOUNDS.amount);
+ for(const probe of PROBES){
+  const widest=probe.repeat(Math.floor(CHECK_RUN_ITEM_BOUNDS.currencyBytes/sealedBytes(probe)));
+  const envelope=sealAuditCheckRunItem(identity,0,{amount,currency:widest,finding:built.finding});
+  // jsonb::text renders ", " and ": " where JSON.stringify writes "," and ":"; four keys add at most eight octets.
+  expect(Buffer.byteLength(JSON.stringify(envelope))+8,`the widest ${JSON.stringify(probe)} currency would breach the table CHECK`).toBeLessThanOrEqual(65536);
+  expect(()=>sealAuditCheckRunItem(identity,0,{amount,currency:`${widest}${probe}`,finding:built.finding}),`a ${JSON.stringify(probe)} currency past the byte bound sealed`).toThrow();
+  // 16 384 of each sealed to 66 531, 99 299 and 197 603 bytes under the old code-unit bound: the seal must refuse them.
+  expect(()=>sealAuditCheckRunItem(identity,0,{amount,currency:probe.repeat(16384),finding:built.finding})).toThrow();
+ }
+});
+it('names the currency check a run performs up front with the same byte measure',()=>{
+ for(const probe of PROBES){
+  const at=probe.repeat(Math.floor(CHECK_RUN_ITEM_BOUNDS.currencyBytes/sealedBytes(probe)));
+  expect(checkRunCurrencyFits(at)).toBe(true);expect(checkRunCurrencyFits(`${at}${probe}`)).toBe(false);
+ }
+ expect(checkRunCurrencyFits('ZAR')).toBe(true);
 });

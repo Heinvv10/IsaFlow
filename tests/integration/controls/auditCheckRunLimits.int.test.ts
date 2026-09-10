@@ -14,11 +14,15 @@ import {CheckRunResourceLimitError} from '@/modules/accounting/services/controls
 import {getAuditCheckRunPage,getAuditCheckRunSummary} from '@/modules/accounting/services/controls/auditCheckRunReadService';
 import {runAuditJob} from '@/modules/accounting/services/controls/auditJobRunner';
 import {AUDIT_CHECK_RUN_LIMITS} from '@/modules/accounting/services/controls/auditCheckRunContract';
+import {CHECK_RUN_ITEM_BOUNDS} from '@/modules/accounting/services/controls/auditCheckRunProtection';
 import {AUDIT_PROCESS_LIMITS} from '@/modules/accounting/services/controls/auditJobProcessContract';
 process.env.ENCRYPTION_KEY=randomBytes(32).toString('hex');process.env.CONTROL_SNAPSHOT_SIGNING_KEY=randomBytes(32).toString('hex');
 const config=fixtureConfigFromEnv(process.env),pool=new Pool({connectionString:validateFixtureTarget(config).connectionString,ssl:false,max:4});
 const PRODUCTION=AUDIT_CHECK_RUN_LIMITS.journal_risk_checks,NARROW='2026-06-30',WIDE='2026-07-31',DEV_ROWS=2500;
 let slab:ForensicFixture,dev:ForensicFixture,pair:ForensicFixture,none:ForensicFixture;
+// Two-, three- and six-byte characters once sealed; 16 384 of each overflowed the table CHECK under a code-unit bound.
+const PROBES=['\u00e9','\u4e2d','\u0001'],currencyFixtures:ForensicFixture[]=[];
+let fits:ForensicFixture;
 /**
  * One (Saturday, person, ZAR) slab under one usable rule at 1000. Every row is a weekend finding. Only rows at or
  * below the rule can join its group: amount 100 can, 5000 (above it) and 0 (not positive) never can. G4 carries a later
@@ -46,6 +50,11 @@ beforeAll(async()=>{
  await seed(pair,[['100',day],['100',day],['500',day],['500',day]],saturday,[['greater_than','1000'],['greater_than','200']]);
  // No usable rule at all ('any' is door 3 of plan A24): nothing can join a group, whatever the slab's size.
  await seed(none,Array.from({length:5},()=>['100',day] as [string,string]),saturday,[['any','0']]);
+ // Weekend findings under companies whose default currency is the reviewer's probe, and one exactly at the byte bound.
+ const currencied=async(currency:string)=>{const fixture=await provisionForensicFixture(config);
+  await seed(fixture,[['100',day],['100',day]],saturday,'1000');await pool.query('UPDATE companies SET default_currency=$2 WHERE id=$1',[fixture.companyA,currency]);return fixture;};
+ for(const probe of PROBES)currencyFixtures.push(await currencied(probe.repeat(16384)));
+ fits=await currencied('\u4e2d'.repeat(Math.floor(CHECK_RUN_ITEM_BOUNDS.currencyBytes/3)));
 },120000);
 afterAll(()=>pool.end());
 const who=(fixture:ForensicFixture)=>({companyId:fixture.companyA,personId:fixture.u1.id});
@@ -131,3 +140,18 @@ it('holds nothing when no rule is usable, so a slab of any size publishes past a
  expect(await phase(lease,{maxSlabRows:2}),'rows that can join no group were held against the slab bound').toMatchObject({checkRunId:lease.jobId});
  expect(await actor(none,()=>getAuditCheckRunSummary(requireControlTx(),{checkRunId:lease.jobId}))).toMatchObject({populationCount:5,findingCount:5});
 });
+it('publishes unknown up front for a company currency past the sealed-byte bound, never a mid-run database fault',async()=>{
+ for(const fixture of currencyFixtures){
+  const jobId=(await actor(fixture,()=>enqueueAuditCheckRuns(requireControlTx(),{cutoff:'2026-09-09',checks:['journal_risk_checks'],idempotencyKey:randomUUID()}))).jobs[0]!.id;
+  expect(await runAuditJob({...who(fixture),jobId},{pool,workerClass:'check_run'}),'an over-long currency did not publish').toMatchObject({state:'succeeded',checkRunId:jobId});
+  expect(await actor(fixture,()=>getAuditCheckRunSummary(requireControlTx(),{checkRunId:jobId}))).toMatchObject({status:'unknown',findingCount:0,populationCount:2,
+   missingSources:['resource_limit:currency_exceeds_limit']});
+  expect((await pool.query('SELECT count(*)::int AS n FROM control_audit_check_findings WHERE company_id=$1 AND job_id=$2',[fixture.companyA,jobId])).rows[0].n).toBe(0);
+ }
+ // Positive control: a three-byte currency exactly at the bound publishes its findings, so the refusal is the bound's.
+ const jobId=(await actor(fits,()=>enqueueAuditCheckRuns(requireControlTx(),{cutoff:'2026-09-09',checks:['journal_risk_checks'],idempotencyKey:randomUUID()}))).jobs[0]!.id;
+ expect(await runAuditJob({...who(fits),jobId},{pool,workerClass:'check_run'})).toMatchObject({state:'succeeded'});
+ const page=await actor(fits,()=>getAuditCheckRunPage(requireControlTx(),{checkRunId:jobId,limit:10}));
+ expect(page.findingCount,'a currency exactly at the byte bound was refused').toBe(2);
+ expect(page.findings).toHaveLength(2);
+},120000);
