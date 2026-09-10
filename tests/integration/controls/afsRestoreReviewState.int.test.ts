@@ -103,4 +103,21 @@ describe('AFS version restore and review state: actual PostgreSQL',()=>{
   await expect(as(()=>updateAfsSection(id,other,h.f.companyA,{content:{title:'Changed',blocks:[]}}))).rejects.toThrow('Section not found');
   expect((await read(id)).status).toBe('signed_off');
  });
+ it('updateAfsSection never carries an old sign-off onto new content, even when it names a new reviewer',async()=>{
+  const id=await section('signed_off');
+  await h.pool.query('UPDATE afs_sections SET signed_off_by=$3,signed_off_at=now() WHERE company_id=$1 AND id=$2',[h.f.companyA,id,h.f.u1.id]);
+  await as(()=>updateAfsSection(id,document,h.f.companyA,{content:{title:'Changed',blocks:[]},status:'reviewed',reviewedBy:h.f.u2.id}));
+  expect(await read(id),'the old signatory stayed on new content').toMatchObject({status:'reviewed',reviewed_by:h.f.u2.id,signed_off_by:null});
+ });
+
+ it.each([
+  ['a status change',{status:'auto_generated'}],
+  ['a narrative',{aiNarrative:'New narrative'}],
+  ['a data snapshot (suppression lives there)',{dataSnapshot:{suppressReason:'nil'}}],
+ ] as const)('updateAfsSection voids the review on %s alone',async(_what,change)=>{
+  const id=await section('signed_off');
+  await h.pool.query('UPDATE afs_sections SET signed_off_by=$3,signed_off_at=now() WHERE company_id=$1 AND id=$2',[h.f.companyA,id,h.f.u1.id]);
+  await as(()=>updateAfsSection(id,document,h.f.companyA,{...change,updatedBy:h.f.u2.id}));
+  expect(await read(id),'the attestation survived the change').toMatchObject({reviewed_by:null,signed_off_by:null});
+ });
 });

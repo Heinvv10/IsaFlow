@@ -103,6 +103,7 @@ describe('every write lands on the section of the document the request names',()
   ['overrides PUT','PUT','overrides',{overrides}],
   ['AI narrative accept','PUT','ai-narrative',undefined],
   ['suppress','POST','suppress',{suppress:true,reason:'nil'}],
+  ['regenerate','POST','regenerate',{fiscalYear:2024,framework:'ifrs_smes'}],
  ];
  for(const [name,method,route,body] of writes)
   it(`refuses a ${name} addressed through an editable document to a section of a filed one`,async()=>{
