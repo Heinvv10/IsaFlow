@@ -126,7 +126,7 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
   // 5. Send to Signum (JSON body — real API uses /documents/from-html)
   const signers = contacts.map((c) => ({ email: c.email, name: c.name }));
   // Both fingerprints: the rows that were rendered, and the exact bytes that were posted.
-  const fingerprint = await documentContentFingerprint(sql, companyId, documentId);
+  const { fingerprint, digests } = await documentContentFingerprint(sql, companyId, documentId);
   const payloadSha256 = createHash('sha256').update(html, 'utf8').digest('hex');
   const { signumDocumentId, signingTokens } = await sendForSigning(
     documentId,
@@ -134,7 +134,7 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
     html,
     title,
     signers,
-    { contentFingerprint: fingerprint, payloadSha256 },
+    { contentFingerprint: fingerprint, inputDigests: digests, payloadSha256 },
   );
 
   // 6. Notify each signer with their individual signing URL

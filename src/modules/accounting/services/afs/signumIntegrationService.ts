@@ -11,6 +11,7 @@
 import crypto from 'crypto';
 import { sql } from '@/lib/neon';
 import { log } from '@/lib/logger';
+import type { SigningInputDigests } from './afsSigningIntegrity';
 
 // ── Types ────────────────────────────────────────────────────────────────────
 
@@ -47,7 +48,7 @@ export async function sendForSigning(
   // contentFingerprint is the CONTROL the webhook enforces. payloadSha256 is EVIDENCE only:
   // the provider returns a signed, annotated PDF, which can never byte-match the HTML posted
   // here, so nothing can verify one against the other. It records what left this system.
-  evidence: { contentFingerprint: string; payloadSha256: string },
+  evidence: { contentFingerprint: string; inputDigests: SigningInputDigests; payloadSha256: string },
 ): Promise<{ signumDocumentId: string; signingTokens: Array<{ email: string; signingToken: string }> }> {
   const apiUrl = getRequiredEnv('SIGNUM_API_URL');
   const apiKey = getRequiredEnv('SIGNUM_API_KEY');
@@ -85,6 +86,7 @@ export async function sendForSigning(
     SET signum_document_id          = ${json.documentId},
         signing_requested_at        = now(),
         signing_content_fingerprint = ${evidence.contentFingerprint},
+        signing_input_digests       = ${JSON.stringify(evidence.inputDigests)}::jsonb,
         signing_payload_sha256      = ${evidence.payloadSha256},
         signing_refused_at          = NULL,
         signing_refused_reason      = NULL,

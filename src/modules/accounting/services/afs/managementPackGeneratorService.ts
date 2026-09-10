@@ -11,7 +11,7 @@ import type { ManagementPackConfig, NoteContent, KpiResult } from './afsTypes';
 type Row = DbRow;
 
 /**
- * A pack generated without review used to be written straight to 'signed_off' — the status that
+ * A pack generated with review SKIPPED used to be written straight to 'signed_off' — the status that
  * LOCKS a document — with no signatory, and delivered. There is no status for "published without
  * a signature" yet (the follow-up), and inventing one here would change a vocabulary the review
  * workflow, the portal and the section write guard all read. Until it exists the pack is still

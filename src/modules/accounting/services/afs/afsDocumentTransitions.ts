@@ -194,7 +194,7 @@ export async function signOffDocument(
 
   await applyTransition(companyId, documentId, doc.status, 'signed_off', { userId });
 
-  // Signing off is what releases a pack that was generated without review: it is the human
+  // Signing off is what releases a pack generated with review SKIPPED: it is the human
   // attestation the hold was waiting for, and the release is recorded where a reviewer reads it.
   const released = (await sql`
     UPDATE afs_documents

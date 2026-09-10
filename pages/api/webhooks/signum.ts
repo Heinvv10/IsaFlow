@@ -14,7 +14,11 @@ import {
   downloadSignedPdf,
 } from '@/modules/accounting/services/afs/signumIntegrationService';
 import { notifyDocumentSignedOff } from '@/modules/accounting/services/afs/portalNotificationService';
-import { recordSignatureRefusal, signatureRefusalReason } from '@/modules/accounting/services/afs/afsSigningIntegrity';
+import {
+  recordSignatureRefusal,
+  signatureRefusalReason,
+  type SigningInputDigests,
+} from '@/modules/accounting/services/afs/afsSigningIntegrity';
 
 export const config = { api: { bodyParser: false } };
 
@@ -108,6 +112,7 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
           signing_requested_at        = NULL,
           signing_content_fingerprint = NULL,
           signing_payload_sha256      = NULL,
+          signing_input_digests       = NULL,
           updated_at                  = now()
       WHERE id = ${doc.id}::UUID AND company_id = ${doc.company_id}::UUID
         AND status = 'partner_review'
@@ -127,15 +132,16 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
     // A wedged peer must surface as a failed delivery Signum retries, not a pinned connection.
     await tx`SET LOCAL lock_timeout = '5s'`;
     const locked = (await tx`
-      SELECT status, signing_content_fingerprint
+      SELECT status, signing_content_fingerprint, signing_input_digests
       FROM afs_documents
       WHERE id = ${doc.id}::UUID AND company_id = ${doc.company_id}::UUID
       FOR UPDATE
-    `) as Array<{ status: string; signing_content_fingerprint: string | null }>;
+    `) as Array<{ status: string; signing_content_fingerprint: string | null; signing_input_digests: SigningInputDigests | null }>;
     const row = locked[0];
     if (!row || row.status !== 'partner_review') return { signed: false as const, reason: null };
 
-    const refusal = await signatureRefusalReason(tx, doc.company_id, doc.id, row.signing_content_fingerprint);
+    const refusal = await signatureRefusalReason(tx, doc.company_id, doc.id,
+      { fingerprint: row.signing_content_fingerprint, digests: row.signing_input_digests });
     if (refusal) {
       // The signatories DID sign, so the artifact is kept as evidence — in quarantine, never as
       // the document's signed copy. Signum's API as integrated here has no void/cancel call, so

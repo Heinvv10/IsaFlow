@@ -21,10 +21,15 @@ function escapeHtml(str: string): string {
 }
 
 // ── PDF stub ─────────────────────────────────────────────────────────────────
-async function generatePackPdf(documentId: string, companyId: string): Promise<Buffer | null> {
+async function generatePackPdf(documentId: string, companyId: string, documentStatus: string): Promise<Buffer | null> {
   try {
     const { exportToPdf } = await import('./pdfExportService');
-    return await exportToPdf(documentId, companyId, { skipChecks: true });
+    // A pack that is not signed off goes out marked as a draft, so a draft-tier recipient can
+    // never mistake an unreviewed pack for a signed one.
+    return await exportToPdf(documentId, companyId, {
+      skipChecks: true,
+      ...(documentStatus === 'signed_off' ? {} : { watermark: 'DRAFT — NOT FOR DISTRIBUTION' as const }),
+    });
   } catch (err) {
     log.warn(
       'PDF generation failed — delivering email without attachment',
@@ -163,7 +168,7 @@ export class PackDeliveryWithheldError extends Error {
 /**
  * Sends the pack to its recipients. THE gate for that: every delivery — the route, a future
  * scheduler, a script — passes through here, so the refusal lives here rather than in a caller.
- * A pack generated without review carries delivery_withheld_reason until a person signs the
+ * A pack generated with review SKIPPED carries delivery_withheld_reason until a person signs the
  * document off (afsDocumentTransitions clears it and audits the release).
  */
 export async function deliverPack(documentId: string, companyId: string): Promise<void> {
@@ -201,7 +206,7 @@ export async function deliverPack(documentId: string, companyId: string): Promis
   const subject = `${companyName} — Management Accounts ${period}`;
   const html = buildPackEmailHtml({ companyName, period, kpis, portalUrl });
 
-  const pdfBuffer = await generatePackPdf(documentId, companyId);
+  const pdfBuffer = await generatePackPdf(documentId, companyId, documentStatus);
 
   for (const recipient of recipients) {
     await sendToRecipient(recipient, documentStatus, subject, html, pdfBuffer, companyId);
