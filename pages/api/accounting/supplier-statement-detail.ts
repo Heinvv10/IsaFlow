@@ -13,6 +13,7 @@ import { withErrorHandler } from '@/lib/api-error-handler';
 import { log } from '@/lib/logger';
 import { isUuidParam, isRealCalendarDate } from '@/lib/validation';
 import { documentInLedgerAsAtFragment } from '@/modules/accounting/services/shared/softDeleteLedgerPresence';
+import { documentInPopulationExpr } from '@/modules/accounting/services/shared/documentPopulation';
 
 interface Transaction {
   id: string;
@@ -59,7 +60,11 @@ export default withAuth(withErrorHandler(async (req: NextApiRequest, res: NextAp
         total_amount as amount, amount_paid, notes as description
       FROM supplier_invoices si
       WHERE si.supplier_id = ${supplier_id} AND si.company_id = ${companyId}
-        AND si.status NOT IN ('cancelled', 'draft')
+        -- The ageing's status rule, shared rather than re-typed: this page must
+        -- tie to that ageing, and the bare spelling dropped a null-status bill
+        -- while still deducting its payment — balance -400 against an ageing
+        -- and a control account of 750 (R-059 round 7).
+        AND ${sql.unsafe(documentInPopulationExpr('si'))}
         -- A soft-deleted bill leaves this statement exactly when the delete's
         -- GL reversal reaches the ledger, and not one day earlier — the same
         -- dated question the ageing it must tie to now asks.
@@ -113,7 +118,8 @@ export default withAuth(withErrorHandler(async (req: NextApiRequest, res: NextAp
       SELECT
         COALESCE((
           SELECT SUM(si.total_amount::numeric) FROM supplier_invoices si
-          WHERE si.supplier_id = ${supplier_id} AND si.company_id = ${companyId} AND si.status NOT IN ('cancelled', 'draft')
+          WHERE si.supplier_id = ${supplier_id} AND si.company_id = ${companyId}
+            AND ${sql.unsafe(documentInPopulationExpr('si'))}
             AND ${documentInLedgerAsAtFragment('si', asAtDate, companyId)}
             AND si.invoice_date <= ${asAtDate}::DATE
         ), 0) AS total_invoiced,

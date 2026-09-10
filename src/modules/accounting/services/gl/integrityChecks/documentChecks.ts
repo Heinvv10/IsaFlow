@@ -151,7 +151,11 @@ export async function invoicesWithoutRevenueLine(ctx: IntegrityCheckContext): Pr
       AND je.status = 'posted'
       AND ${documentInLedgerAsAtFragment('ci', ctx.asAt, ctx.companyId)}
       AND ci.invoice_date <= ${ctx.asAt}::DATE
-      AND ci.status <> ALL(ARRAY['cancelled', 'void', 'voided', 'draft']::TEXT[])
+      -- The issued population — the ageing's own status rule. The list this
+      -- replaced also named 'void' and 'voided', which customer_invoices'
+      -- CHECK constraint forbids, and its <> ALL was NULL for a null-status
+      -- invoice, so an issued invoice with no revenue leg went unreported.
+      AND ${sql.unsafe(documentInPopulationExpr('ci'))}
       AND NOT EXISTS (
         SELECT 1 FROM gl_journal_lines jl
         JOIN gl_accounts ga ON ga.id = jl.gl_account_id

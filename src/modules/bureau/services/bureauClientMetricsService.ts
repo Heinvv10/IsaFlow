@@ -86,7 +86,8 @@ export async function clientMetricsSnapshot(companyId: string): Promise<ClientMe
         ) b ON b.gl_account_id = ga.id
        WHERE ga.account_subtype = ANY(${BANK_SUBTYPES as string[]}) AND ga.company_id = ${companyId}::UUID
     `,
-    // AR open (same allowlist as arAgingService)
+    // AR open, on the LIVE allowlist — NOT arAgingService's population, which
+    // this used to claim (see src/lib/constants/invoiceStatuses.ts).
     sql`
       SELECT COALESCE(SUM(total_amount - COALESCE(amount_paid, 0)), 0) AS total
         FROM customer_invoices ci
@@ -94,7 +95,7 @@ export async function clientMetricsSnapshot(companyId: string): Promise<ClientMe
          AND ${documentInLedgerAsAtFragment('ci', metricsAsAtStr, companyId)}
          AND ci.status = ANY(${Array.from(AR_OPEN_STATUSES)}::text[])
     `,
-    // AP open (same allowlist as apAgingService)
+    // AP open, on the LIVE allowlist — NOT apAgingService's population.
     sql`
       SELECT COALESCE(SUM(total_amount - COALESCE(amount_paid, 0)), 0) AS total
         FROM supplier_invoices si
