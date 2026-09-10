@@ -25,7 +25,7 @@ export async function matchOperationPolicies(ctx: ControlTx, rules: readonly App
           WHERE e.company_id=${ctx.principal.companyId}::uuid AND e.policy_id=${rule.id}
             AND e.beneficiary_key=${bucket.beneficiaryKey} AND e.currency=${bucket.currency}
             AND e.window_start=${day}::date
-            AND NOT(e.operation=${material.binding.operation} AND e.entity_id_canonical=lower(${material.binding.entityId}))
+            AND NOT(e.operation=${material.binding.operation} AND lower(e.entity_id)=lower(${material.binding.entityId}))
             AND (e.state='committed' OR (e.state='reserved' AND a.status IN ('pending','approved') AND a.expires_at>clock_timestamp()))
           -- One operation retained under two spellings is one exposure, counted once and never below either row.
           GROUP BY e.operation,lower(e.entity_id)
