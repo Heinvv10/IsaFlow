@@ -60,6 +60,8 @@ async function executeAuditJob(input:AuditWorkerIdentity,options:{pool?:Pool;sig
     if(snapshotOnly)throw new Error('Snapshot runner requires snapshot job kind');
     return publishAuditComparison(ctx,currentLease,{signal,deadlineAt});
    }
+   // Check runs execute only in the check-run worker class; the audit class never interprets them as snapshots.
+   if(saved.kind==='audit_check_run')throw new Error('Audit job kind is outside this worker class');
    if(saved.kind==='audit_export'){
     if(snapshotOnly)throw new Error('Snapshot runner requires snapshot job kind');
     const bundle=await exportAuditEvidence(ctx,saved.request.snapshotId,{signal,deadlineAt});
