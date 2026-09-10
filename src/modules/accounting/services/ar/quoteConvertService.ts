@@ -16,6 +16,7 @@ import { sql } from '@/lib/neon';
 import type { DbRow } from '@/lib/neon';
 import { log } from '@/lib/logger';
 import { insertWithReservedNumber } from '../core/documentNumberRetry';
+import { claimUnderLockTimeout } from '../core/documentClaimLock';
 import { getQuote } from './quoteService';
 import type { Quote } from './quoteService';
 
@@ -76,13 +77,13 @@ export async function convertToSalesOrder(
   // status-predicated UPDATE is the guard — the first caller moves the quote
   // out of a convertible status and every later one sees zero rows and stops
   // here, before the sequence is touched and before any status is rewritten.
-  const claimed = (await sql`
+  const claimed = await claimUnderLockTimeout('quote', async () => (await sql`
     UPDATE customer_quotes
     SET status = 'converted_to_order', updated_at = NOW()
     WHERE id = ${id}::UUID AND company_id = ${companyId}::UUID
       AND status = ANY(${CONVERTIBLE_TO_ORDER}::TEXT[])
     RETURNING id
-  `) as Row[];
+  `) as Row[]);
   if (claimed.length === 0) {
     // Re-read rather than trusting the row read before the UPDATE: the loser of
     // a double-click needs the winner's order id, which did not exist yet then.
@@ -162,13 +163,13 @@ export async function convertToInvoice(
   // UPDATE is the guard: the first caller moves the quote out of 'accepted' and
   // every later one sees zero rows and stops here, before the sequence is
   // touched and before any line is written.
-  const claimed = (await sql`
+  const claimed = await claimUnderLockTimeout('quote', async () => (await sql`
     UPDATE customer_quotes
     SET status = 'converted', updated_at = NOW()
     WHERE id = ${id}::UUID AND company_id = ${companyId}::UUID
       AND status = 'accepted'
     RETURNING id
-  `) as Row[];
+  `) as Row[]);
   if (claimed.length === 0) {
     // Re-read rather than trusting the row read before the UPDATE: the loser of
     // a double-click needs the winner's invoice id, which did not exist then.

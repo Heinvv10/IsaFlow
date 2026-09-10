@@ -6,12 +6,25 @@ const { sqlMock, markEntriesBilledMock } = vi.hoisted(() => {
   return { sqlMock, markEntriesBilledMock };
 });
 
-vi.mock('@/lib/neon', () => ({ sql: sqlMock }));
+vi.mock('@/lib/neon', () => ({
+  sql: sqlMock,
+  // insertWithReservedNumber wraps each attempt in a savepoint.
+  withSavepoint: vi.fn(async (_name: string, fn: () => unknown) => fn()),
+}));
 vi.mock('@/lib/logger', () => ({
   log: { info: vi.fn(), error: vi.fn(), warn: vi.fn() },
 }));
 vi.mock('@/modules/accounting/services/practice/practiceTimeEntryWorkflow', () => ({
   markEntriesBilled: markEntriesBilledMock,
+}));
+// The row lock is real code that refuses to run outside a request transaction —
+// correctly, since FOR UPDATE locks nothing there. These are mocked-sql unit
+// tests with no transaction, so the lock is stubbed and the serialisation it
+// provides is proved against the real database in
+// tests/integration/k107-wip-invoice-double-bill.int.test.ts instead.
+vi.mock('@/modules/accounting/services/practice/timeEntryLock', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('@/modules/accounting/services/practice/timeEntryLock')>()),
+  lockTimeEntries: vi.fn(async (_c: string, ids: string[]) => ids),
 }));
 
 import {
@@ -108,7 +121,7 @@ describe('generateWipInvoice', () => {
         work_item_name: 'Bank recon', job_category_name: 'Accounting',
       },
     ]);
-    sqlMock.mockResolvedValueOnce([{ max_num: 0 }]);     // max invoice number
+    sqlMock.mockResolvedValueOnce([{ used: 1, prefix: 'INV', padding: 7 }]); // reserve from the company sequence     // max invoice number
     sqlMock.mockResolvedValueOnce([{ id: INVOICE_ID }]); // INSERT invoice
     sqlMock.mockResolvedValueOnce([]);                   // INSERT line item A
     sqlMock.mockResolvedValueOnce([]);                   // INSERT line item B
@@ -121,7 +134,9 @@ describe('generateWipInvoice', () => {
     expect(result.taxAmount).toBe(637.5);
     expect(result.totalAmount).toBe(4887.5);
     expect(result.invoiceId).toBe(INVOICE_ID);
-    expect(result.invoiceNumber).toMatch(/^INV-\d{5}$/);
+    // The company sequence's own format (prefix + padding), not the MAX(...)+1
+    // 'INV-nnnnn' this path used to mint beside it.
+    expect(result.invoiceNumber).toBe('INV0000001');
     expect(markEntriesBilledMock).toHaveBeenCalledWith(COMPANY, [ENTRY_A, ENTRY_B], INVOICE_ID);
 
     const insertLineItemCalls = sqlMock.mock.calls.filter((c) => {
@@ -153,7 +168,7 @@ describe('generateWipInvoice', () => {
         job_category_id: 'cat-1', job_category_name: 'Accounting',
       },
     ]);
-    sqlMock.mockResolvedValueOnce([{ max_num: 0 }]);
+    sqlMock.mockResolvedValueOnce([{ used: 1, prefix: 'INV', padding: 7 }]); // reserve from the company sequence
     sqlMock.mockResolvedValueOnce([{ id: INVOICE_ID }]);
     sqlMock.mockResolvedValueOnce([]); // ONE line item (grouped)
     markEntriesBilledMock.mockResolvedValueOnce(2);
@@ -188,7 +203,7 @@ describe('generateWipInvoice', () => {
         work_item_name: 'Bank recon', job_category_name: 'Accounting',
       },
     ]);
-    sqlMock.mockResolvedValueOnce([{ max_num: 0 }]);
+    sqlMock.mockResolvedValueOnce([{ used: 1, prefix: 'INV', padding: 7 }]); // reserve from the company sequence
     sqlMock.mockResolvedValueOnce([{ id: INVOICE_ID }]);
     sqlMock.mockResolvedValueOnce([]); // single grouped line
     markEntriesBilledMock.mockResolvedValueOnce(2);

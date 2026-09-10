@@ -148,10 +148,16 @@ export async function listItems(companyId: string, filters: ItemFilters = {}): P
 // ── Validation helpers ────────────────────────────────────────────────────────
 
 async function generateItemCode(companyId: string): Promise<string> {
-  const countRows = await sql`
-    SELECT COUNT(*)::int AS cnt FROM items WHERE company_id = ${companyId}
+  // MAX of the codes already minted under the ITEM- prefix, not a COUNT of the
+  // company's items: count is not max, so after a single item was deleted every
+  // later auto-code repeated one already in use — silently, since nothing
+  // enforces uniqueness on (company_id, code) and this path does not run
+  // checkCodeDuplicate.
+  const maxRows = await sql`
+    SELECT COALESCE(MAX(CAST(SUBSTRING(code FROM '[0-9]+$') AS INTEGER)), 0) AS max_num
+    FROM items WHERE company_id = ${companyId} AND code ~ '^ITEM-[0-9]+$'
   ` as Row[];
-  const nextNum = (Number((countRows[0] as Row)?.cnt) || 0) + 1;
+  const nextNum = (Number((maxRows[0] as Row)?.max_num) || 0) + 1;
   return `ITEM-${String(nextNum).padStart(4, '0')}`;
 }
 

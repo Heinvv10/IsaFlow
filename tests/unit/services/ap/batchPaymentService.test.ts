@@ -104,9 +104,10 @@ describe('processBatch — no sourceDocumentId, linked via gl_journal_entry_id',
   it('does not pass sourceDocumentId to createJournalEntry (would violate fk_gl_je_source_document)', async () => {
     mockSql
       .mockResolvedValueOnce([batchRow()]) // getBatchById
+      .mockResolvedValueOnce([{ id: BATCH_ID }]) // the status-predicated CLAIM, one row = won
       .mockResolvedValueOnce([]) // SELECT supplier_payments/payment_allocations (no payments in batch)
       .mockResolvedValueOnce([]) // UPDATE supplier_payments SET status='processed'
-      .mockResolvedValueOnce([]); // UPDATE supplier_payment_batches SET status='processed', ... gl_journal_entry_id
+      .mockResolvedValueOnce([]); // UPDATE supplier_payment_batches SET gl_journal_entry_id
 
     await processBatch(COMPANY_ID, BATCH_ID, USER_ID);
 
@@ -118,13 +119,14 @@ describe('processBatch — no sourceDocumentId, linked via gl_journal_entry_id',
   it('persists gl_journal_entry_id on the batch when processing', async () => {
     mockSql
       .mockResolvedValueOnce([batchRow()])
+      .mockResolvedValueOnce([{ id: BATCH_ID }])
       .mockResolvedValueOnce([])
       .mockResolvedValueOnce([])
       .mockResolvedValueOnce([]);
 
     await processBatch(COMPANY_ID, BATCH_ID, USER_ID);
 
-    const finalUpdateCall = mockSql.mock.calls[3]!;
+    const finalUpdateCall = mockSql.mock.calls[4]!;
     expect(sqlCallTouches(finalUpdateCall, 'gl_journal_entry_id', JE_ID)).toBe(true);
   });
 });

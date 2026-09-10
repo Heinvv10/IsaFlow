@@ -181,6 +181,11 @@ async function reserveNextDocumentNumberInner(
     `) as Record<string, unknown>[];
   }
   if (rows.length === 0) {
+    // Restore BEFORE throwing. This is not the timeout path — the transaction is
+    // still usable — so leaving the 5s ceiling set would leak it onto every later
+    // statement in the request and fail an unrelated write on a lock wait that
+    // has nothing to do with numbering.
+    if (client) await client.query('SET LOCAL lock_timeout = DEFAULT');
     throw new Error(`No document number config for type ${documentType}`);
   }
   // Restored on the SUCCESS path only. After a lock timeout the transaction is

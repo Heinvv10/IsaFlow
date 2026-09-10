@@ -218,3 +218,112 @@ WHERE ci.deleted_at IS NULL GROUP BY 1,2,3 HAVING count(*) > 1;
 ```
 Auto-post templates have never produced a document (the 23514 rolled every run back), so there is
 no auto-posted history to correct.
+
+---
+
+# Round 5 (R-044) — the census the round-4 sweep's generalisation missed
+
+Round 4's three named items (K-107 / K-120 / K-121) were confirmed closed by the blind review and
+all six of its mutations go red. What follows is the review's own census, plus mine, and the
+survivors both found. Every finding below is PRE-EXISTING and outside the three item numbers.
+
+## Findings from review-k107-r4
+
+| # | Site | Disposition |
+|---|---|---|
+| HIGH-1 | `quoteService.nextQuoteNumber` — `SELECT quote_number FROM customer_quotes ORDER BY created_at DESC LIMIT 1`, **no `company_id` at all** | FIXED. Reserves from the company's `quotation` sequence via `insertWithReservedNumber`; header AND lines now inside the savepoint so a retry orphans no lines. Migration **666** adds `uq_customer_quotes_company_number`. |
+| HIGH-2 | `practiceWipService.generateWipInvoice` + `pages/api/accounting/time-entries-invoice.ts` — status read, then mint, `markEntriesBilled`'s row count discarded, retry on `msg.includes('unique')` with no savepoint | FIXED. `lockTimeEntries` (FOR UPDATE, 5s `lock_timeout`, typed error) before the eligibility read; both mint through `insertWithReservedNumber`; the claim is predicated and its row count is checked (`TimeEntriesNotClaimedError`). |
+| MEDIUM-1 | `customerInvoiceCreateService` kept a sixth inline reserve-and-retry loop, renumbering on ANY 23505 | FIXED. Replaced with `insertWithReservedNumber`; only `uq_customer_invoices_company_number` renumbers. |
+| MEDIUM-2 | `pages/api/accounting/purchase-orders.ts` — `COUNT(*)+1` against `UNIQUE(company_id, po_number)`, no retry | FIXED. Reserves from the `purchase_order` sequence; `generatePONumber` removed (its only caller). |
+| LOW-1 | `DocumentNumberLockTimeoutError` reached no route; user saw a masked 500 | FIXED. `src/lib/apiDocumentLock.ts` maps all three lock-timeout errors to **503 + `Retry-After: 2`**, wired into `withErrorHandler` and the time-entries route. 503, not 4xx: 55P03 leaves the tx aborted and `withAuth` COMMITs below 500. |
+| LOW-2 | claiming UPDATEs had no `lock_timeout`, and sat in front of the one thing that did | FIXED. `documentClaimLock.claimUnderLockTimeout` — same 5s and typed error as `recurringTemplateLock`; used by both quote converts, the sales-order convert and the payment batch. |
+| LOW-3 | `reserveNextDocumentNumber` leaked the 5s ceiling on the "no config" throw | FIXED. Restored before that throw (not on the 55P03 path, which must not run another statement). |
+| LOW-4 | `supplier-returns.ts` minted `DR-` from `COUNT(*)+1` with no index behind it | FIXED. Reserves from the `supplier_return` sequence. Siblings: `expenseClaimService`, `assets.ts` → MAX; `inventoryService` see census. |
+| LOW-5 | auto-post test did not assert `fiscal_period_id` | FIXED in `k107-recurring-autopost-and-footing` (`journalOf` asserts non-null). |
+
+## My own census
+
+**(a) numbering / minting queries missing a `company_id` filter** — enumerated by call site over every
+`padStart` document-number construction and every `insertWithReservedNumber` /
+`reserveNextDocumentNumber` caller in `src/modules/**` and `pages/api/**`.
+
+| Site | Verdict |
+|---|---|
+| `quoteService.nextQuoteNumber` | **the only one** — fixed (HIGH-1) |
+| `admin/invoiceService` `INV-YYYYMM-` | global by design (platform billing, not tenant data); COUNT→MAX fixed |
+| every other generator | company-scoped already |
+
+**(b) check-then-act on a status without a lock or a predicated claim** — enumerated over every file
+that reads a status in JS *and* inserts a document or a journal.
+
+| Site | Verdict |
+|---|---|
+| `batchPaymentService.processBatch` | **NEW HIGH — FIXED.** Read `status !== 'approved'`, then created and POSTED DR AP / CR Bank for the batch, incremented `amount_paid` on every invoice, then rewrote the batch with `WHERE id = $1` (no status, no `company_id`). Two clicks = two journals, bank credited twice, supplier ledger overstated. Now a status-predicated claim under `claimUnderLockTimeout`, `BatchNotProcessableError` for the loser, `company_id` on the final UPDATE, and the route maps only the pre-write refusals to 4xx (it answered every failure with a 400, which `withAuth` COMMITs). |
+| `salesOrderService.updateSalesOrder` | **NEW MEDIUM — FIXED.** Header UPDATE was predicated but its row count discarded; the item DELETE + re-INSERT ran anyway, so a request beaten by a confirm rewrote the lines of an already-billed order. Returns null on zero rows. |
+| `time-entries-invoice.ts` vs the practice WIP path | **NEW MEDIUM — FIXED.** The two subsystems use different columns: WIP sets `status='billed'` + `billed_at` and leaves `invoiced` false, and this route read only `invoiced = false` — so entries the practice screen had already invoiced were billed a second time, **serially, with no concurrency**. `billed_at IS NULL` added to the read and the claim. |
+| `itemService.generateItemCode` | FIXED (COUNT→MAX; no unique index, so it was a silent duplicate). |
+| `quoteConvertService`, `salesOrderWorkflowService`, `recurringInvoice/Transaction`, `goodsReceivedService`, `deliveryNoteService`, `purchaseOrderService`, `creditNoteService`, `supplier-invoices.ts`, `bankAllocationService`, `sageImportService` | already guarded (claim, `FOR UPDATE`, advisory lock or atomic counter) |
+| `pages/api/accounting/products.ts` `generateProductCode(cat, 0)` | **NOT FIXED — unreachable.** `validateProduct` rejects a blank `code` with a 422 before the generator runs, so the "every product gets PRD-0001" bug cannot be triggered through the route. Reported, not patched. |
+| `procurementService.generateGRNNumber` | dead — no non-test caller (`goodsReceivedService` has its own atomic counter). Mentioned, not deleted. |
+| `inventoryService.generateProductCode` | only caller is the unreachable one above. |
+
+## Round 5 files
+
+`src/lib/apiDocumentLock.ts`, `src/lib/api-error-handler.ts`,
+`src/modules/accounting/services/core/documentClaimLock.ts`,
+`src/modules/accounting/services/practice/timeEntryLock.ts`, `practice/practiceWipService.ts`,
+`ar/quoteService.ts`, `ar/quoteConvertService.ts`, `ar/salesOrderWorkflowService.ts`,
+`ar/salesOrderService.ts`, `ar/customerInvoiceCreateService.ts`, `ap/batchPaymentService.ts`,
+`ap/procurementService.ts`, `core/companySettingsService.ts`, `core/documentNumberRetry.ts`,
+`expense/expenseClaimService.ts`, `items/itemService.ts`, `src/modules/admin/services/invoiceService.ts`,
+`pages/api/accounting/{assets,projects,purchase-orders,supplier-returns,time-entries-invoice,
+batch-payments-action}.ts`, `scripts/migrations/sql/666_customer_quote_number_unique.sql`.
+
+## Round 5 tests
+
+New: `k107-quote-number-tenant-scope` (5), `k107-wip-invoice-double-bill` (5),
+`k107-time-entries-invoice-route` (5), `k107-count-plus-one-numbering` (6),
+`k107-claim-lock-timeout` (2), `k107-batch-payment-double-post` (4),
+`k107-sales-order-line-rewrite` (3), `tests/unit/lib/apiDocumentLock.test.ts` (4).
+Whole K-107/120/121 integration set: **19 files, 71 passed**. Full unit suite with the fixture env
+UNSET: **9569 passed / 243 skipped / 0 failed**. `tsc --noEmit` and `eslint` on every changed file:
+clean. Mutation proof M20–M34 in green.log — every one red, including the two that need their guard
+removed *as well as* the lock to show a real double-bill (M21+M22, M23+M24), which is the honest
+statement that the count check is defence in depth behind the row lock, not the primary guard.
+
+## Round 5 migration and historical impact
+
+**666** `uq_customer_quotes_company_number`, total (no `deleted_at` on `customer_quotes`). It
+detects the same index by COLUMN SET, so it is a no-op where K-060's
+`uq_customer_quotes_company_quote_number` already exists, and the service accepts either name when
+it renumbers. All three paths proven against the fixture DB inside a rolled-back transaction:
+no-op, create, and refuse-with-named-groups. Rollback: `DROP INDEX uq_customer_quotes_company_number`.
+
+Existing rows may be wrong in three ways. Read-only probes, **NOT run against production**:
+```sql
+-- 1. quote numbers a company issued twice (the unscoped nextQuoteNumber). 666 refuses on these.
+SELECT company_id, quote_number, count(*) FROM customer_quotes
+ GROUP BY 1,2 HAVING count(*) > 1 ORDER BY 3 DESC;
+-- 2. time entries billed on two customer invoices (WIP path + time-entries route)
+SELECT te.company_id, te.id, te.invoice_id, te.billed_at, te.invoiced
+  FROM time_entries te
+ WHERE te.billed_at IS NOT NULL AND te.invoiced = true;   -- both subsystems claimed it
+-- 3. payment batches processed more than once (two journals for one batch)
+SELECT b.company_id, b.id, b.batch_number, count(je.id) AS journals
+  FROM supplier_payment_batches b
+  JOIN gl_journal_entries je
+    ON je.company_id = b.company_id AND je.source = 'auto_batch_payment'
+   AND je.description = 'Supplier batch payment ' || b.batch_number
+ GROUP BY 1,2,3 HAVING count(je.id) > 1;
+```
+Nothing is auto-corrected. A duplicate invoice is a real document that must be credit-noted, and a
+duplicated batch journal must be reversed by a journal, not deleted.
+
+## Limits
+
+- The `admin/invoiceService` COUNT→MAX fix has no test: the admin billing module has no integration
+  harness here, and it is covered only by `tsc` and `eslint`. Stated rather than implied.
+- `TimeEntriesNotClaimedError` and the sales-order row-count check are unreachable while their row
+  locks hold; they are proved by removing the lock as well (M21+M22, M23+M24), not on their own.
+- The concurrency assertions (`settled === false` after 300ms) are timing-sensitive under heavy
+  parallel-agent load on this box; one such flake was seen and did not reproduce in three reruns.
