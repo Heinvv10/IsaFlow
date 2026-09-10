@@ -25,7 +25,7 @@ afterAll(async()=>{if(pool)await pool.end();if(directory)await rm(directory,{rec
 const identity=(jobId:string=randomUUID())=>({companyId:fixture.companyA,personId:fixture.u1.id,jobId});
 async function actor<T>(work:()=>Promise<T>){return withAuditWorkerTransaction(pool,identity(),'read committed',Date.now()+10000,undefined,
  store=>withControlRequest(store,{companyId:fixture.companyA,personId:fixture.u1.id,authMethod:'cookie'},work));}
-async function script(name:string,source:string){const path=join(directory,name+'.cjs');await writeFile(path,source);return createIsolatedAuditJobRunner({nodePath,entryPath:path});}
+async function script(name:string,source:string){const path=join(directory,name+'.cjs');await writeFile(path,source);return createIsolatedAuditJobRunner({nodePath,entryPath:path,workerClass:'audit'});}
 it('real transient unit enforces cgroup caps and strict response while reporting actual peak',async()=>{
  const runner=await script('echo',"process.stdin.once('data',()=>process.stdout.write(JSON.stringify({version:1,result:{state:'not_claimed'}})+'\\n'));process.stdin.on('end',()=>process.exit(0));");
  const value=await runner.runIsolatedAuditJob(identity());expect(value.result).toEqual({state:'not_claimed'});expect(value.observation.memoryPeakBytes).toBeGreaterThan(0);expect(value.observation.oomKilled).toBe(false);
@@ -42,7 +42,7 @@ it('refuses oversized process output and does not publish a claimed success',asy
  const value=await runner.runIsolatedAuditJob(identity());expect(value.result).toMatchObject({state:'failed',code:'WORKER_ERROR',failureRecorded:false});
 });
 it('actual cold child authenticates saved delegation, publishes once and rechecks authority',async()=>{
- const runner=createIsolatedAuditJobRunner({nodePath,entryPath:resolve(artifact!)});
+ const runner=createIsolatedAuditJobRunner({nodePath,entryPath:resolve(artifact!),workerClass:'audit'});
  const job=await actor(()=>enqueueAuditSnapshot(requireControlTx(),{cutoff:'2026-09-09',sources:['journals','payroll'],checks:[],idempotencyKey:randomUUID()}));
  const first=await runner.runIsolatedAuditJob(identity(job.id));expect(first.result,JSON.stringify(first)).toMatchObject({state:'succeeded',snapshotId:job.id});
  expect(await actor(()=>getAuditJob(requireControlTx(),job.id))).toMatchObject({state:'succeeded',attempts:1});
@@ -89,7 +89,7 @@ async function waitForPublication(jobId:string){
 }
 it('graceful process cancellation cancels real publication SQL with a two-connection child pool',async()=>{
  const job=await actor(()=>enqueueAuditSnapshot(requireControlTx(),{cutoff:'2026-09-09',sources:['journals'],checks:[],idempotencyKey:randomUUID()}));
- const runner=createIsolatedAuditJobRunner({nodePath,entryPath:resolve(artifact!)}),controller=new AbortController();
+ const runner=createIsolatedAuditJobRunner({nodePath,entryPath:resolve(artifact!),workerClass:'audit'}),controller=new AbortController();
  await pausedPublication(job.id);const work=runner.runIsolatedAuditJob(identity(job.id),{signal:controller.signal});
  try{
   await waitForPublication(job.id);controller.abort();
@@ -115,7 +115,7 @@ it('hard-killed publication rolls back and expired authenticated claim recovers 
  }finally{controller.abort();await work;await unpausePublication();}
  expect((await pool.query("SELECT pid FROM pg_stat_activity WHERE datname=current_database() AND application_name=$1",[`isaflow-audit:${job.id}`])).rows).toEqual([]);
  await pool.query("UPDATE control_audit_jobs SET lease_expires_at=clock_timestamp()-interval '1 second' WHERE company_id=$1 AND job_id=$2",[fixture.companyA,job.id]);
- const runner=createIsolatedAuditJobRunner({nodePath,entryPath:resolve(artifact!)});
+ const runner=createIsolatedAuditJobRunner({nodePath,entryPath:resolve(artifact!),workerClass:'audit'});
  expect((await runner.runIsolatedAuditJob(identity(job.id))).result).toMatchObject({state:'succeeded',snapshotId:job.id});
  expect((await pool.query('SELECT state,attempts,generation FROM control_audit_jobs WHERE company_id=$1 AND job_id=$2',[fixture.companyA,job.id])).rows[0]).toEqual({state:'succeeded',attempts:2,generation:'2'});
 },45000);
@@ -124,7 +124,7 @@ it('publication pause does not delay another job or another company',async()=>{
  const selected=await actor(()=>enqueueAuditSnapshot(requireControlTx(),{cutoff:'2026-09-09',sources:['journals'],checks:[],idempotencyKey:randomUUID()}));
  await pausedPublication(selected.id);
  try{
-  const runner=createIsolatedAuditJobRunner({nodePath,entryPath:resolve(artifact!)});
+  const runner=createIsolatedAuditJobRunner({nodePath,entryPath:resolve(artifact!),workerClass:'audit'});
   for(const user of [fixture.u1,fixture.u3]){
    const who={companyId:user.companyId,personId:user.id,jobId:randomUUID()};
    const other=await withAuditWorkerTransaction(pool,who,'read committed',Date.now()+10000,undefined,

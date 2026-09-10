@@ -43,7 +43,7 @@ export async function runCurrentSourceAcceptance(env:NodeJS.ProcessEnv){
   const client=mcpHttpClient(origin),token=fixture.u2.tokens[0]!;
   const scopes=(await pool.query('SELECT scopes FROM personal_access_tokens WHERE company_id=$1 AND user_id=$2 AND id=$3',[fixture.companyA,fixture.u2.id,token.id])).rows[0].scopes;
   const job=value<{id:string}>(await client.rpc(token.raw,'tools/call',{name:'audit_snapshot',arguments:{cutoff:'2026-09-09',sources:['journals'],checks:[],idempotency_key:randomUUID()}}));
-  const run=await runAuditJob({companyId:fixture.companyA,personId:fixture.u2.id,jobId:job.id},{pool});
+  const run=await runAuditJob({companyId:fixture.companyA,personId:fixture.u2.id,jobId:job.id},{pool,workerClass:'audit'});
   if(run.state!=='succeeded')throw new Error(`Real snapshot prerequisite failed: ${run.state}`);
   value(await client.rpc(token.raw,'tools/call',{name:'audit_snapshot_manifest',arguments:{snapshot_id:job.id}}));
   approvedArgs.set('export_audit_evidence',{snapshot_id:job.id,idempotency_key:randomUUID()});

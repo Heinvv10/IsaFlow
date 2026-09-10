@@ -14,7 +14,7 @@ it('actual PAT HTTP delivers cold snapshot and poller export with authenticated 
  const job=await f.call<Job>('audit_snapshot',{...request,idempotency_key:randomUUID(),company_id:f.fixture.companyA});
  for(let i=0;i<2;i++)expect(await f.call<Job>('audit_job_status',{job_id:job.id})).toMatchObject({state:'queued',attempts:0});
  expect((await f.pool.query('SELECT id FROM control_audit_snapshots WHERE company_id=$1 AND id=$2',[f.fixture.companyA,job.id])).rows).toEqual([]);
- expect(await runAuditJob({companyId:f.fixture.companyA,personId:f.fixture.u1.id,jobId:job.id},{pool:f.pool})).toMatchObject({state:'succeeded'});
+ expect(await runAuditJob({companyId:f.fixture.companyA,personId:f.fixture.u1.id,jobId:job.id},{pool:f.pool,workerClass:'audit'})).toMatchObject({state:'succeeded'});
  const header=await f.call<SnapshotIndexHeader>('audit_snapshot_manifest',{snapshot_id:job.id});expect(header.counts.records).toBeGreaterThan(0);expect(header.counts.evidence).toBeGreaterThan(0);
  const retained:Buffer[]=[];
  for(const section of ['records','evidence'] as const){
@@ -33,7 +33,7 @@ it('actual PAT HTTP delivers cold snapshot and poller export with authenticated 
  await f.pool.query("UPDATE bank_transaction_attachments SET file_url='data:text/plain;base64,Y2hhbmdlZA==' WHERE id=$1 AND bank_transaction_id=$2",[f.attachment,f.bank]);
  const exported=await f.call<Job>('export_audit_evidence',{snapshot_id:job.id,idempotency_key:randomUUID(),company_id:f.fixture.companyA});
  expect(await f.call<Job>('audit_job_status',{job_id:exported.id})).toMatchObject({state:'queued',attempts:0});
- await createAuditJobPoller({companyIds:[f.fixture.companyA],batchSize:10},{pool:f.pool,executeJob:(identity,options)=>runAuditJob(identity,{pool:f.pool,...options})}).pollOnce();
+ await createAuditJobPoller({companyIds:[f.fixture.companyA],batchSize:10},{pool:f.pool,executeJob:(identity,options)=>runAuditJob(identity,{pool:f.pool,...options,workerClass:'audit'})}).pollOnce();
  expect(await f.call<Job>('audit_job_status',{job_id:exported.id})).toMatchObject({state:'succeeded',resultExportId:exported.id});
  const files:EvidenceExportFile[]=[];let cursor:string|undefined;
  do{const page=await f.call<Files>('audit_export_files',{job_id:exported.id,limit:2,...(cursor?{cursor}:{})});
@@ -46,7 +46,7 @@ it('actual PAT HTTP delivers cold snapshot and poller export with authenticated 
  expect(verified.canonicalSnapshotHash).toBe(header.canonicalHash);
  const snapshot=JSON.parse(Buffer.from(files.find(file=>file.path==='snapshot.json')!.bytes).toString());expect(snapshot.records.find((record:{id:string})=>record.id===f.journal)).toEqual(journalRecord);
  expect(files.some(file=>Buffer.from(file.bytes).equals(f.bytes))).toBe(true);
- expect(await runAuditJob({companyId:f.fixture.companyA,personId:f.fixture.u1.id,jobId:exported.id},{pool:f.pool})).toEqual({state:'not_claimed'});
+ expect(await runAuditJob({companyId:f.fixture.companyA,personId:f.fixture.u1.id,jobId:exported.id},{pool:f.pool,workerClass:'audit'})).toEqual({state:'not_claimed'});
  expect((await f.rpc('audit_snapshot_manifest',{snapshot_id:job.id},'u3')).result?.isError).toBe(true);
 },90000);
 it('same-key concurrent retry, separate people and revoked payroll replay use current HTTP authority',async()=>{

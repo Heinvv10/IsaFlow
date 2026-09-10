@@ -1,4 +1,5 @@
 import {readRetainedAuditSnapshotSeal} from '@/modules/accounting/services/controls/auditRetainedSnapshotSeal';
+import {AUDIT_WORKER_CLASS_KINDS} from '@/modules/accounting/services/controls/auditJobContract';
 import {afterAll,beforeAll,expect,it} from 'vitest';
 import {createHash,randomBytes,randomUUID} from 'node:crypto';
 import {Pool} from 'pg';
@@ -23,7 +24,7 @@ async function actor<T>(fn:()=>Promise<T>,person:'u1'|'u3'='u1',lease?:AuditJobL
  }catch(error){await client.query('ROLLBACK');throw error;}finally{client.release();}}
 async function historicalMaterial(){
  const job=await actor(()=>enqueueAuditSnapshot(requireControlTx(),{cutoff:'2026-09-09',sources:['journals','ar','ap','bank','payroll'],checks:[],idempotencyKey:randomUUID()}));
- const lease=(await actor(()=>claimAuditJob(requireControlTx(),job.id)))!;
+ const lease=(await actor(()=>claimAuditJob(requireControlTx(),job.id,AUDIT_WORKER_CLASS_KINDS.audit)))!;
  const bytes=Buffer.from('Synthetic original evidence retained before Sage population expansion');
  const sources=['journal_entry','journal_line','customer_invoice','customer_invoice_line','customer_payment','customer_payment_allocation',
   'supplier_invoice','supplier_invoice_line','supplier_payment','supplier_payment_allocation','bank_transaction','bank_statement_import','bank_statement_attestation_intent','payroll_run','payroll_run_line'];

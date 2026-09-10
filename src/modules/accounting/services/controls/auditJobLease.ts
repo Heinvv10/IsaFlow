@@ -6,7 +6,8 @@ import {assertControlTx,withControlJobRequest} from './context';
 import {openAuditJobRequest} from './auditJobProtection';
 import type {ProtectedChange} from './changeProtection';
 import type {ControlTx} from './contracts';
-import {AUDIT_JOB_LIMITS} from './auditJobContract';
+import {AUDIT_JOB_LIMITS,type AuditJobKind} from './auditJobContract';
+import {AUDIT_CHECK_RUN_LIMITS} from './auditCheckRunContract';
 import {getAuditJob} from './auditJobService';
 export interface AuditJobLease {readonly companyId:string;readonly personId:string;readonly jobId:string;readonly leaseId:string;readonly generation:number}
 const issued=new WeakSet<AuditJobLease>();
@@ -21,13 +22,21 @@ export function assertAuditJobLease(ctx:ControlTx,lease:AuditJobLease):void{
 export function assertIssuedAuditJobLease(lease:AuditJobLease,companyId:string|undefined,personId:string):void{
  if(!issued.has(lease)||lease.companyId!==companyId||lease.personId!==personId)throw new Error('Invalid audit job lease authority');
 }
+/** Lease covers the kind's whole run: check runs get maxRuntime + grace at claim, legacy kinds keep 90 s. */
+function leaseMs(kind:AuditJobKind,checkId:string|undefined):number{
+ if(kind!=='audit_check_run')return AUDIT_JOB_LIMITS.leaseSeconds*1000;
+ const limits=AUDIT_CHECK_RUN_LIMITS[checkId as keyof typeof AUDIT_CHECK_RUN_LIMITS];
+ if(!limits)throw new Error('Audit check-run limits unavailable');
+ return limits.maxRuntimeMs+limits.graceMs;
+}
 /** Called by the worker, never a status/read path. SQL generation fencing survives worker restarts. */
-export async function claimAuditJob(ctx:ControlTx,id:string):Promise<AuditJobLease|null>{
- assertControlTx(ctx);await getAuditJob(ctx,id);
- return claimPendingJob(ctx,id);
+export async function claimAuditJob(ctx:ControlTx,id:string,allowedKinds:readonly AuditJobKind[]):Promise<AuditJobLease|null>{
+ assertControlTx(ctx);const status=await getAuditJob(ctx,id);
+ if(!allowedKinds.includes(status.kind))return null;
+ return claimPendingJob(ctx,id,leaseMs(status.kind,status.kind==='audit_check_run'?status.checkId:undefined));
 }
 /** Server-only cold bootstrap. The supplied transaction has no HTTP principal; saved evidence is its authority. */
-export async function claimAuditJobForWorker(store:RequestContext,id:string):Promise<AuditJobLease|null>{
+export async function claimAuditJobForWorker(store:RequestContext,id:string,allowedKinds:readonly AuditJobKind[]):Promise<AuditJobLease|null>{
  const companyId=store.companyId,personId=store.userId;
  if(als.getStore()||store.controlPrincipal||!companyId||!UUID_RE.test(companyId)||!personId||!UUID_RE.test(id))throw new Error('Invalid cold audit worker transaction');
  return als.run(store,()=>withSavepoint('audit_worker_claim',async()=>{
@@ -35,13 +44,15 @@ export async function claimAuditJobForWorker(store:RequestContext,id:string):Pro
    WHERE company_id=${companyId}::uuid AND id=${id}::uuid AND requester_person_id=${personId}` as {
     kind:string;id:string;company_id:string;requester_person_id:string;request_hash:string;protected_request:ProtectedChange}[];
   if(rows.length!==1||!rows[0])throw new Error('Audit job unavailable');
-  openAuditJobRequest(rows[0]);
-  const lease=await claimPendingJob({sql,principal:{companyId,personId}},id);
+  // Out-of-class work is refused before the job row is read for update, so it stays byte-identical.
+  if(!(allowedKinds as readonly string[]).includes(rows[0].kind))return null;
+  const opened=openAuditJobRequest(rows[0]);
+  const lease=await claimPendingJob({sql,principal:{companyId,personId}},id,leaseMs(opened.kind,opened.kind==='audit_check_run'?opened.request.checkId:undefined));
   if(lease)await withControlJobRequest(store,lease,async()=>undefined);
   return lease;
  }));
 }
-async function claimPendingJob(ctx:{sql:TxSql;principal:{companyId:string;personId:string}},id:string):Promise<AuditJobLease|null>{
+async function claimPendingJob(ctx:{sql:TxSql;principal:{companyId:string;personId:string}},id:string,leaseMillis:number):Promise<AuditJobLease|null>{
  return withSavepoint('audit_job_claim',async()=>{
   const rows=await ctx.sql`SELECT attempts,generation FROM control_audit_jobs
    WHERE company_id=${ctx.principal.companyId}::uuid AND job_id=${id}::uuid
@@ -56,7 +67,7 @@ async function claimPendingJob(ctx:{sql:TxSql;principal:{companyId:string;person
   }
   const lease=Object.freeze({companyId:ctx.principal.companyId,personId:ctx.principal.personId,jobId:id,leaseId:randomUUID(),generation:Number(row.generation)+1});
   await ctx.sql`UPDATE control_audit_jobs SET state='running',attempts=attempts+1,generation=${lease.generation},lease_id=${lease.leaseId}::uuid,
-   lease_expires_at=clock_timestamp()+${AUDIT_JOB_LIMITS.leaseSeconds}*interval '1 second',started_at=COALESCE(started_at,clock_timestamp()),
+   lease_expires_at=clock_timestamp()+${leaseMillis}*interval '1 millisecond',started_at=COALESCE(started_at,clock_timestamp()),
    completed_at=NULL,updated_at=clock_timestamp()
    WHERE company_id=${ctx.principal.companyId}::uuid AND job_id=${id}::uuid`;
   issued.add(lease);return lease;

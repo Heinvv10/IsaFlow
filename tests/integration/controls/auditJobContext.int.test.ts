@@ -5,6 +5,10 @@ import {fixtureConfigFromEnv} from '../../../scripts/forensic/fixture-bootstrap'
 import {provisionForensicFixture,validateFixtureTarget,type ForensicFixture} from '../forensic-fixture';
 import {withControlRequest,withControlJobRequest,requireControlTx,makeControlPrincipal} from '@/modules/accounting/services/controls/context';
 import {enqueueAuditSnapshot} from '@/modules/accounting/services/controls/auditJobService';
+import {enqueueAuditExport} from '@/modules/accounting/services/controls/auditExportJobService';
+import {enqueueAuditComparison} from '@/modules/accounting/services/controls/auditComparisonJobService';
+import {enqueueAuditCheckRuns} from '@/modules/accounting/services/controls/auditCheckRunJobService';
+import {AUDIT_WORKER_CLASS_KINDS} from '@/modules/accounting/services/controls/auditJobContract';
 import {claimAuditJob,claimAuditJobForWorker,type AuditJobLease} from '@/modules/accounting/services/controls/auditJobLease';
 import {assertEffectivePermission} from '@/lib/auth/effectivePermissions';
 import {openProtectedChange,protectChangeValues} from '@/modules/accounting/services/controls/changeProtection';
@@ -15,13 +19,13 @@ let fixture:ForensicFixture;
 const oauthApp=randomUUID(),oauthGrant=randomUUID();
 beforeAll(async()=>{
  fixture=await provisionForensicFixture(config);
- await pool.query("UPDATE personal_access_tokens SET scopes=ARRAY['read:reports'] WHERE company_id=$1 AND user_id=$2 AND id=$3",
+ await pool.query("UPDATE personal_access_tokens SET scopes=ARRAY['read:reports','write:audit'] WHERE company_id=$1 AND user_id=$2 AND id=$3",
   [fixture.companyA,fixture.u1.id,fixture.u1.tokens[0]!.id]);
  await pool.query(`INSERT INTO oauth_apps(id,name,redirect_uris,client_id,client_secret_hash,client_secret_prefix,owner_user_id)
   VALUES($1,'Synthetic job delegation',$2,$3,$4,'synthetic',$5)`,
  [oauthApp,['https://forensic.invalid/callback'],oauthApp,`synthetic-${oauthApp}`,fixture.u1.id]);
  await pool.query(`INSERT INTO oauth_authorisations(id,oauth_app_id,user_id,company_id,scopes,access_token_expires_at,refresh_token_hash,refresh_token_prefix,refresh_token_expires_at)
-  VALUES($1,$2,$3,$4,ARRAY['read:reports'],clock_timestamp()+interval '1 day',$5,'synthetic',clock_timestamp()+interval '1 day')`,
+  VALUES($1,$2,$3,$4,ARRAY['read:reports','write:audit'],clock_timestamp()+interval '1 day',$5,'synthetic',clock_timestamp()+interval '1 day')`,
  [oauthGrant,oauthApp,fixture.u1.id,fixture.companyA,`synthetic-${oauthGrant}`]);
 });
 afterAll(()=>pool.end());
@@ -33,14 +37,14 @@ async function actor<T>(mode:'cookie'|'pat'|'oauth'|AuditJobLease,fn:()=>Promise
   await client.query("SELECT set_config('request.jwt.claims',$1,true),set_config('app.current_company_id',$2,true)",[JSON.stringify(claims),user.companyId]);
   const store={client,userId:user.id,companyId:user.companyId,claims};
   const value=typeof mode==='object'?await withControlJobRequest(store,mode,fn):await withControlRequest(store,
-   {personId:user.id,companyId:user.companyId,authMethod:mode,...(mode==='pat'?{connectionId:user.tokens[0]!.id,grantId:user.tokens[0]!.id,grantedScopes:['read:reports']}:
-    mode==='oauth'?{connectionId:oauthGrant,grantId:oauthGrant,grantedScopes:['read:reports']}: {})},fn);
+   {personId:user.id,companyId:user.companyId,authMethod:mode,...(mode==='pat'?{connectionId:user.tokens[0]!.id,grantId:user.tokens[0]!.id,grantedScopes:['read:reports','write:audit']}:
+    mode==='oauth'?{connectionId:oauthGrant,grantId:oauthGrant,grantedScopes:['read:reports','write:audit']}: {})},fn);
   await client.query('COMMIT');return value;
  }catch(error){await client.query('ROLLBACK');throw error;}finally{client.release();}
 }
 async function leased(mode:'cookie'|'pat'|'oauth'='cookie'){
  const job=await actor(mode,()=>enqueueAuditSnapshot(requireControlTx(),{cutoff:'2026-09-09',sources:['journals'],checks:[],idempotencyKey:randomUUID()}));
- const lease=await actor(mode,()=>claimAuditJob(requireControlTx(),job.id));expect(lease).not.toBeNull();return lease!;
+ const lease=await actor(mode,()=>claimAuditJob(requireControlTx(),job.id,AUDIT_WORKER_CLASS_KINDS.audit));expect(lease).not.toBeNull();return lease!;
 }
 it('issues real job provenance with saved read-only source authority, never an invented cookie',async()=>{
  const lease=await leased();
@@ -97,7 +101,7 @@ it('checks the signed delegation expiry independently of an otherwise live queue
 it('does not admit a capability whose claim was rolled back',async()=>{
  const job=await actor('cookie',()=>enqueueAuditSnapshot(requireControlTx(),{cutoff:'2026-09-09',sources:['journals'],checks:[],idempotencyKey:randomUUID()}));
  let lease:AuditJobLease|null=null;
- await expect(actor('cookie',async()=>{lease=await claimAuditJob(requireControlTx(),job.id);throw new Error('Synthetic rollback');})).rejects.toThrow('Synthetic rollback');
+ await expect(actor('cookie',async()=>{lease=await claimAuditJob(requireControlTx(),job.id,AUDIT_WORKER_CLASS_KINDS.audit);throw new Error('Synthetic rollback');})).rejects.toThrow('Synthetic rollback');
  expect(lease).not.toBeNull();await expect(actor(lease!,async()=>undefined)).rejects.toThrow(/lease/);
 });
 async function coldClaim(jobId:string,person:'u1'|'u3'='u1',catchPermissionFailure=false){
@@ -107,7 +111,7 @@ async function coldClaim(jobId:string,person:'u1'|'u3'='u1',catchPermissionFailu
   const claims={sub:user.id,role:'authenticated',company_id:user.companyId};
   await client.query("SELECT set_config('request.jwt.claims',$1,true),set_config('app.current_company_id',$2,true)",[JSON.stringify(claims),user.companyId]);
   let lease:AuditJobLease|null=null;
-  try{lease=await claimAuditJobForWorker({client,userId:user.id,companyId:user.companyId,claims},jobId);}
+  try{lease=await claimAuditJobForWorker({client,userId:user.id,companyId:user.companyId,claims},jobId,AUDIT_WORKER_CLASS_KINDS.audit);}
   catch(error){if(!catchPermissionFailure)throw error;expect(error).toHaveProperty('message','Current permissions do not allow this operation.');}
   await client.query('COMMIT');return lease;
  }catch(error){await client.query('ROLLBACK');throw error;}finally{client.release();}
@@ -140,4 +144,15 @@ it('serializes cold claims and fences an expired worker after takeover',async()=
  const next=await coldClaim(job.id);expect(next!.generation).toBe(leases[0]!.generation+1);
  await expect(actor(leases[0]!,async()=>undefined)).rejects.toThrow(/lease/);
  await actor(next!,async()=>{expect(requireControlTx().principal.provenance).toBe('job');});
+});
+it('refuses every audit enqueue from a job principal: a worker delegates no new work, whatever it holds',async()=>{
+ const lease=await leased(),other=randomUUID(),count=async()=>(await pool.query('SELECT count(*)::int AS n FROM control_audit_job_intents WHERE company_id=$1',[fixture.companyA])).rows[0].n as number;
+ const before=await count();
+ for(const [kind,enqueue] of [['snapshot',()=>enqueueAuditSnapshot(requireControlTx(),{cutoff:'2026-09-09',sources:['journals'],checks:[],idempotencyKey:randomUUID()})],
+  ['export',()=>enqueueAuditExport(requireControlTx(),{snapshotId:other,idempotencyKey:randomUUID()})],
+  ['comparison',()=>enqueueAuditComparison(requireControlTx(),{firstSnapshotId:other,secondSnapshotId:randomUUID(),idempotencyKey:randomUUID()})],
+  ['check-run',()=>enqueueAuditCheckRuns(requireControlTx(),{cutoff:'2026-09-09',checks:['journal_risk_checks'],idempotencyKey:randomUUID()})]] as const)
+  // The refusal is named: a write:audit or source-permission refusal would only hold while the saved delegation lacks them.
+  await expect(actor(lease,enqueue),`a job principal enqueued ${kind} work`).rejects.toThrow(`An authenticated request is required to delegate ${kind} work`);
+ expect(await count()).toBe(before);
 });

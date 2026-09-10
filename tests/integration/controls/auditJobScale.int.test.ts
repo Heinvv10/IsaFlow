@@ -52,7 +52,7 @@ beforeAll(async()=>{
 afterAll(async()=>{if(pool)await pool.end();if(directory)await rm(directory,{recursive:true,force:true});});
 it('cold snapshot and export preserve the independent complete balanced journal population',async()=>{
  expect(census.headerCount+census.lineCount).toBe(records);expect(census.debit).toBe(census.credit);
- const runner=createIsolatedAuditJobRunner({nodePath:process.execPath,entryPath:process.env.ISAFLOW_FORENSIC_AUDIT_ARTIFACT!});
+ const runner=createIsolatedAuditJobRunner({nodePath:process.execPath,entryPath:process.env.ISAFLOW_FORENSIC_AUDIT_ARTIFACT!,workerClass:'audit'});
  const snapshotJob=await actor(()=>enqueueAuditSnapshot(requireControlTx(),{cutoff:'2026-09-09',sources:['journals'],checks:[],idempotencyKey:randomUUID()}));
  for(let n=0;n<2;n++)expect(await actor(()=>getAuditJob(requireControlTx(),snapshotJob.id))).toMatchObject({state:'queued',attempts:0});
  const captured=await observed(runner,snapshotJob.id);

@@ -39,6 +39,10 @@ export const CLIENT_MCP_TOOL_NAMES = [
   'compare_audit_snapshots',
   'audit_comparison_items',
 
+  'run_control_checks',
+  'control_check_run',
+  'control_check_run_findings',
+
   'duplicate_invoice_checks',
   'payment_risk_checks',
   'three_way_match_exceptions',
