@@ -7,7 +7,7 @@ import { assertControlTx } from './context';
 import { canonicalJson } from './canonical';
 import { approvalAuthorities, approvalDecisions, assertRequesterAuthority, lockApproval, validateDecisions, type ApprovalRow, type AuthorityRow } from './approvalQueries';
 import { canonicalOperationRef, loadOperationMaterial, materializeOperation, reserveOperationExposure } from './operationMaterializer';
-import { SuppliedApprovalRefusal, isSuppliedApprovalRefusal } from './suppliedApprovalRefusal';
+import { SuppliedApprovalRefusal } from './suppliedApprovalRefusal';
 export { isSuppliedApprovalRefusal, SuppliedApprovalRefusal } from './suppliedApprovalRefusal';
 
 import { initializeOperationObservations } from './approvalRequestService';
