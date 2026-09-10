@@ -5,6 +5,7 @@ import { sql } from '@/lib/neon';
 import type { ControlPrincipal, ControlTx } from './contracts';
 import type {AuditJobLease} from './auditJobLease';
 import {loadStoredAuditJobDelegation} from './auditJobDelegation';
+import {assertPlatformImportPrincipal} from '@/lib/auth/platformImportAuthority';
 
 interface Lifetime { active: boolean; store: RequestContext; client: PoolClient; principal: ControlPrincipal }
 export class ControlIntegrityError extends Error {
@@ -38,7 +39,7 @@ type AuthenticatedIdentity = Pick<ControlPrincipal, 'personId' | 'companyId' | '
 
 /** Authentication middleware supplies this identity; request args are never input. */
 export function makeControlPrincipal(identity: AuthenticatedIdentity): ControlPrincipal {
-  if (!identity.personId || !identity.companyId || identity.authMethod === 'job') {
+  if (!identity.personId || !identity.companyId || (identity.authMethod === 'job' || identity.authMethod === 'platform_import')) {
     throw new Error('Authenticated tenant principal required');
   }
   const bearer = identity.authMethod !== 'cookie';
@@ -81,6 +82,7 @@ export function assertControlTx(ctx: ControlTx): void {
     || ctx.principal.companyId !== store.companyId || ctx.principal.personId !== store.userId) {
     throw new Error('Control transaction does not match authenticated request');
   }
+  if(ctx.principal.authMethod==='platform_import')assertPlatformImportPrincipal(ctx.principal,store);
   assertTxUsable();
 }
 
@@ -132,4 +134,10 @@ async function withPrincipal<T>(store:RequestContext,principal:ControlPrincipal,
       activeRequests.delete(store);
     }
   });
+}
+
+/** Only an active privately registered platform-import target can enter this lifetime. */
+export async function withControlPlatformImportRequest<T>(store:RequestContext,principal:ControlPrincipal,handler:()=>Promise<T>):Promise<T>{
+ assertPlatformImportPrincipal(principal,store);
+ return withPrincipal(store,principal,handler);
 }

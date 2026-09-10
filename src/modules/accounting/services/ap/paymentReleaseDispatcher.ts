@@ -56,13 +56,13 @@ async function transmit(claim:ReleaseClaim):Promise<{state:'accepted'|'unknown'|
 }
 /** Register during the authenticated request; no escaped ctx, body identity, or recoverable fake cookie. */
 export async function schedulePaymentReleaseDispatch(ctx:ControlTx,intentId:string):Promise<void>{
- assertControlTx(ctx);if(!UUID_RE.test(intentId)||ctx.principal.authMethod==='job')throw new Error('Authenticated fixed release required');
+ assertControlTx(ctx);if(!UUID_RE.test(intentId)||(ctx.principal.authMethod==='job'||ctx.principal.authMethod==='platform_import'))throw new Error('Authenticated fixed release required');
  await assertEffectivePermission(ctx,'write:release');
  const [intent]=await ctx.sql`SELECT requester_person_id FROM control_payment_release_intents
   WHERE company_id=${ctx.principal.companyId}::uuid AND id=${intentId}::uuid` as Array<{requester_person_id:string}>;
  if(intent?.requester_person_id!==ctx.principal.personId)throw new Error('Release requester required');
  const p=ctx.principal;
- if(p.authMethod==='job')throw new Error('Authenticated release principal required');
+ if(p.authMethod==='job'||p.authMethod==='platform_import')throw new Error('Authenticated release principal required');
  const identity:Identity=Object.freeze({companyId:p.companyId,personId:p.personId,authMethod:p.authMethod,
   connectionId:p.connectionId,grantId:p.grantId,grantedScopes:p.grantedScopes===null?null:Object.freeze([...p.grantedScopes])});
  let settled=false;
