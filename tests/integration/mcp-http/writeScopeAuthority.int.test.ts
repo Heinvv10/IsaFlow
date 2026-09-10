@@ -26,6 +26,16 @@ it('audit job enqueue tools refuse read-only and write-only authority and enqueu
  }
  expect(outcomes).toEqual(cases.flatMap(([name])=>[`${name} read-only: refused, jobs +0`,`${name} write-only: refused, jobs +0`,`${name} granted: accepted, jobs +1`]));
 },120000);
+it('lock_vat_period dry run runs the same authority the live lock runs',async()=>{
+ const period={period_start:'2031-03-01',period_end:'2031-04-30'};
+ const locks=()=>count('SELECT count(*)::int AS n FROM vat_period_locks WHERE company_id=$1 AND period_start=$2 AND period_end=$3',[f.fixture.companyA,period.period_start,period.period_end]);
+ const preview=await f.rpcToken(await f.scopedToken(['read:vat','write:post']),'lock_vat_period',{...period,dry_run:true,idempotency_key:randomUUID()});
+ expect(preview.result?.isError,`preview without write:locks: ${text(preview)}`).toBe(true);
+ const allowed=await f.rpcToken(await f.scopedToken(['read:vat','write:post','write:locks']),'lock_vat_period',{...period,dry_run:true,idempotency_key:randomUUID()});
+ expect(allowed.result?.isError,text(allowed)).not.toBe(true);
+ expect(JSON.parse(text(allowed))).toMatchObject({dryRun:true,wouldLock:true,alreadyLocked:null});
+ expect(await locks()).toBe(0);
+},60000);
 it('lock_vat_period refuses read:vat without write:post and without write:locks, and locks with all three',async()=>{
  const period={period_start:'2031-01-01',period_end:'2031-02-28'};
  const locks=()=>count('SELECT count(*)::int AS n FROM vat_period_locks WHERE company_id=$1 AND period_start=$2 AND period_end=$3',[f.fixture.companyA,period.period_start,period.period_end]);
