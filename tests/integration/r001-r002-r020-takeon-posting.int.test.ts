@@ -754,6 +754,43 @@ describeIfDb('take-on posting for imported documents', () => {
     }
   }, 60000);
 
+  it('still reports the residual when the clearing account was deactivated after the take-on', async () => {
+    // is_active is a PICKER flag: it decides what a dropdown offers, not what an
+    // account holds. The residual query once carried `a.is_active = true`, so an
+    // operator who tidied the chart by deactivating Opening Balance Equity after
+    // the take-on lost every one of its lines and was told the take-on balanced.
+    const c = await pool.connect();
+    await c.query('BEGIN');
+    try {
+      await run(c, () => importARInvoices(COMPANY, sessionId, [
+        arRow({ invoiceNumber: `${TAG}-deactivated`, amountPaid: 0 }),
+      ], USER));
+
+      // The tidy-up happens AFTER the lines are posted; the money stays.
+      const off = await c.query(
+        `UPDATE gl_accounts SET is_active = false
+          WHERE company_id = $1 AND account_subtype = 'opening_balance_equity'
+            AND is_system_account = true`,
+        [COMPANY],
+      );
+      expect(off.rowCount).toBe(1);
+
+      await run(c, () => completeSession(sessionId, COMPANY));
+
+      const sess = (await c.query(
+        `SELECT errors FROM migration_sessions WHERE id = $1 AND company_id = $2`,
+        [sessionId, COMPANY],
+      )).rows[0];
+      const residual = sess.errors.find((e: { step: string }) => e.step === 'complete');
+      expect(residual).toBeTruthy();
+      expect(residual.message).toContain('1150.00');
+      expect(residual.severity).toBe('warning');
+    } finally {
+      await c.query('ROLLBACK').catch(() => {});
+      c.release();
+    }
+  }, 60000);
+
   it('ignores a second, non-system opening-balance-equity account in the residual', async () => {
     // The residual summed every account with subtype opening_balance_equity,
     // while getSystemAccountId resolves the clearing account by subtype AND

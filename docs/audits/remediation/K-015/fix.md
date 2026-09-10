@@ -645,3 +645,75 @@ mis-keyed under either previous implementation. Nothing outside 670 rewrites the
 round's commit — five. PR #373 therefore shows a state in which the blank-number and unmapped-column
 refusals, the third fingerprint producer, and the supplier-VAT source are all absent. This session
 does not push. **Do not read or merge #373 until the branch is pushed.**
+
+════════════════════════════════════════════════════════════════════════════
+ROUND 9 — the CI gate the branch itself broke
+════════════════════════════════════════════════════════════════════════════
+
+**The failure.** `bun run ci` step `is-active-filters` FAILED on
+`src/modules/accounting/services/core/migrationService.ts`, added at `322cbad04`
+by round-8's L1 fix above:
+
+```
+ERROR: NEW file(s) filtering is_active in a balance query:
+  src/modules/accounting/services/core/migrationService.ts
+```
+
+**The gate is right and L1 above was wrong.** L1's reasoning was that
+`recordClearingResidual` should mirror the three predicates `getSystemAccountId`
+resolves the clearing account by. That conflates two different jobs.
+`getSystemAccountId` **PICKS** an account; this query **COMPUTES a balance**. A
+picker may prefer active accounts — that is what `is_active` is for. A balance
+check may not: `is_active` is a status flag an operator flips *after* the money
+is posted, and the lines stay exactly where they were. An operator who tidied the
+chart by deactivating Opening Balance Equity once the take-on was in lost every
+one of its lines from the residual and was told the wizard balanced. That is the
+same defect `casewareExportService` had (R130,000 dropped), which is why the gate
+exists.
+
+**FIXED.** `AND a.is_active = true` is gone from `recordClearingResidual`. The
+comment now records why it must not come back.
+
+**`is_system_account` was checked with the same lens and KEPT.** It is not a
+picker preference here, it IDENTIFIES the clearing account — without it a chart
+carrying a second, manually created Opening Balance Equity account pulls lines
+the take-on never posted to into the residual (the round-8 finding, still covered
+by its test). Nor can it hide a live residual the way `is_active` could: its only
+mutation path is the COA re-import's demotion in `migrationCoaService`, and that
+statement clears `account_subtype` in the same UPDATE, so a demoted row leaves
+this query by the subtype predicate whether or not the flag is read. The one
+shape it does exclude — a take-on whose trial-balance plug lands on a *non-system*
+OBE account — is the shape the round-8 test was written to exclude, and reversing
+that would re-open a finding two reviews agreed on. Recorded here rather than
+changed silently.
+
+**Test.** `tests/integration/r001-r002-r020-takeon-posting.int.test.ts`:
+*"still reports the residual when the clearing account was deactivated after the
+take-on"* — imports an AR take-on of 1150, deactivates the system OBE account
+(asserting the UPDATE hit exactly one row), completes the session, and requires
+the 1150.00 warning. 20 passed (was 19).
+
+**Mutation (file copies, restored from a copy — never `git checkout --`).**
+Re-inserting `AND a.is_active = true` → the new test alone goes RED
+(`1 failed | 19 passed`), the round-8 non-system-OBE test stays green. The
+production line is the only thing holding the assertion up.
+
+**No twin.** Every other `is_active = true` this branch adds was read for the
+same class: `bankRulesSuggestionPass` (`r.is_active` on bank *rules* — a matching
+set, not a figure), the supplier picker, `capture_inboxes`, and the `users`
+inserts. None computes a figure. The gate itself is file-baselined, so this was
+checked from `git diff master...HEAD` rather than trusted to the scan.
+
+**Migration.** None. **Historical data.** No write; the residual is a read that
+records a warning on the session. Companies whose OBE account was deactivated
+after a take-on were told the wizard balanced and will now be told the truth on
+their next run — no back-fill exists for sessions already completed.
+
+**Round 9 re-verified independently** (the round-9 author died at a server restart;
+every number above was re-run from the same working tree, not trusted):
+`bunx vitest run --config vitest.integration.config.ts --no-file-parallelism
+tests/integration/r001-r002-r020-takeon-posting.int.test.ts` → **20 passed**.
+Mutation (re-insert `AND a.is_active = true` via a file copy, restore from the copy)
+→ **1 failed | 19 passed**, the failure being the new deactivated-clearing-account
+test alone. `bash scripts/ci/check-is-active-in-balances.sh` → PASS, no new files.
+Full `bun run ci` → **exit 0**, all checks passed; `ci.log` above is that run.
