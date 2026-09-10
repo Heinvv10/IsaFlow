@@ -28,7 +28,7 @@ export function accessReviewQuery(company:string,input:AccessReviewInput){
   COALESCE(p.scopes_oversized,false) OR COALESCE(o.oversized,false) AS oversized
  FROM census LEFT JOIN page p ON true
  LEFT JOIN company_users cu ON cu.company_id=${company}::uuid AND cu.user_id=p.user_id
- LEFT JOIN users u ON u.id=p.user_id
+ LEFT JOIN users u ON u.id=p.user_id::text
  LEFT JOIN LATERAL (
   SELECT jsonb_agg(jsonb_build_object('moduleKey',r.module_key,'moduleName',r.module_key,
    'canRead',r.can_read,'canWrite',r.can_write,'canDelete',r.can_delete,'canExport',r.can_export,'canApprove',r.can_approve,
