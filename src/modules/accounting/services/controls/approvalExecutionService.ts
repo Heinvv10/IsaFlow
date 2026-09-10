@@ -1,5 +1,5 @@
 import {assertOperationRequester} from './operationRequester';
-import { operationPermission,operationRequiresPosting } from './operationPermissions';
+import { operationPermission,operationRequiresPosting,operationRuleType } from './operationPermissions';
 import { randomUUID } from 'node:crypto';
 import { withSavepoint } from '@/lib/neon';
 import type { ControlTx, OperationRef } from './contracts';
@@ -47,6 +47,39 @@ export async function controlledOperationApprovalRequired(ctx: ControlTx, input:
   assertControlTx(ctx);
   const material = await loadOperationMaterial(ctx, canonicalOperationRef(input));
   return material.binding.policies.length > 0;
+}
+
+/**
+ * Preview-safe form. The material question runs in its own savepoint, and when
+ * the operation cannot be materialised at all it falls back to whether the
+ * company has any policy for it: a preview must never answer "no approval
+ * needed" because the question could not be asked.
+ */
+export async function controlledOperationApprovalRequiredForPreview(ctx: ControlTx, input: OperationRef): Promise<boolean> {
+  assertControlTx(ctx);
+  const ref = canonicalOperationRef(input);
+  const { loadApprovalRules } = await import('./approvalRuleService');
+  try {
+    return await withSavepoint('preview_approval_question', () => controlledOperationApprovalRequired(ctx, ref));
+  } catch {
+    return (await loadApprovalRules(ctx, operationRuleType(ref.operation))).length > 0;
+  }
+}
+
+/**
+ * For a preview whose operation acts on a row the write itself creates — a bank
+ * allocation intent exists only after `prepareBankAllocation` — so the same
+ * policy rules are matched against the amount the preview already holds. An
+ * aggregate-window policy depends on exposure only the write establishes, so it
+ * counts as required rather than being guessed at.
+ */
+export async function controlledOperationApprovalRequiredForAmount(ctx: ControlTx,
+  operation: OperationRef['operation'], amount: string): Promise<boolean> {
+  assertControlTx(ctx);
+  const { loadApprovalRules, matchApprovalRules } = await import('./approvalRuleService');
+  const rules = await loadApprovalRules(ctx, operationRuleType(operation));
+  if (rules.some(rule => rule.aggregate_window_days !== null)) return true;
+  return matchApprovalRules(rules, amount, new Map()).length > 0;
 }
 
 /** Kernel only: owning domain services must call this before their financial effect. */

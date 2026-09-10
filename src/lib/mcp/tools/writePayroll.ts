@@ -20,6 +20,7 @@ import { createPayrollRun } from '@/modules/accounting/services/payroll/payrollR
 import { buildPayrollJournalPlan } from '@/modules/accounting/services/payroll/payrollJournalBuilder';
 import { postPayrollRunJournal } from '@/modules/accounting/services/payroll/payrollJournalPostingService';
 import { listPayRunsPage } from '@/modules/accounting/services/payroll/payrollRunQueryService';
+import { PAYROLL_APPROVAL_REQUIRED_TEXT, payrollApprovalRequired } from './payrollPreviewApproval';
 import { MUTATION_ARG_SCHEMA } from '../contracts';
 import type { DryRunResult } from '../contracts';
 import { guardCastableArgs, NOT_FOUND, ok, toolError } from './toolHelpers';
@@ -134,6 +135,7 @@ export const postPayrollJournalTool: McpTool = {
     }
 
     if (args.dry_run === true) {
+    if (await payrollApprovalRequired(ctx.companyId, runId)) return toolError(PAYROLL_APPROVAL_REQUIRED_TEXT);
       const preview: DryRunResult & {
         advisories: typeof plan.advisories;
         employment_cost: Record<string, number>;
