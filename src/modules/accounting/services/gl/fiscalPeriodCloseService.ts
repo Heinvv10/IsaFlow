@@ -35,6 +35,7 @@
 
 import { log } from '@/lib/logger';
 import { closePeriod, getFiscalPeriodById } from './fiscalPeriodService';
+import { assertPeriodControlAuthority } from '../controls/periodControl';
 import {
   getCloseReadiness,
   type ChecklistItem,
@@ -98,6 +99,9 @@ export async function closePeriodWithReadiness(
   options: ClosePeriodOptions,
 ): Promise<ClosePeriodResult> {
   const dryRun = options.dryRun === true;
+  // The preview answers about a close, so it runs the close's own authority.
+  // Only the write itself is skipped.
+  await assertPeriodControlAuthority(companyId, userId);
 
   // Ownership first, and the miss is generic: a distinct "belongs to another
   // company" reply would be an existence oracle.

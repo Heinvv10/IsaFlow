@@ -21,6 +21,7 @@ import {
   type Subledger,
 } from '@/modules/accounting/services/core/contraSettlementService';
 import {
+  assertCustomerPaymentAuthority,
   createCustomerPayment,
   confirmCustomerPayment,
 } from '@/modules/accounting/services/ar/customerPaymentService';
@@ -119,6 +120,9 @@ export const settleByContraTool: McpTool = {
       return toolError(`amount has more than two decimal places (${amount}) — amounts are stored to the cent.`);
     }
     const settlementDate = strArg(args, 'settlement_date') ?? fmtDate(new Date());
+    // A receivable contra is settled by createCustomerPayment, which asserts
+    // write:bank-tx. The preview runs that guard too and skips only the write.
+    if (subledger === 'ar') await assertCustomerPaymentAuthority(ctx.companyId, ctx.userId);
 
     // Every refusal is answered from READS, before the first write, so it can
     // be a toolError. Once createCustomerPayment / createSupplierPayment has

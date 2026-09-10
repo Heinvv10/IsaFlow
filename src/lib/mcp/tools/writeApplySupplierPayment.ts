@@ -29,6 +29,7 @@ import {
   applyBankLineToSupplierInvoices,
   validateBankSupplierPayment,
 } from '@/modules/accounting/services/ap/supplierBankPaymentService';
+import { assertBankAllocationAuthority } from '@/modules/accounting/services/bank/bankAllocationService';
 import { mcpPostingAgent } from '../postingAgent';
 import { allocationsSchema, parseAllocations } from './cashApplicationArgs';
 import { guardCastableArgs, ok, safeErrorText, strArg, toolError } from './toolHelpers';
@@ -159,6 +160,9 @@ async function applyFromBankLine(
   allocations: readonly { invoiceId: string; amount: number }[],
   dryRun: boolean,
 ) {
+  // The allocation service's own authority, run on the preview too: a dry run
+  // skips the write, never the guard.
+  await assertBankAllocationAuthority(companyId, userId);
   let validation;
   try {
     validation = await validateBankSupplierPayment(companyId, bankTxId, allocations);
