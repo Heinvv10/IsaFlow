@@ -23,7 +23,7 @@ export async function approveSupplierPayment(
 ): Promise<SupplierPayment> {
   try {
     const payment = await getSupplierPaymentById(companyId, id);
-    if (!payment) throw new Error(`Payment ${id} not found`);
+    if (!payment) throw new SupplierPaymentNotFoundError(id);
     if (payment.status !== 'draft') throw new Error(`Cannot approve payment with status: ${payment.status}`);
 
     const rows = (await sql`
@@ -37,6 +37,24 @@ export async function approveSupplierPayment(
   } catch (err) {
     log.error('Failed to approve supplier payment', { id, error: err }, 'accounting');
     throw err;
+  }
+}
+
+/**
+ * Raised when the payment id does not resolve inside this company. Raised by
+ * approve, process and void BEFORE any write, so a route may answer it 404.
+ *
+ * Typed rather than matched on the message: the route classified it with
+ * `/not found$/`, which also matched 'Bank account not found' — thrown AFTER
+ * `processSupplierPayment` has claimed the payment. That answered 404, and
+ * `withAuth` COMMITs below 500, so the payment stayed 'processed' with no
+ * journal and no path back: every retry hit the claim it had already taken.
+ */
+export class SupplierPaymentNotFoundError extends Error {
+  readonly code = 'SUPPLIER_PAYMENT_NOT_FOUND';
+  constructor(readonly paymentId: string) {
+    super(`Payment ${paymentId} not found`);
+    this.name = 'SupplierPaymentNotFoundError';
   }
 }
 
@@ -69,7 +87,7 @@ export async function processSupplierPayment(
 ): Promise<SupplierPayment> {
   try {
     const payment = await getSupplierPaymentById(companyId, id);
-    if (!payment) throw new Error(`Payment ${id} not found`);
+    if (!payment) throw new SupplierPaymentNotFoundError(id);
 
     // CLAIM the payment before anything is posted — the singular twin of
     // batchPaymentService.processBatch, which carried the identical defect.
@@ -187,7 +205,7 @@ async function voidSupplierPaymentInner(
 ): Promise<SupplierPayment> {
   try {
     const payment = await getSupplierPaymentById(companyId, id);
-    if (!payment) throw new Error(`Payment ${id} not found`);
+    if (!payment) throw new SupplierPaymentNotFoundError(id);
     if (payment.status === 'reconciled') {
       throw new Error('Cannot void a reconciled payment — remove it from the bank reconciliation first');
     }
