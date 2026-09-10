@@ -12,8 +12,10 @@ function snapshot(id=firstId):AuditSnapshotData{return{version:1,companyId,snaps
 async function* stream(items:ComparisonItem[]){yield* items;}
 function source(data:AuditSnapshotData):ComparisonSource{
  const sealed=sealAuditSnapshot(data),body=verifyAuditSnapshot(sealed,{companyId,snapshotId:data.snapshotId});
- const sections=Object.fromEntries(COMPARISON_SECTIONS.map(section=>{const items=(body[section]??[]).map((row,ordinal)=>makeComparisonItem(section,row,ordinal));
-  items.sort((a,b)=>canonicalJson(a.identity)<canonicalJson(b.identity)?-1:canonicalJson(a.identity)>canonicalJson(b.identity)?1:0);return[section,{count:items.length,items:stream(items)}];})) as ComparisonSource['sections'];
+ const sections:ComparisonSource['sections']={records:{count:0,items:stream([])},checks:{count:0,items:stream([])},evidence:{count:0,items:stream([])},evidenceGaps:{count:0,items:stream([])}};
+ for(const section of COMPARISON_SECTIONS){const items=(body[section]??[]).map((row,ordinal)=>makeComparisonItem(section,row,ordinal));
+  items.sort((a,b)=>canonicalJson(a.identity)<canonicalJson(b.identity)?-1:canonicalJson(a.identity)>canonicalJson(b.identity)?1:0);sections[section]={count:items.length,items:stream(items)};}
+
  return{id:data.snapshotId,companyId,canonicalHash:sealed.canonicalHash,cutoff:data.cutoff,capturedAt:data.capturedAt,populationsHash:hash(body.populations),coverageHash:hash([body.coverage,body.missingSources]),sections};
 }
 function signing(){vi.stubEnv('CONTROL_SNAPSHOT_SIGNING_KEY','synthetic-only-snapshot-key-0000000000000000000001');}
@@ -61,4 +63,13 @@ it('observes real timer cancellation while consuming a large iterator and closes
 it('expired deadline refuses before pulling either input',async()=>{
  let pulled=0;async function* rows(){pulled++;yield item('a',0);}
  await expect(compareSnapshotStreams(synthetic(rows(),1),synthetic(stream([]),0),async()=>{},{deadlineAt:Date.now()-1})).rejects.toThrow(/deadline/i);expect(pulled).toBe(0);
+});
+it('bounds a stalled input next call by the real deadline and requests iterator cleanup',async()=>{
+ let closed=false;
+ const stalled:AsyncIterable<ComparisonItem>={[Symbol.asyncIterator]:()=>({next:()=>new Promise(()=>{}),return:async()=>{closed=true;return{done:true,value:undefined};}})};
+ await expect(compareSnapshotStreams(synthetic(stalled,1),synthetic(stream([]),0),async()=>{},{deadlineAt:Date.now()+30})).rejects.toThrow(/deadline/i);expect(closed).toBe(true);
+});
+it('awaits failed output and closes inputs without returning successful counts',async()=>{
+ let closed=false;async function* rows(){try{yield item('a',0);yield item('b',1);}finally{closed=true;}}
+ await expect(compareSnapshotStreams(synthetic(rows(),2),synthetic(stream([]),0),async()=>{throw new Error('sink failed');})).rejects.toThrow('sink failed');expect(closed).toBe(true);
 });
