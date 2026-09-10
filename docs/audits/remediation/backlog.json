@@ -10252,6 +10252,38 @@
       "severity": "high",
       "source": "Inventory produced by the K-107 fixer in round 6, as its scoped hand-off; recorded 2026-09-10",
       "processNotes": "K-107 fixed eight instances of this class across six modules and was then scoped to STOP and inventory the rest rather than keep absorbing a codebase-wide defect. The inventory is in docs/audits/remediation/K-107/fix.md. Headlines: (1) confirmCustomerPayment / cancelCustomerPayment are the unfixed AR twins of the supplier-payment defect -- HIGH, they post to the ledger. (2) approveVATAdjustment is byte-for-byte the adjustment shape already fixed -- HIGH. (3) generateJournalFromRecurring lacks company_id on its UPDATE -- a multi-tenant violation. (4) The DB triggers trg_cp_payment_number and trg_sp_payment_number mint MAX+1 with NO UNIQUE INDEX on either payments table -- the same shape as the stock-adjustment defect, on the two tables that carry money. This one is a database-level fix and needs its own ledger review. Related: R-043 (journal-entry-number trigger not concurrency-safe), R-044, R-045, R-047. Together these are one missing idiom applied inconsistently, not five bugs."
+    },
+    {
+      "id": "R-052",
+      "claim": "",
+      "area": "ci",
+      "affectedPaths": [
+        ".github/workflows/ci.yml",
+        "scripts/ci/run-ci.sh"
+      ],
+      "sourceLabel": "",
+      "sourceIds": [],
+      "correctedTrigger": "",
+      "severityRationale": "Every guard this programme added is unenforced on the path code actually merges through.",
+      "auditedSha": "",
+      "currentSha": "",
+      "status": "confirmed",
+      "dependencies": [],
+      "testNames": [],
+      "evidencePaths": [
+        "docs/audits/remediation/K-015/ci.log"
+      ],
+      "fixCommit": null,
+      "pr": null,
+      "deployedSha": null,
+      "historicalDataImpact": "Any PR merged green on GitHub was never checked by eleven of the sixteen gates.",
+      "canonicalItem": null,
+      "reportedSeverity": "",
+      "branch": null,
+      "title": "Eleven of the sixteen CI gates never run on GitHub, so a PR can be green while the repo's own guards fail",
+      "severity": "high",
+      "source": "Found while investigating why K-015's local CI failed on a PR GitHub reported green; recorded 2026-09-10",
+      "processNotes": "scripts/ci/run-ci.sh defines 16 gates. .github/workflows/ci.yml runs only FIVE of them: agent-docs, type-check, lint, user-id-casts, unit-tests (plus the separate Golden Paths job). NEVER run on GitHub: security-guards, is-active-filters, raw-transactions, vat-guard-coverage, self-defining-universe, findings-numbering, migration-rls, component-tests, migration-naming, integration-tests, build. Several of those are financial-integrity guards this very programme wrote -- is-active-filters, vat-guard-coverage, migration-rls, migration-naming. They fire only when a human or agent runs `bun run ci` locally. PROVEN, not theorised: K-015 at 57779e48d fails `is-active-filters` locally (a balance query filtering is_active, which would hide a real opening-balance residual) while GitHub reports 'Type Check, Lint & Test: SUCCESS' and 'Golden Paths E2E: SUCCESS' and the PR shows mergeStateStatus CLEAN. Only the branch being a DRAFT stopped it being mergeable. This is the same family as R-041 (migration warnings printed into a void): a guard exists, is believed to be running, and is not. It also explains how defects of the audited classes reached master in the first place. HEIN: the cheap fix is to make the GitHub job run `bun run ci` (or the gate subset that does not need a database) rather than five hand-listed steps that drift from run-ci.sh every time a gate is added."
     }
   ],
   "sourceInventory": [
