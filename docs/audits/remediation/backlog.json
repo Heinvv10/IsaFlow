@@ -10079,6 +10079,41 @@
       "severity": "medium",
       "source": "Flagged by the K-015 r3 fixer as out of scope; recorded 2026-09-09",
       "processNotes": "Soft-deleting a take-on document leaves its take-on journal posted, because softDeleteService's reversal guard only fires on status='posted' and does not cover the take-on path. The document disappears from the sub-ledger while its GL effect remains, so the sub-ledger stops tying to the GL for the affected company. Out of K-015's scope (that branch owns the wizard's import path, not the soft-delete service) and adjacent to K-053, which owns soft-delete/aging semantics -- but K-053's rounds have been about the DATED presence predicate, not about what reversal fires on delete. Needs its own item so it is not assumed covered by either."
+    },
+    {
+      "id": "R-047",
+      "claim": "",
+      "area": "accounting/ap",
+      "affectedPaths": [
+        "batchPaymentService.processBatch",
+        "pages/api/accounting/time-entries-invoice.ts",
+        "updateSalesOrder"
+      ],
+      "sourceLabel": "",
+      "sourceIds": [],
+      "correctedTrigger": "",
+      "severityRationale": "Duplicate bank credits and duplicate client billing, both reachable without concurrency.",
+      "auditedSha": "",
+      "currentSha": "",
+      "status": "confirmed",
+      "dependencies": [
+        "K-107"
+      ],
+      "testNames": [],
+      "evidencePaths": [
+        "docs/audits/remediation/K-107/fix.md"
+      ],
+      "fixCommit": null,
+      "pr": null,
+      "deployedSha": null,
+      "historicalDataImpact": "Unquantified; no census query written yet.",
+      "canonicalItem": null,
+      "reportedSeverity": "",
+      "branch": null,
+      "title": "Batch payments could post twice and credit the bank twice on two clicks; WIP-invoiced time entries could be billed again with no concurrency",
+      "severity": "high",
+      "source": "Found by the K-107 fixer's own census in round 5; recorded 2026-09-10",
+      "processNotes": "Three defects found while fixing K-107, all now fixed on that branch, but the DATA they may already have produced is not corrected. (1) batchPaymentService.processBatch read status !== 'approved' then posted DR AP / CR Bank and incremented amount_paid on every invoice, rewriting the batch with WHERE id = $1 -- TWO CLICKS posted two journals and CREDITED THE BANK TWICE. Reachable by an ordinary double-click, no concurrency needed. (2) The two time-entry subsystems disagree on which column means 'billed', so entries already invoiced through WIP could be billed AGAIN through the route -- serially, no race required. (3) updateSalesOrder rewrote the lines of an order someone else had just confirmed. HEIN'S CALL: (1) is real money in the bank GL and (2) is double-billed client time. Neither has had a census query written yet -- one is needed before deploy, and posting_agent / audit_log will identify the batch-payment duplicates."
     }
   ],
   "sourceInventory": [
