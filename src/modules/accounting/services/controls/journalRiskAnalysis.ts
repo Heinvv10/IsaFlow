@@ -11,6 +11,14 @@ const parts=(at:Date|string|null)=>{
  const sast=new Date(date.getTime()+2*3600000);
  return{day:sast.toISOString().slice(0,10),hour:sast.getUTCHours(),weekday:sast.getUTCDay()};
 };
+/**
+ * The threshold grouping key. The check-run cursor's slab tuple must separate no two rows this key joins, so the
+ * adapter can analyse one slab at a time; the invariant is one-directional and gated against the SQL expressions.
+ */
+export function journalRiskThresholdGroupKey(row:Pick<JournalRiskRow,'actualAt'|'personId'|'currency'>):string|null{
+ const actual=parts(row.actualAt);
+ return actual&&row.personId?JSON.stringify([actual.day,row.personId,row.currency]):null;
+}
 /** Statistical/chronological context is a lead, never a fraud or historical policy violation conclusion. */
 export function analyseJournalRisks<T extends JournalRiskRow>(rows:readonly T[],thresholds:readonly JournalThreshold[]){
  const reasons=new Map(rows.map(row=>[row.id,[] as string[]]));
@@ -29,9 +37,9 @@ export function analyseJournalRisks<T extends JournalRiskRow>(rows:readonly T[],
   const bound=new Money(threshold.amount);if(!bound.isFinite()||bound.lte(0))continue;
   const groups=new Map<string,T[]>();
   for(const row of rows){
-   const actual=parts(row.actualAt),amount=new Money(row.amount);
-   if(!actual||!row.personId||!amount.isFinite()||amount.lte(0)||(threshold.operator==='greater_than'?amount.gt(bound):amount.gte(bound)))continue;
-   const key=JSON.stringify([actual.day,row.personId,row.currency]);groups.set(key,[...(groups.get(key)??[]),row]);
+   const key=journalRiskThresholdGroupKey(row),amount=new Money(row.amount);
+   if(key===null||!amount.isFinite()||amount.lte(0)||(threshold.operator==='greater_than'?amount.gt(bound):amount.gte(bound)))continue;
+   groups.set(key,[...(groups.get(key)??[]),row]);
   }
   for(const group of groups.values()){
    const total=group.reduce((sum,row)=>sum.add(row.amount),new Money(0));

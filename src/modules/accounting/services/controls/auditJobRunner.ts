@@ -18,6 +18,9 @@ import {publishAuditSnapshot} from './auditSnapshotPublication';
 import {exportAuditEvidence} from './auditEvidenceExportService';
 import {publishAuditExport} from './auditExportPublication';
 import {CapturedEvidenceUnavailableError} from './capturedEvidenceSource';
+import {CheckRunResourceLimitError} from './auditCheckRunBudget';
+import {runAuditCheckRunPhase} from './auditCheckRunPhase';
+import {publishAuditCheckRunUnknown} from './auditCheckRunUnknown';
 import {withAuditWorkerTransaction,type AuditWorkerIdentity} from './auditWorkerTransaction';
 const identitySchema=z.object({companyId:z.string().uuid(),personId:z.string().min(1).max(256),jobId:z.string().uuid()}).strict();
 export type AuditWorkerResult={state:'busy'|'not_claimed'}|{state:'succeeded';snapshotId:string;canonicalHash:string}
@@ -51,7 +54,7 @@ async function executeAuditJob(input:AuditWorkerIdentity,options:{pool?:Pool;sig
  const limits:AuditClassLimits=AUDIT_PROCESS_LIMITS[workerClass],kinds:readonly AuditJobKind[]=AUDIT_WORKER_CLASS_KINDS[workerClass];
  const session={idleInTransactionMs:limits.idleInTransactionMs};
  const pool=options.pool??getAuthPool(),controller=new AbortController();
- running=true;let timedOut=false,lease:AuditJobLease|null=null;
+ running=true;let timedOut=false,lease:AuditJobLease|null=null,checkRun=false;
  // The class timer and the work transaction share one deadline, anchored at the parent's spawn when it is known; the claim
  // keeps its own short bound from now (plan v6 A7), never beyond that deadline.
  const deadlineAt=(options.startedAt??Date.now())+limits.workDeadlineMs,claimDeadlineAt=Math.min(Date.now()+limits.claimDeadlineMs,deadlineAt);
@@ -68,8 +71,10 @@ async function executeAuditJob(input:AuditWorkerIdentity,options:{pool?:Pool;sig
     if(snapshotOnly)throw new Error('Snapshot runner requires snapshot job kind');
     return publishAuditComparison(ctx,currentLease,{signal,deadlineAt});
    }
-   // The claim admits only this class's kinds. The check-run phase (plan T2c) is not part of this build, so it fails closed.
-   if(saved.kind==='audit_check_run')throw new Error('Audit check-run phase is not installed');
+   if(saved.kind==='audit_check_run'){
+    if(snapshotOnly)throw new Error('Snapshot runner requires snapshot job kind');
+    checkRun=true;return runAuditCheckRunPhase(ctx,currentLease,{signal,deadlineAt});
+   }
    if(saved.kind==='audit_export'){
     if(snapshotOnly)throw new Error('Snapshot runner requires snapshot job kind');
     const bundle=await exportAuditEvidence(ctx,saved.request.snapshotId,{signal,deadlineAt});
@@ -82,6 +87,17 @@ async function executeAuditJob(input:AuditWorkerIdentity,options:{pool?:Pool;sig
   }),session);
   return{state:'succeeded',...result};
  }catch(error){
+  // Phase A rolled back; the same lease still owns the job, so the limit is published as `unknown` on a fresh
+  // read-committed transaction with its own short budget (plan v6 A21). Any failure there falls through to the
+  // ordinary failure record below.
+  if(checkRun&&lease&&error instanceof CheckRunResourceLimitError&&!signal.aborted&&!timedOut){
+   const currentLease=lease,reason=error.reason;
+   try{
+    const published=await withAuditWorkerTransaction(pool,identity,'read committed',Date.now()+limits.unknownPublicationMs,signal,
+     store=>withControlJobRequest(store,currentLease,()=>publishAuditCheckRunUnknown(requireControlTx(),currentLease,reason)),session);
+    return{state:'succeeded',...published};
+   }catch{log.warn('Audit check run resource limit could not be published',{jobId:identity.jobId,reason},'audit-worker');}
+  }
   const code=failureCode(error,options.signal,timedOut);let failureRecorded=false;
   if(lease){
    const currentLease=lease;
