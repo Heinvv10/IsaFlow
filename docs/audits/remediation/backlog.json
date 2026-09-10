@@ -10180,6 +10180,40 @@
       "severity": "medium",
       "source": "Ruled by the K-043 r7 blind reviewer after testing the proposed detection probe; recorded 2026-09-10",
       "processNotes": "K-043's fix.md carried a read-only probe intended to find historical breaches (rule `updated_at` falling between `requested_at` and `decided_at`, cross-checked against `audit_log`). The reviewer tested it and ruled it WOULD NOT identify them: (a) it misses the entire lever-A class, because there the edited rule is not the bound rule; (b) `updated_at` is last-write-wins, so an edit-and-revert leaves no trace; (c) the `audit_log` cross-check is empty for the pre-branch period. So the honest position is that retrospective detection is UNACHIEVABLE with the data retained, and the probe must not be presented as a remedy. HEIN: if approval SoD has ever been relied on for an audit, insurance or client assurance, that reliance cannot be evidenced for the period before this fix ships. Going forward, migration 669's required_role snapshot makes it evidenceable."
+    },
+    {
+      "id": "R-050",
+      "claim": "",
+      "area": "accounting/migration",
+      "affectedPaths": [
+        "migrationValidationService"
+      ],
+      "sourceLabel": "",
+      "sourceIds": [],
+      "correctedTrigger": "",
+      "severityRationale": "A validation gate that has never executed, on the path that takes on a customer's opening balances.",
+      "auditedSha": "",
+      "currentSha": "",
+      "status": "confirmed",
+      "dependencies": [
+        "K-091",
+        "K-015"
+      ],
+      "testNames": [],
+      "evidencePaths": [
+        "docs/audits/remediation/K-091/fix.md"
+      ],
+      "fixCommit": null,
+      "pr": null,
+      "deployedSha": null,
+      "historicalDataImpact": "Every migration ever run was unvalidated by this check.",
+      "canonicalItem": null,
+      "reportedSeverity": "",
+      "branch": null,
+      "title": "validateMigration has never returned: it sums balance_due, a column on neither invoice table",
+      "severity": "medium",
+      "source": "Surfaced by the K-091 r7 outcome reconciliation; recorded 2026-09-10",
+      "processNotes": "migrationValidationService sums `balance_due`, which exists on NEITHER customer_invoices NOR supplier_invoices (the project rule is outstanding = total_amount - COALESCE(amount_paid,0); there is no balance_due column). So `validateMigration` has always thrown rather than returning a result -- a validation step that has never once run. Anything that treated a completed migration as 'validated' was relying on a check that could not execute. Found only because K-091's round-7 census was finally done by RECONCILING OUTCOMES rather than grepping for a literal -- the same method change that also surfaced the NULL-subtype NOT IN defect. Out of K-091's scope (it owns report figures, not the migration wizard) and adjacent to K-015, which owns the wizard but whose rounds have been about fingerprints and blank invoice numbers. Needs its own item so neither branch assumes the other covered it."
     }
   ],
   "sourceInventory": [
