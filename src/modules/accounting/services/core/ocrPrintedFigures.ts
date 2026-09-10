@@ -33,9 +33,10 @@ const SPACE_GROUPED = /(?<![\d.,])(\d{1,3}(?:[ \u00A0]\d{3})+[.,]\d{1,2})(?![\d.
 /**
  * The label of the change a cash tender gives back. Not `Chg`: on SA slips it
  * means CHARGE (`Svc Chg`, `Del Chg`) at least as often, and `Please Pay 253.00
- * incl Svc Chg 23.00` then "netted" to a Total of 230.00 and posted it.
+ * incl Svc Chg 23.00` then "netted" to a Total of 230.00 and posted it. The
+ * label must BE the change label: `Oil change 350.00` is a charge (round 24).
  */
-const CHANGE_LABEL = /(?<![A-Za-z])(?:Change|Wisselgeld|Kleingeld)(?![A-Za-z])/i;
+const CHANGE_LABEL = /^[\s:#.=*()-]*(?:Change(?:\s+(?:Due|Given|Returned))?|Wisselgeld|Kleingeld)[\s:#.=*()R-]*$/i;
 
 /**
  * The label of a CASH tender. Only cash gives change: `CARD 253.00 / Change

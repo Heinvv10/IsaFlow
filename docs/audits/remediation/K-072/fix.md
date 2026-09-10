@@ -2246,3 +2246,41 @@ branch code (5) · X9 branch code any size (3) · X10 GRV fields carved out (3) 
 X12 lay-by/sales order/job card/remittance gone (1). X11 and X12 were GREEN on the first run — the probes put the
 word on the title line, where the title rule refused first — and the test was changed to print the word on its
 own line under a pure title. Round-22 T1–T5 re-run: all RED; T6 still equivalent.
+
+---
+
+## Round 24 — change, prior balance and the summary block, by structure; COPY footers
+
+Review: `review-k072-r23.md` (3H/2M/0L, no regressions; the `Customer Copy` decision accepted). Harness as in
+round 23 plus the reviewer's `x23`, `y23`, `z23` and `o23` sets (175 probes): **2 479 rows**. `ocrLargerFigure.ts`
+would have passed 300 lines, so the item column and the summary block moved to `ocrItemColumn.ts` (new, 82).
+
+| Finding | Disposition |
+|---|---|
+| HIGH-1 a label CONTAINING "change" was exempt with no cash tender (`Oil change 350.00`, 21 of 21) | FIXED twice over. (1) `CHANGE_LABEL` must BE the label — `Change`, `Change Due/Given/Returned`, `Wisselgeld`, `Kleingeld` and separators, nothing else. (2) A change figure is explained only where a CASH tender's change entered a balanced rule 1 (`cashChange = settled && hasCash`), in the item column and in the below-the-total rule. (1) is what stops `CASH 1500.00 / Oil change 350.00` netting to the total as "change" (pinned). An oil change INSIDE the sub total still posts. |
+| HIGH-2 the prior-balance exclusion had no anchor (`Interest on previous balance 350.00`, 9 rows) | FIXED. `PRIOR_BALANCE` matches only a line that IS the label and its figure (`^…label…[:=-]* R? figure$`). The five true forms still post the right total. |
+| HIGH-3 a charge smaller than the VAT, or one inside the summary block, posted on an unpaid invoice | FIXED with the reviewer's two conditions, only where NO payment settles the total: the item rows landing between the net and the total refuse, and any non-summary figure between the first summary line and the total line refuses. A paid document is spared both — its payment proves what was owed, and a card surcharge or rounding inside a paid total is ordinary (pinned; measured, applying either to paid slips costs 3 ordinary documents). Closes 13 of 15. **The other 2 stay open by construction:** `Travel 149.99` sums to 1 149.99, within the cent of rounding every VAT-inclusive item column needs, and `Delivery 150.00` equals the VAT, so the rows sum exactly to the total — the shape of an honest VAT-inclusive item column. Both are pinned as open. |
+| MEDIUM-1 `COPY RECEIPT`, `COPY TAX INVOICE`, `Copy 2 of 2`, `** DUP **`, `RPRNT` posted twice | FIXED: `COPY` followed by `INVOICE`/`TAX INVOICE`/`RECEIPT`/`SLIP`/`No`/a digit, `COPY -`/`COPY:`, `DUP`/`DUPL`, `RPRNT`, and the Afrikaans `HERUITREIKING`/`KOPIEER` (from the reviewer's set) refuse on any line. `CUSTOMER/MERCHANT/CARDHOLDER COPY` stays exempt as decided in round 23; `Copy Paper` is not matched. x-rp 11 → 0 (the reviewer's "COPY - not a tax invoice" closes too). |
+| MEDIUM-2 the same slip uploaded three times posts three journals | **Not this branch — registered as R-088**, to be fixed on its own branch after K-072 merges. Recorded here because it is the REAL double-post exposure: an identical re-upload or re-sent WhatsApp photo carries no marker, so no rule in this file can close it. Neither receipt path (`receipt-to-journal`, `post-expense`) de-duplicates by content (`raw_bytes_sha256`, or vendor + reference + date + total); `findDuplicate` covers only `capture/[id]/post.ts` and the AI invoice pipeline. |
+
+### Re-measured — head vs `591193edb`, 2 479 rows
+
+| | `591193edb` | **head** |
+|---|---|---|
+| unattended / WRONG, all rows | 371 / 102 | **314 / 45** |
+| change + prior-balance probes (x-excl, y-chg, y-int; 35) | 14 / 14 | **0 / 0** |
+| under-VAT and summary-block probes (x-under, x-in, y-mid, z-*; 38) | 34 / 33 | **3 / 2** (the 2 open above) |
+| reprint footers (x-rp; 23) | 11 / 11 | **0 / 0** |
+
+**Newly refused: 0. Newly wrong: 0.** 57 wrong rows close. The 45 left: the 35 of round 23 (24 number-word
+references and 6 glued hours, both accepted; 3 artefacts; 2 correct w-cnt posts), the 8 x-br six-figure branch
+rows the reviewer ruled not a finding, and the 2 open HIGH-3 rows.
+
+### Mutations — 12, all RED, restored byte-identically
+
+Z1 the change label may CONTAIN change (1 — GREEN on the first run: every probe had no cash tender, so the
+`cashChange` gate masked it; `CASH 1500.00 / Oil change 350.00` added) · Z2 the stray rule forgives change
+without cash (1) · Z3 the item rows forgive change without cash (1) · Z4 prior balance unanchored (1) · Z5 no
+summary-block check (1) · Z6 no between-net-and-total check (1) · Z7 the between check on paid slips too (2) ·
+Z8 the summary-block check on paid slips too (1) · Z9 `COPY RECEIPT/INVOICE/No/digit` gone (1) · Z10
+`DUP`/`RPRNT` gone (1) · Z11 `HERUITREIK`/`KOPIEER` gone (1) · Z12 `COPY -` gone (1).

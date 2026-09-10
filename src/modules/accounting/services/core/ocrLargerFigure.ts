@@ -25,6 +25,7 @@
 import { parseAmount } from './ocrAmountParsing';
 import { UNRECONCILED_WARNING, totalPrintedEnd, totalPrintedLastEnd } from './ocrAmountReconciliation';
 import { printedFigures, type CountIsCounter, type PrintedFigure } from './ocrPrintedFigures';
+import { unexplainedItem } from './ocrItemColumn';
 
 /**
  * A figure printed NEGATIVE: a glued minus (`-23.00`, `-R23.00`, `R -23.00`),
@@ -112,49 +113,6 @@ function recapRows(
   return namesBand || printsTax ? new Set(rows.map(({ i }) => i)) : new Set();
 }
 
-/**
- * A whole number printed as a LINE ITEM, above the total block — `Waiter 23`
- * over `Sub Total 200.00 / VAT 15% 30.00 / Total 230.00` (round-17 review,
- * posted R230.00 against R253.00). Nothing below the total mentions it, so
- * rules 1 to 3 cannot see it. What can is the item column's own sum: the last
- * figure of every item line must add up to the net or to the total where an
- * item line prints a whole number and nothing else (`Cappuccino 35 / Muffin
- * 30 / TOTAL 65.00` adds up and passes), and must not EXCEED both anywhere.
- */
-/** A balance carried from a PRIOR document — not an item of this one. */
-const PRIOR_BALANCE = /(?<![A-Za-z])(?:Balance\s+(?:brought\s+forward|b\/?f|forward)|Previous\s+balance|Opening\s+balance|Vorige\s+saldo|Saldo\s+oorgebring)(?![A-Za-z])/i;
-
-function unexplainedItem(text: string, total: number, net: number | null, isCounter: CountIsCounter): number | null {
-  const lines = text.split(/\r?\n/);
-  // The block starts at the first line printing a SUMMARY figure — the header's
-  // `VAT No 4123456789` prints none, and `Total Items 350` or `Tax Class 350`
-  // above the sub total opens with a summary word but its figure is not one.
-  const block = lines.findIndex((line) => printedFigures(line, isCounter).some((f) => f.isSummary));
-  const body = block < 0 ? lines : lines.slice(0, block);
-  const items = body.map((line) => printedFigures(line, isCounter));
-  const lineSum = (rows: typeof items) => Math.round(rows.reduce((acc, row) => acc + (row[row.length - 1]?.value ?? 0), 0) * 100) / 100;
-  const isLoose = (row: typeof items[number]) => row.length === 1 && row[0]!.isUnroled;
-  const loose = items.find(isLoose);
-  if (!loose) {
-    // Round 23: rows that sum to MORE than both the net and the total carry a
-    // charge neither covers (`Labour 1000.00 / Delivery 350.00` under `Sub
-    // Total 1000.00`). Under-summing rows (a dropped line, `40.00L` on a fuel
-    // slip) leave the printed total the payable, so they pass. A payment row
-    // and a balance carried from a prior document are not items.
-    const rows = body.filter((line) => !PRIOR_BALANCE.test(line)).map((line) => printedFigures(line, isCounter))
-      .filter((row) => row.length > 0 && !row.some((f) => f.isTender || f.isChange));
-    const sum = lineSum(rows);
-    return sum > total + 0.01 && (net === null || sum > net + 0.01) ? sum : null;
-  }
-  const matches = (sum: number) => [total, net].some((target) => target !== null && Math.abs(sum - target) <= 0.01);
-  // If the priced rows ALREADY add up to the net or the total, the loose whole
-  // number is an extra on top of them, however neatly the grand sum lands:
-  // `Hake 200.00 / Cake cutting per Table 30` under `Sub Total 200.00 /
-  // Total 230.00` sums to the total only because the charge equals the VAT.
-  if (matches(lineSum(items.filter((row) => !isLoose(row))))) return loose[0]!.value;
-  return matches(lineSum(items)) ? null : loose[0]!.value;
-}
-
 /** Why a document's own figures do not reconcile against the total read. */
 export interface Unreconciled {
   /** `paid` — the payments do not add up; `larger` — a bigger figure nothing
@@ -228,18 +186,22 @@ export function unreconciledFigure(
   // file's own comment claimed and would have forgiven a stray `Change 23.00`
   // printed with no tender at all.
   let settled = false;
+  // A CHANGE figure is explained only as the change a cash tender gave back in
+  // a balanced rule 1 — never by its label alone (`Oil change 350.00`, r23 HIGH-1).
+  let cashChange = false;
   if (tenders.length > 0) {
     const hasCash = figures.some((f) => f.isCash && !f.isChange);
     const change = hasCash ? figures.filter((f) => f.isChange).reduce((sum, f) => sum + f.value, 0) : 0;
     const paid = Math.round((tenders.reduce((sum, f) => sum + f.value, 0) - change) * 100) / 100;
     if (Math.abs(paid - total) > 0.01) return { reason: 'paid', value: paid };
     settled = true;
+    cashChange = hasCash;
   }
   const isCounter: CountIsCounter = (value) => settled && value <= 99 && value < total / 10;
 
   const larger = printedFigures(text, isCounter).find((f) => f.value > total && !(settled && (f.isTender || f.isChange)));
   if (larger) return { reason: 'larger', value: larger.value };
-  const item = unexplainedItem(text, total, known.subtotal ?? null, isCounter);
+  const item = unexplainedItem(text, total, known.subtotal ?? null, isCounter, { settled, cashChange });
   if (item !== null) return { reason: 'stray', value: item };
 
   const end = totalPrintedLastEnd(text, total);
@@ -249,7 +211,7 @@ export function unreconciledFigure(
   const recap = recapRows(below, belowFigures, total, known.vatAmount ?? null, isCounter);
   const roleValues = new Set([0, total, known.subtotal ?? total, known.vatAmount ?? total]);
   const stray = belowFigures.find((f, i) => {
-    if (f.value === 0 || f.isTender || f.isChange || recap.has(i)) return false;
+    if (f.value === 0 || f.isTender || (f.isChange && cashChange) || recap.has(i)) return false;
     if (f.isSummary) return !roleValues.has(f.value);
     if (f.isUnroled) return true;
     return true;
