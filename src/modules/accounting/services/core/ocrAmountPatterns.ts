@@ -228,8 +228,8 @@ export const TOTAL_PATTERNS: RegExp[] = [
  * the document itself denies.
  *
  * The rate form's `(?:@|\()?` is optional so that "VAT 15% 150.00" reads 150
- * rather than nothing; the bare column's `(?![\d.,]*\s*%)` guard is what stops
- * it reading the RATE as the amount.
+ * rather than nothing; the `(?![\d.,]*\s*%)` guard stops the bare column and
+ * the `Tax` form reading the RATE as the amount (`Tax 15% 150.00` read 15).
  *
  * The generic `Tax` form is LAST, BELOW the bare VAT column, and the order is
  * load-bearing rather than stylistic. `extractVatAmount` takes the first
@@ -250,7 +250,7 @@ export const VAT_PATTERNS: RegExp[] = [
   new RegExp(String.raw`${NOT_A_TAX_LABEL}${VAT_WORD}${TAX_NOUN}\s*(?::|-(?!\d)|(?=-\d))\s*(?:ZAR|R)?\s*${AMOUNT}`, 'gi'),
   new RegExp(String.raw`${NOT_A_TAX_LABEL}${VAT_WORD}${TAX_NOUN}\s+(?:ZAR|R)\s*${AMOUNT}`, 'gi'),
   new RegExp(String.raw`${NOT_A_TAX_LABEL}${VAT_WORD}${TAX_NOUN}\s+${AMOUNT}(?![\d.,]*\s*%)`, 'gi'),
-  new RegExp(String.raw`${NOT_A_TAX_LABEL}(?:(?:Output|Input)${SEP})?Tax${TAX_NOUN}${VALUE_SEP}${AMOUNT}`, 'gi'),
+  new RegExp(String.raw`${NOT_A_TAX_LABEL}(?:(?:Output|Input)${SEP})?Tax${TAX_NOUN}(?:\s*(?:@|\()?\s*\d+(?:[.,]\d+)?\s*%\s*\)?)?${VALUE_SEP}${AMOUNT}(?![\d.,]*\s*%)`, 'gi'),
 ];
 
 /**

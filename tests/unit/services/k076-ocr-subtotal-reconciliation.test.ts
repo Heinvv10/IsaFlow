@@ -135,6 +135,16 @@ describe('K-076 a document the reader could not settle does not post unattended'
     expect(gate(text, [])).toBe(false);
   });
 
+  it('the warning is the ONLY defence on the paid twin (round 26)', () => {
+    // The same rebased slip settled by card: a paid document is spared the
+    // summary-block check, so without the warning it would post at 1160.
+    const text = 'Sub Total 1000.00\nVAT 150.00\nTotal Due 1160.00\nCARD 1160.00';
+    const result = extractAmounts(text);
+    expect(result.warnings).toHaveLength(1);
+    expect(gate(text, result.warnings)).toBe(false);
+    expect(gate(text, [])).toBe(true);
+  });
+
   it('refuses auto-post when the amounts were merely named as not reconciling', () => {
     const text = 'Sub Total 1000.00\nTax 12.00\nTotal Due 1150.00';
     expect(gate(text, extractAmounts(text).warnings)).toBe(false);
