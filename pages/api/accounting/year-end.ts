@@ -52,6 +52,16 @@ async function getHandler(req: NextApiRequest, res: NextApiResponse) {
   }
 }
 
+const MONTHS = ['January', 'February', 'March', 'April', 'May', 'June', 'July', 'August', 'September', 'October', 'November', 'December'];
+const monthName = (month: number) => MONTHS[month - 1] ?? `month ${month}`;
+
+/** API callers can supply approvalId; the year-end screen cannot send one yet. */
+function approvalRequiredMessage(yearLabel: string): string {
+  return `An independent approval is required to close financial year ${yearLabel} under the company's approval ` +
+    'policy, so nothing was closed. An API caller can request one and retry with its approvalId; the year-end ' +
+    'screen cannot apply an approval yet, so this close cannot be completed from that screen.';
+}
+
 async function postHandler(req: NextApiRequest, res: NextApiResponse) {
   const { companyId } = req as CompanyAuthedRequest;
   const userId = (req as AuthenticatedNextApiRequest).user.id;
@@ -85,8 +95,7 @@ async function postHandler(req: NextApiRequest, res: NextApiResponse) {
         case 'approval_required':
           // Not a success: the close cannot run until an independent approval
           // is supplied as approvalId.
-          return apiResponse.conflict(res,
-            'An independent approval is required to close this financial year. Request one, then retry with its approvalId.');
+          return apiResponse.conflict(res, approvalRequiredMessage(String(yearLabel)));
         case 'no_retained_earnings':
           return apiResponse.badRequest(
             res,
@@ -101,11 +110,34 @@ async function postHandler(req: NextApiRequest, res: NextApiResponse) {
               `(${result.accountCodes.join(', ')}). Year-end close posts the whole year's ` +
               `result to one account, so it will not guess — un-flag all but one and try again.`
           );
+        case 'period_range_mismatch':
+          // Refuses on every production company today (gl/.claude.md). It was
+          // answered 200, which the year-end screen reported as a completed close.
+          return apiResponse.conflict(res,
+            `Fiscal year ${String(yearLabel)}'s periods run ${result.actual.startDate} to ${result.actual.endDate}, ` +
+              `but this company's financial year starts in ${monthName(result.startMonth)}, so the year runs ` +
+              `${result.expected.startDate} to ${result.expected.endDate}. Closing the periods as they stand would ` +
+              'roll the wrong twelve months into retained earnings and lock them, so nothing was closed. The fiscal ' +
+              'periods must be aligned with the financial year first — a data correction for a company owner or admin to decide.');
+        case 'no_fiscal_period':
+          return apiResponse.conflict(res,
+            `No fiscal period covers ${result.entryDate}, where the closing journal would be dated, so nothing was ` +
+              'closed. Create the fiscal period that covers that date, then run the year-end close again.');
+        default: {
+          // A new outcome must be mapped here; it can never fall through to 200.
+          const unmapped: never = result;
+          throw new Error(`Unmapped year-end outcome: ${(unmapped as { error: string }).error}`);
+        }
       }
     }
 
     return apiResponse.success(res, result);
   } catch (err) {
+    // The live close raises the kernel's approval refusal (the preview returns
+    // it); either way it is a refusal the caller can act on, not a 500.
+    if (typeof err === 'object' && err !== null && (err as { code?: unknown }).code === 'OPERATION_APPROVAL_REQUIRED') {
+      return apiResponse.conflict(res, approvalRequiredMessage(String(yearLabel)));
+    }
     log.error('Failed to process year-end', { error: err, yearLabel, module: 'accounting' });
     return apiResponse.databaseError(res, err, 'Failed to process year-end');
   }
