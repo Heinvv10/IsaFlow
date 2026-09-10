@@ -232,21 +232,39 @@ it('serialises two concurrent closes of adjacent months (M4)', async () => {
     // later-lock set and carry on, which is what made the guard bypassable.
     const holder: PoolClient = await pool.connect();
     await holder.query('BEGIN');
-    await holder.query(
-      "SELECT pg_advisory_xact_lock(hashtext($1::text || ':loan_period_close'))", [co]);
+    await holder.query('SELECT pg_advisory_xact_lock(hashtextextended($1::text, 621))', [co]);
+    const holderPid = (await holder.query('SELECT pg_backend_pid() AS pid')).rows[0].pid as number;
 
-    let settled = false;
+    // Round-4 L7. Gating on a wall-clock sleep is the classic flaky test on
+    // this box, and it proves only that the close had not finished yet — not
+    // that it was WAITING. Poll pg_stat_activity for a backend blocked by this
+    // holder instead: that is the fact under test, and it fails fast (the poll
+    // times out) when the lock is removed rather than passing by luck.
+    // The outcome is captured rather than re-thrown, so nothing is left as an
+    // unhandled rejection while we are still polling.
+    let settled: null | { ok: true } | { ok: false; err: unknown } = null;
     const pending = closeFor(MONTHS[0]!.yyyymm)
-      .then((r) => { settled = true; return r; }, (e) => { settled = true; throw e; });
+      .then(() => { settled = { ok: true }; }, (err) => { settled = { ok: false, err }; });
 
-    await new Promise((r) => setTimeout(r, 750));
-    expect(settled).toBe(false);
+    const deadline = Date.now() + 15_000;
+    let blocked = 0;
+    while (Date.now() < deadline && blocked === 0 && settled === null) {
+      blocked = (await pool.query(
+        'SELECT COUNT(*)::int AS n FROM pg_stat_activity WHERE $1 = ANY(pg_blocking_pids(pid))',
+        [holderPid])).rows[0].n as number;
+      if (blocked === 0) await new Promise((r) => setTimeout(r, 50));
+    }
+    expect(settled).toBeNull();
+    expect(blocked).toBeGreaterThan(0);
     expect(await cpBalance()).toBeCloseTo(0, 2);
 
     await holder.query('COMMIT');
     holder.release();
     await pending;
-    expect(settled).toBe(true);
+    if (settled !== null && (settled as { ok: boolean }).ok === false) {
+      throw (settled as { ok: false; err: unknown }).err;
+    }
+    expect(settled).toEqual({ ok: true });
     expect(await cpBalance()).toBeCloseTo(MONTHS[0]!.st, 2);
 
     // And the next month still posts the movement only, never the sum.

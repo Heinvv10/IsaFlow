@@ -20,6 +20,8 @@
  */
 
 import { createSql, closeSql } from './_pg';
+import pg from 'pg';
+import { als } from '@/lib/als';
 import { randomUUID } from 'crypto';
 
 // Real services — via relative paths. tsx resolves the @/ aliases
@@ -42,6 +44,31 @@ import { submitVATReturn } from '../src/modules/accounting/services/reports/vatS
 const DATABASE_URL = process.env.MIGRATION_ADMIN_DATABASE_URL ?? process.env.DATABASE_URL;
 if (!DATABASE_URL) { console.error('ERROR: MIGRATION_ADMIN_DATABASE_URL or DATABASE_URL not set'); process.exit(1); }
 const sql = createSql(DATABASE_URL);
+
+// Round-4 M1. `closeLoanPeriod` writes to the general ledger and serialises the
+// company's closes on a TRANSACTION advisory lock, so it must run inside one
+// request transaction the way the API route does — on a bare pooled connection
+// the lock releases immediately and a mid-way failure leaves half the month's
+// reclass journals posted. Same shape as scripts/ap-backfill-supplier-payments.ts.
+const alsPool = new pg.Pool({
+  connectionString: DATABASE_URL,
+  ssl: DATABASE_URL.includes('sslmode=disable') ? false : { rejectUnauthorized: false },
+});
+
+async function inRequestTransaction<T>(userId: string, fn: () => Promise<T>): Promise<T> {
+  const client = await alsPool.connect();
+  try {
+    await client.query('BEGIN');
+    const result = await als.run({ client, userId, claims: {} }, fn);
+    await client.query('COMMIT');
+    return result;
+  } catch (err) {
+    await client.query('ROLLBACK').catch(() => undefined);
+    throw err;
+  } finally {
+    client.release();
+  }
+}
 
 const COMPANY_ID = '00000000-0000-0000-0000-000000000001';
 const ADMIN_ID   = 'a0000000-0000-0000-0000-000000000001';
@@ -87,7 +114,10 @@ async function runLoansClose(month: number, year: number, errors: Err[]): Promis
       console.log(`  [loans-close] ${period} already locked — skip`);
       return 0;
     }
-    const result = await closeLoanPeriod(COMPANY_ID, period, ADMIN_ID);
+    const result = await inRequestTransaction(
+      ADMIN_ID,
+      () => closeLoanPeriod(COMPANY_ID, period, ADMIN_ID),
+    );
     console.log(`  [loans-close] ${period}: processed ${result.loansProcessed}, posted ${result.reclassEntries.length}${result.skippedLoans ? `, skipped ${result.skippedLoans.length}` : ''}`);
     return result.reclassEntries.length;
   } catch (err) {
@@ -323,7 +353,8 @@ async function main(): Promise<void> {
   console.log('='.repeat(60));
 
   await closeSql();
+  await alsPool.end();
   process.exit(errors.length === 0 ? 0 : 1);
 }
 
-main().catch(err => { console.error('[FATAL]', errText(err)); closeSql().finally(() => process.exit(2)); });
+main().catch(err => { console.error('[FATAL]', errText(err)); Promise.all([closeSql(), alsPool.end()]).finally(() => process.exit(2)); });

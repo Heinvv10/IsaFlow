@@ -20,6 +20,7 @@ vi.mock('@/modules/accounting/services/gl/journalEntryPostingService', () => ({
   postJournalEntry: vi.fn().mockResolvedValue({ id: 'entry-reclass-0001', status: 'posted' }),
 }));
 
+import { als } from '@/lib/als';
 import { sql } from '@/lib/neon';
 import {
   buildReclassificationInput,
@@ -130,6 +131,17 @@ describe('lockPeriod', () => {
 
 // ── closeLoanPeriod ──────────────────────────────────────────────────────────
 
+/**
+ * Round-4 M1. `closeLoanPeriod` now refuses to run outside a request
+ * transaction: `pg_advisory_xact_lock` taken on a pooled connection is
+ * released the instant it is taken, so the guard would serialise nothing. The
+ * stub client absorbs nothing here — every read goes through the mocked `sql`.
+ */
+function inRequestTx<T>(fn: () => Promise<T>): Promise<T> {
+  const client = { query: vi.fn().mockResolvedValue({ rows: [] }) };
+  return als.run({ client, userId: USER_ID, companyId: COMPANY_ID, claims: {} } as never, fn);
+}
+
 describe('closeLoanPeriod', () => {
   function makeLoanRow(overrides = {}) {
     return {
@@ -147,15 +159,19 @@ describe('closeLoanPeriod', () => {
   }
 
   it('throws when period already locked', async () => {
-    sqlMock.mockResolvedValueOnce([{ yyyymm: '202604' }]);  // already locked
-    await expect(closeLoanPeriod(COMPANY_ID, '202604', USER_ID)).rejects.toThrow('already locked');
+    sqlMock
+      .mockResolvedValueOnce([])                              // advisory lock on the company's closes
+      .mockResolvedValueOnce([])                              // no later period closed
+      .mockResolvedValueOnce([{ yyyymm: '202604' }]);         // already locked
+    await expect(inRequestTx(() => closeLoanPeriod(COMPANY_ID, '202604', USER_ID)))
+      .rejects.toThrow('already locked');
   });
 
   it('processes each active loan: posts reclass, then locks period', async () => {
     sqlMock
-      .mockResolvedValueOnce([])                                // 1. isPeriodLocked
-      .mockResolvedValueOnce([])                                // advisory lock on the company's closes
+      .mockResolvedValueOnce([])                                // 1. advisory lock on the company's closes
       .mockResolvedValueOnce([])                                // 1b. no later period closed
+      .mockResolvedValueOnce([])                                // 1c. isPeriodLocked
       .mockResolvedValueOnce([{                                  // 2. JOINed loans + snapshot
         ...makeLoanRow(),
         snapshot_closing: '200000',
@@ -167,7 +183,7 @@ describe('closeLoanPeriod', () => {
         locked_at: '2026-04-30T00:00:00Z', locked_by: USER_ID,
       }]);
 
-    const result = await closeLoanPeriod(COMPANY_ID, '202604', USER_ID);
+    const result = await inRequestTx(() => closeLoanPeriod(COMPANY_ID, '202604', USER_ID));
     expect(result.yyyymm).toBe('202604');
     expect(result.loansProcessed).toBe(1);
     expect(result.reclassEntries).toHaveLength(1);
@@ -176,9 +192,9 @@ describe('closeLoanPeriod', () => {
 
   it('completes even when no active loans exist', async () => {
     sqlMock
-      .mockResolvedValueOnce([])                               // isPeriodLocked
       .mockResolvedValueOnce([])                               // advisory lock on the company's closes
       .mockResolvedValueOnce([])                               // no later period closed
+      .mockResolvedValueOnce([])                               // isPeriodLocked
       .mockResolvedValueOnce([])                               // no active loans (JOINed query)
       .mockResolvedValueOnce([{                                 // lock insert
         company_id: COMPANY_ID,
@@ -186,7 +202,7 @@ describe('closeLoanPeriod', () => {
         locked_at: '2026-04-30T00:00:00Z',
         locked_by: USER_ID,
       }]);
-    const result = await closeLoanPeriod(COMPANY_ID, '202604', USER_ID);
+    const result = await inRequestTx(() => closeLoanPeriod(COMPANY_ID, '202604', USER_ID));
     expect(result.loansProcessed).toBe(0);
     expect(result.locked).toBe(true);
   });
@@ -211,7 +227,7 @@ describe('closeLoanPeriod', () => {
       return Promise.resolve([]);
     });
 
-    await closeLoanPeriod(COMPANY_ID, '202604', USER_ID);
+    await inRequestTx(() => closeLoanPeriod(COMPANY_ID, '202604', USER_ID));
 
     // Previously this was 1 loans query + N period-row queries. The loans and
     // their period rows must still come back in ONE query, and nothing may
@@ -229,16 +245,16 @@ describe('closeLoanPeriod', () => {
     const { createJournalEntry } = await import('@/modules/accounting/services/gl/journalEntryCrudService');
     const createMock = createJournalEntry as unknown as ReturnType<typeof vi.fn>;
     sqlMock
-      .mockResolvedValueOnce([])
       .mockResolvedValueOnce([])                                 // advisory lock on the company's closes
       .mockResolvedValueOnce([])                                 // no later period closed
+      .mockResolvedValueOnce([])                                 // isPeriodLocked
       .mockResolvedValueOnce([{
         ...makeLoanRow(),
         snapshot_closing: '200000', snapshot_stliability: '48000', snapshot_date: '2026-04-30',
       }])
       .mockResolvedValueOnce([{ yyyymm: '202604', locked_at: 't' }]);
 
-    await closeLoanPeriod(COMPANY_ID, '202604', USER_ID);
+    await inRequestTx(() => closeLoanPeriod(COMPANY_ID, '202604', USER_ID));
 
     expect(createMock).toHaveBeenCalledTimes(1);
     const input = createMock.mock.calls[0]![1];
@@ -250,16 +266,16 @@ describe('closeLoanPeriod', () => {
 
   it('skips loans missing required GL accounts and records them in result', async () => {
     sqlMock
-      .mockResolvedValueOnce([])
       .mockResolvedValueOnce([])                                 // advisory lock on the company's closes
       .mockResolvedValueOnce([])                                 // no later period closed
+      .mockResolvedValueOnce([])                                 // isPeriodLocked
       .mockResolvedValueOnce([{                                  // loan with NULL gl_account_id
         ...makeLoanRow({ gl_account_id: null }),
         snapshot_closing: '100000', snapshot_stliability: '20000', snapshot_date: '2026-04-30',
       }])
       .mockResolvedValueOnce([{ yyyymm: '202604', locked_at: 't' }]);
 
-    const result = await closeLoanPeriod(COMPANY_ID, '202604', USER_ID);
+    const result = await inRequestTx(() => closeLoanPeriod(COMPANY_ID, '202604', USER_ID));
     expect(result.skippedLoans).toHaveLength(1);
     expect(result.skippedLoans![0]).toMatchObject({ loanId: LOAN_ID, reason: 'missing GL accounts' });
   });

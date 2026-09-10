@@ -245,3 +245,73 @@ by that amount, which is an AFS misstatement rather than an out-of-balance ledge
 **Historical-data impact (round 3).** Unchanged in direction. `loan_reclass_postings` and
 `loan_reclass_backfill_refusals` do not exist in production yet, so nothing existing is rewritten;
 659 populates both on the deploy that first applies 645.
+
+## Round-4 dispositions (blind review of `259c45453`: 0 HIGH, 2 MEDIUM, 7 LOW)
+
+**M1 — fixed.** `assertClosesInOrder` now throws unless `als.getStore()?.client` is present, the
+same line `lockLoanForUpdate` takes. `pg_advisory_xact_lock` on a pooled connection is released the
+instant it is taken, so the guard was present in the source and serialised nothing outside a request
+transaction. The one in-repo caller on that path, `scripts/simulate-fy2026-workflows.ts`, now runs
+each close inside a real `als.run` + BEGIN/COMMIT, the shape `scripts/ap-backfill-supplier-payments.ts`
+uses.
+
+**M2 — fixed.** `closeLoanPeriod` takes the ordering guard (and with it the company's advisory lock)
+BEFORE the `isPeriodLocked` read. Two concurrent closes of the SAME month previously both read it
+unlocked, and the loser re-created and re-posted the whole month's reclass journals before the
+`loan_period_locks` PK rejected it ~60 lines later — a raw 23505 instead of the named error.
+
+**L1 — fixed.** `hashtextextended(company_id, 621)` replaces `hashtext(company_id || ':…')`. 621 is
+this feature's tag; 617/619/620 are taken by whatsapp-inbox, opening-balance and goods-received.
+
+**L2 — fixed.** The notice listener now drops a `NOTICE` that carries a non-`00000` SQLSTATE — that
+is Postgres' own `IF NOT EXISTS` chatter (42P07/42710/42704), 1 946 clauses across the corpus. A
+migration's own `RAISE NOTICE` defaults to `00000` and survives; `WARNING` and above are never
+filtered. Proven end-to-end on a scratch database against the real runner: the round-3 listener
+prints `relation "…" already exists, skipping`, the round-4 one does not, and both the probe's
+`RAISE NOTICE` and `RAISE WARNING` come through in both.
+
+**L3 — fixed.** The refusal WARNING aggregates at most 50 distinct lines and appends
+`… and N more; see loan_reclass_backfill_refusals`. Every refusal is still a row in that table.
+
+**L4 — fixed.** The rebuild's per-tenant loop is driven from
+`SELECT company_id FROM loans UNION SELECT company_id FROM loan_reclass_backfill_refusals`, so a
+company whose last loan was deleted is revisited and its stale refusals cannot read as current.
+
+**L5 — closed by outcome.** The shared fixture now holds no `schema_migrations` row matching `65%`
+(verified: only 621/622/624 remain), so no runner there can silently skip 659. The two tables are
+left in place, empty — the K-081 integration suites need them outside their own transactions, and
+659 is idempotent, so their presence costs nothing.
+
+**L6 — fixed.** The notice listener is captured in a named const and removed in the outer `finally`
+next to `client.release()`.
+
+**L7 — fixed.** The M4 test polls `pg_stat_activity` for a backend blocked by the holder's PID
+instead of sleeping 750 ms, and captures the close's outcome into a settled-result object so its
+rejection is never briefly unhandled.
+
+**Round-4 files.** `loanPostingGuards.ts`, `loanPeriodCloseService.ts`, `scripts/apply-migrations.ts`,
+`scripts/migrations/sql/659_…sql`, `scripts/simulate-fy2026-workflows.ts`, `.claude.md` + `AGENTS.md`,
+and the three test files below.
+
+**Round-4 tests.** New `tests/integration/k081-loan-close-concurrency.int.test.ts` (M1/M2) — 3
+passed. New `tests/integration/k081-loan-reclass-refusal-sweep.int.test.ts` (L3/L4) — 2 passed.
+`k081-loan-close-ordering.int.test.ts` reworked for L7 — 4 passed. All k081/k082/k083 integration
+files: 41 passed. `tests/unit/services/loans/`: 124 passed. Full unit suite with the fixture env
+unset: 9469 passed / 234 skipped, 0 failed. `tsc --noEmit` clean; `eslint` clean on the changed
+`src` files; `agent-docs:check`, `audit-migration-naming`, `check-migration-rls` and
+`check-internal-apis` all OK.
+
+**Round-4 mutation proof.** Each mutation applied to the working tree, run, then restored (the
+restored tree is byte-identical to the pre-mutation diff). M1 assert removed → `refuses to close
+outside a request transaction (M1)` red. `assertClosesInOrder` moved back below `isPeriodLocked` →
+the M2 case red with exactly the defect's signature, `duplicate key value violates unique constraint
+"loan_period_locks_pkey"` instead of `Period 202603 is already locked`. `hashtextextended` reverted
+to `hashtext` → the M4 ordering case red (the holder no longer blocks it). The `UNION` reverted to
+`SELECT DISTINCT company_id FROM loans` → the L4 sweep case red. `ORDER BY 1 LIMIT 50` removed →
+the L3 case red.
+
+**Deploy notes (unchanged in substance).** `deploy.sh` applies migrations before the service
+restart, so 645 and 659 land before any code reads `source`. The first close after deploy posts one
+correcting movement per loan; re-running compliance moves loans into stages 2/3; and a loan 659
+REFUSED gets no `loan_reclass_postings` row, so its next close reclassifies the full current
+portion — overstating the current / non-current split until its refusal is resolved and 659 re-run.

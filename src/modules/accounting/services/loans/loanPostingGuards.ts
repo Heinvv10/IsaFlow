@@ -81,13 +81,31 @@ export async function lockLoanForUpdate(
  * rather than silently breaking it.
  */
 export async function assertClosesInOrder(companyId: string, yyyymm: string): Promise<void> {
+  // Round-4 M1. `pg_advisory_xact_lock` is released at the end of the
+  // transaction it is taken in. Outside a request transaction `sql` runs the
+  // statement on a pooled connection in its own implicit transaction, so the
+  // lock is released the instant it is taken and every close reads the
+  // later-lock set concurrently again — the M4 defect, with a guard that looks
+  // present. Take the same line as `lockLoanForUpdate` above and say so.
+  if (!als.getStore()?.client) {
+    throw new Error(
+      'assertClosesInOrder requires a request transaction (withAuth) — pg_advisory_xact_lock '
+      + 'taken on a pooled connection is released immediately and serialises nothing',
+    );
+  }
   // Review M4. The read below and the loan_period_locks INSERT that satisfies
   // it are ~60 lines and several journal posts apart, and the table's PK
   // (company_id, yyyymm) only stops the SAME month twice. Two concurrent
   // closes of 202603 and 202604 would both read an empty later-lock set and
   // both proceed. Serialise every close of a company behind one transaction
   // advisory lock, taken before the read, released at COMMIT.
-  await sql`SELECT pg_advisory_xact_lock(hashtext(${companyId}::text || ':loan_period_close'))`;
+  //
+  // Round-4 L1. `hashtext` is int4, so the key would share a 2^32 space with
+  // every other `hashtext` advisory lock in the codebase (shareLinkService,
+  // mcp/audit) and a collision would serialise two unrelated operations. The
+  // two-argument `hashtextextended(x, tag)` is what the rest of the module
+  // uses (617/619/620) for exactly that reason; 621 is this feature's tag.
+  await sql`SELECT pg_advisory_xact_lock(hashtextextended(${companyId}::text, 621))`;
   const later = (await sql`
     SELECT yyyymm FROM loan_period_locks
     WHERE company_id = ${companyId} AND yyyymm > ${yyyymm}
