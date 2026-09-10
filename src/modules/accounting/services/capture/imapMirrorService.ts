@@ -18,6 +18,7 @@ import { log } from '@/lib/logger';
 import { decrypt } from '@/lib/encryption';
 import { sha256, storeCapturedBytes } from '@/lib/documentStorage';
 import { routeEvent } from '@/modules/accounting/services/capture/captureRouterService';
+import { runAfterCommit } from '@/lib/afterCommit';
 
 type Row = Record<string, unknown>;
 
@@ -262,10 +263,12 @@ async function ingestAttachment(
 
   const eventId = String(event!.id);
 
-  // Hand off to router (fire-and-forget pattern — routeEvent catches its own errors)
-  void routeEvent(eventId, conn.companyId).catch((err) => {
+  // Hand off to router after the ingest commits — scan-now runs inside withAuth,
+  // whose connection this must not outlive (R-075). The cron has no request
+  // transaction, so there it starts immediately.
+  runAfterCommit('imap mirror routeEvent', () => routeEvent(eventId, conn.companyId).catch((err) => {
     log.warn('routeEvent failed for mirror ingest', { eventId, err }, 'imap-mirror');
-  });
+  }));
 
   return eventId;
 }
