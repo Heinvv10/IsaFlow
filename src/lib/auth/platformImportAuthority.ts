@@ -59,7 +59,7 @@ async function currentStanding(personId:string,companyId:string){
  // Match the shared member/approval authority order before acquiring row locks.
  await sql`SELECT pg_advisory_xact_lock(hashtextextended(${`control-authority:${companyId}`},0))`;
  const rows=await sql`SELECT u.role,u.is_active,u.status,u.suspended_at,c.status AS company_status,c.suspended_at AS company_suspended_at
-  FROM users u CROSS JOIN companies c WHERE u.id::text=${personId} AND c.id=${companyId}::uuid FOR SHARE OF u,c` as (UserAccountRow&{role:string;company_status:string|null;company_suspended_at:unknown})[];
+  FROM users u CROSS JOIN companies c WHERE u.id::text=${personId} AND c.id=${companyId}::uuid FOR UPDATE OF u FOR SHARE OF c` as (UserAccountRow&{role:string;company_status:string|null;company_suspended_at:unknown})[];
  const row=rows[0];
  if(rows.length!==1||row?.role!=='super_admin'||!isActiveUserAccount(row)||row.company_suspended_at!=null
   ||['suspended','deleted'].includes(row.company_status??''))throw new Error('Current platform import authority unavailable');
