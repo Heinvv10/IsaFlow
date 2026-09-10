@@ -31,15 +31,15 @@ beforeEach(() => {
 
 describe('signOffSection', () => {
   it('succeeds when zero unresolved comments and doc is editable', async () => {
-    // getSectionWithDocument
+    // lockSectionForWrite
     mockSql.mockResolvedValueOnce([{
-      section_id: SEC, document_id: DOC, section_status: 'reviewed',
-      doc_id: DOC, doc_status: 'in_review',
+      id: SEC, document_id: DOC, section_type: 'note_1', status: 'reviewed',
+      reviewed_by: null, signed_off_by: null, document_status: 'in_review', signing_requested_at: null,
     }]);
     // countUnresolvedComments
     mockSql.mockResolvedValueOnce([{ cnt: 0 }]);
-    // UPDATE
-    mockSql.mockResolvedValueOnce([]);
+    // UPDATE ... RETURNING id
+    mockSql.mockResolvedValueOnce([{ id: DOC }]);
 
     const result = await signOffSection(CID, DOC, SEC, USER);
     expect(result).toEqual({ sectionId: SEC, newStatus: 'signed_off' });
@@ -48,8 +48,8 @@ describe('signOffSection', () => {
 
   it('blocks when unresolved comments exist', async () => {
     mockSql.mockResolvedValueOnce([{
-      section_id: SEC, document_id: DOC, section_status: 'reviewed',
-      doc_id: DOC, doc_status: 'in_review',
+      id: SEC, document_id: DOC, section_type: 'note_1', status: 'reviewed',
+      reviewed_by: null, signed_off_by: null, document_status: 'in_review', signing_requested_at: null,
     }]);
     mockSql.mockResolvedValueOnce([{ cnt: 2 }]);
 
@@ -64,8 +64,8 @@ describe('signOffSection', () => {
 
   it('blocks when document is signed_off', async () => {
     mockSql.mockResolvedValueOnce([{
-      section_id: SEC, document_id: DOC, section_status: 'reviewed',
-      doc_id: DOC, doc_status: 'signed_off',
+      id: SEC, document_id: DOC, section_type: 'note_1', status: 'reviewed',
+      reviewed_by: null, signed_off_by: null, document_status: 'signed_off', signing_requested_at: null,
     }]);
 
     try {
@@ -79,8 +79,8 @@ describe('signOffSection', () => {
 
   it('blocks when document is filed', async () => {
     mockSql.mockResolvedValueOnce([{
-      section_id: SEC, document_id: DOC, section_status: 'reviewed',
-      doc_id: DOC, doc_status: 'filed',
+      id: SEC, document_id: DOC, section_type: 'note_1', status: 'reviewed',
+      reviewed_by: null, signed_off_by: null, document_status: 'filed', signing_requested_at: null,
     }]);
 
     try {
@@ -110,18 +110,18 @@ describe('signOffSection', () => {
 describe('submitDocumentForReview', () => {
   it('succeeds when all mandatory sections are reviewed', async () => {
     // getDocument
-    mockSql.mockResolvedValueOnce([{ id: DOC, status: 'draft' }]);
+    mockSql.mockResolvedValueOnce([{ id: DOC, status: 'draft', signing_requested_at: null }]);
     // countMandatorySectionsBelow
     mockSql.mockResolvedValueOnce([{ cnt: 0 }]);
-    // UPDATE
-    mockSql.mockResolvedValueOnce([]);
+    // UPDATE ... RETURNING id
+    mockSql.mockResolvedValueOnce([{ id: DOC }]);
 
     const result = await submitDocumentForReview(CID, DOC, USER);
     expect(result).toEqual({ documentId: DOC, newStatus: 'in_review' });
   });
 
   it('blocks when mandatory sections are not ready', async () => {
-    mockSql.mockResolvedValueOnce([{ id: DOC, status: 'draft' }]);
+    mockSql.mockResolvedValueOnce([{ id: DOC, status: 'draft', signing_requested_at: null }]);
     mockSql.mockResolvedValueOnce([{ cnt: 3 }]);
 
     try {
@@ -146,7 +146,7 @@ describe('submitDocumentForReview', () => {
   });
 
   it('throws INVALID_TRANSITION when document is not draft', async () => {
-    mockSql.mockResolvedValueOnce([{ id: DOC, status: 'in_review' }]);
+    mockSql.mockResolvedValueOnce([{ id: DOC, status: 'in_review', signing_requested_at: null }]);
 
     try {
       await submitDocumentForReview(CID, DOC, USER);
@@ -162,12 +162,12 @@ describe('submitDocumentForReview', () => {
 
 describe('assertDocumentEditable', () => {
   it('passes for draft', async () => {
-    mockSql.mockResolvedValueOnce([{ id: DOC, status: 'draft' }]);
+    mockSql.mockResolvedValueOnce([{ id: DOC, status: 'draft', signing_requested_at: null }]);
     await expect(assertDocumentEditable(CID, DOC)).resolves.toBeUndefined();
   });
 
   it('passes for in_review', async () => {
-    mockSql.mockResolvedValueOnce([{ id: DOC, status: 'in_review' }]);
+    mockSql.mockResolvedValueOnce([{ id: DOC, status: 'in_review', signing_requested_at: null }]);
     await expect(assertDocumentEditable(CID, DOC)).resolves.toBeUndefined();
   });
 
@@ -213,8 +213,8 @@ describe('assertDocumentEditable', () => {
 describe('markSectionReviewed', () => {
   it('succeeds when document is editable', async () => {
     mockSql.mockResolvedValueOnce([{
-      section_id: SEC, document_id: DOC, section_status: 'ai_enhanced',
-      doc_id: DOC, doc_status: 'draft',
+      id: SEC, document_id: DOC, section_type: 'note_1', status: 'ai_enhanced',
+      reviewed_by: null, signed_off_by: null, document_status: 'draft', signing_requested_at: null,
     }]);
     mockSql.mockResolvedValueOnce([]);
 
@@ -224,8 +224,8 @@ describe('markSectionReviewed', () => {
 
   it('throws DOCUMENT_LOCKED when document is signed_off', async () => {
     mockSql.mockResolvedValueOnce([{
-      section_id: SEC, document_id: DOC, section_status: 'reviewed',
-      doc_id: DOC, doc_status: 'signed_off',
+      id: SEC, document_id: DOC, section_type: 'note_1', status: 'reviewed',
+      reviewed_by: null, signed_off_by: null, document_status: 'signed_off', signing_requested_at: null,
     }]);
 
     try {
@@ -255,17 +255,18 @@ describe('markSectionReviewed', () => {
 
 describe('signOffDocument', () => {
   it('succeeds when no unresolved comments and all mandatory sections are signed off', async () => {
-    mockSql.mockResolvedValueOnce([{ id: DOC, status: 'in_review' }]); // getDocument
+    mockSql.mockResolvedValueOnce([{ id: DOC, status: 'in_review', signing_requested_at: null }]); // getDocument
     mockSql.mockResolvedValueOnce([{ n: 0 }]);                          // countUnresolvedCommentsForDocument
     mockSql.mockResolvedValueOnce([{ cnt: 0 }]);                        // countMandatorySectionsBelow
-    mockSql.mockResolvedValueOnce([]);                                   // UPDATE
+    mockSql.mockResolvedValueOnce([{ id: DOC }]);                        // UPDATE ... RETURNING id
+    mockSql.mockResolvedValueOnce([]);                                   // no delivery hold to release
 
     const result = await signOffDocument(CID, DOC, USER);
     expect(result).toEqual({ documentId: DOC, newStatus: 'signed_off' });
   });
 
   it('blocks on UNRESOLVED_COMMENTS before checking mandatory sections', async () => {
-    mockSql.mockResolvedValueOnce([{ id: DOC, status: 'partner_review' }]); // getDocument
+    mockSql.mockResolvedValueOnce([{ id: DOC, status: 'partner_review', signing_requested_at: null }]); // getDocument
     mockSql.mockResolvedValueOnce([{ n: 3 }]);                               // countUnresolvedCommentsForDocument
 
     try {
@@ -278,7 +279,7 @@ describe('signOffDocument', () => {
   });
 
   it('blocks when mandatory sections are not signed off', async () => {
-    mockSql.mockResolvedValueOnce([{ id: DOC, status: 'partner_review' }]); // getDocument
+    mockSql.mockResolvedValueOnce([{ id: DOC, status: 'partner_review', signing_requested_at: null }]); // getDocument
     mockSql.mockResolvedValueOnce([{ n: 0 }]);                               // countUnresolvedCommentsForDocument
     mockSql.mockResolvedValueOnce([{ cnt: 2 }]);                             // countMandatorySectionsBelow
 
@@ -292,7 +293,7 @@ describe('signOffDocument', () => {
   });
 
   it('throws INVALID_TRANSITION when document status is draft', async () => {
-    mockSql.mockResolvedValueOnce([{ id: DOC, status: 'draft' }]);
+    mockSql.mockResolvedValueOnce([{ id: DOC, status: 'draft', signing_requested_at: null }]);
 
     try {
       await signOffDocument(CID, DOC, USER);

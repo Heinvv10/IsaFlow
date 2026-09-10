@@ -2,20 +2,19 @@
 import type { NextApiRequest, NextApiResponse } from 'next';
 import { z } from 'zod';
 import { withErrorHandler } from '@/lib/api-error-handler';
-import { apiResponse, ErrorCode } from '@/lib/apiResponse';
+import { apiResponse } from '@/lib/apiResponse';
 import { withAuth, type CompanyAuthedRequest } from '@/lib/auth';
 import { withCsrf } from '@/lib/auth/withCsrf';
 import { requireUuidParam } from '@/lib/schemas/common';
 import { log } from '@/lib/logger';
 import { sql } from '@/lib/neon';
+import { sendReviewError } from '@/modules/accounting/services/afs/afsReviewErrorResponse';
 import {
-  assertDocumentEditable,
-  ReviewError,
-} from '@/modules/accounting/services/afs/afsReviewService';
-import {
-  saveVersion,
-  VersionHistoryError,
-} from '@/modules/accounting/services/afs/afsVersionHistoryService';
+  lockSectionForWrite,
+  voidSectionAttestation,
+  type LockedSection,
+} from '@/modules/accounting/services/afs/afsSectionAttestation';
+import { saveVersion } from '@/modules/accounting/services/afs/afsVersionHistoryService';
 
 // `overrides` is a free-form JSONB blob (per-tenant section overrides).
 // Validate it's a JSON object; the structure varies by note generator.
@@ -42,26 +41,25 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
 
   log.info('Section overrides update', { companyId, documentId, sectionId, userId }, 'afs-overrides-api');
 
+  // Bound to the URL's document, refused while it is locked, and held until commit.
+  let section: LockedSection;
   try {
-    await assertDocumentEditable(companyId, documentId);
+    section = await lockSectionForWrite(companyId, documentId, sectionId);
   } catch (err) {
-    if (err instanceof ReviewError) {
-      if (err.code === 'NOT_FOUND') return apiResponse.notFound(res, 'AFS document', documentId);
-      return apiResponse.error(res, ErrorCode.CONFLICT, err.message);
-    }
+    if (sendReviewError(res, err, 'Section', sectionId)) return;
+    throw err;
+  }
+
+  try {
+    // New overrides are new content: whatever review covered the old content no longer does.
+    await voidSectionAttestation(companyId, section, userId, 'Section overrides changed');
+  } catch (err) {
+    if (sendReviewError(res, err, 'Section', sectionId)) return;
     throw err;
   }
 
   // Save version snapshot BEFORE applying overrides
-  let versionEntry;
-  try {
-    versionEntry = await saveVersion(companyId, sectionId, userId);
-  } catch (err) {
-    if (err instanceof VersionHistoryError && err.code === 'NOT_FOUND') {
-      return apiResponse.notFound(res, 'Section', sectionId);
-    }
-    throw err;
-  }
+  const versionEntry = await saveVersion(companyId, documentId, sectionId, userId);
 
   // Apply new overrides
   await sql`

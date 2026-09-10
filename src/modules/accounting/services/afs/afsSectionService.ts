@@ -1,6 +1,6 @@
 import { sql } from '@/lib/neon';
-import {assertIndependentRequestReview} from '@/modules/accounting/services/controls/independentReview';
 import { log } from '@/lib/logger';
+import { assertPersonalReview, isSectionAttested, lockSectionForWrite, voidSectionAttestation } from './afsSectionAttestation';
 import type {
   AfsSection,
   SectionType,
@@ -75,9 +75,30 @@ export async function updateAfsSection(
   // is an approver of record arriving as input, and so is moving the section's status to
   // reviewed or signed off without naming one.
   if (input.reviewedBy || input.signedOffBy || input.status === 'reviewed' || input.status === 'signed_off') {
-    assertIndependentRequestReview();
+    assertPersonalReview();
   }
   log.info('Updating AFS section', { sectionId, documentId, status: input.status }, 'afsSectionService');
+
+  // Bound to this document and refused while it is signed off or filed, content or not.
+  const section = await lockSectionForWrite(companyId, documentId, sectionId);
+  // Everything the statements or the portal show is content: the note's blocks, the overrides
+  // that replace them, the AI narrative shown when there are none, the data snapshot that
+  // carries a suppression, and a status moved anywhere other than to a fresh attestation. A
+  // change to any of them is not what was reviewed, so the old attestation is voided — recorded
+  // against whoever made the change, so an attested section cannot change anonymously. An
+  // update that names the new reviewer or signatory still voids: it is the OTHER one, and its
+  // timestamp, that would otherwise ride along onto content nobody attested.
+  const attestsNewContent = input.status === 'reviewed' || input.status === 'signed_off';
+  const changesContent = input.content !== undefined || input.overrides !== undefined
+    || input.aiNarrative !== undefined || input.aiNarrativeAccepted !== undefined
+    || input.dataSnapshot !== undefined || (input.status !== undefined && !attestsNewContent);
+  if (changesContent && isSectionAttested(section)) {
+    const actor = input.updatedBy ?? input.reviewedBy ?? input.signedOffBy;
+    if (!actor) {
+      throw new Error('Changing the content of a reviewed or signed-off section requires updatedBy');
+    }
+    await voidSectionAttestation(companyId, section, actor, 'Section content updated');
+  }
 
   const rows = await sql`
     UPDATE afs_sections
@@ -89,15 +110,15 @@ export async function updateAfsSection(
       ai_narrative          = COALESCE(${input.aiNarrative ?? null}, ai_narrative),
       ai_narrative_accepted = COALESCE(${input.aiNarrativeAccepted ?? null}, ai_narrative_accepted),
       reviewed_by           = COALESCE(${input.reviewedBy ?? null}, reviewed_by),
-      reviewed_at           = CASE WHEN ${input.reviewedBy ?? null} IS NOT NULL THEN now() ELSE reviewed_at END,
+      reviewed_at           = CASE WHEN ${input.reviewedBy ?? null}::TEXT IS NOT NULL THEN now() ELSE reviewed_at END,
       signed_off_by         = COALESCE(${input.signedOffBy ?? null}, signed_off_by),
-      signed_off_at         = CASE WHEN ${input.signedOffBy ?? null} IS NOT NULL THEN now() ELSE signed_off_at END,
+      signed_off_at         = CASE WHEN ${input.signedOffBy ?? null}::TEXT IS NOT NULL THEN now() ELSE signed_off_at END,
       version_history       = COALESCE(version_history, '[]'::JSONB) || CASE
         WHEN ${input.content ? JSON.stringify(input.content) : null}::JSONB IS NOT NULL
         THEN jsonb_build_array(jsonb_build_object(
           'version', (SELECT COUNT(*) FROM jsonb_array_elements(COALESCE(version_history, '[]'::JSONB))) + 1,
           'savedAt', now()::TEXT,
-          'savedBy', COALESCE(${input.reviewedBy ?? input.signedOffBy ?? null}, 'system'),
+          'savedBy', COALESCE(${input.updatedBy ?? input.reviewedBy ?? input.signedOffBy ?? null}, 'system'),
           'content', ${input.content ? JSON.stringify(input.content) : null}::JSONB
         ))
         ELSE '[]'::JSONB

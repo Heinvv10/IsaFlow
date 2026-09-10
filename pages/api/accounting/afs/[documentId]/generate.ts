@@ -5,7 +5,8 @@ import { apiResponse } from '@/lib/apiResponse';
 import { withAuth, type CompanyAuthedRequest } from '@/lib/auth';
 import { withCsrf } from '@/lib/auth/withCsrf';
 import { log } from '@/lib/logger';
-import { getAfsDocument } from '@/modules/accounting/services/afs/afsDocumentService';
+import { lockDocumentForTransition } from '@/modules/accounting/services/afs/afsDocumentTransitions';
+import { sendReviewError } from '@/modules/accounting/services/afs/afsReviewErrorResponse';
 import { enqueueGenerationJob } from '@/modules/accounting/services/afs/afsGenerationJobService';
 
 async function handler(req: NextApiRequest, res: NextApiResponse) {
@@ -20,13 +21,21 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
 
   log.info('Generation job requested', { companyId, documentId }, 'afs-generate-api');
 
-  const document = await getAfsDocument(documentId, companyId);
-  if (!document) {
-    return apiResponse.notFound(res, 'AFS document', documentId);
+  // Generation rewrites every section, so it is refused wherever a section write is: a locked
+  // document, and a document whose signatories are signing the content as it stands.
+  let document;
+  try {
+    document = await lockDocumentForTransition(companyId, documentId);
+  } catch (err) {
+    if (sendReviewError(res, err, 'AFS document', documentId)) return;
+    throw err;
   }
 
   if (document.status === 'signed_off' || document.status === 'filed') {
     return apiResponse.badRequest(res, `Cannot generate a ${document.status} document`);
+  }
+  if (document.signingRequestedAt) {
+    return apiResponse.conflict(res, 'Document is out for signature — no generation until signing completes');
   }
 
   const job = await enqueueGenerationJob(documentId, companyId, requestedBy);

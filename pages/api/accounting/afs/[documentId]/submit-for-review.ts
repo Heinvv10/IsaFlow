@@ -1,14 +1,12 @@
 // pages/api/accounting/afs/[documentId]/submit-for-review.ts
 import type { NextApiRequest, NextApiResponse } from 'next';
 import { withErrorHandler } from '@/lib/api-error-handler';
-import { apiResponse, ErrorCode } from '@/lib/apiResponse';
+import { apiResponse } from '@/lib/apiResponse';
 import { withAuth, type CompanyAuthedRequest } from '@/lib/auth';
 import { withCsrf } from '@/lib/auth/withCsrf';
 import { log } from '@/lib/logger';
-import {
-  submitDocumentForReview,
-  ReviewError,
-} from '@/modules/accounting/services/afs/afsReviewService';
+import { submitDocumentForReview } from '@/modules/accounting/services/afs/afsReviewService';
+import { sendReviewError } from '@/modules/accounting/services/afs/afsReviewErrorResponse';
 
 async function handler(req: NextApiRequest, res: NextApiResponse) {
   if (req.method !== 'POST') {
@@ -26,10 +24,7 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
     const result = await submitDocumentForReview(companyId, documentId, userId);
     return apiResponse.success(res, result, 'Document submitted for review');
   } catch (err) {
-    if (err instanceof ReviewError) {
-      if (err.code === 'NOT_FOUND') return apiResponse.notFound(res, 'AFS document', documentId);
-      return apiResponse.error(res, ErrorCode.CONFLICT, err.message);
-    }
+    if (sendReviewError(res, err, 'AFS document', documentId)) return;
     throw err;
   }
 }

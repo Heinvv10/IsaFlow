@@ -12,6 +12,8 @@ export interface SchedulerRunResult {
   succeeded: number;
   failed: number;
   errors: Array<{ companyId: string; error: string }>;
+  /** Packs that were generated but deliberately not delivered, and why. */
+  deliveriesWithheld: Array<{ companyId: string; documentId: string; reason: string }>;
 }
 
 /**
@@ -48,6 +50,7 @@ export async function runDailyScheduler(): Promise<SchedulerRunResult> {
   );
 
   const errors: Array<{ companyId: string; error: string }> = [];
+  const deliveriesWithheld: SchedulerRunResult['deliveriesWithheld'] = [];
   let succeeded = 0;
   let failed = 0;
 
@@ -55,9 +58,16 @@ export async function runDailyScheduler(): Promise<SchedulerRunResult> {
     const companyId = companies[idx]?.companyId ?? 'unknown';
     if (result.status === 'fulfilled') {
       succeeded++;
+      if (result.value.deliveryWithheldReason) {
+        deliveriesWithheld.push({
+          companyId,
+          documentId: result.value.documentId,
+          reason: result.value.deliveryWithheldReason,
+        });
+      }
       log.info(
         'Pack generated',
-        { companyId, period, documentId: result.value.documentId },
+        { companyId, period, documentId: result.value.documentId, withheld: result.value.deliveryWithheldReason },
         'packSchedulerService',
       );
     } else {
@@ -76,6 +86,7 @@ export async function runDailyScheduler(): Promise<SchedulerRunResult> {
     succeeded,
     failed,
     errors,
+    deliveriesWithheld,
   };
 
   log.info('Scheduler run complete', summary, 'packSchedulerService');

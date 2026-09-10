@@ -20,6 +20,11 @@ function mapDocumentRow(row: Record<string, unknown>): AfsDocument {
     fiscalYear: (row.fiscal_year as number | null) ?? null,
     period: (row.period as string | null) ?? null,
     documentType: row.document_type as DocumentType,
+    signingRequestedAt: row.signing_requested_at instanceof Date ? row.signing_requested_at
+                          : row.signing_requested_at != null ? new Date(row.signing_requested_at as string) : null,
+    signingRefusedAt:   row.signing_refused_at instanceof Date ? row.signing_refused_at
+                          : row.signing_refused_at != null ? new Date(row.signing_refused_at as string) : null,
+    signingRefusedReason: (row.signing_refused_reason as string | null) ?? null,
     reportingFramework: row.reporting_framework as ReportingFramework,
     status: row.status as DocumentStatus,
     lockedAt: (row.locked_at as Date | null) ?? null,

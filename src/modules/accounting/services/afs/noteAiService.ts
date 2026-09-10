@@ -9,7 +9,10 @@ export interface CompanyContext {
   fiscalYear: number;
 }
 
-const client = new Anthropic();
+// An explicit client timeout: this call runs inside a request that holds a pool connection, and
+// the route re-reads and locks the section only after it returns. Without one, a stalled model
+// call would hold that connection until the request itself gave up.
+const client = new Anthropic({ timeout: 60_000, maxRetries: 1 });
 
 export async function generateNoteNarrative(
   sectionType: SectionType,

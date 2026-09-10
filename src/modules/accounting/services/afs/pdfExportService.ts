@@ -1,8 +1,8 @@
 // src/modules/accounting/services/afs/pdfExportService.ts
 import { sql } from '@/lib/neon';
 import { log } from '@/lib/logger';
-import type { AfsDocument, AfsSection, SectionType, SectionStatus, DocumentType, DocumentStatus, ReportingFramework, NoteContent, AfsSectionVersionEntry } from './afsTypes';
-import { getBrandProfile } from './brandProfileService';
+import type { AfsDocument, BrandProfile, AfsSection, SectionType, SectionStatus, DocumentType, DocumentStatus, ReportingFramework, NoteContent, AfsSectionVersionEntry } from './afsTypes';
+import { DEFAULT_BRAND_PROFILE, getBrandProfile } from './brandProfileService';
 import { runPreExportChecks } from './afsPreExportChecks';
 import { renderAfsToHtml } from './afsHtmlRendererService';
 import { buildAfsCharts } from './serverChartSvg';
@@ -17,6 +17,20 @@ export { runPreExportChecks } from './afsPreExportChecks';
 export interface PdfExportOptions {
   watermark?: 'DRAFT — NOT FOR DISTRIBUTION';
   skipChecks?: boolean;
+  /**
+   * Render with the documented default branding when the company has saved none. The export
+   * still refuses (a downloaded PDF should carry the firm's own branding), but signing uses it:
+   * nothing creates a brand profile at company creation, so requiring one would leave most
+   * companies permanently unable to send for signature.
+   */
+  allowDefaultBrandProfile?: boolean;
+  /**
+   * The company and brand values to render with, read and fingerprinted in one statement by the
+   * caller (snapshotRenderInputs). When given, the renderer does NOT re-read those tables, so
+   * the bytes it produces are exactly what the fingerprint describes. A null brand profile means
+   * the snapshot saw none: the documented default is used.
+   */
+  inputs?: { companyName: string; registrationNumber: string | null; brandProfile: BrandProfile | null };
 }
 
 // ── DB row mappers ────────────────────────────────────────────────────────────
@@ -28,6 +42,11 @@ function mapDocumentRow(row: Record<string, unknown>): AfsDocument {
     fiscalYear:         (row.fiscal_year as number | null) ?? null,
     period:             (row.period as string | null) ?? null,
     documentType:       row.document_type as DocumentType,
+    signingRequestedAt: row.signing_requested_at instanceof Date ? row.signing_requested_at
+                          : row.signing_requested_at != null ? new Date(row.signing_requested_at as string) : null,
+    signingRefusedAt:   row.signing_refused_at instanceof Date ? row.signing_refused_at
+                          : row.signing_refused_at != null ? new Date(row.signing_refused_at as string) : null,
+    signingRefusedReason: (row.signing_refused_reason as string | null) ?? null,
     reportingFramework: row.reporting_framework as ReportingFramework,
     status:             row.status as DocumentStatus,
     lockedAt:           (row.locked_at as Date | null) ?? null,
@@ -62,15 +81,20 @@ function mapSectionRow(row: Record<string, unknown>): AfsSection {
   };
 }
 
-// ── Main export function ──────────────────────────────────────────────────────
+// ── Render ────────────────────────────────────────────────────────────────────
 
-export async function exportToPdf(
+/**
+ * Renders the statements to HTML. Every consumer — the PDF export and the signing request —
+ * derives its bytes here. The document and its sections are read from their rows (in note
+ * order, then id, so tied note numbers always print in one order); the company and branding
+ * come either from their rows or, for signing, from the `inputs` the caller fingerprinted, so
+ * what is signed is exactly what was fingerprinted.
+ */
+export async function renderDocumentHtml(
   documentId: string,
   companyId: string,
   options?: PdfExportOptions,
-): Promise<Buffer> {
-  log.info('pdfExportService.exportToPdf', { documentId, companyId, options });
-
+): Promise<string> {
   // 1. Load document
   const docRows = (await sql`
     SELECT *
@@ -91,16 +115,17 @@ export async function exportToPdf(
     FROM   afs_sections
     WHERE  document_id = ${documentId}::UUID
       AND  company_id  = ${companyId}::UUID
-    ORDER  BY sort_order ASC
+    ORDER  BY sort_order ASC, id
   `) as Record<string, unknown>[];
 
   const sections = sectionRows.map(mapSectionRow);
 
-  // 3. Load brand profile
-  const brandProfile = await getBrandProfile(companyId);
-  if (brandProfile === null) {
+  // 3. Load brand profile — unless the caller supplies the values it fingerprinted
+  const savedProfile = options?.inputs ? options.inputs.brandProfile : await getBrandProfile(companyId);
+  if (savedProfile === null && !options?.allowDefaultBrandProfile && !options?.inputs) {
     throw new Error(`Brand profile not found for company: ${companyId}`);
   }
+  const brandProfile = savedProfile ?? { ...DEFAULT_BRAND_PROFILE, id: 'default', companyId, createdAt: new Date(), updatedAt: new Date() };
 
   // 4. Run pre-export checks unless skipChecks is set
   if (!options?.skipChecks) {
@@ -119,19 +144,25 @@ export async function exportToPdf(
     }
   }
 
-  // 5. Load company info
-  const companyRows = (await sql`
-    SELECT name, registration_number
-    FROM   companies
-    WHERE  id = ${companyId}::UUID
-  `) as Record<string, unknown>[];
-
-  const companyRow = companyRows[0];
-  if (companyRow === undefined) {
-    throw new Error(`Company not found: ${companyId}`);
+  // 5. Load company info — unless the caller supplies the values it fingerprinted
+  let companyName: string;
+  let registrationNumber: string;
+  if (options?.inputs) {
+    companyName        = options.inputs.companyName;
+    registrationNumber = options.inputs.registrationNumber ?? '';
+  } else {
+    const companyRows = (await sql`
+      SELECT name, registration_number
+      FROM   companies
+      WHERE  id = ${companyId}::UUID
+    `) as Record<string, unknown>[];
+    const companyRow = companyRows[0];
+    if (companyRow === undefined) {
+      throw new Error(`Company not found: ${companyId}`);
+    }
+    companyName        = companyRow.name as string;
+    registrationNumber = (companyRow.registration_number as string | null) ?? '';
   }
-  const companyName         = companyRow.name as string;
-  const registrationNumber  = (companyRow.registration_number as string | null) ?? '';
 
   // 6. Render HTML. Defence-in-depth: WeasyPrint fetches the logo URL server-side, so
   // re-validate it here (covers rows stored before the save-time guard) and drop it if it
@@ -149,12 +180,22 @@ export async function exportToPdf(
   // registered renders exactly as it does today.
   const charts = buildAfsCharts(sections);
 
-  const html = renderAfsToHtml(
+  return renderAfsToHtml(
     { document, sections, brandProfile: safeBrandProfile, companyName, registrationNumber, charts },
     { watermark: options?.watermark },
   );
+}
 
-  // 7. Convert to PDF via WeasyPrint
+// ── Main export function ──────────────────────────────────────────────────────
+
+export async function exportToPdf(
+  documentId: string,
+  companyId: string,
+  options?: PdfExportOptions,
+): Promise<Buffer> {
+  log.info('pdfExportService.exportToPdf', { documentId, companyId, options });
+
+  const html = await renderDocumentHtml(documentId, companyId, options);
   const buffer = await htmlToPdf(html);
 
   log.info('pdfExportService.exportToPdf complete', { documentId, bytes: buffer.length });

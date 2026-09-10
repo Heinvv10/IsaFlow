@@ -30,7 +30,7 @@ describe('promoteToPartnerReview', () => {
     mockSql.mockResolvedValueOnce([{ id: DOC, status: 'in_review' }]); // getDocument
     mockSql.mockResolvedValueOnce([{ cnt: 0 }]);                        // countMandatorySectionsBelow
     mockSql.mockResolvedValueOnce([{ n: 0 }]);                          // countUnresolvedCommentsForDocument
-    mockSql.mockResolvedValueOnce([]);                                   // UPDATE
+    mockSql.mockResolvedValueOnce([{ id: DOC }]);                        // UPDATE ... RETURNING id
 
     const result = await promoteToPartnerReview(CID, DOC, USER);
     expect(result).toEqual({ documentId: DOC, newStatus: 'partner_review' });

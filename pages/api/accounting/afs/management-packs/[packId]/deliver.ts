@@ -7,7 +7,7 @@ import { withCsrf } from '@/lib/auth/withCsrf';
 import { log } from '@/lib/logger';
 import { sql } from '@/lib/neon';
 import type { DbRow } from '@/lib/neon';
-import { deliverPack } from '@/modules/accounting/services/afs/packDeliveryService';
+import { deliverPack, PackDeliveryWithheldError } from '@/modules/accounting/services/afs/packDeliveryService';
 
 type Row = DbRow;
 
@@ -21,7 +21,7 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
 
   // IDOR guard: always filter by company_id
   const docRows = (await sql`
-    SELECT id, status FROM afs_documents
+    SELECT id, status, delivery_withheld_reason FROM afs_documents
     WHERE id = ${packId}::UUID
       AND company_id = ${companyId}::UUID
       AND document_type = 'management_pack'
@@ -36,9 +36,21 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
     return apiResponse.badRequest(res, `Cannot deliver pack with status '${status}'`);
   }
 
+  // Defence in depth: deliverPack is the gate (every caller passes through it), and this check
+  // spares the round trip.
+  const withheld = docRows[0]?.delivery_withheld_reason as string | null;
+  if (withheld) {
+    return apiResponse.conflict(res, withheld);
+  }
+
   log.info('Manual pack delivery triggered', { companyId, packId, status }, 'management-pack-deliver-api');
 
-  await deliverPack(packId, companyId);
+  try {
+    await deliverPack(packId, companyId);
+  } catch (err) {
+    if (err instanceof PackDeliveryWithheldError) return apiResponse.conflict(res, err.message);
+    throw err;
+  }
 
   return apiResponse.success(res, { delivered: true });
 }

@@ -1,12 +1,11 @@
 // pages/api/accounting/afs/[documentId]/send-for-signing.ts — POST
 // Auth: withAuth (staff-only)
-// Reads rendered AFS HTML, calls Signum, sends per-signer notifications.
+// Renders the statements from a fingerprinted snapshot, posts them to Signum, notifies each signer.
 
 import type { NextApiRequest, NextApiResponse } from 'next';
 import { z } from 'zod';
-import fs from 'fs/promises';
+import { createHash } from 'crypto';
 import { withErrorHandler } from '@/lib/api-error-handler';
-import { afsHtmlPath } from '@/lib/storage/afsStorage';
 import { apiResponse } from '@/lib/apiResponse';
 import { withAuth, type CompanyAuthedRequest } from '@/lib/auth';
 import { withCsrf } from '@/lib/auth/withCsrf';
@@ -15,6 +14,10 @@ import { log } from '@/lib/logger';
 import { sql } from '@/lib/neon';
 import { checkSendRateLimit } from '@/lib/rateLimit';
 import { sendForSigning } from '@/modules/accounting/services/afs/signumIntegrationService';
+import { countMandatorySectionsBelow, lockDocumentForTransition } from '@/modules/accounting/services/afs/afsDocumentTransitions';
+import { snapshotRenderInputs } from '@/modules/accounting/services/afs/afsSigningIntegrity';
+import { renderDocumentHtml } from '@/modules/accounting/services/afs/pdfExportService';
+import { sendReviewError } from '@/modules/accounting/services/afs/afsReviewErrorResponse';
 import { notifySigningRequested } from '@/modules/accounting/services/afs/portalNotificationService';
 import type { PortalRole } from '@/modules/accounting/services/afs/afsTypes';
 
@@ -43,25 +46,34 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
   if (!parsed.success) return apiResponse.zodValidationError(res, parsed.error);
   const { signerContactIds } = parsed.data;
 
-  // 1. Load and verify the document
-  const docs = (await sql`
-    SELECT id, status, signing_requested_at
-    FROM afs_documents
-    WHERE id = ${documentId}::UUID AND company_id = ${companyId}::UUID
-    LIMIT 1
-  `) as Array<{ id: string; status: string; signing_requested_at: Date | null }>;
+  // 1. Load and lock the document: from the moment the signing request is recorded the section
+  //     write guard refuses every edit, so nothing may slip in between this check and that.
+  let doc;
+  try {
+    doc = await lockDocumentForTransition(companyId, documentId);
+  } catch (err) {
+    if (sendReviewError(res, err, 'AFS document', documentId)) return;
+    throw err;
+  }
 
-  if (docs.length === 0) return apiResponse.notFound(res, 'AFS document', documentId);
-
-  const doc = docs[0]!;
   if (doc.status !== 'partner_review') {
     return apiResponse.badRequest(
       res,
       'Document must be in partner_review status to send for signing',
     );
   }
-  if (doc.signing_requested_at) {
+  if (doc.signingRequestedAt) {
     return apiResponse.badRequest(res, 'Signing has already been requested for this document');
+  }
+
+  // What is signed must be what was reviewed and signed off, or the webhook would have to refuse
+  // the signature when it arrives.
+  const notSignedOff = await countMandatorySectionsBelow(companyId, documentId, 'signed_off');
+  if (notSignedOff > 0) {
+    return apiResponse.conflict(
+      res,
+      `Cannot send for signing: ${notSignedOff} mandatory section(s) not yet signed off`,
+    );
   }
 
   // 2. Load and verify signer contacts (IDOR guard: must belong to this company)
@@ -86,30 +98,56 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
     }
   }
 
-  // 3. Load rendered AFS HTML (stored by render service)
-  const htmlPath = afsHtmlPath(companyId, documentId);
+  // 3. Fingerprint what is rendered. The company and brand inputs are read ONCE, in the same
+  //     statement that fingerprints them, and the render uses those values instead of
+  //     re-reading the tables — so the bytes Signum receives are, by construction, the bytes
+  //     the fingerprint describes. No lock is taken on the company or its branding (edits to
+  //     either are deliberately allowed while a document is out for signature); a later edit
+  //     makes the webhook's recomputation differ and the signature is refused, naming it. The
+  //     document and its sections are already held by the document lock above.
+  //
+  //     There is no stored artifact to sign: nothing in the product writes one, so reading a
+  //     file here would post bytes of unknown provenance and arbitrary age.
+  const snapshot = await snapshotRenderInputs(sql, companyId, documentId);
   let html: string;
   try {
-    html = await fs.readFile(htmlPath, 'utf-8');
-  } catch {
-    return apiResponse.badRequest(res, 'Rendered HTML not yet generated for this document');
+    // skipChecks: the pre-export blocker gate is the export's own policy and runs there. What
+    // matters here is that the bytes are DERIVED from the fingerprinted values; a render that
+    // cannot be produced at all refuses the send.
+    html = await renderDocumentHtml(documentId, companyId, {
+      skipChecks: true,
+      allowDefaultBrandProfile: true,
+      inputs: {
+        companyName: snapshot.companyName,
+        registrationNumber: snapshot.registrationNumber,
+        brandProfile: snapshot.brandProfile,
+      },
+    });
+  } catch (err) {
+    log.warn('Signing refused — the statements could not be rendered from the current content',
+      { companyId, documentId, error: err instanceof Error ? err.message : String(err) }, 'send-for-signing-api');
+    return apiResponse.conflict(
+      res,
+      `Cannot send for signing: the statements could not be rendered from the current content — ${err instanceof Error ? err.message : 'render failed'}`,
+    );
   }
+  const { fingerprint, digests } = snapshot;
 
-  // 4. Load company name for document title
-  const companies = (await sql`
-    SELECT name FROM companies WHERE id = ${companyId}::UUID LIMIT 1
-  `) as Array<{ name: string }>;
-  const companyName = companies.length > 0 ? companies[0]!.name : 'Company';
-  const title = `Annual Financial Statements — ${companyName}`;
+  // 4. The document title carries the same company name the statements were rendered with
+  const title = `Annual Financial Statements — ${snapshot.companyName}`;
 
   // 5. Send to Signum (JSON body — real API uses /documents/from-html)
   const signers = contacts.map((c) => ({ email: c.email, name: c.name }));
+  // Both records: the inputs that were rendered (fingerprinted in the snapshot above), and the
+  // exact bytes that were posted.
+  const payloadSha256 = createHash('sha256').update(html, 'utf8').digest('hex');
   const { signumDocumentId, signingTokens } = await sendForSigning(
     documentId,
     companyId,
     html,
     title,
     signers,
+    { contentFingerprint: fingerprint, inputDigests: digests, payloadSha256 },
   );
 
   // 6. Notify each signer with their individual signing URL

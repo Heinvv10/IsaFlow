@@ -2,15 +2,12 @@
 import type { NextApiRequest, NextApiResponse } from 'next';
 import { z } from 'zod';
 import { withErrorHandler } from '@/lib/api-error-handler';
-import { apiResponse, ErrorCode } from '@/lib/apiResponse';
+import { apiResponse } from '@/lib/apiResponse';
 import { withAuth, type CompanyAuthedRequest } from '@/lib/auth';
 import { withCsrf } from '@/lib/auth/withCsrf';
 import { requireUuidParam } from '@/lib/schemas/common';
 import { log } from '@/lib/logger';
-import {
-  assertDocumentEditable,
-  ReviewError,
-} from '@/modules/accounting/services/afs/afsReviewService';
+import { sendReviewError } from '@/modules/accounting/services/afs/afsReviewErrorResponse';
 import {
   listVersions,
   restoreVersion,
@@ -31,7 +28,7 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
 
   if (req.method === 'GET') {
     try {
-      const items = await listVersions(companyId, sectionId);
+      const items = await listVersions(companyId, documentId, sectionId);
       return apiResponse.success(res, { items });
     } catch (err) {
       if (err instanceof VersionHistoryError && err.code === 'NOT_FOUND') {
@@ -50,23 +47,15 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
     log.info('Version restore requested', { companyId, documentId, sectionId, version, userId }, 'afs-versions-api');
 
     try {
-      await assertDocumentEditable(companyId, documentId);
-    } catch (err) {
-      if (err instanceof ReviewError) {
-        if (err.code === 'NOT_FOUND') return apiResponse.notFound(res, 'AFS document', documentId);
-        return apiResponse.error(res, ErrorCode.CONFLICT, err.message);
-      }
-      throw err;
-    }
-
-    try {
-      const newVersionEntry = await restoreVersion(companyId, sectionId, version, userId);
+      const newVersionEntry = await restoreVersion(companyId, documentId, sectionId, version, userId);
       return apiResponse.success(res, {
         sectionId,
         restoredVersion: version,
         newVersionEntry,
       }, 'Version restored');
     } catch (err) {
+      // restoreVersion binds the section to this document and refuses a locked one.
+      if (sendReviewError(res, err, 'Section', sectionId)) return;
       if (err instanceof VersionHistoryError) {
         if (err.code === 'NOT_FOUND') return apiResponse.notFound(res, 'Section', sectionId);
         if (err.code === 'VERSION_NOT_FOUND') return apiResponse.notFound(res, 'Version', String(version));

@@ -9,6 +9,7 @@ import { requireUuidParam } from '@/lib/schemas/common';
 import { ReportingFrameworkEnum } from '@/lib/schemas/afs';
 import { log } from '@/lib/logger';
 import { generateSection } from '@/modules/accounting/services/afs/noteEngineService';
+import { sendReviewError } from '@/modules/accounting/services/afs/afsReviewErrorResponse';
 
 const BodySchema = z.object({
   fiscalYear: z.union([z.number(), z.string()]).transform(v => Number(v)).refine(
@@ -21,7 +22,8 @@ const BodySchema = z.object({
 async function handler(req: NextApiRequest, res: NextApiResponse) {
   if (req.method !== 'POST') return apiResponse.methodNotAllowed(res, req.method ?? 'UNKNOWN', ['POST']);
 
-  const { companyId } = req as CompanyAuthedRequest;
+  const companyReq = req as CompanyAuthedRequest;
+  const { companyId } = companyReq;
   const documentId = requireUuidParam(req, res, 'documentId');
   if (!documentId) return;
   const sectionId = requireUuidParam(req, res, 'sectionId');
@@ -33,7 +35,14 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
 
   log.info('Regenerating AFS section', { companyId, documentId, sectionId }, 'afs/regenerate');
 
-  await generateSection(companyId, documentId, sectionId, fiscalYear, framework);
+  try {
+    // generateSection takes the write guard itself: bound to this document, refused while it
+    // is locked or out for signature, and the review of the replaced content is voided.
+    await generateSection(companyId, documentId, sectionId, fiscalYear, framework, companyReq.user.id);
+  } catch (err) {
+    if (sendReviewError(res, err, 'Section', sectionId)) return;
+    throw err;
+  }
 
   return apiResponse.success(res, { sectionId });
 }
