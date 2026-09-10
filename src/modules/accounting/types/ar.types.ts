@@ -101,6 +101,13 @@ export interface CreditNoteCreateInput {
   reason?: string;
   subtotal: number;
   taxRate?: number;
+  /**
+   * Exact VAT amount, when the caller already knows it. Rounding subtotal and
+   * tax independently can leave subtotal + tax a cent off a known gross, so a
+   * caller splitting a VAT-inclusive figure passes the remainder here instead
+   * of letting it be re-derived from taxRate.
+   */
+  taxAmount?: number;
   projectId?: string;
 }
 

@@ -6,6 +6,7 @@ import { createJournalEntry } from '@/modules/accounting/services/gl/journalEntr
 import { postJournalEntry } from '@/modules/accounting/services/gl/journalEntryPostingService';
 import type { JournalEntryCreateInput, JournalLineInput } from '@/modules/accounting/types/gl.types';
 import type { ScheduleRow } from '@/lib/amortisation/types';
+import { assertFiscalPeriodResolved, lockLoanForUpdate } from './loanPostingGuards';
 
 type Row = DbRow;
 
@@ -151,17 +152,20 @@ export async function postPeriodJournals(
   period: number,
   userId: string,
 ): Promise<PostPeriodResult> {
-  const loans = (await sql`
-    SELECT * FROM loans WHERE id = ${loanId} AND company_id = ${companyId}
-  `) as Row[];
-  if (loans.length === 0) throw new Error(`Loan ${loanId} not found`);
+  // FOR UPDATE serialises two concurrent posts of the same loan; the
+  // already-posted check below then sees the winner's committed rows. Bounded
+  // by a 5s lock_timeout (review M5) so a wedged peer surfaces as a retryable
+  // error instead of pinning the connection — see loanPostingGuards.ts.
+  const loanRow = await lockLoanForUpdate(companyId, loanId);
+  if (!loanRow) throw new Error(`Loan ${loanId} not found`);
 
-  const loanRow = loans[0]!;
   const accounts = extractAccounts(loanRow);
 
   // Find the latest schedule run for this loan
   const runs = (await sql`
-    SELECT id FROM loan_schedule_runs WHERE loan_id = ${loanId} ORDER BY computed_at DESC LIMIT 1
+    SELECT id FROM loan_schedule_runs
+    WHERE loan_id = ${loanId} AND company_id = ${companyId}
+    ORDER BY computed_at DESC LIMIT 1
   `) as Row[];
   if (runs.length === 0) throw new Error('No schedule run exists — compute schedule first');
 
@@ -187,10 +191,32 @@ export async function postPeriodJournals(
   `) as Row[];
   if (locks.length > 0) throw new Error(`Period ${yyyymmStr} is locked`);
 
+  // Already posted? A row carrying reversal_of is a reversal, not a posting,
+  // and does not block. The ORIGINAL rows keep reversal_of IS NULL and DO
+  // block, including after they have been reversed in the GL — reversing a
+  // journal writes to gl_journal_entries only and leaves these rows untouched.
+  // Re-posting a period therefore requires deleting or re-pointing its
+  // loan_gl_postings rows first; see docs/audits/remediation/K-083/fix.md.
+  //
+  // `journal_entry_id IS NOT NULL` keeps this in step with the exclusion
+  // constraint in migration 644, whose predicate carries the same test.
+  const posted = (await sql`
+    SELECT journal_entry_id FROM loan_gl_postings
+    WHERE company_id = ${companyId} AND loan_id = ${loanId} AND period = ${period}
+      AND reversal_of IS NULL AND journal_entry_id IS NOT NULL
+    LIMIT 1
+  `) as Row[];
+  if (posted.length > 0) {
+    throw new Error(
+      `Period ${period} of loan ${loanId} has already been posted (journal ${String(posted[0]!.journal_entry_id)})`,
+    );
+  }
+
   const narrative = `Loan ${String(loanRow.reference ?? loanId)} – period ${period}`;
   const entryInput = buildPeriodJournalInput(row, accounts, narrative);
 
   const entry = await createJournalEntry(companyId, entryInput, userId);
+  assertFiscalPeriodResolved(entry.fiscalPeriodId, fmtDate(row.date), narrative);
   await postJournalEntry(companyId, entry.id, userId);
 
   // Record each line in loan_gl_postings for reporting/reversal

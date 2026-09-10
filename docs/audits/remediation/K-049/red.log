@@ -1,0 +1,42 @@
+$ node scripts/check-runtime.mjs && vitest run --config vitest.integration.config.ts "tests/integration/k049-recurring-journal-400-commits-draft.int.test.ts"
+
+ RUN  v4.1.2 /home/hein/Workspace/IsaFlow/.worktrees/audit-remediation-20260908
+
+{"level":"info","message":"API Request: POST /api/accounting/recurring-journals-action","timestamp":"2026-09-09T09:15:54.926Z","component":"API","requestId":"01M22Q7M5DQT6YGQ3E6GFQ45BF","data":{"type":"request","method":"POST","url":"/api/accounting/recurring-journals-action","query":{},"body":{"action":"generate","id":"07893868-e0d9-41ba-8308-98dc7a91a23d"}}}
+{"level":"info","message":"Created journal entry","timestamp":"2026-09-09T09:15:54.940Z","component":"accounting","requestId":"01M22Q7M5DQT6YGQ3E6GFQ45BF","data":{"entryId":"0da82b67-7b59-4842-8edf-f1faf1f60510","entryNumber":"JE-2026-00001","lineCount":2}}
+{"level":"error","message":"Failed to post journal entry","timestamp":"2026-09-09T09:15:54.946Z","component":"accounting","requestId":"01M22Q7M5DQT6YGQ3E6GFQ45BF","data":{"id":"0da82b67-7b59-4842-8edf-f1faf1f60510","error":{"name":"ClosedFiscalPeriodError","periodStatus":"closed","message":"Cannot post to closed fiscal period","stack":"ClosedFiscalPeriodError: Cannot post to closed fiscal period\n    at postJournalEntry (/home/hein/Workspace/IsaFlow/.worktrees/audit-remediation-20260908/src/modules/accounting/services/gl/journalEntryPostingService.ts:94:15)\n    at processTicksAndRejections (node:internal/process/task_queues:95:5)\n    at generateJournalFromRecurring (/home/hein/Workspace/IsaFlow/.worktrees/audit-remediation-20260908/src/modules/accounting/services/gl/recurringJournalService.ts:94:3)\n    at handler (/home/hein/Workspace/IsaFlow/.worktrees/audit-remediation-20260908/pages/api/accounting/recurring-journals-action.ts:40:27)\n    at /home/hein/Workspace/IsaFlow/.worktrees/audit-remediation-20260908/src/lib/api-error-handler.ts:118:9\n    at runScoped (/home/hein/Workspace/IsaFlow/.worktrees/audit-remediation-20260908/src/lib/api-error-handler.ts:91:7)\n    at /home/hein/Workspace/IsaFlow/.worktrees/audit-remediation-20260908/src/lib/api-error-handler.ts:192:7\n    at /home/hein/Workspace/IsaFlow/.worktrees/audit-remediation-20260908/src/lib/auth/withAuth.ts:207:25\n    at /home/hein/Workspace/IsaFlow/.worktrees/audit-remediation-20260908/src/lib/auth/withAuth.ts:216:9\n    at /home/hein/Workspace/IsaFlow/.worktrees/audit-remediation-20260908/tests/integration/k049-recurring-journal-400-commits-draft.int.test.ts:79:3"}}}
+{"level":"error","message":"Recurring journal action failed","timestamp":"2026-09-09T09:15:54.962Z","component":"accounting-api","requestId":"01M22Q7M5DQT6YGQ3E6GFQ45BF","data":{"error":{"name":"ClosedFiscalPeriodError","periodStatus":"closed","message":"Cannot post to closed fiscal period","stack":"ClosedFiscalPeriodError: Cannot post to closed fiscal period\n    at postJournalEntry (/home/hein/Workspace/IsaFlow/.worktrees/audit-remediation-20260908/src/modules/accounting/services/gl/journalEntryPostingService.ts:94:15)\n    at processTicksAndRejections (node:internal/process/task_queues:95:5)\n    at generateJournalFromRecurring (/home/hein/Workspace/IsaFlow/.worktrees/audit-remediation-20260908/src/modules/accounting/services/gl/recurringJournalService.ts:94:3)\n    at handler (/home/hein/Workspace/IsaFlow/.worktrees/audit-remediation-20260908/pages/api/accounting/recurring-journals-action.ts:40:27)\n    at /home/hein/Workspace/IsaFlow/.worktrees/audit-remediation-20260908/src/lib/api-error-handler.ts:118:9\n    at runScoped (/home/hein/Workspace/IsaFlow/.worktrees/audit-remediation-20260908/src/lib/api-error-handler.ts:91:7)\n    at /home/hein/Workspace/IsaFlow/.worktrees/audit-remediation-20260908/src/lib/api-error-handler.ts:192:7\n    at /home/hein/Workspace/IsaFlow/.worktrees/audit-remediation-20260908/src/lib/auth/withAuth.ts:207:25\n    at /home/hein/Workspace/IsaFlow/.worktrees/audit-remediation-20260908/src/lib/auth/withAuth.ts:216:9\n    at /home/hein/Workspace/IsaFlow/.worktrees/audit-remediation-20260908/tests/integration/k049-recurring-journal-400-commits-draft.int.test.ts:79:3"}}}
+{"level":"warn","message":"Bad request","timestamp":"2026-09-09T09:15:54.962Z","component":"ApiResponse","requestId":"01M22Q7M5DQT6YGQ3E6GFQ45BF","data":{"message":"Cannot post to closed fiscal period","stack":"ClosedFiscalPeriodError: Cannot post to closed fiscal period\n    at postJournalEntry (/home/hein/Workspace/IsaFlow/.worktrees/audit-remediation-20260908/src/modules/accounting/services/gl/journalEntryPostingService.ts:94:15)\n    at processTicksAndRejections (node:internal/process/task_queues:95:5)\n    at generateJournalFromRecurring (/home/hein/Workspace/IsaFlow/.worktrees/audit-remediation-20260908/src/modules/accounting/services/gl/recurringJournalService.ts:94:3)\n    at handler (/home/hein/Workspace/IsaFlow/.worktrees/audit-remediation-20260908/pages/api/accounting/recurring-journals-action.ts:40:27)\n    at /home/hein/Workspace/IsaFlow/.worktrees/audit-remediation-20260908/src/lib/api-error-handler.ts:118:9\n    at runScoped (/home/hein/Workspace/IsaFlow/.worktrees/audit-remediation-20260908/src/lib/api-error-handler.ts:91:7)\n    at /home/hein/Workspace/IsaFlow/.worktrees/audit-remediation-20260908/src/lib/api-error-handler.ts:192:7\n    at /home/hein/Workspace/IsaFlow/.worktrees/audit-remediation-20260908/src/lib/auth/withAuth.ts:207:25\n    at /home/hein/Workspace/IsaFlow/.worktrees/audit-remediation-20260908/src/lib/auth/withAuth.ts:216:9\n    at /home/hein/Workspace/IsaFlow/.worktrees/audit-remediation-20260908/tests/integration/k049-recurring-journal-400-commits-draft.int.test.ts:79:3"}}
+{"level":"info","message":"API Response: POST /api/accounting/recurring-journals-action - 400 (37ms)","timestamp":"2026-09-09T09:15:54.962Z","component":"API","requestId":"01M22Q7M5DQT6YGQ3E6GFQ45BF","data":{"type":"response","method":"POST","url":"/api/accounting/recurring-journals-action","statusCode":400,"duration":"37ms"}}
+{"level":"info","message":"request_completed","timestamp":"2026-09-09T09:15:54.962Z","component":"http","requestId":"01M22Q7M5DQT6YGQ3E6GFQ45BF","data":{"event":"request_completed","route":"/api/accounting/recurring-journals-action","method":"POST","status":400,"durationMs":37,"userId":"348b83b5-c5c3-4085-b736-6bccd23d7a44","companyId":"0ff26e87-dd88-4ace-87c5-787cda735320","outcome":"client_error"}}
+ ❯ tests/integration/k049-recurring-journal-400-commits-draft.int.test.ts (1 test | 1 failed) 276ms
+   × a failed generate leaves no journal entry behind 91ms
+
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 1 ⎯⎯⎯⎯⎯⎯⎯
+
+ FAIL  tests/integration/k049-recurring-journal-400-commits-draft.int.test.ts > a failed generate leaves no journal entry behind
+AssertionError: expected [ { …(2) } ] to have a length of +0 but got 1
+
+- Expected
++ Received
+
+- 0
++ 1
+
+ ❯ tests/integration/k049-recurring-journal-400-commits-draft.int.test.ts:87:16
+     85|   const { rows } = await pool.query(
+     86|     "SELECT id, status FROM gl_journal_entries WHERE company_id=$1 AND…
+     87|   expect(rows).toHaveLength(0);
+       |                ^
+     88| });
+     89|
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[1/1]⎯
+
+
+ Test Files  1 failed (1)
+      Tests  1 failed (1)
+   Start at  11:15:53
+   Duration  1.93s (transform 695ms, setup 0ms, import 1.33s, tests 276ms, environment 0ms)
+
+error: script "test:integration" exited with code 1

@@ -6,17 +6,8 @@
 import { transaction, sql, withTransaction } from '@/lib/neon';
 import { log } from '@/lib/logger';
 import { sweep } from './autoPostGateService';
-import {
-  detectBankFormat,
-  parseFNBStatement,
-  parseStandardBankStatement,
-  parseNedbankStatement,
-  parseABSAStatement,
-  parseCapitecStatement,
-  parseGenericStatement,
-} from '../../utils/bankCsvParsers';
-import { parseOfxStatement } from '../../utils/bankOfxParser';
-import { parseQifStatement } from '../../utils/bankQifParser';
+import { detectBankFormat } from '../../utils/bankCsvParsers';
+import { parseStatement, type StatementFileType } from './bankStatementParseService';
 import type { BankFormat, BankCsvParseResult } from '../../types/bank.types';
 import { autoLinkImportedBatchTransfers, relinkTransferCounterparts } from './bankTransferLinkService';
 
@@ -35,37 +26,15 @@ export async function importBankStatement(
   bankFormat?: BankFormat
 ): Promise<{ batchId: string; transactionCount: number; errors: Array<{ row: number; error: string }> }> {
   try {
+    // Through `parseStatement` rather than calling the parsers directly, so this
+    // entry point inherits the same guard: a file that HAS rows and yielded no
+    // transaction is refused instead of returning a clean `{transactionCount: 0}`,
+    // which told a user who picked the wrong file type that the statement was in.
+    // A genuinely empty period still returns 0 rows.
     const format = bankFormat && bankFormat !== 'unknown' ? bankFormat : detectBankFormat(csvContent);
-    let parseResult;
-
-    switch (format) {
-      case 'fnb':
-        parseResult = parseFNBStatement(csvContent);
-        break;
-      case 'standard_bank':
-        parseResult = parseStandardBankStatement(csvContent);
-        break;
-      case 'nedbank':
-        parseResult = parseNedbankStatement(csvContent);
-        break;
-      case 'absa':
-        parseResult = parseABSAStatement(csvContent);
-        break;
-      case 'capitec':
-        parseResult = parseCapitecStatement(csvContent);
-        break;
-      case 'generic':
-        parseResult = parseGenericStatement(csvContent);
-        break;
-      case 'ofx':
-        parseResult = parseOfxStatement(csvContent);
-        break;
-      case 'qif':
-        parseResult = parseQifStatement(csvContent);
-        break;
-      default:
-        throw new Error('Unable to detect bank format. Please specify the bank.');
-    }
+    const fileType: StatementFileType =
+      format === 'ofx' ? 'ofx' : format === 'qif' ? 'qif' : format === 'mt940' ? 'mt940' : 'csv';
+    const parseResult = await parseStatement({ fileType, csvContent, bankFormat: format });
 
     if (parseResult.transactions.length === 0) {
       return { batchId: '', transactionCount: 0, errors: parseResult.errors };

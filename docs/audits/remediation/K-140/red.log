@@ -1,0 +1,38 @@
+$ node scripts/check-runtime.mjs && vitest run --config vitest.integration.config.ts "tests/integration/k140-autopost-sweep-no-savepoint.int.test.ts"
+
+ RUN  v4.1.2 /home/hein/Workspace/IsaFlow/.worktrees/audit-remediation-20260908
+
+{"level":"warn","message":"Auto-post failed for bank transaction — skipping","timestamp":"2026-09-09T09:46:07.254Z","component":"auto-post-gate","data":{"companyId":"08833e55-a303-492b-91a0-a7ea3d4243b1","txId":"929ff209-c6fd-4c3f-983f-eb982492368e","reason":"Bank transaction 929ff209-c6fd-4c3f-983f-eb982492368e is being allocated by another request — retry in a moment."}}
+{"level":"warn","message":"Auto-post failed for bank transaction — skipping","timestamp":"2026-09-09T09:46:07.258Z","component":"auto-post-gate","data":{"companyId":"08833e55-a303-492b-91a0-a7ea3d4243b1","txId":"7216e106-4a85-42a6-9805-54584aaa7704","reason":"current transaction is aborted, commands ignored until end of transaction block"}}
+{"level":"info","message":"Auto-post sweep complete","timestamp":"2026-09-09T09:46:07.259Z","component":"auto-post-gate","data":{"companyId":"08833e55-a303-492b-91a0-a7ea3d4243b1","source":"categorization","posted":0,"skipped":2,"runId":null}}
+ ❯ tests/integration/k140-autopost-sweep-no-savepoint.int.test.ts (1 test | 1 failed) 5275ms
+     × posts the rows it can when a peer holds one of them 5059ms
+
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 1 ⎯⎯⎯⎯⎯⎯⎯
+
+ FAIL  tests/integration/k140-autopost-sweep-no-savepoint.int.test.ts > K-140 one failed row must not abort the whole auto-post sweep > posts the rows it can when a peer holds one of them
+AssertionError: expected '929ff209-c6fd-4c3f-983f-eb982492368e …' not to match /current transaction is aborted|25P02/i
+
+- Expected:
+/current transaction is aborted|25P02/i
+
++ Received:
+"929ff209-c6fd-4c3f-983f-eb982492368e :: Bank transaction 929ff209-c6fd-4c3f-983f-eb982492368e is being allocated by another request — retry in a moment. | 7216e106-4a85-42a6-9805-54584aaa7704 :: current transaction is aborted, commands ignored until end of transaction block"
+
+ ❯ tests/integration/k140-autopost-sweep-no-savepoint.int.test.ts:119:12
+    117|     // Asserted first: the reason text is the direct evidence of the m…
+    118|     expect(result!.skipped.map(s => `${s.txId} :: ${s.reason}`).join('…
+    119|       .not.toMatch(/current transaction is aborted|25P02/i);
+       |            ^
+    120|     // The healthy row is unrelated to the locked one and must post.
+    121|     expect(result!.posted).toBe(1);
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[1/1]⎯
+
+
+ Test Files  1 failed (1)
+      Tests  1 failed (1)
+   Start at  11:46:00
+   Duration  6.57s (transform 501ms, setup 0ms, import 661ms, tests 5.28s, environment 0ms)
+
+error: script "test:integration" exited with code 1

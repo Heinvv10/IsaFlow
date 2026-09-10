@@ -71,6 +71,13 @@ const RAW_INSERT = /INSERT\s+INTO\s+gl_journal_lines/i;
  *     `export { createJournalEntry as post } from '...'` in one file, then
  *     `import { post } from './facade'` in another. The facade itself is
  *     caught; the consumer is not.
+ *   - A SPLIT between the file that carries `vatType` and the file that posts
+ *     puts neither in scope: `gl/reversalLines.ts` mirrors the stored
+ *     classification onto the contra and posts nothing, and
+ *     `journalEntryPostingService` posts and no longer names the field. That
+ *     pair used to be one allowlisted file. It decides no new claim — the
+ *     contra has to carry the original's classification to offset it — so
+ *     nothing is unguarded here today; what is gone is the gate's VIEW of it.
  *   - A DEFAULT import carries no name to match. Not a live risk here — the
  *     posting services all use named exports — but it is a hole.
  *

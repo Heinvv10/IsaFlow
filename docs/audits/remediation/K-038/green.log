@@ -1,0 +1,140 @@
+$ node scripts/check-runtime.mjs && vitest run --config vitest.integration.config.ts "tests/integration/k-038"
+
+ RUN  v4.1.2 /home/hein/Workspace/IsaFlow/.worktrees/fix-K-038
+
+{"level":"info","message":"Created supplier invoice","timestamp":"2026-09-09T08:04:03.286Z","component":"accounting","data":{"invoiceId":"66ca4750-4fcf-4199-8fd9-14b4d655615e","invoiceNumber":"a5480224-AP-PART"}}
+{"level":"info","message":"Created fiscal year","timestamp":"2026-09-09T08:04:03.328Z","component":"accounting","data":{"companyId":"a5480224-59e5-4d54-a258-9fda73f7f639","year":2027,"startMonth":3,"range":{"startDate":"2026-03-01","endDate":"2027-02-28"}}}
+{"level":"info","message":"Auto-created fiscal year for a journal date","timestamp":"2026-09-09T08:04:03.328Z","component":"accounting","data":{"companyId":"a5480224-59e5-4d54-a258-9fda73f7f639","year":2027}}
+{"level":"info","message":"Created journal entry","timestamp":"2026-09-09T08:04:03.340Z","component":"accounting","data":{"entryId":"818ef99d-f625-4acb-9476-84362615cecc","entryNumber":"JE-2026-00001","lineCount":3}}
+{"level":"info","message":"Created supplier invoice","timestamp":"2026-09-09T08:04:03.383Z","component":"accounting","data":{"invoiceId":"3bd78cc4-537c-4902-917c-6c73161f1e28","invoiceNumber":"a5480224-AP-FULL"}}
+{"level":"info","message":"Created journal entry","timestamp":"2026-09-09T08:04:03.404Z","component":"accounting","data":{"entryId":"f4525db2-e466-4847-9244-5261b5921ed8","entryNumber":"JE-2026-00002","lineCount":3}}
+{"level":"info","message":"Created supplier invoice","timestamp":"2026-09-09T08:04:03.439Z","component":"accounting","data":{"invoiceId":"4d41088c-4178-4cd2-81b9-6e391d5a0bc5","invoiceNumber":"a5480224-AP-OPEN"}}
+{"level":"info","message":"Created journal entry","timestamp":"2026-09-09T08:04:03.449Z","component":"accounting","data":{"entryId":"cbb0319f-fbf6-4bec-bdc5-775eec4d2190","entryNumber":"JE-2026-00003","lineCount":3}}
+
+ Test Files  2 passed (2)
+      Tests  9 passed (9)
+   Start at  10:04:01
+   Duration  1.77s (transform 886ms, setup 0ms, import 1.49s, tests 848ms, environment 0ms)
+
+
+=== Mutation check (production change reverted to origin/master, tests kept) ===
+Tests  6 failed | 3 passed (9)
+The 3 that stay green are the invariance cases (unpaid AR, unpaid AP, second
+tenant untouched) — they must hold both before and after.
+
+=== Full unit suite, DATABASE_URL unset (env -u DATABASE_URL bunx vitest run) ===
+Test Files  790 passed | 36 skipped (826)
+     Tests  9391 passed | 234 skipped (9625)
+
+=== bunx tsc --noEmit ===  exit 0
+=== bunx eslint src/modules/admin/services/sageMigration{CommitService,Types}.ts ===  exit 0
+
+════════ Review round 2 (findings from scratchpad/review-k038.md) ════════
+
+=== bun run test:integration -- tests/integration/k-038 ===
+Test Files  3 passed (3)
+     Tests  13 passed (13)
+
+=== Mutation check A (original K-038 change reverted to origin/master) ===
+Tests  6 failed | 3 passed (9)   [the 3 green are the invariance cases]
+
+=== Mutation check B (the three new guards disabled: non-finite, negative,
+    AP clamp re-anchored to inv.totalAmount) ===
+Tests  3 failed | 10 passed (13)
+  × a non-numeric source paid amount is refused, never written as NaN
+  × a negative source paid amount is refused, not stored as a balance above the total
+  × a fully settled bill at a NON-ROUND blended VAT rate still lands paid, never a negative balance
+
+=== Full unit suite, DATABASE_URL unset ===
+Test Files  790 passed | 36 skipped (826)
+     Tests  9391 passed | 234 skipped (9625)
+
+=== bunx tsc --noEmit ===  exit 0
+=== bunx eslint (both service files, types, sage-commit route) ===  exit 0
+=== bun run agent-docs:check ===  OK: 74 mirrors match
+
+════════ Review round 3 (scratchpad/review-k038-followup.md) ════════
+
+=== bun run test:integration -- tests/integration/k-038 ===
+Test Files  3 passed (3)      Tests  16 passed (16)
+
+=== bun run test:components (full) ===
+Test Files  58 passed (58)    Tests  395 passed (395)
+
+=== Mutation check C+D (AP re-anchored to the source paid amount; sub-cent
+    warning threshold removed) ===
+Tests  3 failed | 13 passed (16)
+  × a fully settled bill at a NON-ROUND blended VAT rate still lands paid, never a negative balance
+  × a fully settled bill whose RECOMPUTED total lands ABOVE Sage's leaves no phantom residual
+  × a part-settled bill at a non-round rate keeps exactly the source outstanding amount
+
+=== Mutation check E (warnings disclosure hidden in SageCommitSummary) ===
+Tests  3 failed | 2 passed (5)
+
+=== Full unit suite, DATABASE_URL unset ===
+Test Files  790 passed | 36 skipped (826)
+     Tests  9391 passed | 234 skipped (9625)
+
+=== bunx tsc --noEmit ===  clean
+=== bunx eslint (commit service, SageCommitSummary, sage-import page) ===  exit 0
+
+════════ Review round 4 (scratchpad/review-k038-round3.md) ════════
+
+=== bun run test:integration -- tests/integration/k-038 ===
+Test Files  3 passed (3)      Tests  17 passed (17)
+
+=== bunx vitest run tests/unit/services/ap/supplierInvoiceExactTaxAmount.test.ts ===
+Tests  6 passed (6)
+
+=== Mutation check F (exact line taxAmount ignored, back to the 2 dp rate) ===
+integration  Tests  3 failed | 14 passed (17)
+  × a fully settled bill at a NON-ROUND blended VAT rate stores SAGE's total and lands paid
+  × a fully settled bill whose RECOMPUTED total lands ABOVE Sage's leaves no phantom residual
+  × a part-settled bill at a non-round rate keeps exactly the source outstanding amount
+unit         Tests  2 failed | 4 passed (6)
+
+=== Mutation check G (absent-amountPaid short circuit removed), IN ISOLATION ===
+Tests  17 passed (17)  ← NOT mutation-proof, and said so in fix.md Limits.
+Now that the stored total equals Sage's, the derivation returns 0 for an absent
+field anyway. The guard is kept as defence-in-depth because the field is
+optional and the commit route does not validate its body.
+
+=== Full unit suite, DATABASE_URL unset ===
+Test Files  791 passed | 36 skipped (827)
+     Tests  9397 passed | 234 skipped (9631)
+
+=== bun run test:components (full) ===
+Test Files  58 passed (58)    Tests  395 passed (395)
+
+=== bunx tsc --noEmit ===  clean
+=== bunx eslint (supplierInvoiceService, ap.types, commit service) ===  exit 0
+
+════════ Review round 5 (addendum to review-k038-round3.md) ════════
+
+Finding: the shared-type change was not behaviour-neutral. supplier-invoices.ts
+forwarded request-body line objects verbatim, so `taxAmount` became a
+client-settable, unbounded input-VAT figure on that route.
+
+Two independent guards, one test each:
+  service — honours taxAmount only when the input carries trustSourceTax: true
+  route   — whitelists the nine line fields the service reads
+
+=== bunx vitest run tests/unit/api/supplierInvoiceClientTaxAmount.test.ts ===
+Tests  3 passed (3)
+=== bunx vitest run tests/unit/services/ap/supplierInvoiceExactTaxAmount.test.ts ===
+Tests  8 passed (8)
+
+=== Mutation check H (service trusts taxAmount unconditionally) ===
+Tests  2 failed | 6 passed (8)
+=== Mutation check I (route forwards raw body items again) ===
+Tests  1 failed | 2 passed (3)
+
+=== bun run test:integration -- tests/integration/k-038 ===
+Test Files  3 passed (3)      Tests  17 passed (17)
+=== Full unit suite, DATABASE_URL unset ===
+Test Files  792 passed | 36 skipped (828)
+     Tests  9402 passed | 234 skipped (9636)
+=== bun run test:components ===  58 files, 395 passed
+=== bunx tsc --noEmit ===  clean
+=== bunx eslint (service, types, commit service, route) ===  exit 0
+=== bun run agent-docs:check ===  OK: 74 mirrors match

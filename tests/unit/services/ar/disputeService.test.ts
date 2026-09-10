@@ -22,7 +22,14 @@ import { describe, it, expect, vi, beforeEach, type MockedFunction } from 'vites
 
 vi.mock('@/lib/neon', () => {
   const sqlMock = Object.assign(vi.fn(), { transaction: vi.fn() });
-  return { sql: sqlMock, withTransaction: vi.fn() };
+  return {
+    sql: sqlMock,
+    withTransaction: vi.fn(),
+    // resolveDispute wraps claim + credit note + link in one savepoint. Run
+    // the body straight through here: the savepoint's own behaviour is proved
+    // against a real transaction in tests/integration/k122e-….
+    withSavepoint: (_name: string, fn: () => Promise<unknown>) => fn(),
+  };
 });
 
 vi.mock('@/modules/accounting/services/ar/creditNoteService', () => ({
@@ -32,6 +39,7 @@ vi.mock('@/modules/accounting/services/ar/creditNoteService', () => ({
 import { sql } from '@/lib/neon';
 import { createCreditNote } from '@/modules/accounting/services/ar/creditNoteService';
 import {
+  ArRequestError,
   getDispute,
   getOpenDisputeTotals,
   listDisputes,
@@ -167,27 +175,80 @@ describe('raiseDispute', () => {
       }),
     ).rejects.toThrow(/already an open dispute/i);
   });
+
+  // The routes decide their HTTP status from the error TYPE, never from its
+  // message: withAuth COMMITs on any status below 500, so anything that is not
+  // the service's own refusal must stay untyped and reach it as a 5xx.
+  it('types its own refusals so the route can 4xx them, and only those', async () => {
+    mockSql.mockResolvedValueOnce([eligibleInvoiceRow()]);
+    const dup = Object.assign(new Error('duplicate key'), { code: '23505' });
+    mockSql.mockRejectedValueOnce(dup);
+    const duplicate = await raiseDispute(COMPANY_ID, {
+      customerInvoiceId: INVOICE_ID, reason: 'again', disputedAmount: 100,
+      raisedBy: `user:${USER_ID}`,
+    }).catch((e: unknown) => e);
+    expect(duplicate).toBeInstanceOf(ArRequestError);
+    expect((duplicate as ArRequestError).status).toBe(409);
+    expect((duplicate as ArRequestError).code).toBe('DISPUTE_EXISTS');
+
+    const amount = await raiseDispute(COMPANY_ID, {
+      customerInvoiceId: INVOICE_ID, reason: 'zero', disputedAmount: 0,
+      raisedBy: `user:${USER_ID}`,
+    }).catch((e: unknown) => e);
+    expect(amount).toBeInstanceOf(ArRequestError);
+    expect((amount as ArRequestError).status).toBe(400);
+
+    // A failure that is NOT a precondition stays a plain Error → 500 → rollback.
+    mockSql.mockResolvedValueOnce([eligibleInvoiceRow()]);
+    mockSql.mockRejectedValueOnce(new Error('Not found'));
+    const deeper = await raiseDispute(COMPANY_ID, {
+      customerInvoiceId: INVOICE_ID, reason: 'boom', disputedAmount: 100,
+      raisedBy: `user:${USER_ID}`,
+    }).catch((e: unknown) => e);
+    expect(deeper).not.toBeInstanceOf(ArRequestError);
+  });
 });
 
 describe('listDisputes', () => {
   it('scopes every query by company_id', async () => {
-    mockSql.mockResolvedValueOnce([]);
+    mockSql.mockResolvedValueOnce([]);                                   // page
+    mockSql.mockResolvedValueOnce([{ cnt: 0, open_cnt: 0, open_amount: 0 }]); // aggregates
 
     await listDisputes(COMPANY_ID, { status: 'open' });
 
-    const args = mockSql.mock.calls[0]!.slice(1);
-    expect(args).toContain(COMPANY_ID);
-    expect(args).toContain('open');
+    // Every query, not just the first: the aggregate query is the one this
+    // commit added, and asserting only calls[0] would never have checked it.
+    expect(mockSql).toHaveBeenCalledTimes(2);
+    for (const call of mockSql.mock.calls) {
+      expect(call.slice(1)).toContain(COMPANY_ID);
+    }
+    expect(mockSql.mock.calls[0]!.slice(1)).toContain('open');
+    expect(mockSql.mock.calls[1]!.slice(1)).toContain('open');
   });
 
   it('filters by customer_invoice_id when provided', async () => {
-    mockSql.mockResolvedValueOnce([]);
+    mockSql.mockResolvedValueOnce([]);                                   // page
+    mockSql.mockResolvedValueOnce([{ cnt: 0, open_cnt: 0, open_amount: 0 }]); // aggregates
 
     await listDisputes(COMPANY_ID, { customerInvoiceId: INVOICE_ID });
 
-    const args = mockSql.mock.calls[0]!.slice(1);
-    expect(args).toContain(COMPANY_ID);
-    expect(args).toContain(INVOICE_ID);
+    for (const call of mockSql.mock.calls) {
+      const args = call.slice(1);
+      expect(args).toContain(COMPANY_ID);
+      expect(args).toContain(INVOICE_ID);
+    }
+  });
+
+  it('reports total and the open aggregates from the aggregate query, not the page', async () => {
+    mockSql.mockResolvedValueOnce([]);  // an empty page (offset past the end)
+    mockSql.mockResolvedValueOnce([{ cnt: 137, open_cnt: 12, open_amount: '4500.50' }]);
+
+    const result = await listDisputes(COMPANY_ID, { offset: 500 });
+
+    expect(result.disputes).toHaveLength(0);
+    expect(result.total).toBe(137);
+    expect(result.openTotal).toBe(12);
+    expect(result.openDisputedAmount).toBeCloseTo(4500.5, 2);
   });
 });
 
@@ -217,7 +278,8 @@ describe('resolveDispute', () => {
 
     mockSql
       .mockResolvedValueOnce([openDispute]) // fetch current dispute
-      .mockResolvedValueOnce([{ client_id: CLIENT_ID }]) // invoice client lookup
+      // A standard 15% VAT invoice: subtotal 10 000 + VAT 1 500 = total 11 500.
+      .mockResolvedValueOnce([{ client_id: CLIENT_ID, subtotal: '10000.00', tax_amount: '1500.00' }])
       .mockResolvedValueOnce([
         {
           ...openDispute,
@@ -246,17 +308,79 @@ describe('resolveDispute', () => {
     const [ccCompany, ccInput, ccUser] = mockCreateCreditNote.mock.calls[0]!;
     expect(ccCompany).toBe(COMPANY_ID);
     expect(ccUser).toBe(USER_ID);
+    // disputed_amount 1 500 is VAT-INCLUSIVE (a slice of total_amount), and
+    // createCreditNote derives tax from a VAT-EXCLUSIVE subtotal. A flat
+    // taxRate 0 would have booked all 1 500 to revenue and nothing to VAT.
     expect(ccInput).toMatchObject({
       type: 'customer',
       clientId: CLIENT_ID,
       customerInvoiceId: INVOICE_ID,
-      subtotal: 1500,
       creditDate: '2026-04-23',
+      taxRate: 15,
     });
+    const { subtotal } = ccInput as { subtotal: number };
+    expect(subtotal).toBeCloseTo(1304.35, 2);
+    // The credit note grosses back up to the disputed amount.
+    expect(subtotal + Math.round(subtotal * 15) / 100).toBeCloseTo(1500, 2);
 
     expect(updated.status).toBe('resolved');
     expect(updated.resolutionMode).toBe('resolve_with_credit');
     expect(updated.creditNoteId).toBe(CREDIT_NOTE_ID);
+  });
+
+  it('uses taxRate 0 for a zero-rated invoice, crediting the disputed amount in full', async () => {
+    const openDispute = {
+      id: DISPUTE_ID,
+      company_id: COMPANY_ID,
+      customer_invoice_id: INVOICE_ID,
+      customer_invoice_line_id: null,
+      status: 'open',
+      disputed_amount: '1500.00',
+    };
+
+    mockSql
+      .mockResolvedValueOnce([openDispute])
+      .mockResolvedValueOnce([{ client_id: CLIENT_ID, subtotal: '10000.00', tax_amount: '0.00' }])
+      .mockResolvedValueOnce([{ ...openDispute, status: 'resolved', credit_note_id: CREDIT_NOTE_ID }]);
+
+    mockCreateCreditNote.mockResolvedValueOnce({ id: CREDIT_NOTE_ID } as never);
+
+    await resolveDispute(COMPANY_ID, DISPUTE_ID, USER_ID, {
+      mode: 'resolve_with_credit',
+      creditDate: '2026-04-23',
+    });
+
+    expect(mockCreateCreditNote.mock.calls[0]![1]).toMatchObject({ subtotal: 1500, taxRate: 0 });
+  });
+
+  it('resolves a legacy invoice (client_id NULL) at the invoice VAT rate, not zero', async () => {
+    // COALESCE(client_id, customer_id) newly lets these disputes reach the
+    // credit-note path; they must not book gross revenue on the way in.
+    const openDispute = {
+      id: DISPUTE_ID,
+      company_id: COMPANY_ID,
+      customer_invoice_id: INVOICE_ID,
+      customer_invoice_line_id: null,
+      status: 'open',
+      disputed_amount: '2300.00',
+    };
+
+    mockSql
+      .mockResolvedValueOnce([openDispute])
+      // client_id is NULL on the row; COALESCE returns customer_id.
+      .mockResolvedValueOnce([{ client_id: CLIENT_ID, subtotal: '4000.00', tax_amount: '600.00' }])
+      .mockResolvedValueOnce([{ ...openDispute, status: 'resolved', credit_note_id: CREDIT_NOTE_ID }]);
+
+    mockCreateCreditNote.mockResolvedValueOnce({ id: CREDIT_NOTE_ID } as never);
+
+    await resolveDispute(COMPANY_ID, DISPUTE_ID, USER_ID, {
+      mode: 'resolve_with_credit',
+      creditDate: '2026-04-23',
+    });
+
+    const input = mockCreateCreditNote.mock.calls[0]![1] as { subtotal: number; taxRate: number };
+    expect(input.taxRate).toBe(15);
+    expect(input.subtotal).toBeCloseTo(2000, 2);
   });
 
   it('resolve_no_credit sets status=resolved without creating a credit note', async () => {
@@ -269,17 +393,17 @@ describe('resolveDispute', () => {
       disputed_amount: '1500.00',
     };
 
-    mockSql
-      .mockResolvedValueOnce([openDispute])
-      .mockResolvedValueOnce([
-        {
-          ...openDispute,
-          status: 'resolved',
-          resolution_mode: 'resolve_no_credit',
-          resolved_at: new Date(),
-          resolved_by: USER_ID,
-        },
-      ]);
+    // One statement now: the claim is a single status-predicated UPDATE …
+    // RETURNING, not a read followed by a write.
+    mockSql.mockResolvedValueOnce([
+      {
+        ...openDispute,
+        status: 'resolved',
+        resolution_mode: 'resolve_no_credit',
+        resolved_at: new Date(),
+        resolved_by: USER_ID,
+      },
+    ]);
 
     const updated = await resolveDispute(COMPANY_ID, DISPUTE_ID, USER_ID, {
       mode: 'resolve_no_credit',
@@ -302,17 +426,15 @@ describe('resolveDispute', () => {
       disputed_amount: '1500.00',
     };
 
-    mockSql
-      .mockResolvedValueOnce([openDispute])
-      .mockResolvedValueOnce([
-        {
-          ...openDispute,
-          status: 'rejected',
-          resolution_mode: 'rejected',
-          resolved_at: new Date(),
-          resolved_by: USER_ID,
-        },
-      ]);
+    mockSql.mockResolvedValueOnce([
+      {
+        ...openDispute,
+        status: 'rejected',
+        resolution_mode: 'rejected',
+        resolved_at: new Date(),
+        resolved_by: USER_ID,
+      },
+    ]);
 
     const updated = await resolveDispute(COMPANY_ID, DISPUTE_ID, USER_ID, {
       mode: 'rejected',
@@ -325,13 +447,78 @@ describe('resolveDispute', () => {
   });
 
   it('refuses to act on an already-closed dispute', async () => {
-    mockSql.mockResolvedValueOnce([
-      { id: DISPUTE_ID, company_id: COMPANY_ID, status: 'resolved' },
-    ]);
+    // The claim UPDATE carries `AND status = 'open'`, so a closed dispute
+    // matches no row; the second read is only there to say WHY.
+    mockSql
+      .mockResolvedValueOnce([])
+      .mockResolvedValueOnce([{ status: 'resolved' }]);
 
     await expect(
       resolveDispute(COMPANY_ID, DISPUTE_ID, USER_ID, { mode: 'resolve_no_credit' }),
     ).rejects.toThrow(/not open/i);
+  });
+
+  it('reports an unknown or cross-tenant dispute as not found, and writes nothing', async () => {
+    mockSql
+      .mockResolvedValueOnce([])   // claim matched nothing
+      .mockResolvedValueOnce([]);  // …and the row does not exist for this company
+
+    await expect(
+      resolveDispute(COMPANY_ID, DISPUTE_ID, USER_ID, { mode: 'resolve_no_credit' }),
+    ).rejects.toThrow(/not found/i);
+    expect(mockCreateCreditNote).not.toHaveBeenCalled();
+  });
+
+  it('never reaches createCreditNote when the claim loses the race', async () => {
+    // The whole point of claiming before creating the document: the loser
+    // must not mint a second credit note for the same disputed amount.
+    mockSql
+      .mockResolvedValueOnce([])
+      .mockResolvedValueOnce([{ status: 'resolved' }]);
+
+    await expect(
+      resolveDispute(COMPANY_ID, DISPUTE_ID, USER_ID, {
+        mode: 'resolve_with_credit', creditDate: '2026-04-23',
+      }),
+    ).rejects.toThrow(/not open/i);
+    expect(mockCreateCreditNote).not.toHaveBeenCalled();
+  });
+
+  // Round-5 LOW-5(b): the link UPDATE used to fall through when it matched no
+  // row, returning a Dispute with creditNoteId null while the credit note
+  // existed — the exact half-state this item closes, and reported to the caller
+  // as a success. It must throw, and throw UNTYPED so withAuth answers 5xx and
+  // ROLLBACKs rather than committing a 4xx.
+  it('refuses, untyped, when the credit-note link UPDATE matches no row', async () => {
+    const openDispute = {
+      id: DISPUTE_ID,
+      company_id: COMPANY_ID,
+      customer_invoice_id: INVOICE_ID,
+      customer_invoice_line_id: null,
+      status: 'open',
+      disputed_amount: '1500.00',
+    };
+
+    mockSql
+      .mockResolvedValueOnce([openDispute])
+      .mockResolvedValueOnce([{ client_id: CLIENT_ID, subtotal: '10000.00', tax_amount: '1500.00' }])
+      .mockResolvedValueOnce([]); // the link UPDATE matched nothing
+
+    mockCreateCreditNote.mockResolvedValueOnce({
+      id: CREDIT_NOTE_ID,
+      creditNoteNumber: 'CN-001',
+      type: 'customer',
+      status: 'draft',
+    } as never);
+
+    const thrown = await resolveDispute(COMPANY_ID, DISPUTE_ID, USER_ID, {
+      mode: 'resolve_with_credit',
+      creditDate: '2026-04-23',
+    }).then(() => null, (e: unknown) => e);
+
+    expect(thrown).toBeInstanceOf(Error);
+    expect(thrown).not.toBeInstanceOf(ArRequestError);
+    expect(String((thrown as Error).message)).toMatch(/could not be linked/i);
   });
 });
 

@@ -1,0 +1,171 @@
+K-048 / K-049 — GREEN evidence (branch fix/audit-k048-k049-recurring-journal-guards, off origin/master 0f16391e)
+
+RED (baseline, before the fix) — docs/audits/remediation/K-048/red-fixer.log
+  Test Files  2 failed (2)
+       Tests  3 failed (3)
+
+GREEN — unit, the schedule arithmetic (no DB):
+  bunx vitest run tests/unit/services/gl/recurringSchedule.test.ts
+  Test Files  1 passed (1)
+       Tests  20 passed (20)
+
+GREEN — component, the page that shows the refusals:
+  bunx vitest run --config vitest.components.config.ts \
+    tests/unit/components/recurringJournalsRefusalSurfaced.test.tsx
+  Test Files  1 passed (1)
+       Tests  5 passed (5)
+
+GREEN (after the fix + the blind-review follow-ups), real Postgres fixture:
+  bunx vitest run --config vitest.integration.config.ts \
+    tests/integration/k048-recurring-journal-no-due-date-no-lock.int.test.ts \
+    tests/integration/k048-k049-recurring-journal-adjacent.int.test.ts \
+    tests/integration/k049-recurring-journal-400-commits-draft.int.test.ts \
+    tests/integration/k049-recurring-journal-post-write-failure.int.test.ts \
+    tests/integration/k048-recurring-journal-auto-creates-fiscal-year.int.test.ts
+  Test Files  5 passed (5)
+       Tests  20 passed (20)
+
+MUTATION CHECKS (production change reverted one at a time, then restored and re-run green):
+  M1  request-only guard removed                 -> 1 failed   RED
+  M2  assertTemplateLinesPostable call removed   -> 3 failed   RED
+  M3  savepoint removed from the FOR UPDATE read -> 1 failed   RED (25P02 after the lock timeout)
+  M4  businessToday() -> CURRENT_DATE (UTC)      -> 1 failed   RED
+  M5  409 mapping removed from the route         -> 1 failed   RED
+  M6  due-date guard disabled                    -> 3 failed   RED
+  M7  claim predicate dropped from the UPDATE    -> 16 passed  STILL GREEN
+  M8  fiscal-period pre-check disabled           -> 1 failed   RED
+  M9  route maps every throw to 400 again        -> 1 failed   RED
+  M10 FOR UPDATE removed from the template SELECT-> 4 failed   RED
+  M11 advanceDate reverted to setMonth(+1)       -> unit 9 failed, integration 1 failed  RED
+  M12 month-end stickiness removed (clamp only)  -> unit 4 failed   RED
+  M13 clamp removed (Math.min dropped)           -> unit 4 failed   RED
+  M14 ensureFiscalPeriodForDate removed from the
+      period guard (round-2 HIGH 1)               -> 1 failed   RED
+  M15 SET LOCAL lock_timeout = DEFAULT deleted
+      (round-2 LOW 1)                             -> 1 failed   RED
+  M16 the page discards the response again
+      (round-2 MEDIUM 1)                          -> 5 failed   RED
+
+  M7 is honest and stated in fix.md, and the code comment at guard 4 now says
+  "defence in depth" rather than "the idempotency key" so the next reader does
+  not go looking for the test that covers it. The tests now run the service inside real
+  request transactions, as the route does, so the row lock serialises the second
+  caller and the due-date guard refuses it before the claim predicate is
+  consulted. The claim stays as the second line of defence; nothing reaches it
+  first on any path that exists today. (Before the request-only guard, the tests
+  called the service with no ALS context, the lock released immediately, and M7
+  went RED — that path is now refused outright.)
+
+FULL UNIT SUITE (no fixture env; DATABASE_URL / ISAFLOW_DISPOSABLE_AUTH_TEST unset):
+  Test Files  1 failed | 792 passed | 36 skipped (829)
+       Tests  1 failed | 9453 passed | 234 skipped (9688)
+  The one failure is cashFlowReport.test.ts, a 10s-timeout flake under parallel
+  load on this box and unrelated to this branch: it passes in isolation,
+  Test Files 1 passed / Tests 2 passed, run immediately afterwards. The previous
+  round's run of the same suite passed it (793 files, 9454 tests, 0 failed).
+
+FULL COMPONENT SUITE (bunx vitest run --config vitest.components.config.ts):
+  Test Files  62 passed (62)
+       Tests  421 passed (421)
+
+bunx tsc --noEmit   exit 0
+bunx eslint src/modules/accounting/services/gl/recurringJournalService.ts \
+            src/modules/accounting/services/gl/recurringJournalGuards.ts \
+            src/modules/accounting/services/gl/recurringSchedule.ts \
+            pages/api/accounting/recurring-journals-action.ts \
+            pages/accounting/recurring-journals/index.tsx   exit 0
+bun run agent-docs:check   OK: 74 agent document mirror(s) match canonical sources.
+
+═══ ROUND 3 (blind review review-k048-r3.md: 0 HIGH, 1 MEDIUM, 5 LOW) ═══
+
+GREEN, real Postgres fixture (same five files):
+  Test Files  5 passed (5)
+       Tests  22 passed (22)      [was 20; +2 adjacent cases]
+  bunx vitest run tests/unit/services/gl/recurringSchedule.test.ts
+       Tests  23 passed (23)      [was 20; +3 unsupported-frequency cases]
+
+MUTATION CHECKS, round-3 changes:
+  M17 advanceDate throw -> `return dateStr` again      -> unit 3 failed   RED
+  M18 UUID_RE widened to /^/ (shape check inert)       -> int  1 failed   RED
+  M19 404 branch removed from the route                -> int  1 failed   RED
+  M20 assertPostablePeriod read-before-create          -> NOT MADE; see below
+
+  M20 is why the LOW 2 code change was REVERTED rather than kept. A first pass
+  reordered assertPostablePeriod to read the period status first and create the
+  year only on `no_period`, with a test asserting a closed-period refusal writes
+  no fiscal_periods rows. That test passed on the UNMUTATED original too — it
+  proved nothing. The reason is that ensureFiscalPeriodForDate returns early
+  whenever a covering period exists, and its lookup (getFiscalPeriodIdForDate,
+  fiscalPeriodService.ts:110) does NOT filter on status, so the closed path
+  never wrote in the first place. No behaviour separates the two versions on any
+  input, so the change was reverted, the vacuous test deleted, and the doc
+  comment corrected to state the actual reason the invariant holds. Recorded
+  rather than left as an unkillable production change.
+
+FULL UNIT SUITE (no fixture env; DATABASE_URL / PLATFORM_ADMIN_DATABASE_URL /
+ISAFLOW_DISPOSABLE_AUTH_TEST unset):
+  Test Files  793 passed | 36 skipped (829)
+       Tests  9457 passed | 234 skipped (9691)      0 failed
+  (last round's cashFlowReport 10s-timeout flake passed here)
+
+FULL COMPONENT SUITE:  62 files / 421 tests passed
+bunx tsc --noEmit   exit 0
+bunx eslint <the four changed src/pages files>   exit 0
+bun run agent-docs:check   OK: 74 agent document mirror(s) match canonical sources.
+
+────────────────────────────────────────────────────────────────────────
+ROUND 5 — review-k048-r4.md (0 HIGH, 2 MEDIUM, 2 LOW), 2026-09-09
+────────────────────────────────────────────────────────────────────────
+
+CORRECTION to the M20 note above. It is accurate as written — "the closed path
+never wrote in the first place" is a statement about the WRITE — but read
+quickly it invites the wrong conclusion, so state the measurement outright:
+  the closed-period REFUSAL FIRES. Round 4 drove it through the real route and
+  measured 400, the remedy in the message, gl_journal_entries 0 and the
+  fiscal_periods count unmoved at 1/1. It is the WRITE BEFORE that refusal that
+  is unreachable, which is what LOW 2 actually alleged and why the reorder is
+  byte-identical on every input and the deleted test proved nothing.
+
+GREEN, real Postgres fixture (six files; the sixth is new this round):
+  Test Files  6 passed (6)
+       Tests  23 passed (23)      [was 22; +1 entry-number conflict]
+
+MUTATION CHECK, round-5 change:
+  M21 409 branch for 23505/uq_gl_je_company_entry_number disabled
+      -> int 1 failed  RED  ("expected 500 to be 409")
+
+  The conflict test does NOT race. A second connection holds the contended
+  entry_number in an uncommitted transaction; the route's INSERT blocks on the
+  unique index; the blocker commits only once
+  `SELECT ... WHERE <blocker pid> = ANY(pg_blocking_pids(pid))` returns a row,
+  i.e. only once the route is provably waiting on it. No sleep, no timing
+  assumption, and the blocker is released in a `finally`.
+
+  Measured, and it corrects the reviewer's stated reason for the same safe
+  outcome: the outer request transaction is NOT left aborted. The run log shows
+  "withTransaction rolled back (request savepoint)" — the action's own
+  withTransaction is a SAVEPOINT inside the request, so the 23505 takes a
+  ROLLBACK TO SAVEPOINT and the COMMIT withAuth performs for a 4xx has nothing
+  of this action left to commit. Asserted by outcome: 0 auto_recurring entries,
+  0 lines, run_count 0, next_run_date and last_run_date unmoved.
+
+FULL UNIT SUITE (no fixture env; DATABASE_URL / PLATFORM_ADMIN_DATABASE_URL /
+ISAFLOW_DISPOSABLE_AUTH_TEST unset):
+  Test Files  793 passed | 36 skipped (829)
+       Tests  9457 passed | 234 skipped (9691)      0 failed
+FULL COMPONENT SUITE:  62 files / 421 tests passed
+bunx tsc --noEmit   exit 0
+bunx eslint <the five changed src/pages files>   exit 0
+bun run agent-docs:check   OK: 74 agent document mirror(s) match canonical sources.
+
+=== Round 6 (round-5 LOW findings) ===
+tests/integration/k048-recurring-journal-entry-number-conflict.int.test.ts: 1 passed (677ms)
+vitest --config vitest.integration.config.ts tests/integration/k048 tests/integration/k049: 6 files, 23 passed
+vitest --config vitest.components.config.ts .../recurringJournalsRefusalSurfaced.test.tsx: 5 passed
+FULL unit suite, DATABASE_URL unset (env -u DATABASE_URL bunx vitest run): 793 files passed | 36 skipped, 9457 tests passed | 234 skipped
+bunx tsc --noEmit: exit 0
+eslint on the 5 changed source files: exit 0
+bun run agent-docs:check: OK: 74 agent document mirror(s) match canonical sources.
+LOW-1 mutation proof (deadline forced to expire):
+  with the fix   -> 1 failed test, message 'the route never blocked on the contended entry number', 1.07s, no suite error
+  ROLLBACK removed -> same failure PLUS suite error 'deadlock detected' from afterAll

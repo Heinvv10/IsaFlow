@@ -31,6 +31,11 @@ import {
 } from '@/modules/accounting/services/payroll/payrollRunService';
 import { approvePayrollRun } from '@/modules/accounting/services/payroll/payrollApprovalService';
 import { PayrollRunLockedError } from '@/modules/accounting/services/payroll/payrollRunLock';
+import {
+  PayrollLoanLockTimeoutError,
+  PayrollRunJournalPostedError,
+  runHasLoanWork,
+} from '@/modules/accounting/services/payroll/payrollRunLoanApplication';
 import { MUTATION_ARG_SCHEMA } from '../contracts';
 import { NOT_FOUND, guardCastableArgs, ok, strArg, toolError } from './toolHelpers';
 
@@ -90,12 +95,19 @@ export const calculatePayRunTool: McpTool = {
     if (!run) return toolError(NOT_FOUND);
 
     if (args.dry_run === true) {
+      // dry_run must run the row-state guards the live path runs. Without this
+      // a reopened run whose GL journal is still posted was promised a recost
+      // that calculatePayrollRun then refuses.
+      const blocked = run.journalEntryId != null
+        && await runHasLoanWork(ctx.companyId, runId, run.periodYear, run.periodMonth);
       return ok({
         dryRun: true,
         wroteNothing: true,
         journals: [],
-        effects: [`Recost run ${run.periodMonth}/${run.periodYear} (status '${run.status}') and rebuild its lines.`],
-        skipped: [],
+        effects: blocked
+          ? []
+          : [`Recost run ${run.periodMonth}/${run.periodYear} (status '${run.status}') and rebuild its lines.`],
+        skipped: blocked ? [new PayrollRunJournalPostedError(runId).message] : [],
         current: runPayload(run),
       });
     }
@@ -114,6 +126,12 @@ export const calculatePayRunTool: McpTool = {
       // registry's savepoint rather than being flattened into a tool error
       // that would leave the lines half-rebuilt and the key freed.
       if (err instanceof PayrollRunLockedError) return toolError(err.message);
+      // Same shape: raised before any line is touched, and the message names
+      // the action the agent must take instead.
+      if (err instanceof PayrollRunJournalPostedError
+        || err instanceof PayrollLoanLockTimeoutError) {
+        return toolError(err.message);
+      }
       throw err;
     }
   },

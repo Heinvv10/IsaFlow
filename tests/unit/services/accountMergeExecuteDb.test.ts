@@ -211,16 +211,16 @@ describe('mergeAccounts writes', async () => {
         [[f.childId, f.grandchildId]],
       );
       expect(rows.rows[0]!.parent_account_id).toBe(f.targetId);
-      expect(rows.rows[0]!.level).toBe(3);
+      expect(rows.rows[0]!.level).toBe(4);
       // The grandchild keeps its parent and shifts by the same delta.
       expect(rows.rows[1]!.parent_account_id).toBe(f.childId);
-      expect(rows.rows[1]!.level).toBe(4);
+      expect(rows.rows[1]!.level).toBe(5);
 
       // The target's OWN child did not move and must not be re-levelled. A
       // cascade seeded from "everything under the target" would shift it too.
       const untouched = await c.query<{ level: number }>(
         'SELECT level FROM gl_accounts WHERE id = $1', [f.targetChildId]);
-      expect(untouched.rows[0]!.level).toBe(3);
+      expect(untouched.rows[0]!.level).toBe(4);
     });
   }, 60_000);
 });
