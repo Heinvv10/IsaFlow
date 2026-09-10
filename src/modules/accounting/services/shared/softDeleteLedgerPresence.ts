@@ -50,10 +50,25 @@
  * every queued row after it; `unsafe` builds the same spliceable fragment
  * without one. The tenant is carried as a PARAMETER, not as the correlated
  * `<alias>.company_id`, so the fragment scopes itself the way every other query
- * in the codebase does and a caller cannot forget it.
+ * in the codebase does and a caller cannot forget it. The one exception is the
+ * group consolidation, which reads several tenants in one statement and so
+ * cannot name one: it uses documentInLedgerAsAtFragmentForRowTenant below.
  */
 
 import { sql } from '@/lib/neon';
+import { fmtDate } from '@/lib/fmtDate';
+
+/**
+ * The as-at date for a figure that takes no as-at parameter. A "current"
+ * balance is a balance as at TODAY, and today is the date it has to ask this
+ * question at: an undated `deleted_at IS NULL` would drop a document deleted
+ * before this change, whose journal was never reversed and which the control
+ * account therefore still carries. fmtDate, never toISOString — the host runs
+ * UTC+2 and a Date round-trip reports the previous day after 22:00.
+ */
+export function asAtTodayStr(): string {
+  return fmtDate(new Date());
+}
 
 /** Table alias the surrounding query gives the invoice: `ci` (AR) or `si` (AP). */
 export type InvoiceAlias = 'ci' | 'si';
@@ -71,24 +86,48 @@ export type InvoiceAlias = 'ci' | 'si';
  * runtime rather than at compile time. Same hazard as `effectivePaidExpr`.
  */
 export function documentInLedgerAsAtFragment(alias: InvoiceAlias, asAtStr: string, companyId: string) {
+  return chainParityFragment(alias, '$1::UUID', '$2::date', [companyId, asAtStr]);
+}
+
+/**
+ * The same predicate for a query that spans SEVERAL tenants — the group
+ * consolidation is the only one — where a single `companyId` parameter cannot
+ * express the scope. The chain is scoped to the invoice row's OWN
+ * `company_id`, which is the tenant that owns the document by definition, so
+ * the walk still cannot cross a tenant boundary; the outer query remains
+ * responsible for restricting WHICH companies are read, exactly as it already
+ * is for the invoice rows themselves.
+ *
+ * The row must additionally expose `company_id`.
+ */
+export function documentInLedgerAsAtFragmentForRowTenant(alias: InvoiceAlias, asAtStr: string) {
+  return chainParityFragment(alias, `${alias}.company_id`, '$1::date', [asAtStr]);
+}
+
+function chainParityFragment(
+  alias: InvoiceAlias,
+  tenantExpr: string,
+  asAtExpr: string,
+  params: unknown[],
+) {
   return sql.unsafe(
     `(CASE WHEN ${alias}.deleted_at IS NULL THEN TRUE ELSE (
         WITH RECURSIVE chain AS (
           SELECT je.id, je.entry_date
           FROM gl_journal_entries je
           WHERE je.id = ${alias}.gl_journal_entry_id
-            AND je.company_id = $1::UUID
+            AND je.company_id = ${tenantExpr}
             AND je.status = 'posted'
           UNION ALL
           SELECT j.id, j.entry_date
           FROM gl_journal_entries j
           JOIN chain ON j.reversal_of_id = chain.id
-          WHERE j.company_id = $2::UUID
+          WHERE j.company_id = ${tenantExpr}
             AND j.status = 'posted'
         )
-        SELECT COUNT(*) FILTER (WHERE chain.entry_date <= $3::date) % 2 = 1
+        SELECT COUNT(*) FILTER (WHERE chain.entry_date <= ${asAtExpr}) % 2 = 1
         FROM chain
       ) END)`,
-    [companyId, companyId, asAtStr],
+    params,
   );
 }

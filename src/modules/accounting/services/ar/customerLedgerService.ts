@@ -168,6 +168,15 @@ export async function getCustomerLedger(
    * carried the invoice the closing would carry it as well, and disagree with
    * the control account at `dateTo`. Dating both legs to `dateTo` makes the
    * document one coherent snapshot whose closing figure ties to the GL.
+   *
+   * KNOWN COST of that choice: when the delete falls INSIDE the window, the row
+   * printed as "Opening balance" for `dateFrom` reads what the customer owed
+   * NET of that later deletion, not what the control account carried on
+   * `dateFrom` itself. The closing figure and every printed row are right and
+   * the arithmetic foots; only the opening label is dated differently from the
+   * figure beside it. Fixing the label honestly means emitting a dated
+   * "document removed" contra row so both legs can carry their own date, which
+   * changes the statement's row contract and is not part of this item.
    */
   const asAtStr = dateTo ?? fmtDate(new Date());
 

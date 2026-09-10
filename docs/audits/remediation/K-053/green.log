@@ -249,3 +249,51 @@ MUTATION PROOFS (each applied, observed RED, then restored):
     -> `r.entity_id IN (SELECT p.id ...)`
     x the purge removes the reversal rows of the documents it purged, and only those
       AssertionError: expected +0 to be 1
+
+## Round 7 — 2026-09-10
+
+Census redone from the tables (137 readers of customer_invoices/supplier_invoices), not from
+`deleted_at`. 24 queries across 17 files fixed. See fix-round7.md.
+
+bunx vitest run --config vitest.integration.config.ts tests/integration/k053 --no-file-parallelism
+  Test Files  12 passed (12)
+  Tests       59 passed (59)
+same, parallel
+  Test Files  12 passed (12)
+  Tests       59 passed (59)
+
+Full unit suite, DATABASE_URL UNSET (env -u DATABASE_URL bunx vitest run)
+  Test Files  793 passed | 36 skipped (829)
+  Tests       9440 passed | 234 skipped (9674)
+
+bunx tsc --noEmit                                    exit 0
+bunx eslint <every changed src/pages file>           exit 0, no output
+
+MUTATION PROOF — each mutation turns one surface's dated fragment into the undated
+`deleted_at IS NULL` (or removes it), runs k053-figure-surfaces-tie-to-gl.int.test.ts, and
+is restored. All 13 go RED:
+
+  reports-ar-aging row leg -> undated                        Tests  1 failed | 7 passed (8)
+  reports-ar-aging bucket aggregate -> undated               Tests  1 failed | 7 passed (8)
+  reports-ap-aging bucket aggregate -> undated               Tests  1 failed | 7 passed (8)
+  supplier-statement-detail totals aggregate -> undated      Tests  1 failed | 7 passed (8)
+  customer-statement-detail rows -> undated                  Tests  1 failed | 7 passed (8)
+  customer-statements summary -> undated                     Tests  1 failed | 7 passed (8)
+  dashboard-stats AR total -> undated                        Tests  1 failed | 7 passed (8)
+  dashboard-stats AP total -> undated                        Tests  1 failed | 7 passed (8)
+  kpiDashboardService receivables -> undated                 Tests  1 failed | 7 passed (8)
+  bureauClientMetricsService AR -> undated                   Tests  1 failed | 7 passed (8)
+  debtorsManagerService summary -> undated                   Tests  1 failed | 7 passed (8)
+  supplierStatementReconDb loader -> undated                 Tests  1 failed | 7 passed (8)
+  softDeleteLedgerPresence row-tenant variant -> undated     Tests  1 failed | 7 passed (8)
+
+A mutation of a today-only surface is only detectable because the fixture carries a SECOND
+document in the pre-branch shape (deleted_at set, journal never reversed): for a document
+deleted after this change the undated and the dated predicate agree at today, and a test
+built on that document alone would have scored the mutation as passing.
+
+DELIBERATE REVERT, recorded because it was built and measured: dating the sub-ledger half of
+reconciliation/unpostedDocumentService made its own reconciliation test RED —
+"expected [ { amount: -1150, reason: document_not_on_control_account } ] to deeply equal []" —
+because that service's GL half reads only the document's own journal, never the reversal.
+Both halves must move together; the change was reverted and the invariant pinned instead.

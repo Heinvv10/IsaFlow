@@ -11,6 +11,7 @@ import { classifyClientQuery, buildClientChatPrompt, parseClientChatResponse, sa
 import { verifyArPortalToken } from '@/lib/auth/arPortalJwt';
 import cookie from 'cookie';
 import { checkRateLimit, getClientIp } from '@/lib/rateLimit';
+import { asAtTodayStr, documentInLedgerAsAtFragment } from '@/modules/accounting/services/shared/softDeleteLedgerPresence';
 
 type Row = Record<string, unknown>;
 
@@ -48,9 +49,11 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
   // Build client context from DB — all queries scoped to session company_id.
   const [clients, balanceRows, overdueRows, invoiceCount, lastPay] = await Promise.all([
     sql`SELECT name FROM customers WHERE id = ${clientId} AND company_id = ${sessionCompanyId}::UUID LIMIT 1` as Promise<Row[]>,
-    sql`SELECT COALESCE(SUM(total_amount - COALESCE(amount_paid, 0)), 0) as outstanding FROM customer_invoices WHERE COALESCE(client_id, customer_id) = ${clientId} AND company_id = ${sessionCompanyId}::UUID AND status NOT IN ('cancelled', 'draft', 'paid')` as Promise<Row[]>,
-    sql`SELECT COALESCE(SUM(total_amount - COALESCE(amount_paid, 0)), 0) as overdue FROM customer_invoices WHERE COALESCE(client_id, customer_id) = ${clientId} AND company_id = ${sessionCompanyId}::UUID AND status NOT IN ('cancelled', 'draft', 'paid') AND due_date < CURRENT_DATE` as Promise<Row[]>,
-    sql`SELECT COUNT(*) as cnt FROM customer_invoices WHERE COALESCE(client_id, customer_id) = ${clientId} AND company_id = ${sessionCompanyId}::UUID AND status NOT IN ('cancelled', 'draft', 'paid')` as Promise<Row[]>,
+    // K-053: the portal quotes the customer a balance, so it asks the same
+    // dated soft-delete question the ageing and the control account ask.
+    sql`SELECT COALESCE(SUM(ci.total_amount - COALESCE(ci.amount_paid, 0)), 0) as outstanding FROM customer_invoices ci WHERE COALESCE(ci.client_id, ci.customer_id) = ${clientId} AND ci.company_id = ${sessionCompanyId}::UUID AND ${documentInLedgerAsAtFragment('ci', asAtTodayStr(), sessionCompanyId)} AND ci.status NOT IN ('cancelled', 'draft', 'paid')` as Promise<Row[]>,
+    sql`SELECT COALESCE(SUM(ci.total_amount - COALESCE(ci.amount_paid, 0)), 0) as overdue FROM customer_invoices ci WHERE COALESCE(ci.client_id, ci.customer_id) = ${clientId} AND ci.company_id = ${sessionCompanyId}::UUID AND ${documentInLedgerAsAtFragment('ci', asAtTodayStr(), sessionCompanyId)} AND ci.status NOT IN ('cancelled', 'draft', 'paid') AND ci.due_date < CURRENT_DATE` as Promise<Row[]>,
+    sql`SELECT COUNT(*) as cnt FROM customer_invoices ci WHERE COALESCE(ci.client_id, ci.customer_id) = ${clientId} AND ci.company_id = ${sessionCompanyId}::UUID AND ${documentInLedgerAsAtFragment('ci', asAtTodayStr(), sessionCompanyId)} AND ci.status NOT IN ('cancelled', 'draft', 'paid')` as Promise<Row[]>,
     sql`SELECT amount, payment_date FROM customer_payments WHERE COALESCE(client_id, customer_id) = ${clientId} AND company_id = ${sessionCompanyId}::UUID ORDER BY payment_date DESC LIMIT 1` as Promise<Row[]>,
   ]);
   const clientName = String(clients[0]?.name || 'Client');
