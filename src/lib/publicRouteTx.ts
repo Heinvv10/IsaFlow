@@ -22,7 +22,8 @@
  * issue must carry one.
  */
 import { getDbPool } from '@/lib/neon';
-import { als } from '@/lib/als';
+import { als, type RequestContext } from '@/lib/als';
+import { runOwnedContext, drainAfterCommit } from '@/lib/afterCommit';
 import { log } from '@/lib/logger';
 
 export async function withPublicRouteTransaction<T>(
@@ -45,8 +46,10 @@ export async function withPublicRouteTransaction<T>(
   let unusable: Error | undefined;
   try {
     await client.query('BEGIN');
-    const result = await als.run({ client, userId: '', claims: {} }, fn);
+    const ctx: RequestContext = { client, userId: '', claims: {}, afterCommit: [] };
+    const result = await runOwnedContext(ctx, fn);
     await client.query('COMMIT');
+    drainAfterCommit(ctx);
     return result;
   } catch (err) {
     try {

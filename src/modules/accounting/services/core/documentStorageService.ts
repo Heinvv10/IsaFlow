@@ -11,6 +11,7 @@ import { log } from '@/lib/logger';
 import { vfStorage } from '@/services/vfStorageAdapter';
 import { extractFromPdf, extractFromImage } from '@/modules/accounting/services/core/ocrService';
 import { isVlmAvailable } from '@/modules/accounting/services/bank/vlmService';
+import { runAfterCommit } from '@/lib/afterCommit';
 import type {
   LinkedDocument,
   AccountingDocumentType,
@@ -140,11 +141,11 @@ export async function uploadDocument(input: UploadDocumentInput): Promise<Linked
   }
 
   if (isVlmAvailable()) {
-    extractAndStoreDocMetadata(buffer, mimeType, docId).catch(err =>
+    runAfterCommit('procurement document extraction', () => extractAndStoreDocMetadata(buffer, mimeType, docId).catch(err =>
       log.warn('Background VLM extraction failed', {
         error: err instanceof Error ? err.message : String(err),
       }, 'accounting-docs'),
-    );
+    ));
   }
 
   return mapRow(row as Record<string, unknown>, 'direct');

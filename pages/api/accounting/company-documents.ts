@@ -17,6 +17,7 @@ import { sql } from '@/lib/neon';
 import { isVlmAvailable } from '@/modules/accounting/services/bank/vlmService';
 import { extractStatutoryDocWithVlm } from '@/modules/accounting/services/bank/vlmService';
 import { log } from '@/lib/logger';
+import { runAfterCommit } from '@/lib/afterCommit';
 type Row = Record<string, unknown>;
 
 
@@ -133,9 +134,9 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
 
     // Fire-and-forget VLM extraction for statutory documents
     if (isVlmAvailable() && fileData) {
-      extractStatutoryDocData(fileData, documentType, docId).catch(err =>
+      runAfterCommit('statutory doc extraction', () => extractStatutoryDocData(fileData, documentType, docId).catch(err =>
         log.warn('Statutory doc extraction failed', { error: err instanceof Error ? err.message : String(err) }, 'company-docs')
-      );
+      ));
     }
 
     return apiResponse.created(res, { id: docId });
