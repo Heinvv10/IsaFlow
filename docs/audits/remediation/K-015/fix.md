@@ -581,3 +581,67 @@ branches). `k015-ap-migration-balance-due-column.int.test.ts` +1 (670 convergenc
 793 files, 9443 passed / 234 skipped, 0 failed. `tsc --noEmit` clean; `eslint` on both changed
 source files clean. No migration added (670 is unmerged and fixture-only, so it was edited in
 place). No historical-data impact beyond what 670 already performs.
+
+---
+
+## Round 8 — the closing blind review (0 HIGH, 0 MEDIUM, 2 LOW; branch marked DONE)
+
+**Provenance note.** The host rebooted mid-round and cleared `/tmp`, taking `review-k015b-r8.md`
+with it. The two LOW texts are therefore RECONSTRUCTED from the in-flight diff left on disk, not
+quoted. Both reconstructions are stated below with the evidence that identifies them; a fresh
+review will re-find anything this misreads.
+
+**LOW-1 — the two sides folded case by different rules. FIXED.** `computeFingerprint` folded with
+`toLowerCase()` and migration 670 with `lower()`, and the two are not the same mapping. `lower()`
+is collation-driven; JS is not. In an `en_US.utf8` database `lower('İNV-1')` is `inv-1` while
+`'İNV-1'.toLowerCase()` is a SIX-character `i̇nv-1` (it appends U+0307), and `lower('ΣΟΣ')` is
+`σοσ` while JS gives `σος` (final sigma). `invoice_number` is free text off a CSV or an OCR read
+and both characters are storable in it, so one such bill got a stored key the lookup could never
+reproduce — this branch's own defect, one character class over. Both sides now fold **A–Z and
+nothing else**: `asciiLower()` in `captureDeduplicationService.ts`, and `translate(…, 'A-Z',
+'a-z')` in 670, which takes no collation input. A–Z is the only range SA VAT numbers, bill numbers
+and the fixed-2 amount ever occupy, so nothing that should fold stops folding.
+
+**LOW-2 — "all eight producers agree" was false of migration 412. FIXED (documentation).** Round 7's
+census closed with that sentence. 412's backfill agrees on the amount segment only by accident —
+`coalesce(total_amount::text, '0')` renders a NULL as `0`, not `0.00`, and matches the other seven
+only because `total_amount` is `NOT NULL DEFAULT 0` — and after LOW-1 it also disagrees on the
+fold. It is a HISTORICAL producer, superseded by 670 on every row, and 670's `IS DISTINCT FROM`
+predicate rewrites what it wrote. The capture module's `.claude.md` (and its `AGENTS.md` mirror)
+now says exactly that: **seven live producers plus one historical one, which is not to be read as
+agreeing by construction.** `computeFingerprint`'s docstring said 670 was "the same expression
+migration 412's backfill used except for the amount segment" — also corrected, as was
+`migrationApService.ts:131`, which still described the key as `lower(vat|invoice_number|total)`.
+
+**Round-8 tests.** `duplicateDetectionService.test.ts` +1 (`İ` and a trailing sigma survive
+unfolded; the ASCII letters around them still fold). `k015-…int.test.ts`: the TS/SQL agreement
+table gains three Unicode rows, its SQL oracle now folds with `translate()` as 670 does, and the
+670 re-backfill case gains a bill numbered `…-İΣ` whose rewritten key must be one
+`computeFingerprint` reproduces AND must NOT be the string either fold-by-case implementation
+gives. Integration file 25 passed; the two fingerprint unit files 28 passed; full unit suite with
+`DATABASE_URL` unset **793 files, 9444 passed / 234 skipped, 0 failed**; `tsc --noEmit` clean;
+`eslint` on both changed source files clean; `agent-docs:check` OK (74 mirrors).
+
+**Mutations (file copies, restored and diffed byte-identical against the copy).**
+- **M-A** — `asciiLower(...)` back to `.toLowerCase()`: unit test RED
+  (`expected 'no-vat|i̇nv-1|115.00' to be 'no-vat|İnv-1|115.00'`) and the integration agreement
+  test RED.
+- **M-B** — 670's two `translate()` calls back to `lower()`: integration RED
+  (`expected 'no-vat|…-iσ|1…' to be 'no-vat|…-İΣ|1…'`).
+
+**Migration.** None added. 670 is unmerged and fixture-only, so it was edited in place, as in
+round 7. Its deploy pre-check (the cross-tenant supplier query in round 6) is unchanged and still
+applies.
+
+**Historical data.** No new impact. 670 already rewrites every stored fingerprint; this round only
+changes WHICH string it writes for a row carrying a non-ASCII cased character, and those rows were
+mis-keyed under either previous implementation. Nothing outside 670 rewrites the column.
+
+**Not done.** `purgeExpiredDeletes` stays UNCALLED (round 6, L-3) — unchanged and deliberate.
+`sageImportService` register items and the L-2 fingerprint-scale adjudication are unchanged.
+
+**PR state — MUST be read before merging.** `origin/fix/audit-k015-k089-migration-balance-due` is
+**four commits behind local** (`242bf867f`, `78fa01e21`, `b6268778b`, `06f1f5218`), plus this
+round's commit — five. PR #373 therefore shows a state in which the blank-number and unmapped-column
+refusals, the third fingerprint producer, and the supplier-VAT source are all absent. This session
+does not push. **Do not read or merge #373 until the branch is pushed.**

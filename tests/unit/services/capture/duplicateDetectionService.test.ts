@@ -67,6 +67,18 @@ describe('computeFingerprint', () => {
     expect(fp).toBe(fp.toLowerCase());
   });
 
+  it('folds A–Z only, because SQL lower() is collation-driven and JS cannot mirror it', () => {
+    // `lower('İNV-1')` is `inv-1` in an en_US.utf8 database; JS toLowerCase
+    // gives a six-character `i̇nv-1` (it appends U+0307). `lower('ΣΟΣ')` is
+    // `σοσ`; JS gives `σος` (final sigma). Migration 670 folds with
+    // translate(A-Z), so a fingerprint that case-folded these would be one the
+    // backfilled row can never reproduce — the duplicate goes on missing.
+    expect(computeFingerprint(null, 'İNV-1', 115)).toBe('no-vat|İnv-1|115.00');
+    expect(computeFingerprint(null, 'ΣΟΣ', 115)).toBe('no-vat|ΣΟΣ|115.00');
+    // The ASCII letters around them are still folded.
+    expect(computeFingerprint('ABİ', 'X-ΣY', 1)).toBe('abİ|x-Σy|1.00');
+  });
+
   it('substitutes "no-vat" when vatNumber is null', () => {
     const fp = computeFingerprint(null, 'INV-001', 100);
     expect(fp).toBe('no-vat|inv-001|100.00');

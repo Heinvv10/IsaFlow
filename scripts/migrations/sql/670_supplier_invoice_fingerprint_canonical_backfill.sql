@@ -21,6 +21,17 @@
 -- so both sides agree on old and new rows alike. It is idempotent (the
 -- predicate skips rows already canonical) and re-runnable.
 --
+-- The case fold is `translate()` over A-Z, not `lower()`. `lower()` is
+-- collation-driven and the TypeScript side cannot reproduce it: in an
+-- en_US.utf8 database lower('INV-1') with a Turkish dotted I is `inv-1` while
+-- JS `toLowerCase()` yields a six-character string (it appends U+0307), and
+-- lower() maps a trailing sigma to a plain one where JS gives a final sigma.
+-- invoice_number is free text off a CSV or an OCR read, so a single such
+-- character would put this backfill and computeFingerprint out of step -- the
+-- same undetected duplicate, one character class over. translate() is a plain
+-- character mapping with no collation input, and asciiLower() in
+-- captureDeduplicationService.ts performs exactly the same one.
+--
 -- The join is scoped on company_id as well as supplier_id: a supplier id is a
 -- UUID and cannot collide across tenants, but a data migration that reads a
 -- second table must say which tenant's row it means.
@@ -66,16 +77,18 @@ BEGIN
 END $$;
 
 UPDATE supplier_invoices si
-SET duplicate_fingerprint = lower(
+SET duplicate_fingerprint = translate(
       coalesce(s.vat_number, 'no-vat') || '|' ||
       coalesce(si.invoice_number, 'no-inv') || '|' ||
-      coalesce(si.total_amount, 0)::NUMERIC(15,2)::TEXT
+      coalesce(si.total_amount, 0)::NUMERIC(15,2)::TEXT,
+      'ABCDEFGHIJKLMNOPQRSTUVWXYZ', 'abcdefghijklmnopqrstuvwxyz'
     )
 FROM suppliers s
 WHERE s.id = si.supplier_id
   AND s.company_id = si.company_id
-  AND si.duplicate_fingerprint IS DISTINCT FROM lower(
+  AND si.duplicate_fingerprint IS DISTINCT FROM translate(
       coalesce(s.vat_number, 'no-vat') || '|' ||
       coalesce(si.invoice_number, 'no-inv') || '|' ||
-      coalesce(si.total_amount, 0)::NUMERIC(15,2)::TEXT
+      coalesce(si.total_amount, 0)::NUMERIC(15,2)::TEXT,
+      'ABCDEFGHIJKLMNOPQRSTUVWXYZ', 'abcdefghijklmnopqrstuvwxyz'
     );
