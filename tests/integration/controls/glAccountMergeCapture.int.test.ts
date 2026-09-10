@@ -1,8 +1,9 @@
 import {expect,it} from 'vitest';
 import {createHash} from 'node:crypto';
 import {canonicalJson} from '@/modules/accounting/services/controls/canonical';
+import {postJournalEntry} from '@/modules/accounting/services/gl/journalEntryPostingService';
 import {mergeAccounts} from '@/modules/accounting/services/gl/accountMergeService';
-import {evidence,glFixture,journalRows,legacy,merge,mergeFixture,patMerge,pool} from './glAccountMergeCaptureFixture';
+import {actor,evidence,glFixture,journalRows,legacy,merge,mergeFixture,patMerge,pool} from './glAccountMergeCaptureFixture';
 it('captures the actual merge with complete journal images and exact recovery identity',async()=>{
  const f=glFixture(),m=await mergeFixture(),before=await journalRows(m.journal);
  const result=await merge(m.source,m.target),after=await journalRows(m.journal);
@@ -54,3 +55,18 @@ it('rolls back lines, tree, versions and recovery when mandatory journal evidenc
   expect(await evidence('gl_account',m.source)).toEqual([]);expect(await evidence('journal_entry',m.journal)).toEqual([]);
  }finally{await pool.query('DROP TRIGGER IF EXISTS synthetic_merge_evidence_failure ON control_change_events');await pool.query('DROP FUNCTION IF EXISTS public.synthetic_merge_evidence_failure()');}
 });
+
+it('keeps concurrent ordinary posting and merge atomic with safe retry after lock refusal',async()=>{
+ const f=glFixture(),m=await mergeFixture('draft');
+ const post=()=>actor(ctx=>postJournalEntry(f.companyA,m.journal,ctx.principal.personId));
+ const outcomes=await Promise.allSettled([merge(m.source,m.target),post()]);
+ for(const [index,outcome] of outcomes.entries())if(outcome.status==='rejected'){
+  expect(String(outcome.reason)).toMatch(/lock|deadlock|changed|stale/i);
+  if(index===0)await merge(m.source,m.target);else await post();
+ }
+ expect((await pool.query('SELECT status FROM gl_journal_entries WHERE company_id=$1 AND id=$2',[f.companyA,m.journal])).rows[0].status).toBe('posted');
+ expect((await pool.query('SELECT id FROM gl_account_merges WHERE company_id=$1 AND source_account_id=$2',[f.companyA,m.source])).rows).toHaveLength(1);
+ expect((await journalRows(m.journal)).filter(row=>row.gl_account_id===m.source)).toEqual([]);
+ const rows=await evidence('journal_entry',m.journal);expect(rows.filter(row=>row.action.startsWith('accounts_merged:'))).toHaveLength(1);
+ expect(rows.some(row=>row.action==='journal.post')).toBe(true);
+},30000);
