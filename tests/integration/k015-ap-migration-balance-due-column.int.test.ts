@@ -603,6 +603,9 @@ describeIfDb('K-015 AP migration import writes only real columns', () => {
       expect(second.errors).toHaveLength(1);
       expect(second.errors[0]!.field).toBe('invoiceNumber');
       expect(second.errors[0]!.message).toContain(`${TAG}-rerun`);
+      // A NUMBERED row keeps the edit remedy — it is the one case where the
+      // operator really can fix the bill instead of re-importing it.
+      expect(second.errors[0]!.message).toContain('is an edit, not a re-import');
 
       const rows = (await c.query(
         `SELECT COUNT(*)::INT AS n FROM supplier_invoices
@@ -709,6 +712,14 @@ describeIfDb('K-015 AP migration import writes only real columns', () => {
       expect(second.imported).toBe(0);
       expect(second.skipped).toBe(1);
       expect(second.errors[0]!.message).toContain('Already imported');
+      // The remedy has to fit the case. "Correcting an imported bill is an edit"
+      // is advice for a NUMBERED row the operator re-imported after fixing it;
+      // for a blank-numbered one the refusal may be a second, genuinely
+      // different slip this lookup cannot tell from the first, and there is no
+      // edit that imports it. Say what would make the two distinguishable.
+      expect(second.errors[0]!.message).not.toContain('is an edit');
+      expect(second.errors[0]!.message).toContain('cannot be told apart');
+      expect(second.errors[0]!.message).toContain('give it its own number or reference');
 
       const rows = (await c.query(
         `SELECT COUNT(*)::INT AS n FROM supplier_invoices
@@ -791,6 +802,14 @@ describeIfDb('K-015 AP migration import writes only real columns', () => {
       for (const [vat, num, amt] of [
         [null, '', 115], [null, '', 230], ['4150165685', 'INV-1', 1234.5],
         [null, 'x', 99.99], [null, '', 0], ['ABC', 'A', 1_000_000],
+        // Three decimals reach here — APInvoiceRowSchema.totalAmount is a bare
+        // z.number() — and `toFixed(2)` rounds the binary double while the
+        // column rounds the decimal text the driver sends: (1.005).toFixed(2)
+        // is "1.00", '1.005'::numeric(15,2) is 1.01. A fingerprint the column's
+        // own value cannot reproduce is invisible to the exact-match lookup
+        // forever, which is this branch's defect one rounding mode over.
+        [null, 'x', 1.005], [null, 'x', 100.005], [null, 'x', 2.675],
+        [null, 'x', 0.005], [null, 'x', 1.0049], ['ABC', 'A', 9_999_999.995],
       ] as [string | null, string, number][]) {
         expect(computeFingerprint(vat, num, amt)).toBe(await canonical(vat, num, amt));
       }
@@ -819,6 +838,42 @@ describeIfDb('K-015 AP migration import writes only real columns', () => {
       )).rows[0].duplicate_fingerprint as string;
       expect(after).toBe(computeFingerprint(null, `${TAG}-stale`, 115));
       expect(after.endsWith('|115.00')).toBe(true);
+    } finally {
+      await c.query('ROLLBACK').catch(() => {});
+      c.release();
+    }
+  }, 60000);
+
+  it('migration 670 refuses rather than reporting success over a row it cannot canonicalise', async () => {
+    // The only FK on supplier_id is to suppliers(id); NOTHING enforces that the
+    // supplier belongs to the invoice's company. 670's UPDATE joins on both, so
+    // a cross-tenant row is not reachable by it: without the pre-check the
+    // migration would leave that row's stale fingerprint in place, report
+    // success, and the duplicate lookup for that bill would go on missing —
+    // the defect 670 exists to close, still open on the row nobody was told
+    // about. There is no correct company to read the VAT number from, so the
+    // migration must stop and name it.
+    const c = await pool.connect();
+    await c.query('BEGIN');
+    try {
+      await c.query(`SET LOCAL search_path = ${NO_INDEX_SCHEMA}, public`);
+      const otherSupplier = (await c.query(
+        `SELECT id FROM public.suppliers WHERE company_id = $1 AND name = $2`,
+        [OTHER_COMPANY, `ACME ${TAG}`],
+      )).rows[0].id;
+      const rows = await c.query(
+        `INSERT INTO supplier_invoices
+           (company_id, supplier_id, invoice_number, invoice_date, due_date,
+            subtotal, tax_amount, total_amount, status, duplicate_fingerprint, created_by)
+         VALUES ($1, $2, $3, '2026-06-30', '2026-07-30', 100, 15, 115, 'approved', 'stale|x|115', $4)
+         RETURNING id`,
+        [COMPANY, otherSupplier, `${TAG}-crosstenant`, USER],
+      );
+      const badId = rows.rows[0].id as string;
+
+      await expect(c.query(readFileSync(
+        'scripts/migrations/sql/670_supplier_invoice_fingerprint_canonical_backfill.sql', 'utf8',
+      ))).rejects.toThrow(badId);
     } finally {
       await c.query('ROLLBACK').catch(() => {});
       c.release();
@@ -862,12 +917,28 @@ describeIfDb('K-015 AP migration import writes only real columns', () => {
         [COMPANY, supplier, `${TAG}-purge-plain`, USER],
       );
 
+      // A second tenant's row, expired just as long ago and with no journal:
+      // the purge is a hard DELETE fired from a background job, so it must take
+      // the company it was asked for and nothing else.
+      const otherSupplier = (await c.query(
+        `SELECT id FROM public.suppliers WHERE company_id = $1 AND name = $2`,
+        [OTHER_COMPANY, `ACME ${TAG}`],
+      )).rows[0].id;
+      await c.query(
+        `INSERT INTO supplier_invoices
+           (company_id, supplier_id, invoice_number, invoice_date, due_date,
+            subtotal, tax_amount, total_amount, status, created_by, deleted_at)
+         VALUES ($1, $2, $3, '2026-06-30', '2026-07-30', 100, 15, 115, 'approved', $4,
+                 NOW() - INTERVAL '10 minutes')`,
+        [OTHER_COMPANY, otherSupplier, `${TAG}-purge-other`, USER],
+      );
+
       // Now put the five other swept tables' empty copies in front, so the
       // real function's DELETEs over customers, suppliers, items, bank_rules
       // and customer_invoices hit nothing shared. `supplier_invoices` still
       // resolves to the copy holding the two rows above.
       await c.query(`SET LOCAL search_path = ${PURGE_SCHEMA}, ${NO_INDEX_SCHEMA}, public`);
-      await run(c, () => purgeExpiredDeletes());
+      await run(c, () => purgeExpiredDeletes(COMPANY));
       await c.query(`SET LOCAL search_path = ${NO_INDEX_SCHEMA}, public`);
 
       const left = (await c.query(
@@ -876,6 +947,14 @@ describeIfDb('K-015 AP migration import writes only real columns', () => {
         [COMPANY, `${TAG}-purge-%`],
       )).rows.map((r: { invoice_number: string }) => r.invoice_number);
       expect(left).toEqual([`${TAG}-purge-posted`]);
+
+      // The other tenant's expired, journal-less row is untouched.
+      const otherLeft = (await c.query(
+        `SELECT invoice_number FROM supplier_invoices
+          WHERE company_id = $1 AND invoice_number = $2`,
+        [OTHER_COMPANY, `${TAG}-purge-other`],
+      )).rows.map((r: { invoice_number: string }) => r.invoice_number);
+      expect(otherLeft).toEqual([`${TAG}-purge-other`]);
 
       // And the journal it points at is still there, still balanced.
       const je = (await c.query(

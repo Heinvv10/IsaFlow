@@ -249,11 +249,11 @@ export async function undoDelete(
 
 
 /**
- * Hard-purge records that were soft-deleted more than 5 minutes ago.
- * Intended to be called by a scheduled background job.
- * Returns the total count of purged records across all tables.
+ * Hard-purge ONE company's records soft-deleted over 5 minutes ago, for a
+ * scheduled per-tenant job: an unscoped sweep of these DELETEs is a
+ * platform-wide hard delete from a job no request bounds. Returns the count.
  */
-export async function purgeExpiredDeletes(): Promise<number> {
+export async function purgeExpiredDeletes(companyId: string): Promise<number> {
   let total = 0;
 
   // One entry per soft-deletable table.
@@ -270,12 +270,12 @@ export async function purgeExpiredDeletes(): Promise<number> {
   // deliberately ignores `deleted_at` for this reason). Keeping the row is what
   // makes both of those recoverable.
   const tables: Array<{ entityType: string; fn: () => Promise<DbRow[]> }> = [
-    { entityType: 'customer',         fn: () => sql`DELETE FROM customers WHERE deleted_at IS NOT NULL AND deleted_at < NOW() - INTERVAL '5 minutes' RETURNING id, company_id` as Promise<DbRow[]> },
-    { entityType: 'supplier',         fn: () => sql`DELETE FROM suppliers WHERE deleted_at IS NOT NULL AND deleted_at < NOW() - INTERVAL '5 minutes' RETURNING id, company_id` as Promise<DbRow[]> },
-    { entityType: 'item',             fn: () => sql`DELETE FROM items WHERE deleted_at IS NOT NULL AND deleted_at < NOW() - INTERVAL '5 minutes' RETURNING id, company_id` as Promise<DbRow[]> },
-    { entityType: 'bank_rule',        fn: () => sql`DELETE FROM bank_rules WHERE deleted_at IS NOT NULL AND deleted_at < NOW() - INTERVAL '5 minutes' RETURNING id, company_id` as Promise<DbRow[]> },
-    { entityType: 'customer_invoice', fn: () => sql`DELETE FROM customer_invoices WHERE deleted_at IS NOT NULL AND deleted_at < NOW() - INTERVAL '5 minutes' AND gl_journal_entry_id IS NULL RETURNING id, company_id` as Promise<DbRow[]> },
-    { entityType: 'supplier_invoice', fn: () => sql`DELETE FROM supplier_invoices WHERE deleted_at IS NOT NULL AND deleted_at < NOW() - INTERVAL '5 minutes' AND gl_journal_entry_id IS NULL RETURNING id, company_id` as Promise<DbRow[]> },
+    { entityType: 'customer',         fn: () => sql`DELETE FROM customers WHERE company_id = ${companyId}::uuid AND deleted_at IS NOT NULL AND deleted_at < NOW() - INTERVAL '5 minutes' RETURNING id, company_id` as Promise<DbRow[]> },
+    { entityType: 'supplier',         fn: () => sql`DELETE FROM suppliers WHERE company_id = ${companyId}::uuid AND deleted_at IS NOT NULL AND deleted_at < NOW() - INTERVAL '5 minutes' RETURNING id, company_id` as Promise<DbRow[]> },
+    { entityType: 'item',             fn: () => sql`DELETE FROM items WHERE company_id = ${companyId}::uuid AND deleted_at IS NOT NULL AND deleted_at < NOW() - INTERVAL '5 minutes' RETURNING id, company_id` as Promise<DbRow[]> },
+    { entityType: 'bank_rule',        fn: () => sql`DELETE FROM bank_rules WHERE company_id = ${companyId}::uuid AND deleted_at IS NOT NULL AND deleted_at < NOW() - INTERVAL '5 minutes' RETURNING id, company_id` as Promise<DbRow[]> },
+    { entityType: 'customer_invoice', fn: () => sql`DELETE FROM customer_invoices WHERE company_id = ${companyId}::uuid AND deleted_at IS NOT NULL AND deleted_at < NOW() - INTERVAL '5 minutes' AND gl_journal_entry_id IS NULL RETURNING id, company_id` as Promise<DbRow[]> },
+    { entityType: 'supplier_invoice', fn: () => sql`DELETE FROM supplier_invoices WHERE company_id = ${companyId}::uuid AND deleted_at IS NOT NULL AND deleted_at < NOW() - INTERVAL '5 minutes' AND gl_journal_entry_id IS NULL RETURNING id, company_id` as Promise<DbRow[]> },
   ];
 
   for (const { entityType, fn } of tables) {
