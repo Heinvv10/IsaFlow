@@ -19,7 +19,7 @@ const COMMON=`j.id,j.entry_date::text AS "accountingDate",COALESCE(j.posted_at,j
   (j.reversal_of_id IS NULL OR EXISTS(SELECT 1 FROM gl_journal_entries original WHERE original.company_id=j.company_id AND original.id=j.reversal_of_id)) AS "reversalOwned"`;
 // Both LATERALs stay whole, including their capped facts sub-selects: the cursor never issues a per-parent child query.
 const BODY=` FROM gl_journal_entries j JOIN companies c ON c.id=j.company_id
- LEFT JOIN LATERAL(SELECT cv.*,count(*) OVER() AS lineage_count,count(*) OVER(PARTITION BY cv.version) AS version_count FROM control_entity_versions cv WHERE cv.company_id=j.company_id AND cv.entity_type='journal_entry' AND lower(cv.entity_id)=j.id::text ORDER BY cv.version DESC,(cv.entity_id=j.id::text) DESC,cv.entity_id COLLATE "C" LIMIT 1) v ON true
+ LEFT JOIN LATERAL(SELECT cv.*,count(*) OVER() AS lineage_count,count(*) OVER(PARTITION BY cv.version) AS version_count FROM control_entity_versions cv WHERE cv.company_id=j.company_id AND cv.entity_type='journal_entry' AND cv.entity_id_canonical=j.id::text ORDER BY cv.version DESC,(cv.entity_id=j.id::text) DESC,cv.entity_id COLLATE "C" LIMIT 1) v ON true
  LEFT JOIN LATERAL(SELECT SUM(l.debit) AS amount,COUNT(*) AS count,
    (SELECT jsonb_agg(f) FROM(SELECT x.id,x.gl_account_id,x.debit::text,x.credit::text FROM gl_journal_lines x
     WHERE x.company_id=j.company_id AND x.journal_entry_id=j.id ORDER BY x.id LIMIT 101) f) AS facts
@@ -29,16 +29,16 @@ const BODY=` FROM gl_journal_entries j JOIN companies c ON c.id=j.company_id
     CASE WHEN history.action IN ('fiscal_period.close','year_closed_period') THEN 'closed'
      WHEN history.action='fiscal_period.lock' THEN 'locked' WHEN history.action='fiscal_period.reopen' THEN 'open' ELSE NULL END AS "periodState"
    FROM control_change_events x LEFT JOIN LATERAL(SELECT e.id,e.action FROM control_change_events e
-    JOIN fiscal_periods p ON p.company_id=e.company_id AND p.id::text=lower(e.entity_id)
+    JOIN fiscal_periods p ON p.company_id=e.company_id AND p.id::text=e.entity_id_canonical
     WHERE e.company_id=j.company_id AND e.entity_type='fiscal_period' AND p.id=j.fiscal_period_id
      AND e.action IN ('fiscal_period.close','fiscal_period.lock','fiscal_period.reopen','year_closed_period')
      AND e.occurred_at<=x.occurred_at ORDER BY e.occurred_at DESC,e.id DESC LIMIT 1) history ON true
-   WHERE x.company_id=j.company_id AND x.entity_type='journal_entry' AND lower(x.entity_id)=j.id::text
+   WHERE x.company_id=j.company_id AND x.entity_type='journal_entry' AND x.entity_id_canonical=j.id::text
     AND x.action NOT IN ('baseline_observed','journal.post') ORDER BY x.occurred_at,x.id LIMIT 101) f) AS facts
-   FROM control_change_events n WHERE n.company_id=j.company_id AND n.entity_type='journal_entry' AND lower(n.entity_id)=j.id::text
+   FROM control_change_events n WHERE n.company_id=j.company_id AND n.entity_type='journal_entry' AND n.entity_id_canonical=j.id::text
     AND n.action NOT IN ('baseline_observed','journal.post')) changes ON true
  LEFT JOIN LATERAL(SELECT e.id,e.new_version,e.action,e.occurred_at FROM control_change_events e
-   JOIN fiscal_periods p ON p.company_id=e.company_id AND p.id::text=lower(e.entity_id)
+   JOIN fiscal_periods p ON p.company_id=e.company_id AND p.id::text=e.entity_id_canonical
    WHERE e.company_id=j.company_id AND e.entity_type='fiscal_period' AND p.id=j.fiscal_period_id
     AND e.action IN ('fiscal_period.close','fiscal_period.lock','fiscal_period.reopen','year_closed_period')
     AND e.occurred_at<=j.posted_at ORDER BY e.occurred_at DESC,e.id DESC LIMIT 1) event ON true

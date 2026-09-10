@@ -26,7 +26,7 @@ export async function recordCommittedChange(ctx: ControlTx, input: ChangeEventIn
     // A lineage retained under another spelling of the same id is extended in place, never forked beside,
     // and its event and evidence rows join that same lineage rather than the caller's spelling.
     const lineages = await ctx.sql`SELECT entity_id,version FROM control_entity_versions WHERE company_id=${p.companyId}::uuid
-      AND entity_type=${input.entityType} AND lower(entity_id)=lower(${input.entityId})
+      AND entity_type=${input.entityType} AND entity_id_canonical=lower(${input.entityId})
       ORDER BY version DESC,(entity_id=lower(${input.entityId})) DESC,entity_id LIMIT 2` as { entity_id: string; version: string | number }[];
     const entityId = retainedLineage(lineages, input.entityId)?.entity_id ?? input.entityId;
     const versions = input.previousVersion === null

@@ -17,7 +17,7 @@ export async function readBankTransferOriginal(ctx:ControlTx,current:BankControl
   WHERE l.company_id=${company}::uuid AND l.id=${current.matched_journal_line_id}::uuid AND j.source='auto_bank_transfer'` as Row[];
  if(!journal){
   // A saved initial opposite has no separate parent receipt of its own.
-  const known=await ctx.sql`SELECT lower(e.entity_id) AS entity_id FROM control_operation_effects e JOIN control_bank_allocation_intents i ON i.company_id=e.company_id AND i.id::text=lower(e.entity_id)
+  const known=await ctx.sql`SELECT lower(e.entity_id) AS entity_id FROM control_operation_effects e JOIN control_bank_allocation_intents i ON i.company_id=e.company_id AND i.id::text=e.entity_id_canonical
    JOIN gl_journal_entries j ON j.company_id=e.company_id AND j.id::text=e.result->>'journalEntryId'
    WHERE e.company_id=${company}::uuid AND e.entity_type='bank_allocation_intent' AND e.operation='bank_allocation.post'
     AND i.payload->>'kind'='transfer' AND i.payload->'transfer'->>'oppositeBankTransactionId'=${current.id}
@@ -25,9 +25,9 @@ export async function readBankTransferOriginal(ctx:ControlTx,current:BankControl
   if(known.length)throw new Error('Controlled transfer saved opposite pointer is inconsistent');return null;
  }
  const receipts=await ctx.sql`SELECT lower(e.entity_id) AS entity_id,e.result,i.payload,i.bank_transaction_id,i.accounting_date::text,i.amount::text,i.currency,
-  EXISTS(SELECT 1 FROM control_change_events c WHERE c.company_id=${company}::uuid AND c.entity_type=e.entity_type AND lower(c.entity_id)=lower(e.entity_id)
+  EXISTS(SELECT 1 FROM control_change_events c WHERE c.company_id=${company}::uuid AND c.entity_type=e.entity_type AND c.entity_id_canonical=e.entity_id_canonical
    AND c.action=e.operation AND c.operation_id=e.operation_id AND c.binding_hash=e.binding_hash) AS audited
-  FROM control_operation_effects e LEFT JOIN control_bank_allocation_intents i ON i.company_id=e.company_id AND i.id::text=lower(e.entity_id)
+  FROM control_operation_effects e LEFT JOIN control_bank_allocation_intents i ON i.company_id=e.company_id AND i.id::text=e.entity_id_canonical
   WHERE e.company_id=${company}::uuid AND e.entity_type='bank_allocation_intent' AND e.operation='bank_allocation.post'
    AND e.result->>'journalEntryId'=${journal.id}::text ORDER BY lower(e.entity_id) LIMIT 3` as Row[];
  // The existing reader distinguishes genuinely unavailable legacy provenance from missing controlled history.
@@ -43,9 +43,9 @@ export async function readBankTransferOriginal(ctx:ControlTx,current:BankControl
   ||!sameIntentId(result.intentId,rootId)||result.bankTransactionId!==plan.bankTransactionId||result.journalEntryId!==journal.id||result.paymentId!==null
   ||result.status!=='allocated'||result.oppositeBankTransactionId!==plan.transfer.oppositeBankTransactionId)throw new Error('Controlled transfer original receipt is inconsistent');
  const related=await ctx.sql`SELECT lower(e.entity_id) AS entity_id,e.result,i.payload,i.bank_transaction_id,i.accounting_date::text,i.amount::text,i.currency,
-  EXISTS(SELECT 1 FROM control_change_events c WHERE c.company_id=${company}::uuid AND c.entity_type=e.entity_type AND lower(c.entity_id)=lower(e.entity_id)
+  EXISTS(SELECT 1 FROM control_change_events c WHERE c.company_id=${company}::uuid AND c.entity_type=e.entity_type AND c.entity_id_canonical=e.entity_id_canonical
    AND c.action=e.operation AND c.operation_id=e.operation_id AND c.binding_hash=e.binding_hash) AS audited
-  FROM control_operation_effects e LEFT JOIN control_bank_allocation_intents i ON i.company_id=e.company_id AND i.id::text=lower(e.entity_id)
+  FROM control_operation_effects e LEFT JOIN control_bank_allocation_intents i ON i.company_id=e.company_id AND i.id::text=e.entity_id_canonical
   WHERE e.company_id=${company}::uuid AND e.entity_type='bank_allocation_intent' AND e.operation='bank_allocation.post'
    AND (lower(i.payload->'transfer'->>'originalIntentId')=${rootId} OR lower(e.result->>'originalIntentId')=${rootId}) ORDER BY lower(e.entity_id) LIMIT 2` as Row[];
  const links=new Map(parsed.filter(item=>item.receipt.entity_id!==rootId).map(item=>[item.receipt.entity_id,item]));

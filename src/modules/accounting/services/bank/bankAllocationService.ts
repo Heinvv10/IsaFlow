@@ -81,7 +81,7 @@ export async function reverseReconciledTransaction(companyId:string,bankTxId:str
    if(rows.length!==1)throw new Error('Owned matching bank reversal intent required');
   }else{
    const [original]=await ctx.sql`SELECT i.id,i.accounting_date::text FROM control_bank_allocation_intents i JOIN control_operation_effects e
-    ON e.company_id=i.company_id AND lower(e.entity_id)=i.id::text AND e.entity_type='bank_allocation_intent' AND e.operation='bank_allocation.post'
+    ON e.company_id=i.company_id AND e.entity_id_canonical=i.id::text AND e.entity_type='bank_allocation_intent' AND e.operation='bank_allocation.post'
     WHERE i.company_id=${companyId}::uuid AND i.bank_transaction_id=${bankTxId}::uuid ORDER BY e.committed_at DESC LIMIT 1` as {id:string;accounting_date:string}[];
    if(!original)throw new Error('Legacy bank allocation requires explicit verified provenance before reversal');
    const reversalDate=await resolveReversalDate(companyId,original.accounting_date,opts?.reversalDate);

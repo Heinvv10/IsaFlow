@@ -36,7 +36,7 @@ export async function loadEvidenceNode(ctx:ControlTx,ref:EvidenceIdentity,permis
   // The same lineage recordCommittedChange extends; its first retained event dates it, not a sibling spelling's.
   const lineages=await ctx.sql`SELECT v.entity_id,v.version,(SELECT min(e.occurred_at) FROM control_change_events e
       WHERE e.company_id=v.company_id AND e.entity_type=v.entity_type AND e.entity_id=v.entity_id) AS recorded_since
-    FROM control_entity_versions v WHERE v.company_id=${c}::uuid AND v.entity_type=${t} AND lower(v.entity_id)=lower(${id})
+    FROM control_entity_versions v WHERE v.company_id=${c}::uuid AND v.entity_type=${t} AND v.entity_id_canonical=lower(${id})
     ORDER BY v.version DESC,(v.entity_id=lower(${id})) DESC,v.entity_id LIMIT 2` as
     {entity_id:string;version:string|number;recorded_since:Date|string|null}[];
   const choice=lineageChoice(lineages,id),history=choice.row?[choice.row]:[];
