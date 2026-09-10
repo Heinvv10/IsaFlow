@@ -29,7 +29,7 @@
 import type { ExtractedDocument } from '@/modules/accounting/types/documentCapture.types';
 import { detectDocumentType, extractAmounts } from './ocrExtractionService';
 import { extractTotalCandidates, isUnreconciled } from './ocrAmountReconciliation';
-import { adjustmentAfterTotal, unexplainedLargerFigure } from './ocrLargerFigure';
+import { adjustmentAfterTotal, unexplainedLargerFigure, unsettledTender } from './ocrLargerFigure';
 import { hasCreditIndicator } from './creditIndicators';
 
 export type UnattendedPostingInput = Pick<
@@ -117,6 +117,11 @@ export function unattendedPostingRefusal(doc: UnattendedPostingInput): string | 
   if (larger !== null) return `the document prints ${larger.toFixed(2)}, more than the total read`;
   const adjusted = adjustmentAfterTotal(doc.rawText ?? '', total);
   if (adjusted !== null) return `the document adjusts the total by ${adjusted.toFixed(2)} after printing it`;
+  // A SPLIT payment prints no figure larger than the total, so neither check
+  // above sees `SERVICE 10% 23.00 / VISA 126.50 / MASTERCARD 126.50` under a
+  // total of 230.00. What was paid is what the document settled for.
+  const settled = unsettledTender(doc.rawText ?? '', total);
+  if (settled !== null) return `the document was paid ${settled.toFixed(2)}, not the total read`;
 
   // The TOTAL was re-read; the VAT was not, and a stored net and VAT are a
   // second number the entry is built from. Measured: a zero-rated slip whose
@@ -163,5 +168,6 @@ export function isAmbiguousTotal(
   // is not approved at R230.00 here either.
   if (printed.length === 0) return false;
   return unexplainedLargerFigure(doc.rawText ?? '', printed[0]!) !== null
-    || adjustmentAfterTotal(doc.rawText ?? '', printed[0]!) !== null;
+    || adjustmentAfterTotal(doc.rawText ?? '', printed[0]!) !== null
+    || unsettledTender(doc.rawText ?? '', printed[0]!) !== null;
 }

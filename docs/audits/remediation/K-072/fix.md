@@ -1378,3 +1378,107 @@ The corpus gains 39 rows:
   still posts the pre-tip total as a VLM extraction. The fallback path refuses it by policy.
 - Production impact is not measured; the round-13 SQL still applies, plus
   `extracted_data->>'extractionMethod' IS DISTINCT FROM 'vlm'` for fallback documents already posted.
+
+---
+
+## Round 15 — the two vocabularies of `review-k072-r14.md`, replaced by rules
+
+The round-14 policy itself survived the blind review intact: fallback figures reach none of the four
+paths, there is no fifth path, the `'vlm'` marker cannot be spoofed, and all ten mutations were caught.
+What was still broken was the part that runs ON the VLM path — the two vocabularies. This is the sixth
+round in which adding words has failed, so neither is extended. Each is replaced by a rule.
+
+### HIGH-1 — a charge after the total, found by ARITHMETIC (`ocrLargerFigure.ts`)
+
+`SERVICE 10% 23.00 / VISA 126.50 / MASTERCARD 126.50` under a total of 230.00 asks for 253.00.
+`ADDITION_LABEL` did not know bare `Service` (nor `Waiter`, `Freight`, `Shipping`, `Handling`,
+`Courier`, `Surcharge`, `Levy`), and because the payment was SPLIT no single printed figure exceeded
+the total, so `unexplainedLargerFigure` found nothing either.
+
+New `unsettledTender(text, total)`: **what the document was paid must equal the total it prints.**
+Tenders printed after the total are SUMMED; change is subtracted only where a CASH tender is printed
+(only cash gives change — `CARD 253.00 / Change 23.00` stays a mislabelled tip); a cent of rounding is
+allowed. Where no payment is printed at all, any non-zero figure after the total that is not the total
+is unexplained, which is what catches the same slip with no tender line. The gate refuses on it, and
+`isAmbiguousTotal` refuses the AP routes on it.
+
+The one vocabulary this needs is `TENDER_LABEL` — the ways a country pays, a closed set, where the
+names of a charge have no end. `Account` is deliberately outside it: `Account Balance 12 345.67` on a
+trade slip is not a payment. **Disclosed limit:** a payment spelling missing from `TENDER_LABEL`
+UNDER-refuses (the figure is simply not counted), which is the opposite direction from the rest of
+this file. `unexplainedLargerFigure` still covers the single-figure case.
+
+`ADDITION_LABEL` is KEPT, unextended and no longer load-bearing. Deleting it would regress a pinned
+case — `Total 230.00 / Gratuity 23 / AMT DUE 253`, whole rands, which `FIGURE` does not read — and it
+only ever refuses. Every input the reviewer measured is now caught by the arithmetic, not by it.
+
+### HIGH-2 / MEDIUM-1 / MEDIUM-2 — a credit word anywhere, by COST ASYMMETRY (`creditIndicators.ts`)
+
+Rounds 12–14 anchored each indicator to a position where it could only describe the document. Every
+anchor was beaten on the first attempt: `REFUND SLIP 0012` and `KREDIETNOTA Nr KN00123` print the
+number BESIDE the word so the line is not the header alone and carries no cents; `TERUGBETAL\w*` never
+matched *terugbetaal*; `VOID`, `REVERSAL`, `CANCELLED SALE` and `GOODS RETURNED` were not in the
+vocabulary; `CRED1T NOTE` is what the scanner made of it.
+
+A refusal costs a person a few seconds; a wrong-direction post moves money silently. So a credit word
+ANYWHERE, as a whole word, case-insensitive, Afrikaans included, refuses. The scanner substitutions
+(0/O, 1/I/l, 5/S) are applied MECHANICALLY by `ocrTolerant` to each plain word, so nobody hand-spells
+`CRED[I1l]T` and gets one of them wrong — which is exactly how `TERUGBETAL` came to miss its second A.
+
+The carve-back is `BENIGN_PHRASES` — never a bare word, because a bare word is the anchor that failed.
+Each was measured on the ordinary corpus before it was added: `credit card`, `visa/master credit`,
+`credit limit|application|controller|terms|account|balance`, `Acc Type: CREDIT` (a card slip; the r8
+corpus row `V5`), `on credit`, a no-refund footer, a refund/returns policy sentence, `goods may be
+returned`, `exchange rate`, `Less credit note … applied` (the review's LOW-1), and a bare `RETURNS`
+heading immediately above a policy line (the review's other over-refusal). The phrases are scrubbed out
+and the words looked for in what is left; the `RETURNS` heading is scrubbed FIRST because the policy
+sentence its lookahead reads would otherwise already be blank. `CREDITOR` is deliberately not a credit
+word — a supplier statement heading is not a credit note.
+
+### Measured, before and after (extraction stamped `'vlm'`, the path in play)
+
+| Set | rows | auto-posts | auto-approvals | WRONG posts | WRONG approvals |
+|---|---|---|---|---|---|
+| `k076-slip-corpus.ts` | 177 | 62 → **62** | 66 → **66** | 0 → 0 | 0 → 0 |
+| r13 reviewer probes | 44 | 3 → **2** | 3 → **2** | 0 → 0 | 0 → 0 |
+| r13 refund probes | 10 | 0 → 0 | 0 → 0 | 0 → 0 | 0 → 0 |
+| r13 ordinary receipts | 16 | 4 → **4** | 8 → **8** | 0 → 0 | 0 → 0 |
+| r14 reviewer credit probes | 29 | 13 → **1** | 15 → **1** | **13 → 1** | **15 → 1** |
+| r14 reviewer charge probes | 33 | 18 → **0** | 18 → **0** | **18 → 0** | **18 → 0** |
+| r14 reviewer ordinary probes | 12 | 8 → **9** | 9 → **10** | 0 → 0 | 0 → 0 |
+| r15 charge probes (9 names × 4 tenders) | 36 | 9 → **0** | 9 → **0** | **9 → 0** | **9 → 0** |
+
+**The over-refusal cost of this round is zero, and it gives one back.** The 16 ordinary receipts are
+unchanged at 4 auto-posts and 8 auto-approvals (12 of 16 still refuse to post, 16 of 16 on the
+fallback, both unchanged from round 14 and still Hein's call); the corpus is unchanged at 62/66; the
+r14 ordinary probes gain one, the `RETURNS` policy footer that round 14 over-refused. The only
+regression in either direction is r13 probe `H9` — `CASH 250 / CHANGE 20 / REPRINT / CASH 300 /
+CHANGE 70`, a reprinted duplicate tender block, which the sum now refuses. That is the cheap direction.
+
+The one remaining WRONG row is the r14 probe `C negative stored total only`, whose text is an ordinary
+positive purchase (`Kettle 499.00 / VAT 65.09 / TOTAL 499.00`) with no credit signal in it at all; the
+credit is only in the VLM's stored NEGATIVE total, which `isCreditNote` refuses on and the probe
+harness never sets. It is a harness artefact, not a defect.
+
+### Mutations — 7, all caught, files restored byte-identically (`md5sum -c`)
+
+| # | mutation | result |
+|---|---|---|
+| M1 | the tender sum never disagrees with the total | RED (29) |
+| M2 | a tender label printed AFTER its figure is ignored | RED (9) |
+| M3 | no tender printed means nothing to explain | RED (9) |
+| M4 | `ocrTolerant` returns the word unchanged (no OCR damage) | RED (3) |
+| M5 | the credit word must be the whole line (the r14 anchor) | RED (14) |
+| M6 | no benign phrase is carved back | RED (17) |
+| M7 | the `RETURNS` heading phrase is scrubbed LAST, not first | RED (1) |
+
+### Gates
+
+`env -u DATABASE_URL bun run ci` → 15 checks PASS, `Test Files 806 passed | 36 skipped (842)`,
+`Tests 10105 passed | 234 skipped (10339)`, component 62/418, build PASS, `all checks passed`,
+`CI_EXIT=0`. Integration `tests/integration/k072-*.int.test.ts` → 7 files / 58 tests passed,
+`INT_EXIT=0`.
+
+**Migration:** none. **Historical data:** unchanged — these defects mis-READ documents at capture time
+and leave no marker, so the round-13 impact SQL is still the only detection available. **Rollback:**
+revert the commit.
