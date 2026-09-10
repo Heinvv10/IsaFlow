@@ -90,6 +90,13 @@ it('refuses run_control_checks to a token without write:audit, and still serves 
   const refused=await f.rpc('run_control_checks',{...args,idempotency_key:randomUUID()},'u2');
   expect(refused.result?.isError,'a read-only token enqueued a check run').toBe(true);
   expect(refused.result?.content?.map(item=>item.text).join('\n')).toMatch(/write:audit/);
+  // The same scope now gates every audit enqueue; each refusal names it, before any argument is looked at.
+  for(const [tool,input] of [['audit_snapshot',{cutoff:'2026-09-09',sources:['journals'],checks:[]}],['export_audit_evidence',{snapshot_id:randomUUID()}],
+   ['compare_audit_snapshots',{first_snapshot_id:randomUUID(),second_snapshot_id:randomUUID()}]] as const){
+   const reply=await f.rpc(tool,{...input,idempotency_key:randomUUID()},'u2');
+   expect(reply.result?.isError,`a read-only token enqueued ${tool}`).toBe(true);
+   expect(reply.result?.content?.map(item=>item.text).join('\n'),`${tool} was refused for a reason other than write:audit`).toMatch(/write:audit/);
+  }
   expect(await f.call<Summary>('control_check_run',{check_run_id:checkRunId},'u2')).toMatchObject({checkRunId});
   expect((await f.call<Page>('control_check_run_findings',{check_run_id:checkRunId,limit:1},'u2')).findings).toHaveLength(1);
  }finally{await f.pool.query("UPDATE personal_access_tokens SET scopes=array_append(scopes,'write:audit') WHERE id=$1 AND NOT ('write:audit'=ANY(scopes))",[token]);}

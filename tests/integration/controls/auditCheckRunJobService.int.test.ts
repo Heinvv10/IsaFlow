@@ -83,36 +83,44 @@ it('refuses a seventh active check-run job per company while a repeat still retu
  await pool.query("UPDATE control_audit_jobs SET state='failed',last_error_code='CANCELLED',completed_at=clock_timestamp() WHERE company_id=$1 AND job_id=$2",[fixture.companyB,runs[0]!.jobs[0]!.id]);
  expect((await enqueue(fixture.u3,request())).jobs[0]!.state).toBe('queued');
 });
-/** Seeds `count` published check runs enqueued `hoursAgo` hours ago, as the rolling window sees them. */
-async function publishedRuns(company:string,person:string,count:number,hoursAgo:number){
- const client=await pool.connect();
- try{
-  await client.query('BEGIN');
-  const ids=(await client.query(`INSERT INTO control_audit_job_intents(company_id,id,requester_person_id,kind,idempotency_key,request_hash,protected_request,created_at)
-   SELECT $1,gen_random_uuid(),$2,'audit_check_run','seed-'||$4||'-'||n,$3,'{"seed":true}'::jsonb,clock_timestamp()-make_interval(hours=>$4::int)
-   FROM generate_series(1,$5::int) n RETURNING id`,[company,person,createHash('sha256').update('seed').digest('hex'),hoursAgo,count])).rows.map(row=>row.id as string);
-  await client.query("INSERT INTO control_audit_jobs(company_id,job_id,generation) SELECT $1,unnest($2::uuid[]),1",[company,ids]);
-  await client.query(`INSERT INTO control_audit_check_results(company_id,job_id,generation,lease_id,check_id,status,population_count,excluded_count,finding_count,snapshot_text,capture_xid,captured_at,protected_header)
-   SELECT $1,job_id,1,gen_random_uuid(),'journal_risk_checks','unknown',0,0,0,pg_current_snapshot()::text,pg_current_xact_id()::text,clock_timestamp(),'{"seed":true}'::jsonb
-   FROM control_audit_jobs WHERE company_id=$1 AND job_id=ANY($2::uuid[])`,[company,ids]);
-  await client.query("UPDATE control_audit_jobs SET state='succeeded',result_check_run_id=job_id,completed_at=clock_timestamp() WHERE company_id=$1 AND job_id=ANY($2::uuid[])",[company,ids]);
-  await client.query('COMMIT');
- }catch(error){await client.query('ROLLBACK');throw error;}finally{client.release();}
+/**
+ * Seeds `count` finished check runs enqueued `minutesAgo` minutes ago. Each is attributed to its own synthetic
+ * requester unless `person` is given, so a company-cap gate never trips the per-principal share by accident.
+ */
+/** Five synthetic user rows (the requester FK is to users, not to membership), so no seed pushes one past its share. */
+async function requesters():Promise<string[]>{
+ return (await pool.query(`INSERT INTO users(id,email,role,is_active) SELECT id,id||'@forensic.invalid','viewer',true
+  FROM (SELECT gen_random_uuid()::text AS id FROM generate_series(1,5)) u RETURNING id`)).rows.map(row=>row.id as string);
 }
-// Literal on purpose: the unit contract test pins AUDIT_CHECK_RUN_QUOTA to these, so this gate cannot drift with it.
-const PER_WINDOW=100,WINDOW_HOURS=24;
-it('bounds the enqueue rate over a rolling window and never locks a tenant out for good',async()=>{
- // 100 published runs — every one of them `unknown`, the outcome that must not count against a tenant forever —
- // enqueued a day and an hour ago: outside the window, so new work is admitted.
- const old=await provisionForensicFixture(config);
- await publishedRuns(old.companyA,old.u1.id,PER_WINDOW,WINDOW_HOURS+1);
- expect((await enqueue(old.u1,request())).jobs[0]!.state,'runs outside the window still refused new work').toBe('queued');
- // The same volume inside the window is refused, and refusing is the whole of it: no intent is written.
- const recent=await provisionForensicFixture(config);
- await publishedRuns(recent.companyA,recent.u1.id,PER_WINDOW,1);
- await expect(enqueue(recent.u1,request())).rejects.toThrow(/Audit check-run quota exceeded/);
- expect((await pool.query("SELECT count(*)::int AS n FROM control_audit_job_intents WHERE company_id=$1 AND kind='audit_check_run'",[recent.companyA])).rows[0].n)
-  .toBe(PER_WINDOW);
+async function enqueuedRuns(company:string,count:number,minutesAgo:number,person?:string){
+ const others=await requesters();
+ await pool.query(`WITH seeded AS (INSERT INTO control_audit_job_intents(company_id,id,requester_person_id,kind,idempotency_key,request_hash,protected_request,created_at)
+   SELECT $1,gen_random_uuid(),COALESCE($2,($6::text[])[1+g%5]),'audit_check_run','seed-'||gen_random_uuid(),$3,'{"seed":true}'::jsonb,clock_timestamp()-make_interval(mins=>$4::int)
+   FROM generate_series(1,$5::int) g RETURNING company_id,id)
+  INSERT INTO control_audit_jobs(company_id,job_id,generation,state,last_error_code,completed_at) SELECT company_id,id,1,'failed','CANCELLED',clock_timestamp() FROM seeded`,
+ [company,person??null,createHash('sha256').update('seed').digest('hex'),minutesAgo,count,others]);
+}
+// Literal on purpose: the unit contract test pins the quota to these, so these gates cannot drift with it.
+const PER_WINDOW=100,PER_PRINCIPAL=40,WINDOW_MINUTES=24*60;
+it('counts a run just inside the window and admits exactly the hundredth',async()=>{
+ const tenant=await provisionForensicFixture(config);
+ // 99 runs enqueued five minutes short of 24 hours ago are still inside the window: the next is the 100th and fits,
+ // the one after is the 101st. A shortened SQL window stops counting them; `>` turned `>=` refuses the 100th.
+ await enqueuedRuns(tenant.companyA,PER_WINDOW-1,WINDOW_MINUTES-5);
+ expect((await enqueue(tenant.u1,request())).jobs[0]!.state,'the 100th run in the window was refused').toBe('queued');
+ await expect(enqueue(tenant.u2,request()),'a run past 100 in the window was admitted').rejects.toThrow(/Audit check-run quota exceeded/);
+ expect((await pool.query("SELECT count(*)::int AS n FROM control_audit_job_intents WHERE company_id=$1 AND kind='audit_check_run'",[tenant.companyA])).rows[0].n).toBe(PER_WINDOW);
+});
+it('ignores a run just outside the window, so a tenant is never locked out for good',async()=>{
+ const tenant=await provisionForensicFixture(config);
+ await enqueuedRuns(tenant.companyA,PER_WINDOW,WINDOW_MINUTES+5);
+ expect((await enqueue(tenant.u1,request())).jobs[0]!.state,'runs five minutes outside the window still counted').toBe('queued');
+});
+it('gives each member a share beneath the company cap, so one principal cannot deny every colleague',async()=>{
+ const tenant=await provisionForensicFixture(config);
+ await enqueuedRuns(tenant.companyA,PER_PRINCIPAL,60,tenant.u1.id);
+ await expect(enqueue(tenant.u1,request()),'a member past their share was admitted').rejects.toThrow(/Audit check-run quota exceeded/);
+ expect((await enqueue(tenant.u2,request())).jobs[0]!.state,'one member\'s share denied a colleague').toBe('queued');
 });
 it('requires write:audit to enqueue, while reads and job status stay on read:reports',async()=>{
  const tenant=await provisionForensicFixture(config);
