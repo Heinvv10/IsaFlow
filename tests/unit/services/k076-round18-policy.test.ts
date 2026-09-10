@@ -79,24 +79,32 @@ describe('K-076 r18 MEDIUM-1 — a counter is a labelled small integer, not mone
   const PAID = `${HDR('Pick n Pay')}Milk 115.00\nSub Total 100.00\nVAT 15% 15.00\nTOTAL 115.00\nCARD 115.00\n`;
   const known = { subtotal: 100, vatAmount: 15 };
 
-  it.each(['Items 2', 'No of items: 5', 'ITEMS SOLD 4', 'Qty 3', 'Units 3', 'Lane 3', 'Pump 5', 'Table 12',
-    'Seat 14', 'Points earned 25', 'Your points balance 1250', 'Seq 4521', 'Cashier 12',
-    'Operator 7', 'Terminal 12345', 'Visit us at Shop 45', 'Est. 1967', 'Store 1234', 'Trans 99881',
-    'Page 1 of 1', 'Open 7 days', 'Total Items 5', 'Smart Shopper points 25',
-    'Auth Code 123456', 'Odometer 145230', '14:22 03/09/2026'])(
+  it.each(['Items 2', 'No of items: 5', 'ITEMS SOLD 4', 'Qty 3', 'Units 3', 'Lane 3', 'Pump 5',
+    'Operator 7', 'Est. 1967', 'Page 1 of 1', 'Open 7 days', 'Total Items 5', '14:22 03/09/2026'])(
     'a settled slip with "%s" below it is ordinary', (footer) => {
       expect(unreconciledFigure(`${PAID}${footer}`, 115, known)).toBeNull();
     });
 
-  it('round 19: a COUNTER label makes a count whatever was paid; an unknown label refuses either way', () => {
+  // Round 22 REVERSED these: a count noun only nominates its number, and on a
+  // slip paid in full a count must be two digits at most and under a tenth of
+  // the total — R11.50 here. Each is money on some document (`Operator 800`).
+  it.each(['Table 12', 'Seat 14', 'Points earned 25', 'Your points balance 1250', 'Seq 4521', 'Cashier 12',
+    'Terminal 12345', 'Visit us at Shop 45', 'Store 1234', 'Trans 99881', 'Smart Shopper points 25',
+    'Auth Code 123456', 'Odometer 145230'])(
+    'round 22: a settled R115 slip with "%s" below it refuses', (footer) => {
+      expect(unreconciledFigure(`${PAID}${footer}`, 115, known)).not.toBeNull();
+    });
+
+  it('round 22: a count noun makes a count only on a document paid in full; an unknown label refuses either way', () => {
     const unpaid = `${HDR('Pick n Pay')}Milk 115.00\nSub Total 100.00\nVAT 15% 15.00\nTOTAL 115.00\n`;
-    expect(unreconciledFigure(`${unpaid}Table 12`, 115, known)).toBeNull();
-    expect(unreconciledFigure(`${unpaid}Car Guard 12`, 115, known)).toEqual({ reason: 'stray', value: 12 });
-    expect(unreconciledFigure(`${PAID}Car Guard 12`, 115, known)).toEqual({ reason: 'stray', value: 12 });
+    expect(unreconciledFigure(`${unpaid}Table 8`, 115, known)).toEqual({ reason: 'stray', value: 8 });
+    expect(unreconciledFigure(`${PAID}Table 8`, 115, known)).toBeNull();
+    expect(unreconciledFigure(`${unpaid}Car Guard 8`, 115, known)).toEqual({ reason: 'stray', value: 8 });
+    expect(unreconciledFigure(`${PAID}Car Guard 8`, 115, known)).toEqual({ reason: 'stray', value: 8 });
   });
 
-  it('round 19: a counter larger than the total is still a count, an unlabelled one is not', () => {
-    expect(unreconciledFigure(`${PAID}Batch 123`, 115, known)).toBeNull();
+  it('round 22: a count larger than the total is money like any other figure', () => {
+    expect(unreconciledFigure(`${PAID}Batch 123`, 115, known)).toEqual({ reason: 'larger', value: 123 });
     expect(unreconciledFigure(`${PAID}Attendant 123`, 115, known)).toEqual({ reason: 'larger', value: 123 });
   });
 });

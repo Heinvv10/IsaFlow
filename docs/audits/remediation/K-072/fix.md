@@ -2099,3 +2099,109 @@ positive fixtures without a title; they were given one, and the run above is the
 **Files.** `purchaseTitle.ts` (new, 40), `ocrWholeFigures.ts` 131, `ocrPrintedFigures.ts` 188,
 `ocrLargerFigure.ts` 274, `creditIndicators.ts` 274, `documentCurrency.ts` 74, `unattendedPostingGate.ts`
 200 — all under 300. **Migration:** none. **Historical data:** unchanged. **Rollback:** revert the commit.
+
+---
+
+## Round 21 — `44339ae18` (reconstructed in round 22; the round-21 fixer died before writing it)
+
+The round-20 review (`7c7c15af0` → `13a26ba1e`) asked every exemption "can this ever let money through?".
+Round 21's own commit message is the only first-hand record; this section restates it and adds what the
+round-21 review (`review-k072-r21.md`, scoring `8caf5cf19` = round 21 + the `3797f001e` master merge) measured.
+
+| Round-20 finding | What round 21 did |
+|---|---|
+| HIGH-1 twelve counter nouns named money (`Mileage 350` posted R1 150 against R1 500) | Removed them. `Receipt`, `Order`, `Account`, `Room`, `Server`, `Covers`, `Code`, `Copy`, `Waybill` needed a number word or a long code; `Address` and a generic `Points` went. A dimension label with its own unit (`Weight 5 kg`) became a measurement. Each surviving count noun got a "money-beside" probe — but the probe put `fee` or cents beside the noun, not a bare number (round-21 review HIGH-2). |
+| MEDIUM-1 a duration was exempt anywhere, so a RATE posted | A duration exempts only after a terms/prose lead (`within`, `Terms:`). |
+| MEDIUM-2 refund words under a TAX INVOICE header | 26 words added; the list stays fail-open by nature. |
+| LOW-1/2 titles with a number or a second language refused | A title line could carry its number, a second language, `ORIGINAL` and a page marker; its number was the document's in the header. **This is what the round-21 review's HIGH-1 beat** — `Invoice No: 55123` became a title. |
+| LOW-4 currency shapes | `Rs` before a figure, `Zimbabwe Gold`, "amounts in" declarations refuse. |
+
+The commit claims "21 mutations RED"; the list was never written down and cannot be recovered. The round-21
+reviewer re-ran eleven of its own (V1–V11, `review-k072-r21.md`), all RED except V11, an equivalent mutant.
+The round-21 review: **2 HIGH, 1 MEDIUM, 4 LOW, CI red** (`CAPTURED_DOCUMENT_ALREADY_POSTED` unclassified after
+the master merge).
+
+---
+
+## Round 22 — the counter becomes structural, a number line is never a title
+
+Review: `review-k072-r21.md` (2H/1M/4L). Orchestrator's decision this round, on the counter exemption:
+listing nouns cannot be made safe, so replace the noun-based exemption with a STRUCTURAL condition.
+
+| Finding | Disposition |
+|---|---|
+| HIGH-1 (regression) `Invoice No: 55123` was a purchase title; 15 credit titles, 30/30 reprints and 39/39 non-purchase documents posted | FIXED, two rules (`purchaseTitle.ts`). (1) A title LINE is the title words only — bilingual (now also space-joined, `TAX INVOICE BELASTINGFAKTUUR`), `ORIGINAL`, a page marker. **A line carrying a number is a field, never a title**; `titleNumberIsDocument` and its call in `printedFigures` are deleted, so `TAX INVOICE: 12345` is read as money again. `STATEMENT` is no longer a title. (2) `NOT_A_PURCHASE`: any HEADER line naming COPY, REPRINT, DUPLICATE, PRO FORMA, QUOTE/QUOTATION, ESTIMATE, STATEMENT, NOTE/NOTA (delivery, discount, credit, bonus… note), ORDER CONFIRMATION, PURCHASE ORDER, GRV/GRN/GOODS RECEIVED, SETTLEMENT, SHORT DELIVERY/SHORTAGE, CLAIM, DAMAGES, ADJUSTMENT, ALLOWANCE, INCENTIVE, BONUS, REBATE, SWOP/SWAP, EXCH…, ACCEPTED BACK refuses, title or not. Each names a DOCUMENT: bare `Discount` heads a price column on ordinary invoices (O8), so only `DISCOUNT SLIP/VOUCHER/ADVICE/MEMO` count (`DISCOUNT NOTE` is caught by NOTE). The vendor's own name/address is scrubbed first (`Copy Shop Rosebank`), as the credit rule does. All reviewer probes: a-title 79 → 0, a-credit-title 40 → 0, g-credit 15 → 0, F15 refuses. |
+| HIGH-2 170/174 bare `noun 350` probes posted | FIXED by the orchestrator's rule. `counterLabel` now answers `'reference'` (a number word or a long code — never money), `'count'` (a bare count noun — only a CANDIDATE) or null. `unreconciledFigure` keeps a count only when **(a)** the payments sum exactly to the total (rule 1 balanced — `settled`) **and (b)** the number is ≤ 99 and < total / 10. Every other reader (`unexplainedLargerFigure`, the extraction warning) keeps counts as money, which is consistent: a count larger than the total fails (b). On a document with no payment lines there is no count at all. `Covers` moved back to the count nouns (the reviewer's `Covers 2` LOW). A second hole the probes exposed is also closed: the item-column check started its block at the first line *opening with a summary word*, so `Total Items 350`, `Tax Class 350` and `VAT Units 350` above the sub total were never read; it now starts at the first line printing a SUMMARY figure. c-count 174 → 24, c-real 8 → 0 (`Operator 800` refuses). |
+| MEDIUM-1 `bun run ci` red — census test | FIXED. **Two** codes were missing, not one: `CAPTURED_DOCUMENT_ALREADY_POSTED` (two fixed messages, no id, raised after a company-scoped read) and `CAPTURE_ROW_LOCK_TIMEOUT` (says "retry", names only the caller's own id, row locked by id AND company_id — the same shape as `BANK_TX_LOCK_TIMEOUT`, already a refusal). Both classified as refusals in `REFUSAL_CODES`; the census goes red with either one removed (H1, H2 below). |
+| LOW-1 `SHOWER GEL`/`HAIR GEL`/`AMD` matched ISO | FIXED. ISO codes that are also words (`GEL AMD TRY MAD RON RUB CAD PHP KGS LAK`) left `ISO_ANYWHERE`; they refuse only BESIDE a number (`WORD_CODE_BESIDE`, whole or cents, either side) or in a declaration. A code that is no word still refuses anywhere. |
+| LOW-1 `Payable in full` read as a declaration | FIXED. The word after "in" refuses unless it is the rand or on `NOT_DECLARED` (`full`, `advance`, `words`, `instalments`…) — a closed list that fails CLOSED. `Curr` no longer matches inside `Current`. |
+| LOW-1 `Covers 2` on five slips | 3 recovered (r17 `Covers 2`, r17 S5, u-ord U3 Wimpy). The other two refuse for another reason: r18 R4 prints bare `Order 45` (money without a number word), k-ord O4 prints `Table 12` on R114 (≥ a tenth — rule (b)). |
+| LOW-2 title-number rule not confined to the header on whole-rand documents | CLOSED by deleting the rule (HIGH-1). `CASH SALE: 350` and `TAX INVOICE: 1500` are money wherever printed. |
+| LOW-3 no round-21 section | Written above. |
+| LOW-4 17 refund words posted | FIXED: stems `REMBOURS`, `RIMBORS`, `RÜCKERSTATT`, `ANULA`, `ABONO`, `REKLAMASIE`; markings `REFND`, `RETRN`, `EXCH`, `XCHG`, `REV SALE`, `RUIL`, `NEG`, `R/N`. `Exch rate` and Afrikaans exchange-policy lines (`Ruil binne 7 dae…`) are carved back as phrases. **The credit list stays fail-OPEN for a refund printed under a TAX INVOICE header** — the one direction no structural rule covers; b-credit 17 → 0. |
+| LOW-4 `Prices in ZiG` posted | FIXED: `prices`, `figures`, `values`, `rates`, `pryse` and "shown/stated/quoted in" are declarations. e-fx 4 → 0. |
+| (re-verify each shape with money beside it) | Dates, times, masked card (exactly 4), `N of M`, measurements with their own unit: unchanged, probes pinned in `k076-round22-policy.test.ts`. **A duration exempted `Storage for 350 days`, `Hire for 450 day`, `Rental period 1500 month`**, so a duration now exempts only ≤ 2 digits (`30 days`). Measured cost: zero. |
+
+### What stays open, deliberately — for the orchestrator
+
+1. **Number-word references stay exempt at any size, anywhere** (`Order No 350`, `No 350`, `# 350`,
+   `Receipt No 350`) — the 24 c-count rows still posting. A number word is a shape a charge is not printed in,
+   and an invoice's own `Invoice No: 55123` must not be money. Tried and rejected: header-only references —
+   the per-line and below-the-total readers lose the header, and courier invoices print `Waybill TCG-998877` on
+   item rows. If you want them structural too, the cheapest version is "a reference below the first money figure
+   is money unless the document is paid in full"; not built.
+2. **The item column is checked only when a loose whole number is present** (pre-existing since round 17;
+   the reviewer's own `h-item` set, 6 rows, posts at all three SHAs): `Labour 1000.00 / Delivery 350.00 / Sub
+   Total 1000.00 / TOTAL 1150.00` posts 1150 although the rows sum to 1350. Checking every document's item
+   column was measured: it closes h-item and costs **13 ordinary documents** (fuel slips with `@ 23.45`, surcharge
+   rows, tip-inside, balance brought forward). Not built — a policy call.
+3. The glued `Labour 450hrs` / `Hire 450h` (6 d-dur rows): the round-21 review accepted them as quantities.
+4. The vendor-identity scrub is fail-open if the model puts a disqualifying word inside `vendorName` AND the
+   document also prints a pure title line — the same exposure the credit rule has had since round 16.
+
+### THE COST — head vs `13a26ba1e` and `8caf5cf19`, 2 220 rows, extraction stamped `'vlm'`
+
+Harness: rev-k072v's `run2.ts` (identity supplied, supplier match 1.0) over `every.json` (corpus + 1 462 probes,
+rev-k072u's sets included) and `r21`, `r21o`, `r21c`, `r21r`, `r21h`. Unattended = posted or auto-approved.
+WRONG = unattended on a credit, a must-refuse probe or a null payable, or at an amount not the payable.
+
+| Set | rows | unattended 13a26 → 8caf5 → **head** | WRONG 13a26 → 8caf5 → **head** |
+|---|---|---|---|
+| corpus | 177 | 63 → 63 → **60** | 0 → 0 → 0 |
+| ordinary16 | 16 | 7 → 7 → **5** | 0 |
+| rev-k072u u-ord | 16 | 8 → 8 → **5** | 0 |
+| rev-k072v f-ord | 16 | 10 → 8 → **8** | 0 |
+| r16 / r17-Q29 / r17-footer / r18 / k-ord ordinary | 125 | 106 → 98 → **72** | 0 |
+| m-title (rev-k072u) | 27 | 2 → 27 → **14** | — (9 of the 13 lost are COPY/REPRINT/PRO FORMA/STATEMENT/DELIVERY NOTE, correctly refused) |
+| a-title / a-credit-title / g-credit | 273 | 5 → 134 → **0** | 5 → 134 → **0** |
+| c-count / c-real | 189 | 178 → 182 → **24** | 178 → 182 → **24** (number-word references, open item 1) |
+| b-credit / e-fx / d-dur | 97 | 44 → 41 → **12** | 40 → 37 → **8** (6 glued hours, 2 = open item 2) |
+| h-item | 6 | 6 → 6 → 6 | 6 → 6 → 6 (open item 2) |
+| every other set (probes, credit, FX, tip, shape, r14/r15/r17 ordinary, n-grv) | 1 278 | 213 → 41 → **38** | 174 → 4 → **3** (probes44 ×2, the r14 artefact ×1; r18 `GRV 0012` 1 → 0) |
+| **all** | **2 220** | **642 → 615 → 244** | **403 → 363 → 41** |
+
+**What the counter decision costs on till slips, stated plainly.** Isolated by re-running head with counts
+always exempt (the only difference): **37 ordinary documents lose unattended posting — 234 → 197 of the
+ordinary documents that passed.** 31 are paid till slips: the id beside a count noun is over two digits
+(`Odometer 145230` on every fuel slip, `Auth Code 123456`, `Op 3456`, `Store 1234`, `Terminal 12345`, `Trans
+99881`, `Batch 123`, `Seq 4521`, `Your points balance 1250`), or a small count is a tenth of a small total or
+more (`Table 12` on R114, `Cashier 12` on R115, `Lane 3` on R23, `Smart Shopper points 25` on R115). Five are
+UNPAID supplier invoices printing `Branch 250655` in their banking details (R27, O7, Q6, R9, U4) — nearly
+every SA supplier invoice does, so in production this is the larger cost. One is a courier invoice with
+`Parcels 2`. The title rules cost 4 more (`TAX INVOICE No 88123`/`#12345`/`: 12345`, `ACME (PTY) LTD TAX INVOICE`),
+GRV 2 (`n-grv`, by decision), and F10 (`BELASTINGFAKTUUR Nr 5521`). Recovered: U3 Wimpy, S5, F6 Clicks, F8
+`Payable in full`. Tests pinning the reversed behaviour were rewritten to assert the new rule, each marked
+"round 22": r15 (1), r17 (1), r18 (15 → split), r19 (2), r20 (6), r21 (8 titles, GRV, the title-number test,
+`Covers 50`), corpus X1, R12, R27 → `refuse`.
+
+### Mutations — 25, 24 RED, restored byte-identically (md5 checked per mutation)
+
+W1 payment not required (2) · W2 no two-digit cap (1) · W3 no tenth-of-total cap (4) · W4 bare count noun a
+reference (5) · W5 default reader keeps counts (1) · W6 item block starts at a summary word (1) · W7 `Covers`
+not a count (1) · W8 duration any length (1) · T1 a title may carry a number (2) · T2 no disqualifier (2) · T3
+no vendor scrub (1) · T4 no space-joined bilingual title (1) · T5 bare `DISCOUNT` disqualifies (1) · C1 word
+codes anywhere (1) · C2 word codes never beside (1) · C3 any declared word but the rand (1) · C4 prices/figures
+not declarations (1) · C5 `Curr` matches `Current` (1) · R1 new refund stems (1) · R2 new refund markings (1) ·
+R3 Afrikaans exchange-policy phrase (1) · R4 `Exch rate` not benign (1) · H1/H2 each refusal code removed (1
+each). **T6 (`STATEMENT` a title again) stays GREEN — an equivalent mutant: `NOT_A_PURCHASE` refuses STATEMENT
+on the same line.**

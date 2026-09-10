@@ -9,38 +9,42 @@
  * cash sale, a `BELASTINGFAKTUUR`, a `KWITANSIE`. A credit note titled with a
  * word the credit list does not know carries no purchase title, and refuses.
  * (A refund printed on a TAX INVOICE template does carry one, and for that
- * the credit list is still load-bearing — see fix.md, round 21.)
+ * the credit list is still load-bearing — see fix.md, rounds 21 and 22.)
  *
- * The title list is closed and FAILS CLOSED: a purchase document titled with a
- * word missing here goes to a person. A title LINE may be bilingual (`TAX
- * INVOICE / BELASTINGFAKTUUR`), carry `ORIGINAL`, a page marker, and its
- * document number (`TAX INVOICE No 88123`, `Invoice No: 88123`) — the number
- * on a title line is the document's, never money (`isTitleLine`). `Original
- * Invoice No: 123` on a credit note is not a title line.
+ * Two rules, and both FAIL CLOSED:
  *
- * A COPY, REPRINT or DUPLICATE title is deliberately NOT a title. A reprint of
- * a slip that was already captured is the same purchase a second time, and
- * posting it unattended is a double post.
+ *  1. A title LINE is the title words and nothing else — optionally bilingual
+ *     (`TAX INVOICE / BELASTINGFAKTUUR`), `ORIGINAL` and a page marker. A line
+ *     carrying a NUMBER is a field, never a title (round 22): `Invoice No:
+ *     55123` is printed by nearly every credit note, pro forma and reprint, to
+ *     cite the invoice, and round 21 let it pass all of them as purchases. A
+ *     purchase document titled with a word missing here goes to a person.
+ *  2. Any header line naming a document that is NOT a first-time purchase
+ *     refuses, title or no title (`NOT_A_PURCHASE`): a COPY, REPRINT or
+ *     DUPLICATE (a reprint of a captured slip is a double post), a pro forma,
+ *     quotation, estimate, delivery note, statement, order, goods-received
+ *     voucher, and the credit, discount, settlement, short-delivery and claim
+ *     notes a supplier sends to REDUCE an invoice. Each entry names a
+ *     DOCUMENT: a bare `Discount` heads a price column on an ordinary invoice,
+ *     so it counts only as `DISCOUNT NOTE`/`SLIP`/…. This list only ever
+ *     refuses; the title rule is what fails closed for the word it lacks.
  *
- * A bare `RECEIPT` beside a GRV/GRN marking is a goods-received voucher — the
- * buyer's own document, not the supplier's — and does not count.
- *
- * The header is every line above the first money figure, a date or a time
- * (`10.09.26 14:32`) not counting as one. A document with no text (an image
- * the model read) passes only on a model type of `invoice` or `receipt`.
+ * The supplier's own name and address are blanked first (`Copy Shop
+ * Rosebank`, `Discount Tyres`), as the credit rule does. The header is every
+ * line above the first money figure, a date or a time (`10.09.26 14:32`) not
+ * counting as one. A document with no text (an image the model read) passes
+ * only on a model type of `invoice` or `receipt`.
  */
 import type { ExtractedDocument } from '@/modules/accounting/types/documentCapture.types';
+import { scrubVendorIdentity } from './creditIndicators';
 
 const QUALIFIED = String.raw`(?:(?:TAX|VAT|BTW|SALES|RETAIL|TILL|CUSTOMER|CASH|PARKING)\s+)`;
-const ONE_TITLE = String.raw`(?:${QUALIFIED}?(?:INVOICE|RECEIPT)|TAX\s+INV\.?|TILL\s+SLIP|SALES?\s+SLIP|CASH\s+(?:SALE|SLIP)|(?:BELASTING\s*)?FAKTUUR|KWITANSIE|(?:KAS|VERKOOP)?\s*STROKIE|BILL|STATEMENT)`;
+const ONE_TITLE = String.raw`(?:${QUALIFIED}?(?:INVOICE|RECEIPT)|TAX\s+INV\.?|TILL\s+SLIP|SALES?\s+SLIP|CASH\s+(?:SALE|SLIP)|(?:BELASTING\s*)?FAKTUUR|KWITANSIE|(?:KAS|VERKOOP)?\s*STROKIE|BILL)`;
 const TITLE_LINE = new RegExp(
-  String.raw`^[\s*=#-]*${ONE_TITLE}(?:\s*[/|&-]\s*${ONE_TITLE})*(?:\s*\(?ORIGINAL\)?)?`
-  + String.raw`(?:\s*(?:No|Nr|Number|#)?\.?\s*[:#]?\s*(?=[\w/-]*\d)[A-Z0-9][\w/-]*)?(?:\s*Page\s+\d+\s+of\s+\d+)?[\s*=#-]*$`,
+  String.raw`^[\s*=#-]*${ONE_TITLE}(?:\s*[/|&-]?\s*${ONE_TITLE})*(?:\s*\(?ORIGINAL\)?)?(?:\s*Page\s+\d+\s+of\s+\d+)?[\s*=#-]*$`,
   'i',
 );
-/** A title line must name a purchase, not only a statement. */
-const PURCHASE_WORD = /(?<![A-Za-z])(?:INVOICE|INV\.?|RECEIPT|SLIP|SALE|(?:BELASTING\s*)?FAKTUUR|KWITANSIE|(?:KAS|VERKOOP)?STROKIE|BILL)(?![A-Za-z])/i;
-const GOODS_RECEIVED = /(?<![A-Za-z])(?:GRV|GRN|GOODS\s+RECEIVED)(?![A-Za-z])/i;
+const NOT_A_PURCHASE = new RegExp(String.raw`(?<![A-Za-z])(?:COPY|RE-?PRINT\w*|DUPLICAT\w*|PRO[\s-]*FORMA|QUOT(?:E|ATION)|KWOTASIE|ESTIMATE|STATEMENT|STAAT|NOTE|NOTA|ORDER\s+CONFIRMATION|PURCHASE\s+ORDER|GRV|GRN|GOODS\s+RECEIVED|DISCOUNT\s+(?:SLIP|VOUCHER|ADVICE|MEMO)|SETTLEMENT|SHORT\s+(?:DELIVER|SUPPL|SHIP)\w*|SHORTAGE|CLAIM|DAMAGES?|ADJUSTMENT|ALLOWANCE|INCENTIVE|BONUS|REBATE|SWOP|SWAP|EXCH\w*|ACCEPTED\s+BACK)(?![A-Za-z])`, 'i');
 const MONEY_FIGURE = /\d[.,]\d{2}(?!\d)/;
 /** A date, a time printed after a date, or a labelled time — never the first money figure. */
 function stripDateTime(line: string): string {
@@ -49,40 +53,14 @@ function stripDateTime(line: string): string {
     .replace(/(?<![A-Za-z])(?:Time|Tyd)\s*:?\s*\d{1,2}[.:]\d{2}\b/gi, ' ');
 }
 
-/** Is this line a purchase title (optionally with its document number)? */
-export function isTitleLine(line: string): boolean {
-  return TITLE_LINE.test(line) && PURCHASE_WORD.test(line);
-}
-
-/**
- * Is the number on this title line the DOCUMENT's number rather than money?
- * Only when the line says so: a number word (`TAX INVOICE No 88123`, `#12345`),
- * a code (`INV-20931`, `004512`), or a colon after a two-word title (`TAX
- * INVOICE: 12345`). A bare `RECEIPT 1500` or `Receipt: 1500` may be an amount,
- * and is read as one.
- */
-export function titleNumberIsDocument(line: string): boolean {
-  if (!isTitleLine(line)) return false;
-  const number = /(\S+)\s*(?:Page\s+\d+\s+of\s+\d+)?[\s*=#-]*$/i.exec(line)?.[1] ?? '';
-  if (!/\d/.test(number)) return true;
-  // A code is the document's only on a long number (`INV-20931`, `TAL-998877`):
-  // `CASH-1500` and `CO-350` are a payment and a call-out fee.
-  const digits = number.replace(/\D/g, '');
-  if (/[A-Za-z]/.test(number)) return digits.length >= 5;
-  if (/^0/.test(number.replace(/^[#:]/, ''))) return true;
-  if (/(?:No|Nr|Number)\.?\s*[:#]?\s*\S+\s*$|#\s*\S+\s*$/i.test(line.replace(/\s*Page\s+\d+\s+of\s+\d+.*$/i, ''))) return true;
-  return /^[\s*=#-]*\S+\s+\S+\s*:\s*\S+/.test(line);
-}
-
 export function identifiesAsPurchase(
-  doc: Pick<ExtractedDocument, 'rawText' | 'documentType'>,
+  doc: Pick<ExtractedDocument, 'rawText' | 'documentType'>
+    & Partial<Pick<ExtractedDocument, 'vendorName' | 'vendorAddress'>>,
 ): boolean {
-  const text = doc.rawText ?? '';
+  const text = scrubVendorIdentity(doc.rawText ?? '', [doc.vendorName, doc.vendorAddress]);
   if (text.trim().length === 0) return doc.documentType === 'invoice' || doc.documentType === 'receipt';
   const lines = text.split(/\r?\n/);
   const firstMoney = lines.findIndex((line) => MONEY_FIGURE.test(stripDateTime(line)));
   const header = firstMoney < 0 ? lines : lines.slice(0, firstMoney);
-  const goodsReceived = header.some((line) => GOODS_RECEIVED.test(line));
-  return header.some((line) => isTitleLine(line)
-    && !(goodsReceived && !/INVOICE|FAKTUUR/i.test(line)));
+  return header.some((line) => TITLE_LINE.test(line)) && !header.some((line) => NOT_A_PURCHASE.test(line));
 }

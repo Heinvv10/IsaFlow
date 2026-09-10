@@ -42,10 +42,16 @@ describe('K-076 r20 HIGH-1 — a counter label is the WHOLE label', () => {
     expect(unreconciledFigure(`${OCEAN}Cake cutting per Table 30\n${BLOCK}`, 230, K)).toEqual({ reason: 'stray', value: 30 });
   });
 
-  it.each(['Table 12', 'Your points balance 1250', 'Visit us at Shop 45',
-    'Benefit points earned 45', 'Till 04 Cashier 12 Trans 998812', 'Lane 3 Class 1',
-    'Bank: FNB Acc 62012345678 Branch 250655'])('"%s" is still a count', (footer) => {
+  it.each(['Table 9', 'Lane 3 Class 1', 'Till 04 Cashier 11'])('"%s" is still a count', (footer) => {
     expect(unreconciledFigure(`${SPAR}${footer}`, 115, SK)).toBeNull();
+  });
+
+  // Round 22 REVERSED these: over two digits, or a tenth of R115 or more, a
+  // count is money — and a branch code on an unpaid invoice is too.
+  it.each(['Table 12', 'Your points balance 1250', 'Visit us at Shop 45',
+    'Benefit points earned 45', 'Till 04 Cashier 12 Trans 998812',
+    'Bank: FNB Acc 62012345678 Branch 250655'])('round 22: "%s" on a R115 slip refuses', (footer) => {
+    expect(unreconciledFigure(`${SPAR}${footer}`, 115, SK)).not.toBeNull();
   });
 });
 

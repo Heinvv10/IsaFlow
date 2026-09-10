@@ -24,8 +24,7 @@
  */
 import { parseAmount } from './ocrAmountParsing';
 import { UNRECONCILED_WARNING, totalPrintedEnd, totalPrintedLastEnd } from './ocrAmountReconciliation';
-import { printedFigures, type PrintedFigure } from './ocrPrintedFigures';
-import { SUMMARY_LINE_START } from './ocrAmountPatterns';
+import { printedFigures, type CountIsCounter, type PrintedFigure } from './ocrPrintedFigures';
 
 /**
  * A figure printed NEGATIVE: a glued minus (`-23.00`, `-R23.00`, `R -23.00`),
@@ -94,11 +93,13 @@ const BAND_NAMED = /(?<![A-Za-z])(?:Std|Standard|Standaard|Zero|Nul|Exempt(?:ed)
  * rows that merely sum (`TAX SUMMARY / 200.00 / 7.00 / 23.00`) are not a
  * decomposition of anything.
  */
-function recapRows(text: string, figures: readonly PrintedFigure[], total: number, vat: number | null): Set<number> {
+function recapRows(
+  text: string, figures: readonly PrintedFigure[], total: number, vat: number | null, isCounter: CountIsCounter,
+): Set<number> {
   const lines = text.split(/\r?\n/);
   const header = lines.findIndex((line) => RECAP_HEADER.test(line));
   if (header < 0) return new Set();
-  const before = printedFigures(lines.slice(0, header).join('\n')).length;
+  const before = printedFigures(lines.slice(0, header).join('\n'), isCounter).length;
   const rows = figures.map((f, i) => ({ f, i }))
     .filter(({ f, i }) => i >= before && !f.isSummary && !f.isTender && !f.isChange && f.value !== 0);
   const sum = Math.round(rows.reduce((acc, { f }) => acc + f.value, 0) * 100) / 100;
@@ -121,12 +122,13 @@ function recapRows(text: string, figures: readonly PrintedFigure[], total: numbe
  * cents-only document is judged exactly as before; `Cappuccino 35 / Muffin
  * 30 / TOTAL 65.00` adds up and passes.
  */
-function unexplainedItem(text: string, total: number, net: number | null): number | null {
+function unexplainedItem(text: string, total: number, net: number | null, isCounter: CountIsCounter): number | null {
   const lines = text.split(/\r?\n/);
-  // The block starts at the first summary line that prints a FIGURE — the
-  // header's `VAT No 4123456789` opens with a summary word and prints none.
-  const block = lines.findIndex((line) => SUMMARY_LINE_START.test(line.trimStart()) && printedFigures(line).length > 0);
-  const items = (block < 0 ? lines : lines.slice(0, block)).map((line) => printedFigures(line));
+  // The block starts at the first line printing a SUMMARY figure — the header's
+  // `VAT No 4123456789` prints none, and `Total Items 350` or `Tax Class 350`
+  // above the sub total opens with a summary word but its figure is not one.
+  const block = lines.findIndex((line) => printedFigures(line, isCounter).some((f) => f.isSummary));
+  const items = (block < 0 ? lines : lines.slice(0, block)).map((line) => printedFigures(line, isCounter));
   const isLoose = (row: typeof items[number]) => row.length === 1 && row[0]!.isUnroled;
   const loose = items.find(isLoose);
   if (!loose) return null;
@@ -190,12 +192,15 @@ export interface Unreconciled {
  * `ocrWholeFigures`): a whole-rand payment is summed by rule 1 and is larger
  * than the total under rule 2 exactly as its cents twin is. A whole number is
  * a COUNT only when a counter label names it (`Items 2`, `Table 12`, `Pump 5`
- * — `ocrPrintedFigures`); any other whole number no role claims is an amount
- * nobody explained, and refuses wherever it is printed, whatever was paid.
- * Round 18 licensed it as a count whenever the payments balanced, and a
- * handwritten tip (`Tip: ____ 23` under `CARD 230.00`) posted the pre-tip
- * total. `CARD 230.00 / Car Guard 23` refuses now too: the card proves what
- * was paid, but nothing on the document explains the 23.
+ * — `ocrPrintedFigures`) AND the structure allows it (round 22): the payments
+ * sum to the total, so the customer paid this document in full and a number
+ * beside a count noun cannot be an unpaid part of it; and the number is small
+ * — two digits at most, and under a tenth of the total. On a document with no
+ * payment lines (every unpaid invoice) there is no count at all, since the
+ * same noun names money on another document (`Operator 800`). Any other whole
+ * number no role claims is an amount nobody explained, and refuses wherever
+ * it is printed, whatever was paid: `CARD 230.00 / Car Guard 23` refuses —
+ * the card proves what was paid, but nothing on the document explains the 23.
  */
 export function unreconciledFigure(
   text: string,
@@ -217,17 +222,18 @@ export function unreconciledFigure(
     if (Math.abs(paid - total) > 0.01) return { reason: 'paid', value: paid };
     settled = true;
   }
+  const isCounter: CountIsCounter = (value) => settled && value <= 99 && value < total / 10;
 
-  const larger = figures.find((f) => f.value > total && !(settled && (f.isTender || f.isChange)));
+  const larger = printedFigures(text, isCounter).find((f) => f.value > total && !(settled && (f.isTender || f.isChange)));
   if (larger) return { reason: 'larger', value: larger.value };
-  const item = unexplainedItem(text, total, known.subtotal ?? null);
+  const item = unexplainedItem(text, total, known.subtotal ?? null, isCounter);
   if (item !== null) return { reason: 'stray', value: item };
 
   const end = totalPrintedLastEnd(text, total);
   if (end === null) return null;
   const below = text.slice(end);
-  const belowFigures = printedFigures(below);
-  const recap = recapRows(below, belowFigures, total, known.vatAmount ?? null);
+  const belowFigures = printedFigures(below, isCounter);
+  const recap = recapRows(below, belowFigures, total, known.vatAmount ?? null, isCounter);
   const roleValues = new Set([0, total, known.subtotal ?? total, known.vatAmount ?? total]);
   const stray = belowFigures.find((f, i) => {
     if (f.value === 0 || f.isTender || f.isChange || recap.has(i)) return false;

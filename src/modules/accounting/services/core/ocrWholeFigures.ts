@@ -13,12 +13,14 @@
  * of 350`, `Corkage 50 pp` and `Paid 253 One Way`. So each is now EXACT:
  *
  *  - a counter label must BE the whole label, anchored at the line start or
- *    the previous figure (`isCounterLabel`) — a label that merely ends in a
- *    counter word is money;
+ *    the previous figure (`counterLabel`) — a label that merely ends in a
+ *    counter word is money — and a bare COUNT noun only nominates its number:
+ *    the whole-document reader decides (see `COUNT_NOUN`);
  *  - `of` exempts only `N of M`; a masked card only `****` then exactly four
  *    digits; a street number only at the start of its line;
  *  - a unit exempts a number only when no role claims it: a DURATION (`30
- *    days`) only after a terms or prose lead (`within`, `Terms:`); a MEASURE
+ *    days`) only after a terms or prose lead (`within`, `Terms:`) and only up
+ *    to two digits; a MEASURE
  *    (`150 km`, `23 x`) only in a row that prices it in cents — `Travel 150
  *    km` alone is the charge; and `pp`, a price per person, is never a unit;
  *  - a reference code (`TAL-998877`) is exempt only behind a counter label.
@@ -82,57 +84,62 @@ export function blankFillers(line: string): string {
 }
 
 /**
- * Nouns whose number is a COUNT or a device/batch id — a number after them
- * cannot be a rand amount. Every entry was checked the other way round before
- * it stayed: the probe that puts money beside it (`Pump 350`, `Batch 350`,
- * `Terminal 1500`) is a pump, a batch and a terminal, not a charge. Round 20
- * added twelve nouns without that check — `Mileage`, `Warranty`, `Quote`,
- * `Ticket`, `Job`… — and every one of them names money on an ordinary invoice
- * (`Mileage 350` posted R1 150 against R1 500). They are gone.
+ * Nouns whose bare number MAY be a count or a device id (`Items 3`, `Table
+ * 12`, `Till 4`, `Covers 2`). Round 22 stopped trusting the noun: 170 of 174
+ * bare `noun 350` probes posted, because every noun here also names money on
+ * some document (`Operator 800` on a plant-hire invoice). So the noun alone
+ * exempts nothing — it only makes the number a CANDIDATE count, and the reader
+ * of the whole document (`unreconciledFigure`) decides by structure: a count
+ * only on a document PAID IN FULL, and only while the number is small. A noun
+ * missing here costs a refusal, never a post.
  */
-const COUNT_NOUN = String.raw`(?:Items?|Qty|Quantity|Units?|Pieces|Parcels?|Packages?|Boxes|Cartons?|Lane|Class|Till|Til|Pump|Table|Tafel|Cashier|Kassier|Operator|Op|Clerk|Page|Bladsy|Batch|Seq(?:uence)?|Store|Shop|Branch|Terminal|Trans(?:action)?|Auth(?:ori[sz]ation)?\s*Code|Approval\s*Code|Seats?|Guests?|Pax|Points\s+(?:Earned|Balance)|(?:Smart\s*Shopper|Club\s*Card|W?Rewards|eBucks|Vitality|Benefit)\s+Points|Odometer|Floor|Aisle|Serial|Version)`;
+const COUNT_NOUN = String.raw`(?:Items?|Qty|Quantity|Units?|Pieces|Parcels?|Packages?|Boxes|Cartons?|Lane|Class|Till|Til|Pump|Table|Tafel|Cashier|Kassier|Operator|Op|Clerk|Page|Bladsy|Batch|Seq(?:uence)?|Store|Shop|Branch|Terminal|Trans(?:action)?|Auth(?:ori[sz]ation)?\s*Code|Approval\s*Code|Seats?|Guests?|Pax|Covers|Points\s+(?:Earned|Balance)|(?:Smart\s*Shopper|Club\s*Card|W?Rewards|eBucks|Vitality|Benefit)\s+Points|Odometer|Floor|Aisle|Serial|Version)`;
 /**
- * Nouns that can ALSO name money (`Receipt 1500`, `Account 1500`, `Room 350`,
- * `Order 35`, `Server 23`, `Covers 50`, `Code 23`, `Customer Copy 23`): their
- * number is a reference only when the label says so — a number word (`No`,
- * `Nr`, `#`) or a code prefix (`Waybill: TCG-998877`). A bare number after them
- * is money. `Address` and a generic `Points` are gone for the same reason
- * (`Delivery Address 35`, `Loyalty Points 23`); points EARNED, a points
- * BALANCE and a NAMED programme's points (`ClubCard points 13`) stay a count.
+ * Nouns whose number is a REFERENCE only when the label says so — a number
+ * word (`Order No 45`, `Receipt #1234`) or a long code (`Waybill: TCG-998877`).
+ * Bare, they are money at any size (`Receipt 1500`, `Order 35`, `Server 23`).
  */
-const REFERENCE_NOUN = String.raw`(?:Receipt|Slip|Invoice|Order|Ref(?:erence)?|Acc(?:ount)?|Code|Room|Server|Covers|Copy|Register|Lot|Waybill)`;
+const REFERENCE_NOUN = String.raw`(?:Receipt|Slip|Invoice|Order|Ref(?:erence)?|Acc(?:ount)?|Code|Room|Server|Copy|Register|Lot|Waybill)`;
 const COUNTER_LEAD = String.raw`(?:Your|Customer|Visit\s+us\s+at|Smart\s*Shopper|Club\s*Card|W?Rewards?|Benefit|Vitality|eBucks|No\.?\s+of|Total|Delivery|Tax|VAT)`;
 const NUMBER_WORD = String.raw`(?:\s*(?:No|Nr|Number|#)\.?)`;
 const CODE_PREFIX = String.raw`(?:[A-Z]{1,4}[-/])`;
+const COUNT_HEAD = String.raw`(?:${COUNTER_LEAD}\s+)?${COUNT_NOUN}(?:\s+(?:Sold|Earned|Copy))?`;
 
 /**
- * Is this the WHOLE label of a count or a reference? `segment` is the text
- * from the line start (or the previous figure) to the number. The noun must
- * open it — after at most one fixed leading word (`Customer copy`, `Total
- * Items`) — and nothing but a number word and a code prefix may follow it.
- * `Admin fee per Invoice` does not open with one.
+ * A REFERENCE: the label says the number is an id — a number word or a long
+ * code after a listed noun, or a bare `No`/`#` label. Exempt at any size,
+ * because a number word is a shape a charge is never printed in.
  */
-const COUNTER_LABEL = new RegExp(
+const REFERENCE_LABEL = new RegExp(
   String.raw`^[\s:#.=,*-]*(?:`
-  + String.raw`(?:${COUNTER_LEAD}\s+)?${COUNT_NOUN}(?:\s+(?:Sold|Earned|Copy))?${NUMBER_WORD}?[\s:#.=-]*${CODE_PREFIX}?`
-  + String.raw`|(?:${COUNTER_LEAD}\s+)?${REFERENCE_NOUN}(?:${NUMBER_WORD}[\s:#.=-]*${CODE_PREFIX}?|[\s:#.=-]*${CODE_PREFIX})`
+  + String.raw`(?:${COUNT_HEAD}|(?:${COUNTER_LEAD}\s+)?${REFERENCE_NOUN})(?:${NUMBER_WORD}[\s:#.=-]*${CODE_PREFIX}?|[\s:#.=-]*${CODE_PREFIX})`
   + String.raw`|(?:No|Nr|#)\.?[\s:#.=-]*${CODE_PREFIX}?`
   + String.raw`)[\s:#.=-]*$`,
   'i',
 );
+/** A bare COUNT: a count noun and nothing else — a candidate only (see `COUNT_NOUN`). */
+const COUNT_LABEL = new RegExp(String.raw`^[\s:#.=,*-]*${COUNT_HEAD}[\s:.=-]*$`, 'i');
 /** A year after "since"/"est." — `Est. 1967`, `…with us since 1967`. */
 const YEAR_LABEL = /(?<![A-Za-z])(?:since|sedert|est\.?|established)\s*$/i;
 
-export function isCounterLabel(segment: string, value: number): boolean {
+/**
+ * What the WHOLE label says the number is. `segment` is the text from the line
+ * start (or the previous figure) to the number. The noun must open it — after
+ * at most one fixed leading word (`Customer copy`, `Total Items`) — so `Admin
+ * fee per Invoice` names nothing. `'reference'` is never money; `'count'` is a
+ * candidate that only a document paid in full may keep; null is money.
+ */
+export function counterLabel(segment: string, value: number): 'reference' | 'count' | null {
   // The label starts after the last digit in front of it: a reference or a
   // zero-led id this reader skipped (`Acc 62012345678 Branch`, `Till 04
   // Cashier`) is still the previous figure.
   const label = segment.replace(/^[^]*\d/, '');
   // A code prefix makes a reference only on a long number (`TAL-998877`):
   // `Ref: TIP-350` and `Receipt No: CASH-1500` are a tip and a payment.
-  if (new RegExp(`${CODE_PREFIX}[\\s]*$`).test(label) && value < 10000) return false;
-  if (COUNTER_LABEL.test(label)) return true;
-  return value >= 1900 && value <= 2099 && YEAR_LABEL.test(label);
+  if (new RegExp(`${CODE_PREFIX}[\\s]*$`).test(label) && value < 10000) return null;
+  if (REFERENCE_LABEL.test(label)) return 'reference';
+  if (COUNT_LABEL.test(label)) return 'count';
+  return value >= 1900 && value <= 2099 && YEAR_LABEL.test(label) ? 'reference' : null;
 }
 
 /**
@@ -168,7 +175,9 @@ export function wholeTokens(line: string, centsSpans: ReadonlyArray<readonly [nu
     // size or a model, never a separate number, whatever labels it. A WORD
     // glued on (`253APPROVED`) is not in the list, so its label decides.
     if (!prefix && GLUED_UNIT.test(after)) continue;
-    const timeAfter = !moneyMark && TIME_UNIT.test(after) && DURATION_LEAD.test(before);
+    // Two digits at most: a term is `30 days`, and `Storage for 350 days` or
+    // `Rental period 1500 month` beside the labour is a charge (round 22).
+    const timeAfter = !moneyMark && bare.length <= 2 && TIME_UNIT.test(after) && DURATION_LEAD.test(before);
     if (!moneyMark && MEASUREMENT.some(([label, unit]) => label.test(before) && unit.test(after))) continue;
     const unitAfter = !moneyMark && MEASURE_UNIT.test(after);
     tokens.push({ value: parseAmount(bare), index: start, end, moneyMark, timeAfter, unitAfter });

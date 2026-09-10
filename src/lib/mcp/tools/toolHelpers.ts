@@ -150,7 +150,14 @@ const REFUSAL_CODES: ReadonlySet<string> = new Set([
   'BANK_TX_ALLOCATED',
   'BANK_TX_LOCK_TIMEOUT',
   'BATCH_NOT_PROCESSABLE',
+  // A captured document already claimed for posting, or rejected (K-072). Two
+  // fixed messages naming no id, amount or table, raised only after the
+  // service read the document by company_id — the caller's own document.
+  'CAPTURED_DOCUMENT_ALREADY_POSTED',
   'CAPTURE_EVENT_LOCKED',
+  // Another request holds the capture row (K-072): says "retry", names only the
+  // id the caller passed, and the row is locked by id AND company_id.
+  'CAPTURE_ROW_LOCK_TIMEOUT',
   'CREDIT_NOTE_LOCK_TIMEOUT',
   'CUSTOMER_INVOICE_LOCK_TIMEOUT',
   'CUSTOMER_NOT_FOUND',
