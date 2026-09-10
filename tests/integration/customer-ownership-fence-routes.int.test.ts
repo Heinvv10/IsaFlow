@@ -32,6 +32,7 @@ import dunningOverrides from '../../pages/api/accounting/ar/dunning/overrides/in
 import timeEntries from '../../pages/api/accounting/time-entries';
 import portalPaymentLink from '../../pages/api/portal/payment-link';
 import adjustments from '../../pages/api/accounting/adjustments';
+import recurringExecute from '../../pages/api/accounting/recurring-transactions-execute';
 
 const DATABASE_URL = process.env.DATABASE_URL;
 const describeIfDb = DATABASE_URL && process.env.JWT_SECRET ? describe : describe.skip;
@@ -47,6 +48,10 @@ const INVOICE = randomUUID();
 const RULE = randomUUID();
 const ENTRY = randomUUID();
 const BANK_TX = randomUUID();
+// Recurring templates whose opaque template_data names each customer (row 8).
+const TEMPLATE_A = randomUUID();
+const TEMPLATE_B = randomUUID();
+const TEMPLATE_BAD = randomUUID();
 
 type Handler = (req: never, res: never) => Promise<unknown> | unknown;
 interface Case {
@@ -123,6 +128,12 @@ describeIfDb('R-067 r3 — every route that stores a body customer id refuses a 
       carried: (c) => count(
         "SELECT count(*) AS n FROM accounting_adjustments WHERE company_id = $1 AND entity_type = 'customer' AND entity_id = $2",
         [A, c]) },
+    { name: 'recurring-transactions-execute POST (template naming the customer)', handler: recurringExecute,
+      method: 'POST', refusal: 400,
+      body: (c) => ({ templateId: c === CUST_A ? TEMPLATE_A : TEMPLATE_B }),
+      carried: (c) => count(
+        'SELECT count(*) AS n FROM customer_invoices WHERE company_id = $1 AND client_id = $2 AND id <> $3',
+        [A, c, INVOICE]) },
     // Update arms: the row already belongs to A; the body re-points its customer.
     { name: 'bank-rules-action update', handler: bankRulesAction, method: 'POST', refusal: 400,
       body: (c) => ({ action: 'update', id: RULE, clientId: c }),
@@ -172,6 +183,13 @@ describeIfDb('R-067 r3 — every route that stores a body customer id refuses a 
     await pool.query(
       `INSERT INTO bank_transactions (id, company_id, bank_account_id, transaction_date, amount, description, status)
        VALUES ($1, $2, $3, CURRENT_DATE, 115, 'R3 receipt', 'imported')`, [BANK_TX, A, BANK_GL]);
+    for (const [id, clientId] of [[TEMPLATE_A, CUST_A], [TEMPLATE_B, CUST_B], [TEMPLATE_BAD, 'not-a-uuid']]) {
+      await pool.query(
+        `INSERT INTO recurring_transaction_templates (id, company_id, name, entity_type, template_data, frequency,
+           next_run_date, created_by)
+         VALUES ($1, $2, 'R3 template', 'customer_invoice', $3::jsonb, 'monthly', CURRENT_DATE, $4)`,
+        [id, A, JSON.stringify({ clientId, subtotal: 100, vatAmount: 15, totalAmount: 115 }), USER]);
+    }
     token = await new SignJWT({ sub: USER, aal: 'aal2' })
       .setProtectedHeader({ alg: 'HS256' }).setExpirationTime('1h')
       .sign(new TextEncoder().encode(process.env.JWT_SECRET));
@@ -184,7 +202,7 @@ describeIfDb('R-067 r3 — every route that stores a body customer id refuses a 
       await pool.query(
         'DELETE FROM delivery_note_lines WHERE delivery_note_id IN (SELECT id FROM delivery_notes WHERE company_id = ANY($1::uuid[]))',
         [[A, B]]);
-      for (const t of ['accounting_adjustments', 'delivery_notes', 'customer_write_offs', 'customer_dunning_overrides', 'customer_activities',
+      for (const t of ['recurring_transaction_templates', 'accounting_adjustments', 'delivery_notes', 'customer_write_offs', 'customer_dunning_overrides', 'customer_activities',
         'customer_contacts', 'customer_delivery_addresses', 'projects', 'time_entries', 'bank_transactions',
         'bank_categorisation_rules', 'customer_invoices', 'company_document_numbers', 'gl_accounts',
         'company_users', 'customers']) {
@@ -209,13 +227,27 @@ describeIfDb('R-067 r3 — every route that stores a body customer id refuses a 
     expect(await c.carried(CUST_A)).toBe(1);
   });
 
+  it('recurring execute answers 400 for a template whose clientId is not a UUID, and writes nothing', async () => {
+    const before = await count('SELECT count(*) AS n FROM customer_invoices WHERE company_id = $1', [A]);
+    const state = await call(recurringExecute, 'POST', { templateId: TEMPLATE_BAD });
+    expect(state.statusCode).toBe(400);
+    expect(await count('SELECT count(*) AS n FROM customer_invoices WHERE company_id = $1', [A])).toBe(before);
+    expect(await count(
+      'SELECT count(*) AS n FROM recurring_transaction_templates WHERE id = $1 AND next_run_date = CURRENT_DATE',
+      [TEMPLATE_BAD])).toBe(1);
+  });
+
   it('the refused delivery note burnt no document number', async () => {
-    // The only delivery note A has is the own-tenant one above: the counter's
-    // row was inserted once (next_number 1); a reservation by the foreign
-    // attempt would have bumped it to 2.
-    const rows = await pool.query(
+    // Compared before/after the refusal itself, not against a fixed value: an
+    // invoice minted earlier in the run seeds every default counter row
+    // (ensureDocumentNumbers), so the absolute next_number depends on test order.
+    const counter = async () => (await pool.query(
       "SELECT next_number FROM company_document_numbers WHERE company_id = $1 AND document_type = 'delivery_note'",
-      [A]);
-    expect(rows.rows.map((r) => Number(r.next_number))).toEqual([1]);
+      [A])).rows.map((r) => Number(r.next_number));
+    const before = await counter();
+    const state = await call(deliveryNotes, 'POST',
+      { customer_id: CUST_B, lines: [{ description: 'Fence item', quantity: 1 }] });
+    expect(await counter()).toEqual(before);
+    expect(state.statusCode).toBe(400);
   });
 });
