@@ -16,10 +16,7 @@ import { withCsrf } from '@/lib/auth/withCsrf';
 import { log } from '@/lib/logger';
 import { sql } from '@/lib/neon';
 import type { ExtractedDocument } from '@/modules/accounting/types/documentCapture.types';
-import {
-  mapMerchantToExpenseAccount,
-  type ReceiptAccountMapping,
-} from '@/modules/accounting/services/bank/receiptToJournalService';
+import { resolveCaptureExpenseAccount } from '@/modules/accounting/services/capture/captureExpenseAccount';
 import {
   CAPTURED_DOCUMENT_REFUSAL_MESSAGE,
   CaptureRowLockTimeoutError,
@@ -45,8 +42,6 @@ import {
   submitClaim,
   type ExpenseClaimLine,
 } from '@/modules/accounting/services/expense/expenseClaimService';
-
-type Row = Record<string, unknown>;
 
 interface PostExpenseBody {
   employeeId?: string;
@@ -121,36 +116,9 @@ async function handler(req: CompanyAuthedRequest, res: NextApiResponse) {
   // ------------------------------------------------------------------
   // 2. Resolve GL expense account
   // ------------------------------------------------------------------
-  let resolvedGlAccountId: string;
-
-  if (bodyGlAccountId) {
-    // Caller specified explicit GL account — verify it belongs to this company
-    const acctRows = await sql`
-      SELECT id FROM gl_accounts
-      WHERE id = ${bodyGlAccountId}::uuid AND company_id = ${companyId}
-      LIMIT 1
-    ` as Row[];
-    if (acctRows.length === 0) {
-      return apiResponse.badRequest(res, 'glAccountId not found for this company');
-    }
-    resolvedGlAccountId = bodyGlAccountId;
-  } else if (extracted.vendorName) {
-    // Try merchant-pattern lookup
-    const allAccts = await sql`
-      SELECT id, account_code AS code, account_name AS name
-      FROM gl_accounts
-      WHERE company_id = ${companyId}
-        AND is_active = true
-    ` as Row[];
-    const mappings: ReceiptAccountMapping[] = allAccts.map(a => ({
-      id: a.id as string,
-      code: a.code as string,
-      name: a.name as string,
-    }));
-    const suggestion = mapMerchantToExpenseAccount(extracted.vendorName, mappings);
-    resolvedGlAccountId = suggestion?.id ?? await getSystemAccountId('default_expense', companyId);
-  } else {
-    resolvedGlAccountId = await getSystemAccountId('default_expense', companyId);
+  const resolvedGlAccountId = await resolveCaptureExpenseAccount(companyId, bodyGlAccountId, extracted.vendorName);
+  if (resolvedGlAccountId === null) {
+    return apiResponse.badRequest(res, 'glAccountId not found for this company');
   }
 
   // Always resolve VAT Input account — required for correct journal
