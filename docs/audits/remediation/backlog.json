@@ -10504,7 +10504,7 @@
       "severityRationale": "Every historical ageing report a user runs for a past date is wrong, and ageing reports are what debtor and creditor decisions are made on.",
       "auditedSha": "",
       "currentSha": "",
-      "status": "confirmed",
+      "status": "fixed",
       "dependencies": [
         "K-053"
       ],
@@ -10512,8 +10512,8 @@
       "evidencePaths": [
         "docs/audits/remediation/K-053/fix.md"
       ],
-      "fixCommit": null,
-      "pr": null,
+      "fixCommit": "ad7d8f1a1",
+      "pr": "424",
       "deployedSha": null,
       "historicalDataImpact": "No data is wrong -- nothing is written. Every ageing report ALREADY RUN for a past as-at date overstated or understated balances, because it included invoices raised after that date and applied payments settled after it. Anything sent to a lender, an auditor or a credit decision is affected. Scope needs Hein; do not query production from an agent.",
       "canonicalItem": null,
@@ -10522,7 +10522,7 @@
       "title": "The AR/AP aging REPORT routes are not point-in-time: they ignore the as-at date except for days_overdue and use today's amount_paid",
       "severity": "high",
       "source": "Found by the K-053 r8 fixer; independently confirmed on origin/master by the orchestrating session, 2026-09-10",
-      "processNotes": "`reports-ar-aging.ts` binds `asAtStr` only inside `GREATEST(0, asAt - due_date) AS days_overdue` and filters `(ci.total_amount - COALESCE(ci.amount_paid,0)) > 0` using the CURRENT amount_paid, with no `invoice_date <= as-at` bound and no rewind. `arAgingService`/`apAgingService` do both (`shared/agingRewind`), so route and service disagree: measured -R300 on the fixture at an earlier date (R500-R800) on AR and AP alike, and zero at today -- which is why no earlier fixture saw it. Pre-existing on master, NOT a soft-delete question. Registered rather than fixed inside the K-053 branch. NOTE: the K-053 fixer's fix.md called this R-056 before the ID was assigned; R-056 is the AFS ABS defect. The reference is being corrected."
+      "processNotes": "`reports-ar-aging.ts` binds `asAtStr` only inside `GREATEST(0, asAt - due_date) AS days_overdue` and filters `(ci.total_amount - COALESCE(ci.amount_paid,0)) > 0` using the CURRENT amount_paid, with no `invoice_date <= as-at` bound and no rewind. `arAgingService`/`apAgingService` do both (`shared/agingRewind`), so route and service disagree: measured -R300 on the fixture at an earlier date (R500-R800) on AR and AP alike, and zero at today -- which is why no earlier fixture saw it. Pre-existing on master, NOT a soft-delete question. Registered rather than fixed inside the K-053 branch. NOTE: the K-053 fixer's fix.md called this R-056 before the ID was assigned; R-056 is the AFS ABS defect. The reference is being corrected.\n\n2026-09-10: merged in PR #424 (ad7d8f1a1) after 13 blind-reviewed rounds. Hein confirmed both behaviour changes: NULL-status invoices count as issued debt, and period reports exclude drafts. NOT yet deployed."
     },
     {
       "id": "R-061",
