@@ -312,6 +312,38 @@ its write site here. All twelve are walked to their writers:
 `expected 200 to be 400`. The unit file adds the same arm; the fence mutant turns 2 of
 its 17 red.
 
+### Round 6 — the merge turned row 8's refusal into a 500
+
+Master's `recurring-transactions-execute.ts` answers a 4xx only for the pre-write errors
+it names (NotFound, NotDue, TotalsMismatch) and rethrows the rest, so after the round-5
+merge `CustomerNotInCompanyError` from the moved row-8 fence reached `withErrorHandler`
+as a masked 500 — for company B's customer and for a non-UUID `clientId` alike (the
+reviewer's measurement; nothing was written, a 5xx rolls back). The route now maps it to
+**400**: the fence runs before `insertWithReservedNumber`, so the COMMIT a 4xx triggers
+commits nothing, which is exactly the class master's own comment admits to a 4xx.
+
+`customer-ownership-fence-routes.int.test.ts` gains row 8's first route-level coverage,
+through the real handler with three due templates whose `template_data.clientId` is A's
+customer, B's customer, and `"not-a-uuid"`:
+
+| Case | Outcome |
+|---|---|
+| template naming B's customer | 400; 0 invoices of A carry B |
+| template naming A's customer | 200; one invoice carrying A |
+| template with `clientId: "not-a-uuid"` | 400; A's invoice count unchanged; the template's `next_run_date` not advanced |
+
+| Mutation (file copy, restored) | Result |
+|---|---|
+| route mapping → `false` | `2 failed | 30 passed (32)` — both refusals `expected 500 to be 400` |
+| fence in `recurringTransactionInvoices.ts` commented out | `2 failed` — B's template `expected 200 to be 400` (the cross-tenant invoice is minted), the non-UUID one `expected 500 to be 400` |
+
+The delivery-note counter case was made order-independent in the same change. It compared
+`next_number` with a fixed `[1]`, but any invoice minted earlier in the run seeds every
+default counter row (`ensureDocumentNumbers`), so the absolute value depends on test
+order — the fence mutant above surfaced it. It now snapshots the counter, makes the
+refused call itself, and compares; with the delivery-note fence removed it reads
+`expected [ 3 ] to deeply equal [ 2 ]`.
+
 ### Reserved, not fixed here
 
 **R-068** — the supplier twin. `ap/supplierInvoiceService.ts:144` writes
@@ -404,7 +436,7 @@ bunx vitest run --config vitest.integration.config.ts --no-file-parallelism \
 | `tests/unit/services/assertCustomerInCompany.test.ts` (7) | the fence itself: owned passes, foreign refuses, absent id issues **no query**, the read is scoped by `company_id` **and asks nothing about `deleted_at`** (`:64` asserts the clause is absent — property 4), savepoint name ≤31 chars, 22P02 → refusal, any other error propagates |
 | `tests/unit/services/customerOwnershipFence.test.ts` (19) | per call site, **by outcome**: a foreign id is refused and the ownership SELECT is the *only* statement that ran (no INSERT/UPDATE/DELETE); an own-tenant id gets past the fence into the rest of the path |
 | `tests/unit/services/customerOwnershipFenceSatellites.test.ts` (17) | round 3–4's service arms (S8, S9, S14, S15 ×2, S17 ×2, P1): foreign id refused with the ownership SELECT the only statement run; own id proceeds; an update with no customer id, and a supplier adjustment, issue no customer query |
-| `tests/integration/customer-ownership-fence-routes.int.test.ts` (29) | rounds 3–4, end to end through the real handlers: all 14 write arms refuse B's customer with 0 rows written and still store A's; the refused delivery note reserves no document number |
+| `tests/integration/customer-ownership-fence-routes.int.test.ts` (32) | rounds 3–6, end to end through the real handlers: all 15 write arms (incl. row 8's recurring execute) refuse B's customer with 0 rows written and still store A's; a non-UUID template `clientId` answers 400 with nothing written; the refused delivery note reserves no document number |
 | `tests/integration/customer-ownership-fence.int.test.ts` (6) | against a real database, because the hole *is* the schema: company B's customer is refused and `customer_invoices` is left empty; company A's own customer still creates the invoice with both columns set; a non-UUID is refused **inside a real `als.run` request transaction** which then stays usable; a soft-deleted own customer still edits its draft quote while B's is still refused; a bank receipt allocated to B's customer posts nothing and the same receipt against A's customer allocates |
 
 Two existing suites (`customerInvoiceCreateRetry`, `customerPaymentService`) now stub
