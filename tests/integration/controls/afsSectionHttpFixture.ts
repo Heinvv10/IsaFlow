@@ -33,7 +33,8 @@ export interface SeedSection{status?:string;reviewedBy?:Person|null;signedOffBy?
 export async function afsSectionHttpFixture(){
  const target=validateFixtureTarget(fixtureConfigFromEnv(process.env));
  const storage=await mkdtemp(join(tmpdir(),'afs-http-fixture-'));
- Object.assign(process.env,{DATABASE_URL:target.connectionString,DATABASE_SSL:'disable',JWT_SECRET:randomBytes(32).toString('hex'),AFS_STORAGE_ROOT:storage,
+ // Company edits are change-captured, and the capture encrypts: synthetic keys, this run only.
+ Object.assign(process.env,{ENCRYPTION_KEY:randomBytes(32).toString('hex'),CONTROL_FINGERPRINT_KEY:randomBytes(32).toString('hex'),DATABASE_URL:target.connectionString,DATABASE_SSL:'disable',JWT_SECRET:randomBytes(32).toString('hex'),AFS_STORAGE_ROOT:storage,
   SIGNUM_API_URL:'http://signum.synthetic.invalid',SIGNUM_API_KEY:'synthetic',SIGNUM_CALLBACK_BASE_URL:'http://signum.synthetic.invalid/sign',SIGNUM_WEBHOOK_SECRET:randomBytes(16).toString('hex')});
  const pool=new Pool({connectionString:target.connectionString,ssl:false,max:4,statement_timeout:10000});
  const f=await provisionForensicFixture(fixtureConfigFromEnv(process.env)),csrf=randomBytes(32).toString('hex'),admin=randomUUID();
