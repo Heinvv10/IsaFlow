@@ -15,6 +15,7 @@ import {
   APInvoiceRowSchema,
   ARInvoiceRowSchema,
   ImportEnvelopeSchema,
+  invoiceNumberColumnUnmapped,
   parseInvoiceRows,
 } from '@/modules/accounting/services/core/migrationRowSchemas';
 
@@ -57,16 +58,42 @@ describe('migration invoice request schemas', () => {
     expect(APInvoiceRowSchema.safeParse(row).success).toBe(false);
   });
 
-  it('accepts a BLANK AP invoice number, which the fingerprint fallback exists for', () => {
-    // The service keys a numbered bill on its number and a blank one on its
-    // duplicate fingerprint. Requiring a number here made that fallback — and
-    // migration 625's index — unreachable through the only API that calls it,
-    // and 400ed a whole take-on file over one unnumbered till slip.
+  it('accepts a BLANK AP invoice number, which the blank-row fallback exists for', () => {
+    // The service keys a numbered bill on its number and a blank one on
+    // (supplier, date, total, reference). Requiring a number here made that
+    // fallback unreachable through the only API that calls it, and 400ed a
+    // whole take-on file over one unnumbered till slip.
     for (const invoiceNumber of ['', '   ']) {
       const parsed = APInvoiceRowSchema.safeParse({ ...apRow, invoiceNumber });
       expect(parsed.success).toBe(true);
       expect(parsed.success && parsed.data.invoiceNumber).toBe('');
     }
+  });
+
+  it('rejects an invoice number longer than the VARCHAR(50) column, on both sides', () => {
+    // 51-100 characters used to pass here and die at the INSERT with a raw
+    // 22001, which the per-row savepoint contains but the operator cannot read.
+    const long = 'X'.repeat(51);
+    expect(APInvoiceRowSchema.safeParse({ ...apRow, invoiceNumber: long }).success).toBe(false);
+    expect(APInvoiceRowSchema.safeParse({ ...apRow, invoiceNumber: 'X'.repeat(50) }).success).toBe(true);
+    const { supplierName: _s, ...rest } = apRow;
+    expect(ARInvoiceRowSchema.safeParse({ ...rest, customerName: 'ACME', invoiceNumber: long }).success).toBe(false);
+  });
+
+  it('tells an UNMAPPED invoice-number column apart from a file of blank ones', () => {
+    // Both look like "no number" at the service. An unmapped column is a
+    // mapping mistake and must refuse the whole file: every row would import as
+    // unnumbered and de-duplicate against the others on (supplier, date,
+    // total, reference), loading a fraction of the file and reporting the rest
+    // as already imported.
+    const { invoiceNumber: _n, ...noNumber } = apRow;
+    expect(invoiceNumberColumnUnmapped([noNumber, noNumber])).toBe(true);
+    // A file that legitimately carries blanks sends the field, empty.
+    expect(invoiceNumberColumnUnmapped([{ ...apRow, invoiceNumber: '' }])).toBe(false);
+    // One row missing it among mapped ones is not an unmapped column.
+    expect(invoiceNumberColumnUnmapped([apRow, noNumber])).toBe(false);
+    expect(invoiceNumberColumnUnmapped([])).toBe(false);
+    expect(invoiceNumberColumnUnmapped(['nonsense', 42])).toBe(false);
   });
 
   it('keeps the page\'s supplier override, and treats an empty one as absent', () => {

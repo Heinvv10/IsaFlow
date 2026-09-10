@@ -274,3 +274,21 @@ FILE SIZES (300-line cap)
   migrationWizardOpeningBalanceService.ts new, 180
   migrationApService.ts ................. 252
   migrationRowSchemas.ts ................ 127
+
+=== Round 5 (review-k015b-r4.md, 9 findings) ===
+integration k015-ap-migration-balance-due-column.int.test.ts : 23 passed
+integration k015-sage-import-duplicate-savepoint.int.test.ts : 3 passed
+unit  migrationRowSchemas.test.ts                            : 20 passed
+unit  duplicateDetectionService.test.ts                      : 20 passed
+components apInvoicesWizardPage.test.tsx                     : 2 passed
+FULL unit suite (DATABASE_URL unset): 792 files passed / 36 skipped, 9436 tests passed / 234 skipped
+FULL component suite: 63 files, 420 tests passed
+tsc --noEmit: clean | eslint (6 changed src/pages files): clean
+agent-docs:check: 74 mirrors match | migration-rls, migration-naming, internal-apis guards: OK
+
+Mutation proofs (production code reverted, test observed RED, then restored):
+ 1. blank branch back to `duplicate_fingerprint = $fp`      -> "two DIFFERENT unnumbered bills ... both import" RED (1 failed / 22 passed)
+ 2. computeFingerprint amount back to the bare JS number     -> "TS and SQL fingerprint producers agree" RED (1 failed / 22 passed)
+ 3. purge without `AND gl_journal_entry_id IS NULL`          -> "expiry purge does not hard-delete ..." RED (1 failed / 22 passed)
+ 4. page back to `r.mapped.invoice_number ?? ''`             -> "sends NO invoiceNumber field ..." RED (1 failed / 1 passed)
+ 5. invoiceNumberColumnUnmapped forced false                 -> "tells an UNMAPPED ... apart" RED (1 failed / 19 passed)

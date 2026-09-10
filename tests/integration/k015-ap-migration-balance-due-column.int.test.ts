@@ -27,11 +27,14 @@
 import { describe, it, expect, beforeAll, afterAll } from 'vitest';
 import { Pool, type PoolClient } from 'pg';
 import { randomUUID } from 'crypto';
+import { readFileSync } from 'fs';
 import { als } from '@/lib/als';
 import { sql } from '@/lib/neon';
 import { clearSystemAccountCache } from '@/modules/accounting/services/gl/systemAccountResolver';
 import { importAPInvoices } from '@/modules/accounting/services/ap/migrationApService';
+import { computeFingerprint } from '@/modules/accounting/services/capture/captureDeduplicationService';
 import { updateSession } from '@/modules/accounting/services/core/migrationService';
+import { purgeExpiredDeletes } from '@/modules/accounting/services/core/softDeleteService';
 
 const DATABASE_URL = process.env.DATABASE_URL;
 const describeIfDb = DATABASE_URL ? describe : describe.skip;
@@ -47,7 +50,8 @@ const TAG = `K015-${Date.now()}-${Math.floor(Math.random() * 1e6)}`;
 /**
  * A private schema holding a copy of `supplier_invoices` WITHOUT
  * uq_supplier_invoices_supplier_number, so the tests that must see production's
- * shape can see it.
+ * shape can see it. beforeAll replays the foreign keys, the triggers and the
+ * RLS policy on to the copy, because `INCLUDING ALL` carries none of them.
  *
  * The previous revision did this with `DROP INDEX` inside the test's own
  * transaction. That was proved non-corrupting — DDL is transactional, so the
@@ -59,6 +63,13 @@ const TAG = `K015-${Date.now()}-${Math.floor(Math.random() * 1e6)}`;
  * search_path` is transaction-scoped, so it unwinds with the ROLLBACK.
  */
 const NO_INDEX_SCHEMA = `k015_noidx_${TAG.replace(/-/g, '_').toLowerCase()}`;
+/**
+ * Copies of the five other tables `purgeExpiredDeletes` sweeps, so the purge
+ * test can run the whole real function without reading, locking or deleting a
+ * single shared row. `supplier_invoices` is NOT here: the purge test reaches
+ * that one through NO_INDEX_SCHEMA, where its rows are.
+ */
+const PURGE_SCHEMA = `${NO_INDEX_SCHEMA}_purge`;
 
 let pool: Pool;
 let sessionId: string;
@@ -133,6 +144,33 @@ describeIfDb('K-015 AP migration import writes only real columns', () => {
     await sql`CREATE SCHEMA IF NOT EXISTS ${sql.unsafe(NO_INDEX_SCHEMA)}`;
     await sql`CREATE TABLE ${sql.unsafe(NO_INDEX_SCHEMA)}.supplier_invoices
                 (LIKE public.supplier_invoices INCLUDING ALL)`;
+
+    // `INCLUDING ALL` copies columns, defaults, CHECKs, the PK and the indexes.
+    // It copies NO row-level security, NO triggers and NO foreign keys, so a
+    // copy left as-is lets a future cross-tenant assertion in this file pass
+    // vacuously against a table production FORCEs RLS on.
+    //
+    // RLS and the triggers are replayed below — both lock only the copy.
+    //
+    // THE FOUR FOREIGN KEYS ARE DELIBERATELY NOT REPLAYED. `ALTER TABLE … ADD
+    // CONSTRAINT … FOREIGN KEY` takes SHARE ROW EXCLUSIVE on the REFERENCED
+    // table, i.e. on the shared fixture's `companies`, `suppliers`,
+    // `gl_journal_entries` and `captured_documents`, and measured here it
+    // blocks behind other agents' work on `companies` — the same shared-lock
+    // failure that took eighteen integration files down last round. So the copy
+    // enforces no referential integrity: an assertion in this file that depends
+    // on an FK (a cascade, a 23503 on a bad supplier_id) would pass vacuously
+    // and must be written against `public.supplier_invoices` instead.
+    // The five OTHER tables `purgeExpiredDeletes` sweeps, in a schema of their
+    // own so that only the purge test sees them: putting an empty `suppliers`
+    // in front of the import's search_path hides the real one. Empty, and
+    // without foreign keys, for the same lock reason as above.
+    await sql`CREATE SCHEMA IF NOT EXISTS ${sql.unsafe(PURGE_SCHEMA)}`;
+    for (const t of ['customers', 'suppliers', 'items', 'bank_rules', 'customer_invoices']) {
+      await sql`CREATE TABLE ${sql.unsafe(PURGE_SCHEMA)}.${sql.unsafe(t)}
+                  (LIKE public.${sql.unsafe(t)} INCLUDING DEFAULTS INCLUDING CONSTRAINTS)`;
+    }
+
     const borrowed = (await sql`
       SELECT indexname FROM pg_indexes
       WHERE schemaname = ${NO_INDEX_SCHEMA}
@@ -144,6 +182,47 @@ describeIfDb('K-015 AP migration import writes only real columns', () => {
       await sql`DROP INDEX ${sql.unsafe(NO_INDEX_SCHEMA)}.${sql.unsafe(idx.indexname)}`;
     }
 
+    const trgs = (await sql`
+      SELECT tgname, pg_get_triggerdef(oid) AS def
+        FROM pg_trigger
+       WHERE tgrelid = 'public.supplier_invoices'::REGCLASS AND NOT tgisinternal`
+    ) as { tgname: string; def: string }[];
+    for (const t of trgs) {
+      await sql`${sql.unsafe(t.def.replace(
+        ' ON public.supplier_invoices ', ` ON ${NO_INDEX_SCHEMA}.supplier_invoices `,
+      ))}`;
+    }
+    const policies = (await sql`
+      SELECT policyname, cmd, roles, qual, with_check FROM pg_policies
+       WHERE schemaname = 'public' AND tablename = 'supplier_invoices'`
+    ) as { policyname: string; cmd: string; roles: string; qual: string | null; with_check: string | null }[];
+    await sql`ALTER TABLE ${sql.unsafe(NO_INDEX_SCHEMA)}.supplier_invoices ENABLE ROW LEVEL SECURITY`;
+    await sql`ALTER TABLE ${sql.unsafe(NO_INDEX_SCHEMA)}.supplier_invoices FORCE ROW LEVEL SECURITY`;
+    for (const pol of policies) {
+      const roles = String(pol.roles).replace(/^\{|\}$/g, '');
+      await sql`${sql.unsafe(
+        `CREATE POLICY ${pol.policyname} ON ${NO_INDEX_SCHEMA}.supplier_invoices` +
+        ` FOR ${pol.cmd} TO ${roles}` +
+        (pol.qual ? ` USING (${pol.qual})` : '') +
+        (pol.with_check ? ` WITH CHECK (${pol.with_check})` : ''),
+      )}`;
+    }
+    // The copy carries production's RLS, its trigger and every index except the
+    // borrowed unique one; assert that rather than leaving it to the comment.
+    const shape = (await sql`
+      SELECT c.relrowsecurity, c.relforcerowsecurity,
+             (SELECT COUNT(*)::INT FROM pg_policies p
+               WHERE p.schemaname = ${NO_INDEX_SCHEMA} AND p.tablename = 'supplier_invoices') AS policies,
+             (SELECT COUNT(*)::INT FROM pg_trigger t
+               WHERE t.tgrelid = c.oid AND NOT t.tgisinternal) AS triggers
+        FROM pg_class c JOIN pg_namespace n ON n.oid = c.relnamespace
+       WHERE n.nspname = ${NO_INDEX_SCHEMA} AND c.relname = 'supplier_invoices'`
+    ) as { relrowsecurity: boolean; relforcerowsecurity: boolean; policies: number; triggers: number }[];
+    expect(shape[0]).toMatchObject({
+      relrowsecurity: true, relforcerowsecurity: true,
+      policies: policies.length, triggers: trgs.length,
+    });
+
     const session = async (companyId: string) => ((await sql`
       INSERT INTO migration_sessions (company_id, source_system, started_by, steps_completed, errors)
       VALUES (${companyId}::UUID, 'sage', ${USER}::UUID,
@@ -153,28 +232,35 @@ describeIfDb('K-015 AP migration import writes only real columns', () => {
     sessionId = await session(COMPANY);
     noEquitySessionId = await session(NO_EQUITY_COMPANY);
     closedPeriodSessionId = await session(CLOSED_PERIOD_COMPANY);
-  });
+  }, 60000);
 
   afterAll(async () => {
-    const companies = [COMPANY, OTHER_COMPANY, NO_EQUITY_COMPANY, CLOSED_PERIOD_COMPANY];
-    for (const c of companies) {
-      await sql`UPDATE supplier_invoices SET gl_journal_entry_id = NULL WHERE company_id = ${c}::UUID`;
-      await sql`DELETE FROM supplier_invoice_items WHERE supplier_invoice_id IN (
-        SELECT id FROM supplier_invoices WHERE company_id = ${c}::UUID)`;
-      await sql`DELETE FROM supplier_invoices WHERE company_id = ${c}::UUID`;
-      await sql`DELETE FROM gl_journal_lines WHERE company_id = ${c}::UUID`;
-      await sql`DELETE FROM gl_journal_entries WHERE company_id = ${c}::UUID`;
-      await sql`DELETE FROM migration_sessions WHERE company_id = ${c}::UUID`;
-      await sql`DELETE FROM suppliers WHERE company_id = ${c}::UUID`;
-      await sql`DELETE FROM gl_account_balances WHERE gl_account_id IN (
-        SELECT id FROM gl_accounts WHERE company_id = ${c}::UUID)`;
-      await sql`DELETE FROM gl_accounts WHERE company_id = ${c}::UUID`;
-      await sql`DELETE FROM fiscal_periods WHERE company_id = ${c}::UUID`;
+    // The DROP is in a `finally`: it used to sit behind ~13 DELETEs, so any one
+    // of them throwing left `k015_noidx_<tag>` behind in the shared fixture
+    // database permanently, one schema per failed run.
+    try {
+      const companies = [COMPANY, OTHER_COMPANY, NO_EQUITY_COMPANY, CLOSED_PERIOD_COMPANY];
+      for (const c of companies) {
+        await sql`UPDATE supplier_invoices SET gl_journal_entry_id = NULL WHERE company_id = ${c}::UUID`;
+        await sql`DELETE FROM supplier_invoice_items WHERE supplier_invoice_id IN (
+          SELECT id FROM supplier_invoices WHERE company_id = ${c}::UUID)`;
+        await sql`DELETE FROM supplier_invoices WHERE company_id = ${c}::UUID`;
+        await sql`DELETE FROM gl_journal_lines WHERE company_id = ${c}::UUID`;
+        await sql`DELETE FROM gl_journal_entries WHERE company_id = ${c}::UUID`;
+        await sql`DELETE FROM migration_sessions WHERE company_id = ${c}::UUID`;
+        await sql`DELETE FROM suppliers WHERE company_id = ${c}::UUID`;
+        await sql`DELETE FROM gl_account_balances WHERE gl_account_id IN (
+          SELECT id FROM gl_accounts WHERE company_id = ${c}::UUID)`;
+        await sql`DELETE FROM gl_accounts WHERE company_id = ${c}::UUID`;
+        await sql`DELETE FROM fiscal_periods WHERE company_id = ${c}::UUID`;
+      }
+      await sql`DELETE FROM companies WHERE id IN (
+        ${COMPANY}::UUID, ${OTHER_COMPANY}::UUID, ${NO_EQUITY_COMPANY}::UUID, ${CLOSED_PERIOD_COMPANY}::UUID)`;
+    } finally {
+      await sql`DROP SCHEMA IF EXISTS ${sql.unsafe(NO_INDEX_SCHEMA)} CASCADE`;
+      await sql`DROP SCHEMA IF EXISTS ${sql.unsafe(PURGE_SCHEMA)} CASCADE`;
+      await pool.end();
     }
-    await sql`DELETE FROM companies WHERE id IN (
-      ${COMPANY}::UUID, ${OTHER_COMPANY}::UUID, ${NO_EQUITY_COMPANY}::UUID, ${CLOSED_PERIOD_COMPANY}::UUID)`;
-    await sql`DROP SCHEMA IF EXISTS ${sql.unsafe(NO_INDEX_SCHEMA)} CASCADE`;
-    await pool.end();
   }, 60000);
 
   it('imports the bill, preserves amount_paid, and leaves the control account agreeing with the subledger', async () => {
@@ -602,10 +688,11 @@ describeIfDb('K-015 AP migration import writes only real columns', () => {
     }
   }, 60000);
 
-  it('without the borrowed index, a blank-numbered bill still de-duplicates on its fingerprint', async () => {
-    // A row with no invoice number has no identity to key on, so the
-    // fingerprint remains its only guard — and it has to keep working with the
-    // fixture's unique index gone (that index exempts invoice_number = '').
+  it('without the borrowed index, a blank-numbered bill still de-duplicates on date, total and reference', async () => {
+    // A row with no invoice number has no number to key on, so (supplier,
+    // date, total, reference) is the most identity it has — and it has to keep
+    // working with the fixture's unique index gone (that index exempts
+    // invoice_number = '').
     const c = await pool.connect();
     await c.query('BEGIN');
     try {
@@ -629,6 +716,178 @@ describeIfDb('K-015 AP migration import writes only real columns', () => {
         [COMPANY],
       )).rows[0];
       expect(rows.n).toBe(1);
+    } finally {
+      await c.query('ROLLBACK').catch(() => {});
+      c.release();
+    }
+  }, 60000);
+
+  it('two DIFFERENT unnumbered bills from one supplier for the same amount both import', async () => {
+    // The population the blank number was accepted for: till slips and cash
+    // purchases from one supplier that repeat at the same round amount. Keying
+    // them on the duplicate fingerprint — lower(vat|invoice_number|total), with
+    // no date in it — collapsed them into one, imported the first, and told the
+    // operator the rest were "already imported". A take-on that silently loads
+    // a fraction of the file is worse than one that refuses.
+    const c = await pool.connect();
+    await c.query('BEGIN');
+    try {
+      await c.query(`SET LOCAL search_path = ${NO_INDEX_SCHEMA}, public`);
+
+      const result = await run(c, () => importAPInvoices(COMPANY, sessionId, [
+        bill({ invoiceNumber: '', invoiceDate: '2026-06-01', dueDate: '2026-06-01', subtotal: 200, taxAmount: 30, totalAmount: 230 }),
+        bill({ invoiceNumber: '', invoiceDate: '2026-06-02', dueDate: '2026-06-02', subtotal: 200, taxAmount: 30, totalAmount: 230 }),
+        // Same day, same amount, but a different reference — a different slip.
+        bill({ invoiceNumber: '', invoiceDate: '2026-06-02', dueDate: '2026-06-02', subtotal: 200, taxAmount: 30, totalAmount: 230, reference: `SLIP-${TAG}` }),
+      ], USER));
+
+      expect(result.errors).toEqual([]);
+      expect(result.imported).toBe(3);
+      expect(result.skipped).toBe(0);
+
+      // And all three are in the payable control account, once each.
+      const payable = (await c.query(
+        `SELECT COALESCE(SUM(l.credit - l.debit), 0) AS net
+           FROM gl_journal_lines l
+           JOIN gl_accounts a ON a.id = l.gl_account_id
+          WHERE l.company_id = $1 AND a.account_subtype = 'payable'
+            AND l.journal_entry_id IN (
+              SELECT gl_journal_entry_id FROM supplier_invoices
+               WHERE company_id = $1 AND COALESCE(invoice_number, '') = ''
+                 AND invoice_date IN (DATE '2026-06-01', DATE '2026-06-02'))`,
+        [COMPANY],
+      )).rows[0];
+      expect(Number(payable.net)).toBe(690);
+
+      // The true duplicate — same supplier, date, total and reference — is
+      // still refused, so widening the key did not disarm the guard.
+      const again = await run(c, () => importAPInvoices(COMPANY, sessionId, [
+        bill({ invoiceNumber: '', invoiceDate: '2026-06-02', dueDate: '2026-06-02', subtotal: 200, taxAmount: 30, totalAmount: 230, reference: `SLIP-${TAG}` }),
+      ], USER));
+      expect(again.imported).toBe(0);
+      expect(again.errors[0]!.message).toContain('2026-06-02');
+    } finally {
+      await c.query('ROLLBACK').catch(() => {});
+      c.release();
+    }
+  }, 60000);
+
+  it('the TS and SQL fingerprint producers agree, and migration 670 re-backfills the ones that did not', async () => {
+    // computeFingerprint is the only TS producer; migrations 412 and 670 are
+    // the SQL one. They disagreed on the amount segment — the column is
+    // NUMERIC(15,2), so SQL renders 115 as `115.00` while a JS number renders
+    // as `115` — and 412 backfilled EVERY pre-412 row in the SQL format. A
+    // lookup from the application could not match any of them, so the duplicate
+    // was created again and posted a second time.
+    const c = await pool.connect();
+    await c.query('BEGIN');
+    try {
+      const canonical = async (vat: string | null, num: string, amt: number) => (await c.query(
+        `SELECT lower(coalesce($1::text, 'no-vat') || '|' || coalesce($2::text, 'no-inv')
+                || '|' || coalesce($3::numeric, 0)::NUMERIC(15,2)::TEXT) AS fp`,
+        [vat, num, amt],
+      )).rows[0].fp as string;
+
+      for (const [vat, num, amt] of [
+        [null, '', 115], [null, '', 230], ['4150165685', 'INV-1', 1234.5],
+        [null, 'x', 99.99], [null, '', 0], ['ABC', 'A', 1_000_000],
+      ] as [string | null, string, number][]) {
+        expect(computeFingerprint(vat, num, amt)).toBe(await canonical(vat, num, amt));
+      }
+
+      // A row stamped in the OLD TS format — what every post-412 application
+      // insert carries — is rewritten by 670's statement into the shared one.
+      await c.query(`SET LOCAL search_path = ${NO_INDEX_SCHEMA}, public`);
+      const supplier = (await c.query(
+        `SELECT id FROM public.suppliers WHERE company_id = $1 AND name = $2`,
+        [COMPANY, `ACME ${TAG}`],
+      )).rows[0].id;
+      await c.query(
+        `INSERT INTO supplier_invoices
+           (company_id, supplier_id, invoice_number, invoice_date, due_date,
+            subtotal, tax_amount, total_amount, status, duplicate_fingerprint, created_by)
+         VALUES ($1, $2, $3, '2026-06-30', '2026-07-30', 100, 15, 115, 'approved', 'no-vat|k015-stale|115', $4)`,
+        [COMPANY, supplier, `${TAG}-stale`, USER],
+      );
+      await c.query(readFileSync(
+        'scripts/migrations/sql/670_supplier_invoice_fingerprint_canonical_backfill.sql', 'utf8',
+      ));
+      const after = (await c.query(
+        `SELECT duplicate_fingerprint FROM supplier_invoices
+          WHERE company_id = $1 AND invoice_number = $2`,
+        [COMPANY, `${TAG}-stale`],
+      )).rows[0].duplicate_fingerprint as string;
+      expect(after).toBe(computeFingerprint(null, `${TAG}-stale`, 115));
+      expect(after.endsWith('|115.00')).toBe(true);
+    } finally {
+      await c.query('ROLLBACK').catch(() => {});
+      c.release();
+    }
+  }, 60000);
+
+  it('the expiry purge does not hard-delete an invoice whose take-on journal is posted', async () => {
+    // Soft-deleting a migrated bill leaves its take-on entry in the GL, which is
+    // why the duplicate lookup deliberately ignores `deleted_at`. Five minutes
+    // later `purgeExpiredDeletes` used to remove the row outright: the lookup
+    // then found nothing, the bill imported again, and the payable control
+    // account carried the balance twice for one visible bill — the very outcome
+    // the soft-delete case exists to prevent. It also erased the only pointer
+    // from the journal back to the document it belongs to.
+    //
+    // The whole function runs here, against copies of all six tables it sweeps,
+    // so nothing shared is read, locked or deleted.
+    const c = await pool.connect();
+    await c.query('BEGIN');
+    try {
+      await c.query(`SET LOCAL search_path = ${NO_INDEX_SCHEMA}, public`);
+      await run(c, () => importAPInvoices(COMPANY, sessionId, [
+        bill({ invoiceNumber: `${TAG}-purge-posted` }),
+      ], USER));
+      await c.query(
+        `UPDATE supplier_invoices SET deleted_at = NOW() - INTERVAL '10 minutes'
+          WHERE company_id = $1 AND invoice_number = $2`,
+        [COMPANY, `${TAG}-purge-posted`],
+      );
+      const supplier = (await c.query(
+        `SELECT id FROM public.suppliers WHERE company_id = $1 AND name = $2`,
+        [COMPANY, `ACME ${TAG}`],
+      )).rows[0].id;
+      // The comparison case: soft-deleted just as long ago, but no journal.
+      await c.query(
+        `INSERT INTO supplier_invoices
+           (company_id, supplier_id, invoice_number, invoice_date, due_date,
+            subtotal, tax_amount, total_amount, status, created_by, deleted_at)
+         VALUES ($1, $2, $3, '2026-06-30', '2026-07-30', 100, 15, 115, 'approved', $4,
+                 NOW() - INTERVAL '10 minutes')`,
+        [COMPANY, supplier, `${TAG}-purge-plain`, USER],
+      );
+
+      // Now put the five other swept tables' empty copies in front, so the
+      // real function's DELETEs over customers, suppliers, items, bank_rules
+      // and customer_invoices hit nothing shared. `supplier_invoices` still
+      // resolves to the copy holding the two rows above.
+      await c.query(`SET LOCAL search_path = ${PURGE_SCHEMA}, ${NO_INDEX_SCHEMA}, public`);
+      await run(c, () => purgeExpiredDeletes());
+      await c.query(`SET LOCAL search_path = ${NO_INDEX_SCHEMA}, public`);
+
+      const left = (await c.query(
+        `SELECT invoice_number FROM supplier_invoices
+          WHERE company_id = $1 AND invoice_number LIKE $2 ORDER BY invoice_number`,
+        [COMPANY, `${TAG}-purge-%`],
+      )).rows.map((r: { invoice_number: string }) => r.invoice_number);
+      expect(left).toEqual([`${TAG}-purge-posted`]);
+
+      // And the journal it points at is still there, still balanced.
+      const je = (await c.query(
+        `SELECT COALESCE(SUM(l.debit - l.credit), 0) AS net, COUNT(*)::INT AS n
+           FROM gl_journal_lines l
+          WHERE l.company_id = $1 AND l.journal_entry_id = (
+            SELECT gl_journal_entry_id FROM supplier_invoices
+             WHERE company_id = $1 AND invoice_number = $2)`,
+        [COMPANY, `${TAG}-purge-posted`],
+      )).rows[0];
+      expect(je.n).toBe(2);
+      expect(Number(je.net)).toBe(0);
     } finally {
       await c.query('ROLLBACK').catch(() => {});
       c.release();
