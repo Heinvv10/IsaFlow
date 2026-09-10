@@ -55,6 +55,7 @@ import { resolvePeriodSkips } from './bulkApprovePeriods';
 import {
   getFiscalPeriodIdForDate,
 } from '@/modules/accounting/services/gl/fiscalPeriodService';
+import type { OperationRef } from '@/modules/accounting/services/controls/contracts';
 import type { McpToolContext } from '../types';
 
 /** One document the batch declined to touch, addressed by the agent's own index. */
@@ -106,6 +107,10 @@ export interface BulkApproveAdapter<TResult> {
   /** Read the current state of every named id, company-scoped, in ONE query.
    *  Ids absent from the returned map are reported as not found. */
   readStates(companyId: string, ids: readonly string[]): Promise<Map<string, DocumentState>>;
+  /** The controlled operation the live post runs, so a preview can ask the
+   *  kernel the same approval question the write would face. */
+  operation: OperationRef['operation'];
+  entityType: string;
   /** Post one document. Throws on every failure; never returns an error shape. */
   postOne(ctx: McpToolContext, id: string): Promise<TResult>;
 }
@@ -131,6 +136,7 @@ export async function partitionDocuments(
   companyId: string,
   ids: readonly string[],
   adapter: BulkApproveAdapter<unknown>,
+  options?: { preview?: boolean },
 ): Promise<Partitioned> {
   const states = await adapter.readStates(companyId, ids);
 
@@ -188,6 +194,27 @@ export async function partitionDocuments(
       continue;
     }
     postable.push({ index, id });
+  }
+
+  // A preview must not report a document as one that would post when the live
+  // call would refuse it for want of an independent approval. Only a preview
+  // asks: the live path meets the same condition inside the control kernel,
+  // where it refuses the batch rather than silently dropping a document.
+  if (options?.preview === true && postable.length > 0) {
+    const { controlledOperationApprovalRequired } = await import('@/modules/accounting/services/controls/approvalExecutionService');
+    const { requireControlTx } = await import('@/modules/accounting/services/controls/context');
+    const bound: typeof postable = [];
+    for (const candidate of postable) {
+      const required = await controlledOperationApprovalRequired(requireControlTx(),
+        { entityType: adapter.entityType, entityId: candidate.id, operation: adapter.operation });
+      if (required) {
+        skipped.push({ index: candidate.index, document_id: candidate.id,
+          reason: 'an independent approval is required for this operation — request one with request_operation_approval, then retry' });
+      } else bound.push(candidate);
+    }
+    postable.length = 0;
+    postable.push(...bound);
+    skipped.sort((a, b) => a.index - b.index);
   }
 
   return { postable, skipped, states };
