@@ -3,7 +3,10 @@ import {randomUUID} from 'node:crypto';
 import {Pool} from 'pg';
 import {fixtureConfigFromEnv} from '../../../scripts/forensic/fixture-bootstrap';
 import {provisionForensicFixture,validateFixtureTarget,type ForensicFixture} from '../forensic-fixture';
-import {ledgerSnapshotSources} from '@/modules/accounting/services/controls/auditSnapshotCaptureQueries';
+import {ledgerSnapshotSources,type SnapshotRow} from '@/modules/accounting/services/controls/auditSnapshotCaptureQueries';
+import {AUDIT_JOB_LIMITS} from '@/modules/accounting/services/controls/auditJobContract';
+import {captureAuditSnapshot} from '@/modules/accounting/services/controls/auditSnapshotCapture';
+import {loadBankStatementCompleteness} from '@/modules/accounting/services/controls/bankStatementCompletenessQueries';
 import {invoiceSnapshotSources} from '@/modules/accounting/services/controls/auditSnapshotInvoiceQueries';
 import {loadInvoiceRiskPopulation} from '@/modules/accounting/services/controls/invoiceRiskQueries';
 import {actorAs,appendEntityVersion,type Identity} from './intentReceiptRows';
@@ -55,9 +58,14 @@ async function fork(entityType:string,id:string,canonical:number,legacy:number){
  await appendEntityVersion(pool,user,entityType,id,canonical);
  await appendEntityVersion(pool,user,entityType,id.toUpperCase(),legacy);
 }
+/** Reads a source the way capture does - keyset pages until exhausted - so the check holds past one page. */
 async function wholeSource(name:string){
- const rows=await actorAs(pool,user,ctx=>source(name).page(ctx,cutoff,null)),counts=await actorAs(pool,user,ctx=>source(name).counts(ctx,cutoff));
- return{rows,count:counts.count};
+ const rows:SnapshotRow[]=[];let after:string|null=null;
+ for(;;){
+  const page:SnapshotRow[]=await actorAs(pool,user,ctx=>source(name).page(ctx,cutoff,after));
+  rows.push(...page);if(page.length<AUDIT_JOB_LIMITS.pageSize)break;after=page.at(-1)!.id;
+ }
+ return{rows,count:(await actorAs(pool,user,ctx=>source(name).counts(ctx,cutoff))).count};
 }
 it('a forked bank transaction is one snapshot row and binds its canonical lineage',async()=>{
  const account=await bankAccount(),tx=randomUUID();
@@ -95,4 +103,32 @@ it('a forked supplier invoice is one snapshot row and one risk population member
  expect(risk.rows.filter(row=>row.id===invoice)).toHaveLength(1);
  expect(risk.populationCount).toBe(risk.rows.length);
  expect(Number(risk.rows.find(row=>row.id===invoice)!.version)).toBe(1);
+});
+async function attestation(period:string){
+ const intent=randomUUID(),account=await bankAccount(),document=randomUUID();
+ await pool.query("INSERT INTO captured_documents(id,company_id,file_name,file_type) VALUES($1,$2,'synthetic-twin.csv','text/csv')",[document,fixture.companyA]);
+ await pool.query(`INSERT INTO control_bank_statement_attestation_intents(company_id,id,requester_person_id,bank_account_id,source_document_id,
+  expected_source_hash,source_fingerprint,period_start,period_end,source_count,opening_balance,closing_balance,currency)
+  VALUES($1,$2,$3,$4,$5,$6,$6,$7::date,($7::date+interval '27 days')::date,3,0,100,'ZAR')`,[fixture.companyA,intent,fixture.u1.id,account,document,hash,period]);
+ return intent;
+}
+it('statement completeness reviews an attestation with twin receipts once',async()=>{
+ const intent=await attestation('2026-05-01');
+ await appendEffect('bank_statement_attestation_intent',intent,'bank_statement.attest');
+ await appendEffect('bank_statement_attestation_intent',intent.toUpperCase(),'bank_statement.attest');
+ const completeness=await actorAs(pool,user,ctx=>loadBankStatementCompleteness(ctx,null));
+ expect(completeness.rows.filter(row=>row.id===intent)).toHaveLength(1);
+ expect(completeness.populationCount).toBe(completeness.rows.length);
+});
+it('a captured snapshot flags only forked records and names the forked sources in coverage',async()=>{
+ const account=await bankAccount(),plain=randomUUID(),forked=randomUUID();
+ for(const id of [plain,forked])await pool.query("INSERT INTO bank_transactions(id,company_id,bank_account_id,transaction_date,amount,description,status) VALUES($1,$2,$3,'2026-09-09',10,'Synthetic flag bank line','imported')",[id,fixture.companyA,account]);
+ await appendEntityVersion(pool,user,'bank_transaction',plain,2);
+ await fork('bank_transaction',forked,1,7);
+ const snapshot=await actorAs(pool,user,ctx=>captureAuditSnapshot(ctx,{snapshotId:randomUUID(),
+  request:{cutoff,sources:['bank'],checks:[],idempotencyKey:`fork-flag-${randomUUID()}`}}),'repeatable read');
+ const record=(id:string)=>snapshot.records.find(row=>row.source==='bank_transaction'&&row.id===id)!;
+ expect(record(forked).data.control_lineage_forked).toBe(true);expect(record(forked).version).toBe(1);
+ expect('control_lineage_forked' in record(plain).data).toBe(false);expect(record(plain).version).toBe(2);
+ expect(snapshot.coverage).toContain('forked_lineage:bank_transaction');
 });

@@ -68,3 +68,16 @@ it('a different operation of the same beneficiary still aggregates', async()=>{
  const policies=await request(ctx=>matchOperationPolicies(ctx,[rule],material(randomUUID(),beneficiary),day));
  expect(policies).toEqual([{policyId:ruleId,policyVersion:1,approverRole:'admin',mandatory:false}]);
 });
+it('a twin counted once is counted at its larger amount, never below either row',async()=>{
+ // 9000 retained under the legacy spelling plus this 6000 exceeds 14000; counting the 6000 twin instead would not.
+ const narrow={...rule,id:randomUUID(),condition_value:'14000'},other=randomUUID(),beneficiary=randomUUID();
+ await pool.query(`INSERT INTO approval_rules(id,company_id,name,document_type,condition_field,condition_operator,
+  condition_value,approver_role,aggregate_window_days,aggregate_by)
+  VALUES($1,$2,'Synthetic exposure maximum','payment','amount','greater_than',14000,'admin',1,'supplier')`,[narrow.id,fixture.companyA]);
+ await request(ctx=>reserveOperationExposure(ctx,material(other,beneficiary,narrow),null,'committed'));
+ await pool.query(`INSERT INTO control_policy_exposure(company_id,policy_id,beneficiary_key,currency,window_start,operation,entity_id,amount,state,approval_id)
+  SELECT company_id,policy_id,beneficiary_key,currency,window_start,operation,upper(entity_id),9000,state,approval_id
+  FROM control_policy_exposure WHERE company_id=$1 AND policy_id=$2 AND entity_id=$3`,[fixture.companyA,narrow.id,other]);
+ expect(await request(ctx=>matchOperationPolicies(ctx,[narrow],material(randomUUID(),beneficiary,narrow),day)))
+  .toEqual([{policyId:narrow.id,policyVersion:1,approverRole:'admin',mandatory:false}]);
+});
