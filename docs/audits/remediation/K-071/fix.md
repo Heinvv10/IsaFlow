@@ -1383,3 +1383,91 @@ SELECT o.company_id, o.id AS je_id, o.entry_number, c.id AS contra_id, c2.id AS 
                     WHERE c3.reversal_of_id = c2.id AND c3.company_id = c2.company_id
                       AND c3.status = 'posted');
 ```
+
+---
+
+## Round 23 — merge `origin/master` (`e5d6d1f6e`) into the branch
+
+Round-22's blind review at `dee9bef79` returned 0 findings (the chain arithmetic was attacked by
+NET across chains of 0–5, and draft, deleted, voided, cross-company and cyclic shapes), so this
+round is the merge.
+
+### The merge
+
+`git merge origin/master`, no rebase. 18 master commits; the only conflicts were
+`src/modules/accounting/services/bank/.claude.md` and its `AGENTS.md` mirror, both in the
+`## Recent changes` list where each side had inserted a 2026-09-10 bullet at the top. Resolved by
+keeping BOTH sides — master's `save_dimensions` line first, then this branch's r13/r11/r09 entries
+— and the mirror was **regenerated**, not hand-edited: `bun run agent-docs:generate` followed by
+`bun run agent-docs:check` → `OK: 74 agent document mirror(s) match canonical sources.` No source
+file conflicted.
+
+### What master changed in the bank and AP services
+
+`git log -p 1e40c6698..origin/master -- services/bank services/ap` is three code changes and two
+doc lines, all R-067 (customer-ownership fences) or dimension policy:
+
+- `bankAllocationService.allocateTransaction` gained `assertCustomerInCompany(companyId, entityId)`
+  on the `customer` arm, after the row lock and before `createJournalEntry`.
+- `bankRulesService.createRule` / `updateRule` gained the same fence on `input.clientId`.
+- `bank/.claude.md` + `AGENTS.md`: the `save_dimensions` note.
+- Nothing in `services/ap`. `reverseReconciledTransaction` — the function this branch's undo calls —
+  is untouched, and so is every path `undoRun` reaches.
+
+Adjacent to those, master also re-signed GL helpers this branch's tests sit near:
+`assertJournalCostCentres` → `assertJournalAnalysisDimensions`, `assertJournalLinesOwned` gained a
+third `dimensionMode` parameter, and `reverseJournalEntry` now passes
+`{ dimensionAssignmentMode: 'historical-copy' }` as a fourth argument to `createJournalEntry`. Per
+the untyped-fixtures lesson, `tests/` was grepped for callers of all four names: the nine files that
+name them are all master's own, and none is a file this branch touches. This branch's tests call
+`createJournalEntry(company, input, user)` — three arguments, and the new parameter is optional.
+
+### The interaction the merge DID create, and the fix
+
+`bun run ci` on the merged tree failed one test — this branch's own census,
+`tests/unit/mcp/typedRefusalReachesAgent.test.ts`:
+
+    CUSTOMER_NOT_FOUND is declared in src/ but missing from REFUSAL_CODES in toolHelpers.ts:
+    expected 'FALLBACK' to be 'Invoice INV-9 is cancelled and cannot…'
+
+Neither side fails alone. Master added `CustomerNotInCompanyError`
+(`core/contactDirectoryService.ts:36`) with `readonly code = 'CUSTOMER_NOT_FOUND'`; this branch
+added the census that requires every such code in `src/` to be a decision — surfaced as a refusal,
+or listed in `NOT_A_REFUSAL_CODES` as an internal marker. The census did exactly the job it was
+written for.
+
+Read before deciding, as its docblock demands: the message is
+`Customer <id> was not found for this company` — no schema names, no file paths, and actionable.
+It reaches the MCP boundary, because the allocate / bulk-allocate tools call `allocateTransaction`,
+which now raises it. So it is a genuine refusal: `'CUSTOMER_NOT_FOUND'` added to `REFUSAL_CODES`
+in `src/lib/mcp/tools/toolHelpers.ts`. Without it an agent gets the generic fallback and retries
+the same foreign-customer call forever. The mutation proof is the failure itself — removing the
+entry is what produced the red above; with it, that file is 15/15 green.
+
+### Gates on the merged tip
+
+- `env -u DATABASE_URL bun run ci` → every step PASS, `[ci] all checks passed`, **EXIT=0**
+  (10476 unit tests, 534 component tests, build PASS).
+- 17 `k071-*`/`k140-*`/`k143-*`/`k144-*` integration files, `--no-file-parallelism` →
+  `Test Files 17 passed (17)`, `Tests 48 passed | 1 skipped (49)`, **EXIT=0**.
+- FULL integration suite, `--no-file-parallelism` → `Test Files 33 failed | 259 passed (292)`,
+  `Tests 15 failed | 1462 passed | 201 skipped (1678)`, EXIT=1.
+
+**Attribution of those 33, by measurement, not by label.** The same suite was run on a clean
+`git archive origin/master` extraction (node_modules symlinked to the shared install) and the
+failure lines were diffed:
+
+    comm -23 fail-branch.txt fail-master.txt   →  (empty)
+    comm -13 fail-branch.txt fail-master.txt   →  (empty)
+    38 failure lines each, 33 files, 15 tests, on both sides
+
+The sets are identical, so not one of them is this branch's. Their causes are the runner
+environment, visible in the log: `SUPABASE_SERVICE_ROLE_KEY is not set` (5), a suite-level refusal
+`DATABASE_URL names the database "isaflow_schema_fixture" … Point it at isaflow_dev` (7), and
+`ECONNREFUSED 127.0.0.1:3200` for the suites that drive a running dev server. The branch runs 10
+more files and 17 more tests than master, and every one of them passes.
+
+### Files this round
+
+`src/lib/mcp/tools/toolHelpers.ts` (one allowlist entry), the two resolved bank docs, and the
+merge itself. No migration.

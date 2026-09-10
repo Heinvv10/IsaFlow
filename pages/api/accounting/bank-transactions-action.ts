@@ -14,6 +14,8 @@ import { log } from '@/lib/logger';
 import { sql } from '@/lib/neon';
 import { isRetryableContention } from '@/modules/accounting/services/core/retryableContention';
 import { UUID } from '@/lib/schemas/common';
+import { assertCustomerInCompany } from '@/modules/accounting/services/core/contactDirectoryService';
+import { assertJournalAnalysisDimensions } from '@/modules/accounting/services/gl/journalCostCentreValidation';
 import {
   matchTransaction,
   unmatchTransaction,
@@ -149,6 +151,9 @@ async function handler(req: CompanyAuthedRequest, res: NextApiResponse) {
         const selType: string = body.selectionType || 'account';
         const selEntityId: string | null = body.selectionEntityId || null;
         const selVatCode: string | null = body.vatCode || null;
+        // R-067: suggested_client_id is read back with the customer name joined
+        // on it. Refused before the UPDATE; the catch below answers 400.
+        if (selType === 'customer') await assertCustomerInCompany(companyId, selEntityId);
         await sql`
           UPDATE bank_transactions
           SET suggested_gl_account_id = ${selType === 'account' && selEntityId ? selEntityId : null}::UUID,
@@ -161,6 +166,11 @@ async function handler(req: CompanyAuthedRequest, res: NextApiResponse) {
         return apiResponse.success(res, { saved: true });
       }
       case 'save_dimensions': {
+        await assertJournalAnalysisDimensions(companyId, [{
+          cc1Id: body.cc1Id,
+          cc2Id: body.cc2Id,
+          buId: body.buId,
+        }]);
         await sql`
           UPDATE bank_transactions
           SET cc1_id = ${body.cc1Id || null}::UUID,

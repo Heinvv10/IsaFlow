@@ -146,6 +146,7 @@ describe('getQuote — reads real customer_quote_lines columns', () => {
 
 describe('createQuote — writes real customer_quote_lines columns', () => {
   it('inserts lines using sort_order/amount/gl_account_id, not line_number/line_total/account_id', async () => {
+    mockSql.mockResolvedValueOnce([{ ok: 1 }]); // R-067 ownership fence — clientId is this company's
     mockSql.mockResolvedValueOnce([{ used: 0, prefix: 'QUO', padding: 7 }]); // reserve from the company sequence
     mockSql.mockResolvedValueOnce([{ id: QUOTE_ID }]); // INSERT customer_quotes RETURNING id
     mockSql.mockResolvedValueOnce([]); // INSERT line 1

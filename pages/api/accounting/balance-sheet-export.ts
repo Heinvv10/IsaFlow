@@ -58,14 +58,6 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
     }
     csvLines.push(`${csvVal('Assets')},${csvVal('')},${csvVal('Total Assets')},${Number(report.totalAssets).toFixed(2)}`);
 
-    // Liabilities
-    for (const item of report.liabilities) {
-      csvLines.push(
-        `${csvVal('Liabilities')},${csvVal(item.accountCode)},${csvVal(item.accountName)},${Number(item.balance).toFixed(2)}`
-      );
-    }
-    csvLines.push(`${csvVal('Liabilities')},${csvVal('')},${csvVal('Total Liabilities')},${Number(report.totalLiabilities).toFixed(2)}`);
-
     // Equity
     for (const item of report.equity) {
       csvLines.push(
@@ -73,6 +65,14 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
       );
     }
     csvLines.push(`${csvVal('Equity')},${csvVal('')},${csvVal('Total Equity')},${Number(report.totalEquity).toFixed(2)}`);
+
+    // Liabilities
+    for (const item of report.liabilities) {
+      csvLines.push(
+        `${csvVal('Liabilities')},${csvVal(item.accountCode)},${csvVal(item.accountName)},${Number(item.balance).toFixed(2)}`
+      );
+    }
+    csvLines.push(`${csvVal('Liabilities')},${csvVal('')},${csvVal('Total Liabilities')},${Number(report.totalLiabilities).toFixed(2)}`);
 
     const csv = csvLines.join('\n');
     const filename = `balance-sheet-${asAtDate}.csv`;

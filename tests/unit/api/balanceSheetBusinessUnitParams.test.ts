@@ -1,4 +1,5 @@
 import { Writable } from 'node:stream';
+import ExcelJS from 'exceljs';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import type { NextApiRequest, NextApiResponse } from 'next';
 
@@ -30,6 +31,13 @@ const businessUnitId = '20000000-0000-4000-8000-000000000001';
 const costCentreId = '30000000-0000-4000-8000-000000000001';
 const emptyReport = { asAtDate: '2026-04-30', assets: [], liabilities: [], equity: [],
   totalAssets: 0, totalLiabilities: 0, totalEquity: 0 };
+const presentationReport = {
+  asAtDate: '2026-04-30',
+  assets: [{ accountCode: '1000', accountName: 'Cash', balance: 300 }],
+  liabilities: [{ accountCode: '2000', accountName: 'Payables', balance: 100 }],
+  equity: [{ accountCode: '3000', accountName: 'Capital', balance: 200 }],
+  totalAssets: 300, totalLiabilities: 100, totalEquity: 200,
+};
 
 function response() {
   const chunks: Buffer[] = [];
@@ -98,5 +106,44 @@ describe.each([
       kind === 'report' ? '2025-04-30' : undefined,
       businessUnitId,
     );
+  });
+});
+
+describe('balance-sheet download presentation', () => {
+  it('writes Equity before Liabilities in CSV', async () => {
+    getBalanceSheet.mockResolvedValueOnce(presentationReport);
+    const res = response();
+    await csvHandler({ method: 'GET', companyId, query: { as_at_date: '2026-04-30' } } as unknown as NextApiRequest, res);
+
+    const csv = String(vi.mocked(res.send).mock.calls[0]?.[0]);
+    expect(csv.split('\n').slice(6)).toEqual([
+      '"Assets","1000","Cash",300.00',
+      '"Assets","","Total Assets",300.00',
+      '"Equity","3000","Capital",200.00',
+      '"Equity","","Total Equity",200.00',
+      '"Liabilities","2000","Payables",100.00',
+      '"Liabilities","","Total Liabilities",100.00',
+    ]);
+  });
+
+  it('writes Equity before Liabilities and names the combined total in XLSX', async () => {
+    getBalanceSheet.mockResolvedValueOnce(presentationReport);
+    const res = response();
+    await xlsxHandler({ method: 'GET', companyId, query: { as_at_date: '2026-04-30' } } as unknown as NextApiRequest, res);
+
+    const workbook = new ExcelJS.Workbook();
+    await workbook.xlsx.load(Buffer.concat(res.chunks) as unknown as ExcelJS.Buffer);
+    const wanted = new Set([
+      'Assets', 'Total Assets', 'Equity', 'Total Equity',
+      'Liabilities', 'Total Liabilities', 'Total Equity and Liabilities',
+    ]);
+    const labels = workbook.getWorksheet('Balance Sheet')!.getColumn(1).values
+      .filter((value): value is string => typeof value === 'string' && wanted.has(value));
+    expect(labels).toEqual([
+      'Assets', 'Assets', 'Total Assets',
+      'Equity', 'Equity', 'Total Equity',
+      'Liabilities', 'Liabilities', 'Total Liabilities',
+      'Total Equity and Liabilities',
+    ]);
   });
 });
