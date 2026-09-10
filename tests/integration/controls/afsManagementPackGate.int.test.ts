@@ -12,7 +12,7 @@ vi.mock('@/modules/accounting/services/afs/packAiSummaryService',()=>({
  generateExecutiveSummary:vi.fn(async()=>'Synthetic summary'),generateSectionCommentary:vi.fn(async()=>'Synthetic commentary')}));
 
 /**
- * A pack generated without review used to be marked signed_off — the status that LOCKS a
+ * A pack generated with review SKIPPED used to be marked signed_off — the status that LOCKS a
  * document — with nobody named, and delivered. Until a published status exists the pack is still
  * generated, as a draft a human can open, but it is NOT delivered, and both the caller and the
  * scheduler are told why.
