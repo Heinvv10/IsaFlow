@@ -114,6 +114,16 @@ const SUMMARY_CONNECTOR = /^(?:[\s:.=*#()\/-]|@|R\b|ZAR\b|\d+(?:[.,]\d+)?\s*%)*$
  */
 const TAX_LINE_START = /^(?:(?:Plus|Add)(?![A-Za-z])[\s:]*)?(?:\d{1,2}(?:[.,]\d+)?\s*%\s*)?(?:VAT|Value\s+Added\s+Tax)(?![A-Za-z])/i;
 
+/**
+ * Does this line open with one of the round-26 tax spellings the summary
+ * vocabulary lacks? Those are tax lines INSIDE the block only: printed below
+ * the total, `Plus VAT 150.00` says the total read is the pre-tax figure.
+ */
+export function opensWithBlockOnlyTax(line: string): boolean {
+  const trimmed = line.trimStart();
+  return !SUMMARY_LINE_START.test(trimmed) && TAX_LINE_START.test(trimmed);
+}
+
 function summaryStart(line: string): RegExpExecArray | null {
   return SUMMARY_LINE_START.exec(line) ?? TAX_LINE_START.exec(line);
 }

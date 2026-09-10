@@ -2376,3 +2376,42 @@ w-cnt posts). R-088 remains the real double-post exposure.
 B1 no second-tax check (1) · B2 a third tax figure needed (1) · B3 a figure pairs with itself (1) · B4 no tax-line
 vocabulary (1) · B5 the `Tax` form reads the rate (1) · B6 `Copy N of M` only on its own line (1) · B7 `COPY #2`
 gone (1) · B8 the rebase warning ignored (2 — the paid twin, and corpus R28).
+
+---
+
+## Round 27 — the round-26 tax spellings stay in the block; the tax is one value below the total too
+
+Review: `review-k072-r26.md` (2H/0M/1L; the VAT-reader change and leaving `BTW` out both accepted). The reviewer's
+`agents/rev-k072aa/fix.diff` was read; hunk 1 is kept, hunk 2 is replaced by a narrower rule that closes all 16.
+Harness as in round 26 plus the reviewer's `aa26`/`aa26b` (145 probes): **2 970 rows**, stored and nulled.
+
+| Finding | Disposition |
+|---|---|
+| HIGH-1 (regression of round 26) `Painting of lounge 1000.00 / Total R1 000.00 / Plus VAT 150.00` posted and approved R1 000 against R1 150 (16 of 16) | FIXED at the cause. Round 26's `TAX_LINE_START` spellings (`Plus VAT`, `Add: VAT`, `15% VAT`, `Add 15% VAT`, `Value Added Tax`) were meant for the summary BLOCK, and they made a summary line of themselves everywhere. Below the total, a line opening with one of them (`opensWithBlockOnlyTax`) now refuses: it says the total read is the pre-tax figure. The classic inclusive recap (`TOTAL 115.00 / VAT @ 15% 15.00`) is not one of them and still posts. **Hunk 1 kept** (`Plus`/`Add` after the total is an adjustment): it measured equivalent on all 2 970 rows, but it is the only rule that sees the pre-tax total printed AGAIN after the Plus line (`Total 1000.00 / Plus VAT 150.00 / Amount Due 1000.00` — rule 3 reads below the LAST print); pinned, and its mutant is RED. Closes aa-plus2 16 → 0 and the `15% VAT` / `Value Added Tax` after-total twins the reviewer did not list. |
+| HIGH-2 `TOTAL 1150.00 / Total Freight 150.00` posted — the tax counted once only inside the block (16 of 39) | FIXED, 16 of 16, not 14. Below the total a summary figure equal to the stored VAT is explained only on a line that IS the tax (`TAX_ONLY_LINE`: `VAT`, `Total VAT`, `VAT INCL`, `Output Tax`, `VAT Summary`… with a rate and separators, nothing else). `Tax on levy` and `VAT on delivery` name a tax and are not one, so they refuse — the two hunk 2 left open. **Cost 0**: all four of the reviewer's honest double-VAT layouts and the corpus SPAR `CARD 115.00 / VAT @ 15% 15.00` still post; the recap nouns (`VAT Summary 15% 1000.00 150.00`) are allowed on the tax line after a measured refusal without them. |
+| LOW-1 `Copy 2/2`, `Copy (2 of 2)`, `Print 2 of 2`, `Copies: 2 of 2` posted | FIXED: `COPY`/`COPIES`/`PRINT` `[:] [(] [No] N (of|/) M` anywhere. `Page 2 of 2`, `Pg 2/2` and the copy shop post (pinned). The reviewer's `Copies: 2 of 2` header on the copy-shop probe now refuses (a fail-closed cost on a probe with no payable). |
+
+### Re-measured — head vs `a2c0cf028`, 2 970 rows (stored ≡ subtotal-null, row for row)
+
+| | `a2c0cf028` | **head** |
+|---|---|---|
+| unattended / WRONG, all rows | 441 / 88 | **394 / 46** |
+| after-total tax additions (aa-plus2; 16) | 16 / 16 | **0 / 0** |
+| after-total tax-valued charges (aa-below; 39) | 14 / 14 | **0 / 0** |
+| `Plus`/`Add` readings (aa-plus; 18) | 12 / 6 | **2 / 1** |
+| honest double-VAT layouts (aa-dbl; 8) | 4 / 0 | **4 / 0** |
+| the reviewer's ordinary documents (aa-ord; 14) | 8 / 0 | **8 / 0** |
+
+**Newly wrong: 0.** **Newly refused: 5**, all the same deliberate shape: the model chose 1 150 on a document whose
+printed total is `Total 1000.00` with `Plus VAT` / `Add: VAT` / `Add 15% VAT` / `15% VAT` / `Value Added Tax 150.00`
+under it. The approval route used to approve the unprinted 1 150 (the correct payable, by luck); the gate now refuses
+both readings, which is what the reviewer asked for ("the gate accepts whichever of the two totals the model
+picked"). The 46 WRONG left: the 43 accepted classes, plus `Total 1000 / VAT 150.00` (the ordinary inclusive recap,
+payable unknown by construction) and the reviewer's 2 `VAT line absent` rows that only the approval route approves,
+at the correct R1 150 — the approval route never corroborates the VAT, by design (the reviewer did not score them).
+
+### Mutations — 6, all RED
+
+C1 no `Plus`/`Add` adjustment (1 — GREEN until the "printed again" probe was added) · C2 block-only tax lines
+explain themselves below the total (1) · C3 no below-total tax-once check (1) · C4 any line naming a tax may carry
+its value (1) · C5 no recap nouns on a tax line (1) · C6 the `Copy` siblings gone (1).

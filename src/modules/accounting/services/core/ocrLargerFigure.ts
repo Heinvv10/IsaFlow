@@ -24,7 +24,7 @@
  */
 import { parseAmount } from './ocrAmountParsing';
 import { UNRECONCILED_WARNING, totalPrintedEnd, totalPrintedLastEnd } from './ocrAmountReconciliation';
-import { printedFigures, type CountIsCounter, type PrintedFigure } from './ocrPrintedFigures';
+import { opensWithBlockOnlyTax, printedFigures, type CountIsCounter, type PrintedFigure } from './ocrPrintedFigures';
 import { unexplainedItem } from './ocrItemColumn';
 
 /**
@@ -40,6 +40,21 @@ const NEGATIVE_FIGURE = /(?<![\d.,])(?:[-–](?:R|ZAR)?(\d+[.,]\d{2})|\(\s*(?:R|
  * that the payable is more. This vocabulary only ever REFUSES.
  */
 const ADDITION_LABEL = /(?<![A-Za-z])(?:Tips?|Gratuit(?:y|ies)|Fooi|Service\s*(?:Charge|Chg|Fee)|Svc(?:\s*Chg)?|Delivery(?:\s*(?:Fee|Charge))?|Del\s*Chg)(?![A-Za-z])[\s:.=R]*(?:incl(?:uded|\.)?[\s:.=R]*)?(\d+(?:[.,]\d{1,2})?)(?![\d.,]*\d)/gi;
+
+/**
+ * A line after the total that opens with `Plus` or `Add` ADDS to it (round 27):
+ * `Total R1 000.00 / Plus VAT 150.00` with no grand total printed means the
+ * total read is the pre-tax figure, and the payable is more.
+ */
+const PLUS_LINE = /^[\s*]*(?:Plus|Add)(?![A-Za-z])[^\n]*?(\d+(?:[.,]\d{1,2})?)(?![\d.,]*\d)/gim;
+
+/**
+ * A line that IS the tax — `VAT 15% 150.00`, `Total VAT`, `VAT INCL`, `Output
+ * Tax` — and not a charge that mentions it (`Tax on levy`, `VAT on delivery`).
+ * Only such a line may carry the tax's value below the total (round 27).
+ */
+const TAX_ONLY_LINE = /^[\s*:=@()/-]*(?:(?:Total|Output|Input)\s+)?(?:V\.?A\.?T\.?|BTW|Tax|Value\s+Added\s+Tax)(?:\s+(?:Amount|Total|Incl\w*|Excl\w*|Summary|Analysis|Breakdown|Recap|Opsomming|Analise))?[\s*:=@()/.%-]*$/i;
+const isTaxOnlyLine = (line: string) => TAX_ONLY_LINE.test(line.replace(/R?\s?\d[\d\s.,]*%?/g, ' '));
 
 /**
  * The first printed figure larger than `total` that a tender and its change do
@@ -209,6 +224,17 @@ export function unreconciledFigure(
   const end = totalPrintedLastEnd(text, total);
   if (end === null) return null;
   const below = text.slice(end);
+  // The tax is ONE value (round 26), anywhere: below the total only a line that
+  // IS the tax may carry it — `Total Freight 150.00` beside a 150.00 VAT is a charge.
+  // A `Plus VAT` / `15% VAT` line below the total is an ADDED tax, not a recap
+  // of one inside it: the total read is pre-tax (round 27, r26 HIGH-1).
+  const belowLines = below.split(/\r?\n/);
+  const added = belowLines.filter(opensWithBlockOnlyTax).flatMap((line) => printedFigures(line, isCounter)).find((f) => f.value !== 0);
+  if (added) return { reason: 'stray', value: added.value };
+  const vat = known.vatAmount ?? null;
+  const disguised = vat === null || vat === total ? undefined : belowLines.filter((line) => !isTaxOnlyLine(line))
+    .flatMap((line) => printedFigures(line, isCounter)).find((f) => f.isSummary && Math.abs(f.value - vat) <= 0.01);
+  if (disguised) return { reason: 'stray', value: disguised.value };
   const belowFigures = printedFigures(below, isCounter);
   const recap = recapRows(below, belowFigures, total, known.vatAmount ?? null, isCounter);
   const roleValues = new Set([0, total, known.subtotal ?? total, known.vatAmount ?? total]);
@@ -233,6 +259,10 @@ export function adjustmentAfterTotal(text: string, total: number): number | null
   if (end === null) return null;
   const after = text.slice(end);
   for (const match of after.matchAll(ADDITION_LABEL)) {
+    const value = parseAmount(match[1]!);
+    if (value > 0) return value;
+  }
+  for (const match of after.matchAll(PLUS_LINE)) {
     const value = parseAmount(match[1]!);
     if (value > 0) return value;
   }
