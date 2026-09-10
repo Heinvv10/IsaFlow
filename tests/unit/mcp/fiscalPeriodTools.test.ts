@@ -15,6 +15,9 @@ vi.mock('@/modules/accounting/services/gl/fiscalPeriodService', () => ({
   resolveCompanyPeriodAlignment: vi.fn(),
   reopenPeriod: vi.fn(),
 }));
+vi.mock('@/modules/accounting/services/controls/periodControl', () => ({
+  assertPeriodControlAuthority: vi.fn(),
+}));
 vi.mock('@/modules/accounting/services/gl/periodCloseReadinessService', () => ({
   getCloseReadiness: vi.fn(),
 }));

@@ -40,6 +40,9 @@ vi.mock('@/modules/accounting/services/ar/receiptMatchConfirmService', () => ({
   validateBankReceiptApplication: vi.fn(),
   confirmReceiptMatch: vi.fn(),
 }));
+vi.mock('@/modules/accounting/services/bank/bankAllocationService', () => ({
+  assertBankAllocationAuthority: vi.fn(),
+}));
 vi.mock('@/modules/accounting/services/ar/receiptMatchService', () => ({
   getReceiptMatchCandidates: vi.fn(),
 }));
