@@ -13,7 +13,9 @@ export class EffectivePermissionError extends Error {
    * route to the answer. Scopes are public (consent screen, PAT UI), so naming
    * one leaks nothing.
    */
-  constructor(readonly permission?: string) {
+  /** Why it was refused, so the reply can say what actually blocks the caller. */
+  constructor(readonly permission?: string,
+    readonly reason?: 'UNKNOWN_PERMISSION' | 'ROLE_CEILING' | 'MISSING_SCOPE' | 'MODULE_DENIED' | 'ENTITY_REQUIRED') {
     super('Current permissions do not allow this operation.');
     this.name = 'EffectivePermissionError';
   }

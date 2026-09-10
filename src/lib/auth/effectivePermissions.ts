@@ -23,7 +23,8 @@ export async function resolveEffectivePermissions(ctx: ControlTx): Promise<Effec
 }
 export async function assertEffectivePermission(ctx: ControlTx, permission: string, entity?: EntityRef): Promise<void> {
   const state = await loadPermissionState(ctx);
-  if (permissionReason(state.role, permission, state.scopes, state.overrides, true)) throw new EffectivePermissionError(permission);
+  const reason = permissionReason(state.role, permission, state.scopes, state.overrides, true);
+  if (reason) throw new EffectivePermissionError(permission, reason);
   const spec = EFFECTIVE_PERMISSION_RULES[permission]!;
   const modules = [...spec.modules, ...(spec.requires ?? []).flatMap(s => EFFECTIVE_PERMISSION_RULES[s]!.modules)];
   const constrained = state.overrides.filter(p => modules.includes(p.moduleKey) && hasConstraints(p));
@@ -33,7 +34,7 @@ export async function assertEffectivePermission(ctx: ControlTx, permission: stri
     || Array.isArray(p.restrictions) || Object.keys(p.restrictions).length > 0)
     || !entity || entity.entityType !== 'gl_account'
     || constrained.some(p => p.moduleKey !== 'accounts')
-    || permission !== 'write:accounts') throw new EffectivePermissionError(permission);
+    || permission !== 'write:accounts') throw new EffectivePermissionError(permission, 'ENTITY_REQUIRED');
   const rows = await ctx.sql`
     SELECT account_code FROM gl_accounts
     WHERE company_id = ${ctx.principal.companyId}::uuid AND id = ${entity.entityId}::uuid
@@ -42,5 +43,5 @@ export async function assertEffectivePermission(ctx: ControlTx, permission: stri
   const code = rows[0]?.account_code;
   if (rows.length !== 1 || typeof code !== 'string' || constrained.some(p =>
     (p.accountRangeFrom !== null && code < p.accountRangeFrom)
-    || (p.accountRangeTo !== null && code > p.accountRangeTo))) throw new EffectivePermissionError(permission);
+    || (p.accountRangeTo !== null && code > p.accountRangeTo))) throw new EffectivePermissionError(permission, 'ENTITY_REQUIRED');
 }
