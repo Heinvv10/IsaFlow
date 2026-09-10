@@ -9,6 +9,7 @@
  *   from        — ISO date YYYY-MM-DD (required)
  *   to          — ISO date YYYY-MM-DD (required)
  *   posted_only — "false" to include drafts (default: true)
+ *   cost_centre_id / business_unit_id — optional dimension filters
  *   source      — "tb" | "bs" (controls the back-link label)
  *   page        — page number (default: 1)
  */
@@ -25,6 +26,8 @@ import { AccountLedgerSummary } from '@/components/reports/AccountLedgerSummary'
 import { AccountLedgerTable } from '@/components/reports/AccountLedgerTable';
 import type { AccountLedgerResult } from '@/modules/accounting/services/reports/accountLedgerService';
 
+import { accountReportBackHref } from '@/components/reports/reportReturnState';
+
 const PAGE_SIZE = 200;
 
 function fmtDate(d: string): string {
@@ -40,6 +43,8 @@ export default function AccountDetailPage() {
   const { accountId } = router.query;
   const from = typeof router.query.from === 'string' ? router.query.from : '';
   const to = typeof router.query.to === 'string' ? router.query.to : '';
+  const costCentreId = typeof router.query.cost_centre_id === 'string' ? router.query.cost_centre_id : '';
+  const businessUnitId = typeof router.query.business_unit_id === 'string' ? router.query.business_unit_id : '';
   const postedOnly = router.query.posted_only !== 'false';
   const sourceParam = typeof router.query.source === 'string' ? router.query.source : '';
   const pageParam =
@@ -63,6 +68,8 @@ export default function AccountDetailPage() {
         limit: String(PAGE_SIZE),
         offset: String(offset),
       });
+      if (costCentreId) params.set('cost_centre_id', costCentreId);
+      if (businessUnitId) params.set('business_unit_id', businessUnitId);
       if (UUID_RE.test(accountId)) {
         params.set('account_id', accountId);
       } else {
@@ -85,16 +92,13 @@ export default function AccountDetailPage() {
     } finally {
       setLoading(false);
     }
-  }, [accountId, from, to, postedOnly, offset]);
+  }, [accountId, from, to, postedOnly, offset, costCentreId, businessUnitId]);
 
   useEffect(() => { void load(); }, [load]);
 
   const totalPages = data ? Math.ceil(data.total / PAGE_SIZE) : 1;
 
-  const backHref =
-    sourceParam === 'bs'
-      ? `/accounting/reports/balance-sheet${to ? `?as_at_date=${to}` : ''}`
-      : '/accounting/trial-balance';
+  const backHref = accountReportBackHref(router.query);
   const backLabel = sourceParam === 'bs' ? 'Back to Balance Sheet' : 'Back to Trial Balance';
 
   function goPage(p: number) {

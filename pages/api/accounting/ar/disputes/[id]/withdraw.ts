@@ -16,7 +16,7 @@ import { apiResponse } from '@/lib/apiResponse';
 import { withAuth, type CompanyAuthedRequest, withWriteAccess } from '@/lib/auth';
 import { withCsrf } from '@/lib/auth/withCsrf';
 import { UUID } from '@/lib/schemas/common';
-import { withdrawDispute } from '@/modules/accounting/services/ar/disputeService';
+import { ArRequestError, withdrawDispute } from '@/modules/accounting/services/ar/disputeService';
 
 const BodySchema = z.object({
   note: z.string().trim().max(2000).optional(),
@@ -48,9 +48,9 @@ async function handler(req: NextApiRequest, res: NextApiResponse): Promise<void>
     const dispute = await withdrawDispute(companyId, id, user.id, note);
     apiResponse.success(res, dispute);
   } catch (err) {
-    const message = err instanceof Error ? err.message : String(err);
-    if (/not open/i.test(message) || /not found/i.test(message)) {
-      apiResponse.badRequest(res, message);
+    // Typed, not text-matched — see the note in resolve.ts.
+    if (err instanceof ArRequestError) {
+      apiResponse.badRequest(res, err.message);
       return;
     }
     throw err;

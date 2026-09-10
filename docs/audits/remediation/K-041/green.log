@@ -1,0 +1,248 @@
+=== MUTATION 1: accept.ts restored to origin/master ===
+   × does NOT reset an already-registered account password when its invitation is accepted 38ms
+   × attaches the membership when the existing account proves ownership with its own password 56ms
+   × replaying an accepted invitation token is refused and never patches a password 17ms
+   × still sets the password for a brand-new invitee who has no users row yet 66ms
+ Test Files  1 failed (1)
+      Tests  4 failed (4)
+=== MUTATION 2: index.ts ON CONFLICT removed ===
+   × resends an existing invitation instead of raising a unique violation 59ms
+   × a re-invite at a different role rewrites the role and pushes the expiry out 16ms
+ Test Files  1 failed (1)
+      Tests  2 failed | 3 passed (5)
+=== MUTATION 3: withErrorHandler removed from index.ts ===
+   × answers an upstream failure with a JSON error envelope instead of throwing 26ms
+ Test Files  1 failed (1)
+      Tests  1 failed | 4 passed (5)
+=== RESTORED: both green ===
+ Test Files  2 passed (2)
+      Tests  9 passed (9)
+
+=== FULL UNIT SUITE (DATABASE_URL unset) ===
+$ env -u DATABASE_URL bunx vitest run
+ Test Files  5 failed | 787 passed | 36 skipped (828)
+      Tests  10 failed | 9428 passed | 234 skipped (9672)
+
+The 5 failing files are load-induced timeouts (10-20s each) on a box running
+many parallel agents, not regressions: none of them import anything this change
+touches. Re-run in isolation, all green:
+$ env -u DATABASE_URL bunx vitest run tests/unit/services/bank/bankAllocationUnwind.test.ts \
+    tests/unit/components/trackerExclusion.test.ts \
+    tests/unit/services/bank/bankAllocationDateShift.test.ts \
+    tests/unit/services/cashFlowReport.test.ts \
+    tests/unit/services/bankAllocationService.test.ts
+ Test Files  5 passed (5)
+      Tests  27 passed (27)
+
+=== GATES ===
+$ bunx tsc --noEmit                                              -> exit 0
+$ bunx eslint pages/api/invitations/index.ts \
+    'pages/api/invitations/[token]/accept.ts'                    -> exit 0
+
+================================================================================
+ROUND 3 — fixing the eight open findings of review-k041-r2.md (74a1e7c4)
+================================================================================
+
+Fixture: disposable PostgreSQL, production schema. Migrations 643, 648 already
+applied; 655 applied on top (and re-applied once — idempotent, "IDEMPOTENT OK").
+
+  postgres=# select proname, rolname, prosecdef, proconfig, proacl ...
+  invite_token_company_name | migration_admin | t | {"search_path=pg_catalog, public"}
+                            | {migration_admin=X/migration_admin,app_user=X/migration_admin}
+
+GREEN (bun run test:integration):
+  k-041-invite-accept-overwrites-existing-password.int.test.ts   10 passed
+  k-041-invite-page-reinvite-role.int.test.ts                     2 passed  (new)
+  k-042-reinvite-unique-violation.int.test.ts                     — (in the 5-file run)
+  k104-k105-invitation-token-encoding.int.test.ts                 7 passed
+  k106-invitation-502-rollback.int.test.ts                        — (in the 5-file run)
+  five files together                                            23 passed / 23
+
+GREEN (bunx vitest run --config vitest.components.config.ts):
+  tests/unit/components/inviteSignupLoop.test.tsx                 5 passed  (new)
+
+MUTATION PROOF (production change reverted, suite re-run, then restored):
+  | mutation                                                    | result           |
+  |-------------------------------------------------------------|------------------|
+  | L5: ten-char floor back at the top of accept.ts              | 1 failed — killed|
+  | L5: !isEstablished floor removed entirely                    | 1 failed — killed|
+  | L4: checkRateLimit moved back above the step-1 lookup        | 1 failed — killed|
+  | L3: als.exit dropped (counter rejoins the invite tx)         | 1 failed — killed|
+  | M2: DO UPDATE -> DO NOTHING in pages/api/invite/[token].ts   | 2 failed — killed|
+  | M1: register.tsx ignores signup=1                            | 1 failed — killed|
+  | M1: accept-invite drops ?signup=1 from the 409 forward       | 1 failed — killed|
+  | M1: /invite/[token].tsx stops propagating the flag           | 1 failed — killed|
+  | DB: re-apply 648 over 655 (search_path back to public first) | 1 failed — killed|
+  | L1: `if (opened)` -> unconditional ROLLBACK                  | still green — NOT covered, disclosed in R-030/fix.md |
+
+FULL UNIT SUITE, fixture env UNSET (env -u DATABASE_URL -u PLATFORM_ADMIN_DATABASE_URL
+-u MIGRATION_ADMIN_DATABASE_URL bunx vitest run):
+  Test Files  792 passed | 36 skipped (828)
+  Tests       9438 passed | 234 skipped (9672)
+COMPONENTS CONFIG, full: 62 files / 421 passed.
+
+GATES: bunx tsc --noEmit exit 0. bunx eslint on the six changed pages/ files exit 0.
+  check-migration-rls OK. check-raw-transaction-control OK (2679 files).
+  audit-migration-naming: 341 files, no new duplicate prefixes.
+  mirror-agent-docs --check: 74 mirrors match.
+
+---
+
+## Round 3 (fix of review-k041-r3.md) — gates executed 2026-09-09
+
+Integration, disposable PostgreSQL fixture (`isaflow_schema_fixture`), five invitation files:
+
+```
+ Test Files  5 passed (5)
+      Tests  28 passed (28)
+```
+
+(26 before this round; +1 k106 "a genuine throw from sendEmail is still recorded",
++1 k-041-invite-page "L6: accepting an invitation never writes the raw token to the log".
+The round-3 L1 and L7 assertions were added to the existing GoTrue-outage test.)
+
+Component suite (`vitest.components.config.ts`), DATABASE_URL unset:
+
+```
+ Test Files  62 passed (62)
+      Tests  424 passed (424)
+```
+
+Full unit suite, fixture env UNSET (`env -u DATABASE_URL -u PLATFORM_ADMIN_DATABASE_URL -u JWT_SECRET bunx vitest run`):
+
+```
+ Test Files  792 passed | 36 skipped (828)
+      Tests  9438 passed | 234 skipped (9672)
+```
+
+`bunx tsc --noEmit`: clean. `bunx eslint` on every changed `pages/` file: clean.
+(`tests/**` is outside `tsconfig.json`, so eslint's project service cannot parse test files;
+`bun run lint` only covers `src pages`.)
+
+### Mutation proofs
+
+| Mutation | Result |
+|---|---|
+| `if (!emailResult.success) emailError = …` → `void emailResult` (H1) | RED — k106 "a resolved send failure is recorded and reported, not read as success": `expected { status: 201, rowsPersisted: 1, …} to deeply equal {…}` (`emailSent: true, emailError: undefined`) |
+| `if (opened) await client.query('ROLLBACK')` → unconditional (L1) | RED — `expected [ …(2) ] to not include 'ROLLBACK'` at the admin-client assertion |
+| `withErrorHandler(withInviteToken(handler))` → `withInviteToken(handler)` on accept.ts (L7) | RED — `Error: disposable gotrue outage` escapes the handler again |
+| `log.info(…, { inviteId: inv.id, … })` → `{ token, … }` (L6) | RED — `expected '[["Invitation accepted via token page…' not to contain 'k041l000…'` |
+| `/register` reads `router.query.signup === '1'` instead of the server verdict (L3) | RED — "ignores ?signup=1 on a token the accept flow can complete" |
+
+### Direct fixture probes (not tests)
+
+M1 — the guarded `ALTER FUNCTION … OWNER TO` silently no-ops when the role is absent, and
+the unconditional form fails loudly (both inside `BEGIN … ROLLBACK`):
+
+```
+--- guarded form, role absent (silent no-op) ---
+ owner_after_guarded_form | rolsuper
+ postgres                 | t
+--- unconditional form, role absent (fails loudly) ---
+ERROR:  role "role_absent_probe" does not exist
+```
+
+Applied state after 663:
+
+```
+invite_token_company_name|migration_admin|f|t|{"search_path=pg_catalog, public"}|t
+```
+
+L5 — 662 applied twice inside one transaction against three seeded invitations
+(one clean, one with a prior SMTP error, one already carrying the note in the
+wording this file wrote when it was numbered 660), with `expires_at` reset
+between applications:
+
+```
+UPDATE 2      <- first application; the row already noted under 660 is skipped
+UPDATE 0      <- second application, nothing left to do
+ tok662a | Invitation link retired by migration 662 (token encoding change) — please resend
+ tok662b | SMTP boom | Invitation link retired by migration 662 (token encoding change) — please resend
+ tok662c | Invitation link retired by migration 660 (token encoding change) — please resend
+```
+
+M2 — policies on `public.companies` on the fixture after 662 → 648 → 663:
+
+```
+companies_admin_update
+companies_member_read
+```
+
+No invite policy. Nothing left behind: every probe ran inside `BEGIN … ROLLBACK`.
+
+================================================================
+ROUND 4 (2026-09-09) — 1 MEDIUM + 6 LOW, all fixed
+================================================================
+
+Integration (fixture DB + stubbed GoTrue), five invite files:
+  bunx vitest run --config vitest.integration.config.ts \
+    tests/integration/k-041-invite-accept-overwrites-existing-password.int.test.ts \
+    tests/integration/k-041-invite-page-reinvite-role.int.test.ts \
+    tests/integration/k-042-reinvite-unique-violation.int.test.ts \
+    tests/integration/k104-k105-invitation-token-encoding.int.test.ts \
+    tests/integration/k106-invitation-502-rollback.int.test.ts
+  -> Test Files 5 passed (5) · Tests 31 passed (31)      [was 28; +3 new]
+
+Components:
+  bunx vitest run --config vitest.components.config.ts tests/unit/components/inviteSignupLoop.test.tsx
+  -> 8 passed (8)
+
+FULL unit suite, fixture env UNSET (env -u DATABASE_URL -u PLATFORM_ADMIN_DATABASE_URL
+-u ISAFLOW_DISPOSABLE_AUTH_TEST bunx vitest run):
+  -> Test Files 792 passed | 36 skipped (828) · Tests 9438 passed | 234 skipped (9672)
+
+bunx tsc --noEmit                  -> clean (exit 0)
+bunx eslint <4 changed pages files> -> clean (exit 0)
+bun scripts/audit-migration-naming.ts -> 341 files scanned, no new duplicate prefixes
+
+Mutation proofs (production change reverted, test re-run, then restored):
+  1. L3 pre-check deleted        -> L3 test FAILS: 'duplicate key value violates unique
+                                    constraint "users_email_key"', 500 instead of 409 (1 failed | 12 passed)
+  2. `email = EXCLUDED.email` restored on the conflict branch
+                                 -> L4 test FAILS (profile email reverted to the invited address)
+  3. profileName() bypassed      -> L5 test FAILS: 'value too long for type character
+                                    varying(255)', 500 instead of 200
+  4. ?signup=1 propagation restored in accept-invite.tsx + invite/[token].tsx
+                                 -> inviteSignupLoop 2 failed | 6 passed
+  5. M1 schema_migrations guard removed from 662, replayed on the fixture inside BEGIN…ROLLBACK
+     with a valid hashed-token invitation and a recorded 643_… row:
+        with guard:    UPDATE 0, still_live = t
+        without guard: UPDATE 1, still_live = f   <- the defect
+     First-run behaviour unchanged with the guard in place: UPDATE 1, row retired with the note.
+  (L2, the memoised admin pool, has no behavioural test: it is a resource fix. It is covered
+   only by the 13 accept tests continuing to pass with the pool now shared across requests.)
+
+Every fixture probe ran inside BEGIN … ROLLBACK; nothing left behind.
+
+=====================================================================
+ROUND 5 (review-k041-r5.md: 0 HIGH, 3 MEDIUM, 7 LOW) — 2026-09-10T04:44:19+02:00
+=====================================================================
+
+GREEN — 6 integration files, fixture DB (bun run test:integration):
+  k-041-invite-accept-overwrites-existing-password.int.test.ts
+  k-041-invite-accept-adjacent.int.test.ts
+  k-041-invite-page-reinvite-role.int.test.ts
+  k-042-reinvite-unique-violation.int.test.ts
+  k104-k105-invitation-token-encoding.int.test.ts
+  k106-invitation-502-rollback.int.test.ts
+  -> Test Files  6 passed (6) / Tests  34 passed (34)
+
+FULL UNIT SUITE, DATABASE_URL UNSET (env -u DATABASE_URL bun run test:unit):
+  -> Test Files  792 passed | 36 skipped (828)
+  -> Tests  9438 passed | 234 skipped (9672)
+
+tsc --noEmit                          : clean
+eslint (6 changed src/pages files)    : clean
+eslint (3 test files)                 : the pre-existing "not found by the project
+  service" parse error that every file under tests/** produces (tsconfig excludes
+  tests/**); reproduced on untouched tests/integration/k106-invitation-502-rollback.int.test.ts.
+bun scripts/audit-migration-naming.ts : "No new duplicate prefixes found."
+
+MUTATION PROOF (each mutation applied to pages/api/invitations/[token]/accept.ts,
+adjacent spec re-run, then the file restored from a byte-for-byte backup):
+  MUT-1  profileName reverted to trimmed.slice(0, 255)  -> 1 failed | 5 passed (6)
+  MUT-2  email_confirm: true removed from the patch     -> 1 failed | 5 passed (6)
+  MUT-3  23505 catch removed (violation escapes)        -> 1 failed | 5 passed (6)
+  MUT-4  both await refund() calls removed              -> 2 failed | 4 passed (6)
+  restore verified: git diff --stat unchanged at 58 insertions(+), 23 deletions(-)
+  raw output: /tmp/claude-1003/-home-hein-Workspace-IsaFlow/a343cb6e-63c0-41df-aedb-6490b827844a/scratchpad/mutation-r6.log

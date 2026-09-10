@@ -1,0 +1,42 @@
+$ node scripts/check-runtime.mjs && vitest run --config vitest.integration.config.ts "tests/integration/k087-opening-balance-negative-zeroed.int.test.ts"
+
+ RUN  v4.1.2 /home/hein/Workspace/IsaFlow/.worktrees/audit-remediation-20260908
+
+{"level":"error","message":"Failed to create journal entry","timestamp":"2026-09-09T09:29:46.184Z","component":"accounting","data":{"error":{"name":"Error","message":"Invalid journal entry: Line 1: A line must have a non-zero debit or credit amount; Line 2: A line must have a non-zero debit or credit amount","stack":"Error: Invalid journal entry: Line 1: A line must have a non-zero debit or credit amount; Line 2: A line must have a non-zero debit or credit amount\n    at createJournalEntry (/home/hein/Workspace/IsaFlow/.worktrees/audit-remediation-20260908/src/modules/accounting/services/gl/journalEntryCrudService.ts:210:34)\n    at postOpeningBalances (/home/hein/Workspace/IsaFlow/.worktrees/audit-remediation-20260908/src/modules/accounting/services/core/migrationOpeningBalanceService.ts:94:23)\n    at processTicksAndRejections (node:internal/process/task_queues:95:5)\n    at post (/home/hein/Workspace/IsaFlow/.worktrees/audit-remediation-20260908/tests/integration/k087-opening-balance-negative-zeroed.int.test.ts:81:19)\n    at /home/hein/Workspace/IsaFlow/.worktrees/audit-remediation-20260908/tests/integration/k087-opening-balance-negative-zeroed.int.test.ts:112:17\n    at file:///home/hein/Workspace/IsaFlow/.worktrees/audit-remediation-20260908/node_modules/@vitest/runner/dist/chunk-artifact.js:1893:20"}}}
+ ❯ tests/integration/k087-opening-balance-negative-zeroed.int.test.ts (2 tests | 2 failed) 248ms
+   × a footing trial balance with a bank in overdraft is imported, not refused 17ms
+   × offsetting contra balances are not silently dropped 11ms
+
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 2 ⎯⎯⎯⎯⎯⎯⎯
+
+ FAIL  tests/integration/k087-opening-balance-negative-zeroed.int.test.ts > a footing trial balance with a bank in overdraft is imported, not refused
+Error: source trial balance does not sum to zero — debits R1000.00 vs credits R600.00 (difference R400.00); opening balances not imported
+ ❯ postOpeningBalances src/modules/accounting/services/core/migrationOpeningBalanceService.ts:84:11
+
+ ❯ post tests/integration/k087-opening-balance-negative-zeroed.int.test.ts:81:19
+ ❯ tests/integration/k087-opening-balance-negative-zeroed.int.test.ts:92:3
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[1/2]⎯
+
+ FAIL  tests/integration/k087-opening-balance-negative-zeroed.int.test.ts > offsetting contra balances are not silently dropped
+Error: Invalid journal entry: Line 1: A line must have a non-zero debit or credit amount; Line 2: A line must have a non-zero debit or credit amount
+ ❯ createJournalEntry src/modules/accounting/services/gl/journalEntryCrudService.ts:210:34
+    208|   try {
+    209|     const validation = validateJournalEntry(input.lines);
+    210|     if (!validation.valid) throw new Error(`Invalid journal entry: ${v…
+       |                                  ^
+    211|
+    212|     let fiscalPeriodId = input.fiscalPeriodId;
+ ❯ postOpeningBalances src/modules/accounting/services/core/migrationOpeningBalanceService.ts:94:23
+ ❯ post tests/integration/k087-opening-balance-negative-zeroed.int.test.ts:81:19
+ ❯ tests/integration/k087-opening-balance-negative-zeroed.int.test.ts:112:17
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[2/2]⎯
+
+
+ Test Files  1 failed (1)
+      Tests  2 failed (2)
+   Start at  11:29:44
+   Duration  1.57s (transform 508ms, setup 0ms, import 758ms, tests 248ms, environment 0ms)
+
+error: script "test:integration" exited with code 1

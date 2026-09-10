@@ -185,7 +185,7 @@ describe('post_reclassification_batch', () => {
   it('renders a candidate-line lock timeout the same way', async () => {
     planReclassification.mockRejectedValue(
       Object.assign(new Error('Journal lines are being reclassified by another request — retry in a moment.'),
-        { code: 'RECLASS_LINE_LOCKED' }),
+        { code: 'RECLASS_LINE_LOCK_TIMEOUT' }),
     );
     const out = await postReclassificationBatchTool.handler(
       { source_account_id: SRC, target_account_id: TGT, idempotency_key: 'k-lines' }, CTX,

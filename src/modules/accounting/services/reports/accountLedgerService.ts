@@ -15,52 +15,8 @@ import { log } from '@/lib/logger';
 
 type Row = DbRow;
 
-export interface AccountLedgerRow {
-  journalEntryId: string;
-  entryDate: string;
-  entryNumber: string;
-  description: string;
-  reference: string;
-  source: string;
-  debit: number;
-  credit: number;
-  runningBalance: number;
-}
-
-export interface AccountLedgerMeta {
-  accountId: string;
-  accountCode: string;
-  accountName: string;
-  accountType: string;
-  normalBalance: string;
-}
-
-export interface AccountLedgerResult {
-  rows: AccountLedgerRow[];
-  total: number;
-  openingBalance: number;
-  /** Sum of (debits − credits) over the FULL date range — server-computed, not a client-side slice reduce. */
-  periodNet: number;
-  /** Opening balance + periodNet — the true period closing balance regardless of pagination. */
-  periodClosingBalance: number;
-  meta: AccountLedgerMeta;
-}
-
-export interface GetAccountLedgerParams {
-  companyId: string;
-  /** UUID of the GL account. Either accountId or accountCode is required. */
-  accountId?: string;
-  /** Account code (e.g. "1110"). Either accountId or accountCode is required. */
-  accountCode?: string;
-  fromDate: string;
-  toDate: string;
-  /** Default: true — only include posted entries */
-  postedOnly?: boolean;
-  /** Default: 200 */
-  limit?: number;
-  /** Default: 0 */
-  offset?: number;
-}
+import type { AccountLedgerRow, AccountLedgerMeta, AccountLedgerResult, GetAccountLedgerParams } from './accountLedgerTypes';
+export type { AccountLedgerRow, AccountLedgerMeta, AccountLedgerResult, GetAccountLedgerParams } from './accountLedgerTypes';
 
 // WORKING: All WHERE clauses include company_id on both je and jl tables.
 export async function getAccountLedger(
@@ -70,12 +26,17 @@ export async function getAccountLedger(
     companyId,
     accountId,
     accountCode,
+    costCentreId,
+    businessUnitId,
     fromDate,
     toDate,
     postedOnly = true,
     limit = 200,
     offset = 0,
   } = params;
+
+  const cc = costCentreId ?? null;
+  const bu = businessUnitId ?? null;
 
   if (!accountId && !accountCode) {
     throw new Error('Either accountId or accountCode is required');
@@ -128,6 +89,9 @@ export async function getAccountLedger(
           WHERE jl.company_id    = ${companyId}::UUID
             AND je.company_id    = ${companyId}::UUID
             AND jl.gl_account_id = ${resolvedAccountId}::UUID
+            AND (${cc}::uuid IS NULL OR jl.cost_center_id = ${cc}::uuid
+              OR jl.cc1_id = ${cc}::uuid OR jl.cc2_id = ${cc}::uuid)
+            AND (${bu}::uuid IS NULL OR jl.bu_id = ${bu}::uuid)
             AND je.entry_date    < ${fromDate}
             AND je.status        = 'posted'
         `) as Row[]
@@ -140,6 +104,9 @@ export async function getAccountLedger(
           WHERE jl.company_id    = ${companyId}::UUID
             AND je.company_id    = ${companyId}::UUID
             AND jl.gl_account_id = ${resolvedAccountId}::UUID
+            AND (${cc}::uuid IS NULL OR jl.cost_center_id = ${cc}::uuid
+              OR jl.cc1_id = ${cc}::uuid OR jl.cc2_id = ${cc}::uuid)
+            AND (${bu}::uuid IS NULL OR jl.bu_id = ${bu}::uuid)
             AND je.entry_date    < ${fromDate}
         `) as Row[];
 
@@ -159,6 +126,9 @@ export async function getAccountLedger(
           WHERE jl.company_id    = ${companyId}::UUID
             AND je.company_id    = ${companyId}::UUID
             AND jl.gl_account_id = ${resolvedAccountId}::UUID
+            AND (${cc}::uuid IS NULL OR jl.cost_center_id = ${cc}::uuid
+              OR jl.cc1_id = ${cc}::uuid OR jl.cc2_id = ${cc}::uuid)
+            AND (${bu}::uuid IS NULL OR jl.bu_id = ${bu}::uuid)
             AND je.entry_date   >= ${fromDate}
             AND je.entry_date   <= ${toDate}
             AND je.status        = 'posted'
@@ -170,6 +140,9 @@ export async function getAccountLedger(
           WHERE jl.company_id    = ${companyId}::UUID
             AND je.company_id    = ${companyId}::UUID
             AND jl.gl_account_id = ${resolvedAccountId}::UUID
+            AND (${cc}::uuid IS NULL OR jl.cost_center_id = ${cc}::uuid
+              OR jl.cc1_id = ${cc}::uuid OR jl.cc2_id = ${cc}::uuid)
+            AND (${bu}::uuid IS NULL OR jl.bu_id = ${bu}::uuid)
             AND je.entry_date   >= ${fromDate}
             AND je.entry_date   <= ${toDate}
         `) as Row[];
@@ -193,6 +166,9 @@ export async function getAccountLedger(
           WHERE jl.company_id    = ${companyId}::UUID
             AND je.company_id    = ${companyId}::UUID
             AND jl.gl_account_id = ${resolvedAccountId}::UUID
+            AND (${cc}::uuid IS NULL OR jl.cost_center_id = ${cc}::uuid
+              OR jl.cc1_id = ${cc}::uuid OR jl.cc2_id = ${cc}::uuid)
+            AND (${bu}::uuid IS NULL OR jl.bu_id = ${bu}::uuid)
             AND je.entry_date   >= ${fromDate}
             AND je.entry_date   <= ${toDate}
             AND je.status        = 'posted'
@@ -215,6 +191,9 @@ export async function getAccountLedger(
           WHERE jl.company_id    = ${companyId}::UUID
             AND je.company_id    = ${companyId}::UUID
             AND jl.gl_account_id = ${resolvedAccountId}::UUID
+            AND (${cc}::uuid IS NULL OR jl.cost_center_id = ${cc}::uuid
+              OR jl.cc1_id = ${cc}::uuid OR jl.cc2_id = ${cc}::uuid)
+            AND (${bu}::uuid IS NULL OR jl.bu_id = ${bu}::uuid)
             AND je.entry_date   >= ${fromDate}
             AND je.entry_date   <= ${toDate}
           ORDER BY je.entry_date ASC, je.id ASC
@@ -254,6 +233,9 @@ export async function getAccountLedger(
           WHERE jl.company_id    = ${companyId}::UUID
             AND je.company_id    = ${companyId}::UUID
             AND jl.gl_account_id = ${resolvedAccountId}::UUID
+            AND (${cc}::uuid IS NULL OR jl.cost_center_id = ${cc}::uuid
+              OR jl.cc1_id = ${cc}::uuid OR jl.cc2_id = ${cc}::uuid)
+            AND (${bu}::uuid IS NULL OR jl.bu_id = ${bu}::uuid)
             AND je.entry_date   >= ${fromDate}
             AND je.entry_date   <= ${toDate}
             AND je.status        = 'posted'
@@ -267,6 +249,9 @@ export async function getAccountLedger(
           WHERE jl.company_id    = ${companyId}::UUID
             AND je.company_id    = ${companyId}::UUID
             AND jl.gl_account_id = ${resolvedAccountId}::UUID
+            AND (${cc}::uuid IS NULL OR jl.cost_center_id = ${cc}::uuid
+              OR jl.cc1_id = ${cc}::uuid OR jl.cc2_id = ${cc}::uuid)
+            AND (${bu}::uuid IS NULL OR jl.bu_id = ${bu}::uuid)
             AND je.entry_date   >= ${fromDate}
             AND je.entry_date   <= ${toDate}
         `) as Row[];

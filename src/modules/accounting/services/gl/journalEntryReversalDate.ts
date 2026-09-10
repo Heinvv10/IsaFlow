@@ -1,11 +1,31 @@
 /**
- * Which date a reversal's contra entry carries, and the guards on an explicit
- * one. Split out of `journalEntryPostingService` (300-line ceiling); it is
- * re-exported from there and from `journalEntryService`, so no caller moved.
+ * Which date the contra of a reversal carries.
+ *
+ * Split out of journalEntryPostingService so that file stays inside the
+ * 300-line cap. The rules are unchanged and still pinned by
+ * tests/unit/services/journalEntryReversalDate.test.ts.
  */
 
 import { fmtDate } from '@/lib/fmtDate';
 import { getPeriodStatusForDate } from './periodStatusService';
+
+/**
+ * A correction belongs in the period it corrects. Dating every reversal to
+ * TODAY moved the correction into a later period than the entry it undoes: the
+ * two no longer net to zero in any period-bounded report, and when the pair
+ * straddles a VAT period the return for the original period stays overstated
+ * while the next one is understated.
+ *
+ * So: date the reversal to the ORIGINAL entry_date when that period is still
+ * open, and fall back to today only when it is not. The fallback is what the
+ * previous unconditional-today rule was really protecting — a closed original
+ * period must not make old documents permanently un-cancellable, and
+ * postJournalEntry would throw ClosedFiscalPeriodError.
+ *
+ * All of that is the DEFAULT. A caller may name the date instead, and when it
+ * does the original period is not even consulted: the fallback it drives is
+ * precisely what is being overridden.
+ */
 
 /** A calendar date, and a real one — `2026-02-30` matches the shape but is not a day. */
 function isCalendarDate(value: string): boolean {
@@ -18,8 +38,8 @@ function isCalendarDate(value: string): boolean {
 /**
  * Which date the contra carries.
  *
- * Without an explicit date the default is the original entry's date when its
- * period is open, and today when it is closed.
+ * Without an explicit date this is the default described above: the original
+ * entry's date when its period is open, today when it is closed.
  *
  * With one, the caller wins over the ORIGINAL period's status — that fallback is
  * exactly what people ask to override (correcting a closed month from the open

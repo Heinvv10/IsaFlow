@@ -14,6 +14,12 @@
  *   the ledger. `create_draft_journal` (`writeJournals.ts`) has always refused
  *   it; this is the same refusal on the REST path. Migration 664 adds the
  *   composite FK that makes the pair unrepresentable.
+ * - `cc1_id` / `cc2_id`: the two analysis columns, checked by
+ *   `assertJournalCostCentres` (`journalCostCentreValidation.ts`) and delegated
+ *   to from here so `createJournalEntry` has ONE assertion to call and no id on
+ *   a new line can be added to the INSERT without a home in this module. That
+ *   check deliberately does NOT require `is_active`: withdrawing a cost centre
+ *   from the picker must not block correcting the history coded to it.
  * - `project_id`, `cost_center_id`, `bu_id`: these carry NO foreign key at all,
  *   so a line can be tagged to a dimension this company cannot see or manage,
  *   invisible to every dimension filter and to `costCentreService`'s
@@ -47,6 +53,7 @@
 
 import { sql } from '@/lib/neon';
 import { accountsBelongToCompany } from './chartOfAccountsService';
+import { assertJournalCostCentres } from './journalCostCentreValidation';
 import type { JournalLineInput } from '../../types/gl.types';
 
 type Dimension = 'project' | 'cost centre' | 'business unit';
@@ -118,7 +125,8 @@ export function ownedOrNull(owned: ReadonlySet<string>, id: string | null | unde
 
 /**
  * Throws before anything is written if any line names a GL account, project,
- * cost centre or business unit belonging to another company.
+ * cost centre, business unit or CC1/CC2 analysis code belonging to another
+ * company.
  */
 export async function assertJournalLinesOwned(companyId: string, lines: JournalLineInput[]): Promise<void> {
   if (!(await accountsBelongToCompany(companyId, lines.map((l) => l.glAccountId)))) {
@@ -127,4 +135,5 @@ export async function assertJournalLinesOwned(companyId: string, lines: JournalL
   await assertDimensionOwned('project', companyId, lines.map((l) => l.projectId));
   await assertDimensionOwned('cost centre', companyId, lines.map((l) => l.costCenterId));
   await assertDimensionOwned('business unit', companyId, lines.map((l) => l.buId));
+  await assertJournalCostCentres(companyId, lines);
 }
