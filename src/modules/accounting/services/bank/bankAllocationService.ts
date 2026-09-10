@@ -22,6 +22,7 @@ import { autoApplyCustomerReceipt } from '../ar/customerAutoAllocate';
 import { unwindBankAllocationApplication } from './bankAllocationUnwind';
 import type { BankAllocationUnwindResult } from './bankAllocationUnwind';
 import { lockBankTransactionForUpdate } from './bankTxLock';
+import { BankAllocationRefusal } from './bankAllocationRefusal';
 import { autoLinkCounterpartyTransfer } from './bankTransferAutoLink';
 import { assertCustomerInCompany } from '../core/contactDirectoryService';
 
@@ -106,8 +107,13 @@ export async function allocateTransaction(
   // allocate blocks here rather than passing the same status check and posting
   // a second journal for one transaction.
   const tx = await lockBankTransactionForUpdate(companyId, bankTxId);
-  if (!tx) throw new Error(`Bank transaction ${bankTxId} not found`);
-  if (tx.status !== 'imported') throw new Error(`Transaction already ${tx.status} — cannot allocate`);
+  // BankAllocationRefusal, not a bare Error: both are decided from the locked
+  // row before the first write, and a caller that can show that ordering may
+  // answer them with a 4xx instead of the 500 every later throw here needs.
+  if (!tx) throw new BankAllocationRefusal(`Bank transaction ${bankTxId} not found`);
+  if (tx.status !== 'imported') {
+    throw new BankAllocationRefusal(`Transaction already ${tx.status} — cannot allocate`);
+  }
 
   // R-067. `entityId` arrives in the request body (bank-transactions-action.ts:40
   // validates its UUID SHAPE only) and is written into `customer_payments.client_id`
@@ -548,8 +554,15 @@ export async function splitAllocateTransaction(
   companyId: string, bankTxId: string, lines: SplitLine[], userId: string,
 ): Promise<{ journalEntryId: string; bankTransaction: BankTransaction }> {
   const tx = await lockBankTransactionForUpdate(companyId, bankTxId); // see allocateTransaction
-  if (!tx) throw new Error(`Bank transaction ${bankTxId} not found`);
-  if (tx.status !== 'imported') throw new Error(`Transaction already ${tx.status} — cannot split allocate`);
+  // Same two pre-write refusals as `allocateTransaction`, and the same class:
+  // both are decided from the locked row before anything is written, so a
+  // caller that can show that ordering may answer them with a 4xx. Left as bare
+  // Errors here they would have to be told apart by message text — which is
+  // exactly what `BankAllocationRefusal` exists to stop.
+  if (!tx) throw new BankAllocationRefusal(`Bank transaction ${bankTxId} not found`);
+  if (tx.status !== 'imported') {
+    throw new BankAllocationRefusal(`Transaction already ${tx.status} — cannot split allocate`);
+  }
   if (!lines || lines.length === 0) throw new Error('At least one split line is required');
 
   const totalAmount = Math.abs(Number(tx.amount));

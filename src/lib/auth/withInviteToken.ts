@@ -5,7 +5,8 @@ import pg from 'pg';
 // in this process. This file builds its own Pool, so it must not depend on
 // src/lib/neon.ts having been imported first. See src/lib/pgTypes.ts.
 import '@/lib/pgTypes';
-import { als } from '@/lib/als';
+import type { RequestContext } from '@/lib/als';
+import { runOwnedContext, drainAfterCommit } from '@/lib/afterCommit';
 import { hashInviteToken } from './inviteToken';
 
 let _pool: pg.Pool | null = null;
@@ -54,11 +55,10 @@ export function withInviteToken(handler: Handler): NextApiHandler {
       // The RLS policy invites_by_token compares this GUC to the stored column,
       // which holds the digest — never the raw token from the link.
       await client.query(`SELECT set_config('app.invite_token', $1, true)`, [tokenHash]);
-      await als.run(
-        { client, userId: '', companyId: '', claims: {} },
-        async () => { await handler(req, res); }
-      );
+      const ctx: RequestContext = { client, userId: '', companyId: '', claims: {}, afterCommit: [] };
+      await runOwnedContext(ctx, async () => { await handler(req, res); });
       await client.query('COMMIT');
+      drainAfterCommit(ctx);
     } catch (err) {
       try { await client.query('ROLLBACK'); } catch { /* secondary */ }
       throw err;

@@ -21,6 +21,11 @@ import {
 } from '@/modules/accounting/services/core/aiInvoicePipelineService';
 import type { ExtractedDocument } from '@/modules/accounting/types/documentCapture.types';
 import { decide } from '@/modules/accounting/services/capture/autoPublishGateService';
+import {
+  lockCaptureEventForPosting,
+  CaptureEventLockedError,
+  isCaptureEventPostable,
+} from '@/modules/accounting/services/capture/captureEventLock';
 import { computeFingerprint } from '@/modules/accounting/services/capture/captureDeduplicationService';
 import { recordCoding } from '@/modules/accounting/services/capture/supplierRulesService';
 import { performThreeWayMatch } from '@/modules/accounting/services/ap/supplierInvoiceWorkflowService';
@@ -47,26 +52,37 @@ async function handler(req: CompanyAuthedRequest, res: NextApiResponse) {
 
   if (!eventId) return apiResponse.badRequest(res, 'eventId is required');
 
-  // Load event + document
-  const eventRows = await sql`
-    SELECT ce.id AS event_id, ce.status AS event_status,
-           ce.captured_document_id, cd.extracted_data
-    FROM capture_events ce
-    JOIN captured_documents cd ON cd.id = ce.captured_document_id
-    WHERE ce.id = ${eventId}::uuid
-      AND ce.company_id = ${companyId}
-      AND cd.company_id = ${companyId}
-    LIMIT 1
-  ` as Row[];
+  // Load event + document under a row lock on the event.
+  //
+  // The lock is what makes the 'already posted' refusal below meaningful. A
+  // plain SELECT let two concurrent requests both read a non-posted status,
+  // both pass the check, and both INSERT a supplier_invoice — one captured bill
+  // accrued twice against the payable control account. The closing UPDATE
+  // carries no status predicate, so nothing downstream caught it either.
+  let event: Row | null;
+  try {
+    event = (await lockCaptureEventForPosting(companyId, eventId)) as Row | null;
+  } catch (lockErr) {
+    if (lockErr instanceof CaptureEventLockedError) {
+      return apiResponse.conflict(res, lockErr.message);
+    }
+    throw lockErr;
+  }
 
-  if (eventRows.length === 0) {
+  if (!event) {
     return apiResponse.notFound(res, 'Capture event', eventId);
   }
 
-  const event = eventRows[0]!;
-
-  if (event.event_status === 'posted') {
-    return apiResponse.badRequest(res, 'Event already posted');
+  // Postable is an ALLOW-list (`captureEventLock.ts`), not `status === 'posted'`.
+  // Naming one value left every OTHER terminal state postable: a user could
+  // discard a captured document and then post it anyway, with no race at all.
+  if (!isCaptureEventPostable(event.event_status)) {
+    return apiResponse.badRequest(
+      res,
+      event.event_status === 'posted'
+        ? 'Event already posted'
+        : `Event cannot be posted from status '${String(event.event_status)}'`,
+    );
   }
 
   if (!event.extracted_data) {

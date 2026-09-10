@@ -18,6 +18,7 @@
 
 import type { NextApiRequest, NextApiResponse } from 'next';
 import { log } from '@/lib/logger';
+import { runAfterCommit } from '@/lib/afterCommit';
 import { apiResponse } from '@/lib/apiResponse';
 import {
   deductFlows,
@@ -137,14 +138,15 @@ export function withFlowMeter(operationCode: FlowOperationCode, flowCost: number
         }
         if (handlerError) throw handlerError;
       } else {
-        // Fire-and-forget nudge recalc — never blocks the response.
-        void recalculateNudge(companyId).catch((err: unknown) => {
+        // Nudge recalc — never blocks the response, and starts only after the
+        // request COMMITs, on its own connection (R-075).
+        runAfterCommit('recalculateNudge', () => recalculateNudge(companyId).catch((err: unknown) => {
           log.warn(
             'recalculateNudge failed',
             err instanceof Error ? { message: err.message, companyId } : { err, companyId },
             'BILLING',
           );
-        });
+        }));
       }
     };
   };
