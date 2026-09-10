@@ -43,3 +43,10 @@ Counts above total53. Each economic assertion remains required even when helper 
 - Current RED reproduced; all original files retained.
 - Initial five lifecycle cases authored (three SAST adapters and two inverse identity variants); no replacement PostgreSQL acceptance yet.
 - Root owns intermediate full CI resource lease; this worker has run focused units only.
+
+## Verification checkpoint
+
+- Initial command without integration config terminated `No test files found` before DB access; retained in `/tmp/isaflow-bank39-lifecycle-first.log`, not counted as a behavior RED.
+- Correct command: `bunx vitest run --config vitest.integration.config.ts tests/integration/controls/bank39Lifecycle.int.test.ts`, explicit validated synthetic environment. Handle87318 terminal0: **5 actual PostgreSQL cases passed**,1.87s, pool closed. Log `/tmp/isaflow-bank39-lifecycle-first-pg.log`.
+- Four additional lock/batch cases committed `5cdd4344c`; not yet run. No old test retired.
+- Root approved the two narrow observability/targeted-child compatibility decisions above. Financial totals, user-visible refusal messages and provenance remain required.
