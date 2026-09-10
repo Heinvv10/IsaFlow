@@ -26,8 +26,8 @@ async function transaction<T>(fn:(store:RequestContext)=>Promise<T>,person:'u1'|
  }catch(error){await client.query('ROLLBACK');throw error;}finally{client.release();}
 }
 async function leased(){
- await pool.query("UPDATE personal_access_tokens SET revoked_at=NULL,scopes=ARRAY['read:reports'] WHERE company_id=$1 AND user_id=$2 AND id=$3",[fixture.companyA,fixture.u1.id,fixture.u1.tokens[0]!.id]);
- return transaction(store=>withControlRequest(store,{personId:store.userId,companyId:store.companyId!,authMethod:'pat',connectionId:fixture.u1.tokens[0]!.id,grantId:fixture.u1.tokens[0]!.id,grantedScopes:['read:reports']},async()=>{
+ await pool.query("UPDATE personal_access_tokens SET revoked_at=NULL,scopes=ARRAY['read:reports','write:audit'] WHERE company_id=$1 AND user_id=$2 AND id=$3",[fixture.companyA,fixture.u1.id,fixture.u1.tokens[0]!.id]);
+ return transaction(store=>withControlRequest(store,{personId:store.userId,companyId:store.companyId!,authMethod:'pat',connectionId:fixture.u1.tokens[0]!.id,grantId:fixture.u1.tokens[0]!.id,grantedScopes:['read:reports','write:audit']},async()=>{
   const job=await enqueueAuditSnapshot(requireControlTx(),{cutoff:'2026-09-09',sources:['journals'],checks:[],idempotencyKey:randomUUID()});
   const lease=await claimAuditJob(requireControlTx(),job.id,AUDIT_WORKER_CLASS_KINDS.audit);expect(lease).not.toBeNull();return lease!;
  }));

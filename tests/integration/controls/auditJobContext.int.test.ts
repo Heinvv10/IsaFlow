@@ -16,13 +16,13 @@ let fixture:ForensicFixture;
 const oauthApp=randomUUID(),oauthGrant=randomUUID();
 beforeAll(async()=>{
  fixture=await provisionForensicFixture(config);
- await pool.query("UPDATE personal_access_tokens SET scopes=ARRAY['read:reports'] WHERE company_id=$1 AND user_id=$2 AND id=$3",
+ await pool.query("UPDATE personal_access_tokens SET scopes=ARRAY['read:reports','write:audit'] WHERE company_id=$1 AND user_id=$2 AND id=$3",
   [fixture.companyA,fixture.u1.id,fixture.u1.tokens[0]!.id]);
  await pool.query(`INSERT INTO oauth_apps(id,name,redirect_uris,client_id,client_secret_hash,client_secret_prefix,owner_user_id)
   VALUES($1,'Synthetic job delegation',$2,$3,$4,'synthetic',$5)`,
  [oauthApp,['https://forensic.invalid/callback'],oauthApp,`synthetic-${oauthApp}`,fixture.u1.id]);
  await pool.query(`INSERT INTO oauth_authorisations(id,oauth_app_id,user_id,company_id,scopes,access_token_expires_at,refresh_token_hash,refresh_token_prefix,refresh_token_expires_at)
-  VALUES($1,$2,$3,$4,ARRAY['read:reports'],clock_timestamp()+interval '1 day',$5,'synthetic',clock_timestamp()+interval '1 day')`,
+  VALUES($1,$2,$3,$4,ARRAY['read:reports','write:audit'],clock_timestamp()+interval '1 day',$5,'synthetic',clock_timestamp()+interval '1 day')`,
  [oauthGrant,oauthApp,fixture.u1.id,fixture.companyA,`synthetic-${oauthGrant}`]);
 });
 afterAll(()=>pool.end());
@@ -34,8 +34,8 @@ async function actor<T>(mode:'cookie'|'pat'|'oauth'|AuditJobLease,fn:()=>Promise
   await client.query("SELECT set_config('request.jwt.claims',$1,true),set_config('app.current_company_id',$2,true)",[JSON.stringify(claims),user.companyId]);
   const store={client,userId:user.id,companyId:user.companyId,claims};
   const value=typeof mode==='object'?await withControlJobRequest(store,mode,fn):await withControlRequest(store,
-   {personId:user.id,companyId:user.companyId,authMethod:mode,...(mode==='pat'?{connectionId:user.tokens[0]!.id,grantId:user.tokens[0]!.id,grantedScopes:['read:reports']}:
-    mode==='oauth'?{connectionId:oauthGrant,grantId:oauthGrant,grantedScopes:['read:reports']}: {})},fn);
+   {personId:user.id,companyId:user.companyId,authMethod:mode,...(mode==='pat'?{connectionId:user.tokens[0]!.id,grantId:user.tokens[0]!.id,grantedScopes:['read:reports','write:audit']}:
+    mode==='oauth'?{connectionId:oauthGrant,grantId:oauthGrant,grantedScopes:['read:reports','write:audit']}: {})},fn);
   await client.query('COMMIT');return value;
  }catch(error){await client.query('ROLLBACK');throw error;}finally{client.release();}
 }
