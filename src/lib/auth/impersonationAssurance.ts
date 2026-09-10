@@ -1,5 +1,6 @@
 import { createHmac } from 'crypto';
 import { jwtVerify, SignJWT, type JWTPayload } from 'jose';
+import { log } from '@/lib/logger';
 
 const ISSUER = 'isaflow';
 const AUDIENCE = 'isaflow-impersonation';
@@ -62,13 +63,28 @@ export async function impersonationActor(proof: string, target: JWTPayload): Pro
       && Number.isSafeInteger(payload.exp) && Number.isSafeInteger(payload.iat)
       && payload.exp! > payload.iat! && payload.exp! - payload.iat! <= 3600;
     if (!valid) return null;
-    // Lazy so the signature-only surface stays importable without a database.
-    const { impersonationDelegationLive } = await import('./impersonationDelegation');
-    const live = await impersonationDelegationLive(String(payload.stashId), String(payload.actorUserId),
-      target.sub, target.session_id);
-    return live ? String(payload.actorUserId) : null;
+    return await delegationIfLive(String(payload.stashId), String(payload.actorUserId), target.sub, target.session_id);
   } catch {
     // Invalid delegation never authorizes: the caller retains ordinary MFA checks.
+    return null;
+  }
+}
+
+/**
+ * A liveness check that cannot run (missing function, missing EXECUTE for the DATABASE_URL
+ * login role, database unavailable) refuses the proof: the request falls back to ordinary
+ * MFA checks, so the impersonation MFA bypass is off. That is fail-closed, not a 500 - and
+ * it is logged, because it is otherwise indistinguishable from an ended delegation.
+ */
+async function delegationIfLive(stashId: string, actorUserId: string, targetUserId: string,
+  targetSessionId: string): Promise<string | null> {
+  try {
+    // Lazy so the signature-only surface stays importable without a database.
+    const { impersonationDelegationLive } = await import('./impersonationDelegation');
+    return await impersonationDelegationLive(stashId, actorUserId, targetUserId, targetSessionId) ? actorUserId : null;
+  } catch (error) {
+    log.error('impersonation delegation liveness could not be checked; proof refused',
+      { stashId, message: error instanceof Error ? error.message : String(error) }, 'Auth');
     return null;
   }
 }

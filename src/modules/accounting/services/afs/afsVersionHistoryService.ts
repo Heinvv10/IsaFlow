@@ -1,6 +1,7 @@
 // src/modules/accounting/services/afs/afsVersionHistoryService.ts
 import { sql } from '@/lib/neon';
 import { log } from '@/lib/logger';
+import { assertIndependentRequestReview } from '@/modules/accounting/services/controls/independentReview';
 import type { AfsSectionVersionEntry, NoteContent } from './afsTypes';
 
 // ── Error ───────────────────────────────────────────────────────────────────
@@ -49,7 +50,8 @@ async function getSectionContent(
 export async function saveVersion(
   companyId: string,
   sectionId: string,
-  userId: string
+  userId: string,
+  note?: string
 ): Promise<AfsSectionVersionEntry> {
   const section = await getSectionContent(companyId, sectionId);
   if (!section) {
@@ -64,6 +66,7 @@ export async function saveVersion(
     savedBy: userId,
     content: section.content ?? { title: '', blocks: [] },
     overrides: section.overrides ?? null,
+    ...(note ? { note } : {}),
   };
 
   await sql`
@@ -99,7 +102,10 @@ export async function listVersions(
  * 1. Saves current state as a new version (restore is reversible)
  * 2. Sets section.content = target version's content snapshot
  * 3. Clears section.overrides
- * 4. Resets status to 'reviewed'
+ * 4. Never raises the review status. A restore replaces content, so whatever review
+ *    covered the current content no longer covers the section: a reviewed or signed-off
+ *    section drops to 'pending' and the saved snapshot records that the restore
+ *    invalidated its review; any lower status is kept as it is.
  */
 export async function restoreVersion(
   companyId: string,
@@ -118,15 +124,21 @@ export async function restoreVersion(
     throw new VersionHistoryError(`Version ${version} not found for section ${sectionId}`, 'VERSION_NOT_FOUND');
   }
 
+  // Dropping a review is a change of review state; an impersonated session may not make it.
+  const reviewInvalidated = section.status === 'reviewed' || section.status === 'signed_off';
+  if (reviewInvalidated) assertIndependentRequestReview();
+
   // Save current state as a new version first (so restore is reversible)
-  const saveEntry = await saveVersion(companyId, sectionId, userId);
+  const saveEntry = await saveVersion(companyId, sectionId, userId, reviewInvalidated
+    ? `Restoring version ${version} invalidated the section's prior ${section.status} review`
+    : undefined);
 
   // Now apply the target version's content and overrides
   await sql`
     UPDATE afs_sections
     SET content = ${JSON.stringify(target.content)}::jsonb,
         overrides = ${target.overrides != null ? JSON.stringify(target.overrides) : null}::jsonb,
-        status = 'reviewed',
+        status = CASE WHEN ${reviewInvalidated} THEN 'pending' ELSE status END,
         updated_at = now()
     WHERE id = ${sectionId}
       AND company_id = ${companyId}
