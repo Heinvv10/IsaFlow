@@ -83,3 +83,9 @@ it('a close bound by an approval policy is 409 on the preview AND the live close
  }
  expect(await untouched('2022')).toEqual({periodsLocked:false,effects:0,journals:0});
 });
+it('an approvalId the close cannot use is a caller error, not a 500',async()=>{
+ const reply=await close('2022',{dryRun:true,approvalId:randomUUID()});
+ expect(reply.status,JSON.stringify(reply.body)).toBe(409);
+ expect(reply.body.error?.message).toMatch(/approval/i);
+ expect(await untouched('2022')).toEqual({periodsLocked:false,effects:0,journals:0});
+});
