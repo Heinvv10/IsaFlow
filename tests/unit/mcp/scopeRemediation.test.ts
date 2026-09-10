@@ -27,6 +27,24 @@ describe('insufficientScopeMessage', () => {
     expect(message).toContain('write:contacts');
   });
 
+  it('TELLS A write:locks CALLER it is opt-in, who may grant it, and what a manager needs', () => {
+    const message = insufficientScopeMessage('write:locks');
+    expect(message).toContain('write:locks');
+    expect(message).toMatch(/re-?authoris/i);
+    expect(message).toMatch(/opt-in/i);
+    expect(message).toMatch(/owner/i);
+    expect(message).toMatch(/admin/i);
+    expect(message).toMatch(/manager/i);
+    expect(message).toMatch(/locks module/i);
+  });
+
+  it('TELLS A write:bank-tx CALLER TO RE-AUTHORISE with the bank transaction grant', () => {
+    const message = insufficientScopeMessage('write:bank-tx');
+    expect(message).toContain('write:bank-tx');
+    expect(message).toMatch(/re-?authoris/i);
+    expect(message).toMatch(/bank/i);
+  });
+
   it('never answers a scope failure as a missing record', () => {
     for (const scope of PAT_SCOPES) {
       expect(insufficientScopeMessage(scope)).not.toBe('Not found');

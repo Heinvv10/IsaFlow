@@ -31,8 +31,8 @@ it('names the permission a refused dry run needs, and previews once it is grante
  for(const row of cases){
   const call=async(scopes:string[])=>text(await f.rpcToken(await f.scopedToken(scopes),row.tool,{...row.args,dry_run:true,idempotency_key:randomUUID()}));
   const withoutIt=await call(row.granted),withIt=await call([...row.granted,row.missing]);
-  outcomes.push(`${row.tool} without ${row.missing}: ${withoutIt.includes(row.missing)?'refused, names the permission':withoutIt===GENERIC?'refused with the generic text':'previewed'}`);
+  outcomes.push(`${row.tool} without ${row.missing}: ${withoutIt.includes(row.missing)?`refused, names the permission${/re-?authoris/i.test(withoutIt)?' and where to grant it':''}`:withoutIt===GENERIC?'refused with the generic text':'previewed'}`);
   outcomes.push(`${row.tool} with ${row.missing}: ${withIt===GENERIC?'refused':'reached the domain'}`);
  }
- expect(outcomes).toEqual(cases.flatMap(row=>[`${row.tool} without ${row.missing}: refused, names the permission`,`${row.tool} with ${row.missing}: reached the domain`]));
+ expect(outcomes).toEqual(cases.flatMap(row=>[`${row.tool} without ${row.missing}: refused, names the permission and where to grant it`,`${row.tool} with ${row.missing}: reached the domain`]));
 },180000);
