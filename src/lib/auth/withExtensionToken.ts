@@ -135,12 +135,50 @@ export function withExtensionToken(handler: Handler): NextApiHandler {
         bankAccountId: row.bank_account_id,
       };
 
+      // Defer the flush until the transaction is finalised — withAuth.ts's
+      // pattern. Otherwise the extension reads a 200 for a batch whose COMMIT
+      // then fails. res.json/res.send both funnel through res.end.
+      let bufferedEndArgs: unknown[] | null = null;
+      let handlerEnded = false;
+      const realEnd = res.end.bind(res) as (...a: unknown[]) => unknown;
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      (res as any).end = (...args: unknown[]) => {
+        if (handlerEnded) return res; // flush exactly once
+        handlerEnded = true;
+        bufferedEndArgs = args;
+        return res;
+      };
+
       const ctx: RequestContext = {
         client, userId: claims.userId, companyId: claims.companyId, claims: { sub: claims.userId }, afterCommit: [],
       };
       await runOwnedContext(ctx, async () => { await handler(req, res); });
-      await client.query('COMMIT');
-      drainAfterCommit(ctx);
+      // A 5xx means withErrorHandler (inside this wrapper) caught a fault,
+      // answered 500, and returned normally — mirrors withAuth.ts: we must
+      // NOT COMMIT its partial writes, and must NOT drain afterCommit work
+      // queued before the fault.
+      const handlerFailed = res.statusCode >= 500;
+      try {
+        await client.query(handlerFailed ? 'ROLLBACK' : 'COMMIT');
+      } catch (finalizeErr) {
+        try { await client.query('ROLLBACK'); } catch { /* secondary */ }
+        log.error('withExtensionToken: transaction finalize failed after handler responded', {
+          status: res.statusCode, handlerFailed, connectionId: claims.connectionId,
+          message: finalizeErr instanceof Error ? finalizeErr.message : String(finalizeErr),
+        }, 'extensionAuth');
+        if (res.headersSent) {
+          realEnd(...(bufferedEndArgs ?? []));
+        } else {
+          const body = JSON.stringify({ success: false, data: null, message: 'An unexpected error occurred', code: 'COMMIT_FAILED' });
+          res.statusCode = 500;
+          res.setHeader('Content-Type', 'application/json; charset=utf-8');
+          res.setHeader('Content-Length', Buffer.byteLength(body));
+          realEnd(body);
+        }
+        return;
+      }
+      if (handlerEnded) realEnd(...(bufferedEndArgs ?? []));
+      if (!handlerFailed) drainAfterCommit(ctx);
     } catch (err) {
       try { await client.query('ROLLBACK'); } catch { /* secondary */ }
       log.error(

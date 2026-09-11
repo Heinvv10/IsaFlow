@@ -9,9 +9,10 @@ import {
   ChevronDown, ChevronRight, AlertCircle, Clock,
   CheckCircle2, XCircle,
 } from 'lucide-react';
+import Link from 'next/link';
 import {
-  PROVIDER_LABELS, STATUS_STYLES, SYNC_STATUS_STYLES, fmtDate,
-  isUnsupportedProvider,
+  STATUS_STYLES, SYNC_STATUS_STYLES, fmtDate,
+  isUnsupportedProvider, providerLabel,
   type BankFeedConnection, type SyncLog,
 } from './bankFeedTypes';
 
@@ -134,16 +135,28 @@ export function BankFeedCard({
             </div>
             <div className="min-w-0">
               <p className="font-semibold text-[var(--ff-text-primary)] truncate">
-                {conn.accountName ?? PROVIDER_LABELS[conn.provider]}
+                {conn.accountName ?? providerLabel(conn.provider)}
               </p>
               <p className="text-xs text-[var(--ff-text-secondary)] mt-0.5">
-                {PROVIDER_LABELS[conn.provider]}
-                {conn.externalAccountId && ` • ${conn.externalAccountId}`}
+                {providerLabel(conn.provider)}
+                {conn.accountNumberMasked && ` • ${conn.accountNumberMasked}`}
               </p>
+              {conn.lastSuccessAt && (
+                <p className="text-xs text-[var(--ff-text-tertiary)] mt-1 flex items-center gap-1">
+                  <Clock className="h-3 w-3" />
+                  Last successful import: {fmtDate(conn.lastSuccessAt)}
+                </p>
+              )}
               {conn.lastSyncAt && (
                 <p className="text-xs text-[var(--ff-text-tertiary)] mt-1 flex items-center gap-1">
                   <Clock className="h-3 w-3" />
-                  Last sync: {fmtDate(conn.lastSyncAt)}
+                  Last attempt: {fmtDate(conn.lastSyncAt)}
+                </p>
+              )}
+              {conn.lastSync && (
+                <p className="text-xs text-[var(--ff-text-tertiary)] mt-1">
+                  Imported {conn.lastSync.imported} · Duplicate {conn.lastSync.duplicate}
+                  {' '}· Pending {conn.lastSync.pending} · Conflicts {conn.lastSync.conflicts}
                 </p>
               )}
               {conn.lastSyncError && (
@@ -170,17 +183,37 @@ export function BankFeedCard({
                 {syncStyle.label}
               </span>
             )}
-            <button
-              onClick={triggerSync}
-              disabled={isSyncing || unsupported}
-              title={unsupported ? 'This provider is not supported — syncing imports nothing' : 'Sync Now'}
-              className="flex items-center gap-1.5 px-3 py-1.5 bg-teal-600 hover:bg-teal-700 text-white rounded-lg text-xs font-semibold transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
-            >
-              {isSyncing
-                ? <Loader2 className="h-3.5 w-3.5 animate-spin" />
-                : <RefreshCw className="h-3.5 w-3.5" />}
-              Sync
-            </button>
+            {unsupported ? (
+              <button
+                onClick={triggerSync}
+                disabled
+                title="This provider is not supported — syncing imports nothing"
+                className="flex items-center gap-1.5 px-3 py-1.5 bg-teal-600 text-white rounded-lg text-xs font-semibold transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+              >
+                <RefreshCw className="h-3.5 w-3.5" />
+                Sync
+              </button>
+            ) : isExtension ? (
+              <button
+                onClick={triggerSync}
+                disabled={isSyncing}
+                title="Shows the extension import instructions"
+                className="flex items-center gap-1.5 px-3 py-1.5 bg-teal-600 hover:bg-teal-700 text-white rounded-lg text-xs font-semibold transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+              >
+                {isSyncing
+                  ? <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                  : <RefreshCw className="h-3.5 w-3.5" />}
+                How to import
+              </button>
+            ) : (
+              <Link
+                href="/accounting/bank-transactions"
+                title="manual_csv connections have no Sync action — import on the Bank Transactions page"
+                className="flex items-center gap-1.5 px-3 py-1.5 border border-[var(--ff-border-primary)] hover:border-[var(--ff-border-hover)] text-[var(--ff-text-primary)] rounded-lg text-xs font-semibold transition-colors"
+              >
+                Import statement
+              </Link>
+            )}
             <button
               onClick={onToggleLogs}
               title="View sync history"

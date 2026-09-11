@@ -45,6 +45,7 @@ export async function autoLinkImportedBatchTransfers(
         WHERE company_id      = ${companyId}::UUID
           AND import_batch_id = ${batchId}::UUID
           AND status          = 'imported'
+          AND feed_state      = 'posted'
       ),
       candidates AS (
         SELECT
@@ -112,6 +113,7 @@ export async function autoLinkImportedBatchTransfers(
       WHERE bt.id         = m.new_tx_id
         AND bt.company_id = ${companyId}::UUID
         AND bt.status     = 'imported'
+        AND bt.feed_state = 'posted'
       RETURNING bt.id
     ` as Promise<Row[]>,
   );
@@ -192,6 +194,7 @@ export async function relinkTransferCounterparts(
         WHERE bt_new.bank_account_id = ${bankAccountId}::UUID
           AND bt_new.company_id      = ${companyId}::UUID
           AND bt_new.status          = 'imported'
+          AND bt_new.feed_state      = 'posted'
       ),
       ranked AS (
         -- Rank each pair from both sides. N rows contending for N equally close
@@ -240,6 +243,7 @@ export async function relinkTransferCounterparts(
       WHERE bt.id         = m.new_tx_id
         AND bt.company_id = ${companyId}::UUID
         AND bt.status     = 'imported'
+        AND bt.feed_state = 'posted'
       RETURNING bt.id
     ` as Promise<Row[]>,
   );

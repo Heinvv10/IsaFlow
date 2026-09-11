@@ -18,6 +18,7 @@ import {
 import { buildAutoCreateLines, getPeriodStatusForDate, type RuleAllocType } from './bankRulesMatchingHelpers';
 import { lockBankTransactionForUpdate } from './bankTxLock';
 import { resolveRuleVatCode } from '../gl/ruleVatResolution';
+import { feedStateOf } from './bankFeedStateGuard';
 
 const SA_VAT_RATE_PCT = 15; // Standard SA VAT rate; update if SARS changes the statutory rate
 
@@ -83,7 +84,8 @@ export async function autoPostRuleLine(input: AutoPostLineInput): Promise<AutoPo
   // allocation committed in between would otherwise get a second journal
   // posted on top of it, and the UPDATE below would relink the row to it.
   const locked = await lockBankTransactionForUpdate(companyId, String(tx.id));
-  if (!locked || String(locked.status) !== 'imported' || locked.matched_journal_line_id) {
+  if (!locked || String(locked.status) !== 'imported' || locked.matched_journal_line_id
+      || feedStateOf(locked) !== 'posted') {
     return { kind: 'raced' };
   }
 

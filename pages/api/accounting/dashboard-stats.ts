@@ -114,7 +114,7 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
       `,
       // Unallocated bank transactions
       sql`
-        SELECT COUNT(*) AS count FROM bank_transactions WHERE company_id = ${companyId} AND status = 'imported'
+        SELECT COUNT(*) AS count FROM bank_transactions WHERE company_id = ${companyId} AND status = 'imported' AND feed_state = 'posted'
       `,
       // Recent journal entries (last 5)
       sql`

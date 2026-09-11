@@ -13,12 +13,12 @@ import { apiFetch } from '@/lib/apiFetch';
 import { notify } from '@/utils/toast';
 import {
   PROVIDER_LABELS, PROVIDER_DESCRIPTIONS,
-  type Provider, type BankAccount,
+  type SupportedProvider, type BankAccount,
 } from './bankFeedTypes';
 
-// basiq | tink | plaid have no integration behind them and the API refuses
-// them — only the two implemented providers are offered.
-const PROVIDERS: Provider[] = ['extension', 'manual_csv'];
+// manual_csv | extension are the only providers IsaFlow has built — nothing
+// else is offered.
+const PROVIDERS: SupportedProvider[] = ['extension', 'manual_csv'];
 const EXTENSION_BANKS: Array<{ id: string; label: string }> = [
   { id: 'absa', label: 'ABSA Business Banking' },
 ];
@@ -38,7 +38,7 @@ interface PairResponse {
 }
 
 export function AddConnectionModal({ bankAccounts, onClose, onCreated }: Props) {
-  const [provider, setProvider] = useState<Provider>('extension');
+  const [provider, setProvider] = useState<SupportedProvider>('extension');
   const [accountId, setAccountId] = useState('');
   const [externalAccountId, setExternalAccountId] = useState('');
   const [bankId, setBankId] = useState<string>('absa');

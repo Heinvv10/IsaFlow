@@ -15,7 +15,12 @@
 export class BankAllocationRefusal extends Error {
   readonly code = 'BANK_ALLOCATION_REFUSED';
 
-  constructor(message: string) {
+  /**
+   * `feedState` is set only for the pending/removed-row refusal, so a route can
+   * answer that one 409 (as it answers the bare BankTransactionNotPostedError)
+   * while every other allocation refusal keeps its 400.
+   */
+  constructor(message: string, readonly feedState?: 'pending' | 'removed') {
     super(message);
     this.name = 'BankAllocationRefusal';
   }

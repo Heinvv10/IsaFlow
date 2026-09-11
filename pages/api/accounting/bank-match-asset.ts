@@ -18,6 +18,7 @@ import { withCsrf } from '@/lib/auth/withCsrf';
 import { UUID } from '@/lib/schemas/common';
 import { log } from '@/lib/logger';
 import { sql } from '@/lib/neon';
+import { readFeedState, BankTransactionNotPostedError } from '@/modules/accounting/services/bank/bankFeedStateGuard';
 
 const BodySchema = z.object({
   bankTransactionId: UUID,
@@ -37,6 +38,12 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
     return apiResponse.validationError(res, parsed.error.flatten().fieldErrors);
   }
   const { bankTransactionId, assetId } = parsed.data;
+
+  const feedState = await readFeedState(companyId, bankTransactionId);
+  if (feedState === null) return apiResponse.notFound(res, 'Bank transaction not found');
+  if (feedState !== 'posted') {
+    return apiResponse.conflict(res, new BankTransactionNotPostedError(bankTransactionId, feedState, 'link').message);
+  }
 
   // ── Write reverse link on the asset ───────────────────────────────────────
   await sql`

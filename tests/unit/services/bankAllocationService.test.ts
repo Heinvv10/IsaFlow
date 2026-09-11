@@ -79,7 +79,7 @@ const BANK_TX_ROW = {
   bank_account_id: BANK_ACCOUNT_ID,
   amount: -115,
   transaction_date: new Date('2026-02-28'),
-  status: 'imported',
+  status: 'imported', feed_state: 'posted',
   description: 'Test expense',
   reference: null,
 };

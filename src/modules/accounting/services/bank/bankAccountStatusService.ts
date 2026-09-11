@@ -112,6 +112,7 @@ export async function getBankAccountsStatus(
         MAX(bt.transaction_date)                                     AS last_date
       FROM bank_transactions bt
       WHERE bt.bank_account_id = ga.id
+        AND bt.feed_state = 'posted'
     ) s ON TRUE
     WHERE ga.account_subtype = ANY(${BANK_SUBTYPES as string[]})
       AND (${includeInactive}::boolean = true OR ga.is_active = TRUE)

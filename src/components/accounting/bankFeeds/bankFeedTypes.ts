@@ -1,20 +1,38 @@
 /** Shared UI types for the Bank Feeds feature */
 
-export type Provider = 'manual_csv' | 'basiq' | 'tink' | 'plaid' | 'extension';
-export type ConnectionStatus = 'active' | 'paused' | 'error';
+export type SupportedProvider = 'manual_csv' | 'extension';
+export type ConnectionStatus = 'active' | 'paused' | 'error' | 'disconnected';
 export type SyncStatus = 'running' | 'success' | 'failed';
+
+export function isSupportedProvider(p: string): p is SupportedProvider {
+  return p === 'manual_csv' || p === 'extension';
+}
+
+export interface BankFeedSyncCounts {
+  found: number;
+  imported: number;
+  duplicate: number;
+  updated: number;
+  pending: number;
+  removed: number;
+  conflicts: number;
+  completedAt: string | null;
+}
 
 export interface BankFeedConnection {
   id: string;
   companyId: string;
-  provider: Provider;
+  provider: string;
   accountId: string | null;
   accountName: string | null;
+  accountNumberMasked: string | null;
   externalAccountId: string | null;
   status: ConnectionStatus;
   lastSyncAt: string | null;
+  lastSuccessAt: string | null;
   lastSyncStatus: SyncStatus | null;
   lastSyncError: string | null;
+  lastSync: BankFeedSyncCounts | null;
   config: Record<string, unknown>;
   createdAt: string;
   updatedAt: string;
@@ -42,32 +60,30 @@ export interface BankAccount {
  * are refused by the API; legacy rows still render, so the card disables Sync
  * for them rather than letting the user trigger a guaranteed failure.
  */
-export const UNSUPPORTED_PROVIDERS: readonly Provider[] = ['basiq', 'tink', 'plaid'];
-
-export function isUnsupportedProvider(provider: Provider): boolean {
-  return UNSUPPORTED_PROVIDERS.includes(provider);
+export function isUnsupportedProvider(provider: string): boolean {
+  return !isSupportedProvider(provider);
 }
 
-export const PROVIDER_LABELS: Record<Provider, string> = {
-  manual_csv: 'Manual CSV Upload',
-  basiq: 'Basiq (Open Banking AU/ZA)',
-  tink: 'Tink (Open Banking EU)',
-  plaid: 'Plaid (Open Banking US)',
-  extension: 'Direct via Browser Extension',
+export const PROVIDER_LABELS: Record<SupportedProvider, string> = {
+  extension: 'ABSA browser import',
+  manual_csv: 'Import statements',
 };
 
-export const PROVIDER_DESCRIPTIONS: Record<Provider, string> = {
-  manual_csv: 'Import bank statements manually via CSV file upload.',
-  basiq: 'Not supported — the Basiq integration was never built.',
-  tink: 'Not supported — the Tink integration was never built.',
-  plaid: 'Not supported — the Plaid integration was never built.',
-  extension: 'Use the IsaFlow Bank Connector Chrome extension to import from your authenticated bank session. No credentials leave your browser.',
+export const PROVIDER_DESCRIPTIONS: Record<SupportedProvider, string> = {
+  extension: 'User-operated: open the IsaFlow extension in your signed-in ABSA tab and import. IsaFlow never sees your banking password and cannot fetch in the background.',
+  manual_csv: 'User-operated: upload CSV, PDF, OFX or QIF statements on the Bank Transactions page.',
 };
+
+/** A legacy connection whose provider was never built is labelled as such, not offered as a choice. */
+export function providerLabel(p: string): string {
+  return isSupportedProvider(p) ? PROVIDER_LABELS[p] : `Unsupported legacy connection (${p})`;
+}
 
 export const STATUS_STYLES: Record<ConnectionStatus, { cls: string; label: string }> = {
   active: { cls: 'bg-teal-500/20 text-teal-400', label: 'Active' },
   paused: { cls: 'bg-amber-500/20 text-amber-400', label: 'Paused' },
   error: { cls: 'bg-red-500/20 text-red-400', label: 'Error' },
+  disconnected: { cls: 'bg-gray-500/20 text-gray-400', label: 'Disconnected' },
 };
 
 export const SYNC_STATUS_STYLES: Record<SyncStatus, { cls: string; label: string }> = {
