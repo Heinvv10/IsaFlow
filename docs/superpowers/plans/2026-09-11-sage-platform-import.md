@@ -51,7 +51,11 @@
 - platform_admin, the platform-import maker, has BYPASSRLS. It keeps only what the path does, and can never write a decision:
   - On `control_operation_approvals`: SELECT; INSERT of exactly the request INSERT's columns, so never `id`, `decided_at`, `consumed_at` or `consumed_effect_id`, and a row cannot be born consumed; UPDATE of `status`, `consumed_at` and `consumed_effect_id` (consume).
   - On `control_operation_decisions`: SELECT.
-- Residual: the consume UPDATE grant still lets platform_admin mark an existing row consumed in a second statement. The status-transition trigger on the integration branch (every approval born `pending`, legal transitions only) is the layer that closes that.
+- Migrations 688/689, merged from the integration branch, bind every approval edge to its actor for every role, platform_admin included:
+  - an approval is born pending by its acting requester;
+  - consumption needs an effect committed in the same transaction;
+  - decisions are append-only, by the acting non-requester member.
+  That closes what 687's consume UPDATE alone would leave: platform_admin marking an existing row consumed in a second statement.
 
 ### Sage payments (S3, waits on the probe)
 
@@ -91,4 +95,4 @@ read -rs SAGE_COOKIE && export SAGE_COOKIE && bun run scripts/sage/probe-allocat
 - **S4:** the `historical_import_batch.post` entry in `operationPermissions.ts` must use `rule:'historical_import'`. `loadApprovalRules` binds the mandatory import policy, and with it the owner-or-admin allowance, only for that rule type. Any other mapping leaves batch approvals admin-only, and nothing fails to say so. Pin it with an owner approving a batch.
 - **S4:** a batch writer that needs platform_admin privileges beyond 687's must add them in its own migration, with a test that re-grants inside a rolled-back transaction and applies the file.
 - **S8, migration renumbering:** this branch's migrations (685, 686, 687) and the whole forensic programme's 36 migrations collide or interleave with origin/master's. There are five exact collisions, at 626, 627, 644, 645 and 662; master is at 674. All of them are renumbered above master's latest at the master-reconciliation phase. Tests that read a migration by filename (for example the 685/686/687 re-apply and grants tests) must be updated with them.
-- **Open:** Sage receipt `Status` codes and `Discount` semantics; whether TaxInvoice `FilterId 0` returns all invoices or only outstanding ones; real batch execution time; whether an expired approval can be re-requested on the same entity; approvals have no status-transition guard (a cancelled approval whose decisions are all approved can be set back to `approved` by any role holding UPDATE(status)), raised for triage.
+- **Open:** Sage receipt `Status` codes and `Discount` semantics; whether TaxInvoice `FilterId 0` returns all invoices or only outstanding ones; real batch execution time; whether an expired approval can be re-requested on the same entity.
