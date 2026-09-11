@@ -11563,6 +11563,39 @@
       "severity": "low",
       "source": "Found by the K-072 round-31 blind reviewer (evidenceAttachmentService.ts:113-121); pre-existing, and listed in neither of K-072's VAT censuses.",
       "processNotes": "Fix: attaching a slip as evidence should compare the journal's VAT Input with the document's read VAT (K-072 capturedVatUnread / the round-32 comparison) and refuse or flag a mismatch rather than mark the journal evidenced."
+    },
+    {
+      "id": "R-091",
+      "claim": "",
+      "area": "accounting/capture",
+      "affectedPaths": [
+        "src/modules/accounting/services/capture/receiptToJournalService.ts"
+      ],
+      "sourceLabel": "",
+      "sourceIds": [],
+      "correctedTrigger": "",
+      "severityRationale": "The draft's total is right, but claimable input VAT is lost to the business and the expense lands on the wrong (entertainment) account. It happens when the draft is built, before any posting-gate or MCP check sees it. Changing the patterns re-codes every receipt, so it needs its own branch and measurement.",
+      "auditedSha": "",
+      "currentSha": "",
+      "status": "confirmed",
+      "dependencies": [
+        "K-072"
+      ],
+      "testNames": [],
+      "evidencePaths": [
+        "docs/audits/remediation/K-072/fix.md"
+      ],
+      "fixCommit": null,
+      "pr": null,
+      "deployedSha": null,
+      "historicalDataImpact": "Unknown; production not measured. Count captured receipts coded to entertainment whose vendor name matched a meals pattern only as a substring of a longer word.",
+      "canonicalItem": null,
+      "reportedSeverity": "",
+      "branch": null,
+      "title": "Receipt builder's MERCHANT_PATTERNS match vendor names by substring, so a non-meals vendor (e.g. 'Spurway Steel') is coded as entertainment and its claimable input VAT is folded into the expense as denied",
+      "severity": "medium",
+      "source": "Disclosed by the K-072 round-34 fixer; the substring match at receiptToJournalService.ts:83 was measured by the round-33 blind reviewer (Spurway Steel, Mr Doors Brits matched as meals).",
+      "processNotes": "Fix: anchor merchant patterns to whole words / known merchant names; measure the re-coding across the capture corpus before and after. Related: K-072 round 34 removed the same substring match from the posting-evidence excuse."
     }
   ],
   "sourceInventory": [
