@@ -118,7 +118,8 @@ export async function markCorrectedByHand(
   const j = d.journal;
   if (!j || !j.netsPostingOut) {
     throw new HandCorrectionRefusedError(
-      'That journal does not correct this posting — with it, every account the posting charged must come back to zero',
+      'That journal cannot be recorded as the whole correction — with it, every account the posting charged must '
+      + 'come back to zero. Reverse that journal first, then undo.',
     );
   }
   if (!j.byPerson) throw new HandCorrectionRefusedError('Only a journal a person posted can be marked as the correction');
@@ -149,10 +150,20 @@ export async function undoAnyway(
   try {
     result = await withSavepoint('auto_post_undo_anyway', async () => {
       await recordDecision(companyId, userId, DECLARED_UNRELATED_REASON, runId, d, j);
-      return undoRow(companyId, runId, userId, txId);
+      const row = await undoRow(companyId, runId, userId, txId);
+      // Only these three are an undo, or another blocker to decide next. Any
+      // other outcome left the posting live, so the declaration must not stand:
+      // throwing here rolls it back with the savepoint.
+      if (row.kind === 'reconciled') {
+        throw new HandCorrectionRefusedError('That line is reconciled — unreconcile it first, then undo');
+      }
+      if (row.kind !== 'reversed' && row.kind !== 'alreadyUndone' && row.kind !== 'offsetByHand') {
+        throw new HandCorrectionRefusedError('That line cannot be undone as it stands — nothing was recorded');
+      }
+      return row;
     });
   } catch (err) {
-    if (isRetryableContention(err)) throw err;
+    if (err instanceof HandCorrectionRefusedError || isRetryableContention(err)) throw err;
     // The reversal itself refused — a closed period, say. The savepoint rolled
     // the declaration back with it, so this is a refusal with nothing written,
     // the same `failed` the undo counts; the cause goes to the log, not the user.

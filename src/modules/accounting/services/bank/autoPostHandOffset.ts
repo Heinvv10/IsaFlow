@@ -29,6 +29,7 @@
 import { sql } from '@/lib/neon';
 import { fmtDate } from '@/lib/fmtDate';
 import type { DbRow } from '@/lib/neon';
+import { projectUndo, type UndoProjectionLine } from './autoPostUndoProjection';
 
 /** `audit_log` reasons for the two recorded decisions. */
 export const HAND_CORRECTION_REASON = 'auto_post_corrected_by_hand';
@@ -45,6 +46,11 @@ export interface HandOffset {
   entryDate: string;
   amount: number;
   description: string;
+  /** Marking it "the correction" is possible only when it nets the posting out. */
+  netsPostingOut: boolean;
+  reclass: boolean;
+  /** Each account, now and after an undo-anyway: the posting gone, the journal left standing. */
+  projection: UndoProjectionLine[];
 }
 
 export interface OffsetCandidate {
@@ -59,6 +65,8 @@ export interface OffsetCandidate {
   declaredUnrelated: boolean;
   /** Posting + this journal net to zero (within a cent) on every non-bank account of the posting. */
   netsPostingOut: boolean;
+  /** It books part of the posting to an account the posting never touched. */
+  reclass: boolean;
 }
 
 /** The journal an auto-posted row put on the books, or null if none is linked. */
@@ -88,56 +96,71 @@ export async function offsetCandidate(
 ): Promise<OffsetCandidate | null> {
   const txId = String(tx.id);
   const bankAccountId = String(tx.bank_account_id);
+  // The posting's own bounds, read first so they reach the scan as CONSTANTS:
+  // a constant `entry_date >=` is an index range the planner cannot misjudge.
+  const postingRows = (await sql`
+    SELECT entry_date, COALESCE(posted_at, created_at) AS at, source_document_id
+    FROM gl_journal_entries
+    WHERE id = ${postingJeId}::UUID AND company_id = ${companyId}::UUID AND status = 'posted'
+  `) as DbRow[];
+  const posting = postingRows[0];
+  if (!posting) return null;
+  const postingDate = fmtDate(posting.entry_date);
+  const postingAt = posting.at as Date | string;
+  const postingDoc = posting.source_document_id ? String(posting.source_document_id) : null;
   const rows = (await sql`
-    WITH RECURSIVE posting AS (
-      SELECT id, COALESCE(posted_at, created_at) AS at, source_document_id
-      FROM gl_journal_entries
-      WHERE id = ${postingJeId}::UUID AND company_id = ${companyId}::UUID AND status = 'posted'
-    ),
-    effect AS (
+    WITH RECURSIVE effect AS (
       SELECT gl_account_id, SUM(debit - credit) AS net
       FROM gl_journal_lines
       WHERE journal_entry_id = ${postingJeId}::UUID AND company_id = ${companyId}::UUID
       GROUP BY gl_account_id
       HAVING SUM(debit - credit) <> 0
     ),
-    seed AS MATERIALIZED (
-      SELECT l.journal_entry_id AS id
-      FROM gl_journal_lines l JOIN effect e ON e.gl_account_id = l.gl_account_id
-      WHERE ${onlyJournalId}::UUID IS NULL AND l.company_id = ${companyId}::UUID
-        AND l.gl_account_id <> ${bankAccountId}::UUID AND SIGN(l.debit - l.credit) = -SIGN(e.net)
-      UNION
-      SELECT o.id FROM gl_journal_entries o CROSS JOIN posting p
-      WHERE ${onlyJournalId}::UUID IS NULL AND o.company_id = ${companyId}::UUID
-        AND (o.source_record_id = ${txId}::UUID OR o.source_document_id = p.source_document_id)
-      UNION
-      SELECT ${onlyJournalId}::UUID WHERE ${onlyJournalId}::UUID IS NOT NULL
-    ),
-    base AS (
-      SELECT o.id, o.entry_number, o.entry_date, o.description, COALESCE(o.posted_at, o.created_at) AS at,
+    -- Bounded to journals DATED on or after the posting and posted after it:
+    -- (company_id, entry_date) over posted entries is an index range
+    -- (idx_gl_journal_entries_company_date_posted), so the company's earlier
+    -- history is never read, however stale its statistics. The named journal
+    -- of a recorded decision meets the same bound: a journal dated before the
+    -- posting cannot be its correction.
+    pre AS (
+      SELECT o.id, o.entry_number, o.entry_date, o.description, o.reversal_of_id,
+        COALESCE(o.posted_at, o.created_at) AS at,
         (COALESCE(o.source_record_id = ${txId}::UUID, FALSE)
-          OR COALESCE(o.source_document_id = p.source_document_id, FALSE)) AS linked,
+          OR COALESCE(o.source_document_id = ${postingDoc}::UUID, FALSE)) AS linked,
         (COALESCE(o.source, 'manual') NOT LIKE 'auto_%'
           AND (o.posting_agent IS NULL OR o.posting_agent LIKE 'human%' OR o.posting_agent LIKE 'legacy:human%')) AS by_person
-      FROM seed s
-      JOIN gl_journal_entries o ON o.id = s.id
-      JOIN posting p ON COALESCE(o.posted_at, o.created_at) > p.at AND o.id <> p.id
-      WHERE o.company_id = ${companyId}::UUID AND o.status = 'posted' AND o.reversal_of_id IS NULL
+      FROM gl_journal_entries o
+      WHERE o.company_id = ${companyId}::UUID AND o.status = 'posted' AND o.id <> ${postingJeId}::UUID
+        AND o.entry_date >= ${postingDate}::DATE AND COALESCE(o.posted_at, o.created_at) > ${postingAt}::TIMESTAMPTZ
+        AND (${onlyJournalId}::UUID IS NULL OR o.id = ${onlyJournalId}::UUID)
+    ),
+    -- Per-journal line checks below compare company_id as TEXT on purpose: it
+    -- is still the tenant filter, but not an index condition. With it as one,
+    -- stale statistics ("the company has one line") chose the
+    -- (company_id, gl_account_id) index and read every line of the company for
+    -- each candidate — 5.3 s for 8,000 later bank receipts. Keyed on
+    -- journal_entry_id alone, each check reads that journal's few lines.
+    base AS MATERIALIZED (
+      SELECT pr.*,
+        EXISTS (
+          SELECT 1 FROM gl_journal_lines l JOIN effect e ON e.gl_account_id = l.gl_account_id
+          WHERE l.journal_entry_id = pr.id AND l.company_id::TEXT = ${companyId}
+            AND l.gl_account_id <> ${bankAccountId}::UUID AND SIGN(l.debit - l.credit) = -SIGN(e.net)
+        ) AS moves_expense_back
+      FROM pre pr
+      -- Cheap columns first: only a linked or person-made journal can block,
+      -- so the line checks never run for the system's own journals.
+      WHERE pr.reversal_of_id IS NULL AND (${onlyJournalId}::UUID IS NOT NULL OR pr.linked OR pr.by_person)
     ),
     candidate AS (
       SELECT b.*,
-        EXISTS (
-          SELECT 1 FROM gl_journal_lines l JOIN effect e ON e.gl_account_id = l.gl_account_id
-          WHERE l.journal_entry_id = b.id AND l.company_id = ${companyId}::UUID
-            AND l.gl_account_id <> ${bankAccountId}::UUID AND SIGN(l.debit - l.credit) = -SIGN(e.net)
-        ) AS moves_expense_back,
         (EXISTS (
           SELECT 1 FROM bank_transactions bt
           WHERE bt.provisional_je_id = b.id AND bt.company_id = ${companyId}::UUID AND bt.id <> ${txId}::UUID
         ) OR EXISTS (
           SELECT 1 FROM gl_journal_lines l
           JOIN bank_transactions bt ON bt.company_id = ${companyId}::UUID AND bt.matched_journal_line_id = l.id
-          WHERE l.journal_entry_id = b.id AND l.company_id = ${companyId}::UUID AND bt.id <> ${txId}::UUID
+          WHERE l.journal_entry_id = b.id AND l.company_id::TEXT = ${companyId} AND bt.id <> ${txId}::UUID
         ) OR EXISTS (
           SELECT 1 FROM audit_log a
           WHERE a.company_id = ${companyId}::UUID AND a.entity_type = 'bank_transaction' AND a.entity_id <> ${txId}::UUID
@@ -158,13 +181,11 @@ export async function offsetCandidate(
         -- into a semi-join over every line of the company.
         EXISTS (
           SELECT 1 FROM gl_journal_lines l JOIN effect e ON e.gl_account_id = l.gl_account_id
-          WHERE l.journal_entry_id = b.id AND l.company_id = ${companyId}::UUID
+          WHERE l.journal_entry_id = b.id AND l.company_id::TEXT = ${companyId}
             AND SIGN(l.debit - l.credit) = -SIGN(e.net)
         ) AS moves_back
       FROM base b
-      -- Cheap columns first: a journal can only block if it is linked or a
-      -- person made it, so system journals never reach the checks above.
-      WHERE ${onlyJournalId}::UUID IS NOT NULL OR b.linked OR b.by_person
+      WHERE ${onlyJournalId}::UUID IS NOT NULL OR b.linked OR b.moves_expense_back
     ),
     kept AS (
       SELECT c.*,
@@ -201,7 +222,14 @@ export async function offsetCandidate(
             SELECT SUM(l.debit - l.credit) FROM gl_journal_lines l
             WHERE l.journal_entry_id = f.id AND l.company_id = ${companyId}::UUID
               AND l.gl_account_id = e.gl_account_id), 0)) >= 0.01
-      ) AS nets_posting_out
+      ) AS nets_posting_out,
+      -- It books some of the posting to an account the posting never touched.
+      EXISTS (
+        SELECT 1 FROM gl_journal_lines l
+        WHERE l.journal_entry_id = f.id AND l.company_id = ${companyId}::UUID
+          AND l.gl_account_id <> ${bankAccountId}::UUID
+          AND l.gl_account_id NOT IN (SELECT gl_account_id FROM effect)
+      ) AS reclass
     FROM first f
   `) as DbRow[];
 
@@ -218,11 +246,14 @@ export async function offsetCandidate(
     claimedElsewhere: r.claimed_elsewhere === true,
     declaredUnrelated: r.declared_unrelated === true,
     netsPostingOut: r.nets_posting_out === true,
+    reclass: r.reclass === true,
   };
 }
 
 /** Describes `c` as the journal blocking the undo of the bank line `tx`. */
-export function toHandOffset(tx: DbRow, c: OffsetCandidate): HandOffset {
+export async function toHandOffset(
+  companyId: string, postingJeId: string, tx: DbRow, c: OffsetCandidate,
+): Promise<HandOffset> {
   return {
     transactionId: String(tx.id),
     lineDate: fmtDate(tx.transaction_date),
@@ -233,11 +264,14 @@ export function toHandOffset(tx: DbRow, c: OffsetCandidate): HandOffset {
     entryDate: c.entryDate,
     amount: c.amount,
     description: c.description,
+    netsPostingOut: c.netsPostingOut,
+    reclass: c.reclass,
+    projection: await projectUndo(companyId, postingJeId, c.id),
   };
 }
 
 /** The first journal that blocks the undo of this row, or null. */
 export async function findHandOffset(companyId: string, postingJeId: string, tx: DbRow): Promise<HandOffset | null> {
   const hit = await offsetCandidate(companyId, postingJeId, tx);
-  return hit ? toHandOffset(tx, hit) : null;
+  return hit ? toHandOffset(companyId, postingJeId, tx, hit) : null;
 }

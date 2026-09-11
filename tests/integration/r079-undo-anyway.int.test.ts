@@ -65,7 +65,7 @@ it("the reviewer's case: an unrelated refund blocks, can't be marked the correct
   // "Mark as corrected" is refused by the net check: E1 60 and E2 15 would stay charged.
   const marked = await decide('confirmHandCorrection', runId, line, refund.id);
   expect(marked.status).toBe(400);
-  expect(marked.body.error?.message).toMatch(/does not correct this posting/);
+  expect(marked.body.error?.message).toMatch(/cannot be recorded as the whole correction/);
 
   const res = await decide('undoAnyway', runId, line, refund.id);
 

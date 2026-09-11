@@ -1,14 +1,15 @@
 /**
  * R-079 — a line the auto-post undo refused because a later journal may
  * already correct its posting. Reversing the posting too would apply a hand
- * correction twice, so the user decides: reverse their journal and undo again,
- * mark it as the correction (posts nothing), or declare it unrelated and undo
- * the line anyway. Both recorded decisions sit behind their own confirm dialog,
- * never one click, and name the line and the journal so two refused lines that
- * share one journal can be told apart.
+ * correction twice. When the journal nets the posting out, the user may mark it
+ * as the correction (posts nothing). When it does not — a reclass or a partial
+ * correction — the answer is to reverse that journal first, then undo, and the
+ * notice says so. "Undo anyway" stays available behind a dialog that shows each
+ * account now and after the undo, so a double correction is visible before
+ * anyone confirms. Every decision is recorded; none is one click.
  */
 
-import { useState } from 'react';
+import { useState, type ReactNode } from 'react';
 import { apiFetch } from '@/lib/apiFetch';
 import { ConfirmDialog } from '@/components/ui/ConfirmDialog';
 
@@ -22,6 +23,9 @@ export interface HandOffset {
   entryDate: string;
   amount: number;
   description: string;
+  netsPostingOut: boolean;
+  reclass: boolean;
+  projection: Array<{ accountCode: string; accountName: string; now: number; afterUndo: number }>;
 }
 
 type Decision = 'confirmHandCorrection' | 'undoAnyway';
@@ -39,7 +43,26 @@ interface Props {
 const rands = (n: number) =>
   `${n < 0 ? '−' : ''}R${Math.abs(n).toLocaleString('en-ZA', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
 
-const DIALOG: Record<Decision, { title: string; accept: (o: HandOffset) => string; body: (o: HandOffset) => string }> = {
+function Projection({ offset }: { offset: HandOffset }) {
+  return (
+    <table aria-label="Balances after the undo" className="mt-3 w-full text-xs">
+      <thead>
+        <tr><th className="text-left">Account</th><th className="text-right">Now</th><th className="text-right">After undo</th></tr>
+      </thead>
+      <tbody>
+        {offset.projection.map((p) => (
+          <tr key={p.accountCode}>
+            <td>{p.accountCode} {p.accountName}</td>
+            <td className="text-right">{rands(p.now)}</td>
+            <td className="text-right">{rands(p.afterUndo)}</td>
+          </tr>
+        ))}
+      </tbody>
+    </table>
+  );
+}
+
+const DIALOG: Record<Decision, { title: string; accept: (o: HandOffset) => string; body: (o: HandOffset) => ReactNode }> = {
   confirmHandCorrection: {
     title: 'Mark as corrected by hand',
     accept: (o) => `Mark ${o.entryNumber} as the correction`,
@@ -49,10 +72,30 @@ const DIALOG: Record<Decision, { title: string; accept: (o: HandOffset) => strin
   undoAnyway: {
     title: 'Not the correction — undo anyway',
     accept: () => 'Undo the line anyway',
-    body: (o) => `${o.entryNumber} is unrelated to this line. The auto-posting will be reversed and ${o.entryNumber} `
-      + 'stays on the books on its own. The decision is recorded under your name.',
+    body: (o) => (
+      <>
+        {o.netsPostingOut
+          ? `${o.entryNumber} is unrelated to this line. `
+          : `This is not what reversing ${o.entryNumber} gives: the auto-posting is reversed and ${o.entryNumber} stays, `
+            + 'so the accounts below keep its move. '}
+        The decision is recorded under your name.
+        <Projection offset={o} />
+      </>
+    ),
   },
 };
+
+/** What to do about the journal, in words: mark it, or reverse it first. */
+function guidance(o: HandOffset): ReactNode {
+  const je = <a href={`/accounting/journal-entries/${o.journalEntryId}`} className="underline">{o.entryNumber}</a>;
+  if (o.netsPostingOut) return <>{je} may be the correction of this posting — mark it as the correction, or undo anyway.</>;
+  return (
+    <>
+      {je} {o.reclass ? 'moved this posting to another account' : 'moves part of this posting back'}. Reverse{' '}
+      {o.entryNumber} first (Journal Entries › {o.entryNumber} › Reverse), then undo.
+    </>
+  );
+}
 
 export function HandOffsetNotice({ runId, offset, onDecided }: Props) {
   const [open, setOpen] = useState<Decision | null>(null);
@@ -90,13 +133,16 @@ export function HandOffsetNotice({ runId, offset, onDecided }: Props) {
   return (
     <li className="text-xs text-amber-500">
       <span>
-        Line {offset.lineDate} · {rands(offset.lineAmount)} · {offset.lineDescription}: {offset.entryNumber} (
-        {offset.entryDate} · {rands(offset.amount)} · {offset.description}) may already correct this posting —
-        reverse that journal and undo again, or decide below.
+        Line {offset.lineDate} · {rands(offset.lineAmount)} · {offset.lineDescription} — journal (
+        {offset.entryDate} · {rands(offset.amount)} · {offset.description}): {guidance(offset)}
       </span>{' '}
-      <button type="button" onClick={() => setOpen('confirmHandCorrection')} className="text-blue-500 hover:underline">
-        Mark as corrected by hand
-      </button>{' · '}
+      {offset.netsPostingOut && (
+        <>
+          <button type="button" onClick={() => setOpen('confirmHandCorrection')} className="text-blue-500 hover:underline">
+            Mark as corrected by hand
+          </button>{' · '}
+        </>
+      )}
       <button type="button" onClick={() => setOpen('undoAnyway')} className="text-blue-500 hover:underline">
         Not the correction — undo anyway
       </button>

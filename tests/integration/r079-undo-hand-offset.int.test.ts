@@ -68,6 +68,13 @@ it('refuses the measured hand offset: posts nothing, keeps the run open and name
     handOffsets: [{
       transactionId: line, lineDate: DAY, lineAmount: -100, lineDescription: 'K074 payment',
       journalEntryId: offset.id, entryNumber: offset.entryNumber, entryDate: DAY, amount: 60, description: 'R079 journal',
+      // Partial: E2 40 stays charged, so it cannot be "the correction" — reverse it first.
+      netsPostingOut: false, reclass: false,
+      projection: [
+        { accountCode: expect.any(String), accountName: 'K074 Bank', now: -40, afterUndo: 60 },
+        { accountCode: 'R79E1', accountName: 'R079 R79E1', now: 0, afterUndo: -60 },
+        { accountCode: 'R79E2', accountName: 'R079 R79E2', now: 40, afterUndo: 0 },
+      ],
     }],
   });
   // The money is exactly where the user's correction left it — not E1 −60.
@@ -148,6 +155,10 @@ it.each([
     (f: R079Fixture) => measuredHandOffset(f)],
   ['a later receipt that moves only the BANK back (Dr bank 25 / Cr E3 25)', 'after', {},
     (f: R079Fixture) => [{ glAccountId: f.bankAccount, debit: 25, credit: 0 }, { glAccountId: f.e3, debit: 0, credit: 25 }]],
+  // Round 3: the scan is bounded to journals DATED on or after the posting, so
+  // a correction posted later but backdated before it is not seen (recorded limit).
+  ['a person credit to E1 posted later but DATED before the posting', 'after', { entryDate: '2026-05-10' },
+    (f: R079Fixture) => [{ glAccountId: f.e1, debit: 0, credit: 60 }, { glAccountId: f.e3, debit: 60, credit: 0 }]],
   ['an accrual charging E1 the SAME way as the posting', 'after', {},
     (f: R079Fixture) => [{ glAccountId: f.e1, debit: 30, credit: 0 }, { glAccountId: f.apAccount, debit: 0, credit: 30 }]],
 ] as const)('does not block the undo: %s', async (_name, when, opts, lines) => {

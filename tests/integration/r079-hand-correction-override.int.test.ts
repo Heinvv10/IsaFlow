@@ -90,7 +90,7 @@ it('closes a line a full reclass corrected: no net change, who/when/which journa
  * not made by a person, so marking it "the correction" would close a run over
  * money still on the books. Every refusal is a 400 that writes nothing.
  */
-const NOT_NET = /does not correct this posting/;
+const NOT_NET = /cannot be recorded as the whole correction/;
 it.each([
   // Review MEDIUM-1, both measured shapes: accepted with the posting fully live.
   ['a manual Dr bank 1 / Cr E3 1', NOT_NET, async (f: R079Fixture) => (await postJournal(pool, f, [
