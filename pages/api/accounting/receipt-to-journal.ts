@@ -15,7 +15,7 @@ import {
   createJournalEntry,
   postJournalEntry,
 } from '@/modules/accounting/services/gl/journalEntryService';
-import { assertDirectJournalPostable, JournalPostingRefusalError } from '@/modules/accounting/services/gl/journalEntryPostingService';
+import { isPostingRefusal } from '@/modules/accounting/services/gl/journalEntryPostingService';
 import {
   validateReceiptExtraction,
   mapMerchantToExpenseAccount,
@@ -146,21 +146,20 @@ async function handler(req: CompanyAuthedRequest, res: NextApiResponse) {
     lines: postableLines,
   }, userId);
 
-  // A lockdown or closed-period refusal is checked BEFORE the controlled write: postJournalEntry's own guard
-  // (assertPostingGuards) still marks this request's control transaction failed if it fires there, and withAuth
-  // then overrides the whole response to a 500 regardless of whether this route would otherwise leave the entry
-  // as a draft (see journalEntryPostingService.ts). Skipping auto-post leaves the same draft a person can post
-  // once the period reopens or lockdown lifts.
   let posted = false;
   if (autoPost) {
-    let blocked: string | null = null;
-    try { await assertDirectJournalPostable(companyId, entry.id); }
-    catch (blockErr) { if (!(blockErr instanceof JournalPostingRefusalError)) throw blockErr; blocked = blockErr.message; }
-    if (blocked) {
-      log.warn('Auto-post of receipt-to-journal entry skipped', { documentId, journalId: entry.id, reason: blocked }, 'receipt-journal');
-    } else {
+    try {
       await postJournalEntry(companyId, entry.id, userId);
       posted = true;
+    } catch (postErr) {
+      // A lockdown or closed-period refusal is a legitimate outcome — the entry stays a draft a person can post
+      // once the period reopens or lockdown lifts. The kernel (journalControlService.ts) now throws this BEFORE
+      // opening the controlled write for a direct call like this one, so it never poisons this request's control
+      // transaction the way it used to when the same rule fired from inside assertPostingGuards.
+      if (!isPostingRefusal(postErr)) throw postErr;
+      log.warn('Auto-post of receipt-to-journal entry skipped', {
+        documentId, journalId: entry.id, reason: postErr instanceof Error ? postErr.message : String(postErr),
+      }, 'receipt-journal');
     }
   }
 

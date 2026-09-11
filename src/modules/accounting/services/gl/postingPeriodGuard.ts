@@ -5,6 +5,22 @@ export type PostingPeriodBlock = { kind: 'period'; status: string } | { kind: 'l
 export type LockdownBlock = Extract<PostingPeriodBlock, { kind: 'lockdown' }>;
 
 /**
+ * Defined here (not journalEntryPostingService.ts, which re-exports it for callers) so journalControlService.ts —
+ * which needs it for the direct-posting precheck below assertPostingGuards mirrors — can import it without a cycle
+ * (journalEntryPostingService.ts already imports runJournalControl FROM journalControlService.ts).
+ */
+export class ClosedFiscalPeriodError extends Error {
+  readonly periodStatus: string;
+  constructor(periodStatus: string) { super(`Cannot post to ${periodStatus} fiscal period`); this.name = 'ClosedFiscalPeriodError'; this.periodStatus = periodStatus; }
+}
+/** assertPostingGuards' own lockdown throw has no dedicated class; this constant is the ONE copy of its text. */
+export const LOCKDOWN_REFUSAL_MESSAGE = 'Journal date is within company lockdown';
+/** True for either refusal assertPostingGuards (or the direct-posting precheck that mirrors it) throws from a block. */
+export function isPostingRefusal(error: unknown): boolean {
+  return error instanceof ClosedFiscalPeriodError || (error instanceof Error && error.message === LOCKDOWN_REFUSAL_MESSAGE);
+}
+
+/**
  * The company lockdown rule — the ONE copy. A company with lockdown enabled refuses every accounting date on or
  * before `lockdown_date`; enabled with NO date refuses every date (the settings writer, validateLockdownTarget,
  * rejects that state, but rows saved before it existed can still hold it). `accountingDate` and `lockdown_date` are
