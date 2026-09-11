@@ -11,7 +11,7 @@
  *   3. Payroll runs posted for the year
  *   4. IRP5 readiness (no validation errors)
  *   5. EMP501 balanced (Σ EMP201 PAYE = Σ IRP5 PAYE)
- *   6. Period lockdown applied (Feb 28 or later)
+ *   6. Period lockdown covers Feb 28 (the shared lockdownBlock rule; enabled with no date locks every date)
  */
 import type { NextApiResponse } from 'next';
 import { withErrorHandler } from '@/lib/api-error-handler';
@@ -21,6 +21,7 @@ import { withCsrf } from '@/lib/auth/withCsrf';
 import { sql } from '@/lib/neon';
 import { EMP201_DECLARABLE_STATUSES } from '@/lib/constants/payrollRunStatuses';
 import { fmtDate } from '@/lib/fmtDate';
+import { lockdownBlock } from '@/modules/accounting/services/gl/postingPeriodGuard';
 import type { DbRow } from '@/lib/neon';
 import {
   validateCompanyComponents,
@@ -252,10 +253,10 @@ async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse): 
   const totalVariance = totalEmp201 - totalIrp5;
 
   // ─── 6. Period lock ────────────────────────────────────────────────────────
+  // The year is locked when the shared lockdown rule refuses a posting on its last day (Feb 28). The rule compares
+  // ISO date strings, so the pg Date is formatted first; lockdown enabled with no date locks every date.
   const lockDate = company.lockdown_date ? fmtDate(company.lockdown_date) : null;
-  const lockedAtYearEnd = Boolean(
-    company.lockdown_enabled && lockDate && new Date(lockDate) >= new Date(`${endYear}-02-28`),
-  );
+  const lockedAtYearEnd = lockdownBlock({ lockdown_enabled: company.lockdown_enabled, lockdown_date: lockDate }, `${endYear}-02-28`) !== null;
 
   const payload: YearEndStatus = {
     taxYear,

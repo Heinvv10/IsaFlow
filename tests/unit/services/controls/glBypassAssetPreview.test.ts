@@ -26,3 +26,15 @@ it('describes the persisted asset rather than caller labels',async()=>{
  const preview=await previewDepreciationJournals('company',plan,[]);
  expect(preview.journals[0]?.description).toBe('Depreciation: Persisted asset (OWNED)');
 });
+const previewOn=(periodDate:string,lockdown_date:string|null)=>{
+ mocks.sql.mockResolvedValueOnce([{id:'company',default_currency:'ZAR',lockdown_enabled:true,lockdown_date}]);
+ return previewDepreciationJournals('company',{postable:[{assetId:'asset',assetNumber:'S',name:'S'}],periodDate} as unknown as DepreciationPlan,[]);
+};
+it('refuses a preview dated on or before a dated lockdown and allows the day after (shared lockdownBlock rule)',async()=>{
+ await expect(previewOn('2026-02-28','2026-02-28')).rejects.toThrow('Depreciation date is within company lockdown');
+ await expect(previewOn('2026-02-27','2026-02-28')).rejects.toThrow('Depreciation date is within company lockdown');
+ await expect(previewOn('2026-03-01','2026-02-28')).resolves.toHaveProperty('journals');
+});
+it('refuses every preview date when lockdown is enabled with no date',async()=>{
+ await expect(previewOn('2099-12-31',null)).rejects.toThrow('Depreciation date is within company lockdown');
+});
