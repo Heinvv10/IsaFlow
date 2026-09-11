@@ -45,7 +45,8 @@ describe('delivering a pack whose stored recipients include a malformed entry',(
 
   const res=await h.request('POST',`/api/accounting/afs/management-packs/${documentId}/deliver`,{});
   expect(res.status,JSON.stringify(res.body)).toBe(200);
-  expect(res.body.data).toMatchObject({delivered:true,skippedRecipients:['recipients[0] is not an object {email, role, receives}']});
+  // The actual problem, and the stored address: the operator's own company data, so they can find the entry.
+  expect(res.body.data).toMatchObject({skippedRecipients:['recipients[0] (cfo@forensic.invalid): Invalid input: expected object, received string']});
 
   const logged=(await h.pool.query("SELECT recipient_email FROM email_log WHERE company_id=$1 AND subject LIKE '%2033-01%'",[h.f.companyA])).rows.map(r=>r.recipient_email);
   expect(logged,'the valid recipient was never attempted').toEqual(['owner@forensic.invalid']);

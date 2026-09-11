@@ -215,19 +215,23 @@ describe('PUT /afs/management-pack-config', () => {
 
   // A bare address instead of {email, role, receives} is what a delivery later cannot send to:
   // the 400 has to say WHICH entry, not just that "recipients" is wrong somewhere.
-  it('names each malformed recipient entry in the 400 and saves nothing', async () => {
+  it('names each malformed recipient entry and its actual problem in the 400, and saves nothing', async () => {
     const req = makeReq({
-      recipients: ['cfo@example.com', { email: 'a@b.co', role: 'CFO', receives: 'final' }, { email: 'x@b.co' }],
+      recipients: ['cfo@example.com', { email: 'a@b.co', role: 'CFO', receives: 'final' }, { email: 'x@b.co' },
+        { email: 'not-an-email', role: 'CFO', receives: 'final' }, { email: 'a@b.co', role: 'CFO', receives: 'weekly' }],
     });
     const res = makeRes();
     await (handler as unknown as Handler)(req, res);
     expect(apiResponse.validationError).toHaveBeenCalledWith(
       res,
       { recipients: [
-        'recipients[0] must be an object {email, role, receives}',
-        'recipients[2] must be an object {email, role, receives}',
+        'recipients[0]: Invalid input: expected object, received string',
+        'recipients[2].role: Invalid input: expected string, received undefined',
+        'recipients[2].receives: Invalid option: expected one of "draft"|"final"|"both"',
+        'recipients[3].email: Invalid email address',
+        'recipients[4].receives: Invalid option: expected one of "draft"|"final"|"both"',
       ] },
-      'Malformed recipients: recipients[0], recipients[2]',
+      'Malformed recipients: recipients[0], recipients[2], recipients[3], recipients[4]',
     );
     expect(upsertManagementPackConfig).not.toHaveBeenCalled();
   });

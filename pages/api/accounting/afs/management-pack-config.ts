@@ -50,13 +50,17 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
     // so the caller has to be told WHICH one, not just that "recipients" is wrong somewhere.
     const recipients: unknown = req.body?.recipients;
     const malformed = Array.isArray(recipients)
-      ? recipients.flatMap((r, i) => (PackRecipientSchema.safeParse(r).success ? [] : [`recipients[${i}]`]))
+      ? recipients.flatMap((r, i) => {
+        const parsed = PackRecipientSchema.safeParse(r);
+        return parsed.success ? [] : [{ entry: `recipients[${i}]`, issues: parsed.error.issues.map(issue =>
+          `recipients[${i}]${issue.path.map(key => `.${String(key)}`).join('')}: ${issue.message}`) }];
+      })
       : [];
     if (malformed.length > 0) {
       return apiResponse.validationError(
         res,
-        { recipients: malformed.map(p => `${p} must be an object {email, role, receives}`) },
-        `Malformed recipients: ${malformed.join(', ')}`,
+        { recipients: malformed.flatMap(m => m.issues) },
+        `Malformed recipients: ${malformed.map(m => m.entry).join(', ')}`,
       );
     }
     const parsed = PutConfigSchema.safeParse(req.body ?? {});
