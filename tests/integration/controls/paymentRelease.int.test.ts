@@ -5,6 +5,7 @@ import {Pool} from 'pg';
 import {fixtureConfigFromEnv} from '../../../scripts/forensic/fixture-bootstrap';
 import {provisionForensicFixture,validateFixtureTarget,type ForensicFixture} from '../forensic-fixture';
 import {seedApAccounts} from './apSyntheticAccounts';
+import {rewriteApprovalUnguarded} from './approvalGuardBypass';
 import {withControlRequest,requireControlTx} from '@/modules/accounting/services/controls/context';
 import {finalizeRequestTransaction} from '@/lib/auth/transactionFinalization';
 import {voidSupplierPayment,processSupplierPayment} from '@/modules/accounting/services/ap/supplierPaymentWorkflowService';
@@ -219,7 +220,7 @@ it.each(['revoked approver','expired approval'] as const)('refuses EFT download 
  await actor(ctx=>enqueuePaymentRelease(ctx,intent.intentId,approval.id));
  await actor(ctx=>schedulePaymentReleaseDispatch(ctx,intent.intentId));
  if(changed==='revoked approver')await pool.query("UPDATE company_users SET role='viewer' WHERE company_id=$1 AND user_id=$2",[fixture.companyA,fixture.u2.id]);
- else await pool.query("UPDATE control_operation_approvals SET requested_at=clock_timestamp()-interval '2 days',expires_at=clock_timestamp()-interval '1 second' WHERE company_id=$1 AND id=$2",[fixture.companyA,approval.id]);
+ else await rewriteApprovalUnguarded(pool,"UPDATE control_operation_approvals SET requested_at=clock_timestamp()-interval '2 days',expires_at=clock_timestamp()-interval '1 second' WHERE company_id=$1 AND id=$2",[fixture.companyA,approval.id]);
  try{await expect(actor(ctx=>getReleasedEftFile(ctx,intent.intentId))).rejects.toThrow();}
  finally{await pool.query("UPDATE company_users SET role='admin' WHERE company_id=$1 AND user_id=$2",[fixture.companyA,fixture.u2.id]);}
 });

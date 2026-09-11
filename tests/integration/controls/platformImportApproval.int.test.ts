@@ -9,11 +9,13 @@ import {prepareHistoricalImport} from '@/modules/accounting/services/controls/hi
 import {assertHistoryEntity} from '@/modules/accounting/services/controls/controlChangeHistoryPolicy';
 import {readHistoricalImportSourceKind} from '@/modules/accounting/services/controls/historicalImportSourceKind';
 import {historicalImportInvoiceEvidence} from '@/modules/accounting/services/controls/historicalImportInvoiceEvidence';
+import {createSharedTableTrigger,dropSharedTableTrigger,sweepSharedTableTriggersByPrefix} from './sharedTableTrigger';
+const PI_FAILURE_PREFIX='pi_failure_',PI_FAILURE_TABLES=['control_operation_effects','control_change_events','control_protected_evidence'] as const;
 
 describe('platform historical import persisted maker and independent tenant approval: actual PostgreSQL',()=>{
  let h:Awaited<ReturnType<typeof platformImportApprovalFixture>>;
- beforeAll(async()=>{h=await platformImportApprovalFixture();},30000);
- afterAll(async()=>{await h?.close();});
+ beforeAll(async()=>{h=await platformImportApprovalFixture();await sweepSharedTableTriggersByPrefix(h.pool,PI_FAILURE_TABLES,PI_FAILURE_PREFIX);},30000);
+ afterAll(async()=>{if(h)await sweepSharedTableTriggersByPrefix(h.pool,PI_FAILURE_TABLES,PI_FAILURE_PREFIX);await h?.close();});
  it.each(['customer_invoice','supplier_invoice'] as const)('posts exact 2023 %s once from retained bytes without maker membership',async kind=>{
   expect((await h.pool.query('SELECT company_id FROM company_users WHERE user_id=$1',[h.admin])).rows).toHaveLength(0);
   const p=await h.prepared(kind);
@@ -112,13 +114,11 @@ describe('platform historical import persisted maker and independent tenant appr
  it.each(['control_operation_effects','control_change_events','control_protected_evidence'] as const)('rolls back financial writes and committed events after a caught %s INSERT failure',async table=>{
   const p=await h.prepared(),approval=await h.request(p.ref);await h.review(approval.id);
   const before=(await h.pool.query('SELECT id FROM control_change_events WHERE company_id=$1 ORDER BY id',[h.f.companyA])).rows;
-  const name=`pi_failure_${randomUUID().replaceAll('-','')}`;
+  const name=`${PI_FAILURE_PREFIX}${randomUUID().replaceAll('-','')}`;
   // Identifiers come only from this closed table list and hexadecimal random UUID, never untrusted input.
-  await h.pool.query(`CREATE FUNCTION public.${name}() RETURNS trigger LANGUAGE plpgsql AS $$
-   BEGIN IF NEW.company_id::text=current_setting('control.synthetic_pi_company',true)
+  await createSharedTableTrigger(h.pool,table,name,`BEGIN IF NEW.company_id::text=current_setting('control.synthetic_pi_company',true)
     AND NEW.entity_id=current_setting('control.synthetic_pi_import',true)
-    THEN RAISE EXCEPTION 'Synthetic platform import retained INSERT failure'; END IF; RETURN NEW; END $$`);
-  await h.pool.query(`CREATE TRIGGER ${name} BEFORE INSERT ON ${table} FOR EACH ROW EXECUTE FUNCTION public.${name}()`);
+    THEN RAISE EXCEPTION 'Synthetic platform import retained INSERT failure'; END IF; RETURN NEW; END`);
   let caught='';
   try{
    await h.maker({action:'execute',importId:p.ref.entityId},async ctx=>{
@@ -126,7 +126,7 @@ describe('platform historical import persisted maker and independent tenant appr
     try{await executeHistoricalImport(ctx,p.ref,approval.id);}catch(error){caught=error instanceof Error?error.message:String(error);}
    }).catch(error=>{if(!caught)throw error;});
   }finally{
-   await h.pool.query(`DROP TRIGGER IF EXISTS ${name} ON ${table}`);await h.pool.query(`DROP FUNCTION IF EXISTS public.${name}()`);
+   await dropSharedTableTrigger(h.pool,table,name);
   }
   expect(caught).toContain('Synthetic platform import retained INSERT failure');
   expect(await h.noEffects(p.ref)).toEqual({journals:0,effects:0});

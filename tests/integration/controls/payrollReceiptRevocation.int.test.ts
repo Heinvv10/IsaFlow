@@ -5,6 +5,7 @@ import { fixtureConfigFromEnv } from '../../../scripts/forensic/fixture-bootstra
 import { provisionForensicFixture,validateFixtureTarget,type ForensicFixture } from '../forensic-fixture';
 import { withControlRequest,requireControlTx } from '@/modules/accounting/services/controls/context';
 import type { ControlTx,OperationRef } from '@/modules/accounting/services/controls/contracts';
+import { rewriteApprovalUnguarded } from './approvalGuardBypass';
 // A retried payroll posting must prove present approval authority, as the sibling
 // historical-import/bank-transfer receipts do through replayKnownOperationEffect.
 process.env.ENCRYPTION_KEY=randomBytes(32).toString('hex');
@@ -187,7 +188,7 @@ async function unconsumedSameRunApproval(storeUppercase:boolean){
   return withoutPolicy(async()=>{
     const approvalId=await actor(fixture.u1,async ctx=>{const own=await requestOperationApproval(ctx,current.ref);
       await approvePayrollRun(fixture.companyA,current.id,fixture.u1.id);return own.id;});
-    if(storeUppercase)await pool.query('UPDATE control_operation_approvals SET entity_id=upper(entity_id) WHERE company_id=$1 AND id=$2',[fixture.companyA,approvalId]);
+    if(storeUppercase)await rewriteApprovalUnguarded(pool,'UPDATE control_operation_approvals SET entity_id=upper(entity_id) WHERE company_id=$1 AND id=$2',[fixture.companyA,approvalId]);
     const [approval]=(await pool.query('SELECT status,consumed_effect_id FROM control_operation_approvals WHERE company_id=$1 AND id=$2',[fixture.companyA,approvalId])).rows;
     const before=await ledger(current.id);
     return {approval,before,retry:await settle(post(current.id)),after:await ledger(current.id)};
@@ -209,7 +210,7 @@ it('fails closed when that unconsumed same-run approval stores an uppercase enti
 it('refuses a fresh retry after the consumed approval link is erased, instead of skipping the revocation recheck',async()=>{
   const current=await calculatedRun(),approvalId=await approve(current.ref,fixture.u1,fixture.u2);
   await post(current.id,approvalId);const before=await ledger(current.id);
-  await pool.query('UPDATE control_operation_approvals SET consumed_effect_id=NULL WHERE company_id=$1 AND id=$2',[fixture.companyA,approvalId]);
+  await rewriteApprovalUnguarded(pool,'UPDATE control_operation_approvals SET consumed_effect_id=NULL WHERE company_id=$1 AND id=$2',[fixture.companyA,approvalId]);
   expect(await withRole(fixture.u2,'viewer',()=>settle(post(current.id))),'erased link with revoked reviewer').toEqual({ok:false,error:'Approval effect linkage is invalid'});
   expect(await ledger(current.id)).toEqual(before);
 });

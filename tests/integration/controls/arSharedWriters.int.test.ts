@@ -3,7 +3,7 @@ import {randomUUID,randomBytes} from 'node:crypto';
 import {Pool} from 'pg';
 import type {NextApiHandler,NextApiRequest,NextApiResponse} from 'next';
 import {fixtureConfigFromEnv} from '../../../scripts/forensic/fixture-bootstrap';
-import {provisionForensicFixture,validateFixtureTarget,type ForensicFixture} from '../forensic-fixture';
+import {provisionForensicFixture,validateFixtureTarget,ensureOpenPeriodForToday,type ForensicFixture} from '../forensic-fixture';
 import {withControlRequest,requireControlTx} from '@/modules/accounting/services/controls/context';
 import {createJournalEntry} from '@/modules/accounting/services/gl/journalEntryService';
 import {approveCustomerInvoice} from '@/modules/accounting/services/ar/customerInvoiceApprovalService';
@@ -30,6 +30,7 @@ beforeAll(async()=>{
  await pool.query('INSERT INTO customers(id,company_id,name) VALUES($1,$2,$3)',[customer,fixture.companyA,'Synthetic AR material customer']);
  await pool.query(`INSERT INTO fiscal_periods(id,company_id,period_name,period_number,fiscal_year,start_date,end_date,status)
  VALUES($1,$2,'Synthetic AR September',9,2026,'2026-09-01','2026-09-30','open')`,[randomUUID(),fixture.companyA]);
+ await ensureOpenPeriodForToday(pool,fixture.companyA,'Synthetic AR current');
  for(const [role,type] of Object.entries({receivable:'asset',default_revenue:'revenue',vat_output:'liability',bank:'asset',payable:'liability',default_expense:'expense',vat_input:'asset'})){
   const id=randomUUID();await pool.query(`INSERT INTO gl_accounts(id,company_id,account_code,account_name,account_type,account_subtype,normal_balance,is_active,is_system_account)
   VALUES($1,$2,$3,$4,$5,$6,$7,true,true)`,[id,fixture.companyA,id.slice(0,12),`Synthetic AR ${role}`,type,role,['liability','revenue'].includes(type)?'credit':'debit']);

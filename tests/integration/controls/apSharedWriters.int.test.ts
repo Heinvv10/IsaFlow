@@ -3,7 +3,7 @@ import { randomBytes, randomUUID } from 'node:crypto';
 import { Pool } from 'pg';
 import type { NextApiHandler, NextApiRequest, NextApiResponse } from 'next';
 import { fixtureConfigFromEnv } from '../../../scripts/forensic/fixture-bootstrap';
-import { provisionForensicFixture, validateFixtureTarget, type ForensicFixture } from '../forensic-fixture';
+import { provisionForensicFixture, validateFixtureTarget, ensureOpenPeriod as ensureOpenPeriodShared, type ForensicFixture } from '../forensic-fixture';
 import { seedApAccounts } from './apSyntheticAccounts';
 import { withControlRequest, requireControlTx } from '@/modules/accounting/services/controls/context';
 import { requestOperationApproval, decideOperationApproval } from '@/modules/accounting/services/controls/approvalRequestService';
@@ -71,18 +71,12 @@ function addDays(dateStr: string, days: number): string {
   date.setUTCDate(date.getUTCDate() + days);
   return date.toISOString().slice(0, 10);
 }
-/** Reuses an existing open period covering `dateStr`, or creates a single-day one scoped to it —
- * never an unconditional insert, which could collide with fiscal_periods_no_overlap (migration 502). */
-async function ensureOpenPeriod(dateStr: string): Promise<string> {
-  const covering = await pool.query(
-    "SELECT id FROM fiscal_periods WHERE company_id=$1 AND status='open' AND start_date<=$2::date AND end_date>=$2::date",
-    [fixture.companyA, dateStr]);
-  if (covering.rows[0]) return covering.rows[0].id as string;
-  const id = randomUUID(), date = new Date(`${dateStr}T00:00:00Z`);
-  await pool.query(`INSERT INTO fiscal_periods(id,company_id,period_name,period_number,fiscal_year,start_date,end_date,status)
-    VALUES($1,$2,'Synthetic derived period',$3,$4,$5::date,$5::date,'open')`,
-    [id, fixture.companyA, date.getUTCMonth() + 1, date.getUTCFullYear(), dateStr]);
-  return id;
+/** Delegates to the shared forensic-fixture helper, which picks period_number as the next unused
+ * value for (company, fiscal_year) rather than the calendar month — two single-day periods
+ * requested for different dates in the same month (as `today` and `today+1` are below) must not
+ * collide on uq_fiscal_periods_company_year_period. */
+function ensureOpenPeriod(dateStr: string): Promise<string> {
+  return ensureOpenPeriodShared(pool, fixture.companyA, dateStr, 'Synthetic derived period');
 }
 const paymentRef = (id: string): OperationRef => ({ operation: 'supplier_payment.process', entityType: 'supplier_payment', entityId: id });
 const invoiceRef = (id: string): OperationRef => ({ operation: 'supplier_invoice.post', entityType: 'supplier_invoice', entityId: id });
