@@ -21,6 +21,7 @@ import { useBankTxRefData } from '@/components/accounting/bank-transactions/useB
 import { Loader2, AlertCircle } from 'lucide-react';
 import { BankEmptyState } from '@/components/accounting/banking/BankEmptyState';
 import { AutoPostRunsPanel } from '@/components/accounting/bank-transactions/AutoPostRunsPanel';
+import { actionableIds } from '@/components/accounting/bank-transactions/pendingFeedRow';
 
 type Tab = 'new' | 'reviewed' | 'excluded';
 const PAGE_SIZE = 25;
@@ -237,7 +238,10 @@ export default function BankTransactionsPage() {
     .filter(b => b.id !== selectedBank)
     .map(b => ({ id: b.id, code: b.accountCode, name: b.groupName ? `${b.groupName} › ${b.accountName}` : b.accountName }));
   const totalPages = Math.ceil(total / PAGE_SIZE);
-  const allSelected = transactions.length > 0 && transactions.every(t => selectedIds.has(t.id));
+  // Pending rows are read-only — select-all only ever selects the actionable
+  // (non-pending) rows, so "all selected" is judged against that subset too.
+  const selectableTxIds = actionableIds(transactions, transactions.map(t => t.id));
+  const allSelected = selectableTxIds.length > 0 && selectableTxIds.every(id => selectedIds.has(id));
   const toggleSelect = (id: string) => setSelectedIds(prev => { const n = new Set(prev); n.has(id) ? n.delete(id) : n.add(id); return n; });
   // Wrap a state setter so it always resets pagination to page 1
   function withReset<T>(fn: (v: T) => void) { return (v: T) => { fn(v); setPage(1); }; }
@@ -335,7 +339,7 @@ export default function BankTransactionsPage() {
               showCC={showCC} showBU={showBU} selectedIds={selectedIds} rowSelections={rowSelections}
               allSelected={allSelected} tab={tab}
               onToggleSelect={toggleSelect}
-              onSelectAll={() => setSelectedIds(allSelected ? new Set() : new Set(transactions.map(t => t.id)))}
+              onSelectAll={() => setSelectedIds(allSelected ? new Set() : new Set(selectableTxIds))}
               onRowTypeChange={actions.handleRowTypeChange} onRowEntityChange={actions.handleRowEntityChange}
               onRowVatChange={actions.handleRowVatChange} onRowDimensionChange={actions.handleRowDimensionChange}
               onAccept={actions.handleAccept} onExclude={actions.handleExclude}

@@ -131,7 +131,7 @@ export function buildBankTxActions(deps: ActionDeps) {
     const actionable = actionableIds(transactions, Array.from(selectedIds));
     const toAccept = actionable.filter(id => rowSelections[id]?.entityId);
     if (actionable.length === 0 && selectedIds.size > 0) {
-      notify.error('Pending transactions can’t be processed until they post.');
+      notify.error("Pending transactions can't be processed until they post.");
       return;
     }
     if (toAccept.length === 0) { notify.error('Select transactions with accounts assigned'); return; }
@@ -154,7 +154,7 @@ export function buildBankTxActions(deps: ActionDeps) {
   const handleBatchDelete = async () => {
     if (selectedIds.size === 0) return;
     const toDelete = actionableIds(transactions, Array.from(selectedIds));
-    if (toDelete.length === 0) { notify.error('Pending transactions can’t be processed until they post.'); return; }
+    if (toDelete.length === 0) { notify.error("Pending transactions can't be processed until they post."); return; }
     if (!window.confirm(`Delete ${toDelete.length} transaction(s)? This cannot be undone.`)) return;
     try {
       await callAction({ action: 'delete', bankTransactionIds: toDelete } as unknown as Record<string, string>);
@@ -165,7 +165,7 @@ export function buildBankTxActions(deps: ActionDeps) {
   const handleBulkAccept = async () => {
     if (selectedIds.size === 0) return;
     const toAccept = actionableIds(transactions, Array.from(selectedIds));
-    if (toAccept.length === 0) { notify.error('Pending transactions can’t be processed until they post.'); return; }
+    if (toAccept.length === 0) { notify.error("Pending transactions can't be processed until they post."); return; }
     try {
       const res = await apiFetch('/api/accounting/bank-transactions-action', {
         method: 'POST', headers: { 'Content-Type': 'application/json' }, credentials: 'include',

@@ -213,6 +213,9 @@ export function BankTxTable(props: Props) {
     transactions, rowSelections, onAccept, onExclude, onSplit,
   });
   const kbdEnabled = tab === 'new';
+  // Select-all is meaningless when every visible row is pending at the bank —
+  // there is nothing actionable to select.
+  const allRowsPending = transactions.length > 0 && transactions.every(isPendingFeedRow);
   const [openSel, setOpenSel] = useState<string | null>(null);
   const [search, setSearch] = useState('');
   const [dropUp, setDropUp] = useState(false);
@@ -295,7 +298,7 @@ export function BankTxTable(props: Props) {
           <thead>
             <tr className="border-b border-[var(--ff-border-light)] text-[var(--ff-text-tertiary)] text-xs">
               <th className="py-2 px-2 w-8">
-                <input type="checkbox" checked={allSelected} onChange={onSelectAll} className="accent-teal-500" />
+                <input type="checkbox" checked={allSelected} disabled={allRowsPending} onChange={onSelectAll} className="accent-teal-500" />
               </th>
               <th className={`${TH} w-24`}>Date</th>
               <th className={TH}>Description</th>
