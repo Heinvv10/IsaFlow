@@ -1,6 +1,7 @@
 import { afterAll, beforeAll, expect, it } from 'vitest';
 import { Pool } from 'pg';
 import { seedApAccounts } from './apSyntheticAccounts';
+import { rewriteApprovalUnguarded } from './approvalGuardBypass';
 import { randomBytes, randomUUID } from 'node:crypto';
 import { fixtureConfigFromEnv } from '../../../scripts/forensic/fixture-bootstrap';
 import { provisionForensicFixture, validateFixtureTarget, type ForensicFixture } from '../forensic-fixture';
@@ -95,7 +96,7 @@ it('refuses expired, canceled and rejected approvals without an effect', async (
     const approval = await request('u1', ctx => requestOperationApproval(ctx, targetRef));
     if (state === 'expired') {
       await request('u2', ctx => decideOperationApproval(ctx, approval.id, 'approved'));
-      await pool.query("UPDATE control_operation_approvals SET requested_at=clock_timestamp()-interval '2 days',expires_at=clock_timestamp()-interval '1 minute' WHERE company_id=$1 AND id=$2", [fixture.companyA, approval.id]);
+      await rewriteApprovalUnguarded(pool, "UPDATE control_operation_approvals SET requested_at=clock_timestamp()-interval '2 days',expires_at=clock_timestamp()-interval '1 minute' WHERE company_id=$1 AND id=$2", [fixture.companyA, approval.id]);
     } else {
       await request(state === 'cancelled' ? 'u1' : 'u2', ctx => decideOperationApproval(ctx, approval.id, state));
     }

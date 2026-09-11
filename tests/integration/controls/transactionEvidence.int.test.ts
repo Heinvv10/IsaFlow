@@ -5,6 +5,7 @@ import {fixtureConfigFromEnv} from '../../../scripts/forensic/fixture-bootstrap'
 import {provisionForensicFixture,validateFixtureTarget,type ForensicFixture} from '../forensic-fixture';
 import {withControlRequest,requireControlTx} from '../../../src/modules/accounting/services/controls/context';
 import {inspectTransactionEvidence} from '../../../src/modules/accounting/services/controls/transactionEvidenceService';
+import {rewriteApprovalUnguarded} from './approvalGuardBypass';
 const config=fixtureConfigFromEnv(process.env),target=validateFixtureTarget(config);
 process.env.DATABASE_URL=target.connectionString;process.env.DATABASE_SSL='disable';
 process.env.ENCRYPTION_KEY='synthetic-evidence-encryption-key';process.env.CONTROL_FINGERPRINT_KEY='synthetic-evidence-fingerprint-key';
@@ -98,7 +99,7 @@ it('expands persisted approval source versions and exact-parent decision evidenc
  const refs=[{entityType:'supplier_payment',entityId:ids.payment,store:'captured',evidenceId:ids.captured,version:null,hash:null},
   {entityType:'supplier_payment',entityId:ids.payment,store:'procurement',evidenceId:ids.procurement,version:null,hash:null},
   {entityType:'supplier_payment',entityId:ids.payment,store:'captured',evidenceId:invalid,version:null,hash:null}];
- await pool.query("UPDATE control_operation_approvals SET binding=$3::jsonb WHERE company_id=$1 AND id=$2",[fixture.companyA,ids.approval,JSON.stringify({sourceVersions:[
+ await rewriteApprovalUnguarded(pool,"UPDATE control_operation_approvals SET binding=$3::jsonb WHERE company_id=$1 AND id=$2",[fixture.companyA,ids.approval,JSON.stringify({sourceVersions:[
   {entityType:'supplier_invoice',entityId:ids.invoice,version:1,fingerprint:'not-disclosed'},
   {entityType:'gl_account',entityId:ids.account,version:1,fingerprint:'not-disclosed'},
   {entityType:'supplier',entityId:foreign,version:1,fingerprint:'not-disclosed'}]})]);
