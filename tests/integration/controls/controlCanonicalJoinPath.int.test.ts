@@ -20,6 +20,8 @@ import type {BankTransferPlan} from '@/modules/accounting/services/bank/bankAllo
  * not leakproof (uuid_out), so as app_user it is only an index condition where `i.id` reaches the canonical table as
  * a Param. Every bank-allocation, transfer, cash-application and override site is captured from the real service,
  * on a real posted transfer and a real posted receipt, and explained under RLS.
+ * Downside: this proves the lookup can be an index condition and its index exists, not that the planner picks that
+ * index at a given data volume.
  */
 let t:Awaited<ReturnType<typeof transferControlFixture>>,who:Who,posted:{intentId:string;approvalId:string;original:string;opposite:string;journalId:string};
 const bankRow=async(id:string)=>(await t.pool.query('SELECT id,status,amount::text,transaction_date,bank_account_id,matched_journal_line_id,allocation_type,transfer_journal_entry_id,counterparty_account_id FROM bank_transactions WHERE company_id=$1 AND id=$2',[who.companyId,id])).rows[0] as BankControlRow&Record<string,unknown>;
