@@ -54,16 +54,22 @@ const TAX_SPELLING = new RegExp(String.raw`V[.\s_:-]+A[.\s_:-]*T|VA[.\s_:-]+T|B[
 /** OCR spellings only in capitals (r38): `WAT` for VAT, `Tx`/`TX` for tax — Afrikaans `wat` ("which") is no mention. */
 const TAX_OCR_CAPS = /(?<![A-Za-z])(?:WAT|Tx|TX)(?![A-Za-z])/;
 /**
- * `Wat`/`wAT`/`UAT`/`W.A.T` in ANY case where the line is shaped like a tax
- * label (r39–r40): the word, then ANY run of separators (dots, pipes, dashes,
- * colons, spaces — anything not a letter or digit) and optionally a currency
- * (`ZAR`, `R`), then an amount, a `%` or "amount"; or the word alone on its
- * line, a label whose amount a column layout prints elsewhere. Afrikaans prose
- * (`Werk wat gedoen is 1000.00`) still passes: there the word is followed by
- * another word.
+ * `wat` / `Wat` / `WAT` / `wAT` / `UAT` / `W.A.T` is a tax mention EXCEPT on an
+ * Afrikaans PROSE line (r41, inverted after four rounds of label shapes): the
+ * token is exactly lower-case `wat`, the next token is a lower-case word, the
+ * line has at least three words, no column-header word and no `%`. A missed
+ * prose case costs a refusal, never an approval. Prose that passes: `Werk wat
+ * gedoen is 260.86`, `Tuindiens wat in Mei gedoen is 1000.00`.
  */
-const WAT_LABEL = /(?<![A-Za-z])[WU]\.?\s?A\.?\s?T(?:[^A-Za-z\d]*(?:ZAR|R)?[^A-Za-z\d]*(?:%|\d|amount|amt|bedrag)|[^A-Za-z\d]*$)/i;
-const mentionsTax = (line: string) => TAX_SPELLING.test(line) || TAX_OCR_CAPS.test(line) || WAT_LABEL.test(line)
+const WAT_TOKEN = /(?<![A-Za-z])(?:[WU][.\s_:-]+A[.\s_:-]*T|[WU]A[.\s_:-]+T|[WU]AT)(?![A-Za-z])/gi;
+const COLUMN_WORD = /(?<![A-Za-z])(?:qty|price|total|amount|item|subtotal|bedrag|totaal|prys|aantal|hoeveelheid)(?![A-Za-z])/i;
+function isProseWat(line: string, at: number, token: string): boolean {
+  if (token !== 'wat' || line.includes('%') || COLUMN_WORD.test(line)) return false;
+  if ((line.match(/[A-Za-zÀ-ÿ]+/g) ?? []).length < 3) return false;
+  return /^\s+[a-zà-ÿ][a-zà-ÿ'-]*(?![A-Za-z\d])/.test(line.slice(at + token.length));
+}
+const mentionsWat = (line: string) => [...line.matchAll(WAT_TOKEN)].some((m) => !isProseWat(line, m.index, m[0]));
+const mentionsTax = (line: string) => TAX_SPELLING.test(line) || TAX_OCR_CAPS.test(line) || mentionsWat(line)
   || (line.match(/[A-Za-z]+/g) ?? []).some((w) => TAX_ROOT.test(w) && !ORDINARY.has(w.toLowerCase()));
 /** A VAT-number-shaped token: a leading 4 (or OCR `A`) and 9–11 digits or OCR confusables, spacing/slashes included. */
 const OCR_DIGIT = String.raw`[\dOoIlLiSsBDZzGgQq|]`;

@@ -231,7 +231,10 @@ it.each([['wat-mixed', 'Wat 260.86'], ['wat-lower-upper', 'wAT 260.86']])('%s: r
 it.each([['wat-leader', 'Cooldrinks 1739.14\nBrown bread 420.00\nWat ........ 260.86\nTOTAL 2420.00'],
   ['wat-pipe', 'Cooldrinks 1739.14\nBrown bread 420.00\nWat | 260.86\nTOTAL 2420.00'],
   ['wat-dash', 'Cooldrinks 1739.14\nBrown bread 420.00\nWat — 260.86\nTOTAL 2420.00'],
-  ['wat-column', 'Cooldrinks\nBrown bread\nSubtotal\nWat\nTOTAL\n1806.14\n420.00\n2226.14\n260.86\n2487.00']])('%s: refused by both tools and post_journal', async (tag, body) => {
+  ['wat-column', 'Cooldrinks\nBrown bread\nSubtotal\nWat\nTOTAL\n1806.14\n420.00\n2226.14\n260.86\n2487.00'],
+  // r41: the reviewer's two header shapes — `Wat` between other column words.
+  ['wat-header-row', 'Item Qty Price Wat Total\nCooldrinks 1 1739.14 260.86 2000.00\nBrown bread 1 420.00 0.00 420.00\nTOTAL 2420.00'],
+  ['wat-header-labels', 'Cooldrinks 1739.14\nBrown bread 420.00\nSubtotal Wat TOTAL\n2159.14 260.86 2420.00']])('%s: refused by both tools and post_journal', async (tag, body) => {
   const text = `Bosman Foods\nWe are not VAT registered.\nInvoice No: ${tag}\nDate: 2026-06-0${tag.length % 9}\n${body}\n`;
   const doc = await seed(text, 'Bosman Motors', 'invoice');
   const billId = tag === 'wat-leader' ? await viaPipeline(doc) : await draftBill(doc, 2420);
