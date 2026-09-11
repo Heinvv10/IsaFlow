@@ -11762,6 +11762,37 @@
       "severity": "high",
       "source": "Measured by the R-082 blind reviewer: the cron passed a draft invoice to sendDunning. Confirmed on origin/master by the orchestrating session: dunningCronService.ts candidate query `ci.status NOT IN ('cancelled', 'paid')`.",
       "processNotes": "Fix: route the candidate query through shared/documentPopulation.documentInPopulationExpr (drafts and cancelled out) and keep 'paid' excluded; add a DB test that a draft is never passed to sendDunning, and mutate. Customer-facing, so fix promptly."
+    },
+    {
+      "id": "R-097",
+      "claim": "",
+      "area": "accounting/bank",
+      "affectedPaths": [
+        "scripts/migrations/sql/675_bank_feed_canonical_ingestion.sql"
+      ],
+      "sourceLabel": "",
+      "sourceIds": [],
+      "correctedTrigger": "",
+      "severityRationale": "Latent: no writer inserts pending rows with a run id, and if one did the auto-post run would merely stay open. It's a gap between the CHECK and the trigger's intent, on a migration deployed 2026-09-11.",
+      "auditedSha": "",
+      "currentSha": "",
+      "status": "confirmed",
+      "dependencies": [],
+      "testNames": [],
+      "evidencePaths": [
+        "docs/audits/remediation/R-079/fix.md"
+      ],
+      "fixCommit": null,
+      "pr": null,
+      "deployedSha": null,
+      "historicalDataImpact": "None; count pending rows with a non-null auto_post_run_id to confirm.",
+      "canonicalItem": null,
+      "reportedSeverity": "",
+      "branch": null,
+      "title": "Migration 675's CHECK bank_tx_nonposted_unlinked omits auto_post_run_id, so a pending feed row can be INSERTed carrying an auto-post run id (UPDATE is refused; no writer does it today)",
+      "severity": "low",
+      "source": "Measured by the R-079 round-4 blind reviewer on the fixture DB: an INSERT of a feed_state='pending' row with a real auto_post_run_id is accepted; UPDATEs setting any link column on a pending row are refused by trigger 675.",
+      "processNotes": "Fix in a NEW migration (675 is deployed and must not be edited): drop and re-add the CHECK with auto_post_run_id IS NULL in the non-posted arm, NOT VALID then VALIDATE."
     }
   ],
   "sourceInventory": [
