@@ -21,7 +21,7 @@ vi.mock('@/modules/accounting/services/controls/approvalQueries', () => ({
   assertRequesterAuthority: q.requesterAuthority, validateDecisions: q.validate,
 }));
 import { assertSuppliedApprovalExecutable } from '@/modules/accounting/services/controls/approvalExecutionService';
-import { SuppliedApprovalRefusal, isSuppliedApprovalRefusal } from '@/modules/accounting/services/controls/suppliedApprovalRefusal';
+import { SuppliedApprovalRefusal, isSuppliedApprovalRefusal, suppliedApprovalRefusalText } from '@/modules/accounting/services/controls/suppliedApprovalRefusal';
 import type { ControlTx } from '@/modules/accounting/services/controls/contracts';
 
 const ctx = { principal: { companyId: 'company', personId: 'person' }, sql: vi.fn(async () => []) } as unknown as ControlTx;
@@ -57,5 +57,26 @@ describe('what counts as a caller-supplied approval refusal', () => {
   it('does NOT mark a transport fault carrying its own SQLSTATE', async () => {
     q.authorities.mockRejectedValueOnce(Object.assign(new Error('deadlock detected'), { code: '40P01' }));
     expect(isSuppliedApprovalRefusal(await refused())).toBe(false);
+  });
+});
+
+// A 42501 marks the refusal by SQLSTATE alone, and pg raises 42501 itself for a missing grant or a broken request
+// context. Only text the control code wrote may reach the caller: a SuppliedApprovalRefusal, or a control function's
+// own RAISE (pg reports routine exec_stmt_raise for a PL/pgSQL RAISE, aclcheck_error for "permission denied").
+describe('what a caller is told about a supplied approval',()=>{
+  it('repeats a control function\'s own RAISE',async()=>{
+    q.authorities.mockRejectedValueOnce(Object.assign(new Error('Approval authorities unavailable'),{code:'42501',routine:'exec_stmt_raise'}));
+    const error=await refused();
+    expect(isSuppliedApprovalRefusal(error)).toBe(true);
+    expect(suppliedApprovalRefusalText(error)).toBe('Approval authorities unavailable');
+  });
+  it('never echoes pg\'s own 42501 text, even though the SQLSTATE marks it',async()=>{
+    q.authorities.mockRejectedValueOnce(Object.assign(new Error('permission denied for table control_operation_approvals'),{code:'42501',routine:'aclcheck_error'}));
+    const error=await refused();
+    expect(isSuppliedApprovalRefusal(error)).toBe(true);
+    expect(suppliedApprovalRefusalText(error)).toBe('the approval could not be checked');
+  });
+  it('repeats a SuppliedApprovalRefusal written by the kernel',()=>{
+    expect(suppliedApprovalRefusalText(new SuppliedApprovalRefusal('Approval material changed'))).toBe('Approval material changed');
   });
 });

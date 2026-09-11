@@ -66,7 +66,8 @@ describe('POST /api/accounting/bank-transfers',()=>{
   const p=await prepared(),journals=await transferJournals();
   const unknown=await execute(p.intentId,randomUUID());
   expect(unknown.status,JSON.stringify(unknown.body)).toBe(409);
-  expect(unknown.body.error?.message).toMatch(/^The approval supplied for this transfer cannot be used \(.+\)\. Nothing was posted\. Request an approval for this transfer and post again with its approval id\.$/);
+  // The control function's own RAISE text reaches the caller; pg's own 42501 text never does (suppliedApprovalRefusalText).
+  expect(unknown.body.error?.message).toBe('The approval supplied for this transfer cannot be used (Approval authorities unavailable). Nothing was posted. Request an approval for this transfer and post again with its approval id.');
   const {requestOperationApproval}=await import('@/modules/accounting/services/controls/approvalRequestService');
   const undecided=await h.actor(ctx=>requestOperationApproval(ctx,p.operation as never));
   const pending=await execute(p.intentId,undecided.id);
