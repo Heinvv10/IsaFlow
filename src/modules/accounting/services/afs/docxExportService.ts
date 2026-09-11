@@ -11,6 +11,7 @@ import {
 import { log } from '@/lib/logger';
 import type { AfsDocument, AfsSection, NoteContentBlock, NoteContent } from './afsTypes';
 import { renderNoteTable } from './docxTableRenderer';
+import { statementsTitle } from './afsDocumentTitle';
 
 // ── helpers ──────────────────────────────────────────────────────────────────
 
@@ -74,7 +75,7 @@ function renderBlock(block: NoteContentBlock): DocxChild[] {
 
 /** A management pack is not annual financial statements: the PDF cover's title and period line. */
 const isPack = (doc: AfsDocument) => doc.documentType === 'management_pack';
-const docTitle = (doc: AfsDocument) => (isPack(doc) ? 'Management Accounts' : 'Annual Financial Statements');
+const docTitle = (doc: AfsDocument) => statementsTitle(doc.documentType);
 
 function buildCoverChildren(doc: AfsDocument, companyName: string): DocxChild[] {
   const year = doc.fiscalYear ?? new Date().getFullYear();

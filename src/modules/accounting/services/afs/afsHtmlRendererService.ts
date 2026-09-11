@@ -2,6 +2,7 @@
 
 import type { AfsDocument, AfsSection, BrandProfile } from './afsTypes';
 import { renderCoverHtml } from './afsHtmlCoverTemplates';
+import { statementsTitle } from './afsDocumentTitle';
 import { renderSectionContent, escapeHtml } from './afsHtmlTableRenderer';
 
 // ── Public types ──────────────────────────────────────────────────────────────
@@ -184,11 +185,7 @@ export function renderAfsToHtml(
   // A management pack is not annual financial statements: it gets its own title and period
   // line. An AFS document renders exactly as before — its signature fingerprints the render.
   const isPack = document.documentType === 'management_pack';
-  const statementsTitle = isPack
-    ? 'Management Accounts'
-    : entityType === 'trust'
-      ? 'Financial Statements'
-      : 'Annual Financial Statements';
+  const htmlTitle = !isPack && entityType === 'trust' ? 'Financial Statements' : statementsTitle(document.documentType);
 
   const css = buildCss(brandProfile);
   const periodEnd = resolvePeriodEnd(document);
@@ -199,7 +196,7 @@ export function renderAfsToHtml(
     logoUrl: brandProfile.logoUrl,
     companyName,
     registrationNumber,
-    coverTitle: isPack ? 'Management Accounts' : 'Annual Financial Statements',
+    coverTitle: statementsTitle(document.documentType),
     periodLine: isPack ? `For the period ${periodEnd}` : `For the year ended ${periodEnd}`,
     coverPhotoUrl,
   });
@@ -217,7 +214,7 @@ export function renderAfsToHtml(
 <head>
   <meta charset="UTF-8"/>
   <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
-  <title>${escapeHtml(statementsTitle)} — ${escapeHtml(companyName)}</title>
+  <title>${escapeHtml(htmlTitle)} — ${escapeHtml(companyName)}</title>
   <style>
 ${css}
   </style>
