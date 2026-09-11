@@ -11659,7 +11659,7 @@
       "title": "ReportPageDrillDimensions.test.tsx still fails intermittently under load after R-085's fix (PR #423)",
       "severity": "low",
       "source": "Observed by the K-072 round-36 fixer on 2026-09-11: the full CI gate failed this component test at load ~21, it passed alone at head and on 96ba518e2 (2/2 each), and a re-run of the gate passed. R-085's round-2 fix for this file (a start-index snapshot of apiFetch.mock.calls) is on that branch. Earlier, on 2026-09-10, the file failed once under load during R-085's own run.",
-      "processNotes": "'Passes alone' is a hypothesis, not proof. Reproduce under load, capture the failing assertion, and fix by real isolation: mockReset apiFetch in beforeEach, unmount and flush pending promises in afterEach, or a per-test generation tag. The K-072 round-36 reviewer is measuring 10 runs under load."
+      "processNotes": "'Passes alone' is a hypothesis, not proof. Reproduce under load, capture the failing assertion, and fix by real isolation: mockReset apiFetch in beforeEach, unmount and flush pending promises in afterEach, or a per-test generation tag. The K-072 round-36 reviewer is measuring 10 runs under load.\n\n2026-09-11: the K-072 round-36 blind reviewer ran ReportPageDrillDimensions.test.tsx 20 times at load 8.9-24.6 with 0 failures, so no failing assertion is available yet. Stays a candidate; one observed gate failure (the K-072 round-36 fixer's first CI run) is the only evidence."
     }
   ],
   "sourceInventory": [
