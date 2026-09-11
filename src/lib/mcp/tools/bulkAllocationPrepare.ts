@@ -7,6 +7,7 @@
  * toolError (nothing was written, so there is nothing to roll back), while any
  * fault after it must THROW so the registry's savepoint unwinds the batch.
  */
+import { MAX_BANK_LINES_PER_REQUEST } from '@/lib/limits/authorityHoldLimits';
 import type { McpToolContext } from '../types';
 import type { SkippedLine } from './bulkAllocationSkip';
 import {
@@ -16,10 +17,11 @@ import {
   resolveTxSelectors,
 } from './allocationLine';
 
-// Each line posts a journal inside one request transaction, so the batch size
-// bounds how long a single connection holds its locks. 500 matches the PRD and
-// keeps the response (one id pair per line) well inside the transport's 1mb cap.
-export const MAX_LINES = 500;
+// Each line posts a journal inside one request transaction that holds the
+// company authority key, so the batch size bounds how long every other request
+// in the company can be kept waiting. Set from the measured per-line hold to stay
+// under half the key's 5 s bound (src/lib/limits/authorityHoldLimits.ts).
+export const MAX_LINES = MAX_BANK_LINES_PER_REQUEST;
 
 export interface ResolvedLine {
   /**

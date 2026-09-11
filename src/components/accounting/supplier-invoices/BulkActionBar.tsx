@@ -1,12 +1,14 @@
 /**
  * Floating bar that surfaces bulk actions when one or more rows are selected.
- * Calls /supplier-invoices-bulk-action — single atomic endpoint, no parallel
- * fan-out from the client.
+ * Calls /supplier-invoices-bulk-action in sequential batches of at most
+ * MAX_POSTED_DOCUMENTS_PER_REQUEST (the route refuses more: each request holds
+ * the company authority key) — never a parallel fan-out from the client.
  */
 
 import type { ReactNode } from 'react';
 import { apiFetch } from '@/lib/apiFetch';
 import { log } from '@/lib/logger';
+import { MAX_POSTED_DOCUMENTS_PER_REQUEST } from '@/lib/limits/authorityHoldLimits';
 
 type BulkAction = 'approve' | 'post_gl' | 'cancel';
 
@@ -42,16 +44,27 @@ export function BulkActionBar({
     onBusyChange(action);
     onError('');
     try {
-      const res = await apiFetch('/api/accounting/supplier-invoices-bulk-action', {
-        method: 'POST',
-        body: JSON.stringify({ action, invoiceIds: Array.from(selected) }),
-      });
-      const json = await res.json();
-      if (!res.ok) {
-        onError(json?.error?.message || json?.message || `${action} failed`);
-        return;
+      const ids = Array.from(selected);
+      const data: BulkActionResult = { total: 0, succeeded: 0, failed: 0, results: [] };
+      for (let start = 0; start < ids.length; start += MAX_POSTED_DOCUMENTS_PER_REQUEST) {
+        const res = await apiFetch('/api/accounting/supplier-invoices-bulk-action', {
+          method: 'POST',
+          body: JSON.stringify({ action, invoiceIds: ids.slice(start, start + MAX_POSTED_DOCUMENTS_PER_REQUEST) }),
+        });
+        const json = await res.json();
+        if (!res.ok) {
+          // Earlier batches are committed: say what happened to them, including their per-item failures.
+          const reason = json?.error?.message || json?.message || `${action} failed`;
+          const firstError = data.results.find((r) => !r.ok)?.error;
+          onError(start === 0 ? reason : `${reason} — stopped after ${start} of ${ids.length}: ${data.succeeded} succeeded, ${data.failed} failed`
+            + `${firstError ? ` (${firstError})` : ''}; the remaining ${ids.length - start} were not attempted`);
+          await onComplete();
+          return;
+        }
+        const batch = (json.data || json) as BulkActionResult;
+        data.total += batch.total; data.succeeded += batch.succeeded; data.failed += batch.failed;
+        data.results.push(...batch.results);
       }
-      const data = (json.data || json) as BulkActionResult;
       if (data.failed > 0) {
         const firstError = data.results.find((r) => !r.ok)?.error || '';
         onError(`${data.failed} of ${data.total} ${action}s failed${firstError ? `: ${firstError}` : ''}`);

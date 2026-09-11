@@ -21,14 +21,15 @@
  *
  * `approveCustomerInvoice` also seals a PDF (PRD-06 evidence): it RENDERS the
  * invoice with jsPDF and UPLOADS it to object storage, once per element. A full
- * batch is therefore 100 renders and 100 uploads inside the one request
+ * batch is therefore that many renders and uploads inside the one request
  * transaction — in-process rendering, so tens of milliseconds each, but the
  * uploads are network calls made while the transaction is open.
  *
  * The seal is deliberately NOT skipped on this path. An agent-approved invoice
  * that silently lacks the evidence a human-approved one carries is a divergence
- * nobody would see until the evidence was needed. If batch latency becomes the
- * binding constraint, the answer is a smaller cap for this tool — not a
+ * nobody would see until the evidence was needed. Batch latency IS the binding
+ * constraint: the request holds the company authority key throughout, so this
+ * tool has its own smaller cap (MAX_FINALIZED_INVOICES_PER_REQUEST) — not a
  * quieter approval.
  *
  * Free to call: `finalize_invoice` is `null` in TOOL_FLOW_OPERATIONS ("already
@@ -50,10 +51,10 @@ import {
 } from './bulkApproveRunner';
 import { postPartitionedDocuments } from './bulkApprovePosting';
 import {
-  MAX_DOCUMENTS,
   nothingToApproveText,
   parseDocumentIds,
 } from './bulkApproveArgs';
+import { MAX_FINALIZED_INVOICES_PER_REQUEST } from '@/lib/limits/authorityHoldLimits';
 import { ok, toolError } from './toolHelpers';
 
 const TOOL = 'bulk_finalize_invoices';
@@ -130,7 +131,7 @@ const adapter: BulkApproveAdapter<FinalizedRow> = {
 export const bulkFinalizeInvoicesTool: McpTool = {
   name: TOOL,
   description:
-    'Approve and POST up to 100 DRAFT customer invoices in ONE call — each posts DR Accounts Receivable / CR Revenue + CR VAT Output and seals its PDF as evidence. Irreversible except by a reversing entry. Requires the write:post permission. '
+    `Approve and POST up to ${MAX_FINALIZED_INVOICES_PER_REQUEST} DRAFT customer invoices in ONE call — each posts DR Accounts Receivable / CR Revenue + CR VAT Output and seals its PDF as evidence. Irreversible except by a reversing entry. Requires the write:post permission. `
     + 'Identify each invoice by its invoice_id (from list_customer_invoices or bulk_create_customer_invoices). '
     + 'An invoice that cannot be approved is SKIPPED, not a failure: not found, already approved, cancelled, or dated in a CLOSED fiscal period — each is listed in "skipped" with its reason and the rest of the batch still posts. '
     + 'ALL OR NOTHING for real faults: if an invoice genuinely fails to post, the whole batch is rolled back, nothing is posted, and the error names the element. '
@@ -145,9 +146,9 @@ export const bulkFinalizeInvoicesTool: McpTool = {
       invoice_ids: {
         type: 'array',
         minItems: 1,
-        maxItems: MAX_DOCUMENTS,
+        maxItems: MAX_FINALIZED_INVOICES_PER_REQUEST,
         items: { type: 'string', description: 'Customer invoice UUID' },
-        description: `The invoices to approve — at most ${MAX_DOCUMENTS}, each named once.`,
+        description: `The invoices to approve — at most ${MAX_FINALIZED_INVOICES_PER_REQUEST}, each named once. Split a longer list across calls.`,
       },
       dry_run: {
         type: 'boolean',
@@ -159,7 +160,7 @@ export const bulkFinalizeInvoicesTool: McpTool = {
     additionalProperties: false,
   },
   handler: async (args, ctx) => {
-    const ids = parseDocumentIds(args.invoice_ids, 'invoice_ids');
+    const ids = parseDocumentIds(args.invoice_ids, 'invoice_ids', MAX_FINALIZED_INVOICES_PER_REQUEST);
     if (typeof ids === 'string') return toolError(ids);
 
     // A chart missing one of these roles fails EVERY element, so it is refused

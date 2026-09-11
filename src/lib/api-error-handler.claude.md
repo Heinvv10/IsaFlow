@@ -25,11 +25,13 @@
 - Request body logger redacts `password`, `confirmPassword`, `password_hash`, `token`, `secret`, `apiKey`, `api_key` via `sanitizeBody` before emitting. Add new sensitive keys to `SENSITIVE_KEYS`.
 - 500 responses **mask internal details in production** (`An unexpected error occurred`). Dev mode includes message + stack in `details`. Pentest compliance — do not leak raw `err.message` to clients.
 - Sentry.captureException is skipped if `SENTRY_ENABLED !== 'true'`.
+- A lock failure (`isRetryableLockFailure`: 55P03 lock_timeout, 40P01 deadlock; `src/lib/lockContention.ts`) answers 503 `SERVICE_UNAVAILABLE` with `Retry-After`, not 500: the transaction rolled back whole and the request can be retried.
 - `res.headersSent` guard prevents double-send when a handler already responded before throwing.
 - `finally` always emits `logRequestCompleted` with `userId`/`companyId` read off `req` (populated by `withAuth`).
 - CORS uses `safeCorsOrigin` — never re-inline origin strings here (pentest M11: allow-list previously duplicated across two files).
 
 ## Recent changes
+- 2026-09-11: 55P03/40P01 answer 503 + Retry-After (company authority lock bounded at 5 s, migration 690).
 - 2026-04-24: Pentest M10–M23 batch hardened CORS and moved allow-list to `src/lib/cors.ts`.
 - 2026-04-18: withAuth codemod — handler generic changed so `withCompany`/`withUserAuth` no longer need `as any` casts.
 - 2026-04-15: BL-53 defensive isolation scope + sanitised route tag.

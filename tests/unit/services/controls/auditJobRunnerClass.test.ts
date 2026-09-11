@@ -14,16 +14,20 @@ beforeEach(()=>{
  vi.mocked(withAuditWorkerTransaction).mockReset().mockImplementation(async(_pool,_identity,isolation,deadlineAt,_signal,work,limits)=>{
   calls.push({deadlineAt,limits,isolation});
   if(calls.length===1)return work({client:{} as never,userId:identity.personId,companyId:identity.companyId,claims:{}});
-  if(calls.length===2)throw new Error('Synthetic work failure');
+  // The authority pin is its own short transaction between the claim and the work (a synthetic pin stands in).
+  if(calls.length===2)return Object.freeze({jobId:identity.jobId});
+  if(calls.length===3)throw new Error('Synthetic work failure');
   return work({client:{} as never,userId:identity.personId,companyId:identity.companyId,claims:{}});
  });
 });
-it('bounds the claim separately and gives only the work transaction the class deadline',async()=>{
+it('bounds the claim and the authority pin separately and gives only the work transaction the class deadline',async()=>{
  for(const [workerClass,workMs,idle] of [['check_run',300000,15000],['audit',60000,null]] as const){
   calls=[];const before=Date.now();
   expect(await runAuditJob(identity,{pool,workerClass})).toMatchObject({state:'failed',code:'WORKER_ERROR',failureRecorded:true});
-  const after=Date.now(),[claim,work,failure]=calls;
+  const after=Date.now(),[claim,pin,work,failure]=calls;
   expect(claim!.isolation).toBe('read committed');expect(claim!.deadlineAt).toBeGreaterThanOrEqual(before+5000);expect(claim!.deadlineAt).toBeLessThanOrEqual(after+5000);
+  // The pin's bound sits 2 s above the key's 5 s lock_timeout so a held key is a 55P03, not a statement cancel.
+  expect(pin!.isolation).toBe('read committed');expect(pin!.deadlineAt).toBeGreaterThanOrEqual(before+7000);expect(pin!.deadlineAt).toBeLessThanOrEqual(after+7000);
   expect(work!.isolation).toBe('repeatable read');expect(work!.deadlineAt).toBeGreaterThanOrEqual(before+workMs);expect(work!.deadlineAt).toBeLessThanOrEqual(after+workMs);
   expect(failure!.deadlineAt-Date.now()).toBeLessThanOrEqual(5000);
   for(const call of calls)expect(call.limits).toEqual({idleInTransactionMs:idle});
@@ -43,15 +47,42 @@ it('fails closed before any transaction when the worker class is missing or unkn
 it('anchors the work deadline at the parent spawn timestamp while the claim keeps its own bound from now',async()=>{
  const spawnedAt=Date.now()-20000;
  await runAuditJob(identity,{pool,workerClass:'check_run',startedAt:spawnedAt});
- const [claim,work]=calls,now=Date.now();
+ const [claim,pin,work]=calls,now=Date.now();
  expect(work!.deadlineAt).toBe(spawnedAt+300000);
  expect(claim!.deadlineAt).toBeGreaterThan(now+4000);expect(claim!.deadlineAt).toBeLessThanOrEqual(now+5000);
+ expect(pin!.deadlineAt).toBeGreaterThan(now+6000);expect(pin!.deadlineAt).toBeLessThanOrEqual(now+7000);
  calls=[];const late=Date.now()-299000;
  await runAuditJob(identity,{pool,workerClass:'check_run',startedAt:late});
- expect(calls[0]!.deadlineAt).toBeLessThanOrEqual(late+300000);
+ expect(calls[0]!.deadlineAt).toBeLessThanOrEqual(late+300000);expect(calls[1]!.deadlineAt).toBeLessThanOrEqual(late+300000);
 });
 it('refuses a spawn timestamp that is not an integer in the past',async()=>{
  for(const startedAt of [Date.now()+60000,1.5,Number.NaN])
   await expect(runAuditJob(identity,{pool,workerClass:'check_run',startedAt})).rejects.toThrow(/spawn timestamp/i);
  expect(withAuditWorkerTransaction).not.toHaveBeenCalled();
+});
+it('requeues a job whose pin or work transaction lost a deadlock or a lock timeout instead of failing it',async()=>{
+ // 57014 (statement cancel) is retryable only in the pin, where it means the class deadline cut a key wait short.
+ for(const [code,at] of [['40P01',2],['55P03',2],['57014',2],['40P01',3],['55P03',3]] as const){
+  calls=[];vi.mocked(failAuditJobForWorker).mockClear();
+  vi.mocked(withAuditWorkerTransaction).mockImplementation(async(_pool,_identity,isolation,deadlineAt,_signal,work,limits)=>{
+   calls.push({deadlineAt,limits,isolation});
+   if(calls.length===at)throw Object.assign(new Error('Synthetic lock failure'),{code});
+   if(calls.length===2)return Object.freeze({jobId:identity.jobId});
+   return work({client:{} as never,userId:identity.personId,companyId:identity.companyId,claims:{}});
+  });
+  expect(await runAuditJob(identity,{pool,workerClass:'audit'})).toMatchObject({state:'failed',code:'WORKER_ERROR',failureRecorded:true});
+  expect(vi.mocked(failAuditJobForWorker).mock.calls[0]![2]).toBe('WORKER_ERROR');
+  expect(vi.mocked(failAuditJobForWorker).mock.calls[0]![3]).toBe(true);
+ }
+});
+it('fails a job whose WORK transaction hit a statement cancel: only the pin treats 57014 as retryable',async()=>{
+ calls=[];vi.mocked(failAuditJobForWorker).mockClear();
+ vi.mocked(withAuditWorkerTransaction).mockImplementation(async(_pool,_identity,isolation,deadlineAt,_signal,work,limits)=>{
+  calls.push({deadlineAt,limits,isolation});
+  if(calls.length===2)return Object.freeze({jobId:identity.jobId});
+  if(calls.length===3)throw Object.assign(new Error('canceling statement due to statement timeout'),{code:'57014'});
+  return work({client:{} as never,userId:identity.personId,companyId:identity.companyId,claims:{}});
+ });
+ expect(await runAuditJob(identity,{pool,workerClass:'audit'})).toMatchObject({state:'failed',code:'WORKER_ERROR',failureRecorded:true});
+ expect(vi.mocked(failAuditJobForWorker).mock.calls[0]![3]).toBe(false);
 });
