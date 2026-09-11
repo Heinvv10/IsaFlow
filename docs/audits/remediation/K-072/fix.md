@@ -2872,3 +2872,56 @@ DB 2) · W2 label-shaped `wat` case-sensitive (unit 6, DB 2) · W3 any `wat` wor
 case goes red (unit 3, DB 1). **Re-measured vs `90653fa41`:** the harness scores the posting gate, which this does not
 touch; evidence on all 4 481 rows is unchanged, measured (the one row evidencing 0 still does; 2 rows contain a
 `wat`/`uat` token, and neither changes).
+
+### Migration 672 aborted? Clearing duplicate capture journals — operator procedure
+
+672 refuses to build `uq_gl_je_capture_source_document` while any captured document has more than one live
+`auto_expense_receipt` journal, and **drafts count**. Its comment says "reverse, never DELETE", but a draft cannot be
+reversed (`reverseJournalEntry`: *Can only reverse posted entries*). So: **reverse a surplus POSTED journal; delete a
+surplus DRAFT.** A draft never reached a VAT201, so deleting it corrects nothing that was filed. 672 itself is not
+edited: it is already applied on the fixture and dev databases, and any byte change fails their checksum.
+**Every step below writes to production and needs Hein's approval.** Run step 1 before the deploy to know whether
+672 will abort.
+
+**1. List the duplicates, with each journal's status and date:**
+
+```sql
+SELECT je.company_id, je.source_document_id, je.id, je.entry_number, je.status,
+       je.entry_date, je.posted_at, je.created_at
+  FROM gl_journal_entries je
+ WHERE je.source = 'auto_expense_receipt'
+   AND je.source_document_id IS NOT NULL
+   AND je.reversed_at IS NULL
+   AND (je.company_id, je.source_document_id) IN (
+         SELECT company_id, source_document_id FROM gl_journal_entries
+          WHERE source = 'auto_expense_receipt' AND source_document_id IS NOT NULL AND reversed_at IS NULL
+          GROUP BY company_id, source_document_id HAVING COUNT(*) > 1)
+ ORDER BY je.company_id, je.source_document_id, (je.status = 'posted') DESC, je.posted_at, je.created_at;
+```
+
+**2. Which to keep, per document:** the journal already **posted** (if more than one is posted, the earliest
+`posted_at`); if none is posted, the **earliest** (`created_at`). The list sorts the keeper first in each group.
+Every other row in the group is surplus.
+
+**3. A surplus POSTED journal:** reverse it in the app — Accounting > General Ledger > the entry > **Reverse**. That
+corrects the VAT in the period that carries it.
+
+**4. A surplus DRAFT journal:** delete it, and only it. The statement is scoped to the company, the listed ids, and
+`status = 'draft'`, so it cannot touch a posted journal (repo rule: journal lines are only ever deleted when draft).
+Its lines go with it (`gl_journal_lines` → `ON DELETE CASCADE`):
+
+```sql
+BEGIN;
+DELETE FROM gl_journal_entries
+ WHERE company_id = '<company_id>'
+   AND id IN ('<draft journal id>' /* , … */)
+   AND status = 'draft'
+   AND source = 'auto_expense_receipt'
+   AND reversed_at IS NULL;
+-- Expect "DELETE n" with n = the number of ids listed. If it is fewer, ROLLBACK and re-run step 1.
+-- If it fails on a foreign key, the draft is referenced elsewhere: ROLLBACK and stop.
+COMMIT;
+```
+
+**5.** Re-run step 1; it must return no rows. Then re-run the deploy, and 672 applies. The kept journal still holds the
+document's posting claim (`captured_documents.posted_at`), so nothing re-posts it.
