@@ -15,7 +15,7 @@ import type { NextApiResponse } from 'next';
 import { z } from 'zod';
 import { withErrorHandler } from '@/lib/api-error-handler';
 import { apiResponse } from '@/lib/apiResponse';
-import { withAuth, type CompanyAuthedRequest, signExtensionToken } from '@/lib/auth';
+import { withAuth, withWriteAccess, type CompanyAuthedRequest, signExtensionToken } from '@/lib/auth';
 import { withCsrf } from '@/lib/auth/withCsrf';
 import { sql } from '@/lib/neon';
 import { BANK_SUBTYPES } from '@/modules/accounting/services/gl/accountSubtypes';
@@ -125,4 +125,4 @@ async function handler(req: CompanyAuthedRequest, res: NextApiResponse) {
   }, 'Extension paired', 201);
 }
 
-export default withAuth(withErrorHandler(withCsrf(handler)));
+export default withAuth(withErrorHandler(withCsrf(withWriteAccess(handler))));
