@@ -79,6 +79,7 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
         ON bt.bank_account_id = ga.id
         AND bt.transaction_date < ${from}::date
         AND bt.status != 'excluded'
+        AND bt.feed_state = 'posted'
       -- No is_active filter. It is a chart-of-accounts picker flag, so a
       -- deactivated bank account would drop off this report while still holding
       -- a real balance and unreconciled transactions. The zero delta today is
@@ -109,6 +110,7 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
         AND bt.transaction_date >= ${from}::date
         AND bt.transaction_date <= ${to}::date
         AND bt.status != 'excluded'
+        AND bt.feed_state = 'posted'
       -- No is_active filter. It is a chart-of-accounts picker flag, so a
       -- deactivated bank account would drop off this report while still holding
       -- a real balance and unreconciled transactions. The zero delta today is

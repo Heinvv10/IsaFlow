@@ -59,6 +59,7 @@ export async function fetchCoverageDirections(
               WHERE bt2.bank_account_id = ga.id
                 AND bt2.company_id = ${companyId}::UUID
                 AND bt2.transaction_date <= ${asAt}::DATE
+                AND bt2.feed_state = 'posted'
                 AND bt2.matched_journal_line_id IS NULL), 0)::numeric AS statement_only
       FROM gl_accounts ga
       LEFT JOIN gl_journal_lines jl

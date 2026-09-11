@@ -108,6 +108,7 @@ export async function getBankTransactions(
         WHERE bt.bank_account_id = ${filters.bankAccountId}::UUID
           AND bt.company_id = ${companyId}::UUID
           AND bt.status = ANY(${statusArr}::TEXT[])
+          AND bt.feed_state <> 'removed'
           AND bt.transaction_date >= ${fromDate} AND bt.transaction_date <= ${toDate}
           AND bt.amount >= ${fromAmt}::NUMERIC AND bt.amount <= ${toAmt}::NUMERIC
           AND (bt.description ILIKE ${searchPattern} OR bt.reference ILIKE ${searchPattern})
@@ -119,6 +120,7 @@ export async function getBankTransactions(
         WHERE bt.bank_account_id = ${filters.bankAccountId}::UUID
           AND bt.company_id = ${companyId}::UUID
           AND bt.status = ANY(${statusArr}::TEXT[])
+          AND bt.feed_state <> 'removed'
           AND bt.transaction_date >= ${fromDate} AND bt.transaction_date <= ${toDate}
           AND bt.amount >= ${fromAmt}::NUMERIC AND bt.amount <= ${toAmt}::NUMERIC
           AND (bt.description ILIKE ${searchPattern} OR bt.reference ILIKE ${searchPattern})
@@ -131,6 +133,7 @@ export async function getBankTransactions(
       rows = (await sql`${sql.unsafe(TX_SELECT)}
         WHERE bt.bank_account_id = ${filters.bankAccountId}::UUID
           AND bt.company_id = ${companyId}::UUID
+          AND bt.feed_state <> 'removed'
           AND bt.transaction_date >= ${fromDate} AND bt.transaction_date <= ${toDate}
           ${sql.unsafe(alloc)}
           ${keyset}
@@ -139,6 +142,7 @@ export async function getBankTransactions(
       countRows = (await sql`SELECT COUNT(*) AS cnt FROM bank_transactions bt
         WHERE bt.bank_account_id = ${filters.bankAccountId}::UUID
           AND bt.company_id = ${companyId}::UUID
+          AND bt.feed_state <> 'removed'
           AND bt.transaction_date >= ${fromDate} AND bt.transaction_date <= ${toDate}
           ${sql.unsafe(alloc)}`) as Row[];
     } else {
@@ -154,6 +158,7 @@ export async function getBankTransactions(
       rows = (await sql`${sql.unsafe(TX_SELECT)}
         WHERE bt.company_id = ${companyId}::UUID
           AND (${statusFilter}::text IS NULL OR bt.status = ${statusFilter}::text)
+          AND bt.feed_state <> 'removed'
           AND (${searchPattern}::text IS NULL OR bt.description ILIKE ${searchPattern} OR bt.reference ILIKE ${searchPattern})
           AND bt.transaction_date >= ${fromDate} AND bt.transaction_date <= ${toDate}
           ${sql.unsafe(alloc)}
@@ -163,6 +168,7 @@ export async function getBankTransactions(
       countRows = (await sql`SELECT COUNT(*) AS cnt FROM bank_transactions bt
         WHERE bt.company_id = ${companyId}::UUID
           AND (${statusFilter}::text IS NULL OR bt.status = ${statusFilter}::text)
+          AND bt.feed_state <> 'removed'
           AND (${searchPattern}::text IS NULL OR bt.description ILIKE ${searchPattern} OR bt.reference ILIKE ${searchPattern})
           AND bt.transaction_date >= ${fromDate} AND bt.transaction_date <= ${toDate}
           ${sql.unsafe(alloc)}`) as Row[];
