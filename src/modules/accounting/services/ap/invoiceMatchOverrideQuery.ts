@@ -16,13 +16,13 @@ export async function queryInvoiceMatchOverrides(ctx:ControlTx,rawInvoiceId:stri
  const rows=await ctx.sql`SELECT i.id,i.reason,i.evidence_refs,i.expected_match_fingerprint,e.id AS effect_id,e.result,a.id AS approval_id,v.version,
   count(*) OVER()::int AS population_count FROM control_invoice_match_override_intents i
   LEFT JOIN LATERAL(SELECT ce.* FROM control_operation_effects ce WHERE ce.company_id=i.company_id
-    AND ce.entity_type='invoice_match_override_intent' AND lower(ce.entity_id)=i.id::text AND ce.operation='invoice_match.override'
+    AND ce.entity_type='invoice_match_override_intent' AND ce.entity_id_canonical=i.id::text AND ce.operation='invoice_match.override'
     ORDER BY (EXISTS(SELECT 1 FROM control_operation_approvals ca WHERE ca.company_id=ce.company_id AND ca.consumed_effect_id=ce.id AND ca.status='consumed')) DESC,
      (ce.entity_id=i.id::text) DESC,ce.committed_at,ce.id LIMIT 1) e ON true
-  LEFT JOIN control_operation_approvals a ON a.company_id=i.company_id AND a.consumed_effect_id=e.id AND a.status='consumed'
-   AND a.entity_type='invoice_match_override_intent' AND lower(a.entity_id)=i.id::text AND a.operation='invoice_match.override'
+  LEFT JOIN LATERAL(SELECT a.id FROM control_operation_approvals a WHERE a.company_id=i.company_id AND a.consumed_effect_id=e.id AND a.status='consumed'
+   AND a.entity_type='invoice_match_override_intent' AND a.entity_id_canonical=i.id::text AND a.operation='invoice_match.override' OFFSET 0) a ON true
   LEFT JOIN LATERAL(SELECT cv.* FROM control_entity_versions cv WHERE cv.company_id=i.company_id
-    AND cv.entity_type='invoice_match_override_intent' AND lower(cv.entity_id)=i.id::text
+    AND cv.entity_type='invoice_match_override_intent' AND cv.entity_id_canonical=i.id::text
     ORDER BY cv.version DESC,(cv.entity_id=i.id::text) DESC,cv.entity_id COLLATE "C" LIMIT 1) v ON true
   WHERE i.company_id=${ctx.principal.companyId}::uuid AND i.invoice_id=${invoiceId}::uuid ORDER BY i.created_at DESC,i.id LIMIT 101` as AnnotationRow[];
  const populationCount=rows[0]?.population_count??0,missing:string[]=[];

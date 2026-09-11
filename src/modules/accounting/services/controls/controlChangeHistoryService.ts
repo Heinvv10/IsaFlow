@@ -25,8 +25,8 @@ export async function readControlEntityHistory(ctx:ControlTx,input:HistoryInput)
  // A retained spelling is a lineage. Two lineages are never merged into one answer: the caller is told they exist
  // and reads each by name, and every page and cursor is bound to exactly one of them.
  const lineages=await ctx.sql`SELECT entity_id,count(*) FILTER(WHERE event)::int AS "eventCount",max(version)::text AS version,max(version) FILTER(WHERE NOT event)::text AS "storedVersion" FROM (
-   SELECT entity_id,version,false AS event FROM control_entity_versions WHERE company_id=${company}::uuid AND entity_type=${entityType} AND lower(entity_id)=lower(${entityId})
-   UNION ALL SELECT entity_id,new_version,true FROM control_change_events WHERE company_id=${company}::uuid AND entity_type=${entityType} AND lower(entity_id)=lower(${entityId})
+   SELECT entity_id,version,false AS event FROM control_entity_versions WHERE company_id=${company}::uuid AND entity_type=${entityType} AND entity_id_canonical=lower(${entityId})
+   UNION ALL SELECT entity_id,new_version,true FROM control_change_events WHERE company_id=${company}::uuid AND entity_type=${entityType} AND entity_id_canonical=lower(${entityId})
   ) retained GROUP BY entity_id ORDER BY entity_id COLLATE "C" LIMIT 11` as {entity_id:string;eventCount:number;version:string|null;storedVersion:string|null}[];
  // An explicit lineage must be a spelling of this entity; on an entity with nothing retained it reads as untracked.
  if(options.lineage!==undefined&&(options.lineage.toLowerCase()!==entityId.toLowerCase()||(lineages.length>0&&!lineages.some(row=>row.entity_id===options.lineage))))throw new Error('History lineage is not retained for this entity');
@@ -44,11 +44,11 @@ export async function readControlEntityHistory(ctx:ControlTx,input:HistoryInput)
  const throughVersion=cursor?.throughVersion??currentVersion;
  if(throughVersion>currentVersion)throw new Error('History population changed');
  const [count]=await ctx.sql`SELECT count(*)::text AS count,min(new_version)::text AS first,max(new_version)::text AS last,min(occurred_at) AS since,
-  count(*) FILTER(WHERE NOT EXISTS(SELECT 1 FROM control_protected_evidence p WHERE p.company_id=e.company_id AND p.id=e.protected_evidence_id AND p.entity_type=e.entity_type AND lower(p.entity_id)=lower(e.entity_id)))::text AS missing
+  count(*) FILTER(WHERE NOT EXISTS(SELECT 1 FROM control_protected_evidence p WHERE p.company_id=e.company_id AND p.id=e.protected_evidence_id AND p.entity_type=e.entity_type AND p.entity_id_canonical=e.entity_id_canonical))::text AS missing
   FROM control_change_events e WHERE e.company_id=${company}::uuid AND e.entity_type=${entityType} AND e.entity_id=${lineage} AND e.new_version<=${throughVersion}` as {count:string;first:string|null;last:string|null;since:Date|string|null;missing:string}[];
  const rows=await ctx.sql`SELECT e.id,e.new_version,e.previous_version,e.occurred_at,e.accounting_date,e.action,e.operation_id,e.person_id,e.connection_id,e.grant_id,e.acting_firm_id,e.request_id,e.provenance,
   octet_length(p.ciphertext)::text AS byte_length FROM control_change_events e LEFT JOIN control_protected_evidence p
-  ON p.company_id=e.company_id AND p.id=e.protected_evidence_id AND p.entity_type=e.entity_type AND lower(p.entity_id)=lower(e.entity_id)
+  ON p.company_id=e.company_id AND p.id=e.protected_evidence_id AND p.entity_type=e.entity_type AND p.entity_id_canonical=e.entity_id_canonical
   WHERE e.company_id=${company}::uuid AND e.entity_type=${entityType} AND e.entity_id=${lineage}
    AND e.new_version>${cursor?.lastVersion??0} AND e.new_version<=${throughVersion} ORDER BY e.new_version LIMIT ${limit+1}` as Row[];
  await assertHistoryOperationSources(ctx,[...new Set(rows.slice(0,limit).map(row=>row.operation_id))]);
@@ -59,7 +59,7 @@ export async function readControlEntityHistory(ctx:ControlTx,input:HistoryInput)
   recordedSince:count?.since?iso(count.since):null,throughVersion,eventCount,versionGaps,missingProtectedEvidence:integer(count?.missing??0),status:versionGaps||integer(count?.missing??0)>0?'incomplete' as const:'complete' as const};
  if(!page.length&&rows.length)return{available:false as const,code:'RESOURCE_LIMIT' as const,requiredDelivery:'async' as const,entity:{entityType,entityId,lineage},items:[],nextCursor:options.cursor??null,coverage,eventId:rows[0]!.id,byteLength:integer(rows[0]!.byte_length)};
  const evidence=page.length?await ctx.sql`SELECT e.id,p.ciphertext,p.key_id,p.envelope_version FROM control_change_events e JOIN control_protected_evidence p
-  ON p.company_id=e.company_id AND p.id=e.protected_evidence_id AND p.entity_type=e.entity_type AND lower(p.entity_id)=lower(e.entity_id)
+  ON p.company_id=e.company_id AND p.id=e.protected_evidence_id AND p.entity_type=e.entity_type AND p.entity_id_canonical=e.entity_id_canonical
   WHERE e.company_id=${company}::uuid AND e.entity_type=${entityType} AND e.entity_id=${lineage} AND e.id=ANY(${page.map(row=>row.id)}::uuid[])` as {id:string;ciphertext:string;key_id:string;envelope_version:number}[]:[];
  const byId=new Map(evidence.map(row=>[row.id,row]));
  const decoded=new Map<string,ReturnType<typeof openProtectedChange>>();
