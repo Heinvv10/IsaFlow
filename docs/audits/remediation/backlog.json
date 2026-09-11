@@ -11610,7 +11610,7 @@
       "severityRationale": "The throw fails closed (nothing posts), but the draft carries a line of 150,000 against a much smaller document, and an unhandled throw on approve may surface as a 500. Needs a measurement to size it.",
       "auditedSha": "",
       "currentSha": "",
-      "status": "candidate",
+      "status": "confirmed",
       "dependencies": [
         "K-072"
       ],
@@ -11625,10 +11625,10 @@
       "canonicalItem": null,
       "reportedSeverity": "",
       "branch": null,
-      "title": "A column-layout supplier invoice can be drafted with its amount read as a quantity (qty 1000 x 150), and approving that draft throws instead of refusing cleanly",
-      "severity": "low",
+      "title": "Column-layout supplier invoices are mis-extracted: the amount can be read as a quantity (qty 1000 x 150, which throws on approve), and the subtotal can be read as the total, so the bill is approved short by the VAT",
+      "severity": "medium",
       "source": "Observed in passing by the K-072 round-34 blind reviewer (unscored aside) and relayed by the round-35 fixer. Not reproduced by the orchestrator; status candidate until measured.",
-      "processNotes": "First reproduce it on the fixture DB and record the exact draft and the error. Fix direction: the pipeline should refuse to draft lines whose extended amount doesn't reconcile to the document, and approve should return a typed 4xx, never a 500."
+      "processNotes": "First reproduce it on the fixture DB and record the exact draft and the error. Fix direction: the pipeline should refuse to draft lines whose extended amount doesn't reconcile to the document, and approve should return a typed 4xx, never a 500.\n\n2026-09-11 (K-072 final review, rev-k072ap): measured on the fixture DB, a column-layout invoice's extraction read the subtotal 2226.14 as the total instead of 2487.00, and the bill was APPROVED short by the VAT. Identical on origin/master, so pre-existing and not a K-072 regression. Raised to medium and confirmed: an unattended approval at the wrong amount."
     },
     {
       "id": "R-093",
