@@ -34,7 +34,21 @@ export interface PipelineInvoiceInput {
   taxAmount: number;
   taxRate: number;
   items: Array<{ description: string; quantity: number; unitPrice: number; taxRate: number }>;
+  /** Set when the extraction read no VAT: the draft says so to the person approving it. */
+  notes?: string;
 }
+
+/**
+ * What a draft carries when the extraction read NO VAT (K-072 r30). The builder
+ * used to invent 15/115 of the total as the invoice's tax, and the draft showed
+ * that figure as if the document printed it — and an agent could approve it,
+ * booking input VAT a non-VAT vendor never charged. Now the draft carries no
+ * VAT at all, says why, and the MCP approve tools refuse it
+ * (`capturedVatUnread`).
+ */
+export const VAT_UNREAD_NOTE = 'VAT was not read from the captured document, so this draft carries NO VAT. '
+  + 'If the document shows VAT, do not approve it as is: cancel it and enter the bill with its VAT. '
+  + 'An agent cannot approve this bill.';
 
 export interface PipelineValidation {
   valid: boolean;
@@ -127,7 +141,10 @@ export function buildInvoiceFromExtraction(
   extracted: ExtractedDocument,
   supplierId: string,
 ): PipelineInvoiceInput {
-  const taxRate = extracted.vatRate ?? 15;
+  // A VAT the document never showed is never invented (K-072 r30): no VAT read
+  // is no VAT on the draft, at a 0% rate, flagged for the person approving it.
+  const vatRead = extracted.vatAmount !== null && extracted.vatAmount !== undefined;
+  const taxRate = vatRead ? (extracted.vatRate ?? 15) : 0;
 
   return {
     supplierId,
@@ -137,8 +154,9 @@ export function buildInvoiceFromExtraction(
     paymentTerms: extracted.paymentTerms || undefined,
     reference: extracted.purchaseOrderRef || undefined,
     totalAmount: extracted.totalAmount ?? 0,
-    taxAmount: extracted.vatAmount ?? (extracted.totalAmount ? Math.round(extracted.totalAmount / (1 + taxRate / 100) * (taxRate / 100) * 100) / 100 : 0),
+    taxAmount: vatRead ? extracted.vatAmount! : 0,
     taxRate,
+    notes: vatRead ? undefined : VAT_UNREAD_NOTE,
     items: extracted.lineItems.length > 0
       ? extracted.lineItems.map(li => ({
           description: li.description,
@@ -146,7 +164,7 @@ export function buildInvoiceFromExtraction(
           unitPrice: li.unitPrice ?? li.total ?? 0,
           taxRate,
         }))
-      : [{ description: 'As per invoice', quantity: 1, unitPrice: extracted.subtotal ?? extracted.totalAmount ?? 0, taxRate }],
+      : [{ description: 'As per invoice', quantity: 1, unitPrice: (vatRead ? extracted.subtotal : null) ?? extracted.totalAmount ?? 0, taxRate }],
   };
 }
 

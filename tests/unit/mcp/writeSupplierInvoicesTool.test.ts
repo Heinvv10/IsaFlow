@@ -27,6 +27,10 @@ vi.mock('@/modules/accounting/services/ap/supplierInvoiceService', () => ({
 vi.mock('@/modules/accounting/services/ap/supplierInvoiceWorkflowService', () => ({
   approveSupplierInvoice: vi.fn(),
 }));
+vi.mock('@/modules/accounting/services/capture/capturedVatUnread', () => ({
+  CAPTURED_VAT_UNREAD_REASON: 'its captured VAT was never read',
+  invoicesWithUnreadCapturedVat: vi.fn(async () => new Set<string>()),
+}));
 vi.mock('@/modules/accounting/services/core/contactDirectoryService', () => ({
   supplierBelongsToCompany: vi.fn(),
 }));
@@ -40,6 +44,7 @@ import {
 } from '@/modules/accounting/services/ap/supplierInvoiceService';
 import { approveSupplierInvoice } from '@/modules/accounting/services/ap/supplierInvoiceWorkflowService';
 import { supplierBelongsToCompany } from '@/modules/accounting/services/core/contactDirectoryService';
+import { invoicesWithUnreadCapturedVat } from '@/modules/accounting/services/capture/capturedVatUnread';
 import { accountsBelongToCompany } from '@/modules/accounting/services/gl/chartOfAccountsService';
 import {
   createSupplierInvoiceTool,
@@ -194,6 +199,13 @@ describe('approve_supplier_invoice', () => {
     vi.mocked(getSupplierInvoiceById).mockResolvedValue({ id: INVOICE, status: 'paid' } as never);
     const r = await approveSupplierInvoiceTool.handler({ invoice_id: INVOICE, ...KEY }, ctx());
     expect(errText(r)).toBe('Cannot approve invoice with status: paid');
+    expect(approveSupplierInvoice).not.toHaveBeenCalled();
+  });
+
+  it('K-072 r30: refuses a bill whose captured document never showed a VAT, without posting', async () => {
+    vi.mocked(invoicesWithUnreadCapturedVat).mockResolvedValueOnce(new Set([INVOICE]));
+    const r = await approveSupplierInvoiceTool.handler({ invoice_id: INVOICE, ...KEY }, ctx());
+    expect(errText(r)).toBe('Cannot approve invoice: its captured VAT was never read.');
     expect(approveSupplierInvoice).not.toHaveBeenCalled();
   });
 

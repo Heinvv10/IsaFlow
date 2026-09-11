@@ -220,7 +220,7 @@ async function handler(req: CompanyAuthedRequest, res: NextApiResponse) {
     INSERT INTO supplier_invoices (
       company_id, invoice_number, supplier_id, invoice_date, due_date,
       subtotal, tax_rate, tax_amount, total_amount, payment_terms,
-      reference, status, created_by,
+      reference, status, created_by, notes,
       duplicate_fingerprint, source_document_id
     ) VALUES (
       ${companyId}, ${invoiceInput.invoiceNumber}, ${supplierMatch.supplierId}::uuid,
@@ -228,7 +228,7 @@ async function handler(req: CompanyAuthedRequest, res: NextApiResponse) {
       ${invoiceInput.totalAmount - invoiceInput.taxAmount}, ${invoiceInput.taxRate},
       ${invoiceInput.taxAmount}, ${invoiceInput.totalAmount},
       ${invoiceInput.paymentTerms ?? 'net30'}, ${invoiceInput.reference ?? null},
-      ${invoiceStatus}, ${userId},
+      ${invoiceStatus}, ${userId}, ${invoiceInput.notes ?? null},
       ${captureFingerprint},
       ${documentId}::uuid
     )
