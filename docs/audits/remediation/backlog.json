@@ -11530,6 +11530,39 @@
       "severity": "medium",
       "source": "Found by the K-072 round-31 fixer during a census by pattern of every VAT-from-total derivation (fix.md census table): sageSupplierInvoiceImportService.ts:67 and sageCustomerImportService.ts:53.",
       "processNotes": "Fix like K-072 round 30/31: no VAT in the source means none recorded (0, flagged), never derived. Verify the paths before editing; the file paths are from the K-072 census."
+    },
+    {
+      "id": "R-090",
+      "claim": "",
+      "area": "accounting/bank",
+      "affectedPaths": [
+        "src/modules/accounting/services/capture/evidenceAttachmentService.ts"
+      ],
+      "sourceLabel": "",
+      "sourceIds": [],
+      "correctedTrigger": "",
+      "severityRationale": "The journal's input-VAT claim then appears supported by a document that does not show that VAT, which weakens the audit trail behind a VAT201 claim. It does not itself post a new amount.",
+      "auditedSha": "",
+      "currentSha": "",
+      "status": "confirmed",
+      "dependencies": [
+        "K-072"
+      ],
+      "testNames": [],
+      "evidencePaths": [
+        "docs/audits/remediation/K-072/fix.md"
+      ],
+      "fixCommit": null,
+      "pr": null,
+      "deployedSha": null,
+      "historicalDataImpact": "Unknown; production not measured. Count provisional journals with a VAT Input line whose attached captured document has no read VAT, or a different one.",
+      "canonicalItem": null,
+      "reportedSeverity": "",
+      "branch": null,
+      "title": "evidenceAttachmentService marks a provisional journal that carries a derived VAT (15/115 of the total) as evidenced by a captured slip whose VAT was never read",
+      "severity": "low",
+      "source": "Found by the K-072 round-31 blind reviewer (evidenceAttachmentService.ts:113-121); pre-existing, and listed in neither of K-072's VAT censuses.",
+      "processNotes": "Fix: attaching a slip as evidence should compare the journal's VAT Input with the document's read VAT (K-072 capturedVatUnread / the round-32 comparison) and refuse or flag a mismatch rather than mark the journal evidenced."
     }
   ],
   "sourceInventory": [
