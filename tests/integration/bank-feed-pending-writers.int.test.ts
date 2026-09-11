@@ -18,6 +18,7 @@ const bank = crypto.randomUUID();
 const conn = crypto.randomUUID();
 let postedId = '';
 let pendingId = '';
+let journalEntryId = '';
 
 beforeAll(async () => {
   await pool.query('INSERT INTO companies(id,name) VALUES($1,$2)', [company, 'BFPW company']);
@@ -28,6 +29,25 @@ beforeAll(async () => {
   await pool.query(
     `INSERT INTO bank_feed_connections(id,company_id,bank_account_id,provider,status,is_active)
      VALUES($1,$2,$3,'test_provider','active',true)`, [conn, company, bank]);
+  // Two posted GL lines the auto-match candidate SELECT can pair against:
+  // same amount as the seeded bank rows (42.50), same date, so runAutoMatch's
+  // tier 2 (amount + date within 3 days) scores 0.9 — clears
+  // autoMatchTransactions's `>= 0.9` bar and calls matchTransaction. TWO lines
+  // (not one) so neither bank row is starved of a candidate by the other
+  // claiming the only free line first: with the predicate removed, both the
+  // posted and pending rows become candidates and each independently finds a
+  // free line, so the pending one always reaches matchTransaction (Task 2's
+  // locked mutator), which throws BankTransactionNotPostedError before its
+  // first write — a throw that escapes runAutoMatch's race-skip catch (it is
+  // neither BankTransactionAllocatedError, BankTransactionLockTimeoutError,
+  // BankMatchTargetError('LINE_CLAIMED'), nor BankMatchUnavailableError).
+  const je = await pool.query(
+    `INSERT INTO gl_journal_entries(company_id,entry_date,description,status,created_by)
+     VALUES($1,'2026-09-02','BFPW auto-match seed','posted',$2) RETURNING id`, [company, user]);
+  journalEntryId = String(je.rows[0].id);
+  await pool.query(
+    `INSERT INTO gl_journal_lines(journal_entry_id,gl_account_id,debit,credit,company_id)
+     VALUES($1,$2,42.50,0,$3), ($1,$2,42.50,0,$3)`, [journalEntryId, bank, company]);
 });
 
 afterAll(async () => {
@@ -39,6 +59,8 @@ afterAll(async () => {
     await pool.query('DELETE FROM bank_reconciliations WHERE company_id=$1', [company]);
     await pool.query('DELETE FROM bank_categorisation_rules WHERE company_id=$1', [company]);
     await pool.query('DELETE FROM bank_feed_connections WHERE company_id=$1', [company]);
+    await pool.query('DELETE FROM gl_journal_lines WHERE company_id=$1', [company]);
+    await pool.query('DELETE FROM gl_journal_entries WHERE company_id=$1', [company]);
     await pool.query('DELETE FROM gl_accounts WHERE company_id=$1', [company]);
     await pool.query('DELETE FROM companies WHERE id=$1', [company]);
     await pool.query('DELETE FROM users WHERE id=$1', [user]);
