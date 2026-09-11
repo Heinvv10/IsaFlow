@@ -213,6 +213,30 @@ it.each([['stacked-wat', 'Billing Address:', 'WAT 130.43'], ['stacked-slashat', 
   expect((await postJ(je)).content[0]!.text).toMatch(UNEVIDENCED);
 });
 
+// r39 LOW-1: a mixed-case `Wat` / `wAT` tax label beside the supplier's own declaration (not 15%-shaped: a mixed-rate
+// bill) — refused; the Afrikaans prose word `wat` still passes. `Wat` goes through the pipeline, with its own total.
+it.each([['wat-mixed', 'Wat 260.86'], ['wat-lower-upper', 'wAT 260.86']])('%s: refused by both tools and post_journal', async (tag, taxLine) => {
+  const text = `Bosman Foods\nWe are not VAT registered.\nInvoice No: ${tag}\nDate: 2026-05-1${tag.length % 9}\nCooldrinks 1739.14\n`
+    + `Brown bread 420.00\nSubtotal 2159.14\n${taxLine}\nTOTAL 2420.00\n`;
+  const doc = await seed(text, 'Bosman Motors', 'invoice');
+  const billId = tag === 'wat-mixed' ? await viaPipeline(doc) : await draftBill(doc, 2420);
+  expect((await approve(billId)).content[0]!.text).toMatch(UNEVIDENCED);
+  expect((await bulk(billId)).content[0]!.text).toMatch(UNEVIDENCED);
+  expect(await billState(billId)).toEqual({ status: 'draft', gl_journal_entry_id: null });
+  const je = await draftJournal(await seed(text, 'Bosman Motors', 'receipt'), 2420);
+  expect((await postJ(je)).content[0]!.text).toMatch(UNEVIDENCED);
+});
+
+it('r39 the other direction: a declared page whose Afrikaans prose says `wat` is approved and posted claiming none', async () => {
+  const text = 'Joe se Tuindienste\nNie BTW-geregistreer nie\nWerk wat gedoen is 1000.00\nBedrag Verskuldig 1000.00\n';
+  const bill = await draftBill(await seed(text, 'Joe Garden Services', 'invoice'), 1000);
+  const approved = await approve(bill);
+  expect(approved.isError ?? false, approved.content[0]!.text).toBe(false);
+  const je = await draftJournal(await seed(text, 'Joe Garden Services', 'receipt'), 1000);
+  const posted = await postJ(je);
+  expect(posted.isError ?? false, posted.content[0]!.text).toBe(false);
+});
+
 // r36: the reviewer's shapes fail two rules at once; each of these fails exactly ONE, so each rule is pinned alone.
 it.each([
   ['customer block only', 'Bill To:\nMokoena Trading\nNot VAT registered\nService 1000.00\nTOTAL 1000.00'],

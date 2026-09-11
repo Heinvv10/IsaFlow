@@ -2840,3 +2840,35 @@ no boundary (1) · R4 a heading without a colon is no boundary (1) · R5 a foote
 O1 no capitals-only OCR spellings `WAT`/`Tx` (3) · O2 no `\/AT` (2) · O3 no `:` separator, `V:A:T` (1) · O4 `WAT`
 case-insensitive, catching Afrikaans `wat` (1) · V5 the approve tools ignore the correction (DB 2). R1 was GREEN on the DB
 until `unlisted head only` was added: the stacked pages fail the region rule AND the new OCR spellings at once.
+
+---
+
+## Round 39 — label-shaped `wat` in any case; the region rule's residual and its cost, stated in full
+
+Review: `review-k072-r38.md` (0H/0M/1L; every claim reproduces; the full serial integration suite matches master; merges
+clean; migration 672 reviewed as deploy-critical and sound). `origin/master` had not moved.
+
+| Finding | Disposition |
+|---|---|
+| LOW-1 round 38's capitals-only `WAT` let mixed-case `Wat 130.43` / `wAT` through: a remittance or customer-first page was approved Dr 6000 1210 / Cr 2000 1210 at tax 0, and `post_journal` posted it | FIXED: `WAT_LABEL` counts `wat` — and `UAT`, `W.A.T` — in ANY case where the line is shaped like a tax label: the word, an optional separator, then an amount, a `%`, an `R` or "amount"/"amt"/"bedrag". The Afrikaans prose word still passes (`Werk wat gedoen is …`, `Items wat afgelewer is …`), as do `Water`, `Watt`, `Whatever` — pinned both ways in `k076-round39-policy`. **On the DB** (`k072-vat-declaration`): `Wat 260.86` (through `ai-invoice-pipeline`) and `wAT 260.86` beside the supplier's own declaration on a mixed-rate bill are refused by both approve tools and `post_journal`; a declared page whose prose says `wat` is approved and posted claiming none. |
+
+**DISCLOSED RESIDUAL, open at base (`7de7192e9`) too, pinned as OPEN in `k076-round39-policy`:** a customer-first page
+(the customer's name and `Not VAT registered` printed above the supplier's), and a remittance tear-off section printed
+below the total, still count a customer's declaration as the supplier's — the region rule reads the top of the page and
+the footer as the supplier's, and neither layout says whose they are. It needs, besides, a tax label the net misses, a
+VAT that is not 15%-shaped, and no VAT number; such a page is not a valid tax invoice (s20(4)), so booking no input VAT
+is lawful — an under-claim, not a false claim.
+
+**The region rule's COST, corrected (round 38 understated it):** on the reviewer's 12 plausible genuine non-VAT layouts,
+round 38 sends **8 of 12** to a person — a declaration under the supplier's address, under a cell/e-mail line, under
+`Invoice No` / `Date`, after a till time line, a business name containing a block word (`… Delivery`), a name starting
+with a number, and a footer below the banking details or `Payment terms:`. Still counted: directly under the name,
+under an `INVOICE` title, a footer directly after the total, and a footer declaration printed before the banking details.
+The harness has exactly one row printing a declaration (Mama Thandi, a footer), so it cannot measure this; the 8 are the
+price of refusing by default.
+
+**Mutations — 3, each RED on unit AND on the DB, restored byte-identically (md5):** W1 no label-shaped `wat` (unit 8,
+DB 2) · W2 label-shaped `wat` case-sensitive (unit 6, DB 2) · W3 any `wat` word, not only a label — the Afrikaans prose
+case goes red (unit 3, DB 1). **Re-measured vs `90653fa41`:** the harness scores the posting gate, which this does not
+touch; evidence on all 4 481 rows is unchanged, measured (the one row evidencing 0 still does; 2 rows contain a
+`wat`/`uat` token, and neither changes).
