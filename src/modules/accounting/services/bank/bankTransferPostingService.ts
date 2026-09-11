@@ -50,7 +50,7 @@ export async function prepareBankTransfer(companyId: string, userId: string, inp
   const value = validated(input), intentId = randomUUID();
   return withSavepoint('prepare_bank_transfer', async () => {
   await ctx.sql`SELECT pg_advisory_xact_lock(hashtextextended(${`control-policy:${companyId}`},0))`;
-  await readTransferAccounts(ctx, companyId, value.fromAccountId, value.toAccountId);
+  await readTransferAccounts(ctx, companyId, value.fromAccountId, value.toAccountId, { lock: false });
   await ctx.sql`INSERT INTO control_bank_transfer_intents(company_id,id,requester_person_id,from_gl_account_id,to_gl_account_id,amount,accounting_date,reference)
     VALUES(${companyId}::uuid,${intentId}::uuid,${userId},${value.fromAccountId}::uuid,${value.toAccountId}::uuid,
       ${value.amount},${value.transferDate}::date,${value.reference ?? ''})`;

@@ -32,7 +32,7 @@ export async function materializeBankTransferOperation(ctx: ControlTx, ref: Oper
   const amount = canonicalMoney(intent.amount);
   if (!new Decimal(amount).gt(0) || intent.from_gl_account_id === intent.to_gl_account_id) throw new Error('Invalid transfer amount or accounts');
   const ids = [String(intent.from_gl_account_id), String(intent.to_gl_account_id)].sort();
-  const accounts = await readTransferAccounts(ctx, companyId, String(intent.from_gl_account_id), String(intent.to_gl_account_id));
+  const accounts = await readTransferAccounts(ctx, companyId, String(intent.from_gl_account_id), String(intent.to_gl_account_id), { lock: true });
   // Per account, two rows each (enough to see a duplicate): one query with a shared LIMIT let an account with three
   // records crowd the other out, and the refusal then said the other had none. Re-sorted by id, the order the single
   // query returned, so the material — and every approval's binding hash — is unchanged for well-formed accounts.
@@ -120,11 +120,19 @@ function accountsRefusal(accounts: Row[], intentIds: string[]): string {
  * The two accounts, read company-scoped and refused unless both are this company's bank accounts. Preparation calls
  * it BEFORE writing the intent: the intent's composite foreign key would otherwise answer an absent or foreign
  * account with a 23503 and a 500. Absent and foreign read the same.
+ *
+ * Only the materializer locks (after its companies FOR SHARE, the order execution uses). Preparation's check takes
+ * no lock: a FOR SHARE there would take gl_accounts BEFORE companies — the opposite order, a latent deadlock — and
+ * it needs none, because the materializer re-reads under lock and the foreign key is the backstop.
  */
-export async function readTransferAccounts(ctx: ControlTx, companyId: string, fromId: string, toId: string): Promise<Row[]> {
+export async function readTransferAccounts(ctx: ControlTx, companyId: string, fromId: string, toId: string,
+  options: { lock: boolean }): Promise<Row[]> {
   const ids = [fromId, toId].sort();
-  const accounts = await ctx.sql`SELECT id,account_code,account_name,account_subtype,is_active
-    FROM gl_accounts WHERE company_id=${companyId}::uuid AND id=ANY(${ids}::uuid[]) ORDER BY id FOR SHARE` as Row[];
+  const accounts = (options.lock
+    ? await ctx.sql`SELECT id,account_code,account_name,account_subtype,is_active
+      FROM gl_accounts WHERE company_id=${companyId}::uuid AND id=ANY(${ids}::uuid[]) ORDER BY id FOR SHARE`
+    : await ctx.sql`SELECT id,account_code,account_name,account_subtype,is_active
+      FROM gl_accounts WHERE company_id=${companyId}::uuid AND id=ANY(${ids}::uuid[]) ORDER BY id`) as Row[];
   if (accounts.length !== 2 || accounts.some(a => !ids.includes(String(a.id)) || a.account_subtype !== 'bank')) {
     throw new BankTransferRefusalError(accountsRefusal(accounts, [fromId, toId]));
   }
