@@ -145,7 +145,7 @@ const adapter: BulkApproveAdapter<ApprovedNoteRow> = {
 export const bulkApproveCreditNotesTool: McpTool = {
   name: TOOL,
   description:
-    'Approve and POST up to 100 DRAFT credit notes in ONE call. Requires the write:post permission. '
+    `Approve and POST up to ${MAX_DOCUMENTS} DRAFT credit notes in ONE call. Requires the write:post permission. `
     + 'Customer note: DR Revenue + DR VAT Output / CR Accounts Receivable. Supplier note: DR Accounts Payable / CR Expense + CR VAT Input. Both types may be mixed in one call. '
     + 'A LINKED note is also AUTO-APPLIED — the linked invoice\'s amount_paid rises by the note total and the note lands in status "applied" instead of "approved". The result reports applied_to_invoice_id per note; do NOT apply it again. '
     + 'A note that cannot be approved is SKIPPED, not a failure: not found, not a draft, or dated in a CLOSED fiscal period — each is listed in "skipped" with its reason and the rest of the batch still posts. '
@@ -163,7 +163,7 @@ export const bulkApproveCreditNotesTool: McpTool = {
         minItems: 1,
         maxItems: MAX_DOCUMENTS,
         items: { type: 'string', description: 'Credit note UUID' },
-        description: `The notes to approve — at most ${MAX_DOCUMENTS}, each named once.`,
+        description: `The notes to approve — at most ${MAX_DOCUMENTS}, each named once. Split a longer list across calls.`,
       },
       dry_run: {
         type: 'boolean',

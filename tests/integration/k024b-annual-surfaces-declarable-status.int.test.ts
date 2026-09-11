@@ -184,3 +184,22 @@ it('rejects a malformed taxYear with 400 rather than a Postgres 22P02', async ()
     expect(out.status, name).toBe(400);
   }
 });
+
+it('the checklist period lock is the shared lockdown rule: no date locks the year end, a date locks it only from Feb 28', async () => {
+  const lock = (date: string | null) => pool.query('UPDATE companies SET lockdown_enabled=true, lockdown_date=$2 WHERE id=$1', [company, date]);
+  const periodLock = async () => (await call<YearEndStatus>(yearEndStatus, '/api/payroll/year-end/status')).data.periodLock;
+  try {
+    await lock(null);
+    expect(await periodLock()).toEqual({ locked: true, lockdownDate: null });
+    await lock('2026-02-28');
+    expect(await periodLock()).toEqual({ locked: true, lockdownDate: '2026-02-28' });
+    await lock('2026-03-31');
+    expect(await periodLock()).toEqual({ locked: true, lockdownDate: '2026-03-31' });
+    await lock('2026-02-27');
+    expect(await periodLock()).toEqual({ locked: false, lockdownDate: '2026-02-27' });
+    await pool.query('UPDATE companies SET lockdown_enabled=false WHERE id=$1', [company]);
+    expect(await periodLock()).toEqual({ locked: false, lockdownDate: '2026-02-27' });
+  } finally {
+    await pool.query('UPDATE companies SET lockdown_enabled=false, lockdown_date=NULL WHERE id=$1', [company]);
+  }
+});

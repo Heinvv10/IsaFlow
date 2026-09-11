@@ -70,6 +70,15 @@ describe('delivering a management pack that skipped review',()=>{
   expect(vi.mocked(sendEmail),'an unreviewed pack was emailed to its recipients').not.toHaveBeenCalled();
  });
 
+ it('is listed with its withheld reason, so the history can say so before anyone clicks Deliver',async()=>{
+  const result=await pack('2032-07',false);
+  const res=await h.request('GET','/api/accounting/afs/management-packs');
+  expect(res.status,JSON.stringify(res.body)).toBe(200);
+  const listed=(res.body.data as {documents:Array<{id:string;delivery_withheld_reason:string|null}>}).documents.find(d=>d.id===result.documentId);
+  expect(listed?.delivery_withheld_reason,'the pack list does not carry the withheld reason').toBe(await withheld(result.documentId));
+  expect(listed?.delivery_withheld_reason).toBeTruthy();
+ });
+
  it('is refused by deliverPack itself, so no caller can deliver around the route',async()=>{
   const result=await pack('2032-04',false);
   await expect(deliverPack(result.documentId,h.f.companyA),'the gate lives only in the route')
@@ -89,6 +98,7 @@ describe('delivering a management pack that skipped review',()=>{
   expect((audit[0]!.changes as {fields:unknown[]}).fields).toEqual([expect.objectContaining({field:'delivery_withheld_reason',new:null})]);
   const res=await deliver(result.documentId);
   expect(res.status,JSON.stringify(res.body)).toBe(200);
+  expect(res.body.data).toMatchObject({delivered:true,sentCount:1,skippedRecipients:[]});
   expect(vi.mocked(sendEmail),'the released pack never reached its recipients').toHaveBeenCalled();
   expect(attached(),'a signed-off pack went out marked as a draft').not.toContain(WATERMARK);
  });
@@ -99,6 +109,18 @@ describe('delivering a management pack that skipped review',()=>{
   expect((await deliver(result.documentId)).status).toBe(200);
   expect(vi.mocked(sendEmail)).toHaveBeenCalled();
   expect(attached(),'an unreviewed draft went out looking final').toContain(WATERMARK);
+ });
+
+ it('reports a recipient whose send failed even when another recipient was sent to',async()=>{
+  const result=await pack('2032-08',true);
+  await h.pool.query(`UPDATE management_pack_configs SET recipients='[{"email":"sent@forensic.invalid","role":"owner","receives":"both"},{"email":"bounced@forensic.invalid","role":"cfo","receives":"both"}]'::jsonb
+   WHERE company_id=$1`,[h.f.companyA]);
+  vi.mocked(sendEmail).mockResolvedValueOnce({success:true}).mockResolvedValueOnce({success:false,error:'535 Authentication failed at mail.internal'});
+  const res=await deliver(result.documentId);
+  expect(res.status,JSON.stringify(res.body)).toBe(200);
+  expect(res.body.data,'a partial failure was reported as a clean delivery').toMatchObject({delivered:true,sentCount:1,
+   failedRecipients:['bounced@forensic.invalid: the email could not be sent']});
+  expect(JSON.stringify(res.body),'the mail server\'s own reply reached the tenant').not.toContain('535');
  });
 
  it('treats a filed pack as signed: no draft watermark',async()=>{

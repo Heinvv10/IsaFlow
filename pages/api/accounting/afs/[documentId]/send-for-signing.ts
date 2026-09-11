@@ -15,6 +15,7 @@ import { sql } from '@/lib/neon';
 import { checkSendRateLimit } from '@/lib/rateLimit';
 import { sendForSigning } from '@/modules/accounting/services/afs/signumIntegrationService';
 import { countMandatorySectionsBelow, lockDocumentForTransition } from '@/modules/accounting/services/afs/afsDocumentTransitions';
+import { statementsTitle } from '@/modules/accounting/services/afs/afsDocumentTitle';
 import { snapshotRenderInputs } from '@/modules/accounting/services/afs/afsSigningIntegrity';
 import { renderDocumentHtml } from '@/modules/accounting/services/afs/pdfExportService';
 import { sendReviewError } from '@/modules/accounting/services/afs/afsReviewErrorResponse';
@@ -133,8 +134,8 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
   }
   const { fingerprint, digests } = snapshot;
 
-  // 4. The document title carries the same company name the statements were rendered with
-  const title = `Annual Financial Statements — ${snapshot.companyName}`;
+  // 4. The document title is the cover's, with the same company name the statements were rendered with
+  const title = `${statementsTitle(doc.documentType)} — ${snapshot.companyName}`;
 
   // 5. Send to Signum (JSON body — real API uses /documents/from-html)
   const signers = contacts.map((c) => ({ email: c.email, name: c.name }));

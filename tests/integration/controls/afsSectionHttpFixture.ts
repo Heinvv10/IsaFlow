@@ -24,6 +24,7 @@ const ROUTES:[RegExp,string,string[]][]=[
  [/^\/api\/accounting\/afs\/brand-profile$/,'../../../pages/api/accounting/afs/brand-profile',[]],
  [/^\/api\/accounting\/companies$/,'../../../pages/api/accounting/companies',[]],
  [/^\/api\/accounting\/afs\/management-packs\/([^/]+)\/deliver$/,'../../../pages/api/accounting/afs/management-packs/[packId]/deliver',['packId']],
+ [/^\/api\/accounting\/afs\/management-packs$/,'../../../pages/api/accounting/afs/management-packs/index',[]],
  [/^\/api\/accounting\/afs\/([^/]+)$/,`${AFS}/index`,['documentId']],
 ];
 type Person='u1'|'u2';

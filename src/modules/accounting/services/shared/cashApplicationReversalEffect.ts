@@ -5,6 +5,7 @@ import {recordCashApplicationChild} from './cashApplicationEffect';
 import {assertCashApplicationReversible} from './cashApplicationReversalSources';
 import {loadCashApplicationReversal} from './cashApplicationReversalMaterial';
 import {cashApplicationTotal} from './cashApplicationPlan';
+import {lockdownBlock} from '../gl/postingPeriodGuard';
 const D=Decimal.clone({precision:80});
 type Row=Record<string,unknown>;
 export async function executeCashApplicationReversalEffect(ctx:ControlTx,ref:OperationRef,permit:ControlledEffectPermit){
@@ -13,7 +14,7 @@ export async function executeCashApplicationReversalEffect(ctx:ControlTx,ref:Ope
  const state=await loadCashApplicationReversal(ctx,ref.entityId),original=await assertCashApplicationReversible(ctx,String(state.intent.original_intent_id));
  if(state.effect||state.periods.length!==1||state.periods[0]!.status!=='open'||state.vatLocks.length)throw new Error('Open unexecuted cash reversal required');
  const ledger=original.sources.ledger;
- if(ledger.lockdown_enabled===true&&(!ledger.lockdown_date||permit.accountingDate<=String(ledger.lockdown_date)))throw new Error('Cash reversal date is locked');
+ if(lockdownBlock(ledger,permit.accountingDate))throw new Error('Cash reversal date is locked');
  const company=ctx.principal.companyId,kind=original.plan.kind;
  for(const before of original.rows){
   const rows=kind==='customer'?await ctx.sql`UPDATE customer_payment_allocations a SET reversed_at=clock_timestamp(),reversal_intent_id=${ref.entityId}::uuid

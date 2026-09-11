@@ -15,6 +15,8 @@ type PackDoc = {
   status: string;
   created_at: string;
   updated_at: string;
+  /** Set while the pack may not go out (review skipped, not yet signed off); deliverPack refuses it. */
+  delivery_withheld_reason: string | null;
 };
 
 const STATUS_CONFIG: Record<string, { label: string; colour: string; icon: React.ReactNode }> = {
@@ -43,6 +45,8 @@ export default function ManagementPacksPage() {
   const [generating, setGenerating] = useState(false);
   const [genPeriod, setGenPeriod] = useState('');
   const [deliveringId, setDeliveringId] = useState('');
+  // What the last delivery reported: how many it reached, and whom it did not (skipped entries and failed sends).
+  const [delivery, setDelivery] = useState<{ sentCount: number; notSentTo: string[] } | null>(null);
 
   const load = useCallback(async () => {
     setLoading(true); setError('');
@@ -94,15 +98,14 @@ export default function ManagementPacksPage() {
   }
 
   async function handleDeliver(packId: string) {
-    setDeliveringId(packId); setError('');
+    setDeliveringId(packId); setError(''); setDelivery(null);
     try {
       const res = await apiFetch(`/api/accounting/afs/management-packs/${packId}/deliver`, {
         method: 'POST', credentials: 'include',
       });
-      if (!res.ok) {
-        const j = await res.json() as { error?: { message?: string } };
-        throw new Error(j.error?.message ?? 'Deliver failed');
-      }
+      const j = await res.json() as { data?: { sentCount?: number; skippedRecipients?: string[]; failedRecipients?: string[] }; error?: { message?: string } };
+      if (!res.ok) throw new Error(j.error?.message ?? 'Deliver failed');
+      setDelivery({ sentCount: j.data?.sentCount ?? 0, notSentTo: [...(j.data?.skippedRecipients ?? []), ...(j.data?.failedRecipients ?? [])] });
       await load();
     } catch (e) { setError(e instanceof Error ? e.message : 'Deliver failed'); }
     finally { setDeliveringId(''); }
@@ -130,6 +133,15 @@ export default function ManagementPacksPage() {
         {error && (
           <div className="mb-4 flex items-center gap-2 bg-red-50 border border-red-200 rounded-lg px-4 py-3 text-sm text-red-700">
             <AlertCircle className="w-4 h-4 shrink-0" />{error}
+          </div>
+        )}
+        {delivery && (delivery.sentCount === 0 || delivery.notSentTo.length > 0) && (
+          <div className="mb-4 flex items-start gap-2 bg-amber-50 border border-amber-200 rounded-lg px-4 py-3 text-sm text-amber-800">
+            <AlertCircle className="w-4 h-4 shrink-0 mt-0.5" />
+            <ul>
+              {delivery.sentCount === 0 && <li>Nothing was sent: the pack reached no recipient.</li>}
+              {delivery.notSentTo.map(entry => <li key={entry}>Not sent to: {entry}</li>)}
+            </ul>
           </div>
         )}
 
@@ -165,12 +177,19 @@ export default function ManagementPacksPage() {
                 <div className="flex-1 min-w-0">
                   <div className="flex items-center gap-3 mb-1">
                     <span className="text-base font-semibold text-zinc-900 dark:text-white">{pack.period}</span>
-                    <StatusBadge status={pack.status} />
+                    {pack.delivery_withheld_reason ? (
+                      <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-medium bg-amber-100 text-amber-800">
+                        <AlertCircle className="w-3 h-3" />Withheld — needs sign-off
+                      </span>
+                    ) : <StatusBadge status={pack.status} />}
                   </div>
                   <p className="text-xs text-zinc-500 dark:text-slate-400">
                     Created {new Date(pack.created_at).toLocaleDateString('en-ZA')}
                     {' · '}Updated {new Date(pack.updated_at).toLocaleDateString('en-ZA')}
                   </p>
+                  {pack.delivery_withheld_reason && (
+                    <p className="text-xs text-amber-700 dark:text-amber-400 mt-1">{pack.delivery_withheld_reason}</p>
+                  )}
                 </div>
                 <div className="flex items-center gap-2 shrink-0">
                   <a href={`/accounting/afs/${pack.id}`}
@@ -178,7 +197,8 @@ export default function ManagementPacksPage() {
                     <Eye className="w-3.5 h-3.5" /> View
                   </a>
                   {(pack.status === 'draft' || pack.status === 'signed_off') && (
-                    <button onClick={() => handleDeliver(pack.id)} disabled={deliveringId === pack.id}
+                    <button onClick={() => handleDeliver(pack.id)} disabled={deliveringId === pack.id || Boolean(pack.delivery_withheld_reason)}
+                      title={pack.delivery_withheld_reason ?? undefined}
                       className="inline-flex items-center gap-1 px-3 py-1.5 text-xs font-medium bg-teal-600 hover:bg-teal-700 text-white rounded-lg disabled:opacity-50">
                       {deliveringId === pack.id ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Send className="w-3.5 h-3.5" />}
                       Deliver

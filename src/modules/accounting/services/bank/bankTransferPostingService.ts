@@ -7,7 +7,7 @@ import { assertEffectivePermission } from '@/lib/auth/effectivePermissions';
 import { withSavepoint } from '@/lib/neon';
 import { requireControlTx } from '../controls/context';
 import { canonicalMoney } from '../controls/canonical';
-import { materializeBankTransferOperation } from '../controls/bankTransferOperationMaterializer';
+import { BankTransferRefusalError, assertTransferAccountsActive, assertTransferPostable, materializeBankTransferOperation, readTransferAccounts } from '../controls/bankTransferOperationMaterializer';
 import { loadOperationMaterial } from '../controls/operationMaterializer';
 import { executeControlledOperation } from '../controls/approvalExecutionService';
 import { initializeOperationObservations } from '../controls/approvalRequestService';
@@ -23,17 +23,25 @@ function actor(companyId: string, userId: string): ControlTx {
   return ctx;
 }
 const ref = (id: string) => ({ entityType: 'bank_transfer_intent', entityId: id, operation: 'bank_transfer.post' as const });
+/** The person's own input, refused with a 400 that says what to change — before any source is read. */
 function validated(input: BankTransferInput) {
-  if (!input || !UUID_RE.test(input.fromAccountId) || !UUID_RE.test(input.toAccountId) || input.fromAccountId === input.toAccountId
-    || !isRealCalendarDate(input.transferDate) || (input.reference !== undefined && (typeof input.reference !== 'string' || input.reference.length > 500))) {
-    throw new Error('Invalid bank transfer input');
+  const refuse = (message: string) => new BankTransferRefusalError(message, 400);
+  if (!input || !UUID_RE.test(input.fromAccountId) || !UUID_RE.test(input.toAccountId)) throw refuse('Choose a from and a to bank account');
+  // Canonical once, here: the route accepts either case, and every comparison downstream is against pg's lowercase text.
+  const fromAccountId = input.fromAccountId.toLowerCase(), toAccountId = input.toAccountId.toLowerCase();
+  if (fromAccountId === toAccountId) throw refuse('The from and to accounts must be different bank accounts');
+  if (!isRealCalendarDate(input.transferDate)) throw refuse(`The transfer date ${String(input.transferDate)} is not a real calendar date`);
+  if (input.reference !== undefined && (typeof input.reference !== 'string' || input.reference.length > 500)) {
+    throw refuse('The reference must be text of at most 500 characters');
   }
   if (typeof input.amount !== 'string' && (typeof input.amount !== 'number' || !Number.isFinite(input.amount) || Math.abs(input.amount) > Number.MAX_SAFE_INTEGER)) {
-    throw new Error('Transfer amount must be exact decimal text');
+    throw refuse('Transfer amount must be exact decimal text');
   }
-  const amount = canonicalMoney(String(input.amount)), decimal = new Decimal(amount);
-  if (!decimal.gt(0) || decimal.decimalPlaces() > 2) throw new Error('Transfer amount must be positive and expressed in cents');
-  return { ...input, amount };
+  let amount: string;
+  try { amount = canonicalMoney(String(input.amount)); } catch { throw refuse('Transfer amount must be a decimal number'); }
+  const decimal = new Decimal(amount);
+  if (!decimal.gt(0) || decimal.decimalPlaces() > 2) throw refuse('Transfer amount must be positive and expressed in cents');
+  return { ...input, fromAccountId, toAccountId, amount };
 }
 /** Preparation persists reviewable intent, without a journal or bank movement. */
 export async function prepareBankTransfer(companyId: string, userId: string, input: BankTransferInput) {
@@ -42,6 +50,7 @@ export async function prepareBankTransfer(companyId: string, userId: string, inp
   const value = validated(input), intentId = randomUUID();
   return withSavepoint('prepare_bank_transfer', async () => {
   await ctx.sql`SELECT pg_advisory_xact_lock(hashtextextended(${`control-policy:${companyId}`},0))`;
+  await readTransferAccounts(ctx, companyId, value.fromAccountId, value.toAccountId, { lock: false });
   await ctx.sql`INSERT INTO control_bank_transfer_intents(company_id,id,requester_person_id,from_gl_account_id,to_gl_account_id,amount,accounting_date,reference)
     VALUES(${companyId}::uuid,${intentId}::uuid,${userId},${value.fromAccountId}::uuid,${value.toAccountId}::uuid,
       ${value.amount},${value.transferDate}::date,${value.reference ?? ''})`;
@@ -70,15 +79,17 @@ export async function executeBankTransfer(companyId: string, userId: string, inp
   const intentId = canonicalIntentId(inputIntentId);
   const [intent] = await ctx.sql`SELECT requester_person_id FROM control_bank_transfer_intents
     WHERE company_id=${companyId}::uuid AND id=${intentId}::uuid` as Row[];
-  if (!intent || intent.requester_person_id !== ctx.principal.personId) throw new Error('Transfer intent does not belong to authenticated requester');
+  // Absent, another person's and another tenant's intent are one answer.
+  if (!intent || intent.requester_person_id !== ctx.principal.personId) throw new BankTransferRefusalError('Transfer intent not found', 404);
   if (!options?.approvalId) { const existing = await receipt(ctx, intentId); if (existing) return existing; }
   const parent = ref(intentId);
   return executeControlledOperation(ctx, parent, options?.approvalId ?? null, async permit => {
     if (await receipt(ctx, intentId)) throw new Error('Transfer intent already executed');
     const material = await materializeBankTransferOperation(ctx, parent);
-    const facts = material.observedSources[0]!.facts as { intent: Row; accounts: Row[]; banks: Row[]; period: Row;
+    const facts = material.observedSources[0]!.facts as { company: Row; intent: Row; accounts: Row[]; banks: Row[]; period: Row;
       plan: { glAccountId: string; debit: string; credit: string }[] };
-    if (facts.accounts.some(a => a.is_active !== true) || facts.banks.some(b => b.is_active !== true)) throw new Error('Transfer bank account is inactive');
+    assertTransferAccountsActive(facts.accounts, facts.banks);
+    assertTransferPostable(facts.company, facts.period, permit.accountingDate);
     const journalEntryId = randomUUID();
     await ctx.sql`INSERT INTO gl_journal_entries(id,company_id,entry_date,fiscal_period_id,description,source,source_record_id,status,created_by,posting_agent)
       VALUES(${journalEntryId}::uuid,${companyId}::uuid,${permit.accountingDate}::date,${facts.period.id}::uuid,

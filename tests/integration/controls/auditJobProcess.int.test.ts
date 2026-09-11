@@ -58,7 +58,12 @@ it('hard service walltime kills CPU spin that cannot handle its SIGTERM',async()
  const value=await runner.runIsolatedAuditJob(identity());expect(value.result).toMatchObject({state:'failed',code:'RESOURCE_LIMIT'});
  expect(value.observation.elapsedMs).toBeGreaterThanOrEqual(64000);expect(value.observation.elapsedMs).toBeLessThan(73000);
 },80000);
-it('actual OOM in its own lowered128MiB test unit is observed without claiming an8GiB pressure test',async()=>{
+// Opt-in only. This case deliberately OOM-kills a real systemd --user unit, and GNOME's
+// gsd-housekeeping pops "Application Stopped — Device memory is nearly full" on the desktop
+// for every user unit whose Result becomes oom-kill — the very signal auditJobProcess.ts
+// classifies OOM by, so it cannot be silenced at the runner. CI does not run tests/integration
+// (ci.yml never invokes it), so nothing runs this unless ISAFLOW_RUN_OOM_TEST=1 is set.
+it.skipIf(process.env.ISAFLOW_RUN_OOM_TEST!=='1')('actual OOM in its own lowered128MiB test unit is observed without claiming an8GiB pressure test',async()=>{
  const marker=join(directory,'oom-limit.json');
  const source=`const fs=require('node:fs'),cp=require('node:child_process');process.stdin.once('data',()=>{
  const group=fs.readFileSync('/proc/self/cgroup','utf8').trim().split('::')[1],unit=group.split('/').pop();
@@ -106,7 +111,13 @@ it('hard-killed publication rolls back and expired authenticated claim recovers 
  try{
   await waitForPublication(job.id);const unit=(await readFile(marker,'utf8')).trim().split('/').at(-1)!;
   expect(unit).toMatch(/^isaflow-audit-[a-f0-9-]{36}\.service$/);
-  await auditSystemctl(['kill','--kill-whom=all','--signal=SIGKILL',unit]);
+  // --kill-whom=all intermittently exits 1 on this host (systemd 255.4 / kernel 6.8) with
+  // "Failed to send signal SIGKILL to auxiliary processes: Invalid argument" AFTER it has
+  // already killed the multithreaded node main process (3/30 reproduced with a plain node
+  // unit; --kill-whom=main 0/30) -- the kill itself lands, only the command's own exit status
+  // is unreliable. Use --kill-whom=main, as comparisonKillFixture.ts already does, and prove
+  // the kill by its outcome (the assertions below), not by the command's exit code.
+  await auditSystemctl(['kill','--kill-whom=main','--signal=SIGKILL',unit]);
   const killed=await work;expect(killed.result).toMatchObject({state:'failed',failureRecorded:false});
   expect(killed.observation.elapsedMs).toBeLessThan(8000);
   expect(await auditSystemctl(['show',unit,'--property=LoadState'])).toContain('not-found');

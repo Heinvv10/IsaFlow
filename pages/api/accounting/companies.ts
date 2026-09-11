@@ -134,7 +134,7 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
     if (!['owner', 'admin'].includes(membership.role)) {
       return apiResponse.forbidden(res, 'Only owners and admins can update company details');
     }
-    // The registered name and number are printed on the statements' cover. Changing them is the
+    // The company name and registration number are printed on the statements' cover. Changing them is the
     // company's right while a document is out for signature, but it voids that signature — so
     // the response warns for exactly the documents whose fingerprint the save changed (the
     // settings page PUTs the whole object on every save, so most saves change nothing signed).

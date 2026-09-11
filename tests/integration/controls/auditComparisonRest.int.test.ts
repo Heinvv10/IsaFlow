@@ -18,6 +18,10 @@ it('queues through actual cookie auth without financial write scope and retains 
  expect((await f.pool.query('SELECT job_id FROM control_audit_comparison_results WHERE company_id=$1 AND job_id=$2',[f.f.companyA,jobId])).rows).toEqual([]);
 });
 it('runs the real worker and returns complete authenticated result pages over HTTP',async()=>{
+ // Not published yet is a 409 that says so — never the 500 a crash would also produce.
+ const early=await f.request('GET',{comparisonId:jobId,section:'records'});
+ expect(early.status,JSON.stringify(early.body)).toBe(409);
+ expect(early.body.error).toMatchObject({code:'CONFLICT',message:'Comparison is not published yet'});
  expect(await f.run(jobId)).toMatchObject({state:'succeeded',comparisonId:jobId});
  const first=await f.request('GET',{comparisonId:jobId,section:'records',limit:1});expect(first.status).toBe(200);
  const second=await f.request('GET',{comparisonId:jobId,section:'records',limit:1,cursor:first.body.data.nextCursor});expect(second.status).toBe(200);
@@ -32,6 +36,9 @@ it('runs the real worker and returns complete authenticated result pages over HT
  const header=first.body.data;expect(header).toMatchObject({version:1,companyId:f.f.companyA,permissions:['read:payroll','read:reports']});
  digest.update(canonicalJson({version:header.version,comparisonRuleVersion:header.comparisonRuleVersion,companyId:header.companyId,first:header.first,second:header.second,permissions:header.permissions,counts:header.counts,populationChanged:header.populationChanged,coverageChanged:header.coverageChanged})+'\n');
  expect(digest.digest('hex')).toBe(header.canonicalHash);
+ const past=await f.request('GET',{comparisonId:jobId,section:'records',cursor:'3'});
+ expect(past.status,JSON.stringify(past.body)).toBe(400);
+ expect(past.body.error).toMatchObject({code:'BAD_REQUEST',message:'Page cursor is past the end of the result (2 items)'});
 });
 it('refuses current source revocation for both repeated enqueue and retained read, then recovers',async()=>{
  await f.pool.query("INSERT INTO company_user_permissions(company_id,user_id,module_key,can_read) VALUES($1,$2,'payroll',false)",[f.f.companyA,f.f.u1.id]);
@@ -52,6 +59,13 @@ it('refuses a foreign tenant source and result without returning either retained
  for(const response of [await f.request('POST',body(),'u3'),await f.request('GET',{comparisonId:jobId,section:'records'},'u3')]){
   expect(response.status).toBeGreaterThanOrEqual(400);expect(response.body.data??null).toBeNull();
   expect(JSON.stringify(response.body)).not.toContain(f.records[0]);
+ }
+});
+it('answers a foreign tenant\'s comparison and an absent one with the same 404',async()=>{
+ // Indistinguishable: no existence is disclosed across tenants.
+ for(const [label,response] of [['foreign',await f.request('GET',{comparisonId:jobId,section:'records'},'u3')],['absent',await f.request('GET',{comparisonId:randomUUID(),section:'records'})]] as const){
+  expect(response.status,`${label}: ${JSON.stringify(response.body)}`).toBe(404);
+  expect(response.body.error,label).toMatchObject({code:'NOT_FOUND',message:'Comparison not found'});
  }
 });
 it('rejects bad CSRF, extra authority and array query fields without queue mutation',async()=>{

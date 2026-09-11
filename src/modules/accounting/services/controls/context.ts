@@ -6,6 +6,7 @@ import type { ControlPrincipal, ControlTx } from './contracts';
 import type {AuditJobLease} from './auditJobLease';
 import {loadStoredAuditJobDelegation} from './auditJobDelegation';
 import {assertPlatformImportPrincipal} from '@/lib/auth/platformImportAuthority';
+import type {PermissionState} from '@/lib/auth/effectivePermissionQueries';
 
 interface Lifetime { active: boolean; store: RequestContext; client: PoolClient; principal: ControlPrincipal }
 export class ControlIntegrityError extends Error {
@@ -13,6 +14,10 @@ export class ControlIntegrityError extends Error {
 }
 const activeRequests = new WeakMap<RequestContext, Lifetime>();
 const issuedContexts = new WeakMap<ControlTx, Lifetime>();
+/** A job's authority as resolved and asserted in its own committed transaction; only this module issues one. */
+export interface AuditJobAuthorityPin { readonly jobId: string }
+const issuedPins = new WeakMap<AuditJobAuthorityPin, { lease: AuditJobLease; state: PermissionState }>();
+const pinnedPrincipals = new WeakMap<ControlPrincipal, PermissionState>();
 
 /** Own thenable: no global LazyQuery escapes and each execution checks its lease. */
 class ControlQuery implements Promise<unknown[]> {
@@ -102,10 +107,16 @@ export async function withControlRequest<T>(store: RequestContext, identity: Aut
   return withPrincipal(store,makeControlPrincipal(identity),handler);
 }
 
-/** A background context retains original delegation and current grant checks, never a synthetic cookie. */
-export async function withControlJobRequest<T>(store:RequestContext,lease:AuditJobLease,handler:()=>Promise<T>):Promise<T>{
+/**
+ * A background context retains original delegation and current grant checks, never a synthetic cookie. With a pin,
+ * permission checks answer from the authority the pin's transaction resolved, so a long work transaction takes no
+ * company authority or principal row lock; the lease and delegation expiry are still checked live on every call.
+ */
+export async function withControlJobRequest<T>(store:RequestContext,lease:AuditJobLease,handler:()=>Promise<T>,pin?:AuditJobAuthorityPin):Promise<T>{
   const {assertIssuedAuditJobLease}=await import('./auditJobLease');
   assertIssuedAuditJobLease(lease,store.companyId,store.userId);
+  const pinned=pin===undefined?undefined:issuedPins.get(pin);
+  if(pin!==undefined&&pinned?.lease!==lease)throw new Error('Audit job authority pin does not match its lease');
   if(activeRequests.get(store)?.active)throw new Error('Control request already active');
   return als.run(store,async()=>{
     const saved=await loadStoredAuditJobDelegation(sql,lease.companyId,lease.personId,lease);
@@ -113,6 +124,7 @@ export async function withControlJobRequest<T>(store:RequestContext,lease:AuditJ
       connectionId:saved.authority.connectionId,grantId:saved.authority.grantId,actingFirmId:saved.authority.actingFirmId,
       authMethod:'job',provenance:'job',delegatedByPersonId:lease.personId,impersonatorPersonId:null,requestId:randomUUID(),operationId:randomUUID(),
       grantedScopes:Object.freeze([...saved.permissions]),jobId:lease.jobId,jobLeaseId:lease.leaseId,jobGeneration:lease.generation});
+    if(pinned)pinnedPrincipals.set(principal,pinned.state);
     return withPrincipal(store,principal,async()=>{
       const {assertEffectivePermission}=await import('@/lib/auth/effectivePermissions');
       const ctx=requireControlTx();
@@ -120,6 +132,27 @@ export async function withControlJobRequest<T>(store:RequestContext,lease:AuditJ
       return handler();
     });
   });
+}
+
+/**
+ * Resolve and assert a job's delegated authority in a short transaction of its own, before the work transaction opens.
+ * The company authority and principal row locks this takes end with that transaction, so a run never holds them.
+ */
+export async function pinAuditJobAuthority(store:RequestContext,lease:AuditJobLease):Promise<AuditJobAuthorityPin>{
+  return withControlJobRequest(store,lease,async()=>{
+    const {loadPermissionState}=await import('@/lib/auth/effectivePermissionQueries');
+    const loaded=await loadPermissionState(requireControlTx());
+    const state:PermissionState=Object.freeze({role:loaded.role,scopes:loaded.scopes===null?null:Object.freeze([...loaded.scopes]),
+      overrides:Object.freeze(loaded.overrides.map(row=>Object.freeze({...row})))});
+    const pin:AuditJobAuthorityPin=Object.freeze({jobId:lease.jobId});
+    issuedPins.set(pin,{lease,state});
+    return pin;
+  });
+}
+
+/** The pinned authority a job principal's checks answer from, if its work context was opened with a pin. */
+export function pinnedJobPermissionState(principal:ControlPrincipal):PermissionState|undefined{
+  return pinnedPrincipals.get(principal);
 }
 
 async function withPrincipal<T>(store:RequestContext,principal:ControlPrincipal,handler:()=>Promise<T>):Promise<T>{

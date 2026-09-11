@@ -6,8 +6,24 @@ import { sendEmail } from '@/modules/accounting/services/core/emailService';
 import { emailLayout } from '@/lib/email-templates';
 import type { PackRecipient, KpiResult } from './afsTypes';
 import { getKpiScorecard } from './afsKpiService';
+import { z } from 'zod';
+import { PackRecipientSchema } from '@/lib/schemas/afs';
 
 type Row = DbRow;
+
+/**
+ * The save schema is strict (an unknown key is refused on WRITE). Delivery reads what is stored, which may predate
+ * that, so it validates the same fields and strips the rest: an extra key never costs a recipient their pack.
+ */
+const DeliverableRecipient = z.object(PackRecipientSchema.shape);
+
+/** "recipients[0] (cfo@…): <the actual problem>" — the stored address is the operator's own data; it finds the entry. */
+function skippedRecipient(entry: unknown, index: number, error: z.ZodError): string {
+  const email = typeof entry === 'object' && entry !== null ? (entry as { email?: unknown }).email : entry;
+  const address = typeof email === 'string' && email !== '' ? ` (${email.slice(0, 254)})` : '';
+  const issues = error.issues.map(issue => `${issue.path.length > 0 ? `${issue.path.map(String).join('.')}: ` : ''}${issue.message}`);
+  return `recipients[${index}]${address}: ${issues.join('; ')}`;
+}
 
 // ── HTML escaping ─────────────────────────────────────────────────────────────
 
@@ -133,13 +149,13 @@ async function sendToRecipient(
   html: string,
   pdfBuffer: Buffer | null,
   companyId: string,
-): Promise<void> {
+): Promise<'sent' | 'not_for_this_pack' | 'failed'> {
   const { receives } = recipient;
   // Final-tier recipients receive signed packs only: in_review and partner_review are drafts too.
   const isDraft = !SIGNED_STATUSES.has(documentStatus);
 
-  if (receives === 'final' && isDraft) return;
-  if (receives === 'draft' && !isDraft) return;
+  if (receives === 'final' && isDraft) return 'not_for_this_pack';
+  if (receives === 'draft' && !isDraft) return 'not_for_this_pack';
   // 'both' always sends
 
   const attachments =
@@ -164,6 +180,7 @@ async function sendToRecipient(
   } else {
     log.info('Management pack emailed', { recipient: recipient.email }, 'packDeliveryService');
   }
+  return result.success ? 'sent' : 'failed';
 }
 
 // ── Public interface ──────────────────────────────────────────────────────────
@@ -182,7 +199,7 @@ export class PackDeliveryWithheldError extends Error {
  * A pack generated with review SKIPPED carries delivery_withheld_reason until a person signs the
  * document off (afsDocumentTransitions clears it and audits the release).
  */
-export async function deliverPack(documentId: string, companyId: string): Promise<void> {
+export async function deliverPack(documentId: string, companyId: string): Promise<{ sentCount: number; skippedRecipients: string[]; failedRecipients: string[] }> {
   log.info('Delivering management pack', { documentId, companyId }, 'packDeliveryService');
 
   const [doc, config, companyName] = await Promise.all([
@@ -203,9 +220,19 @@ export async function deliverPack(documentId: string, companyId: string): Promis
 
   const period = String(doc.period ?? '');
   const documentStatus = String(doc.status ?? 'draft');
-  const recipients: PackRecipient[] = Array.isArray(config?.recipients)
-    ? (config.recipients as PackRecipient[])
-    : [];
+  // A stored entry that is not {email, role, receives} (the save route refuses one; a row written
+  // any other way need not) is skipped and reported rather than handed to the mailer addressless.
+  const stored: unknown[] = Array.isArray(config?.recipients) ? config.recipients : [];
+  const recipients: PackRecipient[] = [];
+  const skippedRecipients: string[] = [];
+  stored.forEach((entry, i) => {
+    const parsed = DeliverableRecipient.safeParse(entry);
+    if (parsed.success) recipients.push(parsed.data);
+    else skippedRecipients.push(skippedRecipient(entry, i, parsed.error));
+  });
+  if (skippedRecipients.length > 0) {
+    log.warn('Skipping malformed pack recipients', { documentId, companyId, skippedRecipients }, 'packDeliveryService');
+  }
 
   const scorecard = await getKpiScorecard(companyId, period).catch((err) => {
     log.warn('Failed to load KPIs for email', { documentId, error: String(err) }, 'packDeliveryService');
@@ -220,8 +247,14 @@ export async function deliverPack(documentId: string, companyId: string): Promis
 
   const pdfBuffer = await generatePackPdf(documentId, companyId, documentStatus);
 
+  // Sent means the mailer accepted it; a tier the pack is not for is neither sent nor failed. A failed send is named
+  // by address only: the mailer's own error (our SMTP server's reply) stays in the log, never in a tenant's answer.
+  let sentCount = 0;
+  const failedRecipients: string[] = [];
   for (const recipient of recipients) {
-    await sendToRecipient(recipient, documentStatus, subject, html, pdfBuffer, companyId);
+    const outcome = await sendToRecipient(recipient, documentStatus, subject, html, pdfBuffer, companyId);
+    if (outcome === 'sent') sentCount += 1;
+    else if (outcome === 'failed') failedRecipients.push(`${recipient.email}: the email could not be sent`);
   }
 
   await sql`
@@ -230,7 +263,8 @@ export async function deliverPack(documentId: string, companyId: string): Promis
     WHERE id = ${documentId}::UUID AND company_id = ${companyId}::UUID
   `;
 
-  log.info('Management pack delivery complete', { documentId, companyId, recipientCount: recipients.length }, 'packDeliveryService');
+  log.info('Management pack delivery complete', { documentId, companyId, recipientCount: recipients.length, sentCount }, 'packDeliveryService');
+  return { sentCount, skippedRecipients, failedRecipients };
 }
 
 export async function scheduleDelivery(

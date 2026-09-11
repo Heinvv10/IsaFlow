@@ -58,6 +58,9 @@ it('refuses a foreign tenant, a bad cursor, a missing CSRF token and an unsuppor
  }
  expect((await f.request('GET',{checkRunId,limit:101})).status).toBe(400);
  expect((await f.request('GET',{checkRunId,cursor:'not-a-cursor'})).status).toBe(400);
+ const past=await f.request('GET',{checkRunId,cursor:'999999'});
+ expect(past.status,`a cursor past the end: ${JSON.stringify(past.body)}`).toBe(400);
+ expect(past.body.error).toMatchObject({code:'BAD_REQUEST',message:expect.stringMatching(/^Page cursor is past the end of the result \(\d+ items?\)$/)});
  expect((await f.request('GET',{})).status).toBe(400);
  expect((await f.request('POST',{...body(),idempotencyKey:randomUUID(),checks:['not_a_check']})).status).toBe(400);
  expect((await f.request('POST',body(),'u1',false)).status).toBe(403);

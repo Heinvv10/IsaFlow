@@ -118,7 +118,7 @@ const adapter: BulkApproveAdapter<ApprovedRow> = {
 export const bulkApproveSupplierInvoicesTool: McpTool = {
   name: TOOL,
   description:
-    'Approve and POST up to 100 DRAFT supplier invoices (bills) in ONE call — each posts DR Expense (per line) + DR VAT Input / CR Accounts Payable. Irreversible except by a reversing entry. Requires the write:post permission. '
+    `Approve and POST up to ${MAX_DOCUMENTS} DRAFT supplier invoices (bills) in ONE call — each posts DR Expense (per line) + DR VAT Input / CR Accounts Payable. Irreversible except by a reversing entry. Requires the write:post permission. `
     + 'Identify each bill by its invoice_id (from list_supplier_invoices or bulk_create_supplier_invoices). '
     + 'A bill that cannot be approved is SKIPPED, not a failure: not found, already approved, cancelled, or dated in a CLOSED fiscal period — each is listed in "skipped" with its reason and the rest of the batch still posts. '
     + 'ALL OR NOTHING for real faults: if a bill genuinely fails to post, the whole batch is rolled back, nothing is posted, and the error names the element. '
@@ -135,7 +135,7 @@ export const bulkApproveSupplierInvoicesTool: McpTool = {
         minItems: 1,
         maxItems: MAX_DOCUMENTS,
         items: { type: 'string', description: 'Supplier invoice UUID' },
-        description: `The bills to approve — at most ${MAX_DOCUMENTS}, each named once.`,
+        description: `The bills to approve — at most ${MAX_DOCUMENTS}, each named once. Split a longer list across calls.`,
       },
       dry_run: {
         type: 'boolean',

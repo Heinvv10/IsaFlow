@@ -48,7 +48,7 @@ export function assertControlledEffectPermit(ctx: ControlTx, permit: ControlledE
  * Error in this region is an integrity or programming failure, not a refusal.
  */
 const CONTROL_REFUSAL_SQLSTATES = new Set(['P0001', '42501']);
-async function markSuppliedApprovalFailure<T>(run: () => Promise<T>): Promise<T> {
+async function markSuppliedApprovalFailure<T>(ctx: ControlTx, run: () => Promise<T>): Promise<T> {
   try { return await run(); } catch (error) {
     const code = typeof error === 'object' && error !== null ? (error as { code?: unknown }).code : undefined;
     if (error instanceof Error && typeof code === 'string' && CONTROL_REFUSAL_SQLSTATES.has(code)) {
@@ -57,7 +57,8 @@ async function markSuppliedApprovalFailure<T>(run: () => Promise<T>): Promise<T>
       // fault wearing a caller error's clothes (see gl/.claude.md).
       Object.assign(error, { suppliedApprovalRefusal: true });
       const { log } = await import('@/lib/logger');
-      log.warn('Supplied approval refused by a control function', { sqlstate: code, reason: error.message }, 'controls');
+      // companyId matches this line to the transport's own refusal log; pg's text stays here, never in the reply.
+      log.warn('Supplied approval refused by a control function', { companyId: ctx.principal.companyId, sqlstate: code, reason: error.message }, 'controls');
     }
     throw error;
   }
@@ -150,7 +151,7 @@ async function lockPolicyThenApproval(ctx: ControlTx, ref: OperationRef, approva
 async function lockPolicyThenApproval(ctx: ControlTx, ref: OperationRef, approvalId: string | null, authorities: AuthorityRow[]): Promise<ApprovalRow | null> {
   await ctx.sql`SELECT pg_advisory_xact_lock(hashtextextended(${`control-policy:${ctx.principal.companyId}`},0))`;
   if (!approvalId) return null;
-  return markSuppliedApprovalFailure(async () => {
+  return markSuppliedApprovalFailure(ctx, async () => {
     const row = await lockApproval(ctx, approvalId);
     await assertOperationRequester(ctx, ref, row.requester_person_id);
     await assertRequesterAuthority(ctx, row, authorities);
@@ -173,10 +174,10 @@ export async function assertSuppliedApprovalExecutable(ctx: ControlTx, input: Op
     // Inside the savepoint: these functions RAISE, and an error outside one
     // aborts the whole request transaction, so a refusal the caller could act
     // on would come back as a failed commit instead.
-    const authorities = await markSuppliedApprovalFailure(() => approvalAuthorities(ctx, approvalId));
+    const authorities = await markSuppliedApprovalFailure(ctx, () => approvalAuthorities(ctx, approvalId));
     const row = await lockPolicyThenApproval(ctx, ref, approvalId, authorities);
     const bindingHash = (await loadOperationMaterial(ctx, ref)).bindingHash;
-    await markSuppliedApprovalFailure(async () => assertApprovalExecutable(row, bindingHash));
+    await markSuppliedApprovalFailure(ctx, async () => assertApprovalExecutable(row, bindingHash));
   });
 }
 
@@ -191,7 +192,7 @@ export async function executeControlledOperation<T>(ctx: ControlTx, input: Opera
   return withSavepoint('controlled_ap_operation', async () => {
     // Inside the savepoint for the same reason as the preview above: a raising
     // authority lookup outside one aborts the caller's whole transaction.
-    const authorities = approvalId ? await markSuppliedApprovalFailure(() => approvalAuthorities(ctx, approvalId)) : [];
+    const authorities = approvalId ? await markSuppliedApprovalFailure(ctx, () => approvalAuthorities(ctx, approvalId)) : [];
     // Preserve policy-before-approval lock order, including replay lookups.
     const row = await lockPolicyThenApproval(ctx, ref, approvalId, authorities);
     const operationId = row?.operation_id ?? ctx.principal.operationId;
@@ -210,7 +211,7 @@ export async function executeControlledOperation<T>(ctx: ControlTx, input: Opera
     }
     const material = await loadOperationMaterial(ctx, ref);
     if (material.binding.policies.length && !row) throw new OperationApprovalRequiredError();
-    if (row) await markSuppliedApprovalFailure(async () => assertApprovalExecutable(row, material.bindingHash));
+    if (row) await markSuppliedApprovalFailure(ctx, async () => assertApprovalExecutable(row, material.bindingHash));
     const prior = await ctx.sql`
       SELECT id FROM control_operation_effects WHERE company_id=${ctx.principal.companyId}::uuid
         AND operation=${ref.operation} AND entity_type=${ref.entityType} AND entity_id_canonical=${ref.entityId}
