@@ -29,7 +29,7 @@ import {
   type ExpenseClaimLine,
 } from '@/modules/accounting/services/expense/expenseClaimService';
 import { createJournalEntry } from '@/modules/accounting/services/gl/journalEntryCrudService';
-import { postJournalEntry, ClosedFiscalPeriodError } from '@/modules/accounting/services/gl/journalEntryPostingService';
+import { postJournalEntry, isPostingRefusal } from '@/modules/accounting/services/gl/journalEntryPostingService';
 
 type Row = Record<string, unknown>;
 
@@ -254,18 +254,17 @@ async function handler(req: CompanyAuthedRequest, res: NextApiResponse) {
       await postJournalEntry(companyId, jeEntry.id, userId);
       jeStatus = 'posted';
     } catch (postErr) {
-      // ONLY a closed fiscal period may be swallowed. That is a legitimate
-      // business outcome — the journal stays a draft for someone to post once
-      // the period reopens, which is the same end state as autoPost === false.
+      // A lockdown or closed-period refusal is a legitimate outcome — same end state as autoPost === false — so
+      // it is swallowed and the draft survives for later posting. The kernel (journalControlService.ts) now
+      // throws this BEFORE opening the controlled write for a direct call like this one, so it never poisons this
+      // request's control transaction the way it used to when the same rule fired from inside assertPostingGuards.
       //
-      // Anything else is rethrown. Now that the arguments are in the right order
-      // this call actually reaches the database, so a failure here can be a
-      // Postgres error that ABORTS the request transaction; continuing past it
-      // would run the stamps below against a dead transaction and report 200
-      // for writes that can never commit.
-      if (!(postErr instanceof ClosedFiscalPeriodError)) throw postErr;
-      log.warn('Auto-post of expense receipt JE skipped — fiscal period closed, left as draft', {
-        eventId, jeId: jeEntry.id,
+      // Anything else is rethrown. Now that the arguments are in the right order this call actually reaches the
+      // database, so a failure here can be a Postgres error that ABORTS the request transaction; continuing past
+      // it would run the stamps below against a dead transaction and report 200 for writes that can never commit.
+      if (!isPostingRefusal(postErr)) throw postErr;
+      log.warn('Auto-post of expense receipt JE skipped', {
+        eventId, jeId: jeEntry.id, reason: postErr instanceof Error ? postErr.message : String(postErr),
       }, 'capture-post-expense');
     }
   }

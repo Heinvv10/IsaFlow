@@ -7,6 +7,7 @@
 import { describe, expect, it } from 'vitest';
 import { GENERIC_FAILURE, handlerErrorReply } from '@/lib/mcp/handlerErrorReply';
 import { SuppliedApprovalRefusal } from '@/modules/accounting/services/controls/suppliedApprovalRefusal';
+import { ClosedFiscalPeriodError, LOCKDOWN_REFUSAL_MESSAGE } from '@/modules/accounting/services/gl/postingPeriodGuard';
 
 const tool = { name: 'execute_bank_operation', inputSchema: { type: 'object', properties: {} } };
 const text = (result: { content: Array<{ text: string }> }) => result.content.map((item) => item.text).join('\n');
@@ -21,5 +22,9 @@ describe('handlerErrorReply', () => {
   });
   it('keeps an unexplained failure generic', () => {
     expect(text(handlerErrorReply(tool, new Error('Approval material is invalid')))).toBe(GENERIC_FAILURE);
+  });
+  it('answers the kernel\'s own closed-period and lockdown refusals with their own message, not the generic failure', () => {
+    expect(text(handlerErrorReply(tool, new ClosedFiscalPeriodError('closed')))).toMatch(/closed fiscal period/);
+    expect(text(handlerErrorReply(tool, new Error(LOCKDOWN_REFUSAL_MESSAGE)))).toMatch(/lockdown/);
   });
 });
