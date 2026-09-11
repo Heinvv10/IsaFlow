@@ -2677,3 +2677,41 @@ I1 none read is always none (DB, 3) · I2 only `vat_input` is VAT (1) · I3 debi
 **Gate note:** `k072-capture-vat-unread` now calls `ai-invoice-pipeline` 5 times; the route's AI limiter allows 20 per
 IP per 15 minutes on the shared fixture (`rate_limit_counters`), so back-to-back mutation runs 429 it. A 429 there is
 the limiter, not the change — wait out the window and re-run.
+
+---
+
+## Round 34 — none read is none only when the document SAYS so; denial is the account's, not the vendor's
+
+Review: `review-k072-r33.md` (1H/1M/0L; numbers reproduced exactly; the `Grand Total`/`Invoice Total` decision held —
+the reviewer's narrower "no marker anywhere" rule leaves the same 2 WRONG). Probes: `agents/rev-k072ai/`.
+
+| Finding | Disposition |
+|---|---|
+| HIGH-1 round 33's "prints tax" test was a word list guarding the dangerous direction: a missed tax word meant "no tax printed" meant 0 meant approve. On the DB `FAKTUUR … TOTAAL 2875.00 / B.T.W. 375.00` was approved (Dr 6000 2875 / Cr 2000 2875, no VAT Input), bulk approve did the same with `B.T.W. ingesluit 450.00`, and `post_journal` posted a `B.T.W. 130.43` receipt draft; `B T W`, `V A T`, `VAl`, `Incl. 375.00`, `15 persent` evidenced 0 by unit probe | **INVERTED, the lead's decision.** `evidencedVat`: no VAT read evidences 0 ONLY on a POSITIVE signal — the document declares no VAT applies (`DECLARES_NO_VAT`: `not (a) VAT registered (vendor/supplier)`, `not registered for VAT`, `non-VAT registered/vendor`, `VAT (is) not applicable`, `nie (vir) BTW-geregistreer nie`, `nie geregistreer vir BTW nie`, and `No VAT` / `No VAT charged` / `Geen BTW` only as a line of their own, because `No VAT on disbursements` is a VAT invoice's footnote) AND the page prints no SA VAT registration number (ten digits, leading 4, spaces or dashes allowed). A phrase the list lacks costs a refusal, never an approval. **Signal (a), the supplier master, is NOT used — checked:** `suppliers.vat_number` is written only when a person or an import creates/edits a supplier; the capture routes read it and never write it, so NULL means "not captured", not "not registered"; `suppliers.default_vat_type` exists but no app path writes it for suppliers (only customers). Using either would fail open exactly as the word list did. **The reader improvements are kept, for reading only:** `VAT_WORD` learns dotted and spaced `B.T.W.`/`B T W` and spaced `V A T`; the VAT rate patterns and their guards learn `persent`. Harness cost 0 (below). **Proved on the DB** with the VAT forced unread, so the evidence rule — not the reader — is what refuses: nine tails (the reviewer's two `FAKTUUR` shapes through `extractFromText` → `ai-invoice-pipeline`, then `B T W`, `V A T`, `VAl`, `Incl. 375.00`, `Incl 15 persent`, `VAT INCL`, `Incl. VAT`) are refused by BOTH approve tools and stay `draft` with no journal (`k072-capture-vat-unread`); `post_journal` refuses the reviewer's `Brits Hardeware … B.T.W. 130.43` draft and eight more tails, a no-tax page that declares nothing, a declaring page that prints a VAT number, and a page with no text (`k072-journal-vat-evidence`). A declaring no-VAT document still posts/approves claiming none (both files, and `k072-receipt-vat-unread`, whose fixtures now declare themselves). |
+| MEDIUM-1 the vendor NAME excused a claimed 0 against a read VAT on any account (`parseReceiptType === 'meals'`, an unanchored substring: `Spurway Steel` and `Mr Doors Brits` posted on ordinary expense 6000) | FIXED: the name branch is dropped. A read VAT folded into the expense is consistent only when EVERY non-tax debit sits on an account with `vat_input_denied` — denial is a property of the account. **Proved on the DB:** `Spurway Steel`, `Mr Doors Brits`, `Spur Linden` and a plain vendor, read VAT 130.43, Dr 6000 1000 / Cr bank, are all refused and stay `draft`; `Spur Linden` booked to the denying entertainment account posts; half on a denying account is still refused. **Cost:** a real meals receipt booked to an account that does NOT deny input VAT now goes to a person (migration 521 flagged entertainment-named accounts on every tenant; an unflagged one is the tenant's to fix). **Open, flagged for the lead, not fixed here:** the ROOT is `receiptToJournalService.MERCHANT_PATTERNS` (`spur|mr\s*d|cafe|…`, unanchored). The receipt BUILDER still classifies `Spurway Steel` as meals, books it to 5600 and folds its input VAT into the expense — an under-claim at creation that no MCP check sees, because the builder, not an agent, made it. Anchoring those patterns changes how every receipt is coded and belongs on its own branch. |
+
+### THE COST OF THE INVERSION — every set, measured (`evidencedVat` over the extraction of all 4 481 rows)
+
+27 rows have no VAT read. At `684e251f6`, 9 of them evidenced 0 (so an agent could approve them claiming none); at
+head, 1. **Now refused, 9:** 3 Makro card slips (`SALE` / `PURCHASE` / `RECEIPT`, x-card) — a VAT vendor's slip with no
+VAT breakdown, so evidencing 0 was an UNDER-claim and refusing is right; and **6 genuine non-VAT invoices that do not
+say so** (ac-null ×4, ac-nullvat ×1: Joe Garden Services; af-ord ×1: Joe's Plumbing). Those six are the real price: a
+non-VAT vendor who prints nothing about VAT now goes to a person. **Newly evidenced 0, 1:** ac-null `Mama Thandi
+Catering … Not VAT registered` (round 33 refused it for printing the word VAT). Pinned both ways on the DB (`r34 THE
+COST` in `k072-capture-vat-unread`; the `NO_TAX_TEXT` row in `k072-journal-vat-evidence`).
+
+### Re-measured — head vs `684e251f6`, 4 481 rows (stored ≡ subtotal-null, row for row)
+
+unattended / WRONG **730 / 46 → 730 / 46**; newly refused 0, newly wrong 0; rv-unpaid 5 / 0 at both; none of the 13
+ordinary sets changed. The reader's new spellings change no row in any set (no row prints `B.T.W.`, spaced tax words or
+`persent`); they are proved by `k076-round34-policy`. The MCP rules are outside this harness and proved on the DB above.
+
+### Mutations — 9 unit + 6 integration, all RED, restored byte-identically (md5)
+
+N1 no declaration needed, any text evidences none (19) · N2 a VAT number on the page ignored (1) · N3 a bare `No VAT`
+counts anywhere, not only as a line (1) · N4 no Afrikaans declarations (3) · N5 a spaced VAT number not read as one (1)
+· R1 no dotted/spaced `B.T.W.` (4) · R2 no spaced `V A T` (1) · R3 no `persent` rate (2) · R4 the `persent` guard gone (1)
+· J1 any text evidences none, on the DB (1) · J2 VAT number ignored (1) · J3 unevidenced counts as none (1) · J4 no
+denied fold (1) · J5 the fold on ANY denying debit (1) · J6 the fold without a denying account (1). The integration
+mutants ran on `k072-receipt-vat-unread` + `k072-journal-vat-evidence`, which pin the same `evidencedVat` and fold and
+never call `ai-invoice-pipeline`, so no 429 could be mistaken for a RED.
