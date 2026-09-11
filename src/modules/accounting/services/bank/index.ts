@@ -11,8 +11,6 @@
 //   vlmService.ts — conflicts: extractBankStatementWithVlm, extractPdfWithVlm, extractWithVlm...
 
 export * from './bankAllocationService';
-export * from './bankFeedConnectionService';
-export * from './bankFeedSyncService';
 export * from './bankImportService';
 export * from './bankMatchCandidatesService';
 export * from './bankRulesMatchingService';

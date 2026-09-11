@@ -12,8 +12,6 @@
  * Skipped (no pure exports — all functions touch sql/db/network):
  *   bankRulesService.ts           — toSqlPattern and mapRuleRow are not exported
  *   bankAllocationService.ts      — all exports call sql
- *   bankFeedService.ts            — re-export facade only
- *   bankFeedSyncService.ts        — all exports call sql + graphqlQuery
  *   bankImportService.ts          — all exports call sql/transaction
  *   duplicateDetectionService.ts  — all exports call sql (fuzzyMatch tested via fuzzyMatcher)
  *   cashFlowForecastService.ts    — all exports call sql
