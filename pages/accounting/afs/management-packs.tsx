@@ -15,6 +15,8 @@ type PackDoc = {
   status: string;
   created_at: string;
   updated_at: string;
+  /** Set while the pack may not go out (review skipped, not yet signed off); deliverPack refuses it. */
+  delivery_withheld_reason: string | null;
 };
 
 const STATUS_CONFIG: Record<string, { label: string; colour: string; icon: React.ReactNode }> = {
@@ -165,12 +167,19 @@ export default function ManagementPacksPage() {
                 <div className="flex-1 min-w-0">
                   <div className="flex items-center gap-3 mb-1">
                     <span className="text-base font-semibold text-zinc-900 dark:text-white">{pack.period}</span>
-                    <StatusBadge status={pack.status} />
+                    {pack.delivery_withheld_reason ? (
+                      <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-medium bg-amber-100 text-amber-800">
+                        <AlertCircle className="w-3 h-3" />Withheld — needs sign-off
+                      </span>
+                    ) : <StatusBadge status={pack.status} />}
                   </div>
                   <p className="text-xs text-zinc-500 dark:text-slate-400">
                     Created {new Date(pack.created_at).toLocaleDateString('en-ZA')}
                     {' · '}Updated {new Date(pack.updated_at).toLocaleDateString('en-ZA')}
                   </p>
+                  {pack.delivery_withheld_reason && (
+                    <p className="text-xs text-amber-700 dark:text-amber-400 mt-1">{pack.delivery_withheld_reason}</p>
+                  )}
                 </div>
                 <div className="flex items-center gap-2 shrink-0">
                   <a href={`/accounting/afs/${pack.id}`}
@@ -178,7 +187,8 @@ export default function ManagementPacksPage() {
                     <Eye className="w-3.5 h-3.5" /> View
                   </a>
                   {(pack.status === 'draft' || pack.status === 'signed_off') && (
-                    <button onClick={() => handleDeliver(pack.id)} disabled={deliveringId === pack.id}
+                    <button onClick={() => handleDeliver(pack.id)} disabled={deliveringId === pack.id || Boolean(pack.delivery_withheld_reason)}
+                      title={pack.delivery_withheld_reason ?? undefined}
                       className="inline-flex items-center gap-1 px-3 py-1.5 text-xs font-medium bg-teal-600 hover:bg-teal-700 text-white rounded-lg disabled:opacity-50">
                       {deliveringId === pack.id ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Send className="w-3.5 h-3.5" />}
                       Deliver
