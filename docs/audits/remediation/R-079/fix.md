@@ -561,3 +561,14 @@ backdated reclass).
 Writing the new SQL comment I put `pre` and `base` in backticks INSIDE the `sql` template. The
 template ended there; `tsc` failed three lines later with "Declaration or statement expected".
 Same failure the memory records; caught by typecheck this time, not by a query.
+
+### Gates (round 4, foreground, load 11.8 at start; tip `08bf9e911` + the unit-mock fix)
+
+The first `bun run ci` on `08bf9e911` failed one test of this branch's own,
+`autoPostUndoHandOffset.test.ts`: its SQL mock routed on the posting read's old text
+(`SELECT entry_date, …`), which MEDIUM-2 changed. Re-routed; nothing else changed.
+- `env -u DATABASE_URL bun run ci` → every step PASS, `Tests 13097 passed | 248 skipped`,
+  components `564 passed`, build PASS, `[ci] all checks passed`, **EXIT=0**.
+- `k071-*`, `k140-*`, `k143-*`, `k144-*`, `r079-*` (21 files), `--no-file-parallelism` →
+  `Test Files 21 passed (21)`, `Tests 95 passed | 1 skipped (96)`, **EXIT=0**.
+- `bankFeedStateReaderCensus` → 1/1 with the two entries (fails without them: `unclassified: […]`).
