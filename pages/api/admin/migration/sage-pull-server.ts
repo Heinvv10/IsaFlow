@@ -35,28 +35,12 @@ import {
   mapSageARInvoices,
   mapSageAPInvoices,
 } from '@/modules/accounting/services/core/sageAutoImportService';
+import { DEFAULT_SAGE_BASE, SAGE_ALLOWED_HOSTS, buildSageHeaders } from '@/modules/admin/services/sageSession';
 
-const DEFAULT_SAGE_BASE = 'https://accounting.sageone.co.za';
-// M5: the caller-supplied sageBase must be a Sage host — never let the cookie be
-// replayed to an attacker-chosen internal/metadata endpoint (SSRF).
-const SAGE_ALLOWED_HOSTS = ['sageone.co.za'];
 const PAGE_SIZE = 200;
 
 interface SageEnvelope { Results?: unknown[]; TotalResults?: number; }
 interface CompanyResp { Name?: string; TaxNumber?: string; RegistrationNumber?: string; CurrencySymbol?: string; TakeOnBalanceDate?: string; }
-
-function buildHeaders(cookie: string): HeadersInit {
-  // Caller passes the full `Cookie:` value (a `name=value; name=value` string
-  // for every cookie set by sageone.co.za). If they pass just a single cookie
-  // value, prefix it; otherwise replay the string verbatim.
-  const cookieHeader = cookie.includes('=') ? cookie : `.AspNet.ApplicationCookie=${cookie}`;
-  return {
-    'Content-Type': 'application/json;charset=UTF-8',
-    'Accept': 'application/json',
-    'Cookie': cookieHeader,
-    'X-Requested-With': 'XMLHttpRequest',
-  };
-}
 
 async function pullEndpoint(
   base: string,
@@ -70,7 +54,7 @@ async function pullEndpoint(
   while (skip < total) {
     const res = await safeFetch(`${base}${endpoint}`, {
       method: 'POST',
-      headers: buildHeaders(cookie),
+      headers: buildSageHeaders(cookie),
       body: JSON.stringify({ FilterId: 0, Search: '', Skip: skip, Take: PAGE_SIZE, ...bodyExtras }),
     }, { allowHosts: SAGE_ALLOWED_HOSTS });
     if (!res.ok) {
@@ -110,7 +94,7 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
 
   try {
     const companyRes = await safeFetch(`${base}/services/Company/Current`, {
-      headers: buildHeaders(sageCookie),
+      headers: buildSageHeaders(sageCookie),
     }, { allowHosts: SAGE_ALLOWED_HOSTS });
     if (!companyRes.ok) {
       const status = companyRes.status;
