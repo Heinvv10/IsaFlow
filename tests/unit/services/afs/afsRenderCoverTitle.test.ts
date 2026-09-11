@@ -38,7 +38,7 @@ describe('the cover of a rendered document', () => {
       bold: sha(renderAfsToHtml(ctx(afs, 'bold'))),
       minimal: sha(renderAfsToHtml(ctx(afs, 'minimal'))),
       periodCover: sha(renderAfsToHtml(ctx(doc('afs', '2026-02', null), 'classic'))),
-      watermarked: sha(renderAfsToHtml(ctx(afs, 'classic'), { watermark: 'DRAFT' })),
+      watermarked: sha(renderAfsToHtml(ctx(afs, 'classic'), { watermark: 'DRAFT — NOT FOR DISTRIBUTION' })),
       trust: sha(renderAfsToHtml({ ...ctx(afs, 'modern'), entityType: 'trust' })),
     }).toEqual({
       classic: '29f0aef2d9e5755c4f7cbdcfdded6db48b3814fdae2d5b2c9f0ffa0a4ade83ec',
@@ -46,7 +46,7 @@ describe('the cover of a rendered document', () => {
       bold: '19ea9a3dd8fb2d28fb62a8d033f8b9dc2ae97758733a273157edff5a8e9a492a',
       minimal: 'adf5ea4e38a27844a6857e9945cccda6845c1eea69be2b11b5eb0bb217901382',
       periodCover: '228df66395f23e8c0313e5e6b7d894245dbbd7dfa0b4d248ab97b3d6553d94aa',
-      watermarked: '4d2850d72c2a7f2ae946ebdd9a824418ee6041fc4cb648c97d0a22e343aac7cb',
+      watermarked: '593aa3d10cb815ede1b92f16361fbce429afde9b714700c2c545b739c862939d',
       trust: '3ee6f4ddfdfb703cf61fb0152b79fa996a1d0f218b276183abc58eb4bad1574d',
     });
   });
