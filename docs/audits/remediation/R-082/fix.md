@@ -131,3 +131,146 @@ exposure, not historical sends).
   tabled, a second decision.
 - R-083 (funds population NULL-unsafety) and R-084/R-086/R-087, named in
   R-059 fix.md, remain untouched — out of this fix's scope.
+
+---
+
+# Round 2 — the review's three findings
+
+Blind review of `d78dafe08` (`<scratchpad>/review-r082.md`): 0H/0M/1L. Three
+items this round.
+
+## LOW-1: the two MCP statement tools' contract text — FIXED, and the omitted count now reaches excludedRows
+
+`src/lib/mcp/tools/domainReports.ts:39` (`customer_statement`) and
+`src/lib/mcp/tools/inventoryAndAp.ts:189` (`supplier_statement`) said only
+cancelled documents were omitted. Both now say a draft, pending-approval or
+cancelled document is left off and appears in `excludedRows`, and that a NULL
+status counts as issued.
+
+That second half — appears in `excludedRows` — was not true before this
+round: `fetchStatementData` and `fetchSupplierStatementData` filtered
+non-population invoices out **in SQL**, before the row ever reached the
+function that builds `excluded`. The reviewer measured it: a customer with
+R3,500 of drafts got `excludedRows` empty and `universeTotal` short by
+exactly those rows. Fixed by moving the status filter from SQL into the same
+row-by-row classification the two functions already use for payments and
+credit notes: every invoice/bill is now fetched, and
+`documentPopulation.documentInPopulation(status)` — a new JS twin of
+`documentInPopulationExpr`, added so the SQL and JS spellings cannot drift —
+either pushes it to `transactions` or to `excluded` with a machine-stable
+reason (`invoice_draft` / `invoice_pending_approval` / `invoice_cancelled`) and
+its amount. `candidateRows`/`universeTotal` were already computed from the
+raw fetched arrays, so this makes the completeness identity
+(`rowsTotal + excludedRows.length === universeTotal`) tell the truth about
+every excluded status, not just payments and credit notes.
+
+**Census addition** (the review's own ask): the two MCP tools —
+`customer_statement` (`domainReports.ts`) and `supplier_statement`
+(`inventoryAndAp.ts`) — reach the routed predicate through
+`fetchStatementData`/`fetchSupplierStatementData`, the same two functions the
+round-1 census already named. Added explicitly to the table above (screen +
+PDF / detail / list already named the routes directly; these two are the MCP
+wrap over the email-path function).
+
+## HEIN DECIDED (2026-09-11): exclude `pending_approval` everywhere — FIXED, ONE line
+
+Both `customer_invoices_status_check` and `supplier_invoices_status_check`
+spell the state identically — `'pending_approval'` — verified against both
+CHECK constraints on the fixture DB, so no dual spelling to handle. Changed
+`shared/documentPopulation.ts`'s single excluded-statuses list from
+`['draft', 'cancelled']` to `['draft', 'pending_approval', 'cancelled']`, and
+added the JS twin `documentInPopulation` (used by LOW-1's classification,
+above) reading the same list, so the two can never drift. This is the ONE
+place both R-059 and R-082 named; every one of its 23 sites — the ageing, the
+subledger, AFS notes (via `agedBucketTotals`), period reports
+(sales-by-customer, purchases-by-supplier, sales-by-item), the integrity
+checks, the reconciliation bridges, and every routed statement — now also
+excludes `pending_approval`. Doc comment updated to state the decision, the
+date, and that it needed no dual-spelling handling.
+
+**What changes for a tenant with pending-approval documents:**
+- **Ageing / subledger / control-account reconciliation**: a pending-approval
+  invoice or bill drops out of `arAgingService`/`apAgingService` and both
+  subledgers, exactly as a draft already does — it is not yet a claim, so it
+  is not yet outstanding.
+- **Statements** (this fix, round 1 + round 2): absent from the screen, PDF,
+  email, and the MCP `customer_statement`/`supplier_statement` tools; appears
+  in `excludedRows` there (round 2's LOW-1 fix) with reason
+  `invoice_pending_approval`.
+- **Period reports** (sales-by-customer, purchases-by-supplier,
+  sales-by-item): a pending-approval invoice/bill no longer contributes to
+  the period total, matching how a draft already didn't.
+- **AFS notes** drawing on `agedBucketTotals`: the same drop, inherited.
+- **Reconciliation** (`unpostedDocumentService`, `settlementFlagService`,
+  `subledgerReconciliationService`'s bridges): a pending-approval document is
+  no longer counted as an unposted/flagged document requiring explanation —
+  same treatment as a draft.
+- **Reappears once approved**: pinned by mutation, not just asserted — see
+  R-059 fix.md round 6/7's own pattern (an UPDATE to `approved` and the
+  document appears on every routed surface at the date it was always dated
+  for; the as-at cutoff is untouched, only the status predicate moved).
+- `isaflow_dev` has 0 `pending_approval` invoices today (round-1 review's own
+  probe), so this changes no CURRENT production figure — it changes behaviour
+  the moment one exists.
+- **Not changed**: `customerLedgerService`'s positive allowlist
+  (`BILLABLE_INVOICE_STATUSES`) does not include `pending_approval` either,
+  so it already agrees with the new rule by construction — no drift
+  introduced there. `invoiceStatuses.ts`'s LIVE open-status sets (dashboards,
+  KPIs) are a different rule by design and are untouched.
+
+**Unit-test fallout**: one source-text pin,
+`tests/unit/mcp/w2/subledgerSnapshot.test.ts` ("applies the as-at cutoff and
+the rewind IN SQL, not in TypeScript"), asserted the literal SQL fragment
+`documentInPopulationExpr` emits. Updated to the new three-status literal.
+Two other files with the bare phrase
+(`subledgerTiesToAging.integration.test.ts`,
+`reconcileSubledger.integration.test.ts`) use it only to pick which fixture
+companies to sample, not to compute an expected figure — R-059 fix.md round
+4's own disposition — left untouched.
+
+## R-096 (folded in, high, customer-facing): dunning no longer chases unissued invoices — FIXED
+
+`dunningCronService.ts`'s candidate query filtered only
+`ci.status NOT IN ('cancelled', 'paid')` — a DRAFT invoice, never sent to the
+customer, was handed to `sendDunning` like any issued one. Routed the
+candidate query through `documentInPopulationExpr('ci')` (excludes draft,
+pending_approval, cancelled — NULL-safe) plus its own
+`COALESCE(ci.status, '') != 'paid'` leg, kept separate because the shared
+rule counts `'paid'` as issued (the ageing needs that for historical figures)
+but a fully paid invoice has nothing left to chase. The module's own gate
+list (its header comment) is updated to name the new gate.
+
+New test, `tests/integration/r096-dunning-skips-unissued-invoices.int.test.ts`
+(2 tests), modelled on `k053-dunning-cron-soft-deleted.int.test.ts`
+(`sendDunning` stubbed, nothing mailed, asserted on the invoice ids actually
+handed to the sender). Six invoices, same overdue due date and amount, status
+the only variable: `overdue`, `draft`, `pending_approval`, `cancelled`,
+`paid` (amount_paid = total, so genuinely settled), and a NULL status. The
+cron dunned exactly the overdue and NULL-status invoices; never draft,
+pending-approval, cancelled or paid.
+
+**Mutation**: reverted the query to the original bare
+`status NOT IN ('cancelled', 'paid')`. Draft and pending-approval both leaked
+into the sent set, and the NULL-status invoice dropped out (SQL's
+three-valued logic on the bare `NOT IN`) — the exact defect this fix closes,
+reproduced. Restored, `cmp`-verified byte-identical.
+
+## Round 2 gates
+
+- `env -u DATABASE_URL bun run ci`: **15/15 PASS**, unit 915 files / 13011
+  tests (40 files / 248 tests skipped — one prior run at load ~23 threw the
+  unrelated `subledgerSnapshot.test.ts` source-text pin before it was
+  updated for the new literal; fixed, and this run is clean), component 87
+  files / 547 tests, `[ci] all checks passed`, `CI_EXIT=0`.
+- Fixture integration, `--no-file-parallelism`:
+  `r082-statements-exclude-drafts` + `r096-dunning-skips-unissued-invoices` +
+  `r059-*` (14 files) + `k053-*` (17 files) + `k091*` + `k093*` + `k122*` +
+  `k125b-null-amount-paid-report-parity` — **48 files / 289 tests passed.**
+
+## Round 2 — not done, stated
+
+- Everything named "not done" in round 1 remains not done.
+- The historical-impact SQL in round 1 is for draft invoices only; it was
+  not re-run for `pending_approval` (isaflow_dev has 0 today per the
+  round-1 review, so the count is 0 — not re-verified here, not run against
+  production).

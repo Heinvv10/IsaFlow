@@ -26,7 +26,7 @@ import { sql } from '@/lib/neon';
 import type { DbRow } from '@/lib/neon';
 import { fmtDate } from '@/lib/fmtDate';
 import { documentInLedgerAsAtFragment } from '../shared/softDeleteLedgerPresence';
-import { documentInPopulationExpr } from '../shared/documentPopulation';
+import { documentInPopulation } from '../shared/documentPopulation';
 
 type Row = DbRow;
 
@@ -122,14 +122,14 @@ export async function fetchSupplierStatementData(
       FROM supplier_invoices si
       WHERE si.supplier_id = ${supplierId}::UUID
         AND si.company_id = ${companyId}::UUID
-        -- The ageing's status rule (shared/documentPopulation), routed here
-        -- 2026-09-11: Hein decided (R-082) that the supplier statement must
-        -- not show a draft bill, and must agree with the ageing on a null
-        -- status — the mirror of the customer statement's own routing. Was
-        -- the bare != 'cancelled', which kept drafts and dropped
-        -- null-status rows — registered in R-059 fix.md round 6, decided in
-        -- R-082.
-        AND ${sql.unsafe(documentInPopulationExpr('si'))}
+        -- NOT filtered by status here (R-082 round 2): every candidate bill
+        -- is fetched, then classified below into transactions or excluded
+        -- with documentInPopulation, the JS twin of the ageing's
+        -- status rule (shared/documentPopulation) — the mirror of the
+        -- customer statement's own routing. A SQL-level filter made a draft,
+        -- pending-approval or cancelled bill vanish before it could be
+        -- counted anywhere — the MCP supplier_statement tool's own contract
+        -- claimed only cancelled was omitted.
         -- What IS shared with apAgingService is the DATED soft-delete
         -- question: the delete's reversal is dated to the delete, so a bill
         -- deleted after the as-at date is still on the control account and
@@ -164,7 +164,26 @@ export async function fetchSupplierStatementData(
   const transactions: SupplierStatementTransaction[] = [];
   const excluded: SupplierStatementExclusion[] = [];
 
+  // Machine-stable reason per excluded status — mirrors the customer
+  // statement's own classification (statementEmailService, R-082 round 2).
+  const INVOICE_EXCLUSION_REASON: Record<string, string> = {
+    draft: 'invoice_draft',
+    pending_approval: 'invoice_pending_approval',
+    cancelled: 'invoice_cancelled',
+  };
+
   for (const inv of invoices) {
+    const status = String(inv.status ?? '');
+    if (!documentInPopulation(inv.status as string | null)) {
+      excluded.push({
+        id: String(inv.id),
+        reason: INVOICE_EXCLUSION_REASON[status] ?? 'invoice_not_issued',
+        detail: `Bill is '${status}'; it is not yet issued and is not on the statement.`,
+        amount: Number(inv.total_amount),
+        documentNumber: String(inv.invoice_number ?? ''),
+      });
+      continue;
+    }
     transactions.push({
       date: fmtDate(inv.invoice_date),
       type: 'invoice',

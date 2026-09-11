@@ -9,7 +9,7 @@ import { fmtDate as fmtDbDate } from '@/lib/fmtDate';
 import type { DbRow } from '@/lib/neon';
 import { log } from '@/lib/logger';
 import { documentInLedgerAsAtFragment } from '../shared/softDeleteLedgerPresence';
-import { documentInPopulationExpr } from '../shared/documentPopulation';
+import { documentInPopulation } from '../shared/documentPopulation';
 import { sendEmail } from '../core/emailService';
 import type { EmailResult } from '../core/emailService';
 import { buildStatementEmailHtml } from './statementEmailTemplate';
@@ -87,17 +87,19 @@ export async function fetchStatementData(
 
   const [invoices, payments, creditNotes] = await Promise.all([
     sql`
-      SELECT ci.id, ci.invoice_number, ci.invoice_date, ci.total_amount
+      SELECT ci.id, ci.invoice_number, ci.invoice_date, ci.total_amount, ci.status
       FROM customer_invoices ci
       WHERE COALESCE(ci.client_id, ci.customer_id) = ${customerId}::UUID
         AND ci.company_id = ${companyId}::UUID
-        -- The ageing's status rule (shared/documentPopulation), routed here
-        -- 2026-09-11: Hein decided (R-082) that a statement EMAILED to a
-        -- customer must not show a draft invoice, and must agree with the
-        -- ageing on a null status. Was the bare != 'cancelled', which kept
-        -- drafts and dropped null-status rows — registered in R-059 fix.md
-        -- round 6, decided in R-082.
-        AND ${sql.unsafe(documentInPopulationExpr('ci'))}
+        -- NOT filtered by status here (R-082 round 2): every candidate
+        -- invoice is fetched, then classified below into transactions or
+        -- excluded with documentInPopulation, the JS twin of the ageing's
+        -- status rule (shared/documentPopulation). A SQL-level filter made a
+        -- draft (and, once decided, a pending-approval or cancelled)
+        -- invoice vanish before it could be counted anywhere — the MCP
+        -- customer_statement tool's own contract claimed only cancelled was
+        -- omitted, and an agent reading it had no way to see a draft leave
+        -- silently.
         -- The statement is what the customer is asked to pay, drawn AS AT a
         -- date, so it takes the same DATED soft-delete question arAgingService
         -- asks (that, and only that, is shared): the
@@ -137,8 +139,30 @@ export async function fetchStatementData(
   ]);
 
   const transactions: StatementTransaction[] = [];
+  const excluded: StatementExclusion[] = [];
+
+  // Machine-stable reason per excluded status, named so an agent reading
+  // excludedRows can tell a draft from a pending-approval invoice — both are
+  // "not yet issued", but for different reasons a reader may want to act on
+  // differently (chase the drafter vs. chase the approver).
+  const INVOICE_EXCLUSION_REASON: Record<string, string> = {
+    draft: 'invoice_draft',
+    pending_approval: 'invoice_pending_approval',
+    cancelled: 'invoice_cancelled',
+  };
 
   for (const inv of invoices) {
+    const status = String(inv.status ?? '');
+    if (!documentInPopulation(inv.status as string | null)) {
+      excluded.push({
+        id: String(inv.id),
+        reason: INVOICE_EXCLUSION_REASON[status] ?? 'invoice_not_issued',
+        detail: `Invoice is '${status}'; it is not yet issued and is not on the statement.`,
+        amount: Number(inv.total_amount),
+        documentNumber: String(inv.invoice_number ?? ''),
+      });
+      continue;
+    }
     transactions.push({
       date: toISODate(inv.invoice_date),
       type: 'invoice',
@@ -158,7 +182,6 @@ export async function fetchStatementData(
   // filtering to 'approved' alone hid every applied note and overstated the
   // balance by their full value.
   const LIVE_CREDIT_NOTE_STATUSES = new Set(['approved', 'applied']);
-  const excluded: StatementExclusion[] = [];
 
   for (const pmt of payments) {
     const status = String(pmt.status ?? '');
