@@ -9,6 +9,7 @@ import { fmtDate as fmtDbDate } from '@/lib/fmtDate';
 import type { DbRow } from '@/lib/neon';
 import { log } from '@/lib/logger';
 import { documentInLedgerAsAtFragment } from '../shared/softDeleteLedgerPresence';
+import { documentInPopulationExpr } from '../shared/documentPopulation';
 import { sendEmail } from '../core/emailService';
 import type { EmailResult } from '../core/emailService';
 import { buildStatementEmailHtml } from './statementEmailTemplate';
@@ -90,12 +91,13 @@ export async function fetchStatementData(
       FROM customer_invoices ci
       WHERE COALESCE(ci.client_id, ci.customer_id) = ${customerId}::UUID
         AND ci.company_id = ${companyId}::UUID
-        -- NOT the ageing's status rule (shared/documentPopulation): this
-        -- keeps drafts, and the bare != drops a null-status invoice, so the
-        -- balance EMAILED to a customer can differ from arAgingService on
-        -- both. Not changed here because it alters what a customer is sent,
-        -- which needs Hein's decision — registered in R-059 fix.md round 6.
-        AND ci.status != 'cancelled'
+        -- The ageing's status rule (shared/documentPopulation), routed here
+        -- 2026-09-11: Hein decided (R-082) that a statement EMAILED to a
+        -- customer must not show a draft invoice, and must agree with the
+        -- ageing on a null status. Was the bare != 'cancelled', which kept
+        -- drafts and dropped null-status rows — registered in R-059 fix.md
+        -- round 6, decided in R-082.
+        AND ${sql.unsafe(documentInPopulationExpr('ci'))}
         -- The statement is what the customer is asked to pay, drawn AS AT a
         -- date, so it takes the same DATED soft-delete question arAgingService
         -- asks (that, and only that, is shared): the
