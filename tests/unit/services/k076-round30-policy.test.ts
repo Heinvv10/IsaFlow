@@ -34,7 +34,8 @@ describe('K-076 r30 MEDIUM — the builder never invents a VAT', () => {
 });
 
 describe('K-076 r30 LOW-1 — the arithmetic exemption where a line is not standard-rated', () => {
-  const doc = (items: string, total: number, vat: string) => `${HDR('Mokoena Attorneys')}${items}Total ${total.toFixed(2)}\n${vat}\nBanking details: FNB Acc 62812345678`;
+  // r32: labelled payable, so the exemption applies and only the marker can void it.
+  const doc = (items: string, total: number, vat: string) => `${HDR('Mokoena Attorneys')}${items}Amount Due ${total.toFixed(2)}\n${vat}\nBanking details: FNB Acc 62812345678`;
   it.each(['Deeds office fee (no VAT)', 'Deeds office fee (non-VAT)', 'Deeds office fee (exempt)', 'Deeds office fee (zero rated)',
     'Deeds office fee 0%', 'Aktefooi (vrygestel)', 'Aktefooi (geen BTW)', 'Deeds office fee (Z)', 'Disbursements'])(
     '"%s 150.30" beside a fee, VAT exactly 15/115 of the total: refuses', (line) => {
@@ -66,7 +67,7 @@ describe('K-076 r30 LOW-1 — the arithmetic exemption where a line is not stand
 });
 
 describe('K-076 r30 LOW-2 — the pins', () => {
-  const unpaid = (vat: string) => `${HDR('Joe Plumbing')}Labour 1000.00\nTotal 1000.00\nVAT ${vat}`;
+  const unpaid = (vat: string) => `${HDR('Joe Plumbing')}Labour 1000.00\nAmount Due 1000.00\nVAT ${vat}`;
   it('the 5-cent window on 1 000: 130.39 is inclusive, 130.38 is not', () => {
     expect(unreconciledFigure(unpaid('130.39'), 1000, { subtotal: 869.61, vatAmount: 130.39 })).toBeNull();
     expect(unreconciledFigure(unpaid('130.38'), 1000, { subtotal: 869.62, vatAmount: 130.38 })).toMatchObject(pretax);

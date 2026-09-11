@@ -5,8 +5,8 @@
  * VAT was read (the DB side, the claim branch and MCP `post_journal` are in
  * `k072-receipt-vat-unread.int.test.ts`). LOW-1: a legend or `0%` term voided
  * rule (b)'s arithmetic exemption; only a marked ITEM line may. LOW-2: the
- * unmarked coincidence is a DISCLOSED RESIDUAL, pinned as open so a change to
- * it is seen. The reviewer's inputs.
+ * unmarked coincidence was a DISCLOSED RESIDUAL — closed in round 32, which
+ * requires the total's label to name it payable. The reviewer's inputs.
  */
 import { describe, expect, it } from 'vitest';
 import { unreconciledFigure } from '@/modules/accounting/services/core/ocrLargerFigure';
@@ -36,7 +36,7 @@ describe('K-076 r31 MEDIUM — the receipt builder never invents a VAT', () => {
 });
 
 const CATERING = (extra: string, where: 'above' | 'below') => 'Greenleaf Catering\nTAX INVOICE\nVAT No 4123450000\nInvoice No: 7781\n'
-  + (where === 'above' ? `${extra}\n` : '') + 'Platters 2 @ 575.00 1150.00\nTotal 1150.00\nVAT 15% 150.00\n'
+  + (where === 'above' ? `${extra}\n` : '') + 'Platters 2 @ 575.00 1150.00\nAmount Due 1150.00\nVAT 15% 150.00\n'
   + (where === 'below' ? `${extra}\n` : '') + 'Bank: FNB 62000000000';
 const CK = { subtotal: 1000, vatAmount: 150 };
 
@@ -58,14 +58,13 @@ describe('K-076 r31 LOW-1 — only a marked ITEM line voids the arithmetic exemp
   });
 });
 
-describe('K-076 r31 LOW-2 — DISCLOSED RESIDUAL, pinned as open', () => {
+describe('K-076 r31 LOW-2 — the residual, closed in round 32', () => {
   // A pre-tax total whose no-VAT share lands the VAT within 5 cents of
-  // total × 15/115, with no marker anywhere: nothing in the text separates it
-  // from an honest inclusive slip, and dropping the exemption refuses ordinary
-  // unpaid slips that print `Total / VAT` below. See fix.md round 31.
-  it('`Conveyancing fee 1000.00 / Deeds office fee 150.30 / Total 1150.30 / VAT 15% 150.00` still posts', () => {
+  // total × 15/115, with no marker anywhere. Round 32: a bare `Total` no longer
+  // earns the exemption on an unpaid document (see k076-round32-policy).
+  it('`Conveyancing fee 1000.00 / Deeds office fee 150.30 / Total 1150.30 / VAT 15% 150.00` is refused', () => {
     const text = 'Mokoena Attorneys\nTAX INVOICE\nVAT No 4123456789\nInvoice No: 0045\nConveyancing fee 1000.00\n'
       + 'Deeds office fee 150.30\nTotal 1150.30\nVAT 15% 150.00\nBanking details: FNB Acc 62812345678';
-    expect(unreconciledFigure(text, 1150.3, { subtotal: 1000.3, vatAmount: 150 })).toBeNull();
+    expect(unreconciledFigure(text, 1150.3, { subtotal: 1000.3, vatAmount: 150 })).toMatchObject({ reason: 'pretax' });
   });
 });

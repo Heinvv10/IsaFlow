@@ -19,9 +19,9 @@ vi.mock('@/lib/neon', () => ({
 vi.mock('@/lib/mcp/tools/bulkApprovePeriods', () => ({
   resolvePeriodSkips: vi.fn(async () => new Map()),
 }));
-vi.mock('@/modules/accounting/services/capture/capturedVatUnread', () => ({
-  CAPTURED_VAT_UNREAD_REASON: 'its captured VAT was never read',
-  invoicesWithUnreadCapturedVat: vi.fn(async () => new Set<string>()),
+vi.mock('@/modules/accounting/services/capture/capturedVatEvidence', () => ({
+  CAPTURED_VAT_UNEVIDENCED_REASON: 'its VAT is not evidenced by its captured document',
+  invoicesWithUnevidencedVat: vi.fn(async () => new Set<string>()),
 }));
 vi.mock('@/modules/accounting/services/gl/systemAccountResolver', () => ({
   validateSystemAccounts: vi.fn(async () => []),
@@ -45,7 +45,7 @@ import { resolvePeriodSkips } from '@/lib/mcp/tools/bulkApprovePeriods';
 import { validateSystemAccounts } from '@/modules/accounting/services/gl/systemAccountResolver';
 import { approveSupplierInvoice } from '@/modules/accounting/services/ap/supplierInvoiceWorkflowService';
 import { approveCreditNote } from '@/modules/accounting/services/ar/creditNoteService';
-import { invoicesWithUnreadCapturedVat } from '@/modules/accounting/services/capture/capturedVatUnread';
+import { invoicesWithUnevidencedVat } from '@/modules/accounting/services/capture/capturedVatEvidence';
 import {
   bulkApproveSupplierInvoicesTool,
 } from '@/lib/mcp/tools/writeBulkApproveSupplierInvoices';
@@ -111,15 +111,15 @@ describe('bulk_approve_supplier_invoices', () => {
     expect(preview.skipped).toEqual(live.skipped);
   });
 
-  it('K-072 r30: a bill whose captured VAT was never read is SKIPPED, in the dry run and the live call alike', async () => {
+  it('K-072 r30–r32: a bill whose VAT its captured document does not show is SKIPPED, in the dry run and the live call alike', async () => {
     const call = (dry: boolean) => bulkApproveSupplierInvoicesTool.handler(
       { invoice_ids: [ID(1), ID(2)], idempotency_key: 'k', ...(dry ? { dry_run: true } : {}) }, ctx,
     ) as Promise<Result>;
     for (const dry of [true, false]) {
       rows({ id: ID(1), status: 'draft', invoice_date: '2026-09-01' }, { id: ID(2), status: 'draft', invoice_date: '2026-09-01' });
-      vi.mocked(invoicesWithUnreadCapturedVat).mockResolvedValueOnce(new Set([ID(2)]));
+      vi.mocked(invoicesWithUnevidencedVat).mockResolvedValueOnce(new Set([ID(2)]));
       const out = payload(await call(dry));
-      expect(out.skipped).toEqual([{ index: 1, document_id: ID(2), reason: 'its captured VAT was never read' }]);
+      expect(out.skipped).toEqual([{ index: 1, document_id: ID(2), reason: 'its VAT is not evidenced by its captured document' }]);
       expect(dry ? out.would_post_ids : (out.invoices as { id: string }[]).map((i) => i.id)).toEqual([ID(1)]);
     }
     expect(vi.mocked(approveSupplierInvoice).mock.calls.map((c) => c[1])).toEqual([ID(1)]);

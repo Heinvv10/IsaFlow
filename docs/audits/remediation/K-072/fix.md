@@ -2565,7 +2565,7 @@ poster of what they write):
 | `doc-auto-invoice` | nothing — returns proposed invoice data; `Number(vatAmount \|\| 0)` invents nothing | — | none |
 | `document-capture-action` (confirm) | `captured_documents.vat_amount` (person-entered) | no posting route reads that column | none (fails closed, per the r30 review) |
 | `multiDocMatch*`, `bank-tx-attachments`, `captureBankTxAttachService`, `evidenceAttachmentService`, `fourWayMatchService`, inbound email / WhatsApp | no tax amount, no journal | — | none |
-| Other posters of an existing draft journal | `journal-entries-action` (attended), `closeRunService` (its own proposals) | — | none |
+| Other posters of an existing draft journal | `journal-entries-action` (attended); `closeRunService` — **corrected r32:** it proposes EVERY balanced draft journal in the period (`closeRunRepo.fetchDraftJournals` → `closeRunProposalBuilder`), capture drafts included, not only its own; each is posted only when a person approves that proposal (`decideProposal`, attended) | — | none (attended) |
 
 | Finding | Disposition |
 |---|---|
@@ -2587,3 +2587,51 @@ lines void the exemption (1) · K4 the whole document scanned for markers (1 —
 Rated 0.00` recap was pinned) · I1 the receipt builder derives again (integration, 2) · I2 the employee claim derives
 again (1) · I3 `post_journal` ignores unread VAT (3) · I4 the journal check treats an absent key as read (1) · I5 the
 invoice check treats an absent key as read (1).
+
+---
+
+## Round 32 — the draft's VAT must BE the document's VAT; a bare `Total` proves nothing on an unpaid bill
+
+Review: `review-k072-r31.md` (0H/1M/3L, no regression). The round-32 fixer died in a reboot with this work
+uncommitted; it was taken over, reviewed, extended and re-measured on a rebuilt harness (below).
+
+| Finding | Disposition |
+|---|---|
+| MEDIUM-1 the r30–r31 check refused only a document whose VAT was NEVER read; the old builders also invented 15/115 when the VAT was read and the net was not, and `post_journal` posted such legacy drafts (R117.42 on a slip printing `VAT 0.00`, R18.26 on one printing 13.04) | FIXED by comparison, not by shape: `capture/capturedVatUnread.ts` → **`capturedVatEvidence.ts`**. `invoicesWithUnevidencedVat` refuses a supplier invoice whose `tax_amount` differs by more than a cent from `extracted_data.vatAmount` of the captured document it was raised from (null, absent or non-numeric = NONE = 0); `journalHasUnevidencedVat` does the same for a draft journal's net VAT Input (the net debit on `vat_input`-subtype lines — the subtype the receipt builders resolve the leg by). Used by `approve_supplier_invoice` (tool error), `bulk_approve_supplier_invoices` (SKIP, dry run and live alike) and `post_journal` (tool error). **Consequences, both directions:** the routes' own no-VAT draft of an unread document now posts/approves through the MCP tools as it stands, claiming none (it used to be refused outright); `VAT_UNREAD_NOTE` no longer says an agent cannot approve it. **Cost, stated:** a draft that claims LESS than the document's VAT is refused too — notably a denied-input receipt (`vat_input_denied`, entertainment) whose read VAT went to the expense: `post_journal` refuses it where r31 posted it; a person posts it (read from `buildExpenseJournalFromReceipt`, which puts a denied VAT on the expense leg — not exercised by a test). Documents not raised from capture (no `source_document_id`) are not judged. **Proved on the DB:** `k072-capture-vat-unread` — both tools refuse 117.42-on-0.00 and 18.26-on-13.04 legacy bills, which stay `draft` with no journal, and the pipeline's own no-VAT draft is approved with no VAT Input line; `k072-receipt-vat-unread` — `post_journal` refuses both legacy journal shapes, posts the same slip's draft carrying its read 13.04, and posts the routes' own no-VAT drafts claiming none. The vat-guard allowlist reason for `supplierInvoiceWorkflowService` states the r32 rule. |
+| LOW-1 narrowing the marker to priced lines above the total made 5 inputs newly WRONG: bare legend tokens (`Z`, `*`, `D`, `E`) and the split-column layout | FIXED in `ocrPreTaxTotal.marksAnItem`: a LEGEND that defines a token as zero-rated/exempt/no-VAT (`Z = zero rated`, `* = zero-rated items`, `D = disbursement, no VAT`, `E = Exempt`, `(Z) Zero rated`, `Note: Z zero rated`, `Items marked with an E are exempt`, `gemerk V`, `unless marked Z`; read per `,`/`;`/column segment) voids the exemption when that token stands alone (not inside a word, not inside a `**` run) on any ITEM above the total. An item is a priced line OR a description whose price the layout split into a later figure-only line, for both the marker words and the tokens. The legend line itself is never an item. af-legend-bare 4 → 0, af-colsplit 1 → 0, and their `Amount Due` twins (ag-legend-bare 4, ag-colsplit 1) → 0. The round-30 legend slips: under `Amount Due` all 17 still post (ag-legend 17/17); under a bare `Total` they refuse — by the payable rule below, not by the legend (the LOW-1 fix alone, measured before the payable rule, kept them 17/17). |
+| The residual, re-opened: ±R0.38 window, a fixed fee pair hits it on every invoice | **CLOSED as measured.** On a document no payment settles, the arithmetic exemption (VAT within 5 cents of total × 15/115) now also requires the total's own line to name it payable: `Amount/Balance/Total Due`, `Amount/Total/Balance Payable`, `Bedrag/Saldo/Totaal Verskuldig/Betaalbaar`. A bare `Total` with a VAT line below it and no payable label refuses. **The window, corrected:** with standard-rated net N and no-VAT share Z, a pre-tax total N + Z read against VAT 0.15N lands within 5 cents when \|0.15N − (N+Z)·15/115\| ≤ 0.05, i.e. Z within **±R0.38** of 0.15N (round 31 said ±R0.33). **Also closed, found while testing the Afrikaans labels:** rule (b) skipped a total no `TOTAL_PATTERNS` entry reads (`Bedrag Verskuldig`, `Faktuurbedrag`, `Invoice Amount`) — `end === null` exempted it. It now falls back to the end of the last line printing the total's figure (`lastPrintEnd`); cost 0 on the harness. **Remaining residual (disclosed, pinned as OPEN in `k076-round32-policy`):** a pre-tax figure the document ITSELF labels `Amount Due`, with the VAT added below and no marker, inside the ±R0.38 window — ag-nomark 2 of 10. The document then contradicts itself; nothing in the text separates it from an honest one. |
+| R-090 `evidenceAttachmentService` vouches for a derived VAT | **Registered, not fixed here** (orchestrator's decision). Listed so the census of consumers is complete. |
+| LOW-3 the census said `closeRunService` posts only its own proposals | CORRECTED in the round-31 consumer census: it proposes every balanced draft journal in the period, capture drafts included; each posts only when a person approves that proposal (attended). |
+
+### Re-measured — head vs `79d3a99c7`, 4 460 rows (stored ≡ subtotal-null, row for row)
+
+**Harness rebuilt after the reboot** (`<scratchpad>/agents/fix-k072p/{harness,mine}`): `run2.ts`/`run3.ts`,
+`tab.py`'s scoring and 15 probe sets recovered verbatim from the session transcripts and replayed —
+r21, r21o, r21c, r21r, r21h, w22, x23all … af32all, every row count equal to round 31's — plus the corpus (177)
+and ag32due (39, the round-32 `Amount Due` relabels, rebuilt by the same snippet). **`every.json` (1 462 rows) was
+NOT recovered**: its generator chain runs back through rounds 13–20. The pre-reboot run of this same change on
+5 883 rows (every included, recorded in the fixer's transcript) found 0 `every` rows relying on the arithmetic
+exemption, and the same 22 / 17 / 0 as below.
+
+| | `79d3a99c7` | head | head without the payable rule |
+|---|---|---|---|
+| unattended / WRONG, all 4 460 rows | 764 / 63 | **725 / 46** | 754 / 53 |
+| the 13 ordinary sets (corpus, f/x/x-vlm/a-chg/o/z/aa/ab/ac/ad/ae/af-ord; 351) | 125 | **125** | 125 |
+
+**Newly wrong: 0. Closed wrong: 17** — ae-nomark 6 (the residual), af/ag-legend-bare 8, af/ag-colsplit 2, one ab-h2
+next-line `VAT` row. **Newly refused: 22, all by the payable rule and all the one shape it targets** — an UNPAID
+document printing a bare `Total` with an inclusive VAT line below it: ae-legend 17 and ae-legend-ctl 1 (bare `Total`,
+legends irrelevant — their `Amount Due` twins all post), ab-incl 2 (`Total 1000 / VAT 130.43`), zb-incl 1, af-zzero 1.
+**No ordinary document in any set lost unattended posting.** The kept choice: the unpaid bare-`Total`/VAT-below
+honest slip (round 31's `TOTAL 147.40 / VAT 19.23`) now goes to a person, because on the text alone it is the fee-pair
+pre-tax invoice. The 46 WRONG left are the accepted classes (24 number-word references, 6 glued hours, 8 six-figure
+branch rows, 2 w-cnt, 1 d-ok, 2 ab-h2 scored unrealistic, 1 `Customer copy 2/2`) and the 2 ag-nomark residual rows.
+
+### Mutations — 12 unit + 6 integration, all RED, restored byte-identically (md5)
+
+L1 no payable label needed (8) · L2 no Afrikaans payable labels (3) · L3 legend tokens ignored (10) · L4 no split
+column (1) · L5 a `**` run counts as `*` (1) · L6 a token inside a word counts (1) · L7 no `(Z)` legend form (1) · L8
+no bare-space legend (1) · L9 no legend after a colon (1) · L10 no `marked with` (1) · L11 the legend line is an item
+(1) · L12 no last-print fallback (1) · I1 invoice check refuses only an unread VAT (2) · I2 journal check likewise (3)
+· I3 an unread invoice VAT counts as the draft's own figure (2) · I4 journal tolerance R200 (2) · I5 invoice check
+refuses every captured bill (2) · I6 journal VAT Input read off no account (3).

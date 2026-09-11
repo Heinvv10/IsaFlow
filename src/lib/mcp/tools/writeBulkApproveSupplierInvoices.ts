@@ -20,7 +20,7 @@ import { sql } from '@/lib/neon';
 import type { DbRow } from '@/lib/neon';
 import { approveSupplierInvoice } from '@/modules/accounting/services/ap/supplierInvoiceWorkflowService';
 import { validateSystemAccounts } from '@/modules/accounting/services/gl/systemAccountResolver';
-import { CAPTURED_VAT_UNREAD_REASON, invoicesWithUnreadCapturedVat } from '@/modules/accounting/services/capture/capturedVatUnread';
+import { CAPTURED_VAT_UNEVIDENCED_REASON, invoicesWithUnevidencedVat } from '@/modules/accounting/services/capture/capturedVatEvidence';
 import { mcpPostingOpts } from '../mcpActor';
 import {
   type BulkApproveAdapter,
@@ -165,12 +165,12 @@ export const bulkApproveSupplierInvoicesTool: McpTool = {
 
     const partitioned = await partitionDocuments(ctx.companyId, ids, adapter);
     const { states } = partitioned;
-    // K-072 r30: a bill whose captured document never showed a VAT is SKIPPED —
+    // K-072 r30–r32: a bill carrying a VAT its captured document never showed is SKIPPED —
     // read, not written, so the dry run and the live call decide it alike.
-    const unread = await invoicesWithUnreadCapturedVat(ctx.companyId, partitioned.postable.map((p) => p.id));
-    const postable = partitioned.postable.filter((p) => !unread.has(p.id));
-    const skipped = [...partitioned.skipped, ...partitioned.postable.filter((p) => unread.has(p.id))
-      .map((p) => ({ index: p.index, document_id: p.id, reason: CAPTURED_VAT_UNREAD_REASON }))]
+    const unevidenced = await invoicesWithUnevidencedVat(ctx.companyId, partitioned.postable.map((p) => p.id));
+    const postable = partitioned.postable.filter((p) => !unevidenced.has(p.id));
+    const skipped = [...partitioned.skipped, ...partitioned.postable.filter((p) => unevidenced.has(p.id))
+      .map((p) => ({ index: p.index, document_id: p.id, reason: CAPTURED_VAT_UNEVIDENCED_REASON }))]
       .sort((a, b) => a.index - b.index);
 
     if (args.dry_run === true) {

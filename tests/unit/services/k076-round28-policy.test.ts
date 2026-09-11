@@ -38,7 +38,8 @@ describe('K-076 r28 HIGH-1 — the VAT read must fit inside the total read', () 
 
   it('an honest inclusive total posts, and the tolerance is 5 cents', () => {
     for (const v of ['VAT 130.43', 'VAT @ 15% 130.43']) {
-      expect(routes(doc(`${LABOUR}Total 1000.00\n${v}`, 869.57, 130.43, 1000))).toEqual({ post: true, approve: true });
+      // r32: an unpaid total proves the tax inside it only where its label names it payable.
+      expect(routes(doc(`${LABOUR}Amount Due 1000.00\n${v}`, 869.57, 130.43, 1000))).toEqual({ post: true, approve: true });
     }
     expect(unattendedPostingRefusal(doc('', 869.52, 130.48, 1000))).not.toMatch(/more than a VAT-inclusive total/);
     expect(unattendedPostingRefusal(doc('', 869.51, 130.49, 1000))).toMatch(/more than a VAT-inclusive total/);
