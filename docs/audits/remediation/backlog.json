@@ -11693,6 +11693,41 @@
       "severity": "low",
       "source": "K-072 round-42 blind reviewer (rev-k072at), measured on the fixture DB: approved/approved/posted at tax 0 by both approve tools and post_journal. Present at 9e71995fa too; not a regression.",
       "processNotes": "Fix direction: stop treating any 'wat' line as prose when the page also prints a VAT-number-shaped token or a 15% figure, or drop the prose exemption entirely and pay the cost on Afrikaans item lines (measure it). Do not add a sixth position rule."
+    },
+    {
+      "id": "R-095",
+      "claim": "",
+      "area": "accounting/portal",
+      "affectedPaths": [
+        "src/modules/accounting/services/ar/portalService.ts",
+        "pages/api/portal/statement.ts",
+        "pages/api/portal/invoices.ts"
+      ],
+      "sourceLabel": "",
+      "sourceIds": [],
+      "correctedTrigger": "",
+      "severityRationale": "Customer-facing: a customer opening their statement in the portal gets an error. No ledger data is wrong. Severity depends on whether any customer uses the portal — unmeasured.",
+      "auditedSha": "",
+      "currentSha": "",
+      "status": "confirmed",
+      "dependencies": [
+        "R-082"
+      ],
+      "testNames": [],
+      "evidencePaths": [
+        "docs/audits/remediation/R-082/fix.md"
+      ],
+      "fixCommit": null,
+      "pr": null,
+      "deployedSha": null,
+      "historicalDataImpact": "None on the ledger; the portal statement has never rendered.",
+      "canonicalItem": null,
+      "reportedSeverity": "",
+      "branch": null,
+      "title": "Customer portal statement and invoice list are broken: portalService selects columns that don't exist (customer_invoices.total, customer_payments.reference) and filters payments on status 'posted', which the CHECK constraint forbids, so /api/portal/statement throws on every call",
+      "severity": "medium",
+      "source": "Found by the R-082 fixer and measured by running getClientStatement against the fixture DB. Confirmed on origin/master by the orchestrating session: portalService.ts selects 'total AS debit' from customer_invoices (the column is total_amount), 'reference' from customer_payments, and filters 'status = ''posted''' (allowed values: draft/confirmed/reconciled/cancelled).",
+      "processNotes": "Fix: correct the columns (total_amount; bank_reference or payment_number), use the real payment statuses (confirmed/reconciled), route invoices through documentInPopulationExpr as R-082 did, and add a DB test that calls the real route. Check the web access logs for how often /api/portal/statement is hit, to size the impact."
     }
   ],
   "sourceInventory": [
