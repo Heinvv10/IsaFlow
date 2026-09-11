@@ -10,8 +10,8 @@
  * Optional: --base https://accounting.sageone.co.za (must be a Sage HTTPS host).
  */
 import { checkPublicUrl, safeFetch } from '@/lib/safeFetch';
-import { DEFAULT_SAGE_BASE, SAGE_ALLOWED_HOSTS } from '@/modules/admin/services/sageSession';
-import { runAllocationProbe } from '@/modules/admin/services/sageAllocationProbe';
+import { SAGE_ALLOWED_HOSTS } from '@/modules/admin/services/sageSession';
+import { parseProbeArgs, runAllocationProbe } from '@/modules/admin/services/sageAllocationProbe';
 
 function fail(message: string): never {
   process.stderr.write(`${message}\n`);
@@ -19,15 +19,9 @@ function fail(message: string): never {
 }
 
 async function main() {
-  const args = process.argv.slice(2);
-  const known = new Set(['--dry-run', '--base']);
-  for (const [index, arg] of args.entries()) {
-    if (arg.startsWith('--') && !known.has(arg)) fail(`Unknown flag ${arg}`);
-    if (!arg.startsWith('--') && args[index - 1] !== '--base') fail('Unexpected argument; the cookie is read from SAGE_COOKIE only');
-  }
-  const dryRun = args.includes('--dry-run');
-  const baseIndex = args.indexOf('--base');
-  const base = (baseIndex >= 0 ? args[baseIndex + 1] ?? fail('--base needs a URL') : DEFAULT_SAGE_BASE).replace(/\/+$/, '');
+  let parsed: ReturnType<typeof parseProbeArgs>;
+  try { parsed = parseProbeArgs(process.argv.slice(2)); } catch (error) { fail(error instanceof Error ? error.message : 'Invalid arguments'); }
+  const { dryRun, base } = parsed;
   const baseReason = await checkPublicUrl(base, { allowHosts: SAGE_ALLOWED_HOSTS });
   if (baseReason) fail(`--base must be a Sage HTTPS host (${baseReason})`);
   const cookie = process.env.SAGE_COOKIE ?? '';

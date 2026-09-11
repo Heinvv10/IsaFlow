@@ -8,12 +8,13 @@
  * client data.
  *
  * Output is SHAPE ONLY: endpoint template, HTTP status, media type, body size,
- * and the key names / nesting / array lengths of the response. Values, ids,
- * names, amounts and data-shaped keys are never printed. A human runs it
- * (scripts/sage/probe-allocations.ts) because it reads a client's live Sage data.
+ * and the key names / nesting / array lengths of the response (sageProbeShape).
+ * A human runs it (scripts/sage/probe-allocations.ts) because it reads a
+ * client's live Sage data.
  */
 
-import { buildSageHeaders } from './sageSession';
+import { DEFAULT_SAGE_BASE, buildSageHeaders } from './sageSession';
+import { describeShape } from './sageProbeShape';
 
 type IdSlot = 'receiptId' | 'invoiceId' | 'paymentId';
 export interface ProbeRequest {
@@ -44,67 +45,7 @@ export const PROBE_PLAN: readonly ProbeRequest[] = [
 /** Hard ceiling on requests to the client's Sage company, whatever the plan says. */
 export const PROBE_REQUEST_CAP = 10;
 const MAX_BODY_BYTES = 5 * 1024 * 1024;
-const MAX_DEPTH = 8;
-const DICTIONARY_KEYS = 100;
-const SAMPLE_ITEMS = 5;
-
-export type Shape = string | { object: Record<string, Shape>; redactedKeys?: number }
-  | { array: number; items?: Shape } | { dictionary: number; values?: Shape };
-
-// A DTO field name is an identifier. Anything else (spaces, @, dots, hyphens,
-// leading digits — ids, emails, names used as keys) is data and is only counted.
-const FIELD_NAME = /^[A-Za-z_][A-Za-z0-9_]{0,63}$/;
-
-function mergeShapes(a: Shape | undefined, b: Shape): Shape {
-  if (a === undefined) return b;
-  if (typeof a === 'string' || typeof b === 'string') {
-    const parts = new Set([...(typeof a === 'string' ? a.split('|') : ['object']), ...(typeof b === 'string' ? b.split('|') : ['object'])]);
-    return [...parts].sort().join('|');
-  }
-  if ('object' in a && 'object' in b) {
-    const object: Record<string, Shape> = { ...a.object };
-    for (const [key, value] of Object.entries(b.object)) object[key] = mergeShapes(object[key], value);
-    const redactedKeys = Math.max(a.redactedKeys ?? 0, b.redactedKeys ?? 0);
-    return redactedKeys ? { object, redactedKeys } : { object };
-  }
-  if ('array' in a && 'array' in b) {
-    const items = b.items === undefined ? a.items : mergeShapes(a.items, b.items);
-    return items === undefined ? { array: Math.max(a.array, b.array) } : { array: Math.max(a.array, b.array), items };
-  }
-  return 'mixed';
-}
-
-function sampleShape(values: unknown[], depth: number): Shape | undefined {
-  let merged: Shape | undefined;
-  for (const value of values.slice(0, SAMPLE_ITEMS)) merged = mergeShapes(merged, describeShape(value, depth + 1));
-  return merged;
-}
-
-/** Structure of a decoded JSON value with every value and data-shaped key removed. */
-export function describeShape(value: unknown, depth = 0): Shape {
-  if (value === null) return 'null';
-  if (Array.isArray(value)) {
-    if (depth >= MAX_DEPTH) return { array: value.length };
-    const items = sampleShape(value, depth);
-    return items === undefined ? { array: value.length } : { array: value.length, items };
-  }
-  if (typeof value === 'object') {
-    const entries = Object.entries(value as Record<string, unknown>);
-    if (depth >= MAX_DEPTH) return 'object';
-    if (entries.length > DICTIONARY_KEYS) {
-      const values = sampleShape(entries.map(([, v]) => v), depth);
-      return values === undefined ? { dictionary: entries.length } : { dictionary: entries.length, values };
-    }
-    const object: Record<string, Shape> = {};
-    let redactedKeys = 0;
-    for (const [key, child] of entries) {
-      if (FIELD_NAME.test(key)) object[key] = describeShape(child, depth + 1);
-      else redactedKeys += 1;
-    }
-    return redactedKeys ? { object, redactedKeys } : { object };
-  }
-  return typeof value;
-}
+const BODY_DEADLINE_MS = 30000;
 
 export interface ProbeOptions {
   base: string;
@@ -112,8 +53,29 @@ export interface ProbeOptions {
   dryRun: boolean;
   fetch: (url: string, init: RequestInit) => Promise<Response>;
   write: (line: string) => void;
+  /** Defaults to PROBE_PLAN; the request cap applies to any plan. */
+  plan?: readonly ProbeRequest[];
 }
 type Line = Record<string, unknown>;
+
+/** Command-line arguments. Never echoes an argument: a mistyped flag may carry the cookie. */
+export function parseProbeArgs(args: readonly string[]): { dryRun: boolean; base: string } {
+  let dryRun = false;
+  let base = DEFAULT_SAGE_BASE;
+  for (let index = 0; index < args.length; index++) {
+    const arg = args[index];
+    if (arg === '--dry-run') dryRun = true;
+    else if (arg === '--base' && args[index + 1] !== undefined) base = args[++index]!;
+    else throw new Error('Unknown or incomplete argument; the only flags are --dry-run and --base <url>, and the cookie is read from SAGE_COOKIE');
+  }
+  let url: URL;
+  try { url = new URL(base); } catch { throw new Error('--base must be a URL'); }
+  // Origin only: a path, query or fragment in --base would steer the plan's requests to other endpoints.
+  if (url.pathname.replace(/\/+$/, '') !== '' || url.search || url.hash || url.username || url.password) {
+    throw new Error('--base must be a bare Sage origin, e.g. https://accounting.sageone.co.za');
+  }
+  return { dryRun, base: url.origin };
+}
 
 function firstRecordId(body: unknown): string | null {
   const results = (body as { Results?: unknown } | null)?.Results;
@@ -126,48 +88,75 @@ function mediaType(header: string | null): string | null {
   return /^[a-z]+\/[a-z0-9.+-]{1,64}$/.test(type) ? type : null;
 }
 
+/** Reads at most MAX_BODY_BYTES within a deadline; safeFetch's own timeout ends at the headers. */
+async function readBounded(response: Response): Promise<{ text: string; bytes: number } | 'too_large' | 'timeout'> {
+  const declared = Number(response.headers.get('content-length'));
+  if (Number.isFinite(declared) && declared > MAX_BODY_BYTES) { await response.body?.cancel(); return 'too_large'; }
+  if (!response.body) return { text: '', bytes: 0 };
+  const reader = response.body.getReader();
+  const chunks: Uint8Array[] = [];
+  let bytes = 0;
+  const deadline = Date.now() + BODY_DEADLINE_MS;
+  for (;;) {
+    const remaining = deadline - Date.now();
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    const next = await Promise.race([
+      reader.read(),
+      new Promise<'timeout'>(resolve => { timer = setTimeout(() => resolve('timeout'), Math.max(remaining, 0)); }),
+    ]).finally(() => clearTimeout(timer));
+    if (next === 'timeout') { await reader.cancel(); return 'timeout'; }
+    if (next.done) break;
+    bytes += next.value.byteLength;
+    if (bytes > MAX_BODY_BYTES) { await reader.cancel(); return 'too_large'; }
+    chunks.push(next.value);
+  }
+  return { text: Buffer.concat(chunks).toString('utf8'), bytes };
+}
+
 async function probeOne(options: ProbeOptions, request: ProbeRequest, url: string): Promise<{ line: Line; body: unknown; stop: boolean }> {
   const line: Line = { endpoint: request.pathTemplate, method: request.method, label: request.label };
-  let response: Response;
   try {
-    response = await options.fetch(url, {
+    const response = await options.fetch(url, {
       method: request.method,
       headers: buildSageHeaders(options.cookie),
       ...(request.method === 'POST' ? { body: JSON.stringify(ONE_RECORD) } : {}),
     });
+    line.status = response.status;
+    line.contentType = mediaType(response.headers.get('content-type'));
+    // Sage answers an expired or wrong session with a redirect, 401/403, or a 200 HTML login page.
+    if (response.status === 401 || response.status === 403 || (response.status >= 300 && response.status < 400)) {
+      await response.body?.cancel();
+      return { line: { ...line, result: 'session_rejected' }, body: null, stop: true };
+    }
+    const read = await readBounded(response);
+    if (read === 'too_large') return { line: { ...line, result: 'body_too_large' }, body: null, stop: false };
+    if (read === 'timeout') return { line: { ...line, result: 'body_timeout' }, body: null, stop: false };
+    line.bytes = read.bytes;
+    if (/^\s*</.test(read.text)) return { line: { ...line, result: 'session_rejected', bodyKind: 'html' }, body: null, stop: true };
+    if (!read.text.trim()) return { line: { ...line, bodyKind: 'empty' }, body: null, stop: false };
+    let body: unknown;
+    try { body = JSON.parse(read.text); } catch { return { line: { ...line, bodyKind: 'non-json' }, body: null, stop: false }; }
+    // A failing status's JSON is shape-only too: Sage error bodies can quote the request.
+    return { line: { ...line, bodyKind: 'json', shape: describeShape(body) }, body: response.ok ? body : null, stop: false };
   } catch (error) {
     // The message can carry the URL (and so a captured id); only the class is safe.
     return { line: { ...line, result: 'network_error', errorType: error instanceof Error ? error.name : 'unknown' }, body: null, stop: false };
   }
-  line.status = response.status;
-  line.contentType = mediaType(response.headers.get('content-type'));
-  // Sage answers an expired or wrong session with a redirect, 401/403, or a 200 HTML login page.
-  if (response.status === 401 || response.status === 403 || (response.status >= 300 && response.status < 400)) {
-    return { line: { ...line, result: 'session_rejected' }, body: null, stop: true };
-  }
-  const text = await response.text();
-  line.bytes = Buffer.byteLength(text);
-  if (line.bytes as number > MAX_BODY_BYTES) return { line: { ...line, result: 'body_too_large' }, body: null, stop: false };
-  if (/^\s*</.test(text)) return { line: { ...line, result: 'session_rejected', bodyKind: 'html' }, body: null, stop: true };
-  if (!text.trim()) return { line: { ...line, bodyKind: 'empty' }, body: null, stop: false };
-  let body: unknown;
-  try { body = JSON.parse(text); } catch { return { line: { ...line, bodyKind: 'non-json' }, body: null, stop: false }; }
-  // A failing status's JSON is shape-only too: Sage error bodies can quote the request.
-  return { line: { ...line, bodyKind: 'json', shape: describeShape(body) }, body: response.ok ? body : null, stop: false };
 }
 
-/** Runs the fixed plan once: no retries, dependent requests skipped without an id, hard request cap. */
+/** Runs the plan once: no retries, dependent requests skipped without an id, hard request cap. */
 export async function runAllocationProbe(options: ProbeOptions): Promise<{ requests: number }> {
   const base = options.base.replace(/\/+$/, '');
+  const plan = options.plan ?? PROBE_PLAN;
   if (options.dryRun) {
     options.write(JSON.stringify({ dryRun: true, requestCap: PROBE_REQUEST_CAP, listBody: ONE_RECORD }));
-    PROBE_PLAN.slice(0, PROBE_REQUEST_CAP).forEach((request, index) =>
+    plan.slice(0, PROBE_REQUEST_CAP).forEach((request, index) =>
       options.write(JSON.stringify({ step: index + 1, method: request.method, endpoint: request.pathTemplate, label: request.label, ...(request.needs ? { needs: request.needs } : {}) })));
     return { requests: 0 };
   }
   const ids = new Map<IdSlot, string>();
   let requests = 0;
-  for (const [index, request] of PROBE_PLAN.entries()) {
+  for (const [index, request] of plan.entries()) {
     const step = index + 1;
     if (requests >= PROBE_REQUEST_CAP) { options.write(JSON.stringify({ step, result: 'request_cap_reached' })); break; }
     let path = request.pathTemplate;
