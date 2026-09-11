@@ -1,6 +1,5 @@
 [Unit]
 Description=Nightly trigger for IsaFlow AR views materialised view refresh
-Requires=isaflow-ar-matview-refresh.service
 
 [Timer]
 # Every night at 02:00 SAST — before fraud-scan (02:30) so view-count
