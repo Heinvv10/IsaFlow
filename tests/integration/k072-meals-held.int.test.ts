@@ -150,6 +150,18 @@ it('the other direction: a non-meals slip still auto-posts claiming its VAT', as
   expect(await viaRoute(await seed('Brits Steel', 'Flat bar'))).toMatchObject({ status: 'posted', vat: 130.43 });
 });
 
+// r38 LOW-2: the approve tools read the person's correction too — from a NON-meals supplier, so only the correction decides.
+it.each([['W1MPY LINDEN', 'Wimpy Linden'], [null, 'Mugg & Bean Rosebank']])(
+  'a bill extracted `%s`, corrected to `%s`, from Brits Steel: both approve tools refuse it', async (extracted, confirmed) => {
+    const id = await bill(await seed(extracted, 'Meal', 'invoice', confirmed), A.steel);
+    const single = await tool(() => approveSupplierInvoiceTool.handler({ invoice_id: id, idempotency_key: crypto.randomUUID() }, ctx));
+    expect(single.content[0]!.text).toMatch(HELD);
+    const bulk = await tool(() => bulkApproveSupplierInvoicesTool.handler({ invoice_ids: [id], idempotency_key: crypto.randomUUID() }, ctx));
+    expect(bulk.content[0]!.text).toMatch(HELD);
+    expect((await pool.query('SELECT status, gl_journal_entry_id FROM supplier_invoices WHERE id=$1', [id])).rows[0])
+      .toEqual({ status: 'draft', gl_journal_entry_id: null });
+  });
+
 it('the approve tools refuse a captured restaurant bill that claims VAT; a non-meals bill approves', async () => {
   const spurBill = await bill(await seed('Spur Steak Ranches Rosebank', 'Catering', 'invoice'), A.spur);
   const single = await tool(() => approveSupplierInvoiceTool.handler({ invoice_id: spurBill, idempotency_key: crypto.randomUUID() }, ctx));
