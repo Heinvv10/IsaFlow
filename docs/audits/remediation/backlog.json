@@ -2568,7 +2568,7 @@
       "severityRationale": "Source priority only; impact and reachability not yet validated.",
       "auditedSha": "5661d6f0f5f2212705151e95455a3f681ddf840e",
       "currentSha": "31fc2f10",
-      "status": "in-progress",
+      "status": "fixed",
       "dependencies": [],
       "testNames": [
         "tests/unit/services/k072-receipt-entertainment-vat.test.ts"
@@ -2577,8 +2577,8 @@
         "K-072/red.log",
         "K-072/validation.md"
       ],
-      "fixCommit": "4b2854b0",
-      "pr": null,
+      "fixCommit": "0840598be",
+      "pr": "426",
       "deployedSha": null,
       "historicalDataImpact": "Not assessed",
       "canonicalItem": null,
@@ -2665,7 +2665,7 @@
       "severityRationale": "Source priority only; impact and reachability not yet validated.",
       "auditedSha": "5661d6f0f5f2212705151e95455a3f681ddf840e",
       "currentSha": "31fc2f10",
-      "status": "in-progress",
+      "status": "fixed",
       "dependencies": [],
       "testNames": [
         "tests/unit/services/k075-ocr-comma-decimal.test.ts"
@@ -2674,8 +2674,8 @@
         "K-075/red.log",
         "K-075/validation.md"
       ],
-      "fixCommit": "4b2854b0",
-      "pr": null,
+      "fixCommit": "0840598be",
+      "pr": "426",
       "deployedSha": null,
       "historicalDataImpact": "Not assessed",
       "canonicalItem": null,
@@ -2697,7 +2697,7 @@
       "severityRationale": "Source priority only; impact and reachability not yet validated.",
       "auditedSha": "5661d6f0f5f2212705151e95455a3f681ddf840e",
       "currentSha": "31fc2f10",
-      "status": "in-progress",
+      "status": "fixed",
       "dependencies": [],
       "testNames": [
         "tests/unit/services/k076-ocr-label-boundaries.test.ts"
@@ -2707,8 +2707,8 @@
         "K-076/validation.md",
         "K-076/vat-label-probe.txt"
       ],
-      "fixCommit": "4b2854b0",
-      "pr": null,
+      "fixCommit": "0840598be",
+      "pr": "426",
       "deployedSha": null,
       "historicalDataImpact": "ASSESSED 2026-09-10 by tracing origin/master; NOT measured against production data. Production CAN auto-post a wrong receipt total and credit the bank short. Verified chain on master: (1) capture routes a PDF through `ocrService.extractFromPdf`, which tries the VLM first and falls back to the regex `extractFromText` when the VLM is unavailable, returns nothing, or throws, and the PDF has text (ocrService.ts:52-75). Image receipts are VLM-only and are NOT exposed. (2) the regex `extractAmounts` takes the first matching pattern at its LEFTMOST occurrence (ocrExtractionService.ts:161-162), so a multi-section receipt can yield an intermediate section total. (3) `computeConfidence` (ocrExtractionService.ts:237) scores up to 1.00 and awards +0.25 for ANY total > 0 — it rewards the presence of a total, not its correctness; a receipt with vendor+date+total+VAT+lines scores 0.85. (4) there are TWO unattended auto-post paths on master, neither of which consults extraction warnings: `capture/[id]/post-expense.ts:243` (`shouldAutoPostReceipt(total, confidence, {maxAmount: 5000, minConfidence: 0.80})`) and `receipt-to-journal.ts:88` (same gate at minConfidence 0.85). EXPOSED POPULATION: PDF receipts under R5 000, auto-posted, on occasions the VLM failed or was unavailable. UNKNOWN and needs Hein: how often the VLM fails in production, and therefore how many such receipts exist. CREDIT NOTES — VERIFIED 2026-09-10: `detectDocumentType` classifies them as `credit_note` (ocrExtractionService.ts:24), but NEITHER auto-post path consults `documentType` — confirmed by the absence of any `documentType`/`credit_note` reference in post-expense.ts, receipt-to-journal.ts and receiptToJournalService.ts on master. So a credit note printed with positive figures (`Total - 115.00`, `115.00-`, `-R115.00`) auto-posts as a PURCHASE — EXP 100 / VAT 15 / bank CREDIT 115 — reversing the direction of the posting. The '+115 read' half is the K-072 r8 reviewer's measurement; the 'nothing consults the type' half is verified here. Do not query production from an agent; impact SQL belongs in fix.md.",
       "canonicalItem": null,
@@ -11577,7 +11577,7 @@
       "severityRationale": "MEASURED (K-072 round-34 blind review, fixture DB): a Spurway Steel slip read by the VLM AUTO-POSTS through receipt-to-journal, unattended, as Dr 5600 Administrative Expenses 1000 / Cr bank 1000, losing its R130.43 input VAT. This branch introduced the fold (K-072 commit 44d6a34e1); master claims the VAT. It is therefore a regression inside the unmerged K-072 branch, not a master defect.",
       "auditedSha": "",
       "currentSha": "",
-      "status": "confirmed",
+      "status": "fixed",
       "dependencies": [
         "K-072"
       ],
@@ -11585,8 +11585,8 @@
       "evidencePaths": [
         "docs/audits/remediation/K-072/fix.md"
       ],
-      "fixCommit": null,
-      "pr": null,
+      "fixCommit": "0840598be",
+      "pr": "426",
       "deployedSha": null,
       "historicalDataImpact": "Unknown; production not measured. Count captured receipts coded to entertainment whose vendor name matched a meals pattern only as a substring of a longer word.",
       "canonicalItem": null,
