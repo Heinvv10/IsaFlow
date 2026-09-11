@@ -129,11 +129,19 @@ describe('Expense Journal Building', () => {
     expect(totalDr).toBeCloseTo(totalCr, 2);
   });
 
-  it('calculates VAT from total when vatAmount is null', () => {
+  // K-072 r31 REVERSED this: it derived 445 / 1.15 × 0.15 = 58.04 of input VAT
+  // the receipt never showed. No VAT read is no VAT claimed.
+  it('claims NO VAT when vatAmount is null: the expense takes the gross, flagged', () => {
     const j = buildExpenseJournalFromReceipt(makeReceipt({ vatAmount: null, subtotal: null }), { expenseAccountId: 'gl-5100', vatInputAccountId: 'gl-1140', bankAccountId: 'gl-1110' });
-    const drVat = j.lines.find(l => l.accountId === 'gl-1140');
-    // 445 / 1.15 * 0.15 = 58.04
-    expect(drVat!.debit).toBeCloseTo(58.04, 0);
+    expect(j.lines.find(l => l.accountId === 'gl-1140')!.debit).toBe(0);
+    expect(j.lines.find(l => l.accountId === 'gl-5100')).toMatchObject({ debit: 445, vatType: 'no_vat' });
+    expect(j.description).toMatch(/VAT not read from the document, none claimed$/);
+  });
+
+  it('a VAT that WAS read with no net keeps the VAT, and the net is the rest of the total', () => {
+    const j = buildExpenseJournalFromReceipt(makeReceipt({ vatAmount: 58.04, subtotal: null }), { expenseAccountId: 'gl-5100', vatInputAccountId: 'gl-1140', bankAccountId: 'gl-1110' });
+    expect(j.lines.find(l => l.accountId === 'gl-1140')!.debit).toBe(58.04);
+    expect(j.lines.find(l => l.accountId === 'gl-5100')!.debit).toBe(386.96);
   });
 });
 

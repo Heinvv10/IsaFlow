@@ -187,9 +187,10 @@ describe('K-072 entertainment input VAT reaches the ledger denied', () => {
   });
 
   it('denies the claim on a meals receipt whose VAT was DERIVED, not extracted', async () => {
-    // subtotal and vatAmount are null, so the builder computes 400 + 60 from
-    // the 460 total. The denial must key off the receipt type, not off whether
-    // a VAT figure was extracted.
+    // subtotal and vatAmount are null. Since K-072 r31 the builder claims no
+    // VAT at all when none was read (it used to derive 400 + 60 from the 460),
+    // so the meals account carries the gross either way — and the denial still
+    // keys off the receipt type, not off whether a VAT figure was extracted.
     const result = await post(derivedDoc, token, company);
     expect(result.state.statusCode).toBe(200);
 

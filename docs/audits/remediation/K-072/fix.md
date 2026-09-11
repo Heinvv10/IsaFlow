@@ -2526,3 +2526,64 @@ H1 the builder invents a VAT again (also RED in the integration file, 2 tests) �
 H7 no `before VAT` · H8 no `nett of VAT` · H9 `incl` on the total's line ignored · H10 a rate legend read as the VAT ·
 H11 single MCP approve ignores unread VAT (RED in unit and integration) · H12 bulk MCP approve ignores it (RED in unit
 and integration) · H13 the Afrikaans/abbreviated forms gone.
+
+---
+
+## Round 31 — every capture path, censused by pattern and by consumer: no VAT read, no VAT claimed
+
+Review: `review-k072-r30.md` (0H/1M/3L, no regression). Round 30 walked only `buildInvoiceFromExtraction`'s two
+callers — census failure mode 6 (a site that re-implements the rule is not a caller). This round censuses twice.
+
+### Census 1 — BY PATTERN: every place in `src/` and `pages/` that derives a VAT from a total
+
+`grep` for `15/115`, `/ 1.15`, `* 1.15`, `0.1304`, `* 15 / 115`, `/ 115`, `(100 + RATE)`, `/ (1 + rate/100)` and
+`vatFromInclusive`/`inclusiveVat`:
+
+| Site | What it derives | Reachable from capture? | Disposition |
+|---|---|---|---|
+| `aiInvoicePipelineService.buildInvoiceFromExtraction` | supplier-invoice `taxAmount` = 15/115 × total when VAT null | yes — `capture/[id]/post`, `ai-invoice-pipeline` | fixed r30 (0, 0%, note) |
+| `receiptToJournalService.buildExpenseJournalFromReceipt:158` | VAT Input leg = total − total/1.15 when VAT **or the net** null | yes — `receipt-to-journal`, `pettyCashJournalService` (post-expense, anonymous) | **fixed r31** |
+| `capture/[id]/post-expense.ts:165` (employee branch) | claim-line `vatAmount` = total/1.15 × 0.15 | yes | **fixed r31** |
+| `provisionalPostingService.ts:231` | net/VAT from a bank line's guarded vat code | no — a bank transaction, `sourceDocumentId` undefined, the code resolved through `resolveRuleVatCode` | out of scope: the derivation IS what a standard-coded bank line means |
+| `bankRuleAutoPostLine.ts:138`, `bankAllocationService.ts:186/590` | net/VAT from a rule's or a user's vat code | no — bank rules and allocations | out of scope, same reason (guarded / attended) |
+| `sageSupplierInvoiceImportService.ts:67`, `sageCustomerImportService.ts:53` | `subtotal = total / 1.15` when the Sage row has none | no — Sage migration import | out of scope; **flagged**: an imported Sage bill with no subtotal gets a derived VAT the same way — a separate item for the lead |
+| `ar/disputeResolution.ts:119` | credit-note net from gross at the invoice's own rate | no — AR output VAT, rate from the invoice | correct derivation |
+| `customer-quotes/index.tsx:104`, `customer-sales-orders/index.tsx:108` | `subtotal × 1.15` for display | no — display only | none |
+
+### Census 2 — BY CONSUMER: every writer of a VAT Input line or an input-VAT tax amount reachable from capture
+
+Walked from the captured document outward (every file reading `extracted_data`/`ExtractedDocument`, then every
+writer of `supplier_invoices.tax_amount`, `expense_claim_lines.vat_amount` or a `vat_input` journal line, then every
+poster of what they write):
+
+| Writer (from capture) | Writes | Posted by | Disposition |
+|---|---|---|---|
+| `capture/[id]/post`, `ai-invoice-pipeline` | `supplier_invoices.tax_amount` | `approveSupplierInvoice`: 2 attended routes, recurring (own drafts), **MCP `approve_supplier_invoice` / `bulk_approve_supplier_invoices`** | r30: 0 + note; MCP refuses unread capture |
+| `receipt-to-journal` | draft/posted journal, VAT Input leg | auto-post (gate refuses null VAT), attended `journal-entries-action`, **MCP `post_journal`** | **r31**: no VAT leg + flag; **MCP `post_journal` refuses** a draft whose captured document's VAT was never read |
+| `post-expense` anonymous → `pettyCashJournalService` | the same draft journal | the same | **r31**, same |
+| `post-expense` employee → `expenseClaimService.createClaim` | `expense_claim_lines.vat_amount` / `vat_code` | `postClaim` via `expense-claims/[id]/post` (a person approves) — no MCP expense-claim tool exists | **r31**: VAT 0, code `none`, the line says so; the approver can enter it (`expense-claims/[id]/lines/[lineId]` PUT takes `vatAmount`) |
+| `doc-auto-invoice` | nothing — returns proposed invoice data; `Number(vatAmount \|\| 0)` invents nothing | — | none |
+| `document-capture-action` (confirm) | `captured_documents.vat_amount` (person-entered) | no posting route reads that column | none (fails closed, per the r30 review) |
+| `multiDocMatch*`, `bank-tx-attachments`, `captureBankTxAttachService`, `evidenceAttachmentService`, `fourWayMatchService`, inbound email / WhatsApp | no tax amount, no journal | — | none |
+| Other posters of an existing draft journal | `journal-entries-action` (attended), `closeRunService` (its own proposals) | — | none |
+
+| Finding | Disposition |
+|---|---|
+| MEDIUM-1 the receipt builder and the employee claim line invented VAT; MCP `post_journal` posted it | FIXED as above. `buildExpenseJournalFromReceipt`: a VAT that was read is kept (a missing net is now total − VAT, instead of re-deriving BOTH); no VAT read → VAT 0, the gross on the expense, `vatType 'no_vat'`, description suffix `— VAT not read from the document, none claimed`, and the route warning says no VAT is claimed. `post_journal` refuses via `journalHasUnreadCapturedVat`, read off the captured document as round 30's invoice check is, so a legacy draft carrying 130.43 is refused too. **Proved on the DB** (`k072-receipt-vat-unread.int.test.ts`, 5 tests): both journal paths write no VAT leg; `post_journal` refuses them, a legacy draft with a 130.43 VAT Input line, and a document with no `vatAmount` key — each stays `draft`; the employee claim line is VAT 0 / `none` / flagged; the other direction, a read VAT, keeps it and posts through `post_journal`. `k072-receipt-entertainment-vat` still holds (a denied meals slip is gross on the expense either way; its comment updated). The allowlist reason for `supplierInvoiceWorkflowService` now says r30–r31. |
+| LOW-1 a legend or a `0%` term anywhere voided the exemption (16 of 18 honest slips) | FIXED: the not-standard-rated marker counts only on an ITEM line ABOVE the total that prints an amount. ae-legend 1 → 17 of 18 unattended (the 18th, `Geen BTW op uitbetalings`, reads as a refund at every SHA). A marked priced item line (`Bread (Z) 150.00`) still voids it, and a `Zero Rated 0.00` recap BELOW the total does not (both pinned). |
+| LOW-2 an unmarked pre-tax total inside the 5-cent window posts | **DISCLOSED RESIDUAL, kept as the lead decided.** Measured: 6 of the reviewer's 15 `ae-nomark` rows post (R1 150.30 against R1 300.30; R920.24 against R1 040.24), identical at `38a6a6b17` and `eb7f54a5f`, stored and nulled; the other 9 fall outside the window and refuse. **Rate:** it needs a pre-tax mixed-rate invoice with NO grand total printed AND a no-VAT share that lands the VAT within ±5 cents of total × 15/115 — a window of about ±R0.33 of standard-rated value, so roughly 0.67/T of such invoices (under 0.1% at R1 000). **Why kept:** nothing in the text separates it from an honest inclusive document, and dropping the exemption refuses ordinary unpaid slips that print `Total / VAT` below (`TOTAL 147.40 / VAT 19.23`). Pinned as OPEN in `k076-round31-policy.test.ts`, so any change to it is seen. |
+| LOW-3 "absent `vatAmount`" unpinned | PINNED on the DB for both helpers: a captured document with no `vatAmount` key is refused by `approve_supplier_invoice` (`k072-capture-vat-unread`) and by `post_journal` (`k072-receipt-vat-unread`). The reviewer's mutant (drop the `COALESCE`) is RED in each. |
+
+### Re-measured — head vs `eb7f54a5f`, 5 852 rows (stored ≡ subtotal-null, row for row)
+
+unattended / WRONG **859 / 53 → 875 / 53**: 16 newly correct (ae-legend), **0 newly refused, 0 newly wrong**. The 53
+WRONG are the 47 accepted classes and the 6 disclosed ae-nomark residual rows. The receipt and claim changes do not
+show in this harness (it scores the posting gate, not the draft's VAT); they are proved in the integration files.
+
+### Mutations — 4 unit + 5 integration, all RED
+
+K1 the receipt builder derives VAT again (3) · K2 an unread receipt keeps the `standard` vat type (2) · K3 legend
+lines void the exemption (1) · K4 the whole document scanned for markers (1 — GREEN until the below-the-total `Zero
+Rated 0.00` recap was pinned) · I1 the receipt builder derives again (integration, 2) · I2 the employee claim derives
+again (1) · I3 `post_journal` ignores unread VAT (3) · I4 the journal check treats an absent key as read (1) · I5 the
+invoice check treats an absent key as read (1).

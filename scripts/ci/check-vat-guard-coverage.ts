@@ -67,9 +67,10 @@ const ALLOWED: Record<string, AllowedEntry> = {
     + 'stored header `taxAmount`, not per line, so the screen warns on the '
     + 'creation path (where the header is the sum of the lines) and does not '
     + 'verify what approval ultimately posts on an invoice captured elsewhere. '
-    + 'Since K-072 r30 the capture routes predict no VAT (a draft whose VAT was '
-    + 'not read carries 0 and a note saying so), and the MCP approve tools refuse '
-    + 'a captured draft whose VAT was never read — those are not attended.',
+    + 'Since K-072 r30-r31 no capture path predicts a VAT (a bill, receipt journal '
+    + 'or claim line whose VAT was not read carries 0 and says so), and the MCP '
+    + 'approve and post_journal tools refuse a captured draft whose VAT was never '
+    + 'read — those are not attended.',
   },
   'src/modules/accounting/services/expense/expenseClaimService.ts': {
     kinds: ['vat_field_on_a_posting_path'],
