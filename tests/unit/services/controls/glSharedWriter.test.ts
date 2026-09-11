@@ -36,8 +36,8 @@ function material(overrides:Record<string,unknown>={}) {
 }
 it.each([
   {targetPeriod:{status:'closed'}}, {accounts:[{is_active:false,account_code:'TEST',account_name:'Inactive'}]},
-  {company:{lockdown_enabled:true,lockdown_date:'2026-09-09'}}, {header:{status:'posted'}},
-])('keeps period, inactive-account, lockdown and status refusals before posting SQL',async state=>{
+  {company:{lockdown_enabled:true,lockdown_date:'2026-09-09'}}, {company:{lockdown_enabled:true,lockdown_date:null}}, {header:{status:'posted'}},
+])('keeps period, inactive-account, lockdown (dated, and enabled with no date) and status refusals before posting SQL',async state=>{
   const ctx={principal:{companyId:'company',personId:'person'},sql:mocks.sql};mocks.require.mockReturnValue(ctx);
   mocks.execute.mockImplementation(async (_ctx,_ref,_approval,effect)=>effect({}));mocks.material.mockResolvedValue(material(state));
   await expect(postJournalEntry('company',id,'person')).rejects.toThrow();expect(writes()).toHaveLength(0);

@@ -4,7 +4,7 @@
  * transfer post into a locked-down company, and nothing else tested it.
  */
 import { describe, expect, it } from 'vitest';
-import { postingPeriodBlock } from '@/modules/accounting/services/gl/postingPeriodGuard';
+import { lockdownBlock, postingPeriodBlock } from '@/modules/accounting/services/gl/postingPeriodGuard';
 
 const open = 'open', unlocked = { lockdown_enabled: false, lockdown_date: null };
 
@@ -37,5 +37,25 @@ describe('postingPeriodBlock', () => {
 
   it('ignores a lockdown date while lockdown is disabled', () => {
     expect(postingPeriodBlock(open, { lockdown_enabled: false, lockdown_date: '2026-09-15' }, '2026-09-01')).toBeNull();
+  });
+});
+
+describe('lockdownBlock (the one lockdown rule every writer shares)', () => {
+  const dated = { lockdown_enabled: true, lockdown_date: '2026-09-15' };
+  it('blocks a date on or before the lockdown date and allows the day after', () => {
+    expect(lockdownBlock(dated, '2026-09-15')).toEqual({ kind: 'lockdown', lockdownDate: '2026-09-15' });
+    expect(lockdownBlock(dated, '2026-09-14')).toEqual({ kind: 'lockdown', lockdownDate: '2026-09-15' });
+    expect(lockdownBlock(dated, '2026-09-16')).toBeNull();
+  });
+  it('blocks every date when lockdown is enabled with no date', () => {
+    expect(lockdownBlock({ lockdown_enabled: true, lockdown_date: null }, '2099-12-31')).toEqual({ kind: 'lockdown', lockdownDate: null });
+    expect(lockdownBlock({ lockdown_enabled: true }, '1900-01-01')).toEqual({ kind: 'lockdown', lockdownDate: null });
+  });
+  it('blocks nothing when lockdown is off, whatever the stored date says', () => {
+    expect(lockdownBlock({ lockdown_enabled: false, lockdown_date: '2026-09-15' }, '2020-01-01')).toBeNull();
+    expect(lockdownBlock({ lockdown_enabled: null, lockdown_date: null }, '2020-01-01')).toBeNull();
+  });
+  it('is the rule postingPeriodBlock applies once the period is open', () => {
+    expect(postingPeriodBlock('closed', dated, '2026-09-01', true)).toEqual(lockdownBlock(dated, '2026-09-01'));
   });
 });

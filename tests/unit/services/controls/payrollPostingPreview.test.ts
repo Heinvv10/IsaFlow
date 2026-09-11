@@ -28,3 +28,16 @@ it('reports execution blockers without pretending a verified calculation can pos
   const material=await mock.material();material.observedSources[0].facts.targetPeriod.status='closed';
   const result=await getPayrollPostingPreview(ctx,'run');expect(result.blockers).toContain('Fiscal period is not open');
 });
+
+const lockedPreview=async(lockdown_date:string|null,accountingDate:string)=>{
+  const material=await mock.material();material.observedSources[0].facts.company={lockdown_enabled:true,lockdown_date};material.binding.accountingDate=accountingDate;
+  return (await getPayrollPostingPreview(ctx,'run')).blockers;
+};
+it('blocks a run dated on or before a dated lockdown and clears the day after (shared lockdownBlock rule)',async()=>{
+  expect(await lockedPreview('2026-09-30','2026-09-30')).toContain('Company accounting date is locked');
+  expect(await lockedPreview('2026-09-30','2026-09-29')).toContain('Company accounting date is locked');
+  expect(await lockedPreview('2026-09-30','2026-10-01')).not.toContain('Company accounting date is locked');
+});
+it('blocks every run date when lockdown is enabled with no date',async()=>{
+  expect(await lockedPreview(null,'2099-12-31')).toContain('Company accounting date is locked');
+});
