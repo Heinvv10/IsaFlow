@@ -209,9 +209,45 @@ date, and that it needed no dual-spelling handling.
   R-059 fix.md round 6/7's own pattern (an UPDATE to `approved` and the
   document appears on every routed surface at the date it was always dated
   for; the as-at cutoff is untouched, only the status predicate moved).
-- `isaflow_dev` has 0 `pending_approval` invoices today (round-1 review's own
-  probe), so this changes no CURRENT production figure — it changes behaviour
-  the moment one exists.
+- **Production is unmeasured, corrected in round 3.** Round 2 said
+  "`isaflow_dev` has 0 pending-approval invoices today... so this changes no
+  CURRENT production figure". `isaflow_dev` is a dev database and its count
+  says nothing about production — that inference was wrong, and the round-3
+  review called it out. Nobody has run the query below against `isaflow`, and
+  this fix does not run it either (never connect to `isaflow`). It is here
+  for Hein to run:
+
+```sql
+-- Per company: how many pending-approval invoices/bills, and their total,
+-- would leave the ageing/subledger/statements once this fix ships.
+SELECT company_id, count(*) AS pending_approval_count,
+       sum(total_amount) AS pending_approval_total
+FROM customer_invoices
+WHERE status = 'pending_approval'
+GROUP BY company_id;
+
+SELECT company_id, count(*) AS pending_approval_count,
+       sum(total_amount) AS pending_approval_total
+FROM supplier_invoices
+WHERE status = 'pending_approval'
+GROUP BY company_id;
+
+-- The sharper question: a pending-approval row whose journal is POSTED. If
+-- any exist, they'd disappear from the subledger/statements while the GL
+-- control account still carries them — a reconciliation gap this fix would
+-- newly surface, not cause. Round 2's review found no app code that writes
+-- pending_approval WITH a journal (approval writes both together, on the
+-- fixture's code paths) — this SQL is what would falsify that on production.
+SELECT ci.id, ci.company_id, ci.total_amount, ci.gl_journal_entry_id
+FROM customer_invoices ci
+JOIN gl_journal_entries je ON je.id = ci.gl_journal_entry_id
+WHERE ci.status = 'pending_approval' AND je.status = 'posted';
+
+SELECT si.id, si.company_id, si.total_amount, si.gl_journal_entry_id
+FROM supplier_invoices si
+JOIN gl_journal_entries je ON je.id = si.gl_journal_entry_id
+WHERE si.status = 'pending_approval' AND je.status = 'posted';
+```
 - **Not changed**: `customerLedgerService`'s positive allowlist
   (`BILLABLE_INVOICE_STATUSES`) does not include `pending_approval` either,
   so it already agrees with the new rule by construction — no drift
@@ -270,7 +306,124 @@ reproduced. Restored, `cmp`-verified byte-identical.
 ## Round 2 — not done, stated
 
 - Everything named "not done" in round 1 remains not done.
-- The historical-impact SQL in round 1 is for draft invoices only; it was
-  not re-run for `pending_approval` (isaflow_dev has 0 today per the
-  round-1 review, so the count is 0 — not re-verified here, not run against
-  production).
+- The historical-impact SQL in round 1 is for draft invoices only; the
+  pending-approval impact SQL is added in round 3, corrected — see there.
+
+---
+
+# Round 3 — the review's four findings
+
+Blind review of `2ac13feef` (`<scratchpad>/review-r082-r2.md`): 0H/1M/3L.
+
+## MEDIUM-1: round 2's JS path had no test — FIXED
+
+The reviewer broke `documentInPopulation` alone (kept `pending_approval` in
+the population) and every gate stayed green — the full unit suite, all 48
+integration files. Measured effect: the emailed statement and both MCP
+tools showed a R333 pending-approval invoice at a balance of 2366; the
+screen, subledger and ageing stayed at 2033. A second mutation (`excluded.push`
+replaced with a bare `continue`) also stayed green — `excludedRows` went
+empty, undoing round 2's LOW-1 fix, visible only in the runtime
+`completenessFault`, which nothing tested.
+
+Two additions:
+
+1. **New file, `tests/integration/r082-documentpopulation-twin-parity.int.test.ts`**
+   (4 tests). Reads the LIVE status list off each table's own CHECK
+   constraint via `pg_get_constraintdef` — not hand-copied — plus NULL, and
+   for every value evaluates `documentInPopulationExpr` in real SQL (no table
+   needed: `FROM (SELECT $status::text AS status) AS ci`) against
+   `documentInPopulation` in JS, asserting agreement. `customer_invoices`: 8
+   statuses + NULL. `supplier_invoices`: 7 statuses + NULL. All agree; the
+   excluded set is exactly draft, pending_approval, cancelled.
+2. **`r082-statements-exclude-drafts.int.test.ts`** gains a fifth document, P
+   (pending_approval — 333 on the customer side, 222 on the supplier side),
+   and two new tests calling the real MCP tool handlers
+   (`customerStatementTool`, `supplierStatementTool`) directly. Every site
+   that classifies (fetchStatementData, fetchSupplierStatementData, both MCP
+   tools) now asserts P is absent from `rows`/`transactions` AND present in
+   `excludedRows`/`excluded` with reason `invoice_pending_approval` and the
+   right amount. The route-level tests (customer-statement,
+   customer-statement-detail) that filter in SQL add `-P` to their
+   suffix filter, so a leak there is caught by name, not only by the total.
+
+**Mutations, both restored and `cmp`-verified byte-identical:**
+
+| # | Mutation | Red |
+|---|---|---|
+| twin | `documentInPopulation` broken to `['draft','cancelled']` only (the reviewer's own mutation) | twin-parity 3 of 4; statements/MCP tests in r082 unaffected by this file alone (they read the SQL-filtered routes and the correctly-typed classifier import — see below) |
+| classify | `classifyStatementInvoice` short-circuited to always return `null` (equivalent to the reviewer's `excluded.push` → `continue`) | r082 statements 5 of 9 — every route/service/MCP test that checks P's presence in `excludedRows`, or that P's amount doesn't leak into a total, went red |
+
+(The twin mutation was run in isolation against `r082-documentpopulation-twin-parity`
+only, matching the reviewer's own probe; the `classifyStatementInvoice`
+mutation was run against the full `r082-statements-exclude-drafts` file,
+since that is the one shared function every classifying surface now calls.)
+
+## LOW-1: file size — FIXED
+
+`statementEmailService.ts` was 321 lines (298 before round 2's classification
+logic pushed it over). Extracted two pieces both statement builders had
+copy-pasted identically, into `shared/`:
+
+- `classifyStatementInvoice` (new file, `shared/statementInvoiceExclusion.ts`)
+  — the invoice/bill classification loop itself, which also fixes LOW-2
+  below in the same place instead of twice.
+- `creditNoteAppliedAmount` (new file, `shared/creditNoteAppliedAmount.ts`)
+  — the two files had byte-for-byte identical logic (comments differed only
+  in "customer"/"supplier" wording) for what a live credit note actually
+  applies.
+
+No behaviour change — both extractions are pure refactors, proved by the
+unchanged `r082-statements-exclude-drafts` assertions passing before and
+after. `statementEmailService.ts`: 321 → 286 lines.
+`supplierStatementService.ts`: 287 → 255 lines (was already under the cap,
+but sharing ONE classifier removes the second place the round-2 review's
+concern about drift could reappear).
+
+## LOW-2: the cancelled-document exclusion text was wrong — FIXED
+
+`statementEmailService.ts:160` / `supplierStatementService.ts:181` said "is
+'cancelled'; it is not yet issued..." for a cancelled document — false; a
+cancelled document WAS issued and then voided. Now each excluded status has
+its own sentence in `statementInvoiceExclusion.ts`'s `EXCLUSION_TEXT` map:
+draft and pending_approval both say "has not yet been issued"; cancelled
+says "was issued and then voided". Pinned in
+`r082-statements-exclude-drafts.int.test.ts`: both the email and supplier
+paths assert the cancelled row's `excluded[].detail` contains "voided" and
+does NOT contain "not yet issued".
+
+## LOW-3: fix.md's production-impact claim was wrong — CORRECTED
+
+Round 2 said "`isaflow_dev` has 0 pending-approval invoices... so this
+changes no CURRENT production figure". `isaflow_dev` is a dev database; its
+count says nothing about production, and that inference is exactly the kind
+of unmeasured claim the standing rules forbid. Corrected in place (see the
+round-2 section above) to state plainly that production is unmeasured, and
+three queries are added for Hein to run: per-company pending-approval count
+and total on both tables, plus the sharper question — a pending-approval
+row whose `gl_journal_entry_id` points at a `posted` journal, which would
+newly disappear from the subledger/statements while the GL control account
+still carries it. None of the three was run here (never connect to
+`isaflow`).
+
+## Round 3 gates
+
+- `env -u DATABASE_URL bun run ci`: **15/15 PASS**, unit 915 files / 13011
+  tests (40 files / 248 tests skipped), component 87 files / 547 tests,
+  `[ci] all checks passed`, `CI_EXIT=0`.
+- Fixture integration, `--no-file-parallelism`:
+  `r082-statements-exclude-drafts` (9 tests) +
+  `r082-documentpopulation-twin-parity` (4 tests) +
+  `r096-dunning-skips-unissued-invoices` + `r059-*` (14 files) + `k053-*`
+  (17 files) + `k091*` + `k093*` + `k122*` + `k125b-null-amount-paid-report-parity`
+  — **48 files / 287 tests passed.**
+
+## Round 3 — not done, stated
+
+- Everything named "not done" in rounds 1 and 2 remains not done.
+- The review's unscored notes (sites that spell the rule by hand and still
+  admit pending_approval — `debtorsManagerService.ts`, `portalService.getClientInvoices`,
+  `portal/invoice/[token].tsx`, `useCustomerInvoiceActions.ts`,
+  `supplierAutoAllocate.ts` vs `customerAutoAllocate.ts`'s asymmetry — and two
+  stale comments in `documentChecks.ts`/`arSubledgerService.ts`) are Hein's
+  scope decision, not fixed here.
