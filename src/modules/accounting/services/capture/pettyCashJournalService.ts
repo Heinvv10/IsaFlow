@@ -19,6 +19,7 @@ import { sql } from '@/lib/neon';
 import type { ExtractedDocument } from '@/modules/accounting/types/documentCapture.types';
 import {
   buildExpenseJournalFromReceipt,
+  mealsOnClaimingAccount,
   shouldAutoPostReceipt,
 } from '@/modules/accounting/services/bank/receiptToJournalService';
 import { getSystemAccountId } from '@/modules/accounting/services/gl/systemAccountResolver';
@@ -163,7 +164,9 @@ export async function postReceiptAsPettyCashJournal(
   );
 
   // Auto-post only an unambiguous receipt, under R5 000, at high confidence.
-  const autoPost = shouldAutoPostReceipt(extracted, { maxAmount: 5000, minConfidence: 0.80 });
+  // K-072 r35: a meals merchant on an account that does not deny input VAT goes to a person.
+  const autoPost = shouldAutoPostReceipt(extracted, { maxAmount: 5000, minConfidence: 0.80 })
+    && !mealsOnClaimingAccount(extracted, accountDenial.denied);
 
   let jeStatus = jeEntry.status;
   if (autoPost) {

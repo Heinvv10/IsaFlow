@@ -50,6 +50,10 @@ const receipt = (overrides?: Partial<ExtractedDocument>): ExtractedDocument => (
   ...overrides,
 });
 
+// K-072 r35: denial is the ACCOUNT's (`gl_accounts.vat_input_denied`, set by migration 521 on
+// entertainment accounts); the vendor name folds nothing. These cases book to such an account.
+const DENIED = { accountVatDenied: true };
+
 const accountIds = {
   expenseAccountId: 'gl-5600',
   vatInputAccountId: 'gl-1140',
@@ -62,13 +66,13 @@ describe('K-072 entertainment input VAT', () => {
   });
 
   it('does not debit VAT Input on an entertainment receipt', () => {
-    const journal = buildExpenseJournalFromReceipt(receipt(), accountIds);
+    const journal = buildExpenseJournalFromReceipt(receipt(), accountIds, DENIED);
     const vatLeg = journal.lines.find(l => l.accountId === accountIds.vatInputAccountId);
     expect(vatLeg?.debit ?? 0).toBe(0);
   });
 
   it('charges the full VAT-inclusive amount to the expense account', () => {
-    const journal = buildExpenseJournalFromReceipt(receipt(), accountIds);
+    const journal = buildExpenseJournalFromReceipt(receipt(), accountIds, DENIED);
     const expenseLeg = journal.lines.find(l => l.accountId === accountIds.expenseAccountId);
     expect(expenseLeg?.debit).toBe(1150);
   });
@@ -97,7 +101,7 @@ describe('K-072 adjacent cases', () => {
   });
 
   it('balances the denied entry, and the gross equals what left the bank', () => {
-    const journal = buildExpenseJournalFromReceipt(receipt(), accountIds);
+    const journal = buildExpenseJournalFromReceipt(receipt(), accountIds, DENIED);
     const debit = journal.lines.reduce((a, l) => a + l.debit, 0);
     const credit = journal.lines.reduce((a, l) => a + l.credit, 0);
     expect(debit).toBe(credit);
@@ -106,7 +110,7 @@ describe('K-072 adjacent cases', () => {
   });
 
   it('tags the denial as a classification, never as a standard-rated claim', () => {
-    const journal = buildExpenseJournalFromReceipt(receipt(), accountIds);
+    const journal = buildExpenseJournalFromReceipt(receipt(), accountIds, DENIED);
     expect(journal.lines.some(l => l.vatType === 'standard')).toBe(false);
     // Recorded, not merely absent: an undefined vat_type reads as "nobody
     // classified this line", which is a different fact from "s17(2)(a) took
@@ -125,7 +129,7 @@ describe('K-072 adjacent cases', () => {
   });
 
   it('reports the denial to the caller instead of only logging it', () => {
-    expect(buildExpenseJournalFromReceipt(receipt(), accountIds).inputVatDenied).toBe(true);
+    expect(buildExpenseJournalFromReceipt(receipt(), accountIds, DENIED).inputVatDenied).toBe(true);
     const office = receipt({ vendorName: 'Waltons Stationery' });
     expect(buildExpenseJournalFromReceipt(office, accountIds).inputVatDenied).toBe(false);
   });
@@ -153,12 +157,13 @@ describe('K-072 adjacent cases', () => {
     expect(flagged.lines.find(l => l.accountId === accountIds.expenseAccountId)?.debit).toBe(1150);
   });
 
-  it('keeps the merchant heuristic when the account carries no flag', () => {
-    // The two inputs are OR'd: an explicit false on the account must not
-    // resurrect the claim on a receipt the merchant map already denied.
+  it('K-072 r35: the vendor name folds nothing — a restaurant on an account that does not deny keeps its claim', () => {
+    // Round 22 OR'd the merchant heuristic with the account flag, and `spur`
+    // matched `Spurway Steel`. Denial is the account's alone; the routes keep a
+    // meals merchant on such an account from auto-posting (`mealsOnClaimingAccount`).
     const journal = buildExpenseJournalFromReceipt(receipt(), accountIds, { accountVatDenied: false });
-    expect(journal.inputVatDenied).toBe(true);
-    expect(journal.lines.find(l => l.accountId === accountIds.vatInputAccountId)?.debit).toBe(0);
+    expect(journal.inputVatDenied).toBe(false);
+    expect(journal.lines.find(l => l.accountId === accountIds.vatInputAccountId)?.debit).toBe(150);
   });
 
   it('leaves an unclassifiable merchant claiming its input tax', () => {

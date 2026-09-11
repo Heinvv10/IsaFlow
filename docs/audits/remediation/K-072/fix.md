@@ -2715,3 +2715,38 @@ counts anywhere, not only as a line (1) · N4 no Afrikaans declarations (3) · N
 denied fold (1) · J5 the fold on ANY denying debit (1) · J6 the fold without a denying account (1). The integration
 mutants ran on `k072-receipt-vat-unread` + `k072-journal-vat-evidence`, which pin the same `evidencedVat` and fold and
 never call `ai-invoice-pipeline`, so no 429 could be mistaken for a RED.
+
+---
+
+## Round 35 — only the supplier declares itself; the receipt builder folds by account, never by name
+
+Review: `review-k072-r34.md` (1H/1M/0L; the supplier-master claim, the cost numbers and the reader aids confirmed; 15 of
+15 mutations RED). Probes: `agents/rev-k072aj/`. `origin/master` merged first (`356d6cf22`, 7 systemd timer files; clean).
+
+| Finding | Disposition |
+|---|---|
+| HIGH-1 the phrases that ALLOW "none read = 0" matched mid-sentence: an item footnote on a page that charges a VAT the reader missed evidenced none. On the DB, nothing forced unread: `approve_supplier_invoice` approved Bosman `VAT INCL 391.30 … VAT is not applicable on the call-out fee` (OCR VAT No `4I23450000`) at Dr 6000 3450 / Cr 2000 3450, R391.30 short; bulk approve posted Brits Bouwerk `VAT included 300.00 / Non-VAT registered customers pay the full amount`; `post_journal` posted an Engen `VAT not applicable on fuel` slip | FIXED, the lead's decision. `evidencedVat` accepts ONE signal: the SUPPLIER's registration status as a line of its own (`DECLARATION`, anchored `^…$`, optional `We are` / `This supplier is` / `Ons is` subject, trailing full stop): `not (a) VAT registered (vendor/supplier/…)`, `not registered for VAT`, `non-VAT (registered) vendor/supplier/…`, `nie (vir) BTW-geregistreer nie`, `nie geregistreer vir BTW nie`. **Dropped:** `VAT (is) not applicable`, bare `No VAT`, `No VAT charged`, `Geen BTW` — they describe items, not the supplier. **And it fails closed on everything else:** any OTHER line that mentions tax (`TAX_MENTION`: the tax word dotted/spaced, OCR `VAl`/`V4T`, `tax…`, `belasting…`, `incl…`, `15%`/`15 persent`) refuses, and so does a VAT-number-shaped token anywhere — a leading 4 and 9–11 characters of digits or OCR confusables (`O o I l | S B`) with up to two spaces/slashes/dashes between them (`4I23450000`, `4123  450000`, `412345000`, `4123/450/000`). A customer statement (`Customer: not VAT registered`) is not a whole-line supplier declaration, and it is a tax mention besides. **Proved on the DB** (`k072-vat-declaration`, new, nothing forced unread): the reviewer's three shapes through `extractFromText` → `ai-invoice-pipeline` / a capture draft → the tool are refused and nothing posts; six footnote variants over a missed `VAT included 130.43` are refused by `approve_supplier_invoice`, `bulk_approve_supplier_invoices` and `post_journal`; the other direction, `We are not VAT registered.` on an otherwise tax-free page, is approved and posted claiming none. Unit grid in `k076-round35-policy`. **Cost re-measured:** the one harness row that evidences 0 (`Mama Thandi … Not VAT registered`, a line of its own) still does; nothing else changes. |
+| MEDIUM-1 (this branch's regression, `44d6a34e1`; R-091) the receipt BUILDER folded a read VAT into the expense because the vendor NAME matched a meals pattern (unanchored `spur`, `mr\s*d`), and `receipt-to-journal` auto-posted `Spurway Steel` as Dr 5600 1000 / Cr bank 1000 with its R130.43 of input VAT dropped | FIXED. `buildExpenseJournalFromReceipt` folds only on `accountVatDenied` — the `gl_accounts.vat_input_denied` marker the callers resolve for the account the receipt is coded to; the `parseReceiptType === 'meals'` OR is gone. `MERCHANT_PATTERNS` match whole words (`word()`; `KwikSpar`/`SuperSpar`, `Nando's`, `Uber Eats`, `Mr D Food`, plurals spelled out). **The strongest argument against dropping the name, and what answers it:** a restaurant coded to an account that does NOT deny would now CLAIM entertainment input VAT unattended. So both unattended callers (`receipt-to-journal`, `pettyCashJournalService`) withhold auto-post when `mealsOnClaimingAccount` — a whole-word meals merchant on a claiming account stays a draft with its VAT claimed, and a person decides. The name can block a post; it can never fold a VAT. **Proved on the DB** (`k072-receipt-entertainment-vat`): Spurway Steel auto-posts claiming R130.43 (VAT Input `standard`, the net on the default expense account); Spur booked to 5600 (flagged, as migration 521 flags every entertainment-named account — the fixture now says so) auto-posts with the VAT folded (`no_vat`); Wimpy on an unflagged 5600 is left a draft with its R130.43 claimed. |
+
+### Re-coding the capture corpus — every set, `parseReceiptType` + `mapMerchantToExpenseAccount`, head vs `f197e7481`
+
+**11 of 4 481 rows change code; no meals receipt is lost.** 8 are false `spar` groceries hits that now fall to the
+default account (`Sparks Electrical` ×3, `Sparkle Valet` ×2, `Sparky Electrical CC`, `Sparky Electrical`, `Sparkle
+Clean`); 1 is a false `rain` telecoms hit (`Drain Masters`); 2 are `Nando's` receipts the apostrophe used to hide, now
+meals / 5600.
+
+### Re-measured — head vs `f197e7481`, 4 481 rows (stored ≡ subtotal-null, row for row)
+
+unattended / WRONG **730 / 46 → 730 / 46**; newly refused 0, newly wrong 0; rv-unpaid 5 / 0; none of the 13 ordinary sets
+changed. The route's auto-post withholding and the MCP rules sit outside this harness (it scores the posting gate) and
+are proved on the DB above.
+
+### Mutations — 10 unit + 8 integration, all RED, restored byte-identically (md5)
+
+D1 the declaration may sit mid-line (unit 1, DB 1) · D2 `VAT not applicable` allowed again (1) · D3 other tax mentions
+ignored (unit 6, DB 1) · D4 OCR `VAl`/`V4T` not a mention (1) · D5 `incl` not a mention (2) · D6 only clean ten-digit
+VAT numbers (unit 5, DB 2) · D7 a customer statement counts (1) · M1 the builder folds by vendor name again (unit 2,
+DB 1) · M2 merchant patterns unanchored (unit 3, DB 1) · M3 no meals-on-claiming-account check (1) · M4 the route
+auto-posts a meals merchant on a claiming account (DB 1). D1, D3 and D6 were GREEN on the DB until the file gained a
+case each shape alone decides: a declaration beside a missed `VAT included` line, and two quiet pages (a customer
+sentence; a declaration beside `4I23450000` / `4123  450000`).

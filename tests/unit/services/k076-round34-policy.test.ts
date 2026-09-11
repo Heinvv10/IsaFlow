@@ -29,9 +29,11 @@ describe('K-076 r34 HIGH-1 — none read evidences none only on a positive signa
     expect(evidencedVat(null)).toBeNull();
   });
 
-  it.each(['Not VAT registered', 'NOT A VAT REGISTERED VENDOR', 'Supplier is not registered for VAT', 'Non-VAT registered',
-    'Non VAT vendor', 'VAT not applicable', 'V.A.T. is not applicable', 'Nie BTW-geregistreer nie', 'nie vir B.T.W. geregistreer nie',
-    'Nie geregistreer vir BTW nie', 'No VAT', 'NO VAT CHARGED', 'Geen BTW'])('the document declares `%s`: none is evidenced as 0', (line) => {
+  // r35: only the supplier's registration status counts; `VAT not applicable`, `No VAT`, `Geen BTW` and a bare
+  // `Non-VAT registered` describe items or customers and now refuse (k076-round35-policy).
+  it.each(['Not VAT registered', 'NOT A VAT REGISTERED VENDOR', 'Supplier is not registered for VAT',
+    'Non VAT vendor', 'Nie BTW-geregistreer nie', 'nie vir B.T.W. geregistreer nie',
+    'Nie geregistreer vir BTW nie'])('the document declares `%s`: none is evidenced as 0', (line) => {
     expect(evidencedVat({ vatAmount: null, rawText: `Joe Garden Services\n${line}\nGarden service 1000.00\nAmount Due 1000.00` })).toBe(0);
   });
 
