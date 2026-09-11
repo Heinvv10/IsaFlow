@@ -107,6 +107,21 @@ describe('POST /api/accounting/bank-transfers',()=>{
   }finally{await h.pool.query('UPDATE companies SET lockdown_enabled=false,lockdown_date=NULL WHERE id=$1',[h.f.companyA]);}
  });
 
+ it('names only the account with duplicate bank records, even when its records would crowd the other out',async()=>{
+  const dup=randomUUID(),other=randomUUID();
+  for(const [id,code] of [[dup,'DUP-FROM'],[other,'DUP-TO']]){
+   await h.pool.query("INSERT INTO gl_accounts(id,company_id,account_code,account_name,account_type,account_subtype,normal_balance,is_active,level) VALUES($1,$2,$3,'Synthetic duplicate bank','asset','bank','debit',true,3)",[id,h.f.companyA,code]);
+  }
+  // Three records for one account whose ids sort before the other account's single record.
+  // Fresh ids every run (the fixture database persists), forced to sort low for the duplicates and high for the single.
+  const sorted=(prefix:string)=>`${prefix}${randomUUID().slice(8)}`;
+  for(let n=0;n<3;n++)await h.pool.query("INSERT INTO bank_accounts(id,company_id,account_name,gl_account_id,currency,is_active) VALUES($1,$2,'Synthetic duplicate',$3,'ZAR',true)",[sorted('00000000'),h.f.companyA,dup]);
+  await h.pool.query("INSERT INTO bank_accounts(id,company_id,account_name,gl_account_id,currency,is_active) VALUES($1,$2,'Synthetic single',$3,'ZAR',true)",[sorted('ffffffff'),h.f.companyA,other]);
+  const res=await prepare({fromAccountId:dup,toAccountId:other});
+  expect(res.status,JSON.stringify(res.body)).toBe(422);
+  expect(res.body.error?.message).toBe('Cannot transfer between these bank accounts: DUP-FROM Synthetic duplicate bank has more than one bank account record. Both must have the ledger currency (ZAR).');
+ });
+
  it('is not blocked by a filed VAT period: a bank-to-bank transfer has no VAT lines',async()=>{
   await h.pool.query(`INSERT INTO vat_period_locks(company_id,period_start,period_end,output_tax,input_tax,net_vat,posted_through,locked_by,actor_type)
    VALUES($1,'2026-09-01','2026-09-30',0,0,0,now(),$2,'human') ON CONFLICT DO NOTHING`,[h.f.companyA,h.f.u1.id]);
