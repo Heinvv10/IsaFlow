@@ -11,21 +11,23 @@ Canonical bank-feed ingestion (bank sync v1, Release 1). One idempotent service 
 - `bankIngestionValidation.ts` — pure: `validateBatch`, `identityModeFor(provider)`, `contentHashIdentity`, `isCalendarDate`.
 - `bankFeedLifecycle.ts` — pure: `decideFeedTransition(existing, incoming)` → insert / duplicate / refresh / post_pending / remove_pending / ignore_removed_unknown / conflict(reason).
 - `bankIngestionPersistence.ts` — every SQL statement, each company-scoped.
-- `bankIngestionService.ts` — orchestration: lease → preflight → sync log → persist → suggestions → close log.
+- `bankIngestionService.ts` — orchestration: lease → sync log → preflight (validate + daily cap) → per-account advisory lock → persist → import batch (only if rows were inserted) → suggestions → close log.
 
 ## Caller contract
-- `ingestBankBatch(companyId, batch, { userId, sourceLabel, bankFormat })` must run inside a request transaction (`withAuth` / `withExtensionToken`).
-- It throws `BankIngestionRefusal` (`code`: CONNECTION_NOT_FOUND, CONNECTION_INACTIVE, UNSUPPORTED_PROVIDER, BANK_ACCOUNT_INVALID, IDENTITY_MODE_MISMATCH, INVALID_TRANSACTION, DUPLICATE_PROVIDER_ID, SYNC_IN_PROGRESS) **only before the first `bank_transactions` write**. When a connection exists, a failed `bank_feed_sync_logs` row (`error_code`) is already written; the caller answers 4xx, which COMMITs it. Anything else is a fault → 500 → rollback.
+- `ingestBankBatch(companyId, batch, { userId, sourceLabel, bankFormat, dailyCap? })` must run inside a request transaction (`withAuth` / `withExtensionToken`). `dailyCap` (rows per connection per 24h; the connection's own `daily_tx_cap` overrides it) is checked under the lease.
+- It throws `BankIngestionRefusal` (`code`: CONNECTION_NOT_FOUND, CONNECTION_INACTIVE, UNSUPPORTED_PROVIDER, BANK_ACCOUNT_INVALID, IDENTITY_MODE_MISMATCH, INVALID_TRANSACTION, DUPLICATE_PROVIDER_ID, SYNC_IN_PROGRESS, DAILY_CAP_EXCEEDED) **only before the first `bank_transactions` write**. When a connection exists, a failed `bank_feed_sync_logs` row (`error_code`) is already written; the caller answers 4xx, which COMMITs it. Anything else is a fault → 500 → rollback.
 - `contentHashIdentity({ transactionDate, amount, description })` builds an extension row's identity. No `balance` — it is the established extension dedup hash.
 
 ## Business rules
 - **Sync never posts.** Only `auto_create_entry = false` rules run, via `applySuggestionRules`, inside savepoint `bank_feed_suggest` (a failure becomes a warning). No `applyRules`, no auto-post sweep, no transfer auto-link.
-- **Lease first.** `bank_feed_connections` row is locked `FOR NO KEY UPDATE NOWAIT` (savepoint `bank_feed_lease`) before any `bank_transactions` lock; a held lease → `SYNC_IN_PROGRESS` at once. NO KEY so child FK inserts (KEY SHARE) don't block on it. No path updates `bank_feed_connections` while holding a `bank_transactions` lock, so the canonical lock order gains no cycle.
+- **Lease first.** `bank_feed_connections` row is locked `FOR NO KEY UPDATE NOWAIT` (savepoint `bank_feed_lease`) before any `bank_transactions` lock; a held lease → `SYNC_IN_PROGRESS` at once. NO KEY so child FK inserts (KEY SHARE) don't block on it. Then a per-account `pg_advisory_xact_lock`, so two connections on one bank account serialise (the content-hash dedup is check-then-insert). Full lock order: the `ingestBankBatch` row of the lock-order table in `../.claude.md`.
 - **Provider identity** (every provider except `extension`/`manual_csv`): existing rows locked `FOR UPDATE ORDER BY id`, decided by the lifecycle table. The unique index `uq_bank_tx_feed_identity` + `ON CONFLICT DO NOTHING` is the backstop — it alone still yields one row if the lease is removed (mutation-tested).
 - **Extension rows use content-hash identity** (`provider_transaction_id` NULL, connection set) with set-semantics dedup against EXISTING rows on the bank account only — two identical rows in one batch both insert (two real R50 fees). Dedup is set-semantics against ALL rows on the bank account, not per-delivery: once two identical fees are stored, a third identical delivery is dropped as a duplicate — inherent to content-hash identity, not a bug.
 - **`SYNC_IN_PROGRESS` writes no failed sync log.** It is thrown from `acquire`, before `openSyncLog` runs — there is no lease held and no log row to write to. The caller still answers 4xx.
-- **Processed rows are never overwritten.** Processed = `status <> 'imported' OR matched_journal_line_id OR provisional_je_id`. A change becomes a `bank_feed_transaction_conflicts` row (one open per provider id; redelivery refreshes it). `applyFeedUpdate`'s WHERE repeats the precondition; trigger 675 backstops it.
+- **Processed rows are never overwritten.** Processed = `status <> 'imported' OR matched_journal_line_id OR reconciliation_id OR provisional_je_id`. A change becomes a `bank_feed_transaction_conflicts` row (one open per provider id; redelivery refreshes it). `applyFeedUpdate`'s WHERE repeats the precondition; trigger 675 backstops it.
 - **Conflicts store the normalised proposal, never a raw provider payload.**
+- `provider_updated_at` never moves backwards (`GREATEST`, NULL-safe). Amounts must be whole cents; refusal messages echo at most 40 chars of caller input.
+- A batch that inserts nothing (a redelivery) writes no `bank_import_batches` row; otherwise `transaction_count` = rows inserted.
 - `manual_csv` connections are refused (`UNSUPPORTED_PROVIDER`): they import through the statement page.
 
 ## Tests
@@ -34,3 +36,4 @@ Canonical bank-feed ingestion (bank sync v1, Release 1). One idempotent service 
 ## Recent changes
 - 2026-09-11 — created (Task 6, bank sync v1 Release 1).
 - 2026-09-11 — `pages/api/accounting/bank-feeds/[id]/extension-ingest.ts` cut over to this service as its only caller (Task 7).
+- 2026-09-11 — final review: lazy import batch, per-account advisory lock, daily cap under the lease, reconciliation_id is processed, provider_updated_at monotonic, whole-cents amounts.
