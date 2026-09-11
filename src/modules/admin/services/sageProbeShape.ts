@@ -43,8 +43,9 @@ export function isFieldName(key: string): boolean {
 }
 
 /**
- * `redacted` lists the distinct shapes found under keys that were not printed, so
- * an allocation array under an unexpected key name is still visible as structure.
+ * `redactedKeys` is the most unprinted keys in any one sampled object; `redacted`
+ * is the distinct shapes found under those keys across all samples, so an
+ * allocation array under an unexpected key name is still visible as structure.
  */
 export type Shape = string | { object: Record<string, Shape>; redactedKeys?: number; redacted?: Shape[] }
   | { array: number; items?: Shape } | { dictionary: number; values?: Shape };
