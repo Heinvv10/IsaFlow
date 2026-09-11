@@ -3,6 +3,7 @@ import {hashArgs} from './audit';
 import {inspectInput} from './inputValidation';
 import {beginMcpInvocation,completeMcpInvocation,type InvocationCompletion} from './invocationStore';
 import type {McpToolResult} from './types';
+import {isRetryableLockFailure} from '@/lib/lockContention';
 export type MarkInvocation=(completion:Omit<InvocationCompletion,'durationMs'>)=>void;
 /** Never persist arguments or raw keys; malformed JSON receives a bounded sentinel hash. */
 function admission(name:string,args:Record<string,unknown>){
@@ -25,7 +26,9 @@ export async function withMcpInvocation(name:string,args:Record<string,unknown>,
  let result:McpToolResult;
  try{result=await run(value=>{completion=value;});}
  catch(error){
-  await completeMcpInvocation(handle,{status:'error',reportedWrite:false,reasonCode:'HANDLER_ERROR',durationMs:Date.now()-started});
+  // A lock failure aborted the effect transaction, so no receipt can join it; the transaction observer records the
+  // attempt as rolled back and the transport answers 503.
+  if(!isRetryableLockFailure(error))await completeMcpInvocation(handle,{status:'error',reportedWrite:false,reasonCode:'HANDLER_ERROR',durationMs:Date.now()-started});
   throw error;
  }
  // Outside the catch: evidence failure must propagate to the real transaction boundary.

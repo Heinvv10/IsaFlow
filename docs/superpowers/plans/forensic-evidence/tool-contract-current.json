@@ -1148,8 +1148,8 @@
           "allocations": {
             "type": "array",
             "minItems": 1,
-            "maxItems": 500,
-            "description": "The lines to allocate — at most 500. Each names one transaction and how to book it.",
+            "maxItems": 6,
+            "description": "The lines to allocate — at most 6. Each names one transaction and how to book it.",
             "items": {
               "type": "object",
               "properties": {
@@ -1226,12 +1226,12 @@
           "credit_note_ids": {
             "type": "array",
             "minItems": 1,
-            "maxItems": 100,
+            "maxItems": 15,
             "items": {
               "type": "string",
               "description": "Credit note UUID"
             },
-            "description": "The notes to approve — at most 100, each named once."
+            "description": "The notes to approve — at most 15, each named once. Split a longer list across calls."
           },
           "dry_run": {
             "type": "boolean",
@@ -1260,12 +1260,12 @@
           "invoice_ids": {
             "type": "array",
             "minItems": 1,
-            "maxItems": 100,
+            "maxItems": 15,
             "items": {
               "type": "string",
               "description": "Supplier invoice UUID"
             },
-            "description": "The bills to approve — at most 100, each named once."
+            "description": "The bills to approve — at most 15, each named once. Split a longer list across calls."
           },
           "dry_run": {
             "type": "boolean",
@@ -1477,12 +1477,12 @@
           "invoice_ids": {
             "type": "array",
             "minItems": 1,
-            "maxItems": 100,
+            "maxItems": 12,
             "items": {
               "type": "string",
               "description": "Customer invoice UUID"
             },
-            "description": "The invoices to approve — at most 100, each named once."
+            "description": "The invoices to approve — at most 12, each named once. Split a longer list across calls."
           },
           "dry_run": {
             "type": "boolean",

@@ -8,6 +8,7 @@ import { logRequestCompleted } from '@/lib/observability/requestLogger';
 import { setTenantTags, sanitizeRoute } from '@/lib/sentry/tags';
 import { safeCorsOrigin } from '@/lib/cors';
 import { redactShareToken, redactTokenParams } from '@/lib/observability/redactShareToken';
+import { isRetryableLockFailure, LOCK_RETRY_AFTER_SECONDS } from '@/lib/lockContention';
 
 const SENSITIVE_KEYS = new Set([
   'password', 'confirmPassword', 'password_hash', 'token', 'secret', 'apiKey', 'api_key',
@@ -149,6 +150,18 @@ export function withErrorHandler(
         // Check if headers were already sent
         if (res.headersSent) {
           apiLogger.warn({ method: req.method, url: safeUrl }, 'Headers already sent, cannot send error response');
+          return;
+        }
+
+        // Lock contention rolled the request back whole; the client can safely try again.
+        if (isRetryableLockFailure(error)) {
+          res.setHeader('Retry-After', String(LOCK_RETRY_AFTER_SECONDS));
+          res.status(503).json({
+            success: false,
+            data: null,
+            message: 'Another change to this company is in progress. Please retry shortly.',
+            code: 'SERVICE_UNAVAILABLE',
+          });
           return;
         }
 

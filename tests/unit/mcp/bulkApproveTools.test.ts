@@ -49,6 +49,7 @@ import {
 } from '@/lib/mcp/tools/writeBulkApproveSupplierInvoices';
 import { bulkApproveCreditNotesTool } from '@/lib/mcp/tools/writeBulkApproveCreditNotes';
 import { bulkFinalizeInvoicesTool } from '@/lib/mcp/tools/writeBulkFinalizeInvoices';
+import { MAX_FINALIZED_INVOICES_PER_REQUEST } from '@/lib/limits/authorityHoldLimits';
 
 const ctx = { companyId: 'company-1', userId: 'user-1' } as never;
 const ID = (n: number) => `0a000000-0000-4000-8000-${String(n).padStart(12, '0')}`;
@@ -200,11 +201,12 @@ describe('bulk_approve_supplier_invoices', () => {
 });
 
 describe('bulk_finalize_invoices', () => {
-  it('is a posting tool and caps at 100', () => {
+  it('is a posting tool and caps at its own authority-hold limit (12)', () => {
     expect(bulkFinalizeInvoicesTool.requiresPost).toBe(true);
     const schema = bulkFinalizeInvoicesTool.inputSchema as
       { properties: { invoice_ids: { maxItems: number } } };
-    expect(schema.properties.invoice_ids.maxItems).toBe(100);
+    expect(MAX_FINALIZED_INVOICES_PER_REQUEST).toBe(12);
+    expect(schema.properties.invoice_ids.maxItems).toBe(MAX_FINALIZED_INVOICES_PER_REQUEST);
   });
 
   it('needs the AR roles, not the AP ones', async () => {
