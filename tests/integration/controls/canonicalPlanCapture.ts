@@ -8,9 +8,21 @@ import type {ControlTx} from '@/modules/accounting/services/controls/contracts';
  * `entity_id_canonical = i.id::text`: under RLS either one stops a clause from being an index condition unless the
  * other side is a Param. Plan shape, never timing, and never which index wins: on a new install's row counts every
  * path estimates one row and the planner keeps whichever index it met first, so a gate that demanded the canonical index
- * would be red on every fresh database. It asserts the lookup is in the form RLS lets be an index condition instead.
+ * would be red on every fresh database. It asserts the lookup is in the form RLS lets be an index condition, and that
+ * the index migration 684 built for it exists, instead.
  */
-export const CANONICAL_TABLES=['control_entity_versions','control_change_events','control_operation_effects','control_operation_approvals','control_protected_evidence'];
+/**
+ * The leading key columns of each canonical index migration 684 creates: the equalities every lookup states, ending in
+ * the canonical column. A promotable predicate is worth nothing without an index to promote it into.
+ */
+const CANONICAL_INDEX_PREFIX:Record<string,string[]>={
+ control_entity_versions:['company_id','entity_type','entity_id_canonical'],
+ control_change_events:['company_id','entity_type','entity_id_canonical'],
+ control_operation_effects:['company_id','operation','entity_type','entity_id_canonical'],
+ control_operation_approvals:['company_id','entity_type','entity_id_canonical'],
+ control_protected_evidence:['company_id','entity_type','entity_id_canonical'],
+};
+export const CANONICAL_TABLES=Object.keys(CANONICAL_INDEX_PREFIX);
 const TOUCHES=new RegExp(`\\b(${CANONICAL_TABLES.join('|')})\\b`);
 export interface Who {companyId:string;personId:string}
 export interface Statement {text:string;values:unknown[]}
@@ -59,6 +71,14 @@ export async function explainAsAppUser(pool:Pool,who:Who,statements:readonly Sta
   const [session]=(await client.query(`SELECT current_user AS role,current_setting('row_security') AS rls,
    (SELECT proleakproof FROM pg_proc WHERE oid='texteq'::regproc) AS leakproof`)).rows as {role:string;rls:string;leakproof:boolean}[];
   expect(session,'plans were not taken under RLS as app_user, or text equality is no longer leakproof').toEqual({role:'app_user',rls:'on',leakproof:true});
+  // A valid, whole-table btree whose key starts with exactly those columns; an expression key column never matches.
+  const unserved=(await client.query(`SELECT t.name FROM jsonb_each($1::jsonb) t(name,prefix) WHERE NOT EXISTS(
+   SELECT 1 FROM pg_index i JOIN pg_class c ON c.oid=i.indexrelid JOIN pg_am am ON am.oid=c.relam
+   WHERE i.indrelid=to_regclass(t.name) AND i.indisvalid AND i.indpred IS NULL AND am.amname='btree'
+    AND (SELECT array_agg(a.attname::text ORDER BY k.ord) FROM unnest(i.indkey::int2[]) WITH ORDINALITY k(attnum,ord)
+     LEFT JOIN pg_attribute a ON a.attrelid=i.indrelid AND a.attnum=k.attnum WHERE k.ord<=jsonb_array_length(t.prefix))
+     =ARRAY(SELECT jsonb_array_elements_text(t.prefix)))`,[JSON.stringify(CANONICAL_INDEX_PREFIX)])).rows.map(row=>(row as {name:string}).name);
+  expect(unserved,'canonical tables without the index migration 684 creates for their lookups').toEqual([]);
   const explained:Explained[]=[];
   for(const statement of statements){
    const result=await client.query(`EXPLAIN (FORMAT JSON) ${statement.text}`,statement.values);

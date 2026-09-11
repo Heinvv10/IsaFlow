@@ -17,6 +17,8 @@ import {canonicalLookups,captureStatements,explainAsAppUser,expectIndexableCanon
  * compared with leakproof text equality and must stay a lookup RLS lets be an index condition. Deterministic: plan
  * shape, not timings or which index the row counts favour, taken from the statements the real services issue, as
  * app_user with request claims, RLS in force.
+ * Downside: this proves the lookup can be an index condition and its index exists, not that the planner picks that
+ * index at a given data volume.
  */
 process.env.ENCRYPTION_KEY=randomBytes(32).toString('hex');process.env.CONTROL_SNAPSHOT_SIGNING_KEY=randomBytes(32).toString('hex');
 const config=fixtureConfigFromEnv(process.env),pool=new Pool({connectionString:validateFixtureTarget(config).connectionString,ssl:false,max:3});
