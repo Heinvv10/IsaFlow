@@ -284,4 +284,11 @@ export interface RuleApplyResult {
    * table for a number nobody acts on. Non-zero means "re-run to continue".
    */
   autoPostTruncatedRules?: number;
+  /**
+   * Number of auto-post attempts the company's approval policy refused: an
+   * allocation of that amount needs an independent approval, which an
+   * unattended sweep cannot supply. Nothing was written for these. The line
+   * stays `imported` for a person to allocate from the screen with an approval.
+   */
+  autoPostSkippedApprovalRequired?: number;
 }

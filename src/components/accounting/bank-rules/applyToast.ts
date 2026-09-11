@@ -15,6 +15,7 @@ export interface ApplyResultParts {
   autoPostSkippedRaced?: number;
   autoPostSkippedLocked?: number;
   autoPostTruncatedRules?: number;
+  autoPostSkippedApprovalRequired?: number;
 }
 
 export interface ApplyToast {
@@ -39,6 +40,7 @@ export function buildApplyToast(parts: ApplyResultParts): ApplyToast {
   const raced = parts.autoPostSkippedRaced ?? 0;
   const locked = parts.autoPostSkippedLocked ?? 0;
   const truncated = parts.autoPostTruncatedRules ?? 0;
+  const approval = parts.autoPostSkippedApprovalRequired ?? 0;
   const bits: string[] = [`${applied} categorised`];
   if (skippedClosed > 0) bits.push(`${skippedClosed} skipped (closed period)`);
   if (skippedNoPeriod > 0) bits.push(`${skippedNoPeriod} skipped (no fiscal period)`);
@@ -46,6 +48,7 @@ export function buildApplyToast(parts: ApplyResultParts): ApplyToast {
   if (raced > 0) bits.push(`${raced} skipped — allocated by another request`);
   if (locked > 0) bits.push(`${locked} skipped — locked by another request, retry`);
   if (truncated > 0) bits.push(`${truncated} rule${truncated > 1 ? 's' : ''} hit the 500-transaction cap — run again`);
+  if (approval > 0) bits.push(`${approval} left for approval — the company's policy requires one at this amount`);
   const message = bits.join(' · ');
   // Warn when something silently dropped: bank-not-GL-linked is always silent;
   // a no-op apply with any collateral skip (closed, no-period, no-bank-gl,
@@ -53,7 +56,7 @@ export function buildApplyToast(parts: ApplyResultParts): ApplyToast {
   // `closed_period` here — both are actionable but non-blocking, as is a race,
   // which simply means someone else got to the transaction first.
   const hasCollateral = skippedClosed > 0 || skippedNoPeriod > 0 || noBankGl > 0
-    || raced > 0 || locked > 0 || truncated > 0;
+    || raced > 0 || locked > 0 || truncated > 0 || approval > 0;
   const kind = noBankGl > 0 || (applied === 0 && hasCollateral) ? 'warn' : 'success';
   return { kind, message };
 }

@@ -15,7 +15,9 @@ import {prepareBankAllocation,executeBankAllocation} from './bankAllocationContr
 type Row=DbRow;
 export type AllocationType='account'|'supplier'|'customer'|'transfer';
 export interface SplitLine {contraAccountId:string;amount:number;description?:string;vatCode?:string}
-export type BankAllocationOptions=PostingActorOpts&{autoApply?:boolean;intentId?:string;approvalId?:string;applications?:{invoiceId:string;amount:string}[]};
+export type BankAllocationOptions=PostingActorOpts&{autoApply?:boolean;intentId?:string;approvalId?:string;applications?:{invoiceId:string;amount:string}[];
+ /** The bank-rule sweep's attribution; the plan carries it so the receipt covers it (a later UPDATE would change the fingerprint). */
+ rule?:{id:string;name:string}};
 /** The authority every bank allocation asserts, callable by a preview that skips only the write. */
 export async function assertBankAllocationAuthority(companyId:string,userId:string){
  const ctx=requireControlTx();if(ctx.principal.companyId!==companyId||ctx.principal.personId!==userId)throw new Error('Bank allocation actor mismatch');
@@ -50,7 +52,7 @@ export async function allocateTransaction(companyId:string,bankTxId:string,contr
  const [bank]=await ctx.sql`SELECT amount::text FROM bank_transactions WHERE company_id=${companyId}::uuid AND id=${bankTxId}::uuid FOR UPDATE` as {amount:string}[];
  if(!bank)throw new Error('Owned bank transaction not found');
  const amount=new D(bank.amount).abs().toFixed();
- const common={version:1,kind:allocType,bankTransactionId:bankTxId,description};
+ const common={version:1,kind:allocType,bankTransactionId:bankTxId,description,rule:opts?.rule};
  let input:unknown;
  if(allocType==='customer'||allocType==='supplier'){
   if(!entityId)throw new Error('Owned allocation party required');
@@ -59,7 +61,7 @@ export async function allocateTransaction(companyId:string,bankTxId:string,contr
   input={...common,partyId:entityId,cc1Id,cc2Id,buId,applications:opts?.applications??(invoiceId?[{invoiceId,amount}]:[])};
   if(!opts?.intentId)return withSavepoint('bank_default_adapter',async()=>{
    const prepared=await preparePartyBankAllocation(ctx,{kind:allocType,bankTransactionId:bankTxId,partyId:entityId,description,cc1Id,cc2Id,buId,
-    autoApply:opts?.autoApply,applications:opts?.applications??(invoiceId?[{invoiceId,amount}]:undefined)});
+    autoApply:opts?.autoApply,rule:opts?.rule,applications:opts?.applications??(invoiceId?[{invoiceId,amount}]:undefined)});
    return runPlan(companyId,bankTxId,userId,input,{...opts,intentId:prepared.intentId});
   });
  }else input={...common,lines:[{accountId:contraAccountId,amount,vatCode:vatCode??'none',cc1Id,cc2Id,buId}]};

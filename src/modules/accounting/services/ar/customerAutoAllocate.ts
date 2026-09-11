@@ -1,5 +1,5 @@
 /**
- * The AR twin of `ap/supplierAutoAllocate`: applying a bank RECEIPT to the
+ * Applying a bank RECEIPT to the
  * customer's open invoices when the customer's `auto_allocate_strategy` says
  * to.
  *
