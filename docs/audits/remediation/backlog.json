@@ -11298,7 +11298,7 @@
       "title": "Customer and supplier statements claim the ageing's document population but still count draft invoices; the customer statement is emailed to customers",
       "severity": "medium",
       "source": "Found by the R-059 round-6 fixer during a census by claim; left unrouted deliberately.",
-      "processNotes": "R-059 round 6 (9f0ee2d3f) centralised the population rule in shared/documentPopulation.documentInPopulationExpr(alias) and corrected these statements' comments to say what they share and what they do not. Fix, once decided: route both statements through that expression. DECISION FOR HEIN: should statements show drafts?"
+      "processNotes": "R-059 round 6 (9f0ee2d3f) centralised the population rule in shared/documentPopulation.documentInPopulationExpr(alias) and corrected these statements' comments to say what they share and what they do not. Fix, once decided: route both statements through that expression. DECISION FOR HEIN: should statements show drafts?\n\nHEIN DECIDED 2026-09-11: statements must NOT show draft invoices. Fix: route the customer and supplier statement queries through shared/documentPopulation.documentInPopulationExpr (R-059), so drafts are excluded, consistent with the ageing. Ready to build."
     },
     {
       "id": "R-083",
