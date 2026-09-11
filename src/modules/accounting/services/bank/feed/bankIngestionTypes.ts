@@ -54,6 +54,10 @@ export type BankIngestionRefusalCode =
   | 'BANK_ACCOUNT_INVALID' | 'IDENTITY_MODE_MISMATCH' | 'INVALID_TRANSACTION'
   | 'DUPLICATE_PROVIDER_ID' | 'SYNC_IN_PROGRESS';
 
+// `code` is a constructor parameter property, so `readonly code = '` (the
+// MCP typedRefusalReachesAgent census grep) never matches this class. No MCP
+// caller of ingestBankBatch exists today; if one is added, add these 8 codes
+// to REFUSAL_CODES by hand.
 export class BankIngestionRefusal extends Error {
   constructor(readonly code: BankIngestionRefusalCode, message: string, readonly index?: number) {
     super(message);

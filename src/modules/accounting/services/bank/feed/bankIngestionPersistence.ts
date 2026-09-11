@@ -148,7 +148,8 @@ export async function applyFeedUpdate(
     UPDATE bank_transactions
     SET transaction_date = ${t.transactionDate}::DATE, value_date = ${t.valueDate ?? null}::DATE,
         amount = ${t.amount}, description = ${t.description}, reference = ${t.reference ?? null},
-        feed_state = ${nextState}, provider_updated_at = ${t.providerUpdatedAt ?? null}::TIMESTAMPTZ,
+        feed_state = ${nextState},
+        provider_updated_at = COALESCE(${t.providerUpdatedAt ?? null}::TIMESTAMPTZ, provider_updated_at),
         feed_last_seen_at = NOW(), updated_at = NOW()
     WHERE id = ${rowId}::UUID AND company_id = ${companyId}::UUID AND feed_state = ${expectedState}
       AND status = 'imported' AND matched_journal_line_id IS NULL AND provisional_je_id IS NULL
