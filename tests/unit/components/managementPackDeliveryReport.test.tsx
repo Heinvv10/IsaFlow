@@ -16,9 +16,9 @@ import ManagementPacksPage from '../../../pages/accounting/afs/management-packs'
 const SKIPPED = 'recipients[0] (cfo@example.invalid): Invalid input: expected object, received string';
 const envelope = (data: unknown) => new Response(JSON.stringify({ success: true, data }), { status: 200, headers: { 'content-type': 'application/json' } });
 
-function serve(skippedRecipients: string[]) {
+function serve(skippedRecipients: string[], sentCount = 1) {
   const fetch = vi.fn(async (url: string, init?: RequestInit) => {
-    if (init?.method === 'POST') return envelope({ delivered: true, skippedRecipients });
+    if (init?.method === 'POST') return envelope({ delivered: sentCount > 0, sentCount, skippedRecipients });
     if (url.includes('management-pack-config')) return envelope({ config: null });
     return envelope({ documents: [{ id: 'p1', period: '2026-06', status: 'draft', created_at: '2026-09-11T00:00:00Z',
       updated_at: '2026-09-11T00:00:00Z', delivery_withheld_reason: null }] });
@@ -49,5 +49,13 @@ describe('after delivering a management pack', () => {
     await waitFor(() => expect(fetch.mock.calls.some(([, init]) => (init as RequestInit | undefined)?.method === 'POST')).toBe(true));
     await waitFor(() => expect(fetch.mock.calls.filter(([url]) => String(url).endsWith('/management-packs')).length).toBeGreaterThanOrEqual(2));
     expect(screen.queryByText(/Not sent to/)).not.toBeInTheDocument();
+    expect(screen.queryByText(/Nothing was sent/)).not.toBeInTheDocument();
+  });
+
+  it('says nothing was sent when the delivery reached nobody', async () => {
+    serve([SKIPPED], 0);
+    await deliver();
+    expect(await screen.findByText('Nothing was sent: the pack reached no recipient.'), 'a delivery that sent nothing looked like a success').toBeInTheDocument();
+    expect(screen.getByText(`Not sent to: ${SKIPPED}`)).toBeInTheDocument();
   });
 });

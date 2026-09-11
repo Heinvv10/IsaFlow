@@ -46,8 +46,9 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
   log.info('Manual pack delivery triggered', { companyId, packId, status }, 'management-pack-deliver-api');
 
   try {
-    const { skippedRecipients } = await deliverPack(packId, companyId);
-    return apiResponse.success(res, { delivered: true, skippedRecipients });
+    // Delivered only if the pack reached someone: skipped entries, tiers it is not for and failed sends do not count.
+    const { sentCount, skippedRecipients } = await deliverPack(packId, companyId);
+    return apiResponse.success(res, { delivered: sentCount > 0, sentCount, skippedRecipients });
   } catch (err) {
     if (err instanceof PackDeliveryWithheldError) return apiResponse.conflict(res, err.message);
     throw err;
