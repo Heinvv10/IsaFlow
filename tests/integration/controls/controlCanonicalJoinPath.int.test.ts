@@ -2,7 +2,7 @@ import {afterAll,beforeAll,expect,it} from 'vitest';
 import {randomUUID} from 'node:crypto';
 import {transferControlFixture} from './bankTransferControlFixture';
 import {fixture as cashFixture,pool as cashPool,postedCash} from './cashApplicationFixture';
-import {captureStatements,expectCanonicalIndexCond,explainAsAppUser,expectIndexableCanonicalLookups,expectIntentProbes,type Who} from './canonicalPlanCapture';
+import {captureStatements,expectCanonicalLookup,explainAsAppUser,expectIndexableCanonicalLookups,expectIntentProbes,type Who} from './canonicalPlanCapture';
 import type {OperationRef} from '@/modules/accounting/services/controls/contracts';
 import {readBankCurrentOriginal,type BankControlRow} from '@/modules/accounting/services/bank/bankControlReadProvenance';
 import {readBankPreparedRows,resolveBankApprovalTarget} from '@/modules/accounting/services/bank/bankControlReadQueries';
@@ -32,22 +32,23 @@ beforeAll(async()=>{
 },300000);
 afterAll(async()=>{await t?.close();});
 const explain=async(work:Parameters<typeof captureStatements>[2],as:Who=who,pool=t.pool)=>explainAsAppUser(pool,as,await captureStatements(pool,as,work));
-it('bank provenance reads keep a canonical index path: legacy history, receipts and transfer originals',async()=>{
+it('bank provenance reads keep an indexable canonical lookup: legacy history, receipts and transfer originals',async()=>{
  const original=await bankRow(posted.original),stranger={...original,id:randomUUID(),matched_journal_line_id:randomUUID()};
  const explained=[...await explain(ctx=>readBankCurrentOriginal(ctx,original)),...await explain(ctx=>readBankCurrentOriginal(ctx,stranger))];
  expectIndexableCanonicalLookups(explained);
- expectCanonicalIndexCond(explained,"c.action='journal.post'",'control_change_events');
+ // The legacy history row (c), and the bank-transaction arm of its EXISTS (p).
+ expectCanonicalLookup(explained,"c.action='journal.post'",'control_change_events',2);
  for(const marker of ['e.binding_hash,e.operation_id,i.payload',"i.payload->'transfer'->>'oppositeBankTransactionId'=","AND e.result->>'journalEntryId'=$","OR lower(e.result->>'originalIntentId')="])
   expectIntentProbes(explained,marker,1);
 },300000);
-it('bank approval and prepared-row reads reach effects and approvals through the canonical index',async()=>{
+it('bank approval and prepared-row reads reach effects and approvals by an indexable canonical lookup',async()=>{
  const explained=[...await explain(ctx=>resolveBankApprovalTarget(ctx,posted.approvalId)),
   ...await explain(ctx=>readBankPreparedRows(ctx,posted.original,true,null,posted.approvalId))];
  expectIndexableCanonicalLookups(explained);
  // Both UNION arms (allocation and reversal intents) probe their intent by primary key.
  expectIntentProbes(explained,'FROM control_operation_approvals a JOIN LATERAL',2);
 },300000);
-it('transfer candidate facts, link discovery, link resume and saved link state use the canonical index',async()=>{
+it('transfer candidate facts, link discovery, link resume and saved link state keep an indexable canonical lookup',async()=>{
  const opposite=await bankRow(posted.opposite),plan={version:1,kind:'transfer',bankTransactionId:posted.opposite,counterpartyAccountId:t.from,
   transfer:{mode:'link',originalIntentId:posted.intentId}} as BankTransferPlan;
  const explained=[...await explain(ctx=>readExistingTransferFacts(ctx,opposite,t.from,{id:posted.journalId},[])),
@@ -55,19 +56,19 @@ it('transfer candidate facts, link discovery, link resume and saved link state u
   ...await explain(ctx=>loadBankTransferState(ctx,plan,true)),
   ...await explain(ctx=>loadBankTransferOriginalBanks(ctx,{id:posted.intentId},{...plan,transfer:{mode:'post',oppositeBankTransactionId:null}} as BankTransferPlan,{id:posted.journalId},[]))];
  expectIndexableCanonicalLookups(explained);
- expectCanonicalIndexCond(explained,"i.payload->'transfer'->'oppositeBankTransactionId'='null'::jsonb",'control_operation_effects');
- expectCanonicalIndexCond(explained,'AND NOT EXISTS(SELECT 1 FROM control_operation_effects e','control_operation_approvals');
- expectCanonicalIndexCond(explained,'AND NOT EXISTS(SELECT 1 FROM control_operation_effects e','control_operation_effects');
- expectCanonicalIndexCond(explained,"AS journal_id FROM control_bank_allocation_intents i",'control_operation_effects');
+ expectCanonicalLookup(explained,"i.payload->'transfer'->'oppositeBankTransactionId'='null'::jsonb",'control_operation_effects');
+ expectCanonicalLookup(explained,'AND NOT EXISTS(SELECT 1 FROM control_operation_effects e','control_operation_approvals');
+ expectCanonicalLookup(explained,'AND NOT EXISTS(SELECT 1 FROM control_operation_effects e','control_operation_effects');
+ expectCanonicalLookup(explained,"AS journal_id FROM control_bank_allocation_intents i",'control_operation_effects');
  expectIntentProbes(explained,"OR lower(i.payload->'transfer'->>'originalIntentId')=",1);
- expectCanonicalIndexCond(explained,'e.binding_hash,e.result,i.id AS intent_id','control_operation_effects');
+ expectCanonicalLookup(explained,'e.binding_hash,e.result,i.id AS intent_id','control_operation_effects');
 },300000);
-it('bank reversal and payment inverse identity reach the original receipt through the canonical index',async()=>{
+it('bank reversal and payment inverse identity reach the original receipt by an indexable canonical lookup',async()=>{
  const explained=[...await explain(()=>reverseReconciledTransaction(who.companyId,posted.original,who.personId)),
   ...await explain(ctx=>assertBankPaymentInverseIdentity(ctx,'customer',randomUUID(),posted.original,posted.journalId))];
  expectIndexableCanonicalLookups(explained);
- expectCanonicalIndexCond(explained,'ORDER BY e.committed_at DESC LIMIT 1','control_operation_effects');
- expectCanonicalIndexCond(explained,'LIMIT 2 FOR SHARE OF b,l,j','control_operation_effects');
+ expectCanonicalLookup(explained,'ORDER BY e.committed_at DESC LIMIT 1','control_operation_effects');
+ expectCanonicalLookup(explained,'LIMIT 2 FOR SHARE OF b,l,j','control_operation_effects');
 },300000);
 it('cash application sources and invoice override annotations keep an indexable canonical lookup',async()=>{
  const {invoice,posted:receipt}=await postedCash(),as={companyId:cashFixture.companyA,personId:cashFixture.u1.id};
@@ -75,5 +76,5 @@ it('cash application sources and invoice override annotations keep an indexable 
   applications:[{invoiceId:invoice,amount:'115.00'}]}),as,cashPool),
   ...await explain(ctx=>queryInvoiceMatchOverrides(ctx,randomUUID()),as,cashPool)];
  expectIndexableCanonicalLookups(explained);expectIntentProbes(explained,"AND i.currency='ZAR'",1);
- expectCanonicalIndexCond(explained,'AS approval_id,v.version','control_operation_approvals');
+ expectCanonicalLookup(explained,'AS approval_id,v.version','control_operation_approvals');
 },300000);
