@@ -89,20 +89,28 @@ UPDATE captured_documents cd
 -- listening on: the deploy prints nothing, exits 0, and the database ships
 -- WITHOUT the constraint with no record that it was skipped.
 --
--- An operator who hits this must clear the duplicates first. The query below
--- lists them; for each pair, reverse the journal that should not exist
--- (Accounting > General Ledger > the entry > Reverse — which also releases the
--- document's posting claim) and re-run the migration. Reversal, never DELETE:
--- the incorrect input VAT has already been claimed in a VAT201 and has to be
--- corrected in the period that carries it, not erased.
+-- An operator who hits this must clear the duplicates first. Drafts COUNT here, and a draft
+-- cannot be reversed (`reverseJournalEntry`: "Can only reverse posted entries"), so the
+-- remedy depends on each journal's status. The full procedure is in
+-- docs/audits/remediation/K-072/fix.md ("What an operator must do when 672 aborts"); in short:
 --
---   SELECT company_id, source_document_id, COUNT(*), array_agg(entry_number)
---     FROM gl_journal_entries
---    WHERE source_document_id IS NOT NULL
---      AND source = 'auto_expense_receipt'
---      AND reversed_at IS NULL
---    GROUP BY company_id, source_document_id
---   HAVING COUNT(*) > 1;
+--   1. List every journal in each duplicate group, with its status:
+--        SELECT je.company_id, je.source_document_id, je.id, je.entry_number, je.status, je.entry_date
+--          FROM gl_journal_entries je
+--         WHERE je.source = 'auto_expense_receipt' AND je.source_document_id IS NOT NULL AND je.reversed_at IS NULL
+--           AND (je.company_id, je.source_document_id) IN (
+--                 SELECT company_id, source_document_id FROM gl_journal_entries
+--                  WHERE source = 'auto_expense_receipt' AND source_document_id IS NOT NULL AND reversed_at IS NULL
+--                  GROUP BY company_id, source_document_id HAVING COUNT(*) > 1)
+--         ORDER BY je.company_id, je.source_document_id, (je.status = 'posted') DESC, je.entry_date, je.created_at;
+--   2. Keep one per group: the POSTED journal (the earliest if several), else the earliest.
+--   3. A POSTED surplus: REVERSE it (Accounting > General Ledger > the entry > Reverse) — its VAT
+--      may already be in a VAT201 and must be corrected in the period that carries it.
+--   4. A DRAFT surplus: DELETE it by id, draft-guarded, lines first:
+--        DELETE FROM gl_journal_lines WHERE journal_entry_id = '<id>'
+--          AND EXISTS (SELECT 1 FROM gl_journal_entries WHERE id = '<id>' AND status = 'draft');
+--        DELETE FROM gl_journal_entries WHERE id = '<id>' AND status = 'draft';   -- must report DELETE 1
+--   5. Re-run step 1 (no rows), then re-run the deploy.
 DO $$
 DECLARE dup_count INT;
 BEGIN
@@ -117,7 +125,7 @@ BEGIN
   ) d;
 
   IF dup_count > 0 THEN
-    RAISE EXCEPTION 'K-072: % captured document(s) carry more than one LIVE posting journal. uq_gl_je_capture_source_document cannot be created until they are resolved — reverse the duplicate journal(s) (see the query in this migration and docs/audits/remediation/K-072/fix.md), then re-run.', dup_count;
+    RAISE EXCEPTION 'K-072: % captured document(s) carry more than one LIVE posting journal, so uq_gl_je_capture_source_document cannot be created. List each group with its status (query in this migration); keep the posted journal, else the earliest; REVERSE a posted surplus in the app; DELETE a draft surplus by id with the draft-guarded SQL; then re-run. See docs/audits/remediation/K-072/fix.md ("What an operator must do when 672 aborts").', dup_count;
   END IF;
 
   CREATE UNIQUE INDEX IF NOT EXISTS uq_gl_je_capture_source_document

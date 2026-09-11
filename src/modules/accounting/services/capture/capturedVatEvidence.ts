@@ -55,11 +55,14 @@ const TAX_SPELLING = new RegExp(String.raw`V[.\s_:-]+A[.\s_:-]*T|VA[.\s_:-]+T|B[
 const TAX_OCR_CAPS = /(?<![A-Za-z])(?:WAT|Tx|TX)(?![A-Za-z])/;
 /**
  * `Wat`/`wAT`/`UAT`/`W.A.T` in ANY case where the line is shaped like a tax
- * label (r39): the word followed only by a separator and an amount, a `%`, an
- * `R` or "amount". Afrikaans prose (`Werk wat gedoen is 1000.00`) still passes:
- * there the word is followed by words, not a figure.
+ * label (r39–r40): the word, then ANY run of separators (dots, pipes, dashes,
+ * colons, spaces — anything not a letter or digit) and optionally a currency
+ * (`ZAR`, `R`), then an amount, a `%` or "amount"; or the word alone on its
+ * line, a label whose amount a column layout prints elsewhere. Afrikaans prose
+ * (`Werk wat gedoen is 1000.00`) still passes: there the word is followed by
+ * another word.
  */
-const WAT_LABEL = /(?<![A-Za-z])[WU]\.?\s?A\.?\s?T\.?\s*(?:[:=@-]\s*)?(?:%|R\s?\d|\d|amount|amt|bedrag)/i;
+const WAT_LABEL = /(?<![A-Za-z])[WU]\.?\s?A\.?\s?T(?:[^A-Za-z\d]*(?:ZAR|R)?[^A-Za-z\d]*(?:%|\d|amount|amt|bedrag)|[^A-Za-z\d]*$)/i;
 const mentionsTax = (line: string) => TAX_SPELLING.test(line) || TAX_OCR_CAPS.test(line) || WAT_LABEL.test(line)
   || (line.match(/[A-Za-z]+/g) ?? []).some((w) => TAX_ROOT.test(w) && !ORDINARY.has(w.toLowerCase()));
 /** A VAT-number-shaped token: a leading 4 (or OCR `A`) and 9–11 digits or OCR confusables, spacing/slashes included. */

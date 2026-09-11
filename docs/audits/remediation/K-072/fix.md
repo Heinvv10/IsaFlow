@@ -421,8 +421,8 @@ nothing was listening on.
 
 **What an operator must do when 672 aborts** (corrected in round 39: the original advice said "reverse, never
 DELETE", but 672's check counts DRAFT journals too, and a draft cannot be reversed — `reverseJournalEntry` throws
-*Can only reverse posted entries*). Migration 672 itself is not edited: it is applied on the fixture and dev databases
-and any byte change fails their checksum. **Every step writes to production and needs Hein's approval**; run step 1
+*Can only reverse posted entries*). Round 40: 672's own comment and RAISE text now say the same (only comments and the
+message string changed; the SQL logic is byte-identical). **Every step writes to production and needs Hein's approval**; run step 1
 before the deploy to know whether 672 will abort.
 
 1. **List every journal in each duplicate group:**
@@ -2901,3 +2901,23 @@ touch; evidence on all 4 481 rows is unchanged, measured (the one row evidencing
 
 **Migration 672 operator procedure:** corrected in place — see "What an operator must do when 672 aborts"
 (in the merge-review section on migration 672). It is kept in ONE place.
+
+---
+
+## Round 40 — `Wat` behind any separator; migration 672 tells the operator the right thing
+
+Review: `review-k072-r39.md` (0H/0M/2L; round 38's MEDIUM resolved — the 672 procedure works end to end on a scratch
+fixture, and a posted id or another company's draft gives DELETE 0). `origin/master` had not moved.
+
+| Finding | Disposition |
+|---|---|
+| LOW-1 a mixed-case `Wat` still passed behind other separators (`Wat ........ 260.86`, `Wat \| 260.86`, `Wat — 260.86`) or alone on its line in a column layout — approved and posted at tax 0 | FIXED: `WAT_LABEL` takes the word, then ANY run of non-letter, non-digit characters (dots, pipes, dashes, colons, asterisks, commas, spaces), optionally `ZAR`/`R`, then an amount, `%` or "amount"; or the word ALONE on its line (a column layout's label). Prose still passes where another word follows (`Werk wat gedoen is …`, `Water`, `Watt`); a prose line with a figure straight after `wat` (`Alles wat - 260.86 kos`) fails closed (pinned). **On the DB** (`k072-vat-declaration`): the reviewer's four shapes — the dotted leader through `ai-invoice-pipeline`, the pipe, the em dash, and the column layout — are refused by both approve tools and `post_journal`. |
+| LOW-2 the stated reason for not editing 672 was false | **Measured and corrected.** `isaflow_dev` has NO 672 row in `schema_migrations` (330 rows, max `622_…`), no `posted_at` column and no index; the fixture has 672's objects but no 672 tracking row. No checksum can break. So 672's operator comment and RAISE text are corrected to the procedure (list with status; keep the posted, else the earliest; REVERSE a posted surplus; DELETE a draft surplus by id with the draft-guarded SQL; see fix.md). **The SQL logic is byte-identical** — proved by comparing the file before and after with comments and the RAISE string removed. **Re-run on a scratch copy of the fixture** (`fixk072p_m672_scratch`, dropped after): with no duplicate, 672 applies (column + index); with a posted and a draft journal on one document it aborts with the new message and rolls back (no column, no index); the documented listing shows the posted journal first; the draft guard gives `DELETE 0` on the posted id; step 4 gives `DELETE 1` on the draft; the re-run applies. **The FK statement, made exact:** `gl_journal_lines` → `ON DELETE CASCADE`; `bank_transactions.provisional_je_id` → `ON DELETE SET NULL`, but only `auto_bank_recon` journals ever get that link (`provisionalPostingService`), so it cannot touch an `auto_expense_receipt` draft; every other table referencing a journal is `NO ACTION`, so a draft referenced there makes the DELETE fail rather than orphan anything. |
+
+**Not ours, noted:** in the column layout the extraction reads the subtotal (2226.14) as the total instead of 2487.00, and
+the bill is approved short by the VAT — identical on master; the lead adds it to R-092.
+
+**Mutations — 3, each RED on unit AND on the DB, restored byte-identically (md5):** X1 back to round 39's separators
+(unit 15, DB 4) · X2 the word alone on its line is no label (unit 3, DB 1 — the column layout) · X3 any `wat` word, prose
+included (unit 5, DB 1 — the prose page). Migration 672's change is comments and a message string only; its SQL logic
+is byte-identical and its behaviour was re-run above, so it takes no mutation.

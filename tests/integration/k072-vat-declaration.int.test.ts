@@ -227,6 +227,20 @@ it.each([['wat-mixed', 'Wat 260.86'], ['wat-lower-upper', 'wAT 260.86']])('%s: r
   expect((await postJ(je)).content[0]!.text).toMatch(UNEVIDENCED);
 });
 
+// r40 LOW-1: `Wat` behind other separators, or alone on its line in a column layout. The dotted leader goes through the pipeline.
+it.each([['wat-leader', 'Cooldrinks 1739.14\nBrown bread 420.00\nWat ........ 260.86\nTOTAL 2420.00'],
+  ['wat-pipe', 'Cooldrinks 1739.14\nBrown bread 420.00\nWat | 260.86\nTOTAL 2420.00'],
+  ['wat-dash', 'Cooldrinks 1739.14\nBrown bread 420.00\nWat — 260.86\nTOTAL 2420.00'],
+  ['wat-column', 'Cooldrinks\nBrown bread\nSubtotal\nWat\nTOTAL\n1806.14\n420.00\n2226.14\n260.86\n2487.00']])('%s: refused by both tools and post_journal', async (tag, body) => {
+  const text = `Bosman Foods\nWe are not VAT registered.\nInvoice No: ${tag}\nDate: 2026-06-0${tag.length % 9}\n${body}\n`;
+  const doc = await seed(text, 'Bosman Motors', 'invoice');
+  const billId = tag === 'wat-leader' ? await viaPipeline(doc) : await draftBill(doc, 2420);
+  expect((await approve(billId)).content[0]!.text).toMatch(UNEVIDENCED);
+  expect((await bulk(billId)).content[0]!.text).toMatch(UNEVIDENCED);
+  const je = await draftJournal(await seed(text, 'Bosman Motors', 'receipt'), 2420);
+  expect((await postJ(je)).content[0]!.text).toMatch(UNEVIDENCED);
+});
+
 it('r39 the other direction: a declared page whose Afrikaans prose says `wat` is approved and posted claiming none', async () => {
   const text = 'Joe se Tuindienste\nNie BTW-geregistreer nie\nWerk wat gedoen is 1000.00\nBedrag Verskuldig 1000.00\n';
   const bill = await draftBill(await seed(text, 'Joe Garden Services', 'invoice'), 1000);
