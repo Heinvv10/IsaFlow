@@ -76,7 +76,7 @@ const SEP = String.raw`(?:[\s._/]|-(?!\d))*`;
  * it reads negative, which the auto-post gate refuses. That is NOT automatically
  * true of every pattern: see `VAT_PATTERNS[1]`, whose separator is required.
  */
-const VALUE_SEP = String.raw`\s*(?::|-(?!\d))?\s*(?:ZAR|R)?\s*`;
+const VALUE_SEP = String.raw`\s*(?::|=|-(?!\d))?\s*(?:ZAR|R)?\s*`;
 
 /**
  * "Excluding" and "Including", in every abbreviation a document prints.
@@ -105,9 +105,9 @@ const EXCL_LONG = String.raw`Ex${ABBREV_TAIL}\.?`;
 /** `Total` and the Afrikaans `Totaal`, spelled once so every guard and pattern learns both. */
 const TOTAL_WORD = String.raw`Totaa?l`;
 
-/** The tax word, with or without the full stops of `V.A.T.`. */
-const VAT_WORD = String.raw`V\.?A\.?T\.?`;
-const TAX_WORD = String.raw`(?:${VAT_WORD}|Tax)`;
+/** The tax word, with or without the full stops of `V.A.T.`, and the Afrikaans `BTW`/`Belasting` (r29). */
+const VAT_WORD = String.raw`(?:V\.?A\.?T\.?|BTW)`;
+const TAX_WORD = String.raw`(?:${VAT_WORD}|Tax|Belasting)`;
 
 /**
  * The noun a document prints AFTER the tax word: `VAT Amount`, `VAT Total`,
@@ -247,10 +247,10 @@ export const VAT_PATTERNS: RegExp[] = [
   // not a refusal downstream: the builder derives 15%, an invented R13.04 claim
   // on a zero-rated slip. `(?=-\d)` accepts the glued dash without consuming
   // it, so `AMOUNT` reads the sign: `VAT-0.00` is 0, `VAT-150.00` is -150.
-  new RegExp(String.raw`${NOT_A_TAX_LABEL}${VAT_WORD}${TAX_NOUN}\s*(?::|-(?!\d)|(?=-\d))\s*(?:ZAR|R)?\s*${AMOUNT}`, 'gi'),
+  new RegExp(String.raw`${NOT_A_TAX_LABEL}${VAT_WORD}${TAX_NOUN}\s*(?::|=|-(?!\d)|(?=-\d))\s*(?:ZAR|R)?\s*${AMOUNT}`, 'gi'),
   new RegExp(String.raw`${NOT_A_TAX_LABEL}${VAT_WORD}${TAX_NOUN}\s+(?:ZAR|R)\s*${AMOUNT}`, 'gi'),
   new RegExp(String.raw`${NOT_A_TAX_LABEL}${VAT_WORD}${TAX_NOUN}\s+${AMOUNT}(?![\d.,]*\s*%)`, 'gi'),
-  new RegExp(String.raw`${NOT_A_TAX_LABEL}(?:(?:Output|Input)${SEP})?Tax${TAX_NOUN}(?:\s*(?:@|\()?\s*\d+(?:[.,]\d+)?\s*%\s*\)?)?${VALUE_SEP}${AMOUNT}(?![\d.,]*\s*%)`, 'gi'),
+  new RegExp(String.raw`${NOT_A_TAX_LABEL}(?:(?:Output|Input)${SEP})?(?:Tax|Belasting)${TAX_NOUN}(?:\s*(?:@|\()?\s*\d+(?:[.,]\d+)?\s*%\s*\)?)?${VALUE_SEP}${AMOUNT}(?![\d.,]*\s*%)`, 'gi'),
 ];
 
 /**

@@ -29,25 +29,12 @@
 import type { ExtractedDocument } from '@/modules/accounting/types/documentCapture.types';
 import { detectDocumentType, extractAmounts } from './ocrExtractionService';
 import { extractTotalCandidates, isUnreconciled } from './ocrAmountReconciliation';
+import { vatExceedsInclusiveTotal } from './ocrPreTaxTotal';
 import type { Unreconciled } from './ocrLargerFigure';
 import { adjustmentAfterTotal, unexplainedLargerFigure, unreconciledFigure } from './ocrLargerFigure';
 import { hasCreditIndicator } from './creditIndicators';
 import { namesForeignCurrency } from './documentCurrency';
 import { identifiesAsPurchase } from './purchaseTitle';
-
-/** The SA standard rate (`reports/vatBoxBasis.SA_VAT_RATE`, not imported: that module reaches the DB client). */
-const SA_VAT_RATE = 0.15;
-
-/**
- * Can this total CONTAIN this VAT? At 15% the tax inside an inclusive total T
- * is at most T × 15/115 — zero-rated lines only lower it. `Total (excl. VAT)
- * 1000.00 / VAT 15% 150.00` with no grand total printed reads 1 000 and 150:
- * 15% OF the total, so the total read is the pre-tax figure (round 28). The
- * 0.05 clears per-line rounding. Pure arithmetic, so it holds with no text.
- */
-function vatExceedsInclusiveTotal(vat: number | null | undefined, total: number | null | undefined): boolean {
-  return vat != null && total != null && total > 0 && vat > (total * SA_VAT_RATE) / (1 + SA_VAT_RATE) + 0.05;
-}
 
 /**
  * Is the VAT the model extracted a figure the document's text actually
@@ -119,13 +106,15 @@ export function refusesUnattendedApproval(
     & Partial<Pick<ExtractedDocument, 'vendorName' | 'vendorAddress' | 'vatAmount'>>,
 ): boolean {
   return isCreditNote(doc) || isFallbackExtraction(doc) || !identifiesAsPurchase(doc)
-    || vatExceedsInclusiveTotal(doc.vatAmount, doc.totalAmount) || vatNotPrinted(doc) || isAmbiguousTotal(doc);
+    || doc.vatAmount == null || vatExceedsInclusiveTotal(doc.vatAmount, doc.totalAmount) || vatNotPrinted(doc)
+    || isAmbiguousTotal(doc);
 }
 
 /** The refusal a failed reconciliation is reported as. */
 function unreconciledReason(off: Unreconciled): string {
   if (off.reason === 'paid') return `the document was paid ${off.value.toFixed(2)}, not the total read`;
   if (off.reason === 'larger') return `the document prints ${off.value.toFixed(2)}, more than the total read`;
+  if (off.reason === 'pretax') return `the total read excludes the VAT of ${off.value.toFixed(2)} the document prints`;
   return `the document prints ${off.value.toFixed(2)} below its total, which nothing explains`;
 }
 

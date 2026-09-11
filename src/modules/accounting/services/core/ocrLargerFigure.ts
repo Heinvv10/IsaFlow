@@ -26,6 +26,7 @@ import { parseAmount } from './ocrAmountParsing';
 import { UNRECONCILED_WARNING, totalPrintedEnd, totalPrintedLastEnd } from './ocrAmountReconciliation';
 import { isSummaryOnlyLine, isTaxOnlyLine, opensWithBlockOnlyTax, printedFigures, type CountIsCounter, type PrintedFigure } from './ocrPrintedFigures';
 import { unexplainedItem } from './ocrItemColumn';
+import { preTaxTotal } from './ocrPreTaxTotal';
 
 /**
  * A figure printed NEGATIVE: a glued minus (`-23.00`, `-R23.00`, `R -23.00`),
@@ -123,8 +124,9 @@ function recapRows(
 /** Why a document's own figures do not reconcile against the total read. */
 export interface Unreconciled {
   /** `paid` — the payments do not add up; `larger` — a bigger figure nothing
-   *  explains; `stray` — a figure below the total block nothing explains. */
-  reason: 'paid' | 'larger' | 'stray';
+   *  explains; `stray` — a figure below the total block nothing explains;
+   *  `pretax` — the total read excludes the tax it prints (`ocrPreTaxTotal`). */
+  reason: 'paid' | 'larger' | 'stray' | 'pretax';
   value: number;
 }
 
@@ -205,6 +207,8 @@ export function unreconciledFigure(
     cashChange = hasCash;
   }
   const isCounter: CountIsCounter = (value) => settled && value <= 99 && value < total / 10;
+  const pretax = preTaxTotal(text, total, known.vatAmount ?? null, settled);
+  if (pretax !== null) return { reason: 'pretax', value: pretax };
 
   const larger = printedFigures(text, isCounter).find((f) => f.value > total && !(settled && (f.isTender || f.isChange)));
   if (larger) return { reason: 'larger', value: larger.value };
