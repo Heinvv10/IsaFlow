@@ -29,6 +29,8 @@ export type AuditWorkerResult={state:'busy'|'not_claimed'}|{state:'succeeded';sn
  |{state:'succeeded';checkRunId:string;canonicalHash:string}
  |{state:'failed';code:AuditJobErrorCode;failureRecorded:boolean};
 let running=false;
+/** How long past the 5 s key lock_timeout the pin transaction may run, so the lock timeout fires first. */
+const PIN_LOCK_HEADROOM_MS=2000;
 function failureCode(error:unknown,signal:AbortSignal|undefined,timedOut:boolean):AuditJobErrorCode{
  if(signal?.aborted)return 'CANCELLED';if(timedOut)return 'RESOURCE_LIMIT';
  if(error instanceof EffectivePermissionError)return 'AUTHORITY_REVOKED';
@@ -54,7 +56,7 @@ async function executeAuditJob(input:AuditWorkerIdentity,options:{pool?:Pool;sig
  const limits:AuditClassLimits=AUDIT_PROCESS_LIMITS[workerClass],kinds:readonly AuditJobKind[]=AUDIT_WORKER_CLASS_KINDS[workerClass];
  const session={idleInTransactionMs:limits.idleInTransactionMs};
  const pool=options.pool??getAuthPool(),controller=new AbortController();
- running=true;let timedOut=false,lease:AuditJobLease|null=null,checkRun=false;
+ running=true;let timedOut=false,lease:AuditJobLease|null=null,checkRun=false,pinning=false;
  // The class timer and the work transaction share one deadline, anchored at the parent's spawn when it is known; the claim
  // keeps its own short bound from now (plan v6 A7), never beyond that deadline.
  const deadlineAt=(options.startedAt??Date.now())+limits.workDeadlineMs,claimDeadlineAt=Math.min(Date.now()+limits.claimDeadlineMs,deadlineAt);
@@ -66,8 +68,12 @@ async function executeAuditJob(input:AuditWorkerIdentity,options:{pool?:Pool;sig
   const currentLease=lease;
   // Authority is resolved and asserted in its own short transaction, after the claim committed: the run executes under
   // the authority valid when it started and never holds the company authority lock or its principal's rows while it works.
-  const pin=await withAuditWorkerTransaction(pool,identity,'read committed',Math.min(Date.now()+limits.claimDeadlineMs,deadlineAt),signal,
+  // Its statement_timeout sits above the key's 5 s lock_timeout so a held key surfaces as 55P03 (requeued below), not as
+  // a statement cancel.
+  pinning=true;
+  const pin=await withAuditWorkerTransaction(pool,identity,'read committed',Math.min(Date.now()+limits.claimDeadlineMs+PIN_LOCK_HEADROOM_MS,deadlineAt),signal,
    store=>pinAuditJobAuthority(store,currentLease),session);
+  pinning=false;
   const result=await withAuditWorkerTransaction(pool,identity,'repeatable read',deadlineAt,signal,store=>withControlJobRequest(store,currentLease,async()=>{
    const ctx=requireControlTx(),saved=await loadStoredAuditJobDelegation(ctx.sql,identity.companyId,identity.personId,currentLease);
    signal.throwIfAborted();
@@ -106,7 +112,9 @@ async function executeAuditJob(input:AuditWorkerIdentity,options:{pool?:Pool;sig
   if(lease){
    const currentLease=lease;
    const pgCode=error!==null&&typeof error==='object'&&'code'in error?error.code:null;
-   const retryable=code==='WORKER_ERROR'&&['40001','40P01','55P03'].includes(String(pgCode));
+   // A pin that could not get the company authority key (55P03, or 57014 when the class deadline cut the wait short)
+   // did no work under this lease: the job goes back to the queue for the next claim.
+   const retryable=code==='WORKER_ERROR'&&(['40001','40P01','55P03'].includes(String(pgCode))||(pinning&&pgCode==='57014'));
    try{
     await withAuditWorkerTransaction(pool,identity,'read committed',Date.now()+limits.failureRecordMs,undefined,store=>failAuditJobForWorker(store,currentLease,code,retryable),session);
     failureRecorded=true;

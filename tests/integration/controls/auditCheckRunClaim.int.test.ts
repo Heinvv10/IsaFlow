@@ -79,7 +79,7 @@ it('observes a <=5 s claim timeout, the class work timeout and the per-class idl
  expect(again.mock.calls.map(call=>(call as unknown as [{jobId:string}])[0].jobId)).not.toContain(check);
  expect(await runAuditJob(identity(check),{pool,workerClass:'check_run'})).toEqual({state:'not_claimed'});
  expect(checkSeen[0]!.statement).toBeLessThanOrEqual(5000);expect(checkSeen[0]!.statement).toBeGreaterThan(0);
- expect(checkSeen[1]!.statement).toBeLessThanOrEqual(5000);expect(checkSeen[1]!.statement).toBeGreaterThan(0);
+ expect(checkSeen[1]!.statement).toBeLessThanOrEqual(7000);expect(checkSeen[1]!.statement).toBeGreaterThan(5000);
  expect(checkSeen[2]!.statement).toBeGreaterThan(295000);expect(checkSeen[2]!.statement).toBeLessThanOrEqual(300000);
  for(const seen of checkSeen)expect(seen.idle).toBe(15000);
  // One generation, one result row: a published run is never re-executed by a later claim.
@@ -87,7 +87,7 @@ it('observes a <=5 s claim timeout, the class work timeout and the per-class idl
  const snap=await snapshot(),snapSeen:Seen[]=[];
  expect(await runAuditJob(identity(snap),{pool:observing(pool,snapSeen),workerClass:'audit'})).toMatchObject({state:'succeeded',snapshotId:snap});
  expect(snapSeen).toHaveLength(3);
- expect(snapSeen[0]!.statement).toBeLessThanOrEqual(5000);expect(snapSeen[1]!.statement).toBeLessThanOrEqual(5000);
+ expect(snapSeen[0]!.statement).toBeLessThanOrEqual(5000);expect(snapSeen[1]!.statement).toBeLessThanOrEqual(7000);expect(snapSeen[1]!.statement).toBeGreaterThan(5000);
  expect(snapSeen[2]!.statement).toBeGreaterThan(55000);expect(snapSeen[2]!.statement).toBeLessThanOrEqual(60000);
  for(const seen of snapSeen)expect(seen.idle).toBe(0);
 });

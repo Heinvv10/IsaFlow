@@ -9,6 +9,7 @@ import {parseArActionOptions} from '@/modules/accounting/services/ar/arActionOpt
 import type { NextApiResponse } from 'next';
 import { withErrorHandler } from '@/lib/api-error-handler';
 import { apiResponse } from '@/lib/apiResponse';
+import { isRetryableLockFailure } from '@/lib/lockContention';
 import {
   withAuth,
   withWriteAccess,
@@ -93,6 +94,8 @@ async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse) {
       result.generated += 1;
       result.invoice_ids.push(invoiceId);
     } catch (err) {
+      // A held company authority key is one 503 for the request, not a skip repeated at 5 s per template.
+      if (isRetryableLockFailure(err)) throw err;
       const msg = err instanceof Error ? err.message : 'Failed to generate invoice';
       result.errors.push(`${id}: ${msg}`);
       log.error('Bulk recurring run — single item failed', { id, error: err }, 'recurring-run');
