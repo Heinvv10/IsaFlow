@@ -34,10 +34,18 @@ describe('management pack generation gate: actual PostgreSQL',()=>{
  });
 
  it('reports the withheld delivery to the scheduler that runs it',async()=>{
+  // generation_day is CHECKed to 1-28 (migration 337) — every month has a 28th, but not every
+  // month has a 29th-31st, so a "today" that lands there must be clamped, not stored as-is.
+  const today=new Date(),generationDay=Math.min(today.getDate(),28);
   await h.pool.query(`INSERT INTO management_pack_configs(company_id,enabled,generation_day,delivery_day,review_required,sections_enabled,recipients,pack_style,comparison_mode,currency_display)
    VALUES($1,true,$2,5,false,'{"kpi_scorecard":true}'::jsonb,'[]'::jsonb,'executive','prior_month','full')
-   ON CONFLICT (company_id) DO UPDATE SET enabled=true,review_required=false,generation_day=$2`,[h.f.companyA,new Date().getDate()]);
-  const summary=await h.member(h.f.u1.id,()=>runDailyScheduler());
+   ON CONFLICT (company_id) DO UPDATE SET enabled=true,review_required=false,generation_day=$2`,[h.f.companyA,generationDay]);
+  // Scheduler is told the same clamped day so it looks up companies scheduled for that day —
+  // the real cron always sees the unclamped calendar day, so on the 29th-31st this test's
+  // substitution intentionally diverges from production; runDailyScheduler's own dayOfMonth
+  // is not exercised against 29-31 here, only the config/gate/withheld-reason plumbing.
+  const asOf=new Date(today.getFullYear(),today.getMonth(),generationDay);
+  const summary=await h.member(h.f.u1.id,()=>runDailyScheduler(asOf));
   const withheld=summary.deliveriesWithheld.find(row=>row.companyId===h.f.companyA);
   expect(withheld,'the scheduler reported nothing about the pack it did not deliver').toBeTruthy();
   expect(withheld?.reason).toMatch(/status that is not yet available/);
