@@ -95,7 +95,7 @@ it('prepares a durable bank intent without posting and executes it exactly once 
  const effect=(await pool.query("SELECT id FROM control_operation_effects WHERE company_id=$1 AND entity_type='bank_transfer_intent' AND entity_id=$2",[fixture.companyA,prepared.intentId])).rows[0].id as string;
  await expect(actor('u3',ctx=>replayKnownOperationEffect(ctx,prepared.operation,effect))).rejects.toThrow('association');
  await expect(actor('u1',ctx=>replayKnownOperationEffect(ctx,{...prepared.operation,entityId:bankIntent},effect))).rejects.toThrow('association');
- await expect(actor('u2',()=>executeBankTransfer(fixture.companyA,fixture.u2.id,prepared.intentId))).rejects.toThrow('requester');
+ await expect(actor('u2',()=>executeBankTransfer(fixture.companyA,fixture.u2.id,prepared.intentId))).rejects.toThrow('Transfer intent not found');
 });
 it('refuses inactive bank metadata and closed dates without leaving a financial journal',async()=>{
  const prepare=()=>actor('u1',()=>prepareBankTransfer(fixture.companyA,fixture.u1.id,{fromAccountId:accounts[0]!.id,toAccountId:accounts[1]!.id,amount:'23.45',transferDate:'2026-02-28'}));
