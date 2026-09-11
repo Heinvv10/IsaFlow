@@ -28,8 +28,8 @@ export async function saveDefaultAccounts(ctx:ControlTx,value:unknown):Promise<{
   const changed=expected.filter((row,i)=>meaningfulGlRow(row)!==meaningfulGlRow(before[i]!));
   if(!settingsChanged&&!changed.length)return{saved:true};
   const versions=await ctx.sql`SELECT entity_type,entity_id,version FROM control_entity_versions WHERE company_id=${c}::uuid
-   AND ((entity_type='gl_account' AND lower(entity_id)=ANY(${changed.map(row=>row.id.toLowerCase())}::text[]))
-    OR (entity_type='accounting_default_accounts' AND lower(entity_id)=lower(${c})))
+   AND ((entity_type='gl_account' AND entity_id_canonical=ANY(${changed.map(row=>row.id.toLowerCase())}::text[]))
+    OR (entity_type='accounting_default_accounts' AND entity_id_canonical=lower(${c})))
    ORDER BY entity_type,entity_id FOR UPDATE` as {entity_type:string;entity_id:string;version:number|string}[];
   for(const row of changed){
    const rows=await ctx.sql`UPDATE gl_accounts SET is_system_account=${row.is_system_account},account_subtype=${row.account_subtype}

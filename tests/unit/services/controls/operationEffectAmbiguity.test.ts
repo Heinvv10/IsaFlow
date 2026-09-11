@@ -10,7 +10,7 @@ import {executeControlledOperation} from '@/modules/accounting/services/controls
 import type {ControlTx,OperationRef} from '@/modules/accounting/services/controls/contracts';
 const ref={entityType:'payroll_run',entityId:'11111111-1111-1111-1111-111111111111',operation:'payroll_run.post'} as OperationRef;
 const receipt={journalEntryId:'33333333-3333-3333-3333-333333333333'};
-// A committed effect is read back by lower(entity_id), so a legacy or tampered case-only
+// A committed effect is read back by entity_id_canonical (lower(entity_id)), so a legacy or tampered case-only
 // duplicate can match twice; the kernel must refuse rather than return an arbitrary row.
 function context(rows:Array<{id:string;result:unknown}>){
   const sql=vi.fn().mockResolvedValueOnce([]).mockResolvedValueOnce(rows);
@@ -33,5 +33,5 @@ it('reads the committed effect back case-insensitively, capped so a duplicate is
   const {ctx,sql}=context([{id:'22222222-2222-2222-2222-222222222222',result:receipt}]);
   await executeControlledOperation(ctx,ref,null,effected);
   const query=(sql.mock.calls.at(-1)![0] as string[]).join('?').replace(/\s+/g,' ');
-  expect(query).toContain('lower(entity_id)=?');expect(query).toContain('LIMIT 2');
+  expect(query).toContain('entity_id_canonical=?');expect(query).toContain('LIMIT 2');
 });

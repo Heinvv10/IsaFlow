@@ -76,7 +76,7 @@ export async function loadPayrollControlPopulation(ctx:ControlTx,cutoff:string|n
     'taxable_income',l.taxable_income::text,'paye',l.paye::text,'uif_employee',l.uif_employee::text,'uif_employer',l.uif_employer::text,
     'sdl',l.sdl::text,'eti',l.eti::text,'net_pay',l.net_pay::text) ORDER BY l.id) FROM lines l WHERE l.run_id=h.id),'[]'::jsonb),
    'journal',(SELECT to_jsonb(j) FROM journals j WHERE j.id=h.journal_entry_id)) ORDER BY h.id) FROM runs h
-   LEFT JOIN LATERAL(SELECT cv.* FROM control_entity_versions cv WHERE cv.company_id=h.company_id AND cv.entity_type='payroll_run' AND lower(cv.entity_id)=h.id::text ORDER BY cv.version DESC,(cv.entity_id=h.id::text) DESC,cv.entity_id COLLATE "C" LIMIT 1) v ON true),'[]'::jsonb),
+   LEFT JOIN LATERAL(SELECT cv.* FROM control_entity_versions cv WHERE cv.company_id=h.company_id AND cv.entity_type='payroll_run' AND cv.entity_id_canonical=h.id::text ORDER BY cv.version DESC,(cv.entity_id=h.id::text) DESC,cv.entity_id COLLATE "C" LIMIT 1) v ON true),'[]'::jsonb),
   'declarations',COALESCE((SELECT jsonb_agg(jsonb_build_object('id',d.id,'year',d.period_year,'month',d.period_month,
    'employee',d.total_employee_contribution::text,'employer',d.total_employer_contribution::text,'status',d.status,
    'journal',(SELECT to_jsonb(j) FROM journals j WHERE j.id=d.journal_entry_id)) ORDER BY d.id) FROM declarations d),'[]'::jsonb)

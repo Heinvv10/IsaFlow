@@ -20,10 +20,10 @@ export async function verifyCashBankOrigin(ctx:ControlTx,effectId:string,intentI
  assertControlTx(ctx);const company=ctx.principal.companyId;
  const evidence=await ctx.sql`SELECT p.envelope_version,p.key_id,p.ciphertext FROM control_operation_effects e
   JOIN control_change_events c ON c.company_id=e.company_id AND c.operation_id=e.operation_id AND c.entity_type=e.entity_type
-   AND lower(c.entity_id)=lower(e.entity_id) AND c.action='bank_allocation.post'
+   AND c.entity_id_canonical=e.entity_id_canonical AND c.action='bank_allocation.post'
   JOIN control_protected_evidence p ON p.company_id=c.company_id AND p.id=c.protected_evidence_id AND p.entity_type=c.entity_type
-   AND lower(p.entity_id)=lower(c.entity_id)
-  WHERE e.company_id=${company}::uuid AND e.id=${effectId}::uuid AND e.entity_type='bank_allocation_intent' AND lower(e.entity_id)=lower(${intentId})
+   AND p.entity_id_canonical=c.entity_id_canonical
+  WHERE e.company_id=${company}::uuid AND e.id=${effectId}::uuid AND e.entity_type='bank_allocation_intent' AND e.entity_id_canonical=lower(${intentId})
    AND e.operation='bank_allocation.post' AND e.result->>'paymentId'=${String(payment.id)} ORDER BY c.id LIMIT 2` as {envelope_version:number;key_id:string;ciphertext:string}[];
  if(evidence.length!==1||evidence[0]!.envelope_version!==1)throw new Error('Original bank financial evidence required');
  const envelope=evidence[0]!,snapshot=snapshotSchema.parse(openProtectedChange({version:1,keyId:envelope.key_id,ciphertext:envelope.ciphertext}).after);

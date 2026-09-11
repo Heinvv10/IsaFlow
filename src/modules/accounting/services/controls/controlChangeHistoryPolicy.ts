@@ -33,7 +33,7 @@ export async function assertHistoryEntity(ctx:ControlTx,type:string,id:string){
   if(!rows.length)throw new Error('History domain metadata unavailable');
   for(const row of rows){if(!['gl','opening_balance','customer_invoice','supplier_invoice'].includes(row.kind))throw new Error('Unsupported import history');await assertEffectivePermission(ctx,['gl','opening_balance'].includes(row.kind)?'read:reports':'read:invoices');}
  }
- const retained=await ctx.sql`SELECT id FROM control_change_events WHERE company_id=${c}::uuid AND entity_type=${type} AND lower(entity_id)=lower(${id}) LIMIT 1`;
+ const retained=await ctx.sql`SELECT id FROM control_change_events WHERE company_id=${c}::uuid AND entity_type=${type} AND entity_id_canonical=lower(${id}) LIMIT 1`;
  if(!retained.length&&!await hasHistoryParent(ctx,type,id))throw new Error('History unavailable');
 }
 /** Project a finite authority vocabulary in SQL; never transfer whole binding populations. */
