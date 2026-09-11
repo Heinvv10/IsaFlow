@@ -26,9 +26,13 @@ async function migrated<T>(fn:(client:PoolClient)=>Promise<T>):Promise<T>{
  }finally{await client.query('ROLLBACK');client.release();}
 }
 /** Runs one statement as platform_admin inside a savepoint and returns its SQLSTATE, or 'ok'. */
-async function asPlatform(client:PoolClient,statement:string,values:unknown[]=[]):Promise<string>{
+async function asPlatform(client:PoolClient,statement:string,values:unknown[]=[],claims?:Record<string,unknown>):Promise<string>{
  await client.query('SAVEPOINT attempt');
- try{await client.query('SET LOCAL ROLE platform_admin');await client.query(statement,values);return 'ok';}
+ try{
+  await client.query('SET LOCAL ROLE platform_admin');
+  if(claims)await client.query("SELECT set_config('request.jwt.claims',$1,true)",[JSON.stringify(claims)]);
+  await client.query(statement,values);return 'ok';
+ }
  catch(error){return (error as {code?:string}).code??'unknown';}
  finally{await client.query('ROLLBACK TO SAVEPOINT attempt');}
 }
@@ -56,8 +60,10 @@ describe('platform_admin writes on approvals and decisions (migration 687): actu
    for(const [column,value] of [['consumed_effect_id',randomUUID()],['consumed_at','2026-01-01'],['decided_at','2026-01-01'],['id',randomUUID()]] as const)
     expect({column,code:await asPlatform(client,`INSERT INTO control_operation_approvals(${base},${column}) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,clock_timestamp()+interval '1 day',$10)`,[...values,value])})
      .toEqual({column,code:'42501'});
-   // The request's own column list passes the privilege check and every CHECK; only the unknown company refuses it.
-   expect(await asPlatform(client,`INSERT INTO control_operation_approvals(${base}) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,clock_timestamp()+interval '1 day')`,values)).toBe('23503');
+   // The request's own column list, born pending by its acting requester, passes the privilege check, 688's birth
+   // guard and every CHECK; only the unknown company refuses it.
+   expect(await asPlatform(client,`INSERT INTO control_operation_approvals(${base}) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,clock_timestamp()+interval '1 day')`,
+    [...values.slice(0,8),'pending'],{sub:values[5],role:'authenticated'})).toBe('23503');
   });
  });
 

@@ -43,11 +43,16 @@ async function as<T>(role:'app_user'|'platform_admin',claims:Record<string,unkno
   return await fn(client);
  }finally{await client.query('ROLLBACK');client.release();}
 }
+/** A pending approval born as 688 requires: by its requester acting, here the platform maker (687 lets it name no id). */
 async function approval(entityType:string,operation:string,entityId:string,requester:string){
- const id=randomUUID();
- await pool.query(`INSERT INTO control_operation_approvals(id,company_id,operation_id,operation,entity_type,entity_id,requester_person_id,requester_auth_method,binding,binding_hash,status,expires_at)
-  VALUES($1,$2,$3,$4,$5,$6,$7,'platform_import','{}'::jsonb,$8,'pending',clock_timestamp()+interval '1 day')`,[id,f.companyA,randomUUID(),operation,entityType,entityId,requester,hex()]);
- return id;
+ const client=await pool.connect();
+ try{
+  await client.query('BEGIN');await client.query('SET LOCAL ROLE platform_admin');
+  await client.query("SELECT set_config('request.jwt.claims',$1,true)",[JSON.stringify({sub:requester,role:'authenticated'})]);
+  const {rows}=await client.query(`INSERT INTO control_operation_approvals(company_id,operation_id,operation,entity_type,entity_id,requester_person_id,requester_auth_method,binding,binding_hash,status,expires_at)
+   VALUES($1,$2,$3,$4,$5,$6,'platform_import','{}'::jsonb,$7,'pending',clock_timestamp()+interval '1 day') RETURNING id`,[f.companyA,randomUUID(),operation,entityType,entityId,requester,hex()]);
+  await client.query('COMMIT');return rows[0].id as string;
+ }catch(error){await client.query('ROLLBACK');throw error;}finally{client.release();}
 }
 
 describe('historical import batch storage: actual PostgreSQL',()=>{

@@ -3,6 +3,7 @@ import {randomUUID} from 'node:crypto';
 import {readFile} from 'node:fs/promises';
 import {platformImportApprovalFixture} from './platformImportApprovalFixture';
 import {gl39Fixture} from './gl39Fixture';
+import {asPerson} from './approvalGuardBypass';
 import {requestOperationApproval,decideOperationApproval} from '@/modules/accounting/services/controls/approvalRequestService';
 
 /**
@@ -93,10 +94,12 @@ describe('owner-or-admin approver for historical imports: actual PostgreSQL',()=
   await setFlag(false);
   try{
    const p=await h.prepared(),approval=await h.request(p.ref);
-   // A decision row the kernel would never write: the execution recheck, not the decision path, must refuse it.
+   // u2 takes the step in its own app_user session, bypassing the kernel's role check: 689 binds a decision to the
+   // acting person, not to a role, so the execution recheck, not the decision path, must refuse it.
    const policy=(await h.pool.query("SELECT binding->'policies'->0->>'policyId' AS id FROM control_operation_approvals WHERE company_id=$1 AND id=$2",[h.f.companyA,approval.id])).rows[0].id;
-   await h.pool.query("INSERT INTO control_operation_decisions(company_id,approval_id,policy_id,person_id,decision,evidence_refs,decided_at) VALUES($1,$2,$3,$4,'approved','[]'::jsonb,clock_timestamp())",[h.f.companyA,approval.id,policy,h.f.u2.id]);
-   await h.pool.query("UPDATE control_operation_approvals SET status='approved',decided_at=clock_timestamp() WHERE company_id=$1 AND id=$2",[h.f.companyA,approval.id]);
+   await asPerson(h.pool,{id:h.f.u2.id,companyId:h.f.companyA},[
+    ["INSERT INTO control_operation_decisions(company_id,approval_id,policy_id,person_id,decision,evidence_refs) VALUES($1,$2,$3,$4,'approved','[]'::jsonb)",[h.f.companyA,approval.id,policy,h.f.u2.id]],
+    ["UPDATE control_operation_approvals SET status='approved' WHERE company_id=$1 AND id=$2",[h.f.companyA,approval.id]]]);
    await asRole(h.f.companyA,h.f.u2.id,'owner',async()=>{await expect(h.execute(p.ref,approval.id)).rejects.toThrow('Approval authority is no longer valid');});
    expect(await h.noEffects(p.ref)).toEqual({journals:0,effects:0});
   }finally{await setFlag(true);}
