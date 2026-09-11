@@ -72,9 +72,14 @@ function renderBlock(block: NoteContentBlock): DocxChild[] {
 
 // ── cover page ────────────────────────────────────────────────────────────────
 
+/** A management pack is not annual financial statements: the PDF cover's title and period line. */
+const isPack = (doc: AfsDocument) => doc.documentType === 'management_pack';
+const docTitle = (doc: AfsDocument) => (isPack(doc) ? 'Management Accounts' : 'Annual Financial Statements');
+
 function buildCoverChildren(doc: AfsDocument, companyName: string): DocxChild[] {
   const year = doc.fiscalYear ?? new Date().getFullYear();
-  const period = doc.period ?? `Year ended 28 February ${year}`;
+  // An AFS cover is exactly as before; the golden in afsDocxCoverTitle.test.ts holds it there.
+  const period = isPack(doc) ? `For the period ${doc.period ?? ''}` : doc.period ?? `Year ended 28 February ${year}`;
 
   return [
     spacer(),
@@ -82,7 +87,7 @@ function buildCoverChildren(doc: AfsDocument, companyName: string): DocxChild[] 
     spacer(),
     centeredParagraph(companyName, true, 48),
     spacer(),
-    centeredParagraph('Annual Financial Statements', true, 36),
+    centeredParagraph(docTitle(doc), true, 36),
     spacer(),
     centeredParagraph(period, false, 28),
     spacer(),
@@ -212,8 +217,8 @@ export async function renderToDocx(
 
   const file = new File({
     creator: 'IsaFlow AFS',
-    title: `${companyName} — Annual Financial Statements`,
-    description: `AFS for fiscal year ${document.fiscalYear ?? ''}`,
+    title: `${companyName} — ${docTitle(document)}`,
+    description: isPack(document) ? `Management accounts for ${document.period ?? ''}` : `AFS for fiscal year ${document.fiscalYear ?? ''}`,
     styles: buildStyles(),
     sections: [
       {
