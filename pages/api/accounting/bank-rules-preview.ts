@@ -47,17 +47,17 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
   let rows: Row[];
 
   if (bid && field === 'description') {
-    rows = (await sql`SELECT COUNT(*)::INT AS cnt FROM bank_transactions WHERE bank_account_id = ${bid}::UUID AND description ILIKE ${ilike} AND status = 'imported' AND company_id = ${companyId}`) as Row[];
+    rows = (await sql`SELECT COUNT(*)::INT AS cnt FROM bank_transactions WHERE bank_account_id = ${bid}::UUID AND description ILIKE ${ilike} AND status = 'imported' AND feed_state = 'posted' AND company_id = ${companyId}`) as Row[];
   } else if (bid && field === 'reference') {
-    rows = (await sql`SELECT COUNT(*)::INT AS cnt FROM bank_transactions WHERE bank_account_id = ${bid}::UUID AND reference ILIKE ${ilike} AND status = 'imported' AND company_id = ${companyId}`) as Row[];
+    rows = (await sql`SELECT COUNT(*)::INT AS cnt FROM bank_transactions WHERE bank_account_id = ${bid}::UUID AND reference ILIKE ${ilike} AND status = 'imported' AND feed_state = 'posted' AND company_id = ${companyId}`) as Row[];
   } else if (bid && field === 'both') {
-    rows = (await sql`SELECT COUNT(*)::INT AS cnt FROM bank_transactions WHERE bank_account_id = ${bid}::UUID AND (description ILIKE ${ilike} OR reference ILIKE ${ilike}) AND status = 'imported' AND company_id = ${companyId}`) as Row[];
+    rows = (await sql`SELECT COUNT(*)::INT AS cnt FROM bank_transactions WHERE bank_account_id = ${bid}::UUID AND (description ILIKE ${ilike} OR reference ILIKE ${ilike}) AND status = 'imported' AND feed_state = 'posted' AND company_id = ${companyId}`) as Row[];
   } else if (field === 'reference') {
-    rows = (await sql`SELECT COUNT(*)::INT AS cnt FROM bank_transactions WHERE reference ILIKE ${ilike} AND status = 'imported' AND company_id = ${companyId}`) as Row[];
+    rows = (await sql`SELECT COUNT(*)::INT AS cnt FROM bank_transactions WHERE reference ILIKE ${ilike} AND status = 'imported' AND feed_state = 'posted' AND company_id = ${companyId}`) as Row[];
   } else if (field === 'both') {
-    rows = (await sql`SELECT COUNT(*)::INT AS cnt FROM bank_transactions WHERE (description ILIKE ${ilike} OR reference ILIKE ${ilike}) AND status = 'imported' AND company_id = ${companyId}`) as Row[];
+    rows = (await sql`SELECT COUNT(*)::INT AS cnt FROM bank_transactions WHERE (description ILIKE ${ilike} OR reference ILIKE ${ilike}) AND status = 'imported' AND feed_state = 'posted' AND company_id = ${companyId}`) as Row[];
   } else {
-    rows = (await sql`SELECT COUNT(*)::INT AS cnt FROM bank_transactions WHERE description ILIKE ${ilike} AND status = 'imported' AND company_id = ${companyId}`) as Row[];
+    rows = (await sql`SELECT COUNT(*)::INT AS cnt FROM bank_transactions WHERE description ILIKE ${ilike} AND status = 'imported' AND feed_state = 'posted' AND company_id = ${companyId}`) as Row[];
   }
 
   return apiResponse.success(res, { matchCount: Number(rows[0]?.cnt || 0) });

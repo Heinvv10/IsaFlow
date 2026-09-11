@@ -81,6 +81,7 @@ export async function duplicateBankReferences(ctx: IntegrityCheckContext): Promi
     FROM bank_transactions bt
     WHERE bt.company_id = ${ctx.companyId}::UUID
       AND bt.transaction_date <= ${ctx.asAt}::DATE
+      AND bt.feed_state = 'posted'
       AND COALESCE(NULLIF(bt.reference, ''), bt.bank_reference) IS NOT NULL
     GROUP BY 1
     HAVING COUNT(*) > 1

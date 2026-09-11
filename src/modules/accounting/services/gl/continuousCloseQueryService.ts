@@ -20,6 +20,7 @@ export async function buildCloseState(companyId: string): Promise<CloseState> {
     WHERE bt.company_id = ${companyId}
       AND bt.status = 'imported'
       AND bt.suggested_gl_account_id IS NULL
+      AND bt.feed_state = 'posted'
     ORDER BY bt.transaction_date DESC
     LIMIT 100
   `) as Row[];
@@ -31,6 +32,7 @@ export async function buildCloseState(companyId: string): Promise<CloseState> {
     FROM bank_transactions bt
     WHERE bt.company_id = ${companyId}
       AND bt.status = 'imported'
+      AND bt.feed_state = 'posted'
     ORDER BY bt.transaction_date DESC
     LIMIT 100
   `) as Row[];
