@@ -41,6 +41,15 @@ BEGIN
       CHECK (provider_transaction_id IS NULL OR bank_feed_connection_id IS NOT NULL) NOT VALID;
     ALTER TABLE bank_transactions VALIDATE CONSTRAINT bank_tx_feed_identity_paired;
   END IF;
+  -- A non-posted row carries no accounting link. The trigger below guards
+  -- UPDATEs; this closes INSERT, which the trigger never sees.
+  IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'bank_tx_nonposted_unlinked' AND conrelid = 'bank_transactions'::regclass) THEN
+    ALTER TABLE bank_transactions ADD CONSTRAINT bank_tx_nonposted_unlinked
+      CHECK (feed_state = 'posted'
+             OR (status = 'imported' AND matched_journal_line_id IS NULL AND reconciliation_id IS NULL
+                 AND provisional_je_id IS NULL AND allocation_type IS NULL)) NOT VALID;
+    ALTER TABLE bank_transactions VALIDATE CONSTRAINT bank_tx_nonposted_unlinked;
+  END IF;
   IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'fk_bank_tx_feed_connection' AND conrelid = 'bank_transactions'::regclass) THEN
     ALTER TABLE bank_transactions ADD CONSTRAINT fk_bank_tx_feed_connection
       FOREIGN KEY (bank_feed_connection_id, company_id)
@@ -93,7 +102,7 @@ BEGIN
 
   IF OLD.bank_feed_connection_id IS NOT NULL
      AND (OLD.status IS DISTINCT FROM 'imported' OR OLD.matched_journal_line_id IS NOT NULL
-          OR OLD.provisional_je_id IS NOT NULL)
+          OR OLD.reconciliation_id IS NOT NULL OR OLD.provisional_je_id IS NOT NULL)
      AND (NEW.transaction_date, NEW.value_date, NEW.amount, NEW.description, NEW.reference)
          IS DISTINCT FROM
          (OLD.transaction_date, OLD.value_date, OLD.amount, OLD.description, OLD.reference) THEN
@@ -159,3 +168,9 @@ ALTER TABLE bank_feed_sync_logs
   ADD COLUMN IF NOT EXISTS transactions_conflict INT NOT NULL DEFAULT 0,
   ADD COLUMN IF NOT EXISTS transactions_ignored  INT NOT NULL DEFAULT 0,
   ADD COLUMN IF NOT EXISTS error_code TEXT;
+
+-- 6. Posted-only reader for dynamic SQL (nl-query). security_invoker, so the
+--    caller's RLS on bank_transactions applies through the view.
+CREATE OR REPLACE VIEW bank_transactions_posted WITH (security_invoker = true) AS
+  SELECT * FROM bank_transactions WHERE feed_state = 'posted';
+GRANT SELECT ON bank_transactions_posted TO app_user;
