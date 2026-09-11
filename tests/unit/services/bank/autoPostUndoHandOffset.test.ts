@@ -78,7 +78,7 @@ describe('undoRun — hand offsets (R-079)', () => {
     routeSql([
       { match: /FROM bank_auto_post_runs/, rows: [{ id: 'run-1', undone_at: null }] },
       { match: /FROM bank_transactions\s+WHERE auto_post_run_id/, rows: [provisionalRow] },
-      { match: /SELECT entry_date, COALESCE\(posted_at/, rows: [{ entry_date: '2026-05-15', at: '2026-05-15T10:00:00Z', source_document_id: null }] },
+      { match: /SELECT COALESCE\(posted_at, created_at\) AS at, source_document_id/, rows: [{ at: '2026-05-15T10:00:00Z', source_document_id: null }] },
       { match: /WITH RECURSIVE effect AS/, rows: [blocking] },
     ]);
 
@@ -102,7 +102,7 @@ describe('undoRun — hand offsets (R-079)', () => {
     routeSql([
       { match: /FROM bank_auto_post_runs/, rows: [{ id: 'run-1', undone_at: null }] },
       { match: /FROM bank_transactions\s+WHERE auto_post_run_id/, rows: [provisionalRow] },
-      { match: /SELECT entry_date, COALESCE\(posted_at/, rows: [{ entry_date: '2026-05-15', at: '2026-05-15T10:00:00Z', source_document_id: null }] },
+      { match: /SELECT COALESCE\(posted_at, created_at\) AS at, source_document_id/, rows: [{ at: '2026-05-15T10:00:00Z', source_document_id: null }] },
       { match: /WITH RECURSIVE effect AS/, rows: [] },
     ]);
 
