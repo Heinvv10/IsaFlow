@@ -95,7 +95,7 @@ export async function startReconciliation(
         UPDATE bank_transactions SET reconciliation_id = ${rows[0]!.id}::UUID
         WHERE bank_account_id = ${bankAccountId}::UUID
           AND company_id = ${companyId}::UUID
-          AND status = 'imported' AND reconciliation_id IS NULL`;
+          AND status = 'imported' AND feed_state = 'posted' AND reconciliation_id IS NULL`;
       return rows[0]!;
     });
     log.info('Started bank reconciliation', {

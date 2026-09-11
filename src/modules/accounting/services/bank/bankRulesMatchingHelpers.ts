@@ -74,6 +74,7 @@ export async function findMatchingTxs(
       WHERE bank_account_id = ${bankAccountId}::UUID
         AND company_id = ${companyId}::UUID
         AND status = 'imported'
+        AND feed_state = 'posted'
         AND matched_journal_line_id IS NULL
         AND description ILIKE ${pattern}
       ORDER BY transaction_date
@@ -87,6 +88,7 @@ export async function findMatchingTxs(
       WHERE bank_account_id = ${bankAccountId}::UUID
         AND company_id = ${companyId}::UUID
         AND status = 'imported'
+        AND feed_state = 'posted'
         AND matched_journal_line_id IS NULL
         AND reference ILIKE ${pattern}
       ORDER BY transaction_date
@@ -99,6 +101,7 @@ export async function findMatchingTxs(
     WHERE bank_account_id = ${bankAccountId}::UUID
       AND company_id = ${companyId}::UUID
       AND status = 'imported'
+      AND feed_state = 'posted'
       AND matched_journal_line_id IS NULL
       AND (description ILIKE ${pattern} OR reference ILIKE ${pattern})
     ORDER BY transaction_date
