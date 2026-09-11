@@ -38,6 +38,7 @@
 import { sql } from '@/lib/neon';
 import { fmtDate } from '@/lib/fmtDate';
 import type { DbRow } from '@/lib/neon';
+import { feedStateOf, type FeedState } from './bankFeedStateGuard';
 
 /** Enough for the caller to disambiguate; never the whole row (no leaking
  *  columns the MCP surface does not otherwise expose). */
@@ -241,6 +242,8 @@ export interface BankTransactionAllocationState {
   status: string;
   /** The journal line the row is allocated against — null when unallocated. */
   matchedJournalLineId: string | null;
+  /** A pending/removed feed row cannot be allocated at all. */
+  feedState: FeedState;
   /**
    * Signed line amount. Carried so a batch caller can size an allocation
    * without a second read per line — a 200-line batch would otherwise make
@@ -273,7 +276,7 @@ export async function findBankTransactionAllocationStates(
   if (ids.length === 0) return byId;
 
   const rows = (await sql`
-    SELECT id, status, matched_journal_line_id, amount
+    SELECT id, status, matched_journal_line_id, amount, feed_state
     FROM bank_transactions
     WHERE company_id = ${companyId}::UUID AND id = ANY(${ids}::UUID[])
   `) as DbRow[];
@@ -288,6 +291,7 @@ export async function findBankTransactionAllocationStates(
           ? null
           : String(row.matched_journal_line_id),
       amount: Number(row.amount ?? 0),
+      feedState: feedStateOf(row),
     });
   }
   return byId;

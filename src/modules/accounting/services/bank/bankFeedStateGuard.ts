@@ -11,7 +11,7 @@
 import { sql } from '@/lib/neon';
 import type { DbRow } from '@/lib/neon';
 import type { FeedState } from '../../types/bank.types';
-import { BankAllocationRefusal } from './bankAllocationRefusal';
+import { BankAllocationRefusal, isBankAllocationRefusal } from './bankAllocationRefusal';
 
 export type { FeedState };
 const FEED_STATES: readonly FeedState[] = ['pending', 'posted', 'removed'];
@@ -63,8 +63,17 @@ export function assertPostedForAllocation(
 ): void {
   const state = feedStateOf(row);
   if (state !== 'posted') {
-    throw new BankAllocationRefusal(new BankTransactionNotPostedError(bankTxId, state, verb).message);
+    throw new BankAllocationRefusal(new BankTransactionNotPostedError(bankTxId, state, verb).message, state);
   }
+}
+
+/**
+ * A pending/removed-row refusal in either shape: the bare error (match /
+ * unmatch / exclude) or allocate/split's `BankAllocationRefusal` carrying the
+ * feed state. Routes answer both 409; both are raised before the first write.
+ */
+export function isFeedNotPostedRefusal(err: unknown): err is Error {
+  return isBankTransactionNotPosted(err) || (isBankAllocationRefusal(err) && err.feedState !== undefined);
 }
 
 /** Unlocked read for routes that must refuse before their first write. */

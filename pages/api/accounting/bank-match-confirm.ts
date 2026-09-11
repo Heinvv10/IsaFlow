@@ -37,6 +37,7 @@ import {
 } from '@/modules/accounting/services/bank/bankLineDirection';
 import { isBankTransactionLockTimeout } from '@/modules/accounting/services/bank/bankTxLock';
 import { isBankAllocationRefusal } from '@/modules/accounting/services/bank/bankAllocationRefusal';
+import { isFeedNotPostedRefusal } from '@/modules/accounting/services/bank/bankFeedStateGuard';
 type Row = Record<string, unknown>;
 
 const BodySchema = z.object({
@@ -252,6 +253,11 @@ async function handler(req: CompanyAuthedRequest, res: NextApiResponse) {
     // wording with "An internal error occurred" in production anyway.
     if (isBankTransactionLockTimeout(err)) {
       log.info('Bank match confirm hit a contended line', { bankTransactionId, candidateType, candidateId }, 'accounting-api');
+      return apiResponse.conflict(res, err.message);
+    }
+    // A pending/removed feed row — bare from matchTransaction, or wrapped by
+    // allocateTransaction — is refused from the locked row before any write.
+    if (isFeedNotPostedRefusal(err)) {
       return apiResponse.conflict(res, err.message);
     }
     if (isBankAllocationRefusal(err)) {
