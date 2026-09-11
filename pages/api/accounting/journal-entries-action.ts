@@ -15,10 +15,12 @@ import { withAuth, type CompanyAuthedRequest, type AuthenticatedNextApiRequest, 
 import { withCsrf } from '@/lib/auth/withCsrf';
 import { log } from '@/lib/logger';
 import { UUID } from '@/lib/schemas/common';
+import { ErrorCode } from '@/lib/apiResponse.types';
 import {
   postJournalEntry,
   reverseJournalEntry,
 } from '@/modules/accounting/services/gl/journalEntryService';
+import { assertDirectJournalPostable, JournalPostingRefusalError } from '@/modules/accounting/services/gl/journalEntryPostingService';
 
 const JournalEntryActionSchema = z.object({
   id: UUID,
@@ -60,6 +62,10 @@ async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse) {
     let result;
     switch (action) {
       case 'post':
+        // Refuse a lockdown or closed-period post here, before the controlled write: firing the same rule inside
+        // postJournalEntry still marks this request's control transaction failed even though it is caught below,
+        // and withAuth then overrides the response to a 500 regardless (see journalEntryPostingService.ts).
+        await assertDirectJournalPostable(companyId, id);
         result = await postJournalEntry(companyId, id, userId);
         break;
       case 'reverse':
@@ -71,6 +77,7 @@ async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse) {
 
     return apiResponse.success(res, result);
   } catch (err) {
+    if (err instanceof JournalPostingRefusalError) return apiResponse.error(res, ErrorCode.BUSINESS_RULE_VIOLATION, err.message);
     const message = err instanceof Error ? err.message : 'Failed to perform journal entry action';
     log.error('Failed to perform journal entry action', { error: err }, 'accounting-api');
     return apiResponse.badRequest(res, message);

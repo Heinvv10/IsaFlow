@@ -15,6 +15,7 @@ import {
   createJournalEntry,
   postJournalEntry,
 } from '@/modules/accounting/services/gl/journalEntryService';
+import { assertDirectJournalPostable, JournalPostingRefusalError } from '@/modules/accounting/services/gl/journalEntryPostingService';
 import {
   validateReceiptExtraction,
   mapMerchantToExpenseAccount,
@@ -145,18 +146,32 @@ async function handler(req: CompanyAuthedRequest, res: NextApiResponse) {
     lines: postableLines,
   }, userId);
 
+  // A lockdown or closed-period refusal is checked BEFORE the controlled write: postJournalEntry's own guard
+  // (assertPostingGuards) still marks this request's control transaction failed if it fires there, and withAuth
+  // then overrides the whole response to a 500 regardless of whether this route would otherwise leave the entry
+  // as a draft (see journalEntryPostingService.ts). Skipping auto-post leaves the same draft a person can post
+  // once the period reopens or lockdown lifts.
+  let posted = false;
   if (autoPost) {
-    await postJournalEntry(companyId, entry.id, userId);
+    let blocked: string | null = null;
+    try { await assertDirectJournalPostable(companyId, entry.id); }
+    catch (blockErr) { if (!(blockErr instanceof JournalPostingRefusalError)) throw blockErr; blocked = blockErr.message; }
+    if (blocked) {
+      log.warn('Auto-post of receipt-to-journal entry skipped', { documentId, journalId: entry.id, reason: blocked }, 'receipt-journal');
+    } else {
+      await postJournalEntry(companyId, entry.id, userId);
+      posted = true;
+    }
   }
 
   await sql`
     UPDATE captured_documents SET status = 'matched' WHERE id = ${documentId}::uuid AND company_id = ${companyId}
   `;
 
-  const je = { id: entry.id, status: autoPost ? 'posted' : 'draft' };
+  const je = { id: entry.id, status: posted ? 'posted' : 'draft' };
 
   log.info('Receipt-to-Journal completed', {
-    documentId, journalId: je.id, receiptType, autoPost,
+    documentId, journalId: je.id, receiptType, autoPost: posted,
     amount: extracted.totalAmount, merchant: extracted.vendorName,
   }, 'receipt-journal');
 
@@ -164,7 +179,7 @@ async function handler(req: CompanyAuthedRequest, res: NextApiResponse) {
     journalEntry: { id: je.id, status: je.status },
     receiptType,
     accountSuggestion: accountSuggestion ? { code: accountSuggestion.code, name: accountSuggestion.name } : null,
-    autoPosted: autoPost,
+    autoPosted: posted,
     amount: extracted.totalAmount,
     warnings: validation.warnings,
   });
