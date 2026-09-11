@@ -159,18 +159,23 @@ async function holdEventRow(eventId: string): Promise<() => Promise<void>> {
 }
 
 /**
- * Hold the DOCUMENT row (not the event) from an independent transaction. The
- * post routes never take `FOR UPDATE` on `captured_documents` themselves, but
- * a downstream statement in the posting handler does touch that row — this is
- * what proves `lockWithTimeout`'s `SET LOCAL lock_timeout = DEFAULT` reset
- * (LOW-1a): without it, that downstream wait inherits the 5s bound meant only
- * for the `FOR UPDATE OF ce` acquisition and the request 500s at ~5s instead
- * of waiting the release out.
+ * Hold the company's FISCAL PERIOD row from an independent transaction. The
+ * post routes never lock it themselves, but the journal INSERT's foreign-key
+ * check on `fiscal_period_id` takes FOR KEY SHARE on it, which FOR UPDATE
+ * blocks — this is what proves the lock helper's `SET LOCAL lock_timeout =
+ * DEFAULT` reset (LOW-1a): without it, that downstream wait inherits the 5s
+ * bound meant only for the row-lock acquisition and the request 500s at ~5s
+ * instead of waiting the release out.
+ *
+ * It held the DOCUMENT row until the K-072 merge. K-072's posting routes lock
+ * `captured_documents` first (`captureRowLock.lockCaptureEventForPosting`), so
+ * that row is an ACQUISITION now, bounded by design and answered 409 — no
+ * longer a downstream wait, and no longer able to observe the reset.
  */
-async function holdDocumentRow(documentId: string, ms: number): Promise<void> {
+async function holdFiscalPeriodRow(ms: number): Promise<void> {
   const client = await pool.connect();
   await client.query('BEGIN');
-  await client.query('SELECT id FROM captured_documents WHERE id=$1 FOR UPDATE', [documentId]);
+  await client.query('SELECT id FROM fiscal_periods WHERE company_id=$1 FOR UPDATE', [company]);
   setTimeout(() => {
     void client.query('ROLLBACK').then(() => client.release());
   }, ms);
@@ -435,6 +440,28 @@ it('post-expense: answers 409 when another transaction holds the event', async (
   expect(await journalsFor(documentId)).toBe(1);
 }, 30_000);
 
+// K-072 merge review LOW-1: nothing pinned post.ts's own 409 — changing its
+// `conflict` to `badRequest` left every r058/k072 capture test green. The bill
+// route claims the DOCUMENT as well as locking the event, so it also proves the
+// claim did not leak on the refusal: `posted_at` stays NULL and the retry posts.
+it('post: answers 409 when another transaction holds the event', async () => {
+  const { eventId, documentId } = await seedEvent(BILL, 'locked-bill', bill(11550));
+  const release = await holdEventRow(eventId);
+  try {
+    const blocked = await call(post as typeof postExpense, eventId, {});
+    expect(blocked.state.statusCode).toBe(409);
+    expect(await invoicesFor(documentId)).toBe(0);
+  } finally {
+    await release();
+  }
+  const { rows } = await pool.query('SELECT posted_at FROM captured_documents WHERE id = $1', [documentId]);
+  expect(rows[0].posted_at).toBeNull();
+
+  const retry = await call(post as typeof postExpense, eventId, {});
+  expect(retry.state.statusCode).toBe(200);
+  expect(await invoicesFor(documentId)).toBe(1);
+}, 30_000);
+
 it('discard: answers 409 when another transaction holds the event', async () => {
   const { eventId } = await seedEvent(RECEIPT, 'locked-discard');
   const release = await holdEventRow(eventId);
@@ -450,15 +477,15 @@ it('discard: answers 409 when another transaction holds the event', async () => 
 // ── round 3: the lock_timeout reset and the allow-list's over-refusal side ──
 
 it('post-expense: a downstream lock wait outlives the 5s used to acquire the event lock', async () => {
-  // captureEventLock.ts's `lockWithTimeout` sets `lock_timeout = '5s'` only to
-  // bound the `FOR UPDATE OF ce` acquisition, then resets it to DEFAULT the
-  // moment that lock is granted. Without the reset, a downstream statement
-  // that then waits on an UNRELATED lock (here: another transaction holding
-  // the document row) inherits the same 5s bound and the request 500s instead
-  // of waiting the 7s release out. Hold the document row 7s, well past 5s, and
-  // assert the request still succeeds — it must wait longer than 5s to do so.
+  // captureRowLock.ts's `lockWithTimeout` sets `lock_timeout = '5s'` only to
+  // bound each row-lock acquisition, then resets it to DEFAULT the moment that
+  // lock is granted. Without the reset, a downstream statement that then waits
+  // on an UNRELATED lock (here: another transaction holding the fiscal period)
+  // inherits the same 5s bound and the request 500s instead of waiting the 7s
+  // release out. Hold it 7s, well past 5s, and assert the request still
+  // succeeds — it must wait longer than 5s to do so.
   const { eventId, documentId } = await seedEvent(RECEIPT, 'lock-reset');
-  await holdDocumentRow(documentId, 7000);
+  await holdFiscalPeriodRow(7000);
   const t0 = Date.now();
   const result = await call(postExpense, eventId, {});
   const elapsedMs = Date.now() - t0;
