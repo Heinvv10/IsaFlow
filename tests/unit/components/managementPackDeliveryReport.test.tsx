@@ -13,7 +13,7 @@ vi.mock('@/components/layout/AppLayout', () => ({ AppLayout: ({ children }: { ch
 vi.mock('@/components/accounting/management-packs/ManagementPackConfigTab', () => ({ ManagementPackConfigTab: () => null }));
 import ManagementPacksPage from '../../../pages/accounting/afs/management-packs';
 
-const SKIPPED = 'recipients[0] is not an object {email, role, receives}';
+const SKIPPED = 'recipients[0] (cfo@example.invalid): Invalid input: expected object, received string';
 const envelope = (data: unknown) => new Response(JSON.stringify({ success: true, data }), { status: 200, headers: { 'content-type': 'application/json' } });
 
 function serve(skippedRecipients: string[]) {

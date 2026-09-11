@@ -17,6 +17,14 @@ type Row = DbRow;
  */
 const DeliverableRecipient = z.object(PackRecipientSchema.shape);
 
+/** "recipients[0] (cfo@…): <the actual problem>" — the stored address is the operator's own data; it finds the entry. */
+function skippedRecipient(entry: unknown, index: number, error: z.ZodError): string {
+  const email = typeof entry === 'object' && entry !== null ? (entry as { email?: unknown }).email : entry;
+  const address = typeof email === 'string' && email !== '' ? ` (${email.slice(0, 254)})` : '';
+  const issues = error.issues.map(issue => `${issue.path.length > 0 ? `${issue.path.map(String).join('.')}: ` : ''}${issue.message}`);
+  return `recipients[${index}]${address}: ${issues.join('; ')}`;
+}
+
 // ── HTML escaping ─────────────────────────────────────────────────────────────
 
 function escapeHtml(str: string): string {
@@ -219,7 +227,7 @@ export async function deliverPack(documentId: string, companyId: string): Promis
   stored.forEach((entry, i) => {
     const parsed = DeliverableRecipient.safeParse(entry);
     if (parsed.success) recipients.push(parsed.data);
-    else skippedRecipients.push(`recipients[${i}] is not an object {email, role, receives}`);
+    else skippedRecipients.push(skippedRecipient(entry, i, parsed.error));
   });
   if (skippedRecipients.length > 0) {
     log.warn('Skipping malformed pack recipients', { documentId, companyId, skippedRecipients }, 'packDeliveryService');
