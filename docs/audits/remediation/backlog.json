@@ -11660,6 +11660,39 @@
       "severity": "low",
       "source": "Observed by the K-072 round-36 fixer on 2026-09-11: the full CI gate failed this component test at load ~21, it passed alone at head and on 96ba518e2 (2/2 each), and a re-run of the gate passed. R-085's round-2 fix for this file (a start-index snapshot of apiFetch.mock.calls) is on that branch. Earlier, on 2026-09-10, the file failed once under load during R-085's own run.",
       "processNotes": "'Passes alone' is a hypothesis, not proof. Reproduce under load, capture the failing assertion, and fix by real isolation: mockReset apiFetch in beforeEach, unmount and flush pending promises in afterEach, or a per-test generation tag. The K-072 round-36 reviewer is measuring 10 runs under load.\n\n2026-09-11: the K-072 round-36 blind reviewer ran ReportPageDrillDimensions.test.tsx 20 times at load 8.9-24.6 with 0 failures, so no failing assertion is available yet. Stays a candidate; one observed gate failure (the K-072 round-36 fixer's first CI run) is the only evidence."
+    },
+    {
+      "id": "R-094",
+      "claim": "",
+      "area": "accounting/capture",
+      "affectedPaths": [
+        "src/modules/accounting/services/capture/capturedVatEvidence.ts"
+      ],
+      "sourceLabel": "",
+      "sourceIds": [],
+      "correctedTrigger": "",
+      "severityRationale": "Under-claims input VAT; never claims VAT that isn't there, and the page must also carry a non-registration declaration. Five rounds (38-42) patched positions of the word 'wat'; the reviewer judged the class structurally open-ended, so it is disclosed here rather than blocking K-072's deploy.",
+      "auditedSha": "",
+      "currentSha": "",
+      "status": "confirmed",
+      "dependencies": [
+        "K-072"
+      ],
+      "testNames": [],
+      "evidencePaths": [
+        "docs/audits/remediation/K-072/fix.md"
+      ],
+      "fixCommit": null,
+      "pr": null,
+      "deployedSha": null,
+      "historicalDataImpact": "None on the ledger direction; a VAT-registered Afrikaans supplier whose slip prints this exact shape would be approved without its VAT and under-claims until a person corrects it.",
+      "canonicalItem": null,
+      "reportedSeverity": "",
+      "branch": null,
+      "title": "An Afrikaans VAT label using 'wat' preceded by a real word ('Plus wat ingesluit R260.86', 'Koste wat ingesluit R260.86') passes as prose, so a bill that declares non-registration is approved at tax 0 (an under-claim of input VAT)",
+      "severity": "low",
+      "source": "K-072 round-42 blind reviewer (rev-k072at), measured on the fixture DB: approved/approved/posted at tax 0 by both approve tools and post_journal. Present at 9e71995fa too; not a regression.",
+      "processNotes": "Fix direction: stop treating any 'wat' line as prose when the page also prints a VAT-number-shaped token or a 15% figure, or drop the prose exemption entirely and pay the cost on Afrikaans item lines (measure it). Do not add a sixth position rule."
     }
   ],
   "sourceInventory": [
