@@ -10,6 +10,7 @@ import {AuditEnqueueQuotaError} from '@/modules/accounting/services/controls/aud
 import {requireControlTx} from '@/modules/accounting/services/controls/context';
 import {enqueueAuditCheckRuns} from '@/modules/accounting/services/controls/auditCheckRunJobService';
 import {CheckRunUnavailableError,getAuditCheckRunPage} from '@/modules/accounting/services/controls/auditCheckRunReadService';
+import {AuditPageCursorError} from '@/modules/accounting/services/controls/auditPageCursor';
 const querySchema=z.object({checkRunId:z.string().uuid(),
  limit:z.string().regex(/^[1-9][0-9]{0,2}$/).transform(Number).pipe(z.number().max(100)).optional(),
  cursor:z.string().regex(/^(0|[1-9][0-9]{0,5})$/).optional()}).strict();
@@ -31,6 +32,7 @@ export async function auditCheckRunsHandler(req:NextApiRequest,res:NextApiRespon
   // 409 means "ask again later"; a failed run never will publish, so it answers a terminal 422 of its own.
   if(error instanceof CheckRunUnavailableError)return error.reason==='not_ready'?apiResponse.conflict(res,error.message)
    :error.reason==='failed'?apiResponse.error(res,ErrorCode.BUSINESS_RULE_VIOLATION,error.message):apiResponse.notFound(res,'Check run');
+  if(error instanceof AuditPageCursorError)return apiResponse.badRequest(res,error.message);
   if(error instanceof AuditEnqueueQuotaError)return apiResponse.tooManyRequests(res,error.message);
   throw error;
  }

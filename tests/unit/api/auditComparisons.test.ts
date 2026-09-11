@@ -2,6 +2,8 @@ import {beforeEach,expect,it,vi} from 'vitest';
 import type {NextApiRequest,NextApiResponse} from 'next';
 import {EffectivePermissionError} from '@/lib/auth/effectivePermissions';
 import {AuditEnqueueQuotaError} from '@/modules/accounting/services/controls/auditEnqueueQuota';
+import {ComparisonUnavailableError} from '@/modules/accounting/services/controls/auditComparisonReadHeader';
+import {AuditPageCursorError} from '@/modules/accounting/services/controls/auditPageCursor';
 const shared=vi.hoisted(()=>({enqueue:vi.fn(),page:vi.fn(),permission:vi.fn(),ctx:{synthetic:'adapter-only'}}));
 vi.mock('@/modules/accounting/services/controls/context',()=>({requireControlTx:()=>shared.ctx}));
 vi.mock('@/lib/auth/effectivePermissions',async importOriginal=>({...await importOriginal<object>(),assertEffectivePermission:shared.permission}));
@@ -50,4 +52,19 @@ it('names the missing permission in a 403, whichever it is',async()=>{
  // A refusal that names no permission (an inactive membership, a revoked grant) keeps the general wording.
  shared.page.mockRejectedValueOnce(new EffectivePermissionError());
  expect((await invoke('GET',{}, {comparisonId:id,section:'records'})).json.mock.calls[0]?.[0]?.error?.message).toBe('Current permissions do not allow this operation.');
+});
+it('answers an absent or foreign comparison 404, an unpublished one 409, a failed one 422 and a cursor past the end 400 — never 500',async()=>{
+ const read=()=>invoke('GET',{}, {comparisonId:id,section:'records'});
+ const cases:[unknown,number,string,string][]=[
+  [new ComparisonUnavailableError('not_found'),404,'NOT_FOUND','Comparison not found'],
+  [new ComparisonUnavailableError('not_ready'),409,'CONFLICT','Comparison is not published yet'],
+  [new ComparisonUnavailableError('failed','worker_crash'),422,'BUSINESS_RULE_VIOLATION','Comparison failed and will not publish (worker_crash)'],
+  [new AuditPageCursorError(2),400,'BAD_REQUEST','Page cursor is past the end of the result (2 items)'],
+ ];
+ for(const [error,status,code,message] of cases){
+  shared.page.mockRejectedValueOnce(error);
+  const res=await read();
+  expect(res.status,String(error)).toHaveBeenCalledWith(status);
+  expect(res.json.mock.calls[0]?.[0]?.error).toMatchObject({code,message});
+ }
 });
