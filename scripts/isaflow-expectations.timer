@@ -1,6 +1,5 @@
 [Unit]
 Description=Daily trigger for IsaFlow supplier-expectation cron
-Requires=isaflow-expectations.service
 
 [Timer]
 # 07:00 SAST every day. Randomised 0–300s delay avoids stampede if multiple
