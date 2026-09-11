@@ -35,6 +35,7 @@ describe('MCP post_journal lockdown refusal',()=>{
    const post=await h.call('post_journal',{journal_id:journalId,idempotency_key:crypto.randomUUID()});
    expect(post.status,JSON.stringify(post)).toBe(200);
    expect(post.isError,post.text).toBe(true);
+   expect(post.text).toContain('lockdown');
    expect(await h.status(journalId)).toBe('draft');
   }finally{await h.lockdown(false,null);}
  });
