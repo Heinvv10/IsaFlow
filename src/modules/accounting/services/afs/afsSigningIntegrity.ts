@@ -31,9 +31,12 @@ const INPUT_LABELS: Record<keyof SigningInputDigests, string> = {
  * period (or fiscal year) on the cover, the company name and registration number, the branding
  * the CSS and cover use (or the marker for the documented default when a company has saved
  * none), and each section's id, type (it picks the chart), content, overrides and chart data,
- * plus its sort_order — the render prints sections in that ORDER; it prints no number. Anything the render never prints — the footer text, the document type and
+ * plus its sort_order — the render prints sections in that ORDER; it prints no number. Anything the render never prints — the footer text, the
  * framework, review status, a draft AI narrative — is left out, so changing it cannot void a
- * signature over identical bytes. Sections are aggregated in the render's own order
+ * signature over identical bytes. The render DOES print a title and period line chosen by
+ * document_type ("Management Accounts" for a pack, statementsTitle), yet document_type is not
+ * hashed: that is safe only because it is set when a document is created and no path updates it.
+ * A path that ever updates it must add it to the fingerprint. Sections are aggregated in the render's own order
  * (sort_order, then id).
  *
  * Two accepted over-inclusions, both reachable only out of band (every section write is refused
