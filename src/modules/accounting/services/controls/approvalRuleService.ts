@@ -3,6 +3,7 @@ import type {operationRuleType} from './operationPermissions';
 import { canonicalMoney } from './canonical';
 import { assertControlTx } from './context';
 import type { ControlTx, PolicyBinding } from './contracts';
+import { OWNER_OR_ADMIN } from './approvalQueries';
 const Money = Decimal.clone({ precision: 80 });
 
 export interface ApprovalRuleRow {
@@ -85,12 +86,14 @@ export async function loadApprovalRules(ctx: ControlTx, documentType: ReturnType
       approver_role:policy.approver_role,control_version:1,is_active:true,aggregate_window_days:null,aggregate_by:null,mandatory:true});
   }
   if(documentType==='historical_import'){
-    const policies=await ctx.sql`SELECT id,version AS control_version,approver_role FROM control_mandatory_import_policies
-      WHERE company_id=${ctx.principal.companyId}::uuid` as {id:string;control_version:number|string;approver_role:string}[];
+    const policies=await ctx.sql`SELECT id,version AS control_version,approver_role,owner_may_approve FROM control_mandatory_import_policies
+      WHERE company_id=${ctx.principal.companyId}::uuid` as {id:string;control_version:number|string;approver_role:string;owner_may_approve:unknown}[];
     const policy=policies[0];
-    if(policies.length!==1||!policy||Number(policy.control_version)!==1||policy.approver_role!=='admin')throw new Error('Mandatory import policy is unavailable');
+    if(policies.length!==1||!policy||Number(policy.control_version)!==1||policy.approver_role!=='admin'
+      ||typeof policy.owner_may_approve!=='boolean')throw new Error('Mandatory import policy is unavailable');
+    // Bound into the approval: changing the allowance changes the material and voids an open request.
     rules.push({id:policy.id,document_type:documentType,condition_field:'amount',condition_operator:'any',condition_value:'0',
-      approver_role:policy.approver_role,control_version:1,is_active:true,aggregate_window_days:null,aggregate_by:null,mandatory:true});
+      approver_role:policy.owner_may_approve?OWNER_OR_ADMIN:policy.approver_role,control_version:1,is_active:true,aggregate_window_days:null,aggregate_by:null,mandatory:true});
   }
   if(documentType==='invoice_match_override'){
     const policies=await ctx.sql`SELECT id,version AS control_version,approver_role

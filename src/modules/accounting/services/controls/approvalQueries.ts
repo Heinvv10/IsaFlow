@@ -48,13 +48,26 @@ export async function approvalDecisions(ctx: ControlTx, id: string): Promise<Dec
     WHERE company_id=${ctx.principal.companyId}::uuid AND approval_id=${id}::uuid ORDER BY policy_id
   ` as DecisionRow[];
 }
-export async function assertApprovalAuthority(authority: AuthorityRow | undefined, permission: string, role?: string): Promise<void> {
+/** The mandatory import policy's approver role when the company's policy admits owners (migration 686). */
+export const OWNER_OR_ADMIN = 'owner_or_admin';
+/**
+ * A policy admits exactly its approver role. The one exception is a MANDATORY policy
+ * bound as owner_or_admin — only the historical import policy produces it (Hein,
+ * 2026-09-11) — which admits an owner or an admin. A tenant-configured approval rule
+ * is never mandatory, so typing owner_or_admin into one widens nothing.
+ */
+export function approverRoleAccepts(policy: Pick<PolicyBinding, 'approverRole' | 'mandatory'>, role: string | null): boolean {
+  if (policy.mandatory === true && policy.approverRole === OWNER_OR_ADMIN) return role === 'owner' || role === 'admin';
+  return role === policy.approverRole;
+}
+export async function assertApprovalAuthority(authority: AuthorityRow | undefined, permission: string,
+  policy?: Pick<PolicyBinding, 'approverRole' | 'mandatory'>): Promise<void> {
   const { permissionReason } = await import('@/lib/auth/effectivePermissionPolicy');
   if (!authority || authority.authority_kind === 'platform_import' || !authority.role || authority.grant_valid !== true
     || (authority.current_scopes !== null && (!Array.isArray(authority.current_scopes)
       || authority.current_scopes.some(scope => typeof scope !== 'string'))) || !isActiveUserAccount(authority) || authority.company_suspended_at !== null
     || ['suspended', 'deleted'].includes(authority.company_status ?? '')
-    || (role !== undefined && authority.role !== role) || !Array.isArray(authority.permissions)) throw new SuppliedApprovalRefusal('Approval authority is no longer valid');
+    || (policy !== undefined && !approverRoleAccepts(policy, authority.role)) || !Array.isArray(authority.permissions)) throw new SuppliedApprovalRefusal('Approval authority is no longer valid');
   const overrides: ModulePermission[] = authority.permissions.map(row => ({
     moduleKey: String(row.module_key), moduleName: String(row.module_key), canRead: row.can_read === true,
     canWrite: row.can_write === true, canDelete: row.can_delete === true, canExport: row.can_export === true,
@@ -81,13 +94,13 @@ export async function validateDecisions(ctx: ControlTx, row: ApprovalRow, decisi
     const decision = decisions.find(d => d.policy_id === policy.policyId);
     if (!decision || decision.decision !== 'approved' || decision.person_id === row.requester_person_id) throw new SuppliedApprovalRefusal('Independent approval is required');
     const authority = authorities.find(person => person.person_id === decision.person_id);
-    await assertApprovalAuthority(authority, 'write:approvals', policy.approverRole);
+    await assertApprovalAuthority(authority, 'write:approvals', policy);
     await assertApprovalAuthority(authority, operationPermission(row.binding.operation,'read'));
     await validateApprovalEvidence(ctx, row.binding, decision.evidence_refs);
   }
 }
 export function pendingPolicies(policies: readonly PolicyBinding[], decisions: readonly DecisionRow[], role: string): PolicyBinding[] {
-  return policies.filter(policy => policy.approverRole === role && !decisions.some(row => row.policy_id === policy.policyId));
+  return policies.filter(policy => approverRoleAccepts(policy, role) && !decisions.some(row => row.policy_id === policy.policyId));
 }
 export async function validateApprovalEvidence(ctx: ControlTx, binding: OperationBinding, refs: readonly EvidenceRef[]): Promise<void> {
   canonicalJson(refs);
