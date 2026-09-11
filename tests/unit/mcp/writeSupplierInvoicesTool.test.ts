@@ -27,9 +27,9 @@ vi.mock('@/modules/accounting/services/ap/supplierInvoiceService', () => ({
 vi.mock('@/modules/accounting/services/ap/supplierInvoiceWorkflowService', () => ({
   approveSupplierInvoice: vi.fn(),
 }));
-vi.mock('@/modules/accounting/services/capture/capturedVatUnread', () => ({
-  CAPTURED_VAT_UNREAD_REASON: 'its captured VAT was never read',
-  invoicesWithUnreadCapturedVat: vi.fn(async () => new Set<string>()),
+vi.mock('@/modules/accounting/services/capture/capturedVatEvidence', () => ({
+  CAPTURED_VAT_UNEVIDENCED_REASON: 'its VAT is not evidenced by its captured document',
+  invoicesWithUnevidencedVat: vi.fn(async () => new Set<string>()),
 }));
 vi.mock('@/modules/accounting/services/core/contactDirectoryService', () => ({
   supplierBelongsToCompany: vi.fn(),
@@ -44,7 +44,7 @@ import {
 } from '@/modules/accounting/services/ap/supplierInvoiceService';
 import { approveSupplierInvoice } from '@/modules/accounting/services/ap/supplierInvoiceWorkflowService';
 import { supplierBelongsToCompany } from '@/modules/accounting/services/core/contactDirectoryService';
-import { invoicesWithUnreadCapturedVat } from '@/modules/accounting/services/capture/capturedVatUnread';
+import { invoicesWithUnevidencedVat } from '@/modules/accounting/services/capture/capturedVatEvidence';
 import { accountsBelongToCompany } from '@/modules/accounting/services/gl/chartOfAccountsService';
 import {
   createSupplierInvoiceTool,
@@ -202,10 +202,10 @@ describe('approve_supplier_invoice', () => {
     expect(approveSupplierInvoice).not.toHaveBeenCalled();
   });
 
-  it('K-072 r30: refuses a bill whose captured document never showed a VAT, without posting', async () => {
-    vi.mocked(invoicesWithUnreadCapturedVat).mockResolvedValueOnce(new Set([INVOICE]));
+  it('K-072 r30–r32: refuses a bill carrying a VAT its captured document never showed, without posting', async () => {
+    vi.mocked(invoicesWithUnevidencedVat).mockResolvedValueOnce(new Set([INVOICE]));
     const r = await approveSupplierInvoiceTool.handler({ invoice_id: INVOICE, ...KEY }, ctx());
-    expect(errText(r)).toBe('Cannot approve invoice: its captured VAT was never read.');
+    expect(errText(r)).toBe('Cannot approve invoice: its VAT is not evidenced by its captured document.');
     expect(approveSupplierInvoice).not.toHaveBeenCalled();
   });
 

@@ -49,10 +49,11 @@ describe('K-076 r29 HIGH-1 — a pre-tax total the 15/115 bound cannot see', () 
     const m = MIXED[0]!;
     const full = `${HDR(m.vendor)}${m.items}Sub Total 1000.00\nVAT 15% 120.00\nTotal Due 1120.00\n${BANK}`;
     expect(routes({ rawText: full, subtotal: 1000, vatAmount: 120, totalAmount: 1120 })).toEqual({ post: true, approve: true });
-    const wimpy = `${HDR('Wimpy')}Burger 89.90\nChips 32.50\nCoke 25.00\nTOTAL 147.40\nVAT 19.23`;
+    // r32: unpaid, so the arithmetic proves the tax inside only a total labelled payable.
+    const wimpy = `${HDR('Wimpy')}Burger 89.90\nChips 32.50\nCoke 25.00\nAMOUNT DUE 147.40\nVAT 19.23`;
     expect(routes({ rawText: wimpy, subtotal: 128.17, vatAmount: 19.23, totalAmount: 147.4 }).post).toBe(true);
     // Unpaid, VAT below the only total: the arithmetic (130.43 = 1000 × 15/115) proves it inclusive.
-    const incl = `${HDR('Joe Plumbing')}Labour 1000.00\nTotal 1000.00\nVAT 130.43`;
+    const incl = `${HDR('Joe Plumbing')}Labour 1000.00\nAmount Due 1000.00\nVAT 130.43`;
     expect(routes({ rawText: incl, subtotal: 869.57, vatAmount: 130.43, totalAmount: 1000 }).post).toBe(true);
     const kwik = 'KWIKSPAR Linden\nTAX INVOICE\nVAT No 4130987654\nBROWN BREAD * 18.99\nMILK 2L * 34.99\n'
       + 'MAIZE MEAL 5KG * 59.99\nEGGS 18 * 54.99\nWASHING POWDER 2KG 89.99\nTOTAL 258.95\nCARD 258.95\n* ZERO RATED\nVAT 15% 11.74';

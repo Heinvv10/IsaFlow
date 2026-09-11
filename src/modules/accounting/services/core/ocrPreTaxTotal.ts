@@ -15,10 +15,15 @@
  *      total's own line, says the tax is included (`VAT INCL`, `Total Incl
  *      VAT`), the tax is already printed above the total (the recap of a tax
  *      the total contains), or the arithmetic proves it: the VAT is exactly
- *      the standard-rate tax inside the total (`TOTAL 147.40 / VAT 19.23`) and
- *      no line is marked zero-rated, exempt or no-VAT (round 30: with such a
- *      line an exact match is the coincidence a pre-tax total lands in). A paid slip's recap under a total the tender
- *      settles is not judged: the payment proves the payable.
+ *      the standard-rate tax inside the total (`Amount Due 147.40 / VAT
+ *      19.23`), no item is marked zero-rated, exempt or no-VAT (round 30: with
+ *      such an item an exact match is the coincidence a pre-tax total lands
+ *      in), and the total's own line names it PAYABLE (round 32: a pre-tax
+ *      `Total` within R0.38 of a no-VAT share lands on the exact match with
+ *      no mark at all, and a supplier with a fixed fee pair lands on it on
+ *      EVERY invoice — so a bare `Total` is not proof). A paid slip's recap
+ *      under a total the tender settles is not judged: the payment proves the
+ *      payable.
  */
 import { totalPrintedLastEnd } from './ocrAmountReconciliation';
 import { isTaxOnlyLine, printedFigures } from './ocrPrintedFigures';
@@ -51,6 +56,45 @@ const PRE_TAX = new RegExp(String.raw`(?<![A-Za-z])(?:Exc(?:l\w*)?\.?|Exclusive|
  */
 const NOT_STANDARD_RATED = new RegExp(String.raw`(?<![A-Za-z])(?:no[\s-]+${TAX}|non[\s-]*${TAX}|exempt\w*|zero[\s-]*rated|vrygestel\w*|disbursement\w*|geen\s+${TAX}|nul[\s-]*koers)(?![A-Za-z])|\(\s*Z\s*\)|(?<![\d.,])0(?:[.,]0+)?\s*%`, 'i');
 /**
+ * The token a LEGEND defines as that marker (round 32): `Z = zero rated`, `* =
+ * zero-rated items`, `D = disbursement, no VAT`, `Items marked # are VAT
+ * exempt`, `Vrygestelde items gemerk V`, `Prices include VAT unless marked Z`.
+ * SA invoices print the bare token on the item and define it once, so the
+ * legend is the only evidence the item is not standard-rated. Read per segment,
+ * so `A = VAT 15%, B = Zero rated` defines B, not A; `(Z) Zero rated`, `Note:
+ * Z zero rated` and `Items marked with an E are exempt` define theirs too.
+ */
+const TOKEN = String.raw`[A-Z*#†]`;
+const LEGEND_TOKEN = new RegExp(String.raw`(?:^|:)\s*(?:\(\s*(${TOKEN})\s*\)|(${TOKEN})(?:\s*(?:[=:–-]|denotes|means|indicates)|\s))`
+  + String.raw`|(?:[Mm]arked|[Gg]emerk|[Dd]enoted|[Ii]ndicated|[Ss]hown|[Ff]lagged)\s+(?:(?:with|by|as|met)\s+(?:an?\s+)?)?\(?(${TOKEN})\)?(?![A-Za-z\d])`);
+const UNLESS_MARKED = /unless\s+marked/i;
+const legendTokens = (text: string) => text.split(/\r?\n/).flatMap((line) => line.split(/[,;]|\s{2,}/))
+  .filter((segment) => NOT_STANDARD_RATED.test(segment) || UNLESS_MARKED.test(segment))
+  .map((segment) => LEGEND_TOKEN.exec(segment)).flatMap((m) => (m ? [m[1] ?? m[2] ?? m[3]!] : []));
+/** The token standing alone on a line: a letter not inside a word, a symbol not inside a run. */
+const standsAlone = (token: string, line: string) => (/[A-Z]/.test(token)
+  ? new RegExp(String.raw`(?<![A-Za-z\d])${token}(?![A-Za-z\d])`) : new RegExp(String.raw`(?<![*#†])[${token}](?![*#†])`)).test(line);
+/** A line that prints only an amount: the price column of a split layout. */
+const FIGURE_ONLY = /^\s*(?:R\s*)?-?\d[\d ,]*[.,]\d{2}\s*$/;
+
+/**
+ * Is an ITEM above the total marked zero-rated, exempt or no-VAT? The marker
+ * counts on an item: a line that prices something (round 31: a legend or
+ * footer marks nothing on its own), or a description whose price the layout
+ * split into a later figure-only line (round 32). A legend's token counts on
+ * any such item that carries it alone (round 32).
+ */
+function marksAnItem(text: string, end: number): boolean {
+  const above = text.slice(0, end).split(/\r?\n/);
+  const tokens = legendTokens(text);
+  return above.some((line, i) => {
+    const item = printedFigures(line).length > 0 || above.slice(i + 1).some((later) => FIGURE_ONLY.test(later));
+    if (!item) return false;
+    return NOT_STANDARD_RATED.test(line) || (legendTokens(line).length === 0 && tokens.some((token) => standsAlone(token, line)));
+  });
+}
+
+/**
  * A net label printed AFTER the total's figure (`Total 1000.00 Nett`, `…
  * Subtotal`, `… Taxable Amount`, `… uitgesluit BTW`): it names that figure a
  * net. Only trailing — `Nett Amount Due 1150.00` before the figure is payable.
@@ -58,7 +102,23 @@ const NOT_STANDARD_RATED = new RegExp(String.raw`(?<![A-Za-z])(?:no[\s-]+${TAX}|
 const NET_AFTER = /(?<![A-Za-z])(?:Nett?o?|Sub[\s-]*(?:Tota?a?l)?|Subtotaal|Goods\s+Value|Taxable|uitgesluit)(?![A-Za-z])/i;
 const afterFigure = (line: string) => line.slice(line.search(/\d[^\d]*$/) + 1);
 const INCLUDED = /(?<![A-Za-z])(?:Incl\w*|Inclusive|included|portion)(?![A-Za-z])/i;
+/** A label naming the figure the amount to PAY (`Amount Due`, `Bedrag Verskuldig`): not a net. */
+const PAYABLE = /(?<![A-Za-z])(?:(?:Amount|Balance|Total)\s+Due|(?:Amount|Total|Balance)\s+Payable|(?:Bedrag|Saldo|Totaal)\s+(?:Verskuldig|Betaalbaar))(?![A-Za-z])/i;
 const near = (a: number, b: number) => Math.abs(a - b) <= 0.01;
+/**
+ * Where the last line printing the total's figure ends — the total's position
+ * when no total pattern knows its label (`Bedrag Verskuldig 1150.30`), so the
+ * tax-below rule still judges it (round 32: it used to exempt such a total).
+ */
+function lastPrintEnd(text: string, total: number): number | null {
+  let at = 0;
+  let end: number | null = null;
+  for (const line of text.split('\n')) {
+    if (printedFigures(line).some((f) => near(f.value, total))) end = at + line.length;
+    at += line.length + 1;
+  }
+  return end;
+}
 
 /** The tax figure that shows the total read excludes it, or null. */
 export function preTaxTotal(text: string, total: number, vat: number | null, settled: boolean): number | null {
@@ -66,13 +126,9 @@ export function preTaxTotal(text: string, total: number, vat: number | null, set
   const lines = text.split(/\r?\n/);
   const totalLines = lines.filter((line) => printedFigures(line).some((f) => near(f.value, total)));
   if (totalLines.some((line) => (PRE_TAX.test(line) || NET_AFTER.test(afterFigure(line))) && !INCLUDED.test(line))) return vat;
-  const end = totalPrintedLastEnd(text, total);
-  // The marker counts only on an ITEM line above the total that prices
-  // something (round 31): a legend or footer (`Items marked Z are zero-rated`,
-  // `Interest at 0% on overdue accounts`) marks nothing on this document.
-  const markedItem = end !== null && text.slice(0, end).split(/\r?\n/)
-    .some((line) => NOT_STANDARD_RATED.test(line) && printedFigures(line).length > 0);
-  const inclusiveByArithmetic = isInclusiveTax(vat, total) && !markedItem;
+  const end = totalPrintedLastEnd(text, total) ?? lastPrintEnd(text, total);
+  const markedItem = end !== null && marksAnItem(text, end);
+  const inclusiveByArithmetic = isInclusiveTax(vat, total) && !markedItem && totalLines.some((line) => PAYABLE.test(line));
   if (settled || inclusiveByArithmetic || totalLines.some((line) => INCLUDED.test(line))) return null;
   if (end === null) return null;
   const taxAbove = printedFigures(text.slice(0, end)).some((f) => f.isSummary && near(f.value, vat));

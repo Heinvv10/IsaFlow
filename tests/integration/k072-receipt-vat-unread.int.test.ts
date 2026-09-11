@@ -9,9 +9,14 @@
  *
  *   - `receipt-to-journal` and the petty-cash branch of `post-expense` write a
  *     draft with NO VAT Input leg, the gross on the expense, and the flag;
- *   - MCP `post_journal` refuses such a draft — and a LEGACY draft still
- *     carrying the invented 130.43, and a document with no `vatAmount` KEY at
- *     all (JSON.stringify drops an undefined field) — and it stays a draft;
+ *   - MCP `post_journal` posts such a draft as it stands, claiming no VAT
+ *     (r32: the draft's VAT Input must equal the document's read VAT, none = 0);
+ *   - it refuses a LEGACY draft carrying a VAT the document does not show, and
+ *     it stays a draft: the invented 130.43 on an unread document (and one with
+ *     no `vatAmount` KEY — JSON.stringify drops an undefined field), and the
+ *     r32 shapes where the VAT WAS read but the net was not, so the old builder
+ *     derived 15/115 anyway: 117.42 on a slip printing `VAT 0.00`, 18.26 on one
+ *     printing 13.04;
  *   - the employee branch writes the claim line with VAT 0, code `none`, flagged;
  *   - the other direction: a receipt whose VAT WAS read keeps it — the draft
  *     posts its read VAT through `post_journal`, and the claim line carries it.
@@ -141,7 +146,30 @@ afterAll(async () => {
   } finally { await pool.end(); }
 });
 
-it('receipt-to-journal: no VAT read is a draft with no VAT leg, and post_journal refuses it', async () => {
+async function legacyDraft(documentId: string, vat: number, total: number): Promise<string> {
+  const { rows } = await pool.query(
+    `INSERT INTO gl_journal_entries(company_id,entry_number,entry_date,description,source,status,created_by,source_document_id)
+     VALUES($1,$2,'2026-04-10','Receipt: legacy','auto_invoice','draft',$3,$4) RETURNING id`,
+    [company, `K072-L-${documentId.slice(0, 8)}`, admin, documentId],
+  );
+  const expense = (await pool.query("SELECT id FROM gl_accounts WHERE company_id=$1 AND account_code='6000'", [company])).rows[0].id;
+  await pool.query(
+    `INSERT INTO gl_journal_lines(journal_entry_id,company_id,gl_account_id,debit,credit,description)
+     VALUES($1,$2,$3,$6,0,'x'),($1,$2,$4,$7,0,'VAT Input'),($1,$2,$5,0,$8,'x')`,
+    [rows[0].id, company, expense, vatInput, bank, Math.round((total - vat) * 100) / 100, vat, total],
+  );
+  return rows[0].id as string;
+}
+
+async function expectRefused(journalId: string) {
+  const refused = await postJournal(journalId);
+  expect(refused.isError).toBe(true);
+  expect(refused.content[0]!.text).toMatch(/not the VAT read off the captured document/);
+  const { rows } = await pool.query('SELECT status FROM gl_journal_entries WHERE id=$1', [journalId]);
+  expect(rows[0].status).toBe('draft');
+}
+
+it('receipt-to-journal: no VAT read is a draft with no VAT leg, and post_journal posts it claiming none', async () => {
   const documentId = await seedDocument(SLIP('rtj', NO_VAT));
   const res = await route(receiptToJournal, {}, { documentId });
   expect(res.statusCode, JSON.stringify(res.body)).toBe(200);
@@ -149,41 +177,39 @@ it('receipt-to-journal: no VAT read is a draft with no VAT leg, and post_journal
   expect(je).toMatchObject({ status: 'draft', vat: 0, paid: 1000 });
   expect(je.description).toMatch(/VAT not read from the document, none claimed$/);
 
-  const refused = await postJournal(je.id);
-  expect(refused.isError).toBe(true);
-  expect(refused.content[0]!.text).toMatch(/VAT was never read/);
-  expect((await journalOf(documentId)).status).toBe('draft');
+  const posted = await postJournal(je.id);
+  expect(posted.isError, posted.content[0]!.text).toBeFalsy();
+  expect(await journalOf(documentId)).toMatchObject({ status: 'posted', vat: 0, paid: 1000 });
 });
 
-it('post-expense (petty cash): the same draft, and post_journal refuses it', async () => {
+it('post-expense (petty cash): the same draft, posted the same way', async () => {
   const documentId = await seedDocument(SLIP('pc', NO_VAT));
   const res = await postExpenseFor(documentId, {});
   expect(res.statusCode, JSON.stringify(res.body)).toBe(200);
   const je = await journalOf(documentId);
   expect(je).toMatchObject({ status: 'draft', vat: 0, paid: 1000 });
-  expect((await postJournal(je.id)).isError).toBe(true);
+  expect((await postJournal(je.id)).isError).toBeFalsy();
+  expect(await journalOf(documentId)).toMatchObject({ status: 'posted', vat: 0 });
 });
 
 it('post_journal refuses a LEGACY draft carrying the invented 130.43, and one whose document has no vatAmount KEY', async () => {
   const { vatAmount: _v, subtotal: _s, ...noKey } = SLIP('nokey', NO_VAT);
   for (const extracted of [SLIP('legacy', NO_VAT), noKey]) {
-    const documentId = await seedDocument(extracted);
-    const { rows } = await pool.query(
-      `INSERT INTO gl_journal_entries(company_id,entry_number,entry_date,description,source,status,created_by,source_document_id)
-       VALUES($1,$2,'2026-04-10','Receipt: legacy','auto_invoice','draft',$3,$4) RETURNING id`,
-      [company, `K072-L-${documentId.slice(0, 8)}`, admin, documentId],
-    );
-    // The legacy shape: the invented 130.43 on the VAT Input account.
-    const expense = (await pool.query("SELECT id FROM gl_accounts WHERE company_id=$1 AND account_code='6000'", [company])).rows[0].id;
-    await pool.query(
-      `INSERT INTO gl_journal_lines(journal_entry_id,company_id,gl_account_id,debit,credit,description)
-       VALUES($1,$2,$3,869.57,0,'x'),($1,$2,$4,130.43,0,'VAT Input'),($1,$2,$5,0,1000,'x')`,
-      [rows[0].id, company, expense, vatInput, bank],
-    );
-    const refused = await postJournal(rows[0].id as string);
-    expect(refused.isError).toBe(true);
-    expect(refused.content[0]!.text).toMatch(/VAT was never read/);
+    await expectRefused(await legacyDraft(await seedDocument(extracted), 130.43, 1000));
   }
+});
+
+it('post_journal refuses a LEGACY draft whose VAT was read but whose net was not (r32: 117.42 on VAT 0.00, 18.26 on 13.04)', async () => {
+  // Q3: a non-VAT fuel slip printing `VAT 0.00` and no net; the old builder booked 15/115 of 900.22.
+  const fuel = await seedDocument({ ...SLIP('q3', { subtotal: null, vatAmount: 0 }), totalAmount: 900.22 });
+  await expectRefused(await legacyDraft(fuel, 117.42, 900.22));
+  // Q4: a mixed slip printing `VAT 13.04` and no net; the old builder booked 18.26 of 140.00.
+  const mixed = await seedDocument({ ...SLIP('q4', { subtotal: null, vatAmount: 13.04 }), totalAmount: 140 });
+  await expectRefused(await legacyDraft(mixed, 18.26, 140));
+  // The same slip's draft carrying its READ 13.04 posts — the comparison, not the shape, decides.
+  const kept = await seedDocument({ ...SLIP('q4-read', { subtotal: null, vatAmount: 13.04 }), totalAmount: 140 });
+  const posted = await postJournal(await legacyDraft(kept, 13.04, 140));
+  expect(posted.isError, posted.content[0]!.text).toBeFalsy();
 });
 
 it('the other direction: a receipt whose VAT WAS read keeps it, and post_journal posts it', async () => {

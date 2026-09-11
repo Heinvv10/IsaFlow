@@ -43,12 +43,12 @@ export interface PipelineInvoiceInput {
  * used to invent 15/115 of the total as the invoice's tax, and the draft showed
  * that figure as if the document printed it — and an agent could approve it,
  * booking input VAT a non-VAT vendor never charged. Now the draft carries no
- * VAT at all, says why, and the MCP approve tools refuse it
- * (`capturedVatUnread`).
+ * VAT at all and says why; the MCP approve tools refuse any VAT the captured
+ * document does not show (`capturedVatEvidence`, r32), so an agent can approve
+ * this draft only as it stands — claiming none.
  */
 export const VAT_UNREAD_NOTE = 'VAT was not read from the captured document, so this draft carries NO VAT. '
-  + 'If the document shows VAT, do not approve it as is: cancel it and enter the bill with its VAT. '
-  + 'An agent cannot approve this bill.';
+  + 'If the document shows VAT, do not approve it as is: cancel it and enter the bill with its VAT.';
 
 export interface PipelineValidation {
   valid: boolean;

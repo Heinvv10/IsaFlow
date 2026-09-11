@@ -17,7 +17,7 @@ import {
   getSupplierInvoiceById,
 } from '@/modules/accounting/services/ap/supplierInvoiceService';
 import { approveSupplierInvoice } from '@/modules/accounting/services/ap/supplierInvoiceWorkflowService';
-import { CAPTURED_VAT_UNREAD_REASON, invoicesWithUnreadCapturedVat } from '@/modules/accounting/services/capture/capturedVatUnread';
+import { CAPTURED_VAT_UNEVIDENCED_REASON, invoicesWithUnevidencedVat } from '@/modules/accounting/services/capture/capturedVatEvidence';
 import { supplierBelongsToCompany } from '@/modules/accounting/services/core/contactDirectoryService';
 import { accountsBelongToCompany } from '@/modules/accounting/services/gl/chartOfAccountsService';
 import { mcpPostingOpts } from '../mcpActor';
@@ -160,9 +160,9 @@ export const approveSupplierInvoiceTool: McpTool = {
     if (invoice.status !== 'draft' && invoice.status !== 'pending_approval') {
       return toolError(`Cannot approve invoice with status: ${invoice.status}`);
     }
-    // K-072 r30: a VAT the captured document never showed is not an agent's to post.
-    if ((await invoicesWithUnreadCapturedVat(ctx.companyId, [invoiceId])).has(invoiceId)) {
-      return toolError(`Cannot approve invoice: ${CAPTURED_VAT_UNREAD_REASON}.`);
+    // K-072 r30–r32: a VAT the captured document never showed is not an agent's to post.
+    if ((await invoicesWithUnevidencedVat(ctx.companyId, [invoiceId])).has(invoiceId)) {
+      return toolError(`Cannot approve invoice: ${CAPTURED_VAT_UNEVIDENCED_REASON}.`);
     }
 
     // No catch: a missing system account, a closed period or a database

@@ -8,9 +8,13 @@
  *
  *   - BOTH capture routes (`capture/[id]/post`, `ai-invoice-pipeline`) store
  *     tax 0 at a 0% rate, lines included, and the note saying why;
- *   - BOTH MCP approve tools refuse that draft and post nothing — and a LEGACY
- *     draft still carrying the invented 130.43 too, because the refusal reads
- *     the captured document, not the draft;
+ *   - BOTH MCP approve tools refuse a draft carrying a VAT its captured
+ *     document does not show, and post nothing (r32: the draft's tax must equal
+ *     the document's read VAT, none = 0): a LEGACY draft still carrying the
+ *     invented 130.43, and the r32 legacy shapes where the VAT WAS read but the
+ *     net was not — 117.42 against a read 0.00, 18.26 against a read 13.04;
+ *   - the route's own no-VAT draft of an unread bill is approved as it stands,
+ *     claiming none;
  *   - the other direction: a captured bill whose VAT WAS read is approved by
  *     the same tool, and its journal posts that VAT.
  */
@@ -166,17 +170,19 @@ it('ai-invoice-pipeline: the same bill, the same draft', async () => {
     { status: 'draft', tax: 0, rate: 0, sub: 1010, notes: VAT_UNREAD_NOTE, line_tax: 0 })]);
 });
 
+const UNEVIDENCED = /not the VAT read off the captured document/;
+
 it('the MCP approve tools refuse a draft whose captured VAT was never read — a legacy invented 130.43 included', async () => {
   const documentId = await seedDocument(NO_VAT, 'legacy');
   const invoiceId = await draftFor(documentId, 130.43, 1000, 'legacy');
 
   const single = await tool(() => approveSupplierInvoiceTool.handler({ invoice_id: invoiceId, idempotency_key: 'k1' }, ctx));
   expect(single.isError).toBe(true);
-  expect(single.content[0]!.text).toMatch(/VAT was never read/);
+  expect(single.content[0]!.text).toMatch(UNEVIDENCED);
 
   const bulk = await tool(() => bulkApproveSupplierInvoicesTool.handler({ invoice_ids: [invoiceId], idempotency_key: 'k2' }, ctx));
   expect(bulk.isError).toBe(true);
-  expect(bulk.content[0]!.text).toMatch(/VAT was never read/);
+  expect(bulk.content[0]!.text).toMatch(UNEVIDENCED);
 
   const { rows } = await pool.query('SELECT status, gl_journal_entry_id FROM supplier_invoices WHERE id=$1', [invoiceId]);
   expect(rows[0]).toEqual({ status: 'draft', gl_journal_entry_id: null });
@@ -188,7 +194,7 @@ it('a captured document with no vatAmount KEY at all counts as not read (JSON.st
   const invoiceId = await draftFor(documentId, 130.43, 1000, 'nokey');
   const single = await tool(() => approveSupplierInvoiceTool.handler({ invoice_id: invoiceId, idempotency_key: 'k4' }, ctx));
   expect(single.isError).toBe(true);
-  expect(single.content[0]!.text).toMatch(/VAT was never read/);
+  expect(single.content[0]!.text).toMatch(UNEVIDENCED);
 });
 
 it('the other direction: a captured bill whose VAT WAS read is approved, and posts that VAT', async () => {
@@ -203,4 +209,31 @@ it('the other direction: a captured bill whose VAT WAS read is approved, and pos
       WHERE si.id = $1`, [invoiceId],
   );
   expect(rows[0].vat).toBeCloseTo(150, 2);
+});
+
+it('r32: both tools refuse a legacy draft whose VAT was read but not its net (117.42 on a read 0.00, 18.26 on 13.04)', async () => {
+  for (const [read, tax, total, tag] of [[0, 117.42, 900.22, 'q3'], [13.04, 18.26, 140, 'q4']] as const) {
+    const documentId = await seedDocument({ ...NO_VAT, totalAmount: total, vatAmount: read }, tag);
+    const invoiceId = await draftFor(documentId, tax, total, tag);
+    const single = await tool(() => approveSupplierInvoiceTool.handler({ invoice_id: invoiceId, idempotency_key: `${tag}-1` }, ctx));
+    expect(single.content[0]!.text).toMatch(UNEVIDENCED);
+    const bulk = await tool(() => bulkApproveSupplierInvoicesTool.handler({ invoice_ids: [invoiceId], idempotency_key: `${tag}-2` }, ctx));
+    expect(bulk.content[0]!.text).toMatch(UNEVIDENCED);
+    const { rows } = await pool.query('SELECT status, gl_journal_entry_id FROM supplier_invoices WHERE id=$1', [invoiceId]);
+    expect(rows[0]).toEqual({ status: 'draft', gl_journal_entry_id: null });
+  }
+});
+
+it('r32: ai-invoice-pipeline\'s own no-VAT draft of an unread bill is approved as it stands, posting no VAT', async () => {
+  const documentId = await seedDocument({ ...NO_VAT, totalAmount: 1020, rawText: NO_VAT.rawText.replace(/1000/g, '1020') }, 'own');
+  expect((await callRoute(pipeline, {}, { documentId })).statusCode).toBe(200);
+  const [draft] = await invoiceFor(documentId);
+  const res = await tool(() => approveSupplierInvoiceTool.handler({ invoice_id: draft.id, idempotency_key: 'own-1' }, ctx));
+  expect(res.isError, res.content[0]!.text).toBeFalsy();
+  const { rows } = await pool.query(
+    `SELECT si.status, COALESCE(SUM(jl.debit) FILTER (WHERE a.account_subtype = 'vat_input'), 0)::float8 AS vat
+       FROM supplier_invoices si JOIN gl_journal_lines jl ON jl.journal_entry_id = si.gl_journal_entry_id
+       JOIN gl_accounts a ON a.id = jl.gl_account_id WHERE si.id = $1 GROUP BY si.status`, [draft.id],
+  );
+  expect(rows).toEqual([{ status: 'approved', vat: 0 }]);
 });
