@@ -10,6 +10,9 @@ import {requireControlTx} from '@/modules/accounting/services/controls/context';
 import {parseAuditComparisonRequest} from '@/modules/accounting/services/controls/auditComparisonJobContract';
 import {enqueueAuditComparison} from '@/modules/accounting/services/controls/auditComparisonJobService';
 import {getAuditComparisonPage} from '@/modules/accounting/services/controls/auditComparisonPageService';
+import {ComparisonUnavailableError} from '@/modules/accounting/services/controls/auditComparisonReadHeader';
+import {AuditPageCursorError} from '@/modules/accounting/services/controls/auditPageCursor';
+import {ErrorCode} from '@/lib/apiResponse.types';
 import {COMPARISON_SECTIONS} from '@/modules/accounting/services/controls/auditSnapshotComparisonMaterial';
 const querySchema=z.object({comparisonId:z.string().uuid(),section:z.enum(COMPARISON_SECTIONS),
  limit:z.string().regex(/^[1-9][0-9]{0,2}$/).transform(Number).pipe(z.number().max(100)).optional(),
@@ -33,6 +36,10 @@ export async function auditComparisonsHandler(req:NextApiRequest,res:NextApiResp
  }catch(error){
   if(error instanceof ZodError)return apiResponse.badRequest(res,'Invalid audit comparison input');
   if(error instanceof EffectivePermissionError)return apiResponse.forbidden(res,deniedPermissionMessage(error));
+  // Same mapping as the check-run route: 409 is "ask again later"; a failed job never publishes (422); absent and foreign are one 404.
+  if(error instanceof ComparisonUnavailableError)return error.reason==='not_ready'?apiResponse.conflict(res,error.message)
+   :error.reason==='failed'?apiResponse.error(res,ErrorCode.BUSINESS_RULE_VIOLATION,error.message):apiResponse.notFound(res,'Comparison');
+  if(error instanceof AuditPageCursorError)return apiResponse.badRequest(res,error.message);
   if(error instanceof AuditEnqueueQuotaError)return apiResponse.tooManyRequests(res,error.message);
   throw error;
  }

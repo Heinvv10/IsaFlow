@@ -7,7 +7,7 @@
 import * as fs from 'node:fs';
 import * as path from 'node:path';
 import { log } from '@/lib/logger';
-import { sql } from '@/lib/neon';
+import { sql, withSavepoint } from '@/lib/neon';
 
 // Resolve the logo once at module load — path works in both dev and production standalone
 const LOGO_PATH = (() => {
@@ -32,9 +32,13 @@ interface EmailLogPayload {
   sentBy?: string | null;
 }
 
-/** Fire-and-forget: inserts a row into email_log; never throws. */
-function logEmailAttempt(payload: EmailLogPayload): void {
-  sql`
+/**
+ * Best effort: inserts a row into email_log; never throws. Awaited, and in its own savepoint:
+ * inside a request transaction a failed INSERT (e.g. no recipient) would otherwise abort the
+ * caller's transaction, and an unawaited one would run interleaved with the caller's statements.
+ */
+async function logEmailAttempt(payload: EmailLogPayload): Promise<void> {
+  await withSavepoint('email_log_attempt', () => sql`
     INSERT INTO email_log
       (company_id, recipient_email, subject, email_type, status, error_message, sent_by)
     VALUES (
@@ -46,7 +50,7 @@ function logEmailAttempt(payload: EmailLogPayload): void {
       ${payload.errorMessage ?? null},
       ${payload.sentBy ?? null}
     )
-  `.catch((err: unknown) => {
+  `).catch((err: unknown) => {
     log.error('Failed to write email_log row', { error: err instanceof Error ? err.message : err }, 'emailService');
   });
 }
@@ -122,7 +126,7 @@ export async function sendEmail(options: EmailOptions): Promise<EmailResult> {
   if (!config) {
     log.warn('SMTP not configured. Set SMTP_HOST, SMTP_USER, SMTP_PASS environment variables.', {}, 'emailService');
     if (options._log) {
-      logEmailAttempt({
+      await logEmailAttempt({
         companyId: options._log.companyId,
         recipientEmail: recipients,
         subject: options.subject,
@@ -185,7 +189,7 @@ export async function sendEmail(options: EmailOptions): Promise<EmailResult> {
     }, 'emailService');
 
     if (options._log) {
-      logEmailAttempt({
+      await logEmailAttempt({
         companyId: options._log.companyId,
         recipientEmail: recipients,
         subject: options.subject,
@@ -204,7 +208,7 @@ export async function sendEmail(options: EmailOptions): Promise<EmailResult> {
     log.error('Failed to send email', { error: message, to: options.to }, 'emailService');
 
     if (options._log) {
-      logEmailAttempt({
+      await logEmailAttempt({
         companyId: options._log.companyId,
         recipientEmail: recipients,
         subject: options.subject,

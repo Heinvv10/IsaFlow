@@ -105,15 +105,19 @@ export default function CompanySettingsPage() {
     }
   }, []);
 
+  // Keyed on the company id alone. Re-reading when the context's loading flag settles would
+  // write a row read before an in-flight save committed over the form (and over the save).
+  const activeCompanyId = activeCompany?.id;
   useEffect(() => {
-    if (activeCompany?.id) {
-      void fetchCompany(activeCompany.id);
-      void fetchSupplementary(activeCompany.id);
-    } else if (!companiesLoading) {
-      // Company context finished loading but no active company — stop spinning
-      setLoading(false);
-    }
-  }, [activeCompany?.id, companiesLoading, fetchCompany, fetchSupplementary]);
+    if (!activeCompanyId) return;
+    void fetchCompany(activeCompanyId);
+    void fetchSupplementary(activeCompanyId);
+  }, [activeCompanyId, fetchCompany, fetchSupplementary]);
+
+  useEffect(() => {
+    // Company context finished loading but no active company — stop spinning
+    if (!activeCompanyId && !companiesLoading) setLoading(false);
+  }, [activeCompanyId, companiesLoading]);
 
   // ── Handlers ──────────────────────────────────────────────────────────────
 

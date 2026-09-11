@@ -17,7 +17,13 @@ const sql=vi.fn(),ctx={principal:{companyId},sql} as unknown as ControlTx;
 function rows(count='2'){sql.mockResolvedValueOnce([{generation:1,lease_id:header.leaseId,protected_header:{}}]).mockResolvedValueOnce([{section:'records',count}]);}
 beforeEach(()=>{vi.resetAllMocks();mocks.header.mockReturnValue(header);mocks.request.mockReturnValue({kind:'audit_compare',request:{firstSnapshotId:first.id,secondSnapshotId:second.id,firstCanonicalHash:first.canonicalHash,secondCanonicalHash:second.canonicalHash,comparisonRuleVersion:1,permissions:['read:reports']}});mocks.inputs.mockResolvedValue({first:{...first,snapshotId:first.id,counts:{records:0,checks:0,evidence:0,gaps:0}},second:{...second,snapshotId:second.id,counts:{records:2,checks:0,evidence:0,gaps:0}}});mocks.item.mockImplementation((_e,_h,_s,position)=>({position}));});
 it('checks current authority and refuses unavailable or independently incomplete published results',async()=>{
- sql.mockResolvedValueOnce([]);await expect(readAuditComparisonHeader(ctx,comparisonId)).rejects.toThrow(/unavailable/i);
+ // No published result: the requester's own lookup decides not-found / not-ready / failed; a succeeded job with no result stays a fault.
+ for(const [pending,expected] of [[[],{name:'ComparisonUnavailableError',reason:'not_found'}],[[{state:'queued',last_error_code:null}],{reason:'not_ready'}],
+  [[{state:'failed',last_error_code:'worker_crash'}],{reason:'failed',errorCode:'worker_crash'}],[[{state:'succeeded',last_error_code:null}],{message:'Completed comparison result missing'}]] as const){
+  sql.mockResolvedValueOnce([]).mockResolvedValueOnce(pending);
+  await expect(readAuditComparisonHeader(ctx,comparisonId)).rejects.toMatchObject(expected);
+  const lookup=sql.mock.calls.at(-1)!;expect(lookup[0].join(' ')).toContain('requester_person_id');expect(lookup).toContain(companyId);
+ }
  rows('1');await expect(readAuditComparisonHeader(ctx,comparisonId)).rejects.toThrow(/population/i);
  expect(mocks.permission).toHaveBeenCalledWith(ctx,'read:reports');
 });

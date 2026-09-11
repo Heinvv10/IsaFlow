@@ -15,12 +15,14 @@ export function signingHarness(h:Fixture){
  const realFetch=globalThis.fetch;
  /** The HTML actually posted to Signum, per created document. */
  const posted:string[]=[];
+ /** The document title posted with each, in the same order. */
+ const titles:string[]=[];
  const state={downloadFails:false};
  vi.spyOn(globalThis,'fetch').mockImplementation(async(input,init)=>{
   const url=typeof input==='string'?input:input instanceof URL?input.href:input.url;
   if(!url.startsWith(process.env.SIGNUM_API_URL!))return realFetch(input,init);
   if(url.endsWith('/documents/from-html')){
-   posted.push(JSON.parse(String(init?.body)).html as string);
+   const body=JSON.parse(String(init?.body)) as {html:string;title:string};posted.push(body.html);titles.push(body.title);
    return new Response(JSON.stringify({documentId:`signum-${randomUUID()}`,signers:[]}),{status:200,headers:{'content-type':'application/json'}});
   }
   if(url.endsWith('/download'))return state.downloadFails?new Response('unavailable',{status:503}):new Response(SIGNED_PDF,{status:200});
@@ -51,5 +53,5 @@ export function signingHarness(h:Fixture){
   expect((await h.webhook({documentId:signum,event:'document.signed'})).status).toBe(200);
   return h.readDocument(doc);
  }
- return{posted,state,readyToSign,sendRequest,send,signed};
+ return{posted,titles,state,readyToSign,sendRequest,send,signed};
 }

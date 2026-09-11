@@ -6,7 +6,10 @@ vi.mock('@/lib/neon',()=>({sql:mocks.sql,withTransaction:vi.fn()}));
 vi.mock('@/lib/auth',()=>({withAuth:(x:unknown)=>x,withWriteAccess:(x:unknown)=>x}));
 vi.mock('@/lib/auth/withCsrf',()=>({withCsrf:(x:unknown)=>x}));
 vi.mock('@/lib/api-error-handler',()=>({withErrorHandler:(x:unknown)=>x}));
+const logged=vi.hoisted(()=>({warn:vi.fn(),info:vi.fn(),error:vi.fn(),debug:vi.fn()}));
+vi.mock('@/lib/logger',()=>({log:logged}));
 import handler from '../../../../pages/api/accounting/bank-transfers';
+import { BankTransferRefusalError } from '@/modules/accounting/services/controls/bankTransferOperationMaterializer';
 it('prepares a durable reviewable transfer instead of posting SQL from the route',async()=>{
  const req={method:'POST',companyId:'company',user:{id:'person'},body:{
   fromAccountId:'11111111-1111-1111-1111-111111111111',toAccountId:'22222222-2222-2222-2222-222222222222',amount:'100.01',transferDate:'2026-02-28',
@@ -15,4 +18,42 @@ it('prepares a durable reviewable transfer instead of posting SQL from the route
  await handler(req,response as unknown as NextApiResponse);
  expect(mocks.prepare).toHaveBeenCalledOnce();expect(mocks.execute).not.toHaveBeenCalled();expect(mocks.sql).not.toHaveBeenCalled();
  expect(response.json).toHaveBeenCalledWith(expect.objectContaining({data:expect.objectContaining({status:'approval_required'})}));
+});
+it('answers a refused transfer 422 with the refusal, for preparation and posting alike — not a 500',async()=>{
+ const reason='Cannot transfer between these bank accounts: 1000 Main Cheque has no currency set. Both must have the ledger currency (ZAR).';
+ const bodies=[{fromAccountId:'11111111-1111-1111-1111-111111111111',toAccountId:'22222222-2222-2222-2222-222222222222',amount:'1'},
+  {action:'execute',intentId:'33333333-3333-3333-3333-333333333333'}];
+ mocks.prepare.mockRejectedValueOnce(new BankTransferRefusalError(reason));mocks.execute.mockRejectedValueOnce(new BankTransferRefusalError(reason));
+ for(const body of bodies){
+  const response={status:vi.fn(),json:vi.fn(),setHeader:vi.fn()};response.status.mockReturnValue(response);
+  await handler({method:'POST',companyId:'company',user:{id:'person'},body} as unknown as NextApiRequest,response as unknown as NextApiResponse);
+  expect(response.status).toHaveBeenCalledWith(422);
+  expect(response.json.mock.calls[0]?.[0]?.error).toMatchObject({code:'BUSINESS_RULE_VIOLATION',message:reason});
+ }
+});
+it('answers a refusal of the person\'s own input 400, not 422',async()=>{
+ mocks.prepare.mockRejectedValueOnce(new BankTransferRefusalError('The from and to accounts must be different bank accounts',400));
+ const response={status:vi.fn(),json:vi.fn(),setHeader:vi.fn()};response.status.mockReturnValue(response);
+ await handler({method:'POST',companyId:'company',user:{id:'person'},body:{fromAccountId:'11111111-1111-1111-1111-111111111111',toAccountId:'22222222-2222-2222-2222-222222222222',amount:'1'}} as unknown as NextApiRequest,response as unknown as NextApiResponse);
+ expect(response.status).toHaveBeenCalledWith(400);
+ expect(response.json.mock.calls[0]?.[0]?.error).toMatchObject({code:'BAD_REQUEST',message:'The from and to accounts must be different bank accounts'});
+});
+it('answers a missing permission 403 naming it, not a 500',async()=>{
+ const {EffectivePermissionError}=await import('@/lib/auth/effectivePermissions');
+ mocks.execute.mockRejectedValueOnce(new EffectivePermissionError('write:post'));
+ const response={status:vi.fn(),json:vi.fn(),setHeader:vi.fn()};response.status.mockReturnValue(response);
+ await handler({method:'POST',companyId:'company',user:{id:'person'},body:{action:'execute',intentId:'33333333-3333-3333-3333-333333333333'}} as unknown as NextApiRequest,response as unknown as NextApiResponse);
+ expect(response.status).toHaveBeenCalledWith(403);
+ expect(response.json.mock.calls[0]?.[0]?.error?.message).toBe('Current permission denied: write:post is required');
+});
+it('logs each 409 it answers, with the kernel\'s reason, the way the year-end route does',async()=>{
+ const {SuppliedApprovalRefusal}=await import('@/modules/accounting/services/controls/suppliedApprovalRefusal');
+ const {OperationApprovalRequiredError}=await import('@/modules/accounting/services/controls/approvalExecutionService');
+ for(const error of [new SuppliedApprovalRefusal('Approval material changed'),new OperationApprovalRequiredError()]){
+  logged.warn.mockClear();mocks.execute.mockRejectedValueOnce(error);
+  const response={status:vi.fn(),json:vi.fn(),setHeader:vi.fn()};response.status.mockReturnValue(response);
+  await handler({method:'POST',companyId:'company',user:{id:'person'},body:{action:'execute',intentId:'33333333-3333-3333-3333-333333333333'}} as unknown as NextApiRequest,response as unknown as NextApiResponse);
+  expect(response.status).toHaveBeenCalledWith(409);
+  expect(logged.warn,'a 409 went unlogged').toHaveBeenCalledWith(expect.stringMatching(/^Bank transfer refused/),expect.objectContaining({companyId:'company',reason:expect.any(String)}),'accounting');
+ }
 });

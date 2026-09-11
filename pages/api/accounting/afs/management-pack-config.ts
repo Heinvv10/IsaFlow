@@ -46,6 +46,23 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
   }
 
   if (req.method === 'PUT') {
+    // Named per entry: a delivery cannot send to an entry that is not {email, role, receives},
+    // so the caller has to be told WHICH one, not just that "recipients" is wrong somewhere.
+    const recipients: unknown = req.body?.recipients;
+    const malformed = Array.isArray(recipients)
+      ? recipients.flatMap((r, i) => {
+        const parsed = PackRecipientSchema.safeParse(r);
+        return parsed.success ? [] : [{ entry: `recipients[${i}]`, issues: parsed.error.issues.map(issue =>
+          `recipients[${i}]${issue.path.map(key => `.${String(key)}`).join('')}: ${issue.message}`) }];
+      })
+      : [];
+    if (malformed.length > 0) {
+      return apiResponse.validationError(
+        res,
+        { recipients: malformed.flatMap(m => m.issues) },
+        `Malformed recipients: ${malformed.map(m => m.entry).join(', ')}`,
+      );
+    }
     const parsed = PutConfigSchema.safeParse(req.body ?? {});
     if (!parsed.success) return apiResponse.zodValidationError(res, parsed.error);
     log.info('Upserting management pack config', { companyId }, 'management-pack-config-api');

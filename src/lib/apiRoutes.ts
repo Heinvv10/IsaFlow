@@ -47,6 +47,7 @@ import type { getBudgetVariance } from '@/modules/accounting/services/reports/bu
 import type { getIncomeStatement } from '@/modules/accounting/services/reports/financialReportingService';
 import type { buildReportPack } from '@/modules/accounting/services/reports/reportPackService';
 import type { unclassifiedWarning } from '@/modules/accounting/services/gl/financialFiguresService';
+import type { createAccount, getAccountTree, getChartOfAccounts, updateAccount } from '@/modules/accounting/services/gl/chartOfAccountsService';
 
 /**
  * ONE TYPE PER URL, REGARDLESS OF METHOD.
@@ -107,6 +108,13 @@ interface StaticRoutes {
     postedThrough: Awaited<ReturnType<typeof getBudgetVariance>>['postedThrough'];
   };
   '/api/accounting/reports-income-statement': Awaited<ReturnType<typeof getIncomeStatement>>;
+  // GET answers the list (flat, or `view=tree` nodes that extend GLAccount); POST and PUT answer the
+  // one account written. Callers narrow with Array.isArray — arrays and a single object cannot converge.
+  '/api/accounting/chart-of-accounts':
+    | Awaited<ReturnType<typeof getChartOfAccounts>>
+    | Awaited<ReturnType<typeof getAccountTree>>
+    | Awaited<ReturnType<typeof createAccount>>
+    | Awaited<ReturnType<typeof updateAccount>>;
   '/api/accounting/reports-pack': {
     pack: ReturnType<typeof buildReportPack>;
     period: { from: string; to: string };

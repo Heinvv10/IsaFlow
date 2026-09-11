@@ -4,6 +4,7 @@ import type {ControlTx} from './contracts';
 import {canonicalJson} from './canonical';
 import {COMPARISON_SECTIONS} from './auditSnapshotComparisonMaterial';
 import {readAuditComparisonHeader} from './auditComparisonReadHeader';
+import {AuditPageCursorError} from './auditPageCursor';
 import {openComparisonResultItem} from './auditComparisonResultProtection';
 import type {SnapshotIndexEnvelope} from './auditSnapshotIndexContract';
 const schema=z.object({comparisonId:z.string().uuid().transform(id=>id.toLowerCase()),section:z.enum(COMPARISON_SECTIONS),
@@ -13,7 +14,7 @@ export async function getAuditComparisonPage(ctx:ControlTx,input:unknown){
  assertControlTx(ctx);const request=schema.parse(JSON.parse(canonicalJson(input)));
  const header=await readAuditComparisonHeader(ctx,request.comparisonId),counts=header.counts[request.section];
  const total=counts.added+counts.removed+counts.changed,start=Number(request.cursor??0);
- if(start>total)throw new Error('Invalid comparison page cursor');
+ if(start>total)throw new AuditPageCursorError(total);
  const rows=await ctx.sql`WITH candidates AS (
   SELECT position,protected_item FROM control_audit_comparison_items
   WHERE company_id=${ctx.principal.companyId}::uuid AND job_id=${request.comparisonId}::uuid
