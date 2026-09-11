@@ -24,16 +24,17 @@ CREATE INDEX IF NOT EXISTS control_historical_import_batch_members_import_idx
  ON control_historical_import_batch_members(company_id,import_id);
 
 -- A batch speaks for exactly one maker: every member must be that person's own
--- platform-prepared import. Enforced here as well as in the kernel, because the
--- approval authority function below trusts the batch requester.
+-- platform-prepared import, in the batch's tenant, at a position within the
+-- declared size. Enforced here as well as in the kernel, because the approval
+-- authority function below trusts the batch requester.
 CREATE OR REPLACE FUNCTION control_historical_import_batch_member_guard() RETURNS trigger
 LANGUAGE plpgsql SET search_path=pg_catalog,public AS $$
 BEGIN
  IF NOT EXISTS(SELECT 1 FROM public.control_historical_import_batches b
    JOIN public.control_historical_imports i ON i.company_id=b.company_id AND i.id=NEW.import_id
-   WHERE b.company_id=NEW.company_id AND b.id=NEW.batch_id
+   WHERE b.company_id=NEW.company_id AND b.id=NEW.batch_id AND NEW.position<=b.member_count
      AND i.requester_person_id=b.requester_person_id AND i.requester_auth_method='platform_import') THEN
-  RAISE EXCEPTION 'Historical import batch member must be the batch requester''s own platform import' USING ERRCODE='23514';
+  RAISE EXCEPTION 'Historical import batch member must be the batch requester''s own platform import within the declared batch size' USING ERRCODE='23514';
  END IF;
  RETURN NEW;
 END $$;
@@ -41,6 +42,23 @@ REVOKE ALL ON FUNCTION control_historical_import_batch_member_guard() FROM PUBLI
 DROP TRIGGER IF EXISTS control_historical_import_batch_member_guard ON control_historical_import_batch_members;
 CREATE TRIGGER control_historical_import_batch_member_guard BEFORE INSERT ON control_historical_import_batch_members
  FOR EACH ROW EXECUTE FUNCTION control_historical_import_batch_member_guard();
+
+-- The member set is frozen at the creating commit: the batch must commit with
+-- exactly member_count members, and with positions unique and bounded by that
+-- count no later insert can fit.
+CREATE OR REPLACE FUNCTION control_historical_import_batch_complete() RETURNS trigger
+LANGUAGE plpgsql SET search_path=pg_catalog,public AS $$
+BEGIN
+ IF (SELECT count(*) FROM public.control_historical_import_batch_members m
+   WHERE m.company_id=NEW.company_id AND m.batch_id=NEW.id)<>NEW.member_count THEN
+  RAISE EXCEPTION 'Historical import batch must commit with exactly its declared members' USING ERRCODE='23514';
+ END IF;
+ RETURN NULL;
+END $$;
+REVOKE ALL ON FUNCTION control_historical_import_batch_complete() FROM PUBLIC,app_user;
+DROP TRIGGER IF EXISTS control_historical_import_batch_complete ON control_historical_import_batches;
+CREATE CONSTRAINT TRIGGER control_historical_import_batch_complete AFTER INSERT ON control_historical_import_batches
+ DEFERRABLE INITIALLY DEFERRED FOR EACH ROW EXECUTE FUNCTION control_historical_import_batch_complete();
 
 ALTER TABLE control_historical_import_batches ENABLE ROW LEVEL SECURITY;
 ALTER TABLE control_historical_import_batches FORCE ROW LEVEL SECURITY;
@@ -57,9 +75,16 @@ CREATE POLICY tenant_read ON control_historical_import_batch_members FOR SELECT
 REVOKE ALL ON control_historical_import_batches,control_historical_import_batch_members FROM PUBLIC,app_user,platform_admin;
 GRANT SELECT ON control_historical_import_batches,control_historical_import_batch_members TO app_user;
 GRANT SELECT,INSERT ON control_historical_import_batches,control_historical_import_batch_members TO platform_admin;
+-- The member imports and their sources are what a batch approval binds; the same
+-- default privileges left platform_admin able to rewrite them (639 revoked only
+-- app_user). Nothing in the application updates or deletes either table.
+REVOKE UPDATE,DELETE,TRUNCATE ON control_historical_imports,control_historical_import_sources FROM platform_admin;
 
 -- 675's authority function, extended by one arm: a platform requester may also
--- resolve authorities for an approval of its own batch. Every other line is 675's.
+-- resolve authorities for an approval of its own batch. Two further changes to
+-- 675's lines: the caller check is NULL-safe (a missing sub claim used to pass),
+-- and entity ids compare as text, so a non-UUID entity refuses (42501) rather
+-- than raising a cast error (22P02).
 CREATE OR REPLACE FUNCTION public.control_approval_authorities(p_company uuid,p_approval uuid)
 RETURNS TABLE(person_id text,role text,authority_kind text,platform_role text,is_active boolean,status text,
   suspended_at timestamptz,company_status text,company_suspended_at timestamptz,permissions jsonb,
@@ -87,15 +112,16 @@ BEGIN
     AND EXISTS(SELECT 1 FROM public.users pu WHERE pu.id=v_request.requester_person_id AND pu.role='super_admin')
     AND ((v_request.operation='historical_import.post' AND v_request.entity_type='historical_import'
       AND EXISTS(SELECT 1 FROM public.control_historical_imports hi
-        WHERE hi.company_id=p_company AND hi.id=v_request.entity_id::uuid
+        WHERE hi.company_id=p_company AND hi.id::text=v_request.entity_id_canonical
           AND hi.requester_person_id=v_request.requester_person_id
           AND hi.requester_auth_method='platform_import'))
      OR (v_request.operation='historical_import_batch.post' AND v_request.entity_type='historical_import_batch'
       AND EXISTS(SELECT 1 FROM public.control_historical_import_batches hb
-        WHERE hb.company_id=p_company AND hb.id=v_request.entity_id::uuid
+        WHERE hb.company_id=p_company AND hb.id::text=v_request.entity_id_canonical
           AND hb.requester_person_id=v_request.requester_person_id
           AND hb.requester_auth_method='platform_import'))) INTO v_caller_platform;
-  IF NOT v_caller_member AND NOT v_caller_platform THEN
+  -- NULL-safe: with no sub claim auth.uid() is NULL, and NOT NULL is not true.
+  IF NOT (COALESCE(v_caller_member,false) OR COALESCE(v_caller_platform,false)) THEN
     RAISE EXCEPTION 'Approval authorities unavailable' USING ERRCODE='42501';
   END IF;
 
