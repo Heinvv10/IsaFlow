@@ -6,6 +6,7 @@ import { canonicalJson, canonicalMoney } from './canonical';
 import { readControlEntityVersion } from './operationVersions';
 import type { ControlTx, OperationRef } from './contracts';
 import type { ApMaterial, ObservedSource } from './apOperationMaterializer';
+import { postingPeriodBlock } from '../gl/postingPeriodGuard';
 type Row = Record<string, unknown>;
 
 /** The immutable intent contains business input; currency and account eligibility come from owned rows. */
@@ -132,15 +133,16 @@ export async function readTransferAccounts(ctx: ControlTx, companyId: string, fr
 
 /**
  * Posting refuses a period that is not open, or the company lockdown, HERE — before the journal is written. Inside
- * the journal control the same refusal marks the request failed and it answers 500 (withControlRequest). Mirrors
- * journalEntryPostingService.assertPostingGuards; if the two ever drift, that guard still refuses, as a fault.
+ * the journal control the same refusal marks the request failed and it answers 500 (withControlRequest). The rule is
+ * postingPeriodBlock, the one copy assertPostingGuards also uses, so the two cannot drift.
  */
 export function assertTransferPostable(company: Row, period: Row, date: string): void {
-  if (period.status !== 'open') {
-    throw new BankTransferRefusalError(`Cannot post this transfer dated ${date}: its fiscal period (${String(period.start_date)} to ${String(period.end_date)}) is ${String(period.status)}.`);
+  const block = postingPeriodBlock(period.status, company, date);
+  if (block?.kind === 'period') {
+    throw new BankTransferRefusalError(`Cannot post this transfer dated ${date}: its fiscal period (${String(period.start_date)} to ${String(period.end_date)}) is ${block.status}.`);
   }
-  if (company.lockdown_enabled === true && (!company.lockdown_date || date <= String(company.lockdown_date))) {
-    const until = company.lockdown_date ? ` up to ${String(company.lockdown_date)}` : '';
+  if (block?.kind === 'lockdown') {
+    const until = block.lockdownDate ? ` up to ${block.lockdownDate}` : '';
     throw new BankTransferRefusalError(`Cannot post this transfer dated ${date}: the company is locked down${until}.`);
   }
 }
