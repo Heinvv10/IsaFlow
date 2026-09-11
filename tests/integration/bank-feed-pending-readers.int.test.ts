@@ -63,4 +63,43 @@ describe('readers', () => {
     expect(states).toEqual(['pending', 'posted']);
     expect(page.total).toBe(2);
   });
+
+  it('review queue (bankAccountId-only branch) shows pending, hides removed', async () => {
+    const { getBankTransactions } = await import('@/modules/accounting/services/bank/bankTransactionQueryService');
+    const page = await inRequest(() => getBankTransactions(company, { bankAccountId: bank }));
+    const states = page.transactions.map((t) => t.feedState).sort();
+    expect(states).toEqual(['pending', 'posted']);
+    expect(page.total).toBe(2);
+  });
+
+  it('review queue (company-wide branch) shows pending, hides removed', async () => {
+    const { getBankTransactions } = await import('@/modules/accounting/services/bank/bankTransactionQueryService');
+    const page = await inRequest(() => getBankTransactions(company, {}));
+    const states = page.transactions.map((t) => t.feedState).sort();
+    expect(states).toEqual(['pending', 'posted']);
+    expect(page.total).toBe(2);
+  });
+
+  it('coverage reader (fetchCoverageAccounts) counts only posted rows', async () => {
+    const { fetchCoverageAccounts } = await import('@/modules/accounting/services/bank/bankCoverageQueries');
+    const rows = await inRequest(() => fetchCoverageAccounts(company, '2026-09-30'));
+    const acct = rows.find((r) => r.bankAccountId === bank);
+    expect(acct?.transactionCount).toBe(1);
+    expect(acct?.netMovement).toBe(-100);
+  });
+
+  it('KPI reader (getDashboardKPIs cash) counts only posted rows', async () => {
+    const { getDashboardKPIs } = await import('@/modules/accounting/services/reports/kpiDashboardService');
+    const kpis = await inRequest(() => getDashboardKPIs(company, '2026-09-01', '2026-09-30'));
+    expect(kpis.cash.total).toBe(-100);
+  });
+
+  it('bankReconciledCheck counts only posted rows', async () => {
+    const { bankReconciledCheck } = await import('@/modules/accounting/services/gl/closeReadinessChecks/bankReconciledCheck');
+    const result = await inRequest(() => bankReconciledCheck(company, { startDate: '2026-09-01', endDate: '2026-09-30' }));
+    // Only the single posted row (status defaults to 'imported') should count —
+    // the pending and removed rows must not inflate this to 2 or 3.
+    expect(result.status).toBe('fail');
+    expect(result.reason).toContain('1 unreconciled');
+  });
 });
