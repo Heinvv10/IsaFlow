@@ -84,7 +84,8 @@ REVOKE UPDATE,DELETE,TRUNCATE ON control_historical_imports,control_historical_i
 -- resolve authorities for an approval of its own batch. Two further changes to
 -- 675's lines: the caller check is NULL-safe (a missing sub claim used to pass),
 -- and entity ids compare as text, so a non-UUID entity refuses (42501) rather
--- than raising a cast error (22P02).
+-- than raising a cast error (22P02); the guarded cast beside it keeps the
+-- primary-key lookup (the intentIdentity.ts CANONICAL_UUID_TEXT pattern).
 CREATE OR REPLACE FUNCTION public.control_approval_authorities(p_company uuid,p_approval uuid)
 RETURNS TABLE(person_id text,role text,authority_kind text,platform_role text,is_active boolean,status text,
   suspended_at timestamptz,company_status text,company_suspended_at timestamptz,permissions jsonb,
@@ -113,11 +114,13 @@ BEGIN
     AND ((v_request.operation='historical_import.post' AND v_request.entity_type='historical_import'
       AND EXISTS(SELECT 1 FROM public.control_historical_imports hi
         WHERE hi.company_id=p_company AND hi.id::text=v_request.entity_id_canonical
+          AND hi.id=CASE WHEN v_request.entity_id_canonical ~ '^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$' THEN v_request.entity_id_canonical::uuid END
           AND hi.requester_person_id=v_request.requester_person_id
           AND hi.requester_auth_method='platform_import'))
      OR (v_request.operation='historical_import_batch.post' AND v_request.entity_type='historical_import_batch'
       AND EXISTS(SELECT 1 FROM public.control_historical_import_batches hb
         WHERE hb.company_id=p_company AND hb.id::text=v_request.entity_id_canonical
+          AND hb.id=CASE WHEN v_request.entity_id_canonical ~ '^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$' THEN v_request.entity_id_canonical::uuid END
           AND hb.requester_person_id=v_request.requester_person_id
           AND hb.requester_auth_method='platform_import'))) INTO v_caller_platform;
   -- NULL-safe: with no sub claim auth.uid() is NULL, and NOT NULL is not true.
