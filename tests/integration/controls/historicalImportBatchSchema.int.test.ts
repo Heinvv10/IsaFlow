@@ -60,10 +60,14 @@ describe('historical import batch storage: actual PostgreSQL',()=>{
  });
  it.each(['control_historical_import_batches','control_historical_import_batch_members','control_historical_imports','control_historical_import_sources'])(
   'grants UPDATE/DELETE/TRUNCATE on %s to no role but its owner and migration_admin',async table=>{
-  const {rows}=await pool.query(`SELECT DISTINCT r.rolname FROM pg_class c CROSS JOIN LATERAL aclexplode(c.relacl) a
-   JOIN pg_roles r ON r.oid=a.grantee WHERE c.oid=to_regclass($1) AND a.privilege_type IN('UPDATE','DELETE','TRUNCATE')
+  const {rows}=await pool.query(`SELECT DISTINCT COALESCE(r.rolname,'PUBLIC') AS rolname FROM pg_class c CROSS JOIN LATERAL aclexplode(c.relacl) a
+   LEFT JOIN pg_roles r ON r.oid=a.grantee WHERE c.oid=to_regclass($1) AND a.privilege_type IN('UPDATE','DELETE','TRUNCATE')
    AND a.grantee<>c.relowner ORDER BY 1`,[table]);
   expect(rows.map(r=>r.rolname)).toEqual(['migration_admin']);
+  // Including anything inherited through role membership.
+  const effective=await pool.query(`SELECT has_table_privilege('platform_admin',to_regclass($1),'UPDATE,DELETE,TRUNCATE') AS platform,
+   has_table_privilege('app_user',to_regclass($1),'UPDATE,DELETE,TRUNCATE') AS app`,[table]);
+  expect(effective.rows).toEqual([{platform:false,app:false}]);
  });
  it('lets a tenant member read only its own company batches and members',async()=>{
   const importA=await importRow(f.companyA,admin),importB=await importRow(f.companyB,admin);
@@ -95,6 +99,19 @@ describe('historical import batch storage: actual PostgreSQL',()=>{
   await expect(insertMember(pool,f.companyA,committed,await importRow(f.companyA,admin),1)).rejects.toMatchObject({code:'23505'});
   await expect(batch(f.companyA,admin,[{importId:await importRow(f.companyA,admin)}],2)).rejects.toThrow(/exactly its declared members/i);
   await expect(batch(f.companyA,admin,[],1)).rejects.toThrow(/exactly its declared members/i);
+  // Neither an early IMMEDIATE check nor a rolled-back savepoint can commit an incomplete batch.
+  for(const mode of ['immediate','savepoint'] as const){
+   const importId=await importRow(f.companyA,admin),client=await pool.connect(),id=randomUUID();
+   try{
+    await client.query('BEGIN');await insertBatch(client,f.companyA,admin,id,1);
+    if(mode==='immediate')await expect(client.query('SET CONSTRAINTS control_historical_import_batch_complete IMMEDIATE')).rejects.toThrow(/exactly its declared members/i);
+    else{
+     await client.query('SAVEPOINT members');await insertMember(client,f.companyA,id,importId,1);await client.query('ROLLBACK TO SAVEPOINT members');
+     await expect(client.query('COMMIT')).rejects.toThrow(/exactly its declared members/i);
+    }
+   }finally{await client.query('ROLLBACK');client.release();}
+   expect((await pool.query('SELECT 1 FROM control_historical_import_batches WHERE company_id=$1 AND id=$2',[f.companyA,id])).rowCount).toBe(0);
+  }
  });
  it('refuses one import in two positions of the same batch',async()=>{
   const id=await importRow(f.companyA,admin);
@@ -103,10 +120,13 @@ describe('historical import batch storage: actual PostgreSQL',()=>{
  describe('batch approval authorities',()=>{
   const call=(approvalId:string,claims:Record<string,unknown>)=>as('platform_admin',claims,f.companyA,
    async c=>(await c.query('SELECT person_id,authority_kind,platform_role,grant_valid FROM public.control_approval_authorities($1,$2)',[f.companyA,approvalId])).rows);
-  it('resolves the platform requester of its own batch approval',async()=>{
-   const id=await batch(f.companyA,admin,[{importId:await importRow(f.companyA,admin)}]);
-   const own=await approval('historical_import_batch','historical_import_batch.post',id,admin);
-   expect(await call(own,{sub:admin,role:'authenticated'})).toEqual([{person_id:admin,authority_kind:'platform_import',platform_role:'super_admin',grant_valid:true}]);
+  it('resolves the platform requester of its own batch or import approval, whatever the entity id case',async()=>{
+   const importId=await importRow(f.companyA,admin),id=await batch(f.companyA,admin,[{importId}]);
+   const expected=[{person_id:admin,authority_kind:'platform_import',platform_role:'super_admin',grant_valid:true}];
+   for(const approvalId of [await approval('historical_import_batch','historical_import_batch.post',id,admin),
+    await approval('historical_import_batch','historical_import_batch.post',id.toUpperCase(),admin),
+    await approval('historical_import','historical_import.post',importId.toUpperCase(),admin)])
+    expect(await call(approvalId,{sub:admin,role:'authenticated'})).toEqual(expected);
   });
   it('refuses another super admin, another requester\'s batch, a mismatched entity type, no subject and a non-UUID entity',async()=>{
    const mine=await batch(f.companyA,admin,[{importId:await importRow(f.companyA,admin)}]);
@@ -118,6 +138,7 @@ describe('historical import batch storage: actual PostgreSQL',()=>{
     [await approval('historical_import','historical_import_batch.post',importId,admin),{sub:admin,role:'authenticated'}],
     [await approval('historical_import_batch','historical_import.post',importId,admin),{sub:admin,role:'authenticated'}],
     [await approval('historical_import_batch','historical_import_batch.post',mine,admin),{role:'authenticated'}],
+    [await approval('historical_import','historical_import.post',importId,admin),{role:'authenticated'}],
     [await approval('historical_import_batch','historical_import_batch.post','not-a-uuid',admin),{sub:admin,role:'authenticated'}],
    ] as const;
    for(const [approvalId,claims] of cases)await expect(call(approvalId,claims)).rejects.toMatchObject({code:'42501'});
