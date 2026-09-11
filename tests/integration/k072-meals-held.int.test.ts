@@ -36,13 +36,13 @@ const ctx = { userId: admin, companyId: company, scopes: ['write:invoices', 'wri
 const HELD = /held for a person/;
 const today = new Date().toISOString().slice(0, 10);
 
-async function seed(vendor: string, item: string, type: 'receipt' | 'invoice' = 'receipt'): Promise<string> {
-  const rawText = `${vendor}\nTAX INVOICE\nVAT No 4987654321\nDate: ${today}\n${item} 1000.00\nSubtotal 869.57\nVAT 130.43\nTOTAL 1000.00\nCARD 1000.00\n`;
+async function seed(vendor: string | null, item: string, type: 'receipt' | 'invoice' = 'receipt', confirmed: string | null = null): Promise<string> {
+  const rawText = `${vendor ?? 'Linden'}\nTAX INVOICE\nVAT No 4987654321\nDate: ${today}\n${item} 1000.00\nSubtotal 869.57\nVAT 130.43\nTOTAL 1000.00\nCARD 1000.00\n`;
   const extracted = { documentType: type, vendorName: vendor, date: today, referenceNumber: crypto.randomUUID().slice(0, 8), currency: 'ZAR',
     subtotal: 869.57, vatAmount: 130.43, vatRate: 15, totalAmount: 1000, lineItems: [], rawText, confidence: 0.99, warnings: [], extractionMethod: 'vlm' };
   const id = crypto.randomUUID();
-  await pool.query(`INSERT INTO captured_documents(id,company_id,file_name,file_type,document_type,extracted_data,status)
-    VALUES($1,$2,$3,'application/pdf',$4,$5::jsonb,'pending')`, [id, company, `k072-${id}.pdf`, type, JSON.stringify(extracted)]);
+  await pool.query(`INSERT INTO captured_documents(id,company_id,file_name,file_type,document_type,extracted_data,vendor_name,status)
+    VALUES($1,$2,$3,'application/pdf',$4,$5::jsonb,$6,'pending')`, [id, company, `k072-${id}.pdf`, type, JSON.stringify(extracted), confirmed]);
   return id;
 }
 
@@ -131,6 +131,20 @@ it.each(['Wimpy Linden', 'Mugg & Bean Rosebank', 'Cafe Del Mar', 'Seattle Coffee
     expect(out.content[0]!.text).toMatch(HELD);
     expect((await pool.query('SELECT status FROM gl_journal_entries WHERE id=$1', [je.id])).rows[0].status).toBe('draft');
   });
+
+// r37 MEDIUM-2: the route reads the person's correction first, as the posters do — one function, the same inputs.
+it.each([['W1MPY LINDEN', 'Wimpy Linden'], [null, 'Mugg & Bean Rosebank']])(
+  'extracted `%s`, corrected to `%s`: the route holds it, and post_journal refuses it', async (extracted, confirmed) => {
+    const je = await viaRoute(await seed(extracted, 'Meal', 'receipt', confirmed));
+    expect(je).toMatchObject({ status: 'draft', vat: 130.43 });
+    expect(je.description).toMatch(/HELD for a person/);
+    const out = await tool(() => postJournalTool.handler({ journal_id: je.id, idempotency_key: crypto.randomUUID() }, ctx));
+    expect(out.content[0]!.text).toMatch(HELD);
+  });
+
+it('a correction AWAY from a meals name lifts it: extracted `Wimpy`, corrected to `Brits Steel`, auto-posts claiming', async () => {
+  expect(await viaRoute(await seed('Wimpy Linden', 'Flat bar', 'receipt', 'Brits Steel'))).toMatchObject({ status: 'posted', vat: 130.43 });
+});
 
 it('the other direction: a non-meals slip still auto-posts claiming its VAT', async () => {
   expect(await viaRoute(await seed('Brits Steel', 'Flat bar'))).toMatchObject({ status: 'posted', vat: 130.43 });

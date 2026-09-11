@@ -2785,3 +2785,33 @@ rate limiter; re-run alone, its own non-pipeline case (`15.00% rate only`) is am
 **Gate note:** the first CI run failed one component test, `ReportPageDrillDimensions` ("balance sheet carries a
 selected business unit…"), at load ~21. Measured, not assumed: it passes alone at head (2/2) and on a clean
 `96ba518e2` archive (2/2), and the file is identical at both; the CI re-run passed 547/547. Not this round's code.
+
+---
+
+## Round 37 — one hold, the same inputs; the "no VAT" allowance fails closed on structure, not only on words
+
+Review: `review-k072-r36.md` (0H/2M/2L; the restaurant hold held against every attack, the poster census matched, the
+numbers and mutations reproduced). Probes: `agents/rev-k072am/`. `origin/master` had not moved (`356d6cf22`).
+
+| Finding | Disposition |
+|---|---|
+| MEDIUM-1 tokenisation: a customer's `Not VAT registered` under `Bill-To:` / `Deliver-To:` / `To:` counted as the supplier's, and right-glued `VATAMT` / `TaxAmt` / `VATINCL` escaped the tax net — `approve_supplier_invoice` approved Dr 6000 1000 / Cr 2000 1000 (R130.43 short) and `post_journal` posted the twin | FIXED in three layers. **(1) Customer heads, any separator:** the line is reduced to its letters before `CUSTOMER_HEAD` is tried (`Bill-To:`, `BILL-TO`, `BillTo:`, `Ship-To:`, `Sold-To:`), and the heads gain `To`, `Attn`/`Attention`, `Account`, `Debtor`, `Buyer`, `Kliënt`. **(2) Whose line:** `isSuppliersLine` reads UPWARD to the nearest structural line — a customer head makes it the customer's (so a block that restarts below the totals is the customer's too), a total line makes it the footer, none makes it the header. **(3) The tax net:** a word CONTAINING a tax root (`vat`, `btw`, `tax`, `belasting`) is a mention, glued on either side (`TotalVAT`, `VATAMT`, `TaxAmt`, `VATINCL`, `BTWbedrag`, `VATR130.43`), unless it is one of a short list of ordinary words (`private`, `renovation`, `elevator`, `activate`, `motivate`, `reservation`, `taxi`, `syntax`, …); dotted, spaced and OCR spellings stay. **(4) THE STRUCTURAL TRIPWIRE, which needs no word:** "no VAT read" never counts as VAT 0 when any printed figure equals, within a cent, total × 15/115 or 15% of the total or the net (`printsAVatFigure`). **Its cost, measured on all 4 481 rows:** of the 27 rows with no VAT read, 6 print a VAT-shaped figure, and ALL six are VAT documents whose VAT the reader missed (`N1 Woolworths, VAT under a label the reader cannot read`, `Spar Rosebank till`, `Woolies cafe`, `Service station convenience`, `Restaurant with tip line`, `VAT vendor, VLM missed vat`) — exactly what it is for; **none of the genuine non-VAT slips trips it** (ac-null 9 of 9 and ac-nullvat's 3 genuine rows clear); the one row evidencing 0 (`Mama Thandi … Not VAT registered`) still does. A non-VAT slip trips it only by a coincidental figure equal, to the cent, to 15/115 or 15% of its total. **Proved on the DB** (`k072-vat-declaration`): the reviewer's `Bill-To:` + `VATAMT` bill through `ai-invoice-pipeline`, `Deliver-To:` + `TaxAmt`, `To:` + `VATINCL`, the tripwire (`Extras 130.43` under a supplier's own declaration), a separator-only customer head and a right-glued word only — all refused by both approve tools and `post_journal`. |
+| MEDIUM-2 the routes decided the hold from the EXTRACTED vendor, the posters also from the person-CORRECTED `captured_documents.vendor_name`: `W1MPY LINDEN` corrected to Wimpy auto-posted a R130.43 claim through the route, and `journalVatRefusal` then held that same journal | FIXED: `mealsVatNeedsAPerson(vendor: CapturedVendor, claimedVat)` takes `{ confirmed, extracted }` and names the vendor by `capturedVendorName` — the person's correction first, the extraction only where none was confirmed. Both lock queries (`captureRowLock`) now read `vendor_name`; `receipt-to-journal`, `post-expense` → `pettyCashJournalService` and both refusal functions pass the same two inputs, so they cannot disagree. A correction AWAY from a meals name lifts the hold (`Wimpy` corrected to `Brits Steel` auto-posts claiming). The approve tools additionally ask the supplier's name (a bill has a supplier; a receipt journal has none — round 36's (h) attack stays refused). **Proved on the DB** (`k072-meals-held`, `k072-receipt-vat-unread`): `W1MPY LINDEN` → Wimpy and `null` → Mugg & Bean are held drafts through `receipt-to-journal` AND `post-expense`, and `post_journal` refuses them. |
+| LOW-1 the petty-cash hold was untested | PINNED on the DB (`k072-receipt-vat-unread`): a Wimpy slip through `post-expense`'s anonymous branch is a held draft claiming R130.43, extracted or corrected; its mutant (`heldForPerson = false`) is RED. |
+| LOW-2 the plural suffix applied to every category (`Rains Plumbing` → 5600, `Spars Engineering` → 5100, `Totals Hardware` → 5400) | FIXED: `word(alternatives, plural)` — only the meals pattern takes `'?s`. Those eight vendors map to no merchant account again (pinned); `Wimpys`, `Spurs`, `Nando's` still map. |
+| Housekeeping: `bulkApproveTools.test.ts` 344 lines | SPLIT by concern: `bulk_approve_credit_notes` moved, with the same mocks, to `bulkApproveCreditNotesTool.test.ts` (188 lines); `bulkApproveTools.test.ts` is 233. 19 `it` blocks before, 19 after; no assertion changed. |
+
+### Re-measured — head vs `c123278f9`, 4 481 rows (stored ≡ subtotal-null, row for row)
+
+unattended / WRONG **730 / 46 → 730 / 46**; newly refused 0, newly wrong 0; rv-unpaid 5 / 0; none of the 13 ordinary sets
+changed. **Re-coding:** 0 rows change (no set prints `Rains`/`Spars`/`Totals`-shaped names; unit-pinned). **Evidence:**
+no row changes. The tripwire's cost is the paragraph above.
+
+### Mutations — 10 unit + 6 integration, all RED, restored byte-identically (md5)
+
+T1 no structural tripwire (unit 4, DB 1) · T2 the tripwire reads total × 15/115 only (1) · T3 it needs the exact cent (1)
+· K1 customer heads need spaces (unit 6, DB 1) · K2 no bare `To`/`Attn`/`Account` (3) · K3 the footer is any total above
+(the r36 rule) (1) · W1 no right-glued tax words (unit 12, DB 1) · W2 no ordinary words exempt (2) · V1 the extraction
+outranks the correction (1) · L1 the plural on every category (9) · V2 the route ignores the correction (DB 3) · V3 petty
+cash ignores it (DB 1) · P1 petty cash does not hold (DB 2). The DB mutants on the declaration file ran on its
+non-pipeline cases only (`-t`), so the AI limiter could not fake a RED; each shape they fail on decides one rule alone.

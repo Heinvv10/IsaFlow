@@ -251,6 +251,7 @@ async function handler(req: CompanyAuthedRequest, res: NextApiResponse) {
       eventId,
       documentId,
       extracted,
+      confirmedVendorName: event.documentVendorName,
       resolvedGlAccountId,
       vatInputAccountId,
       costCentreId,

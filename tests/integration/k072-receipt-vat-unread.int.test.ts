@@ -237,3 +237,16 @@ it('post-expense (employee claim): no VAT read is a claim line with VAT 0, code 
   await postExpenseFor(read, { employeeId: employee });
   expect(await lines(read)).toEqual([expect.objectContaining({ vat: 130.43, vat_code: 'standard' })]);
 });
+
+// r37 LOW-1: the petty-cash branch of `post-expense` holds a meals slip whose VAT is claimed, as `receipt-to-journal` does,
+// reading a person's correction of the vendor first. The chart here has no 5600, so Wimpy books to the default expense.
+it.each([['Wimpy Linden', null], ['W1MPY LINDEN', 'Wimpy Linden']])('post-expense (petty cash): `%s` (corrected `%s`) is a held draft', async (vendor, confirmed) => {
+  const rawText = `${vendor}\nTAX INVOICE\nVAT No 4987654321\nDate: 2026-04-10\nBurger meal 1000.00\nSubtotal 869.57\nVAT 130.43\nTOTAL 1000.00\nCARD 1000.00\n`;
+  const documentId = await seedDocument({ ...SLIP('pc-meals', READ_VAT), vendorName: vendor, rawText, confidence: 0.99 });
+  await pool.query('UPDATE captured_documents SET vendor_name=$1 WHERE id=$2 AND company_id=$3', [confirmed, documentId, company]);
+  const res = await postExpenseFor(documentId, {});
+  expect(res.statusCode, JSON.stringify(res.body)).toBe(200);
+  const je = await journalOf(documentId);
+  expect(je).toMatchObject({ status: 'draft', vat: 130.43 });
+  expect(je.description).toMatch(/HELD for a person/);
+});

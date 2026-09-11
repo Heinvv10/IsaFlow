@@ -175,6 +175,29 @@ it.each([['billto-totalvat', 'TotalVAT 130.43'], ['billto-rate', 'Std rate 15.00
   expect((await postJ(je)).content[0]!.text).toMatch(UNEVIDENCED);
 });
 
+// r37 MEDIUM-1: the reviewer's tokenisation shapes (`Bill-To:` + `VATAMT`, through the pipeline as it was run) and the
+// structural tripwire (a VAT-shaped figure under an innocent label, on a page the supplier declares tax-free).
+it.each([
+  // Its own total: the pipeline's fuzzy duplicate check answers 409 for another R1 000 Bosman bill.
+  ['billto-vatamt', 'Bill-To:\nMokoena Trading\nNot VAT registered\nService 60 000km 1739.13\nSubtotal 1739.13\nVATAMT 260.87\nTOTAL 2000.00'],
+  ['deliverto-taxamt', 'Deliver-To:\nMokoena Trading\nNot VAT registered\nService 60 000km 869.57\nSubtotal 869.57\nTaxAmt 130.43\nTOTAL 1000.00'],
+  ['to-vatincl', 'To:\nMokoena Trading\nNot VAT registered\nService 60 000km 869.57\nSubtotal 869.57\nVATINCL 130.43\nTOTAL 1000.00'],
+  ['tripwire', 'We are not VAT registered.\nService 60 000km 869.57\nExtras 130.43\nTOTAL 1000.00'],
+  // One rule each: a separator-only customer head with no tax line; a right-glued tax word whose figure is not VAT-shaped.
+  ['separator-only', 'Bill-To:\nMokoena Trading\nNot VAT registered\nService 60 000km 1000.00\nTOTAL 1000.00'],
+  ['glued-right-only', 'We are not VAT registered.\nService 60 000km 987.00\nTaxAmt 13.00\nTOTAL 1000.00'],
+])('%s: both tools and post_journal refuse', async (tag, body) => {
+  const text = `Bosman Motors\nINVOICE\nInvoice No: ${tag}\nDate: 2026-05-0${tag.length % 9}\n${body}\n`;
+  const doc = await seed(text, 'Bosman Motors', 'invoice');
+  const total = tag === 'billto-vatamt' ? 2000 : 1000;
+  const billId = tag === 'billto-vatamt' ? await viaPipeline(doc) : await draftBill(doc, total);
+  expect((await approve(billId)).content[0]!.text).toMatch(UNEVIDENCED);
+  expect((await bulk(billId)).content[0]!.text).toMatch(UNEVIDENCED);
+  expect(await billState(billId)).toEqual({ status: 'draft', gl_journal_entry_id: null });
+  const je = await draftJournal(await seed(text, 'Bosman Motors', 'receipt'), total);
+  expect((await postJ(je)).content[0]!.text).toMatch(UNEVIDENCED);
+});
+
 // r36: the reviewer's shapes fail two rules at once; each of these fails exactly ONE, so each rule is pinned alone.
 it.each([
   ['customer block only', 'Bill To:\nMokoena Trading\nNot VAT registered\nService 1000.00\nTOTAL 1000.00'],

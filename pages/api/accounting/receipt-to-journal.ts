@@ -148,7 +148,7 @@ async function handler(req: CompanyAuthedRequest, res: NextApiResponse) {
   // r35–r36): not auto-posted, marked on the draft, and refused by every
   // unattended poster through the same predicate (`capturedVatEvidence`).
   const claimedVat = journalInput.lines.find((l) => l.accountId === vatInputAccountId)?.debit ?? 0;
-  const heldForPerson = mealsVatNeedsAPerson(extracted.vendorName, claimedVat);
+  const heldForPerson = mealsVatNeedsAPerson({ confirmed: doc.vendor_name as string | null, extracted: extracted.vendorName }, claimedVat);
   if (heldForPerson) journalInput.description += MEALS_VAT_HELD_SUFFIX;
   const autoPost = shouldAutoPostReceipt(extracted, { maxAmount: 5000, minConfidence: 0.85 }) && !heldForPerson;
 
