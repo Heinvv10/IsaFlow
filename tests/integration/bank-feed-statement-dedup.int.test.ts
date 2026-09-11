@@ -92,4 +92,13 @@ describe('statement dedup ignores removed feed rows (A-16)', () => {
     expect(out.kind).toBe('success');
     expect(out.data).toMatchObject({ totalParsed: 2, duplicatesVsDb: 1 });
   });
+
+  it('runDedupPass (bankStatementDedupHelpers): the removed fee is not a duplicate, the posted EFT is', async () => {
+    const { runDedupPass } = await import('@/modules/accounting/services/bank/bankStatementDedupHelpers');
+    const results = await inRequest(() => runDedupPass(company, bank, [
+      { date: '2022-02-01', amount: -85, description: 'MONTHLY ACC FEE' } as never,
+      { date: '2022-02-02', amount: 1200, description: 'EFT REC SOMEONE' } as never,
+    ]));
+    expect(results.map((r) => r.isDuplicate)).toEqual([false, true]);
+  });
 });

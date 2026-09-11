@@ -81,6 +81,7 @@ async function handler(req: CompanyAuthedRequest, res: NextApiResponse) {
          SET scraper_version = ${scraperVersion ?? null},
              updated_at = NOW()
        WHERE id = ${connectionId}::UUID
+         AND company_id = ${companyId}::UUID
     `;
   } else {
     const conn = await createBankFeedConnection(
@@ -99,6 +100,7 @@ async function handler(req: CompanyAuthedRequest, res: NextApiResponse) {
         UPDATE bank_feed_connections
            SET scraper_version = ${scraperVersion}
          WHERE id = ${connectionId}::UUID
+           AND company_id = ${companyId}::UUID
       `;
     }
   }

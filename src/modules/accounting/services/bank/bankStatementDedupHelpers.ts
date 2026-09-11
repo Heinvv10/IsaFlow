@@ -88,6 +88,7 @@ export async function runDedupPass(
     WHERE company_id = ${companyId}
       AND bank_account_id = ${bankAccountId}::uuid
       AND transaction_date BETWEEN ${windowStart}::date AND ${windowEnd}::date
+      AND feed_state <> 'removed' -- a removed feed row never posted; it claims no fingerprint
   `) as ExistingTx[];
 
   const fpIndex = new Map<string, ExistingTx>();

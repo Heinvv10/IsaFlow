@@ -17,9 +17,10 @@ import { decideFeedTransition } from './bankFeedLifecycle';
 import { identityModeFor, validateBatch } from './bankIngestionValidation';
 import {
   applyFeedUpdate, bankAccountIsValid, closeSyncLogFailed, closeSyncLogSuccess, createImportBatch,
-  existingContentHashes, importedInLastDay, insertFeedRow, leaseConnection, lockBankAccountForIngest,
+  existingContentHashes, insertFeedRow, leaseConnection, lockBankAccountForIngest,
   lockExistingByProviderIds, openSyncLog, touchSeen, upsertConflict, type IngestConnection,
 } from './bankIngestionPersistence';
+import { importedInLastDay } from './bankFeedSyncLog';
 import {
   BankIngestionRefusal, isBankIngestionRefusal, type BankIngestionBatch, type BankIngestionCounts,
   type BankIngestionResult, type NormalizedBankTransaction,

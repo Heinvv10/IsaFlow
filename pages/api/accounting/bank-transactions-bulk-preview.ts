@@ -191,6 +191,7 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
       SELECT transaction_date::text AS transaction_date, amount, description
       FROM bank_transactions
       WHERE bank_account_id = ${bankAccountId}
+        AND company_id = ${companyId}
         AND transaction_date BETWEEN ${dateRange.from} AND ${dateRange.to}
         AND feed_state <> 'removed' -- a removed feed row never posted; it claims no hash
     `) as Array<{ transaction_date: string; amount: string | number; description: string | null }>;
