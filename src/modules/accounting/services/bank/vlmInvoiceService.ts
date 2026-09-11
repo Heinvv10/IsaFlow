@@ -187,6 +187,20 @@ function parseVlmResponse(content: string, rawText: string): ExtractedDocument |
       extractionMethod: 'vlm',
     };
 
+    // A model that reads a credit note reports its figures NEGATIVE. Round 15
+    // relied on that sign surviving all the way to `isCreditNote`, and it is
+    // the only signal on a credit note the model classified as an invoice —
+    // but a negative total also reaches the journal builders, where it posts a
+    // purchase backwards rather than refusing. So the sign is CONVERTED into
+    // the classification it means, once, here: the document is a credit note,
+    // and its figures are stored positive like every other document's.
+    if ((doc.totalAmount ?? 0) < 0 || (doc.subtotal ?? 0) < 0) {
+      doc.documentType = 'credit_note';
+      doc.subtotal = doc.subtotal === null ? null : Math.abs(doc.subtotal);
+      doc.vatAmount = doc.vatAmount === null ? null : Math.abs(doc.vatAmount);
+      doc.totalAmount = doc.totalAmount === null ? null : Math.abs(doc.totalAmount);
+    }
+
     doc.warnings.push(...validateAmounts(doc));
 
     log.info('VLM extraction successful', {

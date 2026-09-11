@@ -1,6 +1,5 @@
 [Unit]
 Description=First-of-month trigger for IsaFlow PAYG Flow counter reset
-Requires=isaflow-flow-month-reset.service
 
 [Timer]
 # First day of each month at 00:05 SAST. Resets month_flows_used and

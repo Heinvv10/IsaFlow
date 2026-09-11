@@ -1,0 +1,53 @@
+
+ RUN  v4.1.2 /home/hein/Workspace/IsaFlow/.worktrees/audit-remediation-20260908
+
+ ❯ tests/unit/services/k075-ocr-comma-decimal.test.ts (3 tests | 2 failed) 27ms
+     × parses a comma-decimal total at its real magnitude 19ms
+     × parses a comma-decimal VAT amount at its real magnitude 1ms
+
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 2 ⎯⎯⎯⎯⎯⎯⎯
+
+ FAIL  tests/unit/services/k075-ocr-comma-decimal.test.ts > K-075 SA decimal comma > parses a comma-decimal total at its real magnitude
+AssertionError: expected 115000 to be 1150 // Object.is equality
+
+- Expected
++ Received
+
+- 1150
++ 115000
+
+ ❯ tests/unit/services/k075-ocr-comma-decimal.test.ts:19:46
+     17|   it('parses a comma-decimal total at its real magnitude', () => {
+     18|     const text = 'VAT @ 15% R150,00\nTotal Due R1 150,00';
+     19|     expect(extractAmounts(text).totalAmount).toBe(1150);
+       |                                              ^
+     20|   });
+     21|
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[1/2]⎯
+
+ FAIL  tests/unit/services/k075-ocr-comma-decimal.test.ts > K-075 SA decimal comma > parses a comma-decimal VAT amount at its real magnitude
+AssertionError: expected 15000 to be 150 // Object.is equality
+
+- Expected
++ Received
+
+- 150
++ 15000
+
+ ❯ tests/unit/services/k075-ocr-comma-decimal.test.ts:24:44
+     22|   it('parses a comma-decimal VAT amount at its real magnitude', () => {
+     23|     const text = 'VAT @ 15% R150,00\nTotal Due R1 150,00';
+     24|     expect(extractAmounts(text).vatAmount).toBe(150);
+       |                                            ^
+     25|   });
+     26|
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[2/2]⎯
+
+
+ Test Files  1 failed (1)
+      Tests  2 failed | 1 passed (3)
+   Start at  11:30:07
+   Duration  812ms (transform 135ms, setup 0ms, import 178ms, tests 27ms, environment 0ms)
+

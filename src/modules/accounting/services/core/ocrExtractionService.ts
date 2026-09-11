@@ -5,11 +5,25 @@
  */
 
 import type { ExtractedDocument } from '@/modules/accounting/types/documentCapture.types';
+import { parseAmount } from './ocrAmountParsing';
+import {
+  SUBTOTAL_PATTERNS,
+  SUMMARY_LINE_START,
+} from './ocrAmountPatterns';
+import {
+  extractTotalCandidates,
+  extractVatAmount,
+  reconcileNetAgainstTotal,
+  selectTotalAmount,
+} from './ocrAmountReconciliation';
+import { largerFigureWarning } from './ocrLargerFigure';
 
 export interface ExtractedAmounts {
   subtotal: number | null;
   vatAmount: number | null;
   totalAmount: number | null;
+  /** What the reader could not settle on its own — surfaced on the capture screen. */
+  warnings: string[];
 }
 
 export interface RegexLineItem {
@@ -143,51 +157,52 @@ export function extractReferenceNumber(text: string): string | null {
   return null;
 }
 
-function parseAmount(str: string): number {
-  const cleaned = str.replace(/[\s,]/g, '');
-  const num = parseFloat(cleaned);
-  return isNaN(num) ? 0 : Math.round(num * 100) / 100;
-}
-
 export function extractAmounts(text: string): ExtractedAmounts {
-  const result: ExtractedAmounts = { subtotal: null, vatAmount: null, totalAmount: null };
+  const result: ExtractedAmounts = { subtotal: null, vatAmount: null, totalAmount: null, warnings: [] };
 
-  const totalPatterns = [
-    /(?:Grand\s*)?Total\s*(?:Due|Amount|Payable)?\s*[:-]?\s*(?:ZAR|R)?\s*(\d[\d\s,]*\d(?:\.\d{2})?|\d+(?:\.\d{2})?)/i,
-    /(?:Amount|Balance)\s*(?:Due|Owing|Payable)\s*[:-]?\s*(?:ZAR|R)?\s*(\d[\d\s,]*\d(?:\.\d{2})?|\d+(?:\.\d{2})?)/i,
-    /Total\s*(?:Incl(?:uding)?\.?\s*(?:VAT|Tax))?\s*[:-]?\s*(?:ZAR|R)?\s*(\d[\d\s,]*\d(?:\.\d{2})?|\d+(?:\.\d{2})?)/i,
-  ];
-  for (const pattern of totalPatterns) {
-    const match = text.match(pattern);
-    if (match && match[1]) { result.totalAmount = parseAmount(match[1]); break; }
-  }
+  // EVERY figure that could be the total, not the leftmost one. `String.match`
+  // returned the first hit, so a sectioned till slip ("Food Total 200.00 / …
+  // TOTAL 287.50") posted its first section as the amount payable — see
+  // `extractTotalCandidates`. More than one distinct figure is declared, not
+  // resolved — see `selectTotalAmount`.
+  const totalCandidates = extractTotalCandidates(text);
+  // The bottom-most candidate is the provisional total the VAT plausibility
+  // test uses: `isPlausibleVatAmount` rejects a candidate too large for the
+  // total, and a section subtotal in that role rejects the real VAT line.
+  const provisionalTotal = totalCandidates.length > 0
+    ? totalCandidates[totalCandidates.length - 1]!
+    : null;
 
-  const vatPatterns = [
-    /VAT\s*(?:@\s*\d+%?)?\s*[:-]?\s*(?:ZAR|R)?\s*(\d[\d\s,]*\d(?:\.\d{2})?|\d+(?:\.\d{2})?)/i,
-    /Tax\s*(?:Amount)?\s*[:-]?\s*(?:ZAR|R)?\s*(\d[\d\s,]*\d(?:\.\d{2})?|\d+(?:\.\d{2})?)/i,
-    /VAT\s*\(\s*15\s*%\s*\)\s*[:-]?\s*(?:ZAR|R)?\s*(\d[\d\s,]*\d(?:\.\d{2})?|\d+(?:\.\d{2})?)/i,
-  ];
-  for (const pattern of vatPatterns) {
-    const match = text.match(pattern);
-    if (match && match[1]) { result.vatAmount = parseAmount(match[1]); break; }
-  }
-
-  const subtotalPatterns = [
-    /Sub\s*[-\s]?Total\s*[:-]?\s*(?:ZAR|R)?\s*(\d[\d\s,]*\d(?:\.\d{2})?|\d+(?:\.\d{2})?)/i,
-    /Total\s*(?:Excl(?:uding)?\.?\s*(?:VAT|Tax))\s*[:-]?\s*(?:ZAR|R)?\s*(\d[\d\s,]*\d(?:\.\d{2})?|\d+(?:\.\d{2})?)/i,
-    /Nett?\s*(?:Amount|Total)\s*[:-]?\s*(?:ZAR|R)?\s*(\d[\d\s,]*\d(?:\.\d{2})?|\d+(?:\.\d{2})?)/i,
-  ];
-  for (const pattern of subtotalPatterns) {
+  // Read the subtotal BEFORE the VAT: the VAT selection below cross-checks
+  // candidates against it, so it has to exist by then.
+  for (const pattern of SUBTOTAL_PATTERNS) {
     const match = text.match(pattern);
     if (match && match[1]) { result.subtotal = parseAmount(match[1]); break; }
   }
 
+  result.vatAmount = extractVatAmount(text, result.subtotal, provisionalTotal);
+
+  const selectedTotal = selectTotalAmount(totalCandidates);
+  result.totalAmount = selectedTotal.totalAmount;
+  if (selectedTotal.warning) result.warnings.push(selectedTotal.warning);
+  const larger = largerFigureWarning(text, result.totalAmount);
+  if (larger) result.warnings.push(larger);
+
   if (result.totalAmount !== null && result.vatAmount !== null && result.subtotal === null) {
-    result.subtotal = Math.round((result.totalAmount - result.vatAmount) * 100) / 100;
+    const derived = Math.round((result.totalAmount - result.vatAmount) * 100) / 100;
+    // A negative subtotal is not a subtotal. It means the VAT candidate was
+    // junk, and passing it on put an expense debit of minus forty-one million
+    // in front of whoever was looking at the capture screen.
+    result.subtotal = derived < 0 ? null : derived;
   }
   if (result.subtotal !== null && result.vatAmount !== null && result.totalAmount === null) {
     result.totalAmount = Math.round((result.subtotal + result.vatAmount) * 100) / 100;
   }
+  // A printed subtotal the document's own total and tax contradict — see
+  // `reconcileNetAgainstTotal` for which figure wins and why it is conditional.
+  const reconciled = reconcileNetAgainstTotal(result.subtotal, result.vatAmount, result.totalAmount);
+  result.subtotal = reconciled.subtotal;
+  if (reconciled.warning) result.warnings.push(reconciled.warning);
 
   return result;
 }
@@ -207,7 +222,10 @@ export function extractLineItems(lines: string[]): RegexLineItem[] {
       if (match) itemsStarted = true;
     }
     if (!itemsStarted) continue;
-    if (/^(Sub\s*[-\s]?Total|Total|VAT|Tax|Amount\s*Due|Balance\s*Due|Grand\s*Total)/i.test(line)) break;
+    // The terminator is the vocabulary itself, not a second hand-spelled copy
+    // of it: while this list knew only `Sub[\s-]*Total`, a `Nett Total`
+    // summary line was collected as a line item.
+    if (SUMMARY_LINE_START.test(line)) break;
 
     const fullMatch = lineItemPattern.exec(line);
     if (fullMatch) {

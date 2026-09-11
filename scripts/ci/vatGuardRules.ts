@@ -140,6 +140,14 @@ export function inspectVatGuardCoverage(source: string): VatGuardFinding | null 
 }
 
 /**
+ * The kinds a finding shows that its allowlist entry does not excuse (K-072
+ * r29). An entry excuses KINDS, not a path: a guarded file owes nothing.
+ */
+export function kindsNotExcused(finding: VatGuardFinding, excused: readonly VatDecisionKind[]): VatDecisionKind[] {
+  return finding.guarded ? [] : finding.kinds.filter((kind) => !excused.includes(kind));
+}
+
+/**
  * Does this file import a guard AND use what it imported?
  *
  * Both halves are load-bearing, and each was a hole in the first cut:

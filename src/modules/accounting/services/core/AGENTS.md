@@ -58,6 +58,81 @@ Invoked by `withCompany`-wrapped API routes in `pages/api/accounting/**`. Most f
 
 ## Recent changes
 
+- 2026-09-10 (round 14): **POLICY — figures the regex/OCR fallback recovered never post and never
+  approve unattended, on any path** (`isFallbackExtraction`: anything but `extractionMethod === 'vlm'`,
+  a missing method included). Receipt paths via `unattendedPostingRefusal`; AP routes via
+  `refusesUnattendedApproval` (credit ∨ fallback ∨ ambiguous). The fallback still offers its guess.
+  **A credit never posts or approves as a purchase, VLM included:** `isCreditNote` adds a negative
+  total and `creditIndicators.hasCreditIndicator` — a `CREDIT (NOTE)`/`KREDIETNOTA`/`REFUND`/
+  `RETURN( SLIP)`/`TERUGBETALING` header on its OWN line, a refund word on a figure line, a
+  trailing-minus/glued-minus/parenthesised figure of the total's size (a SPACED dash is a separator).
+  `ocrLargerFigure`: change only after a CASH tender, no `Chg`, space groups read when last on the
+  line; `adjustmentAfterTotal` refuses a named tip/gratuity/service/delivery charge or any negative
+  figure printed after the total. `extractTotalCandidates` drops zeros only (negatives kept).
+- 2026-09-10 (round 13): **the gate measures AMOUNTS, not labels** (`ocrLargerFigure`). "One printed
+  total" was measured over candidates defined by LABELS, so a payable under any label the vocabulary
+  lacked (`AMT DUE`, `Please Pay`, `SALE`, `Amount Paid`, `Tip 23.00 / CARD 253.00`) was not a
+  candidate and R230.00 posted of R253.00 — six rounds of adding labels never closed it.
+  `unattendedPostingRefusal` and `isAmbiguousTotal` now also refuse when ANY printed figure (a
+  decimal part required; space-grouped only at line end) is larger than the total, unless it is a
+  tender whose NEXT figure is a change line and tender − change = total. The reader warns the same
+  finding under `UNRECONCILED_WARNING`. **Do not close a posting defect by adding a label to
+  `PAYABLE_LABEL`/`TOTAL_PATTERNS`** — that list now only improves the guess. Bare `Balance` removed
+  (it read `Balance Due 0.00` and `Smart Shopper Balance 45.00` as the payable); a zero/negative
+  candidate beside a positive one is dropped; `validateReceiptExtraction` refuses total <= 0.
+- 2026-09-10 (round 11): **`extractTotalCandidates` collects across EVERY `TOTAL_PATTERNS` entry,
+  ordered by match position.** It returned on the first productive pattern, so a plain `Total` above
+  the payable made `Amount Due` / `Balance Due` / `Payable` / `Amount Incl VAT` unreachable — one
+  candidate, no warning, R230.00 posted against a payable of R253.00. `TOTAL_WORD` (`Totaa?l`) and
+  `PAYABLE_LABEL` (`… |TO PAY|TE BETAAL|TTL`) are the single alternations every guard,
+  pattern and `SUMMARY_LINE_START` share. `unattendedPostingRefusal` now re-reads the VAT from
+  `rawText` with `extractAmounts` and refuses a stored net/VAT the text does not print — a VLM's own
+  15% split of a zero-rated slip claimed R13.04 of input tax the document denies. New
+  `isAmbiguousTotal(doc)` (stored reconciliation warning OR >1 distinct total in `rawText`) is the
+  part of the gate the AP invoice routes take: `ai-invoice-pipeline` and `capture/[id]/post` sent
+  A1/A2/A4 to `approved` at R230.00 of R253.00, worse than master. They cannot take the WHOLE gate —
+  a VLM-read PDF has `rawText: ''`, which the gate refuses outright.
+- 2026-09-10 (round 10): **extraction guesses, `unattendedPostingGate` decides.** Four rounds tried to
+  PICK the payable out of several printed totals and each rule was beaten by a slip it had not seen
+  (last: a VAT-analysis block under the tender read R230 of R253). `selectTotalAmount` now offers the
+  bottom candidate as a guess and ALWAYS warns when more than one distinct total is printed;
+  `unattendedPostingRefusal` refuses unattended posting unless the document is unambiguous — not a
+  credit note (stored type OR text), no reconciliation warning, total > 0, VAT read and >= 0, net +
+  VAT = total where a net is printed, and exactly ONE distinct total re-read from `rawText` equal to
+  the total read. A document with no text (a VLM photo) cannot show that and is refused.
+  `shouldAutoPostReceipt(extracted, config)` takes the whole document. **Do not add a rule that makes
+  one of several candidates postable.** `VAT_PATTERNS[1]` reads `VAT-0.00` as 0 (it read null).
+- 2026-09-10: `ocrAmountReconciliation.selectTotalAmount` — `subtotal + VAT` endorses a total ONLY
+  when it is the BOTTOM candidate. Endorsing one anywhere read the intermediate `Total 230.00` as the
+  payable on a slip that prints a gratuity/delivery line below it (`Total Due 253.00`), with no
+  warning and `autoPost: true`. An endorsed figure with something larger printed under it now
+  refuses rather than guesses. `AMOUNT` reads a glued minus sign (`Total -115.00` on a credit note);
+  `SEP`/`VALUE_SEP` consume a dash only when no digit follows it, and `shouldAutoPostReceipt`
+  refuses a total <= 0. `extractVatAmount` moved here from `ocrAmountPatterns` (document
+  arithmetic, not label grammar; both files back under 300 lines).
+- 2026-09-09: `ocrAmountPatterns` — the guards and the patterns are now built from ONE LABEL
+  VOCABULARY (`SEP`, `EXCL`, `INCL`, `VAT_WORD`, `TAX_WORD`, `NET_LABEL`, `NET_PREFIX`), because
+  fixing one spelling at a time is how the same money defect came back three rounds running:
+  `Sub Total`, then `Ex VAT` (the net read as the TAX — an R1 000 input-tax claim on an R1 150
+  invoice, balanced and auto-posted), then `Nett Total` (the net read as the payable total).
+  A guard narrower than its pattern LOSES the figure; wider, it MIS-READS it. `SUMMARY_LINE_START`
+  exports the same vocabulary to `ocrExtractionService`'s line-item terminator. Add a spelling as
+  one alternative plus one row in `tests/unit/services/k076-ocr-label-vocabulary.test.ts`.
+- 2026-09-09: `ocrAmountReconciliation` — where a PRINTED subtotal contradicts `total - VAT`
+  (a levy or service charge printed below it), the derived net wins ONLY if the derived split
+  looks standard-rated (13-17%); otherwise the printed figures stand and the caller refuses.
+  Unconditional preference would silently rebase the split on a MIS-READ tax line. Either way the
+  discrepancy is reported through `ExtractedAmounts.warnings`.
+- 2026-09-09: `ocrAmountPatterns` — the label guards are VARIABLE-WIDTH, because the labels are.
+  `(?<!Sub[-\s])` was fixed-width-one, so `Sub  Total` (any OCR column with more than one space)
+  was still read as the payable total and the journal BALANCED at the VAT-exclusive figure.
+  `NOT_A_SUBTOTAL` and the subtotal grammar now spell the same `Sub[\s-]*Total`. A new
+  `NOT_A_TOTAL_LABEL` keeps "Total/Price Excluding VAT" out of the VAT candidates — without it a
+  layout with no recognisable subtotal read VAT = 1000 and subtotal = 150 on an R1 150 invoice.
+  The generic `Tax` form now ranks BELOW the bare `VAT` column so a tourism levy cannot outrank the
+  tax, and `extractVatAmount` prefers the candidate the document's own arithmetic endorses
+  (`subtotal + c === total`) over the first one printed. `AMOUNT` refuses to half-read a malformed
+  figure: "1150.005" fails to match rather than coming back as 1150.00.
 - 2026-09-09: **the recurring document is derived from its lines, auto-post actually posts, and the number retry is constraint-scoped (K-107 r4).** `recurringTemplateLines.ts` (new) DERIVES the header subtotal/tax/total from `templateData.lines` and refuses a stored aggregate that disagrees by more than 1c/line (capped at R1.00) with `RecurringTemplateTotalsMismatchError` — raised before the first write, so the route answers 400. Copying the aggregate across let a template whose lines came to R100 mint a header reading R9 999 / R11 499. Templates that predate the `lines` field still run on their aggregate. `auto_post` used to write `status = 'posted'`, which NEITHER status CHECK permits, so every auto-post template raised 23514 on every run for every tenant; both branches now call `approveCustomerInvoice` / `approveSupplierInvoice`, which is what writes the journal behind the document (a bare 'approved' would leave AR/AP without a GL). `insertWithReservedNumber` takes the numbering index name and renumbers ONLY for a clash on it — the attempt closure writes line items too, and any other 23505 used to burn four more numbers and surface the wrong cause. `reserveNextDocumentNumber` now bounds its wait on the counter row (`SET LOCAL lock_timeout = '5s'`, restored on the SUCCESS path only) with `DocumentNumberLockTimeoutError`; it previously hung indefinitely behind a stuck holder.
 - 2026-09-09: **the recurring runner's schedule is now its idempotency key (K-107).** `executeRecurring` read the template without `FOR UPDATE` and never consulted `next_run_date` — it only advanced it at the end. Nothing stopped a repeat run except an accident: the month-constant `RINV-<slug>-<YYYYMM>` number collided on `uq_customer_invoices_company_number`, so a second AR run in the same month died (and a genuine daily template died with it, while the AP side, having no unique index, silently minted an identical bill). Both branches now draw from the company sequence (`customer_invoice` / `supplier_invoice`, the same sequences every other writer uses) through `insertWithReservedNumber`, and migration 646 adds `uq_supplier_invoices_supplier_number`. That removed the accidental barrier, so `recurringTemplateLock.ts` puts a real one back: `FOR UPDATE` with a 5s `lock_timeout`, `is_due` computed in the same statement, and `RecurringTemplateNotDueError` raised BEFORE the first write so the route may answer 409. Both branches now also write line items from `templateData.lines`, inside the savepointed attempt. The `recurring_invoice` / RINV document type is retired: `getDocumentNumbers` filters it and the settings PUT refuses it up front (the row is hidden, not deleted — it holds the historical counter).
 - 2026-09-09: **A document the migration wizard imports is a TAKE-ON, not an origination** (audit K-015 / R-001, R-002, R-020). `importARInvoices` and `importAPInvoices` post ONE two-line entry at `total_amount - amount_paid` — DR the control account, CR `opening_balance_equity` (mirrored for AP) — and **no revenue, expense or VAT line at all**. `buildTakeOnLines` in `migrationPostingSupport` is the single place that shape is decided; a document settled in full before the cutover creates the document and posts nothing, leaving `gl_journal_entry_id` NULL. The deciding reason is VAT: `getVATReturn` is GL-based and sweeps every posted `vat_input`/`vat_output` line with a NULL `vat_type` into boxes 1 and 15, so posting the invoice in full re-declared its VAT in a period that is usually already filed. Lines that are never written need no filter. Consequences worth knowing: (a) every take-on file now needs an `opening_balance_equity` account on the chart — `resolveTakeOnClearingAccountId` refuses the step up front, once, naming the role and the remedy; (b) `subtotal + tax` no longer has to equal `total` to the cent — up to 5c imports with a warning (persisted on the session as an `errors` entry with `severity: 'warning'`, so it survives a reload), beyond that the row is refused; (c) the trial balance may carry an AR or AP control total **instead of** the documents (a summary-only take-on) but never as well — `importOpeningBalances` records which control totals it accepted in `steps_completed` (`opening_balances_ar_control` / `_ap_control`) and `assertNoOpeningControlTotal` refuses the matching document step, and vice versa. The refusal in that direction is gated on `{ar,ap}_invoices_imported > 0` — documents actually TAKEN ON — not on the step flag, which is written even by a run that imported nothing and would otherwise bar the summary-only route for good; (d) `completeSession` records, but does not enforce, the `opening_balance_equity` residual for entries posted since the session started — it is a warning, and the message says the residual is expected when the whole trial balance was balanced on that account rather than accusing the operator of a double count. Both document steps AND `importOpeningBalances` take `lockMigrationImport` (a transaction-scoped advisory lock keyed on the company) before reading the session: the interlock is a read-then-write both sides perform, and without it an overlapping pair each read a session without the other's mark and both post. `importOpeningBalances` (now in `migrationWizardOpeningBalanceService.ts`) is NOT a one-way door: it rewrites BOTH control flags from each run's own trial balance — including `false` — and reverses the entry its previous run posted for this session before posting the new one, so the remedy `assertNoOpeningControlTotal` prints ("remove the control account row and re-run the opening balances step") actually clears the refusal instead of posting a second full trial balance. Both invoice routes validate the body ROW BY ROW (`parseInvoiceRows` in `migrationRowSchemas`) rather than with one `safeParse`: a single bad line used to 400 all 5000 with a `fieldErrors` key of `invoices` and no row number. The rows that parse still import, and the services take an `ImportRowContext` so every `row` they report is a position in the operator's FILE, not in the shortened array. The persisted `severity: 'warning'` entries are read back by the migration hub (`SessionIssues` on `pages/accounting/migration/index.tsx`), which is what makes the durability real. WIZARD PATH ONLY: the Sage commit path posts its own journals and still re-declares VAT.
