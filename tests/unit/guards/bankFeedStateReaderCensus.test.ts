@@ -73,7 +73,6 @@ const EXTRA_FILES: readonly string[] = ['pages/api/accounting/nl-query.ts'];
 const CLASSIFICATION: Readonly<Record<string, string>> = {
   'pages/api/accounting/anomaly-scan.ts': 'filtered',
   'pages/api/accounting/bank-accounts.ts': 'exempt: group-promotion usage guard, not a financial total',
-  'pages/api/accounting/bank-feeds/[id]/extension-ingest.ts': 'exempt: writer (Task 3) — dedup pre-check inside the ingestion writer',
   'pages/api/accounting/bank-match-confirm.ts': 'exempt: writer (Task 3) — read-before-write plan phase',
   'pages/api/accounting/bank-reconciliation-report.ts': 'filtered',
   'pages/api/accounting/bank-rules-preview.ts': 'filtered',
