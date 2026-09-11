@@ -184,5 +184,7 @@ BEGIN
 END;
 $$;
 ALTER FUNCTION public.control_approval_authorities(uuid,uuid) OWNER TO migration_admin;
+-- CREATE OR REPLACE resets proconfig: re-issue 690's bound on the authority key so it holds in either apply order.
+ALTER FUNCTION public.control_approval_authorities(uuid,uuid) SET lock_timeout = '5s';
 REVOKE ALL ON FUNCTION public.control_approval_authorities(uuid,uuid) FROM PUBLIC;
 GRANT EXECUTE ON FUNCTION public.control_approval_authorities(uuid,uuid) TO app_user,platform_admin;
