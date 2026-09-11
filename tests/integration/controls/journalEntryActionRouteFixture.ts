@@ -28,13 +28,14 @@ export async function journalEntryActionRouteFixture(){
   await pool.query("UPDATE companies SET default_currency='ZAR',lockdown_enabled=false,lockdown_date=null WHERE id=$1",[f.companyA]);
   await pool.query("INSERT INTO fiscal_periods(id,company_id,period_name,period_number,fiscal_year,start_date,end_date,status) VALUES($1,$2,'Synthetic journal-action September',9,2026,'2026-09-01','2026-09-30','open')",[periodId,f.companyA]);
   for(const [i,account] of accounts.entries())await pool.query("INSERT INTO gl_accounts(id,company_id,account_code,account_name,account_type,normal_balance,level,is_active) VALUES($1,$2,$3,$4,$5,$6,3,true)",[account,f.companyA,account.slice(0,12),`Synthetic journal-action account ${i}`,i?'liability':'asset',i?'credit':'debit']);
-  async function journal(date='2026-09-09'){
+  async function journal(date='2026-09-09',source='manual'){
    const id=randomUUID();
-   await pool.query("INSERT INTO gl_journal_entries(id,company_id,entry_date,fiscal_period_id,source,status,created_by) VALUES($1,$2,$3::date,$4,'manual','draft',$5)",[id,f.companyA,date,periodId,f.u1.id]);
+   await pool.query("INSERT INTO gl_journal_entries(id,company_id,entry_date,fiscal_period_id,source,status,created_by) VALUES($1,$2,$3::date,$4,$5,'draft',$6)",[id,f.companyA,date,periodId,source,f.u1.id]);
    await pool.query('INSERT INTO gl_journal_lines(journal_entry_id,company_id,gl_account_id,debit,credit) VALUES($1,$2,$3,100.00,0),($1,$2,$4,0,100.00)',[id,f.companyA,...accounts]);
    return id;
   }
-  const status=async(id:string)=>(await pool.query('SELECT status FROM gl_journal_entries WHERE company_id=$1 AND id=$2',[f.companyA,id])).rows[0]?.status as string|undefined;
+  const state=async(id:string)=>(await pool.query('SELECT status,reversed_at FROM gl_journal_entries WHERE company_id=$1 AND id=$2',[f.companyA,id])).rows[0] as {status:string;reversed_at:Date|null}|undefined;
+  const status=async(id:string)=>(await state(id))?.status;
   const lockdown=(enabled:boolean,date:string|null=null)=>pool.query('UPDATE companies SET lockdown_enabled=$1,lockdown_date=$2 WHERE id=$3',[enabled,date,f.companyA]);
   const period=(statusValue:string)=>pool.query('UPDATE fiscal_periods SET status=$1 WHERE company_id=$2 AND id=$3',[statusValue,f.companyA,periodId]);
   const handler=(await import('../../../pages/api/accounting/journal-entries-action')).default;
@@ -46,8 +47,8 @@ export async function journalEntryActionRouteFixture(){
    const user=f[person],token=await new SignJWT({role:'authenticated',aal:'aal2'}).setProtectedHeader({alg:'HS256'}).setSubject(user.id).setIssuedAt().setExpirationTime('5m').sign(new TextEncoder().encode(jwtKey));
    const response=await fetch(`http://127.0.0.1:${port}/api/accounting/journal-entries-action`,{method:'POST',redirect:'error',signal:AbortSignal.timeout(15000),
     headers:{'content-type':'application/json',cookie:`sb-access-token=${token}; active_company_id=${user.companyId}; isaflow_csrf=${csrf}`,'x-csrf-token':csrf},body:JSON.stringify(body)});
-   return{status:response.status,body:await response.json() as {success?:boolean;data?:Record<string,unknown>|null;error?:{code?:string;message?:string};message?:string}};
+   return{status:response.status,body:await response.json() as {success?:boolean;data?:Record<string,unknown>|null;error?:{code?:string;message?:string};message?:string;code?:string}};
   }
-  return{f,pool,periodId,accounts,journal,status,lockdown,period,request,close};
+  return{f,pool,periodId,accounts,journal,status,state,lockdown,period,request,close};
  }catch(error){try{await close();}catch(cleanup){throw new AggregateError([error,cleanup],'Synthetic journal-action REST setup failed');}throw error;}
 }
