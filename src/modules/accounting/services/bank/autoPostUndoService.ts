@@ -2,7 +2,9 @@
  * Auto-Post Undo Service
  * Reverses a whole auto-post run via the existing JE-reversal + tx-reset
  * plumbing, one savepoint per row. Reconciled transactions (books hygiene),
- * contended rows and failed rows are skipped and counted by reason; the rest
+ * contended rows, failed rows and rows a manual journal already offsets
+ * (R-079 — never reversed on top of the user's correction) are skipped and
+ * counted by reason; the rest
  * commit. The run is marked undone only when NOTHING was skipped — a skipped
  * row is still posted and still carries the run's tag, so "undone" would read
  * as "fully reversed" while it is not. Such a run stays open, and a retry
@@ -13,8 +15,12 @@ import { sql, withSavepoint } from '@/lib/neon';
 import type { DbRow } from '@/lib/neon';
 import { log } from '@/lib/logger';
 import { reverseReconciledTransaction } from './bankAllocationService';
+import { unwindBankAllocationApplication } from './bankAllocationUnwind';
 import { reverseJournalEntry } from '../gl/journalEntryService';
 import { isRetryableContention } from '../core/retryableContention';
+import { lockBankTransactionForUpdate } from './bankTxLock';
+import { journalReversalState } from './journalReversalState';
+import { findHandOffset, postingJournalOf, type HandOffset } from './autoPostHandOffset';
 
 type Row = DbRow;
 
@@ -23,12 +29,16 @@ type Row = DbRow;
  * `reconciled`: unreconcile it first. `contended`: a peer holds it, retry.
  * `failed`: the reversal itself refused (a closed period, a row still marked
  * posted with nothing linked to reverse, a provisional journal whose reversal
- * was itself reversed); the reason is in the log.
+ * was itself reversed); the reason is in the log. `offsetByHand`: a manual
+ * journal already offsets the posting (R-079) — reverse that journal, or
+ * confirm it is the correction (autoPostHandCorrection.ts); `handOffsets`
+ * names it.
  */
 export interface UndoSkips {
   reconciled: number;
   contended: number;
   failed: number;
+  offsetByHand: number;
 }
 
 export interface UndoResult {
@@ -48,13 +58,15 @@ export interface UndoResult {
   alreadyUndone: number;
   /** TRUE only when `skipped` is 0 — the run was recorded undone. */
   undone: boolean;
+  /** One entry per `offsetByHand` skip: the row and the journal that offsets it. */
+  handOffsets: HandOffset[];
 }
 
 /**
  * Savepoint name for one row of the undo. `withSavepoint` caps names at 31
  * characters, so this is a constant rather than an interpolation.
  */
-const UNDO_ROW_SAVEPOINT = 'auto_post_undo_line';
+export const UNDO_ROW_SAVEPOINT = 'auto_post_undo_line';
 
 /**
  * Statuses that claim a posting. A row in one of these with nothing linked to
@@ -63,52 +75,32 @@ const UNDO_ROW_SAVEPOINT = 'auto_post_undo_line';
  */
 const POSTED_STATUSES = new Set(['provisional', 'allocated', 'matched', 'reconciled']);
 
-type RowOutcome = 'reversed' | 'alreadyUndone' | 'unlinked' | 'reReversed';
+export type RowOutcome = 'reversed' | 'alreadyUndone' | 'unlinked' | 'reReversed' | 'reconciled' | 'gone';
+
+/** What one row came to; a hand-offset refusal carries the journal it found. */
+export type RowResult = { kind: RowOutcome } | { kind: 'offsetByHand'; offset: HandOffset };
 
 /**
- * `none`: nothing reverses the journal. `live`: a reversal stands, so the
- * posting is off the books. `reReversed`: the reversal was itself reversed,
- * so the ORIGINAL posting is back on the books.
+ * Refuses a row whose posting a person already offset by hand (R-079): the
+ * undo would otherwise reverse it on top of their correction.
  */
-type ReversalState = 'none' | 'live' | 'reReversed';
-
-/**
- * How the journal stands NOW, not what `reversed_at` says.
- *
- * `reversed_at` on the original cannot answer it. Reversing a contra is an
- * ordinary permitted operation — `reverseJournalEntry` refuses only an entry
- * that is not posted or already reversed, and a contra is posted with
- * `reversed_at` NULL — and it does not clear the original's `reversed_at`. So
- * original + contra + contra-of-contra nets back to the ORIGINAL posting while
- * the original still reads "reversed", and reading the flag alone let the run
- * be marked undone with the money still on the expense and the bank account.
- *
- * Walk the chain instead. Each POSTED contra flips the sign, so an odd number
- * of them means the posting is off the books and an even number means it is
- * still on them. `ux_gl_je_reversal_of` (migration 619) is unique on
- * (company_id, reversal_of_id), so the chain is linear; the depth cap only
- * bounds a cycle that constraint should already make impossible.
- */
-async function journalReversalState(companyId: string, journalEntryId: string): Promise<ReversalState> {
-  const rows = (await sql`
-    WITH RECURSIVE reversal_chain AS (
-      SELECT id, 0 AS depth FROM gl_journal_entries
-      WHERE id = ${journalEntryId}::UUID AND company_id = ${companyId}::UUID
-      UNION ALL
-      SELECT c.id, rc.depth + 1
-      FROM gl_journal_entries c
-      JOIN reversal_chain rc ON c.reversal_of_id = rc.id
-      WHERE c.company_id = ${companyId}::UUID AND c.status = 'posted' AND rc.depth < 20
-    )
-    SELECT MAX(depth) AS depth FROM reversal_chain
-  `) as Row[];
-  const depth = Number(rows[0]?.depth ?? 0);
-  if (depth === 0) return 'none';
-  return depth % 2 === 1 ? 'live' : 'reReversed';
+async function handOffsetOf(companyId: string, tx: Row): Promise<RowResult | null> {
+  const jeId = await postingJournalOf(companyId, tx);
+  const offset = jeId ? await findHandOffset(companyId, jeId, tx) : null;
+  return offset ? { kind: 'offsetByHand', offset } : null;
 }
 
-async function undoRow(companyId: string, runId: string, userId: string, tx: Row): Promise<RowOutcome> {
-  const txId = String(tx.id);
+/**
+ * Undoes one row of a run, under the row lock. Exported for the recorded
+ * "not the correction — undo anyway" decision, which undoes exactly one line.
+ */
+export async function undoRow(companyId: string, runId: string, userId: string, txId: string): Promise<RowResult> {
+  // Locked and re-read before anything is decided, so a peer undo or a
+  // confirmed hand correction (autoPostHandCorrection.ts, same lock) cannot
+  // act on the same row in between: whichever comes second finds it gone.
+  const tx = await lockBankTransactionForUpdate(companyId, txId);
+  if (!tx || String(tx.auto_post_run_id ?? '') !== runId) return { kind: 'gone' };
+  if (String(tx.status) === 'reconciled') return { kind: 'reconciled' };
   if (tx.matched_journal_line_id && tx.provisional_je_id) {
     log.warn(
       'Auto-post tx has both matched line and provisional JE — reversing matched line only',
@@ -117,38 +109,62 @@ async function undoRow(companyId: string, runId: string, userId: string, tx: Row
     );
   }
   let outcome: RowOutcome = 'alreadyUndone';
-  if (tx.matched_journal_line_id) {
-    await reverseReconciledTransaction(companyId, txId, userId);
-    outcome = 'reversed';
-  } else if (tx.provisional_je_id) {
-    const jeId = String(tx.provisional_je_id);
+  const jeId = await postingJournalOf(companyId, tx);
+  if (jeId) {
+    // ONE path for both shapes — the matched line (bankRuleAutoPostLine) and
+    // the provisional JE — so a hand-reversed posting is treated the same on
+    // either. The reversal state comes FIRST: a posting already off the books
+    // has nothing left for a "blocker" to correct, and scanning anyway sent
+    // the user to reverse a legitimate journal (round-4 review).
     const state = await journalReversalState(companyId, jeId);
     // The reversal was itself reversed, so the original posting is back on the
     // books — and `reverseJournalEntry` would refuse it ("already reversed"),
     // so this run has nothing it can do. Skip it: the tag stays, the run stays
     // open, and the operator sees a row to fix rather than an undo that read
     // "done" over money still in the GL.
-    if (state === 'reReversed') return 'reReversed';
-    // Reversed by hand already: a second reversal would be refused ("already
-    // reversed") on every retry and the run could never close. The journal
-    // nets to zero, so finishing the line is all that is left to do.
+    if (state === 'reReversed') return { kind: 'reReversed' };
     if (state === 'none') {
-      await reverseJournalEntry(companyId, jeId, userId);
+      const offset = await handOffsetOf(companyId, tx);
+      if (offset) return offset;
+      if (tx.matched_journal_line_id) await reverseReconciledTransaction(companyId, txId, userId);
+      else await reverseJournalEntry(companyId, jeId, userId);
       outcome = 'reversed';
+    } else {
+      // Reversed by hand already: a second reversal would be refused ("already
+      // reversed") on every retry and the run could never close. The journal
+      // nets to zero, but a hand reversal touches ONLY the ledger: the payment
+      // document the posting minted and the bills or invoices it settled still
+      // read as paid. `reverseReconciledTransaction` unwinds those BEFORE its
+      // contra; the undo does the same here, so the subledger agrees with the
+      // ledger when the line is finished. Idempotent (`status <> 'cancelled'`).
+      await unwindBankAllocationApplication(companyId, jeId);
     }
-    await sql`
-      UPDATE bank_transactions
-      SET status = 'imported', provisional_je_id = NULL, updated_at = NOW()
-      WHERE id = ${txId}::UUID AND company_id = ${companyId}::UUID
-    `;
+    if (state === 'live' && tx.matched_journal_line_id) {
+      // The same reset `reverseReconciledTransaction` makes after its contra.
+      await sql`
+        UPDATE bank_transactions
+        SET status = 'imported', matched_journal_line_id = NULL, reconciliation_id = NULL,
+            linked_po_id = NULL, allocation_type = NULL, allocated_entity_name = NULL,
+            allocation_rule_id = NULL, allocation_rule_name = NULL, allocation_batch_id = NULL,
+            updated_at = NOW()
+        WHERE id = ${txId}::UUID AND company_id = ${companyId}::UUID
+      `;
+    }
+    if (!tx.matched_journal_line_id) {
+      await sql`
+        UPDATE bank_transactions
+        SET status = 'imported', provisional_je_id = NULL, updated_at = NOW()
+        WHERE id = ${txId}::UUID AND company_id = ${companyId}::UUID
+      `;
+    }
   } else if (POSTED_STATUSES.has(String(tx.status))) {
-    return 'unlinked';
+    return { kind: 'unlinked' };
   }
   await sql`
     UPDATE bank_transactions SET auto_post_run_id = NULL
     WHERE id = ${txId}::UUID AND company_id = ${companyId}::UUID
   `;
-  return outcome;
+  return { kind: outcome };
 }
 
 export async function undoRun(companyId: string, runId: string, userId: string): Promise<UndoResult> {
@@ -164,11 +180,13 @@ export async function undoRun(companyId: string, runId: string, userId: string):
     SELECT id, status, matched_journal_line_id, provisional_je_id
     FROM bank_transactions
     WHERE auto_post_run_id = ${runId}::UUID AND company_id = ${companyId}::UUID
+    ORDER BY id
   `) as Row[];
 
   let reversed = 0;
   let alreadyUndone = 0;
-  const skippedBy: UndoSkips = { reconciled: 0, contended: 0, failed: 0 };
+  const skippedBy: UndoSkips = { reconciled: 0, contended: 0, failed: 0, offsetByHand: 0 };
+  const handOffsets: HandOffset[] = [];
   let contention: unknown = null;
 
   for (const tx of txRows) {
@@ -185,8 +203,21 @@ export async function undoRun(companyId: string, runId: string, userId: string):
       // swallowed it while the transaction stayed aborted: every later row then
       // failed 25P02 and the trailing `undone` UPDATE threw. A savepoint makes
       // one failed row roll back alone.
-      const outcome = await withSavepoint(UNDO_ROW_SAVEPOINT, () => undoRow(companyId, runId, userId, tx));
-      if (outcome === 'reversed') {
+      const result = await withSavepoint(UNDO_ROW_SAVEPOINT, () => undoRow(companyId, runId, userId, txId));
+      const outcome = result.kind;
+      if (result.kind === 'offsetByHand') {
+        skippedBy.offsetByHand += 1;
+        handOffsets.push(result.offset);
+        log.warn(
+          'Auto-post undo refused a transaction a manual journal already offsets — nothing posted; run stays open',
+          { companyId, runId, txId, offsetJournalId: result.offset.journalEntryId },
+          'auto-post-undo',
+        );
+      } else if (outcome === 'gone') {
+        // A peer undo or a confirmed hand correction finished it first.
+      } else if (outcome === 'reconciled') {
+        skippedBy.reconciled += 1;
+      } else if (outcome === 'reversed') {
         reversed += 1;
       } else if (outcome === 'alreadyUndone') {
         alreadyUndone += 1;
@@ -233,7 +264,7 @@ export async function undoRun(companyId: string, runId: string, userId: string):
   // failure status.
   if (contention !== null && reversed === 0 && alreadyUndone === 0) throw contention;
 
-  const skipped = skippedBy.reconciled + skippedBy.contended + skippedBy.failed;
+  const skipped = skippedBy.reconciled + skippedBy.contended + skippedBy.failed + skippedBy.offsetByHand;
   const undone = skipped === 0;
   if (undone) {
     await sql`
@@ -248,5 +279,5 @@ export async function undoRun(companyId: string, runId: string, userId: string):
     { companyId, runId, reversed, skipped, skippedBy, alreadyUndone },
     'auto-post-undo',
   );
-  return { reversed, skipped, skippedBy, alreadyUndone, undone };
+  return { reversed, skipped, skippedBy, alreadyUndone, undone, handOffsets };
 }

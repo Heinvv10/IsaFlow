@@ -115,7 +115,8 @@ describeIfDb('K-140 M-5 one failed row must not abort the whole undo', () => {
 
     // The blocked row is the only casualty; nothing else is lost to 25P02.
     expect(result!).toEqual({
-      reversed: 0, skipped: 1, skippedBy: { reconciled: 0, contended: 1, failed: 0 }, alreadyUndone: 1, undone: false,
+      reversed: 0, skipped: 1, skippedBy: { reconciled: 0, contended: 1, failed: 0, offsetByHand: 0 }, alreadyUndone: 1, undone: false,
+      handOffsets: [],
     });
 
     // Not undone: the blocked row still carries the run — read after COMMIT.
@@ -153,7 +154,8 @@ describeIfDb('K-140 M-5 one failed row must not abort the whole undo', () => {
     }
 
     expect(result!).toEqual({
-      reversed: 0, skipped: 0, skippedBy: { reconciled: 0, contended: 0, failed: 0 }, alreadyUndone: 2, undone: true,
+      reversed: 0, skipped: 0, skippedBy: { reconciled: 0, contended: 0, failed: 0, offsetByHand: 0 }, alreadyUndone: 2, undone: true,
+      handOffsets: [],
     });
   }, 60000);
 });
