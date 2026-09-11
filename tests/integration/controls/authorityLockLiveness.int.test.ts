@@ -56,20 +56,22 @@ it('serves same-company reads, writes, MCP calls and an authority write while an
  }finally{await x.pool.query('DELETE FROM company_user_permissions WHERE company_id=$1 AND user_id=$2',[x.f.companyA,x.f.u1.id]);}
 },60000);
 
-it('lets two same-company readers hold the company authority lock at once',async()=>{
- let entered=0,resume!:()=>void;const both=new Promise<void>(resolve=>{resume=resolve;});
- const hold=(who:'u1'|'u2')=>asCookie(who,async()=>{
+it.each([['the same person',3000,200],['the same person',8000,503],['another person',3000,200],['another person',8000,503]] as const)(
+ 'a check behind %s holding the company authority key for %i ms answers %i',async(who,holdMs,status)=>{
+ let checked!:()=>void;const ready=new Promise<void>(r=>{checked=r;});
+ // u1's transaction checked its permissions (taking the key and u1's rows) and runs on for holdMs before COMMIT.
+ const first=asCookie('u1',async()=>{
   const {resolveEffectivePermissions}=await import('@/lib/auth/effectivePermissions');
-  await resolveEffectivePermissions(requireControlTx());if(++entered===2)resume();await both;
+  await resolveEffectivePermissions(requireControlTx());checked();await new Promise(r=>setTimeout(r,holdMs));
  });
- const readers=[hold('u1'),hold('u2')];
  try{
-  await Promise.race([both,new Promise((_,reject)=>setTimeout(()=>reject(new Error('The second reader queued behind the first')),6000))]);
-  const locks=await x.authorityLocks();
-  expect(locks.filter(l=>l.granted).map(l=>l.mode)).toEqual(['ShareLock','ShareLock']);
- }finally{resume();await Promise.allSettled(readers);}
- for(const reader of readers)await expect(reader).resolves.toBeUndefined();
-},20000);
+  await ready;
+  const second=await x.rest('GET','/api/accounting/control-approvals',{},who==='the same person'?'u1':'u2');
+  expect(second.status,JSON.stringify(second.body)).toBe(status);
+  if(status===503){expect(second.retryAfter).toMatch(/^\d+$/);expect(second.ms).toBeGreaterThanOrEqual(4500);expect(second.ms).toBeLessThan(7000);}
+  else{expect(second.ms).toBeGreaterThanOrEqual(holdMs-500);expect(second.ms).toBeLessThan(holdMs+1500);}
+ }finally{await first;}
+},30000);
 
 it('still serialises an authority change against a check and the action it authorises',async()=>{
  let checked!:()=>void,resume!:()=>void;const ready=new Promise<void>(r=>{checked=r;}),proceed=new Promise<void>(r=>{resume=r;});
@@ -116,21 +118,6 @@ it('bounds the wait for a held company authority lock and answers 503 with a ret
  expect(after.status).toBe(200);expect(after.ms).toBeLessThan(1000);
 },30000);
 
-it('makes a person wait at most 5 s behind their own long request, and nobody else waits',async()=>{
- let checked!:()=>void,finish!:()=>void;const ready=new Promise<void>(r=>{checked=r;}),done=new Promise<void>(r=>{finish=r;});
- // A long request of u1's (an export, a report) that checked u1's permissions early and is still running.
- const long=asCookie('u1',async()=>{
-  const {resolveEffectivePermissions}=await import('@/lib/auth/effectivePermissions');
-  await resolveEffectivePermissions(requireControlTx());checked();await done;
- });
- try{
-  await ready;
-  const [own,other]=await Promise.all([x.rest('GET','/api/accounting/control-approvals',{},'u1'),x.rest('GET','/api/accounting/control-approvals',{},'u2')]);
-  expect(own.status,JSON.stringify(own.body)).toBe(503);expect(own.retryAfter).toMatch(/^\d+$/);
-  expect(own.ms).toBeGreaterThanOrEqual(4500);expect(own.ms).toBeLessThan(9000);
-  expect(other.status).toBe(200);expect(other.ms).toBeLessThan(1000);
- }finally{finish();await long;}
-},30000);
 
 it('bounds every database function that takes the company authority key',async()=>{
  const rows=(await x.pool.query(`SELECT p.oid::regprocedure::text AS fn,p.prosrc,p.proconfig FROM pg_proc p
@@ -139,7 +126,8 @@ it('bounds every database function that takes the company authority key',async()
   'control_exception_owner(uuid,text)','control_lock_permission_principal(uuid,text)']);
  for(const row of rows){
   expect(row.proconfig,row.fn).toContain('lock_timeout=5s');
-  expect(row.prosrc,row.fn).toContain("pg_advisory_xact_lock_shared(hashtextextended('control-authority:'");
-  expect(row.prosrc.replaceAll('pg_advisory_xact_lock_shared',''),row.fn).not.toContain('pg_advisory_xact_lock');
+  // The key stays exclusive: shared readers were deferred (see the controls .claude.md).
+  expect(row.prosrc,row.fn).toContain("pg_advisory_xact_lock(hashtextextended('control-authority:'");
+  expect(row.prosrc,row.fn).not.toContain('pg_advisory_xact_lock_shared');
  }
 });

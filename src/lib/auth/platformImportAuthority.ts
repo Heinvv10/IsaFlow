@@ -61,7 +61,7 @@ async function currentStanding(personId:string,companyId:string,query:TxSql=sql)
  // Match the shared member/approval authority order before acquiring row locks; wait at most 5 s for either, as the
  // database functions that take this key do (migration 690), then restore the transaction's own bound.
  const [bound]=await query`SELECT current_setting('lock_timeout') AS previous,set_config('lock_timeout','5s',true)` as {previous:string}[];
- await query`SELECT pg_advisory_xact_lock_shared(hashtextextended(${`control-authority:${companyId}`},0))`;
+ await query`SELECT pg_advisory_xact_lock(hashtextextended(${`control-authority:${companyId}`},0))`;
  const rows=await query`SELECT u.role,u.is_active,u.status,u.suspended_at,c.status AS company_status,c.suspended_at AS company_suspended_at
   FROM users u CROSS JOIN companies c WHERE u.id::text=${personId} AND c.id=${companyId}::uuid FOR UPDATE OF u FOR SHARE OF c` as (UserAccountRow&{role:string;company_status:string|null;company_suspended_at:unknown})[];
  await query`SELECT set_config('lock_timeout',${bound?.previous??'0'},true)`;
