@@ -212,4 +212,23 @@ describe('PUT /afs/management-pack-config', () => {
     await (handler as unknown as Handler)(req, res);
     expect(apiResponse.validationError).toHaveBeenCalled();
   });
+
+  // A bare address instead of {email, role, receives} is what a delivery later cannot send to:
+  // the 400 has to say WHICH entry, not just that "recipients" is wrong somewhere.
+  it('names each malformed recipient entry in the 400 and saves nothing', async () => {
+    const req = makeReq({
+      recipients: ['cfo@example.com', { email: 'a@b.co', role: 'CFO', receives: 'final' }, { email: 'x@b.co' }],
+    });
+    const res = makeRes();
+    await (handler as unknown as Handler)(req, res);
+    expect(apiResponse.validationError).toHaveBeenCalledWith(
+      res,
+      { recipients: [
+        'recipients[0] must be an object {email, role, receives}',
+        'recipients[2] must be an object {email, role, receives}',
+      ] },
+      'Malformed recipients: recipients[0], recipients[2]',
+    );
+    expect(upsertManagementPackConfig).not.toHaveBeenCalled();
+  });
 });
