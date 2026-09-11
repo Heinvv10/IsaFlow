@@ -51,6 +51,20 @@ it('refuses a reversal range over the maximum and a supplier-invoice bulk action
  expect((await x.pool.query("SELECT count(*)::int AS n FROM supplier_invoices WHERE id=ANY($1::uuid[]) AND status<>'pending_approval'",[bills])).rows[0].n).toBe(0);
 },60000);
 
+it('answers ONE 503 in about 5 s, not one 5 s failure per item, when the bulk action route finds the key held',async()=>{
+ const bills=await seed.supplierInvoices(MAX_POSTED_DOCUMENTS_PER_REQUEST);
+ const holder=await x.pool.connect();
+ try{
+  await holder.query('BEGIN');
+  await holder.query("SELECT pg_advisory_xact_lock(hashtextextended('control-authority:'||$1::text,0))",[x.f.companyA]);
+  const row=await x.rest('POST','/api/accounting/supplier-invoices-bulk-action',{action:'approve',invoiceIds:bills});
+  expect(row.status,JSON.stringify(row.body)).toBe(503);
+  expect(row.retryAfter).toMatch(/^\d+$/);
+  expect(row.ms).toBeGreaterThanOrEqual(4500);expect(row.ms).toBeLessThan(9000);
+ }finally{await holder.query('ROLLBACK');holder.release();}
+ expect((await x.pool.query("SELECT count(*)::int AS n FROM supplier_invoices WHERE id=ANY($1::uuid[]) AND status<>'pending_approval'",[bills])).rows[0].n).toBe(0);
+},30000);
+
 async function whileBatch(batch:()=>Promise<Timed>){
  const running=heldWhile(x,sampler,batch);
  await new Promise(resolve=>setTimeout(resolve,200));

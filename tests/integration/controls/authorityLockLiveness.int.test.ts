@@ -1,5 +1,6 @@
 import {afterAll,beforeAll,expect,it} from 'vitest';
 import {randomUUID} from 'node:crypto';
+import type {Pool} from 'pg';
 import {authorityLockFixture,type Timed} from './authorityLockFixture';
 import {runAuditSnapshotJob} from '@/modules/accounting/services/controls/auditJobRunner';
 import {withAuditWorkerTransaction} from '@/modules/accounting/services/controls/auditWorkerTransaction';
@@ -118,6 +119,29 @@ it('bounds the wait for a held company authority lock and answers 503 with a ret
  expect(after.status).toBe(200);expect(after.ms).toBeLessThan(1000);
 },30000);
 
+
+it('requeues, never terminally fails, a job whose authority pin waits behind a held company authority key',async()=>{
+ const job=await asCookie('u1',()=>enqueueAuditSnapshot(requireControlTx(),{cutoff:'2026-09-09',sources:['journals'],checks:[],idempotencyKey:randomUUID()}));
+ // Connection #2 is the pin: take the key exclusively just before it opens and hold it past the pin's 5 s lock bound.
+ let connections=0,holder:Promise<void>|null=null;
+ const instrumented={connect:async()=>{
+  if(++connections===2){
+   const client=await x.pool.connect();let taken!:()=>void;const ready=new Promise<void>(r=>{taken=r;});
+   holder=(async()=>{try{await client.query('BEGIN');await client.query("SELECT pg_advisory_xact_lock(hashtextextended('control-authority:'||$1::text,0))",[x.f.companyA]);taken();
+    await new Promise(r=>setTimeout(r,8000));await client.query('ROLLBACK');}finally{client.release();}})();
+   await ready;
+  }
+  return x.pool.connect();
+ }} as unknown as Pool;
+ const started=Date.now();
+ const result=await runAuditSnapshotJob({companyId:x.f.companyA,personId:x.f.u1.id,jobId:job.id},{pool:instrumented});
+ await holder;
+ expect(result).toMatchObject({state:'failed',code:'WORKER_ERROR',failureRecorded:true});
+ expect(Date.now()-started).toBeLessThan(9000);
+ expect((await x.pool.query('SELECT state,attempts,last_error_code FROM control_audit_jobs WHERE company_id=$1 AND job_id=$2',[x.f.companyA,job.id])).rows[0])
+  .toEqual({state:'queued',attempts:1,last_error_code:'WORKER_ERROR'});
+ expect(await runAuditSnapshotJob({companyId:x.f.companyA,personId:x.f.u1.id,jobId:job.id},{pool:x.pool})).toMatchObject({state:'succeeded',snapshotId:job.id});
+},40000);
 
 it('bounds every database function that takes the company authority key',async()=>{
  const rows=(await x.pool.query(`SELECT p.oid::regprocedure::text AS fn,p.prosrc,p.proconfig FROM pg_proc p

@@ -36,6 +36,7 @@ import { als } from '@/lib/als';
 import { withSavepoint } from '@/lib/neon';
 import { UUID } from '@/lib/schemas/common';
 import { MAX_POSTED_DOCUMENTS_PER_REQUEST } from '@/lib/limits/authorityHoldLimits';
+import { isRetryableLockFailure } from '@/lib/lockContention';
 import {
   approveSupplierInvoice,
   cancelSupplierInvoice,
@@ -107,6 +108,9 @@ async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse) {
       });
       results.push({ invoiceId, ok: true });
     } catch (err) {
+      // The first item takes the company authority key; a held key is one 55P03 for the REQUEST (503 + Retry-After
+      // from withErrorHandler, the transaction rolled back), never a per-item failure repeated at 5 s each.
+      if (isRetryableLockFailure(err)) throw err;
       const message = err instanceof Error ? err.message : 'Action failed';
       log.warn('Bulk supplier invoice action failed for one id', {
         action, invoiceId, error: message,
