@@ -38,6 +38,7 @@ afterAll(async () => {
   try {
     await pool.query('DELETE FROM bank_feed_transaction_conflicts WHERE company_id=$1', [company]);
     await pool.query('DELETE FROM bank_transactions WHERE company_id=$1', [company]);
+    await pool.query('DELETE FROM bank_reconciliations WHERE company_id=$1', [company]);
     await pool.query('DELETE FROM gl_journal_lines WHERE company_id=$1', [company]);
     await pool.query('DELETE FROM gl_journal_entries WHERE company_id=$1', [company]);
     await pool.query('DELETE FROM bank_feed_connections WHERE company_id=$1', [company]);
@@ -153,6 +154,49 @@ describe('migration 675 — feed lifecycle backstop', () => {
       [company, conn, id]);
     await insert();
     await expect(insert()).rejects.toThrow(/uq_bank_feed_conflict_open/);
+  });
+
+  it('refuses a source-field rewrite once reconciliation_id is set (A-9)', async () => {
+    const id = await feedRow('posted', `rc-${crypto.randomUUID()}`);
+    const { rows: rec } = await pool.query(
+      `INSERT INTO bank_reconciliations(bank_account_id,statement_date,started_by,company_id)
+       VALUES($1,'2026-09-30',$2,$3) RETURNING id`, [bank, crypto.randomUUID(), company]);
+    await pool.query('UPDATE bank_transactions SET reconciliation_id=$1 WHERE id=$2', [rec[0].id, id]);
+    await expect(pool.query('UPDATE bank_transactions SET amount=-999 WHERE id=$1', [id]))
+      .rejects.toThrow(/BANK_TX_FEED_GUARD/);
+  });
+
+  it.each([
+    ['status', "'allocated', NULL"],
+    ['allocation_type', "'imported', 'account'"],
+  ])('refuses INSERTing a pending row that carries %s (A-14)', async (_label, values) => {
+    await expect(pool.query(
+      `INSERT INTO bank_transactions(company_id,bank_account_id,transaction_date,amount,description,
+         bank_feed_connection_id,provider_transaction_id,feed_state,status,allocation_type)
+       VALUES($1,$2,'2026-09-01',-5,'linked pending',$3,$4,'pending',${values})`,
+      [company, bank, conn, `ins-${crypto.randomUUID()}`],
+    )).rejects.toThrow(/bank_tx_nonposted_unlinked/);
+  });
+
+  it('refuses INSERTing a pending row that carries a journal link (A-14)', async () => {
+    await expect(pool.query(
+      `INSERT INTO bank_transactions(company_id,bank_account_id,transaction_date,amount,description,
+         bank_feed_connection_id,provider_transaction_id,feed_state,matched_journal_line_id)
+       VALUES($1,$2,'2026-09-01',-5,'linked pending',$3,$4,'pending',$5)`,
+      [company, bank, conn, `jl-${crypto.randomUUID()}`, journalLine],
+    )).rejects.toThrow(/bank_tx_nonposted_unlinked/);
+  });
+
+  it('bank_transactions_posted is a security_invoker view over posted rows only (A-15)', async () => {
+    const posted = await feedRow('posted', `vw-${crypto.randomUUID()}`);
+    const pending = await feedRow('pending', `vw-${crypto.randomUUID()}`);
+    const { rows } = await pool.query(
+      'SELECT id FROM bank_transactions_posted WHERE company_id=$1 AND id = ANY($2::uuid[])', [company, [posted, pending]]);
+    expect(rows.map((r) => r.id)).toEqual([posted]);
+    const meta = await pool.query(
+      `SELECT c.reloptions, has_table_privilege('app_user', c.oid, 'SELECT') AS app_user_select
+       FROM pg_class c WHERE c.relname = 'bank_transactions_posted' AND c.relkind = 'v'`);
+    expect(meta.rows[0]).toEqual({ reloptions: ['security_invoker=true'], app_user_select: true });
   });
 
   it('deleting a bank row with a conflict succeeds and cascades to the conflict', async () => {
