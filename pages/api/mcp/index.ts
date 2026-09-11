@@ -30,6 +30,7 @@ import type { BearerAuthedRequest } from '@/lib/auth/bearerPipeline';
 import { checkRateLimit, getClientIp } from '@/lib/rateLimit';
 import { hasFeature } from '@/modules/admin/services/featureFlagService';
 import { log } from '@/lib/logger';
+import { isRetryableLockFailure } from '@/lib/lockContention';
 import { mcpRegistry } from '@/lib/mcp/toolIndex';
 import type { McpToolContext } from '@/lib/mcp/types';
 import {
@@ -147,6 +148,8 @@ async function handleRpc(
         const result = await mcpRegistry.call(toolName, toolArgs, ctx);
         return rpcResult(rpc.id, result);
       } catch (err) {
+        // The request transaction is gone; withErrorHandler answers 503 + Retry-After for the whole request.
+        if (isRetryableLockFailure(err)) throw err;
         log.error(
           'MCP transport: tool dispatch failed',
           { tool: toolName, err: err instanceof Error ? err.message : String(err) },

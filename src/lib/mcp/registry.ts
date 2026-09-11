@@ -17,6 +17,7 @@ import { handlerErrorReply } from './handlerErrorReply';
 import { assertCurrentToolAuthority } from './currentToolAuthority';
 import { validateToolArguments } from './inputValidation';
 import {withMcpInvocation,type MarkInvocation} from './invocationBoundary';
+import { isRetryableLockFailure } from '@/lib/lockContention';
 
 /**
  * The SAVEPOINT name a write tool runs under.
@@ -114,7 +115,11 @@ export class McpRegistry {
     argsHash = hashArgs(args);
 
     try { await assertCurrentToolAuthority(tool, ctx); await tool.authorize?.(args,ctx); }
-    catch { return reject('Current permissions do not allow this operation.', null); }
+    catch (error) {
+      // A lock timeout aborted the request transaction: the transport answers 503 so the caller retries.
+      if (isRetryableLockFailure(error)) throw error;
+      return reject('Current permissions do not allow this operation.', null);
+    }
 
     // Assert-only company guard. Runs before the idempotency-key check so a
     // mismatch never burns a key, and before any handler so nothing is
@@ -226,6 +231,7 @@ export class McpRegistry {
         reasonCode:result.isError===true?'TOOL_REJECTED':'SUCCESS'});
       return wire;
     } catch (err) {
+      if (isRetryableLockFailure(err)) throw err;
       const refused=err instanceof HandlerRefusal;
       mark({status:refused?'rejected':'error',reportedWrite:false,reasonCode:refused?'TOOL_REJECTED':'HANDLER_ERROR'});
       if(!refused)log.error(

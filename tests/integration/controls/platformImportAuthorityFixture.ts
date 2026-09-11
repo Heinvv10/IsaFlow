@@ -78,9 +78,9 @@ export async function platformImportAuthorityFixture(){
      assertControlTx(ctx);retainedContext=ctx;
      if(body.probe==='lock_order'){
       lockEntered++;await lockResume;
-      // Match the existing approval-authority lock order; A1 has no valid persisted admin approval yet.
+      // Match the existing approval-authority lock order (the key is shared since migration 690); A1 has no valid persisted admin approval yet.
       try{
-       await ctx.sql`SELECT pg_advisory_xact_lock(hashtextextended(${`control-authority:${body.companyId}`},0))`;
+       await ctx.sql`SELECT pg_advisory_xact_lock_shared(hashtextextended(${`control-authority:${body.companyId}`},0))`;
        await ctx.sql`SELECT id FROM users WHERE id::text=${ctx.principal.personId} FOR UPDATE`;
       }catch(error){lockErrors.push({code:error&&typeof error==='object'&&'code' in error?error.code:null,message:error instanceof Error?error.message:String(error)});throw error;}
      }
