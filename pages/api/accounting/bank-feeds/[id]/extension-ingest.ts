@@ -28,9 +28,8 @@ import { sql } from '@/lib/neon';
 import { log } from '@/lib/logger';
 import { checkRateLimit } from '@/lib/rateLimit';
 import { ingestBankBatch } from '@/modules/accounting/services/bank/feed/bankIngestionService';
-import { isBankIngestionRefusal } from '@/modules/accounting/services/bank/feed/bankIngestionTypes';
+import { isBankIngestionRefusal, type NormalizedBankTransaction } from '@/modules/accounting/services/bank/feed/bankIngestionTypes';
 import { contentHashIdentity } from '@/modules/accounting/services/bank/feed/bankIngestionValidation';
-import type { NormalizedBankTransaction } from '@/modules/accounting/services/bank/feed/bankIngestionTypes';
 
 const TransactionSchema = z.object({
   transactionDate: z.string().regex(/^\d{4}-\d{2}-\d{2}$/),
@@ -41,6 +40,10 @@ const TransactionSchema = z.object({
   balance: z.number().finite().optional(),
 }).strict();
 
+// Wire-compat only: applyBankRules, bankAccountExternalId, fromDate and toDate
+// are accepted so the deployed extension keeps working unchanged, but none of
+// them drive behaviour any more — ingestBankBatch always applies suggestion
+// rules only, and resolves the bank account from the leased connection.
 const IngestSchema = z.object({
   scraperId: z.string().min(1).max(40),
   scraperVersion: z.string().min(1).max(20),

@@ -1,0 +1,88 @@
+/**
+ * withExtensionToken mirrors withAuth.ts's post-handler finalize logic:
+ * res.statusCode >= 500 -> ROLLBACK (afterCommit hooks skipped), else COMMIT
+ * (afterCommit hooks drained). Fix round 1, Task 7 finding 1 — previously
+ * this wrapper COMMITted unconditionally after the handler returned, so a
+ * withErrorHandler-caught fault (which answers 500 and returns normally,
+ * rather than throwing) committed a partial batch.
+ */
+import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { pgTypesMock } from '../helpers/pgTypesMock';
+
+const h = vi.hoisted(() => ({ events: [] as string[] }));
+const client = {
+  query: vi.fn(async (text: string) => {
+    const verb = String(text).trim().split(/\s+/)[0]!.toUpperCase();
+    if (/FROM bank_feed_connections/i.test(String(text))) {
+      return { rows: [{ id: 'conn-1', company_id: 'company-1', bank_account_id: 'ba-1', provider: 'extension', is_active: true }] };
+    }
+    if (verb === 'COMMIT' || verb === 'ROLLBACK') h.events.push(verb);
+    return { rows: [] };
+  }),
+  release: vi.fn(),
+};
+vi.mock('pg', () => {
+  class Pool { connect = async () => client; on = vi.fn(); end = vi.fn(); }
+  return { default: { Pool, ...pgTypesMock() }, Pool, ...pgTypesMock() };
+});
+vi.mock('@/lib/logger', () => ({ log: { info: vi.fn(), warn: vi.fn(), error: vi.fn(), debug: vi.fn() } }));
+vi.mock('@/lib/auth/extensionJwt', () => ({
+  verifyExtensionToken: vi.fn(async () => ({ userId: 'user-1', companyId: 'company-1', connectionId: 'conn-1', bankId: 'fnb' })),
+}));
+
+import { runAfterCommit } from '@/lib/afterCommit';
+import { withExtensionToken } from '@/lib/auth/withExtensionToken';
+
+/** A minimal NextApiResponse stand-in that tracks the status the handler set. */
+function res() {
+  return {
+    statusCode: 200,
+    status(code: number) { this.statusCode = code; return this; },
+    json() { return this; },
+    setHeader() { return this; },
+  };
+}
+const req = () => ({ headers: { authorization: 'Bearer ext_x' }, query: {} }) as never;
+const queue = () => runAfterCommit('probe', async () => { h.events.push('CALLBACK'); });
+const settle = () => new Promise((r) => setTimeout(r, 5));
+
+beforeEach(() => {
+  h.events.length = 0;
+  vi.stubEnv('DATABASE_URL', 'postgresql://dummy:dummy@dummy/test');
+});
+
+describe('withExtensionToken finalize (mirrors withAuth)', () => {
+  it('handler answers 500 without throwing -> ROLLBACK, no COMMIT, afterCommit not drained', async () => {
+    const handled = withExtensionToken(async (_req: never, r: ReturnType<typeof res>) => {
+      queue();
+      r.status(500).json({ success: false });
+    });
+    const response = res();
+    await handled(req(), response as never);
+    await settle();
+    expect(h.events).toEqual(['ROLLBACK']);
+    expect(h.events).not.toContain('COMMIT');
+    expect(h.events).not.toContain('CALLBACK');
+  });
+
+  it('handler answers 200 -> COMMIT, afterCommit drained', async () => {
+    const handled = withExtensionToken(async (_req: never, r: ReturnType<typeof res>) => {
+      queue();
+      r.status(200).json({ success: true });
+    });
+    const response = res();
+    await handled(req(), response as never);
+    await settle();
+    expect(h.events).toEqual(['COMMIT', 'CALLBACK']);
+  });
+
+  it('handler throws (unchanged path) -> ROLLBACK, rethrows', async () => {
+    const handled = withExtensionToken(async () => {
+      queue();
+      throw new Error('body failed');
+    });
+    await expect(handled(req(), res() as never)).rejects.toThrow('body failed');
+    await settle();
+    expect(h.events).toEqual(['ROLLBACK']);
+  });
+});
