@@ -3,6 +3,8 @@
  * Bank Reconciliation Type Definitions
  */
 
+import type { FeedState } from '../services/bank/bankFeedStateGuard';
+
 export type BankTxStatus = 'imported' | 'allocated' | 'matched' | 'reconciled' | 'excluded';
 export type BankReconStatus = 'in_progress' | 'completed';
 export type BankFormat = 'fnb' | 'standard_bank' | 'nedbank' | 'absa' | 'capitec' | 'generic' | 'ofx' | 'qif' | 'mt940' | 'unknown';
@@ -47,6 +49,7 @@ export interface BankTransaction {
   reference?: string;
   bankReference?: string;
   status: BankTxStatus;
+  feedState: FeedState;
   matchedJournalLineId?: string;
   reconciliationId?: string;
   importBatchId?: string;
