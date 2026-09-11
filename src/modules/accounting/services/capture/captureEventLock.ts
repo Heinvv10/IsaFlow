@@ -1,6 +1,9 @@
 /**
  * Row-lock helpers and the postable-status vocabulary for the capture write
- * routes — `post.ts`, `post-expense.ts` and `discard.ts`.
+ * routes — `post.ts`, `post-expense.ts` and `discard.ts`. The two POSTING routes
+ * take their locks through `captureRowLock.lockCaptureEventForPosting`, which
+ * holds the document AND the event (K-072's posting claim); they use this
+ * module's allow-list, and `discard.ts` uses `lockCaptureEventRow`.
  *
  * `capture/[id]/post.ts` and `capture/[id]/post-expense.ts` both read
  * `capture_events.status`, refuse in JavaScript when it is already `'posted'`,
@@ -17,9 +20,6 @@
  * version — `status = 'posted'` — so the caller's existing refusal fires before
  * anything is written. That ordering matters because `withAuth` COMMITs any
  * response below 500: a refusal returned AFTER a write leaves the write behind.
- *
- * Only `ce` is locked. `captured_documents` is joined for `extracted_data` and
- * must not be locked here — the extraction pipeline writes that row.
  *
  * `discard.ts` locks too (`lockCaptureEventRow`): it is the third writer of the
  * column the post guard reads, and its own unpredicated
@@ -117,39 +117,6 @@ function isRetryableLockError(err: unknown): boolean {
 }
 
 /**
- * Read one capture event with its captured document and hold a row lock on the
- * event until the end of the surrounding transaction. Returns `null` when the
- * event does not exist or belongs to another tenant — callers keep their own
- * NOT_FOUND wording.
- *
- * Throws if no request transaction is in flight: outside one every statement is
- * its own implicit transaction, so `FOR UPDATE` releases the instant the SELECT
- * returns and the caller believes it is serialised when it is not. A loud
- * failure beats a lock that silently does nothing.
- *
- * The 5s `lock_timeout` is re-issued on EVERY call rather than memoised per
- * request — `SET LOCAL` is subtransaction-aware, so a `ROLLBACK TO SAVEPOINT`
- * would restore `0` (wait forever) exactly on the contended paths. Same
- * reasoning as `bank/bankTxLock.ts`.
- */
-export async function lockCaptureEventForPosting(
-  companyId: string,
-  eventId: string,
-): Promise<DbRow | null> {
-  return lockWithTimeout(eventId, async () => (await sql`
-    SELECT ce.id AS event_id, ce.status AS event_status,
-           ce.captured_document_id, cd.extracted_data
-    FROM capture_events ce
-    JOIN captured_documents cd ON cd.id = ce.captured_document_id
-    WHERE ce.id = ${eventId}::uuid
-      AND ce.company_id = ${companyId}
-      AND cd.company_id = ${companyId}
-    LIMIT 1
-    FOR UPDATE OF ce
-  `) as DbRow[]);
-}
-
-/**
  * Lock ONE capture event row, with no join to `captured_documents`.
  *
  * `discard.ts` needs the same serialisation as the post routes — it is the
@@ -197,7 +164,7 @@ async function lockWithTimeout(
   const client = als.getStore()?.client;
   if (!client) {
     throw new Error(
-      'lockCaptureEventForPosting requires a request transaction (withAuth / als.run). '
+      'lockCaptureEventRow requires a request transaction (withAuth / als.run). '
       + 'Outside one, FOR UPDATE is released immediately and locks nothing.',
     );
   }

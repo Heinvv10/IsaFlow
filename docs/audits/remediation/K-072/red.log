@@ -1,0 +1,53 @@
+
+ RUN  v4.1.2 /home/hein/Workspace/IsaFlow/.worktrees/audit-remediation-20260908
+
+ ❯ tests/unit/services/k072-receipt-entertainment-vat.test.ts (4 tests | 2 failed) 21ms
+     × does not debit VAT Input on an entertainment receipt 8ms
+     × charges the full VAT-inclusive amount to the expense account 1ms
+
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 2 ⎯⎯⎯⎯⎯⎯⎯
+
+ FAIL  tests/unit/services/k072-receipt-entertainment-vat.test.ts > K-072 entertainment input VAT > does not debit VAT Input on an entertainment receipt
+AssertionError: expected 150 to be +0 // Object.is equality
+
+- Expected
++ Received
+
+- 0
++ 150
+
+ ❯ tests/unit/services/k072-receipt-entertainment-vat.test.ts:67:32
+     65|     const journal = buildExpenseJournalFromReceipt(receipt(), accountI…
+     66|     const vatLeg = journal.lines.find(l => l.accountId === accountIds.…
+     67|     expect(vatLeg?.debit ?? 0).toBe(0);
+       |                                ^
+     68|   });
+     69|
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[1/2]⎯
+
+ FAIL  tests/unit/services/k072-receipt-entertainment-vat.test.ts > K-072 entertainment input VAT > charges the full VAT-inclusive amount to the expense account
+AssertionError: expected 1000 to be 1150 // Object.is equality
+
+- Expected
++ Received
+
+- 1150
++ 1000
+
+ ❯ tests/unit/services/k072-receipt-entertainment-vat.test.ts:73:31
+     71|     const journal = buildExpenseJournalFromReceipt(receipt(), accountI…
+     72|     const expenseLeg = journal.lines.find(l => l.accountId === account…
+     73|     expect(expenseLeg?.debit).toBe(1150);
+       |                               ^
+     74|   });
+     75|
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[2/2]⎯
+
+
+ Test Files  1 failed (1)
+      Tests  2 failed | 2 passed (4)
+   Start at  11:30:43
+   Duration  1.04s (transform 66ms, setup 0ms, import 86ms, tests 21ms, environment 0ms)
+
