@@ -11629,6 +11629,37 @@
       "severity": "low",
       "source": "Observed in passing by the K-072 round-34 blind reviewer (unscored aside) and relayed by the round-35 fixer. Not reproduced by the orchestrator; status candidate until measured.",
       "processNotes": "First reproduce it on the fixture DB and record the exact draft and the error. Fix direction: the pipeline should refuse to draft lines whose extended amount doesn't reconcile to the document, and approve should return a typed 4xx, never a 500."
+    },
+    {
+      "id": "R-093",
+      "claim": "",
+      "area": "reports",
+      "affectedPaths": [
+        "tests/unit/components/ReportPageDrillDimensions.test.tsx"
+      ],
+      "sourceLabel": "",
+      "sourceIds": [],
+      "correctedTrigger": "",
+      "severityRationale": "Test-only, but it fails the full CI gate intermittently, and deploy.sh runs that gate first. R-085's reviewer judged the snapshot-index gap theoretical because the three pages under test never chain a second apiFetch; a real failure under load contradicts that.",
+      "auditedSha": "",
+      "currentSha": "",
+      "status": "candidate",
+      "dependencies": [
+        "R-085"
+      ],
+      "testNames": [],
+      "evidencePaths": [],
+      "fixCommit": "862baba46",
+      "pr": "423",
+      "deployedSha": null,
+      "historicalDataImpact": "None; test defect.",
+      "canonicalItem": null,
+      "reportedSeverity": "",
+      "branch": null,
+      "title": "ReportPageDrillDimensions.test.tsx still fails intermittently under load after R-085's fix (PR #423)",
+      "severity": "low",
+      "source": "Observed by the K-072 round-36 fixer on 2026-09-11: the full CI gate failed this component test at load ~21, it passed alone at head and on 96ba518e2 (2/2 each), and a re-run of the gate passed. R-085's round-2 fix for this file (a start-index snapshot of apiFetch.mock.calls) is on that branch. Earlier, on 2026-09-10, the file failed once under load during R-085's own run.",
+      "processNotes": "'Passes alone' is a hypothesis, not proof. Reproduce under load, capture the failing assertion, and fix by real isolation: mockReset apiFetch in beforeEach, unmount and flush pending promises in afterEach, or a per-test generation tag. The K-072 round-36 reviewer is measuring 10 runs under load."
     }
   ],
   "sourceInventory": [
