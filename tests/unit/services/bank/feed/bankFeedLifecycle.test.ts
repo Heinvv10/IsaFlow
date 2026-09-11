@@ -25,6 +25,7 @@ describe('decideFeedTransition', () => {
     ['pending removed', existing({ feedState: 'pending' }), inc({ state: 'removed' }), 'remove_pending'],
     ['pending same', existing({ feedState: 'pending' }), inc({ state: 'pending' }), 'duplicate'],
     ['pending changed newer', existing({ feedState: 'pending' }), inc({ state: 'pending', amount: -99, providerUpdatedAt: '2026-09-02T00:00:00Z' }), 'refresh'],
+    ['pending changed no incoming timestamp', existing({ feedState: 'pending' }), inc({ state: 'pending', amount: -99, providerUpdatedAt: undefined }), 'refresh'],
     ['posted stale replay', existing(), inc({ amount: -1, providerUpdatedAt: '2026-08-01T00:00:00Z' }), 'duplicate'],
     ['posted removed', existing(), inc({ state: 'removed', providerUpdatedAt: '2026-09-02T00:00:00Z' }), 'conflict:posted_row_removed'],
     ['posted to pending', existing(), inc({ state: 'pending', providerUpdatedAt: '2026-09-02T00:00:00Z' }), 'conflict:posted_row_reverted_to_pending'],

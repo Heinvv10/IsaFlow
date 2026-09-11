@@ -120,12 +120,52 @@ describe('canonical feed ingestion', () => {
     }
   });
 
+  it('refuses an inactive connection and writes nothing', async () => {
+    await pool.query("UPDATE bank_feed_connections SET is_active=false WHERE id=$1", [provConn]);
+    try {
+      await expect(ingest(provConn, [ptx('inact1')])).rejects.toMatchObject({ code: 'CONNECTION_INACTIVE' });
+      const { rows } = await pool.query("SELECT count(*)::int n FROM bank_transactions WHERE provider_transaction_id='inact1'");
+      expect(rows[0].n).toBe(0);
+    } finally {
+      await pool.query("UPDATE bank_feed_connections SET is_active=true WHERE id=$1", [provConn]);
+    }
+  });
+
+  it('refuses a connection whose bank account is not a valid active bank GL account', async () => {
+    await pool.query("UPDATE gl_accounts SET is_active=false WHERE id=$1", [bank]);
+    try {
+      await expect(ingest(provConn, [ptx('badacct1')])).rejects.toMatchObject({ code: 'BANK_ACCOUNT_INVALID' });
+      const { rows } = await pool.query("SELECT count(*)::int n FROM bank_transactions WHERE provider_transaction_id='badacct1'");
+      expect(rows[0].n).toBe(0);
+    } finally {
+      await pool.query("UPDATE gl_accounts SET is_active=true WHERE id=$1", [bank]);
+    }
+  });
+
+  it('a change to an unprocessed posted row refreshes in place', async () => {
+    await ingest(provConn, [ptx('ref1')]);
+    const r = await ingest(provConn, [ptx('ref1', { amount: -130, description: 'BFI SHOP 2', providerUpdatedAt: '2026-09-06T00:00:00Z' })]);
+    expect(r.counts).toMatchObject({ updated: 1, conflicts: 0 });
+    const { rows } = await pool.query("SELECT amount::float a, description FROM bank_transactions WHERE provider_transaction_id='ref1'");
+    expect(rows[0]).toEqual({ a: -130, description: 'BFI SHOP 2' });
+  });
+
   it('pending then posted updates in place and becomes reviewable', async () => {
     const p = await ingest(provConn, [ptx('p1', { state: 'pending', amount: -119 })]);
     expect(p.counts).toMatchObject({ inserted: 1, pending: 1 });
     await ingest(provConn, [ptx('p1', { amount: -120, providerUpdatedAt: '2026-09-06T00:00:00Z' })]);
     const { rows } = await pool.query("SELECT feed_state, amount::float a, status FROM bank_transactions WHERE provider_transaction_id='p1'");
     expect(rows[0]).toEqual({ feed_state: 'posted', a: -120, status: 'imported' });
+  });
+
+  it('a pending refresh without providerUpdatedAt keeps the stored timestamp', async () => {
+    await ingest(provConn, [ptx('pu1', { state: 'pending', amount: -119, providerUpdatedAt: '2026-09-05T09:00:00Z' })]);
+    await ingest(provConn, [ptx('pu1', { state: 'pending', amount: -121, providerUpdatedAt: undefined })]);
+    const { rows } = await pool.query(
+      "SELECT feed_state, amount::float a, provider_updated_at FROM bank_transactions WHERE provider_transaction_id='pu1'");
+    expect(rows[0].feed_state).toBe('pending');
+    expect(rows[0].a).toBe(-121);
+    expect(rows[0].provider_updated_at.toISOString()).toBe('2026-09-05T09:00:00.000Z');
   });
 
   it('pending then removed keeps the audit row', async () => {
@@ -167,6 +207,9 @@ describe('canonical feed ingestion', () => {
     await expect(ingest(provConn, [ptx('t1')], otherCompany)).rejects.toMatchObject({ code: 'CONNECTION_NOT_FOUND' });
     const { rows } = await pool.query("SELECT count(*)::int n FROM bank_transactions WHERE provider_transaction_id='t1'");
     expect(rows[0].n).toBe(0);
+    // The lease is never acquired for a connection outside the caller's company, so no sync log is written either.
+    const logs = await pool.query('SELECT count(*)::int n FROM bank_feed_sync_logs WHERE company_id=$1', [otherCompany]);
+    expect(logs.rows[0].n).toBe(0);
   });
 
   it('never creates a journal and only runs suggestion rules', async () => {

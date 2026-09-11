@@ -72,18 +72,25 @@ async function persistProviderRows(companyId: string, conn: IngestConnection, ba
         break;
       }
       case 'ignore_removed_unknown': c.ignored++; break;
-      case 'duplicate': c.duplicate++; await touchSeen(companyId, ex!.id); break;
+      case 'duplicate': {
+        if (!ex) throw new Error('decideFeedTransition returned duplicate with no existing row');
+        c.duplicate++; await touchSeen(companyId, ex.id); break;
+      }
       case 'refresh':
       case 'post_pending':
       case 'remove_pending': {
-        const next = d.kind === 'remove_pending' ? 'removed' : d.kind === 'post_pending' ? 'posted' : ex!.feedState as 'pending' | 'posted';
-        const ok = await applyFeedUpdate(companyId, ex!.id, ex!.feedState as 'pending' | 'posted', t, next);
-        if (!ok) { await upsertConflict(companyId, conn.id, ex!.id, t, 'processed_row_changed'); c.conflicts++; break; }
+        if (!ex) throw new Error(`decideFeedTransition returned ${d.kind} with no existing row`);
+        const next = d.kind === 'remove_pending' ? 'removed' : d.kind === 'post_pending' ? 'posted' : ex.feedState as 'pending' | 'posted';
+        const ok = await applyFeedUpdate(companyId, ex.id, ex.feedState as 'pending' | 'posted', t, next);
+        if (!ok) { await upsertConflict(companyId, conn.id, ex.id, t, 'processed_row_changed'); c.conflicts++; break; }
         if (next === 'removed') c.removed++; else c.updated++;
         if (next === 'pending') c.pending++;
         break;
       }
-      case 'conflict': await upsertConflict(companyId, conn.id, ex!.id, t, d.reason); c.conflicts++; break;
+      case 'conflict': {
+        if (!ex) throw new Error('decideFeedTransition returned conflict with no existing row');
+        await upsertConflict(companyId, conn.id, ex.id, t, d.reason); c.conflicts++; break;
+      }
     }
   }
 }
