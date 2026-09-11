@@ -6,6 +6,8 @@ vi.mock('@/lib/neon',()=>({sql:mocks.sql,withTransaction:vi.fn()}));
 vi.mock('@/lib/auth',()=>({withAuth:(x:unknown)=>x,withWriteAccess:(x:unknown)=>x}));
 vi.mock('@/lib/auth/withCsrf',()=>({withCsrf:(x:unknown)=>x}));
 vi.mock('@/lib/api-error-handler',()=>({withErrorHandler:(x:unknown)=>x}));
+const logged=vi.hoisted(()=>({warn:vi.fn(),info:vi.fn(),error:vi.fn(),debug:vi.fn()}));
+vi.mock('@/lib/logger',()=>({log:logged}));
 import handler from '../../../../pages/api/accounting/bank-transfers';
 import { BankTransferRefusalError } from '@/modules/accounting/services/controls/bankTransferOperationMaterializer';
 it('prepares a durable reviewable transfer instead of posting SQL from the route',async()=>{
@@ -43,4 +45,15 @@ it('answers a missing permission 403 naming it, not a 500',async()=>{
  await handler({method:'POST',companyId:'company',user:{id:'person'},body:{action:'execute',intentId:'33333333-3333-3333-3333-333333333333'}} as unknown as NextApiRequest,response as unknown as NextApiResponse);
  expect(response.status).toHaveBeenCalledWith(403);
  expect(response.json.mock.calls[0]?.[0]?.error?.message).toBe('Current permission denied: write:post is required');
+});
+it('logs each 409 it answers, with the kernel\'s reason, the way the year-end route does',async()=>{
+ const {SuppliedApprovalRefusal}=await import('@/modules/accounting/services/controls/suppliedApprovalRefusal');
+ const {OperationApprovalRequiredError}=await import('@/modules/accounting/services/controls/approvalExecutionService');
+ for(const error of [new SuppliedApprovalRefusal('Approval material changed'),new OperationApprovalRequiredError()]){
+  logged.warn.mockClear();mocks.execute.mockRejectedValueOnce(error);
+  const response={status:vi.fn(),json:vi.fn(),setHeader:vi.fn()};response.status.mockReturnValue(response);
+  await handler({method:'POST',companyId:'company',user:{id:'person'},body:{action:'execute',intentId:'33333333-3333-3333-3333-333333333333'}} as unknown as NextApiRequest,response as unknown as NextApiResponse);
+  expect(response.status).toHaveBeenCalledWith(409);
+  expect(logged.warn,'a 409 went unlogged').toHaveBeenCalledWith(expect.stringMatching(/^Bank transfer refused/),expect.objectContaining({companyId:'company',reason:expect.any(String)}),'accounting');
+ }
 });
