@@ -171,6 +171,10 @@ ALTER TABLE bank_feed_sync_logs
 
 -- 6. Posted-only reader for dynamic SQL (nl-query). security_invoker, so the
 --    caller's RLS on bank_transactions applies through the view.
+-- NOTE: SELECT * freezes this view's column list to bank_transactions' shape
+-- at creation time. Any later migration that drops or retypes a
+-- bank_transactions column must DROP and recreate bank_transactions_posted
+-- (a bare ALTER TABLE does not propagate through a SELECT * view).
 CREATE OR REPLACE VIEW bank_transactions_posted WITH (security_invoker = true) AS
   SELECT * FROM bank_transactions WHERE feed_state = 'posted';
 GRANT SELECT ON bank_transactions_posted TO app_user;
