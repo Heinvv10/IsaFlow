@@ -1,4 +1,5 @@
 import type {PayrollCompensationAction} from './payrollCompensationPlan';
+import {lockdownBlock} from '../gl/postingPeriodGuard';
 type Row=Record<string,unknown>;
 const dayAfter=(date:string)=>new Date(Date.parse(`${date}T00:00:00Z`)+86400000).toISOString().slice(0,10);
 /** Dates describe affected payroll days, not when the operator clicked save. */
@@ -9,7 +10,10 @@ export function assertCompensationWindow(action:PayrollCompensationAction,before
   if(before.effectiveTo&&action.effectiveTo>before.effectiveTo)throw new Error('Ending cannot extend an assignment');
   start=dayAfter(action.effectiveTo);end=before.effectiveTo??'9999-12-31';
  }
- if(company.lockdown_enabled===true&&company.lockdown_date&&start<=String(company.lockdown_date))throw new Error('Compensation affects company lockdown');
+ // `start` is the first payroll day the change reaches, not the day the operator acts: a lockdown freezes
+ // the days it covers, and a compensation change is only ever felt on the days it applies to. A change whose
+ // first affected day is after the lockdown date touches nothing frozen, however long ago it was requested.
+ if(lockdownBlock(company,start))throw new Error('Compensation affects company lockdown');
  for(const run of runs){
   if(!['approved','paid','cancelled'].includes(String(run.status)))continue;
   const year=Number(run.period_year),month=Number(run.period_month);

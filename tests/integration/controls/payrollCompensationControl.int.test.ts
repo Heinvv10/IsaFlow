@@ -210,3 +210,37 @@ it('records each approved mixed-date compensation child at its own affected acco
   expect((await pool.query('SELECT effective_date::text FROM control_payroll_compensation_intents WHERE company_id=$1 AND id=$2',[fixture.companyA,prepared.intentId])).rows[0].effective_date).toBe('2030-01-01');
  }finally{await pool.query("UPDATE company_user_permissions SET can_write=false WHERE company_id=$1 AND user_id=$2 AND module_key='payroll'",[fixture.companyA,fixture.u1.id]);}
 });
+it('refuses to prepare or execute a compensation change for a company locked down with no date, and one on or before a dated lockdown',async()=>{
+ await pool.query("UPDATE company_user_permissions SET can_write=true WHERE company_id=$1 AND user_id=$2 AND module_key='payroll'",[fixture.companyA,fixture.u1.id]);
+ const {preparePayrollCompensation,executePayrollCompensation}=await import('@/modules/accounting/services/controls/payrollCompensationControl');
+ const {requestOperationApproval,decideOperationApproval}=await import('@/modules/accounting/services/controls/approvalRequestService');
+ const assign=(effectiveFrom:string)=>({version:1 as const,source:{kind:'manual' as const},actions:[{kind:'assign' as const,employeeId:employee,componentId:component,amount:'12.00',effectiveFrom}]});
+ const count=async()=>(await pool.query('SELECT count(*)::int count FROM payroll_employee_components WHERE employee_id=$1',[employee])).rows[0].count;
+ const lock=(date:string|null)=>pool.query('UPDATE companies SET lockdown_enabled=true,lockdown_date=$2 WHERE id=$1',[fixture.companyA,date]);
+ const approved=async(effectiveFrom:string)=>{
+  const prepared=await actor(()=>preparePayrollCompensation(requireControlTx(),assign(effectiveFrom)));
+  const approval=await actor(()=>requestOperationApproval(requireControlTx(),prepared.operation));
+  await actor(()=>decideOperationApproval(requireControlTx(),approval.id,'approved'),'u2');
+  return()=>actor(()=>executePayrollCompensation(requireControlTx(),prepared.intentId,{approvalId:approval.id}));
+ };
+ try{
+  // Approved while unlocked; the company row is bound into the intent, so a later lockdown refuses the execute as a
+  // changed source before the window is even re-judged. Either way no row may appear.
+  const staleExecute=await approved('2031-01-01');const before=await count();
+  await lock(null);
+  await expect(actor(()=>preparePayrollCompensation(requireControlTx(),assign('2031-06-01')))).rejects.toThrow('Compensation affects company lockdown');
+  await expect(staleExecute()).rejects.toThrow(/lockdown|source changed/);
+  await lock('2031-01-01');
+  await expect(actor(()=>preparePayrollCompensation(requireControlTx(),assign('2031-01-01')))).rejects.toThrow('Compensation affects company lockdown');
+  await expect(actor(()=>preparePayrollCompensation(requireControlTx(),assign('2030-12-31')))).rejects.toThrow('Compensation affects company lockdown');
+  await expect(staleExecute()).rejects.toThrow(/lockdown|source changed/);
+  expect(await count()).toBe(before);
+  // Locked the day before the first affected day: prepare, approval and effect all let it through.
+  await lock('2030-12-31');
+  expect((await (await approved('2031-01-01'))()).inserted).toBe(1);
+  expect(await count()).toBe(before+1);
+ }finally{
+  await pool.query('UPDATE companies SET lockdown_enabled=false,lockdown_date=NULL WHERE id=$1',[fixture.companyA]);
+  await pool.query("UPDATE company_user_permissions SET can_write=false WHERE company_id=$1 AND user_id=$2 AND module_key='payroll'",[fixture.companyA,fixture.u1.id]);
+ }
+});

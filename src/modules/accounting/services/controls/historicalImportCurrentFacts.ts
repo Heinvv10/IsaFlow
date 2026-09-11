@@ -5,6 +5,7 @@ import {assertControlTx} from './context';
 import type {ControlTx} from './contracts';
 import type {HistoricalImportNormalized} from './historicalImportTypes';
 import {loadHistoricalSettlementFacts} from './historicalImportSettlementFacts';
+import {lockdownBlock} from '../gl/postingPeriodGuard';
 type Row=Record<string,unknown>;
 const D=Decimal.clone({precision:80});
 export async function loadHistoricalImportCurrentFacts(ctx:ControlTx,source:HistoricalImportNormalized){
@@ -19,7 +20,7 @@ export async function loadHistoricalImportCurrentFacts(ctx:ControlTx,source:Hist
  const periods=await ctx.sql`SELECT id,start_date::text,end_date::text,status FROM fiscal_periods WHERE company_id=${companyId}::uuid
   AND start_date<=${source.accountingDate}::date AND end_date>=${source.accountingDate}::date ORDER BY id FOR SHARE` as Row[];
  if(periods.length!==1||!['open','closed'].includes(String(periods[0]!.status)))throw new Error('Historical period unavailable, locked or ambiguous');
- if(company.lockdown_enabled===true&&(!company.lockdown_date||source.accountingDate<=String(company.lockdown_date)))throw new Error('Historical date is within company lockdown');
+ if(lockdownBlock(company,source.accountingDate))throw new Error('Historical date is within company lockdown');
  const vatLines=plan.map(row=>({gl_account_id:row.glAccountId,vat_type:row.vatType??null}));
  const vatLocks=journalAffectsVatReturn(vatLines,accounts)?await ctx.sql`SELECT id,period_start::text,period_end::text FROM vat_period_locks
   WHERE company_id=${companyId}::uuid AND period_start<=${source.accountingDate}::date AND period_end>=${source.accountingDate}::date ORDER BY id FOR SHARE` as Row[]:[];

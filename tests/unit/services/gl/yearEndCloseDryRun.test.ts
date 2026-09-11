@@ -101,3 +101,27 @@ describe('financial-year exact preview',()=>{
   expect(insert).toContain("'draft'");expect(writes().some(text=>text.includes('UPDATE fiscal_periods'))).toBe(true);
  });
 });
+describe('financial-year close under company lockdown (shared lockdownBlock rule)',()=>{
+ const locked=(date:string|null)=>{source.company.lockdown_enabled=true;source.company.lockdown_date=date;};
+ // The pre-effect read sees the company unlocked; only the live re-read inside the effect sees the lockdown.
+ const unlockedFirstRead=()=>m.load.mockImplementationOnce(async(_ctx:ControlTx,ref:{entityId:string})=>({bindingHash:'binding',binding:{policies:[]},
+  observedSources:[{facts:{...source,company:{...source.company,lockdown_enabled:false},closing:await buildYearEndFinancialMaterial(ctx,ref.entityId,source)}}]}));
+ it('refuses the preview when the closing date is on or before the lockdown date, and allows it the day after',async()=>{
+  locked('2027-02-28');await expect(close()).rejects.toThrow('Year-close date is within company lockdown');
+  locked('2027-03-31');await expect(close()).rejects.toThrow('Year-close date is within company lockdown');
+  locked('2027-02-27');expect(await close()).toHaveProperty('preview');
+ });
+ it('refuses the preview for every closing date when lockdown is enabled with no date',async()=>{
+  locked(null);await expect(close()).rejects.toThrow('Year-close date is within company lockdown');expect(writes()).toEqual([]);
+ });
+ it('rechecks the lockdown on the live material inside the effect, before any journal is written',async()=>{
+  unlockedFirstRead();
+  locked(null);await expect(close(false)).rejects.toThrow('Year-close date is within company lockdown');
+  expect(m.execute).toHaveBeenCalledOnce();expect(writes()).toEqual([]);expect(m.post).not.toHaveBeenCalled();
+ });
+ it('rechecks a dated lockdown against the permit date inside the effect',async()=>{
+  unlockedFirstRead();
+  locked('2027-02-28');await expect(close(false)).rejects.toThrow('Year-close date is within company lockdown');
+  expect(writes()).toEqual([]);
+ });
+});

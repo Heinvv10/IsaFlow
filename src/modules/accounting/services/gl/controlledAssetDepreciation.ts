@@ -14,6 +14,7 @@ import { registerGeneratedJournal } from '../controls/generatedJournalPermit';
 import { readControlEntityVersion } from '../controls/operationVersions';
 import { recordCommittedChange } from '../controls/changeEventService';
 import { postJournalEntry } from './journalEntryPostingService';
+import { lockdownBlock } from './postingPeriodGuard';
 import type { ControlTx } from '../controls/contracts';
 import type { calculateExactDepreciation, ExactPostingLine } from './glBypassExactPlans';
 type Row=Record<string,unknown>;
@@ -69,7 +70,7 @@ export async function executeAssetDepreciation(companyId:string,userId:string,in
   // reason. The refusal is the same either way; the message has to name it.
   if(await loadIntentReceipt(ctx,ref(intentId)))throw new Error('Depreciation intent already executed');
   const material=await materializeAssetDepreciationOperation(ctx,parent),facts=material.observedSources[0]!.facts as unknown as Facts;
-  if(facts.company.lockdown_enabled===true&&(!facts.company.lockdown_date||permit.accountingDate<=String(facts.company.lockdown_date)))throw new Error('Depreciation date is within company lockdown');
+  if(lockdownBlock(facts.company,permit.accountingDate))throw new Error('Depreciation date is within company lockdown');
   if(facts.period.status!=='open'||facts.accounts.some(a=>a.is_active!==true))throw new Error('Depreciation period or accounts are not open');
   const assetId=String(facts.asset.id),yyyymm=permit.accountingDate.slice(0,7).replace('-','');
   if(facts.ledgers.some(row=>row.yyyymm===yyyymm))throw new Error('Depreciation period already exists; explicit correction required');
