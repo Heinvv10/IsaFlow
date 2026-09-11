@@ -15,7 +15,7 @@
  */
 import { readFileSync, readdirSync, statSync, existsSync } from 'node:fs';
 import { join } from 'node:path';
-import { inspectVatGuardCoverage } from './vatGuardRules';
+import { inspectVatGuardCoverage, kindsNotExcused, type VatDecisionKind } from './vatGuardRules';
 
 const ROOT = join(import.meta.dir ?? __dirname, '..', '..');
 const SCAN_DIRS = ['src', 'pages'];
@@ -38,16 +38,28 @@ const MIN_FILES_EXPECTED = 200;
  *
  * Adding an entry means arguing one of those two. If neither fits, the file
  * needs the guard, not a line here.
+ *
+ * Each entry names the KINDS it is excused for, and only those (K-072 r29): a
+ * path-wide exemption let a VAT-claiming poster added to the unattended gate
+ * pass, when the gate was excused only for a rate that bounds a refusal. A
+ * kind the file shows outside its entry fails the check like any other.
  */
-const ALLOWED: Record<string, string> = {
+interface AllowedEntry {
+  kinds: VatDecisionKind[];
+  reason: string;
+}
+const ALLOWED: Record<string, AllowedEntry> = {
   // ── ATTENDED ──────────────────────────────────────────────────────────────
-  'src/modules/accounting/services/bank/bankAllocationService.ts':
-    'THE attended path. The bank screen shows the s17(2)(a) and non-supply '
+  'src/modules/accounting/services/bank/bankAllocationService.ts': {
+    kinds: ['rate_constant', 'vat_field_on_a_posting_path', 'allocate_call'],
+    reason: 'THE attended path. The bank screen shows the s17(2)(a) and non-supply '
     + 'warnings and the user\'s choice stands. Its unattended callers guard '
     + 'BEFORE calling it; moving a coercion in here would turn every attended '
     + 'override into a no-op.',
-  'src/modules/accounting/services/ap/supplierInvoiceWorkflowService.ts':
-    'Attended: someone approves one specific invoice, and the tax amount comes '
+  },
+  'src/modules/accounting/services/ap/supplierInvoiceWorkflowService.ts': {
+    kinds: ['vat_field_on_a_posting_path'],
+    reason: 'Attended: someone approves one specific invoice, and the tax amount comes '
     + 'from the captured document rather than being predicted. '
     + 'BillLineItemsTable now warns on a taxed line coded to a non-supply '
     + 'account, which it did not before — but be precise about what that '
@@ -55,8 +67,10 @@ const ALLOWED: Record<string, string> = {
     + 'stored header `taxAmount`, not per line, so the screen warns on the '
     + 'creation path (where the header is the sum of the lines) and does not '
     + 'verify what approval ultimately posts on an invoice captured elsewhere.',
-  'src/modules/accounting/services/expense/expenseClaimService.ts':
-    'Attended: `postClaimToGl` has one caller, `expense-claims/[id]/post`, '
+  },
+  'src/modules/accounting/services/expense/expenseClaimService.ts': {
+    kinds: ['vat_field_on_a_posting_path'],
+    reason: 'Attended: `postClaimToGl` has one caller, `expense-claims/[id]/post`, '
     + 'reached by a person clicking Post to GL on one claim they approved a '
     + 'moment earlier — and the approve endpoint returns INPUT_VAT_DENIED_ADVICE, '
     + 'which the detail page now renders (ClaimHeaderBanners), so the human who '
@@ -66,20 +80,30 @@ const ALLOWED: Record<string, string> = {
     + 'vat_type write is `deniedVatTypeForLine` (claimVatAdvice, a wrapper over '
     + 'inputVatDenial), which LABELS a zero-VAT leg `no_vat` and never turns a '
     + 'claim on.',
+  },
 
-  'pages/api/accounting/bank-match-confirm.ts':
-    'Attended API action on one transaction the user is looking at.',
-  'pages/api/accounting/bank-transactions-action.ts':
-    'Attended API action on one transaction the user is looking at.',
-  'pages/api/accounting/bank-transactions-manual.ts':
-    'Attended API action on one transaction the user is looking at.',
+  'pages/api/accounting/bank-match-confirm.ts': {
+    kinds: ['allocate_call'],
+    reason: 'Attended API action on one transaction the user is looking at.',
+  },
+  'pages/api/accounting/bank-transactions-action.ts': {
+    kinds: ['allocate_call'],
+    reason: 'Attended API action on one transaction the user is looking at.',
+  },
+  'pages/api/accounting/bank-transactions-manual.ts': {
+    kinds: ['allocate_call'],
+    reason: 'Attended API action on one transaction the user is looking at.',
+  },
 
-  'src/modules/accounting/services/gl/journalEntryCrudService.ts':
-    'Manual journal CRUD. The vat_type on each line is typed by whoever is '
+  'src/modules/accounting/services/gl/journalEntryCrudService.ts': {
+    kinds: ['vat_field_on_a_posting_path'],
+    reason: 'Manual journal CRUD. The vat_type on each line is typed by whoever is '
     + 'writing the journal — the oldest and broadest trust boundary in the '
     + 'ledger, and not one this guard was scoped to change.',
-  'src/modules/accounting/services/gl/glImportExecuteService.ts':
-    'GL import: `vatCode` comes from the file a user uploaded and confirmed. '
+  },
+  'src/modules/accounting/services/gl/glImportExecuteService.ts': {
+    kinds: ['vat_field_on_a_posting_path'],
+    reason: 'GL import: `vatCode` comes from the file a user uploaded and confirmed. '
     + 'THE WEAKEST "attended" claim on this list — nobody is shown a per-line '
     + 'warning, the codes come from a document rather than a considered '
     + 'decision, and it writes in bulk. That is the same shape as the MCP bulk '
@@ -88,28 +112,44 @@ const ALLOWED: Record<string, string> = {
     + 'a column mapper with no preview and no per-row VAT display — and called '
     + 'it a fifth candidate for COERCION rather than a fourth attended path. '
     + 'On that reading this entry is a stay of execution, not a verdict.',
+  },
 
   // ── NO CLAIM DECIDED ──────────────────────────────────────────────────────
-  'src/modules/accounting/services/ar/writeOffService.ts':
-    'Posts a bad-debt write-off with the fixed code `bad_debt` (VAT201 box '
+  'src/modules/accounting/services/ar/writeOffService.ts': {
+    kinds: ['vat_field_on_a_posting_path'],
+    reason: 'Posts a bad-debt write-off with the fixed code `bad_debt` (VAT201 box '
     + '17). Not an account-dependent claim — the code does not vary with which '
     + 'account the write-off hits.',
-  'src/modules/accounting/services/reports/drcVatService.ts':
-    'Reports on already-posted balances. Chooses no account\'s claim.',
-  'src/modules/accounting/services/reports/vat201ReportService.ts':
-    'Reports on already-posted balances. Chooses no account\'s claim.',
-  'src/modules/accounting/services/reports/vatBoxBasis.ts':
-    'Derives VAT201 box totals from posted journals. Chooses no claim.',
-  'src/modules/accounting/services/ap/supplierBankPaymentService.ts':
-    'allocType supplier — VAT routes to the AP control account, never a '
+  },
+  'src/modules/accounting/services/reports/drcVatService.ts': {
+    kinds: ['rate_constant'],
+    reason: 'Reports on already-posted balances. Chooses no account\'s claim.',
+  },
+  'src/modules/accounting/services/reports/vat201ReportService.ts': {
+    kinds: ['rate_constant'],
+    reason: 'Reports on already-posted balances. Chooses no account\'s claim.',
+  },
+  'src/modules/accounting/services/reports/vatBoxBasis.ts': {
+    kinds: ['rate_constant'],
+    reason: 'Derives VAT201 box totals from posted journals. Chooses no claim.',
+  },
+  'src/modules/accounting/services/ap/supplierBankPaymentService.ts': {
+    kinds: ['allocate_call'],
+    reason: 'allocType supplier — VAT routes to the AP control account, never a '
     + 'user-chosen GL account, so no guard could fire by construction.',
-  'src/modules/accounting/services/ar/receiptMatchConfirmService.ts':
-    'allocType customer — VAT routes to the AR control account. Same reason.',
-  'src/modules/accounting/services/core/unattendedPostingGate.ts':
-    'The rate only BOUNDS the VAT an inclusive total can contain, so that the '
-    + 'gate REFUSES unattended posting and approval when the VAT read exceeds it '
-    + '(K-072 r28). It computes no VAT, picks no account and forwards no claim: '
-    + 'a refusal sends the document to a person.',
+  },
+  'src/modules/accounting/services/ar/receiptMatchConfirmService.ts': {
+    kinds: ['allocate_call'],
+    reason: 'allocType customer — VAT routes to the AR control account. Same reason.',
+  },
+  'src/modules/accounting/services/core/ocrPreTaxTotal.ts': {
+    kinds: ['rate_constant'],
+    reason: 'The rate only BOUNDS the VAT an inclusive total can contain, so that the '
+    + 'capture gate REFUSES unattended posting and approval when the VAT read '
+    + 'exceeds it or shows the total is pre-tax (K-072 r28-r29). It computes no '
+    + 'VAT, picks no account and forwards no claim: a refusal sends the document '
+    + 'to a person.',
+  },
 };
 
 function walk(dir: string, out: string[] = []): string[] {
@@ -142,6 +182,7 @@ if (files.length < MIN_FILES_EXPECTED) {
 }
 
 const unguarded: Array<{ rel: string; kinds: string[] }> = [];
+const beyondEntry: Array<{ rel: string; kinds: string[] }> = [];
 const seenAllowed = new Set<string>();
 const nowGuarded: string[] = [];
 
@@ -149,9 +190,11 @@ for (const file of files) {
   const rel = file.slice(ROOT.length + 1);
   const finding = inspectVatGuardCoverage(readFileSync(file, 'utf8'));
   if (!finding) continue;
-  const allowed = rel in ALLOWED;
-  if (allowed) {
+  const entry = ALLOWED[rel];
+  if (entry) {
     seenAllowed.add(rel);
+    const extra = kindsNotExcused(finding, entry.kinds);
+    if (extra.length > 0) beyondEntry.push({ rel, kinds: extra });
     // An allowlisted file that has since started guarding no longer needs the
     // exemption. Reported so the list shrinks instead of ossifying.
     if (finding.guarded) nowGuarded.push(rel);
@@ -175,6 +218,13 @@ if (unguarded.length > 0) {
     + '\n  claim. Four unattended posters reached production one at a time; this'
     + '\n  gate exists so the fifth does not.\n',
   );
+}
+
+if (beyondEntry.length > 0) {
+  failed = true;
+  console.error('[vat-guard] Allowlisted paths doing VAT work their entry does not excuse:\n');
+  for (const { rel, kinds } of beyondEntry) console.error(`  ${rel}\n    not excused: ${kinds.join(', ')}`);
+  console.error('\n  Guard the new code, or argue the new kind in its ALLOWED entry.\n');
 }
 
 if (stale.length > 0) {

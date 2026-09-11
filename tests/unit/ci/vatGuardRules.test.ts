@@ -8,7 +8,7 @@
 
 import { describe, it, expect } from 'vitest';
 import {
-  callsAPostingFunction, importsAndUsesGuard, inspectVatGuardCoverage, stripComments,
+  callsAPostingFunction, importsAndUsesGuard, inspectVatGuardCoverage, kindsNotExcused, stripComments,
 } from '../../../scripts/ci/vatGuardRules';
 
 const POSTS = 'await createJournalEntry(companyId, entry, userId);';
@@ -162,5 +162,20 @@ describe('stripComments', () => {
 
   it('leaves a URL in a string alone', () => {
     expect(stripComments("const u = 'https://x.co/a';")).toContain('https://x.co/a');
+  });
+});
+
+describe('kindsNotExcused — an allowlist entry excuses kinds, not a path (K-072 r29)', () => {
+  const RATE_ONLY = 'const SA_VAT_RATE = 0.15;\nexport const bound = (t: number) => t * SA_VAT_RATE;';
+  const POSTER = "\nexport async function p(c: string, t: string, a: string) {\n"
+    + "  await allocateTransaction(c, t, { accountId: a, vatType: 'standard' });\n}";
+
+  it('a file doing only the excused kind owes nothing', () => {
+    expect(kindsNotExcused(inspectVatGuardCoverage(RATE_ONLY)!, ['rate_constant'])).toEqual([]);
+  });
+
+  it('a VAT-claiming poster added to a rate-only file is not excused', () => {
+    expect(kindsNotExcused(inspectVatGuardCoverage(RATE_ONLY + POSTER)!, ['rate_constant']))
+      .toEqual(['vat_field_on_a_posting_path', 'allocate_call']);
   });
 });

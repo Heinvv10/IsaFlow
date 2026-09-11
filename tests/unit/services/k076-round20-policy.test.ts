@@ -141,7 +141,8 @@ describe('K-076 r20 MEDIUM-3 — credit markings, and a second gate that fails c
   it('a document with no purchase title refuses, whatever it calls itself — on the AP routes too', () => {
     const letter = 'GAME Stores\nVERGOEDING\nKettle 499.00\nVAT 15% 65.09\nTOTAL 499.00\nCARD 499.00';
     expect(identifiesAsPurchase({ rawText: letter, documentType: 'invoice' })).toBe(false);
-    const doc = { documentType: 'invoice' as const, totalAmount: 499, warnings: [], extractionMethod: 'vlm' as const };
+    // Round 29: approval refuses a null VAT, so the positive control carries the one it prints.
+    const doc = { documentType: 'invoice' as const, totalAmount: 499, vatAmount: 65.09, warnings: [], extractionMethod: 'vlm' as const };
     expect(refusesUnattendedApproval({ ...doc, rawText: letter })).toBe(true);
     expect(refusesUnattendedApproval({ ...doc, rawText: letter.replace('VERGOEDING', 'TAX INVOICE') })).toBe(false);
   });

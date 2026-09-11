@@ -18,6 +18,7 @@
  */
 import { isPlausibleVatAmount, parseAmount } from './ocrAmountParsing';
 import { TOTAL_PATTERNS, VAT_PATTERNS } from './ocrAmountPatterns';
+import { blankFillers } from './ocrWholeFigures';
 
 const STANDARD_RATE_MIN = 0.13;
 const STANDARD_RATE_MAX = 0.17;
@@ -229,9 +230,11 @@ export function extractVatAmount(
   subtotal: number | null,
   totalAmount: number | null,
 ): number | null {
+  // Leader dots (`VAT 15%.........150.00`) blanked, as the figure readers do (r29).
+  const unfilled = text.split(/\r?\n/).map(blankFillers).join('\n');
   for (const pattern of VAT_PATTERNS) {
     const candidates: number[] = [];
-    for (const match of text.matchAll(pattern)) {
+    for (const match of unfilled.matchAll(pattern)) {
       if (match[1] && isPlausibleVatAmount(match[1], totalAmount)) {
         candidates.push(parseAmount(match[1]));
       }

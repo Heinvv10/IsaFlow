@@ -2454,3 +2454,41 @@ check on approval (1) · E5 the VAT counted printed as any figure (1) · E6 a pr
 bracket or dash (1) · E8 a below-total summary explained by value alone (1) · E9 no qualifiers on a summary-only
 line (1 — GREEN until the net-reprint probes were added; the total-reprint probes cannot reach rule 3) · E10
 `SET`/`LIQ` currencies again (1).
+
+---
+
+## Round 29 — pre-tax totals by label and by position; approval never books an invented VAT
+
+Review: `review-k072-r28.md` (2H/1M/2L, neither HIGH a regression). Harness as in round 28 plus the reviewer's
+`ac28`–`ac28f` (280 probes): **3 598 rows**, stored and nulled. The run records the approved `taxAmount` too.
+
+| Finding | Disposition |
+|---|---|
+| HIGH-1 the 15/115 bound cannot see a pre-tax total when ≥ 13% of the net is not standard-rated (`Consulting 800 / CIPC fee (no VAT) 200 / Total (excl. VAT) 1000.00 / VAT 15% 120.00`, 66 of 112 wrong) | FIXED with the lead's two structural rules, in a new `ocrPreTaxTotal.ts` called from `unreconciledFigure` (so both routes): **(a)** a line printing the total that says it excludes the tax (`excl…`, `exclusive`, `ex VAT`, `before VAT`, `nett of VAT`, `pre-tax`) refuses whenever a VAT is read — paid or not; **(b)** on a document NO payment settles, a tax line printed below the last print of the total is an ADDED tax and refuses — unless that line or the total's own line says the tax is included (`incl…`, `inclusive`, `included`, `portion`), the tax is already printed above the total, or the arithmetic proves it inclusive (VAT within 5 cents of total × 15/115 — `TOTAL 147.40 / VAT 19.23`, `Total 1000.00 / VAT 130.43`; without it two honest unpaid slips refused). Paid slips' recaps are not judged. **ac-mixpre 66 → 0** — nothing of the 66 is left. The rate and both 15/115 helpers now live in `ocrPreTaxTotal.ts`, so the gate holds no rate. |
+| HIGH-2 approval passed a NULL VAT, and `buildInvoiceFromExtraction` (`aiInvoicePipelineService.ts:140`) invented 15/115 of the total as `taxAmount` | FIXED: `refusesUnattendedApproval` refuses a null VAT, text or no text (the builder invents the same figure on an image-only invoice). A zero VAT is not refused — it claims nothing. **What the invented figure feeds, and who relied on it:** both approval routes (`ai-invoice-pipeline.ts:120`, `capture/[id]/post.ts:135`) insert `invoiceInput.taxAmount` into `supplier_invoices.tax_amount`, and `approveSupplierInvoice` posts one VAT line from that header. With the refusal, a null-VAT invoice is never `approved` unattended on either route — both force `draft`/`manual_review` when the gate refuses, including `auto_publish` — so the fabricated figure now reaches only a DRAFT that a person approves in the attended workflow (the vat-guard allowlist's own "attended" entry for `supplierInvoiceWorkflowService`). No unattended caller relies on it; the builder is left as is for the attended draft, as the lead allowed. ac-null 5 → 0 and ac-nullvat 2 → 0 approvals; corpus X2 now refuses on the approval route as its pinned outcome says. |
+| MEDIUM-1 the vat-guard allowlist entry exempted the whole gate file | FIXED: every `ALLOWED` entry now names the KINDS it is excused for (`AllowedEntry { kinds, reason }`, all 15 entries scoped to the kinds they show today), and the check fails on any kind outside its entry (`kindsNotExcused`, unit-tested in `vatGuardRules.test.ts`). **Proved by outcome:** appending the reviewer's `allocateTransaction(… { vatType: 'standard' })` poster to the rate-only file turns the check red (`not excused: vat_field_on_a_posting_path, allocate_call`, exit 1), then restored byte-identically. The rate-only entry moved with the rate from `unattendedPostingGate.ts` to `ocrPreTaxTotal.ts`. |
+| LOW-1 the VAT-printed check cost ≥ 7 approvals | FIXED by teaching the VAT reader: leader dots are blanked before the VAT patterns (`blankFillers`, as the figure readers do), `=` is a value separator, `BTW` joins `VAT_WORD` and `Belasting` the `Tax` form and `TAX_WORD`. ac-sp-inv 31 → 37 of 37; the three `BTW`/`Belasting` rows refused on approval in round 28 now post; four ordinary Afrikaans slips (k-ord O13, O14, O17, u-ord U11) approve for the first time; 0 newly wrong. Money-beside probes pinned for each: `Delivery.........150.00`, `Delivery = 150.00`, `BTW No 4123456789` and `BELASTINGFAKTUUR Nr 5521` are not read as the VAT. |
+| LOW-2 `Copy No: 2 of 2` posted | FIXED (`No` takes a colon). `Customer copy 2/2` still posts, by the round-23 decision (the one ac-copy row the harness counts, payable unknown). |
+
+### Re-measured — head vs `19c4123b3`, 3 598 rows (stored ≡ subtotal-null, row for row)
+
+| | `19c4123b3` | **head** |
+|---|---|---|
+| unattended / WRONG, all rows | 574 / 114 | **508 / 47** |
+| mixed-rate pre-tax totals (ac-mixpre; 112) | 66 / 66 | **0 / 0** |
+| null-VAT approvals booking an invented tax (ac-null, ac-nullvat; 13) | 7 approved | **0** |
+| invoice VAT spellings (ac-sp-inv; 37) | 31 | **37** |
+| the reviewer's ordinary documents (ac-ord; 13) | 5 / 0 | **5 / 0** |
+| aa-ord / ab-ord (14 each) | 8 / 10 | **8 / 10** |
+
+**Newly wrong: 0.** **Newly refused: 13**, all deliberate: corpus X2 and the 7 null-VAT approvals (HIGH-2), and 5
+approval-only rows where the model chose an unprinted 1 150 over the printed `Total 1000.00` with a bare `VAT 150.00`
+under it (the round-27 shape; rule (b) now refuses both readings). The 47 WRONG left: the 43 accepted classes, the 3
+ab-h2 next-line `VAT` rows scored unrealistic, and `Customer copy 2/2` (correctly ordinary).
+
+### Mutations — 13, all RED
+
+G1 no pre-tax label rule · G2 no tax-line-below rule · G3 the below rule on paid slips (Kwikspar recap) · G4 no
+inclusive arithmetic (2) · G5 no tax-above exemption · G6 no `incl` marker on the tax line · G7 a null VAT approved
+· G8 no leader blanking · G9 no `=` separator · G10 `BTW` not a VAT word · G11 `Belasting` not a tax word · G12 `Copy
+No:` without its colon · G13 the allowlist excuses the whole path.
