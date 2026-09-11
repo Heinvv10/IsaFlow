@@ -17,26 +17,36 @@ const SAMPLE_ITEMS = 5;
 // Field words seen in the Sage list DTOs the migration already reads, plus the
 // words an allocation/line structure is likely to use. Case-insensitive.
 const FIELD_WORDS = new Set(`
- id key type name code number status date created modified updated deleted
- total totals amount amounts exclusive inclusive tax vat discount due paid balance outstanding
- unallocated allocated allocation allocations allocate applied settlement settled
- document documents doc from to source target parent child linked link links
- invoice invoices receipt receipts payment payments return returns credit note notes journal entry entries
- line lines item items quantity price unit units selection category account accounts
- customer customers supplier suppliers bank branch contact email telephone mobile fax web address
- reference description comments comment period printed reconciled locked editable obfuscated on hold
- has attachments anticipated is results returned count message error errors method value values
+ id guid key type name code number status date created modified updated deleted by at of on is has
+ total amount exclusive inclusive tax vat discount due paid balance outstanding remaining open
+ unallocated allocated allocation allocate applied settlement settled matched match split write off reversal
+ document doc from to source target parent child linked link related transaction detail event business
+ invoice receipt payment return credit note journal entry ledger line item quantity price unit selection category account
+ customer supplier payee bank branch contact email telephone mobile fax web address
+ reference description comment period printed reconciled locked editable obfuscated hold accepted
+ attachment anticipated result returned count message error method value artefact
 `.split(/\s+/).filter(Boolean));
+
+/** A word or its regular plural ("Settlements", "Entries", "Details"). */
+function isFieldWord(word: string): boolean {
+  const lower = word.toLowerCase();
+  return FIELD_WORDS.has(lower) || (lower.endsWith('ies') && FIELD_WORDS.has(`${lower.slice(0, -3)}y`))
+    || (lower.endsWith('es') && FIELD_WORDS.has(lower.slice(0, -2))) || (lower.endsWith('s') && FIELD_WORDS.has(lower.slice(0, -1)));
+}
 
 /** PascalCase / camelCase / snake_case words; any digit disqualifies the whole key. */
 export function isFieldName(key: string): boolean {
   if (!/^[A-Za-z][A-Za-z_]{0,63}$/.test(key)) return false;
   const words = key.split('_').flatMap(part => part.match(/[A-Z]+(?![a-z])|[A-Z]?[a-z]+/g) ?? []);
   return words.length > 0 && words.join('').length === key.replaceAll('_', '').length
-    && words.every(word => FIELD_WORDS.has(word.toLowerCase()));
+    && words.every(isFieldWord);
 }
 
-export type Shape = string | { object: Record<string, Shape>; redactedKeys?: number }
+/**
+ * `redacted` lists the distinct shapes found under keys that were not printed, so
+ * an allocation array under an unexpected key name is still visible as structure.
+ */
+export type Shape = string | { object: Record<string, Shape>; redactedKeys?: number; redacted?: Shape[] }
   | { array: number; items?: Shape } | { dictionary: number; values?: Shape };
 
 function kind(shape: Shape): string[] {
@@ -50,8 +60,7 @@ function mergeShapes(a: Shape | undefined, b: Shape): Shape {
     if ('object' in a && 'object' in b) {
       const object: Record<string, Shape> = { ...a.object };
       for (const [key, value] of Object.entries(b.object)) object[key] = mergeShapes(object[key], value);
-      const redactedKeys = Math.max(a.redactedKeys ?? 0, b.redactedKeys ?? 0);
-      return redactedKeys ? { object, redactedKeys } : { object };
+      return withRedacted(object, Math.max(a.redactedKeys ?? 0, b.redactedKeys ?? 0), [...(a.redacted ?? []), ...(b.redacted ?? [])]);
     }
     if ('array' in a && 'array' in b) {
       const items = b.items === undefined ? a.items : mergeShapes(a.items, b.items);
@@ -59,6 +68,13 @@ function mergeShapes(a: Shape | undefined, b: Shape): Shape {
     }
   }
   return [...new Set([...kind(a), ...kind(b)])].sort().join('|');
+}
+
+const MAX_REDACTED_SHAPES = 20;
+function withRedacted(object: Record<string, Shape>, redactedKeys: number, shapes: Shape[]): Shape {
+  if (!redactedKeys) return { object };
+  const distinct = [...new Map(shapes.map(shape => [JSON.stringify(shape), shape])).values()].slice(0, MAX_REDACTED_SHAPES);
+  return { object, redactedKeys, redacted: distinct };
 }
 
 function sampleShape(values: unknown[], depth: number): Shape | undefined {
@@ -83,12 +99,12 @@ export function describeShape(value: unknown, depth = 0): Shape {
       return values === undefined ? { dictionary: entries.length } : { dictionary: entries.length, values };
     }
     const object: Record<string, Shape> = {};
-    let redactedKeys = 0;
+    const redacted: Shape[] = [];
     for (const [key, child] of entries) {
       if (isFieldName(key)) object[key] = describeShape(child, depth + 1);
-      else redactedKeys += 1;
+      else redacted.push(describeShape(child, depth + 1));
     }
-    return redactedKeys ? { object, redactedKeys } : { object };
+    return withRedacted(object, redacted.length, redacted);
   }
   return typeof value;
 }
