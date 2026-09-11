@@ -71,14 +71,15 @@ describe('undoRun — hand offsets (R-079)', () => {
   };
   const blocking = {
     id: 'je-hand', entry_number: 'JE-2026-00042', entry_date: '2026-05-20', description: 'Reclass rent',
-    amount: 60, blocks: true, by_person: true, claimed_elsewhere: false, declared_unrelated: false, nets_posting_out: false,
+    amount: 60, reclass: false, blocks: true, by_person: true, claimed_elsewhere: false, declared_unrelated: false, nets_posting_out: false,
   };
 
   it('refuses a row a later journal may already correct, and describes the line and the journal', async () => {
     routeSql([
       { match: /FROM bank_auto_post_runs/, rows: [{ id: 'run-1', undone_at: null }] },
       { match: /FROM bank_transactions\s+WHERE auto_post_run_id/, rows: [provisionalRow] },
-      { match: /WITH RECURSIVE posting AS/, rows: [blocking] },
+      { match: /SELECT entry_date, COALESCE\(posted_at/, rows: [{ entry_date: '2026-05-15', at: '2026-05-15T10:00:00Z', source_document_id: null }] },
+      { match: /WITH RECURSIVE effect AS/, rows: [blocking] },
     ]);
 
     const r = await undoRun('co-1', 'run-1', 'u-1');
@@ -88,7 +89,7 @@ describe('undoRun — hand offsets (R-079)', () => {
       handOffsets: [{
         transactionId: 't1', lineDate: '2026-05-15', lineAmount: -100, lineDescription: 'Office rent',
         journalEntryId: 'je-hand', entryNumber: 'JE-2026-00042', entryDate: '2026-05-20', amount: 60,
-        description: 'Reclass rent',
+        description: 'Reclass rent', netsPostingOut: false, reclass: false, projection: [],
       }],
     });
     expect(reverseJournalEntry).not.toHaveBeenCalled();
@@ -101,7 +102,8 @@ describe('undoRun — hand offsets (R-079)', () => {
     routeSql([
       { match: /FROM bank_auto_post_runs/, rows: [{ id: 'run-1', undone_at: null }] },
       { match: /FROM bank_transactions\s+WHERE auto_post_run_id/, rows: [provisionalRow] },
-      { match: /WITH RECURSIVE posting AS/, rows: [] },
+      { match: /SELECT entry_date, COALESCE\(posted_at/, rows: [{ entry_date: '2026-05-15', at: '2026-05-15T10:00:00Z', source_document_id: null }] },
+      { match: /WITH RECURSIVE effect AS/, rows: [] },
     ]);
 
     const r = await undoRun('co-1', 'run-1', 'u-1');

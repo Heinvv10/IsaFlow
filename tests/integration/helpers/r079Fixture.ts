@@ -13,6 +13,7 @@ export interface R079Fixture extends K074Fixture {
   e1: string;
   e2: string;
   e3: string;
+  vat: string;
 }
 
 export interface JournalLine { glAccountId: string; debit: number; credit: number }
@@ -28,7 +29,13 @@ export async function seedR079(pool: Pool): Promise<R079Fixture> {
     );
     return id;
   };
-  return { ...fx, e1: await expense('R79E1'), e2: await expense('R79E2'), e3: await expense('R79E3') };
+  const vat = crypto.randomUUID();
+  await pool.query(
+    `INSERT INTO gl_accounts(id,company_id,account_code,account_name,account_type,account_subtype,normal_balance,is_active)
+     VALUES($1,$2,'R79VAT','R079 VAT input','asset','other','debit',true)`,
+    [vat, fx.company],
+  );
+  return { ...fx, e1: await expense('R79E1'), e2: await expense('R79E2'), e3: await expense('R79E3'), vat };
 }
 
 /** One transaction on an ALS-bound client, COMMIT below 500 — withAuth's shape. */
@@ -49,13 +56,13 @@ export async function inRequest<T>(pool: Pool, fx: K074Fixture, fn: () => Promis
 /** A posted journal, made the way a person makes one (source 'manual') unless told otherwise. */
 export async function postJournal(
   pool: Pool, fx: K074Fixture, lines: JournalLine[],
-  opts: { companyId?: string; source?: string; draft?: boolean; postingAgent?: string } = {},
+  opts: { companyId?: string; source?: string; draft?: boolean; postingAgent?: string; entryDate?: string } = {},
 ): Promise<{ id: string; entryNumber: string }> {
   const { createJournalEntry, postJournalEntry } = await import('@/modules/accounting/services/gl/journalEntryService');
   const companyId = opts.companyId ?? fx.company;
   return inRequest(pool, { ...fx, company: companyId }, async () => {
     const entry = await createJournalEntry(companyId, {
-      entryDate: DAY, description: 'R079 journal', lines,
+      entryDate: opts.entryDate ?? DAY, description: 'R079 journal', lines,
       ...(opts.source ? { source: opts.source as 'manual' } : {}),
     }, fx.user);
     if (!opts.draft) await postJournalEntry(companyId, entry.id, fx.user);
@@ -73,10 +80,10 @@ export async function postJournal(
  * bank 100, tagged exactly as the gate tags it.
  */
 export async function seedAutoPostedLine(
-  pool: Pool, fx: R079Fixture,
+  pool: Pool, fx: R079Fixture, lines?: JournalLine[],
 ): Promise<{ line: string; je: string; runId: string }> {
   const line = await seedBankLine(pool, fx, -100);
-  const { id: je } = await postJournal(pool, fx, [
+  const { id: je } = await postJournal(pool, fx, lines ?? [
     { glAccountId: fx.e1, debit: 60, credit: 0 },
     { glAccountId: fx.e2, debit: 40, credit: 0 },
     { glAccountId: fx.bankAccount, debit: 0, credit: 100 },
@@ -140,6 +147,11 @@ export async function nets(pool: Pool, fx: R079Fixture): Promise<Record<string, 
     e1: await netOn(pool, fx, fx.e1), e2: await netOn(pool, fx, fx.e2),
     e3: await netOn(pool, fx, fx.e3), bank: await netOn(pool, fx, fx.bankAccount),
   };
+}
+
+/** Like `nets`, with the VAT account — only the round-3 VAT tests read it. */
+export async function netsWithVat(pool: Pool, fx: R079Fixture): Promise<Record<string, number>> {
+  return { ...(await nets(pool, fx)), vat: await netOn(pool, fx, fx.vat) };
 }
 
 export async function cleanupR079(pool: Pool, fx: K074Fixture): Promise<void> {

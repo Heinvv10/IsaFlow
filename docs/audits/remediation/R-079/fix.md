@@ -378,3 +378,104 @@ a bare 500. That is now the fixed 400 above (R28 pins it). Re-seeded in November
 nine fixed messages), bank `.claude.md` + `AGENTS.md`; tests: `r079-undo-anyway.int.test.ts` (new,
 8), `r079-undo-hand-offset` (18), `r079-hand-correction-override` (14), unit (3), component (7),
 `r079Fixture.ts` (`fullReclass`, `postingAgent`). No migration.
+
+---
+
+## Round 3 — blind review of `06070b7fa` (0 HIGH · 1 MEDIUM · 2 LOW)
+
+Kept from round 2 on the reviewer's evidence: the fail-closed rule. An amount-scoped rule
+false-passes a combined month-end reclass 3/3, which is a double correction.
+
+### MEDIUM-1 — the net rule refused real corrections and steered the user into undo-anyway — FIXED (lead's decision)
+
+The reviewer's two shapes: a VAT-bearing posting (E1 86.96 + VAT 13.04 / bank 100) reclassed
+Cr E1 / Dr E3 with the VAT left alone, and a correction split over two journals. Both were refused
+by "mark", and "undo anyway" then gave e1 −86.96 / e3 +86.96, and e1 −60 / e2 −40 / e3 +100.
+
+Decision: when the blocking journal moves the posting's accounts back but does not net them out,
+the answer is to **reverse that journal first**. Once it is reversed through the product it has a
+posted contra, the chain walk sees it off the books, and the undo is clean.
+- `handOffsets` carries `netsPostingOut`, `reclass` (the journal books part of the posting to an
+  account the posting never touched) and `projection`.
+- The notice for that shape reads "JE-… moved this posting to another account. Reverse JE-… first
+  (Journal Entries › JE-… › Reverse), then undo." For a partial correction it says "moves part of
+  this posting back". The entry number links to `/accounting/journal-entries/<id>`, the page with
+  the Reverse button. "Mark as corrected by hand" is offered only when the journal nets the posting
+  out. The server still enforces this, and its refusal now says the journal "cannot be recorded as
+  the whole correction … Reverse that journal first, then undo". It no longer says "does not correct".
+- "Undo anyway" stays available, behind a dialog that shows **each account now and after the undo**
+  (`autoPostUndoProjection.projectUndo`: posting + journal now, the journal alone after). The double
+  correction is on screen before anyone confirms. A test pins that the projection equals what
+  undo-anyway actually leaves on the DB.
+
+Pinned (`r079-reverse-first.int.test.ts`): VAT reclass → notice fields plus a projection of
+E1 0 → −86.96, VAT 13.04 → 0, E3 86.96, bank −100 → 0; mark refused; `reverseJournalEntry` on the
+reclass, then undo → reversed 1 and **all five accounts net 0 on the DB**. Split correction → J1
+named (reclass), reverse J1 → J2 named, reverse J2 → undo nets 0.
+
+### LOW-2 — undo-anyway recorded a declaration over a line it did not undo — FIXED
+
+Inside the savepoint, any `undoRow` outcome other than `reversed`, `alreadyUndone` or
+`offsetByHand` now throws a `HandCorrectionRefusedError`. The savepoint takes the declaration back,
+and the route answers 400. A reconciled line gets "That line is reconciled — unreconcile it first,
+then undo". A re-reversed posting, or any other case, gets "That line cannot be undone as it
+stands — nothing was recorded". Pinned: reconcile the line after the refusal → 400, 0 audit rows,
+0 contras, line still reconciled and tagged. Re-reverse the posting after the refusal → 400,
+0 audit rows, tag kept.
+
+### LOW-3 — no date bound on the scan — FIXED
+
+The posting's `entry_date` and posted time are read first and reach the scan as constants:
+`o.entry_date >= $date AND COALESCE(posted_at, created_at) > $at`. That is an index range on
+`idx_gl_journal_entries_company_date_posted`, so earlier history is never read. The named journal
+of a recorded decision meets the same bound. The flags (linked, person-made) are computed once in
+`pre`. The per-journal line checks run only for linked or person-made journals, and they compare
+`company_id::TEXT`. It is still the tenant filter, but it is no longer an index condition: with it
+as one, stale statistics picked `(company_id, gl_account_id)` and read every line of the company
+per candidate (EXPLAIN: 5.3 s for 8,000 later bank receipts). Measured `findHandOffset` per row,
+VAT-bearing posting:
+
+| History | stale statistics | after ANALYZE |
+|---|---|---|
+| 8,000 EARLIER person E1 credits (review: 7,056 ms) | **4 ms** | 2 ms |
+| 8,000 EARLIER system VAT-input credits (review: 1,717 ms) | **3 ms** | 2 ms |
+| 8,000 later person bank receipts | 7 ms | 54 ms |
+| 8,000 later system credits to E1 | 4 ms | 9 ms |
+| 8,000 later person credits to E1 (all block) | 42 ms | 88 ms |
+
+**Recorded limit:** a correction posted after the posting but DATED before it is not seen, and the
+undo reverses the posting (pinned as a non-blocking case). The reviewer's suggested local statement
+timeout was not added; the bound removes the measured cause.
+
+### Mutations (13 run, 12 red; files sha256-restored)
+
+T1 no date bound 1/19 · T2 reclass flag always false 2/5 · T3 anyway: reconciled not refused 1/5
+· T4 anyway: other non-undo outcomes not refused 1/5 · T5 refusal remapped to the generic message
+2/5 · T6 projection "after" uses the posting 2/5 · T7 UI offers mark for every journal 1/9 · T8 UI
+dialog without projection 1/9 · T9 UI reverse-first guidance dropped 1/9 · re-checked on the new
+query shape: U1 person rule ignores posting_agent 1/19 · U2 no posted-after bound 17/19 · U3 no
+company filter 1/14. **U4 survived by design:** the person gate in `base` is a performance gate
+only, and `kept` re-applies the person rule for blocking. Its effect is the stale-statistics row
+for later system credits above: 4 ms with the gate, 1.6 s without (round-2 structure).
+
+### Browser proof (headless Chromium, `next dev -p 3217` from this worktree, `isaflow_dev`, reporting-qa, Brightsphere)
+
+Seeded a VAT-bearing provisional posting (Accounting Fees 86.96 + VAT Input 13.04 / Bank - Primary
+100) and a manual reclass JE-2027-00002 (Cr Accounting Fees 86.96 / Dr Advertising 86.96).
+- Undo → 200 `offsetByHand`. The notice: "Line 2027-11-15 · −R100,00 · R079 r3 proof line —
+  journal (2027-11-16 · R86,96 · …): JE-2027-00002 moved this posting to another account. Reverse
+  JE-2027-00002 first (Journal Entries › JE-2027-00002 › Reverse), then undo." **No "Mark" button.**
+  The entry number links to `/accounting/journal-entries/<id>`.
+- "Not the correction — undo anyway" → the dialog listed 1110 Bank −R100,00 → R0,00; 1140 VAT
+  Input R13,04 → R0,00; Accounting Fees R0,00 → **−R86,96**; Advertising R86,96 → R86,96.
+  Cancel sent nothing.
+- Followed the notice: opened the linked journal page and clicked **Reverse** (`journal-entries-action`
+  reverse → 200). Back on bank transactions, Undo → 200 `{"reversed":1,"skipped":0,"undone":true}`,
+  and the run left the panel.
+- DB: all four accounts net **0.00** over posting + reclass + both contras; line `imported`; no
+  audit row. Seed rows deleted, dev server stopped.
+
+### Gates (foreground) — see the merge note below for the merged tip
+
+- `env -u DATABASE_URL bun run ci` → every step PASS, `Tests 13014 passed | 248 skipped`,
+  components `556 passed`, build PASS, `[ci] all checks passed`, **EXIT=0**.
