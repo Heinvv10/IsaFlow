@@ -479,3 +479,13 @@ Seeded a VAT-bearing provisional posting (Accounting Fees 86.96 + VAT Input 13.0
 
 - `env -u DATABASE_URL bun run ci` → every step PASS, `Tests 13014 passed | 248 skipped`,
   components `556 passed`, build PASS, `[ci] all checks passed`, **EXIT=0**.
+
+### Merge note (round 3)
+
+`origin/master` moved to `5ad006971` (R-082/R-096, AR/AP statements and dunning). It shares no
+file with this branch and declares no new `readonly code`, and `merge-tree` was clean. Merged as
+`dfd6a83cf`. On the merged tip:
+- `env -u DATABASE_URL bun run ci` → `Tests 13014 passed | 248 skipped`, components `556 passed`,
+  `[ci] build PASS`, `[ci] all checks passed`, **EXIT=0**.
+- `k071-*`, `k140-*`, `k143-*`, `k144-*`, `r079-*` (21 files), `--no-file-parallelism` →
+  `Test Files 21 passed (21)`, `Tests 94 passed | 1 skipped (95)`, **EXIT=0**.
