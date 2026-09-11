@@ -2,6 +2,7 @@ import {beforeAll,expect,it,vi} from 'vitest';
 import {randomUUID} from 'node:crypto';
 import type {NextApiRequest,NextApiResponse} from 'next';
 import {actor,bank,customer,fixture,pool,postedCash} from './cashApplicationFixture';
+import {rewriteApprovalUnguarded} from './approvalGuardBypass';
 import {prepareBankAllocation} from '@/modules/accounting/services/bank/bankAllocationControl';
 import {requireControlTx} from '@/modules/accounting/services/controls/context';
 import {requestOperationApproval} from '@/modules/accounting/services/controls/approvalRequestService';
@@ -69,12 +70,12 @@ it('actual REST handler requests and independently decides a real bound operatio
 });
 it('retains exact microseconds and UUID tie-breaking across equal request timestamps',async()=>{
  const before=(await pool.query('SELECT id,requested_at::text AS requested_at FROM control_operation_approvals WHERE company_id=$1 AND id=ANY($2::uuid[])',[fixture.companyA,pendingIds])).rows;
- await pool.query("UPDATE control_operation_approvals SET requested_at='2026-09-09T10:00:00.123456Z' WHERE company_id=$1 AND id=ANY($2::uuid[])",[fixture.companyA,pendingIds]);
+ await rewriteApprovalUnguarded(pool,"UPDATE control_operation_approvals SET requested_at='2026-09-09T10:00:00.123456Z' WHERE company_id=$1 AND id=ANY($2::uuid[])",[fixture.companyA,pendingIds]);
  try{
   const first=await actor(()=>listOperationApprovals(requireControlTx(),{status:'pending',limit:2}));expect(first.nextCursor).toBeTruthy();
   const second=await actor(()=>listOperationApprovals(requireControlTx(),{status:'pending',limit:2,cursor:first.nextCursor!}));
   expect([...first.items,...second.items].map(item=>item.id)).toEqual([...pendingIds].sort().reverse());expect(second.nextCursor).toBeNull();
- }finally{for(const row of before)await pool.query('UPDATE control_operation_approvals SET requested_at=$3::timestamptz WHERE company_id=$1 AND id=$2',[fixture.companyA,row.id,row.requested_at]);}
+ }finally{for(const row of before)await rewriteApprovalUnguarded(pool,'UPDATE control_operation_approvals SET requested_at=$3::timestamptz WHERE company_id=$1 AND id=$2',[fixture.companyA,row.id,row.requested_at]);}
 });
 
 it('REST maps a current permission refusal to 403 without approving anything',async()=>{
