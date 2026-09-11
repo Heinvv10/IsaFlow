@@ -10,8 +10,8 @@
  * empty one. Production, 2026-08-28: 9,824 rows have `reference` set and ZERO
  * have `bank_reference`. Every statement importer writes `reference`
  * (`bankImportService`, `bankStatementOcrService`, the classified import,
- * manual capture, the Sage migration commit); only `bankFeedSyncService` and
- * `openBankingSyncService` write `bank_reference`, and they put the provider's
+ * manual capture, the Sage migration commit); only
+ * `openBankingSyncService` writes `bank_reference`, and it puts the provider's
  * external id there rather than the printed reference. Matching
  * `bank_reference` alone therefore answered NOT_FOUND for every reference the
  * MCP pilot could actually read off a statement.

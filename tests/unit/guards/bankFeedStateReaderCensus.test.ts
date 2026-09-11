@@ -99,7 +99,6 @@ const CLASSIFICATION: Readonly<Record<string, string>> = {
   'src/modules/accounting/services/bank/bankCoverageDirections.ts': 'filtered',
   'src/modules/accounting/services/bank/bankCoverageQueries.ts': 'filtered',
   'src/modules/accounting/services/bank/bankFeedStateGuard.ts': 'exempt: writer (Task 3) — the feed_state guard primitive itself',
-  'src/modules/accounting/services/bank/bankFeedSyncService.ts': 'exempt: writer (Task 3) — dedup pre-check inside the sync writer',
   'src/modules/accounting/services/bank/bankImportBatchQueryService.ts': "filtered (round 2: changed to feed_state <> 'removed' — a pending row is still linked to its import batch)",
   'src/modules/accounting/services/bank/bankImportService.ts': 'exempt: writer (Task 3) — import-time auto-post sweep candidate selection',
   'src/modules/accounting/services/bank/bankMatchDbQueries.ts': "exempt: writer (Task 3) plan-phase reads; matched_journal_line_id exclusion cannot carry it on a non-posted row (trigger 675)",
