@@ -2939,3 +2939,18 @@ statements (lines, then entry) now carry all five guards — the listed ids, `co
 after): another company's draft, a manual draft and a bank-reconciliation draft each give `DELETE 0` on BOTH
 statements and keep their lines; the bank transaction's `provisional_je_id` stays set; the listed surplus draft gives
 `DELETE 2` (lines) and `DELETE 1` (entry), and 672 then applies.
+
+---
+
+## Round 41 — `wat` inverted: a tax mention everywhere except on an Afrikaans prose line
+
+Review: `review-k072-r40.md` (0H/0M/1L; all three round-39 LOWs fixed and reproduced; the DELETE SQL pasted verbatim and
+every negative case `DELETE 0`; 672 byte-identical). `origin/master` had not moved.
+
+| Finding | Disposition |
+|---|---|
+| LOW a `Wat` column header between other words (`Item Qty Price Wat Total`, `Subtotal Wat TOTAL`) still passed; both approve tools and `post_journal` approved at tax 0 — the fourth round of `wat` positions | **INVERTED, not one more shape.** `mentionsWat`: `wat` in any spelling (`wat`, `Wat`, `WAT`, `wAT`, `UAT`, `W.A.T`, spaced or dotted) is a tax mention EXCEPT on a PROSE line, defined concretely (`isProseWat`): the token is exactly lower-case `wat`; the next token is a lower-case WORD (not a figure, a separator or a capital); the line has at least three words; no column-header word (`qty`, `price`, `total`, `amount`, `item`, `subtotal`, `bedrag`, `totaal`, `prys`, `aantal`, `hoeveelheid`); no `%`. A prose case the definition misses costs a refusal, never an approval. The lead's example definition said "no amount"; that is NOT used, because the Afrikaans prose pins are item lines that carry their amount (`Werk wat gedoen is 260.86`) and must pass. **Cost, measured:** evidence on all 4 481 rows unchanged (the one row evidencing 0 still does); no row prints a standalone `wat`/`uat` token (round 39's "2 rows" were letters inside longer words, found without a right word boundary); harness 730 / 46 → 730 / 46, stored and nulled. The prose pins still pass (`Werk wat gedoen is …`, `Items wat afgelewer is …`, `Tuindiens wat in Mei gedoen is …`, and without an amount); each condition is pinned failing closed (`Werk Wat gedoen is …`, `Alles wat 260.86 kos`, `wat is`, `Werk wat nou kos 5%`, `Werk wat die bedrag is …`). **On the DB** (`k072-vat-declaration`): both header shapes are refused by `approve_supplier_invoice`, `bulk_approve_supplier_invoices` and `post_journal`. |
+
+**Mutations — 6, all RED, restored byte-identically (md5):** P1 every `wat` is prose (unit 33, DB 2) · P2 a capitalised
+`Wat` can be prose (1) · P3 no column-word guard (2) · P4 no next-word rule (2) · P5 no `%` guard (1) · P6 no minimum of
+three words (1).
