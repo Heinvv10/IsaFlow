@@ -12,6 +12,7 @@ import type {ControlFinding} from '@/modules/accounting/services/controls/contra
 import {invoiceSnapshotSources} from '@/modules/accounting/services/controls/auditSnapshotInvoiceQueries';
 import {loadInvoiceRiskPopulation} from '@/modules/accounting/services/controls/invoiceRiskQueries';
 import {actorAs,appendEntityVersion,type Identity} from './intentReceiptRows';
+import {rewriteApprovalUnguarded} from './approvalGuardBypass';
 const config=fixtureConfigFromEnv(process.env),target=validateFixtureTarget(config);
 const pool=new Pool({connectionString:target.connectionString,ssl:false,max:2,statement_timeout:10000});
 let fixture:ForensicFixture,user:Identity;
@@ -108,10 +109,10 @@ it('a forked supplier invoice is one snapshot row and one risk population member
  expect(risk.populationCount).toBe(risk.rows.length);
  expect(Number(risk.rows.find(row=>row.id===invoice)!.version)).toBe(6);
 });
-/** Records an approval consumed by one named receipt, as the kernel does when that receipt executes. */
+/** Records an approval consumed by one named receipt, in the retained legacy shape (no binding) that 688 no longer lets be born. */
 async function consumeApproval(entityType:string,entityId:string,operation:string,effectId:string){
  const [effect]=(await pool.query('SELECT operation_id,binding_hash FROM control_operation_effects WHERE company_id=$1 AND id=$2',[fixture.companyA,effectId])).rows;
- await pool.query(`INSERT INTO control_operation_approvals(company_id,operation_id,operation,entity_type,entity_id,requester_person_id,requester_auth_method,
+ await rewriteApprovalUnguarded(pool,`INSERT INTO control_operation_approvals(company_id,operation_id,operation,entity_type,entity_id,requester_person_id,requester_auth_method,
   binding,binding_hash,status,requested_at,expires_at,consumed_at,consumed_effect_id)
   VALUES($1,$2,$3,$4,$5,$6,'cookie','{}'::jsonb,$7,'consumed',clock_timestamp(),clock_timestamp()+interval '1 day',clock_timestamp(),$8)`,
   [fixture.companyA,effect.operation_id,operation,entityType,entityId,fixture.u1.id,effect.binding_hash,effectId]);

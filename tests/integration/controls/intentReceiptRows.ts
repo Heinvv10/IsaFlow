@@ -17,6 +17,18 @@ export function actorAs<T>(pool:Pool,user:Identity,fn:(ctx:ControlTx)=>Promise<T
  return asAppUser(pool,user,client=>withControlRequest({client,userId:user.id,companyId:user.companyId,claims:claims(user)},
   {personId:user.id,companyId:user.companyId,authMethod:'cookie'},()=>fn(requireControlTx())),isolation);
 }
+/** Uppercases a UUID's leading hex characters to build a "partially capitalized" spelling distinct
+ * from both the canonical lowercase id and its fully-uppercased twin. A fixed 8-char prefix is not
+ * enough: about (10/16)^8 ≈ 2.3% of random UUIDs have an all-digit first 8 characters, for which
+ * uppercasing that slice is a no-op and the "variant" silently equals the original. Widen the
+ * uppercased span until it actually differs. */
+export function partialCaseVariant(id:string):string{
+ for(let end=8;end<=id.length;end++){
+  const candidate=`${id.slice(0,end).toUpperCase()}${id.slice(end)}`;
+  if(candidate!==id)return candidate;
+ }
+ throw new Error('Synthetic UUID lacks case distinction');
+}
 /** Appends a twin of one committed receipt spelled in the opposite case; the original row is never touched. */
 export async function insertCaseVariantReceipt(pool:Pool,user:Identity,effectId:string){
  return asAppUser(pool,user,async client=>{
