@@ -98,6 +98,7 @@ export async function getDashboardKPIs(companyId: string,
         -- like a no-op.
         WHERE ga.account_subtype = ANY(${BANK_SUBTYPES as string[]})
           AND bt.company_id = ${companyId}::UUID
+          AND bt.feed_state = 'posted'
       `,
       sql`
         SELECT COALESCE(SUM(bt.amount), 0) AS total
@@ -113,6 +114,7 @@ export async function getDashboardKPIs(companyId: string,
         -- like a no-op.
         WHERE ga.account_subtype = ANY(${BANK_SUBTYPES as string[]})
           AND bt.company_id = ${companyId}::UUID
+          AND bt.feed_state = 'posted'
           AND bt.transaction_date <= ${priorToStr}
       `,
       sql`

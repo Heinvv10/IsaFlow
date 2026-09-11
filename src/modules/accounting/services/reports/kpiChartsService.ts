@@ -103,6 +103,7 @@ export async function getCashFlowChart(companyId: string, months: number): Promi
         ON bt.company_id = ${companyId}::UUID
         AND bt.transaction_date >= m.month_start
         AND bt.transaction_date < m.month_start + '1 month'::INTERVAL
+        AND bt.feed_state = 'posted'
         AND EXISTS (
           SELECT 1 FROM gl_accounts ga
           WHERE ga.id = bt.bank_account_id

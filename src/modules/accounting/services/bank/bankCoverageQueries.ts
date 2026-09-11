@@ -123,6 +123,7 @@ export async function fetchCoverageAccounts(
              ON bt.bank_account_id   = ga.id
             AND bt.company_id        = ${companyId}::UUID
             AND bt.transaction_date <= ${asAt}::DATE
+            AND bt.feed_state        = 'posted'
      WHERE ga.company_id      = ${companyId}::UUID
        AND ga.account_subtype = ANY(${BANK_SUBTYPES as string[]})
        AND (${bankAccountId ?? null}::UUID IS NULL OR ga.id = ${bankAccountId ?? null}::UUID)
@@ -169,6 +170,7 @@ export async function fetchCoverageMonths(
       FROM bank_transactions bt
      WHERE bt.company_id        = ${companyId}::UUID
        AND bt.transaction_date <= ${asAt}::DATE
+       AND bt.feed_state        = 'posted'
        AND (${bankAccountId ?? null}::UUID IS NULL OR bt.bank_account_id = ${bankAccountId ?? null}::UUID)
      GROUP BY bt.bank_account_id, month
      ORDER BY bt.bank_account_id, month
@@ -210,6 +212,7 @@ export async function fetchCoverageGaps(
               FROM bank_transactions bt
              WHERE bt.company_id        = ${companyId}::UUID
                AND bt.transaction_date <= ${asAt}::DATE
+               AND bt.feed_state        = 'posted'
                AND (${bankAccountId ?? null}::UUID IS NULL
                     OR bt.bank_account_id = ${bankAccountId ?? null}::UUID)
           ) dates
@@ -251,6 +254,7 @@ export async function fetchDuplicateReferences(
           FROM bank_transactions bt
          WHERE bt.company_id        = ${companyId}::UUID
            AND bt.transaction_date <= ${asAt}::DATE
+           AND bt.feed_state        = 'posted'
            AND (${bankAccountId ?? null}::UUID IS NULL
                 OR bt.bank_account_id = ${bankAccountId ?? null}::UUID)
       ) refs

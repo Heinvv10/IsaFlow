@@ -72,7 +72,7 @@ function makeTxRow(overrides: Record<string, unknown> = {}) {
     description: 'WOOLWORTHS SANDTON',
     reference: 'REF-001',
     bank_reference: null,
-    status: 'imported',
+    status: 'imported', feed_state: 'posted',
     matched_journal_line_id: null,
     reconciliation_id: null,
     import_batch_id: null,

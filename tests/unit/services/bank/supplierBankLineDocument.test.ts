@@ -71,7 +71,7 @@ const PAYMENT_ROW_ID = 'cp-1';
 /** A payment OUT of R1,150. */
 const SPENT_TX = {
   id: BANK_TX_ID, bank_account_id: BANK_ACCOUNT_ID, amount: -1150,
-  transaction_date: new Date('2026-09-08'), status: 'imported',
+  transaction_date: new Date('2026-09-08'), status: 'imported', feed_state: 'posted',
   description: 'EFT', reference: 'ABC123',
 };
 /** The same line as money IN — a receipt, or a supplier refund. */

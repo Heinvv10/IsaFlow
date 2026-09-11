@@ -212,6 +212,7 @@ export async function listTransactionsWithoutDocuments(
         AND bt.transaction_date >= ${f.from}::DATE
         AND bt.transaction_date <= ${f.to}::DATE
         AND ABS(bt.amount) >= ${f.minAmount}
+        AND bt.feed_state = 'posted'
         AND a.id IS NULL
       ORDER BY ABS(bt.amount) DESC, bt.id DESC
       LIMIT ${f.limit}
@@ -225,6 +226,7 @@ export async function listTransactionsWithoutDocuments(
         AND bt.transaction_date >= ${f.from}::DATE
         AND bt.transaction_date <= ${f.to}::DATE
         AND ABS(bt.amount) >= ${f.minAmount}
+        AND bt.feed_state = 'posted'
         AND a.id IS NULL
     `) as DbRow[];
 
@@ -234,6 +236,7 @@ export async function listTransactionsWithoutDocuments(
         AND bt.transaction_date >= ${f.from}::DATE
         AND bt.transaction_date <= ${f.to}::DATE
         AND ABS(bt.amount) >= ${f.minAmount}
+        AND bt.feed_state = 'posted'
     `) as DbRow[];
 
     return {
