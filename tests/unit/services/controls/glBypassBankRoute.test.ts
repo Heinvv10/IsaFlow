@@ -36,3 +36,11 @@ it('answers a refusal of the person\'s own input 400, not 422',async()=>{
  expect(response.status).toHaveBeenCalledWith(400);
  expect(response.json.mock.calls[0]?.[0]?.error).toMatchObject({code:'BAD_REQUEST',message:'The from and to accounts must be different bank accounts'});
 });
+it('answers a missing permission 403 naming it, not a 500',async()=>{
+ const {EffectivePermissionError}=await import('@/lib/auth/effectivePermissions');
+ mocks.execute.mockRejectedValueOnce(new EffectivePermissionError('write:post'));
+ const response={status:vi.fn(),json:vi.fn(),setHeader:vi.fn()};response.status.mockReturnValue(response);
+ await handler({method:'POST',companyId:'company',user:{id:'person'},body:{action:'execute',intentId:'33333333-3333-3333-3333-333333333333'}} as unknown as NextApiRequest,response as unknown as NextApiResponse);
+ expect(response.status).toHaveBeenCalledWith(403);
+ expect(response.json.mock.calls[0]?.[0]?.error?.message).toBe('Current permission denied: write:post is required');
+});

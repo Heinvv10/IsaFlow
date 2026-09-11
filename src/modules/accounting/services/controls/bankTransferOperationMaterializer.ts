@@ -31,11 +31,7 @@ export async function materializeBankTransferOperation(ctx: ControlTx, ref: Oper
   const amount = canonicalMoney(intent.amount);
   if (!new Decimal(amount).gt(0) || intent.from_gl_account_id === intent.to_gl_account_id) throw new Error('Invalid transfer amount or accounts');
   const ids = [String(intent.from_gl_account_id), String(intent.to_gl_account_id)].sort();
-  const accounts = await ctx.sql`SELECT id,account_code,account_name,account_subtype,is_active
-    FROM gl_accounts WHERE company_id=${companyId}::uuid AND id=ANY(${ids}::uuid[]) ORDER BY id FOR SHARE` as Row[];
-  if (accounts.length !== 2 || accounts.some(a => !ids.includes(String(a.id)) || a.account_subtype !== 'bank')) {
-    throw new BankTransferRefusalError(accountsRefusal(accounts, [String(intent.from_gl_account_id), String(intent.to_gl_account_id)]));
-  }
+  const accounts = await readTransferAccounts(ctx, companyId, String(intent.from_gl_account_id), String(intent.to_gl_account_id));
   const banks = await ctx.sql`SELECT id,gl_account_id,currency,is_active FROM bank_accounts
     WHERE company_id=${companyId}::uuid AND gl_account_id=ANY(${ids}::uuid[]) ORDER BY id LIMIT 3 FOR SHARE` as Row[];
   if (banks.length !== 2 || new Set(banks.map(b => b.gl_account_id)).size !== 2
@@ -64,11 +60,11 @@ export async function materializeBankTransferOperation(ctx: ControlTx, ref: Oper
 
 /**
  * A transfer refused for a reason the person can fix, stated so they can: 400 for their own input,
- * 422 for what the company's rows do not allow. Never a 500, and always thrown inside the
+ * 404 for an intent that is not theirs, 422 for what the company's rows do not allow. Never a 500, and always thrown inside the
  * operation's savepoint (or before any write), so nothing it touched is committed.
  */
 export class BankTransferRefusalError extends Error {
-  constructor(message: string, readonly status: 400 | 422 = 422) {
+  constructor(message: string, readonly status: 400 | 404 | 422 = 422) {
     super(message);
     this.name = 'BankTransferRefusalError';
   }
@@ -110,4 +106,34 @@ function accountsRefusal(accounts: Row[], intentIds: string[]): string {
     return account.account_subtype === 'bank' ? null : `${String(account.account_code)} ${String(account.account_name)} is not a bank account`;
   }).filter((problem): problem is string => problem !== null);
   return `Cannot transfer between these accounts: ${problems.join('; ') || 'they are not this company\'s bank accounts'}.`;
+}
+
+/**
+ * The two accounts, read company-scoped and refused unless both are this company's bank accounts. Preparation calls
+ * it BEFORE writing the intent: the intent's composite foreign key would otherwise answer an absent or foreign
+ * account with a 23503 and a 500. Absent and foreign read the same.
+ */
+export async function readTransferAccounts(ctx: ControlTx, companyId: string, fromId: string, toId: string): Promise<Row[]> {
+  const ids = [fromId, toId].sort();
+  const accounts = await ctx.sql`SELECT id,account_code,account_name,account_subtype,is_active
+    FROM gl_accounts WHERE company_id=${companyId}::uuid AND id=ANY(${ids}::uuid[]) ORDER BY id FOR SHARE` as Row[];
+  if (accounts.length !== 2 || accounts.some(a => !ids.includes(String(a.id)) || a.account_subtype !== 'bank')) {
+    throw new BankTransferRefusalError(accountsRefusal(accounts, [fromId, toId]));
+  }
+  return accounts;
+}
+
+/**
+ * Posting refuses a period that is not open, or the company lockdown, HERE — before the journal is written. Inside
+ * the journal control the same refusal marks the request failed and it answers 500 (withControlRequest). Mirrors
+ * journalEntryPostingService.assertPostingGuards; if the two ever drift, that guard still refuses, as a fault.
+ */
+export function assertTransferPostable(company: Row, period: Row, date: string): void {
+  if (period.status !== 'open') {
+    throw new BankTransferRefusalError(`Cannot post this transfer dated ${date}: its fiscal period (${String(period.start_date)} to ${String(period.end_date)}) is ${String(period.status)}.`);
+  }
+  if (company.lockdown_enabled === true && (!company.lockdown_date || date <= String(company.lockdown_date))) {
+    const until = company.lockdown_date ? ` up to ${String(company.lockdown_date)}` : '';
+    throw new BankTransferRefusalError(`Cannot post this transfer dated ${date}: the company is locked down${until}.`);
+  }
 }
