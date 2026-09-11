@@ -1,6 +1,6 @@
 # IsaFlow Bank Sync v1 Design
 
-**Status:** Ready for user review
+**Status:** Approved 2026-09-11; Release 1 plan: docs/superpowers/plans/2026-09-11-bank-sync-v1-release-1.md
 
 **Scope:** IsaFlow product banking only. The separate South African aggregation venture is governed by `/home/hein/isaflow-handoffs/2026-09-11-sa-bank-aggregation-business-case/HANDOFF.md` and is not part of this build.
 
@@ -21,6 +21,14 @@ The design must work with the real sources IsaFlow has today and accept a future
 - Manual statement import, the current ABSA browser extension and future authorised APIs use the same canonical ingestion service.
 - The provider boundary must not collect or store online-banking passwords.
 - South Africa comes first. Multi-country, payments, lending and investment data are out of scope.
+
+## Release 1 amendments (Hein, 2026-09-11)
+
+- The ABSA extension is a feed source whose rows use content-hash identity (`bankTransactionHash`: date|amount|description). Provider transaction IDs are required only for connections whose provider is neither `extension` nor `manual_csv`.
+- Release 1 routes feed sources only through the canonical ingestion service. Statement imports keep their existing path and import-time behaviour; the `statement` source arm is deferred.
+- Pending guards ship in Release 1 with a database trigger backstop, although no Release 1 source produces pending rows.
+- A provider `removed` for a posted row, or `pending` for a posted row, is a protected conflict (the spec defines only `pending -> removed`). A changed row without a newer `provider_updated_at` is also a protected conflict (`unordered_change`), never a silent overwrite.
+- Adapter registry, consent/cursor/next-sync/capability/institution columns, and the scheduler move to Release 3.
 
 ## Current state
 
