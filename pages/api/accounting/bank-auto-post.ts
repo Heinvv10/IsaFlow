@@ -2,6 +2,8 @@
  * GET   /api/accounting/bank-auto-post → { settings, runs (last ~20) }
  * PUT   body { enabled?, minConfidence?, amountCap?, llmEnabled?, llmMinConfidence?, llmAmountCap? } → upsert settings
  * POST  body { action: 'undo', runId } → undo a whole run
+ * POST  body { action: 'confirmHandCorrection', runId, transactionId, offsetJournalId }
+ *       → close a row a manual journal already corrected, posting nothing (R-079)
  */
 
 import type { NextApiResponse } from 'next';
@@ -16,6 +18,11 @@ import {
   updateAutoPostSettings,
 } from '@/modules/accounting/services/bank/autoPostGateService';
 import { undoRun } from '@/modules/accounting/services/bank/autoPostUndoService';
+import {
+  HandCorrectionRefusedError,
+  markCorrectedByHand,
+} from '@/modules/accounting/services/bank/autoPostHandCorrection';
+import { isUuidParam } from '@/lib/validation';
 import { isRetryableContention } from '@/modules/accounting/services/core/retryableContention';
 
 type Row = Record<string, unknown>;
@@ -32,6 +39,28 @@ interface PutBody {
 interface PostBody {
   action?: string;
   runId?: string;
+  transactionId?: string;
+  offsetJournalId?: string;
+}
+
+/**
+ * A person confirms that the manual journal the undo named IS the correction
+ * of that row. Refusals are written for the user and are raised before any
+ * write, so the 400 commits nothing.
+ */
+async function confirmHandCorrection(req: CompanyAuthedRequest, res: NextApiResponse, body: PostBody) {
+  const { runId, transactionId, offsetJournalId } = body;
+  if (!isUuidParam(runId) || !isUuidParam(transactionId) || !isUuidParam(offsetJournalId)) {
+    return apiResponse.badRequest(res, "confirmHandCorrection requires runId, transactionId and offsetJournalId");
+  }
+  try {
+    const result = await markCorrectedByHand(req.companyId, runId, transactionId, offsetJournalId, req.user.id);
+    return apiResponse.success(res, result);
+  } catch (err) {
+    if (err instanceof HandCorrectionRefusedError) return apiResponse.badRequest(res, err.message);
+    if (isRetryableContention(err)) return apiResponse.conflict(res, (err as Error).message);
+    throw err;
+  }
 }
 
 async function handler(req: CompanyAuthedRequest, res: NextApiResponse) {
@@ -85,6 +114,7 @@ async function handler(req: CompanyAuthedRequest, res: NextApiResponse) {
 
   if (req.method === 'POST') {
     const body = (req.body ?? {}) as PostBody;
+    if (body.action === 'confirmHandCorrection') return confirmHandCorrection(req, res, body);
     if (body.action !== 'undo' || !body.runId) {
       return apiResponse.badRequest(res, "POST requires { action: 'undo', runId }");
     }

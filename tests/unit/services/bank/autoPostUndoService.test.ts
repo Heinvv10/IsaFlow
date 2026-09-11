@@ -21,10 +21,25 @@ vi.mock('@/modules/accounting/services/gl/journalEntryService', () => ({
   reverseJournalEntry: (...a: unknown[]) => reverseJournalEntry(...a),
 }));
 
+// The row lock re-reads the line; by default it finds it exactly as the
+// run's SELECT did, still tagged. A test overrides it to model a peer.
+const lockMock = vi.fn();
+vi.mock('@/modules/accounting/services/bank/bankTxLock', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('@/modules/accounting/services/bank/bankTxLock')>()),
+  lockBankTransactionForUpdate: (...a: unknown[]) => lockMock(...a),
+}));
+
 import { undoRun } from '@/modules/accounting/services/bank/autoPostUndoService';
 import { BankTransactionLockTimeoutError } from '@/modules/accounting/services/bank/bankTxLock';
 
+const NO_SKIPS = { reconciled: 0, contended: 0, failed: 0, offsetByHand: 0 };
+
 function routeSql(handlers: Array<{ match: RegExp; rows: unknown[] }>) {
+  const tagged = handlers.find((h) => /auto_post_run_id/.test(h.match.source))?.rows as Array<{ id: string }> | undefined;
+  lockMock.mockImplementation(async (_co: string, id: string) => {
+    const row = tagged?.find((r) => r.id === id);
+    return row ? { ...row, auto_post_run_id: 'run-1' } : null;
+  });
   sqlMock.mockImplementation((strings: TemplateStringsArray) => {
     const text = strings.join('?');
     const h = handlers.find((x) => x.match.test(text));
@@ -37,6 +52,7 @@ describe('undoRun', () => {
     sqlMock.mockReset();
     reverseReconciledTransaction.mockReset();
     reverseJournalEntry.mockReset();
+    lockMock.mockReset();
   });
 
   it('rejects a run that is already undone', async () => {
@@ -63,7 +79,8 @@ describe('undoRun', () => {
 
     // The reconciled row is still posted and still tagged — the run is not undone.
     expect(r).toEqual({
-      reversed: 2, skipped: 1, skippedBy: { reconciled: 1, contended: 0, failed: 0 }, alreadyUndone: 0, undone: false,
+      reversed: 2, skipped: 1, skippedBy: { ...NO_SKIPS, reconciled: 1, contended: 0, failed: 0 }, alreadyUndone: 0, undone: false,
+      handOffsets: [],
     });
     expect(reverseReconciledTransaction).toHaveBeenCalledWith('co-1', 't2', 'u-1');
     expect(reverseJournalEntry).toHaveBeenCalledWith('co-1', 'je-3', 'u-1');
@@ -86,7 +103,8 @@ describe('undoRun', () => {
     const r = await undoRun('co-1', 'run-1', 'u-1');
 
     expect(r).toEqual({
-      reversed: 1, skipped: 0, skippedBy: { reconciled: 0, contended: 0, failed: 0 }, alreadyUndone: 0, undone: true,
+      reversed: 1, skipped: 0, skippedBy: { ...NO_SKIPS, reconciled: 0, contended: 0, failed: 0 }, alreadyUndone: 0, undone: true,
+      handOffsets: [],
     });
     const joined = sqlMock.mock.calls.map((c) => (c[0] as TemplateStringsArray).join('?'));
     expect(joined.some((t) => /UPDATE bank_auto_post_runs/.test(t))).toBe(true);
@@ -109,7 +127,8 @@ describe('undoRun', () => {
     const r = await undoRun('co-1', 'run-1', 'u-1');
 
     expect(r).toEqual({
-      reversed: 1, skipped: 1, skippedBy: { reconciled: 0, contended: 1, failed: 0 }, alreadyUndone: 0, undone: false,
+      reversed: 1, skipped: 1, skippedBy: { ...NO_SKIPS, reconciled: 0, contended: 1, failed: 0 }, alreadyUndone: 0, undone: false,
+      handOffsets: [],
     });
     const joined = sqlMock.mock.calls.map((c) => (c[0] as TemplateStringsArray).join('?'));
     expect(joined.some((t) => /UPDATE bank_auto_post_runs/.test(t))).toBe(false);
@@ -152,7 +171,8 @@ describe('undoRun', () => {
     // `alreadyUndone` is master's third counter — a row whose journal was
     // reversed before this run reached it. Nothing here is in that state.
     expect(r).toEqual({
-      reversed: 1, skipped: 1, skippedBy: { reconciled: 0, contended: 0, failed: 1 }, alreadyUndone: 0, undone: false,
+      reversed: 1, skipped: 1, skippedBy: { ...NO_SKIPS, reconciled: 0, contended: 0, failed: 1 }, alreadyUndone: 0, undone: false,
+      handOffsets: [],
     });
     const joined = sqlMock.mock.calls.map((c) => (c[0] as TemplateStringsArray).join('?'));
     expect(joined.some((t) => /UPDATE bank_auto_post_runs/.test(t))).toBe(false);
@@ -174,7 +194,8 @@ describe('undoRun', () => {
     const r = await undoRun('co-1', 'run-1', 'u-1');
 
     expect(r).toEqual({
-      reversed: 0, skipped: 0, skippedBy: { reconciled: 0, contended: 0, failed: 0 }, alreadyUndone: 1, undone: true,
+      reversed: 0, skipped: 0, skippedBy: { ...NO_SKIPS, reconciled: 0, contended: 0, failed: 0 }, alreadyUndone: 1, undone: true,
+      handOffsets: [],
     });
     expect(reverseJournalEntry).not.toHaveBeenCalled();
     const joined = sqlMock.mock.calls.map((c) => (c[0] as TemplateStringsArray).join('?'));
@@ -199,7 +220,8 @@ describe('undoRun', () => {
     const r = await undoRun('co-1', 'run-1', 'u-1');
 
     expect(r).toEqual({
-      reversed: 0, skipped: 1, skippedBy: { reconciled: 0, contended: 0, failed: 1 }, alreadyUndone: 0, undone: false,
+      reversed: 0, skipped: 1, skippedBy: { ...NO_SKIPS, reconciled: 0, contended: 0, failed: 1 }, alreadyUndone: 0, undone: false,
+      handOffsets: [],
     });
     expect(reverseJournalEntry).not.toHaveBeenCalled();
     const joined = sqlMock.mock.calls.map((c) => (c[0] as TemplateStringsArray).join('?'));
@@ -224,7 +246,8 @@ describe('undoRun', () => {
     const r = await undoRun('co-1', 'run-1', 'u-1');
 
     expect(r).toEqual({
-      reversed: 0, skipped: 0, skippedBy: { reconciled: 0, contended: 0, failed: 0 }, alreadyUndone: 1, undone: true,
+      reversed: 0, skipped: 0, skippedBy: { ...NO_SKIPS, reconciled: 0, contended: 0, failed: 0 }, alreadyUndone: 1, undone: true,
+      handOffsets: [],
     });
     expect(reverseJournalEntry).not.toHaveBeenCalled();
   });
@@ -243,7 +266,8 @@ describe('undoRun', () => {
     const r = await undoRun('co-1', 'run-1', 'u-1');
 
     expect(r).toEqual({
-      reversed: 0, skipped: 1, skippedBy: { reconciled: 0, contended: 0, failed: 1 }, alreadyUndone: 0, undone: false,
+      reversed: 0, skipped: 1, skippedBy: { ...NO_SKIPS, reconciled: 0, contended: 0, failed: 1 }, alreadyUndone: 0, undone: false,
+      handOffsets: [],
     });
     const joined = sqlMock.mock.calls.map((c) => (c[0] as TemplateStringsArray).join('?'));
     expect(joined.some((t) => /SET auto_post_run_id = NULL/.test(t))).toBe(false);
