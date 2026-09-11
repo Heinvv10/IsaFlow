@@ -6,15 +6,29 @@ import type {ControlTx} from '@/modules/accounting/services/controls/contracts';
  * Plans of the statements the real services send to the canonical control tables, taken as app_user with real request
  * claims so FORCE RLS is in force. `lower(entity_id)` is not leakproof, and neither is the uuid->text cast in
  * `entity_id_canonical = i.id::text`: under RLS either one stops a clause from being an index condition unless the
- * other side is a Param. Plan shape, never timing.
+ * other side is a Param. Plan shape, never timing, and never which index wins: on a new install's row counts every
+ * path estimates one row and the planner keeps whichever index it met first, so a gate that demanded the canonical index
+ * would be red on every fresh database. It asserts the lookup is in the form RLS lets be an index condition, and that
+ * the index migration 684 built for it exists, instead.
  */
-export const CANONICAL_TABLES=['control_entity_versions','control_change_events','control_operation_effects','control_operation_approvals','control_protected_evidence'];
+/**
+ * The leading key columns of each canonical index migration 684 creates: the equalities every lookup states, ending in
+ * the canonical column. A promotable predicate is worth nothing without an index to promote it into.
+ */
+const CANONICAL_INDEX_PREFIX:Record<string,string[]>={
+ control_entity_versions:['company_id','entity_type','entity_id_canonical'],
+ control_change_events:['company_id','entity_type','entity_id_canonical'],
+ control_operation_effects:['company_id','operation','entity_type','entity_id_canonical'],
+ control_operation_approvals:['company_id','entity_type','entity_id_canonical'],
+ control_protected_evidence:['company_id','entity_type','entity_id_canonical'],
+};
+export const CANONICAL_TABLES=Object.keys(CANONICAL_INDEX_PREFIX);
 const TOUCHES=new RegExp(`\\b(${CANONICAL_TABLES.join('|')})\\b`);
 export interface Who {companyId:string;personId:string}
 export interface Statement {text:string;values:unknown[]}
-export interface PlanNode {'Node Type':string;'Parent Relationship'?:string;Alias?:string;'Index Name'?:string;'Index Cond'?:string;Filter?:string;'Recheck Cond'?:string;'Join Filter'?:string;
+export interface PlanNode {'Node Type':string;'Relation Name'?:string;'Index Cond'?:string;Filter?:string;'Recheck Cond'?:string;'Join Filter'?:string;
  'Hash Cond'?:string;'Merge Cond'?:string;Plans?:PlanNode[]}
-export interface Explained {text:string;root:PlanNode;nodes:PlanNode[]}
+export interface Explained {text:string;nodes:PlanNode[]}
 const flatten=(node:PlanNode):PlanNode[]=>[node,...(node.Plans??[]).flatMap(flatten)];
 async function asAppUser<T>(pool:Pool,who:Who,work:(client:PoolClient)=>Promise<T>):Promise<T>{
  const client=await pool.connect();
@@ -44,66 +58,71 @@ export async function captureStatements(pool:Pool,who:Who,work:(ctx:ControlTx)=>
  });
  return issued.filter(statement=>!statement.text.startsWith('-- refused'));
 }
-/** EXPLAINs each statement in a fresh transaction as app_user, after proving RLS is in force for that session. */
+/**
+ * EXPLAINs each statement in a fresh transaction as app_user, after proving RLS is in force for that session. Nested
+ * loops are off so a same-level canonical-vs-cast join can only be a Hash Cond, Merge Cond or Join Filter, all refused:
+ * a cast column left in a scan's Filter is then a lateral or SubPlan Param, never a same-level Var — a distinction the
+ * plan cannot show once the planner drops the trivial Subquery Scan of a `LATERAL(... OFFSET 0)`. A LATERAL still gets
+ * its nested loop, being the only join that can run it.
+ */
 export async function explainAsAppUser(pool:Pool,who:Who,statements:readonly Statement[]):Promise<Explained[]>{
  return asAppUser(pool,who,async client=>{
-  const [session]=(await client.query("SELECT current_user AS role,current_setting('row_security') AS rls")).rows as {role:string;rls:string}[];
-  expect(session,'plans were not taken under RLS as app_user').toEqual({role:'app_user',rls:'on'});
+  await client.query('SET LOCAL enable_nestloop=off');
+  const [session]=(await client.query(`SELECT current_user AS role,current_setting('row_security') AS rls,
+   (SELECT proleakproof FROM pg_proc WHERE oid='texteq'::regproc) AS leakproof`)).rows as {role:string;rls:string;leakproof:boolean}[];
+  expect(session,'plans were not taken under RLS as app_user, or text equality is no longer leakproof').toEqual({role:'app_user',rls:'on',leakproof:true});
+  // A valid, whole-table btree whose key starts with exactly those columns; an expression key column never matches.
+  const unserved=(await client.query(`SELECT t.name FROM jsonb_each($1::jsonb) t(name,prefix) WHERE NOT EXISTS(
+   SELECT 1 FROM pg_index i JOIN pg_class c ON c.oid=i.indexrelid JOIN pg_am am ON am.oid=c.relam
+   WHERE i.indrelid=to_regclass(t.name) AND i.indisvalid AND i.indpred IS NULL AND am.amname='btree'
+    AND (SELECT array_agg(a.attname::text ORDER BY k.ord) FROM unnest(i.indkey::int2[]) WITH ORDINALITY k(attnum,ord)
+     LEFT JOIN pg_attribute a ON a.attrelid=i.indrelid AND a.attnum=k.attnum WHERE k.ord<=jsonb_array_length(t.prefix))
+     =ARRAY(SELECT jsonb_array_elements_text(t.prefix)))`,[JSON.stringify(CANONICAL_INDEX_PREFIX)])).rows.map(row=>(row as {name:string}).name);
+  expect(unserved,'canonical tables without the index migration 684 creates for their lookups').toEqual([]);
   const explained:Explained[]=[];
   for(const statement of statements){
    const result=await client.query(`EXPLAIN (FORMAT JSON) ${statement.text}`,statement.values);
    const plan=(result.rows[0] as {'QUERY PLAN':Array<{Plan:PlanNode}>})['QUERY PLAN'][0]!.Plan;
-   explained.push({text:statement.text,root:plan,nodes:flatten(plan)});
+   explained.push({text:statement.text,nodes:flatten(plan)});
   }
   return explained;
  });
 }
 const LOWER_LOOKUP=/lower\(\(?(\w+\.)?entity_id\)?\)/;
-/** A canonical column compared with a cast of another relation's column, e.g. `(e.entity_id_canonical = (i.id)::text)`. */
-const CAST_JOIN=/entity_id_canonical\)? = \(\w+(\.\w+)?\)::text|\(\w+(\.\w+)?\)::text = \(?(\w+\.)?entity_id_canonical/;
-/** The key a scan actually probes: its own Index Cond, or its bitmap children's. */
-const probedKey=(node:PlanNode)=>[node['Index Cond']??'',...(node['Node Type']==='Bitmap Heap Scan'?flatten(node).map(child=>child['Index Cond']??''):[])].join(' ');
-function pathTo(root:PlanNode,target:PlanNode):PlanNode[]|null{
- if(root===target)return[root];
- for(const child of root.Plans??[]){const path=pathTo(child,target);if(path)return[root,...path];}
- return null;
-}
 /**
- * The relations a filter's `(x.col)::text` can come from as a Var: those scanned inside its own query level, i.e. under
- * the deepest enclosing subquery boundary (a Limit or Subquery Scan, or a SubPlan/InitPlan root). A relation scanned
- * outside that boundary reaches the filter as a Param.
+ * A canonical column compared with a cast of another relation's column, e.g. `(e.entity_id_canonical = (i.id)::text)`;
+ * a Merge Cond wraps the cast once more (`(((i.id)::text) = e.entity_id_canonical)`), a UNION arm's alias is quoted.
  */
-function sameLevelAliases(root:PlanNode,node:PlanNode):Set<string>{
- const path=pathTo(root,node)??[root];
- const boundary=[...path].reverse().find(step=>['Limit','Subquery Scan'].includes(step['Node Type'])
-  ||['SubPlan','InitPlan'].includes(step['Parent Relationship']??''))??root;
- return new Set(flatten(boundary).filter(step=>step!==node).map(step=>step.Alias).filter((alias):alias is string=>!!alias));
-}
+const CAST='\\(?\\((\\w+|"[^"]+")(\\.\\w+)?\\)::text\\)?';
+const CAST_JOIN=new RegExp(`entity_id_canonical\\)? = ${CAST}|${CAST} = \\(?(\\w+\\.)?entity_id_canonical`);
 /**
- * No lookup by lower(entity_id), and no canonical-vs-cast comparison over the company's rows: never a Join Filter, Hash
- * Cond or Merge Cond, and as a scan's Filter or Recheck Cond only beside an Index Cond on that same key (the canonical
- * column, or an intent's primary-key CASE) — unless every cast column comes from outside the scan's query level, where
- * it is a Param and the index choice is the planner's (a LIMITed LATERAL on a table the statistics call tiny).
+ * No lookup by lower(entity_id) anywhere, and no canonical-vs-cast comparison as a join condition: under RLS that join
+ * reads every row of the company on at least one side. With nested loops off it cannot hide in a scan's Filter.
  */
 export function expectIndexableCanonicalLookups(explained:readonly Explained[]){
  expect(explained.length,'no canonical-table statement was captured').toBeGreaterThan(0);
- for(const {text,root,nodes} of explained)for(const node of nodes){
-  for(const key of ['Index Cond','Filter','Recheck Cond','Join Filter'] as const)
+ for(const {text,nodes} of explained)for(const node of nodes){
+  for(const key of ['Index Cond','Filter','Recheck Cond','Join Filter','Hash Cond','Merge Cond'] as const)
    expect(node[key]??'',`${node['Node Type']} ${key} matches lower(entity_id) in:\n${text}`).not.toMatch(LOWER_LOOKUP);
   for(const key of ['Join Filter','Hash Cond','Merge Cond'] as const)
    expect(node[key]??'',`${node['Node Type']} ${key} compares entity_id_canonical with a cast column in:\n${text}`).not.toMatch(CAST_JOIN);
-  for(const key of ['Filter','Recheck Cond'] as const){
-   const condition=node[key]??'';
-   if(!CAST_JOIN.test(condition)||/entity_id_canonical|CASE WHEN/.test(probedKey(node)))continue;
-   const local=sameLevelAliases(root,node),cast=[...condition.matchAll(/\((\w+)\.\w+\)::text/g)].map(match=>match[1]!);
-   expect(cast.filter(alias=>local.has(alias)),`${node['Node Type']} ${key} filters entity_id_canonical against a same-level cast column it does not probe by, in:\n${text}`).toEqual([]);
-  }
  }
 }
-/** Index Cond nodes on `table` that use the canonical column; bitmap children carry the index name, not the relation. */
-export function canonicalIndexConds(explained:readonly Explained[],table:string):string[]{
- return explained.flatMap(entry=>entry.nodes).filter(node=>(node['Index Name']??'').startsWith(`${table}_`)
-  &&(node['Index Cond']??'').includes('entity_id_canonical')).map(node=>node['Index Cond']!);
+/**
+ * The scan's own column, bare, on one side of `=`: text equality is leakproof, and the other side is a constant, a
+ * Param or an outer relation's column (nested loops are off), so RLS lets this be an index condition. A wrapped column
+ * (`lower(entity_id_canonical)`, `(entity_id_canonical)::uuid`) or a qualified one (another relation's) does not match.
+ */
+const CANONICAL_EQ=/(^|[(\s])entity_id_canonical = |= entity_id_canonical\)/;
+const bitmapConds=(node:PlanNode):string[]=>(node.Plans??[]).filter(child=>child['Node Type'].startsWith('Bitmap'))
+ .flatMap(child=>[child['Index Cond']??'',...bitmapConds(child)]);
+/**
+ * Scans of `table` that look it up by its canonical column in an indexable form — as their Index Cond, a bitmap child's,
+ * or a Filter or Recheck Cond when the statistics made another index cheaper. Which of those is the planner's call.
+ */
+export function canonicalLookups(explained:readonly Explained[],table:string):PlanNode[]{
+ return explained.flatMap(entry=>entry.nodes).filter(node=>node['Relation Name']===table
+  &&[node['Index Cond']??'',node.Filter??'',node['Recheck Cond']??'',...bitmapConds(node)].some(condition=>CANONICAL_EQ.test(condition)));
 }
 /**
  * Every captured statement containing `marker` (at least one) reaches its intents by exactly `probes` primary-key
@@ -116,9 +135,9 @@ export function expectIntentProbes(explained:readonly Explained[],marker:string,
  for(const {text,nodes} of found)expect(nodes.filter(node=>(node['Index Cond']??'').includes('CASE WHEN')).length,
   `intent primary-key probes in:\n${text}`).toBe(probes);
 }
-/** Every captured statement containing `marker` (at least one) reads `table` through exactly one canonical Index Cond. */
-export function expectCanonicalIndexCond(explained:readonly Explained[],marker:string,table:string){
+/** Every captured statement containing `marker` (at least one) reads `table` through exactly `lookups` canonical lookups. */
+export function expectCanonicalLookup(explained:readonly Explained[],marker:string,table:string,lookups=1){
  const found=explained.filter(entry=>entry.text.includes(marker));
  expect(found.length,`no captured statement contains ${marker}`).toBeGreaterThan(0);
- for(const entry of found)expect(canonicalIndexConds([entry],table),`${table} without a canonical Index Cond in:\n${entry.text}`).toHaveLength(1);
+ for(const entry of found)expect(canonicalLookups([entry],table),`${table} canonical lookups in:\n${entry.text}`).toHaveLength(lookups);
 }
