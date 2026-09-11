@@ -8,6 +8,7 @@ import { log } from '@/lib/logger';
 import bcrypt from 'bcryptjs';
 import type { DbRow } from '@/types/db';
 import { asAtTodayStr, documentInLedgerAsAtFragment } from '../shared/softDeleteLedgerPresence';
+import { documentInPopulationExpr } from '../shared/documentPopulation';
 
 
 // ── Types ────────────────────────────────────────────────────────────────────
@@ -152,7 +153,12 @@ export async function getClientStatement(clientId: string, companyId: string, as
     WHERE COALESCE(ci.client_id, ci.customer_id) = ${clientId}::UUID
       AND ci.company_id = ${companyId}::UUID
       AND ${documentInLedgerAsAtFragment('ci', asOfDate, companyId)}
-      AND ci.status NOT IN ('draft', 'cancelled')
+      -- Hein decided 2026-09-11 (R-082): a statement must not show a draft
+      -- invoice, and must agree with the ageing on a null status. Routed
+      -- through the shared rule (R-059 round 6) instead of the bare
+      -- NOT IN ('draft', 'cancelled'), which already dropped drafts but
+      -- also silently dropped a null-status invoice via NULL propagation.
+      AND ${sql.unsafe(documentInPopulationExpr('ci'))}
       AND ci.invoice_date <= ${asOfDate}::DATE
     UNION ALL
     SELECT payment_date AS date, reference AS reference,

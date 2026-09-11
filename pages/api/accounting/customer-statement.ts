@@ -22,6 +22,7 @@ import { fmtDate } from '@/lib/fmtDate';
 import { log } from '@/lib/logger';
 import { buildStatementHtml } from '@/modules/accounting/utils/customerStatementHtml';
 import { documentInLedgerAsAtFragment } from '@/modules/accounting/services/shared/softDeleteLedgerPresence';
+import { documentInPopulationExpr } from '@/modules/accounting/services/shared/documentPopulation';
 
 type Row = Record<string, unknown>;
 
@@ -96,7 +97,11 @@ async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse) {
       -- client_id alone dropped from the screen invoices the email billed.
       WHERE COALESCE(ci.client_id, ci.customer_id) = ${customerId}::UUID
         AND ci.company_id  = ${companyId}::UUID
-        AND ci.status     != 'cancelled'
+        -- Hein decided 2026-09-11 (R-082): statements must not show draft
+        -- invoices, and must agree with the ageing on a null status. Routed
+        -- through the shared rule (R-059 round 6) instead of the bare
+        -- != 'cancelled', which kept drafts and dropped null-status rows.
+        AND ${sql.unsafe(documentInPopulationExpr('ci'))}
         -- A deleted invoice is not owed and is not in aging — but the delete's
         -- reversal is dated to the DELETE, so this window's upper bound is what
         -- decides it, exactly as in arAgingService. An undated exclusion drops
@@ -155,7 +160,7 @@ async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse) {
           SELECT SUM(ci.total_amount::numeric) FROM customer_invoices ci
           WHERE COALESCE(ci.client_id, ci.customer_id) = ${customerId}::UUID
             AND ci.company_id = ${companyId}::UUID
-            AND ci.status != 'cancelled'
+            AND ${sql.unsafe(documentInPopulationExpr('ci'))}
             AND ${documentInLedgerAsAtFragment('ci', to, companyId)}
             AND ci.invoice_date BETWEEN ${from}::DATE AND ${to}::DATE
         ), 0) AS total_invoiced,

@@ -12,6 +12,7 @@ import { withAuth, type CompanyAuthedRequest, withWriteAccess} from '@/lib/auth'
 import { log } from '@/lib/logger';
 import { parsePagination } from '@/lib/pagination';
 import { asAtTodayStr, documentInLedgerAsAtFragment } from '@/modules/accounting/services/shared/softDeleteLedgerPresence';
+import { documentInPopulationExpr } from '@/modules/accounting/services/shared/documentPopulation';
 
 
 async function handler(req: NextApiRequest, res: NextApiResponse) {
@@ -50,7 +51,12 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
         WHERE company_id = ${companyId} AND status IN ('confirmed', 'reconciled')
         GROUP BY client_id
       ) paid ON paid.client_id = COALESCE(ci.client_id, ci.customer_id)
-      WHERE ci.company_id = ${companyId} AND ci.status != 'cancelled'
+      WHERE ci.company_id = ${companyId}
+        -- Hein decided 2026-09-11 (R-082): statements must not show draft
+        -- invoices, and must agree with the ageing on a null status. Routed
+        -- through the shared rule (R-059 round 6) instead of the bare
+        -- != 'cancelled', which kept drafts and dropped null-status rows.
+        AND ${sql.unsafe(documentInPopulationExpr('ci'))}
       -- As at TODAY, not undated: a document soft-deleted BEFORE the delete
       -- began reversing its journal has a standing entry the control account
       -- still carries, and a bare deleted_at IS NULL would drop it from this
