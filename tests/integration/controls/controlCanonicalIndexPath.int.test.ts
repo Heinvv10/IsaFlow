@@ -50,3 +50,12 @@ it('an operation-effect receipt read, a version lineage read and a change-event 
  expect(canonicalIndexConds(explained,'control_entity_versions'),'version lineage read').toHaveLength(1);
  expect(canonicalIndexConds(explained,'control_change_events'),'change-event lookup').toHaveLength(1);
 },180000);
+it('the gate refuses a plain join that leaves the cast as a parameterised inner-scan Filter',async()=>{
+ // Constructed, not a service: joined on an indexed uuid (operation_id) as well, a plain join gets a parameterised scan
+ // of control_change_events with `entity_id_canonical = (i.id)::text` left in its Filter — no Join Filter at all.
+ const explained=await explainAsAppUser(pool,who,[{text:`SELECT c.id FROM control_bank_allocation_intents i JOIN control_change_events c
+  ON c.company_id=i.company_id AND c.operation_id=i.id AND c.entity_id_canonical=i.id::text WHERE i.company_id=$1::uuid`,values:[who.companyId]}]);
+ expect(explained[0]!.nodes.some(node=>(node.Filter??'').includes('(entity_id_canonical = (i.id)::text)')&&node['Index Name']==='control_change_events_operation_idx'),
+  'the constructed plan no longer has the parameterised-Filter shape').toBe(true);
+ expect(()=>expectIndexableCanonicalLookups(explained)).toThrow(/same-level cast column it does not probe by/);
+},180000);

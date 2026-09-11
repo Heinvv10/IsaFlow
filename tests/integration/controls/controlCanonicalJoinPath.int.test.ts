@@ -2,7 +2,7 @@ import {afterAll,beforeAll,expect,it} from 'vitest';
 import {randomUUID} from 'node:crypto';
 import {transferControlFixture} from './bankTransferControlFixture';
 import {fixture as cashFixture,pool as cashPool,postedCash} from './cashApplicationFixture';
-import {captureStatements,expectCanonicalIndexCond,explainAsAppUser,expectIndexableCanonicalLookups,expectIntentProbe,expectIntentsByPrimaryKey,type Who} from './canonicalPlanCapture';
+import {captureStatements,expectCanonicalIndexCond,explainAsAppUser,expectIndexableCanonicalLookups,expectIntentProbes,type Who} from './canonicalPlanCapture';
 import type {OperationRef} from '@/modules/accounting/services/controls/contracts';
 import {readBankCurrentOriginal,type BankControlRow} from '@/modules/accounting/services/bank/bankControlReadProvenance';
 import {readBankPreparedRows,resolveBankApprovalTarget} from '@/modules/accounting/services/bank/bankControlReadQueries';
@@ -37,14 +37,15 @@ it('bank provenance reads keep a canonical index path: legacy history, receipts 
  const explained=[...await explain(ctx=>readBankCurrentOriginal(ctx,original)),...await explain(ctx=>readBankCurrentOriginal(ctx,stranger))];
  expectIndexableCanonicalLookups(explained);
  expectCanonicalIndexCond(explained,"c.action='journal.post'",'control_change_events');
- expectIntentsByPrimaryKey(explained);
  for(const marker of ['e.binding_hash,e.operation_id,i.payload',"i.payload->'transfer'->>'oppositeBankTransactionId'=","AND e.result->>'journalEntryId'=$","OR lower(e.result->>'originalIntentId')="])
-  expectIntentProbe(explained,marker);
+  expectIntentProbes(explained,marker,1);
 },300000);
 it('bank approval and prepared-row reads reach effects and approvals through the canonical index',async()=>{
  const explained=[...await explain(ctx=>resolveBankApprovalTarget(ctx,posted.approvalId)),
   ...await explain(ctx=>readBankPreparedRows(ctx,posted.original,true,null,posted.approvalId))];
- expectIndexableCanonicalLookups(explained);expectIntentsByPrimaryKey(explained);expectIntentProbe(explained,'FROM control_operation_approvals a JOIN LATERAL');
+ expectIndexableCanonicalLookups(explained);
+ // Both UNION arms (allocation and reversal intents) probe their intent by primary key.
+ expectIntentProbes(explained,'FROM control_operation_approvals a JOIN LATERAL',2);
 },300000);
 it('transfer candidate facts, link discovery, link resume and saved link state use the canonical index',async()=>{
  const opposite=await bankRow(posted.opposite),plan={version:1,kind:'transfer',bankTransactionId:posted.opposite,counterpartyAccountId:t.from,
@@ -58,7 +59,7 @@ it('transfer candidate facts, link discovery, link resume and saved link state u
  expectCanonicalIndexCond(explained,'AND NOT EXISTS(SELECT 1 FROM control_operation_effects e','control_operation_approvals');
  expectCanonicalIndexCond(explained,'AND NOT EXISTS(SELECT 1 FROM control_operation_effects e','control_operation_effects');
  expectCanonicalIndexCond(explained,"AS journal_id FROM control_bank_allocation_intents i",'control_operation_effects');
- expectIntentsByPrimaryKey(explained);expectIntentProbe(explained,"OR lower(i.payload->'transfer'->>'originalIntentId')=");
+ expectIntentProbes(explained,"OR lower(i.payload->'transfer'->>'originalIntentId')=",1);
  expectCanonicalIndexCond(explained,'e.binding_hash,e.result,i.id AS intent_id','control_operation_effects');
 },300000);
 it('bank reversal and payment inverse identity reach the original receipt through the canonical index',async()=>{
@@ -73,6 +74,6 @@ it('cash application sources and invoice override annotations keep an indexable 
  const explained=[...await explain(ctx=>loadCashApplicationSources(ctx,{version:1,kind:'customer',paymentId:receipt.paymentId!,accountingDate:'2026-09-10',
   applications:[{invoiceId:invoice,amount:'115.00'}]}),as,cashPool),
   ...await explain(ctx=>queryInvoiceMatchOverrides(ctx,randomUUID()),as,cashPool)];
- expectIndexableCanonicalLookups(explained);expectIntentProbe(explained,"AND i.currency='ZAR'");expectIntentsByPrimaryKey(explained);
+ expectIndexableCanonicalLookups(explained);expectIntentProbes(explained,"AND i.currency='ZAR'",1);
  expectCanonicalIndexCond(explained,'AS approval_id,v.version','control_operation_approvals');
 },300000);
