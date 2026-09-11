@@ -80,7 +80,7 @@ export async function postJournal(
  * bank 100, tagged exactly as the gate tags it.
  */
 export async function seedAutoPostedLine(
-  pool: Pool, fx: R079Fixture, lines?: JournalLine[],
+  pool: Pool, fx: R079Fixture, lines?: JournalLine[], shape: 'provisional' | 'matched' = 'provisional',
 ): Promise<{ line: string; je: string; runId: string }> {
   const line = await seedBankLine(pool, fx, -100);
   const { id: je } = await postJournal(pool, fx, lines ?? [
@@ -92,9 +92,18 @@ export async function seedAutoPostedLine(
     `INSERT INTO bank_auto_post_runs(company_id,source,min_confidence,amount_cap,posted_count,total_amount)
      VALUES($1,'import',0.9,1000,1,100) RETURNING id`, [fx.company]);
   const runId = String(rows[0].id);
-  await pool.query(
-    "UPDATE bank_transactions SET status='provisional', provisional_je_id=$1, auto_post_run_id=$2 WHERE id=$3",
-    [je, runId, line]);
+  if (shape === 'matched') {
+    // The shape bankRuleAutoPostLine writes: allocated, linked by the bank leg.
+    const { rows: leg } = await pool.query(
+      'SELECT id FROM gl_journal_lines WHERE journal_entry_id=$1 AND gl_account_id=$2', [je, fx.bankAccount]);
+    await pool.query(
+      "UPDATE bank_transactions SET status='allocated', matched_journal_line_id=$1, auto_post_run_id=$2 WHERE id=$3",
+      [leg[0].id, runId, line]);
+  } else {
+    await pool.query(
+      "UPDATE bank_transactions SET status='provisional', provisional_je_id=$1, auto_post_run_id=$2 WHERE id=$3",
+      [je, runId, line]);
+  }
   return { line, je, runId };
 }
 

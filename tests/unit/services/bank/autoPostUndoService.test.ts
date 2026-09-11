@@ -40,9 +40,16 @@ function routeSql(handlers: Array<{ match: RegExp; rows: unknown[] }>) {
     const row = tagged?.find((r) => r.id === id);
     return row ? { ...row, auto_post_run_id: 'run-1' } : null;
   });
+  // Defaults a test need not spell out: a matched line resolves to a journal
+  // (`postingJournalOf`), and nothing reverses or blocks it — the untouched
+  // posting. A test that models a reversal or a blocker routes those first.
+  const defaults: Array<{ match: RegExp; rows: unknown[] }> = [
+    { match: /SELECT journal_entry_id FROM gl_journal_lines/, rows: [{ journal_entry_id: 'je-of-line' }] },
+    { match: /WITH RECURSIVE reversal_chain/, rows: [{ depth: 0 }] },
+  ];
   sqlMock.mockImplementation((strings: TemplateStringsArray) => {
     const text = strings.join('?');
-    const h = handlers.find((x) => x.match.test(text));
+    const h = [...handlers, ...defaults].find((x) => x.match.test(text));
     return Promise.resolve(h ? h.rows : []);
   });
 }

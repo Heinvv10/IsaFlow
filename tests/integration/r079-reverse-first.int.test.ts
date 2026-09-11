@@ -197,3 +197,44 @@ it('refuses undo-anyway when the posting was re-reversed by hand meanwhile: no a
   const { rows } = await pool.query('SELECT auto_post_run_id FROM bank_transactions WHERE id=$1', [line]);
   expect(String(rows[0].auto_post_run_id)).toBe(runId);
 }, 60000);
+
+/**
+ * Review r4 MEDIUM-1. A posting the user already reversed by hand has nothing
+ * left for a "blocker" to correct. On the MATCHED shape (what
+ * bankRuleAutoPostLine writes) the scan still ran, told the user to reverse a
+ * legitimate reclass, and projected an undo that could not happen. One shared
+ * path now checks the reversal state first on both shapes.
+ */
+it.each(['provisional', 'matched'] as const)('%s: a hand-reversed posting is alreadyUndone even with a later reclass on its account', async (shape) => {
+  const base = await netsWithVat(pool, fx);
+  const { line, je, runId } = await seedAutoPostedLine(pool, fx, undefined, shape);
+  await reverse(je);
+  // An ordinary reclass of some OTHER E1 charge, after the reversal.
+  const reclass = await postJournal(pool, fx, [{ glAccountId: fx.e1, debit: 0, credit: 60 }, { glAccountId: fx.e3, debit: 60, credit: 0 }]);
+
+  const res = await undo(runId);
+
+  expect(res.body.data).toMatchObject({
+    reversed: 0, skipped: 0, alreadyUndone: 1, undone: true, skippedBy: { offsetByHand: 0 }, handOffsets: [],
+  });
+  expect(await contrasOf(je)).toBe(1);
+  // The reclass stands untouched; the posting stays off the books.
+  expect(delta(base, await netsWithVat(pool, fx))).toEqual({ e1: -60, e2: 0, e3: 60, bank: 0, vat: 0 });
+  expect(await contrasOf(reclass.id)).toBe(0);
+  const { rows } = await pool.query(
+    'SELECT status, provisional_je_id, matched_journal_line_id, auto_post_run_id FROM bank_transactions WHERE id=$1', [line]);
+  expect(rows[0]).toEqual({ status: 'imported', provisional_je_id: null, matched_journal_line_id: null, auto_post_run_id: null });
+}, 60000);
+
+it('matched: a re-reversed posting is a failed skip, and a live reclass does not change that', async () => {
+  const { line, je, runId } = await seedAutoPostedLine(pool, fx, undefined, 'matched');
+  await reverse(je);
+  const { rows: contra } = await pool.query('SELECT id FROM gl_journal_entries WHERE reversal_of_id=$1', [je]);
+  await reverse(String(contra[0].id));
+
+  const res = await undo(runId);
+
+  expect(res.body.data).toMatchObject({ reversed: 0, skippedBy: { failed: 1, offsetByHand: 0 }, undone: false });
+  const { rows } = await pool.query('SELECT status, auto_post_run_id FROM bank_transactions WHERE id=$1', [line]);
+  expect(rows[0]).toEqual({ status: 'allocated', auto_post_run_id: runId });
+}, 60000);

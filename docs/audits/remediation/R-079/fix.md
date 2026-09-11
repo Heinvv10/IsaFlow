@@ -572,3 +572,48 @@ The first `bun run ci` on `08bf9e911` failed one test of this branch's own,
 - `k071-*`, `k140-*`, `k143-*`, `k144-*`, `r079-*` (21 files), `--no-file-parallelism` →
   `Test Files 21 passed (21)`, `Tests 95 passed | 1 skipped (96)`, **EXIT=0**.
 - `bankFeedStateReaderCensus` → 1/1 with the two entries (fails without them: `unclassified: […]`).
+
+---
+
+## Round 5 — blind review of `fc0325053` (0 HIGH · 1 MEDIUM · 1 LOW)
+
+### MEDIUM-1 — the matched branch scanned for a blocker before asking whether the posting was still on the books — FIXED, one shared path
+
+`undoRow` no longer has two branches. It resolves the posting journal (`postingJournalOf`, the
+matched line's journal or the provisional JE), asks `journalReversalState` FIRST, and only for
+`none` runs the hand-offset scan and then reverses (`reverseReconciledTransaction` for a matched
+line, `reverseJournalEntry` for a provisional JE). `reReversed` is the `failed` skip on both
+shapes. `live` (reversed by hand) finishes the line without posting on both shapes: the matched
+line gets the same reset `reverseReconciledTransaction` makes after its contra (status `imported`,
+link, reconciliation, allocation and batch columns cleared), because that function would refuse
+"already reversed" on every retry and the run could never close.
+
+Pinned (`r079-reverse-first.int.test.ts`, `it.each` over both shapes): posting hand-reversed, then
+a person reclass Cr E1 60 / Dr E3 60 on the same account → undo answers `alreadyUndone 1, undone
+true, offsetByHand 0, handOffsets []`; the reclass stands (0 contras of it), the ledger stays at
+e1 −60 / e3 +60 / bank 0 (the reclass alone), and the line is `imported` with every link and the
+tag cleared. Plus: a matched posting whose reversal was itself reversed is a `failed` skip with the
+line kept `allocated` and tagged, a live reclass notwithstanding.
+
+The unit test's SQL mock gained two defaults (a matched line resolves to a journal; nothing
+reverses it) so the existing matched-line cases model the untouched posting through the new path.
+
+### LOW-2 — the census reason overstated trigger 675 — CORRECTED
+
+`autoPostHandCorrection.ts`'s entry now says what is true: 675 refuses an UPDATE that tags a
+non-posted row, no writer INSERTs a pending row with a run id, and if one ever existed the run
+would only stay open. **For the register (not edited here):** 675's CHECK
+`bank_tx_nonposted_unlinked` omits `auto_post_run_id`, so an INSERT of a `pending` row carrying a
+run id is accepted while the same UPDATE is refused.
+
+### Mutations (sha256-restored)
+
+W1 scan before the state check → 2/9 red · W2 matched hand-reversed line not reset → 1/9 red ·
+W3 `reReversed` skip dropped → 2/9 red.
+
+### Gates (round 5, foreground, load 6.8 at start)
+
+- `env -u DATABASE_URL bun run ci` → every step PASS, `Tests 13097 passed | 248 skipped`,
+  components `564 passed`, build PASS, `[ci] all checks passed`, **EXIT=0**.
+- `k071-*`, `k140-*`, `k143-*`, `k144-*`, `r079-*` (21 files), `--no-file-parallelism` →
+  `Test Files 21 passed (21)`, `Tests 98 passed | 1 skipped (99)`, **EXIT=0**.
