@@ -106,10 +106,16 @@ UPDATE captured_documents cd
 --   2. Keep one per group: the POSTED journal (the earliest if several), else the earliest.
 --   3. A POSTED surplus: REVERSE it (Accounting > General Ledger > the entry > Reverse) — its VAT
 --      may already be in a VAT201 and must be corrected in the period that carries it.
---   4. A DRAFT surplus: DELETE it by id, draft-guarded, lines first:
---        DELETE FROM gl_journal_lines WHERE journal_entry_id = '<id>'
---          AND EXISTS (SELECT 1 FROM gl_journal_entries WHERE id = '<id>' AND status = 'draft');
---        DELETE FROM gl_journal_entries WHERE id = '<id>' AND status = 'draft';   -- must report DELETE 1
+--   4. A DRAFT surplus: DELETE it by id, lines first, in one transaction, BOTH statements fully guarded
+--      (ids, company, draft, capture source, not reversed):
+--        DELETE FROM gl_journal_lines
+--         WHERE journal_entry_id IN ('<id>') AND company_id = '<company_id>'
+--           AND EXISTS (SELECT 1 FROM gl_journal_entries je
+--                        WHERE je.id = gl_journal_lines.journal_entry_id AND je.company_id = '<company_id>'
+--                          AND je.status = 'draft' AND je.source = 'auto_expense_receipt' AND je.reversed_at IS NULL);
+--        DELETE FROM gl_journal_entries
+--         WHERE id IN ('<id>') AND company_id = '<company_id>'
+--           AND status = 'draft' AND source = 'auto_expense_receipt' AND reversed_at IS NULL;  -- DELETE n = ids listed
 --   5. Re-run step 1 (no rows), then re-run the deploy.
 DO $$
 DECLARE dup_count INT;
@@ -125,7 +131,7 @@ BEGIN
   ) d;
 
   IF dup_count > 0 THEN
-    RAISE EXCEPTION 'K-072: % captured document(s) carry more than one LIVE posting journal, so uq_gl_je_capture_source_document cannot be created. List each group with its status (query in this migration); keep the posted journal, else the earliest; REVERSE a posted surplus in the app; DELETE a draft surplus by id with the draft-guarded SQL; then re-run. See docs/audits/remediation/K-072/fix.md ("What an operator must do when 672 aborts").', dup_count;
+    RAISE EXCEPTION 'K-072: % captured document(s) carry more than one LIVE posting journal, so uq_gl_je_capture_source_document cannot be created. List each group with its status (query in this migration); keep the posted journal, else the earliest; REVERSE a posted surplus in the app; DELETE a draft surplus by id with the fully guarded SQL; then re-run. See docs/audits/remediation/K-072/fix.md ("What an operator must do when 672 aborts").', dup_count;
   END IF;
 
   CREATE UNIQUE INDEX IF NOT EXISTS uq_gl_je_capture_source_document
