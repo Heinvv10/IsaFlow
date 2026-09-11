@@ -20,7 +20,7 @@ import {runPayrollCalculation} from '@/modules/accounting/services/payroll/payro
 import {loadJournalRiskPopulation} from '@/modules/accounting/services/controls/journalRiskQueries';
 import {analyseJournalRisks} from '@/modules/accounting/services/controls/journalRiskAnalysis';
 import {prepareBankAllocationReversal,executeBankAllocationReversal} from '@/modules/accounting/services/bank/bankAllocationReversal';
-import {appendEntityVersion,effectRows,entityVersions,eventSpellings,insertCaseVariantReceipt,ledgerRows,receiptsFor} from './intentReceiptRows';
+import {appendEntityVersion,effectRows,entityVersions,eventSpellings,insertCaseVariantReceipt,ledgerRows,partialCaseVariant,receiptsFor} from './intentReceiptRows';
 async function approved(ref:OperationRef){const approval=await actor(()=>requestOperationApproval(requireControlTx(),ref));await actor(()=>decideOperationApproval(requireControlTx(),approval.id,'approved'),'u2');return approval.id;}
 async function oneCanonicalEffect(id:string,operation:string){
  const rows=await receiptsFor(pool,fixture.companyA,id,operation);
@@ -144,14 +144,14 @@ it('a raw id writer and the snapshot both follow the most advanced lineage of a 
 it('evidence records a lineage it cannot choose as a gap instead of failing the traversal',async()=>{
  const tx=randomUUID(),ident={id:fixture.u1.id,companyId:fixture.companyA};
  await pool.query("INSERT INTO bank_transactions(id,company_id,bank_account_id,transaction_date,amount,description,status) VALUES($1,$2,$3,'2026-09-09',1,'Synthetic ambiguous evidence bank','imported')",[tx,fixture.companyA,bank]);
- for(const spelling of [tx.toUpperCase(),`${tx.slice(0,8).toUpperCase()}${tx.slice(8)}`])await appendEntityVersion(pool,ident,'bank_transaction',spelling);
+ for(const spelling of [tx.toUpperCase(),partialCaseVariant(tx)])await appendEntityVersion(pool,ident,'bank_transaction',spelling);
  const evidence=await actor(()=>inspectTransactionEvidence(requireControlTx(),{entityType:'bank_transaction',entityId:tx}));
  const root=evidence.nodes.find(node=>node.entityType==='bank_transaction'&&node.entityId===tx)!;
  expect(root.version).toBeNull();expect(root.flags).toContain('forked');expect(root.flags).not.toContain('ambiguous');
  expect(evidence.coverage.gaps).toContainEqual({source:{entityType:'bank_transaction',entityId:tx},reason:'CONTROL_LINEAGE_AMBIGUOUS'});
 });
 it('two retained spellings and no canonical lineage fail closed instead of forking a third',async()=>{
- const tx=randomUUID(),mixed=`${tx.slice(0,8).toUpperCase()}${tx.slice(8)}`;
+ const tx=randomUUID(),mixed=partialCaseVariant(tx);
  await pool.query("INSERT INTO bank_transactions(id,company_id,bank_account_id,transaction_date,amount,description,status) VALUES($1,$2,$3,'2026-09-09',123.45,'Synthetic ambiguous version bank','imported')",[tx,fixture.companyA,bank]);
  for(const spelling of [tx.toUpperCase(),mixed])await appendEntityVersion(pool,{id:fixture.u1.id,companyId:fixture.companyA},'bank_transaction',spelling);
  const p=await actor(()=>prepareBankAllocation(requireControlTx(),{version:1,kind:'customer',bankTransactionId:tx,partyId:customer,applications:[]}));
