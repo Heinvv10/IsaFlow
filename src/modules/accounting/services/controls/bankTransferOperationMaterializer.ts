@@ -21,9 +21,12 @@ export async function materializeBankTransferOperation(ctx: ControlTx, ref: Oper
     WHERE company_id=${companyId}::uuid AND id=${ref.entityId}::uuid` as Row[];
   if (!company || !intent) throw new Error('Bank transfer operation not found');
   const currency = company.default_currency, date = intent.accounting_date;
-  if (typeof currency !== 'string' || !/^[A-Z]{3}$/.test(currency) || typeof date !== 'string' || !isRealCalendarDate(date)) {
-    throw new Error('Bank transfer currency or date unavailable');
+  if (typeof currency !== 'string' || !/^[A-Z]{3}$/.test(currency)) {
+    const state = currency == null || currency === '' ? 'no default currency set' : `an invalid default currency (${String(currency)})`;
+    throw new BankTransferRefusalError(`Cannot transfer: this company has ${state}. Set it before transferring between bank accounts.`);
   }
+  // The intent's date was validated when it was prepared: an unreadable one is a fault, not a refusal.
+  if (typeof date !== 'string' || !isRealCalendarDate(date)) throw new Error('Bank transfer date unavailable');
   if (typeof intent.amount !== 'string') throw new Error('Bank transfer decimal amount unavailable');
   const amount = canonicalMoney(intent.amount);
   if (!new Decimal(amount).gt(0) || intent.from_gl_account_id === intent.to_gl_account_id) throw new Error('Invalid transfer amount or accounts');
@@ -31,7 +34,7 @@ export async function materializeBankTransferOperation(ctx: ControlTx, ref: Oper
   const accounts = await ctx.sql`SELECT id,account_code,account_name,account_subtype,is_active
     FROM gl_accounts WHERE company_id=${companyId}::uuid AND id=ANY(${ids}::uuid[]) ORDER BY id FOR SHARE` as Row[];
   if (accounts.length !== 2 || accounts.some(a => !ids.includes(String(a.id)) || a.account_subtype !== 'bank')) {
-    throw new Error('Bank transfer accounts are not owned bank accounts');
+    throw new BankTransferRefusalError(accountsRefusal(accounts, [String(intent.from_gl_account_id), String(intent.to_gl_account_id)]));
   }
   const banks = await ctx.sql`SELECT id,gl_account_id,currency,is_active FROM bank_accounts
     WHERE company_id=${companyId}::uuid AND gl_account_id=ANY(${ids}::uuid[]) ORDER BY id LIMIT 3 FOR SHARE` as Row[];
@@ -41,6 +44,10 @@ export async function materializeBankTransferOperation(ctx: ControlTx, ref: Oper
   }
   const periods = await ctx.sql`SELECT id,start_date::text,end_date::text,status FROM fiscal_periods
     WHERE company_id=${companyId}::uuid AND start_date<=${date}::date AND end_date>=${date}::date ORDER BY id FOR SHARE` as Row[];
+  if (periods.length === 0) {
+    throw new BankTransferRefusalError(`Cannot transfer: no fiscal period covers ${date}. Set up the fiscal year that contains this date first.`);
+  }
+  // Overlapping periods are corrupt data the product never creates: a fault, not the person's to fix.
   if (periods.length !== 1) throw new Error('Transfer fiscal period missing or ambiguous');
   const plan = [{ glAccountId: String(intent.to_gl_account_id), debit: amount, credit: '0' },
     { glAccountId: String(intent.from_gl_account_id), debit: '0', credit: amount }];
@@ -55,9 +62,13 @@ export async function materializeBankTransferOperation(ctx: ControlTx, ref: Oper
         entityId: ref.entityId, version: observed.version, fingerprint: observed.fingerprint }] } };
 }
 
-/** A transfer the company's own rows do not allow, stated so the person can fix it: answered 422, not 500. */
+/**
+ * A transfer refused for a reason the person can fix, stated so they can: 400 for their own input,
+ * 422 for what the company's rows do not allow. Never a 500, and always thrown inside the
+ * operation's savepoint (or before any write), so nothing it touched is committed.
+ */
 export class BankTransferRefusalError extends Error {
-  constructor(message: string) {
+  constructor(message: string, readonly status: 400 | 422 = 422) {
     super(message);
     this.name = 'BankTransferRefusalError';
   }
@@ -76,4 +87,27 @@ function currencyRefusal(accounts: Row[], banks: Row[], currency: string): strin
   }).filter((problem): problem is string => problem !== null);
   return `Cannot transfer between these bank accounts: ${problems.join('; ') || 'their bank account records do not match'}. `
     + `Both must have the ledger currency (${currency}).`;
+}
+
+/** Posting refuses an account (or its bank record) that has been deactivated since preparation. */
+export function assertTransferAccountsActive(accounts: Row[], banks: Row[]): void {
+  const problems = accounts.flatMap(account => {
+    const label = `${String(account.account_code)} ${String(account.account_name)}`;
+    const own = banks.filter(bank => String(bank.gl_account_id) === String(account.id));
+    return [
+      ...(account.is_active !== true ? [`${label} is inactive`] : []),
+      ...(own.some(bank => bank.is_active !== true) ? [`${label} has an inactive bank account record`] : []),
+    ];
+  });
+  if (problems.length > 0) throw new BankTransferRefusalError(`Cannot post this transfer: ${problems.join('; ')}.`);
+}
+
+/** Names each intent account the company-scoped read did not return as a bank account; a foreign one reads as not found. */
+function accountsRefusal(accounts: Row[], intentIds: string[]): string {
+  const problems = intentIds.map(id => {
+    const account = accounts.find(a => String(a.id) === id);
+    if (!account) return `account ${id} was not found in this company`;
+    return account.account_subtype === 'bank' ? null : `${String(account.account_code)} ${String(account.account_name)} is not a bank account`;
+  }).filter((problem): problem is string => problem !== null);
+  return `Cannot transfer between these accounts: ${problems.join('; ') || 'they are not this company\'s bank accounts'}.`;
 }
