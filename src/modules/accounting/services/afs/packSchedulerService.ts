@@ -34,8 +34,8 @@ export function buildPriorMonthPeriod(date: Date): string {
  * Finds all companies scheduled to generate today and runs them in parallel.
  * Uses Promise.allSettled — one company failure does not block others.
  */
-export async function runDailyScheduler(): Promise<SchedulerRunResult> {
-  const today = new Date();
+export async function runDailyScheduler(now: Date = new Date()): Promise<SchedulerRunResult> {
+  const today = now;
   const dayOfMonth = today.getDate();
   const period = buildPriorMonthPeriod(today);
 
