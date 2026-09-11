@@ -24,8 +24,10 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
   try {
     return await transfer(req, res, companyId, userId);
   } catch (err) {
-    // A transfer the company's own rows refuse (e.g. a bank account with no currency) is the user's to fix.
-    if (err instanceof BankTransferRefusalError) return apiResponse.error(res, ErrorCode.BUSINESS_RULE_VIOLATION, err.message);
+    // A refusal the person can fix: their own input (400), or what the company's rows do not allow (422).
+    if (err instanceof BankTransferRefusalError) {
+      return err.status === 400 ? apiResponse.badRequest(res, err.message) : apiResponse.error(res, ErrorCode.BUSINESS_RULE_VIOLATION, err.message);
+    }
     throw err;
   }
 }

@@ -29,3 +29,10 @@ it('answers a refused transfer 422 with the refusal, for preparation and posting
   expect(response.json.mock.calls[0]?.[0]?.error).toMatchObject({code:'BUSINESS_RULE_VIOLATION',message:reason});
  }
 });
+it('answers a refusal of the person\'s own input 400, not 422',async()=>{
+ mocks.prepare.mockRejectedValueOnce(new BankTransferRefusalError('The from and to accounts must be different bank accounts',400));
+ const response={status:vi.fn(),json:vi.fn(),setHeader:vi.fn()};response.status.mockReturnValue(response);
+ await handler({method:'POST',companyId:'company',user:{id:'person'},body:{fromAccountId:'11111111-1111-1111-1111-111111111111',toAccountId:'22222222-2222-2222-2222-222222222222',amount:'1'}} as unknown as NextApiRequest,response as unknown as NextApiResponse);
+ expect(response.status).toHaveBeenCalledWith(400);
+ expect(response.json.mock.calls[0]?.[0]?.error).toMatchObject({code:'BAD_REQUEST',message:'The from and to accounts must be different bank accounts'});
+});
