@@ -111,7 +111,13 @@ it('hard-killed publication rolls back and expired authenticated claim recovers 
  try{
   await waitForPublication(job.id);const unit=(await readFile(marker,'utf8')).trim().split('/').at(-1)!;
   expect(unit).toMatch(/^isaflow-audit-[a-f0-9-]{36}\.service$/);
-  await auditSystemctl(['kill','--kill-whom=all','--signal=SIGKILL',unit]);
+  // --kill-whom=all intermittently exits 1 on this host (systemd 255.4 / kernel 6.8) with
+  // "Failed to send signal SIGKILL to auxiliary processes: Invalid argument" AFTER it has
+  // already killed the multithreaded node main process (3/30 reproduced with a plain node
+  // unit; --kill-whom=main 0/30) -- the kill itself lands, only the command's own exit status
+  // is unreliable. Use --kill-whom=main, as comparisonKillFixture.ts already does, and prove
+  // the kill by its outcome (the assertions below), not by the command's exit code.
+  await auditSystemctl(['kill','--kill-whom=main','--signal=SIGKILL',unit]);
   const killed=await work;expect(killed.result).toMatchObject({state:'failed',failureRecorded:false});
   expect(killed.observation.elapsedMs).toBeLessThan(8000);
   expect(await auditSystemctl(['show',unit,'--property=LoadState'])).toContain('not-found');
