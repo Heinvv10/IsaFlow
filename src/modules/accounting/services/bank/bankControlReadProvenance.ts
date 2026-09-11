@@ -2,7 +2,7 @@ import {readBankTransferOriginal} from './bankTransferReadProvenance';
 import Decimal from 'decimal.js';
 import {fmtDate} from '@/lib/fmtDate';
 import type {ControlTx} from '../controls/contracts';
-import {sameIntentId} from '../controls/intentIdentity';
+import {CANONICAL_UUID_TEXT,sameIntentId} from '../controls/intentIdentity';
 import {matchesBankAllocationJournalLines} from '../controls/bankAllocationJournalShape';
 import {buildBankAllocationLines,parseBankAllocationPlan} from './bankAllocationPlan';
 type Row=Record<string,unknown>;
@@ -15,15 +15,15 @@ export async function readBankCurrentOriginal(ctx:ControlTx,bank:BankControlRow)
   j.id AS journal_id,j.entry_date,j.status AS journal_status,j.reversed_at,j.source,j.source_record_id,
   EXISTS(SELECT 1 FROM control_change_events c WHERE c.company_id=${company}::uuid AND c.entity_type=e.entity_type AND c.entity_id_canonical=e.entity_id_canonical
    AND c.action=e.operation AND c.operation_id=e.operation_id AND c.binding_hash=e.binding_hash) AS audited
-  FROM control_operation_effects e LEFT JOIN control_bank_allocation_intents i ON i.company_id=e.company_id AND i.id::text=e.entity_id_canonical
+  FROM control_operation_effects e LEFT JOIN LATERAL(SELECT i.* FROM control_bank_allocation_intents i WHERE i.company_id=e.company_id AND i.id=CASE WHEN e.entity_id_canonical ~ ${CANONICAL_UUID_TEXT} THEN e.entity_id_canonical::uuid END AND i.id::text=e.entity_id_canonical OFFSET 0) i ON true
   LEFT JOIN gl_journal_entries j ON j.company_id=e.company_id AND j.id::text=e.result->>'journalEntryId'
   WHERE e.company_id=${company}::uuid AND e.entity_type='bank_allocation_intent' AND e.operation='bank_allocation.post'
    AND (i.bank_transaction_id=${bank.id}::uuid OR e.result->>'bankTransactionId'=${bank.id}
     OR EXISTS(SELECT 1 FROM gl_journal_lines m WHERE m.company_id=${company}::uuid AND m.id=${bank.matched_journal_line_id}::uuid AND m.journal_entry_id::text=e.result->>'journalEntryId'))
    AND (j.id IS NULL OR j.reversed_at IS NULL) LIMIT 2` as (Row&{result:{intentId:string;bankTransactionId:string;journalEntryId:string}})[];
  if(!effects.length){
-  const history=await ctx.sql`SELECT c.id FROM gl_journal_lines l JOIN control_change_events c ON c.company_id=l.company_id
-    AND c.entity_type='journal_entry' AND c.entity_id_canonical=l.journal_entry_id::text AND c.action='journal.post'
+  const history=await ctx.sql`SELECT c.id FROM gl_journal_lines l JOIN LATERAL(SELECT c.id,c.operation_id FROM control_change_events c WHERE c.company_id=l.company_id
+    AND c.entity_type='journal_entry' AND c.entity_id_canonical=l.journal_entry_id::text AND c.action='journal.post' OFFSET 0) c ON true
    WHERE l.company_id=${company}::uuid AND l.id=${bank.matched_journal_line_id}::uuid
     AND EXISTS(SELECT 1 FROM control_change_events p WHERE p.company_id=${company}::uuid AND p.operation_id=c.operation_id
      AND ((p.entity_type='bank_allocation_intent' AND p.action='bank_allocation.post')

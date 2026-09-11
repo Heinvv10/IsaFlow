@@ -5,6 +5,12 @@ export function canonicalIntentId(value:unknown):string{
  if(typeof value!=='string'||!UUID_RE.test(value))throw new Error('Invalid controlled intent UUID');
  return value.toLowerCase();
 }
+/**
+ * `uuid::text` spells a uuid exactly this way, so `i.id::text=c` holds only when c matches it and `c::uuid=i.id`. Stated
+ * as `i.id=CASE WHEN c ~ CANONICAL_UUID_TEXT THEN c::uuid END` beside that comparison inside a LATERAL, where c is a
+ * Param, it reaches the intent by primary key: under RLS a cast of another relation's column is never an index condition.
+ */
+export const CANONICAL_UUID_TEXT='^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$';
 /** Legacy receipts may spell the result identity in any case. */
 export function sameIntentId(value:unknown,intentId:string):boolean{
  return typeof value==='string'&&UUID_RE.test(value)&&value.toLowerCase()===canonicalIntentId(intentId);

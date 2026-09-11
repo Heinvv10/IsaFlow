@@ -1,13 +1,14 @@
 import type {ControlTx} from '../controls/contracts';
+import {CANONICAL_UUID_TEXT} from '../controls/intentIdentity';
 export async function resolveBankApprovalTarget(ctx:ControlTx,approvalId:string,bankId?:string){
  const company=ctx.principal.companyId;
- const rows=await ctx.sql`SELECT i.bank_transaction_id FROM control_operation_approvals a JOIN control_bank_allocation_intents i
-  ON i.company_id=a.company_id AND i.id::text=a.entity_id_canonical AND i.requester_person_id=a.requester_person_id
+ const rows=await ctx.sql`SELECT i.bank_transaction_id FROM control_operation_approvals a JOIN LATERAL(SELECT i.* FROM control_bank_allocation_intents i WHERE i.company_id=a.company_id AND i.id=CASE WHEN a.entity_id_canonical ~ ${CANONICAL_UUID_TEXT} THEN a.entity_id_canonical::uuid END AND i.id::text=a.entity_id_canonical
+   AND i.requester_person_id=a.requester_person_id OFFSET 0) i ON true
   WHERE a.company_id=${company}::uuid AND a.id=${approvalId}::uuid AND a.entity_type='bank_allocation_intent' AND a.operation='bank_allocation.post'
    AND (${bankId??null}::uuid IS NULL OR i.bank_transaction_id=${bankId??null}::uuid)
   UNION ALL
-  SELECT i.bank_transaction_id FROM control_operation_approvals a JOIN control_bank_allocation_reversal_intents i
-  ON i.company_id=a.company_id AND i.id::text=a.entity_id_canonical AND i.requester_person_id=a.requester_person_id
+  SELECT i.bank_transaction_id FROM control_operation_approvals a JOIN LATERAL(SELECT i.* FROM control_bank_allocation_reversal_intents i WHERE i.company_id=a.company_id AND i.id=CASE WHEN a.entity_id_canonical ~ ${CANONICAL_UUID_TEXT} THEN a.entity_id_canonical::uuid END AND i.id::text=a.entity_id_canonical
+   AND i.requester_person_id=a.requester_person_id OFFSET 0) i ON true
   WHERE a.company_id=${company}::uuid AND a.id=${approvalId}::uuid AND a.entity_type='bank_allocation_reversal_intent' AND a.operation='bank_allocation.reverse'
    AND (${bankId??null}::uuid IS NULL OR i.bank_transaction_id=${bankId??null}::uuid)` as {bank_transaction_id:string}[];
  if(rows.length!==1)throw new Error('Bank approval not found');return rows[0]!.bank_transaction_id;
