@@ -21,6 +21,7 @@ import {
   buildExpenseJournalFromReceipt,
   shouldAutoPostReceipt,
   parseReceiptType,
+  mealsOnClaimingAccount,
 } from '@/modules/accounting/services/bank/receiptToJournalService';
 import {
   CAPTURED_DOCUMENT_REFUSAL_MESSAGE,
@@ -143,7 +144,10 @@ async function handler(req: CompanyAuthedRequest, res: NextApiResponse) {
     { accountVatDenied: accountDenial.denied },
   );
   const receiptType = parseReceiptType(extracted);
-  const autoPost = shouldAutoPostReceipt(extracted, { maxAmount: 5000, minConfidence: 0.85 });
+  // A meals merchant on an account that does not deny input VAT claims its VAT
+  // (the name folds nothing, K-072 r35) — so it is left for a person, not posted.
+  const autoPost = shouldAutoPostReceipt(extracted, { maxAmount: 5000, minConfidence: 0.85 })
+    && !mealsOnClaimingAccount(extracted, accountDenial.denied);
 
   // Create the entry through the validated posting service.
   //

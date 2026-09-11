@@ -33,18 +33,24 @@ const officeDoc = crypto.randomUUID();
 const derivedDoc = crypto.randomUUID();
 const tenantDoc = crypto.randomUUID();
 const flaggedDoc = crypto.randomUUID();
-const documents = [mealsDoc, officeDoc, derivedDoc, tenantDoc, flaggedDoc];
+const spurwayDoc = crypto.randomUUID();
+const wimpyDoc = crypto.randomUUID();
+const spurTextDoc = crypto.randomUUID();
+const documents = [mealsDoc, officeDoc, derivedDoc, tenantDoc, flaggedDoc, spurwayDoc, wimpyDoc, spurTextDoc];
 
 const today = new Date().toISOString().slice(0, 10);
 
 let token = '';
 
-interface Extract { vendorName: string; subtotal: number | null; vatAmount: number | null; total: number }
+interface Extract { vendorName: string; subtotal: number | null; vatAmount: number | null; total: number; rawText?: string; confidence?: number }
 const extracted = (e: Extract) => ({
   documentType: 'receipt', vendorName: e.vendorName, date: today, referenceNumber: 'REC-K072',
   currency: 'ZAR', subtotal: e.subtotal, vatAmount: e.vatAmount, vatRate: 15, totalAmount: e.total,
-  lineItems: [], rawText: '', confidence: 0.9, warnings: [], extractionMethod: 'vlm',
+  lineItems: [], rawText: e.rawText ?? '', confidence: e.confidence ?? 0.9, warnings: [], extractionMethod: 'vlm',
 });
+/** A slip the unattended gate accepts (printed VAT, one total, paid by card), so the route auto-posts it. */
+const printed = (vendor: string, item: string) => ({ vendorName: vendor, subtotal: 869.57, vatAmount: 130.43, total: 1000, confidence: 0.99,
+  rawText: `${vendor}\nTAX INVOICE\nVAT No 4987654321\nDate: ${today}\n${item} 1000.00\nSubtotal 869.57\nVAT 130.43\nTOTAL 1000.00\nCARD 1000.00\n` });
 
 async function seedDoc(id: string, ownerCompany: string, e: Extract): Promise<void> {
   await pool.query(
@@ -123,10 +129,11 @@ beforeAll(async () => {
            ($6,$7,'5610','K072 Staff welfare','expense',NULL,'debit',false,true)`,
     [bank, vatInput, defaultExpense, meals, office, flagged, company],
   );
-  // The marker migration 521 sets. The merchant map knows nothing about
-  // "Tashas", so this account flag is the ONLY thing that can deny the claim.
-  await pool.query('UPDATE gl_accounts SET vat_input_denied = true WHERE id=$1 AND company_id=$2',
-    [flagged, company]);
+  // The marker migration 521 sets — on every entertainment-named account, so on
+  // 5600 "Meals & entertainment" too. Since K-072 r35 the ACCOUNT is the only
+  // thing that denies the claim; the vendor name folds nothing.
+  await pool.query('UPDATE gl_accounts SET vat_input_denied = true WHERE id=ANY($1::uuid[]) AND company_id=$2',
+    [[flagged, meals], company]);
   clearSystemAccountCache(company);
 
   await seedDoc(mealsDoc, company, { vendorName: 'Spur Steak Ranches Rosebank', subtotal: 1000, vatAmount: 150, total: 1150 });
@@ -134,6 +141,9 @@ beforeAll(async () => {
   await seedDoc(derivedDoc, company, { vendorName: 'Nandos Menlyn', subtotal: null, vatAmount: null, total: 460 });
   await seedDoc(tenantDoc, otherCompany, { vendorName: 'Spur Steak Ranches Sandton', subtotal: 1000, vatAmount: 150, total: 1150 });
   await seedDoc(flaggedDoc, company, { vendorName: 'Tashas Melrose Arch', subtotal: 1000, vatAmount: 150, total: 1150 });
+  await seedDoc(spurwayDoc, company, printed('Spurway Steel', 'Flat bar 50x6 6m'));
+  await seedDoc(wimpyDoc, company, printed('Wimpy Linden', 'Burger meal'));
+  await seedDoc(spurTextDoc, company, printed('Spur Steak Ranches Rosebank', 'Platter'));
 
   token = await new SignJWT({ sub: user, aal: 'aal2' })
     .setProtectedHeader({ alg: 'HS256' }).setExpirationTime('1h')
@@ -245,5 +255,37 @@ describe('K-072 entertainment input VAT reaches the ledger denied', () => {
     expect((await pool.query(
       'SELECT COUNT(*)::int AS n FROM gl_journal_entries WHERE source_document_id=$1', [tenantDoc],
     )).rows[0].n).toBe(0);
+  });
+});
+
+describe('K-072 r35 — the vendor name folds nothing; the account does', () => {
+  const status = async (doc: string) => (await pool.query(
+    'SELECT status FROM gl_journal_entries WHERE company_id=$1 AND source_document_id=$2', [company, doc])).rows[0]?.status;
+
+  it('Spurway Steel auto-posts claiming its R130.43: `spur` is not a word in its name', async () => {
+    // The ACCOUNT-flag case above leaves the default expense account denying; Spurway books there, so clear it.
+    await pool.query('UPDATE gl_accounts SET vat_input_denied = false WHERE id=$1 AND company_id=$2', [defaultExpense, company]);
+    expect((await post(spurwayDoc, token, company)).state.statusCode).toBe(200);
+    const posted = await legs(spurwayDoc);
+    expect(await status(spurwayDoc)).toBe('posted');
+    expect(posted.byAccount.get(vatInput)).toEqual({ dr: 130.43, cr: 0, vatType: 'standard' });
+    expect(posted.byAccount.get(defaultExpense)!.dr).toBe(869.57);
+  });
+
+  it('Spur booked to the entertainment account still folds the VAT, and auto-posts', async () => {
+    expect((await post(spurTextDoc, token, company)).state.statusCode).toBe(200);
+    expect(await status(spurTextDoc)).toBe('posted');
+    expect((await legs(spurTextDoc)).byAccount.get(meals)).toEqual({ dr: 1000, cr: 0, vatType: 'no_vat' });
+  });
+
+  it('a meals merchant on an account that does NOT deny is left a draft for a person, its VAT not folded', async () => {
+    await pool.query('UPDATE gl_accounts SET vat_input_denied = false WHERE id=$1 AND company_id=$2', [meals, company]);
+    try {
+      expect((await post(wimpyDoc, token, company)).state.statusCode).toBe(200);
+      expect(await status(wimpyDoc)).toBe('draft');
+      expect((await legs(wimpyDoc)).byAccount.get(vatInput)!.dr).toBe(130.43);
+    } finally {
+      await pool.query('UPDATE gl_accounts SET vat_input_denied = true WHERE id=$1 AND company_id=$2', [meals, company]);
+    }
   });
 });

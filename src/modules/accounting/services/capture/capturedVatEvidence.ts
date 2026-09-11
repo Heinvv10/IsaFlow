@@ -13,46 +13,50 @@
  * So an agent may post such a draft only when its VAT equals, to the cent, the
  * VAT the captured document EVIDENCES: the VAT read (`extracted_data.vatAmount`),
  * or — when none was read — 0, but only on a POSITIVE signal that the document
- * is not a VAT document (round 34). Rounds 32–33 read "no tax word printed" as
- * that signal, and a word list fails OPEN: `B.T.W. 375.00` on a `FAKTUUR` was a
- * tax neither the reader nor the list saw, so an agent approved the bill with
- * no VAT. Now the document must SAY no VAT applies (`Not VAT registered`, `nie
- * BTW-geregistreer nie`, …) and print no VAT registration number; a phrase the
- * list lacks costs a refusal, never an approval. The supplier master is not a
- * signal: `suppliers.vat_number` NULL means "not captured", not "not registered".
+ * is not a VAT document (round 34), and round 35 narrows that signal to the one
+ * statement that can carry it: the SUPPLIER's registration status, standing as
+ * a line of its own (`Not VAT registered`, `We are not registered for VAT.`,
+ * `Ons is nie BTW-geregistreer nie`). Round 34 matched mid-sentence, so `VAT is
+ * not applicable on the call-out fee` — about one item, on a page charging VAT
+ * the reader missed — evidenced none. And it fails closed on everything else:
+ * any OTHER line that speaks of tax (a tax word, OCR damage included, `incl`,
+ * 15%) or a VAT-number-shaped token (OCR-damaged digits included) refuses. A
+ * phrase the list lacks costs a refusal, never an approval. The supplier master
+ * is not a signal: `suppliers.vat_number` NULL means "not captured".
  * A person approving in the attended workflow is not affected.
  */
 import { sql } from '@/lib/neon';
 import type { DbRow } from '@/lib/neon';
 import type { ExtractedDocument } from '@/modules/accounting/types/documentCapture.types';
 
-/**
- * The document declares of ITSELF that no VAT applies. Whole-vendor statements
- * only: `No VAT on disbursements` is a VAT invoice's footnote, so a bare `No
- * VAT` counts only as a line of its own.
- */
 const VAT = String.raw`(?:V\.?\s?A\.?\s?T\.?|B\.?\s?T\.?\s?W\.?)`;
-const DECLARES_NO_VAT = new RegExp(String.raw`(?<![A-Za-z])(?:not\s+(?:a\s+)?${VAT}[\s-]*(?:registered|vendor|supplier)`
-  + String.raw`|not\s+registered\s+for\s+${VAT}|non[\s-]*${VAT}[\s-]*(?:registered|vendor|supplier)|${VAT}\s+(?:is\s+)?not\s+applicable`
-  + String.raw`|nie\s+(?:vir\s+)?${VAT}[\s-]*geregistreer\s+nie|nie\s+geregistreer\s+vir\s+${VAT}\s+nie)(?![A-Za-z])`
-  + String.raw`|^\s*(?:no\s+${VAT}(?:\s+charged)?|geen\s+${VAT})\s*$`, 'im');
-/** A SA VAT registration number (ten digits, leading 4): a VAT vendor prints one on every tax invoice. */
-const VAT_NUMBER = /(?<!\d)4(?:[\s-]?\d){9}(?!\d)/;
+/** The supplier's own registration status, as a whole line: a statement about an item or a customer is not one. */
+const DECLARATION = new RegExp(String.raw`^\s*(?:(?:we|this\s+(?:supplier|vendor|business|company)|the\s+supplier|supplier|vendor|ons)\s+(?:is|are)\s+)?`
+  + String.raw`(?:not\s+(?:a\s+)?${VAT}[\s-]*registered(?:\s+(?:vendor|supplier|business|company))?|not\s+registered\s+for\s+${VAT}`
+  + String.raw`|non[\s-]*${VAT}(?:[\s-]*registered)?[\s-]+(?:vendor|supplier|business|company)`
+  + String.raw`|nie\s+(?:vir\s+)?${VAT}[\s-]*geregistreer\s+nie|nie\s+geregistreer\s+vir\s+${VAT}\s+nie)\s*[.!]?\s*$`, 'i');
+/** Any other mention of tax: a tax word (OCR `VAl`/`V4T` included), `incl…`, or the 15% rate. Fails closed. */
+const TAX_MENTION = new RegExp(String.raw`(?<![A-Za-z])(?:${VAT}|V\.?\s?[A4]\.?\s?[T7lI1]\.?(?![A-Za-z])|tax|belasting|incl)|15\s*(?:%|persent)`, 'i');
+/** A VAT-number-shaped token: 9–11 digits after a leading 4, OCR confusables and spacing/slashes included. */
+const VAT_NUMBER = /(?<![A-Za-z0-9])4[\dOoIl|SB](?:[ /-]{0,2}[\dOoIl|SB]){7,9}(?![A-Za-z0-9])/;
 
 type Extracted = Partial<Pick<ExtractedDocument, 'vatAmount' | 'rawText'>> | null;
 
-/** The VAT the captured document evidences, or null when it evidences none (no VAT read, and nothing says none applies). */
+/** The VAT the captured document evidences, or null when it evidences none (no VAT read, and the supplier does not declare itself unregistered on an otherwise tax-free page). */
 export function evidencedVat(extracted: Extracted): number | null {
   if (typeof extracted?.vatAmount === 'number') return extracted.vatAmount;
   const text = typeof extracted?.rawText === 'string' ? extracted.rawText : '';
-  return DECLARES_NO_VAT.test(text) && !VAT_NUMBER.test(text) ? 0 : null;
+  const lines = text.split(/\r?\n/);
+  const declares = lines.some((line) => DECLARATION.test(line));
+  const elseQuiet = lines.every((line) => DECLARATION.test(line) || !TAX_MENTION.test(line)) && !VAT_NUMBER.test(text);
+  return declares && elseQuiet ? 0 : null;
 }
 
 const cents = (n: number) => Math.round(n * 100);
 const unevidenced = (claimed: number, evidenced: number | null) => evidenced === null || Math.abs(cents(claimed) - cents(evidenced)) > 1;
 
 export const CAPTURED_VAT_UNEVIDENCED_REASON = 'its VAT is not the VAT read off the captured document it was raised from '
-  + '(none only where the document says no VAT applies), so the document does not evidence it — a person must approve it';
+  + '(none only where the supplier declares itself not VAT registered), so the document does not evidence it — a person must approve it';
 
 /** Of these supplier invoices, which carry a `tax_amount` their captured document does not evidence? */
 export async function invoicesWithUnevidencedVat(companyId: string, invoiceIds: readonly string[]): Promise<Set<string>> {
@@ -69,7 +73,7 @@ export async function invoicesWithUnevidencedVat(companyId: string, invoiceIds: 
 }
 
 export const JOURNAL_VAT_UNEVIDENCED_REASON = 'its VAT is not the VAT read off the captured document it was raised from '
-  + '(none only where the document says no VAT applies), so the document does not evidence it — a person must post it';
+  + '(none only where the supplier declares itself not VAT registered), so the document does not evidence it — a person must post it';
 
 /**
  * Does this journal, raised from a captured document, carry a VAT the document

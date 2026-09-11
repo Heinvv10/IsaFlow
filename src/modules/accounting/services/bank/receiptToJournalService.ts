@@ -76,19 +76,26 @@ type ReceiptType = 'fuel' | 'meals' | 'travel' | 'office_supplies' | 'general';
 // Merchant → GL Account mapping (SA merchants)
 // ---------------------------------------------------------------------------
 
+/**
+ * Whole words only (K-072 r35): the unanchored `spur|…|mr\s*d` matched
+ * `Spurway Steel` and `Mr Doors`, and `spar`/`rain`/`game` matched any vendor
+ * containing them. A merchant name is a word, so a pattern is one.
+ */
+const word = (alternatives: string) => new RegExp(String.raw`(?<![a-z])(?:${alternatives})(?![a-z])`, 'i');
+
 const MERCHANT_PATTERNS: Array<{ pattern: RegExp; accountCode: string; type: ReceiptType }> = [
   // Fuel
-  { pattern: /engen|shell|caltex|sasol|bp |total |fuel|petrol|diesel/i, accountCode: '5400', type: 'fuel' },
+  { pattern: word(String.raw`engen|shell|caltex|sasol|bp|total|fuel|petrol|diesel`), accountCode: '5400', type: 'fuel' },
   // Meals & entertainment
-  { pattern: /spur|nandos|steers|mcdonald|kfc|wimpy|ocean basket|mugg.*bean|uber\s*eat|mr\s*d|restaurant|cafe|coffee/i, accountCode: '5600', type: 'meals' },
+  { pattern: word(String.raw`spur|nandos|nando's|steers|mcdonald'?s?|kfc|wimpy|ocean\s+basket|mugg\s*(?:&|and)?\s*bean|uber\s*eats?|mr\s*d(?:\s*food)?|restaurants?|cafe|coffee`), accountCode: '5600', type: 'meals' },
   // Travel
-  { pattern: /uber(?!\s*eat)|bolt|taxify|airport|flight|hotel|lodge|airbnb|protea\s*hotel/i, accountCode: '5600', type: 'travel' },
+  { pattern: word(String.raw`uber(?!\s*eats?)|bolt|taxify|airport|flights?|hotels?|lodge|airbnb|protea\s*hotel`), accountCode: '5600', type: 'travel' },
   // Office supplies
-  { pattern: /office\s*national|pen\s*and\s*paper|waltons|takealot|incredible|stationery/i, accountCode: '5100', type: 'office_supplies' },
+  { pattern: word(String.raw`office\s*national|pen\s*and\s*paper|waltons|takealot|incredible|stationery`), accountCode: '5100', type: 'office_supplies' },
   // Telecoms → admin
-  { pattern: /mtn|vodacom|telkom|cell\s*c|rain|afrihost/i, accountCode: '5600', type: 'general' },
+  { pattern: word(String.raw`mtn|vodacom|telkom|cell\s*c|rain|afrihost`), accountCode: '5600', type: 'general' },
   // Groceries / consumables
-  { pattern: /woolworths|checkers|pick\s*n\s*pay|shoprite|spar|makro|game/i, accountCode: '5100', type: 'general' },
+  { pattern: word(String.raw`woolworths|checkers|pick\s*n\s*pay|shoprite|(?:kwik|super)?spar|makro|game`), accountCode: '5100', type: 'general' },
 ];
 
 // ---------------------------------------------------------------------------
@@ -159,28 +166,16 @@ export function buildExpenseJournalFromReceipt(
 
   const merchantDesc = extracted.vendorName || 'Unknown merchant';
 
-  // s17(2)(a) denies input tax on entertainment, and nothing downstream knew:
-  // the VAT-input leg was emitted unconditionally, so every restaurant receipt
-  // this service routed to 5600 also claimed its 15% back. Key the denial off
-  // the RECEIPT TYPE, not the account code — `travel` and telecoms map to 5600
-  // too and their input tax is claimable. Unattended: both callers auto-post
-  // under a confidence gate with nobody watching, which is the one shape
-  // `applyVatDenial` is allowed to coerce rather than warn about.
-  // Two independent inputs, either of which denies the claim.
-  //
-  // `accountVatDenied` is the authoritative one: the `gl_accounts.vat_input_denied`
-  // marker that migration 521 sets, resolved by the caller against the account
-  // this receipt is actually being coded to. The merchant heuristic below is
-  // the second, and it is a heuristic — MERCHANT_PATTERNS knows Spur and Nandos
-  // and not Tashas, Marble or a corporate caterer. Relying on it alone left the
-  // flag the module calls "the marker" unread, and left post-expense — where a
-  // user or a capture rule picks the account, not the merchant map — claiming
-  // on a flagged Entertainment account.
-  //
-  // Keyed off the receipt TYPE and not the account code: `travel` and telecoms
-  // map to 5600 too and their input tax is claimable.
+  // s17(2)(a) denies input tax on entertainment. The denial is a property of
+  // the ACCOUNT the receipt is coded to (K-072 r35): `accountVatDenied` is the
+  // `gl_accounts.vat_input_denied` marker migration 521 sets, resolved by the
+  // caller against that account. The vendor name no longer folds a read VAT —
+  // round 22's merchant heuristic did, and `spur` matched `Spurway Steel`, which
+  // auto-posted Dr 5600 1000 / Cr bank with its R130.43 of input VAT dropped.
+  // A meals merchant coded to an account that does NOT deny is not folded and
+  // not posted unattended either (`mealsOnClaimingAccount`): a person decides.
   const { denied } = applyVatDenial(
-    Boolean(options.accountVatDenied) || parseReceiptType(extracted) === 'meals',
+    Boolean(options.accountVatDenied),
     VAT_CODE_STANDARD,
     { vendorName: extracted.vendorName, source: 'receipt_to_journal' },
   );
@@ -261,4 +256,14 @@ export function parseReceiptType(extracted: ExtractedDocument): ReceiptType {
   }
 
   return 'general';
+}
+
+/**
+ * A meals merchant coded to an account that does not deny input VAT (K-072
+ * r35). Its VAT is claimed, since the name decides nothing — but s17(2)(a)
+ * denies entertainment input tax, so the unattended callers must not POST it:
+ * the account is wrong or the merchant is, and a person says which.
+ */
+export function mealsOnClaimingAccount(extracted: ExtractedDocument, accountVatDenied: boolean): boolean {
+  return !accountVatDenied && parseReceiptType(extracted) === 'meals';
 }
