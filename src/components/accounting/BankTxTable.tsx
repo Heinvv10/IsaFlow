@@ -13,6 +13,7 @@ import {
   NON_SUPPLY_ADVICE, NON_SUPPLY_LABEL, shouldWarnOnNonSupply,
 } from '@/modules/accounting/services/gl/nonSupplyAccounts';
 import { AllocatedAccountCell } from './BankTxAllocatedAccountCell';
+import { isPendingFeedRow, PendingFeedBadge, PendingFeedNotice } from './bank-transactions/pendingFeedRow';
 
 export type AllocType = 'account' | 'supplier' | 'customer' | 'transfer';
 export type VatCode = 'none' | 'standard' | 'zero_rated' | 'exempt';
@@ -32,6 +33,8 @@ export interface BankTx {
   bankReference?: string;
   amount: number;
   status: string;
+  /** Feed ingestion state — a 'pending' row has not posted at the bank yet and is read-only. */
+  feedState?: 'pending' | 'posted' | 'removed';
   /** Reason recorded when this transaction was excluded */
   excludeReason?: string;
   /** User-editable memo field from bank_transactions.notes */
@@ -354,6 +357,7 @@ export function BankTxTable(props: Props) {
                 >
                   <td className="py-2 px-2">
                     <input type="checkbox" checked={selectedIds.has(tx.id)}
+                      disabled={isPendingFeedRow(tx)}
                       onChange={() => onToggleSelect(tx.id)} className="accent-teal-500" />
                   </td>
                   <td className="py-2 px-2 font-mono text-xs text-[var(--ff-text-secondary)]">
@@ -361,6 +365,7 @@ export function BankTxTable(props: Props) {
                   </td>
                   <td className="py-2 px-2 text-[var(--ff-text-primary)]">
                     <span className="line-clamp-1 text-xs">{tx.description || '—'}</span>
+                    {isPendingFeedRow(tx) && <PendingFeedBadge />}
                     {tx.status === 'provisional' && (
                       <span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] font-medium bg-amber-900/40 text-amber-300 ml-1"
                         title="Posted by AI — needs evidence">
@@ -652,6 +657,9 @@ export function BankTxTable(props: Props) {
                     ) : (
                       <div className="flex items-center gap-0.5 justify-center">
                         {isNew ? (
+                          isPendingFeedRow(tx) ? (
+                            <PendingFeedNotice />
+                          ) : (
                           <>
                             <button onClick={() => onAccept(tx.id)} disabled={!sel?.entityId} title="Accept"
                               className="p-1 rounded hover:bg-teal-500/10 text-teal-400 disabled:opacity-30">
@@ -690,6 +698,7 @@ export function BankTxTable(props: Props) {
                               <X className="h-3.5 w-3.5" />
                             </button>
                           </>
+                          )
                         ) : isAllocated ? (
                           <>
                             {onReverse && (
