@@ -5,6 +5,7 @@
 
 import { useState, useEffect, useCallback } from 'react';
 import { apiFetch } from '@/lib/apiFetch';
+import { HandOffsetNotice, type HandOffset } from './HandOffsetNotice';
 
 interface AutoPostRun {
   id: string;
@@ -24,8 +25,9 @@ interface AutoPostRunsResponse {
 /** `undoRun`'s result. `undone` is false whenever a line was skipped. */
 interface UndoResult {
   reversed: number;
-  skippedBy: { reconciled: number; contended: number; failed: number };
+  skippedBy: { reconciled: number; contended: number; failed: number; offsetByHand: number };
   undone: boolean;
+  handOffsets: HandOffset[];
 }
 
 /**
@@ -40,6 +42,9 @@ function partialUndoMessage({ reversed, skippedBy }: UndoResult): string {
     skippedBy.failed > 0
       ? `${skippedBy.failed} could not be reversed (for example, a closed period) — check those lines`
       : null,
+    skippedBy.offsetByHand > 0
+      ? `${skippedBy.offsetByHand} already offset by a manual journal — see below`
+      : null,
   ].filter((r): r is string => r !== null);
   return `Reversed ${reversed} line${reversed === 1 ? '' : 's'}. Not undone: ${reasons.join('; ')}.`;
 }
@@ -49,6 +54,7 @@ export function AutoPostRunsPanel({ onUndone }: { onUndone?: () => void }) {
   const [busy, setBusy] = useState<string | null>(null);
   const [undoError, setUndoError] = useState<string | null>(null);
   const [undoNotice, setUndoNotice] = useState<string | null>(null);
+  const [handOffsets, setHandOffsets] = useState<{ runId: string; offsets: HandOffset[] } | null>(null);
 
   const load = useCallback(() => {
     apiFetch('/api/accounting/bank-auto-post', { credentials: 'include' })
@@ -65,6 +71,7 @@ export function AutoPostRunsPanel({ onUndone }: { onUndone?: () => void }) {
     setBusy(runId);
     setUndoError(null);
     setUndoNotice(null);
+    setHandOffsets(null);
     try {
       const res = await apiFetch('/api/accounting/bank-auto-post', {
         method: 'POST',
@@ -81,6 +88,7 @@ export function AutoPostRunsPanel({ onUndone }: { onUndone?: () => void }) {
       }
       const result = ((await res.json()) as { data?: UndoResult }).data;
       if (result?.undone === false) setUndoNotice(partialUndoMessage(result));
+      if (result?.handOffsets?.length) setHandOffsets({ runId, offsets: result.handOffsets });
       load();
       onUndone?.();
     } catch (err) {
@@ -88,6 +96,16 @@ export function AutoPostRunsPanel({ onUndone }: { onUndone?: () => void }) {
     } finally {
       setBusy(null);
     }
+  }
+
+  function confirmed(offset: HandOffset, runClosed: boolean) {
+    setHandOffsets((prev) => {
+      const offsets = prev?.offsets.filter((o) => o.transactionId !== offset.transactionId) ?? [];
+      return prev && offsets.length > 0 ? { runId: prev.runId, offsets } : null;
+    });
+    if (runClosed) setUndoNotice(null);
+    load();
+    onUndone?.();
   }
 
   const active = runs.filter((r) => !r.undoneAt && r.postedCount > 0);
@@ -101,6 +119,13 @@ export function AutoPostRunsPanel({ onUndone }: { onUndone?: () => void }) {
       )}
       {undoNotice && (
         <p role="status" className="text-xs text-amber-500 mb-2">{undoNotice}</p>
+      )}
+      {handOffsets && (
+        <ul aria-label="Lines already corrected by hand" className="space-y-1 mb-2">
+          {handOffsets.offsets.map((o) => (
+            <HandOffsetNotice key={o.transactionId} runId={handOffsets.runId} offset={o} onConfirmed={confirmed} />
+          ))}
+        </ul>
       )}
       <ul className="space-y-1">
         {active.map((r) => (
