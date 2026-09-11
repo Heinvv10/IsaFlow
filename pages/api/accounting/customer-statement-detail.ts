@@ -12,6 +12,7 @@ import { apiResponse } from '@/lib/apiResponse';
 import { withAuth, type CompanyAuthedRequest, withWriteAccess} from '@/lib/auth';
 import { log } from '@/lib/logger';
 import { asAtTodayStr, documentInLedgerAsAtFragment } from '@/modules/accounting/services/shared/softDeleteLedgerPresence';
+import { documentInPopulationExpr } from '@/modules/accounting/services/shared/documentPopulation';
 type Row = Record<string, unknown>;
 
 // P3.4: this endpoint has no offset-pagination UI (single full-history view
@@ -50,7 +51,12 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
     const invoicesRaw = (await sql`
       SELECT id, invoice_number, invoice_date, notes, total_amount, status
       FROM customer_invoices ci
-      WHERE COALESCE(ci.client_id, ci.customer_id) = ${clientId}::UUID AND ci.company_id = ${companyId} AND ci.status != 'cancelled'
+      WHERE COALESCE(ci.client_id, ci.customer_id) = ${clientId}::UUID AND ci.company_id = ${companyId}
+        -- Hein decided 2026-09-11 (R-082): statements must not show draft
+        -- invoices, and must agree with the ageing on a null status. Routed
+        -- through the shared rule (R-059 round 6) instead of the bare
+        -- != 'cancelled', which kept drafts and dropped null-status rows.
+        AND ${sql.unsafe(documentInPopulationExpr('ci'))}
       -- As at TODAY, not undated: a document soft-deleted BEFORE the delete
       -- began reversing its journal has a standing entry the control account
       -- still carries, and a bare deleted_at IS NULL would drop it from this
@@ -100,7 +106,8 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
       SELECT
         COALESCE((
           SELECT SUM(ci.total_amount::numeric) FROM customer_invoices ci
-          WHERE COALESCE(ci.client_id, ci.customer_id) = ${clientId}::UUID AND ci.company_id = ${companyId} AND ci.status != 'cancelled'
+          WHERE COALESCE(ci.client_id, ci.customer_id) = ${clientId}::UUID AND ci.company_id = ${companyId}
+            AND ${sql.unsafe(documentInPopulationExpr('ci'))}
             AND ${documentInLedgerAsAtFragment('ci', asAtStr, companyId)}
         ), 0) AS total_invoiced,
         COALESCE((
