@@ -165,7 +165,7 @@ const REFUSAL_CODES: ReadonlySet<string> = new Set([
   'DOCUMENT_NUMBER_LOCK_TIMEOUT',
   'GL_ACCOUNT_LOCK_TIMEOUT',
   // Confirming a manual journal as the correction of an auto-posted line was
-  // refused (R-079). Six fixed messages written for the user, naming no id,
+  // refused (R-079). Nine fixed messages written for the user, naming no id,
   // amount or table, raised before any write. No MCP tool reaches it today.
   'HAND_CORRECTION_REFUSED',
   'JOURNAL_REVERSAL_LOCK_TIMEOUT',

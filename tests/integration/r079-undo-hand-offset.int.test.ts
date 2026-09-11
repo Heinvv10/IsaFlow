@@ -18,7 +18,7 @@ import {
   cleanupR079, inRequest, measuredHandOffset, nets, postJournal, postViaRoute, seedAutoPostedLine, seedR079,
   type R079Fixture,
 } from './helpers/r079Fixture';
-import { seedBankLine } from './helpers/k074Fixture';
+import { DAY, seedBankLine } from './helpers/k074Fixture';
 
 vi.mock('@/lib/auth', () => ({
   withAuth: (fn: unknown) => fn,
@@ -65,7 +65,10 @@ it('refuses the measured hand offset: posts nothing, keeps the run open and name
   expect(res.body.data).toEqual({
     reversed: 0, skipped: 1, alreadyUndone: 0, undone: false,
     skippedBy: { reconciled: 0, contended: 0, failed: 0, offsetByHand: 1 },
-    handOffsets: [{ transactionId: line, journalEntryId: offset.id, entryNumber: offset.entryNumber }],
+    handOffsets: [{
+      transactionId: line, lineDate: DAY, lineAmount: -100, lineDescription: 'K074 payment',
+      journalEntryId: offset.id, entryNumber: offset.entryNumber, entryDate: DAY, amount: 60, description: 'R079 journal',
+    }],
   });
   // The money is exactly where the user's correction left it — not E1 −60.
   expect(delta(base, await nets(pool, fx))).toEqual(afterHand);
@@ -102,36 +105,63 @@ it('keeps K-071: a hand REVERSAL is alreadyUndone, not an offset', async () => {
 }, 60000);
 
 /**
- * Guards fail both ways. Each journal below touches E1 or the bank in the
- * direction that would undo the posting, and none of them corrects THIS
- * posting — so none may block the undo. The run must undo to zero net change
- * beyond the unrelated journal itself.
+ * Detection fails closed (round 2): any journal a person posted after the
+ * posting that moves one of its NON-bank accounts back blocks the undo — the
+ * reclass is the common hand correction, and the ledger cannot tell it from
+ * an unrelated journal on the same account. The user decides.
  */
 it.each([
-  ['a reclass that moves E1 to an account the posting never touched', 'after', 'manual',
+  ['a reclass that moves E1 to an account the posting never touched',
     (f: R079Fixture) => [{ glAccountId: f.e1, debit: 0, credit: 60 }, { glAccountId: f.e3, debit: 60, credit: 0 }]],
-  ['a manual journal of the offset shape dated before the posting', 'before', 'manual',
-    (f: R079Fixture) => measuredHandOffset(f)],
-  ['a manual journal that moves E1 back by MORE than was posted', 'after', 'manual',
+  ['a journal that moves E1 back by MORE than was posted',
     (f: R079Fixture) => [{ glAccountId: f.e1, debit: 0, credit: 80 }, { glAccountId: f.bankAccount, debit: 80, credit: 0 }]],
-  ['a system journal of the offset shape (not made by a person)', 'after', 'auto_adjustment',
-    (f: R079Fixture) => measuredHandOffset(f)],
-  // 30, not 60: within E2's posted 40, so only the DIRECTION on E2 rules it out.
-  ['a reclass between the posting\'s own accounts (E1 back, E2 forward)', 'after', 'manual',
+  ['a reclass between the posting\'s own accounts (E1 back, E2 forward)',
     (f: R079Fixture) => [{ glAccountId: f.e1, debit: 0, credit: 30 }, { glAccountId: f.e2, debit: 30, credit: 0 }]],
-] as const)('does not block the undo: %s', async (_name, when, source, lines) => {
+  ['an unrelated refund entered by hand (Dr bank 25 / Cr E2 25)',
+    (f: R079Fixture) => [{ glAccountId: f.bankAccount, debit: 25, credit: 0 }, { glAccountId: f.e2, debit: 0, credit: 25 }]],
+] as const)('blocks the undo until the user decides: %s', async (_name, lines) => {
+  const base = await nets(pool, fx);
+  const { line, je, runId } = await seedAutoPostedLine(pool, fx);
+  const journal = await postJournal(pool, fx, [...lines(fx)]);
+  const before = delta(base, await nets(pool, fx));
+
+  const res = await undo(runId);
+
+  expect(res.body.data).toMatchObject({
+    reversed: 0, undone: false, skippedBy: { offsetByHand: 1 },
+    handOffsets: [{ transactionId: line, journalEntryId: journal.id }],
+  });
+  expect(await contrasOf(je)).toBe(0);
+  expect(delta(base, await nets(pool, fx))).toEqual(before);
+}, 60000);
+
+/**
+ * Guards fail both ways. None of these can be a person's correction of THIS
+ * posting, so none may block: the run undoes and the journal stands alone.
+ */
+it.each([
+  ['the offset shape dated BEFORE the posting', 'before', {},
+    (f: R079Fixture) => measuredHandOffset(f)],
+  ['a system journal of the offset shape', 'after', { source: 'auto_adjustment' },
+    (f: R079Fixture) => measuredHandOffset(f)],
+  ['a manual-source journal an MCP agent posted', 'after', { postingAgent: 'mcp:test-agent:v1' },
+    (f: R079Fixture) => measuredHandOffset(f)],
+  ['a later receipt that moves only the BANK back (Dr bank 25 / Cr E3 25)', 'after', {},
+    (f: R079Fixture) => [{ glAccountId: f.bankAccount, debit: 25, credit: 0 }, { glAccountId: f.e3, debit: 0, credit: 25 }]],
+  ['an accrual charging E1 the SAME way as the posting', 'after', {},
+    (f: R079Fixture) => [{ glAccountId: f.e1, debit: 30, credit: 0 }, { glAccountId: f.apAccount, debit: 0, credit: 30 }]],
+] as const)('does not block the undo: %s', async (_name, when, opts, lines) => {
   const base = await nets(pool, fx);
   let unrelated: { id: string } | null = null;
-  if (when === 'before') unrelated = await postJournal(pool, fx, [...lines(fx)], { source });
+  if (when === 'before') unrelated = await postJournal(pool, fx, [...lines(fx)], opts);
   const { je, runId } = await seedAutoPostedLine(pool, fx);
-  if (when === 'after') unrelated = await postJournal(pool, fx, [...lines(fx)], { source });
+  if (when === 'after') unrelated = await postJournal(pool, fx, [...lines(fx)], opts);
   const withUnrelated = delta(base, await nets(pool, fx));
 
   const res = await undo(runId);
 
   expect(res.body.data).toMatchObject({ reversed: 1, skipped: 0, undone: true, handOffsets: [] });
   expect(await contrasOf(je)).toBe(1);
-  // The posting is gone; the unrelated journal stands on its own.
   const after = delta(base, await nets(pool, fx));
   expect(after).toEqual({
     e1: withUnrelated.e1! - 60, e2: withUnrelated.e2! - 40, e3: withUnrelated.e3!, bank: withUnrelated.bank! + 100,
@@ -180,14 +210,14 @@ it('does not block the undo: the reversal of an unrelated earlier journal', asyn
   expect(await contrasOf(je)).toBe(1);
 }, 60000);
 
-it('refuses a journal LINKED to the bank line even when it reaches other accounts', async () => {
+it('refuses a journal LINKED to the bank line even when the system made it', async () => {
   const base = await nets(pool, fx);
   const { line, je, runId } = await seedAutoPostedLine(pool, fx);
-  // Credits E1 back, but books the other side to E3 — outside the posting.
-  // It names the bank line as its source record, which is the evidence.
+  // System-sourced, so only the LINK (it names the bank line as its source
+  // record) makes it block.
   const linked = await postJournal(pool, fx, [
     { glAccountId: fx.e1, debit: 0, credit: 60 }, { glAccountId: fx.e3, debit: 60, credit: 0 },
-  ]);
+  ], { source: 'auto_adjustment' });
   await pool.query('UPDATE gl_journal_entries SET source_record_id=$1 WHERE id=$2', [line, linked.id]);
   const afterHand = delta(base, await nets(pool, fx));
 
@@ -199,6 +229,21 @@ it('refuses a journal LINKED to the bank line even when it reaches other account
   });
   expect(await contrasOf(je)).toBe(0);
   expect(delta(base, await nets(pool, fx))).toEqual(afterHand);
+}, 60000);
+
+it('does not block the undo: a LINKED journal that charges the posting\'s accounts the same way', async () => {
+  const { line, je, runId } = await seedAutoPostedLine(pool, fx);
+  // E.g. a supplier invoice from the same captured document: linked, but it
+  // moves nothing of the posting back, so it corrects nothing.
+  const linked = await postJournal(pool, fx, [
+    { glAccountId: fx.e1, debit: 60, credit: 0 }, { glAccountId: fx.apAccount, debit: 0, credit: 60 },
+  ], { source: 'auto_adjustment' });
+  await pool.query('UPDATE gl_journal_entries SET source_record_id=$1 WHERE id=$2', [line, linked.id]);
+
+  const res = await undo(runId);
+
+  expect(res.body.data).toMatchObject({ reversed: 1, skipped: 0, undone: true, handOffsets: [] });
+  expect(await contrasOf(je)).toBe(1);
 }, 60000);
 
 it('refuses a hand offset on the MATCHED path (a categorization allocation) too', async () => {

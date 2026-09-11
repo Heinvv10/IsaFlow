@@ -1,16 +1,17 @@
 /**
- * R-079 — the recorded override. After the undo refuses a row with
- * `offsetByHand`, a person may confirm that the manual journal IS the
- * correction. That closes the row WITHOUT posting anything, records who, when
- * and which journal in `audit_log`, and lets the run close. It must refuse any
- * journal that does not actually offset the posting, so it cannot close a row
- * nothing offsets. And no interleaving of undo and override may apply both.
+ * R-079 — "mark as corrected by hand". After the undo refuses a row with
+ * `offsetByHand`, a person may confirm that the journal IS the correction.
+ * That closes the row WITHOUT posting anything, records who, when and which
+ * journal in `audit_log`, and lets the run close. Round 2 decides it by the
+ * NET (the K-071 principle): accepted only when a person made the journal and,
+ * with the posting, it brings every non-bank account the posting charged back
+ * to zero. Anything else is refused, so it cannot close a live posting.
  */
 import { afterAll, beforeAll, expect, it, vi } from 'vitest';
 import { Pool } from 'pg';
 import { assertDisposable } from './mfa-impersonation-postgres.helpers';
 import {
-  cleanupR079, measuredHandOffset, nets, postJournal, postViaRoute, seedAutoPostedLine, seedR079,
+  cleanupR079, fullReclass, measuredHandOffset, nets, postJournal, postViaRoute, seedAutoPostedLine, seedR079,
   type R079Fixture,
 } from './helpers/r079Fixture';
 
@@ -46,9 +47,9 @@ async function contrasOf(je: string): Promise<number> {
   return rows[0].n;
 }
 
-it('closes the refused row with no net change, records who/when/which journal, and closes the run', async () => {
+it('closes a line a full reclass corrected: no net change, who/when/which journal recorded, run closed', async () => {
   const { line, je, runId } = await seedAutoPostedLine(pool, fx);
-  const offset = await postJournal(pool, fx, measuredHandOffset(fx));
+  const offset = await postJournal(pool, fx, fullReclass(fx));
   expect((await undo(runId)).body.data).toMatchObject({ undone: false, skippedBy: { offsetByHand: 1 } });
   const before = await nets(pool, fx);
 
@@ -85,33 +86,49 @@ it('closes the refused row with no net change, records who/when/which journal, a
 }, 60000);
 
 /**
- * Each journal below is NOT an offset of the posting, so confirming it would
- * close a row nothing corrects. Every refusal is a 400 that writes nothing.
+ * Each journal below leaves the posting LIVE on at least one account, or was
+ * not made by a person, so marking it "the correction" would close a run over
+ * money still on the books. Every refusal is a 400 that writes nothing.
  */
+const NOT_NET = /does not correct this posting/;
 it.each([
-  ['a journal on accounts the posting never touched', async (f: R079Fixture) => (await postJournal(pool, f, [
+  // Review MEDIUM-1, both measured shapes: accepted with the posting fully live.
+  ['a manual Dr bank 1 / Cr E3 1', NOT_NET, async (f: R079Fixture) => (await postJournal(pool, f, [
+    { glAccountId: f.bankAccount, debit: 1, credit: 0 }, { glAccountId: f.e3, debit: 0, credit: 1 },
+  ])).id],
+  ['a system receipt Dr bank 500 / Cr E3 500 (auto_payment)', NOT_NET, async (f: R079Fixture) => (await postJournal(pool, f, [
+    { glAccountId: f.bankAccount, debit: 500, credit: 0 }, { glAccountId: f.e3, debit: 0, credit: 500 },
+  ], { source: 'auto_payment' })).id],
+  // The measured PARTIAL offset: E1 back to zero, E2 40 still charged.
+  ['the measured partial offset (E1 only)', NOT_NET, async (f: R079Fixture) =>
+    (await postJournal(pool, f, measuredHandOffset(f))).id],
+  ['a full reclass an MCP agent posted', /Only a journal a person posted/, async (f: R079Fixture) =>
+    (await postJournal(pool, f, fullReclass(f), { postingAgent: 'mcp:test-agent:v1' })).id],
+  ['a full reclass from a system source', /Only a journal a person posted/, async (f: R079Fixture) =>
+    (await postJournal(pool, f, fullReclass(f), { source: 'auto_adjustment' })).id],
+  ['a journal on accounts the posting never touched', NOT_NET, async (f: R079Fixture) => (await postJournal(pool, f, [
     { glAccountId: f.e3, debit: 0, credit: 60 }, { glAccountId: f.apAccount, debit: 60, credit: 0 },
   ])).id],
-  ['a journal that moves the accounts the SAME way as the posting', async (f: R079Fixture) => (await postJournal(pool, f, [
+  ['a journal that moves the accounts the SAME way as the posting', NOT_NET, async (f: R079Fixture) => (await postJournal(pool, f, [
     { glAccountId: f.e1, debit: 60, credit: 0 }, { glAccountId: f.bankAccount, debit: 0, credit: 60 },
   ])).id],
-  ['a draft journal of the offset shape', async (f: R079Fixture) =>
-    (await postJournal(pool, f, measuredHandOffset(f), { draft: true })).id],
+  ['a draft full reclass', NOT_NET, async (f: R079Fixture) =>
+    (await postJournal(pool, f, fullReclass(f), { draft: true })).id],
   // The lines FK pins an account to its own company, so the lines carry this
   // company and only the ENTRY belongs to the other one: the entry's own
   // company is what the override must check.
-  ['a journal of the offset shape in ANOTHER company', async (f: R079Fixture) => {
+  ['a full reclass whose entry is in ANOTHER company', NOT_NET, async (f: R079Fixture) => {
     const id = crypto.randomUUID();
     await pool.query(
       `INSERT INTO gl_journal_entries(id,company_id,entry_date,description,source,status,created_by,posted_at)
        VALUES($1,$2,'2026-05-15','R079 other company','manual','posted',$3,NOW())`, [id, f.otherCompany, f.user]);
     await pool.query(
       `INSERT INTO gl_journal_lines(journal_entry_id,company_id,gl_account_id,debit,credit)
-       VALUES($1,$2,$3,0,60),($1,$2,$4,60,0)`, [id, f.company, f.e1, f.bankAccount]);
+       VALUES($1,$2,$3,0,60),($1,$2,$4,0,40),($1,$2,$5,100,0)`, [id, f.company, f.e1, f.e2, f.e3]);
     return id;
   }],
-  ['the posting itself', async (_f: R079Fixture, je: string) => je],
-] as const)('refuses to confirm %s, and writes nothing', async (_name, make) => {
+  ['the posting itself', NOT_NET, async (_f: R079Fixture, je: string) => je],
+] as const)('refuses to mark %s as the correction, and writes nothing', async (_name, message, make) => {
   const { line, je, runId } = await seedAutoPostedLine(pool, fx);
   const journalId = await make(fx, je);
   const before = await nets(pool, fx);
@@ -119,7 +136,7 @@ it.each([
   const res = await confirm(runId, line, journalId);
 
   expect(res.status).toBe(400);
-  expect(res.body.error?.message).toMatch(/does not offset this posting/);
+  expect(res.body.error?.message).toMatch(message);
   expect(await nets(pool, fx)).toEqual(before);
   const { rows: tx } = await pool.query('SELECT auto_post_run_id FROM bank_transactions WHERE id=$1', [line]);
   expect(String(tx[0].auto_post_run_id)).toBe(runId);
@@ -133,8 +150,8 @@ it('leaves the run open while another line is still tagged; the confirmed journa
   const first = await seedAutoPostedLine(pool, fx);
   const second = await seedAutoPostedLine(pool, fx);
   await pool.query('UPDATE bank_transactions SET auto_post_run_id=$1 WHERE id=$2', [first.runId, second.line]);
-  // Posted after both postings, so the ledger alone would match it to either.
-  const offset = await postJournal(pool, fx, measuredHandOffset(fx));
+  // Posted after both postings, and it nets EITHER of them out.
+  const offset = await postJournal(pool, fx, fullReclass(fx));
 
   const res = await confirm(first.runId, first.line, offset.id);
 
@@ -149,10 +166,10 @@ it('leaves the run open while another line is still tagged; the confirmed journa
   expect((await undo(first.runId)).body.data).toMatchObject({ reversed: 1, skipped: 0, undone: true, handOffsets: [] });
   expect(await contrasOf(second.je)).toBe(1);
   expect(await contrasOf(first.je)).toBe(0);
-  // Net: the first posting stands as the user corrected it; the second is gone.
+  // Net: the first posting stands as the user corrected it (all on E3); the second is gone.
   const after = await nets(pool, fx);
-  expect({ e1: after.e1! - base.e1!, e2: after.e2! - base.e2!, bank: after.bank! - base.bank! })
-    .toEqual({ e1: 0, e2: 40, bank: -40 });
+  expect({ e1: after.e1! - base.e1!, e2: after.e2! - base.e2!, e3: after.e3! - base.e3!, bank: after.bank! - base.bank! })
+    .toEqual({ e1: 0, e2: 0, e3: 100, bank: -100 });
 }, 60000);
 
 it('refuses a row that is not part of the run', async () => {
@@ -180,31 +197,4 @@ it('two racing undos reverse the posting exactly once', async () => {
   expect(results.every((r) => r.status === 'fulfilled')).toBe(true);
   expect(await contrasOf(je)).toBe(1);
   expect(await nets(pool, fx)).toEqual(base);
-}, 60000);
-
-/**
- * The override accepts a reclass the detector cannot see (it is the user's
- * word, recorded). Racing it against an undo must never apply BOTH — the
- * posting reversed AND the row confirmed as corrected by hand.
- */
-it('an undo racing an override applies exactly one of them', async () => {
-  const { line, je, runId } = await seedAutoPostedLine(pool, fx);
-  const reclass = await postJournal(pool, fx, [
-    { glAccountId: fx.e1, debit: 0, credit: 60 }, { glAccountId: fx.e3, debit: 60, credit: 0 },
-  ]);
-  // Hold the bank line so both requests queue on its lock, then let go.
-  const holder = await pool.connect();
-  await holder.query('BEGIN');
-  await holder.query('SELECT 1 FROM bank_transactions WHERE id=$1 FOR UPDATE', [line]);
-  const racing = Promise.allSettled([undo(runId), confirm(runId, line, reclass.id)]);
-  await new Promise((r) => setTimeout(r, 300));
-  await holder.query('COMMIT');
-  holder.release();
-  await racing;
-
-  const reversals = await contrasOf(je);
-  const confirmations = (await audits(line)).length;
-  expect(reversals + confirmations).toBe(1);
-  const { rows: run } = await pool.query('SELECT undone_at FROM bank_auto_post_runs WHERE id=$1', [runId]);
-  expect(run[0].undone_at).not.toBeNull();
 }, 60000);

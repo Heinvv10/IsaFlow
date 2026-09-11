@@ -229,3 +229,152 @@ already removed the posting it corrected).
 `pages/api/accounting/bank-auto-post.ts`; `AutoPostRunsPanel.tsx`, new `HandOffsetNotice.tsx`;
 `src/lib/mcp/tools/toolHelpers.ts`; `services/bank/.claude.md` + regenerated `AGENTS.md`; tests
 listed above plus `tests/integration/helpers/r079Fixture.ts`.
+
+---
+
+## Round 2 — blind review of `822b1d405` (0 HIGH · 2 MEDIUM · 2 LOW) plus the reclass extension
+
+### MEDIUM-1 — "mark as corrected" closed runs over live postings — FIXED, decided by the NET
+
+The reviewer confirmed `Dr bank 1 / Cr E3 1` (manual) and `Dr bank 500 / Cr E3 500` (`auto_payment`)
+against a R100 posting: both answered `runClosed:true` with the posting fully live. The override now
+accepts a journal only if **a person made it** (source not `auto_*`, and `posting_agent` NULL,
+`human…` or `legacy:human` — MCP agents, `system:`, `ai:` and `import:` are not people) **and,
+together with the posting, it nets to zero within a cent on every NON-bank account of the posting**
+(K-071's principle: decide by the net, not the flags). Otherwise `HAND_CORRECTION_REFUSED`. Both of
+the reviewer's shapes are pinned, and so is the measured partial offset (E1 back, E2 40 still
+charged), which is now refused. That is a consequence of the rule: a partial correction is not
+"the correction". The user reverses it and undoes, or declares it unrelated.
+
+### MEDIUM-2 — a false positive had no honest way out — FIXED (lead's decision under Hein's design)
+
+A second recorded action, **"Not the correction — undo anyway"** (`undoAnyway`, route action
+`undoAnyway`). The user declares the blocking journal unrelated to this line. `audit_log` records
+who, when, the run, the line, the posting and the journal (reason
+`auto_post_offset_declared_unrelated`). Then the line is undone through the same `undoRow`. The
+declaration and the undo run in one savepoint, so a refused reversal (a closed period) takes the
+declaration back and answers a fixed 400 with nothing written. Contention still answers 409. A
+declared journal no longer blocks that line, cannot then be marked as its correction, and if a
+SECOND journal still blocks, the answer names it (`outcome: 'offsetByHand'`, `handOffset`) and the
+panel swaps it in. The reviewer's case is pinned end to end: an unrelated `Dr bank 25 / Cr E2 25`
+blocks the undo, "mark corrected" is refused by the net check, and undo-anyway leaves
+**e1 0 / e2 −25 / bank +25** with exactly one contra.
+
+### Extension — detection fails closed on the reclass
+
+The reviewer judged a reclass (Cr E1 / Dr E3) to be the COMMON hand correction, and round 1 missed
+it. A journal now blocks the undo when it is posted, same company, after the posting, not a
+reversal, still on the books (odd reversal chain = off), not declared unrelated for this line, AND
+either linked (source record = the line, or the posting's source document) or person-made, not
+owned by another bank line (its allocation or its confirmed correction), and **moves one of the
+posting's NON-bank accounts back**. Round 1's "wholly within the posting" arm is gone: it is what
+let the reclass through. Moving only the bank back never blocks, because every posting touches the
+bank and a later receipt says nothing about this line.
+
+**False-block measurement** (fixture, 20 auto-posted lines on E1/E2, routine activity after them):
+
+| Scenario | Lines blocked |
+|---|---|
+| 10 month-end accruals Dr E1 / Cr accrued liability (person) | 0 / 20 |
+| + those accruals reversed through the product (`reversal_of_id`) | 0 / 20 |
+| + 10 supplier credit notes Cr E1 (system `auto_credit_note`) | 0 / 20 |
+| + ONE accrual reversal typed by hand (Cr E1 / Dr liability, person) | **20 / 20** |
+| (that one reversed) + ONE month-end reclass E2 → E3 R10 (person) | **20 / 20** |
+
+This is the cost of failing closed. One person-made credit to an expense account blocks every
+earlier auto-posting on that account until the user decides, once per line. Routine activity done
+through the product (accruals, reversals via Reverse, system documents) blocks nothing. For scale,
+a census on `isaflow_dev`: person-made, non-reversal journals crediting an expense account number
+**4 at Brightsphere and 1 at ISAFlow Demo**, across all history.
+
+### LOW-3 — two refused lines looked identical — FIXED
+
+`handOffsets` now carries the line's date, amount and description, and the journal's date, amount
+and description. `HandOffsetNotice` renders both: "Line 2027-11-15 · −R100,00 · … : JE-… (2027-11-16
+· R25,00 · …) may already correct this posting — reverse that journal and undo again, or decide
+below." Each decision sits behind its own `ConfirmDialog`.
+
+### LOW-4 — the scan was per candidate — FIXED: one statement per row
+
+`offsetCandidate` is one statement returning at most one journal. It is seeded only from lines on
+the posting's NON-bank accounts that move them back, plus its links, so bank traffic never enters.
+Link and person flags are computed once (`base`), and system journals are filtered before any
+correlated check. The per-candidate checks are indexed `EXISTS` (the bank-line claim is split into
+the two indexed lookups; the audit claims use the `changes` GIN index via `@>`). The reversal
+chain is walked only for a journal that has a posted contra. The amount and net are computed for
+the single returned row. Measured `findHandOffset` per row, after `ANALYZE`:
+
+| Later journals | bank receipts (review shape) | system credits to E1 | person accruals on E1 | person credits to E1 (all block) |
+|---|---|---|---|---|
+| 200 | 4 ms | 8 ms | 7 ms | 6 ms |
+| 2,000 | 3 ms | 14 ms | 3 ms | 29 ms |
+| 8,000 | **5 ms** (was 2,874) | 48 ms | 4 ms | 92 ms |
+
+Measured WITHOUT `ANALYZE` straight after the bulk insert, as the reviewer's harness did, the
+review shape is 25 ms at 8,000. But the two shapes that reach the per-candidate checks degrade to
+1.9 s (system credits) and 5.4 s (person credits). The planner, told the company has about one
+line, picks the company index for per-journal lookups. That needs a tenant whose table statistics
+are far behind its data. It is not fixed here; it is recorded.
+
+### Guards both ways (all pinned)
+
+Never-touched run undoes to zero · hand REVERSAL still `alreadyUndone` · undo vs undo, undo-anyway
+vs undo, undo-anyway vs undo-anyway: one contra · undo-anyway vs mark-corrected: exactly one
+decision recorded, and a contra only if undo-anyway won · non-blocking: offset shape dated before
+the posting, system journal, MCP-agent journal, bank-only receipt, same-direction accrual, another
+line's allocation, a reversed offset, the reversal of an unrelated journal, a linked journal that
+charges the same way.
+
+### Mutations (27 run, 26 red; file sha256 checked before/after)
+
+R1 bank leg counted as expense moved back 1/7 · R2 posting_agent ignored 1/18 · R3 source ignored
+1/18 · R4 other line's provisional JE not a claim 1/18 · R5 confirmed correction not a claim 1/14 ·
+R6 declared-unrelated ignored 5/7 · R7 reversed journals still count 1/18 · R8 no "after the
+posting" 16/18 · R9 no "not a reversal" 1/18 · R10 linked arm off 1/18 · R11 drafts count 1/14 ·
+R12 no company filter 1/14 · R13 no moves-back base 1/18 · R14 net check never fails 3/14 · R15
+net check includes the bank 4/14 · R16 mark: no person check 2/14 · R17 mark: no claim check 1/14 ·
+R18 mark: no declared check 1/7 · R19 mark: no net check 3/14 · R20 anyway: no blocks check 1/7 ·
+R22 anyway: no declaration 5/7 · R23 decisions: no run-tag check 1/14 · R24 UI one-click
+undo-anyway 3/7 · R25 UI journal details dropped 1/7 · R26 offsetByHand not in skipped 7/18 · R27
+undo row-tag re-check off unit 1/3 · R28 anyway: closed-period refusal re-thrown 1/8.
+
+**R21 survived and the code went instead:** "close the run only when the line was undone" was
+redundant, because `closeRunIfNothingTagged` already refuses while any line is tagged. The guard is
+removed. Two more survived the first pass: R2 and R3, because the person rule was written twice (a
+cheap early filter and the flag); R1, because it was aimed at the wrong file. The person rule is
+now computed once (`base`), and R1 is aimed at the undo-anyway refusal it guards. All three are red
+above.
+
+### Browser proof (headless Chromium, `next dev -p 3217` from this worktree, `isaflow_dev`, reporting-qa, Brightsphere)
+
+The first attempt seeded the posting on 2026-09-01. Undo-anyway answered **500**:
+`ClosedFiscalPeriodError` from the reversal, Brightsphere's September 2026 being closed. The DB
+afterwards: line still tagged, 0 contras, 0 audit rows, so the savepoint held. But the panel got
+a bare 500. That is now the fixed 400 above (R28 pins it). Re-seeded in November 2027 (open):
+- Undo → 200 `offsetByHand:1`. The panel read "Line 2027-11-15 · −R100,00 · R079 r2 proof line:
+  JE-2027-00002 (2027-11-16 · R25,00 · R079 r2 proof — supplier refund entered by hand) may already
+  correct this posting — reverse that journal and undo again, or decide below." with both actions.
+- "Mark as corrected by hand" → dialog → accept → 400. The line showed "That journal does not
+  correct this posting — with it, every account the posting charged must come back to zero".
+- "Not the correction — undo anyway" → its own dialog, no request sent before accept → accept → 200
+  `{"outcome":"reversed","runClosed":true}`. The run left the panel.
+- DB: line `imported`, links and tag cleared; run undone; 1 posted contra; one audit row
+  (`auto_post_offset_declared_unrelated`, the QA user, JE-2027-00002); nets on the three accounts
+  over posting + contra + refund: Accounting Fees 0.00, Advertising −25.00, Bank +25.00. All seed
+  rows were deleted and the dev server stopped.
+
+### Gates (foreground)
+
+- `env -u DATABASE_URL bun run ci` → every step PASS, `Tests 13014 passed | 248 skipped`,
+  components `554 passed`, build PASS, `[ci] all checks passed`, **EXIT=0**.
+- `k071-*`, `k140-*`, `k143-*`, `k144-*`, `r079-*` (20 files) `--no-file-parallelism` →
+  `Test Files 20 passed (20)`, `Tests 88 passed | 1 skipped (89)`, **EXIT=0**.
+
+### Files this round
+
+`autoPostHandOffset.ts` (fail-closed rule, one statement, `offsetCandidate`), `autoPostHandCorrection.ts`
+(net-checked mark, `undoAnyway`), `autoPostUndoService.ts` (`undoRow` exported), `bank-auto-post.ts`
+(`undoAnyway` action), `HandOffsetNotice.tsx` / `AutoPostRunsPanel.tsx`, `toolHelpers.ts` (comment:
+nine fixed messages), bank `.claude.md` + `AGENTS.md`; tests: `r079-undo-anyway.int.test.ts` (new,
+8), `r079-undo-hand-offset` (18), `r079-hand-correction-override` (14), unit (3), component (7),
+`r079Fixture.ts` (`fullReclass`, `postingAgent`). No migration.
