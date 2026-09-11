@@ -119,6 +119,7 @@ const CLASSIFICATION: Readonly<Record<string, string>> = {
   'src/modules/accounting/services/bank/bankTxLock.ts': 'exempt: writer (Task 3) — row lock taken before a write',
   'src/modules/accounting/services/bank/bankTxQueryFragments.ts': 'exempt: shared SELECT fragment with no WHERE of its own; every caller (bankTransactionQueryService.ts) filters',
   'src/modules/accounting/services/bank/bankTxStatusMutations.ts': "exempt: non-posted rows cannot carry matched_journal_line_id (trigger 675); writer (Task 3)",
+  'src/modules/accounting/services/bank/feed/bankIngestionPersistence.ts': "exempt: the feed writer (Task 6) — the provider-id read is id-keyed and FOR UPDATE, and must see every state to apply the lifecycle; the content-hash read is the dedup set across all states by design (a pending/removed row still occupies its hash)",
   'src/modules/accounting/services/bank/llmCategorizationPass.ts': 'exempt: writer (Task 3) — categorization pipeline reads/writes',
   'src/modules/accounting/services/capture/bankTxQueryReplyService.ts': 'exempt: writer (Task 3) — ownership preflight before a write',
   'src/modules/accounting/services/capture/bankTxQueryService.ts': 'exempt: writer (Task 3) send path; listing is an audit trail of already-created queries, not a financial total',
