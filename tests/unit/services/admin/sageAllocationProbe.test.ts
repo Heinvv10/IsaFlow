@@ -4,6 +4,7 @@ import {
   parseProbeArgs, runAllocationProbe, PROBE_PLAN, PROBE_REQUEST_CAP, type ProbeRequest,
 } from '@/modules/admin/services/sageAllocationProbe';
 import { describeShape } from '@/modules/admin/services/sageProbeShape';
+import { buildSageHeaders } from '@/modules/admin/services/sageSession';
 
 // Synthetic values only. Every one of these must be absent from probe output.
 const PII = {
@@ -42,18 +43,40 @@ describe('describeShape', () => {
     expect(out).toContain('"array":2');
     expect(out).toContain('"redactedKeys":4');
     // Identifier-shaped keys that are client data are counted, never printed.
-    expect(out).toContain('"Balance":{"object":{"IsObfuscated":"boolean"},"redactedKeys":4}');
+    expect(out).toContain('"Balance":{"object":{"IsObfuscated":"boolean"},"redactedKeys":4,"redacted":["number"]}');
     expect(out).toContain('"TotalUnallocated":"number"');
     expect(out).toContain('"ID":"number"');
     // Union over array items: a key present in only one item still appears.
     expect(out).toContain('"Reference":"null"');
   });
-  it('summarises a large keyed dictionary instead of listing its keys', () => {
+  it('summarises a large keyed dictionary instead of listing even field-shaped keys', () => {
+    const words = ['Total', 'Amount', 'Document', 'Invoice', 'Receipt', 'Payment', 'Line', 'Account', 'Customer', 'Supplier', 'Bank', 'Reference', 'Status', 'Date', 'Balance'];
     const dict: Record<string, number> = {};
-    for (let i = 0; i < 150; i++) dict[`Customer${i}Balance`] = i * 3.5;
+    for (const a of words) for (const b of words.slice(0, 10)) dict[`${a}${b}Id`] = 1;
+    expect(Object.keys(dict)).toHaveLength(150);
     const out = JSON.stringify(describeShape(dict));
     expect(out).toContain('"dictionary":150');
-    expect(out).not.toContain('Customer0Balance');
+    expect(out).not.toContain('TotalTotalId');
+  });
+  it('prints the allocation-shaped field names the probe exists to discover', () => {
+    const keys = ['AllocatedToId', 'SourceDocumentType', 'DocumentTypeId', 'Lines', 'TotalAllocated', 'AllocationDate', 'LinkedTransactions',
+      'Applied', 'CreditNoteId', 'DocumentLines', 'TransactionId', 'Transactions', 'TransactionType', 'AllocationDetails', 'Details', 'AllocatedBy',
+      'AllocatedAt', 'CreatedBy', 'MatchedDocuments', 'AmountRemaining', 'Remaining', 'Open', 'RelatedDocuments', 'Settlements', 'Split', 'Ledger',
+      'Reversal', 'WriteOff', 'Payee', 'Accepted', 'BusinessEventId', 'Guid', 'Entries', 'SourceDocumentId', 'AllocatedToDocumentId'];
+    const shape = describeShape(Object.fromEntries(keys.map(key => [key, 1])));
+    expect(typeof shape !== 'string' && 'object' in shape ? Object.keys(shape.object).sort() : []).toEqual([...keys].sort());
+  });
+  it('keeps the structure under a redacted key without its name', () => {
+    const out = JSON.stringify(describeShape({ [PII.surnameField]: [{ AllocatedToDocumentId: PII.id, Total: PII.amount }] }));
+    expect(out).toContain('"AllocatedToDocumentId":"number"');
+    assertNoPii(out);
+  });
+  it('stops describing below the depth cap', () => {
+    let nested: Record<string, unknown> = { Total: 1 };
+    for (let i = 0; i < 20; i++) nested = { Child: nested };
+    const out = JSON.stringify(describeShape(nested));
+    expect(out.split('"Child"').length - 1).toBe(8);
+    expect(out).not.toContain('Total');
   });
 });
 
@@ -181,6 +204,53 @@ describe('runAllocationProbe', () => {
     });
     assertNoPii(lines.join('\n'));
     expect(lines.join('\n')).toContain('network_error');
+  });
+});
+
+describe('runAllocationProbe request discipline', () => {
+  const base = 'https://accounting.sageone.co.za', cookie = 'session=synthetic-cookie-value';
+  it('only reads: GETs, and POSTs that are exactly the pull list query for one record, with the pull headers', async () => {
+    const seen: Array<{ url: string; init: RequestInit }> = [];
+    await runAllocationProbe({ base, cookie, dryRun: false, write: () => undefined,
+      fetch: async (url, init) => { seen.push({ url, init }); return json(url.includes('GetWithFilter') ? receiptList : {}); } });
+    expect(seen.length).toBe(PROBE_PLAN.length);
+    for (const { url, init } of seen) {
+      expect(['GET', 'POST']).toContain(init.method);
+      expect(init.headers).toEqual(buildSageHeaders(cookie));
+      if (init.method === 'POST') {
+        expect(new URL(url).pathname.endsWith('/GetWithFilter')).toBe(true);
+        expect(JSON.parse(String(init.body))).toEqual({ FilterId: 0, Search: '', Skip: 0, Take: 1 });
+      } else expect(init.body).toBeUndefined();
+    }
+  });
+  it('takes no id from a failing, empty or non-numeric list and skips what needs it', async () => {
+    for (const list of [() => json(receiptList, 500), () => json({ Results: [] }), () => json({ Results: [{ ID: '../Delete' }] })]) {
+      const urls: string[] = [];
+      const lines: string[] = [];
+      await runAllocationProbe({ base, cookie, dryRun: false, plan: PROBE_PLAN.slice(0, 2),
+        fetch: async url => { urls.push(url); return list(); }, write: line => lines.push(line) });
+      expect(urls).toHaveLength(1);
+      expect(lines.join('\n')).toContain('skipped_no_id');
+    }
+  });
+  it('refuses a body whose declared length is over the cap', async () => {
+    const lines: string[] = [];
+    await runAllocationProbe({ base, cookie, dryRun: false, plan: [PROBE_PLAN[4]!], write: line => lines.push(line),
+      fetch: async () => new Response(JSON.stringify({ Name: PII.name }), { status: 200, headers: { 'content-type': 'application/json', 'content-length': String(6 * 1024 * 1024) } }) });
+    expect(lines.join('\n')).toContain('body_too_large');
+    assertNoPii(lines.join('\n'));
+  });
+  it('treats an HTML error page for a guessed endpoint as a wrong guess, not a dead session', async () => {
+    let calls = 0;
+    await runAllocationProbe({ base, cookie, dryRun: false, write: () => undefined,
+      fetch: async () => { calls += 1; return new Response(`<html>${PII.name}</html>`, { status: 404, headers: { 'content-type': 'text/html' } }); } });
+    expect(calls).toBeGreaterThan(1);
+  });
+  it('continues past a 403 on a later endpoint (a resource this user may not read)', async () => {
+    let calls = 0;
+    await runAllocationProbe({ base, cookie, dryRun: false, write: () => undefined,
+      fetch: async () => { calls += 1; return calls === 1 ? json(receiptList) : new Response(null, { status: 403 }); } });
+    expect(calls).toBeGreaterThan(2);
   });
 });
 

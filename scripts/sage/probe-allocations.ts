@@ -23,7 +23,7 @@ async function main() {
   try { parsed = parseProbeArgs(process.argv.slice(2)); } catch (error) { fail(error instanceof Error ? error.message : 'Invalid arguments'); }
   const { dryRun, base } = parsed;
   const baseReason = await checkPublicUrl(base, { allowHosts: SAGE_ALLOWED_HOSTS });
-  if (baseReason) fail(`--base must be a Sage HTTPS host (${baseReason})`);
+  if (baseReason) fail('--base must be a public Sage HTTPS host (*.sageone.co.za)');
   const cookie = process.env.SAGE_COOKIE ?? '';
   if (!dryRun && cookie.length < 16) fail('SAGE_COOKIE is missing or too short');
 

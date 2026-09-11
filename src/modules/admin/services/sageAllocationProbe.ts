@@ -113,7 +113,7 @@ async function readBounded(response: Response): Promise<{ text: string; bytes: n
   return { text: Buffer.concat(chunks).toString('utf8'), bytes };
 }
 
-async function probeOne(options: ProbeOptions, request: ProbeRequest, url: string): Promise<{ line: Line; body: unknown; stop: boolean }> {
+async function probeOne(options: ProbeOptions, request: ProbeRequest, url: string, first: boolean): Promise<{ line: Line; body: unknown; stop: boolean }> {
   const line: Line = { endpoint: request.pathTemplate, method: request.method, label: request.label };
   try {
     const response = await options.fetch(url, {
@@ -123,8 +123,9 @@ async function probeOne(options: ProbeOptions, request: ProbeRequest, url: strin
     });
     line.status = response.status;
     line.contentType = mediaType(response.headers.get('content-type'));
-    // Sage answers an expired or wrong session with a redirect, 401/403, or a 200 HTML login page.
-    if (response.status === 401 || response.status === 403 || (response.status >= 300 && response.status < 400)) {
+    // Sage answers an expired or wrong session with a redirect, a 401, or a 200 HTML login page. A 403
+    // on a later endpoint is one resource this Sage user may not read, not a dead session.
+    if (response.status === 401 || (response.status === 403 && first) || (response.status >= 300 && response.status < 400)) {
       await response.body?.cancel();
       return { line: { ...line, result: 'session_rejected' }, body: null, stop: true };
     }
@@ -132,7 +133,11 @@ async function probeOne(options: ProbeOptions, request: ProbeRequest, url: strin
     if (read === 'too_large') return { line: { ...line, result: 'body_too_large' }, body: null, stop: false };
     if (read === 'timeout') return { line: { ...line, result: 'body_timeout' }, body: null, stop: false };
     line.bytes = read.bytes;
-    if (/^\s*</.test(read.text)) return { line: { ...line, result: 'session_rejected', bodyKind: 'html' }, body: null, stop: true };
+    if (/^\s*</.test(read.text)) {
+      // A 2xx HTML page is Sage's login screen; a 404/500 HTML page is just a wrong guess at an endpoint.
+      return response.ok ? { line: { ...line, result: 'session_rejected', bodyKind: 'html' }, body: null, stop: true }
+        : { line: { ...line, bodyKind: 'html' }, body: null, stop: false };
+    }
     if (!read.text.trim()) return { line: { ...line, bodyKind: 'empty' }, body: null, stop: false };
     let body: unknown;
     try { body = JSON.parse(read.text); } catch { return { line: { ...line, bodyKind: 'non-json' }, body: null, stop: false }; }
@@ -166,7 +171,7 @@ export async function runAllocationProbe(options: ProbeOptions): Promise<{ reque
       path = path.replace(`{${request.needs}}`, encodeURIComponent(id));
     }
     requests += 1;
-    const { line, body, stop } = await probeOne(options, request, `${base}${path}`);
+    const { line, body, stop } = await probeOne(options, request, `${base}${path}`, requests === 1);
     if (request.captures) {
       const id = firstRecordId(body);
       if (id) ids.set(request.captures, id);
