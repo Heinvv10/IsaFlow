@@ -56,6 +56,34 @@ async function document() {
   await pool.query('INSERT INTO payment_allocations(payment_id,invoice_id,amount_allocated) VALUES($1,$2,115)', [payment, invoice]);
   return { invoice, payment };
 }
+// The one source of "today" the calendar-dependent tests below derive everything from — a single
+// place to point at a different clock when proving that derivation is calendar-agnostic.
+async function serverToday(): Promise<string> {
+  return (await pool.query("SELECT (clock_timestamp() AT TIME ZONE 'Africa/Johannesburg')::date::text AS day")).rows[0].day;
+}
+function firstOfPreviousMonth(dateStr: string): string {
+  const date = new Date(`${dateStr}T00:00:00Z`);
+  date.setUTCMonth(date.getUTCMonth() - 1, 1);
+  return date.toISOString().slice(0, 10);
+}
+function addDays(dateStr: string, days: number): string {
+  const date = new Date(`${dateStr}T00:00:00Z`);
+  date.setUTCDate(date.getUTCDate() + days);
+  return date.toISOString().slice(0, 10);
+}
+/** Reuses an existing open period covering `dateStr`, or creates a single-day one scoped to it —
+ * never an unconditional insert, which could collide with fiscal_periods_no_overlap (migration 502). */
+async function ensureOpenPeriod(dateStr: string): Promise<string> {
+  const covering = await pool.query(
+    "SELECT id FROM fiscal_periods WHERE company_id=$1 AND status='open' AND start_date<=$2::date AND end_date>=$2::date",
+    [fixture.companyA, dateStr]);
+  if (covering.rows[0]) return covering.rows[0].id as string;
+  const id = randomUUID(), date = new Date(`${dateStr}T00:00:00Z`);
+  await pool.query(`INSERT INTO fiscal_periods(id,company_id,period_name,period_number,fiscal_year,start_date,end_date,status)
+    VALUES($1,$2,'Synthetic derived period',$3,$4,$5::date,$5::date,'open')`,
+    [id, fixture.companyA, date.getUTCMonth() + 1, date.getUTCFullYear(), dateStr]);
+  return id;
+}
 const paymentRef = (id: string): OperationRef => ({ operation: 'supplier_payment.process', entityType: 'supplier_payment', entityId: id });
 const invoiceRef = (id: string): OperationRef => ({ operation: 'supplier_invoice.post', entityType: 'supplier_invoice', entityId: id });
 async function approval(ref: OperationRef) {
@@ -149,40 +177,42 @@ it('records baseline and versioned status approval while keeping financial proce
   expect((await pool.query('SELECT id FROM gl_journal_entries WHERE company_id=$1 AND source_record_id=$2', [fixture.companyA, doc.payment])).rows).toHaveLength(0);
 });
 it('binds a closed original period reversal to the open server-day target and refuses a changed target', async () => {
-  const originalPeriod = randomUUID();
-  await pool.query(`INSERT INTO fiscal_periods(id,company_id,period_name,period_number,fiscal_year,start_date,end_date,status)
-    VALUES($1,$2,'Synthetic August',8,2026,'2026-08-01','2026-08-31','open')`, [originalPeriod, fixture.companyA]);
+  // `today` is the single source every derived date below is computed from (serverToday()), so the
+  // whole arrangement — a genuinely prior, genuinely closed original period; an open period covering
+  // today; an uncovered changed target with its own period — holds on any calendar day, not just
+  // whichever month happens to match a hard-coded literal (month end, year end included).
+  const today = await serverToday();
+  // Strictly before `today`'s period and in a different one: first of last month is never in the
+  // same (start_date, end_date) range as whatever covers `today`, so closing it can't also close
+  // the period the void's target date needs.
+  const priorDate = firstOfPreviousMonth(today);
+  const originalPeriod = await ensureOpenPeriod(priorDate);
   const doc = await document();
-  await pool.query("UPDATE supplier_payments SET payment_date='2026-08-15' WHERE company_id=$1 AND id=$2", [fixture.companyA, doc.payment]);
+  await pool.query("UPDATE supplier_payments SET payment_date=$1 WHERE company_id=$2 AND id=$3", [priorDate, fixture.companyA, doc.payment]);
   const processApproval = await approval(paymentRef(doc.payment));
   const processed = await actor('u1', () => processSupplierPayment(fixture.companyA, doc.payment, fixture.u1.id, { approvalId: processApproval }));
   await pool.query("UPDATE fiscal_periods SET status='closed' WHERE company_id=$1 AND id=$2", [fixture.companyA, originalPeriod]);
+  // The original period closing must never also close today's: the void's target (computed by the
+  // kernel from the real server clock) needs an open period covering `today` to exist independently.
+  const todayPeriod = await ensureOpenPeriod(today);
+  expect(todayPeriod).not.toBe(originalPeriod);
   const ref: OperationRef = { ...paymentRef(doc.payment), operation: 'supplier_payment.void' };
   const id = await approval(ref);
   const stored = await pool.query('SELECT binding FROM control_operation_approvals WHERE company_id=$1 AND id=$2', [fixture.companyA, id]);
-  const today = (await pool.query("SELECT (clock_timestamp() AT TIME ZONE 'Africa/Johannesburg')::date::text AS day")).rows[0].day;
   expect(stored.rows[0].binding.accountingDate).toBe(today);
   const { executeControlledOperation } = await import('@/modules/accounting/services/controls/approvalExecutionService');
   const callback = vi.fn();
   // Guaranteed to differ from `today` (the bound accountingDate), unlike a hard-coded literal
   // that only fails to refuse on the one day it happens to equal the server's current date.
-  const changedTarget = new Date(`${today}T00:00:00Z`);
-  changedTarget.setUTCDate(changedTarget.getUTCDate() + 1);
-  const changedTargetStr = changedTarget.toISOString().slice(0, 10);
+  const changedTargetStr = addDays(today, 1);
   // The kernel resolves the reversal target's fiscal period before it compares the binding
   // (apReversalMaterial.ts), so an uncovered date throws 'Target AP fiscal period missing or
   // ambiguous' instead of the refusal this test names — reintroducing a calendar dependency
-  // (month/year end) that a fixed +1 day cannot see. Give the target date its own open period,
-  // but only if the fixture doesn't already cover it (an unconditional insert on a covered date
-  // would hit fiscal_periods_no_overlap, migration 502).
-  const covering = await pool.query(
-    "SELECT id FROM fiscal_periods WHERE company_id=$1 AND status='open' AND start_date<=$2::date AND end_date>=$2::date",
-    [fixture.companyA, changedTargetStr]);
-  if (covering.rows.length === 0) {
-    await pool.query(`INSERT INTO fiscal_periods(id,company_id,period_name,period_number,fiscal_year,start_date,end_date,status)
-      VALUES($1,$2,'Synthetic changed target',$3,$4,$5::date,$5::date,'open')`,
-      [randomUUID(), fixture.companyA, changedTarget.getUTCMonth() + 1, changedTarget.getUTCFullYear(), changedTargetStr]);
-  }
+  // (month/year end) that a fixed +1 day cannot see. ensureOpenPeriod reuses the fixture's own
+  // covering period when there is one, and only creates a new one when there isn't — an
+  // unconditional insert on an already-covered date would hit fiscal_periods_no_overlap
+  // (migration 502).
+  await ensureOpenPeriod(changedTargetStr);
   // Specifically the binding-mismatch refusal (assertApprovalExecutable in approvalExecutionService.ts),
   // not any refusal a changed date could trigger for an unrelated reason (a closed/missing period).
   let refusal: unknown;
