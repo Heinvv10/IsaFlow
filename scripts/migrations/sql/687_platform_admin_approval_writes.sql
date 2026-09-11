@@ -8,8 +8,12 @@
 -- (INSERT an approval), read the approval and its decisions, lock the approval
 -- FOR UPDATE, and consume it (UPDATE status, consumed_at, consumed_effect_id).
 -- Decisions are written only from a tenant member's cookie session (app_user).
-REVOKE UPDATE,DELETE,TRUNCATE ON control_operation_approvals FROM platform_admin;
-GRANT SELECT,INSERT ON control_operation_approvals TO platform_admin;
+-- The request INSERT names exactly these columns; it never sets id, decided_at,
+-- consumed_at or consumed_effect_id, so a row cannot be born already consumed.
+REVOKE INSERT,UPDATE,DELETE,TRUNCATE ON control_operation_approvals FROM platform_admin;
+GRANT SELECT ON control_operation_approvals TO platform_admin;
+GRANT INSERT(company_id,operation_id,operation,entity_type,entity_id,requester_person_id,requester_auth_method,
+ requester_grant_id,requester_granted_scopes,binding,binding_hash,status,requested_at,expires_at) ON control_operation_approvals TO platform_admin;
 GRANT UPDATE(status,consumed_at,consumed_effect_id) ON control_operation_approvals TO platform_admin;
 REVOKE INSERT,UPDATE,DELETE,TRUNCATE ON control_operation_decisions FROM platform_admin;
 GRANT SELECT ON control_operation_decisions TO platform_admin;

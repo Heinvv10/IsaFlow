@@ -48,7 +48,10 @@
 
 ### Approval-table privileges (migration 687, built)
 
-- platform_admin, the platform-import maker, has BYPASSRLS. It keeps only what the path does: SELECT and INSERT on `control_operation_approvals`, UPDATE of `status`, `consumed_at` and `consumed_effect_id` (consume), and SELECT on `control_operation_decisions`. It can never write a decision.
+- platform_admin, the platform-import maker, has BYPASSRLS. It keeps only what the path does, and can never write a decision:
+  - On `control_operation_approvals`: SELECT; INSERT of exactly the request INSERT's columns, so never `id`, `decided_at`, `consumed_at` or `consumed_effect_id`, and a row cannot be born consumed; UPDATE of `status`, `consumed_at` and `consumed_effect_id` (consume).
+  - On `control_operation_decisions`: SELECT.
+- Residual: the consume UPDATE grant still lets platform_admin mark an existing row consumed in a second statement. The status-transition trigger on the integration branch (every approval born `pending`, legal transitions only) is the layer that closes that.
 
 ### Sage payments (S3, waits on the probe)
 
