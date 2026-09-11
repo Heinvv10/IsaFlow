@@ -2492,3 +2492,37 @@ G1 no pre-tax label rule · G2 no tax-line-below rule · G3 the below rule on pa
 inclusive arithmetic (2) · G5 no tax-above exemption · G6 no `incl` marker on the tax line · G7 a null VAT approved
 · G8 no leader blanking · G9 no `=` separator · G10 `BTW` not a VAT word · G11 `Belasting` not a tax word · G12 `Copy
 No:` without its colon · G13 the allowlist excuses the whole path.
+
+---
+
+## Round 30 — no VAT is ever invented; the arithmetic exemption narrowed
+
+Review: `review-k072-r29.md` (0H/1M/3L, no regression). Harness as in round 29 plus the reviewer's `ad1`–`ad6`
+and `cp` (2 206 probes; `ad3b` is a VAT-reader set, used directly): **5 804 rows**, stored and nulled.
+
+| Finding | Disposition |
+|---|---|
+| MEDIUM-1 a null-VAT capture draft stored the invented `tax_amount` (130.43) and the MCP approve tools could post it | **DECISION applied: VAT is no longer invented.** `buildInvoiceFromExtraction` with no VAT read builds `taxAmount 0` at a **0% rate** (invoice and lines — the "As per invoice" line at the total), and `notes = VAT_UNREAD_NOTE` ("VAT was not read … carries NO VAT … cancel it and enter the bill with its VAT … an agent cannot approve this bill"). **Every consumer traced:** the builder has two callers, `capture/[id]/post.ts` and `ai-invoice-pipeline.ts`; both now write `notes` into `supplier_invoices` (and 0 line tax into `supplier_invoice_items`). The UI draft (`supplier-invoices/[invoiceId].tsx`) renders `notes`; **it has no field to edit a draft's tax** (`supplier-invoices-detail` PUT edits number, dates, terms and notes only), so the note tells the person to re-enter the bill rather than to type the VAT in — a tax-edit field would be a feature, flagged, not built. Approvers of that draft: the two human action routes (attended), `recurringTransactionInvoices` (its own template drafts only) and the two **MCP approve tools**, which now REFUSE it: `approve_supplier_invoice` answers a tool error, `bulk_approve_supplier_invoices` SKIPS it (dry run and live alike) — `capture/capturedVatUnread.ts` reads the captured document itself (`extracted_data.vatAmount` null or absent), so a LEGACY draft still carrying an invented 130.43 is refused too. **Proved against the DB** (`k072-capture-vat-unread.int.test.ts`, 4 tests): both routes store tax 0 / rate 0 / line tax 0 / the note; both MCP tools refuse the legacy draft and it stays `draft` with no journal; and the other direction — a captured bill whose VAT was read is approved by the same tool and its journal debits R150 to VAT Input. Mutating the builder back, or either tool's check, turns that file red. The vat-guard allowlist reason for `supplierInvoiceWorkflowService` now states the r30 facts. |
+| LOW-1 rule (b)'s arithmetic exemption posted a pre-tax total when its VAT coincided with 15/115 of it (`Fee 1000.00 / Deeds fee (no VAT) 150.30 / Total 1150.30 / VAT 15% 150.00`) | FIXED: the exemption is void when any line is marked not standard-rated — `no VAT`, `non-VAT`, `exempt`, `zero rated`, `0%`, `vrygestel`, `geen BTW`, `nulkoers`, `(Z)`, and `disbursement` (the reviewer's suggestion; the lead's list plus it — a disbursements line is what the remaining "unmarked" probes carried). Rule (a) learns `Exc`, `Ex-VAT`, `w/o VAT`, `without VAT`, `Eks.`/`Eksklusief`, `sonder BTW`, and — only AFTER the total's figure, so `Nett Amount Due 1150.00` stays payable — the trailing net labels `Nett`/`Net Amount`/`Netto`, `Sub(total)`, `Subtotaal`, `Goods Value`, `Taxable …`, `uitgesluit`. **Of the reviewer's 125 (bare labels), 0 are left**; on my count, which also scores the `… Due` labels, ad-near 200 → 0, ad-nlbl 62 → 0, ad-coinc 15 → 0. |
+| LOW-2 four green mutants | PINNED: the window's lower edge on 1 000 (130.39 inclusive, 130.38 not), `before VAT`, `nett of VAT` (each in a paid probe, where only rule (a) can catch it), and `incl` on the total's own line (a mixed-rate `Total Incl VAT 1000.00 / VAT 104.35` recap posts). All four mutants are RED now. |
+| LOW-3 `VAT = 15%` read as a VAT of 15 | FIXED: `VAT_PATTERNS[1]` takes the same `(?![\d.,]*\s*%)` guard as the bare column. All 18 of the reviewer's legend slips re-read the real `VAT 2.61` — including `VAT: 15%`, which read 15 before round 29 too. |
+
+### Re-measured — head vs `38a6a6b17`, 5 804 rows (stored ≡ subtotal-null, row for row)
+
+| | `38a6a6b17` | **head** |
+|---|---|---|
+| unattended / WRONG, all rows | 1 118 / 324 | **845 / 47** |
+| coincidence and near-inclusive pre-tax totals (ad-near, ad-nlbl, ad-coinc; 972) | 277 wrong | **0** |
+| null-VAT drafts carrying an invented tax (ac-null, ac-nullvat) | 12 | **0** |
+| VAT-registration letterheads (ad-reg, ad-regf; 392) | 326 / 0 | **330 / 0** |
+| the reviewer's ordinary documents (ad-ord; 14) | 6 / 0 | **6 / 0** |
+
+**Newly refused: 0. Newly wrong: 0.** The 47 WRONG left are exactly round 29's accepted classes.
+
+### Mutations — 13 unit (H1–H13) + 3 integration, all RED
+
+H1 the builder invents a VAT again (also RED in the integration file, 2 tests) · H2 zero-rated lines ignored · H3
+`disbursement` not a marker · H4 no trailing net labels · H5 net labels anywhere on the line · H6 tolerance 1.00 ·
+H7 no `before VAT` · H8 no `nett of VAT` · H9 `incl` on the total's line ignored · H10 a rate legend read as the VAT ·
+H11 single MCP approve ignores unread VAT (RED in unit and integration) · H12 bulk MCP approve ignores it (RED in unit
+and integration) · H13 the Afrikaans/abbreviated forms gone.

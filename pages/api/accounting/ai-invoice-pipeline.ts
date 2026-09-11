@@ -184,7 +184,7 @@ async function handler(req: CompanyAuthedRequest, res: NextApiResponse) {
     INSERT INTO supplier_invoices (
       company_id, invoice_number, supplier_id, invoice_date, due_date,
       subtotal, tax_rate, tax_amount, total_amount, payment_terms,
-      reference, status, created_by,
+      reference, status, created_by, notes,
       source_document_id, source_document_hash, extraction_confidence, posting_agent,
       duplicate_fingerprint
     ) VALUES (
@@ -194,7 +194,7 @@ async function handler(req: CompanyAuthedRequest, res: NextApiResponse) {
       ${invoiceInput.taxAmount}, ${invoiceInput.totalAmount},
       ${invoiceInput.paymentTerms || 'net30'}, ${invoiceInput.reference || null},
       ${approvalRoute === 'auto_approve' ? 'approved' : 'draft'},
-      ${userId},
+      ${userId}, ${invoiceInput.notes ?? null},
       ${documentId}::uuid, NULL, ${pipelineConfidence}, 'ai:ai-invoice-pipeline:v1',
       ${fingerprint}
     ) RETURNING id, invoice_number, status

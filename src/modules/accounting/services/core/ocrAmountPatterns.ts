@@ -247,7 +247,7 @@ export const VAT_PATTERNS: RegExp[] = [
   // not a refusal downstream: the builder derives 15%, an invented R13.04 claim
   // on a zero-rated slip. `(?=-\d)` accepts the glued dash without consuming
   // it, so `AMOUNT` reads the sign: `VAT-0.00` is 0, `VAT-150.00` is -150.
-  new RegExp(String.raw`${NOT_A_TAX_LABEL}${VAT_WORD}${TAX_NOUN}\s*(?::|=|-(?!\d)|(?=-\d))\s*(?:ZAR|R)?\s*${AMOUNT}`, 'gi'),
+  new RegExp(String.raw`${NOT_A_TAX_LABEL}${VAT_WORD}${TAX_NOUN}\s*(?::|=|-(?!\d)|(?=-\d))\s*(?:ZAR|R)?\s*${AMOUNT}(?![\d.,]*\s*%)`, 'gi'),
   new RegExp(String.raw`${NOT_A_TAX_LABEL}${VAT_WORD}${TAX_NOUN}\s+(?:ZAR|R)\s*${AMOUNT}`, 'gi'),
   new RegExp(String.raw`${NOT_A_TAX_LABEL}${VAT_WORD}${TAX_NOUN}\s+${AMOUNT}(?![\d.,]*\s*%)`, 'gi'),
   new RegExp(String.raw`${NOT_A_TAX_LABEL}(?:(?:Output|Input)${SEP})?(?:Tax|Belasting)${TAX_NOUN}(?:\s*(?:@|\()?\s*\d+(?:[.,]\d+)?\s*%\s*\)?)?${VALUE_SEP}${AMOUNT}(?![\d.,]*\s*%)`, 'gi'),
