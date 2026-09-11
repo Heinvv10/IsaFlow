@@ -2,7 +2,7 @@
 
 import { sql } from '@/lib/neon';
 import { log } from '@/lib/logger';
-import { type BankFeedSyncResult, type Provider } from './openBankingTypes';
+import { type BankFeedSyncResult } from './openBankingTypes';
 import type { DbRow } from '@/types/db';
 
 
@@ -66,7 +66,8 @@ export async function syncBankFeed(
   const connRows = (await sql`
     SELECT bfc.*, ba.account_name
     FROM bank_feed_connections bfc
-    LEFT JOIN bank_accounts ba ON ba.id = bfc.bank_account_id
+    LEFT JOIN gl_accounts ba ON ba.id = bfc.bank_account_id
+      AND ba.company_id = bfc.company_id
     WHERE bfc.id = ${connectionId}::UUID
       AND bfc.company_id = ${companyId}::UUID
       AND bfc.is_active = true
@@ -78,7 +79,7 @@ export async function syncBankFeed(
   }
 
   const conn = connRows[0]!;
-  const provider = String(conn.provider) as Provider;
+  const provider = String(conn.provider);
 
   const logRows = (await sql`
     INSERT INTO bank_feed_sync_logs (connection_id, company_id, status)
@@ -94,7 +95,7 @@ export async function syncBankFeed(
     await markSyncComplete(logId, connectionId, 0, 0, 0);
     return {
       connectionId, provider, logId, found: 0, imported: 0, duplicate: 0,
-      instructions: 'Manual CSV import: use the Bank Transactions import page to upload your bank statement file.',
+      instructions: 'Manual imports are user-operated: upload your statement (CSV, PDF, OFX or QIF) on the Bank Transactions import page.',
     };
   }
 
@@ -104,14 +105,16 @@ export async function syncBankFeed(
     await markSyncComplete(logId, connectionId, 0, 0, 0);
     return {
       connectionId, provider, logId, found: 0, imported: 0, duplicate: 0,
-      instructions: 'Browser-extension feeds sync directly from your bank tab. Click Sync on the Bank Feeds page (or open the extension popup) — that triggers the real scrape via /extension-ingest.',
+      instructions: 'ABSA browser import is user-operated: open the IsaFlow extension in your signed-in ABSA tab and click Import. IsaFlow cannot fetch from your bank in the background.',
     };
   }
 
-  // basiq | tink | plaid have no integration behind them. They used to fall
-  // through to a random sample-transaction generator whose invented rows were
-  // INSERTed into the tenant's bank_transactions as 'imported' and reported as
-  // a successful sync. Refuse instead — an unimplemented feed imports nothing.
+  // Any other provider (legacy rows only — basiq/tink/plaid connections
+  // created before this release) has no integration behind it. It used to
+  // fall through to a random sample-transaction generator whose invented rows
+  // were INSERTed into the tenant's bank_transactions as 'imported' and
+  // reported as a successful sync. Refuse instead — an unimplemented feed
+  // imports nothing.
   const refusal = new BankFeedProviderNotImplementedError(provider);
   await markSyncFailed(logId, connectionId, refusal.message);
   log.error('Bank feed sync refused — provider not implemented', { connectionId, provider, companyId }, 'open-banking');

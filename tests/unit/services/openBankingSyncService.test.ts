@@ -50,7 +50,7 @@ describe('syncBankFeed — extension provider guard', () => {
     expect(result.found).toBe(0);
     expect(result.imported).toBe(0);
     expect(result.duplicate).toBe(0);
-    expect(result.instructions).toMatch(/extension-ingest/);
+    expect(result.instructions).toMatch(/user-operated/);
 
     // Verify no transaction INSERT was attempted (would be a 5th SQL call).
     // The mock is set up with exactly 4 calls; any extra call would throw.
