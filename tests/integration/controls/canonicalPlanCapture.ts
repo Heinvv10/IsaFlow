@@ -88,6 +88,12 @@ export function expectIntentsByPrimaryKey(explained:readonly Explained[]){
   expect(nodes.filter(node=>(node['Index Cond']??'').includes('CASE WHEN')).length,`intent lookup is not a primary-key probe in:\n${text}`).toBeGreaterThanOrEqual(lookups);
  }
 }
+/** Every captured statement containing `marker` (at least one) reaches its intent by a primary-key probe. */
+export function expectIntentProbe(explained:readonly Explained[],marker:string){
+ const found=explained.filter(entry=>entry.text.includes(marker));
+ expect(found.length,`no captured statement contains ${marker}`).toBeGreaterThan(0);
+ for(const {text,nodes} of found)expect(nodes.some(node=>(node['Index Cond']??'').includes('CASE WHEN')),`intent is not a primary-key probe in:\n${text}`).toBe(true);
+}
 /** Every captured statement containing `marker` (at least one) reads `table` through exactly one canonical Index Cond. */
 export function expectCanonicalIndexCond(explained:readonly Explained[],marker:string,table:string){
  const found=explained.filter(entry=>entry.text.includes(marker));
