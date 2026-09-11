@@ -21,7 +21,24 @@ vi.mock('@/modules/accounting/services/bank/feed/bankIngestionService', () => ({
 
 import { BankIngestionRefusal } from '@/modules/accounting/services/bank/feed/bankIngestionTypes';
 import { contentHashIdentity } from '@/modules/accounting/services/bank/feed/bankIngestionValidation';
+import { sql } from '@/lib/neon';
 import handler from '../../../pages/api/accounting/bank-feeds/[id]/extension-ingest';
+
+const sqlMock = vi.mocked(sql);
+
+/**
+ * Mutation-proof scoping check: finds the interpolated value that sits right
+ * after a `company_id = ` (or `company_id=`) fragment in the tagged template
+ * and asserts it is the expected company id. Fails if the WHERE clause loses
+ * its `company_id` predicate, or if the predicate's value stops being the
+ * request's own companyId.
+ */
+function expectCompanyScoped(call: [TemplateStringsArray, ...unknown[]], companyId: string) {
+  const [strings, ...values] = call;
+  const idx = strings.findIndex((s, i) => i < strings.length - 1 && /company_id\s*=\s*$/.test(s));
+  expect(idx, `no "company_id = " fragment found in call: ${strings.join('?')}`).toBeGreaterThanOrEqual(0);
+  expect(values[idx]).toBe(companyId);
+}
 
 const body = {
   scraperId: 'absa', scraperVersion: '1.2.0', bankAccountExternalId: '4051234567',
@@ -33,7 +50,7 @@ const req = (b: unknown = body) => ({
   extension: { userId: 'u1', companyId: 'c1', connectionId: 'conn-1', bankId: 'absa', bankAccountId: 'gl-1' },
 }) as never;
 
-beforeEach(() => { ingest.mockReset(); });
+beforeEach(() => { ingest.mockReset(); sqlMock.mockClear(); });
 
 describe('POST extension-ingest', () => {
   it('submits a content-hash feed batch and keeps the extension response shape', async () => {
@@ -50,6 +67,13 @@ describe('POST extension-ingest', () => {
       identity: contentHashIdentity({ transactionDate: '2026-09-02', amount: -50, description: 'ABSA FEE' }),
     });
     expect(opts).toEqual({ userId: 'u1', sourceLabel: 'extension/absa@1.2.0', bankFormat: 'absa' });
+
+    // Both anti-abuse SELECTs and the post-success scraper_version UPDATE
+    // must each carry the request's own company_id.
+    expect(sqlMock.mock.calls.length).toBe(3);
+    for (const call of sqlMock.mock.calls as unknown as Array<[TemplateStringsArray, ...unknown[]]>) {
+      expectCompanyScoped(call, 'c1');
+    }
   });
 
   it('answers 409 when a sync is already running', async () => {
@@ -64,7 +88,7 @@ describe('POST extension-ingest', () => {
     expect(out).toEqual({ kind: '400', m: 'Transaction 1: bad' });
   });
 
-  it('lets a fault through (500 rolls back)', async () => {
+  it('lets a fault through (withErrorHandler answers 500, withExtensionToken ROLLBACKs)', async () => {
     ingest.mockRejectedValue(new Error('boom'));
     await expect(handler(req(), {} as NextApiResponse)).rejects.toThrow('boom');
   });

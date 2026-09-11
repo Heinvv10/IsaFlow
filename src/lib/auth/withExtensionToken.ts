@@ -139,8 +139,13 @@ export function withExtensionToken(handler: Handler): NextApiHandler {
         client, userId: claims.userId, companyId: claims.companyId, claims: { sub: claims.userId }, afterCommit: [],
       };
       await runOwnedContext(ctx, async () => { await handler(req, res); });
-      await client.query('COMMIT');
-      drainAfterCommit(ctx);
+      // A 5xx means withErrorHandler (inside this wrapper) caught a fault,
+      // answered 500, and returned normally — mirrors withAuth.ts: we must
+      // NOT COMMIT its partial writes, and must NOT drain afterCommit work
+      // queued before the fault.
+      const handlerFailed = res.statusCode >= 500;
+      await client.query(handlerFailed ? 'ROLLBACK' : 'COMMIT');
+      if (!handlerFailed) drainAfterCommit(ctx);
     } catch (err) {
       try { await client.query('ROLLBACK'); } catch { /* secondary */ }
       log.error(
