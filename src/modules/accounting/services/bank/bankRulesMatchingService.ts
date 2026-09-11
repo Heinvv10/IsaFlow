@@ -234,6 +234,7 @@ export async function applyRules(
       WHERE bank_account_id = ${bankAccountId}::UUID
         AND company_id = ${companyId}::UUID
         AND status = 'imported'
+        AND feed_state = 'posted'
         AND matched_journal_line_id IS NULL
         AND suggested_gl_account_id IS NULL
         AND suggested_supplier_id IS NULL

@@ -76,6 +76,7 @@ async function fetchMatchedTransactions(companyId: string, bankAccountId: string
     LEFT JOIN gl_journal_entries je ON je.id = jl.journal_entry_id AND je.company_id = ${companyId}::UUID
     WHERE bt.bank_account_id = ${bankAccountId}::UUID
       AND bt.status = 'matched'
+      AND bt.feed_state = 'posted'
       AND bt.company_id = ${companyId}
     ORDER BY bt.transaction_date
   `) as TxRow[];
@@ -93,6 +94,7 @@ async function fetchUnmatchedTransactions(companyId: string, bankAccountId: stri
     FROM bank_transactions bt
     WHERE bt.bank_account_id = ${bankAccountId}::UUID
       AND bt.status = 'imported'
+      AND bt.feed_state = 'posted'
       AND bt.company_id = ${companyId}
     ORDER BY bt.transaction_date
   `) as TxRow[];

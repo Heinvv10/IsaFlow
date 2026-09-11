@@ -236,7 +236,7 @@ async function buildExceptionsCard(companyId: string, periodEnd: string): Promis
     SELECT
       (SELECT COUNT(*) FROM customer_invoices WHERE company_id = ${companyId}::uuid AND status = 'draft') AS draft_invoices,
       (SELECT COUNT(*) FROM supplier_invoices WHERE company_id = ${companyId}::uuid AND status = 'draft') AS draft_bills,
-      (SELECT COUNT(*) FROM bank_transactions WHERE company_id = ${companyId}::uuid AND status = 'imported' AND transaction_date <= ${periodEnd}::date AND suggested_gl_account_id IS NULL) AS unsuggested,
+      (SELECT COUNT(*) FROM bank_transactions WHERE company_id = ${companyId}::uuid AND status = 'imported' AND feed_state = 'posted' AND transaction_date <= ${periodEnd}::date AND suggested_gl_account_id IS NULL) AS unsuggested,
       (SELECT COUNT(*) FROM gl_journal_entries WHERE company_id = ${companyId}::uuid AND status = 'draft' AND entry_date <= ${periodEnd}::date) AS draft_journals
   `) as DbRow[];
   const r = rows[0]!;
