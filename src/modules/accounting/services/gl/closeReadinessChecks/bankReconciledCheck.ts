@@ -26,6 +26,7 @@ export async function bankReconciledCheck(
     WHERE company_id = ${companyId}::UUID
       AND transaction_date BETWEEN ${period.startDate}::date AND ${period.endDate}::date
       AND status IN ('imported', 'matched')
+      AND feed_state = 'posted'
   `) as Row[];
 
   const count = Number(rows[0]?.unreconciled_count ?? 0);

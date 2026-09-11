@@ -51,7 +51,7 @@ function sqlTextOf(callIdx: number): string {
 
 function row(overrides: Record<string, unknown> = {}) {
   return {
-    id: TX_ID, company_id: COMPANY_ID, status: 'imported', matched_journal_line_id: null,
+    id: TX_ID, company_id: COMPANY_ID, status: 'imported', feed_state: 'posted', matched_journal_line_id: null,
     bank_account_id: 'dddddddd-0000-0000-0000-dddddddddddd', transaction_date: '2026-08-01',
     amount: -100, description: 'x', ...overrides,
   };

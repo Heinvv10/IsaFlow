@@ -24,7 +24,7 @@ vi.mock('@/modules/accounting/services/gl/periodStatusService', () => ({
 }));
 vi.mock('@/modules/accounting/services/bank/bankTxLock', () => ({
   lockBankTransactionForUpdate: vi.fn(async () => ({
-    id: 'btx-1', status: 'imported', matched_journal_line_id: null,
+    id: 'btx-1', status: 'imported', feed_state: 'posted', matched_journal_line_id: null,
   })),
   BankTransactionLockTimeoutError: class extends Error {},
 }));
@@ -40,6 +40,7 @@ vi.mock('@/modules/accounting/services/ap/supplierAutoAllocate', () => ({
 import { sql } from '@/lib/neon';
 import { recordSupplierBankPayment } from '@/modules/accounting/services/ap/supplierAutoAllocate';
 import { autoPostRuleLine } from '@/modules/accounting/services/bank/bankRuleAutoPostLine';
+import { lockBankTransactionForUpdate } from '@/modules/accounting/services/bank/bankTxLock';
 
 const COMPANY = '11111111-1111-4111-8111-111111111111';
 const SUPPLIER = '22222222-2222-4222-8222-222222222222';
@@ -131,5 +132,25 @@ describe('autoPostRuleLine — supplier', () => {
       allocType: 'account', supplierId: null, ruleGlAccountId: 'gl-1', apAccountId: null,
     }));
     expect(recordSupplierBankPayment).not.toHaveBeenCalled();
+  });
+});
+
+describe('autoPostRuleLine — feed-state guard', () => {
+  it('returns { kind: "raced" } and issues no INSERT/UPDATE for a pending feed row', async () => {
+    // findMatchingTxs read the candidate possibly seconds ago; the lock SELECT
+    // is the only re-check before this would post a journal. A row still
+    // pending at the bank must be treated exactly like a row raced by a
+    // concurrent allocation — see the DB backstop this guards ahead of
+    // (migration 675) and bankFeedStateGuard.ts.
+    vi.mocked(lockBankTransactionForUpdate).mockResolvedValueOnce({
+      id: 'btx-1', status: 'imported', matched_journal_line_id: null, feed_state: 'pending',
+    } as never);
+
+    const result = await autoPostRuleLine(input());
+
+    expect(result).toEqual({ kind: 'raced' });
+    expect(recordSupplierBankPayment).not.toHaveBeenCalled();
+    const texts = vi.mocked(sql).mock.calls.map((c) => (c[0] as unknown as string[]).join('?'));
+    expect(texts.some((t) => /\bINSERT\b|(?<!FOR )\bUPDATE\b/i.test(t))).toBe(false);
   });
 });

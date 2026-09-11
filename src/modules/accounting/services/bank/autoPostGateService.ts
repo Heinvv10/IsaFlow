@@ -14,6 +14,7 @@ import { allocateTransaction } from './bankAllocationService';
 import { resolveRuleVatCode } from '../gl/ruleVatResolution';
 import { postProvisional } from '../capture/provisionalPostingService';
 import { getAutoPostSettings, autoPostRunSnapshot, type AutoPostSettings } from './autoPostSettingsService';
+import { feedStateOf } from './bankFeedStateGuard';
 
 // Settings live in the sibling `autoPostSettingsService`, re-exported here
 // because every caller has always imported them from this file. Split out to
@@ -118,6 +119,7 @@ interface SweepRow {
   suggested_vat_code: string | null;
   suggested_strategy: string | null;
   description: string | null;
+  feed_state: string | null;
 }
 
 /**
@@ -145,12 +147,18 @@ export async function sweep(
 
   const rows = (await sql`
     SELECT id, status, amount, suggested_gl_account_id, suggested_confidence,
-           suggested_vat_code, suggested_strategy, description
+           suggested_vat_code, suggested_strategy, description, feed_state
     FROM bank_transactions
     WHERE id = ANY(${txIds}::UUID[]) AND company_id = ${companyId}::UUID
   `) as unknown as SweepRow[];
 
   const skipped: Array<{ txId: string; reason: string }> = [];
+  for (const r of rows) {
+    if (feedStateOf(r) !== 'posted') {
+      skipped.push({ txId: String(r.id), reason: `feed_state ${feedStateOf(r)}` });
+    }
+  }
+  const postable = rows.filter((r) => feedStateOf(r) === 'posted');
   let runId: string | null = null;
   let posted = 0;
   let totalAmount = 0;
@@ -175,7 +183,7 @@ export async function sweep(
 
   const isImport = source === 'import';
 
-  for (const row of rows) {
+  for (const row of postable) {
     const confidence = isImport
       ? null
       : (row.suggested_confidence != null ? Number(row.suggested_confidence) : null);

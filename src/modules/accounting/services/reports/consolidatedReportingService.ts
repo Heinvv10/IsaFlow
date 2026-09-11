@@ -114,6 +114,7 @@ export async function getGroupDashboardStats(groupId: string): Promise<GroupDash
           WHERE bt.company_id = ANY(${companyIds}::UUID[])
             AND ga.company_id = ANY(${companyIds}::UUID[])
             AND ga.account_subtype = ANY(${BANK_SUBTYPES as string[]})
+            AND bt.feed_state = 'posted'
           GROUP BY bt.company_id` as Promise<DbRow[]>,
       // There is no balance_due column on either invoice table — these queries
       // threw 42703, taking the whole dashboard down. Outstanding is

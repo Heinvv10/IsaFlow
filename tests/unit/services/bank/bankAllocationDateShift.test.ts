@@ -85,7 +85,7 @@ const TX_ROW = {
   bank_account_id: BANK_ACCOUNT_ID,
   amount: -115,
   transaction_date: SAST_EARLY_MORNING,
-  status: 'imported',
+  status: 'imported', feed_state: 'posted',
   description: 'Test expense',
   reference: null,
 };

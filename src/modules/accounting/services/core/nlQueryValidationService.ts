@@ -55,7 +55,9 @@ export const ALLOWED_TABLES = new Set([
   'supplier_payments', 'supplier_payment_allocations', 'supplier_payment_batches',
   'supplier_purchase_orders', 'supplier_purchase_order_items',
   'purchase_orders', 'supplier_categories',
-  'bank_transactions', 'bank_accounts', 'bank_reconciliations',
+  // The posted-only view (migration 675), never the base table: a pending or
+  // removed feed row must not reach an LLM-written total.
+  'bank_transactions_posted', 'bank_accounts', 'bank_reconciliations',
   'bank_categorisation_rules', 'bank_import_batches',
   'items', 'item_categories', 'stock_items', 'stock_adjustments',
   'products', 'product_categories',

@@ -36,7 +36,11 @@ import { withPublicRouteTransaction } from '@/lib/publicRouteTx';
 import { withExtensionToken } from '@/lib/auth/withExtensionToken';
 import { withInviteToken } from '@/lib/auth/withInviteToken';
 
-const res = () => ({ status() { return this; }, json() { return this; }, setHeader() { return this; } });
+const res = () => ({
+  statusCode: 200, headersSent: false, body: '' as string | undefined,
+  status(c: number) { this.statusCode = c; return this; }, json() { return this; }, setHeader() { return this; },
+  end(chunk?: string) { this.body = chunk; return this; },
+});
 const queue = () => runAfterCommit('probe', async () => { h.events.push('CALLBACK'); });
 
 /** Each owner, running a body that queues work and then succeeds or throws. */
@@ -47,9 +51,14 @@ const owners: Array<[string, (fail: boolean) => Promise<unknown>]> = [
   ['withPublicRouteTransaction', (fail) => withPublicRouteTransaction('probe', async () => {
     queue(); if (fail) throw new Error('body failed');
   })],
-  ['withExtensionToken', (fail) => withExtensionToken(async () => {
-    queue(); if (fail) throw new Error('body failed');
-  })({ headers: { authorization: 'Bearer ext_x' }, query: {} } as never, res() as never)],
+  ['withExtensionToken', async (fail) => {
+    const r = res();
+    await withExtensionToken(async () => {
+      queue(); if (fail) throw new Error('body failed');
+    })({ headers: { authorization: 'Bearer ext_x' }, query: {} } as never, r as never);
+    // Like withAuth, a failed COMMIT is answered 500 COMMIT_FAILED rather than thrown (A-5).
+    if (r.statusCode === 500 && r.body?.includes('COMMIT_FAILED')) throw new Error('commit failed');
+  }],
   ['withInviteToken', (fail) => withInviteToken(async () => {
     queue(); if (fail) throw new Error('body failed');
   })({ query: { token: 'invite-token-0123456789' }, headers: {} } as never, res() as never)],

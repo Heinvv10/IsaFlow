@@ -161,6 +161,8 @@ async function existingHashes(
     WHERE company_id = ${companyId}::UUID
       AND bank_account_id = ${bankAccountId}::UUID
       AND transaction_date BETWEEN ${range.from}::DATE AND ${range.to}::DATE
+      -- A row the bank removed never posted; it must not claim a real line's hash.
+      AND feed_state <> 'removed'
   `) as Array<{ transaction_date: string; amount: string | number; description: string | null }>;
 
   const out = new Set<string>();

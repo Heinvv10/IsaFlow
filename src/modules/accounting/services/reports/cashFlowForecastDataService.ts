@@ -183,6 +183,7 @@ export async function getActualCashFlow(
       company_id = ${companyId}
       AND transaction_date >= CURRENT_DATE - ${lookbackDays}::INT
       AND status NOT IN ('excluded')
+      AND feed_state = 'posted'
     GROUP BY week_start
     ORDER BY week_start ASC
   `) as DbRow[];
@@ -207,6 +208,7 @@ export async function getBankBalance(companyId: string): Promise<number> {
     FROM bank_transactions
     WHERE company_id = ${companyId}
       AND status NOT IN ('excluded')
+      AND feed_state = 'posted'
   `) as DbRow[];
   return toNum(rows[0]?.['balance']);
 }
