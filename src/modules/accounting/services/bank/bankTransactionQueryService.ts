@@ -203,6 +203,7 @@ export async function deleteTransactions(companyId: string, bankTxIds: string[])
     const result = (await sql`
       DELETE FROM bank_transactions
       WHERE id = ANY(${bankTxIds}::UUID[]) AND status = 'imported'
+        AND feed_state = 'posted'
         AND company_id = ${companyId}::UUID
       RETURNING id`) as Row[];
     // RETURNING is required for an accurate count: lib/neon only ever exposes
@@ -226,6 +227,7 @@ export async function bulkAcceptTransactions(companyId: string, ids: string[]): 
     const result = (await sql`
       UPDATE bank_transactions SET status = 'matched', updated_at = NOW()
       WHERE id = ANY(${ids}::UUID[]) AND status IN ('imported', 'allocated')
+        AND feed_state = 'posted'
         AND company_id = ${companyId}::UUID
       RETURNING id`) as Row[];
     // Same reason as deleteTransactions above: without RETURNING this resolved

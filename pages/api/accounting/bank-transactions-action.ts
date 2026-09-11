@@ -13,6 +13,7 @@ import { withCsrf } from '@/lib/auth/withCsrf';
 import { log } from '@/lib/logger';
 import { sql } from '@/lib/neon';
 import { isRetryableContention } from '@/modules/accounting/services/core/retryableContention';
+import { isBankTransactionNotPosted } from '@/modules/accounting/services/bank/bankFeedStateGuard';
 import { UUID } from '@/lib/schemas/common';
 import { assertCustomerInCompany } from '@/modules/accounting/services/core/contactDirectoryService';
 import { assertJournalAnalysisDimensions } from '@/modules/accounting/services/gl/journalCostCentreValidation';
@@ -161,7 +162,8 @@ async function handler(req: CompanyAuthedRequest, res: NextApiResponse) {
               suggested_client_id = ${selType === 'customer' && selEntityId ? selEntityId : null}::UUID,
               suggested_vat_code = ${selVatCode},
               updated_at = NOW()
-          WHERE id = ${body.bankTransactionId}::UUID AND status IN ('imported', 'allocated') AND company_id = ${companyId}
+          WHERE id = ${body.bankTransactionId}::UUID AND status IN ('imported', 'allocated')
+            AND feed_state = 'posted' AND company_id = ${companyId}
         `;
         return apiResponse.success(res, { saved: true });
       }
@@ -196,6 +198,14 @@ async function handler(req: CompanyAuthedRequest, res: NextApiResponse) {
     if (isRetryableContention(err)) {
       log.info('Bank transaction action hit a contended row', { action: body.action }, 'accounting-api');
       return apiResponse.conflict(res, (err as Error).message);
+    }
+    // A pending/removed feed row: match/unmatch/exclude throw the bare
+    // BankTransactionNotPostedError from bankFeedStateGuard; allocate/split
+    // throw the same message wrapped in BankAllocationRefusal, which the
+    // generic branch below already answers 400 with the message intact. Every
+    // throw site decides this before its first write.
+    if (isBankTransactionNotPosted(err)) {
+      return apiResponse.conflict(res, err.message);
     }
     const message = err instanceof Error ? err.message : 'Action failed';
     log.error('Bank transaction action failed', { error: err }, 'accounting-api');
