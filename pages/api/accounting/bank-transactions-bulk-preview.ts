@@ -192,6 +192,7 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
       FROM bank_transactions
       WHERE bank_account_id = ${bankAccountId}
         AND transaction_date BETWEEN ${dateRange.from} AND ${dateRange.to}
+        AND feed_state <> 'removed' -- a removed feed row never posted; it claims no hash
     `) as Array<{ transaction_date: string; amount: string | number; description: string | null }>;
 
     const existingHashes = new Set<string>();
