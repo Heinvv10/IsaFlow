@@ -39,11 +39,11 @@ const supplier = crypto.randomUUID();
 let adminToken = '';
 const ctx = { userId: admin, companyId: company, scopes: ['write:invoices', 'write:post'], tokenJti: 'jti', oauthAppId: null } as McpToolContext;
 
-/** A non-VAT vendor's bill: the model read no VAT, because none is printed. */
+/** A non-VAT vendor's bill: the model read no VAT, because none is printed — and (r34) the bill SAYS so. */
 const NO_VAT = {
   documentType: 'invoice', vendorName: 'K072 Garden Services', date: '2026-04-10', totalAmount: 1000,
   subtotal: null, vatAmount: null, confidence: 0.99, lineItems: [], warnings: [],
-  rawText: 'K072 Garden Services\nINVOICE\nGarden service September 1 1000.00 1000.00\nAmount Due 1000.00',
+  rawText: 'K072 Garden Services\nNot VAT registered\nINVOICE\nGarden service September 1 1000.00 1000.00\nAmount Due 1000.00',
 };
 
 async function seedDocument(extracted: Record<string, unknown>, tag: string): Promise<string> {
@@ -238,25 +238,42 @@ it('r32: ai-invoice-pipeline\'s own no-VAT draft of an unread bill is approved a
   expect(rows).toEqual([{ status: 'approved', vat: 0 }]);
 });
 
-it('r33 HIGH-1: a bill whose text prints a VAT the reader missed is refused, not approved with none', async () => {
+// r33–r34: a VAT the reader missed. The VAT is forced unread, so the EVIDENCE rule — not the reader, which
+// now reads `B.T.W.` — is what refuses. The first two are the reviewer's DB shapes, through the pipeline.
+const MISSED: Array<[string, string, string]> = [['faktuur-btw', 'FAKTUUR', 'B.T.W. 375.00'], ['btw-ingesluit', 'FAKTUUR', 'B.T.W. ingesluit 375.00'],
+  ['vat-incl', 'TAX INVOICE', 'VAT INCL 375.00'], ['incl-dot', 'TAX INVOICE', 'Incl. VAT 375.00'], ['b-t-w', 'FAKTUUR', 'B T W 375.00'],
+  ['v-a-t', 'INVOICE', 'V A T 375.00'], ['val', 'INVOICE', 'VAl 375.00'], ['incl', 'INVOICE', 'Incl. 375.00'], ['persent', 'FAKTUUR', 'Incl 15 persent 375.00']];
+
+it('r33–r34 HIGH-1: a bill whose VAT was not read is refused by both tools, whatever its page prints', async () => {
   const { extractFromText } = await import('@/modules/accounting/services/core/ocrService');
   await pool.query("UPDATE suppliers SET name='Bosman Motors' WHERE id=$1", [supplier]);
-  for (const [tag, tail] of [['incl', 'VAT INCL 375.00'], ['incl-dot', 'Incl. VAT 375.00']]) {
-    const text = `Bosman Motors\nTAX INVOICE\nVAT No 4123450000\nInvoice No: ${tag}\nDate: 2026-04-10\nService 60 000km 2875.00\n`
-      + `TOTAL 2875.00\n${tail}\nBank: FNB 62000000000\n`;
-    const extracted = { ...(await extractFromText(text)), documentType: 'invoice', vendorName: 'Bosman Motors' };
-    expect(extracted.vatAmount).toBeNull(); // the reader's miss this guards against
+  for (const [i, [tag, title, tail]] of MISSED.entries()) {
+    // Its own date and a clearly different total: the pipeline's fuzzy duplicate check answers 409 otherwise.
+    const amt = (2875 + i * 575).toFixed(2);
+    const text = `Bosman Motors\n${title}\nInvoice No: ${tag}\nDate: 2026-04-${10 + i}\nService 60 000km ${amt}\nTOTAAL ${amt}\n${tail}\nBank: FNB 62000000000\n`;
+    const extracted = { ...(await extractFromText(text)), documentType: 'invoice', vendorName: 'Bosman Motors', vatAmount: null };
     const documentId = await seedDocument(extracted as never, `bosman-${tag}`);
-    expect((await callRoute(pipeline, {}, { documentId })).statusCode).toBe(200);
-    const [draft] = await invoiceFor(documentId);
-    const single = await tool(() => approveSupplierInvoiceTool.handler({ invoice_id: draft.id, idempotency_key: `${tag}-1` }, ctx));
-    expect(single.content[0]!.text).toMatch(UNEVIDENCED);
-    const bulk = await tool(() => bulkApproveSupplierInvoicesTool.handler({ invoice_ids: [draft.id], idempotency_key: `${tag}-2` }, ctx));
-    expect(bulk.content[0]!.text).toMatch(UNEVIDENCED);
-    const { rows } = await pool.query('SELECT status, gl_journal_entry_id FROM supplier_invoices WHERE id=$1', [draft.id]);
-    expect(rows[0]).toEqual({ status: 'draft', gl_journal_entry_id: null });
+    let id: string;
+    if (i < 2) {
+      const routed = await callRoute(pipeline, {}, { documentId });
+      expect(routed.statusCode, `${tag}: ${JSON.stringify(routed.body)}`).toBe(200);
+      id = (await invoiceFor(documentId))[0].id as string;
+    } else id = await draftFor(documentId, 0, Number(amt), `bosman-${tag}`);
+    const single = await tool(() => approveSupplierInvoiceTool.handler({ invoice_id: id, idempotency_key: `${tag}-1` }, ctx));
+    expect(single.content[0]!.text, tag).toMatch(UNEVIDENCED);
+    const bulk = await tool(() => bulkApproveSupplierInvoicesTool.handler({ invoice_ids: [id], idempotency_key: `${tag}-2` }, ctx));
+    expect(bulk.content[0]!.text, tag).toMatch(UNEVIDENCED);
+    const { rows } = await pool.query('SELECT status, gl_journal_entry_id FROM supplier_invoices WHERE id=$1', [id]);
+    expect(rows[0], tag).toEqual({ status: 'draft', gl_journal_entry_id: null });
   }
   await pool.query("UPDATE suppliers SET name='K072 Garden Services' WHERE id=$1", [supplier]);
+});
+
+it('r34 THE COST: a no-tax bill that does not SAY no VAT applies is refused a draft claiming none', async () => {
+  const quiet = await seedDocument({ ...NO_VAT, rawText: NO_VAT.rawText.replace('Not VAT registered\n', '') }, 'quiet');
+  const id = await draftFor(quiet, 0, 1000, 'quiet');
+  expect((await tool(() => approveSupplierInvoiceTool.handler({ invoice_id: id, idempotency_key: 'quiet' }, ctx))).content[0]!.text)
+    .toMatch(UNEVIDENCED);
 });
 
 it('r33: a document with no text proves no absence of VAT; the tolerance is one cent either way', async () => {

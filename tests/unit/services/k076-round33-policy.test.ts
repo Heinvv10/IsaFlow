@@ -19,10 +19,7 @@ describe('K-076 r33 HIGH-1 — the VAT a captured document evidences', () => {
     expect(evidencedVat({ vatAmount: 130.43, rawText: '' })).toBe(130.43);
     expect(evidencedVat({ vatAmount: 0, rawText: 'VAT 0.00' })).toBe(0);
   });
-  it('none read is none only on a text printing no tax', () => {
-    expect(evidencedVat({ vatAmount: null, rawText: NO_TAX })).toBe(0);
-    expect(evidencedVat({ rawText: NO_TAX })).toBe(0);
-  });
+  // r34: a page printing no tax word is no longer evidence of none (k076-round34-policy).
   it.each(['VAT INCL 375.00', 'Incl. VAT 375.00', 'V.A.T. 375.00', 'BTW ingesluit 375.00', 'BELASTINGFAKTUUR', 'TAX INVOICE',
     'VATNo:4123450000', 'Prices incl 15%', 'Tax 375.00'])('none read, but the page prints `%s`: not evidenced', (line) => {
     expect(evidencedVat({ vatAmount: null, rawText: `${NO_TAX}\n${line}` })).toBeNull();
@@ -31,9 +28,7 @@ describe('K-076 r33 HIGH-1 — the VAT a captured document evidences', () => {
     for (const rawText of ['', '   ', undefined]) expect(evidencedVat({ vatAmount: null, rawText })).toBeNull();
     expect(evidencedVat(null)).toBeNull();
   });
-  it('the other direction: words that merely contain the letters are not a tax', () => {
-    expect(evidencedVat({ vatAmount: null, rawText: `${NO_TAX}\nPrivate Bag X15\nElevator service 115.00` })).toBe(0);
-  });
+
 });
 
 const HDR = 'Mokoena Attorneys\nTAX INVOICE\nVAT No 4123456789\nInvoice No: 0045\nDate: 2026-09-01\n';

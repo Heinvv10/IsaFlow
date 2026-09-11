@@ -2,16 +2,16 @@
  * K-072 round 33: what MCP `post_journal` counts as a captured draft's VAT,
  * and what VAT the captured document evidences. Proved against the DB:
  *
- *   - HIGH-1: "no VAT read" is evidence of none ONLY on a text that prints no
- *     tax at all. A slip printing `VAT INCL 130.43` the reader missed, or a
- *     document with no text, is refused a draft claiming none;
+ *   - HIGH-1 (r34): "no VAT read" is evidence of none ONLY where the document
+ *     says no VAT applies and prints no VAT number. A page printing no tax word
+ *     is not enough, and a missed `B.T.W.`/`VAT INCL`/`VAl` is refused;
  *   - LOW-1: the draft's VAT is the net debit on EVERY tax account — VAT on a
  *     `vat_output` debit, on a generic `tax` account, or on a NULL-subtype
  *     "VAT Payable" is counted, so an unread document refuses it; a CREDIT to
  *     VAT Input counts negative;
- *   - a read VAT folded into the expense is consistent where the receipt
- *     builder folds it (s17(2)(a)): an account that denies input VAT, or a
- *     meals merchant — and nowhere else;
+ *   - a read VAT folded into the expense is consistent only where s17(2)(a)
+ *     folds it: every other debit on an account that denies input VAT. The
+ *     vendor's name excuses nothing (r34: `Spurway Steel`, `Mr Doors`);
  *   - the one-cent tolerance, both sides.
  */
 import { afterAll, beforeAll, expect, it } from 'vitest';
@@ -30,9 +30,10 @@ const ctx = { userId: admin, companyId: company, scopes: ['write:journals', 'wri
 const A: Record<string, string> = {};
 
 const NO_TAX_TEXT = 'K072 Garden\nGarden service 1000.00\nAmount Due 1000.00';
+const DECLARED = 'K072 Garden\nNot VAT registered\nGarden service 1000.00\nAmount Due 1000.00';
 const doc = (over: Record<string, unknown>) => ({
   documentType: 'receipt', vendorName: 'K072 Garden', date: '2026-04-10', totalAmount: 1000, subtotal: null,
-  vatAmount: null, lineItems: [], rawText: NO_TAX_TEXT, confidence: 0.9, warnings: [], extractionMethod: 'vlm', ...over,
+  vatAmount: null, lineItems: [], rawText: DECLARED, confidence: 0.9, warnings: [], extractionMethod: 'vlm', ...over,
 });
 
 async function seed(extracted: Record<string, unknown>): Promise<string> {
@@ -114,10 +115,14 @@ afterAll(async () => {
 
 const NONE: Array<[string, number, number]> = [['exp', 1000, 0], ['bank', 0, 1000]];
 
-it('HIGH-1: none read is none only on a text printing no tax; a missed `VAT INCL`, or no text, is refused', async () => {
+it('HIGH-1: none read is none only where the document says so; everything else is refused a draft claiming none', async () => {
   expect(await post(await draft(await seed(doc({})), NONE))).toMatchObject({ refused: false, status: 'posted' });
-  for (const rawText of ['K072 Garden\nService 1000.00\nTOTAL 1000.00\nVAT INCL 130.43', 'K072 Garden\nService 1000.00\nTotal 1000.00 (15%)', '']) {
-    expect(await post(await draft(await seed(doc({ rawText })), NONE))).toMatchObject({ refused: true, status: 'draft' });
+  const refusedTexts = ['Brits Hardeware\nB.T.W. Nr 4123450000\nSement 50kg 1000.00\nTOTAAL 1000.00\nB.T.W. 130.43',
+    ...['B T W 130.43', 'V A T 130.43', 'VAl 130.43', 'V4T 130.43', 'Incl. 130.43', 'Incl 15 persent 130.43', 'VAT INCL 130.43']
+      .map((tail) => `Brits Hardeware\nFAKTUUR\nSement 50kg 1000.00\nTOTAAL 1000.00\n${tail}`),
+    NO_TAX_TEXT, `${DECLARED}\nVAT No 4123450000`, ''];
+  for (const rawText of refusedTexts) {
+    expect(await post(await draft(await seed(doc({ rawText })), NONE)), rawText).toMatchObject({ refused: true, status: 'draft' });
   }
 });
 
@@ -131,11 +136,16 @@ it('LOW-1: VAT on a vat_output debit, a generic tax account or a NULL-subtype "V
   expect(await post(await draft(await seed(doc({})), reversal))).toMatchObject({ refused: true });
 });
 
-it('a read VAT folded into the expense posts where the builder folds it — a denying account or a meals merchant — only', async () => {
+it('a read VAT folded into the expense posts only on an account that denies input VAT — never by vendor name', async () => {
   const read = { subtotal: 869.57, vatAmount: 130.43, rawText: 'K072\nService 1000.00\nTOTAL 1000.00\nVAT 130.43' };
   expect(await post(await draft(await seed(doc(read)), [['ent', 1000, 0], ['bank', 0, 1000]]))).toMatchObject({ status: 'posted' });
-  expect(await post(await draft(await seed(doc({ ...read, vendorName: 'Spur Linden' })), NONE))).toMatchObject({ status: 'posted' });
-  expect(await post(await draft(await seed(doc(read)), NONE))).toMatchObject({ refused: true, status: 'draft' });
+  // A real Spur receipt still posts where it is booked: on the entertainment account.
+  const spur = { ...read, vendorName: 'Spur Linden' };
+  expect(await post(await draft(await seed(doc(spur)), [['ent', 1000, 0], ['bank', 0, 1000]]))).toMatchObject({ status: 'posted' });
+  // r34 MEDIUM-1: the name alone excuses nothing — the reviewer's two DB shapes, and Spur itself, on an ordinary account.
+  for (const vendorName of ['Spurway Steel', 'Mr Doors Brits', 'Spur Linden', 'K072']) {
+    expect(await post(await draft(await seed(doc({ ...read, vendorName })), NONE)), vendorName).toMatchObject({ refused: true, status: 'draft' });
+  }
   // Half denied is not denied: every other debit must be on a denying account.
   const mixed: Array<[string, number, number]> = [['ent', 500, 0], ['exp', 500, 0], ['bank', 0, 1000]];
   expect(await post(await draft(await seed(doc(read)), mixed))).toMatchObject({ refused: true });

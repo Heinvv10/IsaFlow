@@ -71,7 +71,7 @@ const ALLOWED: Record<string, AllowedEntry> = {
     + 'or claim line whose VAT was not read carries 0 and says so), and since r32 '
     + 'the MCP approve and post_journal tools refuse a captured draft whose VAT '
     + 'is not, to the cent, the VAT read off its document (none only where the '
-    + 'document prints no tax at all, r33) — those are not attended.',
+    + 'document says no VAT applies and prints no VAT number, r34) — those are not attended.',
   },
   'src/modules/accounting/services/expense/expenseClaimService.ts': {
     kinds: ['vat_field_on_a_posting_path'],
