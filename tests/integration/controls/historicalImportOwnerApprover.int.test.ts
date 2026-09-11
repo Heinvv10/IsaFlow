@@ -76,6 +76,18 @@ describe('owner-or-admin approver for historical imports: actual PostgreSQL',()=
   }finally{await setFlag(true);}
  });
 
+ it('refuses to execute an owner-approved import once the company stops admitting owners',async()=>{
+  const setFlag=(value:boolean)=>h.pool.query('UPDATE control_mandatory_import_policies SET owner_may_approve=$2 WHERE company_id=$1',[h.f.companyA,value]);
+  try{
+   const p=await h.prepared(),approval=await h.request(p.ref);
+   await asRole(h.f.companyA,h.f.u2.id,'owner',()=>h.review(approval.id));
+   expect((await h.pool.query('SELECT status FROM control_operation_approvals WHERE company_id=$1 AND id=$2',[h.f.companyA,approval.id])).rows[0].status).toBe('approved');
+   await setFlag(false);
+   await expect(h.execute(p.ref,approval.id)).rejects.toThrow('Approval material changed');
+   expect(await h.noEffects(p.ref)).toEqual({journals:0,effects:0});
+  }finally{await setFlag(true);}
+ });
+
  it('refuses at execution an owner decision recorded against an admin-only import policy',async()=>{
   const setFlag=(value:boolean)=>h.pool.query('UPDATE control_mandatory_import_policies SET owner_may_approve=$2 WHERE company_id=$1',[h.f.companyA,value]);
   await setFlag(false);

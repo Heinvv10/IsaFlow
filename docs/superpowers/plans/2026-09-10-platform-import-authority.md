@@ -138,3 +138,8 @@ Each task's command uses its exact file list, for example `bunx vitest run --con
 ## Delivery and remaining programme boundary
 
 Root integrates only reviewed verified commits, records migration reservation and each task's new exact base in the durable programme ledger, then runs final integrated workflows and `bun run ci` before draft PR creation. This plan restores the privileged historical invoice capability; tenant migration wizard/staged imports, operational CLI/jobs, master-data coverage, bank source ingestion and rollback/tombstone inventory from the adjacent plan still require their own owned slices. No production verification is implied by local HTTP, synthetic PostgreSQL or browser tests.
+
+## Forward notes (Sage batch slices)
+
+- S4: the `historical_import_batch.post` entry in `operationPermissions.ts` must use `rule:'historical_import'`. `loadApprovalRules` binds the mandatory import policy, and with it the owner-or-admin allowance (`owner_may_approve`, migration 686), only for that rule type. Any other mapping leaves batch approvals admin-only, and nothing fails to say so. Pin it with an owner approving a batch.
+- The platform-import maker runs as `platform_admin`, which bypasses RLS. After migration 687 it holds only SELECT and INSERT on `control_operation_approvals`, UPDATE of `status`, `consumed_at` and `consumed_effect_id`, and SELECT on `control_operation_decisions`. A batch writer that needs more must add it in its own migration, with a test that proves the grant.
