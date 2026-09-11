@@ -60,14 +60,22 @@ describe('historical import batch storage: actual PostgreSQL',()=>{
  });
  it.each(['control_historical_import_batches','control_historical_import_batch_members','control_historical_imports','control_historical_import_sources'])(
   'grants UPDATE/DELETE/TRUNCATE on %s to no role but its owner and migration_admin',async table=>{
-  const {rows}=await pool.query(`SELECT DISTINCT COALESCE(r.rolname,'PUBLIC') AS rolname FROM pg_class c CROSS JOIN LATERAL aclexplode(c.relacl) a
-   LEFT JOIN pg_roles r ON r.oid=a.grantee WHERE c.oid=to_regclass($1) AND a.privilege_type IN('UPDATE','DELETE','TRUNCATE')
-   AND a.grantee<>c.relowner ORDER BY 1`,[table]);
-  expect(rows.map(r=>r.rolname)).toEqual(['migration_admin']);
-  // Effective privilege as each role's own session holds it (platform_admin is NOINHERIT, so a role it may SET ROLE to is not counted here).
-  const effective=await pool.query(`SELECT has_table_privilege('platform_admin',to_regclass($1),'UPDATE,DELETE,TRUNCATE') AS platform,
-   has_table_privilege('app_user',to_regclass($1),'UPDATE,DELETE,TRUNCATE') AS app`,[table]);
-  expect(effective.rows).toEqual([{platform:false,app:false}]);
+  const migration=await readFile('scripts/migrations/sql/685_historical_import_batches.sql','utf8');
+  const client=await pool.connect();
+  try{
+   await client.query('BEGIN');
+   // What the schema's default privileges give platform_admin, so the 685 text itself must take it back (app_user's lost it in 639).
+   await client.query(`GRANT UPDATE,DELETE,TRUNCATE ON ${table} TO platform_admin`);
+   await client.query(migration);
+   const {rows}=await client.query(`SELECT DISTINCT COALESCE(r.rolname,'PUBLIC') AS rolname FROM pg_class c CROSS JOIN LATERAL aclexplode(c.relacl) a
+    LEFT JOIN pg_roles r ON r.oid=a.grantee WHERE c.oid=to_regclass($1) AND a.privilege_type IN('UPDATE','DELETE','TRUNCATE')
+    AND a.grantee<>c.relowner ORDER BY 1`,[table]);
+   expect(rows.map(r=>r.rolname)).toEqual(['migration_admin']);
+   // has_table_privilege also counts PUBLIC and, for an INHERIT role, the roles it belongs to. On this fixture both roles are INHERIT and members of no role.
+   const effective=await client.query(`SELECT has_table_privilege('platform_admin',to_regclass($1),'UPDATE,DELETE,TRUNCATE') AS platform,
+    has_table_privilege('app_user',to_regclass($1),'UPDATE,DELETE,TRUNCATE') AS app`,[table]);
+   expect(effective.rows).toEqual([{platform:false,app:false}]);
+  }finally{await client.query('ROLLBACK');client.release();}
  });
  it('lets a tenant member read only its own company batches and members',async()=>{
   const importA=await importRow(f.companyA,admin),importB=await importRow(f.companyB,admin);
