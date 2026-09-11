@@ -16,9 +16,9 @@ import ManagementPacksPage from '../../../pages/accounting/afs/management-packs'
 const SKIPPED = 'recipients[0] (cfo@example.invalid): Invalid input: expected object, received string';
 const envelope = (data: unknown) => new Response(JSON.stringify({ success: true, data }), { status: 200, headers: { 'content-type': 'application/json' } });
 
-function serve(skippedRecipients: string[], sentCount = 1) {
+function serve(skippedRecipients: string[], sentCount = 1, failedRecipients: string[] = []) {
   const fetch = vi.fn(async (url: string, init?: RequestInit) => {
-    if (init?.method === 'POST') return envelope({ delivered: sentCount > 0, sentCount, skippedRecipients });
+    if (init?.method === 'POST') return envelope({ delivered: sentCount > 0, sentCount, skippedRecipients, failedRecipients });
     if (url.includes('management-pack-config')) return envelope({ config: null });
     return envelope({ documents: [{ id: 'p1', period: '2026-06', status: 'draft', created_at: '2026-09-11T00:00:00Z',
       updated_at: '2026-09-11T00:00:00Z', delivery_withheld_reason: null }] });
@@ -57,5 +57,12 @@ describe('after delivering a management pack', () => {
     await deliver();
     expect(await screen.findByText('Nothing was sent: the pack reached no recipient.'), 'a delivery that sent nothing looked like a success').toBeInTheDocument();
     expect(screen.getByText(`Not sent to: ${SKIPPED}`)).toBeInTheDocument();
+  });
+
+  it('names a recipient whose send failed even when the pack reached someone else', async () => {
+    serve([], 1, ['bounced@example.invalid: the email could not be sent']);
+    await deliver();
+    expect(await screen.findByText('Not sent to: bounced@example.invalid: the email could not be sent'), 'a partial failure looked like a clean delivery').toBeInTheDocument();
+    expect(screen.queryByText(/Nothing was sent/)).not.toBeInTheDocument();
   });
 });

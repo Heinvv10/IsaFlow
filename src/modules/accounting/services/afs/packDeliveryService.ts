@@ -149,13 +149,13 @@ async function sendToRecipient(
   html: string,
   pdfBuffer: Buffer | null,
   companyId: string,
-): Promise<boolean> {
+): Promise<'sent' | 'not_for_this_pack' | 'failed'> {
   const { receives } = recipient;
   // Final-tier recipients receive signed packs only: in_review and partner_review are drafts too.
   const isDraft = !SIGNED_STATUSES.has(documentStatus);
 
-  if (receives === 'final' && isDraft) return false;
-  if (receives === 'draft' && !isDraft) return false;
+  if (receives === 'final' && isDraft) return 'not_for_this_pack';
+  if (receives === 'draft' && !isDraft) return 'not_for_this_pack';
   // 'both' always sends
 
   const attachments =
@@ -180,7 +180,7 @@ async function sendToRecipient(
   } else {
     log.info('Management pack emailed', { recipient: recipient.email }, 'packDeliveryService');
   }
-  return result.success;
+  return result.success ? 'sent' : 'failed';
 }
 
 // ── Public interface ──────────────────────────────────────────────────────────
@@ -199,7 +199,7 @@ export class PackDeliveryWithheldError extends Error {
  * A pack generated with review SKIPPED carries delivery_withheld_reason until a person signs the
  * document off (afsDocumentTransitions clears it and audits the release).
  */
-export async function deliverPack(documentId: string, companyId: string): Promise<{ sentCount: number; skippedRecipients: string[] }> {
+export async function deliverPack(documentId: string, companyId: string): Promise<{ sentCount: number; skippedRecipients: string[]; failedRecipients: string[] }> {
   log.info('Delivering management pack', { documentId, companyId }, 'packDeliveryService');
 
   const [doc, config, companyName] = await Promise.all([
@@ -247,10 +247,14 @@ export async function deliverPack(documentId: string, companyId: string): Promis
 
   const pdfBuffer = await generatePackPdf(documentId, companyId, documentStatus);
 
-  // Sent means the mailer accepted it: a tier the pack is not for, or a failed send, is not counted.
+  // Sent means the mailer accepted it; a tier the pack is not for is neither sent nor failed. A failed send is named
+  // by address only: the mailer's own error (our SMTP server's reply) stays in the log, never in a tenant's answer.
   let sentCount = 0;
+  const failedRecipients: string[] = [];
   for (const recipient of recipients) {
-    if (await sendToRecipient(recipient, documentStatus, subject, html, pdfBuffer, companyId)) sentCount += 1;
+    const outcome = await sendToRecipient(recipient, documentStatus, subject, html, pdfBuffer, companyId);
+    if (outcome === 'sent') sentCount += 1;
+    else if (outcome === 'failed') failedRecipients.push(`${recipient.email}: the email could not be sent`);
   }
 
   await sql`
@@ -260,7 +264,7 @@ export async function deliverPack(documentId: string, companyId: string): Promis
   `;
 
   log.info('Management pack delivery complete', { documentId, companyId, recipientCount: recipients.length, sentCount }, 'packDeliveryService');
-  return { sentCount, skippedRecipients };
+  return { sentCount, skippedRecipients, failedRecipients };
 }
 
 export async function scheduleDelivery(

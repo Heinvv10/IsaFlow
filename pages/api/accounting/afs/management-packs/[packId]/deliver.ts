@@ -47,8 +47,8 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
 
   try {
     // Delivered only if the pack reached someone: skipped entries, tiers it is not for and failed sends do not count.
-    const { sentCount, skippedRecipients } = await deliverPack(packId, companyId);
-    return apiResponse.success(res, { delivered: sentCount > 0, sentCount, skippedRecipients });
+    const { sentCount, skippedRecipients, failedRecipients } = await deliverPack(packId, companyId);
+    return apiResponse.success(res, { delivered: sentCount > 0, sentCount, skippedRecipients, failedRecipients });
   } catch (err) {
     if (err instanceof PackDeliveryWithheldError) return apiResponse.conflict(res, err.message);
     throw err;
