@@ -1,14 +1,16 @@
 import { randomUUID } from 'node:crypto';
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 import {
-  describeShape, runAllocationProbe, PROBE_PLAN, PROBE_REQUEST_CAP,
+  parseProbeArgs, runAllocationProbe, PROBE_PLAN, PROBE_REQUEST_CAP, type ProbeRequest,
 } from '@/modules/admin/services/sageAllocationProbe';
+import { describeShape } from '@/modules/admin/services/sageProbeShape';
 
 // Synthetic values only. Every one of these must be absent from probe output.
 const PII = {
   name: 'Thandiwe Probe-Nkosi', email: 'thandiwe.probe@synthetic.invalid', account: '62839104457',
   amount: 48213.77, id: 90417731, doc: 'RC-000913', uuidKey: randomUUID(),
   emailKey: 'owner@synthetic.invalid', spacedKey: 'Acme Holdings Pty', digitKey: '7788123',
+  surnameField: 'Thandiwe', codeField: 'NKOSI', snakeField: 'ACME_HOLDINGS', accountField: 'Cust62839104457',
 };
 const receiptList = {
   TotalResults: 1, ReturnedResults: 1,
@@ -16,8 +18,9 @@ const receiptList = {
     ID: PII.id, DocumentNumber: PII.doc, Total: PII.amount, Discount: 0, TotalUnallocated: 12.5,
     Customer: { Name: PII.name, Email: PII.email },
     BankAccount: { BankAccountId: 4, Name: PII.name, AccountNumber: PII.account },
-    Allocations: [{ AllocatedToDocumentId: PII.id + 1, Total: PII.amount }, { AllocatedToDocumentId: 5, Total: 1, Extra: null }],
+    Allocations: [{ AllocatedToDocumentId: PII.id + 1, Total: PII.amount }, { AllocatedToDocumentId: 5, Total: 1, Reference: null }],
     [PII.uuidKey]: { Amount: PII.amount }, [PII.emailKey]: PII.name, [PII.spacedKey]: 1, [PII.digitKey]: PII.account,
+    Balance: { [PII.surnameField]: 1, [PII.codeField]: 2, [PII.snakeField]: 3, [PII.accountField]: 4, IsObfuscated: false },
   }],
 };
 function json(body: unknown, status = 200): Response {
@@ -38,8 +41,12 @@ describe('describeShape', () => {
     expect(out).toContain('"AllocatedToDocumentId":"number"');
     expect(out).toContain('"array":2');
     expect(out).toContain('"redactedKeys":4');
+    // Identifier-shaped keys that are client data are counted, never printed.
+    expect(out).toContain('"Balance":{"object":{"IsObfuscated":"boolean"},"redactedKeys":4}');
+    expect(out).toContain('"TotalUnallocated":"number"');
+    expect(out).toContain('"ID":"number"');
     // Union over array items: a key present in only one item still appears.
-    expect(out).toContain('"Extra":"null"');
+    expect(out).toContain('"Reference":"null"');
   });
   it('summarises a large keyed dictionary instead of listing its keys', () => {
     const dict: Record<string, number> = {};
@@ -86,15 +93,71 @@ describe('runAllocationProbe', () => {
     expect([...seenCookies]).toEqual([`session=${PII.email}`]);
   });
 
-  it('stops at the hard cap and never retries a failing endpoint', async () => {
-    const urls: string[] = [];
+  it('never retries, and prints nothing from a failing endpoint body', async () => {
+    for (const body of [() => json({ Message: `${PII.name} ${PII.email}` }, 500),
+      () => new Response(`${PII.name} ${PII.account}`, { status: 500, headers: { 'content-type': 'text/plain' } })]) {
+      const urls: string[] = [];
+      const lines: string[] = [];
+      await runAllocationProbe({
+        base: 'https://accounting.sageone.co.za', cookie: 'session=synthetic-cookie-value', dryRun: false,
+        fetch: async url => { urls.push(url); return body(); }, write: line => lines.push(line),
+      });
+      expect(new Set(urls).size).toBe(urls.length);
+      expect(lines.some(line => line.includes('"status":500'))).toBe(true);
+      assertNoPii(lines.join('\n'));
+    }
+  });
+
+  it('makes exactly the cap of requests however long the plan is', async () => {
+    const plan: ProbeRequest[] = Array.from({ length: 15 }, (_, i) => ({ label: `step ${i}`, method: 'GET', pathTemplate: `/services/Probe${i}/Get` }));
+    const lines: string[] = [];
+    let calls = 0;
+    const result = await runAllocationProbe({
+      base: 'https://accounting.sageone.co.za', cookie: 'session=synthetic-cookie-value', dryRun: false, plan,
+      fetch: async () => { calls += 1; return json({ ok: true }); }, write: line => lines.push(line),
+    });
+    expect(calls).toBe(PROBE_REQUEST_CAP);
+    expect(result.requests).toBe(PROBE_REQUEST_CAP);
+    expect(lines.join('\n')).toContain('request_cap_reached');
+    expect(PROBE_PLAN.length).toBeLessThanOrEqual(PROBE_REQUEST_CAP);
+  });
+
+  it.each([401, 403, 302])('aborts on a %s session refusal after one request', async status => {
+    const lines: string[] = [];
+    let calls = 0;
     await runAllocationProbe({
       base: 'https://accounting.sageone.co.za', cookie: 'session=synthetic-cookie-value', dryRun: false,
-      fetch: async url => { urls.push(url); return json({ Message: PII.name }, 500); }, write: () => undefined,
+      fetch: async () => { calls += 1; return new Response(null, { status, headers: status === 302 ? { location: `https://accounting.sageone.co.za/login?u=${PII.email}` } : {} }); },
+      write: line => lines.push(line),
     });
-    expect(urls.length).toBeLessThanOrEqual(PROBE_REQUEST_CAP);
-    expect(new Set(urls).size).toBe(urls.length);
-    expect(PROBE_PLAN.length).toBeLessThanOrEqual(PROBE_REQUEST_CAP);
+    expect(calls).toBe(1);
+    expect(lines.join('\n')).toContain('session_rejected');
+    assertNoPii(lines.join('\n'));
+  });
+
+  it('prints only the media type, never a content-type parameter', async () => {
+    const lines: string[] = [];
+    await runAllocationProbe({
+      base: 'https://accounting.sageone.co.za', cookie: 'session=synthetic-cookie-value', dryRun: false,
+      fetch: async () => new Response('{}', { status: 200, headers: { 'content-type': `application/json; owner=${PII.email}` } }),
+      write: line => lines.push(line),
+    });
+    expect(lines.join('\n')).toContain('"contentType":"application/json"');
+    assertNoPii(lines.join('\n'));
+  });
+
+  it('refuses a body over the size cap, declared or streamed, without parsing it', async () => {
+    const big = JSON.stringify({ Results: [{ Name: PII.name }], pad: 'x'.repeat(6 * 1024 * 1024) });
+    const headerSets: Record<string, string>[] = [{ 'content-type': 'application/json' }, { 'content-type': 'application/json', 'content-length': String(big.length) }];
+    for (const headers of headerSets) {
+      const lines: string[] = [];
+      await runAllocationProbe({
+        base: 'https://accounting.sageone.co.za', cookie: 'session=synthetic-cookie-value', dryRun: false, plan: [PROBE_PLAN[4]!],
+        fetch: async () => new Response(big, { status: 200, headers }), write: line => lines.push(line),
+      });
+      expect(lines.join('\n')).toContain('body_too_large');
+      assertNoPii(lines.join('\n'));
+    }
   });
 
   it('aborts every remaining request once Sage rejects the session', async () => {
@@ -118,5 +181,40 @@ describe('runAllocationProbe', () => {
     });
     assertNoPii(lines.join('\n'));
     expect(lines.join('\n')).toContain('network_error');
+  });
+});
+
+describe('runAllocationProbe body deadline', () => {
+  it('gives up on a body that never finishes instead of hanging', async () => {
+    vi.useFakeTimers();
+    try {
+      const lines: string[] = [];
+      const stalled = new ReadableStream<Uint8Array>({ start() { /* never enqueues, never closes */ } });
+      const run = runAllocationProbe({
+        base: 'https://accounting.sageone.co.za', cookie: 'session=synthetic-cookie-value', dryRun: false, plan: [PROBE_PLAN[4]!],
+        fetch: async () => new Response(stalled, { status: 200, headers: { 'content-type': 'application/json' } }), write: line => lines.push(line),
+      });
+      await vi.advanceTimersByTimeAsync(31000);
+      await run;
+      expect(lines.join('\n')).toContain('body_timeout');
+    } finally { vi.useRealTimers(); }
+  });
+});
+
+describe('parseProbeArgs', () => {
+  it('never echoes a mistyped flag that may carry the cookie', () => {
+    for (const bad of [[`--cookie=${PII.account}`], [`--SAGE_COOKIE=${PII.account}`], [PII.account], ['--base']]) {
+      let message = '';
+      try { parseProbeArgs(bad); } catch (error) { message = error instanceof Error ? error.message : String(error); }
+      expect(message).not.toBe('');
+      expect(message).not.toContain(PII.account);
+    }
+  });
+  it('accepts only a bare origin for --base', () => {
+    expect(parseProbeArgs([])).toEqual({ dryRun: false, base: 'https://accounting.sageone.co.za' });
+    expect(parseProbeArgs(['--dry-run', '--base', 'https://accounting.sageone.co.za/'])).toEqual({ dryRun: true, base: 'https://accounting.sageone.co.za' });
+    for (const base of ['https://accounting.sageone.co.za/services/X/Delete?q=', 'https://accounting.sageone.co.za/?a=1', 'https://accounting.sageone.co.za/#x', 'https://u:p@accounting.sageone.co.za']) {
+      expect(() => parseProbeArgs(['--base', base])).toThrow(/bare Sage origin/);
+    }
   });
 });
