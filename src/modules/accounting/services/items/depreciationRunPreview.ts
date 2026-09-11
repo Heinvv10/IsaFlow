@@ -3,6 +3,7 @@ import type {DbRow} from '@/lib/neon';
 import {assertEffectivePermission} from '@/lib/auth/effectivePermissions';
 import {requireControlTx} from '../controls/context';
 import {loadAssetDepreciationFacts} from '../controls/assetDepreciationOperationMaterializer';
+import {lockdownBlock} from '../gl/postingPeriodGuard';
 import type {DepreciationPlan} from './depreciationRunPlan';
 import type {DryRunJournal,DryRunSkip} from '@/lib/mcp/contracts';
 export interface DepreciationPreview {journals:DryRunJournal[];writesWithoutJournal:DryRunSkip[]}
@@ -16,7 +17,7 @@ export async function previewDepreciationJournals(companyId:string,plan:Deprecia
  const journals:DryRunJournal[]=[],writesWithoutJournal:DryRunSkip[]=[];
  for(const row of plan.postable){
   const facts=await loadAssetDepreciationFacts(ctx,company,{asset_id:row.assetId,period_date:plan.periodDate});
-  if(company.lockdown_enabled===true&&(!company.lockdown_date||plan.periodDate<=String(company.lockdown_date)))throw new Error('Depreciation date is within company lockdown');
+  if(lockdownBlock(company,plan.periodDate))throw new Error('Depreciation date is within company lockdown');
   if(facts.period.status!=='open'||facts.accounts.some(a=>a.is_active!==true))throw new Error('Depreciation period or accounts are not open');
   if(facts.ledgers.some(ledger=>String(ledger.yyyymm)===plan.periodDate.slice(0,7).replace('-','')))throw new Error('Depreciation period already exists');
   if(!facts.plan.length){

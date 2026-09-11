@@ -8,6 +8,7 @@ import {assertControlTx} from '../controls/context';
 import {recordCommittedChange} from '../controls/changeEventService';
 import {parseCashApplicationPlan,cashApplicationTotal} from './cashApplicationPlan';
 import {loadCashApplicationSources} from './cashApplicationSources';
+import {lockdownBlock} from '../gl/postingPeriodGuard';
 const D=Decimal.clone({precision:80});
 export async function prepareCashApplication(ctx:ControlTx,input:unknown){
  assertControlTx(ctx);await assertEffectivePermission(ctx,'write:bank-tx');await assertEffectivePermission(ctx,'write:post');
@@ -15,7 +16,7 @@ export async function prepareCashApplication(ctx:ControlTx,input:unknown){
  return withSavepoint('cash_application_prepare',async()=>{
   await ctx.sql`SELECT pg_advisory_xact_lock(hashtextextended(${`control-policy:${ctx.principal.companyId}`},0))`;
   const sources=await loadCashApplicationSources(ctx,plan),amount=cashApplicationTotal(plan);
-  if(sources.ledger.lockdown_enabled===true&&(!sources.ledger.lockdown_date||plan.accountingDate<=String(sources.ledger.lockdown_date)))throw new Error('Cash application date is within company lockdown');
+  if(lockdownBlock(sources.ledger,plan.accountingDate))throw new Error('Cash application date is within company lockdown');
   if(sources.periods.length!==1||sources.periods[0]!.status!=='open'||sources.vatLocks.length)throw new Error('Open unlocked cash application period required');
   const active=sources.allocations.filter(a=>a.reversed_at==null);
   const allocated=active.reduce((sum,a)=>sum.add(String(a.amount_allocated)),new D(0));
