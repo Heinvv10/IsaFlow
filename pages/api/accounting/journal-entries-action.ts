@@ -20,7 +20,7 @@ import {
   postJournalEntry,
   reverseJournalEntry,
 } from '@/modules/accounting/services/gl/journalEntryService';
-import { assertDirectJournalPostable, JournalPostingRefusalError } from '@/modules/accounting/services/gl/journalEntryPostingService';
+import { isPostingRefusal } from '@/modules/accounting/services/gl/journalEntryPostingService';
 
 const JournalEntryActionSchema = z.object({
   id: UUID,
@@ -62,10 +62,6 @@ async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse) {
     let result;
     switch (action) {
       case 'post':
-        // Refuse a lockdown or closed-period post here, before the controlled write: firing the same rule inside
-        // postJournalEntry still marks this request's control transaction failed even though it is caught below,
-        // and withAuth then overrides the response to a 500 regardless (see journalEntryPostingService.ts).
-        await assertDirectJournalPostable(companyId, id);
         result = await postJournalEntry(companyId, id, userId);
         break;
       case 'reverse':
@@ -77,7 +73,10 @@ async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse) {
 
     return apiResponse.success(res, result);
   } catch (err) {
-    if (err instanceof JournalPostingRefusalError) return apiResponse.error(res, ErrorCode.BUSINESS_RULE_VIOLATION, err.message);
+    // A lockdown or closed-period refusal for a direct post/reverse is now thrown by the kernel
+    // (journalControlService.ts) BEFORE it opens the controlled write, so it reaches here as an ordinary business
+    // error rather than a poisoned control transaction (see runJournalControl).
+    if (isPostingRefusal(err)) return apiResponse.error(res, ErrorCode.BUSINESS_RULE_VIOLATION, (err as Error).message);
     const message = err instanceof Error ? err.message : 'Failed to perform journal entry action';
     log.error('Failed to perform journal entry action', { error: err }, 'accounting-api');
     return apiResponse.badRequest(res, message);

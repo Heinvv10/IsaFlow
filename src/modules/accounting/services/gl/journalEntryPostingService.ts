@@ -10,52 +10,16 @@ import { runJournalControl, type JournalControlOptions } from './journalControlS
 import { registerGeneratedJournal } from '../controls/generatedJournalPermit';
 import type { ApMaterial } from '../controls/apOperationMaterializer';
 import { isAuthorizedYearEndPosting } from '../controls/yearEndPostingGuard';
-import { postingPeriodBlock } from './postingPeriodGuard';
+import { postingPeriodBlock, ClosedFiscalPeriodError, LOCKDOWN_REFUSAL_MESSAGE } from './postingPeriodGuard';
 export { resolveReversalDate } from './journalReversalDate';
 export type { JournalControlOptions } from './journalControlService';
+export { ClosedFiscalPeriodError, isPostingRefusal } from './postingPeriodGuard';
 type Row = DbRow;
-export class ClosedFiscalPeriodError extends Error {
-  readonly periodStatus: string;
-  constructor(periodStatus: string) { super(`Cannot post to ${periodStatus} fiscal period`); this.name = 'ClosedFiscalPeriodError'; this.periodStatus = periodStatus; }
-}
 export class InactiveAccountError extends Error {
   readonly accounts: string[];
   constructor(accounts: { code: string; name: string }[]) {
     super(`Cannot post to deactivated GL account${accounts.length === 1 ? '' : 's'}: ${accounts.map(a => `${a.code} ${a.name}`).join(', ')}. Reactivate the account, or recode the line to an active one.`);
     this.name = 'InactiveAccountError'; this.accounts = accounts.map(a => a.code);
-  }
-}
-export class JournalPostingRefusalError extends Error {
-  constructor(message: string) { super(message); this.name = 'JournalPostingRefusalError'; }
-}
-
-/**
- * The period-and-lockdown refusal for a DIRECT journal post, read and thrown BEFORE the controlled write. A route
- * that calls postJournalEntry straight from a person's own request (not through a domain operation that carries its
- * own period rule, e.g. year-end or historical import) must refuse here: the same rule thrown inside
- * assertPostingGuards still answers (it stays the backstop for every caller, direct or not), but by the time it
- * fires there the request's control transaction is already marked failed, and withAuth overrides the response to a
- * 500 regardless of what the route itself catches (see journalControlService.ts, withAuth.ts). Uses
- * postingPeriodBlock, the one copy of the rule (postingPeriodGuard.ts), so this precheck cannot drift from the
- * guard it precedes. Returns silently — leaving the controlled write to answer — when the entry, its company row
- * or its assigned fiscal period cannot be read; those are fault cases, not a refusal this function owns.
- */
-export async function assertDirectJournalPostable(companyId: string, entryId: string): Promise<void> {
-  const [row] = await sql`SELECT gje.entry_date::text AS entry_date, fp.status AS period_status,
-      fp.start_date::text AS period_start, fp.end_date::text AS period_end,
-      c.lockdown_enabled, c.lockdown_date::text AS lockdown_date
-    FROM gl_journal_entries gje
-    JOIN companies c ON c.id = gje.company_id
-    LEFT JOIN fiscal_periods fp ON fp.id = gje.fiscal_period_id AND fp.company_id = gje.company_id
-    WHERE gje.company_id = ${companyId}::uuid AND gje.id = ${entryId}::uuid` as Row[];
-  if (!row || typeof row.entry_date !== 'string' || row.period_status == null) return;
-  const block = postingPeriodBlock(row.period_status, row, row.entry_date);
-  if (block?.kind === 'period') {
-    throw new JournalPostingRefusalError(`Cannot post this journal entry dated ${row.entry_date}: its fiscal period (${String(row.period_start)} to ${String(row.period_end)}) is ${block.status}.`);
-  }
-  if (block?.kind === 'lockdown') {
-    const until = block.lockdownDate ? ` up to ${block.lockdownDate}` : '';
-    throw new JournalPostingRefusalError(`Cannot post this journal entry dated ${row.entry_date}: the company is locked down${until}.`);
   }
 }
 /** Kept for legacy direct writers; the controlled posting path locks and validates the complete population. */
@@ -74,7 +38,7 @@ function assertPostingGuards(material: ApMaterial, authorizedClosedPeriod = fals
   const state = facts(material);
   const block = postingPeriodBlock(state.targetPeriod.status, state.company, material.binding.accountingDate!, authorizedClosedPeriod);
   if (block?.kind === 'period') throw new ClosedFiscalPeriodError(block.status);
-  if (block?.kind === 'lockdown') throw new Error('Journal date is within company lockdown');
+  if (block?.kind === 'lockdown') throw new Error(LOCKDOWN_REFUSAL_MESSAGE);
   if (state.vatLocks.length) throw new Error('Journal date is within a filed VAT period');
   const inactive = state.accounts.filter(a => a.is_active !== true);
   if (inactive.length) throw new InactiveAccountError(inactive.map(a => ({ code: String(a.account_code), name: String(a.account_name) })));

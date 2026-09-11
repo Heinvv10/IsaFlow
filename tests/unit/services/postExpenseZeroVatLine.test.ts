@@ -38,11 +38,10 @@ vi.mock('@/lib/apiResponse', () => ({
   },
 }));
 
-const { sqlMock, createMock, postMock, assertPostableMock } = vi.hoisted(() => ({
+const { sqlMock, createMock, postMock } = vi.hoisted(() => ({
   sqlMock: Object.assign(vi.fn(), { transaction: vi.fn() }),
   createMock: vi.fn(),
   postMock: vi.fn(),
-  assertPostableMock: vi.fn(),
 }));
 
 vi.mock('@/lib/neon', () => ({
@@ -53,15 +52,20 @@ vi.mock('@/lib/neon', () => ({
 vi.mock('@/modules/accounting/services/gl/journalEntryCrudService', () => ({
   createJournalEntry: createMock,
 }));
-vi.mock('@/modules/accounting/services/gl/journalEntryPostingService', () => ({
-  postJournalEntry: postMock,
-  assertDirectJournalPostable: assertPostableMock,
-  // The route narrows on `err instanceof JournalPostingRefusalError` to decide whether to skip auto-post (leave
-  // the journal a draft) or rethrow. Omitting the class from this mock leaves it `undefined` in the module under
-  // test, so any test that drove assertPostableMock to reject would die on
-  // "Right-hand side of 'instanceof' is not callable" — testing the mock's shape instead of the route's behaviour.
-  JournalPostingRefusalError: class JournalPostingRefusalError extends Error {},
-}));
+vi.mock('@/modules/accounting/services/gl/journalEntryPostingService', () => {
+  class ClosedFiscalPeriodError extends Error {
+    readonly periodStatus: string;
+    constructor(periodStatus: string) { super(`Cannot post to ${periodStatus} fiscal period`); this.periodStatus = periodStatus; }
+  }
+  return {
+    postJournalEntry: postMock,
+    ClosedFiscalPeriodError,
+    // The route narrows on `isPostingRefusal(err)` (postingPeriodGuard.ts) to decide whether to skip auto-post
+    // (leave the journal a draft) or rethrow. A real predicate over this mock's own ClosedFiscalPeriodError class,
+    // not a stubbed boolean, so a test can only pass by actually throwing that class — the same as production.
+    isPostingRefusal: (error: unknown) => error instanceof ClosedFiscalPeriodError,
+  };
+});
 vi.mock('@/modules/accounting/services/gl/systemAccountResolver', () => ({
   getSystemAccountId: vi.fn(async (key: string) => `acct-${key}`),
 }));
@@ -73,7 +77,7 @@ vi.mock('@/modules/accounting/services/expense/expenseClaimService', () => ({
 // receiptToJournalService stays REAL — the point is that the genuine builder
 // emits the zero leg this route must filter.
 import handler from '../../../pages/api/accounting/capture/[id]/post-expense';
-import { JournalPostingRefusalError } from '@/modules/accounting/services/gl/journalEntryPostingService';
+import { ClosedFiscalPeriodError } from '@/modules/accounting/services/gl/journalEntryPostingService';
 import { validateJournalEntry } from '@/modules/accounting/utils/doubleEntry';
 
 const COMPANY_ID = 'aaaaaaaa-0000-0000-0000-aaaaaaaaaaaa';
@@ -148,7 +152,6 @@ beforeEach(() => {
   vi.clearAllMocks();
   createMock.mockResolvedValue({ id: 'je-pe-1', status: 'draft' });
   postMock.mockResolvedValue({ id: 'je-pe-1', status: 'posted' });
-  assertPostableMock.mockResolvedValue(undefined);
 });
 
 describe('capture post-expense — zero-VAT receipts', () => {
@@ -217,19 +220,16 @@ describe('capture post-expense — zero-VAT receipts', () => {
     expectScopedToCompany(stamp, 'capture_events stamp');
   });
 
-  it('leaves the journal a draft when the period is closed or the company is locked down, and still responds', async () => {
+  it('leaves the journal a draft when the period is closed, and still responds', async () => {
     stubDb(ZERO_VAT);
-    // The precheck runs BEFORE postJournalEntry, so a closed period or lockdown never reaches the controlled
-    // write at all — postMock must not even be called.
-    assertPostableMock.mockRejectedValue(new JournalPostingRefusalError('Cannot post this journal entry dated 2026-01-01: its fiscal period is closed.'));
+    postMock.mockRejectedValue(new ClosedFiscalPeriodError('Cannot post to closed fiscal period'));
 
     const result = await handler(req(), res());
 
     // A closed period is a legitimate outcome — same end state as autoPost being
-    // false — so it is skipped and the draft survives for later posting.
+    // false — so it is swallowed and the draft survives for later posting.
     expect(result).toMatchObject({ kind: 'success' });
     expect((result as { data: { journalEntry: { status: string } } }).data.journalEntry.status).toBe('draft');
-    expect(postMock).not.toHaveBeenCalled();
   });
 
   it('RETHROWS any other posting failure rather than stamping over it', async () => {
