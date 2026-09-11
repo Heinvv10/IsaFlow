@@ -31,8 +31,8 @@ interface Membership extends UserAccountRow {
  * Root migration 626 owns the narrow, authenticated principal-lock helper.
  * Direct FOR UPDATE would apply admin-write RLS and hide viewer/manager memberships.
  * Helper locks parent users too: permission INSERT FK cannot overtake absent override.
- * These row locks, held to COMMIT, are what stop an authority change landing between a check and its action;
- * the company key the helper also takes is shared (migration 690) and bounded at 5 s.
+ * The helper's company key serialises every permission-checked transaction in the company to COMMIT; it and these
+ * row locks wait at most 5 s (migration 690).
  * A job opened with an authority pin answers from the pin once its live lease and delegation check pass.
  */
 export async function loadPermissionState(ctx: ControlTx): Promise<PermissionState> {
