@@ -53,6 +53,18 @@ describe('delivering a pack whose stored recipients include a malformed entry',(
   expect(after.getTime(),'the delivery did not commit').toBeGreaterThan(before.getTime());
  });
 
+ it('still sends to a stored entry carrying a key the save schema no longer accepts (written before it was strict)',async()=>{
+  await h.pool.query(`INSERT INTO management_pack_configs(company_id,enabled,generation_day,delivery_day,review_required,sections_enabled,recipients)
+   VALUES($1,true,1,5,true,'{"kpi_scorecard":true}'::jsonb,'[{"email":"legacy@forensic.invalid","role":"owner","receives":"both","name":"Legacy Owner"}]'::jsonb)
+   ON CONFLICT (company_id) DO UPDATE SET review_required=true,recipients=EXCLUDED.recipients`,[h.f.companyA]);
+  const {documentId}=await generateManagementPack({companyId:h.f.companyA,period:'2033-02',config:config(),triggeredBy:'manual'});
+  const res=await h.request('POST',`/api/accounting/afs/management-packs/${documentId}/deliver`,{});
+  expect(res.status,JSON.stringify(res.body)).toBe(200);
+  expect(res.body.data?.skippedRecipients,'a well-formed legacy entry was skipped for an extra key').toEqual([]);
+  const logged=(await h.pool.query("SELECT recipient_email FROM email_log WHERE company_id=$1 AND subject LIKE '%2033-02%'",[h.f.companyA])).rows.map(r=>r.recipient_email);
+  expect(logged).toEqual(['legacy@forensic.invalid']);
+ });
+
  it('a failing email_log write does not poison the request transaction',async()=>{
   const client=await h.pool.connect();
   try{

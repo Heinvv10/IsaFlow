@@ -6,9 +6,16 @@ import { sendEmail } from '@/modules/accounting/services/core/emailService';
 import { emailLayout } from '@/lib/email-templates';
 import type { PackRecipient, KpiResult } from './afsTypes';
 import { getKpiScorecard } from './afsKpiService';
+import { z } from 'zod';
 import { PackRecipientSchema } from '@/lib/schemas/afs';
 
 type Row = DbRow;
+
+/**
+ * The save schema is strict (an unknown key is refused on WRITE). Delivery reads what is stored, which may predate
+ * that, so it validates the same fields and strips the rest: an extra key never costs a recipient their pack.
+ */
+const DeliverableRecipient = z.object(PackRecipientSchema.shape);
 
 // ── HTML escaping ─────────────────────────────────────────────────────────────
 
@@ -210,7 +217,7 @@ export async function deliverPack(documentId: string, companyId: string): Promis
   const recipients: PackRecipient[] = [];
   const skippedRecipients: string[] = [];
   stored.forEach((entry, i) => {
-    const parsed = PackRecipientSchema.safeParse(entry);
+    const parsed = DeliverableRecipient.safeParse(entry);
     if (parsed.success) recipients.push(parsed.data);
     else skippedRecipients.push(`recipients[${i}] is not an object {email, role, receives}`);
   });
