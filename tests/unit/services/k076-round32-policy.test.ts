@@ -65,7 +65,8 @@ describe('K-076 r32 — the arithmetic exemption needs a payable label on an unp
     expect(unreconciledFigure(inclusive(label, ''), 1000, K)).toBeNull();
   });
 
-  it.each(['Total', 'TOTAL', 'Totaal', 'Invoice Total', 'Total Amount'])('`%s 1000.00 / VAT 130.43`, unpaid, refuses', (label) => {
+  // r33: `Grand Total` and `Invoice Total` name the final figure, so they post (k076-round33-policy).
+  it.each(['Total', 'TOTAL', 'Totaal', 'Total Amount'])('`%s 1000.00 / VAT 130.43`, unpaid, refuses', (label) => {
     expect(unreconciledFigure(inclusive(label), 1000, K)).toMatchObject(pretax);
   });
 

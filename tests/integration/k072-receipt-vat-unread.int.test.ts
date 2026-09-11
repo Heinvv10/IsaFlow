@@ -46,7 +46,8 @@ const SLIP = (tag: string, vat: Record<string, unknown>) => ({
   documentType: 'receipt', vendorName: `K072 Garden ${tag}`, date: '2026-04-10', referenceNumber: `K072-R-${tag}`,
   totalAmount: 1000, lineItems: [], rawText: '', confidence: 0.9, warnings: [], extractionMethod: 'vlm', ...vat,
 });
-const NO_VAT = { subtotal: null, vatAmount: null };
+// r33: none read counts as none only on a text that prints no tax at all.
+const NO_VAT = { subtotal: null, vatAmount: null, rawText: 'K072 Garden\nGarden service 1000.00\nAmount Due 1000.00' };
 const READ_VAT = { subtotal: 869.57, vatAmount: 130.43 };
 
 async function seedDocument(extracted: Record<string, unknown>): Promise<string> {

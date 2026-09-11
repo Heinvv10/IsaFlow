@@ -107,7 +107,7 @@ const TOTAL_WORD = String.raw`Totaa?l`;
 
 /** The tax word, with or without the full stops of `V.A.T.`, and the Afrikaans `BTW`/`Belasting` (r29). */
 const VAT_WORD = String.raw`(?:V\.?A\.?T\.?|BTW)`;
-const TAX_WORD = String.raw`(?:${VAT_WORD}|Tax|Belasting)`;
+export const TAX_WORD = String.raw`(?:${VAT_WORD}|Tax|Belasting)`;
 
 /**
  * The noun a document prints AFTER the tax word: `VAT Amount`, `VAT Total`,
