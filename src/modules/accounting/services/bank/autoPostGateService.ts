@@ -14,6 +14,7 @@ import { allocateTransaction } from './bankAllocationService';
 import { resolveRuleVatCode } from '../gl/ruleVatResolution';
 import { postProvisional } from '../capture/provisionalPostingService';
 import { getAutoPostSettings, autoPostRunSnapshot, type AutoPostSettings } from './autoPostSettingsService';
+import { feedStateOf } from './bankFeedStateGuard';
 
 // Settings live in the sibling `autoPostSettingsService`, re-exported here
 // because every caller has always imported them from this file. Split out to
@@ -153,11 +154,11 @@ export async function sweep(
 
   const skipped: Array<{ txId: string; reason: string }> = [];
   for (const r of rows) {
-    if (r.feed_state && r.feed_state !== 'posted') {
-      skipped.push({ txId: String(r.id), reason: `feed_state ${r.feed_state}` });
+    if (feedStateOf(r) !== 'posted') {
+      skipped.push({ txId: String(r.id), reason: `feed_state ${feedStateOf(r)}` });
     }
   }
-  const postable = rows.filter((r) => !r.feed_state || r.feed_state === 'posted');
+  const postable = rows.filter((r) => feedStateOf(r) === 'posted');
   let runId: string | null = null;
   let posted = 0;
   let totalAmount = 0;
