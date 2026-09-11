@@ -181,10 +181,14 @@ export function renderAfsToHtml(
 ): string {
   const { document, sections, brandProfile, companyName, registrationNumber, coverPhotoUrl, entityType, charts } = context;
 
-  // Entity-aware document title
-  const statementsTitle = entityType === 'trust'
-    ? 'Financial Statements'
-    : 'Annual Financial Statements';
+  // A management pack is not annual financial statements: it gets its own title and period
+  // line. An AFS document renders exactly as before — its signature fingerprints the render.
+  const isPack = document.documentType === 'management_pack';
+  const statementsTitle = isPack
+    ? 'Management Accounts'
+    : entityType === 'trust'
+      ? 'Financial Statements'
+      : 'Annual Financial Statements';
 
   const css = buildCss(brandProfile);
   const periodEnd = resolvePeriodEnd(document);
@@ -195,7 +199,8 @@ export function renderAfsToHtml(
     logoUrl: brandProfile.logoUrl,
     companyName,
     registrationNumber,
-    periodEnd,
+    coverTitle: isPack ? 'Management Accounts' : 'Annual Financial Statements',
+    periodLine: isPack ? `For the period ${periodEnd}` : `For the year ended ${periodEnd}`,
     coverPhotoUrl,
   });
 
