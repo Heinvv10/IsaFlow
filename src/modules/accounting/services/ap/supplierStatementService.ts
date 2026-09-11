@@ -26,6 +26,7 @@ import { sql } from '@/lib/neon';
 import type { DbRow } from '@/lib/neon';
 import { fmtDate } from '@/lib/fmtDate';
 import { documentInLedgerAsAtFragment } from '../shared/softDeleteLedgerPresence';
+import { documentInPopulationExpr } from '../shared/documentPopulation';
 
 type Row = DbRow;
 
@@ -121,14 +122,14 @@ export async function fetchSupplierStatementData(
       FROM supplier_invoices si
       WHERE si.supplier_id = ${supplierId}::UUID
         AND si.company_id = ${companyId}::UUID
-        -- NOT the ageing's status rule (shared/documentPopulation), and this
-        -- comment used to say "same population" without that qualifier. The
-        -- statement KEEPS drafts, and the bare != drops a null-status bill, so
-        -- its closing balance can differ from apAgingService on both. Left as
-        -- it is deliberately: this is the mirror of the customer statement we
-        -- EMAIL, and what a customer is sent is a human decision, not a
-        -- refactor's. Registered, not fixed — see R-059 fix.md round 6.
-        AND si.status != 'cancelled'
+        -- The ageing's status rule (shared/documentPopulation), routed here
+        -- 2026-09-11: Hein decided (R-082) that the supplier statement must
+        -- not show a draft bill, and must agree with the ageing on a null
+        -- status — the mirror of the customer statement's own routing. Was
+        -- the bare != 'cancelled', which kept drafts and dropped
+        -- null-status rows — registered in R-059 fix.md round 6, decided in
+        -- R-082.
+        AND ${sql.unsafe(documentInPopulationExpr('si'))}
         -- What IS shared with apAgingService is the DATED soft-delete
         -- question: the delete's reversal is dated to the delete, so a bill
         -- deleted after the as-at date is still on the control account and
