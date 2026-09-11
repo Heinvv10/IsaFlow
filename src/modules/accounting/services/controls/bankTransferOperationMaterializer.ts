@@ -121,9 +121,11 @@ function accountsRefusal(accounts: Row[], intentIds: string[]): string {
  * it BEFORE writing the intent: the intent's composite foreign key would otherwise answer an absent or foreign
  * account with a 23503 and a 500. Absent and foreign read the same.
  *
- * Only the materializer locks (after its companies FOR SHARE, the order execution uses). Preparation's check takes
- * no lock: a FOR SHARE there would take gl_accounts BEFORE companies — the opposite order, a latent deadlock — and
- * it needs none, because the materializer re-reads under lock and the foreign key is the backstop.
+ * Only the materializer takes an explicit row lock here (after its companies FOR SHARE, the order execution uses).
+ * Preparation's read takes none: a FOR SHARE there would take gl_accounts BEFORE companies, the opposite order and
+ * a latent deadlock. It needs none, because the materializer re-reads under lock and the foreign key is the
+ * backstop. (The intent INSERT's own foreign-key checks do take FOR KEY SHARE on the referenced rows, companies
+ * first; that is the insert's implicit lock, not this read's.)
  */
 export async function readTransferAccounts(ctx: ControlTx, companyId: string, fromId: string, toId: string,
   options: { lock: boolean }): Promise<Row[]> {
@@ -142,7 +144,8 @@ export async function readTransferAccounts(ctx: ControlTx, companyId: string, fr
 /**
  * Posting refuses a period that is not open, or the company lockdown, HERE — before the journal is written. Inside
  * the journal control the same refusal marks the request failed and it answers 500 (withControlRequest). The rule is
- * postingPeriodBlock, the one copy assertPostingGuards also uses, so the two cannot drift.
+ * postingPeriodBlock, which assertPostingGuards also uses, so this check and the journal post cannot drift apart
+ * (other paths still carry their own copies of the lockdown rule; see postingPeriodGuard.ts).
  */
 export function assertTransferPostable(company: Row, period: Row, date: string): void {
   const block = postingPeriodBlock(period.status, company, date);
