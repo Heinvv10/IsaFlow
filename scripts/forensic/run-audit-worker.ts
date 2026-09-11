@@ -5,6 +5,7 @@ import {runAuditJobPoller} from '../../src/modules/accounting/services/controls/
 import {createIsolatedAuditJobRunner} from '../../src/modules/accounting/services/controls/auditJobProcess';
 import {AUDIT_WORKER_CLASS_KINDS} from '../../src/modules/accounting/services/controls/auditJobContract';
 import {parseAuditWorkerArguments} from '../../src/modules/accounting/services/controls/auditWorkerArguments';
+import {sanitizeAuditWorkerFailure} from './auditWorkerFailureLog';
 /** Explicit private worker configuration only; never inherit a frontend database URL implicitly. */
 async function main(){
  // One instance serves one class: its unit caps, its claimable kinds and the kinds its poller discovers.
@@ -27,7 +28,7 @@ async function main(){
   log.info('Audit queue worker stopped',result,'audit-worker');
  }finally{process.removeListener('SIGTERM',shutdown);process.removeListener('SIGINT',shutdown);await pool.end();}
 }
-if(import.meta.main)main().catch(()=>{
- // PostgreSQL/URL errors may carry credentials; never print raw worker exceptions.
- log.error('Audit queue worker failed; verify explicit worker configuration and local logs',{},'audit-worker');process.exitCode=1;
+if(import.meta.main)main().catch(error=>{
+ // PostgreSQL/URL errors may carry credentials; log a sanitised cause, never the raw exception.
+ log.error('Audit queue worker failed; verify explicit worker configuration and local logs',sanitizeAuditWorkerFailure(error),'audit-worker');process.exitCode=1;
 });
