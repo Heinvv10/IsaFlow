@@ -30,16 +30,6 @@ export async function lockBankAccountForIngest(companyId: string, bankAccountId:
   await sql`SELECT pg_advisory_xact_lock(hashtextextended(${`bank_tx_ingest:${companyId}:${bankAccountId}`}::TEXT, 0))`;
 }
 
-/** Rows this connection inserted in the last 24 hours (the extension anti-abuse cap). */
-export async function importedInLastDay(companyId: string, connectionId: string): Promise<number> {
-  const rows = (await sql`
-    SELECT COALESCE(SUM(transactions_imported), 0)::INT AS used
-    FROM bank_feed_sync_logs
-    WHERE connection_id = ${connectionId}::UUID AND company_id = ${companyId}::UUID
-      AND started_at > NOW() - INTERVAL '24 hours'`) as DbRow[];
-  return Number(rows[0]?.used ?? 0);
-}
-
 export async function bankAccountIsValid(companyId: string, bankAccountId: string, subtypes: readonly string[]): Promise<boolean> {
   const rows = (await sql`
     SELECT 1 FROM gl_accounts
