@@ -62,11 +62,12 @@ const NOT_STANDARD_RATED = new RegExp(String.raw`(?<![A-Za-z])(?:no[\s-]+${TAX}|
  * SA invoices print the bare token on the item and define it once, so the
  * legend is the only evidence the item is not standard-rated. Read per segment,
  * so `A = VAT 15%, B = Zero rated` defines B, not A; `(Z) Zero rated`, `Note:
- * Z zero rated` and `Items marked with an E are exempt` define theirs too.
+ * Z zero rated`, `Items marked with an E are exempt` and `Items with a Z are
+ * zero-rated` define theirs too.
  */
 const TOKEN = String.raw`[A-Z*#†]`;
 const LEGEND_TOKEN = new RegExp(String.raw`(?:^|:)\s*(?:\(\s*(${TOKEN})\s*\)|(${TOKEN})(?:\s*(?:[=:–-]|denotes|means|indicates)|\s))`
-  + String.raw`|(?:[Mm]arked|[Gg]emerk|[Dd]enoted|[Ii]ndicated|[Ss]hown|[Ff]lagged)\s+(?:(?:with|by|as|met)\s+(?:an?\s+)?)?\(?(${TOKEN})\)?(?![A-Za-z\d])`);
+  + String.raw`|(?:[Mm]arked|[Gg]emerk|[Dd]enoted|[Ii]ndicated|[Ss]hown|[Ff]lagged|(?<=\w\s+)with)\s+(?:(?:with|by|as|met)\s+(?:an?\s+)?|an?\s+)?\(?(${TOKEN})\)?(?![A-Za-z\d])`);
 const UNLESS_MARKED = /unless\s+marked/i;
 const legendTokens = (text: string) => text.split(/\r?\n/).flatMap((line) => line.split(/[,;]|\s{2,}/))
   .filter((segment) => NOT_STANDARD_RATED.test(segment) || UNLESS_MARKED.test(segment))
@@ -102,7 +103,13 @@ function marksAnItem(text: string, end: number): boolean {
 const NET_AFTER = /(?<![A-Za-z])(?:Nett?o?|Sub[\s-]*(?:Tota?a?l)?|Subtotaal|Goods\s+Value|Taxable|uitgesluit)(?![A-Za-z])/i;
 const afterFigure = (line: string) => line.slice(line.search(/\d[^\d]*$/) + 1);
 const INCLUDED = /(?<![A-Za-z])(?:Incl\w*|Inclusive|included|portion)(?![A-Za-z])/i;
-/** A label naming the figure the amount to PAY (`Amount Due`, `Bedrag Verskuldig`): not a net. */
+/**
+ * A label naming the figure the amount to PAY (`Amount Due`, `Bedrag
+ * Verskuldig`): not a net. A bare `Total`/`Totaal` does not, and neither do
+ * `Grand Total`/`Invoice Total` (round 33, measured: admitting them posts the
+ * reviewer's `Invoice Total 1150.30 / VAT 150.00` fee pair at R1 150.30 against
+ * R1 300.30 — they name the last figure printed, not what is owed).
+ */
 const PAYABLE = /(?<![A-Za-z])(?:(?:Amount|Balance|Total)\s+Due|(?:Amount|Total|Balance)\s+Payable|(?:Bedrag|Saldo|Totaal)\s+(?:Verskuldig|Betaalbaar))(?![A-Za-z])/i;
 const near = (a: number, b: number) => Math.abs(a - b) <= 0.01;
 /**

@@ -237,3 +237,35 @@ it('r32: ai-invoice-pipeline\'s own no-VAT draft of an unread bill is approved a
   );
   expect(rows).toEqual([{ status: 'approved', vat: 0 }]);
 });
+
+it('r33 HIGH-1: a bill whose text prints a VAT the reader missed is refused, not approved with none', async () => {
+  const { extractFromText } = await import('@/modules/accounting/services/core/ocrService');
+  await pool.query("UPDATE suppliers SET name='Bosman Motors' WHERE id=$1", [supplier]);
+  for (const [tag, tail] of [['incl', 'VAT INCL 375.00'], ['incl-dot', 'Incl. VAT 375.00']]) {
+    const text = `Bosman Motors\nTAX INVOICE\nVAT No 4123450000\nInvoice No: ${tag}\nDate: 2026-04-10\nService 60 000km 2875.00\n`
+      + `TOTAL 2875.00\n${tail}\nBank: FNB 62000000000\n`;
+    const extracted = { ...(await extractFromText(text)), documentType: 'invoice', vendorName: 'Bosman Motors' };
+    expect(extracted.vatAmount).toBeNull(); // the reader's miss this guards against
+    const documentId = await seedDocument(extracted as never, `bosman-${tag}`);
+    expect((await callRoute(pipeline, {}, { documentId })).statusCode).toBe(200);
+    const [draft] = await invoiceFor(documentId);
+    const single = await tool(() => approveSupplierInvoiceTool.handler({ invoice_id: draft.id, idempotency_key: `${tag}-1` }, ctx));
+    expect(single.content[0]!.text).toMatch(UNEVIDENCED);
+    const bulk = await tool(() => bulkApproveSupplierInvoicesTool.handler({ invoice_ids: [draft.id], idempotency_key: `${tag}-2` }, ctx));
+    expect(bulk.content[0]!.text).toMatch(UNEVIDENCED);
+    const { rows } = await pool.query('SELECT status, gl_journal_entry_id FROM supplier_invoices WHERE id=$1', [draft.id]);
+    expect(rows[0]).toEqual({ status: 'draft', gl_journal_entry_id: null });
+  }
+  await pool.query("UPDATE suppliers SET name='K072 Garden Services' WHERE id=$1", [supplier]);
+});
+
+it('r33: a document with no text proves no absence of VAT; the tolerance is one cent either way', async () => {
+  const blank = await draftFor(await seedDocument({ ...NO_VAT, rawText: '' }, 'blank'), 0, 1000, 'blank');
+  expect((await tool(() => approveSupplierInvoiceTool.handler({ invoice_id: blank, idempotency_key: 'b1' }, ctx))).content[0]!.text)
+    .toMatch(UNEVIDENCED);
+  for (const [tax, ok, tag] of [[150.01, true, 't1'], [149.99, true, 't2'], [150.02, false, 't3'], [149.98, false, 't4']] as const) {
+    const id = await draftFor(await seedDocument({ ...NO_VAT, totalAmount: 1150, subtotal: 1000, vatAmount: 150 }, tag), tax, 1150, tag);
+    const res = await tool(() => approveSupplierInvoiceTool.handler({ invoice_id: id, idempotency_key: tag }, ctx));
+    expect(res.isError ?? false, `${tax}: ${res.content[0]!.text}`).toBe(!ok);
+  }
+});

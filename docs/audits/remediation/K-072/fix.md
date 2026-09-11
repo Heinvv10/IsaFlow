@@ -2635,3 +2635,45 @@ no bare-space legend (1) · L9 no legend after a colon (1) · L10 no `marked wit
 (1) · L12 no last-print fallback (1) · I1 invoice check refuses only an unread VAT (2) · I2 journal check likewise (3)
 · I3 an unread invoice VAT counts as the draft's own figure (2) · I4 journal tolerance R200 (2) · I5 invoice check
 refuses every captured bill (2) · I6 journal VAT Input read off no account (3).
+
+---
+
+## Round 33 — "none read" is none only on a page that prints no tax; the draft's VAT is every tax line
+
+Review: `review-k072-r32.md` (1H/0M/2L; numbers reproduced exactly). Reviewer's probes: `agents/rev-k072ag/`.
+
+| Finding | Disposition |
+|---|---|
+| HIGH-1 (regression from r31) round 32's "none read = 0" let an agent approve a bill whose VAT the text reader MISSED: `VAT INCL 375.00` approved Expense 2 875 / AP 2 875 with no VAT Input; `Incl. VAT 375.00` (read as a total of 375) approved an AP of R375 on a R2 875 invoice | FIXED, **the lead's decision**: `capturedVatEvidence.evidencedVat` — the VAT read if one was read; else **0 only when the document's text prints no tax at all**, else nothing is evidenced and the draft is refused, as in r31. "Prints tax" is the reader's own `TAX_WORD` (`VAT`, `V.A.T.`, `BTW`, `Tax`, `Belasting`, now exported from `ocrAmountPatterns`) with a leading word boundary and NO trailing one, so `VATNo:`, `BELASTINGFAKTUUR` and `Taxi` all count (fail closed), plus a bare `15%`. A document with no text evidences nothing. So `TAX INVOICE` or a VAT number on the letterhead is enough to refuse a no-VAT draft. **Proved on the DB** (`k072-capture-vat-unread`): both of the reviewer's Bosman shapes, run through `extractFromText` → `ai-invoice-pipeline` → both MCP tools, are refused and stay `draft` with no journal; a no-text bill is refused. Round 32's path is kept: a genuine no-tax slip's no-VAT draft still approves/posts claiming none (`k072-capture-vat-unread`, `k072-receipt-vat-unread`, whose no-VAT fixture now carries a no-tax text instead of an empty one). |
+| LOW-1 only `vat_input` lines counted as the draft's VAT; 130.43 on a `vat_output` debit, a generic `tax` account (box 15) or a NULL-subtype "VAT Payable" posted against an unread document | FIXED: `journalHasUnevidencedVat` takes the net debit on EVERY tax account, decided by what the account is: subtype matching `vat`/`tax` (`vat_input`, `vat_output`, `tax`, any spelling), or a NAME containing the word VAT, BTW or "value added" whatever the subtype. It fails closed: an expense named with VAT counts too. **Proved on the DB** (`k072-journal-vat-evidence`, new): all three shapes, and `vat_input`, are refused on a no-tax document; a CREDIT to VAT Input (the reversal shape) nets negative and is refused. |
+| The denied-entertainment cost (Spur, flagged-account receipts refused by `post_journal` at r32) | FIXED with the builder's own rule, so it is precise: a draft claiming 0 against a read VAT > 0 is consistent when the builder would have folded that VAT into the expense (s17(2)(a)) — **every** non-tax debit is on an account with `vat_input_denied`, or the vendor is a meals merchant (`parseReceiptType === 'meals'`, the same call `buildExpenseJournalFromReceipt` makes). Pinned on the DB: the flagged-account draft and the Spur draft post; the same draft on an ordinary expense is refused; half on a denying account, half not, is refused. |
+| Payable-rule cost: of the reviewer's 18 realistic unpaid invoices, 10 posted unattended at `79d3a99c7`, 5 at `cbe8d5497`; add `Grand Total` and `Invoice Total` as payable labels, pinning a pre-tax probe for each to prove they do not reopen the residual | **MEASURED, NOT ADMITTED — the premise failed.** With both added, the 18 recover **5 → 7** (IT support `Invoice Total 1725.00 / VAT 225.00`, courier `Grand Total R 460.00 / VAT R 60.00`), but the harness finds **2 newly WRONG**: the r31 reviewer's own residual rows *are* labelled `Invoice Total` — `Invoice Total 1150.30 / VAT 150.00` posts R1 150.30 against R1 300.30, and `Invoice Total 920.24 / VAT 120.00` posts R920.24 against R1 040.24 (ae-nomark; stored and nulled alike). `Grand Total` is the same label class: it names the last figure printed, not the amount owed, so the unmarked fee pair under it posts too (unit-probed). Both stay out of `PAYABLE`; the unmarked in-window fee pair under each is pinned REFUSED, and the cost — an honest unpaid `Grand/Invoice Total … / VAT …` goes to a person — is pinned too (`k076-round33-policy`). **For Hein:** admitting them buys 2 of 18 ordinary invoices at the price of reopening the fee-pair wrong post for those labels. Bare `TOTAL`/`Totaal` keep refusing. Also learned: the legend form `Items with a Z are zero-rated` (the reviewer's rv-pin row, WRONG at `cbe8d5497`, now refuses). |
+| LOW-2 four behaviours unpinned | PINNED: the payable label must be on the total's OWN line (`Amount due within 30 days` in a footer does not count — mutant U2 RED); the legend is read per segment (`S = Standard 15%, Z = Zero rated` defines Z — U3 RED); both one-cent tolerances on the DB, each edge both ways (invoice 150.01/149.99 approve, 150.02/149.98 refused; journal 130.44/130.42 post, 130.45/130.41 refused — I4/I5 RED). |
+
+### Re-measured — head vs `cbe8d5497`, 4 481 rows (stored ≡ subtotal-null, row for row)
+
+Harness as in round 32 plus the reviewer's `rv-unpaid` (18) and `rv-pin` (3).
+
+| | `cbe8d5497` | head | head + `Grand/Invoice Total` (not shipped) |
+|---|---|---|---|
+| unattended / WRONG, all rows | 731 / 47 | **730 / 46** | 734 / 48 |
+| the reviewer's 18 unpaid invoices | 5 / 0 | **5 / 0** | 7 / 0 |
+| the 13 ordinary sets (351) | 125 | **125** | 125 |
+
+**Newly wrong 0, newly refused 0; closed wrong 1** (rv-pin `Items with a Z are zero-rated`). The 46 WRONG left are the
+accepted classes and the 2 disclosed ag-nomark rows. The MCP changes (HIGH-1, LOW-1, denial) are outside this harness
+(it scores the posting gate); they are proved on the DB above.
+
+### Mutations — 12 unit + 10 integration, all RED, restored byte-identically (md5)
+
+L1 no payable label needed (14) · L3 legend tokens ignored (12) · L12 no last-print fallback (1) · U2 payable label
+anywhere on the page (1) · U3 legend read per line (1 — GREEN until the probe's `S` item was removed, which had
+marked the fee by itself) · L13 no `with a Z` legend (1) · L14 `Grand/Invoice Total` payable (6) · E1 none read is
+always none (10) · E2 no `15%` marker (1) · E3 no text counts as none (1) · E4 the tax word must end the word (2) ·
+I1 none read is always none (DB, 3) · I2 only `vat_input` is VAT (1) · I3 debits only (1) · I4 two-cent tolerance
+(2) · I5 no tolerance (2) · I6 no denied fold (1) · I7 any denying debit suffices (1) · I8 meals merchants ignored
+(1) · I9 accounts not read by name (1) · I10 generic `tax` subtype not VAT (2).
+
+**Gate note:** `k072-capture-vat-unread` now calls `ai-invoice-pipeline` 5 times; the route's AI limiter allows 20 per
+IP per 15 minutes on the shared fixture (`rate_limit_counters`), so back-to-back mutation runs 429 it. A 429 there is
+the limiter, not the change — wait out the window and re-run.
