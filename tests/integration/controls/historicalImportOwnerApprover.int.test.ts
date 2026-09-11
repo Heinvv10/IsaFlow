@@ -76,6 +76,32 @@ describe('owner-or-admin approver for historical imports: actual PostgreSQL',()=
   }finally{await setFlag(true);}
  });
 
+ it('refuses at execution an owner decision recorded against an admin-only import policy',async()=>{
+  const setFlag=(value:boolean)=>h.pool.query('UPDATE control_mandatory_import_policies SET owner_may_approve=$2 WHERE company_id=$1',[h.f.companyA,value]);
+  await setFlag(false);
+  try{
+   const p=await h.prepared(),approval=await h.request(p.ref);
+   // A decision row the kernel would never write: the execution recheck, not the decision path, must refuse it.
+   const policy=(await h.pool.query("SELECT binding->'policies'->0->>'policyId' AS id FROM control_operation_approvals WHERE company_id=$1 AND id=$2",[h.f.companyA,approval.id])).rows[0].id;
+   await h.pool.query("INSERT INTO control_operation_decisions(company_id,approval_id,policy_id,person_id,decision,evidence_refs,decided_at) VALUES($1,$2,$3,$4,'approved','[]'::jsonb,clock_timestamp())",[h.f.companyA,approval.id,policy,h.f.u2.id]);
+   await h.pool.query("UPDATE control_operation_approvals SET status='approved',decided_at=clock_timestamp() WHERE company_id=$1 AND id=$2",[h.f.companyA,approval.id]);
+   await asRole(h.f.companyA,h.f.u2.id,'owner',async()=>{await expect(h.execute(p.ref,approval.id)).rejects.toThrow('Approval authority is no longer valid');});
+   expect(await h.noEffects(p.ref)).toEqual({journals:0,effects:0});
+  }finally{await setFlag(true);}
+ });
+
+ it('keeps the tenant\'s own invoice rule exact on an import: an owner\'s approval alone leaves it pending',async()=>{
+  const rule=randomUUID();
+  await h.pool.query("INSERT INTO approval_rules(id,company_id,name,document_type,condition_field,condition_operator,approver_role) VALUES($1,$2,'Tenant invoice rule','customer_invoice','amount','any','admin')",[rule,h.f.companyA]);
+  try{
+   const p=await h.prepared(),approval=await h.request(p.ref);
+   await asRole(h.f.companyA,h.f.u2.id,'owner',()=>h.review(approval.id));
+   expect((await h.pool.query('SELECT status FROM control_operation_approvals WHERE company_id=$1 AND id=$2',[h.f.companyA,approval.id])).rows[0].status).toBe('pending');
+   await expect(h.execute(p.ref,approval.id)).rejects.toThrow();
+   expect(await h.noEffects(p.ref)).toEqual({journals:0,effects:0});
+  }finally{await h.pool.query('DELETE FROM approval_rules WHERE company_id=$1 AND id=$2',[h.f.companyA,rule]);}
+ });
+
  it('stores the allowance as immutable per-company policy data, on for every company',async()=>{
   const {rows}=await h.pool.query(`SELECT count(*)::int AS total,count(*) FILTER(WHERE owner_may_approve)::int AS allowed,
    has_table_privilege('app_user','control_mandatory_import_policies','UPDATE,DELETE,TRUNCATE') AS app_mutate,
@@ -83,9 +109,20 @@ describe('owner-or-admin approver for historical imports: actual PostgreSQL',()=
    FROM control_mandatory_import_policies`);
   expect(rows[0]).toMatchObject({app_mutate:false,platform_mutate:false});
   expect(rows[0].allowed).toBe(rows[0].total);
+  const tables=['control_mandatory_import_policies','control_mandatory_release_policies','control_mandatory_compensation_policies',
+   'control_mandatory_statement_policies','control_mandatory_match_override_policies'];
   const migration=await readFile('scripts/migrations/sql/686_import_policy_owner_approver.sql','utf8');
   const client=await h.pool.connect();
-  try{await client.query('BEGIN');await client.query(migration);await client.query(migration);}
-  finally{await client.query('ROLLBACK');client.release();}
+  try{
+   await client.query('BEGIN');
+   // The default privileges 686 exists to undo, so the file itself must revoke them, not an earlier run on this fixture.
+   await client.query(`GRANT UPDATE,DELETE,TRUNCATE ON ${tables.join(',')} TO platform_admin`);
+   await client.query(migration);await client.query(migration);
+   for(const table of tables){
+    const grantees=await client.query(`SELECT DISTINCT COALESCE(r.rolname,'PUBLIC') AS rolname FROM pg_class c CROSS JOIN LATERAL aclexplode(c.relacl) a
+     LEFT JOIN pg_roles r ON r.oid=a.grantee WHERE c.oid=to_regclass($1) AND a.privilege_type IN('UPDATE','DELETE','TRUNCATE') AND a.grantee<>c.relowner ORDER BY 1`,[table]);
+    expect({table,grantees:grantees.rows.map(r=>r.rolname).filter(name=>name!=='migration_admin')}).toEqual({table,grantees:[]});
+   }
+  }finally{await client.query('ROLLBACK');client.release();}
  });
 });

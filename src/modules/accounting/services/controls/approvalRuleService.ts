@@ -2,8 +2,7 @@ import Decimal from 'decimal.js';
 import type {operationRuleType} from './operationPermissions';
 import { canonicalMoney } from './canonical';
 import { assertControlTx } from './context';
-import type { ControlTx, PolicyBinding } from './contracts';
-import { OWNER_OR_ADMIN } from './approvalQueries';
+import { OWNER_OR_ADMIN, type ControlTx, type PolicyBinding } from './contracts';
 const Money = Decimal.clone({ precision: 80 });
 
 export interface ApprovalRuleRow {

@@ -4,7 +4,7 @@ import type { ModulePermission } from '@/lib/auth/permissionService';
 import { assertControlTx } from './context';
 import { SuppliedApprovalRefusal } from './suppliedApprovalRefusal';
 import { canonicalJson, operationBindingHash } from './canonical';
-import type { ControlTx, EvidenceRef, OperationApproval, OperationBinding, PolicyBinding } from './contracts';
+import { OWNER_OR_ADMIN, type ControlTx, type EvidenceRef, type OperationApproval, type OperationBinding, type PolicyBinding } from './contracts';
 
 export interface ApprovalRow {
   id: string; company_id: string; operation_id: string; requester_person_id: string; requester_auth_method: string;
@@ -48,8 +48,6 @@ export async function approvalDecisions(ctx: ControlTx, id: string): Promise<Dec
     WHERE company_id=${ctx.principal.companyId}::uuid AND approval_id=${id}::uuid ORDER BY policy_id
   ` as DecisionRow[];
 }
-/** The mandatory import policy's approver role when the company's policy admits owners (migration 686). */
-export const OWNER_OR_ADMIN = 'owner_or_admin';
 /**
  * A policy admits exactly its approver role. The one exception is a MANDATORY policy
  * bound as owner_or_admin — only the historical import policy produces it (Hein,
