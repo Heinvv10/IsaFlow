@@ -70,6 +70,15 @@ describe('delivering a management pack that skipped review',()=>{
   expect(vi.mocked(sendEmail),'an unreviewed pack was emailed to its recipients').not.toHaveBeenCalled();
  });
 
+ it('is listed with its withheld reason, so the history can say so before anyone clicks Deliver',async()=>{
+  const result=await pack('2032-07',false);
+  const res=await h.request('GET','/api/accounting/afs/management-packs');
+  expect(res.status,JSON.stringify(res.body)).toBe(200);
+  const listed=(res.body.data as {documents:Array<{id:string;delivery_withheld_reason:string|null}>}).documents.find(d=>d.id===result.documentId);
+  expect(listed?.delivery_withheld_reason,'the pack list does not carry the withheld reason').toBe(await withheld(result.documentId));
+  expect(listed?.delivery_withheld_reason).toBeTruthy();
+ });
+
  it('is refused by deliverPack itself, so no caller can deliver around the route',async()=>{
   const result=await pack('2032-04',false);
   await expect(deliverPack(result.documentId,h.f.companyA),'the gate lives only in the route')
