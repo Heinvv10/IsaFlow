@@ -140,13 +140,13 @@ describe('bulk_allocate_bank_transactions — pre-write refusals', () => {
     expect(allocateTransaction).not.toHaveBeenCalled();
   });
 
-  it('refuses more than 500 lines before any ownership query runs', async () => {
-    const allocations = Array.from({ length: 501 }, (_, i) => line(i));  // one over the cap
+  it('refuses more than its authority-hold limit (6 lines) before any ownership query runs', async () => {
+    const allocations = Array.from({ length: 7 }, (_, i) => line(i));  // one over the cap
     const res = await bulkAllocateBankTransactionsTool.handler(
       { allocations, idempotency_key: 'k1' }, ctx,
     );
     expect(res.isError).toBe(true);
-    expect(JSON.stringify(res.content)).toMatch(/500/);
+    expect(JSON.stringify(res.content)).toMatch(/at most 6 per call\. Split the batch/);
     expect(accountsBelongToCompany).not.toHaveBeenCalled();
     expect(allocateTransaction).not.toHaveBeenCalled();
   });
@@ -156,7 +156,7 @@ describe('bulk_allocate_bank_transactions — pre-write refusals', () => {
     // already holds each row's lock — ~3 ms apiece against a full company scan
     // before migration 519's indexes, all of it added to the time every other
     // writer waits. One query, all the references.
-    const refs = Array.from({ length: 25 }, (_, i) => `REF-${i}`);
+    const refs = Array.from({ length: 6 }, (_, i) => `REF-${i}`);
     vi.mocked(findBankTransactionsByReferences).mockResolvedValue(new Map(
       refs.map((r, i) => [r, [{
         id: TX(i + 1), transactionDate: '2026-08-01', amount: -100, description: null,
@@ -175,7 +175,7 @@ describe('bulk_allocate_bank_transactions — pre-write refusals', () => {
     expect(res.isError).toBeUndefined();
     expect(findBankTransactionsByReferences).toHaveBeenCalledTimes(1);
     expect(findBankTransactionsByReferences).toHaveBeenCalledWith('company-1', refs, undefined);
-    expect(allocateTransaction).toHaveBeenCalledTimes(25);
+    expect(allocateTransaction).toHaveBeenCalledTimes(6);
   });
 
   it('splits the lookup by bank account, never widening one line into another\'s scope', async () => {
@@ -264,13 +264,13 @@ describe('bulk_allocate_bank_transactions — pre-write refusals', () => {
     expect(allocateTransaction).not.toHaveBeenCalled();
   });
 
-  it('caps the error list so a wholly malformed batch cannot answer with 500 lines of prose', async () => {
+  it('refuses a wholly malformed batch over the cap on its size, before parsing any line', async () => {
     const allocations = Array.from({ length: 60 }, () => ({ alloc_type: 'transfer' }));
     const res = await bulkAllocateBankTransactionsTool.handler(
       { allocations, idempotency_key: 'k1' }, ctx,
     );
     expect(res.isError).toBe(true);
-    expect(res.content[0]!.text).toMatch(/and 40 more/);
+    expect(res.content[0]!.text).toMatch(/allocations holds 60 lines — at most 6 per call/);
   });
 
   it('names the offending line index so the agent can fix 1 of 500', async () => {

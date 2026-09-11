@@ -125,7 +125,7 @@ export function validateToolArguments(tool: McpTool, args: unknown): ToolArgumen
       }
       if (Array.isArray(value)) {
         if (typeof schema.minItems === 'number' && value.length < schema.minItems) failure(path, 'has too few items');
-        if (typeof schema.maxItems === 'number' && value.length > schema.maxItems) failure(path, 'has too many items');
+        if (typeof schema.maxItems === 'number' && value.length > schema.maxItems) failure(path, `has too many items (maximum ${schema.maxItems}); split it across several calls`);
         value.forEach((item, i) => validate(schema.items as Schema, item, `${path}[${i}]`, `${keyPath}.*`, depth + 1));
       } else if (object(value)) {
         const props = schema.properties as Record<string, Schema>;

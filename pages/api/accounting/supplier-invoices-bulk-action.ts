@@ -35,6 +35,7 @@ import { log } from '@/lib/logger';
 import { als } from '@/lib/als';
 import { withSavepoint } from '@/lib/neon';
 import { UUID } from '@/lib/schemas/common';
+import { MAX_POSTED_DOCUMENTS_PER_REQUEST } from '@/lib/limits/authorityHoldLimits';
 import {
   approveSupplierInvoice,
   cancelSupplierInvoice,
@@ -43,7 +44,7 @@ import { postSupplierInvoiceToGL } from '@/modules/accounting/services/ap/suppli
 
 const Schema = z.object({
   action: z.enum(['approve', 'cancel', 'post_gl']),
-  invoiceIds: z.array(UUID).min(1).max(200),
+  invoiceIds: z.array(UUID).min(1).max(MAX_POSTED_DOCUMENTS_PER_REQUEST),
   approvalIds: z.record(UUID, UUID).optional(),
 });
 
@@ -59,6 +60,13 @@ async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse) {
     return apiResponse.methodNotAllowed(res, req.method || 'UNKNOWN', ['POST']);
   }
 
+  // The whole batch runs in one transaction holding the company authority key; the cap keeps that hold under half
+  // its 5 s bound. Refused up front with the number, so the caller knows how to split.
+  const requested = (req.body as { invoiceIds?: unknown } | undefined)?.invoiceIds;
+  if (Array.isArray(requested) && requested.length > MAX_POSTED_DOCUMENTS_PER_REQUEST) {
+    return apiResponse.badRequest(res, `At most ${MAX_POSTED_DOCUMENTS_PER_REQUEST} invoices per request; `
+      + `split the ${requested.length} selected into batches of ${MAX_POSTED_DOCUMENTS_PER_REQUEST}.`);
+  }
   const parsed = Schema.safeParse(req.body);
   if (!parsed.success) {
     return apiResponse.validationError(

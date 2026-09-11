@@ -5,6 +5,7 @@ import {performance} from 'node:perf_hooks';
 import type {PoolClient} from 'pg';
 import {authorityLockFixture,type Timed} from './authorityLockFixture';
 import {ensureOpenPeriod} from '../forensic-fixture';
+import {MAX_FINALIZED_INVOICES_PER_REQUEST} from '@/lib/limits/authorityHoldLimits';
 import {withAuditWorkerTransaction} from '@/modules/accounting/services/controls/auditWorkerTransaction';
 import {withControlRequest,requireControlTx} from '@/modules/accounting/services/controls/context';
 vi.mock('@/modules/accounting/services/ar/invoicePdfSnapshotService',()=>({snapshotInvoicePdf:async()=>({documentId:null,wasExisting:false})}));
@@ -75,19 +76,13 @@ it.skipIf(!out)('measures how long same-company requests hold the company author
   result[label]={holdMs:summary(heldMs),requestMs:summary(latency),failures};
  }
  const heldMs:number[]=[],latency:number[]=[];let failures=0;
- for(let i=0;i<5;i++){
-  const {holds:h,value}=await holds(()=>x.mcp('bulk_finalize_invoices',{invoice_ids:invoices.slice(i*10,i*10+10),idempotency_key:randomUUID()}));
+ // bulk_finalize_invoices at its cap (authorityBulkMeasure/authorityBulkLimits cover every bulk path in detail).
+ for(let i=0;i*MAX_FINALIZED_INVOICES_PER_REQUEST+MAX_FINALIZED_INVOICES_PER_REQUEST<=invoices.length&&i<5;i++){
+  const batch=invoices.slice(i*MAX_FINALIZED_INVOICES_PER_REQUEST,(i+1)*MAX_FINALIZED_INVOICES_PER_REQUEST);
+  const {holds:h,value}=await holds(()=>x.mcp('bulk_finalize_invoices',{invoice_ids:batch,idempotency_key:randomUUID()}));
   heldMs.push(...h);latency.push(value.ms);if(!okBody(value)){failures++;result['bulk first failure']??=JSON.stringify(value.body).slice(0,300);}
  }
- result['MCP bulk write (bulk_finalize_invoices, 10 invoices)']={holdMs:summary(heldMs),requestMs:summary(latency),failures};
- // One 50-invoice batch, with another person's ordinary read issued while it runs.
- const big=holds(()=>x.mcp('bulk_finalize_invoices',{invoice_ids:invoices.slice(50,100),idempotency_key:randomUUID()},'u1'));
- await new Promise(r=>setTimeout(r,300));
- const during=await x.rest('GET','/api/accounting/control-approvals',{},'u2');
- const bigResult=await big;
- result['MCP bulk write (bulk_finalize_invoices, 50 invoices)']={holdMs:bigResult.holds,requestMs:bigResult.value.ms,ok:okBody(bigResult.value),
-  body:okBody(bigResult.value)?undefined:JSON.stringify(bigResult.value.body).slice(0,300)};
- result['another person\'s read during the 50-invoice batch']={status:during.status,ms:during.ms,retryAfter:during.retryAfter};
+ result[`MCP bulk write (bulk_finalize_invoices, ${MAX_FINALIZED_INVOICES_PER_REQUEST} invoices)`]={holdMs:summary(heldMs),requestMs:summary(latency),failures};
  const posted=(await x.pool.query("SELECT count(*)::int AS n FROM customer_invoices WHERE company_id=$1 AND id=ANY($2::uuid[]) AND gl_journal_entry_id IS NOT NULL",[x.f.companyA,invoices])).rows[0].n;
  result['bulk invoices posted']=posted;
  // What a second request sees behind a first transaction holding the key for 3 s and 8 s.
