@@ -21,14 +21,14 @@ export interface SigningInputDigests {
 
 const INPUT_LABELS: Record<keyof SigningInputDigests, string> = {
   document: 'the reporting period (year or period)',
-  company: 'the registered company name or number',
+  company: 'the company name or registration number',
   brand: 'the firm branding',
   sections: 'section content',
 };
 
 /**
  * sha256 over EXACTLY the values the statements are rendered from — no more, no less: the
- * period (or fiscal year) on the cover, the registered company name and number, the branding
+ * period (or fiscal year) on the cover, the company name and registration number, the branding
  * the CSS and cover use (or the marker for the documented default when a company has saved
  * none), and each section's id, type (it picks the chart), content, overrides and chart data,
  * plus its sort_order — the render prints sections in that ORDER; it prints no number. Anything the render never prints — the footer text, the document type and
