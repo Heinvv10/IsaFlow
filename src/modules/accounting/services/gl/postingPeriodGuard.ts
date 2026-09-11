@@ -4,9 +4,12 @@
 export type PostingPeriodBlock = { kind: 'period'; status: string } | { kind: 'lockdown'; lockdownDate: string | null };
 
 /**
- * The period and lockdown rule every journal post obeys — the ONE copy. assertPostingGuards throws its own error
- * classes from it; a bank transfer checks it before writing its journal (a refusal inside the journal control would
- * answer 500), so the two can never disagree about what is postable.
+ * The period and lockdown rule for a journal post, shared by exactly two callers: assertPostingGuards (which throws
+ * its own error classes from it) and the bank transfer, which checks it before writing its journal (a refusal inside
+ * the journal control would answer 500). Those two cannot disagree. It is NOT the only copy of the lockdown rule:
+ * other paths still inline their own (historicalImportCurrentFacts, controlledYearEnd, controlledAssetDepreciation,
+ * depreciationRunPreview, the cashApplication* services, among others), and payrollCompensationWindows treats
+ * lockdown enabled with no date as NOT locked. Consolidating them is separate work.
  */
 export function postingPeriodBlock(
   periodStatus: unknown,
