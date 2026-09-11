@@ -30,6 +30,16 @@ describe('POST /api/accounting/bank-transfers',()=>{
   expect(posted.body.data).toMatchObject({status:'posted',intentId:p.intentId});
  });
 
+ it('accepts UPPERCASE account ids (UUID case is a real input class) and stores them canonical',async()=>{
+  const res=await prepare({fromAccountId:h.from.toUpperCase(),toAccountId:h.to.toUpperCase()});
+  expect(res.status,JSON.stringify(res.body)).toBe(200);
+  const stored=(await h.pool.query('SELECT from_gl_account_id::text AS f,to_gl_account_id::text AS t FROM control_bank_transfer_intents WHERE company_id=$1 AND id=$2',[h.f.companyA,(res.body.data as {intentId:string}).intentId])).rows[0];
+  expect(stored).toEqual({f:h.from,t:h.to});
+  const same=await prepare({fromAccountId:h.from,toAccountId:h.from.toUpperCase()});
+  expect(same.status,JSON.stringify(same.body)).toBe(400);
+  expect(same.body.error?.message).toBe('The from and to accounts must be different bank accounts');
+ });
+
  it('refuses an absent account and another tenant\'s account alike with a 422, before writing an intent',async()=>{
   const foreign=randomUUID(),absent=randomUUID();
   await h.pool.query("INSERT INTO gl_accounts(id,company_id,account_code,account_name,account_type,account_subtype,normal_balance,is_active,level) VALUES($1,$2,'B-BANK','Tenant B bank','asset','bank','debit',true,3)",[foreign,h.f.companyB]);
