@@ -13,11 +13,31 @@ export interface IngestConnection { id: string; provider: string; bankAccountId:
 /** Lease row for this connection. FOR NO KEY UPDATE, so child FK inserts (KEY SHARE) don't block. */
 export async function leaseConnection(companyId: string, connectionId: string): Promise<DbRow | null> {
   const rows = (await sql`
-    SELECT id, provider, bank_account_id, is_active, status
+    SELECT id, provider, bank_account_id, is_active, status, daily_tx_cap
     FROM bank_feed_connections
     WHERE id = ${connectionId}::UUID AND company_id = ${companyId}::UUID
     FOR NO KEY UPDATE NOWAIT`) as DbRow[];
   return rows[0] ?? null;
+}
+
+/**
+ * Serialise every feed ingest into one bank account, whichever connection leased
+ * it: the content-hash dedup read below is otherwise a check-then-insert race
+ * between two connections on the same account. Transaction-scoped; released at
+ * COMMIT/ROLLBACK. Taken after the lease, before any bank_transactions read.
+ */
+export async function lockBankAccountForIngest(companyId: string, bankAccountId: string): Promise<void> {
+  await sql`SELECT pg_advisory_xact_lock(hashtextextended(${`bank_tx_ingest:${companyId}:${bankAccountId}`}::TEXT, 0))`;
+}
+
+/** Rows this connection inserted in the last 24 hours (the extension anti-abuse cap). */
+export async function importedInLastDay(companyId: string, connectionId: string): Promise<number> {
+  const rows = (await sql`
+    SELECT COALESCE(SUM(transactions_imported), 0)::INT AS used
+    FROM bank_feed_sync_logs
+    WHERE connection_id = ${connectionId}::UUID AND company_id = ${companyId}::UUID
+      AND started_at > NOW() - INTERVAL '24 hours'`) as DbRow[];
+  return Number(rows[0]?.used ?? 0);
 }
 
 export async function bankAccountIsValid(companyId: string, bankAccountId: string, subtypes: readonly string[]): Promise<boolean> {
@@ -62,17 +82,16 @@ export async function closeSyncLogFailed(companyId: string, logId: string, conne
     WHERE id = ${connectionId}::UUID AND company_id = ${companyId}::UUID`;
 }
 
+/** Written after persist, and only when rows were inserted, so a redelivery leaves no empty batch. */
 export async function createImportBatch(
-  companyId: string, bankAccountId: string, statementDate: string, count: number,
+  companyId: string, id: string, bankAccountId: string, statementDate: string, count: number,
   sourceLabel: string, bankFormat: string | null, userId: string,
-): Promise<string> {
-  const id = crypto.randomUUID();
+): Promise<void> {
   await sql`
     INSERT INTO bank_import_batches (id, company_id, bank_account_id, statement_date, bank_format,
       transaction_count, source_filename, imported_by)
     VALUES (${id}::UUID, ${companyId}::UUID, ${bankAccountId}::UUID, ${statementDate}::DATE, ${bankFormat},
       ${count}, ${sourceLabel}, ${userId})`;
-  return id;
 }
 
 /** Existing provider-identified rows, locked for the rest of the request. */
@@ -83,7 +102,8 @@ export async function lockExistingByProviderIds(
   const rows = (await sql`
     SELECT id, provider_transaction_id, feed_state, transaction_date, value_date, amount,
            description, reference, provider_updated_at,
-           (status <> 'imported' OR matched_journal_line_id IS NOT NULL OR provisional_je_id IS NOT NULL) AS processed
+           (status <> 'imported' OR matched_journal_line_id IS NOT NULL OR reconciliation_id IS NOT NULL
+            OR provisional_je_id IS NOT NULL) AS processed
     FROM bank_transactions
     WHERE company_id = ${companyId}::UUID AND bank_feed_connection_id = ${connectionId}::UUID
       AND provider_transaction_id = ANY(${ids}::TEXT[])
@@ -149,10 +169,12 @@ export async function applyFeedUpdate(
     SET transaction_date = ${t.transactionDate}::DATE, value_date = ${t.valueDate ?? null}::DATE,
         amount = ${t.amount}, description = ${t.description}, reference = ${t.reference ?? null},
         feed_state = ${nextState},
-        provider_updated_at = COALESCE(${t.providerUpdatedAt ?? null}::TIMESTAMPTZ, provider_updated_at),
+        -- Never backwards: GREATEST ignores NULLs, so a missing timestamp keeps the stored one.
+        provider_updated_at = GREATEST(${t.providerUpdatedAt ?? null}::TIMESTAMPTZ, provider_updated_at),
         feed_last_seen_at = NOW(), updated_at = NOW()
     WHERE id = ${rowId}::UUID AND company_id = ${companyId}::UUID AND feed_state = ${expectedState}
-      AND status = 'imported' AND matched_journal_line_id IS NULL AND provisional_je_id IS NULL
+      AND status = 'imported' AND matched_journal_line_id IS NULL AND reconciliation_id IS NULL
+      AND provisional_je_id IS NULL
     RETURNING id`) as DbRow[];
   return rows.length > 0;
 }

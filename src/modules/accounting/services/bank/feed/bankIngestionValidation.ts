@@ -40,15 +40,30 @@ export function identityModeFor(provider: string): IdentityMode {
   return 'provider';
 }
 
+const MAX_ECHO = 40;
+/** A caller-supplied value quoted in a refusal message, capped so a hostile payload is never echoed whole. */
+const echo = (v: unknown): string => {
+  const s = String(v);
+  return s.length > MAX_ECHO ? `${s.slice(0, MAX_ECHO)}…` : s;
+};
+
+/**
+ * Money is NUMERIC(15,2): a third decimal would be rounded silently by Postgres.
+ * The two-decimal round-trip, not an epsilon on `a * 100`: past ~R10m the gap
+ * between doubles exceeds any fixed epsilon (see `hasWholeCents` in mcp/toolHelpers).
+ */
+const isWholeCents = (a: number): boolean => Number(a.toFixed(2)) === a;
+
 function invalid(i: number, why: string): never {
   throw new BankIngestionRefusal('INVALID_TRANSACTION', `Transaction ${i + 1}: ${why}`, i);
 }
 
 function validateOne(t: NormalizedBankTransaction, i: number, mode: IdentityMode): void {
-  if (!isCalendarDate(t.transactionDate)) invalid(i, `transactionDate "${t.transactionDate}" is not a calendar date`);
-  if (t.valueDate !== undefined && !isCalendarDate(t.valueDate)) invalid(i, `valueDate "${t.valueDate}" is not a calendar date`);
+  if (!isCalendarDate(t.transactionDate)) invalid(i, `transactionDate "${echo(t.transactionDate)}" is not a calendar date`);
+  if (t.valueDate !== undefined && !isCalendarDate(t.valueDate)) invalid(i, `valueDate "${echo(t.valueDate)}" is not a calendar date`);
   if (!Number.isFinite(t.amount) || Math.abs(t.amount) >= MAX_ABS_AMOUNT) invalid(i, 'amount must be a finite number');
-  if (t.currency !== 'ZAR') invalid(i, `currency "${String(t.currency)}" is not supported`);
+  if (!isWholeCents(t.amount)) invalid(i, 'amount must be whole cents');
+  if (t.currency !== 'ZAR') invalid(i, `currency "${echo(t.currency)}" is not supported`);
   if (t.description.trim().length === 0 || t.description.length > MAX_DESCRIPTION) invalid(i, 'description must be 1-500 characters');
   if (t.reference !== undefined && t.reference.length > MAX_REFERENCE) invalid(i, 'reference exceeds 255 characters');
   if (t.balance !== undefined && !Number.isFinite(t.balance)) invalid(i, 'balance must be finite');

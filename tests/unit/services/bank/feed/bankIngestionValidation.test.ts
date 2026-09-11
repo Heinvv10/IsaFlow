@@ -47,6 +47,23 @@ describe('validateBatch', () => {
     const t = tx({ ...fields, state: 'pending', identity: contentHashIdentity(fields) });
     expect(code(() => validateBatch(batch([t]), 'content_hash'))).toBe('IDENTITY_MODE_MISMATCH');
   });
+  it('rejects an amount that is not whole cents (A-8)', () =>
+    expect(code(() => validateBatch(batch([tx({ amount: -10.005 })]), 'provider'))).toBe('INVALID_TRANSACTION'));
+  it('accepts whole-cent amounts that float cannot represent exactly', () => {
+    for (const amount of [0.1, -0.29, 1234.56, -99999.99, 0.07, 282543.34, 123456789.07, -987654321.13]) {
+      expect(() => validateBatch(batch([tx({ amount })]), 'provider')).not.toThrow();
+    }
+  });
+  it('caps a user-supplied value echoed into the refusal message at 40 chars (A-7)', () => {
+    const long = `2026-09-01${'x'.repeat(500)}`;
+    for (const t of [tx({ transactionDate: long }), tx({ valueDate: long }), tx({ currency: long as 'ZAR' })]) {
+      try { validateBatch(batch([t]), 'provider'); throw new Error('expected a refusal'); } catch (e) {
+        expect((e as { code?: string }).code).toBe('INVALID_TRANSACTION');
+        expect((e as Error).message).not.toContain('x'.repeat(41));
+        expect((e as Error).message.length).toBeLessThan(120);
+      }
+    }
+  });
   it('allows two identical content-hash rows (two real R50 fees)', () => {
     const fields = { transactionDate: '2026-09-01', amount: -50, description: 'FEE' };
     const t = tx({ ...fields, identity: contentHashIdentity(fields) });
