@@ -135,6 +135,29 @@ export function expectIntentProbes(explained:readonly Explained[],marker:string,
  for(const {text,nodes} of found)expect(nodes.filter(node=>(node['Index Cond']??'').includes('CASE WHEN')).length,
   `intent primary-key probes in:\n${text}`).toBe(probes);
 }
+/**
+ * A statement's `id = CASE WHEN … THEN …::uuid END` probe (its own bare `id`, never `lower(id)` or a cast of it,
+ * against the Param-derived value the CASE guards) reaches `relation` by an index-usable form: an Index Cond when
+ * the planner picks that scan, a Filter or Recheck Cond when a small table's statistics make a different scan (or
+ * none at all) cheaper. `expectIntentProbes` above counts only Index Cond nodes across the WHOLE statement, so a
+ * multi-relation UNION query — e.g. one arm probing intents, the other reversal intents — conflates both relations
+ * into one number; on a fresh, near-empty database the planner can Seq Scan the smaller table's Filter instead of
+ * an Index Cond, and the pinned count goes from 2 to 1 with nothing wrong. This checks each relation is actually
+ * probed by its own bare id in a usable form, and that its primary key still reaches `id`, not which scan ran today.
+ */
+const BARE_ID_CASE_PROBE=/(^|[(\s])(\w+\.)?id = CASE WHEN|CASE WHEN[\s\S]*?= (\w+\.)?id\b/;
+export async function expectUsableIntentProbes(pool:Pool,explained:readonly Explained[],marker:string,relations:readonly string[]){
+ const found=explained.filter(entry=>entry.text.includes(marker));
+ expect(found.length,`no captured statement contains ${marker}`).toBeGreaterThan(0);
+ for(const relation of relations){
+  const usable=found.some(({nodes})=>nodes.some(node=>node['Relation Name']===relation
+   &&[node['Index Cond']??'',node.Filter??'',node['Recheck Cond']??''].some(condition=>BARE_ID_CASE_PROBE.test(condition))));
+  expect(usable,`${relation} is not probed by its own bare id against a Param-derived value in a statement containing ${marker}`).toBe(true);
+  const {rows}=await pool.query(`SELECT 1 FROM pg_constraint co JOIN pg_attribute a ON a.attrelid=co.conrelid AND a.attnum=ANY(co.conkey)
+   WHERE co.conrelid=to_regclass($1) AND co.contype='p' AND a.attname='id'`,[relation]);
+  expect(rows,`${relation} has no primary key reaching id`).toHaveLength(1);
+ }
+}
 /** Every captured statement containing `marker` (at least one) reads `table` through exactly `lookups` canonical lookups. */
 export function expectCanonicalLookup(explained:readonly Explained[],marker:string,table:string,lookups=1){
  const found=explained.filter(entry=>entry.text.includes(marker));
