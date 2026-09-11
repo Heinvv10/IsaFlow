@@ -40,6 +40,9 @@ export async function readAuditComparisonHeader(ctx:ControlTx,jobId:string):Prom
   throw new ComparisonUnavailableError(job?'not_ready':'not_found');
  }
  const saved=openAuditJobRequest(row);if(saved.kind!=='audit_compare')throw new Error('Comparison retained request kind changed');
+ // Deliberately a 403 naming the permission, not the absent-comparison 404: read:reports is asserted before the
+ // lookup, but the per-source permissions a comparison retains can only be checked once its row is found, and what
+ // the difference discloses (that a comparison exists) stays within one company, to a caller already holding its UUID.
  for(const permission of saved.request.permissions)await assertEffectivePermission(ctx,permission);
  const originals=await readAuditComparisonInputs(ctx,saved.request);
  const header=openComparisonResultHeader(row.protected_header,{companyId:ctx.principal.companyId,comparisonId:jobId,generation:Number(row.generation),leaseId:row.lease_id});
