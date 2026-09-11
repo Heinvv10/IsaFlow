@@ -122,6 +122,7 @@ export function bankTxRefCandidateQuery(
       FROM bank_transactions bt
       JOIN wanted w ON btrim(bt.reference, E' \\t\\n\\r\\f') = w.ref
       WHERE bt.company_id = ${companyId}::UUID
+        AND bt.feed_state <> 'removed'
         AND (${bankAccountId}::UUID IS NULL OR bt.bank_account_id = ${bankAccountId}::UUID)
       UNION ALL
       SELECT
@@ -131,6 +132,7 @@ export function bankTxRefCandidateQuery(
       FROM bank_transactions bt
       JOIN wanted w ON btrim(bt.bank_reference, E' \\t\\n\\r\\f') = w.ref
       WHERE bt.company_id = ${companyId}::UUID
+        AND bt.feed_state <> 'removed'
         AND (${bankAccountId}::UUID IS NULL OR bt.bank_account_id = ${bankAccountId}::UUID)
     ),
     ranked AS (

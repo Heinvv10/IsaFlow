@@ -76,7 +76,7 @@ async function buildBankingCard(companyId: string, periodEnd: string): Promise<W
   // account, so the COUNT(*) FILTER values come out wrong.
   const txnRows = (await sql`
     SELECT
-      COUNT(*) FILTER (WHERE status = 'imported' AND transaction_date <= ${periodEnd}::date) AS unmatched,
+      COUNT(*) FILTER (WHERE status = 'imported' AND feed_state = 'posted' AND transaction_date <= ${periodEnd}::date) AS unmatched,
       COUNT(*) FILTER (WHERE matched_journal_line_id IS NOT NULL AND transaction_date <= ${periodEnd}::date) AS matched
     FROM bank_transactions
     WHERE company_id = ${companyId}::uuid

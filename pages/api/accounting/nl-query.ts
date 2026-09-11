@@ -28,7 +28,7 @@ const SCHEMA_TABLES: SchemaTable[] = [
   { name: 'gl_accounts', columns: ['id', 'account_code', 'account_name', 'account_type', 'is_active', 'company_id'], description: 'Chart of accounts (GL)' },
   { name: 'gl_journal_entries', columns: ['id', 'entry_number', 'entry_date', 'description', 'status', 'source'], description: 'Journal entries' },
   { name: 'gl_journal_lines', columns: ['id', 'journal_entry_id', 'gl_account_id', 'debit', 'credit', 'description'], description: 'Journal entry lines (debits/credits)' },
-  { name: 'bank_transactions', columns: ['id', 'bank_account_id', 'transaction_date', 'description', 'amount', 'status', 'company_id'], description: 'Imported bank transactions — has company_id, filter directly' },
+  { name: 'bank_transactions', columns: ['id', 'bank_account_id', 'transaction_date', 'description', 'amount', 'status', 'feed_state', 'company_id'], description: "Imported bank transactions — has company_id, filter directly. feed_state is 'pending', 'posted' or 'removed': only feed_state = 'posted' rows are real statement lines, so any count/sum/total over this table MUST filter feed_state = 'posted'" },
   { name: 'products', columns: ['id', 'code', 'name', 'cost_price', 'selling_price', 'current_stock', 'company_id'], description: 'Products/inventory items' },
   { name: 'employees', columns: ['id', 'first_name', 'last_name', 'email', 'basic_salary', 'employment_type', 'company_id'], description: 'Employee master data' },
   { name: 'payslips', columns: ['id', 'employee_id', 'payroll_run_id', 'gross_pay', 'net_pay', 'paye', 'uif_employee'], description: 'Payslips per payroll run' },

@@ -118,6 +118,7 @@ export async function staleSuggestedTransactions(ctx: IntegrityCheckContext): Pr
     WHERE bt.company_id = ${ctx.companyId}::UUID
       AND bt.matched_journal_line_id IS NULL
       AND bt.status <> 'excluded'
+      AND bt.feed_state = 'posted'
       AND (bt.suggested_gl_account_id IS NOT NULL OR bt.allocation_type IS NOT NULL
            OR bt.suggested_supplier_id IS NOT NULL OR bt.suggested_client_id IS NOT NULL)
       AND bt.transaction_date <= ${ctx.asAt}::DATE - ${STALE_DAYS}::INT

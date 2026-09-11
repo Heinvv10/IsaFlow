@@ -30,6 +30,11 @@
  * When this test fails on a new file: read what it does, add ONE line below,
  * classified honestly. Do not add '*' or a blanket reason — every entry
  * documents a specific file.
+ *
+ * EXTRA_FILES: a small allowlist of files classified explicitly even though
+ * their SQL text does not literally match FROM/JOIN bank_transactions (e.g.
+ * a table name that only appears in a runtime-built or LLM-generated query).
+ * Round 2 finding C added the first one, nl-query.ts.
  */
 import { describe, expect, it } from 'vitest';
 import { execFileSync } from 'node:child_process';
@@ -50,6 +55,17 @@ function sourceFiles(): string[] {
 const READS_BANK_TRANSACTIONS = /\b(FROM|JOIN)\s+bank_transactions\b/;
 
 /**
+ * Files classified explicitly even though the regex above does not match
+ * them — e.g. dynamic/LLM-generated SQL where "bank_transactions" never
+ * appears literally as a FROM/JOIN target in this file's own source text.
+ * Round 2 finding C: nl-query.ts hands the LLM a schema hint naming the
+ * table, and the actual SQL text is generated at request time, not present
+ * here to grep. Listed here so it still gets a REAL classification instead
+ * of silently falling outside the ratchet's reach.
+ */
+const EXTRA_FILES: readonly string[] = ['pages/api/accounting/nl-query.ts'];
+
+/**
  * The classification map. One entry per file that reads bank_transactions —
  * see the header for what each value means. Built by reading every file in
  * Task 4 fix round 1 (findings item 6).
@@ -67,6 +83,7 @@ const CLASSIFICATION: Readonly<Record<string, string>> = {
   'pages/api/accounting/bank-tx-attachments.ts': 'exempt: attachment CRUD ownership check, not a financial total',
   'pages/api/accounting/dashboard-stats.ts': 'filtered',
   'pages/api/accounting/dashboard-todos.ts': 'filtered',
+  'pages/api/accounting/nl-query.ts': "exempt: dynamic LLM SQL — schema hint instructs posted-only (feed_state added to the bank_transactions schema hint with an explicit 'must filter feed_state = posted' instruction; not enforced in this file's own static SQL text)",
   'pages/api/accounting/provisional/outstanding.ts': "exempt: non-posted rows cannot carry provisional_je_id (trigger 675)",
   'pages/api/accounting/reports/cash-movement.ts': 'filtered',
   'pages/api/accounting/setup-guide.ts': 'exempt: onboarding checklist presence flag, not a financial total',
@@ -84,7 +101,7 @@ const CLASSIFICATION: Readonly<Record<string, string>> = {
   'src/modules/accounting/services/bank/bankCoverageQueries.ts': 'filtered',
   'src/modules/accounting/services/bank/bankFeedStateGuard.ts': 'exempt: writer (Task 3) — the feed_state guard primitive itself',
   'src/modules/accounting/services/bank/bankFeedSyncService.ts': 'exempt: writer (Task 3) — dedup pre-check inside the sync writer',
-  'src/modules/accounting/services/bank/bankImportBatchQueryService.ts': 'filtered',
+  'src/modules/accounting/services/bank/bankImportBatchQueryService.ts': "filtered (round 2: changed to feed_state <> 'removed' — a pending row is still linked to its import batch)",
   'src/modules/accounting/services/bank/bankImportService.ts': 'exempt: writer (Task 3) — import-time auto-post sweep candidate selection',
   'src/modules/accounting/services/bank/bankMatchDbQueries.ts': "exempt: writer (Task 3) plan-phase reads; matched_journal_line_id exclusion cannot carry it on a non-posted row (trigger 675)",
   'src/modules/accounting/services/bank/bankReconciliationCancelService.ts': "exempt: non-posted rows cannot carry reconciliation_id (trigger 675)",
@@ -94,7 +111,7 @@ const CLASSIFICATION: Readonly<Record<string, string>> = {
   'src/modules/accounting/services/bank/bankRulesSuggestionPass.ts': 'exempt: writer (Task 3)',
   'src/modules/accounting/services/bank/bankStatementDedupHelpers.ts': 'exempt: writer (Task 3) — dedup pre-check inside the import writer',
   'src/modules/accounting/services/bank/bankStatementImportService.ts': 'exempt: writer (Task 3) — dedup pre-check and post-commit status read',
-  'src/modules/accounting/services/bank/bankTransactionLookupService.ts': 'exempt: writer (Task 3) plan-phase lookups (allocate/reverse by reference or id)',
+  'src/modules/accounting/services/bank/bankTransactionLookupService.ts': "filtered (round 2: reference resolution excludes feed_state = 'removed' so a removed row cannot make a posted replacement look ambiguous; still a writer (Task 3) plan-phase lookup otherwise)",
   'src/modules/accounting/services/bank/bankTransactionQueryService.ts': 'filtered',
   'src/modules/accounting/services/bank/bankTransferAutoLink.ts': 'exempt: writer (Task 3)',
   'src/modules/accounting/services/bank/bankTransferLinkService.ts': 'exempt: writer (Task 3)',
@@ -121,11 +138,11 @@ const CLASSIFICATION: Readonly<Record<string, string>> = {
   'src/modules/accounting/services/dashboard/workbenchService.ts': 'filtered',
   'src/modules/accounting/services/gl/accountMergeGuards.ts': 'exempt: FK/usage guard before merge — must see every feed_state',
   'src/modules/accounting/services/gl/accountReclassifyService.ts': 'exempt: FK/usage guard before reclassify — must see every feed_state',
-  'src/modules/accounting/services/gl/chartOfAccountsService.ts': 'exempt: deletion-safety guard, deliberately broad, not a financial total',
+  'src/modules/accounting/services/gl/chartOfAccountsService.ts': "filtered (round 2: soft-delete guard excludes feed_state = 'removed' — a removed feed row can no longer block deletion forever; pending rows still block, deliberately)",
   'src/modules/accounting/services/gl/closeReadinessChecks/bankReconciledCheck.ts': 'filtered',
   'src/modules/accounting/services/gl/continuousCloseQueryService.ts': 'filtered',
   'src/modules/accounting/services/gl/integrityChecks/bankChecks.ts':
-    "filtered (duplicateBankReferences); exempt: journalDateDiffersFromBankDate and staleSuggestedTransactions key off matched_journal_line_id / writer-gated suggestion fields (trigger 675, Task 2/3)",
+    "filtered (duplicateBankReferences; staleSuggestedTransactions as of round 2 — its suggestion columns are NOT trigger-guarded, round 1 wrongly assumed they were); exempt: journalDateDiffersFromBankDate keys off matched_journal_line_id (trigger 675)",
   'src/modules/accounting/services/gl/integrityChecks/vatChecks.ts': "exempt: non-posted rows cannot carry matched_journal_line_id (trigger 675)",
   'src/modules/accounting/services/reports/cashFlowForecastDataService.ts': 'filtered',
   'src/modules/accounting/services/reports/consolidatedReportingService.ts': 'filtered',
@@ -150,9 +167,18 @@ describe('bank feed_state reader census (ratchet)', () => {
     const expected = Object.keys(CLASSIFICATION);
 
     const unclassified = actual.filter((f) => !expected.includes(f));
-    const stale = expected.filter((f) => !actual.includes(f));
+    // A file in EXTRA_FILES is expected to be ABSENT from `actual` — that is
+    // the whole reason it needed an explicit entry — so it must not count as
+    // stale.
+    const stale = expected.filter((f) => !actual.includes(f) && !EXTRA_FILES.includes(f));
 
     expect({ unclassified, stale }).toEqual({ unclassified: [], stale: [] });
+
+    // Every EXTRA_FILES entry must actually be classified — otherwise the
+    // tolerance above silently hides a typo'd or removed extra file.
+    for (const f of EXTRA_FILES) {
+      expect(expected, `EXTRA_FILES entry ${f} has no CLASSIFICATION`).toContain(f);
+    }
 
     // Every classification is either exactly 'filtered' or starts with 'exempt: '
     // (or is the one mixed filtered+exempt entry, prefixed 'filtered').
