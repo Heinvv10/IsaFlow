@@ -15,6 +15,7 @@ import { sql, withSavepoint } from '@/lib/neon';
 import type { DbRow } from '@/lib/neon';
 import { log } from '@/lib/logger';
 import { reverseReconciledTransaction } from './bankAllocationService';
+import { unwindBankAllocationApplication } from './bankAllocationUnwind';
 import { reverseJournalEntry } from '../gl/journalEntryService';
 import { isRetryableContention } from '../core/retryableContention';
 import { lockBankTransactionForUpdate } from './bankTxLock';
@@ -128,11 +129,18 @@ export async function undoRow(companyId: string, runId: string, userId: string, 
       if (tx.matched_journal_line_id) await reverseReconciledTransaction(companyId, txId, userId);
       else await reverseJournalEntry(companyId, jeId, userId);
       outcome = 'reversed';
-    } else if (tx.matched_journal_line_id) {
-      // Reversed by hand already: `reverseReconciledTransaction` would be
-      // refused ("already reversed") on every retry and the run could never
-      // close. The journal nets to zero, so finishing the line is all that is
-      // left — the same reset that function makes after its contra.
+    } else {
+      // Reversed by hand already: a second reversal would be refused ("already
+      // reversed") on every retry and the run could never close. The journal
+      // nets to zero, but a hand reversal touches ONLY the ledger: the payment
+      // document the posting minted and the bills or invoices it settled still
+      // read as paid. `reverseReconciledTransaction` unwinds those BEFORE its
+      // contra; the undo does the same here, so the subledger agrees with the
+      // ledger when the line is finished. Idempotent (`status <> 'cancelled'`).
+      await unwindBankAllocationApplication(companyId, jeId);
+    }
+    if (state === 'live' && tx.matched_journal_line_id) {
+      // The same reset `reverseReconciledTransaction` makes after its contra.
       await sql`
         UPDATE bank_transactions
         SET status = 'imported', matched_journal_line_id = NULL, reconciliation_id = NULL,

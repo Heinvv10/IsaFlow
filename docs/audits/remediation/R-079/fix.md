@@ -617,3 +617,40 @@ W3 `reReversed` skip dropped → 2/9 red.
   components `564 passed`, build PASS, `[ci] all checks passed`, **EXIT=0**.
 - `k071-*`, `k140-*`, `k143-*`, `k144-*`, `r079-*` (21 files), `--no-file-parallelism` →
   `Test Files 21 passed (21)`, `Tests 98 passed | 1 skipped (99)`, **EXIT=0**.
+
+---
+
+## Round 6 — blind review of `9d31d68c0` (0 HIGH · 1 MEDIUM · 0 LOW)
+
+### MEDIUM-1 — the hand-reversed reset skipped the subledger unwind — FIXED, both shapes
+
+A hand reversal (`reverseJournalEntry` from the GL screen) touches only the ledger. The
+`processed` supplier payment `bankRuleAutoPostLine` mints for a supplier rule, and the bills its
+`payment_allocations` paid, still read as paid; the same for a customer receipt and its invoice.
+`reverseReconciledTransaction` calls `unwindBankAllocationApplication` before its contra; the
+undo's `alreadyUndone` branch did not, so the run closed with the AP subledger saying a bill was
+paid by a journal that is off the books.
+
+The hand-reversed branch of `undoRow` now calls `unwindBankAllocationApplication(companyId, jeId)`
+on BOTH shapes (provisional included — the reviewer showed it had answered `alreadyUndone` over
+the same state since round 1) before finishing the line. It is idempotent (`status <> 'cancelled'`)
+and handles customer and supplier documents.
+
+Pinned (`r079-hand-reversed-subledger.int.test.ts`, 5): a supplier auto-post AP 100 / bank 100
+with a `processed` payment applied to a bill (`paid`, `amount_paid 100`), hand-reversed, then undo
+→ `alreadyUndone 1, undone true`, payment **cancelled**, bill **approved** with `amount_paid 0`,
+**0** allocation rows, ledger net 0, line `imported` and untagged — on the matched AND the
+provisional shape; the clean (untouched) undo of the same shape ends in the identical state; the
+AR side — a customer receipt (bank 100 / AR 100, `confirmed`, applied to an invoice) hand-reversed
+→ receipt cancelled, invoice reopened, 0 allocations, exactly what the clean undo leaves; and a
+later reclass on AP does not block the hand-reversed line or its unwind.
+
+Mutations (sha256-restored): X1 unwind call removed → 4/5 red · X2 unwind only on the matched
+shape → 1/5 red (the provisional case).
+
+### Gates (round 6, foreground, load 11.1 at start)
+
+- `env -u DATABASE_URL bun run ci` → every step PASS, `Tests 13097 passed | 248 skipped`,
+  components `564 passed`, build PASS, `[ci] all checks passed`, **EXIT=0**.
+- `k071-*`, `k140-*`, `k143-*`, `k144-*`, `r079-*` (22 files, the new one included),
+  `--no-file-parallelism` → `Test Files 22 passed (22)`, `Tests 103 passed | 1 skipped (104)`, **EXIT=0**.
