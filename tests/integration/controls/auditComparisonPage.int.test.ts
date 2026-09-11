@@ -8,7 +8,7 @@ import {withControlRequest,requireControlTx} from '@/modules/accounting/services
 import {enqueueAuditSnapshot,getAuditJob} from '@/modules/accounting/services/controls/auditJobService';
 import {enqueueAuditComparison} from '@/modules/accounting/services/controls/auditComparisonJobService';
 import {runAuditSnapshotJob,runAuditJob} from '@/modules/accounting/services/controls/auditJobRunner';
-import {readAuditComparisonHeader} from '@/modules/accounting/services/controls/auditComparisonReadHeader';
+import {readAuditComparisonHeader,ComparisonUnavailableError} from '@/modules/accounting/services/controls/auditComparisonReadHeader';
 import {getAuditComparisonPage} from '@/modules/accounting/services/controls/auditComparisonPageService';
 import {canonicalJson} from '@/modules/accounting/services/controls/canonical';
 import {COMPARISON_SECTIONS} from '@/modules/accounting/services/controls/auditSnapshotComparisonMaterial';
@@ -53,7 +53,13 @@ it('reads a real worker population through three authenticated pages as a differ
  await expect(actor(()=>getAuditJob(requireControlTx(),comparisonId),'u2')).rejects.toThrow(/not found/);
 });
 it('refuses foreign readers and both current domain revocations even after a successful read',async()=>{
- await expect(actor(()=>getAuditComparisonPage(requireControlTx(),{comparisonId,section:'records'}),'u3')).rejects.toThrow(/unavailable/);
+ // The UI-defect round remapped this from a generic "unavailable" to the route's real 404/409 pair: foreign and
+ // absent read the same 404 "Comparison not found" (the route answers apiResponse.notFound for reason 'not_found'),
+ // which is what a tenant with no matching row at all — u3 belongs to company B — always hits.
+ const foreign=await actor(()=>getAuditComparisonPage(requireControlTx(),{comparisonId,section:'records'}),'u3').catch(e=>e);
+ expect(foreign).toBeInstanceOf(ComparisonUnavailableError);
+ expect((foreign as ComparisonUnavailableError).reason).toBe('not_found');
+ expect((foreign as Error).message).toBe('Comparison not found');
  for(const module of ['payroll','banking']){
   await pool.query('INSERT INTO company_user_permissions(company_id,user_id,module_key,can_read) VALUES($1,$2,$3,false)',[f.companyA,f.u2.id,module]);
   try{await expect(actor(()=>getAuditComparisonPage(requireControlTx(),{comparisonId,section:'records'}),'u2')).rejects.toThrow();}
@@ -78,7 +84,12 @@ it('independent census detects missing output outside the requested first page',
 });
 it('queued results remain unavailable without claiming or executing their jobs',async()=>{
  const job=await actor(()=>enqueueAuditComparison(requireControlTx(),{firstSnapshotId:first,secondSnapshotId:second,idempotencyKey:randomUUID()}));
- await expect(actor(()=>getAuditComparisonPage(requireControlTx(),{comparisonId:job.id,section:'records'}))).rejects.toThrow(/unavailable/);
+ // The UI-defect round remapped this from a generic "unavailable" to the route's real 409 "ask again later":
+ // the requester's own job exists but has not succeeded yet, so it is reason 'not_ready' (apiResponse.conflict).
+ const queued=await actor(()=>getAuditComparisonPage(requireControlTx(),{comparisonId:job.id,section:'records'})).catch(e=>e);
+ expect(queued).toBeInstanceOf(ComparisonUnavailableError);
+ expect((queued as ComparisonUnavailableError).reason).toBe('not_ready');
+ expect((queued as Error).message).toBe('Comparison is not published yet');
  expect(await actor(()=>getAuditJob(requireControlTx(),job.id))).toMatchObject({state:'queued',attempts:0,resultComparisonId:null});
 });
 it('retains authorized reading after original delegation expiry and rejects oversized encrypted pages',async()=>{
