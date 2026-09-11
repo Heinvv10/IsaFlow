@@ -27,7 +27,9 @@ const ref = (id: string) => ({ entityType: 'bank_transfer_intent', entityId: id,
 function validated(input: BankTransferInput) {
   const refuse = (message: string) => new BankTransferRefusalError(message, 400);
   if (!input || !UUID_RE.test(input.fromAccountId) || !UUID_RE.test(input.toAccountId)) throw refuse('Choose a from and a to bank account');
-  if (input.fromAccountId === input.toAccountId) throw refuse('The from and to accounts must be different bank accounts');
+  // Canonical once, here: the route accepts either case, and every comparison downstream is against pg's lowercase text.
+  const fromAccountId = input.fromAccountId.toLowerCase(), toAccountId = input.toAccountId.toLowerCase();
+  if (fromAccountId === toAccountId) throw refuse('The from and to accounts must be different bank accounts');
   if (!isRealCalendarDate(input.transferDate)) throw refuse(`The transfer date ${String(input.transferDate)} is not a real calendar date`);
   if (input.reference !== undefined && (typeof input.reference !== 'string' || input.reference.length > 500)) {
     throw refuse('The reference must be text of at most 500 characters');
@@ -39,7 +41,7 @@ function validated(input: BankTransferInput) {
   try { amount = canonicalMoney(String(input.amount)); } catch { throw refuse('Transfer amount must be a decimal number'); }
   const decimal = new Decimal(amount);
   if (!decimal.gt(0) || decimal.decimalPlaces() > 2) throw refuse('Transfer amount must be positive and expressed in cents');
-  return { ...input, amount };
+  return { ...input, fromAccountId, toAccountId, amount };
 }
 /** Preparation persists reviewable intent, without a journal or bank movement. */
 export async function prepareBankTransfer(companyId: string, userId: string, input: BankTransferInput) {
