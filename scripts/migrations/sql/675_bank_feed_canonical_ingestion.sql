@@ -22,22 +22,38 @@ ALTER TABLE bank_transactions
 
 DO $$
 BEGIN
-  IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'bank_tx_feed_state_check') THEN
+  IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'bank_tx_feed_state_check' AND conrelid = 'bank_transactions'::regclass) THEN
     ALTER TABLE bank_transactions ADD CONSTRAINT bank_tx_feed_state_check
-      CHECK (feed_state IN ('pending', 'posted', 'removed'));
+      CHECK (feed_state IN ('pending', 'posted', 'removed')) NOT VALID;
+    ALTER TABLE bank_transactions VALIDATE CONSTRAINT bank_tx_feed_state_check;
   END IF;
-  IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'bank_tx_feed_identity_required') THEN
+  IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'bank_tx_feed_identity_required' AND conrelid = 'bank_transactions'::regclass) THEN
     ALTER TABLE bank_transactions ADD CONSTRAINT bank_tx_feed_identity_required
       CHECK (feed_state = 'posted'
-             OR (bank_feed_connection_id IS NOT NULL AND provider_transaction_id IS NOT NULL));
+             OR (bank_feed_connection_id IS NOT NULL AND provider_transaction_id IS NOT NULL)) NOT VALID;
+    ALTER TABLE bank_transactions VALIDATE CONSTRAINT bank_tx_feed_identity_required;
   END IF;
-  IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'fk_bank_tx_feed_connection') THEN
+  -- A provider id always names its connection. The reverse is not required:
+  -- content-hash-identified extension rows carry a connection with a NULL
+  -- provider_transaction_id (decision 1, context.md).
+  IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'bank_tx_feed_identity_paired' AND conrelid = 'bank_transactions'::regclass) THEN
+    ALTER TABLE bank_transactions ADD CONSTRAINT bank_tx_feed_identity_paired
+      CHECK (provider_transaction_id IS NULL OR bank_feed_connection_id IS NOT NULL) NOT VALID;
+    ALTER TABLE bank_transactions VALIDATE CONSTRAINT bank_tx_feed_identity_paired;
+  END IF;
+  IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'fk_bank_tx_feed_connection' AND conrelid = 'bank_transactions'::regclass) THEN
     ALTER TABLE bank_transactions ADD CONSTRAINT fk_bank_tx_feed_connection
       FOREIGN KEY (bank_feed_connection_id, company_id)
-      REFERENCES bank_feed_connections (id, company_id) ON DELETE RESTRICT;
+      REFERENCES bank_feed_connections (id, company_id) ON DELETE RESTRICT NOT VALID;
+    ALTER TABLE bank_transactions VALIDATE CONSTRAINT fk_bank_tx_feed_connection;
   END IF;
 END
 $$;
+
+-- Tenant-composite key so the conflicts table's FK to bank_transactions can
+-- carry company_id (finding 4, fix round 1).
+CREATE UNIQUE INDEX IF NOT EXISTS uq_bank_transactions_id_company
+  ON bank_transactions (id, company_id);
 
 CREATE UNIQUE INDEX IF NOT EXISTS uq_bank_tx_feed_identity
   ON bank_transactions (company_id, bank_feed_connection_id, provider_transaction_id)
@@ -51,6 +67,10 @@ CREATE INDEX IF NOT EXISTS idx_bank_tx_feed_state_nonposted
 --    migrations (203, 253/282, 414, 492, 514, 520). The drift columns
 --    (transfer_journal_entry_id etc.) are deliberately absent: every writer of
 --    them also writes status, which is guarded.
+--    cc1_id/cc2_id/bu_id are intentionally NOT guarded on pending rows: they
+--    are pre-allocation metadata (like the suggested_* columns), and
+--    allocation re-validates them once the row leaves 'pending' (finding 5,
+--    fix round 1, controller ruling: keep behaviour).
 CREATE OR REPLACE FUNCTION bank_tx_feed_state_guard() RETURNS trigger
 LANGUAGE plpgsql AS $$
 BEGIN
@@ -72,7 +92,7 @@ BEGIN
   END IF;
 
   IF OLD.bank_feed_connection_id IS NOT NULL
-     AND (OLD.status <> 'imported' OR OLD.matched_journal_line_id IS NOT NULL
+     AND (OLD.status IS DISTINCT FROM 'imported' OR OLD.matched_journal_line_id IS NOT NULL
           OR OLD.provisional_je_id IS NOT NULL)
      AND (NEW.transaction_date, NEW.value_date, NEW.amount, NEW.description, NEW.reference)
          IS DISTINCT FROM
@@ -95,7 +115,7 @@ CREATE TABLE IF NOT EXISTS bank_feed_transaction_conflicts (
   id                      UUID PRIMARY KEY DEFAULT gen_random_uuid(),
   company_id              UUID NOT NULL REFERENCES companies(id),
   connection_id           UUID NOT NULL,
-  bank_transaction_id     UUID NOT NULL REFERENCES bank_transactions(id) ON DELETE RESTRICT,
+  bank_transaction_id     UUID NOT NULL,
   provider_transaction_id TEXT NOT NULL,
   reason                  TEXT NOT NULL CHECK (reason IN (
                             'processed_row_changed', 'posted_row_removed',
@@ -106,7 +126,13 @@ CREATE TABLE IF NOT EXISTS bank_feed_transaction_conflicts (
   last_seen_at            TIMESTAMPTZ NOT NULL DEFAULT NOW(),
   resolved_at             TIMESTAMPTZ,
   CONSTRAINT fk_bfc_conflict_connection FOREIGN KEY (connection_id, company_id)
-    REFERENCES bank_feed_connections (id, company_id) ON DELETE RESTRICT
+    REFERENCES bank_feed_connections (id, company_id) ON DELETE RESTRICT,
+  -- CASCADE (not RESTRICT): archiveExecutionService.ts:167,
+  -- bankTransactionQueryService.ts:204 deleteTransactions, and
+  -- scripts/qa-seed/reset.ts:60 all delete bank_transactions rows and must
+  -- not 23503 once a conflict exists (finding 1, fix round 1).
+  CONSTRAINT fk_bfc_conflict_bank_transaction FOREIGN KEY (bank_transaction_id, company_id)
+    REFERENCES bank_transactions (id, company_id) ON DELETE CASCADE
 );
 
 CREATE UNIQUE INDEX IF NOT EXISTS uq_bank_feed_conflict_open
