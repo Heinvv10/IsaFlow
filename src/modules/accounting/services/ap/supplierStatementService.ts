@@ -26,7 +26,8 @@ import { sql } from '@/lib/neon';
 import type { DbRow } from '@/lib/neon';
 import { fmtDate } from '@/lib/fmtDate';
 import { documentInLedgerAsAtFragment } from '../shared/softDeleteLedgerPresence';
-import { documentInPopulation } from '../shared/documentPopulation';
+import { classifyStatementInvoice } from '../shared/statementInvoiceExclusion';
+import { creditNoteAppliedAmount } from '../shared/creditNoteAppliedAmount';
 
 type Row = DbRow;
 
@@ -83,25 +84,6 @@ function maxIso(values: Array<unknown>): string | null {
 }
 
 /** Returns null when the supplier is not in this company — never a distinct reply. */
-/**
- * What a live credit note actually took off what we owe the supplier.
- *
- * Approving a note applies MIN(total_amount, outstanding) and records that
- * capped figure in `applied_amount`; the status only becomes 'applied' when
- * that figure is above zero. So:
- *   - 'applied'  → applied_amount is what was consumed, and total_amount may be
- *     larger. The remainder is stranded: a note at 'applied' cannot be applied
- *     again, so crediting the face value shows the customer more credit than
- *     we received and OVERSTATES what we still owe the supplier.
- *   - 'approved' → applied_amount is 0 by construction, and the note is
- *     unallocated credit the customer holds at face value.
- * Same rule the aging already follows (agingRewind, apAgingService).
- */
-function creditNoteAmount(cn: { status?: unknown; total_amount?: unknown; applied_amount?: unknown }): number {
-  return String(cn.status ?? '') === 'applied'
-    ? Number(cn.applied_amount ?? 0)
-    : Number(cn.total_amount ?? 0);
-}
 
 export async function fetchSupplierStatementData(
   companyId: string,
@@ -164,24 +146,10 @@ export async function fetchSupplierStatementData(
   const transactions: SupplierStatementTransaction[] = [];
   const excluded: SupplierStatementExclusion[] = [];
 
-  // Machine-stable reason per excluded status — mirrors the customer
-  // statement's own classification (statementEmailService, R-082 round 2).
-  const INVOICE_EXCLUSION_REASON: Record<string, string> = {
-    draft: 'invoice_draft',
-    pending_approval: 'invoice_pending_approval',
-    cancelled: 'invoice_cancelled',
-  };
-
   for (const inv of invoices) {
-    const status = String(inv.status ?? '');
-    if (!documentInPopulation(inv.status as string | null)) {
-      excluded.push({
-        id: String(inv.id),
-        reason: INVOICE_EXCLUSION_REASON[status] ?? 'invoice_not_issued',
-        detail: `Bill is '${status}'; it is not yet issued and is not on the statement.`,
-        amount: Number(inv.total_amount),
-        documentNumber: String(inv.invoice_number ?? ''),
-      });
+    const exclusion = classifyStatementInvoice(inv, 'Bill');
+    if (exclusion) {
+      excluded.push(exclusion);
       continue;
     }
     transactions.push({
@@ -230,7 +198,7 @@ export async function fetchSupplierStatementData(
       date: fmtDate(cn.credit_date),
       type: 'credit_note',
       reference: String(cn.credit_note_number ?? ''),
-      debit: creditNoteAmount(cn),
+      debit: creditNoteAppliedAmount(cn),
       credit: 0,
       balance: 0,
     });

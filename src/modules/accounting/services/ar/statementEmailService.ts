@@ -9,7 +9,8 @@ import { fmtDate as fmtDbDate } from '@/lib/fmtDate';
 import type { DbRow } from '@/lib/neon';
 import { log } from '@/lib/logger';
 import { documentInLedgerAsAtFragment } from '../shared/softDeleteLedgerPresence';
-import { documentInPopulation } from '../shared/documentPopulation';
+import { classifyStatementInvoice } from '../shared/statementInvoiceExclusion';
+import { creditNoteAppliedAmount } from '../shared/creditNoteAppliedAmount';
 import { sendEmail } from '../core/emailService';
 import type { EmailResult } from '../core/emailService';
 import { buildStatementEmailHtml } from './statementEmailTemplate';
@@ -46,26 +47,6 @@ const fmtDate = (d: string): string => {
 };
 
 // ─── Statement Fetcher ────────────────────────────────────────────────────────
-
-/**
- * What a live credit note actually took off the customer's account.
- *
- * Approving a note applies MIN(total_amount, outstanding) and records that
- * capped figure in `applied_amount`; the status only becomes 'applied' when
- * that figure is above zero. So:
- *   - 'applied'  → applied_amount is what was consumed, and total_amount may be
- *     larger. The remainder is stranded: a note at 'applied' cannot be applied
- *     again, so crediting the face value shows the customer more credit than
- *     they received and UNDERSTATES what they owe — on a document we email them.
- *   - 'approved' → applied_amount is 0 by construction, and the note is
- *     unallocated credit the customer holds at face value.
- * Same rule the aging already follows (agingRewind, apAgingService).
- */
-function creditNoteAmount(cn: { status?: unknown; total_amount?: unknown; applied_amount?: unknown }): number {
-  return String(cn.status ?? '') === 'applied'
-    ? Number(cn.applied_amount ?? 0)
-    : Number(cn.total_amount ?? 0);
-}
 
 export async function fetchStatementData(
   companyId: string,
@@ -141,26 +122,10 @@ export async function fetchStatementData(
   const transactions: StatementTransaction[] = [];
   const excluded: StatementExclusion[] = [];
 
-  // Machine-stable reason per excluded status, named so an agent reading
-  // excludedRows can tell a draft from a pending-approval invoice — both are
-  // "not yet issued", but for different reasons a reader may want to act on
-  // differently (chase the drafter vs. chase the approver).
-  const INVOICE_EXCLUSION_REASON: Record<string, string> = {
-    draft: 'invoice_draft',
-    pending_approval: 'invoice_pending_approval',
-    cancelled: 'invoice_cancelled',
-  };
-
   for (const inv of invoices) {
-    const status = String(inv.status ?? '');
-    if (!documentInPopulation(inv.status as string | null)) {
-      excluded.push({
-        id: String(inv.id),
-        reason: INVOICE_EXCLUSION_REASON[status] ?? 'invoice_not_issued',
-        detail: `Invoice is '${status}'; it is not yet issued and is not on the statement.`,
-        amount: Number(inv.total_amount),
-        documentNumber: String(inv.invoice_number ?? ''),
-      });
+    const exclusion = classifyStatementInvoice(inv, 'Invoice');
+    if (exclusion) {
+      excluded.push(exclusion);
       continue;
     }
     transactions.push({
@@ -221,7 +186,7 @@ export async function fetchStatementData(
       type: 'credit_note',
       reference: String(cn.credit_note_number ?? ''),
       debit: 0,
-      credit: creditNoteAmount(cn),
+      credit: creditNoteAppliedAmount(cn),
       balance: 0,
     });
   }
