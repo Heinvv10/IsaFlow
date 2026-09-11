@@ -10,11 +10,20 @@
  * red (fix.md, round 6).
  *
  * THE RULE. A document is in the population unless it is a draft (never
- * issued) or cancelled (voided). Every other status — including 'paid' — is IN:
- * an invoice paid TODAY was outstanding on every earlier date, and filtering to
- * the open set is what erased settled debt from historical ageing (see
- * src/lib/constants/invoiceStatuses.ts for why the ageing is exempt from the
- * live open-status sets).
+ * issued), pending approval (not yet issued either — Hein, R-082 round 2,
+ * 2026-09-11), or cancelled (voided). Every other status — including 'paid' —
+ * is IN: an invoice paid TODAY was outstanding on every earlier date, and
+ * filtering to the open set is what erased settled debt from historical
+ * ageing (see src/lib/constants/invoiceStatuses.ts for why the ageing is
+ * exempt from the live open-status sets).
+ *
+ * PENDING_APPROVAL. Both `customer_invoices_status_check` and
+ * `supplier_invoices_status_check` spell it identically, so one clause
+ * covers both aliases — no dual spelling to handle. A pending-approval
+ * document is absent from the ageing, the subledger and a statement; once
+ * approved it reappears on every routed surface, at the date it was always
+ * dated for (the as-at cutoff is unaffected — this is still only the status
+ * predicate).
  *
  * NULL STATUS. `status` is nullable on both invoice tables, with DEFAULT
  * 'draft'. The bare `status NOT IN ('draft','cancelled')` evaluates to NULL for
@@ -33,11 +42,25 @@
  * AN EXPRESSION STRING, like `effectivePaidExpr`, so it splices into a WHERE, a
  * CASE WHEN and a string-built predicate alike: `${sql.unsafe(documentInPopulationExpr('ci'))}`.
  * It carries no parameter — the alias is one of two literals, never input.
+ *
+ * A JS TWIN, `documentInPopulation`, for callers that already have the row in
+ * hand and classify it into a report's own `excluded` bucket rather than
+ * filtering it out of the query (R-082 round 2) — the same three statuses,
+ * so the two can never drift relative to each other.
  */
 
 import type { InvoiceAlias } from './softDeleteLedgerPresence';
 
+/** Statuses that put a document OUTSIDE the population. The one list both twins read. */
+const EXCLUDED_STATUSES = ['draft', 'pending_approval', 'cancelled'] as const;
+
 /** TRUE when the document's status puts it in the ageing's population. */
 export function documentInPopulationExpr(alias: InvoiceAlias): string {
-  return `COALESCE(${alias}.status, '') NOT IN ('draft', 'cancelled')`;
+  const list = EXCLUDED_STATUSES.map((s) => `'${s}'`).join(', ');
+  return `COALESCE(${alias}.status, '') NOT IN (${list})`;
+}
+
+/** The JS twin of {@link documentInPopulationExpr}, for a row already in hand. */
+export function documentInPopulation(status: string | null | undefined): boolean {
+  return !(EXCLUDED_STATUSES as readonly string[]).includes(status ?? '');
 }

@@ -9,7 +9,8 @@
  * Gates (any one fails → skip):
  *   - company dunning_settings.auto_send_enabled = true
  *   - today is a weekday (global) — template.send_weekdays_only enforced per row
- *   - invoice is not cancelled and not fully paid
+ *   - invoice is issued (not draft or pending approval, R-096), not
+ *     cancelled and not fully paid
  *   - invoice outstanding ≥ company min_outstanding_zar
  *   - invoice days_overdue matches a template's range (active, highest escalation_order)
  *   - invoice has NO open customer_invoice_dispute, and no dispute resolved
@@ -23,6 +24,7 @@ import { sql, withSavepoint } from '@/lib/neon';
 import type { DbRow } from '@/lib/neon';
 import { log } from '@/lib/logger';
 import { sendDunning } from './dunningService';
+import { documentInPopulationExpr } from '../shared/documentPopulation';
 
 export interface DunningCronResult {
   companiesChecked: number;
@@ -127,7 +129,15 @@ export async function runDunningCron(options: {
           LEFT JOIN customer_dunning_overrides cdo
             ON cdo.company_id = ci.company_id AND cdo.customer_id = cust.id
          WHERE ci.company_id = ${companyId}::uuid
-           AND ci.status NOT IN ('cancelled', 'paid')
+           -- R-096: a draft or pending-approval invoice is not yet a claim
+           -- on the customer and must never be dunned — same rule the
+           -- statements and ageing now use (shared/documentPopulation),
+           -- routed here 2026-09-11. 'paid' is excluded separately: the
+           -- shared rule counts it as issued (an invoice paid today was
+           -- outstanding yesterday, which the ageing needs), but a fully
+           -- paid invoice has nothing left to chase.
+           AND ${sql.unsafe(documentInPopulationExpr('ci'))}
+           AND COALESCE(ci.status, '') != 'paid'
            -- A deleted invoice is not chased. Undated on purpose, and NOT an
            -- appeal to aging: the dated predicate deliberately KEEPS an invoice
            -- deleted before this change, whose journal was never reversed, so

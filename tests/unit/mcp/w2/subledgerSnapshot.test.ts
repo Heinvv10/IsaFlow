@@ -130,7 +130,7 @@ describe('getARSubledger', () => {
     // NULL, so the bare spelling selected a NARROWER population than the ageing
     // — and reconcile_subledger then books the difference as an unexplained
     // residual. Pinned by outcome in r059-subledger-population-equals-ageing.
-    expect(invoiceQuery).toContain("COALESCE(ci.status, '') NOT IN ('draft', 'cancelled')");
+    expect(invoiceQuery).toContain("COALESCE(ci.status, '') NOT IN ('draft', 'pending_approval', 'cancelled')");
     // A credit note granted later had not reduced the balance then.
     const creditQuery = statements.find((t) => t.includes('FROM credit_notes'))!;
     expect(creditQuery).toContain('cn.credit_date <=');
