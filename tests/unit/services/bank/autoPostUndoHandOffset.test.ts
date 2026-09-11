@@ -1,6 +1,6 @@
 /**
- * R-079 — `undoRun` refuses a row whose posting a manual journal already
- * offsets (`offsetByHand`), and re-reads each row under its lock so a peer undo
+ * R-079 — `undoRun` refuses a row whose posting a later journal may already
+ * correct (`offsetByHand`), and re-reads each row under its lock so a peer undo
  * or a confirmed hand correction cannot be applied on top. The SQL is proved
  * on the fixture DB (r079-*.int.test.ts); this pins the decision in TS.
  */
@@ -60,27 +60,36 @@ describe('undoRun — hand offsets (R-079)', () => {
     lockMock.mockReset();
   });
 
-  // A manual journal already offsets the posting: reversing it too
-  // would apply the user's correction twice. Refused, nothing posted, the tag
-  // and the run stay, and the journal is named.
-  const provisionalRow = { id: 't1', status: 'provisional', matched_journal_line_id: null, provisional_je_id: 'je-1' };
-  const candidate = (flags: Record<string, boolean>) => ({
-    id: 'je-hand', entry_number: 'JE-2026-00042',
-    linked: false, by_person: true, claimed_elsewhere: false, within_posting: true, ...flags,
-  });
+  // A later journal may already correct the posting: reversing it too would
+  // apply the user's correction twice. Refused, nothing posted, the tag and
+  // the run stay, and the line AND the journal are described so two refused
+  // lines can be told apart. Which journals block is decided in SQL and proved
+  // on the fixture DB (r079-undo-hand-offset.int.test.ts).
+  const provisionalRow = {
+    id: 't1', status: 'provisional', matched_journal_line_id: null, provisional_je_id: 'je-1',
+    bank_account_id: 'bank-gl', transaction_date: '2026-05-15', amount: '-100.00', description: 'Office rent',
+  };
+  const blocking = {
+    id: 'je-hand', entry_number: 'JE-2026-00042', entry_date: '2026-05-20', description: 'Reclass rent',
+    amount: 60, blocks: true, by_person: true, claimed_elsewhere: false, declared_unrelated: false, nets_posting_out: false,
+  };
 
-  it('refuses a row a manual journal already offsets, and names the journal', async () => {
+  it('refuses a row a later journal may already correct, and describes the line and the journal', async () => {
     routeSql([
       { match: /FROM bank_auto_post_runs/, rows: [{ id: 'run-1', undone_at: null }] },
       { match: /FROM bank_transactions\s+WHERE auto_post_run_id/, rows: [provisionalRow] },
-      { match: /WITH posting AS/, rows: [candidate({})] },
+      { match: /WITH RECURSIVE posting AS/, rows: [blocking] },
     ]);
 
     const r = await undoRun('co-1', 'run-1', 'u-1');
 
     expect(r).toEqual({
       reversed: 0, skipped: 1, skippedBy: { ...NO_SKIPS, offsetByHand: 1 }, alreadyUndone: 0, undone: false,
-      handOffsets: [{ transactionId: 't1', journalEntryId: 'je-hand', entryNumber: 'JE-2026-00042' }],
+      handOffsets: [{
+        transactionId: 't1', lineDate: '2026-05-15', lineAmount: -100, lineDescription: 'Office rent',
+        journalEntryId: 'je-hand', entryNumber: 'JE-2026-00042', entryDate: '2026-05-20', amount: 60,
+        description: 'Reclass rent',
+      }],
     });
     expect(reverseJournalEntry).not.toHaveBeenCalled();
     const joined = sqlMock.mock.calls.map((c) => (c[0] as TemplateStringsArray).join('?'));
@@ -88,30 +97,11 @@ describe('undoRun — hand offsets (R-079)', () => {
     expect(joined.some((t) => /UPDATE bank_auto_post_runs/.test(t))).toBe(false);
   });
 
-  it('refuses a LINKED journal even when it reaches beyond the posting', async () => {
+  it('reverses the row when nothing blocks it', async () => {
     routeSql([
       { match: /FROM bank_auto_post_runs/, rows: [{ id: 'run-1', undone_at: null }] },
       { match: /FROM bank_transactions\s+WHERE auto_post_run_id/, rows: [provisionalRow] },
-      { match: /WITH posting AS/, rows: [candidate({ linked: true, by_person: false, within_posting: false })] },
-    ]);
-
-    const r = await undoRun('co-1', 'run-1', 'u-1');
-
-    expect(r.skippedBy.offsetByHand).toBe(1);
-    expect(reverseJournalEntry).not.toHaveBeenCalled();
-  });
-
-  // The other direction: without a link, a journal is an offset only when a
-  // person made it, no other bank line owns it, AND it lies within the posting.
-  it.each([
-    ['made by the system', { by_person: false }],
-    ["owned by another bank line", { claimed_elsewhere: true }],
-    ['reaching an account the posting never touched', { within_posting: false }],
-  ])('does not block the undo for a journal %s', async (_name, flags) => {
-    routeSql([
-      { match: /FROM bank_auto_post_runs/, rows: [{ id: 'run-1', undone_at: null }] },
-      { match: /FROM bank_transactions\s+WHERE auto_post_run_id/, rows: [provisionalRow] },
-      { match: /WITH posting AS/, rows: [candidate(flags)] },
+      { match: /WITH RECURSIVE posting AS/, rows: [] },
     ]);
 
     const r = await undoRun('co-1', 'run-1', 'u-1');

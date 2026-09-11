@@ -65,7 +65,7 @@ export interface UndoResult {
  * Savepoint name for one row of the undo. `withSavepoint` caps names at 31
  * characters, so this is a constant rather than an interpolation.
  */
-const UNDO_ROW_SAVEPOINT = 'auto_post_undo_line';
+export const UNDO_ROW_SAVEPOINT = 'auto_post_undo_line';
 
 /**
  * Statuses that claim a posting. A row in one of these with nothing linked to
@@ -74,10 +74,10 @@ const UNDO_ROW_SAVEPOINT = 'auto_post_undo_line';
  */
 const POSTED_STATUSES = new Set(['provisional', 'allocated', 'matched', 'reconciled']);
 
-type RowOutcome = 'reversed' | 'alreadyUndone' | 'unlinked' | 'reReversed' | 'reconciled' | 'gone';
+export type RowOutcome = 'reversed' | 'alreadyUndone' | 'unlinked' | 'reReversed' | 'reconciled' | 'gone';
 
 /** What one row came to; a hand-offset refusal carries the journal it found. */
-type RowResult = { kind: RowOutcome } | { kind: 'offsetByHand'; offset: HandOffset };
+export type RowResult = { kind: RowOutcome } | { kind: 'offsetByHand'; offset: HandOffset };
 
 /**
  * Refuses a row whose posting a person already offset by hand (R-079): the
@@ -85,11 +85,15 @@ type RowResult = { kind: RowOutcome } | { kind: 'offsetByHand'; offset: HandOffs
  */
 async function handOffsetOf(companyId: string, tx: Row): Promise<RowResult | null> {
   const jeId = await postingJournalOf(companyId, tx);
-  const offset = jeId ? await findHandOffset(companyId, jeId, String(tx.id)) : null;
+  const offset = jeId ? await findHandOffset(companyId, jeId, tx) : null;
   return offset ? { kind: 'offsetByHand', offset } : null;
 }
 
-async function undoRow(companyId: string, runId: string, userId: string, txId: string): Promise<RowResult> {
+/**
+ * Undoes one row of a run, under the row lock. Exported for the recorded
+ * "not the correction — undo anyway" decision, which undoes exactly one line.
+ */
+export async function undoRow(companyId: string, runId: string, userId: string, txId: string): Promise<RowResult> {
   // Locked and re-read before anything is decided, so a peer undo or a
   // confirmed hand correction (autoPostHandCorrection.ts, same lock) cannot
   // act on the same row in between: whichever comes second finds it gone.

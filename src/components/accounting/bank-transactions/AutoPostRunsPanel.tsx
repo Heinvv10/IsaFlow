@@ -43,7 +43,7 @@ function partialUndoMessage({ reversed, skippedBy }: UndoResult): string {
       ? `${skippedBy.failed} could not be reversed (for example, a closed period) — check those lines`
       : null,
     skippedBy.offsetByHand > 0
-      ? `${skippedBy.offsetByHand} already offset by a manual journal — see below`
+      ? `${skippedBy.offsetByHand} may already be corrected by a later journal — see below`
       : null,
   ].filter((r): r is string => r !== null);
   return `Reversed ${reversed} line${reversed === 1 ? '' : 's'}. Not undone: ${reasons.join('; ')}.`;
@@ -98,9 +98,10 @@ export function AutoPostRunsPanel({ onUndone }: { onUndone?: () => void }) {
     }
   }
 
-  function confirmed(offset: HandOffset, runClosed: boolean) {
+  function decided(offset: HandOffset, runClosed: boolean, next: HandOffset | null) {
     setHandOffsets((prev) => {
-      const offsets = prev?.offsets.filter((o) => o.transactionId !== offset.transactionId) ?? [];
+      const rest = prev?.offsets.filter((o) => o.transactionId !== offset.transactionId) ?? [];
+      const offsets = next ? [...rest, next] : rest;
       return prev && offsets.length > 0 ? { runId: prev.runId, offsets } : null;
     });
     if (runClosed) setUndoNotice(null);
@@ -123,7 +124,7 @@ export function AutoPostRunsPanel({ onUndone }: { onUndone?: () => void }) {
       {handOffsets && (
         <ul aria-label="Lines already corrected by hand" className="space-y-1 mb-2">
           {handOffsets.offsets.map((o) => (
-            <HandOffsetNotice key={o.transactionId} runId={handOffsets.runId} offset={o} onConfirmed={confirmed} />
+            <HandOffsetNotice key={o.transactionId} runId={handOffsets.runId} offset={o} onDecided={decided} />
           ))}
         </ul>
       )}

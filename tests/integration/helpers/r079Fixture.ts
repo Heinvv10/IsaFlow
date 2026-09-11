@@ -49,7 +49,7 @@ export async function inRequest<T>(pool: Pool, fx: K074Fixture, fn: () => Promis
 /** A posted journal, made the way a person makes one (source 'manual') unless told otherwise. */
 export async function postJournal(
   pool: Pool, fx: K074Fixture, lines: JournalLine[],
-  opts: { companyId?: string; source?: string; draft?: boolean } = {},
+  opts: { companyId?: string; source?: string; draft?: boolean; postingAgent?: string } = {},
 ): Promise<{ id: string; entryNumber: string }> {
   const { createJournalEntry, postJournalEntry } = await import('@/modules/accounting/services/gl/journalEntryService');
   const companyId = opts.companyId ?? fx.company;
@@ -60,6 +60,11 @@ export async function postJournal(
     }, fx.user);
     if (!opts.draft) await postJournalEntry(companyId, entry.id, fx.user);
     return { id: entry.id, entryNumber: String(entry.entryNumber) };
+  }).then(async (je) => {
+    if (opts.postingAgent) {
+      await pool.query('UPDATE gl_journal_entries SET posting_agent=$1 WHERE id=$2', [opts.postingAgent, je.id]);
+    }
+    return je;
   });
 }
 
@@ -91,6 +96,18 @@ export function measuredHandOffset(fx: R079Fixture): JournalLine[] {
   return [
     { glAccountId: fx.e1, debit: 0, credit: 60 },
     { glAccountId: fx.bankAccount, debit: 60, credit: 0 },
+  ];
+}
+
+/**
+ * The correction the net check accepts: the whole posting reclassed to E3.
+ * With the posting it brings E1 and E2 back to zero; the bank stands.
+ */
+export function fullReclass(fx: R079Fixture): JournalLine[] {
+  return [
+    { glAccountId: fx.e1, debit: 0, credit: 60 },
+    { glAccountId: fx.e2, debit: 0, credit: 40 },
+    { glAccountId: fx.e3, debit: 100, credit: 0 },
   ];
 }
 
