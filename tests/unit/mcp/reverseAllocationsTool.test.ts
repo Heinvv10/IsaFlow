@@ -112,9 +112,10 @@ describe('reverse_allocations', () => {
   });
 
   it('REFUSES an oversize range instead of truncating it', async () => {
-    vi.mocked(countAllocatedInRange).mockResolvedValue(501);
+    vi.mocked(countAllocatedInRange).mockResolvedValue(7);
     const r = await reverseAllocationsTool.handler(RANGE, ctx());
-    expect(errText(r)).toContain('exceeds the 500 limit');
+    // The authority-hold limit (src/lib/limits/authorityHoldLimits.ts), named so the caller can split.
+    expect(errText(r)).toContain('exceeds the 6 limit');
     // Nothing fetched, nothing reversed: a partial pass would be the same
     // half-done state, only harder to notice.
     expect(findAllocatedInRange).not.toHaveBeenCalled();

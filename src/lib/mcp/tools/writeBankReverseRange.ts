@@ -24,6 +24,7 @@
  * nothing would be the same half-done state, only harder to notice.
  */
 import type { McpTool } from '../types';
+import { MAX_BANK_LINES_PER_REQUEST } from '@/lib/limits/authorityHoldLimits';
 import { reverseReconciledTransaction } from '@/modules/accounting/services/bank/bankAllocationService';
 import {
   findAllocatedInRange,
@@ -39,10 +40,11 @@ const REVERSE_RANGE_TOOL = 'reverse_allocations';
 
 /**
  * Above this the call refuses. It is a blast-radius limit, not a page size:
- * every row in the range is reversed inside ONE transaction, so the cap also
- * bounds how long the account's rows stay locked.
+ * every row in the range is reversed inside ONE transaction that holds the
+ * company authority key, so the cap bounds how long every other request in the
+ * company waits (src/lib/limits/authorityHoldLimits.ts).
  */
-const MAX_RANGE = 500;
+const MAX_RANGE = MAX_BANK_LINES_PER_REQUEST;
 
 export const reverseAllocationsTool: McpTool = {
   name: REVERSE_RANGE_TOOL,
@@ -113,7 +115,7 @@ export const reverseAllocationsTool: McpTool = {
     if (total > MAX_RANGE) {
       return toolError(
         `${total} allocated transactions in ${fromDate}..${toDate} exceeds the ${MAX_RANGE} limit. ` +
-          'Narrow the date range and reverse in parts.',
+          'Narrow the date range and reverse in parts; for more than that on one day, use reverse_bank_allocation per transaction.',
       );
     }
     if (total === 0) {

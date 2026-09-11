@@ -2,7 +2,7 @@
  * MCP write tools: allocate a whole set of bank transactions / reverse that set.
  *
  * PRD-11 §4. A single-account migration was costing one write call per
- * transaction; these take up to 500 lines at a time and make the result
+ * transaction; these take up to MAX_LINES lines at a time and make the result
  * addressable by one batch id.
  *
  * ALL-OR-NOTHING is the property that makes that safe. registry.call() wraps
@@ -50,7 +50,7 @@ const BULK_TOOL = 'bulk_allocate_bank_transactions';
 export const bulkAllocateBankTransactionsTool: McpTool = {
   name: BULK_TOOL,
   description:
-    'Allocate up to 500 bank transactions in one call, each to a GL account (optionally matching a supplier '
+    `Allocate up to ${MAX_LINES} bank transactions in one call (split a longer list across calls), each to a GL account (optionally matching a supplier `
     + 'or customer invoice). Identify each transaction by transaction_id OR by bank_reference — the reference '
     + 'printed on the statement. POSTS a journal entry per line. Transactions that are already allocated (or '
     + 'excluded, or otherwise not importable) are SKIPPED, not failures: they are listed in "skipped" with a '
