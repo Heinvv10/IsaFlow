@@ -11596,6 +11596,39 @@
       "severity": "high",
       "source": "Disclosed by the K-072 round-34 fixer; the substring match at receiptToJournalService.ts:83 was measured by the round-33 blind reviewer (Spurway Steel, Mr Doors Brits matched as meals).",
       "processNotes": "Fix: anchor merchant patterns to whole words / known merchant names; measure the re-coding across the capture corpus before and after. Related: K-072 round 34 removed the same substring match from the posting-evidence excuse.\n\n2026-09-11: being fixed INSIDE K-072 (round 35) because the K-072 branch introduced it; the denied-VAT fold will follow the expense account (input-VAT-denied), never the vendor name. Close this item when K-072 merges."
+    },
+    {
+      "id": "R-092",
+      "claim": "",
+      "area": "accounting/capture",
+      "affectedPaths": [
+        "src/modules/accounting/services/core/aiInvoicePipelineService.ts"
+      ],
+      "sourceLabel": "",
+      "sourceIds": [],
+      "correctedTrigger": "",
+      "severityRationale": "The throw fails closed (nothing posts), but the draft carries a line of 150,000 against a much smaller document, and an unhandled throw on approve may surface as a 500. Needs a measurement to size it.",
+      "auditedSha": "",
+      "currentSha": "",
+      "status": "candidate",
+      "dependencies": [
+        "K-072"
+      ],
+      "testNames": [],
+      "evidencePaths": [
+        "docs/audits/remediation/K-072/fix.md"
+      ],
+      "fixCommit": null,
+      "pr": null,
+      "deployedSha": null,
+      "historicalDataImpact": "Unknown; count capture-origin supplier-invoice drafts whose line quantity times price differs from the document total by more than the VAT.",
+      "canonicalItem": null,
+      "reportedSeverity": "",
+      "branch": null,
+      "title": "A column-layout supplier invoice can be drafted with its amount read as a quantity (qty 1000 x 150), and approving that draft throws instead of refusing cleanly",
+      "severity": "low",
+      "source": "Observed in passing by the K-072 round-34 blind reviewer (unscored aside) and relayed by the round-35 fixer. Not reproduced by the orchestrator; status candidate until measured.",
+      "processNotes": "First reproduce it on the fixture DB and record the exact draft and the error. Fix direction: the pipeline should refuse to draft lines whose extended amount doesn't reconcile to the document, and approve should return a typed 4xx, never a 500."
     }
   ],
   "sourceInventory": [
