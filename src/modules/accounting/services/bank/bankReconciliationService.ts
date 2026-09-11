@@ -25,8 +25,8 @@ export async function getReconciliations(
             ga.parent_account_id AS group_id,
             pa.account_name AS group_name,
             pa.account_subtype AS parent_subtype,
-            (SELECT COUNT(*) FROM bank_transactions WHERE reconciliation_id = br.id AND status = 'matched') AS matched_count,
-            (SELECT COUNT(*) FROM bank_transactions WHERE reconciliation_id = br.id AND status = 'imported') AS unmatched_count
+            (SELECT COUNT(*) FROM bank_transactions WHERE reconciliation_id = br.id AND status = 'matched' AND feed_state = 'posted') AS matched_count,
+            (SELECT COUNT(*) FROM bank_transactions WHERE reconciliation_id = br.id AND status = 'imported' AND feed_state = 'posted') AS unmatched_count
           FROM bank_reconciliations br
           LEFT JOIN gl_accounts ga ON ga.id = br.bank_account_id AND ga.company_id = ${companyId}
           LEFT JOIN gl_accounts pa ON pa.id = ga.parent_account_id AND pa.company_id = ga.company_id
@@ -37,8 +37,8 @@ export async function getReconciliations(
             ga.parent_account_id AS group_id,
             pa.account_name AS group_name,
             pa.account_subtype AS parent_subtype,
-            (SELECT COUNT(*) FROM bank_transactions WHERE reconciliation_id = br.id AND status = 'matched') AS matched_count,
-            (SELECT COUNT(*) FROM bank_transactions WHERE reconciliation_id = br.id AND status = 'imported') AS unmatched_count
+            (SELECT COUNT(*) FROM bank_transactions WHERE reconciliation_id = br.id AND status = 'matched' AND feed_state = 'posted') AS matched_count,
+            (SELECT COUNT(*) FROM bank_transactions WHERE reconciliation_id = br.id AND status = 'imported' AND feed_state = 'posted') AS unmatched_count
           FROM bank_reconciliations br
           LEFT JOIN gl_accounts ga ON ga.id = br.bank_account_id AND ga.company_id = ${companyId}
           LEFT JOIN gl_accounts pa ON pa.id = ga.parent_account_id AND pa.company_id = ga.company_id
@@ -57,8 +57,8 @@ export async function getReconciliationById(
   try {
     const rows = (await sql`
       SELECT br.*, ga.account_name AS bank_account_name,
-        (SELECT COUNT(*) FROM bank_transactions WHERE reconciliation_id = br.id AND status = 'matched') AS matched_count,
-        (SELECT COUNT(*) FROM bank_transactions WHERE reconciliation_id = br.id AND status = 'imported') AS unmatched_count
+        (SELECT COUNT(*) FROM bank_transactions WHERE reconciliation_id = br.id AND status = 'matched' AND feed_state = 'posted') AS matched_count,
+        (SELECT COUNT(*) FROM bank_transactions WHERE reconciliation_id = br.id AND status = 'imported' AND feed_state = 'posted') AS unmatched_count
       FROM bank_reconciliations br
       LEFT JOIN gl_accounts ga ON ga.id = br.bank_account_id
       WHERE br.id = ${id}::UUID AND br.company_id = ${companyId}`) as DbRow[];
@@ -95,7 +95,7 @@ export async function startReconciliation(
         UPDATE bank_transactions SET reconciliation_id = ${rows[0]!.id}::UUID
         WHERE bank_account_id = ${bankAccountId}::UUID
           AND company_id = ${companyId}::UUID
-          AND status = 'imported' AND reconciliation_id IS NULL`;
+          AND status = 'imported' AND feed_state = 'posted' AND reconciliation_id IS NULL`;
       return rows[0]!;
     });
     log.info('Started bank reconciliation', {

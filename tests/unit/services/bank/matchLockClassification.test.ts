@@ -52,7 +52,7 @@ class PgError extends Error {
 
 /** row lock ok → line exists → nobody claims it → the UPDATE fails with `err`. */
 function updateFailsWith(err: unknown): void {
-  lockMock.mockResolvedValue({ id: TX, status: 'imported' });
+  lockMock.mockResolvedValue({ id: TX, status: 'imported', feed_state: 'posted' });
   sqlMock
     .mockResolvedValueOnce([{ id: LINE }] as never)   // assertMatchTargets: line exists
     .mockResolvedValueOnce([] as never)               // assertMatchTargets: unclaimed

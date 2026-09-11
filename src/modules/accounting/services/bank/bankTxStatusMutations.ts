@@ -24,6 +24,7 @@ import {
   lockBankTransactionForUpdate, isLockNotAvailable, tableLockUnavailable, BankMatchUnavailableError,
   withBankLockBudget,
 } from './bankTxLock';
+import { assertFeedPosted } from './bankFeedStateGuard';
 export { BankMatchUnavailableError } from './bankTxLock';
 
 type Row = DbRow;
@@ -84,6 +85,7 @@ export class BankMatchTargetError extends Error {
 async function lockForStatusWrite(companyId: string, bankTxId: string, verb: string): Promise<Row> {
   const row = await lockBankTransactionForUpdate(companyId, bankTxId);
   if (!row) throw new Error(`Bank transaction ${bankTxId} not found`);
+  assertFeedPosted(row, verb);
   const status = String(row.status ?? '');
   if (status === POSTED_STATUS && row.matched_journal_line_id) {
     throw new BankTransactionAllocatedError(bankTxId, status, verb);

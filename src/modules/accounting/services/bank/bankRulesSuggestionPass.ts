@@ -75,6 +75,7 @@ export async function applySuggestionRules(
       WHERE bt.bank_account_id = ${bankAccountId}::UUID
         AND bt.company_id = ${companyId}::UUID
         AND bt.status = 'imported'
+        AND bt.feed_state = 'posted'
         AND bt.matched_journal_line_id IS NULL
     ),
     top_match AS (SELECT * FROM matched WHERE rn = 1)

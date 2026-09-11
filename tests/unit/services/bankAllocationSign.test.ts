@@ -117,7 +117,7 @@ function txRow(amount: number) {
     bank_account_id: BANK_ACCOUNT_ID,
     amount,
     transaction_date: new Date('2026-02-04'),
-    status: 'imported',
+    status: 'imported', feed_state: 'posted',
     description: 'ROHCAP REFUND',
     reference: 'RC-1187',
   };

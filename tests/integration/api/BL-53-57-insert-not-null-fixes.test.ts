@@ -1,7 +1,7 @@
 /**
  * Integration tests: BL-53..BL-57 — NOT-NULL INSERT fixes
  *
- * BL-53: bank_transactions INSERT in bankFeedSyncService missing company_id
+ * BL-53: bank_transactions INSERT (feed sync path, since removed) missing company_id
  * BL-54: bank_transactions INSERT in openBankingSyncService missing company_id
  * BL-55: customer_invoices INSERT in quoteConvertService — wrong column (total→total_amount),
  *        missing invoice_number, missing customer_id
@@ -92,11 +92,11 @@ afterAll(async () => {
   await sql`DELETE FROM companies WHERE id = ${COMPANY_ID}::UUID`;
 });
 
-// ── BL-53: bankFeedSyncService INSERT now includes company_id ─────────────────
+// ── BL-53: feed sync INSERT now includes company_id ────────────────────────────
 
-describe('BL-53: bank_transactions INSERT includes company_id (bankFeedSyncService fix)', () => {
+describe('BL-53: bank_transactions INSERT includes company_id (feed sync fix)', () => {
   it('direct INSERT with company_id succeeds and row is selectable by company_id', async () => {
-    // Simulate the fixed INSERT (as written in bankFeedSyncService after the fix)
+    // Simulate the fixed INSERT (as written in the feed sync path after the fix)
     const inserted = await sql`
       INSERT INTO bank_transactions (
         company_id, bank_account_id, transaction_date, amount, description,

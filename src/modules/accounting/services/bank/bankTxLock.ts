@@ -105,6 +105,7 @@ export async function lockBankTransactionForUpdate(
   assertTxUsable();
   await client.query("SET LOCAL lock_timeout = '5s'");
   try {
+    // `SELECT *` carries feed_state, which assertFeedPosted/feedStateOf require — never narrow it.
     const rows = (await sql`
       SELECT * FROM bank_transactions
       WHERE id = ${bankTxId}::UUID AND company_id = ${companyId}::UUID
