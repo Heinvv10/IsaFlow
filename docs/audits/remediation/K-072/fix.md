@@ -2954,3 +2954,26 @@ every negative case `DELETE 0`; 672 byte-identical). `origin/master` had not mov
 **Mutations — 6, all RED, restored byte-identically (md5):** P1 every `wat` is prose (unit 33, DB 2) · P2 a capitalised
 `Wat` can be prose (1) · P3 no column-word guard (2) · P4 no next-word rule (2) · P5 no `%` guard (1) · P6 no minimum of
 three words (1).
+
+---
+
+## Round 42 — a currency is no word, and prose `wat` follows a word
+
+Review: `review-k072-r41.md` (0H/0M/1L; the header shapes fixed, nothing regressed). `origin/master` had not moved.
+
+| Finding | Disposition |
+|---|---|
+| LOW the currency `R` counted toward the prose exemption's three-word minimum, so `wat ingesluit R260.86`, `wat payable R260.86` and `wat charged R 260.86` passed as prose and were approved / posted at tax 0 | FIXED with BOTH of the reviewer's conditions. **(1)** A currency (`R`, `ZAR`) is never a word — not in the count and not as the word before `wat` (`isWord`); an amount is never a word either (the words are letter runs). **(2)** Prose needs a word right BEFORE `wat`: the Afrikaans relative pronoun follows its antecedent (`Werk wat`, `Items wat`, `Tuindiens wat`), so a line that OPENS with `wat` is a label. The antecedent may be capitalised — every prose pin's is (`Werk`, `Items`, `Tuindiens`) — so (2) asks for a word, not a lower-case one; the lower-case requirement stays on the word AFTER `wat`. Every prose pin still passes. **Cost, via `evidencedVat` directly on all 4 481 recoverable harness rows** (the posting harness does not call it): 27 rows have no VAT read; no row's evidence changes; the one row evidencing 0 still does. **On the DB** (`k072-vat-declaration`): the three shapes are refused by `approve_supplier_invoice`, `bulk_approve_supplier_invoices` and `post_journal`. |
+
+**A contaminated fixture, found and fixed this round.** Each declaration-file case prints its tag in `Invoice No: <tag>`,
+and the round-39 to round-41 tags began with `wat-`. Since round 41's inversion, `Invoice No: wat-…` is itself a non-prose
+`wat` mention, so every `wat-*` DB case was refused by its own invoice-number line, whatever the line under test did — the
+round-41 and round-42 per-shape DB pins were vacuous. The tags are renamed (`lbl-*`, `hdr-*`, `cur-*`, `mixcase-*`); no tag
+contains `wat`. With clean tags the file passes at head (39/39), round 41's "every `wat` is prose" mutant is still RED on the
+DB header shapes (2), so round 41's pins were genuine too. Round 40's DB mutants ran under a rule that did not read that
+line as a mention, so they stand.
+
+**Mutations — restored byte-identically (md5):** N1 a currency counts as a word (unit 1 — `R wat ingesluit is 260.86`)
+· N2 no word-before rule (unit 2 — `wat ingesluit is R260.86`) · N12 both removed (unit 6, **DB 3**). N1 and N2 are GREEN on
+the DB alone because each of the reviewer's shapes fails BOTH conditions (it opens with `wat` AND has two words plus a
+currency); each condition is decided alone by its unit pin, and removing both turns every DB shape red.

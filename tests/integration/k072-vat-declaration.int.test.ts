@@ -215,11 +215,11 @@ it.each([['stacked-wat', 'Billing Address:', 'WAT 130.43'], ['stacked-slashat', 
 
 // r39 LOW-1: a mixed-case `Wat` / `wAT` tax label beside the supplier's own declaration (not 15%-shaped: a mixed-rate
 // bill) — refused; the Afrikaans prose word `wat` still passes. `Wat` goes through the pipeline, with its own total.
-it.each([['wat-mixed', 'Wat 260.86'], ['wat-lower-upper', 'wAT 260.86']])('%s: refused by both tools and post_journal', async (tag, taxLine) => {
+it.each([['mixcase-1', 'Wat 260.86'], ['mixcase-2', 'wAT 260.86']])('%s: refused by both tools and post_journal', async (tag, taxLine) => {
   const text = `Bosman Foods\nWe are not VAT registered.\nInvoice No: ${tag}\nDate: 2026-05-1${tag.length % 9}\nCooldrinks 1739.14\n`
     + `Brown bread 420.00\nSubtotal 2159.14\n${taxLine}\nTOTAL 2420.00\n`;
   const doc = await seed(text, 'Bosman Motors', 'invoice');
-  const billId = tag === 'wat-mixed' ? await viaPipeline(doc) : await draftBill(doc, 2420);
+  const billId = tag === 'mixcase-1' ? await viaPipeline(doc) : await draftBill(doc, 2420);
   expect((await approve(billId)).content[0]!.text).toMatch(UNEVIDENCED);
   expect((await bulk(billId)).content[0]!.text).toMatch(UNEVIDENCED);
   expect(await billState(billId)).toEqual({ status: 'draft', gl_journal_entry_id: null });
@@ -228,16 +228,21 @@ it.each([['wat-mixed', 'Wat 260.86'], ['wat-lower-upper', 'wAT 260.86']])('%s: r
 });
 
 // r40 LOW-1: `Wat` behind other separators, or alone on its line in a column layout. The dotted leader goes through the pipeline.
-it.each([['wat-leader', 'Cooldrinks 1739.14\nBrown bread 420.00\nWat ........ 260.86\nTOTAL 2420.00'],
-  ['wat-pipe', 'Cooldrinks 1739.14\nBrown bread 420.00\nWat | 260.86\nTOTAL 2420.00'],
-  ['wat-dash', 'Cooldrinks 1739.14\nBrown bread 420.00\nWat — 260.86\nTOTAL 2420.00'],
-  ['wat-column', 'Cooldrinks\nBrown bread\nSubtotal\nWat\nTOTAL\n1806.14\n420.00\n2226.14\n260.86\n2487.00'],
+// r42: no tag contains `wat` — it is printed in `Invoice No:`, and since r41 that line alone would refuse every case.
+it.each([['lbl-leader', 'Cooldrinks 1739.14\nBrown bread 420.00\nWat ........ 260.86\nTOTAL 2420.00'],
+  ['lbl-pipe', 'Cooldrinks 1739.14\nBrown bread 420.00\nWat | 260.86\nTOTAL 2420.00'],
+  ['lbl-dash', 'Cooldrinks 1739.14\nBrown bread 420.00\nWat — 260.86\nTOTAL 2420.00'],
+  ['lbl-column', 'Cooldrinks\nBrown bread\nSubtotal\nWat\nTOTAL\n1806.14\n420.00\n2226.14\n260.86\n2487.00'],
   // r41: the reviewer's two header shapes — `Wat` between other column words.
-  ['wat-header-row', 'Item Qty Price Wat Total\nCooldrinks 1 1739.14 260.86 2000.00\nBrown bread 1 420.00 0.00 420.00\nTOTAL 2420.00'],
-  ['wat-header-labels', 'Cooldrinks 1739.14\nBrown bread 420.00\nSubtotal Wat TOTAL\n2159.14 260.86 2420.00']])('%s: refused by both tools and post_journal', async (tag, body) => {
+  ['hdr-row', 'Item Qty Price Wat Total\nCooldrinks 1 1739.14 260.86 2000.00\nBrown bread 1 420.00 0.00 420.00\nTOTAL 2420.00'],
+  ['hdr-labels', 'Cooldrinks 1739.14\nBrown bread 420.00\nSubtotal Wat TOTAL\n2159.14 260.86 2420.00'],
+  // r42: the currency counted as a word — the reviewer's three shapes.
+  ['cur-ingesluit', 'Cooldrinks 1739.14\nBrown bread 420.00\nwat ingesluit R260.86\nTOTAL 2420.00'],
+  ['cur-payable', 'Cooldrinks 1739.14\nBrown bread 420.00\nwat payable R260.86\nTOTAL 2420.00'],
+  ['cur-charged', 'Cooldrinks 1739.14\nBrown bread 420.00\nwat charged R 260.86\nTOTAL 2420.00']])('%s: refused by both tools and post_journal', async (tag, body) => {
   const text = `Bosman Foods\nWe are not VAT registered.\nInvoice No: ${tag}\nDate: 2026-06-0${tag.length % 9}\n${body}\n`;
   const doc = await seed(text, 'Bosman Motors', 'invoice');
-  const billId = tag === 'wat-leader' ? await viaPipeline(doc) : await draftBill(doc, 2420);
+  const billId = tag === 'lbl-leader' ? await viaPipeline(doc) : await draftBill(doc, 2420);
   expect((await approve(billId)).content[0]!.text).toMatch(UNEVIDENCED);
   expect((await bulk(billId)).content[0]!.text).toMatch(UNEVIDENCED);
   const je = await draftJournal(await seed(text, 'Bosman Motors', 'receipt'), 2420);
