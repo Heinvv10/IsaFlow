@@ -25,6 +25,39 @@ export class InactiveAccountError extends Error {
     this.name = 'InactiveAccountError'; this.accounts = accounts.map(a => a.code);
   }
 }
+export class JournalPostingRefusalError extends Error {
+  constructor(message: string) { super(message); this.name = 'JournalPostingRefusalError'; }
+}
+
+/**
+ * The period-and-lockdown refusal for a DIRECT journal post, read and thrown BEFORE the controlled write. A route
+ * that calls postJournalEntry straight from a person's own request (not through a domain operation that carries its
+ * own period rule, e.g. year-end or historical import) must refuse here: the same rule thrown inside
+ * assertPostingGuards still answers (it stays the backstop for every caller, direct or not), but by the time it
+ * fires there the request's control transaction is already marked failed, and withAuth overrides the response to a
+ * 500 regardless of what the route itself catches (see journalControlService.ts, withAuth.ts). Uses
+ * postingPeriodBlock, the one copy of the rule (postingPeriodGuard.ts), so this precheck cannot drift from the
+ * guard it precedes. Returns silently — leaving the controlled write to answer — when the entry, its company row
+ * or its assigned fiscal period cannot be read; those are fault cases, not a refusal this function owns.
+ */
+export async function assertDirectJournalPostable(companyId: string, entryId: string): Promise<void> {
+  const [row] = await sql`SELECT gje.entry_date::text AS entry_date, fp.status AS period_status,
+      fp.start_date::text AS period_start, fp.end_date::text AS period_end,
+      c.lockdown_enabled, c.lockdown_date::text AS lockdown_date
+    FROM gl_journal_entries gje
+    JOIN companies c ON c.id = gje.company_id
+    LEFT JOIN fiscal_periods fp ON fp.id = gje.fiscal_period_id AND fp.company_id = gje.company_id
+    WHERE gje.company_id = ${companyId}::uuid AND gje.id = ${entryId}::uuid` as Row[];
+  if (!row || typeof row.entry_date !== 'string' || row.period_status == null) return;
+  const block = postingPeriodBlock(row.period_status, row, row.entry_date);
+  if (block?.kind === 'period') {
+    throw new JournalPostingRefusalError(`Cannot post this journal entry dated ${row.entry_date}: its fiscal period (${String(row.period_start)} to ${String(row.period_end)}) is ${block.status}.`);
+  }
+  if (block?.kind === 'lockdown') {
+    const until = block.lockdownDate ? ` up to ${block.lockdownDate}` : '';
+    throw new JournalPostingRefusalError(`Cannot post this journal entry dated ${row.entry_date}: the company is locked down${until}.`);
+  }
+}
 /** Kept for legacy direct writers; the controlled posting path locks and validates the complete population. */
 export async function assertNoInactiveAccountLines(companyId: string, entryId: string): Promise<void> {
   const rows = await sql`SELECT DISTINCT ga.account_code,ga.account_name FROM gl_journal_lines jl

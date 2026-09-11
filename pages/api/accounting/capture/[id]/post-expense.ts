@@ -29,7 +29,7 @@ import {
   type ExpenseClaimLine,
 } from '@/modules/accounting/services/expense/expenseClaimService';
 import { createJournalEntry } from '@/modules/accounting/services/gl/journalEntryCrudService';
-import { postJournalEntry, ClosedFiscalPeriodError } from '@/modules/accounting/services/gl/journalEntryPostingService';
+import { postJournalEntry, assertDirectJournalPostable, JournalPostingRefusalError } from '@/modules/accounting/services/gl/journalEntryPostingService';
 
 type Row = Record<string, unknown>;
 
@@ -244,29 +244,28 @@ async function handler(req: CompanyAuthedRequest, res: NextApiResponse) {
 
   let jeStatus = jeEntry.status;
   if (autoPost) {
-    try {
+    // A lockdown or closed-period refusal is checked BEFORE the controlled write: postJournalEntry's own guard
+    // (assertPostingGuards) still marks this request's control transaction failed if it fires there, and withAuth
+    // then overrides the whole response to a 500 no matter what this route catches (see
+    // journalEntryPostingService.ts). Skipping auto-post is the same end state autoPost === false already
+    // produces — the journal stays a draft for someone to post once the period reopens or lockdown lifts.
+    let blocked: string | null = null;
+    try { await assertDirectJournalPostable(companyId, jeEntry.id); }
+    catch (blockErr) { if (!(blockErr instanceof JournalPostingRefusalError)) throw blockErr; blocked = blockErr.message; }
+    if (blocked) {
+      log.warn('Auto-post of expense receipt JE skipped', { eventId, jeId: jeEntry.id, reason: blocked }, 'capture-post-expense');
+    } else {
       // Signature is (companyId, id, userId). This read
       // (jeEntry.id, userId, companyId) — every argument in the wrong slot, so
       // the lookup was `WHERE id = <userId> AND company_id = <jeId>`, which
       // matched nothing and threw "Journal entry not found". The catch below
       // swallowed it, so auto-post on this path has never actually posted
       // anything: the entry silently stayed a draft.
+      // Anything the precheck above did not cover reaches here as a fault, not a refusal: a Postgres error can
+      // ABORT the request transaction, so it must propagate rather than be swallowed — continuing past it would
+      // run the stamps below against a dead transaction and report 200 for writes that can never commit.
       await postJournalEntry(companyId, jeEntry.id, userId);
       jeStatus = 'posted';
-    } catch (postErr) {
-      // ONLY a closed fiscal period may be swallowed. That is a legitimate
-      // business outcome — the journal stays a draft for someone to post once
-      // the period reopens, which is the same end state as autoPost === false.
-      //
-      // Anything else is rethrown. Now that the arguments are in the right order
-      // this call actually reaches the database, so a failure here can be a
-      // Postgres error that ABORTS the request transaction; continuing past it
-      // would run the stamps below against a dead transaction and report 200
-      // for writes that can never commit.
-      if (!(postErr instanceof ClosedFiscalPeriodError)) throw postErr;
-      log.warn('Auto-post of expense receipt JE skipped — fiscal period closed, left as draft', {
-        eventId, jeId: jeEntry.id,
-      }, 'capture-post-expense');
     }
   }
 
