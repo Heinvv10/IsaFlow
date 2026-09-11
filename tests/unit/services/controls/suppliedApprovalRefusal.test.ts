@@ -9,6 +9,8 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 const q = vi.hoisted(() => ({ lock: vi.fn(), authorities: vi.fn(), decisions: vi.fn(), requesterAuthority: vi.fn(), validate: vi.fn() }));
 vi.mock('@/lib/neon', () => ({ withSavepoint: (_name: string, run: () => unknown) => run() }));
+const logged = vi.hoisted(() => ({ warn: vi.fn(), info: vi.fn(), error: vi.fn(), debug: vi.fn() }));
+vi.mock('@/lib/logger', () => ({ log: logged }));
 vi.mock('@/modules/accounting/services/controls/context', () => ({ assertControlTx: vi.fn(), requireControlTx: vi.fn() }));
 vi.mock('@/modules/accounting/services/controls/operationMaterializer', () => ({
   canonicalOperationRef: (ref: unknown) => ref,
@@ -78,5 +80,17 @@ describe('what a caller is told about a supplied approval',()=>{
   });
   it('repeats a SuppliedApprovalRefusal written by the kernel',()=>{
     expect(suppliedApprovalRefusalText(new SuppliedApprovalRefusal('Approval material changed'))).toBe('Approval material changed');
+  });
+});
+
+describe('the marker\'s log line',()=>{
+  // The route logs its 409 with the companyId; the marker's line carries pg's own text. Without the companyId the
+  // two cannot be matched when a 42501 turns out to be a grant or context fault rather than the caller's mistake.
+  it('carries the companyId with the SQLSTATE and pg\'s text',async()=>{
+    logged.warn.mockClear();
+    q.authorities.mockRejectedValueOnce(Object.assign(new Error('permission denied for table control_operation_approvals'),{code:'42501',routine:'aclcheck_error'}));
+    await refused();
+    expect(logged.warn).toHaveBeenCalledWith('Supplied approval refused by a control function',
+      expect.objectContaining({companyId:'company',sqlstate:'42501',reason:'permission denied for table control_operation_approvals'}),'controls');
   });
 });
