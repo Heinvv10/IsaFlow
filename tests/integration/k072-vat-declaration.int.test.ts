@@ -161,6 +161,34 @@ it.each(['VAT is not applicable on the call-out fee', 'VAT not applicable to zer
   expect(await journalState(je)).toBe('draft');
 });
 
+// r36 MEDIUM-1: the reviewer's bill-to shapes — a CUSTOMER's `Not VAT registered`, and a glued `TotalVAT` or a
+// `15.00%` rate the reader does not read. The first goes through the pipeline, as the reviewer ran it.
+it.each([['billto-totalvat', 'TotalVAT 130.43'], ['billto-rate', 'Std rate 15.00% 130.43']])('%s: both tools and post_journal refuse', async (tag, taxLine) => {
+  const text = `Bosman Motors\nINVOICE\nInvoice No: ${tag}\nDate: 2026-05-0${tag === 'billto-rate' ? 4 : 2}\nBill To:\nMokoena Trading\nNot VAT registered\n`
+    + `Service 60 000km 869.57\nSubtotal 869.57\n${taxLine}\nTOTAL 1000.00\n`;
+  const doc = await seed(text, 'Bosman Motors', 'invoice');
+  const billId = tag === 'billto-totalvat' ? await viaPipeline(doc) : await draftBill(doc, 1000);
+  expect((await approve(billId)).content[0]!.text).toMatch(UNEVIDENCED);
+  expect((await bulk(billId)).content[0]!.text).toMatch(UNEVIDENCED);
+  expect(await billState(billId)).toEqual({ status: 'draft', gl_journal_entry_id: null });
+  const je = await draftJournal(await seed(text, 'Bosman Motors', 'receipt'), 1000);
+  expect((await postJ(je)).content[0]!.text).toMatch(UNEVIDENCED);
+});
+
+// r36: the reviewer's shapes fail two rules at once; each of these fails exactly ONE, so each rule is pinned alone.
+it.each([
+  ['customer block only', 'Bill To:\nMokoena Trading\nNot VAT registered\nService 1000.00\nTOTAL 1000.00'],
+  ['glued TotalVAT only', 'We are not VAT registered.\nService 869.57\nSubtotal 869.57\nTotalVAT 130.43\nTOTAL 1000.00'],
+  ['15.00% rate only', 'We are not VAT registered.\nService 869.57\nSubtotal 869.57\nStd rate 15.00% 130.43\nTOTAL 1000.00'],
+])('%s: both tools and post_journal refuse', async (_tag, body) => {
+  const text = `Joe Garden Services\nINVOICE\n${body}\n`;
+  const billId = await draftBill(await seed(text, 'Joe Garden Services', 'invoice'), 1000);
+  expect((await approve(billId)).content[0]!.text).toMatch(UNEVIDENCED);
+  expect((await bulk(billId)).content[0]!.text).toMatch(UNEVIDENCED);
+  const je = await draftJournal(await seed(text, 'Joe Garden Services', 'receipt'), 1000);
+  expect((await postJ(je)).content[0]!.text).toMatch(UNEVIDENCED);
+});
+
 // Pages with NO other tax line, so only the declaration's own shape — and the VAT-number guard — decide.
 it.each(['Sold to Mokoena Trading, who is not VAT registered', 'Not VAT registered\nReg 4I23450000', 'Not VAT registered\nRef 4123  450000'])(
   'a quiet page with `%s` is refused: not a supplier line, or a VAT-number shape beside it', async (extra) => {

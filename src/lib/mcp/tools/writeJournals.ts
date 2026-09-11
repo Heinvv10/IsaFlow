@@ -7,7 +7,7 @@
 import type { McpTool } from '../types';
 import { createJournalEntry, getJournalEntryById } from '@/modules/accounting/services/gl/journalEntryCrudService';
 import { postJournalEntry } from '@/modules/accounting/services/gl/journalEntryPostingService';
-import { JOURNAL_VAT_UNEVIDENCED_REASON, journalHasUnevidencedVat } from '@/modules/accounting/services/capture/capturedVatEvidence';
+import { journalVatRefusal } from '@/modules/accounting/services/capture/capturedVatEvidence';
 import { accountsBelongToCompany } from '@/modules/accounting/services/gl/chartOfAccountsService';
 import type { JournalLineInput } from '@/modules/accounting/types/gl.types';
 import { mcpPostingOpts } from '../mcpActor';
@@ -134,10 +134,9 @@ export const postJournalTool: McpTool = {
     if (entry.status !== 'draft') {
       return toolError(`Cannot post entry with status: ${entry.status}`);
     }
-    // K-072 r31–r32: a VAT the captured receipt never showed is not an agent's to post.
-    if (await journalHasUnevidencedVat(ctx.companyId, journalId)) {
-      return toolError(`Cannot post entry: ${JOURNAL_VAT_UNEVIDENCED_REASON}.`);
-    }
+    // K-072 r31–r36: a VAT the captured receipt never showed, or a held meals merchant's VAT, is not an agent's to post.
+    const vatRefusal = await journalVatRefusal(ctx.companyId, journalId);
+    if (vatRefusal) return toolError(`Cannot post entry: ${vatRefusal}.`);
 
     // No catch: a closed period, an unbalanced entry or a database failure must
     // reach the registry's savepoint rather than being flattened into a tool

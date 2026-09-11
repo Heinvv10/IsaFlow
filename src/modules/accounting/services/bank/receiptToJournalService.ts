@@ -79,17 +79,19 @@ type ReceiptType = 'fuel' | 'meals' | 'travel' | 'office_supplies' | 'general';
 /**
  * Whole words only (K-072 r35): the unanchored `spur|…|mr\s*d` matched
  * `Spurway Steel` and `Mr Doors`, and `spar`/`rain`/`game` matched any vendor
- * containing them. A merchant name is a word, so a pattern is one.
+ * containing them. A merchant name is a word, so a pattern is one — with its
+ * plural or possessive (`Wimpys`, `Spurs`, `Nando's`, r36) and the known glued
+ * brand spellings spelled out (`CoffeeShop`, `Mr Delivery`).
  */
-const word = (alternatives: string) => new RegExp(String.raw`(?<![a-z])(?:${alternatives})(?![a-z])`, 'i');
+const word = (alternatives: string) => new RegExp(String.raw`(?<![a-z])(?:${alternatives})(?:'?s)?(?![a-z])`, 'i');
 
 const MERCHANT_PATTERNS: Array<{ pattern: RegExp; accountCode: string; type: ReceiptType }> = [
   // Fuel
   { pattern: word(String.raw`engen|shell|caltex|sasol|bp|total|fuel|petrol|diesel`), accountCode: '5400', type: 'fuel' },
   // Meals & entertainment
-  { pattern: word(String.raw`spur|nandos|nando's|steers|mcdonald'?s?|kfc|wimpy|ocean\s+basket|mugg\s*(?:&|and)?\s*bean|uber\s*eats?|mr\s*d(?:\s*food)?|restaurants?|cafe|coffee`), accountCode: '5600', type: 'meals' },
+  { pattern: word(String.raw`spur|nandos|nando|steers|mcdonald|kfc|wimpy|ocean\s+basket|mugg\s*(?:&|and)?\s*bean|uber\s*eat|mr\s*d(?:elivery|\s*food)?|restaurant|cafe|coffee(?:\s*shop)?`), accountCode: '5600', type: 'meals' },
   // Travel
-  { pattern: word(String.raw`uber(?!\s*eats?)|bolt|taxify|airport|flights?|hotels?|lodge|airbnb|protea\s*hotel`), accountCode: '5600', type: 'travel' },
+  { pattern: word(String.raw`uber(?!\s*eats?)|bolt|taxify|airport|flight|hotel|lodge|airbnb|protea\s*hotel`), accountCode: '5600', type: 'travel' },
   // Office supplies
   { pattern: word(String.raw`office\s*national|pen\s*and\s*paper|waltons|takealot|incredible|stationery`), accountCode: '5100', type: 'office_supplies' },
   // Telecoms → admin
@@ -173,7 +175,7 @@ export function buildExpenseJournalFromReceipt(
   // round 22's merchant heuristic did, and `spur` matched `Spurway Steel`, which
   // auto-posted Dr 5600 1000 / Cr bank with its R130.43 of input VAT dropped.
   // A meals merchant coded to an account that does NOT deny is not folded and
-  // not posted unattended either (`mealsOnClaimingAccount`): a person decides.
+  // not posted unattended either (`mealsVatNeedsAPerson`): a person decides.
   const { denied } = applyVatDenial(
     Boolean(options.accountVatDenied),
     VAT_CODE_STANDARD,
@@ -248,8 +250,12 @@ export function shouldAutoPostReceipt(
 }
 
 export function parseReceiptType(extracted: ExtractedDocument): ReceiptType {
-  if (!extracted.vendorName) return 'general';
-  const name = extracted.vendorName.toLowerCase();
+  return typeOfVendor(extracted.vendorName);
+}
+
+function typeOfVendor(vendorName: string | null | undefined): ReceiptType {
+  if (!vendorName) return 'general';
+  const name = vendorName.toLowerCase();
 
   for (const mapping of MERCHANT_PATTERNS) {
     if (mapping.pattern.test(name)) return mapping.type;
@@ -259,11 +265,18 @@ export function parseReceiptType(extracted: ExtractedDocument): ReceiptType {
 }
 
 /**
- * A meals merchant coded to an account that does not deny input VAT (K-072
- * r35). Its VAT is claimed, since the name decides nothing — but s17(2)(a)
- * denies entertainment input tax, so the unattended callers must not POST it:
- * the account is wrong or the merchant is, and a person says which.
+ * THE rule for a meals merchant's input VAT (K-072 r35–r36): a receipt or bill
+ * from a meals merchant that still CLAIMS VAT sits on an account that does not
+ * deny it (a denying account folds the VAT, so nothing is claimed), and s17(2)(a)
+ * denies entertainment input tax — unless the tenant itself trades in it. The
+ * name decides nothing about the VAT; it only decides that a person must look.
+ * Every unattended poster asks this one question: the receipt routes before
+ * auto-posting, and MCP `post_journal` and the approve tools
+ * (`capturedVatEvidence`) before posting a captured draft.
  */
-export function mealsOnClaimingAccount(extracted: ExtractedDocument, accountVatDenied: boolean): boolean {
-  return !accountVatDenied && parseReceiptType(extracted) === 'meals';
+export function mealsVatNeedsAPerson(vendorName: string | null | undefined, claimedVat: number): boolean {
+  return claimedVat > 0 && typeOfVendor(vendorName) === 'meals';
 }
+
+/** What a held draft says of itself (K-072 r36): the record a person reads. */
+export const MEALS_VAT_HELD_SUFFIX = ' — HELD for a person: a meals merchant\'s input VAT on an account that does not deny it (s17(2)(a))';

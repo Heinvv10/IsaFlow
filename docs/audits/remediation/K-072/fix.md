@@ -2750,3 +2750,38 @@ DB 1) · M2 merchant patterns unanchored (unit 3, DB 1) · M3 no meals-on-claimi
 auto-posts a meals merchant on a claiming account (DB 1). D1, D3 and D6 were GREEN on the DB until the file gained a
 case each shape alone decides: a declaration beside a missed `VAT included` line, and two quiet pages (a customer
 sentence; a declaration beside `4I23450000` / `4123  450000`).
+
+---
+
+## Round 36 — "held for a person" is enforced by every unattended poster; the declaration must be the supplier's
+
+Review: `review-k072-r35.md` (1H/1M/2L; numbers, timer merge and 16/16 mutations confirmed). Probes: `agents/rev-k072al/`.
+`origin/master` had not moved (`356d6cf22`).
+
+| Finding | Disposition |
+|---|---|
+| HIGH-1 (regression) the restaurant draft "held for a person" was posted by MCP `post_journal`: on the SEEDED chart 5600 is `Administrative Expenses` (migrations 200/476/605), which migration 521 does not flag, so Wimpy / Mugg & Bean / Cafe Del Mar / Seattle Coffee drafts claimed R130.43 of s17(2)(a)-denied VAT and `post_journal` posted them. Round 35's fixture hid it by renaming and flagging 5600 | FIXED in two parts. **(a) Enforced, by ONE predicate:** `receiptToJournalService.mealsVatNeedsAPerson(vendor, claimedVat)` — a meals merchant whose VAT is still CLAIMED (a denying account folds it, so claiming means the account does not deny). The receipt routes (`receipt-to-journal`, `pettyCashJournalService`) ask it before auto-posting and RECORD the hold on the draft (`MEALS_VAT_HELD_SUFFIX` on the description: "HELD for a person: a meals merchant's input VAT on an account that does not deny it"). Every unattended poster asks the same question at post time, from the ledger and the captured document, not from the marker (so editing the text cannot lift it): `capturedVatEvidence.journalVatRefusal` (MCP `post_journal`) and `invoiceVatRefusals` (MCP `approve_supplier_invoice` and `bulk_approve_supplier_invoices`, by the captured vendor or the supplier) return `MEALS_VAT_HELD_REASON`. **Recorded as a structured column — not done:** that needs a schema migration, which needs Hein's approval; the description marker is the record a person reads, and the refusal does not depend on it. **Census of posters** of an existing draft (every `postJournalEntry` / `approveSupplierInvoice` caller, 44): the unattended ones that can post a CAPTURED draft are MCP `post_journal`, `approve_supplier_invoice`, `bulk_approve_supplier_invoices` (now all refuse) and the two receipt routes' own auto-post (now held); `journal-entries-action`, `supplier-invoices-action`, `supplier-invoices-bulk-action` and `closeRunService` post only when a person acts; every other caller posts an entry it created itself. **(b) The fixture is the real chart:** `k072-receipt-entertainment-vat` now seeds 5600 as migrations 200/476/605 do (`Administrative Expenses`, `admin_expense`, unflagged); its restaurant case now proves the HOLD (a marked draft claiming R150), and the fold is proved only where a tenant flags the account, explicitly and undone. New `k072-meals-held` (real chart): Wimpy, Mugg & Bean, Cafe Del Mar, Seattle Coffee and Mr Delivery become marked drafts that `post_journal` refuses and leaves drafts; both approve tools refuse a captured Spur bill claiming VAT; a non-meals slip still auto-posts claiming, and a non-meals bill still approves. **Both files fail on `96ba518e2`** (7 tests red, run on a clean archive) and pass at head. |
+| MEDIUM-1 a CUSTOMER's `Not VAT registered` in the bill-to block counted as the supplier's (an `INVOICE` approved at tax 0, R130.43 short; `post_journal` posted its twin); `TotalVAT 130.43` and `Std rate 15.00%` escaped the tax net | FIXED. A declaration counts only as the SUPPLIER's line (`isSuppliersLine`): above the first customer-block head (`Bill To`, `Sold To`, `Invoice To`, `Deliver To`, `Ship To`, `Customer`, `Client`, `Koper`, `Klant`, `Faktuur aan`, `Aan`) or below the last total line; anywhere between is the customer's block or the body — ambiguous, so refused. `TAX_MENTION` now matches a tax word glued to what precedes it (`TotalVAT`, `SubtotalBTW`, `TotalTax`) but not running on into a word (`private`, `renovation` still pass), OCR `8TW` / `V/AT` / `T.A.X.`, and the rate with decimals (`15.00%`, `15,0 %`). `VAT_NUMBER` widens to a leading OCR `A` and the confusables `D Z G Q L i s` (`4123450D00`, `A123450000`). **Proved on the DB** (`k072-vat-declaration`): the reviewer's `Bill To … TotalVAT 130.43` bill through `ai-invoice-pipeline`, and the `Std rate 15.00%` twin, are refused by both tools and `post_journal`. |
+| LOW-1 whole words dropped `Mr Delivery`, `Wimpys`, `Spurs`, `CoffeeShop` (meals at f197); `Mr Delivery` auto-posted claiming | FIXED: `word()` allows a plural or possessive (`'?s`), and `mr\s*d(?:elivery|\s*food)?` and `coffee(?:\s*shop)?` are spelled out. `Sparks Electrical`, `Sparkle Valet`, `Drain Masters`, `Spurway Steel` and `Mr Doors` stay out (pinned). `Mr Delivery` is held on the DB (`k072-meals-held`). |
+| LOW-2 stale comments on the removed name heuristic | FIXED at `receipt-to-journal.ts` and `pettyCashJournalService.ts`. |
+
+### Re-measured — head vs `96ba518e2`, 4 481 rows (stored ≡ subtotal-null, row for row)
+
+unattended / WRONG **730 / 46 → 730 / 46**; newly refused 0, newly wrong 0; rv-unpaid 5 / 0; none of the 13 ordinary sets
+changed. **Re-coding:** 0 rows change (no set prints the plural or glued brand spellings; they are unit-pinned).
+**Evidence:** no row changes; the one row evidencing 0 (`Mama Thandi … Not VAT registered`, no customer block) still does.
+The hold and the MCP refusals sit outside this harness and are proved on the DB above.
+
+### Mutations — 11 unit + 7 integration, all RED, restored byte-identically (md5)
+
+C1 customer block ignored (unit 8, DB 1) · C2 the footer not the supplier's (1) · C3 the tax word needs a left boundary
+again (unit 4, DB 1) · C4 the rate without decimals only (unit 2, DB 1) · C5 OCR `8TW`/`V/AT`/`T.A.X.` not a mention (3) ·
+C6 the narrow OCR digit set (1) · C7 no leading OCR `A` (1) · P1 no plural/possessive (3) · P2 no `Mr Delivery` (unit 3,
+DB 1) · P3 no `CoffeeShop` (1) · H1 the one predicate always false (2) · H2 `post_journal` ignores the hold (DB 5) · H3
+the approve tools ignore it (DB 1) · H4 the route does not hold (DB 5). C1, C3 and C4 were GREEN on the DB until the
+declaration file gained one case per rule: the reviewer's shapes each fail two rules at once. C4's DB run hit the AI
+rate limiter; re-run alone, its own non-pipeline case (`15.00% rate only`) is among the failures, so the RED is real.
+
+**Gate note:** the first CI run failed one component test, `ReportPageDrillDimensions` ("balance sheet carries a
+selected business unit…"), at load ~21. Measured, not assumed: it passes alone at head (2/2) and on a clean
+`96ba518e2` archive (2/2), and the file is identical at both; the CI re-run passed 547/547. Not this round's code.
