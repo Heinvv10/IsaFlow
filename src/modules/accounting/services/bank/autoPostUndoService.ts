@@ -108,13 +108,13 @@ export async function undoRow(companyId: string, runId: string, userId: string, 
     );
   }
   let outcome: RowOutcome = 'alreadyUndone';
-  if (tx.matched_journal_line_id) {
-    const offset = await handOffsetOf(companyId, tx);
-    if (offset) return offset;
-    await reverseReconciledTransaction(companyId, txId, userId);
-    outcome = 'reversed';
-  } else if (tx.provisional_je_id) {
-    const jeId = String(tx.provisional_je_id);
+  const jeId = await postingJournalOf(companyId, tx);
+  if (jeId) {
+    // ONE path for both shapes — the matched line (bankRuleAutoPostLine) and
+    // the provisional JE — so a hand-reversed posting is treated the same on
+    // either. The reversal state comes FIRST: a posting already off the books
+    // has nothing left for a "blocker" to correct, and scanning anyway sent
+    // the user to reverse a legitimate journal (round-4 review).
     const state = await journalReversalState(companyId, jeId);
     // The reversal was itself reversed, so the original posting is back on the
     // books — and `reverseJournalEntry` would refuse it ("already reversed"),
@@ -122,20 +122,33 @@ export async function undoRow(companyId: string, runId: string, userId: string, 
     // open, and the operator sees a row to fix rather than an undo that read
     // "done" over money still in the GL.
     if (state === 'reReversed') return { kind: 'reReversed' };
-    // Reversed by hand already: a second reversal would be refused ("already
-    // reversed") on every retry and the run could never close. The journal
-    // nets to zero, so finishing the line is all that is left to do.
     if (state === 'none') {
       const offset = await handOffsetOf(companyId, tx);
       if (offset) return offset;
-      await reverseJournalEntry(companyId, jeId, userId);
+      if (tx.matched_journal_line_id) await reverseReconciledTransaction(companyId, txId, userId);
+      else await reverseJournalEntry(companyId, jeId, userId);
       outcome = 'reversed';
+    } else if (tx.matched_journal_line_id) {
+      // Reversed by hand already: `reverseReconciledTransaction` would be
+      // refused ("already reversed") on every retry and the run could never
+      // close. The journal nets to zero, so finishing the line is all that is
+      // left — the same reset that function makes after its contra.
+      await sql`
+        UPDATE bank_transactions
+        SET status = 'imported', matched_journal_line_id = NULL, reconciliation_id = NULL,
+            linked_po_id = NULL, allocation_type = NULL, allocated_entity_name = NULL,
+            allocation_rule_id = NULL, allocation_rule_name = NULL, allocation_batch_id = NULL,
+            updated_at = NOW()
+        WHERE id = ${txId}::UUID AND company_id = ${companyId}::UUID
+      `;
     }
-    await sql`
-      UPDATE bank_transactions
-      SET status = 'imported', provisional_je_id = NULL, updated_at = NOW()
-      WHERE id = ${txId}::UUID AND company_id = ${companyId}::UUID
-    `;
+    if (!tx.matched_journal_line_id) {
+      await sql`
+        UPDATE bank_transactions
+        SET status = 'imported', provisional_je_id = NULL, updated_at = NOW()
+        WHERE id = ${txId}::UUID AND company_id = ${companyId}::UUID
+      `;
+    }
   } else if (POSTED_STATUSES.has(String(tx.status))) {
     return { kind: 'unlinked' };
   }
