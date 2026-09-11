@@ -24,7 +24,7 @@ vi.mock('@/modules/accounting/services/gl/periodStatusService', () => ({
 }));
 vi.mock('@/modules/accounting/services/bank/bankTxLock', () => ({
   lockBankTransactionForUpdate: vi.fn(async () => ({
-    id: 'btx-1', status: 'imported', matched_journal_line_id: null,
+    id: 'btx-1', status: 'imported', feed_state: 'posted', matched_journal_line_id: null,
   })),
   BankTransactionLockTimeoutError: class extends Error {},
 }));

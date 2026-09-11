@@ -264,7 +264,7 @@ describe('R-067 — a bank receipt cannot be allocated to another company custom
     mockSql.mockClear();
     lockBankTransactionForUpdate.mockResolvedValue({
       id: '77777777-7777-4777-8777-777777777777',
-      status: 'imported',
+      status: 'imported', feed_state: 'posted',
       amount: 115,
       bank_account_id: '88888888-8888-4888-8888-888888888888',
       transaction_date: new Date('2026-09-10T00:00:00'),

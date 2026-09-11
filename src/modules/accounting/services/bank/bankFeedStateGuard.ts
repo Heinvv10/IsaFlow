@@ -16,8 +16,15 @@ import { BankAllocationRefusal } from './bankAllocationRefusal';
 export type { FeedState };
 const FEED_STATES: readonly FeedState[] = ['pending', 'posted', 'removed'];
 
+/**
+ * `feed_state` is NOT NULL (migration 675), so a row without it came from a
+ * SELECT that did not ask for the column. Defaulting to 'posted' would wave a
+ * pending row through every guard — select the column instead.
+ */
 export function feedStateOf(row: { feed_state?: unknown }): FeedState {
-  if (row.feed_state === undefined || row.feed_state === null) return 'posted';
+  if (row.feed_state === undefined || row.feed_state === null) {
+    throw new Error('feed_state missing from the bank transaction row — the SELECT must include it');
+  }
   const s = String(row.feed_state);
   if (!(FEED_STATES as readonly string[]).includes(s)) throw new Error(`Unknown feed_state "${s}"`);
   return s as FeedState;

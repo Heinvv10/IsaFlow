@@ -177,7 +177,7 @@ describe('sweep', () => {
     routeSql([
       { match: /FROM bank_auto_post_settings/, rows: [{ enabled: true, min_confidence: '0.9', amount_cap: '10000', llm_enabled: false, llm_min_confidence: '0.95', llm_amount_cap: '2000' }] },
       { match: /FROM bank_transactions\s+WHERE id = ANY/, rows: [
-        { id: 't1', status: 'imported', amount: -500, suggested_gl_account_id: 'gl-1', suggested_confidence: '0.95', suggested_vat_code: null, description: 'Coffee' },
+        { id: 't1', status: 'imported', feed_state: 'posted', amount: -500, suggested_gl_account_id: 'gl-1', suggested_confidence: '0.95', suggested_vat_code: null, description: 'Coffee' },
       ] },
       { match: /INSERT INTO bank_auto_post_runs/, rows: [{ id: 'run-1' }] },
       { match: /UPDATE bank_transactions SET auto_post_run_id/, rows: [] },
@@ -214,7 +214,7 @@ describe('sweep', () => {
   ];
   const txRow = (vat: string | null) => ({
     match: /FROM bank_transactions\s+WHERE id = ANY/,
-    rows: [{ id: 't1', status: 'imported', amount: -1150, suggested_gl_account_id: 'gl-1', suggested_confidence: '0.99', suggested_vat_code: vat, description: 'Salary run' }],
+    rows: [{ id: 't1', status: 'imported', feed_state: 'posted', amount: -1150, suggested_gl_account_id: 'gl-1', suggested_confidence: '0.99', suggested_vat_code: vat, description: 'Salary run' }],
   });
   const glAccount = (name: string, denied = false) => ({
     match: /FROM gl_accounts/,
@@ -272,7 +272,7 @@ describe('sweep', () => {
     routeSql([
       { match: /FROM bank_auto_post_settings/, rows: [{ enabled: true, min_confidence: '0.9', amount_cap: '10000', llm_enabled: false, llm_min_confidence: '0.95', llm_amount_cap: '2000' }] },
       { match: /FROM bank_transactions\s+WHERE id = ANY/, rows: [
-        { id: 't1', status: 'imported', amount: -500, suggested_gl_account_id: 'gl-1', suggested_confidence: '0.5', suggested_vat_code: null, description: 'x' },
+        { id: 't1', status: 'imported', feed_state: 'posted', amount: -500, suggested_gl_account_id: 'gl-1', suggested_confidence: '0.5', suggested_vat_code: null, description: 'x' },
       ] },
     ]);
     const r = await sweep('co-1', ['t1'], 'categorization', 'u-1');
@@ -300,8 +300,8 @@ describe('sweep', () => {
     routeSql([
       { match: /FROM bank_auto_post_settings/, rows: [{ enabled: true, min_confidence: '0.9', amount_cap: '10000', llm_enabled: false, llm_min_confidence: '0.95', llm_amount_cap: '2000' }] },
       { match: /FROM bank_transactions\s+WHERE id = ANY/, rows: [
-        { id: 't1', status: 'imported', amount: -100, suggested_gl_account_id: 'gl-1', suggested_confidence: '0.95', suggested_vat_code: null, description: 'a' },
-        { id: 't2', status: 'imported', amount: -200, suggested_gl_account_id: 'gl-2', suggested_confidence: '0.95', suggested_vat_code: null, description: 'b' },
+        { id: 't1', status: 'imported', feed_state: 'posted', amount: -100, suggested_gl_account_id: 'gl-1', suggested_confidence: '0.95', suggested_vat_code: null, description: 'a' },
+        { id: 't2', status: 'imported', feed_state: 'posted', amount: -200, suggested_gl_account_id: 'gl-2', suggested_confidence: '0.95', suggested_vat_code: null, description: 'b' },
       ] },
       { match: /INSERT INTO bank_auto_post_runs/, rows: [{ id: 'run-1' }] },
       { match: /UPDATE bank_transactions SET auto_post_run_id/, rows: [] },
@@ -320,7 +320,7 @@ describe('sweep', () => {
     routeSql([
       { match: /FROM bank_auto_post_settings/, rows: [{ enabled: true, min_confidence: '0.9', amount_cap: '10000', llm_enabled: false, llm_min_confidence: '0.95', llm_amount_cap: '2000' }] },
       { match: /FROM bank_transactions\s+WHERE id = ANY/, rows: [
-        { id: 't1', status: 'imported', amount: -300, suggested_gl_account_id: null, suggested_confidence: null, suggested_vat_code: null, description: 'EFT' },
+        { id: 't1', status: 'imported', feed_state: 'posted', amount: -300, suggested_gl_account_id: null, suggested_confidence: null, suggested_vat_code: null, description: 'EFT' },
       ] },
       { match: /INSERT INTO bank_auto_post_runs/, rows: [{ id: 'run-9' }] },
       { match: /UPDATE bank_transactions SET auto_post_run_id/, rows: [] },

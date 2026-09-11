@@ -365,7 +365,7 @@ describe('mapTxRow', () => {
     description: 'Office Supplies',
     reference: 'INV-2026-001',
     bank_reference: 'BNK-REF-999',
-    status: 'imported',
+    status: 'imported', feed_state: 'posted',
     matched_journal_line_id: null,
     reconciliation_id: null,
     import_batch_id: 'batch-uuid-001',

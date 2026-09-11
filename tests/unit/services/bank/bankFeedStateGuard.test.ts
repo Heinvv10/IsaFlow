@@ -4,8 +4,11 @@ import {
 } from '@/modules/accounting/services/bank/bankFeedStateGuard';
 
 describe('bankFeedStateGuard', () => {
-  it('treats a row without feed_state as posted (pre-675 row shape)', () => {
-    expect(feedStateOf({})).toBe('posted');
+  it('throws on a row without feed_state — the column is NOT NULL, so a missing key is a narrowed SELECT (A-13)', () => {
+    expect(() => feedStateOf({})).toThrow(/feed_state/);
+    expect(() => feedStateOf({ feed_state: undefined })).toThrow(/feed_state/);
+    expect(() => feedStateOf({ feed_state: null })).toThrow(/feed_state/);
+    expect(() => assertFeedPosted({ id: 'tx-0' }, 'allocate')).toThrow(/feed_state/);
   });
   it('refuses a pending row with a typed, readable error', () => {
     let caught: unknown;
