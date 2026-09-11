@@ -20,40 +20,17 @@ export class BankFeedProviderNotImplementedError extends Error {
 
 // ── Sync orchestration ────────────────────────────────────────────────────────
 
-async function markSyncComplete(
-  logId: string,
-  connectionId: string,
-  found: number,
-  imported: number,
-  duplicate: number,
-) {
-  await sql`
-    UPDATE bank_feed_sync_logs
-    SET status = 'success', completed_at = NOW(),
-        transactions_found = ${found},
-        transactions_imported = ${imported},
-        transactions_duplicate = ${duplicate}
-    WHERE id = ${logId}::UUID
-  `;
-  await sql`
-    UPDATE bank_feed_connections
-    SET last_sync_at = NOW(), last_sync_status = 'success',
-        last_sync_error = NULL, updated_at = NOW()
-    WHERE id = ${connectionId}::UUID
-  `;
-}
-
-async function markSyncFailed(logId: string, connectionId: string, errMsg: string) {
+async function markSyncFailed(companyId: string, logId: string, connectionId: string, errMsg: string) {
   await sql`
     UPDATE bank_feed_sync_logs
     SET status = 'failed', completed_at = NOW(), error_message = ${errMsg}
-    WHERE id = ${logId}::UUID
+    WHERE id = ${logId}::UUID AND company_id = ${companyId}::UUID
   `;
   await sql`
     UPDATE bank_feed_connections
     SET last_sync_at = NOW(), last_sync_status = 'failed',
         last_sync_error = ${errMsg}, updated_at = NOW()
-    WHERE id = ${connectionId}::UUID
+    WHERE id = ${connectionId}::UUID AND company_id = ${companyId}::UUID
   `;
 }
 
@@ -80,21 +57,14 @@ export async function syncBankFeed(
 
   const conn = connRows[0]!;
   const provider = String(conn.provider);
+  log.info('Bank feed sync requested', { connectionId, provider, companyId, userId }, 'open-banking');
 
-  const logRows = (await sql`
-    INSERT INTO bank_feed_sync_logs (connection_id, company_id, status)
-    VALUES (${connectionId}::UUID, ${companyId}::UUID, 'running')
-    RETURNING id
-  `) as DbRow[];
-  const logId = String(logRows[0]!.id);
-
-  log.info('Bank feed sync started', { connectionId, provider, companyId, userId }, 'open-banking');
-
+  // Instruction-only providers sync nothing, so they write no sync log and
+  // leave last_sync_* alone: a "success" here would claim a sync that never ran.
   // manual_csv: return instructions without inserting transactions
   if (provider === 'manual_csv') {
-    await markSyncComplete(logId, connectionId, 0, 0, 0);
     return {
-      connectionId, provider, logId, found: 0, imported: 0, duplicate: 0,
+      connectionId, provider, logId: null, found: 0, imported: 0, duplicate: 0,
       instructions: 'Manual imports are user-operated: upload your statement (CSV, PDF, OFX or QIF) on the Bank Transactions import page.',
     };
   }
@@ -102,9 +72,8 @@ export async function syncBankFeed(
   // extension: must be synced from the browser extension itself; this
   // server-only endpoint cannot reach the user's authenticated bank tab.
   if (provider === 'extension') {
-    await markSyncComplete(logId, connectionId, 0, 0, 0);
     return {
-      connectionId, provider, logId, found: 0, imported: 0, duplicate: 0,
+      connectionId, provider, logId: null, found: 0, imported: 0, duplicate: 0,
       instructions: 'ABSA browser import is user-operated: open the IsaFlow extension in your signed-in ABSA tab and click Import. IsaFlow cannot fetch from your bank in the background.',
     };
   }
@@ -115,8 +84,14 @@ export async function syncBankFeed(
   // were INSERTed into the tenant's bank_transactions as 'imported' and
   // reported as a successful sync. Refuse instead — an unimplemented feed
   // imports nothing.
+  const logRows = (await sql`
+    INSERT INTO bank_feed_sync_logs (connection_id, company_id, status)
+    VALUES (${connectionId}::UUID, ${companyId}::UUID, 'running')
+    RETURNING id
+  `) as DbRow[];
+  const logId = String(logRows[0]!.id);
   const refusal = new BankFeedProviderNotImplementedError(provider);
-  await markSyncFailed(logId, connectionId, refusal.message);
+  await markSyncFailed(companyId, logId, connectionId, refusal.message);
   log.error('Bank feed sync refused — provider not implemented', { connectionId, provider, companyId }, 'open-banking');
   throw refusal;
 }
