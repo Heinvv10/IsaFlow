@@ -26,6 +26,8 @@ import { sql } from '@/lib/neon';
 import type { DbRow } from '@/lib/neon';
 import { fmtDate } from '@/lib/fmtDate';
 import { documentInLedgerAsAtFragment } from '../shared/softDeleteLedgerPresence';
+import { classifyStatementInvoice } from '../shared/statementInvoiceExclusion';
+import { creditNoteAppliedAmount } from '../shared/creditNoteAppliedAmount';
 
 type Row = DbRow;
 
@@ -82,25 +84,6 @@ function maxIso(values: Array<unknown>): string | null {
 }
 
 /** Returns null when the supplier is not in this company — never a distinct reply. */
-/**
- * What a live credit note actually took off what we owe the supplier.
- *
- * Approving a note applies MIN(total_amount, outstanding) and records that
- * capped figure in `applied_amount`; the status only becomes 'applied' when
- * that figure is above zero. So:
- *   - 'applied'  → applied_amount is what was consumed, and total_amount may be
- *     larger. The remainder is stranded: a note at 'applied' cannot be applied
- *     again, so crediting the face value shows the customer more credit than
- *     we received and OVERSTATES what we still owe the supplier.
- *   - 'approved' → applied_amount is 0 by construction, and the note is
- *     unallocated credit the customer holds at face value.
- * Same rule the aging already follows (agingRewind, apAgingService).
- */
-function creditNoteAmount(cn: { status?: unknown; total_amount?: unknown; applied_amount?: unknown }): number {
-  return String(cn.status ?? '') === 'applied'
-    ? Number(cn.applied_amount ?? 0)
-    : Number(cn.total_amount ?? 0);
-}
 
 export async function fetchSupplierStatementData(
   companyId: string,
@@ -121,14 +104,14 @@ export async function fetchSupplierStatementData(
       FROM supplier_invoices si
       WHERE si.supplier_id = ${supplierId}::UUID
         AND si.company_id = ${companyId}::UUID
-        -- NOT the ageing's status rule (shared/documentPopulation), and this
-        -- comment used to say "same population" without that qualifier. The
-        -- statement KEEPS drafts, and the bare != drops a null-status bill, so
-        -- its closing balance can differ from apAgingService on both. Left as
-        -- it is deliberately: this is the mirror of the customer statement we
-        -- EMAIL, and what a customer is sent is a human decision, not a
-        -- refactor's. Registered, not fixed — see R-059 fix.md round 6.
-        AND si.status != 'cancelled'
+        -- NOT filtered by status here (R-082 round 2): every candidate bill
+        -- is fetched, then classified below into transactions or excluded
+        -- with documentInPopulation, the JS twin of the ageing's
+        -- status rule (shared/documentPopulation) — the mirror of the
+        -- customer statement's own routing. A SQL-level filter made a draft,
+        -- pending-approval or cancelled bill vanish before it could be
+        -- counted anywhere — the MCP supplier_statement tool's own contract
+        -- claimed only cancelled was omitted.
         -- What IS shared with apAgingService is the DATED soft-delete
         -- question: the delete's reversal is dated to the delete, so a bill
         -- deleted after the as-at date is still on the control account and
@@ -164,6 +147,11 @@ export async function fetchSupplierStatementData(
   const excluded: SupplierStatementExclusion[] = [];
 
   for (const inv of invoices) {
+    const exclusion = classifyStatementInvoice(inv, 'Bill');
+    if (exclusion) {
+      excluded.push(exclusion);
+      continue;
+    }
     transactions.push({
       date: fmtDate(inv.invoice_date),
       type: 'invoice',
@@ -210,7 +198,7 @@ export async function fetchSupplierStatementData(
       date: fmtDate(cn.credit_date),
       type: 'credit_note',
       reference: String(cn.credit_note_number ?? ''),
-      debit: creditNoteAmount(cn),
+      debit: creditNoteAppliedAmount(cn),
       credit: 0,
       balance: 0,
     });
