@@ -96,16 +96,15 @@ export async function offsetCandidate(
 ): Promise<OffsetCandidate | null> {
   const txId = String(tx.id);
   const bankAccountId = String(tx.bank_account_id);
-  // The posting's own bounds, read first so they reach the scan as CONSTANTS:
-  // a constant `entry_date >=` is an index range the planner cannot misjudge.
+  // The posting's own bound and links, read first so they reach the scan as
+  // constants rather than a correlated CTE.
   const postingRows = (await sql`
-    SELECT entry_date, COALESCE(posted_at, created_at) AS at, source_document_id
+    SELECT COALESCE(posted_at, created_at) AS at, source_document_id
     FROM gl_journal_entries
     WHERE id = ${postingJeId}::UUID AND company_id = ${companyId}::UUID AND status = 'posted'
   `) as DbRow[];
   const posting = postingRows[0];
   if (!posting) return null;
-  const postingDate = fmtDate(posting.entry_date);
   const postingAt = posting.at as Date | string;
   const postingDoc = posting.source_document_id ? String(posting.source_document_id) : null;
   const rows = (await sql`
@@ -116,12 +115,11 @@ export async function offsetCandidate(
       GROUP BY gl_account_id
       HAVING SUM(debit - credit) <> 0
     ),
-    -- Bounded to journals DATED on or after the posting and posted after it:
-    -- (company_id, entry_date) over posted entries is an index range
-    -- (idx_gl_journal_entries_company_date_posted), so the company's earlier
-    -- history is never read, however stale its statistics. The named journal
-    -- of a recorded decision meets the same bound: a journal dated before the
-    -- posting cannot be its correction.
+    -- Bounded by POSTING TIME only, never by entry_date: a correction posted
+    -- after the auto-posting but dated into the prior period is ordinary
+    -- month-end practice, and a date bound let it through (round-3 review).
+    -- The speed came from the pre-then-base gating, not from the date (measured:
+    -- 8,000 earlier-dated journals cost 4 ms either way).
     pre AS (
       SELECT o.id, o.entry_number, o.entry_date, o.description, o.reversal_of_id,
         COALESCE(o.posted_at, o.created_at) AS at,
@@ -131,7 +129,7 @@ export async function offsetCandidate(
           AND (o.posting_agent IS NULL OR o.posting_agent LIKE 'human%' OR o.posting_agent LIKE 'legacy:human%')) AS by_person
       FROM gl_journal_entries o
       WHERE o.company_id = ${companyId}::UUID AND o.status = 'posted' AND o.id <> ${postingJeId}::UUID
-        AND o.entry_date >= ${postingDate}::DATE AND COALESCE(o.posted_at, o.created_at) > ${postingAt}::TIMESTAMPTZ
+        AND COALESCE(o.posted_at, o.created_at) > ${postingAt}::TIMESTAMPTZ
         AND (${onlyJournalId}::UUID IS NULL OR o.id = ${onlyJournalId}::UUID)
     ),
     -- Per-journal line checks below compare company_id as TEXT on purpose: it
