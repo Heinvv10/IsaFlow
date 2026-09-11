@@ -27,6 +27,7 @@ Shared accounting control contracts, canonical operation material and authentica
 ## Business rules
 - Tenant predicates on every tenant query, tagged SQL only. Unknown authority fails closed.
 - Each applicable policy must pass; person separation is based on users.id, not token inequality.
+- A policy admits exactly its approver role (`approverRoleAccepts`), with one exception: a MANDATORY policy bound as `owner_or_admin` admits an owner or an admin. Only the historical-import policy produces it, from `control_mandatory_import_policies.owner_may_approve` (migration 686); a tenant `approval_rules` row is never mandatory, so that text there widens nothing. The allowance is in the binding, so changing it voids open requests.
 - Sort set-valued references by fixed code-unit order; do not use locale collation for signatures.
 - Never put plaintext bank/payroll secrets or tokens into generic audit output.
 - Legacy missing provenance stays unknown; do not fabricate historical evidence.
@@ -37,6 +38,7 @@ Shared accounting control contracts, canonical operation material and authentica
 - Max 300 lines per implementation file; root owns shared contracts and migration allocation.
 
 ## Recent changes
+- 2026-09-11: historical import batches (migration 685: batch + member tables, member set frozen at the creating commit, `control_approval_authorities` batch arm, NULL-safe caller check); owner-or-admin import approver (migration 686).
 - 2026-09-11: canonical entity lookups compare the stored `entity_id_canonical` column (migration 684) instead of `lower(entity_id)`, restoring an index path under RLS; 684 drops the 678/679 `lower(entity_id)` expression indexes.
 - 2026-09-11: every `entity_id_canonical = <col>::text` join reaches the canonical row through a Param (LATERAL OFFSET 0), and intents joined from a receipt are primary-key probes; the journal-risk period events match `j.fiscal_period_id::text`.
 - 2026-09-10: `audit_check_run` job kind (migration 680, contract, enqueue); `AUDIT_JOB_KINDS` is the list every re-add of the shared kind/result constraints must name.
