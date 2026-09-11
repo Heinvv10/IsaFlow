@@ -307,6 +307,24 @@ describe('postProvisional', () => {
     expect(vi.mocked(createJournalEntry)).not.toHaveBeenCalled();
   });
 
+  it('skips a pending feed row with skipped: "feed_state pending" and journalEntryId: null', async () => {
+    // Guards migration 675's DB trigger backstop: a feed row still pending at
+    // the bank carries status 'imported' (the status check above would let it
+    // through), so this must be decided from feed_state before anything posts.
+    vi.mocked(sqlMock).mockResolvedValueOnce([
+      {
+        id: BANK_TX_ID, amount: -800, description: 'ESKOM HOLDINGS', status: 'imported',
+        bank_account_id: 'ba-1', transaction_date: '2026-04-10', feed_state: 'pending',
+      },
+    ] as never);
+
+    const result = await postProvisional(COMPANY_ID, BANK_TX_ID, USER_ID);
+
+    expect(result.journalEntryId).toBeNull();
+    expect(result.skipped).toBe('feed_state pending');
+    expect(vi.mocked(createJournalEntry)).not.toHaveBeenCalled();
+  });
+
   it('refuses to repeat a wrong claim its own history taught it', async () => {
     // The prediction is the most frequent vat_code on that supplier's prior
     // lines, so a ledger already carrying the defect trains this path to

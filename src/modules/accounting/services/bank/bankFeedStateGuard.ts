@@ -10,8 +10,10 @@
  */
 import { sql } from '@/lib/neon';
 import type { DbRow } from '@/lib/neon';
+import type { FeedState } from '../../types/bank.types';
+import { BankAllocationRefusal } from './bankAllocationRefusal';
 
-export type FeedState = 'pending' | 'posted' | 'removed';
+export type { FeedState };
 const FEED_STATES: readonly FeedState[] = ['pending', 'posted', 'removed'];
 
 export function feedStateOf(row: { feed_state?: unknown }): FeedState {
@@ -40,6 +42,22 @@ export function isBankTransactionNotPosted(err: unknown): err is BankTransaction
 export function assertFeedPosted(row: { id?: unknown; feed_state?: unknown }, verb: string): void {
   const state = feedStateOf(row);
   if (state !== 'posted') throw new BankTransactionNotPostedError(String(row.id ?? ''), state, verb);
+}
+
+/**
+ * `allocateTransaction` / `splitAllocateTransaction`'s feed-state refusal.
+ * Wrapped in `BankAllocationRefusal` (not the bare `BankTransactionNotPostedError`)
+ * so the routes that already answer that class with a 4xx keep doing so — see
+ * `bankAllocationRefusal.ts`'s own doc comment for why bare throws there become
+ * a 500. `feedStateOf` is computed once, not twice, to build the message.
+ */
+export function assertPostedForAllocation(
+  row: { feed_state?: unknown }, bankTxId: string, verb: string,
+): void {
+  const state = feedStateOf(row);
+  if (state !== 'posted') {
+    throw new BankAllocationRefusal(new BankTransactionNotPostedError(bankTxId, state, verb).message);
+  }
 }
 
 /** Unlocked read for routes that must refuse before their first write. */

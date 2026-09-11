@@ -3,9 +3,13 @@
  * Bank Reconciliation Type Definitions
  */
 
-import type { FeedState } from '../services/bank/bankFeedStateGuard';
-
 export type BankTxStatus = 'imported' | 'allocated' | 'matched' | 'reconciled' | 'excluded';
+/**
+ * Bank feed lifecycle state (migration 675). A row is `pending` or `removed`
+ * at the bank until the provider posts it; declared here (types must not
+ * depend on services) and re-exported by `services/bank/bankFeedStateGuard`.
+ */
+export type FeedState = 'pending' | 'posted' | 'removed';
 export type BankReconStatus = 'in_progress' | 'completed';
 export type BankFormat = 'fnb' | 'standard_bank' | 'nedbank' | 'absa' | 'capitec' | 'generic' | 'ofx' | 'qif' | 'mt940' | 'unknown';
 
