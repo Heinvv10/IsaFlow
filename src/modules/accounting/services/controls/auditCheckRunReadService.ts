@@ -8,6 +8,7 @@ import type {SnapshotIndexEnvelope} from './auditSnapshotIndexContract';
 import {openAuditJobRequest} from './auditJobProtection';
 import {auditCheckRunPermissions} from './auditCheckRunContract';
 import {openAuditCheckRunHeader,openAuditCheckRunItem,type CheckRunHeader} from './auditCheckRunProtection';
+import {AuditPageCursorError} from './auditPageCursor';
 /**
  * A run the caller cannot read yet or at all. `not_ready` (queued or running) and `failed` (it will never publish) are
  * told only to the person who enqueued it — the same audience `getAuditJob` shows a job's status to; everyone else,
@@ -65,7 +66,7 @@ const pageSchema=z.object({checkRunId:z.string().uuid().transform(id=>id.toLower
 export async function getAuditCheckRunPage(ctx:ControlTx,input:unknown){
  assertControlTx(ctx);const request=pageSchema.parse(JSON.parse(canonicalJson(input)));
  const header=await readAuditCheckRunHeader(ctx,request.checkRunId),start=Number(request.cursor??0);
- if(start>header.findingCount)throw new Error('Invalid check run page cursor');
+ if(start>header.findingCount)throw new AuditPageCursorError(header.findingCount);
  const rows=await ctx.sql`WITH candidates AS (
   SELECT ordinal,protected_item FROM control_audit_check_findings
   WHERE company_id=${ctx.principal.companyId}::uuid AND job_id=${request.checkRunId}::uuid

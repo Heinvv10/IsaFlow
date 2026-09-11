@@ -55,7 +55,7 @@ export function contractCases(tool:Contract):ContractCase[]{
    if(schema.minItems)add(path,'minItems',context,[],'has too few items');
    if(schema.maxItems!==undefined){
     if(schema.maxItems>1000)throw new Error(`Explicit large array fixture required: ${tool.name}/${keyPath}`);
-    add(path,'maxItems',context,Array.from({length:schema.maxItems+1},()=>clone(child)),'has too many items');
+    add(path,'maxItems',context,Array.from({length:schema.maxItems+1},()=>clone(child)),`has too many items (maximum ${schema.maxItems}); split it across several calls`);
    }
    walk(schema.items,[...path,0],withValue(context,path,Array.from({length:Math.max(schema.minItems??1,1)},()=>clone(child))));
   }

@@ -20,6 +20,7 @@ import {
 import { REVERSAL_DATE_PROPERTY } from './allocationSchema';
 import { mcpPostingOpts } from '../mcpActor';
 import { NOT_FOUND, guardCastableArgs, ok, strArg, toolError } from './toolHelpers';
+import { MAX_BANK_LINES_PER_REQUEST } from '@/lib/limits/authorityHoldLimits';
 
 const REVERSE_TOOL = 'reverse_bank_allocation_batch';
 
@@ -35,7 +36,7 @@ export const reverseBankAllocationBatchTool: McpTool = {
     + 'The originals and their reversals both remain in the audit trail. '
     + "By default each reversing journal carries its ORIGINAL entry's date when that period is still "
     + 'open, and today when it is closed; pass reversal_date to date every reversal in the batch '
-    + 'explicitly.',
+    + `explicitly. A batch with more than ${MAX_BANK_LINES_PER_REQUEST} lines still posted is refused; reverse it in parts.`,
   scope: 'write:bank-tx',
   write: true,
   requiresPost: true,
@@ -95,6 +96,15 @@ export const reverseBankAllocationBatchTool: McpTool = {
             : 'allocated to a different journal since this batch posted',
       }));
 
+    // Batches are capped at MAX_BANK_LINES_PER_REQUEST when allocated, but one
+    // made before the cap can hold far more, and reversing it here would hold
+    // the company authority key for all of them. Refused before any write.
+    if (toReverse.length > MAX_BANK_LINES_PER_REQUEST) {
+      return toolError(
+        `This batch still has ${toReverse.length} posted lines; at most ${MAX_BANK_LINES_PER_REQUEST} can be reversed in one call. `
+          + 'Reverse it in parts with reverse_allocations over narrower date ranges, or with reverse_bank_allocation per transaction.',
+      );
+    }
     if (toReverse.length === 0) {
       // Nothing left for this batch to undo. Reported as a success so a retry
       // (or a second agent) is harmless rather than looking like a failure.

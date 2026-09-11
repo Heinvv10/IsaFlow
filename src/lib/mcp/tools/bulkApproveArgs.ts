@@ -9,16 +9,18 @@
  */
 
 import { UUID_RE } from '@/lib/validation';
+import { MAX_POSTED_DOCUMENTS_PER_REQUEST } from '@/lib/limits/authorityHoldLimits';
 import type { SkippedDocument } from './bulkApproveRunner';
 
 /**
- * More documents than this in one call is a mistake, not a batch.
+ * More documents than this in one call is refused; the caller splits the batch.
  *
- * Matches `MAX_INVOICES` in the bulk create tools on purpose: the ceiling is
- * about how much posted work a single rollback should be able to throw away,
- * and a batch that creates 100 drafts should approve them in one further call.
+ * The whole batch runs in one request transaction that holds the company
+ * authority key, and every other request in the company waits for it. The
+ * ceiling keeps that hold under half the key's 5 s bound, from measured
+ * per-document holds (src/lib/limits/authorityHoldLimits.ts).
  */
-export const MAX_DOCUMENTS = 100;
+export const MAX_DOCUMENTS = MAX_POSTED_DOCUMENTS_PER_REQUEST;
 
 /**
  * The refusal for a batch where nothing is postable.
@@ -45,12 +47,12 @@ export function nothingToApproveText(skipped: readonly SkippedDocument[]): strin
  * accidentally contains the same invoice twice would never learn that its list
  * was wrong. The list is the agent's own; a duplicate in it is a request fault.
  */
-export function parseDocumentIds(raw: unknown, field: string): string[] | string {
+export function parseDocumentIds(raw: unknown, field: string, max: number = MAX_DOCUMENTS): string[] | string {
   if (!Array.isArray(raw) || raw.length === 0) {
     return `${field} must be a non-empty array`;
   }
-  if (raw.length > MAX_DOCUMENTS) {
-    return `${field} has ${raw.length} elements; the maximum is ${MAX_DOCUMENTS}. `
+  if (raw.length > max) {
+    return `${field} has ${raw.length} elements; the maximum is ${max}. `
       + 'Split it across several calls.';
   }
   const seen = new Set<string>();

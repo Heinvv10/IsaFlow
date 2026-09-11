@@ -32,8 +32,8 @@ async function restore(before:{name:string;registration_number:string|null}){
 describe('the fingerprint covers every input the statements are rendered from',()=>{
  type Change=(ids:{doc:string;section:string})=>[string,unknown[]];
  const cases:[string,Change,RegExp][]=[
-  ['the registered company name',()=>["UPDATE companies SET name='Renamed After Signing' WHERE id=$1",[h.f.companyA]],/registered company/i],
-  ['the registration number',()=>["UPDATE companies SET registration_number='2099/123456/07' WHERE id=$1",[h.f.companyA]],/registered company/i],
+  ['the company name',()=>["UPDATE companies SET name='Renamed After Signing' WHERE id=$1",[h.f.companyA]],/company name or registration number/i],
+  ['the registration number',()=>["UPDATE companies SET registration_number='2099/123456/07' WHERE id=$1",[h.f.companyA]],/company name or registration number/i],
   ['the period on the cover',({doc})=>["UPDATE afs_documents SET period='2099-02' WHERE company_id=$1 AND id=$2",[h.f.companyA,doc]],/reporting period/i],
   ['the fiscal year',({doc})=>["UPDATE afs_documents SET fiscal_year=2099 WHERE company_id=$1 AND id=$2",[h.f.companyA,doc]],/reporting period/i],
   ['the primary colour',()=>["UPDATE brand_profiles SET primary_colour='#abcdef' WHERE company_id=$1",[h.f.companyA]],/branding/i],
@@ -212,7 +212,7 @@ describe('an edit that lands while the send is rendering',()=>{
    expect(html).not.toContain('Renamed Mid Send');
    const row=await s.signed(signum,doc);
    expect(row.status).toBe('partner_review');
-   expect(String(row.signing_refused_reason)).toMatch(/registered company/i);
+   expect(String(row.signing_refused_reason)).toMatch(/company name or registration number/i);
   }finally{await restore(before);}
  });
 

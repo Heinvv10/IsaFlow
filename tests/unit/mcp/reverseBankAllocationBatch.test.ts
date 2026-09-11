@@ -63,6 +63,7 @@ import {
   bulkAllocateBankTransactionsTool,
 } from '@/lib/mcp/tools/writeBankBulkAllocate';
 import { reverseBankAllocationBatchTool } from '@/lib/mcp/tools/writeBankReverseBatch';
+import { MAX_BANK_LINES_PER_REQUEST } from '@/lib/limits/authorityHoldLimits';
 
 const ctx = { companyId: 'company-1', userId: 'user-1', tokenJti: 'jti', oauthAppId: null } as never;
 const BATCH = '0f000000-0000-4000-8000-000000000001';
@@ -107,6 +108,17 @@ describe('reverse_bank_allocation_batch', () => {
     expect(reverseBankAllocationBatchTool.requiresPost).toBe(true);
     expect(reverseBankAllocationBatchTool.inputSchema.required).toContain('batch_id');
     expect(reverseBankAllocationBatchTool.inputSchema.required).toContain('idempotency_key');
+  });
+
+  it('refuses a batch with more posted lines than one call may reverse, naming the maximum, before any write', async () => {
+    // A batch allocated before the authority-hold cap can hold far more lines than one request may now reverse.
+    vi.mocked(getAllocationBatchLines).mockResolvedValue(Array.from({ length: MAX_BANK_LINES_PER_REQUEST + 1 }, (_, i) => (
+      { transactionId: TX(i + 1), journalEntryId: `je-${i}`, currentJournalEntryId: `je-${i}`, transactionExists: true })));
+    const res = await reverseBankAllocationBatchTool.handler({ batch_id: BATCH, idempotency_key: 'k1' }, ctx);
+    expect(res.isError).toBe(true);
+    expect(res.content[0]!.text).toContain(`${MAX_BANK_LINES_PER_REQUEST + 1} posted lines; at most ${MAX_BANK_LINES_PER_REQUEST}`);
+    expect(reverseReconciledTransaction).not.toHaveBeenCalled();
+    expect(clearAllocationBatch).not.toHaveBeenCalled();
   });
 
   it('reverses in transaction-id order however the batch rows come back', async () => {

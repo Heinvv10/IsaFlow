@@ -131,7 +131,9 @@ export async function runMcpReadAcceptance(env:NodeJS.ProcessEnv){
   const before=dto<{amount:string}>(await client.rpc(token.raw,'tools/call',{name:'approval_requirements',arguments:args}));
   if(Number(before.amount)!==10)throw new Error('Owned draft requirements did not load exact amount');
   await pool.query("INSERT INTO company_user_permissions(company_id,user_id,module_key,can_read) VALUES($1,$2,'reports',false)",[fixture.companyA,fixture.u1.id]);
-  refusal(await client.rpc(token.raw,'tools/call',{name:'approval_requirements',arguments:args}),'The operation failed. Please try again or contact support.','dynamic requirements after current deny',true);
+  // A module deny is answered by what blocks the caller (scopeRemediation.permissionRefusalMessage), not the generic
+  // handler envelope: it names only the permission, which is public, and nothing about the company or its data.
+  refusal(await client.rpc(token.raw,'tools/call',{name:'approval_requirements',arguments:args}),"read:reports has not been granted to you in this company's module permissions, even though this connection holds the scope. Ask a company owner or admin to grant it to you; granting the connection again will not.",'dynamic requirements after current deny',true);
   await pool.query("DELETE FROM company_user_permissions WHERE company_id=$1 AND user_id=$2 AND module_key='reports'",[fixture.companyA,fixture.u1.id]);
   const restored=dto<{amount:string}>(await client.rpc(token.raw,'tools/call',{name:'approval_requirements',arguments:args}));
   if(!same(restored,before))throw new Error('Dynamic deny control did not restore same unchanged source result');
@@ -144,6 +146,6 @@ export async function runMcpReadAcceptance(env:NodeJS.ProcessEnv){
   for(const name of ['company_profile','list_companies'])await client.expectedHttp(403,token.raw,{jsonrpc:'2.0',id:1,method:'tools/call',params:{name,arguments:{}}});
   return{outcome:'passed',version:1,origin,build,fixtureRunId:fixture.runId,identityRevocation:'verified',identityTools:['company_profile','list_companies'],dynamicRevocation:'verified',effects:0,
    defaultRead:{tool:'list_gl_accounts',defaultRows:200,total:201,includingInactive:202,numericStringRows:3},
-   limitations:['Draft journal and accounts are synthetic source fixtures, not controlled creation/posting proof','Dynamic refusal is a generic public handler envelope with successful before/after controls','No financial execution or production verification']};
+   limitations:['Draft journal and accounts are synthetic source fixtures, not controlled creation/posting proof','Dynamic refusal is the specific module-permission refusal with successful before/after controls','No financial execution or production verification']};
  }finally{await pool.end();}
 }

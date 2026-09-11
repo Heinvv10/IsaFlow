@@ -2,8 +2,11 @@ import Decimal from 'decimal.js';
 import {UUID_RE,isRealCalendarDate} from '@/lib/validation';
 import type {BatchPaymentCreateInput} from '../../types/ap.types';
 import {paymentReleaseAmount} from './paymentReleaseValidation';
+import {MAX_BATCH_PAYMENTS_PER_BATCH} from '@/lib/limits/authorityHoldLimits';
 export function validateBatchInput(input:BatchPaymentCreateInput){
- if(!input||!Array.isArray(input.payments)||!input.payments.length||input.payments.length>100)throw new Error('Batch requires 1 to 100 payments');
+ if(!input||!Array.isArray(input.payments)||!input.payments.length)throw new Error('Batch requires at least one payment');
+ // Processing posts the whole batch in one request that holds the company authority key; split a larger run into batches.
+ if(input.payments.length>MAX_BATCH_PAYMENTS_PER_BATCH)throw new Error(`Batch requires 1 to ${MAX_BATCH_PAYMENTS_PER_BATCH} payments; split ${input.payments.length} payments into batches of ${MAX_BATCH_PAYMENTS_PER_BATCH}`);
  if(input.batchDate!==undefined&&!isRealCalendarDate(input.batchDate))throw new Error('Invalid batch date');
  if(input.paymentMethod!==undefined&&input.paymentMethod!=='eft')throw new Error('Batch supports EFT payments only');
  if(input.bankAccountId!==undefined&&!UUID_RE.test(input.bankAccountId))throw new Error('Invalid bank account');

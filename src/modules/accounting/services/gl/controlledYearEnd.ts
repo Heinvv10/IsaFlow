@@ -11,6 +11,7 @@ import {registerGeneratedJournal} from '../controls/generatedJournalPermit';
 import {readControlEntityVersion} from '../controls/operationVersions';
 import {recordCommittedChange} from '../controls/changeEventService';
 import {postJournalEntry} from './journalEntryPostingService';
+import {lockdownBlock} from './postingPeriodGuard';
 import type {ControlTx} from '../controls/contracts';
 import type {buildYearEndFinancialMaterial} from '../controls/yearEndFinancialMaterial';
 import type {CloseYearOptions,CloseYearResult,CloseYearDryRunResult,CloseYearError,YearEndJournalPreview} from './yearEndCloseService';
@@ -53,7 +54,7 @@ export async function closeFiscalYear(companyId:string,yearLabel:string,userId:s
  let material:Awaited<ReturnType<typeof loadOperationMaterial>>;
  try{material=await loadOperationMaterial(ctx,parent);}catch(error){if(error instanceof YearEndEligibilityError)return error.result;throw error;}
  const facts=material.observedSources[0]!.facts as unknown as Facts;
- if(facts.company.lockdown_enabled===true&&(!facts.company.lockdown_date||facts.closing.accountingDate<=String(facts.company.lockdown_date)))throw new Error('Year-close date is within company lockdown');
+ if(lockdownBlock(facts.company,facts.closing.accountingDate))throw new Error('Year-close date is within company lockdown');
  const open=facts.periods.filter(p=>p.status==='open');
  if(open.length)return{error:'open_periods',count:open.length,openPeriods:open.map(p=>({id:String(p.id),periodName:String(p.period_name),periodNumber:Number(p.period_number)}))};
  if(facts.periods.some(p=>p.status!=='closed'))throw new Error('Financial year contains locked periods');
@@ -68,7 +69,7 @@ export async function closeFiscalYear(companyId:string,yearLabel:string,userId:s
  return executeControlledOperation(ctx,parent,options.approvalId??null,async permit=>{
   if(await prior(ctx,yearLabel))throw new Error('Financial year already closed');
   const current=await loadOperationMaterial(ctx,parent),live=current.observedSources[0]!.facts as unknown as Facts;
-  if(live.company.lockdown_enabled===true&&(!live.company.lockdown_date||permit.accountingDate<=String(live.company.lockdown_date)))throw new Error('Year-close date is within company lockdown');
+  if(lockdownBlock(live.company,permit.accountingDate))throw new Error('Year-close date is within company lockdown');
   if(live.periods.some(p=>p.status!=='closed')||live.closing.retained.is_active!==true)throw new Error('Financial year source is no longer eligible');
   const closing=live.closing,period=live.periods.find(p=>fmtDate(p.end_date as string|Date)===permit.accountingDate);
   // Not a configuration outcome: the material check above proves a period ends

@@ -1,5 +1,5 @@
 import type { PermissionRefusalReason } from './effectivePermissionPolicy';
-import { assertControlTx } from '@/modules/accounting/services/controls/context';
+import { assertControlTx, pinnedJobPermissionState } from '@/modules/accounting/services/controls/context';
 import type { ControlTx } from '@/modules/accounting/services/controls/contracts';
 import type { ModulePermission } from './permissionService';
 import { isActiveUserAccount, type UserAccountRow } from './userAccountStatus';
@@ -20,6 +20,10 @@ export class EffectivePermissionError extends Error {
     this.name = 'EffectivePermissionError';
   }
 }
+/** What a check reads: the member's role, the grant's scope ceiling (null for a cookie) and the module overrides. */
+export interface PermissionState {
+  readonly role: string; readonly scopes: readonly string[] | null; readonly overrides: readonly ModulePermission[];
+}
 interface Membership extends UserAccountRow {
   role: string; company_status: string | null; company_suspended_at: Date | string | null;
 }
@@ -27,8 +31,11 @@ interface Membership extends UserAccountRow {
  * Root migration 626 owns the narrow, authenticated principal-lock helper.
  * Direct FOR UPDATE would apply admin-write RLS and hide viewer/manager memberships.
  * Helper locks parent users too: permission INSERT FK cannot overtake absent override.
+ * The helper's company key serialises every permission-checked transaction in the company to COMMIT; it and these
+ * row locks wait at most 5 s (migration 690).
+ * A job opened with an authority pin answers from the pin once its live lease and delegation check pass.
  */
-export async function loadPermissionState(ctx: ControlTx) {
+export async function loadPermissionState(ctx: ControlTx): Promise<PermissionState> {
   assertControlTx(ctx);
   const { companyId, personId, connectionId, grantId } = ctx.principal;
   let {authMethod,grantedScopes}=ctx.principal;
@@ -37,6 +44,8 @@ export async function loadPermissionState(ctx: ControlTx) {
     const saved=await loadStoredAuditJobDelegation(ctx.sql,companyId,personId,{jobId:ctx.principal.jobId??'',
       leaseId:ctx.principal.jobLeaseId??'',generation:ctx.principal.jobGeneration??0});
     if(connectionId!==saved.authority.connectionId||grantId!==saved.authority.grantId)throw new EffectivePermissionError();
+    const pinned=pinnedJobPermissionState(ctx.principal);
+    if(pinned)return pinned;
     authMethod=saved.authority.authMethod;grantedScopes=saved.authority.grantedScopes;jobPermissions=saved.permissions;
   }
   if (!companyId || !personId || !['cookie', 'pat', 'oauth'].includes(authMethod)) throw new EffectivePermissionError();

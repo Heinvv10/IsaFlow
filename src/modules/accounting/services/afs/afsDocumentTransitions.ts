@@ -10,12 +10,13 @@ import { log } from '@/lib/logger';
 import { logAuditOrThrow } from '@/modules/accounting/services/core/auditTrailService';
 import { assertPersonalReview, asLockTimeout, setLockTimeout } from './afsSectionAttestation';
 import { ReviewError } from './afsReviewError';
-import type { DocumentStatus, SectionStatus } from './afsTypes';
+import type { DocumentStatus, DocumentType, SectionStatus } from './afsTypes';
 import { SECTION_STATUS_ORDER } from './afsTypes';
 
 export interface LockedDocument {
   id: string;
   status: DocumentStatus;
+  documentType: DocumentType;
   signingRequestedAt: Date | null;
 }
 
@@ -28,7 +29,7 @@ export async function lockDocumentForTransition(
   let rows: Record<string, unknown>[];
   try {
     rows = (await sql`
-      SELECT id, status, signing_requested_at
+      SELECT id, status, document_type, signing_requested_at
       FROM afs_documents
       WHERE id = ${documentId}::UUID AND company_id = ${companyId}::UUID
       FOR UPDATE
@@ -41,6 +42,7 @@ export async function lockDocumentForTransition(
   return {
     id: row.id as string,
     status: row.status as DocumentStatus,
+    documentType: row.document_type as DocumentType,
     signingRequestedAt: (row.signing_requested_at as Date | null) ?? null,
   };
 }

@@ -6,6 +6,7 @@ import {readControlEntityVersion} from '../controls/operationVersions';
 import {loadCashApplicationIntent} from './cashApplicationMaterial';
 import {loadCashApplicationSources} from './cashApplicationSources';
 import {cashApplicationTotal} from './cashApplicationPlan';
+import {lockdownBlock} from '../gl/postingPeriodGuard';
 const D=Decimal.clone({precision:80});
 type Row=Record<string,unknown>;
 export async function recordCashApplicationChild(ctx:ControlTx,permit:ControlledEffectPermit,entityType:string,before:Row|null,after:Row,action:string){
@@ -22,7 +23,7 @@ export async function executeCashApplicationEffect(ctx:ControlTx,ref:OperationRe
  if(effect)throw new Error('Cash application already executed');
  const amount=cashApplicationTotal(plan),active=sources.allocations.filter(a=>a.reversed_at==null),applied=active.reduce((sum,a)=>sum.add(String(a.amount_allocated)),new D(0));
  if(sources.periods.length!==1||sources.periods[0]!.status!=='open'||sources.vatLocks.length)throw new Error('Open unlocked cash application period required');
- if(sources.ledger.lockdown_enabled===true&&(!sources.ledger.lockdown_date||permit.accountingDate<=String(sources.ledger.lockdown_date)))throw new Error('Cash application date is locked');
+ if(lockdownBlock(sources.ledger,permit.accountingDate))throw new Error('Cash application date is locked');
  if(applied.add(amount).gt(String(sources.payment.total_amount)))throw new Error('Cash application exceeds unapplied payment');
  const company=ctx.principal.companyId,allocationIds:string[]=[];
  for(const {allocation,invoice} of sources.invoices){
