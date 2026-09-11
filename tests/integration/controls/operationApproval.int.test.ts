@@ -1,6 +1,7 @@
 import { afterAll, beforeAll, expect, it } from 'vitest';
 import { Pool } from 'pg';
 import { seedApAccounts } from './apSyntheticAccounts';
+import { rewriteApprovalUnguarded } from './approvalGuardBypass';
 import { randomBytes, randomUUID } from 'node:crypto';
 import { fixtureConfigFromEnv } from '../../../scripts/forensic/fixture-bootstrap';
 import { provisionForensicFixture, validateFixtureTarget, type ForensicFixture } from '../forensic-fixture';
@@ -95,7 +96,7 @@ it('refuses expired, canceled and rejected approvals without an effect', async (
     const approval = await request('u1', ctx => requestOperationApproval(ctx, targetRef));
     if (state === 'expired') {
       await request('u2', ctx => decideOperationApproval(ctx, approval.id, 'approved'));
-      await pool.query("UPDATE control_operation_approvals SET requested_at=clock_timestamp()-interval '2 days',expires_at=clock_timestamp()-interval '1 minute' WHERE company_id=$1 AND id=$2", [fixture.companyA, approval.id]);
+      await rewriteApprovalUnguarded(pool, "UPDATE control_operation_approvals SET requested_at=clock_timestamp()-interval '2 days',expires_at=clock_timestamp()-interval '1 minute' WHERE company_id=$1 AND id=$2", [fixture.companyA, approval.id]);
     } else {
       await request(state === 'cancelled' ? 'u1' : 'u2', ctx => decideOperationApproval(ctx, approval.id, state));
     }
@@ -136,13 +137,13 @@ it('rechecks current approver membership and explicit permission at execution', 
 it('requires every current matching policy and rejects unsupported active rule semantics', async () => {
   const second = randomUUID();
   await pool.query(`INSERT INTO approval_rules(id,company_id,name,document_type,condition_field,condition_operator,condition_value,approver_role)
-    VALUES($1,$2,'Second policy','payment','amount','any',0,'admin')`, [second, fixture.companyA]);
+    VALUES($1,$2,'Second policy','payment','amount','any',0,'owner')`, [second, fixture.companyA]);
   try {
     const targetRef = await freshPayment();
     const approval = await request('u1', ctx => requestOperationApproval(ctx, targetRef));
+    // u2 is an admin, so only the admin policy is decided; the owner policy stays without a decision.
     await request('u2', ctx => decideOperationApproval(ctx, approval.id, 'approved'));
-    expect((await pool.query('SELECT policy_id FROM control_operation_decisions WHERE company_id=$1 AND approval_id=$2', [fixture.companyA, approval.id])).rows).toHaveLength(2);
-    await pool.query('DELETE FROM control_operation_decisions WHERE company_id=$1 AND approval_id=$2 AND policy_id=$3', [fixture.companyA, approval.id, second]);
+    expect((await pool.query('SELECT policy_id FROM control_operation_decisions WHERE company_id=$1 AND approval_id=$2', [fixture.companyA, approval.id])).rows).toHaveLength(1);
     await expect(request('u1', ctx => executeControlledOperation(ctx, targetRef, approval.id, noEffect))).rejects.toThrow('Independent');
     await pool.query("UPDATE approval_rules SET condition_operator='unsupported' WHERE company_id=$1 AND id=$2", [fixture.companyA, second]);
     await expect(request('u1', ctx => getApprovalRequirements(ctx, targetRef))).rejects.toThrow('Unsupported');
