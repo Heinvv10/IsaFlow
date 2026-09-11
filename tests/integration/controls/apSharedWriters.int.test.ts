@@ -168,12 +168,27 @@ it('binds a closed original period reversal to the open server-day target and re
   // that only fails to refuse on the one day it happens to equal the server's current date.
   const changedTarget = new Date(`${today}T00:00:00Z`);
   changedTarget.setUTCDate(changedTarget.getUTCDate() + 1);
+  const changedTargetStr = changedTarget.toISOString().slice(0, 10);
+  // The kernel resolves the reversal target's fiscal period before it compares the binding
+  // (apReversalMaterial.ts), so an uncovered date throws 'Target AP fiscal period missing or
+  // ambiguous' instead of the refusal this test names — reintroducing a calendar dependency
+  // (month/year end) that a fixed +1 day cannot see. Give the target date its own open period,
+  // but only if the fixture doesn't already cover it (an unconditional insert on a covered date
+  // would hit fiscal_periods_no_overlap, migration 502).
+  const covering = await pool.query(
+    "SELECT id FROM fiscal_periods WHERE company_id=$1 AND status='open' AND start_date<=$2::date AND end_date>=$2::date",
+    [fixture.companyA, changedTargetStr]);
+  if (covering.rows.length === 0) {
+    await pool.query(`INSERT INTO fiscal_periods(id,company_id,period_name,period_number,fiscal_year,start_date,end_date,status)
+      VALUES($1,$2,'Synthetic changed target',$3,$4,$5::date,$5::date,'open')`,
+      [randomUUID(), fixture.companyA, changedTarget.getUTCMonth() + 1, changedTarget.getUTCFullYear(), changedTargetStr]);
+  }
   // Specifically the binding-mismatch refusal (assertApprovalExecutable in approvalExecutionService.ts),
   // not any refusal a changed date could trigger for an unrelated reason (a closed/missing period).
   let refusal: unknown;
   try {
     await actor('u1', ctx => executeControlledOperation(ctx,
-      { ...ref, reversalDate: changedTarget.toISOString().slice(0, 10) } as OperationRef, id, callback));
+      { ...ref, reversalDate: changedTargetStr } as OperationRef, id, callback));
   } catch (error) { refusal = error; }
   expect(refusal).toBeInstanceOf(SuppliedApprovalRefusal);
   expect(refusal).toMatchObject({ message: 'Approval material changed' });
