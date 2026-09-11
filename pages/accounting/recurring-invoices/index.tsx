@@ -87,13 +87,22 @@ export default function RecurringInvoicesPage() {
   const runAllDue = async () => {
     setRunAllBusy(true); setError(''); setRunResult(null);
     try {
-      const res = await apiFetch('/api/accounting/recurring-invoices-run', {
-        method: 'POST', headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({}),
-      });
-      const json = await res.json() as { data?: RunResult };
-      if (!res.ok) throw new Error('Run All failed');
-      setRunResult(json.data ?? null);
+      // The route generates a bounded number of templates per request (each holds the company authority key) and
+      // answers `remaining: true` while more are due, so run again until it is clear, reporting one total.
+      const total: RunResult = { generated: 0, invoice_ids: [], errors: [] };
+      for (let remaining = true, rounds = 0; remaining && rounds < 200; rounds++) {
+        const res = await apiFetch('/api/accounting/recurring-invoices-run', {
+          method: 'POST', headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({}),
+        });
+        const json = await res.json() as { data?: RunResult };
+        if (!res.ok) throw new Error(total.generated ? `Run All stopped after ${total.generated} invoice(s)` : 'Run All failed');
+        const batch = json.data;
+        total.generated += batch?.generated ?? 0; total.invoice_ids.push(...(batch?.invoice_ids ?? [])); total.errors.push(...(batch?.errors ?? []));
+        // A round that generated nothing would return the same failing templates first; stop rather than spin.
+        remaining = batch?.remaining === true && batch.generated > 0;
+      }
+      setRunResult(total);
       await load();
     } catch (err) {
       log.error('Run all due recurring invoices failed', { error: err }, 'recurring-invoices-page');

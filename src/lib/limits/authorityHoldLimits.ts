@@ -21,3 +21,13 @@ export const MAX_FINALIZED_INVOICES_PER_REQUEST = 12;
 /** Bank lines per call: bulk_allocate_bank_transactions, reverse_bank_allocation_batch and reverse_allocations.
  *  Typically 160-210 ms per line, worst 344 ms (a reversal): 6 x 344 = 2.1 s. */
 export const MAX_BANK_LINES_PER_REQUEST = 6;
+
+/** Recurring invoice templates generated and posted per "run all due" request (recurring-invoices-run; the route
+ *  answers `remaining: true` and the page calls again). Worst measured 334 ms per template plus 425 ms fixed:
+ *  6 x 334 + 425 = 2.4 s. */
+export const MAX_RECURRING_INVOICES_PER_RUN = 6;
+
+/** Supplier payments per payment batch, bounded at CREATION because processing posts the whole batch in one request
+ *  (batch-payments-action process). Worst measured 228 ms per payment plus 243 ms fixed: 8 x 228 + 243 = 2.1 s.
+ *  A batch created before this bound with more payments still processes whole (a known long holder). */
+export const MAX_BATCH_PAYMENTS_PER_BATCH = 8;

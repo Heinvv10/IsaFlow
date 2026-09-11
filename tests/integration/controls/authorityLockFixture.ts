@@ -28,6 +28,11 @@ export async function authorityLockFixture(){
   '/api/accounting/audit-check-runs':(await import('../../../pages/api/accounting/audit-check-runs')).default,
   '/api/accounting/permissions':(await import('../../../pages/api/accounting/permissions')).default,
   '/api/accounting/supplier-invoices-bulk-action':(await import('../../../pages/api/accounting/supplier-invoices-bulk-action')).default,
+  '/api/accounting/recurring-invoices-run':(await import('../../../pages/api/accounting/recurring-invoices-run')).default,
+  '/api/accounting/run-depreciation':(await import('../../../pages/api/accounting/run-depreciation')).default,
+  '/api/accounting/bank-transactions-bulk-commit':(await import('../../../pages/api/accounting/bank-transactions-bulk-commit')).default,
+  '/api/accounting/batch-payments':(await import('../../../pages/api/accounting/batch-payments')).default,
+  '/api/accounting/batch-payments-action':(await import('../../../pages/api/accounting/batch-payments-action')).default,
  };
  const server=createServer((req,res)=>{const url=new URL(req.url!,'http://127.0.0.1'),query:Record<string,string>={};
   for(const [key,value] of url.searchParams)query[key]=value;

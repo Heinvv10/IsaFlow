@@ -10,6 +10,7 @@ import type { NextApiResponse } from 'next';
 import { withErrorHandler } from '@/lib/api-error-handler';
 import { apiResponse } from '@/lib/apiResponse';
 import { isRetryableLockFailure } from '@/lib/lockContention';
+import { MAX_RECURRING_INVOICES_PER_RUN } from '@/lib/limits/authorityHoldLimits';
 import {
   withAuth,
   withWriteAccess,
@@ -34,7 +35,9 @@ interface RunResult {
 
 /** P3.4: cap the run-all batch — an unbounded due-list meant an unbounded
  *  synchronous loop in one request (timeout risk). Remainder runs next call. */
-const RUN_BATCH_CAP = 200;
+// Every template's invoice is created AND posted inside this one request, which holds the company authority key
+// throughout; the cap keeps that under half its 5 s bound and `remaining: true` asks the caller to run again.
+const RUN_BATCH_CAP = MAX_RECURRING_INVOICES_PER_RUN;
 
 async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse) {
   if (req.method !== 'POST') {

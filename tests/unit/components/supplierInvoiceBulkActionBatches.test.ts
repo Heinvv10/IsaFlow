@@ -32,13 +32,15 @@ it('sends a selection larger than the route maximum as sequential batches of at 
   expect(onError).toHaveBeenLastCalledWith(`3 of ${ids.length} approves failed: Synthetic refusal`);
 });
 
-it('stops at a refused batch and says how many were already processed', async () => {
-  fetch.mockResolvedValueOnce(reply({ data: { total: MAX_POSTED_DOCUMENTS_PER_REQUEST, succeeded: MAX_POSTED_DOCUMENTS_PER_REQUEST, failed: 0, results: [] } }))
+it('stops at a refused batch and reports the committed batches, their failures included, and what was not attempted', async () => {
+  fetch.mockResolvedValueOnce(reply({ data: { total: MAX_POSTED_DOCUMENTS_PER_REQUEST, succeeded: MAX_POSTED_DOCUMENTS_PER_REQUEST - 1, failed: 1,
+    results: [{ invoiceId: ids[0]!, ok: false, error: 'Synthetic earlier refusal' }] } }))
     .mockResolvedValueOnce(reply({ error: { message: 'Another change to this company is in progress. Please retry shortly.' } }, false));
   const { onError, onComplete } = mount();
   fireEvent.click(screen.getByRole('button', { name: 'Approve' }));
   await waitFor(() => expect(onComplete).toHaveBeenCalledTimes(1));
   expect(fetch).toHaveBeenCalledTimes(2);
   expect(onError).toHaveBeenLastCalledWith(
-    `Another change to this company is in progress. Please retry shortly. (the first ${MAX_POSTED_DOCUMENTS_PER_REQUEST} were already processed)`);
+    `Another change to this company is in progress. Please retry shortly. — stopped after ${MAX_POSTED_DOCUMENTS_PER_REQUEST} of ${ids.length}: `
+    + `${MAX_POSTED_DOCUMENTS_PER_REQUEST - 1} succeeded, 1 failed (Synthetic earlier refusal); the remaining ${ids.length - MAX_POSTED_DOCUMENTS_PER_REQUEST} were not attempted`);
 });

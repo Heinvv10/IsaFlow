@@ -53,8 +53,11 @@ export function BulkActionBar({
         });
         const json = await res.json();
         if (!res.ok) {
+          // Earlier batches are committed: say what happened to them, including their per-item failures.
           const reason = json?.error?.message || json?.message || `${action} failed`;
-          onError(start === 0 ? reason : `${reason} (the first ${start} were already processed)`);
+          const firstError = data.results.find((r) => !r.ok)?.error;
+          onError(start === 0 ? reason : `${reason} — stopped after ${start} of ${ids.length}: ${data.succeeded} succeeded, ${data.failed} failed`
+            + `${firstError ? ` (${firstError})` : ''}; the remaining ${ids.length - start} were not attempted`);
           await onComplete();
           return;
         }
