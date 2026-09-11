@@ -78,6 +78,10 @@ export function reasonForStatus(status: string): string {
  * passed a fixture and let the #261 batch through.
  */
 export function skipReasonFor(state: BankTransactionAllocationState): string | null {
+  // First: a non-posted feed row is refused by allocateTransaction mid-batch,
+  // which would unwind every good line beside it (A-4).
+  if (state.feedState === 'pending') return 'pending at the bank';
+  if (state.feedState === 'removed') return 'removed by the bank';
   if (state.status === 'imported' && state.matchedJournalLineId === null) return null;
   if (state.matchedJournalLineId !== null) {
     // An excluded row that ALSO carries a journal is a contradiction someone
