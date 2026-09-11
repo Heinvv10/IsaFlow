@@ -90,3 +90,23 @@ export async function provisionForensicFixture(config: FixtureConfig): Promise<F
     return fixture;
   } finally { await pool.end(); }
 }
+
+/** The open period for "today" must be derived from the DB clock, never a literal — a fixed-date
+ * fixture period (e.g. September 2026) stops covering "today" the moment the calendar moves past
+ * it. Reuses any period that already covers today (including a fixed-date fixture period, most of
+ * the time) and only inserts a new one when nothing does, to avoid colliding with the no-overlap
+ * exclusion constraint (migration 502) or a duplicate (company, fiscal_year, period_number). */
+export async function ensureOpenPeriodForToday(pool: Pool, companyId: string, label: string): Promise<string> {
+  const { rows: [clock] } = await pool.query<{ day: string }>(
+    "SELECT (clock_timestamp() AT TIME ZONE 'Africa/Johannesburg')::date::text AS day");
+  const today = clock!.day;
+  const { rows: [covering] } = await pool.query<{ id: string }>(
+    "SELECT id FROM fiscal_periods WHERE company_id=$1 AND status='open' AND start_date<=$2::date AND end_date>=$2::date",
+    [companyId, today]);
+  if (covering) return covering.id;
+  const id = randomUUID(), date = new Date(`${today}T00:00:00Z`);
+  await pool.query(`INSERT INTO fiscal_periods(id,company_id,period_name,period_number,fiscal_year,start_date,end_date,status)
+    VALUES($1,$2,$3,$4,$5,$6::date,$6::date,'open')`,
+    [id, companyId, label, date.getUTCMonth() + 1, date.getUTCFullYear(), today]);
+  return id;
+}
