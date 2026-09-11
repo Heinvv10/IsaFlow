@@ -47,6 +47,8 @@ export interface BeneficiaryBinding extends EntityVersionRef {
 export interface PolicyBinding {
   policyId: string; policyVersion: number; approverRole: string; mandatory: boolean;
 }
+/** The mandatory import policy's approver role when the company's policy admits owners (migration 686). */
+export const OWNER_OR_ADMIN = 'owner_or_admin';
 export interface OperationBinding extends EntityRef {
   companyId: string;
   operation: ControlOperation;

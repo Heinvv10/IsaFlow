@@ -20,7 +20,7 @@ function detached(args:Record<string,unknown>,company?:string):Record<string,unk
 }
 function ref(input:z.infer<typeof read>){return canonicalOperationRef({operation:input.operation,entityType:input.entity_type,entityId:input.entity_id,
  ...(input.expected_version===undefined?{}:{expectedVersion:input.expected_version}),...(input.reversal_date===undefined?{}:{reversalDate:input.reversal_date})});}
-const requirements:McpTool={name:'approval_requirements',description:'Read current approval requirements for an exact controlled operation. Does not approve or execute it.',scope:null,write:false,
+const requirements:McpTool={name:'approval_requirements',description:'Read current approval requirements for an exact controlled operation. Does not approve or execute it. Each policy names the company role that may approve it; owner_or_admin means a company owner or admin.',scope:null,write:false,
  inputSchema:{type:'object',additionalProperties:false,properties,required:['operation','entity_type','entity_id']},handler:async(args)=>{
   let input;try{input=ref(read.parse(detached(args)));}catch{return toolError('Invalid approval arguments');}
   return ok(await getApprovalRequirements(requireControlTx(),input));

@@ -64,7 +64,7 @@ describe('historical import batch storage: actual PostgreSQL',()=>{
    LEFT JOIN pg_roles r ON r.oid=a.grantee WHERE c.oid=to_regclass($1) AND a.privilege_type IN('UPDATE','DELETE','TRUNCATE')
    AND a.grantee<>c.relowner ORDER BY 1`,[table]);
   expect(rows.map(r=>r.rolname)).toEqual(['migration_admin']);
-  // Including anything inherited through role membership.
+  // Effective privilege as each role's own session holds it (platform_admin is NOINHERIT, so a role it may SET ROLE to is not counted here).
   const effective=await pool.query(`SELECT has_table_privilege('platform_admin',to_regclass($1),'UPDATE,DELETE,TRUNCATE') AS platform,
    has_table_privilege('app_user',to_regclass($1),'UPDATE,DELETE,TRUNCATE') AS app`,[table]);
   expect(effective.rows).toEqual([{platform:false,app:false}]);

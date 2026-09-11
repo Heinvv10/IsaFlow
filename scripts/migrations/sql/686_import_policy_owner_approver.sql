@@ -5,7 +5,10 @@
 -- and new (the seed trigger inserts company_id only, so the default applies).
 ALTER TABLE control_mandatory_import_policies
  ADD COLUMN IF NOT EXISTS owner_may_approve boolean NOT NULL DEFAULT true;
--- The policy is the approval authority; the schema's default privileges left
--- platform_admin able to rewrite it (639 revoked only app_user). The seed
--- trigger is SECURITY DEFINER and needs neither.
-REVOKE UPDATE,DELETE,TRUNCATE ON control_mandatory_import_policies FROM platform_admin;
+-- A mandatory policy is approval authority; the schema's default privileges left
+-- platform_admin able to rewrite or delete every one of them (their migrations
+-- revoked only app_user) — an UPDATE of id voids open approvals, a DELETE blocks
+-- the operation. The seed triggers are SECURITY DEFINER and need neither.
+REVOKE UPDATE,DELETE,TRUNCATE ON control_mandatory_import_policies,control_mandatory_release_policies,
+ control_mandatory_compensation_policies,control_mandatory_statement_policies,control_mandatory_match_override_policies
+ FROM platform_admin;
