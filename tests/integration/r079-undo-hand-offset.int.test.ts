@@ -118,18 +118,22 @@ it('keeps K-071: a hand REVERSAL is alreadyUndone, not an offset', async () => {
  * an unrelated journal on the same account. The user decides.
  */
 it.each([
-  ['a reclass that moves E1 to an account the posting never touched',
+  ['a reclass that moves E1 to an account the posting never touched', {},
     (f: R079Fixture) => [{ glAccountId: f.e1, debit: 0, credit: 60 }, { glAccountId: f.e3, debit: 60, credit: 0 }]],
-  ['a journal that moves E1 back by MORE than was posted',
+  ['a journal that moves E1 back by MORE than was posted', {},
     (f: R079Fixture) => [{ glAccountId: f.e1, debit: 0, credit: 80 }, { glAccountId: f.bankAccount, debit: 80, credit: 0 }]],
-  ['a reclass between the posting\'s own accounts (E1 back, E2 forward)',
+  ['a reclass between the posting\'s own accounts (E1 back, E2 forward)', {},
     (f: R079Fixture) => [{ glAccountId: f.e1, debit: 0, credit: 30 }, { glAccountId: f.e2, debit: 30, credit: 0 }]],
-  ['an unrelated refund entered by hand (Dr bank 25 / Cr E2 25)',
+  // Round 4: a correction posted after the auto-posting but DATED before it
+  // (month-end practice) blocks like any other — the bound is posting time.
+  ['a person reclass posted later but DATED before the posting', { entryDate: '2026-05-10' },
+    (f: R079Fixture) => [{ glAccountId: f.e1, debit: 0, credit: 60 }, { glAccountId: f.e3, debit: 60, credit: 0 }]],
+  ['an unrelated refund entered by hand (Dr bank 25 / Cr E2 25)', {},
     (f: R079Fixture) => [{ glAccountId: f.bankAccount, debit: 25, credit: 0 }, { glAccountId: f.e2, debit: 0, credit: 25 }]],
-] as const)('blocks the undo until the user decides: %s', async (_name, lines) => {
+] as const)('blocks the undo until the user decides: %s', async (_name, opts, lines) => {
   const base = await nets(pool, fx);
   const { line, je, runId } = await seedAutoPostedLine(pool, fx);
-  const journal = await postJournal(pool, fx, [...lines(fx)]);
+  const journal = await postJournal(pool, fx, [...lines(fx)], opts);
   const before = delta(base, await nets(pool, fx));
 
   const res = await undo(runId);
@@ -155,10 +159,6 @@ it.each([
     (f: R079Fixture) => measuredHandOffset(f)],
   ['a later receipt that moves only the BANK back (Dr bank 25 / Cr E3 25)', 'after', {},
     (f: R079Fixture) => [{ glAccountId: f.bankAccount, debit: 25, credit: 0 }, { glAccountId: f.e3, debit: 0, credit: 25 }]],
-  // Round 3: the scan is bounded to journals DATED on or after the posting, so
-  // a correction posted later but backdated before it is not seen (recorded limit).
-  ['a person credit to E1 posted later but DATED before the posting', 'after', { entryDate: '2026-05-10' },
-    (f: R079Fixture) => [{ glAccountId: f.e1, debit: 0, credit: 60 }, { glAccountId: f.e3, debit: 60, credit: 0 }]],
   ['an accrual charging E1 the SAME way as the posting', 'after', {},
     (f: R079Fixture) => [{ glAccountId: f.e1, debit: 30, credit: 0 }, { glAccountId: f.apAccount, debit: 0, credit: 30 }]],
 ] as const)('does not block the undo: %s', async (_name, when, opts, lines) => {

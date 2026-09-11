@@ -39,6 +39,7 @@ const decide = (action: string, runId: string, transactionId: string, offsetJour
 const delta = (a: Record<string, number>, b: Record<string, number>) =>
   Object.fromEntries(Object.keys(a).map((k) => [k, Math.round((b[k]! - a[k]!) * 100) / 100]));
 const ZERO = { e1: 0, e2: 0, e3: 0, bank: 0, vat: 0 };
+const r2 = (n: number) => Math.round(n * 100) / 100;
 
 async function contrasOf(je: string): Promise<number> {
   const { rows } = await pool.query(
@@ -75,11 +76,12 @@ it('a VAT-bearing posting reclassed by hand: the notice says reverse it first, a
     handOffsets: [{
       journalEntryId: reclass.id, netsPostingOut: false, reclass: true,
       // The double correction, before anyone confirms: E1 goes to −86.96.
+      // Real balances: the fixture's earlier tests are in `base`.
       projection: [
-        { accountName: 'K074 Bank', now: -100, afterUndo: 0 },
-        { accountCode: 'R79E1', now: 0, afterUndo: -86.96 },
-        { accountCode: 'R79E3', now: 86.96, afterUndo: 86.96 },
-        { accountCode: 'R79VAT', now: 13.04, afterUndo: 0 },
+        { accountName: 'K074 Bank', now: r2(base.bank! - 100), afterUndo: r2(base.bank!) },
+        { accountCode: 'R79E1', now: r2(base.e1!), afterUndo: r2(base.e1! - 86.96) },
+        { accountCode: 'R79E3', now: r2(base.e3! + 86.96), afterUndo: r2(base.e3! + 86.96) },
+        { accountCode: 'R79VAT', now: r2(base.vat! + 13.04), afterUndo: r2(base.vat!) },
       ],
     }],
   });
@@ -103,10 +105,46 @@ it('the projection is what undo-anyway actually leaves', async () => {
 
   expect((await decide('undoAnyway', runId, line, reclass.id)).body.data).toMatchObject({ outcome: 'reversed' });
 
-  const after = delta(base, await netsWithVat(pool, fx));
-  const byCode = Object.fromEntries(projected.map((p) => [p.accountCode, p.afterUndo]));
-  expect({ e1: after.e1, e3: after.e3, vat: after.vat }).toEqual({ e1: byCode.R79E1, e3: byCode.R79E3, vat: byCode.R79VAT });
-  expect(after).toEqual({ e1: -86.96, e2: 0, e3: 86.96, bank: 0, vat: 0 });
+  const abs = await netsWithVat(pool, fx);
+  const byCode = Object.fromEntries(projected.map((p) => [p.accountCode, r2(p.afterUndo)]));
+  expect({ e1: r2(abs.e1!), e3: r2(abs.e3!), vat: r2(abs.vat!) }).toEqual({ e1: byCode.R79E1, e3: byCode.R79E3, vat: byCode.R79VAT });
+  expect(delta(base, abs)).toEqual({ e1: -86.96, e2: 0, e3: 86.96, bank: 0, vat: 0 });
+}, 60000);
+
+/**
+ * Review r3 MEDIUM-1. With two journals on the posting's accounts, a
+ * posting-plus-one-journal sum showed each dialog hiding one overstatement
+ * (J2's read "E1 60 → 0" while the ledger went 0 → −60). Balances now, and
+ * balances minus the posting after, tell the truth in both dialogs.
+ */
+it('a correction split over two journals: BOTH undo-anyway dialogs show the real balances', async () => {
+  const base = await netsWithVat(pool, fx);
+  const { line, runId } = await seedAutoPostedLine(pool, fx);
+  const j1 = await postJournal(pool, fx, [{ glAccountId: fx.e1, debit: 0, credit: 60 }, { glAccountId: fx.e3, debit: 60, credit: 0 }]);
+  const j2 = await postJournal(pool, fx, [{ glAccountId: fx.e2, debit: 0, credit: 40 }, { glAccountId: fx.e3, debit: 40, credit: 0 }]);
+  // A DRAFT on E1 is not on the books and must not be in either column.
+  await postJournal(pool, fx, [{ glAccountId: fx.e1, debit: 500, credit: 0 }, { glAccountId: fx.e3, debit: 0, credit: 500 }], { draft: true });
+  type Proj = Array<{ accountCode: string; now: number; afterUndo: number }>;
+  const rel = (p: Proj) => Object.fromEntries(p.map((x) => [x.accountCode, {
+    now: r2(x.now - (base as Record<string, number>)[{ R79E1: 'e1', R79E2: 'e2', R79E3: 'e3' }[x.accountCode] ?? 'bank']!),
+    after: r2(x.afterUndo - (base as Record<string, number>)[{ R79E1: 'e1', R79E2: 'e2', R79E3: 'e3' }[x.accountCode] ?? 'bank']!),
+  }]));
+
+  // J1's dialog. E1 and E2 are both at 0 now; after the undo E1 −60 AND E2 −40.
+  const d1 = rel(((await undo(runId)).body.data!.handOffsets as Array<{ journalEntryId: string; projection: Proj }>)[0]!.projection);
+  expect(d1.R79E1).toEqual({ now: 0, after: -60 });
+  expect(d1.R79E2).toEqual({ now: 0, after: -40 });
+  expect(d1.R79E3).toEqual({ now: 100, after: 100 });
+  // Declare J1 unrelated; J2's dialog must say the same about E1, not "60 → 0".
+  const second = (await decide('undoAnyway', runId, line, j1.id)).body.data as { outcome: string; handOffset: { journalEntryId: string; projection: Proj } };
+  expect(second.outcome).toBe('offsetByHand');
+  expect(second.handOffset.journalEntryId).toBe(j2.id);
+  const d2 = rel(second.handOffset.projection);
+  expect(d2.R79E1).toEqual({ now: 0, after: -60 });
+  expect(d2.R79E2).toEqual({ now: 0, after: -40 });
+  // And that is what undo-anyway on J2 leaves.
+  expect((await decide('undoAnyway', runId, line, j2.id)).body.data).toMatchObject({ outcome: 'reversed' });
+  expect(delta(base, await netsWithVat(pool, fx))).toEqual({ e1: -60, e2: -40, e3: 100, bank: 0, vat: 0 });
 }, 60000);
 
 it('a correction split over two journals: reverse each first, then the undo nets to zero', async () => {
