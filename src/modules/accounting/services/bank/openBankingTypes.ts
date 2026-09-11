@@ -44,13 +44,14 @@ export interface BankFeedConnectionInput {
   provider: SupportedProvider;
   accountId?: string;          // FK to bank_accounts.id
   externalAccountId?: string;
-  config?: Record<string, unknown>;
+  config?: { bankId?: string };
 }
 
 export interface BankFeedSyncResult {
   connectionId: string;
   provider: string;
-  logId: string;
+  /** Null for instruction-only providers, which write no sync log. */
+  logId: string | null;
   found: number;
   imported: number;
   duplicate: number;

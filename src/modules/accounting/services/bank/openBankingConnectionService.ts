@@ -79,6 +79,13 @@ export async function createBankFeedConnection(
     throw new Error(`Invalid provider "${input.provider}". Must be one of: manual_csv, extension`);
   }
 
+  // Defence in depth behind the route's strict schema: config holds the
+  // extension's bank id and nothing else — never credentials (A-I1).
+  const extraKeys = Object.keys(input.config ?? {}).filter((k) => k !== 'bankId');
+  if (extraKeys.length > 0) {
+    throw new Error('Unsupported connection config: only bankId may be set');
+  }
+
   // bank_account_id is NOT NULL for extension connections in practice: an
   // extension feed with no target GL account has nowhere to post imported
   // rows. Refuse here rather than surface the raw NOT NULL constraint error.

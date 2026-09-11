@@ -21,7 +21,8 @@ const CreateConnectionSchema = z.object({
   provider: z.enum(['manual_csv', 'extension']),
   accountId: z.string().max(200).optional(),
   externalAccountId: z.string().max(200).optional(),
-  config: z.record(z.string(), z.unknown()).optional(),
+  // Only the extension's bank id. Never free-form: a credential typed here would be stored in JSONB.
+  config: z.object({ bankId: z.enum(['absa']) }).strict().optional(),
 }).strict();
 
 async function handler(req: CompanyAuthedRequest, res: NextApiResponse) {
