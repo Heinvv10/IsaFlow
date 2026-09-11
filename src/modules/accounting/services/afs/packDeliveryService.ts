@@ -6,6 +6,7 @@ import { sendEmail } from '@/modules/accounting/services/core/emailService';
 import { emailLayout } from '@/lib/email-templates';
 import type { PackRecipient, KpiResult } from './afsTypes';
 import { getKpiScorecard } from './afsKpiService';
+import { PackRecipientSchema } from '@/lib/schemas/afs';
 
 type Row = DbRow;
 
@@ -182,7 +183,7 @@ export class PackDeliveryWithheldError extends Error {
  * A pack generated with review SKIPPED carries delivery_withheld_reason until a person signs the
  * document off (afsDocumentTransitions clears it and audits the release).
  */
-export async function deliverPack(documentId: string, companyId: string): Promise<void> {
+export async function deliverPack(documentId: string, companyId: string): Promise<{ skippedRecipients: string[] }> {
   log.info('Delivering management pack', { documentId, companyId }, 'packDeliveryService');
 
   const [doc, config, companyName] = await Promise.all([
@@ -203,9 +204,19 @@ export async function deliverPack(documentId: string, companyId: string): Promis
 
   const period = String(doc.period ?? '');
   const documentStatus = String(doc.status ?? 'draft');
-  const recipients: PackRecipient[] = Array.isArray(config?.recipients)
-    ? (config.recipients as PackRecipient[])
-    : [];
+  // A stored entry that is not {email, role, receives} (the save route refuses one; a row written
+  // any other way need not) is skipped and reported rather than handed to the mailer addressless.
+  const stored: unknown[] = Array.isArray(config?.recipients) ? config.recipients : [];
+  const recipients: PackRecipient[] = [];
+  const skippedRecipients: string[] = [];
+  stored.forEach((entry, i) => {
+    const parsed = PackRecipientSchema.safeParse(entry);
+    if (parsed.success) recipients.push(parsed.data);
+    else skippedRecipients.push(`recipients[${i}] is not an object {email, role, receives}`);
+  });
+  if (skippedRecipients.length > 0) {
+    log.warn('Skipping malformed pack recipients', { documentId, companyId, skippedRecipients }, 'packDeliveryService');
+  }
 
   const scorecard = await getKpiScorecard(companyId, period).catch((err) => {
     log.warn('Failed to load KPIs for email', { documentId, error: String(err) }, 'packDeliveryService');
@@ -231,6 +242,7 @@ export async function deliverPack(documentId: string, companyId: string): Promis
   `;
 
   log.info('Management pack delivery complete', { documentId, companyId, recipientCount: recipients.length }, 'packDeliveryService');
+  return { skippedRecipients };
 }
 
 export async function scheduleDelivery(

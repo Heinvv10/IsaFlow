@@ -46,13 +46,12 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
   log.info('Manual pack delivery triggered', { companyId, packId, status }, 'management-pack-deliver-api');
 
   try {
-    await deliverPack(packId, companyId);
+    const { skippedRecipients } = await deliverPack(packId, companyId);
+    return apiResponse.success(res, { delivered: true, skippedRecipients });
   } catch (err) {
     if (err instanceof PackDeliveryWithheldError) return apiResponse.conflict(res, err.message);
     throw err;
   }
-
-  return apiResponse.success(res, { delivered: true });
 }
 
 export default withAuth(withErrorHandler(withCsrf(handler as never)));

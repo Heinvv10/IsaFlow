@@ -28,7 +28,7 @@ Invoked by `withCompany`-wrapped API routes in `pages/api/accounting/afs/*` and 
 - `getCashFlowDirect(companyId, yearStart, yearEnd)` — direct-method cash flow.
 - `runComplianceCheck(companyId, documentId)` — IFRS structural/math/disclosure.
 - `createMagicLink(contactId, documentId): Promise<{ token }>` / `verifyMagicLink(token)` — single-use, 30-min expiry, atomic consume.
-- `deliverPack(documentId, companyId)` / `scheduleDelivery(companyId, documentId, config)`.
+- `deliverPack(documentId, companyId) → { skippedRecipients }` (a stored recipients entry that is not `{email, role, receives}` is skipped and named, never sent addressless) / `scheduleDelivery(companyId, documentId, config)`.
 
 ## Business rules
 - Section order and keys are fixed in `reportTemplates` / `noteTemplateRegistry`. Add new notes via `noteGenerators/` + registry entry.
