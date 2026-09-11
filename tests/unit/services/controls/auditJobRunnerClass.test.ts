@@ -14,16 +14,19 @@ beforeEach(()=>{
  vi.mocked(withAuditWorkerTransaction).mockReset().mockImplementation(async(_pool,_identity,isolation,deadlineAt,_signal,work,limits)=>{
   calls.push({deadlineAt,limits,isolation});
   if(calls.length===1)return work({client:{} as never,userId:identity.personId,companyId:identity.companyId,claims:{}});
-  if(calls.length===2)throw new Error('Synthetic work failure');
+  // The authority pin is its own short transaction between the claim and the work (a synthetic pin stands in).
+  if(calls.length===2)return Object.freeze({jobId:identity.jobId});
+  if(calls.length===3)throw new Error('Synthetic work failure');
   return work({client:{} as never,userId:identity.personId,companyId:identity.companyId,claims:{}});
  });
 });
-it('bounds the claim separately and gives only the work transaction the class deadline',async()=>{
+it('bounds the claim and the authority pin separately and gives only the work transaction the class deadline',async()=>{
  for(const [workerClass,workMs,idle] of [['check_run',300000,15000],['audit',60000,null]] as const){
   calls=[];const before=Date.now();
   expect(await runAuditJob(identity,{pool,workerClass})).toMatchObject({state:'failed',code:'WORKER_ERROR',failureRecorded:true});
-  const after=Date.now(),[claim,work,failure]=calls;
+  const after=Date.now(),[claim,pin,work,failure]=calls;
   expect(claim!.isolation).toBe('read committed');expect(claim!.deadlineAt).toBeGreaterThanOrEqual(before+5000);expect(claim!.deadlineAt).toBeLessThanOrEqual(after+5000);
+  expect(pin!.isolation).toBe('read committed');expect(pin!.deadlineAt).toBeGreaterThanOrEqual(before+5000);expect(pin!.deadlineAt).toBeLessThanOrEqual(after+5000);
   expect(work!.isolation).toBe('repeatable read');expect(work!.deadlineAt).toBeGreaterThanOrEqual(before+workMs);expect(work!.deadlineAt).toBeLessThanOrEqual(after+workMs);
   expect(failure!.deadlineAt-Date.now()).toBeLessThanOrEqual(5000);
   for(const call of calls)expect(call.limits).toEqual({idleInTransactionMs:idle});
@@ -43,12 +46,13 @@ it('fails closed before any transaction when the worker class is missing or unkn
 it('anchors the work deadline at the parent spawn timestamp while the claim keeps its own bound from now',async()=>{
  const spawnedAt=Date.now()-20000;
  await runAuditJob(identity,{pool,workerClass:'check_run',startedAt:spawnedAt});
- const [claim,work]=calls,now=Date.now();
+ const [claim,pin,work]=calls,now=Date.now();
  expect(work!.deadlineAt).toBe(spawnedAt+300000);
  expect(claim!.deadlineAt).toBeGreaterThan(now+4000);expect(claim!.deadlineAt).toBeLessThanOrEqual(now+5000);
+ expect(pin!.deadlineAt).toBeGreaterThan(now+4000);expect(pin!.deadlineAt).toBeLessThanOrEqual(now+5000);
  calls=[];const late=Date.now()-299000;
  await runAuditJob(identity,{pool,workerClass:'check_run',startedAt:late});
- expect(calls[0]!.deadlineAt).toBeLessThanOrEqual(late+300000);
+ expect(calls[0]!.deadlineAt).toBeLessThanOrEqual(late+300000);expect(calls[1]!.deadlineAt).toBeLessThanOrEqual(late+300000);
 });
 it('refuses a spawn timestamp that is not an integer in the past',async()=>{
  for(const startedAt of [Date.now()+60000,1.5,Number.NaN])

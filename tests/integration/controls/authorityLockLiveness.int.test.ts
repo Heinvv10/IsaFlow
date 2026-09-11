@@ -95,7 +95,7 @@ it('still serialises an authority change against a check and the action it autho
   resume();await expect(reader).resolves.toBeUndefined();
   // Once the reader has committed, the same change lands immediately.
   await writer.query("INSERT INTO company_user_permissions(company_id,user_id,module_key,can_read) VALUES($1,$2,'reports',false)",[x.f.companyA,x.f.u1.id]);
- }finally{resume();await Promise.allSettled([reader]);writer.release();
+ }finally{resume();await Promise.allSettled([reader]);try{await writer.query('ROLLBACK');}finally{writer.release();}
   await x.pool.query('DELETE FROM company_user_permissions WHERE company_id=$1 AND user_id=$2',[x.f.companyA,x.f.u1.id]);}
 },20000);
 

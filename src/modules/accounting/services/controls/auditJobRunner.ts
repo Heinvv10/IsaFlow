@@ -10,7 +10,7 @@ import {AUDIT_WORKER_CLASS_KINDS,isAuditWorkerClass,type AuditJobKind,type Audit
 import {AUDIT_PROCESS_LIMITS,type AuditClassLimits} from './auditJobProcessContract';
 import {claimAuditJobForWorker,failAuditJobForWorker,type AuditJobLease,type AuditJobErrorCode} from './auditJobLease';
 import {loadStoredAuditJobDelegation} from './auditJobDelegation';
-import {withControlJobRequest,requireControlTx} from './context';
+import {withControlJobRequest,requireControlTx,pinAuditJobAuthority} from './context';
 import {captureAuditSnapshot} from './auditSnapshotCapture';
 import {retainSnapshotEvidence} from './auditSnapshotEvidence';
 import {sealAuditSnapshot} from './auditSnapshotSeal';
@@ -64,6 +64,10 @@ async function executeAuditJob(input:AuditWorkerIdentity,options:{pool?:Pool;sig
   lease=await withAuditWorkerTransaction(pool,identity,'read committed',claimDeadlineAt,signal,store=>claimAuditJobForWorker(store,identity.jobId,kinds),session);
   if(!lease)return{state:'not_claimed'};
   const currentLease=lease;
+  // Authority is resolved and asserted in its own short transaction, after the claim committed: the run executes under
+  // the authority valid when it started and never holds the company authority lock or its principal's rows while it works.
+  const pin=await withAuditWorkerTransaction(pool,identity,'read committed',Math.min(Date.now()+limits.claimDeadlineMs,deadlineAt),signal,
+   store=>pinAuditJobAuthority(store,currentLease),session);
   const result=await withAuditWorkerTransaction(pool,identity,'repeatable read',deadlineAt,signal,store=>withControlJobRequest(store,currentLease,async()=>{
    const ctx=requireControlTx(),saved=await loadStoredAuditJobDelegation(ctx.sql,identity.companyId,identity.personId,currentLease);
    signal.throwIfAborted();
@@ -84,7 +88,7 @@ async function executeAuditJob(input:AuditWorkerIdentity,options:{pool?:Pool;sig
    signal.throwIfAborted();const retained=await retainSnapshotEvidence(ctx,snapshot,saved.request,signal);
    signal.throwIfAborted();const sealed=sealAuditSnapshot(retained.snapshot);signal.throwIfAborted();
    return publishAuditSnapshot(ctx,currentLease,sealed,retained.artifacts,{signal,deadlineAt});
-  }),session);
+  },pin),session);
   return{state:'succeeded',...result};
  }catch(error){
   // Phase A rolled back; the same lease still owns the job, so the limit is published as `unknown` on a fresh
