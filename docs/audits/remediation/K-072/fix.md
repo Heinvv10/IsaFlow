@@ -442,18 +442,25 @@ before the deploy to know whether 672 will abort.
    earliest. The list shows the keeper first. Every other row is surplus.
 3. **A POSTED surplus is REVERSED** — Accounting > General Ledger > the entry > **Reverse** — because its VAT may
    already be in a VAT201 and must be corrected in the period that carries it.
-4. **A DRAFT surplus is deleted by id, with the draft guard** (a draft never reached a VAT201; repo rule: journal lines
-   are only ever deleted when the entry is draft). Lines first, then the entry, in one transaction, for each draft id:
+4. **A DRAFT surplus is deleted by id, fully guarded** (a draft never reached a VAT201; repo rule: journal lines are
+   only ever deleted when the entry is draft). Lines first, then the entry, in one transaction. BOTH statements carry
+   all five guards — the listed ids, the company, `status = 'draft'`, the capture source, not reversed — so an id from
+   another company, a manual journal or a bank-reconciliation draft that is not in the step-1 list deletes nothing:
 
    ```sql
    BEGIN;
    DELETE FROM gl_journal_lines
-    WHERE journal_entry_id = '<draft id>'
-      AND EXISTS (SELECT 1 FROM gl_journal_entries WHERE id = '<draft id>' AND status = 'draft');
+    WHERE journal_entry_id IN ('<draft id>' /* , … */)
+      AND company_id = '<company_id>'
+      AND EXISTS (SELECT 1 FROM gl_journal_entries je
+                   WHERE je.id = gl_journal_lines.journal_entry_id AND je.company_id = '<company_id>'
+                     AND je.status = 'draft' AND je.source = 'auto_expense_receipt' AND je.reversed_at IS NULL);
    DELETE FROM gl_journal_entries
-    WHERE id = '<draft id>' AND status = 'draft';
-   -- The second statement must report DELETE 1. If it reports 0 (not a draft any more) or fails on a foreign key
-   -- (the draft is referenced elsewhere), ROLLBACK and stop.
+    WHERE id IN ('<draft id>' /* , … */)
+      AND company_id = '<company_id>'
+      AND status = 'draft' AND source = 'auto_expense_receipt' AND reversed_at IS NULL;
+   -- The second statement must report DELETE n, n = the number of ids listed. Fewer: ROLLBACK and re-run step 1.
+   -- A foreign-key error (the draft is referenced elsewhere): ROLLBACK and stop.
    COMMIT;
    ```
 
@@ -2921,3 +2928,14 @@ the bill is approved short by the VAT — identical on master; the lead adds it 
 (unit 15, DB 4) · X2 the word alone on its line is no label (unit 3, DB 1 — the column layout) · X3 any `wat` word, prose
 included (unit 5, DB 1 — the prose page). Migration 672's change is comments and a message string only; its SQL logic
 is byte-identical and its behaviour was re-run above, so it takes no mutation.
+
+**LOW-3 (review of `0300a51ab`) — a regression in the in-place procedure, now fixed.** The draft DELETE at step 4
+filtered only on the id and `status = 'draft'`: it had lost the company, capture-source and not-reversed guards that
+`1037fb98c` carried, and the reviewer measured another company's draft, a manual draft and a bank-reconciliation draft
+— none in the step-1 list — each deleted, the last silently clearing a bank transaction's `provisional_je_id`. Both
+statements (lines, then entry) now carry all five guards — the listed ids, `company_id`, `status = 'draft'`,
+`source = 'auto_expense_receipt'`, `reversed_at IS NULL` — in BEGIN/COMMIT with the row-count check, in fix.md and in
+672's comment alike (672's SQL logic re-proved byte-identical). **Re-run on scratch copies of the fixture** (dropped
+after): another company's draft, a manual draft and a bank-reconciliation draft each give `DELETE 0` on BOTH
+statements and keep their lines; the bank transaction's `provisional_je_id` stays set; the listed surplus draft gives
+`DELETE 2` (lines) and `DELETE 1` (entry), and 672 then applies.
