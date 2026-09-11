@@ -26,8 +26,8 @@ vi.mock('@/lib/auth', () => ({
   withWriteAccess: (fn: unknown) => fn,
 }));
 // The capture posting routes now read the event through
-// `captureEventLock.lockCaptureEventForPosting`, which takes a `FOR UPDATE`
-// row lock and refuses to run outside a request transaction. These tests drive
+// `captureRowLock.lockCaptureEventForPosting`, which takes `FOR UPDATE` row
+// locks and refuses to run outside a request transaction. These tests drive
 // the handler directly, with no `withAuth`, so stand in a client whose only job
 // is to accept the `SET LOCAL lock_timeout`. The SELECT itself still reaches
 // sqlMock, so the stubbing below is unchanged.
@@ -128,6 +128,11 @@ function stubDb(supplierVat: string | null = SUPPLIER_VAT) {
         event_id: EVENT_ID, event_status: 'extracted', captured_document_id: DOC_ID,
         extracted_data: { vendorName: 'ACME', vendorVatNumber: DOCUMENT_VAT },
       }]);
+    }
+    // K-072: the route CLAIMS the document (`UPDATE ... WHERE posted_at IS
+    // NULL RETURNING id`) before the INSERT, and refuses when it matches no row.
+    if (text.includes('UPDATE captured_documents') && text.includes('posted_at IS NULL')) {
+      return Promise.resolve([{ id: DOC_ID }]);
     }
     if (text.includes('FROM suppliers')) {
       return Promise.resolve([{ id: SUPPLIER_ID, name: 'ACME', vat_number: supplierVat }]);

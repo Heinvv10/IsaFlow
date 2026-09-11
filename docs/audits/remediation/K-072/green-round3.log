@@ -1,0 +1,33 @@
+=== round-3 gate (all nine r2 findings) — 2026-09-09T22:13:31+02:00 ===
+--- unit: the four K-072/075/076 files ---
+ Test Files  4 passed (4)
+      Tests  75 passed (75)
+--- integration: real disposable Postgres ---
+ Test Files  1 passed (1)
+      Tests  6 passed (6)
+ Test Files  1 passed (1)
+      Tests  4 passed (4)
+
+--- FULL unit suite, fixture env UNSET ---
+ Test Files  796 passed | 36 skipped (832)
+      Tests  9513 passed | 234 skipped (9747)
+--- tsc --noEmit ---
+clean
+--- eslint (6 changed source files) ---
+clean
+--- vat guard coverage ---
+[vat-guard] OK — 1910 files scanned, 14 attended/no-claim paths allowlisted.
+--- agent-docs ---
+OK: 74 agent document mirror(s) match canonical sources.
+
+--- MUTATION PROOF (each production change reverted in turn, then restored) ---
+1 NOT_A_SUBTOTAL back to `(?<!Sub[-\s])`      -> k076: 5 failed / 36 passed
+2 `Tax` form moved back above the bare VAT    -> k076: 1 failed / 40 passed
+3 NOT_A_TOTAL_LABEL emptied                   -> k076: 2 failed / 41 passed
+4 AMOUNT trailing `(?![\d.,]*\d)` removed     -> k076: 3 failed / 40 passed
+5 SUBTOTAL grammar back to `Sub\s*[-\s]?Total`-> k076: 1 failed / 42 passed
+6 denied leg back to no vatType               -> k072 unit 1 failed/12; k072 int 1 failed/5
+7 employee-branch denial removed              -> post-expense int: 1 failed / 3 passed
+8 petty-cash balance pre-check removed        -> post-expense int: 1 failed / 3 passed
+9 receipt-to-journal idempotency guard removed-> k072 int: 1 failed / 5 passed
+All nine restored; suites green above.

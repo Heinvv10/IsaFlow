@@ -20,6 +20,7 @@ import {
   withReversalTransaction,
 } from './journalEntryReversalClaim';
 import { resolveReversalDate, ReversalPeriodError } from './journalEntryReversalDate';
+import { releaseCapturedDocumentPostingClaim } from '../capture/capturePostingClaimRelease';
 
 // Re-exported: the MCP reverse tool and journalEntryService import them from here.
 export { resolveReversalDate, ReversalPeriodError };
@@ -27,64 +28,15 @@ export type { ReversalEntry } from './reversalLines';
 
 type Row = DbRow;
 
-/**
- * Thrown when a journal entry cannot be posted because its target fiscal
- * period is not open. Lets callers (e.g. bank-rules auto-post) match on
- * `instanceof` instead of regexing the message, so future wording tweaks
- * don't silently change the swallow/re-throw boundary.
- */
-export class ClosedFiscalPeriodError extends Error {
-  readonly periodStatus: string;
-  constructor(periodStatus: string) {
-    super(`Cannot post to ${periodStatus} fiscal period`);
-    this.name = 'ClosedFiscalPeriodError';
-    this.periodStatus = periodStatus;
-  }
-}
+import {
+  ClosedFiscalPeriodError,
+  InactiveAccountError,
+  assertNoInactiveAccountLines,
+} from './journalEntryPostingGuards';
 
-/**
- * Thrown when an entry targets a GL account that has been deactivated.
- * Carries the offending account codes so a caller can act on them, and is
- * `instanceof`-matchable for the same reason ClosedFiscalPeriodError is:
- * automated posters decide swallow-vs-re-throw on the class, not the wording.
- */
-export class InactiveAccountError extends Error {
-  readonly accounts: string[];
-  constructor(accounts: { code: string; name: string }[]) {
-    const listed = accounts.map((a) => `${a.code} ${a.name}`).join(', ');
-    super(
-      `Cannot post to deactivated GL account${accounts.length === 1 ? '' : 's'}: ${listed}. ` +
-        `Reactivate the account, or recode the line to an active one.`,
-    );
-    this.name = 'InactiveAccountError';
-    this.accounts = accounts.map((a) => a.code);
-  }
-}
-
-/**
- * Refuse if any line of `entryId` targets a deactivated GL account.
- *
- * Exported because two paths post with a direct UPDATE instead of calling
- * postJournalEntry, and both must still enforce this. postJournalEntry is the
- * canonical posting path; anything calling this directly is diverging from it
- * and should say why.
- */
-export async function assertNoInactiveAccountLines(companyId: string, entryId: string): Promise<void> {
-  const inactiveRows = (await sql`
-    SELECT DISTINCT ga.account_code, ga.account_name
-    FROM gl_journal_lines jl
-    JOIN gl_accounts ga ON ga.id = jl.gl_account_id AND ga.company_id = jl.company_id
-    WHERE jl.journal_entry_id = ${entryId}
-      AND jl.company_id = ${companyId}::UUID
-      AND ga.is_active = false
-    ORDER BY ga.account_code
-  `) as Row[];
-  if (inactiveRows.length > 0) {
-    throw new InactiveAccountError(
-      inactiveRows.map((r) => ({ code: String(r.account_code), name: String(r.account_name) })),
-    );
-  }
-}
+// Defined in `journalEntryPostingGuards.ts`; re-exported because every caller
+// — and every test that mocks this module — reaches them through here.
+export { ClosedFiscalPeriodError, InactiveAccountError, assertNoInactiveAccountLines };
 
 export async function postJournalEntry(companyId: string, id: string, userId: string): Promise<JournalEntry> {
   try {
@@ -287,7 +239,12 @@ export async function reverseJournalEntry(
       throw err;
     }
 
-    log.info('Reversed journal entry', { originalId: id, reversalId: reversalEntry.id }, 'accounting');
+    // A reversed capture journal releases its document's posting claim, so "Reverse the journal
+    // first" works; the helper still refuses while another live journal or invoice references it.
+    const claimReleased = entry.sourceDocumentId
+      ? await releaseCapturedDocumentPostingClaim(companyId, entry.sourceDocumentId) : false;
+    log.info('Reversed journal entry',
+      { originalId: id, reversalId: reversalEntry.id, claimReleased }, 'accounting');
     // The count rides on the returned entry so every caller — the REST action
     // route passes this straight through — can tell the operator that the
     // contra is not tag-for-tag identical to what it reverses.
