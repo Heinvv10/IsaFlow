@@ -11280,7 +11280,7 @@
       "severityRationale": "A customer can receive a statement showing an unissued draft invoice as owed, and the statement disagrees with the ageing the business reconciles to. Customer-facing, so the fix changes what customers receive: that is Hein's decision, not an engineering one.",
       "auditedSha": "",
       "currentSha": "",
-      "status": "confirmed",
+      "status": "fixed",
       "dependencies": [
         "R-059"
       ],
@@ -11288,13 +11288,13 @@
       "evidencePaths": [
         "docs/audits/remediation/R-059/fix.md"
       ],
-      "fixCommit": null,
-      "pr": null,
-      "deployedSha": null,
+      "fixCommit": "5a6a27ef1",
+      "pr": "428",
+      "deployedSha": "2f3e7e293",
       "historicalDataImpact": "Unknown; production not measured. Count statements sent while the customer had draft invoices.",
       "canonicalItem": null,
       "reportedSeverity": "",
-      "branch": null,
+      "branch": "fix/audit-r082-statements-exclude-drafts",
       "title": "Customer and supplier statements claim the ageing's document population but still count draft invoices; the customer statement is emailed to customers",
       "severity": "medium",
       "source": "Found by the R-059 round-6 fixer during a census by claim; left unrouted deliberately.",
@@ -11742,7 +11742,7 @@
       "severityRationale": "Customer-facing and automatic: a customer receives an overdue-payment reminder for an invoice that was never issued to them. A brand and trust risk on every tenant using dunning. No ledger data is wrong.",
       "auditedSha": "",
       "currentSha": "",
-      "status": "confirmed",
+      "status": "fixed",
       "dependencies": [
         "R-082",
         "R-059"
@@ -11751,13 +11751,13 @@
       "evidencePaths": [
         "docs/audits/remediation/R-082/fix.md"
       ],
-      "fixCommit": null,
-      "pr": null,
-      "deployedSha": null,
+      "fixCommit": "5a6a27ef1",
+      "pr": "428",
+      "deployedSha": "2f3e7e293",
       "historicalDataImpact": "Unknown; production not measured. Count dunning sends whose invoice was in draft at send time (dunning send log joined to customer_invoices).",
       "canonicalItem": null,
       "reportedSeverity": "",
-      "branch": null,
+      "branch": "fix/audit-r082-statements-exclude-drafts",
       "title": "The dunning cron sends payment reminders to customers for DRAFT invoices: its candidate query filters status NOT IN ('cancelled','paid') only",
       "severity": "high",
       "source": "Measured by the R-082 blind reviewer: the cron passed a draft invoice to sendDunning. Confirmed on origin/master by the orchestrating session: dunningCronService.ts candidate query `ci.status NOT IN ('cancelled', 'paid')`.",
