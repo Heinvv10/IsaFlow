@@ -22,14 +22,19 @@ async function importRow(company:string,requester:string,authMethod:'platform_im
   VALUES($1,$2,$3,$4,$5,'sage',$6,'customer_invoice','post_journal','2023-02-28','ZAR',1,'{}'::jsonb,$7)`,[company,id,requester,source,authMethod,`batch-schema:${id}`,hex()]);
  return id;
 }
-async function batchRow(company:string,requester:string){
- const id=randomUUID();
- await pool.query(`INSERT INTO control_historical_import_batches(company_id,id,requester_person_id,requester_auth_method,manifest_envelope,manifest_hash,member_count)
-  VALUES($1,$2,$3,'platform_import','{}'::jsonb,$4,1)`,[company,id,requester,hex()]);
- return id;
-}
-const member=(company:string,batch:string,importId:string,position=1)=>pool.query(`INSERT INTO control_historical_import_batch_members(company_id,batch_id,import_id,position,member_fingerprint)
+const insertBatch=(c:PoolClient,company:string,requester:string,id:string,count:number)=>c.query(`INSERT INTO control_historical_import_batches(company_id,id,requester_person_id,requester_auth_method,manifest_envelope,manifest_hash,member_count)
+ VALUES($1,$2,$3,'platform_import','{}'::jsonb,$4,$5)`,[company,id,requester,hex(),count]);
+const insertMember=(c:PoolClient|Pool,company:string,batch:string,importId:string,position:number)=>c.query(`INSERT INTO control_historical_import_batch_members(company_id,batch_id,import_id,position,member_fingerprint)
  VALUES($1,$2,$3,$4,$5)`,[company,batch,importId,position,hex()]);
+/** Batch and members in one transaction, as the kernel will write them; resolves to the batch id once committed. */
+async function batch(company:string,requester:string,members:Array<{company?:string;importId:string}>,count=members.length){
+ const client=await pool.connect(),id=randomUUID();
+ try{
+  await client.query('BEGIN');await insertBatch(client,company,requester,id,count);
+  for(const [index,m] of members.entries())await insertMember(client,m.company??company,id,m.importId,index+1);
+  await client.query('COMMIT');return id;
+ }catch(error){await client.query('ROLLBACK');throw error;}finally{client.release();}
+}
 async function as<T>(role:'app_user'|'platform_admin',claims:Record<string,unknown>,company:string|null,fn:(c:PoolClient)=>Promise<T>){
  const client=await pool.connect();
  try{
@@ -38,42 +43,85 @@ async function as<T>(role:'app_user'|'platform_admin',claims:Record<string,unkno
   return await fn(client);
  }finally{await client.query('ROLLBACK');client.release();}
 }
+async function approval(entityType:string,operation:string,entityId:string,requester:string){
+ const id=randomUUID();
+ await pool.query(`INSERT INTO control_operation_approvals(id,company_id,operation_id,operation,entity_type,entity_id,requester_person_id,requester_auth_method,binding,binding_hash,status,expires_at)
+  VALUES($1,$2,$3,$4,$5,$6,$7,'platform_import','{}'::jsonb,$8,'pending',clock_timestamp()+interval '1 day')`,[id,f.companyA,randomUUID(),operation,entityType,entityId,requester,hex()]);
+ return id;
+}
 
 describe('historical import batch storage: actual PostgreSQL',()=>{
- it.each(['control_historical_import_batches','control_historical_import_batch_members'])('%s is forced-RLS, tenant-readable and immutable to both roles',async table=>{
+ it.each(['control_historical_import_batches','control_historical_import_batch_members'])('%s is forced-RLS, tenant-readable and append-only',async table=>{
   const {rows}=await pool.query(`SELECT relrowsecurity,relforcerowsecurity,
    has_table_privilege('app_user',oid,'SELECT') AS app_read,has_table_privilege('app_user',oid,'INSERT,UPDATE,DELETE,TRUNCATE') AS app_write,
-   has_table_privilege('platform_admin',oid,'INSERT') AS platform_insert,has_table_privilege('platform_admin',oid,'UPDATE,DELETE,TRUNCATE') AS platform_mutate
+   has_table_privilege('platform_admin',oid,'INSERT') AS platform_insert
    FROM pg_class WHERE oid=to_regclass($1)`,[table]);
-  expect(rows).toEqual([{relrowsecurity:true,relforcerowsecurity:true,app_read:true,app_write:false,platform_insert:true,platform_mutate:false}]);
+  expect(rows).toEqual([{relrowsecurity:true,relforcerowsecurity:true,app_read:true,app_write:false,platform_insert:true}]);
  });
- it('lets a tenant member read only its own company batches',async()=>{
-  const a=await batchRow(f.companyA,admin),b=await batchRow(f.companyB,admin);
-  const seen=await as('app_user',{sub:f.u1.id,company_id:f.companyA,role:'authenticated'},f.companyA,
-   async c=>(await c.query('SELECT id FROM control_historical_import_batches WHERE id=ANY($1)',[[a,b]])).rows.map(r=>r.id));
-  expect(seen).toEqual([a]);
+ it.each(['control_historical_import_batches','control_historical_import_batch_members','control_historical_imports','control_historical_import_sources'])(
+  'grants UPDATE/DELETE/TRUNCATE on %s to no role but its owner and migration_admin',async table=>{
+  const {rows}=await pool.query(`SELECT DISTINCT r.rolname FROM pg_class c CROSS JOIN LATERAL aclexplode(c.relacl) a
+   JOIN pg_roles r ON r.oid=a.grantee WHERE c.oid=to_regclass($1) AND a.privilege_type IN('UPDATE','DELETE','TRUNCATE')
+   AND a.grantee<>c.relowner ORDER BY 1`,[table]);
+  expect(rows.map(r=>r.rolname)).toEqual(['migration_admin']);
  });
- it('admits only members prepared by the batch requester on the platform-import path',async()=>{
-  const batch=await batchRow(f.companyA,admin);
-  await expect(member(f.companyA,batch,await importRow(f.companyA,otherAdmin))).rejects.toThrow(/requester/i);
-  await expect(member(f.companyA,batch,await importRow(f.companyA,f.u1.id,'cookie'))).rejects.toThrow(/requester/i);
-  // Another tenant's import can never join: the batch does not exist in that tenant.
-  await expect(member(f.companyB,batch,await importRow(f.companyB,admin))).rejects.toThrow(/requester/i);
-  await expect(member(f.companyA,batch,await importRow(f.companyA,admin))).resolves.toMatchObject({rowCount:1});
+ it('lets a tenant member read only its own company batches and members',async()=>{
+  const importA=await importRow(f.companyA,admin),importB=await importRow(f.companyB,admin);
+  const a=await batch(f.companyA,admin,[{importId:importA}]),b=await batch(f.companyB,admin,[{importId:importB}]);
+  const seen=await as('app_user',{sub:f.u1.id,company_id:f.companyA,role:'authenticated'},f.companyA,async c=>({
+   batches:(await c.query('SELECT id FROM control_historical_import_batches WHERE id=ANY($1)',[[a,b]])).rows.map(r=>r.id),
+   members:(await c.query('SELECT batch_id FROM control_historical_import_batch_members WHERE batch_id=ANY($1)',[[a,b]])).rows.map(r=>r.batch_id)}));
+  expect(seen).toEqual({batches:[a],members:[a]});
+ });
+ it('admits only members prepared by the batch requester on the platform-import path, in the batch tenant',async()=>{
+  await expect(batch(f.companyA,admin,[{importId:await importRow(f.companyA,otherAdmin)}])).rejects.toThrow(/requester/i);
+  await expect(batch(f.companyA,admin,[{importId:await importRow(f.companyA,admin,'cookie')}])).rejects.toThrow(/requester/i);
+  await expect(batch(f.companyA,admin,[{company:f.companyB,importId:await importRow(f.companyB,admin)}])).rejects.toThrow(/requester/i);
+  await expect(batch(f.companyA,admin,[{importId:await importRow(f.companyA,admin)}])).resolves.toMatch(/^[0-9a-f-]{36}$/);
+ });
+ it('applies the member guard under the real platform_admin writer role',async()=>{
+  const good=await importRow(f.companyA,admin),bad=await importRow(f.companyA,otherAdmin);
+  for(const [importId,ok] of [[good,true],[bad,false]] as const){
+   const run=as('platform_admin',{sub:admin,role:'authenticated'},f.companyA,async c=>{
+    const id=randomUUID();await insertBatch(c,f.companyA,admin,id,1);await insertMember(c,f.companyA,id,importId,1);
+    await c.query('SET CONSTRAINTS ALL IMMEDIATE');return id;
+   });
+   if(ok)await expect(run).resolves.toBeTruthy();else await expect(run).rejects.toThrow(/requester/i);
+  }
+ });
+ it('freezes the member set at the creating commit',async()=>{
+  const committed=await batch(f.companyA,admin,[{importId:await importRow(f.companyA,admin)}]);
+  await expect(insertMember(pool,f.companyA,committed,await importRow(f.companyA,admin),2)).rejects.toThrow(/declared batch size/i);
+  await expect(insertMember(pool,f.companyA,committed,await importRow(f.companyA,admin),1)).rejects.toMatchObject({code:'23505'});
+  await expect(batch(f.companyA,admin,[{importId:await importRow(f.companyA,admin)}],2)).rejects.toThrow(/exactly its declared members/i);
+  await expect(batch(f.companyA,admin,[],1)).rejects.toThrow(/exactly its declared members/i);
  });
  it('refuses one import in two positions of the same batch',async()=>{
-  const batch=await batchRow(f.companyA,admin),id=await importRow(f.companyA,admin);
-  await member(f.companyA,batch,id,1);
-  await expect(member(f.companyA,batch,id,2)).rejects.toMatchObject({code:'23505'});
+  const id=await importRow(f.companyA,admin);
+  await expect(batch(f.companyA,admin,[{importId:id},{importId:id}])).rejects.toMatchObject({code:'23505'});
  });
- it('resolves the platform requester of a batch approval, and no other super admin',async()=>{
-  const batch=await batchRow(f.companyA,admin),approval=randomUUID();
-  await pool.query(`INSERT INTO control_operation_approvals(id,company_id,operation_id,operation,entity_type,entity_id,requester_person_id,requester_auth_method,binding,binding_hash,status,expires_at)
-   VALUES($1,$2,$3,'historical_import_batch.post','historical_import_batch',$4,$5,'platform_import','{}'::jsonb,$6,'pending',clock_timestamp()+interval '1 day')`,[approval,f.companyA,randomUUID(),batch,admin,hex()]);
-  const call=(person:string)=>as('platform_admin',{sub:person,role:'authenticated'},f.companyA,
-   async c=>(await c.query('SELECT person_id,authority_kind,platform_role,grant_valid FROM public.control_approval_authorities($1,$2)',[f.companyA,approval])).rows);
-  expect(await call(admin)).toEqual([{person_id:admin,authority_kind:'platform_import',platform_role:'super_admin',grant_valid:true}]);
-  await expect(call(otherAdmin)).rejects.toMatchObject({code:'42501'});
+ describe('batch approval authorities',()=>{
+  const call=(approvalId:string,claims:Record<string,unknown>)=>as('platform_admin',claims,f.companyA,
+   async c=>(await c.query('SELECT person_id,authority_kind,platform_role,grant_valid FROM public.control_approval_authorities($1,$2)',[f.companyA,approvalId])).rows);
+  it('resolves the platform requester of its own batch approval',async()=>{
+   const id=await batch(f.companyA,admin,[{importId:await importRow(f.companyA,admin)}]);
+   const own=await approval('historical_import_batch','historical_import_batch.post',id,admin);
+   expect(await call(own,{sub:admin,role:'authenticated'})).toEqual([{person_id:admin,authority_kind:'platform_import',platform_role:'super_admin',grant_valid:true}]);
+  });
+  it('refuses another super admin, another requester\'s batch, a mismatched entity type, no subject and a non-UUID entity',async()=>{
+   const mine=await batch(f.companyA,admin,[{importId:await importRow(f.companyA,admin)}]);
+   const theirs=await batch(f.companyA,otherAdmin,[{importId:await importRow(f.companyA,otherAdmin)}]);
+   const importId=await importRow(f.companyA,admin);
+   const cases=[
+    [await approval('historical_import_batch','historical_import_batch.post',mine,admin),{sub:otherAdmin,role:'authenticated'}],
+    [await approval('historical_import_batch','historical_import_batch.post',theirs,admin),{sub:admin,role:'authenticated'}],
+    [await approval('historical_import','historical_import_batch.post',importId,admin),{sub:admin,role:'authenticated'}],
+    [await approval('historical_import_batch','historical_import.post',importId,admin),{sub:admin,role:'authenticated'}],
+    [await approval('historical_import_batch','historical_import_batch.post',mine,admin),{role:'authenticated'}],
+    [await approval('historical_import_batch','historical_import_batch.post','not-a-uuid',admin),{sub:admin,role:'authenticated'}],
+   ] as const;
+   for(const [approvalId,claims] of cases)await expect(call(approvalId,claims)).rejects.toMatchObject({code:'42501'});
+  });
  });
  it('re-runs migration 685 cleanly',async()=>{
   const migration=await readFile('scripts/migrations/sql/685_historical_import_batches.sql','utf8');
