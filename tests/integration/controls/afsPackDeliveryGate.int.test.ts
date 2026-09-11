@@ -98,6 +98,7 @@ describe('delivering a management pack that skipped review',()=>{
   expect((audit[0]!.changes as {fields:unknown[]}).fields).toEqual([expect.objectContaining({field:'delivery_withheld_reason',new:null})]);
   const res=await deliver(result.documentId);
   expect(res.status,JSON.stringify(res.body)).toBe(200);
+  expect(res.body.data).toMatchObject({delivered:true,sentCount:1,skippedRecipients:[]});
   expect(vi.mocked(sendEmail),'the released pack never reached its recipients').toHaveBeenCalled();
   expect(attached(),'a signed-off pack went out marked as a draft').not.toContain(WATERMARK);
  });

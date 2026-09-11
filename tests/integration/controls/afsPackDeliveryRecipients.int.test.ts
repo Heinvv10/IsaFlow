@@ -47,6 +47,8 @@ describe('delivering a pack whose stored recipients include a malformed entry',(
   expect(res.status,JSON.stringify(res.body)).toBe(200);
   // The actual problem, and the stored address: the operator's own company data, so they can find the entry.
   expect(res.body.data).toMatchObject({skippedRecipients:['recipients[0] (cfo@forensic.invalid): Invalid input: expected object, received string']});
+  // No SMTP is configured here, so the valid recipient's attempt fails too: nothing went out, and the answer says so.
+  expect(res.body.data,'a delivery that sent nothing was reported as delivered').toMatchObject({delivered:false,sentCount:0});
 
   const logged=(await h.pool.query("SELECT recipient_email FROM email_log WHERE company_id=$1 AND subject LIKE '%2033-01%'",[h.f.companyA])).rows.map(r=>r.recipient_email);
   expect(logged,'the valid recipient was never attempted').toEqual(['owner@forensic.invalid']);

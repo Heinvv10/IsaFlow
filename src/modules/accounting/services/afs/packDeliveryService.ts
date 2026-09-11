@@ -149,13 +149,13 @@ async function sendToRecipient(
   html: string,
   pdfBuffer: Buffer | null,
   companyId: string,
-): Promise<void> {
+): Promise<boolean> {
   const { receives } = recipient;
   // Final-tier recipients receive signed packs only: in_review and partner_review are drafts too.
   const isDraft = !SIGNED_STATUSES.has(documentStatus);
 
-  if (receives === 'final' && isDraft) return;
-  if (receives === 'draft' && !isDraft) return;
+  if (receives === 'final' && isDraft) return false;
+  if (receives === 'draft' && !isDraft) return false;
   // 'both' always sends
 
   const attachments =
@@ -180,6 +180,7 @@ async function sendToRecipient(
   } else {
     log.info('Management pack emailed', { recipient: recipient.email }, 'packDeliveryService');
   }
+  return result.success;
 }
 
 // ── Public interface ──────────────────────────────────────────────────────────
@@ -198,7 +199,7 @@ export class PackDeliveryWithheldError extends Error {
  * A pack generated with review SKIPPED carries delivery_withheld_reason until a person signs the
  * document off (afsDocumentTransitions clears it and audits the release).
  */
-export async function deliverPack(documentId: string, companyId: string): Promise<{ skippedRecipients: string[] }> {
+export async function deliverPack(documentId: string, companyId: string): Promise<{ sentCount: number; skippedRecipients: string[] }> {
   log.info('Delivering management pack', { documentId, companyId }, 'packDeliveryService');
 
   const [doc, config, companyName] = await Promise.all([
@@ -246,8 +247,10 @@ export async function deliverPack(documentId: string, companyId: string): Promis
 
   const pdfBuffer = await generatePackPdf(documentId, companyId, documentStatus);
 
+  // Sent means the mailer accepted it: a tier the pack is not for, or a failed send, is not counted.
+  let sentCount = 0;
   for (const recipient of recipients) {
-    await sendToRecipient(recipient, documentStatus, subject, html, pdfBuffer, companyId);
+    if (await sendToRecipient(recipient, documentStatus, subject, html, pdfBuffer, companyId)) sentCount += 1;
   }
 
   await sql`
@@ -256,8 +259,8 @@ export async function deliverPack(documentId: string, companyId: string): Promis
     WHERE id = ${documentId}::UUID AND company_id = ${companyId}::UUID
   `;
 
-  log.info('Management pack delivery complete', { documentId, companyId, recipientCount: recipients.length }, 'packDeliveryService');
-  return { skippedRecipients };
+  log.info('Management pack delivery complete', { documentId, companyId, recipientCount: recipients.length, sentCount }, 'packDeliveryService');
+  return { sentCount, skippedRecipients };
 }
 
 export async function scheduleDelivery(

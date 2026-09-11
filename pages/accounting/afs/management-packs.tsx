@@ -45,8 +45,8 @@ export default function ManagementPacksPage() {
   const [generating, setGenerating] = useState(false);
   const [genPeriod, setGenPeriod] = useState('');
   const [deliveringId, setDeliveringId] = useState('');
-  // Recipients the last delivery skipped (a stored entry that is not {email, role, receives}), as the route reports them.
-  const [notSentTo, setNotSentTo] = useState<string[]>([]);
+  // What the last delivery reported: how many it reached, and the stored entries it skipped.
+  const [delivery, setDelivery] = useState<{ sentCount: number; notSentTo: string[] } | null>(null);
 
   const load = useCallback(async () => {
     setLoading(true); setError('');
@@ -98,14 +98,14 @@ export default function ManagementPacksPage() {
   }
 
   async function handleDeliver(packId: string) {
-    setDeliveringId(packId); setError(''); setNotSentTo([]);
+    setDeliveringId(packId); setError(''); setDelivery(null);
     try {
       const res = await apiFetch(`/api/accounting/afs/management-packs/${packId}/deliver`, {
         method: 'POST', credentials: 'include',
       });
-      const j = await res.json() as { data?: { skippedRecipients?: string[] }; error?: { message?: string } };
+      const j = await res.json() as { data?: { sentCount?: number; skippedRecipients?: string[] }; error?: { message?: string } };
       if (!res.ok) throw new Error(j.error?.message ?? 'Deliver failed');
-      setNotSentTo(j.data?.skippedRecipients ?? []);
+      setDelivery({ sentCount: j.data?.sentCount ?? 0, notSentTo: j.data?.skippedRecipients ?? [] });
       await load();
     } catch (e) { setError(e instanceof Error ? e.message : 'Deliver failed'); }
     finally { setDeliveringId(''); }
@@ -135,10 +135,13 @@ export default function ManagementPacksPage() {
             <AlertCircle className="w-4 h-4 shrink-0" />{error}
           </div>
         )}
-        {notSentTo.length > 0 && (
+        {delivery && (delivery.sentCount === 0 || delivery.notSentTo.length > 0) && (
           <div className="mb-4 flex items-start gap-2 bg-amber-50 border border-amber-200 rounded-lg px-4 py-3 text-sm text-amber-800">
             <AlertCircle className="w-4 h-4 shrink-0 mt-0.5" />
-            <ul>{notSentTo.map(entry => <li key={entry}>Not sent to: {entry}</li>)}</ul>
+            <ul>
+              {delivery.sentCount === 0 && <li>Nothing was sent: the pack reached no recipient.</li>}
+              {delivery.notSentTo.map(entry => <li key={entry}>Not sent to: {entry}</li>)}
+            </ul>
           </div>
         )}
 
