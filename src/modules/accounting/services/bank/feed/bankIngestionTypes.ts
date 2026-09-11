@@ -52,11 +52,11 @@ export type IdentityMode = 'provider' | 'content_hash';
 export type BankIngestionRefusalCode =
   | 'CONNECTION_NOT_FOUND' | 'CONNECTION_INACTIVE' | 'UNSUPPORTED_PROVIDER'
   | 'BANK_ACCOUNT_INVALID' | 'IDENTITY_MODE_MISMATCH' | 'INVALID_TRANSACTION'
-  | 'DUPLICATE_PROVIDER_ID' | 'SYNC_IN_PROGRESS';
+  | 'DUPLICATE_PROVIDER_ID' | 'SYNC_IN_PROGRESS' | 'DAILY_CAP_EXCEEDED';
 
 // `code` is a constructor parameter property, so `readonly code = '` (the
 // MCP typedRefusalReachesAgent census grep) never matches this class. No MCP
-// caller of ingestBankBatch exists today; if one is added, add these 8 codes
+// caller of ingestBankBatch exists today; if one is added, add these 9 codes
 // to REFUSAL_CODES by hand.
 export class BankIngestionRefusal extends Error {
   constructor(readonly code: BankIngestionRefusalCode, message: string, readonly index?: number) {

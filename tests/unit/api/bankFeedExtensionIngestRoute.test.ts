@@ -66,11 +66,12 @@ describe('POST extension-ingest', () => {
       state: 'posted', currency: 'ZAR',
       identity: contentHashIdentity({ transactionDate: '2026-09-02', amount: -50, description: 'ABSA FEE' }),
     });
-    expect(opts).toEqual({ userId: 'u1', sourceLabel: 'extension/absa@1.2.0', bankFormat: 'absa' });
+    expect(opts).toEqual({ userId: 'u1', sourceLabel: 'extension/absa@1.2.0', bankFormat: 'absa', dailyCap: 500 });
 
-    // Both anti-abuse SELECTs and the post-success scraper_version UPDATE
-    // must each carry the request's own company_id.
-    expect(sqlMock.mock.calls.length).toBe(3);
+    // The daily cap is decided by the service under the lease (A-6), so the
+    // route's only SQL is the post-success scraper_version UPDATE, which must
+    // carry the request's own company_id.
+    expect(sqlMock.mock.calls.length).toBe(1);
     for (const call of sqlMock.mock.calls as unknown as Array<[TemplateStringsArray, ...unknown[]]>) {
       expectCompanyScoped(call, 'c1');
     }
@@ -80,6 +81,19 @@ describe('POST extension-ingest', () => {
     ingest.mockRejectedValue(new BankIngestionRefusal('SYNC_IN_PROGRESS', 'A sync for this connection is already running.'));
     const out = await handler(req(), {} as NextApiResponse) as { kind: string };
     expect(out.kind).toBe('409');
+  });
+
+  it('answers 429 with the service message when the daily cap would be exceeded (A-6)', async () => {
+    ingest.mockRejectedValue(new BankIngestionRefusal('DAILY_CAP_EXCEEDED', 'Daily transaction cap of 500 would be exceeded.'));
+    const out = await handler(req(), {} as NextApiResponse) as { kind: string; m: string };
+    expect(out).toEqual({ kind: '429', m: 'Daily transaction cap of 500 would be exceeded.' });
+  });
+
+  it('rejects a valueDate that is not YYYY-MM-DD before ingesting (A-7)', async () => {
+    const bad = { ...body, transactions: [{ ...body.transactions[0], valueDate: 'x'.repeat(300) }] };
+    const out = await handler(req(bad), {} as NextApiResponse) as { kind: string };
+    expect(out.kind).toBe('validation');
+    expect(ingest).not.toHaveBeenCalled();
   });
 
   it('answers 400 for any other refusal so the failed log commits', async () => {

@@ -15,8 +15,9 @@
  * and the bank_feed_connections row; CSRF is not used (cross-origin call
  * from the extension's service worker).
  *
- * Anti-abuse: rate-limited 60 batches/hr/company; daily cap of 500 tx
- * per connection (configurable via bank_feed_connections.daily_tx_cap).
+ * Anti-abuse: rate-limited 60 batches/hr/company here; daily cap of 500 tx
+ * per connection (configurable via bank_feed_connections.daily_tx_cap),
+ * decided by ingestBankBatch under the connection lease.
  */
 
 import type { NextApiResponse } from 'next';
@@ -33,7 +34,7 @@ import { contentHashIdentity } from '@/modules/accounting/services/bank/feed/ban
 
 const TransactionSchema = z.object({
   transactionDate: z.string().regex(/^\d{4}-\d{2}-\d{2}$/),
-  valueDate: z.string().optional(),
+  valueDate: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).optional(),
   amount: z.number().finite(),
   description: z.string().min(1).max(500),
   reference: z.string().max(200).optional(),
@@ -77,29 +78,6 @@ async function handler(req: ExtensionAuthedRequest, res: NextApiResponse) {
     return apiResponse.tooManyRequests(res, 'Rate limit exceeded for extension ingest');
   }
 
-  // Anti-abuse: per-connection daily transaction cap.
-  const capRows = (await sql`
-    SELECT daily_tx_cap FROM bank_feed_connections
-     WHERE id = ${connectionId}::UUID AND company_id = ${companyId}::UUID
-  `) as Array<{ daily_tx_cap: number | null }>;
-  const cap = capRows[0]?.daily_tx_cap ?? DEFAULT_DAILY_TX_CAP;
-  const usedRows = (await sql`
-    SELECT COALESCE(SUM(transactions_imported), 0)::INT AS used
-      FROM bank_feed_sync_logs
-     WHERE connection_id = ${connectionId}::UUID
-       AND company_id = ${companyId}::UUID
-       AND started_at > NOW() - INTERVAL '24 hours'
-  `) as Array<{ used: number }>;
-  const used = Number(usedRows[0]?.used ?? 0);
-  if (used + body.transactions.length > cap) {
-    log.warn(
-      'Extension ingest blocked: daily tx cap exceeded',
-      { connectionId, companyId, cap, used, batchSize: body.transactions.length },
-      'extension-ingest',
-    );
-    return apiResponse.tooManyRequests(res, `Daily transaction cap of ${cap} would be exceeded.`);
-  }
-
   const transactions: NormalizedBankTransaction[] = body.transactions.map((t) => ({
     identity: contentHashIdentity({ transactionDate: t.transactionDate, amount: t.amount, description: t.description }),
     state: 'posted',
@@ -116,7 +94,10 @@ async function handler(req: ExtensionAuthedRequest, res: NextApiResponse) {
     const result = await ingestBankBatch(
       companyId,
       { source: { kind: 'feed', connectionId }, fetchedAt: new Date().toISOString(), transactions },
-      { userId, sourceLabel: `extension/${body.scraperId}@${body.scraperVersion}`, bankFormat: bankId },
+      {
+        userId, sourceLabel: `extension/${body.scraperId}@${body.scraperVersion}`, bankFormat: bankId,
+        dailyCap: DEFAULT_DAILY_TX_CAP,
+      },
     );
     await sql`
       UPDATE bank_feed_connections
@@ -132,9 +113,13 @@ async function handler(req: ExtensionAuthedRequest, res: NextApiResponse) {
     // Refusals are decided before any bank_transactions write and the service
     // has already recorded a failed sync log; a 4xx COMMITs it.
     if (isBankIngestionRefusal(err)) {
-      return err.code === 'SYNC_IN_PROGRESS'
-        ? apiResponse.conflict(res, err.message)
-        : apiResponse.badRequest(res, err.message);
+      if (err.code === 'SYNC_IN_PROGRESS') return apiResponse.conflict(res, err.message);
+      if (err.code === 'DAILY_CAP_EXCEEDED') {
+        log.warn('Extension ingest blocked: daily tx cap exceeded',
+          { connectionId, companyId, batchSize: body.transactions.length }, 'extension-ingest');
+        return apiResponse.tooManyRequests(res, err.message);
+      }
+      return apiResponse.badRequest(res, err.message);
     }
     throw err;
   }

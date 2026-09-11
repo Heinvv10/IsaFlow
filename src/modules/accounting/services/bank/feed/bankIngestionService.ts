@@ -1,8 +1,9 @@
 // src/modules/accounting/services/bank/feed/bankIngestionService.ts
 /**
  * Canonical bank-feed ingestion (spec §1, §2, §6). Order:
- *   lease connection -> validate -> open sync log -> identity-specific persist
- *   -> suggestion-only rules (savepoint) -> close log.
+ *   lease connection -> open sync log -> validate + daily cap -> per-account
+ *   advisory lock -> identity-specific persist -> import batch (only if rows
+ *   were inserted) -> suggestion-only rules (savepoint) -> close log.
  * Every refusal is decided before the first bank_transactions write and is
  * recorded as a failed sync log, which the caller's 4xx COMMITs. Nothing here
  * posts a journal: no applyRules, no auto-post sweep, no transfer auto-link.
@@ -16,8 +17,8 @@ import { decideFeedTransition } from './bankFeedLifecycle';
 import { identityModeFor, validateBatch } from './bankIngestionValidation';
 import {
   applyFeedUpdate, bankAccountIsValid, closeSyncLogFailed, closeSyncLogSuccess, createImportBatch,
-  existingContentHashes, insertFeedRow, leaseConnection, lockExistingByProviderIds, openSyncLog,
-  touchSeen, upsertConflict, type IngestConnection,
+  existingContentHashes, importedInLastDay, insertFeedRow, leaseConnection, lockBankAccountForIngest,
+  lockExistingByProviderIds, openSyncLog, touchSeen, upsertConflict, type IngestConnection,
 } from './bankIngestionPersistence';
 import {
   BankIngestionRefusal, isBankIngestionRefusal, type BankIngestionBatch, type BankIngestionCounts,
@@ -27,7 +28,15 @@ import {
 const emptyCounts = (found: number): BankIngestionCounts =>
   ({ found, inserted: 0, updated: 0, duplicate: 0, pending: 0, removed: 0, conflicts: 0, ignored: 0 });
 
-interface LeasedConnection extends IngestConnection { active: boolean }
+interface LeasedConnection extends IngestConnection { active: boolean; dailyTxCap: number | null }
+
+export interface IngestOptions {
+  userId: string;
+  sourceLabel: string;
+  bankFormat: string | null;
+  /** Rows per connection per 24h. The connection's own `daily_tx_cap` overrides it. Omit for no cap. */
+  dailyCap?: number;
+}
 
 async function acquire(companyId: string, connectionId: string): Promise<LeasedConnection> {
   let row: DbRow | null;
@@ -45,10 +54,11 @@ async function acquire(companyId: string, connectionId: string): Promise<LeasedC
     provider: String(row.provider),
     bankAccountId: String(row.bank_account_id ?? ''),
     active: Boolean(row.is_active) && String(row.status ?? 'active') === 'active',
+    dailyTxCap: row.daily_tx_cap != null ? Number(row.daily_tx_cap) : null,
   };
 }
 
-async function preflight(companyId: string, conn: LeasedConnection, batch: BankIngestionBatch): Promise<void> {
+async function preflight(companyId: string, conn: LeasedConnection, batch: BankIngestionBatch, dailyCap?: number): Promise<void> {
   if (!conn.active) {
     throw new BankIngestionRefusal('CONNECTION_INACTIVE', 'Bank feed connection is not active.');
   }
@@ -56,6 +66,13 @@ async function preflight(companyId: string, conn: LeasedConnection, batch: BankI
     throw new BankIngestionRefusal('BANK_ACCOUNT_INVALID', 'The connection is not linked to an active bank account in this company.');
   }
   validateBatch(batch, identityModeFor(conn.provider));
+  // Under the lease, so two concurrent batches on one connection cannot both pass.
+  if (dailyCap !== undefined) {
+    const cap = conn.dailyTxCap ?? dailyCap;
+    if ((await importedInLastDay(companyId, conn.id)) + batch.transactions.length > cap) {
+      throw new BankIngestionRefusal('DAILY_CAP_EXCEEDED', `Daily transaction cap of ${cap} would be exceeded.`);
+    }
+  }
 }
 
 async function persistProviderRows(companyId: string, conn: IngestConnection, batchId: string, txs: NormalizedBankTransaction[], c: BankIngestionCounts): Promise<void> {
@@ -125,13 +142,13 @@ async function suggest(companyId: string, bankAccountId: string, warnings: strin
 }
 
 export async function ingestBankBatch(
-  companyId: string, batch: BankIngestionBatch, opts: { userId: string; sourceLabel: string; bankFormat: string | null },
+  companyId: string, batch: BankIngestionBatch, opts: IngestOptions,
 ): Promise<BankIngestionResult> {
   const connectionId = batch.source.connectionId;
   const conn = await acquire(companyId, connectionId);
   const logId = await openSyncLog(companyId, conn.id);
   try {
-    await preflight(companyId, conn, batch);
+    await preflight(companyId, conn, batch, opts.dailyCap);
   } catch (err) {
     if (isBankIngestionRefusal(err)) await closeSyncLogFailed(companyId, logId, conn.id, err.code, err.message);
     throw err;
@@ -141,11 +158,16 @@ export async function ingestBankBatch(
   const warnings: string[] = [];
   let importBatchId: string | null = null;
   if (batch.transactions.length > 0) {
-    const statementDate = batch.transactions.map((t) => t.transactionDate).sort().at(-1)!;
-    importBatchId = await createImportBatch(companyId, conn.bankAccountId, statementDate,
-      batch.transactions.length, opts.sourceLabel, opts.bankFormat, opts.userId);
-    if (identityModeFor(conn.provider) === 'provider') await persistProviderRows(companyId, conn, importBatchId, batch.transactions, counts);
-    else await persistContentHashRows(companyId, conn, importBatchId, batch.transactions, counts);
+    await lockBankAccountForIngest(companyId, conn.bankAccountId);
+    const batchId = crypto.randomUUID();
+    if (identityModeFor(conn.provider) === 'provider') await persistProviderRows(companyId, conn, batchId, batch.transactions, counts);
+    else await persistContentHashRows(companyId, conn, batchId, batch.transactions, counts);
+    if (counts.inserted > 0) {
+      const statementDate = batch.transactions.map((t) => t.transactionDate).sort().at(-1)!;
+      await createImportBatch(companyId, batchId, conn.bankAccountId, statementDate,
+        counts.inserted, opts.sourceLabel, opts.bankFormat, opts.userId);
+      importBatchId = batchId;
+    }
   }
 
   const appliedSuggestions = counts.inserted + counts.updated > 0 ? await suggest(companyId, conn.bankAccountId, warnings) : 0;
