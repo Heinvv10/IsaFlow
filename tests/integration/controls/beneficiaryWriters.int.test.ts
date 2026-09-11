@@ -11,6 +11,7 @@ import { mergeEntities } from '../../../src/modules/accounting/services/core/dup
 import { verifyBeneficiaryChange } from '../../../src/modules/accounting/services/controls/beneficiaryService';
 import type { ControlTx } from '../../../src/modules/accounting/services/controls/contracts';
 import supplierHandler from '../../../pages/api/accounting/suppliers-list';
+import { asPerson } from './approvalGuardBypass';
 import mergeHandler from '../../../pages/api/accounting/supplier-merge';
 // Admission is supplied by the real synthetic authenticated transaction below; business handlers are unchanged.
 vi.mock('@/lib/auth',()=>({withAuth:(h:unknown)=>h,withWriteAccess:(h:unknown)=>h}));
@@ -121,10 +122,10 @@ it('bank proposal versus empty merge serializes so only one can change the sourc
 it('an approval source binding blocks merge even before any payment exists',async()=>{
  const source=await legacy(),dest=await legacy();
  const binding={beneficiaries:[],sourceVersions:[{entityType:'supplier',entityId:source,version:1,fingerprint:'synthetic'}]};
- await pool.query(`INSERT INTO control_operation_approvals(company_id,operation_id,operation,entity_type,entity_id,
+ await asPerson(pool,fixture.u1,[[`INSERT INTO control_operation_approvals(company_id,operation_id,operation,entity_type,entity_id,
   requester_person_id,binding,binding_hash,status,expires_at,requester_auth_method)
   VALUES($1,$2,'supplier_payment.process','supplier_payment',$3,$4,$5::jsonb,$6,'pending',clock_timestamp()+interval '1 day','cookie')`,
-  [fixture.companyA,randomUUID(),randomUUID(),fixture.u1.id,JSON.stringify(binding),'a'.repeat(64)]);
+  [fixture.companyA,randomUUID(),randomUUID(),fixture.u1.id,JSON.stringify(binding),'a'.repeat(64)]]]);
  await expect(actor(()=>mergeEntities(fixture.companyA,'supplier',dest,source,fixture.u1.id))).rejects.toThrow('SUPPLIER_MERGE_REQUIRES_REVIEW');
  expect((await stored(source)).deleted_at).toBeNull();
 });

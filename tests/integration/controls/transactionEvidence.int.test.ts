@@ -5,7 +5,7 @@ import {fixtureConfigFromEnv} from '../../../scripts/forensic/fixture-bootstrap'
 import {provisionForensicFixture,validateFixtureTarget,type ForensicFixture} from '../forensic-fixture';
 import {withControlRequest,requireControlTx} from '../../../src/modules/accounting/services/controls/context';
 import {inspectTransactionEvidence} from '../../../src/modules/accounting/services/controls/transactionEvidenceService';
-import {rewriteApprovalUnguarded} from './approvalGuardBypass';
+import {asPerson} from './approvalGuardBypass';
 const config=fixtureConfigFromEnv(process.env),target=validateFixtureTarget(config);
 process.env.DATABASE_URL=target.connectionString;process.env.DATABASE_SSL='disable';
 process.env.ENCRYPTION_KEY='synthetic-evidence-encryption-key';process.env.CONTROL_FINGERPRINT_KEY='synthetic-evidence-fingerprint-key';
@@ -27,8 +27,9 @@ beforeAll(async()=>{
  await pool.query("INSERT INTO captured_documents(id,company_id,file_name,file_type,matched_invoice_id) VALUES($1,$2,'SECRET FILE','pdf',$3)",[ids.captured,c,ids.invoice]);
  await pool.query("INSERT INTO procurement_documents(id,entity_type,entity_id,file_url) VALUES($1,'supplier_payment',$2,'SECRET URL')",[ids.procurement,ids.payment]);
  await pool.query("INSERT INTO bank_transaction_attachments(id,bank_transaction_id,file_url) VALUES($1,$2,'SECRET URL')",[ids.attachment,ids.bank]);
- await pool.query(`INSERT INTO control_operation_approvals(id,company_id,operation_id,operation,entity_type,entity_id,requester_person_id,binding,binding_hash,status,expires_at)
-  VALUES($1,$2,$3,'supplier_payment.process','supplier_payment',$4,$5,'{}','synthetic','pending',NOW()+interval '1 day')`,[ids.approval,c,randomUUID(),ids.payment,u]);
+ // The requester asks for it, as themselves (688).
+ await asPerson(pool,fixture.u1,[[`INSERT INTO control_operation_approvals(id,company_id,operation_id,operation,entity_type,entity_id,requester_person_id,binding,binding_hash,status,expires_at)
+  VALUES($1,$2,$3,'supplier_payment.process','supplier_payment',$4,$5,'{}','synthetic','pending',clock_timestamp()+interval '1 day')`,[ids.approval,c,randomUUID(),ids.payment,u]]]);
 });
 afterAll(async()=>{await pool.end();});
 async function inspect(input:{entityType:string;entityId:string;limit?:number;cursor?:string},foreign=false,pat=false,prepare?:()=>Promise<void>){
@@ -93,18 +94,21 @@ it('dangling captured parent is an explicit unknown gap and does not disclose it
  expect(result.coverage.gaps.some(g=>g.reason==='MISSING_OR_INACCESSIBLE_LINK')).toBe(true);
 });
 it('expands persisted approval source versions and exact-parent decision evidence, reporting invalid refs without exposure',async()=>{
- const invalid=randomUUID(),foreign=randomUUID();
+ const invalid=randomUUID(),foreign=randomUUID(),sourced=randomUUID();
  await pool.query("INSERT INTO captured_documents(id,company_id,file_name,file_type) VALUES($1,$2,'unrelated','pdf')",[invalid,fixture.companyA]);
  await pool.query("INSERT INTO suppliers(id,company_id,name) VALUES($1,$2,'foreign-source')",[foreign,fixture.companyB]);
  const refs=[{entityType:'supplier_payment',entityId:ids.payment,store:'captured',evidenceId:ids.captured,version:null,hash:null},
   {entityType:'supplier_payment',entityId:ids.payment,store:'procurement',evidenceId:ids.procurement,version:null,hash:null},
   {entityType:'supplier_payment',entityId:ids.payment,store:'captured',evidenceId:invalid,version:null,hash:null}];
- await rewriteApprovalUnguarded(pool,"UPDATE control_operation_approvals SET binding=$3::jsonb WHERE company_id=$1 AND id=$2",[fixture.companyA,ids.approval,JSON.stringify({sourceVersions:[
+ // A binding never changes after the request (688), so this approval is born with its sources. The requester asks and
+ // the independent admin decides, each as themselves (688/689); the binding is synthetic.
+ await asPerson(pool,fixture.u1,[[`INSERT INTO control_operation_approvals(id,company_id,operation_id,operation,entity_type,entity_id,requester_person_id,binding,binding_hash,status,expires_at)
+  VALUES($1,$2,$3,'supplier_payment.process','supplier_payment',$4,$5,$6::jsonb,'synthetic','pending',clock_timestamp()+interval '1 day')`,[sourced,fixture.companyA,randomUUID(),ids.payment,fixture.u1.id,JSON.stringify({sourceVersions:[
   {entityType:'supplier_invoice',entityId:ids.invoice,version:1,fingerprint:'not-disclosed'},
   {entityType:'gl_account',entityId:ids.account,version:1,fingerprint:'not-disclosed'},
-  {entityType:'supplier',entityId:foreign,version:1,fingerprint:'not-disclosed'}]})]);
- await pool.query("INSERT INTO control_operation_decisions(company_id,approval_id,policy_id,person_id,decision,evidence_refs) VALUES($1,$2,'synthetic',$3,'approved',$4::jsonb)",[fixture.companyA,ids.approval,fixture.u2.id,JSON.stringify(refs)]);
- const result=await inspect({entityType:'operation_approval',entityId:ids.approval});
+  {entityType:'supplier',entityId:foreign,version:1,fingerprint:'not-disclosed'}],policies:[{policyId:'synthetic',approverRole:'admin'}]})]]]);
+ await asPerson(pool,fixture.u2,[["INSERT INTO control_operation_decisions(company_id,approval_id,policy_id,person_id,decision,evidence_refs) VALUES($1,$2,'synthetic',$3,'approved',$4::jsonb)",[fixture.companyA,sourced,fixture.u2.id,JSON.stringify(refs)]]]);
+ const result=await inspect({entityType:'operation_approval',entityId:sourced});
  expect(result.edges.filter(e=>e.relation==='approval_decision_evidence')).toHaveLength(2);
  expect(result.edges.filter(e=>e.relation==='approval_source_version')).toHaveLength(2);
  expect(result.nodes.some(n=>n.entityId===ids.account)).toBe(true);

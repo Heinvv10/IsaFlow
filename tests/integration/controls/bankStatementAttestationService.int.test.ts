@@ -13,6 +13,7 @@ import {queryVerifiedBankStatements} from '@/modules/accounting/services/control
 import {prepareBankStatementAttestation} from '@/modules/accounting/services/controls/bankStatementAttestationPreparation';
 import {materializeBankStatementAttestation} from '@/modules/accounting/services/controls/bankStatementAttestationMaterial';
 import type {ControlTx} from '@/modules/accounting/services/controls/contracts';
+import {rewriteApprovalUnguarded} from './approvalGuardBypass';
 import {insertCaseVariantReceipt} from './intentReceiptRows';
 const config=fixtureConfigFromEnv(process.env),target=validateFixtureTarget(config);
 const pool=new Pool({connectionString:target.connectionString,ssl:false,max:2});let fixture:ForensicFixture,account:string,document:string,hash:string;
@@ -96,7 +97,7 @@ it.each(['bytes','requester','approver','expiry'] as const)('rejects changed or 
  if(kind==='bytes')capturedStorage().put(fixture.companyA,document,Buffer.from('Changed'));
  if(kind==='requester')await pool.query('UPDATE personal_access_tokens SET revoked_at=clock_timestamp() WHERE id=$1',[fixture.u1.tokens[0]!.id]);
  if(kind==='approver')await pool.query('DELETE FROM company_users WHERE company_id=$1 AND user_id=$2',[fixture.companyA,fixture.u2.id]);
- if(kind==='expiry')await pool.query("UPDATE control_operation_approvals SET expires_at=requested_at+interval '1 microsecond' WHERE company_id=$1 AND id=$2",[fixture.companyA,data.approvalId]);
+ if(kind==='expiry')await rewriteApprovalUnguarded(pool,"UPDATE control_operation_approvals SET expires_at=requested_at+interval '1 microsecond' WHERE company_id=$1 AND id=$2",[fixture.companyA,data.approvalId]);
  await expect(actor(ctx=>executeBankStatementAttestation(ctx,data.intentId,data.approvalId),'u1',0)).rejects.toThrow();
  expect((await pool.query("SELECT id FROM control_operation_effects WHERE company_id=$1 AND entity_id=$2 AND operation='bank_statement.attest'",[fixture.companyA,data.intentId])).rows).toHaveLength(0);
 });
