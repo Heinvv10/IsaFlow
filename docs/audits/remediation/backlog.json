@@ -11574,7 +11574,7 @@
       "sourceLabel": "",
       "sourceIds": [],
       "correctedTrigger": "",
-      "severityRationale": "The draft's total is right, but claimable input VAT is lost to the business and the expense lands on the wrong (entertainment) account. It happens when the draft is built, before any posting-gate or MCP check sees it. Changing the patterns re-codes every receipt, so it needs its own branch and measurement.",
+      "severityRationale": "MEASURED (K-072 round-34 blind review, fixture DB): a Spurway Steel slip read by the VLM AUTO-POSTS through receipt-to-journal, unattended, as Dr 5600 Administrative Expenses 1000 / Cr bank 1000, losing its R130.43 input VAT. This branch introduced the fold (K-072 commit 44d6a34e1); master claims the VAT. It is therefore a regression inside the unmerged K-072 branch, not a master defect.",
       "auditedSha": "",
       "currentSha": "",
       "status": "confirmed",
@@ -11591,11 +11591,11 @@
       "historicalDataImpact": "Unknown; production not measured. Count captured receipts coded to entertainment whose vendor name matched a meals pattern only as a substring of a longer word.",
       "canonicalItem": null,
       "reportedSeverity": "",
-      "branch": null,
+      "branch": "fix/audit-k072-k075-k076-capture-vat-ocr",
       "title": "Receipt builder's MERCHANT_PATTERNS match vendor names by substring, so a non-meals vendor (e.g. 'Spurway Steel') is coded as entertainment and its claimable input VAT is folded into the expense as denied",
-      "severity": "medium",
+      "severity": "high",
       "source": "Disclosed by the K-072 round-34 fixer; the substring match at receiptToJournalService.ts:83 was measured by the round-33 blind reviewer (Spurway Steel, Mr Doors Brits matched as meals).",
-      "processNotes": "Fix: anchor merchant patterns to whole words / known merchant names; measure the re-coding across the capture corpus before and after. Related: K-072 round 34 removed the same substring match from the posting-evidence excuse."
+      "processNotes": "Fix: anchor merchant patterns to whole words / known merchant names; measure the re-coding across the capture corpus before and after. Related: K-072 round 34 removed the same substring match from the posting-evidence excuse.\n\n2026-09-11: being fixed INSIDE K-072 (round 35) because the K-072 branch introduced it; the denied-VAT fold will follow the expense account (input-VAT-denied), never the vendor name. Close this item when K-072 merges."
     }
   ],
   "sourceInventory": [
