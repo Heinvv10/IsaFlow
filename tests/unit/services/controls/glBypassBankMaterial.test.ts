@@ -11,12 +11,13 @@ function context(overrides: Record<string, unknown> = {}) {
   accounts:[{id:'a',account_subtype:'bank',is_active:true},{id:'b',account_subtype:'bank',is_active:true}],
   banks:[{gl_account_id:'a',currency:'ZAR',is_active:true},{gl_account_id:'b',currency:'ZAR',is_active:true}],
   periods:[{id:'period',status:'open'}],...overrides};
- const sql=vi.fn(async (strings:TemplateStringsArray)=>{
+ const sql=vi.fn(async (strings:TemplateStringsArray,...values:unknown[])=>{
   const query=strings.join('?');
   if(query.includes('FROM companies')) return [facts.company];
   if(query.includes('FROM control_bank_transfer_intents')) return [facts.intent];
   if(query.includes('FROM gl_accounts')) return facts.accounts;
-  if(query.includes('FROM bank_accounts')) return facts.banks;
+  // Per account, as the materializer reads them.
+  if(query.includes('FROM bank_accounts')) return (facts.banks as {gl_account_id:string}[]).filter(b=>values.includes(b.gl_account_id));
   if(query.includes('FROM fiscal_periods')) return facts.periods;
   throw new Error('Unexpected SQL');
  });

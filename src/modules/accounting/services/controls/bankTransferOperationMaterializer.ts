@@ -32,8 +32,15 @@ export async function materializeBankTransferOperation(ctx: ControlTx, ref: Oper
   if (!new Decimal(amount).gt(0) || intent.from_gl_account_id === intent.to_gl_account_id) throw new Error('Invalid transfer amount or accounts');
   const ids = [String(intent.from_gl_account_id), String(intent.to_gl_account_id)].sort();
   const accounts = await readTransferAccounts(ctx, companyId, String(intent.from_gl_account_id), String(intent.to_gl_account_id));
-  const banks = await ctx.sql`SELECT id,gl_account_id,currency,is_active FROM bank_accounts
-    WHERE company_id=${companyId}::uuid AND gl_account_id=ANY(${ids}::uuid[]) ORDER BY id LIMIT 3 FOR SHARE` as Row[];
+  // Per account, two rows each (enough to see a duplicate): one query with a shared LIMIT let an account with three
+  // records crowd the other out, and the refusal then said the other had none. Re-sorted by id, the order the single
+  // query returned, so the material — and every approval's binding hash — is unchanged for well-formed accounts.
+  const banks: Row[] = [];
+  for (const glAccountId of ids) {
+    banks.push(...await ctx.sql`SELECT id,gl_account_id,currency,is_active FROM bank_accounts
+      WHERE company_id=${companyId}::uuid AND gl_account_id=${glAccountId}::uuid ORDER BY id LIMIT 2 FOR SHARE` as Row[]);
+  }
+  banks.sort((a, b) => (String(a.id) < String(b.id) ? -1 : String(a.id) > String(b.id) ? 1 : 0));
   if (banks.length !== 2 || new Set(banks.map(b => b.gl_account_id)).size !== 2
     || banks.some(b => !ids.includes(String(b.gl_account_id)) || b.currency !== currency)) {
     throw new BankTransferRefusalError(currencyRefusal(accounts, banks, currency));
