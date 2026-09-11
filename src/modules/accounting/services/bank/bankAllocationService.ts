@@ -23,6 +23,7 @@ import { unwindBankAllocationApplication } from './bankAllocationUnwind';
 import type { BankAllocationUnwindResult } from './bankAllocationUnwind';
 import { lockBankTransactionForUpdate } from './bankTxLock';
 import { BankAllocationRefusal } from './bankAllocationRefusal';
+import { feedStateOf, BankTransactionNotPostedError } from './bankFeedStateGuard';
 import { autoLinkCounterpartyTransfer } from './bankTransferAutoLink';
 import { assertCustomerInCompany } from '../core/contactDirectoryService';
 
@@ -111,6 +112,11 @@ export async function allocateTransaction(
   // row before the first write, and a caller that can show that ordering may
   // answer them with a 4xx instead of the 500 every later throw here needs.
   if (!tx) throw new BankAllocationRefusal(`Bank transaction ${bankTxId} not found`);
+  // A pending/removed feed row carries status 'imported', so the status check
+  // below would let it through. Refused from the locked row, before any write.
+  if (feedStateOf(tx) !== 'posted') {
+    throw new BankAllocationRefusal(new BankTransactionNotPostedError(bankTxId, feedStateOf(tx), 'allocate').message);
+  }
   if (tx.status !== 'imported') {
     throw new BankAllocationRefusal(`Transaction already ${tx.status} — cannot allocate`);
   }
@@ -560,6 +566,11 @@ export async function splitAllocateTransaction(
   // Errors here they would have to be told apart by message text — which is
   // exactly what `BankAllocationRefusal` exists to stop.
   if (!tx) throw new BankAllocationRefusal(`Bank transaction ${bankTxId} not found`);
+  // Same reasoning as allocateTransaction: refused from the locked row, before
+  // any write, because status alone would let a pending/removed row through.
+  if (feedStateOf(tx) !== 'posted') {
+    throw new BankAllocationRefusal(new BankTransactionNotPostedError(bankTxId, feedStateOf(tx), 'split allocate').message);
+  }
   if (tx.status !== 'imported') {
     throw new BankAllocationRefusal(`Transaction already ${tx.status} — cannot split allocate`);
   }

@@ -105,7 +105,7 @@ export const TX_SELECT = `
     bt.id, bt.company_id, bt.bank_account_id,
     bt.transaction_date, bt.value_date,
     bt.amount, bt.description, bt.reference, bt.bank_reference,
-    bt.status, bt.matched_journal_line_id, bt.reconciliation_id,
+    bt.status, bt.feed_state, bt.matched_journal_line_id, bt.reconciliation_id,
     bt.import_batch_id, bt.excluded_reason, bt.notes,
     bt.suggested_gl_account_id, bt.suggested_category,
     bt.suggested_supplier_id, bt.suggested_client_id,
