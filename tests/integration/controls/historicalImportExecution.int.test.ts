@@ -2,7 +2,7 @@ import {afterAll,beforeAll,expect,it} from 'vitest';
 import {randomBytes,randomUUID} from 'node:crypto';
 import {Pool} from 'pg';
 import {fixtureConfigFromEnv} from '../../../scripts/forensic/fixture-bootstrap';
-import {provisionForensicFixture,validateFixtureTarget,type ForensicFixture} from '../forensic-fixture';
+import {provisionForensicFixture,validateFixtureTarget,ensureOpenPeriodForToday,type ForensicFixture} from '../forensic-fixture';
 import {withControlRequest,requireControlTx} from '@/modules/accounting/services/controls/context';
 import {storeHistoricalImportSource,readHistoricalImportSource} from '@/modules/accounting/services/controls/historicalImportSourceService';
 import {prepareHistoricalImport} from '@/modules/accounting/services/controls/historicalImportPreparation';
@@ -41,6 +41,7 @@ beforeAll(async()=>{
  await pool.query("INSERT INTO fiscal_periods(id,company_id,period_name,period_number,fiscal_year,start_date,end_date,status) VALUES($1,$2,'Synthetic historical February',2,2023,'2023-02-01','2023-02-28','closed')",[period,fixture.companyA]);
  await pool.query("INSERT INTO fiscal_periods(company_id,period_name,period_number,fiscal_year,start_date,end_date,status) VALUES($1,'Synthetic historical corrections',3,2023,'2023-03-01','2023-03-31','open')",[fixture.companyA]);
  await pool.query("INSERT INTO fiscal_periods(company_id,period_name,period_number,fiscal_year,start_date,end_date,status) VALUES($1,'Synthetic current corrections',9,2026,'2026-09-01','2026-09-30','open')",[fixture.companyA]);
+ await ensureOpenPeriodForToday(pool,fixture.companyA,'Synthetic historical current');
 });
 afterAll(async()=>{await pool.end();});
 async function prepared(kind:'customer_invoice'|'supplier_invoice'|'gl'|'opening_balance'='customer_invoice'):Promise<OperationRef>{
