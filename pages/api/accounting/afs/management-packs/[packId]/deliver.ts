@@ -46,13 +46,13 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
   log.info('Manual pack delivery triggered', { companyId, packId, status }, 'management-pack-deliver-api');
 
   try {
-    await deliverPack(packId, companyId);
+    // Delivered only if the pack reached someone: skipped entries, tiers it is not for and failed sends do not count.
+    const { sentCount, skippedRecipients, failedRecipients } = await deliverPack(packId, companyId);
+    return apiResponse.success(res, { delivered: sentCount > 0, sentCount, skippedRecipients, failedRecipients });
   } catch (err) {
     if (err instanceof PackDeliveryWithheldError) return apiResponse.conflict(res, err.message);
     throw err;
   }
-
-  return apiResponse.success(res, { delivered: true });
 }
 
 export default withAuth(withErrorHandler(withCsrf(handler as never)));

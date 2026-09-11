@@ -155,3 +155,13 @@ export async function p17() {
   // line starts compiling and the expect-error itself fails the build.
   return r.token;
 }
+
+// 18. The bank-transfers dropdown read `account_name` off the chart-of-accounts list for as long as the
+// page existed, so every option was blank. Once narrowed to the list, the snake_case name is a compile error.
+export async function p18() {
+  const r = await apiJson('/api/accounting/chart-of-accounts?subtype=bank');
+  if (!Array.isArray(r)) return null;
+  const ok: string = r[0]!.accountName; // must compile
+  // @ts-expect-error the service returns camelCase GLAccount rows — `account_name` WAS the live bug
+  return [ok, r[0]!.account_name];
+}

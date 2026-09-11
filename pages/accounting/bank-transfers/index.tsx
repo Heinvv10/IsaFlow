@@ -7,13 +7,10 @@
 import { useState, useEffect, useCallback, useRef } from 'react';
 import { AppLayout } from '@/components/layout/AppLayout';
 import { ArrowLeftRight, Loader2, AlertCircle } from 'lucide-react';
-import { apiFetch } from '@/lib/apiFetch';
+import { apiFetch, apiJson } from '@/lib/apiFetch';
+import type { GLAccount } from '@/modules/accounting/types/gl.types';
 
-interface BankAccount {
-  id: string;
-  account_code: string;
-  account_name: string;
-}
+type BankAccount = Pick<GLAccount, 'id' | 'accountCode' | 'accountName'>;
 interface PreparedTransfer { inputRevision: number; fromLabel: string; toLabel: string; intentId: string; requiresApproval: boolean; amount: string; currency: string; accountingDate: string }
 
 export default function BankTransfersPage() {
@@ -34,10 +31,10 @@ export default function BankTransfersPage() {
   const loadBankAccounts = useCallback(async () => {
     setIsLoading(true);
     try {
-      const res = await apiFetch('/api/accounting/chart-of-accounts?subtype=bank');
-      const json = await res.json();
-      const data = json.data || json;
-      setBankAccounts(data.accounts || []);
+      // Typed by the route registry: the list is GLAccount[] in camelCase.
+      const accounts = await apiJson('/api/accounting/chart-of-accounts?subtype=bank');
+      if (!Array.isArray(accounts)) throw new Error('Chart of accounts did not answer a list');
+      setBankAccounts(accounts);
     } catch {
       setMessage({ type: 'error', text: 'Failed to load bank accounts' });
     } finally {
@@ -53,8 +50,8 @@ export default function BankTransfersPage() {
       return;
     }
     const revision = inputRevision.current;
-    const fromLabel = bankAccounts.find(account => account.id === fromAccount)?.account_name ?? fromAccount;
-    const toLabel = bankAccounts.find(account => account.id === toAccount)?.account_name ?? toAccount;
+    const fromLabel = bankAccounts.find(account => account.id === fromAccount)?.accountName ?? fromAccount;
+    const toLabel = bankAccounts.find(account => account.id === toAccount)?.accountName ?? toAccount;
     setIsSubmitting(true);
     setMessage({ type: '', text: '' });
     try {
@@ -77,7 +74,7 @@ export default function BankTransfersPage() {
         setPrepared({ ...data, inputRevision: revision, fromLabel, toLabel });
         setMessage({ type: 'success', text: data.requiresApproval ? 'Transfer prepared; independent approval required.' : 'Transfer prepared. Review the details before posting.' });
       } else {
-        setMessage({ type: 'error', text: json.message || 'Transfer failed' });
+        setMessage({ type: 'error', text: json.error?.message || json.message || 'Transfer failed' });
       }
     } catch {
       setMessage({ type: 'error', text: 'Transfer request failed' });
@@ -93,7 +90,7 @@ export default function BankTransfersPage() {
       const res = await apiFetch('/api/accounting/bank-transfers', { method: 'POST', headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ action: 'execute', intentId: prepared.intentId, ...(approvalId.trim() ? { approvalId: approvalId.trim() } : {}) }) });
       const json = await res.json();
-      if (!res.ok) { setMessage({ type: 'error', text: json.message || 'Transfer could not be posted' }); return; }
+      if (!res.ok) { setMessage({ type: 'error', text: json.error?.message || json.message || 'Transfer could not be posted' }); return; }
       if (json.data?.status !== 'posted' || !json.data.journalEntryId) throw new Error('Posting outcome unavailable');
       setMessage({ type: 'success', text: `Transfer completed. Journal ${json.data.journalEntryId} posted.` });
       setPrepared(null); setAmount(''); setReference('');
@@ -139,7 +136,7 @@ export default function BankTransfersPage() {
                   >
                     <option value="">Select source account...</option>
                     {bankAccounts.map(a => (
-                      <option key={a.id} value={a.id}>{a.account_code} — {a.account_name}</option>
+                      <option key={a.id} value={a.id}>{a.accountCode} — {a.accountName}</option>
                     ))}
                   </select>
                 </div>
@@ -157,7 +154,7 @@ export default function BankTransfersPage() {
                   >
                     <option value="">Select destination account...</option>
                     {bankAccounts.map(a => (
-                      <option key={a.id} value={a.id}>{a.account_code} — {a.account_name}</option>
+                      <option key={a.id} value={a.id}>{a.accountCode} — {a.accountName}</option>
                     ))}
                   </select>
                 </div>

@@ -14,7 +14,10 @@ export interface CoverContext {
   logoUrl: string | null;
   companyName: string;
   registrationNumber: string;
-  periodEnd: string;
+  /** "Annual Financial Statements" or "Management Accounts" — chosen by the document type. */
+  coverTitle: string;
+  /** The line under the title, e.g. "For the year ended 28 February 2026". */
+  periodLine: string;
   coverPhotoUrl?: string;
 }
 
@@ -35,8 +38,8 @@ function renderClassicCover(ctx: CoverContext): string {
   return `<div class="cover-page cover-classic" style="${bgStyle}">
   <div class="cover-overlay"></div>
   <div class="cover-logo">${logoImg(ctx.logoUrl)}</div>
-  <h1 class="cover-title">Annual Financial Statements</h1>
-  <p class="cover-period">For the year ended ${escapeHtml(ctx.periodEnd)}</p>
+  <h1 class="cover-title">${escapeHtml(ctx.coverTitle)}</h1>
+  <p class="cover-period">${escapeHtml(ctx.periodLine)}</p>
   <p class="cover-company">${escapeHtml(ctx.companyName)}</p>
   <p class="cover-reg">Registration No: ${escapeHtml(ctx.registrationNumber)}</p>
 </div>`;
@@ -50,8 +53,8 @@ function renderModernCover(ctx: CoverContext): string {
   return `<div class="cover-page cover-modern">
   <div class="cover-panel" style="background:${escapeAttr(ctx.primaryColour)}">
     <div class="cover-logo">${logoImg(ctx.logoUrl)}</div>
-    <h1 class="cover-title">Annual Financial Statements</h1>
-    <p class="cover-period">For the year ended ${escapeHtml(ctx.periodEnd)}</p>
+    <h1 class="cover-title">${escapeHtml(ctx.coverTitle)}</h1>
+    <p class="cover-period">${escapeHtml(ctx.periodLine)}</p>
     <p class="cover-company">${escapeHtml(ctx.companyName)}</p>
     <p class="cover-reg">Registration No: ${escapeHtml(ctx.registrationNumber)}</p>
   </div>
@@ -68,8 +71,8 @@ function renderBoldCover(ctx: CoverContext): string {
     <rect width="100%" height="100%" fill="url(#geo)"/>
   </svg>
   <div class="cover-logo">${logoImg(ctx.logoUrl)}</div>
-  <h1 class="cover-title" style="color:#ffffff">Annual Financial Statements</h1>
-  <p class="cover-period" style="color:${escapeAttr(ctx.secondaryColour)}">For the year ended ${escapeHtml(ctx.periodEnd)}</p>
+  <h1 class="cover-title" style="color:#ffffff">${escapeHtml(ctx.coverTitle)}</h1>
+  <p class="cover-period" style="color:${escapeAttr(ctx.secondaryColour)}">${escapeHtml(ctx.periodLine)}</p>
   <p class="cover-company" style="color:#ffffff">${escapeHtml(ctx.companyName)}</p>
   <p class="cover-reg" style="color:#ffffff">Registration No: ${escapeHtml(ctx.registrationNumber)}</p>
 </div>`;
@@ -79,8 +82,8 @@ function renderMinimalCover(ctx: CoverContext): string {
   return `<div class="cover-page cover-minimal">
   <div class="cover-logo">${logoImg(ctx.logoUrl)}</div>
   <hr class="cover-rule" style="border-color:${escapeAttr(ctx.primaryColour)}"/>
-  <h1 class="cover-title" style="color:${escapeAttr(ctx.primaryColour)}">Annual Financial Statements</h1>
-  <p class="cover-period">For the year ended ${escapeHtml(ctx.periodEnd)}</p>
+  <h1 class="cover-title" style="color:${escapeAttr(ctx.primaryColour)}">${escapeHtml(ctx.coverTitle)}</h1>
+  <p class="cover-period">${escapeHtml(ctx.periodLine)}</p>
   <p class="cover-company">${escapeHtml(ctx.companyName)}</p>
   <p class="cover-reg">Registration No: ${escapeHtml(ctx.registrationNumber)}</p>
 </div>`;

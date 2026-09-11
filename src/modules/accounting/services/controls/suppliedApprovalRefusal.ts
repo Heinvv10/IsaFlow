@@ -26,7 +26,14 @@ export function isSuppliedApprovalRefusal(error: unknown): boolean {
   return (error as { suppliedApprovalRefusal?: unknown }).suppliedApprovalRefusal === true;
 }
 
-/** The refusal's own message is safe to show: it is written here, never by pg. */
+/**
+ * What the caller may be told. Only text the control code wrote: a SuppliedApprovalRefusal, or a control
+ * function's own RAISE (pg reports routine 'exec_stmt_raise' for a PL/pgSQL RAISE). A 42501 is marked by SQLSTATE
+ * alone, and pg raises 42501 itself for a missing grant or a broken request context ("permission denied for table
+ * …", routine 'aclcheck_error'): that text is never echoed — the marker's log line records it.
+ */
 export function suppliedApprovalRefusalText(error: unknown): string {
-  return error instanceof Error ? error.message : 'the approval cannot be used';
+  if (error instanceof SuppliedApprovalRefusal) return error.message;
+  const authoredRaise = error instanceof Error && (error as { routine?: unknown }).routine === 'exec_stmt_raise';
+  return authoredRaise ? (error as Error).message : 'the approval could not be checked';
 }

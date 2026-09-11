@@ -10,6 +10,7 @@ import { runJournalControl, type JournalControlOptions } from './journalControlS
 import { registerGeneratedJournal } from '../controls/generatedJournalPermit';
 import type { ApMaterial } from '../controls/apOperationMaterializer';
 import { isAuthorizedYearEndPosting } from '../controls/yearEndPostingGuard';
+import { postingPeriodBlock } from './postingPeriodGuard';
 export { resolveReversalDate } from './journalReversalDate';
 export type { JournalControlOptions } from './journalControlService';
 type Row = DbRow;
@@ -38,11 +39,9 @@ function facts(material: ApMaterial): { header: Row; targetPeriod: Row; company:
 }
 function assertPostingGuards(material: ApMaterial, authorizedClosedPeriod = false): ReturnType<typeof facts> {
   const state = facts(material);
-  if (state.targetPeriod.status !== 'open' && !(authorizedClosedPeriod && state.targetPeriod.status === 'closed')) {
-    throw new ClosedFiscalPeriodError(String(state.targetPeriod.status));
-  }
-  if (state.company.lockdown_enabled === true && (!state.company.lockdown_date
-    || material.binding.accountingDate! <= String(state.company.lockdown_date))) throw new Error('Journal date is within company lockdown');
+  const block = postingPeriodBlock(state.targetPeriod.status, state.company, material.binding.accountingDate!, authorizedClosedPeriod);
+  if (block?.kind === 'period') throw new ClosedFiscalPeriodError(block.status);
+  if (block?.kind === 'lockdown') throw new Error('Journal date is within company lockdown');
   if (state.vatLocks.length) throw new Error('Journal date is within a filed VAT period');
   const inactive = state.accounts.filter(a => a.is_active !== true);
   if (inactive.length) throw new InactiveAccountError(inactive.map(a => ({ code: String(a.account_code), name: String(a.account_name) })));
