@@ -2815,3 +2815,28 @@ T1 no structural tripwire (unit 4, DB 1) · T2 the tripwire reads total × 15/11
 outranks the correction (1) · L1 the plural on every category (9) · V2 the route ignores the correction (DB 3) · V3 petty
 cash ignores it (DB 1) · P1 petty cash does not hold (DB 2). The DB mutants on the declaration file ran on its
 non-pipeline cases only (`-t`), so the AI limiter could not fake a RED; each shape they fail on decides one rule alone.
+
+---
+
+## Round 38 — the supplier's region, inverted; the approve tools' reading of the correction, pinned
+
+Review: `review-k072-r37.md` (0H/0M/2L, nothing regressed; the auto-approved meals bill verified TRUE and not a claim; the
+tripwire's false-positive rate measured at 0–0.15% on 80 000 synthetic declaring slips). `origin/master` had not moved.
+
+| Finding | Disposition |
+|---|---|
+| LOW-1 a customer's `Not VAT registered` counted as the supplier's under 26 common heads the list lacked (`Billing Address:`, `Billing Details`, `Postal Address:`, `Name:`, `Company:`, `A/C:`, `Issued to:`, `Posadres:`, `Debiteur:` …); the tax net missed `WAT`, `\/AT`, `Tx`; a stacked mixed-rate page (no tax-invoice wording, no VAT number) was approved at tax 0 and posted | FIXED by INVERTING the rule, as for rounds 34 and 35: a declaration counts only in the SUPPLIER's own region — above the FIRST line that opens any other block, or below the last total with no block line between (`isSuppliersLine`). A block line is ANY label (a line with `:` — `Billing Address:`, `Name:`, even `Invoice No:`), a customer head, an address (`12 Oak Ave`, `P.O. Box`, `Posbus`, a postal code), or a short heading with no figure that names another party or its details (`Billing Details`, `Company`). No list of customer heads decides it any more; a head nobody listed still ends the supplier's region. **Cost, stated:** a declaration printed below the supplier's own address or an `Invoice No:` line no longer counts (pinned as refused) — it goes to a person; the declaration directly under the supplier's name, or in the footer below the total, still counts. The tax net learns `WAT`, `Tx`/`TX` (capitals only — Afrikaans `wat`, "which", is no mention, pinned), `\/AT`, `V-A-T`, `V_A_T`, `V:A:T` and `Value Added`; `GST`, `IVA`, `Taks` and `Levy` are not SA VAT labels and are left out (`Levy` is on genuine non-VAT hotel slips). **The stacked pages are refused unattended and pinned on the DB** (`k072-vat-declaration`): the reviewer's `Billing Address:` + `WAT 130.43` bill through `ai-invoice-pipeline`, `\/AT` under `Billing Address:` and `Tx` under `Postal Address:`, by both approve tools and `post_journal`; plus `unlisted head only` (a `Billing Address:` block, no tax line, no VAT-shaped figure), which only the inverted rule decides. All 26 of the reviewer's heads are pinned in `k076-round38-policy`. |
+| LOW-2 the approve tools' reading of the person's vendor correction was untested (mutated to null, everything stayed green; `W1MPY` → Wimpy from Brits Steel then approved claiming R130.43) | PINNED on the DB (`k072-meals-held`): a bill extracted `W1MPY LINDEN` corrected to `Wimpy Linden`, and one extracted as nothing corrected to `Mugg & Bean Rosebank`, both from the NON-meals supplier Brits Steel, are refused by `approve_supplier_invoice` and `bulk_approve_supplier_invoices` and stay draft with no journal. The reviewer's mutant (V5) is RED. |
+
+### Re-measured — head vs `7de7192e9`, 4 481 rows (stored ≡ subtotal-null, row for row)
+
+unattended / WRONG **730 / 46 → 730 / 46**; newly refused 0, newly wrong 0. **Re-coding:** 0 rows change. **Evidence:** no row
+changes; the one row evidencing 0 (`Mama Thandi … Not VAT registered`, a footer below the total) still does.
+
+### Mutations — 9 unit + 2 integration, all RED, restored byte-identically (md5)
+
+R1 the r37 rule, only customer heads end the region (unit 27, DB 1) · R2 a label is no boundary (8) · R3 an address is
+no boundary (1) · R4 a heading without a colon is no boundary (1) · R5 a footer that restarts a block still counts (2) ·
+O1 no capitals-only OCR spellings `WAT`/`Tx` (3) · O2 no `\/AT` (2) · O3 no `:` separator, `V:A:T` (1) · O4 `WAT`
+case-insensitive, catching Afrikaans `wat` (1) · V5 the approve tools ignore the correction (DB 2). R1 was GREEN on the DB
+until `unlisted head only` was added: the stacked pages fail the region rule AND the new OCR spellings at once.

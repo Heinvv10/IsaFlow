@@ -49,9 +49,11 @@ const ORDINARY = new Set(['private', 'privately', 'privatised', 'privatisation',
   'elevator', 'elevators', 'activate', 'activated', 'activation', 'motivate', 'motivated', 'motivation', 'cultivate', 'cultivation',
   'observatory', 'conservation', 'conservatory', 'reservation', 'reservations', 'preservation', 'preservative', 'innovation',
   'innovative', 'derivative', 'taxi', 'taxis', 'syntax']);
-const TAX_SPELLING = new RegExp(String.raw`V[.\s]+A[.\s]*T|VA[.\s]+T|B[.\s]+T[.\s]*W|BT[.\s]+W|V\s?\/\s?A\s?T|T\.A\.X`
+const TAX_SPELLING = new RegExp(String.raw`V[.\s_:-]+A[.\s_:-]*T|VA[.\s_:-]+T|B[.\s_:-]+T[.\s_:-]*W|BT[.\s_:-]+W|\\?V?\s?\/\s?A\s?T|T\.A\.X|value\s*added`
   + String.raw`|(?<![A-Za-z])(?:V\.?\s?(?:4\.?\s?[T7lI1]|A\.?\s?[7lI1])|8\.?\s?T\.?\s?W)(?![A-Za-z])|(?<![A-Za-z])incl|(?<![\d.,])15(?:[.,]\d+)?\s*(?:%|persent)`, 'i');
-const mentionsTax = (line: string) => TAX_SPELLING.test(line)
+/** OCR spellings only in capitals (r38): `WAT` for VAT, `Tx`/`TX` for tax — Afrikaans `wat` ("which") is no mention. */
+const TAX_OCR_CAPS = /(?<![A-Za-z])(?:WAT|Tx|TX)(?![A-Za-z])/;
+const mentionsTax = (line: string) => TAX_SPELLING.test(line) || TAX_OCR_CAPS.test(line)
   || (line.match(/[A-Za-z]+/g) ?? []).some((w) => TAX_ROOT.test(w) && !ORDINARY.has(w.toLowerCase()));
 /** A VAT-number-shaped token: a leading 4 (or OCR `A`) and 9–11 digits or OCR confusables, spacing/slashes included. */
 const OCR_DIGIT = String.raw`[\dOoIlLiSsBDZzGgQq|]`;
@@ -66,17 +68,29 @@ const isCustomerHead = (line: string) => CUSTOMER_HEAD.test(line.replace(/[^A-Za
 const TOTAL_LINE = /(?<![A-Za-z])(?:total|totaal|amount\s+due|balance\s+due|bedrag)(?![A-Za-z])/i;
 
 /**
- * Is the declaration on line `i` the SUPPLIER's? Read upwards to the nearest
- * structural line: a customer-block head makes it the customer's (a block that
- * restarts below the totals included); a total line makes it the footer; none
- * makes it the header. Anything else is refused.
+ * A line that opens ANY other block (r38): a label (`Billing Address:`, `Name:`,
+ * `Invoice No:`, `A/C:`), a customer head, an address (`12 Main Rd`, `P.O.
+ * Box 5`, `Posbus`, a postal code), or a short heading naming another party or
+ * its details (`Billing Details`). The supplier's own region ends at the first.
+ */
+const ADDRESS_LINE = /(?<![A-Za-z])(?:p\.?\s*o\.?\s*box|private\s+bag|posbus|street|str\.|road|rd|avenue|ave|drive|lane|suite|unit|building|floor|straat|weg|laan)(?![A-Za-z])|^\s*\d+[a-z]?\s+[A-Za-z]|(?<![\d.,])\d{4}\s*$/i;
+/** A short heading with no figure that names another party or its details (`Billing Details`, `Company`), colon or not. */
+const BLOCK_WORD = /(?<![A-Za-z])(?:address|adres\w*|details|billing|name|naam|company|maatskappy|customer|client|recipient|purchaser|consignee|payer|buyer|debtor|debiteur|account|rekening|attn|attention|deliver\w*|ship\w*|sold|issued|supplied|prepared)(?![A-Za-z])/i;
+const isHeadingLine = (line: string) => !/\d/.test(line) && line.trim().split(/\s+/).length <= 4 && BLOCK_WORD.test(line);
+const isBlockLine = (line: string) => line.includes(':') || isCustomerHead(line) || ADDRESS_LINE.test(line) || isHeadingLine(line);
+
+/**
+ * Is the declaration on line `i` the SUPPLIER's? Only in the supplier's own
+ * region (r38, inverted: round 37 listed customer heads, and 26 common ones —
+ * `Billing Address:`, `Name:`, `Company:` — were missing): above the FIRST line
+ * that opens any other block, or below the last total with no block line
+ * between. Anywhere else is refused, whatever heads it.
  */
 function isSuppliersLine(lines: readonly string[], i: number): boolean {
-  for (let j = i - 1; j >= 0; j -= 1) {
-    if (isCustomerHead(lines[j]!)) return false;
-    if (TOTAL_LINE.test(lines[j]!)) return true;
-  }
-  return true;
+  const firstBlock = lines.findIndex(isBlockLine);
+  if (firstBlock < 0 || i < firstBlock) return true;
+  const lastTotal = lines.reduce((last, line, j) => (TOTAL_LINE.test(line) ? j : last), -1);
+  return lastTotal >= 0 && i > lastTotal && !lines.slice(lastTotal + 1, i).some(isBlockLine);
 }
 
 /**
