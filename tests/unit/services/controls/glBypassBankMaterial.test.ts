@@ -2,7 +2,7 @@ import { beforeEach, expect, it, vi } from 'vitest';
 const mocks = vi.hoisted(() => ({ assert: vi.fn(), version: vi.fn(async () => null) }));
 vi.mock('@/modules/accounting/services/controls/context', () => ({ assertControlTx: mocks.assert }));
 vi.mock('@/modules/accounting/services/controls/operationVersions', () => ({ readControlEntityVersion: mocks.version }));
-import { materializeBankTransferOperation } from '@/modules/accounting/services/controls/bankTransferOperationMaterializer';
+import { BankTransferRefusalError, materializeBankTransferOperation } from '@/modules/accounting/services/controls/bankTransferOperationMaterializer';
 import type { ControlTx, OperationRef } from '@/modules/accounting/services/controls/contracts';
 const id='11111111-1111-1111-1111-111111111111';
 const ref:OperationRef={entityType:'bank_transfer_intent',entityId:id,operation:'bank_transfer.post'};
@@ -36,4 +36,20 @@ it('rejects unknown or mismatched currency and foreign accounts before binding',
 it('rejects forged contexts before reading sources',async()=>{
  const ctx=context();mocks.assert.mockImplementationOnce(()=>{throw new Error('forged');});
  await expect(materializeBankTransferOperation(ctx,ref)).rejects.toThrow('forged');expect(ctx.sql).not.toHaveBeenCalled();
+});
+it('refuses a bank account with no currency, or another currency, as a refusal that names the account',async()=>{
+ const accounts=[{id:'a',account_code:'1000',account_name:'Main Cheque',account_subtype:'bank',is_active:true},{id:'b',account_code:'1010',account_name:'Savings',account_subtype:'bank',is_active:true}];
+ const cases:[Record<string,unknown>,string][]=[
+  [{accounts,banks:[{gl_account_id:'a',currency:null,is_active:true},{gl_account_id:'b',currency:'ZAR',is_active:true}]},
+   'Cannot transfer between these bank accounts: 1000 Main Cheque has no currency set. Both must have the ledger currency (ZAR).'],
+  [{accounts,banks:[{gl_account_id:'a',currency:'ZAR',is_active:true},{gl_account_id:'b',currency:'USD',is_active:true}]},
+   'Cannot transfer between these bank accounts: 1010 Savings is in USD. Both must have the ledger currency (ZAR).'],
+  [{accounts,banks:[{gl_account_id:'a',currency:'ZAR',is_active:true}]},
+   'Cannot transfer between these bank accounts: 1010 Savings has no bank account record. Both must have the ledger currency (ZAR).'],
+ ];
+ for(const [override,message] of cases){
+  const refused=materializeBankTransferOperation(context(override),ref);
+  await expect(refused).rejects.toBeInstanceOf(BankTransferRefusalError);
+  await expect(refused).rejects.toThrow(message);
+ }
 });

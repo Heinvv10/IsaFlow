@@ -6,6 +6,8 @@ import { withAuth, withWriteAccess, type AuthenticatedNextApiRequest, type Compa
 import { withCsrf } from '@/lib/auth/withCsrf';
 import { UUID } from '@/lib/schemas/common';
 import { prepareBankTransfer, executeBankTransfer } from '@/modules/accounting/services/bank/bankTransferPostingService';
+import { BankTransferRefusalError } from '@/modules/accounting/services/controls/bankTransferOperationMaterializer';
+import { ErrorCode } from '@/lib/apiResponse.types';
 
 const prepare = z.object({
   action: z.literal('prepare').optional(), fromAccountId: UUID, toAccountId: UUID,
@@ -19,6 +21,15 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
   if (req.method !== 'POST') return apiResponse.methodNotAllowed(res, req.method || 'UNKNOWN', ['POST']);
   const { companyId } = req as CompanyAuthedRequest;
   const userId = (req as AuthenticatedNextApiRequest).user.id;
+  try {
+    return await transfer(req, res, companyId, userId);
+  } catch (err) {
+    // A transfer the company's own rows refuse (e.g. a bank account with no currency) is the user's to fix.
+    if (err instanceof BankTransferRefusalError) return apiResponse.error(res, ErrorCode.BUSINESS_RULE_VIOLATION, err.message);
+    throw err;
+  }
+}
+async function transfer(req: NextApiRequest, res: NextApiResponse, companyId: string, userId: string) {
   if (req.body?.action === 'execute') {
     const parsed = execute.safeParse(req.body);
     if (!parsed.success) return apiResponse.validationError(res, parsed.error.flatten().fieldErrors);

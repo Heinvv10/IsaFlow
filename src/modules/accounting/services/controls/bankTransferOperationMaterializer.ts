@@ -37,7 +37,7 @@ export async function materializeBankTransferOperation(ctx: ControlTx, ref: Oper
     WHERE company_id=${companyId}::uuid AND gl_account_id=ANY(${ids}::uuid[]) ORDER BY id LIMIT 3 FOR SHARE` as Row[];
   if (banks.length !== 2 || new Set(banks.map(b => b.gl_account_id)).size !== 2
     || banks.some(b => !ids.includes(String(b.gl_account_id)) || b.currency !== currency)) {
-    throw new Error('Bank account currency is unknown or differs from ledger currency');
+    throw new BankTransferRefusalError(currencyRefusal(accounts, banks, currency));
   }
   const periods = await ctx.sql`SELECT id,start_date::text,end_date::text,status FROM fiscal_periods
     WHERE company_id=${companyId}::uuid AND start_date<=${date}::date AND end_date>=${date}::date ORDER BY id FOR SHARE` as Row[];
@@ -53,4 +53,27 @@ export async function materializeBankTransferOperation(ctx: ControlTx, ref: Oper
     binding: { companyId, operation: ref.operation, entityType: ref.entityType, entityId: ref.entityId, entityVersion: observed.version,
       accountingDate: date, amount, currency, beneficiaries: [], sourceVersions: [{ entityType: ref.entityType,
         entityId: ref.entityId, version: observed.version, fingerprint: observed.fingerprint }] } };
+}
+
+/** A transfer the company's own rows do not allow, stated so the person can fix it: answered 422, not 500. */
+export class BankTransferRefusalError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = 'BankTransferRefusalError';
+  }
+}
+
+/** Names each account whose bank record stops the transfer: missing, duplicated, no currency, or another currency. */
+function currencyRefusal(accounts: Row[], banks: Row[], currency: string): string {
+  const problems = accounts.map(account => {
+    const label = `${String(account.account_code)} ${String(account.account_name)}`;
+    const own = banks.filter(bank => String(bank.gl_account_id) === String(account.id));
+    if (own.length === 0) return `${label} has no bank account record`;
+    if (own.length > 1) return `${label} has more than one bank account record`;
+    const bankCurrency = own[0]!.currency;
+    if (bankCurrency == null || bankCurrency === '') return `${label} has no currency set`;
+    return bankCurrency === currency ? null : `${label} is in ${String(bankCurrency)}`;
+  }).filter((problem): problem is string => problem !== null);
+  return `Cannot transfer between these bank accounts: ${problems.join('; ') || 'their bank account records do not match'}. `
+    + `Both must have the ledger currency (${currency}).`;
 }
