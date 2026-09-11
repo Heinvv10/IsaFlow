@@ -66,9 +66,14 @@ export function preTaxTotal(text: string, total: number, vat: number | null, set
   const lines = text.split(/\r?\n/);
   const totalLines = lines.filter((line) => printedFigures(line).some((f) => near(f.value, total)));
   if (totalLines.some((line) => (PRE_TAX.test(line) || NET_AFTER.test(afterFigure(line))) && !INCLUDED.test(line))) return vat;
-  const inclusiveByArithmetic = isInclusiveTax(vat, total) && !lines.some((line) => NOT_STANDARD_RATED.test(line));
-  if (settled || inclusiveByArithmetic || totalLines.some((line) => INCLUDED.test(line))) return null;
   const end = totalPrintedLastEnd(text, total);
+  // The marker counts only on an ITEM line above the total that prices
+  // something (round 31): a legend or footer (`Items marked Z are zero-rated`,
+  // `Interest at 0% on overdue accounts`) marks nothing on this document.
+  const markedItem = end !== null && text.slice(0, end).split(/\r?\n/)
+    .some((line) => NOT_STANDARD_RATED.test(line) && printedFigures(line).length > 0);
+  const inclusiveByArithmetic = isInclusiveTax(vat, total) && !markedItem;
+  if (settled || inclusiveByArithmetic || totalLines.some((line) => INCLUDED.test(line))) return null;
   if (end === null) return null;
   const taxAbove = printedFigures(text.slice(0, end)).some((f) => f.isSummary && near(f.value, vat));
   if (taxAbove) return null;

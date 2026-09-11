@@ -7,6 +7,7 @@
 import type { McpTool } from '../types';
 import { createJournalEntry, getJournalEntryById } from '@/modules/accounting/services/gl/journalEntryCrudService';
 import { postJournalEntry } from '@/modules/accounting/services/gl/journalEntryPostingService';
+import { JOURNAL_VAT_UNREAD_REASON, journalHasUnreadCapturedVat } from '@/modules/accounting/services/capture/capturedVatUnread';
 import { accountsBelongToCompany } from '@/modules/accounting/services/gl/chartOfAccountsService';
 import type { JournalLineInput } from '@/modules/accounting/types/gl.types';
 import { mcpPostingOpts } from '../mcpActor';
@@ -132,6 +133,10 @@ export const postJournalTool: McpTool = {
     if (!entry) return toolError(NOT_FOUND);
     if (entry.status !== 'draft') {
       return toolError(`Cannot post entry with status: ${entry.status}`);
+    }
+    // K-072 r31: a VAT the captured receipt never showed is not an agent's to post.
+    if (await journalHasUnreadCapturedVat(ctx.companyId, journalId)) {
+      return toolError(`Cannot post entry: ${JOURNAL_VAT_UNREAD_REASON}.`);
     }
 
     // No catch: a closed period, an unbalanced entry or a database failure must

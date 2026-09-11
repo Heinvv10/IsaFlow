@@ -114,7 +114,7 @@ export function validateReceiptExtraction(extracted: ExtractedDocument): Receipt
     if (d > new Date()) errors.push('Receipt date is in the future');
   }
   if (extracted.vatAmount === null || extracted.vatAmount === undefined) {
-    warnings.push('VAT amount not extracted — will be calculated from total');
+    warnings.push(VAT_NOT_READ_WARNING);
   }
   if (!extracted.vendorName) {
     warnings.push('Merchant name not extracted');
@@ -139,25 +139,23 @@ export function mapMerchantToExpenseAccount(
   return null;
 }
 
+/** What a receipt says when its VAT was not read (K-072 r31): none is claimed. */
+export const VAT_NOT_READ_WARNING = 'VAT amount not read from the document — no VAT is claimed; enter it from the document if one is shown';
+export const VAT_NOT_READ_SUFFIX = ' — VAT not read from the document, none claimed';
+
 export function buildExpenseJournalFromReceipt(
   extracted: ExtractedDocument,
   accountIds: { expenseAccountId: string; vatInputAccountId: string; bankAccountId: string },
   options: { accountVatDenied?: boolean } = {},
 ): JournalEntryInput {
   const total = extracted.totalAmount ?? 0;
-  const vatRate = extracted.vatRate ?? 15;
-
-  let vatAmount: number;
-  let subtotal: number;
-
-  if (extracted.vatAmount !== null && extracted.vatAmount !== undefined && extracted.subtotal !== null && extracted.subtotal !== undefined) {
-    vatAmount = extracted.vatAmount;
-    subtotal = extracted.subtotal;
-  } else {
-    // Calculate VAT-inclusive → exclusive
-    subtotal = Math.round((total / (1 + vatRate / 100)) * 100) / 100;
-    vatAmount = Math.round((total - subtotal) * 100) / 100;
-  }
+  // No VAT read is no VAT claimed (K-072 r31). This derived 15/115 of the total
+  // whenever the VAT (or the net) was missing — R130.43 of input tax on a
+  // non-VAT R1 000 slip, left on a draft the MCP `post_journal` tool could post.
+  // A VAT that WAS read is kept, and the net is what is left of the total.
+  const vatRead = extracted.vatAmount !== null && extracted.vatAmount !== undefined;
+  const vatAmount = vatRead ? extracted.vatAmount! : 0;
+  const subtotal = vatRead ? (extracted.subtotal ?? Math.round((total - vatAmount) * 100) / 100) : total;
 
   const merchantDesc = extracted.vendorName || 'Unknown merchant';
 
@@ -203,9 +201,12 @@ export function buildExpenseJournalFromReceipt(
   // rejects an entry where they disagree. Collapsing to `total` would hide it.
   const expenseDebit = denied ? Math.round((subtotal + vatAmount) * 100) / 100 : subtotal;
 
+  // The whole cost, unclassified, when the VAT was never read: nothing claimed.
+  const lineVatType: VatType = denied || !vatRead ? deniedVatType : 'standard';
   return {
     entryDate: extracted.date || new Date().toISOString().split('T')[0]!,
-    description: `Receipt: ${merchantDesc}${extracted.referenceNumber ? ` (${extracted.referenceNumber})` : ''}`,
+    description: `Receipt: ${merchantDesc}${extracted.referenceNumber ? ` (${extracted.referenceNumber})` : ''}`
+      + (vatRead ? '' : VAT_NOT_READ_SUFFIX),
     source: 'auto_invoice',
     inputVatDenied: denied,
     lines: [
@@ -214,7 +215,7 @@ export function buildExpenseJournalFromReceipt(
         debit: expenseDebit,
         credit: 0,
         description: denied ? `${merchantDesc} (input VAT denied — s17(2)(a))` : merchantDesc,
-        vatType: denied ? deniedVatType : ('standard' as VatType),
+        vatType: lineVatType,
       },
       // Zero on a denial. Both callers drop zero-value legs before posting, so
       // the entry reaches the ledger with no VAT-input line at all.
@@ -223,7 +224,7 @@ export function buildExpenseJournalFromReceipt(
         debit: denied ? 0 : vatAmount,
         credit: 0,
         description: 'VAT Input',
-        vatType: denied ? deniedVatType : ('standard' as VatType),
+        vatType: lineVatType,
       },
       { accountId: accountIds.bankAccountId, debit: 0, credit: total, description: `Payment: ${merchantDesc}` },
     ],

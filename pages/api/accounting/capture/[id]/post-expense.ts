@@ -35,8 +35,10 @@ import {
 import {
   INPUT_VAT_DENIED_ADVICE,
   resolveVatCodeForAccount,
+  VAT_CODE_NONE,
   VAT_CODE_STANDARD,
 } from '@/modules/accounting/services/gl/inputVatDenial';
+import { VAT_NOT_READ_SUFFIX } from '@/modules/accounting/services/bank/receiptToJournalService';
 import {
   createClaim,
   submitClaim,
@@ -160,17 +162,19 @@ async function handler(req: CompanyAuthedRequest, res: NextApiResponse) {
       VAT_CODE_STANDARD,
       { eventId, documentId, employeeId, source: 'capture_post_expense_claim' },
     );
-    const vatAmt = claimDenial.denied
-      ? 0
-      : extracted.vatAmount ?? Math.round((total / 1.15 * 0.15) * 100) / 100;
+    // No VAT read is no VAT claimed (K-072 r31): this used to derive 15/115 of
+    // the total onto the claim line, shown to the approver as if the receipt
+    // printed it. The line says so instead, and the approver can enter it.
+    const vatRead = extracted.vatAmount !== null && extracted.vatAmount !== undefined;
+    const vatAmt = claimDenial.denied || !vatRead ? 0 : extracted.vatAmount!;
 
     const line: ExpenseClaimLine = {
       lineDate,
-      description: extracted.vendorName ?? 'Expense receipt',
+      description: (extracted.vendorName ?? 'Expense receipt') + (vatRead ? '' : VAT_NOT_READ_SUFFIX),
       merchant: extracted.vendorName ?? null,
       amount: total,
       vatAmount: vatAmt,
-      vatCode: claimDenial.vatCode,
+      vatCode: vatRead ? claimDenial.vatCode : VAT_CODE_NONE,
       glAccountId: resolvedGlAccountId,
       costCentreId: costCentreId ?? null,
       projectId: null,

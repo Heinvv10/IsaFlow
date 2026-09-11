@@ -182,6 +182,15 @@ it('the MCP approve tools refuse a draft whose captured VAT was never read — a
   expect(rows[0]).toEqual({ status: 'draft', gl_journal_entry_id: null });
 });
 
+it('a captured document with no vatAmount KEY at all counts as not read (JSON.stringify drops undefined)', async () => {
+  const { vatAmount: _v, ...noKey } = NO_VAT;
+  const documentId = await seedDocument(noKey, 'nokey');
+  const invoiceId = await draftFor(documentId, 130.43, 1000, 'nokey');
+  const single = await tool(() => approveSupplierInvoiceTool.handler({ invoice_id: invoiceId, idempotency_key: 'k4' }, ctx));
+  expect(single.isError).toBe(true);
+  expect(single.content[0]!.text).toMatch(/VAT was never read/);
+});
+
 it('the other direction: a captured bill whose VAT WAS read is approved, and posts that VAT', async () => {
   const documentId = await seedDocument({ ...NO_VAT, totalAmount: 1150, subtotal: 1000, vatAmount: 150 }, 'read');
   const invoiceId = await draftFor(documentId, 150, 1150, 'read');
