@@ -45,6 +45,8 @@ export default function ManagementPacksPage() {
   const [generating, setGenerating] = useState(false);
   const [genPeriod, setGenPeriod] = useState('');
   const [deliveringId, setDeliveringId] = useState('');
+  // Recipients the last delivery skipped (a stored entry that is not {email, role, receives}), as the route reports them.
+  const [notSentTo, setNotSentTo] = useState<string[]>([]);
 
   const load = useCallback(async () => {
     setLoading(true); setError('');
@@ -96,15 +98,14 @@ export default function ManagementPacksPage() {
   }
 
   async function handleDeliver(packId: string) {
-    setDeliveringId(packId); setError('');
+    setDeliveringId(packId); setError(''); setNotSentTo([]);
     try {
       const res = await apiFetch(`/api/accounting/afs/management-packs/${packId}/deliver`, {
         method: 'POST', credentials: 'include',
       });
-      if (!res.ok) {
-        const j = await res.json() as { error?: { message?: string } };
-        throw new Error(j.error?.message ?? 'Deliver failed');
-      }
+      const j = await res.json() as { data?: { skippedRecipients?: string[] }; error?: { message?: string } };
+      if (!res.ok) throw new Error(j.error?.message ?? 'Deliver failed');
+      setNotSentTo(j.data?.skippedRecipients ?? []);
       await load();
     } catch (e) { setError(e instanceof Error ? e.message : 'Deliver failed'); }
     finally { setDeliveringId(''); }
@@ -132,6 +133,12 @@ export default function ManagementPacksPage() {
         {error && (
           <div className="mb-4 flex items-center gap-2 bg-red-50 border border-red-200 rounded-lg px-4 py-3 text-sm text-red-700">
             <AlertCircle className="w-4 h-4 shrink-0" />{error}
+          </div>
+        )}
+        {notSentTo.length > 0 && (
+          <div className="mb-4 flex items-start gap-2 bg-amber-50 border border-amber-200 rounded-lg px-4 py-3 text-sm text-amber-800">
+            <AlertCircle className="w-4 h-4 shrink-0 mt-0.5" />
+            <ul>{notSentTo.map(entry => <li key={entry}>Not sent to: {entry}</li>)}</ul>
           </div>
         )}
 
