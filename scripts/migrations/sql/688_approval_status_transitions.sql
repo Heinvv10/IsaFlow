@@ -24,6 +24,13 @@
 --                          entity, operation id and binding, that no other approval claims
 -- Every edge needs an unexpired approval. rejected, cancelled and consumed are terminal. Identity, binding,
 -- requester, requested_at and expires_at never change. decided_at and consumed_at are the database's clock.
+-- Born approved with no policy is safe: lockApproval refuses a row whose hash does not match its binding, and
+-- execution compares that hash with the operation's CURRENT material, which carries its current policies.
+--
+-- The only way past these triggers (and 689's) is session_replication_role=replica, which only a superuser can
+-- set. app_user, platform_admin and migration_admin are not superusers (rolsuper=false, checked on the synthetic
+-- fixture 2026-09-11). No production path uses it; test fixtures use it only for states no transaction can reach
+-- now (a legacy row, a corrupted row, elapsed time).
 CREATE OR REPLACE FUNCTION public.control_guard_approval_birth() RETURNS trigger
 LANGUAGE plpgsql SECURITY DEFINER SET search_path = pg_catalog, public AS $$
 DECLARE v_actor text := auth.uid()::text;
@@ -32,7 +39,8 @@ BEGIN
     RAISE EXCEPTION 'Approval birth refused: the requester must be the acting person' USING ERRCODE='23514';
   END IF;
   IF NEW.decided_at IS NOT NULL OR NEW.consumed_at IS NOT NULL OR NEW.consumed_effect_id IS NOT NULL
-    OR NOT (NEW.status = 'pending' OR (NEW.status = 'approved' AND NEW.binding->'policies' = '[]'::jsonb)) THEN
+    -- IS NOT DISTINCT FROM: a binding with no policies key, or a null one, is refused, never read as empty.
+    OR NOT (NEW.status = 'pending' OR (NEW.status = 'approved' AND NEW.binding->'policies' IS NOT DISTINCT FROM '[]'::jsonb)) THEN
     RAISE EXCEPTION 'Approval birth refused: an approval is born pending, or approved only when no policy binds it'
       USING ERRCODE='23514';
   END IF;

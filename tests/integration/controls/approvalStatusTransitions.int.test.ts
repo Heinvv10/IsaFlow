@@ -3,6 +3,8 @@ import { randomUUID } from 'node:crypto';
 import { approvalGuardSuite, noEffect, refused, type Person, type Role } from './approvalGuardFixture';
 import { decideOperationApproval } from '@/modules/accounting/services/controls/approvalRequestService';
 import { executeControlledOperation } from '@/modules/accounting/services/controls/approvalExecutionService';
+import { loadOperationMaterial } from '@/modules/accounting/services/controls/operationMaterializer';
+import { operationBindingHash } from '@/modules/accounting/services/controls/canonical';
 
 // Migration 688: an approval is born pending and moves only along the edges the services take, each by the actor
 // allowed to take it, whatever role writes it.
@@ -96,7 +98,7 @@ it('(f) only the requester cancels, whatever role writes it', async () => {
 
 it('(g) an approval is born pending, requested by the acting person', async () => {
   const f = g.fixture(), ref = await g.freshPayment();
-  const born = (requester: Person, status: string, policies: unknown[], decided: boolean, effect: string | null) =>
+  const born = (requester: Person, status: string, policies: unknown[] | null | undefined, decided: boolean, effect: string | null) =>
     [`INSERT INTO control_operation_approvals(company_id,operation_id,operation,entity_type,entity_id,requester_person_id,requester_auth_method,
       binding,binding_hash,status,expires_at,decided_at,consumed_at,consumed_effect_id) VALUES($1,gen_random_uuid(),'supplier_payment.process',
       'supplier_payment',$2,$3,'cookie',$4::jsonb,repeat('a',64),$5,clock_timestamp()+interval '1 day',
@@ -105,6 +107,8 @@ it('(g) an approval is born pending, requested by the acting person', async () =
   const bound = [{ policyId: randomUUID(), approverRole: 'admin' }];
   const forged: Array<[Role, Person | null, ReturnType<typeof born>, string]> = [
     ['app_user', 'u1', born('u1', 'approved', bound, false, null), 'approved while a policy binds it'],
+    ['app_user', 'u1', born('u1', 'approved', undefined, false, null), 'approved with no policies key'],
+    ['app_user', 'u1', born('u1', 'approved', null, false, null), 'approved with null policies'],
     ['app_user', 'u1', born('u1', 'consumed', [], false, randomUUID()), 'born consumed'],
     ['app_user', 'u1', born('u1', 'pending', bound, true, null), 'born decided'],
     ['app_user', 'u1', born('u2', 'pending', bound, false, null), 'requested in another person\'s name'],
@@ -113,6 +117,23 @@ it('(g) an approval is born pending, requested by the acting person', async () =
   for (const [role, person, statement, why] of forged) await expect(g.as(role, person, [statement]), why).rejects.toMatchObject(BIRTH);
   expect(await g.as('app_user', 'u1', [born('u1', 'pending', bound, false, null)]), 'pending').toBe(1);
   expect(await g.as('app_user', 'u1', [born('u1', 'approved', [], false, null)]), 'approved when no policy binds it').toBe(1);
+});
+
+it('(i) a self-consistent approval born approved with no policy cannot authorise an operation a policy binds', async () => {
+  const ref = await g.freshPayment();
+  const id = await g.request('u1', async ctx => {
+    const material = await loadOperationMaterial(ctx, ref);
+    expect(material.binding.policies.length, 'the operation is bound by a policy now').toBeGreaterThan(0);
+    const binding = { ...material.binding, policies: [] };
+    const [row] = await ctx.sql`INSERT INTO control_operation_approvals(company_id,operation_id,operation,entity_type,entity_id,
+      requester_person_id,requester_auth_method,binding,binding_hash,status,expires_at)
+      VALUES(${ctx.principal.companyId}::uuid,${ctx.principal.operationId}::uuid,${ref.operation},${ref.entityType},${ref.entityId},
+        ${ctx.principal.personId},'cookie',${JSON.stringify(binding)}::jsonb,${operationBindingHash(binding)},'approved',
+        clock_timestamp()+interval '1 day') RETURNING id` as Array<{ id: string }>;
+    return row!.id;
+  });
+  await expect(g.request('u1', ctx => executeControlledOperation(ctx, ref, id, noEffect))).rejects.toThrow('material');
+  expect(await g.effects(ref)).toBe(0);
 });
 
 it('(h) keeps every edge the services take', async () => {
