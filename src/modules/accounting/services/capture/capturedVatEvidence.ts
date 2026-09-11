@@ -29,6 +29,7 @@ import { sql } from '@/lib/neon';
 import type { DbRow } from '@/lib/neon';
 import type { ExtractedDocument } from '@/modules/accounting/types/documentCapture.types';
 import { mealsVatNeedsAPerson } from '@/modules/accounting/services/bank/receiptToJournalService';
+import { printedFigures } from '@/modules/accounting/services/core/ocrPrintedFigures';
 
 const VAT = String.raw`(?:V\.?\s?A\.?\s?T\.?|B\.?\s?T\.?\s?W\.?)`;
 /** The supplier's own registration status, as a whole line: a statement about an item or a customer is not one. */
@@ -37,34 +38,61 @@ const DECLARATION = new RegExp(String.raw`^\s*(?:(?:we|this\s+(?:supplier|vendor
   + String.raw`|non[\s-]*${VAT}(?:[\s-]*registered)?[\s-]+(?:vendor|supplier|business|company)`
   + String.raw`|nie\s+(?:vir\s+)?${VAT}[\s-]*geregistreer\s+nie|nie\s+geregistreer\s+vir\s+${VAT}\s+nie)\s*[.!]?\s*$`, 'i');
 /**
- * Any other mention of tax, fail closed (r35–r36): a tax word glued to what
- * precedes it (`TotalVAT`, `SubtotalBTW`, `TotalTax`) but not running on into a
- * word (`private`), OCR damage (`VAl`, `V4T`, `8TW`, `V/AT`, `T.A.X.`), `incl…`,
- * or the 15% rate with decimals (`Std rate 15.00%`).
+ * Any other mention of tax, fail closed (r35–r37). A word CONTAINING a tax root
+ * is a mention, glued on either side (`TotalVAT`, `VATAMT`, `TaxAmt`,
+ * `BTWbedrag`, `VATR130.43`), unless it is one of a few ordinary words; so is a
+ * dotted, spaced or OCR-damaged spelling (`V.A.T.`, `V A T`, `VAl`, `V4T`,
+ * `8TW`, `V/AT`, `T.A.X.`), `incl…`, or the 15% rate with decimals.
  */
-const TAX_MENTION = new RegExp(String.raw`(?:${VAT}|[B8]\.?\s?T\.?\s?W\.?|V\s?\/\s?A\s?T|V\.?\s?[A4]\.?\s?[T7lI1]\.?|T\.A\.X\.?|tax|belasting)(?![A-Za-z])`
-  + String.raw`|(?<![A-Za-z])incl|(?<![\d.,])15(?:[.,]\d+)?\s*(?:%|persent)`, 'i');
+const TAX_ROOT = /vat|btw|tax|belasting/i;
+const ORDINARY = new Set(['private', 'privately', 'privatised', 'privatisation', 'renovate', 'renovated', 'renovation', 'renovations',
+  'elevator', 'elevators', 'activate', 'activated', 'activation', 'motivate', 'motivated', 'motivation', 'cultivate', 'cultivation',
+  'observatory', 'conservation', 'conservatory', 'reservation', 'reservations', 'preservation', 'preservative', 'innovation',
+  'innovative', 'derivative', 'taxi', 'taxis', 'syntax']);
+const TAX_SPELLING = new RegExp(String.raw`V[.\s]+A[.\s]*T|VA[.\s]+T|B[.\s]+T[.\s]*W|BT[.\s]+W|V\s?\/\s?A\s?T|T\.A\.X`
+  + String.raw`|(?<![A-Za-z])(?:V\.?\s?(?:4\.?\s?[T7lI1]|A\.?\s?[7lI1])|8\.?\s?T\.?\s?W)(?![A-Za-z])|(?<![A-Za-z])incl|(?<![\d.,])15(?:[.,]\d+)?\s*(?:%|persent)`, 'i');
+const mentionsTax = (line: string) => TAX_SPELLING.test(line)
+  || (line.match(/[A-Za-z]+/g) ?? []).some((w) => TAX_ROOT.test(w) && !ORDINARY.has(w.toLowerCase()));
 /** A VAT-number-shaped token: a leading 4 (or OCR `A`) and 9–11 digits or OCR confusables, spacing/slashes included. */
 const OCR_DIGIT = String.raw`[\dOoIlLiSsBDZzGgQq|]`;
 const VAT_NUMBER = new RegExp(String.raw`(?<![A-Za-z0-9])[4A]${OCR_DIGIT}(?:[ /-]{0,2}${OCR_DIGIT}){7,9}(?![A-Za-z0-9])`);
-/** The head of a customer block: a declaration inside one is the CUSTOMER's status, not the supplier's (r36). */
-const CUSTOMER_BLOCK = /^\s*(?:bill(?:ed)?\s*to|sold\s*to|invoice(?:d)?\s*to|deliver(?:ed|y)?\s*(?:to|address)|ship\s*to|customer|client|koper|klant|faktuur\s*aan|lewer\s*aan|aan)(?![A-Za-z])/i;
+/**
+ * The head of a customer block, whatever separates its words (`Bill To`,
+ * `Bill-To:`, `BILLTO`, r37): a declaration inside one is the CUSTOMER's
+ * status, not the supplier's.
+ */
+const CUSTOMER_HEAD = /^(?:bill(?:ed)?\s*to|sold\s*to|invoice(?:d)?\s*to|deliver(?:ed|y)?\s*(?:to|address)|ship\s*to|customer|client|debtor|buyer|attn|attention|account|koper|klant|kli[eë]nt|faktuur\s*aan|lewer\s*aan|aan|to)(?![a-zë])/i;
+const isCustomerHead = (line: string) => CUSTOMER_HEAD.test(line.replace(/[^A-Za-zÀ-ÿ]+/g, ' ').trim());
 const TOTAL_LINE = /(?<![A-Za-z])(?:total|totaal|amount\s+due|balance\s+due|bedrag)(?![A-Za-z])/i;
 
 /**
- * Is the declaration on line `i` the SUPPLIER's? Outside any customer block:
- * above the first one (the supplier's header) or below the last total (the
- * footer). Anywhere between is the customer's block or the body — ambiguous, so
- * refused.
+ * Is the declaration on line `i` the SUPPLIER's? Read upwards to the nearest
+ * structural line: a customer-block head makes it the customer's (a block that
+ * restarts below the totals included); a total line makes it the footer; none
+ * makes it the header. Anything else is refused.
  */
 function isSuppliersLine(lines: readonly string[], i: number): boolean {
-  const firstCustomer = lines.findIndex((line) => CUSTOMER_BLOCK.test(line));
-  if (firstCustomer < 0 || i < firstCustomer) return true;
-  const lastTotal = lines.reduce((last, line, j) => (TOTAL_LINE.test(line) ? j : last), -1);
-  return lastTotal > firstCustomer && i > lastTotal;
+  for (let j = i - 1; j >= 0; j -= 1) {
+    if (isCustomerHead(lines[j]!)) return false;
+    if (TOTAL_LINE.test(lines[j]!)) return true;
+  }
+  return true;
 }
 
-type Extracted = Partial<Pick<ExtractedDocument, 'vatAmount' | 'rawText'>> | null;
+/**
+ * The structural tripwire (r37), independent of any word: a printed figure
+ * equal, to the cent, to the tax inside the total (total × 15/115) or to 15% of
+ * the total or the net is almost certainly a VAT the reader missed. With one
+ * printed, "no VAT read" never counts as none, whatever it is labelled.
+ */
+function printsAVatFigure(text: string, total: number | null | undefined, net: number | null | undefined): boolean {
+  const cents = (n: number) => Math.round(n * 100);
+  const vatShapes = [total != null ? (total * 15) / 115 : null, total != null ? total * 0.15 : null, net != null ? net * 0.15 : null]
+    .filter((v): v is number => v !== null && v > 0).map(cents);
+  return printedFigures(text).some((f) => f.value > 0 && vatShapes.some((v) => Math.abs(cents(f.value) - v) <= 1));
+}
+
+type Extracted = Partial<Pick<ExtractedDocument, 'vatAmount' | 'rawText' | 'totalAmount' | 'subtotal'>> | null;
 
 /** The VAT the captured document evidences, or null when it evidences none (no VAT read, and the supplier does not declare itself unregistered on an otherwise tax-free page). */
 export function evidencedVat(extracted: Extracted): number | null {
@@ -72,7 +100,8 @@ export function evidencedVat(extracted: Extracted): number | null {
   const text = typeof extracted?.rawText === 'string' ? extracted.rawText : '';
   const lines = text.split(/\r?\n/);
   const declares = lines.some((line, i) => DECLARATION.test(line) && isSuppliersLine(lines, i));
-  const elseQuiet = lines.every((line) => DECLARATION.test(line) || !TAX_MENTION.test(line)) && !VAT_NUMBER.test(text);
+  const elseQuiet = lines.every((line) => DECLARATION.test(line) || !mentionsTax(line)) && !VAT_NUMBER.test(text)
+    && !printsAVatFigure(text, extracted?.totalAmount, extracted?.subtotal);
   return declares && elseQuiet ? 0 : null;
 }
 
@@ -106,7 +135,8 @@ export async function invoiceVatRefusals(companyId: string, invoiceIds: readonly
     const tax = Number(row.tax_amount ?? 0);
     const extracted = row.extracted_data as Extracted & { vendorName?: string | null };
     if (unevidenced(tax, evidencedVat(extracted))) refusals.set(String(row.id), CAPTURED_VAT_UNEVIDENCED_REASON);
-    else if ([extracted?.vendorName, row.vendor_name, row.supplier_name].some((v) => mealsVatNeedsAPerson(v as string | null, tax))) {
+    else if (mealsVatNeedsAPerson({ confirmed: row.vendor_name as string | null, extracted: extracted?.vendorName }, tax)
+      || mealsVatNeedsAPerson({ confirmed: row.supplier_name as string | null }, tax)) {
       refusals.set(String(row.id), MEALS_VAT_HELD_REASON);
     }
   }
@@ -152,6 +182,6 @@ export async function journalVatRefusal(companyId: string, journalId: string): P
   const evidenced = evidencedVat(extracted);
   const deniedFold = evidenced !== null && evidenced > 0 && cents(claimed) === 0 && row.denied === true;
   if (unevidenced(claimed, evidenced) && !deniedFold) return JOURNAL_VAT_UNEVIDENCED_REASON;
-  const vendors = [extracted?.vendorName, row.vendor_name as string | null];
-  return vendors.some((v) => mealsVatNeedsAPerson(v, claimed)) ? MEALS_VAT_HELD_REASON : null;
+  return mealsVatNeedsAPerson({ confirmed: row.vendor_name as string | null, extracted: extracted?.vendorName }, claimed)
+    ? MEALS_VAT_HELD_REASON : null;
 }

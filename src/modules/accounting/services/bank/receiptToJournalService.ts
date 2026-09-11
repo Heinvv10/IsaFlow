@@ -79,17 +79,20 @@ type ReceiptType = 'fuel' | 'meals' | 'travel' | 'office_supplies' | 'general';
 /**
  * Whole words only (K-072 r35): the unanchored `spur|…|mr\s*d` matched
  * `Spurway Steel` and `Mr Doors`, and `spar`/`rain`/`game` matched any vendor
- * containing them. A merchant name is a word, so a pattern is one — with its
- * plural or possessive (`Wimpys`, `Spurs`, `Nando's`, r36) and the known glued
- * brand spellings spelled out (`CoffeeShop`, `Mr Delivery`).
+ * containing them. A merchant name is a word, so a pattern is one. Only the
+ * MEALS names take a plural or possessive (`Wimpys`, `Spurs`, `Nando's`, r36;
+ * r37: on every category it made `Rains Plumbing` a telecom and `Spars
+ * Engineering` a grocer), and the known glued brands are spelled out
+ * (`CoffeeShop`, `Mr Delivery`).
  */
-const word = (alternatives: string) => new RegExp(String.raw`(?<![a-z])(?:${alternatives})(?:'?s)?(?![a-z])`, 'i');
+const word = (alternatives: string, plural = false) =>
+  new RegExp(String.raw`(?<![a-z])(?:${alternatives})${plural ? "(?:'?s)?" : ''}(?![a-z])`, 'i');
 
 const MERCHANT_PATTERNS: Array<{ pattern: RegExp; accountCode: string; type: ReceiptType }> = [
   // Fuel
   { pattern: word(String.raw`engen|shell|caltex|sasol|bp|total|fuel|petrol|diesel`), accountCode: '5400', type: 'fuel' },
   // Meals & entertainment
-  { pattern: word(String.raw`spur|nandos|nando|steers|mcdonald|kfc|wimpy|ocean\s+basket|mugg\s*(?:&|and)?\s*bean|uber\s*eat|mr\s*d(?:elivery|\s*food)?|restaurant|cafe|coffee(?:\s*shop)?`), accountCode: '5600', type: 'meals' },
+  { pattern: word(String.raw`spur|nandos|nando|steers|mcdonald|kfc|wimpy|ocean\s+basket|mugg\s*(?:&|and)?\s*bean|uber\s*eat|mr\s*d(?:elivery|\s*food)?|restaurant|cafe|coffee(?:\s*shop)?`, true), accountCode: '5600', type: 'meals' },
   // Travel
   { pattern: word(String.raw`uber(?!\s*eats?)|bolt|taxify|airport|flight|hotel|lodge|airbnb|protea\s*hotel`), accountCode: '5600', type: 'travel' },
   // Office supplies
@@ -270,12 +273,21 @@ function typeOfVendor(vendorName: string | null | undefined): ReceiptType {
  * deny it (a denying account folds the VAT, so nothing is claimed), and s17(2)(a)
  * denies entertainment input tax — unless the tenant itself trades in it. The
  * name decides nothing about the VAT; it only decides that a person must look.
- * Every unattended poster asks this one question: the receipt routes before
- * auto-posting, and MCP `post_journal` and the approve tools
- * (`capturedVatEvidence`) before posting a captured draft.
+ * Every unattended poster asks this one question, WITH THE SAME INPUTS (r37):
+ * the receipt routes before auto-posting, and MCP `post_journal` and the
+ * approve tools (`capturedVatEvidence`) before posting a captured draft — so
+ * they cannot disagree.
  */
-export function mealsVatNeedsAPerson(vendorName: string | null | undefined, claimedVat: number): boolean {
-  return claimedVat > 0 && typeOfVendor(vendorName) === 'meals';
+export function mealsVatNeedsAPerson(vendor: CapturedVendor, claimedVat: number): boolean {
+  return claimedVat > 0 && typeOfVendor(capturedVendorName(vendor)) === 'meals';
+}
+
+/** The vendor names a captured document carries: a person's correction (`captured_documents.vendor_name`) and the extraction's. */
+export interface CapturedVendor { confirmed?: string | null; extracted?: string | null }
+
+/** The vendor a captured document names: the person-confirmed name first, the extracted one only where none was confirmed. */
+export function capturedVendorName(vendor: CapturedVendor): string | null {
+  return vendor.confirmed?.trim() ? vendor.confirmed : (vendor.extracted ?? null);
 }
 
 /** What a held draft says of itself (K-072 r36): the record a person reads. */

@@ -91,8 +91,8 @@ describe('K-076 r35 MEDIUM-1 — denial is the account\'s; merchant names are wh
   });
 
   it('a meals merchant still claiming VAT is for a person; folded (0 claimed), or any other vendor, it is not (r36: one predicate)', () => {
-    expect(mealsVatNeedsAPerson('Spur Steak Ranches Rosebank', 130.43)).toBe(true);
-    expect(mealsVatNeedsAPerson('Spur Steak Ranches Rosebank', 0)).toBe(false);
-    expect(mealsVatNeedsAPerson('Spurway Steel', 130.43)).toBe(false);
+    expect(mealsVatNeedsAPerson({ extracted: 'Spur Steak Ranches Rosebank' }, 130.43)).toBe(true);
+    expect(mealsVatNeedsAPerson({ extracted: 'Spur Steak Ranches Rosebank' }, 0)).toBe(false);
+    expect(mealsVatNeedsAPerson({ extracted: 'Spurway Steel' }, 130.43)).toBe(false);
   });
 });

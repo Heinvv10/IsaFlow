@@ -119,7 +119,7 @@ export async function lockCapturedDocumentForUpdate(
   documentId: string,
 ): Promise<DbRow | null> {
   return lockWithTimeout(documentId, async () => (await sql`
-    SELECT extracted_data, status, posted_at FROM captured_documents
+    SELECT extracted_data, vendor_name, status, posted_at FROM captured_documents
     WHERE id = ${documentId}::uuid AND company_id = ${companyId}
     FOR UPDATE`) as DbRow[]);
 }
@@ -159,6 +159,8 @@ export interface CaptureEventForPosting {
   documentStatus: string;
   documentPostedAt: Date | string | null;
   extractedData: unknown;
+  /** A person's correction of the vendor (`captured_documents.vendor_name`), which the meals hold reads first (K-072 r37). */
+  documentVendorName: string | null;
 }
 
 /**
@@ -189,7 +191,7 @@ export async function lockCaptureEventForPosting(
   const [row] = (await sql`
     SELECT ce.status AS event_status, ce.captured_document_id,
            cd.status AS document_status, cd.posted_at AS document_posted_at,
-           cd.extracted_data
+           cd.extracted_data, cd.vendor_name
     FROM capture_events ce
     JOIN captured_documents cd ON cd.id = ce.captured_document_id
     WHERE ce.id = ${eventId}::uuid
@@ -204,5 +206,6 @@ export async function lockCaptureEventForPosting(
     documentStatus: String(row.document_status),
     documentPostedAt: (row.document_posted_at as Date | string | null) ?? null,
     extractedData: row.extracted_data,
+    documentVendorName: (row.vendor_name as string | null) ?? null,
   };
 }

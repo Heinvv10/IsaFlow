@@ -62,7 +62,7 @@ describe('K-076 r36 LOW-1 — plurals, possessives and glued brands are still th
   });
 
   it('`Mr Delivery` claiming VAT is held for a person, as `Mr D Food` is', () => {
-    expect(mealsVatNeedsAPerson('Mr Delivery', 130.43)).toBe(true);
-    expect(mealsVatNeedsAPerson('Mr D Food', 130.43)).toBe(true);
+    expect(mealsVatNeedsAPerson({ extracted: 'Mr Delivery' }, 130.43)).toBe(true);
+    expect(mealsVatNeedsAPerson({ extracted: 'Mr D Food' }, 130.43)).toBe(true);
   });
 });

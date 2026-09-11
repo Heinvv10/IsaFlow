@@ -46,6 +46,8 @@ export interface PettyCashJournalInput {
   eventId: string;
   documentId: string;
   extracted: ExtractedDocument;
+  /** A person's correction of the vendor, read before the extracted one by the meals hold (K-072 r37). */
+  confirmedVendorName?: string | null;
   resolvedGlAccountId: string;
   vatInputAccountId: string;
   costCentreId?: string;
@@ -85,7 +87,7 @@ export async function postReceiptAsPettyCashJournal(
 ): Promise<PettyCashJournalResult> {
   const {
     companyId, userId, eventId, documentId,
-    extracted, resolvedGlAccountId, vatInputAccountId, costCentreId,
+    extracted, confirmedVendorName, resolvedGlAccountId, vatInputAccountId, costCentreId,
   } = input;
 
   const entryDate = extracted.date ?? new Date().toISOString().slice(0, 10);
@@ -109,7 +111,7 @@ export async function postReceiptAsPettyCashJournal(
     { accountVatDenied: accountDenial.denied },
   );
   const claimedVat = journalInput.lines.find((l) => l.accountId === vatInputAccountId)?.debit ?? 0;
-  const heldForPerson = mealsVatNeedsAPerson(extracted.vendorName, claimedVat);
+  const heldForPerson = mealsVatNeedsAPerson({ confirmed: confirmedVendorName, extracted: extracted.vendorName }, claimedVat);
   if (heldForPerson) journalInput.description += MEALS_VAT_HELD_SUFFIX;
 
   // Drop zero-value legs — buildExpenseJournalFromReceipt always emits a VAT
