@@ -30,7 +30,20 @@ async function actor<T>(person:'u1'|'u2'|'u3',fn:(ctx:ControlTx)=>Promise<T>,bea
   ...(bearer?{connectionId:token.id,grantId:token.id,grantedScopes:scopes}:{})},()=>fn(requireControlTx()));
  if((await client.query('COMMIT')).command!=='COMMIT')throw new Error('Synthetic request did not commit');return result;
  }catch(error){await client.query('ROLLBACK');throw error;}finally{client.release();}}
+const SYNTHETIC_FAILURE_NAME='synthetic_historical_import_failure';
+async function withLockTimeoutRetry(client:{query:Pool['query']},sql:string):Promise<void>{let lastError:unknown;for(const wait of [0,250,750,1500,3000]){if(wait)await new Promise(resolve=>setTimeout(resolve,wait));try{await client.query(sql);return;}catch(error){lastError=error;}}throw lastError;}
+async function createSyntheticFailureTrigger(pool:Pool):Promise<void>{const client=await pool.connect();try{await client.query("SET lock_timeout='2s'");
+ await withLockTimeoutRetry(client,`CREATE OR REPLACE FUNCTION public.${SYNTHETIC_FAILURE_NAME}() RETURNS trigger LANGUAGE plpgsql AS $$ BEGIN IF current_setting('control.synthetic_import_failure',true)='true' THEN RAISE EXCEPTION 'Synthetic import subledger failure'; END IF; RETURN NEW; END $$`);
+ await withLockTimeoutRetry(client,`CREATE TRIGGER ${SYNTHETIC_FAILURE_NAME} BEFORE INSERT ON customer_invoices FOR EACH ROW EXECUTE FUNCTION public.${SYNTHETIC_FAILURE_NAME}()`);
+}finally{client.release();}}
+// Best-effort: bounded lock wait + backoff so contention on customer_invoices doesn't leave objects behind for the next run; drops the function even when the trigger drop fails, and is safe when neither object exists (used as a pre/post-run sweep too).
+async function sweepSyntheticFailureTrigger(pool:Pool):Promise<void>{const client=await pool.connect();try{await client.query("SET lock_timeout='2s'");let triggerError:unknown;
+ try{await withLockTimeoutRetry(client,`DROP TRIGGER IF EXISTS ${SYNTHETIC_FAILURE_NAME} ON customer_invoices`);}catch(error){triggerError=error;}
+ await withLockTimeoutRetry(client,`DROP FUNCTION IF EXISTS public.${SYNTHETIC_FAILURE_NAME}()`);
+ if(triggerError)throw triggerError;
+}finally{client.release();}}
 beforeAll(async()=>{
+ await sweepSyntheticFailureTrigger(pool);
  fixture=await provisionForensicFixture(config);
  await pool.query("UPDATE companies SET default_currency='ZAR',lockdown_enabled=false WHERE id=$1",[fixture.companyA]);
  await pool.query('UPDATE personal_access_tokens SET scopes=$2::text[] WHERE company_id=$1',[fixture.companyA,scopes]);
@@ -43,7 +56,7 @@ beforeAll(async()=>{
  await pool.query("INSERT INTO fiscal_periods(company_id,period_name,period_number,fiscal_year,start_date,end_date,status) VALUES($1,'Synthetic current corrections',9,2026,'2026-09-01','2026-09-30','open')",[fixture.companyA]);
  await ensureOpenPeriodForToday(pool,fixture.companyA,'Synthetic historical current');
 });
-afterAll(async()=>{await pool.end();});
+afterAll(async()=>{await sweepSyntheticFailureTrigger(pool);await pool.end();});
 async function prepared(kind:'customer_invoice'|'supplier_invoice'|'gl'|'opening_balance'='customer_invoice'):Promise<OperationRef>{
  const key=randomUUID(),ar=kind!=='supplier_invoice',invoice=kind==='customer_invoice'||kind==='supplier_invoice';
  const body={version:1,sourceSystem:'csv',sourceKey:key,kind,mode:'post_journal',accountingDate:'2023-02-28',currency:'ZAR',records:[
@@ -117,9 +130,7 @@ it('keeps a posted historical source-summary invoice payable through the ordinar
 });
 it('rolls back a real journal prefix when a caught subledger SQL failure occurs, preserving approval for retry',async()=>{
  const ref=await prepared(),id=await approved(ref);
- await pool.query(`CREATE OR REPLACE FUNCTION public.synthetic_historical_import_failure() RETURNS trigger LANGUAGE plpgsql AS $$
- BEGIN IF current_setting('control.synthetic_import_failure',true)='true' THEN RAISE EXCEPTION 'Synthetic import subledger failure'; END IF; RETURN NEW; END $$`);
- await pool.query('CREATE TRIGGER synthetic_historical_import_failure BEFORE INSERT ON customer_invoices FOR EACH ROW EXECUTE FUNCTION public.synthetic_historical_import_failure()');
+ await createSyntheticFailureTrigger(pool);
  try{
   const caught=await actor('u1',async ctx=>{
    await ctx.sql`SELECT set_config('control.synthetic_import_failure','true',true)`;
@@ -127,8 +138,7 @@ it('rolls back a real journal prefix when a caught subledger SQL failure occurs,
   });
   expect(caught).toContain('Synthetic import subledger failure');
  }finally{
-  await pool.query('DROP TRIGGER IF EXISTS synthetic_historical_import_failure ON customer_invoices');
-  await pool.query('DROP FUNCTION IF EXISTS public.synthetic_historical_import_failure()');
+  await sweepSyntheticFailureTrigger(pool);
  }
  expect((await pool.query('SELECT id FROM gl_journal_entries WHERE company_id=$1 AND source_record_id=$2',[fixture.companyA,ref.entityId])).rows).toHaveLength(0);
  expect((await pool.query('SELECT id FROM control_operation_effects WHERE company_id=$1 AND entity_id=$2',[fixture.companyA,ref.entityId])).rows).toHaveLength(0);
