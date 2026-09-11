@@ -45,7 +45,7 @@ export default function ManagementPacksPage() {
   const [generating, setGenerating] = useState(false);
   const [genPeriod, setGenPeriod] = useState('');
   const [deliveringId, setDeliveringId] = useState('');
-  // What the last delivery reported: how many it reached, and the stored entries it skipped.
+  // What the last delivery reported: how many it reached, and whom it did not (skipped entries and failed sends).
   const [delivery, setDelivery] = useState<{ sentCount: number; notSentTo: string[] } | null>(null);
 
   const load = useCallback(async () => {
@@ -103,9 +103,9 @@ export default function ManagementPacksPage() {
       const res = await apiFetch(`/api/accounting/afs/management-packs/${packId}/deliver`, {
         method: 'POST', credentials: 'include',
       });
-      const j = await res.json() as { data?: { sentCount?: number; skippedRecipients?: string[] }; error?: { message?: string } };
+      const j = await res.json() as { data?: { sentCount?: number; skippedRecipients?: string[]; failedRecipients?: string[] }; error?: { message?: string } };
       if (!res.ok) throw new Error(j.error?.message ?? 'Deliver failed');
-      setDelivery({ sentCount: j.data?.sentCount ?? 0, notSentTo: j.data?.skippedRecipients ?? [] });
+      setDelivery({ sentCount: j.data?.sentCount ?? 0, notSentTo: [...(j.data?.skippedRecipients ?? []), ...(j.data?.failedRecipients ?? [])] });
       await load();
     } catch (e) { setError(e instanceof Error ? e.message : 'Deliver failed'); }
     finally { setDeliveringId(''); }

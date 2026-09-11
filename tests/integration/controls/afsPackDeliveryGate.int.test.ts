@@ -111,6 +111,18 @@ describe('delivering a management pack that skipped review',()=>{
   expect(attached(),'an unreviewed draft went out looking final').toContain(WATERMARK);
  });
 
+ it('reports a recipient whose send failed even when another recipient was sent to',async()=>{
+  const result=await pack('2032-08',true);
+  await h.pool.query(`UPDATE management_pack_configs SET recipients='[{"email":"sent@forensic.invalid","role":"owner","receives":"both"},{"email":"bounced@forensic.invalid","role":"cfo","receives":"both"}]'::jsonb
+   WHERE company_id=$1`,[h.f.companyA]);
+  vi.mocked(sendEmail).mockResolvedValueOnce({success:true}).mockResolvedValueOnce({success:false,error:'535 Authentication failed at mail.internal'});
+  const res=await deliver(result.documentId);
+  expect(res.status,JSON.stringify(res.body)).toBe(200);
+  expect(res.body.data,'a partial failure was reported as a clean delivery').toMatchObject({delivered:true,sentCount:1,
+   failedRecipients:['bounced@forensic.invalid: the email could not be sent']});
+  expect(JSON.stringify(res.body),'the mail server\'s own reply reached the tenant').not.toContain('535');
+ });
+
  it('treats a filed pack as signed: no draft watermark',async()=>{
   const result=await pack('2032-05',true);
   await h.pool.query("UPDATE afs_documents SET status='filed' WHERE company_id=$1 AND id=$2",[h.f.companyA,result.documentId]);
