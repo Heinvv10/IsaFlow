@@ -102,4 +102,13 @@ describe('readers', () => {
     expect(result.status).toBe('fail');
     expect(result.reason).toContain('1 unreconciled');
   });
+
+  it('monthEndWorkbench banking card counts only posted rows', async () => {
+    const { getMonthEndWorkbench } = await import('@/modules/accounting/services/workbench/monthEndWorkbenchService');
+    const workbench = await inRequest(() => getMonthEndWorkbench(company, '2026-09'));
+    const banking = workbench.cards.find((c) => c.id === 'banking');
+    // Only the single posted row should count as unmatched — the pending and
+    // removed rows must not inflate this to 2 or 3.
+    expect(banking?.primary).toBe('1 unmatched');
+  });
 });
