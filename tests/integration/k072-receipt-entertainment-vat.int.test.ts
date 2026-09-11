@@ -124,16 +124,17 @@ beforeAll(async () => {
      VALUES($1,$7,'K072B','K072 Bank','asset','bank','debit',true,true),
            ($2,$7,'1140','K072 VAT Input','asset','vat_input','debit',true,true),
            ($3,$7,'K072DE','K072 Default expense','expense','default_expense','debit',true,true),
-           ($4,$7,'5600','K072 Meals & entertainment','expense',NULL,'debit',false,true),
+           ($4,$7,'5600','Administrative Expenses','expense','admin_expense','debit',true,true),
            ($5,$7,'5100','K072 Office supplies','expense',NULL,'debit',false,true),
            ($6,$7,'5610','K072 Staff welfare','expense',NULL,'debit',false,true)`,
     [bank, vatInput, defaultExpense, meals, office, flagged, company],
   );
-  // The marker migration 521 sets — on every entertainment-named account, so on
-  // 5600 "Meals & entertainment" too. Since K-072 r35 the ACCOUNT is the only
-  // thing that denies the claim; the vendor name folds nothing.
-  await pool.query('UPDATE gl_accounts SET vat_input_denied = true WHERE id=ANY($1::uuid[]) AND company_id=$2',
-    [[flagged, meals], company]);
+  // 5600 is the SEEDED row, as migrations 200/476/605 create it: `Administrative
+  // Expenses`, which migration 521's name rule does not flag (K-072 r36: round 35
+  // renamed and flagged it here, a chart no company has). Only the Staff welfare
+  // account carries the marker migration 521 sets.
+  await pool.query('UPDATE gl_accounts SET vat_input_denied = true WHERE id=$1 AND company_id=$2',
+    [flagged, company]);
   clearSystemAccountCache(company);
 
   await seedDoc(mealsDoc, company, { vendorName: 'Spur Steak Ranches Rosebank', subtotal: 1000, vatAmount: 150, total: 1150 });
@@ -163,23 +164,19 @@ afterAll(async () => {
 }, 60_000);
 
 describe('K-072 entertainment input VAT reaches the ledger denied', () => {
-  it('posts a restaurant receipt with no VAT-input leg and the gross on the expense', async () => {
+  it('on the seeded chart a restaurant receipt keeps its VAT claim, and is HELD for a person: a marked draft', async () => {
+    // 5600 `Administrative Expenses` does not deny input VAT, and the vendor name
+    // folds nothing (K-072 r35). So the draft claims — and is held (r36).
     const result = await post(mealsDoc, token, company);
     expect(result.state.statusCode).toBe(200);
-
     const posted = await legs(mealsDoc);
-    // Two legs only: the zero VAT line is dropped before posting.
-    expect(posted.count).toBe(2);
-    expect(posted.byAccount.get(vatInput)).toBeUndefined();
-    // 'no_vat', not NULL: a denial is a classification, and an exception
-    // report cannot tell "s17(2)(a) took the claim" from "nobody classified
-    // this line" if the only record of the decision is the description string.
-    expect(posted.byAccount.get(meals)).toEqual({ dr: 1150, cr: 0, vatType: 'no_vat' });
-    expect(posted.byAccount.get(bank)).toEqual({ dr: 0, cr: 1150, vatType: null });
-    // No line anywhere on the entry touches VAT Input.
-    // Balanced, and the expense carries exactly what left the bank.
+    expect(posted.byAccount.get(vatInput)).toEqual({ dr: 150, cr: 0, vatType: 'standard' });
+    expect(posted.byAccount.get(meals)!.dr).toBe(1000);
+    const { rows } = await pool.query('SELECT status, description FROM gl_journal_entries WHERE company_id=$1 AND source_document_id=$2',
+      [company, mealsDoc]);
+    expect(rows[0].status).toBe('draft');
+    expect(rows[0].description).toMatch(/HELD for a person/);
     expect(posted.totalDebit).toBe(posted.totalCredit);
-    expect(posted.byAccount.get(meals)!.dr).toBe(posted.byAccount.get(bank)!.cr);
   });
 
   it('still claims input VAT on an office-supplies receipt', async () => {
@@ -246,7 +243,7 @@ describe('K-072 entertainment input VAT reaches the ledger denied', () => {
       [company, mealsDoc],
     )).rows[0].n).toBe(before);
     // And the ledger is unchanged: still the two legs of the first post.
-    expect((await legs(mealsDoc)).count).toBe(2);
+    expect((await legs(mealsDoc)).count).toBe(3);
   });
 
   it('refuses another tenant and writes no journal at all', async () => {
@@ -272,20 +269,21 @@ describe('K-072 r35 — the vendor name folds nothing; the account does', () => 
     expect(posted.byAccount.get(defaultExpense)!.dr).toBe(869.57);
   });
 
-  it('Spur booked to the entertainment account still folds the VAT, and auto-posts', async () => {
-    expect((await post(spurTextDoc, token, company)).state.statusCode).toBe(200);
-    expect(await status(spurTextDoc)).toBe('posted');
-    expect((await legs(spurTextDoc)).byAccount.get(meals)).toEqual({ dr: 1000, cr: 0, vatType: 'no_vat' });
+  it('Spur on an account the TENANT flagged as denying folds the VAT, and auto-posts', async () => {
+    // A tenant choice, made here explicitly and undone: the seeded 5600 is not flagged.
+    await pool.query('UPDATE gl_accounts SET vat_input_denied = true WHERE id=$1 AND company_id=$2', [meals, company]);
+    try {
+      expect((await post(spurTextDoc, token, company)).state.statusCode).toBe(200);
+      expect(await status(spurTextDoc)).toBe('posted');
+      expect((await legs(spurTextDoc)).byAccount.get(meals)).toEqual({ dr: 1000, cr: 0, vatType: 'no_vat' });
+    } finally {
+      await pool.query('UPDATE gl_accounts SET vat_input_denied = false WHERE id=$1 AND company_id=$2', [meals, company]);
+    }
   });
 
-  it('a meals merchant on an account that does NOT deny is left a draft for a person, its VAT not folded', async () => {
-    await pool.query('UPDATE gl_accounts SET vat_input_denied = false WHERE id=$1 AND company_id=$2', [meals, company]);
-    try {
-      expect((await post(wimpyDoc, token, company)).state.statusCode).toBe(200);
-      expect(await status(wimpyDoc)).toBe('draft');
-      expect((await legs(wimpyDoc)).byAccount.get(vatInput)!.dr).toBe(130.43);
-    } finally {
-      await pool.query('UPDATE gl_accounts SET vat_input_denied = true WHERE id=$1 AND company_id=$2', [meals, company]);
-    }
+  it('a meals merchant on the seeded, unflagged 5600 is left a draft for a person, its VAT not folded', async () => {
+    expect((await post(wimpyDoc, token, company)).state.statusCode).toBe(200);
+    expect(await status(wimpyDoc)).toBe('draft');
+    expect((await legs(wimpyDoc)).byAccount.get(vatInput)!.dr).toBe(130.43);
   });
 });

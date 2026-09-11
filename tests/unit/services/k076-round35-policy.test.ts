@@ -16,7 +16,7 @@ import { describe, expect, it } from 'vitest';
 import { evidencedVat } from '@/modules/accounting/services/capture/capturedVatEvidence';
 import {
   buildExpenseJournalFromReceipt,
-  mealsOnClaimingAccount,
+  mealsVatNeedsAPerson,
   parseReceiptType,
 } from '@/modules/accounting/services/bank/receiptToJournalService';
 import type { ExtractedDocument } from '@/modules/accounting/types/documentCapture.types';
@@ -90,9 +90,9 @@ describe('K-076 r35 MEDIUM-1 — denial is the account\'s; merchant names are wh
     }
   });
 
-  it('a meals merchant on an account that does not deny is for a person; on one that denies, or any other vendor, it is not', () => {
-    expect(mealsOnClaimingAccount(slip('Spur Steak Ranches Rosebank'), false)).toBe(true);
-    expect(mealsOnClaimingAccount(slip('Spur Steak Ranches Rosebank'), true)).toBe(false);
-    expect(mealsOnClaimingAccount(slip('Spurway Steel'), false)).toBe(false);
+  it('a meals merchant still claiming VAT is for a person; folded (0 claimed), or any other vendor, it is not (r36: one predicate)', () => {
+    expect(mealsVatNeedsAPerson('Spur Steak Ranches Rosebank', 130.43)).toBe(true);
+    expect(mealsVatNeedsAPerson('Spur Steak Ranches Rosebank', 0)).toBe(false);
+    expect(mealsVatNeedsAPerson('Spurway Steel', 130.43)).toBe(false);
   });
 });

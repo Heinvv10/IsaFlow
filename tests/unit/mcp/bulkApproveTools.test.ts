@@ -20,8 +20,7 @@ vi.mock('@/lib/mcp/tools/bulkApprovePeriods', () => ({
   resolvePeriodSkips: vi.fn(async () => new Map()),
 }));
 vi.mock('@/modules/accounting/services/capture/capturedVatEvidence', () => ({
-  CAPTURED_VAT_UNEVIDENCED_REASON: 'its VAT is not evidenced by its captured document',
-  invoicesWithUnevidencedVat: vi.fn(async () => new Set<string>()),
+  invoiceVatRefusals: vi.fn(async () => new Map<string, string>()),
 }));
 vi.mock('@/modules/accounting/services/gl/systemAccountResolver', () => ({
   validateSystemAccounts: vi.fn(async () => []),
@@ -45,7 +44,7 @@ import { resolvePeriodSkips } from '@/lib/mcp/tools/bulkApprovePeriods';
 import { validateSystemAccounts } from '@/modules/accounting/services/gl/systemAccountResolver';
 import { approveSupplierInvoice } from '@/modules/accounting/services/ap/supplierInvoiceWorkflowService';
 import { approveCreditNote } from '@/modules/accounting/services/ar/creditNoteService';
-import { invoicesWithUnevidencedVat } from '@/modules/accounting/services/capture/capturedVatEvidence';
+import { invoiceVatRefusals } from '@/modules/accounting/services/capture/capturedVatEvidence';
 import {
   bulkApproveSupplierInvoicesTool,
 } from '@/lib/mcp/tools/writeBulkApproveSupplierInvoices';
@@ -117,7 +116,7 @@ describe('bulk_approve_supplier_invoices', () => {
     ) as Promise<Result>;
     for (const dry of [true, false]) {
       rows({ id: ID(1), status: 'draft', invoice_date: '2026-09-01' }, { id: ID(2), status: 'draft', invoice_date: '2026-09-01' });
-      vi.mocked(invoicesWithUnevidencedVat).mockResolvedValueOnce(new Set([ID(2)]));
+      vi.mocked(invoiceVatRefusals).mockResolvedValueOnce(new Map([[ID(2), 'its VAT is not evidenced by its captured document']]));
       const out = payload(await call(dry));
       expect(out.skipped).toEqual([{ index: 1, document_id: ID(2), reason: 'its VAT is not evidenced by its captured document' }]);
       expect(dry ? out.would_post_ids : (out.invoices as { id: string }[]).map((i) => i.id)).toEqual([ID(1)]);

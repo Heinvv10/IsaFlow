@@ -21,7 +21,8 @@ import {
   buildExpenseJournalFromReceipt,
   shouldAutoPostReceipt,
   parseReceiptType,
-  mealsOnClaimingAccount,
+  mealsVatNeedsAPerson,
+  MEALS_VAT_HELD_SUFFIX,
 } from '@/modules/accounting/services/bank/receiptToJournalService';
 import {
   CAPTURED_DOCUMENT_REFUSAL_MESSAGE,
@@ -127,9 +128,8 @@ async function handler(req: CompanyAuthedRequest, res: NextApiResponse) {
   // the `vat_input_denied` marker on the expense account this receipt is being
   // coded to (company-scoped, one query) and coerces the claim away for an
   // unattended caller — which this is, since the receipt auto-posts under a
-  // confidence gate with nobody looking at it. The builder ORs that with its
-  // merchant heuristic, so a restaurant the regex does not recognise is still
-  // caught whenever the account carries the flag.
+  // confidence gate with nobody looking at it. The account flag is the ONLY
+  // thing that folds the VAT (K-072 r35); the vendor name folds nothing.
   const accountDenial = await resolveVatCodeForAccount(
     companyId,
     expenseAccountId,
@@ -144,10 +144,13 @@ async function handler(req: CompanyAuthedRequest, res: NextApiResponse) {
     { accountVatDenied: accountDenial.denied },
   );
   const receiptType = parseReceiptType(extracted);
-  // A meals merchant on an account that does not deny input VAT claims its VAT
-  // (the name folds nothing, K-072 r35) — so it is left for a person, not posted.
-  const autoPost = shouldAutoPostReceipt(extracted, { maxAmount: 5000, minConfidence: 0.85 })
-    && !mealsOnClaimingAccount(extracted, accountDenial.denied);
+  // A meals merchant whose VAT is still claimed is HELD for a person (K-072
+  // r35–r36): not auto-posted, marked on the draft, and refused by every
+  // unattended poster through the same predicate (`capturedVatEvidence`).
+  const claimedVat = journalInput.lines.find((l) => l.accountId === vatInputAccountId)?.debit ?? 0;
+  const heldForPerson = mealsVatNeedsAPerson(extracted.vendorName, claimedVat);
+  if (heldForPerson) journalInput.description += MEALS_VAT_HELD_SUFFIX;
+  const autoPost = shouldAutoPostReceipt(extracted, { maxAmount: 5000, minConfidence: 0.85 }) && !heldForPerson;
 
   // Create the entry through the validated posting service.
   //

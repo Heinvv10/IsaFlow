@@ -19,7 +19,8 @@ import { sql } from '@/lib/neon';
 import type { ExtractedDocument } from '@/modules/accounting/types/documentCapture.types';
 import {
   buildExpenseJournalFromReceipt,
-  mealsOnClaimingAccount,
+  mealsVatNeedsAPerson,
+  MEALS_VAT_HELD_SUFFIX,
   shouldAutoPostReceipt,
 } from '@/modules/accounting/services/bank/receiptToJournalService';
 import { getSystemAccountId } from '@/modules/accounting/services/gl/systemAccountResolver';
@@ -91,11 +92,10 @@ export async function postReceiptAsPettyCashJournal(
 
   const bankAccountId = await getSystemAccountId('bank', companyId);
 
-  // `resolvedGlAccountId` is chosen by the user or a capture rule, NOT by the
-  // merchant map — so the builder's merchant heuristic cannot see a receipt
-  // coded straight to a flagged Entertainment or Staff Welfare account. Read
-  // the account's own `vat_input_denied` marker and hand it in. Unattended:
-  // this branch auto-posts under the same confidence gate.
+  // `resolvedGlAccountId` is chosen by the user, a capture rule or the merchant
+  // map. The account's own `vat_input_denied` marker is the only thing that
+  // folds the VAT (K-072 r35), so read it and hand it in. Unattended: this
+  // branch auto-posts under the same confidence gate.
   const accountDenial = await resolveVatCodeForAccount(
     companyId,
     resolvedGlAccountId,
@@ -108,6 +108,9 @@ export async function postReceiptAsPettyCashJournal(
     { expenseAccountId: resolvedGlAccountId, vatInputAccountId, bankAccountId },
     { accountVatDenied: accountDenial.denied },
   );
+  const claimedVat = journalInput.lines.find((l) => l.accountId === vatInputAccountId)?.debit ?? 0;
+  const heldForPerson = mealsVatNeedsAPerson(extracted.vendorName, claimedVat);
+  if (heldForPerson) journalInput.description += MEALS_VAT_HELD_SUFFIX;
 
   // Drop zero-value legs — buildExpenseJournalFromReceipt always emits a VAT
   // leg, and a zero-rated or exempt receipt extracts vatAmount = 0, which
@@ -164,9 +167,8 @@ export async function postReceiptAsPettyCashJournal(
   );
 
   // Auto-post only an unambiguous receipt, under R5 000, at high confidence.
-  // K-072 r35: a meals merchant on an account that does not deny input VAT goes to a person.
-  const autoPost = shouldAutoPostReceipt(extracted, { maxAmount: 5000, minConfidence: 0.80 })
-    && !mealsOnClaimingAccount(extracted, accountDenial.denied);
+  // K-072 r35–r36: a meals merchant whose VAT is still claimed is HELD for a person.
+  const autoPost = shouldAutoPostReceipt(extracted, { maxAmount: 5000, minConfidence: 0.80 }) && !heldForPerson;
 
   let jeStatus = jeEntry.status;
   if (autoPost) {
