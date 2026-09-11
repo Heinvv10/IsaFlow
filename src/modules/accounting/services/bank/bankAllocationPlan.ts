@@ -11,7 +11,9 @@ export function allocationMoney(value:string):string{
 const money=z.string().transform(allocationMoney),id=z.string().uuid().transform(value=>value.toLowerCase());
 const accountLine=z.object({accountId:id,amount:money,vatCode:z.enum(['none','standard','zero_rated','exempt']).default('none'),
  description:z.string().max(1000).optional(),cc1Id:id.optional(),cc2Id:id.optional(),buId:id.optional()}).strict();
-const common={version:z.literal(1),bankTransactionId:id,description:z.string().max(1000).optional()};
+/** The categorisation rule that instructed an unattended allocation; part of the approved plan so the receipt's fingerprint covers it. */
+const rule=z.object({id,name:z.string().max(200)}).strict();
+const common={version:z.literal(1),bankTransactionId:id,description:z.string().max(1000).optional(),rule:rule.optional()};
 const application=z.object({invoiceId:id,amount:money}).strict();
 const partyDimensions={cc1Id:id.optional(),cc2Id:id.optional(),buId:id.optional()};
 const schema=z.discriminatedUnion('kind',[

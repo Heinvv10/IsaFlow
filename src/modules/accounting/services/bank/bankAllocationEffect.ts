@@ -33,7 +33,7 @@ export async function executeBankAllocationEffect(ctx:ControlTx,intentId:string,
  const [after]=await ctx.sql`UPDATE bank_transactions SET status='allocated',matched_journal_line_id=${bankLines[0]!.id}::uuid,
   cc1_id=${dimensions.cc1Id}::uuid,cc2_id=${dimensions.cc2Id}::uuid,bu_id=${dimensions.buId}::uuid,
   allocation_type=${plan.kind==='split'?'account':plan.kind},allocated_entity_name=${sources.party?String(sources.party.name):'Account allocation'},
-  allocation_rule_id=NULL,allocation_rule_name=NULL,allocation_batch_id=NULL,updated_at=clock_timestamp()
+  allocation_rule_id=${plan.rule?.id??null}::uuid,allocation_rule_name=${plan.rule?.name??null},allocation_batch_id=NULL,updated_at=clock_timestamp()
   WHERE company_id=${company}::uuid AND id=${plan.bankTransactionId}::uuid AND status='imported' RETURNING *` as Record<string,unknown>[];
  if(!after)throw new Error('Bank allocation state changed');
  await recordBankAllocationChild(ctx,permit,'bank_transaction',sources.bank,after,'bank_allocation.posted');

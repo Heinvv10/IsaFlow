@@ -47,6 +47,12 @@ describe('buildApplyToast', () => {
     expect(r.message).toBe('10 categorised · 3 skipped — locked by another request, retry');
   });
 
+  it('reports lines the approval policy left for a person, and warns when that is all that happened', () => {
+    const t = buildApplyToast({ applied: 0, autoPostSkippedApprovalRequired: 2 });
+    expect(t.kind).toBe('warn');
+    expect(t.message).toBe("0 categorised · 2 left for approval — the company's policy requires one at this amount");
+  });
+
   it('reports a rule that hit the 500-transaction cap', () => {
     const r = buildApplyToast({ applied: 500, autoPostTruncatedRules: 1 });
     expect(r.message).toBe('500 categorised · 1 rule hit the 500-transaction cap — run again');

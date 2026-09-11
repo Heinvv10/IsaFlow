@@ -23,6 +23,10 @@ export async function prepareBankAllocation(ctx:ControlTx,input:unknown){
   const plan=transfer?await bindBankTransferSelection(ctx,transfer):await bindBankAllocationVatAccount(ctx,parsed!);
   const sources=await loadBankAllocationSources(ctx,plan);
   if(sources.bank.status!=='imported')throw new Error('Imported bank transaction required');
+  if('rule' in plan&&plan.rule){
+   const rules=await ctx.sql`SELECT id FROM bank_categorisation_rules WHERE company_id=${ctx.principal.companyId}::uuid AND id=${plan.rule.id}::uuid FOR SHARE`;
+   if(rules.length!==1)throw new Error('Owned categorisation rule required');
+  }
   for(const item of sources.invoices){const invoice=item.invoice as Record<string,unknown>,allocation=item.allocation as {amount:string};
    assertAllocationOutstanding(String(invoice.total_amount),String(invoice.amount_paid),allocation.amount);
   }

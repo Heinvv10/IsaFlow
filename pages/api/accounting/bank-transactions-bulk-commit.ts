@@ -281,6 +281,9 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
     );
 
     let appliedRuleCount = 0;
+    // Lines an auto-post rule matched but the company's approval policy binds.
+    // Reported, not silent: the user expects the rule to have posted them.
+    let approvalRequiredCount = 0;
     if (applyBankRules === true) {
       try {
         const ruleResult = await applyBankRulesService(
@@ -289,6 +292,7 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
           authReq.user.id,
         );
         appliedRuleCount = ruleResult.applied;
+        approvalRequiredCount = ruleResult.autoPostSkippedApprovalRequired ?? 0;
       } catch (err) {
         log.warn('Failed to apply bank rules after bulk commit file', {
           error: err, filename,
@@ -314,6 +318,7 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
       duplicateCount,
       totalParsed: parseResult.transactions.length,
       appliedRules: appliedRuleCount,
+      autoPostSkippedApprovalRequired: approvalRequiredCount,
       // Non-fatal problems the import swallowed to stay non-fatal — today, a
       // transfer counterpart pass that failed. Reported so the user is not told
       // the import was clean when part of it was not.

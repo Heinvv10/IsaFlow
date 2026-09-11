@@ -6,7 +6,6 @@
 
 import { sql, withSavepoint } from '@/lib/neon';
 import { log } from '@/lib/logger';
-import { getSystemAccountId } from '../gl/systemAccountResolver';
 import { fetchVatDenialFlags } from '../gl/inputVatDenial';
 import { fetchAccountNames } from '../gl/nonSupplyVatGuard';
 import { fetchBankContraFlags } from '../gl/bankContraVat';
@@ -157,6 +156,9 @@ export async function applyRules(
     let autoPostSkippedRaced = 0;
     let autoPostSkippedLocked = 0;
     let autoPostTruncatedRules = 0;
+    // Lines the company's approval policy binds. Left unposted, never posted
+    // around the policy; a person allocates them from the screen with an approval.
+    let autoPostSkippedApprovalRequired = 0;
     // Lines this sweep posted GROSS because the rule asked to claim input tax on
     // an account flagged s17(2)(a). Reported, not silent: a rule set to claim on
     // an entertainment account is a configuration mistake the user must see.
@@ -206,20 +208,17 @@ export async function applyRules(
 
       const matchingTxs = await findMatchingTxs(companyId, bankAccountId, field, pattern);
 
-      // Resolve AP/AR control accounts and entity names lazily (only when needed).
-      let apAccountId: string | null = null;
-      let arAccountId: string | null = null;
+      // Resolve entity names lazily (only when needed). The controlled
+      // allocation binds the AP/AR control accounts itself.
       let supplierName: string | null = null;
       let customerName: string | null = null;
       if (allocType === 'supplier' && ruleSupplierId) {
-        apAccountId = await getSystemAccountId('payable', companyId);
         const supRows = (await sql`
           SELECT name FROM suppliers
           WHERE id = ${ruleSupplierId}::UUID AND company_id = ${companyId}::UUID
         `) as Record<string, unknown>[];
         supplierName = supRows[0]?.name ? String(supRows[0].name) : `Supplier #${ruleSupplierId}`;
       } else if (allocType === 'customer' && ruleClientId) {
-        arAccountId = await getSystemAccountId('receivable', companyId);
         const custRows = (await sql`
           SELECT name FROM customers
           WHERE id = ${ruleClientId}::UUID AND company_id = ${companyId}::UUID
@@ -263,8 +262,7 @@ export async function applyRules(
             // for its OWN meaning of absent rather than borrowing this one.
             ruleGlAccountIsBank: ruleGlAccountId
               ? ruleAccountIsBank.get(ruleGlAccountId) : false,
-            bankGlAccountId: bankGlAccountId!, apAccountId, arAccountId,
-            supplierName, supplierId: ruleSupplierId ?? null, customerName,
+            supplierName, supplierId: ruleSupplierId, customerName, customerId: ruleClientId,
           }));
         } catch (lineErr) {
           // Another request is holding this row. One contended transaction must
@@ -278,6 +276,7 @@ export async function applyRules(
         if (outcome.kind === 'raced') { autoPostSkippedRaced++; continue; }
         if (outcome.kind === 'no_period') { autoPostSkippedNoPeriod++; continue; }
         if (outcome.kind === 'closed_period') { autoPostSkippedClosedPeriod++; continue; }
+        if (outcome.kind === 'approval_required') { autoPostSkippedApprovalRequired++; continue; }
 
         entries.push({ bankTxId: String(tx.id), ruleName, journalEntryId: outcome.journalEntryId });
         if (outcome.vatDenied) autoPostVatDenied++;
@@ -310,6 +309,7 @@ export async function applyRules(
         autoPostSkippedRaced,
         autoPostSkippedLocked,
         autoPostTruncatedRules,
+        autoPostSkippedApprovalRequired,
         autoPostVatDenied,
         autoPostNonSupply,
       },
@@ -325,6 +325,7 @@ export async function applyRules(
       autoPostSkippedRaced,
       autoPostSkippedLocked,
       autoPostTruncatedRules,
+      autoPostSkippedApprovalRequired,
       autoPostVatDenied,
       autoPostNonSupply,
     };
