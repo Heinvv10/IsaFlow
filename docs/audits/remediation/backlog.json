@@ -11496,6 +11496,40 @@
       "severity": "high",
       "source": "Measured by the K-072 round-23 blind reviewer in an integration probe: one slip uploaded three times posted 3 journals, a R3,450 bank credit for a R1,150 receipt.",
       "processNotes": "Fix direction: a content fingerprint (file hash, and a normalised vendor+date+total+VAT key) checked before auto-post, and a partial-unique constraint as the backstop, as gl_journal_entries already has for source documents. Refuse to auto-post a match; let a human confirm a genuine repeat purchase. Related: R-070 (two routes with no already-posted guard). Fix after K-072 merges: it touches the same routes."
+    },
+    {
+      "id": "R-089",
+      "claim": "",
+      "area": "accounting/migration",
+      "affectedPaths": [
+        "src/modules/accounting/services/core/sageSupplierInvoiceImportService.ts",
+        "src/modules/accounting/services/core/sageCustomerImportService.ts"
+      ],
+      "sourceLabel": "",
+      "sourceIds": [],
+      "correctedTrigger": "",
+      "severityRationale": "The same class K-072 removed from capture: a document from a non-VAT supplier, or a zero-rated one, is imported with 15/115 of its total as VAT, so input VAT (supplier side) or output VAT (customer side) is overstated for migrated companies. Scope is migration imports only.",
+      "auditedSha": "",
+      "currentSha": "",
+      "status": "confirmed",
+      "dependencies": [
+        "K-072"
+      ],
+      "testNames": [],
+      "evidencePaths": [
+        "docs/audits/remediation/K-072/fix.md"
+      ],
+      "fixCommit": null,
+      "pr": null,
+      "deployedSha": null,
+      "historicalDataImpact": "Unknown; production not measured. Count Sage-imported documents whose source row had no subtotal and that now carry a non-zero tax amount, per company.",
+      "canonicalItem": null,
+      "reportedSeverity": "",
+      "branch": null,
+      "title": "Sage import derives subtotal = total / 1.15 when a row carries none, so an imported bill or invoice gets a VAT amount the source never recorded",
+      "severity": "medium",
+      "source": "Found by the K-072 round-31 fixer during a census by pattern of every VAT-from-total derivation (fix.md census table): sageSupplierInvoiceImportService.ts:67 and sageCustomerImportService.ts:53.",
+      "processNotes": "Fix like K-072 round 30/31: no VAT in the source means none recorded (0, flagged), never derived. Verify the paths before editing; the file paths are from the K-072 census."
     }
   ],
   "sourceInventory": [
