@@ -1,7 +1,7 @@
 import Decimal from 'decimal.js';
 import {fmtDate} from '@/lib/fmtDate';
 import type {ControlTx} from '../controls/contracts';
-import {sameIntentId} from '../controls/intentIdentity';
+import {CANONICAL_UUID_TEXT,sameIntentId} from '../controls/intentIdentity';
 import {parseBankAllocationPlan} from './bankAllocationPlan';
 import type {BankTransferPlan} from './bankAllocationTransferPlan';
 import {loadBankAllocationIntent} from './bankAllocationMaterial';
@@ -24,7 +24,7 @@ export async function loadBankTransferOriginalBanks(ctx:ControlTx,intent:Row,pla
  const receipts=await ctx.sql`SELECT lower(e.entity_id) AS entity_id,e.result,i.payload,i.bank_transaction_id,i.accounting_date::text,i.amount::text,
   EXISTS(SELECT 1 FROM control_change_events c WHERE c.company_id=${company}::uuid AND c.entity_type=e.entity_type AND c.entity_id_canonical=e.entity_id_canonical
    AND c.action=e.operation AND c.operation_id=e.operation_id AND c.binding_hash=e.binding_hash) AS audited
-  FROM control_operation_effects e JOIN control_bank_allocation_intents i ON i.company_id=e.company_id AND i.id::text=e.entity_id_canonical
+  FROM control_operation_effects e JOIN LATERAL(SELECT i.* FROM control_bank_allocation_intents i WHERE i.company_id=e.company_id AND i.id=CASE WHEN e.entity_id_canonical ~ ${CANONICAL_UUID_TEXT} THEN e.entity_id_canonical::uuid END AND i.id::text=e.entity_id_canonical OFFSET 0) i ON true
   WHERE e.company_id=${company}::uuid AND e.entity_type='bank_allocation_intent' AND e.operation='bank_allocation.post'
    AND (e.entity_id_canonical=${intent.id}::text OR e.result->>'journalEntryId'=${journal.id}::text
     OR lower(i.payload->'transfer'->>'originalIntentId')=${intent.id}::text) ORDER BY lower(e.entity_id) LIMIT 3` as Row[];

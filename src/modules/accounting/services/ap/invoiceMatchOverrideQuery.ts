@@ -19,8 +19,8 @@ export async function queryInvoiceMatchOverrides(ctx:ControlTx,rawInvoiceId:stri
     AND ce.entity_type='invoice_match_override_intent' AND ce.entity_id_canonical=i.id::text AND ce.operation='invoice_match.override'
     ORDER BY (EXISTS(SELECT 1 FROM control_operation_approvals ca WHERE ca.company_id=ce.company_id AND ca.consumed_effect_id=ce.id AND ca.status='consumed')) DESC,
      (ce.entity_id=i.id::text) DESC,ce.committed_at,ce.id LIMIT 1) e ON true
-  LEFT JOIN control_operation_approvals a ON a.company_id=i.company_id AND a.consumed_effect_id=e.id AND a.status='consumed'
-   AND a.entity_type='invoice_match_override_intent' AND a.entity_id_canonical=i.id::text AND a.operation='invoice_match.override'
+  LEFT JOIN LATERAL(SELECT a.id FROM control_operation_approvals a WHERE a.company_id=i.company_id AND a.consumed_effect_id=e.id AND a.status='consumed'
+   AND a.entity_type='invoice_match_override_intent' AND a.entity_id_canonical=i.id::text AND a.operation='invoice_match.override' OFFSET 0) a ON true
   LEFT JOIN LATERAL(SELECT cv.* FROM control_entity_versions cv WHERE cv.company_id=i.company_id
     AND cv.entity_type='invoice_match_override_intent' AND cv.entity_id_canonical=i.id::text
     ORDER BY cv.version DESC,(cv.entity_id=i.id::text) DESC,cv.entity_id COLLATE "C" LIMIT 1) v ON true

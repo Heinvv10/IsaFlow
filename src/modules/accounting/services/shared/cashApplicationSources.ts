@@ -10,6 +10,7 @@ import {materializeGlOperation} from '../controls/glOperationMaterializer';
 import {getVerifiedBeneficiary} from '../controls/beneficiaryService';
 import {loadCashApplicationInvoices} from './cashApplicationInvoiceSources';
 import {cashApplicationMoney,type CashApplicationPlan} from './cashApplicationPlan';
+import {CANONICAL_UUID_TEXT} from '../controls/intentIdentity';
 const D=Decimal.clone({precision:80});
 type Row=Record<string,unknown>;
 export async function loadCashApplicationSources(ctx:ControlTx,plan:CashApplicationPlan){
@@ -27,7 +28,8 @@ export async function loadCashApplicationSources(ctx:ControlTx,plan:CashApplicat
   :await ctx.sql`SELECT id,name FROM suppliers WHERE company_id=${company}::uuid AND id=${payment.party_id}::uuid FOR SHARE`;
  const party=(partyRows as Row[])[0];if(!party)throw new Error('Owned cash application party required');
  const [journal]=await ctx.sql`SELECT * FROM gl_journal_entries WHERE company_id=${company}::uuid AND id=${payment.gl_journal_entry_id}::uuid FOR SHARE` as Row[];
- const origins=await ctx.sql`SELECT e.id,e.entity_id,e.result FROM control_operation_effects e JOIN control_bank_allocation_intents i ON i.company_id=e.company_id AND i.id::text=e.entity_id_canonical
+ const origins=await ctx.sql`SELECT e.id,e.entity_id,e.result FROM control_operation_effects e
+  JOIN LATERAL(SELECT i.* FROM control_bank_allocation_intents i WHERE i.company_id=e.company_id AND i.id=CASE WHEN e.entity_id_canonical ~ ${CANONICAL_UUID_TEXT} THEN e.entity_id_canonical::uuid END AND i.id::text=e.entity_id_canonical OFFSET 0) i ON true
   WHERE e.company_id=${company}::uuid AND e.operation='bank_allocation.post' AND e.entity_type='bank_allocation_intent' AND e.result->>'paymentId'=${plan.paymentId}
   AND i.currency='ZAR' AND i.payload->>'kind'=${plan.kind} ORDER BY e.id LIMIT 2` as {id:string;entity_id:string;result:{journalEntryId:string;bankTransactionId:string}}[];
  if(origins.length>1)throw new Error('Ambiguous original bank payment effect');
