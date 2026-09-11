@@ -69,8 +69,9 @@ it('observes a <=5 s claim timeout, the class work timeout and the per-class idl
  const check=await checkRun(),checkSeen:Seen[]=[];
  const result=await runAuditJob(identity(check),{pool:observing(pool,checkSeen),workerClass:'check_run'});
  expect(result).toMatchObject({state:'succeeded',checkRunId:check});
- // Two cold transactions: the bounded claim and the class-deadlined work transaction that publishes in one COMMIT.
- expect(checkSeen).toHaveLength(2);
+ // Three cold transactions: the bounded claim, the bounded authority pin, and the class-deadlined work transaction
+ // that publishes in one COMMIT.
+ expect(checkSeen).toHaveLength(3);
  expect((await pool.query('SELECT state,last_error_code,attempts,lease_id FROM control_audit_jobs WHERE company_id=$1 AND job_id=$2',[fixture.companyA,check])).rows[0])
   .toEqual({state:'succeeded',last_error_code:null,attempts:1,lease_id:null});
  const again=vi.fn(async()=>({state:'not_claimed' as const})),poller=createAuditJobPoller({companyIds:[fixture.companyA],kinds:['audit_check_run'],batchSize:10},{pool,executeJob:again});
@@ -78,14 +79,16 @@ it('observes a <=5 s claim timeout, the class work timeout and the per-class idl
  expect(again.mock.calls.map(call=>(call as unknown as [{jobId:string}])[0].jobId)).not.toContain(check);
  expect(await runAuditJob(identity(check),{pool,workerClass:'check_run'})).toEqual({state:'not_claimed'});
  expect(checkSeen[0]!.statement).toBeLessThanOrEqual(5000);expect(checkSeen[0]!.statement).toBeGreaterThan(0);
- expect(checkSeen[1]!.statement).toBeGreaterThan(295000);expect(checkSeen[1]!.statement).toBeLessThanOrEqual(300000);
+ expect(checkSeen[1]!.statement).toBeLessThanOrEqual(5000);expect(checkSeen[1]!.statement).toBeGreaterThan(0);
+ expect(checkSeen[2]!.statement).toBeGreaterThan(295000);expect(checkSeen[2]!.statement).toBeLessThanOrEqual(300000);
  for(const seen of checkSeen)expect(seen.idle).toBe(15000);
  // One generation, one result row: a published run is never re-executed by a later claim.
  expect((await pool.query('SELECT count(*)::int AS n FROM control_audit_check_results WHERE company_id=$1 AND job_id=$2',[fixture.companyA,check])).rows[0].n).toBe(1);
  const snap=await snapshot(),snapSeen:Seen[]=[];
  expect(await runAuditJob(identity(snap),{pool:observing(pool,snapSeen),workerClass:'audit'})).toMatchObject({state:'succeeded',snapshotId:snap});
- expect(snapSeen).toHaveLength(2);
- expect(snapSeen[0]!.statement).toBeLessThanOrEqual(5000);expect(snapSeen[1]!.statement).toBeGreaterThan(55000);expect(snapSeen[1]!.statement).toBeLessThanOrEqual(60000);
+ expect(snapSeen).toHaveLength(3);
+ expect(snapSeen[0]!.statement).toBeLessThanOrEqual(5000);expect(snapSeen[1]!.statement).toBeLessThanOrEqual(5000);
+ expect(snapSeen[2]!.statement).toBeGreaterThan(55000);expect(snapSeen[2]!.statement).toBeLessThanOrEqual(60000);
  for(const seen of snapSeen)expect(seen.idle).toBe(0);
 });
 it('each poller class discovers only its own kinds',async()=>{

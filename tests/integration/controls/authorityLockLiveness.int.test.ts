@@ -116,6 +116,22 @@ it('bounds the wait for a held company authority lock and answers 503 with a ret
  expect(after.status).toBe(200);expect(after.ms).toBeLessThan(1000);
 },30000);
 
+it('makes a person wait at most 5 s behind their own long request, and nobody else waits',async()=>{
+ let checked!:()=>void,finish!:()=>void;const ready=new Promise<void>(r=>{checked=r;}),done=new Promise<void>(r=>{finish=r;});
+ // A long request of u1's (an export, a report) that checked u1's permissions early and is still running.
+ const long=asCookie('u1',async()=>{
+  const {resolveEffectivePermissions}=await import('@/lib/auth/effectivePermissions');
+  await resolveEffectivePermissions(requireControlTx());checked();await done;
+ });
+ try{
+  await ready;
+  const [own,other]=await Promise.all([x.rest('GET','/api/accounting/control-approvals',{},'u1'),x.rest('GET','/api/accounting/control-approvals',{},'u2')]);
+  expect(own.status,JSON.stringify(own.body)).toBe(503);expect(own.retryAfter).toMatch(/^\d+$/);
+  expect(own.ms).toBeGreaterThanOrEqual(4500);expect(own.ms).toBeLessThan(9000);
+  expect(other.status).toBe(200);expect(other.ms).toBeLessThan(1000);
+ }finally{finish();await long;}
+},30000);
+
 it('bounds every database function that takes the company authority key',async()=>{
  const rows=(await x.pool.query(`SELECT p.oid::regprocedure::text AS fn,p.prosrc,p.proconfig FROM pg_proc p
   WHERE p.prosrc LIKE '%control-authority:%' ORDER BY 1`)).rows as {fn:string;prosrc:string;proconfig:string[]|null}[];

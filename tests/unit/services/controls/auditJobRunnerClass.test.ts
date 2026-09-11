@@ -59,3 +59,17 @@ it('refuses a spawn timestamp that is not an integer in the past',async()=>{
   await expect(runAuditJob(identity,{pool,workerClass:'check_run',startedAt})).rejects.toThrow(/spawn timestamp/i);
  expect(withAuditWorkerTransaction).not.toHaveBeenCalled();
 });
+it('requeues a job whose pin or work transaction lost a deadlock or a lock timeout instead of failing it',async()=>{
+ for(const [code,at] of [['40P01',2],['55P03',2],['40P01',3],['55P03',3]] as const){
+  calls=[];vi.mocked(failAuditJobForWorker).mockClear();
+  vi.mocked(withAuditWorkerTransaction).mockImplementation(async(_pool,_identity,isolation,deadlineAt,_signal,work,limits)=>{
+   calls.push({deadlineAt,limits,isolation});
+   if(calls.length===at)throw Object.assign(new Error('Synthetic lock failure'),{code});
+   if(calls.length===2)return Object.freeze({jobId:identity.jobId});
+   return work({client:{} as never,userId:identity.personId,companyId:identity.companyId,claims:{}});
+  });
+  expect(await runAuditJob(identity,{pool,workerClass:'audit'})).toMatchObject({state:'failed',code:'WORKER_ERROR',failureRecorded:true});
+  expect(vi.mocked(failAuditJobForWorker).mock.calls[0]![2]).toBe('WORKER_ERROR');
+  expect(vi.mocked(failAuditJobForWorker).mock.calls[0]![3]).toBe(true);
+ }
+});
