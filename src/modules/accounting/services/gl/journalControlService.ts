@@ -2,22 +2,49 @@ import {readHistoricalJournalRelationship} from '../controls/historicalJournalRe
 import {assertGeneratedJournalMoney} from '../controls/generatedJournalMoney';
 import { als } from '@/lib/als';
 import { withSavepoint } from '@/lib/neon';
+import { isRealCalendarDate } from '@/lib/validation';
 import { requireControlTx } from '../controls/context';
 import { executeControlledOperation } from '../controls/approvalExecutionService';
 import { assertGeneratedJournal, type ParentJournalControl } from '../controls/generatedJournalPermit';
 import { materializeGlOperation } from '../controls/glOperationMaterializer';
 import { initializeOperationObservations } from '../controls/approvalRequestService';
 import { recordCommittedChange } from '../controls/changeEventService';
+import { postingPeriodBlock, ClosedFiscalPeriodError, LOCKDOWN_REFUSAL_MESSAGE } from './postingPeriodGuard';
 import type { ApMaterial } from '../controls/apOperationMaterializer';
 import type { ControlTx, OperationRef } from '../controls/contracts';
 export interface JournalControlOptions { approvalId?: string | null; parentControl?: ParentJournalControl }
+function poison(error: unknown): never {
+  const store = als.getStore();
+  if (store) store.controlWriteFailed = true;
+  throw error;
+}
 export async function runJournalControl<T>(companyId: string, userId: string, ref: OperationRef, opts: JournalControlOptions | undefined,
   effect: (ctx: ControlTx, material: ApMaterial, parent: ParentJournalControl) => Promise<T>): Promise<T> {
+  let ctx: ControlTx, parent: ParentJournalControl | undefined;
   try {
-    const ctx = requireControlTx();
+    ctx = requireControlTx();
     if (ctx.principal.companyId !== companyId || ctx.principal.personId !== userId) throw new Error('Journal context does not match authenticated person and tenant');
-    const parent = opts?.parentControl;
+    parent = opts?.parentControl;
+    // Generated financial families must use their own approval and subledger lifecycle — an INTEGRITY check, not a
+    // refusal a caller can safely catch and continue past: a caller that swallows this per row and keeps going
+    // (migrationApService.ts, migrationImportService.ts) must not COMMIT whatever it wrote before this call, so it
+    // stays inside this poisoning try along with the tenant-mismatch check above.
     if (!parent) await assertDirectJournalOperation(ctx, ref);
+  } catch (error) { poison(error); }
+  // A lockdown or closed-period refusal for a DIRECT (no parentControl) post or reverse, thrown HERE, before
+  // executeControlledOperation opens the controlled write, and OUTSIDE both poisoning try/catch blocks:
+  // assertPostingGuards throws the exact same rule from inside that write, and firing it there — even when the
+  // caller catches it — marks this request's control transaction failed regardless (the poison above and below),
+  // which withAuth then turns into a 500 CONTROL_INTEGRITY_FAILED no matter what the caller does. Unlike the two
+  // checks above, this one IS safe for a caller to catch and continue past (bankRuleAutoPostLine.ts already does,
+  // deleting the draft and returning normally) — it refuses a business state, not an integrity fault. A direct
+  // call's parent is always `{permit, parent: effectiveRef}` with effectiveRef.entityType 'journal_entry' — never
+  // 'fiscal_year' or 'historical_import' (only the generated-journal branch below can carry those) — so
+  // authorizedClosedPeriod is always false here, exactly what assertPostingGuards would also compute for this
+  // call. This is a read-only precheck against a separate snapshot of the same rows the controlled write re-reads
+  // and re-checks under lock, which stays the backstop for the TOCTOU window between the two.
+  if (!parent) await assertDirectPostingPeriodOk(ctx, ref);
+  try {
     if (!parent) return await executeControlledOperation(ctx, ref, opts?.approvalId ?? null, async permit => {
       // The control kernel freezes the target date before its callback, including midnight boundaries.
       const effectiveRef = ref.operation === 'journal.reverse'
@@ -50,11 +77,7 @@ export async function runJournalControl<T>(companyId: string, userId: string, re
         bindingHash: null, protectedEvidenceRef: null, operationId: parent.permit.operationId });
       return result;
     });
-  } catch (error) {
-    const store = als.getStore();
-    if (store) store.controlWriteFailed = true;
-    throw error;
-  }
+  } catch (error) { poison(error); }
 }
 
 /** Generated financial families must use their own approval and subledger lifecycle. */
@@ -62,6 +85,52 @@ async function assertDirectJournalOperation(ctx:ControlTx,ref:OperationRef):Prom
   const [header]=await ctx.sql`SELECT source FROM gl_journal_entries
     WHERE company_id=${ctx.principal.companyId}::uuid AND id=${ref.entityId}::uuid` as {source:string}[];
   if(header) assertDirectSource(header.source);
+}
+type Row = Record<string, unknown>;
+/**
+ * Reads the same period-and-lockdown facts materializeGlOperation would (company lockdown, the entry's own fiscal
+ * period, and — for a reversal with no explicit reversalDate — the same open/closed fallback to today JHB), and
+ * throws the SAME error classes assertPostingGuards throws from postingPeriodBlock. Returns silently, leaving the
+ * controlled write to answer, whenever the entry, its company row or a covering fiscal period cannot be read
+ * cleanly (absent, ambiguous, or an invalid supplied reversalDate) — those are fault cases, not a refusal this
+ * function owns, and duplicating their exact wording here would give the precheck and the write two answers that
+ * can drift.
+ */
+async function assertDirectPostingPeriodOk(ctx: ControlTx, ref: OperationRef): Promise<void> {
+  const companyId = ctx.principal.companyId;
+  const [header] = await ctx.sql`SELECT entry_date::text AS entry_date FROM gl_journal_entries
+    WHERE company_id=${companyId}::uuid AND id=${ref.entityId}::uuid` as Row[];
+  const [company] = await ctx.sql`SELECT lockdown_enabled,lockdown_date::text AS lockdown_date FROM companies
+    WHERE id=${companyId}::uuid` as Row[];
+  if (!header || typeof header.entry_date !== 'string' || !company) return;
+  const originalDate = header.entry_date;
+  const periodAt = async (date: string) => {
+    const rows = await ctx.sql`SELECT status FROM fiscal_periods
+      WHERE company_id=${companyId}::uuid AND start_date<=${date}::date AND end_date>=${date}::date` as Row[];
+    return rows.length === 1 ? rows[0] : null;
+  };
+  const originalPeriod = await periodAt(originalDate);
+  let accountingDate = originalDate;
+  if (ref.operation === 'journal.reverse') {
+    const requested = ref.reversalDate;
+    if (requested !== undefined) {
+      if (!isRealCalendarDate(requested) || requested < originalDate) return;
+      accountingDate = requested;
+    } else {
+      if (!originalPeriod || typeof originalPeriod.status !== 'string') return;
+      if (originalPeriod.status === 'open') accountingDate = originalDate;
+      else {
+        const [clock] = await ctx.sql`SELECT (clock_timestamp() AT TIME ZONE 'Africa/Johannesburg')::date::text AS day` as Row[];
+        if (!clock || typeof clock.day !== 'string') return;
+        accountingDate = clock.day;
+      }
+    }
+  }
+  const targetPeriod = accountingDate === originalDate ? originalPeriod : await periodAt(accountingDate);
+  if (!targetPeriod || typeof targetPeriod.status !== 'string') return;
+  const block = postingPeriodBlock(targetPeriod.status, company, accountingDate, false);
+  if (block?.kind === 'period') throw new ClosedFiscalPeriodError(block.status);
+  if (block?.kind === 'lockdown') throw new Error(LOCKDOWN_REFUSAL_MESSAGE);
 }
 function assertDirectSource(source:string):void {
   if(new Set(['auto_invoice','auto_payment','auto_credit_note','auto_supplier_invoice','auto_supplier_payment',
