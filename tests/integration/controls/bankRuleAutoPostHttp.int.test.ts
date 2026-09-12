@@ -201,3 +201,18 @@ async function paymentAndRefund(order:'payment-first'|'refund-first'){
 }
 it('supplier rule, payment sorted first: the payment is refused and the refund still posts',async()=>{await paymentAndRefund('payment-first');},60000);
 it('supplier rule, refund sorted first: the refund posts and the payment is refused',async()=>{await paymentAndRefund('refund-first');},60000);
+
+it('a user-created approval rule the kernel cannot evaluate is a typed refusal per line; the import lands',async()=>{
+ // POST /api/accounting/approval-rules validates nothing today (follow-up recorded); such a row must not 500 every import.
+ const description=tag();await f.rule('A',description);
+ const policy=randomUUID();
+ await f.pool.query("INSERT INTO approval_rules(id,company_id,name,document_type,condition_field,condition_operator,condition_value,approver_role) VALUES($1,$2,'Synthetic unsupported','payment','amount','less_than',100,'admin')",[policy,f.companies.A]);
+ try{
+  const {response,tx}=await f.commit('A','u1',[{date:'2026-09-09',description,amount:'-9.00'}]);
+  expect(response.status).toBe(200);
+  expect(response.body.data.appliedRules).toBe(0);
+  expect(response.body.data.autoPostSkippedRefused).toBeGreaterThanOrEqual(1);
+  expect(response.body.data.autoPostRefusalReasons).toContain('Unsupported approval policy');
+  await untouched(f.companies.A,tx(description));
+ }finally{await f.pool.query('DELETE FROM approval_rules WHERE company_id=$1 AND id=$2',[f.companies.A,policy]);}
+},60000);
