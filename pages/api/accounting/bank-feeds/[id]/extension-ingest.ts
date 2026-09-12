@@ -201,7 +201,10 @@ async function handler(req: ExtensionAuthedRequest, res: NextApiResponse) {
       // Suggestions only: withExtensionToken opens no control principal, so the
       // controlled allocation an auto-post rule needs would refuse every line.
       // Stated here rather than discovered per line. NOT caught: what escapes
-      // applyRules is a fault, and the ingest rolls back with it as a 500.
+      // applyRules is a fault → the catch below marks the sync log failed and
+      // rethrows → withErrorHandler answers 500. withExtensionToken then
+      // COMMITS (it has no status check): the imported rows are kept, the log
+      // says failed, and a retry dedupes — the caller is told, nothing is lost.
       const ruleResult = await applyBankRulesService(companyId, bankAccountId, userId, undefined, { autoPost: false });
       appliedRuleCount = ruleResult.applied;
     }
