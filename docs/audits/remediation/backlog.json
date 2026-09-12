@@ -11179,7 +11179,7 @@
       "severityRationale": "A user who corrects an auto-posted entry with a manual offsetting journal instead of a reversal gets that correction applied twice when the run is undone. The money is wrong on the ledger and the run still reads undone. Needs a design decision, not a patch: a hand offset carries no reversal_of_id and no reversed_at, so it is indistinguishable from any other credit, and a heuristic that treats matching credits as reversals would refuse legitimate undos.",
       "auditedSha": "",
       "currentSha": "",
-      "status": "confirmed",
+      "status": "fixed",
       "dependencies": [
         "K-071"
       ],
@@ -11187,13 +11187,13 @@
       "evidencePaths": [
         "docs/audits/remediation/K-071/fix.md"
       ],
-      "fixCommit": null,
-      "pr": null,
-      "deployedSha": null,
+      "fixCommit": "3e7f8e80e",
+      "pr": "429",
+      "deployedSha": "7d708aac1",
       "historicalDataImpact": "Unknown; production not measured. Look for undone auto-post runs whose accounts moved by the posted amount rather than to zero.",
       "canonicalItem": null,
       "reportedSeverity": "",
-      "branch": null,
+      "branch": "fix/audit-r079-undo-hand-offset",
       "title": "undoRun re-reverses a journal a user offset by hand, leaving the account overdrawn by the offset amount",
       "severity": "medium",
       "source": "Measured by the K-071 round-22 fixer on isaflow_dev: {\"afterHand\":{\"e1\":0,\"e2\":40},\"afterUndo\":{\"e1\":-60,\"e2\":0},\"undone\":true} — account E1 ends at -60 after the undo.",
