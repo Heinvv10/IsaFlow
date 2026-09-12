@@ -10,14 +10,11 @@ import { runJournalControl, type JournalControlOptions } from './journalControlS
 import { registerGeneratedJournal } from '../controls/generatedJournalPermit';
 import type { ApMaterial } from '../controls/apOperationMaterializer';
 import { isAuthorizedYearEndPosting } from '../controls/yearEndPostingGuard';
-import { postingPeriodBlock } from './postingPeriodGuard';
+import { postingPeriodBlock, throwPostingBlock } from './postingPeriodGuard';
 export { resolveReversalDate } from './journalReversalDate';
 export type { JournalControlOptions } from './journalControlService';
+export { ClosedFiscalPeriodError, isPostingRefusal } from './postingPeriodGuard';
 type Row = DbRow;
-export class ClosedFiscalPeriodError extends Error {
-  readonly periodStatus: string;
-  constructor(periodStatus: string) { super(`Cannot post to ${periodStatus} fiscal period`); this.name = 'ClosedFiscalPeriodError'; this.periodStatus = periodStatus; }
-}
 export class InactiveAccountError extends Error {
   readonly accounts: string[];
   constructor(accounts: { code: string; name: string }[]) {
@@ -39,10 +36,8 @@ function facts(material: ApMaterial): { header: Row; targetPeriod: Row; company:
 }
 function assertPostingGuards(material: ApMaterial, authorizedClosedPeriod = false): ReturnType<typeof facts> {
   const state = facts(material);
-  const block = postingPeriodBlock(state.targetPeriod.status, state.company, material.binding.accountingDate!, authorizedClosedPeriod);
-  if (block?.kind === 'period') throw new ClosedFiscalPeriodError(block.status);
-  if (block?.kind === 'lockdown') throw new Error('Journal date is within company lockdown');
-  if (state.vatLocks.length) throw new Error('Journal date is within a filed VAT period');
+  throwPostingBlock(postingPeriodBlock(state.targetPeriod.status, state.company, material.binding.accountingDate!, authorizedClosedPeriod),
+    state.vatLocks.length > 0);
   const inactive = state.accounts.filter(a => a.is_active !== true);
   if (inactive.length) throw new InactiveAccountError(inactive.map(a => ({ code: String(a.account_code), name: String(a.account_name) })));
   return state;

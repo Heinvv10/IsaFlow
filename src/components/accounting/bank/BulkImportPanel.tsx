@@ -13,7 +13,9 @@ import { runWithConcurrency } from '@/lib/bulkUpload/concurrencyQueue';
 import { findCrossFileDuplicates } from '@/lib/bulkUpload/crossFileDedup';
 import { BankAccountSelector, type BankAccountOption } from './BankAccountSelector';
 import { BulkImportFileRow, type BulkImportRowState } from './BulkImportFileRow';
+import Link from 'next/link';
 import type { BulkPreviewResponse, BulkCommitResponse } from './bulkImportTypes';
+import { buildApplyToast, hasApplyOutcome, mergeApplyResults, type ApplyResultParts } from '../bank-rules/applyToast';
 
 const PREVIEW_CONCURRENCY = 3;
 const COMMIT_CONCURRENCY = 2;
@@ -45,6 +47,8 @@ interface BulkSummary {
   skipped: number;
   failed: number;
   totalTransactions: number;
+  /** The rule sweep across every file: posted, and every line it matched but left — deferred lines included. */
+  rules: ApplyResultParts;
 }
 
 export function BulkImportPanel({ initialAccountId }: { initialAccountId?: string | null } = {}) {
@@ -274,6 +278,7 @@ export function BulkImportPanel({ initialAccountId }: { initialAccountId?: strin
     let skipped = 0;
     let failed = 0;
     let totalTransactions = 0;
+    let rules: ApplyResultParts = {};
 
     await runWithConcurrency(
       eligible.map((r, i) => ({ row: r, sequence: i + 1 })),
@@ -320,6 +325,7 @@ export function BulkImportPanel({ initialAccountId }: { initialAccountId?: strin
           if (data.status === 'imported') {
             imported++;
             totalTransactions += data.transactionCount ?? 0;
+            rules = mergeApplyResults(rules, { ...data, applied: data.appliedRules ?? 0 }, { deferred: 'sum' });
             setRows(prev => prev.map(r => r.id === row.id ? {
               ...r, phase: 'imported', importedTransactionCount: data.transactionCount ?? 0,
             } : r));
@@ -345,7 +351,7 @@ export function BulkImportPanel({ initialAccountId }: { initialAccountId?: strin
     );
 
     setIsCommitting(false);
-    setSummary({ bulkImportId, imported, skipped, failed, totalTransactions });
+    setSummary({ bulkImportId, imported, skipped, failed, totalTransactions, rules });
 
     if (failed === 0 && imported > 0) {
       notify.success(`Imported ${imported} statement${imported === 1 ? '' : 's'}`,
@@ -512,6 +518,14 @@ export function BulkImportPanel({ initialAccountId }: { initialAccountId?: strin
                 {summary.imported} imported · {summary.skipped} skipped · {summary.failed} failed
                 {' · '}{summary.totalTransactions} transactions added
               </p>
+              {hasApplyOutcome(summary.rules) && (
+                <p className="text-xs text-[var(--ff-text-muted)]">
+                  Rules: {buildApplyToast(summary.rules).message}
+                  {(summary.rules.autoPostDeferred ?? 0) > 0 && (
+                    <>{' · '}<Link href="/accounting/bank-reconciliation/rules" className="underline">Run rules</Link></>
+                  )}
+                </p>
+              )}
             </div>
           </div>
         </div>

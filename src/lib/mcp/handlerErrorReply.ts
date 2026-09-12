@@ -13,6 +13,7 @@ import { EffectivePermissionError } from '@/lib/auth/effectivePermissions';
 import { permissionRefusalMessage } from './scopeRemediation';
 import { approvalRequiredReply } from './approvalReply';
 import { isSuppliedApprovalRefusal, suppliedApprovalRefusalText } from '@/modules/accounting/services/controls/suppliedApprovalRefusal';
+import { isPostingRefusal } from '@/modules/accounting/services/gl/postingPeriodGuard';
 
 export const GENERIC_FAILURE = 'The operation failed. Please try again or contact support.';
 
@@ -45,5 +46,9 @@ export function handlerErrorReply(tool: Pick<McpTool, 'name' | 'inputSchema'>, e
   if (err instanceof EffectivePermissionError && err.permission) {
     return errorResult(permissionRefusalMessage(err.permission, err.reason));
   }
+  // The kernel's own closed-period/lockdown refusal (postingPeriodGuard.ts) — ClosedFiscalPeriodError's message
+  // already names the period status; the lockdown Error already says so. Both are safe caller-owned text with
+  // nothing server-internal in them, unlike the generic fallback below.
+  if (isPostingRefusal(err) && err instanceof Error) return errorResult(err.message);
   return errorResult(GENERIC_FAILURE);
 }

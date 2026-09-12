@@ -15,10 +15,12 @@ import { withAuth, type CompanyAuthedRequest, type AuthenticatedNextApiRequest, 
 import { withCsrf } from '@/lib/auth/withCsrf';
 import { log } from '@/lib/logger';
 import { UUID } from '@/lib/schemas/common';
+import { ErrorCode } from '@/lib/apiResponse.types';
 import {
   postJournalEntry,
   reverseJournalEntry,
 } from '@/modules/accounting/services/gl/journalEntryService';
+import { isPostingRefusal } from '@/modules/accounting/services/gl/journalEntryPostingService';
 
 const JournalEntryActionSchema = z.object({
   id: UUID,
@@ -71,6 +73,10 @@ async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse) {
 
     return apiResponse.success(res, result);
   } catch (err) {
+    // A lockdown or closed-period refusal for a direct post/reverse is now thrown by the kernel
+    // (journalControlService.ts) BEFORE it opens the controlled write, so it reaches here as an ordinary business
+    // error rather than a poisoned control transaction (see runJournalControl).
+    if (isPostingRefusal(err)) return apiResponse.error(res, ErrorCode.BUSINESS_RULE_VIOLATION, (err as Error).message);
     const message = err instanceof Error ? err.message : 'Failed to perform journal entry action';
     log.error('Failed to perform journal entry action', { error: err }, 'accounting-api');
     return apiResponse.badRequest(res, message);

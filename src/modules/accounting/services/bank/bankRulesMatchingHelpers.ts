@@ -4,16 +4,8 @@
  */
 
 import { sql } from '@/lib/neon';
-import { getSystemAccountId } from '../gl/systemAccountResolver';
-import type { JournalLineInput } from '../../types/gl.types';
 
 export type RuleAllocType = 'account' | 'supplier' | 'customer';
-
-// PeriodStatus and getPeriodStatusForDate encode a GL rule, so they live in
-// the GL module. Re-exported here because the bank-rules call sites (and their
-// tests) have always imported them from this file.
-export type { PeriodStatus } from '../gl/periodStatusService';
-export { getPeriodStatusForDate } from '../gl/periodStatusService';
 
 /** Convert rule match type to SQL ILIKE pattern. */
 export function toSqlPattern(matchType: string, matchPattern: string): string {
@@ -42,6 +34,14 @@ export const MAX_RULE_CANDIDATES = 500;
  *
  * Fetches one row past the cap so the caller can tell "exactly 500 matched"
  * from "500 processed, more waiting" — `applyRules` trims and reports it.
+ *
+ * Each row carries `period_status`: the status of the fiscal period covering
+ * its date, or null when none does. The sweep counts a line whose period is
+ * not open WITHOUT attempting it — the controlled allocation would refuse it
+ * (`ClosedFiscalPeriodError`) every run, and a line that can never clear must
+ * not consume the per-request attempt budget on every import until a person
+ * re-opens the period. Postable-period rows sort first, so they take the
+ * candidate cap before rows that are only going to be counted.
  */
 export async function findMatchingTxs(
   companyId: string,
@@ -49,126 +49,20 @@ export async function findMatchingTxs(
   field: string,
   pattern: string,
 ): Promise<Record<string, unknown>[]> {
-  if (field === 'description') {
-    return (await sql`
-      SELECT id, amount, transaction_date, description, reference
-      FROM bank_transactions
-      WHERE bank_account_id = ${bankAccountId}::UUID
-        AND company_id = ${companyId}::UUID
-        AND status = 'imported'
-        AND matched_journal_line_id IS NULL
-        AND description ILIKE ${pattern}
-      ORDER BY transaction_date
-      LIMIT ${MAX_RULE_CANDIDATES + 1}
-    `) as Record<string, unknown>[];
-  }
-  if (field === 'reference') {
-    return (await sql`
-      SELECT id, amount, transaction_date, description, reference
-      FROM bank_transactions
-      WHERE bank_account_id = ${bankAccountId}::UUID
-        AND company_id = ${companyId}::UUID
-        AND status = 'imported'
-        AND matched_journal_line_id IS NULL
-        AND reference ILIKE ${pattern}
-      ORDER BY transaction_date
-      LIMIT ${MAX_RULE_CANDIDATES + 1}
-    `) as Record<string, unknown>[];
-  }
+  const matches = field === 'description' ? sql`bt.description ILIKE ${pattern}`
+    : field === 'reference' ? sql`bt.reference ILIKE ${pattern}`
+    : sql`(bt.description ILIKE ${pattern} OR bt.reference ILIKE ${pattern})`;
   return (await sql`
-    SELECT id, amount, transaction_date, description, reference
-    FROM bank_transactions
-    WHERE bank_account_id = ${bankAccountId}::UUID
-      AND company_id = ${companyId}::UUID
-      AND status = 'imported'
-      AND matched_journal_line_id IS NULL
-      AND (description ILIKE ${pattern} OR reference ILIKE ${pattern})
-    ORDER BY transaction_date
+    SELECT bt.id, bt.amount, bt.transaction_date, bt.description, bt.reference, fp.status AS period_status
+    FROM bank_transactions bt
+    LEFT JOIN fiscal_periods fp
+      ON fp.company_id = bt.company_id AND fp.start_date <= bt.transaction_date AND fp.end_date >= bt.transaction_date
+    WHERE bt.bank_account_id = ${bankAccountId}::UUID
+      AND bt.company_id = ${companyId}::UUID
+      AND bt.status = 'imported'
+      AND bt.matched_journal_line_id IS NULL
+      AND ${matches}
+    ORDER BY (fp.status = 'open') DESC NULLS LAST, bt.transaction_date
     LIMIT ${MAX_RULE_CANDIDATES + 1}
   `) as Record<string, unknown>[];
-}
-
-export interface BuildLinesArgs {
-  allocType: RuleAllocType;
-  totalAmount: number;
-  netAmount: number;
-  vatAmount: number;
-  hasVat: boolean;
-  vatAccountKey: 'vat_input' | 'vat_output';
-  vatType: 'standard' | 'zero_rated' | 'exempt' | undefined;
-  isDeposit: boolean;
-  bankGlAccountId: string;
-  ruleGlAccountId: string | null;
-  apAccountId: string | null;
-  arAccountId: string | null;
-  entryDesc: string;
-  companyId: string;
-}
-
-/** Build the journal lines for a single auto-create rule match. */
-export async function buildAutoCreateLines(args: BuildLinesArgs): Promise<JournalLineInput[]> {
-  const {
-    allocType, totalAmount, netAmount, vatAmount, hasVat, vatAccountKey, vatType,
-    isDeposit, bankGlAccountId, ruleGlAccountId, apAccountId, arAccountId, entryDesc, companyId,
-  } = args;
-  const vatLine = async () => {
-    const id = await getSystemAccountId(vatAccountKey, companyId);
-    return { glAccountId: id, debit: 0, credit: 0, description: 'VAT @ 15%', vatType: 'standard' as const };
-  };
-  // `isDeposit` reached this function and only the `account` arm below used it.
-  // The supplier arm always emitted the PAYMENT direction and the customer arm
-  // always the RECEIPT direction, so a refund posted as its own opposite and
-  // the bank moved the wrong way by twice the line — the same defect
-  // `allocateTransaction` carried, on the one path with no human in the loop.
-  // `findMatchingTxs` filters on account, status and an ILIKE and has no sign
-  // filter, so any rule that matches a name matches its refunds too.
-  if (allocType === 'supplier') {
-    const lines: JournalLineInput[] = isDeposit
-      ? [
-        { glAccountId: bankGlAccountId, debit: totalAmount, credit: 0, description: entryDesc },
-        { glAccountId: apAccountId!, debit: 0, credit: netAmount, description: entryDesc, vatType },
-      ]
-      : [
-        { glAccountId: apAccountId!, debit: netAmount, credit: 0, description: entryDesc, vatType },
-        { glAccountId: bankGlAccountId, debit: 0, credit: totalAmount, description: entryDesc },
-      ];
-    if (hasVat) {
-      // A refund REVERSES the input tax the purchase claimed, so the same
-      // vat_input account is credited rather than debited. The key itself is
-      // already alloc-type-derived upstream (bankRuleAutoPostLine).
-      if (isDeposit) lines.push({ ...await vatLine(), credit: vatAmount });
-      else lines.splice(1, 0, { ...await vatLine(), debit: vatAmount });
-    }
-    return lines;
-  }
-  if (allocType === 'customer') {
-    const lines: JournalLineInput[] = isDeposit
-      ? [
-        { glAccountId: bankGlAccountId, debit: totalAmount, credit: 0, description: entryDesc },
-        { glAccountId: arAccountId!, debit: 0, credit: netAmount, description: entryDesc, vatType },
-      ]
-      : [
-        { glAccountId: arAccountId!, debit: netAmount, credit: 0, description: entryDesc, vatType },
-        { glAccountId: bankGlAccountId, debit: 0, credit: totalAmount, description: entryDesc },
-      ];
-    if (hasVat) {
-      if (isDeposit) lines.push({ ...await vatLine(), credit: vatAmount });
-      else lines.splice(1, 0, { ...await vatLine(), debit: vatAmount });
-    }
-    return lines;
-  }
-  if (isDeposit) {
-    const lines: JournalLineInput[] = [
-      { glAccountId: bankGlAccountId, debit: totalAmount, credit: 0, description: entryDesc },
-      { glAccountId: ruleGlAccountId!, debit: 0, credit: netAmount, description: entryDesc, vatType },
-    ];
-    if (hasVat) lines.splice(1, 0, { ...await vatLine(), credit: vatAmount });
-    return lines;
-  }
-  const lines: JournalLineInput[] = [
-    { glAccountId: ruleGlAccountId!, debit: netAmount, credit: 0, description: entryDesc, vatType },
-    { glAccountId: bankGlAccountId, debit: 0, credit: totalAmount, description: entryDesc },
-  ];
-  if (hasVat) lines.splice(1, 0, { ...await vatLine(), debit: vatAmount });
-  return lines;
 }

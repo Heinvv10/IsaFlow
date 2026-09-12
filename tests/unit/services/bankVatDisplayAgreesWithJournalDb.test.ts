@@ -193,10 +193,9 @@ describe('bank screen VAT column agrees with the posted journal', async () => {
           ruleName: 'Staff Welfare (test) rule',
           allocType: 'account',
           ruleGlAccountId: deniedAccountId,
-          bankGlAccountId: fixture.bankAccountId,
-          apAccountId: null,
-          arAccountId: null,
+          supplierId: null,
           supplierName: null,
+          customerId: null,
           customerName: null,
         }),
       );
@@ -237,10 +236,9 @@ describe('bank screen VAT column agrees with the posted journal', async () => {
           // the flag exercised the fallback while the comment claimed
           // otherwise.
           ruleGlAccountName: 'Staff Welfare (test)',
-          bankGlAccountId: fixture.bankAccountId,
-          apAccountId: null,
-          arAccountId: null,
+          supplierId: null,
           supplierName: null,
+          customerId: null,
           customerName: null,
         }),
       );
