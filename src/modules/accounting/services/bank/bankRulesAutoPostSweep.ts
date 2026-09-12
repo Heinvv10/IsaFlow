@@ -16,8 +16,10 @@ import type { RuleApplyResult } from '../../types/bank.types';
 import { toSqlPattern, findMatchingTxs, MAX_RULE_CANDIDATES, type RuleAllocType } from './bankRulesMatchingHelpers';
 import { BankTransactionLockTimeoutError } from './bankTxLock';
 import { autoPostRuleLine } from './bankRuleAutoPostLine';
-import type { AutoPostRefusal } from './bankRuleAutoPostRefusal';
-import { approvalRequiredForLine, dateRefusal, loadLockdownFacts } from './bankRulesAutoPostPreflight';
+import { approvalRefusalForAmount, dateRefusal, loadLockdownFacts } from './bankRulesAutoPostPreflight';
+import { classifyAutoPostRefusal, type AutoPostRefusal } from './bankRuleAutoPostRefusal';
+import { requireControlTx } from '../controls/context';
+import { loadApprovalRules } from '../controls/approvalRuleService';
 
 type Row = Record<string, unknown>;
 /** Distinct `refused` reasons carried back per run; past this the count still climbs, the list does not. */
@@ -69,6 +71,9 @@ export async function sweepAutoPostRules(companyId: string, bankAccountId: strin
   let attempted = 0;
   const atCapacity = () => applied >= MAX_BANK_LINES_PER_REQUEST || attempted >= MAX_RULE_SWEEP_ATTEMPTS_PER_REQUEST;
   const company = await loadLockdownFacts(companyId);
+  // The company's payment policy, read once: the approval question is asked per
+  // line as a pure predicate over these rows, never as a query per candidate.
+  const approvalRules = await loadApprovalRules(requireControlTx(), 'payment');
   // The person's permission does not change within the request: after one
   // permission refusal every remaining line is counted, none attempted.
   let permissionDenied: AutoPostRefusal | null = null;
@@ -139,12 +144,17 @@ export async function sweepAutoPostRules(companyId: string, bankAccountId: strin
     });
 
     // A supplier rule names ONE supplier: once its beneficiary is refused, every
-    // other line of the rule would be too, so they are counted, not attempted.
+    // other PAYMENT of the rule would be too, so they are counted, not attempted.
+    // A refund (money in) needs no beneficiary and is still attempted.
     let ruleBeneficiary: AutoPostRefusal | null = null;
     for (const [index, tx] of orderedTxs.entries()) {
-      const known = permissionDenied ?? ruleBeneficiary ?? dateRefusal(tx, company);
+      const payment = Number(tx.amount) < 0;
+      let known = permissionDenied ?? (payment ? ruleBeneficiary : null) ?? dateRefusal(tx, company);
+      try { known ??= approvalRefusalForAmount(approvalRules, tx.amount); } catch (preErr) {
+        // A zero-amount line is the kernel's typed money refusal; anything else is a fault.
+        known = classifyAutoPostRefusal(preErr); if (!known) throw preErr;
+      }
       if (known) { refuse(tx, ruleName, known); continue; }
-      if (await approvalRequiredForLine(tx.amount)) { refuse(tx, ruleName, { kind: 'approval_required' }); continue; }
       if (atCapacity()) { counters.autoPostDeferred += orderedTxs.length - index; break; }
       attempted++;
       let outcome;

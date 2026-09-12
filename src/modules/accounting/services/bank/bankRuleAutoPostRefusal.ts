@@ -15,6 +15,7 @@ import { als } from '@/lib/als';
 import { EffectivePermissionError } from '@/lib/auth/effectivePermissionQueries';
 import { isSuppliedApprovalRefusal, OperationApprovalRequiredError } from '../controls/approvalExecutionService';
 import { BeneficiaryError } from '../controls/beneficiaryValidation';
+import { OperationRefusalError } from '../controls/operationRefusal';
 import { ClosedFiscalPeriodError, LOCKDOWN_REFUSAL_MESSAGE, VAT_PERIOD_REFUSAL_MESSAGE } from '../gl/postingPeriodGuard';
 
 export type AutoPostRefusal =
@@ -32,7 +33,12 @@ export type AutoPostRefusal =
   | { kind: 'vat_period_filed' }
   /** The running person lacks the permission the allocation asserts (write:bank-tx / write:post). */
   | { kind: 'permission_denied'; reason: string }
-  /** The kernel's other typed business refusals (a supplied approval it cannot use), with its own reason. */
+  /**
+   * The kernel's other typed refusals with its own reason: a data-state refusal
+   * (`OperationRefusalError` — zero amount, deactivated contra, ambiguous VAT
+   * account, no covering period, an unevaluable aggregate policy) or a supplied
+   * approval it cannot use.
+   */
   | { kind: 'refused'; reason: string };
 
 /**
@@ -58,6 +64,6 @@ export function classifyAutoPostRefusal(error: unknown): AutoPostRefusal | null 
   if (!(error instanceof Error)) return null;
   if (error.message === LOCKDOWN_REFUSAL_MESSAGE) return { kind: 'lockdown' };
   if (error.message === VAT_PERIOD_REFUSAL_MESSAGE) return { kind: 'vat_period_filed' };
-  if (isSuppliedApprovalRefusal(error)) return { kind: 'refused', reason: error.message };
+  if (error instanceof OperationRefusalError || isSuppliedApprovalRefusal(error)) return { kind: 'refused', reason: error.message };
   return null;
 }

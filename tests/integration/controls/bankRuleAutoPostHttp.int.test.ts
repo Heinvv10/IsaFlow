@@ -37,7 +37,8 @@ async function refusedWithSibling(key:'A'|'B',person:'u1'|'u3',line:{date:string
  const sibling=tag();await f.rule(key,sibling);
  const {response,tx}=await f.commit(key,person,[line,{date:'2026-09-09',description:sibling,amount:'-20.00'}]);
  expect(response.status).toBe(200);
- expect(response.body.data).toMatchObject({appliedRules:1,[counter]:1});
+ // Every still-imported line on the account re-matches each run, so a refused line an earlier test left counts here too.
+ expect(response.body.data.appliedRules).toBe(1);expect(response.body.data[counter]).toBeGreaterThanOrEqual(1);
  await untouched(f.companies[key],tx(line.description));
  await posted(f.companies[key],tx(sibling),'auto_bank_recon');
  return{response,tx};
@@ -163,3 +164,40 @@ it('lines that can never clear do not consume the attempt budget: 30 closed-peri
  expect(response.body.data.autoPostSkippedClosedPeriod).toBeGreaterThanOrEqual(30);
  await posted(f.companies.A,tx(open.description),'auto_bank_recon');
 },60000);
+
+it('a zero-amount line is the kernel\'s typed money refusal, counted with its reason; the sibling still posts',async()=>{
+ const description=tag();await f.rule('A',description);
+ const {response}=await refusedWithSibling('A','u1',{date:'2026-09-09',description,amount:'0.00'},'autoPostSkippedRefused');
+ expect(response.body.data.autoPostRefusalReasons).toContain('Invalid exact allocation money');
+},60000);
+
+it('a rule whose contra account was deactivated is a typed data-state refusal per line; the sibling still posts',async()=>{
+ const description=tag(),dead=randomUUID();
+ await f.pool.query("INSERT INTO gl_accounts(id,company_id,account_code,account_name,account_type,account_subtype,normal_balance,is_active,is_system_account) VALUES($1,$2,left($1::uuid::text,20),'Synthetic deactivated','expense','default_expense','debit',false,false)",[dead,f.companies.A]);
+ await f.pool.query("INSERT INTO bank_categorisation_rules(id,company_id,rule_name,match_field,match_type,match_pattern,gl_account_id,vat_code,auto_create_entry,is_active,priority) VALUES($1,$2,$3,'description','contains',$4,$5,'none',true,true,1)",[randomUUID(),f.companies.A,`Synthetic sweep rule ${description}`,description,dead]);
+ const {response}=await refusedWithSibling('A','u1',{date:'2026-09-09',description,amount:'-12.00'},'autoPostSkippedRefused');
+ expect(response.body.data.autoPostRefusalReasons).toContain('Owned active contra account required');
+},60000);
+
+/**
+ * A supplier rule's beneficiary short-circuit must not answer for a REFUND:
+ * a deposit on a supplier rule needs no verified beneficiary and posts on its
+ * own. With a payment and a refund on the same rule the outcome must not
+ * depend on which id sorts first, so both orders are pinned with chosen ids.
+ */
+async function paymentAndRefund(order:'payment-first'|'refund-first'){
+ const description=tag(),supplier=await f.unverifiedSupplier();await f.rule('A',description,{supplierId:supplier});
+ const low='00000000-0000-4000-8000-'+randomUUID().slice(24),high='ffffffff-ffff-4fff-bfff-'+randomUUID().slice(24);
+ const [paymentId,refundId]=order==='payment-first'?[low,high]:[high,low];
+ for(const [id,amount] of [[paymentId,'-80.00'],[refundId,'35.00']] as const)await f.pool.query("INSERT INTO bank_transactions(id,company_id,bank_account_id,transaction_date,amount,description,status) VALUES($1,$2,$3,'2026-09-09',$4,$5,'imported')",[id,f.companies.A,f.bank.A,amount,`${description} ${amount}`]);
+ // Any import of the account runs the sweep over every still-imported line.
+ const sibling=tag();await f.rule('A',sibling);
+ const {response}=await f.commit('A','u1',[{date:'2026-09-09',description:sibling,amount:'-1.00'}]);
+ expect(response.status).toBe(200);
+ const rows=Object.fromEntries((await f.pool.query('SELECT id,status FROM bank_transactions WHERE company_id=$1 AND id=ANY($2::uuid[])',[f.companies.A,[paymentId,refundId]])).rows.map((r:Row)=>[r.id,r.status]));
+ expect(rows[paymentId]).toBe('imported');
+ expect(rows[refundId]).toBe('allocated');
+ const {effects}=await receipt(f.companies.A,refundId);expect(effects).toHaveLength(1);expect(effects[0]!.result.paymentId).toBeNull();
+}
+it('supplier rule, payment sorted first: the payment is refused and the refund still posts',async()=>{await paymentAndRefund('payment-first');},60000);
+it('supplier rule, refund sorted first: the refund posts and the payment is refused',async()=>{await paymentAndRefund('refund-first');},60000);

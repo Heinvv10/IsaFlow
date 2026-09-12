@@ -1,3 +1,4 @@
+import {OperationRefusalError} from '../controls/operationRefusal';
 import Decimal from 'decimal.js';
 import {z} from 'zod';
 import {assertEffectivePermission} from '@/lib/auth/effectivePermissions';
@@ -25,13 +26,13 @@ export async function preparePartyBankAllocation(ctx:ControlTx,input:unknown){
   const parties=parsed.kind==='customer'?await ctx.sql`SELECT auto_allocate_strategy FROM customers
    WHERE company_id=${company}::uuid AND id=${parsed.partyId}::uuid FOR SHARE`
    :await ctx.sql`SELECT auto_allocate_strategy FROM suppliers WHERE company_id=${company}::uuid AND id=${parsed.partyId}::uuid FOR SHARE`;
-  if(parties.length!==1)throw new Error('Owned allocation party required');
+  if(parties.length!==1)throw new OperationRefusalError('Owned allocation party required');
   const strategy=(parties[0] as {auto_allocate_strategy:string|null}).auto_allocate_strategy;
   let applications=parsed.applications;
   if(applications===undefined){
    applications=[];
    if(parsed.autoApply!==false&&!isBankAllocationRefund(parsed.kind,bank.amount)&&strategy&&strategy!=='off'){
-    if(strategy!=='oldest'&&strategy!=='newest')throw new Error('Unknown bank allocation strategy');
+    if(strategy!=='oldest'&&strategy!=='newest')throw new OperationRefusalError('Unknown bank allocation strategy');
     const oldest=strategy==='oldest';
     // A single probe beyond the immutable plan limit distinguishes exhausted cash from a truncated plan.
     const rows=(parsed.kind==='customer'?await ctx.sql`

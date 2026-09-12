@@ -1,3 +1,4 @@
+import {OperationRefusalError} from '../controls/operationRefusal';
 import Decimal from 'decimal.js';
 import {z} from 'zod';
 import {canonicalMoney} from '../controls/canonical';
@@ -5,7 +6,7 @@ import {bankTransferPlanSchema} from './bankAllocationTransferPlan';
 const D=Decimal.clone({precision:80});
 export function allocationMoney(value:string):string{
  const amount=new D(canonicalMoney(value));
- if(!amount.gt(0)||amount.gte('100000000000000000000')||!amount.mul(100).isInteger())throw new Error('Invalid exact allocation money');
+ if(!amount.gt(0)||amount.gte('100000000000000000000')||!amount.mul(100).isInteger())throw new OperationRefusalError('Invalid exact allocation money');
  return amount.toFixed();
 }
 const money=z.string().transform(allocationMoney),id=z.string().uuid().transform(value=>value.toLowerCase());
@@ -46,7 +47,7 @@ export function buildBankAllocationLines(plan:BankAllocationPlan,source:{bankAcc
   add(plan.counterpartyAccountId,amount,spent);
  }else if('applications' in plan){
   if(isBankAllocationRefund(plan.kind,source.signedAmount)&&plan.applications.length)throw new Error('Refund applications must be empty');
-  if(!source.controlAccountId)throw new Error('Allocation control account unavailable');
+  if(!source.controlAccountId)throw new OperationRefusalError('Allocation control account unavailable');
   if(plan.applications.reduce((sum,a)=>sum.add(a.amount),new D(0)).gt(amount))throw new Error('Applications exceed bank amount');
   add(source.controlAccountId,amount,spent,description,null,plan);
  }else{
@@ -56,7 +57,7 @@ export function buildBankAllocationLines(plan:BankAllocationPlan,source:{bankAcc
    add(line.accountId,net.toFixed(),spent,line.description??description,line.vatCode==='none'?null:line.vatCode,line);
    const vat=gross.sub(net);
    if(vat.gt(0)){
-    if(!source.vatAccountId)throw new Error('Allocation VAT account unavailable');
+    if(!source.vatAccountId)throw new OperationRefusalError('Allocation VAT account unavailable');
     add(source.vatAccountId,vat.toFixed(),spent,'VAT @ 15%','standard',line);
    }
   }

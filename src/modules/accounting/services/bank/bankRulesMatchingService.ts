@@ -9,11 +9,22 @@ import { log } from '@/lib/logger';
 import type { RuleApplyResult } from '../../types/bank.types';
 import { sweepAutoPostRules, emptyAutoPostCounters } from './bankRulesAutoPostSweep';
 
+export interface ApplyRulesOptions {
+  /**
+   * `false` runs the suggestion rules only and never the auto-post sweep. For
+   * a caller with no control principal (`extension-ingest` under
+   * `withExtensionToken`): the controlled allocation would refuse its first
+   * line, and a refusal it can never clear must be stated, not discovered.
+   */
+  autoPost?: boolean;
+}
+
 export async function applyRules(
   companyId: string,
   bankAccountId: string,
   userId: string,
-  ruleIds?: string[]
+  ruleIds?: string[],
+  options: ApplyRulesOptions = {},
 ): Promise<RuleApplyResult> {
   try {
     const rules = ruleIds && ruleIds.length > 0
@@ -138,7 +149,11 @@ export async function applyRules(
         'accounting',
       );
     }
-    const sweep = bankGlAccountId && autoCreateRules.length > 0
+    // A fault inside the sweep (a pg error, a coding defect, a poisoned request)
+    // propagates from here: every caller lets it reach withErrorHandler as a
+    // 500, so withAuth rolls the request back rather than committing the lines
+    // posted before it and reporting a partial run as a result.
+    const sweep = bankGlAccountId && autoCreateRules.length > 0 && options.autoPost !== false
       ? await sweepAutoPostRules(companyId, bankAccountId, userId, autoCreateRules)
       : { entries: [], applied: 0, counters: emptyAutoPostCounters() };
     entries.push(...sweep.entries);

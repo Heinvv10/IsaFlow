@@ -229,19 +229,18 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
     // …). Reported, not silent: the user expects the rule to have posted them.
     let ruleSkips: Omit<RuleApplyResult, 'applied' | 'skipped' | 'entries'> = {};
     if (applyBankRules === true) {
-      try {
-        const { applied, skipped: _skipped, entries: _entries, ...rest } = await applyBankRulesService(
-          companyId,
-          bankAccountId,
-          authReq.user.id,
-        );
-        appliedRuleCount = applied;
-        ruleSkips = rest;
-      } catch (err) {
-        log.warn('Failed to apply bank rules after bulk commit file', {
-          error: err, filename,
-        }, 'accounting-api');
-      }
+      // NOT caught. applyRules counts every refusal per line; what escapes it is
+      // a fault, and this file's import rolls back with it (the outer catch
+      // refunds the PAYG debit, then rethrows for the 500). Committing the rows
+      // and answering 200 with appliedRules 0 hid a dead sweep for the account
+      // behind a successful-looking import.
+      const { applied, skipped: _skipped, entries: _entries, ...rest } = await applyBankRulesService(
+        companyId,
+        bankAccountId,
+        authReq.user.id,
+      );
+      appliedRuleCount = applied;
+      ruleSkips = rest;
     }
 
     if (isPayg && didDebit) {
