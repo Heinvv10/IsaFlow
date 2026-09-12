@@ -20,22 +20,7 @@
  *     wallet is short, returns 402 and the file is reported as
  *     failed in the client's summary.
  *   - Returns one result row; the client aggregates across files into
- *     the bulk-import summary card.
- *
- * Body:
- *   {
- *     bankAccountId: string;
- *     bulkImportId: string;          // UUID minted client-side
- *     bulkSequence: number;          // 1-based position in the bulk
- *     filename: string;
- *     fileType: 'pdf' | 'csv' | 'ofx' | 'qif' | 'mt940';
- *     statementDate: string;         // YYYY-MM-DD; client derives from preview's dateRange.to
- *     sourceFileSizeBytes: number;
- *     pdfBase64?: string;
- *     csvContent?: string;
- *     bankFormat?: BankFormat;
- *     applyBankRules?: boolean;
- *   }
+ *     the bulk-import summary card. The body shape is `BulkCommitSchema` below.
  */
 
 import type { NextApiRequest, NextApiResponse } from 'next';
@@ -64,11 +49,8 @@ import {
   type StatementFileType,
 } from '@/modules/accounting/services/bank/bankStatementParseService';
 import { compareBankAccountNumbers } from '@/modules/accounting/utils/bankAccountNumberMatch';
-import {
-  bankTransactionHash,
-  type HashableTransaction,
-} from '@/modules/accounting/utils/bankTransactionHash';
-import type { BankCsvParseResult } from '@/modules/accounting/types/bank.types';
+import { dedupeParsedTransactions } from '@/modules/accounting/services/bank/bankBulkCommitDedupe';
+import type { BankCsvParseResult, RuleApplyResult } from '@/modules/accounting/types/bank.types';
 
 export const config = {
   api: { bodyParser: { sizeLimit: '30mb' } },
@@ -165,46 +147,7 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
   }
 
   // 4. Dedupe against the DB.
-  let dedupedTxs = parseResult.transactions;
-  let duplicateCount = 0;
-  if (parseResult.transactions.length > 0) {
-    const dates = parseResult.transactions
-      .map(t => t.transactionDate)
-      .filter(d => /^\d{4}-\d{2}-\d{2}/.test(d))
-      .sort();
-    const from = dates[0];
-    const to = dates[dates.length - 1];
-    if (from && to) {
-      const existing = (await sql`
-        SELECT transaction_date::text AS transaction_date, amount, description
-        FROM bank_transactions
-        WHERE bank_account_id = ${bankAccountId}
-          AND transaction_date BETWEEN ${from} AND ${to}
-      `) as Array<{ transaction_date: string; amount: string | number; description: string | null }>;
-
-      const existingHashes = new Set<string>();
-      for (const row of existing) {
-        const hashable: HashableTransaction = {
-          transactionDate: row.transaction_date,
-          amount: Number(row.amount),
-          description: row.description ?? '',
-        };
-        existingHashes.add(bankTransactionHash(hashable));
-      }
-      dedupedTxs = parseResult.transactions.filter(tx => {
-        const h = bankTransactionHash({
-          transactionDate: tx.transactionDate,
-          amount: tx.amount,
-          description: tx.description ?? '',
-        });
-        if (existingHashes.has(h)) {
-          duplicateCount++;
-          return false;
-        }
-        return true;
-      });
-    }
-  }
+  const { dedupedTxs, duplicateCount } = await dedupeParsedTransactions(companyId, bankAccountId, parseResult.transactions);
 
   if (dedupedTxs.length === 0) {
     log.info('Bulk commit: all rows duplicates, nothing inserted', {
@@ -281,18 +224,19 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
     );
 
     let appliedRuleCount = 0;
-    // Lines an auto-post rule matched but the company's approval policy binds.
-    // Reported, not silent: the user expects the rule to have posted them.
-    let approvalRequiredCount = 0;
+    // Every line an auto-post rule matched but did NOT post, by reason (approval
+    // policy, unverified beneficiary, closed period, lockdown, filed VAT period,
+    // …). Reported, not silent: the user expects the rule to have posted them.
+    let ruleSkips: Omit<RuleApplyResult, 'applied' | 'skipped' | 'entries'> = {};
     if (applyBankRules === true) {
       try {
-        const ruleResult = await applyBankRulesService(
+        const { applied, skipped: _skipped, entries: _entries, ...rest } = await applyBankRulesService(
           companyId,
           bankAccountId,
           authReq.user.id,
         );
-        appliedRuleCount = ruleResult.applied;
-        approvalRequiredCount = ruleResult.autoPostSkippedApprovalRequired ?? 0;
+        appliedRuleCount = applied;
+        ruleSkips = rest;
       } catch (err) {
         log.warn('Failed to apply bank rules after bulk commit file', {
           error: err, filename,
@@ -318,7 +262,7 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
       duplicateCount,
       totalParsed: parseResult.transactions.length,
       appliedRules: appliedRuleCount,
-      autoPostSkippedApprovalRequired: approvalRequiredCount,
+      ...ruleSkips,
       // Non-fatal problems the import swallowed to stay non-fatal — today, a
       // transfer counterpart pass that failed. Reported so the user is not told
       // the import was clean when part of it was not.

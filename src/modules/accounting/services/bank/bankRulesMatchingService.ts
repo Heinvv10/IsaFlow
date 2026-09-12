@@ -4,17 +4,10 @@
  * CRUD for rules lives in bankRulesService.ts.
  */
 
-import { sql, withSavepoint } from '@/lib/neon';
+import { sql } from '@/lib/neon';
 import { log } from '@/lib/logger';
-import { fetchVatDenialFlags } from '../gl/inputVatDenial';
-import { fetchAccountNames } from '../gl/nonSupplyVatGuard';
-import { fetchBankContraFlags } from '../gl/bankContraVat';
 import type { RuleApplyResult } from '../../types/bank.types';
-import {
-  toSqlPattern, findMatchingTxs, MAX_RULE_CANDIDATES, type RuleAllocType,
-} from './bankRulesMatchingHelpers';
-import { BankTransactionLockTimeoutError } from './bankTxLock';
-import { autoPostRuleLine } from './bankRuleAutoPostLine';
+import { sweepAutoPostRules, emptyAutoPostCounters } from './bankRulesAutoPostSweep';
 
 export async function applyRules(
   companyId: string,
@@ -134,7 +127,7 @@ export async function applyRules(
       totalApplied += updated.length;
     }
 
-    // Auto-create JE mode — sequential (each transaction needs its own JE)
+    // Auto-create mode — one controlled allocation per matched line.
     const autoPostRulesSkippedNoBankGl = (autoCreateRules.length > 0 && !bankGlAccountId)
       ? autoCreateRules.length
       : 0;
@@ -145,145 +138,11 @@ export async function applyRules(
         'accounting',
       );
     }
-    // Counts of auto-post attempts skipped because the transaction date
-    // can't be posted. Tracked separately because the remedies differ:
-    //   - closedPeriod  → re-open the period (or accept that history is sealed)
-    //   - noPeriod      → create the fiscal year so a covering period exists
-    // Conflating them ("everything is closed") sent users in circles when
-    // their periods were all open but the year hadn't been created.
-    let autoPostSkippedClosedPeriod = 0;
-    let autoPostSkippedNoPeriod = 0;
-    let autoPostSkippedRaced = 0;
-    let autoPostSkippedLocked = 0;
-    let autoPostTruncatedRules = 0;
-    // Lines the company's approval policy binds. Left unposted, never posted
-    // around the policy; a person allocates them from the screen with an approval.
-    let autoPostSkippedApprovalRequired = 0;
-    // Lines this sweep posted GROSS because the rule asked to claim input tax on
-    // an account flagged s17(2)(a). Reported, not silent: a rule set to claim on
-    // an entertainment account is a configuration mistake the user must see.
-    let autoPostVatDenied = 0;
-    // Same shape as the line above: a rule that would have claimed VAT on an
-    // account where no supply can arise is a configuration mistake the user
-    // must see, not something to fix silently every sweep.
-    let autoPostNonSupply = 0;
-
-    // One query for every rule's target account. A sweep posts hundreds of
-    // lines against a handful of accounts, so resolving the s17(2)(a) denial
-    // inside autoPostRuleLine would be one redundant SELECT per transaction.
-    const ruleAccountIds = autoCreateRules
-      .map((r) => (r.gl_account_id ? String(r.gl_account_id) : ''))
-      .filter(Boolean);
-    const [ruleAccountVatDenied, ruleAccountNames, ruleAccountIsBank] = await Promise.all([
-      fetchVatDenialFlags(companyId, ruleAccountIds),
-      // The non-supply guard classifies on account NAME, so the batched branch
-      // needs these for the same reason and on the same one-query-per-sweep
-      // budget as the denial flags beside them.
-      fetchAccountNames(companyId, ruleAccountIds),
-      // A transfer rule stores its counterparty BANK in gl_account_id and so
-      // arrives as an ordinary `account` line. The name guard cannot see that
-      // — "FNB Cheque Account" reads like any other — so the subtype comes
-      // along on the same budget.
-      fetchBankContraFlags(companyId, ruleAccountIds),
-    ]);
-
-    for (const rule of (bankGlAccountId ? autoCreateRules : [])) {
-      const pattern = toSqlPattern(String(rule.match_type), String(rule.match_pattern));
-      const field = String(rule.match_field);
-      const ruleName = String(rule.rule_name);
-      const ruleGlAccountId = rule.gl_account_id ? String(rule.gl_account_id) : null;
-      const ruleSupplierId = rule.supplier_id ? String(rule.supplier_id) : null;
-      const ruleClientId = rule.client_id ? String(rule.client_id) : null;
-
-      // Determine allocation shape from the rule. Account/bank rules use rule.gl_account_id
-      // as the contra. Supplier rules post to AP, customer rules to AR (via systemAccountResolver).
-      const allocType: RuleAllocType = ruleSupplierId ? 'supplier'
-        : ruleClientId ? 'customer'
-        : 'account';
-
-      if (allocType === 'account' && !ruleGlAccountId) {
-        log.warn('Skipping auto-create rule with no contra account', { ruleId: rule.id, ruleName }, 'accounting');
-        continue;
-      }
-
-      const matchingTxs = await findMatchingTxs(companyId, bankAccountId, field, pattern);
-
-      // Resolve entity names lazily (only when needed). The controlled
-      // allocation binds the AP/AR control accounts itself.
-      let supplierName: string | null = null;
-      let customerName: string | null = null;
-      if (allocType === 'supplier' && ruleSupplierId) {
-        const supRows = (await sql`
-          SELECT name FROM suppliers
-          WHERE id = ${ruleSupplierId}::UUID AND company_id = ${companyId}::UUID
-        `) as Record<string, unknown>[];
-        supplierName = supRows[0]?.name ? String(supRows[0].name) : `Supplier #${ruleSupplierId}`;
-      } else if (allocType === 'customer' && ruleClientId) {
-        const custRows = (await sql`
-          SELECT name FROM customers
-          WHERE id = ${ruleClientId}::UUID AND company_id = ${companyId}::UUID
-        `) as Record<string, unknown>[];
-        customerName = custRows[0]?.name ? String(custRows[0].name) : `Customer #${ruleClientId}`;
-      }
-
-      // findMatchingTxs fetches one row past the cap; the extra row is the
-      // signal that this rule matched more than one run may take.
-      const capped = matchingTxs.slice(0, MAX_RULE_CANDIDATES);
-      if (matchingTxs.length > MAX_RULE_CANDIDATES) autoPostTruncatedRules++;
-
-      // Locked in id order, not the candidate query's date order: every
-      // allocation path holds its row lock to the end of the request, so two
-      // runs touching the same rows in opposite orders deadlock (40P01).
-      const orderedTxs = [...capped].sort((a, b) => {
-        const x = String(a.id), y = String(b.id);
-        return x < y ? -1 : x > y ? 1 : 0;
-      });
-
-      for (const tx of orderedTxs) {
-        let outcome;
-        try {
-          // Savepoint per line: a lock timeout is a REAL 55P03, which aborts
-          // the transaction — without the savepoint the next candidate's
-          // first statement raises 25P02 and the whole run dies after one skip.
-          outcome = await withSavepoint('rule_autopost_line', () => autoPostRuleLine({
-            companyId, userId, tx, rule, ruleName, allocType, ruleGlAccountId,
-            ruleGlAccountVatDenied: ruleGlAccountId
-              ? ruleAccountVatDenied.get(ruleGlAccountId) ?? false : false,
-            // `?? null` and never undefined: autoPostRuleLine reads undefined
-            // as "the caller did not resolve this" and falls back to a
-            // per-line lookup, which is the safe reading but not the one we
-            // want when the sweep DID resolve it and the account has no name.
-            ruleGlAccountName: ruleGlAccountId
-              ? ruleAccountNames.get(ruleGlAccountId) ?? null : null,
-            // No `?? false`. `bankContraVat` states that absent from the map
-            // means "not asked about", never "not a bank", and coalescing here
-            // would skip the guard instead of falling back to the per-line
-            // lookup — the same reason `ruleGlAccountName` above uses `?? null`
-            // for its OWN meaning of absent rather than borrowing this one.
-            ruleGlAccountIsBank: ruleGlAccountId
-              ? ruleAccountIsBank.get(ruleGlAccountId) : false,
-            supplierName, supplierId: ruleSupplierId, customerName, customerId: ruleClientId,
-          }));
-        } catch (lineErr) {
-          // Another request is holding this row. One contended transaction must
-          // not abort a run that has already posted for earlier ones — the
-          // route's catch would 400 while withAuth still COMMITted them.
-          // Counted and retryable; anything else is a real failure.
-          if (!(lineErr instanceof BankTransactionLockTimeoutError)) throw lineErr;
-          autoPostSkippedLocked++;
-          continue;
-        }
-        if (outcome.kind === 'raced') { autoPostSkippedRaced++; continue; }
-        if (outcome.kind === 'no_period') { autoPostSkippedNoPeriod++; continue; }
-        if (outcome.kind === 'closed_period') { autoPostSkippedClosedPeriod++; continue; }
-        if (outcome.kind === 'approval_required') { autoPostSkippedApprovalRequired++; continue; }
-
-        entries.push({ bankTxId: String(tx.id), ruleName, journalEntryId: outcome.journalEntryId });
-        if (outcome.vatDenied) autoPostVatDenied++;
-        if (outcome.nonSupplyCoerced) autoPostNonSupply++;
-        totalApplied++;
-      }
-    }
+    const sweep = bankGlAccountId && autoCreateRules.length > 0
+      ? await sweepAutoPostRules(companyId, bankAccountId, userId, autoCreateRules)
+      : { entries: [], applied: 0, counters: emptyAutoPostCounters() };
+    entries.push(...sweep.entries);
+    totalApplied += sweep.applied;
 
     const remaining = (await sql`
       SELECT COUNT(*) AS cnt FROM bank_transactions
@@ -299,20 +158,7 @@ export async function applyRules(
 
     log.info(
       'Applied bank rules',
-      {
-        bankAccountId,
-        applied: totalApplied,
-        skipped,
-        autoPostRulesSkippedNoBankGl,
-        autoPostSkippedClosedPeriod,
-        autoPostSkippedNoPeriod,
-        autoPostSkippedRaced,
-        autoPostSkippedLocked,
-        autoPostTruncatedRules,
-        autoPostSkippedApprovalRequired,
-        autoPostVatDenied,
-        autoPostNonSupply,
-      },
+      { bankAccountId, applied: totalApplied, skipped, autoPostRulesSkippedNoBankGl, ...sweep.counters },
       'accounting',
     );
     return {
@@ -320,14 +166,7 @@ export async function applyRules(
       skipped,
       entries,
       autoPostRulesSkippedNoBankGl,
-      autoPostSkippedClosedPeriod,
-      autoPostSkippedNoPeriod,
-      autoPostSkippedRaced,
-      autoPostSkippedLocked,
-      autoPostTruncatedRules,
-      autoPostSkippedApprovalRequired,
-      autoPostVatDenied,
-      autoPostNonSupply,
+      ...sweep.counters,
     };
   } catch (err) {
     log.error('Failed to apply bank rules', { error: err }, 'accounting');

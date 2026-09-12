@@ -74,35 +74,26 @@ describe('buildApplyToast', () => {
     expect(r.kind).toBe('warn');
   });
 
-  it('applied + no-period skips → success tone with distinct suffix', () => {
-    const r = buildApplyToast({ applied: 45, autoPostSkippedNoPeriod: 684 });
+  it('reports an unverified supplier beneficiary, a lockdown and a filed VAT period each by name', () => {
+    const r = buildApplyToast({ applied: 4, autoPostSkippedBeneficiaryUnverified: 1, autoPostSkippedLockdown: 2, autoPostSkippedVatPeriodFiled: 3 });
     expect(r.kind).toBe('success');
-    expect(r.message).toBe('45 categorised · 684 skipped (no fiscal period)');
+    expect(r.message).toBe('4 categorised · 1 skipped — supplier bank details not verified · 2 skipped (company lockdown) · 3 skipped (VAT period already filed)');
   });
 
-  it('zero applied with no-period skips → warn tone (silent drop, fiscal year missing)', () => {
-    const r = buildApplyToast({ applied: 0, autoPostSkippedNoPeriod: 684 });
+  it('a generic refusal carries the kernel\'s own reasons, and alone it is a warning', () => {
+    const r = buildApplyToast({ applied: 0, autoPostSkippedRefused: 2, autoPostRefusalReasons: ['Unambiguous bank accounting period required'] });
     expect(r.kind).toBe('warn');
+    expect(r.message).toBe('0 categorised · 2 refused: Unambiguous bank accounting period required');
   });
 
-  it('closed and no-period skips coexist → both suffixes shown in stable order', () => {
-    const r = buildApplyToast({
-      applied: 12,
-      autoPostSkippedClosedPeriod: 3,
-      autoPostSkippedNoPeriod: 9,
-    });
-    expect(r.message).toBe('12 categorised · 3 skipped (closed period) · 9 skipped (no fiscal period)');
+  it('a permission refusal is named', () => {
+    expect(buildApplyToast({ applied: 1, autoPostSkippedPermissionDenied: 1 }).message)
+      .toBe('1 categorised · 1 skipped — you lack permission to post');
   });
 
-  it('all four signals at once', () => {
-    const r = buildApplyToast({
-      applied: 729,
-      autoPostSkippedClosedPeriod: 151,
-      autoPostSkippedNoPeriod: 50,
-      autoPostRulesSkippedNoBankGl: 0,
-    });
-    expect(r.kind).toBe('success');
-    expect(r.message).toBe('729 categorised · 151 skipped (closed period) · 50 skipped (no fiscal period)');
+  it('closed-period and approval skips coexist → both suffixes shown in stable order', () => {
+    const r = buildApplyToast({ applied: 12, autoPostSkippedClosedPeriod: 3, autoPostSkippedApprovalRequired: 9 });
+    expect(r.message).toBe("12 categorised · 3 skipped (closed period) · 9 left for approval — the company's policy requires one at this amount");
   });
 
   it('undefined inputs default to zero, no skip suffixes shown', () => {

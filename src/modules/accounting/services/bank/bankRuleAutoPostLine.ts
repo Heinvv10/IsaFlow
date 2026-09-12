@@ -13,14 +13,16 @@
  * refused on every line as a direct operation on a generated journal, and the
  * sweep posted nothing. Going through the allocation gives each line the same
  * intent, receipt (`control_operation_effects`), change events, payment
- * document and `parentControl` as the attended path, and the same approval
- * policy: a company that binds this amount to an approval gets the line LEFT
- * UNPOSTED and counted, never posted around the policy.
+ * document and `parentControl` as the attended path, and the same refusals:
+ * every one the controlled path raises (approval policy, unverified
+ * beneficiary, closed period, lockdown, filed VAT period, permission, or any
+ * other business refusal) becomes a per-line outcome — see
+ * `bankRuleAutoPostRefusal.ts` — with the line LEFT UNPOSTED and the caller's
+ * savepoint unwinding the intent; never posted around the rule.
  */
 
-import { fmtDate } from '@/lib/fmtDate';
-import { OperationApprovalRequiredError } from '../controls/approvalExecutionService';
-import { getPeriodStatusForDate, type RuleAllocType } from './bankRulesMatchingHelpers';
+import { classifyAutoPostRefusal, type AutoPostRefusal } from './bankRuleAutoPostRefusal';
+import type { RuleAllocType } from './bankRulesMatchingHelpers';
 import { lockBankTransactionForUpdate } from './bankTxLock';
 import { allocateTransaction } from './bankAllocationService';
 import { resolveRuleVatCode } from '../gl/ruleVatResolution';
@@ -29,16 +31,7 @@ export type AutoPostOutcome =
   | { kind: 'posted'; journalEntryId: string; vatDenied: boolean; nonSupplyCoerced: boolean }
   /** The row was allocated (or removed) between the candidate query and the lock. */
   | { kind: 'raced' }
-  /** Its date falls in a closed/locked period - re-open the period to post it. */
-  | { kind: 'closed_period' }
-  /** No fiscal period covers its date - the year has not been created. */
-  | { kind: 'no_period' }
-  /**
-   * The company's approval policy binds an allocation of this amount. Nothing
-   * was written: the savepoint the caller holds unwinds the intent. A person
-   * allocates the line from the screen, where the approval can be requested.
-   */
-  | { kind: 'approval_required' };
+  | AutoPostRefusal;
 
 export interface AutoPostLineInput {
   companyId: string;
@@ -91,20 +84,10 @@ export async function autoPostRuleLine(input: AutoPostLineInput): Promise<AutoPo
     return { kind: 'raced' };
   }
 
-  // fmtDate, never toISOString: on a UTC+2 host the latter shifted the entry
-  // date back a day, so a transaction on the 1st auto-posted into the PREVIOUS
-  // month — a different VAT period — and the open-period check below then ran
-  // against that wrong period too.
-  const entryDate = fmtDate(tx.transaction_date);
-
-  // Pre-flight, a read before any write: a date that cannot post is an
-  // ordinary per-line outcome here. The controlled allocation refuses the same
-  // dates itself, but as an integrity failure of the whole run, not a skip.
-  const periodStatus = await getPeriodStatusForDate(companyId, entryDate);
-  if (periodStatus !== 'open') {
-    return { kind: periodStatus === 'no_period' ? 'no_period' : 'closed_period' };
-  }
-
+  // No period pre-flight of its own: the controlled allocation refuses a
+  // closed period, a lockdown and a filed VAT period BEFORE its write
+  // (`executeBankAllocation`), with the kernel's own classes, and the catch
+  // below turns each into the per-line outcome. One rule, one owner.
   const totalAmount = Math.abs(Number(tx.amount));
   const isDeposit = Number(tx.amount) > 0;
   const entryDesc = rule.description_template
@@ -153,10 +136,10 @@ export async function autoPostRuleLine(input: AutoPostLineInput): Promise<AutoPo
     );
     return { kind: 'posted', journalEntryId: result.journalEntryId, vatDenied, nonSupplyCoerced };
   } catch (err) {
-    // The kernel's own refusal, raised before the effect ran. Anything else is
-    // a real failure and propagates: a caught write is a partial commit
-    // reported as a success.
-    if (err instanceof OperationApprovalRequiredError) return { kind: 'approval_required' };
-    throw err;
+    // A refusal becomes this line's outcome; a fault (pg, or an integrity
+    // failure that already poisoned the request) propagates and aborts the run.
+    const refusal = classifyAutoPostRefusal(err);
+    if (!refusal) throw err;
+    return refusal;
   }
 }
