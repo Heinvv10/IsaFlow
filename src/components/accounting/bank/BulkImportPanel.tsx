@@ -13,6 +13,7 @@ import { runWithConcurrency } from '@/lib/bulkUpload/concurrencyQueue';
 import { findCrossFileDuplicates } from '@/lib/bulkUpload/crossFileDedup';
 import { BankAccountSelector, type BankAccountOption } from './BankAccountSelector';
 import { BulkImportFileRow, type BulkImportRowState } from './BulkImportFileRow';
+import Link from 'next/link';
 import type { BulkPreviewResponse, BulkCommitResponse } from './bulkImportTypes';
 import { buildApplyToast, hasApplyOutcome, mergeApplyResults, type ApplyResultParts } from '../bank-rules/applyToast';
 
@@ -324,7 +325,7 @@ export function BulkImportPanel({ initialAccountId }: { initialAccountId?: strin
           if (data.status === 'imported') {
             imported++;
             totalTransactions += data.transactionCount ?? 0;
-            rules = mergeApplyResults(rules, { ...data, applied: data.appliedRules ?? 0 });
+            rules = mergeApplyResults(rules, { ...data, applied: data.appliedRules ?? 0 }, { deferred: 'sum' });
             setRows(prev => prev.map(r => r.id === row.id ? {
               ...r, phase: 'imported', importedTransactionCount: data.transactionCount ?? 0,
             } : r));
@@ -520,6 +521,9 @@ export function BulkImportPanel({ initialAccountId }: { initialAccountId?: strin
               {hasApplyOutcome(summary.rules) && (
                 <p className="text-xs text-[var(--ff-text-muted)]">
                   Rules: {buildApplyToast(summary.rules).message}
+                  {(summary.rules.autoPostDeferred ?? 0) > 0 && (
+                    <>{' · '}<Link href="/accounting/bank-reconciliation/rules" className="underline">Run rules</Link></>
+                  )}
                 </p>
               )}
             </div>

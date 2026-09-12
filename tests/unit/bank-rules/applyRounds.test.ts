@@ -18,6 +18,13 @@ describe('mergeApplyResults', () => {
   });
 });
 
+describe('mergeApplyResults across files', () => {
+  it('sums deferred lines, since each file defers its own', () => {
+    const merged = mergeApplyResults({ applied: 6, autoPostDeferred: 44 }, { applied: 6, autoPostDeferred: 10 }, { deferred: 'sum' });
+    expect(merged.autoPostDeferred).toBe(54);
+  });
+});
+
 describe('applyRulesUntilSettled', () => {
   it('runs again while lines are deferred and stops when none are', async () => {
     const again = vi.fn()

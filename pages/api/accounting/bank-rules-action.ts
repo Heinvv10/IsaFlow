@@ -80,6 +80,10 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
     }
   } catch (err) {
     log.error('Bank rules action failed', { action: body.action, error: err }, 'accounting-api');
+    // `apply` counts every refusal per line and returns; what escapes it is a
+    // FAULT. Answered 4xx it would COMMIT (withAuth rolls back only on >=500)
+    // the lines posted before it and report "Action failed" with no counters.
+    if (body.action === 'apply') throw err;
     return apiResponse.badRequestFromError(res, err, 'Action failed');
   }
 }

@@ -43,11 +43,19 @@ vi.mock('@/modules/accounting/services/gl/ruleVatResolution', () => ({
   resolveRuleVatCode: vi.fn(async ({ requestedVatCode }: { requestedVatCode: string }) =>
     ({ vatCode: requestedVatCode, denied: false, nonSupplyCoerced: false, settlementDropped: false })),
 }));
-// The pre-flight reads (company lockdown facts, the kernel's approval question)
-// are the boundary here; `dateRefusal` stays real so a row's period_status decides.
+// The pre-flight READS (company lockdown facts, the company's payment policy)
+// are the boundary here; `dateRefusal` and `approvalRefusalForAmount` stay real.
 vi.mock('@/modules/accounting/services/bank/bankRulesAutoPostPreflight', async (importOriginal) => {
   const actual = await importOriginal<typeof import('@/modules/accounting/services/bank/bankRulesAutoPostPreflight')>();
-  return { ...actual, loadLockdownFacts: vi.fn(async () => ({})), approvalRequiredForLine: vi.fn(async () => false) };
+  return { ...actual, loadLockdownFacts: vi.fn(async () => ({})) };
+});
+vi.mock('@/modules/accounting/services/controls/approvalRuleService', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('@/modules/accounting/services/controls/approvalRuleService')>();
+  return { ...actual, loadApprovalRules: vi.fn(async () => []) };
+});
+vi.mock('@/modules/accounting/services/controls/context', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('@/modules/accounting/services/controls/context')>();
+  return { ...actual, requireControlTx: vi.fn(() => ({ sql: sqlMock, principal: { companyId: COMPANY, personId: USER } })) };
 });
 vi.mock('@/modules/accounting/services/bank/bankRulesMatchingHelpers', () => ({
   toSqlPattern: vi.fn((_m: string, p: string) => p),

@@ -198,16 +198,12 @@ async function handler(req: ExtensionAuthedRequest, res: NextApiResponse) {
     // 4. Apply rules if asked.
     let appliedRuleCount = 0;
     if (body.applyBankRules !== false && importedCount > 0) {
-      try {
-        const ruleResult = await applyBankRulesService(companyId, bankAccountId, userId);
-        appliedRuleCount = ruleResult.applied;
-      } catch (err) {
-        log.warn(
-          'Extension ingest: applyRules failed',
-          { error: err instanceof Error ? err.message : String(err), connectionId },
-          'extension-ingest',
-        );
-      }
+      // Suggestions only: withExtensionToken opens no control principal, so the
+      // controlled allocation an auto-post rule needs would refuse every line.
+      // Stated here rather than discovered per line. NOT caught: what escapes
+      // applyRules is a fault, and the ingest rolls back with it as a 500.
+      const ruleResult = await applyBankRulesService(companyId, bankAccountId, userId, undefined, { autoPost: false });
+      appliedRuleCount = ruleResult.applied;
     }
 
     // 5. Update connection scraper_version + sync log.

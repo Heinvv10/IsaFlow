@@ -8,8 +8,8 @@
  * lockdown date, a company approval policy that binds the amount — must not
  * consume that budget run after run and starve the lines that could post.
  * Each answer here is READ from the same rows and the same predicates the
- * controlled allocation refuses on (`postingPeriodBlock`, the kernel's own
- * `controlledOperationApprovalRequiredForAmount`); none restates a rule. The
+ * controlled allocation refuses on (`postingPeriodBlock`, `matchApprovalRules`,
+ * `allocationMoney`); none restates a rule. The
  * controlled path still decides at execute time — this only skips lines it
  * would refuse anyway.
  */
@@ -18,8 +18,8 @@ import Decimal from 'decimal.js';
 import { fmtDate } from '@/lib/fmtDate';
 import { sql } from '@/lib/neon';
 import type { DbRow } from '@/lib/neon';
-import { requireControlTx } from '../controls/context';
-import { controlledOperationApprovalRequiredForAmount } from '../controls/approvalExecutionService';
+import { matchApprovalRules, type ApprovalRuleRow } from '../controls/approvalRuleService';
+import { AGGREGATE_POLICY_UNEVALUABLE } from '../controls/operationRefusal';
 import { postingPeriodBlock } from '../gl/postingPeriodGuard';
 import { allocationMoney } from './bankAllocationPlan';
 import type { AutoPostRefusal } from './bankRuleAutoPostRefusal';
@@ -47,12 +47,16 @@ export function dateRefusal(tx: Record<string, unknown>, company: LockdownFacts)
 }
 
 /**
- * The kernel's own read-only approval question for a bank allocation of this
- * amount (`bank_allocation.post` binds `payment` rules). An aggregate-window
- * policy answers "required" conservatively; the execute path is the authority
- * either way, and refuses the same lines this skips.
+ * The kernel's own approval answer for a bank allocation of this amount, from
+ * the company's `payment` rules loaded ONCE per sweep (`loadApprovalRules`):
+ * `matchApprovalRules` is the predicate `executeControlledOperation` binds on.
+ * An aggregate-window policy is one the kernel cannot evaluate for a bank
+ * allocation at all (`supplierExposureBuckets`), so that is the typed refusal
+ * it would throw, counted with its own reason rather than as "needs approval".
+ * A zero or non-cent amount throws the kernel's typed money refusal.
  */
-export async function approvalRequiredForLine(amount: unknown): Promise<boolean> {
+export function approvalRefusalForAmount(rules: readonly ApprovalRuleRow[], amount: unknown): AutoPostRefusal | null {
   const money = allocationMoney(new Decimal(String(amount)).abs().toFixed());
-  return controlledOperationApprovalRequiredForAmount(requireControlTx(), 'bank_allocation.post', money);
+  if (rules.some(rule => rule.aggregate_window_days !== null)) return { kind: 'refused', reason: AGGREGATE_POLICY_UNEVALUABLE };
+  return matchApprovalRules(rules, money, new Map()).length > 0 ? { kind: 'approval_required' } : null;
 }

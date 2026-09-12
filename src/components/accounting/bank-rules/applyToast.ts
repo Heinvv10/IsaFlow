@@ -48,7 +48,7 @@ const SKIP_COUNTERS: ReadonlyArray<{ key: keyof ApplyResultParts; text: (n: numb
   { key: 'autoPostSkippedVatPeriodFiled', text: (n) => `${n} skipped (VAT period already filed)` },
   { key: 'autoPostSkippedPermissionDenied', text: (n) => `${n} skipped — you lack permission to post` },
   { key: 'autoPostSkippedRefused', text: (n, parts) => `${n} refused${parts.autoPostRefusalReasons?.length ? `: ${parts.autoPostRefusalReasons.join('; ')}` : ''}` },
-  { key: 'autoPostDeferred', text: (n) => `${n} deferred — run rules again` },
+  { key: 'autoPostDeferred', text: (n) => `${n} deferred — run rules to continue` },
 ];
 
 /**
@@ -80,17 +80,20 @@ export function emitApplyToast(headline: string, parts: ApplyResultParts): void 
 }
 
 /**
- * One request posts at most a bounded number of lines (authorityHoldLimits.ts)
- * and reports the rest as `autoPostDeferred`; the page runs again until none
- * are deferred. Counters add up across rounds, reasons union, and `skipped` and
- * `autoPostDeferred` are the LAST round's — they describe what is left, not a sum.
+ * Combine two sweep results. Counters add up, reasons union, `skipped` (the
+ * account's still-unsuggested lines) is the latest. `autoPostDeferred` depends
+ * on what is being combined: successive ROUNDS over one account describe what
+ * is left, so the last round's figure stands (`deferred: 'last'`); the FILES
+ * of one bulk import each defer their own lines and commit two at a time in no
+ * fixed order, so their figures are summed (`deferred: 'sum'`).
  */
-export function mergeApplyResults(total: ApplyResultParts, round: ApplyResultParts): ApplyResultParts {
+export function mergeApplyResults(total: ApplyResultParts, next: ApplyResultParts,
+  options: { deferred: 'last' | 'sum' } = { deferred: 'last' }): ApplyResultParts {
   const merged: ApplyResultParts = { ...total };
-  for (const key of Object.keys(round) as (keyof ApplyResultParts)[]) {
-    const value = round[key];
-    if (key === 'autoPostRefusalReasons') merged.autoPostRefusalReasons = [...new Set([...(total.autoPostRefusalReasons ?? []), ...(round.autoPostRefusalReasons ?? [])])];
-    else if (key === 'skipped' || key === 'autoPostDeferred') (merged as Record<string, unknown>)[key] = value;
+  for (const key of Object.keys(next) as (keyof ApplyResultParts)[]) {
+    const value = next[key];
+    if (key === 'autoPostRefusalReasons') merged.autoPostRefusalReasons = [...new Set([...(total.autoPostRefusalReasons ?? []), ...(next.autoPostRefusalReasons ?? [])])];
+    else if (key === 'skipped' || (key === 'autoPostDeferred' && options.deferred === 'last')) (merged as Record<string, unknown>)[key] = value;
     else if (typeof value === 'number') (merged as Record<string, unknown>)[key] = Number(total[key] ?? 0) + value;
   }
   return merged;

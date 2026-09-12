@@ -88,7 +88,7 @@ describe('buildApplyToast', () => {
 
   it('deferred lines are named with the remedy, and alone they are a warning', () => {
     const r = buildApplyToast({ applied: 6, autoPostDeferred: 44 });
-    expect(r.message).toBe('6 categorised · 44 deferred — run rules again');
+    expect(r.message).toBe('6 categorised · 44 deferred — run rules to continue');
     expect(buildApplyToast({ applied: 0, autoPostDeferred: 3 }).kind).toBe('warn');
   });
 
