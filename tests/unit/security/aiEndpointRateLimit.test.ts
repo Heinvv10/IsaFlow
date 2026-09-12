@@ -21,7 +21,6 @@ vi.mock('@/lib/api-error-handler', () => ({
   withErrorHandler: (h: (req: NextApiRequest, res: NextApiResponse) => unknown) => h,
 }));
 vi.mock('@/lib/logger', () => ({ log: { info: vi.fn(), warn: vi.fn(), error: vi.fn() } }));
-vi.mock('@/lib/neon', () => ({ sql: vi.fn() }));
 
 const { checkAiRateLimitMock } = vi.hoisted(() => ({ checkAiRateLimitMock: vi.fn() }));
 vi.mock('@/lib/rateLimit', () => ({
