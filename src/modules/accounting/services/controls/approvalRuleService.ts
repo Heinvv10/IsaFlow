@@ -1,6 +1,7 @@
 import Decimal from 'decimal.js';
 import type {operationRuleType} from './operationPermissions';
 import { canonicalMoney } from './canonical';
+import { OperationRefusalError } from './operationRefusal';
 import { assertControlTx } from './context';
 import type { ControlTx, PolicyBinding } from './contracts';
 const Money = Decimal.clone({ precision: 80 });
@@ -23,10 +24,11 @@ export function matchApprovalRules(rules: readonly ApprovalRuleRow[], amount: st
       || !rule.approver_role?.trim() || !Number.isSafeInteger(rule.control_version) || rule.control_version < 1
       || !((rule.aggregate_window_days === null && rule.aggregate_by === null)
         || (rule.aggregate_window_days === 1 && rule.aggregate_by === 'supplier'))) {
-      throw new Error('Unsupported approval policy');
+      // A policy row the kernel cannot evaluate is the company's data state, not a fault: a batch driver counts it per line.
+      throw new OperationRefusalError('Unsupported approval policy');
     }
     const threshold = new Money(canonicalMoney(String(rule.condition_value)));
-    if (threshold.isNegative()) throw new Error('Invalid approval policy threshold');
+    if (threshold.isNegative()) throw new OperationRefusalError('Invalid approval policy threshold');
     if (value === null && (rule.condition_operator !== 'any' || rule.aggregate_window_days !== null)) {
       throw new Error('Monetary approval policy cannot evaluate a nonfinancial operation');
     }
@@ -52,7 +54,7 @@ export async function loadApprovalRules(ctx: ControlTx, documentType: ReturnType
     FROM approval_rules WHERE company_id=${ctx.principal.companyId}::uuid
       AND document_type=${configuredType} AND is_active=true ORDER BY id LIMIT 101 FOR SHARE
   ` as ApprovalRuleRow[];
-  if (rows.length > 100) throw new Error('Approval policy population exceeds execution limit');
+  if (rows.length > 100) throw new OperationRefusalError('Approval policy population exceeds execution limit');
   const rules = rows.map(row => ({ ...row, control_version: Number(row.control_version) }));
   if (documentType === 'payment_release') {
     const policies = await ctx.sql`

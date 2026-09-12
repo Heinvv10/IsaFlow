@@ -1,3 +1,4 @@
+import {OperationRefusalError} from '../controls/operationRefusal';
 import Decimal from 'decimal.js';
 import {z} from 'zod';
 import {assertEffectivePermission} from '@/lib/auth/effectivePermissions';
@@ -10,6 +11,7 @@ const D=Decimal.clone({precision:80});
 const id=z.string().uuid().transform(value=>value.toLowerCase());
 const request=z.object({kind:z.enum(['customer','supplier']),bankTransactionId:id,partyId:id,
  description:z.string().max(1000).optional(),autoApply:z.boolean().optional(),cc1Id:id.optional(),cc2Id:id.optional(),buId:id.optional(),
+ rule:z.object({id,name:z.string().max(200)}).strict().optional(),
  applications:z.array(z.object({invoiceId:id,amount:z.string().transform(allocationMoney)}).strict()).max(100).optional()}).strict();
 type Candidate={id:string;outstanding:string};
 /** Contact defaults select exact instructions once, before immutable approval material is made. */
@@ -24,13 +26,13 @@ export async function preparePartyBankAllocation(ctx:ControlTx,input:unknown){
   const parties=parsed.kind==='customer'?await ctx.sql`SELECT auto_allocate_strategy FROM customers
    WHERE company_id=${company}::uuid AND id=${parsed.partyId}::uuid FOR SHARE`
    :await ctx.sql`SELECT auto_allocate_strategy FROM suppliers WHERE company_id=${company}::uuid AND id=${parsed.partyId}::uuid FOR SHARE`;
-  if(parties.length!==1)throw new Error('Owned allocation party required');
+  if(parties.length!==1)throw new OperationRefusalError('Owned allocation party required');
   const strategy=(parties[0] as {auto_allocate_strategy:string|null}).auto_allocate_strategy;
   let applications=parsed.applications;
   if(applications===undefined){
    applications=[];
    if(parsed.autoApply!==false&&!isBankAllocationRefund(parsed.kind,bank.amount)&&strategy&&strategy!=='off'){
-    if(strategy!=='oldest'&&strategy!=='newest')throw new Error('Unknown bank allocation strategy');
+    if(strategy!=='oldest'&&strategy!=='newest')throw new OperationRefusalError('Unknown bank allocation strategy');
     const oldest=strategy==='oldest';
     // A single probe beyond the immutable plan limit distinguishes exhausted cash from a truncated plan.
     const rows=(parsed.kind==='customer'?await ctx.sql`
@@ -59,6 +61,6 @@ export async function preparePartyBankAllocation(ctx:ControlTx,input:unknown){
    }
   }
   return prepareBankAllocation(ctx,{version:1,kind:parsed.kind,bankTransactionId:parsed.bankTransactionId,
-   partyId:parsed.partyId,description:parsed.description,applications,cc1Id:parsed.cc1Id,cc2Id:parsed.cc2Id,buId:parsed.buId});
+   partyId:parsed.partyId,description:parsed.description,applications,cc1Id:parsed.cc1Id,cc2Id:parsed.cc2Id,buId:parsed.buId,rule:parsed.rule});
  });
 }

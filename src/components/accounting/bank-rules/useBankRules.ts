@@ -5,7 +5,8 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { notify } from '@/utils/toast';
 import { apiFetch } from '@/lib/apiFetch';
-import { emitApplyToast } from './applyToast';
+import { emitApplyToast, hasApplyOutcome, type ApplyResultParts } from './applyToast';
+import { applyRulesUntilSettled } from './applyRounds';
 import type { BankRuleFormState } from './BankRuleForm';
 import type { BankRuleRowData, VatCode } from './BankRuleRow';
 
@@ -41,7 +42,7 @@ export interface UseBankRulesResult {
   loading: boolean;
   busy: string;
   error: string;
-  applyResult: { applied: number; skipped: number; autoPostRulesSkippedNoBankGl?: number; autoPostSkippedClosedPeriod?: number; autoPostSkippedNoPeriod?: number; autoPostSkippedRaced?: number; autoPostSkippedLocked?: number; autoPostTruncatedRules?: number } | null;
+  applyResult: (ApplyResultParts & { applied: number; skipped: number }) | null;
   selected: Set<string>;
   setSelected: React.Dispatch<React.SetStateAction<Set<string>>>;
   bulkDeleting: boolean;
@@ -82,7 +83,7 @@ export function useBankRules({ defaultBankId, fetchPreview }: UseBankRulesOption
   const [busy, setBusy] = useState('');
   const [error, setError] = useState('');
   const [applyResult, setApplyResult] = useState<
-    { applied: number; skipped: number; autoPostRulesSkippedNoBankGl?: number; autoPostSkippedClosedPeriod?: number; autoPostSkippedNoPeriod?: number; autoPostSkippedRaced?: number; autoPostSkippedLocked?: number; autoPostTruncatedRules?: number } | null
+    (ApplyResultParts & { applied: number; skipped: number }) | null
   >(null);
   const [editingRule, setEditingRule] = useState<BankRule | null>(null);
   const [selected, setSelected] = useState<Set<string>>(new Set());
@@ -216,24 +217,13 @@ export function useBankRules({ defaultBankId, fetchPreview }: UseBankRulesOption
         });
         const json = await res.json();
         if (!res.ok) throw new Error(json.message || 'Failed to create rule');
-        const parts = {
-          applied: Number(json.data?.applied ?? 0),
-          autoPostSkippedClosedPeriod: Number(json.data?.autoPostSkippedClosedPeriod ?? 0),
-          autoPostSkippedNoPeriod: Number(json.data?.autoPostSkippedNoPeriod ?? 0),
-          autoPostRulesSkippedNoBankGl: Number(json.data?.autoPostRulesSkippedNoBankGl ?? 0),
-          autoPostSkippedRaced: Number(json.data?.autoPostSkippedRaced ?? 0),
-          autoPostSkippedLocked: Number(json.data?.autoPostSkippedLocked ?? 0),
-          autoPostTruncatedRules: Number(json.data?.autoPostTruncatedRules ?? 0),
-        };
-        if (parts.applied > 0) setApplyResult({ ...parts, skipped: 0 });
+        // The create route returns the sweep's own result; every counter it
+        // carries reaches the toast, so a new refusal kind cannot go unreported.
+        const parts: ApplyResultParts = { ...(json.data ?? {}), applied: Number(json.data?.applied ?? 0) };
+        if (parts.applied! > 0) setApplyResult({ ...parts, applied: parts.applied!, skipped: 0 });
         const headline = `Rule "${payload.ruleName}" created`;
-        const anythingToReport = parts.applied + parts.autoPostSkippedClosedPeriod
-          + parts.autoPostSkippedNoPeriod + parts.autoPostRulesSkippedNoBankGl
-          + parts.autoPostSkippedRaced + parts.autoPostSkippedLocked
-          + parts.autoPostTruncatedRules;
-        if (anythingToReport > 0) {
-          emitApplyToast(headline, parts);
-        } else notify.success(headline);
+        if (hasApplyOutcome(parts)) emitApplyToast(headline, parts);
+        else notify.success(headline);
       }
 
       resetForm();
@@ -260,10 +250,19 @@ export function useBankRules({ defaultBankId, fetchPreview }: UseBankRulesOption
       const json = await res.json();
       if (!res.ok) throw new Error(json.message || `${action} failed`);
       if (action === 'apply') {
-        const data = json.data;
+        const first = json.data;
         // Guard against partial server responses.
-        if (data && typeof data.applied === 'number' && typeof data.skipped === 'number') {
-          setApplyResult(data);
+        if (first && typeof first.applied === 'number' && typeof first.skipped === 'number') {
+          // Bounded rounds: each request posts a few lines and defers the rest.
+          const data = await applyRulesUntilSettled(first, async () => {
+            const again = await apiFetch('/api/accounting/bank-rules-action', {
+              method: 'POST', headers: { 'Content-Type': 'application/json' },
+              credentials: 'include', body: JSON.stringify({ action, id, ...extra }),
+            });
+            const next = await again.json();
+            return { data: again.ok && typeof next.data?.applied === 'number' ? next.data : undefined };
+          });
+          setApplyResult({ ...data, applied: Number(data.applied ?? 0), skipped: Number(data.skipped ?? 0) });
           emitApplyToast('Rules applied', data);
         } else {
           notify.warning('Rules applied', 'Unexpected server response — refresh to verify');

@@ -79,6 +79,11 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
       }
     }
   } catch (err) {
+    // `apply` counts every refusal per line and returns; what escapes it is a
+    // FAULT. Answered 4xx it would COMMIT (withAuth rolls back only on >=500)
+    // the lines posted before it and report "Action failed" with no counters.
+    // Not logged here: withErrorHandler logs the 500 and reports it to Sentry.
+    if (body.action === 'apply') throw err;
     log.error('Bank rules action failed', { action: body.action, error: err }, 'accounting-api');
     return apiResponse.badRequestFromError(res, err, 'Action failed');
   }

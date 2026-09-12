@@ -1,5 +1,6 @@
 import Decimal from 'decimal.js';
 import { canonicalMoney } from './canonical';
+import { AGGREGATE_POLICY_UNEVALUABLE, OperationRefusalError } from './operationRefusal';
 import type { ApMaterial } from './apOperationMaterializer';
 
 const Money = Decimal.clone({ precision: 80 });
@@ -16,7 +17,7 @@ export function supplierExposureBuckets(material: ApMaterial): SupplierExposureB
   const composite = ['supplier_payment_batch', 'payment_release_intent'].includes(binding.entityType);
   if (!composite) {
     if (!['supplier_invoice', 'supplier_payment'].includes(binding.entityType) || !material.supplierId) {
-      throw new Error('Supplier aggregate policy cannot evaluate this operation');
+      throw new OperationRefusalError(AGGREGATE_POLICY_UNEVALUABLE);
     }
     return [{ beneficiaryKey: material.supplierId, amount: total.toFixed(), currency: binding.currency }];
   }

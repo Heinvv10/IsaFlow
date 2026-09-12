@@ -1,33 +1,23 @@
 /**
- * Bank-rule auto-post must survive a period closing mid-run.
+ * Bank-rule auto-post: the concurrency outcomes — a raced row, a lock timeout,
+ * the savepoint that keeps one timeout from poisoning the next line, and the
+ * candidate and attempt caps. The refusal outcomes are in
+ * bankRulesAutoPostOutcomes.test.ts, on the same harness.
  *
- * applyRules pre-flights the fiscal period, then creates a draft journal and
- * posts it. The period can close between those two steps (an admin closing the
- * month while a batch runs), so postJournalEntry throws
- * ClosedFiscalPeriodError. The service narrows on that class to hard-delete the
- * draft it just inserted, count the skip, and carry on with the remaining
- * transactions — anything else re-throws.
- *
- * That narrowing was completely unprotected: deleting the whole
- * `if (err instanceof ClosedFiscalPeriodError) { … }` block left the full unit
- * suite green (413 files / 5115 tests). The regression it hides is not
- * cosmetic — the batch 500s instead of continuing, and the draft it created is
- * left orphaned in gl_journal_entries.
- *
- * closedFiscalPeriodErrorContract.test.ts pins that postJournalEntry THROWS the
- * class. That protects the throw, not each consumer's handling of it — the two
- * other consumers (closeRunService, capture post-expense) already have their own
- * tests; this file is the third.
+ * The line posts through `allocateTransaction` — the controlled bank
+ * allocation — so the kernel's own approval refusal
+ * (`OperationApprovalRequiredError`, the REAL class) becomes a counted skip
+ * that leaves the rest of the batch running, while anything else propagates.
+ * Deleting the `instanceof` narrowing turns a policy refusal into a 500 for the
+ * whole batch; widening it into a blanket catch reports a real failure as a
+ * skipped line. Both directions are pinned here.
  */
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 
-const { sqlMock, createMock, postMock, findTxsMock, buildLinesMock, periodStatusMock } = vi.hoisted(() => ({
+const { sqlMock, allocateMock, findTxsMock } = vi.hoisted(() => ({
   sqlMock: Object.assign(vi.fn(), { transaction: vi.fn() }),
-  createMock: vi.fn(),
-  postMock: vi.fn(),
+  allocateMock: vi.fn(),
   findTxsMock: vi.fn(),
-  buildLinesMock: vi.fn(),
-  periodStatusMock: vi.fn(),
 }));
 
 vi.mock('@/lib/neon', () => ({
@@ -45,28 +35,45 @@ vi.mock('@/lib/logger', () => ({
   log: { info: vi.fn(), error: vi.fn(), warn: vi.fn(), debug: vi.fn() },
 }));
 
-// The REAL ClosedFiscalPeriodError — the point is the service's instanceof
-// against the class production actually throws, so it must not be re-declared.
-vi.mock('@/modules/accounting/services/gl/journalEntryService', async (importOriginal) => {
-  const actual = await importOriginal<typeof import('@/modules/accounting/services/gl/journalEntryService')>();
-  return { ...actual, createJournalEntry: createMock, postJournalEntry: postMock };
-});
-vi.mock('@/modules/accounting/services/gl/systemAccountResolver', () => ({
-  getSystemAccountId: vi.fn(async (k: string) => `acct-${k}`),
+// The controlled allocation is the boundary this file mocks; the kernel's
+// refusal class is the REAL one — the service narrows with instanceof against
+// the class production actually throws, so it must not be re-declared.
+vi.mock('@/modules/accounting/services/bank/bankAllocationService', () => ({
+  allocateTransaction: allocateMock,
 }));
+vi.mock('@/modules/accounting/services/gl/ruleVatResolution', () => ({
+  resolveRuleVatCode: vi.fn(async ({ requestedVatCode }: { requestedVatCode: string }) =>
+    ({ vatCode: requestedVatCode, denied: false, nonSupplyCoerced: false, settlementDropped: false })),
+}));
+// The pre-flight READS (company lockdown facts, the company's payment policy)
+// are the boundary here; `dateRefusal` and `approvalRefusalForAmount` stay real.
+vi.mock('@/modules/accounting/services/bank/bankRulesAutoPostPreflight', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('@/modules/accounting/services/bank/bankRulesAutoPostPreflight')>();
+  return { ...actual, loadLockdownFacts: vi.fn(async () => ({})) };
+});
+vi.mock('@/modules/accounting/services/controls/approvalRuleService', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('@/modules/accounting/services/controls/approvalRuleService')>();
+  return { ...actual, loadApprovalRules: vi.fn(async () => []) };
+});
+vi.mock('@/modules/accounting/services/controls/context', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('@/modules/accounting/services/controls/context')>();
+  return { ...actual, requireControlTx: vi.fn(() => ({ sql: sqlMock, principal: { companyId: COMPANY, personId: USER } })) };
+});
 vi.mock('@/modules/accounting/services/bank/bankRulesMatchingHelpers', () => ({
   toSqlPattern: vi.fn((_m: string, p: string) => p),
   findMatchingTxs: findTxsMock,
-  buildAutoCreateLines: buildLinesMock,
-  getPeriodStatusForDate: periodStatusMock,
   // Real value: applyRules slices the candidate list with it, so a mock that
   // omitted it silently produced an empty run.
   MAX_RULE_CANDIDATES: 500,
 }));
 
-import { ClosedFiscalPeriodError } from '@/modules/accounting/services/gl/journalEntryService';
+import { OperationApprovalRequiredError, SuppliedApprovalRefusal } from '@/modules/accounting/services/controls/approvalExecutionService';
+import { BeneficiaryError } from '@/modules/accounting/services/controls/beneficiaryValidation';
+import { ClosedFiscalPeriodError, LOCKDOWN_REFUSAL_MESSAGE, VAT_PERIOD_REFUSAL_MESSAGE } from '@/modules/accounting/services/gl/postingPeriodGuard';
 import { applyRules } from '@/modules/accounting/services/bank/bankRulesMatchingService';
 import { enterFakeRequestCtx } from '../helpers/requestCtx';
+import { als } from '@/lib/als';
+import { MAX_RULE_SWEEP_ATTEMPTS_PER_REQUEST } from '@/lib/limits/authorityHoldLimits';
 
 // The bank write paths take a row lock (bankTxLock), which refuses to run
 // outside a request transaction. These tests mock `sql`, so the ALS client is
@@ -116,49 +123,20 @@ function withOneAutoPostRule(lock: Record<string, unknown> | null | 'timeout' = 
   }) as never);
 
   findTxsMock.mockResolvedValue([
-    { id: 'tx-1', transaction_date: '2026-08-13', amount: -100, description: 'BANK FEE', is_deposit: false },
+    { id: 'tx-1', transaction_date: '2026-08-13', amount: -100, description: 'BANK FEE', is_deposit: false, period_status: 'open' },
   ]);
-  buildLinesMock.mockResolvedValue([
-    { glAccountId: 'acct-charges', debit: 100, credit: 0 },
-    { glAccountId: BANK_GL, debit: 0, credit: 100 },
-  ]);
-  periodStatusMock.mockResolvedValue('open'); // pre-flight passes
 }
 
 beforeEach(() => {
   vi.clearAllMocks();
-  createMock.mockResolvedValue({ id: 'je-draft-1', status: 'draft' });
-  postMock.mockResolvedValue({ id: 'je-draft-1', status: 'posted' });
+  // mockReset, not only clearAllMocks: a test that aborts mid-run leaves queued
+  // *Once values behind, and the next test would consume them.
+  allocateMock.mockReset();
+  allocateMock.mockResolvedValue({ journalEntryId: 'je-1', bankTransaction: {} });
   sqlMock.transaction.mockResolvedValue([]);
 });
 
-describe('applyRules — period closes between pre-flight and post', () => {
-  it('does NOT throw when postJournalEntry reports a closed period', async () => {
-    withOneAutoPostRule();
-    postMock.mockRejectedValue(new ClosedFiscalPeriodError('closed'));
-
-    // Without the instanceof narrowing this rejects, 500ing the whole batch and
-    // abandoning every transaction after the first.
-    await expect(applyRules(COMPANY, BANK_GL, USER)).resolves.toBeDefined();
-  });
-
-  it('hard-deletes the draft it just created rather than orphaning it', async () => {
-    withOneAutoPostRule();
-    postMock.mockRejectedValue(new ClosedFiscalPeriodError('closed'));
-
-    await applyRules(COMPANY, BANK_GL, USER);
-
-    const del = sqlMock.mock.calls.find(c => {
-      const text = Array.isArray(c[0]) ? (c[0] as string[]).join('') : String(c[0]);
-      return text.includes('DELETE FROM gl_journal_entries');
-    });
-    expect(del, 'the draft must be deleted, not left dangling').toBeDefined();
-    const delText = (del![0] as unknown as string[]).join('');
-    // Scoped, and only ever a draft — never a posted entry.
-    expect(delText).toContain('company_id');
-    expect(delText).toContain("status = 'draft'");
-  });
-
+describe('applyRules — races, locks and caps', () => {
   it('skips a candidate that was allocated between the rule query and the lock', async () => {
     // findMatchingTxs read this row as unallocated seconds ago; by the time the
     // lock is taken a UI allocation has committed on it. Posting anyway would
@@ -167,7 +145,7 @@ describe('applyRules — period closes between pre-flight and post', () => {
 
     const result = await applyRules(COMPANY, BANK_GL, USER);
 
-    expect(createMock).not.toHaveBeenCalled();
+    expect(allocateMock).not.toHaveBeenCalled();
     expect(result.applied).toBe(0);
     // Counted, not silently dropped.
     expect(result.autoPostSkippedRaced).toBe(1);
@@ -178,7 +156,7 @@ describe('applyRules — period closes between pre-flight and post', () => {
 
     const result = await applyRules(COMPANY, BANK_GL, USER);
 
-    expect(createMock).not.toHaveBeenCalled();
+    expect(allocateMock).not.toHaveBeenCalled();
     expect(result.autoPostSkippedRaced).toBe(1);
   });
 
@@ -224,8 +202,8 @@ describe('applyRules — period closes between pre-flight and post', () => {
       return Promise.resolve([]);
     }) as never);
     findTxsMock.mockResolvedValue([
-      { id: 'tx-1', transaction_date: '2026-08-13', amount: -100, description: 'BANK FEE', is_deposit: false },
-      { id: 'tx-2', transaction_date: '2026-08-14', amount: -200, description: 'BANK FEE', is_deposit: false },
+      { id: 'tx-1', transaction_date: '2026-08-13', amount: -100, description: 'BANK FEE', is_deposit: false, period_status: 'open' },
+      { id: 'tx-2', transaction_date: '2026-08-14', amount: -200, description: 'BANK FEE', is_deposit: false, period_status: 'open' },
     ]);
 
     const result = await applyRules(COMPANY, BANK_GL, USER);
@@ -241,7 +219,7 @@ describe('applyRules — period closes between pre-flight and post', () => {
     findTxsMock.mockResolvedValue(
       Array.from({ length: 501 }, (_, i) => ({
         id: `tx-${String(i).padStart(4, '0')}`, transaction_date: '2026-08-13',
-        amount: -100, description: 'BANK FEE', is_deposit: false,
+        amount: -100, description: 'BANK FEE', is_deposit: false, period_status: 'open',
       })),
     );
     // Every candidate races, so nothing posts — this test is about the cap.
@@ -261,16 +239,10 @@ describe('applyRules — period closes between pre-flight and post', () => {
     const result = await applyRules(COMPANY, BANK_GL, USER);
 
     expect(result.autoPostTruncatedRules).toBe(1);
-    // 500 processed, not 501 — the probe row is trimmed, never worked on.
-    expect(result.autoPostSkippedRaced).toBe(500);
-  });
-
-  it('still PROPAGATES any other posting failure', async () => {
-    withOneAutoPostRule();
-    postMock.mockRejectedValue(new Error('deadlock detected'));
-
-    // Guards the other half: narrowing must not become a blanket swallow, or a
-    // real failure would be silently counted as a skipped period.
-    await expect(applyRules(COMPANY, BANK_GL, USER)).rejects.toThrow(/deadlock/);
+    // 500 candidates, not 501 — the probe row is trimmed, never worked on. Of
+    // those, one request ATTEMPTS at most the authority-hold bound and defers
+    // the rest for the next run (a raced line still costs the attempt's lock read).
+    expect(result.autoPostSkippedRaced).toBe(MAX_RULE_SWEEP_ATTEMPTS_PER_REQUEST);
+    expect(result.autoPostDeferred).toBe(500 - MAX_RULE_SWEEP_ATTEMPTS_PER_REQUEST);
   });
 });

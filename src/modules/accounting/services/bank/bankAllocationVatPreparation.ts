@@ -1,3 +1,4 @@
+import {OperationRefusalError} from '../controls/operationRefusal';
 import Decimal from 'decimal.js';
 import {assertControlTx} from '../controls/context';
 import type {ControlTx} from '../controls/contracts';
@@ -13,7 +14,7 @@ export function assertBankVatAccount(account:Account|undefined,signedAmount:stri
  const expected=bankVatRole(signedAmount);
  if(!account||account.is_active!==true||account.is_system_account!==true||account.account_type!==expected.type
   ||!(account.account_subtype===expected.role||(account.account_code===expected.code
-   &&(account.account_subtype==null||expected.legacy.includes(String(account.account_subtype))))))throw new Error('Owned active VAT system account required');
+   &&(account.account_subtype==null||expected.legacy.includes(String(account.account_subtype))))))throw new OperationRefusalError('Owned active VAT system account required');
  return String(account.id);
 }
 /** Preparation only: persist the choice; execution validates the same ID and never substitutes a fallback. */
@@ -32,12 +33,12 @@ export async function bindBankAllocationVatAccount(ctx:ControlTx,plan:BankAlloca
   candidates=await ctx.sql`SELECT id,account_code,account_subtype,account_type,is_active,is_system_account FROM gl_accounts
    WHERE company_id=${company}::uuid AND is_active=true AND is_system_account=true
     AND account_type=${expected.type} AND account_subtype=${expected.role} ORDER BY id LIMIT 2 FOR SHARE` as Account[];
-  if(candidates.length>1)throw new Error('VAT system account is ambiguous');
+  if(candidates.length>1)throw new OperationRefusalError('VAT system account is ambiguous');
   if(candidates.length===0)candidates=await ctx.sql`SELECT id,account_code,account_subtype,account_type,is_active,is_system_account FROM gl_accounts
    WHERE company_id=${company}::uuid AND is_active=true AND is_system_account=true AND account_type=${expected.type}
     AND account_code=${expected.code} AND (account_subtype IS NULL OR account_subtype=ANY(${expected.legacy}::text[]))
    ORDER BY id LIMIT 2 FOR SHARE` as Account[];
  }
- if(candidates.length!==1)throw new Error('VAT system account missing or ambiguous');
+ if(candidates.length!==1)throw new OperationRefusalError('VAT system account missing or ambiguous');
  return{...plan,vatAccountId:assertBankVatAccount(candidates[0],bank.amount)};
 }
