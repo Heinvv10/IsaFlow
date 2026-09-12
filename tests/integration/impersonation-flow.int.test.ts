@@ -78,12 +78,7 @@ describe('impersonation flow (integration)', () => {
   });
 
   afterAll(async () => {
-    await seedPool.query(
-      `DELETE FROM admin_audit_log
-        WHERE admin_user_id IN ($1,$2)
-           OR (target_type = 'user' AND target_id IN ($1,$2))`,
-      [adminId, targetId]
-    );
+    // admin_audit_log is append-only for every role (691); the synthetic rows stay, keyed by this run's ids.
     await seedPool.query(
       `DELETE FROM admin_impersonation_stash
         WHERE admin_user_id IN ($1,$2) OR target_user_id IN ($1,$2)`,
