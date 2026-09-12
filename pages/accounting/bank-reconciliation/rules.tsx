@@ -94,6 +94,31 @@ export default function BankRulesPage() {
               </p>
             </div>
           ) : null}
+          {rules.applyResult?.autoPostSkippedNoPeriod ? (
+            <div className="p-3 rounded-lg bg-amber-500/10 text-amber-300 text-sm">
+              <p className="font-medium">
+                {rules.applyResult.autoPostSkippedNoPeriod} auto-post attempt
+                {rules.applyResult.autoPostSkippedNoPeriod > 1 ? 's were' : ' was'} skipped
+                — no fiscal period exists for the transaction date.
+              </p>
+              <p className="text-xs mt-1">
+                Create the missing fiscal year from <em className="not-italic font-medium">Accounting → Fiscal Periods</em>,
+                then re-run rules. The periods don&apos;t need to be re-opened — they just need to exist.
+              </p>
+            </div>
+          ) : null}
+          {rules.applyResult?.autoPostDeferred ? (
+            <div className="p-3 rounded-lg bg-sky-500/10 text-sky-300 text-sm">
+              <p className="font-medium">
+                {rules.applyResult.autoPostDeferred} matched transaction
+                {rules.applyResult.autoPostDeferred > 1 ? 's were' : ' was'} deferred to the next run.
+              </p>
+              <p className="text-xs mt-1">
+                Each run posts a bounded number of lines so it never holds the company&apos;s books for long.
+                Run rules again to continue; nothing is wrong with these lines.
+              </p>
+            </div>
+          ) : null}
           {rules.applyResult?.autoPostSkippedApprovalRequired ? (
             <div className="p-3 rounded-lg bg-amber-500/10 text-amber-300 text-sm">
               <p className="font-medium">

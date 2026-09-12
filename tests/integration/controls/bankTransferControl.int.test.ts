@@ -1,6 +1,7 @@
 import {afterEach,beforeEach,expect,it} from 'vitest';
 import {requestOperationApproval,decideOperationApproval} from '@/modules/accounting/services/controls/approvalRequestService';
 import {transferControlFixture} from './bankTransferControlFixture';
+import {LOCKDOWN_REFUSAL_MESSAGE} from '@/modules/accounting/services/gl/postingPeriodGuard';
 let f:Awaited<ReturnType<typeof transferControlFixture>>;
 beforeEach(async()=>{f=await transferControlFixture();});afterEach(async()=>{if(f)await f.close();});
 it('prepares external transfer instructions without caller-supplied matching selection',async()=>{
@@ -62,4 +63,20 @@ it('a second token does not turn the maker into an independent human approver',a
  expect((await f.snapshot()).approvals).toEqual([{id:approval.id,status:'pending'}]);expect(await f.journals()).toHaveLength(0);
  await f.actor(ctx=>decideOperationApproval(ctx,approval.id,'approved'),'u2');
  expect((await f.snapshot()).approvals[0].status).toBe('approved');
+});
+it('a LINK to an already posted transfer is refused under lockdown before any write, though it posts no journal',async()=>{
+ // A lockdown freezes bank state, not only the ledger: linking the late opposite feed rewrites its row.
+ const bank=await f.bank(),p=await f.prepare(bank),original=await f.execute(p.intentId,await f.approve(p.operation));
+ const opposite=await f.bank(f.to,'115.23');
+ await f.pool.query("UPDATE companies SET lockdown_enabled=true,lockdown_date='2026-09-30' WHERE id=$1",[f.f.companyA]);
+ try{
+  const link=await f.prepare(opposite,f.from),approvalId=await f.approve(link.operation);
+  await expect(f.execute(link.intentId,approvalId)).rejects.toThrow(LOCKDOWN_REFUSAL_MESSAGE);
+  expect(await f.journals()).toHaveLength(1);
+  expect((await f.banks()).find(row=>row.id===opposite)).toMatchObject({status:'imported',transfer_journal_entry_id:null});
+  expect((await f.effects()).filter(e=>e.entity_id===link.intentId)).toEqual([]);
+ }finally{await f.pool.query("UPDATE companies SET lockdown_enabled=false,lockdown_date=NULL WHERE id=$1",[f.f.companyA]);}
+ // Lifted (the company row is part of the intent's material, so a fresh intent), the link executes.
+ const again=await f.prepare(opposite,f.from);
+ expect((await f.execute(again.intentId,await f.approve(again.operation))).journalEntryId).toBe(original.journalEntryId);
 });

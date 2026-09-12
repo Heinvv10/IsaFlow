@@ -10,7 +10,8 @@ import {requireControlTx} from '@/modules/accounting/services/controls/context';
 import { z } from 'zod';
 import type { NextApiResponse } from 'next';
 import { withErrorHandler } from '@/lib/api-error-handler';
-import { apiResponse } from '@/lib/apiResponse';
+import { apiResponse, ErrorCode } from '@/lib/apiResponse';
+import { isPostingRefusal } from '@/modules/accounting/services/gl/postingPeriodGuard';
 import { withAuth, type CompanyAuthedRequest, withWriteAccess} from '@/lib/auth';
 import { withCsrf } from '@/lib/auth/withCsrf';
 import { log } from '@/lib/logger';
@@ -59,6 +60,9 @@ async function handler(req: CompanyAuthedRequest, res: NextApiResponse) {
     if(required)return apiResponse.badRequest(res,'Prepare the bank action and obtain its approval before executing.',required);
     try{return apiResponse.success(res,await dispatchBankControlAction(requireControlTx(),req.body));}
     catch(error){
+      // A period, lockdown or filed-VAT-period refusal is the kernel's own business answer, raised before the
+      // controlled write: say which, as journal-entries-action does, rather than blaming the intent or approval.
+      if(isPostingRefusal(error))return apiResponse.error(res,ErrorCode.BUSINESS_RULE_VIOLATION,(error as Error).message);
       return apiResponse.badRequestFromError(res,error,'Bank action refused. Use a valid prepared intent and its matching approval.');
     }
   }

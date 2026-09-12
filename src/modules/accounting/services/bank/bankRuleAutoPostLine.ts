@@ -17,8 +17,11 @@
  * every one the controlled path raises (approval policy, unverified
  * beneficiary, closed period, lockdown, filed VAT period, permission, or any
  * other business refusal) becomes a per-line outcome — see
- * `bankRuleAutoPostRefusal.ts` — with the line LEFT UNPOSTED and the caller's
- * savepoint unwinding the intent; never posted around the rule.
+ * `bankRuleAutoPostRefusal.ts` — with the line LEFT UNPOSTED. What a refused
+ * line prepared (its intent, its change event) is unwound by
+ * `allocateTransaction`'s own `bank_allocation_adapter` savepoint (runPlan)
+ * before the error reaches this catch; the sweep's per-line savepoint is for
+ * the lock timeout that aborts the transaction. Never posted around the rule.
  */
 
 import { classifyAutoPostRefusal, type AutoPostRefusal } from './bankRuleAutoPostRefusal';

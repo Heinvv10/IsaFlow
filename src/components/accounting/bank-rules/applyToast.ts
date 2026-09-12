@@ -11,6 +11,7 @@ export interface ApplyResultParts {
   skipped?: number;
   autoPostRulesSkippedNoBankGl?: number;
   autoPostSkippedClosedPeriod?: number;
+  autoPostSkippedNoPeriod?: number;
   autoPostSkippedRaced?: number;
   autoPostSkippedLocked?: number;
   autoPostTruncatedRules?: number;
@@ -36,6 +37,7 @@ export interface ApplyToast {
  */
 const SKIP_COUNTERS: ReadonlyArray<{ key: keyof ApplyResultParts; text: (n: number, parts: ApplyResultParts) => string }> = [
   { key: 'autoPostSkippedClosedPeriod', text: (n) => `${n} skipped (closed period)` },
+  { key: 'autoPostSkippedNoPeriod', text: (n) => `${n} skipped (no fiscal period)` },
   { key: 'autoPostRulesSkippedNoBankGl', text: (n) => `${n} auto-post rule${n > 1 ? 's' : ''} skipped (bank not GL-linked)` },
   { key: 'autoPostSkippedRaced', text: (n) => `${n} skipped — allocated by another request` },
   { key: 'autoPostSkippedLocked', text: (n) => `${n} skipped — locked by another request, retry` },
@@ -46,6 +48,7 @@ const SKIP_COUNTERS: ReadonlyArray<{ key: keyof ApplyResultParts; text: (n: numb
   { key: 'autoPostSkippedVatPeriodFiled', text: (n) => `${n} skipped (VAT period already filed)` },
   { key: 'autoPostSkippedPermissionDenied', text: (n) => `${n} skipped — you lack permission to post` },
   { key: 'autoPostSkippedRefused', text: (n, parts) => `${n} refused${parts.autoPostRefusalReasons?.length ? `: ${parts.autoPostRefusalReasons.join('; ')}` : ''}` },
+  { key: 'autoPostDeferred', text: (n) => `${n} deferred — run rules again` },
 ];
 
 /**
