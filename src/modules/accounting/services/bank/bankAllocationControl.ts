@@ -13,7 +13,9 @@ import {assertControlTx} from '../controls/context';
 import {recordCommittedChange} from '../controls/changeEventService';
 import type {ControlTx} from '../controls/contracts';
 import {allocationMoney,parseBankAllocationPlan,assertAllocationOutstanding} from './bankAllocationPlan';
-import {loadBankAllocationSources} from './bankAllocationSources';
+import {loadBankAllocationSources,type BankAllocationSources} from './bankAllocationSources';
+import {postingPeriodBlock,throwPostingBlock} from '../gl/postingPeriodGuard';
+import {journalAffectsVatReturn} from '../controls/journalVatFootprint';
 export async function prepareBankAllocation(ctx:ControlTx,input:unknown){
  assertControlTx(ctx);await assertEffectivePermission(ctx,'write:bank-tx');await assertEffectivePermission(ctx,'write:post');
  const transfer=typeof input==='object'&&input!==null&&'kind' in input&&input.kind==='transfer'?parseBankTransferRequest(input):null;
@@ -23,6 +25,10 @@ export async function prepareBankAllocation(ctx:ControlTx,input:unknown){
   const plan=transfer?await bindBankTransferSelection(ctx,transfer):await bindBankAllocationVatAccount(ctx,parsed!);
   const sources=await loadBankAllocationSources(ctx,plan);
   if(sources.bank.status!=='imported')throw new Error('Imported bank transaction required');
+  if('rule' in plan&&plan.rule){
+   const rules=await ctx.sql`SELECT id FROM bank_categorisation_rules WHERE company_id=${ctx.principal.companyId}::uuid AND id=${plan.rule.id}::uuid FOR SHARE`;
+   if(rules.length!==1)throw new Error('Owned categorisation rule required');
+  }
   for(const item of sources.invoices){const invoice=item.invoice as Record<string,unknown>,allocation=item.allocation as {amount:string};
    assertAllocationOutstanding(String(invoice.total_amount),String(invoice.amount_paid),allocation.amount);
   }
@@ -48,6 +54,24 @@ export async function executeBankAllocation(ctx:ControlTx,intentId:string,option
   if(material.intent.requester_person_id!==ctx.principal.personId)throw new Error('Allocation requester required');
   const ref={entityType:'bank_allocation_intent',entityId:intentId,operation:'bank_allocation.post' as const};
   if(material.effect)return replayKnownOperationEffect<Awaited<ReturnType<typeof executeBankAllocationEffect>>>(ctx,ref,material.effect.id);
+  assertAllocationPostingOk(material.sources,material.intent.accounting_date);
   return executeControlledOperation(ctx,ref,options?.approvalId??null,permit=>executeBankAllocationEffect(ctx,intentId,permit,options));
  });
+}
+
+/**
+ * The period, lockdown and filed-VAT-period refusals, raised HERE — before `executeControlledOperation` opens the
+ * write — with the exact classes and texts `assertPostingGuards` throws from inside `postJournalEntry`. Fired there,
+ * inside the generated-journal branch of `runJournalControl`, the same refusal poisons the request's control
+ * transaction even when the caller catches it, and `withAuth` answers 500 CONTROL_INTEGRITY_FAILED — which took a
+ * whole statement import down with the one line a rule matched into a filed VAT period. Read-only, over the sources
+ * the intent was materialised from; the guard inside the write stays the backstop for the window between the two.
+ * The VAT half honours `journalAffectsVatReturn`, the ONE VAT201-population predicate, so a plain account allocation
+ * with no VAT line is not refused by a filed period.
+ */
+function assertAllocationPostingOk(sources:BankAllocationSources,accountingDate:string):void{
+ const period=sources.periods[0];if(!period||typeof period.status!=='string')return;
+ const lines=sources.lines.map(line=>({gl_account_id:line.accountId,vat_type:line.vatType}));
+ const vatLocked=sources.vatLocks.length>0&&journalAffectsVatReturn(lines,sources.accounts);
+ throwPostingBlock(postingPeriodBlock(period.status,sources.ledger??{},accountingDate),vatLocked);
 }

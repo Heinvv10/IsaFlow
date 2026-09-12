@@ -22,6 +22,13 @@ export const MAX_FINALIZED_INVOICES_PER_REQUEST = 12;
  *  Typically 160-210 ms per line, worst 344 ms (a reversal): 6 x 344 = 2.1 s. */
 export const MAX_BANK_LINES_PER_REQUEST = 6;
 
+/** Rule-sweep lines ATTEMPTED per request (bankRulesAutoPostSweep): posted lines are bounded by
+ *  MAX_BANK_LINES_PER_REQUEST above (same controlled allocation, measured 213-318 ms per posted line over HTTP on
+ *  the shared fixture at load 20-22, 2026-09-12); a REFUSED line costs 6 ms (unverified beneficiary, refused before
+ *  the intent) to 28 ms (closed period, refused after it), so refusals get their own, wider bound. Worst case:
+ *  6 x 318 + 18 x 28 = 2.4 s. Lines beyond either bound are deferred to the next request (`autoPostDeferred`). */
+export const MAX_RULE_SWEEP_ATTEMPTS_PER_REQUEST = 24;
+
 /** Recurring invoice templates generated and posted per "run all due" request (recurring-invoices-run; the route
  *  answers `remaining: true` and the page calls again). Worst measured 334 ms per template plus 425 ms fixed:
  *  6 x 334 + 425 = 2.4 s. */

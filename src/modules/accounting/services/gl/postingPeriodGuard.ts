@@ -15,9 +15,23 @@ export class ClosedFiscalPeriodError extends Error {
 }
 /** assertPostingGuards' own lockdown throw has no dedicated class; this constant is the ONE copy of its text. */
 export const LOCKDOWN_REFUSAL_MESSAGE = 'Journal date is within company lockdown';
-/** True for either refusal assertPostingGuards (or the direct-posting precheck that mirrors it) throws from a block. */
+/** assertPostingGuards' filed-VAT-period throw likewise has no class; this constant is the ONE copy of its text. */
+export const VAT_PERIOD_REFUSAL_MESSAGE = 'Journal date is within a filed VAT period';
+/** True for any refusal assertPostingGuards (or a precheck that mirrors it) throws: period, lockdown, filed VAT period. */
 export function isPostingRefusal(error: unknown): boolean {
-  return error instanceof ClosedFiscalPeriodError || (error instanceof Error && error.message === LOCKDOWN_REFUSAL_MESSAGE);
+  return error instanceof ClosedFiscalPeriodError
+    || (error instanceof Error && (error.message === LOCKDOWN_REFUSAL_MESSAGE || error.message === VAT_PERIOD_REFUSAL_MESSAGE));
+}
+/**
+ * Throws the refusal a block (and a filed VAT period) stands for, with the exact classes and texts assertPostingGuards
+ * uses — so a precheck that runs BEFORE a controlled write and the guard INSIDE it can never answer differently.
+ * `vatLocked` is the caller's `journalAffectsVatReturn(...) && locks.length > 0`; a journal outside the VAT201
+ * population is not refused by a filed period.
+ */
+export function throwPostingBlock(block: PostingPeriodBlock | null, vatLocked: boolean): void {
+  if (block?.kind === 'period') throw new ClosedFiscalPeriodError(block.status);
+  if (block?.kind === 'lockdown') throw new Error(LOCKDOWN_REFUSAL_MESSAGE);
+  if (vatLocked) throw new Error(VAT_PERIOD_REFUSAL_MESSAGE);
 }
 
 /**
