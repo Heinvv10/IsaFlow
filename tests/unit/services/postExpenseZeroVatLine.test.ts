@@ -52,16 +52,20 @@ vi.mock('@/lib/neon', () => ({
 vi.mock('@/modules/accounting/services/gl/journalEntryCrudService', () => ({
   createJournalEntry: createMock,
 }));
-vi.mock('@/modules/accounting/services/gl/journalEntryPostingService', () => ({
-  postJournalEntry: postMock,
-  // The route narrows on `err instanceof ClosedFiscalPeriodError` to decide
-  // whether to swallow (leave the journal a draft) or rethrow. Omitting the
-  // class from this mock leaves it `undefined` in the module under test, so any
-  // test that drove postMock to reject would die on
-  // "Right-hand side of 'instanceof' is not callable" — testing the mock's
-  // shape instead of the route's behaviour.
-  ClosedFiscalPeriodError: class ClosedFiscalPeriodError extends Error {},
-}));
+vi.mock('@/modules/accounting/services/gl/journalEntryPostingService', () => {
+  class ClosedFiscalPeriodError extends Error {
+    readonly periodStatus: string;
+    constructor(periodStatus: string) { super(`Cannot post to ${periodStatus} fiscal period`); this.periodStatus = periodStatus; }
+  }
+  return {
+    postJournalEntry: postMock,
+    ClosedFiscalPeriodError,
+    // The route narrows on `isPostingRefusal(err)` (postingPeriodGuard.ts) to decide whether to skip auto-post
+    // (leave the journal a draft) or rethrow. A real predicate over this mock's own ClosedFiscalPeriodError class,
+    // not a stubbed boolean, so a test can only pass by actually throwing that class — the same as production.
+    isPostingRefusal: (error: unknown) => error instanceof ClosedFiscalPeriodError,
+  };
+});
 vi.mock('@/modules/accounting/services/gl/systemAccountResolver', () => ({
   getSystemAccountId: vi.fn(async (key: string) => `acct-${key}`),
 }));

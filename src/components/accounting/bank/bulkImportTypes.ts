@@ -1,3 +1,4 @@
+import type { ApplyResultParts } from '../bank-rules/applyToast';
 export type AccountMatchStatus = 'match' | 'mismatch' | 'inconclusive' | 'parse_error';
 
 export interface BulkPreviewResponse {
@@ -14,7 +15,8 @@ export interface BulkPreviewResponse {
   warnings: string[];
 }
 
-export interface BulkCommitResponse {
+/** The per-file commit reply; the `autoPost*` counters are the rule sweep's own (see bank-rules/applyToast.ts). */
+export interface BulkCommitResponse extends Omit<ApplyResultParts, 'applied' | 'skipped'> {
   filename: string;
   status: 'imported' | 'skipped' | 'failed';
   bulkImportId: string;

@@ -19,9 +19,9 @@
  * `allocateTransaction` ANDs this with `Boolean(entityId)`, because a supplier
  * or customer call WITHOUT an entity falls THROUGH to its `account` arm and is
  * a plain GL allocation that must still split. The rule sweep has no such
- * fall-through: `buildAutoCreateLines` picks its arm on `allocType` alone and
- * dereferences `apAccountId!` / `arAccountId!`, so an entity test there would
- * only make the two disagree. Unreachable in production on the attended side
+ * fall-through: `bankRuleAutoPostLine` picks its arm on `allocType` alone and
+ * passes the rule's party to the controlled allocation, so an entity test
+ * there would only make the two disagree. Unreachable in production on the attended side
  * either way — `pages/api/accounting/bank-transactions-action.ts` returns 400
  * and the MCP tool returns ENTITY_REQUIRED for a settlement with no entity.
  *

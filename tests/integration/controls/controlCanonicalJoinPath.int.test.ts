@@ -2,7 +2,7 @@ import {afterAll,beforeAll,expect,it} from 'vitest';
 import {randomUUID} from 'node:crypto';
 import {transferControlFixture} from './bankTransferControlFixture';
 import {fixture as cashFixture,pool as cashPool,postedCash} from './cashApplicationFixture';
-import {captureStatements,expectCanonicalLookup,explainAsAppUser,expectIndexableCanonicalLookups,expectIntentProbes,type Who} from './canonicalPlanCapture';
+import {captureStatements,expectCanonicalLookup,explainAsAppUser,expectIndexableCanonicalLookups,expectIntentProbes,expectUsableIntentProbes,type Who} from './canonicalPlanCapture';
 import type {OperationRef} from '@/modules/accounting/services/controls/contracts';
 import {readBankCurrentOriginal,type BankControlRow} from '@/modules/accounting/services/bank/bankControlReadProvenance';
 import {readBankPreparedRows,resolveBankApprovalTarget} from '@/modules/accounting/services/bank/bankControlReadQueries';
@@ -47,8 +47,11 @@ it('bank approval and prepared-row reads reach effects and approvals by an index
  const explained=[...await explain(ctx=>resolveBankApprovalTarget(ctx,posted.approvalId)),
   ...await explain(ctx=>readBankPreparedRows(ctx,posted.original,true,null,posted.approvalId))];
  expectIndexableCanonicalLookups(explained);
- // Both UNION arms (allocation and reversal intents) probe their intent by primary key.
- expectIntentProbes(explained,'FROM control_operation_approvals a JOIN LATERAL',2);
+ // Both UNION arms (allocation and reversal intents) probe their own intent by primary key — usably, not by a
+ // pinned Index Cond count: on a fresh, near-empty database the planner can Seq Scan the smaller table's Filter
+ // instead, which is still a correct plan and not this gate's business.
+ await expectUsableIntentProbes(t.pool,explained,'FROM control_operation_approvals a JOIN LATERAL',
+  ['control_bank_allocation_intents','control_bank_allocation_reversal_intents']);
 },300000);
 it('transfer candidate facts, link discovery, link resume and saved link state keep an indexable canonical lookup',async()=>{
  const opposite=await bankRow(posted.opposite),plan={version:1,kind:'transfer',bankTransactionId:posted.opposite,counterpartyAccountId:t.from,

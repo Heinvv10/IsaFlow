@@ -15,6 +15,7 @@ import {
   createJournalEntry,
   postJournalEntry,
 } from '@/modules/accounting/services/gl/journalEntryService';
+import { isPostingRefusal } from '@/modules/accounting/services/gl/journalEntryPostingService';
 import {
   validateReceiptExtraction,
   mapMerchantToExpenseAccount,
@@ -145,18 +146,31 @@ async function handler(req: CompanyAuthedRequest, res: NextApiResponse) {
     lines: postableLines,
   }, userId);
 
+  let posted = false;
   if (autoPost) {
-    await postJournalEntry(companyId, entry.id, userId);
+    try {
+      await postJournalEntry(companyId, entry.id, userId);
+      posted = true;
+    } catch (postErr) {
+      // A lockdown or closed-period refusal is a legitimate outcome — the entry stays a draft a person can post
+      // once the period reopens or lockdown lifts. The kernel (journalControlService.ts) now throws this BEFORE
+      // opening the controlled write for a direct call like this one, so it never poisons this request's control
+      // transaction the way it used to when the same rule fired from inside assertPostingGuards.
+      if (!isPostingRefusal(postErr)) throw postErr;
+      log.warn('Auto-post of receipt-to-journal entry skipped', {
+        documentId, journalId: entry.id, reason: postErr instanceof Error ? postErr.message : String(postErr),
+      }, 'receipt-journal');
+    }
   }
 
   await sql`
     UPDATE captured_documents SET status = 'matched' WHERE id = ${documentId}::uuid AND company_id = ${companyId}
   `;
 
-  const je = { id: entry.id, status: autoPost ? 'posted' : 'draft' };
+  const je = { id: entry.id, status: posted ? 'posted' : 'draft' };
 
   log.info('Receipt-to-Journal completed', {
-    documentId, journalId: je.id, receiptType, autoPost,
+    documentId, journalId: je.id, receiptType, autoPost: posted,
     amount: extracted.totalAmount, merchant: extracted.vendorName,
   }, 'receipt-journal');
 
@@ -164,7 +178,7 @@ async function handler(req: CompanyAuthedRequest, res: NextApiResponse) {
     journalEntry: { id: je.id, status: je.status },
     receiptType,
     accountSuggestion: accountSuggestion ? { code: accountSuggestion.code, name: accountSuggestion.name } : null,
-    autoPosted: autoPost,
+    autoPosted: posted,
     amount: extracted.totalAmount,
     warnings: validation.warnings,
   });
