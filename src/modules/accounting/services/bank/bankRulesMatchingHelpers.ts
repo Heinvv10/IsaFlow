@@ -7,12 +7,6 @@ import { sql } from '@/lib/neon';
 
 export type RuleAllocType = 'account' | 'supplier' | 'customer';
 
-// PeriodStatus and getPeriodStatusForDate encode a GL rule, so they live in
-// the GL module. Re-exported here because the bank-rules call sites (and their
-// tests) have always imported them from this file.
-export type { PeriodStatus } from '../gl/periodStatusService';
-export { getPeriodStatusForDate } from '../gl/periodStatusService';
-
 /** Convert rule match type to SQL ILIKE pattern. */
 export function toSqlPattern(matchType: string, matchPattern: string): string {
   switch (matchType) {

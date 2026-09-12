@@ -94,19 +94,30 @@ export default function BankRulesPage() {
               </p>
             </div>
           ) : null}
-          {rules.applyResult?.autoPostSkippedNoPeriod ? (
+          {rules.applyResult?.autoPostSkippedApprovalRequired ? (
             <div className="p-3 rounded-lg bg-amber-500/10 text-amber-300 text-sm">
               <p className="font-medium">
-                {rules.applyResult.autoPostSkippedNoPeriod} auto-post attempt
-                {rules.applyResult.autoPostSkippedNoPeriod > 1 ? 's were' : ' was'} skipped
-                — no fiscal period exists for the transaction date.
+                {rules.applyResult.autoPostSkippedApprovalRequired} matched transaction
+                {rules.applyResult.autoPostSkippedApprovalRequired > 1 ? 's were' : ' was'} left unposted
+                — the company&apos;s approval policy requires an independent approval at this amount.
               </p>
               <p className="text-xs mt-1">
-                These dates fall outside any fiscal year you&apos;ve created (e.g. transactions
-                in a year that hasn&apos;t been opened yet). Create the missing fiscal year from
-                <em className="not-italic font-medium"> Accounting → Fiscal Periods</em>,
-                then re-run rules. The periods don&apos;t need to be re-opened — they just need to exist.
+                Rules never post around an approval policy. Allocate these from the bank transactions page,
+                request the approval there, and post once a second person has approved it.
               </p>
+            </div>
+          ) : null}
+          {rules.applyResult?.autoPostSkippedRefused ? (
+            <div className="p-3 rounded-lg bg-amber-500/10 text-amber-300 text-sm">
+              <p className="font-medium">
+                {rules.applyResult.autoPostSkippedRefused} matched transaction
+                {rules.applyResult.autoPostSkippedRefused > 1 ? 's were' : ' was'} refused by the allocation checks.
+              </p>
+              {rules.applyResult.autoPostRefusalReasons?.length ? (
+                <ul className="text-xs mt-1 list-disc pl-4">
+                  {rules.applyResult.autoPostRefusalReasons.map((reason) => <li key={reason}>{reason}</li>)}
+                </ul>
+              ) : null}
             </div>
           ) : null}
           {rules.applyResult?.autoPostSkippedRaced ? (

@@ -232,18 +232,11 @@ export interface RuleApplyResult {
    */
   autoPostRulesSkippedNoBankGl?: number;
   /**
-   * Number of auto-post attempts that failed because the transaction date
-   * falls in a closed/locked fiscal period. We swallow per-tx and count so
-   * one historical date doesn't abort the whole apply.
+   * Number of auto-post attempts the controlled allocation refused because the
+   * transaction date falls in a closed/locked fiscal period. Per line, so one
+   * historical date doesn't abort the whole apply.
    */
   autoPostSkippedClosedPeriod?: number;
-  /**
-   * Number of auto-post attempts skipped because no fiscal_periods row covers
-   * the transaction date — the fiscal year hasn't been created. Reported
-   * separately from `autoPostSkippedClosedPeriod` so the UI can prompt the
-   * user to create the missing year (different remedy than re-opening).
-   */
-  autoPostSkippedNoPeriod?: number;
   /**
    * Number of auto-post attempts skipped because the transaction had been
    * allocated (or otherwise moved off `imported`) by another request between
@@ -291,4 +284,25 @@ export interface RuleApplyResult {
    * stays `imported` for a person to allocate from the screen with an approval.
    */
   autoPostSkippedApprovalRequired?: number;
+  /** Supplier rules whose supplier has no verified beneficiary (or a pending hold): verify it, then re-run. */
+  autoPostSkippedBeneficiaryUnverified?: number;
+  /** Lines dated on or before the company lockdown date. */
+  autoPostSkippedLockdown?: number;
+  /** Lines that would claim or declare VAT in a period whose return has been filed. */
+  autoPostSkippedVatPeriodFiled?: number;
+  /** Lines the running person lacked permission to allocate or post. */
+  autoPostSkippedPermissionDenied?: number;
+  /**
+   * Any other refusal of the controlled allocation (no covering fiscal period,
+   * ambiguous VAT system account, a non-ZAR bank, …). Nothing was written for
+   * these; the distinct reasons come back in `autoPostRefusalReasons`.
+   */
+  autoPostSkippedRefused?: number;
+  autoPostRefusalReasons?: string[];
+  /**
+   * Matched lines this request did not attempt because it had reached the
+   * per-request bound on posted or attempted lines (authorityHoldLimits.ts).
+   * Nothing is wrong with them: run again and they are picked up.
+   */
+  autoPostDeferred?: number;
 }

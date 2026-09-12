@@ -9,7 +9,8 @@ import { assertGeneratedJournal, type ParentJournalControl } from '../controls/g
 import { materializeGlOperation } from '../controls/glOperationMaterializer';
 import { initializeOperationObservations } from '../controls/approvalRequestService';
 import { recordCommittedChange } from '../controls/changeEventService';
-import { postingPeriodBlock, ClosedFiscalPeriodError, LOCKDOWN_REFUSAL_MESSAGE } from './postingPeriodGuard';
+import { postingPeriodBlock, throwPostingBlock } from './postingPeriodGuard';
+import { journalAffectsVatReturn } from '../controls/journalVatFootprint';
 import type { ApMaterial } from '../controls/apOperationMaterializer';
 import type { ControlTx, OperationRef } from '../controls/contracts';
 export interface JournalControlOptions { approvalId?: string | null; parentControl?: ParentJournalControl }
@@ -128,9 +129,27 @@ async function assertDirectPostingPeriodOk(ctx: ControlTx, ref: OperationRef): P
   }
   const targetPeriod = accountingDate === originalDate ? originalPeriod : await periodAt(accountingDate);
   if (!targetPeriod || typeof targetPeriod.status !== 'string') return;
-  const block = postingPeriodBlock(targetPeriod.status, company, accountingDate, false);
-  if (block?.kind === 'period') throw new ClosedFiscalPeriodError(block.status);
-  if (block?.kind === 'lockdown') throw new Error(LOCKDOWN_REFUSAL_MESSAGE);
+  throwPostingBlock(postingPeriodBlock(targetPeriod.status, company, accountingDate, false),
+    await vatPeriodLocked(ctx, ref.entityId, accountingDate));
+}
+/**
+ * The filed-VAT-period half of the same precheck: assertPostingGuards refuses a date inside `vat_period_locks` only
+ * when the journal touches the VAT201 population (`journalAffectsVatReturn`, the ONE predicate, read here over the
+ * same lines and accounts materializeGlOperation reads). Returns false — leaving the write to answer — when a line's
+ * account cannot be read, for the same reason the caller does.
+ */
+async function vatPeriodLocked(ctx: ControlTx, entryId: string, accountingDate: string): Promise<boolean> {
+  const companyId = ctx.principal.companyId;
+  const lines = await ctx.sql`SELECT gl_account_id,vat_type FROM gl_journal_lines
+    WHERE company_id=${companyId}::uuid AND journal_entry_id=${entryId}::uuid` as Row[];
+  if (!lines.length) return false;
+  const accounts = await ctx.sql`SELECT id,account_type,account_subtype FROM gl_accounts
+    WHERE company_id=${companyId}::uuid AND id=ANY(${lines.map(line => String(line.gl_account_id))}::uuid[])` as Row[];
+  if (accounts.length !== new Set(lines.map(line => line.gl_account_id)).size) return false;
+  if (!journalAffectsVatReturn(lines, accounts)) return false;
+  const locks = await ctx.sql`SELECT id FROM vat_period_locks WHERE company_id=${companyId}::uuid
+    AND period_start<=${accountingDate}::date AND period_end>=${accountingDate}::date` as Row[];
+  return locks.length > 0;
 }
 function assertDirectSource(source:string):void {
   if(new Set(['auto_invoice','auto_payment','auto_credit_note','auto_supplier_invoice','auto_supplier_payment',
