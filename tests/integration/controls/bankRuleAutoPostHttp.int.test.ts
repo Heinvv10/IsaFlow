@@ -147,3 +147,19 @@ it('posts at most the per-request bound, defers the rest, and the next run picks
  expect(second.response.body.data.appliedRules).toBe(deferred.length+1);expect(second.response.body.data.autoPostDeferred).toBe(0);
  for(const row of deferred)expect((await f.pool.query('SELECT status FROM bank_transactions WHERE company_id=$1 AND id=$2',[f.companies.A,row.id])).rows[0].status).toBe('allocated');
 },60000);
+
+it('a line no fiscal period covers is a per-line skip, known before any attempt; the sibling still posts',async()=>{
+ const description=tag();await f.rule('A',description);
+ await refusedWithSibling('A','u1',{date:'2026-11-15',description,amount:'-50.00'},'autoPostSkippedNoPeriod');
+},60000);
+
+it('lines that can never clear do not consume the attempt budget: 30 closed-period lines beside one postable line',async()=>{
+ const prefix=tag();await f.rule('A',prefix);
+ const closed=Array.from({length:30},(_,i)=>({date:'2026-08-15',description:`${prefix} closed ${i}`,amount:'-10.00'}));
+ const open={date:'2026-09-09',description:`${prefix} open`,amount:'-10.00'};
+ const {response,tx}=await f.commit('A','u1',[...closed,open]);
+ expect(response.status).toBe(200);
+ expect(response.body.data.appliedRules).toBe(1);expect(response.body.data.autoPostDeferred).toBe(0);
+ expect(response.body.data.autoPostSkippedClosedPeriod).toBeGreaterThanOrEqual(30);
+ await posted(f.companies.A,tx(open.description),'auto_bank_recon');
+},60000);

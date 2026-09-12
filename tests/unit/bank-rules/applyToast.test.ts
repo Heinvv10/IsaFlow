@@ -86,6 +86,12 @@ describe('buildApplyToast', () => {
     expect(r.message).toBe('0 categorised · 2 refused: Unambiguous bank accounting period required');
   });
 
+  it('deferred lines are named with the remedy, and alone they are a warning', () => {
+    const r = buildApplyToast({ applied: 6, autoPostDeferred: 44 });
+    expect(r.message).toBe('6 categorised · 44 deferred — run rules again');
+    expect(buildApplyToast({ applied: 0, autoPostDeferred: 3 }).kind).toBe('warn');
+  });
+
   it('a permission refusal is named', () => {
     expect(buildApplyToast({ applied: 1, autoPostSkippedPermissionDenied: 1 }).message)
       .toBe('1 categorised · 1 skipped — you lack permission to post');

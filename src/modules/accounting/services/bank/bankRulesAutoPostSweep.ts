@@ -17,20 +17,21 @@ import { toSqlPattern, findMatchingTxs, MAX_RULE_CANDIDATES, type RuleAllocType 
 import { BankTransactionLockTimeoutError } from './bankTxLock';
 import { autoPostRuleLine } from './bankRuleAutoPostLine';
 import type { AutoPostRefusal } from './bankRuleAutoPostRefusal';
+import { approvalRequiredForLine, dateRefusal, loadLockdownFacts } from './bankRulesAutoPostPreflight';
 
 type Row = Record<string, unknown>;
 /** Distinct `refused` reasons carried back per run; past this the count still climbs, the list does not. */
 const MAX_REFUSAL_REASONS = 10;
 
 export type AutoPostCounters = Required<Pick<RuleApplyResult,
-  | 'autoPostSkippedClosedPeriod' | 'autoPostSkippedRaced' | 'autoPostSkippedLocked' | 'autoPostTruncatedRules'
+  | 'autoPostSkippedClosedPeriod' | 'autoPostSkippedNoPeriod' | 'autoPostSkippedRaced' | 'autoPostSkippedLocked' | 'autoPostTruncatedRules'
   | 'autoPostSkippedApprovalRequired' | 'autoPostSkippedBeneficiaryUnverified' | 'autoPostSkippedLockdown'
   | 'autoPostSkippedVatPeriodFiled' | 'autoPostSkippedPermissionDenied' | 'autoPostSkippedRefused'
   | 'autoPostRefusalReasons' | 'autoPostVatDenied' | 'autoPostNonSupply' | 'autoPostDeferred'>>;
 
 export function emptyAutoPostCounters(): AutoPostCounters {
   return {
-    autoPostSkippedClosedPeriod: 0, autoPostSkippedRaced: 0, autoPostSkippedLocked: 0, autoPostTruncatedRules: 0,
+    autoPostSkippedClosedPeriod: 0, autoPostSkippedNoPeriod: 0, autoPostSkippedRaced: 0, autoPostSkippedLocked: 0, autoPostTruncatedRules: 0,
     autoPostSkippedApprovalRequired: 0, autoPostSkippedBeneficiaryUnverified: 0, autoPostSkippedLockdown: 0,
     autoPostSkippedVatPeriodFiled: 0, autoPostSkippedPermissionDenied: 0, autoPostSkippedRefused: 0,
     autoPostRefusalReasons: [], autoPostVatDenied: 0, autoPostNonSupply: 0, autoPostDeferred: 0,
@@ -43,6 +44,7 @@ function countRefusal(counters: AutoPostCounters, refusal: AutoPostRefusal): voi
     case 'approval_required': counters.autoPostSkippedApprovalRequired++; return;
     case 'beneficiary_unverified': counters.autoPostSkippedBeneficiaryUnverified++; return;
     case 'closed_period': counters.autoPostSkippedClosedPeriod++; return;
+    case 'no_period': counters.autoPostSkippedNoPeriod++; return;
     case 'lockdown': counters.autoPostSkippedLockdown++; return;
     case 'vat_period_filed': counters.autoPostSkippedVatPeriodFiled++; return;
     case 'permission_denied': counters.autoPostSkippedPermissionDenied++; return;
@@ -66,6 +68,15 @@ export async function sweepAutoPostRules(companyId: string, bankAccountId: strin
   // again, and the still-imported lines match again.
   let attempted = 0;
   const atCapacity = () => applied >= MAX_BANK_LINES_PER_REQUEST || attempted >= MAX_RULE_SWEEP_ATTEMPTS_PER_REQUEST;
+  const company = await loadLockdownFacts(companyId);
+  // The person's permission does not change within the request: after one
+  // permission refusal every remaining line is counted, none attempted.
+  let permissionDenied: AutoPostRefusal | null = null;
+  const refuse = (tx: Row, ruleName: string, refusal: AutoPostRefusal) => {
+    // Logged per line: the counters say how many, this says which and why.
+    log.warn('Bank rule auto-post refused for a line', { companyId, bankTxId: String(tx.id), ruleName, ...refusal }, 'accounting');
+    countRefusal(counters, refusal);
+  };
 
   // One query for every rule's target account. A sweep posts hundreds of
   // lines against a handful of accounts, so resolving the s17(2)(a) denial
@@ -127,7 +138,13 @@ export async function sweepAutoPostRules(companyId: string, bankAccountId: strin
       return x < y ? -1 : x > y ? 1 : 0;
     });
 
+    // A supplier rule names ONE supplier: once its beneficiary is refused, every
+    // other line of the rule would be too, so they are counted, not attempted.
+    let ruleBeneficiary: AutoPostRefusal | null = null;
     for (const [index, tx] of orderedTxs.entries()) {
+      const known = permissionDenied ?? ruleBeneficiary ?? dateRefusal(tx, company);
+      if (known) { refuse(tx, ruleName, known); continue; }
+      if (await approvalRequiredForLine(tx.amount)) { refuse(tx, ruleName, { kind: 'approval_required' }); continue; }
       if (atCapacity()) { counters.autoPostDeferred += orderedTxs.length - index; break; }
       attempted++;
       let outcome;
@@ -135,7 +152,8 @@ export async function sweepAutoPostRules(companyId: string, bankAccountId: strin
         // Savepoint per line: a lock timeout is a REAL 55P03, which aborts
         // the transaction — without the savepoint the next candidate's
         // first statement raises 25P02 and the whole run dies after one skip.
-        // The same savepoint unwinds the intent a refused line prepared.
+        // A REFUSED line needs nothing from it: allocateTransaction's own
+        // adapter savepoint has already unwound the intent it prepared.
         outcome = await withSavepoint('rule_autopost_line', () => autoPostRuleLine({
           companyId, userId, tx, rule, ruleName, allocType, ruleGlAccountId,
           ruleGlAccountVatDenied: ruleGlAccountId ? ruleAccountVatDenied.get(ruleGlAccountId) ?? false : false,
@@ -163,9 +181,9 @@ export async function sweepAutoPostRules(companyId: string, bankAccountId: strin
       }
       if (outcome.kind === 'raced') { counters.autoPostSkippedRaced++; continue; }
       if (outcome.kind !== 'posted') {
-        // Logged per line: the counters say how many, this says which and why.
-        log.warn('Bank rule auto-post refused for a line', { companyId, bankTxId: String(tx.id), ruleName, ...outcome }, 'accounting');
-        countRefusal(counters, outcome);
+        refuse(tx, ruleName, outcome);
+        if (outcome.kind === 'permission_denied') permissionDenied = outcome;
+        if (outcome.kind === 'beneficiary_unverified') ruleBeneficiary = outcome;
         continue;
       }
 

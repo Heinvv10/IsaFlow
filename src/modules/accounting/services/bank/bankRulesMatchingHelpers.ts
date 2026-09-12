@@ -34,6 +34,14 @@ export const MAX_RULE_CANDIDATES = 500;
  *
  * Fetches one row past the cap so the caller can tell "exactly 500 matched"
  * from "500 processed, more waiting" — `applyRules` trims and reports it.
+ *
+ * Each row carries `period_status`: the status of the fiscal period covering
+ * its date, or null when none does. The sweep counts a line whose period is
+ * not open WITHOUT attempting it — the controlled allocation would refuse it
+ * (`ClosedFiscalPeriodError`) every run, and a line that can never clear must
+ * not consume the per-request attempt budget on every import until a person
+ * re-opens the period. Postable-period rows sort first, so they take the
+ * candidate cap before rows that are only going to be counted.
  */
 export async function findMatchingTxs(
   companyId: string,
@@ -41,41 +49,20 @@ export async function findMatchingTxs(
   field: string,
   pattern: string,
 ): Promise<Record<string, unknown>[]> {
-  if (field === 'description') {
-    return (await sql`
-      SELECT id, amount, transaction_date, description, reference
-      FROM bank_transactions
-      WHERE bank_account_id = ${bankAccountId}::UUID
-        AND company_id = ${companyId}::UUID
-        AND status = 'imported'
-        AND matched_journal_line_id IS NULL
-        AND description ILIKE ${pattern}
-      ORDER BY transaction_date
-      LIMIT ${MAX_RULE_CANDIDATES + 1}
-    `) as Record<string, unknown>[];
-  }
-  if (field === 'reference') {
-    return (await sql`
-      SELECT id, amount, transaction_date, description, reference
-      FROM bank_transactions
-      WHERE bank_account_id = ${bankAccountId}::UUID
-        AND company_id = ${companyId}::UUID
-        AND status = 'imported'
-        AND matched_journal_line_id IS NULL
-        AND reference ILIKE ${pattern}
-      ORDER BY transaction_date
-      LIMIT ${MAX_RULE_CANDIDATES + 1}
-    `) as Record<string, unknown>[];
-  }
+  const matches = field === 'description' ? sql`bt.description ILIKE ${pattern}`
+    : field === 'reference' ? sql`bt.reference ILIKE ${pattern}`
+    : sql`(bt.description ILIKE ${pattern} OR bt.reference ILIKE ${pattern})`;
   return (await sql`
-    SELECT id, amount, transaction_date, description, reference
-    FROM bank_transactions
-    WHERE bank_account_id = ${bankAccountId}::UUID
-      AND company_id = ${companyId}::UUID
-      AND status = 'imported'
-      AND matched_journal_line_id IS NULL
-      AND (description ILIKE ${pattern} OR reference ILIKE ${pattern})
-    ORDER BY transaction_date
+    SELECT bt.id, bt.amount, bt.transaction_date, bt.description, bt.reference, fp.status AS period_status
+    FROM bank_transactions bt
+    LEFT JOIN fiscal_periods fp
+      ON fp.company_id = bt.company_id AND fp.start_date <= bt.transaction_date AND fp.end_date >= bt.transaction_date
+    WHERE bt.bank_account_id = ${bankAccountId}::UUID
+      AND bt.company_id = ${companyId}::UUID
+      AND bt.status = 'imported'
+      AND bt.matched_journal_line_id IS NULL
+      AND ${matches}
+    ORDER BY (fp.status = 'open') DESC NULLS LAST, bt.transaction_date
     LIMIT ${MAX_RULE_CANDIDATES + 1}
   `) as Record<string, unknown>[];
 }
