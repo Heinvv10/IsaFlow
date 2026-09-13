@@ -1,3 +1,21 @@
+-- DEPLOY NOTE - this file was edited after it had been applied, so every database that already carries it
+-- will stop the deploy at scripts/apply-migrations.ts with "Checksum conflicts - migration files edited after
+-- apply" and exit 2, BEFORE any later gate runs. Clear it once per database, alongside 675's, then deploy again:
+--
+--   bun scripts/migrations/resolve-checksum-conflicts.ts 677_impersonation_delegation_liveness.sql
+--
+-- The only change is pinning pg_temp LAST in this function's search_path. Re-running the file is idempotent
+-- (CREATE INDEX IF NOT EXISTS, DROP then CREATE FUNCTION) and it is the sole definition of that function.
+--
+-- Why the pin: a search_path that does not name pg_temp puts it FIRST, and it is searched there for TYPES as
+-- well as relations. Every relation here is schema-qualified, but the casts are not shadow-proof by
+-- qualification alone - proved on the fixture, as app_user, with CREATE TYPE pg_temp.text AS (x int): this
+-- function then raises 'operator does not exist: text = pg_catalog.text' on target_id::text. Worse than a
+-- single failed call, because a temp type survives COMMIT and belongs to the SESSION: created on a pooled
+-- connection, it poisons that connection's later liveness calls on the DATABASE_URL login role, so every
+-- delegation proof is refused until the connection is recycled. Fail-closed, but a tenant-triggerable denial
+-- of the impersonation path. Naming pg_temp last pins it behind pg_catalog and closes it.
+--
 -- A delegation proof is honoured only while its stash row lives and no end has been
 -- recorded for the session it names. Both reads live behind one SECURITY DEFINER
 -- function: the request path must not need SELECT on admin_impersonation_stash (which
@@ -13,7 +31,7 @@ CREATE INDEX IF NOT EXISTS idx_admin_audit_impersonation_session
 
 DROP FUNCTION IF EXISTS public.impersonation_delegation_live(uuid,text,text,text);
 CREATE FUNCTION public.impersonation_delegation_live(p_stash uuid,p_actor text,p_target text,p_session text)
-RETURNS boolean LANGUAGE sql STABLE SECURITY DEFINER SET search_path=pg_catalog,public AS $$
+RETURNS boolean LANGUAGE sql STABLE SECURITY DEFINER SET search_path=pg_catalog,public,pg_temp AS $$
   SELECT EXISTS(SELECT 1 FROM public.admin_impersonation_stash
       WHERE stash_id=p_stash AND admin_user_id=p_actor AND target_user_id=p_target
         AND expires_at>clock_timestamp())
