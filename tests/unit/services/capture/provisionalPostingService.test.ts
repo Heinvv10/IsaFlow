@@ -305,6 +305,26 @@ describe('postProvisional', () => {
     expect(call[6]).toBe('none');
   });
 
+  it('normalises a legacy vat_code spelling to the plan\'s vocabulary, posting no VAT exactly as before', async () => {
+    // supplier_coding_history holds legacy spellings ('S', 'Z') beside the current vocabulary. The plan's enum accepts
+    // only the current one, so an unnormalised 'S' would be a ZodError — a FAULT that aborts the whole sweep — where the
+    // old arithmetic simply took the no-VAT branch (it split only on 'standard'). Same predicate, same posted amounts.
+    vi.mocked(sqlMock).mockResolvedValueOnce([
+      { id: BANK_TX_ID, amount: -1150, description: 'ESKOM HOLDINGS PAYMENT', status: 'imported', bank_account_id: 'ba-1', transaction_date: '2026-04-10' },
+    ] as never);
+    vi.mocked(sqlMock).mockResolvedValueOnce([{ id: SUPPLIER_ID, name: 'Eskom Holdings' }] as never);
+    vi.mocked(sqlMock).mockResolvedValueOnce(makeHistoryRows(GL_ACC_ID, 'S', 4) as never);
+    vi.mocked(sqlMock).mockResolvedValue([] as never);
+
+    await postProvisional(COMPANY_ID, BANK_TX_ID, USER_ID);
+
+    const call = vi.mocked(allocateProvisionalTransaction).mock.calls[0]!;
+    expect(call[6]).toBe('none');
+    // The allocation posts the gross to the expense account and the gross to the bank leg from this, exactly as the old
+    // hasVat=false branch did — the normalisation changes no amount, only the vocabulary.
+    expect(['none', 'standard', 'zero_rated', 'exempt']).toContain(call[6]);
+  });
+
   it('skips and returns "already provisional" when bank_tx status is not "imported"', async () => {
     vi.mocked(sqlMock).mockResolvedValueOnce([
       { id: BANK_TX_ID, amount: -800, description: 'ESKOM HOLDINGS', status: 'provisional', bank_account_id: 'ba-1', transaction_date: '2026-04-10' },

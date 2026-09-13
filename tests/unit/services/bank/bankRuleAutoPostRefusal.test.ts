@@ -12,6 +12,7 @@ import { OperationApprovalRequiredError, SuppliedApprovalRefusal } from '@/modul
 import { BeneficiaryError } from '@/modules/accounting/services/controls/beneficiaryValidation';
 import { EffectivePermissionError } from '@/lib/auth/effectivePermissionQueries';
 import { ClosedFiscalPeriodError, LOCKDOWN_REFUSAL_MESSAGE, VAT_PERIOD_REFUSAL_MESSAGE } from '@/modules/accounting/services/gl/postingPeriodGuard';
+import { GeneratedJournalOperationError } from '@/modules/accounting/services/gl/journalControlService';
 import { enterFakeRequestCtx } from '../../helpers/requestCtx';
 
 beforeEach(() => enterFakeRequestCtx());
@@ -46,6 +47,9 @@ describe('classifyAutoPostRefusal — faults', () => {
     ['a ZodError', (() => { try { z.object({ a: z.string() }).parse({}); } catch (e) { return e; } return null; })()],
     ['a pg error', Object.assign(new Error('deadlock detected'), { code: '40P01' })],
     ['a non-Error', 'boom'],
+    // A driver reaching this is posting a GENERATED journal by hand — the defect the boundary exists to catch. It is a
+    // 4xx to the caller that asked for it, and a fault to a sweep: counted as a per-line refusal it would be invisible.
+    ['a direct operation on a generated journal', new GeneratedJournalOperationError('auto_bank_recon')],
   ])('%s → null, the run aborts', (_label, error) => {
     expect(classifyAutoPostRefusal(error)).toBeNull();
   });

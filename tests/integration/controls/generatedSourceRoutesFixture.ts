@@ -68,9 +68,12 @@ export async function generatedSourceRoutesFixture(){
   await pool.query("INSERT INTO tax_directives(id,company_id,employee_name,directive_number,directive_type,amount,tax_rate,effective_date,status) VALUES($1,$2,'Synthetic Employee','SD-0001','fixed_amount',1000,0.18,'2026-09-01','approved')",[id,companies[key]]);
   return id;
  }
+ // One declaration per (company, period) is a unique constraint, so each call takes the next month; they are all paid
+ // into September's open period, which is what the journal's date is taken from.
+ let uifPeriod=0;
  async function submittedUifDeclaration(key:'A'|'B'){
-  const id=randomUUID();
-  await pool.query("INSERT INTO uif_declarations(id,company_id,period_year,period_month,total_employees,total_leviable_salary,total_employee_contribution,total_employer_contribution,status) VALUES($1,$2,2026,9,1,10000,100,100,'submitted')",[id,companies[key]]);
+  const id=randomUUID();uifPeriod+=1;
+  await pool.query("INSERT INTO uif_declarations(id,company_id,period_year,period_month,total_employees,total_leviable_salary,total_employee_contribution,total_employer_contribution,status) VALUES($1,$2,2026,$3,1,10000,100,100,'submitted')",[id,companies[key],uifPeriod]);
   return id;
  }
  async function journals(key:'A'|'B',sourceRecordId:string){
