@@ -13,9 +13,11 @@ const { sqlMock } = vi.hoisted(() => ({
 vi.mock('@/lib/neon', () => ({ sql: sqlMock, withTransaction: vi.fn(), transaction: vi.fn() }));
 vi.mock('@/lib/logger', () => ({ log: { info: vi.fn(), warn: vi.fn(), error: vi.fn() } }));
 
-const reverseJournalEntry = vi.fn();
-vi.mock('@/modules/accounting/services/gl/journalEntryService', () => ({
-  reverseJournalEntry: (...a: unknown[]) => reverseJournalEntry(...a),
+// Dismiss reverses through the CONTROLLED reversal of the owning bank allocation, not with a direct
+// reverseJournalEntry — the kernel refuses that for a generated journal, and the refusal poisoned the request.
+const reverseProvisionalEntry = vi.fn();
+vi.mock('@/modules/accounting/services/bank/bankAllocationService', () => ({
+  reverseProvisionalEntry: (...a: unknown[]) => reverseProvisionalEntry(...a),
 }));
 
 import { dismissProvisionalEntry } from '@/modules/accounting/services/bank/provisionalDismissService';
@@ -31,13 +33,13 @@ function routeSql(handlers: Array<{ match: RegExp; rows: unknown[] }>) {
 describe('dismissProvisionalEntry', () => {
   beforeEach(() => {
     sqlMock.mockReset();
-    reverseJournalEntry.mockReset();
+    reverseProvisionalEntry.mockReset();
   });
 
   it('throws when the JE does not belong to the company', async () => {
     routeSql([{ match: /FROM gl_journal_entries/, rows: [] }]);
     await expect(dismissProvisionalEntry('co-1', 'je-x', 'u-1')).rejects.toThrow(/not found/i);
-    expect(reverseJournalEntry).not.toHaveBeenCalled();
+    expect(reverseProvisionalEntry).not.toHaveBeenCalled();
   });
 
   it('refuses a JE that is not provisional (needs_evidence=false)', async () => {
@@ -45,37 +47,34 @@ describe('dismissProvisionalEntry', () => {
       { match: /FROM gl_journal_entries/, rows: [{ id: 'je-1', needs_evidence: false, status: 'posted' }] },
     ]);
     await expect(dismissProvisionalEntry('co-1', 'je-1', 'u-1')).rejects.toThrow(/not provisional/i);
-    expect(reverseJournalEntry).not.toHaveBeenCalled();
+    expect(reverseProvisionalEntry).not.toHaveBeenCalled();
   });
 
-  it('reverses the JE and resets the linked bank transaction to imported', async () => {
-    reverseJournalEntry.mockResolvedValue({ id: 'je-contra' });
+  it('reverses through the controlled reversal, which returns the bank line to the queue itself', async () => {
+    reverseProvisionalEntry.mockResolvedValue({ reversalJournalEntryId: 'je-contra', bankTransactionId: 'tx-1' });
     routeSql([
       { match: /FROM gl_journal_entries/, rows: [{ id: 'je-1', needs_evidence: true, status: 'posted' }] },
-      { match: /UPDATE bank_transactions/, rows: [{ id: 'tx-1' }] },
     ]);
 
     const r = await dismissProvisionalEntry('co-1', 'je-1', 'u-1');
 
-    expect(reverseJournalEntry).toHaveBeenCalledWith('co-1', 'je-1', 'u-1');
+    expect(reverseProvisionalEntry).toHaveBeenCalledWith('co-1', 'je-1', 'u-1', { reason: 'Provisional entry dismissed' });
     expect(r.reversalJournalEntryId).toBe('je-contra');
     expect(r.bankTransactionsReset).toBe(1);
-    // The bank-txn reset must be company-scoped.
-    const updateCall = sqlMock.mock.calls.find((c) =>
-      (c[0] as TemplateStringsArray).join('?').includes('UPDATE bank_transactions'),
-    );
-    expect((updateCall![0] as TemplateStringsArray).join('?')).toContain('company_id');
+    // No bank_transactions write of its own: the reset happens inside the controlled reversal's effect, under its
+    // receipt. A second writer here would put the row outside that receipt.
+    const statements = sqlMock.mock.calls.map((c) => (c[0] as TemplateStringsArray).join('?'));
+    expect(statements.some((text) => /UPDATE bank_transactions/.test(text))).toBe(false);
   });
 
-  it('still succeeds when no bank transaction links to the JE (evidence-only provisional)', async () => {
-    reverseJournalEntry.mockResolvedValue({ id: 'je-contra' });
+  it('propagates the controlled reversal refusal for a journal no bank line names', async () => {
+    // An evidence-only provisional entry has no bank line, so there is no allocation to reverse and nothing to prove a
+    // provenance from — the reversal refuses by name, and dismiss no longer reports a success that reversed nothing.
+    reverseProvisionalEntry.mockRejectedValue(new Error('No bank transaction names this provisional journal'));
     routeSql([
       { match: /FROM gl_journal_entries/, rows: [{ id: 'je-1', needs_evidence: true, status: 'posted' }] },
-      { match: /UPDATE bank_transactions/, rows: [] },
     ]);
 
-    const r = await dismissProvisionalEntry('co-1', 'je-1', 'u-1');
-    expect(r.bankTransactionsReset).toBe(0);
-    expect(r.reversalJournalEntryId).toBe('je-contra');
+    await expect(dismissProvisionalEntry('co-1', 'je-1', 'u-1')).rejects.toThrow(/names this provisional journal/);
   });
 });

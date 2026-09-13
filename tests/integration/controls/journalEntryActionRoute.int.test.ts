@@ -47,19 +47,21 @@ describe('POST /api/accounting/journal-entries-action lockdown and closed-period
  });
 
  /**
-  * The tenant-mismatch and assertDirectSource checks in runJournalControl are INTEGRITY checks, not a refusal a
-  * caller can safely catch and continue past — a caller that swallows one per row and keeps going
-  * (migrationApService.ts, migrationImportService.ts) must not COMMIT whatever it had already written. They stay
-  * inside the poisoning try/catch: this route's own catch maps a plain Error to 400, but the override to 500
-  * CONTROL_INTEGRITY_FAILED still wins, unlike the period/lockdown precheck above (422, no override).
+  * A journal one of the generated families owns is refused for a DIRECT post — and that refusal is an answer the
+  * caller can act on (post it through the operation that owns it), so it is raised before the controlled write and
+  * outside the poisoning try, exactly like the period/lockdown precheck above. Raised from inside, it marked the
+  * request's control transaction failed and reached the caller as 500 CONTROL_INTEGRITY_FAILED, which told it
+  * nothing. The tenant/actor mismatch beside it still poisons — that one IS an integrity fault.
   */
- it('still answers 500 CONTROL_INTEGRITY_FAILED for a blacklisted generated-journal source, even though this route\'s own catch would otherwise answer 400',async()=>{
+ it('refuses a generated-journal source as a 422 naming the source, not a 500',async()=>{
   const id=await h.journal('2026-09-09','auto_payment');
   const res=await h.request({id,action:'post'});
-  expect(res.status,JSON.stringify(res.body)).toBe(500);
-  // withAuth's override body is flat ({success,data,message,code}), NOT the {error:{code,message}} envelope
-  // apiResponse.error/badRequest send — a real, distinct wire shape from the route's own 400 it replaced.
-  expect(res.body.code).toBe('CONTROL_INTEGRITY_FAILED');
+  expect(res.status,JSON.stringify(res.body)).toBe(422);
+  expect(res.body.error?.code).toBe('BUSINESS_RULE_VIOLATION');
+  expect(res.body.error?.message).toContain('auto_payment');
+  // Nothing was posted, and the request is NOT poisoned: the body is the route's own envelope, not withAuth's flat
+  // CONTROL_INTEGRITY_FAILED override.
+  expect(res.body.code).toBeUndefined();
   expect(await h.status(id)).toBe('draft');
  });
 
