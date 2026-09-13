@@ -135,11 +135,32 @@ it.each([['healthy',undefined],['blinded','ALTER FUNCTION public.control_session
 });
 
 // The whole shadowable class, across every function the impersonation path reaches: no unqualified relation
-// reference in any of them, and pg_temp pinned last in the three that 691 owns. 677's liveness function is in the
-// qualification half but not the pinning half - every relation it names is already schema-qualified, so nothing in
-// it is shadowable, and editing 677 to pin pg_temp would cost a second checksum conflict on every database for a
-// property this test already enforces directly. If it ever gains an unqualified reference, the loop below fails.
-const PINS_PG_TEMP=['control_session_impersonator','impersonation_evidence_visible','impersonation_evidence_append_only'];
+// reference, and pg_temp pinned last in all four. Qualification alone was not enough for 677 - pg_temp is searched
+// first for TYPES too when it is not named, so a tenant temp type shadowed a cast and made the function raise.
+const PINS_PG_TEMP=['control_session_impersonator','impersonation_evidence_visible','impersonation_evidence_append_only',
+ 'impersonation_delegation_live'];
+// The type half of the same class, proved by doing it: a tenant creates the temp type and the temp table, both of
+// which outlive their transaction and belong to the pooled SESSION, then every function still answers. Before the
+// pin, 677's liveness raised 'operator does not exist: text = pg_catalog.text' here - and kept raising on that
+// connection for the login role, refusing every delegation proof until the connection was recycled.
+it('ignores a tenant temp type shadowing the builtin names the bodies cast to',async()=>{
+ const client=await pool.connect();
+ try{
+  await client.query('BEGIN');await client.query('SET LOCAL ROLE app_user');
+  await client.query('CREATE TYPE pg_temp.text AS (x int)');
+  await client.query('CREATE TEMP TABLE jsonb (x int)');
+  await client.query('RESET ROLE');
+  const sessionId=`impersonation-${randomUUID()}`;
+  await client.query("SELECT set_config('request.jwt.claims',$1,true)",[JSON.stringify({sub:f.u2.id,session_id:sessionId})]);
+  expect({
+   liveness:(await client.query('SELECT public.impersonation_delegation_live(gen_random_uuid(),$1,$2,$3) AS live',
+    [admin,f.u2.id,sessionId])).rows[0].live,
+   reader:(await client.query('SELECT public.control_session_impersonator() AS actor')).rows[0].actor,
+   visible:(await client.query('SELECT public.impersonation_evidence_visible() AS ok')).rows[0].ok,
+  }).toEqual({liveness:false,reader:null,visible:true});
+ }finally{await client.query('ROLLBACK');client.release();}
+});
+
 it('leaves no unqualified relation reference in any function the impersonation path reaches',async()=>{
  // pg_temp is never searched for functions, so has_table_privilege() and auth.uid() are not exposed; relations are.
  const bodies=await pool.query<{proname:string;prosrc:string;config:string[]|null}>(
