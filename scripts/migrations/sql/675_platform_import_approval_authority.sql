@@ -1,3 +1,16 @@
+-- DEPLOY NOTE - this file was edited after it had been applied, so every database that already
+-- carries it will stop the deploy at scripts/apply-migrations.ts with "Checksum conflicts -
+-- migration files edited after apply" and exit 2, BEFORE any later gate runs. Clear it once per
+-- database, then deploy again:
+--
+--   bun scripts/migrations/resolve-checksum-conflicts.ts 675_platform_import_approval_authority.sql
+--
+-- Re-running this file is safe and re-recording its checksum is safe. The edit REMOVED the
+-- definition of control_session_impersonator() from here (see the comment where it used to be,
+-- below); 691 is now its only definition, so neither re-applying this file nor accepting its new
+-- checksum can restore the sentinel-less reader body that used to live here. Everything this file
+-- still does is idempotent.
+--
 -- Persist platform-import requesters as their real global authority. They are
 -- never represented as tenant administrators; tenant reviewers remain normal
 -- company members and all authority is rechecked when approval is used.
