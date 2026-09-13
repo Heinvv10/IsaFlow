@@ -63,10 +63,13 @@ it('asks the database every question the gate decides on, in one statement',asyn
  * run, and clearing it is a separate command an operator has to know exists. The instruction and the claim that
  * makes it safe are asserted together: re-applying 675 is harmless only while 675 no longer defines the reader.
  */
-it('tells the deployer how to clear the checksum conflict that editing 675 causes',async()=>{
+it('tells the deployer how to clear the checksum conflicts that editing 675 and 677 causes',async()=>{
  const {readFileSync}=await import('node:fs');
  const migration=readFileSync('scripts/migrations/sql/675_platform_import_approval_authority.sql','utf8');
  expect(migration).toContain('bun scripts/migrations/resolve-checksum-conflicts.ts 675_platform_import_approval_authority.sql');
+ // 677 was edited too, to pin pg_temp; both conflicts stop the same deploy and both need clearing.
+ expect(readFileSync('scripts/migrations/sql/677_impersonation_delegation_liveness.sql','utf8'))
+  .toContain('bun scripts/migrations/resolve-checksum-conflicts.ts 677_impersonation_delegation_liveness.sql');
  // The safety claim the note rests on: 691 owns the reader now, so re-applying 675 cannot restore the old body.
  expect(migration).not.toMatch(/(CREATE|REPLACE)\s+FUNCTION\s+public\.control_session_impersonator/i);
  // And the generic failure names the resolver, for the operator who never opens the file.
