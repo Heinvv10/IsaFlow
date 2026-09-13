@@ -236,10 +236,14 @@ export async function postProvisional(
   // are validated by type (a cc1 slot demands a cc_type='cc1' centre) and a
   // predicted centre of any other type would refuse a line that is otherwise
   // postable. Coding is finalised when evidence is attached.
+  // 'standard' or nothing. The predicted code comes from supplier_coding_history, which holds legacy spellings ('S',
+  // 'Z', …) as well as the current vocabulary, and the plan accepts only the current one — an unrecognised code would
+  // be a ZodError, a fault, rather than the no-VAT posting the old arithmetic gave it (it split only on 'standard').
+  const vatCode = guarded.vatCode === 'standard' ? 'standard' : 'none';
   const result = await allocateProvisionalTransaction(
     companyId, bankTxId, expenseAccountId, userId,
     { ...(prediction.supplierId ? { predictedSupplierId: prediction.supplierId } : {}), confidence: prediction.confidence },
-    description, guarded.vatCode,
+    description, vatCode,
   );
 
   log.info('Posted provisional JE for bank transaction', {

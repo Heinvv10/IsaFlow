@@ -24,6 +24,11 @@ vi.mock('@/lib/neon', () => ({
 vi.mock('@/lib/logger', () => ({
   log: { info: vi.fn(), error: vi.fn(), warn: vi.fn() },
 }));
+// The sweep posts through the controlled allocation, so it needs the REQUEST's principal — never a synthetic system
+// id, which the controlled path refuses as a context mismatch (poisoning the transaction on its own).
+vi.mock('@/modules/accounting/services/controls/context', () => ({
+  requireControlTx: () => ({ principal: { companyId: 'company-1', personId: 'person-7' } }),
+}));
 vi.mock('@/modules/accounting/services/bank/autoPostGateService', () => ({
   sweep: vi.fn().mockResolvedValue({ runId: null, posted: 0, skipped: [] }),
 }));
@@ -178,6 +183,8 @@ describe('importParsedTransactions — post-import side-effect gate', () => {
 
     expect(sweep).toHaveBeenCalled();
     expect(vi.mocked(sweep).mock.calls[0]![2]).toBe('import');
+    // The acting person, not '00000000-0000-0000-0000-000000000000'.
+    expect(vi.mocked(sweep).mock.calls[0]![3]).toBe('person-7');
   });
 
   it('skipPostImportEffects suppresses the sweep so an import posts nothing', async () => {
