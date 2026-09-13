@@ -156,3 +156,40 @@ it('a journal whose bank line is no longer a provisional one is refused by the p
  expect(await f.journal('A',journalEntryId)).toMatchObject({status:'posted',reversed_at:null});
  expect(await f.bankTx('A',String(row.id))).toMatchObject({status:'reconciled'});
 });
+
+/**
+ * A DIRECT post or reverse of a journal a generated family owns is refused — and that refusal is a business answer the
+ * caller can act on (use the owning operation), so it is raised before the controlled write rather than from inside it,
+ * where it marked the whole request's control transaction failed and reached the caller as a 500.
+ */
+it('reversing a generated journal from the journal route is refused with the owning source named, not a 500',async()=>{
+ const supplier=`Synthetic Direct Traders ${Date.now()}`;
+ await f.predictableSupplier('A',supplier);
+ const {tx}=await f.commit('A','u1',[{date:'2026-09-15',description:supplier,amount:'-920.00'}]);
+ const row=tx(supplier),journalEntryId=String(row.provisional_je_id);
+ const refused=await f.request('/api/accounting/journal-entries-action','POST',{id:journalEntryId,action:'reverse',reversal_date:'2026-09-16'});
+ expect(refused.status).toBeGreaterThanOrEqual(400);
+ expect(refused.status).toBeLessThan(500);
+ expect(JSON.stringify(refused.body)).toMatch(/authorized domain operation \(source: auto_bank_recon\)/);
+ // Nothing happened: the journal stands, and the bank line is untouched.
+ expect(await f.journal('A',journalEntryId)).toMatchObject({status:'posted',reversed_at:null});
+ expect(await f.bankTx('A',String(row.id))).toMatchObject({status:'provisional',provisional_je_id:journalEntryId});
+});
+
+it('a post whose actor is not the authenticated person still fails the whole request and commits nothing',async()=>{
+ const supplier=`Synthetic Mismatch Traders ${Date.now()}`;
+ await f.predictableSupplier('A',supplier);
+ const bankTxId=await f.imported('A',`${supplier} unposted`,'-33.00');
+ const {createJournalEntry}=await import('@/modules/accounting/services/gl/journalEntryService');
+ const {postJournalEntry}=await import('@/modules/accounting/services/gl/journalEntryPostingService');
+ const draft=await f.actor(()=>createJournalEntry(f.companies.A,{entryDate:'2026-09-15',description:'Synthetic mismatch draft',source:'manual',
+  lines:[{glAccountId:f.expense.A,debit:33,credit:0,description:'Synthetic mismatch'},{glAccountId:f.bank.A,debit:0,credit:33,description:'Synthetic mismatch'}]},f.fixture.u1.id));
+ // A posting actor who is not this request's principal is an INTEGRITY fault, not a business refusal: it poisons the
+ // control transaction, so the request cannot commit at all — including the row the same request wrote before it.
+ await expect(f.actor(async()=>{
+  await f.requireControlTx().sql`UPDATE bank_transactions SET description='Synthetic mismatch touched' WHERE company_id=${f.companies.A}::uuid AND id=${bankTxId}::uuid`;
+  await postJournalEntry(f.companies.A,draft.id,f.fixture.u2.id);
+ })).rejects.toThrow();
+ expect(await f.journal('A',draft.id)).toMatchObject({status:'draft'});
+ expect(String((await f.bankTx('A',bankTxId))!.description)).toBe(`${supplier} unposted`);
+});
