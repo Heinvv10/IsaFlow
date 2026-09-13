@@ -276,10 +276,17 @@ export async function markUifDeclarationPaid(
   const totalPaid = Math.round((decl.totalEmployeeContribution + decl.totalEmployerContribution) * 100) / 100;
   const paymentDate = opts.paymentDate ?? new Date().toISOString().slice(0, 10);
   const narrative = `UIF payment ${decl.periodYear}-${String(decl.periodMonth).padStart(2, '0')}`;
+  // 'manual', NOT 'auto_payroll': the kernel reserves 'auto_payroll' for the
+  // journal a payroll run generates under payroll_run.post and refuses a direct
+  // post of one, which made every UIF payment answer 500
+  // CONTROL_INTEGRITY_FAILED. Paying the month's UIF liability to the Labour
+  // Department is an operator's own act — posted under the company's journal
+  // approval policy, with the declaration named in source_record_id.
   const entry = await createJournalEntry(companyId, {
     entryDate: paymentDate,
     description: narrative,
-    source: 'auto_payroll',
+    source: 'manual',
+    sourceRecordId: declarationId,
     lines: [
       { glAccountId: uifPayableId, debit: totalPaid, credit: 0,         description: narrative },
       { glAccountId: bankAccId,    debit: 0,         credit: totalPaid, description: narrative },
