@@ -7,23 +7,31 @@ import {runImpersonationReaderGate,IMPERSONATION_READER_GATE_SUCCESS} from '@/li
  */
 it('reports success only when the database answers that both readers are executable',async()=>{
  const out=vi.fn();
- await runImpersonationReaderGate(async()=>[{reader:true,liveness:true,reader_exec:true,liveness_exec:true,reader_sees:true,liveness_sees:true}],out);
+ await runImpersonationReaderGate(async()=>[{reader:true,liveness:true,reader_exec:true,liveness_exec:true,reader_sees:true,liveness_sees:true,reader_sentinel:true}],out);
  expect(out).toHaveBeenCalledWith('impersonation readers present and executable by their calling roles\n');
 });
 it('fails the deploy when the login role cannot execute the liveness function',async()=>{
- await expect(runImpersonationReaderGate(async()=>[{reader:true,liveness:true,reader_exec:true,liveness_exec:false,reader_sees:true,liveness_sees:true,login_role:'app_login'}],vi.fn()))
+ await expect(runImpersonationReaderGate(async()=>[{reader:true,liveness:true,reader_exec:true,liveness_exec:false,reader_sees:true,liveness_sees:true,reader_sentinel:true,login_role:'app_login'}],vi.fn()))
   .rejects.toThrow(/app_login cannot EXECUTE/);
 });
+it('fails the deploy when the deployed reader body has lost the unverified sentinel',async()=>{
+ // An older migration re-applied after 691 restores a body that answers an unreadable evidence table with
+ // NULL - read as "no impersonation" - while every other property the gate checks stays true.
+ const state={reader:true,liveness:true,reader_exec:true,liveness_exec:true,reader_sees:true,liveness_sees:true,reader_sentinel:false};
+ await expect(runImpersonationReaderGate(async()=>[state],vi.fn()))
+  .rejects.toThrow(/has been reverted to a body that reports an unreadable evidence table as "no impersonation"/);
+});
+
 it.each(['reader_sees','liveness_sees'] as const)('fails the deploy when %s says the function cannot see the evidence',async field=>{
  // 691 put RLS on both evidence tables, so a reader that is not SECURITY DEFINER, or whose owner
  // lost BYPASSRLS, silently finds nothing: every session unverified, every proof refused.
- const state={reader:true,liveness:true,reader_exec:true,liveness_exec:true,reader_sees:true,liveness_sees:true,[field]:false};
+ const state={reader:true,liveness:true,reader_exec:true,liveness_exec:true,reader_sees:true,liveness_sees:true,reader_sentinel:true,[field]:false};
  await expect(runImpersonationReaderGate(async()=>[state],vi.fn()))
   .rejects.toThrow(/cannot read the impersonation evidence: it must be SECURITY DEFINER and owned by a BYPASSRLS role/);
 });
 
 it('asks the database the questions in one statement, for the roles that really call each function',async()=>{
- const query=vi.fn(async()=>[{reader:true,liveness:true,reader_exec:true,liveness_exec:true,reader_sees:true,liveness_sees:true}]);
+ const query=vi.fn(async()=>[{reader:true,liveness:true,reader_exec:true,liveness_exec:true,reader_sees:true,liveness_sees:true,reader_sentinel:true}]);
  await runImpersonationReaderGate(query,vi.fn());
  const text=String((query.mock.calls[0] as unknown as [string])[0]);
  expect(text).toContain("has_function_privilege('app_user'");
@@ -48,6 +56,6 @@ it('is checked by deploy.sh against exactly the line the gate prints',async()=>{
  const deploy=readFileSync('scripts/deploy.sh','utf8');
  expect(deploy).toContain(`grep -q '^${IMPERSONATION_READER_GATE_SUCCESS}$'`);
  const out=vi.fn();
- await runImpersonationReaderGate(async()=>[{reader:true,liveness:true,reader_exec:true,liveness_exec:true,reader_sees:true,liveness_sees:true}],out);
+ await runImpersonationReaderGate(async()=>[{reader:true,liveness:true,reader_exec:true,liveness_exec:true,reader_sees:true,liveness_sees:true,reader_sentinel:true}],out);
  expect(out).toHaveBeenCalledWith(`${IMPERSONATION_READER_GATE_SUCCESS}\n`);
 });

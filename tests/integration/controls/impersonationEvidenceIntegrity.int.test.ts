@@ -53,7 +53,7 @@ async function startRow(sessionId:string):Promise<string>{
 const impersonator=async(client:PoolClient)=>(await client.query('SELECT public.control_session_impersonator() AS actor')).rows[0].actor as string|null;
 /** The deploy gate's row shape, so its SQL can be run against this fixture. */
 type ReaderGateRow={reader:boolean;liveness:boolean;reader_exec:boolean|null;liveness_exec:boolean|null;
- reader_sees:boolean|null;liveness_sees:boolean|null;login_role?:string};
+ reader_sees:boolean|null;liveness_sees:boolean|null;reader_sentinel:boolean|null;login_role?:string};
 const principalOf=(actor:string|null):ControlPrincipal=>({personId:f.u2.id,companyId:f.companyA,connectionId:null,
  grantId:null,actingFirmId:null,requestId:randomUUID(),operationId:randomUUID(),authMethod:'cookie',
  provenance:'human',delegatedByPersonId:null,impersonatorPersonId:actor,grantedScopes:null});
@@ -98,6 +98,53 @@ it.each([['its owner loses BYPASSRLS','ALTER FUNCTION public.control_session_imp
   c=>assertImpersonationReaderDeployed(async text=>(await c.query<ReaderGateRow>(text)).rows).then(()=>'passed',error=>String(error)),
   false,downgrade);
  expect(gate).toMatch(/control_session_impersonator\(\) cannot read the impersonation evidence/);
+});
+
+// A reader whose owner keeps BYPASSRLS but loses SELECT on the table gets past a rolbypassrls-only check and then
+// raises 42501 from its own query - inside withAuth's transaction, the 500 the sentinel design exists to avoid.
+it('answers the sentinel, and never raises, when the reader owner loses SELECT on the evidence table',async()=>{
+ const sessionId=`impersonation-${randomUUID()}`;await startRow(sessionId);
+ const person={sub:f.u2.id,session_id:sessionId};
+ const actor=await as('app_user',person,
+  c=>resolveImpersonatingActor(c,{sub:f.u2.id,session_id:sessionId} as unknown as GoTrueClaims,undefined),
+  false,'REVOKE SELECT ON admin_audit_log FROM migration_admin');
+ expect(actor).toBe(IMPERSONATION_UNVERIFIED);
+ // Same transaction, so the revoke is still in force: the reader answered rather than poisoning it.
+ const gate=await as('login_role',null,
+  c=>assertImpersonationReaderDeployed(async text=>(await c.query<ReaderGateRow>(text)).rows).then(()=>'passed',error=>String(error)),
+  false,'REVOKE SELECT ON admin_audit_log FROM migration_admin');
+ expect(gate).toMatch(/control_session_impersonator\(\) cannot read the impersonation evidence/);
+});
+
+// 675 used to define this reader too. Re-running it after 691 - resolve-checksum-conflicts.ts on an amended
+// migration, a rebuilt database, the pending renumbering - would reinstate the body that answers an unreadable
+// table with NULL, with every other property the gate checks still true. The deploy gate is what catches it.
+const PRE_FIX_READER=`CREATE OR REPLACE FUNCTION public.control_session_impersonator()
+ RETURNS text LANGUAGE sql STABLE SECURITY DEFINER SET search_path=pg_catalog,public,auth AS $body$
+ SELECT l.admin_user_id::text FROM public.admin_audit_log l
+ WHERE l.action='impersonation_start' AND l.target_type='user' AND l.target_id::text=auth.uid()
+   AND l.details->>'target_session_id'=(nullif(current_setting('request.jwt.claims',true),'')::jsonb->>'session_id')
+ ORDER BY l.created_at DESC LIMIT 1 $body$`;
+it('fails the deploy when an older migration reinstates the sentinel-less reader',async()=>{
+ const gate=await as('login_role',null,
+  c=>assertImpersonationReaderDeployed(async text=>(await c.query<ReaderGateRow>(text)).rows).then(()=>'passed',error=>String(error)),
+  false,PRE_FIX_READER);
+ expect(gate).toMatch(/has been reverted to a body that reports an unreadable evidence table as "no impersonation"/);
+ // Everything else the gate checks is still true of that body, which is why the body itself has to be asserted.
+ const intact=await as('login_role',null,async c=>{
+  await c.query(PRE_FIX_READER);
+  return (await c.query(`SELECT p.prosecdef,r.rolbypassrls FROM pg_proc p JOIN pg_roles r ON r.oid=p.proowner
+   WHERE p.oid=to_regprocedure('public.control_session_impersonator()')`)).rows;
+ });
+ expect(intact).toEqual([{prosecdef:true,rolbypassrls:true}]);
+});
+
+it('leaves migration 691 as the only definition of the reader, so apply order cannot decide the answer',async()=>{
+ const {readdirSync,readFileSync}=await import('node:fs');
+ const dir='scripts/migrations/sql';
+ const defining=readdirSync(dir).filter(name=>name.endsWith('.sql')
+  && /(CREATE|REPLACE)\s+FUNCTION\s+public\.control_session_impersonator/i.test(readFileSync(`${dir}/${name}`,'utf8')));
+ expect(defining).toEqual(['691_impersonation_evidence_integrity.sql']);
 });
 
 // The sentinel is a string literal in 691 and a constant in TypeScript; drift between them would silently turn

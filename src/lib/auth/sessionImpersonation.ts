@@ -48,11 +48,20 @@ export async function resolveImpersonatingActor(client: PoolClient, claims: GoTr
 const LIVENESS = 'public.impersonation_delegation_live(uuid,text,text,text)';
 interface ReaderState {
   reader: boolean; liveness: boolean; reader_exec: boolean | null; liveness_exec: boolean | null;
-  reader_sees: boolean | null; liveness_sees: boolean | null;
+  reader_sees: boolean | null; liveness_sees: boolean | null; reader_sentinel: boolean | null;
   login_role?: string;
 }
-/** Both halves of "this function can see the evidence": SECURITY DEFINER, and an owner that bypasses RLS. */
+/**
+ * Every part of "this function can see the evidence": SECURITY DEFINER, an owner that gets past
+ * RLS, and an owner that holds SELECT on both evidence tables. The last one matters because an
+ * owner without it passes the first two and then raises 42501 from inside the reader's own query.
+ * rolsuper is deliberately not consulted, for the reason migration 691's own comment gives: a
+ * superuser needs neither attribute, so treating one as unable to see is a fail-closed false
+ * alarm, and 691 owns both functions by migration_admin, which is not one.
+ */
 const sees = (fn: string) => `(SELECT p.prosecdef AND COALESCE(r.rolbypassrls, false)
+    AND has_table_privilege(p.proowner, 'public.admin_audit_log', 'SELECT')
+    AND has_table_privilege(p.proowner, 'public.admin_impersonation_stash', 'SELECT')
     FROM pg_proc p JOIN pg_roles r ON r.oid = p.proowner WHERE p.oid = to_regprocedure('${fn}'))`;
 /**
  * Existence of both functions, EXECUTE for the role that really calls each, and the ability
@@ -69,6 +78,8 @@ export const IMPERSONATION_READER_GATE_SQL = `SELECT
   has_function_privilege(current_user, to_regprocedure('${LIVENESS}'), 'EXECUTE') AS liveness_exec,
   ${sees(READER)} AS reader_sees,
   ${sees(LIVENESS)} AS liveness_sees,
+  (SELECT position('${IMPERSONATION_UNVERIFIED}' in p.prosrc) > 0
+    FROM pg_proc p WHERE p.oid = to_regprocedure('${READER}')) AS reader_sentinel,
   current_user::text AS login_role`;
 
 /**
@@ -98,6 +109,16 @@ export async function assertImpersonationReaderDeployed(
   }
   if (row.liveness_sees !== true) {
     throw new Error(`${LIVENESS} cannot read the impersonation evidence: it must be SECURITY DEFINER and owned by a BYPASSRLS role (migration 691)`);
+  }
+  // The deployed body, not just its decoration. 675 used to define this function too, and its body
+  // answers "could not read the evidence" with NULL - which resolveImpersonatingActor reads as no
+  // impersonation at all. Re-running an older migration after 691 (resolve-checksum-conflicts.ts, a
+  // rebuilt database, a renumbering) would reinstate it with every other property still true, so the
+  // sentinel in the body is the only thing that distinguishes the two. This gate is order-independent
+  // and runs on every deploy; a guard inside 691 could not help, because in the dangerous ordering
+  // 691 has already run.
+  if (row.reader_sentinel !== true) {
+    throw new Error(`${READER} has been reverted to a body that reports an unreadable evidence table as "no impersonation": it must return the ${IMPERSONATION_UNVERIFIED} sentinel (migration 691 owns this function; 675 must not define it)`);
   }
 }
 

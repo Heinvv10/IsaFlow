@@ -77,9 +77,26 @@ CREATE TRIGGER admin_impersonation_stash_truncate BEFORE TRUNCATE ON admin_imper
 -- equal by the integration test) when it cannot see past RLS, and NULL only when it looked and there was nothing.
 -- It returns rather than raising: this runs inside withAuth's transaction, where an exception would poison the
 -- transaction and 500 the request instead of failing the review closed.
+-- Both halves of being able to read the evidence, because either one missing produces the same
+-- wrong answer by a different route: the role must get past RLS, AND it must hold SELECT on the
+-- table. Without the privilege half, a migration_admin that lost SELECT on admin_audit_log would
+-- pass this check and then raise 42501 from the reader's own SELECT - inside withAuth's
+-- transaction, which is the 500 that returning-instead-of-raising exists to avoid. This is a
+-- targeted privilege probe, not a catch-all: a statement timeout, a lock, a corrupt page still
+-- raise, and should.
+--
+-- rolsuper is deliberately NOT consulted. A superuser bypasses RLS and every privilege check
+-- without either attribute being set, so a superuser-owned reader would read the evidence
+-- correctly while this function answered false, making every session unverified - a false alarm,
+-- and in the closed direction. It is also unreachable here: 691 owns both readers by
+-- migration_admin, which is not a superuser on this cluster, and the deploy gate asserts that
+-- ownership. Left as is so the fail-closed direction is the one a mistake takes; recorded because
+-- the next person will wonder.
 CREATE OR REPLACE FUNCTION public.impersonation_evidence_visible() RETURNS boolean
 LANGUAGE sql STABLE SET search_path = pg_catalog AS $$
   SELECT COALESCE((SELECT rolbypassrls FROM pg_roles WHERE rolname = current_user), false)
+    AND has_table_privilege(current_user, 'public.admin_audit_log', 'SELECT')
+    AND has_table_privilege(current_user, 'public.admin_impersonation_stash', 'SELECT')
 $$;
 ALTER FUNCTION public.impersonation_evidence_visible() OWNER TO migration_admin;
 REVOKE ALL ON FUNCTION public.impersonation_evidence_visible() FROM PUBLIC;
@@ -88,21 +105,32 @@ REVOKE ALL ON FUNCTION public.impersonation_evidence_visible() FROM PUBLIC;
 -- request transaction instead of returning the sentinel.
 GRANT EXECUTE ON FUNCTION public.impersonation_evidence_visible() TO app_user, platform_admin, migration_admin;
 
+-- plpgsql rather than sql, and an early RETURN rather than a CASE: Postgres checks table privileges for every
+-- relation a statement references when it plans it, so in a single SQL statement the unreadable-table branch is
+-- still enough to raise 42501 - proved on the fixture, where the CASE form answered the sentinel from
+-- impersonation_evidence_visible() and then raised anyway. In plpgsql each statement is planned when it is first
+-- executed, so returning before the SELECT means the SELECT is never planned and nothing raises.
 DROP FUNCTION IF EXISTS public.control_session_impersonator();
 CREATE FUNCTION public.control_session_impersonator()
-RETURNS text LANGUAGE sql STABLE SECURITY DEFINER SET search_path=pg_catalog,public,auth AS $$
-  SELECT CASE WHEN NOT public.impersonation_evidence_visible() THEN 'impersonation-state-unverified' ELSE
-    (SELECT l.admin_user_id::text FROM public.admin_audit_log l
-      WHERE l.action='impersonation_start' AND l.target_type='user'
-        AND l.target_id::text=auth.uid()
-        AND l.details->>'target_session_id'=
-          (nullif(current_setting('request.jwt.claims',true),'')::jsonb->>'session_id')
-      ORDER BY l.created_at DESC LIMIT 1) END
+RETURNS text LANGUAGE plpgsql STABLE SECURITY DEFINER SET search_path=pg_catalog,public,auth AS $$
+DECLARE v_actor text;
+BEGIN
+  IF NOT public.impersonation_evidence_visible() THEN RETURN 'impersonation-state-unverified'; END IF;
+  SELECT l.admin_user_id::text INTO v_actor FROM public.admin_audit_log l
+    WHERE l.action='impersonation_start' AND l.target_type='user'
+      AND l.target_id::text=auth.uid()
+      AND l.details->>'target_session_id'=
+        (nullif(current_setting('request.jwt.claims',true),'')::jsonb->>'session_id')
+    ORDER BY l.created_at DESC LIMIT 1;
+  RETURN v_actor;
+END;
 $$;
 ALTER FUNCTION public.control_session_impersonator() OWNER TO migration_admin;
 REVOKE ALL ON FUNCTION public.control_session_impersonator() FROM PUBLIC;
 GRANT EXECUTE ON FUNCTION public.control_session_impersonator() TO app_user,platform_admin;
 
 -- 677's liveness function needs no sentinel: it returns boolean, and a reader that cannot see the stash returns
--- false, which refuses the delegation proof. That is already the closed direction. The deploy gate
+-- false, which refuses the delegation proof. That is already the closed direction, and it keeps the sql form
+-- deliberately - a lost SELECT privilege raises there instead of returning, which impersonationActor catches,
+-- logs and treats as a refused proof, outside any request transaction. The deploy gate
 -- (assertImpersonationReaderDeployed) is what keeps a blinded reader off a live database for both functions.
