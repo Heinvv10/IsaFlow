@@ -7,6 +7,7 @@ import commitRoute from '../../../pages/api/accounting/bank-transactions-bulk-co
 import outstandingRoute from '../../../pages/api/accounting/provisional/outstanding';
 import dismissRoute from '../../../pages/api/accounting/provisional/[jeId]/dismiss';
 import autoPostRoute from '../../../pages/api/accounting/bank-auto-post';
+import journalActionRoute from '../../../pages/api/accounting/journal-entries-action';
 import {getAuthPool} from '@/lib/auth/authPool';
 import {requireControlTx,withControlRequest} from '@/modules/accounting/services/controls/context';
 import {fixtureConfigFromEnv} from '../../../scripts/forensic/fixture-bootstrap';
@@ -40,7 +41,8 @@ export async function provisionalControlFixture(){
   await pool.query("INSERT INTO bank_auto_post_settings(company_id,enabled,min_confidence,amount_cap,updated_by) VALUES($1,true,0.9,100000,$2)",[company,user.id]);
  }
  const routes={'/api/accounting/bank-transactions-bulk-commit':commitRoute,'/api/accounting/provisional/outstanding':outstandingRoute,
-  '/api/accounting/provisional/dismiss':dismissRoute,'/api/accounting/bank-auto-post':autoPostRoute};
+  '/api/accounting/provisional/dismiss':dismissRoute,'/api/accounting/bank-auto-post':autoPostRoute,
+  '/api/accounting/journal-entries-action':journalActionRoute};
  const server=createServer((req,res)=>{
   const url=new URL(req.url??'/','http://127.0.0.1'),jeId=url.searchParams.get('jeId');
   const route=routes[url.pathname as keyof typeof routes];

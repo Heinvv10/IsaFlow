@@ -20,7 +20,7 @@ import {
   postJournalEntry,
   reverseJournalEntry,
 } from '@/modules/accounting/services/gl/journalEntryService';
-import { isPostingRefusal } from '@/modules/accounting/services/gl/journalEntryPostingService';
+import { isPostingRefusal, GeneratedJournalOperationError } from '@/modules/accounting/services/gl/journalEntryPostingService';
 
 const JournalEntryActionSchema = z.object({
   id: UUID,
@@ -77,6 +77,9 @@ async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse) {
     // (journalControlService.ts) BEFORE it opens the controlled write, so it reaches here as an ordinary business
     // error rather than a poisoned control transaction (see runJournalControl).
     if (isPostingRefusal(err)) return apiResponse.error(res, ErrorCode.BUSINESS_RULE_VIOLATION, (err as Error).message);
+    // A journal a generated family owns is not postable or reversible from here: the kernel refuses it before the
+    // controlled write, and the answer names the source so the caller knows which operation to use instead.
+    if (err instanceof GeneratedJournalOperationError) return apiResponse.error(res, ErrorCode.BUSINESS_RULE_VIOLATION, err.message);
     const message = err instanceof Error ? err.message : 'Failed to perform journal entry action';
     log.error('Failed to perform journal entry action', { error: err }, 'accounting-api');
     return apiResponse.badRequest(res, message);
