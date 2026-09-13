@@ -50,7 +50,8 @@ it.each([
  ['reader missing',{reader:false,liveness:true,reader_exec:null,liveness_exec:true,reader_sees:null,liveness_sees:true,reader_sentinel:true},/control_session_impersonator\(\) is not deployed/],
  ['liveness missing',{reader:true,liveness:false,reader_exec:true,liveness_exec:null,reader_sees:true,liveness_sees:null,reader_sentinel:true},/impersonation_delegation_live\(.*\) is not deployed/],
  ['app_user cannot execute the reader',{reader:true,liveness:true,reader_exec:false,liveness_exec:true,reader_sees:true,liveness_sees:true,reader_sentinel:true},/app_user.*control_session_impersonator/],
- // 691 put RLS on the evidence tables, so a reader that cannot see past it is a deploy-stopping state too.
+ // 691 put RLS on the evidence tables, so a function that cannot read them - not SECURITY DEFINER,
+ // or an owner missing BYPASSRLS or SELECT - is a deploy-stopping state too.
  ['the reader cannot see the evidence',{reader:true,liveness:true,reader_exec:true,liveness_exec:true,reader_sees:false,liveness_sees:true,reader_sentinel:true},/control_session_impersonator\(\) cannot read the impersonation evidence/],
  ['liveness cannot see the evidence',{reader:true,liveness:true,reader_exec:true,liveness_exec:true,reader_sees:true,liveness_sees:false,reader_sentinel:true},/impersonation_delegation_live\(.*\) cannot read the impersonation evidence/],
  // Liveness runs from verifyToken on the DATABASE_URL login role, not as app_user.
@@ -60,7 +61,7 @@ it.each([
  // Missing EXECUTE would make every authenticated request 500 while an existence check passed.
  await expect(assertImpersonationReaderDeployed(async()=>[row])).rejects.toThrow(message);
 });
-it('passes the deploy gate only when both functions exist, both roles may execute them and both can see the evidence',async()=>{
+it('passes the deploy gate only when every question it asks is answered true',async()=>{
  const {assertImpersonationReaderDeployed}=await import('@/lib/auth/sessionImpersonation');
  await expect(assertImpersonationReaderDeployed(async()=>[{reader:true,liveness:true,reader_exec:true,liveness_exec:true,reader_sees:true,liveness_sees:true,reader_sentinel:true}]))
   .resolves.toBeUndefined();

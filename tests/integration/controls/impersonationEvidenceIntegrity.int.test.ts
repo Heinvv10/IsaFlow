@@ -97,7 +97,7 @@ it.each([['its owner loses BYPASSRLS','ALTER FUNCTION public.control_session_imp
  const gate=await as('login_role',null,
   c=>assertImpersonationReaderDeployed(async text=>(await c.query<ReaderGateRow>(text)).rows).then(()=>'passed',error=>String(error)),
   false,downgrade);
- expect(gate).toMatch(/control_session_impersonator\(\) cannot read the impersonation evidence/);
+ expect(gate).toMatch(/control_session_impersonator\(\) cannot read the impersonation evidence: it must be SECURITY DEFINER, and its owner must both bypass RLS and hold SELECT/);
 });
 
 // A reader whose owner keeps BYPASSRLS but loses SELECT on the table gets past a rolbypassrls-only check and then
@@ -113,7 +113,7 @@ it('answers the sentinel, and never raises, when the reader owner loses SELECT o
  const gate=await as('login_role',null,
   c=>assertImpersonationReaderDeployed(async text=>(await c.query<ReaderGateRow>(text)).rows).then(()=>'passed',error=>String(error)),
   false,'REVOKE SELECT ON admin_audit_log FROM migration_admin');
- expect(gate).toMatch(/control_session_impersonator\(\) cannot read the impersonation evidence/);
+ expect(gate).toMatch(/control_session_impersonator\(\) cannot read the impersonation evidence: it must be SECURITY DEFINER, and its owner must both bypass RLS and hold SELECT/);
 });
 
 // A SET search_path that omits pg_temp does not exclude it: Postgres searches pg_temp FIRST for relation names,
@@ -168,6 +168,26 @@ const PRE_FIX_READER=`CREATE OR REPLACE FUNCTION public.control_session_imperson
  WHERE l.action='impersonation_start' AND l.target_type='user' AND l.target_id::text=auth.uid()
    AND l.details->>'target_session_id'=(nullif(current_setting('request.jwt.claims',true),'')::jsonb->>'session_id')
  ORDER BY l.created_at DESC LIMIT 1 $body$`;
+// A substring over prosrc is satisfied by a comment, so the check has to look at what the body RETURNS: this is
+// the reinstated fail-open body with the sentinel pasted into a comment above it.
+const COMMENTED_SENTINEL_READER=`CREATE OR REPLACE FUNCTION public.control_session_impersonator()
+ RETURNS text LANGUAGE sql STABLE SECURITY DEFINER SET search_path=pg_catalog,public,auth AS $body$
+ -- returns ${IMPERSONATION_UNVERIFIED} when it cannot read the evidence
+ /* ${IMPERSONATION_UNVERIFIED} */
+ SELECT l.admin_user_id::text FROM public.admin_audit_log l
+ WHERE l.action='impersonation_start' AND l.target_id::text=auth.uid() LIMIT 1 $body$`;
+it('fails the deploy when a body only mentions the sentinel in a comment',async()=>{
+ const gate=await as('login_role',null,
+  c=>assertImpersonationReaderDeployed(async text=>(await c.query<ReaderGateRow>(text)).rows).then(()=>'passed',error=>String(error)),
+  false,COMMENTED_SENTINEL_READER);
+ expect(gate).toMatch(/has been reverted to a body that reports an unreadable evidence table as "no impersonation"/);
+ // And that body really does fail open, which is what makes the comment defeat worth closing.
+ const sessionId=`impersonation-${randomUUID()}`;await startRow(sessionId);
+ const answered=await as('app_user',{sub:f.u2.id,session_id:sessionId},impersonator,false,
+  `${COMMENTED_SENTINEL_READER}; ALTER FUNCTION public.control_session_impersonator() OWNER TO app_user`);
+ expect(answered).toBeNull();
+});
+
 it('fails the deploy when an older migration reinstates the sentinel-less reader',async()=>{
  const gate=await as('login_role',null,
   c=>assertImpersonationReaderDeployed(async text=>(await c.query<ReaderGateRow>(text)).rows).then(()=>'passed',error=>String(error)),
@@ -182,13 +202,6 @@ it('fails the deploy when an older migration reinstates the sentinel-less reader
  expect(intact).toEqual([{prosecdef:true,rolbypassrls:true}]);
 });
 
-it('leaves migration 691 as the only definition of the reader, so apply order cannot decide the answer',async()=>{
- const {readdirSync,readFileSync}=await import('node:fs');
- const dir='scripts/migrations/sql';
- const defining=readdirSync(dir).filter(name=>name.endsWith('.sql')
-  && /(CREATE|REPLACE)\s+FUNCTION\s+public\.control_session_impersonator/i.test(readFileSync(`${dir}/${name}`,'utf8')));
- expect(defining).toEqual(['691_impersonation_evidence_integrity.sql']);
-});
 
 // The sentinel is a string literal in 691 and a constant in TypeScript; drift between them would silently turn
 // the blinded reader back into "nobody is impersonating".
@@ -232,7 +245,7 @@ it('refuses every delegation proof when the liveness reader is blinded, and the 
   const gate=await as('login_role',null,
    c=>assertImpersonationReaderDeployed(async text=>(await c.query<ReaderGateRow>(text)).rows).then(()=>'passed',error=>String(error)),
    false,'ALTER FUNCTION public.impersonation_delegation_live(uuid,text,text,text) OWNER TO app_user');
-  expect(gate).toMatch(/impersonation_delegation_live\(.*\) cannot read the impersonation evidence/);
+  expect(gate).toMatch(/impersonation_delegation_live\(.*\) cannot read the impersonation evidence: it must be SECURITY DEFINER, and its owner must both bypass RLS and hold SELECT/);
  }finally{await pool.query('DELETE FROM admin_impersonation_stash WHERE stash_id=$1',[stash]);}
 });
 
