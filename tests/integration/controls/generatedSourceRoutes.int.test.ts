@@ -78,6 +78,13 @@ it('a UIF declaration payment posts its journal and marks the declaration paid',
  *   - and, because that code names the MECHANISM rather than the reason, the kernel's own refusal identity at the
  *     service level: `OPERATION_APPROVAL_REQUIRED`.
  *
+ * DO NOT DELETE THE SERVICE-LEVEL TEST BELOW AS REDUNDANT. Fourteen production sites set `controlWriteFailed`, so the
+ * HTTP assertion proves only that SOMETHING poisoned this request — a missing system account, a mismatched actor, any
+ * of them would answer identically. Only the paired test asserting `OPERATION_APPROVAL_REQUIRED` proves the approval
+ * policy was the cause; without it this suite would pass while the policy was never consulted. It asserts the class's
+ * `code` AND `name` because three classes in the tree carry that code (approvalExecutionService, apControlBoundary,
+ * arControlBoundary), so the code alone does not pin which one refused.
+ *
  * Asserting 422 is what this test SHOULD do, and cannot yet: an approval-required refusal is raised inside
  * `executeControlledOperation`, in the poisoning branch, so it reaches the client as a 500 for every direct journal
  * post on this branch. When that is fixed, the two status assertions below tighten to 4xx and the service-level

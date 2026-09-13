@@ -2,9 +2,9 @@
 /**
  * Unit tests for provisionalPostingService.ts
  *
- * Covers: predictFromHistory (tokenisation, dice-coefficient supplier matching,
- * history-mode confidence tiers) and postProvisional (skip guards, JE creation,
- * bank_transactions UPDATE).
+ * Covers: predictFromHistory (tokenisation, dice-coefficient supplier matching, history-mode confidence tiers) and
+ * postProvisional's own behaviour — the skip guards, what it hands the controlled allocation, and that it writes
+ * nothing itself. The VAT code it asks for is a separate concern: provisionalVatCode.test.ts.
  */
 
 import { describe, it, expect, vi, beforeEach } from 'vitest';
@@ -176,6 +176,9 @@ describe('predictFromHistory', () => {
 });
 
 // ── postProvisional ───────────────────────────────────────────────────────────
+// The VAT code this service asks the controlled allocation for is its own concern and lives in
+// provisionalVatCode.test.ts — the three statutory guards, the legacy-spelling normalisation, and the fact that the
+// allocation (not this service) resolves the VAT account and splits the amount.
 
 describe('postProvisional', () => {
   beforeEach(() => {
@@ -287,44 +290,6 @@ describe('postProvisional', () => {
     expect(statements.some((text) => /UPDATE|INSERT|DELETE/i.test(text))).toBe(false);
   });
 
-  it('asks for the plain vat code the guards allowed, leaving the split to the allocation', async () => {
-    vi.mocked(sqlMock).mockResolvedValueOnce([
-      { id: BANK_TX_ID, amount: -800, description: 'ESKOM HOLDINGS PAYMENT', status: 'imported', bank_account_id: 'ba-1', transaction_date: '2026-04-10' },
-    ] as never);
-    vi.mocked(sqlMock).mockResolvedValueOnce([{ id: SUPPLIER_ID, name: 'Eskom Holdings' }] as never);
-    vi.mocked(sqlMock).mockResolvedValueOnce(makeHistoryRows(GL_ACC_ID, 'S', 4) as never);
-    vi.mocked(sqlMock).mockResolvedValueOnce([] as never);
-    vi.mocked(sqlMock).mockResolvedValueOnce([] as never);
-
-    await postProvisional(COMPANY_ID, BANK_TX_ID, USER_ID);
-
-    // 'ai-provisional:v1' is stamped by the allocation effect from the plan's provisional block, not passed as posting
-    // metadata from here — proven on the real route in tests/integration/controls/provisionalControl.int.test.ts.
-    const call = vi.mocked(allocateProvisionalTransaction).mock.calls[0]!;
-    expect(call[5]).toBe('ESKOM HOLDINGS PAYMENT');
-    expect(call[6]).toBe('none');
-  });
-
-  it('normalises a legacy vat_code spelling to the plan\'s vocabulary, posting no VAT exactly as before', async () => {
-    // supplier_coding_history holds legacy spellings ('S', 'Z') beside the current vocabulary. The plan's enum accepts
-    // only the current one, so an unnormalised 'S' would be a ZodError — a FAULT that aborts the whole sweep — where the
-    // old arithmetic simply took the no-VAT branch (it split only on 'standard'). Same predicate, same posted amounts.
-    vi.mocked(sqlMock).mockResolvedValueOnce([
-      { id: BANK_TX_ID, amount: -1150, description: 'ESKOM HOLDINGS PAYMENT', status: 'imported', bank_account_id: 'ba-1', transaction_date: '2026-04-10' },
-    ] as never);
-    vi.mocked(sqlMock).mockResolvedValueOnce([{ id: SUPPLIER_ID, name: 'Eskom Holdings' }] as never);
-    vi.mocked(sqlMock).mockResolvedValueOnce(makeHistoryRows(GL_ACC_ID, 'S', 4) as never);
-    vi.mocked(sqlMock).mockResolvedValue([] as never);
-
-    await postProvisional(COMPANY_ID, BANK_TX_ID, USER_ID);
-
-    const call = vi.mocked(allocateProvisionalTransaction).mock.calls[0]!;
-    expect(call[6]).toBe('none');
-    // The allocation posts the gross to the expense account and the gross to the bank leg from this, exactly as the old
-    // hasVat=false branch did — the normalisation changes no amount, only the vocabulary.
-    expect(['none', 'standard', 'zero_rated', 'exempt']).toContain(call[6]);
-  });
-
   it('skips and returns "already provisional" when bank_tx status is not "imported"', async () => {
     vi.mocked(sqlMock).mockResolvedValueOnce([
       { id: BANK_TX_ID, amount: -800, description: 'ESKOM HOLDINGS', status: 'provisional', bank_account_id: 'ba-1', transaction_date: '2026-04-10' },
@@ -337,33 +302,6 @@ describe('postProvisional', () => {
     expect(vi.mocked(allocateProvisionalTransaction)).not.toHaveBeenCalled();
   });
 
-  it('refuses to repeat a wrong claim its own history taught it', async () => {
-    // The prediction is the most frequent vat_code on that supplier's prior
-    // lines, so a ledger already carrying the defect trains this path to
-    // reproduce it — Velocity's salary account has 34 historical lines at
-    // 'standard'. Nobody is watching here, so the claim is dropped.
-    vi.mocked(sqlMock).mockResolvedValueOnce([
-      { id: BANK_TX_ID, amount: -1150, description: 'PAYROLL SERVICES EFT', status: 'imported', bank_account_id: 'ba-1', transaction_date: '2026-04-25' },
-    ] as never);
-    vi.mocked(sqlMock).mockResolvedValueOnce([{ id: SUPPLIER_ID, name: 'Payroll Services' }] as never);
-    vi.mocked(sqlMock).mockResolvedValueOnce(makeHistoryRows(GL_ACC_ID, 'standard', 4) as never);
-    vi.mocked(sqlMock).mockResolvedValueOnce(
-      [{ vat_input_denied: false, account_code: '49784360', account_name: 'Salaries & Wages - EX4000' }] as never,
-    );
-    vi.mocked(sqlMock).mockResolvedValueOnce([{ account_name: 'Salaries & Wages - EX4000' }] as never);
-    vi.mocked(sqlMock).mockResolvedValue([] as never);
-
-    await postProvisional(COMPANY_ID, BANK_TX_ID, USER_ID);
-
-    // The code the allocation is asked for is 'none', so it posts the gross to the expense account and raises no VAT
-    // leg: the guard decides the claim, the allocation does the arithmetic. A 'standard' here is the R237,021.60 shape.
-    const call = vi.mocked(allocateProvisionalTransaction).mock.calls[0]!;
-    expect(call[6]).toBe('none');
-    // vat_input is never resolved by this service at all — the allocation owns the VAT account.
-    expect(vi.mocked(getSystemAccountId).mock.calls.map((c) => c[0]))
-      .not.toContain('vat_input');
-  });
-
   it('throws an error when the bank transaction is not found', async () => {
     vi.mocked(sqlMock).mockResolvedValueOnce([] as never); // no rows
 
@@ -372,33 +310,4 @@ describe('postProvisional', () => {
     );
   });
 
-  it('passes a surviving standard claim through, leaving the VAT account to the allocation', async () => {
-    vi.mocked(sqlMock).mockResolvedValueOnce([
-      { id: BANK_TX_ID, amount: -800, description: 'ESKOM HOLDINGS PAYMENT', status: 'imported', bank_account_id: 'ba-1', transaction_date: '2026-04-10' },
-    ] as never);
-    vi.mocked(sqlMock).mockResolvedValueOnce([{ id: SUPPLIER_ID, name: 'Eskom Holdings' }] as never);
-    // vat_code 'standard' → hasVat path; 4 consistent rows → confidence 0.9
-    vi.mocked(sqlMock).mockResolvedValueOnce(makeHistoryRows(GL_ACC_ID, 'standard', 4) as never);
-    // The unattended VAT guard reads the predicted account before the lines
-    // are built — twice, once per statute. A real supply name, so it passes
-    // the claim through unchanged and the vat_input lookup below still runs.
-    vi.mocked(sqlMock).mockResolvedValueOnce(
-      [{ vat_input_denied: false, account_code: '5700', account_name: 'Electricity & Water' }] as never,
-    );
-    vi.mocked(sqlMock).mockResolvedValueOnce([{ account_name: 'Electricity & Water' }] as never);
-    // THIRD guard read, and only on a code that survived the other two: the
-    // contra's subtype, because a rule whose contra IS a bank account is a
-    // transfer and claims nothing. An expense account, so the claim stands.
-    vi.mocked(sqlMock).mockResolvedValueOnce([{ account_subtype: 'default_expense' }] as never);
-    vi.mocked(sqlMock).mockResolvedValue([] as never);
-
-    await postProvisional(COMPANY_ID, BANK_TX_ID, USER_ID);
-
-    // A claim none of the three guards objected to reaches the allocation as 'standard'; the allocation resolves the
-    // VAT system account and REFUSES when it is missing or ambiguous ('Allocation VAT account unavailable'), so this
-    // service no longer resolves vat_input or does the net/VAT arithmetic.
-    const call = vi.mocked(allocateProvisionalTransaction).mock.calls[0]!;
-    expect(call[6]).toBe('standard');
-    expect(vi.mocked(getSystemAccountId).mock.calls.map((c) => c[0])).not.toContain('vat_input');
-  });
 });
