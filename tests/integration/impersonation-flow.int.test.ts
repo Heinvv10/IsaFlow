@@ -4,6 +4,7 @@ import type { NextApiRequest, NextApiResponse } from 'next';
 import { Pool } from 'pg';
 import { adminCreateUser, adminDeleteUser, signIn } from '@/lib/auth/gotrue';
 import { verifyToken } from '@/lib/auth/gotrue';
+import { assertDisposable } from './mfa-impersonation-postgres.helpers';
 
 const JWT_SECRET = process.env.JWT_SECRET;
 const DATABASE_URL = process.env.DATABASE_URL;
@@ -11,6 +12,10 @@ const MIGRATION_ADMIN_DATABASE_URL = process.env.MIGRATION_ADMIN_DATABASE_URL;
 if (!JWT_SECRET || !DATABASE_URL || !MIGRATION_ADMIN_DATABASE_URL) {
   throw new Error('JWT_SECRET + DATABASE_URL + MIGRATION_ADMIN_DATABASE_URL required');
 }
+
+// The audit rows this suite writes can no longer be removed by any role (691 makes them
+// append-only), so it must never be pointed at a database anyone keeps.
+assertDisposable();
 
 // Use DATABASE_URL (postgres) so we can read/write all tables in seed + cleanup
 const seedPool = new Pool({ connectionString: DATABASE_URL, max: 2 });
@@ -78,12 +83,7 @@ describe('impersonation flow (integration)', () => {
   });
 
   afterAll(async () => {
-    await seedPool.query(
-      `DELETE FROM admin_audit_log
-        WHERE admin_user_id IN ($1,$2)
-           OR (target_type = 'user' AND target_id IN ($1,$2))`,
-      [adminId, targetId]
-    );
+    // admin_audit_log is append-only for every role (691); the synthetic rows stay, keyed by this run's ids.
     await seedPool.query(
       `DELETE FROM admin_impersonation_stash
         WHERE admin_user_id IN ($1,$2) OR target_user_id IN ($1,$2)`,

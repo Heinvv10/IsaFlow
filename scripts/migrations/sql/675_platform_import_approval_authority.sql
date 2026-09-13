@@ -1,3 +1,16 @@
+-- DEPLOY NOTE - this file was edited after it had been applied, so every database that already
+-- carries it will stop the deploy at scripts/apply-migrations.ts with "Checksum conflicts -
+-- migration files edited after apply" and exit 2, BEFORE any later gate runs. Clear it once per
+-- database, then deploy again:
+--
+--   bun scripts/migrations/resolve-checksum-conflicts.ts 675_platform_import_approval_authority.sql
+--
+-- Re-running this file is safe and re-recording its checksum is safe. The edit REMOVED the
+-- definition of control_session_impersonator() from here (see the comment where it used to be,
+-- below); 691 is now its only definition, so neither re-applying this file nor accepting its new
+-- checksum can restore the sentinel-less reader body that used to live here. Everything this file
+-- still does is idempotent.
+--
 -- Persist platform-import requesters as their real global authority. They are
 -- never represented as tenant administrators; tenant reviewers remain normal
 -- company members and all authority is rechecked when approval is used.
@@ -149,21 +162,19 @@ ALTER FUNCTION public.control_approval_authorities(uuid,uuid) OWNER TO migration
 REVOKE ALL ON FUNCTION public.control_approval_authorities(uuid,uuid) FROM PUBLIC;
 GRANT EXECUTE ON FUNCTION public.control_approval_authorities(uuid,uuid) TO app_user,platform_admin;
 
--- An impersonated browser session presents the impersonated member's own JWT,
--- so nothing in the tenant schema can tell it apart from that member working.
--- The impersonation route records the target session it minted; this is the
--- durable side of that fact, readable by the tenant role for exactly the
--- current session and surviving a dropped delegation-proof cookie or a refresh.
-DROP FUNCTION IF EXISTS public.control_session_impersonator();
-CREATE FUNCTION public.control_session_impersonator()
-RETURNS text LANGUAGE sql STABLE SECURITY DEFINER SET search_path=pg_catalog,public,auth AS $$
-  SELECT l.admin_user_id::text FROM public.admin_audit_log l
-  WHERE l.action='impersonation_start' AND l.target_type='user'
-    AND l.target_id::text=auth.uid()
-    AND l.details->>'target_session_id'=
-      (nullif(current_setting('request.jwt.claims',true),'')::jsonb->>'session_id')
-  ORDER BY l.created_at DESC LIMIT 1
-$$;
-ALTER FUNCTION public.control_session_impersonator() OWNER TO migration_admin;
-REVOKE ALL ON FUNCTION public.control_session_impersonator() FROM PUBLIC;
-GRANT EXECUTE ON FUNCTION public.control_session_impersonator() TO app_user,platform_admin;
+-- control_session_impersonator() - which reads the impersonation_start row the impersonation
+-- route wrote, so a tenant session can be told apart from the member it impersonates - used to
+-- be defined here. It now lives ONLY in 691_impersonation_evidence_integrity.sql, and this
+-- file must not define it again.
+--
+-- 691 put row-level security on admin_audit_log, and the reader only sees the evidence while
+-- the role it executes as can. That made the difference between "looked, nobody is
+-- impersonating" and "could not look" load-bearing, and 691's body answers the second with the
+-- unverified sentinel so the review kernel fails closed. The body that used to be here answers
+-- both with NULL, which reads as no impersonation - fail-open. Two definitions across two files
+-- means the later apply wins, and re-running THIS file after 691 would silently reinstate the
+-- fail-open reader: exactly what resolve-checksum-conflicts.ts does to an amended migration, a
+-- rebuilt fixture does, and the pending renumbering against master invites. One definition, so
+-- apply order cannot decide the answer. assertImpersonationReaderDeployed asserts the sentinel
+-- is present in the deployed body on every deploy, which is what catches a reinstatement
+-- however it arrives.

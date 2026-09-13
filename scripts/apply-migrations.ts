@@ -227,6 +227,11 @@ async function main(): Promise<void> {
         for (const c of plan.conflicts) {
           console.error(`  ${c.name}  file=${c.fileChecksum.slice(0, 8)}  db=${(c.dbChecksum ?? 'null').slice(0, 8)}`);
         }
+        // The deploy stops here, before every later gate, and the fix is a separate command an
+        // operator has to know exists. Read the file's own header first: re-recording a checksum
+        // accepts the edit, and re-running the file applies it, so both have to be safe for THAT file.
+        console.error('\nTo accept an edit that is safe to re-apply, once per database, then deploy again:');
+        console.error(`  bun scripts/migrations/resolve-checksum-conflicts.ts ${plan.conflicts.map((c) => c.name).join(' ')}`);
         process.exit(2);
       }
 
