@@ -47,7 +47,7 @@ ALTER TABLE admin_impersonation_stash FORCE ROW LEVEL SECURITY;
 -- Append-only for every role, BYPASSRLS included: an audit row is never changed or removed, and a stash row is
 -- never changed. Its DELETE stays with the login role for the reason above.
 CREATE OR REPLACE FUNCTION public.impersonation_evidence_append_only() RETURNS trigger
-LANGUAGE plpgsql SET search_path = pg_catalog AS $$
+LANGUAGE plpgsql SET search_path = pg_catalog, pg_temp AS $$
 BEGIN
   RAISE EXCEPTION 'Impersonation evidence refused: % rows are append-only', TG_TABLE_NAME USING ERRCODE='23514';
 END;
@@ -92,9 +92,17 @@ CREATE TRIGGER admin_impersonation_stash_truncate BEFORE TRUNCATE ON admin_imper
 -- migration_admin, which is not a superuser on this cluster, and the deploy gate asserts that
 -- ownership. Left as is so the fail-closed direction is the one a mistake takes; recorded because
 -- the next person will wonder.
+-- Every relation reference here is schema-qualified and pg_temp is pinned LAST, because a SET search_path that
+-- omits pg_temp does not exclude it: Postgres still searches pg_temp FIRST for relation names, so an unqualified
+-- `pg_roles` resolves to a temp view any tenant session can create. Doing that to this function is reachable by
+-- the impersonated party and breaks it in both directions - a temp view it may not read raises inside withAuth's
+-- transaction (a tenant-triggerable 500 on the request path), and one it grants itself SELECT on makes the reader
+-- answer NULL, the fail-open this whole migration exists to close. pg_temp is named explicitly and last so the
+-- position is pinned rather than left implicit. Functions are not exposed to this: pg_temp is never searched for
+-- them, so has_table_privilege() and auth.uid() need no qualification.
 CREATE OR REPLACE FUNCTION public.impersonation_evidence_visible() RETURNS boolean
-LANGUAGE sql STABLE SET search_path = pg_catalog AS $$
-  SELECT COALESCE((SELECT rolbypassrls FROM pg_roles WHERE rolname = current_user), false)
+LANGUAGE sql STABLE SET search_path = pg_catalog, pg_temp AS $$
+  SELECT COALESCE((SELECT rolbypassrls FROM pg_catalog.pg_roles WHERE rolname = current_user), false)
     AND has_table_privilege(current_user, 'public.admin_audit_log', 'SELECT')
     AND has_table_privilege(current_user, 'public.admin_impersonation_stash', 'SELECT')
 $$;
@@ -112,7 +120,7 @@ GRANT EXECUTE ON FUNCTION public.impersonation_evidence_visible() TO app_user, p
 -- executed, so returning before the SELECT means the SELECT is never planned and nothing raises.
 DROP FUNCTION IF EXISTS public.control_session_impersonator();
 CREATE FUNCTION public.control_session_impersonator()
-RETURNS text LANGUAGE plpgsql STABLE SECURITY DEFINER SET search_path=pg_catalog,public,auth AS $$
+RETURNS text LANGUAGE plpgsql STABLE SECURITY DEFINER SET search_path=pg_catalog,public,auth,pg_temp AS $$
 DECLARE v_actor text;
 BEGIN
   IF NOT public.impersonation_evidence_visible() THEN RETURN 'impersonation-state-unverified'; END IF;

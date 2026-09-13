@@ -116,6 +116,49 @@ it('answers the sentinel, and never raises, when the reader owner loses SELECT o
  expect(gate).toMatch(/control_session_impersonator\(\) cannot read the impersonation evidence/);
 });
 
+// A SET search_path that omits pg_temp does not exclude it: Postgres searches pg_temp FIRST for relation names,
+// so an unqualified catalogue reference inside the reader's control-flow gate is shadowable by any tenant session -
+// the impersonated party included. Both directions were live before the qualification: a shadow view the definer
+// may not read raised inside withAuth's transaction, and one the tenant granted itself SELECT on made the reader
+// answer NULL, which reads as no impersonation.
+it.each([['healthy',undefined],['blinded','ALTER FUNCTION public.control_session_impersonator() OWNER TO app_user']] as const)(
+ 'ignores a tenant temp view shadowing the catalogue, in the %s state',async(state,downgrade)=>{
+ const sessionId=`impersonation-${randomUUID()}`;await startRow(sessionId);
+ const answer=await as('app_user',{sub:f.u2.id,session_id:sessionId},async c=>{
+  // Exactly what a tenant session can do for itself: the view claims the executing role bypasses RLS.
+  await c.query(`CREATE TEMP VIEW pg_roles AS SELECT '${state==='blinded'?'app_user':'migration_admin'}'::name AS rolname,true AS rolbypassrls`);
+  await c.query('GRANT SELECT ON pg_roles TO app_user');
+  return impersonator(c);
+ },false,downgrade);
+ // Healthy: the real evidence, no raise. Blinded: the sentinel, never NULL.
+ expect(answer).toBe(state==='blinded'?IMPERSONATION_UNVERIFIED:admin);
+});
+
+// The whole shadowable class, across every function the impersonation path reaches: no unqualified relation
+// reference in any of them, and pg_temp pinned last in the three that 691 owns. 677's liveness function is in the
+// qualification half but not the pinning half - every relation it names is already schema-qualified, so nothing in
+// it is shadowable, and editing 677 to pin pg_temp would cost a second checksum conflict on every database for a
+// property this test already enforces directly. If it ever gains an unqualified reference, the loop below fails.
+const PINS_PG_TEMP=['control_session_impersonator','impersonation_evidence_visible','impersonation_evidence_append_only'];
+it('leaves no unqualified relation reference in any function the impersonation path reaches',async()=>{
+ // pg_temp is never searched for functions, so has_table_privilege() and auth.uid() are not exposed; relations are.
+ const bodies=await pool.query<{proname:string;prosrc:string;config:string[]|null}>(
+  `SELECT proname,prosrc,proconfig AS config FROM pg_proc WHERE proname IN
+    ('control_session_impersonator','impersonation_evidence_visible','impersonation_evidence_append_only','impersonation_delegation_live')`);
+ expect(bodies.rows.map(row=>row.proname).sort()).toEqual(['control_session_impersonator','impersonation_delegation_live',
+  'impersonation_evidence_append_only','impersonation_evidence_visible']);
+ for(const row of bodies.rows){
+  const relations=row.prosrc.match(/\b(?:FROM|JOIN|INTO)\s+(?!v_|STRICT\b)([a-z_][a-z0-9_.]*)/gi)??[];
+  for(const reference of relations){
+   const name=reference.split(/\s+/)[1]!;
+   // A local plpgsql variable target (SELECT ... INTO v_actor) is not a relation reference.
+   if(name.startsWith('v_'))continue;
+   expect(name,`${row.proname}: ${reference}`).toMatch(/^(pg_catalog|public|auth|app)\./);
+  }
+  if(PINS_PG_TEMP.includes(row.proname))expect(row.config?.join(','),`${row.proname} search_path`).toMatch(/pg_temp$/);
+ }
+});
+
 // 675 used to define this reader too. Re-running it after 691 - resolve-checksum-conflicts.ts on an amended
 // migration, a rebuilt database, the pending renumbering - would reinstate the body that answers an unreadable
 // table with NULL, with every other property the gate checks still true. The deploy gate is what catches it.
