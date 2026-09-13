@@ -73,7 +73,9 @@ CREATE FUNCTION public.control_approval_authorities(p_company uuid,p_approval uu
 RETURNS TABLE(person_id text,role text,authority_kind text,platform_role text,is_active boolean,status text,
   suspended_at timestamptz,company_status text,company_suspended_at timestamptz,permissions jsonb,
   grant_valid boolean,current_scopes text[])
-LANGUAGE plpgsql SECURITY DEFINER SET search_path=pg_catalog,public,app,auth AS $$
+-- pg_temp pinned LAST: unnamed it is searched FIRST, for types as well as relations, so a tenant temp
+-- type can shadow a cast in this body and raise. Every relation here is already schema-qualified.
+LANGUAGE plpgsql SECURITY DEFINER SET search_path=pg_catalog,public,app,auth,pg_temp AS $$
 DECLARE
   v_person text;
   v_request record;
