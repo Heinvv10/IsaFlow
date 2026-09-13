@@ -170,7 +170,17 @@ export async function createAdjustmentEntry(
       description: `Bank recon adjustment: ${description}`,
       // source_record_id, NOT source_document_id: the latter FKs to
       // captured_documents (migration 409) and a reconciliation id throws on it.
-      source: 'auto_bank_recon', sourceRecordId: reconciliationId, lines,
+      //
+      // 'auto_adjustment', NOT 'auto_bank_recon'. The kernel reserves
+      // 'auto_bank_recon' for journals a controlled bank operation generates
+      // (bank_allocation.post and its reversal), and refuses a direct post of
+      // one — this call, which carries no parent control, was refused on every
+      // adjustment. An adjustment is not a generated posting: the user typed
+      // the amount, the account and the narrative on the reconciliation screen,
+      // and it goes through `journal.post` under the company's journal approval
+      // policy like any other manual-equivalent entry. The reconciliation is
+      // still named in source_record_id, which is what the cancel guard reads.
+      source: 'auto_adjustment', sourceRecordId: reconciliationId, lines,
     }, userId);
     await postJournalEntry(companyId, je.id, userId);
     await updateReconciledBalance(companyId, reconciliationId);
