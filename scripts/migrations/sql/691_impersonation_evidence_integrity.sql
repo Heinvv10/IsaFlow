@@ -22,6 +22,15 @@
 --                          Nothing updates a row.
 -- No tenant (app_user) path reads or writes either table: the readers it needs are SECURITY DEFINER, owned by
 -- migration_admin (BYPASSRLS), so they see through the RLS enabled here.
+--
+-- Two facts about the cluster's roles are what make this migration sound in both directions. They are stated
+-- here because the next person will assume otherwise, and flipping either breaks 691 in opposite ways:
+--   The DATABASE_URL login role is `postgres` with rolsuper = FALSE (Supabase's real superuser is
+--   supabase_admin). A superuser would be bound by the append-only triggers too - triggers fire regardless of
+--   privilege - but it can ALTER TABLE ... DISABLE TRIGGER or set session_replication_role, so "refused for
+--   every role" is a statement about roles that are not superusers, and the application's role is one of them.
+--   That same role has rolbypassrls = TRUE, which is why FORCE ROW LEVEL SECURITY below does not lock the
+--   application out of the reads it legitimately does (loadStash, end-impersonation's audit reads).
 
 REVOKE INSERT, UPDATE, DELETE, TRUNCATE ON TABLE admin_audit_log FROM app_user;
 REVOKE INSERT, UPDATE, DELETE, TRUNCATE ON TABLE admin_impersonation_stash FROM app_user;
@@ -58,3 +67,42 @@ CREATE TRIGGER admin_impersonation_stash_append_only BEFORE UPDATE ON admin_impe
 DROP TRIGGER IF EXISTS admin_impersonation_stash_truncate ON admin_impersonation_stash;
 CREATE TRIGGER admin_impersonation_stash_truncate BEFORE TRUNCATE ON admin_impersonation_stash
   FOR EACH STATEMENT EXECUTE FUNCTION public.impersonation_evidence_append_only();
+
+-- Enabling RLS makes 675's reader depend on a property that used to be cosmetic: it can only see the evidence
+-- while the role it executes as bypasses RLS. Take that away - the function loses SECURITY DEFINER, or its owner
+-- loses BYPASSRLS - and the SELECT finds nothing, which the old reader reported as NULL. resolveImpersonatingActor
+-- reads NULL as "nobody is impersonating this session", the exact opposite of what happened, while it reads an
+-- absent function as unverified and fails closed. So the reader now answers the two cases differently: it returns
+-- the unverified sentinel (the string IMPERSONATION_UNVERIFIED in src/lib/auth/impersonationState.ts, asserted
+-- equal by the integration test) when it cannot see past RLS, and NULL only when it looked and there was nothing.
+-- It returns rather than raising: this runs inside withAuth's transaction, where an exception would poison the
+-- transaction and 500 the request instead of failing the review closed.
+CREATE OR REPLACE FUNCTION public.impersonation_evidence_visible() RETURNS boolean
+LANGUAGE sql STABLE SET search_path = pg_catalog AS $$
+  SELECT COALESCE((SELECT rolbypassrls FROM pg_roles WHERE rolname = current_user), false)
+$$;
+ALTER FUNCTION public.impersonation_evidence_visible() OWNER TO migration_admin;
+REVOKE ALL ON FUNCTION public.impersonation_evidence_visible() FROM PUBLIC;
+-- migration_admin because the readers are SECURITY DEFINER and run as their owner; app_user because a reader
+-- that has LOST security definer is evaluated as the tenant role, where a missing grant would raise inside the
+-- request transaction instead of returning the sentinel.
+GRANT EXECUTE ON FUNCTION public.impersonation_evidence_visible() TO app_user, platform_admin, migration_admin;
+
+DROP FUNCTION IF EXISTS public.control_session_impersonator();
+CREATE FUNCTION public.control_session_impersonator()
+RETURNS text LANGUAGE sql STABLE SECURITY DEFINER SET search_path=pg_catalog,public,auth AS $$
+  SELECT CASE WHEN NOT public.impersonation_evidence_visible() THEN 'impersonation-state-unverified' ELSE
+    (SELECT l.admin_user_id::text FROM public.admin_audit_log l
+      WHERE l.action='impersonation_start' AND l.target_type='user'
+        AND l.target_id::text=auth.uid()
+        AND l.details->>'target_session_id'=
+          (nullif(current_setting('request.jwt.claims',true),'')::jsonb->>'session_id')
+      ORDER BY l.created_at DESC LIMIT 1) END
+$$;
+ALTER FUNCTION public.control_session_impersonator() OWNER TO migration_admin;
+REVOKE ALL ON FUNCTION public.control_session_impersonator() FROM PUBLIC;
+GRANT EXECUTE ON FUNCTION public.control_session_impersonator() TO app_user,platform_admin;
+
+-- 677's liveness function needs no sentinel: it returns boolean, and a reader that cannot see the stash returns
+-- false, which refuses the delegation proof. That is already the closed direction. The deploy gate
+-- (assertImpersonationReaderDeployed) is what keeps a blinded reader off a live database for both functions.
