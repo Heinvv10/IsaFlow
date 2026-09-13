@@ -4,6 +4,7 @@ import type { NextApiRequest, NextApiResponse } from 'next';
 import { Pool } from 'pg';
 import { adminCreateUser, adminDeleteUser, signIn } from '@/lib/auth/gotrue';
 import { verifyToken } from '@/lib/auth/gotrue';
+import { assertDisposable } from './mfa-impersonation-postgres.helpers';
 
 const JWT_SECRET = process.env.JWT_SECRET;
 const DATABASE_URL = process.env.DATABASE_URL;
@@ -11,6 +12,10 @@ const MIGRATION_ADMIN_DATABASE_URL = process.env.MIGRATION_ADMIN_DATABASE_URL;
 if (!JWT_SECRET || !DATABASE_URL || !MIGRATION_ADMIN_DATABASE_URL) {
   throw new Error('JWT_SECRET + DATABASE_URL + MIGRATION_ADMIN_DATABASE_URL required');
 }
+
+// The audit rows this suite writes can no longer be removed by any role (691 makes them
+// append-only), so it must never be pointed at a database anyone keeps.
+assertDisposable();
 
 // Use DATABASE_URL (postgres) so we can read/write all tables in seed + cleanup
 const seedPool = new Pool({ connectionString: DATABASE_URL, max: 2 });
