@@ -24,11 +24,12 @@ it('fails the deploy when the deployed reader body has lost the unverified senti
 });
 
 it.each(['reader_sees','liveness_sees'] as const)('fails the deploy when %s says the function cannot see the evidence',async field=>{
- // 691 put RLS on both evidence tables, so a reader that is not SECURITY DEFINER, or whose owner
- // lost BYPASSRLS, silently finds nothing: every session unverified, every proof refused.
+ // 691 put RLS on both evidence tables, so a reader that is not SECURITY DEFINER, whose owner lost
+ // BYPASSRLS, or whose owner lost SELECT, cannot read them: every session unverified, every proof
+ // refused - and in the lost-SELECT case the reader would raise 42501 instead of answering.
  const state={reader:true,liveness:true,reader_exec:true,liveness_exec:true,reader_sees:true,liveness_sees:true,reader_sentinel:true,[field]:false};
  await expect(runImpersonationReaderGate(async()=>[state],vi.fn()))
-  .rejects.toThrow(/cannot read the impersonation evidence: it must be SECURITY DEFINER and owned by a BYPASSRLS role/);
+  .rejects.toThrow(/cannot read the impersonation evidence: it must be SECURITY DEFINER, and its owner must both bypass RLS and hold SELECT on admin_audit_log and admin_impersonation_stash/);
 });
 
 /**
@@ -48,9 +49,12 @@ it('asks the database every question the gate decides on, in one statement',asyn
  // The owner must hold SELECT on both evidence tables, or the reader raises 42501 from its own query.
  expect(text).toContain("has_table_privilege(p.proowner, 'public.admin_audit_log', 'SELECT')");
  expect(text).toContain("has_table_privilege(p.proowner, 'public.admin_impersonation_stash', 'SELECT')");
- // The deployed body must still carry the sentinel: an older migration re-applied after 691 restores a body
- // that answers an unreadable evidence table with NULL, with every other property here still true.
- expect(text).toContain(`position('${IMPERSONATION_UNVERIFIED}' in p.prosrc) > 0`);
+ // The deployed body must still RETURN the sentinel: an older migration re-applied after 691 restores a body
+ // that answers an unreadable evidence table with NULL, with every other property here still true. Matched on
+ // the RETURN with comments stripped, because a plain substring over prosrc is satisfied by a comment.
+ expect(text).toContain(`~ 'RETURN\\s+''${IMPERSONATION_UNVERIFIED}'''`);
+ expect(text).toContain("regexp_replace(p.prosrc, '/\\*.*?\\*/', '', 'gs')");
+ expect(text).toContain("'--[^\\n]*', '', 'g'");
  expect(text).toContain('AS reader_sentinel');
 });
 
