@@ -20,6 +20,7 @@ import { parseOfxStatement } from '../../utils/bankOfxParser';
 import { parseQifStatement } from '../../utils/bankQifParser';
 import type { BankFormat, BankCsvParseResult } from '../../types/bank.types';
 import { autoLinkImportedBatchTransfers, relinkTransferCounterparts } from './bankTransferLinkService';
+import { requireControlTx } from '../controls/context';
 
 export interface BulkImportContext {
   bulkImportId: string;
@@ -100,8 +101,15 @@ export async function importBankStatement(
           AND status = 'imported'
       `) as { id: string }[];
       if (outflowIds.length > 0) {
-        const systemUser = '00000000-0000-0000-0000-000000000000';
-        await sweep(companyId, outflowIds.map((r) => String(r.id)), 'import', systemUser);
+        // The REQUEST's principal, never a synthetic system id. The sweep now
+        // posts through the controlled bank allocation, which authenticates the
+        // acting person against the control transaction — a made-up
+        // 00000000-… user was refused as a context mismatch, poisoning the
+        // transaction and answering 500 for the whole statement. With no control
+        // request there is no principal to post as: requireControlTx refuses
+        // here, and the import completes with nothing auto-posted.
+        const { personId } = requireControlTx().principal;
+        await sweep(companyId, outflowIds.map((r) => String(r.id)), 'import', personId);
       }
     } catch (provErr) {
       log.warn('auto-post sweep failed after import — non-fatal', { batchId, error: provErr }, 'accounting');
@@ -244,8 +252,15 @@ export async function importParsedTransactions(
           AND status = 'imported'
       `) as { id: string }[];
       if (outflowIds.length > 0) {
-        const systemUser = '00000000-0000-0000-0000-000000000000';
-        await sweep(companyId, outflowIds.map((r) => String(r.id)), 'import', systemUser);
+        // The REQUEST's principal, never a synthetic system id. The sweep now
+        // posts through the controlled bank allocation, which authenticates the
+        // acting person against the control transaction — a made-up
+        // 00000000-… user was refused as a context mismatch, poisoning the
+        // transaction and answering 500 for the whole statement. With no control
+        // request there is no principal to post as: requireControlTx refuses
+        // here, and the import completes with nothing auto-posted.
+        const { personId } = requireControlTx().principal;
+        await sweep(companyId, outflowIds.map((r) => String(r.id)), 'import', personId);
       }
     } catch (provErr) {
       log.warn('auto-post sweep failed after parsed import — non-fatal', { batchId, error: provErr }, 'accounting');

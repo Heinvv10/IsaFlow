@@ -22,6 +22,7 @@ import {
   resolveReversalDate,
   reverseJournalEntry,
 } from '@/modules/accounting/services/gl/journalEntryService';
+import { GeneratedJournalOperationError } from '@/modules/accounting/services/gl/journalEntryPostingService';
 import { fmtDate } from '@/lib/fmtDate';
 import { mcpPostingAgent } from '../postingAgent';
 import { NOT_FOUND, guardCastableArgs, ok, safeErrorText, strArg, toolError } from './toolHelpers';
@@ -130,11 +131,19 @@ export const reverseJournalEntryTool: McpTool = {
       return { ...ok(result), wroteNothing: true };
     }
 
-    // Nothing below is caught.
-    const reversal = await reverseJournalEntry(ctx.companyId, id, ctx.userId, {
-      postingAgent: mcpPostingAgent(TOOL),
-      ...(reversalDate ? { reversalDate } : {}),
-    });
+    // Nothing below is caught EXCEPT the one refusal the kernel raises before it opens the controlled write: this
+    // journal belongs to a generated family and is reversed through the operation that owns it. It writes nothing, and
+    // the agent can act on it — which operation to use — where a bare tool failure told it only that something broke.
+    let reversal;
+    try {
+      reversal = await reverseJournalEntry(ctx.companyId, id, ctx.userId, {
+        postingAgent: mcpPostingAgent(TOOL),
+        ...(reversalDate ? { reversalDate } : {}),
+      });
+    } catch (err) {
+      if (err instanceof GeneratedJournalOperationError) return toolError(err.message);
+      throw err;
+    }
 
     return ok({
       reversed_entry_id: id,

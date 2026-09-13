@@ -23,6 +23,7 @@ import {
 } from '@/modules/accounting/services/bank/autoPostGateService';
 import { allocateTransaction } from '@/modules/accounting/services/bank/bankAllocationService';
 import { postProvisional } from '@/modules/accounting/services/capture/provisionalPostingService';
+import { OperationApprovalRequiredError } from '@/modules/accounting/services/controls/approvalExecutionService';
 
 const ON: AutoPostSettings = { enabled: true, minConfidence: 0.9, amountCap: 10000, llmEnabled: false, llmMinConfidence: 0.95, llmAmountCap: 2000 };
 const tx = (over: Partial<GateTx> = {}): GateTx => ({
@@ -271,7 +272,7 @@ describe('sweep', () => {
     expect(r.skipped).toEqual([{ txId: 't1', reason: 'confidence too low' }]);
   });
 
-  it('isolates a per-tx failure and keeps sweeping', async () => {
+  it('counts a typed refusal as this row\'s outcome and keeps sweeping', async () => {
     routeSql([
       { match: /FROM bank_auto_post_settings/, rows: [{ enabled: true, min_confidence: '0.9', amount_cap: '10000', llm_enabled: false, llm_min_confidence: '0.95', llm_amount_cap: '2000' }] },
       { match: /FROM bank_transactions\s+WHERE id = ANY/, rows: [
@@ -283,12 +284,28 @@ describe('sweep', () => {
       { match: /UPDATE bank_auto_post_runs/, rows: [] },
     ]);
     (allocateTransaction as ReturnType<typeof vi.fn>)
-      .mockRejectedValueOnce(new Error('boom'))
+      .mockRejectedValueOnce(new OperationApprovalRequiredError())
       .mockResolvedValueOnce({ journalEntryId: 'je-2' });
 
     const r = await sweep('co-1', ['t1', 't2'], 'categorization', 'u-1');
     expect(r.posted).toBe(1);
-    expect(r.skipped).toContainEqual({ txId: 't1', reason: 'boom' });
+    expect(r.skipped).toContainEqual({ txId: 't1', reason: 'Independent operation approval is required' });
+  });
+
+  it('lets a FAULT abort the run instead of counting it as a skip', async () => {
+    // The same classifier the rule sweep uses: only the kernel's typed refusals are outcomes. A plain Error — or a
+    // request already poisoned, which withAuth answers 500 for regardless — must not be reported as "N skipped" beside
+    // a 200, because the rows posted before it would be committed and the defect would never surface.
+    routeSql([
+      { match: /FROM bank_auto_post_settings/, rows: [{ enabled: true, min_confidence: '0.9', amount_cap: '10000', llm_enabled: false, llm_min_confidence: '0.95', llm_amount_cap: '2000' }] },
+      { match: /FROM bank_transactions\s+WHERE id = ANY/, rows: [
+        { id: 't1', status: 'imported', amount: -100, suggested_gl_account_id: 'gl-1', suggested_confidence: '0.95', suggested_vat_code: null, description: 'a' },
+      ] },
+      { match: /INSERT INTO bank_auto_post_runs/, rows: [{ id: 'run-1' }] },
+    ]);
+    (allocateTransaction as ReturnType<typeof vi.fn>).mockRejectedValueOnce(new Error('boom'));
+
+    await expect(sweep('co-1', ['t1'], 'categorization', 'u-1')).rejects.toThrow('boom');
   });
 
   it('uses the provisional path for the import source', async () => {

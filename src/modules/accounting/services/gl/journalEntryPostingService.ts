@@ -13,6 +13,7 @@ import { isAuthorizedYearEndPosting } from '../controls/yearEndPostingGuard';
 import { postingPeriodBlock, throwPostingBlock } from './postingPeriodGuard';
 export { resolveReversalDate } from './journalReversalDate';
 export type { JournalControlOptions } from './journalControlService';
+export { GeneratedJournalOperationError } from './journalControlService';
 export { ClosedFiscalPeriodError, isPostingRefusal } from './postingPeriodGuard';
 type Row = DbRow;
 export class InactiveAccountError extends Error {

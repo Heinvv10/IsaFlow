@@ -2,9 +2,9 @@
 /**
  * Unit tests for provisionalPostingService.ts
  *
- * Covers: predictFromHistory (tokenisation, dice-coefficient supplier matching,
- * history-mode confidence tiers) and postProvisional (skip guards, JE creation,
- * bank_transactions UPDATE).
+ * Covers: predictFromHistory (tokenisation, dice-coefficient supplier matching, history-mode confidence tiers) and
+ * postProvisional's own behaviour — the skip guards, what it hands the controlled allocation, and that it writes
+ * nothing itself. The VAT code it asks for is a separate concern: provisionalVatCode.test.ts.
  */
 
 import { describe, it, expect, vi, beforeEach } from 'vitest';
@@ -23,9 +23,11 @@ vi.mock('@/lib/logger', () => ({
   log: { info: vi.fn(), warn: vi.fn(), error: vi.fn() },
 }));
 
-vi.mock('@/modules/accounting/services/gl/journalEntryService', () => ({
-  createJournalEntry: vi.fn().mockResolvedValue({ id: 'je-001' }),
-  postJournalEntry: vi.fn().mockResolvedValue(undefined),
+// postProvisional no longer writes a journal of its own: it asks the controlled
+// bank allocation to post one, and the allocation owns the journal, the net/VAT
+// split, the bank leg and the bank_transactions row.
+vi.mock('@/modules/accounting/services/bank/bankAllocationService', () => ({
+  allocateProvisionalTransaction: vi.fn().mockResolvedValue({ journalEntryId: 'je-001', bankTransaction: { id: 'bt-1' } }),
 }));
 
 vi.mock('@/modules/accounting/services/gl/systemAccountResolver', () => ({
@@ -37,7 +39,7 @@ import {
   predictFromHistory,
   postProvisional,
 } from '@/modules/accounting/services/capture/provisionalPostingService';
-import { createJournalEntry, postJournalEntry } from '@/modules/accounting/services/gl/journalEntryService';
+import { allocateProvisionalTransaction } from '@/modules/accounting/services/bank/bankAllocationService';
 import { getSystemAccountId } from '@/modules/accounting/services/gl/systemAccountResolver';
 
 // ── Fixtures ──────────────────────────────────────────────────────────────────
@@ -174,13 +176,15 @@ describe('predictFromHistory', () => {
 });
 
 // ── postProvisional ───────────────────────────────────────────────────────────
+// The VAT code this service asks the controlled allocation for is its own concern and lives in
+// provisionalVatCode.test.ts — the three statutory guards, the legacy-spelling normalisation, and the fact that the
+// allocation (not this service) resolves the VAT account and splits the amount.
 
 describe('postProvisional', () => {
   beforeEach(() => {
     vi.resetAllMocks();
     // Re-establish default return values cleared by resetAllMocks
-    vi.mocked(createJournalEntry).mockResolvedValue({ id: 'je-001' } as never);
-    vi.mocked(postJournalEntry).mockResolvedValue(undefined as never);
+    vi.mocked(allocateProvisionalTransaction).mockResolvedValue({ journalEntryId: 'je-001', bankTransaction: { id: 'bt-1' } } as never);
   });
 
   it('skips incoming transactions (amount > 0) and returns skipped reason containing "incoming"', async () => {
@@ -194,7 +198,7 @@ describe('postProvisional', () => {
     expect(result.journalEntryId).toBeNull();
     expect(result.skipped).toBeDefined();
     expect(result.skipped).toContain('incoming');
-    expect(vi.mocked(createJournalEntry)).not.toHaveBeenCalled();
+    expect(vi.mocked(allocateProvisionalTransaction)).not.toHaveBeenCalled();
   });
 
   it('skips when prediction confidence is below default minConfidence of 0.7', async () => {
@@ -209,7 +213,7 @@ describe('postProvisional', () => {
 
     expect(result.journalEntryId).toBeNull();
     expect(result.skipped).toContain('low confidence');
-    expect(vi.mocked(createJournalEntry)).not.toHaveBeenCalled();
+    expect(vi.mocked(allocateProvisionalTransaction)).not.toHaveBeenCalled();
   });
 
   it('skips when prediction confidence is 0.5 (supplier matched but no history) with default threshold', async () => {
@@ -258,10 +262,17 @@ describe('postProvisional', () => {
 
     expect(result.journalEntryId).toBe('je-001');
     expect(result.skipped).toBeUndefined();
-    expect(vi.mocked(createJournalEntry)).toHaveBeenCalledOnce();
+    expect(vi.mocked(allocateProvisionalTransaction)).toHaveBeenCalledOnce();
+    // The prediction reaches the plan — it is what the receipt's fingerprint covers.
+    const call = vi.mocked(allocateProvisionalTransaction).mock.calls[0]!;
+    expect(call[0]).toBe(COMPANY_ID);
+    expect(call[1]).toBe(BANK_TX_ID);
+    expect(call[2]).toBe(GL_ACC_ID);
+    expect(call[3]).toBe(USER_ID);
+    expect(call[4]).toEqual({ predictedSupplierId: SUPPLIER_ID, confidence: 0.9 });
   });
 
-  it('updates bank_transactions status to "provisional" by issuing at least two SQL calls after prediction', async () => {
+  it('writes nothing itself — the controlled allocation owns the journal and the bank row', async () => {
     vi.mocked(sqlMock).mockResolvedValueOnce([
       { id: BANK_TX_ID, amount: -800, description: 'ESKOM HOLDINGS PAYMENT', status: 'imported', bank_account_id: 'ba-1', transaction_date: '2026-04-10' },
     ] as never);
@@ -272,27 +283,11 @@ describe('postProvisional', () => {
 
     await postProvisional(COMPANY_ID, BANK_TX_ID, USER_ID);
 
-    // 1 bank_tx SELECT + 1 suppliers SELECT + 1 history SELECT + 2 UPDATEs = 5
-    expect(vi.mocked(sqlMock).mock.calls.length).toBeGreaterThanOrEqual(4);
-  });
-
-  it('passes postingAgent "ai-provisional:v1" in the meta argument to createJournalEntry', async () => {
-    vi.mocked(sqlMock).mockResolvedValueOnce([
-      { id: BANK_TX_ID, amount: -800, description: 'ESKOM HOLDINGS PAYMENT', status: 'imported', bank_account_id: 'ba-1', transaction_date: '2026-04-10' },
-    ] as never);
-    vi.mocked(sqlMock).mockResolvedValueOnce([{ id: SUPPLIER_ID, name: 'Eskom Holdings' }] as never);
-    vi.mocked(sqlMock).mockResolvedValueOnce(makeHistoryRows(GL_ACC_ID, 'S', 4) as never);
-    vi.mocked(sqlMock).mockResolvedValueOnce([] as never);
-    vi.mocked(sqlMock).mockResolvedValueOnce([] as never);
-
-    await postProvisional(COMPANY_ID, BANK_TX_ID, USER_ID);
-
-    const jeCall = vi.mocked(createJournalEntry).mock.calls[0];
-    expect(jeCall).toBeDefined();
-    // meta is the 4th argument (index 3)
-    const metaArg = jeCall![3] as Record<string, unknown>;
-    expect(metaArg).toBeDefined();
-    expect(metaArg.postingAgent).toBe('ai-provisional:v1');
+    // Every statement this service issues is a READ. A second writer here would put the row's status, its provisional
+    // link and the journal's needs_evidence outside the allocation's receipt, and the next read of that receipt would
+    // refuse as 'Allocation receipt source changed'.
+    const statements = vi.mocked(sqlMock).mock.calls.map((call) => (call[0] as string[]).join('?'));
+    expect(statements.some((text) => /UPDATE|INSERT|DELETE/i.test(text))).toBe(false);
   });
 
   it('skips and returns "already provisional" when bank_tx status is not "imported"', async () => {
@@ -304,39 +299,7 @@ describe('postProvisional', () => {
 
     expect(result.journalEntryId).toBeNull();
     expect(result.skipped).toContain('already');
-    expect(vi.mocked(createJournalEntry)).not.toHaveBeenCalled();
-  });
-
-  it('refuses to repeat a wrong claim its own history taught it', async () => {
-    // The prediction is the most frequent vat_code on that supplier's prior
-    // lines, so a ledger already carrying the defect trains this path to
-    // reproduce it — Velocity's salary account has 34 historical lines at
-    // 'standard'. Nobody is watching here, so the claim is dropped.
-    vi.mocked(sqlMock).mockResolvedValueOnce([
-      { id: BANK_TX_ID, amount: -1150, description: 'PAYROLL SERVICES EFT', status: 'imported', bank_account_id: 'ba-1', transaction_date: '2026-04-25' },
-    ] as never);
-    vi.mocked(sqlMock).mockResolvedValueOnce([{ id: SUPPLIER_ID, name: 'Payroll Services' }] as never);
-    vi.mocked(sqlMock).mockResolvedValueOnce(makeHistoryRows(GL_ACC_ID, 'standard', 4) as never);
-    vi.mocked(sqlMock).mockResolvedValueOnce(
-      [{ vat_input_denied: false, account_code: '49784360', account_name: 'Salaries & Wages - EX4000' }] as never,
-    );
-    vi.mocked(sqlMock).mockResolvedValueOnce([{ account_name: 'Salaries & Wages - EX4000' }] as never);
-    vi.mocked(createJournalEntry).mockResolvedValue({ id: 'je-ns' } as never);
-    vi.mocked(postJournalEntry).mockResolvedValue(undefined as never);
-    vi.mocked(sqlMock).mockResolvedValue([] as never);
-
-    await postProvisional(COMPANY_ID, BANK_TX_ID, USER_ID);
-
-    const lines = vi.mocked(createJournalEntry).mock.calls[0]![1].lines as
-      Array<{ debit: number; credit: number; vatType?: string; description: string }>;
-    // No VAT leg, and the expense carries the gross rather than 1150/1.15.
-    expect(lines.some((l) => /VAT @/.test(l.description)),
-      'the guard must not let a VAT leg be posted').toBe(false);
-    expect(lines.some((l) => l.vatType === 'standard')).toBe(false);
-    expect(lines[0]!.debit).toBe(1150);
-    // vat_input is never even resolved, because there is no VAT leg to post.
-    expect(vi.mocked(getSystemAccountId).mock.calls.map((c) => c[0]))
-      .not.toContain('vat_input');
+    expect(vi.mocked(allocateProvisionalTransaction)).not.toHaveBeenCalled();
   });
 
   it('throws an error when the bank transaction is not found', async () => {
@@ -347,32 +310,4 @@ describe('postProvisional', () => {
     );
   });
 
-  it('rejects when the vat_input system account is missing for a VAT-bearing posting', async () => {
-    vi.mocked(sqlMock).mockResolvedValueOnce([
-      { id: BANK_TX_ID, amount: -800, description: 'ESKOM HOLDINGS PAYMENT', status: 'imported', bank_account_id: 'ba-1', transaction_date: '2026-04-10' },
-    ] as never);
-    vi.mocked(sqlMock).mockResolvedValueOnce([{ id: SUPPLIER_ID, name: 'Eskom Holdings' }] as never);
-    // vat_code 'standard' → hasVat path; 4 consistent rows → confidence 0.9
-    vi.mocked(sqlMock).mockResolvedValueOnce(makeHistoryRows(GL_ACC_ID, 'standard', 4) as never);
-    // The unattended VAT guard reads the predicted account before the lines
-    // are built — twice, once per statute. A real supply name, so it passes
-    // the claim through unchanged and the vat_input lookup below still runs.
-    vi.mocked(sqlMock).mockResolvedValueOnce(
-      [{ vat_input_denied: false, account_code: '5700', account_name: 'Electricity & Water' }] as never,
-    );
-    vi.mocked(sqlMock).mockResolvedValueOnce([{ account_name: 'Electricity & Water' }] as never);
-    // THIRD guard read, and only on a code that survived the other two: the
-    // contra's subtype, because a rule whose contra IS a bank account is a
-    // transfer and claims nothing. An expense account, so the claim stands.
-    vi.mocked(sqlMock).mockResolvedValueOnce([{ account_subtype: 'default_expense' }] as never);
-    // vat_input lookup fails — system account not configured
-    vi.mocked(getSystemAccountId).mockRejectedValueOnce(
-      new Error('system account vat_input not configured'),
-    );
-
-    await expect(postProvisional(COMPANY_ID, BANK_TX_ID, USER_ID)).rejects.toThrow(
-      'vat_input not configured',
-    );
-    expect(vi.mocked(createJournalEntry)).not.toHaveBeenCalled();
-  });
 });

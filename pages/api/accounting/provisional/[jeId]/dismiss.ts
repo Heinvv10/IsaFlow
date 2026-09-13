@@ -34,6 +34,10 @@ async function handler(req: CompanyAuthedRequest, res: NextApiResponse) {
     // Double-dismiss race (second tab / rapid retry): reverseJournalEntry's
     // own guard throws — a friendly 400 beats an opaque 500.
     if (/already reversed/i.test(msg)) return apiResponse.badRequest(res, 'Journal entry already reversed');
+    // A provenance refusal is a business answer, not a fault: this journal is not a provisional entry the controlled
+    // reversal can prove an original for (no bank row names it, it is not provisional any more, or something hangs off
+    // it). The caller can act on that; a 500 tells them nothing.
+    if (/provenance cannot be proven|names this provisional journal/i.test(msg)) return apiResponse.badRequest(res, msg);
     throw err;
   }
 }

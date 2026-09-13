@@ -76,9 +76,12 @@ function mapPaymentRow(r: Row): TaxDirectivePayment {
 }
 
 async function glByCode(companyId: string, code: string): Promise<string | null> {
+  // account_code — there is no `code` column on gl_accounts, and the column
+  // that does not exist is a pg error, not a null: every apply failed here
+  // before it ever reached the journal.
   const rows = (await sql`
     SELECT id FROM gl_accounts
-    WHERE company_id = ${companyId} AND code = ${code}
+    WHERE company_id = ${companyId} AND account_code = ${code}
     LIMIT 1
   `) as Row[];
   return rows.length > 0 ? String(rows[0]!.id) : null;
@@ -191,10 +194,19 @@ export async function applyTaxDirective(
     },
   ];
 
+  // 'manual', NOT 'auto_payroll'. The control kernel reserves 'auto_payroll'
+  // for the journal a payroll run generates under payroll_run.post (which binds
+  // the journal to its run through source_record_id), and refuses a direct post
+  // of one — so every apply answered 500 CONTROL_INTEGRITY_FAILED. This journal
+  // belongs to no payroll run: an operator applies an approved SARS directive
+  // and picks the payment date and bank account, so it posts as the
+  // manual-equivalent act it is, under the company's journal approval policy,
+  // with the directive named in source_record_id.
   const journalInput: JournalEntryCreateInput = {
     entryDate: input.paymentDate,
     description: narrative,
-    source: 'auto_payroll',
+    source: 'manual',
+    sourceRecordId: directiveId,
     lines,
   };
 

@@ -28,7 +28,11 @@
  * this script created (JE-2026-00927 ↔ JE-2026-00940) was healed the same
  * morning by scripts/fixes/repair-reversed-journal-status.ts --apply
  * (7 Demo pairs total, prod integrity 13/13 after). Kept for the audit trail;
- * do NOT reuse this script — use scripts/fixes/reverse-cancelled-invoice-journals.ts.
+ * do NOT reuse this script. Cancelling an approved customer invoice now reverses
+ * its journal itself, through the controlled customer_invoice.cancel operation
+ * (PATCH /api/accounting/customer-invoices-detail), which is also the only place
+ * a residual orphaned journal should be walked back from: it runs under a real
+ * principal, with the approval policy and a receipt.
  */
 
 import { randomUUID } from 'node:crypto';

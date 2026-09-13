@@ -14,6 +14,22 @@ import { journalAffectsVatReturn } from '../controls/journalVatFootprint';
 import type { ApMaterial } from '../controls/apOperationMaterializer';
 import type { ControlTx, OperationRef } from '../controls/contracts';
 export interface JournalControlOptions { approvalId?: string | null; parentControl?: ParentJournalControl }
+/**
+ * A DIRECT post or reverse of a journal one of the generated financial families owns.
+ *
+ * Its own class, not `OperationRefusalError`: this is a refusal the CALLER can act on (use the owning operation —
+ * cancel the invoice, reopen the payroll run, reverse the bank allocation), so a route answers 4xx with it instead of
+ * an opaque 500; but it is never a per-line outcome a batch driver may count and continue past, because a driver
+ * reaching it is posting a generated journal by hand — the defect this whole boundary exists to catch. The sweeps'
+ * classifier therefore leaves it unclassified, which makes it a fault that aborts the run.
+ */
+export class GeneratedJournalOperationError extends Error {
+  readonly code = 'GENERATED_JOURNAL_OPERATION';
+  constructor(source: string) {
+    super(`Generated journal must be changed through its authorized domain operation (source: ${source})`);
+    this.name = 'GeneratedJournalOperationError';
+  }
+}
 function poison(error: unknown): never {
   const store = als.getStore();
   if (store) store.controlWriteFailed = true;
@@ -26,12 +42,15 @@ export async function runJournalControl<T>(companyId: string, userId: string, re
     ctx = requireControlTx();
     if (ctx.principal.companyId !== companyId || ctx.principal.personId !== userId) throw new Error('Journal context does not match authenticated person and tenant');
     parent = opts?.parentControl;
-    // Generated financial families must use their own approval and subledger lifecycle — an INTEGRITY check, not a
-    // refusal a caller can safely catch and continue past: a caller that swallows this per row and keeps going
-    // (migrationApService.ts, migrationImportService.ts) must not COMMIT whatever it wrote before this call, so it
-    // stays inside this poisoning try along with the tenant-mismatch check above.
-    if (!parent) await assertDirectJournalOperation(ctx, ref);
   } catch (error) { poison(error); }
+  // Generated financial families must use their own approval and subledger lifecycle. Thrown HERE, before the
+  // controlled write and OUTSIDE the poisoning try, for the same reason as the period refusal below: a caller has
+  // asked to post or reverse a journal its owning operation owns, which is a business answer it can act on — use that
+  // operation — and answering it with a 500 CONTROL_INTEGRITY_FAILED told the caller nothing and rolled back work
+  // that had nothing to do with it. It is still not a refusal a batch driver may count and continue past: the class
+  // is its own (GeneratedJournalOperationError), the sweeps' classifier does not recognise it, and a driver that hits
+  // it aborts. The same assertion inside the controlled write stays the backstop for the window between the two.
+  if (!parent) await assertDirectJournalOperation(ctx, ref);
   // A lockdown or closed-period refusal for a DIRECT (no parentControl) post or reverse, thrown HERE, before
   // executeControlledOperation opens the controlled write, and OUTSIDE both poisoning try/catch blocks:
   // assertPostingGuards throws the exact same rule from inside that write, and firing it there — even when the
@@ -154,6 +173,6 @@ async function vatPeriodLocked(ctx: ControlTx, entryId: string, accountingDate: 
 function assertDirectSource(source:string):void {
   if(new Set(['auto_invoice','auto_payment','auto_credit_note','auto_supplier_invoice','auto_supplier_payment',
     'auto_batch_payment','auto_depreciation','auto_payroll','auto_bank_transfer','auto_bank_recon','year_end','auto_gl_import']).has(source)) {
-    throw new Error('Generated journal must be changed through its authorized domain operation');
+    throw new GeneratedJournalOperationError(source);
   }
 }
