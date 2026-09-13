@@ -3,17 +3,20 @@
  *
  * Dismissing a provisional bank-posted JE must UNDO it, not just close a
  * modal: the June audit found "Dismiss" showed an "automatic reversal is not
- * yet implemented" toast and left the journal posted forever. This reuses
- * the exact reversal + bank-txn-reset plumbing from autoPostUndoService:
- * reverseJournalEntry posts a net-zero contra (reversed_at metadata
- * semantics), then any bank transaction pointing at the JE returns to the
- * review queue (status 'imported', provisional link cleared).
+ * yet implemented" toast and left the journal posted forever.
+ *
+ * The reversal goes through `reverseProvisionalEntry` — the controlled reversal
+ * of the allocation that owns the journal, under its approval policy. A direct
+ * reverseJournalEntry here was refused (the journal carries a generated source)
+ * and the refusal poisoned the request, so dismiss answered 500 for every
+ * provisional entry. The controlled reversal posts the contra AND returns the
+ * bank transaction to the review queue, so the reset is no longer done here.
  */
 
 import { sql } from '@/lib/neon';
 import type { DbRow } from '@/lib/neon';
 import { log } from '@/lib/logger';
-import { reverseJournalEntry } from '../gl/journalEntryService';
+import { reverseProvisionalEntry } from './bankAllocationService';
 
 type Row = DbRow;
 
@@ -37,23 +40,16 @@ export async function dismissProvisionalEntry(
     throw new Error('Journal entry is not provisional — dismiss only applies to provisional entries');
   }
 
-  const reversal = await reverseJournalEntry(companyId, jeId, userId);
-
-  const resetRows = (await sql`
-    UPDATE bank_transactions
-    SET status = 'imported', provisional_je_id = NULL, updated_at = NOW()
-    WHERE provisional_je_id = ${jeId}::UUID AND company_id = ${companyId}::UUID
-    RETURNING id
-  `) as Row[];
+  const reversal = await reverseProvisionalEntry(companyId, jeId, userId, { reason: 'Provisional entry dismissed' });
 
   log.info(
     'Provisional entry dismissed (reversed)',
-    { companyId, jeId, reversalId: reversal.id, bankTransactionsReset: resetRows.length },
+    { companyId, jeId, reversalId: reversal.reversalJournalEntryId, bankTransactionId: reversal.bankTransactionId },
     'provisional-dismiss',
   );
 
   return {
-    reversalJournalEntryId: String(reversal.id),
-    bankTransactionsReset: resetRows.length,
+    reversalJournalEntryId: reversal.reversalJournalEntryId,
+    bankTransactionsReset: 1,
   };
 }
