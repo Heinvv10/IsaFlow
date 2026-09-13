@@ -1,10 +1,9 @@
 /** PRD-05 Phase 5 — Provisional Posting Service */
 
 import { sql } from '@/lib/neon';
-import { fmtDate } from '@/lib/fmtDate';
 import type { DbRow } from '@/lib/neon';
 import { log } from '@/lib/logger';
-import { createJournalEntry, postJournalEntry } from '../gl/journalEntryService';
+import { allocateProvisionalTransaction } from '../bank/bankAllocationService';
 import { getSystemAccountId } from '../gl/systemAccountResolver';
 import { resolveRuleVatCode } from '../gl/ruleVatResolution';
 
@@ -13,7 +12,6 @@ type Row = DbRow;
 const HISTORY_LOOKBACK = 10;
 const DICE_THRESHOLD = 0.6;
 const STOPWORDS = new Set(['the', 'pos', 'purchase', 'eft', 'debit', 'from', 'for', 'and', 'to']);
-const VAT_RATE = 15;
 
 export interface CodingPrediction {
   supplierId: string | null;
@@ -197,12 +195,10 @@ export async function postProvisional(
     return { journalEntryId: null, prediction, skipped: 'low confidence' };
   }
 
-  const totalAmount = Math.abs(amount);
-  const bankAccountId = String(tx.bank_account_id);
-  // fmtDate, never toISOString — this date becomes the provisional journal's
-  // entry_date, and on a UTC+2 host toISOString shifted it into the previous
-  // day (and, on a month boundary, the previous VAT period).
-  const txDate = fmtDate(tx.transaction_date);
+  // The bank account, the amount and the accounting date all come from the bank
+  // row the controlled allocation locks and reads for itself, so none of them is
+  // recomputed here — including the date, which a toISOString once shifted into
+  // the previous day (and, on a month boundary, the previous VAT period).
   const description = String(tx.description ?? 'Provisional bank allocation');
 
   // Resolve GL account — use predicted or fall back to default_expense
@@ -227,57 +223,28 @@ export async function postProvisional(
     guardContext: { bankTxId, ruleName: 'provisional posting' },
   });
 
-  const hasVat = guarded.vatCode === 'standard';
-  const netAmount = hasVat ? Math.round((totalAmount * 100 / (100 + VAT_RATE)) * 100) / 100 : totalAmount;
-  const vatAmount = hasVat ? Math.round((totalAmount - netAmount) * 100) / 100 : 0;
-
-  type JournalLine = { glAccountId: string; debit: number; credit: number; description: string; vatType?: 'standard' | 'zero_rated' | 'exempt'; projectId?: string; costCenterId?: string };
-  const lines: JournalLine[] = [
-    {
-      glAccountId: expenseAccountId,
-      debit: netAmount,
-      credit: 0,
-      description,
-      vatType: hasVat ? 'standard' : undefined,
-      projectId: prediction.projectId ?? undefined,
-      costCenterId: prediction.costCentreId ?? undefined,
-    },
-  ];
-
-  // A missing vat_input system account is a config error; refuse to post a
-  // provisional journal with the VAT line silently dropped.
-  if (hasVat) {
-    const vatAccountId = await getSystemAccountId('vat_input', companyId);
-    lines.push({ glAccountId: vatAccountId, debit: vatAmount, credit: 0, description: `VAT @ ${VAT_RATE}%`, vatType: 'standard' });
-  }
-
-  lines.push({ glAccountId: bankAccountId, debit: 0, credit: totalAmount, description });
-
-  const je = await createJournalEntry(
-    companyId,
-    { entryDate: txDate, description, source: 'auto_bank_recon', lines },
-    userId,
-    { postingAgent: 'ai-provisional:v1', extractionConfidence: prediction.confidence, sourceDocumentId: undefined },
+  // THROUGH THE CONTROLLED BANK ALLOCATION — the same operation a person drives
+  // on the screen, and the reason this path works at all. The journal it
+  // generates carries 'auto_bank_recon', which the kernel refuses as a DIRECT
+  // journal operation: posting it here took the whole statement import down with
+  // a 500 CONTROL_INTEGRITY_FAILED. The allocation gives it an intent, a receipt
+  // (`control_operation_effects`), change events, a parented generated journal
+  // and the same refusals as the attended path; the net/VAT split and the bank
+  // leg are the controlled path's own, from the vatCode the guard above allowed.
+  //
+  // The predicted cost centre and project are NOT carried: the plan's dimensions
+  // are validated by type (a cc1 slot demands a cc_type='cc1' centre) and a
+  // predicted centre of any other type would refuse a line that is otherwise
+  // postable. Coding is finalised when evidence is attached.
+  // 'standard' or nothing. The predicted code comes from supplier_coding_history, which holds legacy spellings ('S',
+  // 'Z', …) as well as the current vocabulary, and the plan accepts only the current one — an unrecognised code would
+  // be a ZodError, a fault, rather than the no-VAT posting the old arithmetic gave it (it split only on 'standard').
+  const vatCode = guarded.vatCode === 'standard' ? 'standard' : 'none';
+  const result = await allocateProvisionalTransaction(
+    companyId, bankTxId, expenseAccountId, userId,
+    { ...(prediction.supplierId ? { predictedSupplierId: prediction.supplierId } : {}), confidence: prediction.confidence },
+    description, vatCode,
   );
-
-  await postJournalEntry(companyId, je.id, userId);
-
-  // Mark JE as needing evidence
-  await sql`
-    UPDATE gl_journal_entries
-    SET needs_evidence = true
-    WHERE id = ${je.id}::UUID AND company_id = ${companyId}::UUID
-  `;
-
-  // Update bank transaction
-  await sql`
-    UPDATE bank_transactions
-    SET status = 'provisional',
-        provisional_je_id = ${je.id}::UUID,
-        predicted_supplier_id = ${prediction.supplierId}::UUID,
-        prediction_confidence = ${prediction.confidence}
-    WHERE id = ${bankTxId}::UUID AND company_id = ${companyId}::UUID
-  `;
 
   log.info('Posted provisional JE for bank transaction', {
     companyId,
@@ -285,9 +252,9 @@ export async function postProvisional(
     predictedSupplier: prediction.supplierName,
     glAccount: expenseAccountId,
     confidence: prediction.confidence,
-    jeId: je.id,
+    jeId: result.journalEntryId,
   }, 'provisional-posting');
 
-  return { journalEntryId: je.id, prediction };
+  return { journalEntryId: result.journalEntryId, prediction };
 }
 

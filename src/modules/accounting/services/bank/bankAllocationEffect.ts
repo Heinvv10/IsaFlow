@@ -10,6 +10,8 @@ import {postJournalEntry} from '../gl/journalEntryPostingService';
 import {loadBankAllocationIntent} from './bankAllocationMaterial';
 import {loadBankAllocationSources} from './bankAllocationSources';
 import {applyBankAllocationChildren,recordBankAllocationChild} from './bankAllocationChildEffect';
+/** What produced the coding on an unattended provisional posting; the badge every evidence surface reads. */
+export const PROVISIONAL_AGENT='ai-provisional:v1';
 export async function executeBankAllocationEffect(ctx:ControlTx,intentId:string,permit:ControlledEffectPermit,options?:PostingActorOpts){
  const parent={entityType:'bank_allocation_intent',entityId:intentId,operation:'bank_allocation.post' as const};
  assertControlledEffectPermit(ctx,permit,parent);
@@ -20,8 +22,13 @@ export async function executeBankAllocationEffect(ctx:ControlTx,intentId:string,
  const company=ctx.principal.companyId,id=randomUUID();
  const actor=bankAllocationActor(ctx.principal,options);
  const source=plan.kind==='customer'?'auto_payment':plan.kind==='supplier'?'auto_supplier_payment':'auto_bank_recon';
- await ctx.sql`INSERT INTO gl_journal_entries(id,company_id,entry_date,fiscal_period_id,description,source,source_record_id,status,created_by,posting_agent,actor_type,actor_token_jti)
-  VALUES(${id}::uuid,${company}::uuid,${permit.accountingDate}::date,${sources.periods[0]!.id}::uuid,${plan.description??'Bank allocation'},${source},${plan.bankTransactionId}::uuid,'draft',${ctx.principal.personId}::uuid,${actor.postingAgent},${actor.actorType},${actor.actorTokenJti})`;
+ // An unattended provisional posting: nobody chose this coding, the predictor did, so the journal says so and is
+ // raised needing evidence. actor_type/actor_token_jti keep describing the CREDENTIAL the request boundary issued —
+ // only posting_agent, which describes what produced the coding, comes from the plan.
+ const provisional=plan.kind==='account'?plan.provisional:undefined;
+ const postingAgent=provisional?PROVISIONAL_AGENT:actor.postingAgent;
+ await ctx.sql`INSERT INTO gl_journal_entries(id,company_id,entry_date,fiscal_period_id,description,source,source_record_id,status,created_by,posting_agent,actor_type,actor_token_jti,needs_evidence,extraction_confidence)
+  VALUES(${id}::uuid,${company}::uuid,${permit.accountingDate}::date,${sources.periods[0]!.id}::uuid,${plan.description??'Bank allocation'},${source},${plan.bankTransactionId}::uuid,'draft',${ctx.principal.personId}::uuid,${postingAgent},${actor.actorType},${actor.actorTokenJti},${provisional!==undefined},${provisional?.confidence??null})`;
  for(const line of sources.lines)await ctx.sql`INSERT INTO gl_journal_lines(company_id,journal_entry_id,gl_account_id,debit,credit,description,vat_type,cost_center_id,cc1_id,cc2_id,bu_id)
   VALUES(${company}::uuid,${id}::uuid,${line.accountId}::uuid,${line.debit}::numeric,${line.credit}::numeric,${line.description},${line.vatType},${line.cc1Id}::uuid,${line.cc1Id}::uuid,${line.cc2Id}::uuid,${line.buId}::uuid)`;
  const parentControl={parent,permit};await registerGeneratedJournal(ctx,parentControl,id,'journal.post');
@@ -30,7 +37,11 @@ export async function executeBankAllocationEffect(ctx:ControlTx,intentId:string,
  const bankLines=await ctx.sql`SELECT id FROM gl_journal_lines WHERE company_id=${company}::uuid AND journal_entry_id=${id}::uuid AND gl_account_id=${sources.bank.bank_account_id}::uuid` as {id:string}[];
  if(bankLines.length!==1)throw new Error('Allocation bank journal line is ambiguous');
  const dimensions=bankAllocationRowDimensions(plan);
- const [after]=await ctx.sql`UPDATE bank_transactions SET status='allocated',matched_journal_line_id=${bankLines[0]!.id}::uuid,
+ // A provisional row waits for evidence in the review queue rather than reading as allocated; it still carries the
+ // bank journal line, which is what the controlled reversal proves the original allocation by.
+ const [after]=await ctx.sql`UPDATE bank_transactions SET status=${provisional?'provisional':'allocated'},matched_journal_line_id=${bankLines[0]!.id}::uuid,
+  provisional_je_id=${provisional?id:null}::uuid,predicted_supplier_id=${provisional?.predictedSupplierId??null}::uuid,
+  prediction_confidence=${provisional?.confidence??null}::numeric,
   cc1_id=${dimensions.cc1Id}::uuid,cc2_id=${dimensions.cc2Id}::uuid,bu_id=${dimensions.buId}::uuid,
   allocation_type=${plan.kind==='split'?'account':plan.kind},allocated_entity_name=${sources.party?String(sources.party.name):'Account allocation'},
   allocation_rule_id=${plan.rule?.id??null}::uuid,allocation_rule_name=${plan.rule?.name??null},allocation_batch_id=NULL,updated_at=clock_timestamp()
@@ -38,5 +49,6 @@ export async function executeBankAllocationEffect(ctx:ControlTx,intentId:string,
  if(!after)throw new Error('Bank allocation state changed');
  await recordBankAllocationChild(ctx,permit,'bank_transaction',sources.bank,after,'bank_allocation.posted');
  const observed=await loadBankAllocationSources(ctx,plan);
- return{intentId,bankTransactionId:plan.bankTransactionId,journalEntryId:id,paymentId,afterFingerprint:observed.fingerprint,status:'allocated' as const};
+ return{intentId,bankTransactionId:plan.bankTransactionId,journalEntryId:id,paymentId,afterFingerprint:observed.fingerprint,
+  status:(provisional?'provisional':'allocated') as 'allocated'|'provisional'};
 }

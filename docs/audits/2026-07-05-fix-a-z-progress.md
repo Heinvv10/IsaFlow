@@ -5,6 +5,16 @@ PR#, deployed SHA, evidence. Update in the same PR as the work.
 
 States: `todo` · `in-progress` · `pr-open` · `merged` · `deployed` · `blocked-hein`
 
+> **2026-09-13, later note — do not rewrite the entries below.** `scripts/fixes/reverse-cancelled-invoice-journals.ts`,
+> named as the mechanism in the P3.1 drill line and in step 6 of the post-deploy list, was retired in **48d500778** on
+> `fix/generated-journal-parented-posts-20260912`. Under the forensic controls it cannot run: it calls
+> `reverseJournalEntry` outside any control transaction, on journals whose `auto_invoice` source the kernel reserves for
+> the controlled cancel. Cancelling an approved customer invoice now reverses its journal itself, through
+> `customer_invoice.cancel` (PATCH `/api/accounting/customer-invoices-detail`). **A row that survives in production —
+> `status='cancelled'` with a still-posted, unreversed journal — therefore has no route at all today:** the direct
+> reverse refuses it, and the owning cancel operation cannot be re-run on an invoice that is already cancelled. The
+> measurement query and the gap are in that branch's PR body; nobody has run it against production.
+
 ## Pre-phase
 
 | Task | State | Branch | PR | Deployed | Evidence |

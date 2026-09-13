@@ -57,7 +57,10 @@ describe('createAdjustmentEntry', () => {
     );
 
     const input = vi.mocked(createJournalEntry).mock.calls[0]![1];
-    expect(input.source).toBe('auto_bank_recon');
+    // 'auto_adjustment', not 'auto_bank_recon': the kernel reserves that source for journals a controlled bank
+    // operation generates and refuses a direct post of one, which refused every adjustment. The reconciliation is
+    // still named in source_record_id, which is the link the cancel guard reads.
+    expect(input.source).toBe('auto_adjustment');
     expect(input.sourceRecordId).toBe(RECON_ID);
     // The FK column must stay empty — a reconciliation is not a captured document.
     expect(input.sourceDocumentId).toBeUndefined();

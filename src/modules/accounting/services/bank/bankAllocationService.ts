@@ -11,6 +11,8 @@ import {requireControlTx} from '../controls/context';
 import {assertEffectivePermission} from '@/lib/auth/effectivePermissions';
 import {mapTxRow} from './bankTransactionQueryService';
 import type {BankAllocationUnwindResult} from './bankAllocationUnwind';
+/** What both reversal effects actually return: the unwind counts plus the journals the reversal touched. */
+export type BankAllocationReversalResult=BankAllocationUnwindResult&{bankTransactionId:string;originalJournalEntryId:string;reversalJournalEntryId:string};
 import {prepareBankAllocation,executeBankAllocation} from './bankAllocationControl';
 type Row=DbRow;
 export type AllocationType='account'|'supplier'|'customer'|'transfer';
@@ -67,13 +69,64 @@ export async function allocateTransaction(companyId:string,bankTxId:string,contr
  }else input={...common,lines:[{accountId:contraAccountId,amount,vatCode:vatCode??'none',cc1Id,cc2Id,buId}]};
  return runPlan(companyId,bankTxId,userId,input,opts);
 }
+/**
+ * The unattended provisional posting: the import sweep's predictor coded this line, so it goes through the SAME
+ * controlled allocation a person performs on the screen — one intent, one receipt, a parented generated journal and
+ * every refusal the controlled path raises — and lands the row in the evidence-review queue rather than as an
+ * allocated one. A bare postJournalEntry here carried 'auto_bank_recon', which the kernel refuses as a direct
+ * operation on a generated journal, and took the whole statement import down with a 500.
+ */
+export async function allocateProvisionalTransaction(companyId:string,bankTxId:string,contraAccountId:string,userId:string,
+ prediction:{predictedSupplierId?:string;confidence:number},description?:string,vatCode?:string,opts?:BankAllocationOptions){
+ const ctx=await actor(companyId,userId);
+ const [bank]=await ctx.sql`SELECT amount::text FROM bank_transactions WHERE company_id=${companyId}::uuid AND id=${bankTxId}::uuid FOR UPDATE` as {amount:string}[];
+ if(!bank)throw new Error('Owned bank transaction not found');
+ const amount=new D(bank.amount).abs().toFixed();
+ return runPlan(companyId,bankTxId,userId,{version:1,kind:'account',bankTransactionId:bankTxId,description,
+  lines:[{accountId:contraAccountId,amount,vatCode:vatCode??'none'}],
+  provisional:{...(prediction.predictedSupplierId?{predictedSupplierId:prediction.predictedSupplierId}:{}),confidence:prediction.confidence}},opts);
+}
 export async function splitAllocateTransaction(companyId:string,bankTxId:string,lines:SplitLine[],userId:string,opts?:BankAllocationOptions){
  return runPlan(companyId,bankTxId,userId,{version:1,kind:'split',bankTransactionId:bankTxId,
   lines:lines.map(line=>({accountId:line.contraAccountId,amount:String(line.amount),description:line.description,vatCode:line.vatCode??'none'}))},opts);
 }
 
+/**
+ * Reverse the provisional entry a bank line names — dismiss, and the auto-post run undo.
+ *
+ * Both used to call reverseJournalEntry directly, which the kernel refuses because the journal carries a generated
+ * source, and the refusal poisons the request: every provisional entry in the ledger was undismissable. This routes
+ * through the controlled reversal of the OWNING allocation, which honours its approval policy either way:
+ *   - an entry posted through the controlled allocation reverses against its own receipt;
+ *   - an entry that PREDATES the controls has no receipt, so the reversal names the journal whose provenance is proven
+ *     from the data instead (bankAllocationLegacyProvisional) — the population production already holds.
+ */
+export async function reverseProvisionalEntry(companyId:string,journalEntryId:string,userId:string,
+ opts?:PostingActorOpts&{reversalDate?:string;reason?:string}):Promise<{bankTransactionId:string;reversalJournalEntryId:string}>{
+ const ctx=await actor(companyId,userId);
+ const [bank]=await ctx.sql`SELECT id,transaction_date::text AS transaction_date FROM bank_transactions
+  WHERE company_id=${companyId}::uuid AND provisional_je_id=${journalEntryId}::uuid` as Row[];
+ if(!bank)throw new Error('No bank transaction names this provisional journal');
+ const bankTxId=String(bank.id);
+ const receipted=await ctx.sql`SELECT i.id FROM control_bank_allocation_intents i
+  JOIN control_operation_effects e ON e.company_id=i.company_id AND e.entity_type='bank_allocation_intent'
+   AND e.entity_id_canonical=i.id::text AND e.operation='bank_allocation.post'
+  WHERE i.company_id=${companyId}::uuid AND i.bank_transaction_id=${bankTxId}::uuid` as Row[];
+ if(receipted.length){
+  const result=await reverseReconciledTransaction(companyId,bankTxId,userId,opts);
+  return{bankTransactionId:bankTxId,reversalJournalEntryId:result.reversalJournalEntryId};
+ }
+ return withSavepoint('bank_legacy_reversal_adapter',async()=>{
+  const {prepareBankAllocationReversal,executeBankAllocationReversal}=await import('./bankAllocationReversal');
+  const reversalDate=await resolveReversalDate(companyId,String(bank.transaction_date),opts?.reversalDate);
+  const {intentId}=await prepareBankAllocationReversal(ctx,{legacyJournalEntryId:journalEntryId,reversalDate,
+   reason:opts?.reason??'Provisional entry dismissed'});
+  const result=await executeBankAllocationReversal(ctx,intentId,opts);
+  return{bankTransactionId:bankTxId,reversalJournalEntryId:result.reversalJournalEntryId};
+ });
+}
 export async function reverseReconciledTransaction(companyId:string,bankTxId:string,userId:string,
- opts?:PostingActorOpts&{reversalDate?:string;intentId?:string;approvalId?:string;reason?:string}):Promise<BankAllocationUnwindResult>{
+ opts?:PostingActorOpts&{reversalDate?:string;intentId?:string;approvalId?:string;reason?:string}):Promise<BankAllocationReversalResult>{
  const ctx=await actor(companyId,userId);
  return withSavepoint('bank_reversal_adapter',async()=>{
   const {prepareBankAllocationReversal,executeBankAllocationReversal}=await import('./bankAllocationReversal');

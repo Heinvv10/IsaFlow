@@ -8,8 +8,7 @@
 import { sql } from '@/lib/neon';
 import type { DbRow } from '@/lib/neon';
 import { log } from '@/lib/logger';
-import { reverseReconciledTransaction } from './bankAllocationService';
-import { reverseJournalEntry } from '../gl/journalEntryService';
+import { reverseReconciledTransaction, reverseProvisionalEntry } from './bankAllocationService';
 
 type Row = DbRow;
 
@@ -43,22 +42,21 @@ export async function undoRun(companyId: string, runId: string, userId: string):
       continue;
     }
     try {
-      if (tx.matched_journal_line_id && tx.provisional_je_id) {
-        log.warn(
-          'Auto-post tx has both matched line and provisional JE — reversing matched line only',
-          { companyId, runId, txId },
-          'auto-post-undo',
-        );
-      }
-      if (tx.matched_journal_line_id) {
+      // Provisional FIRST. A controlled provisional posting deliberately carries
+      // BOTH the bank journal line and the provisional link — the line is what
+      // its reversal proves the original allocation by — so the old "both set"
+      // warning now describes the designed shape, and taking the matched-line
+      // branch for such a row would miss the one that predates the controls (no
+      // intent to reverse against). reverseProvisionalEntry picks the right
+      // provenance for either.
+      if (tx.provisional_je_id) {
+        // The controlled reversal of the owning allocation — a direct
+        // reverseJournalEntry was refused for a generated journal and poisoned
+        // the request, so no run holding a provisional entry could be undone. It
+        // returns the bank transaction to the queue itself.
+        await reverseProvisionalEntry(companyId, String(tx.provisional_je_id), userId, { reason: 'Auto-post run undone' });
+      } else if (tx.matched_journal_line_id) {
         await reverseReconciledTransaction(companyId, txId, userId);
-      } else if (tx.provisional_je_id) {
-        await reverseJournalEntry(companyId, String(tx.provisional_je_id), userId);
-        await sql`
-          UPDATE bank_transactions
-          SET status = 'imported', provisional_je_id = NULL, updated_at = NOW()
-          WHERE id = ${txId}::UUID AND company_id = ${companyId}::UUID
-        `;
       }
       await sql`
         UPDATE bank_transactions SET auto_post_run_id = NULL

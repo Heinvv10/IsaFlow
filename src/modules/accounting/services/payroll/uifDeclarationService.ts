@@ -276,10 +276,11 @@ export async function markUifDeclarationPaid(
   const totalPaid = Math.round((decl.totalEmployeeContribution + decl.totalEmployerContribution) * 100) / 100;
   const paymentDate = opts.paymentDate ?? new Date().toISOString().slice(0, 10);
   const narrative = `UIF payment ${decl.periodYear}-${String(decl.periodMonth).padStart(2, '0')}`;
+  // 'manual', NOT 'auto_payroll' — reserved for a payroll run's own journal (payroll/.claude.md).
   const entry = await createJournalEntry(companyId, {
     entryDate: paymentDate,
     description: narrative,
-    source: 'auto_payroll',
+    source: 'manual', sourceRecordId: declarationId,
     lines: [
       { glAccountId: uifPayableId, debit: totalPaid, credit: 0,         description: narrative },
       { glAccountId: bankAccId,    debit: 0,         credit: totalPaid, description: narrative },

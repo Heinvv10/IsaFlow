@@ -72,10 +72,15 @@ export async function cancelReconciliation(
   // refuses anything that is not `in_progress`, so a completed one is out of
   // reach regardless. This comment is the record of why the check is
   // prospective rather than an oversight.
+  //
+  // BOTH spellings. `createAdjustmentEntry` now writes 'auto_adjustment' —
+  // 'auto_bank_recon' is reserved for journals a controlled bank operation
+  // generates, and a direct post of one is refused. Production holds
+  // adjustments under the old spelling, and they must keep blocking a cancel.
   const adjRows = (await sql`
     SELECT COUNT(*) AS cnt FROM gl_journal_entries
     WHERE company_id = ${companyId}::UUID
-      AND source = 'auto_bank_recon'
+      AND source IN ('auto_bank_recon', 'auto_adjustment')
       AND source_record_id = ${id}::UUID
       AND status IN ('posted', 'draft')`) as DbRow[];
   const adjustments = Number(adjRows[0]!.cnt);
@@ -141,7 +146,7 @@ export async function cancelReconciliation(
         AND NOT EXISTS (
           SELECT 1 FROM gl_journal_entries
           WHERE company_id = ${companyId}::UUID
-            AND source = 'auto_bank_recon'
+            AND source IN ('auto_bank_recon', 'auto_adjustment')
             AND source_record_id = ${id}::UUID
             AND status IN ('posted', 'draft')
         )
