@@ -37,3 +37,35 @@ it.each(['supplier','customer'] as const)('%s refund uses exactly gross bank/con
  expect(lines[0]).toMatchObject({accountId:account,debit:kind==='customer'?'115.23':'0',credit:kind==='supplier'?'115.23':'0'});
  expect(lines[1]).toMatchObject({accountId:bank,debit:kind==='supplier'?'115.23':'0',credit:kind==='customer'?'115.23':'0'});
 });
+
+/**
+ * The unattended provisional posting rides in the PLAN, so the receipt's fingerprint covers what the predictor
+ * decided. Only a single-line account allocation can be one, and every field is bounded: a plan is the only place
+ * this flag can come from, and each of these shapes would otherwise reach the effect.
+ */
+it('accepts a provisional account allocation and keeps the prediction in the plan',()=>{
+ const supplier='33333333-3333-4333-8333-333333333333';
+ const plan=parseBankAllocationPlan({version:1,kind:'account',bankTransactionId:bank,
+  lines:[{accountId:account,amount:'115.00',vatCode:'standard'}],provisional:{predictedSupplierId:supplier,confidence:0.9}});
+ expect(plan).toMatchObject({kind:'account',provisional:{predictedSupplierId:supplier,confidence:0.9}});
+ // The predictor may match no supplier at all and still post to the fallback expense account.
+ expect(parseBankAllocationPlan({version:1,kind:'account',bankTransactionId:bank,
+  lines:[{accountId:account,amount:'1.00',vatCode:'none'}],provisional:{confidence:0}})).toMatchObject({provisional:{confidence:0}});
+});
+it('refuses a provisional block that is out of bounds, malformed, or on a plan that cannot be one',()=>{
+ const line={accountId:account,amount:'1.00',vatCode:'none'};
+ const account_plan=(provisional:unknown)=>({version:1,kind:'account',bankTransactionId:bank,lines:[line],provisional});
+ expect(()=>parseBankAllocationPlan(account_plan({confidence:1.01}))).toThrow();
+ expect(()=>parseBankAllocationPlan(account_plan({confidence:-0.1}))).toThrow();
+ expect(()=>parseBankAllocationPlan(account_plan({confidence:'0.9'}))).toThrow();
+ expect(()=>parseBankAllocationPlan(account_plan({}))).toThrow();
+ expect(()=>parseBankAllocationPlan(account_plan({confidence:0.9,postingAgent:'ai-provisional:v1'}))).toThrow();
+ expect(()=>parseBankAllocationPlan(account_plan({confidence:0.9,predictedSupplierId:'not-a-uuid'}))).toThrow();
+ // A split, a party settlement or a transfer is never a provisional posting: the predictor produces one account line.
+ expect(()=>parseBankAllocationPlan({version:1,kind:'split',bankTransactionId:bank,lines:[line],provisional:{confidence:0.9}})).toThrow();
+ expect(()=>parseBankAllocationPlan({version:1,kind:'supplier',bankTransactionId:bank,partyId:account,applications:[],provisional:{confidence:0.9}})).toThrow();
+});
+it('a plan with no provisional block stays an ordinary allocation',()=>{
+ const plan=parseBankAllocationPlan({version:1,kind:'account',bankTransactionId:bank,lines:[{accountId:account,amount:'1.00',vatCode:'none'}]});
+ expect('provisional' in plan&&plan.provisional!==undefined).toBe(false);
+});

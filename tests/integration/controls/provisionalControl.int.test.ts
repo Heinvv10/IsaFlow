@@ -1,6 +1,7 @@
 import {afterAll,beforeAll,expect,it} from 'vitest';
 import {provisionalControlFixture} from './provisionalControlFixture';
 import {reverseJournalEntry} from '@/modules/accounting/services/gl/journalEntryService';
+import {als} from '@/lib/als';
 let f:Awaited<ReturnType<typeof provisionalControlFixture>>;
 beforeAll(async()=>{f=await provisionalControlFixture();},60000);afterAll(async()=>{if(f)await f.close();});
 
@@ -176,7 +177,7 @@ it('reversing a generated journal from the journal route is refused with the own
  expect(await f.bankTx('A',String(row.id))).toMatchObject({status:'provisional',provisional_je_id:journalEntryId});
 });
 
-it('a post whose actor is not the authenticated person still fails the whole request and commits nothing',async()=>{
+it('a post whose actor is not the authenticated person poisons the request, so a handler that SWALLOWS it still cannot commit',async()=>{
  const supplier=`Synthetic Mismatch Traders ${Date.now()}`;
  await f.predictableSupplier('A',supplier);
  const bankTxId=await f.imported('A',`${supplier} unposted`,'-33.00');
@@ -184,12 +185,26 @@ it('a post whose actor is not the authenticated person still fails the whole req
  const {postJournalEntry}=await import('@/modules/accounting/services/gl/journalEntryPostingService');
  const draft=await f.actor(()=>createJournalEntry(f.companies.A,{entryDate:'2026-09-15',description:'Synthetic mismatch draft',source:'manual',
   lines:[{glAccountId:f.expense.A,debit:33,credit:0,description:'Synthetic mismatch'},{glAccountId:f.bank.A,debit:0,credit:33,description:'Synthetic mismatch'}]},f.fixture.u1.id));
- // A posting actor who is not this request's principal is an INTEGRITY fault, not a business refusal: it poisons the
- // control transaction, so the request cannot commit at all — including the row the same request wrote before it.
+ /**
+  * A posting actor who is not this request's principal is an INTEGRITY fault, not a business refusal, and the property
+  * that matters is what happens when the CALLER SWALLOWS IT — a per-row driver catching and continuing, or a route
+  * whose handler returns normally. The handler below does exactly that: it catches the error, records what it saw, and
+  * returns a value. It must STILL be impossible to commit.
+  *
+  * Asserting only that the call rejects proves nothing here: the fixture's own actor() rolls back on any throw, so a
+  * kernel that had stopped poisoning entirely would pass. What is asserted instead is the mechanism — the store's
+  * `controlWriteFailed` flag, and `withControlRequest` refusing to let a normally-returning handler through with
+  * ControlIntegrityError, which is the same refusal withAuth turns into a 500 in production.
+  */
+ let observed:{message:string;poisoned:boolean}|null=null;
  await expect(f.actor(async()=>{
   await f.requireControlTx().sql`UPDATE bank_transactions SET description='Synthetic mismatch touched' WHERE company_id=${f.companies.A}::uuid AND id=${bankTxId}::uuid`;
-  await postJournalEntry(f.companies.A,draft.id,f.fixture.u2.id);
- })).rejects.toThrow();
+  let message='';
+  try{await postJournalEntry(f.companies.A,draft.id,f.fixture.u2.id);}catch(error){message=error instanceof Error?error.message:String(error);}
+  observed={message,poisoned:als.getStore()?.controlWriteFailed===true};
+  return 'the handler returned normally';
+ })).rejects.toThrow('Required control evidence could not be committed');
+ expect(observed).toEqual({message:'Journal context does not match authenticated person and tenant',poisoned:true});
  expect(await f.journal('A',draft.id)).toMatchObject({status:'draft'});
  expect(String((await f.bankTx('A',bankTxId))!.description)).toBe(`${supplier} unposted`);
 });
