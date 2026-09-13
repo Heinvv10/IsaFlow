@@ -15,7 +15,9 @@ type Row=Record<string,unknown>;
 export async function executeBankAllocationReversalEffect(ctx:ControlTx,intentId:string,permit:ControlledEffectPermit,options?:PostingActorOpts){
  const parent={entityType:'bank_allocation_reversal_intent',entityId:intentId,operation:'bank_allocation.reverse' as const};
  assertControlledEffectPermit(ctx,permit,parent);
- const state=await loadBankAllocationReversal(ctx,intentId),original=await assertOriginalAllocationReversible(ctx,String(state.intent.original_intent_id));
+ const state=await loadBankAllocationReversal(ctx,intentId);
+ if(state.kind==='legacy')return executeLegacyProvisionalReversalEffect(ctx,intentId,permit,state,options);
+ const original=await assertOriginalAllocationReversible(ctx,String(state.intent.original_intent_id));
  if(state.effect||state.periods.length!==1||state.periods[0]!.status!=='open')throw new Error('Open unexecuted bank reversal required');
  const parentControl={parent,permit};await registerGeneratedJournal(ctx,parentControl,String(original.journal.id),'journal.reverse');
  const contra=await reverseJournalEntry(ctx.principal.companyId,String(original.journal.id),ctx.principal.personId,{...bankAllocationActor(ctx.principal,options),parentControl,reversalDate:permit.accountingDate});
@@ -41,7 +43,9 @@ export async function executeBankAllocationReversalEffect(ctx:ControlTx,intentId
   await recordBankAllocationChild(ctx,permit,original.plan.kind==='customer'?'customer_payment':'supplier_payment',before,after,'bank_allocation.payment_cancelled');
  }
  for(const before of original.transfer?.banks??[original.sources.bank]){
- const [after]=await ctx.sql`UPDATE bank_transactions SET status='imported',matched_journal_line_id=NULL,reconciliation_id=NULL,linked_po_id=NULL,
+ // provisional_je_id with them: a reversed provisional entry no longer has one, and the column is already NULL on
+ // every other allocation.
+ const [after]=await ctx.sql`UPDATE bank_transactions SET status='imported',matched_journal_line_id=NULL,provisional_je_id=NULL,reconciliation_id=NULL,linked_po_id=NULL,
   transfer_journal_entry_id=NULL,counterparty_account_id=NULL,allocation_type=NULL,allocated_entity_name=NULL,allocation_rule_id=NULL,allocation_rule_name=NULL,allocation_batch_id=NULL,updated_at=clock_timestamp()
   WHERE company_id=${company}::uuid AND id=${before.id}::uuid RETURNING *` as Row[];
  if(!after)throw new Error('Allocation reversal bank disappeared');
@@ -51,4 +55,27 @@ export async function executeBankAllocationReversalEffect(ctx:ControlTx,intentId
  return{intentId,bankTransactionId:original.plan.bankTransactionId,originalJournalEntryId:String(original.journal.id),reversalJournalEntryId:contra.id,
   afterFingerprint:observed.fingerprint,invoicesReopened:original.sources.invoices.length,
   amountUnapplied:'applications' in original.plan?Number(original.plan.applications.reduce((sum,a)=>sum.add(a.amount),new D(0)).toFixed()):0,paymentsCancelled:original.receipt.result.paymentId?1:0};
+}
+/**
+ * Reversing a provisional entry proven from the data: contra the journal under this permit, and return the bank line
+ * to the review queue. There is no payment and no invoice application to walk back — the proof refuses a journal that
+ * has any — and no original intent to unwind, which is the whole difference from the receipted path above.
+ */
+async function executeLegacyProvisionalReversalEffect(ctx:ControlTx,intentId:string,permit:ControlledEffectPermit,
+ state:Extract<Awaited<ReturnType<typeof loadBankAllocationReversal>>,{kind:'legacy'}>,options?:PostingActorOpts){
+ const parent={entityType:'bank_allocation_reversal_intent',entityId:intentId,operation:'bank_allocation.reverse' as const};
+ assertControlledEffectPermit(ctx,permit,parent);
+ const legacy=state.legacy;
+ if(!legacy||state.effect||state.periods.length!==1||state.periods[0]!.status!=='open')throw new Error('Open unexecuted bank reversal required');
+ const company=ctx.principal.companyId,journalId=String(legacy.journal.id);
+ const parentControl={parent,permit};await registerGeneratedJournal(ctx,parentControl,journalId,'journal.reverse');
+ const contra=await reverseJournalEntry(company,journalId,ctx.principal.personId,{...bankAllocationActor(ctx.principal,options),parentControl,reversalDate:permit.accountingDate});
+ const [after]=await ctx.sql`UPDATE bank_transactions SET status='imported',provisional_je_id=NULL,matched_journal_line_id=NULL,
+  reconciliation_id=NULL,allocation_type=NULL,allocated_entity_name=NULL,allocation_rule_id=NULL,allocation_rule_name=NULL,allocation_batch_id=NULL,
+  updated_at=clock_timestamp() WHERE company_id=${company}::uuid AND id=${String(legacy.bank.id)}::uuid AND status='provisional' RETURNING *` as Row[];
+ if(!after)throw new Error('Allocation reversal bank disappeared');
+ await recordBankAllocationChild(ctx,permit,'bank_transaction',legacy.bank,after,'bank_allocation.reversed');
+ const observed=await loadBankAllocationReversal(ctx,intentId,permit);
+ return{intentId,bankTransactionId:String(legacy.bank.id),originalJournalEntryId:journalId,reversalJournalEntryId:contra.id,
+  afterFingerprint:observed.fingerprint,invoicesReopened:0,amountUnapplied:0,paymentsCancelled:0};
 }

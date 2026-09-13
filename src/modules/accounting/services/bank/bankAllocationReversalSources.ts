@@ -45,7 +45,8 @@ export async function loadBankAllocationOriginal(ctx:ControlTx,originalIntentId:
 export async function assertOriginalAllocationReversible(ctx:ControlTx,originalIntentId:string){
  const material=await loadBankAllocationOriginal(ctx,originalIntentId);
  if(material.transfer)assertTransferBankLinks(material.transfer.banks,material.journal,material.lines,false);
- if(material.journal.reversed_at||!['allocated','matched','reconciled'].includes(String(material.sources.bank.status))
+ // 'provisional' is the post-state of an unattended provisional allocation, and 'matched' the state evidencing moves it to.
+ if(material.journal.reversed_at||!['allocated','matched','reconciled','provisional'].includes(String(material.sources.bank.status))
   ||!material.lines.some(l=>l.id===material.sources.bank.matched_journal_line_id&&l.gl_account_id===material.sources.bank.bank_account_id))throw new Error('Original allocation is no longer reversible');
  if('applications' in material.plan&&!isBankAllocationRefund(material.plan.kind,String(material.sources.bank.amount))){
   const payment=(material.plan.kind==='customer'?material.sources.receipts:material.sources.disbursements).find(p=>p.id===material.receipt.result.paymentId)!;

@@ -15,10 +15,14 @@ import {assertOriginalAllocationReversible} from './bankAllocationReversalSource
 import {loadBankAllocationReversal} from './bankAllocationReversalMaterial';
 import {executeBankAllocationReversalEffect} from './bankAllocationReversalEffect';
 const schema=z.object({originalIntentId:z.string().uuid(),reversalDate:z.string().refine(isRealCalendarDate),reason:z.string().trim().min(1).max(1000)}).strict();
+/** The pre-controls provisional entry: no intent to name, so the journal whose provenance the data proves. */
+const legacySchema=z.object({legacyJournalEntryId:z.string().uuid(),reversalDate:z.string().refine(isRealCalendarDate),reason:z.string().trim().min(1).max(1000)}).strict();
 async function authority(ctx:ControlTx){assertControlTx(ctx);await assertEffectivePermission(ctx,'write:bank-tx');await assertEffectivePermission(ctx,'write:post');
  await ctx.sql`SELECT pg_advisory_xact_lock(hashtextextended(${`control-policy:${ctx.principal.companyId}`},0))`;}
 export async function prepareBankAllocationReversal(ctx:ControlTx,input:unknown){
- assertControlTx(ctx);const plan=schema.parse(input);
+ assertControlTx(ctx);
+ if(typeof input==='object'&&input!==null&&'legacyJournalEntryId' in input)return prepareLegacyProvisionalReversal(ctx,legacySchema.parse(input));
+ const plan=schema.parse(input);
  return withSavepoint('bank_reversal_prepare',async()=>{
   await authority(ctx);const originalIntentId=await resolveBankTransferOriginal(ctx,canonicalIntentId(plan.originalIntentId));
   const original=await assertOriginalAllocationReversible(ctx,originalIntentId),id=randomUUID();
@@ -39,5 +43,24 @@ export async function executeBankAllocationReversal(ctx:ControlTx,intentId:strin
   const ref={entityType:'bank_allocation_reversal_intent',entityId:intentId,operation:'bank_allocation.reverse' as const};
   if(state.effect)return replayKnownOperationEffect<Awaited<ReturnType<typeof executeBankAllocationReversalEffect>>>(ctx,ref,state.effect.id);
   return executeControlledOperation(ctx,ref,options?.approvalId??null,permit=>executeBankAllocationReversalEffect(ctx,intentId,permit,options));
+ });
+}
+/**
+ * The same controlled reversal, prepared against a journal proven from the data rather than against a receipt. The
+ * proof is re-taken inside the write; this one refuses early so a caller learns it cannot be reversed before an
+ * approval is ever requested.
+ */
+async function prepareLegacyProvisionalReversal(ctx:ControlTx,plan:z.infer<typeof legacySchema>){
+ return withSavepoint('bank_legacy_reversal_prepare',async()=>{
+  await authority(ctx);
+  const {loadLegacyProvisionalOriginal}=await import('./bankAllocationLegacyProvisional');
+  const original=await loadLegacyProvisionalOriginal(ctx,plan.legacyJournalEntryId),id=randomUUID();
+  await ctx.sql`INSERT INTO control_bank_allocation_reversal_intents(company_id,id,requester_person_id,legacy_journal_entry_id,bank_transaction_id,reversal_date,reason)
+   VALUES(${ctx.principal.companyId}::uuid,${id}::uuid,${ctx.principal.personId},${plan.legacyJournalEntryId}::uuid,${String(original.bank.id)}::uuid,${plan.reversalDate}::date,${plan.reason})`;
+  const state=await loadBankAllocationReversal(ctx,id);
+  if(state.periods.length!==1||state.periods[0]!.status!=='open')throw new Error('Open reversal period required');
+  await recordCommittedChange(ctx,{entityType:'bank_allocation_reversal_intent',entityId:id,previousVersion:null,newVersion:1,action:'bank_allocation.reversal_prepared',accountingDate:plan.reversalDate,
+   before:null,after:{legacyJournalEntryId:plan.legacyJournalEntryId,bankTransactionId:String(original.bank.id),reversalDate:plan.reversalDate,reason:plan.reason},bindingHash:null,protectedEvidenceRef:null});
+  return{intentId:id,bankTransactionId:String(original.bank.id),operation:{entityType:'bank_allocation_reversal_intent',entityId:id,operation:'bank_allocation.reverse' as const}};
  });
 }
