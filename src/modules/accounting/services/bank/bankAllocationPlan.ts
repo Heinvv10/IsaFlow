@@ -14,12 +14,18 @@ const accountLine=z.object({accountId:id,amount:money,vatCode:z.enum(['none','st
  description:z.string().max(1000).optional(),cc1Id:id.optional(),cc2Id:id.optional(),buId:id.optional()}).strict();
 /** The categorisation rule that instructed an unattended allocation; part of the approved plan so the receipt's fingerprint covers it. */
 const rule=z.object({id,name:z.string().max(200)}).strict();
+/**
+ * The AI prediction behind an UNATTENDED provisional allocation (the import sweep's predictor). Part of the approved
+ * plan, so the receipt's fingerprint covers what was predicted and with what confidence; only the provisional
+ * adapter constructs it — every other plan is built field by field from a strict route schema.
+ */
+const provisional=z.object({predictedSupplierId:id.optional(),confidence:z.number().min(0).max(1)}).strict();
 const common={version:z.literal(1),bankTransactionId:id,description:z.string().max(1000).optional(),rule:rule.optional()};
 const application=z.object({invoiceId:id,amount:money}).strict();
 const partyDimensions={cc1Id:id.optional(),cc2Id:id.optional(),buId:id.optional()};
 const schema=z.discriminatedUnion('kind',[
  bankTransferPlanSchema,
- z.object({...common,kind:z.literal('account'),vatAccountId:id.optional(),lines:z.array(accountLine).length(1)}).strict(),
+ z.object({...common,kind:z.literal('account'),vatAccountId:id.optional(),lines:z.array(accountLine).length(1),provisional:provisional.optional()}).strict(),
  z.object({...common,kind:z.literal('split'),vatAccountId:id.optional(),lines:z.array(accountLine).min(1).max(100)}).strict(),
  z.object({...common,...partyDimensions,kind:z.literal('customer'),partyId:id,applications:z.array(application).max(100)}).strict(),
  z.object({...common,...partyDimensions,kind:z.literal('supplier'),partyId:id,applications:z.array(application).max(100)}).strict(),

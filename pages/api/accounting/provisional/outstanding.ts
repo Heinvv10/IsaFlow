@@ -78,19 +78,21 @@ async function handler(req: CompanyAuthedRequest, res: NextApiResponse) {
       (id): id is string => typeof id === 'string' && id.length > 0,
     );
 
-    const results = await Promise.all(
-      bankTxIds.map(async (id) => {
-        try {
-          const result = await postProvisional(companyId, id, userId);
-          return { bankTxId: id, ...result };
-        } catch (err) {
-          log.warn('postProvisional failed in batch endpoint', {
-            companyId, bankTxId: id, error: err instanceof Error ? err.message : String(err),
-          }, 'provisional-outstanding');
-          return { bankTxId: id, journalEntryId: null, skipped: 'error', error: err instanceof Error ? err.message : 'unknown' };
-        }
-      }),
-    );
+    // SEQUENTIALLY, never Promise.all: each posting runs the controlled bank
+    // allocation, which opens savepoints on this request's single connection —
+    // interleaving them releases another line's savepoint and corrupts the stack.
+    const results: Array<Record<string, unknown>> = [];
+    for (const id of bankTxIds) {
+      try {
+        const result = await postProvisional(companyId, id, userId);
+        results.push({ bankTxId: id, ...result });
+      } catch (err) {
+        log.warn('postProvisional failed in batch endpoint', {
+          companyId, bankTxId: id, error: err instanceof Error ? err.message : String(err),
+        }, 'provisional-outstanding');
+        results.push({ bankTxId: id, journalEntryId: null, skipped: 'error', error: err instanceof Error ? err.message : 'unknown' });
+      }
+    }
 
     return apiResponse.success(res, { results });
   }

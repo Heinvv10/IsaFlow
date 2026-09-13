@@ -67,6 +67,23 @@ export async function allocateTransaction(companyId:string,bankTxId:string,contr
  }else input={...common,lines:[{accountId:contraAccountId,amount,vatCode:vatCode??'none',cc1Id,cc2Id,buId}]};
  return runPlan(companyId,bankTxId,userId,input,opts);
 }
+/**
+ * The unattended provisional posting: the import sweep's predictor coded this line, so it goes through the SAME
+ * controlled allocation a person performs on the screen — one intent, one receipt, a parented generated journal and
+ * every refusal the controlled path raises — and lands the row in the evidence-review queue rather than as an
+ * allocated one. A bare postJournalEntry here carried 'auto_bank_recon', which the kernel refuses as a direct
+ * operation on a generated journal, and took the whole statement import down with a 500.
+ */
+export async function allocateProvisionalTransaction(companyId:string,bankTxId:string,contraAccountId:string,userId:string,
+ prediction:{predictedSupplierId?:string;confidence:number},description?:string,vatCode?:string,opts?:BankAllocationOptions){
+ const ctx=await actor(companyId,userId);
+ const [bank]=await ctx.sql`SELECT amount::text FROM bank_transactions WHERE company_id=${companyId}::uuid AND id=${bankTxId}::uuid FOR UPDATE` as {amount:string}[];
+ if(!bank)throw new Error('Owned bank transaction not found');
+ const amount=new D(bank.amount).abs().toFixed();
+ return runPlan(companyId,bankTxId,userId,{version:1,kind:'account',bankTransactionId:bankTxId,description,
+  lines:[{accountId:contraAccountId,amount,vatCode:vatCode??'none'}],
+  provisional:{...(prediction.predictedSupplierId?{predictedSupplierId:prediction.predictedSupplierId}:{}),confidence:prediction.confidence}},opts);
+}
 export async function splitAllocateTransaction(companyId:string,bankTxId:string,lines:SplitLine[],userId:string,opts?:BankAllocationOptions){
  return runPlan(companyId,bankTxId,userId,{version:1,kind:'split',bankTransactionId:bankTxId,
   lines:lines.map(line=>({accountId:line.contraAccountId,amount:String(line.amount),description:line.description,vatCode:line.vatCode??'none'}))},opts);

@@ -11,6 +11,7 @@ import { sql } from '@/lib/neon';
 import type { DbRow } from '@/lib/neon';
 import { log } from '@/lib/logger';
 import { allocateTransaction } from './bankAllocationService';
+import { classifyAutoPostRefusal } from './bankRuleAutoPostRefusal';
 import { resolveRuleVatCode } from '../gl/ruleVatResolution';
 import { postProvisional } from '../capture/provisionalPostingService';
 
@@ -341,11 +342,19 @@ export async function sweep(
       posted += 1;
       totalAmount += Math.abs(Number(row.amount));
     } catch (err) {
+      // The SAME classifier the rule sweep uses (bankRuleAutoPostRefusal): only
+      // the kernel's typed refusals are this row's outcome. A fault — a pg
+      // error, or an integrity failure that has already poisoned the request's
+      // control transaction, which withAuth will answer 500 for regardless —
+      // aborts the run instead of being counted as a skip, because counting it
+      // reports a partial commit, or a 500, as a success.
+      const refusal = classifyAutoPostRefusal(err);
+      if (!refusal) throw err;
       const reason = err instanceof Error ? err.message : String(err);
       if (jePosted) {
         log.error('Auto-post JE posted but run-tag failed — JE orphaned (needs manual reconciliation)', { companyId, txId: row.id, reason }, 'auto-post-gate');
       } else {
-        log.warn('Auto-post failed for bank transaction — skipping', { companyId, txId: row.id, reason }, 'auto-post-gate');
+        log.warn('Auto-post refused for bank transaction — skipping', { companyId, txId: row.id, kind: refusal.kind, reason }, 'auto-post-gate');
       }
       skipped.push({ txId: row.id, reason });
     }
