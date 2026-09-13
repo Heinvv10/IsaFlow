@@ -47,19 +47,22 @@ it('marks every session unverified when the reader function is not deployed',asy
 });
 it.each([
  // A missing function and a missing grant need different remediation, so the gate names which.
- ['reader missing',{reader:false,liveness:true,reader_exec:null,liveness_exec:true},/control_session_impersonator\(\) is not deployed/],
- ['liveness missing',{reader:true,liveness:false,reader_exec:true,liveness_exec:null},/impersonation_delegation_live\(.*\) is not deployed/],
- ['app_user cannot execute the reader',{reader:true,liveness:true,reader_exec:false,liveness_exec:true},/app_user.*control_session_impersonator/],
+ ['reader missing',{reader:false,liveness:true,reader_exec:null,liveness_exec:true,reader_sees:null,liveness_sees:true},/control_session_impersonator\(\) is not deployed/],
+ ['liveness missing',{reader:true,liveness:false,reader_exec:true,liveness_exec:null,reader_sees:true,liveness_sees:null},/impersonation_delegation_live\(.*\) is not deployed/],
+ ['app_user cannot execute the reader',{reader:true,liveness:true,reader_exec:false,liveness_exec:true,reader_sees:true,liveness_sees:true},/app_user.*control_session_impersonator/],
+ // 691 put RLS on the evidence tables, so a reader that cannot see past it is a deploy-stopping state too.
+ ['the reader cannot see the evidence',{reader:true,liveness:true,reader_exec:true,liveness_exec:true,reader_sees:false,liveness_sees:true},/control_session_impersonator\(\) cannot read the impersonation evidence/],
+ ['liveness cannot see the evidence',{reader:true,liveness:true,reader_exec:true,liveness_exec:true,reader_sees:true,liveness_sees:false},/impersonation_delegation_live\(.*\) cannot read the impersonation evidence/],
  // Liveness runs from verifyToken on the DATABASE_URL login role, not as app_user.
- ['the login role cannot execute liveness',{reader:true,liveness:true,reader_exec:true,liveness_exec:false,login_role:'app_login'},/app_login cannot EXECUTE .*impersonation_delegation_live/],
+ ['the login role cannot execute liveness',{reader:true,liveness:true,reader_exec:true,liveness_exec:false,reader_sees:true,liveness_sees:true,login_role:'app_login'},/app_login cannot EXECUTE .*impersonation_delegation_live/],
 ] as const)('fails the deploy gate when %s',async(_name,row,message)=>{
  const {assertImpersonationReaderDeployed}=await import('@/lib/auth/sessionImpersonation');
  // Missing EXECUTE would make every authenticated request 500 while an existence check passed.
  await expect(assertImpersonationReaderDeployed(async()=>[row])).rejects.toThrow(message);
 });
-it('passes the deploy gate only when both functions exist and app_user may execute both',async()=>{
+it('passes the deploy gate only when both functions exist, both roles may execute them and both can see the evidence',async()=>{
  const {assertImpersonationReaderDeployed}=await import('@/lib/auth/sessionImpersonation');
- await expect(assertImpersonationReaderDeployed(async()=>[{reader:true,liveness:true,reader_exec:true,liveness_exec:true}]))
+ await expect(assertImpersonationReaderDeployed(async()=>[{reader:true,liveness:true,reader_exec:true,liveness_exec:true,reader_sees:true,liveness_sees:true}]))
   .resolves.toBeUndefined();
 });
 it('is reached from withAuth and nowhere else',async()=>{
