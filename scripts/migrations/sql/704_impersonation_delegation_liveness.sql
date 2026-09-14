@@ -1,11 +1,15 @@
--- DEPLOY NOTE - this file was edited after it had been applied, so every database that already carries it
--- will stop the deploy at scripts/apply-migrations.ts with "Checksum conflicts - migration files edited after
--- apply" and exit 2, BEFORE any later gate runs. Clear it once per database, alongside 702's, then deploy again:
+-- DEPLOY NOTE - renumbered 2026-09-14 from 677_impersonation_delegation_liveness.sql (see the dated exception
+-- in scripts/migrations/README.md). This file was ALSO edited after it had been applied, and an earlier version
+-- of this note told the deployer to clear a checksum conflict alongside 702's. That instruction is now wrong and
+-- has been removed: apply-migrations.ts tracks migrations by FILENAME, so a database that applied the OLD name
+-- has no row for this one. It raises no checksum conflict, it applies this file IN FULL as a new migration, and
+-- `bun scripts/migrations/resolve-checksum-conflicts.ts` would find nothing to resolve. Do not run it here - a
+-- command that does nothing reads as a step that succeeded.
 --
---   bun scripts/migrations/resolve-checksum-conflicts.ts 704_impersonation_delegation_liveness.sql
---
--- The only change is pinning pg_temp LAST in this function's search_path. Re-running the file is idempotent
--- (CREATE INDEX IF NOT EXISTS, DROP then CREATE FUNCTION) and it is the sole definition of that function.
+-- That re-application is safe. The only edit was pinning pg_temp LAST in this function's search_path; the file is
+-- idempotent by construction (CREATE INDEX IF NOT EXISTS, DROP then CREATE FUNCTION) and is the sole definition
+-- of that function. Measured alongside the other 40 renumbered files: all 41 applied twice, in prefix order, to a
+-- copy of the synthetic fixture that already carried them - 41 of 41 in both passes, no schema change on the second.
 --
 -- Why the pin: a search_path that does not name pg_temp puts it FIRST, and it is searched there for TYPES as
 -- well as relations. Every relation here is schema-qualified, but the casts are not shadow-proof by
