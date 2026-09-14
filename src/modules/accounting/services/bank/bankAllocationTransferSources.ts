@@ -33,8 +33,10 @@ export async function readBankTransferCandidates(ctx:ControlTx,raw:unknown,optio
  await lockBankTransferPair(ctx,input.bankTransactionId,input.counterpartyAccountId,options);
  const observed=await bankRow(ctx,input.bankTransactionId),signed=new D(String(observed.amount));
  if(!signed.isFinite()||signed.isZero()||!signed.mul(100).isInteger()||signed.abs().gte('100000000000000000000'))throw new Error('Transfer source must be nonzero exact cents');
+ // feed_state='posted' fences the candidate population itself, not just the pick: a pending row carries
+ // status 'imported', so without it pending rows compete for the LIMIT 101 slots the bound below counts.
  const opposite=await ctx.sql`SELECT *,amount::text,transaction_date::text FROM bank_transactions
-  WHERE company_id=${company}::uuid AND bank_account_id=${input.counterpartyAccountId}::uuid AND status='imported'
+  WHERE company_id=${company}::uuid AND bank_account_id=${input.counterpartyAccountId}::uuid AND status='imported' AND feed_state='posted'
    AND amount=${signed.neg().toFixed()}::numeric AND transaction_date BETWEEN ${observed.transaction_date}::date-2 AND ${observed.transaction_date}::date+2
   ORDER BY abs(transaction_date-${observed.transaction_date}::date),created_at DESC,id LIMIT 101` as Row[];
  const journals=await transferJournalCandidates(ctx,observed,input.counterpartyAccountId);
