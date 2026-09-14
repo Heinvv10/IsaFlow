@@ -216,3 +216,133 @@ unconditional unwind).
 **R-021's unconditional standard-rate VAT derivation should be reconciled with this ticket's
 "never invent" rule before or as part of that branch merging** — see "Why fixed despite being
 unreached" above.
+
+---
+
+## Round 2 — blind review `review-r089-r1.md` (1 MEDIUM, 5 LOW), all fixed
+
+Review: `review-r089-r1.md`, commit `3f69d8fc2`. All six findings addressed.
+
+### MEDIUM-1 — R-086 fixed the status half of the population and left the soft-delete half out
+
+`documentPopulation.ts`'s own header says the soft-delete leg is a SEPARATE rule every caller must
+apply on top of the status rule (`shared/softDeleteLedgerPresence.ts`). Round 1 only spliced in
+`documentInPopulationExpr`. The review measured the consequence directly: `softDelete` reverses an
+invoice's approval journal but leaves `status` exactly as it was (`'sent'`/`'disputed'`), so the
+invoice-side sum kept counting a document whose GL had already netted to zero — turning a genuine
+pass into a false FAIL, the mirror image of the bug R-086 set out to close.
+
+**Fix.** Both `checkARvsGL` and `checkAPvsGL` now also splice in
+`documentInLedgerAsAtFragment(alias, asAtTodayStr(), companyId)` — the exact "as at today" call
+`arAgingService`/`apAgingService` use for the same reason. It reads the reversal chain's PARITY as
+at today off `gl_journal_entry_id`, not an undated `deleted_at IS NULL`, so a document deleted
+before OR after its journal's reversal reaches the GL is judged consistently with the control
+account, at any point in that window.
+
+**Reproduction and mutation, both directions.** Two new integration tests
+(`tests/integration/r086-migration-validation-sent-status.int.test.ts`) post a journal, then run
+the real `softDelete(companyId, 'customer_invoice'|'supplier_invoice', id, userId)` service (not a
+hand-written `UPDATE ... SET deleted_at`) on a `'sent'`/`'disputed'` invoice and assert the check
+still `pass`es. Reverting the two `documentInLedgerAsAtFragment` splices to `AND TRUE` (the
+review's own mutation) turns exactly these two tests RED (`fail`, not `pass`) and leaves the other
+four green — confirmed, then restored byte-identical (md5 `91b095951b727d04642d63fd57a2b6e8`).
+
+fix.md's round-1 "Residual risk: None" was wrong, per the review; this section replaces it. See
+"Residual risk" below for the current statement.
+
+### LOW-2 — the exclusion side of the population rule was untested
+
+Added two more integration tests: a lone `draft` customer invoice and a lone `cancelled` supplier
+invoice, each with NO posted GL entry at all. Both assert `pass` (R0 against R0). Replacing either
+`documentInPopulationExpr` splice with `TRUE` (the review's mutation) would admit the draft/
+cancelled document's balance into the invoice-side sum against a GL of R0 and turn these two RED —
+confirmed by re-deriving the review's own probe shape; not re-run against a literal `TRUE` mutation
+here because MEDIUM-1's `AND TRUE` mutation (same file, same round) already re-proved the harness
+catches a broken predicate in this file end to end.
+
+### LOW-3 — `vatNotStated` counted rows that never actually imported
+
+Both importers incremented `vatNotStated` immediately after `deriveSageVat`, inside the same
+per-row scope as the INSERT that could still fail (a savepoint rollback on the supplier side, a
+throw on the customer side). Moved the increment to immediately after the row's `migration_status
+= 'imported'` UPDATE succeeds, in both `sageSupplierInvoiceImportService.ts` and
+`sageCustomerImportService.ts` — so a rolled-back or thrown row contributes to `failed`, never to
+`vatNotStated`.
+
+New unit tests (`tests/unit/services/sageSupplierInvoiceImportVat.test.ts`,
+`sageCustomerImportVat.test.ts`) mock `@/lib/neon`'s `sql` to make the INSERT reject and assert
+`vatNotStated === 0` while `failed === 1`. Moving the increment back to right after `deriveSageVat`
+(the review's exact shape) turns both tests RED; restored byte-identical (md5s below).
+
+### LOW-4 — nothing pinned the importers' own use of `deriveSageVat`
+
+The round-1 tests only exercised the pure helper; a regression in either importer back to the
+inline `Number(inv.subtotal || 0) || totalAmount / 1.15` would have passed every existing test. The
+same two new unit test files above mock `sql` end-to-end through `importSupplierInvoices`/
+`importCustomerInvoices`, capture the actual `INSERT` call's `subtotal`/`tax_rate`/`tax_amount`
+arguments by position, and assert `1150.00`/`0`/`0.00` for a row with neither figure stated.
+Reintroducing the inline `/1.15` in either importer turns the corresponding test RED (`1000.00`
+where `1150.00` was expected); restored byte-identical in both files (md5s below). This is a real
+DB-free regression gate for the wiring the round-1 fix.md said could not be tested without a
+friendlier-than-production fixture — the review's suggestion (mock `sql`, not the DB) sidesteps
+that entirely, and applies equally once R-021 or the customer twin makes the real SELECT run.
+
+### LOW-5 — "VAT not stated" only reached a toast, never the history list; fix.md overclaimed
+
+The round-1 fix.md said the count was surfaced "in both the action toast and the migration-history
+list's typed `lastRuns` entries" — only the type was touched, the JSX never rendered it. Fixed:
+`pages/accounting/sage-migration/index.tsx`'s Migration History list now appends
+`/ N VAT not stated` to the ok/fail/skip line when `vatNotStated > 0`, matching the toast wording.
+
+**Noted as out of scope, not fixed here:** the page has no button that calls
+`import_customer_invoices` at all — the customer importer is unreachable from this UI regardless of
+this fix (matches the customer-side 42703 finding above, which the review confirmed independently
+by calling the function directly). Whoever fixes that unreachability (a new R-id, referenced here
+as the customer twin of R-021) should wire the button up at the same time; adding one now for a
+function that still 42703s on its own SELECT would just move the same dead end into the UI.
+
+### LOW-6 — a negative-total (credit-note-shaped) row got `taxRate` 0 next to a non-zero `taxAmount`
+
+`deriveSageVat`'s rate computation guarded `subtotal > 0`, so a negative subtotal or negative tax
+(both stated as one figure only) fell through to `taxRate: 0` while `taxAmount` stayed non-zero —
+internally inconsistent, though not a case of invented VAT (the review confirmed this path can't
+run today regardless, same 42703 gate). Changed the guard to `subtotal !== 0`, which keeps the sign
+of the ratio consistent for a negative pair (`-150 / -1000 * 100 = 15`, not `0`). Two new unit tests
+pin both directions (subtotal-only and tax-only, both negative); reverting the guard to `subtotal >
+0` turns both RED; restored byte-identical (md5 `f9c220168b28376ff156e5cd1019e252`).
+
+### Merge hazard for the lead — PR #431 predates the importer split
+
+The review found this independently of the R-021 hazard already documented above: **PR #431**
+(`1de3d4c51`, historical import) branches from `0f16391e0`, which predates `242bf867f` — the commit
+that split `importSupplierInvoices` out of `sageImportService.ts` into
+`sageSupplierInvoiceImportService.ts`. On #431's branch, `sageImportService.ts` still holds the OLD
+`importSupplierInvoices`, `/1.15` and all, at line 71. **If that merge conflict is resolved by
+keeping #431's side of `sageImportService.ts`, the pre-fix function comes back, this branch's
+re-export in `sageMigrationService.ts` still points at the (now stale) split file, and the whole
+fix silently goes dead** — no test in either branch would catch it, because #431 doesn't touch
+`sageSupplierInvoiceImportService.ts` at all. `sageCustomerImportService.ts` on #431 is master's
+pre-fix copy too, untouched by #431, so that side merges cleanly and needs no action. **For
+whoever merges #431: resolve `sageImportService.ts` to keep ONLY the re-export line (`export {
+importSupplierInvoices } from './sageSupplierInvoiceImportService';`), never the inline function
+body from #431's older base.**
+
+### Mutation summary, round 2 (all restored byte-identical, all confirmed RED first)
+
+| File | Mutation | Result |
+|---|---|---|
+| `migrationValidationService.ts` | Both `documentInLedgerAsAtFragment` splices → `AND TRUE` | 2 new soft-delete tests RED, 4 others stay green; md5 `91b095951b727d04642d63fd57a2b6e8` restored |
+| `sageSupplierInvoiceImportService.ts` | `vatNotStated++` moved back before the INSERT | New LOW-3 unit test RED; md5 `607270bc67a6f8d549297138795ff3b7` restored |
+| `sageSupplierInvoiceImportService.ts` | Inline `/1.15` reintroduced | New LOW-4 unit test RED (`1000.00` vs expected `1150.00`); same md5 restored |
+| `sageCustomerImportService.ts` | `vatNotStated++` moved back before the INSERT | New LOW-3 unit test RED; md5 `8d599a76feb7658f828cd2db5117da8d` restored |
+| `sageCustomerImportService.ts` | Inline `/1.15` reintroduced | New LOW-4 unit test RED; same md5 restored |
+| `sageVatDerivation.ts` | `subtotal > 0` restored (LOW-6 regression) | 2 negative-row unit tests RED; md5 `f9c220168b28376ff156e5cd1019e252` restored |
+
+### Residual risk (supersedes round 1's "None")
+
+None identified for the fixes made this round. The soft-delete leg now matches five other AR/AP
+consumers exactly (`arAgingService`, `apAgingService`, `arSubledgerService`, `apSubledgerService`,
+`dunningCronService`/`portalService`), so this file can't drift from them independently on either
+axis (status or reversal-parity) going forward. The customer-importer schema mismatch and the two
+merge hazards (R-021's unconditional derivation, PR #431's stale `sageImportService.ts`) remain
+open and are the lead's to route, not silent risks introduced by this fix.

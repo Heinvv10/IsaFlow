@@ -313,6 +313,7 @@ export default function SageMigrationPage() {
                         <div className="flex items-center gap-3">
                           <span className="text-xs text-[var(--ff-text-secondary)]">
                             {run.succeeded} ok / {run.failed} fail / {run.skipped} skip
+                            {run.vatNotStated > 0 && ` / ${run.vatNotStated} VAT not stated`}
                           </span>
                           <StatusBadge status={run.status} />
                         </div>

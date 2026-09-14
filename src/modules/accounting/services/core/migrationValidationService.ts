@@ -11,6 +11,7 @@ import { validateSystemAccounts } from '../gl/systemAccountResolver';
 import { checkAccountSubtypeCoverage } from './migrationSubtypeCheck';
 import { PAYABLE_SUBTYPES, RECEIVABLE_SUBTYPES } from '../gl/accountSubtypes';
 import { documentInPopulationExpr } from '../shared/documentPopulation';
+import { asAtTodayStr, documentInLedgerAsAtFragment } from '../shared/softDeleteLedgerPresence';
 import type { DbRow } from '@/types/db';
 
 
@@ -90,11 +91,16 @@ async function checkTrialBalance(companyId: string): Promise<ValidationResult> {
 
 async function checkARvsGL(companyId: string): Promise<ValidationResult> {
   // Sum of open customer invoice balances
+  const asAtStr = asAtTodayStr();
   const invRows = (await sql`
     SELECT COALESCE(SUM(total_amount - COALESCE(amount_paid, 0)), 0) AS total
     FROM customer_invoices ci
     WHERE ci.company_id = ${companyId}::UUID
       AND ${sql.unsafe(documentInPopulationExpr('ci'))}
+      -- A soft-deleted invoice's approval journal is reversed, so it must
+      -- drop off the invoice side exactly when that reversal reaches the GL,
+      -- not the instant it is deleted (shared/softDeleteLedgerPresence).
+      AND ${documentInLedgerAsAtFragment('ci', asAtStr, companyId)}
   `) as DbRow[];
 
   // GL balance on receivable account
@@ -127,11 +133,14 @@ async function checkARvsGL(companyId: string): Promise<ValidationResult> {
 }
 
 async function checkAPvsGL(companyId: string): Promise<ValidationResult> {
+  const asAtStr = asAtTodayStr();
   const invRows = (await sql`
     SELECT COALESCE(SUM(total_amount - COALESCE(amount_paid, 0)), 0) AS total
     FROM supplier_invoices si
     WHERE si.company_id = ${companyId}::UUID
       AND ${sql.unsafe(documentInPopulationExpr('si'))}
+      -- See checkARvsGL — same soft-delete/reversal-parity rule, AP side.
+      AND ${documentInLedgerAsAtFragment('si', asAtStr, companyId)}
   `) as DbRow[];
 
   const glRows = (await sql`

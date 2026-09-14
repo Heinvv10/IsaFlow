@@ -62,6 +62,18 @@ describe('deriveSageVat — a row with both stated', () => {
   });
 });
 
+describe('deriveSageVat — a negative-total (credit-note-shaped) row', () => {
+  it('keeps the rate consistent with the tax amount when only the subtotal is stated', () => {
+    const result = deriveSageVat(-1000, null, -1150);
+    expect(result).toEqual({ subtotal: -1000, taxAmount: -150, taxRate: 15, vatNotStated: false });
+  });
+
+  it('keeps the rate consistent with the tax amount when only the tax is stated', () => {
+    const result = deriveSageVat(null, -150, -1150);
+    expect(result).toEqual({ subtotal: -1000, taxAmount: -150, taxRate: 15, vatNotStated: false });
+  });
+});
+
 describe('SAGE_VAT_NOT_STATED_NOTE', () => {
   it('is a non-empty reviewer-facing string', () => {
     expect(SAGE_VAT_NOT_STATED_NOTE.length).toBeGreaterThan(10);
