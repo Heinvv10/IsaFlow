@@ -2,7 +2,6 @@
 -- PostgreSQL database dump
 --
 
-\restrict V2WpiA2rqEtQSwGOFXHOVffMbq8o0UEJyAv6ww80ubb6DDDsW4QagrwJlJexeIG
 
 -- Dumped from database version 16.15 (Debian 16.15-1.pgdg12+2)
 -- Dumped by pg_dump version 16.15 (Debian 16.15-1.pgdg12+2)
@@ -486,6 +485,7 @@ ALTER FUNCTION public.captured_documents_touch_updated_at() OWNER TO postgres;
 CREATE FUNCTION public.control_approval_authorities(p_company uuid, p_approval uuid) RETURNS TABLE(person_id text, role text, authority_kind text, platform_role text, is_active boolean, status text, suspended_at timestamp with time zone, company_status text, company_suspended_at timestamp with time zone, permissions jsonb, grant_valid boolean, current_scopes text[])
     LANGUAGE plpgsql SECURITY DEFINER
     SET search_path TO 'pg_catalog', 'public', 'app', 'auth', 'pg_temp'
+    SET lock_timeout TO '5s'
     AS $$
 DECLARE
   v_person text;
@@ -36509,5 +36509,4 @@ ALTER DEFAULT PRIVILEGES FOR ROLE postgres IN SCHEMA public GRANT SELECT,INSERT,
 -- PostgreSQL database dump complete
 --
 
-\unrestrict V2WpiA2rqEtQSwGOFXHOVffMbq8o0UEJyAv6ww80ubb6DDDsW4QagrwJlJexeIG
 

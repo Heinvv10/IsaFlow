@@ -26,8 +26,19 @@ that earlier sessions' notes refer to, and of the `--apply` guard in `schema-mat
 | File | What it is |
 |---|---|
 | `schema.sql` | `pg_dump -s` of the fixture, ownership preserved. Generated — never hand-edit. |
+| `reference-data.sql` | Rows the *migrations* insert into `permission_modules`, `feature_flags`, `asset_categories`. Generated. |
 | `roles.sql` | The three cluster roles, hand-written. `pg_dumpall --roles-only` emits password hashes, which must not enter the repository. |
 | `reverts/*.sql` | Undo scripts for migrations that exist on other branches but not on this one, consumed by `schema-match.ts`. |
+
+`reference-data.sql` is not test data: `pg_dump -s` drops rows, and routes validate against these
+tables — without `permission_modules` the control routes answer `400 Unknown moduleKey: audit` and
+`authorityLockLiveness` fails for a reason that has nothing to do with locks. All three tables are
+company-agnostic (none has a `company_id`; every `asset_categories` GL column is NULL), so no
+tenant data is carried.
+
+The `\restrict` / `\unrestrict` lines `pg_dump` emits are stripped: the token is a fresh random
+nonce every time, and leaving it in makes each regeneration diff look like a change when nothing
+changed.
 
 Ownership is preserved on purpose: `migration_admin` owns 238 objects in the dump, 12 of them
 `SECURITY DEFINER` functions. Dumping `--no-owner` would silently re-own those and change what
@@ -64,9 +75,16 @@ for f in scripts/migrations/sql/<the missing ones>; do
 done
 bash scripts/forensic/fixture-verify.sh 33151 HEAD --apply   # reverts anything ahead; must print MATCH
 docker exec isaflow-forensic-33151 pg_dump -U postgres -s isaflow_schema_fixture \
-  > scripts/forensic/fixture/schema.sql
+  | grep -v '^\\restrict \|^\\unrestrict ' > scripts/forensic/fixture/schema.sql
 bash scripts/forensic/fixture-down.sh 33151
 ```
+
+Re-apply any migration that only sets function `SET` clauses or grants — `838_control_authority_
+lock_timeout.sql` is the one that exists today. `schema-match.ts` compares function *bodies*, not
+`proconfig`, so it reports MATCH while such a setting is missing. That is not hypothetical: the
+first cut of this snapshot lost `lock_timeout=5s` on `control_approval_authorities` because a
+`CREATE OR REPLACE` during the revert step reset it, `MATCH` was reported anyway, and
+`authorityLockLiveness.int.test.ts` is what caught it.
 
 Commit the regenerated `schema.sql` with the migrations that caused it to change. A migration that
 fails to apply forward here is telling you it was written against a state that no longer exists —
@@ -76,5 +94,7 @@ fix the migration, do not hand-edit the dump.
 
 `schema-match.ts` compares tables, `ADD COLUMN`s, triggers and function bodies for objects last
 touched at or after the floor (default 600), plus the `-- detect:` query in each revert file.
-**Privilege-only and RLS-policy-only changes are not compared** except through those detect
-queries. `MATCH` means the objects agree, not that every grant does.
+**Privilege-only changes, RLS-policy-only changes and function `SET` clauses (`proconfig`) are not
+compared** except through those detect queries. `MATCH` means the objects agree, not that every
+grant, policy and setting does. Treat a green integration run as the stronger signal of the two,
+and when a control test fails in a way that smells structural, check the fixture before the code.

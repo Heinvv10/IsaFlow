@@ -56,6 +56,13 @@ docker exec -i "$NAME" psql -U postgres -d postgres -q -v ON_ERROR_STOP=1 < "$HE
 say "schema (fixture/schema.sql)"
 docker exec -i "$NAME" psql -U postgres -d "$DB" -q -v ON_ERROR_STOP=1 < "$HERE/fixture/schema.sql"
 
+# Rows that MIGRATIONS insert, not rows a fixture run creates: `pg_dump -s` drops them, and routes
+# validate against them — without permission_modules the control routes answer 400 "Unknown
+# moduleKey: audit". Company-agnostic tables only (none has a company_id; the asset_categories GL
+# columns are all NULL), so no tenant data is carried.
+say "reference data (permission_modules, feature_flags, asset_categories)"
+docker exec -i "$NAME" psql -U postgres -d "$DB" -q -v ON_ERROR_STOP=1 < "$HERE/fixture/reference-data.sql"
+
 # Both roles carry LOGIN in the live cluster; give them this run's throwaway password so a caller
 # that connects as them (PLATFORM_ADMIN_DATABASE_URL) works without editing anything.
 docker exec "$NAME" psql -U postgres -q -v ON_ERROR_STOP=1 \
