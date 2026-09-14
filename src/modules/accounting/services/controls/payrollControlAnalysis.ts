@@ -4,6 +4,7 @@ import {buildExactPayrollPlan} from './payrollExactPlan';
 import {canonicalJson,canonicalMoney} from './canonical';
 import {riskHash,type RiskFinding} from './invoiceRiskQueriesResult';
 import type {PayrollControlPopulation,PayrollControlJournal} from './payrollControlTypes';
+import {isBankSubtype} from '../gl/accountSubtypes';
 const D=Decimal.clone({precision:80});
 const amount=(value:unknown)=>new D(canonicalMoney(String(value)));
 const compare=(a:string,b:string)=>a<b?-1:a>b?1:0;
@@ -80,7 +81,7 @@ export function analysePayrollControls(source:PayrollControlPopulation){
     const uif=source.accounts.filter(row=>row.account_code==='2150');
     const credited=new Set(journal.lines.filter(line=>amount(line.credit).gt(0)).map(line=>line.glAccountId));
     const bank=source.accounts.filter(row=>credited.has(String(row.id))&&row.is_active===true
-     &&(row.account_code==='1110'||(row.account_type==='asset'&&row.account_subtype==='bank')));
+     &&(row.account_code==='1110'||(row.account_type==='asset'&&isBankSubtype(row.account_subtype as string|null))));
     if(uif.length!==1||bank.length!==1)missing.push('uif_settlement_account_mapping_unavailable');
     else if(journal.status!=='posted'||journal.reversed||canonicalJson(journalBuckets(journal.lines))!==canonicalJson(journalBuckets([
      {glAccountId:String(uif[0]!.id),debit:declared.toFixed(),credit:'0'},{glAccountId:String(bank[0]!.id),debit:'0',credit:declared.toFixed()}])))

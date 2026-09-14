@@ -4,6 +4,7 @@ import type {ControlTx} from './contracts';
 import {assertControlTx} from './context';
 import {riskHash} from './invoiceRiskQueriesResult';
 import {loadOwnedCapturedEvidence} from './capturedEvidenceSource';
+import {isBankSubtype} from '../gl/accountSubtypes';
 interface StatementSource {
  account:{id:string;account_type:string;account_subtype:string;is_active:boolean};
  document:{id:string;hash:string;status:string};currency:string;
@@ -29,7 +30,7 @@ export async function loadBankStatementSource(ctx:ControlTx,accountId:string,doc
  const [company]=await ctx.sql`SELECT default_currency FROM companies WHERE id=${ctx.principal.companyId}::uuid FOR SHARE` as {default_currency:string}[];
  const [account]=await ctx.sql`SELECT id,account_type,account_subtype,is_active FROM gl_accounts
   WHERE company_id=${ctx.principal.companyId}::uuid AND id=${accountId}::uuid FOR SHARE` as StatementSource['account'][];
- if(!account||account.account_type!=='asset'||account.account_subtype!=='bank'||!account.is_active)throw new Error('Owned active bank account required');
+ if(!account||account.account_type!=='asset'||!isBankSubtype(account.account_subtype)||!account.is_active)throw new Error('Owned active bank account required');
  const document=await loadOwnedCapturedEvidence(ctx,documentId,'read:bank-tx');
  if(!document||!document.recordedHashVerified||document.sha256!==expectedHash||!document.status)throw new Error('Actual statement bytes unavailable or changed');
  if(!company||!/^[A-Z]{3}$/.test(company.default_currency))throw new Error('Statement ledger currency unavailable');

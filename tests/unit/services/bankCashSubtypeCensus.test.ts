@@ -95,6 +95,12 @@ const ALLOWED: ReadonlyArray<{ file: string; literals: readonly string[]; reason
   // The raw token a VAT control account carries. Canonicalising it would pull
   // income tax expense onto the balance-sheet exception list.
   { file: 'src/modules/accounting/services/reports/vatBalanceSheetExceptions.ts', literals: ['tax'], reason: 'raw VAT-control token, not the tax_expense concept' },
+  // Mirrors the VAT201 journal population, by its own docstring, so it must stay
+  // exactly as narrow as the three VAT surfaces above. Canonicalising `tax` here
+  // would widen it to income_tax / tax_expense / deferred_tax_expense and pull
+  // income tax and PAYE into the VAT return footprint — the same defect
+  // accountReportingClass records at R23,219.01.
+  { file: 'src/modules/accounting/services/controls/journalVatFootprint.ts', literals: ['tax'], reason: 'raw VAT-control token, mirrors the VAT201 population' },
   // OPEN, deliberately deferred — K-091 round 7 MEDIUM-4. The fixed-asset
   // register's cost partition is mirrored between `fixedAssetReconciliationQueries`
   // (SQL), `fixedAssetReconciliationItems` (TypeScript) and this WRITE gate.
@@ -109,7 +115,7 @@ const ALLOWED: ReadonlyArray<{ file: string; literals: readonly string[]; reason
 ];
 
 /** A subtype already put through the vocabulary is not a raw literal comparison. */
-const CANONICALISED = /(?:canonicalSubtype|revenueBand|expenseBand|isBankSubtype|isCurrentSubtype|isCashEquivalent)\s*\(\s*[\w.]*$/;
+const CANONICALISED = /(?:canonicalSubtype|revenueBand|expenseBand|isBankSubtype|isCurrentSubtype|isCashEquivalent|subtypeFillsRole)\s*\(\s*[\w.]*$/;
 
 /** Every tracked source file under src/ and pages/, depth-1 files included. */
 function sourceFiles(): string[] {
@@ -150,9 +156,20 @@ function operand(text: string): string {
   return text.slice(head[0].length);
 }
 
-/** `rawSubtypesFor('x')` IS the shared vocabulary — its argument is not a literal comparison. */
+/**
+ * `rawSubtypesFor('x')` IS the shared vocabulary — its argument names a canonical
+ * token, not a raw spelling to compare against, so it is not a literal comparison.
+ *
+ * `roleSpellings('x')` and `subtypeFillsRole(s,'x')` are exempt on the same
+ * ground, with one caveat worth stating plainly: for a role OUTSIDE
+ * `WIDENED_ROLES` they still answer with a single spelling. That narrowness is
+ * real, but it is no longer scattered — it is declared once, with its reason, in
+ * the `WIDENED_ROLES` allowlist beside the vocabulary, which is where a reviewer
+ * can see the whole set at once. Centralising the rule is what these passes are
+ * for; what they refuse is a narrow literal nobody declared.
+ */
 function dropSharedVocabulary(text: string): string {
-  return text.replace(/rawSubtypesFor\s*\([^)]*\)/g, '');
+  return text.replace(/(?:rawSubtypesFor|roleSpellings|subtypeFillsRole)\s*\([^)]*\)/g, '');
 }
 
 describe('subtype census', () => {

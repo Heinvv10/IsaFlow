@@ -280,6 +280,43 @@ export function isBankSubtype(subtype: string | null | undefined): boolean {
 /** Raw spellings meaning trade receivables. */
 export const RECEIVABLE_SUBTYPES: readonly string[] = rawSubtypesFor('receivable');
 
+/**
+ * The system-account ROLES whose lookup may accept every spelling of the role.
+ *
+ * A role key is itself a raw spelling (`'payable'`, `'bank'`), and the write
+ * side offers exactly one per role on purpose — see `glAccountSubtypes.ts`. But
+ * the READ side resolves an account a tenant ALREADY has, and an imported chart
+ * spells the same role `accounts_payable` or `bank_account`. Those lookups were
+ * refusing such tenants outright.
+ *
+ * This is an ALLOWLIST, not a rule applied to every role, because widening is
+ * not safe for all of them and the risk runs the other way:
+ *   · `tax` is the raw VAT-control token on a liability but canonicalises to
+ *     `tax_expense` — widening it would let income tax claim a VAT role;
+ *   · `default_expense` / `default_revenue` are PLACEHOLDER roles, and the
+ *     question they ask is "did the importer leave this behind?" — widening
+ *     them to every operating-expense or revenue spelling defeats the question.
+ * Only roles whose whole spelling set has been reconciled appear here.
+ */
+const WIDENED_ROLES: ReadonlySet<string> = new Set([
+  'bank', 'payable', 'receivable', 'depreciation_expense', 'accumulated_depreciation',
+]);
+
+/**
+ * Every raw spelling that resolves the given system-account role. Roles outside
+ * `WIDENED_ROLES` answer with their own single spelling, unchanged.
+ */
+export function roleSpellings(role: string): string[] {
+  if (!WIDENED_ROLES.has(role)) return [role];
+  const canonical = canonicalSubtype(role);
+  return canonical === null ? [role] : rawSubtypesFor(canonical);
+}
+
+/** True when `subtype` resolves the given system-account role. */
+export function subtypeFillsRole(subtype: string | null | undefined, role: string): boolean {
+  return roleSpellings(role).includes(String(subtype ?? ''));
+}
+
 /** Raw spellings meaning trade payables. */
 export const PAYABLE_SUBTYPES: readonly string[] = rawSubtypesFor('payable');
 

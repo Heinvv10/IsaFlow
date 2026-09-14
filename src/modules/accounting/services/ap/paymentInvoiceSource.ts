@@ -7,6 +7,7 @@ import {loadIntentReceipt} from '../controls/intentIdentity';
 import type {ControlTx} from '../controls/contracts';
 import type {PaymentSourceRow} from './paymentReleaseSource';
 import {normalizePaymentInvoiceState} from './paymentInvoiceBinding';
+import {isBankSubtype,subtypeFillsRole,roleSpellings} from '../gl/accountSubtypes';
 type Row=Record<string,unknown>;
 async function journalSource(ctx:ControlTx,id:string){
  const company=ctx.principal.companyId;
@@ -17,7 +18,7 @@ async function journalSource(ctx:ControlTx,id:string){
   WHERE l.company_id=${company}::uuid AND l.journal_entry_id=${id}::uuid ORDER BY l.id LIMIT 1001 FOR SHARE OF l,a` as Row[];
  if(!lines.length||lines.length>1000)throw new Error('Payment source journal population unavailable');
  const [sum]=await ctx.sql`SELECT sum(l.debit)::text AS debit,sum(l.credit)::text AS credit,
-  COALESCE(sum(CASE WHEN a.account_subtype='payable' AND a.account_type='liability' THEN l.credit-l.debit ELSE 0 END),0)::text AS payable_credit
+  COALESCE(sum(CASE WHEN a.account_subtype=ANY(${roleSpellings('payable')}::text[]) AND a.account_type='liability' THEN l.credit-l.debit ELSE 0 END),0)::text AS payable_credit
   FROM gl_journal_lines l JOIN gl_accounts a ON a.company_id=l.company_id AND a.id=l.gl_account_id
   WHERE l.company_id=${company}::uuid AND l.journal_entry_id=${id}::uuid` as Row[];
  return{journal:{...journal,...sum},lines};
@@ -49,8 +50,8 @@ async function ownSettlement(ctx:ControlTx,payment:PaymentSourceRow){
    ||!population.reduce((sum,p)=>sum.add(String(p.total_amount)),new D(0)).eq(settlementAmount))throw new Error('Payment settlement population changed');
  }
  const D=Decimal.clone({precision:80}),total=new D(settlementAmount);
- const payable=source.lines.filter(line=>line.account_type==='liability'&&line.account_subtype==='payable');
- const bank=source.lines.filter(line=>line.gl_account_id===bankId&&line.account_type==='asset'&&line.account_subtype==='bank');
+ const payable=source.lines.filter(line=>line.account_type==='liability'&&subtypeFillsRole(line.account_subtype as string|null,'payable'));
+ const bank=source.lines.filter(line=>line.gl_account_id===bankId&&line.account_type==='asset'&&isBankSubtype(line.account_subtype as string|null));
  if(!total.gt(0)||source.lines.length!==2||payable.length!==1||bank.length!==1
   ||!new D(String(journal.debit)).eq(total)||!new D(String(journal.credit)).eq(total)||!new D(String(journal.payable_credit)).eq(total.neg())
   ||!new D(String(payable[0]!.debit)).eq(total)||!new D(String(payable[0]!.credit)).isZero()

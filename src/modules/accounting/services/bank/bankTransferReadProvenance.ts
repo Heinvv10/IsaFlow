@@ -7,6 +7,7 @@ import type {ControlTx} from '../controls/contracts';
 import {matchesBankAllocationJournalLines} from '../controls/bankAllocationJournalShape';
 import {buildBankAllocationLines,parseBankAllocationPlan} from './bankAllocationPlan';
 import type {BankControlRow} from './bankControlReadProvenance';
+import {isBankSubtype} from '../gl/accountSubtypes';
 type Row=Record<string,unknown>;
 const D=Decimal.clone({precision:80});
 /** Current retained identity proof only: no discovery, posting authority or live business material. */
@@ -73,7 +74,7 @@ export async function readBankTransferOriginal(ctx:ControlTx,current:BankControl
   FROM gl_journal_lines l LEFT JOIN gl_accounts a ON a.company_id=l.company_id AND a.id=l.gl_account_id
   WHERE l.company_id=${company}::uuid AND l.journal_entry_id=${journal.id}::uuid ORDER BY l.id LIMIT 3` as (Row&Parameters<typeof matchesBankAllocationJournalLines>[1][number])[];
  const expected=buildBankAllocationLines(plan,{bankAccountId:String(bank.bank_account_id),signedAmount:signed.toFixed(),controlAccountId:null,vatAccountId:null});
- if(lines.length!==2||lines.some(l=>!l.owned_account_id||l.account_type!=='asset'||l.account_subtype!=='bank')||!matchesBankAllocationJournalLines(expected,lines))throw new Error('Controlled transfer journal economics changed');
+ if(lines.length!==2||lines.some(l=>!l.owned_account_id||l.account_type!=='asset'||!isBankSubtype(l.account_subtype as string|null))||!matchesBankAllocationJournalLines(expected,lines))throw new Error('Controlled transfer journal economics changed');
  for(const row of banks){
   const isOriginal=row.id===plan.bankTransactionId,account=isOriginal?bank.bank_account_id:plan.counterpartyAccountId;
   const line=lines.find(l=>l.gl_account_id===account),other=lines.find(l=>l.gl_account_id!==account);

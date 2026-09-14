@@ -6,6 +6,7 @@ import type {ControlTx,EntityRef,OperationRef} from '../controls/contracts';
 import type {ApMaterial,ObservedSource} from '../controls/apOperationMaterializer';
 import {selectApSystemAccount} from './apControlAccounts';
 import {loadPreparedBatch,loadBatchBankAccount} from './paymentBatchSource';
+import {roleSpellings} from '../gl/accountSubtypes';
 export async function observePaymentSource(ctx:ControlTx,ref:EntityRef,facts:Record<string,unknown>):Promise<ObservedSource>{
  const version=await readControlEntityVersion(ctx,ref);
  return{...ref,version:version?.version??1,tracked:version!==null,
@@ -15,7 +16,7 @@ export async function materializePaymentBatchOperation(ctx:ControlTx,ref:Operati
  if(ref.entityType!=='supplier_payment_batch'||ref.operation!=='supplier_payment_batch.process')throw new Error('Unsupported payment batch operation');
  const material=await loadPreparedBatch(ctx,ref.entityId),bank=await loadBatchBankAccount(ctx,material.batch.bank_account_id);
  const accounts=await ctx.sql`SELECT id,account_code,account_type,account_subtype,is_active,is_system_account FROM gl_accounts
-  WHERE company_id=${ctx.principal.companyId}::uuid AND account_subtype='payable' AND is_system_account=true AND is_active=true ORDER BY id FOR SHARE` as Array<Record<string,unknown>&{id:string}>;
+  WHERE company_id=${ctx.principal.companyId}::uuid AND account_subtype=ANY(${roleSpellings('payable')}::text[]) AND is_system_account=true AND is_active=true ORDER BY id FOR SHARE` as Array<Record<string,unknown>&{id:string}>;
  const payable=selectApSystemAccount(accounts,'payable');
  const [ledger]=await ctx.sql`SELECT default_currency FROM companies WHERE id=${ctx.principal.companyId}::uuid FOR SHARE` as Array<{default_currency:string}>;
  if(ledger?.default_currency!==material.currency)throw new Error('Batch currency differs from ledger currency');

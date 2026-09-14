@@ -7,6 +7,7 @@ import {requireControlTx} from '../controls/context';
 import {loadPreparedBatch,loadBatchBankAccount} from './paymentBatchSource';
 import {recordBatchEntity} from './batchPaymentWriteService';
 import {selectApSystemAccount} from './apControlAccounts';
+import {roleSpellings} from '../gl/accountSubtypes';
 /** One aggregate GL effect and all settlement records share the parent approval transaction. */
 export async function executePaymentBatchEffect(batchId:string,permit:ControlledEffectPermit):Promise<{batchId:string;journalEntryId:string}>{
  const ctx=requireControlTx(),company=ctx.principal.companyId;
@@ -16,7 +17,7 @@ export async function executePaymentBatchEffect(batchId:string,permit:Controlled
  if(material.batch.status!=='approved'||material.payments.some(p=>p.payment.status!=='approved'))throw new Error('Approved batch and payments required');
  const bank=await loadBatchBankAccount(ctx,material.batch.bank_account_id);
  const accounts=await ctx.sql`SELECT id,account_type,account_subtype,is_active,is_system_account FROM gl_accounts
-  WHERE company_id=${company}::uuid AND account_subtype='payable' AND is_system_account=true AND is_active=true ORDER BY id FOR SHARE` as Array<Record<string,unknown>&{id:string}>;
+  WHERE company_id=${company}::uuid AND account_subtype=ANY(${roleSpellings('payable')}::text[]) AND is_system_account=true AND is_active=true ORDER BY id FOR SHARE` as Array<Record<string,unknown>&{id:string}>;
  const payable=selectApSystemAccount(accounts,'payable');
  const allocations=material.payments.flatMap(p=>p.facts.allocations.map(a=>({...a,supplierId:p.payment.supplier_id}))).sort((a,b)=>a.invoiceId<b.invoiceId?-1:1);
  if(new Set(allocations.map(a=>a.invoiceId)).size!==allocations.length)throw new Error('Duplicate batch invoice');

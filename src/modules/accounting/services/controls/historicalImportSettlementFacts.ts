@@ -2,6 +2,7 @@ import Decimal from 'decimal.js';
 import {loadHistoricalSettlementPopulation} from './historicalImportSettlementPopulation';
 import type {ControlTx} from './contracts';
 import type {HistoricalImportNormalized} from './historicalImportTypes';
+import {isBankSubtype,subtypeFillsRole} from '../gl/accountSubtypes';
 type Row=Record<string,unknown>;
 const D=Decimal.clone({precision:80});
 /** Paid state needs an actual owned document allocation and its exact control/bank journal. */
@@ -10,7 +11,7 @@ export async function loadHistoricalSettlementFacts(ctx:ControlTx,source:Histori
  const population=await loadHistoricalSettlementPopulation(ctx,source);
  if(!doc.settlements.length)return population?[population]:[];
  const company=ctx.principal.companyId,ar=source.kind==='customer_invoice';
- const control=accounts.find(a=>a.account_subtype===(ar?'receivable':'payable'));
+ const control=accounts.find(a=>subtypeFillsRole(a.account_subtype as string|null,ar?'receivable':'payable'));
  if(!control)throw new Error('Historical settlement control account unavailable');
  const result:Row[]=population?[population]:[];
  for(const settlement of doc.settlements){
@@ -34,7 +35,7 @@ export async function loadHistoricalSettlementFacts(ctx:ControlTx,source:Histori
    WHERE b.company_id=${company}::uuid AND (b.id=${payment.bank_account_id}::uuid OR b.gl_account_id=${payment.bank_account_id}::uuid)
    ORDER BY b.id FOR SHARE OF b,ga` as Row[];
   const bank=banks[0];
-  if(banks.length!==1||!bank||bank.is_active!==true||bank.gl_active!==true||bank.account_type!=='asset'||bank.account_subtype!=='bank')throw new Error('Historical settlement bank evidence unavailable');
+  if(banks.length!==1||!bank||bank.is_active!==true||bank.gl_active!==true||bank.account_type!=='asset'||!isBankSubtype(bank.account_subtype as string|null))throw new Error('Historical settlement bank evidence unavailable');
   const journals=await ctx.sql`SELECT id,entry_date::text,status,reversed_at FROM gl_journal_entries
    WHERE company_id=${company}::uuid AND id=${settlement.journalId}::uuid FOR SHARE` as Row[];
   const journal=journals[0];if(journals.length!==1||!journal||journal.status!=='posted'||journal.reversed_at!==null||String(journal.entry_date)<source.accountingDate)throw new Error('Historical settlement journal unavailable');
