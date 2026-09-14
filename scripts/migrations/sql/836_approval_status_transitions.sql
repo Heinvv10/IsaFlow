@@ -3,7 +3,7 @@
 --
 -- Why: cancellation is recorded ONLY in status, and execution (lockPolicyThenApproval -> validateDecisions ->
 -- assertApprovalExecutable) recomputes the decisions but trusts status for everything else, so one UPDATE of
--- status by app_user (UPDATE(status), 701) or platform_admin revived a cancelled approval and executed it. A
+-- status by app_user (UPDATE(status), 801) or platform_admin revived a cancelled approval and executed it. A
 -- pending or approved approval that is cancelled, rejected or expires stops counting its reserved exposure in the
 -- aggregate window (aggregateOperationPolicy.ts), so a cancel by anyone but the requester, a rejection without a
 -- decision, or a shortened expiry let a sibling operation run with no policy. Consumed approvals and their
@@ -27,7 +27,7 @@
 -- Born approved with no policy is safe: lockApproval refuses a row whose hash does not match its binding, and
 -- execution compares that hash with the operation's CURRENT material, which carries its current policies.
 --
--- The only way past these triggers (and 737's) is session_replication_role=replica, which only a superuser can
+-- The only way past these triggers (and 837's) is session_replication_role=replica, which only a superuser can
 -- set. app_user, platform_admin and migration_admin are not superusers (rolsuper=false, checked on the synthetic
 -- fixture 2026-09-11). No production path uses it; test fixtures use it only for states no transaction can reach
 -- now (a legacy row, a corrupted row, elapsed time).

@@ -1,4 +1,4 @@
--- Root reservation 703: replay protection must outlive forensic history retention.
+-- Root reservation 803: replay protection must outlive forensic history retention.
 CREATE TABLE IF NOT EXISTS mcp_idempotency_results (
   company_id uuid NOT NULL,
   tool text NOT NULL,

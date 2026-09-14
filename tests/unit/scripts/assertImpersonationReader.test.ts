@@ -16,7 +16,7 @@ it('fails the deploy when the login role cannot execute the liveness function',a
   .rejects.toThrow(/app_login cannot EXECUTE/);
 });
 it('fails the deploy when the deployed reader body has lost the unverified sentinel',async()=>{
- // An older migration re-applied after 739 restores a body that answers an unreadable evidence table with
+ // An older migration re-applied after 839 restores a body that answers an unreadable evidence table with
  // NULL - read as "no impersonation" - while every other property the gate checks stays true.
  const state={reader:true,liveness:true,reader_exec:true,liveness_exec:true,reader_sees:true,liveness_sees:true,reader_sentinel:false};
  await expect(runImpersonationReaderGate(async()=>[state],vi.fn()))
@@ -24,7 +24,7 @@ it('fails the deploy when the deployed reader body has lost the unverified senti
 });
 
 it.each(['reader_sees','liveness_sees'] as const)('fails the deploy when %s says the function cannot see the evidence',async field=>{
- // 739 put RLS on both evidence tables, so a reader that is not SECURITY DEFINER, whose owner lost
+ // 839 put RLS on both evidence tables, so a reader that is not SECURITY DEFINER, whose owner lost
  // BYPASSRLS, or whose owner lost SELECT, cannot read them: every session unverified, every proof
  // refused - and in the lost-SELECT case the reader would raise 42501 instead of answering.
  const state={reader:true,liveness:true,reader_exec:true,liveness_exec:true,reader_sees:true,liveness_sees:true,reader_sentinel:true,[field]:false};
@@ -49,7 +49,7 @@ it('asks the database every question the gate decides on, in one statement',asyn
  // The owner must hold SELECT on both evidence tables, or the reader raises 42501 from its own query.
  expect(text).toContain("has_table_privilege(p.proowner, 'public.admin_audit_log', 'SELECT')");
  expect(text).toContain("has_table_privilege(p.proowner, 'public.admin_impersonation_stash', 'SELECT')");
- // The deployed body must still RETURN the sentinel: an older migration re-applied after 739 restores a body
+ // The deployed body must still RETURN the sentinel: an older migration re-applied after 839 restores a body
  // that answers an unreadable evidence table with NULL, with every other property here still true. Matched on
  // the RETURN with comments stripped, because a plain substring over prosrc is satisfied by a comment.
  expect(text).toContain(`~ 'RETURN\\s+''${IMPERSONATION_UNVERIFIED}'''`);
@@ -70,8 +70,8 @@ it('does not tell the deployer to resolve a checksum conflict the renumbering ma
  const {readFileSync}=await import('node:fs');
  const read=(f:string)=>readFileSync(`scripts/migrations/sql/${f}`,'utf8');
  const notes={
-  '726_platform_import_approval_authority.sql':read('726_platform_import_approval_authority.sql'),
-  '728_impersonation_delegation_liveness.sql':read('728_impersonation_delegation_liveness.sql'),
+  '826_platform_import_approval_authority.sql':read('826_platform_import_approval_authority.sql'),
+  '828_impersonation_delegation_liveness.sql':read('828_impersonation_delegation_liveness.sql'),
  };
  for(const [name,text] of Object.entries(notes)){
   // No runnable resolver command for THIS file: the old note's whole instruction was that line.
@@ -80,9 +80,9 @@ it('does not tell the deployer to resolve a checksum conflict the renumbering ma
   expect(text,name).toMatch(/tracks migrations by FILENAME|tracks by FILENAME/);
   expect(text,name).toContain('applies this file IN FULL');
  }
- // The safety claim the replacement rests on: 739 owns the reader now, so re-applying 726 cannot restore the
+ // The safety claim the replacement rests on: 839 owns the reader now, so re-applying 826 cannot restore the
  // fail-open body. This is the assertion that has to survive, whatever the note says.
- expect(notes['726_platform_import_approval_authority.sql'])
+ expect(notes['826_platform_import_approval_authority.sql'])
   .not.toMatch(/(CREATE|REPLACE)\s+FUNCTION\s+public\.control_session_impersonator/i);
  // The generic conflict failure still names the resolver, for migrations that ARE edited after apply under an
  // unchanged name - the renumbering removed the instruction from two files, not the mechanism.

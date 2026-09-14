@@ -9,10 +9,10 @@ import type {ControlTx} from '@/modules/accounting/services/controls/contracts';
  * other side is a Param. Plan shape, never timing, and never which index wins: on a new install's row counts every
  * path estimates one row and the planner keeps whichever index it met first, so a gate that demanded the canonical index
  * would be red on every fresh database. It asserts the lookup is in the form RLS lets be an index condition, and that
- * the index migration 735 built for it exists, instead.
+ * the index migration 835 built for it exists, instead.
  */
 /**
- * The leading key columns of each canonical index migration 735 creates: the equalities every lookup states, ending in
+ * The leading key columns of each canonical index migration 835 creates: the equalities every lookup states, ending in
  * the canonical column. A promotable predicate is worth nothing without an index to promote it into.
  */
 const CANONICAL_INDEX_PREFIX:Record<string,string[]>={
@@ -78,7 +78,7 @@ export async function explainAsAppUser(pool:Pool,who:Who,statements:readonly Sta
     AND (SELECT array_agg(a.attname::text ORDER BY k.ord) FROM unnest(i.indkey::int2[]) WITH ORDINALITY k(attnum,ord)
      LEFT JOIN pg_attribute a ON a.attrelid=i.indrelid AND a.attnum=k.attnum WHERE k.ord<=jsonb_array_length(t.prefix))
      =ARRAY(SELECT jsonb_array_elements_text(t.prefix)))`,[JSON.stringify(CANONICAL_INDEX_PREFIX)])).rows.map(row=>(row as {name:string}).name);
-  expect(unserved,'canonical tables without the index migration 735 creates for their lookups').toEqual([]);
+  expect(unserved,'canonical tables without the index migration 835 creates for their lookups').toEqual([]);
   const explained:Explained[]=[];
   for(const statement of statements){
    const result=await client.query(`EXPLAIN (FORMAT JSON) ${statement.text}`,statement.values);

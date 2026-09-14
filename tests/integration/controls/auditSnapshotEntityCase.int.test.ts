@@ -109,7 +109,7 @@ it('a forked supplier invoice is one snapshot row and one risk population member
  expect(risk.populationCount).toBe(risk.rows.length);
  expect(Number(risk.rows.find(row=>row.id===invoice)!.version)).toBe(6);
 });
-/** Records an approval consumed by one named receipt, in the retained legacy shape (no binding) that 736 no longer lets be born. */
+/** Records an approval consumed by one named receipt, in the retained legacy shape (no binding) that 836 no longer lets be born. */
 async function consumeApproval(entityType:string,entityId:string,operation:string,effectId:string){
  const [effect]=(await pool.query('SELECT operation_id,binding_hash FROM control_operation_effects WHERE company_id=$1 AND id=$2',[fixture.companyA,effectId])).rows;
  await rewriteApprovalUnguarded(pool,`INSERT INTO control_operation_approvals(company_id,operation_id,operation,entity_type,entity_id,requester_person_id,requester_auth_method,

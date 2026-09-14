@@ -1,5 +1,5 @@
--- 733_afs_signing_payload_fingerprint.sql
--- The sha256 of the exact bytes posted to the signature provider, alongside 732's fingerprint of
+-- 833_afs_signing_payload_fingerprint.sql
+-- The sha256 of the exact bytes posted to the signature provider, alongside 832's fingerprint of
 -- the rows those bytes were rendered from. It is EVIDENCE of what left this system, not a
 -- control: the provider returns a signed, annotated PDF that can never byte-match the HTML
 -- posted, so nothing verifies one against the other.
