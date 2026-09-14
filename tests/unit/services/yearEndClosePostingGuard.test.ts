@@ -37,7 +37,6 @@ vi.mock('@/modules/accounting/services/gl/fiscalPeriodService', () => ({
 }));
 
 import * as neon from '@/lib/neon';
-import { closeFiscalYear } from '@/modules/accounting/services/gl/yearEndCloseService';
 import { postClosingJournal } from '@/modules/accounting/services/gl/yearEndJournalPoster';
 
 const sqlMock = neon.sql as unknown as ReturnType<typeof vi.fn>;
@@ -45,19 +44,6 @@ const txMock = (neon as unknown as { tx: ReturnType<typeof vi.fn> }).tx;
 
 const COMPANY = 'aaaaaaaa-0000-0000-0000-000000000001';
 const USER = 'cccccccc-0000-0000-0000-000000000003';
-
-/**
- * No open periods, the year's date range, the two balance queries, then the
- * already-closed lookup (empty: this year has never been closed).
- */
-function stubReadsUpToPreview() {
-  sqlMock
-    .mockResolvedValueOnce([])                                                        // open periods
-    .mockResolvedValueOnce([{ start_date: '2026-01-01', end_date: '2026-12-31' }])     // range
-    .mockResolvedValueOnce([])                                                        // revenue
-    .mockResolvedValueOnce([])                                                        // expense
-    .mockResolvedValueOnce([]);                                                       // findPostedClosingJournal
-}
 
 function preview(lines: Array<{ debit: number; credit: number }>) {
   return {
@@ -118,18 +104,6 @@ describe('postClosingJournal refuses an invalid closing journal before writing',
   });
 });
 
-/** A duplicate-key violation shaped exactly like the one the index raises. */
-function entryNumberConflict(): Error {
-  return Object.assign(new Error(
-    'duplicate key value violates unique constraint "uq_gl_je_company_entry_number"',
-  ), { code: '23505', constraint: 'uq_gl_je_company_entry_number' });
-}
-
-/** A gl_journal_entries header row as `SELECT *` returns it. */
-function header(o: Record<string, unknown> = {}): Record<string, unknown> {
-  return { id: 'entry-1', entry_number: 'YE-2026', source: 'year_end', status: 'posted', ...o };
-}
-
 describe('a DORMANT year is closed, not refused for want of a period to stamp', () => {
   it('locks the year and writes no journal when there is nothing to stamp', async () => {
     // The close writes no journal for a year with no posted P&L — it only locks
@@ -145,118 +119,14 @@ describe('a DORMANT year is closed, not refused for want of a period to stamp', 
   });
 });
 
-describe('two simultaneous closes: the ledger holds, and the loser tells the truth', () => {
-  it('reports the WINNER as already closed instead of a raw 23505', async () => {
-    // The already-closed lookup is a separate statement from the INSERT, so
-    // both callers read `null` and both reach the write. The unique index keeps
-    // the ledger to one journal; what the loser must not do is answer 500 for a
-    // year that is now correctly closed.
-    stubReadsUpToPreview();
-    sqlMock
-      .mockResolvedValueOnce([header({ id: 'winner' })])   // re-read after the conflict
-      .mockResolvedValueOnce([{ n: 12 }])                  // periods currently locked
-      .mockResolvedValueOnce([])                           // residual: revenue, re-read
-      .mockResolvedValueOnce([]);                          // residual: expense, re-read
-    buildPreviewMock.mockReturnValue(preview([{ debit: 500, credit: 0 }, { debit: 0, credit: 500 }]));
-    txMock.mockReset();
-    txMock.mockRejectedValueOnce(entryNumberConflict());
-
-    const result = await closeFiscalYear(COMPANY, '2026', USER) as
-      { alreadyClosed: boolean; closingEntry: { id: string }; periodsLockedInYear: number };
-
-    expect(result.alreadyClosed).toBe(true);
-    expect(result.closingEntry.id).toBe('winner');
-    expect(result.periodsLockedInYear).toBe(12);
-    // Re-read AFTER the winner's journal exists, not taken from the netIncome
-    // this call computed before it: the loser must not report the P&L the
-    // winner has just moved into equity as money left outside it.
-    expect((result as unknown as { unclosedNetIncome: number }).unclosedNetIncome).toBe(0);
-  });
-
-  it('REFUSES BY NAME when a squatter took the number between the lookup and the INSERT', async () => {
-    // A squatter that appeared in that window is not a close, and calling it
-    // one would be the lie the branch exists to avoid — but rethrowing the
-    // 23505 answers HTTP 500 "Failed to process year-end", which is the exact
-    // opacity `closing_entry_number_taken` was written to remove. It differs
-    // from the squatter the lookup catches only in timing, so it earns the
-    // same typed refusal.
-    stubReadsUpToPreview();
-    sqlMock.mockResolvedValueOnce([header({ id: 'squatter', source: 'manual' })]);
-    buildPreviewMock.mockReturnValue(preview([{ debit: 500, credit: 0 }, { debit: 0, credit: 500 }]));
-    txMock.mockReset();
-    txMock.mockRejectedValueOnce(entryNumberConflict());
-
-    const result = await closeFiscalYear(COMPANY, '2026', USER) as
-      { error: string; entryId: string; source: string; status: string; entryNumber: string };
-
-    expect(result.error).toBe('closing_entry_number_taken');
-    expect(result.entryId).toBe('squatter');
-    expect(result.source).toBe('manual');
-    expect(result.entryNumber).toBe('YE-2026');
-  });
-
-  it('REFUSES a DRAFT year_end winner as not-posted rather than reporting the year closed', async () => {
-    // A draft or reversed `year_end` row holding the number means the year is
-    // NOT closed and cannot be closed while it sits there. Reporting it as
-    // alreadyClosed would lie twice: nothing was posted, and nothing ever will
-    // be until a person renumbers it.
-    stubReadsUpToPreview();
-    sqlMock.mockResolvedValueOnce([header({ id: 'draft-close', status: 'draft' })]);
-    buildPreviewMock.mockReturnValue(preview([{ debit: 500, credit: 0 }, { debit: 0, credit: 500 }]));
-    txMock.mockReset();
-    txMock.mockRejectedValueOnce(entryNumberConflict());
-
-    const result = await closeFiscalYear(COMPANY, '2026', USER) as
-      { error: string; entryId: string; status: string };
-
-    expect(result.error).toBe('closing_journal_not_posted');
-    expect(result.entryId).toBe('draft-close');
-    expect(result.status).toBe('draft');
-  });
-
-  it('RETHROWS the 23505 when NOTHING holds the number on the re-read', async () => {
-    // Then the conflict is not the one this branch explains — the row was
-    // deleted, or the violation came from somewhere else entirely — and
-    // dressing it up as a closed year would report a close that never happened.
-    stubReadsUpToPreview();
-    sqlMock.mockResolvedValueOnce([]);
-    buildPreviewMock.mockReturnValue(preview([{ debit: 500, credit: 0 }, { debit: 0, credit: 500 }]));
-    txMock.mockReset();
-    txMock.mockRejectedValueOnce(entryNumberConflict());
-
-    await expect(closeFiscalYear(COMPANY, '2026', USER))
-      .rejects.toThrow(/uq_gl_je_company_entry_number/);
-  });
-
-  it('RETHROWS a failure that is not the entry-number conflict', async () => {
-    stubReadsUpToPreview();
-    buildPreviewMock.mockReturnValue(preview([{ debit: 500, credit: 0 }, { debit: 0, credit: 500 }]));
-    txMock.mockReset();
-    txMock.mockRejectedValueOnce(Object.assign(new Error('deadlock detected'), { code: '40P01' }));
-
-    await expect(closeFiscalYear(COMPANY, '2026', USER)).rejects.toThrow(/deadlock detected/);
-  });
-});
-
-describe('a journal of ANOTHER source holding YE-<year> is a typed refusal, not a 500', () => {
-  it('names the squatting journal and writes nothing', async () => {
-    // uq_gl_je_company_entry_number has no predicate on source, so a manual
-    // journal numbered YE-2026 blocks the INSERT just as hard as a real close.
-    sqlMock
-      .mockResolvedValueOnce([])
-      .mockResolvedValueOnce([{ start_date: '2026-01-01', end_date: '2026-12-31' }])
-      .mockResolvedValueOnce([])
-      .mockResolvedValueOnce([])
-      .mockResolvedValueOnce([header({ id: 'squatter', source: 'manual', status: 'posted' })]);
-    buildPreviewMock.mockReturnValue(preview([{ debit: 500, credit: 0 }, { debit: 0, credit: 500 }]));
-
-    const result = await closeFiscalYear(COMPANY, '2026', USER) as
-      { error: string; entryId: string; source: string; status: string; entryNumber: string };
-
-    expect(result.error).toBe('closing_entry_number_taken');
-    expect(result.entryId).toBe('squatter');
-    expect(result.source).toBe('manual');
-    expect(result.entryNumber).toBe('YE-2026');
-    expect(txMock).not.toHaveBeenCalled();
-  });
-});
+/**
+ * The entry-number RACE — a second closer taking `YE-<year>` between the
+ * already-closed lookup and the INSERT — and the typed refusal a squatter
+ * earns, moved to tests/unit/services/gl/yearEndCloseRace.test.ts.
+ *
+ * Those cases drive `closeFiscalYear`, which is now the CONTROLLED operation in
+ * `controlledYearEnd` and refuses without an authenticated control transaction.
+ * They are driven at that seam there, with the same inputs, the same result
+ * shapes and the same refusal names. What stays here is what still lives in the
+ * poster itself: its pre-transaction validity guards and the dormant year.
+ */

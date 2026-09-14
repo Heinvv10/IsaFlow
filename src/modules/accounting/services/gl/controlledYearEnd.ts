@@ -4,7 +4,7 @@ import {canonicalJson} from '../controls/canonical';
 import {replayKnownOperationEffect} from '../controls/operationReceiptReplay';
 import {fmtDate} from '@/lib/fmtDate';
 import {assertEffectivePermission} from '@/lib/auth/effectivePermissions';
-import {requireControlTx} from '../controls/context';
+import {assertControlIntegrity,requireControlTx} from '../controls/context';
 import {loadOperationMaterial} from '../controls/operationMaterializer';
 import {assertSuppliedApprovalExecutable,executeControlledOperation} from '../controls/approvalExecutionService';
 import {registerGeneratedJournal} from '../controls/generatedJournalPermit';
@@ -12,7 +12,7 @@ import {readControlEntityVersion} from '../controls/operationVersions';
 import {recordCommittedChange} from '../controls/changeEventService';
 import {postJournalEntry} from './journalEntryPostingService';
 import {lockdownBlock} from './postingPeriodGuard';
-import {alreadyClosedResult,classifyClosingJournal,findClosingJournal} from './yearEndJournalPoster';
+import {alreadyClosedResult,classifyClosingJournal,findClosingJournal,isClosingNumberConflict} from './yearEndJournalPoster';
 import {reloadNetIncome} from './yearEndJournalBuilder';
 import {roundToCents} from '../../utils/doubleEntry';
 import type {FiscalYearRange} from './yearEndJournalBuilder';
@@ -108,7 +108,31 @@ export async function closeFiscalYear(companyId:string,yearLabel:string,userId:s
  else if(options.dryRun&&material.binding.policies.length)return{error:'approval_required'};
  if(options.dryRun)return{dryRun:true,netIncome:Number(facts.closing.netIncome),netIncomeExact:facts.closing.netIncome,
   preview:preview(yearLabel,facts),alreadyClosed:false,existingEntry:null,unclosedNetIncome:0};
- return executeControlledOperation(ctx,parent,options.approvalId??null,async permit=>{
+ // THE RACE the lookup above cannot cover, and the ONE error caught here.
+ //
+ // A second closer read the same empty lookup and committed its YE-<year> while
+ // this one was still inside the kernel. Unlike the posting-period refusals in
+ // `postingPeriodGuard` — which are raised BEFORE the controlled write precisely
+ // so they never poison — this conflict is discoverable only BY ATTEMPTING the
+ // INSERT, so it cannot be moved ahead of the write.
+ //
+ // It does not have to be. The kernel already runs the whole operation inside
+ // its own SAVEPOINT (`executeControlledOperation`), so the 23505 rolls back to
+ // a clean point and the request transaction is usable again — which is what
+ // lets the re-read below run at all instead of dying on an aborted transaction.
+ // The loser records NOTHING: its permit, its observations, its exposure
+ // reservation and its effect row went back with the savepoint, so no receipt
+ // claims it closed the year and no half-written permit is left for a replay to
+ // consume. That is the honest evidence for an operation that closed nothing.
+ //
+ // This does NOT weaken the poison rule. Only `uq_gl_je_company_entry_number` is
+ // recognised — every other failure, including a deadlock or a failed effect
+ // write, is rethrown untouched — and `assertControlIntegrity` re-raises when a
+ // control write failed anywhere in this request, so an operation whose evidence
+ // did not commit still answers 500 CONTROL_INTEGRITY_FAILED and never a
+ // success-shaped "already closed".
+ try{
+  return await executeControlledOperation(ctx,parent,options.approvalId??null,async permit=>{
   if(await prior(ctx,yearLabel))throw new Error('Financial year already closed');
   const current=await loadOperationMaterial(ctx,parent),live=current.observedSources[0]!.facts as unknown as Facts;
   if(lockdownBlock(live.company,permit.accountingDate))throw new Error('Year-close date is within company lockdown');
@@ -153,4 +177,17 @@ export async function closeFiscalYear(companyId:string,yearLabel:string,userId:s
    message:entry?`Year ${yearLabel} closed. Net income ${closing.netIncome} transferred to retained earnings.`
     :`Year ${yearLabel} closed. No posted profit or loss in the year, so no closing journal was needed.`};
  });
+ }catch(error){
+  if(!isClosingNumberConflict(error))throw error;
+  assertControlIntegrity();
+  // The same classification the pre-INSERT lookup applies: a squatter that took
+  // the number in this window differs from one already sitting there only in
+  // timing, and earns the same typed refusal rather than a raw 23505 → 500.
+  const winner=await findClosingJournal(companyId,entryNumber);
+  // Nothing holds the number on the re-read, so the conflict is not the one this
+  // branch explains — the row was deleted, or the violation came from elsewhere
+  // — and calling it a closed year would report a close that never happened.
+  if(!winner)throw error;
+  return classifyClosingJournal(entryNumber,winner)??await alreadyClosedResult(companyId,yearLabel,winner,span);
+ }
 }
