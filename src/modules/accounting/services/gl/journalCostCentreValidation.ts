@@ -8,6 +8,23 @@ type AnalysisDimensions = Pick<JournalLineInput, 'cc1Id' | 'cc2Id' | 'buId'>;
 type CostCentreRow = { id: string; cc_type: string | null; is_active: boolean | null };
 type BusinessUnitRow = { id: string; is_active: boolean | null };
 
+/**
+ * Thrown when a line's business unit fails the shared assignment check.
+ * `reason` lets a caller (R-081's cross-company test) tell "this company
+ * doesn't own that id" apart from "it owns it but it's inactive" without
+ * regexing the message — the single combined message below is unchanged so
+ * existing callers matching on it (journalDimensionAssignmentPolicy.test.ts,
+ * journalCostCentreDimensionsDb.test.ts) keep passing.
+ */
+export class BusinessUnitOwnershipError extends Error {
+  readonly reason: 'outside-company' | 'inactive';
+  constructor(reason: 'outside-company' | 'inactive') {
+    super('Business unit must be active and belong to this company');
+    this.name = 'BusinessUnitOwnershipError';
+    this.reason = reason;
+  }
+}
+
 const suppliedIds = (
   values: readonly unknown[],
   message: string,
@@ -63,9 +80,10 @@ export async function assertJournalAnalysisDimensions(
       FOR SHARE
     `) as BusinessUnitRow[];
     const businessUnits = new Map(rows.map((row) => [String(row.id).toLowerCase(), row]));
-    if (buIds.some((id) => {
+    for (const id of buIds) {
       const row = businessUnits.get(id);
-      return row === undefined || (mode === 'new-assignment' && row.is_active !== true);
-    })) throw new Error(buMessage);
+      if (row === undefined) throw new BusinessUnitOwnershipError('outside-company');
+      if (mode === 'new-assignment' && row.is_active !== true) throw new BusinessUnitOwnershipError('inactive');
+    }
   }
 }
