@@ -40,11 +40,36 @@ function facts(material: ApMaterial): { header: Row; targetPeriod: Row; company:
   return material.observedSources.find(s => s.entityType === 'journal_entry' && s.entityId === material.binding.entityId)!.facts as
     { header: Row; targetPeriod: Row; company: Row; accounts: Row[]; vatLocks: Row[] };
 }
-function assertPostingGuards(material: ApMaterial, authorizedClosedPeriod = false): ReturnType<typeof facts> {
+/**
+ * `authorizedYearEndSweep` ALSO waives the inactive-account refusal, and it is the
+ * only caller that may.
+ *
+ * A withdrawn P&L account can still be carrying a balance — it was deactivated
+ * after it was used — and the year-end sweep is the one operation whose whole
+ * purpose is to zero it into equity. Refusing the line does not protect anything:
+ * the balance exists either way, and the account cannot be cleared without the
+ * close nor closed without being reactivated first, so the year can never close
+ * again, every year, forever. `yearEndJournalPoster.postClosingJournal` has
+ * documented and honoured that exemption since the close was written; routing the
+ * controlled close through this function silently took it away.
+ *
+ * It is safe because the authority is narrow, not because the sweep is trusted:
+ * `isAuthorizedYearEndPosting` proves the parent operation is THIS year's close,
+ * that the permit registry issued a `journal.post` permit for THIS journal, and
+ * that the header is the draft `YE-<year>` `year_end` row landing on the year's
+ * own last period. Nothing else can reach it — the historical-posting authority
+ * is deliberately NOT OR'd in here, only into the closed-period waiver, because
+ * back-dating a correction is no reason to post at a withdrawn account. The
+ * equity side needs no exemption and gets none: `systemAccountResolver` caches
+ * only `is_active = true` accounts, so an inactive retained-earnings account
+ * surfaces as `no_retained_earnings` long before this point.
+ */
+function assertPostingGuards(material: ApMaterial, authorizedClosedPeriod = false,
+  authorizedYearEndSweep = false): ReturnType<typeof facts> {
   const state = facts(material);
   throwPostingBlock(postingPeriodBlock(state.targetPeriod.status, state.company, material.binding.accountingDate!, authorizedClosedPeriod),
     state.vatLocks.length > 0);
-  const inactive = state.accounts.filter(a => a.is_active !== true);
+  const inactive = authorizedYearEndSweep ? [] : state.accounts.filter(a => a.is_active !== true);
   if (inactive.length) throw new InactiveAccountError(inactive.map(a => ({ code: String(a.account_code), name: String(a.account_name) })));
   return state;
 }
@@ -52,9 +77,10 @@ export async function postJournalEntry(companyId: string, id: string, userId: st
   return runJournalControl(companyId, userId, { entityType: 'journal_entry', entityId: id, operation: 'journal.post' }, opts,
     async (ctx, material, parent) => {
       const state = facts(material);
-      const authorizedClosedPeriod = isAuthorizedYearEndPosting(ctx, parent, state.header, state.targetPeriod, material.binding.accountingDate!)
+      const yearEndSweep = isAuthorizedYearEndPosting(ctx, parent, state.header, state.targetPeriod, material.binding.accountingDate!);
+      const authorizedClosedPeriod = yearEndSweep
         ||isAuthorizedHistoricalPosting(ctx,parent,state.header,state.targetPeriod,material.binding.accountingDate!);
-      const { header } = assertPostingGuards(material, authorizedClosedPeriod);
+      const { header } = assertPostingGuards(material, authorizedClosedPeriod, yearEndSweep);
       if (header.status !== 'draft') throw new Error(`Cannot post entry with status: ${header.status}`);
       const rows = await ctx.sql`UPDATE gl_journal_entries SET status='posted',posted_by=${ctx.principal.personId}::uuid,posted_at=clock_timestamp()
         WHERE company_id=${companyId}::uuid AND id=${id}::uuid AND status='draft' RETURNING *` as Row[];

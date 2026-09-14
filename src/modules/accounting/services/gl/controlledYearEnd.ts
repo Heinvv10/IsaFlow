@@ -59,10 +59,6 @@ export async function closeFiscalYear(companyId:string,yearLabel:string,userId:s
  await assertEffectivePermission(ctx,'write:post');
  if(!/^[1-9][0-9]{3}$/.test(yearLabel))throw new Error('Invalid financial year');
  const parent={entityType:'fiscal_year',entityId:yearLabel,operation:'year.close' as const};
- if(!options.dryRun){
-  const result=await prior(ctx,yearLabel);
-  if(result)return options.approvalId?executeControlledOperation<CloseYearResult>(ctx,parent,options.approvalId,async()=>{throw new Error('Receipt replay cannot create a new effect');}):result;
- }
  let material:Awaited<ReturnType<typeof loadOperationMaterial>>;
  try{material=await loadOperationMaterial(ctx,parent);}catch(error){if(error instanceof YearEndEligibilityError)return error.result;throw error;}
  const facts=material.observedSources[0]!.facts as unknown as Facts;
@@ -97,6 +93,34 @@ export async function closeFiscalYear(companyId:string,yearLabel:string,userId:s
   // post. The entry number is taken; the residual has its own name.
   return{dryRun:true,netIncome:unclosedNetIncome,preview:null,residualPreview:preview(yearLabel,facts),
    alreadyClosed:true,existingEntry,unclosedNetIncome};
+ }
+ // THE RECEIPT REPLAY, and it runs HERE — after the ledger, never before it.
+ //
+ // The replay is keyed on the YEAR ALONE (company, entity_type='fiscal_year',
+ // entity_id=<year>, operation='year.close', most recent), not on anything that
+ // identifies one request. So "the same request again" and "any re-close of this
+ // year" are the same lookup, and ahead of the ledger it answered EVERY re-close
+ // with the original receipt: `alreadyClosed:false` and the figures as they stood
+ // at the first close. A second close read as a fresh success that had posted
+ // nothing, P&L that landed in the year after the close was never reported
+ // because `alreadyClosedResult`'s re-read was unreachable, and a REVERSED close
+ // died on the bare `Year closing receipt journal changed` above instead of the
+ // typed refusal `classifyClosingJournal` exists to give it.
+ //
+ // What it is still needed for is the one close the ledger CANNOT see: a DORMANT
+ // year has no journal at all — it locked the periods and wrote nothing — so
+ // `findClosingJournal` returns null for it forever. Without the replay a retry
+ // falls into the locked-period throw below, and the no-double-post property for
+ // that year rests on nothing but the periods' own `status='closed'` predicate.
+ //
+ // Moving it costs no idempotency, because the replay was never what guaranteed
+ // it for a year that wrote a journal: the ledger lookup above catches that year
+ // earlier, `prior()` runs again INSIDE the kernel before the INSERT, and
+ // `uq_gl_je_company_entry_number` is the guarantee underneath both — the index,
+ // not the application, is what keeps the ledger to one closing journal.
+ if(!options.dryRun){
+  const replayed=await prior(ctx,yearLabel);
+  if(replayed)return options.approvalId?executeControlledOperation<CloseYearResult>(ctx,parent,options.approvalId,async()=>{throw new Error('Receipt replay cannot create a new effect');}):replayed;
  }
  if(facts.periods.some(p=>p.status!=='closed'))throw new Error('Financial year contains locked periods');
  if(facts.closing.retained.is_active!==true)throw new Error('Retained earnings account is inactive');
