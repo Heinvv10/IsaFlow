@@ -31,6 +31,7 @@ import { createJournalEntry } from '../../src/modules/accounting/services/gl/jou
 import { assertParentUsable } from '../../src/modules/accounting/services/gl/accountParentRules';
 import { getBalanceSheet } from '../../src/modules/accounting/services/reports/balanceSheetService';
 import { getTrialBalance } from '../../src/modules/accounting/services/gl/trialBalanceService';
+import { BusinessUnitOwnershipError } from '../../src/modules/accounting/services/gl/journalCostCentreValidation';
 
 assertDisposable();
 const pool = new Pool({ connectionString: process.env.DATABASE_URL });
@@ -310,7 +311,14 @@ it('refuses a line tagged to another company business unit, and writes nothing',
   // The third dimension. `bu_id` was the one `journals.ts` originally forgot
   // and the one nothing exercised, so without this the arm could name the wrong
   // table — or be deleted outright — and the suite would stay green.
-  await expect(inRequestTx(() => createJournalEntry(
+  //
+  // `foreignBu` (seeded above) is active, so the ONLY thing wrong with it is
+  // that it belongs to `otherCompany` — an inactive-BU guard could not pass
+  // this test for the wrong reason. Asserted on the typed error's `reason`
+  // rather than the message text: PR #418 folded "not owned" and "inactive"
+  // into one combined message, which changes wording as validation logic
+  // moves without saying anything about WHICH condition actually fired.
+  const rejection = await inRequestTx(() => createJournalEntry(
     company,
     {
       entryDate: '2026-03-15',
@@ -321,7 +329,9 @@ it('refuses a line tagged to another company business unit, and writes nothing',
       ],
     },
     user,
-  ))).rejects.toThrow(/business unit outside this company/);
+  )).catch((err: unknown) => err);
+  expect(rejection).toBeInstanceOf(BusinessUnitOwnershipError);
+  expect((rejection as BusinessUnitOwnershipError).reason).toBe('outside-company');
 
   const { rows } = await pool.query(
     'SELECT COUNT(*)::int AS n FROM gl_journal_lines WHERE bu_id=$1', [foreignBu]);
