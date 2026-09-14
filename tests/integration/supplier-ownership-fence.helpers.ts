@@ -26,7 +26,8 @@ export interface SupplierCase {
 export const ids = {
   A: randomUUID(), B: randomUUID(), USER: randomUUID(),
   SUP_A: randomUUID(), SUP_A2: randomUUID(), SUP_B: randomUUID(),
-  GL: randomUUID(), BANK_GL: randomUUID(), AP_GL: randomUUID(),
+  CUST_A: randomUUID(), CUST_B: randomUUID(),
+  GL: randomUUID(), BANK_GL: randomUUID(), AP_GL: randomUUID(), AR_GL: randomUUID(),
   BILL: randomUUID(), PO: randomUUID(), SPO: randomUUID(),
   RULE: randomUUID(), BANK_TX_SEL: randomUUID(), BANK_TX_PAY: randomUUID(),
   TEMPLATE_A: randomUUID(), TEMPLATE_B: randomUUID(), TEMPLATE_BAD: randomUUID(),
@@ -52,10 +53,13 @@ export async function setUpFixture(label: string): Promise<Fixture> {
       ($1, $2, 'R068 Supplier A', 'a@r068.test'), ($3, $2, 'R068 Supplier A2', NULL),
       ($4, $5, 'R068 Supplier B', 'b@r068.test')`,
   [ids.SUP_A, A, ids.SUP_A2, ids.SUP_B, B]);
+  await q("INSERT INTO customers (id, company_id, name) VALUES ($1, $2, 'R068 Customer A'), ($3, $4, 'R068 Customer B')",
+    [ids.CUST_A, A, ids.CUST_B, B]);
   for (const [id, code, name, type, subtype, normal, system] of [
     [ids.GL, '5100', 'R068 Expense', 'expense', 'default_expense', 'debit', false],
     [ids.BANK_GL, '1000', 'R068 Bank', 'asset', 'bank', 'debit', true],
     [ids.AP_GL, '2000', 'R068 AP', 'liability', 'payable', 'credit', true],
+    [ids.AR_GL, '1100', 'R068 AR', 'asset', 'receivable', 'debit', true],
   ] as const) {
     await q(`INSERT INTO gl_accounts (id, company_id, account_code, account_name, account_type,
         account_subtype, normal_balance, is_active, is_system_account)
@@ -120,7 +124,7 @@ export async function tearDownFixture(pool: Pool | undefined): Promise<void> {
       (SELECT id FROM gl_journal_entries WHERE company_id = ANY($1::uuid[]))`, both);
     for (const t of ['expected_invoice_alerts', 'supplier_expectations', 'supplier_coding_rules',
       'supplier_activities', 'supplier_contacts', 'accounting_adjustments', 'credit_notes',
-      'supplier_payments', 'supplier_payment_batches', 'recurring_transaction_templates',
+      'supplier_payments', 'customer_payments', 'supplier_payment_batches', 'recurring_transaction_templates',
       'supplier_invoices', 'purchase_orders', 'supplier_purchase_orders', 'gl_journal_entries',
       'bank_categorisation_rules', 'company_document_numbers', 'flow_ledger']) {
       await pool.query(`DELETE FROM ${t} WHERE company_id = ANY($1::uuid[])`, both);
@@ -128,7 +132,7 @@ export async function tearDownFixture(pool: Pool | undefined): Promise<void> {
     // Posting maintains these; they reference both the accounts and the periods.
     await pool.query(`DELETE FROM gl_account_balances WHERE gl_account_id IN
       (SELECT id FROM gl_accounts WHERE company_id = ANY($1::uuid[]))`, both);
-    for (const t of ['fiscal_periods', 'gl_accounts', 'company_users', 'suppliers']) {
+    for (const t of ['fiscal_periods', 'gl_accounts', 'company_users', 'suppliers', 'customers']) {
       await pool.query(`DELETE FROM ${t} WHERE company_id = ANY($1::uuid[])`, both);
     }
     await pool.query('DELETE FROM companies WHERE id = ANY($1::uuid[])', both);
@@ -142,6 +146,8 @@ export function fenceCases(f: () => Fixture, cases: () => SupplierCase[]): void 
   it.each(cases())('$name refuses company B\'s supplier and stores nothing', async (c) => {
     const state = await f().call(c.handler, c.method, c.body(ids.SUP_B), c.query?.(ids.SUP_B));
     expect(state.statusCode, JSON.stringify(state.body)).toBe(c.refusal);
+    // The typed refusal names the problem; a generic "Create failed" does not.
+    expect(JSON.stringify(state.body)).toContain('was not found for this company');
     expect(await c.carried(ids.SUP_B)).toBe(0);
   });
   it.each(cases())('$name still stores company A\'s own supplier', async (c) => {

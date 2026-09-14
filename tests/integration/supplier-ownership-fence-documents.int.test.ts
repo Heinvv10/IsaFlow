@@ -26,6 +26,7 @@ import batchPayments from '../../pages/api/accounting/batch-payments';
 import supplierReturns from '../../pages/api/accounting/supplier-returns';
 import recurringExecute from '../../pages/api/accounting/recurring-transactions-execute';
 import bankTransactionsAction from '../../pages/api/accounting/bank-transactions-action';
+import bankTransactionsManual from '../../pages/api/accounting/bank-transactions-manual';
 
 const describeIfDb = process.env.DATABASE_URL && process.env.JWT_SECRET ? describe : describe.skip;
 const today = new Date().toISOString().slice(0, 10);
@@ -37,6 +38,12 @@ describeIfDb('R-068 — every AP document route refuses a foreign supplier id', 
   const where = (table: string, extra: string, params: unknown[] = []) => (s: string) =>
     n(`SELECT count(*) AS n FROM ${table} WHERE company_id = $1 AND supplier_id = $2 AND ${extra}`,
       [A, s, ...params]);
+
+  const manual = (type: string, allocationType: string, entityId: string, s: string) => ({
+    type, allocationType, entityId, bankAccountId: ids.BANK_GL, date: today, amount: 33,
+    description: `R068-MANUAL-${allocationType}-${s}` });
+  const manualLines = (arm: string) => (s: string) => n(`SELECT count(*) AS n FROM bank_transactions
+    WHERE company_id = $1 AND description = $2`, [A, `R068-MANUAL-${arm}-${s}`]);
 
   const cases = (): SupplierCase[] => [
     { name: 'supplier-invoices POST', handler: supplierInvoices, method: 'POST', refusal: 400,
@@ -77,6 +84,14 @@ describeIfDb('R-068 — every AP document route refuses a foreign supplier id', 
       body: (s) => ({ action: 'allocate', bankTransactionId: ids.BANK_TX_PAY, allocationType: 'supplier',
         entityId: s, description: 'R068 allocation' }),
       carried: where('supplier_payments', 'reference = $3', [ids.BANK_TX_PAY]) },
+    // The manual route INSERTs the bank line before allocateTransaction's fence
+    // runs, so its refusal must come first: B's entity leaves no bank row at all.
+    { name: 'bank-transactions-manual POST (supplier)', handler: bankTransactionsManual, method: 'POST',
+      refusal: 400, body: (s) => manual('spend', 'supplier', s, s),
+      carried: manualLines('supplier') },
+    { name: 'bank-transactions-manual POST (customer)', handler: bankTransactionsManual, method: 'POST',
+      refusal: 400, body: (s) => manual('receive', 'customer', s === ids.SUP_A ? ids.CUST_A : ids.CUST_B, s),
+      carried: manualLines('customer') },
   ];
 
   beforeAll(async () => {
@@ -87,10 +102,9 @@ describeIfDb('R-068 — every AP document route refuses a foreign supplier id', 
 
   fenceCases(() => fx, cases);
 
-  it('a refused bank allocation posts no journal and leaves the line unallocated', async () => {
+  it('the refused bank allocation posted no journal — only A\'s own allocation did', async () => {
     expect(await n(`SELECT count(*) AS n FROM gl_journal_entries WHERE company_id = $1
-      AND id NOT IN (SELECT gl_journal_entry_id FROM supplier_payments
-                      WHERE company_id = $1 AND gl_journal_entry_id IS NOT NULL)`, [A])).toBe(0);
+      AND description = 'R068 allocation'`, [A])).toBe(1);
   });
 
   it('a refused bill with useSequence burns no SIV number', async () => {
