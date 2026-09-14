@@ -51,39 +51,55 @@ inactive", where the old wording distinguished them.
 wrong with it in the failing test is that it belongs to `otherCompany` — an
 inactive-BU guard could not pass this test for the wrong reason.
 
-**Fix — typed error, not a string update.** Per the brief: assert the refusal
-REASON, not the message. Added `BusinessUnitOwnershipError` (name + `reason:
-'outside-company' | 'inactive'`) in `journalCostCentreValidation.ts`, thrown
-in place of the two bare `Error`s the combined `buMessage` used to cover.
-**Message text is unchanged** (`'Business unit must be active and belong to
-this company'`), because four existing unit tests
-(`journalCostCentreDimensionsDb.test.ts`, `journalDimensionAssignmentPolicy.test.ts`)
-assert on that exact string — verified they still pass. The
-K051 test now does:
+**Round 1 fix (superseded — see round 2 below).** Added a typed
+`BusinessUnitOwnershipError` (name + `reason`) so the test could assert the
+refusal reason instead of the message. The blind review (round 1,
+`rev-r076a`) found this pinned the implementation CLASS, not the outcome:
+its mutation N4 — re-adding a legacy `assertDimensionOwned('business unit',
+...)` check BEFORE `assertJournalAnalysisDimensions` in
+`journalLineOwnership.ts`, so a DIFFERENT, earlier guard refuses the line
+first — still refuses the line and writes nothing, yet the test went red
+demanding the specific class. That is exactly the brittleness R-081 was
+registered to remove: PR #418 already broke this test once by reordering
+validation, and a class pinned to one arm breaks again the next harmless
+reorder. The review also noted the class had no caller besides this test.
+
+**Round 2 fix — assert the outcome, not the mechanism.**
+`journalCostCentreValidation.ts` reverted to `origin/master` byte-for-byte
+(`BusinessUnitOwnershipError` removed). The test now asserts only what the
+seed actually guarantees — the cross-company condition is the ONLY thing
+wrong with `foreignBu`, so ANY refusal is refusing that:
 ```ts
-const rejection = await inRequestTx(...).catch(err => err);
-expect(rejection).toBeInstanceOf(BusinessUnitOwnershipError);
-expect(rejection.reason).toBe('outside-company');
+await expect(inRequestTx(() => createJournalEntry(company, {
+  ...,
+  lines: [{ glAccountId: own, debit: 700, credit: 0, buId: foreignBu }, ...],
+}, user))).rejects.toThrow();
+
+const { rows: lineRows } = await pool.query(
+  'SELECT COUNT(*)::int AS n FROM gl_journal_lines WHERE bu_id=$1', [foreignBu]);
+expect(lineRows[0].n).toBe(0);
+const { rows: entryRows } = await pool.query(
+  `SELECT COUNT(*)::int AS n FROM gl_journal_entries
+   WHERE company_id=$1 AND description='K051X foreign business unit'`, [company]);
+expect(entryRows[0].n).toBe(0);
 ```
-so a FUTURE reorder of validation, or a future message rewrite, cannot silently
-pass this test for the wrong reason — the class + `reason` field is what's
-pinned, not prose.
+No production code changes for R-081 at all now — `journalCostCentreValidation.ts`
+matches `origin/master`.
 
-**Mutation proof.** Removed the `company_id` filter from the business-unit
-ownership SELECT (`WHERE company_id = ${companyId}::UUID AND id = ANY(...)` →
-`WHERE id = ANY(...)`) — reproducing the exact K-051 shape (another tenant's
-row satisfies an unscoped lookup). Test went red: `rejection` was a plain
-`{}` (a real journal got created), not a `BusinessUnitOwnershipError`.
-Restored byte-identically via a pre-edit backup; all 10 tests green again.
+**Mutation proof (round 2).**
+1. Re-applied the reviewer's exact N4 mutation (an earlier `assertDimensionOwned('business unit', ...)`
+   check in `journalLineOwnership.ts`, before `assertJournalAnalysisDimensions`) —
+   the line is still refused via a DIFFERENT guard ("... name a business unit
+   outside this company" instead of the analysis-dimensions message) and
+   nothing is written. Test stayed GREEN, confirming the brittleness is gone.
+   Reverted byte-identically.
+2. Removed the `company_id` filter from the business-unit ownership SELECT in
+   `journalCostCentreValidation.ts` (the real K-051 shape) — a plain journal
+   got created (no rejection at all). Test went RED. Restored byte-identically;
+   all 10 green again.
 
-**Affected:** `src/modules/accounting/services/gl/journalCostCentreValidation.ts`
-(new exported `BusinessUnitOwnershipError` class, ~21 lines added),
-`tests/integration/k051-cross-company-journal-line.int.test.ts` (one test's
-assertion + import).
-
-**Unit-test regression check:** `journalCostCentreDimensionsDb.test.ts`,
-`journalDimensionAssignmentPolicy.test.ts`, `bankDimensionAssignmentPolicy.test.ts`,
-`bankAllocationDimensionsDb.test.ts` — 12/12 passed unchanged (see gate lines).
+**Affected:** `tests/integration/k051-cross-company-journal-line.int.test.ts`
+only (one test's assertions + import removed). No production file touched.
 
 ## R-093 — ReportPageDrillDimensions.test.tsx intermittent under load
 
@@ -147,7 +163,41 @@ reproduced the defect: the exact stale-cross-test-URL failure recurred
 `origin/master`'s code, unedited). Restored the fix; re-ran 48 more stress
 runs with `restoreAllMocks()` back in place and the same defect did not
 recur (only the pre-existing generic-timeout noise described above, present
-identically on `origin/master`).
+identically on `origin/master`). The independent blind review (`rev-r076a`)
+reran this same probe with a 300ms-delayed mocked response instead of raw
+CPU contention and got the identical result: base fails deterministically
+with the registered signature, head passes; splitting the two fixes apart
+confirmed `waitFor(not disabled)` is what removes the race and
+`restoreAllMocks` turns a masked failure into an honest one rather than
+hiding anything.
+
+**Round 2 addition — LOW-2 (per-export business-unit assertion).** The blind
+review found the income-statement business-unit test's export assertion used
+one shared `stringContaining(businessUnitId)` check across BOTH exports
+(`toHaveBeenCalledWith` + a plain `arrayContaining` of path names) — mutating
+EITHER `income-statement.tsx` export handler to drop `business_unit_id`
+still left the test green, because the other export's URL alone satisfies
+both checks. The balance-sheet test right below already does this correctly.
+Changed the income-statement assertion to mirror it — one `stringMatching`
+pattern per export, each requiring the BU:
+```ts
+expect(open.mock.calls.map(([url]) => String(url))).toEqual(expect.arrayContaining([
+  expect.stringMatching(/income-statement-export.*business_unit_id=business-a/),
+  expect.stringMatching(/income-statement-xlsx.*business_unit_id=business-a/),
+]));
+```
+Mutation-proofed both arms: dropping `business_unit_id` from
+`handleExport` (CSV) alone → red; restored; dropping it from
+`handleXlsxExport` (xlsx) alone → red; restored. Both are pre-existing
+`income-statement.tsx` code, unchanged by either mutation test.
+
+**LOW-3 — noted, not fixed here.** The review's own 16-way stress (2 rounds
+of 16, load 34-38) found the SAME residual `waitFor`-timeout class on both
+base and head — 2/32 vs 1/32 — confirming it is pre-existing and not
+introduced by this commit. R-076/R-081/R-093's stale-cross-test-URL race is
+fixed; this separate default-timeout sensitivity under extreme self-
+contention is NOT — see Residual risk below for what it is and why it's out
+of scope.
 
 **Affected:** `tests/unit/components/ReportPageDrillDimensions.test.tsx` only.
 No production code changed for R-093.
@@ -159,14 +209,12 @@ isolation). Nothing here required or produced production-impact SQL for Hein.
 
 ## Residual risk
 
-- R-093's residual ~2-4% `waitFor`-timeout rate at 16-way self-contention is
+- R-093's residual `waitFor`-timeout rate at 16-way self-contention (~2-6%
+  across both this fixer's and the independent reviewer's stress runs) is
   pre-existing on `origin/master` and out of scope for this batch — it is a
   generic default-timeout sensitivity under a contention level far past what
   CI actually runs (the K-072 note's own load ~21 measurement is system-wide
-  parallel *worktrees*, not 16 copies of one file competing with itself).
-  Flagging for the orchestrator to register separately if it recurs in real CI.
-- R-081's `BusinessUnitOwnershipError` only distinguishes "outside company" vs
-  "inactive" for the business-unit dimension. CC1/CC2 still throw a bare
-  `Error` with a combined message (same shape R-081 fixed for BU) — not
-  touched here because neither CC1 nor CC2 has a red test today; worth the
-  same typed-reason treatment if one shows up.
+  parallel *worktrees*, not 16 copies of one file competing with itself). Not
+  fixed here; the lead is registering it as a separate item. This commit
+  fixes the registered R-093 defect (the stale cross-test `window.open`
+  leak) — it does not claim the file no longer flakes under any load.

@@ -31,7 +31,6 @@ import { createJournalEntry } from '../../src/modules/accounting/services/gl/jou
 import { assertParentUsable } from '../../src/modules/accounting/services/gl/accountParentRules';
 import { getBalanceSheet } from '../../src/modules/accounting/services/reports/balanceSheetService';
 import { getTrialBalance } from '../../src/modules/accounting/services/gl/trialBalanceService';
-import { BusinessUnitOwnershipError } from '../../src/modules/accounting/services/gl/journalCostCentreValidation';
 
 assertDisposable();
 const pool = new Pool({ connectionString: process.env.DATABASE_URL });
@@ -314,11 +313,13 @@ it('refuses a line tagged to another company business unit, and writes nothing',
   //
   // `foreignBu` (seeded above) is active, so the ONLY thing wrong with it is
   // that it belongs to `otherCompany` — an inactive-BU guard could not pass
-  // this test for the wrong reason. Asserted on the typed error's `reason`
-  // rather than the message text: PR #418 folded "not owned" and "inactive"
-  // into one combined message, which changes wording as validation logic
-  // moves without saying anything about WHICH condition actually fired.
-  const rejection = await inRequestTx(() => createJournalEntry(
+  // this test for the wrong reason, and ANY refusal here is refusing that.
+  // Asserted on the OUTCOME (refused, nothing written), not on which class or
+  // message fires: PR #418 already changed the message once by reordering
+  // validation, and a class pinned to one arm breaks again the next time a
+  // harmless reorder (e.g. an earlier ownership check refusing first) changes
+  // which code path answers — while the line stays exactly as refused.
+  await expect(inRequestTx(() => createJournalEntry(
     company,
     {
       entryDate: '2026-03-15',
@@ -329,13 +330,15 @@ it('refuses a line tagged to another company business unit, and writes nothing',
       ],
     },
     user,
-  )).catch((err: unknown) => err);
-  expect(rejection).toBeInstanceOf(BusinessUnitOwnershipError);
-  expect((rejection as BusinessUnitOwnershipError).reason).toBe('outside-company');
+  ))).rejects.toThrow();
 
-  const { rows } = await pool.query(
+  const { rows: lineRows } = await pool.query(
     'SELECT COUNT(*)::int AS n FROM gl_journal_lines WHERE bu_id=$1', [foreignBu]);
-  expect(rows[0].n).toBe(0);
+  expect(lineRows[0].n).toBe(0);
+  const { rows: entryRows } = await pool.query(
+    `SELECT COUNT(*)::int AS n FROM gl_journal_entries
+     WHERE company_id=$1 AND description='K051X foreign business unit'`, [company]);
+  expect(entryRows[0].n).toBe(0);
 });
 
 it('accepts a line tagged to THIS company business unit', async () => {
