@@ -52,7 +52,11 @@ read (for the VAT number in the duplicate fingerprint) turns a miss into `NULL` 
 4. it checks the tenant only. Unlike `supplierBelongsToCompany` it does not filter
    `deleted_at`, because update paths carry an id the company already owns.
 
-Routes map the typed error to **400**.
+Routes map the typed error to **400** with its own message. Round 2 fixed three that used
+`badRequestFromError` and therefore answered the generic "Create failed" / "Action failed":
+`batch-payments`, `adjustments` and `bank-rules-action`. The last two map R-067's customer
+refusal the same way. Every fenced route's refusal test now also asserts that the body
+contains "was not found for this company".
 
 ## Census — from the schema, then by consumer
 
@@ -89,14 +93,16 @@ back to where its id comes from.
 | S2 | `supplier_invoices` | `core/recurringTransactionInvoices.ts` `mintRecurringSupplierInvoice` | `template_data.supplierId` (opaque JSON) | **FIXED** before `insertWithReservedNumber`; `recurring-transactions-execute.ts` maps to 400 |
 | S3 | `supplier_invoices` | `capture/[id]/post.ts`, `ai-invoice-pipeline.ts` | `matchSupplierFromExtraction` over `suppliers WHERE company_id` | exempt: produced by a company-scoped read |
 | S4 | `supplier_invoices` | `ap/migrationApService.ts` `importAPInvoices` | page override checked against this company's suppliers (`:77-82`), else name match | already guarded |
-| S5 | `supplier_invoices` | `core/sageSupplierInvoiceImportService.ts` | `sage_supplier_invoices.supplier_id`, staging row read `WHERE company_id` | import path, classified not fixed (same as R-067 row 19): the rows come from the external Sage sync, and no request body reaches the column |
+| S5 | `supplier_invoices` | `core/sageSupplierInvoiceImportService.ts` `importSupplierInvoices` | it SELECTs `sage_supplier_invoices.supplier_id`, **a column that does not exist** (the table has `id, sage_id, invoice_number, supplier_name, invoice_date, total_amount, gl_supplier_invoice_id, migration_status, imported_at, company_id`) | no reachable write: the function fails 42703 on its first query, before it writes anything, so no request body can reach the column. Round 1 said it read an existing staging column. It doesn't (blind review, r1 LOW-2) |
 | S6 | `supplier_invoices`, `supplier_payments`, `supplier_purchase_orders` | `supplier-merge.ts`, `core/duplicateMergeService.ts` | merge ids | already guarded: both ids read `WHERE company_id` first |
 | S7 | `purchase_orders` | `purchase-orders.ts` POST (inline) | `body.supplierId` | **FIXED** before the number reservation |
 | S8 | `purchase_orders` | `purchase-orders/[id].ts` PUT | `body.supplier_id` | **FIXED** before the UPDATE |
 | S9 | `supplier_purchase_orders` | `ap/purchaseOrderService.ts` `createPurchaseOrder` / `updatePurchaseOrder` ← `supplier-purchase-orders.ts` | body | **FIXED** in both; create runs it before `generateOrderNumber` (a counter write) |
 | S10 | `supplier_payments` | `ap/supplierPaymentService.ts` `createSupplierPayment` ← `supplier-payments.ts` POST, MCP `writeSettleByContra` | body | **FIXED**; the route maps to 400 (it answered every error 500) |
 | S11 | `supplier_payments` | `ap/batchPaymentService.ts` `createBatch` ← `batch-payments.ts` POST | `body.payments[].supplierId` | **FIXED**: every supplier checked before the batch row |
-| S12 | `supplier_payments` | `ap/supplierAutoAllocate.ts` `recordSupplierBankPayment` ← `bankAllocationService.allocateTransaction` | body `entityId` | **FIXED** in `allocateTransaction`, right after the row lock, next to R-067's customer arm |
+| S12 | `supplier_payments` | `ap/supplierAutoAllocate.ts` `recordSupplierBankPayment` ← `bankAllocationService.allocateTransaction` ← `bank-transactions-action.ts` allocate | body `entityId` | **FIXED** in `allocateTransaction`, right after the row lock, next to R-067's customer arm |
+| S12b | same, plus the bank line itself | `bank-transactions-manual.ts` POST: step 1 INSERTs `bank_transactions`, step 2 calls `allocateTransaction` | body `entityId` | **FIXED (r2)**. Round 1 missed this caller. Its refusal came from the service fence AFTER the step-1 INSERT and was answered 500, so only the rollback kept the manual line out; mapping it to 400 there would have committed that line. The route now refuses both the supplier and the customer arm before step 1 and answers 400 with the typed message; the test asserts zero bank rows for B's entity (blind review, r1 LOW-1) |
+| S12c | `supplier_payments` | `bank-match-confirm.ts` purchase-order arm → `allocateTransaction` | the matched PO's `supplier_id`, read `WHERE company_id` | exempt: produced by a company-scoped read, fenced where it enters (S7/S8). A PO planted before this fix reaches the service fence and answers a generic 500 with nothing written (reviewer measurement). Noted, not changed |
 | S13 | `supplier_payments` | `bankRuleAutoPostLine` → `recordSupplierBankPayment` | the rule's `supplier_id` | exempt: the tenant FK on `bank_categorisation_rules` guarantees it |
 | S14 | `supplier_payments` | `ap/supplierBankPaymentService.ts` `applyBankLineToSupplierInvoices` | `planSupplierAllocationLines`, from bills read `WHERE company_id` | exempt: produced by a company-scoped read |
 | S15 | `bank_categorisation_rules` | `bank/bankRulesService.ts` `createRule` / `updateRule` | body | the database already refused (tenant FK), with a 23503: POST answered 500 and update answered a generic 400 after a poisoned statement. **FIXED** so it is refused typed, before the write. `bank-rules.ts` maps to 400 |
@@ -123,12 +129,26 @@ listed from `information_schema`. That is a limit of this census; nothing here s
 
 ## Does any path render supplier details outside `withAuth`? Yes: one, and it is dormant
 
-Method: take every API route whose default export is not wrapped in `withAuth` /
-`withUserAuth` / `withRole` / `withBearer*` / `withExtensionToken` (crons, portal, webhooks,
-inbound capture, audit portal, invitations, health), walk its static import closure, and
-read every `FROM/JOIN suppliers` in that closure. MCP runs as `app_user` in
-`bearerPipeline`, so RLS covers it. Platform-admin routes bypass RLS by design and are out of
-the tenant model.
+Method, in three parts:
+1. **API routes.** Take every API route whose default export is not wrapped in `withAuth` /
+   `withUserAuth` / `withRole` / `withBearer*` / `withExtensionToken` (crons, portal,
+   webhooks, inbound capture, audit portal, invitations, health), walk its static import
+   closure, and read every `FROM/JOIN suppliers` in that closure.
+2. **getServerSideProps pages** (round 1 left these out; blind review r1 LOW-2):
+   `oauth/authorize`, `afs/sign/[token]`, `portal/invoice/[token]`, `reports/report-packs`,
+   `afs/portal/dashboard`, `afs/[documentId]`, `afs/portal/documents/[documentId]`,
+   `share/[token]`. Walked the same way. Only `afs/[documentId]` has supplier SQL in its
+   closure (`apAgingService`, `creditNoteService`), and it comes from the page's client
+   components. Its getServerSideProps only `fetch`es a `withAuth` API with the caller's cookies.
+3. **The BYPASSRLS pool outside platform admin** (also missed in round 1):
+   `workbench/portfolioWorkbenchService.ts` runs `getMonthEndWorkbench` for each of the
+   user's companies on `getPlatformAdminPool()`. That reaches `getAPAging` and its id-only
+   `JOIN suppliers`. The only output is `buildPurchasesCard`'s total, overdue figure and
+   `buckets.length` (`monthEndWorkbenchService.ts:121-131`). No supplier name or contact
+   reaches the page.
+
+MCP runs as `app_user` in `bearerPipeline`, so RLS covers it. Platform-admin routes bypass RLS
+by design and are out of the tenant model.
 
 - `/api/cron/fraud-scan`: reads suppliers `WHERE company_id` only. Not affected.
 - `creditNotePdfBuilder` shows up in several closures through the `ar/index.ts` barrel.
@@ -167,7 +187,7 @@ The fixture companies are random per run and deleted in `afterAll`. The leftover
 
 | File | What it pins |
 |---|---|
-| `tests/integration/supplier-ownership-fence-documents.int.test.ts` (23) | S1, S2, S7–S12, S17 through the real handlers: B's supplier gets 400 and 0 rows under A; A's own supplier gets 2xx and exactly one row. Also: a refused bill with `useSequence` burns no SIV number; a non-UUID template `supplierId` gets 400 with nothing written and the schedule not advanced; the refused allocation posts no journal |
+| `tests/integration/supplier-ownership-fence-documents.int.test.ts` (27) | S1, S2, S7–S12b, S17 through the real handlers (S12b both arms: B's supplier/customer leaves zero manual bank rows): B's supplier gets 400 and 0 rows under A; A's own supplier gets 2xx and exactly one row. Also: a refused bill with `useSequence` burns no SIV number; a non-UUID template `supplierId` gets 400 with nothing written and the schedule not advanced; the refused allocation posts no journal |
 | `tests/integration/supplier-ownership-fence-satellites.int.test.ts` (18) | S15, S18–S21, S23, S25 through the real handlers, both directions |
 | `tests/integration/supplier-ownership-fence-services.int.test.ts` (9) | the paths no route reaches: the cron's recompute learns no foreign supplier; `listAlerts` (both queries) does not render B's supplier; email and WhatsApp chases on the planted alert send nothing and copy no address, while A's own supplier is still chased by both; `createSupplierInvoice` refuses directly (MCP reaches it past no route); `updateRule` refuses with the typed error, not the 23503; a malformed id leaves a real request transaction usable |
 | `tests/unit/services/assertSupplierInCompany.test.ts` (6) | the contract: both ids bound, typed refusal, no query for an absent id, savepoint name ≤ 31 chars, 22P02 becomes the refusal, any other error propagates |
@@ -182,7 +202,8 @@ already did for R-067's customer arm. No assertion was removed or loosened.
 ## Mutations
 
 Each line was removed or reverted in the file, the owning integration file was run, and
-the file was restored from a copy with its sha256 checked. All 37 went red:
+the file was restored from a copy with its sha256 checked. All 37 round-1 mutations and all 6
+round-2 mutations went red:
 
 | # | Mutation | Result |
 |---|---|---|
@@ -210,6 +231,9 @@ the file was restored from a copy with its sha256 checked. All 37 went red:
 | M30 | fence `withSavepoint` → plain call | services 1 failed: the malformed-id case aborts the request transaction |
 | M31 | fence `throw` disabled | docs 13 failed |
 | M32–M36 | 400 mapping in `purchase-orders.ts`, `[id].ts`, `supplier-returns.ts`, `supplier-activities.ts`, `supplier-contacts.ts` | 1 failed each (500) |
+| R1 / R2 | `bank-transactions-manual` supplier / customer pre-INSERT fence (r2) | docs 1 failed each: the service's refusal after step 1 answers 500, not 400 |
+| R3 | its 400 mapping | docs 2 failed (both arms, 500) |
+| R4 / R5 / R6 | typed message in `batch-payments` / `adjustments` / `bank-rules-action` (r2) | 1 failed each: the body says "Create failed" / "Action failed", not the refusal |
 
 Not covered by a dedicated mutation: the join in `expectationCronService.autoChaseOverdue`.
 It only selects which alerts to try, and the sends it delegates to are fenced (M28/M29).
