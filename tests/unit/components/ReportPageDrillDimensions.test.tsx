@@ -96,10 +96,13 @@ it('income statement carries a selected business unit through report, exports, t
   await waitFor(() => expect(screen.getByRole('button', {name:'Export CSV'})).not.toBeDisabled());
   fireEvent.click(screen.getByRole('button', {name:'Export CSV'}));
   fireEvent.click(screen.getByRole('button', {name:'Export Excel'}));
-  expect(open).toHaveBeenCalledWith(expect.stringContaining('business_unit_id=business-a'), '_blank');
+  // One pattern PER export, both requiring the BU — `arrayContaining` with a
+  // single shared `stringContaining` would pass if only ONE export carried
+  // it (either could satisfy both the array check and the `toHaveBeenCalledWith`
+  // above), silently leaving the other export company-wide (R-093 LOW-2).
   expect(open.mock.calls.map(([url]) => String(url))).toEqual(expect.arrayContaining([
-    expect.stringContaining('income-statement-export'),
-    expect.stringContaining('income-statement-xlsx'),
+    expect.stringMatching(/income-statement-export.*business_unit_id=business-a/),
+    expect.stringMatching(/income-statement-xlsx.*business_unit_id=business-a/),
   ]));
 
   fireEvent.click(await screen.findByRole('button', {name:'5000 Expense'}));
