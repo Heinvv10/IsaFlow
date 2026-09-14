@@ -59,20 +59,33 @@ it('asks the database every question the gate decides on, in one statement',asyn
 });
 
 /**
- * Editing an applied migration stops the deploy at apply-migrations.ts with exit 2, BEFORE the gate above can
- * run, and clearing it is a separate command an operator has to know exists. The instruction and the claim that
- * makes it safe are asserted together: re-applying 702 is harmless only while 702 no longer defines the reader.
+ * Both files were edited after they had been applied, and until the 2026-09-14 renumbering their DEPLOY NOTEs
+ * told the operator to clear a checksum conflict. Renumbering killed that premise: apply-migrations.ts keys on
+ * FILENAME, so a database carrying the OLD name has no row for the new one, raises no conflict, and applies the
+ * file in full - resolve-checksum-conflicts.ts would have nothing to resolve. An instruction to run a command
+ * that does nothing is worse than none, because the operator concludes the step succeeded. This asserts the note
+ * no longer carries it, and the two claims the replacement rests on.
  */
-it('tells the deployer how to clear the checksum conflicts that editing 702 and 704 causes',async()=>{
+it('does not tell the deployer to resolve a checksum conflict the renumbering made impossible',async()=>{
  const {readFileSync}=await import('node:fs');
- const migration=readFileSync('scripts/migrations/sql/702_platform_import_approval_authority.sql','utf8');
- expect(migration).toContain('bun scripts/migrations/resolve-checksum-conflicts.ts 702_platform_import_approval_authority.sql');
- // 704 was edited too, to pin pg_temp; both conflicts stop the same deploy and both need clearing.
- expect(readFileSync('scripts/migrations/sql/704_impersonation_delegation_liveness.sql','utf8'))
-  .toContain('bun scripts/migrations/resolve-checksum-conflicts.ts 704_impersonation_delegation_liveness.sql');
- // The safety claim the note rests on: 715 owns the reader now, so re-applying 702 cannot restore the old body.
- expect(migration).not.toMatch(/(CREATE|REPLACE)\s+FUNCTION\s+public\.control_session_impersonator/i);
- // And the generic failure names the resolver, for the operator who never opens the file.
+ const read=(f:string)=>readFileSync(`scripts/migrations/sql/${f}`,'utf8');
+ const notes={
+  '702_platform_import_approval_authority.sql':read('702_platform_import_approval_authority.sql'),
+  '704_impersonation_delegation_liveness.sql':read('704_impersonation_delegation_liveness.sql'),
+ };
+ for(const [name,text] of Object.entries(notes)){
+  // No runnable resolver command for THIS file: the old note's whole instruction was that line.
+  expect(text,name).not.toContain(`bun scripts/migrations/resolve-checksum-conflicts.ts ${name}`);
+  // And the note says what happens instead, so the operator is not left to infer it.
+  expect(text,name).toMatch(/tracks migrations by FILENAME|tracks by FILENAME/);
+  expect(text,name).toContain('applies this file IN FULL');
+ }
+ // The safety claim the replacement rests on: 715 owns the reader now, so re-applying 702 cannot restore the
+ // fail-open body. This is the assertion that has to survive, whatever the note says.
+ expect(notes['702_platform_import_approval_authority.sql'])
+  .not.toMatch(/(CREATE|REPLACE)\s+FUNCTION\s+public\.control_session_impersonator/i);
+ // The generic conflict failure still names the resolver, for migrations that ARE edited after apply under an
+ // unchanged name - the renumbering removed the instruction from two files, not the mechanism.
  expect(readFileSync('scripts/apply-migrations.ts','utf8'))
   .toContain('bun scripts/migrations/resolve-checksum-conflicts.ts ${plan.conflicts.map((c) => c.name).join(\' \')}');
 });

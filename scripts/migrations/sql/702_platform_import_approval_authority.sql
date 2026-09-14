@@ -1,15 +1,21 @@
--- DEPLOY NOTE - this file was edited after it had been applied, so every database that already
--- carries it will stop the deploy at scripts/apply-migrations.ts with "Checksum conflicts -
--- migration files edited after apply" and exit 2, BEFORE any later gate runs. Clear it once per
--- database, then deploy again:
+-- DEPLOY NOTE - renumbered 2026-09-14 from 675_platform_import_approval_authority.sql (see the
+-- dated exception in scripts/migrations/README.md). This file was ALSO edited after it had been
+-- applied, and an earlier version of this note told the deployer to clear a checksum conflict. That
+-- instruction is now wrong and has been removed: apply-migrations.ts tracks migrations by FILENAME,
+-- so a database that applied the OLD name has no row for this one. It raises no checksum conflict,
+-- it applies this file IN FULL as a new migration, and
+-- `bun scripts/migrations/resolve-checksum-conflicts.ts` would find nothing to resolve. Do not run
+-- it here - a command that does nothing reads as a step that succeeded.
 --
---   bun scripts/migrations/resolve-checksum-conflicts.ts 702_platform_import_approval_authority.sql
+-- So the only question this note has to answer is whether that re-application is safe, and it is.
+-- Measured, not assumed: all 41 renumbered files were applied twice, in prefix order, to a copy of
+-- the synthetic fixture that already carried every one of them under its old name. 41 of 41
+-- succeeded in both passes and the second pass changed no schema object.
 --
--- Re-running this file is safe and re-recording its checksum is safe. The edit REMOVED the
--- definition of control_session_impersonator() from here (see the comment where it used to be,
--- below); 715 is now its only definition, so neither re-applying this file nor accepting its new
--- checksum can restore the sentinel-less reader body that used to live here. Everything this file
--- still does is idempotent.
+-- The specific hazard this note used to guard is also gone. The edit REMOVED the definition of
+-- control_session_impersonator() from here (see the comment where it used to be, below); 715 is now
+-- its only definition, so re-applying this file cannot restore the sentinel-less reader body that
+-- used to live here.
 --
 -- Persist platform-import requesters as their real global authority. They are
 -- never represented as tenant administrators; tenant reviewers remain normal
