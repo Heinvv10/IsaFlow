@@ -35,8 +35,10 @@ import {
 } from '@/modules/accounting/services/gl/inputVatDenial';
 import { createJournalEntry } from '@/modules/accounting/services/gl/journalEntryCrudService';
 import { validateJournalEntry } from '@/modules/accounting/utils/doubleEntry';
-import { postJournalEntry } from '@/modules/accounting/services/gl/journalEntryPostingService';
-import { isPostingRefusal } from '@/modules/accounting/services/gl/postingPeriodGuard';
+import {
+  postJournalEntry,
+  isPostingRefusal,
+} from '@/modules/accounting/services/gl/journalEntryPostingService';
 
 export interface PettyCashJournalInput {
   companyId: string;
