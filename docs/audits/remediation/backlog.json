@@ -11954,12 +11954,12 @@
       "affectedPaths": [
         "src/modules/accounting/services/bank"
       ],
-      "severityRationale": "A concurrent edit can slip between the check and the write; a legitimate refusal surfaces as a server error. Lesser twin of R-087.",
+      "severityRationale": "Reproduced by rev-r087a: a reconciliation can complete while its difference is non-zero. The blanket 400 mapping means a fault after a write commits a partial write (read from code, not measured). The earlier note that it maps to 500 was wrong.",
       "evidencePaths": [],
       "historicalDataImpact": "Unknown; count completed reconciliations whose recomputed difference is non-zero.",
-      "title": "Bank reconciliation completeReconciliation has a variance gate but takes no row lock, and refuses with a plain Error that withErrorHandler maps to 500",
-      "severity": "low",
-      "source": "Reported by fix-r087a from its R-087 census; not reproduced by a reviewer yet.",
+      "title": "Bank reconciliation completeReconciliation takes no row lock (completed at difference -50.00 while a posting was in flight in another session), and bank-reconciliations-action.ts:63-66 turns every error, server faults included, into a 400 that withAuth commits",
+      "severity": "medium",
+      "source": "fix-r087a census; reproduced and corrected by rev-r087a (R-087 review round 1).",
       "processNotes": "Registered 2026-09-14 by session 71c707d0 (wave R-1)."
     },
     {
