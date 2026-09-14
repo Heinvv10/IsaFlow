@@ -63,7 +63,10 @@ export function deriveSageVat(
 
   const subtotal = subtotalStated ? Number(rawSubtotal) : totalAmount - Number(rawTaxAmount);
   const taxAmount = taxStated ? Number(rawTaxAmount) : totalAmount - subtotal;
-  const taxRate = subtotal > 0 ? Math.round((taxAmount / subtotal) * 100 * 100) / 100 : 0;
+  // subtotal !== 0, not > 0: a credit-note-shaped row (negative subtotal,
+  // negative tax) keeps a rate consistent with its own tax amount instead of
+  // reporting 0% next to a non-zero tax (review-r089-r1.md LOW-6).
+  const taxRate = subtotal !== 0 ? Math.round((taxAmount / subtotal) * 100 * 100) / 100 : 0;
 
   return { subtotal, taxAmount, taxRate, vatNotStated: false };
 }

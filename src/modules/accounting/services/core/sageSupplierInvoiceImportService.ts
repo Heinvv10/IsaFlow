@@ -81,7 +81,6 @@ export async function importSupplierInvoices(companyId: string, userId: string):
 
           const { subtotal, taxAmount, taxRate, vatNotStated: rowVatNotStated } =
             deriveSageVat(inv.subtotal as number | null, inv.tax_amount as number | null, totalAmount);
-          if (rowVatNotStated) vatNotStated++;
 
           // project_id cannot be resolved from purchase_orders in standalone mode
           const projectId: string | null = null;
@@ -168,6 +167,12 @@ export async function importSupplierInvoices(companyId: string, userId: string):
             WHERE id = ${inv.id}
               AND company_id = ${companyId}::UUID
           `;
+
+          // Counted here, not at the derivation above: a row that never
+          // reaches this line (INSERT/UPDATE fails, savepoint rolls back)
+          // must not inflate the reported review count for a document that
+          // does not exist (review-r089-r1.md LOW-3).
+          if (rowVatNotStated) vatNotStated++;
 
           return 'imported';
         });

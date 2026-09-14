@@ -64,7 +64,6 @@ export async function importCustomerInvoices(companyId: string, userId: string):
 
         const { subtotal, taxAmount, taxRate, vatNotStated: rowVatNotStated } =
           deriveSageVat(inv.subtotal as number | null, inv.tax_amount as number | null, totalAmount);
-        if (rowVatNotStated) vatNotStated++;
         const isPaid = inv.status === 'paid'
           || Number(inv.outstanding_amount || 0) === 0;
 
@@ -127,6 +126,12 @@ export async function importCustomerInvoices(companyId: string, userId: string):
               gl_customer_invoice_id = ${newInvoiceId}::UUID
           WHERE id = ${inv.id} AND company_id = ${companyId}::UUID
         `;
+
+        // Counted here, not at the derivation above: a row that never
+        // reaches this line (INSERT/UPDATE throws) must not inflate the
+        // reported review count for a document that does not exist
+        // (review-r089-r1.md LOW-3).
+        if (rowVatNotStated) vatNotStated++;
 
         succeeded++;
       } catch (err) {
