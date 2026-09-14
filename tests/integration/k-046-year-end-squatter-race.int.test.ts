@@ -19,6 +19,28 @@ import { Pool } from 'pg';
 import { assertDisposable } from './mfa-impersonation-postgres.helpers';
 
 let lookups = 0;
+/**
+ * WHAT THE REAL INDEX RAISED, and what the recogniser made of it.
+ *
+ * The catch is armed by `isClosingNumberConflict`, which matches on
+ * `code === '23505'` and `constraint === 'uq_gl_je_company_entry_number'`. Every
+ * unit test of it runs against an IN-MEMORY MODEL: an array, a uniqueness check,
+ * and a hand-built error object. If the real index raises anything that model
+ * does not reproduce — a different constraint spelling, `code` arriving as a
+ * NUMBER rather than a string, the error wrapped by the pg driver — the
+ * recogniser returns false, the 23505 is rethrown, and the caller gets the
+ * original raw HTTP 500 for a year that is correctly closed. That failure would
+ * not look like a test mismatch; it would look like the fix was never made.
+ *
+ * So the recogniser is WRAPPED rather than replaced: the real one still decides,
+ * and what it was handed is recorded for the assertions below to compare against
+ * the model. Nothing here changes behaviour.
+ */
+interface ConflictSighting {
+  code: unknown; codeType: string; constraint: unknown;
+  ctor: string; wrapped: boolean; recognised: boolean;
+}
+const conflicts: ConflictSighting[] = [];
 vi.mock('../../src/modules/accounting/services/gl/yearEndJournalPoster', async (importOriginal) => {
   const actual = await importOriginal<
     typeof import('../../src/modules/accounting/services/gl/yearEndJournalPoster')>();
@@ -30,6 +52,16 @@ vi.mock('../../src/modules/accounting/services/gl/yearEndJournalPoster', async (
       // that decides what the caller is told — runs against the real table.
       if (lookups === 1) return null;
       return actual.findClosingJournal(companyId, entryNumber);
+    },
+    isClosingNumberConflict: (err: unknown) => {
+      const recognised = actual.isClosingNumberConflict(err);
+      const e = err as { code?: unknown; constraint?: unknown; cause?: unknown } | null;
+      conflicts.push({
+        code: e?.code, codeType: typeof e?.code, constraint: e?.constraint,
+        ctor: (err as object)?.constructor?.name ?? 'none',
+        wrapped: e?.cause !== undefined, recognised,
+      });
+      return recognised;
     },
   };
 });
@@ -125,6 +157,27 @@ describe('a squatter that takes the number after the guard has already looked', 
 
     expect(lookups).toBeGreaterThan(1);      // the catch's re-read really ran
     expect(result.error).toBe('closing_entry_number_taken');
+
+    // THE CATCH FIRED, and it fired on what the REAL index raised.
+    //
+    // Asserted separately from the answer above, because a right answer does not
+    // prove this code ran: a pre-seeded row can short-circuit the pre-INSERT
+    // lookup and produce the same refusal without the INSERT ever reaching the
+    // index — which is exactly how three tests in this file once passed without
+    // executing the code they named.
+    expect(conflicts).toHaveLength(1);
+    const seen = conflicts[0]!;
+    expect(seen.recognised).toBe(true);
+    // The four properties `isClosingNumberConflict` actually depends on, pinned
+    // against the live index rather than against a model of it. The unit model
+    // in yearEndCloseRace.test.ts builds `{code:'23505', constraint:'uq_gl_je_company_entry_number'}`
+    // on a plain Error; if Postgres or the pg driver ever diverges from that —
+    // a numeric code, a renamed constraint, a wrapping error — this goes red
+    // HERE instead of silently disarming the recovery in production.
+    expect(seen.code).toBe('23505');
+    expect(seen.codeType).toBe('string');
+    expect(seen.constraint).toBe('uq_gl_je_company_entry_number');
+    expect(seen.wrapped).toBe(false);
     expect(result.entryId).toBe(squatterId);
     expect(result.source).toBe('manual');
     expect(result.entryNumber).toBe('YE-2026');
