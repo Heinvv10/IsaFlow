@@ -439,7 +439,7 @@ removes the ~17 MB external sort; no expression index, which the planner would n
 ## A18 Shared constraints and prefix
 
 Both `control_audit_jobs_result_check` and `control_audit_job_intents_kind_check` are root-coordinated shared
-objects. Migration 680 drops and re-adds both (the `822:2-3` / `824:2-8` pattern) and ends with a `DO` block
+objects. Migration 831 drops and re-adds both (the `822:2-3` / `824:2-8` pattern) and ends with a `DO` block
 asserting that the result-check definition names every `result_%_id` column found in
 `information_schema.columns` for `control_audit_jobs`, and that the kind-check names every kind in the contract
 (`audit_snapshot, audit_export, audit_compare, audit_check_run`); T2a repeats both assertions from the contract's
