@@ -74,11 +74,14 @@ export async function authenticatePortalUser(email: string, password: string): P
   // Join customers to bind the portal session to a specific company — pentest H2
   // fixed the missing company_id scope in downstream queries; the token now
   // carries companyId so it's verified against a single tenant.
+  // R-095 L4: a soft-deleted customer has no portal account left to reach —
+  // the record is hidden everywhere else (customer-statement.ts,
+  // customerLedgerService) — so login must not mint a session for one.
   const rows = (await sql`
     SELECT pa.*, c.company_id AS customer_company_id
     FROM portal_access pa
     JOIN customers c ON c.id = pa.client_id
-    WHERE pa.email = ${email} AND pa.is_active = true
+    WHERE pa.email = ${email} AND pa.is_active = true AND c.deleted_at IS NULL
   `) as DbRow[];
   if (!rows[0]) return null;
 
@@ -109,7 +112,19 @@ export async function listPortalUsers(clientId?: string): Promise<PortalUser[]> 
 
 // ── Portal Data ──────────────────────────────────────────────────────────────
 
-export async function getClientInvoices(clientId: string, companyId: string): Promise<PortalInvoice[]> {
+/**
+ * Returns null when the customer does not exist for this company (soft-deleted
+ * or a companyId/clientId combination that doesn't match) — the caller 404s,
+ * matching getClientStatement (R-095 L4: the two views used to disagree —
+ * a soft-deleted customer got a 404 on the statement but still saw their
+ * invoice list).
+ */
+export async function getClientInvoices(clientId: string, companyId: string): Promise<PortalInvoice[] | null> {
+  const customers = (await sql`
+    SELECT id FROM customers WHERE id = ${clientId}::UUID AND company_id = ${companyId}::UUID AND deleted_at IS NULL
+  `) as DbRow[];
+  if (customers.length === 0) return null;
+
   // COALESCE(client_id, customer_id) — both columns historically exist (see CLAUDE.md).
   const rows = (await sql`
     SELECT id, invoice_number, invoice_date, due_date, total_amount,
