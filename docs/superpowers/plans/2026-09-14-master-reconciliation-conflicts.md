@@ -28,11 +28,12 @@ after COMMIT, on its own connection) at exactly the point where this branch had 
 
 ---
 
-## 2. Controlled writers — master's fix inside our wrapper (44 files)
+## 2. Controlled writers — master's fix inside our wrapper (51 files)
 
 The routine pattern: master's changed logic placed inside our permit / control context, with our
 parameter threading preserved. Listed here by module; the entries that needed real judgement are
-broken out in §3.
+broken out in §3. `gl/assetDepreciationPosting.ts` was previously listed here and is **not**
+routine — it is in §3.
 
 - **bank (10):** `autoPostGateService`, `autoPostUndoService`, `bankAllocationService`,
   `bankAllocationUnwind`, `bankImportService`, `bankRulesMatchingHelpers`,
@@ -41,7 +42,7 @@ broken out in §3.
   `receiptAllocationLines`, `receiptMatchConfirmService`, `recurringInvoiceService`
 - **AP (4):** `batchPaymentService`, `supplierBankPaymentService`, `supplierInvoiceWorkflowService`,
   `supplierPaymentWorkflowService`
-- **GL (5 + 1 type):** `accountMergeService`, `assetDepreciationPosting`, `chartOfAccountsService`,
+- **GL (4 + 1 type = 5):** `accountMergeService`, `chartOfAccountsService`,
   `journalEntryPostingService`, `yearEndCloseService`, `types/gl.types.ts`
 - **payroll (5):** `payPackageService`, `payrollBatchService`, `payrollEmployeeComponentService`,
   `payrollRunService`, `uifDeclarationService`
@@ -50,10 +51,17 @@ broken out in §3.
 - **admin (1):** `sageMigrationCommitService`
 - **MCP tools (4):** `writeBulkApproveSupplierInvoices`, `writeFiscalPeriods`, `writeJournalReverse`,
   `writePayrollRun`
-- **API routes / UI / CI (7):** `extension-ingest.ts`, `bank-transactions-bulk-commit.ts`,
+- **API routes / UI / CI (9):** `extension-ingest.ts`, `bank-transactions-bulk-commit.ts`,
   `capture/[id]/post-expense.ts`, `receipt-to-journal.ts`, `year-end.ts`,
   `bank-transactions/index.tsx`, `year-end/index.tsx`, `useBankTxActions.ts`,
   `scripts/ci/check-vat-guard-coverage.ts`
+
+### Reconciliation to 99
+
+10 + 6 + 4 + 5 + 5 + 4 + 3 + 1 + 4 + 9 = **51** here, plus **5** in §1, plus
+`gl/assetDepreciationPosting.ts` (**1**, §3), plus the **10** module docs (§3), plus the **32**
+conflicted tests (§4) = **99**. An earlier revision's counts did not sum (the names always did);
+check the names, and re-derive with the snippet in §7 if in doubt.
 
 **Where our branch had MOVED the code, master's fix was ported to its new home rather than dropped.**
 Each of these is a behaviour change in a file that carried no conflict marker, so they are the most
@@ -113,6 +121,23 @@ INSERT-at-posted **predates the merge base**, so nothing was at risk. Our path s
 registers the generated journal, then calls `postJournalEntry` — the canonical gate plus permit,
 receipt and evidence binding.
 
+**`gl/assetDepreciationPosting.ts` — an undisclosed behaviour change, not a routine wrap.** Master's
+change here was the K-027 fix (`01b560396`): per-asset `DepreciationMethod`, tax opening taken from
+the subledger under `lockAssetTaxBase`, and `writeAssetTaxAccumulation`. **Neither half survived as
+master wrote it.** Our side replaced the file with a shim over
+`prepareAssetDepreciation` / `executeAssetDepreciation`, and
+`controls/assetDepreciationOperationMaterializer.ts:49-50` throws
+`'Configured depreciation method is unsupported'` for any asset not on `straight_line`. So an asset
+on reducing-balance or sum-of-years that **master would have depreciated** is now **refused**,
+returning `glFailed: true` from a run.
+
+This fails closed and loudly, which is the safe direction, and the tax-accumulation half is handled
+structurally (the materializer reads the persisted subledger row rather than a caller-supplied
+value, so master's opening-balance fix cannot be bypassed). But it is a live behaviour change for
+any tenant holding a non-straight-line asset, and it was disclosed nowhere before this revision.
+`DualDepInput` was widened to master's caller shape (`taxOpeningAccDep?`, `method?`) so callers
+compile. See also §8: `gl/assetTaxAccumulation.ts` is now dead.
+
 **`scripts/ci/check-vat-guard-coverage.ts`.** Master restructured the allowlist and added a
 `beyondEntry` failure class; we had deleted the `bank-transactions-action.ts` entry because that
 route no longer calls `allocateTransaction`. Kept master's restructure **minus** that entry — a
@@ -136,9 +161,11 @@ deleted with the lost coverage named. **No assertion was weakened to make a test
 no merge base; the two sets of cases were combined into one file on our harness (master's module
 mock supplied only `apiFetch`, leaving `assertOk` — the half under test — undefined).
 
-Conflicted test files: `lib/billing/withFlowMeter`, `mcp/fiscalPeriodTools`, `components/yearEndCloseMessage`,
+Conflicted test files — **all 32**, every path relative to `tests/unit/`:
+`lib/billing/withFlowMeter`, `mcp/fiscalPeriodTools`, `components/yearEndCloseMessage`,
 `services/{ap/batchPaymentService, ar/receiptApplicationService, capture/provisionalPostingService,
 customerPaymentService, dualDepreciationAtomicity, glEntrySourceConstraint, journalEntryReversalDate,
+journalEntryReversalPeriod,
 p21InputValidation, paymentVoidService, supplierPaymentVoid, supplierPaymentWorkflowService,
 yearEndService, bankAllocationBatchStamp, bankAllocationService, bankAllocationSign}`,
 `services/bank/{autoPostGateService, autoPostUndoService, bankAllocationDateShift, bankAllocationUnwind,
@@ -154,7 +181,7 @@ Checked commit by commit:
 
 | File | Master's change | Verdict |
 |---|---|---|
-| `bankAllocationBatchStamp`, `bankAllocationService`, `bankAllocationSign`, `bank/bankAllocationDateShift`, `bank/supplierBankLineDocument` | fixture/mock plumbing only (`feed_state: 'posted'`, a `withSavepoint` passthrough) | Keep deleted. Real pins survive: `bank/bankFeedStateGuard.test.ts`, `customerOwnershipFence.test.ts` |
+| `bankAllocationBatchStamp`, `bankAllocationService`, `bankAllocationSign`, `bank/bankAllocationDateShift`, `bank/supplierBankLineDocument` | fixture/mock plumbing only (`feed_state: 'posted'`, a `withSavepoint` passthrough) | Keep deleted. Real pins survive: `services/bank/bankFeedStateGuard.test.ts`, `services/customerOwnershipFence.test.ts` (both under `tests/unit/`) |
 | `bank/bankRuleSupplierDocument` | **real pin**: `autoPostRuleLine` → `{kind:'raced'}` for a pending feed row | Keep deleted — **coverage LOST**, re-pin in `bankRulesAutoPostOutcomes.test.ts` |
 | `gl/journalEntryReversal` | 3 pins; 2 live, 1 inapplicable | Keep deleted — VAT-classification-on-contra **LOST**, re-pin in `gl39Reversal.int.test.ts`. Foreign-dimension drop is pinned by `k051-reversal-foreign-dimension.int.test.ts` |
 | `journalEntryReversalPeriod` | mock plumbing | Keep deleted — its assertion (`fiscalPeriodId` must be undefined) is now the **opposite** of intended behaviour |
@@ -191,7 +218,17 @@ Widened to every file the merge changed that is identical to master and writes t
 (`migrationApService`, `gatewayInvoiceReceiptService`, `migrationImportService`, `softDeleteRowOps`,
 `journalEntryCrudService`, `yearEndJournalPoster`). **None was a conflict** — our branch never
 touched them, so no resolution chose master there. `journalEntryCrudService` is the crud layer
-*under* the gate; `yearEndJournalPoster` now has zero production callers.
+*under* the gate.
+
+`yearEndJournalPoster` carries a direct `INSERT INTO gl_journal_entries … status='posted'` at
+`:169`, so the basis for dismissing it has to be exact. **It is NOT an unimported file** — an
+earlier revision of this section said it had "zero production callers", which is false:
+`controlledYearEnd.ts:15` imports `alreadyClosedResult`, `classifyClosingJournal` and
+`findClosingJournal` from it. The correct and narrower statement, re-verified against the merge
+commit, is that **`postClosingJournal` itself has no production caller** — every remaining mention
+outside the module is in `.claude.md` / `AGENTS.md` prose or a comment in `gl.types.ts`. The
+INSERT-at-posted is therefore unreachable from production, while the module's already-closed helpers
+are live and deliberately so. §8 states this correctly; this paragraph now matches it.
 
 **Limit of this check:** it is a call-site and table census. It does not prove that a pre-existing
 unconflicted bypass does not exist elsewhere in the tree.
@@ -200,20 +237,67 @@ unconflicted bypass does not exist elsewhere in the tree.
 
 ## 7. Resolved by taking one side wholesale
 
-Six conflicted files took **master** whole. Each is deliberate:
+**How this section was derived (re-runnable).** An earlier revision of this section was wrong in
+both directions — it named two files as "ours whole" that are not, and omitted four that are, three
+of them production services. It had been written from memory of the resolutions rather than from the
+merge result. Both sets below are now derived mechanically, by comparing the blob hash of each of
+the 99 files in the merge commit against the same path in each parent:
+
+```sh
+M=0e56caf74; O=cc7062f61; T=4fd8943e6   # merge, ours, theirs
+for f in $(git diff --name-only --diff-filter=U ...); do   # the 99 conflicted paths
+  m=$(git rev-parse "$M:$f"); o=$(git rev-parse "$O:$f"); t=$(git rev-parse "$T:$f")
+  [ "$m" = "$o" ] && echo "OURS-WHOLE $f"; [ "$m" = "$t" ] && echo "THEIRS-WHOLE $f"
+done
+```
+
+Result: **79 composed, 14 ours-whole (6 production + 8 tests), 6 theirs-whole.** A reviewer
+auditing this list rather than the diff is relying on it being right, so re-run the above rather
+than trusting the prose.
+
+### Took OURS whole — 6 production files
+
+A file is here because the merge result is byte-identical to `cc7062f61`. What master's side
+contained, and where it went, is the question this table exists to answer.
+
+| File | What master's side contained | Why discarding it here was right |
+|---|---|---|
+| `bank/bankAllocationService.ts` | `566f46aee`, `f518aac31` — feed-state raced/skip branches, `BankAllocationRefusal` typing, R-067 `assertCustomerInCompany`, `isBankSubtype` counterparty, cc1/cc2 on lines | File became a 147-line façade over the kernel. Each fix verified to survive inside it (R-067 → `bankAllocationSources` `FOR SHARE`, covering supplier too; status → `bankAllocationControl`; dimensions → `bankAllocationDimensions`). The feed-state guard was genuinely absent and **was ported** to `bankAllocationControl.assertPostedForAllocation`. `isBankSubtype` was **not** ported — that is DECISION 3. |
+| `bank/bankAllocationUnwind.ts` | `bbc3724fb` — lock-order fix: allocations `ORDER BY invoice_id`, payment cancelled before the invoice loop | Both entry points deliberately retired to throwing stubs in `9c259b89c`. Master's fix has no home. **This is DECISION 2**, and master's deterministic ordering is not present in the controlled inverse. |
+| `bank/bankTransferAutoLink.ts` | `25f9d62a9` — `feed_state='posted'` on the candidate SELECT and the UPDATE | **This file is the TENTH unported fix, and it hid here.** The function was replaced by a delegation to `runControlledTransferLinks`, and it now has **zero importers** — so it arrived carrying master's fence with nothing able to execute it. In the relocated controlled-transfer family the fence is only partial: `bankTransferLinkService` candidates and `bankAllocationTransferSources` carry a `feed_state` predicate; `bankAllocationTransferState` and `bankTransferPostingService` carry none. Dispatched separately. |
+| `gl/chartOfAccountsService.ts` | `88c0b5327` — `deleteAccount`: `isBankSubtype(...)` instead of `=== 'bank'`, plus `AND feed_state <> 'removed'` on the unreconciled count | Create/update/delete had moved to `glAccountCreateService` / `glAccountUpdateService`, leaving re-exports. Master's fix **was ported** into `glAccountUpdateService.deleteAccountRaw`. |
+| `payroll/payrollBatchService.ts` | `a42aba58b`, `f54247a93` — `closeOnceOffAt` fixed to the **line's own** month end (was the batch period end) | Types/helpers extracted to `payrollBatchModel`, `postBatch` delegates to the kernel. Master's rule **was ported** into `controls/payrollCompensationExpand.ts`'s batch branch. |
+| `pages/accounting/bank-transactions/index.tsx` | `93958821c` — `selectableTxIds`, `allSelected` judged against it, `onSelectAll` gated | Page replaced by a 6-line shim over `useBankTransactionsController` + `BankTransactionsView`. Master's fix **was ported** into both split files. |
+
+Eight test files are also ours-whole (`ap/batchPaymentService`, `bank/bankAllocationUnwind`,
+`dualDepreciationAtomicity`, `gl/yearEndRetainedEarnings`, `paymentVoidService`,
+`supplierPaymentVoid`, `supplierPaymentWorkflowService`, `yearEndService`). In each, master's cases
+drove a seam the kernel replaced and could not run; the deleted coverage is named in §4 and in the
+agent reports.
+
+**Not ours-whole, contrary to the earlier revision:** `core/duplicateMergeService.ts` (it carries
+master's `RETURNING id` row-count fix and the payments-before-invoices reorder in the customer arm,
+`:49-53`) and `items/depreciationRunPreview.ts` (it carries master's `lifeExpiredNote ?? …`). Both
+are composed.
+
+### Took MASTER whole — 6 files
+
+Each is deliberate:
 
 | File | Why |
 |---|---|
 | `src/lib/billing/withFlowMeter.ts` | Master had independently relocated `X-Flow-Refunded` into an `if (refundBalanceAfter !== null && !res.headersSent)` block carrying our exact reasoning verbatim. Our hunk was fully subsumed. |
 | `pages/api/accounting/capture/[id]/post-expense.ts` | Master moved the petty-cash branch into `capture/pettyCashJournalService.ts` (300-line cap). Our `isPostingRefusal` swap must follow it there — **carry-forward, not yet done**: that file still catches `ClosedFiscalPeriodError`, so a lockdown refusal 500s instead of leaving a postable draft. |
-| `pages/api/accounting/bank-feeds/[id]/extension-ingest.ts` | Master rewrote the route over `ingestBankBatch`. Our control intent survives **more strongly**: `bankIngestionService.suggest()` selects `auto_create_entry = false` rules only, so the extension path cannot auto-post at all — by construction rather than by our `{autoPost:false}` flag. |
+| `pages/api/accounting/bank-feeds/[id]/extension-ingest.ts` | Master rewrote the route over `ingestBankBatch`. Our control intent survives **more strongly**: `bank/feed/bankIngestionService.ts:132` (`suggest()`) selects `auto_create_entry = false` rules only, so the extension path cannot auto-post at all — by construction rather than by our `{autoPost:false}` flag. |
 | `src/modules/accounting/services/core/emailService.ts` | Both sides made the same fix independently (awaited + savepointed `logEmailAttempt`). Master's carries the fuller rationale. No control existed on our side here. |
 | `src/modules/accounting/services/payroll/uifDeclarationService.ts` | Master moved the writer to `uifPaymentService.ts` and added a claim-before-post. Our one-line `source` change was carried into the new home. |
 | `src/modules/accounting/types/gl.types.ts` | Only master's explanatory comment was in the conflicted hunk; both sides already carried `'year_end'`. |
 
-Files taking **ours** whole did so only where master's fix was verified to survive elsewhere in the
-kernel (`bankAllocationService`, `bankAllocationUnwind`, `duplicateMergeService`,
-`depreciationRunPreview`) — each is evidenced above or in §3.
+Note that "took ours whole" is **not** the same as "master's fix survived". Of the six above, three
+were ported into the file our branch had moved the code to, one (`bankAllocationService`) was partly
+ported and partly deferred to DECISION 3, one is DECISION 2, and one — `bankTransferAutoLink` — was
+ported nowhere and is the tenth unported fix. The hash tells you which side won the bytes; only
+reading the diff tells you whether the intent survived.
 
 ---
 
@@ -230,7 +314,9 @@ kernel (`bankAllocationService`, `bankAllocationUnwind`, `duplicateMergeService`
 - Carry-forward: `capture/pettyCashJournalService.ts` `isPostingRefusal` swap (§7).
 - Re-pins owed: `autoPostRuleLine` `{kind:'raced'}`; VAT classification on a reversal contra.
 - Dead after the merge: `gl/journalEntryPostingGuards.ts`, `gl/journalReversalDate.ts`,
-  `core/sageLedgerRelinkGuard.ts`; `yearEndJournalPoster`'s `postClosingJournal` /
+  `core/sageLedgerRelinkGuard.ts`, `gl/assetTaxAccumulation.ts` (zero production importers — its only
+  remaining pin, `tests/integration/k027-tax-depreciation-idempotency.int.test.ts`, now covers code
+  nothing calls); `yearEndJournalPoster`'s `postClosingJournal` /
   `isClosingNumberConflict` / `lockYear` are kept alive only by tests.
 - Control receipts written before this merge lack `periodsLockedInYear` / `alreadyClosed` /
   `unclosedNetIncome`, which `prior()` replays.
