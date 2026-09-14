@@ -13,6 +13,17 @@ export default defineConfig({
     environment: 'node',
     include: ['tests/integration/**/*.test.ts'],
     testTimeout: 30000,
+    // tests/integration/controls/* take real row and table locks on one shared database, so two
+    // files running at once deadlock each other. The failures shift between files from run to
+    // run, which reads as flakiness and has been misdiagnosed as load before. `bun run
+    // test:integration` is the command CI would use the moment DATABASE_URL is set, so the safe
+    // behaviour belongs here rather than in a flag every caller has to remember.
+    //
+    // For speed, shard across SEPARATE fixtures instead — they are one command each and
+    // independent, so there is nothing to contend on:
+    //   bash scripts/forensic/fixture-up.sh 3315<n>   # once per shard
+    //   vitest run --config vitest.integration.config.ts --shard=<n>/4
+    fileParallelism: false,
     env: {
       // Fallback DATABASE_URL so tests that don't use the DB can import
       // neon-dependent modules without a real connection string.
