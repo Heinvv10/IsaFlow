@@ -2,10 +2,10 @@ import {expect,it} from 'vitest';
 import {readdirSync,readFileSync} from 'node:fs';
 
 /**
- * Migration 715 must be the ONLY migration that defines or alters control_session_impersonator().
+ * Migration 739 must be the ONLY migration that defines or alters control_session_impersonator().
  *
- * 702 defined it before 715, with a body that answers an unreadable evidence table with NULL -
- * which resolveImpersonatingActor reads as "nobody is impersonating", the fail-open 715 closed.
+ * 726 defined it before 739, with a body that answers an unreadable evidence table with NULL -
+ * which resolveImpersonatingActor reads as "nobody is impersonating", the fail-open 739 closed.
  * Two definitions in two files means the later apply wins, so re-running the older one silently
  * reinstates it: resolve-checksum-conflicts.ts on an amended migration, a rebuilt database, or the
  * renumbering against master. One definition is what makes apply order stop mattering.
@@ -25,9 +25,9 @@ const DIR='scripts/migrations/sql';
  */
 const TOUCHES=/(?:CREATE\s+(?:OR\s+REPLACE\s+)?FUNCTION|ALTER\s+FUNCTION)\s+(?:public\s*\.\s*)?control_session_impersonator/i;
 
-it('leaves migration 715 as the only migration that defines or alters the impersonation reader',()=>{
+it('leaves migration 739 as the only migration that defines or alters the impersonation reader',()=>{
  const touching=readdirSync(DIR).filter(name=>name.endsWith('.sql')&&TOUCHES.test(readFileSync(`${DIR}/${name}`,'utf8')));
- expect(touching).toEqual(['715_impersonation_evidence_integrity.sql']);
+ expect(touching).toEqual(['739_impersonation_evidence_integrity.sql']);
 });
 
 it('matches the spellings a reintroduction would realistically use',()=>{
@@ -41,7 +41,7 @@ it('matches the spellings a reintroduction would realistically use',()=>{
   'CREATE\n  FUNCTION\n  public.control_session_impersonator()']){
   expect(TOUCHES.test(spelling),spelling).toBe(true);
  }
- // And a mere call or a grant is not a definition, or 704 and every caller would match.
+ // And a mere call or a grant is not a definition, or 728 and every caller would match.
  for(const spelling of ['SELECT public.control_session_impersonator() AS actor',
   'GRANT EXECUTE ON FUNCTION public.control_session_impersonator() TO app_user',
   'DROP FUNCTION IF EXISTS public.control_session_impersonator()']){

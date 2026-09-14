@@ -41,7 +41,7 @@ export function assertControlledEffectPermit(ctx: ControlTx, permit: ControlledE
  * live execution and its preview, because they run the same checks.
  */
 /**
- * SQLSTATEs the control functions RAISE deliberately (677/678 raise 42501 for
+ * SQLSTATEs the control functions RAISE deliberately (701/702 raise 42501 for
  * an approval outside the caller's company, or a caller who is not a member).
  * A transport fault — a deadlock, a serialization failure, a constraint — keeps
  * its own code and stays a server failure. Nothing else is marked: a plain

@@ -12,7 +12,7 @@ import { sql } from '@/lib/neon';
 export async function impersonationDelegationLive(stashId: string, actorUserId: string,
   targetUserId: string, targetSessionId: string): Promise<boolean> {
   if (!/^[0-9a-f-]{36}$/i.test(stashId)) return false;
-  // Migration 704 owns both reads, so the request path needs no grant on the stash table.
+  // Migration 728 owns both reads, so the request path needs no grant on the stash table.
   // This runs on the DATABASE_URL login role from verifyToken, before any app_user
   // transaction; if the call fails, impersonationActor logs it and refuses the proof.
   const rows = await sql<{ live: boolean }>`
