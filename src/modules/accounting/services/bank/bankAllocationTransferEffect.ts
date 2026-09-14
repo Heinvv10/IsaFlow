@@ -6,6 +6,7 @@ import {matchesBankAllocationJournalLines} from '../controls/bankAllocationJourn
 import type {PostingActorOpts} from '../gl/journalEntryMeta';
 import {postJournalEntry} from '../gl/journalEntryPostingService';
 import {bankAllocationActor} from './bankAllocationActor';
+import {assertPostedForAllocation} from './bankFeedStateGuard';
 import {loadBankAllocationIntent} from './bankAllocationMaterial';
 import {loadBankAllocationSources} from './bankAllocationSources';
 import {recordBankAllocationChild} from './bankAllocationChildEffect';
@@ -36,6 +37,11 @@ export async function executeBankTransferEffect(ctx:ControlTx,intentId:string,pe
   WHERE company_id=${company}::uuid AND journal_entry_id=${journalId}::uuid ORDER BY id FOR SHARE` as (Row&Parameters<typeof matchesBankAllocationJournalLines>[1][number])[];
  if(!matchesBankAllocationJournalLines(sources.lines,lines))throw new Error('Transfer journal economics changed');
  async function link(before:Row,counterpartyAccountId:string,name:string){
+  // Last gate before the UPDATE that migration 675's trigger refuses with a 23514. Selection already
+  // excludes a non-posted leg (selectOppositeTransferLeg) and prepare refuses a non-posted SOURCE, so
+  // this asserts what both of them establish — on the one statement that would otherwise abort the
+  // whole controlled operation, rolling the other leg back with it, under an unmapped 500.
+  assertPostedForAllocation(before,String(before.id),'allocate');
   const matching=lines.filter(line=>line.gl_account_id===before.bank_account_id);
   if(matching.length!==1)throw new Error('Transfer journal bank line is ambiguous');
   const occupied=await ctx.sql`SELECT id FROM bank_transactions WHERE company_id=${company}::uuid AND matched_journal_line_id=${matching[0]!.id}::uuid LIMIT 1`;

@@ -2,7 +2,7 @@ import Decimal from 'decimal.js';
 import type {ControlTx} from '../controls/contracts';
 import {assertControlTx} from '../controls/context';
 import {canonicalJson} from '../controls/canonical';
-import {bankTransferPlanSchema,type BankTransferPlan} from './bankAllocationTransferPlan';
+import {bankTransferPlanSchema,selectOppositeTransferLeg,type BankTransferPlan} from './bankAllocationTransferPlan';
 import {lockBankTransferPair,readBankTransferCandidates} from './bankAllocationTransferSources';
 import {readExistingTransferFacts} from './bankTransferCandidateQueries';
 import type {proveBankTransferCandidate} from './bankTransferCandidateProof';
@@ -23,7 +23,9 @@ export async function loadBankTransferState(ctx:ControlTx,input:BankTransferPlan
   const state=await readBankTransferCandidates(ctx,{bankTransactionId:plan.bankTransactionId,counterpartyAccountId:plan.counterpartyAccountId},{authority:'read'});
   if(state.bank.status!=='imported')throw new Error('Transfer source is no longer imported');
   const {oppositeCandidates,existingCandidates,...fixed}=state;
-  const opposite=oppositeCandidates[0]??null;
+  // The SAME pick preparation made, from the same ordered rows — a second copy of the rule here would
+  // read a different leg and report 'Transfer saved selection changed' on an unchanged database.
+  const opposite=selectOppositeTransferLeg(oppositeCandidates);
   if(plan.transfer.mode==='post'){
    if(state.existingCandidates.length||plan.transfer.oppositeBankTransactionId!==(opposite?.id??null))throw new Error('Transfer saved selection changed');
    return{...fixed,oppositeBank:opposite,original:null,discovery:{oppositeCandidates:state.oppositeCandidates,existingCandidates:state.existingCandidates}};
