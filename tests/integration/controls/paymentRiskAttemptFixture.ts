@@ -19,7 +19,7 @@ export async function seedRiskAttemptHistory(pool:Pool,f:ForensicFixture,supplie
   await pool.query(`INSERT INTO control_payment_release_intents(company_id,id,batch_id,channel,bank_format,requester_person_id,requester_auth_method,
  payload_envelope,payload_hash,amount,currency,accounting_date) VALUES($1,$2,$3,'eft','fnb',$4,'cookie','{}',repeat('b',64),1150,'ZAR','2026-09-09')`,[f.companyA,intent,batch,f.u1.id]);
   await pool.query(`INSERT INTO control_payment_release_items(company_id,intent_id,payment_id,preparation_id) VALUES($1,$2,$3,$4)`,[f.companyA,intent,payment,preparation]);
-  // The intent's requester asks for the approval, as themselves (688).
+  // The intent's requester asks for the approval, as themselves (712).
   await asPerson(pool,f.u1,[[`INSERT INTO control_operation_approvals(company_id,id,operation_id,operation,entity_type,entity_id,requester_person_id,binding,binding_hash,status,expires_at)
  VALUES($1,$2,$3,'payment_release.dispatch','payment_release_intent',$4,$5,'{}',repeat('c',64),'pending',clock_timestamp()+interval '1 hour')`,[f.companyA,approval,randomUUID(),intent,f.u1.id]]]);
   await pool.query(`INSERT INTO control_payment_release_outbox(company_id,intent_id,approval_id,provider_reference) VALUES($1,$2::uuid,$3,$2::text)`,[f.companyA,intent,approval]);

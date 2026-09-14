@@ -1,4 +1,4 @@
--- Root reservation 629: replay protection must outlive forensic history retention.
+-- Root reservation 679: replay protection must outlive forensic history retention.
 CREATE TABLE IF NOT EXISTS mcp_idempotency_results (
   company_id uuid NOT NULL,
   tool text NOT NULL,

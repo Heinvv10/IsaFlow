@@ -1,5 +1,5 @@
 -- A control_operation_decisions row is the proof of an independent approval, and validateDecisions trusts its
--- person_id. app_user holds INSERT (627) and the RLS policy checked only company_id, so a requester could INSERT a
+-- person_id. app_user holds INSERT (677) and the RLS policy checked only company_id, so a requester could INSERT a
 -- decision naming a real admin, set the approval approved, and execute. Enforced here for every role, BYPASSRLS
 -- included, beside the RLS check:
 --   a decision is never changed or removed (UPDATE, DELETE, TRUNCATE refused);
@@ -7,7 +7,7 @@
 --     requester;
 --   it lands only on a pending, unexpired approval, for a policy that approval binds; the primary key
 --     (company_id, approval_id, policy_id) already allows one decision per policy;
---   decided_at is the database's clock, which is what lets 688 tie a status change to a decision made in the
+--   decided_at is the database's clock, which is what lets 712 tie a status change to a decision made in the
 --     same transaction.
 CREATE OR REPLACE FUNCTION public.control_guard_decision_append_only() RETURNS trigger
 LANGUAGE plpgsql SET search_path = pg_catalog AS $$

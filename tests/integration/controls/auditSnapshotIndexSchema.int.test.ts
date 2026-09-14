@@ -58,7 +58,7 @@ it('permits owned append-only index rows but rejects foreign and different-maker
   // The real worker built this header under its own live-lease authority in beforeAll.
   expect((await client.query('SELECT snapshot_id FROM control_audit_snapshot_indexes WHERE company_id=$1 AND snapshot_id=$2',[fixture.companyA,ownSnapshot])).rows).toHaveLength(1);
  });
- // Migration 673 seals a snapshot's index to appends once its build job is no longer 'running' with a
+ // Migration 701 seals a snapshot's index to appends once its build job is no longer 'running' with a
  // live lease. ownSnapshot's original build already succeeded (sealed), so re-exercising the "owned
  // append" path needs a genuinely live lease: enqueue+claim a second builder job (audit_compare permits
  // building any existing snapshot_id) and rebuild the header/items/chunks under it, exactly as the real

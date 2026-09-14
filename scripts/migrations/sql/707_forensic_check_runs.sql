@@ -77,13 +77,13 @@ CREATE POLICY current_check_run_worker ON control_audit_check_findings FOR INSER
    AND i.kind='audit_check_run' AND i.requester_person_id=auth.uid()::text));
 REVOKE ALL ON control_audit_check_findings FROM PUBLIC,app_user;
 GRANT SELECT,INSERT ON control_audit_check_findings TO app_user;
--- Append-only: no mutation privilege for the application role (as 673).
+-- Append-only: no mutation privilege for the application role (as 701).
 REVOKE UPDATE,DELETE ON control_audit_check_results,control_audit_check_findings FROM app_user;
 
--- Guards only this migration's own result: it fails 680 if, after its re-adds, the result check omits any result_%_id
+-- Guards only this migration's own result: it fails 707 if, after its re-adds, the result check omits any result_%_id
 -- column present at that moment or the kind check omits a contract kind. It cannot catch a LATER migration that
--- narrows either constraint, since it runs only when 680 runs. That guard is the merge-time grep (plan v6 A18):
--- every ADD CONSTRAINT of either name under scripts/migrations/sql on any branch must be 662, 668 or 680.
+-- narrows either constraint, since it runs only when 707 runs. That guard is the merge-time grep (plan v6 A18):
+-- every ADD CONSTRAINT of either name under scripts/migrations/sql on any branch must be 698, 700 or 707.
 DO $$ DECLARE definition text; missing text; BEGIN
  SELECT pg_get_constraintdef(oid) INTO definition FROM pg_constraint
   WHERE conrelid='control_audit_jobs'::regclass AND conname='control_audit_jobs_result_check';
