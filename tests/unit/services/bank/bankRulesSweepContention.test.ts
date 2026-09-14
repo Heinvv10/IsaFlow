@@ -50,6 +50,23 @@ vi.mock('@/modules/accounting/services/bank/bankRulesMatchingHelpers', () => ({
 vi.mock('@/modules/accounting/services/bank/bankRuleAutoPostLine', () => ({
   autoPostRuleLine: autoPostMock,
 }));
+// The sweep reads the company's approval policy through the controls kernel's
+// request-bound context. `requireControlTx` / `assertControlTx` validate a real
+// request lifetime registered by `withAuth`, which no unit test holds, so the
+// context and the policy READ are the boundary here — this file is about how a
+// contended line is classified, and the approval policy itself is pinned in
+// `bankRulesAutoPostOutcomes.test.ts`. The per-line pre-flight stays real.
+vi.mock('@/modules/accounting/services/controls/context', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('@/modules/accounting/services/controls/context')>();
+  return {
+    ...actual,
+    requireControlTx: vi.fn(() => ({ sql: sqlMock, principal: { companyId: COMPANY, personId: USER } })),
+  };
+});
+vi.mock('@/modules/accounting/services/controls/approvalRuleService', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('@/modules/accounting/services/controls/approvalRuleService')>();
+  return { ...actual, loadApprovalRules: vi.fn(async () => []) };
+});
 
 import { applyRules } from '@/modules/accounting/services/bank/bankRulesMatchingService';
 import { BankTransactionLockTimeoutError } from '@/modules/accounting/services/bank/bankTxLock';
@@ -76,9 +93,12 @@ beforeEach(() => {
     if (text.includes('FROM gl_accounts')) return Promise.resolve([{ id: BANK_GL }]);
     return Promise.resolve([]);
   }) as never);
+  // `period_status` comes off `findMatchingTxs`'s own join; the sweep's
+  // pre-flight counts a candidate without one as `no_period` and never attempts
+  // it, so a row lacking it is a row that query cannot return.
   findTxsMock.mockResolvedValue([
-    { id: 'tx-1', transaction_date: '2026-08-13', amount: -100, description: 'BANK FEE' },
-    { id: 'tx-2', transaction_date: '2026-08-14', amount: -200, description: 'BANK FEE' },
+    { id: 'tx-1', transaction_date: '2026-08-13', amount: -100, description: 'BANK FEE', period_status: 'open' },
+    { id: 'tx-2', transaction_date: '2026-08-14', amount: -200, description: 'BANK FEE', period_status: 'open' },
   ]);
 });
 

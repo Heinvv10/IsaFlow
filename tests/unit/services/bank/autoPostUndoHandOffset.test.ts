@@ -19,12 +19,14 @@ vi.mock('@/lib/neon', () => ({
 vi.mock('@/lib/logger', () => ({ log: { info: vi.fn(), warn: vi.fn(), error: vi.fn() } }));
 
 const reverseReconciledTransaction = vi.fn();
+// A provisional entry is undone through the CONTROLLED reversal of its owning
+// allocation: its journal carries a generated source, which `reverseJournalEntry`
+// refuses outright — and the refusal poisons the request — so the undo has not
+// called it directly since the controls kernel landed.
+const reverseProvisionalEntry = vi.fn();
 vi.mock('@/modules/accounting/services/bank/bankAllocationService', () => ({
   reverseReconciledTransaction: (...a: unknown[]) => reverseReconciledTransaction(...a),
-}));
-const reverseJournalEntry = vi.fn();
-vi.mock('@/modules/accounting/services/gl/journalEntryService', () => ({
-  reverseJournalEntry: (...a: unknown[]) => reverseJournalEntry(...a),
+  reverseProvisionalEntry: (...a: unknown[]) => reverseProvisionalEntry(...a),
 }));
 
 // The row lock re-reads the line; by default it finds it exactly as the
@@ -56,7 +58,7 @@ describe('undoRun — hand offsets (R-079)', () => {
   beforeEach(() => {
     sqlMock.mockReset();
     reverseReconciledTransaction.mockReset();
-    reverseJournalEntry.mockReset();
+    reverseProvisionalEntry.mockReset();
     lockMock.mockReset();
   });
 
@@ -92,7 +94,7 @@ describe('undoRun — hand offsets (R-079)', () => {
         description: 'Reclass rent', netsPostingOut: false, reclass: false, projection: [],
       }],
     });
-    expect(reverseJournalEntry).not.toHaveBeenCalled();
+    expect(reverseProvisionalEntry).not.toHaveBeenCalled();
     const joined = sqlMock.mock.calls.map((c) => (c[0] as TemplateStringsArray).join('?'));
     expect(joined.some((t) => /SET auto_post_run_id = NULL/.test(t))).toBe(false);
     expect(joined.some((t) => /UPDATE bank_auto_post_runs/.test(t))).toBe(false);
@@ -109,7 +111,7 @@ describe('undoRun — hand offsets (R-079)', () => {
     const r = await undoRun('co-1', 'run-1', 'u-1');
 
     expect(r).toMatchObject({ reversed: 1, skipped: 0, undone: true, handOffsets: [] });
-    expect(reverseJournalEntry).toHaveBeenCalledWith('co-1', 'je-1', 'u-1');
+    expect(reverseProvisionalEntry).toHaveBeenCalledWith('co-1', 'je-1', 'u-1', { reason: 'Auto-post run undone' });
   });
 
   // A peer undo or a confirmed hand correction took the row out of the run
@@ -124,7 +126,7 @@ describe('undoRun — hand offsets (R-079)', () => {
     const r = await undoRun('co-1', 'run-1', 'u-1');
 
     expect(r).toMatchObject({ reversed: 0, skipped: 0, alreadyUndone: 0 });
-    expect(reverseJournalEntry).not.toHaveBeenCalled();
+    expect(reverseProvisionalEntry).not.toHaveBeenCalled();
     const joined = sqlMock.mock.calls.map((c) => (c[0] as TemplateStringsArray).join('?'));
     expect(joined.some((t) => /SET status = 'imported'/.test(t))).toBe(false);
   });

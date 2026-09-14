@@ -146,14 +146,24 @@ export function withPlatformAdmin(handler: Handler): NextApiHandler {
           await handler(req,res);
         }));
 
-      if (process.env.SENTRY_ENABLED === 'true') {
-        await Sentry.withIsolationScope(async () => {
-          Sentry.setTag('admin', 'true');
-          setTenantTags({ userId: claims!.sub, route: sanitizeRoute(req.url) });
+      // The platform-import lifetime runs its own integrity check as the handler
+      // unwinds, and a failed critical audit trips it — so it throws before the
+      // M6 branch below can answer. Swallow it in exactly that case and let M6
+      // own the response: the ROLLBACK and the dropped after-commit queue are
+      // identical either way, and M6 says AUDIT_WRITE_FAILED instead of a bare
+      // 500. Any other integrity failure still propagates.
+      try {
+        if (process.env.SENTRY_ENABLED === 'true') {
+          await Sentry.withIsolationScope(async () => {
+            Sentry.setTag('admin', 'true');
+            setTenantTags({ userId: claims!.sub, route: sanitizeRoute(req.url) });
+            await runHandler();
+          });
+        } else {
           await runHandler();
-        });
-      } else {
-        await runHandler();
+        }
+      } catch (err) {
+        if (!ctx.criticalAuditFailed) throw err;
       }
 
       // M6: a CRITICAL_ACTIONS audit write failed somewhere in the handler. Even

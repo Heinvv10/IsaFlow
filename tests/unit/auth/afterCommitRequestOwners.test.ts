@@ -18,11 +18,14 @@ const client = {
   query: vi.fn(async (text: string) => {
     const verb = String(text).trim().split(/\s+/)[0]!.toUpperCase();
     if (/FROM company_users|FROM users/i.test(String(text))) {
-      return { rows: [{ role: 'super_admin', account_user_id: 'user-1', is_active: true, status: 'active', suspended_at: null }] };
+      return { command: 'SELECT', rows: [{ role: 'super_admin', account_user_id: 'user-1', is_active: true, status: 'active', suspended_at: null }] };
     }
     if (verb === 'COMMIT' && h.commitThrows) { h.events.push('COMMIT_THROW'); throw new Error('commit failed'); }
     if (verb === 'COMMIT' || verb === 'ROLLBACK') h.events.push(verb);
-    return { rows: [] };
+    // `command` echoes the verb because real pg always sets it, and
+    // finalizeRequestTransaction refuses a COMMIT that came back as anything
+    // else — the control that catches a COMMIT silently demoted to a ROLLBACK.
+    return { command: verb, rows: [] };
   }),
   release: vi.fn(),
 };

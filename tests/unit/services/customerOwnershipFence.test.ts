@@ -61,7 +61,20 @@ vi.mock('@/modules/accounting/services/core/recurringTemplateLock', () => ({
   RecurringTemplateLockTimeoutError: class extends Error {},
 }));
 
+// Several arms below now run inside the controls kernel, which asserts the
+// caller's live permissions and resolves the ledger's control accounts against
+// the database before reaching the fence. Both are covered by the controls
+// suites; here they must not stand between the call and the ownership read.
+vi.mock('@/lib/auth/effectivePermissions', () => ({ assertEffectivePermission: vi.fn() }));
+vi.mock('@/modules/accounting/services/controls/arControlAccounts', () => ({
+  resolveArAccounts: vi.fn().mockResolvedValue({ ledgerCurrency: 'ZAR', chosen: {}, explicit: [] }),
+}));
+
+import type { PoolClient } from 'pg';
 import { sql } from '@/lib/neon';
+import { withControlRequest, requireControlTx } from '@/modules/accounting/services/controls/context';
+import { OperationRefusalError } from '@/modules/accounting/services/controls/operationRefusal';
+import { preparePartyBankAllocation } from '@/modules/accounting/services/bank/bankAllocationDefaultPreparation';
 import { CustomerNotInCompanyError } from '@/modules/accounting/services/core/contactDirectoryService';
 import { createDraftCustomerInvoice } from '@/modules/accounting/services/ar/customerInvoiceCreateService';
 import { createQuote, updateQuote } from '@/modules/accounting/services/ar/quoteService';
@@ -78,9 +91,28 @@ const COMPANY = '11111111-1111-4111-8111-111111111111';
 const FOREIGN = '99999999-9999-4999-8999-999999999999';
 const USER = '33333333-3333-4333-8333-333333333333';
 
-/** A statement that changes data — what must not run before the refusal. */
+/**
+ * A statement that changes data — what must not run before the refusal.
+ * Matched on the write verb WITH its object: a bare `UPDATE` also matches the
+ * `FOR UPDATE` row lock the controls kernel takes on its way to the fence,
+ * which changes nothing.
+ */
 function writeStatements(): string[] {
-  return sqlTexts.filter((t) => /\b(INSERT|UPDATE|DELETE)\b/i.test(t));
+  return sqlTexts.filter((t) => /\b(INSERT\s+INTO|DELETE\s+FROM|UPDATE\s+[a-z_][a-z0-9_]*\s+SET)\b/i.test(t));
+}
+
+/**
+ * Run `work` inside a real authenticated control transaction. The arms that
+ * moved behind the controls kernel refuse outright without one — so a fence
+ * assertion against a bare call would pass whether or not the fence existed.
+ */
+const controlClient = { query: async () => ({ rows: [], command: 'SELECT' }) } as unknown as PoolClient;
+function inControlTx<T>(work: () => Promise<T>): Promise<T> {
+  return withControlRequest(
+    { client: controlClient, userId: USER, companyId: COMPANY, claims: { sub: USER } },
+    { personId: USER, companyId: COMPANY, authMethod: 'cookie' },
+    work,
+  );
 }
 
 /**
@@ -113,18 +145,18 @@ const CASES: { name: string; run: () => Promise<unknown> }[] = [
   },
   {
     name: 'createRecurringInvoice',
-    run: () => createRecurringInvoice(COMPANY, {
+    run: () => inControlTx(() => createRecurringInvoice(COMPANY, {
       templateName: 'Monthly retainer', clientId: FOREIGN,
       frequency: 'monthly', nextRunDate: '2026-10-01',
       lineItems: [{ description: 'Retainer', quantity: 1, unitPrice: 100 }],
-    }, USER),
+    }, USER)),
   },
   {
     name: 'createCustomerPayment',
-    run: () => createCustomerPayment(COMPANY, {
+    run: () => inControlTx(() => createCustomerPayment(COMPANY, {
       clientId: FOREIGN, paymentDate: '2026-09-10', totalAmount: 100,
       allocations: [{ invoiceId: '44444444-4444-4444-8444-444444444444', amount: 100 }],
-    }, USER),
+    }, USER)),
   },
   {
     name: 'createPracticeClient',
@@ -252,61 +284,73 @@ describe('R-067 — a recurring template carries a caller-supplied id in opaque 
   });
 });
 
-describe('R-067 — a bank receipt cannot be allocated to another company customer', () => {
-  // `entityId` is a request-body field (bank-transactions-action.ts:40 checks
-  // its UUID shape and nothing else) that lands in
-  // `customer_payments.client_id`. The only customer read on the path fetches a
-  // NAME and falls back to `Customer #<id>`, so a foreign id used to reach the
-  // INSERT — and the journal is POSTED before that INSERT, so the refusal has
-  // to happen before `createJournalEntry`, not merely before the write.
-  beforeEach(() => {
-    sqlTexts.length = 0;
-    mockSql.mockClear();
-    lockBankTransactionForUpdate.mockResolvedValue({
-      id: '77777777-7777-4777-8777-777777777777',
-      status: 'imported', feed_state: 'posted',
-      amount: 115,
-      bank_account_id: '88888888-8888-4888-8888-888888888888',
-      transaction_date: new Date('2026-09-10T00:00:00'),
-      reference: 'EFT 115',
-      description: 'Receipt',
-    });
-    mockSql.mockImplementation((strings: unknown) => {
-      sqlTexts.push((strings as TemplateStringsArray).join('?'));
-      return Promise.resolve([]);
-    });
-  });
+/**
+ * `entityId` is a request-body field (bank-transactions-action.ts:40 checks its
+ * UUID shape and nothing else) that lands in `customer_payments.client_id`. The
+ * only customer read on the legacy path fetched a NAME and fell back to
+ * `Customer #<id>`, so a foreign id reached the INSERT — and the journal is
+ * POSTED before that INSERT, so the refusal has to happen before the plan is
+ * built, not merely before the write.
+ *
+ * `allocateTransaction` is now a thin adapter into the controls kernel and the
+ * fence moved down into `preparePartyBankAllocation`, which takes the party row
+ * `FOR SHARE` and refuses with `OperationRefusalError` when it is not the
+ * caller's. That is the seam these cases assert against; asserting through the
+ * adapter instead would only ever reach `requireControlTx`'s refusal and prove
+ * nothing about tenant ownership. The same read is repeated at materialization
+ * time in `bankAllocationSources.ts`.
+ *
+ * The supplier arm is fenced by the identical read — master fenced only the
+ * customer arm (R-068 was the open supplier half), so it is pinned here too.
+ */
+describe('R-067/R-068 — a bank receipt cannot be allocated to another company party', () => {
+  const BANK_TX = '77777777-7777-4777-8777-777777777777';
 
-  it('refuses a foreign customer before posting anything', async () => {
-    await expect(
-      allocateTransaction(
-        COMPANY, '77777777-7777-4777-8777-777777777777', null, USER,
-        'Receipt', 'customer', FOREIGN,
-      ),
-    ).rejects.toBeInstanceOf(CustomerNotInCompanyError);
-    expect(sqlTexts).toHaveLength(1);
-    expect(sqlTexts[0]).toContain('FROM customers');
-    expect(writeStatements()).toEqual([]);
-  });
-
-  it('proceeds past the fence for an own-tenant customer', async () => {
+  /** Answers the advisory lock, then the bank row, then the party read. */
+  function respond(party: unknown[]): void {
     let call = 0;
     mockSql.mockImplementation((strings: unknown) => {
       sqlTexts.push((strings as TemplateStringsArray).join('?'));
-      return Promise.resolve(call++ === 0 ? [{ ok: 1 }] : []);
+      call += 1;
+      if (call === 2) return Promise.resolve([{ amount: '115' }]);
+      if (call === 3) return Promise.resolve(party);
+      return Promise.resolve([]);
     });
-    await allocateTransaction(
-      COMPANY, '77777777-7777-4777-8777-777777777777', null, USER,
-      'Receipt', 'customer', '22222222-2222-4222-8222-222222222222',
-    ).catch(() => undefined);
-    expect(sqlTexts.length).toBeGreaterThan(1);
+  }
+
+  const prepare = (kind: 'customer' | 'supplier', partyId: string) => inControlTx(() =>
+    preparePartyBankAllocation(
+      requireControlTx(),
+      { kind, bankTransactionId: BANK_TX, partyId, description: 'Receipt' },
+    ));
+
+  beforeEach(() => {
+    sqlTexts.length = 0;
+    mockSql.mockClear();
   });
 
-  it('does not fence a GL-account allocation, which carries no customer id', async () => {
-    await allocateTransaction(
-      COMPANY, '77777777-7777-4777-8777-777777777777',
-      '99999999-9999-4999-8999-999999999998', USER, 'Bank charges', 'account',
-    ).catch(() => undefined);
+  it.each(['customer', 'supplier'] as const)(
+    'refuses a foreign %s before building any plan', async (kind) => {
+      respond([]);
+      await expect(prepare(kind, FOREIGN)).rejects.toBeInstanceOf(OperationRefusalError);
+      expect(sqlTexts[sqlTexts.length - 1]).toContain(kind === 'customer' ? 'FROM customers' : 'FROM suppliers');
+      expect(writeStatements()).toEqual([]);
+    },
+  );
+
+  it.each(['customer', 'supplier'] as const)(
+    'proceeds past the fence for an own-tenant %s', async (kind) => {
+      respond([{ auto_allocate_strategy: 'off' }]);
+      await prepare(kind, '22222222-2222-4222-8222-222222222222').catch(() => undefined);
+      expect(sqlTexts.length).toBeGreaterThan(3);
+    },
+  );
+
+  it('does not read customers for a transfer allocation, which carries no party', async () => {
+    respond([]);
+    await inControlTx(() => allocateTransaction(
+      COMPANY, BANK_TX, '99999999-9999-4999-8999-999999999998', USER, 'Own funds', 'transfer',
+    )).catch(() => undefined);
     expect(sqlTexts.some((t) => t.includes('FROM customers'))).toBe(false);
   });
 });

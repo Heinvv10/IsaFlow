@@ -55,9 +55,25 @@ vi.mock('@/modules/accounting/services/ar/customerPaymentService', () => ({
   confirmCustomerPayment: vi.fn(),
   cancelCustomerPayment: vi.fn(),
 }));
+// `allocate` no longer runs through the route's Zod union and
+// `allocateTransaction`: it is a CONTROL action now, executed from a prepared
+// intent and its approval by `dispatchBankControlAction`. The contention it
+// raises is the same contention, one dispatch further out, so that is where
+// these cases inject it.
+vi.mock('@/lib/api/bankControlActions', () => ({ dispatchBankControlAction: vi.fn() }));
+vi.mock('@/modules/accounting/services/controls/context', () => ({
+  requireControlTx: () => ({
+    principal: {
+      companyId: '11111111-1111-4111-8111-111111111111',
+      personId: '99999999-9999-4999-8999-999999999999',
+    },
+    sql: vi.fn(),
+  }),
+}));
 
 import { sql } from '@/lib/neon';
 import { allocateTransaction } from '@/modules/accounting/services/bank/bankReconciliationService';
+import { dispatchBankControlAction } from '@/lib/api/bankControlActions';
 import { processSupplierPayment } from '@/modules/accounting/services/ap/supplierPaymentService';
 import { confirmCustomerPayment } from '@/modules/accounting/services/ar/customerPaymentService';
 import { BankTransactionLockTimeoutError } from '@/modules/accounting/services/bank/bankTxLock';
@@ -92,9 +108,10 @@ function mockReqRes(body: unknown) {
   return { req, res: res as unknown as NextApiResponse & typeof res };
 }
 
+const INTENT = '22222222-2222-4222-8222-222222222222';
+const APPROVAL = '33333333-3333-4333-8333-333333333333';
 const ALLOCATE_BODY = {
-  action: 'allocate', bankTransactionId: TX,
-  allocationType: 'account', contraAccountId: ACCOUNT,
+  action: 'allocate', bankTransactionId: TX, intent_id: INTENT, approval_id: APPROVAL,
 };
 const MANUAL_BODY = {
   type: 'spend', bankAccountId: ACCOUNT, date: '2026-09-10', amount: 100,
@@ -106,7 +123,7 @@ beforeEach(() => { vi.resetAllMocks(); });
 describe('POST /api/accounting/bank-transactions-action', () => {
   // The bank line's own lock — `allocateTransaction`'s first act.
   it('answers a contended BANK LINE 409 with the retry wording', async () => {
-    vi.mocked(allocateTransaction).mockRejectedValue(new BankTransactionLockTimeoutError(TX));
+    vi.mocked(dispatchBankControlAction).mockRejectedValue(new BankTransactionLockTimeoutError(TX));
     const { req, res } = mockReqRes(ALLOCATE_BODY);
     await bankAction(req, res);
 
@@ -117,7 +134,7 @@ describe('POST /api/accounting/bank-transactions-action', () => {
   // The transitive edge the census missed: allocateTransaction →
   // recordSupplierBankPayment → planSupplierPaymentApplication → the payment lock.
   it('answers a contended PAYMENT reached through recordSupplierBankPayment 409', async () => {
-    vi.mocked(allocateTransaction).mockRejectedValue(new PaymentLockTimeoutError(PAYMENT));
+    vi.mocked(dispatchBankControlAction).mockRejectedValue(new PaymentLockTimeoutError(PAYMENT));
     const { req, res } = mockReqRes(ALLOCATE_BODY);
     await bankAction(req, res);
 
@@ -127,7 +144,7 @@ describe('POST /api/accounting/bank-transactions-action', () => {
 
   // And the BILL, raised one call deeper still as a refusal carrying the flag.
   it('answers a contended BILL 409, not the 400 its class would otherwise get', async () => {
-    vi.mocked(allocateTransaction).mockRejectedValue(
+    vi.mocked(dispatchBankControlAction).mockRejectedValue(
       new SupplierPaymentRefusal('Another request is paying one of these bills — retry in a moment.', { retryable: true }),
     );
     const { req, res } = mockReqRes(ALLOCATE_BODY);
@@ -137,7 +154,7 @@ describe('POST /api/accounting/bank-transactions-action', () => {
   });
 
   it('answers a contended INVOICE 409, reached through autoApplyCustomerReceipt', async () => {
-    vi.mocked(allocateTransaction).mockRejectedValue(
+    vi.mocked(dispatchBankControlAction).mockRejectedValue(
       new ReceiptRefusal('Another request is applying cash to one of these invoices — retry in a moment.', { retryable: true }),
     );
     const { req, res } = mockReqRes(ALLOCATE_BODY);
@@ -149,7 +166,7 @@ describe('POST /api/accounting/bank-transactions-action', () => {
   // THE OTHER DIRECTION. A books refusal is the caller's own mistake and keeps
   // its 400 — routing contention to 409 must not sweep everything with it.
   it('still answers a NON-retryable refusal 400 with its own message', async () => {
-    vi.mocked(allocateTransaction).mockRejectedValue(
+    vi.mocked(dispatchBankControlAction).mockRejectedValue(
       new SupplierPaymentRefusal('Bill is cancelled and cannot be paid.'),
     );
     const { req, res } = mockReqRes(ALLOCATE_BODY);
@@ -160,7 +177,7 @@ describe('POST /api/accounting/bank-transactions-action', () => {
   });
 
   it('still answers a bare Error 400, the behaviour this change did not touch', async () => {
-    vi.mocked(allocateTransaction).mockRejectedValue(new Error('Bank transaction not found'));
+    vi.mocked(dispatchBankControlAction).mockRejectedValue(new Error('Bank transaction not found'));
     const { req, res } = mockReqRes(ALLOCATE_BODY);
     await bankAction(req, res);
 

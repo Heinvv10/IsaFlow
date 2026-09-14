@@ -324,7 +324,7 @@ describe('sweep', () => {
     routeSql([
       { match: /FROM bank_auto_post_settings/, rows: [{ enabled: true, min_confidence: '0.9', amount_cap: '10000', llm_enabled: false, llm_min_confidence: '0.95', llm_amount_cap: '2000' }] },
       { match: /FROM bank_transactions\s+WHERE id = ANY/, rows: [
-        { id: 't1', status: 'imported', amount: -100, suggested_gl_account_id: 'gl-1', suggested_confidence: '0.95', suggested_vat_code: null, description: 'a' },
+        { id: 't1', status: 'imported', feed_state: 'posted', amount: -100, suggested_gl_account_id: 'gl-1', suggested_confidence: '0.95', suggested_vat_code: null, description: 'a' },
       ] },
       { match: /INSERT INTO bank_auto_post_runs/, rows: [{ id: 'run-1' }] },
     ]);

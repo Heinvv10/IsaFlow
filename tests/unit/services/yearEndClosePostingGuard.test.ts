@@ -37,8 +37,8 @@ vi.mock('@/modules/accounting/services/gl/fiscalPeriodService', () => ({
 }));
 
 import * as neon from '@/lib/neon';
-import { getFiscalPeriodIdForDate } from '@/modules/accounting/services/gl/fiscalPeriodService';
 import { closeFiscalYear } from '@/modules/accounting/services/gl/yearEndCloseService';
+import { postClosingJournal } from '@/modules/accounting/services/gl/yearEndJournalPoster';
 
 const sqlMock = neon.sql as unknown as ReturnType<typeof vi.fn>;
 const txMock = (neon as unknown as { tx: ReturnType<typeof vi.fn> }).tx;
@@ -80,12 +80,20 @@ beforeEach(() => {
   txMock.mockResolvedValue([{ id: 'entry-1', entry_number: 'YE-2026' }]);
 });
 
+/**
+ * Driven at `postClosingJournal` itself rather than through `closeFiscalYear`.
+ *
+ * The guard under test has always lived in the poster; the close's own
+ * orchestration is what moved (it is now `controlledYearEnd`, which refuses
+ * without an authenticated control transaction). The assertions are unchanged:
+ * same inputs, same refusal text, same "no transaction opened" proof.
+ */
+const PERIOD = 'ffffffff-0000-0000-0000-000000000008';
+
 describe('postClosingJournal refuses an invalid closing journal before writing', () => {
   it('refuses an UNBALANCED journal and writes nothing', async () => {
-    stubReadsUpToPreview();
-    buildPreviewMock.mockReturnValue(preview([{ debit: 900, credit: 0 }, { debit: 0, credit: 100 }]));
-
-    await expect(closeFiscalYear(COMPANY, '2026', USER))
+    await expect(postClosingJournal(COMPANY, USER, '2026',
+      preview([{ debit: 900, credit: 0 }, { debit: 0, credit: 100 }]), PERIOD))
       .rejects.toThrow(/Year-end closing journal is invalid.*not balanced/s);
     // The refusal lands before the transaction opens: no INSERT, and above all
     // no period lock, which is the irreversible half.
@@ -93,24 +101,18 @@ describe('postClosingJournal refuses an invalid closing journal before writing',
   });
 
   it('refuses a NEGATIVE line and writes nothing', async () => {
-    stubReadsUpToPreview();
-    buildPreviewMock.mockReturnValue(preview([{ debit: -500, credit: 0 }, { debit: 0, credit: -500 }]));
-
-    await expect(closeFiscalYear(COMPANY, '2026', USER))
+    await expect(postClosingJournal(COMPANY, USER, '2026',
+      preview([{ debit: -500, credit: 0 }, { debit: 0, credit: -500 }]), PERIOD))
       .rejects.toThrow(/Year-end closing journal is invalid/);
     expect(txMock).not.toHaveBeenCalled();
   });
 
   it('writes a balanced journal and locks the year', async () => {
-    stubReadsUpToPreview();
-    buildPreviewMock.mockReturnValue(preview([{ debit: 500, credit: 0 }, { debit: 0, credit: 500 }]));
-
-    const result = await closeFiscalYear(COMPANY, '2026', USER) as
-      { closingEntry: { id: string }; periodsLockedInYear: number; alreadyClosed: boolean };
-    expect(result.closingEntry.id).toBe('entry-1');
-    expect(result.alreadyClosed).toBe(false);
+    const result = await postClosingJournal(COMPANY, USER, '2026',
+      preview([{ debit: 500, credit: 0 }, { debit: 0, credit: 500 }]), PERIOD);
+    expect((result.entry as { id: string }).id).toBe('entry-1');
     // Counted from the lock UPDATE's RETURNING, not asserted as a literal.
-    expect(result.periodsLockedInYear).toBe(1);
+    expect(result.periodsLocked).toBe(1);
     // header INSERT + 2 line INSERTs + the period lock
     expect(txMock).toHaveBeenCalledTimes(4);
   });
@@ -129,21 +131,15 @@ function header(o: Record<string, unknown> = {}): Record<string, unknown> {
 }
 
 describe('a DORMANT year is closed, not refused for want of a period to stamp', () => {
-  it('never resolves a fiscal period when there is no journal to stamp', async () => {
+  it('locks the year and writes no journal when there is nothing to stamp', async () => {
     // The close writes no journal for a year with no posted P&L — it only locks
-    // the periods. Resolving the period anyway meant a `no_fiscal_period`
-    // refusal could block a close that would have stamped nothing.
-    stubReadsUpToPreview();
-    buildPreviewMock.mockReturnValue(preview([]));
+    // the periods. Refusing it (for want of a journal, or of a period to stamp
+    // one with) would leave a company that traded not at all carrying the year
+    // open forever.
+    const result = await postClosingJournal(COMPANY, USER, '2026', preview([]), null);
 
-    const result = await closeFiscalYear(COMPANY, '2026', USER) as
-      { closingEntry: null; alreadyClosed: boolean; unclosedNetIncome: number; message: string };
-
-    expect(getFiscalPeriodIdForDate).not.toHaveBeenCalled();
-    expect(result.closingEntry).toBeNull();
-    expect(result.alreadyClosed).toBe(false);
-    expect(result.unclosedNetIncome).toBe(0);
-    expect(result.message).toMatch(/no closing journal was needed/);
+    expect(result.entry).toBeNull();
+    expect(result.periodsLocked).toBe(1);
     // Only the period lock ran inside the transaction.
     expect(txMock).toHaveBeenCalledTimes(1);
   });

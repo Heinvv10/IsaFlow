@@ -45,10 +45,21 @@ vi.mock('@/modules/accounting/services/bank/bankReconciliationService', () => ({
   bulkAcceptTransactions: vi.fn(),
   reverseReconciledTransaction: vi.fn(),
 }));
+// `allocate` and `split_allocate` are dispatched through the controls kernel
+// now, not the route's own switch: the route hands `dispatchBankControlAction`
+// the request's control transaction and maps what it raises. That dispatch is
+// the boundary; the route's mapping catch is what these cases exercise.
+const { dispatchMock } = vi.hoisted(() => ({ dispatchMock: vi.fn() }));
+vi.mock('@/lib/api/bankControlActions', () => ({ dispatchBankControlAction: dispatchMock }));
+vi.mock('@/modules/accounting/services/controls/context', () => ({ requireControlTx: vi.fn(() => ({})) }));
 vi.mock('@/lib/apiResponse', () => ({
+  ErrorCode: { BUSINESS_RULE_VIOLATION: 'BUSINESS_RULE_VIOLATION' },
   apiResponse: {
     success: vi.fn((_res: unknown, data: unknown) => ({ kind: 'success', data })),
     badRequest: vi.fn((_res: unknown, message: string) => ({ kind: 'badRequest', message })),
+    badRequestFromError: vi.fn((_res: unknown, error: unknown, message: string) =>
+      ({ kind: 'badRequest', message: error instanceof Error ? error.message : message })),
+    error: vi.fn((_res: unknown, code: string, message: string) => ({ kind: 'error', code, message })),
     conflict: vi.fn((_res: unknown, message: string) => ({ kind: 'conflict', message })),
     validationError: vi.fn((_res: unknown, errors: unknown) => ({ kind: 'validationError', errors })),
     methodNotAllowed: vi.fn(() => ({ kind: 'methodNotAllowed' })),
@@ -56,7 +67,7 @@ vi.mock('@/lib/apiResponse', () => ({
 }));
 
 import handler from '../../../../pages/api/accounting/bank-transactions-action';
-import { matchTransaction, allocateTransaction } from '@/modules/accounting/services/bank/bankReconciliationService';
+import { matchTransaction } from '@/modules/accounting/services/bank/bankReconciliationService';
 import { BankTransactionNotPostedError, assertPostedForAllocation } from '@/modules/accounting/services/bank/bankFeedStateGuard';
 import { BankAllocationRefusal } from '@/modules/accounting/services/bank/bankAllocationRefusal';
 
@@ -115,29 +126,33 @@ describe('bank-transactions-action — pending-row refusal mapping', () => {
     expect(out.message).toMatch(/still pending at the bank/);
   });
 
+  /**
+   * A controlled `allocate` carries its prepared intent and its approval;
+   * without both the route answers ACTION_REQUIRED before dispatching, so a
+   * case that omits them proves nothing about the mapping below.
+   */
+  const allocateReq = () => req({
+    action: 'allocate', bankTransactionId: BANK_TX_ID, allocationType: 'account',
+    contraAccountId: '00000000-0000-0000-0000-000000000005',
+    intent_id: '00000000-0000-0000-0000-000000000006',
+    approval_id: '00000000-0000-0000-0000-000000000007',
+  });
+
   it("maps allocate's feed-state BankAllocationRefusal to 409 too (F-M1)", async () => {
     let refusal: unknown;
     try { assertPostedForAllocation({ feed_state: 'pending' }, BANK_TX_ID, 'allocate'); } catch (e) { refusal = e; }
-    (allocateTransaction as ReturnType<typeof vi.fn>).mockRejectedValue(refusal);
+    dispatchMock.mockRejectedValue(refusal);
 
-    const out = await handler(req({
-      action: 'allocate', bankTransactionId: BANK_TX_ID, allocationType: 'account',
-      contraAccountId: '00000000-0000-0000-0000-000000000005',
-    }), {} as NextApiResponse) as { kind: string; message: string };
+    const out = await handler(allocateReq(), {} as NextApiResponse) as { kind: string; message: string };
 
     expect(out.kind).toBe('conflict');
     expect(out.message).toMatch(/still pending at the bank/);
   });
 
   it('leaves any other BankAllocationRefusal on the 400 branch', async () => {
-    (allocateTransaction as ReturnType<typeof vi.fn>).mockRejectedValue(
-      new BankAllocationRefusal('Transaction already allocated — cannot allocate'),
-    );
+    dispatchMock.mockRejectedValue(new BankAllocationRefusal('Transaction already allocated — cannot allocate'));
 
-    const out = await handler(req({
-      action: 'allocate', bankTransactionId: BANK_TX_ID, allocationType: 'account',
-      contraAccountId: '00000000-0000-0000-0000-000000000005',
-    }), {} as NextApiResponse) as { kind: string };
+    const out = await handler(allocateReq(), {} as NextApiResponse) as { kind: string };
 
     expect(out.kind).toBe('badRequest');
   });
