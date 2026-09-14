@@ -39,6 +39,9 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
 
   const asOfDate = (req.query.asOf as string) || new Date().toISOString().slice(0, 10);
   const statement = await getClientStatement(clientId, session.companyId, asOfDate);
+  if (!statement) {
+    return apiResponse.notFound(res, 'Customer', clientId);
+  }
   return apiResponse.success(res, statement);
 }
 
