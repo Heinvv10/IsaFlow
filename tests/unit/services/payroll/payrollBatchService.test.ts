@@ -241,3 +241,7 @@ describe('addBatchLines', () => {
   });
 });
 
+// validateBatch and postBatch live in payrollBatchValidation.test.ts; deleteBatch, listBatches and
+// getBatch in payrollBatchReads.test.ts — this file was over the 300-line cap. postBatch delegates
+// to the controls kernel now, so the per-line insert and the 3702/3703 travel split it used to pin
+// here are pinned in tests/unit/services/controls/payrollCompensationExpand.test.ts.

@@ -20,11 +20,45 @@ it('expands a package replacement as retained closure plus new full assignment',
  expect(result.amount).toBe('300.00');expect(result.payload.actions).toHaveLength(2);
  expect(result.payload.actions.find(x=>x.kind==='end')?.effectiveTo).toBe('2026-09-30');
 });
+// Ported from payPackageService.test.ts, which pinned both of these against the pre-controls
+// applyPackageToEmployee. That function is a delegating shim now, so the rules live here.
+it('closes a once-off package row at its own month end and leaves a recurring one open',()=>{
+ const d='00000000-0000-4000-8000-000000000004';
+ const s=sources();s.components.push({id:d,is_active:true});s.sourceHeader={is_active:true};
+ s.sourceLines=[{component_id:c,amount:'200.00',is_recurring:true},{component_id:d,amount:'50.00',is_recurring:false}];
+ const result=expandPayrollCompensation({version:1,source:{kind:'package',sourceId:a,employeeId:e},effectiveFrom:'2026-10-15'},s);
+ const assigns=result.payload.actions.filter(x=>x.kind==='assign');
+ expect(assigns.find(x=>x.componentId===c)!.effectiveTo).toBeNull();
+ // The run reads the date window and ignores is_recurring, so an open-ended once-off row is paid
+ // every later month. It dies at the end of its OWN month, not the run's.
+ expect(assigns.find(x=>x.componentId===d)!.effectiveTo).toBe('2026-10-31');
+});
+it('supersedes an already-closed overlapping assignment, not only the open-ended ones',()=>{
+ const s=sources();s.assignments[0]!.effective_to='2026-10-31';s.assignments[0]!.is_recurring=false;
+ s.sourceHeader={is_active:true};s.sourceLines=[{component_id:c,amount:'200.00',is_recurring:false}];
+ const result=expandPayrollCompensation({version:1,source:{kind:'package',sourceId:a,employeeId:e},effectiveFrom:'2026-10-01'},s);
+ // An effective_to IS NULL predicate steps over the previous apply's closed row and leaves two
+ // live windows the run pays twice.
+ expect(result.payload.actions.find(x=>x.kind==='end')?.effectiveTo).toBe('2026-09-30');
+});
 it('refuses unvalidated batches and mismatched travel portions',()=>{
  const s=sources();s.sourceHeader={status:'draft'};
  expect(()=>expandPayrollCompensation({version:1,source:{kind:'batch',sourceId:a}},s)).toThrow(/validated/i);
  s.sourceHeader={status:'validated',batch_type:'reimbursive_travel',is_recurring:false,line_count:1,total_amount:'50.00'};s.sourceLines=[{employee_id:e,km:'10',rate_per_km:'5',value:'50',taxable_portion:'40',non_taxable_portion:'40',effective_from:'2026-10-01',effective_to:null}];
  expect(()=>expandPayrollCompensation({version:1,source:{kind:'batch',sourceId:a}},s)).toThrow(/portion/i);
+});
+// Ported from payrollBatchService.test.ts, whose postBatch is a delegating shim now.
+it('splits a reimbursive travel line into taxable 3702 and non-taxable 3703 assignments',()=>{
+ const t='00000000-0000-4000-8000-000000000005',n='00000000-0000-4000-8000-000000000006';
+ const s=sources();s.components=[{id:t,sars_source_code:'3702',is_active:true},{id:n,sars_source_code:'3703',is_active:true}];s.assignments=[];
+ s.sourceHeader={status:'validated',batch_type:'reimbursive_travel',is_recurring:false,line_count:1,total_amount:'50.00'};
+ s.sourceLines=[{employee_id:e,km:'10',rate_per_km:'5',value:'50',taxable_portion:'30',non_taxable_portion:'20',effective_from:'2026-10-01',effective_to:null}];
+ const result=expandPayrollCompensation({version:1,source:{kind:'batch',sourceId:a}},s);
+ expect(result.payload.actions).toHaveLength(2);
+ expect(result.payload.actions.find(x=>x.componentId===t)!.amount).toBe('30.00');
+ expect(result.payload.actions.find(x=>x.componentId===n)!.amount).toBe('20.00');
+ // Once-off with no ending of its own dies at the end of its OWN month, never the batch period's.
+ for(const action of result.payload.actions)expect(action.effectiveTo).toBe('2026-10-31');
 });
 it('refuses incomplete batch source populations before deriving approved changes',()=>{
  const s=sources();s.sourceHeader={status:'validated',batch_type:'component_values',component_id:c,is_recurring:true,line_count:2,total_amount:'50.00'};

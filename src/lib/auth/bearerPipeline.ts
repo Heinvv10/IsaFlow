@@ -15,6 +15,8 @@ import * as Sentry from '@sentry/nextjs';
 import pg from 'pg';
 import '@/lib/pgTypes';
 import { ControlIntegrityError, withControlRequest } from '@/modules/accounting/services/controls/context';
+import type { RequestContext } from '@/lib/als';
+import { runOwnedContext, drainAfterCommit } from '@/lib/afterCommit';
 import { log } from '@/lib/logger';
 import { setTenantTags, sanitizeRoute } from '@/lib/sentry/tags';
 import { checkRateLimit, getClientIp } from '@/lib/rateLimit';
@@ -219,13 +221,16 @@ export async function runBearerRequest(
       return res;
     };
 
+    // Hoisted for the same reason as withAuth: drainAfterCommit below must see
+    // the SAME context object the handler queued its after-commit work onto.
+    const txCtx: RequestContext = { client, userId: ctx.userId, companyId: ctx.companyId, claims, afterCommit: [] };
     const runHandler = async () => {
       try {
-        await withControlRequest(
-          { client, userId: ctx.userId, companyId: ctx.companyId, claims },
+        await runOwnedContext(txCtx, () => withControlRequest(
+          txCtx,
           { personId: ctx.userId, companyId: ctx.companyId, authMethod: ctx.method,
             connectionId: ctx.patId ?? ctx.oauthAuthorisationId, grantId: ctx.patId ?? ctx.oauthAuthorisationId,
-            grantedScopes: ctx.scopes }, async () => { await handler(authedReq, res); });
+            grantedScopes: ctx.scopes }, async () => { await handler(authedReq, res); }));
       } catch (error) {
         if (!(error instanceof ControlIntegrityError)) throw error;
         const body = JSON.stringify({ success: false, data: null,
@@ -280,8 +285,9 @@ export async function runBearerRequest(
       return; // finally still runs (release + slow-request log)
     }
 
-    // Transaction durable — replay the buffered flush.
+    // Transaction durable — replay the buffered flush, then start after-commit work (R-075).
     if (handlerEnded) realEnd(...(bufferedEndArgs ?? []));
+    if (!handlerFailed) drainAfterCommit(txCtx);
   } catch (err) {
     try { await client.query('ROLLBACK'); } catch { /* secondary */ }
     throw err;

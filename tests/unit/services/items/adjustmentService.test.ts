@@ -37,6 +37,7 @@ vi.mock('@/modules/accounting/services/gl/systemAccountResolver', () => ({
   getSystemAccount: vi.fn(),
 }));
 
+import { als } from '@/lib/als';
 import { sql } from '@/lib/neon';
 import {
   createJournalEntry,
@@ -54,6 +55,18 @@ const COMPANY_ID = '11111111-1111-1111-1111-111111111111';
 const ADJ_ID = '22222222-2222-2222-2222-222222222222';
 const USER_ID = '33333333-3333-3333-3333-333333333333';
 const JE_ID = '44444444-4444-4444-4444-444444444444';
+
+/**
+ * `claimUnderLockTimeout` refuses to claim outside a request transaction — the
+ * claim would autocommit and could not be rolled back with the posting that
+ * follows it. These unit tests mock `sql`, so the client only has to exist;
+ * `SET LOCAL` goes to the stub.
+ */
+const requestCtx = {
+  client: { query: vi.fn() }, userId: USER_ID, companyId: COMPANY_ID, claims: {},
+} as unknown as Parameters<typeof als.run>[0];
+const inRequestTx = <T>(fn: () => Promise<T>): Promise<T> => als.run(requestCtx, fn);
+
 
 function sqlCallTouches(call: unknown[], textFragment: string, value: unknown): boolean {
   const [strings, ...values] = call as [readonly string[], ...unknown[]];
@@ -109,9 +122,10 @@ describe('approveAdjustment — adjustment_date normalization', () => {
   it('formats a Date-typed adjustment_date as YYYY-MM-DD before creating the journal entry', async () => {
     mockSql
       .mockResolvedValueOnce([adjustmentRow()]) // SELECT accounting_adjustments
+      .mockResolvedValueOnce([{ id: ADJ_ID }]) // the status-predicated CLAIM, one row = won
       .mockResolvedValueOnce([adjustmentRow({ status: 'approved', gl_journal_entry_id: JE_ID })]); // UPDATE ... RETURNING *
 
-    await approveAdjustment(COMPANY_ID, ADJ_ID, USER_ID);
+    await inRequestTx(() => approveAdjustment(COMPANY_ID, ADJ_ID, USER_ID));
 
     expect(mockCreateJournalEntry).toHaveBeenCalledTimes(1);
     const [, journalInput] = mockCreateJournalEntry.mock.calls[0]!;
@@ -121,9 +135,10 @@ describe('approveAdjustment — adjustment_date normalization', () => {
   it('formats a string-typed (ISO timestamp) adjustment_date as YYYY-MM-DD', async () => {
     mockSql
       .mockResolvedValueOnce([adjustmentRow({ adjustment_date: '2026-07-04T00:00:00.000Z' })])
+      .mockResolvedValueOnce([{ id: ADJ_ID }]) // CLAIM
       .mockResolvedValueOnce([adjustmentRow({ status: 'approved', gl_journal_entry_id: JE_ID })]);
 
-    await approveAdjustment(COMPANY_ID, ADJ_ID, USER_ID);
+    await inRequestTx(() => approveAdjustment(COMPANY_ID, ADJ_ID, USER_ID));
 
     const [, journalInput] = mockCreateJournalEntry.mock.calls[0]!;
     expect(journalInput.entryDate).toBe('2026-07-04');
@@ -134,9 +149,10 @@ describe('approveAdjustment — no sourceDocumentId, linked via gl_journal_entry
   it('does not pass sourceDocumentId to createJournalEntry (would violate fk_gl_je_source_document)', async () => {
     mockSql
       .mockResolvedValueOnce([adjustmentRow()])
+      .mockResolvedValueOnce([{ id: ADJ_ID }]) // CLAIM
       .mockResolvedValueOnce([adjustmentRow({ status: 'approved', gl_journal_entry_id: JE_ID })]);
 
-    await approveAdjustment(COMPANY_ID, ADJ_ID, USER_ID);
+    await inRequestTx(() => approveAdjustment(COMPANY_ID, ADJ_ID, USER_ID));
 
     const [, journalInput] = mockCreateJournalEntry.mock.calls[0]!;
     expect(journalInput.sourceDocumentId).toBeUndefined();
@@ -145,12 +161,13 @@ describe('approveAdjustment — no sourceDocumentId, linked via gl_journal_entry
   it('persists gl_journal_entry_id on the adjustment when approving', async () => {
     mockSql
       .mockResolvedValueOnce([adjustmentRow()])
+      .mockResolvedValueOnce([{ id: ADJ_ID }]) // CLAIM
       .mockResolvedValueOnce([adjustmentRow({ status: 'approved', gl_journal_entry_id: JE_ID })]);
 
-    const result = await approveAdjustment(COMPANY_ID, ADJ_ID, USER_ID);
+    const result = await inRequestTx(() => approveAdjustment(COMPANY_ID, ADJ_ID, USER_ID));
 
     expect(result.glJournalEntryId).toBe(JE_ID);
-    const updateCall = mockSql.mock.calls[1]!;
+    const updateCall = mockSql.mock.calls[2]!;
     expect(sqlCallTouches(updateCall, 'gl_journal_entry_id', JE_ID)).toBe(true);
   });
 });

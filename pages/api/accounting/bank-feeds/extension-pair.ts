@@ -15,9 +15,10 @@ import type { NextApiResponse } from 'next';
 import { z } from 'zod';
 import { withErrorHandler } from '@/lib/api-error-handler';
 import { apiResponse } from '@/lib/apiResponse';
-import { withAuth, type CompanyAuthedRequest, signExtensionToken } from '@/lib/auth';
+import { withAuth, withWriteAccess, type CompanyAuthedRequest, signExtensionToken } from '@/lib/auth';
 import { withCsrf } from '@/lib/auth/withCsrf';
 import { sql } from '@/lib/neon';
+import { BANK_SUBTYPES } from '@/modules/accounting/services/gl/accountSubtypes';
 import { log } from '@/lib/logger';
 import { createBankFeedConnection } from '@/modules/accounting/services/bank/openBankingConnectionService';
 import type { DbRow } from '@/types/db';
@@ -52,7 +53,7 @@ async function handler(req: CompanyAuthedRequest, res: NextApiResponse) {
     SELECT id FROM gl_accounts
      WHERE id = ${bankAccountId}::UUID
        AND company_id = ${companyId}::UUID
-       AND account_subtype = 'bank'
+       AND account_subtype = ANY(${BANK_SUBTYPES as string[]})
      LIMIT 1
   `) as DbRow[];
   if (acct.length === 0) {
@@ -80,6 +81,7 @@ async function handler(req: CompanyAuthedRequest, res: NextApiResponse) {
          SET scraper_version = ${scraperVersion ?? null},
              updated_at = NOW()
        WHERE id = ${connectionId}::UUID
+         AND company_id = ${companyId}::UUID
     `;
   } else {
     const conn = await createBankFeedConnection(
@@ -98,6 +100,7 @@ async function handler(req: CompanyAuthedRequest, res: NextApiResponse) {
         UPDATE bank_feed_connections
            SET scraper_version = ${scraperVersion}
          WHERE id = ${connectionId}::UUID
+           AND company_id = ${companyId}::UUID
       `;
     }
   }
@@ -124,4 +127,4 @@ async function handler(req: CompanyAuthedRequest, res: NextApiResponse) {
   }, 'Extension paired', 201);
 }
 
-export default withAuth(withErrorHandler(withCsrf(handler)));
+export default withAuth(withErrorHandler(withCsrf(withWriteAccess(handler))));

@@ -13,8 +13,9 @@ import { fetchAccountNames } from '../gl/nonSupplyVatGuard';
 import { fetchBankContraFlags } from '../gl/bankContraVat';
 import { MAX_BANK_LINES_PER_REQUEST, MAX_RULE_SWEEP_ATTEMPTS_PER_REQUEST } from '@/lib/limits/authorityHoldLimits';
 import type { RuleApplyResult } from '../../types/bank.types';
-import { toSqlPattern, findMatchingTxs, MAX_RULE_CANDIDATES, type RuleAllocType } from './bankRulesMatchingHelpers';
-import { BankTransactionLockTimeoutError } from './bankTxLock';
+import { findMatchingTxs, MAX_RULE_CANDIDATES, type RuleAllocType } from './bankRulesMatchingHelpers';
+import { rulePattern } from './bankRulesSuggestionPass';
+import { isRetryableContention } from '../core/retryableContention';
 import { autoPostRuleLine } from './bankRuleAutoPostLine';
 import { approvalRefusalForAmount, dateRefusal, loadLockdownFacts } from './bankRulesAutoPostPreflight';
 import { classifyAutoPostRefusal, type AutoPostRefusal } from './bankRuleAutoPostRefusal';
@@ -101,7 +102,10 @@ export async function sweepAutoPostRules(companyId: string, bankAccountId: strin
   ]);
 
   for (const rule of autoCreateRules) {
-    const pattern = toSqlPattern(String(rule.match_type), String(rule.match_pattern));
+    // `rulePattern`, not `toSqlPattern` directly: `match_type` is nullable and
+    // NULL means `exact`, while `String(rule.match_type)` reads 'null' and falls
+    // through to `contains` — an over-match that posts journals.
+    const pattern = rulePattern(rule);
     const field = String(rule.match_field);
     const ruleName = String(rule.rule_name);
     const ruleGlAccountId = rule.gl_account_id ? String(rule.gl_account_id) : null;
@@ -185,7 +189,14 @@ export async function sweepAutoPostRules(companyId: string, bankAccountId: strin
         // not abort a run that has already posted for earlier ones — the
         // route's catch would 400 while withAuth still COMMITted them.
         // Counted and retryable; anything else is a real failure.
-        if (!(lineErr instanceof BankTransactionLockTimeoutError)) throw lineErr;
+        //
+        // The UNION, not the bank-line lock alone: a supplier rule also reaches
+        // `recordSupplierBankPayment`, whose plan phase raises the payment-lock
+        // timeout and the `retryable` refusal for a held bill. Those surface HERE
+        // through a savepoint that rolled back cleanly, so the request
+        // transaction is still live and re-throwing them committed the earlier
+        // lines behind the route's 400.
+        if (!isRetryableContention(lineErr)) throw lineErr;
         counters.autoPostSkippedLocked++;
         continue;
       }

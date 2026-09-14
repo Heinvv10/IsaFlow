@@ -17,6 +17,8 @@ export interface EfilingSubmissionRow {
   status: string;
   efilingCorrelationId: string | null;
   efilingLastStatus: string | null;
+  /** The figures saved when the draft was reviewed. Null on a row saved before form_data existed. */
+  formData: Record<string, unknown> | null;
 }
 
 export async function getEfilingSubmission(
@@ -25,7 +27,7 @@ export async function getEfilingSubmission(
 ): Promise<EfilingSubmissionRow | null> {
   const rows = (await sql`
     SELECT id, company_id, form_type, period_start, period_end, status,
-           efiling_correlation_id, efiling_last_status
+           efiling_correlation_id, efiling_last_status, form_data
     FROM sars_submissions
     WHERE id = ${submissionId} AND company_id = ${companyId}::UUID
   `) as DbRow[];
@@ -40,6 +42,7 @@ export async function getEfilingSubmission(
     status: String(r.status),
     efilingCorrelationId: r.efiling_correlation_id ? String(r.efiling_correlation_id) : null,
     efilingLastStatus: r.efiling_last_status ? String(r.efiling_last_status) : null,
+    formData: (r.form_data as Record<string, unknown> | null) ?? null,
   };
 }
 

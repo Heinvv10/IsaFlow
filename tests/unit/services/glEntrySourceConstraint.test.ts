@@ -72,11 +72,65 @@ describe('GLEntrySource ↔ gl_journal_entries_source_check', () => {
     expect(GL_ENTRY_SOURCES).toContain('auto_expense_receipt');
   });
 
-  // These legacy source labels remain unsupported. Bank transfers now use
-  // auto_bank_transfer. year_end is admitted by637 for controlledYearEnd's
-  // draft/shared-post path, proven by glYearEndWriters.int.test.ts. A source
-  // catalogue alone is not evidence that every writer enforces controls.
-  it('keeps unsupported opening balance and old bank transfer labels out', () => {
+  /**
+   * SCOPE WARNING — this test does NOT prove "no unvalidated INSERT-at-posted
+   * path exists". It proves only that these three specific sources stay
+   * rejected. The constraint can never gate a path that uses an ALREADY-VALID
+   * source, so a green run here says nothing about those.
+   *
+   * sageImportService.importLedgerTransactions was one such path
+   * (status='posted', source='manual', no validateJournalEntry) and HAS since
+   * been converted to createJournalEntry/postJournalEntry — see
+   * tests/unit/services/sageLedgerImport.test.ts. postAssetDepreciationToGLThrows
+   * still INSERTs at posted with 'auto_depreciation'; it is balanced by
+   * construction and savepoint-atomic, and its deterministic entry_number is
+   * load-bearing for idempotency, so it was deliberately left alone.
+   *
+   * These two are emitted by live code and rejected by the constraint, so
+   * those features are dead — and they must STAY dead until their code is
+   * converted.
+   *
+   *   'opening_balance' — pages/api/accounting/opening-balances.ts
+   *   'bank_transfer'   — pages/api/accounting/bank-transfers.ts
+   *
+   * Each still INSERTs its header straight to status='posted' without
+   * validateJournalEntry, and trg_gl_je_balanced is BEFORE UPDATE only, so
+   * nothing would check the result. Admitting the source would un-gate an
+   * unvalidated posting path — exactly what happened when migration 509 added
+   * 'auto_expense_receipt' and receipt-to-journal.ts had to be converted in the
+   * same change to stay safe.
+   *
+   * The constraint is currently the only thing protecting the ledger from
+   * these two. Without this test the next person debugging their 23514 fixes
+   * it by widening the list, which is the trap. Convert the code first, then
+   * delete the relevant line here.
+   *
+   * 'year_end' WAS on this list and came off in migration 627. It is still an
+   * INSERT-at-posted path and cannot become postJournalEntry — the year-end
+   * close requires every period CLOSED and postJournalEntry refuses a period
+   * that is not OPEN — so what came off the list is the guard, not the
+   * requirement: yearEndJournalPoster.postClosingJournal now runs
+   * validateJournalEntry over the closing lines itself, before the transaction
+   * opens. The test below pins that, so removing the check puts the union and
+   * the constraint back in an unsafe state loudly rather than silently.
+   *
+   * The guard set is NOT identical, and the difference is deliberate. The
+   * canonical path is createJournalEntry + postJournalEntry, and the second
+   * half also refuses lines on a DEACTIVATED account
+   * (journalEntryPostingService.assertNoInactiveAccountLines). The close does
+   * not, because closing a withdrawn account is precisely how its balance gets
+   * zeroed: refusing would strand the tenant, whose account cannot be cleared
+   * without the close and cannot be closed without being reactivated first,
+   * every year, forever. The equity side needs no exemption — systemAccountResolver
+   * only caches accounts with is_active = true, so an inactive retained-earnings
+   * account is refused as no_retained_earnings well before the poster runs.
+   *
+   * 'year_end' is also the label controlledYearEnd's draft/shared-post path
+   * writes; glYearEndWriters.int.test.ts covers that path. Neither fact makes
+   * the catalogue evidence of anything beyond itself — a source being listed
+   * here says nothing about whether its writer enforces controls.
+   */
+  it('keeps the two unconverted direct-INSERT sources OUT of the union and the constraint', () => {
     const allowed = new Set(sourcesInConstraint(latestSourceConstraintSql()));
 
     for (const dead of ['opening_balance', 'bank_transfer']) {
@@ -89,6 +143,27 @@ describe('GLEntrySource ↔ gl_journal_entries_source_check', () => {
         `${dead}: admitting this source un-gates an unvalidated INSERT-at-posted path`,
       ).toBe(false);
     }
+  });
+
+  it('admits year_end only while its writer validates the journal itself', () => {
+    const allowed = new Set(sourcesInConstraint(latestSourceConstraintSql()));
+    expect(allowed.has('year_end'), 'migration 627 admits year_end').toBe(true);
+    expect(GL_ENTRY_SOURCES as readonly string[]).toContain('year_end');
+
+    // The source is only safe to admit because postClosingJournal replaces the
+    // guard the constraint was providing. If this call goes away, the
+    // INSERT-at-posted path is unvalidated again and year_end must go back on
+    // the dead list above. This is a grep and a grep alone: it would pass on a
+    // commented-out or conditional call, so the BEHAVIOURAL cover is
+    // tests/unit/services/yearEndClosePostingGuard.test.ts, which drives an
+    // unbalanced preview through the close and expects the refusal.
+    const poster = readFileSync(
+      join(process.cwd(), 'src/modules/accounting/services/gl/yearEndJournalPoster.ts'), 'utf8');
+    const postClosing = poster.slice(poster.indexOf('export async function postClosingJournal'));
+    expect(
+      postClosing,
+      'postClosingJournal must validate the closing journal before writing it',
+    ).toContain('validateJournalEntry(');
   });
 
   it('no longer carries the pre-509 spellings the constraint never accepted', () => {

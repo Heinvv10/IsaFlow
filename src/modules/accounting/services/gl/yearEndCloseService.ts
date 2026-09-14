@@ -1,56 +1,28 @@
-/** Public result contracts for controlled financial year close. */
-export interface YearEndJournalLine {
-  accountId: string;
-  accountCode: string;
-  accountName: string;
-  debit: number;
-  exactDebit?: string;
-  credit: number;
-  exactCredit?: string;
-}
+/**
+ * The year-end close's public entry point and its result contracts.
+ *
+ * The close itself is a CONTROLLED operation: `controlledYearEnd` runs it
+ * through the approval kernel, so every close carries a permit, a receipt and
+ * an append-only change record, and a repeat call replays the receipt instead
+ * of writing twice. The orchestration that used to live in this file went with
+ * it; what is left here is the module's name, which every caller already
+ * imports.
+ *
+ * The SHAPES are not the controlled writer's own. They live in
+ * `yearEndCloseTypes` and are re-exported here unchanged, so
+ * `yearEndJournalBuilder`, `yearEndJournalPoster` and the controlled writer all
+ * answer with one contract rather than two that drift. Declaring a narrower
+ * private copy here is exactly how the controlled path came to be missing
+ * `alreadyClosed` and the ledger-based detection behind it.
+ */
 
-export interface YearEndJournalPreview {
-  /** The year's last day — where the closing journal lands. */
-  entryDate: string;
-  entryNumber: string;
-  description: string;
-  lines: YearEndJournalLine[];
-  totalDebit: number;
-  totalCredit: number;
-  exactTotal?: string;
-}
-
-export interface CloseYearResult {
-  closingEntry: Record<string, unknown>;
-  netIncome: number;
-  netIncomeExact?: string;
-  message: string;
-}
-
-export interface CloseYearDryRunResult {
-  dryRun: true;
-  netIncome: number;
-  netIncomeExact?: string;
-  preview: YearEndJournalPreview;
-}
-
-export type CloseYearError =
-  | { error: 'open_periods'; count: number; openPeriods: Array<{ id: string; periodName: string; periodNumber: number }> }
-  | { error: 'year_not_found' }
-  | { error: 'approval_required' }
-  | { error: 'no_retained_earnings' }
-  | { error: 'ambiguous_retained_earnings'; accountCodes: string[] }
-  | {
-      error: 'period_range_mismatch';
-      expected: { startDate: string; endDate: string };
-      actual: { startDate: string; endDate: string };
-      startMonth: number;
-    };
-
-export interface CloseYearOptions {
-  /** Run every guard and return the journal, writing nothing. */
-  dryRun?: boolean;
-  approvalId?: string;
-}
+export type {
+  CloseYearDryRunResult,
+  CloseYearError,
+  CloseYearOptions,
+  CloseYearResult,
+  YearEndJournalLine,
+  YearEndJournalPreview,
+} from './yearEndCloseTypes';
 
 export { closeFiscalYear } from './controlledYearEnd';

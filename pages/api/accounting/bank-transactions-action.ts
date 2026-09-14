@@ -16,7 +16,13 @@ import { withAuth, type CompanyAuthedRequest, withWriteAccess} from '@/lib/auth'
 import { withCsrf } from '@/lib/auth/withCsrf';
 import { log } from '@/lib/logger';
 import { sql } from '@/lib/neon';
+import { isRetryableContention } from '@/modules/accounting/services/core/retryableContention';
+import {
+  BankTransactionNotPostedError, isFeedNotPostedRefusal, readFeedState,
+} from '@/modules/accounting/services/bank/bankFeedStateGuard';
 import { UUID } from '@/lib/schemas/common';
+import { assertCustomerInCompany } from '@/modules/accounting/services/core/contactDirectoryService';
+import { assertJournalAnalysisDimensions } from '@/modules/accounting/services/gl/journalCostCentreValidation';
 import {
   matchTransaction,
   unmatchTransaction,
@@ -116,6 +122,15 @@ async function handler(req: CompanyAuthedRequest, res: NextApiResponse) {
         const selType: string = body.selectionType || 'account';
         const selEntityId: string | null = body.selectionEntityId || null;
         const selVatCode: string | null = body.vatCode || null;
+        // R-067: suggested_client_id is read back with the customer name joined
+        // on it. Refused before the UPDATE; the catch below answers 400.
+        if (selType === 'customer') await assertCustomerInCompany(companyId, selEntityId);
+        // Refused from a read, before the write: the UPDATE's feed_state
+        // predicate alone would answer { saved: true } for a no-op (F-M2).
+        const feedState = await readFeedState(companyId, body.bankTransactionId);
+        if (feedState && feedState !== 'posted') {
+          return apiResponse.conflict(res, new BankTransactionNotPostedError(body.bankTransactionId, feedState, 'categorise').message);
+        }
         await sql`
           UPDATE bank_transactions
           SET suggested_gl_account_id = ${selType === 'account' && selEntityId ? selEntityId : null}::UUID,
@@ -123,11 +138,17 @@ async function handler(req: CompanyAuthedRequest, res: NextApiResponse) {
               suggested_client_id = ${selType === 'customer' && selEntityId ? selEntityId : null}::UUID,
               suggested_vat_code = ${selVatCode},
               updated_at = NOW()
-          WHERE id = ${body.bankTransactionId}::UUID AND status IN ('imported', 'allocated') AND company_id = ${companyId}
+          WHERE id = ${body.bankTransactionId}::UUID AND status IN ('imported', 'allocated')
+            AND feed_state = 'posted' AND company_id = ${companyId}
         `;
         return apiResponse.success(res, { saved: true });
       }
       case 'save_dimensions': {
+        await assertJournalAnalysisDimensions(companyId, [{
+          cc1Id: body.cc1Id,
+          cc2Id: body.cc2Id,
+          buId: body.buId,
+        }]);
         await sql`
           UPDATE bank_transactions
           SET cc1_id = ${body.cc1Id || null}::UUID,
@@ -140,6 +161,23 @@ async function handler(req: CompanyAuthedRequest, res: NextApiResponse) {
       }
     }
   } catch (err) {
+    // CONTENTION first, and 409 — the status this codebase gives "a peer holds
+    // the row, retry". `allocate` reaches `planSupplierPaymentApplication` and
+    // `planReceiptApplication` through `recordSupplierBankPayment` /
+    // `autoApplyCustomerReceipt`, so this route raises the SAME event that
+    // `bank-match-confirm` answers 409 — and answered it 400 until this branch.
+    // Every member is pre-write, so the 4xx `withAuth` COMMITs commits nothing.
+    if (isRetryableContention(err)) {
+      log.info('Bank transaction action hit a contended row', { action: body.action }, 'accounting-api');
+      return apiResponse.conflict(res, (err as Error).message);
+    }
+    // A pending/removed feed row, one status whichever shape it arrives in:
+    // match/unmatch/exclude throw the bare BankTransactionNotPostedError;
+    // allocate/split throw a BankAllocationRefusal carrying the feed state.
+    // Every throw site decides this before its first write.
+    if (isFeedNotPostedRefusal(err)) {
+      return apiResponse.conflict(res, err.message);
+    }
     const message = err instanceof Error ? err.message : 'Action failed';
     log.error('Bank transaction action failed', { error: err }, 'accounting-api');
     return apiResponse.badRequest(res, message);

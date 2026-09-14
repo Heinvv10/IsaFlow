@@ -33,9 +33,11 @@ import type { DbRow } from '@/lib/neon';
 import { log } from '@/lib/logger';
 import { fmtDate } from '@/lib/fmtDate';
 import { effectivePaidExpr, rewindAmount } from '../shared/agingRewind';
+import { documentInLedgerAsAtFragment } from '../shared/softDeleteLedgerPresence';
 import { getOpenDisputeTotals } from './disputeService';
 import type { SubledgerDocument, SubledgerSnapshot } from './subledgerTypes';
 import { buildSnapshot, toDocument } from './subledgerShared';
+import { documentInPopulationExpr } from '@/modules/accounting/services/shared/documentPopulation';
 
 export interface ARSubledgerSnapshot extends SubledgerSnapshot {
   /** Open-dispute amount per document id. AR only. */
@@ -81,7 +83,13 @@ export async function getARSubledger(
         ${rewindAmount({ companyId, asAtStr: asAtDate, todayStr, side: 'ar' })}
       ) unpaid ON TRUE
       WHERE ci.company_id = ${companyId}::UUID
-        AND ci.status NOT IN ('draft', 'cancelled')
+        -- Status rule: shared/documentPopulation (NULL-safe, one definition).
+        AND ${sql.unsafe(documentInPopulationExpr('ci'))}
+        -- Same population as arAgingService, deliberately: a soft-deleted
+        -- document leaves that report when its delete reversal reaches the
+        -- ledger, and two populations would make reconcile_subledger's
+        -- aged-versus-subledger comparison meaningless.
+        AND ${documentInLedgerAsAtFragment('ci', asAtDate, companyId)}
         AND COALESCE(ci.invoice_date, ci.created_at::date) <= ${asAtDate}::DATE
         AND (ci.total_amount - ${sql.unsafe(paid)}) > 0
       ORDER BY ci.due_date NULLS LAST, ci.id
@@ -117,9 +125,12 @@ export async function getARSubledger(
       return { ...doc, balance: -doc.balance };
     });
 
+    // As at the reporting date, like every balance above it (R-059): a
+    // dispute raised after asAtDate was not in force on it.
     const disputes = await getOpenDisputeTotals(
       companyId,
       documents.map((d) => d.id),
+      asAtDate,
     );
 
     return {

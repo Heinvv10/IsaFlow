@@ -17,8 +17,10 @@ interface BSLineItem {
   balance: number;
 }
 
-async function calculateRetainedEarnings(companyId: string, asAtDate: string, costCentreId?: string): Promise<number> {
+async function calculateRetainedEarnings(companyId: string, asAtDate: string,
+  costCentreId?: string, businessUnitId?: string): Promise<number> {
   const ccId = costCentreId ?? null;
+  const buId = businessUnitId ?? null;
   const rows = (await sql`
     SELECT
       COALESCE(SUM(CASE WHEN ga.account_type = 'revenue' THEN jl.credit - jl.debit ELSE 0 END), 0) AS revenue,
@@ -31,7 +33,9 @@ async function calculateRetainedEarnings(companyId: string, asAtDate: string, co
       AND jl.company_id = ${companyId}::UUID
       AND je.entry_date <= ${asAtDate}
       AND ga.account_type IN ('revenue', 'expense')
-      AND (${ccId}::TEXT IS NULL OR jl.cost_center_id = ${ccId}::UUID)
+      AND (${ccId}::TEXT IS NULL OR jl.cost_center_id = ${ccId}::UUID
+        OR jl.cc1_id = ${ccId}::UUID OR jl.cc2_id = ${ccId}::UUID)
+      AND (${buId}::TEXT IS NULL OR jl.bu_id = ${buId}::UUID)
   `) as Row[];
 
   return Number(rows[0]!.revenue) - Number(rows[0]!.expenses);
@@ -71,8 +75,10 @@ export async function getEquityBases(
   companyId: string,
   asAtDate: string,
   costCentreId?: string,
+  businessUnitId?: string,
 ): Promise<EquityBases> {
   const ccId = costCentreId ?? null;
+  const buId = businessUnitId ?? null;
   try {
     const rows = (await sql`
       SELECT COALESCE(SUM(CASE WHEN ga.account_type = 'equity'
@@ -86,14 +92,18 @@ export async function getEquityBases(
         AND ga.company_id = ${companyId}::UUID
         AND je.entry_date <= ${asAtDate}
         AND ga.account_type = 'equity'
-        AND (${ccId}::TEXT IS NULL OR jl.cost_center_id = ${ccId}::UUID)
+        AND (${ccId}::TEXT IS NULL OR jl.cost_center_id = ${ccId}::UUID
+        OR jl.cc1_id = ${ccId}::UUID OR jl.cc2_id = ${ccId}::UUID)
+        AND (${buId}::TEXT IS NULL OR jl.bu_id = ${buId}::UUID)
     `) as Row[];
 
     return {
       posted: Number(rows[0]?.posted ?? 0),
       // The same function the balance sheet injects from, so the two cannot
       // drift into two answers about one figure.
-      derivedRetainedEarnings: await calculateRetainedEarnings(companyId, asAtDate, costCentreId),
+      derivedRetainedEarnings: await calculateRetainedEarnings(
+        companyId, asAtDate, costCentreId, businessUnitId,
+      ),
     };
   } catch (err) {
     log.error('Failed to read the equity bases', { error: err }, 'accounting');
@@ -101,8 +111,10 @@ export async function getEquityBases(
   }
 }
 
-async function fetchBalanceSheetData(companyId: string, asAtDate: string, costCentreId?: string) {
+async function fetchBalanceSheetData(companyId: string, asAtDate: string,
+  costCentreId?: string, businessUnitId?: string) {
   const ccId = costCentreId ?? null;
+  const buId = businessUnitId ?? null;
 
   // Include leaf accounts at any level (level >= 3 for standard CoA hierarchy,
   // plus level = 1 accounts that have no children, as used by Sage-imported accounts).
@@ -126,7 +138,9 @@ async function fetchBalanceSheetData(companyId: string, asAtDate: string, costCe
             AND child.company_id = ${companyId}::UUID
         )
       )
-      AND (${ccId}::TEXT IS NULL OR jl.cost_center_id = ${ccId}::UUID)
+      AND (${ccId}::TEXT IS NULL OR jl.cost_center_id = ${ccId}::UUID
+        OR jl.cc1_id = ${ccId}::UUID OR jl.cc2_id = ${ccId}::UUID)
+      AND (${buId}::TEXT IS NULL OR jl.bu_id = ${buId}::UUID)
     GROUP BY ga.id, ga.account_code, ga.account_name, ga.account_type, ga.normal_balance
     ORDER BY ga.account_code
   `) as Row[];
@@ -152,7 +166,9 @@ async function fetchBalanceSheetData(companyId: string, asAtDate: string, costCe
     else if (type === 'equity') equity.push(item);
   }
 
-  const retainedEarnings = await calculateRetainedEarnings(companyId, asAtDate, costCentreId);
+  const retainedEarnings = await calculateRetainedEarnings(
+    companyId, asAtDate, costCentreId, businessUnitId,
+  );
   if (Math.abs(retainedEarnings) > 0.01) {
     const reAccount = await getSystemAccount('retained_earnings', companyId);
     const existing = equity.find(e => e.accountCode === reAccount.accountCode);
@@ -166,13 +182,14 @@ async function fetchBalanceSheetData(companyId: string, asAtDate: string, costCe
 export async function getBalanceSheet(companyId: string,
   asAtDate: string,
   costCentreId?: string,
-  compareDate?: string
+  compareDate?: string,
+  businessUnitId?: string,
 ): Promise<BalanceSheetReport> {
   try {
     const [current, prior] = await Promise.all([
-      fetchBalanceSheetData(companyId, asAtDate, costCentreId),
+      fetchBalanceSheetData(companyId, asAtDate, costCentreId, businessUnitId),
       compareDate
-        ? fetchBalanceSheetData(companyId, compareDate, costCentreId)
+        ? fetchBalanceSheetData(companyId, compareDate, costCentreId, businessUnitId)
         : Promise.resolve(null),
     ]);
 
@@ -192,6 +209,7 @@ export async function getBalanceSheet(companyId: string,
     const report: BalanceSheetReport = {
       asAtDate,
       costCentreId,
+      businessUnitId,
       assets: current.assets,
       liabilities: current.liabilities,
       equity: current.equity,
@@ -207,11 +225,20 @@ export async function getBalanceSheet(companyId: string,
       report.priorTotalEquity = prior.equity.reduce((s, e) => s + e.balance, 0);
 
       const mergeBSLines = (curr: BSLineItem[], prev: BSLineItem[]) => {
-        const priorMap = new Map(prev.map(p => [p.accountCode, p.balance]));
-        return curr.map(c => {
-          const pb = priorMap.get(c.accountCode) ?? 0;
-          const variance = c.balance - pb;
-          return { ...c, priorBalance: pb, variance, variancePct: pb !== 0 ? (variance / Math.abs(pb)) * 100 : 0 };
+        const currentMap = new Map(curr.map(item => [item.accountCode, item]));
+        const priorMap = new Map(prev.map(item => [item.accountCode, item]));
+        const codes = [...curr.map(item => item.accountCode),
+          ...prev.filter(item => !currentMap.has(item.accountCode)).map(item => item.accountCode)];
+        return codes.map(code => {
+          const currentItem = currentMap.get(code);
+          const priorItem = priorMap.get(code);
+          const balance = currentItem?.balance ?? 0;
+          const priorBalance = priorItem?.balance ?? 0;
+          const variance = balance - priorBalance;
+          return {
+            ...(currentItem ?? priorItem!), balance, priorBalance, variance,
+            variancePct: priorBalance !== 0 ? (variance / Math.abs(priorBalance)) * 100 : 0,
+          };
         });
       };
       report.assets = mergeBSLines(current.assets, prior.assets);

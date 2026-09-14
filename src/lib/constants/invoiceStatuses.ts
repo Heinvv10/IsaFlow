@@ -19,10 +19,16 @@
  * invoices ('draft', 'cancelled') and reconstruct the balance for the date
  * asked about.
  *
- * The consequence is real and worth stating: at an as-at of TODAY the two
- * agree, because the aging reconstruction collapses to amount_paid. At any
- * EARLIER date aging will legitimately differ from the dashboard, from
- * consolidated reporting and from the close gate, all of which are live-only.
+ * The consequence is real and worth stating. At any EARLIER date aging will
+ * legitimately differ from the dashboard, from consolidated reporting and from
+ * the close gate, all of which are live-only. They can differ at TODAY too:
+ * the aging reconstruction collapses to amount_paid then, but its population
+ * (shared/documentPopulation — everything not draft or cancelled) is wider
+ * than these sets. A 'pending_approval' document (either side), a 'disputed'
+ * bill (AP only — the AR CHECK constraint has no such status), a 'paid' one
+ * still carrying a balance, and a NULL-status one are in the aging and in none
+ * of these. This header used to say the two agree at today; they agree only
+ * where no such row exists (R-059 round 7).
  * If a future surface needs a historical figure it must use the aging
  * services, not these sets.
  *

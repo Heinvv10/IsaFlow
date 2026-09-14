@@ -147,6 +147,7 @@ async function unreconciledSignal(companyIds: string[], meta: Map<string, Compan
       FROM bank_transactions
      WHERE company_id = ANY(${companyIds})
        AND status NOT IN ('reconciled','matched','excluded')
+       AND feed_state = 'posted'
      GROUP BY company_id
   `) as unknown as UnreconciledRow[];
   return shapeUnreconciled(rows, meta);

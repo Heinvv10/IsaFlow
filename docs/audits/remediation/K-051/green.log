@@ -1,0 +1,293 @@
+K-051 / K-052 — GREEN evidence (branch fix/audit-k051-k052-header-account-guard, off origin/master 0f16391e)
+Second pass, 2026-09-09: blind-review findings in scratchpad/review-k051.md (4 MEDIUM / 4 LOW) closed.
+
+1. RED on origin/master (before any production edit):
+   -> Test Files 2 failed (2); Tests 2 failed | 1 passed (3)
+   K-051: expected +0 to be close to 1500 (total assets after the merge).
+   K-052: admitReclassification admitted the level-2 header target.
+
+2. GREEN: bun run test:integration -- k051... k052...
+   -> Test Files 2 passed (2); Tests 17 passed (17)   [K-051 9, K-052 8], real disposable Postgres.
+
+3. Mutation checks — 9 mutations, each applied alone, both suites re-run, then restored:
+   M1 drop `level >= 3` early return in the merge guard      -> 1 failed (level-3-with-children admitted)
+   M2 drop the account-type gate in the merge guard          -> 1 failed (level-2 expense header)
+   M3 drop the harmless-source exemption                     -> 1 failed (already-header, empty source)
+   M4 neuter the merge guard entirely (`if (true) return;`)  -> 3 failed (both refusals + knock-on)
+   M5 run the header guard BEFORE the descendant check       -> 1 failed (cycle reported as header)
+   M6 drop `level >= 3` in isReportVisibleLeaf               -> 1 failed (K-052 level-3 with children)
+   M7 drop the account-type gate in isReportVisibleLeaf      -> 1 failed (K-052 expense header)
+   M8 revert `Number(level) || 1` to `?? 1`                  -> 1 failed (refusal reads "level 0")
+   M9 disable the K-052 refusal (`if (false)`)               -> 2 failed
+   Files diffed against pre-mutation backups afterwards: IDENTICAL; no `if (true) return` / `if (false`
+   left anywhere under services/gl/.
+
+4. Full unit suite, DATABASE_URL unset (`env -u DATABASE_URL bunx vitest run`):
+   -> 5 files failed | 787 passed | 36 skipped; Tests 10 failed | 9424 passed | 234 skipped.
+   All 10 are 10s timeouts in bankAllocationService, bank/bankAllocationDateShift,
+   bank/bankAllocationUnwind and cashFlowReport. Load average was 122 (parallel agent sessions).
+   The four files pass in isolation (4 files / 24 tests passed) and none import accountMergeGuards,
+   accountMergeService, planGuards, accountParentRules or isReportVisibleLeaf. Load-related, not
+   this branch — NOT verified against a clean origin/master run.
+   Targeted: reclassificationLockSequence + mergeGlAccountsTool + tests/unit/services/gl/
+   -> 28 files passed | 1 skipped; 379 passed | 4 skipped.
+
+5. bunx tsc --noEmit: clean. bunx eslint on the five changed src files: clean.
+
+6. Concurrency (review LOW). The requested post-write re-read was implemented, then REMOVED as
+   unreachable: `gl_accounts_parent_account_id_fkey` references gl_accounts(id), so a concurrent
+   child INSERT or reparent UPDATE onto the target needs FOR KEY SHARE on the target row and the
+   merge's FOR UPDATE conflicts with it. Proved with two pool clients: both statements return
+   55P03 under a 1s lock_timeout while the lock is held, and nothing is written. The first attempt
+   at an interleaving test deadlocked (40P01) for exactly this reason, which is what surfaced it.
+
+── Round 2 (blind re-review of 2d880da9: 2 MEDIUM / 5 LOW, all seven closed) ─────────────────
+
+7. GREEN: bun run test:integration -- k051... k052...
+   -> Test Files 2 passed (2); Tests 20 passed (20)   [K-051 11, K-052 9].
+
+8. Round-2 mutations, each applied alone and restored (files diffed clean afterwards):
+   N1 drop `!sourceHasChildren && !targetHasChildren` return -> 2 failed (Sage level-1 target,
+      cross-tenant test)  [MEDIUM-2: this branch was unexecuted before]
+   N2 drop company scope in hasChildAccounts               -> 2 failed, now including K-051 [LOW-1]
+   N3 un-scope assertParentUsable to a bare level test     -> 1 failed (posted expense parent) [MED-1]
+   N4 drop the reclassification's FOR UPDATE on the target -> 1 failed (concurrent createAccount) [LOW-2]
+   N5 drop `level: 3` from the reclassificationLockSequence mock -> 7 failed [LOW-3]
+   Round-1 mutations re-run after the isSubjectToLeafRule extraction: M1, M3, M5, M6, M7, M8, M9
+   all still killed.
+
+9. Full unit suite, DATABASE_URL unset, load average 90:
+   -> 792 files passed | 36 skipped; Tests 9434 passed | 234 skipped, ZERO failures.
+   The 10 failures recorded in step 4 were load-related and are gone.
+
+10. bunx tsc --noEmit clean; eslint clean on all five src files; agent-docs:check OK (74 mirrors).
+    File sizes: accountMergeGuards 281, accountMergeService 255, planGuards 206,
+    accountParentRules 118, isReportVisibleLeaf 77.
+
+11. LOW-2 resolution. The merge half of the round-1 dispute stands. The reclassification half did
+    not: that path locks the journal LINES only, and its write takes FOR KEY SHARE on the target,
+    which does not conflict with a concurrent createAccount's FOR KEY SHARE. `admitReclassification`
+    now takes FOR UPDATE on the target when the leaf rule can bite it, proven with two pool
+    clients (intruder INSERT -> 55P03 inside the guard's open transaction, nothing written). Both
+    the accountMergeService comment and K-051's fix.md now say "merge path only" explicitly.
+
+12. LOW-4. `isSubjectToLeafRule(level, accountType)` extracted into isReportVisibleLeaf and called
+    by isReportVisibleLeaf itself, accountMergeGuards and accountParentRules — one statement of
+    the rule in the module. The merge guard cannot call the whole predicate: it needs the target
+    and source arms apart to word the refusal.
+    LOW-5. isReportVisibleLeaf's docstring now records that validateLeafAccount is deliberately
+    stricter, and why the two may disagree about an expense header.
+
+── ROUND 4 (blind re-review 2cc28c2f: 2 MEDIUM, 3 LOW) ────────────────────────
+
+13. MED-1. The target lock was unconditional, so `propose_reclassification` and a dry run held
+    FOR UPDATE on the account for the length of a preview — the opposite of what planFromArgs's
+    parameter doc and plan.ts's comment both say. `GuardInput.lockCandidateLines` is now required
+    and gates the account lock, and `planFromArgs` translates GL_ACCOUNT_LOCK_TIMEOUT alongside
+    RECLASS_LINE_LOCKED (uncaught it renders as GENERIC_FAILURE, naming nothing).
+
+14. MED-2. `assertParentUsable` locks the parent FOR UPDATE before its posted-lines read. The
+    one-sided lock only ordered the two transactions: createAccount decided before its INSERT took
+    FOR KEY SHARE and never re-read, so the blocked INSERT resumed and committed the header anyway.
+
+15. Tests: k051 12 passed, k052 12 passed (was 11 + 9), reclassificationTools 15 passed,
+    reclassificationLockSequence 7 passed. Command:
+    bunx vitest run --config vitest.integration.config.ts tests/integration/k051-*.int.test.ts \
+      tests/integration/k052-*.int.test.ts   -> 2 files, 24 passed.
+
+16. Mutations, each applied to the final code and reverted:
+    - drop `input.lockCandidateLines &&` (lock on the preview path)      -> 2 failed  KILLED
+    - drop `isSubjectToLeafRule(...)` (lock every write-path target)     -> 1 failed  KILLED
+    - drop `lockGlAccountsForUpdate` from assertParentUsable             -> 1 failed  KILLED
+    - narrow the catch back to RECLASS_LINE_LOCKED only                  -> 1 failed  KILLED
+    - LOW-2 check: lock the SOURCE instead of the target (the reviewer's own mutation)
+      -> 1 failed in 6 ms, NO afterAll hook timeout; psql afterwards: 0 rows LIKE 'K05%',
+         0 connections idle in transaction. The leak is closed.
+
+17. Full unit suite, DATABASE_URL and PLATFORM_ADMIN_DATABASE_URL unset:
+    792 files passed | 36 skipped; 9436 passed | 234 skipped; ZERO failures.
+    bunx tsc --noEmit clean. eslint clean on the 4 changed src files.
+    bun run agent-docs:check OK (74 mirrors).
+    File sizes: planGuards 220, accountParentRules 138, reclassificationShared 209 — all < 300.
+
+18. LOW-3b (company_id on assertParentUsable's posted-lines read) is kept and recorded as
+    unproven in fix.md, with the argument. Everything else in round 3 is fixed.
+
+═══════════════════════════════════════════════════════════════════════════════
+ROUND 5 — 2026-09-09
+═══════════════════════════════════════════════════════════════════════════════
+
+K-051 + K-052 suites (disposable Postgres isaflow_schema_fixture):
+  bunx vitest run --config vitest.integration.config.ts \
+    tests/integration/k051-*.int.test.ts tests/integration/k052-*.int.test.ts
+  -> Test Files 5 passed (5) | Tests 30 passed (30)
+     k051-account-merge-into-header-hides-balance      9
+     k051-account-merge-header-concurrency (new split) 3
+     k051-cross-company-journal-line       (new)       4
+     k052-reclassification-onto-header-account        12
+     k052-reclassification-lock-savepoint  (new)       2
+
+FULL UNIT SUITE, fixture env UNSET (env -u DATABASE_URL -u PLATFORM_ADMIN_DATABASE_URL
+-u ISAFLOW_DISPOSABLE_AUTH_TEST bunx vitest run):
+  -> Test Files 792 passed | 36 skipped (828)
+     Tests 9437 passed | 234 skipped (9671)
+  (First run failed 11 tests in journalEntryService.test.ts +
+   journalEntryFiscalPeriodWiring.test.ts: the new ownership query shifted the
+   positional sql mock queue, and clearAllMocks does not drain a once-queue so
+   the residue leaked into the postJournalEntry tests. Both files now queue the
+   accountsBelongToCompany answer explicitly.)
+
+FULL INTEGRATION SWEEP (migration 664 blast-radius check):
+  bunx vitest run --config vitest.integration.config.ts
+  -> 27 files / 8 tests failed, ALL environmental and pre-existing:
+     13x "DATABASE_URL names isaflow_schema_fixture, not isaflow_dev/isaflow_test"
+     3x SUPABASE_SERVICE_ROLE_KEY unset, 2x MIGRATION_ADMIN_DATABASE_URL/JWT,
+     ECONNREFUSED :3200 (no dev server), missing seeded demo tenant.
+  -> grep "gl_journal_lines_account_company_fk" on the full log: 0 hits.
+
+MUTATIONS (round 5)
+  M7  remove withSavepoint around lockGlAccountsForUpdate (planGuards.ts:224)
+      -> k052-reclassification-lock-savepoint FAILS with
+         "current transaction is aborted, commands ignored until end of
+          transaction block" — the exact 25P02 the reviewer proved. RESTORED.
+  M8  remove the accountsBelongToCompany check from createJournalEntry
+      -> k051-cross-company-journal-line "refuses a journal whose line names
+         another company GL account" FAILS. RESTORED.
+  M9  remove "AND company_id = ${companyId}::UUID" from assertParentUsable's
+      posted-lines read (the reviewer's M6, which was alive in round 4)
+      -> k051-cross-company-journal-line "judges a level-2 asset parent on THIS
+         company lines only" FAILS. RESTORED. M6 is now dead.
+
+MIGRATION 664 applied to the fixture DB and proved:
+  INSERT gl_journal_lines(company_id=A, gl_account_id=B's account)
+  -> ERROR 23503 gl_journal_lines_account_company_fk. (Transaction rolled back.)
+
+GATES
+  bunx tsc --noEmit                                  -> exit 0
+  eslint (6 changed src files)                       -> exit 0
+  eslint on tests/**: "not found by the project service" — pre-existing for every
+  integration test (tsconfig excludes tests/**); reproduced on an untouched file.
+  All changed/added files under the 300-line ceiling (max 261).
+
+ROUND 6 (review 31ae8c7da: 0 HIGH, 3 MEDIUM, 5 LOW — all eight fixed)
+  k051-cross-company-journal-line.int.test.ts          7 passed (was 4; +foreign cc, +foreign project, +own cc)
+  k052-reclassification-lock-savepoint.int.test.ts     4 passed (was 2; +line lock, +nothing-written) 10.8s
+                                                       (two real 5s lock_timeouts, nothing simulated)
+  k019 x2 / k020 / opening-balances (preConstraintRow) 4 files, 41 passed
+  k051 merge x2 / k052 header                          3 files, 24 passed
+  reclassificationTools / reclassificationLineLock /
+    journalEntryService (unit)                         56 passed, 4 skipped
+  FULL unit suite, DATABASE_URL UNSET                  792 files passed, 36 skipped; 9437 tests passed, 234 skipped
+
+  MUTATIONS
+    plan.ts: unwrap withSavepoint around lockReclassLinesForUpdate
+      -> k052 line-lock test FAILS: "current transaction is aborted" at RELEASE SAVEPOINT (neon.ts:426). Restored.
+    journalLineOwnership.ts: drop the cost-centre check
+      -> k051 foreign-cost-centre test FAILS on /cost centre outside this company/. Restored.
+
+  GATES
+    bunx tsc --noEmit                       -> exit 0
+    eslint (both changed src files)         -> exit 0
+    bun run lint                            -> 0 errors, 11 pre-existing warnings (none in changed files)
+    audit-migration-naming                  -> 339 files, no new duplicate prefixes
+    check-migration-rls                     -> OK
+    check-gl-journal-lines-scope            -> OK
+    664 re-applied to the fixture DB        -> index NOTICE skip + DO block, idempotent
+    journalEntryCrudService.ts              -> 300 lines exactly; journalLineOwnership.ts 66
+
+=== Round 7 (dimension guard scoped to caller-supplied ids) ===
+bun run test:integration -- 6 K-051/K-052 files  -> 6 files, 38 tests passed (10.74s)
+  new: k051-reclassification-foreign-dimension.int.test.ts (1)
+  new: foreign/own business unit in k051-cross-company-journal-line.int.test.ts (2)
+mutation A: plan.ts passes `movable` instead of `carried.lines`
+  -> RED: "One or more journal lines name a project outside this company" (the reported defect)
+mutation B: dimensions.ts keep-predicate returns null always
+  -> RED: expected null to be '<ownCc>' (own cost centre must survive)
+mutation C: assertJournalLinesOwned drops the 'business unit' arm
+  -> RED: 1 failed | 8 passed in k051-cross-company-journal-line.int.test.ts
+bunx vitest run (full unit suite, DATABASE_URL UNSET) -> 792 files passed | 36 skipped,
+  9438 passed | 234 skipped (was 9437 before the new warnings case)
+bunx tsc --noEmit -> clean.  bunx eslint <4 changed src files> -> clean.
+No migration in round 7.
+
+=== Round 8 (HIGH-1: reverseJournalEntry copy-forward) ===
+$ bunx vitest run --config vitest.integration.config.ts tests/integration/k051-reversal-foreign-dimension.int.test.ts
+  Test Files 1 passed (1) / Tests 4 passed (4)
+$ ... k051-reversal + k051-reclassification-foreign-dimension + k051-cross-company-journal-line
+      + k052-reclassification-lock-savepoint + k052-reclassification-onto-header-account
+      + k051-account-merge-header-concurrency + k051-account-merge-into-header-hides-balance
+  Test Files 7 passed (7) / Tests 42 passed (42)
+$ bunx vitest run --config vitest.integration.config.ts tests/integration/k021-reversal-atomicity.int.test.ts
+  Test Files 1 passed (1) / Tests 6 passed (6)
+
+MUTATION PROOF (production code reverted, then restored; 0 MUTANT markers left):
+  1. reversalLines.ts copies l.projectId / l.costCenterId / l.buId raw (the pre-fix behaviour):
+     × reverses a journal carrying another company's dimensions  (throws "One or more journal
+       lines name a project outside this company" — the reported defect, reproduced)
+     × says the same thing in the MCP dry run as the live call
+     -> 2 failed | 2 passed
+  2. droppedLineCount never increments:
+     × the same 2 tests -> 2 failed | 2 passed
+  3. same as (1), unit level:
+     × drops a business unit this company does not own instead of refusing the reversal
+     -> 1 failed | 7 passed
+
+$ env -u DATABASE_URL bunx vitest run          # FULL unit suite, no fixture env
+  Test Files 792 passed | 36 skipped (828)
+  Tests 9439 passed | 234 skipped (9673)      [before the test fixture update: 5 failed in
+                                               tests/unit/services/gl/journalEntryReversal.test.ts
+                                               — the ownership SELECT shifts that file's mocked
+                                               sql queue; fixture updated, not the production code]
+$ bunx tsc --noEmit                            clean
+$ bunx eslint <7 changed src files>            clean
+$ bun run agent-docs:check                     OK: 74 mirrors match
+
+ROUND 10 (docs-only: the Limits bullet named a census that cannot find the population)
+$ psql "$DATABASE_URL" -f census-proof.sql        # 4 censuses, populations seeded, tx ROLLBACK
+  CENSUS A merges into a level<3 asset header with children ......... 1 row
+  CENSUS B cross-tenant gl_account_id lines (664) ................... 1 row
+  CENSUS C posted entries carrying a foreign dimension .............. 1 row
+  CENSUS D reclassifications into a level<3 asset header (K-052) .... 1 row
+$ psql "$DATABASE_URL" -f census-negative.sql     # foreign ACCOUNT line only, no foreign dimension
+  dimension census .... 0 rows   <- the reviewer's MEDIUM, reproduced
+  664 census .......... 1 row    <- the query the bullet now names
+$ bunx vitest run --config vitest.integration.config.ts --no-file-parallelism <7 K-051/K-052 files>
+  Test Files 7 passed (7) / Tests 43 passed (43)
+$ env -u DATABASE_URL bunx vitest run          # FULL unit suite, no fixture env
+  Test Files 793 passed | 36 skipped (829) / Tests 9442 passed | 234 skipped (9676)
+$ bunx tsc --noEmit                            clean
+$ bunx eslint <branch src files>               0 errors (14 pre-existing warnings, all "file ignored")
+$ bun run agent-docs:check                     OK: 74 mirrors match
+No production code changed this round, so the round-9 mutation proofs above still stand unmodified.
+
+ROUND 11 (merged tree, tip 01f4bcaf5 — the MEDIUM was a FALSE claim about a report)
+$ bunx vitest run --config vitest.integration.config.ts --no-file-parallelism <10 files>
+  k051/k052 (7) + k021-reversal-atomicity + k021-failed-reversal-commits-unwind
+  + k110-cost-centre-guard-coverage
+  Test Files 10 passed (10) / Tests 60 passed (60)      [was 50 + 7 pre-round]
+  new: k051-cross-company  9 -> 10 · k051-reversal  5 -> 6 · k052-onto-header 12 -> 13
+
+  WHERE-IT-SURFACES CLAIMS, EXECUTED (previously prose):
+    cross-company line on either tenant's TRIAL BALANCE ....... absent from BOTH
+    cross-company line on either tenant's BALANCE SHEET ....... R0 and R0
+    the census over the same row ............................. 1 row
+    header account on the TRIAL BALANCE ...................... R400, foots 1400=1400
+    the same header on the BALANCE SHEET ..................... omitted (assets R1,000)
+    foreign project bucket across a reversal ................. R2,000 -> R2,000 (unnamed)
+    the same account on the TRIAL BALANCE .................... R3,000 -> R2,000
+
+MUTATION PROOF (file copies, restored; 0 MUTANT markers left):
+  1. trialBalanceService.ts:136 drops `AND ga.company_id = jl.company_id`:
+     × shows the cross-tenant line on NO standard statement, for EITHER tenant
+       (expected [ 'K051X-2100' ] to not include 'K051X-2100')  -> 1 failed | 9 passed
+  2. reversalLines.ts:99 copies l.projectId raw:
+     × 3 of 6 in k051-reversal-foreign-dimension, the new case included — via the
+       reversal throwing "project outside this company", i.e. it proves the DROP.
+       The R2,000/R3,000 figures are a MEASUREMENT of the residual, not a guard.
+
+$ bun run ci                                   FAILED: vat-guard-coverage
+  Stale allowlist entry for journalEntryPostingService.ts — round 8 moved
+  `vatType: l.vatType` into gl/reversalLines.ts, which posts nothing. Entry
+  removed; hole recorded in vatGuardRules.ts KNOWN LIMITS. origin/master passes,
+  so the failure is this branch's, and ten rounds of per-gate runs never saw it.
+$ bun run ci                                   all 15 steps PASS (end to end)

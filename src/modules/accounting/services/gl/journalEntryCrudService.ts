@@ -1,19 +1,17 @@
-/**
- * Journal Entry CRUD Service
- * Create, read operations for GL journal entries.
- * Trial balance split to trialBalanceService.ts.
- */
+/** Journal CRUD; trial balance lives in trialBalanceService.ts. */
 
 import { sql } from '@/lib/neon';
 import { fmtDate } from '@/lib/fmtDate';
 import { randomUUID } from 'crypto';
 import type { DbRow } from '@/lib/neon';
 import { log } from '@/lib/logger';
+import { withAlsTransaction } from '@/lib/alsTransaction';
 import { validateJournalEntry } from '../../utils/doubleEntry';
 import type { JournalEntry, JournalLine, JournalEntryCreateInput, GLEntryStatus, GLEntrySource, VatType } from '../../types/gl.types';
-import { defaultHumanMeta } from './journalEntryMeta';
+import { assertJournalLinesOwned } from './journalLineOwnership';
+import type { DimensionAssignmentMode } from './journalCostCentreValidation';
+import { defaultHumanMeta, type JournalEntryMeta } from './journalEntryMeta';
 import { ensureFiscalPeriodForDate } from './fiscalPeriodAutoCreate';
-import type { JournalEntryMeta } from './journalEntryMeta';
 
 const UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
@@ -65,6 +63,8 @@ export function mapLineRow(row: Row): JournalLine {
     description: row.description ? String(row.description) : undefined,
     projectId: row.project_id ? String(row.project_id) : undefined,
     costCenterId: row.cost_center_id ? String(row.cost_center_id) : undefined,
+    cc1Id: row.cc1_id ? String(row.cc1_id) : undefined,
+    cc2Id: row.cc2_id ? String(row.cc2_id) : undefined,
     buId: row.bu_id ? String(row.bu_id) : undefined,
     vatType: row.vat_type ? String(row.vat_type) as VatType : undefined,
     createdAt: String(row.created_at),
@@ -200,15 +200,21 @@ export async function getJournalEntryById(companyId: string,
   }
 }
 
-export async function createJournalEntry(
+async function createJournalEntryInTransaction(
   companyId: string,
   input: JournalEntryCreateInput,
   userId: string,
   meta?: JournalEntryMeta,
+  opts?: { dimensionAssignmentMode?: DimensionAssignmentMode },
 ): Promise<JournalEntry> {
   try {
     const validation = validateJournalEntry(input.lines);
     if (!validation.valid) throw new Error(`Invalid journal entry: ${validation.errors.join('; ')}`);
+    await assertJournalLinesOwned(
+      companyId,
+      input.lines,
+      opts?.dimensionAssignmentMode,
+    ); // journalLineOwnership.ts
 
     let fiscalPeriodId = input.fiscalPeriodId;
     if (!fiscalPeriodId) {
@@ -238,12 +244,9 @@ export async function createJournalEntry(
     const safeUserId = await resolveUserUuid(userId);
     const resolvedMeta = meta ?? defaultHumanMeta(userId);
 
-    // Generate the entry UUID client-side so we can reference it in line inserts
-    // without needing a sequential transaction (the direct Neon endpoint may be unreachable).
+    // Generate the UUID before batching the header and line inserts.
     const entryId = randomUUID();
 
-    // Use neon serverless transaction() — batches all inserts into one HTTP round-trip
-    // via the pooler, which is always reachable.
     const [entryResult] = await sql.transaction([
       sql`
         INSERT INTO gl_journal_entries (
@@ -267,13 +270,15 @@ export async function createJournalEntry(
       ...input.lines.map((line) => sql`
         INSERT INTO gl_journal_lines (
           journal_entry_id, gl_account_id, debit, credit,
-          description, project_id, cost_center_id, bu_id, vat_type, company_id
+          description, project_id, cost_center_id, cc1_id, cc2_id, bu_id, vat_type, company_id
         ) VALUES (
           ${entryId}::UUID, ${line.glAccountId}::UUID,
           ${line.debit}, ${line.credit},
           ${line.description || null},
           ${line.projectId || null},
           ${line.costCenterId || null},
+          ${line.cc1Id || null}::UUID,
+          ${line.cc2Id || null}::UUID,
           ${line.buId || null}::UUID,
           ${line.vatType || null},
           ${companyId}::UUID
@@ -294,6 +299,22 @@ export async function createJournalEntry(
     log.error('Failed to create journal entry', { error: err }, 'accounting');
     throw err;
   }
+}
+
+/**
+ * Keep dimension validation locks and journal insertion in one transaction.
+ * Authenticated requests already provide that transaction; direct service and
+ * script callers get an equivalent ALS-bound transaction here.
+ */
+export async function createJournalEntry(
+  companyId: string,
+  input: JournalEntryCreateInput,
+  userId: string,
+  meta?: JournalEntryMeta,
+  opts?: { dimensionAssignmentMode?: DimensionAssignmentMode },
+): Promise<JournalEntry> {
+  return withAlsTransaction({ companyId, userId }, () =>
+    createJournalEntryInTransaction(companyId, input, userId, meta, opts));
 }
 
 // Trial balance split to trialBalanceService.ts — re-exported for backward compat

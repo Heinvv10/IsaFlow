@@ -57,9 +57,25 @@ export default function YearEndPage() {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ yearLabel, action: 'close' }),
       });
-      // A refusal is a non-2xx whose reason sits in the envelope's error.message.
+      // A refusal is a non-2xx whose reason sits in the envelope's error.message,
+      // which is where the approval refusal and every typed close refusal land —
+      // reading `json.message` off the top level would show the fallback instead.
       await assertOk(res, 'Year-end processing failed');
-      setMessage({ type: 'success', text: `Year ${yearLabel} closed. Closing journal created.` });
+      const json = await res.json();
+      // The SERVICE's sentence, not a hardcoded one. A 200 no longer means a
+      // closing journal was written: a dormant year closes with no journal at
+      // all, and a re-run of an already-closed year reports the journal some
+      // earlier close wrote. Announcing "Closing journal created" for either
+      // tells the operator this run posted something it did not.
+      const data = json.data || json;
+      setMessage({
+        // A residual is P&L sitting in a closed year that no closing journal
+        // and no equity account contains, and that no re-run can sweep up.
+        // The service says so in the sentence; a green tick beside it would
+        // read as "nothing to do here", which is the opposite.
+        type: Number(data.unclosedNetIncome ?? 0) !== 0 ? 'error' : 'success',
+        text: data.message || `Year ${yearLabel} closed.`,
+      });
       void loadYears();
     } catch (err) {
       setMessage({ type: 'error', text: apiErrorMessage(err, 'Year-end request failed') });

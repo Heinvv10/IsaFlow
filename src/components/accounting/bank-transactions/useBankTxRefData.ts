@@ -7,6 +7,7 @@
 import { useEffect, useCallback } from 'react';
 import { apiFetch } from '@/lib/apiFetch';
 import { log } from '@/lib/logger';
+import { isBankSubtype } from '@/modules/accounting/services/gl/accountSubtypes';
 import type { SelectOption } from '@/components/accounting/BankTxTable';
 import type { BankAcct } from './BankTxBankCards';
 
@@ -76,7 +77,7 @@ export function useBankTxRefData(setters: Setters): { refreshBankAccounts: () =>
       const coaRaw = coaJson?.data ?? coaJson;
       const coaList: Array<SelectOption & { accountSubtype?: string; accountCode?: string; accountName?: string; defaultVatCode?: string; vatInputDenied?: boolean }> = Array.isArray(coaRaw) ? coaRaw : [];
       setGlAccounts(coaList
-        .filter(a => a.accountSubtype !== 'bank')
+        .filter(a => !isBankSubtype(a.accountSubtype))
         .map(a => ({ id: a.id, code: a.accountCode || a.code, name: a.accountName || a.name, defaultVatCode: a.defaultVatCode, vatInputDenied: a.vatInputDenied }))
       );
 

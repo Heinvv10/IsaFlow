@@ -50,6 +50,10 @@ import {
   confirmReceiptMatch,
   validateBankReceiptApplication,
 } from '@/modules/accounting/services/ar/receiptMatchConfirmService';
+import {
+  isReceiptRefusal,
+  isRetryableReceiptRefusal,
+} from '@/modules/accounting/services/ar/receiptRefusal';
 
 const Amount = z.union([z.number(), z.string()])
   .transform(v => Number(v))
@@ -64,15 +68,6 @@ const BodySchema = z.object({
   b => (b.allocations !== undefined) !== (b.customerInvoiceId !== undefined && b.amount !== undefined),
   { message: 'Send either allocations, or customerInvoiceId with amount — not both.' },
 );
-
-/**
- * True for an application-level refusal — a hand-thrown Error with no SQLSTATE
- * `code`. Driver errors always carry one and could leak schema names, so they
- * propagate to the 500 path instead of being handed to the caller.
- */
-function isRefusal(err: unknown): err is Error {
-  return err instanceof Error && (err as { code?: unknown }).code === undefined;
-}
 
 async function handler(req: NextApiRequest, res: NextApiResponse): Promise<void> {
   if (req.method !== 'POST') {
@@ -95,7 +90,16 @@ async function handler(req: NextApiRequest, res: NextApiResponse): Promise<void>
   try {
     await validateBankReceiptApplication(companyId, bankTxId, allocations);
   } catch (err) {
-    if (isRefusal(err)) {
+    // CONTENTION is answered 409, the way `bank-match-confirm` answers the
+    // parallel event: a peer holding an invoice row is not the caller's
+    // mistake, and 400 is the status this codebase reserves for that and
+    // monitors as such. Still pre-write — the reads above have written
+    // nothing — so the 4xx `withAuth` COMMITs commits nothing either.
+    if (isRetryableReceiptRefusal(err)) {
+      apiResponse.conflict(res, (err as Error).message);
+      return;
+    }
+    if (isReceiptRefusal(err)) {
       apiResponse.badRequest(res, err.message);
       return;
     }

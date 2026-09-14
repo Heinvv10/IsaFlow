@@ -11,6 +11,7 @@ import { useRouter } from 'next/router';
 import Link from 'next/link';
 import { AppLayout } from '@/components/layout/AppLayout';
 import { apiFetch } from '@/lib/apiFetch';
+import { ClaimHeaderBanners, ClaimToast } from '@/components/accounting/expense/ClaimHeaderBanners';
 import {
   ChevronLeft, Loader2, AlertCircle, Send, Check, X, FileCheck,
   MapPin, Receipt, DollarSign,
@@ -68,6 +69,11 @@ export default function ExpenseClaimDetail() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
   const [toast, setToast] = useState<{ msg: string; ok: boolean } | null>(null);
+  // The s17(2)(a) advice the approve/reject endpoint returns. It was computed
+  // and thrown away here — `json.data.claim` was destructured and the rest
+  // dropped — so the person the module doc calls "the last person who sees the
+  // claim before postClaim debits VAT Input" was never actually warned.
+  const [vatAdvice, setVatAdvice] = useState<string[]>([]);
   const [busy, setBusy] = useState(false);
   const [addMode, setAddMode] = useState<'none' | 'receipt' | 'mileage'>('none');
   const [postMode, setPostMode] = useState(false);
@@ -181,11 +187,12 @@ export default function ExpenseClaimDetail() {
       const res = await apiFetch(`/api/accounting/expense-claims/${id}/${endpoint}`, {
         method: 'POST', body: JSON.stringify(body),
       });
-      const json = await res.json() as { data?: { claim?: Claim }; error?: { message?: string } | string };
+      const json = await res.json() as { data?: { claim?: Claim; warnings?: string[] }; error?: { message?: string } | string };
       if (!res.ok || !json.data?.claim) {
         const msg = typeof json.error === 'string' ? json.error : json.error?.message ?? 'Failed';
         showToast(msg, false); return;
       }
+      setVatAdvice(json.data.warnings ?? []);
       setClaim(json.data.claim);
       showToast(`Claim ${json.data.claim.status}`, true);
       if (endpoint === 'post') setPostMode(false);
@@ -249,34 +256,16 @@ export default function ExpenseClaimDetail() {
           </div>
         </div>
 
-        {toast && (
-          <div className={`fixed top-4 right-4 z-50 px-4 py-2 rounded shadow-lg text-sm ${toast.ok ? 'bg-teal-600 text-white' : 'bg-red-700 text-white'}`}>
-            {toast.msg}
-          </div>
-        )}
+        <ClaimToast toast={toast} />
 
         <div className="px-6 py-6 space-y-4">
-          {claim.rejectionReason && (
-            <div className="px-4 py-3 rounded-lg bg-red-900/30 text-red-300 text-sm">
-              <strong>Rejected:</strong> {claim.rejectionReason}
-            </div>
-          )}
-
-          {/* Summary */}
-          <div className="grid grid-cols-3 gap-3">
-            <div className="bg-[var(--ff-canvas-mid)] border border-[rgba(255,255,255,0.08)] rounded-xl p-4">
-              <p className="text-xs text-slate-500 uppercase tracking-wider">Total</p>
-              <p className="text-2xl text-slate-100 font-semibold mt-1">{fmtZAR(claim.totalAmount)}</p>
-            </div>
-            <div className="bg-[var(--ff-canvas-mid)] border border-[rgba(255,255,255,0.08)] rounded-xl p-4">
-              <p className="text-xs text-slate-500 uppercase tracking-wider">VAT</p>
-              <p className="text-2xl text-slate-100 font-semibold mt-1">{fmtZAR(claim.totalVat)}</p>
-            </div>
-            <div className="bg-[var(--ff-canvas-mid)] border border-[rgba(255,255,255,0.08)] rounded-xl p-4">
-              <p className="text-xs text-slate-500 uppercase tracking-wider">Lines</p>
-              <p className="text-2xl text-slate-100 font-semibold mt-1">{claim.lines.length}</p>
-            </div>
-          </div>
+          <ClaimHeaderBanners
+            vatAdvice={vatAdvice}
+            rejectionReason={claim.rejectionReason}
+            totalAmount={claim.totalAmount}
+            totalVat={claim.totalVat}
+            lineCount={claim.lines.length}
+          />
 
           {/* Lines */}
           <div className="bg-[var(--ff-canvas-mid)] border border-[rgba(255,255,255,0.08)] rounded-xl overflow-hidden">

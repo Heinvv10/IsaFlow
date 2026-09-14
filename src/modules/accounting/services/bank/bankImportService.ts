@@ -4,23 +4,23 @@ import type {PendingTransferLink} from './bankTransferLinkPasses';
  * Bank Import Service — statement import and persistence
  */
 
-import { transaction, sql, withTransaction } from '@/lib/neon';
+import { transaction, sql, withTransaction, withSavepoint, assertTxUsable } from '@/lib/neon';
 import { log } from '@/lib/logger';
 import { sweep } from './autoPostGateService';
-import {
-  detectBankFormat,
-  parseFNBStatement,
-  parseStandardBankStatement,
-  parseNedbankStatement,
-  parseABSAStatement,
-  parseCapitecStatement,
-  parseGenericStatement,
-} from '../../utils/bankCsvParsers';
-import { parseOfxStatement } from '../../utils/bankOfxParser';
-import { parseQifStatement } from '../../utils/bankQifParser';
+import { detectBankFormat } from '../../utils/bankCsvParsers';
+import { parseStatement, type StatementFileType } from './bankStatementParseService';
 import type { BankFormat, BankCsvParseResult } from '../../types/bank.types';
 import { autoLinkImportedBatchTransfers, relinkTransferCounterparts } from './bankTransferLinkService';
 import { requireControlTx } from '../controls/context';
+
+/**
+ * Per-call suffix for the auto-post savepoint. `SAVEPOINT x` with a name that is
+ * already live SHADOWS the outer one rather than erroring, so the inner RELEASE
+ * would release its parent's — the same idiom `withTransaction` uses in
+ * `neon.ts`. Sequential calls in one request are safe today; a re-entrant one
+ * would not be, and the failure would be silent.
+ */
+let autoPostSeq = 0;
 
 export interface BulkImportContext {
   bulkImportId: string;
@@ -37,37 +37,15 @@ export async function importBankStatement(
   bankFormat?: BankFormat
 ): Promise<{ batchId: string; transactionCount: number; errors: Array<{ row: number; error: string }>; pendingTransfers?:PendingTransferLink[] }> {
   try {
+    // Through `parseStatement` rather than calling the parsers directly, so this
+    // entry point inherits the same guard: a file that HAS rows and yielded no
+    // transaction is refused instead of returning a clean `{transactionCount: 0}`,
+    // which told a user who picked the wrong file type that the statement was in.
+    // A genuinely empty period still returns 0 rows.
     const format = bankFormat && bankFormat !== 'unknown' ? bankFormat : detectBankFormat(csvContent);
-    let parseResult;
-
-    switch (format) {
-      case 'fnb':
-        parseResult = parseFNBStatement(csvContent);
-        break;
-      case 'standard_bank':
-        parseResult = parseStandardBankStatement(csvContent);
-        break;
-      case 'nedbank':
-        parseResult = parseNedbankStatement(csvContent);
-        break;
-      case 'absa':
-        parseResult = parseABSAStatement(csvContent);
-        break;
-      case 'capitec':
-        parseResult = parseCapitecStatement(csvContent);
-        break;
-      case 'generic':
-        parseResult = parseGenericStatement(csvContent);
-        break;
-      case 'ofx':
-        parseResult = parseOfxStatement(csvContent);
-        break;
-      case 'qif':
-        parseResult = parseQifStatement(csvContent);
-        break;
-      default:
-        throw new Error('Unable to detect bank format. Please specify the bank.');
-    }
+    const fileType: StatementFileType =
+      format === 'ofx' ? 'ofx' : format === 'qif' ? 'qif' : format === 'mt940' ? 'mt940' : 'csv';
+    const parseResult = await parseStatement({ fileType, csvContent, bankFormat: format });
 
     if (parseResult.transactions.length === 0) {
       return { batchId: '', transactionCount: 0, errors: parseResult.errors };
@@ -242,34 +220,57 @@ export async function importParsedTransactions(
       ? [{ row: 0, error: 'Transfer counterpart linking failed — transfers may still show as unallocated. Re-link from the bank transactions page.' }]
       : [];
 
-    // Auto-provisional posting for outflows (best-effort)
+    // Auto-provisional posting for outflows (best-effort). The savepoint is
+    // what makes the swallowing catch safe, for the same reason the transfer
+    // link passes carry one: inside a request the sweep runs on the request's
+    // own client, so an error the catch alone "handles" leaves the transaction
+    // aborted (25P02) and the COMMIT that follows is executed as a ROLLBACK —
+    // discarding the import the caller was just told succeeded.
+    let autoPostFailed = false;
     try {
-      const outflowIds = (await sql`
-        SELECT id FROM bank_transactions
-        WHERE company_id = ${companyId}::UUID
-          AND import_batch_id = ${batchId}::UUID
-          AND amount < 0
-          AND status = 'imported'
-      `) as { id: string }[];
-      if (outflowIds.length > 0) {
-        // The REQUEST's principal, never a synthetic system id. The sweep now
-        // posts through the controlled bank allocation, which authenticates the
-        // acting person against the control transaction — a made-up
-        // 00000000-… user was refused as a context mismatch, poisoning the
-        // transaction and answering 500 for the whole statement. With no control
-        // request there is no principal to post as: requireControlTx refuses
-        // here, and the import completes with nothing auto-posted.
-        const { personId } = requireControlTx().principal;
-        await sweep(companyId, outflowIds.map((r) => String(r.id)), 'import', personId);
-      }
+      autoPostSeq = (autoPostSeq + 1) % 1_000_000;
+      await withSavepoint(`bank_import_autopost_${autoPostSeq}`, async () => {
+        const outflowIds = (await sql`
+          SELECT id FROM bank_transactions
+          WHERE company_id = ${companyId}::UUID
+            AND import_batch_id = ${batchId}::UUID
+            AND amount < 0
+            AND status = 'imported'
+        `) as { id: string }[];
+        if (outflowIds.length > 0) {
+          // The REQUEST's principal, never a synthetic system id. The sweep now
+          // posts through the controlled bank allocation, which authenticates the
+          // acting person against the control transaction — a made-up
+          // 00000000-… user was refused as a context mismatch, poisoning the
+          // transaction and answering 500 for the whole statement. With no control
+          // request there is no principal to post as: requireControlTx refuses
+          // here, and the import completes with nothing auto-posted.
+          const { personId } = requireControlTx().principal;
+          await sweep(companyId, outflowIds.map((r) => String(r.id)), 'import', personId);
+        }
+      });
     } catch (provErr) {
+      // The savepoint makes the failure survivable only when the ROLLBACK TO
+      // SAVEPOINT itself succeeded. When it did not, withSavepoint marks the
+      // context and the request transaction really is aborted — degrading THAT
+      // to a warning row would hand back the clean-looking import this fix
+      // exists to prevent, because the COMMIT will still be a ROLLBACK.
+      // assertTxUsable rethrows carrying the original cause.
+      assertTxUsable();
+      autoPostFailed = true;
       log.warn('auto-post sweep failed after parsed import — non-fatal', { batchId, error: provErr }, 'accounting');
     }
+
+    // Same reasoning as linkErrors: a swallowed failure that only reaches a log
+    // line reads to the caller as a clean import.
+    const autoPostErrors = autoPostFailed
+      ? [{ row: 0, error: 'Auto-posting of imported outflows failed — the transactions were imported but are still unposted. Post them from the bank transactions page.' }]
+      : [];
 
     return {
       batchId,
       transactionCount: parseResult.transactions.length,
-      errors: [...parseResult.errors, ...linkErrors],
+      errors: [...parseResult.errors, ...linkErrors, ...autoPostErrors],
       pendingTransfers: [...new Map([...(batchLink.pending??[]),...(accountLink.pending??[])].map(item=>[item.intentId,item])).values()],
     };
   } catch (err) {

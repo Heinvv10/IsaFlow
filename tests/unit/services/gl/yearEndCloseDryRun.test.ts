@@ -12,19 +12,33 @@ vi.mock('@/modules/accounting/services/controls/generatedJournalPermit',()=>({re
 vi.mock('@/modules/accounting/services/gl/journalEntryPostingService',()=>({postJournalEntry:m.post}));
 vi.mock('@/modules/accounting/services/controls/operationVersions',()=>({readControlEntityVersion:vi.fn(async()=>null)}));
 vi.mock('@/modules/accounting/services/controls/changeEventService',()=>({recordCommittedChange:m.event}));
+// The LEDGER lookups — the already-closed journal, the residual re-read, the
+// locked-period count — go through the module-level `sql`, which is the same
+// transaction client `ctx.sql` runs on (ControlQuery delegates straight to it).
+// Pointing both at one mock keeps that true here. importOriginal, so every
+// other neon export stays real for the modules that load it.
+vi.mock('@/lib/neon',async(importOriginal)=>({...await importOriginal<typeof import('@/lib/neon')>(),sql:m.sql}));
+vi.mock('@/lib/logger',()=>({log:{info:vi.fn(),warn:vi.fn(),error:vi.fn(),debug:vi.fn()}}));
 import {buildYearEndFinancialMaterial} from '@/modules/accounting/services/controls/yearEndFinancialMaterial';
 import {closeFiscalYear} from '@/modules/accounting/services/gl/yearEndService';
 const ctx={principal:{companyId:COMPANY,personId:USER},sql:m.sql} as unknown as ControlTx;
 let source:YearClosingSources,retained:Record<string,unknown>[],entry:Record<string,unknown>,bound=false;
+/** Whatever row holds `YE-<year>` in the ledger, and the year's P&L as re-read after that lookup. */
+let ledger:Record<string,unknown>[],residual:{revenue:Record<string,unknown>[];expense:Record<string,unknown>[]};
 const policies=()=>bound?[{policyId:'policy',requiredRole:'admin'}]:[];
 beforeEach(()=>{
- vi.resetAllMocks();entry={};bound=false;
+ vi.resetAllMocks();entry={};bound=false;ledger=[];residual={revenue:[],expense:[]};
  source={company:{default_currency:'ZAR',financial_year_start:3},periods:[{id:'period',period_name:'March 2026',period_number:1,start_date:'2026-03-01',end_date:'2027-02-28',status:'closed'}],
   journals:[{id:'posted',status:'posted'}],accounts:[{id:'rev',account_code:'4000',account_name:'Sales',account_type:'revenue'},{id:'exp',account_code:'5000',account_name:'Wages',account_type:'expense'}],
   lines:[{journal_entry_id:'posted',gl_account_id:'rev',debit:'0',credit:'1000000'},{journal_entry_id:'posted',gl_account_id:'exp',debit:'400000',credit:'0'}]};
  retained=[{id:'re',account_code:'3200',account_name:'Retained Earnings',account_type:'equity',is_active:true}];
  m.sql.mockImplementation(async(parts:TemplateStringsArray,...args:unknown[])=>{
   const text=parts.join('?');
+  // Before the gl_accounts branch: the P&L re-read joins gl_accounts too.
+  if(text.includes('entry_number = '))return ledger;
+  if(text.includes("ga.account_type = 'revenue'"))return residual.revenue;
+  if(text.includes("ga.account_type = 'expense'"))return residual.expense;
+  if(text.includes('count(*)::int AS n'))return[{n:12}];
   if(text.includes('FROM gl_accounts'))return retained;
   if(text.includes('control_operation_effects'))return [];
   if(text.includes('INSERT INTO gl_journal_entries')){entry={id:args[0],status:'draft',fiscal_period_id:args[4]};return[entry];}
@@ -91,6 +105,55 @@ describe('financial-year exact preview',()=>{
  });
  it('returns missing year without a write',async()=>{
   source.periods=[];expect(await close()).toEqual({error:'year_not_found'});expect(writes()).toEqual([]);
+ });
+ // ── Already closed, read from the LEDGER ────────────────────────────────────
+ // The receipt replay in `prior()` only knows closes THIS programme performed.
+ // A year closed before the controls existed has no receipt, so without the
+ // ledger lookup the close walked past it, wrote a second YE-<year> and died on
+ // uq_gl_je_company_entry_number as a raw 23505 → HTTP 500. `control_operation_effects`
+ // returns [] throughout these cases: there is no receipt, only a ledger row.
+ const closed={id:'je-old',source:'year_end',status:'posted',entry_number:'YE-2027'};
+ it('reports a year the LEDGER says is closed, with no control receipt behind it, and writes nothing',async()=>{
+  ledger=[closed];
+  expect(await close(false)).toMatchObject({alreadyClosed:true,closingEntry:{id:'je-old'},
+   periodsLockedInYear:12,netIncome:0,unclosedNetIncome:0});
+  expect(writes()).toEqual([]);expect(m.execute).not.toHaveBeenCalled();expect(m.post).not.toHaveBeenCalled();
+ });
+ it('does not walk past a locked, already-closed year into a second closing journal',async()=>{
+  // The periods of a closed year are LOCKED, not 'closed'. Detection has to
+  // happen before the eligibility check that insists on 'closed', or the caller
+  // gets a thrown 500 instead of the answer.
+  ledger=[closed];source.periods[0]!.status='locked';
+  expect(await close(false)).toMatchObject({alreadyClosed:true});
+  expect(writes()).toEqual([]);
+ });
+ it('names the residual P&L posted into the year SINCE it closed, which no close can sweep up',async()=>{
+  ledger=[closed];
+  residual.revenue=[{id:'rev',account_code:'4000',account_name:'Sales',balance:'150'}];
+  const result=await close(false) as {unclosedNetIncome:number;netIncome:number;message:string};
+  expect(result.unclosedNetIncome).toBe(150);expect(result.netIncome).toBe(150);
+  expect(result.message).toMatch(/WARNING/);expect(writes()).toEqual([]);
+ });
+ it('offers NOTHING on a dry run of a closed year: preview null, the stranded lines named separately',async()=>{
+  ledger=[closed];
+  const result=await close(true) as {preview:null;residualPreview:{entryNumber:string};alreadyClosed:boolean;
+   existingEntry:{id:string};unclosedNetIncome:number};
+  expect(result.preview).toBeNull();
+  expect(result.alreadyClosed).toBe(true);expect(result.existingEntry.id).toBe('je-old');
+  expect(result.residualPreview.entryNumber).toBe('YE-2027');
+  expect(result.unclosedNetIncome).toBe(0);expect(writes()).toEqual([]);
+ });
+ it.each([true,false])('refuses a SQUATTER holding the closing entry number rather than 500ing on it (dryRun=%s)',async(dry)=>{
+  ledger=[{id:'je-manual',source:'manual',status:'posted',entry_number:'YE-2027'}];
+  expect(await close(dry)).toEqual({error:'closing_entry_number_taken',entryNumber:'YE-2027',
+   entryId:'je-manual',source:'manual',status:'posted'});
+  expect(writes()).toEqual([]);
+ });
+ it.each([true,false])('refuses a REVERSED closing journal as not-closed-and-unclosable (dryRun=%s)',async(dry)=>{
+  ledger=[{id:'je-rev',source:'year_end',status:'reversed',entry_number:'YE-2027'}];
+  expect(await close(dry)).toEqual({error:'closing_journal_not_posted',entryNumber:'YE-2027',
+   entryId:'je-rev',status:'reversed'});
+  expect(writes()).toEqual([]);
  });
  it('uses controlled posting and final-period association, returning actual posting attribution',async()=>{
   const result=await close(false);

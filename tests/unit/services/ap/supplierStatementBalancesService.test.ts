@@ -1,5 +1,6 @@
+import {mockUnsafe,recordSqlCall} from '../../helpers/sqlFragmentMock';
 import { beforeEach, expect, it, vi } from 'vitest';
-vi.mock('@/lib/neon',()=>({sql:vi.fn()}));
+vi.mock('@/lib/neon',()=>({sql:Object.assign(vi.fn(),{unsafe:mockUnsafe})}));
 vi.mock('@/modules/accounting/services/ap/apAgingService',()=>({getAPAging:vi.fn()}));
 import {sql} from '@/lib/neon';
 import {getAPAging} from '@/modules/accounting/services/ap/apAgingService';
@@ -22,8 +23,10 @@ it('queries company-scoped live allocation and credit sources through the same c
  vi.mocked(getAPAging).mockResolvedValue([]);
  vi.mocked(sql).mockResolvedValue([]);
  await getSupplierStatementBalances(companyId,'2026-08-31');
- const [strings,...values]=vi.mocked(sql).mock.calls[0]!;
- const query=strings.join('');
+ const [strings,...raw]=vi.mocked(sql).mock.calls[0]!;
+ // recordSqlCall splices the as-at fragment exactly as the real client does,
+ // so `query` and `values` are what Postgres would have been sent.
+ const {sql:query,values}=recordSqlCall(strings,raw);
  expect(query).toContain('payment_allocations');
  expect(query).not.toContain('supplier_payment_allocations');
  expect(query).toContain('applied_amount');

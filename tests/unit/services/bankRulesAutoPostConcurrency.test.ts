@@ -88,7 +88,7 @@ const USER = '33333333-3333-3333-3333-333333333333';
 /** The row the auto-apply path locks before it posts for a candidate. */
 function lockedRow(overrides: Record<string, unknown> = {}) {
   return {
-    id: 'tx-1', status: 'imported', matched_journal_line_id: null,
+    id: 'tx-1', status: 'imported', feed_state: 'posted', matched_journal_line_id: null,
     amount: -100, transaction_date: '2026-08-13', description: 'BANK FEE',
     ...overrides,
   };

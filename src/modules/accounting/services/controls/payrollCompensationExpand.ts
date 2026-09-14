@@ -1,6 +1,7 @@
 import {randomUUID} from 'node:crypto';
 import Decimal from 'decimal.js';
 import {assignmentState,type CompensationSources} from './payrollCompensationSource';
+import {endOfMonthIso} from '../payroll/leaveAccrualService';
 import {assertCompensationWindow} from './payrollCompensationWindows';
 import {parsePayrollCompensationInput,parsePayrollCompensationPayload,compensationExposure,type PayrollCompensationAction} from './payrollCompensationPlan';
 const D=Decimal.clone({precision:80});
@@ -24,18 +25,35 @@ export function expandPayrollCompensation(value:unknown,s:CompensationSources){
  }else if(input.source.kind==='package'&&'effectiveFrom' in input){
   if(!s.sourceHeader||s.sourceHeader.is_active!==true)throw new Error('Active owned pay package required');
   const components=new Set<string>();
+  const from=input.effectiveFrom;
+  const onceOffEnd=endOfMonthIso(Number(from.slice(0,4)),Number(from.slice(5,7)));
   for(const line of s.sourceLines){
    const componentId=String(line.component_id);if(components.has(componentId))throw new Error('Duplicate package component');components.add(componentId);
-   for(const old of s.assignments.filter(r=>r.employee_id===input.source.employeeId&&r.component_id===componentId&&r.effective_to===null)){
-    actions.push({...assignmentState(old,'end'),effectiveTo:previousDay(input.effectiveFrom)});
+   // Supersede every assignment this apply OVERLAPS, not only the open-ended ones: a once-off row
+   // is inserted already closed, so an effective_to IS NULL predicate steps over the previous
+   // apply's row and leaves two live windows the run pays twice.
+   for(const old of s.assignments.filter(r=>r.employee_id===input.source.employeeId&&r.component_id===componentId
+    &&(r.effective_to===null||String(r.effective_to)>=from))){
+    actions.push({...assignmentState(old,'end'),effectiveTo:previousDay(from)});
    }
-   assign(input.source.employeeId,componentId,String(line.amount),input.effectiveFrom,null,line.is_recurring===true);
+   // A once-off package row is paid once: the reader filters on the date window only and ignores
+   // is_recurring, so an open-ended row is paid in every later run. Closed at the end of
+   // effectiveFrom's own month — the one rule shared with the batch and the manual assignment.
+   const isRecurring=line.is_recurring===true;
+   assign(input.source.employeeId,componentId,String(line.amount),from,isRecurring?null:onceOffEnd,isRecurring);
   }
  }else{
   const header=s.sourceHeader;if(!header||header.status!=='validated')throw new Error('Payroll batch must be validated');
   if(Number(header.line_count)!==s.sourceLines.length||!new D(String(header.total_amount)).eq(s.sourceLines.reduce((sum,line)=>sum.add(String(line.value??0)),new D(0))))throw new Error('Batch source population does not reconcile');
   for(const line of s.sourceLines){
-   const args={employee:String(line.employee_id),from:String(line.effective_from),to:line.effective_to===null?null:String(line.effective_to),recurring:header.is_recurring===true};
+   // Same close rule as the package and the manual assignment: a once-off line with no
+   // effective_to of its own dies at the end of its OWN effective_from month. The batch period
+   // end would be wrong in both directions — a backdated line would pay every month up to it,
+   // and a line dated past it would clamp to a single day the run never evaluates.
+   const lineFrom=String(line.effective_from),lineRecurring=header.is_recurring===true;
+   const args={employee:String(line.employee_id),from:lineFrom,recurring:lineRecurring,
+    to:line.effective_to!==null?String(line.effective_to)
+     :lineRecurring?null:endOfMonthIso(Number(lineFrom.slice(0,4)),Number(lineFrom.slice(5,7)))};
    if(header.batch_type==='component_values')assign(args.employee,String(header.component_id),String(line.value),args.from,args.to,args.recurring);
    else{
     const taxable=new D(String(line.taxable_portion??0)),nonTaxable=new D(String(line.non_taxable_portion??0));

@@ -8,6 +8,9 @@ import { sql } from '@/lib/neon';
 import { fmtDate as fmtDbDate } from '@/lib/fmtDate';
 import type { DbRow } from '@/lib/neon';
 import { log } from '@/lib/logger';
+import { documentInLedgerAsAtFragment } from '../shared/softDeleteLedgerPresence';
+import { classifyStatementInvoice } from '../shared/statementInvoiceExclusion';
+import { creditNoteAppliedAmount } from '../shared/creditNoteAppliedAmount';
 import { sendEmail } from '../core/emailService';
 import type { EmailResult } from '../core/emailService';
 import { buildStatementEmailHtml } from './statementEmailTemplate';
@@ -45,26 +48,6 @@ const fmtDate = (d: string): string => {
 
 // ─── Statement Fetcher ────────────────────────────────────────────────────────
 
-/**
- * What a live credit note actually took off the customer's account.
- *
- * Approving a note applies MIN(total_amount, outstanding) and records that
- * capped figure in `applied_amount`; the status only becomes 'applied' when
- * that figure is above zero. So:
- *   - 'applied'  → applied_amount is what was consumed, and total_amount may be
- *     larger. The remainder is stranded: a note at 'applied' cannot be applied
- *     again, so crediting the face value shows the customer more credit than
- *     they received and UNDERSTATES what they owe — on a document we email them.
- *   - 'approved' → applied_amount is 0 by construction, and the note is
- *     unallocated credit the customer holds at face value.
- * Same rule the aging already follows (agingRewind, apAgingService).
- */
-function creditNoteAmount(cn: { status?: unknown; total_amount?: unknown; applied_amount?: unknown }): number {
-  return String(cn.status ?? '') === 'applied'
-    ? Number(cn.applied_amount ?? 0)
-    : Number(cn.total_amount ?? 0);
-}
-
 export async function fetchStatementData(
   companyId: string,
   customerId: string,
@@ -74,6 +57,10 @@ export async function fetchStatementData(
     SELECT id, name, email
     FROM customers
     WHERE id = ${customerId}::UUID AND company_id = ${companyId}::UUID
+    -- A soft-deleted CUSTOMER has no statement: the record is hidden
+    -- everywhere else (customerLedgerService does the same), and drawing one
+    -- here would email a balance for a contact the user has removed.
+      AND deleted_at IS NULL
   ` as Row[];
 
   if (customerRows.length === 0) return null;
@@ -81,12 +68,28 @@ export async function fetchStatementData(
 
   const [invoices, payments, creditNotes] = await Promise.all([
     sql`
-      SELECT id, invoice_number, invoice_date, total_amount
-      FROM customer_invoices
-      WHERE COALESCE(client_id, customer_id) = ${customerId}::UUID
-        AND company_id = ${companyId}::UUID
-        AND status != 'cancelled'
-        AND invoice_date <= ${asAtDate}::DATE
+      SELECT ci.id, ci.invoice_number, ci.invoice_date, ci.total_amount, ci.status
+      FROM customer_invoices ci
+      WHERE COALESCE(ci.client_id, ci.customer_id) = ${customerId}::UUID
+        AND ci.company_id = ${companyId}::UUID
+        -- NOT filtered by status here (R-082 round 2): every candidate
+        -- invoice is fetched, then classified below into transactions or
+        -- excluded with documentInPopulation, the JS twin of the ageing's
+        -- status rule (shared/documentPopulation). A SQL-level filter made a
+        -- draft (and, once decided, a pending-approval or cancelled)
+        -- invoice vanish before it could be counted anywhere — the MCP
+        -- customer_statement tool's own contract claimed only cancelled was
+        -- omitted, and an agent reading it had no way to see a draft leave
+        -- silently.
+        -- The statement is what the customer is asked to pay, drawn AS AT a
+        -- date, so it takes the same DATED soft-delete question arAgingService
+        -- asks (that, and only that, is shared): the
+        -- delete's reversal lands on the delete date, and until that date the
+        -- control account still carries the invoice. An undated
+        -- deleted_at IS NULL here would state a balance to the customer that
+        -- disagrees with both aging and the GL for every earlier as-at date.
+        AND ${documentInLedgerAsAtFragment('ci', asAtDate, companyId)}
+        AND ci.invoice_date <= ${asAtDate}::DATE
       ORDER BY invoice_date
     ` as Promise<Row[]>,
 
@@ -117,8 +120,14 @@ export async function fetchStatementData(
   ]);
 
   const transactions: StatementTransaction[] = [];
+  const excluded: StatementExclusion[] = [];
 
   for (const inv of invoices) {
+    const exclusion = classifyStatementInvoice(inv, 'Invoice');
+    if (exclusion) {
+      excluded.push(exclusion);
+      continue;
+    }
     transactions.push({
       date: toISODate(inv.invoice_date),
       type: 'invoice',
@@ -138,7 +147,6 @@ export async function fetchStatementData(
   // filtering to 'approved' alone hid every applied note and overstated the
   // balance by their full value.
   const LIVE_CREDIT_NOTE_STATUSES = new Set(['approved', 'applied']);
-  const excluded: StatementExclusion[] = [];
 
   for (const pmt of payments) {
     const status = String(pmt.status ?? '');
@@ -178,7 +186,7 @@ export async function fetchStatementData(
       type: 'credit_note',
       reference: String(cn.credit_note_number ?? ''),
       debit: 0,
-      credit: creditNoteAmount(cn),
+      credit: creditNoteAppliedAmount(cn),
       balance: 0,
     });
   }

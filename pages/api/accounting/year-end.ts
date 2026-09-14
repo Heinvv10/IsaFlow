@@ -10,7 +10,7 @@ import { withErrorHandler } from '@/lib/api-error-handler';
 import { apiResponse } from '@/lib/apiResponse';
 import { withAuth, type CompanyAuthedRequest, withRole, type AuthenticatedNextApiRequest } from '@/lib/auth';
 import { withCsrf } from '@/lib/auth/withCsrf';
-import { withFlowMeter } from '@/lib/billing/withFlowMeter';
+import { withFlowMeter, markFlowNoOp } from '@/lib/billing/withFlowMeter';
 import { getFlowCost } from '@/modules/billing/services/flowOperationCatalog';
 import { log } from '@/lib/logger';
 import { UUID_RE } from '@/lib/validation';
@@ -120,14 +120,48 @@ async function postHandler(req: NextApiRequest, res: NextApiResponse) {
               `${result.expected.startDate} to ${result.expected.endDate}. Closing the periods as they stand would ` +
               'roll the wrong twelve months into retained earnings and lock them, so nothing was closed. The fiscal ' +
               'periods must be aligned with the financial year first — a data correction for a company owner or admin to decide.');
+        case 'no_fiscal_period':
+          return apiResponse.badRequest(
+            res,
+            `No fiscal period covers ${result.entryDate}, where the closing journal has to ` +
+              `land. Create the period that covers the last day of the year, then close again.`
+          );
+        case 'closing_journal_not_posted':
+          return apiResponse.conflict(
+            res,
+            `This year already has a closing journal (${result.entryNumber}) and it is `
+              + `${result.status}, not posted. The year is therefore NOT closed, but it also `
+              + `cannot be closed again while that entry holds the number. Delete or renumber `
+              + `journal ${result.entryId}, then close the year.`
+          );
+        case 'closing_entry_number_taken':
+          return apiResponse.conflict(
+            res,
+            `Journal ${result.entryId} already carries the entry number this year's closing `
+              + `journal needs (${result.entryNumber}). It is a ${result.source} journal in `
+              + `status ${result.status}, not a year-end close, so the year is NOT closed — but `
+              + `entry numbers are unique per company, so it cannot be closed while that row `
+              + `holds the number. Renumber journal ${result.entryId}, then close the year.`
+          );
         default: {
-          // A new outcome must be mapped here; it can never fall through to 200.
-          const unmapped: never = result;
-          throw new Error(`Unmapped year-end outcome: ${(unmapped as { error: string }).error}`);
+          // Exhaustive over CloseYearError: `unhandled` stops being `never` the
+          // moment a member is added without a case. Without this the refusal
+          // fell through to the success response below and the route answered
+          // 200 with an `error` body — which is exactly what `no_fiscal_period`
+          // and `period_range_mismatch` did.
+          const unhandled: never = result;
+          log.error('Year-end close refused with an unhandled error shape',
+            { unhandled, yearLabel, module: 'accounting' });
+          return apiResponse.badRequest(res, 'Year-end close was refused.');
         }
       }
     }
 
+    // A re-run of an already-closed year is a 200 that writes NOTHING: no
+    // journal, no lock, no ledger movement. Metering it would bill a retry
+    // loop — the MCP timeout-retry K-113 records as the live trigger — once
+    // per attempt for one close.
+    if (result.alreadyClosed) markFlowNoOp(req);
     return apiResponse.success(res, result);
   } catch (err) {
     // The live close raises the kernel's approval refusal (the preview returns

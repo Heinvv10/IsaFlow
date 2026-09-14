@@ -27,6 +27,14 @@ vi.mock('@/lib/auth', () => ({
   withAuth: (fn: unknown) => fn,
   withWriteAccess: (fn: unknown) => fn,
 }));
+vi.mock('@/lib/als', () => ({
+  // The route now takes a FOR UPDATE row lock before its status check, which
+  // needs the request transaction's client. These tests mock the database
+  // wholesale, so the store is stubbed; the lock's real behaviour is proven
+  // against Postgres in tests/integration/k072-capture-double-post.int.test.ts.
+  als: { getStore: () => ({ client: { query: vi.fn() } }) },
+  assertTxUsable: vi.fn(),
+}));
 vi.mock('@/lib/auth/withCsrf', () => ({ withCsrf: (fn: unknown) => fn }));
 vi.mock('@/lib/api-error-handler', () => ({ withErrorHandler: (fn: unknown) => fn }));
 vi.mock('@/lib/apiResponse', () => ({
@@ -77,6 +85,8 @@ vi.mock('@/modules/accounting/services/expense/expenseClaimService', () => ({
 // receiptToJournalService stays REAL — the point is that the genuine builder
 // emits the zero leg this route must filter.
 import handler from '../../../pages/api/accounting/capture/[id]/post-expense';
+import { getSystemAccountId } from '@/modules/accounting/services/gl/systemAccountResolver';
+import { MissingSystemAccountError } from '@/modules/accounting/services/gl/systemAccountKeys';
 import { ClosedFiscalPeriodError } from '@/modules/accounting/services/gl/journalEntryPostingService';
 import { validateJournalEntry } from '@/modules/accounting/utils/doubleEntry';
 
@@ -105,11 +115,18 @@ function stubDb(extracted: Record<string, unknown>) {
     if (text.includes('FROM capture_events')) {
       return Promise.resolve([{
         event_id: EVENT_ID,
-        event_status: 'pending',
+        // 'pending' is not in the capture_events CHECK vocabulary — the route's
+        // postable ALLOW-list refuses it, so use the real post-extraction status.
+        event_status: 'extracted',
         captured_document_id: DOC_ID,
         extracted_data: extracted,
       }]);
     }
+    // The route CLAIMS the document — a status-predicated UPDATE ... RETURNING
+    // id — before its first ledger write, and refuses with a 400 when the
+    // statement matches no row. A stub that answered [] to everything therefore
+    // made every test here refuse instead of post.
+    if (text.includes('UPDATE captured_documents')) return Promise.resolve([{ id: DOC_ID }]);
     if (text.includes('FROM gl_accounts')) return Promise.resolve([]);
     return Promise.resolve([]);
   }) as never);
@@ -146,6 +163,11 @@ const ZERO_VAT = {
   date: '2026-08-13',
   vendorName: 'Standard Bank',
   confidence: 0.95,
+  // The text the auto-post gate re-reads: a purchase title (K-072 round 20),
+  // one printed total, a VAT figure.
+  rawText: 'Standard Bank\nTAX INVOICE\nSub Total 500.00\nVAT 0.00\nTotal 500.00',
+  // Only a structured extraction may post unattended (K-072 round 14).
+  extractionMethod: 'vlm',
 };
 
 beforeEach(() => {
@@ -194,11 +216,24 @@ describe('capture post-expense — zero-VAT receipts', () => {
 
     await handler(req(), res());
 
-    const lookup = sqlMock.mock.calls.find(c => {
+    const eventStatements = sqlMock.mock.calls.filter(c => {
       const text = Array.isArray(c[0]) ? (c[0] as string[]).join('') : String(c[0]);
       return text.includes('FROM capture_events');
     });
-    expect(lookup, 'the route must read capture_events').toBeDefined();
+    // The route reads the event TWICE: the FOR UPDATE lock, then the join that
+    // carries the extracted document. Both are the caller's tenant or neither.
+    expect(eventStatements.length, 'the route must read capture_events').toBeGreaterThan(0);
+    for (const statement of eventStatements) {
+      const sqlText = (statement[0] as unknown as string[]).join('');
+      expect(sqlText).toContain('company_id');
+      expect(statement.slice(1)).toContain(COMPANY_ID);
+    }
+
+    const lookup = eventStatements.find(c => {
+      const text = (c[0] as unknown as string[]).join('');
+      return text.includes('JOIN captured_documents');
+    });
+    expect(lookup, 'the route must join the captured document').toBeDefined();
 
     const text = (lookup![0] as unknown as string[]).join('');
     // Both sides of the join are scoped — the document is reachable through the
@@ -251,5 +286,54 @@ describe('capture post-expense — zero-VAT receipts', () => {
     // it looked up `WHERE id = <userId> AND company_id = <jeId>`, threw, and was
     // swallowed — auto-post never actually posted.
     expect(postMock).toHaveBeenCalledWith(COMPANY_ID, 'je-pe-1', USER_ID);
+  });
+
+  it('does not auto-post a credit note, though its figures are the same', async () => {
+    // The receipt above auto-posts; only the classification differs. A refund
+    // booked here is EXP / VAT-in / bank credit — the direction reversed.
+    stubDb({ ...ZERO_VAT, documentType: 'credit_note' });
+
+    await handler(req(), res());
+
+    expect(createMock).toHaveBeenCalled();
+    expect(postMock).not.toHaveBeenCalled();
+  });
+});
+
+describe('capture post-expense — a transient fault is not a configuration answer', () => {
+  // L-1's narrowing, which nothing exercised. `getSystemAccountId` runs a real
+  // query, so the bare `catch` that used to sit here reported a database fault
+  // to the operator as "set it up in Default Accounts" — unlogged, pointing at
+  // the wrong remedy, and hiding an outage behind a 400. Only the MISSING ROLE
+  // is answered; everything else propagates.
+  it('rethrows a database fault raised while resolving the VAT Input role', async () => {
+    stubDb(ZERO_VAT);
+    const original = vi.mocked(getSystemAccountId).getMockImplementation()!;
+    vi.mocked(getSystemAccountId).mockImplementation(async (key: string, companyId: string) => {
+      if (key === 'vat_input') throw Object.assign(new Error('connection terminated'), { code: '57P01' });
+      return original(key, companyId);
+    });
+    try {
+      await expect(handler(req(), res())).rejects.toThrow(/connection terminated/);
+      expect(createMock).not.toHaveBeenCalled();
+    } finally {
+      vi.mocked(getSystemAccountId).mockImplementation(original);
+    }
+  });
+
+  it('still answers 400 when the role is genuinely unmapped', async () => {
+    stubDb(ZERO_VAT);
+    const original = vi.mocked(getSystemAccountId).getMockImplementation()!;
+    vi.mocked(getSystemAccountId).mockImplementation(async (key: string, companyId: string) => {
+      if (key === 'vat_input') throw new MissingSystemAccountError('vat_input', companyId, 'no_claimant', []);
+      return original(key, companyId);
+    });
+    try {
+      const result = await handler(req(), res());
+      expect(result).toMatchObject({ kind: 'badRequest' });
+      expect(createMock).not.toHaveBeenCalled();
+    } finally {
+      vi.mocked(getSystemAccountId).mockImplementation(original);
+    }
   });
 });

@@ -8,6 +8,7 @@ import openingBalances from '../../pages/api/accounting/opening-balances';
 import exportBalances from '../../pages/api/accounting/opening-balances-export';
 import setupGuide from '../../pages/api/accounting/setup-guide';
 import { assertDisposable,request,response } from './mfa-impersonation-postgres.helpers';
+import { insertPreConstraintRow } from './helpers/preConstraintRow';
 
 assertDisposable();
 const pool=new Pool({connectionString:process.env.DATABASE_URL});
@@ -163,7 +164,8 @@ it('historical inventory identifies a privileged synthetic foreign-account row w
   // This fixture is inserted by the disposable DB owner, not through the vulnerable route.
   const id=crypto.randomUUID();
   await pool.query("INSERT INTO gl_journal_entries(id,company_id,entry_date,created_by,source,reference) VALUES($1,$2,'2026-01-01',$3,'manual','opening_balance')",[id,first,user]);
-  await pool.query('INSERT INTO gl_journal_lines(journal_entry_id,company_id,gl_account_id,debit,credit) VALUES($1,$2,$3,1,0)',[id,first,foreign]);
+  // Migration 664 refuses this pair; the row is the pre-664 shape the inventory exists to find.
+  await insertPreConstraintRow(pool,'INSERT INTO gl_journal_lines(journal_entry_id,company_id,gl_account_id,debit,credit) VALUES($1,$2,$3,1,0)',[id,first,foreign]);
   const rows=(await pool.query(readFileSync('docs/audits/remediation/K-006/historical-impact.sql','utf8'),[first])).rows;
   expect(rows.find(row=>row.id===id)).toMatchObject({unowned_account_lines:'1',status:'draft'});
   expect((await pool.query(readFileSync('docs/audits/remediation/K-006/historical-impact.sql','utf8'),[second])).rows).toEqual([]);

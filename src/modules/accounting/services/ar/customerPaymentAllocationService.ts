@@ -5,7 +5,7 @@ import {assertCashApplicationsUnapplied} from '../shared/cashApplicationCancella
  * Extracted from customerPaymentService.ts for file-size compliance.
  */
 
-import { sql } from '@/lib/neon';
+import { sql, withSavepoint } from '@/lib/neon';
 import { fmtDate } from '@/lib/fmtDate';
 import type { DbRow } from '@/lib/neon';
 import { log } from '@/lib/logger';
@@ -17,6 +17,7 @@ import {lockArPaymentSources} from '../controls/arSourceMaterial';
 import {registerGeneratedJournal} from '../controls/generatedJournalPermit';
 import type {ArParentControl} from './customerInvoiceFinancialEffect';
 import {mutateArInvoiceBalance} from './arInvoiceBalanceEffect';
+import { lockCustomerPaymentForUpdate } from '../core/paymentLock';
 import { getCustomerPaymentById } from './customerPaymentService';
 import type { CustomerPayment } from '../../types/ar.types';
 import type { JournalLineInput } from '../../types/gl.types';
@@ -24,6 +25,15 @@ import type { JournalLineInput } from '../../types/gl.types';
 import {approveCustomerInvoice} from './customerInvoiceApprovalService';
 import {runArControlled,requireArControl,type ArApprovalOptions} from './arControlBoundary';
 type Row = DbRow;
+
+/**
+ * Allocation rows in ASCENDING invoice id — the order `fetchInvoiceCandidates`
+ * already takes its `FOR UPDATE OF ci` in. Two receipts touching the same two
+ * invoices in opposite orders hold one row each and deadlock (40P01).
+ */
+function byInvoiceId<T extends { invoiceId: string }>(allocs: readonly T[]): T[] {
+  return [...allocs].sort((a, b) => (a.invoiceId < b.invoiceId ? -1 : a.invoiceId > b.invoiceId ? 1 : 0));
+}
 
 /**
  * @param opts.postingAgent Stamp for the DR Bank / CR AR journal this posts.
@@ -41,7 +51,30 @@ async function confirmCustomerPaymentEffect(
   opts: PostingActorOpts|undefined,
   parentControl:ArParentControl,
 ): Promise<CustomerPayment> {
+  // SAVEPOINT: the route answers 400 for everything and `withAuth` COMMITs a
+  // 4xx, so a throw after the invoice loop would commit invoices reading as
+  // paid against a payment still 'draft'.
+  return withSavepoint('confirm_customer_payment', () =>
+    confirmCustomerPaymentInner(companyId, id, userId, opts, parentControl),
+  );
+}
+
+async function confirmCustomerPaymentInner(
+  companyId: string,
+  id: string,
+  userId: string,
+  opts: PostingActorOpts|undefined,
+  parentControl:ArParentControl,
+): Promise<CustomerPayment> {
   try {
+    // (2) THE PAYMENT FIRST — the inverse of `planReceiptApplication`, which
+    // locks the receipt and THEN the invoices through `fetchInvoiceCandidates`;
+    // both reach the same payment and the same invoice. The journal this posts
+    // below is CREATED here, so no other transaction can contend for it and it
+    // does not belong to the ordering.
+    if (!(await lockCustomerPaymentForUpdate(companyId, id))) {
+      throw new Error(`Payment ${id} not found`);
+    }
     const payment = await getCustomerPaymentById(companyId, id);
     if (!payment) throw new Error(`Payment ${id} not found`);
     if (payment.status !== 'draft') throw new Error(`Cannot confirm payment with status: ${payment.status}`);
@@ -75,8 +108,9 @@ async function confirmCustomerPaymentEffect(
     await postJournalEntry(companyId,je.id,userId,{parentControl});
 
     // Update invoice balances and mark payment confirmed — runs on the ALS-bound
-    // connection so the outer withAuth transaction provides atomicity.
-    for (const alloc of payment.allocations) {
+    // connection so the outer withAuth transaction provides atomicity, and BY
+    // INVOICE ID so two confirms sharing two invoices cannot deadlock.
+    for (const alloc of byInvoiceId(payment.allocations)) {
       const newPaid = alloc.amountAllocated;
       await mutateArInvoiceBalance(ctx,alloc.invoiceId,parentControl,'payment_applied',()=>sql`
         UPDATE customer_invoices
@@ -117,7 +151,32 @@ async function cancelCustomerPaymentEffect(
   reason: string|undefined,
   parentControl:ArParentControl,
 ): Promise<CustomerPayment> {
+  // SAVEPOINT for the same reason `voidSupplierPayment` has one, and it is what
+  // makes the reorder below safe: the route catches EVERYTHING and answers 400,
+  // which `withAuth` COMMITs — so a throw between the invoice roll-back and the
+  // payment flip would otherwise leave the invoices un-applied against a
+  // payment still reading 'confirmed'.
+  return withSavepoint('cancel_customer_payment', () =>
+    cancelCustomerPaymentInner(companyId, id, userId, reason, parentControl),
+  );
+}
+
+async function cancelCustomerPaymentInner(
+  companyId: string,
+  id: string,
+  userId: string,
+  reason: string|undefined,
+  parentControl:ArParentControl,
+): Promise<CustomerPayment> {
   try {
+    // (2) THE PAYMENT FIRST. This is the AR twin of `voidSupplierPayment`: it
+    // took `gl_journal_entries` (the reversal of the pre-existing posting) then
+    // `customer_invoices` then `customer_payments` — the inverse of the
+    // canonical order in `bank/.claude.md` and of `voidPaymentDocument`, which
+    // reaches the same receipt through `unwindOnePayment`.
+    if (!(await lockCustomerPaymentForUpdate(companyId, id))) {
+      throw new Error(`Payment ${id} not found`);
+    }
     const payment = await getCustomerPaymentById(companyId, id);
     if (!payment) throw new Error(`Payment ${id} not found`);
     if (payment.status !== 'confirmed') {
@@ -130,15 +189,11 @@ async function cancelCustomerPaymentEffect(
     for(const allocation of data.allocations.filter(a=>a.reversed_at==null)){
       if(new Decimal(String(allocation.invoice_paid)).lt(String(allocation.amount_allocated)))throw new Error('Invoice balance cannot absorb the receipt cancellation');
     }
-    // Reverse GL journal entry
-    if (payment.glJournalEntryId) {
-      await registerGeneratedJournal(ctx,parentControl,payment.glJournalEntryId,'journal.reverse');
-      await reverseJournalEntry(companyId,payment.glJournalEntryId,userId,{parentControl,reversalDate:parentControl.permit.accountingDate});
-    }
 
-    // Reverse invoice balances + cancel payment — runs on the ALS-bound
-    // connection so the outer withAuth transaction provides atomicity.
-    for (const alloc of payment.allocations) {
+    // (3) Reverse invoice balances — runs on the ALS-bound connection so the
+    // outer withAuth transaction provides atomicity, and BY INVOICE ID so two
+    // cancels touching the same two invoices cannot deadlock on each other.
+    for (const alloc of byInvoiceId(payment.allocations)) {
       await mutateArInvoiceBalance(ctx,alloc.invoiceId,parentControl,'payment_unapplied',()=>sql`
         UPDATE customer_invoices
         SET amount_paid = (amount_paid - ${alloc.amountAllocated}),
@@ -150,6 +205,13 @@ async function cancelCustomerPaymentEffect(
             paid_at = CASE WHEN (amount_paid - ${alloc.amountAllocated}) <= 0.01 THEN NULL ELSE paid_at END
         WHERE id = ${alloc.invoiceId}::UUID AND company_id = ${companyId}
       `);
+    }
+
+    // (4) Reverse the GL journal LAST — the pre-existing posted entry is the
+    // most-contended row of the four and the canonical order puts it last.
+    if (payment.glJournalEntryId) {
+      await registerGeneratedJournal(ctx,parentControl,payment.glJournalEntryId,'journal.reverse');
+      await reverseJournalEntry(companyId,payment.glJournalEntryId,userId,{parentControl,reversalDate:parentControl.permit.accountingDate});
     }
 
     const cancelNote = reason ? ` [CANCELLED: ${reason}]` : ' [CANCELLED]';
