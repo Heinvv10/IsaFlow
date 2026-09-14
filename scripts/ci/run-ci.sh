@@ -42,7 +42,14 @@ run_step "migration-naming"  bun scripts/audit-migration-naming.ts
 if [ -n "${DATABASE_URL:-}" ]; then
   run_step "integration-tests" bun run test:integration
 else
+  # This skip is silent in effect, and that is how the whole suite became unrunnable without
+  # anyone noticing: a dead payment-gateway webhook survived a 99-conflict merge, a green gate
+  # and a census, where one integration test would have caught it. Standing the fixture up is
+  # now two commands, so say so rather than just skipping.
   echo "[skip] integration-tests: DATABASE_URL not set"
+  echo "       to run them:  bash scripts/forensic/fixture-up.sh"
+  echo "                     eval \"\$(bash scripts/forensic/fixture-env.sh)\""
+  echo "       see scripts/forensic/fixture/README.md"
 fi
 
 # Production build gate — catches build-breaking changes pre-merge (the deploy
