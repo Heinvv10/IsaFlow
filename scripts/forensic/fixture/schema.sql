@@ -1,4 +1,30 @@
 --
+-- IsaFlow integration-test fixture schema. GENERATED — do not hand-edit.
+--
+-- Regenerate with:  bash scripts/forensic/fixture-dump.sh [port] [commit]
+-- Restore with:     bash scripts/forensic/fixture-up.sh
+-- Full procedure and limitations: scripts/forensic/fixture/README.md
+--
+-- PROVENANCE. This descends from the live application schema, NOT from replaying the migration
+-- set. A from-scratch apply of the migrations does not reproduce this database (see the README:
+-- 116 of 411 migrations fail on an empty database, and the live schema contains at least six
+-- things no migration produces). The chain is: the forensic fixture container built from a
+-- production-descended dump, plus the migrations it lacked applied forward, minus migrations
+-- carried from branches this one does not have, reverted via fixture/reverts/.
+--
+-- VERIFIED. schema-match.ts reported MATCH for commit 78ef6252988974bc804991087fa314919f357cdf
+--           (last migration at that commit: 841_gateway_receipt_principal.sql)
+--           at 2026-09-14T14:32:37Z, which is what fixture-dump.sh requires before writing this file.
+--           MATCH compares tables, ADD COLUMNs, triggers and function BODIES at or above the
+--           floor, plus the revert detect queries. It does NOT compare grants, RLS policies, or
+--           function SET clauses (proconfig) — see the README.
+--
+-- CONTAINS NO DATA. pg_dump -s only. Reference rows the migrations INSERT live separately in
+-- fixture/reference-data.sql. No passwords, no connection strings, no tenant or person
+-- identifiers: fixture/roles.sql is hand-written precisely because pg_dumpall emits role
+-- password hashes.
+--
+--
 -- PostgreSQL database dump
 --
 
@@ -6252,7 +6278,7 @@ CREATE TABLE public.control_change_events (
     CONSTRAINT control_change_events_check CHECK ((((previous_version IS NULL) AND (new_version = 1)) OR ((previous_version > 0) AND (new_version = (previous_version + 1))))),
     CONSTRAINT control_change_events_new_version_check CHECK ((new_version > 0)),
     CONSTRAINT control_change_events_outcome_check CHECK ((outcome = 'committed'::text)),
-    CONSTRAINT control_change_events_provenance_check CHECK ((provenance = ANY (ARRAY['human'::text, 'agent'::text, 'job'::text])))
+    CONSTRAINT control_change_events_provenance_check CHECK ((provenance = ANY (ARRAY['human'::text, 'agent'::text, 'job'::text, 'gateway'::text])))
 );
 
 ALTER TABLE ONLY public.control_change_events FORCE ROW LEVEL SECURITY;
