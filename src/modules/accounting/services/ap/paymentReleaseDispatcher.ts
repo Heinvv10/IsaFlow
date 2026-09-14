@@ -25,6 +25,23 @@ function dispatchPool(){
 }
 export async function closePaymentReleasePool(){if(pool){await pool.end();pool=undefined;}}
 type Identity=Pick<ControlPrincipal,'companyId'|'personId'|'connectionId'|'grantId'|'grantedScopes'> & {authMethod:'cookie'|'pat'|'oauth'};
+/**
+ * Which principals may push money OUT. A TOTAL map, not an exclusion list.
+ *
+ * Both guards below used to name the kinds they REFUSED ('job',
+ * 'platform_import'), which meant every principal kind added afterwards
+ * silently gained release rights — an unattended one most of all. Because this
+ * is a Record over the whole `authMethod` union, adding a principal kind is a
+ * type error HERE until its author decides in writing whether it may transmit
+ * money. It lives in src rather than in the test for exactly that reason:
+ * `tests/**` is outside tsconfig, so an exhaustiveness check written there
+ * proves nothing.
+ */
+const RELEASE_AUTH_METHODS:Readonly<Record<ControlPrincipal['authMethod'],boolean>>=Object.freeze({
+ cookie:true,pat:true,oauth:true,job:false,platform_import:false,gateway:false});
+function mayRelease(authMethod:ControlPrincipal['authMethod']):authMethod is Identity['authMethod']{
+ return RELEASE_AUTH_METHODS[authMethod];
+}
 async function transaction<T>(identity:Identity,action:(ctx:ControlTx)=>Promise<T>):Promise<T>{
  const client=await dispatchPool().connect();let finished=false;
  try{
@@ -58,7 +75,7 @@ async function transmit(claim:ReleaseClaim):Promise<{state:'accepted'|'unknown'|
 }
 /** Register during the authenticated request; no escaped ctx, body identity, or recoverable fake cookie. */
 export async function schedulePaymentReleaseDispatch(ctx:ControlTx,inputIntentId:string):Promise<void>{
- assertControlTx(ctx);if(!UUID_RE.test(inputIntentId)||['job','platform_import','gateway'].includes(ctx.principal.authMethod))throw new Error('Authenticated fixed release required');
+ assertControlTx(ctx);if(!UUID_RE.test(inputIntentId)||!mayRelease(ctx.principal.authMethod))throw new Error('Authenticated fixed release required');
  // The post-commit claim runs outside the caller's error path, so bind it to one spelling here.
  const intentId=canonicalIntentId(inputIntentId);
  await assertEffectivePermission(ctx,'write:release');
@@ -66,9 +83,7 @@ export async function schedulePaymentReleaseDispatch(ctx:ControlTx,inputIntentId
   WHERE company_id=${ctx.principal.companyId}::uuid AND id=${intentId}::uuid` as Array<{requester_person_id:string}>;
  if(intent?.requester_person_id!==ctx.principal.personId)throw new Error('Release requester required');
  const p=ctx.principal;
- // A gateway principal joins the refused set for the same reason as a job's:
- // dispatching money out needs a person who can be held to it.
- if(p.authMethod==='job'||p.authMethod==='platform_import'||p.authMethod==='gateway')throw new Error('Authenticated release principal required');
+ if(!mayRelease(p.authMethod))throw new Error('Authenticated release principal required');
  const identity:Identity=Object.freeze({companyId:p.companyId,personId:p.personId,authMethod:p.authMethod,
   connectionId:p.connectionId,grantId:p.grantId,grantedScopes:p.grantedScopes===null?null:Object.freeze([...p.grantedScopes])});
  let settled=false;
