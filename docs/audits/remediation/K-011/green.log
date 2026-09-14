@@ -1,0 +1,143 @@
+K-011 GREEN + mutation check
+
+1) RED on branch off origin/master (fix not applied):
+   tests/integration/k011-credit-note-apply-lost-update.int.test.ts
+   1 test | 1 failed — AssertionError: expected '50.00' to be '150.00'
+
+2) GREEN with FOR UPDATE on the invoice SELECT + relative amount_paid write:
+   k011-credit-note-apply-lost-update.int.test.ts   1 passed
+   k011-credit-note-apply-adjacent.int.test.ts      3 passed
+   Test Files 2 passed (2) | Tests 4 passed (4)
+
+3) Mutation check — production change reverted via
+   `git checkout -- src/modules/accounting/services/ar/creditNoteCancelService.ts`,
+   both files re-run:
+   × applies both credit notes without one erasing the other
+       expected '50.00' to be '150.00'
+   × caps the second note at the outstanding balance the first one left
+       expected [ '150.00', '100.00' ] to deeply equal [ '150.00', '50.00' ]
+   × does not erase a receipt allocation committed while the apply was in flight
+       expected '100.00' to be '160.00'
+   ✓ refuses a credit note belonging to another tenant and writes nothing
+       (tenant scoping is not part of the race; it stays green by design)
+   Tests 3 failed | 1 passed (4)
+   Production file restored byte-for-byte afterwards; the 4-pass run above is
+   the post-restore state.
+
+4) bunx tsc --noEmit — clean. bunx eslint on the changed src file — clean.
+
+================================================================
+Review round (blind review of c1d36ffc: 0 HIGH, 2 MEDIUM, 3 LOW)
+================================================================
+
+Integration, real disposable DB, two pool clients per race case:
+  k011-credit-note-apply-lost-update.int.test.ts   1 passed
+  k011-credit-note-apply-adjacent.int.test.ts      3 passed
+  k011-invoice-lock-review.int.test.ts             3 passed
+  Test Files 3 passed (3) | Tests 7 passed (7)
+
+Mutation check on the three NEW tests — src reverted to c1d36ffc
+(creditNoteCancelService.ts + receiptAllocationLines.ts checked out from HEAD,
+customerInvoiceLock.ts moved aside), same file re-run:
+  × refuses a receipt that would over-apply an invoice a credit note took in the meantime
+      expected 'undefined' to match /R200\.00 exceeds the R100\.00 outstanding/
+      (no refusal happened: the R200 receipt landed on top of the note's R100)
+  × gives up on the invoice row after the lock budget and says to retry
+      Test timed out in 30000ms  (pre-fix the wait is unbounded)
+  × leaves no lock budget behind ...  (collateral: the hung holder lock)
+  Tests 3 failed (3)
+Files restored; the 7-pass run above is the post-restore state.
+
+Targeted mutation for the third test — `SET LOCAL lock_timeout = DEFAULT`
+removed from customerInvoiceLock.ts only:
+  × leaves no lock budget behind for the rest of the request after a successful apply
+      expected '5s' to be '0'
+  Tests 1 failed | 2 passed (3)
+Restored.
+
+Full unit suite, NO fixture env (DATABASE_URL unset), per the brief addendum:
+  Test Files 783 passed | 1 failed | 36 skipped (820)
+  Tests      9319 passed | 1 failed | 234 skipped (9554)
+The one failure is `tests/unit/services/cashFlowReport.test.ts` — "Test timed
+out in 10000ms" on a file this change does not touch. It passes in isolation.
+Machine load average was 124 (other worktrees running CI in parallel); repeated
+full runs failed a DIFFERENT set of files each time (27, then 1, then 10, then
+1), every one a 10s timeout, and every one green when re-run alone.
+
+Four unit files were adjusted because `planAllocationLines` now takes a row
+lock and so requires an ALS request transaction: `enterFakeRequestCtx()` added
+to receiptApplicationService.test.ts and receiptMatchConfirmService.test.ts
+(the helper bankAllocationService.test.ts already used for bankTxLock). One
+assertion in receiptApplicationService.test.ts matched the bare word UPDATE and
+so tripped on `FOR UPDATE`; it now matches the statement forms
+(INSERT INTO | DELETE FROM | UPDATE <table> SET) and still fires on a real write.
+
+tests/integration/api/creditNotePartialApply.test.ts fails in beforeAll on this
+fixture DB ("customers_company_id_fkey") — it expects a seeded company and never
+reaches the changed code. Pre-existing, not caused by this change.
+
+bunx tsc --noEmit — clean.
+bunx eslint on all three changed/added src files — 0 errors, 5 pre-existing
+unused-import warnings in creditNoteCancelService.ts (unchanged count).
+bun run agent-docs:check — OK: 74 mirrors match.
+
+================================================================
+Round 3 (re-review of aef352ec: MEDIUM A + LOW B/C/D)
+================================================================
+
+Unit, no fixture env:
+  tests/unit/lib/lockTimeoutSurfacing.test.ts     7 passed
+Integration, real disposable DB:
+  k011-credit-note-apply-lost-update.int.test.ts  1 passed
+  k011-credit-note-apply-adjacent.int.test.ts     3 passed
+  k011-invoice-lock-review.int.test.ts            4 passed
+  Test Files 3 passed (3) | Tests 8 passed (8)
+
+Mutation — `isCallerSafeError` reverted to the old `code === undefined` predicate:
+  × admits a plain refusal and a lock timeout, refuses a driver error
+  × passes the lock timeout through instead of the fallback
+  Tests 2 failed | 5 passed (7)          Restored.
+
+Mutation — the cancel path's un-apply un-wrapped from withCustomerInvoiceLock:
+  × bounds the cancel path's un-apply on the same budget and says to retry
+      Test timed out in 30000ms (the wait is unbounded again)
+  Tests 1 failed | 3 passed (4)          Restored.
+
+Full unit suite, NO fixture env (DATABASE_URL unset), load average 68:
+  Test Files 785 passed | 36 skipped (821)
+  Tests      9327 passed | 234 skipped (9561)
+  0 failed. (The single cashFlowReport timeout recorded in the round-2 block
+  above did not recur; it was load, at average 124.)
+
+bunx tsc --noEmit — clean.
+bunx eslint on all six changed/added src+pages files — 0 errors, the same 5
+pre-existing unused-import warnings in creditNoteCancelService.ts.
+bun run agent-docs:check — OK: 74 mirrors match.
+
+================================================================
+Round 4 (re-review of b048bb07: LOW E/F/G)
+================================================================
+
+Unit, no fixture env:
+  tests/unit/lib/lockTimeoutSurfacing.test.ts    15 passed (was 7)
+Integration, real disposable DB:
+  Test Files 3 passed (3) | Tests 8 passed (8)
+
+Mutation — RECLASS_LINE_LOCK_TIMEOUT reverted to RECLASS_LINE_LOCKED:
+  × every typed lock-timeout error carries the _LOCK_TIMEOUT suffix > ReclassLineLockTimeoutError
+  Tests 1 failed | 14 passed (15)        Restored.
+
+Suites around the two renamed/collapsed classes, no fixture env:
+  tests/unit/services/ar + tests/unit/mcp + tests/unit/services/gl
+  Test Files 142 passed | 16 skipped (158) | Tests 1928 passed | 89 skipped
+
+Full unit suite, NO fixture env (DATABASE_URL unset), load average 145:
+  Test Files 783 passed | 2 failed | 36 skipped (821)
+  Tests      9333 passed | 2 failed | 234 skipped (9569)
+The two failures are 10s timeouts in bankAllocationUnwind.test.ts and
+cashFlowReport.test.ts. Re-run together in isolation: 2 files / 17 tests, all
+passed. Same load-induced pattern recorded in the round-2 block; the round-3 run
+at load 68 was fully green.
+
+bunx tsc --noEmit — clean.  bunx eslint on the four changed files — clean.
+bun run agent-docs:check — OK: 74 mirrors match.

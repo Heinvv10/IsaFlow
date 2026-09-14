@@ -29,6 +29,7 @@ import { subtypeErrorFor, missingSubtypeError } from './accountSubtypeRules';
 import { ParentAccountError, assertParentUsable } from './accountParentRules';
 import { clearSystemAccountCache } from './systemAccountResolver';
 import { getAccountById } from './chartOfAccountsService';
+import { isBankSubtype } from './accountSubtypes';
 
 export interface ReclassifyAccountInput {
   /** `undefined` leaves it alone; `null` clears it. */
@@ -198,7 +199,7 @@ async function reclassifyAccountRaw(
   if (changingSubtype) {
     const next = input.accountSubtype ?? null;
     assertSubtypeAllowed(account, next);
-    if (account.account_subtype === 'bank' && next !== 'bank') {
+    if (isBankSubtype(account.account_subtype) && !isBankSubtype(next)) {
       await assertBankSubtypeRemovable(companyId, account);
     }
   }

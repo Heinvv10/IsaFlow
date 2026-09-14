@@ -44,6 +44,7 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
     JOIN gl_accounts ga ON ga.id = jl.gl_account_id
     WHERE jl.company_id = ${companyId}::UUID
     AND ga.account_subtype = ANY(${CASH_SUBTYPES as string[]}::TEXT[])
+      AND ga.account_type = 'asset'
       AND je.company_id = ${companyId}
       AND je.status = 'posted'
       AND je.entry_date < ${periodStart}

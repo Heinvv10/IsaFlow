@@ -13,6 +13,15 @@ PRD-05 autonomous capture + evidence-first ledger. Pure business logic — HTTP 
 - **Provisional posting (Phase 5)**: `provisionalPostingService.ts` (`postProvisional` stamps `ai-provisional:v1`, `needs_evidence=true`), `evidenceAttachmentService.ts` (flips to `ai-evidenced`).
 - **Matching (Phase 4/6)**: `fourWayMatchService.ts` (`recordPaymentMatch` idempotent), `supplierGraphService.ts`, `expectationEngineService.ts` (learn supplier cadence), `missingInvoiceChaseService.ts`, `alertResolutionService.ts`, `expectationCronService.ts` (daily orchestrator).
 - **Supplier statement recon (Phase 7)**: `supplierStatementMatchHelper.ts`, `supplierStatementReconDb.ts`, `supplierStatementReconService.ts`.
+- **Petty-cash posting**: `pettyCashJournalService.ts` — `postReceiptAsPettyCashJournal`, the
+  anonymous branch of `capture/[id]/post-expense` (no employee attached). Resolves
+  `gl_accounts.vat_input_denied` on the coded account and hands it to
+  `buildExpenseJournalFromReceipt`, so s17(2)(a) entertainment claims are denied on a path
+  that auto-posts unattended. It tags `vatType` and posts, so it — not the route — is what
+  `scripts/ci/check-vat-guard-coverage.ts` governs. It runs `validateJournalEntry` on the
+  built lines BEFORE its first write and throws `ReceiptDoesNotBalanceError`, which the
+  route maps to a 400 — the same answer `receipt-to-journal.ts` gives, so a mis-extracted
+  receipt is not reported as an internal error on either path.
 - **Audit**: `auditTrailExportService.ts`.
 - **Bank-Tx Attach (Workstream G)**: `captureBankTxAttachService.ts` — tenant-preflighted link of captured doc → bank tx + ≤2MB data-URL mirror into bank_transaction_attachments, dedupe key `${documentId}_${fileName}`, mirror fail-soft link-only.
 
@@ -49,6 +58,8 @@ Invoked by `withAuth`-wrapped API routes in `pages/api/accounting/capture/**` (a
 - **Bank-Tx Query — Twilio host allowlist**: `fetchTwilioMedia` validates the URL hostname against `api.twilio.com`, `*.twilio.com`, and `*.twiliocdn.com` before issuing any fetch, preventing SSRF via a crafted MediaUrl in the Twilio payload.
 - **Bank-Tx Query — webhook fail-open**: the inbound Twilio webhook's query-reply hook is wrapped so a DB error never 500s the webhook. A 500 would cause Twilio to retry and duplicate the capture event (no MessageSid dedupe exists). The normal capture path still runs regardless.
 - **Bank-Tx Query — dual intent**: an expense-command text arriving from a sender with an open query BOTH creates the text-command capture event AND records the text as the query reply (intended behaviour, not a bug).
+- **duplicate_fingerprint — one producer, one source per segment**: the string is `asciiLower(vat|invoice_number|amount)` and is built ONLY by `computeFingerprint` in `captureDeduplicationService.ts`, never inline in an INSERT. The VAT segment comes from `suppliers.vat_number` (`'no-vat'` when null) — never from an OCR'd `extracted.vendorVatNumber`; the amount is rendered at the column's own `NUMERIC(15,2)` scale, rounding the decimal text half away from zero as PostgreSQL does; the case fold is A–Z only, mirrored in SQL by `translate()` and NOT by `lower()`, which is collation-driven and disagrees with JS on `İ` (U+0130) and on a trailing sigma. The seven live producers (the two capture routes, `supplierInvoiceService`, `migrationApService`, `recurringTransactionService`, `sageSupplierInvoiceImportService`, migration 670) must pass the same source for each segment: the same helper with a different argument still yields a fingerprint `findDuplicate`'s exact-match step cannot find, and the bill is accrued twice. Migration 412's backfill is an eighth, historical producer, superseded by 670 on every row: its amount segment is `coalesce(total_amount::text,'0')`, which agrees with the other seven only because `total_amount` is `NOT NULL DEFAULT 0` (it would render a NULL as `0`, not `0.00`), and it folds with `lower()`. Do not treat it as agreeing by construction.
+- **duplicate_fingerprint — out-of-band inserts stay NULL**: `scripts/import-sage-britech.ts`, `scripts/qa-seed/transactions.ts` and `scripts/seed-historical-data.mjs` insert `supplier_invoices` without the column. Migration 670 canonicalises the NULLs present when it runs; rows these scripts write afterwards keep a NULL fingerprint and are invisible to the exact-match step (the fuzzy step still covers them). Re-run 670 after any such import.
 - **Bank-Tx Query — lifecycle**: statuses follow `sent → replied → resolved` or `sent → cancelled`. The `cancel` action is only allowed from `sent`; `resolve` is allowed from both `sent` and `replied`.
 
 ## Related files
@@ -61,6 +72,86 @@ Invoked by `withAuth`-wrapped API routes in `pages/api/accounting/capture/**` (a
 - `docs/prd/PRD-05-autonomous-capture-evidence-ledger.md` — spec.
 
 ## Recent changes
+- 2026-09-09: the EMPLOYEE branch of `capture/[id]/post-expense` obeys s17(2)(a) too. It put the
+  machine-derived VAT on the claim line and `expenseClaimService.postClaim` debits VAT Input with
+  the sum of those, so an entertainment receipt posted with an `employeeId` produced the identical
+  denied claim through `expense_claim_lines`. The account's `vat_input_denied` marker is now
+  resolved before the amounts are built; on a denial the line carries the GROSS on `amount`,
+  `vat_amount = 0` and `vat_code = 'none'`, and the response returns `inputVatDenied` +
+  `INPUT_VAT_DENIED_ADVICE` so the approver is told.
+- 2026-09-09: `pettyCashJournalService` balance-checks before its first write (see above).
+- 2026-09-09: `captureRowLock.ts` — `lockCapturedDocumentForUpdate` / `lockCaptureEventForUpdate`.
+  Both post paths read a status, refuse on the settled value and stamp it only at the end of the
+  request; two concurrent posts therefore both passed and both auto-posted a journal against the
+  same source document (`idx_gl_je_source_document` is a plain index, not unique). Take the lock
+  BEFORE the status check.
+- 2026-09-10: THE POSTING FENCE IS `captured_documents.posted_at`, not `status` (migration 672).
+  `status` is a lifecycle column four subsystems write for four reasons — 'reviewed' (the confirm
+  button), 'rejected' (reject), 'matched' (`attachCapturedDocToBankTx`, evidence only) and
+  'matched' again (a posting route). Used as the fence it leaked in three directions at once: the
+  confirm button RESET it, so post → confirm → post gave two journals and R2 300 of bank credit on
+  one R1 150 receipt; a `<> 'matched'` predicate ADMITTED the terminal 'rejected'; and a document
+  merely attached to a bank transaction was REFUSED with "already posted to a journal" while zero
+  journals existed. `posted_at` is written by a posting path and nothing else.
+  `claimCapturedDocumentForPosting` claims it with `WHERE posted_at IS NULL AND status <> 'rejected'`
+  and returns a `CapturedDocumentRefusal` ('already_posted' | 'rejected') so the message is true;
+  `refusalForPosting(row)` is the matching read guard. `document-capture-action`'s confirm and reject
+  both carry `AND posted_at IS NULL` and answer 400 rather than rewriting a posted document.
+  Behind it, `uq_gl_je_capture_source_document` is a partial UNIQUE index on
+  `gl_journal_entries(company_id, source_document_id) WHERE source = 'auto_expense_receipt'` — it is
+  scoped to that source because the evidence-attach paths stamp `source_document_id` onto an
+  existing provisional bank journal, which is not a posting event.
+- 2026-09-10: `capture/[id]/post` — the ONLY posting button in the product (`capture/inbox.tsx`) —
+  is inside the fence. It read no document state at all, so a receipt already turned into a GL
+  journal could be posted again there as an auto-approved supplier invoice carrying the same
+  `tax_amount`: one slip, the same input VAT in the VAT201 twice. It now locks both rows through
+  `lockCaptureEventForPosting` and claims the document immediately before the `supplier_invoices`
+  INSERT — after the duplicate-blocked branch, which answers 409 having already written the event's
+  'failed' stamp.
+- 2026-09-10: the cross-route double post, which was NOT a race. `post-expense` never read
+  `captured_documents.status` at all, so posting through `receipt-to-journal` and then through the
+  capture inbox wrote two VAT-bearing journals against one receipt in sequence. Every posting route
+  now calls `claimCapturedDocumentForPosting(companyId, documentId, category?)` BEFORE its first
+  ledger write, and answers 400 (or `CapturedDocumentAlreadyPostedError`) when it matches no row.
+  (The predicate was `status <> 'matched'` at the time; see the 2026-09-10 entry above.) Place it
+  after the last read-only step: `withAuth` COMMITs on 4xx, and a refusal there has written nothing.
+  Lock order is document-then-event on every path — `lockCaptureEventForPosting` takes both in that
+  order — so there is no cycle; the earlier "opposite order / deadlock" note was wrong.
+- 2026-09-10: THERE ARE FOUR POSTING ROUTES, AND THE INDEX REACHES TWO. `ai-invoice-pipeline` was
+  the fourth and had no lock, no claim and no `posted_at` read: `receipt-to-journal` then that
+  endpoint on one R1 150 receipt gave a posted GL journal AND an auto-approved supplier invoice
+  carrying tax_amount 150.00 — R300 in front of the VAT201. Before adding a route that writes a
+  ledger row from a captured document, claim the document. `uq_gl_je_capture_source_document` is a
+  unique index on `gl_journal_entries`; `capture/[id]/post` and `ai-invoice-pipeline` write
+  `supplier_invoices`, so it does not cover them at any `source` value and the claim is the whole
+  fence there. The full writer census is in `docs/audits/remediation/K-072/fix.md`.
+- 2026-09-10: the claim has an UNDO, and it is `capturePostingClaimRelease.ts`. `posted_at` was
+  stamped by four routes and cleared by nothing, so `document-capture-action`'s "Reverse the journal
+  or invoice first" named a remedy that did not exist. `releaseCapturedDocumentPostingClaim` is
+  called from `reverseJournalEntry` (when the entry carries a `source_document_id`) and
+  `cancelSupplierInvoice`, and clears `posted_at` only when NEITHER an unreversed
+  `auto_expense_receipt` journal NOR an uncancelled supplier invoice still references the document —
+  undoing one of two live rows must not hand it back. Migration 672's index carries
+  `reversed_at IS NULL` for this reason: without it the re-post the release permits 23505s against
+  the row it just reversed.
+- 2026-09-10: migration 672 RAISE EXCEPTIONs on existing duplicates rather than warning. There is no
+  `notice` listener in `scripts/apply-migrations.ts`, so the previous `RAISE WARNING` exited 0 and
+  the database shipped WITHOUT the constraint, silently — measured both ways on the fixture.
+- 2026-09-10: a DRAFT capture journal no longer claims the document for good.
+  `receipt-to-journal` claims before its first ledger write and only POSTS above the auto-post gate,
+  so the majority of documents (over R5 000, or confidence below 0.85) kept the claim behind a draft
+  that `reverseJournalEntry` refuses to reverse and no route deletes — confirm, reject and re-post
+  all 400, permanently. `capturePostingClaimRelease.releaseUnpostedCaptureClaim` reads liveness
+  first (unreversed non-draft capture journal / uncancelled supplier invoice / claim not
+  rejected-or-cancelled), refuses having written nothing, otherwise DELETEs the draft capture
+  journals (`AND status = 'draft'`) and clears `posted_at`. `captureLifecycleGate` takes the
+  document lock and calls it for the confirm and reject buttons.
+- 2026-09-10: `rejectClaim` / `cancelClaim` call `releaseClaimDocuments`. The claim posting journal
+  carries `source_document_id = NULL` by design, so the reversal release can never reach a slip a
+  claim is holding; rejecting the claim is its undo. `releaseCapturedDocumentPostingClaim` gained a
+  third NOT EXISTS for live claims, and migration 672's backfill now carries the same three
+  predicates (the `matched_invoice_id` disjunct, in neither the release nor `refusalForPosting`, is
+  gone — it claimed rows nothing could hand back).
 - 2026-06-11: Workstream G — captureBankTxAttachService; document-capture-action null-guard + ::uuid cast hardening (PR #168 review batch).
 - 2026-06-11: Blind-review hardening — tenant ownership preflight + mime re-validation + webhook-retry dedupe in attachReplyMedia; reply_text LEFT(…,10000) cap; SSRF hostname allowlist in twilioMediaFetch; NumMedia capped at 10; migration comment for created_by FK absence.
 - 2026-06-11: Workstream D — bankTxQueryMessage, bankTxQueryService, bankTxQueryReplyService, twilioMediaFetch; inbound webhook reply hook added to whatsAppInboundService; `sid` on whatsAppReplyService SendResult.

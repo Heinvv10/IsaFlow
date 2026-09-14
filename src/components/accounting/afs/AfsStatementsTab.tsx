@@ -53,7 +53,7 @@ function BalanceSheetBlock({ report }: { report: BalanceSheetReport }) {
           totalEquity={report.totalEquity}
         />
         <StatementGrid rows={assets} columns={columns} title="Assets" cents />
-        <StatementGrid rows={liabilitiesAndEquity} columns={columns} title="Liabilities and Equity" cents />
+        <StatementGrid rows={liabilitiesAndEquity} columns={columns} title="Equity and Liabilities" cents />
       </div>
     </section>
   );

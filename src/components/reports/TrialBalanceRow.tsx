@@ -50,18 +50,25 @@ interface Props {
   showMovement: boolean;
   drillDownStart: string;
   drillDownEnd: string;
+  costCentreId?: string;
+  businessUnitId?: string;
+  returnTo?: string;
   colSpan: number;
 }
 
 export function TrialBalanceRow({
   row: r, isExpanded, onToggle, onEvidence,
   showComparative, showMovement, drillDownStart, drillDownEnd, colSpan,
+  costCentreId, businessUnitId, returnTo,
 }: Props) {
   const { rowClass } = useTableDensity();
 
   const detailHref =
     `/accounting/reports/account-detail/${encodeURIComponent(r.accountCode)}` +
-    `?from=${encodeURIComponent(drillDownStart)}&to=${encodeURIComponent(drillDownEnd)}&source=tb`;
+    `?from=${encodeURIComponent(drillDownStart)}&to=${encodeURIComponent(drillDownEnd)}&source=tb` +
+    (costCentreId ? `&cost_centre_id=${encodeURIComponent(costCentreId)}` : '') +
+    (businessUnitId ? `&business_unit_id=${encodeURIComponent(businessUnitId)}` : '') +
+    (returnTo ? `&return_to=${encodeURIComponent(returnTo)}` : '');
 
   // A derived row has no journals behind it: expanding it or drilling into it
   // would show an empty ledger and imply the figure was posted. Neither is offered.
@@ -159,6 +166,8 @@ export function TrialBalanceRow({
           accountCode={r.accountCode}
           periodStart={drillDownStart}
           periodEnd={drillDownEnd}
+          costCentreId={costCentreId}
+          businessUnitId={businessUnitId}
           asTableRow
           colSpan={colSpan}
         />

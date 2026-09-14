@@ -42,7 +42,7 @@ const CUSTOMER_INVOICES: FieldDef[] = [
   { field: 'tax',             label: 'Tax',             type: 'currency', sortable: true,  filterable: true,  totalable: true,  sqlExpr: 'ci.tax_amount' },
   { field: 'status',          label: 'Status',          type: 'text',     sortable: true,  filterable: true,  totalable: false, sqlExpr: 'ci.status' },
   { field: 'amount_paid',     label: 'Amount Paid',     type: 'currency', sortable: true,  filterable: true,  totalable: true,  sqlExpr: 'ci.amount_paid' },
-  { field: 'balance',         label: 'Balance',         type: 'currency', sortable: true,  filterable: true,  totalable: true,  sqlExpr: '(ci.total_amount - ci.amount_paid)' },
+  { field: 'balance',         label: 'Balance',         type: 'currency', sortable: true,  filterable: true,  totalable: true,  sqlExpr: '(ci.total_amount - COALESCE(ci.amount_paid, 0))' },
 ];
 
 const SUPPLIER_INVOICES: FieldDef[] = [
@@ -54,7 +54,7 @@ const SUPPLIER_INVOICES: FieldDef[] = [
   { field: 'tax',             label: 'Tax',             type: 'currency', sortable: true,  filterable: true,  totalable: true,  sqlExpr: 'si.tax_amount' },
   { field: 'status',          label: 'Status',          type: 'text',     sortable: true,  filterable: true,  totalable: false, sqlExpr: 'si.status' },
   { field: 'amount_paid',     label: 'Amount Paid',     type: 'currency', sortable: true,  filterable: true,  totalable: true,  sqlExpr: 'si.amount_paid' },
-  { field: 'balance',         label: 'Balance',         type: 'currency', sortable: true,  filterable: true,  totalable: true,  sqlExpr: '(si.total_amount - si.amount_paid)' },
+  { field: 'balance',         label: 'Balance',         type: 'currency', sortable: true,  filterable: true,  totalable: true,  sqlExpr: '(si.total_amount - COALESCE(si.amount_paid, 0))' },
 ];
 
 const BANK_TRANSACTIONS: FieldDef[] = [

@@ -12,9 +12,13 @@ import {readControlEntityVersion} from '../controls/operationVersions';
 import {recordCommittedChange} from '../controls/changeEventService';
 import {postJournalEntry} from './journalEntryPostingService';
 import {lockdownBlock} from './postingPeriodGuard';
+import {alreadyClosedResult,classifyClosingJournal,findClosingJournal} from './yearEndJournalPoster';
+import {reloadNetIncome} from './yearEndJournalBuilder';
+import {roundToCents} from '../../utils/doubleEntry';
+import type {FiscalYearRange} from './yearEndJournalBuilder';
 import type {ControlTx} from '../controls/contracts';
 import type {buildYearEndFinancialMaterial} from '../controls/yearEndFinancialMaterial';
-import type {CloseYearOptions,CloseYearResult,CloseYearDryRunResult,CloseYearError,YearEndJournalPreview} from './yearEndCloseService';
+import type {CloseYearOptions,CloseYearResult,CloseYearDryRunResult,CloseYearError,YearEndJournalPreview} from './yearEndCloseTypes';
 type Row=Record<string,unknown>;
 type Closing=Awaited<ReturnType<typeof buildYearEndFinancialMaterial>>;
 interface Facts {company:Row;periods:Row[];accounts:Row[];closing:Closing}
@@ -28,11 +32,19 @@ function preview(year:string,facts:Facts):YearEndJournalPreview {
    accountCode:String(account?.account_code??''),accountName:String(account?.account_name??''),debit:Number(line.debit),credit:Number(line.credit),
    exactDebit:line.debit,exactCredit:line.credit};}),totalDebit:Number(c.amount),totalCredit:Number(c.amount),exactTotal:c.amount};
 }
+/** The year's span as its own periods report it — what the residual re-read is measured over. */
+function yearSpan(facts:Facts):FiscalYearRange {
+ const starts=facts.periods.map(p=>fmtDate(p.start_date as string|Date)).sort();
+ const ends=facts.periods.map(p=>fmtDate(p.end_date as string|Date)).sort();
+ return{start_date:starts[0]!,end_date:ends.at(-1)!};
+}
 async function prior(ctx:ControlTx,year:string):Promise<CloseYearResult|null>{
  const [effect]=await ctx.sql`SELECT id,result FROM control_operation_effects WHERE company_id=${ctx.principal.companyId}::uuid
   AND entity_type='fiscal_year' AND entity_id=${year} AND operation='year.close' ORDER BY committed_at DESC LIMIT 1` as {id:string;result:CloseYearResult}[];
  if(!effect)return null;
- const journalId=effect.result.closingEntry.id;
+ // NULL for a dormant year: the close locked the periods and wrote no journal,
+ // so there is no header for the receipt to re-verify.
+ const journalId=effect.result.closingEntry?.id;
  if(journalId){
   const rows=await ctx.sql`SELECT id FROM gl_journal_entries WHERE company_id=${ctx.principal.companyId}::uuid AND id=${journalId}::uuid
    AND source='year_end' AND entry_number=${`YE-${year}`} AND status='posted' AND reversed_at IS NULL FOR SHARE`;
@@ -57,6 +69,35 @@ export async function closeFiscalYear(companyId:string,yearLabel:string,userId:s
  if(lockdownBlock(facts.company,facts.closing.accountingDate))throw new Error('Year-close date is within company lockdown');
  const open=facts.periods.filter(p=>p.status==='open');
  if(open.length)return{error:'open_periods',count:open.length,openPeriods:open.map(p=>({id:String(p.id),periodName:String(p.period_name),periodNumber:Number(p.period_number)}))};
+ // ALREADY CLOSED, read from the LEDGER — not from `prior()`.
+ //
+ // `prior()` replays a control receipt, so it knows only about closes THIS
+ // programme performed. A year closed before the controls existed, or by any
+ // other path, leaves no receipt: without this lookup the close walks past it,
+ // writes a second YE-<year> and dies on uq_gl_je_company_entry_number as a raw
+ // 23505 → HTTP 500. The lookup stands in for that index — no source and no
+ // status predicate, because the index has neither — so a squatter and a
+ // reversed close earn their own typed refusals rather than the same 500.
+ //
+ // It runs BEFORE the locked-period check below and before the dry-run return,
+ // because a closed year's periods are LOCKED: any check that insists on
+ // 'closed' would throw over the top of the answer the caller needs.
+ const entryNumber=`YE-${yearLabel}`,span=yearSpan(facts);
+ const existingEntry=await findClosingJournal(companyId,entryNumber);
+ if(existingEntry){
+  const refusal=classifyClosingJournal(entryNumber,existingEntry);
+  if(refusal)return refusal;
+  if(!options.dryRun)return alreadyClosedResult(companyId,yearLabel,existingEntry,span);
+  // Re-read AFTER the lookup, for the reason `alreadyClosedResult` re-reads:
+  // the material's netIncome predates it, so a close that committed in between
+  // would have this report the winner's own movement as stranded.
+  const unclosedNetIncome=roundToCents(await reloadNetIncome(companyId,span.start_date,span.end_date));
+  // Two shapes, not one shape plus a flag: `preview` is null by construction so
+  // no consumer can read money this close can never sweep up as an offer to
+  // post. The entry number is taken; the residual has its own name.
+  return{dryRun:true,netIncome:unclosedNetIncome,preview:null,residualPreview:preview(yearLabel,facts),
+   alreadyClosed:true,existingEntry,unclosedNetIncome};
+ }
  if(facts.periods.some(p=>p.status!=='closed'))throw new Error('Financial year contains locked periods');
  if(facts.closing.retained.is_active!==true)throw new Error('Retained earnings account is inactive');
  // The kernel's own approval condition, already bound on this material: a
@@ -65,7 +106,8 @@ export async function closeFiscalYear(companyId:string,yearLabel:string,userId:s
  // live close locks and checks any approval it is given.
  if(options.dryRun&&options.approvalId)await assertSuppliedApprovalExecutable(ctx,parent,options.approvalId);
  else if(options.dryRun&&material.binding.policies.length)return{error:'approval_required'};
- if(options.dryRun)return{dryRun:true,netIncome:Number(facts.closing.netIncome),netIncomeExact:facts.closing.netIncome,preview:preview(yearLabel,facts)};
+ if(options.dryRun)return{dryRun:true,netIncome:Number(facts.closing.netIncome),netIncomeExact:facts.closing.netIncome,
+  preview:preview(yearLabel,facts),alreadyClosed:false,existingEntry:null,unclosedNetIncome:0};
  return executeControlledOperation(ctx,parent,options.approvalId??null,async permit=>{
   if(await prior(ctx,yearLabel))throw new Error('Financial year already closed');
   const current=await loadOperationMaterial(ctx,parent),live=current.observedSources[0]!.facts as unknown as Facts;
@@ -76,7 +118,11 @@ export async function closeFiscalYear(companyId:string,yearLabel:string,userId:s
   // on the closing date, so reaching here means the year's periods CHANGED
   // between that read and this write — a race, like the period check below.
   if(!period)throw new Error('Closing fiscal period unavailable');
-  let entry:Row={id:null,source:'year_end',entry_date:permit.accountingDate,emptyYear:true};
+  // NULL for a DORMANT year, matching the contract every consumer already
+  // reads: nothing was posted to any P&L account, there is no legal empty
+  // journal to write, and the year still closes because its periods still
+  // lock. A placeholder header with a null id read as a real journal.
+  let entry:Row|null=null;
   if(closing.plan.length){
    const id=randomUUID();
    const [created]=await ctx.sql`INSERT INTO gl_journal_entries(id,company_id,entry_number,entry_date,fiscal_period_id,description,source,status,created_by,posting_agent)
@@ -91,13 +137,20 @@ export async function closeFiscalYear(companyId:string,yearLabel:string,userId:s
    if(!posted||posted.status!=='posted')throw new Error('Closing journal posting outcome unavailable');
    entry=JSON.parse(canonicalJson(posted)) as Row;
   }
+  // COUNTED from the UPDATEs that actually ran, never asserted: a caller told
+  // twelve periods locked when none did cannot tell a close from a no-op.
+  let periodsLocked=0;
   for(const before of live.periods){
    const [after]=await ctx.sql`UPDATE fiscal_periods SET status='locked' WHERE company_id=${companyId}::uuid AND id=${before.id}::uuid AND status='closed' RETURNING *` as Row[];
    if(!after)throw new Error('Year period changed during close');
+   periodsLocked+=1;
    const entity={entityType:'fiscal_period',entityId:String(before.id)},version=await readControlEntityVersion(ctx,entity);
    await recordCommittedChange(ctx,{...entity,previousVersion:version?.version??null,newVersion:(version?.version??0)+1,action:'fiscal_period.locked',
     accountingDate:permit.accountingDate,before,after,bindingHash:current.bindingHash,protectedEvidenceRef:null,operationId:permit.operationId});
   }
-  return{closingEntry:entry,netIncome:Number(closing.netIncome),netIncomeExact:closing.netIncome,message:`Year ${yearLabel} closed. Net income ${closing.netIncome} transferred to retained earnings.`};
+  return{closingEntry:entry,periodsLockedInYear:periodsLocked,alreadyClosed:false,
+   netIncome:Number(closing.netIncome),netIncomeExact:closing.netIncome,unclosedNetIncome:0,
+   message:entry?`Year ${yearLabel} closed. Net income ${closing.netIncome} transferred to retained earnings.`
+    :`Year ${yearLabel} closed. No posted profit or loss in the year, so no closing journal was needed.`};
  });
 }

@@ -5,7 +5,8 @@ import type { NextApiRequest, NextApiResponse, NextApiHandler } from 'next';
 import * as Sentry from '@sentry/nextjs';
 import { verifyToken } from './gotrue';
 import { parseCookies, clearAuthCookies, ACCESS_COOKIE } from './cookies';
-import { type RequestContext } from '@/lib/als';
+import type { RequestContext } from '@/lib/als';
+import { runOwnedContext, drainAfterCommit } from '@/lib/afterCommit';
 import { log } from '@/lib/logger';
 import { setTenantTags, sanitizeRoute } from '@/lib/sentry/tags';
 import { getAppPool, getPlatformAdminPool } from './withPlatformAdmin.pools';
@@ -134,12 +135,16 @@ export function withPlatformAdmin(handler: Handler): NextApiHandler {
         client: adminClient,
         userId: claims!.sub,
         claims: claims as Record<string, unknown>,
+        afterCommit: [],
       };
+      // runOwnedContext marks the context finished once the handler settles so
+      // drainAfterCommit below is the only thing that may start background work;
+      // the platform-import lifetime stays inside it.
       const runHandler = async () =>
-        withPlatformImportRequest(ctx,async capability=>{
+        runOwnedContext(ctx, () => withPlatformImportRequest(ctx,async capability=>{
           (req as PlatformAdminRequest).platformImportCapability=capability;
           await handler(req,res);
-        });
+        }));
 
       if (process.env.SENTRY_ENABLED === 'true') {
         await Sentry.withIsolationScope(async () => {
@@ -172,6 +177,7 @@ export function withPlatformAdmin(handler: Handler): NextApiHandler {
       }
 
       await adminClient.query('COMMIT');
+      drainAfterCommit(ctx); // R-075: background work starts only after COMMIT, off this client
     } catch (err) {
       try { await adminClient.query('ROLLBACK'); } catch { /* secondary */ }
       throw err;

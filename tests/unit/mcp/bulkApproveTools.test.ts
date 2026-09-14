@@ -5,7 +5,8 @@
  * it is told: that `dry_run` previews the SAME batch the live call posts, that
  * a call which wrote nothing does not burn its idempotency key, and that a
  * batch where everything skipped REFUSES rather than reporting a success with
- * nothing in it.
+ * nothing in it. `bulk_approve_credit_notes` is in `bulkApproveCreditNotesTool.test.ts`
+ * (split out by concern, K-072 r37, to keep both files under the 300-line cap).
  */
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 
@@ -21,6 +22,9 @@ vi.mock('@/lib/mcp/tools/bulkApprovePreviewApproval', () => ({
 }));
 vi.mock('@/lib/mcp/tools/bulkApprovePeriods', () => ({
   resolvePeriodSkips: vi.fn(async () => new Map()),
+}));
+vi.mock('@/modules/accounting/services/capture/capturedVatEvidence', () => ({
+  invoiceVatRefusals: vi.fn(async () => new Map<string, string>()),
 }));
 vi.mock('@/modules/accounting/services/gl/systemAccountResolver', () => ({
   validateSystemAccounts: vi.fn(async () => []),
@@ -44,10 +48,10 @@ import { resolvePeriodSkips } from '@/lib/mcp/tools/bulkApprovePeriods';
 import { validateSystemAccounts } from '@/modules/accounting/services/gl/systemAccountResolver';
 import { approveSupplierInvoice } from '@/modules/accounting/services/ap/supplierInvoiceWorkflowService';
 import { approveCreditNote } from '@/modules/accounting/services/ar/creditNoteService';
+import { invoiceVatRefusals } from '@/modules/accounting/services/capture/capturedVatEvidence';
 import {
   bulkApproveSupplierInvoicesTool,
 } from '@/lib/mcp/tools/writeBulkApproveSupplierInvoices';
-import { bulkApproveCreditNotesTool } from '@/lib/mcp/tools/writeBulkApproveCreditNotes';
 import { bulkFinalizeInvoicesTool } from '@/lib/mcp/tools/writeBulkFinalizeInvoices';
 import { MAX_FINALIZED_INVOICES_PER_REQUEST } from '@/lib/limits/authorityHoldLimits';
 
@@ -108,6 +112,20 @@ describe('bulk_approve_supplier_invoices', () => {
     expect(live.posted).toBe(1);
     expect((live.invoices as { id: string }[]).map((i) => i.id)).toEqual([ID(1)]);
     expect(preview.skipped).toEqual(live.skipped);
+  });
+
+  it('K-072 r30–r32: a bill whose VAT its captured document does not show is SKIPPED, in the dry run and the live call alike', async () => {
+    const call = (dry: boolean) => bulkApproveSupplierInvoicesTool.handler(
+      { invoice_ids: [ID(1), ID(2)], idempotency_key: 'k', ...(dry ? { dry_run: true } : {}) }, ctx,
+    ) as Promise<Result>;
+    for (const dry of [true, false]) {
+      rows({ id: ID(1), status: 'draft', invoice_date: '2026-09-01' }, { id: ID(2), status: 'draft', invoice_date: '2026-09-01' });
+      vi.mocked(invoiceVatRefusals).mockResolvedValueOnce(new Map([[ID(2), 'its VAT is not evidenced by its captured document']]));
+      const out = payload(await call(dry));
+      expect(out.skipped).toEqual([{ index: 1, document_id: ID(2), reason: 'its VAT is not evidenced by its captured document' }]);
+      expect(dry ? out.would_post_ids : (out.invoices as { id: string }[]).map((i) => i.id)).toEqual([ID(1)]);
+    }
+    expect(vi.mocked(approveSupplierInvoice).mock.calls.map((c) => c[1])).toEqual([ID(1)]);
   });
 
   it('dry_run posts nothing at all', async () => {
@@ -216,115 +234,5 @@ describe('bulk_finalize_invoices', () => {
     ) as Result;
     expect(res.isError).toBe(true);
     expect(res.content[0]!.text).toContain('vat_output');
-  });
-});
-
-describe('bulk_approve_credit_notes', () => {
-  it('only drafts are approvable', async () => {
-    rows({ id: ID(1), status: 'approved', credit_date: '2026-09-01',
-           credit_note_number: 'CN-1', type: 'customer' });
-    const res = await bulkApproveCreditNotesTool.handler(
-      { credit_note_ids: [ID(1)], idempotency_key: 'k' }, ctx,
-    ) as Result;
-    expect(res.isError).toBe(true);
-    expect(res.content[0]!.text).toContain('status is approved');
-  });
-
-  /**
-   * The roles depend on which note TYPES the batch contains. Refusing a batch
-   * of customer notes because the chart lacks `vat_input` — which nothing in it
-   * would touch — is the mistake the per-type union avoids.
-   */
-  it('does not refuse a customer-note batch for a missing SUPPLIER role', async () => {
-    vi.mocked(validateSystemAccounts).mockResolvedValue(['vat_input', 'payable'] as never);
-    rows({ id: ID(1), status: 'draft', credit_date: '2026-09-01',
-           credit_note_number: 'CN-1', type: 'customer' });
-    const res = await bulkApproveCreditNotesTool.handler(
-      { credit_note_ids: [ID(1)], idempotency_key: 'k' }, ctx,
-    ) as Result;
-    expect(res.isError).toBeUndefined();
-    expect(approveCreditNote).toHaveBeenCalledTimes(1);
-  });
-
-  it('DOES refuse when the type present is the one missing a role', async () => {
-    vi.mocked(validateSystemAccounts).mockResolvedValue(['vat_input'] as never);
-    rows({ id: ID(1), status: 'draft', credit_date: '2026-09-01',
-           credit_note_number: 'CN-1', type: 'supplier' });
-    const res = await bulkApproveCreditNotesTool.handler(
-      { credit_note_ids: [ID(1)], idempotency_key: 'k' }, ctx,
-    ) as Result;
-    expect(res.isError).toBe(true);
-    expect(res.content[0]!.text).toContain('vat_input');
-    expect(approveCreditNote).not.toHaveBeenCalled();
-  });
-
-  /**
-   * An 'applied' note reduced an invoice's outstanding balance. An agent
-   * reading 'approved' vs 'applied' as cosmetic would look for a second apply
-   * step and double-credit the invoice, so the link is reported explicitly.
-   */
-  it('reports applied_to_invoice_id when the auto-apply fired', async () => {
-    vi.mocked(approveCreditNote).mockResolvedValue({
-      id: ID(1), creditNoteNumber: 'CN-1', type: 'customer', status: 'applied',
-      totalAmount: 57.5, glJournalEntryId: 'je-1', customerInvoiceId: ID(9),
-    } as never);
-    rows({ id: ID(1), status: 'draft', credit_date: '2026-09-01',
-           credit_note_number: 'CN-1', type: 'customer' });
-    const res = payload(await bulkApproveCreditNotesTool.handler(
-      { credit_note_ids: [ID(1)], idempotency_key: 'k' }, ctx,
-    ) as Result);
-    expect((res.credit_notes as { applied_to_invoice_id: string }[])[0]!.applied_to_invoice_id)
-      .toBe(ID(9));
-    expect(res.applied_count).toBe(1);
-  });
-
-  /**
-   * Adversarial review, 2026-09-08. approveCreditNote takes TWO row locks — the
-   * note, then the linked invoice whose amount_paid it updates. Sorting by note
-   * id alone leaves the INVOICE lock order to chance, so two batches sharing an
-   * invoice can hold and wait crosswise and deadlock. Ordering by the linked
-   * invoice first is what gives a total order over the contended rows.
-   */
-  it('posts in LINKED-INVOICE order, not note-id order', async () => {
-    const INV_EARLY = '0b000000-0000-4000-8000-000000000001';
-    const INV_LATE = '0b000000-0000-4000-8000-000000000002';
-    // Note ID(1) sorts first by note id, but its invoice sorts LAST.
-    rows(
-      { id: ID(1), status: 'draft', credit_date: '2026-09-01',
-        credit_note_number: 'CN-1', type: 'customer', linked_invoice_id: INV_LATE },
-      { id: ID(2), status: 'draft', credit_date: '2026-09-01',
-        credit_note_number: 'CN-2', type: 'customer', linked_invoice_id: INV_EARLY },
-    );
-    await bulkApproveCreditNotesTool.handler(
-      { credit_note_ids: [ID(1), ID(2)], idempotency_key: 'k' }, ctx,
-    );
-    expect(vi.mocked(approveCreditNote).mock.calls.map((c) => c[1]))
-      .toEqual([ID(2), ID(1)]);
-  });
-
-  /** Standalone notes take no second lock, so they order among themselves by id. */
-  it('orders standalone notes by note id', async () => {
-    rows(
-      { id: ID(3), status: 'draft', credit_date: '2026-09-01',
-        credit_note_number: 'CN-3', type: 'customer', linked_invoice_id: null },
-      { id: ID(1), status: 'draft', credit_date: '2026-09-01',
-        credit_note_number: 'CN-1', type: 'customer', linked_invoice_id: null },
-    );
-    await bulkApproveCreditNotesTool.handler(
-      { credit_note_ids: [ID(3), ID(1)], idempotency_key: 'k' }, ctx,
-    );
-    expect(vi.mocked(approveCreditNote).mock.calls.map((c) => c[1]))
-      .toEqual([ID(1), ID(3)]);
-  });
-
-  it('reports no applied link for a note that merely approved', async () => {
-    rows({ id: ID(1), status: 'draft', credit_date: '2026-09-01',
-           credit_note_number: 'CN-1', type: 'customer' });
-    const res = payload(await bulkApproveCreditNotesTool.handler(
-      { credit_note_ids: [ID(1)], idempotency_key: 'k' }, ctx,
-    ) as Result);
-    expect((res.credit_notes as { applied_to_invoice_id: string | null }[])[0]!
-      .applied_to_invoice_id).toBeNull();
-    expect(res.applied_count).toBeUndefined();
   });
 });

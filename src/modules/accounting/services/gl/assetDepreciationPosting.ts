@@ -3,11 +3,19 @@ import { fmtDate } from '@/lib/fmtDate';
 import { isRealCalendarDate } from '@/lib/validation';
 import { log } from '@/lib/logger';
 import { prepareAssetDepreciation, executeAssetDepreciation } from './controlledAssetDepreciation';
+import type { DepreciationMethod } from '@/modules/accounting/services/items/farDepreciationService';
 interface ApprovalOptions { approvalId?:string }
+/**
+ * Compatibility shape only — nothing here reaches the ledger. `taxOpeningAccDep` stays
+ * optional because the run no longer passes one (a pre-transaction read of the cache
+ * column is exactly what the controlled path refuses to trust), and `method` is accepted
+ * so the run keeps compiling: the controlled materializer reads the asset's configured
+ * method itself and refuses anything it cannot compute exactly.
+ */
 interface DualDepInput {
  cost:number; residualPct:number; usefulLifeYears:number; taxLifeYears:number;
- purchaseDate:string; periodDate:string; openingAccDep:number; taxOpeningAccDep:number;
- deferredTaxRate:number; disposalDate?:string;
+ purchaseDate:string; periodDate:string; openingAccDep:number; taxOpeningAccDep?:number;
+ deferredTaxRate:number; disposalDate?:string; method?:DepreciationMethod;
 }
 export interface DualDepResult {
  policyDep:number; taxDep:number; entryId:string|null; glFailed:boolean;

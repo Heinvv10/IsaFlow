@@ -10,6 +10,7 @@ import { inviteEmailHtml, invoiceEmailHtml, appendSignatureToHtml } from '@/lib/
 import type { InviteEmailData, InvoiceEmailData } from '@/lib/email-templates';
 import { fireWebhook } from './webhookService';
 import { sendEmail } from './emailService';
+import { runAfterCommit } from '@/lib/afterCommit';
 import type { EmailResult } from './emailService';
 import type { DbRow } from '@/types/db';
 
@@ -109,12 +110,14 @@ export async function sendInvoiceEmail(
       messageId: result.messageId,
     }, 'emailService');
 
-    void fireWebhook(companyId, 'invoice.sent', {
+    // After COMMIT, off the request's connection: its delivery-log writes run
+    // after the HTTP call, long after this request has finished (R-075).
+    runAfterCommit('invoice.sent webhook', () => fireWebhook(companyId, 'invoice.sent', {
       invoiceId,
       invoiceNumber: invoice.invoice_number,
       totalAmount: invoice.total_amount,
       recipientEmail,
-    });
+    }));
   }
 
   return result;

@@ -2,6 +2,7 @@ import { sql } from '@/lib/neon';
 import type { DbRow } from '@/lib/neon';
 import { fmtDate } from '@/lib/fmtDate';
 import {executeCompensationCaller,type CompensationExecutionOptions} from '../controls/payrollCompensationLegacyAdapter';
+import { endOfMonthIso } from './leaveAccrualService';
 
 type Row = DbRow;
 
@@ -54,7 +55,13 @@ export async function assignComponentToEmployee(
   isRecurring: boolean = true,
   options: CompensationExecutionOptions = {},
 ): Promise<EmployeeComponentAssignment> {
-  const result=await executeCompensationCaller(companyId,{version:1,source:{kind:'manual'},actions:[{kind:'assign',employeeId,componentId,amount:String(amount),effectiveFrom:fmtDate(effectiveFrom),effectiveTo:effectiveTo?fmtDate(effectiveTo):null,isRecurring}]},options);
+  // A once-off assignment must be paid once. The payroll reader filters on the date
+  // window only — it ignores is_recurring — so an open-ended row is paid in every later
+  // run. Close it at the end of effectiveFrom's own month unless the caller named a date.
+  // Same rule as payPackageService and payrollBatchService (endOfMonthIso is the one helper).
+  const boundedTo = effectiveTo ?? (isRecurring ? null
+    : new Date(endOfMonthIso(effectiveFrom.getUTCFullYear(), effectiveFrom.getUTCMonth() + 1)));
+  const result=await executeCompensationCaller(companyId,{version:1,source:{kind:'manual'},actions:[{kind:'assign',employeeId,componentId,amount:String(amount),effectiveFrom:fmtDate(effectiveFrom),effectiveTo:boundedTo?fmtDate(boundedTo):null,isRecurring}]},options);
   const rows=await sql`SELECT a.* FROM payroll_employee_components a JOIN payroll_employees e ON e.id=a.employee_id AND e.company_id=${companyId}::uuid
     WHERE a.id=${result.assignmentIds[0]}::uuid` as Row[];
   if(!rows[0])throw new Error('Controlled compensation assignment disappeared');

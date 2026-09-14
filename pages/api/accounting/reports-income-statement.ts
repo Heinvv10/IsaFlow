@@ -13,6 +13,7 @@ import { withFlowMeter } from '@/lib/billing/withFlowMeter';
 import { getFlowCost } from '@/modules/billing/services/flowOperationCatalog';
 import { log } from '@/lib/logger';
 import { getIncomeStatement } from '@/modules/accounting/services/reports/financialReportingService';
+import { isUuidParam } from '@/lib/validation';
 
 async function handler(req: NextApiRequest, res: NextApiResponse) {
   if (req.method !== 'GET') {
@@ -22,9 +23,18 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
   const { companyId } = req as CompanyAuthedRequest;
 
   try {
-    const { period_start, period_end, project_id, cost_centre_id, compare_start, compare_end } = req.query;
+    const { period_start, period_end, project_id, cost_centre_id, business_unit_id, compare_start, compare_end } = req.query;
     if (!period_start || !period_end) {
       return apiResponse.badRequest(res, 'period_start and period_end are required');
+    }
+    if (cost_centre_id !== undefined && !isUuidParam(cost_centre_id)) {
+      return apiResponse.badRequest(res, 'cost_centre_id must be a valid UUID');
+    }
+    if (project_id !== undefined && !isUuidParam(project_id)) {
+      return apiResponse.badRequest(res, 'project_id must be a valid UUID');
+    }
+    if (business_unit_id !== undefined && !isUuidParam(business_unit_id)) {
+      return apiResponse.badRequest(res, 'business_unit_id must be a valid UUID');
     }
 
     const comparePeriod = compare_start && compare_end
@@ -37,6 +47,7 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
       {
         projectId: project_id ? String(project_id) : undefined,
         costCentreId: cost_centre_id ? String(cost_centre_id) : undefined,
+        businessUnitId: business_unit_id,
       },
       comparePeriod
     );

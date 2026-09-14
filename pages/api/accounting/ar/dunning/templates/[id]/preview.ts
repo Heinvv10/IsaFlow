@@ -17,6 +17,7 @@ import { withAuth, type CompanyAuthedRequest } from '@/lib/auth';
 import { withCsrf } from '@/lib/auth/withCsrf';
 import { UUID } from '@/lib/schemas/common';
 import { renderTemplate } from '@/modules/accounting/services/ar/dunningService';
+import { ArRequestError } from '@/modules/accounting/services/ar/arErrors';
 
 const BodySchema = z.object({ invoiceId: UUID }).strict();
 
@@ -42,19 +43,31 @@ async function handler(req: NextApiRequest, res: NextApiResponse): Promise<void>
 
   try {
     const portalBaseUrl = process.env.PUBLIC_APP_URL ?? process.env.NEXT_PUBLIC_APP_URL;
-    const rendered = await renderTemplate(companyId, templateId, invoiceId, portalBaseUrl);
+    // Read-shaped: never mint a portal token here. Previewing must not persist
+    // a permanent unauthenticated-access credential for an invoice that may
+    // never be sent (and withAuth COMMITs on 4xx, so it would survive a 404).
+    // An invoice with no token yet previews the '(portal link unavailable)'
+    // placeholder; the real link is minted when the reminder is sent.
+    const rendered = await renderTemplate(companyId, templateId, invoiceId, portalBaseUrl, {
+      mintPortalToken: false,
+    });
     if (!rendered) {
       apiResponse.notFound(res, 'Invoice', invoiceId);
       return;
     }
     apiResponse.success(res, { preview: rendered });
   } catch (err) {
-    const errMsg = err instanceof Error ? err.message : '';
-    if (/not found/i.test(errMsg)) {
-      apiResponse.notFound(res, 'Template', templateId);
+    // Typed, not text-matched — see the note in ar/dunning/send.ts. The old
+    // catch-all turned every failure into a 400, which withAuth COMMITs.
+    if (err instanceof ArRequestError) {
+      if (err.code === 'DUNNING_TEMPLATE_NOT_FOUND') {
+        apiResponse.notFound(res, 'Template', templateId);
+        return;
+      }
+      apiResponse.badRequestFromError(res, err, 'Failed to render preview');
       return;
     }
-    apiResponse.badRequestFromError(res, err, 'Failed to render preview');
+    throw err;
   }
 }
 

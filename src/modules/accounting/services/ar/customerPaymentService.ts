@@ -11,6 +11,7 @@ import { fmtDate } from '@/lib/fmtDate';
 import type { DbRow } from '@/lib/neon';
 import { randomUUID } from 'crypto';
 import { log } from '@/lib/logger';
+import { assertCustomerInCompany } from '../core/contactDirectoryService';
 import type {
   CustomerPayment,
   CustomerPaymentAllocation,
@@ -116,6 +117,11 @@ export async function createCustomerPayment(companyId: string,
   await assertCustomerPaymentAuthority(companyId,userId);
   const ctx=requireArControl(companyId,userId);
   const {ledgerCurrency}=await resolveArAccounts(ctx,[]);
+    // R-067: client_id has no (id, company_id) constraint, and the payment is
+    // read back with the customer's name joined on it.
+    await assertCustomerInCompany(companyId, input.clientId);
+
+
     // Validate allocations against invoice balances. W3 (P2.1): amount_paid
     // only reflects CONFIRMED payments — without counting other DRAFT
     // payments' pending allocations, two drafts could each claim the full

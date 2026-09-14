@@ -18,6 +18,7 @@ import { sql } from '@/lib/neon';
 import { sha256, storeCapturedBytes } from '@/lib/documentStorage';
 import { magicBytesMatchMime } from '@/lib/fileMagic';
 import { routeEvent } from '@/modules/accounting/services/capture/captureRouterService';
+import { runAfterCommit } from '@/lib/afterCommit';
 
 export const config = { api: { bodyParser: false } };
 
@@ -169,13 +170,14 @@ async function handler(req: CompanyAuthedRequest, res: NextApiResponse) {
 
     log.info('upload: capture event created', { companyId, documentId, eventId, fileName }, 'capture-upload');
 
-    // Fire-and-forget VLM routing
-    routeEvent(eventId, companyId).catch((err: unknown) => {
+    // VLM routing, off the request: it starts after this request COMMITs (it
+    // reads the event inserted above) and runs on its own connection (R-075).
+    runAfterCommit('capture upload routeEvent', () => routeEvent(eventId, companyId).catch((err: unknown) => {
       log.error('routeEvent background error', {
         eventId,
         error: err instanceof Error ? err.message : String(err),
       }, 'capture-upload');
-    });
+    }));
   }
 
   if (eventIds.length === 0) {

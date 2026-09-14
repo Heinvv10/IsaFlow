@@ -13,7 +13,9 @@ import { log } from '@/lib/logger';
 import { createJournalEntry, postJournalEntry, reverseJournalEntry } from '../gl/journalEntryService';
 import { resolveApControlAccounts } from './apControlAccounts';
 import { requireControlTx } from '../controls/context';
+import { claimUnderLockTimeout } from '../core/documentClaimLock';
 import { defaultHumanMeta } from '../gl/journalEntryMeta';
+import { lockSupplierPaymentForUpdate } from '../core/paymentLock';
 import { getSupplierPaymentById } from './supplierPaymentService';
 import type { SupplierPayment } from '../../types/ap.types';
 import type { JournalLineInput } from '../../types/gl.types';
@@ -36,7 +38,7 @@ async function approveSupplierPaymentEffect(
 ): Promise<SupplierPayment> {
   try {
     const payment = await getSupplierPaymentById(companyId, id);
-    if (!payment) throw new Error(`Payment ${id} not found`);
+    if (!payment) throw new SupplierPaymentNotFoundError(id);
     if (payment.status !== 'draft') throw new Error(`Cannot approve payment with status: ${payment.status}`);
 
     const rows = (await sql`
@@ -50,6 +52,38 @@ async function approveSupplierPaymentEffect(
   } catch (err) {
     log.error('Failed to approve supplier payment', { id, error: err }, 'accounting');
     throw err;
+  }
+}
+
+/**
+ * Raised when the payment id does not resolve inside this company. Raised by
+ * approve, process and void BEFORE any write, so a route may answer it 404.
+ *
+ * Typed rather than matched on the message: the route classified it with
+ * `/not found$/`, which also matched 'Bank account not found' — thrown AFTER
+ * `processSupplierPayment` has claimed the payment. That answered 404, and
+ * `withAuth` COMMITs below 500, so the payment stayed 'processed' with no
+ * journal and no path back: every retry hit the claim it had already taken.
+ */
+export class SupplierPaymentNotFoundError extends Error {
+  readonly code = 'SUPPLIER_PAYMENT_NOT_FOUND';
+  constructor(readonly paymentId: string) {
+    super(`Payment ${paymentId} not found`);
+    this.name = 'SupplierPaymentNotFoundError';
+  }
+}
+
+/**
+ * Raised when the payment is not 'approved' when the claim runs — because it
+ * never was, or because a concurrent request has already processed it. Raised
+ * BEFORE the journal is created, so a route may answer it with a 4xx without
+ * `withAuth` committing a half-processed payment.
+ */
+export class SupplierPaymentNotProcessableError extends Error {
+  readonly code = 'SUPPLIER_PAYMENT_NOT_PROCESSABLE';
+  constructor(readonly paymentStatus: string) {
+    super(`Payment is ${paymentStatus}, not approved — it cannot be processed.`);
+    this.name = 'SupplierPaymentNotProcessableError';
   }
 }
 
@@ -68,10 +102,43 @@ async function processSupplierPaymentEffect(
   permit: ControlledEffectPermit,
 ): Promise<SupplierPayment> {
   try {
+    // (2) THE PAYMENT FIRST — same canonical order as the void below. Without
+    // it this path took `supplier_invoices` (the allocation loop) before
+    // `supplier_payments` (the status flip), the inverse of
+    // `planSupplierPaymentApplication`, which locks the payment and THEN the
+    // bills through `fetchBillCandidates`. Both reach the same payment and the
+    // same bill, from `supplier-payments-action` and `supplier-allocations`.
+    if (!(await lockSupplierPaymentForUpdate(companyId, id))) {
+      throw new SupplierPaymentNotFoundError(id);
+    }
     const payment = await getSupplierPaymentById(companyId, id);
-    if (!payment) throw new Error(`Payment ${id} not found`);
+    if (!payment) throw new SupplierPaymentNotFoundError(id);
     assertStandalonePaymentProcess(payment.batchId);
-    if (payment.status !== 'approved') throw new Error(`Payment must be approved before processing`);
+
+    // CLAIM the payment before anything is posted — the singular twin of
+    // batchPaymentService.processBatch, which carried the identical defect.
+    // What this replaced read `payment.status !== 'approved'` and then created
+    // and POSTED DR AP / CR Bank for the full amount and incremented
+    // `amount_paid` on every allocated bill, with the payment's own row
+    // rewritten unconditionally: two concurrent "process" clicks credited the
+    // bank twice and overstated the supplier ledger, and only one journal id
+    // survived on the payment to show for it. The status-predicated UPDATE is
+    // the guard — the loser matches zero rows and stops here, before the first
+    // posting — and it also moves the first blocking point off the per-company
+    // entry_number trigger, where two interleaved callers used to park on each
+    // other with no lock_timeout at all.
+    const claimed = await claimUnderLockTimeout('supplier payment', async () => (await sql`
+      UPDATE supplier_payments
+      SET status = 'processed', processed_at = NOW()
+      WHERE id = ${id}::UUID AND company_id = ${companyId}::UUID AND status = 'approved'
+      RETURNING id
+    `) as Row[]);
+    if (claimed.length === 0) {
+      // Re-read rather than trusting the row read before the UPDATE: the loser
+      // of a double-click needs the status the winner left behind.
+      const now = await getSupplierPaymentById(companyId, id);
+      throw new SupplierPaymentNotProcessableError(now?.status ?? 'missing');
+    }
 
     const { chosen } = await resolveApControlAccounts(requireControlTx(), { operation: 'supplier_payment.process', entityType: 'supplier_payment', entityId: id });
     const apAccount = chosen.payable!, bankAccount = chosen.bank!;
@@ -106,12 +173,17 @@ async function processSupplierPaymentEffect(
     // Run on the ALS-bound connection so the outer request-scoped tx provides
     // atomicity — withTransaction would deadlock against rows already locked
     // by this same request (e.g. the JE we just inserted/posted above).
+    // The settlement takes the bills `ORDER BY si.id FOR UPDATE OF si`, which is
+    // the same ascending-invoice-id acquisition order the plain loop it replaced
+    // needed: two payments touching the same two bills in opposite orders hold
+    // one row each and deadlock (40P01).
     await applyControlledSupplierSettlement(id, permit.accountingDate ?? payment.paymentDate, permit);
 
+    // Only the journal link is left to write — the status and timestamp were
+    // set by the claim above.
     const updatedRows = (await sql`
       UPDATE supplier_payments
-      SET status = 'processed', processed_at = NOW(),
-          gl_journal_entry_id = ${journalEntry.id}::UUID
+      SET gl_journal_entry_id = ${journalEntry.id}::UUID
       WHERE id = ${id} AND company_id = ${companyId}::UUID
       RETURNING *
     `) as Row[];
@@ -149,8 +221,18 @@ async function voidSupplierPaymentInner(
   permit: ControlledEffectPermit,
 ): Promise<SupplierPayment> {
   try {
+    // (2) THE PAYMENT FIRST. This used to open with the unlocked
+    // `getSupplierPaymentById` and take `gl_journal_entries` before
+    // `supplier_invoices` before `supplier_payments` — the exact inverse of the
+    // canonical order in `bank/.claude.md`, and a reachable cycle against
+    // `voidPaymentDocument` (which takes payment → invoices → GL) on the very
+    // same supplier payment. Two agents voiding one payment from its two
+    // entrances held a row each and Postgres killed one with 40P01.
+    if (!(await lockSupplierPaymentForUpdate(companyId, id))) {
+      throw new SupplierPaymentNotFoundError(id);
+    }
     const payment = await getSupplierPaymentById(companyId, id);
-    if (!payment) throw new Error(`Payment ${id} not found`);
+    if (!payment) throw new SupplierPaymentNotFoundError(id);
     assertStandalonePaymentVoid(payment.batchId);
     if (payment.status === 'reconciled') {
       throw new Error('Cannot void a reconciled payment — remove it from the bank reconciliation first');
@@ -161,8 +243,21 @@ async function voidSupplierPaymentInner(
 
     await assertCashApplicationsUnapplied(requireControlTx(),id,'supplier');
 
-    // Reverse the payment journal (skip if already reversed — reversed_at is
-    // the marker; the original keeps status='posted' under metadata semantics).
+    // (3) Un-apply allocations: roll amount_paid back and recompute status.
+    // A voided payment returns the invoice to its pre-payment state
+    // ('approved' when nothing else is paid, 'partially_paid' otherwise). The
+    // settlement takes the bills BY INVOICE ID (`ORDER BY si.id FOR UPDATE OF
+    // si`): two voids touching the same two bills in opposite orders deadlock
+    // on each other. It also runs BEFORE the journal reversal, which is the
+    // ordering `bankAllocationUnwind.ts` argues for on its own merits —
+    // reversing first returns the credit to AP control while the bill still
+    // reads as settled.
+    await applyControlledSupplierSettlement(id, permit.accountingDate ?? payment.paymentDate, permit);
+
+    // (4) Reverse the payment journal LAST — the pre-existing entry is the
+    // most-contended row of the four and the canonical order puts it last.
+    // Skip if already reversed: `reversed_at` is the marker; the original keeps
+    // status='posted' under metadata semantics.
     if (payment.glJournalEntryId) {
       const jeRows = (await sql`
         SELECT status, reversed_at FROM gl_journal_entries
@@ -180,13 +275,10 @@ async function voidSupplierPaymentInner(
       }
     }
 
-    // Un-apply allocations: roll amount_paid back and recompute status.
-    // A voided payment returns the invoice to its pre-payment state
-    // ('approved' when nothing else is paid, 'partially_paid' otherwise).
-    await applyControlledSupplierSettlement(id, permit.accountingDate ?? payment.paymentDate, permit);
-
-    // Guarded flip: only a still-processed payment can be voided (concurrent
-    // void/reconcile loses the race cleanly).
+    // Guarded flip: the status re-assertion is now redundant against a
+    // concurrent void (the row has been locked since the top of this function)
+    // and is KEPT as the row-returning write and as a guard against a future
+    // caller that reaches here without the lock.
     const rows = (await sql`
       UPDATE supplier_payments
       SET status = 'cancelled'

@@ -6,6 +6,7 @@ import { log } from '@/lib/logger';
 import { allocateProvisionalTransaction } from '../bank/bankAllocationService';
 import { getSystemAccountId } from '../gl/systemAccountResolver';
 import { resolveRuleVatCode } from '../gl/ruleVatResolution';
+import { feedStateOf } from '../bank/bankFeedStateGuard';
 
 type Row = DbRow;
 
@@ -158,7 +159,7 @@ export async function postProvisional(
 
   // Load bank transaction
   const txRows = (await sql`
-    SELECT id, bank_account_id, transaction_date, amount, description, status
+    SELECT id, bank_account_id, transaction_date, amount, description, status, feed_state
     FROM bank_transactions
     WHERE id = ${bankTxId}::UUID AND company_id = ${companyId}::UUID
   `) as Row[];
@@ -171,6 +172,14 @@ export async function postProvisional(
       journalEntryId: null,
       prediction: { supplierId: null, supplierName: null, glAccountId: null, vatCode: null, costCentreId: null, projectId: null, confidence: 0, basis: 'none' },
       skipped: `already ${String(tx.status)}`,
+    };
+  }
+
+  if (feedStateOf(tx) !== 'posted') {
+    return {
+      journalEntryId: null,
+      prediction: { supplierId: null, supplierName: null, glAccountId: null, vatCode: null, costCentreId: null, projectId: null, confidence: 0, basis: 'none' },
+      skipped: `feed_state ${feedStateOf(tx)}`,
     };
   }
 

@@ -170,7 +170,7 @@ export default function BankFeedsPage() {
             <div>
               <h1 className="text-2xl font-bold text-[var(--ff-text-primary)]">Bank Feeds</h1>
               <p className="text-sm text-[var(--ff-text-secondary)]">
-                Automated open banking transaction imports
+                Import bank transactions — statement uploads and ABSA browser import
               </p>
             </div>
           </div>
@@ -191,7 +191,7 @@ export default function BankFeedsPage() {
             <WifiOff className="h-12 w-12 text-[var(--ff-text-tertiary)] mx-auto mb-4" />
             <h2 className="text-lg font-semibold text-[var(--ff-text-primary)] mb-2">No Bank Feed Connections</h2>
             <p className="text-sm text-[var(--ff-text-secondary)] mb-6 max-w-sm mx-auto">
-              Connect your bank accounts to automatically import transactions via Basiq, Tink, Plaid, or manual CSV upload.
+              Import bank statements (CSV, PDF, OFX, QIF) or connect the ABSA browser import. Both are user-operated; IsaFlow does not yet offer automatic bank feeds.
             </p>
             <button
               onClick={() => setShowAddModal(true)}

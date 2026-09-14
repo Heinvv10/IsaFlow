@@ -11,7 +11,11 @@ import { withCsrf } from '@/lib/auth/withCsrf';
 import { withAdmin } from '@/modules/admin/middleware/withAdmin';
 import { apiResponse } from '@/lib/apiResponse';
 import { log } from '@/lib/logger';
-import { getSubscription, updateSubscription } from '@/modules/admin/services/billingService';
+import {
+  cancelSubscription,
+  getSubscription,
+  updateSubscription,
+} from '@/modules/admin/services/billingService';
 import { logAdminAction } from '@/modules/admin/services/auditService';
 import { getIp } from '@/utils/getIp';
 import { UUID } from '@/lib/schemas/common';
@@ -22,6 +26,11 @@ const PatchBody = z.object({
   discount_percent: z.number().min(0).max(50).optional(),
   status:           z.enum(['active', 'trial', 'past_due', 'cancelled', 'suspended']).optional(),
   notes:            z.string().max(2000).optional(),
+  // The company billing tab PATCHes this to schedule a cancellation; without
+  // it the strict schema rejected the only UI that offers the option. Only
+  // `true` is accepted — clearing a scheduled cancellation is a reactivation,
+  // which goes through `status`.
+  cancel_at_period_end: z.literal(true).optional(),
 }).strict();
 
 async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse) {
@@ -45,8 +54,10 @@ async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse) {
     }
 
     try {
+      const { cancel_at_period_end, ...fields } = parsed.data;
       const body = parsed.data;
-      await updateSubscription(id, body);
+      if (Object.keys(fields).length > 0) await updateSubscription(id, fields);
+      if (cancel_at_period_end) await cancelSubscription(id, true);
 
       await logAdminAction(
         req.user.id,

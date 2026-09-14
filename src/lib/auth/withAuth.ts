@@ -11,6 +11,8 @@ import { authenticatePrintToken } from './withAuthPrint';
 import { getAuthPool } from './authPool';
 import { parseCookies, clearAuthCookies, ACCESS_COOKIE, ACTIVE_COMPANY_COOKIE } from './cookies';
 import { ControlIntegrityError, withControlRequest } from '@/modules/accounting/services/controls/context';
+import type { RequestContext } from '@/lib/als';
+import { runOwnedContext, drainAfterCommit } from '@/lib/afterCommit';
 import { log } from '@/lib/logger';
 import { setTenantTags, sanitizeRoute } from '@/lib/sentry/tags';
 import { checkRateLimit } from '@/lib/rateLimit';
@@ -207,13 +209,22 @@ export function withAuth(handler: Handler): NextApiHandler {
         return res;
       };
 
+      // One context object, shared by the control request and the after-commit
+      // drain at the end of this function — the drain must queue off the SAME
+      // object the handler pushed onto, so this cannot be an inline literal.
+      const ctx: RequestContext = {
+        client, userId: claims.sub, companyId: activeCompanyId, claims: claims as Record<string, unknown>, afterCommit: [],
+      };
+      // runOwnedContext marks the context finished once the handler settles;
+      // withControlRequest establishes the control principal inside it. Both
+      // enter als.run on the same store, so nesting them is a no-op for ALS.
       const runHandler = async () => {
         try {
-          await withControlRequest(
-            { client, userId: claims.sub, companyId: activeCompanyId, claims: claims as Record<string, unknown> },
-            { personId: claims.sub, companyId: activeCompanyId, authMethod: 'cookie', impersonatorPersonId },
+          await runOwnedContext(ctx, () => withControlRequest(
+            ctx,
+            { personId: claims!.sub, companyId: activeCompanyId, authMethod: 'cookie', impersonatorPersonId },
             async () => { await handler(req, res); }
-          );
+          ));
         } catch (error) {
           if (!(error instanceof ControlIntegrityError)) throw error;
           const body = JSON.stringify({ success: false, data: null,
@@ -283,6 +294,9 @@ export function withAuth(handler: Handler): NextApiHandler {
       // never responded there is nothing to replay (Next surfaces its own
       // "resolved without sending a response" path, unchanged from before).
       if (handlerEnded) realEnd(...(bufferedEndArgs ?? []));
+      // Only now may background work start: its rows are visible, and it gets its
+      // own connection instead of this one (R-075). Never after a ROLLBACK.
+      if (!handlerFailed) drainAfterCommit(ctx);
     } catch (err) {
       try { await client.query('ROLLBACK'); } catch { /* secondary */ }
       throw err;

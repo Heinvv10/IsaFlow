@@ -71,6 +71,7 @@ const base = {
   movable: [line],
   impact: impact(),
   priorSources: 0,
+  droppedDimensionLines: 0,
 };
 
 const codes = (input: Parameters<typeof reclassWarnings>[0]) =>
@@ -84,6 +85,16 @@ describe('reclassWarnings', () => {
     // The remedy has to be actionable, not a shrug.
     expect(remedy!.detail).toContain('update_gl_account');
     expect(remedy!.detail).toContain('MOVES NOTHING');
+  });
+
+  it('reports a dropped foreign dimension, and says nothing when none was dropped', () => {
+    // The plan drops a dimension the company does not own rather than letting
+    // the ownership guard unwind the batch; a reader is told it happened.
+    const warning = reclassWarnings({ ...base, droppedDimensionLines: 3 })
+      .find((w) => w.code === 'foreign_dimension_dropped');
+    expect(warning).toBeDefined();
+    expect(warning!.detail).toContain('3 source line(s)');
+    expect(codes(base)).not.toContain('foreign_dimension_dropped');
   });
 
   it('does NOT offer the subtype remedy when the source is already classified', () => {

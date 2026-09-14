@@ -21,7 +21,11 @@ export async function previewDepreciationJournals(companyId:string,plan:Deprecia
   if(facts.period.status!=='open'||facts.accounts.some(a=>a.is_active!==true))throw new Error('Depreciation period or accounts are not open');
   if(facts.ledgers.some(ledger=>String(ledger.yyyymm)===plan.periodDate.slice(0,7).replace('-','')))throw new Error('Depreciation period already exists');
   if(!facts.plan.length){
-   writesWithoutJournal.push({id:row.assetId,reason:'subledger_row_only_no_journal',detail:`No policy journal; persisted tax depreciation ${facts.calculation.taxDep} and carrying amounts would update the asset period ledger.`});
+   // A life-expired asset has NOT "no depreciation left" — it has a balance the
+   // run will never charge, which is the opposite reading. Use the plan's own
+   // note when there is one.
+   writesWithoutJournal.push({id:row.assetId,reason:'subledger_row_only_no_journal',
+    detail:row.lifeExpiredNote??`No policy journal; persisted tax depreciation ${facts.calculation.taxDep} and carrying amounts would update the asset period ledger.`});
    continue;
   }
   const lines=facts.plan.map(line=>{const account=facts.accounts.find(a=>a.id===line.glAccountId)!;return{

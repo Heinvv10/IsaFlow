@@ -87,16 +87,23 @@ export default function ApprovalsPage() {
 
   const handleDecision = async (requestId: string, action: 'approve' | 'reject') => {
     setDeciding(requestId);
+    setError('');
     try {
       const res = await apiFetch('/api/accounting/approval-requests', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ action, requestId }),
       });
-      if (!res.ok) throw new Error('Failed');
+      if (!res.ok) {
+        // A 403 here is a segregation-of-duties refusal carrying the reason it
+        // was refused. Discarding the body left it indistinguishable from a
+        // network failure, so nobody learned why the button did nothing.
+        const json = await res.json().catch(() => null) as { error?: { message?: string } } | null;
+        throw new Error(json?.error?.message || 'Failed to process decision');
+      }
       await fetchData();
-    } catch {
-      setError('Failed to process decision');
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Failed to process decision');
     } finally {
       setDeciding(null);
     }

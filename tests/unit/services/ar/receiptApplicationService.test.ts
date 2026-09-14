@@ -35,6 +35,29 @@
 
 import { describe, it, expect, vi, beforeEach, type MockedFunction } from 'vitest';
 
+// `fetchInvoiceCandidates` / `fetchBillCandidates` refuse to run outside a
+// request transaction — their `FOR UPDATE` would be released at the end of its
+// own statement and protect nothing. Stand in for the withAuth-bound client so
+// the guards under test are exercised, and so the 5s `SET LOCAL lock_timeout`
+// is observable.
+const { mockTx } = vi.hoisted(() => ({
+  mockTx: {
+    queries: [] as string[],
+    present: true,
+    client: { query: (t: string) => { mockTx.queries.push(t); return Promise.resolve(undefined); } },
+  },
+}));
+vi.mock('@/lib/als', async () => {
+  const actual = await vi.importActual<typeof import('@/lib/als')>('@/lib/als');
+  return {
+    ...actual,
+    als: {
+      ...actual.als,
+      getStore: () => (mockTx.present ? { client: mockTx.client } : undefined),
+    },
+  };
+});
+
 vi.mock('@/lib/neon', async () => {
   const actual = await vi.importActual<typeof import('@/lib/neon')>('@/lib/neon');
   const sqlMock = Object.assign(vi.fn(), { transaction: vi.fn() });
@@ -106,6 +129,67 @@ function invoiceRow(id: string, over: Row = {}): Row {
 
 beforeEach(() => {
   vi.resetAllMocks();
+  mockTx.queries.length = 0;
+  mockTx.present = true;
+});
+
+/**
+ * The invoice read is the check-then-act's read half. The lock itself is proven
+ * against the real database in
+ * `tests/integration/k071-invoice-lock-concurrency.int.test.ts`; these pin the
+ * clauses so none can be dropped without a red unit test, and the AP mirror
+ * carries the same three in `supplierPaymentApplicationService.test.ts`.
+ */
+describe('the invoice read locks what it is about to decide from', () => {
+  it('takes FOR UPDATE OF ci in a fixed order, under a 5s lock_timeout', async () => {
+    lockMock.mockResolvedValue(paymentRow());
+    invoiceRows([invoiceRow(INV_A)]);
+    await planReceiptApplication(COMPANY, PAYMENT, [{ invoiceId: INV_A, amount: 100 }]);
+
+    const read = (sqlMock.mock.calls[0]![0] as string[]).join('?');
+    expect(read).toMatch(/FOR UPDATE OF ci/);
+    expect(read).toMatch(/ORDER BY ci\.id/);
+    expect(mockTx.queries).toContain("SET LOCAL lock_timeout = '5s'");
+    expect(mockTx.queries).toContain('SET LOCAL lock_timeout = DEFAULT');
+  });
+
+  it('turns a lock timeout into a refusal that names the retry', async () => {
+    lockMock.mockResolvedValue(paymentRow());
+    sqlMock.mockRejectedValueOnce(Object.assign(new Error('canceling statement'), { code: '55P03' }));
+
+    await expect(
+      planReceiptApplication(COMPANY, PAYMENT, [{ invoiceId: INV_A, amount: 100 }]),
+    ).rejects.toThrow(/retry in a moment/i);
+    expect(mockTx.queries).not.toContain('SET LOCAL lock_timeout = DEFAULT');
+  });
+
+  it('turns a DEADLOCK into the same retryable refusal', async () => {
+    lockMock.mockResolvedValue(paymentRow());
+    sqlMock.mockRejectedValueOnce(Object.assign(new Error('deadlock detected'), { code: '40P01' }));
+
+  // 40P01, not 55P03: a DEADLOCK is the other contention SQLSTATE and it must
+  // reach the caller as the same retryable refusal. The canonical lock order
+  // (`bank/.claude.md`) is what makes one unlikely; this is what stops the one
+  // that still happens from being answered as a 500 on a money path.
+    await expect(
+      planReceiptApplication(COMPANY, PAYMENT, [{ invoiceId: INV_A, amount: 100 }]),
+    ).rejects.toThrow(/retry in a moment/i);
+    expect(mockTx.queries).not.toContain('SET LOCAL lock_timeout = DEFAULT');
+  });
+
+  it('refuses to run at all outside a request transaction', async () => {
+    lockMock.mockResolvedValue(paymentRow());
+    invoiceRows([invoiceRow(INV_A)]);
+    mockTx.present = false;
+
+    // Previously this case SKIPPED the lock and ran the read anyway: a
+    // `FOR UPDATE` in its own implicit transaction locks nothing and, with no
+    // `SET LOCAL lock_timeout`, waits forever on a conflicting lock.
+    await expect(
+      planReceiptApplication(COMPANY, PAYMENT, [{ invoiceId: INV_A, amount: 100 }]),
+    ).rejects.toThrow(/requires a request transaction/);
+    expect(sqlMock).not.toHaveBeenCalled();
+  });
 });
 
 describe('planReceiptApplication', () => {
@@ -266,7 +350,24 @@ describe('applyReceiptPlan', () => {
     invoiceRows([invoiceRow(INV_A)]);
     const plan = await planReceiptApplication(COMPANY, PAYMENT, [{invoiceId:INV_A,amount:100}]);
     await expect(applyReceiptPlan(COMPANY,plan,USER)).rejects.toThrow(/context|transaction|principal/i);
+
+    // Anchored on the WRITE forms (master's regex, kept). A bare /UPDATE/ also
+    // matches the `FOR UPDATE` the plan's invoice lock takes, which reads
+    // nothing and writes nothing — the guard would have passed on a lock and
+    // failed on a lock alike.
+    //
+    // `\s+`, not a literal space: every UPDATE in this codebase breaks the line
+    // between the table and its SET clause, so `UPDATE \w+ SET` matched none of
+    // them and the guard passed on exactly the write it exists to catch (an
+    // `amount_paid` move). `FOR UPDATE OF ci` is still excluded — no SET
+    // follows it.
+    //
+    // The optional alias group catches `UPDATE customer_invoices ci SET …` too.
+    // Aliased updates are an idiom in use here (`expenseClaimService`,
+    // `bankRulesMatchingService`, `bankTransferLinkService`), so without it the
+    // guard is blind to exactly the form a future write is most likely to take.
     const texts = sqlMock.mock.calls.map((c) => (c[0] as string[]).join('?'));
-    expect(texts.some((t) => /INSERT|UPDATE|DELETE/.test(t))).toBe(false);
+    const WRITE_SQL = /INSERT INTO|UPDATE\s+\w+(\s+(?:AS\s+)?\w+)?\s+SET|DELETE FROM/;
+    expect(texts.some((t) => WRITE_SQL.test(t))).toBe(false);
   });
 });

@@ -9,6 +9,7 @@ import { setTenantTags, sanitizeRoute } from '@/lib/sentry/tags';
 import { safeCorsOrigin } from '@/lib/cors';
 import { redactShareToken, redactTokenParams } from '@/lib/observability/redactShareToken';
 import { isRetryableLockFailure, LOCK_RETRY_AFTER_SECONDS } from '@/lib/lockContention';
+import { respondIfLockTimeout } from '@/lib/apiDocumentLock';
 
 const SENSITIVE_KEYS = new Set([
   'password', 'confirmPassword', 'password_hash', 'token', 'secret', 'apiKey', 'api_key',
@@ -153,7 +154,21 @@ export function withErrorHandler(
           return;
         }
 
-        // Lock contention rolled the request back whole; the client can safely try again.
+        // Contention on a document number, a claimed document or a time-entry
+        // row is transient and the caller should retry — it is not a bug, and
+        // the generic 500 below masks its message in production, so the user
+        // could not tell the two apart. 503 (not 4xx) because 55P03 leaves the
+        // transaction aborted and withAuth must ROLLBACK; see apiDocumentLock.
+        // Checked FIRST because these four are typed wrappers that carry a
+        // specific message; the raw-code check below is the catch-all.
+        if (respondIfLockTimeout(res, error)) {
+          return;
+        }
+
+        // The same contention reaching here untyped: lock_timeout (55P03, e.g.
+        // the 5 s bound on the company authority key, migration 838) or the
+        // deadlock detector (40P01). Either rolled the request back whole, so
+        // the client can safely try again.
         if (isRetryableLockFailure(error)) {
           res.setHeader('Retry-After', String(LOCK_RETRY_AFTER_SECONDS));
           res.status(503).json({

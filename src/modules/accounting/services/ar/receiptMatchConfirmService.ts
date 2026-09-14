@@ -13,6 +13,7 @@ import {
   type ReceiptAllocationInput,
   type ReceiptApplicationLine,
 } from './receiptAllocationLines';
+import { ReceiptRefusal } from './receiptRefusal';
 
 export interface BankReceiptValidation {
   bankTxId: string;
@@ -47,9 +48,9 @@ export async function validateBankReceiptApplication(
   const tx = await fetchBankTransaction(bankTxId, companyId);
   // Same wording as a genuine miss — a transaction in another tenant must not
   // be distinguishable from one that does not exist.
-  if (!tx) throw new Error(`Bank transaction ${bankTxId} not found`);
+  if (!tx) throw new ReceiptRefusal(`Bank transaction ${bankTxId} not found`);
   if (tx.amount <= 0) {
-    throw new Error(
+    throw new ReceiptRefusal(
       `Bank transaction ${bankTxId} is money OUT (R${tx.amount.toFixed(2)}). `
       + 'A customer receipt is money in; use apply_payment_to_supplier_invoice for a payment.',
     );
@@ -57,7 +58,7 @@ export async function validateBankReceiptApplication(
 
   const status = await getBankTransactionStatus(companyId, bankTxId);
   if (status !== 'imported') {
-    throw new Error(
+    throw new ReceiptRefusal(
       `Bank transaction ${bankTxId} is "${status ?? 'unknown'}" and cannot be allocated. `
       + 'Only an unallocated (imported) line can be matched to a receipt; reverse the existing '
       + 'allocation first if it is wrong.',
@@ -78,14 +79,14 @@ export async function validateBankReceiptApplication(
   // permanently outside the trial balance, the VAT201 and the AFS.
   const period = await getPeriodStatusForDate(companyId, tx.transactionDate);
   if (period === 'no_period') {
-    throw new Error(
+    throw new ReceiptRefusal(
       `No fiscal period covers ${tx.transactionDate}, the date of this bank line. Create the `
       + 'fiscal year first — posting outside every period would leave the journal invisible to '
       + 'the trial balance, the VAT201 and the AFS.',
     );
   }
   if (period !== 'open') {
-    throw new Error(
+    throw new ReceiptRefusal(
       `The fiscal period covering ${tx.transactionDate}, the date of this bank line, is `
       + `${period}. Re-open it before allocating into it.`,
     );
@@ -98,7 +99,7 @@ export async function validateBankReceiptApplication(
 
   const allocatedTotal = round2(lines.reduce((s, l) => s + l.amount, 0));
   if (allocatedTotal > tx.amount + EPS) {
-    throw new Error(
+    throw new ReceiptRefusal(
       `Allocations total R${allocatedTotal.toFixed(2)} but the bank line is only `
       + `R${tx.amount.toFixed(2)}. The invoices would be credited with cash the journal never received.`,
     );

@@ -12,8 +12,6 @@
  * Skipped (no pure exports — all functions touch sql/db/network):
  *   bankRulesService.ts           — toSqlPattern and mapRuleRow are not exported
  *   bankAllocationService.ts      — all exports call sql
- *   bankFeedService.ts            — re-export facade only
- *   bankFeedSyncService.ts        — all exports call sql + graphqlQuery
  *   bankImportService.ts          — all exports call sql/transaction
  *   duplicateDetectionService.ts  — all exports call sql (fuzzyMatch tested via fuzzyMatcher)
  *   cashFlowForecastService.ts    — all exports call sql
@@ -367,7 +365,7 @@ describe('mapTxRow', () => {
     description: 'Office Supplies',
     reference: 'INV-2026-001',
     bank_reference: 'BNK-REF-999',
-    status: 'imported',
+    status: 'imported', feed_state: 'posted',
     matched_journal_line_id: null,
     reconciliation_id: null,
     import_batch_id: 'batch-uuid-001',

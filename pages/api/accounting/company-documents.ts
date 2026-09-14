@@ -17,6 +17,7 @@ import { sql } from '@/lib/neon';
 import { isVlmAvailable } from '@/modules/accounting/services/bank/vlmService';
 import { extractStatutoryDocWithVlm } from '@/modules/accounting/services/bank/vlmService';
 import { log } from '@/lib/logger';
+import { runAfterCommit } from '@/lib/afterCommit';
 type Row = Record<string, unknown>;
 
 
@@ -133,9 +134,9 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
 
     // Fire-and-forget VLM extraction for statutory documents
     if (isVlmAvailable() && fileData) {
-      extractStatutoryDocData(fileData, documentType, docId).catch(err =>
+      runAfterCommit('statutory doc extraction', () => extractStatutoryDocData(fileData, documentType, docId, companyId).catch(err =>
         log.warn('Statutory doc extraction failed', { error: err instanceof Error ? err.message : String(err) }, 'company-docs')
-      );
+      ));
     }
 
     return apiResponse.created(res, { id: docId });
@@ -164,8 +165,13 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
   return apiResponse.methodNotAllowed(res, req.method!, ['GET', 'POST', 'DELETE']);
 }
 
-/** Background statutory document VLM extraction */
-async function extractStatutoryDocData(fileData: string, docType: string, docId: string) {
+/**
+ * Background statutory document VLM extraction.
+ *
+ * Runs after the request COMMITs, on the pool's role with no RLS (R-075), so
+ * the UPDATE carries company_id itself.
+ */
+export async function extractStatutoryDocData(fileData: string, docType: string, docId: string, companyId: string) {
   // fileData is a base64 data URL
   const match = fileData.match(/^data:([^;]+);base64,(.+)$/);
   if (!match) return;
@@ -181,12 +187,20 @@ async function extractStatutoryDocData(fileData: string, docType: string, docId:
 
   const result = await extractStatutoryDocWithVlm(base64, mimeType, docTypeMap[docType] || undefined);
   if (result) {
-    await sql`
+    const stored = await sql`
       UPDATE company_documents
       SET extracted_data = ${JSON.stringify(result)}::jsonb
       WHERE id = ${docId}::uuid
+        AND company_id = ${companyId}::uuid
+      RETURNING id
     `;
-    log.info('Statutory doc extraction stored', { docId, docType: result.documentType }, 'company-docs');
+    // By outcome: the fence can match nothing, and a success log there would be
+    // the same false "extraction complete" R-075 itself produced.
+    if (stored.length === 0) {
+      log.warn('Statutory doc extraction discarded — document is not this company\'s', { docId, companyId }, 'company-docs');
+    } else {
+      log.info('Statutory doc extraction stored', { docId, docType: result.documentType }, 'company-docs');
+    }
   }
 }
 

@@ -20,6 +20,7 @@ import { sql } from '@/lib/neon';
 import type { DbRow } from '@/lib/neon';
 import { approveSupplierInvoice } from '@/modules/accounting/services/ap/supplierInvoiceWorkflowService';
 import { validateSystemAccounts } from '@/modules/accounting/services/gl/systemAccountResolver';
+import { invoiceVatRefusals } from '@/modules/accounting/services/capture/capturedVatEvidence';
 import { mcpPostingOpts } from '../mcpActor';
 import {
   type BulkApproveAdapter,
@@ -164,9 +165,19 @@ export const bulkApproveSupplierInvoicesTool: McpTool = {
       );
     }
 
-    const { postable, skipped, states } = await partitionDocuments(
+    // `preview` keeps a dry run from would-posting a document the controls kernel
+    // would hold for approval — the preview must refuse it exactly as the live call does.
+    const partitioned = await partitionDocuments(
       ctx.companyId, ids, adapter, { preview: args.dry_run === true },
     );
+    const { states } = partitioned;
+    // K-072 r30–r36: a bill carrying a VAT its captured document never showed, or a meals
+    // merchant's VAT, is SKIPPED — read, not written, so the dry run and the live call decide it alike.
+    const refusals = await invoiceVatRefusals(ctx.companyId, partitioned.postable.map((p) => p.id));
+    const postable = partitioned.postable.filter((p) => !refusals.has(p.id));
+    const skipped = [...partitioned.skipped, ...partitioned.postable.filter((p) => refusals.has(p.id))
+      .map((p) => ({ index: p.index, document_id: p.id, reason: refusals.get(p.id)! }))]
+      .sort((a, b) => a.index - b.index);
 
     if (args.dry_run === true) {
       const preview = ok({

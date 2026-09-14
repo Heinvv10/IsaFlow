@@ -31,6 +31,29 @@
 
 import { describe, it, expect, vi, beforeEach, type MockedFunction } from 'vitest';
 
+// `fetchInvoiceCandidates` / `fetchBillCandidates` refuse to run outside a
+// request transaction — their `FOR UPDATE` would be released at the end of its
+// own statement and protect nothing. Stand in for the withAuth-bound client so
+// the guards under test are exercised, and so the 5s `SET LOCAL lock_timeout`
+// is observable.
+const { mockTx } = vi.hoisted(() => ({
+  mockTx: {
+    queries: [] as string[],
+    present: true,
+    client: { query: (t: string) => { mockTx.queries.push(t); return Promise.resolve(undefined); } },
+  },
+}));
+vi.mock('@/lib/als', async () => {
+  const actual = await vi.importActual<typeof import('@/lib/als')>('@/lib/als');
+  return {
+    ...actual,
+    als: {
+      ...actual.als,
+      getStore: () => (mockTx.present ? { client: mockTx.client } : undefined),
+    },
+  };
+});
+
 vi.mock('@/lib/neon', async () => {
   const actual = await vi.importActual<typeof import('@/lib/neon')>('@/lib/neon');
   const sqlMock = Object.assign(vi.fn(), { transaction: vi.fn() });
@@ -95,6 +118,75 @@ function billRow(id: string, over: Row = {}): Row {
 
 beforeEach(() => {
   vi.resetAllMocks();
+  mockTx.queries.length = 0;
+  mockTx.present = true;
+});
+
+/**
+ * The bill read is the check-then-act's read half: `outstandingBefore` comes
+ * from it, the over-payment guard is decided from that in `buildLine`, and
+ * `amount_paid` is moved much later. Nothing else on the AP path locks the bill
+ * — `lockSupplierPaymentForUpdate` protects a payment this request created, and
+ * `bankTxLock` a bank LINE, a different row per request. Proven against the
+ * real database in `tests/integration/k071-bill-lock-concurrency.int.test.ts`;
+ * pinned here so the clause cannot be dropped without a red unit test.
+ */
+describe('the bill read locks what it is about to decide from', () => {
+  it('takes FOR UPDATE OF si in a fixed order, under a 5s lock_timeout', async () => {
+    lockMock.mockResolvedValue(paymentRow());
+    billRows([billRow(BILL_A)]);
+    await planSupplierPaymentApplication(COMPANY, PAYMENT, [{ invoiceId: BILL_A, amount: 100 }]);
+
+    const read = (sqlMock.mock.calls[0]![0] as string[]).join('?');
+    expect(read).toMatch(/FOR UPDATE OF si/);
+    // The lock ORDER, without which two requests naming the same pair of bills
+    // can take them in opposite sequences and deadlock.
+    expect(read).toMatch(/ORDER BY si\.id/);
+    expect(mockTx.queries).toContain("SET LOCAL lock_timeout = '5s'");
+    // Restored on the success path: SET LOCAL lasts to the end of the
+    // TRANSACTION, so the 5s budget would otherwise govern every later lock.
+    expect(mockTx.queries).toContain('SET LOCAL lock_timeout = DEFAULT');
+  });
+
+  it('turns a lock timeout into a refusal that names the retry', async () => {
+    lockMock.mockResolvedValue(paymentRow());
+    sqlMock.mockRejectedValueOnce(Object.assign(new Error('canceling statement'), { code: '55P03' }));
+
+    await expect(
+      planSupplierPaymentApplication(COMPANY, PAYMENT, [{ invoiceId: BILL_A, amount: 100 }]),
+    ).rejects.toThrow(/retry in a moment/i);
+    // NOT restored after a timeout: the transaction is aborted and the reset
+    // would itself raise 25P02, replacing the typed refusal with an opaque one.
+    expect(mockTx.queries).not.toContain('SET LOCAL lock_timeout = DEFAULT');
+  });
+
+  it('turns a DEADLOCK into the same retryable refusal', async () => {
+    lockMock.mockResolvedValue(paymentRow());
+    sqlMock.mockRejectedValueOnce(Object.assign(new Error('deadlock detected'), { code: '40P01' }));
+
+  // 40P01, not 55P03: a DEADLOCK is the other contention SQLSTATE and it must
+  // reach the caller as the same retryable refusal. The canonical lock order
+  // (`bank/.claude.md`) is what makes one unlikely; this is what stops the one
+  // that still happens from being answered as a 500 on a money path.
+    await expect(
+      planSupplierPaymentApplication(COMPANY, PAYMENT, [{ invoiceId: BILL_A, amount: 100 }]),
+    ).rejects.toThrow(/retry in a moment/i);
+    expect(mockTx.queries).not.toContain('SET LOCAL lock_timeout = DEFAULT');
+  });
+
+  it('refuses to run at all outside a request transaction', async () => {
+    lockMock.mockResolvedValue(paymentRow());
+    billRows([billRow(BILL_A)]);
+    mockTx.present = false;
+
+    // Loud, not silent: outside a transaction the FOR UPDATE is released at the
+    // end of its own statement and the SET LOCAL is discarded with it, so the
+    // check-then-act would run unprotected and unbounded while looking locked.
+    await expect(
+      planSupplierPaymentApplication(COMPANY, PAYMENT, [{ invoiceId: BILL_A, amount: 100 }]),
+    ).rejects.toThrow(/requires a request transaction/);
+    expect(sqlMock).not.toHaveBeenCalled();
+  });
 });
 
 describe('planSupplierPaymentApplication', () => {
@@ -187,6 +279,32 @@ describe('planSupplierPaymentApplication', () => {
     ).rejects.toThrow(/cancelled/i);
   });
 
+  // EVERY refusal the plan raises is the typed class and nothing else. The
+  // route classifies on it (`isSupplierPaymentRefusal`) and re-throws the rest,
+  // so a bare `Error` left here reaches the caller as a 500 — or, before that
+  // catch was narrowed, handed a driver's raw text to the user as a 400.
+  it.each([
+    ['no allocations', () => { lockMock.mockResolvedValue(paymentRow()); }, [] as const],
+    ['a payment not in this company', () => { lockMock.mockResolvedValue(null); }, undefined],
+    ['a cancelled payment', () => { lockMock.mockResolvedValue(paymentRow({ status: 'cancelled' })); }, undefined],
+    ['an unposted payment', () => { lockMock.mockResolvedValue(paymentRow({ status: 'draft' })); }, undefined],
+    ['an over-application', () => {
+      lockMock.mockResolvedValue(paymentRow({ allocated_amount: '900.00' }));
+      billRows([billRow(BILL_A)]);
+    }, undefined],
+  ])('raises %s as a typed SupplierPaymentRefusal, not a bare Error', async (_l, arrange, allocs) => {
+    arrange();
+    const allocations = allocs ?? [{ invoiceId: BILL_A, amount: 200 }];
+    const err = await planSupplierPaymentApplication(COMPANY, PAYMENT, allocations)
+      .then(() => null, (e: unknown) => e);
+
+    expect(err).toBeInstanceOf(Error);
+    expect((err as { code?: unknown }).code).toBe('SUPPLIER_PAYMENT_REFUSED');
+    // Contention is the ONLY retryable refusal; a books refusal must stay
+    // false, or the route would answer 409 and invite a retry that repeats it.
+    expect((err as { retryable?: unknown }).retryable).toBe(false);
+  });
+
   it('refuses when the allocations exceed the unapplied remainder', async () => {
     lockMock.mockResolvedValue(paymentRow({ allocated_amount: '900.00' }));
     billRows([billRow(BILL_A)]);
@@ -241,8 +359,16 @@ describe('planSupplierPaymentApplication', () => {
     lockMock.mockResolvedValue(paymentRow());
     billRows([billRow(BILL_A)]);
     await planSupplierPaymentApplication(COMPANY, PAYMENT, [{ invoiceId: BILL_A, amount: 100 }]);
+    // Anchored on the WRITE forms: the bill read now takes `FOR UPDATE OF si`,
+    // which a bare /UPDATE/ matches although it writes nothing. `\s+` between
+    // the table and SET because every UPDATE here breaks the line there — a
+    // literal space matches none of them and the guard would pass on the
+    // `amount_paid` move it exists to catch. The optional alias group catches
+    // `UPDATE supplier_invoices si SET …` too — an idiom in use in this repo,
+    // and otherwise invisible to this guard.
     const texts = sqlMock.mock.calls.map((c) => (c[0] as string[]).join('?'));
-    expect(texts.some((t) => /INSERT|UPDATE|DELETE/.test(t))).toBe(false);
+    const WRITE_SQL = /INSERT INTO|UPDATE\s+\w+(\s+(?:AS\s+)?\w+)?\s+SET|DELETE FROM/;
+    expect(texts.some((t) => WRITE_SQL.test(t))).toBe(false);
   });
 });
 

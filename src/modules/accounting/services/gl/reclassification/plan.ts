@@ -14,6 +14,7 @@
  */
 
 import { fmtDate } from '@/lib/fmtDate';
+import { withSavepoint } from '@/lib/neon';
 import { lockReclassLinesForUpdate } from './lineLock';
 import { getLedgerPostedThrough } from '../../reports/postedThroughService';
 import {
@@ -34,6 +35,7 @@ import {
   type ReclassSkip,
 } from './candidates';
 import { buildReclassJournals, type ReclassJournalDraft } from './journals';
+import { carryForwardDimensions } from './dimensions';
 import { computeReclassImpact, type ReclassImpact } from './impact';
 import { reclassWarnings, targetPriorSources, type ReclassWarning } from './warnings';
 
@@ -128,10 +130,24 @@ export async function planReclassification(
   // correctly does nothing.
   //
   // Write path only: `propose_reclassification` and a dry run take no lock, so
-  // a preview never blocks a real batch on 414 posted lines.
+  // a preview never blocks a real batch on 414 posted lines. The same flag has
+  // already decided the target-account lock inside `admitReclassification`, so
+  // a preview holds nothing at all.
+  //
+  // IN ITS OWN SAVEPOINT, because the timeout is CAUGHT. A `lock_timeout`
+  // raises 55P03, which aborts the (sub)transaction; catching the error does
+  // not un-poison it, and `planFromArgs` turns `RECLASS_LINE_LOCK_TIMEOUT` into a
+  // toolError and RETURNS. The enclosing `withSavepoint` in `registry.call`
+  // then issues `RELEASE SAVEPOINT` on its normal-return path, which raises
+  // 25P02 — so the agent received GENERIC_FAILURE and the retry wording was
+  // discarded. Only a savepoint rollback restores the transaction. Same shape
+  // as `snapshotInvoicePdf` (mcp/.claude.md), and the reason is identical.
   let lockedLineIds: ReadonlySet<string> | undefined;
   if (input.lockCandidateLines) {
-    const locked = await lockReclassLinesForUpdate(companyId, rows.map((r) => r.line_id));
+    const locked = await withSavepoint(
+      'reclass_line_lock',
+      () => lockReclassLinesForUpdate(companyId, rows.map((r) => r.line_id)),
+    );
     lockedLineIds = new Set(locked);
     // The re-read. Same query, under the lock, so every row-state guard runs
     // against state no peer can now be holding uncommitted.
@@ -155,8 +171,15 @@ export async function planReclassification(
   // completeness identity unable to fail whatever this function did.
   const universeTotal = await countReclassCandidates(companyId, query);
 
+  // A dimension the source line carries but this company does not own is
+  // dropped here rather than copied into a journal `assertJournalLinesOwned`
+  // would then refuse — which would unwind the whole batch over one historical
+  // tag. Both legs lose it together, so nothing this company reports moves.
+  // See ./dimensions.ts.
+  const carried = await carryForwardDimensions(companyId, movable);
+
   const drafts = buildReclassJournals(
-    movable,
+    carried.lines,
     input.sourceAccountId,
     input.targetAccountId,
     {
@@ -205,6 +228,7 @@ export async function planReclassification(
   const priorSources = await targetPriorSources(companyId, target.id, source.id);
   const warnings = reclassWarnings({
     universeTotal, source, target, movable, impact, priorSources,
+    droppedDimensionLines: carried.droppedLineCount,
   });
   const postedThrough = await getLedgerPostedThrough(companyId, window.end, window.start);
 

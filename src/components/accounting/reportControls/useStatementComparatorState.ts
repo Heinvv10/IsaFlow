@@ -17,8 +17,8 @@ import { useDensity, type Density } from './useDensity';
 import { useStatementComparators, type BudgetState } from './useStatementComparators';
 
 export interface StatementComparatorStateOptions {
-  /** The surface is filtered to one cost centre. */
-  costCentreSelected: boolean;
+  /** The surface is filtered to one accounting dimension. */
+  dimensionSelected: boolean;
   /** Last day of the trend window — the statement's period end / as-at. */
   asOf: string;
   /** `movement` for P&L accounts, `balance` for balance-sheet accounts. */
@@ -53,7 +53,7 @@ export function useStatementComparatorState(
   opts: StatementComparatorStateOptions,
 ): StatementComparatorState {
   const {
-    costCentreSelected, asOf, basis, periodStart, periodEnd, offersBudget = true,
+    dimensionSelected, asOf, basis, periodStart, periodEnd, offersBudget = true,
   } = opts;
 
   const densityState = useDensity();
@@ -65,10 +65,10 @@ export function useStatementComparatorState(
   // as a departmental one. They are switched off, not fetched. The reader's
   // own choice stays in `chosen`, so clearing the filter restores it.
   const columns: StatementColumns = useMemo(
-    () => (costCentreSelected
+    () => (dimensionSelected
       ? { ...chosen, budget: false, trend: false, variance: chosen.variance && chosen.prior }
       : chosen),
-    [costCentreSelected, chosen],
+    [dimensionSelected, chosen],
   );
 
   /**
@@ -81,10 +81,10 @@ export function useStatementComparatorState(
    * value that was on screen; every other field is the reader's actual click.
    */
   const setColumns = useCallback((next: StatementColumns) => {
-    setChosen(costCentreSelected
+    setChosen(dimensionSelected
       ? { ...next, budget: chosen.budget, trend: chosen.trend }
       : next);
-  }, [costCentreSelected, chosen.budget, chosen.trend, setChosen]);
+  }, [dimensionSelected, chosen.budget, chosen.trend, setChosen]);
 
   const { apply, budgetState, trendFailed } = useStatementComparators({
     trend: columns.trend,
@@ -98,7 +98,7 @@ export function useStatementComparatorState(
   return {
     columns,
     setColumns,
-    companyWideUnavailable: costCentreSelected,
+    companyWideUnavailable: dimensionSelected,
     apply,
     budgetState,
     trendFailed,
