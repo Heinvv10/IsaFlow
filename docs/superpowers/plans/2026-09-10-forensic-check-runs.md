@@ -439,7 +439,7 @@ removes the ~17 MB external sort; no expression index, which the planner would n
 ## A18 Shared constraints and prefix
 
 Both `control_audit_jobs_result_check` and `control_audit_job_intents_kind_check` are root-coordinated shared
-objects. Migration 680 drops and re-adds both (the `662:2-3` / `668:2-8` pattern) and ends with a `DO` block
+objects. Migration 680 drops and re-adds both (the `822:2-3` / `824:2-8` pattern) and ends with a `DO` block
 asserting that the result-check definition names every `result_%_id` column found in
 `information_schema.columns` for `control_audit_jobs`, and that the kind-check names every kind in the contract
 (`audit_snapshot, audit_export, audit_compare, audit_check_run`); T2a repeats both assertions from the contract's
@@ -817,7 +817,7 @@ first, by name, like the other three, and one gate pins the named refusal for al
 ## A50 The enqueue quota's advisory lock is depth; the lock doing the work is upstream
 
 Every enqueue asserts `write:audit` before counting, and `assertEffectivePermission` calls
-`control_lock_permission_principal` (migration 626), which takes `pg_advisory_xact_lock('control-authority:' ||
+`control_lock_permission_principal` (migration 800), which takes `pg_advisory_xact_lock('control-authority:' ||
 company)` until the transaction ends. So two enqueues in one company are serialised before either counts, and removing
 the quota's own `audit-enqueue:<kind>:<company>` lock leaves every gate green. The local lock stays so the quota does
 not depend on a permission helper's locking. **Watch for this:** a change that narrows that helper's lock (per person,
