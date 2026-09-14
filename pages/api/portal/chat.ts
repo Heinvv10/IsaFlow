@@ -12,6 +12,8 @@ import { verifyArPortalToken } from '@/lib/auth/arPortalJwt';
 import cookie from 'cookie';
 import { checkRateLimit, getClientIp } from '@/lib/rateLimit';
 import { asAtTodayStr, documentInLedgerAsAtFragment } from '@/modules/accounting/services/shared/softDeleteLedgerPresence';
+import { documentInPopulationExpr } from '@/modules/accounting/services/shared/documentPopulation';
+import { fetchStatementData } from '@/modules/accounting/services/ar/statementEmailService';
 
 type Row = Record<string, unknown>;
 
@@ -47,23 +49,38 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
   const queryType = classifyClientQuery(question);
 
   // Build client context from DB — all queries scoped to session company_id.
-  const [clients, balanceRows, overdueRows, invoiceCount, lastPay] = await Promise.all([
+  //
+  // R-095 M2: this used to select `amount, customer_id` from customer_payments
+  // (neither column exists — the table has `total_amount` and `client_id`
+  // only) so the route 500'd on every call, and quoted a balance via a bare
+  // `status NOT IN ('cancelled', 'draft', 'paid')` — unrouted through R-082's
+  // shared population rule, so it admitted pending_approval and silently
+  // dropped a NULL-status invoice. outstandingBalance is now sourced from
+  // fetchStatementData — the SAME service the portal statement and the
+  // emailed statement use — so the chatbot cannot quote a different balance
+  // than the statement the customer can also open. Overdue/open-invoice
+  // counts are routed through documentInPopulationExpr and now test the
+  // ACTUAL outstanding amount (total - paid > 0) rather than a hand-rolled
+  // 'paid' status exclusion, which left a partially-paid invoice with some
+  // other status uncounted and a fully-paid one counted as "open" whenever
+  // its status hadn't been flipped to 'paid'.
+  const [clients, overdueRows, invoiceCount, lastPay, statementData] = await Promise.all([
     sql`SELECT name FROM customers WHERE id = ${clientId} AND company_id = ${sessionCompanyId}::UUID LIMIT 1` as Promise<Row[]>,
     // K-053: the portal quotes the customer a balance, so it asks the same
     // dated soft-delete question the ageing and the control account ask.
-    sql`SELECT COALESCE(SUM(ci.total_amount - COALESCE(ci.amount_paid, 0)), 0) as outstanding FROM customer_invoices ci WHERE COALESCE(ci.client_id, ci.customer_id) = ${clientId} AND ci.company_id = ${sessionCompanyId}::UUID AND ${documentInLedgerAsAtFragment('ci', asAtTodayStr(), sessionCompanyId)} AND ci.status NOT IN ('cancelled', 'draft', 'paid')` as Promise<Row[]>,
-    sql`SELECT COALESCE(SUM(ci.total_amount - COALESCE(ci.amount_paid, 0)), 0) as overdue FROM customer_invoices ci WHERE COALESCE(ci.client_id, ci.customer_id) = ${clientId} AND ci.company_id = ${sessionCompanyId}::UUID AND ${documentInLedgerAsAtFragment('ci', asAtTodayStr(), sessionCompanyId)} AND ci.status NOT IN ('cancelled', 'draft', 'paid') AND ci.due_date < CURRENT_DATE` as Promise<Row[]>,
-    sql`SELECT COUNT(*) as cnt FROM customer_invoices ci WHERE COALESCE(ci.client_id, ci.customer_id) = ${clientId} AND ci.company_id = ${sessionCompanyId}::UUID AND ${documentInLedgerAsAtFragment('ci', asAtTodayStr(), sessionCompanyId)} AND ci.status NOT IN ('cancelled', 'draft', 'paid')` as Promise<Row[]>,
-    sql`SELECT amount, payment_date FROM customer_payments WHERE COALESCE(client_id, customer_id) = ${clientId} AND company_id = ${sessionCompanyId}::UUID ORDER BY payment_date DESC LIMIT 1` as Promise<Row[]>,
+    sql`SELECT COALESCE(SUM(ci.total_amount - COALESCE(ci.amount_paid, 0)), 0) as overdue FROM customer_invoices ci WHERE COALESCE(ci.client_id, ci.customer_id) = ${clientId} AND ci.company_id = ${sessionCompanyId}::UUID AND ${documentInLedgerAsAtFragment('ci', asAtTodayStr(), sessionCompanyId)} AND ${sql.unsafe(documentInPopulationExpr('ci'))} AND (ci.total_amount - COALESCE(ci.amount_paid, 0)) > 0 AND ci.due_date < CURRENT_DATE` as Promise<Row[]>,
+    sql`SELECT COUNT(*) as cnt FROM customer_invoices ci WHERE COALESCE(ci.client_id, ci.customer_id) = ${clientId} AND ci.company_id = ${sessionCompanyId}::UUID AND ${documentInLedgerAsAtFragment('ci', asAtTodayStr(), sessionCompanyId)} AND ${sql.unsafe(documentInPopulationExpr('ci'))} AND (ci.total_amount - COALESCE(ci.amount_paid, 0)) > 0` as Promise<Row[]>,
+    sql`SELECT total_amount, payment_date FROM customer_payments WHERE client_id = ${clientId} AND company_id = ${sessionCompanyId}::UUID AND status IN ('confirmed', 'reconciled') ORDER BY payment_date DESC LIMIT 1` as Promise<Row[]>,
+    fetchStatementData(sessionCompanyId, clientId, asAtTodayStr()),
   ]);
   const clientName = String(clients[0]?.name || 'Client');
 
   const ctx: ClientContext = {
     clientName,
-    outstandingBalance: Number(balanceRows[0]?.outstanding ?? 0),
+    outstandingBalance: statementData?.summary.balance ?? 0,
     overdueAmount: Number(overdueRows[0]?.overdue ?? 0),
     lastPaymentDate: lastPay[0] ? String(lastPay[0].payment_date) : '',
-    lastPaymentAmount: Number(lastPay[0]?.amount ?? 0),
+    lastPaymentAmount: Number(lastPay[0]?.total_amount ?? 0),
     openInvoices: Number(invoiceCount[0]?.cnt ?? 0),
     companyName: 'IsaFlow',
   };

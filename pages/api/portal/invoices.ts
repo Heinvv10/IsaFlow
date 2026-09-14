@@ -38,6 +38,9 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
   }
 
   const invoices = await getClientInvoices(clientId, session.companyId);
+  if (!invoices) {
+    return apiResponse.notFound(res, 'Customer', clientId);
+  }
   return apiResponse.success(res, { items: invoices });
 }
 

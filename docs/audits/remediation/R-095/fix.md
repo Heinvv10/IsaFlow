@@ -31,19 +31,39 @@ three-valued logic.
 By CONSUMER — every reader of "what does a customer statement look like for
 this customer" that exists in the repo:
 
-| Consumer | Status | Population rule |
-|---|---|---|
-| `pages/api/accounting/customer-statement.ts` (screen + PDF) | routed (R-082) | `documentInPopulationExpr` |
-| `pages/api/accounting/customer-statement-detail.ts` | routed (R-082) | `documentInPopulationExpr` |
-| `statementEmailService.fetchStatementData` (emailed statement) | routed (R-082) | JS-side `classifyStatementInvoice`, same rule |
-| MCP `customer_statement` tool | routed (R-082) | shares `fetchStatementData`-equivalent classification |
-| `portalService.getClientStatement` / `getClientInvoices` (portal) | **broken** — wrong columns, invalid status literal, unrouted `NOT IN` | fixed here |
+| Consumer | Status | Population rule | Agrees with portal? |
+|---|---|---|---|
+| `pages/api/accounting/customer-statement.ts` (screen + PDF) | routed (R-082) | `documentInPopulationExpr` | **No — see below** |
+| `pages/api/accounting/customer-statement-detail.ts` | routed (R-082) | `documentInPopulationExpr` | not compared (out of scope) |
+| `statementEmailService.fetchStatementData` (emailed statement) | routed (R-082) | JS-side `classifyStatementInvoice`, same rule | **Yes — identical** |
+| MCP `customer_statement` tool | routed (R-082) | shares `fetchStatementData`-equivalent classification | **Yes — identical** |
+| `pages/api/portal/chat.ts` | **broken** — same defect class, missed in round 1's census | fixed here (round 2, M2) | Yes — now sources its balance from `fetchStatementData` directly |
+| `portalService.getClientStatement` / `getClientInvoices` (portal statement + invoices) | **broken** — wrong columns, invalid status literal, unrouted `NOT IN` | fixed here | — (this is the portal) |
 
-Four of five surfaces were already routed through the shared population rule
-by R-082; the portal was the one left broken because its route 500'd before
-the rule even mattered. Fixing the columns alone (without routing) would
-have re-created a SIXTH parallel implementation of "what counts as a
-customer's balance" — exactly the drift R-082 was written to close off.
+Four of six surfaces were already routed through the shared population rule
+by R-082; the portal statement/invoices route and the portal chatbot were
+both left broken because their routes 500'd before the rule even mattered.
+Fixing the columns alone (without routing) would have re-created a further
+parallel implementation of "what counts as a customer's balance" — exactly
+the drift R-082 was written to close off.
+
+**Round 1 review correction (M1 — was wrong in the first cut of this file):**
+the portal does **not** match `customer-statement.ts` (the in-app screen).
+That route is a genuinely different report from `fetchStatementData`/MCP:
+it credits a receipt at its **allocated** figure rather than the full
+receipt (`:117`), counts only `status = 'approved'` credit notes so an
+`applied` one disappears (`:135`), and defaults to a one-year window with no
+opening balance (`:72-73`), where `fetchStatementData` runs from inception.
+Measured on the fixture: a customer with an invoice of 1000, an approved
+credit note of 100, an applied note (total 300, applied 200), and a
+confirmed receipt of 400 with 150 allocated shows a portal/email/MCP closing
+balance of 300 and a screen `summary.balance` of 750. This is a real,
+separate defect in the screen route, outside R-095's affected paths — Hein
+is registering it separately (R-083 is already changing the credit-note
+side of that gap) — so this fix does **not** touch
+`customer-statement.ts`. Every claim in this file and in the test file's
+title/comments now says "portal matches the email and MCP", never "matches
+the in-app statement" unqualified.
 
 ## Fix
 
@@ -68,6 +88,89 @@ customer's balance" — exactly the drift R-082 was written to close off.
 
 `pages/api/portal/statement.ts`: added the `null` → `notFound` branch above.
 
+## Round 2 (blind review `review-r095-r1.md`, 2 MEDIUM / 3 LOW)
+
+**M1 — census/claim correction.** See the census table and the note above:
+fix.md and the test title previously claimed the portal matched the in-app
+*screen*; corrected to say it matches the email/MCP surfaces, and the
+screen's three differences are named and left alone (Hein's call to make
+separately, tracked as its own register item).
+
+**M2 — census gap: `pages/api/portal/chat.ts`.** Same `portal_session`
+cookie, same defect class, missed by round 1's "consumer" census because
+that census walked readers of the *statement*, not every route sharing the
+session cookie. `chat.ts:57` selected `amount, customer_id` from
+`customer_payments` — neither column exists (it's `total_amount` and
+`client_id`; `customer_payments` has no `customer_id` column at all, unlike
+`customer_invoices`) — a 500 on every call. `chat.ts:54-56` quoted the
+customer a balance/overdue/open-count via a bare
+`status NOT IN ('cancelled', 'draft', 'paid')`, unrouted through R-082's
+shared rule (admits `pending_approval`, drops a NULL-status invoice).
+Fixed: `outstandingBalance` now comes directly from `fetchStatementData` —
+the same call the portal statement route makes — so the chatbot cannot
+quote a different number than the statement the customer can also open.
+`overdueAmount`/`openInvoices` are routed through `documentInPopulationExpr`
+and now test the actual outstanding amount
+(`total_amount - amount_paid > 0`) instead of a hand-rolled `'paid'`
+exclusion, which is strictly more correct (a partially-paid invoice under
+some other status was previously miscounted either way) and needs no
+special-cased status literal. `lastPay` fixed to select real columns and to
+only count a `confirmed`/`reconciled` payment as "last payment" (a draft
+receipt settles nothing — same rule `fetchStatementData` already applies).
+
+Redid the portal census over every route under `pages/api/portal/**`:
+`auth.ts`, `chat.ts`, `invoices.ts`, `statement.ts` use the `portal_session`
+cookie/JWT and read customer data scoped to it — these are the four this
+fix (rounds 1+2) covers. `invoice/[token].ts`, `invoice/[token]/dispute.ts`,
+`invoice/[token]/pdf.ts`, `invoice/generate.ts`, `payment-link.ts`,
+`payments/paystack/{create,verify}.ts`, `pixel/[token].ts` use a wholly
+different, per-invoice/per-link token (not the session cookie) — checked
+each for the three specific defect signatures (nonexistent column, invalid
+status literal, unrouted bare status `NOT IN`/`!=`) and found none: they
+alias `total_amount AS total` correctly, use real statuses, and
+`invoice/[token].ts`'s `status != 'cancelled'` is a single-document,
+token-gated view (not a population/list query) rather than the ageing-style
+population this fix's rule governs. No further defects of this class found;
+not otherwise in scope.
+
+**L3 — `asOf` validation and default timezone.** `pages/api/portal/statement.ts`
+took `req.query.asOf` unvalidated, so `asOf=garbage` or a repeated
+(array) `asOf` reached Postgres and 500'd instead of 400. Its default,
+`new Date().toISOString().slice(0,10)`, rolls back a day between 00:00 and
+02:00 SAST on this UTC+2 host — the exact defect `src/lib/fmtDate.ts`
+documents for DB-sourced dates. Fixed: reject an array outright; validate a
+single value against `/^\d{4}-\d{2}-\d{2}$/` plus a real `Date` parse (400 on
+either failure); default via `asAtTodayStr()` (local calendar getters, the
+same helper `getClientInvoices` already used for its soft-delete cutoff).
+
+**L4 — a soft-deleted customer could still act.** `authenticatePortalUser`
+didn't check `customers.deleted_at`, so a removed customer could still log
+in and mint a fresh `portal_session`. `getClientInvoices` didn't check the
+customer row at all, so a session minted *before* a delete (the JWT is
+valid for 24h) could still list invoices, while the statement route (via
+`fetchStatementData`'s own `deleted_at IS NULL` check) already 404'd for the
+same customer — the two views disagreed on whether the account existed.
+Fixed: `authenticatePortalUser`'s query gained `AND c.deleted_at IS NULL`;
+`getClientInvoices` now does the same customer-existence + `deleted_at`
+check `fetchStatementData` does, returning `null` (→ `pages/api/portal/invoices.ts`
+now 404s) instead of an invoice list, matching the statement route exactly.
+
+**L5 — missing test coverage for two already-load-bearing barriers.**
+Added: (a) a live (`approved`) credit note fixture to the statement test —
+round 1 found the suite passed 6/6 with credit notes filtered out of the
+portal's `transactions` entirely, because no fixture ever exercised one;
+the test now asserts the credit note's reference, its `credit` amount, and
+that it lowers `closingBalance` to the correct figure, and a mutation
+(filtering `credit_note` back out of the `.map()`) proved this red before
+restoring. (b) a corrupted-row fixture on the invoice list — an invoice
+whose `client_id` names customer A but whose `company_id` is company B's
+(nothing in the schema prevents this; the two columns are independent FKs)
+— to pin the invoice list's *own* `ci.company_id = companyId` predicate
+specifically, independent of the L4 customer-existence pre-check (which
+passes for this row, since customer A genuinely belongs to company A). A
+mutation removing that inner predicate let the corrupted invoice leak
+through; restored after confirming red.
+
 ## Tenant/IDOR scoping
 
 The portal runs outside `withAuth` (no request-scoped transaction, no GUCs,
@@ -89,6 +192,7 @@ nothing, because `fetchStatementData`'s customer lookup is
 
 ## Mutations run (each observed red, then restored byte-identically)
 
+Round 1:
 1. Reverted `documentInPopulationExpr('ci')` back to
    `ci.status NOT IN ('draft', 'cancelled')` in `getClientInvoices` →
    "portal invoices route" test went red (pending_approval invoice
@@ -102,18 +206,42 @@ nothing, because `fetchStatementData`'s customer lookup is
    still finds nothing for a genuinely cross-company clientId, proving the
    guard is a real, load-bearing check and not incidental).
 
-All three restored via `git diff` verification against the original patch
+Round 2:
+4. Removed the customer-existence + `deleted_at` pre-check from
+   `getClientInvoices` → both the "forged token ... sees nothing on
+   statement or invoices" test AND the L4 soft-delete test went red (200
+   instead of 404 in both cases).
+5. Removed `AND c.deleted_at IS NULL` from `authenticatePortalUser`'s query
+   → the L4 test went red (`after` login succeeded instead of returning
+   `null`).
+6. Removed `getClientInvoices`'s own `AND ci.company_id = ${companyId}::UUID`
+   predicate (leaving only the pre-check) → the corrupted-row test went red
+   (`-XCO`, company B's invoice against customer A, leaked into the list).
+7. Filtered `credit_note` transactions out of `getClientStatement`'s
+   `.map()` → the statement test went red (`-CN` missing from the
+   transaction list).
+8. Reverted `pages/api/portal/statement.ts`'s `asOf` handling to the
+   unvalidated `(req.query.asOf as string) || new Date().toISOString().slice(0,10)`
+   → the L3 validation test went red (500 instead of 400 on `asOf=garbage`).
+9. Reverted `chat.ts`'s `lastPay` query to
+   `SELECT amount, payment_date FROM customer_payments WHERE COALESCE(client_id, customer_id) = ...`
+   → the M2 test went red (500 — `column "amount" does not exist`).
+
+All nine restored via `git diff` verification against the intended patch
 before commit.
 
 ## Gates
 
-- `env -u DATABASE_URL bun run ci` → `[ci] all checks passed` (exit 0);
-  full production build succeeded, including `/api/portal/statement` and
-  `/api/portal/invoices` routes.
+- `env -u DATABASE_URL bun run ci` (round 2, via `ci-slot.sh`) → `[ci] all
+  checks passed` (exit 0); full production build succeeded, including
+  `/api/portal/statement`, `/api/portal/invoices` and `/api/portal/chat`.
 - Integration:
   `source <scratchpad>/fixture.env && bunx vitest run --config vitest.integration.config.ts --no-file-parallelism tests/integration/r095-portal-statement-matches-inapp.int.test.ts tests/integration/r082-statements-exclude-drafts.int.test.ts`
-  → **2 files, 15 tests, all passed** (6 new R-095 tests + all 9 pre-existing
-  R-082 tests, confirming this fix does not disturb R-082's routing).
+  → **2 files, 19 tests, all passed** (10 R-095 tests, up from 6 in round 1,
+  covering M1's corrected claim, M2's chat.ts fix, L3's asOf validation, L4's
+  soft-delete checks and L5's credit-note/cross-company-row pins + all 9
+  pre-existing R-082 tests, confirming this fix does not disturb R-082's
+  routing).
 
 ## Production impact SQL (for Hein — not run)
 
@@ -136,11 +264,12 @@ forbids connecting to the production DB even read-only.)
 
 ## Residual risk
 
-- Not browser-verified: the portal statement/invoice pages consume these
-  API routes, but I did not load the portal UI in a browser against a dev
-  server, since the fix is API-only (no UI/component changes) and the two
-  routes are already covered by real, DB-backed route-level integration
-  tests exercising the exact request/response path the browser would hit.
+- Not browser-verified: the portal statement/invoice/chat surfaces consume
+  these API routes, but I did not load the portal UI in a browser against a
+  dev server, since the fix is API-only (no UI/component changes) and all
+  three routes are already covered by real, DB-backed route-level
+  integration tests exercising the exact request/response path the browser
+  would hit.
 - `getClientInvoices` is still its own query rather than routed through
   `fetchStatementData` (which returns statement *transactions*, not the
   richer invoice-list shape with `dueDate`/`amountPaid`/`balance` per
@@ -151,3 +280,11 @@ forbids connecting to the production DB even read-only.)
 - `createPaymentLink` / `getPaymentLink` / `markPaymentLinkPaid` in the same
   file were not touched — out of scope for R-095, no register claim against
   them.
+- The screen route (`customer-statement.ts`) still disagrees with the
+  portal/email/MCP figure (M1) — deliberately untouched here; Hein is
+  registering that gap separately, and R-083 already touches its
+  credit-note handling.
+- `pages/api/portal/invoice/[token].ts` and its siblings (per-invoice/link
+  token auth, not the session cookie) were surveyed for this defect class
+  only (M2's redone census) and found clean, but were not otherwise
+  exercised by this PR's tests — no register claim against them exists.
