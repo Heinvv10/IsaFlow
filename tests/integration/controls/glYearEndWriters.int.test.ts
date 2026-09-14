@@ -73,7 +73,17 @@ it('refuses a direct year_end source claim without a registered parent capabilit
 it('posts a balanced closing journal into the closed final period and locks its year exactly once',async()=>{
  const result=await actor('u1',()=>closeFiscalYear(fixture.companyA,'2025',fixture.u1.id));
  expect(result).toMatchObject({netIncomeExact:'123.45',closingEntry:{status:'posted',posted_by:fixture.u1.id}});
- expect(await actor('u1',()=>closeFiscalYear(fixture.companyA,'2025',fixture.u1.id))).toEqual(result);
+ // NOT `toEqual(result)`. A re-close now answers from the LEDGER, so it reports the year
+ // as ALREADY closed with figures re-read at the time of asking — the four k-046 suites
+ // pin that, and the byte-identical receipt replay this replaces told an operator a fresh
+ // close had just succeeded when nothing had happened, and hid P&L that landed in the year
+ // after it closed. What IDEMPOTENCY means here is asserted below and is unchanged: one
+ // journal, one effect row, the period locked exactly once.
+ const again=await actor('u1',()=>closeFiscalYear(fixture.companyA,'2025',fixture.u1.id)) as
+  {alreadyClosed:boolean;closingEntry:{id:string};unclosedNetIncome:number};
+ expect(again.alreadyClosed).toBe(true);
+ expect(again.closingEntry.id).toBe((result as {closingEntry:{id:string}}).closingEntry.id);
+ expect(again.unclosedNetIncome).toBe(0);
  const journals=(await pool.query("SELECT id FROM gl_journal_entries WHERE company_id=$1 AND source='year_end'",[fixture.companyA])).rows;
  expect(journals).toHaveLength(1);
  const balance=(await pool.query('SELECT sum(debit)::text AS debit,sum(credit)::text AS credit FROM gl_journal_lines WHERE company_id=$1 AND journal_entry_id=$2',[fixture.companyA,journals[0].id])).rows[0];
