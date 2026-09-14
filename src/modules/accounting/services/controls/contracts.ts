@@ -22,8 +22,8 @@ export interface ControlPrincipal {
   actingFirmId: string | null;
   requestId: string;
   operationId: string;
-  authMethod: 'cookie' | 'pat' | 'oauth' | 'job' | 'platform_import';
-  provenance: 'human' | 'agent' | 'job';
+  authMethod: 'cookie' | 'pat' | 'oauth' | 'job' | 'platform_import' | 'gateway';
+  provenance: 'human' | 'agent' | 'job' | 'gateway';
   delegatedByPersonId: string | null;
   /** The platform administrator driving this session; a decision taken here is never the member's own. */
   impersonatorPersonId: string | null;
@@ -34,6 +34,15 @@ export interface ControlPrincipal {
   jobLeaseId?: string;
   jobGeneration?: number;
 }
+/**
+ * The reserved person a payment-gateway callback posts as. A settled card
+ * payment has no human actor and never will have one, so the receipt names
+ * THIS identity rather than borrowing a company member's — a reader of
+ * `control_change_events` or of the journal's `created_by` must never be shown
+ * a person who did not do it. Seeded by migration 841 as a `system` user so
+ * every join that resolves a name resolves this one to "Paystack gateway".
+ */
+export const GATEWAY_RECEIPT_PERSON_ID = '00000000-0000-4000-8000-000000000001';
 export interface ControlTx { sql: TxSql; principal: ControlPrincipal }
 export interface EntityRef { entityType: string; entityId: string }
 export interface OperationRef extends EntityRef { operation: ControlOperation; expectedVersion?: number; reversalDate?: string }

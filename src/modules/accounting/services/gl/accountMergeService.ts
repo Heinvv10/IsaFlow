@@ -94,7 +94,8 @@ export async function mergeAccounts(
   if (input.userId !== undefined && input.userId !== ctx.principal.personId) throw new Error('Merge actor does not match authenticated context');
   return withGlMergeChanges(input.companyId, input.sourceId, input.targetId, () =>
     mergeOwnedAccounts(input.companyId, input.sourceId, input.targetId, ctx.principal.personId, {...input.actor,
-      actorType: ctx.principal.provenance === 'job' ? 'system' : ctx.principal.provenance,
+      actorType: ctx.principal.provenance === 'human' || ctx.principal.provenance === 'agent'
+        ? ctx.principal.provenance : 'system',
       actorTokenJti: ctx.principal.connectionId}));
 }
 

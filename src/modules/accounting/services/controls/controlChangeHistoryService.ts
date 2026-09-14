@@ -12,7 +12,7 @@ import type {ControlTx} from './contracts';
 import {lineageChoice} from './operationVersions';
 const inputSchema=z.object({entityType:z.string().min(1).max(80),entityId:z.string().min(1).max(80),limit:z.number().int().min(1).max(100).optional(),cursor:z.string().min(1).max(2048).optional(),lineage:z.string().min(1).max(80).optional()}).strict();
 export interface HistoryInput{entityType:string;entityId:string;limit?:number;cursor?:string;lineage?:string}
-type Row={id:string;new_version:string|number;previous_version:string|number|null;occurred_at:Date|string;accounting_date:Date|string|null;action:string;operation_id:string;person_id:string;connection_id:string|null;grant_id:string|null;acting_firm_id:string|null;request_id:string;provenance:'human'|'agent'|'job';byte_length:string|number|null};
+type Row={id:string;new_version:string|number;previous_version:string|number|null;occurred_at:Date|string;accounting_date:Date|string|null;action:string;operation_id:string;person_id:string;connection_id:string|null;grant_id:string|null;acting_firm_id:string|null;request_id:string;provenance:'human'|'agent'|'job'|'gateway';byte_length:string|number|null};
 const integer=(value:unknown)=>{const n=Number(value);if(!Number.isSafeInteger(n)||n<0)throw new Error('Invalid recorded history version');return n;};
 const iso=(value:Date|string)=>value instanceof Date?value.toISOString():new Date(value).toISOString();
 /** Read-only, version-keyset history of exact retained changes. No reconstruction of missing historical evidence. */

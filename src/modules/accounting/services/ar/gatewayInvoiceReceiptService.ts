@@ -20,6 +20,9 @@
 
 import { randomUUID } from 'crypto';
 import { sql } from '@/lib/neon';
+import { als } from '@/lib/als';
+import { withControlGatewayReceiptRequest } from '../controls/context';
+import { GATEWAY_RECEIPT_PERSON_ID } from '../controls/contracts';
 import { fmtDate } from '@/lib/fmtDate';
 import { log } from '@/lib/logger';
 import { confirmCustomerPayment } from './customerPaymentAllocationService';
@@ -31,8 +34,6 @@ export const GATEWAY_RECEIPT_AGENT = 'system:paystack-receipt:v1';
 
 /** A cent. Matches confirmCustomerPayment's own settle tolerance. */
 export const EPS = 0.01;
-
-const UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
 export interface GatewayInvoiceReceipt {
   companyId: string;
@@ -53,7 +54,6 @@ export interface GatewayInvoiceReceipt {
 
 interface InvoiceRow {
   client_id: string | null;
-  created_by: string;
   total_amount: string;
   amount_paid: string | null;
 }
@@ -69,6 +69,21 @@ interface InvoiceRow {
  * nothing and returns null.
  */
 export async function recordGatewayInvoiceReceipt(
+  receipt: GatewayInvoiceReceipt,
+): Promise<{ paymentId: string; journalEntryId?: string } | null> {
+  // `confirmCustomerPayment` is a controlled AR operation and refuses a
+  // transaction with no principal. `withPublicRouteTransaction` has none to
+  // give — a gateway callback authenticates a SIGNATURE, not a person — so
+  // every card payment threw here, the webhook 500'd into Paystack's retry
+  // loop and the verify route swallowed it. The receipt runs under the
+  // unattended gateway principal instead; see withControlGatewayReceiptRequest
+  // for why this path may mint one and the auto-post sweep may not.
+  const parent = als.getStore();
+  if (!parent) throw new Error('Gateway receipt must run inside the public route transaction');
+  return withControlGatewayReceiptRequest(parent, receipt.companyId, () => bankGatewayReceipt(receipt));
+}
+
+async function bankGatewayReceipt(
   receipt: GatewayInvoiceReceipt,
 ): Promise<{ paymentId: string; journalEntryId?: string } | null> {
   const { companyId, invoiceId, amountRand, reference } = receipt;
@@ -104,7 +119,7 @@ export async function recordGatewayInvoiceReceipt(
   }
 
   const invRows = await sql<InvoiceRow>`
-    SELECT COALESCE(client_id, customer_id) AS client_id, created_by,
+    SELECT COALESCE(client_id, customer_id) AS client_id,
            total_amount::text AS total_amount, amount_paid::text AS amount_paid
     FROM customer_invoices
     WHERE id = ${invoiceId}::UUID AND company_id = ${companyId}::UUID
@@ -145,7 +160,10 @@ export async function recordGatewayInvoiceReceipt(
   }
 
   const bankAccount = await getSystemAccount('bank', companyId);
-  const actorId = await resolveCompanyActor(companyId, String(invoice.created_by));
+  // The gateway principal itself, not a company member: a card settlement has
+  // no human author, and stamping one of the company's people on it would make
+  // the ledger claim a person banked money they never touched.
+  const actorId = GATEWAY_RECEIPT_PERSON_ID;
   const paymentDate = settlementDate(receipt);
 
   // Written here rather than through createCustomerPayment: that service
@@ -202,39 +220,4 @@ function settlementDate(receipt: GatewayInvoiceReceipt): string {
     );
   }
   return fmtDate(new Date());
-}
-
-/**
- * A user who actually belongs to the paying company, for the NOT NULL
- * `created_by` a gateway callback has no user to fill.
- *
- * NOT `resolveUserUuid`: its fallback is `SELECT id FROM users … LIMIT 1` with
- * no company filter and no ORDER BY, so an invoice authored by an import string
- * would stamp the payment, its confirmation and its journal with whichever
- * person the heap yielded first — from any tenant. Fails closed instead: a
- * receipt attributed to a stranger is worse than a retryable 500, and K-035
- * makes the redelivery reprocess once a member exists.
- */
-async function resolveCompanyActor(companyId: string, invoiceAuthor: string): Promise<string> {
-  if (UUID_PATTERN.test(invoiceAuthor)) {
-    const owned = await sql<{ user_id: string }>`
-      SELECT cu.user_id FROM company_users cu
-      WHERE cu.company_id = ${companyId}::UUID AND cu.user_id = ${invoiceAuthor}::TEXT
-      LIMIT 1
-    `;
-    if (owned[0]) return invoiceAuthor;
-  }
-  // Deterministic, not heap order: the default member, then the oldest.
-  const member = await sql<{ user_id: string }>`
-    SELECT cu.user_id FROM company_users cu
-    JOIN users u ON u.id::TEXT = cu.user_id
-    WHERE cu.company_id = ${companyId}::UUID
-      AND cu.user_id ~ '^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$'
-    ORDER BY cu.is_default DESC NULLS LAST, cu.created_at ASC NULLS LAST, cu.user_id ASC
-    LIMIT 1
-  `;
-  if (member[0]) return String(member[0].user_id);
-  throw new Error(
-    `Gateway receipt: company ${companyId} has no member to attribute the payment to`,
-  );
 }
