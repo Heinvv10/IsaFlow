@@ -20,7 +20,7 @@
       "severityRationale": "Confirmed application-contract bypass of enrolled second factor using a valid password token; no claim of passwordless account compromise.",
       "auditedSha": "5661d6f0f5f2212705151e95455a3f681ddf840e",
       "currentSha": "d626b33f",
-      "status": "code-verified",
+      "status": "fixed",
       "dependencies": [
         "Global pristine historical migration replay remains open at migration 253; current-schema K-001 SQL/RLS workflow passed"
       ],
@@ -47,7 +47,8 @@
       "historicalDataImpact": "No historical records changed. Prior misuse not assessed; no retrospective repair authorized.",
       "canonicalItem": null,
       "reportedSeverity": "critical",
-      "deploymentEvidence": "releases/2026-09-09/result.md; live metadata rechecked September 9. Recorded 12 golden workflows and 16 integrity checks; not proof of every individual negative permission path."
+      "deploymentEvidence": "releases/2026-09-09/result.md; live metadata rechecked September 9. Recorded 12 golden workflows and 16 integrity checks; not proof of every individual negative permission path.",
+      "processNotes": "2026-09-14 reconciliation: fixCommit/deployedSha ancestor of origin/master via 23608ad7; origin/master 7d708aac1 = production."
     },
     {
       "id": "K-002",
@@ -64,7 +65,7 @@
       "severityRationale": "Confirmed tenant suspension/deletion does not stop authenticated tenant operations; no cross-tenant access claim.",
       "auditedSha": "5661d6f0f5f2212705151e95455a3f681ddf840e",
       "currentSha": "f89375367f35398e503843f40dd4525bf879e83f",
-      "status": "code-verified",
+      "status": "fixed",
       "dependencies": [
         "Global pristine historical migration replay remains open at253"
       ],
@@ -87,7 +88,8 @@
       "historicalDataImpact": "No historical changes. Possible prior activity after suspension not assessed; no repair authorized.",
       "canonicalItem": null,
       "reportedSeverity": "critical",
-      "deploymentEvidence": "releases/2026-09-09/result.md; live metadata rechecked September 9. Recorded 12 golden workflows and 16 integrity checks; not proof of every individual negative permission path."
+      "deploymentEvidence": "releases/2026-09-09/result.md; live metadata rechecked September 9. Recorded 12 golden workflows and 16 integrity checks; not proof of every individual negative permission path.",
+      "processNotes": "2026-09-14 reconciliation: fixCommit/deployedSha ancestor of origin/master via b5e0ab31f07c3793ad805c1bf467fc4b43c81ded; origin/master 7d708aac1 = production."
     },
     {
       "id": "K-003",
@@ -105,7 +107,7 @@
       "severityRationale": "Confirmed cross-tenant financial metric disclosure after an unauthorized bureau link; target UUID knowledge required.",
       "auditedSha": "5661d6f0f5f2212705151e95455a3f681ddf840e",
       "currentSha": "c1260dd891131e4b0f16dc9100d529407435f8ea",
-      "status": "code-verified",
+      "status": "fixed",
       "dependencies": [
         "Existing links need separately authorized historical consent review; no automatic repair"
       ],
@@ -129,7 +131,8 @@
       "historicalDataImpact": "Old unauthorized bureau links could persist and expose metrics. Scoped read-only review query prepared and tested in disposable PostgreSQL; not run in production. Current membership cannot prove historical consent; no repair executed.",
       "canonicalItem": null,
       "reportedSeverity": "critical",
-      "deploymentEvidence": "releases/2026-09-09/result.md; live metadata rechecked September 9. Recorded 12 golden workflows and 16 integrity checks; not proof of every individual negative permission path."
+      "deploymentEvidence": "releases/2026-09-09/result.md; live metadata rechecked September 9. Recorded 12 golden workflows and 16 integrity checks; not proof of every individual negative permission path.",
+      "processNotes": "2026-09-14 reconciliation: fixCommit/deployedSha ancestor of origin/master via 60bec360; origin/master 7d708aac1 = production."
     },
     {
       "id": "K-004",
@@ -146,7 +149,7 @@
       "severityRationale": "Confirmed routing ambiguity can misattribute inbound financial documents; no claim that every random collision was exploited.",
       "auditedSha": "5661d6f0f5f2212705151e95455a3f681ddf840e",
       "currentSha": "01f94839978a6b6e0f06c7c29344c1a240a148b5",
-      "status": "code-verified",
+      "status": "fixed",
       "dependencies": [
         "Legacy short addresses and historical attribution need owner-approved review/rotation"
       ],
@@ -171,7 +174,8 @@
       "historicalDataImpact": "Scoped read-only inventory prepared/tested on disposable data. Historical collisions and short addresses may remain; no production inventory, rotation or reassignment executed.",
       "canonicalItem": null,
       "reportedSeverity": "critical",
-      "deploymentEvidence": "releases/2026-09-09/result.md; live metadata rechecked September 9. Recorded 12 golden workflows and 16 integrity checks; not proof of every individual negative permission path."
+      "deploymentEvidence": "releases/2026-09-09/result.md; live metadata rechecked September 9. Recorded 12 golden workflows and 16 integrity checks; not proof of every individual negative permission path.",
+      "processNotes": "2026-09-14 reconciliation: fixCommit/deployedSha ancestor of origin/master via 235bb407; origin/master 7d708aac1 = production."
     },
     {
       "id": "K-005",
@@ -188,7 +192,7 @@
       "severityRationale": "Confirmed ambiguous tenant attribution of inbound WhatsApp capture. First-registration provider ownership retained separately as R003.",
       "auditedSha": "5661d6f0f5f2212705151e95455a3f681ddf840e",
       "currentSha": "8cff145616389fcbd05deed6220e62d86d9dec36",
-      "status": "code-verified",
+      "status": "fixed",
       "dependencies": [
         "R003 separately tracks first-registration number ownership"
       ],
@@ -214,7 +218,8 @@
       "historicalDataImpact": "Potential legacy assignment/misrouting review remains open; no production query, number transfer or data repair executed.",
       "canonicalItem": null,
       "reportedSeverity": "critical",
-      "deploymentEvidence": "releases/2026-09-09/result.md; live metadata rechecked September 9. Recorded 12 golden workflows and 16 integrity checks; not proof of every individual negative permission path."
+      "deploymentEvidence": "releases/2026-09-09/result.md; live metadata rechecked September 9. Recorded 12 golden workflows and 16 integrity checks; not proof of every individual negative permission path.",
+      "processNotes": "2026-09-14 reconciliation: fixCommit/deployedSha ancestor of origin/master via a3278226; origin/master 7d708aac1 = production."
     },
     {
       "id": "K-006",
@@ -231,7 +236,7 @@
       "severityRationale": "Confirmed broken opening-balance functionality; original critical cross-tenant corruption impact was not reproduced on current schema. Ownership validation is required for safe restoration.",
       "auditedSha": "5661d6f0f5f2212705151e95455a3f681ddf840e",
       "currentSha": "786ab01fd1bcb16098085365e4eb9ae54e14b722",
-      "status": "code-verified",
+      "status": "fixed",
       "dependencies": [],
       "testNames": [
         "tests/integration/opening-balances-postgres.int.test.ts",
@@ -258,7 +263,8 @@
       "historicalDataImpact": "No route-induced corruption reproduced on current schema. Scoped read-only inventory tested against privileged synthetic malformed row; production inventory and any repair remain open.",
       "canonicalItem": null,
       "reportedSeverity": "critical",
-      "deploymentEvidence": "releases/2026-09-09/result.md; live metadata rechecked September 9. Recorded 12 golden workflows and 16 integrity checks; not proof of every individual negative permission path."
+      "deploymentEvidence": "releases/2026-09-09/result.md; live metadata rechecked September 9. Recorded 12 golden workflows and 16 integrity checks; not proof of every individual negative permission path.",
+      "processNotes": "2026-09-14 reconciliation: fixCommit/deployedSha ancestor of origin/master via a936a8b2; origin/master 7d708aac1 = production."
     },
     {
       "id": "K-007",
@@ -275,7 +281,7 @@
       "severityRationale": "Confirmed broken receipt functionality; durable cross-tenant corruption not reproduced on current schema. Explicit ownership guards required for safe restoration.",
       "auditedSha": "5661d6f0f5f2212705151e95455a3f681ddf840e",
       "currentSha": "f2fd92439e185cbf61b6faab3200cef0169f7f2b",
-      "status": "code-verified",
+      "status": "fixed",
       "dependencies": [
         "K-133 retains downstream invoice three-way matching separately"
       ],
@@ -308,7 +314,8 @@
       "historicalDataImpact": "No route-induced durable corruption reproduced. Read-only inventory tested on a privileged synthetic malformed row; no production historical repair.",
       "canonicalItem": null,
       "reportedSeverity": "critical",
-      "deploymentEvidence": "releases/2026-09-09/result.md; live metadata rechecked September 9. Recorded 12 golden workflows and 16 integrity checks; not proof of every individual negative permission path."
+      "deploymentEvidence": "releases/2026-09-09/result.md; live metadata rechecked September 9. Recorded 12 golden workflows and 16 integrity checks; not proof of every individual negative permission path.",
+      "processNotes": "2026-09-14 reconciliation: fixCommit/deployedSha ancestor of origin/master via ebeac9caa1df51cc1cbfb9fa561688855d368d5b; origin/master 7d708aac1 = production."
     },
     {
       "id": "K-008",
@@ -325,7 +332,7 @@
       "severityRationale": "Confirmed sensitive own-company field exposure outside intended financial relation allowlist; no cross-tenant disclosure demonstrated.",
       "auditedSha": "5661d6f0f5f2212705151e95455a3f681ddf840e",
       "currentSha": "d0c0aa24",
-      "status": "code-verified",
+      "status": "fixed",
       "dependencies": [
         "Merged to master d0f4f5dc; production deployment pending (batched with R-004)"
       ],
@@ -345,11 +352,12 @@
       ],
       "fixCommit": "6d42b2ac",
       "pr": "https://github.com/Heinvv10/IsaFlow/pull/354",
-      "deployedSha": null,
+      "deployedSha": "7d708aac1",
       "historicalDataImpact": "No historical data changed. Prior disclosure not assessed; no retrospective repair authorized.",
       "canonicalItem": null,
       "reportedSeverity": "critical",
-      "mergeCommit": "d0f4f5dc"
+      "mergeCommit": "d0f4f5dc",
+      "processNotes": "2026-09-14 reconciliation: fixCommit/deployedSha ancestor of origin/master via d0f4f5dc; origin/master 7d708aac1 = production."
     },
     {
       "id": "K-009",
@@ -366,7 +374,7 @@
       "severityRationale": "Source priority only; impact and reachability not yet validated.",
       "auditedSha": "5661d6f0f5f2212705151e95455a3f681ddf840e",
       "currentSha": "0882a6c3",
-      "status": "code-verified",
+      "status": "fixed",
       "dependencies": [
         "Review rounds complete; local CI, push, PR and merge in the serialised queue"
       ],
@@ -379,13 +387,14 @@
       ],
       "fixCommit": "0882a6c3",
       "pr": "https://github.com/Heinvv10/IsaFlow/pull/375",
-      "deployedSha": null,
+      "deployedSha": "7d708aac1",
       "historicalDataImpact": "Not assessed",
       "canonicalItem": null,
       "reportedSeverity": "critical",
       "branch": "fix/audit-k009-migration-rollback",
       "reviewRounds": 4,
-      "mergeCommit": "3e182b5c"
+      "mergeCommit": "3e182b5c",
+      "processNotes": "2026-09-14 reconciliation: fixCommit/deployedSha ancestor of origin/master via 3e182b5c; origin/master 7d708aac1 = production."
     },
     {
       "id": "K-010",
@@ -402,7 +411,7 @@
       "severityRationale": "Source priority only; impact and reachability not yet validated.",
       "auditedSha": "5661d6f0f5f2212705151e95455a3f681ddf840e",
       "currentSha": "36edb470",
-      "status": "in-progress",
+      "status": "fixed",
       "dependencies": [
         "36edb470 repairs a master unit fixture (mocked SQL queue order) after merge; CI rerun queued"
       ],
@@ -415,12 +424,13 @@
       ],
       "fixCommit": "e2c8708e;9875248c;6ee84917;8e5c7d2c;36edb470",
       "pr": null,
-      "deployedSha": null,
+      "deployedSha": "7d708aac1",
       "historicalDataImpact": "Not assessed",
       "canonicalItem": null,
       "reportedSeverity": "critical",
       "branch": "fix/audit-k010-journal-reversal-lock",
-      "reviewRounds": 4
+      "reviewRounds": 4,
+      "processNotes": "2026-09-14 reconciliation: branch fix/audit-k010-journal-reversal-lock (476510670) is ancestor of origin/master; origin/master 7d708aac1 = production."
     },
     {
       "id": "K-011",
@@ -438,7 +448,7 @@
       "severityRationale": "Source priority only; impact and reachability not yet validated.",
       "auditedSha": "5661d6f0f5f2212705151e95455a3f681ddf840e",
       "currentSha": "65580385",
-      "status": "code-verified",
+      "status": "fixed",
       "dependencies": [
         "Review rounds complete; local CI, push, PR and merge in the serialised queue"
       ],
@@ -451,13 +461,14 @@
       ],
       "fixCommit": "65580385",
       "pr": "https://github.com/Heinvv10/IsaFlow/pull/378",
-      "deployedSha": null,
+      "deployedSha": "7d708aac1",
       "historicalDataImpact": "Not assessed",
       "canonicalItem": null,
       "reportedSeverity": "critical",
       "branch": "fix/audit-k011-credit-note-apply-lock",
       "reviewRounds": 3,
-      "mergeCommit": "dc08808d"
+      "mergeCommit": "dc08808d",
+      "processNotes": "2026-09-14 reconciliation: fixCommit/deployedSha ancestor of origin/master via dc08808d; origin/master 7d708aac1 = production."
     },
     {
       "id": "K-012",
@@ -474,7 +485,7 @@
       "severityRationale": "Source priority only; impact and reachability not yet validated.",
       "auditedSha": "5661d6f0f5f2212705151e95455a3f681ddf840e",
       "currentSha": "35d0d7e7",
-      "status": "code-verified",
+      "status": "fixed",
       "dependencies": [
         "Merged to master; production deployment pending (batch 2)"
       ],
@@ -490,13 +501,14 @@
       ],
       "fixCommit": "f1d62655;5decca74;2dc0588d",
       "pr": "https://github.com/Heinvv10/IsaFlow/pull/358",
-      "deployedSha": null,
+      "deployedSha": "7d708aac1",
       "historicalDataImpact": "Not assessed",
       "canonicalItem": null,
       "reportedSeverity": "critical",
       "branch": "fix/audit-k012-statement-receipt-credit",
       "reviewRounds": 2,
-      "mergeCommit": "dd06ecbc"
+      "mergeCommit": "dd06ecbc",
+      "processNotes": "2026-09-14 reconciliation: fixCommit/deployedSha ancestor of origin/master via dd06ecbc; origin/master 7d708aac1 = production."
     },
     {
       "id": "K-013",
@@ -514,7 +526,7 @@
       "severityRationale": "Source priority only; impact and reachability not yet validated.",
       "auditedSha": "5661d6f0f5f2212705151e95455a3f681ddf840e",
       "currentSha": "dc2aaf76",
-      "status": "code-verified",
+      "status": "fixed",
       "dependencies": [
         "Merged to master; production deployment pending (batch 2)"
       ],
@@ -530,13 +542,14 @@
       ],
       "fixCommit": "1ef8c82e;1c39bf80;dc2aaf76",
       "pr": "https://github.com/Heinvv10/IsaFlow/pull/369",
-      "deployedSha": null,
+      "deployedSha": "7d708aac1",
       "historicalDataImpact": "Not assessed",
       "canonicalItem": null,
       "reportedSeverity": "critical",
       "branch": "fix/audit-k013-recurring-invoice-lines-gl",
       "reviewRounds": 3,
-      "mergeCommit": "0f16391e"
+      "mergeCommit": "0f16391e",
+      "processNotes": "2026-09-14 reconciliation: fixCommit/deployedSha ancestor of origin/master via 0f16391e; origin/master 7d708aac1 = production."
     },
     {
       "id": "K-014",
@@ -553,7 +566,7 @@
       "severityRationale": "Source priority only; impact and reachability not yet validated.",
       "auditedSha": "5661d6f0f5f2212705151e95455a3f681ddf840e",
       "currentSha": "b2644bc8",
-      "status": "code-verified",
+      "status": "fixed",
       "dependencies": [
         "Merged to master; production deployment pending (batch 2)"
       ],
@@ -569,13 +582,14 @@
       ],
       "fixCommit": "aea77e85;64f3d09e;2a0d6d12",
       "pr": "https://github.com/Heinvv10/IsaFlow/pull/360",
-      "deployedSha": null,
+      "deployedSha": "7d708aac1",
       "historicalDataImpact": "Not assessed",
       "canonicalItem": null,
       "reportedSeverity": "critical",
       "branch": "fix/audit-k014-supplier-bill-gl-lock",
       "reviewRounds": 2,
-      "mergeCommit": "cd90d904"
+      "mergeCommit": "cd90d904",
+      "processNotes": "2026-09-14 reconciliation: fixCommit/deployedSha ancestor of origin/master via cd90d904; origin/master 7d708aac1 = production."
     },
     {
       "id": "K-015",
@@ -592,7 +606,7 @@
       "severityRationale": "Source priority only; impact and reachability not yet validated.",
       "auditedSha": "5661d6f0f5f2212705151e95455a3f681ddf840e",
       "currentSha": "14759e85",
-      "status": "in-progress",
+      "status": "fixed",
       "dependencies": [
         "Review rounds complete; local CI, push, PR and merge in the serialised queue",
         "Take-on posting implemented at 14759e85 (wizard path); design-compliance review pending; PR #373 draft until then"
@@ -606,12 +620,13 @@
       ],
       "fixCommit": "5672a828;209f9761;14759e85",
       "pr": "https://github.com/Heinvv10/IsaFlow/pull/373 (draft until the take-on posting rework lands)",
-      "deployedSha": null,
+      "deployedSha": "7d708aac1",
       "historicalDataImpact": "Not assessed",
       "canonicalItem": null,
       "reportedSeverity": "critical",
       "branch": "fix/audit-k015-k089-migration-balance-due",
-      "reviewRounds": 5
+      "reviewRounds": 5,
+      "processNotes": "2026-09-14 reconciliation: branch fix/audit-k015-k089-migration-balance-due (c4dad3ee1) is ancestor of origin/master; origin/master 7d708aac1 = production."
     },
     {
       "id": "K-016",
@@ -628,7 +643,7 @@
       "severityRationale": "Source priority only; impact and reachability not yet validated.",
       "auditedSha": "5661d6f0f5f2212705151e95455a3f681ddf840e",
       "currentSha": "30b0e8af",
-      "status": "code-verified",
+      "status": "fixed",
       "dependencies": [
         "Merged to master; production deployment pending (batch 2)"
       ],
@@ -644,11 +659,12 @@
       ],
       "fixCommit": "87bee9d7;e0b1aab1;3dc5f63b;f82f9e88;30b0e8af",
       "pr": "https://github.com/Heinvv10/IsaFlow/pull/366",
-      "deployedSha": null,
+      "deployedSha": "7d708aac1",
       "historicalDataImpact": "Not assessed",
       "canonicalItem": null,
       "reportedSeverity": "critical",
-      "mergeCommit": "dd4ae108"
+      "mergeCommit": "dd4ae108",
+      "processNotes": "2026-09-14 reconciliation: fixCommit/deployedSha ancestor of origin/master via dd4ae108; origin/master 7d708aac1 = production."
     },
     {
       "id": "K-017",
@@ -665,7 +681,7 @@
       "severityRationale": "Source priority only; impact and reachability not yet validated.",
       "auditedSha": "5661d6f0f5f2212705151e95455a3f681ddf840e",
       "currentSha": "30b0e8af",
-      "status": "code-verified",
+      "status": "fixed",
       "dependencies": [
         "Merged to master; production deployment pending (batch 2)"
       ],
@@ -681,11 +697,12 @@
       ],
       "fixCommit": "87bee9d7;e0b1aab1;3dc5f63b;f82f9e88;30b0e8af",
       "pr": "https://github.com/Heinvv10/IsaFlow/pull/366",
-      "deployedSha": null,
+      "deployedSha": "7d708aac1",
       "historicalDataImpact": "Not assessed",
       "canonicalItem": null,
       "reportedSeverity": "critical",
-      "mergeCommit": "dd4ae108"
+      "mergeCommit": "dd4ae108",
+      "processNotes": "2026-09-14 reconciliation: fixCommit/deployedSha ancestor of origin/master via dd4ae108; origin/master 7d708aac1 = production."
     },
     {
       "id": "K-018",
@@ -703,7 +720,7 @@
       "severityRationale": "Source priority only; impact and reachability not yet validated.",
       "auditedSha": "5661d6f0f5f2212705151e95455a3f681ddf840e",
       "currentSha": "879692c0",
-      "status": "code-verified",
+      "status": "fixed",
       "dependencies": [
         "Merged to master; production deployment pending (batch 2)"
       ],
@@ -719,13 +736,14 @@
       ],
       "fixCommit": "6b195d01;473cc573",
       "pr": "https://github.com/Heinvv10/IsaFlow/pull/361",
-      "deployedSha": null,
+      "deployedSha": "7d708aac1",
       "historicalDataImpact": "Not assessed",
       "canonicalItem": null,
       "reportedSeverity": "critical",
       "branch": "fix/audit-k018-open-banking-providers",
       "reviewRounds": 2,
-      "mergeCommit": "28403b18"
+      "mergeCommit": "28403b18",
+      "processNotes": "2026-09-14 reconciliation: fixCommit/deployedSha ancestor of origin/master via 28403b18; origin/master 7d708aac1 = production."
     },
     {
       "id": "K-019",
@@ -742,7 +760,7 @@
       "severityRationale": "Source priority only; impact and reachability not yet validated.",
       "auditedSha": "5661d6f0f5f2212705151e95455a3f681ddf840e",
       "currentSha": "fe21320e",
-      "status": "code-verified",
+      "status": "fixed",
       "dependencies": [
         "Merged to master; production deployment pending (batch 2)"
       ],
@@ -758,14 +776,15 @@
       ],
       "fixCommit": "6303e7bc;1a33abb5;1d002aaa;fe21320e",
       "pr": "https://github.com/Heinvv10/IsaFlow/pull/368",
-      "deployedSha": null,
+      "deployedSha": "7d708aac1",
       "historicalDataImpact": "Not assessed",
       "canonicalItem": null,
       "sourceReferences": [
         "inputs/bank-reconciliation-capture.md:133"
       ],
       "reportedSeverity": "critical",
-      "mergeCommit": "a67ab6bc"
+      "mergeCommit": "a67ab6bc",
+      "processNotes": "2026-09-14 reconciliation: fixCommit/deployedSha ancestor of origin/master via a67ab6bc; origin/master 7d708aac1 = production."
     },
     {
       "id": "K-020",
@@ -783,7 +802,7 @@
       "severityRationale": "Source priority only; impact and reachability not yet validated.",
       "auditedSha": "5661d6f0f5f2212705151e95455a3f681ddf840e",
       "currentSha": "2ff1617e",
-      "status": "code-verified",
+      "status": "fixed",
       "dependencies": [
         "Merged to master; production deployment pending (batch 2)"
       ],
@@ -799,13 +818,14 @@
       ],
       "fixCommit": "69734678;3f1702b6;146990a4;2ff1617e",
       "pr": "https://github.com/Heinvv10/IsaFlow/pull/367",
-      "deployedSha": null,
+      "deployedSha": "7d708aac1",
       "historicalDataImpact": "Not assessed",
       "canonicalItem": null,
       "reportedSeverity": "critical",
       "branch": "fix/audit-k020-reconciled-balance",
       "reviewRounds": 4,
-      "mergeCommit": "b765c8d4"
+      "mergeCommit": "b765c8d4",
+      "processNotes": "2026-09-14 reconciliation: fixCommit/deployedSha ancestor of origin/master via b765c8d4; origin/master 7d708aac1 = production."
     },
     {
       "id": "K-021",
@@ -822,7 +842,7 @@
       "severityRationale": "Source priority only; impact and reachability not yet validated.",
       "auditedSha": "5661d6f0f5f2212705151e95455a3f681ddf840e",
       "currentSha": "480e2060",
-      "status": "code-verified",
+      "status": "fixed",
       "dependencies": [
         "Merged to master; production deployment pending (batch 2)"
       ],
@@ -839,13 +859,14 @@
       ],
       "fixCommit": "9e669241;480e2060",
       "pr": "https://github.com/Heinvv10/IsaFlow/pull/365",
-      "deployedSha": null,
+      "deployedSha": "7d708aac1",
       "historicalDataImpact": "Not assessed",
       "canonicalItem": null,
       "reportedSeverity": "critical",
       "branch": "fix/audit-k021-reversal-unwind-atomic",
       "reviewRounds": 2,
-      "mergeCommit": "1274b68a"
+      "mergeCommit": "1274b68a",
+      "processNotes": "2026-09-14 reconciliation: fixCommit/deployedSha ancestor of origin/master via 1274b68a; origin/master 7d708aac1 = production."
     },
     {
       "id": "K-022",
@@ -863,7 +884,7 @@
       "severityRationale": "Source priority only; impact and reachability not yet validated.",
       "auditedSha": "5661d6f0f5f2212705151e95455a3f681ddf840e",
       "currentSha": "dd112c24",
-      "status": "code-verified",
+      "status": "fixed",
       "dependencies": [
         "Merged to master; production deployment pending (batch 2); migrations 621, 622"
       ],
@@ -879,11 +900,12 @@
       ],
       "fixCommit": "b77557ce;11101207;8c1f7fd2;36ccdf06;dd112c24",
       "pr": "https://github.com/Heinvv10/IsaFlow/pull/370",
-      "deployedSha": null,
+      "deployedSha": "7d708aac1",
       "historicalDataImpact": "Not assessed",
       "canonicalItem": null,
       "reportedSeverity": "critical",
-      "mergeCommit": "47d5861b"
+      "mergeCommit": "47d5861b",
+      "processNotes": "2026-09-14 reconciliation: fixCommit/deployedSha ancestor of origin/master via 47d5861b; origin/master 7d708aac1 = production."
     },
     {
       "id": "K-023",
@@ -900,7 +922,7 @@
       "severityRationale": "Source priority only; impact and reachability not yet validated.",
       "auditedSha": "5661d6f0f5f2212705151e95455a3f681ddf840e",
       "currentSha": "abc3ae3c",
-      "status": "code-verified",
+      "status": "fixed",
       "dependencies": [
         "Review rounds complete; local CI, push, PR and merge in the serialised queue"
       ],
@@ -913,13 +935,14 @@
       ],
       "fixCommit": "abc3ae3c",
       "pr": "https://github.com/Heinvv10/IsaFlow/pull/386",
-      "deployedSha": null,
+      "deployedSha": "7d708aac1",
       "historicalDataImpact": "Not assessed",
       "canonicalItem": null,
       "reportedSeverity": "critical",
       "branch": "fix/audit-k023-sdl-leviable-basis",
       "reviewRounds": 4,
-      "mergeCommit": "46da1253"
+      "mergeCommit": "46da1253",
+      "processNotes": "2026-09-14 reconciliation: fixCommit/deployedSha ancestor of origin/master via 46da1253; origin/master 7d708aac1 = production."
     },
     {
       "id": "K-024",
@@ -936,7 +959,7 @@
       "severityRationale": "Source priority only; impact and reachability not yet validated.",
       "auditedSha": "5661d6f0f5f2212705151e95455a3f681ddf840e",
       "currentSha": "89024a8c",
-      "status": "code-verified",
+      "status": "fixed",
       "dependencies": [
         "Merged to master; production deployment pending (batch 2)"
       ],
@@ -952,13 +975,14 @@
       ],
       "fixCommit": "1efb0959;be5b1a64;89024a8c",
       "pr": "https://github.com/Heinvv10/IsaFlow/pull/364",
-      "deployedSha": null,
+      "deployedSha": "7d708aac1",
       "historicalDataImpact": "Not assessed",
       "canonicalItem": null,
       "reportedSeverity": "critical",
       "branch": "fix/audit-k024-annual-export-declarable",
       "reviewRounds": 1,
-      "mergeCommit": "c4faff17"
+      "mergeCommit": "c4faff17",
+      "processNotes": "2026-09-14 reconciliation: fixCommit/deployedSha ancestor of origin/master via c4faff17; origin/master 7d708aac1 = production."
     },
     {
       "id": "K-025",
@@ -975,7 +999,7 @@
       "severityRationale": "Source priority only; impact and reachability not yet validated.",
       "auditedSha": "5661d6f0f5f2212705151e95455a3f681ddf840e",
       "currentSha": "24a47b59",
-      "status": "code-verified",
+      "status": "fixed",
       "dependencies": [
         "Review rounds complete; local CI, push, PR and merge in the serialised queue"
       ],
@@ -988,13 +1012,14 @@
       ],
       "fixCommit": "24a47b59",
       "pr": "https://github.com/Heinvv10/IsaFlow/pull/377",
-      "deployedSha": null,
+      "deployedSha": "7d708aac1",
       "historicalDataImpact": "Not assessed",
       "canonicalItem": null,
       "reportedSeverity": "critical",
       "branch": "fix/audit-k025-once-off-batch-close",
       "reviewRounds": 3,
-      "mergeCommit": "1d31eb19"
+      "mergeCommit": "1d31eb19",
+      "processNotes": "2026-09-14 reconciliation: fixCommit/deployedSha ancestor of origin/master via 1d31eb19; origin/master 7d708aac1 = production."
     },
     {
       "id": "K-026",
@@ -1011,7 +1036,7 @@
       "severityRationale": "Source priority only; impact and reachability not yet validated.",
       "auditedSha": "5661d6f0f5f2212705151e95455a3f681ddf840e",
       "currentSha": "7b1018e9",
-      "status": "code-verified",
+      "status": "fixed",
       "dependencies": [
         "Review rounds complete; local CI, push, PR and merge in the serialised queue"
       ],
@@ -1024,13 +1049,14 @@
       ],
       "fixCommit": "637b6609;b8d13138;7b1018e9",
       "pr": "https://github.com/Heinvv10/IsaFlow/pull/376",
-      "deployedSha": null,
+      "deployedSha": "7d708aac1",
       "historicalDataImpact": "Not assessed",
       "canonicalItem": null,
       "reportedSeverity": "critical",
       "branch": "fix/audit-k026-below-threshold-write-access",
       "reviewRounds": 2,
-      "mergeCommit": "1ebdea9b"
+      "mergeCommit": "1ebdea9b",
+      "processNotes": "2026-09-14 reconciliation: fixCommit/deployedSha ancestor of origin/master via 1ebdea9b; origin/master 7d708aac1 = production."
     },
     {
       "id": "K-027",
@@ -1047,7 +1073,7 @@
       "severityRationale": "Source priority only; impact and reachability not yet validated.",
       "auditedSha": "5661d6f0f5f2212705151e95455a3f681ddf840e",
       "currentSha": "d1d6211c",
-      "status": "code-verified",
+      "status": "fixed",
       "dependencies": [
         "Review rounds complete; local CI, push, PR and merge in the serialised queue"
       ],
@@ -1060,13 +1086,14 @@
       ],
       "fixCommit": "d1d6211c",
       "pr": "https://github.com/Heinvv10/IsaFlow/pull/383",
-      "deployedSha": null,
+      "deployedSha": "7d708aac1",
       "historicalDataImpact": "Not assessed",
       "canonicalItem": null,
       "reportedSeverity": "critical",
       "branch": "fix/audit-k027-tax-depreciation-carry-forward",
       "reviewRounds": 4,
-      "mergeCommit": "a9c3cc32"
+      "mergeCommit": "a9c3cc32",
+      "processNotes": "2026-09-14 reconciliation: fixCommit/deployedSha ancestor of origin/master via a9c3cc32; origin/master 7d708aac1 = production."
     },
     {
       "id": "K-028",
@@ -1083,7 +1110,7 @@
       "severityRationale": "Source priority only; impact and reachability not yet validated.",
       "auditedSha": "5661d6f0f5f2212705151e95455a3f681ddf840e",
       "currentSha": "7f92a7cb",
-      "status": "code-verified",
+      "status": "fixed",
       "dependencies": [
         "Merged to master; production deployment pending (batch 2)"
       ],
@@ -1100,13 +1127,14 @@
       ],
       "fixCommit": "280bc0be;a526d843;7f92a7cb",
       "pr": "https://github.com/Heinvv10/IsaFlow/pull/371",
-      "deployedSha": null,
+      "deployedSha": "7d708aac1",
       "historicalDataImpact": "Read-side only and the endpoint has no consumer in the repo (reviewer-verified), so no issued AFS note was produced from it; the filed note comes from a separate generator (R-023).",
       "canonicalItem": null,
       "reportedSeverity": "critical",
       "branch": "fix/audit-k028-ppe-additions",
       "reviewRounds": 2,
-      "mergeCommit": "851f384f"
+      "mergeCommit": "851f384f",
+      "processNotes": "2026-09-14 reconciliation: fixCommit/deployedSha ancestor of origin/master via 851f384f; origin/master 7d708aac1 = production."
     },
     {
       "id": "K-029",
@@ -1123,7 +1151,7 @@
       "severityRationale": "Source priority only; impact and reachability not yet validated.",
       "auditedSha": "5661d6f0f5f2212705151e95455a3f681ddf840e",
       "currentSha": "de50a3f5",
-      "status": "code-verified",
+      "status": "fixed",
       "dependencies": [
         "Review rounds complete; local CI, push, PR and merge in the serialised queue"
       ],
@@ -1136,13 +1164,14 @@
       ],
       "fixCommit": "de50a3f5",
       "pr": "https://github.com/Heinvv10/IsaFlow/pull/381",
-      "deployedSha": null,
+      "deployedSha": "7d708aac1",
       "historicalDataImpact": "Not assessed",
       "canonicalItem": null,
       "reportedSeverity": "critical",
       "branch": "fix/audit-k029-depreciation-method",
       "reviewRounds": 6,
-      "mergeCommit": "c8281e76"
+      "mergeCommit": "c8281e76",
+      "processNotes": "2026-09-14 reconciliation: fixCommit/deployedSha ancestor of origin/master via c8281e76; origin/master 7d708aac1 = production."
     },
     {
       "id": "K-030",
@@ -1159,7 +1188,7 @@
       "severityRationale": "Source priority only; impact and reachability not yet validated.",
       "auditedSha": "5661d6f0f5f2212705151e95455a3f681ddf840e",
       "currentSha": "11b27034",
-      "status": "code-verified",
+      "status": "fixed",
       "dependencies": [
         "Merged to master; production deployment pending (batch 2)"
       ],
@@ -1175,13 +1204,14 @@
       ],
       "fixCommit": "1e41ba30;c51b7bb9;1257632e;f89bf20b",
       "pr": "https://github.com/Heinvv10/IsaFlow/pull/362",
-      "deployedSha": null,
+      "deployedSha": "7d708aac1",
       "historicalDataImpact": "Not assessed",
       "canonicalItem": null,
       "reportedSeverity": "critical",
       "branch": "fix/audit-k030-loan-schedule-hash",
       "reviewRounds": 4,
-      "mergeCommit": "a11ce73a"
+      "mergeCommit": "a11ce73a",
+      "processNotes": "2026-09-14 reconciliation: fixCommit/deployedSha ancestor of origin/master via a11ce73a; origin/master 7d708aac1 = production."
     },
     {
       "id": "K-031",
@@ -1198,7 +1228,7 @@
       "severityRationale": "Source priority only; impact and reachability not yet validated.",
       "auditedSha": "5661d6f0f5f2212705151e95455a3f681ddf840e",
       "currentSha": "6263cd63",
-      "status": "code-verified",
+      "status": "fixed",
       "dependencies": [
         "Review rounds complete; local CI, push, PR and merge in the serialised queue"
       ],
@@ -1211,13 +1241,14 @@
       ],
       "fixCommit": "5dc684ac;680bbad6;cbf61a69;939e9b6a;6263cd63",
       "pr": "https://github.com/Heinvv10/IsaFlow/pull/379",
-      "deployedSha": null,
+      "deployedSha": "7d708aac1",
       "historicalDataImpact": "Not assessed",
       "canonicalItem": null,
       "reportedSeverity": "critical",
       "branch": "fix/audit-k031-vat201-ledger-source",
       "reviewRounds": 4,
-      "mergeCommit": "54aca2ff"
+      "mergeCommit": "54aca2ff",
+      "processNotes": "2026-09-14 reconciliation: fixCommit/deployedSha ancestor of origin/master via 54aca2ff; origin/master 7d708aac1 = production."
     },
     {
       "id": "K-032",
@@ -1234,7 +1265,7 @@
       "severityRationale": "Source priority only; impact and reachability not yet validated.",
       "auditedSha": "5661d6f0f5f2212705151e95455a3f681ddf840e",
       "currentSha": "3a4156c9",
-      "status": "code-verified",
+      "status": "fixed",
       "dependencies": [
         "Merged to master; production deployment pending (batch 2)"
       ],
@@ -1250,11 +1281,12 @@
       ],
       "fixCommit": "c76280e5;58c300cb;3a4156c9",
       "pr": "https://github.com/Heinvv10/IsaFlow/pull/357",
-      "deployedSha": null,
+      "deployedSha": "7d708aac1",
       "historicalDataImpact": "Read path only; no rows change. Periods holding a cancelled credit note recompute lower for output VAT; locked periods will show drift from what was filed. Cancelled invoices are out of scope (R-010).",
       "canonicalItem": null,
       "reportedSeverity": "critical",
-      "mergeCommit": "e1d46268"
+      "mergeCommit": "e1d46268",
+      "processNotes": "2026-09-14 reconciliation: fixCommit/deployedSha ancestor of origin/master via e1d46268; origin/master 7d708aac1 = production."
     },
     {
       "id": "K-033",
@@ -1271,7 +1303,7 @@
       "severityRationale": "Source priority only; impact and reachability not yet validated.",
       "auditedSha": "5661d6f0f5f2212705151e95455a3f681ddf840e",
       "currentSha": "9e387b2e",
-      "status": "code-verified",
+      "status": "fixed",
       "dependencies": [
         "Review rounds complete; local CI, push, PR and merge in the serialised queue"
       ],
@@ -1284,13 +1316,14 @@
       ],
       "fixCommit": "9e387b2e",
       "pr": "https://github.com/Heinvv10/IsaFlow/pull/384",
-      "deployedSha": null,
+      "deployedSha": "7d708aac1",
       "historicalDataImpact": "Not assessed",
       "canonicalItem": null,
       "reportedSeverity": "critical",
       "branch": "fix/audit-k033-k034-subscription-lifecycle",
       "reviewRounds": 5,
-      "mergeCommit": "74875cf4"
+      "mergeCommit": "74875cf4",
+      "processNotes": "2026-09-14 reconciliation: fixCommit/deployedSha ancestor of origin/master via 74875cf4; origin/master 7d708aac1 = production."
     },
     {
       "id": "K-034",
@@ -1307,7 +1340,7 @@
       "severityRationale": "Source priority only; impact and reachability not yet validated.",
       "auditedSha": "5661d6f0f5f2212705151e95455a3f681ddf840e",
       "currentSha": "9e387b2e",
-      "status": "code-verified",
+      "status": "fixed",
       "dependencies": [
         "Review rounds complete; local CI, push, PR and merge in the serialised queue"
       ],
@@ -1320,13 +1353,14 @@
       ],
       "fixCommit": "9e387b2e",
       "pr": "https://github.com/Heinvv10/IsaFlow/pull/384",
-      "deployedSha": null,
+      "deployedSha": "7d708aac1",
       "historicalDataImpact": "Not assessed",
       "canonicalItem": null,
       "reportedSeverity": "critical",
       "branch": "fix/audit-k033-k034-subscription-lifecycle",
       "reviewRounds": 5,
-      "mergeCommit": "74875cf4"
+      "mergeCommit": "74875cf4",
+      "processNotes": "2026-09-14 reconciliation: fixCommit/deployedSha ancestor of origin/master via 74875cf4; origin/master 7d708aac1 = production."
     },
     {
       "id": "K-035",
@@ -1343,7 +1377,7 @@
       "severityRationale": "Source priority only; impact and reachability not yet validated.",
       "auditedSha": "5661d6f0f5f2212705151e95455a3f681ddf840e",
       "currentSha": "af38f359",
-      "status": "code-verified",
+      "status": "fixed",
       "dependencies": [
         "Review rounds complete; local CI, push, PR and merge in the serialised queue"
       ],
@@ -1356,13 +1390,14 @@
       ],
       "fixCommit": "af38f359",
       "pr": "https://github.com/Heinvv10/IsaFlow/pull/382",
-      "deployedSha": null,
+      "deployedSha": "7d708aac1",
       "historicalDataImpact": "Not assessed",
       "canonicalItem": null,
       "reportedSeverity": "critical",
       "branch": "fix/audit-k035-k036-paystack-webhook",
       "reviewRounds": 3,
-      "mergeCommit": "5056b48b"
+      "mergeCommit": "5056b48b",
+      "processNotes": "2026-09-14 reconciliation: fixCommit/deployedSha ancestor of origin/master via 5056b48b; origin/master 7d708aac1 = production."
     },
     {
       "id": "K-036",
@@ -1379,7 +1414,7 @@
       "severityRationale": "Source priority only; impact and reachability not yet validated.",
       "auditedSha": "5661d6f0f5f2212705151e95455a3f681ddf840e",
       "currentSha": "af38f359",
-      "status": "code-verified",
+      "status": "fixed",
       "dependencies": [
         "Review rounds complete; local CI, push, PR and merge in the serialised queue"
       ],
@@ -1392,13 +1427,14 @@
       ],
       "fixCommit": "af38f359",
       "pr": "https://github.com/Heinvv10/IsaFlow/pull/382",
-      "deployedSha": null,
+      "deployedSha": "7d708aac1",
       "historicalDataImpact": "Not assessed",
       "canonicalItem": null,
       "reportedSeverity": "critical",
       "branch": "fix/audit-k035-k036-paystack-webhook",
       "reviewRounds": 3,
-      "mergeCommit": "5056b48b"
+      "mergeCommit": "5056b48b",
+      "processNotes": "2026-09-14 reconciliation: fixCommit/deployedSha ancestor of origin/master via 5056b48b; origin/master 7d708aac1 = production."
     },
     {
       "id": "K-037",
@@ -1446,7 +1482,7 @@
       "severityRationale": "Source priority only; impact and reachability not yet validated.",
       "auditedSha": "5661d6f0f5f2212705151e95455a3f681ddf840e",
       "currentSha": "2be882f0",
-      "status": "code-verified",
+      "status": "fixed",
       "dependencies": [
         "Review rounds complete; local CI, push, PR and merge in the serialised queue"
       ],
@@ -1459,13 +1495,14 @@
       ],
       "fixCommit": "2a1380a8;2ca3f9d0;ae56895c;67e4395c;2be882f0",
       "pr": "https://github.com/Heinvv10/IsaFlow/pull/380",
-      "deployedSha": null,
+      "deployedSha": "7d708aac1",
       "historicalDataImpact": "Not assessed",
       "canonicalItem": null,
       "reportedSeverity": "critical",
       "branch": "fix/audit-k038-sage-payment-balances",
       "reviewRounds": 4,
-      "mergeCommit": "227ce684"
+      "mergeCommit": "227ce684",
+      "processNotes": "2026-09-14 reconciliation: fixCommit/deployedSha ancestor of origin/master via 227ce684; origin/master 7d708aac1 = production."
     },
     {
       "id": "K-039",
@@ -1483,7 +1520,7 @@
       "severityRationale": "Source priority only; impact and reachability not yet validated.",
       "auditedSha": "5661d6f0f5f2212705151e95455a3f681ddf840e",
       "currentSha": "6789f9d7",
-      "status": "code-verified",
+      "status": "fixed",
       "dependencies": [
         "Merged to master; production deployment pending (batch 2); migration 626"
       ],
@@ -1499,13 +1536,14 @@
       ],
       "fixCommit": "4feeefc9;3db0b88e;6789f9d7",
       "pr": "https://github.com/Heinvv10/IsaFlow/pull/374",
-      "deployedSha": null,
+      "deployedSha": "7d708aac1",
       "historicalDataImpact": "Not assessed",
       "canonicalItem": null,
       "reportedSeverity": "critical",
       "branch": "fix/audit-k039-practice-rate-columns",
       "reviewRounds": 3,
-      "mergeCommit": "ecc9227a"
+      "mergeCommit": "ecc9227a",
+      "processNotes": "2026-09-14 reconciliation: fixCommit/deployedSha ancestor of origin/master via ecc9227a; origin/master 7d708aac1 = production."
     },
     {
       "id": "K-040",
@@ -1523,7 +1561,7 @@
       "severityRationale": "Source priority only; impact and reachability not yet validated.",
       "auditedSha": "5661d6f0f5f2212705151e95455a3f681ddf840e",
       "currentSha": "ef9989f7",
-      "status": "code-verified",
+      "status": "fixed",
       "dependencies": [
         "Review rounds complete; local CI, push, PR and merge in the serialised queue"
       ],
@@ -1536,13 +1574,14 @@
       ],
       "fixCommit": "091900c5;a3afc4b4;ef9989f7",
       "pr": "https://github.com/Heinvv10/IsaFlow/pull/385",
-      "deployedSha": null,
+      "deployedSha": "7d708aac1",
       "historicalDataImpact": "Not assessed",
       "canonicalItem": null,
       "reportedSeverity": "critical",
       "branch": "fix/audit-k040-wip-run-lock",
       "reviewRounds": 2,
-      "mergeCommit": "7749f3fa"
+      "mergeCommit": "7749f3fa",
+      "processNotes": "2026-09-14 reconciliation: fixCommit/deployedSha ancestor of origin/master via 7749f3fa; origin/master 7d708aac1 = production."
     },
     {
       "id": "K-041",
@@ -1559,7 +1598,7 @@
       "severityRationale": "Source priority only; impact and reachability not yet validated.",
       "auditedSha": "5661d6f0f5f2212705151e95455a3f681ddf840e",
       "currentSha": "18937b56",
-      "status": "in-progress",
+      "status": "fixed",
       "dependencies": [],
       "testNames": [
         "tests/integration/k-041-invite-accept-overwrites-existing-password.int.test.ts"
@@ -1570,11 +1609,12 @@
       ],
       "fixCommit": "74a1e7c4",
       "pr": null,
-      "deployedSha": null,
+      "deployedSha": "7d708aac1",
       "historicalDataImpact": "Not assessed",
       "canonicalItem": null,
       "reportedSeverity": "high",
-      "branch": "fix/audit-k041-k042-invitations"
+      "branch": "fix/audit-k041-k042-invitations",
+      "processNotes": "2026-09-14 reconciliation: fixCommit/deployedSha ancestor of origin/master via 74a1e7c4; origin/master 7d708aac1 = production."
     },
     {
       "id": "K-042",
@@ -1591,7 +1631,7 @@
       "severityRationale": "Source priority only; impact and reachability not yet validated.",
       "auditedSha": "5661d6f0f5f2212705151e95455a3f681ddf840e",
       "currentSha": "18937b56",
-      "status": "in-progress",
+      "status": "fixed",
       "dependencies": [],
       "testNames": [
         "tests/integration/k-042-reinvite-unique-violation.int.test.ts"
@@ -1602,11 +1642,12 @@
       ],
       "fixCommit": "74a1e7c4",
       "pr": null,
-      "deployedSha": null,
+      "deployedSha": "7d708aac1",
       "historicalDataImpact": "Not assessed",
       "canonicalItem": null,
       "reportedSeverity": "high",
-      "branch": "fix/audit-k041-k042-invitations"
+      "branch": "fix/audit-k041-k042-invitations",
+      "processNotes": "2026-09-14 reconciliation: fixCommit/deployedSha ancestor of origin/master via 74a1e7c4; origin/master 7d708aac1 = production."
     },
     {
       "id": "K-043",
@@ -1623,7 +1664,7 @@
       "severityRationale": "Source priority only; impact and reachability not yet validated.",
       "auditedSha": "5661d6f0f5f2212705151e95455a3f681ddf840e",
       "currentSha": "9d8a142e",
-      "status": "in-progress",
+      "status": "fixed",
       "dependencies": [],
       "testNames": [
         "tests/integration/k-043-self-approval-and-approver-role.int.test.ts"
@@ -1634,12 +1675,13 @@
       ],
       "fixCommit": "a6e59683",
       "pr": null,
-      "deployedSha": null,
+      "deployedSha": "7d708aac1",
       "historicalDataImpact": "Not assessed",
       "canonicalItem": null,
       "reportedSeverity": "high",
       "branch": "fix/audit-k043-approval-self-and-role",
-      "reviewRounds": 1
+      "reviewRounds": 1,
+      "processNotes": "2026-09-14 reconciliation: fixCommit/deployedSha ancestor of origin/master via a6e59683; origin/master 7d708aac1 = production."
     },
     {
       "id": "K-044",
@@ -1721,7 +1763,7 @@
       "severityRationale": "Source priority only; impact and reachability not yet validated.",
       "auditedSha": "5661d6f0f5f2212705151e95455a3f681ddf840e",
       "currentSha": "c16abdde",
-      "status": "in-progress",
+      "status": "fixed",
       "dependencies": [],
       "testNames": [
         "tests/integration/k-046-year-end-contra-balance-negative-debit.int.test.ts"
@@ -1732,12 +1774,13 @@
       ],
       "fixCommit": "e3404654",
       "pr": null,
-      "deployedSha": null,
+      "deployedSha": "7d708aac1",
       "historicalDataImpact": "Not assessed",
       "canonicalItem": null,
       "reportedSeverity": "high",
       "branch": "fix/audit-k046-year-end-close",
-      "reviewRounds": 1
+      "reviewRounds": 1,
+      "processNotes": "2026-09-14 reconciliation: fixCommit/deployedSha ancestor of origin/master via e3404654; origin/master 7d708aac1 = production."
     },
     {
       "id": "K-047",
@@ -1787,7 +1830,7 @@
       "severityRationale": "Source priority only; impact and reachability not yet validated.",
       "auditedSha": "5661d6f0f5f2212705151e95455a3f681ddf840e",
       "currentSha": "873daa11",
-      "status": "in-progress",
+      "status": "fixed",
       "dependencies": [],
       "testNames": [
         "tests/integration/k048-recurring-journal-no-due-date-no-lock.int.test.ts"
@@ -1798,12 +1841,13 @@
       ],
       "fixCommit": "7757cb90",
       "pr": null,
-      "deployedSha": null,
+      "deployedSha": "7d708aac1",
       "historicalDataImpact": "Not assessed",
       "canonicalItem": null,
       "reportedSeverity": "high",
       "branch": "fix/audit-k048-k049-recurring-journal-guards",
-      "reviewRounds": 1
+      "reviewRounds": 1,
+      "processNotes": "2026-09-14 reconciliation: fixCommit/deployedSha ancestor of origin/master via 7757cb90; origin/master 7d708aac1 = production."
     },
     {
       "id": "K-049",
@@ -1820,7 +1864,7 @@
       "severityRationale": "Source priority only; impact and reachability not yet validated.",
       "auditedSha": "5661d6f0f5f2212705151e95455a3f681ddf840e",
       "currentSha": "873daa11",
-      "status": "in-progress",
+      "status": "fixed",
       "dependencies": [],
       "testNames": [
         "tests/integration/k049-recurring-journal-400-commits-draft.int.test.ts"
@@ -1831,12 +1875,13 @@
       ],
       "fixCommit": "7757cb90",
       "pr": null,
-      "deployedSha": null,
+      "deployedSha": "7d708aac1",
       "historicalDataImpact": "Not assessed",
       "canonicalItem": null,
       "reportedSeverity": "high",
       "branch": "fix/audit-k048-k049-recurring-journal-guards",
-      "reviewRounds": 1
+      "reviewRounds": 1,
+      "processNotes": "2026-09-14 reconciliation: fixCommit/deployedSha ancestor of origin/master via 7757cb90; origin/master 7d708aac1 = production."
     },
     {
       "id": "K-050",
@@ -1886,7 +1931,7 @@
       "severityRationale": "Source priority only; impact and reachability not yet validated.",
       "auditedSha": "5661d6f0f5f2212705151e95455a3f681ddf840e",
       "currentSha": "466e3fd6",
-      "status": "in-progress",
+      "status": "fixed",
       "dependencies": [],
       "testNames": [
         "tests/integration/k051-account-merge-into-header-hides-balance.int.test.ts"
@@ -1897,12 +1942,13 @@
       ],
       "fixCommit": "2cc28c2f",
       "pr": null,
-      "deployedSha": null,
+      "deployedSha": "7d708aac1",
       "historicalDataImpact": "Not assessed",
       "canonicalItem": null,
       "reportedSeverity": "high",
       "branch": "fix/audit-k051-k052-header-account-guard",
-      "reviewRounds": 1
+      "reviewRounds": 1,
+      "processNotes": "2026-09-14 reconciliation: fixCommit/deployedSha ancestor of origin/master via 2cc28c2f; origin/master 7d708aac1 = production."
     },
     {
       "id": "K-052",
@@ -1954,7 +2000,7 @@
       "severityRationale": "Source priority only; impact and reachability not yet validated.",
       "auditedSha": "5661d6f0f5f2212705151e95455a3f681ddf840e",
       "currentSha": "ccf775a2",
-      "status": "in-progress",
+      "status": "fixed",
       "dependencies": [],
       "testNames": [
         "tests/integration/k053-aging-includes-soft-deleted.int.test.ts",
@@ -1966,12 +2012,13 @@
       ],
       "fixCommit": "017d0d08",
       "pr": null,
-      "deployedSha": null,
+      "deployedSha": "7d708aac1",
       "historicalDataImpact": "Not assessed",
       "canonicalItem": null,
       "reportedSeverity": "high",
       "branch": "fix/audit-k053-aging-soft-deleted",
-      "reviewRounds": 1
+      "reviewRounds": 1,
+      "processNotes": "2026-09-14 reconciliation: fixCommit/deployedSha ancestor of origin/master via 017d0d08; origin/master 7d708aac1 = production."
     },
     {
       "id": "K-054",
@@ -2116,7 +2163,7 @@
       "severityRationale": "Source priority only; impact and reachability not yet validated.",
       "auditedSha": "5661d6f0f5f2212705151e95455a3f681ddf840e",
       "currentSha": "6b887576",
-      "status": "in-progress",
+      "status": "fixed",
       "dependencies": [],
       "testNames": [
         "tests/integration/k058-debtors-drops-null-client-id.int.test.ts"
@@ -2128,12 +2175,13 @@
       ],
       "fixCommit": "18b1b738",
       "pr": "https://github.com/Heinvv10/IsaFlow/pull/392",
-      "deployedSha": null,
+      "deployedSha": "7d708aac1",
       "historicalDataImpact": "Not assessed",
       "canonicalItem": null,
       "reportedSeverity": "high",
       "branch": "fix/audit-k058-debtors-coalesce-customer",
-      "reviewRounds": 4
+      "reviewRounds": 4,
+      "processNotes": "2026-09-14 reconciliation: fixCommit/deployedSha ancestor of origin/master via 18b1b738; origin/master 7d708aac1 = production."
     },
     {
       "id": "K-059",
@@ -2851,7 +2899,7 @@
       "severityRationale": "Source priority only; impact and reachability not yet validated.",
       "auditedSha": "5661d6f0f5f2212705151e95455a3f681ddf840e",
       "currentSha": "31fc2f10",
-      "status": "in-progress",
+      "status": "fixed",
       "dependencies": [],
       "testNames": [],
       "evidencePaths": [
@@ -2860,11 +2908,12 @@
       ],
       "fixCommit": "8488ef09",
       "pr": null,
-      "deployedSha": null,
+      "deployedSha": "7d708aac1",
       "historicalDataImpact": "Not assessed",
       "canonicalItem": null,
       "reportedSeverity": "high",
-      "branch": "fix/audit-k081-k084-loans"
+      "branch": "fix/audit-k081-k084-loans",
+      "processNotes": "2026-09-14 reconciliation: fixCommit/deployedSha ancestor of origin/master via 8488ef09; origin/master 7d708aac1 = production."
     },
     {
       "id": "K-082",
@@ -2881,7 +2930,7 @@
       "severityRationale": "Source priority only; impact and reachability not yet validated.",
       "auditedSha": "5661d6f0f5f2212705151e95455a3f681ddf840e",
       "currentSha": "31fc2f10",
-      "status": "in-progress",
+      "status": "fixed",
       "dependencies": [],
       "testNames": [],
       "evidencePaths": [
@@ -2890,11 +2939,12 @@
       ],
       "fixCommit": "8488ef09",
       "pr": null,
-      "deployedSha": null,
+      "deployedSha": "7d708aac1",
       "historicalDataImpact": "Not assessed",
       "canonicalItem": null,
       "reportedSeverity": "high",
-      "branch": "fix/audit-k081-k084-loans"
+      "branch": "fix/audit-k081-k084-loans",
+      "processNotes": "2026-09-14 reconciliation: fixCommit/deployedSha ancestor of origin/master via 8488ef09; origin/master 7d708aac1 = production."
     },
     {
       "id": "K-083",
@@ -2911,7 +2961,7 @@
       "severityRationale": "Source priority only; impact and reachability not yet validated.",
       "auditedSha": "5661d6f0f5f2212705151e95455a3f681ddf840e",
       "currentSha": "31fc2f10",
-      "status": "in-progress",
+      "status": "fixed",
       "dependencies": [],
       "testNames": [
         "tests/integration/k083-loan-period-journal-idempotency.int.test.ts"
@@ -2922,11 +2972,12 @@
       ],
       "fixCommit": "8488ef09",
       "pr": null,
-      "deployedSha": null,
+      "deployedSha": "7d708aac1",
       "historicalDataImpact": "Not assessed",
       "canonicalItem": null,
       "reportedSeverity": "high",
-      "branch": "fix/audit-k081-k084-loans"
+      "branch": "fix/audit-k081-k084-loans",
+      "processNotes": "2026-09-14 reconciliation: fixCommit/deployedSha ancestor of origin/master via 8488ef09; origin/master 7d708aac1 = production."
     },
     {
       "id": "K-084",
@@ -2943,7 +2994,7 @@
       "severityRationale": "Source priority only; impact and reachability not yet validated.",
       "auditedSha": "5661d6f0f5f2212705151e95455a3f681ddf840e",
       "currentSha": "31fc2f10",
-      "status": "in-progress",
+      "status": "fixed",
       "dependencies": [],
       "testNames": [
         "tests/unit/lib/amortisation/k084-skip-every-month-never-terminates.test.ts"
@@ -2954,11 +3005,12 @@
       ],
       "fixCommit": "8488ef09",
       "pr": null,
-      "deployedSha": null,
+      "deployedSha": "7d708aac1",
       "historicalDataImpact": "Not assessed",
       "canonicalItem": null,
       "reportedSeverity": "high",
-      "branch": "fix/audit-k081-k084-loans"
+      "branch": "fix/audit-k081-k084-loans",
+      "processNotes": "2026-09-14 reconciliation: fixCommit/deployedSha ancestor of origin/master via 8488ef09; origin/master 7d708aac1 = production."
     },
     {
       "id": "K-085",
@@ -3040,7 +3092,7 @@
       "severityRationale": "Source priority only; impact and reachability not yet validated.",
       "auditedSha": "5661d6f0f5f2212705151e95455a3f681ddf840e",
       "currentSha": "31fc2f10",
-      "status": "in-progress",
+      "status": "fixed",
       "dependencies": [],
       "testNames": [
         "tests/integration/k087-opening-balance-negative-zeroed.int.test.ts"
@@ -3051,12 +3103,13 @@
       ],
       "fixCommit": "d5fce2f1",
       "pr": null,
-      "deployedSha": null,
+      "deployedSha": "7d708aac1",
       "historicalDataImpact": "Not assessed",
       "canonicalItem": null,
       "reportedSeverity": "high",
       "branch": "fix/audit-k087-opening-balance-sign",
-      "reviewRounds": 2
+      "reviewRounds": 2,
+      "processNotes": "2026-09-14 reconciliation: fixCommit/deployedSha ancestor of origin/master via d5fce2f1; origin/master 7d708aac1 = production."
     },
     {
       "id": "K-088",
@@ -3107,7 +3160,7 @@
       "severityRationale": "Source priority only; impact and reachability not yet validated.",
       "auditedSha": "5661d6f0f5f2212705151e95455a3f681ddf840e",
       "currentSha": "14759e85",
-      "status": "in-progress",
+      "status": "fixed",
       "dependencies": [
         "Fixed on the K-015 branch (sibling root cause), review round 4 in progress",
         "Review rounds complete; local CI, push, PR and merge in the serialised queue",
@@ -3122,12 +3175,13 @@
       ],
       "fixCommit": "5672a828;209f9761;14759e85",
       "pr": "https://github.com/Heinvv10/IsaFlow/pull/373 (draft until the take-on posting rework lands)",
-      "deployedSha": null,
+      "deployedSha": "7d708aac1",
       "historicalDataImpact": "Not assessed",
       "canonicalItem": null,
       "reportedSeverity": "high",
       "branch": "fix/audit-k015-k089-migration-balance-due",
-      "reviewRounds": 5
+      "reviewRounds": 5,
+      "processNotes": "2026-09-14 reconciliation: branch fix/audit-k015-k089-migration-balance-due (c4dad3ee1) is ancestor of origin/master; origin/master 7d708aac1 = production."
     },
     {
       "id": "K-090",
@@ -3177,7 +3231,7 @@
       "severityRationale": "Source priority only; impact and reachability not yet validated.",
       "auditedSha": "5661d6f0f5f2212705151e95455a3f681ddf840e",
       "currentSha": "31fc2f10",
-      "status": "in-progress",
+      "status": "fixed",
       "dependencies": [],
       "testNames": [
         "tests/integration/k091-cash-flow-reconciliation-bank-subtype.int.test.ts"
@@ -3188,11 +3242,12 @@
       ],
       "fixCommit": "3d8ad9ba",
       "pr": null,
-      "deployedSha": null,
+      "deployedSha": "7d708aac1",
       "historicalDataImpact": "Not assessed",
       "canonicalItem": null,
       "reportedSeverity": "high",
-      "branch": "fix/audit-k091-k093-k126-report-figures"
+      "branch": "fix/audit-k091-k093-k126-report-figures",
+      "processNotes": "2026-09-14 reconciliation: branch fix/audit-k091-k093-k126-report-figures (02a472b1c) is ancestor of origin/master; origin/master 7d708aac1 = production."
     },
     {
       "id": "K-092",
@@ -3239,7 +3294,7 @@
       "severityRationale": "Source priority only; impact and reachability not yet validated.",
       "auditedSha": "5661d6f0f5f2212705151e95455a3f681ddf840e",
       "currentSha": "31fc2f10",
-      "status": "in-progress",
+      "status": "fixed",
       "dependencies": [],
       "testNames": [
         "tests/integration/k093-sales-by-customer-legacy-customer-id.int.test.ts"
@@ -3250,11 +3305,12 @@
       ],
       "fixCommit": "3d8ad9ba",
       "pr": null,
-      "deployedSha": null,
+      "deployedSha": "7d708aac1",
       "historicalDataImpact": "Not assessed",
       "canonicalItem": null,
       "reportedSeverity": "high",
-      "branch": "fix/audit-k091-k093-k126-report-figures"
+      "branch": "fix/audit-k091-k093-k126-report-figures",
+      "processNotes": "2026-09-14 reconciliation: branch fix/audit-k091-k093-k126-report-figures (02a472b1c) is ancestor of origin/master; origin/master 7d708aac1 = production."
     },
     {
       "id": "K-094",
@@ -3305,7 +3361,7 @@
       "severityRationale": "Source priority only; impact and reachability not yet validated.",
       "auditedSha": "5661d6f0f5f2212705151e95455a3f681ddf840e",
       "currentSha": "31fc2f10",
-      "status": "in-progress",
+      "status": "fixed",
       "dependencies": [],
       "testNames": [
         "tests/integration/k095-flow-purchase-fails-open-without-paystack.int.test.ts"
@@ -3316,11 +3372,12 @@
       ],
       "fixCommit": "fb63f304",
       "pr": null,
-      "deployedSha": null,
+      "deployedSha": "7d708aac1",
       "historicalDataImpact": "Not assessed",
       "canonicalItem": null,
       "reportedSeverity": "high",
-      "branch": "fix/audit-k095-k096-k097-billing-admin"
+      "branch": "fix/audit-k095-k096-k097-billing-admin",
+      "processNotes": "2026-09-14 reconciliation: fixCommit/deployedSha ancestor of origin/master via fb63f304; origin/master 7d708aac1 = production."
     },
     {
       "id": "K-096",
@@ -3338,7 +3395,7 @@
       "severityRationale": "Source priority only; impact and reachability not yet validated.",
       "auditedSha": "5661d6f0f5f2212705151e95455a3f681ddf840e",
       "currentSha": "31fc2f10",
-      "status": "in-progress",
+      "status": "fixed",
       "dependencies": [
         "Plan correction H50/F13 applied: ux_sub_mandates_company_active raises 23505, so the consequence is a 500 (25P02) not multiple active mandates"
       ],
@@ -3351,11 +3408,12 @@
       ],
       "fixCommit": "fb63f304",
       "pr": null,
-      "deployedSha": null,
+      "deployedSha": "7d708aac1",
       "historicalDataImpact": "Not assessed",
       "canonicalItem": null,
       "reportedSeverity": "high",
-      "branch": "fix/audit-k095-k096-k097-billing-admin"
+      "branch": "fix/audit-k095-k096-k097-billing-admin",
+      "processNotes": "2026-09-14 reconciliation: fixCommit/deployedSha ancestor of origin/master via fb63f304; origin/master 7d708aac1 = production."
     },
     {
       "id": "K-097",
@@ -3372,7 +3430,7 @@
       "severityRationale": "Source priority only; impact and reachability not yet validated.",
       "auditedSha": "5661d6f0f5f2212705151e95455a3f681ddf840e",
       "currentSha": "31fc2f10",
-      "status": "in-progress",
+      "status": "fixed",
       "dependencies": [],
       "testNames": [
         "tests/integration/k097-audit-log-failure-poisons-admin-tx.int.test.ts"
@@ -3383,11 +3441,12 @@
       ],
       "fixCommit": "fb63f304",
       "pr": null,
-      "deployedSha": null,
+      "deployedSha": "7d708aac1",
       "historicalDataImpact": "Not assessed",
       "canonicalItem": null,
       "reportedSeverity": "high",
-      "branch": "fix/audit-k095-k096-k097-billing-admin"
+      "branch": "fix/audit-k095-k096-k097-billing-admin",
+      "processNotes": "2026-09-14 reconciliation: fixCommit/deployedSha ancestor of origin/master via fb63f304; origin/master 7d708aac1 = production."
     },
     {
       "id": "K-098",
@@ -3588,7 +3647,7 @@
       "severityRationale": "Source priority only; impact and reachability not yet validated.",
       "auditedSha": "5661d6f0f5f2212705151e95455a3f681ddf840e",
       "currentSha": "31fc2f10",
-      "status": "in-progress",
+      "status": "fixed",
       "dependencies": [],
       "testNames": [
         "tests/integration/k104-k105-invitation-token-encoding.int.test.ts"
@@ -3599,14 +3658,15 @@
       ],
       "fixCommit": "74a1e7c4",
       "pr": null,
-      "deployedSha": null,
+      "deployedSha": "7d708aac1",
       "historicalDataImpact": "Not assessed",
       "canonicalItem": null,
       "sourceReferences": [
         "inputs/api-admin-auth-billing-portal.md:125"
       ],
       "reportedSeverity": "medium",
-      "branch": "fix/audit-k041-k042-invitations"
+      "branch": "fix/audit-k041-k042-invitations",
+      "processNotes": "2026-09-14 reconciliation: fixCommit/deployedSha ancestor of origin/master via 74a1e7c4; origin/master 7d708aac1 = production."
     },
     {
       "id": "K-105",
@@ -3655,7 +3715,7 @@
       "severityRationale": "Source priority only; impact and reachability not yet validated.",
       "auditedSha": "5661d6f0f5f2212705151e95455a3f681ddf840e",
       "currentSha": "31fc2f10",
-      "status": "in-progress",
+      "status": "fixed",
       "dependencies": [],
       "testNames": [
         "tests/integration/k106-invitation-502-rollback.int.test.ts"
@@ -3666,14 +3726,15 @@
       ],
       "fixCommit": "74a1e7c4",
       "pr": null,
-      "deployedSha": null,
+      "deployedSha": "7d708aac1",
       "historicalDataImpact": "Not assessed",
       "canonicalItem": null,
       "sourceReferences": [
         "inputs/api-admin-auth-billing-portal.md:174"
       ],
       "reportedSeverity": "medium",
-      "branch": "fix/audit-k041-k042-invitations"
+      "branch": "fix/audit-k041-k042-invitations",
+      "processNotes": "2026-09-14 reconciliation: fixCommit/deployedSha ancestor of origin/master via 74a1e7c4; origin/master 7d708aac1 = production."
     },
     {
       "id": "K-107",
@@ -3690,7 +3751,7 @@
       "severityRationale": "Source priority only; impact and reachability not yet validated.",
       "auditedSha": "5661d6f0f5f2212705151e95455a3f681ddf840e",
       "currentSha": "31fc2f10",
-      "status": "in-progress",
+      "status": "fixed",
       "dependencies": [],
       "testNames": [
         "tests/integration/k107-recurring-invoice-number-collision.int.test.ts"
@@ -3701,14 +3762,15 @@
       ],
       "fixCommit": "4b4d3937",
       "pr": null,
-      "deployedSha": null,
+      "deployedSha": "7d708aac1",
       "historicalDataImpact": "Not assessed",
       "canonicalItem": null,
       "sourceReferences": [
         "inputs/gl-core.md:131"
       ],
       "reportedSeverity": "medium",
-      "branch": "fix/audit-k107-k120-k121-document-numbering"
+      "branch": "fix/audit-k107-k120-k121-document-numbering",
+      "processNotes": "2026-09-14 reconciliation: fixCommit/deployedSha ancestor of origin/master via 4b4d3937; origin/master 7d708aac1 = production."
     },
     {
       "id": "K-108",
@@ -3723,7 +3785,7 @@
       "severityRationale": "Source priority only; impact and reachability not yet validated.",
       "auditedSha": "5661d6f0f5f2212705151e95455a3f681ddf840e",
       "currentSha": "31fc2f10",
-      "status": "in-progress",
+      "status": "fixed",
       "dependencies": [],
       "testNames": [
         "tests/integration/k108-k109-approval-rules.int.test.ts"
@@ -3734,14 +3796,15 @@
       ],
       "fixCommit": "a6e59683",
       "pr": null,
-      "deployedSha": null,
+      "deployedSha": "7d708aac1",
       "historicalDataImpact": "Not assessed",
       "canonicalItem": null,
       "sourceReferences": [
         "inputs/gl-core.md:145"
       ],
       "reportedSeverity": "medium",
-      "branch": "fix/audit-k043-approval-self-and-role"
+      "branch": "fix/audit-k043-approval-self-and-role",
+      "processNotes": "2026-09-14 reconciliation: fixCommit/deployedSha ancestor of origin/master via a6e59683; origin/master 7d708aac1 = production."
     },
     {
       "id": "K-109",
@@ -3756,7 +3819,7 @@
       "severityRationale": "Source priority only; impact and reachability not yet validated.",
       "auditedSha": "5661d6f0f5f2212705151e95455a3f681ddf840e",
       "currentSha": "31fc2f10",
-      "status": "in-progress",
+      "status": "fixed",
       "dependencies": [],
       "testNames": [
         "tests/integration/k108-k109-approval-rules.int.test.ts"
@@ -3767,14 +3830,15 @@
       ],
       "fixCommit": "a6e59683",
       "pr": null,
-      "deployedSha": null,
+      "deployedSha": "7d708aac1",
       "historicalDataImpact": "Not assessed",
       "canonicalItem": null,
       "sourceReferences": [
         "inputs/gl-core.md:152"
       ],
       "reportedSeverity": "medium",
-      "branch": "fix/audit-k043-approval-self-and-role"
+      "branch": "fix/audit-k043-approval-self-and-role",
+      "processNotes": "2026-09-14 reconciliation: fixCommit/deployedSha ancestor of origin/master via a6e59683; origin/master 7d708aac1 = production."
     },
     {
       "id": "K-110",
@@ -3789,7 +3853,7 @@
       "severityRationale": "Source priority only; impact and reachability not yet validated.",
       "auditedSha": "5661d6f0f5f2212705151e95455a3f681ddf840e",
       "currentSha": "31fc2f10",
-      "status": "in-progress",
+      "status": "fixed",
       "dependencies": [],
       "testNames": [
         "tests/integration/k110-cost-centre-delete-unassigns.int.test.ts"
@@ -3800,14 +3864,15 @@
       ],
       "fixCommit": "a9e8c3e7",
       "pr": null,
-      "deployedSha": null,
+      "deployedSha": "7d708aac1",
       "historicalDataImpact": "Not assessed",
       "canonicalItem": null,
       "sourceReferences": [
         "inputs/gl-core.md:159"
       ],
       "reportedSeverity": "medium",
-      "branch": "fix/audit-k110-k111-cost-centre-rowcount"
+      "branch": "fix/audit-k110-k111-cost-centre-rowcount",
+      "processNotes": "2026-09-14 reconciliation: fixCommit/deployedSha ancestor of origin/master via a9e8c3e7; origin/master 7d708aac1 = production."
     },
     {
       "id": "K-111",
@@ -3822,7 +3887,7 @@
       "severityRationale": "Source priority only; impact and reachability not yet validated.",
       "auditedSha": "5661d6f0f5f2212705151e95455a3f681ddf840e",
       "currentSha": "31fc2f10",
-      "status": "in-progress",
+      "status": "fixed",
       "dependencies": [],
       "testNames": [
         "tests/integration/k111-merge-and-timesheet-row-counts.int.test.ts"
@@ -3833,14 +3898,15 @@
       ],
       "fixCommit": "a9e8c3e7",
       "pr": null,
-      "deployedSha": null,
+      "deployedSha": "7d708aac1",
       "historicalDataImpact": "Not assessed",
       "canonicalItem": null,
       "sourceReferences": [
         "inputs/gl-core.md:166"
       ],
       "reportedSeverity": "medium",
-      "branch": "fix/audit-k110-k111-cost-centre-rowcount"
+      "branch": "fix/audit-k110-k111-cost-centre-rowcount",
+      "processNotes": "2026-09-14 reconciliation: fixCommit/deployedSha ancestor of origin/master via a9e8c3e7; origin/master 7d708aac1 = production."
     },
     {
       "id": "K-112",
@@ -4113,7 +4179,7 @@
       "severityRationale": "Source priority only; impact and reachability not yet validated.",
       "auditedSha": "5661d6f0f5f2212705151e95455a3f681ddf840e",
       "currentSha": "31fc2f10",
-      "status": "in-progress",
+      "status": "fixed",
       "dependencies": [],
       "testNames": [
         "tests/integration/k120-invoice-numbering-bypasses-sequence.int.test.ts"
@@ -4124,14 +4190,15 @@
       ],
       "fixCommit": "4b4d3937",
       "pr": null,
-      "deployedSha": null,
+      "deployedSha": "7d708aac1",
       "historicalDataImpact": "Not assessed",
       "canonicalItem": null,
       "sourceReferences": [
         "inputs/ar-ap-loans-items.md:502"
       ],
       "reportedSeverity": "medium",
-      "branch": "fix/audit-k107-k120-k121-document-numbering"
+      "branch": "fix/audit-k107-k120-k121-document-numbering",
+      "processNotes": "2026-09-14 reconciliation: fixCommit/deployedSha ancestor of origin/master via 4b4d3937; origin/master 7d708aac1 = production."
     },
     {
       "id": "K-121",
@@ -4146,7 +4213,7 @@
       "severityRationale": "Source priority only; impact and reachability not yet validated.",
       "auditedSha": "5661d6f0f5f2212705151e95455a3f681ddf840e",
       "currentSha": "31fc2f10",
-      "status": "in-progress",
+      "status": "fixed",
       "dependencies": [],
       "testNames": [
         "tests/integration/k121-quote-convert-to-order-no-status-guard.int.test.ts"
@@ -4157,14 +4224,15 @@
       ],
       "fixCommit": "4b4d3937",
       "pr": null,
-      "deployedSha": null,
+      "deployedSha": "7d708aac1",
       "historicalDataImpact": "Not assessed",
       "canonicalItem": null,
       "sourceReferences": [
         "inputs/ar-ap-loans-items.md:337"
       ],
       "reportedSeverity": "medium",
-      "branch": "fix/audit-k107-k120-k121-document-numbering"
+      "branch": "fix/audit-k107-k120-k121-document-numbering",
+      "processNotes": "2026-09-14 reconciliation: fixCommit/deployedSha ancestor of origin/master via 4b4d3937; origin/master 7d708aac1 = production."
     },
     {
       "id": "K-122",
@@ -4179,7 +4247,7 @@
       "severityRationale": "Source priority only; impact and reachability not yet validated.",
       "auditedSha": "5661d6f0f5f2212705151e95455a3f681ddf840e",
       "currentSha": "31fc2f10",
-      "status": "in-progress",
+      "status": "fixed",
       "dependencies": [],
       "testNames": [
         "tests/integration/k122-dunning-portal-link-404.int.test.ts"
@@ -4190,14 +4258,15 @@
       ],
       "fixCommit": "e26ed208",
       "pr": null,
-      "deployedSha": null,
+      "deployedSha": "7d708aac1",
       "historicalDataImpact": "Not assessed",
       "canonicalItem": null,
       "sourceReferences": [
         "inputs/ar-ap-loans-items.md:346"
       ],
       "reportedSeverity": "medium",
-      "branch": "fix/audit-k122-k127-ar-portal-disputes"
+      "branch": "fix/audit-k122-k127-ar-portal-disputes",
+      "processNotes": "2026-09-14 reconciliation: fixCommit/deployedSha ancestor of origin/master via e26ed208; origin/master 7d708aac1 = production."
     },
     {
       "id": "K-123",
@@ -4212,7 +4281,7 @@
       "severityRationale": "Source priority only; impact and reachability not yet validated.",
       "auditedSha": "5661d6f0f5f2212705151e95455a3f681ddf840e",
       "currentSha": "31fc2f10",
-      "status": "in-progress",
+      "status": "fixed",
       "dependencies": [],
       "testNames": [
         "tests/integration/k123-list-disputes-total.int.test.ts"
@@ -4223,14 +4292,15 @@
       ],
       "fixCommit": "e26ed208",
       "pr": null,
-      "deployedSha": null,
+      "deployedSha": "7d708aac1",
       "historicalDataImpact": "Not assessed",
       "canonicalItem": null,
       "sourceReferences": [
         "inputs/ar-ap-loans-items.md:512"
       ],
       "reportedSeverity": "medium",
-      "branch": "fix/audit-k122-k127-ar-portal-disputes"
+      "branch": "fix/audit-k122-k127-ar-portal-disputes",
+      "processNotes": "2026-09-14 reconciliation: fixCommit/deployedSha ancestor of origin/master via e26ed208; origin/master 7d708aac1 = production."
     },
     {
       "id": "K-124",
@@ -4245,7 +4315,7 @@
       "severityRationale": "Source priority only; impact and reachability not yet validated.",
       "auditedSha": "5661d6f0f5f2212705151e95455a3f681ddf840e",
       "currentSha": "31fc2f10",
-      "status": "in-progress",
+      "status": "fixed",
       "dependencies": [],
       "testNames": [
         "tests/integration/k124-dispute-credit-legacy-customer-id.int.test.ts"
@@ -4256,14 +4326,15 @@
       ],
       "fixCommit": "e26ed208",
       "pr": null,
-      "deployedSha": null,
+      "deployedSha": "7d708aac1",
       "historicalDataImpact": "Not assessed",
       "canonicalItem": null,
       "sourceReferences": [
         "inputs/ar-ap-loans-items.md:546"
       ],
       "reportedSeverity": "medium",
-      "branch": "fix/audit-k122-k127-ar-portal-disputes"
+      "branch": "fix/audit-k122-k127-ar-portal-disputes",
+      "processNotes": "2026-09-14 reconciliation: fixCommit/deployedSha ancestor of origin/master via e26ed208; origin/master 7d708aac1 = production."
     },
     {
       "id": "K-125",
@@ -4278,7 +4349,7 @@
       "severityRationale": "Source priority only; impact and reachability not yet validated.",
       "auditedSha": "5661d6f0f5f2212705151e95455a3f681ddf840e",
       "currentSha": "31fc2f10",
-      "status": "in-progress",
+      "status": "fixed",
       "dependencies": [
         "Latent: no writer produces NULL amount_paid; severity hinges on production rows (read-only SQL in validation.md)"
       ],
@@ -4291,14 +4362,15 @@
       ],
       "fixCommit": "e26ed208",
       "pr": null,
-      "deployedSha": null,
+      "deployedSha": "7d708aac1",
       "historicalDataImpact": "Not assessed",
       "canonicalItem": null,
       "sourceReferences": [
         "inputs/ar-ap-loans-items.md:539"
       ],
       "reportedSeverity": "medium",
-      "branch": "fix/audit-k122-k127-ar-portal-disputes"
+      "branch": "fix/audit-k122-k127-ar-portal-disputes",
+      "processNotes": "2026-09-14 reconciliation: fixCommit/deployedSha ancestor of origin/master via e26ed208; origin/master 7d708aac1 = production."
     },
     {
       "id": "K-126",
@@ -4313,7 +4385,7 @@
       "severityRationale": "Source priority only; impact and reachability not yet validated.",
       "auditedSha": "5661d6f0f5f2212705151e95455a3f681ddf840e",
       "currentSha": "31fc2f10",
-      "status": "in-progress",
+      "status": "fixed",
       "dependencies": [],
       "testNames": [
         "tests/integration/k126-invoice-pdf-line-vat-header-rate.int.test.ts"
@@ -4324,14 +4396,15 @@
       ],
       "fixCommit": "3d8ad9ba",
       "pr": null,
-      "deployedSha": null,
+      "deployedSha": "7d708aac1",
       "historicalDataImpact": "Not assessed",
       "canonicalItem": null,
       "sourceReferences": [
         "inputs/ar-ap-loans-items.md:519"
       ],
       "reportedSeverity": "medium",
-      "branch": "fix/audit-k091-k093-k126-report-figures"
+      "branch": "fix/audit-k091-k093-k126-report-figures",
+      "processNotes": "2026-09-14 reconciliation: branch fix/audit-k091-k093-k126-report-figures (02a472b1c) is ancestor of origin/master; origin/master 7d708aac1 = production."
     },
     {
       "id": "K-127",
@@ -4346,7 +4419,7 @@
       "severityRationale": "Source priority only; impact and reachability not yet validated.",
       "auditedSha": "5661d6f0f5f2212705151e95455a3f681ddf840e",
       "currentSha": "31fc2f10",
-      "status": "in-progress",
+      "status": "fixed",
       "dependencies": [],
       "testNames": [
         "tests/unit/services/ar/k127-portal-chatbot-sanitiser.test.ts"
@@ -4357,14 +4430,15 @@
       ],
       "fixCommit": "e26ed208",
       "pr": null,
-      "deployedSha": null,
+      "deployedSha": "7d708aac1",
       "historicalDataImpact": "Not assessed",
       "canonicalItem": null,
       "sourceReferences": [
         "inputs/ar-ap-loans-items.md:431"
       ],
       "reportedSeverity": "medium",
-      "branch": "fix/audit-k122-k127-ar-portal-disputes"
+      "branch": "fix/audit-k122-k127-ar-portal-disputes",
+      "processNotes": "2026-09-14 reconciliation: fixCommit/deployedSha ancestor of origin/master via e26ed208; origin/master 7d708aac1 = production."
     },
     {
       "id": "K-128",
@@ -4667,7 +4741,7 @@
       "severityRationale": "Source priority only; impact and reachability not yet validated.",
       "auditedSha": "5661d6f0f5f2212705151e95455a3f681ddf840e",
       "currentSha": "31fc2f10",
-      "status": "confirmed",
+      "status": "fixed",
       "dependencies": [],
       "testNames": [
         "tests/integration/k137-supplier-invoice-put-silent-noop.int.test.ts"
@@ -4678,13 +4752,14 @@
       ],
       "fixCommit": null,
       "pr": null,
-      "deployedSha": null,
+      "deployedSha": "7d708aac1",
       "historicalDataImpact": "Not assessed",
       "canonicalItem": null,
       "reportedSeverity": "medium",
       "sourceReferences": [
         "inputs/2026-09-08-claude-full-code-audit.html:187"
-      ]
+      ],
+      "processNotes": "2026-09-14 reconciliation: branch fix/audit-k137-k139-supplier-routes (3e182b5cc) is ancestor of origin/master; origin/master 7d708aac1 = production."
     },
     {
       "id": "K-138",
@@ -4748,7 +4823,7 @@
       "severityRationale": "Source priority only; impact and reachability not yet validated.",
       "auditedSha": "5661d6f0f5f2212705151e95455a3f681ddf840e",
       "currentSha": "31fc2f10",
-      "status": "confirmed",
+      "status": "fixed",
       "dependencies": [],
       "testNames": [
         "tests/integration/k139-supplier-cache-key-omits-limit.int.test.ts"
@@ -4759,13 +4834,14 @@
       ],
       "fixCommit": null,
       "pr": null,
-      "deployedSha": null,
+      "deployedSha": "7d708aac1",
       "historicalDataImpact": "Not assessed",
       "canonicalItem": null,
       "reportedSeverity": "medium",
       "sourceReferences": [
         "inputs/2026-09-08-claude-full-code-audit.html:201"
-      ]
+      ],
+      "processNotes": "2026-09-14 reconciliation: branch fix/audit-k137-k139-supplier-routes (3e182b5cc) is ancestor of origin/master; origin/master 7d708aac1 = production."
     },
     {
       "id": "K-140",
@@ -4780,7 +4856,7 @@
       "severityRationale": "Source priority only; impact and reachability not yet validated.",
       "auditedSha": "5661d6f0f5f2212705151e95455a3f681ddf840e",
       "currentSha": "31fc2f10",
-      "status": "confirmed",
+      "status": "fixed",
       "dependencies": [],
       "testNames": [
         "tests/integration/k140-autopost-sweep-no-savepoint.int.test.ts"
@@ -4791,13 +4867,14 @@
       ],
       "fixCommit": null,
       "pr": null,
-      "deployedSha": null,
+      "deployedSha": "7d708aac1",
       "historicalDataImpact": "Not assessed",
       "canonicalItem": null,
       "sourceReferences": [
         "inputs/bank-reconciliation-capture.md:98"
       ],
-      "reportedSeverity": "medium"
+      "reportedSeverity": "medium",
+      "processNotes": "2026-09-14 reconciliation: branch fix/audit-k140-k145-bank-matching (2e15113e0) is ancestor of origin/master; origin/master 7d708aac1 = production."
     },
     {
       "id": "K-141",
@@ -4940,7 +5017,7 @@
       "severityRationale": "Source priority only; impact and reachability not yet validated.",
       "auditedSha": "5661d6f0f5f2212705151e95455a3f681ddf840e",
       "currentSha": "31fc2f10",
-      "status": "confirmed",
+      "status": "fixed",
       "dependencies": [],
       "testNames": [
         "tests/unit/bank/k145-non-csv-parse-guard.test.ts"
@@ -4951,13 +5028,14 @@
       ],
       "fixCommit": null,
       "pr": null,
-      "deployedSha": null,
+      "deployedSha": "7d708aac1",
       "historicalDataImpact": "Not assessed",
       "canonicalItem": null,
       "sourceReferences": [
         "inputs/bank-reconciliation-capture.md:140"
       ],
-      "reportedSeverity": "medium"
+      "reportedSeverity": "medium",
+      "processNotes": "2026-09-14 reconciliation: branch fix/audit-k140-k145-bank-matching (2e15113e0) is ancestor of origin/master; origin/master 7d708aac1 = production."
     },
     {
       "id": "K-146",
@@ -5187,7 +5265,7 @@
       "severityRationale": "Source priority only; impact and reachability not yet validated.",
       "auditedSha": "5661d6f0f5f2212705151e95455a3f681ddf840e",
       "currentSha": "31fc2f10",
-      "status": "confirmed",
+      "status": "fixed",
       "dependencies": [],
       "testNames": [
         "tests/unit/services/capture/k154-statement-match-double-consumption.test.ts"
@@ -5198,13 +5276,14 @@
       ],
       "fixCommit": null,
       "pr": null,
-      "deployedSha": null,
+      "deployedSha": "7d708aac1",
       "historicalDataImpact": "Not assessed",
       "canonicalItem": null,
       "sourceReferences": [
         "inputs/bank-reconciliation-capture.md:161"
       ],
-      "reportedSeverity": "medium"
+      "reportedSeverity": "medium",
+      "processNotes": "2026-09-14 reconciliation: branch fix/audit-k154-k160-capture (3e182b5cc) is ancestor of origin/master; origin/master 7d708aac1 = production."
     },
     {
       "id": "K-155",
@@ -5382,7 +5461,7 @@
       "severityRationale": "Source priority only; impact and reachability not yet validated.",
       "auditedSha": "5661d6f0f5f2212705151e95455a3f681ddf840e",
       "currentSha": "31fc2f10",
-      "status": "confirmed",
+      "status": "fixed",
       "dependencies": [],
       "testNames": [
         "tests/integration/k160-twilio-retry-reingest.int.test.ts"
@@ -5393,13 +5472,14 @@
       ],
       "fixCommit": null,
       "pr": null,
-      "deployedSha": null,
+      "deployedSha": "7d708aac1",
       "historicalDataImpact": "Not assessed",
       "canonicalItem": null,
       "sourceReferences": [
         "inputs/bank-reconciliation-capture.md:203"
       ],
-      "reportedSeverity": "medium"
+      "reportedSeverity": "medium",
+      "processNotes": "2026-09-14 reconciliation: branch fix/audit-k154-k160-capture (3e182b5cc) is ancestor of origin/master; origin/master 7d708aac1 = production."
     },
     {
       "id": "K-161",
