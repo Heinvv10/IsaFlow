@@ -1,4 +1,4 @@
--- 710_afs_pack_delivery_withheld.sql
+-- 734_afs_pack_delivery_withheld.sql
 -- Two things a row must carry rather than a return value.
 --
 -- 1. A management pack generated with review SKIPPED (review_required = false) has no
@@ -8,7 +8,7 @@
 --    off clears it and writes an audit row. Nothing else clears it.
 --
 -- 2. A digest per rendered input (document, company, brand, sections), recorded at send, so a
---    refused signature can name WHICH input changed. Nothing is back-filled: see 709.
+--    refused signature can name WHICH input changed. Nothing is back-filled: see 733.
 --
 -- DEPLOY NOTE: rolling the CODE back with this migration applied fails OPEN — the previous
 -- deliverPack does not read delivery_withheld_reason, so a held pack becomes deliverable.

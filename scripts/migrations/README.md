@@ -12,11 +12,19 @@ To insert a migration **between** two existing numbers, use a letter suffix:
 `apply-migrations.ts` tracks migrations by **full filename** (`schema_migrations.name` has a UNIQUE constraint).
 Never rename a migration file after it has been applied to any environment — the runner would treat the renamed file as new and attempt re-application.
 
-### Exception: the 676–716 block, renumbered 2026-09-14
+### Exception: the 700–740 block, renumbered 2026-09-14
 
 The rule stands. One block was renumbered anyway, and this records why so the next person who finds it does not conclude the rule is dead.
 
-The MCP forensic-controls programme carried 41 migrations spread over 626–692. `origin/master` tops out at 675, and six of those prefixes (626, 627, 644, 645, 662, 675) were **a different file on each side**. Because the runner applies in prefix order, merging master would have interleaved the two sets and run an ordering nobody had tested against master's schema. The 41 were moved into a contiguous 676–716 block, relative order unchanged.
+The MCP forensic-controls programme carried 41 migrations spread over 626–692. `origin/master` tops out at 675, and six of those prefixes (626, 627, 644, 645, 662, 675) were **a different file on each side**. Because the runner applies in prefix order, merging master would have interleaved the two sets and run an ordering nobody had tested against master's schema. The 41 were moved into a contiguous 700–740 block, relative order unchanged.
+
+**Why 700 and not 676.** `origin/master` is not the only claimant. Prefixes are allocated concurrently across seven worktrees, and two unmerged branches already held numbers just above master's 675: `fix/sage-commit-platform-import-20260911` has 685/686/687, and `fix/audit-r080-r097-policy-parity` has 693. A block starting at 676 would have collided with all four. The start was therefore chosen against **every local and remote ref**, not against master alone — 693 is the highest prefix allocated anywhere, so 700 clears it with headroom and leaves 676–699 free for master and those siblings. Enumerate the real ceiling with:
+
+```bash
+for r in $(git for-each-ref --format='%(refname)' refs/heads refs/remotes); do
+  git ls-tree -r --name-only "$r" -- scripts/migrations/sql/
+done | sed 's#.*/##' | grep -oE '^[0-9]{3}' | sort -n | tail -1
+```
 
 **The one condition that made it sound: these files had never reached production.** Confirmed against `isaflow_dev` too — none of the 41 old names appear in its `schema_migrations`, and none of the programme's `control_*` tables or functions exist there. The only database that had them was the programme's synthetic fixture.
 

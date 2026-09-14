@@ -13,7 +13,7 @@
 -- succeeded in both passes and the second pass changed no schema object.
 --
 -- The specific hazard this note used to guard is also gone. The edit REMOVED the definition of
--- control_session_impersonator() from here (see the comment where it used to be, below); 715 is now
+-- control_session_impersonator() from here (see the comment where it used to be, below); 739 is now
 -- its only definition, so re-applying this file cannot restore the sentinel-less reader body that
 -- used to live here.
 --
@@ -25,7 +25,7 @@ ALTER TABLE control_historical_imports
 ALTER TABLE control_historical_imports
   ADD CONSTRAINT control_historical_imports_requester_auth_method_check
   CHECK(requester_auth_method IN('cookie','pat','oauth','platform_import'));
--- The grant-shape check was created unnamed (689), so its generated name depends
+-- The grant-shape check was created unnamed (713), so its generated name depends
 -- on how many unnamed checks preceded it: dropping a guessed name can leave the
 -- cookie-only original in place, silently refusing every platform requester.
 -- Drop whatever constrains the grant columns, name the replacement explicitly,
@@ -172,15 +172,15 @@ GRANT EXECUTE ON FUNCTION public.control_approval_authorities(uuid,uuid) TO app_
 
 -- control_session_impersonator() - which reads the impersonation_start row the impersonation
 -- route wrote, so a tenant session can be told apart from the member it impersonates - used to
--- be defined here. It now lives ONLY in 715_impersonation_evidence_integrity.sql, and this
+-- be defined here. It now lives ONLY in 739_impersonation_evidence_integrity.sql, and this
 -- file must not define it again.
 --
--- 715 put row-level security on admin_audit_log, and the reader only sees the evidence while
+-- 739 put row-level security on admin_audit_log, and the reader only sees the evidence while
 -- the role it executes as can. That made the difference between "looked, nobody is
--- impersonating" and "could not look" load-bearing, and 715's body answers the second with the
+-- impersonating" and "could not look" load-bearing, and 739's body answers the second with the
 -- unverified sentinel so the review kernel fails closed. The body that used to be here answers
 -- both with NULL, which reads as no impersonation - fail-open. Two definitions across two files
--- means the later apply wins, and re-running THIS file after 715 would silently reinstate the
+-- means the later apply wins, and re-running THIS file after 739 would silently reinstate the
 -- fail-open reader: exactly what resolve-checksum-conflicts.ts does to an amended migration, a
 -- rebuilt fixture does, and the pending renumbering against master invites. One definition, so
 -- apply order cannot decide the answer. assertImpersonationReaderDeployed asserts the sentinel

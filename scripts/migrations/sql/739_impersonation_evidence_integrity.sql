@@ -1,5 +1,5 @@
 -- admin_audit_log and admin_impersonation_stash are the only evidence that a session is impersonated:
--- 702 control_session_impersonator() reads the impersonation_start row for the current session, and 704
+-- 726 control_session_impersonator() reads the impersonation_start row for the current session, and 728
 -- impersonation_delegation_live() reads the stash row and the absence of an end row. Both tables were
 -- created without RLS, and 348's blanket grant gave app_user INSERT, SELECT, UPDATE and DELETE on them -
 -- so an impersonated tenant session could DELETE its own impersonation_start row and become a clean
@@ -14,7 +14,7 @@
 --                                  (end-impersonation), and the two SECURITY DEFINER readers above.
 --                          Nothing updates or deletes a row: an impersonation ends with a new row.
 --   admin_impersonation_stash INSERT platform_admin (stashAdminTokens from the impersonation route).
---                          SELECT  the login role (loadStash in end-impersonation) and 704's reader.
+--                          SELECT  the login role (loadStash in end-impersonation) and 728's reader.
 --                          DELETE  the login role only: end-impersonation deletes the consumed stash so the
 --                                  administrator's tokens cannot be restored a second time. That DELETE is the
 --                                  one rewrite kept; it is not evidence of the end (the impersonation_end row is),
@@ -24,7 +24,7 @@
 -- migration_admin (BYPASSRLS), so they see through the RLS enabled here.
 --
 -- Two facts about the cluster's roles are what make this migration sound in both directions. They are stated
--- here because the next person will assume otherwise, and flipping either breaks 715 in opposite ways:
+-- here because the next person will assume otherwise, and flipping either breaks 739 in opposite ways:
 --   The DATABASE_URL login role is `postgres` with rolsuper = FALSE (Supabase's real superuser is
 --   supabase_admin). A superuser would be bound by the append-only triggers too - triggers fire regardless of
 --   privilege - but it can ALTER TABLE ... DISABLE TRIGGER or set session_replication_role, so "refused for
@@ -68,7 +68,7 @@ DROP TRIGGER IF EXISTS admin_impersonation_stash_truncate ON admin_impersonation
 CREATE TRIGGER admin_impersonation_stash_truncate BEFORE TRUNCATE ON admin_impersonation_stash
   FOR EACH STATEMENT EXECUTE FUNCTION public.impersonation_evidence_append_only();
 
--- Enabling RLS makes 702's reader depend on a property that used to be cosmetic: it can only see the evidence
+-- Enabling RLS makes 726's reader depend on a property that used to be cosmetic: it can only see the evidence
 -- while the role it executes as bypasses RLS. Take that away - the function loses SECURITY DEFINER, or its owner
 -- loses BYPASSRLS - and the SELECT finds nothing, which the old reader reported as NULL. resolveImpersonatingActor
 -- reads NULL as "nobody is impersonating this session", the exact opposite of what happened, while it reads an
@@ -88,7 +88,7 @@ CREATE TRIGGER admin_impersonation_stash_truncate BEFORE TRUNCATE ON admin_imper
 -- rolsuper is deliberately NOT consulted. A superuser bypasses RLS and every privilege check
 -- without either attribute being set, so a superuser-owned reader would read the evidence
 -- correctly while this function answered false, making every session unverified - a false alarm,
--- and in the closed direction. It is also unreachable here: 715 owns both readers by
+-- and in the closed direction. It is also unreachable here: 739 owns both readers by
 -- migration_admin, which is not a superuser on this cluster, and the deploy gate asserts that
 -- ownership. Left as is so the fail-closed direction is the one a mistake takes; recorded because
 -- the next person will wonder.
@@ -137,7 +137,7 @@ ALTER FUNCTION public.control_session_impersonator() OWNER TO migration_admin;
 REVOKE ALL ON FUNCTION public.control_session_impersonator() FROM PUBLIC;
 GRANT EXECUTE ON FUNCTION public.control_session_impersonator() TO app_user,platform_admin;
 
--- 704's liveness function needs no sentinel: it returns boolean, and a reader that cannot see the stash returns
+-- 728's liveness function needs no sentinel: it returns boolean, and a reader that cannot see the stash returns
 -- false, which refuses the delegation proof. That is already the closed direction, and it keeps the sql form
 -- deliberately - a lost SELECT privilege raises there instead of returning, which impersonationActor catches,
 -- logs and treats as a refused proof, outside any request transaction. The deploy gate
