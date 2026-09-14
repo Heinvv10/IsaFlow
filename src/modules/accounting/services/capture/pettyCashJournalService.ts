@@ -35,10 +35,8 @@ import {
 } from '@/modules/accounting/services/gl/inputVatDenial';
 import { createJournalEntry } from '@/modules/accounting/services/gl/journalEntryCrudService';
 import { validateJournalEntry } from '@/modules/accounting/utils/doubleEntry';
-import {
-  postJournalEntry,
-  ClosedFiscalPeriodError,
-} from '@/modules/accounting/services/gl/journalEntryPostingService';
+import { postJournalEntry } from '@/modules/accounting/services/gl/journalEntryPostingService';
+import { isPostingRefusal } from '@/modules/accounting/services/gl/postingPeriodGuard';
 
 export interface PettyCashJournalInput {
   companyId: string;
@@ -184,18 +182,24 @@ export async function postReceiptAsPettyCashJournal(
       await postJournalEntry(companyId, jeEntry.id, userId);
       jeStatus = 'posted';
     } catch (postErr) {
-      // ONLY a closed fiscal period may be swallowed. That is a legitimate
-      // business outcome — the journal stays a draft for someone to post once
-      // the period reopens, which is the same end state as autoPost === false.
+      // ONLY a posting REFUSAL may be swallowed. All three of them are a
+      // legitimate business outcome — the journal stays a draft for someone to
+      // post once the period reopens, the lockdown moves or the VAT return is
+      // amended, which is the same end state as autoPost === false. This used to
+      // match `ClosedFiscalPeriodError` alone, so the lockdown and filed-VAT
+      // refusals `assertPostingGuards` raises as plain Errors fell through to the
+      // rethrow and became a 500 on an already-claimed receipt. `isPostingRefusal`
+      // is the ONE predicate covering all three, shared with the route this path
+      // was lifted out of.
       //
       // Anything else is rethrown. Now that the arguments are in the right order
       // this call actually reaches the database, so a failure here can be a
       // Postgres error that ABORTS the request transaction; continuing past it
       // would run the stamps below against a dead transaction and report 200
       // for writes that can never commit.
-      if (!(postErr instanceof ClosedFiscalPeriodError)) throw postErr;
-      log.warn('Auto-post of expense receipt JE skipped — fiscal period closed, left as draft', {
-        eventId, jeId: jeEntry.id,
+      if (!isPostingRefusal(postErr)) throw postErr;
+      log.warn('Auto-post of expense receipt JE skipped — posting refused, left as draft', {
+        eventId, jeId: jeEntry.id, reason: (postErr as Error).message,
       }, 'capture-post-expense');
     }
   }
