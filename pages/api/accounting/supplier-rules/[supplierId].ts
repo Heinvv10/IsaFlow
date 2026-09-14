@@ -14,6 +14,7 @@ import { withAuth, withWriteAccess, type CompanyAuthedRequest } from '@/lib/auth
 import { withCsrf } from '@/lib/auth/withCsrf';
 import { UUID } from '@/lib/schemas/common';
 import { log } from '@/lib/logger';
+import { SupplierNotInCompanyError } from '@/modules/accounting/services/core/contactDirectoryService';
 import {
   getRule,
   upsertRule,
@@ -63,7 +64,14 @@ async function handler(req: CompanyAuthedRequest, res: NextApiResponse) {
     // Drop the redundant `supplierId` the UI sends in the body — the URL is
     // the source of truth for which rule we're editing.
     const { supplierId: _ignored, ...patch } = parsed.data;
-    const rule = await upsertRule(companyId, supplierId, patch, userId);
+    let rule;
+    try {
+      rule = await upsertRule(companyId, supplierId, patch, userId);
+    } catch (err) {
+      // R-068: refused before the upsert, so nothing has been written.
+      if (err instanceof SupplierNotInCompanyError) return apiResponse.badRequest(res, err.message);
+      throw err;
+    }
     log.info('Supplier rule patched via API', { companyId, supplierId }, 'supplier-rules-api');
     return apiResponse.success(res, rule);
   }

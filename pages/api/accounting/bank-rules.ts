@@ -15,7 +15,7 @@ import { withAuth, type AuthenticatedNextApiRequest, type CompanyAuthedRequest, 
 import { withCsrf } from '@/lib/auth/withCsrf';
 import { UUID } from '@/lib/schemas/common';
 import { getRules, createRule, applyRules } from '@/modules/accounting/services/bank/bankRulesService';
-import { CustomerNotInCompanyError } from '@/modules/accounting/services/core/contactDirectoryService';
+import { CustomerNotInCompanyError, SupplierNotInCompanyError } from '@/modules/accounting/services/core/contactDirectoryService';
 
 const CreateRuleSchema = z.object({
   ruleName: z.string().min(1).max(200),
@@ -69,7 +69,9 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
       }, userId);
     } catch (err) {
       // Refused before the INSERT, so nothing has been written.
-      if (err instanceof CustomerNotInCompanyError) return apiResponse.badRequest(res, err.message);
+      if (err instanceof CustomerNotInCompanyError || err instanceof SupplierNotInCompanyError) {
+        return apiResponse.badRequest(res, err.message);
+      }
       throw err;
     }
 

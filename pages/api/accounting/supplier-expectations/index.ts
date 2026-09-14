@@ -17,6 +17,7 @@ import {
   recomputeForSupplier,
   recomputeAllForCompany,
 } from '@/modules/accounting/services/capture/expectationEngineService';
+import { SupplierNotInCompanyError } from '@/modules/accounting/services/core/contactDirectoryService';
 
 async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse) {
   const { companyId } = req as CompanyAuthedRequest;
@@ -46,8 +47,13 @@ async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse) {
 
     if (supplierId) {
       log.info('Recomputing expectation for supplier', { companyId, supplierId }, 'supplier-expectations');
-      const expectation = await recomputeForSupplier(companyId, supplierId);
-      return apiResponse.success(res, expectation);
+      try {
+        return apiResponse.success(res, await recomputeForSupplier(companyId, supplierId));
+      } catch (err) {
+        // R-068: refused before the upsert, so nothing has been written.
+        if (err instanceof SupplierNotInCompanyError) return apiResponse.badRequest(res, err.message);
+        throw err;
+      }
     }
 
     log.info('Recomputing all expectations for company', { companyId }, 'supplier-expectations');

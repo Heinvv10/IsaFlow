@@ -11,7 +11,7 @@ import { withCsrf } from '@/lib/auth/withCsrf';
 import { log } from '@/lib/logger';
 import { executeRecurring } from '@/modules/accounting/services/core/recurringTransactionService';
 import { RecurringTemplateNotDueError, RecurringTemplateNotFoundError, RecurringTemplateTotalsMismatchError } from '@/modules/accounting/services/core/recurringTransactionErrors';
-import { CustomerNotInCompanyError } from '@/modules/accounting/services/core/contactDirectoryService';
+import { CustomerNotInCompanyError, SupplierNotInCompanyError } from '@/modules/accounting/services/core/contactDirectoryService';
 
 async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse) {
   if (req.method !== 'POST') {
@@ -55,7 +55,8 @@ async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse) {
     }
     // R-067, also pre-write: the template's clientId is not a customer of this
     // company (or not a UUID at all). The operator has to re-pick the customer.
-    if (err instanceof CustomerNotInCompanyError) {
+    // R-068: the same for a bill template's supplierId.
+    if (err instanceof CustomerNotInCompanyError || err instanceof SupplierNotInCompanyError) {
       return apiResponse.badRequest(res, err.message);
     }
     throw err;
