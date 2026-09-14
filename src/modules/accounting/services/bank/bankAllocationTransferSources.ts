@@ -5,6 +5,7 @@ import {assertControlTx} from '../controls/context';
 import {canonicalJson} from '../controls/canonical';
 import type {ControlTx} from '../controls/contracts';
 import {readExistingTransferFacts,transferJournalCandidates} from './bankTransferCandidateQueries';
+import {isBankSubtype} from '../gl/accountSubtypes';
 const D=Decimal.clone({precision:80});
 type Row=Record<string,unknown>;
 const inputSchema=z.object({bankTransactionId:z.string().uuid().transform(s=>s.toLowerCase()),counterpartyAccountId:z.string().uuid().transform(s=>s.toLowerCase())}).strict();
@@ -46,7 +47,7 @@ export async function readBankTransferCandidates(ctx:ControlTx,raw:unknown,optio
  const accountIds=[String(bank.bank_account_id),input.counterpartyAccountId].sort();
  const accounts=await ctx.sql`SELECT id,company_id,account_code,account_name,account_type,account_subtype,is_active FROM gl_accounts
   WHERE company_id=${company}::uuid AND id=ANY(${accountIds}::uuid[]) ORDER BY id FOR SHARE` as Row[];
- if(accounts.length!==2||accounts.some(a=>a.is_active!==true||a.account_type!=='asset'||a.account_subtype!=='bank'))throw new Error('Owned active bank asset accounts required');
+ if(accounts.length!==2||accounts.some(a=>a.is_active!==true||a.account_type!=='asset'||!isBankSubtype(a.account_subtype as string|null)))throw new Error('Owned active bank asset accounts required');
  const metadata=await ctx.sql`SELECT id,company_id,gl_account_id,currency,is_active FROM bank_accounts
   WHERE company_id=${company}::uuid AND gl_account_id=ANY(${accountIds}::uuid[]) ORDER BY id LIMIT 3 FOR SHARE` as Row[];
  const [ledger]=await ctx.sql`SELECT id,default_currency FROM companies WHERE id=${company}::uuid FOR SHARE` as Row[];

@@ -6,6 +6,7 @@ import { readControlEntityVersion } from './operationVersions';
 import { calculateExactDepreciation } from '../gl/glBypassExactPlans';
 import type { ControlTx, OperationRef } from './contracts';
 import type { ApMaterial, ObservedSource } from './apOperationMaterializer';
+import { roleSpellings, subtypeFillsRole } from '../gl/accountSubtypes';
 type Row = Record<string, unknown>;
 
 export async function materializeAssetDepreciationOperation(ctx: ControlTx, ref: OperationRef): Promise<ApMaterial> {
@@ -67,9 +68,9 @@ export async function loadAssetDepreciationFacts(ctx:ControlTx,company:Row,inten
   const calculation = calculateExactDepreciation(input);
   const accounts = await ctx.sql`SELECT id,account_code,account_name,account_type,account_subtype,is_active,is_system_account
     FROM gl_accounts WHERE company_id=${companyId}::uuid AND is_system_account=true
-      AND account_subtype IN ('depreciation_expense','accumulated_depreciation') ORDER BY id LIMIT 3 FOR SHARE` as Row[];
-  const expense = accounts.filter(a => a.account_subtype === 'depreciation_expense' && a.account_type === 'expense');
-  const accumulated = accounts.filter(a => a.account_subtype === 'accumulated_depreciation' && a.account_type === 'asset');
+      AND account_subtype=ANY(${[...roleSpellings('depreciation_expense'),...roleSpellings('accumulated_depreciation')]}::text[]) ORDER BY id LIMIT 3 FOR SHARE` as Row[];
+  const expense = accounts.filter(a => subtypeFillsRole(a.account_subtype as string | null, 'depreciation_expense') && a.account_type === 'expense');
+  const accumulated = accounts.filter(a => subtypeFillsRole(a.account_subtype as string | null, 'accumulated_depreciation') && a.account_type === 'asset');
   if (accounts.length !== 2 || expense.length !== 1 || accumulated.length !== 1) throw new Error('Depreciation account roles missing or ambiguous');
   const periods = await ctx.sql`SELECT id,start_date::text,end_date::text,status FROM fiscal_periods
     WHERE company_id=${companyId}::uuid AND start_date<=${date}::date AND end_date>=${date}::date ORDER BY id FOR SHARE` as Row[];

@@ -2,6 +2,7 @@ import Decimal from 'decimal.js';
 import type {ControlTx} from '../controls/contracts';
 import {assertControlTx} from '../controls/context';
 import {resolveArAccounts} from '../controls/arControlAccounts';
+import {isBankSubtype} from '../gl/accountSubtypes';
 const D=Decimal.clone({precision:80});
 type Line={id:string;gl_account_id:string;debit:string;credit:string;account_type:string;account_subtype:string};
 /** A balanced total alone does not establish a receivable, payable or cash movement. */
@@ -19,7 +20,7 @@ export async function verifyCashAccountingLegs(ctx:ControlTx,journalId:string,ki
  if(!validSide(control,controlDebit)||!validSide(other,!controlDebit))throw new Error('Cash source journal control amount or direction changed');
  if(document==='payment'){
   const bankIds=new Set(other.map(l=>l.gl_account_id));
-  if(bankIds.size!==1||other.some(l=>l.account_type!=='asset'||l.account_subtype!=='bank')||explicitBankId&&other.some(l=>l.gl_account_id!==explicitBankId))throw new Error('Cash source journal bank account changed');
+  if(bankIds.size!==1||other.some(l=>l.account_type!=='asset'||!isBankSubtype(l.account_subtype))||explicitBankId&&other.some(l=>l.gl_account_id!==explicitBankId))throw new Error('Cash source journal bank account changed');
  }
  return{controlId,lines};
 }
