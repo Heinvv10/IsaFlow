@@ -22,7 +22,7 @@ interface MigrationStatus {
   accounts: { sageTotal: number; mapped: number; unmapped: number; autoMapped: number };
   ledger: { sageTotal: number; imported: number; pending: number; failed: number; dateRange: { earliest: string | null; latest: string | null } };
   invoices: { sageTotal: number; imported: number; pending: number; failed: number };
-  lastRuns: Array<{ id: string; runType: string; status: string; totalRecords: number; succeeded: number; failed: number; skipped: number; startedAt: string; completedAt: string | null }>;
+  lastRuns: Array<{ id: string; runType: string; status: string; totalRecords: number; succeeded: number; failed: number; skipped: number; startedAt: string; completedAt: string | null; vatNotStated: number }>;
 }
 
 interface ComparisonReport {
@@ -78,7 +78,8 @@ export default function SageMigrationPage() {
         setMessage(`Reset ${extra?.resetType} migration status`);
       } else {
         const run = data;
-        setMessage(`${action}: ${run.succeeded} succeeded, ${run.failed} failed, ${run.skipped} skipped`);
+        const vatNote = run.vatNotStated > 0 ? `, ${run.vatNotStated} VAT not stated — review` : '';
+        setMessage(`${action}: ${run.succeeded} succeeded, ${run.failed} failed, ${run.skipped} skipped${vatNote}`);
       }
 
       await loadStatus();
