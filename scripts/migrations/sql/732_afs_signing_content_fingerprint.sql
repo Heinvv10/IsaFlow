@@ -1,4 +1,4 @@
--- 708_afs_signing_content_fingerprint.sql
+-- 732_afs_signing_content_fingerprint.sql
 -- A document out for signature is signed as it stood when it was sent. The send records a
 -- fingerprint of every input the statements are rendered from (document, company, branding,
 -- sections); the Signum webhook signs the document off only when the fingerprint still
