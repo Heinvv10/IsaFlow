@@ -13,7 +13,8 @@
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { Pool } from 'pg';
 import { assertDisposable } from './mfa-impersonation-postgres.helpers';
-import { closeFiscalYear } from '../../src/modules/accounting/services/gl/yearEndCloseService';
+import { inControlRequest, purgeCompanyControlRows } from './helpers/controlRequest';
+import { closeFiscalYear as closeFiscalYearService } from '../../src/modules/accounting/services/gl/yearEndCloseService';
 import { alreadyClosedResult } from '../../src/modules/accounting/services/gl/yearEndJournalPoster';
 import { clearSystemAccountCache } from '../../src/modules/accounting/services/gl/systemAccountResolver';
 
@@ -21,6 +22,16 @@ assertDisposable();
 
 const pool = new Pool({ connectionString: process.env.DATABASE_URL });
 const user = crypto.randomUUID();
+
+/**
+ * `closeFiscalYear` resolves its actor through AsyncLocalStorage (controlledYearEnd.actor →
+ * requireControlTx), so every call has to arrive inside an authenticated control request — the
+ * same way the route and the MCP tool call it. Calling it bare throws "Authenticated control
+ * transaction required" before any of the numbering behaviour below is exercised.
+ */
+const closeFiscalYear: typeof closeFiscalYearService = (companyId, yearLabel, userId, options) =>
+  inControlRequest(pool, userId, companyId,
+    () => closeFiscalYearService(companyId, yearLabel, userId, options));
 
 interface Tenant {
   company: string; revenue: string; expense: string; bank: string; retained: string; period: string;
@@ -39,6 +50,11 @@ const residual = tenant();  // closed, then P&L landed in the closed year
 
 async function seed(t: Tenant, name: string) {
   await pool.query('INSERT INTO companies(id,name,financial_year_start) VALUES($1,$2,1)', [t.company, name]);
+  // The close asserts write:locks and write:post, which are read from the caller's membership
+  // (control_lock_permission_principal). Without this row the user is not a member of the tenant
+  // it is closing and the service refuses before reaching the numbering guard.
+  await pool.query("INSERT INTO company_users(company_id,user_id,role) VALUES($1,$2,'owner')",
+    [t.company, user]);
   await pool.query(
     `INSERT INTO gl_accounts(id,company_id,account_code,account_name,account_type,account_subtype,normal_balance,is_active,is_system_account)
      VALUES($1,$2,'4000','Sales','revenue',NULL,'credit',true,false),
@@ -100,6 +116,8 @@ afterAll(async () => {
       await pool.query('DELETE FROM gl_journal_entries WHERE company_id=$1', [t.company]);
       await pool.query('DELETE FROM fiscal_periods WHERE company_id=$1', [t.company]);
       await pool.query('DELETE FROM gl_accounts WHERE company_id=$1', [t.company]);
+      await purgeCompanyControlRows(pool, t.company);
+      await pool.query('DELETE FROM company_users WHERE company_id=$1', [t.company]);
       await pool.query('DELETE FROM companies WHERE id=$1', [t.company]);
     }
     await pool.query('DELETE FROM users WHERE id=$1', [user]);

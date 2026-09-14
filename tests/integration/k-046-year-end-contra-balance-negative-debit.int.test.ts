@@ -12,7 +12,8 @@
 import { afterAll, beforeAll, expect, it } from 'vitest';
 import { Pool } from 'pg';
 import { assertDisposable } from './mfa-impersonation-postgres.helpers';
-import { closeFiscalYear } from '../../src/modules/accounting/services/gl/yearEndCloseService';
+import { closeFiscalYear as closeFiscalYearService } from '../../src/modules/accounting/services/gl/yearEndCloseService';
+import { inControlRequest, purgeCompanyControlRows } from './helpers/controlRequest';
 import { clearSystemAccountCache } from '../../src/modules/accounting/services/gl/systemAccountResolver';
 
 assertDisposable();
@@ -20,6 +21,16 @@ assertDisposable();
 const pool = new Pool({ connectionString: process.env.DATABASE_URL });
 const company = crypto.randomUUID();
 const user = crypto.randomUUID();
+
+/**
+ * `closeFiscalYear` resolves its actor through AsyncLocalStorage (controlledYearEnd.actor →
+ * requireControlTx), so every call has to arrive inside an authenticated control request — the
+ * same way the route and the MCP tool call it. Calling it bare throws "Authenticated control
+ * transaction required" before any of the behaviour below is exercised.
+ */
+const closeFiscalYear: typeof closeFiscalYearService = (companyId, yearLabel, userId, options) =>
+  inControlRequest(pool, userId, companyId,
+    () => closeFiscalYearService(companyId, yearLabel, userId, options));
 const revenue = crypto.randomUUID();
 const bank = crypto.randomUUID();
 const retained = crypto.randomUUID();
@@ -28,6 +39,10 @@ const entry = crypto.randomUUID();
 
 beforeAll(async () => {
   await pool.query("INSERT INTO companies(id,name,financial_year_start) VALUES($1,$2,1)", [company, 'K046 company']);
+  // The close asserts write:locks and write:post, read from the caller's membership
+  // (control_lock_permission_principal); without this row it refuses before any guard.
+  await pool.query("INSERT INTO company_users(company_id,user_id,role) VALUES($1,$2,'owner')",
+    [company, user]);
   await pool.query("INSERT INTO users(id,email,role,is_active) VALUES($1,$2,'admin',true)",
     [user, `k046-${user}@test.local`]);
   await pool.query(
@@ -63,6 +78,8 @@ afterAll(async () => {
     await pool.query('DELETE FROM gl_journal_entries WHERE company_id=$1', [company]);
     await pool.query('DELETE FROM fiscal_periods WHERE company_id=$1', [company]);
     await pool.query('DELETE FROM gl_accounts WHERE company_id=$1', [company]);
+    await purgeCompanyControlRows(pool, company);
+    await pool.query('DELETE FROM company_users WHERE company_id=$1', [company]);
     await pool.query('DELETE FROM companies WHERE id=$1', [company]);
     await pool.query('DELETE FROM users WHERE id=$1', [user]);
   } finally { await pool.end(); }

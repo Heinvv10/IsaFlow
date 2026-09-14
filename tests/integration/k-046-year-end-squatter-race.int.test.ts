@@ -34,7 +34,8 @@ vi.mock('../../src/modules/accounting/services/gl/yearEndJournalPoster', async (
   };
 });
 
-import { closeFiscalYear } from '../../src/modules/accounting/services/gl/yearEndCloseService';
+import { closeFiscalYear as closeFiscalYearService } from '../../src/modules/accounting/services/gl/yearEndCloseService';
+import { inControlRequest, purgeCompanyControlRows } from './helpers/controlRequest';
 import { clearSystemAccountCache } from '../../src/modules/accounting/services/gl/systemAccountResolver';
 
 assertDisposable();
@@ -48,11 +49,25 @@ const retained = crypto.randomUUID();
 const period = crypto.randomUUID();
 let squatterId = '';
 
+/**
+ * `closeFiscalYear` resolves its actor through AsyncLocalStorage (controlledYearEnd.actor →
+ * requireControlTx), so every call has to arrive inside an authenticated control request — the
+ * same way the route and the MCP tool call it. Calling it bare throws "Authenticated control
+ * transaction required" before the late-squatter re-read below is ever exercised.
+ */
+const closeFiscalYear: typeof closeFiscalYearService = (companyId, yearLabel, userId, options) =>
+  inControlRequest(pool, userId, companyId,
+    () => closeFiscalYearService(companyId, yearLabel, userId, options));
+
 beforeAll(async () => {
   await pool.query("INSERT INTO users(id,email,role,is_active) VALUES($1,$2,'admin',true)",
     [user, `k046race-${user}@test.local`]);
   await pool.query('INSERT INTO companies(id,name,financial_year_start) VALUES($1,$2,1)',
     [company, 'K046 late squatter']);
+  // The close asserts write:locks and write:post, read from the caller's membership
+  // (control_lock_permission_principal); without this row it refuses before the guard.
+  await pool.query("INSERT INTO company_users(company_id,user_id,role) VALUES($1,$2,'owner')",
+    [company, user]);
   await pool.query(
     `INSERT INTO gl_accounts(id,company_id,account_code,account_name,account_type,account_subtype,normal_balance,is_active,is_system_account)
      VALUES($1,$2,'4000','Sales','revenue',NULL,'credit',true,false),
@@ -96,6 +111,8 @@ afterAll(async () => {
     await pool.query('DELETE FROM gl_journal_entries WHERE company_id=$1', [company]);
     await pool.query('DELETE FROM fiscal_periods WHERE company_id=$1', [company]);
     await pool.query('DELETE FROM gl_accounts WHERE company_id=$1', [company]);
+    await purgeCompanyControlRows(pool, company);
+    await pool.query('DELETE FROM company_users WHERE company_id=$1', [company]);
     await pool.query('DELETE FROM companies WHERE id=$1', [company]);
     await pool.query('DELETE FROM users WHERE id=$1', [user]);
   } finally { await pool.end(); }
