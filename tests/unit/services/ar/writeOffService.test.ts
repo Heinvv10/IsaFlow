@@ -32,6 +32,7 @@ vi.mock('@/modules/accounting/services/gl/systemAccountResolver', () => ({
 }));
 
 import { als } from '@/lib/als';
+import { withControlRequest } from '@/modules/accounting/services/controls/context';
 import { sql } from '@/lib/neon';
 import {
   createJournalEntry,
@@ -56,11 +57,19 @@ const INVOICE_ID = '55555555-5555-5555-5555-555555555555';
  * claim would autocommit and could not be rolled back with the posting that
  * follows it. These unit tests mock `sql`, so the client only has to exist;
  * `SET LOCAL` goes to the stub.
+ *
+ * `approveWriteOff` also asserts an independent human review, which reads the
+ * AUTHENTICATED principal off the request context: a bare `als.run` store has
+ * none, and no real request ever reaches a service without one. The context is
+ * therefore opened the way middleware opens it — a plain browser session, which
+ * is the one actor that may sign an approval.
  */
 const requestCtx = {
-  client: { query: vi.fn() }, userId: USER_ID, companyId: COMPANY_ID, claims: {},
+  client: { query: vi.fn() }, userId: USER_ID, companyId: COMPANY_ID, claims: { sub: USER_ID },
 } as unknown as Parameters<typeof als.run>[0];
-const inRequestTx = <T>(fn: () => Promise<T>): Promise<T> => als.run(requestCtx, fn);
+const inRequestTx = <T>(fn: () => Promise<T>): Promise<T> => withControlRequest(
+  requestCtx, { personId: USER_ID, companyId: COMPANY_ID, authMethod: 'cookie' }, fn,
+);
 
 
 function sqlCallTouches(call: unknown[], textFragment: string, value: unknown): boolean {

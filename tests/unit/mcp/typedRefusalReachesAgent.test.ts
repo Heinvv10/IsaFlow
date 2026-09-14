@@ -37,10 +37,17 @@ vi.mock('@/modules/accounting/services/ar/receiptMatchConfirmService', () => ({
   validateBankReceiptApplication: vi.fn(),
   confirmReceiptMatch: vi.fn(),
 }));
+// Both bank-line paths now assert the allocation service's own authority before
+// they read anything, and that authority requires an authenticated control
+// transaction this harness has no way to open. Supplied here, not asserted: the
+// guard has its own cover, and what these cases pin is the error text a REFUSAL
+// past it carries to the agent.
+vi.mock('@/modules/accounting/services/bank/bankAllocationService', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('@/modules/accounting/services/bank/bankAllocationService')>()),
+  assertBankAllocationAuthority: vi.fn(),
+}));
 
-import { planSupplierPaymentApplication } from '@/modules/accounting/services/ap/supplierPaymentApplicationService';
 import { validateBankSupplierPayment } from '@/modules/accounting/services/ap/supplierBankPaymentService';
-import { planReceiptApplication } from '@/modules/accounting/services/ar/receiptApplicationService';
 import { validateBankReceiptApplication } from '@/modules/accounting/services/ar/receiptMatchConfirmService';
 import { SupplierPaymentRefusal } from '@/modules/accounting/services/ap/supplierPaymentRefusal';
 import { BankAllocationRefusal } from '@/modules/accounting/services/bank/bankAllocationRefusal';
@@ -51,7 +58,6 @@ import { applyReceiptToInvoiceTool } from '@/lib/mcp/tools/writeApplyReceipt';
 import type { McpToolContext, McpToolResult } from '@/lib/mcp/types';
 
 const COMPANY = '11111111-1111-4111-8111-111111111111';
-const PAYMENT = '33333333-3333-4333-8333-333333333333';
 const INV_A = '44444444-4444-4444-8444-444444444444';
 const TX = '66666666-6666-4666-8666-666666666666';
 
@@ -185,16 +191,17 @@ describe('the safeErrorText allowlist covers every refusal class in the repo', (
   });
 });
 
-describe('apply_payment_to_supplier_invoice — both refusing paths reach the agent', () => {
+/**
+ * ONE refusing path, not two. The `payment_id` source is refused up front by
+ * both tools now — applying an existing payment needs a prepared, approved cash
+ * application intent this connector cannot prepare — so neither
+ * `planSupplierPaymentApplication` nor `planReceiptApplication` is reachable
+ * from an MCP handler, and the cases that pinned their refusal text through it
+ * are gone with the path. That refusal itself is covered in
+ * tests/unit/mcp/cashApplicationTools.test.ts.
+ */
+describe('apply_payment_to_supplier_invoice — the refusing path reaches the agent', () => {
   const ALLOC = { allocations: [{ invoice_id: INV_A, amount: 600 }], idempotency_key: 'k1' };
-
-  it('payment_id path: planSupplierPaymentApplication refusal keeps its remedy', async () => {
-    vi.mocked(planSupplierPaymentApplication).mockRejectedValue(new SupplierPaymentRefusal(REMEDY));
-    const r = await applyPaymentToSupplierInvoiceTool.handler(
-      { ...ALLOC, payment_id: PAYMENT }, ctx(),
-    );
-    expect(errText(r)).toBe(REMEDY);
-  });
 
   it('bank_transaction_id path: validateBankSupplierPayment refusal keeps its remedy', async () => {
     const refusal = new SupplierPaymentRefusal(
@@ -208,25 +215,17 @@ describe('apply_payment_to_supplier_invoice — both refusing paths reach the ag
   });
 
   it('a driver error on the same call is NOT surfaced', async () => {
-    vi.mocked(planSupplierPaymentApplication).mockRejectedValue(pgError('23505'));
+    vi.mocked(validateBankSupplierPayment).mockRejectedValue(pgError('23505'));
     const r = await applyPaymentToSupplierInvoiceTool.handler(
-      { ...ALLOC, payment_id: PAYMENT }, ctx(),
+      { ...ALLOC, bank_transaction_id: TX }, ctx(),
     );
-    expect(errText(r)).toBe('Could not apply this payment.');
+    expect(errText(r)).toBe('Could not allocate this bank transaction.');
     expect(errText(r)).not.toMatch(/uq_gl_je_company_entry_number/);
   });
 });
 
 describe('apply_receipt_to_invoice — the AR mirror', () => {
   const ALLOC = { allocations: [{ invoice_id: INV_A, amount: 600 }], idempotency_key: 'k2' };
-
-  it('payment_id path: a ReceiptRefusal keeps its remedy', async () => {
-    vi.mocked(planReceiptApplication).mockRejectedValue(
-      new ReceiptRefusal('This receipt is still a draft — no journal has posted for it.'),
-    );
-    const r = await applyReceiptToInvoiceTool.handler({ ...ALLOC, payment_id: PAYMENT }, ctx());
-    expect(errText(r)).toMatch(/still a draft/);
-  });
 
   it('bank_transaction_id path: a ReceiptRefusal keeps its remedy', async () => {
     vi.mocked(validateBankReceiptApplication).mockRejectedValue(

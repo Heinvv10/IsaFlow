@@ -36,7 +36,14 @@ vi.mock('@/lib/logger', () => ({
   log: { info: vi.fn(), warn: vi.fn(), error: vi.fn(), debug: vi.fn() },
 }));
 
+// The bank-rule arms now run inside the controls kernel, which asserts the
+// caller's live permissions against the database. Authority is covered by the
+// controls suites; here it must not stand between the call and the fence.
+vi.mock('@/lib/auth/effectivePermissions', () => ({ assertEffectivePermission: vi.fn() }));
+
+import type { PoolClient } from 'pg';
 import { sql } from '@/lib/neon';
+import { withControlRequest } from '@/modules/accounting/services/controls/context';
 import { CustomerNotInCompanyError } from '@/modules/accounting/services/core/contactDirectoryService';
 import { createWriteOff } from '@/modules/accounting/services/ar/writeOffService';
 import { createDeliveryNote } from '@/modules/accounting/services/ar/deliveryNoteService';
@@ -52,8 +59,13 @@ const FOREIGN = '99999999-9999-4999-8999-999999999999';
 const USER = '33333333-3333-4333-8333-333333333333';
 const ROW = '55555555-5555-4555-8555-555555555555';
 
+/**
+ * A statement that changes data. Matched on the write verb WITH its object —
+ * a bare `UPDATE` also matches the `FOR UPDATE` row lock the controls kernel
+ * takes on its way to the fence, which reads nothing and writes nothing.
+ */
 function writeStatements(): string[] {
-  return sqlTexts.filter((t) => /\b(INSERT|UPDATE|DELETE)\b/i.test(t));
+  return sqlTexts.filter((t) => /\b(INSERT\s+INTO|DELETE\s+FROM|UPDATE\s+[a-z_][a-z0-9_]*\s+SET)\b/i.test(t));
 }
 
 /** Paths whose ownership read is the FIRST statement. */
@@ -68,13 +80,6 @@ const CASES: { name: string; run: () => Promise<unknown> }[] = [
       customer_id: FOREIGN, lines: [{ description: 'Item', quantity: 1 }],
     } as never, USER),
   },
-  {
-    name: 'createRule',
-    run: () => createRule(COMPANY, {
-      ruleName: 'Rule', matchField: 'description', matchType: 'contains', matchPattern: 'X', clientId: FOREIGN,
-    } as never, USER),
-  },
-  { name: 'updateRule', run: () => updateRule(COMPANY, ROW, { clientId: FOREIGN }) },
   { name: 'setOverride', run: () => setOverride(COMPANY, FOREIGN, { suppress_dunning: true }) },
   {
     name: 'createTimeEntry',
@@ -122,8 +127,79 @@ describe('R-067 r3 — a foreign customer id is refused before the first write',
     expect(sqlTexts.some((t) => t.includes('FROM customers'))).toBe(false);
   });
 
+});
+
+/**
+ * `createRule` / `updateRule` moved behind `withBankRuleChange`, so they refuse
+ * outright without an authenticated control transaction — which would make any
+ * fence assertion against a bare call vacuous (it would pass whether or not the
+ * fence existed). Each case below therefore enters through a real control
+ * request, and the fence they reach is `assertOwnedRuleReferences`, which reads
+ * `customers` for the caller-supplied client id and refuses a foreign one. That
+ * refusal is a plain `Error`, not `CustomerNotInCompanyError` — the guarantee
+ * being pinned is the refusal and the absence of any write before it.
+ */
+describe('R-067 r3 — the bank-rule arms fence inside the controls kernel', () => {
+  const client = { query: async () => ({ rows: [], command: 'SELECT' }) } as unknown as PoolClient;
+  const inControlTx = <T>(work: () => Promise<T>): Promise<T> => withControlRequest(
+    { client, userId: USER, companyId: COMPANY, claims: { sub: USER } },
+    { personId: USER, companyId: COMPANY, authMethod: 'cookie' },
+    work,
+  );
+  const RULE_ROW = { id: ROW, company_id: COMPANY, rule_name: 'Rule', gl_account_id: null, supplier_id: null, client_id: null };
+
+  beforeEach(() => {
+    sqlTexts.length = 0;
+    mockSql.mockClear();
+  });
+
+  /** `rows` answers each statement in turn; anything past the end answers empty. */
+  function respond(rows: unknown[][]): void {
+    let call = 0;
+    mockSql.mockImplementation((strings: unknown) => {
+      sqlTexts.push((strings as TemplateStringsArray).join('?'));
+      return Promise.resolve(rows[call++] ?? []);
+    });
+  }
+
+  it('createRule refuses a foreign customer and writes nothing', async () => {
+    respond([]);
+    await expect(inControlTx(() => createRule(COMPANY, {
+      ruleName: 'Rule', matchField: 'description', matchType: 'contains', matchPattern: 'X', clientId: FOREIGN,
+    } as never, USER))).rejects.toThrow(/not found in company/i);
+    expect(sqlTexts).toHaveLength(1);
+    expect(sqlTexts[0]).toContain('FROM customers');
+    expect(writeStatements()).toEqual([]);
+  });
+
+  it('createRule proceeds past the fence for an own-tenant customer', async () => {
+    respond([[{ id: FOREIGN }]]);
+    await inControlTx(() => createRule(COMPANY, {
+      ruleName: 'Rule', matchField: 'description', matchType: 'contains', matchPattern: 'X', clientId: FOREIGN,
+    } as never, USER)).catch(() => undefined);
+    expect(sqlTexts.length).toBeGreaterThan(1);
+  });
+
+  it('updateRule refuses a foreign customer after its own row lock and writes nothing', async () => {
+    // (1) the rule row `withBankRuleChange` locks, (2) the ownership read.
+    respond([[RULE_ROW]]);
+    await expect(inControlTx(() => updateRule(COMPANY, ROW, { clientId: FOREIGN })))
+      .rejects.toThrow(/not found in company/i);
+    expect(sqlTexts).toHaveLength(2);
+    expect(sqlTexts[1]).toContain('FROM customers');
+    expect(writeStatements()).toEqual([]);
+  });
+
+  it('updateRule proceeds past the fence for an own-tenant customer', async () => {
+    respond([[RULE_ROW], [{ id: FOREIGN }]]);
+    await inControlTx(() => updateRule(COMPANY, ROW, { clientId: FOREIGN })).catch(() => undefined);
+    expect(sqlTexts.length).toBeGreaterThan(2);
+  });
+
   it('does not query customers when no customer id is supplied', async () => {
-    await updateRule(COMPANY, ROW, { ruleName: 'Renamed' }).catch(() => undefined);
+    respond([[RULE_ROW]]);
+    await inControlTx(() => updateRule(COMPANY, ROW, { ruleName: 'Renamed' })).catch(() => undefined);
+    expect(sqlTexts.length).toBeGreaterThan(0);
     expect(sqlTexts.some((t) => t.includes('FROM customers'))).toBe(false);
   });
 });

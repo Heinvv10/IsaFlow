@@ -159,11 +159,22 @@ const REFUSAL_CODES: ReadonlySet<string> = new Set([
   // Another request holds the capture row (K-072): says "retry", names only the
   // id the caller passed, and the row is locked by id AND company_id.
   'CAPTURE_ROW_LOCK_TIMEOUT',
+  // A permission refusal (EffectivePermissionError). One fixed sentence —
+  // "Current permissions do not allow this operation." — naming no id, scope,
+  // row or table. `handlerErrorReply` already names the grant to ask for when
+  // the error carries one; this covers the handlers that CATCH it instead of
+  // throwing, where the alternative is the tool's generic fallback and an
+  // agent that retries the call its grant will never allow.
+  'CONTROL_FORBIDDEN',
   'CREDIT_NOTE_LOCK_TIMEOUT',
   'CUSTOMER_INVOICE_LOCK_TIMEOUT',
   'CUSTOMER_NOT_FOUND',
   'DOCUMENT_CLAIM_LOCK_TIMEOUT',
   'DOCUMENT_NUMBER_LOCK_TIMEOUT',
+  // Posting or reversing a GENERATED journal by hand (GeneratedJournalOperationError).
+  // The remedy IS the message: use the owning domain operation instead. It names
+  // only the journal `source` — a fixed enum value, not a row, id or amount.
+  'GENERATED_JOURNAL_OPERATION',
   'GL_ACCOUNT_LOCK_TIMEOUT',
   // Confirming a manual journal as the correction of an auto-posted line was
   // refused (R-079). Twelve fixed messages written for the user, naming no id,
@@ -171,6 +182,25 @@ const REFUSAL_CODES: ReadonlySet<string> = new Set([
   'HAND_CORRECTION_REFUSED',
   'JOURNAL_REVERSAL_LOCK_TIMEOUT',
   'LOAN_POST_LOCK_TIMEOUT',
+  // The control kernel's caller-fixable approval refusals.
+  //
+  // OPERATION_APPROVAL_REQUIRED (OperationApprovalRequiredError,
+  // ApApprovalRequiredError) and OPERATION_APPROVAL_NOT_EXECUTABLE
+  // (SuppliedApprovalRefusal) are both already surfaced by `handlerErrorReply`
+  // when a handler THROWS them, with a richer reply than the bare message.
+  // These entries cover the handlers that catch them and reach `safeErrorText`,
+  // where the only alternative is the generic fallback — and "the operation
+  // failed" for a call that needs an approval is exactly the retry loop the
+  // approval kernel was built to end. Both texts are written for a person and
+  // name no row, id, amount or table.
+  //
+  // OPERATION_REFUSED (OperationRefusalError) is by construction a DATA-STATE
+  // refusal raised at the site that read the company's own rows — zero amount,
+  // deactivated contra account, no covering period — never a fault and never a
+  // wrapped error. Its whole contract is that the caller can act on it.
+  'OPERATION_APPROVAL_NOT_EXECUTABLE',
+  'OPERATION_APPROVAL_REQUIRED',
+  'OPERATION_REFUSED',
   'PAYMENT_LOCK_TIMEOUT',
   'PAYMENT_POSTED_DURING_VOID',
   'PAYROLL_LOAN_LOCK_TIMEOUT',
@@ -191,6 +221,10 @@ const REFUSAL_CODES: ReadonlySet<string> = new Set([
   'RECURRING_TEMPLATE_TOTALS_MISMATCH',
   'RULE_AUTHORITY_REQUIRED',
   'SUPPLIER_INVOICE_LOCK_TIMEOUT',
+  // A supplier merge blocked because the pair carries financial documents,
+  // banking verification or approval history. The message is the remedy —
+  // resolve those dependencies first — and names no document, bank detail or id.
+  'SUPPLIER_MERGE_REQUIRES_REVIEW',
   'SUPPLIER_PAYMENT_NOT_FOUND',
   'SUPPLIER_PAYMENT_NOT_PROCESSABLE',
   'SUPPLIER_PAYMENT_REFUSED',
@@ -209,12 +243,18 @@ const REFUSAL_CODES: ReadonlySet<string> = new Set([
  * Its message names internal machinery (`withAuth` / `als.run`), so an agent
  * told it would retry against advice it cannot act on.
  *
+ * `InvocationStoreError` ('Durable invocation evidence is unavailable') is a
+ * server availability fault, not a decision about the caller's request: no
+ * argument they can change reaches it, and it must stay a server failure so
+ * monitoring sees it rather than an agent reading it as a reason to retry.
+ *
  * The census in `tests/unit/mcp/typedRefusalReachesAgent.test.ts` requires
  * every declared code to appear in EXACTLY ONE of these two sets, so a new
  * coded error is a decision rather than a default disclosure.
  */
 export const NOT_A_REFUSAL_CODES: ReadonlySet<string> = new Set([
   'CLAIM_OUTSIDE_TRANSACTION',
+  'INVOCATION_UNAVAILABLE',
 ]);
 
 /**

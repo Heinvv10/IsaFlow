@@ -113,9 +113,14 @@ describe('commitARInvoice opts into the historical path', () => {
 describe('commitAPInvoice delegates to the controlled supplier invoice service', () => {
   it('preserves original dates and exact invoice/tax inputs before shared approval', async () => {
     await commitAPInvoice(COMPANY, USER, AP_INVOICE);
+    // `taxAmount` per line plus `trustSourceTax` is master's K-038 fix: the
+    // importer carries the source's EXACT line tax rather than re-deriving it
+    // from a 2dp rate, so the stored row and the AP journal cannot disagree.
+    // Both are part of "exact invoice/tax inputs" and are pinned here.
     expect(createSupplierInvoice).toHaveBeenCalledWith(COMPANY, expect.objectContaining({
       invoiceNumber:'SI-2023-114',invoiceDate:'2023-11-14',dueDate:'2023-12-14',taxRate:15,
-      items:[{description:'PO-9912',quantity:1,unitPrice:1000,taxRate:15}],
+      trustSourceTax:true,
+      items:[{description:'PO-9912',quantity:1,unitPrice:1000,taxRate:15,taxAmount:150}],
     }), USER);
     expect(approveSupplierInvoice).toHaveBeenCalledWith(COMPANY,'si-1',USER);
     expect(statusWrites()).toHaveLength(0);

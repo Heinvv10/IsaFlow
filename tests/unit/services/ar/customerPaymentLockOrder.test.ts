@@ -49,14 +49,56 @@ vi.mock('@/lib/neon', () => {
 
 vi.mock('@/lib/logger', () => ({ log: { info: vi.fn(), error: vi.fn(), warn: vi.fn() } }));
 
+/**
+ * Both entry points now enter through the controls kernel (`runArControlled`),
+ * which demands a real authenticated control transaction. The lock ORDER this
+ * file exists to pin lives in the effect the kernel runs, so the kernel and its
+ * evidence collaborators are stubbed to a pass-through — the same shape
+ * `creditNoteService.test.ts` uses. Authority, receipts and rollback are
+ * covered by `tests/integration/.../arSharedWriters.int.test.ts`.
+ */
+const { controlCtx } = vi.hoisted(() => ({
+  controlCtx: {
+    principal: { companyId: 'cccccccc-0000-4000-8000-cccccccccccc', personId: 'ffffffff-0000-4000-8000-ffffffffffff' },
+    // Wired to the `@/lib/neon` sql mock below, so a control-tx read is
+    // recorded in the same statement sequence as every other statement.
+    sql: (..._args: unknown[]): Promise<unknown[]> => Promise.resolve([]),
+  },
+}));
+const PERMIT = { accountingDate: '2026-05-01', operationId: 'op-0001' };
+vi.mock('@/modules/accounting/services/ar/arControlBoundary', () => ({
+  requireArControl: vi.fn(() => controlCtx),
+  runArControlled: (
+    _company: string, _person: string, _ref: unknown, _opts: unknown,
+    effect: (permit: unknown) => Promise<unknown>,
+  ) => effect(PERMIT),
+}));
+vi.mock('@/modules/accounting/services/controls/arSourceMaterial', () => ({
+  lockArPaymentSources: vi.fn().mockResolvedValue({ header: {}, allocations: [], invoices: [], invoiceLines: [] }),
+}));
+vi.mock('@/modules/accounting/services/controls/arControlAccounts', () => ({
+  resolveArAccounts: vi.fn().mockResolvedValue({
+    ledgerCurrency: 'ZAR', chosen: { receivable: { id: 'acc-ar' }, bank: { id: 'acc-bank' } }, explicit: [],
+  }),
+}));
+vi.mock('@/modules/accounting/services/controls/generatedJournalPermit', () => ({
+  registerGeneratedJournal: vi.fn(),
+}));
+vi.mock('@/modules/accounting/services/shared/cashApplicationCancellation', () => ({
+  assertCashApplicationsUnapplied: vi.fn(),
+}));
+// Pass-through: the UPDATE it wraps is exactly the statement whose position and
+// argument order this file asserts on, so it must still reach the sql mock.
+vi.mock('@/modules/accounting/services/ar/arInvoiceBalanceEffect', () => ({
+  mutateArInvoiceBalance: (
+    _ctx: unknown, _id: string, _parent: unknown, _action: string, mutation: () => Promise<unknown>,
+  ) => mutation(),
+}));
+
 vi.mock('@/modules/accounting/services/gl/journalEntryService', () => ({
   createJournalEntry: vi.fn().mockResolvedValue({ id: 'je-new' }),
   postJournalEntry: vi.fn().mockResolvedValue(undefined),
   reverseJournalEntry: vi.fn().mockResolvedValue({ id: 'je-rev' }),
-}));
-
-vi.mock('@/modules/accounting/services/gl/systemAccountResolver', () => ({
-  getSystemAccount: vi.fn().mockResolvedValue({ id: 'acc-ar' }),
 }));
 
 vi.mock('@/modules/accounting/services/ar/customerPaymentService', () => ({
@@ -75,6 +117,7 @@ const mockSql = sql as unknown as MockedFunction<(...args: unknown[]) => Promise
 const mockGetPayment = getCustomerPaymentById as unknown as MockedFunction<
   (c: string, i: string) => Promise<Record<string, unknown> | null>
 >;
+controlCtx.sql = (...args: unknown[]) => mockSql(...args);
 
 const COMPANY_ID = 'cccccccc-0000-4000-8000-cccccccccccc';
 const PAYMENT_ID = 'aaaaaaaa-0000-4000-8000-aaaaaaaaaaaa';

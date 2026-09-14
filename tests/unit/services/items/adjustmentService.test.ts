@@ -62,8 +62,18 @@ const JE_ID = '44444444-4444-4444-4444-444444444444';
  * follows it. These unit tests mock `sql`, so the client only has to exist;
  * `SET LOCAL` goes to the stub.
  */
+/**
+ * The approval is an approver-of-record decision, so `assertIndependentRequestReview`
+ * now refuses any request context that could not record one. A real approving
+ * request carries an authenticated control principal; a context without one is a
+ * script or a token flow that has no business signing an approval, and the guard
+ * fails it visibly. The principal is therefore part of the fixture, carrying NO
+ * impersonator — an impersonated session is refused, and that refusal has its own
+ * cover in tests/unit/services/controls/.
+ */
 const requestCtx = {
   client: { query: vi.fn() }, userId: USER_ID, companyId: COMPANY_ID, claims: {},
+  controlPrincipal: { personId: USER_ID, companyId: COMPANY_ID, impersonatorPersonId: null },
 } as unknown as Parameters<typeof als.run>[0];
 const inRequestTx = <T>(fn: () => Promise<T>): Promise<T> => als.run(requestCtx, fn);
 

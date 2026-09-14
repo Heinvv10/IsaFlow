@@ -17,6 +17,9 @@ import { withCsrf } from '@/lib/auth/withCsrf';
 import { log } from '@/lib/logger';
 import { sql } from '@/lib/neon';
 import { isRetryableContention } from '@/modules/accounting/services/core/retryableContention';
+import { isSupplierPaymentRefusal } from '@/modules/accounting/services/ap/supplierPaymentRefusal';
+import { isReceiptRefusal } from '@/modules/accounting/services/ar/receiptRefusal';
+import { isBankAllocationRefusal } from '@/modules/accounting/services/bank/bankAllocationRefusal';
 import {
   BankTransactionNotPostedError, isFeedNotPostedRefusal, readFeedState,
 } from '@/modules/accounting/services/bank/bankFeedStateGuard';
@@ -66,9 +69,26 @@ async function handler(req: CompanyAuthedRequest, res: NextApiResponse) {
     if(required)return apiResponse.badRequest(res,'Prepare the bank action and obtain its approval before executing.',required);
     try{return apiResponse.success(res,await dispatchBankControlAction(requireControlTx(),req.body));}
     catch(error){
+      // CONTENTION first, and 409, for the reason the switch's catch below gives: `allocate` is
+      // dispatched HERE now, and it is the action that reaches planSupplierPaymentApplication and
+      // planReceiptApplication through recordSupplierBankPayment / autoApplyCustomerReceipt. A peer
+      // holding the bank line, the payment, the bill or the invoice is not a bad intent and not the
+      // caller's mistake — answering it 400 buries the one wording the caller can act on ("retry in
+      // a moment") under a generic message about approvals. Every member is pre-write.
+      if(isRetryableContention(error))return apiResponse.conflict(res,(error as Error).message);
+      // A pending or removed feed row, same status as on the legacy actions below.
+      if(isFeedNotPostedRefusal(error))return apiResponse.conflict(res,error.message);
       // A period, lockdown or filed-VAT-period refusal is the kernel's own business answer, raised before the
       // controlled write: say which, as journal-entries-action does, rather than blaming the intent or approval.
       if(isPostingRefusal(error))return apiResponse.error(res,ErrorCode.BUSINESS_RULE_VIOLATION,(error as Error).message);
+      // A typed AP/AR/bank refusal is a books answer about the caller's own rows — "this bill is
+      // cancelled and cannot be paid" — written for a person and naming no schema. Its 400 keeps its
+      // OWN wording, as it did on the legacy `allocate` path and as the switch's catch below still
+      // does; the generic message stands only for the control machinery's own failures, which is
+      // what it was written for.
+      if(isSupplierPaymentRefusal(error)||isReceiptRefusal(error)||isBankAllocationRefusal(error)){
+        return apiResponse.badRequest(res,error.message);
+      }
       return apiResponse.badRequestFromError(res,error,'Bank action refused. Use a valid prepared intent and its matching approval.');
     }
   }

@@ -42,9 +42,12 @@ function makeHistoryRows(vatCode: string, count: number) {
 }
 /** The prediction reads: bank row, suppliers, then that supplier's coding history. */
 function predictionReads(vatCode: string, over: { amount?: number; description?: string } = {}) {
+  // `feed_state` is part of the row the service SELECTs, and `feedStateOf` THROWS on a row
+  // without it rather than treating the absence as 'posted' — a SELECT that forgot the column
+  // must not read as a posted line. A fixture without it is a row pg never returns.
   vi.mocked(sqlMock).mockResolvedValueOnce([{ id: BANK_TX_ID, amount: over.amount ?? -1150,
     description: over.description ?? 'ESKOM HOLDINGS PAYMENT', status: 'imported', bank_account_id: 'ba-1',
-    transaction_date: '2026-04-10' }] as never);
+    feed_state: 'posted', transaction_date: '2026-04-10' }] as never);
   vi.mocked(sqlMock).mockResolvedValueOnce([{ id: SUPPLIER_ID, name: over.description ?? 'Eskom Holdings' }] as never);
   vi.mocked(sqlMock).mockResolvedValueOnce(makeHistoryRows(vatCode, 4) as never);
 }

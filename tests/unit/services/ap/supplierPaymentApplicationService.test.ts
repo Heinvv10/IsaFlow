@@ -378,7 +378,11 @@ describe('applySupplierPaymentPlan', () => {
     billRows([billRow(BILL_A)]);
     const plan = await planSupplierPaymentApplication(COMPANY, PAYMENT, [{invoiceId:BILL_A,amount:100}]);
     await expect(applySupplierPaymentPlan(COMPANY,plan,USER)).rejects.toThrow(/context|transaction|principal/i);
+    // Same anchoring as the plan guard above: the bill read takes
+    // `FOR UPDATE OF si`, which a bare /UPDATE/ matches although it writes
+    // nothing — this guard would then pass for the wrong reason.
     const texts = sqlMock.mock.calls.map((c) => (c[0] as string[]).join('?'));
-    expect(texts.some((t) => /INSERT|UPDATE|DELETE/.test(t))).toBe(false);
+    const WRITE_SQL = /INSERT INTO|UPDATE\s+\w+(\s+(?:AS\s+)?\w+)?\s+SET|DELETE FROM/;
+    expect(texts.some((t) => WRITE_SQL.test(t))).toBe(false);
   });
 });
