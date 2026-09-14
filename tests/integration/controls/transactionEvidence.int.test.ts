@@ -27,7 +27,7 @@ beforeAll(async()=>{
  await pool.query("INSERT INTO captured_documents(id,company_id,file_name,file_type,matched_invoice_id) VALUES($1,$2,'SECRET FILE','pdf',$3)",[ids.captured,c,ids.invoice]);
  await pool.query("INSERT INTO procurement_documents(id,entity_type,entity_id,file_url) VALUES($1,'supplier_payment',$2,'SECRET URL')",[ids.procurement,ids.payment]);
  await pool.query("INSERT INTO bank_transaction_attachments(id,bank_transaction_id,file_url) VALUES($1,$2,'SECRET URL')",[ids.attachment,ids.bank]);
- // The requester asks for it, as themselves (736).
+ // The requester asks for it, as themselves (836).
  await asPerson(pool,fixture.u1,[[`INSERT INTO control_operation_approvals(id,company_id,operation_id,operation,entity_type,entity_id,requester_person_id,binding,binding_hash,status,expires_at)
   VALUES($1,$2,$3,'supplier_payment.process','supplier_payment',$4,$5,'{}','synthetic','pending',clock_timestamp()+interval '1 day')`,[ids.approval,c,randomUUID(),ids.payment,u]]]);
 });
@@ -100,8 +100,8 @@ it('expands persisted approval source versions and exact-parent decision evidenc
  const refs=[{entityType:'supplier_payment',entityId:ids.payment,store:'captured',evidenceId:ids.captured,version:null,hash:null},
   {entityType:'supplier_payment',entityId:ids.payment,store:'procurement',evidenceId:ids.procurement,version:null,hash:null},
   {entityType:'supplier_payment',entityId:ids.payment,store:'captured',evidenceId:invalid,version:null,hash:null}];
- // A binding never changes after the request (736), so this approval is born with its sources. The requester asks and
- // the independent admin decides, each as themselves (736/737); the binding is synthetic.
+ // A binding never changes after the request (836), so this approval is born with its sources. The requester asks and
+ // the independent admin decides, each as themselves (836/837); the binding is synthetic.
  await asPerson(pool,fixture.u1,[[`INSERT INTO control_operation_approvals(id,company_id,operation_id,operation,entity_type,entity_id,requester_person_id,binding,binding_hash,status,expires_at)
   VALUES($1,$2,$3,'supplier_payment.process','supplier_payment',$4,$5,$6::jsonb,'synthetic','pending',clock_timestamp()+interval '1 day')`,[sourced,fixture.companyA,randomUUID(),ids.payment,fixture.u1.id,JSON.stringify({sourceVersions:[
   {entityType:'supplier_invoice',entityId:ids.invoice,version:1,fingerprint:'not-disclosed'},

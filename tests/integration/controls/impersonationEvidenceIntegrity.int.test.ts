@@ -9,8 +9,8 @@ import {assertIndependentHumanReview} from '@/modules/accounting/services/contro
 import type {GoTrueClaims} from '@/lib/auth/gotrue';
 import type {ControlPrincipal} from '@/modules/accounting/services/controls/contracts';
 
-// Migration 739: admin_audit_log and admin_impersonation_stash are the only evidence that a session is
-// impersonated (726 control_session_impersonator, 728 impersonation_delegation_live). A tenant session must
+// Migration 839: admin_audit_log and admin_impersonation_stash are the only evidence that a session is
+// impersonated (826 control_session_impersonator, 828 impersonation_delegation_live). A tenant session must
 // not be able to read, forge or remove that evidence, and no role may rewrite an audit row.
 const config=fixtureConfigFromEnv(process.env),target=validateFixtureTarget(config);
 const pool=new Pool({connectionString:target.connectionString,ssl:false,max:2});
@@ -135,13 +135,13 @@ it.each([['healthy',undefined],['blinded','ALTER FUNCTION public.control_session
 });
 
 // The whole shadowable class, across every function the impersonation path reaches: no unqualified relation
-// reference, and pg_temp pinned last in all four. Qualification alone was not enough for 728 - pg_temp is searched
+// reference, and pg_temp pinned last in all four. Qualification alone was not enough for 828 - pg_temp is searched
 // first for TYPES too when it is not named, so a tenant temp type shadowed a cast and made the function raise.
 const PINS_PG_TEMP=['control_session_impersonator','impersonation_evidence_visible','impersonation_evidence_append_only',
  'impersonation_delegation_live'];
 // The type half of the same class, proved by doing it: a tenant creates the temp type and the temp table, both of
 // which outlive their transaction and belong to the pooled SESSION, then every function still answers. Before the
-// pin, 728's liveness raised 'operator does not exist: text = pg_catalog.text' here - and kept raising on that
+// pin, 828's liveness raised 'operator does not exist: text = pg_catalog.text' here - and kept raising on that
 // connection for the login role, refusing every delegation proof until the connection was recycled.
 it('ignores a tenant temp type shadowing the builtin names the bodies cast to',async()=>{
  const client=await pool.connect();
@@ -180,7 +180,7 @@ it('leaves no unqualified relation reference in any function the impersonation p
  }
 });
 
-// 726 used to define this reader too. Re-running it after 739 - resolve-checksum-conflicts.ts on an amended
+// 826 used to define this reader too. Re-running it after 839 - resolve-checksum-conflicts.ts on an amended
 // migration, a rebuilt database, the pending renumbering - would reinstate the body that answers an unreadable
 // table with NULL, with every other property the gate checks still true. The deploy gate is what catches it.
 const PRE_FIX_READER=`CREATE OR REPLACE FUNCTION public.control_session_impersonator()
@@ -224,7 +224,7 @@ it('fails the deploy when an older migration reinstates the sentinel-less reader
 });
 
 
-// The sentinel is a string literal in 739 and a constant in TypeScript; drift between them would silently turn
+// The sentinel is a string literal in 839 and a constant in TypeScript; drift between them would silently turn
 // the blinded reader back into "nobody is impersonating".
 it('answers with exactly the unverified sentinel the auth path compares against',async()=>{
  const answered=await as('app_user',{sub:f.u1.id},impersonator,false,
@@ -232,7 +232,7 @@ it('answers with exactly the unverified sentinel the auth path compares against'
  expect(answered).toBe(IMPERSONATION_UNVERIFIED);
 });
 
-// 728's liveness function gates the MFA bypass for impersonated sessions and reads the stash, which now has
+// 828's liveness function gates the MFA bypass for impersonated sessions and reads the stash, which now has
 // forced RLS. Its blind failure mode is a bare false, so it is exercised directly rather than inferred.
 it('honours a live delegation through the reader, and refuses it once the reader is blinded',async()=>{
  const sessionId=`impersonation-${randomUUID()}`;await startRow(sessionId);

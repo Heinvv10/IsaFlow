@@ -1,4 +1,4 @@
--- Retained control rows are matched by one canonical spelling of entity_id. Migrations 729/730 indexed that as
+-- Retained control rows are matched by one canonical spelling of entity_id. Migrations 829/830 indexed that as
 -- lower(entity_id), but lower() is not leakproof and these tables FORCE ROW LEVEL SECURITY: as app_user the planner
 -- may not evaluate lower(entity_id)=... ahead of the tenant policy, so the expression indexes are never an index
 -- condition and every lookup filters the whole company's rows (825 ms a journal on the risk population at 1M change
@@ -7,11 +7,11 @@
 -- with another relation's `uuid::text`, it does not (the cast is not leakproof either), so readers reach it through a
 -- Param. It is lower(entity_id) by construction: every reader's semantics are unchanged.
 --
--- Deploy cost: 729/730 are not on master, so the first production deploy builds their five expression indexes and
+-- Deploy cost: 829/830 are not on master, so the first production deploy builds their five expression indexes and
 -- then drops them here. Each ADD COLUMN ... STORED rewrites its table and rebuilds that table's indexes under an ACCESS
 -- EXCLUSIVE lock on all five hot control tables, held until the runner's single transaction commits: 3 min 36 s at
 -- 33M change events and 3M entity versions (rewrite 166 s + index 39 s on control_change_events alone). OUT OF HOURS
--- ONLY. The 729/730 indexes are dropped FIRST so the rewrite does not rebuild them: after this migration no query
+-- ONLY. The 829/830 indexes are dropped FIRST so the rewrite does not rebuild them: after this migration no query
 -- compares lower(entity_id) on these tables, so nothing can use them.
 DROP INDEX IF EXISTS control_entity_versions_canonical_idx;
 DROP INDEX IF EXISTS control_change_events_canonical_idx;
@@ -25,7 +25,7 @@ ALTER TABLE control_operation_effects ADD COLUMN IF NOT EXISTS entity_id_canonic
 ALTER TABLE control_operation_approvals ADD COLUMN IF NOT EXISTS entity_id_canonical text GENERATED ALWAYS AS (lower(entity_id)) STORED;
 ALTER TABLE control_protected_evidence ADD COLUMN IF NOT EXISTS entity_id_canonical text GENERATED ALWAYS AS (lower(entity_id)) STORED;
 
--- Same column order as the 729/730 indexes they replace. Plain CREATE INDEX: the runner wraps the file in one
+-- Same column order as the 829/830 indexes they replace. Plain CREATE INDEX: the runner wraps the file in one
 -- transaction, where CONCURRENTLY cannot run.
 CREATE INDEX IF NOT EXISTS control_entity_versions_entity_canonical_idx
  ON control_entity_versions(company_id,entity_type,entity_id_canonical);

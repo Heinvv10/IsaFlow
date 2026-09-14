@@ -1,6 +1,6 @@
 -- DEPLOY NOTE - renumbered 2026-09-14 from 677_impersonation_delegation_liveness.sql (see the dated exception
 -- in scripts/migrations/README.md). This file was ALSO edited after it had been applied, and an earlier version
--- of this note told the deployer to clear a checksum conflict alongside 726's. That instruction is now wrong and
+-- of this note told the deployer to clear a checksum conflict alongside 826's. That instruction is now wrong and
 -- has been removed: apply-migrations.ts tracks migrations by FILENAME, so a database that applied the OLD name
 -- has no row for this one. It raises no checksum conflict, it applies this file IN FULL as a new migration, and
 -- `bun scripts/migrations/resolve-checksum-conflicts.ts` would find nothing to resolve. Do not run it here - a

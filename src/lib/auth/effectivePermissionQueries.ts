@@ -28,11 +28,11 @@ interface Membership extends UserAccountRow {
   role: string; company_status: string | null; company_suspended_at: Date | string | null;
 }
 /**
- * Root migration 700 owns the narrow, authenticated principal-lock helper.
+ * Root migration 800 owns the narrow, authenticated principal-lock helper.
  * Direct FOR UPDATE would apply admin-write RLS and hide viewer/manager memberships.
  * Helper locks parent users too: permission INSERT FK cannot overtake absent override.
  * The helper's company key serialises every permission-checked transaction in the company to COMMIT; it and these
- * row locks wait at most 5 s (migration 738).
+ * row locks wait at most 5 s (migration 838).
  * A job opened with an authority pin answers from the pin once its live lease and delegation check pass.
  */
 export async function loadPermissionState(ctx: ControlTx): Promise<PermissionState> {

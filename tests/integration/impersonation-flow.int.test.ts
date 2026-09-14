@@ -13,7 +13,7 @@ if (!JWT_SECRET || !DATABASE_URL || !MIGRATION_ADMIN_DATABASE_URL) {
   throw new Error('JWT_SECRET + DATABASE_URL + MIGRATION_ADMIN_DATABASE_URL required');
 }
 
-// The audit rows this suite writes can no longer be removed by any role (739 makes them
+// The audit rows this suite writes can no longer be removed by any role (839 makes them
 // append-only), so it must never be pointed at a database anyone keeps.
 assertDisposable();
 
@@ -83,7 +83,7 @@ describe('impersonation flow (integration)', () => {
   });
 
   afterAll(async () => {
-    // admin_audit_log is append-only for every role (739); the synthetic rows stay, keyed by this run's ids.
+    // admin_audit_log is append-only for every role (839); the synthetic rows stay, keyed by this run's ids.
     await seedPool.query(
       `DELETE FROM admin_impersonation_stash
         WHERE admin_user_id IN ($1,$2) OR target_user_id IN ($1,$2)`,

@@ -3,7 +3,7 @@ import { approvalGuardSuite, noEffect, refused } from './approvalGuardFixture';
 import { rewriteApprovalUnguarded } from './approvalGuardBypass';
 import { executeControlledOperation } from '@/modules/accounting/services/controls/approvalExecutionService';
 
-// Migration 737: a decision is the proof of an independent approval, made by the person acting, once, on a pending
+// Migration 837: a decision is the proof of an independent approval, made by the person acting, once, on a pending
 // approval, and never changed afterwards.
 const g = approvalGuardSuite();
 const DECISION = refused('decision');
