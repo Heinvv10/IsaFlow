@@ -29,7 +29,7 @@ export class AuditEnqueueQuotaError extends Error {
 export async function assertAuditEnqueueQuota(ctx:ControlTx,kind:AuditJobKind,count:number,maxActive?:number):Promise<void>{
  const quota=AUDIT_ENQUEUE_QUOTAS[kind],principal=ctx.principal;
  // Today this lock is never the one that decides: every enqueue asserts write:audit first, and assertEffectivePermission
- // calls control_lock_permission_principal (migration 676), which holds pg_advisory_xact_lock('control-authority:' ||
+ // calls control_lock_permission_principal (migration 700), which holds pg_advisory_xact_lock('control-authority:' ||
  // company) to the end of the transaction — so two enqueues in one company are already serialised before either
  // counts. That is why removing this line leaves every gate green. It stays because the quota must not depend on a
  // permission helper's locking: if that helper ever narrows its lock (per person, or to a shorter scope), this is the

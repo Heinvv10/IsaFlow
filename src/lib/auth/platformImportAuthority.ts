@@ -59,7 +59,7 @@ export function readPlatformImportTarget(ctx:ControlTx):PlatformImportTarget{
 /** Current role/standing is verified on the same privileged transaction, never inferred from the body. */
 async function currentStanding(personId:string,companyId:string,query:TxSql=sql){
  // Match the shared member/approval authority order before acquiring row locks; wait at most 5 s for either, as the
- // database functions that take this key do (migration 714), then restore the transaction's own bound.
+ // database functions that take this key do (migration 738), then restore the transaction's own bound.
  const [bound]=await query`SELECT current_setting('lock_timeout') AS previous,set_config('lock_timeout','5s',true)` as {previous:string}[];
  await query`SELECT pg_advisory_xact_lock(hashtextextended(${`control-authority:${companyId}`},0))`;
  const rows=await query`SELECT u.role,u.is_active,u.status,u.suspended_at,c.status AS company_status,c.suspended_at AS company_suspended_at

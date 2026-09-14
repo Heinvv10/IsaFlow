@@ -177,14 +177,14 @@ describe('platform historical import persisted maker and independent tenant appr
    await expect(assertPlatformImportRequester(ctx,row,{...requester!,platform_role:'admin'})).rejects.toThrow('Platform requester authority is no longer valid');
   });
  });
- it('drops any legacy grant-shape constraint when migration 702 is re-run',async()=>{
-  const migration=await readFile('scripts/migrations/sql/702_platform_import_approval_authority.sql','utf8');
+ it('drops any legacy grant-shape constraint when migration 726 is re-run',async()=>{
+  const migration=await readFile('scripts/migrations/sql/726_platform_import_approval_authority.sql','utf8');
   const grantShape=`SELECT conname,pg_get_constraintdef(oid) AS def FROM pg_constraint
    WHERE conrelid='public.control_historical_imports'::regclass AND contype='c' AND pg_get_constraintdef(oid) LIKE '%requester_grant_id%'`;
   const client=await h.pool.connect();
   try{
    await client.query('BEGIN');
-   // The 689 constraint was unnamed, so its generated name depends on the table's history:
+   // The 713 constraint was unnamed, so its generated name depends on the table's history:
    // rebuild it under a different generated name and re-run the migration over it.
    const existing=await client.query(grantShape);
    for(const row of existing.rows)await client.query(`ALTER TABLE public.control_historical_imports DROP CONSTRAINT ${row.conname}`);

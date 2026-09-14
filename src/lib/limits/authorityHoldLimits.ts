@@ -2,7 +2,7 @@
 //
 // Batch maxima for every path that runs many elements in ONE request transaction while holding the company authority
 // key. The key serialises every permission-checked transaction in a company from its first check to COMMIT, and every
-// other same-company request waits at most 5 s for it before answering 503 (migration 714). The rule: a request must
+// other same-company request waits at most 5 s for it before answering 503 (migration 738). The rule: a request must
 // not hold the key longer than half that bound, 2.5 s. Each maximum below is set from measured per-element holds
 // (tests/integration/controls/authorityBulkMeasure.int.test.ts and authorityBulkLimits.int.test.ts, on the shared
 // fixture on velo-server at load 12-22, 2026-09-11): the per-element cost varied by up to 60% between runs, so each

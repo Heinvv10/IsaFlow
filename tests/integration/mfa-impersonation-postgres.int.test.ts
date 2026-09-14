@@ -44,7 +44,7 @@ beforeAll(async () => {
 
 afterAll(async () => {
   try {
-    // admin_audit_log is append-only for every role (715); the synthetic rows stay, keyed by this run's ids.
+    // admin_audit_log is append-only for every role (739); the synthetic rows stay, keyed by this run's ids.
     await pool.query('DELETE FROM admin_impersonation_stash WHERE admin_user_id = $1 AND target_user_id = $2', [adminId, targetId]);
     await pool.query('DELETE FROM company_users WHERE company_id = ANY($1::uuid[]) AND user_id = ANY($2::text[])',
       [[companyId, otherCompanyId], [adminId, targetId].filter(Boolean)]);

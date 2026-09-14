@@ -32,7 +32,7 @@ interface McpTool { name; description; inputSchema; scope: string | null;
                     write: boolean; requiresPost?: boolean; handler(args, ctx) }
 // registry.ts
 class McpRegistry { register(tool); getManifest(); listTools(); call(name, args, ctx) }
-// audit.ts — legacy history has no payload/key; successful replay uses mcp_idempotency_results (679)
+// audit.ts — legacy history has no payload/key; successful replay uses mcp_idempotency_results (703)
 recordToolCall({ ctx, tool, argsHash, idempotencyKey, status, result, durationMs })
 findIdempotentReplay(companyId, tool, key, argsHash): Promise<IdempotencyLookup>
 // invocationStore.ts — durable admission, transaction receipt, observed outcome
