@@ -1,4 +1,5 @@
 import {assertPlatformImportOperation} from './platformImportConfinement';
+import {assertGatewayReceiptOperation} from './gatewayReceiptConfinement';
 import {assertOperationRequester} from './operationRequester';
 import { operationPermission,operationRequiresPosting,operationRuleType } from './operationPermissions';
 import { randomUUID } from 'node:crypto';
@@ -170,6 +171,7 @@ export async function assertSuppliedApprovalExecutable(ctx: ControlTx, input: Op
   assertControlTx(ctx);
   const ref = canonicalOperationRef(input);
   await assertPlatformImportOperation(ctx, ref, 'execute');
+  assertGatewayReceiptOperation(ctx, ref);
   await withSavepoint('preview_supplied_approval', async () => {
     // Inside the savepoint: these functions RAISE, and an error outside one
     // aborts the whole request transaction, so a refusal the caller could act
@@ -188,6 +190,7 @@ export async function executeControlledOperation<T>(ctx: ControlTx, input: Opera
   if (executing.has(ctx.principal)) throw new Error('Nested execution requires the parent effect permit');
   const ref = canonicalOperationRef(input);
   await assertPlatformImportOperation(ctx,ref,'execute');
+  assertGatewayReceiptOperation(ctx, ref);
   await assertControlledOperationAuthority(ctx, ref.operation);
   return withSavepoint('controlled_ap_operation', async () => {
     // Inside the savepoint for the same reason as the preview above: a raising
