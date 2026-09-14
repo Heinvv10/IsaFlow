@@ -305,6 +305,37 @@ describe('a year with nothing to transfer still closes', () => {
       'SELECT DISTINCT status FROM fiscal_periods WHERE company_id=$1 AND fiscal_year=$2', [d.company, '2025']);
     expect(periods.rows.map((r) => r.status)).toEqual(['locked']);
   });
+
+  it('re-closing that DORMANT year posts no journal, though the ledger cannot see the close', async () => {
+    // The case ledger-first cannot cover, and the reason the receipt replay is
+    // kept rather than deleted. A dormant year closes by locking its periods and
+    // writing NOTHING, so `findClosingJournal` returns null for it now and
+    // forever — the ledger has no evidence the year was ever closed, and
+    // `YE-2025` is not even taken, so the unique index will not stop a second
+    // close either. The control receipt is the only record, and without it this
+    // call walks through every ledger check into the close a second time.
+    //
+    // Then P&L lands in the year. Nothing in the schema refuses a posting into a
+    // locked period — the residual tenant in k-046-year-end-entry-number-taken
+    // proves that on this same table — so the re-close loads material with
+    // something in it and would have a real journal to write.
+    await post(d, d.bank, d.revenue, 250, 'D-LATE');
+
+    const again = await closeFiscalYear(d.company, '2025', user) as { closingEntry: null };
+
+    // COUNTED from the table, not read off the return value: a call that says it
+    // did nothing while posting a journal is the failure being guarded against,
+    // so its own answer cannot be the evidence.
+    const written = await pool.query(
+      'SELECT count(*)::int AS n FROM gl_journal_entries WHERE company_id=$1 AND source=$2',
+      [d.company, 'year_end']);
+    expect(written.rows[0].n).toBe(0);
+    expect(again.closingEntry).toBeNull();
+
+    const periods = await pool.query(
+      'SELECT DISTINCT status FROM fiscal_periods WHERE company_id=$1 AND fiscal_year=$2', [d.company, '2025']);
+    expect(periods.rows.map((r) => r.status)).toEqual(['locked']);
+  });
 });
 
 describe('the close does NOT refuse a deactivated account (tenant E)', () => {

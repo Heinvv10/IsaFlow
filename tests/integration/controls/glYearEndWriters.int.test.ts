@@ -83,6 +83,16 @@ it('posts a balanced closing journal into the closed final period and locks its 
   {alreadyClosed:boolean;closingEntry:{id:string};unclosedNetIncome:number};
  expect(again.alreadyClosed).toBe(true);
  expect(again.closingEntry.id).toBe((result as {closingEntry:{id:string}}).closingEntry.id);
+ // ONE SHAPE from both paths. pg hands back `Date` for a timestamp column, so the
+ // LEDGER path returned Date objects where the live close — which returns
+ // `JSON.parse(canonicalJson(posted))` — returns ISO strings. Ledger-first made that
+ // divergence reachable on an ordinary re-close, so a consumer calling
+ // `.toISOString()` on one and not the other breaks on the common case. Both are
+ // strings, and they agree.
+ const live=result as {closingEntry:Record<string,unknown>};
+ expect(typeof live.closingEntry.created_at).toBe('string');
+ expect(typeof (again.closingEntry as Record<string,unknown>).created_at).toBe('string');
+ expect((again.closingEntry as Record<string,unknown>).created_at).toBe(live.closingEntry.created_at);
  expect(again.unclosedNetIncome).toBe(0);
  const journals=(await pool.query("SELECT id FROM gl_journal_entries WHERE company_id=$1 AND source='year_end'",[fixture.companyA])).rows;
  expect(journals).toHaveLength(1);

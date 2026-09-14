@@ -8,6 +8,7 @@
 
 import { sql, withTransaction, type TxSql } from '@/lib/neon';
 import { log } from '@/lib/logger';
+import { canonicalJson } from '../controls/canonical';
 import { roundToCents, validateJournalEntry } from '../../utils/doubleEntry';
 import { reloadNetIncome, type FiscalYearRange } from './yearEndJournalBuilder';
 import type { CloseYearError, CloseYearResult, YearEndJournalPreview } from './yearEndCloseTypes';
@@ -245,7 +246,22 @@ export async function alreadyClosedResult(
     { companyId, year: yearLabel, entryId: existingEntry.id, unclosedNetIncome, module: 'accounting' });
   const entryNumber = String(existingEntry.entry_number ?? '');
   return {
-    closingEntry: existingEntry,
+    // ONE SHAPE for `closingEntry`, whichever path produced it.
+    //
+    // pg returns timestamp columns as `Date`, so this row's `created_at` and
+    // `updated_at` arrive as Date objects — while BOTH other paths that return a
+    // `closingEntry` hand back ISO STRINGS: the live close returns
+    // `JSON.parse(canonicalJson(posted))`, and a receipt replay returns whatever
+    // was durably stored as JSON, which is the same thing. Ledger-first made this
+    // divergence reachable on an ORDINARY re-close rather than only on exotic
+    // paths, so a consumer doing `result.closingEntry.created_at.toISOString()`
+    // — or the reverse — now breaks on the common case.
+    //
+    // Normalised TOWARD the string, not the Date, because the string is the shape
+    // already committed to: it is what the receipt durably stores and what the
+    // live close has always returned. `canonicalJson` is the same function the
+    // live path uses and is proven on this exact row shape.
+    closingEntry: JSON.parse(canonicalJson(existingEntry)) as Record<string, unknown>,
     periodsLockedInYear: lockedRows[0]?.n ?? 0,
     alreadyClosed: true,
     // Read HERE, after the closing journal is known to exist — the same re-read
