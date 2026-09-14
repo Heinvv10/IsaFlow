@@ -10,6 +10,7 @@ import { log } from '@/lib/logger';
 import { validateSystemAccounts } from '../gl/systemAccountResolver';
 import { checkAccountSubtypeCoverage } from './migrationSubtypeCheck';
 import { PAYABLE_SUBTYPES, RECEIVABLE_SUBTYPES } from '../gl/accountSubtypes';
+import { documentInPopulationExpr } from '../shared/documentPopulation';
 import type { DbRow } from '@/types/db';
 
 
@@ -91,9 +92,9 @@ async function checkARvsGL(companyId: string): Promise<ValidationResult> {
   // Sum of open customer invoice balances
   const invRows = (await sql`
     SELECT COALESCE(SUM(total_amount - COALESCE(amount_paid, 0)), 0) AS total
-    FROM customer_invoices
-    WHERE company_id = ${companyId}::UUID
-      AND status IN ('approved', 'partially_paid', 'overdue')
+    FROM customer_invoices ci
+    WHERE ci.company_id = ${companyId}::UUID
+      AND ${sql.unsafe(documentInPopulationExpr('ci'))}
   `) as DbRow[];
 
   // GL balance on receivable account
@@ -128,9 +129,9 @@ async function checkARvsGL(companyId: string): Promise<ValidationResult> {
 async function checkAPvsGL(companyId: string): Promise<ValidationResult> {
   const invRows = (await sql`
     SELECT COALESCE(SUM(total_amount - COALESCE(amount_paid, 0)), 0) AS total
-    FROM supplier_invoices
-    WHERE company_id = ${companyId}::UUID
-      AND status IN ('approved', 'partially_paid', 'overdue')
+    FROM supplier_invoices si
+    WHERE si.company_id = ${companyId}::UUID
+      AND ${sql.unsafe(documentInPopulationExpr('si'))}
   `) as DbRow[];
 
   const glRows = (await sql`
