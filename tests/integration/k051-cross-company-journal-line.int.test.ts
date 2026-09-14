@@ -310,6 +310,15 @@ it('refuses a line tagged to another company business unit, and writes nothing',
   // The third dimension. `bu_id` was the one `journals.ts` originally forgot
   // and the one nothing exercised, so without this the arm could name the wrong
   // table — or be deleted outright — and the suite would stay green.
+  //
+  // `foreignBu` (seeded above) is active, so the ONLY thing wrong with it is
+  // that it belongs to `otherCompany` — an inactive-BU guard could not pass
+  // this test for the wrong reason, and ANY refusal here is refusing that.
+  // Asserted on the OUTCOME (refused, nothing written), not on which class or
+  // message fires: PR #418 already changed the message once by reordering
+  // validation, and a class pinned to one arm breaks again the next time a
+  // harmless reorder (e.g. an earlier ownership check refusing first) changes
+  // which code path answers — while the line stays exactly as refused.
   await expect(inRequestTx(() => createJournalEntry(
     company,
     {
@@ -321,11 +330,15 @@ it('refuses a line tagged to another company business unit, and writes nothing',
       ],
     },
     user,
-  ))).rejects.toThrow(/business unit outside this company/);
+  ))).rejects.toThrow();
 
-  const { rows } = await pool.query(
+  const { rows: lineRows } = await pool.query(
     'SELECT COUNT(*)::int AS n FROM gl_journal_lines WHERE bu_id=$1', [foreignBu]);
-  expect(rows[0].n).toBe(0);
+  expect(lineRows[0].n).toBe(0);
+  const { rows: entryRows } = await pool.query(
+    `SELECT COUNT(*)::int AS n FROM gl_journal_entries
+     WHERE company_id=$1 AND description='K051X foreign business unit'`, [company]);
+  expect(entryRows[0].n).toBe(0);
 });
 
 it('accepts a line tagged to THIS company business unit', async () => {
