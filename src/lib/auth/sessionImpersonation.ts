@@ -16,7 +16,7 @@ export function resetImpersonationReaderCache(): void { readerPresent = false; }
  * impersonated member has no verified MFA factor, so the recorded impersonation
  * session is consulted too: it survives the cookie, a refresh and the stash.
  *
- * When migration 691 - which owns this function; 675 defined it before that and
+ * When migration 715 - which owns this function; 702 defined it before that and
  * must not again - has not been applied, the reader does not exist. Calling it
  * unconditionally would 500 every authenticated request on a database that lags
  * migrations (this repo has had one), so absence is detected and reported as
@@ -56,9 +56,9 @@ interface ReaderState {
  * Every part of "this function can see the evidence": SECURITY DEFINER, an owner that gets past
  * RLS, and an owner that holds SELECT on both evidence tables. The last one matters because an
  * owner without it passes the first two and then raises 42501 from inside the reader's own query.
- * rolsuper is deliberately not consulted, for the reason migration 691's own comment gives: a
+ * rolsuper is deliberately not consulted, for the reason migration 715's own comment gives: a
  * superuser needs neither attribute, so treating one as unable to see is a fail-closed false
- * alarm, and 691 owns both functions by migration_admin, which is not one.
+ * alarm, and 715 owns both functions by migration_admin, which is not one.
  */
 /**
  * The reader RETURNS the sentinel, asserted where it is returned rather than anywhere in the
@@ -77,7 +77,7 @@ const sees = (fn: string) => `(SELECT p.prosecdef AND COALESCE(r.rolbypassrls, f
     FROM pg_proc p JOIN pg_roles r ON r.oid = p.proowner WHERE p.oid = to_regprocedure('${fn}'))`;
 /**
  * Existence of both functions, EXECUTE for the role that really calls each, and the ability
- * of each to see past the RLS migration 691 put on the evidence tables, in one statement. The
+ * of each to see past the RLS migration 715 put on the evidence tables, in one statement. The
  * reader runs inside withAuth after SET LOCAL ROLE app_user. The liveness check runs earlier,
  * from verifyToken, on the DATABASE_URL login role through the pool - no app_user transaction
  * exists yet - so it is checked for current_user, and the gate must run with the same
@@ -101,7 +101,7 @@ export const IMPERSONATION_READER_GATE_SQL = `SELECT
  * - the liveness function missing or not executable by the login role: every delegation
  *   proof is silently refused - impersonationActor logs the error and returns null - so the
  *   MFA bypass for impersonated sessions switches off. Fail closed, but not a working state;
- * - either function unable to see past the RLS migration 691 put on the evidence tables (it
+ * - either function unable to see past the RLS migration 715 put on the evidence tables (it
  *   lost SECURITY DEFINER, or its owner lost BYPASSRLS): the reader then reports every session
  *   as unverified and no review can be recorded, and liveness refuses every proof. Both fail
  *   closed by design, and both are states the deploy must refuse rather than serve.
@@ -109,27 +109,27 @@ export const IMPERSONATION_READER_GATE_SQL = `SELECT
 export async function assertImpersonationReaderDeployed(
   query: (text: string) => Promise<ReaderState[]>): Promise<void> {
   const row = (await query(IMPERSONATION_READER_GATE_SQL))[0];
-  if (row?.reader !== true) throw new Error(`${READER} is not deployed: apply migration 691 before serving requests`);
-  if (row.liveness !== true) throw new Error(`${LIVENESS} is not deployed: apply migration 677 before serving requests`);
+  if (row?.reader !== true) throw new Error(`${READER} is not deployed: apply migration 715 before serving requests`);
+  if (row.liveness !== true) throw new Error(`${LIVENESS} is not deployed: apply migration 704 before serving requests`);
   if (row.reader_exec !== true) throw new Error(`app_user cannot EXECUTE ${READER}`);
   if (row.liveness_exec !== true) {
     throw new Error(`${row.login_role ?? 'the DATABASE_URL role'} cannot EXECUTE ${LIVENESS}`);
   }
   if (row.reader_sees !== true) {
-    throw new Error(`${READER} cannot read the impersonation evidence: it must be SECURITY DEFINER, and its owner must both bypass RLS and hold SELECT on admin_audit_log and admin_impersonation_stash (migration 691)`);
+    throw new Error(`${READER} cannot read the impersonation evidence: it must be SECURITY DEFINER, and its owner must both bypass RLS and hold SELECT on admin_audit_log and admin_impersonation_stash (migration 715)`);
   }
   if (row.liveness_sees !== true) {
-    throw new Error(`${LIVENESS} cannot read the impersonation evidence: it must be SECURITY DEFINER, and its owner must both bypass RLS and hold SELECT on admin_audit_log and admin_impersonation_stash (migration 691)`);
+    throw new Error(`${LIVENESS} cannot read the impersonation evidence: it must be SECURITY DEFINER, and its owner must both bypass RLS and hold SELECT on admin_audit_log and admin_impersonation_stash (migration 715)`);
   }
-  // The deployed body, not just its decoration. 675 used to define this function too, and its body
+  // The deployed body, not just its decoration. 702 used to define this function too, and its body
   // answers "could not read the evidence" with NULL - which resolveImpersonatingActor reads as no
-  // impersonation at all. Re-running an older migration after 691 (resolve-checksum-conflicts.ts, a
+  // impersonation at all. Re-running an older migration after 715 (resolve-checksum-conflicts.ts, a
   // rebuilt database, a renumbering) would reinstate it with every other property still true, so the
   // sentinel in the body is the only thing that distinguishes the two. This gate is order-independent
-  // and runs on every deploy; a guard inside 691 could not help, because in the dangerous ordering
-  // 691 has already run.
+  // and runs on every deploy; a guard inside 715 could not help, because in the dangerous ordering
+  // 715 has already run.
   if (row.reader_sentinel !== true) {
-    throw new Error(`${READER} has been reverted to a body that reports an unreadable evidence table as "no impersonation": it must return the ${IMPERSONATION_UNVERIFIED} sentinel (migration 691 owns this function; 675 must not define it)`);
+    throw new Error(`${READER} has been reverted to a body that reports an unreadable evidence table as "no impersonation": it must return the ${IMPERSONATION_UNVERIFIED} sentinel (migration 715 owns this function; 702 must not define it)`);
   }
 }
 

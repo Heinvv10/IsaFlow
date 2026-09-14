@@ -16,7 +16,7 @@ it('fails the deploy when the login role cannot execute the liveness function',a
   .rejects.toThrow(/app_login cannot EXECUTE/);
 });
 it('fails the deploy when the deployed reader body has lost the unverified sentinel',async()=>{
- // An older migration re-applied after 691 restores a body that answers an unreadable evidence table with
+ // An older migration re-applied after 715 restores a body that answers an unreadable evidence table with
  // NULL - read as "no impersonation" - while every other property the gate checks stays true.
  const state={reader:true,liveness:true,reader_exec:true,liveness_exec:true,reader_sees:true,liveness_sees:true,reader_sentinel:false};
  await expect(runImpersonationReaderGate(async()=>[state],vi.fn()))
@@ -24,7 +24,7 @@ it('fails the deploy when the deployed reader body has lost the unverified senti
 });
 
 it.each(['reader_sees','liveness_sees'] as const)('fails the deploy when %s says the function cannot see the evidence',async field=>{
- // 691 put RLS on both evidence tables, so a reader that is not SECURITY DEFINER, whose owner lost
+ // 715 put RLS on both evidence tables, so a reader that is not SECURITY DEFINER, whose owner lost
  // BYPASSRLS, or whose owner lost SELECT, cannot read them: every session unverified, every proof
  // refused - and in the lost-SELECT case the reader would raise 42501 instead of answering.
  const state={reader:true,liveness:true,reader_exec:true,liveness_exec:true,reader_sees:true,liveness_sees:true,reader_sentinel:true,[field]:false};
@@ -49,7 +49,7 @@ it('asks the database every question the gate decides on, in one statement',asyn
  // The owner must hold SELECT on both evidence tables, or the reader raises 42501 from its own query.
  expect(text).toContain("has_table_privilege(p.proowner, 'public.admin_audit_log', 'SELECT')");
  expect(text).toContain("has_table_privilege(p.proowner, 'public.admin_impersonation_stash', 'SELECT')");
- // The deployed body must still RETURN the sentinel: an older migration re-applied after 691 restores a body
+ // The deployed body must still RETURN the sentinel: an older migration re-applied after 715 restores a body
  // that answers an unreadable evidence table with NULL, with every other property here still true. Matched on
  // the RETURN with comments stripped, because a plain substring over prosrc is satisfied by a comment.
  expect(text).toContain(`~ 'RETURN\\s+''${IMPERSONATION_UNVERIFIED}'''`);
@@ -61,16 +61,16 @@ it('asks the database every question the gate decides on, in one statement',asyn
 /**
  * Editing an applied migration stops the deploy at apply-migrations.ts with exit 2, BEFORE the gate above can
  * run, and clearing it is a separate command an operator has to know exists. The instruction and the claim that
- * makes it safe are asserted together: re-applying 675 is harmless only while 675 no longer defines the reader.
+ * makes it safe are asserted together: re-applying 702 is harmless only while 702 no longer defines the reader.
  */
-it('tells the deployer how to clear the checksum conflicts that editing 675 and 677 causes',async()=>{
+it('tells the deployer how to clear the checksum conflicts that editing 702 and 704 causes',async()=>{
  const {readFileSync}=await import('node:fs');
- const migration=readFileSync('scripts/migrations/sql/675_platform_import_approval_authority.sql','utf8');
- expect(migration).toContain('bun scripts/migrations/resolve-checksum-conflicts.ts 675_platform_import_approval_authority.sql');
- // 677 was edited too, to pin pg_temp; both conflicts stop the same deploy and both need clearing.
- expect(readFileSync('scripts/migrations/sql/677_impersonation_delegation_liveness.sql','utf8'))
-  .toContain('bun scripts/migrations/resolve-checksum-conflicts.ts 677_impersonation_delegation_liveness.sql');
- // The safety claim the note rests on: 691 owns the reader now, so re-applying 675 cannot restore the old body.
+ const migration=readFileSync('scripts/migrations/sql/702_platform_import_approval_authority.sql','utf8');
+ expect(migration).toContain('bun scripts/migrations/resolve-checksum-conflicts.ts 702_platform_import_approval_authority.sql');
+ // 704 was edited too, to pin pg_temp; both conflicts stop the same deploy and both need clearing.
+ expect(readFileSync('scripts/migrations/sql/704_impersonation_delegation_liveness.sql','utf8'))
+  .toContain('bun scripts/migrations/resolve-checksum-conflicts.ts 704_impersonation_delegation_liveness.sql');
+ // The safety claim the note rests on: 715 owns the reader now, so re-applying 702 cannot restore the old body.
  expect(migration).not.toMatch(/(CREATE|REPLACE)\s+FUNCTION\s+public\.control_session_impersonator/i);
  // And the generic failure names the resolver, for the operator who never opens the file.
  expect(readFileSync('scripts/apply-migrations.ts','utf8'))

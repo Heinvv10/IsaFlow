@@ -1,8 +1,8 @@
 -- DEPLOY NOTE - this file was edited after it had been applied, so every database that already carries it
 -- will stop the deploy at scripts/apply-migrations.ts with "Checksum conflicts - migration files edited after
--- apply" and exit 2, BEFORE any later gate runs. Clear it once per database, alongside 675's, then deploy again:
+-- apply" and exit 2, BEFORE any later gate runs. Clear it once per database, alongside 702's, then deploy again:
 --
---   bun scripts/migrations/resolve-checksum-conflicts.ts 677_impersonation_delegation_liveness.sql
+--   bun scripts/migrations/resolve-checksum-conflicts.ts 704_impersonation_delegation_liveness.sql
 --
 -- The only change is pinning pg_temp LAST in this function's search_path. Re-running the file is idempotent
 -- (CREATE INDEX IF NOT EXISTS, DROP then CREATE FUNCTION) and it is the sole definition of that function.

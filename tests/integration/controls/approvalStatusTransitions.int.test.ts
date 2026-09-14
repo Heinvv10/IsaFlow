@@ -6,7 +6,7 @@ import { executeControlledOperation } from '@/modules/accounting/services/contro
 import { loadOperationMaterial } from '@/modules/accounting/services/controls/operationMaterializer';
 import { operationBindingHash } from '@/modules/accounting/services/controls/canonical';
 
-// Migration 688: an approval is born pending and moves only along the edges the services take, each by the actor
+// Migration 712: an approval is born pending and moves only along the edges the services take, each by the actor
 // allowed to take it, whatever role writes it.
 const g = approvalGuardSuite();
 const TRANSITION = refused('transition'), BIRTH = refused('birth');
