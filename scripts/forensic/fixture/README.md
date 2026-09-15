@@ -33,7 +33,7 @@ vitest run --config vitest.integration.config.ts tests/integration/controls --sh
 | File | What it is |
 |---|---|
 | `schema.sql` | `pg_dump -s` of the fixture, ownership preserved. **Generated — never hand-edit.** Its header states its provenance and the commit it was verified against. |
-| `reference-data.sql` | Rows the *migrations* insert into `permission_modules`, `feature_flags`, `asset_categories`. Generated. |
+| `reference-data.sql` | Rows the *migrations* insert into `permission_modules`, `feature_flags`, `asset_categories` (generated), plus ONE hand-added row: the reserved gateway principal from migration 841. |
 | `roles.sql` | The three cluster roles, hand-written. `pg_dumpall --roles-only` emits password hashes, which must not enter the repository. |
 | `reverts/*.sql` | Undo scripts for migrations that exist on other branches but not on this one, consumed by `schema-match.ts`. |
 
@@ -44,6 +44,11 @@ Ownership is preserved on purpose: `migration_admin` owns 238 objects in the dum
 tables — without `permission_modules` the control routes answer `400 Unknown moduleKey: audit` and
 `authorityLockLiveness` fails for a reason that has nothing to do with locks. All three tables are
 company-agnostic (none has a `company_id`; every `asset_categories` GL column is NULL).
+
+The one hand-added row is migration 841's reserved unattended principal, the identity a Paystack
+webhook settlement is attributed to. It is hand-added rather than dumped because `users` also holds
+people and must never be dumped wholesale into this repository. Keep it in step with 841 by hand; a
+fresh fixture must contain exactly one user, and that is it.
 
 The `\restrict` / `\unrestrict` lines `pg_dump` emits are stripped: the token is a fresh random
 nonce every time, and leaving it in makes each regeneration diff look like a change.
@@ -67,7 +72,7 @@ and it drops to 12. Those 12:
 | `255_fix_missing_schema`, `440_app_settings_view`, `436_sent_mirror_connections`, `672_capture_posting_claim_fence`, `816_bank_statement_attestation_intents` | Downstream of `253` failing. |
 | `284_bank_rules_columns` | `RENAME COLUMN match_value TO match_pattern` unguarded, after `256` already created `match_pattern`. |
 | `311_missing_indexes` | Indexes a column that does not exist at that point in the order. |
-| `841_gateway_receipt_principal` | `INSERT INTO users (…, password_hash, …)`, but `349_users_profile_shadow.sql` dropped that column. **Cannot apply to any real database.** |
+| ~~`841_gateway_receipt_principal`~~ | FIXED in `976457568`. It named `users.password_hash`, dropped by `349_users_profile_shadow.sql` at the GoTrue cutover, so it failed at parse and could never apply anywhere. Found by this fixture within minutes of the fixture existing; now verified to apply in full and to be idempotent. |
 
 So a migration-built fixture would model what the migrations *say*, not what the code *runs
 against*, and would produce exactly the unattributable failures that make a bad fixture worse than
@@ -115,10 +120,22 @@ bash scripts/forensic/fixture-dump.sh 33151 HEAD             # verifies again, t
 bash scripts/forensic/fixture-down.sh 33151
 ```
 
-**Dump only from a fixture that has never run a test.** `fixture-dump.sh` refuses otherwise
-(it checks for rows in `companies`). The guard exists because a
+**Dump only from a fixture that has never run a test.** The guard exists because a
 `synthetic_comparison_source_suppress()` trigger function, carrying two hardcoded UUIDs in its
 body, was created by the controls suite and made it into a dump taken from a used fixture.
+
+`fixture-dump.sh` detects "used" by three independent signals, any one of which refuses the dump:
+
+1. any row in `companies` — every tenant-scoped suite provisions one, since
+   `provisionForensicFixture` always does;
+2. any row in `users` other than the single reserved gateway principal above;
+3. any relation OR function in `public` named `synthetic*` — the convention the suites use for
+   objects they create, and the one that actually leaked.
+
+Three rather than one because a suite can use the fixture in a way this script did not anticipate.
+If you find a fourth way, add a fourth signal here rather than relying on the content checks at the
+end of the dump to catch it. Each of the three is verified to refuse by adding the thing and
+watching the dump be rejected.
 
 A migration that fails to apply forward here is telling you it was written against a state that no
 longer exists. Fix the migration; never hand-edit the dump.
