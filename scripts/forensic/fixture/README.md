@@ -132,10 +132,29 @@ body, was created by the controls suite and made it into a dump taken from a use
 3. any relation OR function in `public` named `synthetic*` — the convention the suites use for
    objects they create, and the one that actually leaked.
 
-Three rather than one because a suite can use the fixture in a way this script did not anticipate.
-If you find a fourth way, add a fourth signal here rather than relying on the content checks at the
-end of the dump to catch it. Each of the three is verified to refuse by adding the thing and
-watching the dump be rejected.
+Each of the three is verified to refuse by adding the thing and watching the dump be rejected.
+
+**But all three are PROXIES, and all three can be clean on a dirty fixture.** The premise "tests
+always create companies" confuses *creates* with *leaves behind* — a suite that tears down
+properly, as the k-046 teardowns in `5a09fb442` do, leaves `companies` at zero. And `synthetic*`
+is a naming convention, not a guarantee. So the guard that actually matters is the content check
+on the dump itself:
+
+**No UUID-shaped and no email-shaped literal may appear anywhere in `schema.sql`, function bodies
+included.** That is not a proxy for "was this fixture used" — it asks directly whether the artefact
+contains something that must never be in it. The historical leak was two tenant UUIDs inside a
+plpgsql trigger body, which is *schema*, not data, so every statement-shaped check (`^COPY`,
+`^INSERT INTO`, SCRAM, `ALTER ROLE`, connection strings) passes it. Proved by reconstructing that
+function under a name the `synthetic*` signal cannot see, on a fixture with zero companies and one
+user: all three used-fixture signals read clean and the dump was still refused, naming the line.
+
+The dump is built into a temp file and moved into place only after every guardrail passes, so a
+refused dump never lands on disk looking like the committed one. Verified: `schema.sql` is
+byte-identical after a refusal.
+
+The live schema has zero of either literal across all 36,538 lines, so this is a hard refusal
+rather than a threshold. A migration that legitimately adds a UUID `DEFAULT` or `CHECK` will fail
+it closed and wants an explicit allowlist in `fixture-dump.sh` — the correct direction to fail.
 
 A migration that fails to apply forward here is telling you it was written against a state that no
 longer exists. Fix the migration; never hand-edit the dump.
@@ -167,10 +186,30 @@ missing, and an integration test, not the verifier, is what caught it.
 
 Extending `schema-match` to compare `proconfig` properly is not cheap: `838` sets it from a
 `DO` block using `format()`, so there is no static `ALTER FUNCTION` statement to parse. The
-targeted assertion in `fixture-verify.sh` is the affordable substitute. `prosecdef` and function
-ownership were checked by hand and do **not** drift through the revert step —
-`CREATE OR REPLACE FUNCTION` preserves the owner of an existing function — so they need no guard
-today; a revert that ever does `DROP FUNCTION` followed by `CREATE` would change that.
+targeted assertion in `fixture-verify.sh` is the affordable substitute.
+
+### `prosecdef` and ownership behave differently, and only one of them is safe
+
+An earlier version of this file claimed neither drifts, because `CREATE OR REPLACE FUNCTION`
+preserves the owner. **The ownership half is true and the `prosecdef` half was false**, and the
+reasoning was a non-sequitur: they are independent catalog fields with opposite behaviour.
+Measured on a probe function owned by `migration_admin`, `SECURITY DEFINER`, `SET lock_timeout`:
+
+| Operation | owner | `prosecdef` | `proconfig` |
+|---|---|---|---|
+| `CREATE OR REPLACE`, not restating `SECURITY DEFINER` | `migration_admin` (kept) | **`f` — lost** | **null — lost** |
+| `DROP` + `CREATE` | `postgres` (**reassigned**) | `t` | null |
+
+So a definer bit is lost by exactly the mechanism `proconfig` is, and a reader that silently
+becomes `SECURITY INVOKER` — or whose owner stops bypassing RLS — **fails OPEN**.
+
+`fixture-verify.sh` therefore checks both, against `fixture/definers.txt`, a manifest
+`fixture-dump.sh` writes from the fixture it dumps: every function in the manifest must still be
+`SECURITY DEFINER` with the same owner, and no live definer function may be owned by a role that
+neither bypasses RLS nor is superuser. Proved by `ALTER FUNCTION control_guard_approval_birth()
+SECURITY INVOKER` — body untouched, so only the bit changes — and watching `schema-match` report
+**MATCH** while verify exits 1 naming the function. An assertion nobody has watched fail is a
+decoration.
 
 Treat a green integration run as the stronger signal of the two, and when a control test fails in
 a way that smells structural, check the fixture before the code.

@@ -12,9 +12,9 @@
 -- production-descended dump, plus the migrations it lacked applied forward, minus migrations
 -- carried from branches this one does not have, reverted via fixture/reverts/.
 --
--- VERIFIED. schema-match.ts reported MATCH for commit 78ef6252988974bc804991087fa314919f357cdf
+-- VERIFIED. schema-match.ts reported MATCH for commit da14b249e1e2eaf6960805ec2f26aa32114e54ea
 --           (last migration at that commit: 841_gateway_receipt_principal.sql)
---           at 2026-09-14T14:32:37Z, which is what fixture-dump.sh requires before writing this file.
+--           at 2026-09-15T12:08:14Z, which is what fixture-dump.sh requires before writing this file.
 --           MATCH compares tables, ADD COLUMNs, triggers and function BODIES at or above the
 --           floor, plus the revert detect queries. It does NOT compare grants, RLS policies, or
 --           function SET clauses (proconfig) — see the README.

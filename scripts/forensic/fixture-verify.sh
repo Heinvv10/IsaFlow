@@ -46,4 +46,41 @@ if [ -n "$UNBOUND" ]; then
 else
   echo "   every control-authority lock holder carries lock_timeout=5s (838) — OK"
 fi
+
+# SECURITY DEFINER drift, against fixture/definers.txt. Same shape as the 838 check above and for
+# the same reason: schema-match compares function BODIES, and a lost definer bit is not a body
+# change it can see. CREATE OR REPLACE FUNCTION resets prosecdef to INVOKER unless the replacement
+# restates SECURITY DEFINER — owner survives, the definer bit does not, and the two are independent
+# catalog fields. A definer reader that silently becomes an invoker fails OPEN.
+echo "== SECURITY DEFINER functions (schema-match cannot check these either)"
+MANIFEST=$HERE/fixture/definers.txt
+if [ ! -s "$MANIFEST" ]; then
+  echo "   no manifest yet — run fixture-dump.sh to create fixture/definers.txt"
+else
+  LIVE=$(docker exec "isaflow-forensic-$PORT" psql -U postgres -d isaflow_schema_fixture -tAc "
+    SELECT p.oid::regprocedure::text||'|'||r.rolname
+    FROM pg_proc p JOIN pg_roles r ON r.oid=p.proowner JOIN pg_namespace n ON n.oid=p.pronamespace
+    WHERE n.nspname IN ('public','auth','app') AND p.prosecdef
+    ORDER BY 1" | sed 's/^ *//' | grep -v '^$')
+  LOST=$(comm -23 <(sort "$MANIFEST") <(echo "$LIVE" | sort) | cut -d'|' -f1)
+  if [ -n "$LOST" ]; then
+    echo "   LOST SECURITY DEFINER (or changed owner) since the manifest:"
+    echo "$LOST" | sed 's/^/     /'
+    echo "   a CREATE OR REPLACE that did not restate SECURITY DEFINER is the usual cause"
+    STATUS=1
+  else
+    echo "   all $(wc -l < "$MANIFEST") manifest functions still SECURITY DEFINER with the same owner — OK"
+  fi
+  # An owner that can neither bypass RLS nor is superuser makes a definer function useless at best
+  # and misleading at worst; check the live set regardless of the manifest.
+  WEAK=$(docker exec "isaflow-forensic-$PORT" psql -U postgres -d isaflow_schema_fixture -tAc "
+    SELECT string_agg(p.oid::regprocedure::text, ', ' ORDER BY 1)
+    FROM pg_proc p JOIN pg_roles r ON r.oid=p.proowner JOIN pg_namespace n ON n.oid=p.pronamespace
+    WHERE n.nspname IN ('public','auth','app') AND p.prosecdef
+      AND NOT r.rolbypassrls AND NOT r.rolsuper")
+  if [ -n "$WEAK" ]; then
+    echo "   SECURITY DEFINER owned by a role that neither bypasses RLS nor is superuser: $WEAK"
+    STATUS=1
+  fi
+fi
 exit $STATUS
