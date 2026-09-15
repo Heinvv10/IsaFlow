@@ -340,9 +340,119 @@ body from #431's older base.**
 
 ### Residual risk (supersedes round 1's "None")
 
-None identified for the fixes made this round. The soft-delete leg now matches five other AR/AP
-consumers exactly (`arAgingService`, `apAgingService`, `arSubledgerService`, `apSubledgerService`,
-`dunningCronService`/`portalService`), so this file can't drift from them independently on either
-axis (status or reversal-parity) going forward. The customer-importer schema mismatch and the two
-merge hazards (R-021's unconditional derivation, PR #431's stale `sageImportService.ts`) remain
-open and are the lead's to route, not silent risks introduced by this fix.
+None identified for the fixes made this round, superseded by round 3 below (the soft-delete leg
+itself was still wrong on one edge case). The customer-importer schema mismatch and the two merge
+hazards (R-021's unconditional derivation, PR #431's stale `sageImportService.ts`) remain open and
+are the lead's to route, not silent risks introduced by this fix.
+
+---
+
+## Round 3 — blind review `review-r089-r1.md` round 2 (1 new MEDIUM), fixed by removing the date bound rather than adding one
+
+### The finding
+
+`checkARvsGL`/`checkAPvsGL` (round 2) dated the document half (`documentInLedgerAsAtFragment`) to
+`asAtTodayStr()` but left the GL half unbounded — pairing a dated half with an undated one, the
+same class of asymmetry round 1 fixed on the status axis. The review's suggested fix was to bound
+the GL half too. Doing exactly that (`AND je.entry_date <= asAtStr::date` on both GL sub-queries)
+does NOT close the gap; it moves it. Measured directly, fresh company each:
+
+| Shape | Before either fix | `asAtTodayStr()` alone (round 2) | Both halves bounded to `asAtTodayStr()` (review's literal suggestion) |
+|---|---|---|---|
+| Live, future-dated invoice + journal | pass (R1150 vs R1150, unbounded GL) | pass (unchanged — GL unbounded) | **regresses to fail** (Invoices R1150, GL R0 — GL now excludes the future entry the invoice side still counts) |
+| Same invoice, then soft-deleted | fail (R1150 vs R0) | still fail in the one case the reversal lands on TODAY | **still fails, different wrong numbers** (Invoices R1150, GL -R1150) |
+
+### Root cause
+
+The document half's chain-parity math (`documentInLedgerAsAtFragment`) assumes the entries counted
+"on or before" the as-at date form a PREFIX of the reversal chain — the module's own documented
+precondition. That holds only when no reversal is ever dated before the entry it reverses.
+`resolveReversalDate`'s DEFAULT path (no explicit `reversalDate`) returns the original's own date
+when that date's fiscal period is open, and falls back to TODAY otherwise — with no guard against
+today being EARLIER than a FUTURE original. A future-dated posted journal (the shape this suite
+constructs directly in SQL, matching how `k053-out-of-order-reversal-chain.int.test.ts` already
+notes "no code path can produce" the EXPLICIT version of this violation) can trip that fallback,
+because auto-created fiscal years are the only thing that keeps it from happening, and only once
+they exist. This is a **precondition violation in a module this file doesn't own**
+(`shared/softDeleteLedgerPresence.ts` / `gl/journalEntryReversalDate.ts`), not something
+`migrationValidationService.ts` can correct by adding or moving a date bound — a **REAL** as-at
+date is exactly what breaks when the underlying order assumption is violated, regardless of which
+half carries it.
+
+### Fix
+
+Both halves are now **unbounded by date** — the way the GL half already was before either round 2
+or this round touched it. The document half calls `documentInLedgerAsAtFragment` with a new
+`CURRENT_STATE_SENTINEL` (`'9999-12-31'`) instead of `asAtTodayStr()`. This is not "a later as-at
+date" — it removes the ordering dependency entirely: at a date far beyond any real entry, every
+entry in the chain is always "on or before" it, so the filtered count equals the chain's FULL
+length, and parity of the full chain does not depend on which order its entries are checked
+against. `checkARvsGL`/`checkAPvsGL` are answering "does the CURRENT invoice total match the
+CURRENT GL balance", not a historical as-at question — unlike the ageing reports (which legitimately
+need a real as-at date and bound both halves via `rewindAmount`), this reconciliation was never a
+point-in-time one, so it needed no date bound on either side to begin with. The full reasoning is
+in `migrationValidationService.ts`'s own doc comment above `CURRENT_STATE_SENTINEL`.
+
+### Tests
+
+Ten pre-existing tests are unaffected (all still pass with no changes). Added, real DB, fresh
+companies each:
+
+- Live "sent"/"disputed" invoice with a journal dated 90 days in the future (AR + AP) — pass.
+- The same shape, then `softDelete()`'d through the real service (AR + AP) — pass. This path is
+  **racy for actually reproducing the precondition violation**: whether `resolveReversalDate`'s
+  fallback lands on today (violating it) or on the future original's own date (not violating it)
+  depends on whether that month's `fiscal_periods` row is already `'open'` at the moment of the
+  check — which depends on whether an EARLIER run against the same company id already
+  auto-created it. `cleanupCompany` now also deletes `fiscal_periods` (it didn't before, so a
+  second run against the same fixed company id in this test file was silently masking the bug on
+  every run after the first — the review's own "reproduce on a fresh company" warning, one layer
+  deeper than the company row itself). These four tests pass regardless of which way the race
+  goes, which is the point of the fix, but passing does not by itself PROVE the violated-order case
+  is handled.
+- **Deterministic proof**: `R086OO` hand-builds the illegal chain directly in SQL — a future-dated
+  original, then a reversal dated TODAY via a raw `INSERT INTO gl_journal_entries` with
+  `reversal_of_id` set directly (the same technique `k053-out-of-order-reversal-chain.int.test.ts`
+  uses to pin the underlying predicate, since no application code path can produce this ordering
+  through `reverseJournalEntry`). This test does not depend on any fiscal-period timing and
+  reliably reproduces the exact precondition the review named. `checkARvsGL` passes against it.
+
+### Mutations — both RED, both restored byte-identical (md5 `fc943f8d38ae6edb81ceecccf7cc3f98`)
+
+- Reverted `CURRENT_STATE_SENTINEL` to `asAtTodayStr()` at both call sites (the review's literal
+  suggestion, re-tested): the two live-future tests still pass (the sentinel change only affects
+  soft-deleted rows), but the deterministic `R086OO` test goes RED (`fail`, not `pass`) —
+  reliably, unlike the racy softDelete-path tests, which happened to still pass that run because
+  the fiscal period for the test's future date was already open from an earlier run in the same
+  file (proving the race is real, not hypothetical).
+- Confirmed the review's literal fix (bounding the GL half's `entry_date` too) reproduces exactly
+  the regression table above, via direct measurement before settling on the sentinel approach —
+  not committed, since it's strictly worse than what shipped.
+
+### Residual risk
+
+The actual defect enabling the precondition violation — `resolveReversalDate`'s default-date
+fallback has no guard against `today < originalDate` — lives in
+`src/modules/accounting/services/gl/journalEntryReversalDate.ts`, outside this ticket's files, and
+is not fixed here. `migrationValidationService.ts` is now robust to it regardless (the sentinel
+approach doesn't care whether the violation occurs), so there is no residual risk to THIS file's
+checks. Flagged below as a new finding for the lead — the deeper bug can still misdate a reversal
+in ways other consumers of `documentInLedgerAsAtFragment`/`resolveReversalDate` (the ageing
+reports, the aging-based close checks) have not been re-audited against, since they DO ask a real
+historical as-at question and cannot use this sentinel trick.
+
+### New finding for the lead (registered-worthy, not fixed here)
+
+**`resolveReversalDate`'s default-date fallback can date a reversal BEFORE the entry it reverses.**
+`journalEntryReversalDate.ts`: `return originalPeriod === 'open' ? originalDate : fmtDate(new
+Date())` — the "not open" branch returns TODAY unconditionally, with no check that today is not
+EARLIER than `originalDate`. This only matters for a future-dated original whose period isn't open
+yet, an edge case `k053-out-of-order-reversal-chain.int.test.ts`'s own comment says "no code path
+can produce" — that claim is true for the EXPLICIT-date path (which IS guarded, refuses an earlier
+date) but not for this DEFAULT path, which has no equivalent guard. Every other consumer of
+`documentInLedgerAsAtFragment` (the ageing reports, close-readiness checks) inherits this same
+precondition and, unlike this file after today's fix, cannot sidestep it with a sentinel — they
+need a real as-at date. Worth a proper fix in `journalEntryReversalDate.ts` (e.g. fall back to
+`min(today, originalDate)`, or refuse and surface a `ReversalPeriodError`-style typed error the
+caller can act on) plus a re-audit of the ageing/close-check consumers against the same shape this
+ticket used to find it.
