@@ -17,6 +17,7 @@ import {
 import { withCsrf } from '@/lib/auth/withCsrf';
 import { sql } from '@/lib/neon';
 import { log } from '@/lib/logger';
+import { assertSupplierInCompany, SupplierNotInCompanyError } from '@/modules/accounting/services/core/contactDirectoryService';
 
 type Row = Record<string, unknown>;
 
@@ -96,6 +97,14 @@ async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse) {
     const allowedEditStatuses = ['draft', 'submitted'];
     if (!allowedEditStatuses.includes(currentStatus)) {
       return apiResponse.badRequest(res, `Cannot edit a ${currentStatus} purchase order`);
+    }
+
+    // R-068: supplier_id comes from the body; refused before the UPDATE.
+    try {
+      await assertSupplierInCompany(companyId, supplier_id);
+    } catch (err) {
+      if (err instanceof SupplierNotInCompanyError) return apiResponse.badRequest(res, err.message);
+      throw err;
     }
 
     // Compute totals from items if provided

@@ -20,6 +20,9 @@ import {
   allocateTransaction,
 } from '@/modules/accounting/services/bank/bankReconciliationService';
 import { isRetryableContention } from '@/modules/accounting/services/core/retryableContention';
+import {
+  assertCustomerInCompany, assertSupplierInCompany, CustomerNotInCompanyError, SupplierNotInCompanyError,
+} from '@/modules/accounting/services/core/contactDirectoryService';
 
 const ManualTxSchema = z.object({
   type: z.enum(['spend', 'receive']),
@@ -65,6 +68,19 @@ async function handler(req: CompanyAuthedRequest, res: NextApiResponse) {
   // ── Amount sign — negative for spend, positive for receive ─────────────────
 
   const signedAmount = type === 'spend' ? -Math.abs(numericAmount) : Math.abs(numericAmount);
+
+  // R-067 / R-068: `entityId` comes from the body. allocateTransaction fences it,
+  // but only after step 1 has written the bank line, so refuse it here first —
+  // a typed 400 that commits nothing, not a 500 whose rollback is the only guard.
+  try {
+    if (allocationType === 'supplier') await assertSupplierInCompany(companyId, entityId);
+    if (allocationType === 'customer') await assertCustomerInCompany(companyId, entityId);
+  } catch (err) {
+    if (err instanceof SupplierNotInCompanyError || err instanceof CustomerNotInCompanyError) {
+      return apiResponse.badRequest(res, err.message);
+    }
+    throw err;
+  }
 
   try {
     // ── Step 1: Insert bank_transactions row ─────────────────────────────────

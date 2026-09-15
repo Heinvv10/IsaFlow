@@ -80,8 +80,9 @@ const RECEIVED_TX = { ...SPENT_TX, amount: 1150 };
 function primeSql(tx: typeof SPENT_TX, kind: 'supplier' | 'customer' = 'supplier') {
   mockSql.mockResolvedValueOnce([tx]);                              // lock + fetch the line
   // R-067: the customer arm fences `entityId` against `customers` immediately
-  // after the lock, before anything is posted. The queue is positional.
-  if (kind === 'customer') mockSql.mockResolvedValueOnce([{ ok: 1 }]);
+  // after the lock, before anything is posted; R-068 does the same for the
+  // supplier arm against `suppliers`. The queue is positional.
+  mockSql.mockResolvedValueOnce([{ ok: 1 }]);
   mockSql
     .mockResolvedValueOnce([{ name: 'Acme' }])                      // entity name
     .mockResolvedValueOnce([])                                      // source_document_id carry-forward

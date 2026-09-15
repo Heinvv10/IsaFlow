@@ -15,6 +15,7 @@ import { withAuth, type CompanyAuthedRequest, type AuthenticatedNextApiRequest, 
 import { withCsrf } from '@/lib/auth/withCsrf';
 import { log } from '@/lib/logger';
 import { reserveNextDocumentNumber } from '@/modules/accounting/services/core/companySettingsService';
+import { assertSupplierInCompany, SupplierNotInCompanyError } from '@/modules/accounting/services/core/contactDirectoryService';
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 type Row = Record<string, any>;
@@ -54,6 +55,14 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
 
     if (!supplierId || !amount) {
       return apiResponse.validationError(res, { supplierId: 'Required', amount: 'Required' });
+    }
+
+    // R-068: before the number reservation, the first write.
+    try {
+      await assertSupplierInCompany(companyId, supplierId);
+    } catch (err) {
+      if (err instanceof SupplierNotInCompanyError) return apiResponse.badRequest(res, err.message);
+      throw err;
     }
 
     try {
