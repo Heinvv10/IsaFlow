@@ -7,6 +7,7 @@ import {mapRow} from './glAccountRowMapper';
 import {withGlAccountChanges} from './glAccountChangeControl';
 import {detachGlInput} from './glAccountChangeRows';
 import {getPostedAccountBalance,holdsMoney,formatAccountBalance} from './glAccountBalance';
+import {isBankSubtype} from './accountSubtypes';
 async function updateAccountRaw(companyId: string, id: string, input: UpdateAccountInput): Promise<GLAccount> {
   try {
     const account = await sql`SELECT * FROM gl_accounts WHERE id = ${id} AND company_id = ${companyId}` as {
@@ -81,12 +82,13 @@ async function deleteAccountRaw(companyId: string, id: string): Promise<void> {
       );
     }
 
-    if (accountSubtype === 'bank') {
+    if (isBankSubtype(accountSubtype)) {
       const pendingRows = await sql`
         SELECT COUNT(*) AS cnt FROM bank_transactions
         WHERE bank_account_id = ${id}
           AND company_id = ${companyId}
           AND status NOT IN ('reconciled', 'excluded')
+          AND feed_state <> 'removed'
       ` as { cnt: string }[];
       const pendingCount = Number(pendingRows[0]!.cnt);
 

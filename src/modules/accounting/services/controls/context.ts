@@ -2,7 +2,7 @@ import { randomUUID } from 'node:crypto';
 import type { PoolClient } from 'pg';
 import { als, assertTxUsable, type RequestContext } from '@/lib/als';
 import { sql } from '@/lib/neon';
-import type { ControlPrincipal, ControlTx } from './contracts';
+import { GATEWAY_RECEIPT_PERSON_ID, type ControlPrincipal, type ControlTx } from './contracts';
 import type {AuditJobLease} from './auditJobLease';
 import {loadStoredAuditJobDelegation} from './auditJobDelegation';
 import {assertPlatformImportPrincipal} from '@/lib/auth/platformImportAuthority';
@@ -44,7 +44,8 @@ type AuthenticatedIdentity = Pick<ControlPrincipal, 'personId' | 'companyId' | '
 
 /** Authentication middleware supplies this identity; request args are never input. */
 export function makeControlPrincipal(identity: AuthenticatedIdentity): ControlPrincipal {
-  if (!identity.personId || !identity.companyId || (identity.authMethod === 'job' || identity.authMethod === 'platform_import')) {
+  if (!identity.personId || !identity.companyId
+    || ['job', 'platform_import', 'gateway'].includes(identity.authMethod)) {
     throw new Error('Authenticated tenant principal required');
   }
   const bearer = identity.authMethod !== 'cookie';
@@ -170,6 +171,50 @@ async function withPrincipal<T>(store:RequestContext,principal:ControlPrincipal,
       activeRequests.delete(store);
     }
   });
+}
+
+/**
+ * The one unattended lifetime a payment gateway's settlement callback runs in.
+ *
+ * The bank auto-post sweep REFUSES when its request has no principal rather
+ * than substituting a system user, and that is right there: a sweep posts on
+ * behalf of the person who armed the rule, so a missing principal means the
+ * authority is genuinely unknown and inventing one would forge it. This case is
+ * different IN KIND, and the difference is why the precedent is not being
+ * broken: Paystack has already taken the customer's money, no person was
+ * present, and none ever will be — refusing would mean a paid invoice is never
+ * recorded. So the principal is minted here, named as what it is, and
+ * `assertGatewayReceiptOperation` confines it to the single operation a receipt
+ * needs. Do NOT reach for this from a path that HAS a person; refuse there.
+ *
+ * Only this function can produce a gateway principal: the factory is not
+ * exported, `makeControlPrincipal` refuses the auth method, and the caller must
+ * be an unauthenticated public route transaction — a request that already
+ * carries a person is rejected rather than silently escalated.
+ */
+export async function withControlGatewayReceiptRequest<T>(parent: RequestContext, companyId: string,
+  handler: () => Promise<T>): Promise<T> {
+  if (parent.controlPrincipal || parent.userId || parent.companyId) {
+    throw new Error('Gateway receipt authority requires an unauthenticated public route transaction');
+  }
+  if (!/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(companyId)) {
+    throw new Error('Gateway receipt authority requires the paying company');
+  }
+  assertTxUsable();
+  const store: RequestContext = { client: parent.client, userId: GATEWAY_RECEIPT_PERSON_ID,
+    companyId, claims: {}, afterCommit: parent.afterCommit };
+  const principal: ControlPrincipal = Object.freeze({ companyId, personId: GATEWAY_RECEIPT_PERSON_ID,
+    connectionId: null, grantId: null, actingFirmId: null, requestId: randomUUID(), operationId: randomUUID(),
+    authMethod: 'gateway', provenance: 'gateway', delegatedByPersonId: null, impersonatorPersonId: null,
+    grantedScopes: null });
+  try { return await withPrincipal(store, principal, handler); }
+  finally {
+    // The child store owns no connection: its failures are the PARENT's to
+    // refuse to commit, exactly as the platform-import target propagates them.
+    if (store.controlWriteFailed) parent.controlWriteFailed = true;
+    if (store.criticalAuditFailed) parent.criticalAuditFailed = true;
+    if (store.txUnusable) parent.txUnusable = store.txUnusable;
+  }
 }
 
 /** Only an active privately registered platform-import target can enter this lifetime. */

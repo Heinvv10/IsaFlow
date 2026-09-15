@@ -132,12 +132,31 @@ export async function routeEvent(captureEventId: string, companyId: string): Pro
   const documentId = event.captured_document_id as string;
   const fileType = event.file_type as string;
 
-  // Mark as extracting
-  await sql`
+  // Mark as extracting. Predicated: this is the only write in this function
+  // reachable from a status a POST can also be sitting on. `!extracted_data`
+  // does NOT protect a fresh event — `captured_documents.extracted_data`
+  // defaults to `'{}'` (migration 233), which is truthy — so a client can
+  // post-expense a 'received' event straight from the empty default, and a
+  // routeEvent that then runs unpredicated would flip that 'posted' event
+  // back to 'extracting' (still postable via the allow-list) and let a
+  // second post through with no race needed. `AND status = 'received'`
+  // closes that: a routeEvent that loses this claim stops here and touches
+  // nothing else. (The empty-extraction post itself is a separate defect,
+  // registered R-077, not fixed here.)
+  const extractingRows = await sql`
     UPDATE capture_events
     SET status = 'extracting', updated_at = NOW()
     WHERE id = ${captureEventId}::uuid AND company_id = ${companyId}
-  `;
+      AND status = 'received'
+    RETURNING id
+  ` as Row[];
+  if (extractingRows.length === 0) {
+    log.warn('routeEvent: event was not \'received\' — a post, a discard or a concurrent '
+      + 'routeEvent already moved it on, so extraction is skipped entirely', {
+      captureEventId, companyId,
+    }, 'capture-router');
+    return;
+  }
 
   try {
     const mimeType = fileTypeToMime(fileType);
@@ -156,6 +175,29 @@ export async function routeEvent(captureEventId: string, companyId: string): Pro
       const vatAmt: number | null = extracted.vatAmount ?? null;
       const category = detectDocumentCategory(extracted);
 
+      // Claim the event transition FIRST. routeEvent has no transaction (two
+      // separate autocommit statements), so a "dropped" result must not have
+      // written anything — writing captured_documents before this check used
+      // to leave a posted event's document rewritten to a DIFFERENT
+      // extracted_data/status ('matched' → 'pending') even though the event
+      // transition itself was correctly refused.
+      const extractedRows = await sql`
+        UPDATE capture_events
+        SET status            = 'extracted',
+            document_category = ${category},
+            updated_at        = NOW()
+        WHERE id = ${captureEventId}::uuid AND company_id = ${companyId}
+          AND status = 'extracting'
+        RETURNING id
+      ` as Row[];
+      if (extractedRows.length === 0) {
+        log.warn('routeEvent: event left \'extracting\' before extraction finished — a post or a '
+          + 'concurrent routeEvent already moved it on, so this result is dropped', {
+          captureEventId, companyId,
+        }, 'capture-router');
+        return;
+      }
+
       await sql`
         UPDATE captured_documents
         SET extracted_data     = ${extractedData}::jsonb,
@@ -170,20 +212,21 @@ export async function routeEvent(captureEventId: string, companyId: string): Pro
             updated_at         = NOW()
         WHERE id = ${documentId}::uuid AND company_id = ${companyId}
       `;
-
-      await sql`
-        UPDATE capture_events
-        SET status            = 'extracted',
-            document_category = ${category},
-            updated_at        = NOW()
-        WHERE id = ${captureEventId}::uuid AND company_id = ${companyId}
-      `;
     } else {
-      await sql`
+      const extractedRows = await sql`
         UPDATE capture_events
         SET status = 'extracted', updated_at = NOW()
         WHERE id = ${captureEventId}::uuid AND company_id = ${companyId}
-      `;
+          AND status = 'extracting'
+        RETURNING id
+      ` as Row[];
+      if (extractedRows.length === 0) {
+        log.warn('routeEvent: event left \'extracting\' before extraction finished — a post or a '
+          + 'concurrent routeEvent already moved it on, so this result is dropped', {
+          captureEventId, companyId,
+        }, 'capture-router');
+        return;
+      }
     }
 
     log.info('routeEvent: extraction complete', { captureEventId, hasExtracted: !!extracted }, 'capture-router');
@@ -191,11 +234,33 @@ export async function routeEvent(captureEventId: string, companyId: string): Pro
     const msg = err instanceof Error ? err.message : String(err);
     log.error('routeEvent: extraction failed', { captureEventId, error: msg }, 'capture-router');
 
-    await sql`
+    // Recover from EITHER of the two writes above failing. `routeEvent` has no
+    // transaction, so the event can be in one of two states this call put it
+    // in: still 'extracting' (the failure came before the event transition),
+    // or already 'extracted' (the event transition landed and the
+    // `captured_documents` UPDATE then failed — a lock timeout or deadlock
+    // against post-expense's own write, a statement timeout, a dropped pooled
+    // connection). Predicating on 'extracting' alone dropped the second case:
+    // the event was left claiming success with no extraction behind it, the
+    // error lost, and no path out — a worse end state than the half-write the
+    // ordering was changed to prevent. Both must end 'failed' with the error
+    // recorded, which is also what the pre-reorder ordering did.
+    // 'posted' and 'discarded' are still refused: those belong to another
+    // request, not to this call.
+    const failedRows = await sql`
       UPDATE capture_events
       SET status = 'failed', error = ${msg}, updated_at = NOW()
       WHERE id = ${captureEventId}::uuid AND company_id = ${companyId}
-    `;
+        AND status IN ('extracting', 'extracted')
+      RETURNING id
+    ` as Row[];
+    if (failedRows.length === 0) {
+      log.warn('routeEvent: the event was neither \'extracting\' nor \'extracted\' when the '
+        + 'extraction error was recorded — a post or a discard already moved it on, so this '
+        + 'failure is dropped', {
+        captureEventId, companyId,
+      }, 'capture-router');
+    }
   }
 }
 

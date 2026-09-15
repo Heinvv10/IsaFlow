@@ -1,9 +1,10 @@
 /**
  * Unit tests for auditService.logAdminAction — pentest M6 (audit fail-open).
  *
- * A failed CRITICAL_ACTIONS audit write must throw a distinct CriticalAuditError
- * AND flag the request context (als) so the platform-admin middleware rolls the
- * whole transaction back. Non-critical actions stay fail-open.
+ * A failed audit write must throw a distinct CriticalAuditError AND flag the
+ * request context (als) so the platform-admin middleware rolls the whole
+ * transaction back. That is now the DEFAULT for every action: only a name in
+ * BEST_EFFORT_ACTIONS may commit its mutation unaudited.
  *
  * DB + als are mocked via vi.mock.
  */
@@ -15,13 +16,23 @@ const { sqlMock, ctx } = vi.hoisted(() => {
   return { sqlMock, ctx };
 });
 
-vi.mock('@/lib/neon', () => ({ sql: sqlMock }));
+vi.mock('@/lib/neon', () => ({
+  sql: sqlMock,
+  // The INSERT now runs inside its own savepoint so its failure cannot abort
+  // the request transaction. Outside a request tx withSavepoint just runs fn,
+  // which is what the real implementation does too.
+  withSavepoint: (_name: string, fn: () => Promise<unknown>) => fn(),
+}));
 vi.mock('@/lib/als', () => ({ als: { getStore: () => ctx } }));
 vi.mock('@/lib/logger', () => ({
   log: { info: vi.fn(), error: vi.fn(), warn: vi.fn() },
 }));
 
-import { logAdminAction, CriticalAuditError } from '@/modules/admin/services/auditService';
+import {
+  logAdminAction,
+  CriticalAuditError,
+  BEST_EFFORT_ACTIONS,
+} from '@/modules/admin/services/auditService';
 
 const ADMIN = 'admin-user-1';
 const IP = '203.0.113.1';
@@ -40,7 +51,7 @@ describe('logAdminAction — happy path', () => {
   });
 });
 
-describe('logAdminAction — CRITICAL action, audit write fails', () => {
+describe('logAdminAction — audit write fails', () => {
   it('throws CriticalAuditError (distinct type, not a generic Error)', async () => {
     reset(); fail();
     await expect(
@@ -56,8 +67,17 @@ describe('logAdminAction — CRITICAL action, audit write fails', () => {
     expect(ctx.criticalAuditFailed).toBe(true);
   });
 
-  it('treats user.impersonate / company.delete / impersonation_start as critical', async () => {
-    for (const action of ['user.impersonate', 'company.delete', 'impersonation_start']) {
+  it('fails closed for every action, including the ones the old allow-list missed', async () => {
+    // The first three were on the old CRITICAL_ACTIONS allow-list. The rest
+    // were NOT, and each of them repriced billing, granted free paid service or
+    // granted access to a tenant's books — the omissions that made an
+    // allow-list the wrong shape. An unknown name fails closed too.
+    for (const action of [
+      'company.impersonate', 'company.delete', 'user.suspend',
+      'flow.bundle.update', 'invoice.create', 'trial.extend',
+      'company.extend_trial', 'user.add_to_company', 'user.remove_from_company',
+      'user.activate', 'company.note_added',
+    ]) {
       reset(); fail();
       await expect(
         logAdminAction(ADMIN, action, 'x', 'id', null, IP)
@@ -67,20 +87,19 @@ describe('logAdminAction — CRITICAL action, audit write fails', () => {
   });
 });
 
-describe('logAdminAction — NON-critical action, audit write fails (fail-open)', () => {
+describe('logAdminAction — BEST_EFFORT action, audit write fails', () => {
   it('does NOT throw and does NOT flag the context', async () => {
-    reset(); fail();
-    await expect(
-      logAdminAction(ADMIN, 'company.extend_trial', 'company', 'c1', { days: 7 }, IP)
-    ).resolves.toBeUndefined();
-    expect(ctx.criticalAuditFailed).toBeUndefined();
-  });
-
-  it('does not flag for an unknown/low-risk action', async () => {
-    reset(); fail();
-    await expect(
-      logAdminAction(ADMIN, 'company.note_added', 'company', 'c1', null, IP)
-    ).resolves.toBeUndefined();
-    expect(ctx.criticalAuditFailed).toBeUndefined();
+    // The set is empty today, so exercise the branch through a temporary entry
+    // rather than asserting nothing. This is the ONLY escape from fail-closed.
+    BEST_EFFORT_ACTIONS.add('company.note_added');
+    try {
+      reset(); fail();
+      await expect(
+        logAdminAction(ADMIN, 'company.note_added', 'company', 'c1', null, IP)
+      ).resolves.toBeUndefined();
+      expect(ctx.criticalAuditFailed).toBeUndefined();
+    } finally {
+      BEST_EFFORT_ACTIONS.delete('company.note_added');
+    }
   });
 });

@@ -14,6 +14,7 @@ import {recordCommittedChange} from '../controls/changeEventService';
 import type {ControlTx} from '../controls/contracts';
 import {allocationMoney,parseBankAllocationPlan,assertAllocationOutstanding} from './bankAllocationPlan';
 import {loadBankAllocationSources,type BankAllocationSources} from './bankAllocationSources';
+import {assertPostedForAllocation} from './bankFeedStateGuard';
 import {postingPeriodBlock,throwPostingBlock} from '../gl/postingPeriodGuard';
 import {journalAffectsVatReturn} from '../controls/journalVatFootprint';
 export async function prepareBankAllocation(ctx:ControlTx,input:unknown){
@@ -25,6 +26,10 @@ export async function prepareBankAllocation(ctx:ControlTx,input:unknown){
   const plan=transfer?await bindBankTransferSelection(ctx,transfer):await bindBankAllocationVatAccount(ctx,parsed!);
   const sources=await loadBankAllocationSources(ctx,plan);
   if(sources.bank.status!=='imported')throw new Error('Imported bank transaction required');
+  // A pending or removed feed row carries status 'imported', so the check above lets it through, and
+  // migration 675's BEFORE UPDATE trigger then 500s the whole operation. Refused here — from the row
+  // the plan already holds, before the intent is written — for every controlled writer at once.
+  assertPostedForAllocation(sources.bank,plan.bankTransactionId,'allocate');
   if('rule' in plan&&plan.rule){
    const rules=await ctx.sql`SELECT id FROM bank_categorisation_rules WHERE company_id=${ctx.principal.companyId}::uuid AND id=${plan.rule.id}::uuid FOR SHARE`;
    if(rules.length!==1)throw new Error('Owned categorisation rule required');

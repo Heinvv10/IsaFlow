@@ -33,26 +33,36 @@ interface EmailLogPayload {
 }
 
 /**
- * Best effort: inserts a row into email_log; never throws. Awaited, and in its own savepoint:
- * inside a request transaction a failed INSERT (e.g. no recipient) would otherwise abort the
- * caller's transaction, and an unawaited one would run interleaved with the caller's statements.
+ * Inserts a row into email_log; never throws.
+ *
+ * AWAITED and SAVEPOINTED deliberately. `sendEmail` is called from inside
+ * request and cron transactions (see dunningSend.ts), so this INSERT runs on
+ * the SAME transaction as the caller's own writes. Un-awaited it raced them;
+ * un-savepointed, a failing INSERT aborted the transaction and the very next
+ * statement — the `dunning_sends.email_status` UPDATE that records an email
+ * already delivered — died with 25P02. An audit log must never be able to lose
+ * the record of the thing it is auditing.
  */
 async function logEmailAttempt(payload: EmailLogPayload): Promise<void> {
-  await withSavepoint('email_log_attempt', () => sql`
-    INSERT INTO email_log
-      (company_id, recipient_email, subject, email_type, status, error_message, sent_by)
-    VALUES (
-      ${payload.companyId}::UUID,
-      ${payload.recipientEmail},
-      ${payload.subject},
-      ${payload.emailType},
-      ${payload.status},
-      ${payload.errorMessage ?? null},
-      ${payload.sentBy ?? null}
-    )
-  `).catch((err: unknown) => {
+  try {
+    await withSavepoint('email_log_write', async () => {
+      await sql`
+        INSERT INTO email_log
+          (company_id, recipient_email, subject, email_type, status, error_message, sent_by)
+        VALUES (
+          ${payload.companyId}::UUID,
+          ${payload.recipientEmail},
+          ${payload.subject},
+          ${payload.emailType},
+          ${payload.status},
+          ${payload.errorMessage ?? null},
+          ${payload.sentBy ?? null}
+        )
+      `;
+    });
+  } catch (err: unknown) {
     log.error('Failed to write email_log row', { error: err instanceof Error ? err.message : err }, 'emailService');
-  });
+  }
 }
 
 // ─── Types ──────────────────────────────────────────────────────────────────

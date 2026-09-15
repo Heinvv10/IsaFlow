@@ -5,8 +5,8 @@
 
 import type { NextApiRequest, NextApiResponse } from 'next';
 import { z } from 'zod';
-import { createHash } from 'crypto';
 import { sql } from '@/lib/neon';
+import { hashInviteToken } from '@/lib/auth/inviteToken';
 import { log } from '@/lib/logger';
 import { apiResponse } from '@/lib/apiResponse';
 import { withUserAuth, type AuthenticatedNextApiRequest } from '@/lib/auth/withUserAuth';
@@ -20,10 +20,6 @@ type Row = Record<string, unknown>;
  * We still parse and reject unexpected keys to prevent prototype-pollution / confusion.
  */
 const PostBody = z.object({}).strict();
-
-function hashToken(token: string): string {
-  return createHash('sha256').update(token).digest('hex');
-}
 
 
 function maskEmail(email: string): string {
@@ -41,7 +37,7 @@ async function handleGet(req: NextApiRequest, res: NextApiResponse) {
     return apiResponse.badRequest(res, 'Token is required');
   }
 
-  const tokenHash = hashToken(token);
+  const tokenHash = hashInviteToken(token);
 
   const rows = (await sql`
     SELECT
@@ -90,7 +86,7 @@ async function handlePost(req: NextApiRequest, res: NextApiResponse) {
   }
 
   // Look up the invitation using the hashed token
-  const tokenHash = hashToken(token);
+  const tokenHash = hashInviteToken(token);
   const rows = (await sql`
     SELECT id, company_id, email, role
     FROM company_invitations
@@ -112,11 +108,15 @@ async function handlePost(req: NextApiRequest, res: NextApiResponse) {
     return apiResponse.forbidden(res, 'This invitation was sent to a different email address');
   }
 
-  // Insert into company_users
+  // Insert into company_users.
+  // DO UPDATE, not DO NOTHING: POST /api/invitations rewrites `role` on the
+  // invitation row when the same address is re-invited, so an existing member
+  // kept their old role while the invitation claimed the new one. Same fix as
+  // pages/api/invitations/[token]/accept.ts — both routes accept the same rows.
   await sql`
     INSERT INTO company_users (company_id, user_id, role)
     VALUES (${inv.company_id}::UUID, ${userId}::UUID, ${inv.role})
-    ON CONFLICT (company_id, user_id) DO NOTHING
+    ON CONFLICT (company_id, user_id) DO UPDATE SET role = EXCLUDED.role
   `;
 
   // Mark invitation accepted
@@ -129,7 +129,10 @@ async function handlePost(req: NextApiRequest, res: NextApiResponse) {
     UPDATE users SET onboarding_completed = true WHERE id = ${userId}
   `;
 
-  log.info('Invitation accepted via token page', { token, userId, companyId: inv.company_id }, 'invite');
+  // The invitation id, not the raw token: src/lib/auth/inviteToken.ts exists so
+  // the secret never leaves the request, and a log line is exactly where it must
+  // not land.
+  log.info('Invitation accepted via token page', { inviteId: inv.id, userId, companyId: inv.company_id }, 'invite');
 
   // Set the onboarding-done cookie so middleware stops redirecting
   const cookieStr = serialize('ff_onboarding_done', '1', {

@@ -25,6 +25,7 @@
  */
 import { GL_ACCOUNT_SUBTYPES_BY_TYPE } from '../../types/glAccountSubtypes';
 import type { GLAccountType } from '../../types/gl.types';
+import { canonicalSubtype } from './accountSubtypes';
 
 /**
  * Every role the resolver hands out, in reporting order.
@@ -98,10 +99,29 @@ export interface NearMissClaimant extends SystemAccountCandidate {
   isSystemAccount: boolean;
 }
 
-/** True when `accountType` may legally carry `subtype` (glAccountSubtypes.ts). */
+/**
+ * True when `accountType` may legally carry `subtype` (glAccountSubtypes.ts).
+ *
+ * `GL_ACCOUNT_SUBTYPES_BY_TYPE` is the WRITE-side offerable enum: one spelling
+ * per role, because it names which subtype a NEW account is created with. A
+ * tenant whose imported chart already carries `accounts_payable` or
+ * `bank_account` holds a legal payable or bank account all the same, so the
+ * comparison here canonicalises before asking — otherwise a caller that widened
+ * its account lookup would FIND that account and then be refused by this check,
+ * leaving the widening inert.
+ *
+ * `tax` is excluded from the canonical widening deliberately. As a raw token it
+ * is the VAT control account a liability carries, but it canonicalises to
+ * `tax_expense`; widening it would let an income-tax subtype claim a VAT role.
+ * The same narrowness the VAT surfaces keep (see `bankCashSubtypeCensus`).
+ */
 export function typeFitsSubtype(accountType: string, subtype: string): boolean {
   const allowed = GL_ACCOUNT_SUBTYPES_BY_TYPE[accountType as GLAccountType] as readonly string[] | undefined;
-  return allowed?.includes(subtype) ?? false;
+  if (!allowed) return false;
+  if (allowed.includes(subtype)) return true;
+  const canonical = canonicalSubtype(subtype);
+  if (canonical === null || canonical === 'tax_expense') return false;
+  return allowed.some(entry => entry !== 'tax' && canonicalSubtype(entry) === canonical);
 }
 
 /**

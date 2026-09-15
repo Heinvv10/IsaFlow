@@ -27,6 +27,7 @@ async function getUnreconciledBankTxns(companyId: string): Promise<number> {
     FROM bank_transactions
     WHERE company_id = ${companyId}::UUID
       AND status NOT IN ('reconciled', 'matched', 'excluded')
+      AND feed_state = 'posted'
   `) as Row[];
   return Number(rows[0]?.cnt ?? 0);
 }

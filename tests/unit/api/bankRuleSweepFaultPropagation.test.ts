@@ -2,11 +2,16 @@
  * A FAULT inside the bank-rule sweep must reach withErrorHandler as a 500 at
  * every caller, so withAuth rolls the request back. applyRules counts every
  * refusal per line and returns; what escapes it is a coding defect, a pg
- * error or a poisoned request. Each of these three routes used to catch it —
- * two into a 200 with appliedRules 0, one into a 400 — which COMMITTED the
+ * error or a poisoned request. These routes used to catch it — into a 200 with
+ * appliedRules 0, or into a 400 — which COMMITTED the
  * lines posted before the fault (withAuth rolls back only on >=500), reported
  * a partial run as a result, and left the sweep dead for the account without
  * a trace in Bugsink.
+ *
+ * extension-ingest is NOT here any more: it submits through `ingestBankBatch`
+ * and never calls `applyRules` itself, so its fault path is pinned where the
+ * fault now arises — tests/unit/api/bankFeedExtensionIngestRoute.test.ts, "lets
+ * a fault through (withErrorHandler answers 500, withExtensionToken ROLLBACKs)".
  */
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import type { NextApiRequest, NextApiResponse } from 'next';
@@ -15,12 +20,11 @@ vi.mock('@/lib/logger', () => ({ log: { info: vi.fn(), warn: vi.fn(), error: vi.
 vi.mock('@/lib/auth', () => ({
   withAuth: (h: unknown) => h,
   withWriteAccess: (h: unknown) => h,
-  withExtensionToken: (h: unknown) => h,
 }));
 vi.mock('@/lib/auth/withCsrf', () => ({ withCsrf: (h: unknown) => h }));
+vi.mock('@/lib/rateLimit', () => ({ checkRateLimit: vi.fn(async () => true) }));
 vi.mock('@/lib/api-error-handler', () => ({ withErrorHandler: (h: unknown) => h }));
 vi.mock('@/lib/neon', () => ({ sql: vi.fn(async () => []) }));
-vi.mock('@/lib/rateLimit', () => ({ checkRateLimit: vi.fn(async () => true) }));
 vi.mock('@/lib/billing/getCompanyPlan', () => ({ getCompanyPlan: vi.fn(async () => null) }));
 vi.mock('@/modules/billing/services/flowWalletService', () => ({
   deductFlows: vi.fn(), refundFlows: vi.fn(), triggerAutoTopup: vi.fn(), recalculateNudge: vi.fn(), InsufficientFlowsError: class extends Error {},
@@ -44,7 +48,6 @@ import { sql } from '@/lib/neon';
 import { applyRules } from '@/modules/accounting/services/bank/bankRulesService';
 import rulesAction from '../../../pages/api/accounting/bank-rules-action';
 import bulkCommit from '../../../pages/api/accounting/bank-transactions-bulk-commit';
-import extensionIngest from '../../../pages/api/accounting/bank-feeds/[id]/extension-ingest';
 
 const COMPANY = '11111111-1111-4111-8111-111111111111';
 const BANK = '22222222-2222-4222-8222-222222222222';
@@ -94,19 +97,4 @@ describe('a sweep fault propagates — nothing answers 200 or 400 over a partial
     expect(res.statusCode).toBe(0);
   });
 
-  it('extension-ingest asks for suggestions only (no control principal) and rethrows a fault', async () => {
-    vi.mocked(sql)
-      .mockResolvedValueOnce([{ daily_tx_cap: 1000 }] as never)
-      .mockResolvedValueOnce([{ used: 0 }] as never)
-      .mockResolvedValueOnce([{ id: 'log' }] as never)
-      .mockResolvedValue([] as never);
-    vi.mocked(applyRules).mockRejectedValue(FAULT);
-    const { req, res } = reqRes({
-      scraperId: 'absa', scraperVersion: '1.0', bankAccountExternalId: 'ACC-1', fromDate: '2026-09-01', toDate: '2026-09-30',
-      transactions: [{ transactionDate: '2026-09-09', amount: -10, description: 'X' }],
-    }, { extension: { userId: USER, companyId: COMPANY, connectionId: 'conn', bankAccountId: BANK, bankId: 'absa' } });
-    await expect(extensionIngest(req, res)).rejects.toBe(FAULT);
-    expect(vi.mocked(applyRules).mock.calls[0]).toEqual([COMPANY, BANK, USER, undefined, { autoPost: false }]);
-    expect(res.statusCode).toBe(0);
-  });
 });

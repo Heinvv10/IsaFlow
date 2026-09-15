@@ -6,7 +6,7 @@ import { executeControlledOperation } from '@/modules/accounting/services/contro
 import { loadOperationMaterial } from '@/modules/accounting/services/controls/operationMaterializer';
 import { operationBindingHash } from '@/modules/accounting/services/controls/canonical';
 
-// Migration 688: an approval is born pending and moves only along the edges the services take, each by the actor
+// Migration 836: an approval is born pending and moves only along the edges the services take, each by the actor
 // allowed to take it, whatever role writes it.
 const g = approvalGuardSuite();
 const TRANSITION = refused('transition'), BIRTH = refused('birth');
@@ -112,7 +112,7 @@ it('(g) an approval is born pending, requested by the acting person', async () =
     ['app_user', 'u1', born('u1', 'consumed', [], false, randomUUID()), 'born consumed'],
     ['app_user', 'u1', born('u1', 'pending', bound, true, null), 'born decided'],
     ['app_user', 'u1', born('u2', 'pending', bound, false, null), 'requested in another person\'s name'],
-    // A superuser stands for every role past RLS; platform_admin holds no INSERT on approvals (687).
+    // A superuser stands for every role past RLS; platform_admin holds no INSERT on approvals (811).
     ['superuser', null, born('u1', 'pending', bound, false, null), 'no acting person']];
   for (const [role, person, statement, why] of forged) await expect(g.as(role, person, [statement]), why).rejects.toMatchObject(BIRTH);
   expect(await g.as('app_user', 'u1', [born('u1', 'pending', bound, false, null)]), 'pending').toBe(1);

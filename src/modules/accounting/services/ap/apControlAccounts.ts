@@ -1,10 +1,12 @@
 import { assertControlTx } from '../controls/context';
 import type { ControlTx, OperationRef } from '../controls/contracts';
 import { typeFitsSubtype, type SystemAccountKey } from '../gl/systemAccountKeys';
+import { roleSpellings, subtypeFillsRole } from '../gl/accountSubtypes';
 
 type Account = Record<string, unknown> & { id: string };
 export function selectApSystemAccount(rows: readonly Account[], role: SystemAccountKey): Account {
-  const candidates = rows.filter(row => row.account_subtype === role && row.is_active === true && row.is_system_account === true);
+  const candidates = rows.filter(row => subtypeFillsRole(row.account_subtype as string | null, role)
+    && row.is_active === true && row.is_system_account === true);
   if (candidates.length > 1) throw new Error(`Ambiguous AP system account: ${role}`);
   const account = candidates[0];
   if (!account || !typeFitsSubtype(String(account.account_type), role)) throw new Error(`Missing or invalid AP system account: ${role}`);
@@ -31,7 +33,7 @@ export async function resolveApControlAccounts(ctx: ControlTx, ref: OperationRef
     : source.bank_account_id ? ['payable'] : ['payable', 'bank'];
   const systemAccounts = await ctx.sql`
     SELECT id,account_code,account_name,account_type,account_subtype,is_active,is_system_account
-    FROM gl_accounts WHERE company_id=${company}::uuid AND account_subtype=ANY(${roles}::text[])
+    FROM gl_accounts WHERE company_id=${company}::uuid AND account_subtype=ANY(${roles.flatMap(roleSpellings)}::text[])
       AND is_system_account=true AND is_active=true ORDER BY id FOR SHARE
   ` as Account[];
   const chosen = Object.fromEntries(roles.map(role => [role, selectApSystemAccount(systemAccounts, role)]));

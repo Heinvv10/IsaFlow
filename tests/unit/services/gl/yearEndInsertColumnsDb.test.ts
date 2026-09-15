@@ -31,19 +31,24 @@ import { join } from 'node:path';
 import { isDbReachable } from '../../helpers/dbReachable';
 import { getPoolForTests } from '@/lib/neon';
 
-const SERVICE = join(
-  process.cwd(),
+// BOTH writers, because both are in the tree and each carries its own copy of
+// the two INSERTs. `controlledYearEnd` is the one the close actually runs —
+// every year-end write goes through the approval kernel. `yearEndJournalPoster`
+// holds the uncontrolled writer the close was split out of; it is checked here
+// so a column that does not exist cannot be reintroduced from it.
+const SERVICES = [
   'src/modules/accounting/services/gl/controlledYearEnd.ts',
-);
+  'src/modules/accounting/services/gl/yearEndJournalPoster.ts',
+].map((p) => join(process.cwd(), p));
 
 /**
  * Pulls the column list out of an `INSERT INTO <table> ( ... ) VALUES` in the
  * service source. Reading the source keeps the test honest: an assertion
  * against a hand-copied list passes forever after someone edits the query.
  */
-function insertedColumns(source: string, table: string): string[] {
+function insertedColumns(source: string, table: string, service: string): string[] {
   const match = new RegExp(`INSERT INTO ${table}\\s*\\(([^)]*)\\)`, 'i').exec(source);
-  if (!match) throw new Error(`no INSERT INTO ${table} found in ${SERVICE}`);
+  if (!match) throw new Error(`no INSERT INTO ${table} found in ${service}`);
   return match[1]!
     .split(',')
     .map((c) => c.replace(/--.*$/gm, '').trim())
@@ -60,12 +65,12 @@ async function columnsOf(table: string): Promise<Set<string>> {
   return new Set(rows.map((r) => r.column_name));
 }
 
-describe('year-end closing journal — every inserted column exists', () => {
+describe.each(SERVICES)('year-end closing journal in %s — every inserted column exists', (service) => {
   it('names only real gl_journal_entries columns', async () => {
     if (!(await isDbReachable())) return;
 
-    const source = readFileSync(SERVICE, 'utf8');
-    const named = insertedColumns(source, 'gl_journal_entries');
+    const source = readFileSync(service, 'utf8');
+    const named = insertedColumns(source, 'gl_journal_entries', service);
     const real = await columnsOf('gl_journal_entries');
 
     expect(named.length).toBeGreaterThan(5);
@@ -76,8 +81,8 @@ describe('year-end closing journal — every inserted column exists', () => {
   it('names only real gl_journal_lines columns', async () => {
     if (!(await isDbReachable())) return;
 
-    const source = readFileSync(SERVICE, 'utf8');
-    const named = insertedColumns(source, 'gl_journal_lines');
+    const source = readFileSync(service, 'utf8');
+    const named = insertedColumns(source, 'gl_journal_lines', service);
     const real = await columnsOf('gl_journal_lines');
 
     const missing = named.filter((c) => !real.has(c));
@@ -87,8 +92,8 @@ describe('year-end closing journal — every inserted column exists', () => {
   it('does NOT carry entry totals on the header — they are derived from the lines', async () => {
     // Pinning the specific regression: the totals belong to the lines, and the
     // header columns that used to hold them are gone.
-    const source = readFileSync(SERVICE, 'utf8');
-    const named = insertedColumns(source, 'gl_journal_entries');
+    const source = readFileSync(service, 'utf8');
+    const named = insertedColumns(source, 'gl_journal_entries', service);
     expect(named).not.toContain('total_debit');
     expect(named).not.toContain('total_credit');
   });

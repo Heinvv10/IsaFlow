@@ -13,7 +13,7 @@ import { log } from '@/lib/logger';
 import { getEfilingConfig } from './sarsEfilingConfig';
 import { getVatExceptions } from './vatExceptionsService';
 import type { VatExceptionsReport } from './vatExceptionsTypes';
-import { generateVAT201 } from './vat201Service';
+import { getLedgerVAT201, evaluateVat201Filability, type LedgerVAT201 } from './vat201LedgerFields';
 import { authenticate, submitVAT201, pollStatus } from './sarsEfilingClient';
 import {
   getEfilingSubmission,
@@ -76,6 +76,36 @@ export function evaluateEfilingGate(
   return { allowed: true, reason: null };
 }
 
+/** The eleven statutory figures. Everything else on the form is drill-down. */
+const VAT201_FIELDS = [
+  'field1_standardRatedSupplies', 'field2_zeroRatedSupplies', 'field3_exemptSupplies',
+  'field4_totalImports', 'field5_outputVAT', 'field6_capitalGoods', 'field7_otherGoods',
+  'field8_services', 'field9_imports', 'field10_totalInputVAT', 'field11_vatPayableOrRefundable',
+] as const;
+
+/**
+ * Which of the reviewed draft's figures the regenerated return no longer
+ * matches. A draft saved before `form_data` carried the fields (or with none of
+ * them) cannot be compared, and is reported as such rather than passed.
+ */
+export function draftDrift(
+  saved: Record<string, unknown> | null,
+  regenerated: LedgerVAT201,
+): string[] {
+  if (!saved || VAT201_FIELDS.every((f) => saved[f] === undefined)) {
+    return ['this draft holds no saved VAT201 figures to compare against'];
+  }
+  const drift: string[] = [];
+  for (const field of VAT201_FIELDS) {
+    const before = Number(saved[field] ?? 0);
+    const after = Number(regenerated[field] ?? 0);
+    if (Math.abs(before - after) >= 0.005) {
+      drift.push(`${field} ${before.toFixed(2)} -> ${after.toFixed(2)}`);
+    }
+  }
+  return drift;
+}
+
 const VAT_NUMBER_RE = /^4\d{9}$/;
 
 export interface SubmitOutcome {
@@ -123,11 +153,43 @@ export async function submitVAT201ToSars(
     throw new EfilingBlockedError(reason);
   }
 
-  // Regenerate the authoritative box totals for the period (same source the
-  // reviewed exceptions report reconciled against).
-  const vat201 = await generateVAT201(companyId, submission.periodStart, submission.periodEnd);
+  // Regenerate the authoritative box totals for the period FROM THE LEDGER.
+  // The invoice-derived `generateVAT201` — which the exceptions report still
+  // reconciles against — cannot see credit notes or manual VAT journals, so
+  // filing its figures would file a return higher than the books (K-031).
+  const vat201 = await getLedgerVAT201(companyId, submission.periodStart, submission.periodEnd);
+
+  // The form's own arithmetic, which the invoice-population exceptions report
+  // does not check: SARS's 15% tie-out, and negative supply values.
+  const filability = evaluateVat201Filability(vat201);
+  if (!filability.filable) {
+    await insertEfilingEvent({
+      companyId, submissionId, eventType: 'blocked', message: filability.reason,
+      detail: { rateCheckTies: vat201.rateCheck.ties, outputVariance: vat201.rateCheck.outputVariance, inputVariance: vat201.rateCheck.inputVariance },
+      createdBy: userId,
+    });
+    throw new EfilingBlockedError(filability.reason!);
+  }
+
+  // File what was reviewed. The draft was saved at one instant and the ledger
+  // has moved since if anybody posted into the period; sending the regenerated
+  // figures under an approval given for the old ones is the hazard
+  // `exportVat201` guards with its period lock, and this path had neither.
+  const drift = draftDrift(submission.formData, vat201);
+  if (drift.length > 0) {
+    const reason = `The ledger has moved since this draft was saved (${drift.join('; ')}) — re-save the draft and review it before filing`;
+    await insertEfilingEvent({
+      companyId, submissionId, eventType: 'blocked', message: reason,
+      detail: { drift }, createdBy: userId,
+    });
+    throw new EfilingBlockedError(reason);
+  }
+
   const taxPeriod = submission.periodStart.replace(/-/g, '').slice(0, 6); // CCYYMM
-  const { degradedSources: _drop, outputInvoices: _o, inputInvoices: _i, periodStart: _ps, periodEnd: _pe, ...fields } = vat201;
+  const {
+    degradedSources: _drop, outputInvoices: _o, inputInvoices: _i,
+    periodStart: _ps, periodEnd: _pe, rateCheck: _rc, ...fields
+  } = vat201;
 
   try {
     const auth = await authenticate(config);

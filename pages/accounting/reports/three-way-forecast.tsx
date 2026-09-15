@@ -216,9 +216,9 @@ export default function ThreeWayForecastPage() {
                             { key: 'cash', label: 'Cash' },
                             { key: 'currentAssets', label: 'Current Assets', bold: true },
                             { key: 'totalAssets', label: 'Total Assets', bold: true },
+                            { key: 'totalEquity', label: 'Total Equity', bold: true },
                             { key: 'currentLiabilities', label: 'Current Liabilities' },
                             { key: 'totalLiabilities', label: 'Total Liabilities', bold: true },
-                            { key: 'totalEquity', label: 'Total Equity', bold: true },
                           ].map(row => (
                             <tr key={row.key} className="border-b border-[var(--ff-border-light)]/50 hover:bg-[var(--ff-bg-tertiary)]">
                               <td className={`px-4 py-2 ${row.bold ? 'font-semibold text-[var(--ff-text-primary)]' : 'text-[var(--ff-text-secondary)]'}`}>{row.label}</td>

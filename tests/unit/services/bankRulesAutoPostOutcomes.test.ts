@@ -88,6 +88,10 @@ function lockedRow(overrides: Record<string, unknown> = {}) {
   return {
     id: 'tx-1', status: 'imported', matched_journal_line_id: null,
     amount: -100, transaction_date: '2026-08-13', description: 'BANK FEE',
+    // `lockBankTransactionForUpdate` does `SELECT *`, and `feed_state` is NOT
+    // NULL (migration 675) — a row without it is a row no SELECT can return,
+    // and `feedStateOf` refuses it rather than assume 'posted'.
+    feed_state: 'posted',
     ...overrides,
   };
 }

@@ -19,7 +19,7 @@ export const BUDGET_NONE =
 export const BUDGET_FAILED =
   'The budget could not be loaded, so the Budget column is empty. This is a loading failure, not a statement about the period — reload to try again.';
 export const COMPANY_WIDE_UNAVAILABLE =
-  'A cost centre is selected. The 12-month trend and the budget are company-wide figures — neither is filtered by cost centre — so those columns are switched off rather than printed beside a departmental figure. Clear the cost centre to use them.';
+  'A reporting dimension is selected. The 12-month trend and the budget are company-wide figures, so those columns are switched off rather than printed beside a filtered figure. Clear the dimension filters to use them.';
 export const TREND_FAILED =
   'The 12-month trend could not be loaded, so the trend column is empty. This is a loading failure, not a statement about these accounts — reload to try again.';
 
@@ -28,8 +28,7 @@ export interface ComparatorNotice { tone: 'error' | 'info'; text: string }
 export interface ComparatorNoticeState {
   budgetState: BudgetState;
   trendFailed: boolean;
-  /** A cost centre is selected, so the company-wide comparators are withheld
-   *  rather than drawn beside a departmental figure. */
+  /** A dimension is selected, so company-wide comparators are withheld. */
   companyWideUnavailable?: boolean;
 }
 

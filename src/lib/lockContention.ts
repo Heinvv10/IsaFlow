@@ -1,6 +1,6 @@
 /**
  * A lock the transaction could not get: lock_timeout expired (55P03, e.g. the 5 s bound on every function that
- * takes the company authority key, migration 690) or the deadlock detector chose it (40P01). Either aborts the
+ * takes the company authority key, migration 838) or the deadlock detector chose it (40P01). Either aborts the
  * whole transaction and nothing it did survives, so the request edge answers 503 with a retry hint, not 500.
  */
 export function isRetryableLockFailure(error: unknown): boolean {

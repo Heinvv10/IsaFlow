@@ -2,6 +2,7 @@ import { sql } from '@/lib/neon';
 import type { DbRow } from '@/lib/neon';
 import { log } from '@/lib/logger';
 import { getCashFlowDirect } from './cashFlowDirectService';
+import { CASH_SUBTYPES } from '@/modules/accounting/services/gl/accountSubtypes';
 
 type Row = DbRow;
 
@@ -35,7 +36,8 @@ async function fetchIndirectClosingCash(companyId: string, _periodStart: string,
     FROM gl_journal_lines jl
     JOIN gl_journal_entries je ON je.id = jl.journal_entry_id
     JOIN gl_accounts ga         ON ga.id = jl.gl_account_id
-    WHERE ga.account_subtype = 'bank'
+    WHERE ga.account_subtype = ANY(${CASH_SUBTYPES as string[]})
+      AND ga.account_type = 'asset'
       AND je.company_id = ${companyId}::UUID
       AND jl.company_id = ${companyId}::UUID
       AND ga.company_id = ${companyId}::UUID
@@ -55,7 +57,8 @@ async function fetchBankBalance(companyId: string, asAtDate: string): Promise<nu
     FROM gl_journal_lines jl
     JOIN gl_journal_entries je ON je.id = jl.journal_entry_id
     JOIN gl_accounts ga         ON ga.id = jl.gl_account_id
-    WHERE ga.account_subtype = 'bank'
+    WHERE ga.account_subtype = ANY(${CASH_SUBTYPES as string[]})
+      AND ga.account_type = 'asset'
       AND je.company_id = ${companyId}::UUID
       AND jl.company_id = ${companyId}::UUID
       AND ga.company_id = ${companyId}::UUID

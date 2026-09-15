@@ -1,0 +1,40 @@
+K-072 / K-075 / K-076 — round 5 (the 10 findings of review-k072-r4)
+Worktree .worktrees/fix-K-072, branch fix/audit-k072-k075-k076-capture-vat-ocr.
+
+UNIT (fixture env UNSET, DATABASE_URL absent)
+  bunx vitest run
+    Test Files  798 passed | 36 skipped (834)
+    Tests       9637 passed | 234 skipped (9871)
+  bunx vitest run -c vitest.components.config.ts
+    Test Files  62 passed (62)   Tests 418 passed (418)
+
+REAL POSTGRES (disposable fixture, 4 files)
+  bun run test:integration -- k072-capture-double-post k072-claim-vat-classification
+                               k072-post-expense-claim-vat k072-receipt-entertainment-vat
+    Test Files  4 passed (4)    Tests 21 passed (21)
+  All four now carry an explicit afterAll(fn, 60_000) — LOW-2. `SELECT count(*) FROM companies
+  WHERE name LIKE 'K072%'` was 23 before the run and 23 after it: the teardown completes, and
+  the 23 are the residue of earlier rounds that exited 1 on the 10s hook budget.
+
+MUTATION PROOF (production change reverted, suite re-run, then restored)
+  M1  post-expense `documentStatus === 'matched'` guard AND receipt-to-journal
+      `doc.status === 'matched'` guard both deleted, claim kept
+        -> 7/7 STILL PASS. The status-predicated claim, not the read, is what closes it.
+  M2  M1 plus `AND status <> 'matched'` deleted from claimCapturedDocumentForPosting
+        -> 5 failed | 2 passed (7). The double post is back in both sequential orders
+           and in the concurrent pair.
+  M3  ${TAX_NOUN} removed from VAT_PATTERNS            -> 10 failed | 110 passed (120)
+  M4  ${TAX_WORD} removed from NOT_A_SUBTOTAL          ->  5 failed | 115 passed (120)
+  M5  parenthesised qualifier removed from TOTAL_PATTERNS[0] -> 4 failed | 116 passed (120)
+  M6  ${NET_PREFIX} removed from SUMMARY_LINE_START    ->  2 failed | 118 passed (120)
+  M7  `if (isUnreconciled(warnings)) return false;` removed -> 2 failed | 118 passed (120)
+  M8  `if (!(err instanceof MissingSystemAccountError)) throw err;` removed from both routes
+        -> 2 failed | 16 passed (18)
+  M9  `setVatAdvice(json.data.warnings ?? [])` removed from expenses/[id].tsx
+        -> 1 failed | 1 passed (2)
+  Restored after each: 120/120, 18/18, 2/2, 7/7.
+
+STATIC
+  bunx tsc --noEmit                 clean
+  bunx eslint <9 changed src/pages> clean
+  bun run agent-docs:check          OK: 74 mirrors match

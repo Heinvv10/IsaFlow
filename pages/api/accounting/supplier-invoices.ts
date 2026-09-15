@@ -18,6 +18,7 @@ import {
   createSupplierInvoice,
 } from '@/modules/accounting/services/ap/supplierInvoiceService';
 import { parseSupplierInvoiceFilters } from '@/modules/accounting/services/ap/supplierInvoiceFilterParams';
+import type { SupplierInvoiceCreateInput } from '@/modules/accounting/types/ap.types';
 import { reserveNextDocumentNumber } from '@/modules/accounting/services/core/companyService';
 
 async function getHandler(req: AuthenticatedNextApiRequest, res: NextApiResponse) {
@@ -63,10 +64,20 @@ async function postHandler(req: AuthenticatedNextApiRequest, res: NextApiRespons
     // User identity comes from JWT (req.user), never from client request body
     const userId = req.user.id;
 
+    // Line fields are whitelisted, not forwarded. The service honours an exact
+    // per-line `taxAmount` for importers; letting a request body carry one here
+    // would make input VAT client-settable and unbounded. Every key the service
+    // reads is listed, so this drops nothing it would have used.
+    const safeItems = (items as Record<string, unknown>[]).map(i => ({
+      poItemId: i.poItemId, description: i.description, quantity: i.quantity,
+      unitPrice: i.unitPrice, taxRate: i.taxRate, vatClassification: i.vatClassification,
+      glAccountId: i.glAccountId, projectId: i.projectId, costCenterId: i.costCenterId,
+    })) as SupplierInvoiceCreateInput['items'];
+
     const invoice = await createSupplierInvoice(companyId, {
       invoiceNumber: resolvedInvoiceNumber, supplierId: String(supplierId), purchaseOrderId, grnId,
       invoiceDate, dueDate, taxRate: taxRate ? Number(taxRate) : undefined,
-      paymentTerms, reference, projectId, costCenterId, notes, items,
+      paymentTerms, reference, projectId, costCenterId, notes, items: safeItems,
       currencyCode: typeof currencyCode === 'string' ? currencyCode : undefined,
       exchangeRate: exchangeRate ? Number(exchangeRate) : undefined,
     }, userId);

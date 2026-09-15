@@ -2,10 +2,11 @@ import Decimal from 'decimal.js';
 import type {ControlTx} from '../controls/contracts';
 import {assertControlTx} from '../controls/context';
 import {canonicalJson} from '../controls/canonical';
-import {bankTransferPlanSchema,type BankTransferPlan} from './bankAllocationTransferPlan';
+import {bankTransferPlanSchema,selectOppositeTransferLeg,type BankTransferPlan} from './bankAllocationTransferPlan';
 import {lockBankTransferPair,readBankTransferCandidates} from './bankAllocationTransferSources';
 import {readExistingTransferFacts} from './bankTransferCandidateQueries';
 import type {proveBankTransferCandidate} from './bankTransferCandidateProof';
+import {isBankSubtype} from '../gl/accountSubtypes';
 type Row=Record<string,unknown>;
 export type BankTransferOriginal=ReturnType<typeof proveBankTransferCandidate>;
 export interface BankTransferState{
@@ -22,7 +23,9 @@ export async function loadBankTransferState(ctx:ControlTx,input:BankTransferPlan
   const state=await readBankTransferCandidates(ctx,{bankTransactionId:plan.bankTransactionId,counterpartyAccountId:plan.counterpartyAccountId},{authority:'read'});
   if(state.bank.status!=='imported')throw new Error('Transfer source is no longer imported');
   const {oppositeCandidates,existingCandidates,...fixed}=state;
-  const opposite=oppositeCandidates[0]??null;
+  // The SAME pick preparation made, from the same ordered rows — a second copy of the rule here would
+  // read a different leg and report 'Transfer saved selection changed' on an unchanged database.
+  const opposite=selectOppositeTransferLeg(oppositeCandidates);
   if(plan.transfer.mode==='post'){
    if(state.existingCandidates.length||plan.transfer.oppositeBankTransactionId!==(opposite?.id??null))throw new Error('Transfer saved selection changed');
    return{...fixed,oppositeBank:opposite,original:null,discovery:{oppositeCandidates:state.oppositeCandidates,existingCandidates:state.existingCandidates}};
@@ -56,7 +59,7 @@ export async function loadBankTransferState(ctx:ControlTx,input:BankTransferPlan
  const metadata=await ctx.sql`SELECT id,company_id,gl_account_id,currency,is_active FROM bank_accounts
   WHERE company_id=${company}::uuid AND gl_account_id=ANY(${accountIds}::uuid[]) ORDER BY id LIMIT 3 FOR SHARE` as Row[];
  const [ledger]=await ctx.sql`SELECT id,default_currency FROM companies WHERE id=${company}::uuid FOR SHARE` as Row[];
- if(accounts.length!==2||accounts.some(a=>a.is_active!==true||a.account_type!=='asset'||a.account_subtype!=='bank'))throw new Error('Owned active bank asset accounts required');
+ if(accounts.length!==2||accounts.some(a=>a.is_active!==true||a.account_type!=='asset'||!isBankSubtype(a.account_subtype as string|null)))throw new Error('Owned active bank asset accounts required');
  if(metadata.length!==2||new Set(metadata.map(m=>m.gl_account_id)).size!==2||metadata.some(m=>m.currency!=='ZAR'||m.is_active!==true)||ledger?.default_currency!=='ZAR')throw new Error('Unambiguous active owned ZAR bank metadata required');
  let original:BankTransferOriginal|null=null;
  if(originalIdentity){

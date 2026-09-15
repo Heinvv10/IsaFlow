@@ -1,7 +1,7 @@
 import type { Pool, QueryResult } from 'pg';
 
 /**
- * Statements run as one person's app_user session: request.jwt.claims names the person, so the 688/689 guards
+ * Statements run as one person's app_user session: request.jwt.claims names the person, so the 836/837 guards
  * treat them as that person acting. For fixtures whose shape no service can produce (a synthetic binding), this is
  * the person taking the step, never a forgery on someone else's behalf.
  */
@@ -19,8 +19,8 @@ export async function asPerson(pool: Pool, person: { id: string; companyId: stri
 }
 
 /**
- * Fixture only: writes an approval row the 688 guards refuse, to stand in for a state no transaction can reach
- * now: a legacy row (an uppercase entity id, a row born consumed before 688), a corrupted one (an erased effect
+ * Fixture only: writes an approval row the 836 guards refuse, to stand in for a state no transaction can reach
+ * now: a legacy row (an uppercase entity id, a row born consumed before 836), a corrupted one (an erased effect
  * link, a rewritten binding), or elapsed time (an expired approval). session_replication_role=replica skips user
  * triggers for this one transaction and needs a superuser; no application role can do this.
  */

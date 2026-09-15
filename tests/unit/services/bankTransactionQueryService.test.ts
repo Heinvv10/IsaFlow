@@ -50,7 +50,7 @@ function makeTxRow(overrides: Record<string, unknown> = {}) {
     description: 'Test transaction',
     reference: null,
     bank_reference: null,
-    status: 'imported',
+    status: 'imported', feed_state: 'posted',
     matched_journal_line_id: null,
     reconciliation_id: null,
     import_batch_id: null,

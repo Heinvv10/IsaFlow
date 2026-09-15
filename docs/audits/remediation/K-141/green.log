@@ -1,0 +1,27 @@
+K-141 — GREEN (branch fix/audit-k140-k145-bank-matching, merged origin/master @ 7749f3fab)
+
+RED (before the fix, this branch): 4 failed of 4.
+GREEN:
+  bun run test:integration -- tests/integration/k141-rule-pattern-like-metacharacters.int.test.ts
+  Test Files  1 passed (1)   Tests  6 passed (6)
+  (4 validator tests + 2 adjacent: a literal backslash in the pattern, and a
+   pattern with no metacharacters still matching as it always did.)
+  bunx vitest run tests/unit/services/bank/bankRulesMatchingHelpers.test.ts — passed
+  (its 5 toSqlPattern cases use 'foo', so escaping leaves them unchanged).
+
+MUTATION PROOF: replaced `const lit = escapeLikeLiteral(matchPattern)` with
+`const lit = matchPattern`. Result: Tests 5 failed | 1 passed (6).
+Production change restored and re-run GREEN.
+
+FULL UNIT SUITE (DATABASE_URL unset):
+  Test Files  3 failed | 798 passed | 40 skipped (841)
+  Tests  6 failed | 9555 passed | 243 skipped (9804)
+The 3 failing files — bankAllocationService.test.ts, bank/bankAllocationUnwind.test.ts,
+cashFlowReport.test.ts — fail with "Test timed out in 10000ms" under a machine load
+average of 115-130 (many parallel agent sessions). Re-run on their own:
+  Test Files  3 passed (3)   Tests  21 passed (21)
+None of them is touched by this branch.
+
+tsc --noEmit: exit 0.
+eslint (6 changed src files): exit 0, no output.
+bun run agent-docs:check: OK: 74 agent document mirror(s) match canonical sources.

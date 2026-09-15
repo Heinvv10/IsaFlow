@@ -52,6 +52,7 @@ export type ReclassWarningCode =
   | 'net_movement_near_zero'
   | 'no_profit_and_loss_effect'
   | 'no_source_lines'
+  | 'foreign_dimension_dropped'
   | 'basis_disagreement';
 
 export interface WarningAccount {
@@ -71,6 +72,12 @@ export interface WarningInput {
   impact: ReclassImpact;
   /** Distinct OTHER accounts already reclassified into the target. */
   priorSources: number;
+  /**
+   * Source lines carrying a project, cost centre or business unit this company
+   * does not own, which the drafts therefore carry forward untagged. See
+   * ./dimensions.ts for why dropping beats refusing the batch.
+   */
+  droppedDimensionLines: number;
 }
 
 const money = (v: number): string =>
@@ -91,6 +98,19 @@ export function reclassWarnings(input: WarningInput): ReclassWarning[] {
         `${source.code} ${source.name} carries no posted journal lines in this window, ` +
         'so there is nothing to reclassify. Every figure in this response is empty ' +
         'because nothing was read, not because a total came to zero.',
+    });
+  }
+
+  // Said before the accounting warnings because it is the one fact in this list
+  // that is about the drafts DIFFERING from the lines they mirror.
+  if (input.droppedDimensionLines > 0) {
+    warnings.push({
+      code: 'foreign_dimension_dropped',
+      detail:
+        `${input.droppedDimensionLines} source line(s) carry a project, cost centre or ` +
+        'business unit belonging to another company — a tag no report of yours can ' +
+        'match. Both legs of those lines post untagged, so they net to zero in the ' +
+        'untagged bucket and no figure you report moves.',
     });
   }
 

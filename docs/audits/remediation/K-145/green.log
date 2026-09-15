@@ -1,0 +1,25 @@
+K-145 — GREEN (branch fix/audit-k140-k145-bank-matching, merged origin/master @ 7749f3fab)
+
+RED (before the fix, this branch): 3 failed, 2 passed of 5.
+GREEN:
+  bunx vitest run tests/unit/bank/k145-non-csv-parse-guard.test.ts
+  Test Files  1 passed (1)   Tests  6 passed (6)
+  (5 validator tests + 1 adjacent: a real OFX body carrying one STMTTRN still
+   parses to that transaction.)
+
+MUTATION PROOF: returned the three non-CSV arms to their bare
+`parseXStatement(csvContent)` form. Result: Tests 3 failed | 3 passed (6).
+Production change restored and re-run GREEN.
+
+FULL UNIT SUITE (DATABASE_URL unset):
+  Test Files  3 failed | 798 passed | 40 skipped (841)
+  Tests  6 failed | 9555 passed | 243 skipped (9804)
+The 3 failing files — bankAllocationService.test.ts, bank/bankAllocationUnwind.test.ts,
+cashFlowReport.test.ts — fail with "Test timed out in 10000ms" under a machine load
+average of 115-130 (many parallel agent sessions). Re-run on their own:
+  Test Files  3 passed (3)   Tests  21 passed (21)
+None of them is touched by this branch.
+
+tsc --noEmit: exit 0.
+eslint (6 changed src files): exit 0, no output.
+bun run agent-docs:check: OK: 74 agent document mirror(s) match canonical sources.

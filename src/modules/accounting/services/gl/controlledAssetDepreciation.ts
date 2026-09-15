@@ -90,8 +90,13 @@ export async function executeAssetDepreciation(companyId:string,userId:string,in
    policy_closing_acc_dep,policy_carrying_amount,policy_dep_rate,tax_cost,tax_opening_acc_dep,tax_current_dep,tax_closing_acc_dep,tax_carrying_amount,deferred_tax)
    VALUES(${companyId}::uuid,${assetId}::uuid,${permit.accountingDate}::date,${yyyymm},${facts.input.cost},${facts.input.openingAccDep},${c.policyDep},
     ${c.policyClosing},${c.policyCarrying},${c.policyRate},${facts.input.cost},${facts.input.taxOpeningAccDep},${c.taxDep},${c.taxClosing},${c.taxCarrying},${c.deferredTax})`;
+  // tax_book_value is the tax mirror of current_book_value and belongs with the other three. Master kept it
+  // current through assetTaxAccumulation.ts, whose caller this wrapper replaced; omitting it here left the
+  // column at migration 244's trigger default (purchase_price) for the life of every asset — including in the
+  // RETURNING * after-image recordCommittedChange writes as the forensic evidence of this very run.
+  // calculateExactDepreciation clamps taxClosing to cost, so taxCarrying is already non-negative.
   const [after]=await ctx.sql`UPDATE assets SET accumulated_depreciation=${c.policyClosing},current_book_value=${c.policyCarrying},
-   tax_accumulated_depreciation=${c.taxClosing},updated_at=clock_timestamp() WHERE company_id=${companyId}::uuid AND id=${assetId}::uuid RETURNING *` as Row[];
+   tax_accumulated_depreciation=${c.taxClosing},tax_book_value=${c.taxCarrying},updated_at=clock_timestamp() WHERE company_id=${companyId}::uuid AND id=${assetId}::uuid RETURNING *` as Row[];
   if(!after)throw new Error('Depreciation asset disappeared');
   const version=await readControlEntityVersion(ctx,{entityType:'asset',entityId:assetId});
   await recordCommittedChange(ctx,{entityType:'asset',entityId:assetId,previousVersion:version?.version??null,newVersion:(version?.version??0)+1,

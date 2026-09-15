@@ -14,7 +14,7 @@ export type Person = 'u1' | 'u2' | 'u3';
 /** app_user and platform_admin are the roles holding UPDATE(status); superuser stands for every other role. */
 export type Role = 'app_user' | 'platform_admin' | 'superuser';
 export type Statement = readonly [string, unknown[]];
-/** A 688/689 refusal: one SQLSTATE, and a message naming the guard. */
+/** A 836/837 refusal: one SQLSTATE, and a message naming the guard. */
 export const refused = (guard: 'birth' | 'transition' | 'decision') =>
   ({ code: '23514', message: expect.stringMatching(new RegExp(`^Approval ${guard} refused`)) });
 export const noEffect = async () => ({ accepted: true });
@@ -92,7 +92,7 @@ export function approvalGuardSuite(policy: { operator: 'any' | 'greater_than'; v
     await pool.query('INSERT INTO payment_allocations(payment_id,invoice_id,amount_allocated) VALUES($1,$2,$3)', [id, bill, amount]);
     return { operation: 'supplier_payment.process', entityType: 'supplier_payment', entityId: id };
   }
-  /** Reaches `state` through the services alone: the edges 688 must keep. */
+  /** Reaches `state` through the services alone: the edges 836 must keep. */
   async function approval(state: ApprovalState, amount = 115): Promise<{ id: string; ref: OperationRef }> {
     const ref = await freshPayment(amount);
     const { id } = await request('u1', ctx => requestOperationApproval(ctx, ref));

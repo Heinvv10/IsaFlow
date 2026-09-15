@@ -137,8 +137,12 @@ export async function getAccountTransactions(
   companyId: string,
   accountCode: string,
   periodStart: string,
-  periodEnd: string
+  periodEnd: string,
+  costCentreId?: string,
+  businessUnitId?: string,
 ): Promise<AccountTransactionsReport> {
+  const cc = costCentreId ?? null;
+  const bu = businessUnitId ?? null;
   try {
     const acctRows = (await sql`
       SELECT account_name, account_type, normal_balance
@@ -158,6 +162,9 @@ export async function getAccountTransactions(
       WHERE je.status = 'posted'
         AND je.company_id = ${companyId}::UUID
         AND jl.company_id = ${companyId}::UUID
+        AND (${cc}::uuid IS NULL OR jl.cost_center_id = ${cc}::uuid
+          OR jl.cc1_id = ${cc}::uuid OR jl.cc2_id = ${cc}::uuid)
+        AND (${bu}::uuid IS NULL OR jl.bu_id = ${bu}::uuid)
         AND je.entry_date < ${periodStart}
         AND ga.account_code = ${accountCode}
     `) as Row[];
@@ -176,6 +183,9 @@ export async function getAccountTransactions(
       WHERE je.status = 'posted'
         AND je.company_id = ${companyId}::UUID
         AND jl.company_id = ${companyId}::UUID
+        AND (${cc}::uuid IS NULL OR jl.cost_center_id = ${cc}::uuid
+          OR jl.cc1_id = ${cc}::uuid OR jl.cc2_id = ${cc}::uuid)
+        AND (${bu}::uuid IS NULL OR jl.bu_id = ${bu}::uuid)
         AND je.entry_date >= ${periodStart}
         AND je.entry_date <= ${periodEnd}
         AND ga.account_code = ${accountCode}

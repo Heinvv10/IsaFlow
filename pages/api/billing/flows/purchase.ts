@@ -9,8 +9,11 @@
  *       redirects the browser to checkoutUrl; the webhook credits the
  *       wallet on charge.success.
  *   - Paystack not configured (dev / pilot):
- *       Falls back to the admin-recorded flow — credits the wallet
- *       immediately and returns { balanceAfter, purchaseId }.
+ *       Refuses with 503 unless ALLOW_UNPAID_FLOW_PURCHASE=true is set
+ *       outside production, in which case it falls back to the
+ *       admin-recorded flow — credits the wallet immediately and returns
+ *       { balanceAfter, purchaseId }. A missing gateway secret is an
+ *       outage, not a discount.
  */
 
 import type { NextApiResponse } from 'next';
@@ -19,7 +22,7 @@ import { randomBytes } from 'crypto';
 import { withAuth, type CompanyAuthedRequest } from '@/lib/auth';
 import { withErrorHandler } from '@/lib/api-error-handler';
 import { withCsrf } from '@/lib/auth/withCsrf';
-import { apiResponse } from '@/lib/apiResponse';
+import { apiResponse, ErrorCode } from '@/lib/apiResponse';
 import { sql } from '@/lib/neon';
 import { log } from '@/lib/logger';
 import {
@@ -38,6 +41,16 @@ function paystackConfigured(): boolean {
   return Boolean(process.env.PAYSTACK_SECRET_KEY);
 }
 
+/**
+ * The unpaid fallback credits a wallet without taking any money, so it has to
+ * be switched on deliberately and must never be reachable in production. An
+ * absent or rotated-out secret is a configuration state, not an entitlement.
+ */
+function unpaidFallbackAllowed(): boolean {
+  return process.env.NODE_ENV !== 'production'
+    && process.env.ALLOW_UNPAID_FLOW_PURCHASE === 'true';
+}
+
 async function handler(req: CompanyAuthedRequest, res: NextApiResponse) {
   if (req.method !== 'POST') {
     return apiResponse.methodNotAllowed(res, req.method ?? 'UNKNOWN', ['POST']);
@@ -53,8 +66,21 @@ async function handler(req: CompanyAuthedRequest, res: NextApiResponse) {
     return apiResponse.badRequest(res, parsed.error.issues[0]?.message ?? 'Invalid input');
   }
 
-  // Fallback path for dev / pilot: no gateway → credit immediately.
+  // Fallback path for dev / pilot: no gateway → credit immediately, but only
+  // where that has been switched on explicitly. Otherwise fail closed.
   if (!paystackConfigured()) {
+    if (!unpaidFallbackAllowed()) {
+      log.error(
+        'Flow bundle purchase refused: PAYSTACK_SECRET_KEY is not configured',
+        { companyId: req.companyId, bundleId: parsed.data.bundleId },
+        'FlowsPurchase',
+      );
+      return apiResponse.error(
+        res,
+        ErrorCode.SERVICE_UNAVAILABLE,
+        'Flow purchases are unavailable because no payment gateway is configured',
+      );
+    }
     const pending = await startBundlePurchase(req.companyId, parsed.data.bundleId, {
       paymentMethod: 'admin_recorded',
       autoTriggered: false,

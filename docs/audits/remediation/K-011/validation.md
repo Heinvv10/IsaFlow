@@ -52,3 +52,11 @@ same window can also swallow a receipt, so compare against `customer_payments` a
 **Risks.** `FOR UPDATE` on `customer_invoices` widens the lock held for the rest of the request
 transaction; the note lock is already taken first, so the ordering rule that prevents 40P01 is
 unchanged.
+
+
+---
+
+**Correction added during remediation (see `fix.md`).** The impact query above under-reports.
+`ci.amount_paid` also carries receipts, so any corrupted invoice that later took a payment large
+enough to cover the gap drops out of the `HAVING` clause — a false negative on precisely the
+invoices that stayed active. `fix.md` carries the widened probe.

@@ -72,7 +72,7 @@ export const FIGURE_DEFINITIONS: Readonly<Record<string, FigureDefinition>> = {
     includes:
       'Customer invoices still outstanding AS AT the reporting date, at total_amount less the settlement that can be dated to on or before it. An invoice with no due date IS included, aged from its invoice date — it is not dropped and it is not an excludedRow.',
     excludes:
-      'Draft and cancelled invoices. Invoices raised AFTER the reporting date. Settlement that carries no date — bank-match confirmation and the Sage import both write amount_paid with no dated trail — stays in the baseline, so a historical figure can UNDERSTATE and will never report a settled invoice as outstanding.',
+      'Draft, cancelled and soft-deleted invoices — a soft-deleted document also has its approval journal reversed, so it leaves this figure and the control account together. Invoices raised AFTER the reporting date. Settlement that carries no date — bank-match confirmation and the Sage import both write amount_paid with no dated trail — stays in the baseline, so a historical figure can UNDERSTATE and will never report a settled invoice as outstanding.',
   }),
   'ar.control.v1': def({
     id: 'ar.control.v1',
@@ -92,7 +92,7 @@ export const FIGURE_DEFINITIONS: Readonly<Record<string, FigureDefinition>> = {
     includes:
       'Supplier bills still outstanding AS AT the reporting date, at total_amount less the settlement that can be dated to on or before it. A bill with no due date IS included, aged from its invoice date.',
     excludes:
-      'Draft and cancelled bills, and bills raised AFTER the reporting date. Undated settlement stays in the baseline — see ar.subledger.v1. Note that 397 bills on one production company carry payment_matched = true with amount_paid = 0, so they are counted here as fully owed; reconcile_subledger reports them in settlementFlagged.',
+      'Draft, cancelled and soft-deleted bills — a soft-deleted bill also has its approval journal reversed, so it leaves this figure and the control account together. Bills raised AFTER the reporting date. Undated settlement stays in the baseline — see ar.subledger.v1. Note that 397 bills on one production company carry payment_matched = true with amount_paid = 0, so they are counted here as fully owed; reconcile_subledger reports them in settlementFlagged.',
   }),
   'ap.control.v1': def({
     id: 'ap.control.v1',

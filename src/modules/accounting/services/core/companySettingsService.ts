@@ -6,6 +6,7 @@
 
 import { sql } from '@/lib/neon';
 import { log } from '@/lib/logger';
+import { als, assertTxUsable } from '@/lib/als';
 
 // ── Document Numbers ──────────────────────────────────────────────────────────
 
@@ -25,7 +26,6 @@ const DEFAULT_DOC_NUMBERS: { type: string; prefix: string }[] = [
   { type: 'credit_note', prefix: 'CRN' },
   { type: 'customer_receipt', prefix: 'RCP' },
   { type: 'customer_write_off', prefix: 'WRI' },
-  { type: 'recurring_invoice', prefix: 'RINV' },
   { type: 'customer_adjustment', prefix: 'CADJ' },
   { type: 'purchase_order', prefix: 'PO' },
   { type: 'supplier_invoice', prefix: 'SIV' },
@@ -33,12 +33,34 @@ const DEFAULT_DOC_NUMBERS: { type: string; prefix: string }[] = [
   { type: 'supplier_payment', prefix: 'PAY' },
   { type: 'supplier_adjustment', prefix: 'SADJ' },
   { type: 'delivery_note', prefix: 'DN' },
+  { type: 'stock_adjustment', prefix: 'ADJ' },
 ];
 
+/**
+ * Types the settings screen must no longer offer, because nothing reserves from
+ * them any more.
+ *
+ * 'recurring_invoice' (prefix RINV) was the recurring runner's own sequence.
+ * Both recurring paths now mint from 'customer_invoice' — the same sequence
+ * every other writer of that table uses — so the row was left showing a prefix
+ * and a next-number the user could edit to no effect whatsoever. A tenant that
+ * customised RINV to match their stationery would have found new recurring
+ * invoices coming out as INV0000123 anyway. Filtered on read rather than
+ * deleted: the row carries the historical counter for existing
+ * RINV-<slug>-<YYYYMM> documents, and dropping it is not reversible.
+ */
+const RETIRED_DOC_NUMBER_TYPES = new Set(['recurring_invoice']);
+
+/** True for a document type the settings screen no longer shows or accepts. */
+export function isRetiredDocumentNumberType(documentType: string): boolean {
+  return RETIRED_DOC_NUMBER_TYPES.has(documentType);
+}
+
 export async function getDocumentNumbers(companyId: string): Promise<DocumentNumber[]> {
-  const rows = (await sql`
+  const rows = ((await sql`
     SELECT * FROM company_document_numbers WHERE company_id = ${companyId}::UUID ORDER BY document_type
-  `) as Record<string, unknown>[];
+  `) as Record<string, unknown>[])
+    .filter((r) => !RETIRED_DOC_NUMBER_TYPES.has(String(r.document_type)));
   return rows.map((r: Record<string, unknown>) => ({
     id: String(r.id), companyId: String(r.company_id), documentType: String(r.document_type),
     prefix: String(r.prefix), nextNumber: Number(r.next_number), padding: Number(r.padding),
@@ -82,6 +104,28 @@ export function formatDocumentNumber(prefix: string, number: number, padding: nu
   return `${prefix}${String(number).padStart(padding, '0')}`;
 }
 
+/** Postgres `lock_not_available` — `lock_timeout` elapsed waiting for the row. */
+const LOCK_NOT_AVAILABLE = '55P03';
+
+/**
+ * Raised when another request has held this company's counter row for the type
+ * longer than the 5s `lock_timeout`.
+ *
+ * The counter row lock is held until the holder's request COMMITs — that is
+ * inherent to a gapless per-company sequence, and correctness beats throughput
+ * — but the WAIT must be bounded. Nothing sets lock_timeout globally, so a
+ * request that stalls while holding the row blocked every other document
+ * creation for that company indefinitely, with no error and no 409: it simply
+ * hung. A typed error at 5s makes the contention visible and retryable.
+ */
+export class DocumentNumberLockTimeoutError extends Error {
+  readonly code = 'DOCUMENT_NUMBER_LOCK_TIMEOUT';
+  constructor(public readonly documentType: string) {
+    super(`The ${documentType} number sequence is in use by another request — retry in a moment.`);
+    this.name = 'DocumentNumberLockTimeoutError';
+  }
+}
+
 /**
  * Atomically reserve the next number in a company's sequence and return it formatted.
  * Increments next_number under a SQL UPDATE...RETURNING so concurrent calls cannot collide.
@@ -89,6 +133,32 @@ export function formatDocumentNumber(prefix: string, number: number, padding: nu
 export async function reserveNextDocumentNumber(
   companyId: string,
   documentType: string,
+): Promise<string> {
+  // Bounded wait on the counter row (see DocumentNumberLockTimeoutError).
+  // Re-issued every call, never memoised: SET LOCAL is subtransaction-aware and
+  // a savepoint rollback restores it to 0 — no timeout at all — and every
+  // retry attempt in insertWithReservedNumber runs in its own savepoint.
+  // Skipped outside a request transaction, where SET LOCAL affects nothing.
+  const client = als.getStore()?.client;
+  if (client) {
+    assertTxUsable();
+    await client.query("SET LOCAL lock_timeout = '5s'");
+  }
+  try {
+    return await reserveNextDocumentNumberInner(companyId, documentType, client);
+  } catch (err) {
+    if (typeof err === 'object' && err !== null
+      && (err as { code?: unknown }).code === LOCK_NOT_AVAILABLE) {
+      throw new DocumentNumberLockTimeoutError(documentType);
+    }
+    throw err;
+  }
+}
+
+async function reserveNextDocumentNumberInner(
+  companyId: string,
+  documentType: string,
+  client: { query: (text: string) => Promise<unknown> } | undefined,
 ): Promise<string> {
   // Hot path: try the UPDATE first. If the row exists (the common case once
   // ensureDocumentNumbers has run for this company even once), we incur a single
@@ -112,8 +182,18 @@ export async function reserveNextDocumentNumber(
     `) as Record<string, unknown>[];
   }
   if (rows.length === 0) {
+    // Restore BEFORE throwing. This is not the timeout path — the transaction is
+    // still usable — so leaving the 5s ceiling set would leak it onto every later
+    // statement in the request and fail an unrelated write on a lock wait that
+    // has nothing to do with numbering.
+    if (client) await client.query('SET LOCAL lock_timeout = DEFAULT');
     throw new Error(`No document number config for type ${documentType}`);
   }
+  // Restored on the SUCCESS path only. After a lock timeout the transaction is
+  // aborted and this statement would itself raise 25P02, replacing the typed
+  // error with an opaque one. Left set, the 5s ceiling would leak onto every
+  // later statement in the request.
+  if (client) await client.query('SET LOCAL lock_timeout = DEFAULT');
   return formatDocumentNumber(
     String(rows[0]!.prefix),
     Number(rows[0]!.used),

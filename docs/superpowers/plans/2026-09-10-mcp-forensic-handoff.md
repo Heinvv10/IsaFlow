@@ -121,7 +121,7 @@ historical import twice, producing two effects and debit/credit 20.00.
 - Candidate adds fixed platform-import permission ceilings, exact source/action/
   operation confinement hooks, protected `platformImportMaker`, distinct
   persisted platform requester rechecks, and migration
-  `675_platform_import_approval_authority.sql`.
+  `826_platform_import_approval_authority.sql`.
 - Migration 674 was taken by `.worktrees/fix-K-091/674_gl_accounts_normalise_subtype.sql`
   after the earlier reservation. A new all-worktree scan allocated 675. Migration
   675 applied twice successfully only to the synthetic database.

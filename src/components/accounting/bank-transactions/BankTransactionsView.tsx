@@ -22,7 +22,7 @@ export function BankTransactionsView(props:ReturnType<typeof useBankTransactions
   showBU,setShowBU,splitTxId,setSplitTxId,excludingTxId,setExcludingTxId,findMatchTxId,setFindMatchTxId,
   attachmentsTxId,setAttachmentsTxId,queryTx,setQueryTx,createRuleTx,setCreateRuleTx,rulePrompt,setRulePrompt,
   createEntityTxId,setCreateEntityTxId,createEntityType,setCreateEntityType,loadTransactions,aiPolling,actions,bank,
-  transferTargets,totalPages,allSelected,toggleSelect,withReset,noBankAccounts
+  transferTargets,totalPages,allSelected,selectableTxIds,toggleSelect,withReset,noBankAccounts
  }=props;
   if (noBankAccounts) {
     return (
@@ -112,7 +112,7 @@ export function BankTransactionsView(props:ReturnType<typeof useBankTransactions
               showCC={showCC} showBU={showBU} selectedIds={selectedIds} rowSelections={rowSelections}
               allSelected={allSelected} tab={tab}
               onToggleSelect={toggleSelect}
-              onSelectAll={() => setSelectedIds(allSelected ? new Set() : new Set(transactions.map(t => t.id)))}
+              onSelectAll={() => setSelectedIds(allSelected ? new Set() : new Set(selectableTxIds))}
               onRowTypeChange={actions.handleRowTypeChange} onRowEntityChange={actions.handleRowEntityChange}
               onRowVatChange={actions.handleRowVatChange} onRowDimensionChange={actions.handleRowDimensionChange}
               onAccept={actions.handleAccept} onExclude={actions.handleExclude}

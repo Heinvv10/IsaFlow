@@ -10,6 +10,7 @@ import type {ControlTx} from '../controls/contracts';
 import {buildBankAllocationLines,isBankAllocationRefund,type BankAllocationPlan} from './bankAllocationPlan';
 import {materializeGlOperation} from '../controls/glOperationMaterializer';
 import Decimal from 'decimal.js';
+import {isBankSubtype,subtypeFillsRole,roleSpellings} from '../gl/accountSubtypes';
 const D=Decimal.clone({precision:80});
 type Row=Record<string,unknown>;
 export async function loadBankAllocationSources(ctx:ControlTx,plan:BankAllocationPlan,options:{postExecution?:boolean}={}){
@@ -23,11 +24,11 @@ export async function loadBankAllocationSources(ctx:ControlTx,plan:BankAllocatio
  const [ledger]=await ctx.sql`SELECT id,default_currency,lockdown_enabled,lockdown_date::text FROM companies WHERE id=${company}::uuid FOR SHARE` as Row[];
  if(metadata.length!==1||metadata[0]!.currency!=='ZAR'||ledger?.default_currency!=='ZAR')throw new OperationRefusalError('Bank allocation requires unambiguous owned ZAR denomination');
  const accounts=await ctx.sql`SELECT id,account_code,account_name,account_type,account_subtype,is_active,is_system_account FROM gl_accounts WHERE company_id=${company}::uuid
-  AND (id=${bank.bank_account_id}::uuid OR id=ANY(${('lines' in plan?[...plan.lines.map(l=>l.accountId),...(plan.vatAccountId?[plan.vatAccountId]:[])]:plan.kind==='transfer'?[plan.counterpartyAccountId]:[])}::uuid[]) OR (is_system_account=true AND account_subtype IN('receivable','payable','vat_input','vat_output')))
+  AND (id=${bank.bank_account_id}::uuid OR id=ANY(${('lines' in plan?[...plan.lines.map(l=>l.accountId),...(plan.vatAccountId?[plan.vatAccountId]:[])]:plan.kind==='transfer'?[plan.counterpartyAccountId]:[])}::uuid[]) OR (is_system_account=true AND account_subtype=ANY(${[...roleSpellings('receivable'),...roleSpellings('payable'),'vat_input','vat_output']}::text[])))
   ORDER BY id FOR SHARE` as Row[];
  const bankAccount=accounts.find(a=>a.id===bank.bank_account_id);
- if(!bankAccount||bankAccount.is_active!==true||bankAccount.account_type!=='asset'||bankAccount.account_subtype!=='bank')throw new OperationRefusalError('Owned active bank GL account required');
- const system=(role:string,type:string)=>{const found=accounts.filter(a=>a.is_system_account===true&&a.account_subtype===role&&a.account_type===type&&a.is_active===true);if(found.length!==1)throw new OperationRefusalError('Allocation system account missing or ambiguous');return String(found[0]!.id);};
+ if(!bankAccount||bankAccount.is_active!==true||bankAccount.account_type!=='asset'||!isBankSubtype(bankAccount.account_subtype as string|null))throw new OperationRefusalError('Owned active bank GL account required');
+ const system=(role:string,type:string)=>{const found=accounts.filter(a=>a.is_system_account===true&&subtypeFillsRole(a.account_subtype as string|null,role)&&a.account_type===type&&a.is_active===true);if(found.length!==1)throw new OperationRefusalError('Allocation system account missing or ambiguous');return String(found[0]!.id);};
  const controlAccountId=plan.kind==='customer'?system('receivable','asset'):plan.kind==='supplier'?system('payable','liability'):null;
  const vatAccountId='lines' in plan&&plan.lines.some(l=>l.vatCode==='standard')?(plan.vatAccountId?assertBankVatAccount(accounts.find(account=>account.id===plan.vatAccountId),String(bank.amount))
   :system(new D(String(bank.amount)).lt(0)?'vat_input':'vat_output',new D(String(bank.amount)).lt(0)?'asset':'liability')):null;

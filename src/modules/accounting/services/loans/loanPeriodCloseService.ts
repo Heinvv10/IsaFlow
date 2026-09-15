@@ -4,8 +4,17 @@ import type { DbRow } from '@/lib/neon';
 import { log } from '@/lib/logger';
 import { createJournalEntry } from '@/modules/accounting/services/gl/journalEntryCrudService';
 import { postJournalEntry } from '@/modules/accounting/services/gl/journalEntryPostingService';
-import type { JournalEntryCreateInput, JournalLineInput } from '@/modules/accounting/types/gl.types';
 import type { LoanGlAccounts } from './loanGlPostingService';
+import {
+  buildReclassificationInput,
+  fetchPriorReclass,
+  recordReclass,
+} from './loanReclassService';
+import type { SnapshotRow } from './loanReclassService';
+import { assertClosesInOrder, assertFiscalPeriodResolved } from './loanPostingGuards';
+
+export { buildReclassificationInput } from './loanReclassService';
+export type { SnapshotRow } from './loanReclassService';
 
 type Row = DbRow;
 
@@ -42,27 +51,6 @@ export interface CloseResult {
   reclassEntries: string[];
   locked: boolean;
   skippedLoans?: SkippedLoan[];
-}
-
-interface SnapshotRow {
-  closing: number;
-  stLiability: number;
-}
-
-// ── buildReclassificationInput (pure) ───────────────────────────────────────
-
-export function buildReclassificationInput(
-  snapshot: SnapshotRow,
-  accounts: LoanGlAccounts,
-  postingDate: string,
-  narrative: string,
-): JournalEntryCreateInput {
-  const lines: JournalLineInput[] = [];
-  if (snapshot.stLiability > 0) {
-    lines.push({ glAccountId: accounts.loanLiability, debit: snapshot.stLiability, credit: 0, description: narrative });
-    lines.push({ glAccountId: accounts.currentPortion, debit: 0, credit: snapshot.stLiability, description: narrative });
-  }
-  return { entryDate: postingDate, description: narrative, source: 'manual', lines };
 }
 
 // ── lock helpers ────────────────────────────────────────────────────────────
@@ -127,6 +115,15 @@ export async function closeLoanPeriod(
   yyyymm: string,
   userId: string,
 ): Promise<CloseResult> {
+  // Round-4 M2. The ordering guard takes the company's close advisory lock, so
+  // it must run BEFORE the already-locked read: with the read first, two
+  // concurrent closes of the SAME month both see it unlocked, then serialise,
+  // and the second re-creates and re-posts every reclass journal for the month
+  // before the loan_period_locks PK finally rejects it ~60 lines later. The
+  // request transaction rolls that back, but the caller gets a raw 23505
+  // instead of the named error, and the safety rests on nothing in between
+  // committing. Under the lock the read answers correctly the first time.
+  await assertClosesInOrder(companyId, yyyymm);
   if (await isPeriodLocked(companyId, yyyymm)) {
     throw new Error(`Period ${yyyymm} is already locked`);
   }
@@ -146,12 +143,18 @@ export async function closeLoanPeriod(
       FROM loan_schedule_rows lsr
       JOIN loan_schedule_runs lsrun ON lsrun.id = lsr.run_id
       WHERE lsrun.loan_id = l.id
+        AND lsrun.company_id = ${companyId}
         AND TO_CHAR(lsr.date, 'YYYYMM') = ${yyyymm}
       ORDER BY lsrun.computed_at DESC NULLS LAST, lsr.period DESC
       LIMIT 1
     ) snap ON true
     WHERE l.company_id = ${companyId} AND l.status = 'active'
   `) as Row[];
+
+  // What the previous close actually posted for each loan. A month can be
+  // locked without this loan having been reclassified in it, so the lock is
+  // not evidence; only a recorded reclass is.
+  const priorByLoan = await fetchPriorReclass(companyId, yyyymm);
 
   const reclassEntries: string[] = [];
   const skippedLoans: SkippedLoan[] = [];
@@ -173,6 +176,7 @@ export async function closeLoanPeriod(
     const snapshot: SnapshotRow = {
       closing: parseFloat(String(row.snapshot_closing)),
       stLiability: parseFloat(String(row.snapshot_stliability ?? '0')),
+      priorStLiability: priorByLoan.get(loanId) ?? 0,
     };
     const postingDate = fmtDate(row.snapshot_date);
     const narrative = `Reclassification – loan ${String(row.reference ?? loanId)} for ${yyyymm}`;
@@ -181,7 +185,9 @@ export async function closeLoanPeriod(
     if (input.lines.length === 0) continue;
 
     const entry = await createJournalEntry(companyId, input, userId);
+    assertFiscalPeriodResolved(entry.fiscalPeriodId, postingDate, narrative);
     await postJournalEntry(companyId, entry.id, userId);
+    await recordReclass(companyId, loanId, yyyymm, snapshot.stLiability, entry.id);
     reclassEntries.push(entry.id);
   }
 

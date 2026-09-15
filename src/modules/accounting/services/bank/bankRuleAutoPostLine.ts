@@ -29,6 +29,7 @@ import type { RuleAllocType } from './bankRulesMatchingHelpers';
 import { lockBankTransactionForUpdate } from './bankTxLock';
 import { allocateTransaction } from './bankAllocationService';
 import { resolveRuleVatCode } from '../gl/ruleVatResolution';
+import { feedStateOf } from './bankFeedStateGuard';
 
 export type AutoPostOutcome =
   | { kind: 'posted'; journalEntryId: string; vatDenied: boolean; nonSupplyCoerced: boolean }
@@ -83,7 +84,8 @@ export async function autoPostRuleLine(input: AutoPostLineInput): Promise<AutoPo
   // allocation committed in between would otherwise get a second journal
   // posted on top of it.
   const locked = await lockBankTransactionForUpdate(companyId, String(tx.id));
-  if (!locked || String(locked.status) !== 'imported' || locked.matched_journal_line_id) {
+  if (!locked || String(locked.status) !== 'imported' || locked.matched_journal_line_id
+      || feedStateOf(locked) !== 'posted') {
     return { kind: 'raced' };
   }
 

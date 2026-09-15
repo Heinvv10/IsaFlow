@@ -11,6 +11,8 @@ import { withErrorHandler } from '@/lib/api-error-handler';
 import { apiResponse } from '@/lib/apiResponse';
 import { withAuth, type CompanyAuthedRequest } from '@/lib/auth';
 import { log } from '@/lib/logger';
+import { fmtDate } from '@/lib/fmtDate';
+import { documentInLedgerAsAtFragment } from '@/modules/accounting/services/shared/softDeleteLedgerPresence';
 
 interface LedgerRow {
   type: string;
@@ -90,6 +92,29 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
       FROM supplier_invoices si
       WHERE si.company_id = ${companyId}
         AND si.supplier_id = ${supplierId}
+        -- The supplier NAME lookup above already filters deleted_at; the
+        -- invoice leg did not, so a soft-deleted bill stayed in the ledger
+        -- and in its running balance.
+        --
+        -- Dated to the window's upper bound, like every other as-at surface:
+        -- the delete's reversal is dated to the DELETE, so a bill deleted after
+        -- dateTo is still on the AP control account at that date and belongs
+        -- in a running balance drawn to it. dateTo is optional, and an absent
+        -- one means up to now, hence the fallback to today rather than a NULL
+        -- that would make the fragment return NULL and drop every deleted bill
+        -- unconditionally.
+        --
+        -- The DELETED predicate only, deliberately. The payment leg below lists
+        -- whole supplier_payments rows rather than allocations, so anything
+        -- dropped here leaves its payment behind with no matching debit and
+        -- drives the running balance negative. A bill that is out of the ledger
+        -- at dateTo cannot carry a live one — assertInvoiceDeletable refuses
+        -- to delete a bill with any allocation from a non-cancelled payment —
+        -- so this filter is safe; a draft/cancelled status filter would NOT be,
+        -- and excluding draft and cancelled bills from a supplier ledger is a
+        -- contract change to a report outside K-053's scope in any case.
+        -- Round 3 added one; it is reverted here.
+        AND ${documentInLedgerAsAtFragment('si', dateToVal ?? fmtDate(new Date()), companyId)}
         AND (${dateFromVal}::date IS NULL OR si.invoice_date >= ${dateFromVal}::date)
         AND (${dateToVal}::date IS NULL OR si.invoice_date <= ${dateToVal}::date)
 

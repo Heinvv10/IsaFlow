@@ -34,6 +34,7 @@
 
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import type { NextApiRequest, NextApiResponse } from 'next';
+import { mockUnsafe } from '../helpers/sqlFragmentMock';
 
 /**
  * Locates the bank-balance query. It filters on the shared BANK_SUBTYPES
@@ -46,7 +47,10 @@ const BANK_SUBTYPE_FILTER = /account_subtype = (?:'bank'|ANY\()/;
 
 const sqlMock = vi.fn();
 vi.mock('@/lib/neon', () => ({
-  sql: (...a: unknown[]) => sqlMock(...a),
+  // Part of the real client. The AR/AP figure queries splice the as-at
+  // soft-delete predicate through it (shared/softDeleteLedgerPresence);
+  // building a fragment is NOT a query, so it must not go through the spy.
+  sql: Object.assign((...a: unknown[]) => sqlMock(...(a as [TemplateStringsArray, ...unknown[]])), { unsafe: mockUnsafe }),
   withSavepoint: (_n: string, fn: () => Promise<unknown>) => fn(),
   withTransaction: (cb: (tx: unknown) => unknown) => cb(null),
 }));

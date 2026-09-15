@@ -1,3 +1,4 @@
+import { useRef, useState } from 'react';
 import { Loader2 } from 'lucide-react';
 import { apiFetch } from '@/lib/apiFetch';
 import { Toggle, SECTION_CLS } from './settingsTypes';
@@ -11,22 +12,33 @@ interface Props {
 }
 
 async function saveDimensionSetting(key: string, value: boolean) {
-  await apiFetch('/api/accounting/accounting-settings', {
+  const response = await apiFetch('/api/accounting/accounting-settings', {
     method: 'PUT',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ key, value: String(value) }),
   });
+  if (!response.ok) throw new Error('Failed to save dimension setting');
 }
 
 export function DimensionsTab({ enableCC, enableBU, dimLoaded, onCCChange, onBUChange }: Props) {
-  const handleCC = (v: boolean) => {
-    onCCChange(v);
-    void saveDimensionSetting('enable_cost_centres', v);
-  };
+  const savingRef = useRef(false);
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState('');
 
-  const handleBU = (v: boolean) => {
-    onBUChange(v);
-    void saveDimensionSetting('enable_business_units', v);
+  const save = async (key: string, value: boolean, onChange: (v: boolean) => void) => {
+    if (savingRef.current) return;
+    savingRef.current = true;
+    setSaving(true);
+    setError('');
+    try {
+      await saveDimensionSetting(key, value);
+      onChange(value);
+    } catch {
+      setError('Could not save the dimension setting. Please try again.');
+    } finally {
+      savingRef.current = false;
+      setSaving(false);
+    }
   };
 
   return (
@@ -36,6 +48,8 @@ export function DimensionsTab({ enableCC, enableBU, dimLoaded, onCCChange, onBUC
         Enable cost centre and business unit tracking to tag transactions and filter reports by these dimensions.
       </p>
 
+      {error && <p role="alert" className="text-sm text-red-500 mb-4">{error}</p>}
+      {saving && <p role="status" className="text-sm text-[var(--ff-text-secondary)] mb-4">Saving dimension setting...</p>}
       {!dimLoaded ? (
         <div className="flex items-center gap-2 text-[var(--ff-text-tertiary)]"><Loader2 className="h-4 w-4 animate-spin" /> Loading...</div>
       ) : (
@@ -54,7 +68,7 @@ export function DimensionsTab({ enableCC, enableBU, dimLoaded, onCCChange, onBUC
                 </a>
               )}
             </div>
-            <Toggle checked={enableCC} onChange={handleCC} label="" />
+            <Toggle checked={enableCC} disabled={saving} onChange={v => { void save('enable_cost_centres', v, onCCChange); }} label="" />
           </div>
 
           {/* Business Units */}
@@ -71,7 +85,7 @@ export function DimensionsTab({ enableCC, enableBU, dimLoaded, onCCChange, onBUC
                 </a>
               )}
             </div>
-            <Toggle checked={enableBU} onChange={handleBU} label="" />
+            <Toggle checked={enableBU} disabled={saving} onChange={v => { void save('enable_business_units', v, onBUChange); }} label="" />
           </div>
         </div>
       )}

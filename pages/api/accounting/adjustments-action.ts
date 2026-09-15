@@ -9,7 +9,11 @@ import { apiResponse } from '@/lib/apiResponse';
 import { withAuth, type CompanyAuthedRequest, type AuthenticatedNextApiRequest, withWriteAccess} from '@/lib/auth';
 import { withCsrf } from '@/lib/auth/withCsrf';
 import { log } from '@/lib/logger';
-import { approveAdjustment, cancelAdjustment } from '@/modules/accounting/services/items/adjustmentService';
+import {
+  AdjustmentNotApprovableError,
+  approveAdjustment,
+  cancelAdjustment,
+} from '@/modules/accounting/services/items/adjustmentService';
 
 async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse) {
   if (req.method !== 'POST') {
@@ -36,7 +40,17 @@ async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse) {
     }
   } catch (err) {
     log.error('Adjustment action failed', { error: err }, 'accounting-api');
-    return apiResponse.badRequestFromError(res, err, 'Action failed');
+    // Only refusals raised BEFORE the first posting may be answered with a 4xx:
+    // `withAuth` COMMITs anything below 500, so the blanket badRequestFromError
+    // this replaced committed a half-approved adjustment — a posted journal
+    // whose adjustment still reads 'draft' — and reported it as a 400.
+    if (err instanceof AdjustmentNotApprovableError) {
+      return apiResponse.conflict(res, err.message);
+    }
+    if (err instanceof Error && /^Adjustment not found/.test(err.message)) {
+      return apiResponse.notFound(res, 'Adjustment');
+    }
+    throw err;
   }
 }
 
