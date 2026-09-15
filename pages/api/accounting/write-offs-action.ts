@@ -6,6 +6,7 @@
 import { z } from 'zod';
 import type { NextApiResponse } from 'next';
 import { withErrorHandler } from '@/lib/api-error-handler';
+import { respondIfTypedRefusal } from '@/lib/apiRefusalReply';
 import { apiResponse } from '@/lib/apiResponse';
 import { withAuth, type CompanyAuthedRequest, type AuthenticatedNextApiRequest, withWriteAccess} from '@/lib/auth';
 import { withCsrf } from '@/lib/auth/withCsrf';
@@ -52,6 +53,11 @@ async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse) {
     // `withAuth` COMMITs anything below 500, so the blanket badRequestFromError
     // this replaced committed a half-approved write-off — a posted journal with
     // the invoice not updated — and reported it as a 400.
+    // `approveWriteOff` calls assertIndependentRequestReview as its FIRST statement,
+    // so this refusal precedes every read and every write and a 4xx cannot commit
+    // anything. It was rethrown here and arrived as a 500 telling the user the
+    // write-off had crashed; apiRefusal.ts answers it 400 with its own wording.
+    if (respondIfTypedRefusal(res, err)) return;
     if (err instanceof WriteOffNotApprovableError) {
       return apiResponse.conflict(res, err.message);
     }

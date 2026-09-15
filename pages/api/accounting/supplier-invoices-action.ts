@@ -7,6 +7,7 @@
 import { z } from 'zod';
 import type { NextApiResponse } from 'next';
 import { withErrorHandler } from '@/lib/api-error-handler';
+import { respondIfTypedRefusal } from '@/lib/apiRefusalReply';
 import { apiResponse } from '@/lib/apiResponse';
 import { withAuth, type AuthenticatedNextApiRequest, type CompanyAuthedRequest, withWriteAccess} from '@/lib/auth';
 import { withCsrf } from '@/lib/auth/withCsrf';
@@ -66,6 +67,12 @@ async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse) {
   } catch (err) {
     const message = err instanceof Error ? err.message : 'Action failed';
     log.error('Supplier invoice action failed', { error: err }, 'accounting-api');
+    // A refusal whose class declares its status answers with THAT, ahead of the
+    // blanket 400 below: an approval requirement is a 409 and reaching it through
+    // this route must not report a different status than reaching the same refusal
+    // through supplier-payments-action, which has no blanket and relies on
+    // withErrorHandler for the same answer.
+    if (respondIfTypedRefusal(res, err)) return;
     return apiResponse.badRequest(res, message);
   }
 }

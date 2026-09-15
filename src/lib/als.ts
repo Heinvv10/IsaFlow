@@ -15,6 +15,16 @@ export interface RequestContext {
   /** An indispensable change/effect audit failed; request must not commit. */
   controlWriteFailed?: boolean;
   /**
+   * The error that set `controlWriteFailed`, recorded by `recordControlRefusal` so the wrapper can
+   * classify it. The ROLLBACK is unconditional either way — this changes WHAT THE CLIENT IS TOLD,
+   * never whether the transaction commits. `runJournalControl` poisons every refusal its controlled
+   * write raises, because the direct journal routes create their draft journal OUTSIDE that write and
+   * a 4xx would COMMIT the orphan; but an approval-required refusal is not an integrity failure, and
+   * answering it 500 CONTROL_INTEGRITY_FAILED told the caller nothing it could act on. Only a class
+   * registered in `apiRefusal.ts` changes the answer; anything else here stays a 500.
+   */
+  controlRefusal?: Error;
+  /**
    * Set by auditService.logAdminAction when a CRITICAL_ACTIONS audit write
    * fails. The platform-admin middleware (withPlatformAdmin) checks this before
    * COMMIT and forces a ROLLBACK, so a privileged action can never persist
@@ -81,6 +91,27 @@ export function markTxUnusable(original: unknown, rollbackErr: unknown): void {
     );
   } catch {
     // Never let bookkeeping mask the original failure.
+  }
+}
+
+/**
+ * Record WHAT poisoned this request, so the wrapper can say whether the caller can act on it.
+ *
+ * Called beside `controlWriteFailed = true`, never instead of it: the ROLLBACK is unconditional and
+ * this only decides what the client is TOLD. Nothing is classified here — which refusals a transport
+ * answers with a 4xx is a transport question (`@/lib/apiRefusal`), and the error is stored as it is so
+ * `withAuth`/`bearerPipeline` can ask. Everything they do not recognise keeps the 500 that says an
+ * integrity guarantee, not a business rule, stopped the request.
+ *
+ * Best-effort like `markTxUnusable` above, and here for the same reason: it is the same act — writing
+ * one field onto the request store from inside an error path, where throwing would mask the original.
+ */
+export function recordControlRefusal(error: unknown): void {
+  try {
+    const store = als.getStore();
+    if (store && error instanceof Error) store.controlRefusal = error;
+  } catch {
+    // Never let bookkeeping mask the original refusal.
   }
 }
 

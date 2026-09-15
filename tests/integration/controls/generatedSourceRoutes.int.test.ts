@@ -63,9 +63,7 @@ it('a UIF declaration payment posts its journal and marks the declaration paid',
 /**
  * These three posts are now subject to the company's journal approval policy, which is the point of routing them
  * through the direct controlled path. None of the three routes can carry an approvalId, so under a policy the post
- * is refused and the request writes nothing — asserted by outcome, since the refusal still reaches the client as a
- * 500 (an approval-required refusal raised inside `executeControlledOperation` poisons the control transaction, a
- * pre-existing defect of every direct journal post on this branch, reported separately).
+ * is refused and the request writes nothing.
  */
 /**
  * Each request must be REFUSED BY THE APPROVAL POLICY — not merely fail. `status >= 400` is a range, not an outcome: a
@@ -85,26 +83,29 @@ it('a UIF declaration payment posts its journal and marks the declaration paid',
  * `code` AND `name` because three classes in the tree carry that code (approvalExecutionService, apControlBoundary,
  * arControlBoundary), so the code alone does not pin which one refused.
  *
- * Asserting 422 is what this test SHOULD do, and cannot yet: an approval-required refusal is raised inside
- * `executeControlledOperation`, in the poisoning branch, so it reaches the client as a 500 for every direct journal
- * post on this branch. When that is fixed, the two status assertions below tighten to 4xx and the service-level
- * identity assertion stays as it is.
+ * The status is now the refusal's own. A 4xx here used to be impossible: an approval-required refusal is raised
+ * INSIDE `executeControlledOperation`, in `runJournalControl`'s poisoning branch, so every direct journal post
+ * answered 500 CONTROL_INTEGRITY_FAILED. The poisoning stays — it is what ROLLS BACK the draft journal these routes
+ * create outside the controlled write, which a bare 4xx would COMMIT — and only the answer changed: the refusal's
+ * declared 409 (`apiRefusal.ts`), not the 422 an earlier note here guessed at, because 409 is what all three
+ * approval-required classes declare and what `year-end.ts` already answered by hand. The service-level identity
+ * assertion below stays exactly as it was, and still earns its place for the reason the paragraph above gives.
  */
 it('a company whose journal policy requires approval is refused BY THAT POLICY, and nothing is posted or recorded',async()=>{
  const recon=await f.reconciliation('B'),directive=await f.approvedDirective('B'),declaration=await f.submittedUifDeclaration('B');
  const adjustment=await f.request('/api/accounting/bank-reconciliations-action','POST',
   {action:'adjustment',reconciliationId:recon,bankAccountId:f.gl.B['1110'],contraAccountId:f.gl.B['6900'],amount:10,description:'Synthetic adjustment'},'u3');
- expect(adjustment.status,JSON.stringify(adjustment.body)).toBe(500);
- expect((adjustment.body as {code?:string}).code).toBe('CONTROL_INTEGRITY_FAILED');
+ expect(adjustment.status,JSON.stringify(adjustment.body)).toBe(409);
+ expect((adjustment.body as {code?:string}).code).toBe('OPERATION_APPROVAL_REQUIRED');
  expect(await f.journals('B',recon)).toEqual([]);
  const applied=await f.request(`/api/accounting/tax-directives/apply?id=${directive}`,'POST',{paymentDate:'2026-09-15'},'u3');
- expect(applied.status,JSON.stringify(applied.body)).toBe(500);
- expect((applied.body as {code?:string}).code).toBe('CONTROL_INTEGRITY_FAILED');
+ expect(applied.status,JSON.stringify(applied.body)).toBe(409);
+ expect((applied.body as {code?:string}).code).toBe('OPERATION_APPROVAL_REQUIRED');
  expect(await f.journals('B',directive)).toEqual([]);
  expect((await f.pool.query('SELECT id FROM tax_directive_payments WHERE company_id=$1 AND tax_directive_id=$2',[f.companies.B,directive])).rows).toEqual([]);
  const paid=await f.request(`/api/payroll/uif?id=${declaration}`,'PATCH',{markPaid:true,paymentDate:'2026-09-15'},'u3');
- expect(paid.status,JSON.stringify(paid.body)).toBe(500);
- expect((paid.body as {code?:string}).code).toBe('CONTROL_INTEGRITY_FAILED');
+ expect(paid.status,JSON.stringify(paid.body)).toBe(409);
+ expect((paid.body as {code?:string}).code).toBe('OPERATION_APPROVAL_REQUIRED');
  expect(await f.journals('B',declaration)).toEqual([]);
  // The whole request rolled back: the declaration is not left marked paid without its journal.
  expect((await f.pool.query('SELECT status,journal_entry_id FROM uif_declarations WHERE company_id=$1 AND id=$2',[f.companies.B,declaration])).rows[0])
@@ -117,7 +118,10 @@ it('the refusal each of the three raises IS the approval requirement, not some o
  const recon=await f.reconciliation('B'),directive=await f.approvedDirective('B'),declaration=await f.submittedUifDeclaration('B');
  const {createAdjustmentEntry}=await import('@/modules/accounting/services/bank/bankReconciliationService');
  const {applyTaxDirective}=await import('@/modules/accounting/services/payroll/taxDirectivePaymentService');
- const {markUifDeclarationPaid}=await import('@/modules/accounting/services/payroll/uifDeclarationService');
+ // uifPaymentService, not uifDeclarationService: the function moved under the 300-line ceiling and this
+ // import resolved to `undefined`, so the third case below raised a TypeError the loop's catch swallowed
+ // and asserted nothing about the UIF path at all.
+ const {markUifDeclarationPaid}=await import('@/modules/accounting/services/payroll/uifPaymentService');
  const attempts:Array<()=>Promise<unknown>>=[
   ()=>createAdjustmentEntry(f.companies.B,recon,f.gl.B['1110'],f.gl.B['6900'],10,'Synthetic adjustment',f.fixture.u3.id),
   ()=>applyTaxDirective(f.companies.B,directive,{paymentDate:'2026-09-15'},f.fixture.u3.id),

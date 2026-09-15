@@ -1,6 +1,6 @@
 import {readHistoricalJournalRelationship} from '../controls/historicalJournalRelationship';
 import {assertGeneratedJournalMoney} from '../controls/generatedJournalMoney';
-import { als } from '@/lib/als';
+import { als, recordControlRefusal } from '@/lib/als';
 import { withSavepoint } from '@/lib/neon';
 import { isRealCalendarDate } from '@/lib/validation';
 import { requireControlTx } from '../controls/context';
@@ -30,9 +30,22 @@ export class GeneratedJournalOperationError extends Error {
     this.name = 'GeneratedJournalOperationError';
   }
 }
+/**
+ * Mark the request's control transaction failed and rethrow.
+ *
+ * The poisoning is what forces the ROLLBACK, and it must stay unconditional: a DIRECT caller creates
+ * and posts its draft journal in one request, OUTSIDE the controlled write below, and `withAuth` COMMITs
+ * anything under 500 — so a refusal answered with a bare 4xx would strand the orphan draft the refusal
+ * exists to prevent. What the poisoning must NOT decide is what the CLIENT is told: an approval-required
+ * refusal is raised before the controlled savepoint writes anything, and reporting it as 500
+ * CONTROL_INTEGRITY_FAILED told the caller its post had crashed rather than that an approval is needed.
+ * So the cause is recorded, the transport classifies it (`apiRefusal.ts` is the whole allowlist), and an
+ * integrity failure — every other error reaching here — still answers 500.
+ */
 function poison(error: unknown): never {
   const store = als.getStore();
   if (store) store.controlWriteFailed = true;
+  recordControlRefusal(error);
   throw error;
 }
 export async function runJournalControl<T>(companyId: string, userId: string, ref: OperationRef, opts: JournalControlOptions | undefined,

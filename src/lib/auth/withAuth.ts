@@ -17,6 +17,7 @@ import { log } from '@/lib/logger';
 import { setTenantTags, sanitizeRoute } from '@/lib/sentry/tags';
 import { checkRateLimit } from '@/lib/rateLimit';
 import { isActiveUserAccount, SUSPENDED_ACCOUNT_ERROR, MISSING_PROFILE_ERROR } from './userAccountStatus';
+import { typedRefusalAnswer } from '@/lib/apiRefusal';
 
 // Re-exported so every existing `import { withRole } from '@/lib/auth/withAuth'`
 // keeps working; the implementation moved to withRole.ts (300-line ceiling).
@@ -200,6 +201,10 @@ export function withAuth(handler: Handler): NextApiHandler {
       // single final end(), COMMIT/ROLLBACK on the resolved status, then replay.
       let bufferedEndArgs: unknown[] | null = null;
       let handlerEnded = false;
+      // A poisoned control transaction must ROLLBACK whatever status it answers with.
+      // Below, a caller-actionable refusal answers its own 4xx, and `handlerFailed`
+      // keys on THIS rather than on `res.statusCode >= 500`, which a 4xx would pass.
+      let controlIntegrityRollback = false;
       const realEnd = res.end.bind(res) as (...a: unknown[]) => unknown;
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
       (res as any).end = (...args: unknown[]) => {
@@ -227,9 +232,19 @@ export function withAuth(handler: Handler): NextApiHandler {
           ));
         } catch (error) {
           if (!(error instanceof ControlIntegrityError)) throw error;
-          const body = JSON.stringify({ success: false, data: null,
-            message: 'An unexpected error occurred', code: 'CONTROL_INTEGRITY_FAILED' });
-          res.statusCode = 500;
+          // The transaction is rolled back either way (controlIntegrityRollback).
+          // What differs is the ANSWER: when the poisoning cause was a refusal the
+          // caller can act on — an approval requirement raised before the
+          // controlled write touched anything — it answers its own 4xx and code
+          // instead of a 500 that says the server broke. Every other poisoning
+          // site records no registered refusal and keeps CONTROL_INTEGRITY_FAILED.
+          controlIntegrityRollback = true;
+          const refusal = typedRefusalAnswer(ctx.controlRefusal);
+          const body = refusal === null
+            ? JSON.stringify({ success: false, data: null,
+              message: 'An unexpected error occurred', code: 'CONTROL_INTEGRITY_FAILED' })
+            : JSON.stringify({ success: false, data: null, message: refusal.message, code: refusal.code });
+          res.statusCode = refusal?.status ?? 500;
           if (!res.headersSent) res.setHeader('Content-Type', 'application/json; charset=utf-8');
           if (!res.headersSent) res.setHeader('Content-Length', Buffer.byteLength(body));
           bufferedEndArgs = res.headersSent ? [] : [body]; handlerEnded = true;
@@ -249,8 +264,13 @@ export function withAuth(handler: Handler): NextApiHandler {
       // commonly withErrorHandler (which sits INSIDE withAuth) caught an error,
       // responded 500, and returned normally; we must NOT COMMIT its partial
       // writes. <5xx commits (4xx keeps today's behaviour — handlers that
-      // validate-then-4xx almost always return before any write).
-      const handlerFailed = res.statusCode >= 500;
+      // validate-then-4xx almost always return before any write). The ONE
+      // exception is a poisoned control transaction: it rolls back on
+      // controlIntegrityRollback whatever status it answered with, because a
+      // caller-actionable refusal there is now answered 4xx and its request
+      // HAS written (the draft journal a direct post creates outside the
+      // controlled write) — see the ControlIntegrityError catch above.
+      const handlerFailed = res.statusCode >= 500 || controlIntegrityRollback;
       try {
         await finalizeRequestTransaction(client, handlerFailed);
       } catch (finalizeErr) {

@@ -10,6 +10,7 @@ import { safeCorsOrigin } from '@/lib/cors';
 import { redactShareToken, redactTokenParams } from '@/lib/observability/redactShareToken';
 import { isRetryableLockFailure, LOCK_RETRY_AFTER_SECONDS } from '@/lib/lockContention';
 import { respondIfLockTimeout } from '@/lib/apiDocumentLock';
+import { respondIfTypedRefusal } from '@/lib/apiRefusalReply';
 
 const SENSITIVE_KEYS = new Set([
   'password', 'confirmPassword', 'password_hash', 'token', 'secret', 'apiKey', 'api_key',
@@ -177,6 +178,18 @@ export function withErrorHandler(
             message: 'Another change to this company is in progress. Please retry shortly.',
             code: 'SERVICE_UNAVAILABLE',
           });
+          return;
+        }
+
+        // A refusal whose CLASS declares its status — the three approval-required
+        // classes and the impersonated-reviewer refusal (see apiRefusal.ts, which
+        // is the whole allowlist). Checked here, last before the 500, so a route
+        // that models the refusal itself still answers first and nothing that
+        // merely CARRIES a `statusCode` can choose this API's status. Without it
+        // an approval-required refusal on a route that rethrew arrived as the
+        // blanket 500 below, with its message masked in production, and the
+        // caller could not tell "request an approval and retry" from a crash.
+        if (respondIfTypedRefusal(res, error)) {
           return;
         }
 

@@ -104,9 +104,13 @@ describe('approver-of-record workflows under an actual impersonated session',()=
    VALUES($1,$2,$3,$4,$5,'2024-03-01',1000,150,1150)`,[invoice,h.f.companyA,`AOR-CI-${invoice.slice(0,8)}`,customer,h.f.u1.id]);
   await h.pool.query(`INSERT INTO customer_write_offs(id,company_id,write_off_number,client_id,invoice_id,amount,reason,status,created_by)
    VALUES($1,$2,$3,$4,$5,100,'Bad debt','draft',$6)`,[id,h.f.companyA,`AOR-WO-${id.slice(0,8)}`,customer,invoice,h.f.u1.id]);
-  const refused=await refusedWithDetail(writeOffRoute as Route,'/api/accounting/write-offs-action',{action:'approve',id});
+  // Answered by apiRefusal.ts now that the refusal is a class, so the reply NAMES it
+  // rather than hiding it in a development-only detail — the same assertion as the two
+  // blanket-badRequest routes above, and it no longer needs NODE_ENV stubbed to prove
+  // WHICH refusal fired. This route rethrew it before, and it arrived as a 500.
+  const refused=await post(writeOffRoute as Route,'/api/accounting/write-offs-action',{action:'approve',id},await impersonated());
   expect(refused.status).toBe(400);
-  expect(refused.body.error?.details).toEqual({originalMessage:REFUSAL});
+  expect(refused.body.error?.message).toBe(REFUSAL);
   expect(await state('customer_write_offs',id)).toEqual({status:'draft',approved_by:null});
  });
 
@@ -137,10 +141,13 @@ describe('approver-of-record workflows under an actual impersonated session',()=
   const id=randomUUID();
   await h.pool.query(`INSERT INTO customer_invoices(id,company_id,invoice_number,customer_id,created_by,invoice_date,subtotal,tax_amount,total_amount,status)
    VALUES($1,$2,$3,$4,$5,'2024-03-01',1000,150,1150,'draft')`,[id,h.f.companyA,`AOR-AR-${id.slice(0,8)}`,customer,h.f.u1.id]);
-  // This route rethrows anything it does not model, so the refusal arrives as a 500.
+  // This route rethrows anything it does not model, which is why the refusal used to
+  // arrive as a 500 — an untyped Error reaching withErrorHandler's blanket. It is a
+  // class now, so the central answer is its declared 400 with its own wording, and no
+  // route on this path needs a branch of its own to get there.
   const refused=await post(customerInvoiceRoute as Route,'/api/accounting/customer-invoices-detail',{id,action:'approve'},await impersonated());
-  expect(refused.status).toBe(500);
-  expect(refused.body.message).toBe(REFUSAL);
+  expect(refused.status).toBe(400);
+  expect(refused.body.error?.message).toBe(REFUSAL);
   expect(await state('customer_invoices',id)).toMatchObject({status:'draft'});
  });
 
