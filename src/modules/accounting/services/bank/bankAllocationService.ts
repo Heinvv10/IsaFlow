@@ -25,7 +25,7 @@ import { lockBankTransactionForUpdate } from './bankTxLock';
 import { BankAllocationRefusal } from './bankAllocationRefusal';
 import { assertPostedForAllocation } from './bankFeedStateGuard';
 import { autoLinkCounterpartyTransfer } from './bankTransferAutoLink';
-import { assertCustomerInCompany } from '../core/contactDirectoryService';
+import { assertCustomerInCompany, assertSupplierInCompany } from '../core/contactDirectoryService';
 
 
 type Row = DbRow;
@@ -126,8 +126,11 @@ export async function allocateTransaction(
   // company B's customer and the row carried B's client_id. Fenced in the service,
   // not the route — the two screens, bank-match-confirm and the MCP allocate /
   // bulk-allocate tools all pass through here — and BEFORE `createJournalEntry`,
-  // because withAuth COMMITs a 4xx returned after a write. Supplier twin: R-068.
+  // because withAuth COMMITs a 4xx returned after a write. Supplier twin (R-068):
+  // the supplier arm's name lookup falls back to `Supplier #<id>` the same way,
+  // and recordSupplierBankPayment writes the id into supplier_payments.
   if (allocType === 'customer') await assertCustomerInCompany(companyId, entityId);
+  if (allocType === 'supplier') await assertSupplierInCompany(companyId, entityId);
 
   const totalAmount = Math.abs(Number(tx.amount));
   const bankAccountId = String(tx.bank_account_id);

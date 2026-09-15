@@ -12,6 +12,7 @@ import { withCsrf } from '@/lib/auth/withCsrf';
 import { log } from '@/lib/logger';
 import { deleteRule, deleteRules, toggleRule, applyRules, updateRule } from '@/modules/accounting/services/bank/bankRulesService';
 import { UUID } from '@/lib/schemas/common';
+import { CustomerNotInCompanyError, SupplierNotInCompanyError } from '@/modules/accounting/services/core/contactDirectoryService';
 
 const BankRulesActionSchema = z.discriminatedUnion('action', [
   z.object({ action: z.literal('delete'), id: UUID }),
@@ -79,6 +80,11 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
       }
     }
   } catch (err) {
+    // R-067 / R-068: both fences run before any write, so the 4xx commits
+    // nothing; surface the typed message rather than the generic fallback.
+    if (err instanceof SupplierNotInCompanyError || err instanceof CustomerNotInCompanyError) {
+      return apiResponse.badRequest(res, err.message);
+    }
     log.error('Bank rules action failed', { action: body.action, error: err }, 'accounting-api');
     return apiResponse.badRequestFromError(res, err, 'Action failed');
   }

@@ -11,6 +11,7 @@ import { log } from '@/lib/logger';
 import { validatePurchaseOrder, calculatePOTotals } from '@/modules/accounting/services/ap/procurementService';
 import { insertWithReservedNumber } from '@/modules/accounting/services/core/documentNumberRetry';
 import type { CompanyAuthedRequest } from '@/lib/auth/withAuth';
+import { assertSupplierInCompany, SupplierNotInCompanyError } from '@/modules/accounting/services/core/contactDirectoryService';
 
 type Row = Record<string, unknown>;
 
@@ -34,6 +35,14 @@ async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse) {
     const body = req.body;
     const validation = validatePurchaseOrder(body);
     if (!validation.success) return apiResponse.validationError(res, Object.fromEntries((validation.errors || []).map(e => [e.field, e.message])));
+
+    // R-068: before the number reservation, the first write.
+    try {
+      await assertSupplierInCompany(companyId, body.supplierId);
+    } catch (err) {
+      if (err instanceof SupplierNotInCompanyError) return apiResponse.badRequest(res, err.message);
+      throw err;
+    }
 
     const totals = calculatePOTotals(body.items);
 

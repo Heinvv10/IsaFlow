@@ -17,7 +17,7 @@ import {
   BankTransactionNotPostedError, isFeedNotPostedRefusal, readFeedState,
 } from '@/modules/accounting/services/bank/bankFeedStateGuard';
 import { UUID } from '@/lib/schemas/common';
-import { assertCustomerInCompany } from '@/modules/accounting/services/core/contactDirectoryService';
+import { assertCustomerInCompany, assertSupplierInCompany } from '@/modules/accounting/services/core/contactDirectoryService';
 import { assertJournalAnalysisDimensions } from '@/modules/accounting/services/gl/journalCostCentreValidation';
 import {
   matchTransaction,
@@ -157,6 +157,7 @@ async function handler(req: CompanyAuthedRequest, res: NextApiResponse) {
         // R-067: suggested_client_id is read back with the customer name joined
         // on it. Refused before the UPDATE; the catch below answers 400.
         if (selType === 'customer') await assertCustomerInCompany(companyId, selEntityId);
+        if (selType === 'supplier') await assertSupplierInCompany(companyId, selEntityId); // R-068
         // Refused from a read, before the write: the UPDATE's feed_state
         // predicate alone would answer { saved: true } for a no-op (F-M2).
         const feedState = await readFeedState(companyId, body.bankTransactionId);

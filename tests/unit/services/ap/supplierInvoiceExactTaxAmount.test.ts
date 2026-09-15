@@ -29,6 +29,12 @@ vi.mock('@/lib/neon', () => {
   };
 });
 vi.mock('@/lib/logger', () => ({ log: { info: vi.fn(), error: vi.fn(), warn: vi.fn() } }));
+// R-068's tenant fence runs ahead of this path's first query and is pinned by
+// tests/integration/supplier-ownership-fence-*.int.test.ts. Stubbed so the
+// queue below stays positional.
+vi.mock('@/modules/accounting/services/core/contactDirectoryService', () => ({
+  assertSupplierInCompany: vi.fn(async () => undefined),
+}));
 vi.mock('@/modules/accounting/services/capture/captureDeduplicationService', () => ({
   computeFingerprint: () => 'fp',
 }));

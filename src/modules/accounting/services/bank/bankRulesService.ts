@@ -5,7 +5,7 @@
 
 import { sql } from '@/lib/neon';
 import { log } from '@/lib/logger';
-import { assertCustomerInCompany } from '../core/contactDirectoryService';
+import { assertCustomerInCompany, assertSupplierInCompany } from '../core/contactDirectoryService';
 import type {
   BankCategorisationRule, RuleCreateInput, RuleApplyResult,
 } from '../../types/bank.types';
@@ -38,6 +38,9 @@ export async function createRule(
   // R-067: the rule's client_id is copied onto every matching bank line as
   // suggested_client_id, and both are read back with the customer name joined.
   await assertCustomerInCompany(companyId, input.clientId);
+  // R-068: the (supplier_id, company_id) FK already refuses a foreign supplier,
+  // but as a 23503 mid-statement; this refuses it typed, before the INSERT.
+  await assertSupplierInCompany(companyId, input.supplierId);
   const vatCode = input.vatCode || 'none';
   const rows = (await sql`
     INSERT INTO bank_categorisation_rules (
@@ -65,6 +68,7 @@ export async function updateRule(
   // dropped by COALESCE. Fields with min(1) (ruleName, matchPattern) and enums
   // can't be empty strings, so ?? matches the schema invariants.
   await assertCustomerInCompany(companyId, input.clientId);
+  await assertSupplierInCompany(companyId, input.supplierId);
   const rows = (await sql`
     UPDATE bank_categorisation_rules SET
       rule_name = COALESCE(${input.ruleName ?? null}, rule_name),
