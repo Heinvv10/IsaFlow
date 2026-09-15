@@ -6,24 +6,38 @@ holds it as a checked-in snapshot so any session can rebuild the fixture from th
 ## Run the integration tests
 
 ```bash
-bash scripts/forensic/fixture-up.sh          # container isaflow-forensic-33150, ~20s
+bash scripts/forensic/fixture-up.sh          # allocates a free port; ~30s (28-37s measured)
 bash scripts/forensic/fixture-verify.sh      # must print "MATCH" and the 838 check must say OK
 eval "$(bash scripts/forensic/fixture-env.sh)"
 bun run test:integration                     # serial by default; see vitest.integration.config.ts
 bash scripts/forensic/fixture-down.sh        # removes that container BY NAME, nothing else
 ```
 
-Pass a five-digit port to every script to run more than one fixture at a time
-(`fixture-up.sh 33151`, `fixture-env.sh 33151`, …). Port 33150 is the default; **33149 is
-deliberately avoided** — it is the address of the legacy `isaflow-forensic-pg-20260909` container
-that earlier sessions' notes refer to, and of the `--apply` guard in `schema-match.ts`.
+**With no argument `fixture-up.sh` ALLOCATES a free port** in 33150-33199 and prints it;
+`fixture-env.sh` and `fixture-down.sh` with no argument use this machine's most recently created
+fixture. That is deliberate: the container name must be exactly `isaflow-forensic-<port>` because
+`validateFixtureTarget` requires the label to match the port, so the port *is* the identity — and
+when every session defaulted to 33150, one ran `fixture-down.sh` and removed a fixture another was
+testing against. Pass a port explicitly to pin one (`fixture-up.sh 33155`, then the same port to
+`fixture-env.sh`/`fixture-down.sh`).
+
+`fixture-down.sh` also refuses a container whose creating run does not match the state file —
+that is somebody else's and may be in use — unless you pass `--force`.
+
+**33149 is deliberately never allocated**: it is the address of the legacy
+`isaflow-forensic-pg-20260909` container that earlier sessions' notes refer to, and of the
+`--apply` guard in `schema-match.ts`.
+
+`--apply` (regeneration only) is refused against a fixture that has run tests: it rewrites function
+bodies and reverts migrations, and doing that under a running suite turns its failures into
+nonsense.
 
 `tests/integration/controls/*` take real row and table locks on one database and deadlock each
 other in parallel, so the vitest config sets `fileParallelism: false`. For speed, shard across
 separate fixtures — they contend on nothing:
 
 ```bash
-for i in 1 2 3 4; do bash scripts/forensic/fixture-up.sh 3315$i; done
+for i in 1 2 3 4; do bash scripts/forensic/fixture-up.sh; done   # each allocates its own port
 # then per shard, with that shard's env:
 vitest run --config vitest.integration.config.ts tests/integration/controls --shard=$i/4
 ```
@@ -38,8 +52,15 @@ vitest run --config vitest.integration.config.ts tests/integration/controls --sh
 | `roles.sql` | The three cluster roles, hand-written. `pg_dumpall --roles-only` emits password hashes, which must not enter the repository. |
 | `reverts/*.sql` | Undo scripts for migrations that exist on other branches but not on this one, consumed by `schema-match.ts`. |
 
-Ownership is preserved on purpose: `migration_admin` owns 238 objects in the dump, 12 of them
-`SECURITY DEFINER`. Dumping `--no-owner` would silently re-own those and change what they can do.
+Ownership is preserved on purpose. Counted on a fresh build: the dump carries 238
+`OWNER TO migration_admin` statements (statements, not objects — `pg_dump` emits one per table and
+indexes and constraints follow their table; `migration_admin` actually owns 1,064 relations and
+functions in `public`). Of the SECURITY DEFINER functions, **20 are in `public`** — 10 owned by
+`migration_admin` and 10 by the superuser `postgres` — and **23 across `public`, `auth` and `app`**,
+which is the scope `definers.txt` and the verify check use. Both counts are right; they differ only
+in scope, and the earlier "12 SECURITY DEFINER" in this file was the `migration_admin`-owned subset
+across `public`+`auth` stated as if it were the total. Dumping `--no-owner` would silently re-own
+all of them and change what they can do.
 
 `reference-data.sql` is not test data: `pg_dump -s` drops rows, and routes validate against these
 tables — without `permission_modules` the control routes answer `400 Unknown moduleKey: audit` and
@@ -214,18 +235,44 @@ there, because nothing else in the pipeline can see it.
 
 ## What verification does and does not cover
 
-`schema-match.ts` compares tables, `ADD COLUMN`s, triggers and function bodies for objects last
-touched at or after the floor (default 600), plus the `-- detect:` query in each revert file.
+**`MATCH` is a statement about four things and nothing else.** `observe()`
+(`schema-match.ts:152-158`) reads exactly: table names where `relkind IN ('r','p')`, column
+*presence* by `attname`, function `proname` + `prosrc`, and trigger `tgname` on a table. Plus the
+`-- detect:` query in each revert file. Everything else in the schema is invisible to it.
 
-**Not compared: grants, RLS policies, `CHECK` constraints, and function `SET` clauses
-(`proconfig`).** `MATCH` means the objects agree, not that every grant, policy and setting does.
-A verifier that says MATCH while a security-relevant attribute has drifted is a real hazard, and
-the `proconfig` case above is a worked example — `schema-match` reported MATCH with `lock_timeout`
-missing, and an integration test, not the verifier, is what caught it.
+Measured, not inferred — each of these ten mutations was applied to a verified fixture and
+`schema-match` printed **MATCH** and exited 0:
+
+| Mutation | Now caught by |
+|---|---|
+| `ALTER FUNCTION … SECURITY INVOKER` | `fixture-verify.sh` definers check |
+| function owner → `app_user` | `fixture-verify.sh` definers check |
+| `ALTER TABLE … NO FORCE ROW LEVEL SECURITY` | nothing |
+| `ALTER TABLE … DISABLE ROW LEVEL SECURITY` | nothing |
+| `ALTER TABLE … DISABLE TRIGGER` | nothing |
+| `DROP POLICY tenant_isolation` | nothing |
+| `DROP INDEX …entity_canonical_idx` (mig 835) | nothing |
+| `DROP EXPRESSION` on `entity_id_canonical` | nothing |
+| `REVOKE ALL … FROM app_user` | nothing |
+| `DROP CONSTRAINT users_role_check` | nothing |
+
+Also invisible: constraints, indexes, column *types*, `NOT NULL`, defaults, generated-column
+expressions, identity, sequences and their state, views and matviews, extensions, every non-`public`
+schema (so all of `auth`, including `auth.uid()` itself), `provolatile`, `proleakproof`, function
+overloads (matched by NAME, so any overload's body passes), `BEGIN ATOMIC` bodies (`prosrc` is
+NULL and line 165 skips them), and everything last touched before migration 600.
+
+Four of those ten are security-relevant and two are now covered by the `definers.txt` assertion.
+The rest are not, and a reader must not treat `MATCH` as evidence about them. The `proconfig` case
+is the worked example of why: `schema-match` reported MATCH with `lock_timeout` missing, and an
+integration test — not the verifier — is what caught it.
 
 Extending `schema-match` to compare `proconfig` properly is not cheap: `838` sets it from a
 `DO` block using `format()`, so there is no static `ALTER FUNCTION` statement to parse. The
-targeted assertion in `fixture-verify.sh` is the affordable substitute.
+targeted assertions in `fixture-verify.sh` are the affordable substitute, and they run **even on a
+MISMATCH** — `schema-match`'s exit code is captured with `|| STATUS=$?` rather than allowed to trip
+`set -e`, because the moment the fixture is known wrong is the moment you most want to know which
+invariant broke.
 
 ### `prosecdef` and ownership behave differently, and only one of them is safe
 

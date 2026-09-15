@@ -19,10 +19,24 @@ HERE=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)
 REPO=$(git -C "$HERE" rev-parse --show-toplevel)
 SHA=$(git -C "$REPO" rev-parse --verify "$COMMIT^{commit}")
 eval "$(bash "$HERE/fixture-env.sh" "$PORT")"
+
+# --apply MUTATES the fixture (it reverts ahead migrations and rewrites function bodies). That is
+# the regeneration flow and is fine on a fresh fixture, but silently rewriting one a suite is
+# running against turns their failures into nonsense. Same "has this been used" signal as the dump.
+case " $* " in *" --apply "*)
+  USED=$(docker exec "isaflow-forensic-$PORT" psql -U postgres -d isaflow_schema_fixture -tAc "
+    SELECT (SELECT count(*) FROM companies)
+         + (SELECT count(*) FROM users WHERE id <> '00000000-0000-4000-8000-000000000001')")
+  [ "$USED" = 0 ] || { echo "REFUSED: --apply would mutate isaflow-forensic-$PORT, which has run tests ($USED rows). Use a fresh fixture-up.sh." >&2; exit 2; }
+esac
+# `|| STATUS=$?` rather than a bare call: under `set -e` a MISMATCH exits the script here, which
+# SKIPPED every assertion below — exactly when the fixture is known wrong and you most want to know
+# WHICH invariant broke. A command on the left of `||` does not trip errexit, so the run continues
+# and the exit code is carried to the end.
+STATUS=0
 bun "$HERE/schema-match.ts" --repo "$REPO" --commit "$SHA" \
   --db "$ISAFLOW_FORENSIC_FIXTURE_URL" --node-base "$REPO" \
-  --reverts "$HERE/fixture/reverts" --floor "${ISAFLOW_FIXTURE_FLOOR:-600}" "$@"
-STATUS=$?
+  --reverts "$HERE/fixture/reverts" --floor "${ISAFLOW_FIXTURE_FLOOR:-600}" "$@" || STATUS=$?
 
 # schema-match compares function BODIES, never proconfig, so it reports MATCH on a schema whose
 # functions have silently lost their SET clauses. That is not hypothetical: CREATE OR REPLACE
