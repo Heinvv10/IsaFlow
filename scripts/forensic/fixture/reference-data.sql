@@ -163,3 +163,23 @@ INSERT INTO public.permission_modules (id, module_key, module_name, description,
 --
 
 
+
+--
+-- HAND-ADDED, not dumped: the reserved unattended principal from migration 841.
+--
+-- `users` also holds people, so it must never be dumped wholesale into this repository the way
+-- the three company-agnostic tables above are. This single reserved identity is the one row in it
+-- that a migration inserts, and control evidence needs it: `confirmCustomerPayment` runs from a
+-- Paystack webhook that authenticates a signature rather than a person, and attributes the receipt
+-- here so a reader of `control_change_events` or of a journal's `created_by` is never shown
+-- someone who did not do it.
+--
+-- Keep this in step with 841 by hand. Verified 2026-09-15 by applying 841 in full to a fresh
+-- fixture: both halves land (the provenance CHECK gains 'gateway', and this row is created), the
+-- migration is idempotent on re-apply, `role='system'` satisfies users_role_check, and
+-- account_type defaults to 'direct' which satisfies users_account_type_check.
+--
+INSERT INTO public.users (id, email, first_name, last_name, role, is_active)
+VALUES ('00000000-0000-4000-8000-000000000001', 'paystack-gateway@system.isaflow.co.za',
+        'Paystack', 'gateway', 'system', false)
+ON CONFLICT (id) DO NOTHING;

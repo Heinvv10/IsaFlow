@@ -18,10 +18,24 @@ OUT=$HERE/fixture/schema.sql
 # Dump only from a fixture that has never run a test. A used fixture accumulates objects the
 # suites create — this guard was added after a `synthetic_comparison_source_suppress()` trigger
 # function, carrying two hardcoded UUIDs in its body, made it into a dump taken from a fixture
-# that had run the controls suite. Tests always create companies, so an empty `companies` is a
-# reliable "never used" signal, and it is cheaper than trying to tell test objects from real ones.
-USED=$(docker exec "$NAME" psql -U postgres -d isaflow_schema_fixture -tAc "SELECT count(*) FROM companies")
-[ "$USED" = 0 ] || { echo "REFUSED: $NAME has $USED companies — it has run tests. Dump from a fresh fixture-up.sh instead." >&2; exit 2; }
+# that had run the controls suite.
+#
+# THREE INDEPENDENT SIGNALS, because any one of them can be missed by a suite that uses the
+# fixture in a way this script did not anticipate:
+#   * companies — every tenant-scoped suite provisions one (provisionForensicFixture always does)
+#   * users beyond the single reserved gateway principal that reference-data.sql seeds
+#   * any object named synthetic* — the convention the suites use for the objects they create,
+#     and the one that actually leaked
+# A suite that somehow trips none of these would still be caught by the content checks at the end
+# (no COPY, no INSERT, no identifiers), but prefer adding a fourth signal here over relying on that.
+USED=$(docker exec "$NAME" psql -U postgres -d isaflow_schema_fixture -tAc "
+  SELECT (SELECT count(*) FROM companies)
+       + (SELECT count(*) FROM users WHERE id <> '00000000-0000-4000-8000-000000000001')
+       + (SELECT count(*) FROM pg_class c JOIN pg_namespace n ON n.oid=c.relnamespace
+            WHERE n.nspname='public' AND c.relname LIKE 'synthetic%')
+       + (SELECT count(*) FROM pg_proc p JOIN pg_namespace n ON n.oid=p.pronamespace
+            WHERE n.nspname='public' AND p.proname LIKE 'synthetic%')")
+[ "$USED" = 0 ] || { echo "REFUSED: $NAME shows $USED sign(s) of having run tests (companies, extra users, or synthetic* objects). Dump from a fresh fixture-up.sh instead." >&2; exit 2; }
 
 echo "[fixture-dump] verifying $NAME against ${SHA:0:9} before dumping"
 bash "$HERE/fixture-verify.sh" "$PORT" "$SHA" > /tmp/fixture-dump-verify.$$ 2>&1 || {
