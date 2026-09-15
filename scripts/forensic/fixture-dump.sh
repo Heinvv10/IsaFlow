@@ -47,6 +47,12 @@ grep -q '^MATCH:' /tmp/fixture-dump-verify.$$ || {
 rm -f /tmp/fixture-dump-verify.$$
 
 LAST_MIGRATION=$(git -C "$REPO" ls-tree --name-only "$SHA" scripts/migrations/sql/ | sed 's|.*/||' | sort -V | tail -1)
+
+# Build into a temp file and only move it into place once every guardrail has passed. Writing the
+# real artefact first and validating after leaves a REFUSED dump sitting on disk looking like the
+# committed one, which is how a rejected dump gets committed by the next person to run `git add`.
+TMP=$(mktemp "${TMPDIR:-/tmp}/isaflow-fixture-dump.XXXXXX")
+trap 'rm -f "$TMP"' EXIT
 {
   cat <<EOF
 --
@@ -77,11 +83,56 @@ LAST_MIGRATION=$(git -C "$REPO" ls-tree --name-only "$SHA" scripts/migrations/sq
 --
 EOF
   docker exec "$NAME" pg_dump -U postgres -s isaflow_schema_fixture | grep -v '^\\restrict \|^\\unrestrict '
-} > "$OUT"
+} > "$TMP"
 
-echo "[fixture-dump] wrote $OUT ($(wc -l < "$OUT") lines)"
+echo "[fixture-dump] built $(wc -l < "$TMP") lines; checking guardrails before writing $OUT"
+
+# STATEMENT-SHAPED leaks: data and credentials that arrive as their own statements.
 for pattern in '^COPY ' '^INSERT INTO' 'SCRAM-SHA-256' 'ALTER ROLE' 'postgresql\?://'; do
-  n=$(grep -cE "$pattern" "$OUT" || true)
-  [ "$n" = 0 ] || { echo "REFUSED: $OUT contains $n line(s) matching /$pattern/" >&2; exit 2; }
+  n=$(grep -cE "$pattern" "$TMP" || true)
+  [ "$n" = 0 ] || { echo "REFUSED: dump contains $n line(s) matching /$pattern/" >&2; exit 2; }
 done
-echo "[fixture-dump] guardrails pass: no data rows, no role passwords, no connection strings"
+
+# CONTENT-SHAPED leaks: identifiers ANYWHERE, including inside function bodies — which is where the
+# real leak was. `synthetic_comparison_source_suppress()` carried two tenant UUIDs in its plpgsql
+# body; every statement-shaped check above passes it, because a trigger function is schema, not
+# data. The "has this fixture been used?" signals are proxies and can all be wrong (a suite that
+# tears down cleanly leaves no companies; a test object named something other than synthetic* is
+# invisible). This check is not a proxy: it asks whether the artefact contains a thing that must
+# never be in it, wherever that thing lives.
+#
+# schema.sql ONLY. reference-data.sql legitimately carries the reserved gateway principal's UUID
+# and its @-address, which is why that row is hand-added and reviewed rather than dumped.
+#
+# The live schema has zero of either (verified across all 36,538 lines), so this is a hard refusal
+# rather than a threshold. If a migration ever adds a legitimate UUID DEFAULT or CHECK, this fails
+# closed and wants an explicit allowlist here — that is the correct direction to fail.
+UUIDS=$(grep -oEc "[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}" "$TMP" || true)
+[ "${UUIDS:-0}" = 0 ] || { echo "REFUSED: dump contains $UUIDS UUID-shaped literal(s) — a tenant or person identifier may have leaked, possibly inside a function body:" >&2
+  grep -nEo ".{0,60}[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}.{0,20}" "$TMP" | head -5 >&2; exit 2; }
+MAILS=$(grep -cE "[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}" "$TMP" || true)
+[ "${MAILS:-0}" = 0 ] || { echo "REFUSED: dump contains $MAILS email-shaped literal(s):" >&2
+  grep -nEo ".{0,40}[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}.{0,20}" "$TMP" | head -5 >&2; exit 2; }
+
+mv "$TMP" "$OUT"
+echo "[fixture-dump] wrote $OUT"
+echo "[fixture-dump] guardrails pass: no data rows, no role passwords, no connection strings,"
+echo "[fixture-dump]                  no UUID- or email-shaped literals anywhere (function bodies included)"
+
+# The SECURITY DEFINER manifest that fixture-verify.sh checks the live fixture against.
+#
+# `pg_dump` records prosecdef in the CREATE FUNCTION text, so schema.sql already carries it — but
+# nothing COMPARES it, and a definer bit is lost silently: CREATE OR REPLACE FUNCTION resets
+# prosecdef to the default (INVOKER) unless the replacement restates SECURITY DEFINER, exactly as
+# it resets proconfig. Owner survives that; the definer bit does not. A reader that loses its
+# definer bit or its BYPASSRLS owner fails OPEN, which is the failure mode this programme spent
+# six review rounds closing, so it gets a manifest rather than a note.
+#
+# Written from the same fixture being dumped, so verify compares the NEXT build against this one —
+# which is what catches a migration applied forward during regeneration quietly dropping a bit.
+docker exec "$NAME" psql -U postgres -d isaflow_schema_fixture -tAc "
+  SELECT p.oid::regprocedure::text||'|'||r.rolname
+  FROM pg_proc p JOIN pg_roles r ON r.oid=p.proowner JOIN pg_namespace n ON n.oid=p.pronamespace
+  WHERE n.nspname IN ('public','auth','app') AND p.prosecdef
+  ORDER BY 1" | sed 's/^ *//' | grep -v '^$' > "$HERE/fixture/definers.txt"
+echo "[fixture-dump] wrote fixture/definers.txt ($(wc -l < "$HERE/fixture/definers.txt") SECURITY DEFINER functions)"
