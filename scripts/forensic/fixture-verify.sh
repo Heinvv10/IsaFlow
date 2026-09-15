@@ -47,6 +47,31 @@ else
   echo "   every control-authority lock holder carries lock_timeout=5s (838) — OK"
 fi
 
+# Reference ROWS the migrations INSERT, which `pg_dump -s` drops and nothing regenerates.
+#
+# reference-data.sql is maintained BY HAND, and this check is why that is survivable. It was
+# missing all 13 business modules from 270_granular_permissions.sql — the ancestor fixture holds
+# only the 10 forensic-control ones — so granting a permission on banking, reports, vat or payroll
+# answered "400 Unknown moduleKey" (permissions.ts validates against this table). The same class
+# of gap as the `audit` module, found the same way: by a test failing for a structural reason.
+#
+# permission_modules only, because it is the one whose absence the routes reject on. feature_flags
+# and asset_categories are read, not validated against, so a missing row degrades rather than
+# refuses — worth adding here if that ever changes.
+echo "== reference rows the migrations INSERT (pg_dump -s drops these)"
+EXPECTED=$(awk '/INSERT INTO permission_modules/{inblock=1} inblock{if(match($0,/\x27[a-z_]+\x27/)){print substr($0,RSTART+1,RLENGTH-2)}} /;[[:space:]]*$/{inblock=0}' \
+  "$REPO"/scripts/migrations/sql/*.sql | sort -u)
+LIVEKEYS=$(docker exec "isaflow-forensic-$PORT" psql -U postgres -d isaflow_schema_fixture -tAc \
+  "SELECT module_key FROM permission_modules" | sed 's/^ *//' | grep -v '^$' | sort -u)
+MISSINGKEYS=$(comm -23 <(echo "$EXPECTED") <(echo "$LIVEKEYS") | tr '\n' ' ')
+if [ -n "${MISSINGKEYS// /}" ]; then
+  echo "   MISSING permission_modules the migrations insert: $MISSINGKEYS"
+  echo "   fix: add them to scripts/forensic/fixture/reference-data.sql, sourced from the migration"
+  STATUS=1
+else
+  echo "   all $(echo "$EXPECTED" | wc -l) permission_modules keys the migrations insert are present — OK"
+fi
+
 # SECURITY DEFINER drift, against fixture/definers.txt. Same shape as the 838 check above and for
 # the same reason: schema-match compares function BODIES, and a lost definer bit is not a body
 # change it can see. CREATE OR REPLACE FUNCTION resets prosecdef to INVOKER unless the replacement

@@ -44,11 +44,27 @@ say "postgres $NAME on 127.0.0.1:$PORT"
 docker run -d --name "$NAME" --label purpose=isaflow-integration-fixture \
   -e POSTGRES_PASSWORD="$PGPASS" -e POSTGRES_DB="$DB" \
   -p "127.0.0.1:$PORT:5432" "$IMAGE" >/dev/null
-trap 'echo "[fixture-up] FAILED — removing $NAME" >&2; docker rm -f "$NAME" >/dev/null 2>&1 || true' ERR
+# EXIT, not ERR: a `die` or any other non-zero path must also clean up. Without this a failed run
+# leaves a half-built container behind, and the next fixture-up on that port refuses because the
+# name is taken — which reads as a stale-lock problem rather than the failure it actually was.
+CLEANUP=1
+trap '[ "$CLEANUP" = 1 ] && { echo "[fixture-up] FAILED — removing $NAME" >&2; docker rm -f "$NAME" >/dev/null 2>&1; }' EXIT
 
-for _ in $(seq 60); do docker exec "$NAME" pg_isready -U postgres -q 2>/dev/null && break; sleep 1; done
-docker exec "$NAME" pg_isready -U postgres -q || die "postgres did not become ready"
-sleep 2  # the image restarts once after initdb
+# The image starts a TEMPORARY server to run initdb, then shuts it down and starts the real one.
+# `pg_isready` answers yes during that temporary window, so a single check plus a fixed sleep is a
+# race — under load it loses, and the restore then dies on "the database system is shutting down".
+# Require the server to answer a real query THREE times a second apart: the shutdown falls inside
+# any such window, so three consecutive successes mean the restart is behind us.
+ok=0
+for _ in $(seq 90); do
+  if docker exec "$NAME" psql -U postgres -d postgres -tAc 'SELECT 1' >/dev/null 2>&1; then
+    ok=$((ok + 1)); [ "$ok" -ge 3 ] && break
+  else
+    ok=0
+  fi
+  sleep 1
+done
+[ "$ok" -ge 3 ] || die "postgres did not become stably ready (saw $ok consecutive successful queries)"
 
 say "roles"
 docker exec -i "$NAME" psql -U postgres -d postgres -q -v ON_ERROR_STOP=1 < "$HERE/fixture/roles.sql"
@@ -92,7 +108,7 @@ for n in ENCRYPTION_KEY CONTROL_FINGERPRINT_KEY CONTROL_SNAPSHOT_SIGNING_KEY POR
   echo "$n=$(secret)"
 done
 } > "$STATE/$NAME.env" )
-trap - ERR
+CLEANUP=0
 TABLES=$(docker exec "$NAME" psql -U postgres -d "$DB" -tAc "SELECT count(*) FROM information_schema.tables WHERE table_schema='public'")
 say "UP: $NAME, $TABLES public tables. Env: eval \"\$(bash $HERE/fixture-env.sh $PORT)\""
 say "Verify it matches this branch: bash $HERE/fixture-verify.sh $PORT"

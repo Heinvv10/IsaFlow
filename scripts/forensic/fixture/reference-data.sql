@@ -183,3 +183,36 @@ INSERT INTO public.users (id, email, first_name, last_name, role, is_active)
 VALUES ('00000000-0000-4000-8000-000000000001', 'paystack-gateway@system.isaflow.co.za',
         'Paystack', 'gateway', 'system', false)
 ON CONFLICT (id) DO NOTHING;
+
+--
+-- HAND-ADDED: the 13 business modules from 270_granular_permissions.sql.
+--
+-- The dump above carries only the 10 forensic-control modules (800/806/808/810/813), because the
+-- ancestor fixture this snapshot descends from holds only those ten — verified against
+-- isaflow-forensic-pg-20260909, so the gap is INHERITED, not an extraction mistake. No migration
+-- ever deletes from this table.
+--
+-- It matters because pages/api/accounting/permissions.ts validates moduleKey against this table,
+-- so without these rows granting a permission on banking, reports, vat or payroll answers
+-- "400 Unknown moduleKey" — the same unattributable failure the `audit` module produced, still
+-- live for 13 of 23 modules until now.
+--
+-- Values are copied from 270 verbatim, including its NULL description (270 inserts only
+-- module_key, module_name, display_order). See README "Row-level divergences" for why the live
+-- system may or may not have these rows; that question needs a count from production.
+--
+INSERT INTO public.permission_modules (module_key, module_name, display_order) VALUES
+  ('dashboard',   'Dashboard',                     10),
+  ('customers',   'Customers & AR',                20),
+  ('suppliers',   'Suppliers & AP',                30),
+  ('items',       'Items & Inventory',             40),
+  ('banking',     'Banking & Reconciliation',      50),
+  ('accounts',    'Chart of Accounts & GL',        60),
+  ('vat',         'VAT & Tax',                     70),
+  ('accountant',  'Accountant''s Area',            80),
+  ('reports',     'Reports',                       90),
+  ('sars',        'SARS Compliance',              100),
+  ('tools',       'Tools & Settings',             110),
+  ('group',       'Group Consolidation',          120),
+  ('payroll',     'Payroll',                      130)
+ON CONFLICT (module_key) DO NOTHING;
