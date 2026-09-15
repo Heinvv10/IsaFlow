@@ -33,10 +33,15 @@ BEGIN
   END IF;
 END $$;
 
--- The account is never logged into: GoTrue owns authentication and has no
--- matching identity, `is_active` is false, and the hash is a literal that no
--- bcrypt comparison can match. It exists so the ledger can name its author.
-INSERT INTO users (id, email, password_hash, first_name, last_name, role, is_active)
+-- The account is never logged into: GoTrue owns authentication and there is no
+-- matching identity there, and `is_active` is false. It exists only so the ledger
+-- can name its author.
+--
+-- No `password_hash`: migration 349 dropped that column at the GoTrue cutover, so
+-- naming it here failed at PARSE (`column "password_hash" of relation "users" does
+-- not exist`) and `ON CONFLICT` could not save it. This file had never been applied
+-- to any database until the rebuilt integration fixture ran it.
+INSERT INTO users (id, email, first_name, last_name, role, is_active)
 VALUES ('00000000-0000-4000-8000-000000000001', 'paystack-gateway@system.isaflow.co.za',
-        '!no-login', 'Paystack', 'gateway', 'system', false)
+        'Paystack', 'gateway', 'system', false)
 ON CONFLICT (id) DO NOTHING;
