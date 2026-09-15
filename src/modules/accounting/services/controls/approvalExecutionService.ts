@@ -21,6 +21,15 @@ import { initializeOperationObservations } from './approvalRequestService';
  */
 export class OperationApprovalRequiredError extends Error {
   readonly code = 'OPERATION_APPROVAL_REQUIRED';
+  /**
+   * 409, matching the two boundary wrappers that re-raise this refusal and the answer `year-end.ts`
+   * already writes by hand. It is a conflict with the operation's current state — no approval exists
+   * for it — not a malformed request. Raised BELOW the first write of the controlled savepoint
+   * (`initializeOperationObservations`), which is what makes a 4xx safe for the transaction; see
+   * `apiRefusal.ts`, and `runJournalControl` for the direct-journal callers that write a draft
+   * outside this savepoint and therefore still force a ROLLBACK with it.
+   */
+  readonly statusCode = 409;
   constructor() { super('Independent operation approval is required'); this.name = 'OperationApprovalRequiredError'; }
 }
 export interface ControlledEffectPermit { readonly operationId: string; readonly accountingDate: string; readonly amount: string | null; readonly currency: string | null; readonly operation: OperationRef['operation']; readonly entityType: string; readonly entityId: string }

@@ -15,6 +15,7 @@ import * as Sentry from '@sentry/nextjs';
 import pg from 'pg';
 import '@/lib/pgTypes';
 import { ControlIntegrityError, withControlRequest } from '@/modules/accounting/services/controls/context';
+import { typedRefusalAnswer } from '@/lib/apiRefusal';
 import type { RequestContext } from '@/lib/als';
 import { runOwnedContext, drainAfterCommit } from '@/lib/afterCommit';
 import { log } from '@/lib/logger';
@@ -220,6 +221,8 @@ export async function runBearerRequest(
       bufferedEndArgs = args;
       return res;
     };
+    // A poisoned control transaction must ROLLBACK whatever status it answers with.
+    let controlIntegrityRollback = false;
 
     // Hoisted for the same reason as withAuth: drainAfterCommit below must see
     // the SAME context object the handler queued its after-commit work onto.
@@ -233,9 +236,17 @@ export async function runBearerRequest(
             grantedScopes: ctx.scopes }, async () => { await handler(authedReq, res); }));
       } catch (error) {
         if (!(error instanceof ControlIntegrityError)) throw error;
-        const body = JSON.stringify({ success: false, data: null,
-          message: 'An unexpected error occurred', code: 'CONTROL_INTEGRITY_FAILED' });
-        res.statusCode = 500;
+        // Same two halves as withAuth: the ROLLBACK is unconditional
+        // (controlIntegrityRollback), and only the ANSWER depends on whether the
+        // poisoning cause was a refusal the caller can act on. `apiRefusal.ts` is
+        // the allowlist; every other poisoning site keeps CONTROL_INTEGRITY_FAILED.
+        controlIntegrityRollback = true;
+        const refusal = typedRefusalAnswer(txCtx.controlRefusal);
+        const body = refusal === null
+          ? JSON.stringify({ success: false, data: null,
+            message: 'An unexpected error occurred', code: 'CONTROL_INTEGRITY_FAILED' })
+          : JSON.stringify({ success: false, data: null, message: refusal.message, code: refusal.code });
+        res.statusCode = refusal?.status ?? 500;
         if (!res.headersSent) res.setHeader('Content-Type', 'application/json; charset=utf-8');
         if (!res.headersSent) res.setHeader('Content-Length', Buffer.byteLength(body));
         bufferedEndArgs = res.headersSent ? [] : [body]; handlerEnded = true;
@@ -255,8 +266,11 @@ export async function runBearerRequest(
     }
 
     // A 5xx means the request failed (withErrorHandler sits inside and may have
-    // caught+responded 500) — never COMMIT its partial writes.
-    const handlerFailed = res.statusCode >= 500;
+    // caught+responded 500) — never COMMIT its partial writes. A poisoned control
+    // transaction also never commits, whatever status it answered with: see the
+    // ControlIntegrityError catch above, where a caller-actionable refusal is now
+    // a 4xx and `res.statusCode >= 500` alone would therefore COMMIT it.
+    const handlerFailed = res.statusCode >= 500 || controlIntegrityRollback;
     try {
       await finalizeRequestTransaction(client, handlerFailed);
     } catch (finalizeErr) {

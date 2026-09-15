@@ -4,6 +4,18 @@ import type {ControlPrincipal} from './contracts';
 import {IMPERSONATION_UNVERIFIED} from '@/lib/auth/impersonationState';
 export {IMPERSONATION_UNVERIFIED};
 /**
+ * Why these five refusals are a class and not a plain Error: they are raised as the FIRST statement of
+ * an approver-of-record service, before any read let alone any write, and they name what the caller
+ * must do (sign the decision in an ordinary session). A route that models every refusal it knows and
+ * rethrows the rest — `write-offs-action` — answered this one 500, which told the user their write-off
+ * had crashed. Declaring the status on the class is what lets `apiRefusal.ts` answer it for every such
+ * route at once, instead of each one carrying a branch.
+ */
+export class IndependentReviewRefusal extends Error{
+ readonly code='INDEPENDENT_REVIEW_REQUIRED';readonly statusCode=400;
+ constructor(message:string){super(message);this.name='IndependentReviewRefusal';}
+}
+/**
  * Segregation of duties is about people, not cookies. A platform administrator
  * impersonating a member holds that member's session, so every ordinary
  * permission check passes and the recorded decision carries the member's id —
@@ -15,9 +27,9 @@ export {IMPERSONATION_UNVERIFIED};
 export function assertIndependentHumanReview(principal:ControlPrincipal,requesterPersonId:string|null):void{
  const actor=principal.impersonatorPersonId;
  if(!actor)return;
- if(actor===IMPERSONATION_UNVERIFIED)throw new Error('Impersonation state is unverified; an independent review cannot be recorded');
- if(requesterPersonId&&actor===requesterPersonId)throw new Error('Impersonated self approval is not permitted');
- throw new Error('An impersonated session cannot record an independent review');
+ if(actor===IMPERSONATION_UNVERIFIED)throw new IndependentReviewRefusal('Impersonation state is unverified; an independent review cannot be recorded');
+ if(requesterPersonId&&actor===requesterPersonId)throw new IndependentReviewRefusal('Impersonated self approval is not permitted');
+ throw new IndependentReviewRefusal('An impersonated session cannot record an independent review');
 }
 /**
  * Same rule for approver-of-record workflows outside the controls kernel: they
@@ -43,8 +55,8 @@ export function assertIndependentRequestReview(requesterPersonId:string|null=nul
   // principal-less context an operator is likely to meet, and plain-SQL approver writes
   // (AFS sign-off and lock, tax directives, leave, commentary) have nothing downstream
   // that would stop it. The Sage migration commit needs its own confined route.
-  if(isPlatformAdminRequest(store))throw new Error('A platform administrator is not an independent reviewer');
-  throw new Error('This request context cannot record an independent review');
+  if(isPlatformAdminRequest(store))throw new IndependentReviewRefusal('A platform administrator is not an independent reviewer');
+  throw new IndependentReviewRefusal('This request context cannot record an independent review');
  }
  assertIndependentHumanReview(store.controlPrincipal,requesterPersonId);
 }
