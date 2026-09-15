@@ -5,7 +5,7 @@ import { UUID_RE } from '@/lib/validation';
 import { assertEffectivePermission } from '@/lib/auth/effectivePermissions';
 import { assertControlTx } from './context';
 import { recordCommittedChange } from './changeEventService';
-import type { ControlTx, EvidenceRef } from './contracts';
+import type { ControlPrincipal, ControlTx, EvidenceRef } from './contracts';
 import { assertIndependentHumanReview } from './independentReview';
 import { BeneficiaryError, bankFingerprint, normalizeBeneficiaryDetails, openBeneficiary, sealBeneficiary,
   validateBeneficiaryRef, type BeneficiaryDetails, type BeneficiaryRef } from './beneficiaryValidation';
@@ -13,6 +13,31 @@ import * as q from './beneficiaryQueries';
 
 export type { BeneficiaryDetails, BeneficiaryRef } from './beneficiaryValidation';
 export { BeneficiaryError } from './beneficiaryValidation';
+/**
+ * Who may propose beneficiary bank details, AND where each one's grant id comes
+ * from — one total decision per principal kind.
+ *
+ * Both halves used to be allow-by-omission. The guard named the kinds it
+ * refused, so a new principal kind could propose by default; and the grant id
+ * was derived by fall-through, so that kind would not merely be admitted, it
+ * would be ISSUED an identifier the code never meant to give it. Beneficiary
+ * bank details are the payment-fraud surface — the row an attacker edits to
+ * redirect money — so neither half may be reached by omission.
+ *
+ * A Record over the whole `authMethod` union makes a seventh principal kind a
+ * type error here until someone answers both questions for it. In src, not in
+ * a test: `tests/**` is outside tsconfig, so an exhaustiveness check written
+ * there compile-checks nothing. The permitted set matches `q.Proposal`'s own
+ * `requester_auth_method` type and migration 802's CHECK, which also requires a
+ * non-null grant id for every non-cookie proposer.
+ */
+type ProposerAuthMethod = q.Proposal['requester_auth_method'];
+const BENEFICIARY_PROPOSER: Readonly<Record<ControlPrincipal['authMethod'], 'refused' | 'none' | 'connection' | 'grant'>> =
+  Object.freeze({ cookie: 'none', pat: 'connection', oauth: 'grant',
+    job: 'refused', platform_import: 'refused', gateway: 'refused' });
+function mayProposeBeneficiary(authMethod: ControlPrincipal['authMethod']): authMethod is ProposerAuthMethod {
+  return BENEFICIARY_PROPOSER[authMethod] !== 'refused';
+}
 const positiveVersion = (value: string | number): number => {
   const n = Number(value);
   if (!Number.isSafeInteger(n) || n < 1) throw new BeneficiaryError('INVALID_STORED_VERSION');
@@ -46,10 +71,11 @@ export async function proposeBeneficiaryChange(ctx: ControlTx, input: Beneficiar
     const evidence = evidenceRefs.length ? await q.validateEvidence(ctx, ref, evidenceRefs) : [];
     const sealed = sealBeneficiary(ctx.principal.companyId, ref, details);
     const p = ctx.principal;
-    if (p.authMethod === 'job'||p.authMethod==='platform_import') throw new BeneficiaryError('UNSUPPORTED_PRINCIPAL');
+    if (!mayProposeBeneficiary(p.authMethod)) throw new BeneficiaryError('UNSUPPORTED_PRINCIPAL');
+    const grantSource = BENEFICIARY_PROPOSER[p.authMethod];
     const proposal: q.Proposal = { id: randomUUID(), company_id: p.companyId, entity_type: ref.entityType, entity_id: ref.entityId,
       requester_person_id: p.personId, requester_auth_method: p.authMethod,
-      requester_grant_id: p.authMethod === 'cookie' ? null : p.authMethod === 'pat' ? p.connectionId : p.grantId,
+      requester_grant_id: grantSource === 'none' ? null : grantSource === 'connection' ? p.connectionId : p.grantId,
       requester_granted_scopes: p.grantedScopes === null ? null : [...p.grantedScopes],
       details_envelope: sealed.envelope, details_fingerprint: sealed.fingerprint,
       base_bank_fingerprint: bankFingerprint(p.companyId, ref, currentBank),

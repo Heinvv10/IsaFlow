@@ -6,7 +6,12 @@ const { sqlMock, markEntriesBilledMock } = vi.hoisted(() => {
   return { sqlMock, markEntriesBilledMock };
 });
 
-vi.mock('@/lib/neon', () => ({ sql: sqlMock }));
+vi.mock('@/lib/neon', () => ({
+  sql: sqlMock,
+  // Pass-through: the savepoint's rollback behaviour is proved against a real
+  // Postgres in tests/integration/k-040-wip-overlapping-runs-double-bill.int.test.ts.
+  withSavepoint: <T>(_name: string, fn: () => Promise<T>) => fn(),
+}));
 vi.mock('@/lib/logger', () => ({
   log: { info: vi.fn(), error: vi.fn(), warn: vi.fn() },
 }));
@@ -14,6 +19,7 @@ vi.mock('@/modules/accounting/services/practice/practiceTimeEntryWorkflow', () =
   markEntriesBilled: markEntriesBilledMock,
 }));
 
+import { als } from '@/lib/als';
 import {
   getWipByClient,
   generateWipInvoice,
@@ -28,6 +34,15 @@ const ENTRY_B = 'ffffffff-0000-0000-0000-000000000006';
 const INVOICE_ID = '11111111-0000-0000-0000-000000000007';
 
 beforeEach(() => vi.clearAllMocks());
+
+/**
+ * generateWipInvoice locks its eligible entries with FOR UPDATE and therefore
+ * refuses to run outside a request transaction (K-040). The fake client stands
+ * in for the pooled one: SET LOCAL / SAVEPOINT never reach the `sql` mock, so
+ * the queued response order is unchanged.
+ */
+const inTx = <T>(fn: () => Promise<T>): Promise<T> =>
+  als.run({ client: { query: vi.fn() } } as never, fn);
 
 describe('getWipByClient', () => {
   it('groups approved unbilled entries by practice_client_id', async () => {
@@ -83,14 +98,14 @@ describe('generateWipInvoice', () => {
 
   it('rejects client with no link_customer_id', async () => {
     sqlMock.mockResolvedValueOnce([{ id: CLIENT, status: 'active', link_customer_id: null }]);
-    await expect(generateWipInvoice(COMPANY, USER, baseInput))
+    await expect(inTx(() => generateWipInvoice(COMPANY, USER, baseInput)))
       .rejects.toThrow(/link_customer_id/);
   });
 
   it('rejects when no eligible entries found', async () => {
     sqlMock.mockResolvedValueOnce([{ id: CLIENT, status: 'active', link_customer_id: LINK_CUSTOMER }]);
     sqlMock.mockResolvedValueOnce([]);
-    await expect(generateWipInvoice(COMPANY, USER, baseInput))
+    await expect(inTx(() => generateWipInvoice(COMPANY, USER, baseInput)))
       .rejects.toThrow(/no eligible approved/);
   });
 
@@ -108,20 +123,24 @@ describe('generateWipInvoice', () => {
         work_item_name: 'Bank recon', job_category_name: 'Accounting',
       },
     ]);
-    sqlMock.mockResolvedValueOnce([{ max_num: 0 }]);     // max invoice number
+    // The number now comes from the company sequence (K-107/K-120), not a
+    // MAX(invoice_number)+1 read beside it.
+    sqlMock.mockResolvedValueOnce([{ used: 1, prefix: 'INV', padding: 7 }]);
     sqlMock.mockResolvedValueOnce([{ id: INVOICE_ID }]); // INSERT invoice
     sqlMock.mockResolvedValueOnce([]);                   // INSERT line item A
     sqlMock.mockResolvedValueOnce([]);                   // INSERT line item B
     markEntriesBilledMock.mockResolvedValueOnce(2);
 
-    const result = await generateWipInvoice(COMPANY, USER, baseInput);
+    const result = await inTx(() => generateWipInvoice(COMPANY, USER, baseInput));
 
     expect(result.lineCount).toBe(2);
     expect(result.subtotal).toBe(4250);
     expect(result.taxAmount).toBe(637.5);
     expect(result.totalAmount).toBe(4887.5);
     expect(result.invoiceId).toBe(INVOICE_ID);
-    expect(result.invoiceNumber).toMatch(/^INV-\d{5}$/);
+    // The company sequence's own format (prefix + padding), not the MAX(...)+1
+    // 'INV-nnnnn' this path used to mint beside it.
+    expect(result.invoiceNumber).toBe('INV0000001');
     expect(markEntriesBilledMock).toHaveBeenCalledWith(COMPANY, [ENTRY_A, ENTRY_B], INVOICE_ID);
 
     const insertLineItemCalls = sqlMock.mock.calls.filter((c) => {
@@ -153,15 +172,15 @@ describe('generateWipInvoice', () => {
         job_category_id: 'cat-1', job_category_name: 'Accounting',
       },
     ]);
-    sqlMock.mockResolvedValueOnce([{ max_num: 0 }]);
+    sqlMock.mockResolvedValueOnce([{ used: 1, prefix: 'INV', padding: 7 }]); // reserve from the company sequence
     sqlMock.mockResolvedValueOnce([{ id: INVOICE_ID }]);
     sqlMock.mockResolvedValueOnce([]); // ONE line item (grouped)
     markEntriesBilledMock.mockResolvedValueOnce(2);
 
-    const result = await generateWipInvoice(COMPANY, USER, {
+    const result = await inTx(() => generateWipInvoice(COMPANY, USER, {
       ...baseInput,
       groupBy: 'by_work_item',
-    });
+    }));
 
     // Only ONE line item insert expected (2 entries → 1 grouped line)
     const insertLineItemCalls = sqlMock.mock.calls.filter((c) => {
@@ -188,15 +207,15 @@ describe('generateWipInvoice', () => {
         work_item_name: 'Bank recon', job_category_name: 'Accounting',
       },
     ]);
-    sqlMock.mockResolvedValueOnce([{ max_num: 0 }]);
+    sqlMock.mockResolvedValueOnce([{ used: 1, prefix: 'INV', padding: 7 }]); // reserve from the company sequence
     sqlMock.mockResolvedValueOnce([{ id: INVOICE_ID }]);
     sqlMock.mockResolvedValueOnce([]); // single grouped line
     markEntriesBilledMock.mockResolvedValueOnce(2);
 
-    const result = await generateWipInvoice(COMPANY, USER, {
+    const result = await inTx(() => generateWipInvoice(COMPANY, USER, {
       ...baseInput,
       groupBy: 'by_category',
-    });
+    }));
 
     const insertLineItemCalls = sqlMock.mock.calls.filter((c) => {
       const strings = c[0] as TemplateStringsArray;
@@ -206,5 +225,42 @@ describe('generateWipInvoice', () => {
     const insertValues = insertLineItemCalls[0]!.slice(1);
     expect(insertValues).toContain(null);
     expect(result.lineCount).toBe(1);
+  });
+
+  it('refuses to run outside a request transaction', async () => {
+    sqlMock.mockResolvedValueOnce([{ id: CLIENT, status: 'active', link_customer_id: LINK_CUSTOMER }]);
+    await expect(generateWipInvoice(COMPANY, USER, baseInput))
+      .rejects.toThrow(/requires a request transaction/);
+  });
+
+  it('throws when fewer entries were marked billed than were selected', async () => {
+    sqlMock.mockResolvedValueOnce([{ id: CLIENT, status: 'active', link_customer_id: LINK_CUSTOMER }]);
+    sqlMock.mockResolvedValueOnce([
+      {
+        id: ENTRY_A, hours: 2, applied_rate: 850, line_total: 1700,
+        entry_date: '2026-04-10', task_description: 'Bookkeeping',
+        work_item_name: null, job_category_name: 'Accounting',
+      },
+      {
+        id: ENTRY_B, hours: 3, applied_rate: 850, line_total: 2550,
+        entry_date: '2026-04-11', task_description: 'Reconciliation',
+        work_item_name: null, job_category_name: 'Accounting',
+      },
+    ]);
+    sqlMock.mockResolvedValueOnce([{ used: 1, prefix: 'INV', padding: 7 }]); // reserve from the company sequence
+    sqlMock.mockResolvedValueOnce([{ id: INVOICE_ID }]);
+    sqlMock.mockResolvedValueOnce([]);
+    sqlMock.mockResolvedValueOnce([]);
+    markEntriesBilledMock.mockResolvedValueOnce(1); // one entry lost to a peer
+
+    await expect(inTx(() => generateWipInvoice(COMPANY, USER, baseInput)))
+      .rejects.toThrow(/billed concurrently/);
+  });
+
+  it('maps a deadlock on the eligibility read to the retryable lock error', async () => {
+    sqlMock.mockResolvedValueOnce([{ id: CLIENT, status: 'active', link_customer_id: LINK_CUSTOMER }]);
+    sqlMock.mockRejectedValueOnce(Object.assign(new Error('deadlock detected'), { code: '40P01' }));
+    await expect(inTx(() => generateWipInvoice(COMPANY, USER, baseInput)))
+      .rejects.toThrow(/being invoiced by another request/);
   });
 });

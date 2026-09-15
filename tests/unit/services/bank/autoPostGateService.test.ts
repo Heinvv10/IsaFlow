@@ -3,7 +3,17 @@ import { describe, it, expect, vi, beforeEach } from 'vitest';
 const { sqlMock } = vi.hoisted(() => ({
   sqlMock: Object.assign(vi.fn(), { unsafe: vi.fn() }),
 }));
-vi.mock('@/lib/neon', () => ({ sql: sqlMock, withTransaction: vi.fn(), transaction: vi.fn() }));
+// `withSavepoint` runs its callback straight through here: with no ALS client
+// in a unit test the real one does the same, so the mock keeps the sweep's
+// per-row rollback boundary out of the way of these assertions. The rollback
+// itself is proved against a real database in
+// tests/integration/k140-autopost-sweep-no-savepoint.int.test.ts.
+vi.mock('@/lib/neon', () => ({
+  sql: sqlMock,
+  withTransaction: vi.fn(),
+  transaction: vi.fn(),
+  withSavepoint: vi.fn(<T,>(_name: string, fn: () => Promise<T>) => fn()),
+}));
 vi.mock('@/lib/logger', () => ({ log: { info: vi.fn(), warn: vi.fn(), error: vi.fn() } }));
 vi.mock('@/modules/accounting/services/bank/bankAllocationService', () => ({
   allocateTransaction: vi.fn(),
@@ -168,7 +178,7 @@ describe('sweep', () => {
     routeSql([
       { match: /FROM bank_auto_post_settings/, rows: [{ enabled: true, min_confidence: '0.9', amount_cap: '10000', llm_enabled: false, llm_min_confidence: '0.95', llm_amount_cap: '2000' }] },
       { match: /FROM bank_transactions\s+WHERE id = ANY/, rows: [
-        { id: 't1', status: 'imported', amount: -500, suggested_gl_account_id: 'gl-1', suggested_confidence: '0.95', suggested_vat_code: null, description: 'Coffee' },
+        { id: 't1', status: 'imported', feed_state: 'posted', amount: -500, suggested_gl_account_id: 'gl-1', suggested_confidence: '0.95', suggested_vat_code: null, description: 'Coffee' },
       ] },
       { match: /INSERT INTO bank_auto_post_runs/, rows: [{ id: 'run-1' }] },
       { match: /UPDATE bank_transactions SET auto_post_run_id/, rows: [] },
@@ -205,7 +215,7 @@ describe('sweep', () => {
   ];
   const txRow = (vat: string | null) => ({
     match: /FROM bank_transactions\s+WHERE id = ANY/,
-    rows: [{ id: 't1', status: 'imported', amount: -1150, suggested_gl_account_id: 'gl-1', suggested_confidence: '0.99', suggested_vat_code: vat, description: 'Salary run' }],
+    rows: [{ id: 't1', status: 'imported', feed_state: 'posted', amount: -1150, suggested_gl_account_id: 'gl-1', suggested_confidence: '0.99', suggested_vat_code: vat, description: 'Salary run' }],
   });
   const glAccount = (name: string, denied = false) => ({
     match: /FROM gl_accounts/,
@@ -263,7 +273,7 @@ describe('sweep', () => {
     routeSql([
       { match: /FROM bank_auto_post_settings/, rows: [{ enabled: true, min_confidence: '0.9', amount_cap: '10000', llm_enabled: false, llm_min_confidence: '0.95', llm_amount_cap: '2000' }] },
       { match: /FROM bank_transactions\s+WHERE id = ANY/, rows: [
-        { id: 't1', status: 'imported', amount: -500, suggested_gl_account_id: 'gl-1', suggested_confidence: '0.5', suggested_vat_code: null, description: 'x' },
+        { id: 't1', status: 'imported', feed_state: 'posted', amount: -500, suggested_gl_account_id: 'gl-1', suggested_confidence: '0.5', suggested_vat_code: null, description: 'x' },
       ] },
     ]);
     const r = await sweep('co-1', ['t1'], 'categorization', 'u-1');
@@ -272,12 +282,27 @@ describe('sweep', () => {
     expect(r.skipped).toEqual([{ txId: 't1', reason: 'confidence too low' }]);
   });
 
+  it('reports a pending feed row as skipped, without posting or minting a run', async () => {
+    routeSql([
+      { match: /FROM bank_auto_post_settings/, rows: [{ enabled: true, min_confidence: '0.9', amount_cap: '10000', llm_enabled: false, llm_min_confidence: '0.95', llm_amount_cap: '2000' }] },
+      { match: /FROM bank_transactions\s+WHERE id = ANY/, rows: [
+        { id: 't1', status: 'imported', amount: -500, suggested_gl_account_id: 'gl-1', suggested_confidence: '0.95', suggested_vat_code: null, description: 'Coffee', feed_state: 'pending' },
+      ] },
+    ]);
+
+    const r = await sweep('co-1', ['t1'], 'categorization', 'u-1');
+
+    expect(r).toEqual({ runId: null, posted: 0, skipped: [{ txId: 't1', reason: 'feed_state pending' }], vatDenied: 0, nonSupplyCoerced: 0 });
+    expect(allocateTransaction).not.toHaveBeenCalled();
+    expect(postProvisional).not.toHaveBeenCalled();
+  });
+
   it('counts a typed refusal as this row\'s outcome and keeps sweeping', async () => {
     routeSql([
       { match: /FROM bank_auto_post_settings/, rows: [{ enabled: true, min_confidence: '0.9', amount_cap: '10000', llm_enabled: false, llm_min_confidence: '0.95', llm_amount_cap: '2000' }] },
       { match: /FROM bank_transactions\s+WHERE id = ANY/, rows: [
-        { id: 't1', status: 'imported', amount: -100, suggested_gl_account_id: 'gl-1', suggested_confidence: '0.95', suggested_vat_code: null, description: 'a' },
-        { id: 't2', status: 'imported', amount: -200, suggested_gl_account_id: 'gl-2', suggested_confidence: '0.95', suggested_vat_code: null, description: 'b' },
+        { id: 't1', status: 'imported', feed_state: 'posted', amount: -100, suggested_gl_account_id: 'gl-1', suggested_confidence: '0.95', suggested_vat_code: null, description: 'a' },
+        { id: 't2', status: 'imported', feed_state: 'posted', amount: -200, suggested_gl_account_id: 'gl-2', suggested_confidence: '0.95', suggested_vat_code: null, description: 'b' },
       ] },
       { match: /INSERT INTO bank_auto_post_runs/, rows: [{ id: 'run-1' }] },
       { match: /UPDATE bank_transactions SET auto_post_run_id/, rows: [] },
@@ -299,7 +324,7 @@ describe('sweep', () => {
     routeSql([
       { match: /FROM bank_auto_post_settings/, rows: [{ enabled: true, min_confidence: '0.9', amount_cap: '10000', llm_enabled: false, llm_min_confidence: '0.95', llm_amount_cap: '2000' }] },
       { match: /FROM bank_transactions\s+WHERE id = ANY/, rows: [
-        { id: 't1', status: 'imported', amount: -100, suggested_gl_account_id: 'gl-1', suggested_confidence: '0.95', suggested_vat_code: null, description: 'a' },
+        { id: 't1', status: 'imported', feed_state: 'posted', amount: -100, suggested_gl_account_id: 'gl-1', suggested_confidence: '0.95', suggested_vat_code: null, description: 'a' },
       ] },
       { match: /INSERT INTO bank_auto_post_runs/, rows: [{ id: 'run-1' }] },
     ]);
@@ -312,7 +337,7 @@ describe('sweep', () => {
     routeSql([
       { match: /FROM bank_auto_post_settings/, rows: [{ enabled: true, min_confidence: '0.9', amount_cap: '10000', llm_enabled: false, llm_min_confidence: '0.95', llm_amount_cap: '2000' }] },
       { match: /FROM bank_transactions\s+WHERE id = ANY/, rows: [
-        { id: 't1', status: 'imported', amount: -300, suggested_gl_account_id: null, suggested_confidence: null, suggested_vat_code: null, description: 'EFT' },
+        { id: 't1', status: 'imported', feed_state: 'posted', amount: -300, suggested_gl_account_id: null, suggested_confidence: null, suggested_vat_code: null, description: 'EFT' },
       ] },
       { match: /INSERT INTO bank_auto_post_runs/, rows: [{ id: 'run-9' }] },
       { match: /UPDATE bank_transactions SET auto_post_run_id/, rows: [] },

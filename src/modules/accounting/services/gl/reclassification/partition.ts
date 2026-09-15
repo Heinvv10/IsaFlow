@@ -79,6 +79,8 @@ export interface ReclassCandidate {
   /** Carried onto BOTH legs, like every other dimension on the line. */
   vatType: VatType | null;
   buId: string | null;
+  cc1Id: string | null;
+  cc2Id: string | null;
 }
 
 /** A line that will NOT move, and the machine-stable reason. */
@@ -95,7 +97,6 @@ export type ReclassSkipReason =
   | 'entry_reversed'
   | 'entry_is_reversal'
   | 'appeared_after_lock'
-  | 'unreproducible_analysis_coding'
   | 'unknown_vat_type'
   | 'already_reclassified'
   | 'reclassification_contra'
@@ -166,13 +167,6 @@ function skipReasonFor(row: CandidateRow, opts: PartitionOptions): ReclassSkipRe
   if (row.is_reclass_contra) return 'reclassification_contra';
   if (row.already_reclassified) return 'already_reclassified';
   if (num(row.debit) === 0 && num(row.credit) === 0) return 'zero_amount';
-  // `JournalLineInput` can express project, cost centre and business unit, but
-  // NOT `cc1_id` / `cc2_id`. A pair posted without them would move the amount
-  // out of one analysis bucket and into none, which is the same silent loss the
-  // journal builder refuses for project and cost centre. Skipped rather than
-  // dropped. Zero production lines carry either column today, so this is a
-  // guard against a future that has not arrived, not a live filter.
-  if (row.cc1_id !== null || row.cc2_id !== null) return 'unreproducible_analysis_coding';
   if (row.vat_type !== null && !KNOWN_VAT_TYPES.includes(row.vat_type)) return 'unknown_vat_type';
   // A filed VAT period binds a line that CARRIES VAT CODING — that line is
   // anchored to a return already sent to SARS. A line with no `vat_type`
@@ -234,9 +228,10 @@ export function partitionCandidates(
       // Narrowed by the guard above: an unrecognised value never reaches here.
       vatType: row.vat_type as VatType | null,
       buId: row.bu_id,
+      cc1Id: row.cc1_id,
+      cc2Id: row.cc2_id,
     });
   }
 
   return { movable, skipped };
 }
-

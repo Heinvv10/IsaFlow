@@ -24,7 +24,7 @@ async function candidates(ctx:ControlTx,selection:Selection){
   JOIN gl_journal_entries j ON j.company_id=o.company_id AND j.id=ol.journal_entry_id
   JOIN gl_journal_lines nl ON nl.company_id=j.company_id AND nl.journal_entry_id=j.id AND nl.gl_account_id=n.bank_account_id
    AND nl.debit-nl.credit=n.amount
-  WHERE n.company_id=${company}::uuid AND n.status='imported' AND n.matched_journal_line_id IS NULL
+  WHERE n.company_id=${company}::uuid AND n.status='imported' AND n.feed_state='posted' AND n.matched_journal_line_id IS NULL
    AND o.status IN('allocated','matched','reconciled') AND o.allocation_type IN('transfer','account')
    AND j.status='posted' AND j.reversed_at IS NULL
    AND NOT EXISTS(SELECT 1 FROM bank_transactions used WHERE used.company_id=${company}::uuid AND used.matched_journal_line_id=nl.id)

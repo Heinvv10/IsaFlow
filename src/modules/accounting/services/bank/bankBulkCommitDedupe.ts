@@ -27,6 +27,7 @@ export async function dedupeParsedTransactions(companyId: string, bankAccountId:
     WHERE company_id = ${companyId}::UUID
       AND bank_account_id = ${bankAccountId}::UUID
       AND transaction_date BETWEEN ${from} AND ${to}
+      AND feed_state <> 'removed' -- a removed feed row never posted; it claims no hash
   `) as Array<{ transaction_date: string; amount: string | number; description: string | null }>;
 
   const existingHashes = new Set<string>();

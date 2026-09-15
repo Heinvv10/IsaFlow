@@ -16,7 +16,7 @@ it('fails the deploy when the login role cannot execute the liveness function',a
   .rejects.toThrow(/app_login cannot EXECUTE/);
 });
 it('fails the deploy when the deployed reader body has lost the unverified sentinel',async()=>{
- // An older migration re-applied after 691 restores a body that answers an unreadable evidence table with
+ // An older migration re-applied after 839 restores a body that answers an unreadable evidence table with
  // NULL - read as "no impersonation" - while every other property the gate checks stays true.
  const state={reader:true,liveness:true,reader_exec:true,liveness_exec:true,reader_sees:true,liveness_sees:true,reader_sentinel:false};
  await expect(runImpersonationReaderGate(async()=>[state],vi.fn()))
@@ -24,7 +24,7 @@ it('fails the deploy when the deployed reader body has lost the unverified senti
 });
 
 it.each(['reader_sees','liveness_sees'] as const)('fails the deploy when %s says the function cannot see the evidence',async field=>{
- // 691 put RLS on both evidence tables, so a reader that is not SECURITY DEFINER, whose owner lost
+ // 839 put RLS on both evidence tables, so a reader that is not SECURITY DEFINER, whose owner lost
  // BYPASSRLS, or whose owner lost SELECT, cannot read them: every session unverified, every proof
  // refused - and in the lost-SELECT case the reader would raise 42501 instead of answering.
  const state={reader:true,liveness:true,reader_exec:true,liveness_exec:true,reader_sees:true,liveness_sees:true,reader_sentinel:true,[field]:false};
@@ -49,7 +49,7 @@ it('asks the database every question the gate decides on, in one statement',asyn
  // The owner must hold SELECT on both evidence tables, or the reader raises 42501 from its own query.
  expect(text).toContain("has_table_privilege(p.proowner, 'public.admin_audit_log', 'SELECT')");
  expect(text).toContain("has_table_privilege(p.proowner, 'public.admin_impersonation_stash', 'SELECT')");
- // The deployed body must still RETURN the sentinel: an older migration re-applied after 691 restores a body
+ // The deployed body must still RETURN the sentinel: an older migration re-applied after 839 restores a body
  // that answers an unreadable evidence table with NULL, with every other property here still true. Matched on
  // the RETURN with comments stripped, because a plain substring over prosrc is satisfied by a comment.
  expect(text).toContain(`~ 'RETURN\\s+''${IMPERSONATION_UNVERIFIED}'''`);
@@ -59,20 +59,33 @@ it('asks the database every question the gate decides on, in one statement',asyn
 });
 
 /**
- * Editing an applied migration stops the deploy at apply-migrations.ts with exit 2, BEFORE the gate above can
- * run, and clearing it is a separate command an operator has to know exists. The instruction and the claim that
- * makes it safe are asserted together: re-applying 675 is harmless only while 675 no longer defines the reader.
+ * Both files were edited after they had been applied, and until the 2026-09-14 renumbering their DEPLOY NOTEs
+ * told the operator to clear a checksum conflict. Renumbering killed that premise: apply-migrations.ts keys on
+ * FILENAME, so a database carrying the OLD name has no row for the new one, raises no conflict, and applies the
+ * file in full - resolve-checksum-conflicts.ts would have nothing to resolve. An instruction to run a command
+ * that does nothing is worse than none, because the operator concludes the step succeeded. This asserts the note
+ * no longer carries it, and the two claims the replacement rests on.
  */
-it('tells the deployer how to clear the checksum conflicts that editing 675 and 677 causes',async()=>{
+it('does not tell the deployer to resolve a checksum conflict the renumbering made impossible',async()=>{
  const {readFileSync}=await import('node:fs');
- const migration=readFileSync('scripts/migrations/sql/675_platform_import_approval_authority.sql','utf8');
- expect(migration).toContain('bun scripts/migrations/resolve-checksum-conflicts.ts 675_platform_import_approval_authority.sql');
- // 677 was edited too, to pin pg_temp; both conflicts stop the same deploy and both need clearing.
- expect(readFileSync('scripts/migrations/sql/677_impersonation_delegation_liveness.sql','utf8'))
-  .toContain('bun scripts/migrations/resolve-checksum-conflicts.ts 677_impersonation_delegation_liveness.sql');
- // The safety claim the note rests on: 691 owns the reader now, so re-applying 675 cannot restore the old body.
- expect(migration).not.toMatch(/(CREATE|REPLACE)\s+FUNCTION\s+public\.control_session_impersonator/i);
- // And the generic failure names the resolver, for the operator who never opens the file.
+ const read=(f:string)=>readFileSync(`scripts/migrations/sql/${f}`,'utf8');
+ const notes={
+  '826_platform_import_approval_authority.sql':read('826_platform_import_approval_authority.sql'),
+  '828_impersonation_delegation_liveness.sql':read('828_impersonation_delegation_liveness.sql'),
+ };
+ for(const [name,text] of Object.entries(notes)){
+  // No runnable resolver command for THIS file: the old note's whole instruction was that line.
+  expect(text,name).not.toContain(`bun scripts/migrations/resolve-checksum-conflicts.ts ${name}`);
+  // And the note says what happens instead, so the operator is not left to infer it.
+  expect(text,name).toMatch(/tracks migrations by FILENAME|tracks by FILENAME/);
+  expect(text,name).toContain('applies this file IN FULL');
+ }
+ // The safety claim the replacement rests on: 839 owns the reader now, so re-applying 826 cannot restore the
+ // fail-open body. This is the assertion that has to survive, whatever the note says.
+ expect(notes['826_platform_import_approval_authority.sql'])
+  .not.toMatch(/(CREATE|REPLACE)\s+FUNCTION\s+public\.control_session_impersonator/i);
+ // The generic conflict failure still names the resolver, for migrations that ARE edited after apply under an
+ // unchanged name - the renumbering removed the instruction from two files, not the mechanism.
  expect(readFileSync('scripts/apply-migrations.ts','utf8'))
   .toContain('bun scripts/migrations/resolve-checksum-conflicts.ts ${plan.conflicts.map((c) => c.name).join(\' \')}');
 });

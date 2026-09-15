@@ -165,7 +165,15 @@ it('actual REST cookie, CSRF and transaction wrappers enforce approval and commi
  await pool.query("INSERT INTO approval_rules(id,company_id,name,document_type,condition_field,condition_operator,condition_value,approver_role) VALUES($1,$2,'AR route policy','customer_invoice','amount','any',0,'admin')",[rule,fixture.companyA]);
  try{
   const refused=await route(invoiceRoute,{id,action:'approve',approved:true,skipApproval:true},'/api/accounting/customer-invoices-detail');
-  expect(refused.status).toBe(400);
+  // 409, not the 400 this route used to answer by hand. The old assertion encoded "the refusal is a
+  // 4xx and nothing posted", and it pinned the number this ONE route happened to choose: it had a
+  // branch mapping ArApprovalRequiredError to badRequest while year-end answered the identical
+  // refusal 409 and the two AP writers answered it 500, three answers for one semantic. A missing
+  // approval is not a malformed request — the request is well-formed, authorised and understood, and
+  // what is wrong is the STATE, which is what 409 means and what the class itself declares. The route
+  // branch is gone; `apiRefusal.ts` answers all four call paths from that declaration. The half of
+  // this assertion that tests something real — nothing posted — is below, unchanged.
+  expect(refused.status).toBe(409);
   expect((await pool.query('SELECT gl_journal_entry_id FROM customer_invoices WHERE company_id=$1 AND id=$2',[fixture.companyA,id])).rows[0].gl_journal_entry_id).toBeNull();
   const approvalId=await approval(invoiceRef(id));
   const posted=await route(invoiceRoute,{id,action:'approve',approvalId},'/api/accounting/customer-invoices-detail');

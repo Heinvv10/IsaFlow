@@ -22,6 +22,7 @@
 
 import { sql } from '@/lib/neon';
 import { fmtDate } from '@/lib/fmtDate';
+import { documentInLedgerAsAtFragment } from '@/modules/accounting/services/shared/softDeleteLedgerPresence';
 
 /**
  * Invoice statuses that represent a real claim on the customer.
@@ -93,11 +94,16 @@ function toDateStr(d: Date | string): string {
  * statement for March onward showed an opening balance of zero and asked the
  * customer only for March's invoices, silently dropping everything older. That
  * is the same defect as billing for a draft, in the opposite direction.
+ *
+ * `beforeDate` bounds WHICH documents are prior; `asAtStr` is the date the
+ * soft-delete presence question is asked at — see getCustomerLedger for why
+ * the two differ.
  */
 async function fetchOpeningBalance(
   companyId: string,
   customerId: string,
   beforeDate: string,
+  asAtStr: string,
 ): Promise<number> {
   const rows = (await sql`
     SELECT COALESCE(SUM(amount), 0)::numeric AS balance
@@ -108,7 +114,7 @@ async function fetchOpeningBalance(
         AND COALESCE(ci.client_id, ci.customer_id) = ${customerId}
         AND ci.status = ANY(${Array.from(BILLABLE_INVOICE_STATUSES)}::text[])
         AND ci.invoice_date < ${beforeDate}::date
-        AND (ci.deleted_at IS NULL OR ci.deleted_at > NOW())
+        AND ${documentInLedgerAsAtFragment('ci', asAtStr, companyId)}
 
       UNION ALL
 
@@ -142,6 +148,37 @@ export async function getCustomerLedger(
 ): Promise<CustomerLedger | null> {
   const dateFrom = options.dateFrom ?? null;
   const dateTo = options.dateTo ?? null;
+  /**
+   * The as-at date the WHOLE document is drawn to, opening balance included.
+   *
+   * Soft-delete reverses the invoice's approval journal and dates the reversal
+   * to the DELETE, so the AR control account keeps carrying the invoice right
+   * up to that date. An undated `deleted_at IS NULL OR deleted_at > NOW()`
+   * therefore drops from this statement an invoice the GL still shows at
+   * `dateTo`, and the closing balance stops footing — the same clock mismatch
+   * `reports-supplier-ledger` closed on the AP side.
+   *
+   * `dateTo` is optional and an absent one means up to now; the fallback is
+   * today rather than NULL, which would make the fragment return NULL and drop
+   * every soft-deleted invoice unconditionally.
+   *
+   * The OPENING balance is dated to `dateTo` too, not to `dateFrom`. This
+   * statement lists documents, never the GL reversal the delete posts, so a
+   * delete falling INSIDE the window produces no row: if the opening still
+   * carried the invoice the closing would carry it as well, and disagree with
+   * the control account at `dateTo`. Dating both legs to `dateTo` makes the
+   * document one coherent snapshot whose closing figure ties to the GL.
+   *
+   * KNOWN COST of that choice: when the delete falls INSIDE the window, the row
+   * printed as "Opening balance" for `dateFrom` reads what the customer owed
+   * NET of that later deletion, not what the control account carried on
+   * `dateFrom` itself. The closing figure and every printed row are right and
+   * the arithmetic foots; only the opening label is dated differently from the
+   * figure beside it. Fixing the label honestly means emitting a dated
+   * "document removed" contra row so both legs can carry their own date, which
+   * changes the statement's row contract and is not part of this item.
+   */
+  const asAtStr = dateTo ?? fmtDate(new Date());
 
   const customerRows = (await sql`
     SELECT name
@@ -156,7 +193,7 @@ export async function getCustomerLedger(
 
   const openingBalance = dateFrom === null
     ? 0
-    : await fetchOpeningBalance(companyId, customerId, dateFrom);
+    : await fetchOpeningBalance(companyId, customerId, dateFrom, asAtStr);
 
   const rows = (await sql`
     SELECT
@@ -173,7 +210,7 @@ export async function getCustomerLedger(
       AND ci.status = ANY(${Array.from(BILLABLE_INVOICE_STATUSES)}::text[])
       AND (${dateFrom}::date IS NULL OR ci.invoice_date >= ${dateFrom}::date)
       AND (${dateTo}::date IS NULL OR ci.invoice_date <= ${dateTo}::date)
-      AND (ci.deleted_at IS NULL OR ci.deleted_at > NOW())
+      AND ${documentInLedgerAsAtFragment('ci', asAtStr, companyId)}
 
     UNION ALL
 

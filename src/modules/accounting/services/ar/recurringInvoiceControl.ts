@@ -6,6 +6,7 @@ import {requireArControl,runArControlled,type ArApprovalOptions} from './arContr
 import {resolveArAccounts} from '../controls/arControlAccounts';
 import {deriveArRecurringMoney} from '../controls/arRecurringExact';
 import {lockRecurringTemplate} from './recurringInvoiceLock';
+import {insertWithReservedNumber} from '../core/documentNumberRetry';
 import {RecurringInvoiceNotDueError} from './recurringInvoiceService';
 import {postCustomerInvoiceFinancialEffect} from './customerInvoiceFinancialEffect';
 import {mutateArRelatedEntity} from './arRelatedEntityEffect';
@@ -31,11 +32,16 @@ export async function prepareRecurringInvoiceRun(companyId:string,id:string,user
   const [clock]=await ctx.sql`SELECT (clock_timestamp() AT TIME ZONE 'Africa/Johannesburg')::date::text AS day` as Array<{day:string}>;
   if(!clock)throw new Error('Accounting clock unavailable');
   const invoiceId=randomUUID(),runId=randomUUID();
-  await ctx.sql`INSERT INTO customer_invoices(id,company_id,invoice_number,client_id,customer_id,project_id,
+  // THE NUMBER COMES FROM THE COMPANY SEQUENCE, never minted here: a locally
+  // invented number leaves company_document_numbers.next_number frozen while
+  // live numbers run ahead of it. The helper reserves and retries past a number
+  // a legacy row already holds, under its own savepoint.
+  await insertWithReservedNumber(companyId,'customer_invoice','rec_inv_','uq_customer_invoices_company_number',
+   invoiceNumber=>ctx.sql`INSERT INTO customer_invoices(id,company_id,invoice_number,client_id,customer_id,project_id,
    invoice_date,due_date,subtotal,tax_rate,tax_amount,total_amount,currency_code,exchange_rate,functional_total,status,notes,created_by)
-   VALUES(${invoiceId}::uuid,${companyId}::uuid,${`INV-R-${runId}`},${String(template.client_id)}::uuid,${String(template.client_id)}::uuid,
+   VALUES(${invoiceId}::uuid,${companyId}::uuid,${invoiceNumber},${String(template.client_id)}::uuid,${String(template.client_id)}::uuid,
    ${template.project_id??null},${clock.day}::date,${clock.day}::date+30,${money.subtotal}::numeric,${String(template.tax_rate??0)}::numeric,
-   ${money.tax}::numeric,${money.amount}::numeric,${money.currency},1,${money.amount}::numeric,'draft',${template.description??template.template_name},${userId}::uuid)`;
+   ${money.tax}::numeric,${money.amount}::numeric,${money.currency},1,${money.amount}::numeric,'draft',${template.description??template.template_name},${userId}::uuid)`);
   for(const line of money.lines)await ctx.sql`INSERT INTO customer_invoice_items(invoice_id,description,unit_price,quantity,amount,tax_rate)
    SELECT id,${line.description},${line.unit_price}::numeric,${line.quantity}::numeric,${line.amount}::numeric,${String(template.tax_rate??0)}::numeric
    FROM customer_invoices WHERE company_id=${companyId}::uuid AND id=${invoiceId}::uuid`;

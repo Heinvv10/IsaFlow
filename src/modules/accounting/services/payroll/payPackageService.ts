@@ -2,10 +2,14 @@
  * Pay package master + application to employees (mig 454).
  *
  * Applying a package:
- *   1. End-date any OPEN assignment (effective_to IS NULL) for each of the
- *      package's components, set effective_to = effectiveFrom - 1 day.
+ *   1. End-date every assignment the apply overlaps (open-ended, or closed on
+ *      or after effectiveFrom) for each of the package's components, set
+ *      effective_to = effectiveFrom - 1 day.
  *   2. Insert a new payroll_employee_components row per package row with
- *      the package's default amount + is_recurring flag.
+ *      the package's default amount + is_recurring flag. A row flagged
+ *      once-off is closed at the end of effectiveFrom's month, because the
+ *      payroll reader ignores is_recurring and an open-ended row would be
+ *      paid in every later run.
  *
  * The whole apply runs in a single transaction so partial application is
  * impossible. Subsequent edits to the package do not retroactively change

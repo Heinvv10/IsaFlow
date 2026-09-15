@@ -53,7 +53,7 @@ vi.mock('@/modules/accounting/services/gl/systemAccountResolver', () => ({
   getSystemAccount: vi.fn().mockResolvedValue({ id: 'acct-1' }),
 }));
 
-import { sql } from '@/lib/neon';
+import { sql, withSavepoint } from '@/lib/neon';
 import { getSystemAccount } from '@/modules/accounting/services/gl/systemAccountResolver';
 import { createJournalEntry, reverseJournalEntry } from '@/modules/accounting/services/gl/journalEntryService';
 import { createQuote } from '@/modules/accounting/services/ar/quoteService';
@@ -83,6 +83,9 @@ function mockByText(routes: Record<string, unknown[] | Error>) {
 beforeEach(() => {
   vi.resetAllMocks(); // wipes factory implementations too — re-prime below
   mockSql.mockResolvedValue([]);
+  // Includes withSavepoint: resetAllMocks wipes the factory's passthrough, and
+  // R-067's ownership fence runs inside one.
+  vi.mocked(withSavepoint).mockImplementation((_n: string, fn: () => unknown) => fn() as never);
   (getSystemAccount as unknown as ReturnType<typeof vi.fn>).mockResolvedValue({ id: 'acct-1' });
   (createJournalEntry as unknown as ReturnType<typeof vi.fn>).mockResolvedValue({ id: 'je-1' });
   (reverseJournalEntry as unknown as ReturnType<typeof vi.fn>).mockResolvedValue({ id: 'je-rev' });
@@ -120,7 +123,7 @@ describe('W2 — soft-delete blocked while open documents exist', () => {
       'FROM customer_invoices': [{ open_count: '2' }],
     });
 
-    await expect(softDelete(COMPANY_ID, 'customer', ENTITY_ID)).rejects.toThrow(
+    await expect(softDelete(COMPANY_ID, 'customer', ENTITY_ID, USER_ID)).rejects.toThrow(
       /open (invoice|document)/i,
     );
     // never reached the UPDATE
@@ -135,7 +138,7 @@ describe('W2 — soft-delete blocked while open documents exist', () => {
       'FROM supplier_invoices': [{ open_count: '1' }],
     });
 
-    await expect(softDelete(COMPANY_ID, 'supplier', ENTITY_ID)).rejects.toThrow(
+    await expect(softDelete(COMPANY_ID, 'supplier', ENTITY_ID, USER_ID)).rejects.toThrow(
       /open (invoice|document)/i,
     );
   });
@@ -147,9 +150,12 @@ describe('W2 — soft-delete blocked while open documents exist', () => {
       'UPDATE customers SET deleted_at': [{ id: ENTITY_ID }],
     });
 
-    const result = await softDelete(COMPANY_ID, 'customer', ENTITY_ID);
+    const result = await softDelete(COMPANY_ID, 'customer', ENTITY_ID, USER_ID);
     expect(result.undoToken).toBeTruthy();
   });
 });
 
-// W3/N6 actual pending draft balance and linked credit-note exactly-once: arCiCreditPayment.int.test.ts.
+// W3/N6 actual pending draft balance and linked credit-note exactly-once:
+// tests/integration/controls/arCiCreditPayment.int.test.ts. createCustomerPayment and
+// approveCreditNote both require a control transaction now, so a bare sql mock can only prove
+// that the kernel refused them — the two scenarios moved to real PG rather than being weakened.

@@ -5,6 +5,7 @@
 
 import { useState, useEffect, useCallback } from 'react';
 import { apiFetch } from '@/lib/apiFetch';
+import { HandOffsetNotice, type HandOffset } from './HandOffsetNotice';
 
 interface AutoPostRun {
   id: string;
@@ -21,10 +22,39 @@ interface AutoPostRunsResponse {
   };
 }
 
+/** `undoRun`'s result. `undone` is false whenever a line was skipped. */
+interface UndoResult {
+  reversed: number;
+  skippedBy: { reconciled: number; contended: number; failed: number; offsetByHand: number };
+  undone: boolean;
+  handOffsets: HandOffset[];
+}
+
+/**
+ * What the user needs to know about a partial undo: the run stays listed, and
+ * each skip reason has its own remedy — pressing Undo again changes nothing
+ * for a reconciled or failed line until it is dealt with.
+ */
+function partialUndoMessage({ reversed, skippedBy }: UndoResult): string {
+  const reasons = [
+    skippedBy.reconciled > 0 ? `${skippedBy.reconciled} reconciled — unreconcile them first` : null,
+    skippedBy.contended > 0 ? `${skippedBy.contended} in use by another request — try again in a moment` : null,
+    skippedBy.failed > 0
+      ? `${skippedBy.failed} could not be reversed (for example, a closed period) — check those lines`
+      : null,
+    skippedBy.offsetByHand > 0
+      ? `${skippedBy.offsetByHand} may already be corrected by a later journal — see below`
+      : null,
+  ].filter((r): r is string => r !== null);
+  return `Reversed ${reversed} line${reversed === 1 ? '' : 's'}. Not undone: ${reasons.join('; ')}.`;
+}
+
 export function AutoPostRunsPanel({ onUndone }: { onUndone?: () => void }) {
   const [runs, setRuns] = useState<AutoPostRun[]>([]);
   const [busy, setBusy] = useState<string | null>(null);
   const [undoError, setUndoError] = useState<string | null>(null);
+  const [undoNotice, setUndoNotice] = useState<string | null>(null);
+  const [handOffsets, setHandOffsets] = useState<{ runId: string; offsets: HandOffset[] } | null>(null);
 
   const load = useCallback(() => {
     apiFetch('/api/accounting/bank-auto-post', { credentials: 'include' })
@@ -40,6 +70,8 @@ export function AutoPostRunsPanel({ onUndone }: { onUndone?: () => void }) {
   async function undo(runId: string) {
     setBusy(runId);
     setUndoError(null);
+    setUndoNotice(null);
+    setHandOffsets(null);
     try {
       const res = await apiFetch('/api/accounting/bank-auto-post', {
         method: 'POST',
@@ -47,10 +79,16 @@ export function AutoPostRunsPanel({ onUndone }: { onUndone?: () => void }) {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ action: 'undo', runId }),
       });
-      if (!res.ok) {
-        const errJson = await res.json().catch(() => ({})) as { error?: string };
-        throw new Error(errJson.error ?? `Undo failed (${res.status})`);
+      if (res.status === 409) {
+        throw new Error('Another request is working on this run\'s lines — try again in a moment.');
       }
+      if (!res.ok) {
+        const errJson = await res.json().catch(() => ({})) as { error?: { message?: string } };
+        throw new Error(errJson.error?.message ?? `Undo failed (${res.status})`);
+      }
+      const result = ((await res.json()) as { data?: UndoResult }).data;
+      if (result?.undone === false) setUndoNotice(partialUndoMessage(result));
+      if (result?.handOffsets?.length) setHandOffsets({ runId, offsets: result.handOffsets });
       load();
       onUndone?.();
     } catch (err) {
@@ -58,6 +96,17 @@ export function AutoPostRunsPanel({ onUndone }: { onUndone?: () => void }) {
     } finally {
       setBusy(null);
     }
+  }
+
+  function decided(offset: HandOffset, runClosed: boolean, next: HandOffset | null) {
+    setHandOffsets((prev) => {
+      const rest = prev?.offsets.filter((o) => o.transactionId !== offset.transactionId) ?? [];
+      const offsets = next ? [...rest, next] : rest;
+      return prev && offsets.length > 0 ? { runId: prev.runId, offsets } : null;
+    });
+    if (runClosed) setUndoNotice(null);
+    load();
+    onUndone?.();
   }
 
   const active = runs.filter((r) => !r.undoneAt && r.postedCount > 0);
@@ -68,6 +117,16 @@ export function AutoPostRunsPanel({ onUndone }: { onUndone?: () => void }) {
       <h3 className="text-xs font-semibold text-[var(--ff-text-secondary)] mb-2">Recent auto-post runs</h3>
       {undoError && (
         <p className="text-xs text-red-400 mb-2">{undoError}</p>
+      )}
+      {undoNotice && (
+        <p role="status" className="text-xs text-amber-500 mb-2">{undoNotice}</p>
+      )}
+      {handOffsets && (
+        <ul aria-label="Lines already corrected by hand" className="space-y-1 mb-2">
+          {handOffsets.offsets.map((o) => (
+            <HandOffsetNotice key={o.transactionId} runId={handOffsets.runId} offset={o} onDecided={decided} />
+          ))}
+        </ul>
       )}
       <ul className="space-y-1">
         {active.map((r) => (

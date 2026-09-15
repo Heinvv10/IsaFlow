@@ -329,7 +329,7 @@ describe('ocrExtractionService', () => {
 
     it('returns all nulls when no amounts found', () => {
       const result = extractAmounts('No amounts on this document');
-      expect(result).toEqual({ subtotal: null, vatAmount: null, totalAmount: null });
+      expect(result).toEqual({ subtotal: null, vatAmount: null, totalAmount: null, warnings: [] });
     });
 
     it('parses comma-formatted totals (e.g. R 12,345.67)', () => {

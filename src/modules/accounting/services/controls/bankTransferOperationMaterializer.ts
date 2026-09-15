@@ -7,6 +7,7 @@ import { readControlEntityVersion } from './operationVersions';
 import type { ControlTx, OperationRef } from './contracts';
 import type { ApMaterial, ObservedSource } from './apOperationMaterializer';
 import { postingPeriodBlock } from '../gl/postingPeriodGuard';
+import { isBankSubtype } from '../gl/accountSubtypes';
 type Row = Record<string, unknown>;
 
 /** The immutable intent contains business input; currency and account eligibility come from owned rows. */
@@ -111,7 +112,7 @@ function accountsRefusal(accounts: Row[], intentIds: string[]): string {
   const problems = intentIds.map(id => {
     const account = accounts.find(a => String(a.id) === id);
     if (!account) return `account ${id} was not found in this company`;
-    return account.account_subtype === 'bank' ? null : `${String(account.account_code)} ${String(account.account_name)} is not a bank account`;
+    return isBankSubtype(account.account_subtype as string | null) ? null : `${String(account.account_code)} ${String(account.account_name)} is not a bank account`;
   }).filter((problem): problem is string => problem !== null);
   return `Cannot transfer between these accounts: ${problems.join('; ') || 'they are not this company\'s bank accounts'}.`;
 }
@@ -135,7 +136,7 @@ export async function readTransferAccounts(ctx: ControlTx, companyId: string, fr
       FROM gl_accounts WHERE company_id=${companyId}::uuid AND id=ANY(${ids}::uuid[]) ORDER BY id FOR SHARE`
     : await ctx.sql`SELECT id,account_code,account_name,account_subtype,is_active
       FROM gl_accounts WHERE company_id=${companyId}::uuid AND id=ANY(${ids}::uuid[]) ORDER BY id`) as Row[];
-  if (accounts.length !== 2 || accounts.some(a => !ids.includes(String(a.id)) || a.account_subtype !== 'bank')) {
+  if (accounts.length !== 2 || accounts.some(a => !ids.includes(String(a.id)) || !isBankSubtype(a.account_subtype as string | null))) {
     throw new BankTransferRefusalError(accountsRefusal(accounts, [fromId, toId]));
   }
   return accounts;

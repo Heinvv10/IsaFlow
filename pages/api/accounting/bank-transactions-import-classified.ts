@@ -102,6 +102,7 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
       SELECT transaction_date::text AS transaction_date, amount::text AS amount, description
       FROM bank_transactions
       WHERE bank_account_id = ${bankAccountId}::UUID AND company_id = ${companyId}
+        AND feed_state <> 'removed' -- a removed feed row never posted; it claims no hash
     `) as Row[];
 
     const existingSet = new Set<string>(

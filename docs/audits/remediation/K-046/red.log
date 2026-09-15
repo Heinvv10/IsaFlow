@@ -1,0 +1,105 @@
+$ node scripts/check-runtime.mjs && vitest run --config vitest.integration.config.ts "tests/integration/k-046-year-end-contra-balance-negative-debit.int.test.ts"
+
+ RUN  v4.1.2 /home/hein/Workspace/IsaFlow/.worktrees/audit-remediation-20260908
+
+{"level":"error","message":"withTransaction rolled back","timestamp":"2026-09-09T09:19:30.808Z","component":"DB","data":{"message":"new row for relation \"gl_journal_entries\" violates check constraint \"gl_journal_entries_source_check\""}}
+ ❯ tests/integration/k-046-year-end-contra-balance-negative-debit.int.test.ts (3 tests | 3 failed) 246ms
+   × previews the contra revenue account as a credit, never a negative debit 47ms
+   × is rejected by gl_journal_lines_debit_check when that line is written 12ms
+   × uses a journal source the gl_journal_entries CHECK constraint accepts 16ms
+
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 3 ⎯⎯⎯⎯⎯⎯⎯
+
+ FAIL  tests/integration/k-046-year-end-contra-balance-negative-debit.int.test.ts > previews the contra revenue account as a credit, never a negative debit
+AssertionError: expected { …(5) } to match object { Object (accountCode, debit, ...) }
+(2 matching properties omitted from actual)
+
+- Expected
++ Received
+
+  {
+    "accountCode": "4000",
+-   "credit": 500,
+-   "debit": 0,
++   "credit": 0,
++   "debit": -500,
+  }
+
+ ❯ tests/integration/k-046-year-end-contra-balance-negative-debit.int.test.ts:75:32
+     73|     { preview: { lines: Array<{ accountCode: string; debit: number; cr…
+     74|   // RED: the builder puts the signed balance straight into `debit`.
+     75|   expect(dry.preview.lines[0]).toMatchObject({ accountCode: '4000', de…
+       |                                ^
+     76| });
+     77|
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[1/3]⎯
+
+ FAIL  tests/integration/k-046-year-end-contra-balance-negative-debit.int.test.ts > is rejected by gl_journal_lines_debit_check when that line is written
+AssertionError: expected error: new row for relation "gl_journal_l… { …(15) } to be null
+
+- Expected:
+null
+
++ Received:
+error {
+  "message": "new row for relation \"gl_journal_lines\" violates check constraint \"gl_journal_lines_debit_check\"",
+  "length": 526,
+  "name": "error",
+  "severity": "ERROR",
+  "code": "23514",
+  "detail": "Failing row contains (17178737-69af-4c28-9d69-d46ee7ffbd83, 88feb3d1-9e7e-48ae-bab0-f6cae0913df3, 83442a27-1287-4b2a-bc77-e867b07ff968, -500.00, 0.00, Year-end close, null, null, 2026-09-09 09:19:30.792173+00, null, null, null, null, 2026-09-09 09:19:30.792173+00, c185a121-6577-48a7-865e-95791e177459, null).",
+  "hint": undefined,
+  "position": undefined,
+  "internalPosition": undefined,
+  "internalQuery": undefined,
+  "where": undefined,
+  "schema": "public",
+  "table": "gl_journal_lines",
+  "column": undefined,
+  "dataType": undefined,
+  "constraint": "gl_journal_lines_debit_check",
+  "file": "execMain.c",
+  "line": "2109",
+  "routine": "ExecConstraints",
+}
+
+ ❯ tests/integration/k-046-year-end-contra-balance-negative-debit.int.test.ts:101:18
+     99|   }
+    100|   // RED: the close's own line is illegal.
+    101|   expect(raised).toBeNull();
+       |                  ^
+    102| });
+    103|
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[2/3]⎯
+
+ FAIL  tests/integration/k-046-year-end-contra-balance-negative-debit.int.test.ts > uses a journal source the gl_journal_entries CHECK constraint accepts
+AssertionError: promise rejected "error: new row for relation "gl_journal_e… { …(15) }" instead of resolving
+ ❯ tests/integration/k-046-year-end-contra-balance-negative-debit.int.test.ts:108:55
+    106|   // source='year_end', which gl_journal_entries_source_check does not…
+    107|   // EVERY year-end close fails at the header insert before reaching t…
+    108|   await expect(closeFiscalYear(company, '2025', user)).resolves.toMatc…
+       |                                                       ^
+    109| });
+    110|
+
+Caused by: error: new row for relation "gl_journal_entries" violates check constraint "gl_journal_entries_source_check"
+ ❯ node_modules/pg/lib/client.js:631:17
+ ❯ tx src/lib/neon.ts:364:19
+ ❯ src/modules/accounting/services/gl/yearEndCloseService.ts:228:25
+ ❯ withTransaction src/lib/neon.ts:368:20
+ ❯ closeFiscalYear src/modules/accounting/services/gl/yearEndCloseService.ts:195:24
+ ❯ tests/integration/k-046-year-end-contra-balance-negative-debit.int.test.ts:108:3
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯
+Serialized Error: { length: 732, severity: 'ERROR', code: '23514', detail: 'Failing row contains (e97fb42b-7e6a-4a63-8445-8b3fc35a0f4f, YE-2025, 2025-12-31, 829d59c5-0945-4610-886d-151fab7fa6b6, Year-End Closing: 2025, year_end, null, posted, 6eab6055-4397-45ee-925c-8daf9168c1cc, 2026-09-09 09:19:30.806274+00, null, null, null, 6eab6055-4397-45ee-925c-8daf9168c1cc, 2026-09-09 09:19:30.806274+00, 2026-09-09 09:19:30.806274+00, null, null, null, c185a121-6577-48a7-865e-95791e177459, f, null, null, null, system:year-end-close, f, null, null, null, null, null, null, null, null).', hint: undefined, position: undefined, internalPosition: undefined, internalQuery: undefined, where: undefined, schema: 'public', table: 'gl_journal_entries', dataType: undefined, constraint: 'gl_journal_entries_source_check', file: 'execMain.c', routine: 'ExecConstraints' }
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[3/3]⎯
+
+
+ Test Files  1 failed (1)
+      Tests  3 failed (3)
+   Start at  11:19:29
+   Duration  1.09s (transform 292ms, setup 0ms, import 491ms, tests 246ms, environment 0ms)
+
+error: script "test:integration" exited with code 1

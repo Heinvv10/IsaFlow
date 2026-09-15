@@ -13,6 +13,7 @@
  *   posted_only  — "true" | "false" (default: "true")
  *   limit        — integer 1–500 (default: 200)
  *   offset       — integer >= 0  (default: 0)
+ *   cost_centre_id / business_unit_id — optional cumulative dimension filters
  *
  * Response: { success: true, data: { rows, total, openingBalance, periodNet, periodClosingBalance, meta } }
  */
@@ -29,6 +30,15 @@ const ISO_DATE_RE = /^\d{4}-\d{2}-\d{2}$/;
 async function handler(req: NextApiRequest, res: NextApiResponse) {
   if (req.method !== 'GET') {
     return apiResponse.methodNotAllowed(res, req.method ?? 'UNKNOWN', ['GET']);
+  }
+
+  const costCentreId = req.query.cost_centre_id;
+  if (costCentreId !== undefined && (typeof costCentreId !== 'string' || !UUID_RE.test(costCentreId))) {
+    return apiResponse.badRequest(res, 'cost_centre_id must be a valid UUID');
+  }
+  const businessUnitId = req.query.business_unit_id;
+  if (businessUnitId !== undefined && (typeof businessUnitId !== 'string' || !UUID_RE.test(businessUnitId))) {
+    return apiResponse.badRequest(res, 'business_unit_id must be a valid UUID');
   }
 
   const { companyId } = req as CompanyAuthedRequest;
@@ -79,6 +89,8 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
     companyId,
     accountId: hasId ? (account_id as string) : undefined,
     accountCode: !hasId && hasCode ? (account_code as string) : undefined,
+    costCentreId,
+    businessUnitId,
     fromDate: from,
     toDate: to,
     postedOnly,

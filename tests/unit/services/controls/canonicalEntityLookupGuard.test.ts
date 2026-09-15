@@ -2,7 +2,7 @@ import {describe,expect,it} from 'vitest';
 import {readdirSync,readFileSync} from 'node:fs';
 import {join,relative} from 'node:path';
 /**
- * Control rows are looked up by the stored `entity_id_canonical` column (migration 684), never by `lower(entity_id)`:
+ * Control rows are looked up by the stored `entity_id_canonical` column (migration 835), never by `lower(entity_id)`:
  * lower() is not leakproof, so under FORCE RLS such a comparison is never an index condition and scans the company.
  * Projections (`SELECT lower(e.entity_id) AS entity_id`, `ORDER BY`, `GROUP BY`) are not comparisons and stay allowed.
  * The one allowed comparison is control_policy_exposure's residual filter, inside a window-index bucket, on a table

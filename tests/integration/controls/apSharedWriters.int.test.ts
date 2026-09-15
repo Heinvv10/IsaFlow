@@ -104,7 +104,11 @@ it('actual REST action wrappers and shared-service ingress both refuse missing a
   for (const [handler, body, path] of [[paymentRoute, { action: 'process', paymentId: doc.payment }, 'supplier-payments-action'],
     [invoiceRoute, { action: 'approve', invoiceId: doc.invoice }, 'supplier-invoices-action']] as const) {
     const result = await route(handler, { ...body, skipApproval: true, approved: true }, `/api/accounting/${path}`);
-    expect(result.status).toBe(400); expect(result.body.success).toBe(false);
+    // 409, the status ApApprovalRequiredError declares — a conflict with the
+    // operation's state (no approval exists for it), not a malformed request. Both
+    // routes must agree: one has a typed branch, the other relies on
+    // withErrorHandler, and the caller cannot tell them apart.
+    expect(result.status).toBe(409); expect(result.body.success).toBe(false);
   }
   await expect(actor('u1', () => processSupplierPayment(fixture.companyA, doc.payment, fixture.u1.id))).rejects.toMatchObject({ code: 'OPERATION_APPROVAL_REQUIRED' });
   expect((await pool.query('SELECT id FROM gl_journal_entries WHERE company_id=$1', [fixture.companyA])).rows).toEqual(before.rows);
@@ -167,7 +171,7 @@ it('records baseline and versioned status approval while keeping financial proce
   expect((await route(paymentRoute, { action: 'approve', paymentId: doc.payment }, '/api/accounting/supplier-payments-action')).status).toBe(200);
   const events = await pool.query('SELECT action,new_version FROM control_change_events WHERE company_id=$1 AND entity_id=$2 ORDER BY new_version', [fixture.companyA, doc.payment]);
   expect(events.rows.map(row => row.action)).toEqual(['baseline_observed', 'status_approved']);
-  expect((await route(paymentRoute, { action: 'process', paymentId: doc.payment }, '/api/accounting/supplier-payments-action')).status).toBe(400);
+  expect((await route(paymentRoute, { action: 'process', paymentId: doc.payment }, '/api/accounting/supplier-payments-action')).status).toBe(409);
   expect((await pool.query('SELECT id FROM gl_journal_entries WHERE company_id=$1 AND source_record_id=$2', [fixture.companyA, doc.payment])).rows).toHaveLength(0);
 });
 it('binds a closed original period reversal to the open server-day target and refuses a changed target', async () => {

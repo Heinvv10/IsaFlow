@@ -1,0 +1,272 @@
+K-046 / R-027 — GREEN + mutation proof (disposable production-schema fixture)
+
+Migration applied to the fixture:
+  psql -f scripts/migrations/sql/627_gl_je_source_year_end.sql  -> ALTER TABLE, ALTER TABLE
+  pg_get_constraintdef(...) LIKE '%year_end%'                   -> t
+
+GREEN
+  bun run test:integration -- tests/integration/k-046-year-end-contra-balance-negative-debit.int.test.ts
+                              tests/integration/k-046-year-end-close-adjacent.int.test.ts
+  Test Files  2 passed (2)
+  Tests       7 passed (7)      [3 from the validator's RED file, 4 adjacent]
+
+MUTATION 1 — revert the sign derivation in yearEndJournalBuilder.buildPreview
+  (debit: balance / credit: balance, as on origin/master)
+  Test Files  2 failed (2)
+  Tests       6 failed | 1 passed (7)
+
+MUTATION 2 — revert migration 627 by re-applying 509's constraint to the fixture
+  Test Files  2 failed (2)
+  Tests       4 failed | 3 passed (7)
+  (restored by re-applying 627)
+
+MUTATION 3 — remove the validateJournalEntry guard from postClosingJournal
+  tests/integration/k-046-year-end-close-adjacent.int.test.ts
+    Test Files  1 failed (1)   Tests 1 failed | 3 passed (4)
+  tests/unit/services/glEntrySourceConstraint.test.ts
+    Test Files  1 failed (1)   Tests 1 failed | 5 passed (6)
+
+FULL UNIT SUITE (no DATABASE_URL in the environment: `env -u DATABASE_URL bunx vitest run`)
+  Test Files  792 passed | 36 skipped (828)
+  Tests       9435 passed | 234 skipped (9669)
+
+GATES
+  bunx tsc --noEmit                                  -> exit 0, no output
+  bunx eslint <the three changed src files>          -> exit 0, no output
+  bunx tsx scripts/ci/check-migration-rls.ts         -> OK
+
+────────────────────────────────────────────────────────────────────────────
+REVIEW FOLLOW-UP ROUND (blind review of 3222d0a6 + c16abdde: 1 HIGH, 2 MEDIUM, 5 LOW)
+────────────────────────────────────────────────────────────────────────────
+
+GREEN (fixture DB, migration 627 applied — pg_get_constraintdef LIKE '%year_end%' -> t)
+  bunx vitest run --config vitest.integration.config.ts
+      tests/integration/k-046-year-end-close-adjacent.int.test.ts
+      tests/integration/k-046-year-end-contra-balance-negative-debit.int.test.ts
+  Test Files  2 passed (2)
+  Tests       9 passed (9)      [3 validator RED file, 6 adjacent]
+
+  env -u DATABASE_URL bunx vitest run
+      tests/unit/services/yearEndClosePostingGuard.test.ts
+      tests/unit/services/glEntrySourceConstraint.test.ts
+      tests/unit/services/gl/yearEndInsertColumnsDb.test.ts
+  Test Files  3 passed (3)
+  Tests       12 passed (12)
+
+MUTATION 4 — buildPreview appends the retained-earnings line unconditionally (`if (true)`)
+  k-046-year-end-close-adjacent: Tests 3 failed | 3 passed (6)
+  (break-even, dormant and the re-run case all go RED)
+
+MUTATION 5 — postClosingJournal skips the already-closed lookup (`if (false)`)
+  k-046-year-end-close-adjacent: Tests 1 failed | 5 passed (6)
+  ("reports the existing journal on a second close" goes RED)
+
+MUTATION 6 — postClosingJournal skips the validateJournalEntry refusal (`if (false)`)
+  yearEndClosePostingGuard: Tests 2 failed | 1 passed (3)
+
+MUTATION 7 — drop the `no_fiscal_period` case from pages/api/accounting/year-end.ts
+  bunx tsc --noEmit ->
+    pages/api/accounting/year-end.ts(108,17): error TS2322: Type
+    '{ error: "no_fiscal_period"; entryDate: string; }' is not assignable to type 'never'.
+  (the exhaustiveness default is a real gate, not a comment)
+
+FULL UNIT SUITE (env -u DATABASE_URL bunx vitest run --maxWorkers=4)
+  Test Files  793 passed | 36 skipped (829)
+  Tests       9438 passed | 234 skipped (9672)
+
+GATES
+  bunx tsc --noEmit                                  -> exit 0, no output
+  bunx eslint <the five changed src/pages files>     -> exit 0, no output
+  bun run agent-docs:generate                        -> only gl/AGENTS.md changed
+  migration prefix 627 re-checked against origin/master (53539623) -> still free
+
+POST-MERGE GATE (origin/master 53539623 merged into the branch, LOW-5)
+  bunx tsc --noEmit                                            -> exit 0
+  bunx eslint <the five changed src/pages files>               -> exit 0
+  bun run agent-docs:check                                     -> OK, 74 mirrors match
+  integration (fixture DB): Test Files 2 passed, Tests 9 passed
+  full unit suite (env -u DATABASE_URL, --maxWorkers=4):
+      Test Files  800 passed | 40 skipped (840)
+      Tests       9549 passed | 243 skipped (9792)
+  security guards: check-migration-rls, check-gl-journal-lines-scope,
+      check-vat-guard-coverage, check-raw-transaction-control,
+      audit-user-id-casts, check-is-active-in-balances -> all OK
+  migration prefix 627 still unused on origin/master
+
+────────────────────────────────────────────────────────────────────────────
+ROUND-2 REVIEW FOLLOW-UP (2 MEDIUM, 4 LOW — includes closing K-113)
+────────────────────────────────────────────────────────────────────────────
+
+GREEN (fixture DB)
+  bunx vitest run --config vitest.integration.config.ts
+      tests/integration/k-046-year-end-close-adjacent.int.test.ts            (8)
+      tests/integration/k-046-year-end-contra-balance-negative-debit.int.test.ts (3)
+      tests/integration/k113-year-end-close-rerun.int.test.ts                (3)
+  Test Files  3 passed (3)     Tests  14 passed (14)
+
+  env -u DATABASE_URL bunx vitest run --config vitest.components.config.ts
+      tests/unit/components/yearEndCloseMessage.test.tsx
+  Test Files  1 passed (1)     Tests  4 passed (4)
+
+MUTATION A — the page hardcodes "Closing journal created" again
+  yearEndCloseMessage: Tests 3 failed | 1 passed (4)
+MUTATION B — the dry run stops reporting alreadyClosed/existingEntry (K-113 signal removed)
+  k113-year-end-close-rerun: Tests 1 failed | 2 passed (3)
+MUTATION C — findClosingJournal filters `AND status = 'posted'` (the literal LOW-2 suggestion)
+  k-046-adjacent: Tests 1 failed | 7 passed (8)   [reversed header falls through to a raw 23505]
+MUTATION D — the non-posted branch removed, any status counts as closed
+  k-046-adjacent: Tests 1 failed | 7 passed (8)
+MUTATION E — lockYear returns a literal instead of the UPDATE's row count
+  k-046-adjacent: Tests 1 failed | 7 passed (8)
+MUTATION F — the revenue query filters `ga.is_active = true` (the inactive exemption withdrawn)
+  k-046-adjacent: Tests 1 failed | 7 passed (8)
+
+MOCKED FIXTURES REPAIRED (the addendum's hazard, caught by the full suite)
+  The hoisted lookup adds one sql call to closeFiscalYear, which broke three
+  queue-ordered unit fixtures: yearEndCloseDryRun (8), yearEndRetainedEarnings,
+  yearEndService. All three now queue the lookup explicitly. 33 passed.
+
+FULL SUITES
+  env -u DATABASE_URL bunx vitest run --maxWorkers=4
+      Test Files  800 passed | 40 skipped (840)
+      Tests       9549 passed | 243 skipped (9792)
+  env -u DATABASE_URL bunx vitest run --config vitest.components.config.ts
+      Test Files  68 passed (68)      Tests  445 passed (445)
+
+GATES
+  bunx tsc --noEmit                        -> exit 0
+  bunx eslint <the six changed src/pages files> -> exit 0
+  bun run agent-docs:check                 -> OK, 74 mirrors match
+  six CI security guards                   -> all exit 0
+  migration prefix 627 absent from origin/master (a9c3cc32) -> still free
+
+═══════════════════════════════════════════════════════════════════════════════
+ROUND 3 — the 7 findings of review-k046-r3.md (2 MEDIUM, 5 LOW). 2026-09-09.
+═══════════════════════════════════════════════════════════════════════════════
+
+GREEN
+  bunx vitest run --config vitest.integration.config.ts \
+    tests/integration/{k-046-year-end-entry-number-taken,k113-year-end-close-rerun,\
+k-046-year-end-close-adjacent,k-046-year-end-contra-balance-negative-debit}.int.test.ts
+    → 4 files, 18 tests passed (disposable fixture, real Postgres)
+  bunx vitest run tests/unit/services/yearEndClosePostingGuard.test.ts   → 8 passed
+  bunx vitest run tests/unit/mcp/fiscalPeriodTools.test.ts               → 33 passed
+  bunx vitest run tests/unit/lib/billing/withFlowMeter.test.ts           → 10 passed
+  bunx vitest run --config vitest.components.config.ts \
+    tests/unit/components/yearEndCloseMessage.test.tsx                   → 5 passed
+
+FULL SUITES, fixture env UNSET (env -u DATABASE_URL -u PLATFORM_ADMIN_DATABASE_URL)
+  bunx vitest run                             → 800 files, 9560 passed | 243 skipped
+  bunx vitest run -c vitest.components.config → 68 files, 446 passed
+
+MUTATION PROOF — one mutation per finding, each restored afterwards
+  M-2  restore `AND source = 'year_end'` in findClosingJournal
+       → k-046-year-end-entry-number-taken: 2 failed (squatter refusal + dry run)
+  M-1  `const unclosedNetIncome = 0` in alreadyClosedResult
+       → k113-year-end-close-rerun: 1 failed (residual assertion)
+  L-1a drop `if (!isClosingNumberConflict(err)) throw err` → always rethrow
+       → yearEndClosePostingGuard: 1 failed (loser reports the winner)
+  L-1b use the netIncome read on the way in instead of re-reading it after the
+       closing journal is known to exist
+       → k-046-year-end-entry-number-taken: 1 failed on 8 of 8 runs
+       (the loser reports the R700 the winner has just moved into equity)
+  L-4  resolve getFiscalPeriodIdForDate unconditionally
+       → yearEndClosePostingGuard: 1 failed (dormant year must not resolve a period)
+  L-2  `periods_locked: result.periodsLocked` (no already-closed branch)
+       → fiscalPeriodTools: 1 failed (re-run must report 0 locked by this call)
+  L-5  drop `|| req.flowNoOp` from the refund condition
+       → withFlowMeter: 1 failed (no-op 2xx must refund)
+  UI   force `type: 'success'` on the close banner
+       → yearEndCloseMessage: 1 failed (residual must render red, not a green tick)
+
+GATES
+  bunx tsc --noEmit                          → clean
+  bun run lint                               → 0 errors, 11 pre-existing warnings
+                                               (none in any file this branch touches)
+  bun run agent-docs:check                   → OK: 74 mirror(s) match
+  bun scripts/audit-migration-naming.ts      → no new duplicate prefixes
+  scripts/ci/check-migration-rls.ts          → OK
+  scripts/ci/check-gl-journal-lines-scope.ts → OK
+  scripts/ci/check-raw-transaction-control.ts→ OK
+
+FLAKINESS
+  The concurrency test was run 8x consecutively against the fixture and passed 8/8.
+  Its `netIncome` is deliberately NOT pinned to a literal: depending on where the
+  loser's balance read falls relative to the winner's COMMIT it is legitimately
+  either 700 or 0, and pinning either would be asserting a race. The RESIDUAL is
+  pinned, because it is re-read after the journal exists and is 0 under both
+  interleavings. An earlier draft that pinned netIncome failed ~40% of runs; the
+  first draft of the fix itself (residual from the stale read) failed 3 of 6.
+
+NOT DONE
+  Migration 627 deliberately NOT renumbered — see fix.md, it is a merge-time action.
+
+
+================================================================================
+ROUND 5 — the eight findings of review-k046-r4.md (0 HIGH / 1 MEDIUM / 7 LOW)
+================================================================================
+
+GREEN (fixture DB: isaflow_schema_fixture, real Postgres, random UUIDs, rows cleaned up)
+  tests/integration/k-046-year-end-entry-number-taken.int.test.ts   6 passed
+  tests/integration/k113-year-end-close-rerun.int.test.ts
+  tests/integration/k-046-year-end-close-adjacent.int.test.ts
+  tests/integration/k-046-year-end-contra-balance-negative-debit.int.test.ts
+  tests/integration/k-046-year-end-squatter-race.int.test.ts        (NEW)
+                                             → 5 files, 21 passed
+
+  unit: yearEndClosePostingGuard (10), fiscalPeriodTools (34), withFlowMeter (12),
+        glEntrySourceConstraint, yearEndCloseMessage, yearEndCloseDryRun,
+        yearEndInsertColumnsDb (3), yearEndRetainedEarnings, yearEndService
+                                             → 9 files, 101 passed
+
+MUTATIONS (production change reverted, test re-run, then restored)
+  M-1a  would_post returned unconditionally on a dry run
+        → fiscalPeriodTools.test.ts            2 failed / 32 passed   RED
+  M-1b  dry-run unclosedNetIncome hardcoded to 0
+        → k-046-year-end-entry-number-taken    1 failed / 5 passed    RED
+  L-4   alreadyClosedResult reuses the caller's netIncome instead of re-reading
+        → k-046-year-end-entry-number-taken    2 failed / 4 passed    RED
+        (the DETERMINISTIC test fails; the race test's failure is incidental)
+  L-5   the catch rethrows instead of returning the typed refusal
+        → yearEndClosePostingGuard             2 failed / 8 passed    RED
+        → k-046-year-end-squatter-race         1 failed               RED
+  L-6   X-Flow-Balance-After left at the debit after a refund
+        → withFlowMeter.test.ts                2 failed / 10 passed   RED
+
+GATES
+  bunx tsc --noEmit                          → clean
+  bunx eslint <6 changed src files>          → clean
+  bun run agent-docs:check                   → OK: 74 mirror(s) match
+  FULL unit suite, DATABASE_URL UNSET:
+    env -u DATABASE_URL -u PLATFORM_ADMIN_DATABASE_URL bunx vitest run
+    → Test Files 800 passed | 40 skipped (840)
+      Tests      9565 passed | 243 skipped (9808)
+
+NOT DONE
+  Migration 627 still deliberately NOT renumbered — merge-time action, see fix.md.
+
+=== ROUND 6 (review-k046-r5.md: 0 HIGH / 1 MEDIUM / 3 LOW) ===
+Integration (fixture DB, real Postgres, migration 627 applied):
+  k-046-year-end-entry-number-taken + k113-year-end-close-rerun
+  + k-046-year-end-contra-balance-negative-debit + k-046-year-end-close-adjacent
+  + k-046-year-end-squatter-race  -> 21 passed (5 files)
+Unit (full suite, DATABASE_URL UNSET): 800 files passed | 40 skipped, 9566 tests passed | 243 skipped, 0 failed
+Components (vitest.components.config.ts): yearEndCloseMessage.test.tsx -> 5 passed
+bunx tsc --noEmit -> clean
+bunx eslint <6 changed src files> -> clean
+bun run agent-docs:check -> OK: 74 agent document mirror(s) match canonical sources.
+
+Round-6 mutations (one per finding), each RED then restored:
+  MU-R6-A (MEDIUM-1) put the two setHeader calls back inside the refund try, unguarded
+    -> withFlowMeter.test.ts FAILS: log.error called once with
+       "Cannot set headers after they are sent to the client"
+  MU-R6-B (LOW-1) added `| { error: 'MUTATION_PROBE' }` to CloseYearError
+    -> tsc FAILS at yearEndCloseRefusal.ts:84 AND pages/api/accounting/year-end.ts:131
+       (Type '{ error: "MUTATION_PROBE"; }' is not assignable to type 'never')
+  MU-R6-C (LOW-2) alreadyClosedResult `netIncome: unclosedNetIncome` -> `netIncome: 0`
+    -> int test FAILS: expected +0 to be 150 (both the re-read test and the k113 re-run)
+  MU-R6-D (LOW-3) dry-run closed branch `preview: null` -> `preview`
+    -> int tests FAIL: expected { entryDate: '2026-12-31', ... } to be null (x2)
+
+NOTE: one run of the three-file integration set timed out (30s test / 10s hooks) at load
+average 16 while other fixer agents were running; re-run at load 12 it is green 21/21.

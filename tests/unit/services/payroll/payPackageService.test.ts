@@ -4,6 +4,12 @@ const sqlCalls: Array<{ sql: string; values: unknown[]; viaTx?: boolean }> = [];
 let mockImpl: (strings: TemplateStringsArray, ...values: unknown[]) => Promise<unknown[]> =
   () => Promise.resolve([]);
 
+const warnSpy = vi.fn();
+vi.mock('@/lib/logger', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('@/lib/logger')>();
+  return { ...actual, log: { ...actual.log, info: () => {}, warn: (...args: unknown[]) => warnSpy(...args) } };
+});
+
 vi.mock('@/lib/neon', () => ({
   // withTransaction replaces the raw BEGIN/COMMIT the services used to emit.
   //
@@ -42,6 +48,7 @@ const USER_ID = 'user-1';
 
 beforeEach(() => {
   sqlCalls.length = 0;
+  warnSpy.mockClear();
   mockImpl = () => Promise.resolve([]);
 });
 
@@ -118,6 +125,9 @@ describe('getPayPackage', () => {
 
 describe('applyPackageToEmployee', () => {
   // Actual approved replacement/retained closure is covered by payrollCompensationControl.int.test.ts.
+  // The end-date/insert rules this suite used to drive through here — the overlap supersede and the
+  // once-off close at the line's own month end — moved with the logic into
+  // tests/unit/services/controls/payrollCompensationExpand.test.ts.
   it('refuses package application without issued compensation authority before SQL',async()=>{
     await expect(applyPackageToEmployee(COMPANY_ID,PKG_ID,EMP_ID,'2026-05-01',USER_ID)).rejects.toThrow(/context|transaction/i);
     expect(sqlCalls).toHaveLength(0);

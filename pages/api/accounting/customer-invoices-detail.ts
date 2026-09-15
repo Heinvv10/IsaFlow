@@ -1,4 +1,3 @@
-import {ArApprovalRequiredError} from '@/modules/accounting/services/ar/arControlBoundary';
 import {parseArActionOptions} from '@/modules/accounting/services/ar/arActionOptions';
 /**
  * Customer Invoice Detail API
@@ -206,7 +205,6 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
           evidenceDocumentId: null, reversedJournalEntryId,
         });
       } catch (err) {
-        if (err instanceof ArApprovalRequiredError) return apiResponse.badRequest(res,err.message);
         if (err instanceof InvoiceNotFoundError) return apiResponse.notFound(res, 'Invoice', id);
         if (err instanceof InvoiceHasPaymentsError) return apiResponse.badRequest(res, err.message);
         // The GL reversal cannot post into a closed/locked fiscal period; surface
@@ -227,7 +225,6 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
           evidenceDocumentId: result.evidenceDocumentId,
         });
       } catch (err) {
-        if (err instanceof ArApprovalRequiredError) return apiResponse.badRequest(res,err.message);
         if (err instanceof InvoiceNotApprovableError) {
           return err.notFound ? apiResponse.notFound(res, 'Invoice', id) : apiResponse.badRequest(res, err.message);
         }

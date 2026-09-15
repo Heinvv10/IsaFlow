@@ -1,4 +1,5 @@
 import {assertPlatformImportOperation} from './platformImportConfinement';
+import {assertGatewayReceiptOperation} from './gatewayReceiptConfinement';
 import {assertOperationRequester} from './operationRequester';
 import { operationPermission,operationRequiresPosting,operationRuleType } from './operationPermissions';
 import { randomUUID } from 'node:crypto';
@@ -20,6 +21,15 @@ import { initializeOperationObservations } from './approvalRequestService';
  */
 export class OperationApprovalRequiredError extends Error {
   readonly code = 'OPERATION_APPROVAL_REQUIRED';
+  /**
+   * 409, matching the two boundary wrappers that re-raise this refusal and the answer `year-end.ts`
+   * already writes by hand. It is a conflict with the operation's current state — no approval exists
+   * for it — not a malformed request. Raised BELOW the first write of the controlled savepoint
+   * (`initializeOperationObservations`), which is what makes a 4xx safe for the transaction; see
+   * `apiRefusal.ts`, and `runJournalControl` for the direct-journal callers that write a draft
+   * outside this savepoint and therefore still force a ROLLBACK with it.
+   */
+  readonly statusCode = 409;
   constructor() { super('Independent operation approval is required'); this.name = 'OperationApprovalRequiredError'; }
 }
 export interface ControlledEffectPermit { readonly operationId: string; readonly accountingDate: string; readonly amount: string | null; readonly currency: string | null; readonly operation: OperationRef['operation']; readonly entityType: string; readonly entityId: string }
@@ -41,7 +51,7 @@ export function assertControlledEffectPermit(ctx: ControlTx, permit: ControlledE
  * live execution and its preview, because they run the same checks.
  */
 /**
- * SQLSTATEs the control functions RAISE deliberately (627/628 raise 42501 for
+ * SQLSTATEs the control functions RAISE deliberately (801/802 raise 42501 for
  * an approval outside the caller's company, or a caller who is not a member).
  * A transport fault — a deadlock, a serialization failure, a constraint — keeps
  * its own code and stays a server failure. Nothing else is marked: a plain
@@ -170,6 +180,7 @@ export async function assertSuppliedApprovalExecutable(ctx: ControlTx, input: Op
   assertControlTx(ctx);
   const ref = canonicalOperationRef(input);
   await assertPlatformImportOperation(ctx, ref, 'execute');
+  assertGatewayReceiptOperation(ctx, ref);
   await withSavepoint('preview_supplied_approval', async () => {
     // Inside the savepoint: these functions RAISE, and an error outside one
     // aborts the whole request transaction, so a refusal the caller could act
@@ -188,6 +199,7 @@ export async function executeControlledOperation<T>(ctx: ControlTx, input: Opera
   if (executing.has(ctx.principal)) throw new Error('Nested execution requires the parent effect permit');
   const ref = canonicalOperationRef(input);
   await assertPlatformImportOperation(ctx,ref,'execute');
+  assertGatewayReceiptOperation(ctx, ref);
   await assertControlledOperationAuthority(ctx, ref.operation);
   return withSavepoint('controlled_ap_operation', async () => {
     // Inside the savepoint for the same reason as the preview above: a raising

@@ -24,7 +24,7 @@ export const AUDIT_CHECK_RUN_LIMITS=Object.freeze({
 export const AUDIT_CHECK_RUN_QUOTA=Object.freeze({maxActiveJobs:6,maxJobsPerWindow:100,maxJobsPerPrincipal:40,windowHours:24});
 const PERMISSIONS:Readonly<Record<AuditCheckRunId,readonly string[]>>=Object.freeze({journal_risk_checks:Object.freeze(['read:reports'])});
 const checkId=z.enum(AUDIT_CHECK_RUN_IDS),cutoff=z.string().regex(/^\d{4}-\d{2}-\d{2}$/).refine(isRealCalendarDate);
-// The user key stays <=100 so `${userKey}:${checkId}` fits the 128-character intent key (630:5).
+// The user key stays <=100 so `${userKey}:${checkId}` fits the 128-character intent key (804:5).
 const userKey=z.string().min(1).max(100).regex(/^[A-Za-z0-9_.:-]+$/);
 const publicSchema=z.object({cutoff,checks:z.array(checkId).min(1).max(6),idempotencyKey:userKey}).strict();
 const storedSchema=z.object({cutoff,checkId,checks:z.array(checkId).min(1).max(AUDIT_CHECK_RUN_IDS.length),userKey,

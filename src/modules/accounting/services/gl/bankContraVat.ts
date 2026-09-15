@@ -20,9 +20,7 @@
 
 import { sql } from '@/lib/neon';
 import type { DbRow } from '@/lib/neon';
-
-/** The subtype the chart of accounts gives a bank account. */
-const BANK_SUBTYPE = 'bank';
+import { isBankSubtype } from './accountSubtypes';
 
 /**
  * Batched lookup: one query for a whole rule sweep, mirroring
@@ -44,7 +42,7 @@ export async function fetchBankContraFlags(
   `) as DbRow[];
 
   return new Map(rows.map((r) => [
-    String(r.id), String(r.account_subtype ?? '') === BANK_SUBTYPE,
+    String(r.id), isBankSubtype(r.account_subtype == null ? null : String(r.account_subtype)),
   ]));
 }
 
@@ -62,5 +60,6 @@ export async function resolveBankContraForAccount(
     WHERE company_id = ${companyId}::UUID AND id = ${glAccountId}::UUID
     LIMIT 1
   `) as DbRow[];
-  return rows.length > 0 && String(rows[0]!.account_subtype ?? '') === BANK_SUBTYPE;
+  return rows.length > 0
+    && isBankSubtype(rows[0]!.account_subtype == null ? null : String(rows[0]!.account_subtype));
 }

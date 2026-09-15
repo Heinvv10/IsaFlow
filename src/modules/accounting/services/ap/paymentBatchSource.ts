@@ -3,6 +3,7 @@ import {assertControlTx} from '../controls/context';
 import type {ControlTx} from '../controls/contracts';
 import {loadPreparedPayment} from './paymentPreparationService';
 import {validateReleasePopulation} from './paymentReleaseValidation';
+import {isBankSubtype} from '../gl/accountSubtypes';
 export interface BatchSourceRow extends Record<string,unknown>{id:string;batch_date:string;total_amount:string;payment_count:number;status:string;bank_account_id:string|null;batch_number:string}
 export async function loadPreparedBatch(ctx:ControlTx,batchId:string){
  assertControlTx(ctx);await assertEffectivePermission(ctx,'write:bank-tx');
@@ -25,6 +26,6 @@ export async function loadBatchBankAccount(ctx:ControlTx,bankAccountId:string|nu
  const [bank]=await ctx.sql`SELECT id,account_code,account_type,account_subtype,bank_account_number,bank_branch_code,bank_account_type,is_active
   FROM gl_accounts WHERE company_id=${ctx.principal.companyId}::uuid AND id=${bankAccountId}::uuid FOR SHARE` as Array<{
    id:string;account_code:string;account_type:string;account_subtype:string;bank_account_number:string|null;bank_branch_code:string|null;bank_account_type:string;is_active:boolean}>;
- if(!bank||!bank.is_active||bank.account_type!=='asset'||bank.account_subtype!=='bank')throw new Error('Owned active bank account required');
+ if(!bank||!bank.is_active||bank.account_type!=='asset'||!isBankSubtype(bank.account_subtype))throw new Error('Owned active bank account required');
  return bank;
 }

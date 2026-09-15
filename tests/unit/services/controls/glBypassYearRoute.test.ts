@@ -57,7 +57,7 @@ const post=async(body:Record<string,unknown>)=>{
  await handler(req,res as unknown as NextApiResponse);return res;
 };
 it('answers the refusal shape the control functions actually raise, and logs it',async()=>{
- // What migration 627 raises: SQLSTATE 42501 preserved, carrying the marker.
+ // What migration 801 raises: SQLSTATE 42501 preserved, carrying the marker.
  logger.warn.mockClear();
  close.mockRejectedValueOnce(Object.assign(new Error('Approval authorities unavailable'),{code:'42501',suppliedApprovalRefusal:true}));
  const res=await post({dryRun:true,approvalId:'11111111-1111-1111-1111-111111111111'});

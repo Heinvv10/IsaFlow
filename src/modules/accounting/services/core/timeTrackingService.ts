@@ -5,6 +5,7 @@
 
 import { sql } from '@/lib/neon';
 import { log } from '@/lib/logger';
+import { assertCustomerInCompany } from './contactDirectoryService';
 import type { DbRow } from '@/types/db';
 
 
@@ -134,6 +135,9 @@ export async function createTimeEntry(
   input: TimeEntryInput,
   userId: string,
 ): Promise<TimeEntry> {
+  // R-067: customer_id comes from the request body and is read back with the
+  // customer's name joined on it.
+  await assertCustomerInCompany(companyId, input.customerId);
   const entryDate = input.entryDate || new Date().toISOString().split('T')[0];
   const rows = (await sql`
     INSERT INTO time_entries (
@@ -163,6 +167,7 @@ export async function updateTimeEntry(
   `) as DbRow[];
   if (!existing.length) throw new Error('Time entry not found');
   if (String(existing[0]!.status) !== 'draft') throw new Error('Only draft entries can be edited');
+  await assertCustomerInCompany(companyId, input.customerId);
 
   const rows = (await sql`
     UPDATE time_entries SET
@@ -211,8 +216,9 @@ export async function submitEntries(
     WHERE company_id = ${companyId}::UUID
       AND id = ANY(${ids}::UUID[])
       AND status = 'draft'
+    RETURNING id
   `) as DbRow[];
-  const count = Array.isArray(result) ? result.length : 0;
+  const count = result.length;
   log.info('Submitted time entries', { count, ids }, 'accounting');
   return count;
 }
@@ -223,12 +229,16 @@ export async function approveEntries(
 ): Promise<number> {
   if (!ids.length) return 0;
   const result = (await sql`
-    UPDATE time_entries SET status = 'approved', updated_at = NOW()
+    -- approved_at: the date WIP is measured from (practice/wipAsOf). This path
+    -- used to leave it NULL, so an as-of WIP report could not tell when these
+    -- entries were approved; the practice approval path has always set it.
+    UPDATE time_entries SET status = 'approved', approved_at = NOW(), updated_at = NOW()
     WHERE company_id = ${companyId}::UUID
       AND id = ANY(${ids}::UUID[])
       AND status = 'submitted'
+    RETURNING id
   `) as DbRow[];
-  const count = Array.isArray(result) ? result.length : 0;
+  const count = result.length;
   log.info('Approved time entries', { count, ids }, 'accounting');
   return count;
 }

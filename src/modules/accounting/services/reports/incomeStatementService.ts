@@ -27,6 +27,7 @@ interface ReportLineItem {
 interface ISOptions {
   projectId?: string;
   costCentreId?: string;
+  businessUnitId?: string;
 }
 
 async function fetchIncomeStatementRows(
@@ -37,6 +38,7 @@ async function fetchIncomeStatementRows(
 ) {
   const projId = opts.projectId ?? null;
   const ccId = opts.costCentreId ?? null;
+  const buId = opts.businessUnitId ?? null;
 
   const rows = (await sql`
     SELECT ga.account_code, ga.account_name, ga.account_type, ga.account_subtype,
@@ -52,7 +54,9 @@ async function fetchIncomeStatementRows(
       AND je.entry_date <= ${periodEnd}
       AND ga.account_type IN ('revenue', 'expense')
       AND (${projId}::TEXT IS NULL OR jl.project_id = ${projId}::UUID)
-      AND (${ccId}::TEXT IS NULL OR jl.cost_center_id = ${ccId}::UUID)
+      AND (${ccId}::TEXT IS NULL OR jl.cost_center_id = ${ccId}::UUID
+        OR jl.cc1_id = ${ccId}::UUID OR jl.cc2_id = ${ccId}::UUID)
+      AND (${buId}::TEXT IS NULL OR jl.bu_id = ${buId}::UUID)
     GROUP BY ga.id, ga.account_code, ga.account_name, ga.account_type, ga.account_subtype
     ORDER BY ga.account_code
   `) as DbRow[];
@@ -145,7 +149,7 @@ async function fetchIncomeStatementRows(
 export async function getIncomeStatement(companyId: string,
   periodStart: string,
   periodEnd: string,
-  opts: { projectId?: string; costCentreId?: string } = {},
+  opts: { projectId?: string; costCentreId?: string; businessUnitId?: string } = {},
   comparePeriod?: { start: string; end: string }
 ): Promise<IncomeStatementReport> {
   try {
@@ -161,6 +165,7 @@ export async function getIncomeStatement(companyId: string,
       periodEnd,
       projectId: opts.projectId,
       costCentreId: opts.costCentreId,
+      businessUnitId: opts.businessUnitId,
       revenue: current.revenue,
       otherIncome: current.otherIncome,
       costOfSales: current.costOfSales,
@@ -195,11 +200,20 @@ export async function getIncomeStatement(companyId: string,
       report.priorSubtypeDisclosure = prior.subtypeDisclosure;
 
       const mergeLineItems = (curr: ReportLineItem[], prev: ReportLineItem[]) => {
-        const priorMap = new Map(prev.map(p => [p.accountCode, p.amount]));
-        return curr.map(c => {
-          const pa = priorMap.get(c.accountCode) ?? 0;
-          const variance = c.amount - pa;
-          return { ...c, priorAmount: pa, variance, variancePct: pa !== 0 ? (variance / Math.abs(pa)) * 100 : 0 };
+        const currentMap = new Map(curr.map(item => [item.accountCode, item]));
+        const priorMap = new Map(prev.map(item => [item.accountCode, item]));
+        const codes = [...curr.map(item => item.accountCode),
+          ...prev.filter(item => !currentMap.has(item.accountCode)).map(item => item.accountCode)];
+        return codes.map(code => {
+          const currentItem = currentMap.get(code);
+          const priorItem = priorMap.get(code);
+          const amount = currentItem?.amount ?? 0;
+          const priorAmount = priorItem?.amount ?? 0;
+          const variance = amount - priorAmount;
+          return {
+            ...(currentItem ?? priorItem!), amount, priorAmount, variance,
+            variancePct: priorAmount !== 0 ? (variance / Math.abs(priorAmount)) * 100 : 0,
+          };
         });
       };
       report.revenue = mergeLineItems(current.revenue, prior.revenue);

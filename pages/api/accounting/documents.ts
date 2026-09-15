@@ -139,7 +139,7 @@ async function handlePost(
     }
 
     const doc = await uploadDocument({
-      entityType, entityId, documentType, notes,
+      companyId, entityType, entityId, documentType, notes,
       filePath: file.filepath,
       mimeType: file.mimetype || '',
       size: file.size,

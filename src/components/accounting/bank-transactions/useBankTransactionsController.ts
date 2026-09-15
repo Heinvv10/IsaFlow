@@ -9,6 +9,7 @@ import {buildBankTxActions} from './useBankTxActions';
 import {useBankControlWorkflow} from './useBankControlWorkflow';
 import {useBankTxRefData} from './useBankTxRefData';
 import {useBankControlResume} from './useBankControlResume';
+import {actionableIds} from './pendingFeedRow';
 export type Tab = 'new' | 'reviewed' | 'excluded';
 export const PAGE_SIZE = 25;
 
@@ -216,7 +217,10 @@ export function useBankTransactionsController() {
     .filter(b => b.id !== selectedBank)
     .map(b => ({ id: b.id, code: b.accountCode, name: b.groupName ? `${b.groupName} › ${b.accountName}` : b.accountName }));
   const totalPages = Math.ceil(total / PAGE_SIZE);
-  const allSelected = transactions.length > 0 && transactions.every(t => selectedIds.has(t.id));
+  // Pending rows are read-only — select-all only ever selects the actionable
+  // (non-pending) rows, so "all selected" is judged against that subset too.
+  const selectableTxIds = actionableIds(transactions, transactions.map(t => t.id));
+  const allSelected = selectableTxIds.length > 0 && selectableTxIds.every(id => selectedIds.has(id));
   const toggleSelect = (id: string) => setSelectedIds(prev => { const n = new Set(prev); n.has(id) ? n.delete(id) : n.add(id); return n; });
   // Wrap a state setter so it always resets pagination to page 1
   function withReset<T>(fn: (v: T) => void) { return (v: T) => { fn(v); setPage(1); }; }
@@ -234,6 +238,6 @@ export function useBankTransactionsController() {
   showBU,setShowBU,splitTxId,setSplitTxId,excludingTxId,setExcludingTxId,findMatchTxId,setFindMatchTxId,
   attachmentsTxId,setAttachmentsTxId,queryTx,setQueryTx,createRuleTx,setCreateRuleTx,rulePrompt,setRulePrompt,
   createEntityTxId,setCreateEntityTxId,createEntityType,setCreateEntityType,loadTransactions,aiPolling,actions,bank,
-  transferTargets,totalPages,allSelected,toggleSelect,withReset,noBankAccounts
+  transferTargets,totalPages,allSelected,selectableTxIds,toggleSelect,withReset,noBankAccounts
   };
 }

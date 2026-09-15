@@ -70,7 +70,7 @@ it('reapplying migration preserves legacy successful keys before audit pruning',
   const key=randomUUID(),result={content:[{type:'text',text:'legacy-created'}]};
   await pool.query("INSERT INTO mcp_tool_calls(company_id,user_id,tool,args_hash,idempotency_key,status,result) VALUES($1,$2,'legacy','args',$3,'ok',$4::jsonb)",
     [fixture.companyA,fixture.u1.id,key,JSON.stringify(result)]);
-  const migration=await readFile(new URL('../../scripts/migrations/sql/629_forensic_invocations_idempotency.sql',import.meta.url),'utf8');
+  const migration=await readFile(new URL('../../scripts/migrations/sql/803_forensic_invocations_idempotency.sql',import.meta.url),'utf8');
   await pool.query(migration);await pool.query(migration);
   await pool.query('DELETE FROM mcp_tool_calls WHERE company_id=$1',[fixture.companyA]);
   await transact(fixture.companyA,fixture.u1.id,async()=>{

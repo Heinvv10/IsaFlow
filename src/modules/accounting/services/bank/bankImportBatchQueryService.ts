@@ -87,6 +87,7 @@ export async function listImportBatches(
     FROM bank_import_batches b
     LEFT JOIN bank_transactions bt
       ON bt.import_batch_id = b.id AND bt.company_id = ${companyId}::UUID
+      AND bt.feed_state <> 'removed'
     WHERE b.company_id = ${companyId}::UUID
       AND (${bankAccountId}::UUID IS NULL OR b.bank_account_id = ${bankAccountId}::UUID)
     GROUP BY b.id
