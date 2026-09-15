@@ -17,7 +17,21 @@ const reports = {
   is: {revenue:[], otherIncome:[], costOfSales:[], operatingExpenses:[account], otherExpenses:[], totalRevenue:0, totalOtherIncome:0, totalCostOfSales:0, totalOperatingExpenses:17, totalOtherExpenses:0, grossProfit:0, operatingProfit:-17, netProfit:-17},
   bs: {assets:[account], liabilities:[], equity:[], totalAssets:17, totalLiabilities:0, totalEquity:0},
 };
-afterEach(() => { cleanup(); vi.mocked(apiFetch).mockReset(); });
+afterEach(() => {
+  cleanup();
+  vi.mocked(apiFetch).mockReset();
+  // R-093: `vi.spyOn(window, 'open')` on an ALREADY-spied method returns the
+  // SAME spy rather than a fresh one, so without restoring it here the next
+  // test's `open` variable is the PRIOR test's spy — still carrying its call
+  // history. Under load the click that should add THIS test's own two export
+  // calls can land after the report hasn't loaded yet (the Export buttons are
+  // `disabled={!report}` and nothing here waits on that), so the click is a
+  // silent no-op and the assertion below reads only the leaked prior-test
+  // calls instead of failing loudly for what actually happened. Restoring
+  // guarantees a clean spy every test, so a report that isn't ready yet shows
+  // up as ZERO calls, not someone else's.
+  vi.restoreAllMocks();
+});
 
 it.each([
   ['tb', TrialBalancePage], ['is', IncomeStatementPage], ['bs', BalanceSheetPage],
@@ -74,12 +88,21 @@ it('income statement carries a selected business unit through report, exports, t
     .slice(startCallIndex).filter(([url]) => String(url).includes(fragment)).at(-1)?.[0];
   await waitFor(() => expect(String(request('reports-income-statement'))).toContain('business_unit_id=business-a'));
 
+  // The Export buttons are `disabled={!report}`, and the waitFor above only
+  // proves the report fetch was ISSUED, not that its response has resolved
+  // through the two `.then()`s that set `report` into state. Under load that
+  // gap is enough for a click to land while the button is still disabled — a
+  // silent no-op rather than a failed assertion (R-093).
+  await waitFor(() => expect(screen.getByRole('button', {name:'Export CSV'})).not.toBeDisabled());
   fireEvent.click(screen.getByRole('button', {name:'Export CSV'}));
   fireEvent.click(screen.getByRole('button', {name:'Export Excel'}));
-  expect(open).toHaveBeenCalledWith(expect.stringContaining('business_unit_id=business-a'), '_blank');
+  // One pattern PER export, both requiring the BU — `arrayContaining` with a
+  // single shared `stringContaining` would pass if only ONE export carried
+  // it (either could satisfy both the array check and the `toHaveBeenCalledWith`
+  // above), silently leaving the other export company-wide (R-093 LOW-2).
   expect(open.mock.calls.map(([url]) => String(url))).toEqual(expect.arrayContaining([
-    expect.stringContaining('income-statement-export'),
-    expect.stringContaining('income-statement-xlsx'),
+    expect.stringMatching(/income-statement-export.*business_unit_id=business-a/),
+    expect.stringMatching(/income-statement-xlsx.*business_unit_id=business-a/),
   ]));
 
   fireEvent.click(await screen.findByRole('button', {name:'5000 Expense'}));
@@ -109,6 +132,10 @@ it('balance sheet carries a selected business unit through report, exports, link
     .slice(startCallIndex).filter(([url]) => String(url).includes(fragment)).at(-1)?.[0];
   await waitFor(() => expect(String(request('reports-balance-sheet'))).toContain('business_unit_id=business-a'));
 
+  // See the matching comment on the income-statement test above: the waitFor
+  // only proves the request was ISSUED, not that `report` has been set from
+  // its response, and the Export buttons stay disabled until it has (R-093).
+  await waitFor(() => expect(screen.getByRole('button', {name:'Export CSV'})).not.toBeDisabled());
   fireEvent.click(screen.getByRole('button', {name:'Export CSV'}));
   fireEvent.click(screen.getByRole('button', {name:'Export Excel'}));
   expect(open.mock.calls.map(([url]) => String(url))).toEqual(expect.arrayContaining([
