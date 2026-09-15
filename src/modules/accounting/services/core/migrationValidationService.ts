@@ -11,8 +11,41 @@ import { validateSystemAccounts } from '../gl/systemAccountResolver';
 import { checkAccountSubtypeCoverage } from './migrationSubtypeCheck';
 import { PAYABLE_SUBTYPES, RECEIVABLE_SUBTYPES } from '../gl/accountSubtypes';
 import { documentInPopulationExpr } from '../shared/documentPopulation';
-import { asAtTodayStr, documentInLedgerAsAtFragment } from '../shared/softDeleteLedgerPresence';
+import { documentInLedgerAsAtFragment } from '../shared/softDeleteLedgerPresence';
 import type { DbRow } from '@/types/db';
+
+/**
+ * This check reconciles the CURRENT invoice total against the CURRENT GL
+ * balance — not a point-in-time reconstruction like the ageing reports. So
+ * neither half is bounded by a real as-at date; the GL half was never date-
+ * bounded (it sums every posted line, whenever dated), and the document half
+ * must match that by asking `documentInLedgerAsAtFragment` for chain parity
+ * over the WHOLE reversal chain, not "as at today".
+ *
+ * A REAL as-at date (round 3 review's first attempt: `asAtTodayStr()`) broke
+ * on a document whose journal is dated in the future with no open fiscal
+ * period for that date: `resolveReversalDate`'s default (no explicit date)
+ * path falls back to TODAY when the target period isn't open, with no guard
+ * against today being EARLIER than the future original — the one case
+ * `documentInLedgerAsAtFragment`'s own precondition (no reversal dated before
+ * its original) doesn't hold. Bounding the document half to today then
+ * excluded the future original from the "on or before" filter while still
+ * counting its reversal, flipping the parity to the wrong answer; bounding
+ * the GL half to today the same way excluded the future original from the
+ * SUM while still netting the reversal against nothing, for a different
+ * wrong number. Measured on a fresh company each: a live future-dated
+ * invoice regressed from pass to fail, and the soft-deleted one stayed wrong
+ * (fail, different wrong numbers) either way.
+ *
+ * This sentinel sidesteps that precondition instead of tripping over it: at
+ * a date far beyond any real journal entry, EVERY entry in the chain is
+ * "on or before" it, so the filtered count is the chain's FULL length and its
+ * parity no longer depends on which entry the chain happens to be checked
+ * against — order stops mattering, which is exactly what a CURRENT-state
+ * question (not a historical one) needs. Both future-dated shapes (live and
+ * soft-deleted, fresh companies, AR and AP) pass with this — see fix.md.
+ */
+const CURRENT_STATE_SENTINEL = '9999-12-31';
 
 
 export type ValidationStatus = 'pass' | 'fail' | 'warn';
@@ -91,19 +124,21 @@ async function checkTrialBalance(companyId: string): Promise<ValidationResult> {
 
 async function checkARvsGL(companyId: string): Promise<ValidationResult> {
   // Sum of open customer invoice balances
-  const asAtStr = asAtTodayStr();
   const invRows = (await sql`
     SELECT COALESCE(SUM(total_amount - COALESCE(amount_paid, 0)), 0) AS total
     FROM customer_invoices ci
     WHERE ci.company_id = ${companyId}::UUID
       AND ${sql.unsafe(documentInPopulationExpr('ci'))}
       -- A soft-deleted invoice's approval journal is reversed, so it must
-      -- drop off the invoice side exactly when that reversal reaches the GL,
-      -- not the instant it is deleted (shared/softDeleteLedgerPresence).
-      AND ${documentInLedgerAsAtFragment('ci', asAtStr, companyId)}
+      -- drop off the invoice side exactly once that reversal exists — the
+      -- CURRENT_STATE_SENTINEL comment above explains why "exists" and not
+      -- "as at today" (shared/softDeleteLedgerPresence).
+      AND ${documentInLedgerAsAtFragment('ci', CURRENT_STATE_SENTINEL, companyId)}
   `) as DbRow[];
 
-  // GL balance on receivable account
+  // GL balance on receivable account — unbounded by date, same as the
+  // document half above (see CURRENT_STATE_SENTINEL comment): this is a
+  // CURRENT balance, not a point-in-time one.
   const glRows = (await sql`
     SELECT COALESCE(SUM(jl.debit - jl.credit), 0) AS balance
     FROM gl_journal_lines jl
@@ -133,16 +168,16 @@ async function checkARvsGL(companyId: string): Promise<ValidationResult> {
 }
 
 async function checkAPvsGL(companyId: string): Promise<ValidationResult> {
-  const asAtStr = asAtTodayStr();
   const invRows = (await sql`
     SELECT COALESCE(SUM(total_amount - COALESCE(amount_paid, 0)), 0) AS total
     FROM supplier_invoices si
     WHERE si.company_id = ${companyId}::UUID
       AND ${sql.unsafe(documentInPopulationExpr('si'))}
-      -- See checkARvsGL — same soft-delete/reversal-parity rule, AP side.
-      AND ${documentInLedgerAsAtFragment('si', asAtStr, companyId)}
+      -- See checkARvsGL — same current-state parity rule, AP side.
+      AND ${documentInLedgerAsAtFragment('si', CURRENT_STATE_SENTINEL, companyId)}
   `) as DbRow[];
 
+  // See checkARvsGL — unbounded by date, AP side.
   const glRows = (await sql`
     SELECT COALESCE(SUM(jl.credit - jl.debit), 0) AS balance
     FROM gl_journal_lines jl
