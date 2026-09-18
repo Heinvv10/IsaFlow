@@ -141,8 +141,17 @@ export async function previewBatchApplications(
       : await fetchOpenCustomerInvoices(companyId, id, true, { forUpdate: false }));
   }
 
+  // IN POSTING ORDER, which is NOT the order the agent sent the lines:
+  // `bulk_allocate_bank_transactions` sorts its batch by transaction id before
+  // posting, so that two batches overlapping in the opposite order cannot
+  // deadlock on each other's row locks. Simulating in payload order gave line 3
+  // the bills line 1 was about to take, and the preview disagreed with the
+  // batch it previewed on a three-line run against one supplier.
+  const inPostingOrder = [...postable]
+    .sort((a, b) => (a.txId < b.txId ? -1 : a.txId > b.txId ? 1 : 0));
+
   const simLines: SimulationLine[] = [];
-  for (const line of postable) {
+  for (const line of inPostingOrder) {
     const target = targets.get(line.index);
     if (!target) continue;
     const key = entityKey(target.kind, target.id);
