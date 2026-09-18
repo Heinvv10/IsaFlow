@@ -55,7 +55,7 @@ import {
 export const searchGlTool: McpTool = {
   name: 'search_gl',
   description:
-    'General-ledger lines for one account over a date range, with running balance. Provide account_id or account_code plus from_date/to_date. Max 200 rows.',
+    'General-ledger lines for one account over a date range, with running balance. Provide account_id or account_code plus from_date/to_date. Max 200 rows. Balances are exact to the cent.',
   scope: 'read:reports',
   write: false,
   inputSchema: {
