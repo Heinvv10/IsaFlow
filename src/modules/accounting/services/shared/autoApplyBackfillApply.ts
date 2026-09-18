@@ -138,22 +138,24 @@ export async function applyOnePayment(
   }));
 }
 
-/** Apply one credit note's unused remainder. See autoApplyBackfillCreditNote. */
+/**
+ * Apply one credit note's unused remainder.
+ *
+ * The open documents are NOT read here. That fetch takes row locks and must
+ * happen AFTER the note's own lock — see the lock-order note in
+ * autoApplyBackfillCreditNote — so it lives inside the applier, which is the
+ * only place that can guarantee the order. The population's remainder is not
+ * passed on either: the applier re-derives it under the lock.
+ */
 export async function applyOneCreditNote(
   ctx: ApplyContext,
   source: BackfillSource,
 ): Promise<PlannedLine[]> {
-  // LOCKED: this call is about to consume these rows.
-  const open = await fetchOpenDocuments(
-    ctx.companyId, ctx.subledger, source.entityId,
-    await ctx.oldestFirstFor(source.entityId), true,
-  );
   return applyCreditNoteRemainder({
     companyId: ctx.companyId,
     subledger: ctx.subledger,
     creditNoteId: source.paymentId,
-    remainder: source.remainder,
-    open,
+    oldestFirst: await ctx.oldestFirstFor(source.entityId),
     userId: ctx.userId,
   });
 }

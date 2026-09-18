@@ -16,7 +16,8 @@ import { autoApplyUnapplied } from '@/modules/accounting/services/shared/autoApp
 import { creditNoteAllocationsExist } from '@/modules/accounting/services/shared/autoApplyBackfillPopulation';
 import { assertNotProductionDb } from '../helpers/assertNotProductionDb';
 import {
-  billState, dropFixture, inTx, seedBankTx, seedBill, seedFixture, seedSupplier, type Fixture,
+  billState, dropFixture, inTx, runOn, seedBankTx, seedBill, seedFixture, seedSupplier,
+  type Fixture,
 } from './helpers/l1FifoFixture';
 
 const DATABASE_URL = process.env.DATABASE_URL;
@@ -192,6 +193,122 @@ describeIfDb('back-fill — auto_apply_unapplied over a real AP ledger', () => {
     expect(plan.failed).toEqual([]);
     expect(await allocationCount()).toBe(before);
     expect(await billState(fx, bills.b3)).toMatchObject({ amountPaid: 300 });
+  }, 120000);
+
+  it('refuses the second of two concurrent runs at the credit note\'s row lock', async () => {
+    // THE DEFECT THIS PINS. The population's remainder is read before the
+    // transaction that spends it. Two runs over one company both read "R100
+    // unapplied" and both write R100, and because the allocation row
+    // ACCUMULATES on conflict the note ends consumed for twice its own total
+    // with `applied_amount` to match — bills credited for money the note never
+    // carried. The lock is what makes the second run re-read a zero.
+    const sup = await seedSupplier(fx, 'BF-CN');
+    const bill = await seedBill(fx, {
+      supplierId: sup, number: 'BFCN1', date: '2026-02-01', total: 500,
+    });
+    const noteId = String(((await sql`
+      INSERT INTO credit_notes
+        (company_id, type, supplier_id, credit_note_number, credit_date,
+         subtotal, total_amount, applied_amount, status, created_by)
+      VALUES (${fx.companyId}::UUID, 'supplier', ${sup}::UUID, ${`BFCN2-${fx.tag}`},
+              '2026-02-20'::DATE, 100, 100, 0, 'approved', ${fx.userId}::UUID)
+      RETURNING id`) as { id: string }[])[0]!.id);
+
+    const run = { companyId: fx.companyId, userId: fx.userId, subledger: 'ap' as const,
+      entityId: sup, dryRun: false };
+
+    const a = await fx.pool.connect();
+    const b = await fx.pool.connect();
+    try {
+      await a.query('BEGIN');
+      await b.query('BEGIN');
+
+      // A applies the note but has NOT committed.
+      const planA = await runOn(fx, a, () => autoApplyUnapplied({
+        ...run, idempotencyKey: 'bf-cn-a',
+      }));
+      expect(planA.applications.map((x) => x.payment_id)).toEqual([noteId]);
+
+      // B starts while A is still open, so B's POPULATION read sees the note
+      // as wholly unapplied — the stale figure the old code would have spent.
+      // It then blocks on the note's row lock.
+      const planBPromise = runOn(fx, b, () => autoApplyUnapplied({
+        ...run, idempotencyKey: 'bf-cn-b',
+      }));
+      await new Promise((resolve) => { setTimeout(resolve, 300); });
+      await a.query('COMMIT');
+
+      const planB = await planBPromise;
+      await b.query('COMMIT');
+
+      // B re-read the remainder under the lock and found nothing left.
+      expect(planB.applications).toEqual([]);
+      expect(planB.failed).toEqual([]);
+      expect(planB.totals.applied).toBe(0);
+    } finally {
+      await a.query('ROLLBACK').catch(() => {});
+      await b.query('ROLLBACK').catch(() => {});
+      a.release();
+      b.release();
+    }
+
+    // ONE application, not two. The figure that proves the lock did its job.
+    const allocated = (await sql`
+      SELECT COALESCE(SUM(amount_allocated), 0)::float8 AS total
+      FROM credit_note_allocations
+      WHERE credit_note_id = ${noteId}::UUID`) as Record<string, unknown>[];
+    expect(Number(allocated[0]!.total)).toBe(100);
+    const note = (await sql`
+      SELECT status, applied_amount::float8 AS applied FROM credit_notes
+      WHERE id = ${noteId}::UUID`) as Record<string, unknown>[];
+    expect(note[0]).toMatchObject({ status: 'applied', applied: 100 });
+    expect(await billState(fx, bill)).toMatchObject({ amountPaid: 100 });
+  }, 120000);
+
+  it('reports the one source it could not apply, and still applies the rest', async () => {
+    // A peer holding the middle payment's row is the realistic version of "one
+    // source fails": every other source is fine and must still be applied. The
+    // per-source savepoint is the only thing that allows the run to continue
+    // after a throw — without it the request transaction is aborted (25P02) and
+    // nothing after the failure can run at all.
+    const sup = await seedSupplier(fx, 'BF-FAIL');
+    await seedBill(fx, { supplierId: sup, number: 'BFF1', date: '2026-02-01', total: 1000 });
+    const q1 = await seedUnappliedPayment(sup, '2026-04-01', 100, 'BF-Q1');
+    const q2 = await seedUnappliedPayment(sup, '2026-04-02', 100, 'BF-Q2');
+    const q3 = await seedUnappliedPayment(sup, '2026-04-03', 100, 'BF-Q3');
+
+    const blocker = await fx.pool.connect();
+    let plan;
+    try {
+      await blocker.query('BEGIN');
+      await blocker.query(
+        'SELECT id FROM supplier_payments WHERE id = $1::UUID FOR UPDATE', [q2],
+      );
+      // 5s of it is the payment lock's own lock_timeout elapsing on q2.
+      plan = await inTx(fx, () => autoApplyUnapplied({
+        companyId: fx.companyId, userId: fx.userId, subledger: 'ap', entityId: sup,
+        dryRun: false, idempotencyKey: 'bf-fail-1',
+      }));
+    } finally {
+      await blocker.query('ROLLBACK').catch(() => {});
+      blocker.release();
+    }
+
+    // The reply is NOT shaped as a full success: one source is named in
+    // `failed`, with wording that tells the caller to retry it.
+    expect(plan.failed).toHaveLength(1);
+    expect(plan.failed[0]!.payment_id).toBe(q2);
+    expect(plan.failed[0]!.error).toMatch(/retry/i);
+
+    // The sources either side of it applied and COMMITTED.
+    expect(plan.applications.map((a) => a.payment_id)).toEqual([q1, q3]);
+    expect(plan.processed).toBe(2);
+    expect(plan.totals.applied).toBe(200);
+    const rows = (await sql`
+      SELECT pa.payment_id FROM payment_allocations pa
+      WHERE pa.payment_id = ANY(ARRAY[${q1}::UUID, ${q2}::UUID, ${q3}::UUID])`
+    ) as Record<string, unknown>[];
+    expect(rows.map((r) => String(r.payment_id)).sort()).toEqual([q1, q3].sort());
   }, 120000);
 
   it('is reversible — voiding a back-filled payment restores the bills', async () => {
