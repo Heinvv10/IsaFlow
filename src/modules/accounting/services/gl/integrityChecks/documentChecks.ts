@@ -190,3 +190,65 @@ export async function invoicesWithoutRevenueLine(ctx: IntegrityCheckContext): Pr
       'The invoice posted, the debtor went up, and no revenue account moved. Income is understated by this amount and the VAT201 carries output tax with no supply behind it.',
   };
 }
+
+/**
+ * Supplier bills flagged as payment-matched with their balance still open.
+ *
+ * `payment_matched` had two writers. `recomputeInvoiceStatus` derives it from
+ * the balance AFTER money moves; `fourWayMatchService#recordPaymentMatch` set
+ * it from a PROJECTION — `amount_paid + allocatedAmount` — taken BEFORE
+ * anything moved. On the bank-allocation path that named no bill, nothing ever
+ * moved `amount_paid`: the flag went true on a bill still wholly outstanding,
+ * and the four-way match report then read as complete over bills the creditors
+ * ledger still shows as open.
+ *
+ * The projection is gone. This is the count of what it left behind, and the
+ * check that catches any writer that tries the same trick again.
+ *
+ * AP-only: `payment_matched` is a supplier_invoices column.
+ */
+export async function paymentMatchedButUnapplied(
+  ctx: IntegrityCheckContext,
+): Promise<IntegrityCheckResult> {
+  // Not rewound to `as_at`: the flag is a CURRENT contradiction between two
+  // columns of one row, not a balance at a date. Rewinding would answer a
+  // different question — "was it contradictory then" — and quietly drop every
+  // row whose payment has since been undone.
+  const where = sql`
+    FROM supplier_invoices si
+    WHERE si.company_id = ${ctx.companyId}::UUID
+      AND si.deleted_at IS NULL
+      AND si.payment_matched = true
+      AND si.status <> 'cancelled'
+      AND si.invoice_date <= ${ctx.asAt}::DATE
+      -- The same threshold recomputeInvoiceStatus writes the flag from, so a
+      -- correctly flagged bill can never appear here.
+      AND COALESCE(si.amount_paid, 0) < si.total_amount - 0.01`;
+
+  const totals = (await sql`
+    SELECT COUNT(*)::INT AS count,
+           COALESCE(SUM(si.total_amount - COALESCE(si.amount_paid, 0)), 0) AS amount
+    ${where}
+  `) as DbRow[];
+
+  const rows = (await sql`
+    SELECT si.id::TEXT AS id,
+           COALESCE(si.invoice_number, si.id::TEXT) AS label,
+           si.total_amount - COALESCE(si.amount_paid, 0) AS amount,
+           'paid ' || COALESCE(si.amount_paid, 0)::TEXT || ' of ' || si.total_amount::TEXT AS detail
+    ${where}
+    ORDER BY (si.total_amount - COALESCE(si.amount_paid, 0)) DESC
+    LIMIT ${ctx.limit}
+  `) as DbRow[];
+
+  return {
+    id: 'payment_matched_but_unapplied',
+    label: 'Bills flagged payment-matched with the balance still open',
+    severity: 'high',
+    count: num(totals[0]?.count),
+    amount: r2(num(totals[0]?.amount)),
+    sample: sample(rows),
+    finding:
+      'The bill carries payment_matched = true while its own amount_paid does not cover it. The four-way match report reads as complete over this amount, and the creditors ledger still shows it open.',
+  };
+}
