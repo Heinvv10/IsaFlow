@@ -18,14 +18,19 @@ vi.mock('@/lib/logger', () => ({ log: { info: vi.fn(), error: vi.fn(), warn: vi.
 // The status recompute is a write of its own and is proved against a real
 // database in tests/integration/l2-credit-note-fifo.int.test.ts. Here it is
 // stubbed so the assertions below are about the WALK and nothing else.
-// PARTIAL, and it has to be. This file mocks the module for
-// `recomputeInvoiceStatus` alone, but the open-document fetchers
-// `applyCreditNote` calls now read `FIFO_ELIGIBLE_STATUSES` from it — the
-// single definition of what cash and credit may settle. A factory that
-// returned only the spy made every test here fail with "No
-// FIFO_ELIGIBLE_STATUSES export is defined on the mock", and hard-coding the
-// list instead would let the tests keep passing against statuses the real
-// query no longer accepts.
+//
+// PARTIAL, and it has to be. Only `recomputeInvoiceStatus` is replaced; the
+// rest of the module is spread through from the real one. This file needs the
+// spy, but `applyCreditNote` also reaches this module INDIRECTLY — the
+// open-document fetchers it calls read the eligible-status list that lives
+// here — so a factory returning the spy alone strips an export the code under
+// test depends on, and every test in the file dies on "No <export> is defined
+// on the mock". That is a semantic conflict rather than a local bug: it does
+// not appear until this file meets a branch that moved the list into this
+// module, which is exactly why the shape has to be robust rather than
+// minimal. Hard-coding the list here instead would be worse — the tests would
+// keep passing against statuses the real query had stopped accepting, which is
+// the drift a single definition exists to prevent.
 vi.mock('@/modules/accounting/services/ar/invoiceStatusRecompute', async (importOriginal) => ({
   ...(await importOriginal<
     typeof import('@/modules/accounting/services/ar/invoiceStatusRecompute')
