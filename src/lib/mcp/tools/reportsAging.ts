@@ -36,6 +36,12 @@ import { getAPAging, getAPAgingDetail } from '@/modules/accounting/services/ap/a
 import { getUnappliedReceipts } from '@/modules/accounting/services/ar/unappliedReceiptService';
 import { getUnappliedPayments } from '@/modules/accounting/services/ap/unappliedPaymentService';
 import { getLedgerPostedThrough } from '@/modules/accounting/services/reports/postedThroughService';
+import {
+  getUnappliedByEntity,
+  getUnappliedCreditNotes,
+  netAgingRows,
+  type AgedSide,
+} from '@/modules/accounting/services/shared/agedNetting';
 import type { AgingBucket, AgingInvoice } from '@/modules/accounting/types/ap.types';
 import {
   buildEnvelope,
@@ -46,52 +52,10 @@ import {
   type DetailLevel,
 } from '@/lib/mcp/contracts';
 import { clampLimit, guardCastableArgs, ok, strArg, toolError } from './toolHelpers';
+import { AS_AT_CAVEAT, NETTING_NOTE, TOTALS_NOTE, schemaFor } from './reportsAgingCopy';
+import { derivedAge, round2, sumBuckets } from './reportsAgingTotals';
 
 const CURSOR_PARTS = 1;
-
-interface BucketTotals {
-  current: number;
-  days30: number;
-  days60: number;
-  days90: number;
-  days120Plus: number;
-}
-
-function round2(v: number): number {
-  const r = Math.round(v * 100) / 100;
-  return r === 0 ? 0 : r;
-}
-
-function sumBuckets(rows: readonly AgingBucket[]): BucketTotals {
-  const t: BucketTotals = { current: 0, days30: 0, days60: 0, days90: 0, days120Plus: 0 };
-  for (const r of rows) {
-    t.current += r.current;
-    t.days30 += r.days30;
-    t.days60 += r.days60;
-    t.days90 += r.days90;
-    t.days120Plus += r.days120Plus;
-  }
-  return {
-    current: round2(t.current), days30: round2(t.days30), days60: round2(t.days60),
-    days90: round2(t.days90), days120Plus: round2(t.days120Plus),
-  };
-}
-
-/** Invoices whose bucket was derived from the invoice date, not a due date. */
-function derivedAge(invoices: readonly AgingInvoice[]): { count: number; total: number } {
-  const derived = invoices.filter((i) => i.dueDateMissing === true);
-  return { count: derived.length, total: round2(derived.reduce((s, i) => s + i.balance, 0)) };
-}
-
-const AS_AT_CAVEAT =
-  'A PAST as_at is reconstructed by unwinding settlement dated since it: payment allocations, credit notes and write-offs. '
-  + 'Settlement that left no dated trail — a receipt captured with no allocation row, a migrated balance, a cancelled payment — cannot be unwound, so for those invoices an earlier date reproduces the CURRENT figure rather than what was actually owed then. It will never report an invoice as outstanding once it has been settled.';
-
-const TOTALS_NOTE =
-  'total and buckets are over EVERY entity, not just this page — rowsTotal says how many entities there are and truncated says whether you are seeing them all. '
-  + 'entity_id drills into one customer or supplier and returns its INVOICES instead of the bucket summary. '
-  + 'agedFromInvoiceDate counts invoices with no due date: they ARE in the buckets, aged from their invoice date, so their age is derived rather than known. '
-  + 'detail "summary" returns the totals with no rows.';
 
 interface AgingSide {
   name: 'aged_debtors' | 'aged_creditors';
@@ -112,6 +76,8 @@ interface AgingSide {
     key: 'unappliedReceipts' | 'unappliedPayments';
     fetch: (companyId: string, asAt: string) => Promise<UnappliedSummary>;
   };
+  /** Which side's credit notes and unapplied cash are netted per entity. */
+  netting: AgedSide;
 }
 
 /** The two fields `runAging` needs from either unapplied-cash service. */
@@ -146,7 +112,12 @@ async function runAging(side: AgingSide, args: Record<string, unknown>, ctx: Mcp
   if (entityId !== undefined) {
     // companyId from ctx ONLY.
     const one = await side.detail(ctx.companyId, entityId, asAt);
-    const total = round2(one.invoices.reduce((s, i) => s + i.balance, 0));
+    const grossTotal = round2(one.invoices.reduce((s, i) => s + i.balance, 0));
+    // The drill-down nets the SAME way the summary row does, or the two
+    // disagree about one entity — which is worse than netting neither, because
+    // the detail reads as the explanation of the row.
+    const credit = round2((await getUnappliedByEntity(ctx.companyId, side.netting, asAt))
+      .get(entityId)?.total ?? 0);
     const envelope = buildEnvelope({
       rows: detail === 'summary' ? [] : one.invoices,
       rowsTotal: one.invoices.length,
@@ -165,16 +136,30 @@ async function runAging(side: AgingSide, args: Record<string, unknown>, ctx: Mcp
     return ok({
       ...envelope,
       entity: one.entity,
-      total,
+      total: round2(grossTotal - credit),
+      gross_total: grossTotal,
+      unapplied: credit === 0 ? 0 : -credit,
       agedFromInvoiceDate: derivedAge(one.invoices),
     });
   }
 
-  const buckets = await side.aging(ctx.companyId, asAt);
+  const grossBuckets = await side.aging(ctx.companyId, asAt);
+  // Per-entity credit, merged into the rows: unapplied cash with a payment
+  // document plus the face value live credit notes have not consumed. An entity
+  // with credit and no open document gains a row here, so the net total below
+  // cannot omit the entities that are in credit.
+  const unappliedByEntity = await getUnappliedByEntity(ctx.companyId, side.netting, asAt);
+  const buckets = netAgingRows(grossBuckets, unappliedByEntity);
+
   // Totals BEFORE the page is cut. This is the finding the tool exists to
   // report, and computing it from the page would make it follow the limit.
   const totals = sumBuckets(buckets);
-  const total = round2(buckets.reduce((s, b) => s + b.total, 0));
+  // GROSS stays, because the buckets are gross and a reader adding them up must
+  // land on a number the report states. `total` is the NET — what the entity
+  // actually owes once its credit is taken off — because that is the figure a
+  // payment run or a collections call acts on.
+  const grossTotal = round2(buckets.reduce((s, b) => s + b.total, 0));
+  const total = round2(buckets.reduce((s, b) => s + b.net, 0));
 
   // A total order for paging. entityId is unique per company.
   const ordered = [...buckets].sort((a, b) => (a.entityId < b.entityId ? -1 : a.entityId > b.entityId ? 1 : 0));
@@ -205,18 +190,28 @@ async function runAging(side: AgingSide, args: Record<string, unknown>, ctx: Mcp
   });
 
   const unapplied = await side.unapplied.fetch(ctx.companyId, asAt);
+  const unappliedCredit = await getUnappliedCreditNotes(
+    ctx.companyId, side.netting === 'ar' ? 'customer' : 'supplier', asAt,
+  );
 
   return ok({
     ...envelope,
+    // NET, and gross beside it. The rows carry both per entity.
     total,
+    gross_total: grossTotal,
     buckets: totals,
     entityCount: ordered.length,
-    // Named, never netted. It is cash that reduces what this side's balance is
-    // and sits in none of these buckets; list_unapplied_receipts /
-    // list_unapplied_payments have the rows.
+    // The COMPANY-WIDE figures, which are not the sum of the rows' `unapplied`:
+    // cash whose counterparty cannot be resolved has no row to sit on, so it is
+    // in here and in no `net`. The difference is exactly that unattributable
+    // cash. list_unapplied_receipts / list_unapplied_payments have the rows.
     [side.unapplied.key]: {
       count: unapplied.rowsTotal + unapplied.unattributed.length,
       total: round2(unapplied.totalUnapplied + unapplied.totalUnattributed),
+    },
+    unappliedCreditNotes: {
+      count: unappliedCredit.count,
+      total: unappliedCredit.amount,
     },
   });
 }
@@ -230,6 +225,7 @@ const AR_SIDE: AgingSide = {
     return { invoices: r.invoices, entity: r.client };
   },
   figure: 'ar.subledger.v1',
+  netting: 'ar',
   unapplied: {
     key: 'unappliedReceipts',
     fetch: (companyId, asAt) => getUnappliedReceipts(companyId, { asAt, limit: 1 }),
@@ -245,35 +241,20 @@ const AP_SIDE: AgingSide = {
     return { invoices: r.invoices, entity: r.supplier };
   },
   figure: 'ap.subledger.v1',
+  netting: 'ap',
   unapplied: {
     key: 'unappliedPayments',
     fetch: (companyId, asAt) => getUnappliedPayments(companyId, { asAt, limit: 1 }),
   },
 };
 
-function schemaFor(entityLabel: string) {
-  return {
-    type: 'object' as const,
-    properties: {
-      as_at: { type: 'string', format: 'date', description: 'YYYY-MM-DD; defaults to today' },
-      entity_id: {
-        type: 'string',
-        description: `Drill into one ${entityLabel} and return its invoices instead of the bucket summary.`,
-      },
-      detail: { type: 'string', enum: ['summary', 'standard', 'full'] },
-      limit: { type: 'integer', minimum: 1, maximum: 500, description: 'Entities per page. Default 200.' },
-      cursor: { type: 'string', description: 'next_cursor from the previous page.' },
-    },
-    additionalProperties: false as const,
-  };
-}
-
 export const agedDebtorsTool: McpTool = {
   name: 'aged_debtors',
   description:
     'Accounts-receivable aging buckets per customer as at a date (defaults to today), WITH the totals. '
     + TOTALS_NOTE
-    + ' unappliedReceipts is cash on the AR control account attached to no invoice: it reduces what customers owe and is in NONE of these buckets, so the aged total on its own overstates the debt. It is reported, never netted off — list_unapplied_receipts has the rows and reconcile_subledger explains the gap to the control account. '
+    + ' ' + NETTING_NOTE
+    + ' unappliedReceipts and unappliedCreditNotes are the COMPANY-WIDE figures: receipts on the AR control account attached to no invoice, and credit notes with face value left. They are larger than the sum of the rows\' `unapplied` by exactly the cash whose customer cannot be resolved, which has no row to sit on. list_unapplied_receipts has the rows and reconcile_subledger explains the gap to the control account. '
     + AS_AT_CAVEAT,
   scope: 'read:reports',
   write: false,
@@ -286,7 +267,8 @@ export const agedCreditorsTool: McpTool = {
   description:
     'Accounts-payable aging buckets per supplier as at a date (defaults to today), WITH the totals. '
     + TOTALS_NOTE
-    + ' unappliedPayments is cash on the AP control account attached to no bill: it reduces what the company owes and is in NONE of these buckets, so the aged total on its own overstates the liability. It is reported, never netted off — list_unapplied_payments has the rows and reconcile_subledger with subledger "ap" explains the gap to the control account. '
+    + ' ' + NETTING_NOTE
+    + ' unappliedPayments and unappliedCreditNotes are the COMPANY-WIDE figures: payments on the AP control account attached to no bill, and supplier credit notes with face value left. They are larger than the sum of the rows\' `unapplied` by exactly the cash whose supplier cannot be resolved, which has no row to sit on. list_unapplied_payments has the rows and reconcile_subledger with subledger "ap" explains the gap to the control account. '
     + AS_AT_CAVEAT,
   scope: 'read:reports',
   write: false,

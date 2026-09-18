@@ -146,7 +146,7 @@ export async function fetchStatementData(
   // been set against an invoice. Both are live credits the customer holds;
   // filtering to 'approved' alone hid every applied note and overstated the
   // balance by their full value.
-  const LIVE_CREDIT_NOTE_STATUSES = new Set(['approved', 'applied']);
+  const LIVE_CREDIT_NOTE_STATUSES = new Set(['approved', 'partially_applied', 'applied']);
 
   for (const pmt of payments) {
     const status = String(pmt.status ?? '');
