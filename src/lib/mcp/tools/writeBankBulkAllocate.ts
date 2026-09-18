@@ -43,7 +43,7 @@ import { ALLOCATION_PROPERTIES, SELECTOR_PROPERTIES } from './allocationSchema';
 import { MAX_LINES, prepareAllocationLines } from './bulkAllocationPrepare';
 import { nothingToPostText, partitionAllocationLines } from './bulkAllocationSkip';
 import { postPreparedLines } from './bulkAllocationPost';
-import { previewBatchApplications } from './bulkAutoApplyPreview';
+import { PREVIEW_CAVEATS, previewBatchApplications } from './bulkAutoApplyPreview';
 import { AUTO_APPLY_MODES } from '@/modules/accounting/services/shared/autoAllocateStrategy';
 import { ok, strArg, toolError } from './toolHelpers';
 
@@ -140,6 +140,9 @@ export const bulkAllocateBankTransactionsTool: McpTool = {
         posted: 0,
         would_post: postable.length,
         skipped,
+        // Only when something was actually previewed as applied: a caveat about
+        // applications on a batch that plans none tells the agent nothing.
+        ...(applications.size > 0 ? { preview_caveats: [...PREVIEW_CAVEATS] } : {}),
         lines: postable.map(({ index, txId, line }) => {
           const applied = applications.get(index);
           return {

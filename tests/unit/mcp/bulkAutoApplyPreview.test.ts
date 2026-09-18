@@ -49,12 +49,18 @@ vi.mock('@/modules/accounting/services/core/contactDirectoryService', () => ({
   suppliersBelongToCompany: vi.fn(),
 }));
 vi.mock('@/modules/accounting/services/ap/supplierAutoAllocate', () => ({
-  fetchOpenSupplierBills: vi.fn(),
   resolveSupplierAutoAllocateStrategy: vi.fn(),
 }));
 vi.mock('@/modules/accounting/services/ar/customerAutoAllocate', () => ({
-  fetchOpenCustomerInvoices: vi.fn(),
   resolveCustomerAutoAllocateStrategy: vi.fn(),
+}));
+// The preview reads the open documents through the FETCH modules, not through
+// the services above: it must not take the row locks those services ask for.
+vi.mock('@/modules/accounting/services/ap/openSupplierBills', () => ({
+  fetchOpenSupplierBills: vi.fn(),
+}));
+vi.mock('@/modules/accounting/services/ar/openCustomerInvoices', () => ({
+  fetchOpenCustomerInvoices: vi.fn(),
 }));
 
 import { findBankTransactionAllocationStates } from '@/modules/accounting/services/bank/bankTransactionLookupService';
@@ -63,14 +69,10 @@ import {
   customersBelongToCompany,
   suppliersBelongToCompany,
 } from '@/modules/accounting/services/core/contactDirectoryService';
-import {
-  fetchOpenSupplierBills,
-  resolveSupplierAutoAllocateStrategy,
-} from '@/modules/accounting/services/ap/supplierAutoAllocate';
-import {
-  fetchOpenCustomerInvoices,
-  resolveCustomerAutoAllocateStrategy,
-} from '@/modules/accounting/services/ar/customerAutoAllocate';
+import { resolveSupplierAutoAllocateStrategy } from '@/modules/accounting/services/ap/supplierAutoAllocate';
+import { resolveCustomerAutoAllocateStrategy } from '@/modules/accounting/services/ar/customerAutoAllocate';
+import { fetchOpenSupplierBills } from '@/modules/accounting/services/ap/openSupplierBills';
+import { fetchOpenCustomerInvoices } from '@/modules/accounting/services/ar/openCustomerInvoices';
 import { bulkAllocateBankTransactionsTool } from '@/lib/mcp/tools/writeBankBulkAllocate';
 
 const ctx = { companyId: 'company-1', userId: 'user-1' } as never;
@@ -143,8 +145,42 @@ describe('bulk_allocate_bank_transactions — dry run applications', () => {
       { document_id: 'b2', document_number: 'BILL-002', amount: 150 },
     ]);
     expect(lines[1]!.on_account).toBe(0);
-    // One read per DISTINCT entity, whatever the line count.
+    // One read per DISTINCT entity, whatever the line count — and NO row lock:
+    // a preview that held these rows would block every real allocation against
+    // the supplier until the request ended.
     expect(fetchOpenSupplierBills).toHaveBeenCalledOnce();
+    expect(vi.mocked(fetchOpenSupplierBills).mock.calls[0]![3]).toEqual({ forUpdate: false });
+  });
+
+  it('states what the preview cannot know, in the reply', async () => {
+    vi.mocked(findBankTransactionAllocationStates).mockImplementation(
+      states({ [TX(1)]: -150 }) as never,
+    );
+
+    const res = await bulkAllocateBankTransactionsTool.handler(
+      { allocations: [supplierLine(1)], dry_run: true, idempotency_key: 'k8' }, ctx,
+    ) as { content: { text: string }[] };
+
+    const body = JSON.parse(res.content[0]!.text) as { preview_caveats?: string[] };
+    expect(body.preview_caveats).toEqual([expect.stringContaining('open fiscal period')]);
+  });
+
+  it('carries no caveat when the batch previews no application at all', async () => {
+    vi.mocked(findBankTransactionAllocationStates).mockImplementation(
+      states({ [TX(1)]: -150 }) as never,
+    );
+
+    const res = await bulkAllocateBankTransactionsTool.handler(
+      {
+        allocations: [{ transaction_id: TX(1), contra_account_id: ACC }],
+        dry_run: true,
+        idempotency_key: 'k9',
+      },
+      ctx,
+    ) as { content: { text: string }[] };
+
+    const body = JSON.parse(res.content[0]!.text) as { preview_caveats?: string[] };
+    expect(body.preview_caveats).toBeUndefined();
   });
 
   it('reports the surplus on account when the bills run out', async () => {

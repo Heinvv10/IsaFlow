@@ -313,7 +313,7 @@ describe('resolveSupplierAutoAllocateStrategy', () => {
 describe('fetchOpenSupplierBills', () => {
   it('excludes bills that cannot take a payment and those with nothing outstanding', async () => {
     mockSql.mockResolvedValueOnce([]);
-    await fetchOpenSupplierBills(COMPANY_ID, SUPPLIER_ID, true);
+    await fetchOpenSupplierBills(COMPANY_ID, SUPPLIER_ID, true, { forUpdate: true });
     const q = queries()[0]!;
     expect(q).toContain('company_id');
     expect(q).toContain('deleted_at IS NULL');
@@ -329,7 +329,7 @@ describe('fetchOpenSupplierBills', () => {
     // supplier_invoices' CHECK constraint (migration 201) carries 'disputed',
     // and cash must not settle a bill the company is contesting.
     mockSql.mockResolvedValueOnce([]);
-    await fetchOpenSupplierBills(COMPANY_ID, SUPPLIER_ID, true);
+    await fetchOpenSupplierBills(COMPANY_ID, SUPPLIER_ID, true, { forUpdate: true });
     const statuses = mockSql.mock.calls[0]!.slice(1).find(Array.isArray) as string[];
     expect(statuses).toContain('disputed');
   });
@@ -338,17 +338,17 @@ describe('fetchOpenSupplierBills', () => {
     // Without FOR UPDATE two concurrent allocations read the same open bill
     // and each applies its whole amount to it.
     mockSql.mockResolvedValueOnce([]);
-    await fetchOpenSupplierBills(COMPANY_ID, SUPPLIER_ID, true);
+    await fetchOpenSupplierBills(COMPANY_ID, SUPPLIER_ID, true, { forUpdate: true });
     expect(queries()[0]!).toContain('FOR UPDATE');
   });
 
   it('breaks ties on due date and then id, in both directions', async () => {
     mockSql.mockResolvedValueOnce([]);
-    await fetchOpenSupplierBills(COMPANY_ID, SUPPLIER_ID, true);
+    await fetchOpenSupplierBills(COMPANY_ID, SUPPLIER_ID, true, { forUpdate: true });
     expect(queries()[0]!).toContain('ORDER BY invoice_date ASC, due_date ASC NULLS LAST, id ASC');
 
     mockSql.mockResolvedValueOnce([]);
-    await fetchOpenSupplierBills(COMPANY_ID, SUPPLIER_ID, false);
+    await fetchOpenSupplierBills(COMPANY_ID, SUPPLIER_ID, false, { forUpdate: true });
     expect(queries()[1]!).toContain('ORDER BY invoice_date DESC, due_date DESC NULLS FIRST, id DESC');
   });
 
@@ -356,7 +356,7 @@ describe('fetchOpenSupplierBills', () => {
     mockSql.mockResolvedValueOnce([
       { id: 'bill-1', invoice_number: 'INV-900', outstanding: '250.00' },
     ]);
-    const open = await fetchOpenSupplierBills(COMPANY_ID, SUPPLIER_ID, true);
+    const open = await fetchOpenSupplierBills(COMPANY_ID, SUPPLIER_ID, true, { forUpdate: true });
     expect(open).toEqual([{ invoiceId: 'bill-1', invoiceNumber: 'INV-900', outstanding: 250 }]);
   });
 });
