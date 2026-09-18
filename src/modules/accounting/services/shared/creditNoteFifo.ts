@@ -47,11 +47,13 @@
 
 import { sql } from '@/lib/neon';
 import type { DbRow } from '@/lib/neon';
+import { log } from '@/lib/logger';
 import { fetchOpenSupplierBills } from '../ap/supplierAutoAllocate';
 import { fetchOpenCustomerInvoices } from '../ar/customerAutoAllocate';
 import { EPS, planGreedyAllocations, round2 } from './autoAllocateStrategy';
 import {
-  lockInvoicesForUpdate, undoApplication, writeApplication,
+  UNAPPLICABLE_STATUSES, assertAllocationsMatchApplied, lockInvoicesForUpdate,
+  undoApplication, writeApplication,
 } from './creditNoteApplicationWrites';
 
 export const CREDIT_NOTE_AUTO_APPLY = ['fifo', 'none'] as const;
@@ -165,10 +167,28 @@ export async function applyCreditNote(args: {
   let consumed = 0;
 
   if (linkedInvoiceId) {
-    const amount = round2(Math.min(totalAmount, locked.get(linkedInvoiceId)!.outstanding));
+    // The link is an instruction, not a licence. It was validated when the note
+    // was created (creditNoteLinkService), but a document can be cancelled or
+    // taken back to draft between then and approval — and crediting one that has
+    // posted nothing reduces a balance the ledger does not carry.
+    //
+    // SKIPPED, not refused. The note is a real credit either way, and refusing
+    // the whole approval over a document somebody else withdrew would strand it
+    // as a draft. So the walk takes the money to this entity's open documents
+    // instead, and whatever is left stays on account — both visible, both
+    // reversible, neither silent.
+    const linked = locked.get(linkedInvoiceId)!;
+    const linkedIsApplicable = !UNAPPLICABLE_STATUSES[side].includes(linked.status);
+    const amount = linkedIsApplicable
+      ? round2(Math.min(totalAmount, linked.outstanding))
+      : 0;
     if (amount > EPS) {
       lines.push({ invoiceId: linkedInvoiceId, amount });
       consumed = amount;
+    } else if (!linkedIsApplicable) {
+      log.info('Credit note skipped its linked document', {
+        creditNoteId, linkedInvoiceId, status: linked.status,
+      }, 'accounting');
     }
   }
 
@@ -193,45 +213,6 @@ export async function applyCreditNote(args: {
     lines,
     remainder: round2(totalAmount - consumed),
   };
-}
-
-/**
- * Refuse when `credit_notes.applied_amount` and the allocation rows disagree.
- *
- * They are two records of one fact and `applied_amount` is meant to be the sum
- * of the rows. One shape breaks that and it is REACHABLE: a note approved
- * before migration 677 with no link could not be attributed by the backfill, so
- * it carries `applied_amount > 0` and no rows. Extending such a note — applying
- * it again, or cancelling it — writes rows for the NEW amount only, and the
- * document the original credit went to is then never restored: the cancel path
- * finds rows, skips its legacy fallback, and zeroes a column that was covering
- * two applications.
- *
- * There is no safe automatic repair, because nothing records where the original
- * credit went. So the note is refused and named, and a person reconciles it.
- */
-export async function assertAllocationsMatchApplied(
-  companyId: string,
-  creditNoteId: string,
-  appliedAmount: number,
-): Promise<number> {
-  const rows = (await sql`
-    SELECT COALESCE(SUM(amount_allocated), 0) AS allocated
-    FROM credit_note_allocations
-    WHERE credit_note_id = ${creditNoteId}::UUID AND company_id = ${companyId}::UUID
-  `) as DbRow[];
-  const allocated = round2(Number(rows[0]?.allocated ?? 0));
-  const applied = round2(appliedAmount);
-  // A note with NO rows and a non-zero column is the legacy shape the cancel
-  // path still handles through its single link; it is only unsafe to EXTEND,
-  // which is what this guard is called before.
-  if (allocated > EPS && Math.abs(allocated - applied) > EPS) {
-    throw new Error(
-      `Credit note ${creditNoteId} has applied_amount ${applied} but allocation rows totalling ${allocated}. `
-      + 'Reconcile the note by hand before applying or cancelling it.',
-    );
-  }
-  return allocated;
 }
 
 /**
@@ -301,5 +282,6 @@ export async function reverseCreditNoteApplications(
  * still available — and this module is the write path; it is re-exported here
  * because callers reach for the credit-note module first.
  */
+export { assertAllocationsMatchApplied } from './creditNoteApplicationWrites';
 export { getUnappliedCreditNotes } from './agedNetting';
 export type { UnappliedCreditNotesSummary } from './agedNetting';

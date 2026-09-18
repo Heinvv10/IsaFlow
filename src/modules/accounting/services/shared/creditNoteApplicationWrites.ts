@@ -38,7 +38,7 @@ import type { DbRow } from '@/lib/neon';
 import { recomputeInvoiceStatus } from '../ar/invoiceStatusRecompute';
 import { withCustomerInvoiceLock } from '../ar/customerInvoiceLock';
 import { withSupplierInvoiceLock } from '../ap/supplierInvoiceLock';
-import { round2 } from './autoAllocateStrategy';
+import { EPS, round2 } from './autoAllocateStrategy';
 import type { CreditNoteApplicationLine, CreditNoteSide } from './creditNoteFifo';
 
 /**
@@ -189,4 +189,55 @@ export async function undoApplication(
     );
   }
   await recomputeInvoiceStatus(companyId, side, line.invoiceId);
+}
+
+/**
+ * Refuse when `credit_notes.applied_amount` and the allocation rows disagree.
+ *
+ * They are two records of one fact and `applied_amount` is meant to be the sum
+ * of the rows. One shape breaks that and it is REACHABLE: a note approved
+ * before migration 677 with no link could not be attributed by the backfill, so
+ * it carries `applied_amount > 0` and no rows. Extending such a note — applying
+ * it again, or cancelling it — writes rows for the NEW amount only, and the
+ * document the original credit went to is then never restored: the cancel path
+ * finds rows, skips its legacy fallback, and zeroes a column that was covering
+ * two applications.
+ *
+ * There is no safe automatic repair, because nothing records where the original
+ * credit went. So the note is refused and named, and a person reconciles it.
+ */
+export async function assertAllocationsMatchApplied(
+  companyId: string,
+  creditNoteId: string,
+  appliedAmount: number,
+): Promise<number> {
+  const rows = (await sql`
+    SELECT COALESCE(SUM(amount_allocated), 0) AS allocated
+    FROM credit_note_allocations
+    WHERE credit_note_id = ${creditNoteId}::UUID AND company_id = ${companyId}::UUID
+  `) as DbRow[];
+  const allocated = round2(Number(rows[0]?.allocated ?? 0));
+  const applied = round2(appliedAmount);
+  if (Math.abs(allocated - applied) <= EPS) return allocated;
+
+  // A note with NO rows and a non-zero column is the legacy shape: approved
+  // before migration 677 with no link, so the backfill had nothing to attribute
+  // it to. CANCELLING one is still safe — the cancel path sees no rows and
+  // falls back to the single link — but EXTENDING one is not, and this function
+  // is only called before an extension. Writing a row for the new amount
+  // creates exactly the mismatch the branch below then refuses forever, so the
+  // note would be applied once more and then be uncancellable.
+  if (allocated <= EPS) {
+    throw new Error(
+      `Credit note ${creditNoteId} carries applied_amount ${applied} with no allocation rows — `
+      + 'it was applied before the allocations table existed and nothing records which document it '
+      + 'credited. Reconcile it by hand (or cancel it, which still restores its linked document) '
+      + 'before applying it again.',
+    );
+  }
+
+  throw new Error(
+    `Credit note ${creditNoteId} has applied_amount ${applied} but allocation rows totalling ${allocated}. `
+    + 'Reconcile the note by hand before applying or cancelling it.',
+  );
 }
