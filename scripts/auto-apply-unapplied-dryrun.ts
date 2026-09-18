@@ -12,8 +12,10 @@
  * promptly rather than at the end of an implicit statement.
  *
  * AND IT REFUSES PRODUCTION, through the same allow-list guard the mutating
- * tests use rather than a second copy of it — dev and production differ only in
- * the database NAME on one host, which is a very small env slip to make.
+ * tests use rather than a second copy of it — dev, staging and production
+ * differ only in the database NAME on one host, which is a very small env slip
+ * to make. `isaflow_dev`, `isaflow_test` and `isaflow_staging` are allowed;
+ * `isaflow` is not, and no flag reaches past that.
  *
  * The live run is `auto_apply_unapplied` with `dry_run: false`, which applies
  * each payment in its own savepoint and is reversible per payment.
