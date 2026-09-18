@@ -89,10 +89,7 @@ export interface UnappliedReceiptsOptions {
   limit: number;
   /** Keyset cursor: `[payment_date, id]` of the last row served. */
   after?: { paymentDate: string; id: string } | null;
-  /**
-   * One customer only, or null/absent for every customer. Applied to all three
-   * queries below for the reason given on the AP twin's option.
-   */
+  /** One customer, or null for every one. All three queries — see the AP twin. */
   entityId?: string | null;
 }
 
