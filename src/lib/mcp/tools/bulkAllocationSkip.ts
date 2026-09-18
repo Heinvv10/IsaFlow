@@ -188,7 +188,7 @@ export async function partitionAllocationLines(
     const kind = applyRouteFor(line.line.allocType, line.line.invoiceId);
     const invoiceId = line.line.invoiceId;
     if (kind === null || !invoiceId) {
-      postable.push(line);
+      postable.push({ ...line, signedAmount: signed });
       continue;
     }
 
@@ -218,7 +218,7 @@ export async function partitionAllocationLines(
 
     const reason = skipReasonForInvoice(remaining, invoiceId, amount);
     if (reason === null) {
-      postable.push(line);
+      postable.push({ ...line, signedAmount: signed });
       committed.set(invoiceId, Math.round((already + amount) * 100) / 100);
       if (!claimedBy.has(invoiceId)) claimedBy.set(invoiceId, line.index);
       continue;

@@ -1,5 +1,5 @@
 /**
- * The thirteen integrity checks, against a real Postgres.
+ * The fourteen integrity checks, against a real Postgres.
  *
  * These checks are SQL almost end to end, so a mocked test proves only that the
  * template literal was assembled. What has to be proved is that the predicate
@@ -233,6 +233,26 @@ async function seed(client: PoolClient): Promise<string> {
     `INSERT INTO suppliers (company_id, name) VALUES ($1,'QA Test Supplier')`, [companyId],
   );
 
+  // 14 — a bill flagged payment-matched with its whole balance open, and one
+  // flagged bill that IS paid. The second is the control: a check that reports
+  // every matched bill rather than only the contradictory ones flags it too.
+  const { rows: [sup] } = await client.query<{ id: string }>(
+    `INSERT INTO suppliers (company_id, name) VALUES ($1,'Real Supplier') RETURNING id`,
+    [companyId],
+  );
+  await client.query(
+    `INSERT INTO supplier_invoices (company_id, supplier_id, invoice_number, invoice_date,
+       due_date, subtotal, total_amount, amount_paid, status, payment_matched, created_by)
+     VALUES ($1,$2,'BILL-FLAGGED','2026-05-10','2026-06-10',7000,8000,0,'approved',true,$3)`,
+    [companyId, sup!.id, USER],
+  );
+  await client.query(
+    `INSERT INTO supplier_invoices (company_id, supplier_id, invoice_number, invoice_date,
+       due_date, subtotal, total_amount, amount_paid, status, payment_matched, created_by)
+     VALUES ($1,$2,'BILL-SETTLED','2026-05-11','2026-06-11',1000,1000,1000,'paid',true,$3)`,
+    [companyId, sup!.id, USER],
+  );
+
   return companyId;
 }
 
@@ -256,7 +276,7 @@ function by(checks: IntegrityCheckResult[], id: IntegrityCheckId): IntegrityChec
 }
 
 describe('runIntegrityChecks against a real ledger', () => {
-  it('finds exactly one violation of each of the thirteen checks', async () => {
+  it('finds exactly one violation of each of the fourteen checks', async () => {
     if (!dbUp) return;
     await withFixture(async (companyId) => {
       const report = await runIntegrityChecks(companyId, { asAt: AS_AT, limit: 20 });
@@ -281,6 +301,9 @@ describe('runIntegrityChecks against a real ledger', () => {
       expect(by(report.checks, 'stale_suggested_transactions')).toMatchObject({ count: 1, amount: 2132.39 });
       expect(by(report.checks, 'test_records_in_production')).toMatchObject({ count: 1 });
       expect(by(report.checks, 'invoices_without_revenue_line')).toMatchObject({ count: 1, amount: 5000 });
+      // The open balance behind the flag, not the bill's total — and the
+      // settled bill flagged beside it is NOT counted.
+      expect(by(report.checks, 'payment_matched_but_unapplied')).toMatchObject({ count: 1, amount: 8000 });
     });
   });
 

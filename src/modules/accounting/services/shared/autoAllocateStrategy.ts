@@ -100,3 +100,49 @@ export function planGreedyAllocations(
   }
   return out;
 }
+
+// ── The per-call mode ───────────────────────────────────────────────────────
+//
+// The contact strategy above is a SETTING; this is an INSTRUCTION on one call.
+// The setting defaulted to 'off' and nothing ever changed it, so every bank
+// line that named no document created a payment and applied nothing — cash on
+// the control account with a document nobody closed. The mode inverts that
+// default: cash applies FIFO unless the caller says 'none' for this line.
+//
+// The setting is not discarded. A contact that asked for 'newest' still gets
+// newest-first; only 'off' stops meaning "apply nothing" and starts meaning
+// "no preference", which is the only reading a column nobody set can carry.
+
+export const AUTO_APPLY_MODES = ['fifo', 'none'] as const;
+export type AutoApplyMode = (typeof AUTO_APPLY_MODES)[number];
+
+/** What a caller that says nothing gets. */
+export const DEFAULT_AUTO_APPLY: AutoApplyMode = 'fifo';
+
+/**
+ * A value from a request body, a tool argument or a rule column, or null when
+ * it is neither mode. Callers refuse on null rather than coercing: a typo'd
+ * mode that silently became 'fifo' would apply cash to documents the caller
+ * never meant to close.
+ */
+export function parseAutoApplyMode(value: unknown): AutoApplyMode | null {
+  return typeof value === 'string' && (AUTO_APPLY_MODES as readonly string[]).includes(value)
+    ? value as AutoApplyMode
+    : null;
+}
+
+/**
+ * The order this call consumes open documents in, or null for "apply nothing".
+ *
+ * 'none' wins over any contact setting — it is the more specific instruction,
+ * given for this line. Under 'fifo' only an explicit 'newest' flips the
+ * direction; 'off' is treated as no preference, for the reason in the block
+ * comment above.
+ */
+export function resolveApplicationOrder(
+  mode: AutoApplyMode,
+  contactStrategy: AutoAllocateStrategy,
+): 'oldest' | 'newest' | null {
+  if (mode === 'none') return null;
+  return contactStrategy === 'newest' ? 'newest' : 'oldest';
+}
