@@ -56,30 +56,37 @@ describe('getControlAccountBalances', () => {
     expect([...SUBLEDGER_ROLES]).toEqual(['ar', 'ap', 'bank', 'vat', 'payroll', 'inventory']);
   });
 
-  it('returns an account found only by its POSTINGS, not by its subtype', async () => {
-    // 1120 carries a NULL subtype and would be invisible to a subtype filter.
+  it('returns ONLY accounts typed for the role, and says so', async () => {
+    // The posting arm is GONE. An account reached only because a subledger
+    // journal touched it is not a control account: `settle_by_contra` posts
+    // DR AP / CR <loan account> through a supplier_payments row, so the loan
+    // account was adopted as an AP control account and brought its whole
+    // balance into the control total. On production that produced three "AP
+    // control accounts", controlAccountAmbiguous true, a
+    // document_not_on_control_account item of +R453m and an unexplained
+    // difference of -R437m.
     sqlFn.mockResolvedValueOnce([
       row({ total_debit: '14301397.60', total_credit: '2709774.00' }),
-      row({
-        id: '33333333-3333-4333-8333-333333333333',
-        account_code: '1120',
-        account_name: 'Accounts Receivable',
-        account_subtype: null,
-        total_debit: '0',
-        total_credit: '10000',
-        found_by: 'posting',
-      }),
     ]);
 
     const accounts = await getControlAccountBalances(COMPANY, 'ar', '2026-09-03');
 
-    expect(accounts).toHaveLength(2);
-    expect(accounts[1]).toMatchObject({
-      accountCode: '1120',
-      accountSubtype: null,
-      foundBy: 'posting',
-      balance: -10000,
-    });
+    expect(accounts).toHaveLength(1);
+    expect(accounts[0]!.foundBy).toBe('subtype');
+  });
+
+  it('binds no document table to the query — the posting probe is gone', async () => {
+    // The unit suite mocks `sql`, so it cannot run the query; what it CAN see
+    // is what the query was parameterised with. The probe arm bound every
+    // document table it scanned, so their absence is evidence it is gone.
+    // controlAccountSql.integration.test.ts runs the real thing.
+    sqlFn.mockResolvedValueOnce([]);
+    await getControlAccountBalances(COMPANY, 'ap', '2026-09-03');
+    const values = sqlFn.mock.calls[0]!.slice(1).flat();
+    for (const table of ['customer_invoices', 'customer_payments', 'credit_notes',
+                         'supplier_invoices', 'supplier_payments']) {
+      expect(values).not.toContain(table);
+    }
   });
 
   it('signs the balance in the account normal direction', async () => {
