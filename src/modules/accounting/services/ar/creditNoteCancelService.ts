@@ -20,7 +20,12 @@ import { lockCreditNoteForUpdate } from './creditNoteLock';
 import { withCustomerInvoiceLock } from './customerInvoiceLock';
 import { withSupplierInvoiceLock } from '../ap/supplierInvoiceLock';
 import { recomputeInvoiceStatus } from './invoiceStatusRecompute';
-import { deriveCreditNoteStatus, reverseCreditNoteApplications } from '../shared/creditNoteFifo';
+import {
+  assertAllocationsMatchApplied,
+  deriveCreditNoteStatus,
+  reverseCreditNoteApplications,
+} from '../shared/creditNoteFifo';
+import { UNAPPLICABLE_STATUSES } from '../shared/creditNoteApplicationWrites';
 import { EPS, round2 } from '../shared/autoAllocateStrategy';
 import { mapRow } from './creditNoteMapper';
 import { actorMeta, type PostingActorOpts } from '../gl/journalEntryMeta';
@@ -75,7 +80,9 @@ export async function cancelCreditNote(companyId: string,
     // say which. reverseCreditNoteApplications restores each document,
     // recomputes its status and deletes the rows, refusing loudly when a row
     // cannot absorb the reversal.
-    const restored = await reverseCreditNoteApplications(companyId, id, side);
+    const restored = await reverseCreditNoteApplications(
+      companyId, id, side, Number(cn.applied_amount ?? 0),
+    );
 
     // LEGACY FALLBACK. A note approved before migration 677 whose backfill could
     // not name a document — `applied_amount > 0` with no link — has no rows to
@@ -197,6 +204,20 @@ export async function applyCreditNoteToInvoice(
 
   const clientMatch = String(inv.client_id || inv.customer_id) === String(cn.client_id);
   if (!clientMatch) throw new Error('Invoice and credit note must belong to the same customer');
+
+  // The status guard the CREATE path already applies to a link
+  // (creditNoteLinkService), which this path never had: it would credit a draft
+  // or cancelled invoice — a document that has posted nothing, so reducing its
+  // balance moves a receivable the ledger does not carry. Same set the FIFO
+  // walk refuses on, so the manual and automatic paths agree about eligibility.
+  const invStatus = String(inv.status ?? '');
+  if (UNAPPLICABLE_STATUSES.customer.includes(invStatus)) {
+    throw new Error(`Cannot apply a credit note to an invoice with status: ${invStatus}`);
+  }
+
+  // The column and the rows must agree before this extends either — an
+  // unattributable legacy note is reconciled by hand, never silently extended.
+  await assertAllocationsMatchApplied(companyId, creditNoteId, Number(cn.applied_amount ?? 0));
 
   const outstanding = Math.max(0, round2(Number(inv.total_amount) - Number(inv.amount_paid)));
   // The note's REMAINING credit, not its face value: a partly applied note has

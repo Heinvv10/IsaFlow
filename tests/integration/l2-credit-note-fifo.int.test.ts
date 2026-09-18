@@ -9,10 +9,12 @@
  */
 import { describe, it, expect, beforeAll, afterAll } from 'vitest';
 import {
-  setupFixture, makeBill, makeInvoice, makeDraftNote,
+  setupFixture, makeBill, makeInvoice, makeDraftNote, makeApprovedNote,
   billState, invoiceState, noteState, type Fixture,
 } from './l2-credit-note-fifo.helpers';
+import { als } from '@/lib/als';
 import { approveCreditNote } from '@/modules/accounting/services/ar/creditNoteService';
+import { applyCreditNote } from '@/modules/accounting/services/shared/creditNoteFifo';
 import { cancelCreditNote } from '@/modules/accounting/services/ar/creditNoteCancelService';
 
 const describeIfDb = process.env.DATABASE_URL ? describe : describe.skip;
@@ -138,5 +140,90 @@ describeIfDb('L2 credit-note FIFO application', () => {
     expect(state.status).toBe('approved');
     expect(state.applied).toBe(0);
     expect(state.allocations).toEqual([]);
+  }, 60000);
+});
+
+/**
+ * HIGH A — two approvals for one entity, overlapping on one document.
+ *
+ * Planning from an UNLOCKED balance is a check-then-act pair across requests:
+ * both notes read the same 1,000 outstanding and both plan against all of it,
+ * so `amount_paid` lands at 1,300 on a 1,000 bill. The interleave is real, not
+ * simulated — each approval runs in its own transaction on its own pool client,
+ * exactly as withAuth would, and the test waits until the second is genuinely
+ * blocked on the first's row lock before letting the first commit.
+ */
+describeIfDb('L2 concurrent approvals cannot overdraw one document', () => {
+  let g: Fixture;
+  beforeAll(async () => { g = await setupFixture('L2RACE'); }, 60000);
+  afterAll(async () => { await g.cleanup(); }, 60000);
+
+  async function begin(): Promise<{ client: import('pg').PoolClient; pid: number }> {
+    const client = await g.pool.connect();
+    await client.query('BEGIN');
+    const pid = (await client.query('SELECT pg_backend_pid() AS pid')).rows[0].pid as number;
+    return { client, pid };
+  }
+
+  async function waitUntilBlocked(pid: number): Promise<void> {
+    for (let i = 0; i < 150; i++) {
+      const { rows } = await g.pool.query(
+        "SELECT wait_event_type FROM pg_stat_activity WHERE pid=$1 AND state='active'", [pid]);
+      if (rows[0]?.wait_event_type === 'Lock') return;
+      await new Promise((r) => setTimeout(r, 20));
+    }
+    throw new Error('the second approval never blocked on the document row lock');
+  }
+
+  /**
+   * Driven at `applyCreditNote` rather than through `approveCreditNote`, and
+   * the reason is worth recording: the full approval mints a journal number
+   * first, and THAT is not concurrency-safe — two overlapping approvals collide
+   * on `uq_gl_je_company_entry_number` before either reaches the document lock.
+   * A pre-existing defect, out of scope here, and it would mask the one this
+   * test exists to prove. So the two notes are already approved and only the
+   * application races.
+   */
+  it('serialises on the document and applies exactly what it owes', async () => {
+    const bill = await makeBill(g, 'L2R-1', 1000, '2026-03-01');
+    const first = await makeApprovedNote(g, {
+      type: 'supplier', number: 'L2R-CN-1', total: 500, creditDate: '2026-03-05',
+    });
+    const second = await makeApprovedNote(g, {
+      type: 'supplier', number: 'L2R-CN-2', total: 800, creditDate: '2026-03-06',
+    });
+
+    const apply = (c: import('pg').PoolClient, id: string, total: number) => als.run(
+      { client: c, userId: g.user, companyId: g.company, claims: {} } as never,
+      () => applyCreditNote({
+        companyId: g.company, creditNoteId: id, side: 'supplier',
+        entityId: g.supplier, totalAmount: total, linkedInvoiceId: null, autoApply: 'fifo',
+      }),
+    );
+
+    let firstResult: Awaited<ReturnType<typeof applyCreditNote>> | undefined;
+    let secondResult: Awaited<ReturnType<typeof applyCreditNote>> | undefined;
+    const a = await begin();
+    const b = await begin();
+    try {
+      firstResult = await apply(a.client, first, 500);
+      const pending = apply(b.client, second, 800);
+      await waitUntilBlocked(b.pid);
+
+      await a.client.query('COMMIT');
+      secondResult = await pending;
+      await b.client.query('COMMIT');
+    } finally {
+      a.client.release();
+      b.client.release();
+    }
+
+    // 500 + 500, never 500 + 800.
+    expect(await billState(g, bill)).toEqual({ paid: 1000, status: 'paid' });
+    expect(firstResult!.appliedAmount).toBe(500);
+    // The second could only place 500 of its 800 once it saw the LOCKED
+    // balance; 300 remains on account.
+    expect(secondResult!.appliedAmount).toBe(500);
+    expect(secondResult!.remainder).toBe(300);
   }, 60000);
 });

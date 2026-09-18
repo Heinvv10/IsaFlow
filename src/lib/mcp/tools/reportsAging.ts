@@ -65,7 +65,10 @@ interface AgingSide {
     invoices: AgingInvoice[];
     entity: { id: string; name: string };
   }>;
+  /** The GROSS figure the buckets and `gross_total` are on. */
   figure: string;
+  /** The NET figure the headline `total` and each row's `net` are on. */
+  netFigure: string;
   /**
    * Cash on this side's control account attached to no document. Both sides
    * have it and both report it under their own key — `unappliedReceipts` for
@@ -131,13 +134,18 @@ async function runAging(side: AgingSide, args: Record<string, unknown>, ctx: Mcp
       // That is the anti-pattern CONTRACTS.md §1 names, and it cannot fail
       // whatever this code did. An absent completeness claim is honest; one
       // that cannot fail is worse than none, because it reads as verification.
-      figureBasis: figureBasis(side.figure),
+      // The NET figure: `total` below has credit taken off it, and the gross
+      // definition says it does not. Naming the wrong one is worse than naming
+      // none — a reader comparing this to reconcile_subledger's agedTotal, which
+      // is still gross, would see a difference the ids claim cannot exist.
+      figureBasis: figureBasis(side.netFigure),
     });
     return ok({
       ...envelope,
       entity: one.entity,
       total: round2(grossTotal - credit),
       gross_total: grossTotal,
+      gross_figure_basis: figureBasis(side.figure),
       unapplied: credit === 0 ? 0 : -credit,
       agedFromInvoiceDate: derivedAge(one.invoices),
     });
@@ -186,7 +194,7 @@ async function runAging(side: AgingSide, args: Record<string, unknown>, ctx: Mcp
     // That is the anti-pattern CONTRACTS.md §1 names, and it cannot fail
     // whatever this code did. An absent completeness claim is honest; one
     // that cannot fail is worse than none, because it reads as verification.
-    figureBasis: figureBasis(side.figure),
+    figureBasis: figureBasis(side.netFigure),
   });
 
   const unapplied = await side.unapplied.fetch(ctx.companyId, asAt);
@@ -199,6 +207,10 @@ async function runAging(side: AgingSide, args: Record<string, unknown>, ctx: Mcp
     // NET, and gross beside it. The rows carry both per entity.
     total,
     gross_total: grossTotal,
+    // The two figures, named. `total` and every row's `net` are on the net id in
+    // the envelope's figureBasis; the buckets and gross_total are the gross one,
+    // which is what reconcile_subledger and the REST aging routes still report.
+    gross_figure_basis: figureBasis(side.figure),
     buckets: totals,
     entityCount: ordered.length,
     // The COMPANY-WIDE figures, which are not the sum of the rows' `unapplied`:
@@ -225,6 +237,7 @@ const AR_SIDE: AgingSide = {
     return { invoices: r.invoices, entity: r.client };
   },
   figure: 'ar.subledger.v1',
+  netFigure: 'ar.subledger_net.v1',
   netting: 'ar',
   unapplied: {
     key: 'unappliedReceipts',
@@ -241,6 +254,7 @@ const AP_SIDE: AgingSide = {
     return { invoices: r.invoices, entity: r.supplier };
   },
   figure: 'ap.subledger.v1',
+  netFigure: 'ap.subledger_net.v1',
   netting: 'ap',
   unapplied: {
     key: 'unappliedPayments',

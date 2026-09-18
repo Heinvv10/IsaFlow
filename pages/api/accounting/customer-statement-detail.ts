@@ -23,6 +23,14 @@ type Row = Record<string, unknown>;
 // stay correct even if a pathological single client ever hits the ceiling.
 const STATEMENT_ROW_CEILING = 2000;
 
+/**
+ * A credit note is live once it is approved, whether it has been set against an
+ * invoice in full ('applied'), in part ('partially_applied', migration 677) or
+ * not at all ('approved'). The same set `ar/statementEmailService` and
+ * `ap/supplierStatementService` use — this screen is the same document.
+ */
+const LIVE_CREDIT_NOTE_STATUSES = ['approved', 'partially_applied', 'applied'];
+
 async function handler(req: NextApiRequest, res: NextApiResponse) {
   if (req.method !== 'GET') {
     return apiResponse.methodNotAllowed(res, req.method || 'UNKNOWN', ['GET']);
@@ -78,11 +86,26 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
       LIMIT ${STATEMENT_ROW_CEILING + 1}
     `) as Row[];
 
-    // Get approved customer credit notes
+    // Every LIVE credit note, valued the way the emailed statement values it.
+    //
+    // `status = 'approved'` alone was two omissions in one. It dropped every
+    // note that had been set against an invoice ('applied') — the same defect
+    // that once hid applied notes from every statement ever sent — and, since
+    // migration 677, every partly placed note ('partially_applied') too. This
+    // screen and `ar/statementEmailService` are the same document, so a note
+    // visible in one and absent from the other is a customer-facing
+    // contradiction.
+    //
+    // The CASE is the SQL twin of `shared/creditNoteAppliedAmount`: an 'applied'
+    // note credits what it CONSUMED, because its remainder is stranded and
+    // cannot be applied again; anything else credits its face value, because
+    // that credit is still the customer's to use. Keep the two in step.
     const creditNotesRaw = (await sql`
-      SELECT id, credit_note_number, credit_date, reason, total_amount
+      SELECT id, credit_note_number, credit_date, reason,
+             CASE WHEN status = 'applied' THEN applied_amount ELSE total_amount END AS total_amount
       FROM credit_notes
-      WHERE client_id = ${clientId}::UUID AND company_id = ${companyId} AND type = 'customer' AND status = 'approved'
+      WHERE client_id = ${clientId}::UUID AND company_id = ${companyId} AND type = 'customer'
+        AND status = ANY(${LIVE_CREDIT_NOTE_STATUSES})
       ORDER BY credit_date, id
       LIMIT ${STATEMENT_ROW_CEILING + 1}
     `) as Row[];
@@ -120,8 +143,12 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
           ) pmt
         ), 0) AS total_paid,
         COALESCE((
-          SELECT SUM(total_amount::numeric) FROM credit_notes
-          WHERE client_id = ${clientId}::UUID AND company_id = ${companyId} AND type = 'customer' AND status = 'approved'
+          -- Same population and same valuation as the row list above; a total
+          -- the rows do not foot to is worse than no total.
+          SELECT SUM((CASE WHEN status = 'applied' THEN applied_amount ELSE total_amount END)::numeric)
+          FROM credit_notes
+          WHERE client_id = ${clientId}::UUID AND company_id = ${companyId} AND type = 'customer'
+            AND status = ANY(${LIVE_CREDIT_NOTE_STATUSES})
         ), 0) AS total_credits
     `) as Row[];
 
