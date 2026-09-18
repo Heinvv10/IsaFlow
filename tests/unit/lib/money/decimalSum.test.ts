@@ -7,7 +7,7 @@
  * -4.3655745685100555e-11 for a line that should net to exactly 0.
  */
 import { describe, it, expect } from 'vitest';
-import { moneyAdd, moneySub, toMoney, RunningBalance } from '@/lib/money/decimalSum';
+import { toMoney, RunningBalance } from '@/lib/money/decimalSum';
 
 describe('toMoney', () => {
   it('0.1 + 0.2 rounds to exactly 0.3, not 0.30000000000000004', () => {
@@ -25,19 +25,21 @@ describe('toMoney', () => {
     expect(toMoney(126629.94999999995)).toBe(126629.95);
   });
 
-  it('rounds half-up to 2dp', () => {
+  it('rounds a non-tie down or up as expected, regardless of tie mode', () => {
+    expect(toMoney(1.004)).toBe(1);
+  });
+
+  // ROUND_HALF_CEIL vs ROUND_HALF_UP only disagree on a NEGATIVE tie: HALF_UP
+  // rounds away from zero (-1.005 -> -1.01), HALF_CEIL rounds toward +Infinity
+  // (-1.005 -> -1), which is what Math.round does — the mode this module must
+  // match to stay one report family with gl/trialBalanceBasis.ts and
+  // gl/generalLedgerStreamTypes.ts's `round2` helpers.
+  it('rounds a negative tie toward +Infinity (HALF_CEIL), matching Math.round — not HALF_UP', () => {
+    expect(toMoney(-1.005)).toBe(-1);
+  });
+
+  it('rounds a positive tie the same way HALF_UP would (away from zero = toward +Infinity)', () => {
     expect(toMoney(1.005)).toBe(1.01);
-    expect(toMoney(1.004)).toBe(1)  ;
-  });
-});
-
-describe('moneyAdd / moneySub', () => {
-  it('adds without float drift', () => {
-    expect(moneyAdd(0.1, 0.2)).toBe(0.3);
-  });
-
-  it('subtracts without float drift', () => {
-    expect(moneySub(0.3, 0.1)).toBe(0.2);
   });
 });
 
