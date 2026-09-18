@@ -20,28 +20,90 @@
  * against the real table as it stands in `isaflow_dev`, not against a guess:
  * `company_id` is NOT NULL on it, and `(credit_note_id, invoice_id)` is UNIQUE,
  * which is what the ON CONFLICT below answers to.
+ *
+ * ── THE REMAINDER IS RE-READ UNDER A ROW LOCK ───────────────────────────────
+ *
+ * The population's remainder is a figure from before this transaction started,
+ * and spending it unchecked is a check-then-act window with real money in it.
+ * Two back-fill runs over one company, or one run racing a manual
+ * `applyCreditNoteToInvoice`, both read "R50 unapplied" and both write R50 —
+ * and because the allocation row ACCUMULATES on conflict, the note ends
+ * consumed for twice its own total with `applied_amount` to match. The bills
+ * are then credited for money the note never carried.
+ *
+ * So the note is locked first, `total_amount - applied_amount` is re-derived
+ * from the locked row, and the plan is built against THAT. A second run blocks
+ * on the lock, re-reads a remainder of zero, and applies nothing — which is the
+ * same idempotence the payment path gets from `lockSupplierPaymentForUpdate`.
+ *
+ * LOCK ORDER IS NOTE-THEN-DOCUMENT, and the open-document fetch lives inside
+ * this function for exactly that reason. `applyCreditNoteToInvoice` and
+ * `cancelCreditNote` both take the note before the invoice; fetching the open
+ * documents FOR UPDATE before locking the note would give this path the
+ * opposite order and a reachable deadlock (40P01) against either of them.
  */
 
 import { sql } from '@/lib/neon';
 import { log } from '@/lib/logger';
+import { lockCreditNoteForUpdate } from '../ar/creditNoteLock';
 import { recomputeInvoiceStatus } from '../ar/invoiceStatusRecompute';
 import { EPS, planGreedyAllocations, round2 } from './autoAllocateStrategy';
-import type { SimulationDocument } from './autoApplySimulation';
+import { fetchOpenDocuments } from './autoApplyBackfillPopulation';
 import type { PlannedLine, Subledger } from './autoApplyBackfillPlan';
 
 /**
- * Consume `remainder` across `open` and record it. Returns the lines written,
- * empty when there was nothing open to take it.
+ * Statuses a note may still be applied from. A note that reached 'applied',
+ * 'cancelled' or is back at 'draft' between the population read and here is
+ * REFUSED rather than topped up — the run reports it in `failed` and a human
+ * decides, which is the only safe answer for a document whose state changed
+ * underneath the plan.
+ */
+const APPLICABLE_STATUSES = new Set(['approved', 'partially_applied']);
+
+/**
+ * Consume a credit note's remaining balance across the contact's open
+ * documents. Returns the lines written, empty when the note has nothing left or
+ * there is nothing open to take it.
  */
 export async function applyCreditNoteRemainder(args: {
   companyId: string;
   subledger: Subledger;
   creditNoteId: string;
-  remainder: number;
-  open: readonly SimulationDocument[];
+  oldestFirst: boolean;
   userId: string;
 }): Promise<PlannedLine[]> {
-  const { companyId, subledger, creditNoteId, remainder, open, userId } = args;
+  const { companyId, subledger, creditNoteId, oldestFirst, userId } = args;
+
+  // THE NOTE FIRST — see the lock-order note in the header.
+  const note = await lockCreditNoteForUpdate(companyId, creditNoteId);
+  if (!note) throw new Error(`Credit note ${creditNoteId} not found`);
+
+  // Re-derived from the LOCKED row, never from the population's figure.
+  const appliedBefore = Number(note.applied_amount ?? 0);
+  const total = Number(note.total_amount);
+  const remainder = round2(total - appliedBefore);
+
+  // THE REMAINDER IS TESTED BEFORE THE STATUS, and the order is the difference
+  // between a clean re-run and an alarming one. A note another run has just
+  // finished is at 'applied' with nothing left: that is this run having no work
+  // to do, not a fault, and reporting it in `failed` would make the second pass
+  // of any back-fill read as broken. A note with money still on it whose status
+  // has moved is the real refusal — 'cancelled' resets `applied_amount` to 0,
+  // so a cancelled note arrives here with its whole total apparently available
+  // and MUST NOT be spent.
+  if (remainder <= EPS) return [];
+  const status = String(note.status);
+  if (!APPLICABLE_STATUSES.has(status)) {
+    throw new Error(
+      `Credit note ${creditNoteId} is "${status}" and can no longer be applied — `
+      + 'it changed after this run read it.',
+    );
+  }
+
+  const entityId = subledger === 'ap'
+    ? String(note.supplier_id)
+    : String(note.client_id);
+  const open = await fetchOpenDocuments(companyId, subledger, entityId, oldestFirst, true);
   const planned = planGreedyAllocations(remainder, open);
   if (planned.length === 0) return [];
 
@@ -52,7 +114,8 @@ export async function applyCreditNoteRemainder(args: {
     // invoice_id)` is UNIQUE, so a note applied to one document twice — a
     // partly consumed note that a later run takes further — has one row whose
     // amount is the total consumed. Replacing it would erase the first
-    // application while `applied_amount` still counted it.
+    // application while `applied_amount` still counted it. The lock above is
+    // what keeps the accumulated total inside `total_amount`.
     await sql`
       INSERT INTO credit_note_allocations
         (company_id, credit_note_id, invoice_id, amount_allocated)
@@ -82,21 +145,21 @@ export async function applyCreditNoteRemainder(args: {
   }
 
   const applied = lines.reduce((s, l) => round2(s + l.amount), 0);
-  // `applied_amount` is INCREMENTED, never set: migration 529 exists because a
-  // note's recorded application and what the cancel path un-applies must be the
-  // same number, and an absolute write would erase an earlier partial.
+  // Written as an ABSOLUTE total computed from the locked row, not as an
+  // increment: the lock makes `appliedBefore` current, and an absolute write
+  // cannot drift from the allocation rows the way `applied_amount + x` would if
+  // this function were ever reached twice inside one transaction.
+  const appliedAfter = round2(appliedBefore + applied);
   await sql`
     UPDATE credit_notes
-    SET applied_amount = COALESCE(applied_amount, 0) + ${applied},
-        status = CASE
-          WHEN COALESCE(applied_amount, 0) + ${applied} >= total_amount - ${EPS}
-          THEN 'applied' ELSE 'partially_applied' END,
+    SET applied_amount = ${appliedAfter},
+        status = ${appliedAfter >= round2(total - EPS) ? 'applied' : 'partially_applied'},
         updated_at = NOW()
     WHERE id = ${creditNoteId}::UUID AND company_id = ${companyId}::UUID
   `;
 
   log.info('Back-fill applied credit note remainder', {
-    creditNoteId, subledger, lines: lines.length, applied, userId,
+    creditNoteId, subledger, lines: lines.length, applied, appliedAfter, userId,
   }, 'accounting');
   return lines;
 }
