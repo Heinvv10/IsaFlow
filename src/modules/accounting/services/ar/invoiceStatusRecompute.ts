@@ -71,7 +71,26 @@ export type InvoiceKind = 'customer' | 'supplier';
  *
  * Statuses NOT touched: anything outside this set is preserved by the CASE.
  */
-const BALANCE_DERIVED = ['approved', 'sent', 'overdue', 'partially_paid', 'paid'];
+export const BALANCE_DERIVED = ['approved', 'sent', 'overdue', 'partially_paid', 'paid'];
+
+/**
+ * The statuses cash may be applied to WITHOUT NAMING the document — the FIFO
+ * walk's eligible set, AP and AR alike.
+ *
+ * It is this list and not a list of exclusions, and it is defined HERE, because
+ * the two must be the same set. `recomputeInvoiceStatus` only moves a row whose
+ * status is in `BALANCE_DERIVED`; an exclusion list that forgot one status
+ * outside it — `pending_approval` was the one — let the walk settle a bill the
+ * recompute then refused to touch, leaving `amount_paid = total_amount` under
+ * status `pending_approval` with `payment_matched` false. Nothing in the
+ * codebase corrects that state, because every writer of those three columns is
+ * gated on the same set.
+ *
+ * So: eligible ⊆ balance-derived, by construction rather than by review.
+ * `openSupplierBills` / `openCustomerInvoices` select on it and
+ * `tests/unit/services/ap/openDocumentLock.test.ts` pins the containment.
+ */
+export const FIFO_ELIGIBLE_STATUSES: readonly string[] = BALANCE_DERIVED;
 
 export async function recomputeInvoiceStatus(
   companyId: string,

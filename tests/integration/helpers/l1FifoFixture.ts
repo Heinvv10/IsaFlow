@@ -147,14 +147,23 @@ export async function seedInvoice(
   return rows[0]!.id;
 }
 
-/** One imported bank line. A NEGATIVE amount is money out. */
+/**
+ * One imported bank line. A NEGATIVE amount is money out.
+ *
+ * `id` is settable because `bulk_allocate_bank_transactions` posts its lines
+ * SORTED BY TRANSACTION ID (so two overlapping batches cannot deadlock), and a
+ * test about what a batch does in order cannot leave that order to
+ * `gen_random_uuid()`.
+ */
 export async function seedBankTx(
-  fx: Fixture, args: { date: string; amount: number; description: string },
+  fx: Fixture,
+  args: { date: string; amount: number; description: string; id?: string },
 ): Promise<string> {
   const rows = (await sql`
     INSERT INTO bank_transactions
-      (company_id, bank_account_id, transaction_date, amount, description, status)
-    VALUES (${fx.companyId}::UUID, ${fx.bankAccountId}::UUID, ${args.date}::DATE,
+      (id, company_id, bank_account_id, transaction_date, amount, description, status)
+    VALUES (${args.id ?? randomUUID()}::UUID, ${fx.companyId}::UUID,
+            ${fx.bankAccountId}::UUID, ${args.date}::DATE,
             ${args.amount}, ${`${args.description} ${fx.tag}`}, 'imported')
     RETURNING id`) as { id: string }[];
   return rows[0]!.id;

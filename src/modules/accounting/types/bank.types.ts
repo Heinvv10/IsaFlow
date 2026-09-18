@@ -187,6 +187,8 @@ export type RuleMatchType = 'contains' | 'starts_with' | 'ends_with' | 'exact';
 
 export type RuleVatCode = 'none' | 'standard' | 'zero_rated' | 'exempt';
 
+import type { AutoApplyMode } from '../services/shared/autoAllocateStrategy';
+
 export interface BankCategorisationRule {
   id: string;
   ruleName: string;
@@ -201,6 +203,12 @@ export interface BankCategorisationRule {
   isActive: boolean;
   autoCreateEntry: boolean;
   vatCode: RuleVatCode;
+  /**
+   * What an auto-posted supplier/customer line does with its cash (migration
+   * 676): 'fifo' applies it to the contact's oldest open documents, 'none'
+   * leaves it on account. Unattended, there is no caller to ask.
+   */
+  autoApply: AutoApplyMode;
   cc1Id?: string;
   cc2Id?: string;
   buId?: string;
@@ -229,6 +237,7 @@ export interface RuleCreateInput {
   priority?: number;
   autoCreateEntry?: boolean;
   vatCode?: RuleVatCode;
+  autoApply?: AutoApplyMode;
   cc1Id?: string;
   cc2Id?: string;
   buId?: string;

@@ -210,10 +210,12 @@ export async function invoicesWithoutRevenueLine(ctx: IntegrityCheckContext): Pr
 export async function paymentMatchedButUnapplied(
   ctx: IntegrityCheckContext,
 ): Promise<IntegrityCheckResult> {
-  // Not rewound to `as_at`: the flag is a CURRENT contradiction between two
-  // columns of one row, not a balance at a date. Rewinding would answer a
-  // different question — "was it contradictory then" — and quietly drop every
-  // row whose payment has since been undone.
+  // `as_at` scopes WHICH BILLS are in scope — those raised on or before it —
+  // and nothing else. The balance itself is NOT rewound to that date: the
+  // finding is a CURRENT contradiction between two columns of one row, not a
+  // balance at a date. Rewinding would answer a different question — "was it
+  // contradictory then" — and quietly drop every row whose payment has since
+  // been undone.
   const where = sql`
     FROM supplier_invoices si
     WHERE si.company_id = ${ctx.companyId}::UUID

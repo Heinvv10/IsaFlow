@@ -175,6 +175,31 @@ describeIfDb('L1 — a supplier bank line with no bill named', () => {
     expect(await billState(fx, open)).toMatchObject({ status: 'paid', amountPaid: 100 });
   }, 60000);
 
+  it('skips a bill that is still awaiting approval', async () => {
+    // THE DEFECT: the eligible set was a list of exclusions and it forgot
+    // `pending_approval`. The walk settled the bill and recomputeInvoiceStatus,
+    // gated on BALANCE_DERIVED, then refused to touch it — leaving
+    // amount_paid = total_amount under status pending_approval with
+    // payment_matched false, which nothing in the codebase corrects.
+    const sup = await seedSupplier(fx, 'PA');
+    const unapproved = await seedBill(fx, {
+      supplierId: sup, number: 'P1', date: '2026-08-20', total: 100, status: 'pending_approval',
+    });
+    const approved = await seedBill(fx, {
+      supplierId: sup, number: 'P2', date: '2026-08-21', total: 100,
+    });
+    const tx = await seedBankTx(fx, { date: '2026-08-25', amount: -100, description: 'EFT-PA' });
+
+    await inTx(fx, () => allocateTransaction(
+      fx.companyId, tx, null, fx.userId, undefined, 'supplier', sup,
+    ));
+
+    expect(await billState(fx, unapproved)).toMatchObject({
+      status: 'pending_approval', amountPaid: 0, paymentMatched: false,
+    });
+    expect(await billState(fx, approved)).toMatchObject({ status: 'paid', amountPaid: 100 });
+  }, 60000);
+
   it('does not age a bill the payment predates', async () => {
     // A payment dated BEFORE the bill it settles is pathological but reachable
     // (a prepayment, a mis-dated statement line). The rewind keys on

@@ -6,6 +6,9 @@
 import { sql } from '@/lib/neon';
 import { log } from '@/lib/logger';
 import { assertCustomerInCompany, assertSupplierInCompany } from '../core/contactDirectoryService';
+import {
+  AUTO_APPLY_MODES, DEFAULT_AUTO_APPLY, parseAutoApplyMode, type AutoApplyMode,
+} from '../shared/autoAllocateStrategy';
 import type {
   BankCategorisationRule, RuleCreateInput, RuleApplyResult,
 } from '../../types/bank.types';
@@ -42,17 +45,21 @@ export async function createRule(
   // but as a 23503 mid-statement; this refuses it typed, before the INSERT.
   await assertSupplierInCompany(companyId, input.supplierId);
   const vatCode = input.vatCode || 'none';
+  // Refused, never coerced: a typo'd mode silently becoming 'fifo' would have
+  // an unattended sweep apply cash the rule's author asked to leave on account.
+  const autoApply = assertAutoApply(input.autoApply);
   const rows = (await sql`
     INSERT INTO bank_categorisation_rules (
       company_id, rule_name, match_field, match_type, match_pattern,
       gl_account_id, supplier_id, client_id, description_template,
-      priority, auto_create_entry, vat_code, created_by
+      priority, auto_create_entry, vat_code, auto_apply, created_by
     ) VALUES (
       ${companyId}::UUID, ${input.ruleName}, ${input.matchField}, ${input.matchType}, ${input.matchPattern},
       ${input.glAccountId || null}::UUID, ${input.supplierId || null}::UUID,
       ${input.clientId || null}::UUID,
       ${input.descriptionTemplate || null},
-      ${input.priority || 100}, ${input.autoCreateEntry === true}, ${vatCode}, ${userId}
+      ${input.priority || 100}, ${input.autoCreateEntry === true}, ${vatCode},
+      ${autoApply}, ${userId}
     ) RETURNING *
   `) as Record<string, unknown>[];
   log.info('Created bank rule', { id: rows[0]!.id, ruleName: input.ruleName }, 'accounting');
@@ -82,11 +89,29 @@ export async function updateRule(
       priority = COALESCE(${input.priority ?? null}, priority),
       auto_create_entry = COALESCE(${input.autoCreateEntry ?? null}, auto_create_entry),
       vat_code = COALESCE(${input.vatCode ?? null}, vat_code),
+      auto_apply = COALESCE(${assertAutoApply(input.autoApply) ?? null}, auto_apply),
       is_active = COALESCE(${input.isActive ?? null}, is_active)
     WHERE company_id = ${companyId}::UUID AND id = ${id}::UUID RETURNING *
   `) as Record<string, unknown>[];
   if (!rows[0]) throw new Error(`Rule ${id} not found`);
   return mapRuleRow(rows[0]);
+}
+
+/**
+ * The rule's auto-apply mode, or undefined when the caller did not name one.
+ *
+ * `parseAutoApplyMode` returns null for anything that is not a mode, and this
+ * turns that into a refusal rather than a default — the column has a CHECK
+ * constraint, and reaching it would raise 23514 mid-statement instead of a
+ * message the caller can act on.
+ */
+function assertAutoApply(value: AutoApplyMode | undefined): AutoApplyMode | undefined {
+  if (value === undefined) return undefined;
+  const parsed = parseAutoApplyMode(value);
+  if (parsed === null) {
+    throw new Error(`auto_apply must be one of: ${AUTO_APPLY_MODES.join(', ')}`);
+  }
+  return parsed;
 }
 
 export async function deleteRule(companyId: string, id: string): Promise<void> {
@@ -128,6 +153,10 @@ function mapRuleRow(row: Record<string, unknown>): BankCategorisationRule {
     isActive: Boolean(row.is_active),
     autoCreateEntry: Boolean(row.auto_create_entry),
     vatCode: (row.vat_code || 'none') as BankCategorisationRule['vatCode'],
+    // A rule row written before migration 676 reads NULL. That is the DEFAULT,
+    // not 'none': reading it as "apply nothing" reproduces the state the
+    // default exists to end. Same rule as bankRuleAutoPostLine.
+    autoApply: parseAutoApplyMode(row.auto_apply) ?? DEFAULT_AUTO_APPLY,
     createdBy: row.created_by ? String(row.created_by) : undefined,
     createdAt: String(row.created_at),
     updatedAt: String(row.updated_at),

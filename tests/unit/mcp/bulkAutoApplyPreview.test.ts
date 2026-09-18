@@ -56,6 +56,20 @@ vi.mock('@/modules/accounting/services/ar/customerAutoAllocate', () => ({
 }));
 // The preview reads the open documents through the FETCH modules, not through
 // the services above: it must not take the row locks those services ask for.
+// Only the invoice-state READ is stubbed: a line naming an invoice_id is
+// pre-checked against that invoice's balance before anything posts, and the
+// rest of this module (applyRouteFor, the sign and skip rules) is the real
+// thing, because the skip semantics are what decide which lines reach the
+// preview at all.
+vi.mock('@/lib/mcp/tools/allocationApplyRoute', async (importOriginal) => ({
+  ...(await importOriginal<Record<string, unknown>>()),
+  fetchInvoiceStates: vi.fn(async () => new Map([
+    ['0d000000-0000-4000-8000-000000000001',
+      { invoiceNumber: 'BILL-001', outstanding: 100, status: 'approved' }],
+    ['0d000000-0000-4000-8000-000000000002',
+      { invoiceNumber: 'BILL-002', outstanding: 200, status: 'approved' }],
+  ])),
+}));
 vi.mock('@/modules/accounting/services/ap/openSupplierBills', () => ({
   fetchOpenSupplierBills: vi.fn(),
 }));
@@ -78,6 +92,8 @@ import { bulkAllocateBankTransactionsTool } from '@/lib/mcp/tools/writeBankBulkA
 const ctx = { companyId: 'company-1', userId: 'user-1' } as never;
 const TX = (n: number) => `0a000000-0000-4000-8000-${String(n).padStart(12, '0')}`;
 const SUPPLIER = '0c000000-0000-4000-8000-000000000001';
+const BILL_1 = '0d000000-0000-4000-8000-000000000001';
+const BILL_2 = '0d000000-0000-4000-8000-000000000002';
 const ACC = '0b000000-0000-4000-8000-000000000001';
 
 interface DryRunLine {
@@ -114,37 +130,46 @@ beforeEach(() => {
   vi.mocked(resolveSupplierAutoAllocateStrategy).mockResolvedValue('off');
   vi.mocked(resolveCustomerAutoAllocateStrategy).mockResolvedValue('off');
   vi.mocked(fetchOpenSupplierBills).mockResolvedValue([
-    { invoiceId: 'b1', invoiceNumber: 'BILL-001', outstanding: 100 },
-    { invoiceId: 'b2', invoiceNumber: 'BILL-002', outstanding: 200 },
+    { invoiceId: BILL_1, invoiceNumber: 'BILL-001', outstanding: 100 },
+    { invoiceId: BILL_2, invoiceNumber: 'BILL-002', outstanding: 200 },
   ]);
   vi.mocked(fetchOpenCustomerInvoices).mockResolvedValue([]);
 });
 
 describe('bulk_allocate_bank_transactions — dry run applications', () => {
-  it('consumes the open bills line by line, in posting order', async () => {
+  it('consumes the open bills in POSTING order, not in the order it was sent', async () => {
+    // THE FIXTURE IS REVERSED ON PURPOSE. A batch posts its lines sorted by
+    // transaction id — so that two overlapping batches cannot deadlock on each
+    // other's row locks — and the preview used to consume the bills in the
+    // order the agent SENT them. With the payload already in ascending id
+    // order the two are indistinguishable and the bug survives the test.
     vi.mocked(findBankTransactionAllocationStates).mockImplementation(
       states({ [TX(1)]: -150, [TX(2)]: -150 }) as never,
     );
 
     const res = await bulkAllocateBankTransactionsTool.handler(
       {
-        allocations: [supplierLine(1), supplierLine(2)],
+        // TX(2) FIRST in the payload; TX(1) posts first all the same.
+        allocations: [supplierLine(2), supplierLine(1)],
         dry_run: true,
         idempotency_key: 'k1',
       },
       ctx,
     ) as { content: { text: string }[] };
 
-    const { lines } = payload(res);
-    expect(lines[0]!.applications).toEqual([
-      { document_id: 'b1', document_number: 'BILL-001', amount: 100 },
-      { document_id: 'b2', document_number: 'BILL-002', amount: 50 },
+    // Keyed by transaction, because the reply lists lines in the order they
+    // were SENT while they consume in the order they will POST.
+    const byTx = new Map(payload(res).lines.map((l) => [l.transaction_id, l]));
+    expect(byTx.get(TX(1))!.applications).toEqual([
+      { document_id: BILL_1, document_number: 'BILL-001', amount: 100 },
+      { document_id: BILL_2, document_number: 'BILL-002', amount: 50 },
     ]);
-    // The second line sees what the first consumed — not the opening balance.
-    expect(lines[1]!.applications).toEqual([
-      { document_id: 'b2', document_number: 'BILL-002', amount: 150 },
+    // The line that posts SECOND sees what the first consumed — not the
+    // opening balance, and not what its own position in the payload suggests.
+    expect(byTx.get(TX(2))!.applications).toEqual([
+      { document_id: BILL_2, document_number: 'BILL-002', amount: 150 },
     ]);
-    expect(lines[1]!.on_account).toBe(0);
+    expect(byTx.get(TX(2))!.on_account).toBe(0);
     // One read per DISTINCT entity, whatever the line count — and NO row lock:
     // a preview that held these rows would block every real allocation against
     // the supplier until the request ended.
@@ -234,8 +259,57 @@ describe('bulk_allocate_bank_transactions — dry run applications', () => {
     const { lines } = payload(res);
     expect(lines[0]!.applications).toEqual([]);
     expect(lines[1]!.applications).toEqual([
-      { document_id: 'b1', document_number: 'BILL-001', amount: 100 },
-      { document_id: 'b2', document_number: 'BILL-002', amount: 50 },
+      { document_id: BILL_1, document_number: 'BILL-001', amount: 100 },
+      { document_id: BILL_2, document_number: 'BILL-002', amount: 50 },
+    ]);
+  });
+
+  it('spends what an invoice-named line pays, so the next FIFO line cannot', async () => {
+    // THE DEFECT: a line naming an invoice_id was left out of the simulation
+    // entirely, so line 1 was planned against a bill line 0 was already paying
+    // — the dry run promised an application the live batch could not make.
+    vi.mocked(findBankTransactionAllocationStates).mockImplementation(
+      states({ [TX(1)]: -100, [TX(2)]: -150 }) as never,
+    );
+
+    const res = await bulkAllocateBankTransactionsTool.handler(
+      {
+        allocations: [supplierLine(1, { invoice_id: BILL_1 }), supplierLine(2)],
+        dry_run: true,
+        idempotency_key: 'k10',
+      },
+      ctx,
+    ) as { content: { text: string }[] };
+
+    const { lines } = payload(res);
+    // Line 0 names its bill: `postAndApplyLine` reports what it settled, so
+    // this reply says nothing about it — while its R100 is spent all the same,
+    // which is why line 1 starts at BILL-002 rather than BILL-001.
+    expect(lines[0]!.applications).toBeUndefined();
+    expect(lines[1]!.applications).toEqual([
+      { document_id: BILL_2, document_number: 'BILL-002', amount: 150 },
+    ]);
+  });
+
+  it('spends it on the named bill ONLY, never spilling onto the oldest', async () => {
+    // The named bill is the second-oldest, and the line pays it in full. A line
+    // simulated as FIFO instead would take BILL-001 first and leave BILL-002
+    // part-open, so line 1 would land on the wrong bill.
+    vi.mocked(findBankTransactionAllocationStates).mockImplementation(
+      states({ [TX(1)]: -200, [TX(2)]: -100 }) as never,
+    );
+
+    const res = await bulkAllocateBankTransactionsTool.handler(
+      {
+        allocations: [supplierLine(1, { invoice_id: BILL_2 }), supplierLine(2)],
+        dry_run: true,
+        idempotency_key: 'k11',
+      },
+      ctx,
+    ) as { content: { text: string }[] };
+
+    expect(payload(res).lines[1]!.applications).toEqual([
+      { document_id: BILL_1, document_number: 'BILL-001', amount: 100 },
     ]);
   });
 
