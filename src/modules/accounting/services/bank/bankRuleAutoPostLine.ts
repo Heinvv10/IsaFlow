@@ -18,6 +18,9 @@ import {
 import { buildAutoCreateLines, getPeriodStatusForDate, type RuleAllocType } from './bankRulesMatchingHelpers';
 import { lockBankTransactionForUpdate } from './bankTxLock';
 import { resolveRuleVatCode } from '../gl/ruleVatResolution';
+import {
+  DEFAULT_AUTO_APPLY, parseAutoApplyMode,
+} from '../shared/autoAllocateStrategy';
 import { feedStateOf } from './bankFeedStateGuard';
 
 const SA_VAT_RATE_PCT = 15; // Standard SA VAT rate; update if SARS changes the statutory rate
@@ -247,6 +250,12 @@ export async function autoPostRuleLine(input: AutoPostLineInput): Promise<AutoPo
       await recordSupplierBankPayment({
         companyId,
         supplierId,
+        // The rule's own instruction (migration 676). Unattended, there is no
+        // caller to ask, and an unreadable value is the DEFAULT rather than
+        // 'none': a rule row written before the column existed reads as NULL,
+        // and treating that as "apply nothing" would reproduce the very state
+        // this change exists to end.
+        autoApply: parseAutoApplyMode(rule.auto_apply) ?? DEFAULT_AUTO_APPLY,
         bankTxId: String(tx.id),
         bankAccountId: bankGlAccountId,
         journalEntryId: je.id,

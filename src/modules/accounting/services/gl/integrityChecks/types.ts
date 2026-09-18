@@ -1,5 +1,5 @@
 /**
- * The integrity check suite: one shape for thirteen questions an auditor asks.
+ * The integrity check suite: one shape for fourteen questions an auditor asks.
  *
  * Every one of these was a finding that took hours to locate by hand on
  * Brightsphere or Velocity Fibre. The point of the suite is not that each query
@@ -28,6 +28,7 @@ export const INTEGRITY_CHECK_IDS = [
   'stale_suggested_transactions',
   'test_records_in_production',
   'invoices_without_revenue_line',
+  'payment_matched_but_unapplied',
 ] as const;
 
 export type IntegrityCheckId = (typeof INTEGRITY_CHECK_IDS)[number];

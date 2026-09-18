@@ -17,6 +17,7 @@ import {
   BankTransactionNotPostedError, isFeedNotPostedRefusal, readFeedState,
 } from '@/modules/accounting/services/bank/bankFeedStateGuard';
 import { UUID } from '@/lib/schemas/common';
+import { AUTO_APPLY_MODES } from '@/modules/accounting/services/shared/autoAllocateStrategy';
 import { assertCustomerInCompany, assertSupplierInCompany } from '@/modules/accounting/services/core/contactDirectoryService';
 import { assertJournalAnalysisDimensions } from '@/modules/accounting/services/gl/journalCostCentreValidation';
 import {
@@ -49,6 +50,9 @@ const BankTxActionSchema = z.discriminatedUnion('action', [
     cc1Id: UUID.optional(),
     cc2Id: UUID.optional(),
     buId: UUID.optional(),
+    // What to do with a supplier/customer line that names no document.
+    // 'fifo' (the default) settles that contact's oldest open documents.
+    autoApply: z.enum(AUTO_APPLY_MODES).optional(),
   }),
   z.object({
     action: z.literal('split_allocate'),
@@ -123,6 +127,10 @@ async function handler(req: CompanyAuthedRequest, res: NextApiResponse) {
           companyId, body.bankTransactionId, body.contraAccountId || null, userId,
           body.description, aType, body.entityId, body.vatCode,
           body.cc1Id, body.cc2Id, body.buId,
+          undefined,
+          // Omitted rather than defaulted here: the service owns the default,
+          // and a second copy of it is how two entry points drift apart.
+          body.autoApply ? { autoApply: body.autoApply } : undefined,
         );
         return apiResponse.success(res, result);
       }
