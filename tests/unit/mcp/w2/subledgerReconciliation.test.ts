@@ -266,12 +266,14 @@ describe('reconcileSubledger — AR', () => {
   });
 
   it('reports EVERY control account and flags the ambiguity rather than picking one', async () => {
-    // FINDINGS C1: no canonical control account exists. Picking one silently is
-    // how a R10,000 receipt on a NULL-subtype account disappears.
+    // FINDINGS C1: no canonical control account exists. Ambiguity now means
+    // exactly one thing — more than one account CARRIES THE CONTROL SUBTYPE —
+    // rather than "more than one account a document happened to post to",
+    // which made a settle_by_contra loan account into an AP control account.
     vi.mocked(getControlAccountBalances).mockResolvedValue([
       ctrl({ balance: 11591623.6 }),
-      ctrl({ accountId: 'acc-1120', accountCode: '1120', accountSubtype: null,
-             balance: -10000, foundBy: 'posting' }),
+      ctrl({ accountId: 'acc-1120', accountCode: '1120', accountSubtype: 'receivable',
+             balance: -10000 }),
     ]);
     vi.mocked(getARSubledger).mockResolvedValue(arSnapshot({ subledgerTotal: 11581623.6 }) as never);
     vi.mocked(getAgedReportTotal).mockResolvedValue(11581623.6);
