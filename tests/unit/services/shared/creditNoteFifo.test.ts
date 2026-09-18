@@ -80,7 +80,7 @@ describe('applyCreditNote — the oldest-first walk', () => {
    */
   function wire(
     candidates: [string, number][],
-    linked?: { id: string; outstanding: number } | null,
+    linked?: { id: string; outstanding: number; status?: string } | null,
     opts: { locked?: [string, number][]; allocated?: number } = {},
   ): Wired {
     const rows: [string, number][] = [];
@@ -93,12 +93,13 @@ describe('applyCreditNote — the oldest-first walk', () => {
       }
       if (/FOR UPDATE/i.test(text)) {
         const wanted = new Set((values[0] as string[]) ?? []);
-        const all: [string, number][] = linked
-          ? [[linked.id, linked.outstanding], ...lockedRows]
-          : lockedRows;
+        const all: [string, number, string][] = linked
+          ? [[linked.id, linked.outstanding, linked.status ?? 'approved'],
+             ...lockedRows.map(([id, o]) => [id, o, 'approved'] as [string, number, string])]
+          : lockedRows.map(([id, o]) => [id, o, 'approved'] as [string, number, string]);
         return Promise.resolve(all
           .filter(([id]) => wanted.has(id))
-          .map(([id, outstanding]) => ({ id, status: 'approved', outstanding })));
+          .map(([id, outstanding, status]) => ({ id, status, outstanding })));
       }
       if (/FROM supplier_invoices/i.test(text) && /ORDER BY/i.test(text)) {
         return Promise.resolve(candidates.map(([id, outstanding]) => ({ id, outstanding })));
@@ -228,6 +229,34 @@ describe('applyCreditNote — the oldest-first walk', () => {
     const w = wire([[A, 300]], null, { allocated: 250 });
     await inRequest(() => applyCreditNote(args({ alreadyApplied: 250 })));
     expect(w.money).toEqual([[A, 300]]);
+  });
+
+  it('skips a linked document that has posted nothing, and walks on', async () => {
+    // Cancelled between the note's creation, where the link was validated, and
+    // its approval. Crediting it would reduce a balance the ledger no longer
+    // carries; refusing the whole approval would strand a real credit. So the
+    // money goes to the entity's open documents instead.
+    const w = wire([[B, 900]], { id: A, outstanding: 1000, status: 'cancelled' });
+    const out = await inRequest(() => applyCreditNote(args({ totalAmount: 500, linkedInvoiceId: A })));
+    expect(w.money).toEqual([[B, 500]]);
+    expect(out.appliedAmount).toBe(500);
+  });
+
+  it('leaves the credit on account when the linked document is the only one', async () => {
+    const w = wire([], { id: A, outstanding: 1000, status: 'draft' });
+    const out = await inRequest(() => applyCreditNote(args({ totalAmount: 500, linkedInvoiceId: A })));
+    expect(w.money).toEqual([]);
+    expect(out.remainder).toBe(500);
+  });
+
+  it('refuses to extend a legacy note whose credit no row accounts for', async () => {
+    // applied_amount 300 with no allocation rows: approved before the table
+    // existed, with no link the backfill could attribute. Applying it again
+    // would write a row for the NEW amount only and make the note permanently
+    // uncancellable.
+    wire([[A, 900]], null, { allocated: 0 });
+    await expect(inRequest(() => applyCreditNote(args({ alreadyApplied: 300 }))))
+      .rejects.toThrow(/no allocation rows/);
   });
 
   it('applies nothing when the entity has no open document', async () => {
