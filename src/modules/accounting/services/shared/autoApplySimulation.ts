@@ -36,6 +36,18 @@ export interface SimulationLine {
   cash: number;
   /** False only when the contact asked for newest-first. */
   oldestFirst: boolean;
+  /**
+   * Set when the line NAMES the document its cash settles (`invoice_id`).
+   * Only that document is consumed, capped at its own balance, and the FIFO
+   * order is not consulted.
+   *
+   * It has to be simulated even though the live path applies such a line
+   * through a different service and reports its own result: its consumption is
+   * what a LATER FIFO line in the same batch faces. Leaving it out measured
+   * line 2 against money line 1 had already spent, which is exactly the
+   * preview-disagrees-with-live failure the simulation exists to prevent.
+   */
+  documentId?: string | null;
 }
 
 export interface SimulatedApplication {
@@ -69,13 +81,19 @@ export function simulateSequentialApplications(
     remaining.set(key, docs.map((d) => ({ ...d })));
   }
 
-  return lines.map(({ index, entityKey, cash, oldestFirst }) => {
+  return lines.map((line) => {
+    const { index, entityKey, cash, oldestFirst } = line;
     const pool = entityKey === null ? undefined : remaining.get(entityKey);
     if (!pool || pool.length === 0) {
       return { index, applications: [], onAccount: round2(cash) };
     }
 
-    const ordered = oldestFirst ? pool : [...pool].reverse();
+    // A named document is its own, one-element pool: capped at that document's
+    // balance, and never spilling onto the next-oldest one.
+    const named = line.documentId ?? null;
+    const ordered = named !== null
+      ? pool.filter((d) => d.invoiceId === named)
+      : (oldestFirst ? pool : [...pool].reverse());
     const planned = planGreedyAllocations(cash, ordered);
 
     const applications: SimulatedApplication[] = [];
