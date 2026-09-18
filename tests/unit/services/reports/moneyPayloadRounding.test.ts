@@ -111,30 +111,63 @@ describe('supplier_statement (fetchSupplierStatementData) — payload guard', ()
 });
 
 describe('search_gl (getAccountLedger) — payload guard', () => {
-  it('an alternating debit/credit sequence nets the running balance to exactly 0', async () => {
+  // A simple alternating +0.1/-0.1 sequence is NOT a drift-provoking fixture:
+  // in IEEE-754, `0.1 - 0.1` cancels exactly at every step (verified via
+  // `node -e`), so plain `running += debit - credit` nets to exactly 0 too —
+  // a prior version of this test used that sequence and stayed green after
+  // reverting accountLedgerService.ts's running-balance line to plain float,
+  // proving it detected nothing.
+  //
+  // This sequence (opening 126629.95, then -100000, +0.05, +0.1, +0.2, -0.1,
+  // -0.2, +0.15, -0.05) is genuinely drift-provoking: verified via `node -e`
+  // that plain-float accumulation produces 26629.949999999997 at row 1 (not
+  // 26629.95) and similar >2dp noise through row 8, while the DECIMAL-correct
+  // running balance is exact to the cent at every row.
+  const EXPECTED_ROW_BALANCES = [
+    26629.95, 26630.0, 26630.1, 26630.3, 26630.2, 26630.0, 26630.15, 26630.1,
+  ];
+
+  it('a genuinely drift-provoking debit/credit sequence keeps every row exact to the cent', async () => {
     const mockSql = sql as SqlMock;
-    const txnRows = Array.from({ length: 20 }, (_, i) => ({
+    const moves: Array<{ debit: string; credit: string }> = [
+      { debit: '0', credit: '100000' },
+      { debit: '0.05', credit: '0' },
+      { debit: '0.1', credit: '0' },
+      { debit: '0.2', credit: '0' },
+      { debit: '0', credit: '0.1' },
+      { debit: '0', credit: '0.2' },
+      { debit: '0.15', credit: '0' },
+      { debit: '0', credit: '0.05' },
+    ];
+    const txnRows = moves.map((m, i) => ({
       journal_entry_id: `je${i}`,
       entry_date: '2026-01-01',
       entry_number: `JE${i}`,
       description: 'x',
       reference: '',
       source: 'manual',
-      debit: i % 2 === 0 ? '0.1' : '0',
-      credit: i % 2 === 0 ? '0' : '0.1',
+      debit: m.debit,
+      credit: m.credit,
     }));
     mockSql
       .mockResolvedValueOnce([{ id: 'a1', account_code: '1000', account_name: 'Bank', account_type: 'asset', normal_balance: 'debit' }])
-      .mockResolvedValueOnce([{ total_debit: '0', total_credit: '0' }])
+      .mockResolvedValueOnce([{ total_debit: '126629.95', total_credit: '0' }])
       .mockResolvedValueOnce([{ total: String(txnRows.length) }])
       .mockResolvedValueOnce(txnRows)
-      .mockResolvedValueOnce([{ period_debit: '1', period_credit: '1' }]);
+      .mockResolvedValueOnce([{ period_debit: '0.5', period_credit: '100000.35' }]);
 
     const result = await getAccountLedger({
       companyId: COMPANY, accountId: 'a1', fromDate: '2026-01-01', toDate: '2026-01-31',
     });
 
-    expect(result.rows[result.rows.length - 1]!.runningBalance).toBe(0);
+    // Row-level assertion — not just the payload walk. The payload walk alone
+    // (assertTwoDecimalPayload) accepts any value with <=2dp, which a
+    // consistently-WRONG-but-clean rounding would also satisfy; asserting
+    // the exact expected value per row catches that too.
+    result.rows.forEach((row, i) => {
+      expect(row.runningBalance).toBe(EXPECTED_ROW_BALANCES[i]);
+    });
+    expect(result.rows[result.rows.length - 1]!.runningBalance).toBe(26630.1);
     assertTwoDecimalPayload(result);
   });
 });
