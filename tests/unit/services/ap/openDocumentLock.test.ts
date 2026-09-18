@@ -16,10 +16,19 @@ import { describe, it, expect, vi, beforeEach, type MockedFunction } from 'vites
 
 vi.mock('@/lib/neon', () => ({ sql: vi.fn(async () => []), getPoolForTests: vi.fn() }));
 vi.mock('@/lib/logger', () => ({ log: { info: vi.fn(), error: vi.fn(), warn: vi.fn() } }));
+// The locking read bounds its wait with SET LOCAL lock_timeout, which needs the
+// request's own client — the same shape `fetchBillCandidates` uses.
+const clientQuery = vi.fn(async () => undefined);
+vi.mock('@/modules/accounting/services/core/requestTransaction', () => ({
+  requireRequestTransaction: () => ({ query: clientQuery }),
+}));
 
 import { sql } from '@/lib/neon';
 import { fetchOpenSupplierBills } from '@/modules/accounting/services/ap/openSupplierBills';
 import { fetchOpenCustomerInvoices } from '@/modules/accounting/services/ar/openCustomerInvoices';
+import {
+  BALANCE_DERIVED, FIFO_ELIGIBLE_STATUSES,
+} from '@/modules/accounting/services/ar/invoiceStatusRecompute';
 
 type SqlFn = MockedFunction<(strings: TemplateStringsArray, ...v: unknown[]) => Promise<unknown[]>>;
 const mockSql = sql as unknown as SqlFn;
@@ -31,6 +40,11 @@ const ENTITY = '22222222-2222-2222-2222-222222222222';
 function lastQuery(): string {
   const call = mockSql.mock.calls.at(-1)!;
   return call[0].join('?').replace(/\s+/g, ' ').trim();
+}
+
+/** The status array the fetch passed as a parameter. */
+function lastStatuses(): string[] {
+  return mockSql.mock.calls.at(-1)!.slice(1).find(Array.isArray) as string[];
 }
 
 beforeEach(() => {
@@ -46,12 +60,11 @@ describe('fetchOpenSupplierBills — the lock is the caller’s choice', () => {
   it('takes NO lock for a read-only preview, in either direction', async () => {
     await fetchOpenSupplierBills(COMPANY, ENTITY, true, { forUpdate: false });
     expect(lastQuery()).not.toContain('FOR UPDATE');
-    // Still the same population and the same order — only the lock differs.
-    expect(lastQuery()).toContain('ORDER BY invoice_date ASC, due_date ASC NULLS LAST, id ASC');
+    // Still the same population — only the lock differs.
+    expect(lastQuery()).toContain('ORDER BY id');
 
     await fetchOpenSupplierBills(COMPANY, ENTITY, false, { forUpdate: false });
     expect(lastQuery()).not.toContain('FOR UPDATE');
-    expect(lastQuery()).toContain('ORDER BY invoice_date DESC, due_date DESC NULLS FIRST, id DESC');
   });
 
   it('locks in the newest-first direction too', async () => {
@@ -71,15 +84,10 @@ describe('fetchOpenCustomerInvoices — the lock is the caller’s choice', () =
   it('takes NO lock for a read-only preview, in either direction', async () => {
     await fetchOpenCustomerInvoices(COMPANY, ENTITY, true, { forUpdate: false });
     expect(lastQuery()).not.toContain('FOR UPDATE');
-    expect(lastQuery()).toContain(
-      'ORDER BY ci.invoice_date ASC, ci.due_date ASC NULLS LAST, ci.id ASC',
-    );
+    expect(lastQuery()).toContain('ORDER BY ci.id');
 
     await fetchOpenCustomerInvoices(COMPANY, ENTITY, false, { forUpdate: false });
     expect(lastQuery()).not.toContain('FOR UPDATE');
-    expect(lastQuery()).toContain(
-      'ORDER BY ci.invoice_date DESC, ci.due_date DESC NULLS FIRST, ci.id DESC',
-    );
   });
 
   it('locks in the newest-first direction too', async () => {
@@ -100,7 +108,8 @@ describe('every variant carries the same population predicates', () => {
     for (const [oldestFirst, forUpdate] of variants) {
       await fetchOpenSupplierBills(COMPANY, ENTITY, oldestFirst, { forUpdate });
       expect(lastQuery()).toContain('deleted_at IS NULL');
-      expect(lastQuery()).toContain('status <> ALL(?::TEXT[])');
+      expect(lastQuery()).toContain('status = ANY(?::TEXT[])');
+      expect(lastStatuses()).toEqual([...FIFO_ELIGIBLE_STATUSES]);
     }
   });
 
@@ -109,7 +118,95 @@ describe('every variant carries the same population predicates', () => {
       await fetchOpenCustomerInvoices(COMPANY, ENTITY, oldestFirst, { forUpdate });
       expect(lastQuery()).toContain('ci.deleted_at IS NULL');
       expect(lastQuery()).toContain('COALESCE(ci.client_id, ci.customer_id)');
+      expect(lastStatuses()).toEqual([...FIFO_ELIGIBLE_STATUSES]);
     }
+  });
+});
+
+describe('the eligible set is what the recompute can move', () => {
+  it('is a subset of BALANCE_DERIVED', () => {
+    // THE DEFECT THIS PINS: an exclusion list forgot `pending_approval`, so the
+    // walk settled an unapproved bill and `recomputeInvoiceStatus` — gated on
+    // BALANCE_DERIVED — then refused to touch it. The bill kept status
+    // `pending_approval` with amount_paid = total_amount and payment_matched
+    // false, and no writer in the codebase corrects that.
+    for (const status of FIFO_ELIGIBLE_STATUSES) {
+      expect(BALANCE_DERIVED).toContain(status);
+    }
+  });
+
+  it('admits none of the statuses cash must never settle', () => {
+    for (const forbidden of ['draft', 'pending_approval', 'cancelled', 'disputed', 'written_off']) {
+      expect(FIFO_ELIGIBLE_STATUSES).not.toContain(forbidden);
+    }
+  });
+
+  it('is the set both fetches actually select on', async () => {
+    await fetchOpenSupplierBills(COMPANY, ENTITY, true, { forUpdate: false });
+    expect(lastStatuses()).toEqual([...FIFO_ELIGIBLE_STATUSES]);
+    await fetchOpenCustomerInvoices(COMPANY, ENTITY, true, { forUpdate: false });
+    expect(lastStatuses()).toEqual([...FIFO_ELIGIBLE_STATUSES]);
+  });
+});
+
+describe('the rows are LOCKED in id order and ORDERED in memory', () => {
+  const rows = [
+    { id: 'c', invoice_number: 'C', invoice_date: '2026-02-03', due_date: null, outstanding: 30 },
+    { id: 'a', invoice_number: 'A', invoice_date: '2026-02-01', due_date: '2026-03-01', outstanding: 10 },
+    { id: 'b', invoice_number: 'B', invoice_date: '2026-02-01', due_date: null, outstanding: 20 },
+  ];
+
+  // Every other path on this money route locks by id
+  // (supplierAllocationLines#lockBillCandidates, receiptAllocationLines), so
+  // the SQL must NOT order by date: two requests taking one pair of bills in
+  // opposite sequences raise 40P01, which aborts the whole transaction.
+  it('sorts oldest-first with a missing due date LAST, off an id-ordered read', async () => {
+    mockSql.mockResolvedValueOnce(rows as never);
+    const out = await fetchOpenSupplierBills(COMPANY, ENTITY, true, { forUpdate: false });
+    expect(lastQuery()).toContain('ORDER BY id');
+    expect(lastQuery()).not.toContain('invoice_date ASC');
+    expect(out.map((d) => d.invoiceId)).toEqual(['a', 'b', 'c']);
+  });
+
+  it('sorts newest-first as the exact mirror, nulls included', async () => {
+    mockSql.mockResolvedValueOnce(rows as never);
+    const out = await fetchOpenSupplierBills(COMPANY, ENTITY, false, { forUpdate: false });
+    expect(out.map((d) => d.invoiceId)).toEqual(['c', 'b', 'a']);
+  });
+
+  it('orders the customer side identically', async () => {
+    mockSql.mockResolvedValueOnce(rows as never);
+    const out = await fetchOpenCustomerInvoices(COMPANY, ENTITY, true, { forUpdate: false });
+    expect(out.map((d) => d.invoiceId)).toEqual(['a', 'b', 'c']);
+  });
+});
+
+describe('a held row is a retryable refusal, not a raw driver error', () => {
+  it('bounds the wait and names the remedy on the supplier side', async () => {
+    const contention = Object.assign(new Error('canceling statement due to lock timeout'), {
+      code: '55P03',
+    });
+    mockSql.mockRejectedValueOnce(contention as never);
+
+    await expect(fetchOpenSupplierBills(COMPANY, ENTITY, true, { forUpdate: true }))
+      .rejects.toThrow(/retry in a moment/);
+    expect(clientQuery).toHaveBeenCalledWith("SET LOCAL lock_timeout = '5s'");
+  });
+
+  it('answers a DEADLOCK the same way on the customer side', async () => {
+    const deadlock = Object.assign(new Error('deadlock detected'), { code: '40P01' });
+    mockSql.mockRejectedValueOnce(deadlock as never);
+
+    await expect(fetchOpenCustomerInvoices(COMPANY, ENTITY, true, { forUpdate: true }))
+      .rejects.toThrow(/retry in a moment/);
+  });
+
+  it('does not dress an unrelated failure as contention', async () => {
+    mockSql.mockRejectedValueOnce(
+      Object.assign(new Error('column does not exist'), { code: '42703' }) as never,
+    );
+    await expect(fetchOpenSupplierBills(COMPANY, ENTITY, true, { forUpdate: true }))
+      .rejects.toThrow(/column does not exist/);
   });
 });
 
