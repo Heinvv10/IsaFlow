@@ -1,10 +1,18 @@
 /**
- * Why a source may not be applied, and reading the two payment reports into
- * sources that say so.
+ * Why a source may not be applied, and reading L3's unapplied-payment basis
+ * into sources that say so.
  *
  * Split from autoApplyBackfillPopulation for the 300-line cap. The seam is the
  * altitude: the population decides WHICH sources a run considers and in what
- * order, and everything here turns one report row into one source.
+ * order, and everything here turns one basis row into one source.
+ *
+ * THE BASIS IS NOT RESTATED. `shared/unappliedPaymentBasis` owns what
+ * "unapplied" means — the document basis, the cents threshold, the allocation
+ * cap that stops an over-allocated payment reading as negative cash, and the
+ * status filter that differs by side. It exists because two tools once answered
+ * that question differently and whichever a reader ran first decided what they
+ * believed. A back-fill acting on a third definition would be the same defect
+ * with money moving behind it.
  *
  * EVERY SKIP IS A FACT ABOUT THE SOURCE, never about the attempt, which is what
  * lets both modes reach the same answer from the same read. A dry run that
@@ -13,8 +21,9 @@
  * inherits the difference.
  */
 
-import type { getUnappliedPayments } from '../ap/unappliedPaymentService';
-import type { getUnappliedReceipts } from '../ar/unappliedReceiptService';
+import type {
+  UnappliedPaymentBasisRow, UnappliedSide,
+} from './unappliedPaymentBasis';
 import type { BackfillSource } from './autoApplyBackfillPlan';
 
 /**
@@ -31,7 +40,7 @@ export const skipUnapplicableStatus = (status: string): string =>
 /**
  * Receipt statuses `planReceiptApplication` REFUSES.
  *
- * The AR report's population is everything except 'cancelled', because a draft
+ * The basis admits every non-cancelled receipt on the AR side, because a draft
  * receipt is still unapplied cash and the report is right to show it. The
  * back-fill cannot apply one — no journal has posted, so there is no cash to
  * apply — and it must decide that in the POPULATION rather than at write time.
@@ -39,73 +48,49 @@ export const skipUnapplicableStatus = (status: string): string =>
  * then refused, and every later receipt against that customer inherited the
  * difference.
  *
- * Not filtered out of the query: the source is reported in `skipped` with its
- * reason, so the plan still reconciles to `list_unapplied_receipts`.
+ * Not filtered out: the source is reported in `skipped` with its reason, so the
+ * plan still reconciles to `list_unapplied_receipts`.
+ *
+ * AP needs no twin. The basis already restricts that side to `processed` and
+ * `reconciled`, which are exactly the statuses whose journal has posted.
  */
 const UNAPPLIABLE_RECEIPT_STATUSES = new Set(['draft', 'cancelled']);
 
 /**
- * The AP page AND its unattributed rows.
+ * One basis row as a back-fill source, carrying the reason it may not be
+ * applied when there is one.
  *
- * `unattributed` is not a curiosity to drop — it is every payment whose
- * supplier no longer resolves, and `list_unapplied_payments` reports it as part
- * of the same balance. The first version of this filtered them out with a
- * `.filter()`, which meant the plan's totals could not be reconciled against
- * the report an operator was reading beside it.
+ * `attributed` is the basis's own answer to whether the counterparty resolved,
+ * and it is taken rather than re-derived from a null name: a real, non-deleted
+ * supplier whose `name` column is null would otherwise be reported as an orphan
+ * by this mapper while the query counted it as attributed.
+ *
+ * An unattributed row is NOT dropped. The first version of this filtered them
+ * out, which meant the plan's totals could not be reconciled against the report
+ * an operator was reading beside it — the cash is real whether or not the
+ * contact record still is.
  */
-export function apSources(result: Awaited<ReturnType<typeof getUnappliedPayments>>): BackfillSource[] {
-  const attributed = result.rows.map((r) => ({
+export function basisSources(
+  side: UnappliedSide,
+  rows: readonly UnappliedPaymentBasisRow[],
+): BackfillSource[] {
+  return rows.map((r) => ({
     kind: 'payment' as const,
     paymentId: r.paymentId,
     paymentNumber: r.paymentNumber,
-    entityId: r.supplierId,
-    entityName: r.supplierName ?? '',
+    entityId: r.attributed ? r.entityId : null,
+    entityName: r.entityName ?? '',
     paymentDate: r.paymentDate,
     remainder: r.unappliedAmount,
     journalEntryId: r.journalEntryId,
-    skippedReason: r.supplierId ? null : SKIP_CONTACT_UNRESOLVED,
+    skippedReason: skipReasonFor(side, r),
   }));
-  const orphans = result.unattributed.map((r) => ({
-    kind: 'payment' as const,
-    paymentId: r.paymentId,
-    paymentNumber: r.paymentNumber,
-    entityId: null,
-    entityName: '',
-    paymentDate: r.paymentDate,
-    remainder: r.unappliedAmount,
-    journalEntryId: r.journalEntryId,
-    skippedReason: SKIP_CONTACT_UNRESOLVED,
-  }));
-  return [...attributed, ...orphans];
 }
 
-/** The AR twin, plus the statuses the receipt applier refuses. */
-export function arSources(result: Awaited<ReturnType<typeof getUnappliedReceipts>>): BackfillSource[] {
-  const attributed = result.rows.map((r) => ({
-    kind: 'payment' as const,
-    paymentId: r.paymentId,
-    paymentNumber: r.paymentNumber,
-    entityId: r.customerId,
-    entityName: r.customerName ?? '',
-    paymentDate: r.paymentDate,
-    remainder: r.unappliedAmount,
-    journalEntryId: r.journalEntryId,
-    skippedReason: !r.customerId
-      ? SKIP_CONTACT_UNRESOLVED
-      : UNAPPLIABLE_RECEIPT_STATUSES.has(r.status)
-        ? skipUnapplicableStatus(r.status)
-        : null,
-  }));
-  const orphans = result.unattributed.map((r) => ({
-    kind: 'payment' as const,
-    paymentId: r.paymentId,
-    paymentNumber: r.paymentNumber,
-    entityId: null,
-    entityName: '',
-    paymentDate: r.paymentDate,
-    remainder: r.unappliedAmount,
-    journalEntryId: r.journalEntryId,
-    skippedReason: SKIP_CONTACT_UNRESOLVED,
-  }));
-  return [...attributed, ...orphans];
+function skipReasonFor(side: UnappliedSide, row: UnappliedPaymentBasisRow): string | null {
+  if (!row.attributed || !row.entityId) return SKIP_CONTACT_UNRESOLVED;
+  if (side === 'ar' && UNAPPLIABLE_RECEIPT_STATUSES.has(row.status)) {
+    return skipUnapplicableStatus(row.status);
+  }
+  return null;
 }

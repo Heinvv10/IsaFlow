@@ -25,14 +25,13 @@
 import { sql } from '@/lib/neon';
 import type { DbRow } from '@/lib/neon';
 import { fmtDate } from '@/lib/fmtDate';
-import { getUnappliedPayments } from '../ap/unappliedPaymentService';
-import { getUnappliedReceipts } from '../ar/unappliedReceiptService';
+import { getUnappliedPaymentBasis } from './unappliedPaymentBasis';
 import { fetchOpenSupplierBills } from '../ap/openSupplierBills';
 import { fetchOpenCustomerInvoices } from '../ar/openCustomerInvoices';
 import { journalsInAPeriod } from './journalPeriodVisibility';
 import { EPS } from './autoAllocateStrategy';
 import {
-  apSources, arSources, SKIP_NO_FISCAL_PERIOD, SKIP_NO_JOURNAL,
+  basisSources, SKIP_NO_FISCAL_PERIOD, SKIP_NO_JOURNAL,
 } from './autoApplyBackfillSkips';
 import type { SimulationDocument } from './autoApplySimulation';
 import type { BackfillSource, Subledger } from './autoApplyBackfillPlan';
@@ -125,9 +124,15 @@ export async function readBackfillSources(
   // As at TODAY. A back-fill acts on the books as they stand; an `asAt` in the
   // past would plan against a remainder later cash has already changed.
   const asAt = fmtDate(new Date());
-  const merged: BackfillSource[] = subledger === 'ap'
-    ? apSources(await getUnappliedPayments(companyId, { asAt, limit, entityId }))
-    : arSources(await getUnappliedReceipts(companyId, { asAt, limit, entityId }));
+  // THE BASIS IS UNPAGED — it returns every unapplied payment on the side, and
+  // its callers page it. So `entityId` is applied HERE, in memory, over a
+  // complete list: exact, and without a second copy of the predicate in SQL.
+  // Pushing the filter down into the shared query would also have to reach its
+  // separate totals aggregate, or the envelope's completeness identity would
+  // describe the whole book while the rows described one contact.
+  const basis = await getUnappliedPaymentBasis(companyId, subledger, asAt);
+  const merged: BackfillSource[] = basisSources(subledger, basis.rows)
+    .filter((s) => entityId === null || s.entityId === entityId);
   merged.push(...await readCreditNotes(companyId, subledger, entityId, limit));
 
   const ordered = merged
