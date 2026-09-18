@@ -119,20 +119,45 @@ export async function getUnpostedSubledgerDocuments(
                    AND jl.company_id = ${companyId}::UUID
                    AND jl.gl_account_id = ANY(${ids}::uuid[])
                ), 0)
-               + COALESCE((
-                 SELECT SUM(jl.debit - jl.credit)
-                 FROM customer_payment_allocations a
-                 JOIN customer_payments p ON p.id = a.payment_id
-                                         AND p.company_id = ${companyId}::UUID
-                 JOIN gl_journal_entries je ON je.id = p.gl_journal_entry_id
-                                           AND je.company_id = ${companyId}::UUID
-                                           AND je.status = 'posted'
-                                           AND je.entry_date <= ${asAtDate}::DATE
-                 JOIN gl_journal_lines jl ON jl.journal_entry_id = je.id
-                                         AND jl.company_id = ${companyId}::UUID
-                                         AND jl.gl_account_id = ANY(${ids}::uuid[])
-                 WHERE a.invoice_id = ci.id
-               ), 0)
+               -- THE ALLOCATED AMOUNT, not the whole journal. A payment's
+               -- control movement splits between the documents it was allocated
+               -- to and the remainder the unapplied-cash item claims, so summing
+               -- the journal's lines per allocation row gives an invoice the
+               -- WHOLE payment: a R100 receipt with R99.99 applied relieved the
+               -- invoice by R100 while the unapplied item also claimed R0.01,
+               -- and the cent was counted twice. Two allocations from one
+               -- payment to one invoice doubled it outright. The cap matches
+               -- the one in unappliedPaymentCash: attributions cannot exceed
+               -- the cash that actually reached the control account.
+               - LEAST(
+                   COALESCE((
+                     SELECT SUM(a.amount_allocated)
+                     FROM customer_payment_allocations a
+                     WHERE a.invoice_id = ci.id
+                       AND EXISTS (
+                         SELECT 1 FROM customer_payments p
+                         JOIN gl_journal_entries je ON je.id = p.gl_journal_entry_id
+                                                   AND je.company_id = ${companyId}::UUID
+                                                   AND je.status = 'posted'
+                                                   AND je.entry_date <= ${asAtDate}::DATE
+                         WHERE p.id = a.payment_id AND p.company_id = ${companyId}::UUID
+                       )
+                   ), 0),
+                   COALESCE((
+                     SELECT SUM(jl.credit - jl.debit)
+                     FROM customer_payment_allocations a
+                     JOIN customer_payments p ON p.id = a.payment_id
+                                             AND p.company_id = ${companyId}::UUID
+                     JOIN gl_journal_entries je ON je.id = p.gl_journal_entry_id
+                                               AND je.company_id = ${companyId}::UUID
+                                               AND je.status = 'posted'
+                                               AND je.entry_date <= ${asAtDate}::DATE
+                     JOIN gl_journal_lines jl ON jl.journal_entry_id = je.id
+                                             AND jl.company_id = ${companyId}::UUID
+                                             AND jl.gl_account_id = ANY(${ids}::uuid[])
+                     WHERE a.invoice_id = ci.id
+                   ), 0)
+                 )
                + COALESCE((
                  SELECT SUM(jl.debit - jl.credit)
                  FROM credit_notes cn
@@ -192,20 +217,40 @@ export async function getUnpostedSubledgerDocuments(
                    AND jl.company_id = ${companyId}::UUID
                    AND jl.gl_account_id = ANY(${ids}::uuid[])
                ), 0)
-               + COALESCE((
-                 SELECT SUM(jl.credit - jl.debit)
-                 FROM payment_allocations a
-                 JOIN supplier_payments p ON p.id = a.payment_id
-                                         AND p.company_id = ${companyId}::UUID
-                 JOIN gl_journal_entries je ON je.id = p.gl_journal_entry_id
-                                           AND je.company_id = ${companyId}::UUID
-                                           AND je.status = 'posted'
-                                           AND je.entry_date <= ${asAtDate}::DATE
-                 JOIN gl_journal_lines jl ON jl.journal_entry_id = je.id
-                                         AND jl.company_id = ${companyId}::UUID
-                                         AND jl.gl_account_id = ANY(${ids}::uuid[])
-                 WHERE a.invoice_id = si.id
-               ), 0)
+               -- THE ALLOCATED AMOUNT, not the whole journal -- the mirror of
+               -- the AR note above. Summing the journal per allocation row
+               -- relieves a bill by the payment's FULL value however little was
+               -- applied to it, and the unapplied item claims the remainder as
+               -- well.
+               - LEAST(
+                   COALESCE((
+                     SELECT SUM(a.amount_allocated)
+                     FROM payment_allocations a
+                     WHERE a.invoice_id = si.id
+                       AND EXISTS (
+                         SELECT 1 FROM supplier_payments p
+                         JOIN gl_journal_entries je ON je.id = p.gl_journal_entry_id
+                                                   AND je.company_id = ${companyId}::UUID
+                                                   AND je.status = 'posted'
+                                                   AND je.entry_date <= ${asAtDate}::DATE
+                         WHERE p.id = a.payment_id AND p.company_id = ${companyId}::UUID
+                       )
+                   ), 0),
+                   COALESCE((
+                     SELECT SUM(jl.debit - jl.credit)
+                     FROM payment_allocations a
+                     JOIN supplier_payments p ON p.id = a.payment_id
+                                             AND p.company_id = ${companyId}::UUID
+                     JOIN gl_journal_entries je ON je.id = p.gl_journal_entry_id
+                                               AND je.company_id = ${companyId}::UUID
+                                               AND je.status = 'posted'
+                                               AND je.entry_date <= ${asAtDate}::DATE
+                     JOIN gl_journal_lines jl ON jl.journal_entry_id = je.id
+                                             AND jl.company_id = ${companyId}::UUID
+                                             AND jl.gl_account_id = ANY(${ids}::uuid[])
+                     WHERE a.invoice_id = si.id
+                   ), 0)
+                 )
                -- The credit-note leg, the mirror of the AR one above. A linked
                -- supplier credit note raises the bill's amount_paid AND debits
                -- the control account; the AR side counted it and this side did
