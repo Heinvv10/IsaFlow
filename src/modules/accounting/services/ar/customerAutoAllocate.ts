@@ -25,22 +25,38 @@ import {
 } from './receiptApplicationService';
 import { journalIsInAPeriod } from '../shared/journalPeriodVisibility';
 import {
+  DEFAULT_AUTO_APPLY,
   EPS,
   parseAutoAllocateStrategy,
   planGreedyAllocations,
+  resolveApplicationOrder,
   round2,
-  strategyOrdersOldestFirst,
   type AutoAllocateStrategy,
-  type OpenDocument,
+  type AutoApplyMode,
 } from '../shared/autoAllocateStrategy';
+import type { SimulationDocument } from '../shared/autoApplySimulation';
 
-/** Statuses that cannot take a receipt — the set `receiptAllocationLines` refuses on, plus the terminal ones. */
-const UNALLOCATABLE_STATUSES = ['draft', 'pending_approval', 'cancelled', 'paid', 'written_off'];
+/**
+ * Statuses that cannot take a receipt — the set `receiptAllocationLines`
+ * refuses on, plus the terminal ones.
+ *
+ * 'disputed' and 'written_off' are NOT in `customer_invoices`' CHECK constraint
+ * (migration 000; a dispute lives in `customer_invoice_disputes` instead), so
+ * neither ever matches a row. They are listed anyway so this array and its AP
+ * twin say the same thing: two lists that disagree about what cash may settle
+ * is how the two subledgers drift apart.
+ */
+const UNALLOCATABLE_STATUSES = [
+  'draft', 'pending_approval', 'cancelled', 'paid', 'written_off', 'disputed',
+];
 
 export interface CustomerReceiptApplication {
   appliedLines: { invoiceId: string; invoiceNumber: string; amount: number }[];
   unappliedRemainder: number;
+  /** The order the cash was consumed in, or 'off' when none of it was. */
   strategy: AutoAllocateStrategy;
+  /** The mode this call ran under. */
+  autoApply: AutoApplyMode;
 }
 
 /** The customer's instruction, or 'off' when the customer row has gone. */
@@ -56,35 +72,49 @@ export async function resolveCustomerAutoAllocateStrategy(
 }
 
 /**
- * The customer's open invoices in the strategy's order.
+ * The customer's open invoices in the order the cash will consume them, LOCKED.
  *
  * `COALESCE(ci.client_id, ci.customer_id)` because both columns exist and
  * either can carry the customer — matching on one alone silently misses half
  * the ledger.
+ *
+ * `FOR UPDATE OF ci` and not a bare `FOR UPDATE`: the lock is on the invoice
+ * rows this receipt is about to consume, and without it two concurrent
+ * receipts read the same open invoice and each applies its whole amount to it.
  */
 export async function fetchOpenCustomerInvoices(
   companyId: string,
   customerId: string,
   oldestFirst: boolean,
-): Promise<OpenDocument[]> {
+): Promise<SimulationDocument[]> {
   const rows = (oldestFirst
     ? await sql`
-        SELECT ci.id, (ci.total_amount - COALESCE(ci.amount_paid, 0)) AS outstanding
+        SELECT ci.id, ci.invoice_number,
+               (ci.total_amount - COALESCE(ci.amount_paid, 0)) AS outstanding
         FROM customer_invoices ci
         WHERE ci.company_id = ${companyId}::UUID
           AND COALESCE(ci.client_id, ci.customer_id) = ${customerId}::UUID
+          AND ci.deleted_at IS NULL
           AND ci.status <> ALL(${UNALLOCATABLE_STATUSES}::TEXT[])
           AND (ci.total_amount - COALESCE(ci.amount_paid, 0)) > ${EPS}
-        ORDER BY ci.invoice_date ASC, ci.created_at ASC, ci.id ASC`
+        ORDER BY ci.invoice_date ASC, ci.due_date ASC NULLS LAST, ci.id ASC
+        FOR UPDATE OF ci`
     : await sql`
-        SELECT ci.id, (ci.total_amount - COALESCE(ci.amount_paid, 0)) AS outstanding
+        SELECT ci.id, ci.invoice_number,
+               (ci.total_amount - COALESCE(ci.amount_paid, 0)) AS outstanding
         FROM customer_invoices ci
         WHERE ci.company_id = ${companyId}::UUID
           AND COALESCE(ci.client_id, ci.customer_id) = ${customerId}::UUID
+          AND ci.deleted_at IS NULL
           AND ci.status <> ALL(${UNALLOCATABLE_STATUSES}::TEXT[])
           AND (ci.total_amount - COALESCE(ci.amount_paid, 0)) > ${EPS}
-        ORDER BY ci.invoice_date DESC, ci.created_at DESC, ci.id DESC`) as DbRow[];
-  return rows.map((r) => ({ invoiceId: String(r.id), outstanding: Number(r.outstanding) }));
+        ORDER BY ci.invoice_date DESC, ci.due_date DESC NULLS FIRST, ci.id DESC
+        FOR UPDATE OF ci`) as DbRow[];
+  return rows.map((r) => ({
+    invoiceId: String(r.id),
+    invoiceNumber: r.invoice_number ? String(r.invoice_number) : String(r.id),
+    outstanding: Number(r.outstanding),
+  }));
 }
 
 /**
@@ -101,32 +131,41 @@ export async function autoApplyCustomerReceipt(args: {
   journalEntryId: string;
   amount: number;
   userId: string;
+  /**
+   * `'none'` when the caller has already named what this cash settles — see the
+   * AP twin. Defaults to `'fifo'`.
+   */
+  autoApply?: AutoApplyMode;
 }): Promise<CustomerReceiptApplication> {
   const { companyId, customerId, paymentId, journalEntryId, amount, userId } = args;
+  const autoApply = args.autoApply ?? DEFAULT_AUTO_APPLY;
 
-  // Instruction first, journal second — the same ordering and the same reason
-  // as the AP twin: the period read only has to answer for cash that is about
-  // to be applied.
+  // Mode first, customer second, journal third — the same ordering and the same
+  // reason as the AP twin: a caller that said 'none' must not cost either read,
+  // and the period read only has to answer for cash that is about to be
+  // applied.
   //
   // See journalPeriodVisibility: an invoice must not be marked paid off a
   // journal that appears in no period-scoped report.
-  const requested = await resolveCustomerAutoAllocateStrategy(companyId, customerId);
-  const strategy = requested !== 'off' && await journalIsInAPeriod(companyId, journalEntryId)
+  const requested = autoApply === 'none'
+    ? null
+    : resolveApplicationOrder(
+      autoApply, await resolveCustomerAutoAllocateStrategy(companyId, customerId),
+    );
+  const strategy = requested !== null && await journalIsInAPeriod(companyId, journalEntryId)
     ? requested
     : 'off';
   if (strategy === 'off') {
-    return { appliedLines: [], unappliedRemainder: round2(amount), strategy };
+    return { appliedLines: [], unappliedRemainder: round2(amount), strategy, autoApply };
   }
 
-  const open = await fetchOpenCustomerInvoices(
-    companyId, customerId, strategyOrdersOldestFirst(strategy),
-  );
+  const open = await fetchOpenCustomerInvoices(companyId, customerId, strategy === 'oldest');
   const allocations = planGreedyAllocations(amount, open);
   if (allocations.length === 0) {
     log.info('Customer receipt recorded, no open invoice to apply to', {
       customerId, paymentId, amount, strategy,
     }, 'accounting');
-    return { appliedLines: [], unappliedRemainder: round2(amount), strategy };
+    return { appliedLines: [], unappliedRemainder: round2(amount), strategy, autoApply };
   }
 
   const plan = await planReceiptApplication(companyId, paymentId, allocations);
@@ -145,5 +184,6 @@ export async function autoApplyCustomerReceipt(args: {
     })),
     unappliedRemainder: plan.unappliedAfter,
     strategy,
+    autoApply,
   };
 }
