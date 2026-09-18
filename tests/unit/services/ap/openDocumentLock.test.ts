@@ -88,6 +88,31 @@ describe('fetchOpenCustomerInvoices — the lock is the caller’s choice', () =
   });
 });
 
+describe('every variant carries the same population predicates', () => {
+  // Four statements per fetch — two directions by two lock states — and a
+  // predicate present in three of them is a hole that only shows up on the
+  // fourth. Soft-deleted documents are the one that matters most: a reversed,
+  // soft-deleted invoice is out of the ledger, and FIFO settling it would put
+  // cash against a document no report will show.
+  const variants: [boolean, boolean][] = [[true, true], [true, false], [false, true], [false, false]];
+
+  it('never offers a soft-deleted bill to the supplier walk', async () => {
+    for (const [oldestFirst, forUpdate] of variants) {
+      await fetchOpenSupplierBills(COMPANY, ENTITY, oldestFirst, { forUpdate });
+      expect(lastQuery()).toContain('deleted_at IS NULL');
+      expect(lastQuery()).toContain('status <> ALL(?::TEXT[])');
+    }
+  });
+
+  it('never offers a soft-deleted invoice to the customer walk', async () => {
+    for (const [oldestFirst, forUpdate] of variants) {
+      await fetchOpenCustomerInvoices(COMPANY, ENTITY, oldestFirst, { forUpdate });
+      expect(lastQuery()).toContain('ci.deleted_at IS NULL');
+      expect(lastQuery()).toContain('COALESCE(ci.client_id, ci.customer_id)');
+    }
+  });
+});
+
 describe('the live callers ask for the lock', () => {
   it('recordSupplierBankPayment reads its bills locked', async () => {
     const { recordSupplierBankPayment } = await import(
