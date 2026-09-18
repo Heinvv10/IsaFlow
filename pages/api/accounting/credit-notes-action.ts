@@ -13,9 +13,17 @@ import { withCsrf } from '@/lib/auth/withCsrf';
 import { log } from '@/lib/logger';
 import { UUID } from '@/lib/schemas/common';
 import { approveCreditNote, cancelCreditNote, applyCreditNoteToInvoice } from '@/modules/accounting/services/ar/creditNoteService';
+import { CREDIT_NOTE_AUTO_APPLY } from '@/modules/accounting/services/shared/creditNoteFifo';
 
 const CreditNoteActionSchema = z.discriminatedUnion('action', [
-  z.object({ action: z.literal('approve'), creditNoteId: UUID }),
+  // autoApply defaults to 'fifo' — approving a note applies its remainder to the
+  // customer's open invoices oldest first. A form that wants the old
+  // linked-document-only behaviour sends 'none'.
+  z.object({
+    action: z.literal('approve'),
+    creditNoteId: UUID,
+    autoApply: z.enum(CREDIT_NOTE_AUTO_APPLY).optional(),
+  }),
   z.object({ action: z.literal('cancel'), creditNoteId: UUID, reason: z.string().max(500).optional() }),
   z.object({ action: z.literal('apply'), creditNoteId: UUID, invoiceId: UUID }),
 ]);
@@ -37,7 +45,9 @@ async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse) {
 
     switch (parsed.data.action) {
       case 'approve': {
-        const creditNote = await approveCreditNote(companyId, parsed.data.creditNoteId, userId);
+        const creditNote = await approveCreditNote(companyId, parsed.data.creditNoteId, userId, {
+          autoApply: parsed.data.autoApply ?? 'fifo',
+        });
         return apiResponse.success(res, creditNote);
       }
       case 'cancel': {

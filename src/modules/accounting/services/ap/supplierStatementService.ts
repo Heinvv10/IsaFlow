@@ -73,7 +73,7 @@ export interface SupplierStatementPayload {
 /** A supplier payment settles nothing until it has been processed. */
 const SETTLING_PAYMENT_STATUSES = new Set(['processed', 'reconciled', 'paid']);
 /** A credit note is 'approved' standing alone and 'applied' once set against a bill. */
-const LIVE_CREDIT_NOTE_STATUSES = new Set(['approved', 'applied']);
+const LIVE_CREDIT_NOTE_STATUSES = new Set(['approved', 'partially_applied', 'applied']);
 
 function maxIso(values: Array<unknown>): string | null {
   const iso = values
