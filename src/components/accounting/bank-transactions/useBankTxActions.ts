@@ -72,7 +72,11 @@ export function buildBankTxActions(deps: ActionDeps) {
     if (!sel?.entityId) { notify.error('Select an account/supplier/customer first'); return; }
     const tx = transactions.find(t => t.id === txId);
     try {
-      const body: Record<string, string> = { action: 'allocate', bankTransactionId: txId, allocationType: sel.type, vatCode: sel.vatCode || 'none' };
+      // `autoApply` is stated rather than left to the default: a supplier or
+      // customer line allocated here settles that contact's oldest open
+      // documents, and the screen that posts it should say so rather than
+      // inherit it. Nothing here offers 'none' yet — the REST action takes it.
+      const body: Record<string, string> = { action: 'allocate', bankTransactionId: txId, allocationType: sel.type, vatCode: sel.vatCode || 'none', autoApply: 'fifo' };
       if (sel.type === 'account' || sel.type === 'transfer') body.contraAccountId = sel.entityId;
       else body.entityId = sel.entityId;
       if (sel.cc1Id) body.cc1Id = sel.cc1Id;
@@ -140,7 +144,7 @@ export function buildBankTxActions(deps: ActionDeps) {
       try {
         const sel = rowSelections[txId];
         if (!sel) continue;
-        const body: Record<string, string> = { action: 'allocate', bankTransactionId: txId, allocationType: sel.type, vatCode: sel.vatCode || 'none' };
+        const body: Record<string, string> = { action: 'allocate', bankTransactionId: txId, allocationType: sel.type, vatCode: sel.vatCode || 'none', autoApply: 'fifo' };
         if (sel.type === 'account' || sel.type === 'transfer') body.contraAccountId = sel.entityId;
         else body.entityId = sel.entityId;
         if (sel.cc1Id) body.cc1Id = sel.cc1Id;

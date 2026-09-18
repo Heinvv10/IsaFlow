@@ -135,8 +135,8 @@ export async function applyCreditNote(args: {
   if (linkedInvoiceId) candidates.push(linkedInvoiceId);
   if (autoApply === 'fifo' && entityId) {
     const open = side === 'customer'
-      ? await fetchOpenCustomerInvoices(companyId, entityId, true)
-      : await fetchOpenSupplierBills(companyId, entityId, true);
+      ? await fetchOpenCustomerInvoices(companyId, entityId, true, { forUpdate: false })
+      : await fetchOpenSupplierBills(companyId, entityId, true, { forUpdate: false });
     for (const doc of open) {
       // The linked document is already first in the list. A second entry would
       // plan against it twice and violate the allocation table's UNIQUE.

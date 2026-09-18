@@ -160,16 +160,16 @@ describe('allocateTransaction — a caller that named a non-bill target', () => 
     // to some unrelated open bill would contradict the match just confirmed.
     await allocateTransaction(
       COMPANY_ID, BANK_TX_ID, null, USER_ID, undefined, 'supplier', ENTITY_ID,
-      undefined, undefined, undefined, undefined, undefined, { autoApply: false },
+      undefined, undefined, undefined, undefined, undefined, { autoApply: 'none' },
     );
 
     expect(recordSupplierBankPayment).toHaveBeenCalledOnce();
     expect(vi.mocked(recordSupplierBankPayment).mock.calls[0]![0]).toMatchObject({
-      autoApply: false,
+      autoApply: 'none',
     });
   });
 
-  it('runs the strategy by default, when no caller named anything', async () => {
+  it('applies FIFO by default, when no caller named anything', async () => {
     primeSql(SPENT_TX);
 
     await allocateTransaction(
@@ -177,7 +177,7 @@ describe('allocateTransaction — a caller that named a non-bill target', () => 
     );
 
     expect(vi.mocked(recordSupplierBankPayment).mock.calls[0]![0]).toMatchObject({
-      autoApply: true,
+      autoApply: 'fifo',
     });
   });
 });
@@ -214,6 +214,7 @@ describe('allocateTransaction — customer receipt', () => {
       customerId: ENTITY_ID,
       paymentId: PAYMENT_ROW_ID,
       amount: 1150,
+      autoApply: 'fifo',
     });
   });
 
