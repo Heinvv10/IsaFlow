@@ -27,6 +27,12 @@ import { describe, it, expect, vi, beforeEach } from 'vitest';
 vi.mock('@/lib/logger', () => ({
   log: { info: vi.fn(), error: vi.fn(), warn: vi.fn(), debug: vi.fn() },
 }));
+vi.mock('@/modules/accounting/services/shared/creditNoteFifo', async () => {
+  const actual = await vi.importActual<typeof import('@/modules/accounting/services/shared/creditNoteFifo')>(
+    '@/modules/accounting/services/shared/creditNoteFifo',
+  );
+  return { ...actual, listCreditNoteAllocations: vi.fn() };
+});
 vi.mock('@/modules/accounting/services/ar/creditNoteService', () => ({
   getCreditNotes: vi.fn(),
   getCreditNoteById: vi.fn(),
@@ -54,6 +60,7 @@ import {
   findOpenDuplicateDraft,
 } from '@/modules/accounting/services/ar/creditNoteLinkService';
 import { validateSystemAccounts } from '@/modules/accounting/services/gl/systemAccountResolver';
+import { listCreditNoteAllocations } from '@/modules/accounting/services/shared/creditNoteFifo';
 import { listCreditNotesTool, getCreditNoteTool } from '@/lib/mcp/tools/creditNotes';
 import {
   createCreditNoteTool,
@@ -103,6 +110,7 @@ const draftNote = {
 
 beforeEach(() => {
   vi.clearAllMocks();
+  vi.mocked(listCreditNoteAllocations).mockResolvedValue([]);
   vi.mocked(validateCreditNoteLinks).mockResolvedValue(null);
   vi.mocked(validateSystemAccounts).mockResolvedValue([]);
   vi.mocked(findOpenDuplicateDraft).mockResolvedValue(null);
@@ -226,24 +234,51 @@ describe('approve_credit_note', () => {
     await approveCreditNoteTool.handler({ credit_note_id: NOTE, ...KEY }, ctx());
     expect(approveCreditNote).toHaveBeenCalledWith(
       COMPANY, NOTE, expect.any(String),
-      { postingAgent: 'mcp:approve_credit_note:v1', actorType: 'agent', actorTokenJti: 'jti' },
+      { postingAgent: 'mcp:approve_credit_note:v1', actorType: 'agent', actorTokenJti: 'jti',
+        autoApply: 'fifo' },
     );
   });
 
-  it('reports applied_to_invoice_id when the auto-apply fired, and null when it did not', async () => {
+  it('names every document the note settled, and what is left on account', async () => {
     vi.mocked(getCreditNoteById).mockResolvedValue(draftNote as never);
 
     vi.mocked(approveCreditNote).mockResolvedValue({
-      ...draftNote, status: 'applied', customerInvoiceId: CUST_INV, glJournalEntryId: 'je-1',
+      ...draftNote, status: 'partially_applied', totalAmount: 1150, appliedAmount: 400,
+      customerInvoiceId: CUST_INV, glJournalEntryId: 'je-1',
     } as never);
+    vi.mocked(listCreditNoteAllocations).mockResolvedValue([{ invoiceId: CUST_INV, amount: 400 }]);
     expect(parseOk(await approveCreditNoteTool.handler({ credit_note_id: NOTE, ...KEY }, ctx())))
-      .toMatchObject({ status: 'applied', applied_to_invoice_id: CUST_INV });
+      .toMatchObject({
+        status: 'partially_applied',
+        applied_amount: 400,
+        unapplied_amount: 750,
+        applied_to_invoice_ids: [{ invoice_id: CUST_INV, amount: 400 }],
+      });
 
     vi.mocked(approveCreditNote).mockResolvedValue({
-      ...draftNote, status: 'approved', glJournalEntryId: 'je-1',
+      ...draftNote, status: 'approved', totalAmount: 1150, appliedAmount: 0, glJournalEntryId: 'je-1',
     } as never);
+    vi.mocked(listCreditNoteAllocations).mockResolvedValue([]);
     expect(parseOk(await approveCreditNoteTool.handler({ credit_note_id: NOTE, ...KEY }, ctx())))
-      .toMatchObject({ status: 'approved', applied_to_invoice_id: null });
+      .toMatchObject({ status: 'approved', applied_amount: 0, applied_to_invoice_ids: [] });
+  });
+
+  it('passes auto_apply "none" through, and refuses a value that is neither', async () => {
+    vi.mocked(getCreditNoteById).mockResolvedValue(draftNote as never);
+    vi.mocked(approveCreditNote).mockResolvedValue({
+      ...draftNote, status: 'approved', totalAmount: 1150, appliedAmount: 0, glJournalEntryId: 'je-1',
+    } as never);
+    vi.mocked(listCreditNoteAllocations).mockResolvedValue([]);
+
+    await approveCreditNoteTool.handler({ credit_note_id: NOTE, auto_apply: 'none', ...KEY }, ctx());
+    expect(vi.mocked(approveCreditNote).mock.calls[0]![3]).toMatchObject({ autoApply: 'none' });
+
+    // Coercing an unknown value to the default would spend the credit for an
+    // agent that asked for the opposite.
+    const bad = await approveCreditNoteTool.handler(
+      { credit_note_id: NOTE, auto_apply: 'oldest', ...KEY }, ctx(),
+    );
+    expect(errText(bad)).toContain('auto_apply must be one of');
   });
 
   it('RETHROWS a service failure instead of flattening it into a tool error', async () => {

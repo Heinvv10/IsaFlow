@@ -15,6 +15,12 @@
  *     what we still owe a supplier.
  *   - 'approved' → applied_amount is 0 by construction, and the note is
  *     unallocated credit held at face value.
+ *   - 'partially_applied' (migration 677) → part of the note settled documents
+ *     and the REST is still available, so the statement credits the FACE value:
+ *     the applied part is already off the documents' balances, and the
+ *     remainder is credit the counterparty still holds. That is the default
+ *     branch below, which is why this function did not change — but it is the
+ *     status that makes the rule worth stating.
  * Same rule the aging already follows (agingRewind, apAgingService).
  */
 export function creditNoteAppliedAmount(cn: {
