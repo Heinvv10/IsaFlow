@@ -16,7 +16,12 @@
  *   item_within_cited_gross  no item may claim more than the documents it cites
  *       are worth. This is the one that catches an item summed off the wrong
  *       column — R453m of `document_not_on_control_account` across bills worth
- *       a fraction of it read as a finding about the books.
+ *       a fraction of it read as a finding about the books. It compares
+ *       Σ|member amount|, NOT the group's net: on a net, one overstated member
+ *       hides behind an opposite-signed one, which is not hypothetical —
+ *       `posting_with_no_document` nets +R124,704.80 against a cited gross of
+ *       R686,504.50 on a production copy because two refund journals of
+ *       −R120,290.00 and −R160,609.85 sit in the same group.
  *   unexplained_is_the_residual  the residual is the gap less the NAMED items,
  *       never clamped, floored or plugged. A clamped residual is how an
  *       incomplete decomposition comes to look complete.
@@ -83,16 +88,22 @@ export function checkInvariants({
 
   // Residual items cite no documents and are excluded: their whole purpose is
   // to carry an amount nothing accounts for.
+  //
+  // Σ|member| against Σ gross. Absolute values cannot offset, so a member that
+  // claims more than its own document is worth cannot be hidden by an
+  // opposite-signed member of the same group. A tolerance of a cent per
+  // document absorbs rounding without absorbing a finding.
   const overstated = control.filter(
-    (i) => i.documentIds.length > 0 && Math.abs(i.amount) > round2(i.citedGross) + 0.01,
+    (i) => i.documentIds.length > 0
+      && round2(i.citedAbsAmount) > round2(i.citedGross) + 0.01 * Math.max(1, i.documentIds.length),
   );
   out.push({
     name: 'item_within_cited_gross',
     holds: overstated.length === 0,
     detail: overstated.length === 0
-      ? 'Every item claims no more than the documents it names are worth.'
+      ? 'Every item claims no more than the documents it names are worth, member by member.'
       : overstated
-        .map((i) => `${i.type} claims ${i.amount} against ${i.documentIds.length} document(s) worth ${i.citedGross}`)
+        .map((i) => `${i.type} claims ${i.citedAbsAmount} in absolute value (net ${i.amount}) against ${i.documentIds.length} document(s) worth ${i.citedGross}`)
         .join('; '),
   });
 

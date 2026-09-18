@@ -26,6 +26,9 @@ Last updated: 2026-04-19 · 643 commits on `master` · 144 migrations (000 → 3
 - A credit note relieves a document by its applied amount, not by its whole journal, so unconsumed credit is counted once
 - Unapplied credit is any non-draft, non-cancelled note with a remainder — `applied` notes carry one too
 - Three invariants are checked and REPORTED in the response rather than thrown
+- `posting_with_no_document` names one cause class with a remedy: an allocation journal with no payment document, created by bank allocation paths that post the control leg and no payment row — R124,704.80 across 39 journals on a production copy, all stamped `mcp:bulk_allocate_bank_transactions`. Create the payment document, then apply it
+- A supplier refund (bank in, payable up) is itemised with the sign its movement has, instead of dropping out of the itemisation into the residual
+- `item_within_cited_gross` compares each item's absolute member total, so an overstated row cannot hide behind an opposite-signed one
 - Measured against a full production copy: AP unexplained difference R15,707,991.88 → R0.00
 
 ---

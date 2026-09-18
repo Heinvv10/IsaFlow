@@ -63,6 +63,8 @@ const GROSS = SUB + VAT;
  * gap is a cent lower.
  */
 const STRAY_CENT = -0.01;
+/** A supplier refund: cash back in, the payable put back up. */
+const REFUND = 500;
 
 let supplier = '';
 let customer = '';
@@ -75,6 +77,7 @@ let contraBill = '';
 let voidedBill = '';
 let notedBill = '';
 let doubleNotedBill = '';
+let refundPayment = '';
 
 async function inTx<T>(fn: () => Promise<T>): Promise<T> {
   const client: PoolClient = await getPoolForTests().connect();
@@ -291,6 +294,33 @@ describeIfDb('L3 — control account by subtype, and one definition of unapplied
       UPDATE supplier_invoices SET amount_paid = ${GROSS}, status = 'paid'
       WHERE id = ${doubleNotedBill}::UUID AND company_id = ${COMPANY}::UUID`;
 
+    // A REFUND-DIRECTION payment: a supplier_payments row whose AP leg is
+    // CREDITED (DR Bank / CR Accounts Payable), which is what a supplier refund
+    // posts. Its movement on the control account is NEGATIVE, and capping the
+    // allocations with a bare Math.min picked that negative movement even with
+    // nothing allocated, so the item came out at zero, the payment dropped out
+    // of the itemisation, its value became an unnamed residual, and the warning
+    // row claimed the cash had never reached a control account.
+    refundPayment = ((await sql`
+      INSERT INTO supplier_payments (company_id, payment_number, supplier_id, payment_date,
+        total_amount, status, payment_method, bank_account_id, created_by)
+      VALUES (${COMPANY}::UUID, ${TAG + '-REFUND'}, ${supplier}::UUID, ${SETTLE_DATE}::date,
+        ${REFUND}, 'processed', 'eft', ${bank}::UUID, ${USER}::UUID)
+      RETURNING id`) as { id: string }[])[0]!.id;
+    const refundJe = ((await sql`
+      INSERT INTO gl_journal_entries (company_id, entry_number, entry_date, description,
+        status, source, created_by)
+      VALUES (${COMPANY}::UUID, ${TAG + '-REFJE'}, ${SETTLE_DATE}::date, 'L3 supplier refund',
+        'posted', 'auto_supplier_payment', ${USER}::UUID)
+      RETURNING id`) as { id: string }[])[0]!.id;
+    await sql`
+      INSERT INTO gl_journal_lines (company_id, journal_entry_id, gl_account_id, debit, credit)
+      VALUES (${COMPANY}::UUID, ${refundJe}::UUID, ${bank}::UUID, ${REFUND}, 0),
+             (${COMPANY}::UUID, ${refundJe}::UUID, ${payable}::UUID, 0, ${REFUND})`;
+    await sql`
+      UPDATE supplier_payments SET gl_journal_entry_id = ${refundJe}::UUID
+      WHERE id = ${refundPayment}::UUID AND company_id = ${COMPANY}::UUID`;
+
     // ONE CENT THE DECOMPOSITION CANNOT EXPLAIN. `soft_delete_journal_reversals`
     // (mig 653) records the reversal a document soft-delete posts, and the
     // orphan scan skips those rows — the pair already nets to zero and the
@@ -393,21 +423,25 @@ describeIfDb('L3 — control account by subtype, and one definition of unapplied
     const listed = await getUnappliedPayments(COMPANY, { asAt: AS_AT, limit: 200 });
     const basis = await getUnappliedPaymentBasis(COMPANY, 'ap', AS_AT);
 
-    // R500 wholly unapplied and R0.01 left on the R100 payment. The fully
-    // applied R200 and the contra settlement are not unapplied cash at all.
-    expect(listed.rowsTotal).toBe(2);
-    expect(listed.totalUnapplied).toBeCloseTo(500.01, 2);
-    expect(basis.rows).toHaveLength(2);
-    expect(basis.rows.reduce((s, r) => s + r.unappliedAmount, 0)).toBeCloseTo(500.01, 2);
+    // R500 wholly unapplied, R0.01 left on the R100 payment, and the R500
+    // refund, which the DOCUMENT basis also counts as unapplied.
+    expect(listed.rowsTotal).toBe(3);
+    expect(listed.totalUnapplied).toBeCloseTo(500.01 + REFUND, 2);
+    expect(basis.rows).toHaveLength(3);
+    expect(basis.rows.reduce((s, r) => s + r.unappliedAmount, 0)).toBeCloseTo(500.01 + REFUND, 2);
 
     // ...and the reconciler explains exactly that much, because this cash IS on
     // the control account. Where it is not, the item is the control-side figure
     // and the gap is named in excludedRows instead of being folded in.
     const rec = await reconcileSubledger(COMPANY, 'ap', AS_AT);
     const item = rec.reconcilingItems.find((i) => i.type === 'unapplied_receipt');
-    expect(item?.documentIds).toHaveLength(2);
-    expect(item?.amount).toBeCloseTo(500.01, 2);
-    expect(rec.excludedRows.some((e) => e.reason === 'unapplied_cash_off_control_account')).toBe(false);
+    expect(item?.documentIds).toHaveLength(3);
+    // The refund fixture nets against these two; see its own case.
+    expect(item?.amount).toBeCloseTo(500.01 - REFUND, 2);
+    // Only the refund diverges; the two payments whose cash is on the control
+    // account agree exactly between the two tools.
+    const off = rec.excludedRows.filter((e) => e.reason === 'unapplied_cash_off_control_account');
+    expect(off.map((e) => e.id)).toEqual([refundPayment]);
   }, 120000);
 
   it('list_unapplied_receipts and the reconciler count the same cash, on AR too', async () => {
@@ -468,6 +502,27 @@ describeIfDb('L3 — control account by subtype, and one definition of unapplied
     expect(credit!.documentNumbers).toContain(TAG + '-CNB');
     expect(credit!.documentNumbers).not.toContain(TAG + '-CNA');
     expect(rec.unexplainedDifference).toBe(STRAY_CENT);
+  }, 120000);
+
+  it('names a REFUND-direction payment, with the sign its movement has', async () => {
+    const rec = await reconcileSubledger(COMPANY, 'ap', AS_AT);
+    const item = rec.reconcilingItems.find((i) => i.type === 'unapplied_receipt');
+    expect(item!.documentIds).toContain(refundPayment);
+    // It raised the control account, so it lowers the gap: the R500 the other
+    // unapplied payments add is offset by this one.
+    expect(item!.amount).toBeCloseTo(500.01 - REFUND, 2);
+    // The two tools DO disagree about this payment — the document basis counts
+    // R500 unapplied, the control account moved −R500 — so the divergence is
+    // named. What it must not say is that the cash never reached the control
+    // account: it reached it, in the other direction.
+    const off = rec.excludedRows.filter((e) => e.reason === 'unapplied_cash_off_control_account');
+    const row = off.find((e) => e.id === refundPayment);
+    expect(row).toBeDefined();
+    expect(row!.amount).toBeCloseTo(REFUND * 2, 2);
+    expect(row!.detail).not.toMatch(/never reached/);
+    for (const inv of rec.invariants) {
+      expect(inv, `${inv.name}: ${inv.detail}`).toMatchObject({ holds: true });
+    }
   }, 120000);
 
   it('reports a SUB-RAND residual exactly, as a figure and as an item', async () => {

@@ -114,10 +114,20 @@ export async function getUnappliedPaymentCash(
 
   for (const r of basis.rows) {
     const movement = movementById.get(r.paymentId) ?? 0;
-    // Allocations capped at what actually reached the control account: applying
-    // more than the cash that arrived must not make the item negative and net
-    // off a real remainder on another payment in the same total.
-    const allocatedOnControl = Math.min(r.allocatedAmount, movement);
+    // Allocations capped into [0, movement]: applying more than the cash that
+    // arrived must not make the item negative and net off a real remainder on
+    // another payment in the same total.
+    //
+    // THE FLOOR AT ZERO IS NOT DEFENSIVE. A supplier REFUND is a
+    // `supplier_payments` row whose control leg is CREDITED (DR Bank / CR
+    // Accounts Payable), so its movement is NEGATIVE. A bare `min` picked that
+    // negative movement as the allocated figure even with nothing allocated,
+    // the item came out at exactly zero, the payment dropped out of the
+    // itemisation, its value became an unnamed residual, and the warning row
+    // below claimed the cash had never reached a control account -- it had,
+    // in the other direction. With the floor the item is the movement itself,
+    // signed the way it moved the account.
+    const allocatedOnControl = Math.min(r.allocatedAmount, Math.max(0, movement));
     const amount = round2(movement - allocatedOnControl);
     const item: UnappliedCashItem = {
       id: r.paymentId,
@@ -133,6 +143,10 @@ export async function getUnappliedPaymentCash(
     if (allocatedOnControl !== 0) {
       appliedRecords.push({ ...item, amount: round2(allocatedOnControl) });
     }
+    // The two figures the two tools report, subtracted. For a payment whose
+    // cash is where it should be they are equal and this is zero; where they
+    // differ -- partly posted, reversed, or posted in the refund direction --
+    // the gap is named rather than reconciled away. See reconcilingWarnings.
     const off = round2(r.unappliedAmount - amount);
     if (off !== 0) {
       offControl.push({
