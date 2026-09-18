@@ -11,11 +11,11 @@
  * reads take FOR UPDATE row locks, and the rollback is what releases them
  * promptly rather than at the end of an implicit statement.
  *
- * AND IT REFUSES PRODUCTION, through the same allow-list guard the mutating
- * tests use rather than a second copy of it — dev, staging and production
- * differ only in the database NAME on one host, which is a very small env slip
- * to make. `isaflow_dev`, `isaflow_test` and `isaflow_staging` are allowed;
- * `isaflow` is not, and no flag reaches past that.
+ * AND IT REFUSES PRODUCTION. Dev, staging and production differ only in the
+ * database NAME on one host, which is a very small env slip to make. The
+ * allow-list is `scripts/lib/assertBackfillDryRunDb.ts` — its OWN list, not the
+ * one the mutating tests share, because this script may read the staging copy
+ * of production and those tests must never be able to write to it.
  *
  * The live run is `auto_apply_unapplied` with `dry_run: false`, which applies
  * each payment in its own savepoint and is reversible per payment.
@@ -25,7 +25,7 @@ import { writeFileSync } from 'fs';
 import { als } from '@/lib/als';
 import { autoApplyUnapplied } from '@/modules/accounting/services/shared/autoApplyBackfillService';
 import { SUBLEDGERS, type Subledger } from '@/modules/accounting/services/shared/autoApplyBackfillPlan';
-import { assertNotProductionDb } from '../tests/helpers/assertNotProductionDb';
+import { assertBackfillDryRunDb } from './lib/assertBackfillDryRunDb';
 
 const argv = process.argv.slice(2);
 
@@ -54,7 +54,7 @@ function padLeft(text: string, width: number): string {
 async function main(): Promise<void> {
   const url = process.env.DATABASE_URL;
   if (!url) throw new Error('DATABASE_URL not set');
-  assertNotProductionDb('This script reads and row-locks a whole subledger.');
+  assertBackfillDryRunDb('This script reads a whole subledger.');
 
   const companyId = flag('company');
   const subledger = flag('subledger');
