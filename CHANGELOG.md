@@ -11,6 +11,27 @@ Last updated: 2026-04-19 · 643 commits on `master` · 144 migrations (000 → 3
 - **Bank allocations apply the cash** — allocating a bank line to a supplier or customer without naming a document now applies the cash FIFO to that entity's oldest open documents; pass `auto_apply: "none"` to leave it on account. Users who relied on allocate-now-apply-later will see documents close automatically.
 - **Phase 3b — TOTP 2FA via GoTrue native MFA** — design spec + 17-task implementation plan landed 2026-04-19 (not yet merged)
 - **Xero-parity UX roadmap** — see FEATURES.md §21.1 (Setup Guide drawer, adaptive dashboard, shared component library, breadcrumbs, invoice preview, report favouriting)
+- **L4 — decimal running balances** — customer/supplier statement and GL ledger running balances are now computed in decimal (`src/lib/money/decimalSum.ts`) and serialised to 2dp, fixing float-drift payload values like `126629.94999999995` and `-4.3655745685100555e-11`
+
+---
+
+## 2026-09-18 — Subledger Reconciliation: Control Accounts, Unapplied Cash, Invariants
+
+**Reconciliation**
+
+- `reconcile_subledger` resolves the control account by SUBTYPE ONLY, so a `settle_by_contra` account is never mistaken for one — the posting probe adopted loan accounts reached through a supplier payment, producing three "AP control accounts", a +R453m item and a −R437m unexplained difference
+- Accounts a subledger's own documents move that are not typed for the role are reported as `postings_on_non_control_accounts` warnings instead of counted
+- "Unapplied payment" has one definition, shared by `reconcile_subledger`, `list_unapplied_payments` and `list_unapplied_receipts`: document total less allocations, capped, above a cent
+- Unapplied credit notes are itemised as `unapplied_credit_note` — the AP subledger carries no credit notes at all, so supplier credit fell into the residual with no name on it
+- A payment leg is attributed to a document by its allocated amount, not by its whole journal
+- A cancelled payment or credit note no longer claims its journal, so its reversal is no longer reported as a posting with no document
+- A credit note relieves a document by its applied amount, not by its whole journal, so unconsumed credit is counted once
+- Unapplied credit is any non-draft, non-cancelled note with a remainder — `applied` notes carry one too
+- Three invariants are checked and REPORTED in the response rather than thrown
+- `posting_with_no_document` names one cause class with a remedy: an allocation journal with no payment document, created by bank allocation paths that post the control leg and no payment row — R124,704.80 across 39 journals on a production copy, all stamped `mcp:bulk_allocate_bank_transactions`. Create the payment document, then apply it
+- A supplier refund (bank in, payable up) is itemised with the sign its movement has, instead of dropping out of the itemisation into the residual
+- `item_within_cited_gross` compares each item's absolute member total, so an overstated row cannot hide behind an opposite-signed one
+- Measured against a full production copy: AP unexplained difference R15,707,991.88 → R0.00
 
 ---
 
