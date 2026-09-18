@@ -13,6 +13,19 @@ Last updated: 2026-04-19 · 643 commits on `master` · 144 migrations (000 → 3
 
 ---
 
+## 2026-09-18 — Subledger Reconciliation: Control Accounts, Unapplied Cash, Invariants
+
+**Reconciliation**
+
+- `reconcile_subledger` resolves the control account by SUBTYPE ONLY, so a `settle_by_contra` account is never mistaken for one — the posting probe adopted loan accounts reached through a supplier payment, producing three "AP control accounts", a +R453m item and a −R437m unexplained difference
+- Accounts a subledger's own documents move that are not typed for the role are reported as `postings_on_non_control_accounts` warnings instead of counted
+- "Unapplied payment" has one definition, shared by `reconcile_subledger`, `list_unapplied_payments` and `list_unapplied_receipts`: document total less allocations, capped, above a cent
+- Unapplied credit notes are itemised as `unapplied_credit_note` — the AP subledger carries no credit notes at all, so supplier credit fell into the residual with no name on it
+- A payment leg is attributed to a document by its allocated amount, not by its whole journal
+- Three invariants are checked and REPORTED in the response rather than thrown
+
+---
+
 ## 2026-08-28 — Bank Allocation Hardening + MCP GL Tool
 
 **Bank**

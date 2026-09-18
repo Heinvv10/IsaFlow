@@ -14,7 +14,11 @@ reconciling items carrying document ids. Read-only. Consumed by the
 - `unpostedDocumentService.ts` — open documents whose value never reached a control account, split by whether a journal is linked.
 - `settlementFlagService.ts` — supplier bills flagged `payment_matched` while still open. An ADVISORY, not a reconciling item.
 - `reconcilingItemBuilders.ts` — which bridge an item belongs on. That decision is the substance of the endpoint.
-- `reconcilingItemTypes.ts`, `reconciliationMath.ts` — shapes and the two shared arithmetic helpers.
+- `unappliedPaymentCash.ts` — mechanism 1 of the unapplied-cash reader: WHICH payments from `shared/unappliedPaymentBasis.ts`, HOW MUCH from their movement on the control account.
+- `unappliedCreditNoteService.ts` — approved credit no document has consumed. AP has no credit-note leg in its subledger at all.
+- `reconciliationInvariants.ts` — what the reconciliation asserts about its own output. Returned, never thrown.
+- `reconcilingWarnings.ts` — `excludedRows` that are deliberately NOT items.
+- `reconcilingItemTypes.ts`, `unappliedCashTypes.ts`, `reconciliationMath.ts` — shapes and the two shared arithmetic helpers.
 
 ## Caller contract
 `reconcileSubledger(companyId, role, asAtDate)`. `role` is a `SubledgerRole`
@@ -32,10 +36,17 @@ and the rest return the GL side with `subledgerTotal: null` and
   mechanism this code does not yet know about.
 - **`agedTotal` is read from the aged report, never recomputed.** Recomputing it hid `unageable_document` claiming a defect #303 had already fixed, worth R12,730,957 of Velocity AR.
 - **POINT IN TIME on both sides.** The subledger readers use `shared/agingRewind.ts` — the same rewind the aging reports use, with the same four documented limitations. There is no `afterAsAt`: the readers apply the aging report's `document_date <= as_at` cutoff, so nothing raised after the reporting date is in the subledger at it.
-- **EVERY control account, never one.** There is no canonical AR/AP control account in this schema. `controlAccountAmbiguous` says when more than one exists and the balance is their sum. `ar.control.v1` / `ap.control.v1` are deliberately UNOWNED in `contracts/figures.ts`: naming an owner would encode an arbitrary choice as truth.
+- **EVERY control account, never one — but ONLY accounts carrying the role's SUBTYPE.** There is no canonical AR/AP control account in this schema. `controlAccountAmbiguous` says when more than one account carries the subtype and the balance is their sum. `ar.control.v1` / `ap.control.v1` are deliberately UNOWNED in `contracts/figures.ts`: naming an owner would encode an arbitrary choice as truth.
+- **An account is NEVER adopted because documents posted to it.** `settle_by_contra` posts DR Accounts Payable / CR <loan account> through a `supplier_payments` row, so the old posting probe adopted loan accounts as AP control accounts: three "control accounts" on production, a `document_not_on_control_account` item of +R453m and an unexplained difference of −R437m. Those accounts are `postings_on_non_control_accounts` warnings now (`gl/nonControlPostingAccounts.ts`).
+- **"Unapplied" has ONE definition** — `shared/unappliedPaymentBasis.ts`, shared with `list_unapplied_receipts` / `list_unapplied_payments`: `total_amount − Σ allocations`, allocations capped at the total, counted when `round2(remainder) > 0`. The reconciler's ITEM amount is still the payment's movement ON THE CONTROL ACCOUNT, because that is what it explains of the difference; the gap between the two is `unapplied_cash_off_control_account` on `excludedRows`, never folded in. Britech on isaflow_dev: 130 receipts worth R7,505,599 by document against an AR control balance of −R329,700.
+- **A payment leg is attributed to a document by its ALLOCATED AMOUNT, not by its journal.** Summing the payment journal's control lines per allocation row relieves the document by the WHOLE payment: a R100 receipt with R99.99 applied relieved the invoice by R100 while the unapplied item claimed R0.01 as well, and two allocations from one payment to one invoice doubled it outright.
+- **The invariants are returned, not thrown.** `control_plus_items_equals_subledger`, `item_within_cited_gross`, `unexplained_is_the_residual`. A violation is the most interesting thing this endpoint can say about a set of books and a 500 would replace it with nothing. Every item carries `citedGross` so the second one can be checked at all.
 - **`gl_accounts.is_active` is never a filter.** It is a picker flag; deactivated accounts hold money.
 - **`settlementFlagged` must stay out of `reconcilingItems`.** Its cash is already counted once as `posting_with_no_document`; adding it would drive the residual to minus its amount.
 - A row's contribution to `unpostedDocumentService` must be the SAME number the subledger snapshot counted for it — same status rule, same cutoff, same rewind. Drift between the two definitions lands in the residual and reads as a finding about the books.
+
+## Recent changes
+- 2026-09-18 (L3): control accounts resolved by SUBTYPE ONLY (the posting probe is gone); one shared definition of an unapplied payment; `unapplied_credit_note` itemised (AP's subledger carries no credit notes, so supplier credit fell into the residual unnamed); payment legs attributed by allocated amount; invariants reported. Verified on isaflow_dev: residual 0.00 on every AR and AP company, all three invariants holding, 144 previously-silent off-control payments named.
 
 ## Testing
 `tests/unit/mcp/w2/`. The unit suites mock `sql`, so they cannot see whether a
