@@ -29,6 +29,11 @@ import {
 } from '@/modules/accounting/services/ar/creditNoteLinkService';
 import { validateSystemAccounts } from '@/modules/accounting/services/gl/systemAccountResolver';
 import { mcpPostingOpts } from '../mcpActor';
+import {
+  CREDIT_NOTE_AUTO_APPLY,
+  listCreditNoteAllocations,
+  parseCreditNoteAutoApply,
+} from '@/modules/accounting/services/shared/creditNoteFifo';
 import { NOT_FOUND, guardCastableArgs, ok, strArg, toolError } from './toolHelpers';
 
 const TYPES = ['customer', 'supplier'] as const;
@@ -189,7 +194,10 @@ export const approveCreditNoteTool: McpTool = {
   description:
     'Approve a DRAFT credit note and POST it to the ledger. Requires the write:post permission. ' +
     'Customer note: DR Revenue + DR VAT Output / CR Accounts Receivable. Supplier note: DR Accounts Payable / CR Expense + CR VAT Input. ' +
-    'If the note is linked to an invoice it is also AUTO-APPLIED — the invoice\'s amount_paid rises by the note total and the note lands in status "applied" instead of "approved". Reverse with cancel_credit_note.',
+    'Approving also APPLIES the note. A linked invoice is settled first, capped at its outstanding balance; the REMAINDER is then applied FIFO to that same customer\'s or supplier\'s other open documents, oldest first. '
+    + 'Pass auto_apply "none" to skip the FIFO walk and apply only to the linked document (or nothing, if there is no link). '
+    + 'The resulting status is DERIVED: "approved" when nothing was applied, "partially_applied" when some of the face value is still on account, "applied" when all of it was consumed. '
+    + 'applied_amount is what was consumed and applied_to_invoice_ids names every document it settled. Whatever is left is on-account credit, which aged_debtors / aged_creditors report as unapplied and net off. Reverse the whole thing with cancel_credit_note.',
   scope: 'write:invoices',
   write: true,
   requiresPost: true,
@@ -197,6 +205,12 @@ export const approveCreditNoteTool: McpTool = {
     type: 'object',
     properties: {
       credit_note_id: { type: 'string' },
+      auto_apply: {
+        type: 'string',
+        enum: [...CREDIT_NOTE_AUTO_APPLY],
+        description:
+          '"fifo" (default) applies the remainder to the entity\'s open documents oldest first; "none" applies only to the linked document.',
+      },
       idempotency_key: { type: 'string' },
     },
     required: ['credit_note_id', 'idempotency_key'],
@@ -207,6 +221,16 @@ export const approveCreditNoteTool: McpTool = {
     if (!id) return toolError('credit_note_id is required');
     const bad = guardCastableArgs(args, { uuid: ['credit_note_id'] });
     if (bad) return bad;
+
+    // A typo'd auto_apply is REFUSED, never coerced to the default: an agent
+    // that meant 'none' and typed 'off' would otherwise be told the note was
+    // approved while the FIFO walk had already spent it.
+    const autoApply = args.auto_apply === undefined
+      ? 'fifo' as const
+      : parseCreditNoteAutoApply(args.auto_apply);
+    if (autoApply === null) {
+      return toolError(`auto_apply must be one of: ${CREDIT_NOTE_AUTO_APPLY.join(', ')}`);
+    }
 
     // Both refusals are answered from a READ so the service call below needs no
     // catch. approveCreditNote raises the status one itself, but a
@@ -241,6 +265,7 @@ export const approveCreditNoteTool: McpTool = {
     // that keeps a partially posted journal.
     const updated = await approveCreditNote(ctx.companyId, id, ctx.userId, {
       ...mcpPostingOpts(ctx, 'approve_credit_note'),
+      autoApply,
     });
 
     return ok({
@@ -250,13 +275,15 @@ export const approveCreditNoteTool: McpTool = {
       status: updated.status,
       total_amount: updated.totalAmount,
       gl_journal_entry_id: updated.glJournalEntryId ?? null,
-      // 'applied' is the auto-apply having fired. Saying so explicitly stops an
-      // agent reading 'approved' vs 'applied' as cosmetic and then looking for
-      // a second apply step that would double-credit the invoice.
-      applied_to_invoice_id:
-        updated.status === 'applied'
-          ? (updated.customerInvoiceId ?? updated.supplierInvoiceId ?? null)
-          : null,
+      // What was CONSUMED and what is left. Saying so explicitly stops an agent
+      // reading 'approved' vs 'applied' as cosmetic and then looking for a
+      // second apply step that would double-credit a document.
+      applied_amount: updated.appliedAmount,
+      unapplied_amount: Math.round((updated.totalAmount - updated.appliedAmount) * 100) / 100,
+      // Every document this note settled, in application order — the FIFO walk
+      // can settle several, so the old single id could only ever name one.
+      applied_to_invoice_ids: (await listCreditNoteAllocations(ctx.companyId, id))
+        .map((l) => ({ invoice_id: l.invoiceId, amount: l.amount })),
     });
   },
 };
@@ -265,8 +292,8 @@ export const cancelCreditNoteTool: McpTool = {
   name: 'cancel_credit_note',
   description:
     'Cancel an approved or applied credit note. Requires the write:post permission. ' +
-    'REVERSES the note\'s journal entry with a reversing entry (the original stays posted) and, for an applied note, un-applies the credit — the linked invoice\'s amount_paid drops back and its status is recomputed. ' +
-    'Only "approved" and "applied" notes can be cancelled; a draft has nothing to reverse.',
+    'REVERSES the note\'s journal entry with a reversing entry (the original stays posted) and un-applies the credit from EVERY document it was applied to — each one\'s amount_paid drops back and its status is recomputed, in the same transaction. ' +
+    'Only "approved", "partially_applied" and "applied" notes can be cancelled; a draft has nothing to reverse.',
   scope: 'write:invoices',
   write: true,
   requiresPost: true,
@@ -289,7 +316,7 @@ export const cancelCreditNoteTool: McpTool = {
     // Same reasoning as approve: refuse from a read, never from a catch.
     const note = await getCreditNoteById(ctx.companyId, id);
     if (!note) return toolError(NOT_FOUND);
-    if (note.status !== 'approved' && note.status !== 'applied') {
+    if (note.status !== 'approved' && note.status !== 'partially_applied' && note.status !== 'applied') {
       return toolError(`Cannot cancel credit note with status: ${note.status}`);
     }
 

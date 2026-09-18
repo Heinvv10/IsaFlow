@@ -108,6 +108,14 @@ function setNote(row: Record<string, unknown>, ...rest: Record<string, unknown>[
   }
 }
 
+/**
+ * The customer has no other open invoice. Queued ahead of the final UPDATE
+ * because approving a note now walks the entity's open documents (the FIFO
+ * application, migration 677) before it writes the note's own row — a fixture
+ * that omits this answers the walk with the UPDATE's result.
+ */
+const OPEN_NONE: Record<string, unknown>[] = [];
+
 function creditNoteRow(overrides: Record<string, unknown> = {}) {
   return {
     id: CN_ID,
@@ -166,7 +174,7 @@ beforeEach(() => {
 
 describe('approveCreditNote — credit_date normalization', () => {
   it('formats a Date-typed credit_date as YYYY-MM-DD before creating the journal entry', async () => {
-    setNote(creditNoteRow(), [creditNoteRow({ status: 'approved' })]);
+    setNote(creditNoteRow(), OPEN_NONE, [creditNoteRow({ status: 'approved' })]);
 
     await approveCreditNote(COMPANY_ID, CN_ID, USER_ID);
 
@@ -176,7 +184,7 @@ describe('approveCreditNote — credit_date normalization', () => {
   });
 
   it('formats a string-typed (ISO timestamp) credit_date as YYYY-MM-DD', async () => {
-    setNote(creditNoteRow({ credit_date: '2026-07-04T00:00:00.000Z' }), [creditNoteRow({ status: 'approved' })]);
+    setNote(creditNoteRow({ credit_date: '2026-07-04T00:00:00.000Z' }), OPEN_NONE, [creditNoteRow({ status: 'approved' })]);
 
     await approveCreditNote(COMPANY_ID, CN_ID, USER_ID);
 
@@ -185,7 +193,7 @@ describe('approveCreditNote — credit_date normalization', () => {
   });
 
   it('passes through a plain YYYY-MM-DD string credit_date unchanged', async () => {
-    setNote(creditNoteRow({ credit_date: '2026-07-04' }), [creditNoteRow({ status: 'approved' })]);
+    setNote(creditNoteRow({ credit_date: '2026-07-04' }), OPEN_NONE, [creditNoteRow({ status: 'approved' })]);
 
     await approveCreditNote(COMPANY_ID, CN_ID, USER_ID);
 
@@ -196,7 +204,7 @@ describe('approveCreditNote — credit_date normalization', () => {
 
 describe('approveCreditNote — no sourceDocumentId, linked via gl_journal_entry_id', () => {
   it('does not pass sourceDocumentId to createJournalEntry (would violate fk_gl_je_source_document)', async () => {
-    setNote(creditNoteRow(), [creditNoteRow({ status: 'approved', gl_journal_entry_id: JE_ID })]);
+    setNote(creditNoteRow(), OPEN_NONE, [creditNoteRow({ status: 'approved', gl_journal_entry_id: JE_ID })]);
 
     await approveCreditNote(COMPANY_ID, CN_ID, USER_ID);
 
@@ -205,7 +213,7 @@ describe('approveCreditNote — no sourceDocumentId, linked via gl_journal_entry
   });
 
   it('persists gl_journal_entry_id on the credit note when approving', async () => {
-    setNote(creditNoteRow(), [creditNoteRow({ status: 'approved', gl_journal_entry_id: JE_ID })]);
+    setNote(creditNoteRow(), OPEN_NONE, [creditNoteRow({ status: 'approved', gl_journal_entry_id: JE_ID })]);
 
     const result = await approveCreditNote(COMPANY_ID, CN_ID, USER_ID);
 
@@ -353,7 +361,7 @@ describe('approveCreditNote — auto-apply is capped and verified', () => {
       if (/SELECT total_amount, amount_paid FROM customer_invoices/i.test(text)) {
         return Promise.resolve(invoice ? [invoice] : []);
       }
-      if (/UPDATE customer_invoices SET amount_paid = amount_paid \+/i.test(text)) {
+      if (/UPDATE customer_invoices SET amount_paid = COALESCE\(amount_paid, 0\) \+/i.test(text)) {
         applied.push(Number(values[0]));
         return Promise.resolve([{ id: INV }]);
       }
@@ -388,5 +396,99 @@ describe('approveCreditNote — auto-apply is capped and verified', () => {
     wire(null);
     await expect(approveCreditNote(COMPANY_ID, CN_ID, USER_ID))
       .rejects.toThrow(/no longer exists in this company/);
+  });
+});
+
+/**
+ * FIFO APPLICATION (L2, migration 677).
+ *
+ * Approving a note no longer stops at the document it names. The remainder
+ * walks the same customer's open invoices oldest first, and every application
+ * writes a `credit_note_allocations` row — the invariant these tests pin is
+ * that the rows and the money always move together, because `applied_amount`
+ * is now the sum of the rows rather than a figure written beside them.
+ */
+describe('approveCreditNote — FIFO application across open documents', () => {
+  const INV_OLD = 'aaaaaaaa-0000-4000-8000-000000000001';
+  const INV_NEW = 'aaaaaaaa-0000-4000-8000-000000000002';
+
+  interface Wired {
+    /** [invoiceId, amount] per allocation row inserted. */
+    rows: [string, number][];
+    /** [invoiceId, amount] per amount_paid increment. */
+    money: [string, number][];
+    /** The status the note was finally written with. */
+    status: () => string | undefined;
+    appliedAmount: () => number | undefined;
+  }
+
+  function wireOpen(open: { id: string; outstanding: number }[]): Wired {
+    const rows: [string, number][] = [];
+    const money: [string, number][] = [];
+    let status: string | undefined;
+    let appliedAmount: number | undefined;
+    vi.mocked(lockCreditNoteForUpdate).mockResolvedValue(
+      creditNoteRow({ total_amount: 1150 }) as never,
+    );
+    mockSql.mockImplementation(((strings: TemplateStringsArray, ...values: unknown[]) => {
+      const text = (strings as unknown as string[]).join('?');
+      if (/FROM customer_invoices\s+WHERE ci\.company_id|SELECT ci\.id/i.test(text)) {
+        return Promise.resolve(open.map((o) => ({ id: o.id, outstanding: o.outstanding })));
+      }
+      if (/INSERT INTO credit_note_allocations/i.test(text)) {
+        rows.push([String(values[2]), Number(values[3])]);
+        return Promise.resolve([]);
+      }
+      if (/UPDATE customer_invoices SET amount_paid = COALESCE\(amount_paid, 0\) \+/i.test(text)) {
+        money.push([String(values[1]), Number(values[0])]);
+        return Promise.resolve([{ id: values[1] }]);
+      }
+      if (/UPDATE credit_notes SET status/i.test(text)) {
+        status = String(values[0]);
+        appliedAmount = Number(values[3]);
+        return Promise.resolve([creditNoteRow({ status })]);
+      }
+      return Promise.resolve([]);
+    }) as never);
+    return { rows, money, status: () => status, appliedAmount: () => appliedAmount };
+  }
+
+  it('settles the oldest invoice in full and part-settles the next', async () => {
+    const w = wireOpen([
+      { id: INV_OLD, outstanding: 400 },
+      { id: INV_NEW, outstanding: 5000 },
+    ]);
+    await approveCreditNote(COMPANY_ID, CN_ID, USER_ID);
+    expect(w.money).toEqual([[INV_OLD, 400], [INV_NEW, 750]]);
+    expect(w.status()).toBe('applied');
+    expect(w.appliedAmount()).toBe(1150);
+  });
+
+  it('writes one allocation row per application, for exactly the money moved', async () => {
+    const w = wireOpen([
+      { id: INV_OLD, outstanding: 400 },
+      { id: INV_NEW, outstanding: 5000 },
+    ]);
+    await approveCreditNote(COMPANY_ID, CN_ID, USER_ID);
+    expect(w.rows).toEqual(w.money);
+    // …and the column is the sum of the rows, never an independent figure.
+    expect(w.appliedAmount()).toBe(w.rows.reduce((s, [, a]) => s + a, 0));
+  });
+
+  it('leaves the excess on account as partially_applied when nothing more is open', async () => {
+    const w = wireOpen([{ id: INV_OLD, outstanding: 400 }]);
+    await approveCreditNote(COMPANY_ID, CN_ID, USER_ID);
+    expect(w.money).toEqual([[INV_OLD, 400]]);
+    expect(w.status()).toBe('partially_applied');
+    expect(w.appliedAmount()).toBe(400);
+  });
+
+  it('applies nothing and stays approved when auto_apply is "none"', async () => {
+    const w = wireOpen([{ id: INV_OLD, outstanding: 5000 }]);
+    await approveCreditNote(COMPANY_ID, CN_ID, USER_ID, { autoApply: 'none' });
+    expect(w.money).toEqual([]);
+    expect(w.rows).toEqual([]);
+    expect(w.status()).toBe('approved');
+    expect(w.appliedAmount()).toBe(0);
   });
 });

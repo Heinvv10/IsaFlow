@@ -37,6 +37,12 @@ import { approveCreditNote } from '@/modules/accounting/services/ar/creditNoteSe
 import { validateSystemAccounts } from '@/modules/accounting/services/gl/systemAccountResolver';
 import { mcpPostingOpts } from '../mcpActor';
 import {
+  CREDIT_NOTE_AUTO_APPLY,
+  listCreditNoteAllocations,
+  parseCreditNoteAutoApply,
+  type CreditNoteAutoApply,
+} from '@/modules/accounting/services/shared/creditNoteFifo';
+import {
   type BulkApproveAdapter,
   type DocumentState,
   partitionDocuments,
@@ -68,7 +74,9 @@ interface ApprovedNoteRow {
   status: string;
   total_amount: number;
   gl_journal_entry_id: string | null;
-  applied_to_invoice_id: string | null;
+  applied_amount: number;
+  /** Every document this note settled — the FIFO walk can settle several. */
+  applied_to_invoice_ids: { invoice_id: string; amount: number }[];
 }
 
 /**
@@ -95,7 +103,13 @@ export function racedReason(err: unknown): string | null {
   return NOT_FOUND_REFUSAL.test(err.message) ? 'not found' : null;
 }
 
-const adapter: BulkApproveAdapter<ApprovedNoteRow> = {
+/**
+ * The adapter is built per call rather than declared once, because `auto_apply`
+ * is an argument and `postOne` has no other way to see it. A module-level
+ * mutable would be shared by concurrent requests on the same process.
+ */
+function buildAdapter(autoApply: CreditNoteAutoApply): BulkApproveAdapter<ApprovedNoteRow> {
+  return {
   toolName: TOOL,
   // `bulk_appr_cn_99` — 15 characters at the widest index.
   savepointPrefix: 'bulk_appr_cn_',
@@ -123,7 +137,10 @@ const adapter: BulkApproveAdapter<ApprovedNoteRow> = {
     ]));
   },
   async postOne(ctx, id) {
-    const updated = await approveCreditNote(ctx.companyId, id, ctx.userId, mcpPostingOpts(ctx, TOOL));
+    const updated = await approveCreditNote(ctx.companyId, id, ctx.userId, {
+      ...mcpPostingOpts(ctx, TOOL),
+      autoApply,
+    });
     return {
       index: -1,
       id: updated.id,
@@ -132,20 +149,24 @@ const adapter: BulkApproveAdapter<ApprovedNoteRow> = {
       status: updated.status,
       total_amount: updated.totalAmount,
       gl_journal_entry_id: updated.glJournalEntryId ?? null,
-      // 'applied' is the auto-apply having fired — see the header.
-      applied_to_invoice_id: updated.status === 'applied'
-        ? (updated.customerInvoiceId ?? updated.supplierInvoiceId ?? null)
-        : null,
+      applied_amount: updated.appliedAmount,
+      // Read back from the allocation rows rather than inferred from the
+      // status: a partially applied note settles documents too, and the status
+      // alone cannot name them.
+      applied_to_invoice_ids: (await listCreditNoteAllocations(ctx.companyId, id))
+        .map((l) => ({ invoice_id: l.invoiceId, amount: l.amount })),
     };
   },
-};
+  };
+}
 
 export const bulkApproveCreditNotesTool: McpTool = {
   name: TOOL,
   description:
     'Approve and POST up to 100 DRAFT credit notes in ONE call. Requires the write:post permission. '
     + 'Customer note: DR Revenue + DR VAT Output / CR Accounts Receivable. Supplier note: DR Accounts Payable / CR Expense + CR VAT Input. Both types may be mixed in one call. '
-    + 'A LINKED note is also AUTO-APPLIED — the linked invoice\'s amount_paid rises by the note total and the note lands in status "applied" instead of "approved". The result reports applied_to_invoice_id per note; do NOT apply it again. '
+    + 'Approving also APPLIES each note: its linked document first, capped at that document\'s outstanding balance, then the REMAINDER FIFO across the same entity\'s other open documents, oldest first. auto_apply "none" applies only to the linked document. '
+    + 'The status is DERIVED — "approved", "partially_applied" or "applied" — and each row reports applied_amount and applied_to_invoice_ids; do NOT apply those documents again. '
     + 'A note that cannot be approved is SKIPPED, not a failure: not found, not a draft, or dated in a CLOSED fiscal period — each is listed in "skipped" with its reason and the rest of the batch still posts. '
     + 'ALL OR NOTHING for real faults: if a note genuinely fails to post, the whole batch is rolled back, nothing is posted, and the error names the element. '
     + 'A repeated credit_note_id is REFUSED (not skipped) — each note may appear once. '
@@ -163,6 +184,12 @@ export const bulkApproveCreditNotesTool: McpTool = {
         items: { type: 'string', description: 'Credit note UUID' },
         description: `The notes to approve — at most ${MAX_DOCUMENTS}, each named once.`,
       },
+      auto_apply: {
+        type: 'string',
+        enum: [...CREDIT_NOTE_AUTO_APPLY],
+        description:
+          '"fifo" (default) applies each note\'s remainder to its entity\'s open documents oldest first; "none" applies only to the linked document.',
+      },
       dry_run: {
         type: 'boolean',
         description: 'Report what would post and what would be skipped, and write nothing.',
@@ -175,6 +202,15 @@ export const bulkApproveCreditNotesTool: McpTool = {
   handler: async (args, ctx) => {
     const ids = parseDocumentIds(args.credit_note_ids, 'credit_note_ids');
     if (typeof ids === 'string') return toolError(ids);
+
+    // Refused rather than coerced — see the same guard in approve_credit_note.
+    const autoApply = args.auto_apply === undefined
+      ? 'fifo' as const
+      : parseCreditNoteAutoApply(args.auto_apply);
+    if (autoApply === null) {
+      return toolError(`auto_apply must be one of: ${CREDIT_NOTE_AUTO_APPLY.join(', ')}`);
+    }
+    const adapter = buildAdapter(autoApply);
 
     const { postable, skipped, states } = await partitionDocuments(ctx.companyId, ids, adapter);
 
@@ -227,6 +263,13 @@ export const bulkApproveCreditNotesTool: McpTool = {
     // first gives a total order over the rows two batches can actually contend
     // for. Standalone notes sort under '' and are mutually unconstrained, which
     // is correct: they take no second lock.
+    //
+    // THE FIFO WALK WIDENS THIS, and deliberately does not change the ordering.
+    // A note now locks every document its remainder settles, not just the one it
+    // names. Those are taken in the walk's own order — oldest first, per entity —
+    // which is the SAME order for every batch touching that entity, so two
+    // batches still acquire the shared rows in one direction. Notes for
+    // different entities contend for nothing.
     const ordered = [...postable]
       .map((p) => ({ ...p, group: states.get(p.id)?.lockGroup ?? '', entryDate: states.get(p.id)?.entryDate }))
       .sort((a, b) => (a.group !== b.group
@@ -251,7 +294,7 @@ export const bulkApproveCreditNotesTool: McpTool = {
       return nothing;
     }
 
-    const applied = rows.filter((r) => r.applied_to_invoice_id !== null);
+    const applied = rows.filter((r) => r.applied_to_invoice_ids.length > 0);
     return ok({
       posted: rows.length,
       skipped_count: allSkipped.length,
