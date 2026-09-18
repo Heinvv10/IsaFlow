@@ -67,7 +67,7 @@ export function offControlCashWarnings(rows: readonly OffControlCash[]): Warning
   return rows.map((p) => ({
     id: p.paymentId,
     reason: 'unapplied_cash_off_control_account',
-    detail: `${p.documentNumber ?? 'This payment'} is unapplied by its document — list_unapplied_receipts / list_unapplied_payments count it that way — and this is that figure LESS what the payment moved the control account by. The two differ when the posting is partial, when it has been reversed, or when it went the other way (a refund raises the payable). The reconciling item carries the control-account figure, because that is the part of the difference this payment explains.`,
+    detail: `${p.documentNumber ?? 'This payment'} is unapplied by its document — list_unapplied_receipts / list_unapplied_payments count it that way — and this is that figure LESS what the payment moved the control account by. The two differ when the posting is partial, when it has been reversed, or when it went the other way. A REFUND went the other way, and the figure below is then the SPAN between the two rather than a shortfall: a R500 refund counted as R500 unapplied by its document and −R500 on the control account shows here as R1,000. The reconciling item carries the control-account figure, because that is the part of the difference this payment explains.`,
     amount: p.amount,
   }));
 }

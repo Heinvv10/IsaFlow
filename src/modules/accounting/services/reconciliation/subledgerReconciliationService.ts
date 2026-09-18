@@ -70,8 +70,11 @@ import type { ReconciliationInvariant, ReconcilingItem } from './reconcilingItem
 export interface SubledgerReconciliation {
   subledger: SubledgerRole;
   as_at: string;
-  /** What the aged reports DO total, read from them rather than recomputed.
-   *  Null for a role with no aged report. */
+  /**
+   * What the aged reports DO total, READ FROM them and never recomputed here:
+   * recomputing it from this service's own snapshot moved both sides together
+   * and nothing could go red. Null for a role with no aged report.
+   */
   agedTotal: number | null;
   /** Every open document, the ones that cannot be aged included. */
   subledgerTotal: number | null;
@@ -120,9 +123,7 @@ async function readSubledger(
   return null;
 }
 
-/** `agedTotal` is READ FROM the aged report, never recomputed: recomputing it
- *  from this service's own snapshot moved both sides together and nothing could
- *  go red. */
+/** Why a role has no document subledger to compare against. */
 const NO_SOURCE_DETAIL: Record<string, string> = {
   bank: 'Bank reconciliation compares a statement feed to the GL, not a document subledger. Use the banking tools, which own the cash figure and its statement-coverage gap.',
   vat: 'VAT is posted from the transactions of other subledgers and has no document subledger of its own. Use the VAT return tools for the return-to-ledger comparison.',
