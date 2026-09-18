@@ -7,31 +7,35 @@
  * 126629.94999999995 or -4.3655745685100555e-11 for a line that nets to
  * zero. decimal.js is already a dependency (used by src/lib/amortisation);
  * this module gives services the same guarantee for running balances.
+ *
+ * No `Decimal.set` here: `Decimal` is a shared module-level singleton, and
+ * src/lib/amortisation/{pmt,engine}.ts set the global rounding mode to
+ * ROUND_HALF_UP for their own loan-schedule arithmetic (some of which — the
+ * `.div()` calls in pmt.ts — relies on that global default rather than
+ * passing a mode per call). Changing the global here would change loan
+ * amortisation's rounding as a side effect of importing this module. Every
+ * rounding call below passes its mode explicitly instead.
  */
 
 import Decimal from 'decimal.js';
 
-Decimal.set({ precision: 20, rounding: Decimal.ROUND_HALF_UP });
-
-/** a + b, exact. */
-export function moneyAdd(a: number, b: number): number {
-  return new Decimal(a).plus(b).toNumber();
-}
-
-/** a - b, exact. */
-export function moneySub(a: number, b: number): number {
-  return new Decimal(a).minus(b).toNumber();
-}
-
 /**
- * Rounds to 2 decimal places, half-up, and normalises -0 to 0. Use on every
- * money value a payload serialises, not only running balances — a figure
- * read from pg NUMERIC via `Number(...)` can already carry float noise past
- * 2dp, and JSON.stringify renders a large-enough drift in exponent notation
+ * Rounds to 2 decimal places and normalises -0 to 0. Use on every money
+ * value a payload serialises, not only running balances — a figure read
+ * from pg NUMERIC via `Number(...)` can already carry float noise past 2dp,
+ * and JSON.stringify renders a large-enough drift in exponent notation
  * (e.g. -4.3655745685100555e-11) that no consumer expects.
+ *
+ * ROUND_HALF_CEIL (ties round toward +Infinity), not ROUND_HALF_UP (ties
+ * round away from zero): the existing `round2` helpers this module sits
+ * beside (gl/trialBalanceBasis.ts, gl/generalLedgerStreamTypes.ts) round via
+ * `Math.round`, which rounds a tie toward +Infinity — `Math.round(-1.005)`
+ * is `-1`, not `-1.01`. HALF_UP would disagree with them on every negative
+ * half-cent and split the report family on which side of the balance sheet
+ * a debtor's credit balance falls.
  */
 export function toMoney(n: number): number {
-  const rounded = new Decimal(n).toDecimalPlaces(2, Decimal.ROUND_HALF_UP).toNumber();
+  const rounded = new Decimal(n).toDecimalPlaces(2, Decimal.ROUND_HALF_CEIL).toNumber();
   return rounded === 0 ? 0 : rounded;
 }
 
