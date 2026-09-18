@@ -7,11 +7,20 @@
  * production with it.
  */
 
-/** Production is named `isaflow`; dev/test are `isaflow_dev` / `isaflow_test`. */
+/** Production, and the ONE name that is always refused. */
 const PROD_DB_NAME = 'isaflow';
 
-/** Database names a mutating test is allowed to run against. */
-const ALLOWED_DB_NAMES = ['isaflow_dev', 'isaflow_test'];
+/**
+ * Every database name a mutating test or script may run against, stated in
+ * full rather than derived from a prefix — `isaflow_prod_replica` starts with
+ * the same eight characters as `isaflow_dev` and is not a thing to write to.
+ *
+ * `isaflow_staging` is a disposable `pg_dump` copy of production, restored on
+ * demand, so it carries production-shaped DATA but nothing that matters is
+ * lost when a run mutates it. It is on this list for that reason alone; the
+ * production name itself is refused whatever else is added here.
+ */
+const ALLOWED_DB_NAMES = ['isaflow_dev', 'isaflow_test', 'isaflow_staging'];
 
 /**
  * Throw unless DATABASE_URL names a dev/test database.
