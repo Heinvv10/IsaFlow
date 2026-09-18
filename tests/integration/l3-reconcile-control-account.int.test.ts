@@ -35,7 +35,8 @@ import { sql, getPoolForTests } from '@/lib/neon';
 import { postCustomerInvoiceToGL, confirmCustomerPayment } from '@/modules/accounting/services/ar/customerPaymentAllocationService';
 import { postSupplierInvoiceToGL } from '@/modules/accounting/services/ap/supplierInvoiceWorkflowService';
 import { approveCreditNote } from '@/modules/accounting/services/ar/creditNoteApproveService';
-import { processSupplierPayment } from '@/modules/accounting/services/ap/supplierPaymentWorkflowService';
+import { cancelCreditNote } from '@/modules/accounting/services/ar/creditNoteCancelService';
+import { processSupplierPayment, voidSupplierPayment } from '@/modules/accounting/services/ap/supplierPaymentWorkflowService';
 import { getControlAccountBalances } from '@/modules/accounting/services/gl/controlAccountService';
 import { reconcileSubledger } from '@/modules/accounting/services/reconciliation/subledgerReconciliationService';
 import { getUnappliedPaymentBasis } from '@/modules/accounting/services/shared/unappliedPaymentBasis';
@@ -63,6 +64,9 @@ let payable = '';
 let loan = '';
 let bank = '';
 let contraBill = '';
+let voidedBill = '';
+let notedBill = '';
+let doubleNotedBill = '';
 
 async function inTx<T>(fn: () => Promise<T>): Promise<T> {
   const client: PoolClient = await getPoolForTests().connect();
@@ -158,6 +162,17 @@ async function receipt(
   return id;
 }
 
+/** A credit note linked to a bill, left at draft for the caller to approve. */
+async function linkedNote(n: string, invoiceId: string): Promise<string> {
+  return ((await sql`
+    INSERT INTO credit_notes (company_id, type, supplier_id, supplier_invoice_id,
+      credit_note_number, credit_date, subtotal, tax_amount, total_amount, status,
+      applied_amount, created_by)
+    VALUES (${COMPANY}::UUID, 'supplier', ${supplier}::UUID, ${invoiceId}::UUID,
+      ${TAG + n}, ${SETTLE_DATE}::date, ${SUB}, ${VAT}, ${GROSS}, 'draft', 0, ${USER}::UUID)
+    RETURNING id`) as { id: string }[])[0]!.id;
+}
+
 describeIfDb('L3 — control account by subtype, and one definition of unapplied', () => {
   beforeAll(async () => {
     await sql`INSERT INTO companies (id, name, registration_number)
@@ -216,6 +231,57 @@ describeIfDb('L3 — control account by subtype, and one definition of unapplied
     // movement to explain and the residual would go to minus its value —
     // which is the whole failure mode this item exists to remove.
     await inTx(() => approveCreditNote(COMPANY, scn, USER));
+
+    // A bill PAID and then the payment VOIDED. Voiding posts a reversal and
+    // deletes the allocations, so the control account nets to zero and the bill
+    // is open again — neither side moved, and neither leg may be an item. The
+    // reversal is not in `soft_delete_journal_reversals` (that table records
+    // document soft-deletes), and its ORIGINAL is still claimed by the
+    // cancelled payment, so the existing reversal pairing never saw a partner.
+    voidedBill = await bill('-VOIDED');
+    const voided = await payment('-VOID', GROSS, bank, 'eft', [{ invoiceId: voidedBill, amount: GROSS }]);
+    await inTx(() => voidSupplierPayment(COMPANY, voided, USER));
+
+    // A bill credit-noted and the note then CANCELLED. Cancelling reverses the
+    // note's journal, so its credit is no longer on the control account — but
+    // the note still points at the bill, and counting its original journal
+    // against the bill makes the bill look enormously under-represented.
+    notedBill = await bill('-NOTED');
+    const cancelledNote = ((await sql`
+      INSERT INTO credit_notes (company_id, type, supplier_id, supplier_invoice_id,
+        credit_note_number, credit_date, subtotal, tax_amount, total_amount, status,
+        applied_amount, created_by)
+      VALUES (${COMPANY}::UUID, 'supplier', ${supplier}::UUID, ${notedBill}::UUID,
+        ${TAG + '-CCN'}, ${SETTLE_DATE}::date, ${SUB}, ${VAT}, ${GROSS}, 'draft', 0, ${USER}::UUID)
+      RETURNING id`) as { id: string }[])[0]!.id;
+    await inTx(() => approveCreditNote(COMPANY, cancelledNote, USER));
+    await inTx(() => cancelCreditNote(COMPANY, cancelledNote, USER));
+
+    // A bill carrying TWO full-value credit notes: one APPLIED (it relieved
+    // the bill) and one still APPROVED with applied_amount 0. Both journals
+    // debit the AP control account, but only the applied one relieved the
+    // subledger, so the unconsumed note is unapplied credit — and counting its
+    // whole journal against the bill as well claimed it twice. On the
+    // production copy, 12 petty-cash bills were in exactly this state and
+    // R5,740.22 was double-counted.
+    doubleNotedBill = await bill('-DOUBLE');
+    const noteA = await linkedNote('-CNA', doubleNotedBill);
+    await inTx(() => approveCreditNote(COMPANY, noteA, USER));
+    const noteB = await linkedNote('-CNB', doubleNotedBill);
+    await inTx(() => approveCreditNote(COMPANY, noteB, USER));
+    // approveCreditNote marks a linked note 'applied' and sets applied_amount,
+    // but applyCreditNoteToInvoice refuses supplier notes, so on AP it never
+    // moves the bill's amount_paid. The production rows carry the relief on the
+    // bill and leave the SECOND note at 'approved' with applied_amount 0 and a
+    // posted journal, so the fixture is put into that state directly.
+    // Reproducing the state is the point here; how those rows come to exist is
+    // a separate question about the apply path.
+    await sql`
+      UPDATE credit_notes SET status = 'approved', applied_amount = 0
+      WHERE id = ${noteB}::UUID AND company_id = ${COMPANY}::UUID`;
+    await sql`
+      UPDATE supplier_invoices SET amount_paid = ${GROSS}, status = 'paid'
+      WHERE id = ${doubleNotedBill}::UUID AND company_id = ${COMPANY}::UUID`;
 
     // AR: an invoice and a receipt with a one-cent remainder, plus one wholly
     // unapplied, so the AR twin of the payment agreement can be asserted.
@@ -326,6 +392,47 @@ describeIfDb('L3 — control account by subtype, and one definition of unapplied
     }
   }, 120000);
 
+  it('a VOIDED payment leaves no item on either leg', async () => {
+    // The reversal used to be reported as posting_with_no_document for the
+    // payment's full value while its original stayed silent, because the
+    // cancelled payment still claimed it: an unbalanced item on a pair that
+    // moved the control account by nothing. On the production copy that was
+    // R13,715,088.59 across 322 cancelled payments.
+    const rec = await reconcileSubledger(COMPANY, 'ap', AS_AT);
+    const orphan = rec.reconcilingItems.find((i) => i.type === 'posting_with_no_document');
+    expect(orphan).toBeUndefined();
+    // The bill is open again and fully represented on the control account, so
+    // it names no item either.
+    expect(rec.reconcilingItems.some((i) => i.documentIds.includes(voidedBill))).toBe(false);
+  }, 120000);
+
+  it('a CANCELLED credit note does not relieve the bill it points at', async () => {
+    // The credit-note leg counted every note linked to the bill whatever its
+    // status, so a cancelled note debited the bill's control amount while its
+    // reversal was reported separately. On the production copy 22 bills carried
+    // R878,993.57 of this against documents worth R390,110.35 — the item
+    // claimed more than the documents it named were worth, and the
+    // item_within_cited_gross invariant said so.
+    const rec = await reconcileSubledger(COMPANY, 'ap', AS_AT);
+    expect(rec.reconcilingItems.some((i) => i.documentIds.includes(notedBill))).toBe(false);
+    for (const inv of rec.invariants) {
+      expect(inv, `${inv.name}: ${inv.detail}`).toMatchObject({ holds: true });
+    }
+    expect(rec.unexplainedDifference).toBe(0);
+  }, 120000);
+
+  it('counts an unconsumed linked credit note ONCE, not against the bill as well', async () => {
+    const rec = await reconcileSubledger(COMPANY, 'ap', AS_AT);
+    // The bill is exactly represented: its own journal less the APPLIED note.
+    expect(rec.reconcilingItems.some((i) => i.documentIds.includes(doubleNotedBill))).toBe(false);
+    // The unconsumed note is credit on the control account no document took up,
+    // and it is reported there and only there.
+    const credit = rec.reconcilingItems.find((i) => i.type === 'unapplied_credit_note');
+    expect(credit!.documentNumbers).toContain(TAG + '-CNB');
+    expect(credit!.documentNumbers).not.toContain(TAG + '-CNA');
+    expect(rec.unexplainedDifference).toBe(0);
+  }, 120000);
+
   it('names the supplier credit note the AP subledger cannot see', async () => {
     // getAPSubledger reads supplier invoices and nothing else, so this note's
     // journal moved the AP control account while subledgerTotal never heard of
@@ -333,8 +440,10 @@ describeIfDb('L3 — control account by subtype, and one definition of unapplied
     const rec = await reconcileSubledger(COMPANY, 'ap', AS_AT);
     const item = rec.reconcilingItems.find((i) => i.type === 'unapplied_credit_note');
     expect(item).toBeDefined();
-    expect(item!.amount).toBeCloseTo(230, 2);
-    expect(item!.documentNumbers).toEqual([TAG + '-SCN']);
+    expect(item!.documentNumbers).toContain(TAG + '-SCN');
+    // The cancelled note is credit that was reversed, so it is not unapplied
+    // credit and must not be in here.
+    expect(item!.documentNumbers).not.toContain(TAG + '-CCN');
     expect(rec.unexplainedDifference).toBe(0);
   }, 120000);
 });

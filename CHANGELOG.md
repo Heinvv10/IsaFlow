@@ -22,7 +22,11 @@ Last updated: 2026-04-19 · 643 commits on `master` · 144 migrations (000 → 3
 - "Unapplied payment" has one definition, shared by `reconcile_subledger`, `list_unapplied_payments` and `list_unapplied_receipts`: document total less allocations, capped, above a cent
 - Unapplied credit notes are itemised as `unapplied_credit_note` — the AP subledger carries no credit notes at all, so supplier credit fell into the residual with no name on it
 - A payment leg is attributed to a document by its allocated amount, not by its whole journal
+- A cancelled payment or credit note no longer claims its journal, so its reversal is no longer reported as a posting with no document
+- A credit note relieves a document by its applied amount, not by its whole journal, so unconsumed credit is counted once
+- Unapplied credit is any non-draft, non-cancelled note with a remainder — `applied` notes carry one too
 - Three invariants are checked and REPORTED in the response rather than thrown
+- Measured against a full production copy: AP unexplained difference R15,707,991.88 → R0.00
 
 ---
 

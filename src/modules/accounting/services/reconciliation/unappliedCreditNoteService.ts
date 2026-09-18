@@ -14,15 +14,20 @@
  * the ids the snapshot already holds and they are excluded — the item is what
  * the subledger does NOT know about.
  *
- * WRITTEN AGAINST `credit_notes` ALONE, on purpose. A `credit_note_allocations`
- * table and a `partially_applied` status are being added on another branch;
- * `status IN ('approved','partially_applied')` with
- * `total_amount − COALESCE(applied_amount, 0)` is true before that merge and
- * after it, so this does not need to land in step with it.
+ * THE STATUS TEST IS "NOT draft, NOT cancelled", never a list of the statuses
+ * that ought to carry credit. `applied` carries a remainder too: migration 529
+ * exists because `applyCreditNoteToInvoice` credits `min(total, outstanding)`,
+ * so a note worth more than the invoice owed lands in `applied` with part of
+ * its value unconsumed. On isaflow_dev one such note left R230 that the
+ * document leg no longer claimed and this one did not yet claim — R230 of
+ * `unexplained_difference` on books that otherwise tie. A draft note has
+ * posted nothing; a cancelled one has been reversed.
  *
- * `applied_amount` (migration 529), never `total_amount`: a note worth more
- * than the invoice owed is only partly consumed, and the difference is real
- * credit still owing.
+ * WRITTEN AGAINST `credit_notes` ALONE, on purpose. A `credit_note_allocations`
+ * table and a `partially_applied` status are being added on another branch; a
+ * remainder of `total_amount − COALESCE(applied_amount, 0)` over every
+ * non-draft, non-cancelled note is true before that merge and after it, so this
+ * does not need to land in step with it.
  */
 
 import { sql } from '@/lib/neon';
@@ -66,7 +71,7 @@ export async function getUnappliedCreditNotes(
         LEFT JOIN customers c ON c.id = cn.client_id AND c.company_id = cn.company_id
         WHERE cn.company_id = ${companyId}::UUID
           AND cn.type = ${noteType}
-          AND cn.status IN ('approved', 'partially_applied')
+          AND COALESCE(cn.status, '') NOT IN ('draft', 'cancelled')
           AND cn.credit_date <= ${asAtDate}::DATE
           AND (cn.total_amount - COALESCE(cn.applied_amount, 0)) > 0
         ORDER BY cn.credit_date, cn.id
@@ -79,7 +84,7 @@ export async function getUnappliedCreditNotes(
         LEFT JOIN suppliers s ON s.id = cn.supplier_id AND s.company_id = cn.company_id
         WHERE cn.company_id = ${companyId}::UUID
           AND cn.type = ${noteType}
-          AND cn.status IN ('approved', 'partially_applied')
+          AND COALESCE(cn.status, '') NOT IN ('draft', 'cancelled')
           AND cn.credit_date <= ${asAtDate}::DATE
           AND (cn.total_amount - COALESCE(cn.applied_amount, 0)) > 0
         ORDER BY cn.credit_date, cn.id

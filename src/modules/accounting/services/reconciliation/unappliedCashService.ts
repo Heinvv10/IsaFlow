@@ -209,15 +209,29 @@ export async function getUnappliedControlCash(
           AND je.entry_date <= ${asAtDate}::DATE
           AND NOT EXISTS (SELECT 1 FROM customer_invoices d
                           WHERE d.company_id = ${companyId}::UUID AND d.gl_journal_entry_id = je.id)
+          -- A CANCELLED document does not claim its journal. Cancelling posts
+          -- a reversal and undoes the application, so the original and the
+          -- reversal net to zero on the control account and neither relates to
+          -- anything open. While the cancelled document still counted as a
+          -- claimant, only the REVERSAL reached this list -- an unbalanced item
+          -- on a pair that moved the control account by nothing. Letting the
+          -- original through instead lets dropCancelledReversalPairs see both
+          -- legs and drop them together, by the outcome rule it already
+          -- applies. A cancelled document whose journal was never reversed
+          -- still surfaces here, which is right: that cash is on the control
+          -- account and no live document claims it.
           AND NOT EXISTS (SELECT 1 FROM customer_payments d
-                          WHERE d.company_id = ${companyId}::UUID AND d.gl_journal_entry_id = je.id)
+                          WHERE d.company_id = ${companyId}::UUID AND d.gl_journal_entry_id = je.id
+                            AND COALESCE(d.status, '') <> 'cancelled')
           AND NOT EXISTS (SELECT 1 FROM credit_notes d
-                          WHERE d.company_id = ${companyId}::UUID AND d.gl_journal_entry_id = je.id)
+                          WHERE d.company_id = ${companyId}::UUID AND d.gl_journal_entry_id = je.id
+                            AND COALESCE(d.status, '') <> 'cancelled')
           -- A write-off's journal IS claimed — by the write-off, and through it
           -- by the invoice (unpostedDocumentService counts it there). Leaving it
           -- out of this list reported it as a posting with no document.
           AND NOT EXISTS (SELECT 1 FROM customer_write_offs d
-                          WHERE d.company_id = ${companyId}::UUID AND d.gl_journal_entry_id = je.id)
+                          WHERE d.company_id = ${companyId}::UUID AND d.gl_journal_entry_id = je.id
+                            AND COALESCE(d.status, '') <> 'cancelled')
           AND NOT EXISTS (SELECT 1 FROM soft_delete_journal_reversals r
                           WHERE r.company_id = ${companyId}::UUID
                             AND r.reversal_journal_entry_id = je.id)
@@ -239,10 +253,15 @@ export async function getUnappliedControlCash(
           AND je.entry_date <= ${asAtDate}::DATE
           AND NOT EXISTS (SELECT 1 FROM supplier_invoices d
                           WHERE d.company_id = ${companyId}::UUID AND d.gl_journal_entry_id = je.id)
+          -- See the note on the AR query above: a CANCELLED document does not
+          -- claim its journal, so the original joins its reversal here and the
+          -- pair is dropped together.
           AND NOT EXISTS (SELECT 1 FROM supplier_payments d
-                          WHERE d.company_id = ${companyId}::UUID AND d.gl_journal_entry_id = je.id)
+                          WHERE d.company_id = ${companyId}::UUID AND d.gl_journal_entry_id = je.id
+                            AND COALESCE(d.status, '') <> 'cancelled')
           AND NOT EXISTS (SELECT 1 FROM credit_notes d
-                          WHERE d.company_id = ${companyId}::UUID AND d.gl_journal_entry_id = je.id)
+                          WHERE d.company_id = ${companyId}::UUID AND d.gl_journal_entry_id = je.id
+                            AND COALESCE(d.status, '') <> 'cancelled')
           AND NOT EXISTS (SELECT 1 FROM soft_delete_journal_reversals r
                           WHERE r.company_id = ${companyId}::UUID
                             AND r.reversal_journal_entry_id = je.id)
