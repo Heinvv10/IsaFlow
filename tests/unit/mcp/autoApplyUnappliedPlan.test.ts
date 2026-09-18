@@ -27,6 +27,7 @@ function source(over: Partial<BackfillSource> = {}): BackfillSource {
     entityName: 'Acme',
     paymentDate: '2026-01-10',
     remainder: 100,
+    journalEntryId: 'je-1',
     ...over,
   };
 }
@@ -63,6 +64,9 @@ describe('buildBackfillPlan', () => {
       left_on_account: 0,
       no_open_documents_amount: 0,
       payments_with_no_open_documents: 0,
+      skipped_amount: 0,
+      payments_skipped: 0,
+      population_amount: 250,
     });
   });
 
@@ -105,7 +109,6 @@ describe('buildBackfillPlan', () => {
       entity_name: 'Acme',
       payment_date: '2026-01-10',
       amount: 80,
-      skipped_reason: null,
     }]);
     expect(result.totals).toMatchObject({
       no_open_documents_amount: 80, payments_with_no_open_documents: 1,
@@ -116,17 +119,56 @@ describe('buildBackfillPlan', () => {
   it('never applies a skipped source, and never lets it consume a bill', () => {
     const result = plan(
       [
-        source({ kind: 'credit_note', paymentId: 'cn1', remainder: 100, skippedReason: 'no table' }),
+        source({ paymentId: 'p1', remainder: 100, skippedReason: 'journal not in a fiscal period' }),
         source({ paymentId: 'p2', remainder: 100 }),
       ],
       [doc('b1', 100)],
     );
 
-    expect(result.no_open_documents[0]).toMatchObject({
-      payment_id: 'cn1', skipped_reason: 'no table',
-    });
-    // The bill the skipped note did NOT take is still there for the payment.
+    // A SKIPPED SOURCE IS NOT A "no open documents" ONE. That list is a finding
+    // about the books; a withheld payment is a fact about the run.
+    expect(result.no_open_documents).toEqual([]);
+    expect(result.skipped).toEqual([{
+      kind: 'payment',
+      payment_id: 'p1',
+      payment_number: 'PAY-001',
+      entity_id: SUP,
+      entity_name: 'Acme',
+      payment_date: '2026-01-10',
+      amount: 100,
+      reason: 'journal not in a fiscal period',
+    }]);
+    // The bill the skipped payment did NOT take is still there for the next one.
     expect(result.applications[0]!.lines.map((l) => l.document_id)).toEqual(['b1']);
+  });
+
+  it('keeps a source with no resolvable contact, and applies nothing to it', () => {
+    const result = plan(
+      [source({ paymentId: 'p1', entityId: null, entityName: '', remainder: 70,
+        skippedReason: 'contact could not be resolved' })],
+      [doc('b1', 100)],
+    );
+    expect(result.applications).toEqual([]);
+    expect(result.skipped[0]).toMatchObject({ payment_id: 'p1', entity_id: null, amount: 70 });
+  });
+
+  it('accounts for every remainder it read — the completeness identity', () => {
+    const result = plan(
+      [
+        source({ paymentId: 'p1', remainder: 250 }),
+        source({ paymentId: 'p2', remainder: 80 }),
+        source({ paymentId: 'p3', remainder: 40, skippedReason: 'journal not in a fiscal period' }),
+        source({ paymentId: 'p4', entityId: null, remainder: 10,
+          skippedReason: 'contact could not be resolved' }),
+      ],
+      [doc('b1', 100), doc('b2', 60)],
+    );
+    const t = result.totals;
+    // Nothing may be dropped between the population and the plan. The bucket
+    // that broke this was a `.filter()` on unresolvable contacts.
+    expect(t.applied + t.left_on_account + t.no_open_documents_amount + t.skipped_amount)
+      .toBe(t.population_amount);
+    expect(t.population_amount).toBe(380);
   });
 
   it('consumes newest first for a contact that asked for it', () => {

@@ -13,7 +13,10 @@ import { sql } from '@/lib/neon';
 import { allocateTransaction } from '@/modules/accounting/services/bank/bankAllocationService';
 import { voidSupplierPayment } from '@/modules/accounting/services/ap/supplierPaymentWorkflowService';
 import { autoApplyUnapplied } from '@/modules/accounting/services/shared/autoApplyBackfillService';
-import { creditNoteAllocationsExist } from '@/modules/accounting/services/shared/autoApplyBackfillPopulation';
+import { cancelCreditNote } from '@/modules/accounting/services/ar/creditNoteCancelService';
+import {
+  SKIP_NO_FISCAL_PERIOD, skipUnapplicableStatus,
+} from '@/modules/accounting/services/shared/autoApplyBackfillSkips';
 import { assertNotProductionDb } from '../helpers/assertNotProductionDb';
 import {
   billState, dropFixture, inTx, runOn, seedBankTx, seedBill, seedFixture, seedSupplier,
@@ -44,6 +47,37 @@ async function seedUnappliedPayment(
     WHERE company_id = ${fx.companyId}::UUID
       AND gl_journal_entry_id = ${result.journalEntryId}::UUID`) as Record<string, unknown>[];
   return String(rows[0]!.id);
+}
+
+/**
+ * An approved, unapplied credit note WITH a journal in an open period.
+ *
+ * The journal is not decoration. The back-fill withholds any source whose
+ * journal is in no fiscal period — crediting a bill off an entry that appears
+ * in no period-scoped report is the same invisible settlement the cash side
+ * refuses — so a note seeded without one is reported as skipped, which is
+ * correct behaviour and a useless fixture.
+ */
+async function seedCreditNote(
+  supplierId: string, number: string, date: string, total: number,
+): Promise<string> {
+  const je = String(((await sql`
+    INSERT INTO gl_journal_entries
+      (company_id, entry_number, entry_date, description, status, created_by,
+       fiscal_period_id, posted_at)
+    VALUES (${fx.companyId}::UUID, ${`JE-${number}-${fx.tag}`}, ${date}::DATE, 'CN', 'posted',
+            ${fx.userId}::UUID,
+            (SELECT id FROM fiscal_periods WHERE company_id = ${fx.companyId}::UUID LIMIT 1),
+            NOW())
+    RETURNING id`) as { id: string }[])[0]!.id);
+  const rows = (await sql`
+    INSERT INTO credit_notes
+      (company_id, type, supplier_id, credit_note_number, credit_date,
+       subtotal, total_amount, applied_amount, status, created_by, gl_journal_entry_id)
+    VALUES (${fx.companyId}::UUID, 'supplier', ${supplierId}::UUID, ${`${number}-${fx.tag}`},
+            ${date}::DATE, ${total}, ${total}, 0, 'approved', ${fx.userId}::UUID, ${je}::UUID)
+    RETURNING id`) as { id: string }[];
+  return rows[0]!.id;
 }
 
 async function allocationCount(): Promise<number> {
@@ -88,13 +122,7 @@ describeIfDb('back-fill — auto_apply_unapplied over a real AP ledger', () => {
     };
     // Dated BEFORE every payment, so the ordering contract puts it first and a
     // dry run has to show it consuming the oldest bill.
-    creditNoteId = String(((await sql`
-      INSERT INTO credit_notes
-        (company_id, type, supplier_id, credit_note_number, credit_date,
-         subtotal, total_amount, applied_amount, status, created_by)
-      VALUES (${fx.companyId}::UUID, 'supplier', ${supA}::UUID, ${`BFCN-${fx.tag}`},
-              '2026-02-15'::DATE, 50, 50, 0, 'approved', ${fx.userId}::UUID)
-      RETURNING id`) as { id: string }[])[0]!.id);
+    creditNoteId = await seedCreditNote(supA, 'BFCN', '2026-02-15', 50);
   }, 120000);
 
   afterAll(async () => {
@@ -129,13 +157,21 @@ describeIfDb('back-fill — auto_apply_unapplied over a real AP ledger', () => {
       { id: p2, lines: [[bills.b3, 300]], on_account: 100 },
     ]);
     expect(plan.no_open_documents).toHaveLength(1);
-    expect(plan.no_open_documents[0]).toMatchObject({ amount: 500, skipped_reason: null });
+    expect(plan.no_open_documents[0]).toMatchObject({ amount: 500 });
+    expect(plan.skipped).toEqual([]);
     expect(plan.totals).toEqual({
       applied: 600,
       left_on_account: 100,
       no_open_documents_amount: 500,
       payments_with_no_open_documents: 1,
+      skipped_amount: 0,
+      payments_skipped: 0,
+      population_amount: 1200,
     });
+    // Everything read is in exactly one bucket.
+    const t = plan.totals;
+    expect(t.applied + t.left_on_account + t.no_open_documents_amount + t.skipped_amount)
+      .toBe(t.population_amount);
     // Every line carries the document's own date, not a placeholder.
     expect(plan.applications[1]!.lines[0]!.invoice_date).toBe('2026-02-01');
 
@@ -146,11 +182,6 @@ describeIfDb('back-fill — auto_apply_unapplied over a real AP ledger', () => {
   }, 120000);
 
   it('applies live EXACTLY what the dry run promised, credit note included', async () => {
-    // The credit-note half depends on a table this branch does not create — see
-    // autoApplyBackfillCreditNote. Stated rather than assumed, so a database
-    // without it fails this assertion instead of quietly testing less.
-    expect(await inTx(fx, () => creditNoteAllocationsExist())).toBe(true);
-
     const plan = await inTx(fx, () => autoApplyUnapplied({
       companyId: fx.companyId, userId: fx.userId, subledger: 'ap', dryRun: false,
       idempotencyKey: 'bf-live-1',
@@ -177,7 +208,8 @@ describeIfDb('back-fill — auto_apply_unapplied over a real AP ledger', () => {
     expect(await paymentStatus(p2)).toBe('processed');
     expect(await creditNoteState()).toEqual({ status: 'applied', appliedAmount: 50 });
 
-    // NO JOURNAL WAS POSTED BY ANY OF IT: the cash was already in the ledger.
+    // NO JOURNAL WAS POSTED BY ANY OF IT: the cash and the credit were already
+    // in the ledger.
     expect(await journalCount()).toBe(journalsBefore);
   }, 120000);
 
@@ -206,13 +238,7 @@ describeIfDb('back-fill — auto_apply_unapplied over a real AP ledger', () => {
     const bill = await seedBill(fx, {
       supplierId: sup, number: 'BFCN1', date: '2026-02-01', total: 500,
     });
-    const noteId = String(((await sql`
-      INSERT INTO credit_notes
-        (company_id, type, supplier_id, credit_note_number, credit_date,
-         subtotal, total_amount, applied_amount, status, created_by)
-      VALUES (${fx.companyId}::UUID, 'supplier', ${sup}::UUID, ${`BFCN2-${fx.tag}`},
-              '2026-02-20'::DATE, 100, 100, 0, 'approved', ${fx.userId}::UUID)
-      RETURNING id`) as { id: string }[])[0]!.id);
+    const noteId = await seedCreditNote(sup, 'BFCN2', '2026-02-20', 100);
 
     const run = { companyId: fx.companyId, userId: fx.userId, subledger: 'ap' as const,
       entityId: sup, dryRun: false };

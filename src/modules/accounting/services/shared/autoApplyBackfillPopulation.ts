@@ -12,9 +12,14 @@
  * an optional `entityId` for this caller; nothing else changed.
  *
  * CREDIT NOTES ARE READ HERE, because no shared reader exists for them. Their
- * remainder is `total_amount - applied_amount` (migration 529), and the
- * `credit_notes` CHECK constraint from migration 202 admits only
- * draft/approved/applied/cancelled — see the note on `CREDIT_NOTE_STATUSES`.
+ * remainder is `total_amount - applied_amount`, which migration 677 makes the
+ * sum of the note's `credit_note_allocations` rows.
+ *
+ * EVERY SKIP IS DECIDED HERE, in both modes, for the reason on
+ * `BackfillSource.skippedReason`: a dry run that plans what a live run withholds
+ * is not a preview. There are four, and each is a fact about the source rather
+ * than about the attempt — an unresolvable contact, a journal in no fiscal
+ * period, no journal at all, and a status the application service refuses.
  */
 
 import { sql } from '@/lib/neon';
@@ -24,17 +29,21 @@ import { getUnappliedPayments } from '../ap/unappliedPaymentService';
 import { getUnappliedReceipts } from '../ar/unappliedReceiptService';
 import { fetchOpenSupplierBills } from '../ap/openSupplierBills';
 import { fetchOpenCustomerInvoices } from '../ar/openCustomerInvoices';
+import { journalsInAPeriod } from './journalPeriodVisibility';
 import { EPS } from './autoAllocateStrategy';
+import {
+  apSources, arSources, SKIP_NO_FISCAL_PERIOD, SKIP_NO_JOURNAL,
+} from './autoApplyBackfillSkips';
 import type { SimulationDocument } from './autoApplySimulation';
 import type { BackfillSource, Subledger } from './autoApplyBackfillPlan';
+
 
 /**
  * Credit-note statuses that still carry an unapplied remainder.
  *
- * 'partially_applied' is NOT in migration 202's CHECK constraint and therefore
- * matches no row on this branch — it is listed because the credit-note FIFO
- * work introduces it, and a list that names only 'approved' would silently stop
- * seeing part-applied notes the day that status exists. 'applied' is excluded
+ * 'partially_applied' arrives with migration 677 and is the state a note spread
+ * over some but not all of its face value is in — exactly the note this
+ * back-fill exists to finish. 'applied' is excluded
  * deliberately: a note that says it is fully applied and still shows a
  * remainder is a data fault to be investigated, not cash to move automatically.
  */
@@ -42,25 +51,6 @@ const CREDIT_NOTE_STATUSES = ['approved', 'partially_applied'];
 
 /** `credit_notes.type` for each subledger. */
 const CREDIT_NOTE_TYPE: Record<Subledger, string> = { ap: 'supplier', ar: 'customer' };
-
-/**
- * Whether this database has the table a credit-note application writes to.
- *
- * Checked at RUNTIME rather than assumed: `credit_note_allocations` arrives
- * with the credit-note FIFO work, and this tool has to be honest on a database
- * that does not have it yet — the dry run still shows what the notes would
- * settle, and the live run refuses them by name instead of throwing an
- * undefined-table error halfway through a backlog.
- */
-export async function creditNoteAllocationsExist(): Promise<boolean> {
-  const rows = (await sql`
-    SELECT to_regclass('public.credit_note_allocations') IS NOT NULL AS present
-  `) as DbRow[];
-  return Boolean(rows[0]?.present);
-}
-
-/** The reason a credit note carries when this database cannot record one. */
-export const CREDIT_NOTE_TABLE_MISSING = 'credit_note_allocations table not present';
 
 async function readCreditNotes(
   companyId: string,
@@ -71,7 +61,7 @@ async function readCreditNotes(
   const isAp = subledger === 'ap';
   const rows = (isAp
     ? await sql`
-        SELECT cn.id, cn.credit_note_number, cn.credit_date,
+        SELECT cn.id, cn.credit_note_number, cn.credit_date, cn.gl_journal_entry_id,
                cn.supplier_id AS entity_id, s.name AS entity_name,
                (cn.total_amount - COALESCE(cn.applied_amount, 0)) AS remainder
         FROM credit_notes cn
@@ -85,7 +75,7 @@ async function readCreditNotes(
         ORDER BY cn.credit_date ASC, cn.credit_note_number ASC, cn.id ASC
         LIMIT ${limit}`
     : await sql`
-        SELECT cn.id, cn.credit_note_number, cn.credit_date,
+        SELECT cn.id, cn.credit_note_number, cn.credit_date, cn.gl_journal_entry_id,
                cn.client_id AS entity_id, c.name AS entity_name,
                (cn.total_amount - COALESCE(cn.applied_amount, 0)) AS remainder
         FROM credit_notes cn
@@ -107,21 +97,24 @@ async function readCreditNotes(
     entityName: r.entity_name ? String(r.entity_name) : '',
     paymentDate: fmtDate(r.credit_date),
     remainder: Number(r.remainder),
+    journalEntryId: r.gl_journal_entry_id ? String(r.gl_journal_entry_id) : null,
+    skippedReason: null,
   }));
 }
 
 /**
- * Every unapplied payment and credit note for this subledger, OLDEST FIRST.
+ * Every unapplied payment and credit note for this subledger, OLDEST FIRST,
+ * each already carrying the reason it may not be applied when there is one.
  *
  * Oldest first is the whole ordering contract: the run applies the oldest cash
- * to the oldest bill, so a later payment sees what an earlier one consumed.
+ * to the oldest document, so a later source sees what an earlier one consumed.
  * `payment_date`, then the human-readable number, then the id — the id is there
  * because two same-day payments with the same number would otherwise be left in
  * heap order and two runs over the same books could settle different documents.
  *
- * `limit` is a cap on the MERGED list, applied after the merge: a company whose
- * 500 oldest sources are all credit notes must not have its payments displaced
- * by an evenly split budget.
+ * `limit` caps the MERGED list, applied after the merge: a company whose 500
+ * oldest sources are all credit notes must not have its payments displaced by
+ * an evenly split budget.
  */
 export async function readBackfillSources(
   companyId: string,
@@ -132,38 +125,52 @@ export async function readBackfillSources(
   // As at TODAY. A back-fill acts on the books as they stand; an `asAt` in the
   // past would plan against a remainder later cash has already changed.
   const asAt = fmtDate(new Date());
-  const payments: BackfillSource[] = subledger === 'ap'
-    ? (await getUnappliedPayments(companyId, { asAt, limit, entityId })).rows
-      .filter((r) => r.supplierId !== null)
-      .map((r) => ({
-        kind: 'payment' as const,
-        paymentId: r.paymentId,
-        paymentNumber: r.paymentNumber,
-        entityId: r.supplierId!,
-        entityName: r.supplierName ?? '',
-        paymentDate: r.paymentDate,
-        remainder: r.unappliedAmount,
-      }))
-    : (await getUnappliedReceipts(companyId, { asAt, limit, entityId })).rows
-      .filter((r) => r.customerId !== null)
-      .map((r) => ({
-        kind: 'payment' as const,
-        paymentId: r.paymentId,
-        paymentNumber: r.paymentNumber,
-        entityId: r.customerId!,
-        entityName: r.customerName ?? '',
-        paymentDate: r.paymentDate,
-        remainder: r.unappliedAmount,
-      }));
+  const merged: BackfillSource[] = subledger === 'ap'
+    ? apSources(await getUnappliedPayments(companyId, { asAt, limit, entityId }))
+    : arSources(await getUnappliedReceipts(companyId, { asAt, limit, entityId }));
+  merged.push(...await readCreditNotes(companyId, subledger, entityId, limit));
 
-  const notes = await readCreditNotes(companyId, subledger, entityId, limit);
-  return [...payments, ...notes]
+  const ordered = merged
     .sort((a, b) => (
       a.paymentDate.localeCompare(b.paymentDate)
       || a.paymentNumber.localeCompare(b.paymentNumber)
       || a.paymentId.localeCompare(b.paymentId)
     ))
     .slice(0, limit);
+
+  return markJournalPeriodSkips(companyId, ordered);
+}
+
+/**
+ * The fiscal-period skip, for every source at once.
+ *
+ * A document must not be marked paid off a journal that appears in no
+ * period-scoped report — the guard the live FIFO path applies before it applies
+ * anything (shared/journalPeriodVisibility). Deciding it HERE rather than at
+ * write time is what makes the dry run agree with the live run: a payment
+ * planned as applying and then withheld does not merely misstate itself, it
+ * hands every later payment against that contact a set of balances that were
+ * never consumed.
+ *
+ * A source with no journal at all is withheld too. Cash on a posted payment
+ * with no journal is a data fault, and guessing which is the safe reading of a
+ * fault is how faults get spread.
+ */
+async function markJournalPeriodSkips(
+  companyId: string,
+  sources: readonly BackfillSource[],
+): Promise<BackfillSource[]> {
+  const toCheck = sources
+    .filter((s) => !s.skippedReason && s.journalEntryId)
+    .map((s) => s.journalEntryId!);
+  const inPeriod = await journalsInAPeriod(companyId, toCheck);
+  return sources.map((source) => {
+    if (source.skippedReason) return source;
+    if (!source.journalEntryId) return { ...source, skippedReason: SKIP_NO_JOURNAL };
+    return inPeriod.has(source.journalEntryId)
+      ? source
+      : { ...source, skippedReason: SKIP_NO_FISCAL_PERIOD };
+  });
 }
 
 /**
@@ -188,23 +195,26 @@ export function fetchOpenDocuments(
 }
 
 /**
- * `invoice_date` for the documents a plan names, which the open-document
- * readers do not select. Read in one statement for the whole plan rather than
- * per line: a 500-payment back-fill names thousands of documents.
+ * The number and `invoice_date` for the documents a plan names, which the
+ * open-document readers do not both return. Read in ONE statement for the whole
+ * plan rather than per line: a 500-source back-fill names thousands.
  */
-export async function fetchDocumentDates(
+export async function fetchDocumentFacts(
   companyId: string,
   subledger: Subledger,
   documentIds: readonly string[],
-): Promise<Map<string, string>> {
+): Promise<Map<string, { invoiceNumber: string; invoiceDate: string }>> {
   if (documentIds.length === 0) return new Map();
   const ids = [...new Set(documentIds)];
   const rows = (subledger === 'ap'
     ? await sql`
-        SELECT id, invoice_date FROM supplier_invoices
+        SELECT id, invoice_number, invoice_date FROM supplier_invoices
         WHERE company_id = ${companyId}::UUID AND id = ANY(${ids}::UUID[])`
     : await sql`
-        SELECT id, invoice_date FROM customer_invoices
+        SELECT id, invoice_number, invoice_date FROM customer_invoices
         WHERE company_id = ${companyId}::UUID AND id = ANY(${ids}::UUID[])`) as DbRow[];
-  return new Map(rows.map((r) => [String(r.id), fmtDate(r.invoice_date)]));
+  return new Map(rows.map((r) => [String(r.id), {
+    invoiceNumber: r.invoice_number ? String(r.invoice_number) : String(r.id),
+    invoiceDate: fmtDate(r.invoice_date),
+  }]));
 }
