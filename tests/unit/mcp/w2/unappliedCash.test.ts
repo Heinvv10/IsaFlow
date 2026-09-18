@@ -11,6 +11,11 @@
  *        uuid-shaped user, so the cash reaches the control account by plain
  *        journal with no `customer_payments` row behind it at all.
  *        W1's `list_unapplied_receipts` cannot see this state. This must.
+ *
+ * MECHANISM 1 IS NOT IMPLEMENTED HERE ANY MORE. It is `unappliedPaymentCash.ts`
+ * — the shared basis for which payments, their movement on the control account
+ * for how much — and it has its own suite. What these cases cover is that BOTH
+ * mechanisms are reported, apart, and totalled together.
  */
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 
@@ -18,24 +23,48 @@ const sqlFn = vi.fn();
 vi.mock('@/lib/neon', () => ({ sql: (...a: unknown[]) => sqlFn(...a), withTransaction: vi.fn() }));
 vi.mock('@/lib/logger', () => ({ log: { info: vi.fn(), error: vi.fn(), warn: vi.fn(), debug: vi.fn() } }));
 
+const paymentCashFn = vi.fn();
+vi.mock('@/modules/accounting/services/reconciliation/unappliedPaymentCash', () => ({
+  getUnappliedPaymentCash: (...a: unknown[]) => paymentCashFn(...a),
+}));
+
 import { getUnappliedControlCash } from '@/modules/accounting/services/reconciliation/unappliedCashService';
 
 const COMPANY = '11111111-1111-4111-8111-111111111111';
 const CTRL = ['22222222-2222-4222-8222-222222222222'];
 
-beforeEach(() => sqlFn.mockReset());
+const payment = (over: Record<string, unknown> = {}) => ({
+  id: 'p1',
+  documentNumber: 'CP-2026-00001',
+  entityName: 'Velocity Fibre',
+  documentDate: '2026-07-24',
+  amount: 172500,
+  documentUnapplied: 172500,
+  gross: 172500,
+  ...over,
+});
+
+function mockBasis(rows: unknown[], postedThrough: string | null = null, offControl: unknown[] = []) {
+  paymentCashFn.mockResolvedValue({
+    withPaymentRecord: rows,
+    appliedRecords: [],
+    offControl,
+    postedThrough,
+  });
+}
+
+beforeEach(() => {
+  sqlFn.mockReset();
+  paymentCashFn.mockReset();
+});
 
 describe('getUnappliedControlCash — AR', () => {
   it('finds a receipt with a payment row and NO allocations (B2)', async () => {
-    sqlFn
-      .mockResolvedValueOnce([
-        { id: 'p1', document_number: 'CP-2026-00001', entity_name: 'Velocity Fibre',
-          document_date: '2026-07-24', control_credit: '172500', allocated: '0',
-          created_at: '2026-07-24T10:00:00.000Z' },
-      ])
-      .mockResolvedValueOnce([]);
+    mockBasis([payment()]);
+    sqlFn.mockResolvedValueOnce([]);
 
     const res = await getUnappliedControlCash(COMPANY, 'ar', '2026-09-03', CTRL);
+    expect(paymentCashFn).toHaveBeenCalledWith(COMPANY, 'ar', '2026-09-03', CTRL);
     expect(res.withPaymentRecord).toEqual([
       expect.objectContaining({ id: 'p1', documentNumber: 'CP-2026-00001', amount: 172500 }),
     ]);
@@ -43,24 +72,16 @@ describe('getUnappliedControlCash — AR', () => {
   });
 
   it('reports only the UNALLOCATED remainder of a partly applied receipt', async () => {
-    sqlFn
-      .mockResolvedValueOnce([
-        { id: 'p2', document_number: 'CP-2', entity_name: 'X', document_date: '2026-05-01',
-          control_credit: '100000', allocated: '40000', created_at: '2026-05-01T00:00:00.000Z' },
-      ])
-      .mockResolvedValueOnce([]);
+    mockBasis([payment({ id: 'p2', amount: 60000, documentUnapplied: 60000, gross: 100000 })]);
+    sqlFn.mockResolvedValueOnce([]);
 
     const res = await getUnappliedControlCash(COMPANY, 'ar', '2026-09-03', CTRL);
     expect(res.withPaymentRecord[0]!.amount).toBe(60000);
-    // ...and the applied R40,000 is still reported, on its own line. It moved
-    // the control account too, and a partition that omits it leaves exactly
-    // that much in `unexplained_difference`.
-    expect(res.appliedRecords[0]!.amount).toBe(40000);
   });
 
   it('finds control-account movement with NO subledger document at all (B24)', async () => {
+    mockBasis([]);
     sqlFn
-      .mockResolvedValueOnce([])
       .mockResolvedValueOnce([
         { id: 'je9', document_number: 'JE-2026-00990', entity_name: null,
           document_date: '2026-03-25', control_credit: '51750',
@@ -78,11 +99,12 @@ describe('getUnappliedControlCash — AR', () => {
   });
 
   it('totals BOTH mechanisms — seeing only one is the failure mode', async () => {
+    mockBasis(
+      [payment({ id: 'p1', documentNumber: 'CP-1', documentDate: '2026-01-01',
+                 amount: 1000, documentUnapplied: 1000, gross: 1000 })],
+      '2026-01-01T00:00:00.000Z',
+    );
     sqlFn
-      .mockResolvedValueOnce([
-        { id: 'p1', document_number: 'CP-1', entity_name: 'A', document_date: '2026-01-01',
-          control_credit: '1000', allocated: '0', created_at: '2026-01-01T00:00:00.000Z' },
-      ])
       .mockResolvedValueOnce([
         { id: 'je1', document_number: 'JE-1', entity_name: null, document_date: '2026-01-02',
           control_credit: '250', created_at: '2026-01-02T00:00:00.000Z' },
@@ -94,17 +116,15 @@ describe('getUnappliedControlCash — AR', () => {
   });
 
   it('drops a fully applied receipt rather than reporting a zero item', async () => {
-    sqlFn
-      .mockResolvedValueOnce([
-        { id: 'p3', document_number: 'CP-3', entity_name: 'A', document_date: '2026-01-01',
-          control_credit: '500', allocated: '500', created_at: '2026-01-01T00:00:00.000Z' },
-      ])
-      .mockResolvedValueOnce([]);
+    // The shared basis never returns one: a payment with nothing left to apply
+    // is not unapplied cash.
+    mockBasis([]);
+    sqlFn.mockResolvedValueOnce([]);
 
     const res = await getUnappliedControlCash(COMPANY, 'ar', '2026-09-03', CTRL);
     expect(res.withPaymentRecord).toEqual([]);
     expect(res.total).toBe(0);
-    expect(res.appliedRecords[0]!.amount).toBe(500);
+    expect(res.appliedRecords).toEqual([]);
   });
 
   it('returns nothing at all when no control account was resolved', async () => {
@@ -113,10 +133,27 @@ describe('getUnappliedControlCash — AR', () => {
     const res = await getUnappliedControlCash(COMPANY, 'ar', '2026-09-03', []);
     expect(res).toMatchObject({ total: 0, withPaymentRecord: [], withoutPaymentRecord: [], appliedRecords: [] });
     expect(sqlFn).not.toHaveBeenCalled();
+    expect(paymentCashFn).not.toHaveBeenCalled();
+  });
+
+  it('carries the gross of the document behind every item', async () => {
+    // The invariant `|amount| <= cited gross` can only be checked if each item
+    // knows what it cites. A payment's gross is its total; a bare journal's is
+    // its own movement on the control account.
+    mockBasis([payment({ amount: 100000, documentUnapplied: 100000, gross: 172500 })]);
+    sqlFn.mockResolvedValueOnce([
+      { id: 'je9', document_number: 'JE-9', entity_name: null, document_date: '2026-03-25',
+        control_credit: '-51750', created_at: '2026-03-25T06:00:00.000Z' },
+    ]);
+
+    const res = await getUnappliedControlCash(COMPANY, 'ar', '2026-09-03', CTRL);
+    expect(res.withPaymentRecord[0]).toMatchObject({ amount: 100000, gross: 172500 });
+    expect(res.withoutPaymentRecord[0]).toMatchObject({ amount: -51750, gross: 51750 });
   });
 
   it('scopes every query by company and passes the date as a string', async () => {
-    sqlFn.mockResolvedValueOnce([]).mockResolvedValueOnce([]);
+    mockBasis([]);
+    sqlFn.mockResolvedValueOnce([]);
     await getUnappliedControlCash(COMPANY, 'ar', '2026-09-03', CTRL);
     for (const call of sqlFn.mock.calls) {
       const values = call.slice(1);

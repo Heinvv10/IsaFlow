@@ -15,6 +15,7 @@ import { sendEmail } from '../core/emailService';
 import type { EmailResult } from '../core/emailService';
 import { buildStatementEmailHtml } from './statementEmailTemplate';
 import { appendSignatureToHtml } from '@/lib/email-templates';
+import { RunningBalance, toMoney } from '@/lib/money/decimalSum';
 
 type Row = DbRow;
 
@@ -132,7 +133,7 @@ export async function fetchStatementData(
       date: toISODate(inv.invoice_date),
       type: 'invoice',
       reference: String(inv.invoice_number ?? ''),
-      debit: Number(inv.total_amount),
+      debit: toMoney(Number(inv.total_amount)),
       credit: 0,
       balance: 0,
     });
@@ -155,7 +156,7 @@ export async function fetchStatementData(
         id: String(pmt.id),
         reason: 'payment_not_confirmed',
         detail: `Receipt is '${status}'; it settles nothing until it is confirmed or reconciled.`,
-        amount: Number(pmt.amount_received),
+        amount: toMoney(Number(pmt.amount_received)),
         documentNumber: String(pmt.payment_number ?? ''),
       });
       continue;
@@ -165,7 +166,7 @@ export async function fetchStatementData(
       type: 'payment',
       reference: String(pmt.payment_number ?? ''),
       debit: 0,
-      credit: Number(pmt.amount_received),
+      credit: toMoney(Number(pmt.amount_received)),
       balance: 0,
     });
   }
@@ -176,7 +177,7 @@ export async function fetchStatementData(
         id: String(cn.id),
         reason: 'credit_note_not_live',
         detail: `Credit note is '${status}'; only approved and applied notes credit the customer.`,
-        amount: Number(cn.total_amount),
+        amount: toMoney(Number(cn.total_amount)),
         documentNumber: String(cn.credit_note_number ?? ''),
       });
       continue;
@@ -186,7 +187,7 @@ export async function fetchStatementData(
       type: 'credit_note',
       reference: String(cn.credit_note_number ?? ''),
       debit: 0,
-      credit: creditNoteAppliedAmount(cn),
+      credit: toMoney(creditNoteAppliedAmount(cn)),
       balance: 0,
     });
   }
@@ -202,17 +203,17 @@ export async function fetchStatementData(
     return (typeOrder[a.type] ?? 9) - (typeOrder[b.type] ?? 9);
   });
 
-  let running = 0;
-  let totalInvoiced = 0;
-  let totalPaid = 0;
-  let totalCredits = 0;
+  const running = new RunningBalance(0);
+  const totalInvoiced = new RunningBalance(0);
+  const totalPaid = new RunningBalance(0);
+  const totalCredits = new RunningBalance(0);
 
   for (const txn of transactions) {
-    running += txn.debit - txn.credit;
-    txn.balance = running;
-    totalInvoiced += txn.debit;
-    if (txn.type === 'payment') totalPaid += txn.credit;
-    if (txn.type === 'credit_note') totalCredits += txn.credit;
+    running.add(txn.debit);
+    txn.balance = running.subtract(txn.credit);
+    totalInvoiced.add(txn.debit);
+    if (txn.type === 'payment') totalPaid.add(txn.credit);
+    if (txn.type === 'credit_note') totalCredits.add(txn.credit);
   }
 
   return {
@@ -230,7 +231,12 @@ export async function fetchStatementData(
     // excluded.length`, which is the arithmetic buildEnvelope then checks and
     // so could not fail. A row dropped from BOTH buckets changes this number.
     universeTotal: candidateRows,
-    summary: { totalInvoiced, totalPaid, totalCredits, balance: running },
+    summary: {
+      totalInvoiced: totalInvoiced.value(),
+      totalPaid: totalPaid.value(),
+      totalCredits: totalCredits.value(),
+      balance: running.value(),
+    },
   };
 }
 
