@@ -70,30 +70,29 @@ import type { ReconciliationInvariant, ReconcilingItem } from './reconcilingItem
 export interface SubledgerReconciliation {
   subledger: SubledgerRole;
   as_at: string;
-  /**
-   * What `aged_debtors` / `aged_creditors` DO total, read from those reports
-   * rather than recomputed. Null for a role with no aged report.
-   */
+  /** What the aged reports DO total, read from them rather than recomputed.
+   *  Null for a role with no aged report. */
   agedTotal: number | null;
   /** Every open document, the ones that cannot be aged included. */
   subledgerTotal: number | null;
   /** Why the subledger side is absent, when it is. */
-  subledgerUnavailable: { reason: string; detail: string } | null;  /** EVERY account typed for the role. No canonical one exists — FINDINGS C1. */
+  subledgerUnavailable: { reason: string; detail: string } | null;
+  /** EVERY account typed for the role. No canonical one exists — FINDINGS C1. */
   controlAccounts: ControlAccountBalance[];
   /** Sum across all of them. Null when none exists — never a fabricated zero. */
   controlAccountBalance: number | null;
   /**
-   * True when more than one account CARRIES THE CONTROL SUBTYPE. It used to be
-   * true whenever more than one account a subledger document had posted to was
-   * found, which made a `settle_by_contra` loan account into a third "AP
-   * control account" on production.
+   * True when more than one account CARRIES THE CONTROL SUBTYPE — not, as it
+   * once was, whenever a subledger document had posted to more than one, which
+   * made a `settle_by_contra` loan account a third "AP control account".
    */
   controlAccountAmbiguous: boolean;
   /** subledgerTotal − controlAccountBalance. Null when either side is absent. */
   difference: number | null;
   reconcilingItems: ReconcilingItem[];
   /** difference − Σ(subledger_to_control items). Zero on a full decomposition. */
-  unexplainedDifference: number | null;  excludedRows: Array<{ id: string; reason: string; detail?: string; amount?: number }>;
+  unexplainedDifference: number | null;
+  excludedRows: Array<{ id: string; reason: string; detail?: string; amount?: number }>;
   /**
    * Bills a matching process already believed settled, still open. NOT a
    * reconciling item and deliberately outside `reconcilingItems`: that cash is
