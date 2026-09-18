@@ -55,6 +55,14 @@ const AS_AT = '2026-06-30';
 const SUB = 1000;
 const VAT = 150;
 const GROSS = SUB + VAT;
+/**
+ * The residual the fixture deliberately leaves unexplained: a control-account
+ * posting the orphan scan skips because an sdjr row claims it, over a document
+ * that is not in the subledger. Signed the way the identity needs it —
+ * subledgerTotal is unchanged and the control account is a cent HIGHER, so the
+ * gap is a cent lower.
+ */
+const STRAY_CENT = -0.01;
 
 let supplier = '';
 let customer = '';
@@ -283,6 +291,32 @@ describeIfDb('L3 — control account by subtype, and one definition of unapplied
       UPDATE supplier_invoices SET amount_paid = ${GROSS}, status = 'paid'
       WHERE id = ${doubleNotedBill}::UUID AND company_id = ${COMPANY}::UUID`;
 
+    // ONE CENT THE DECOMPOSITION CANNOT EXPLAIN. `soft_delete_journal_reversals`
+    // (mig 653) records the reversal a document soft-delete posts, and the
+    // orphan scan skips those rows — the pair already nets to zero and the
+    // sub-ledger dropped the document with it. A row whose document is gone
+    // from the subledger table entirely leaves the exclusion standing over
+    // movement nothing accounts for, which is exactly what a residual is for.
+    //
+    // It is ONE CENT on purpose. Every other fixture here is built from round
+    // amounts, so a clamp of the residual to zero below some threshold would
+    // pass all of them, and `unexplained_is_the_residual` would agree with
+    // itself if it re-derived the residual from the already-clamped figures.
+    const strayJe = ((await sql`
+      INSERT INTO gl_journal_entries (company_id, entry_number, entry_date, description,
+        status, source, created_by)
+      VALUES (${COMPANY}::UUID, ${TAG + '-STRAY'}, ${SETTLE_DATE}::date, 'L3 stray cent',
+        'posted', 'manual', ${USER}::UUID)
+      RETURNING id`) as { id: string }[])[0]!.id;
+    await sql`
+      INSERT INTO gl_journal_lines (company_id, journal_entry_id, gl_account_id, debit, credit)
+      VALUES (${COMPANY}::UUID, ${strayJe}::UUID, ${payable}::UUID, 0, 0.01),
+             (${COMPANY}::UUID, ${strayJe}::UUID, ${expense}::UUID, 0.01, 0)`;
+    await sql`
+      INSERT INTO soft_delete_journal_reversals (company_id, entity_type, entity_id,
+        reversal_journal_entry_id)
+      VALUES (${COMPANY}::UUID, 'supplier_invoice', ${randomUUID()}::UUID, ${strayJe}::UUID)`;
+
     // AR: an invoice and a receipt with a one-cent remainder, plus one wholly
     // unapplied, so the AR twin of the payment agreement can be asserted.
     const arBill = await invoice('-AR-PART');
@@ -296,6 +330,7 @@ describeIfDb('L3 — control account by subtype, and one definition of unapplied
     await sql`DELETE FROM customer_payments WHERE company_id = ${COMPANY}::UUID`;
     await sql`DELETE FROM credit_notes WHERE company_id = ${COMPANY}::UUID`;
     await sql`DELETE FROM customer_invoices WHERE company_id = ${COMPANY}::UUID`;
+    await sql`DELETE FROM soft_delete_journal_reversals WHERE company_id = ${COMPANY}::UUID`;
     await sql`DELETE FROM payment_allocations WHERE payment_id IN (
       SELECT id FROM supplier_payments WHERE company_id = ${COMPANY}::UUID)`;
     await sql`DELETE FROM supplier_payments WHERE company_id = ${COMPANY}::UUID`;
@@ -341,7 +376,8 @@ describeIfDb('L3 — control account by subtype, and one definition of unapplied
     // Asserted on the NAMED items: including the residual makes the identity
     // true by construction, because the residual is defined as what closes it.
     expect(rec.unexplainedDifference).toBeCloseTo(rec.difference! - named, 2);
-    expect(rec.unexplainedDifference).toBe(0);
+    // The stray cent, and nothing else. See the fixture.
+    expect(rec.unexplainedDifference).toBe(STRAY_CENT);
 
     for (const inv of rec.invariants) {
       expect(inv, `${inv.name}: ${inv.detail}`).toMatchObject({ holds: true });
@@ -386,6 +422,7 @@ describeIfDb('L3 — control account by subtype, and one definition of unapplied
     const rec = await reconcileSubledger(COMPANY, 'ar', AS_AT);
     const item = rec.reconcilingItems.find((i) => i.type === 'unapplied_receipt');
     expect(item?.amount).toBeCloseTo(300.01, 2);
+    // AR is untouched by the AP-side stray cent.
     expect(rec.unexplainedDifference).toBe(0);
     for (const inv of rec.invariants) {
       expect(inv, `${inv.name}: ${inv.detail}`).toMatchObject({ holds: true });
@@ -418,7 +455,7 @@ describeIfDb('L3 — control account by subtype, and one definition of unapplied
     for (const inv of rec.invariants) {
       expect(inv, `${inv.name}: ${inv.detail}`).toMatchObject({ holds: true });
     }
-    expect(rec.unexplainedDifference).toBe(0);
+    expect(rec.unexplainedDifference).toBe(STRAY_CENT);
   }, 120000);
 
   it('counts an unconsumed linked credit note ONCE, not against the bill as well', async () => {
@@ -430,7 +467,21 @@ describeIfDb('L3 — control account by subtype, and one definition of unapplied
     const credit = rec.reconcilingItems.find((i) => i.type === 'unapplied_credit_note');
     expect(credit!.documentNumbers).toContain(TAG + '-CNB');
     expect(credit!.documentNumbers).not.toContain(TAG + '-CNA');
-    expect(rec.unexplainedDifference).toBe(0);
+    expect(rec.unexplainedDifference).toBe(STRAY_CENT);
+  }, 120000);
+
+  it('reports a SUB-RAND residual exactly, as a figure and as an item', async () => {
+    // A clamp of the residual to zero below some threshold passes every other
+    // fixture here, because they are all built from round amounts.
+    const rec = await reconcileSubledger(COMPANY, 'ap', AS_AT);
+    expect(rec.unexplainedDifference).toBe(STRAY_CENT);
+    const residualItem = rec.reconcilingItems.find((i) => i.type === 'unexplained_difference');
+    expect(residualItem).toBeDefined();
+    expect(residualItem!.amount).toBe(STRAY_CENT);
+    // ...and the invariant agrees, having re-derived it from the balances
+    // rather than from either of the two figures above.
+    const inv = rec.invariants.find((i) => i.name === 'unexplained_is_the_residual')!;
+    expect(inv, inv.detail).toMatchObject({ holds: true });
   }, 120000);
 
   it('names the supplier credit note the AP subledger cannot see', async () => {
@@ -444,6 +495,6 @@ describeIfDb('L3 — control account by subtype, and one definition of unapplied
     // The cancelled note is credit that was reversed, so it is not unapplied
     // credit and must not be in here.
     expect(item!.documentNumbers).not.toContain(TAG + '-CCN');
-    expect(rec.unexplainedDifference).toBe(0);
+    expect(rec.unexplainedDifference).toBe(STRAY_CENT);
   }, 120000);
 });
