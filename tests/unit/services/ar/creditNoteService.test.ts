@@ -56,6 +56,19 @@ vi.mock('@/modules/accounting/services/gl/systemAccountResolver', () => ({
 vi.mock('@/modules/accounting/services/ar/creditNoteLock', () => ({
   lockCreditNoteForUpdate: vi.fn(),
 }));
+// Same reason, one level down: since the FIFO walk (migration 677) every
+// `amount_paid` write runs under the BOUNDED invoice row lock, which also
+// refuses outside a request transaction. Passed through here so this suite goes
+// on describing the credit-note service; the 5s budget and the typed timeout
+// are proved against a real database in
+// tests/integration/k011-invoice-lock-review.int.test.ts, and the refusal
+// itself in tests/unit/services/shared/creditNoteFifo.test.ts.
+vi.mock('@/modules/accounting/services/ar/customerInvoiceLock', () => ({
+  withCustomerInvoiceLock: <T>(_fn: string, _s: string, run: () => Promise<T>) => run(),
+}));
+vi.mock('@/modules/accounting/services/ap/supplierInvoiceLock', () => ({
+  withSupplierInvoiceLock: <T>(_fn: string, _s: string, run: () => Promise<T>) => run(),
+}));
 
 import { sql } from '@/lib/neon';
 import {

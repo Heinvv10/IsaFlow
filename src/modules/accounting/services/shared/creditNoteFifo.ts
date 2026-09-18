@@ -52,6 +52,9 @@ import { fetchOpenSupplierBills } from '../ap/supplierAutoAllocate';
 import { fetchOpenCustomerInvoices } from '../ar/customerAutoAllocate';
 import { recomputeInvoiceStatus } from '../ar/invoiceStatusRecompute';
 import { EPS, planGreedyAllocations, round2 } from './autoAllocateStrategy';
+import {
+  readOutstanding, underInvoiceLock, writeApplication,
+} from './creditNoteApplicationWrites';
 
 export const CREDIT_NOTE_AUTO_APPLY = ['fifo', 'none'] as const;
 export type CreditNoteAutoApply = (typeof CREDIT_NOTE_AUTO_APPLY)[number];
@@ -89,60 +92,6 @@ export interface CreditNoteApplication {
   lines: CreditNoteApplicationLine[];
   /** Face value not consumed by any document — on-account credit. */
   remainder: number;
-}
-
-async function readOutstanding(
-  companyId: string,
-  side: CreditNoteSide,
-  invoiceId: string,
-): Promise<number | null> {
-  const rows = (side === 'customer'
-    ? await sql`
-        SELECT total_amount, amount_paid FROM customer_invoices
-        WHERE id = ${invoiceId}::UUID AND company_id = ${companyId}::UUID`
-    : await sql`
-        SELECT total_amount, amount_paid FROM supplier_invoices
-        WHERE id = ${invoiceId}::UUID AND company_id = ${companyId}::UUID`) as DbRow[];
-  const row = rows[0];
-  if (!row) return null;
-  return Math.max(0, round2(Number(row.total_amount) - Number(row.amount_paid ?? 0)));
-}
-
-/**
- * Write ONE application: the allocation row, the document's `amount_paid`, and
- * the status recompute — in that order, so a failed money write leaves no row
- * claiming the money moved.
- *
- * `recomputeInvoiceStatus` owns the status and `paid_at`; nothing here writes
- * either by hand.
- */
-async function writeApplication(
-  companyId: string,
-  creditNoteId: string,
-  side: CreditNoteSide,
-  line: CreditNoteApplicationLine,
-): Promise<void> {
-  await sql`
-    INSERT INTO credit_note_allocations (company_id, credit_note_id, invoice_id, amount_allocated)
-    VALUES (${companyId}::UUID, ${creditNoteId}::UUID, ${line.invoiceId}::UUID, ${line.amount})
-  `;
-  const applied = (side === 'customer'
-    ? await sql`
-        UPDATE customer_invoices SET amount_paid = COALESCE(amount_paid, 0) + ${line.amount}
-        WHERE id = ${line.invoiceId}::UUID AND company_id = ${companyId}::UUID
-        RETURNING id`
-    : await sql`
-        UPDATE supplier_invoices SET amount_paid = COALESCE(amount_paid, 0) + ${line.amount}
-        WHERE id = ${line.invoiceId}::UUID AND company_id = ${companyId}::UUID
-        RETURNING id`) as DbRow[];
-  // A row count of zero means the document vanished between the read and the
-  // write. Refusing beats an allocation row pointing at nothing.
-  if (applied.length !== 1) {
-    throw new Error(
-      `Credit note ${creditNoteId}: applying ${line.amount} to invoice ${line.invoiceId} wrote no row.`,
-    );
-  }
-  await recomputeInvoiceStatus(companyId, side, line.invoiceId);
 }
 
 /**
@@ -250,17 +199,18 @@ export async function reverseCreditNoteApplications(
   for (const line of lines) {
     // `amount_paid >= X` rather than GREATEST(0, ...): flooring at zero
     // silently absorbs exactly the corruption worth hearing about.
-    const done = (side === 'customer'
-      ? await sql`
-          UPDATE customer_invoices SET amount_paid = amount_paid - ${line.amount}
-          WHERE id = ${line.invoiceId}::UUID AND company_id = ${companyId}::UUID
-            AND amount_paid >= ${line.amount}
-          RETURNING id`
-      : await sql`
-          UPDATE supplier_invoices SET amount_paid = amount_paid - ${line.amount}
-          WHERE id = ${line.invoiceId}::UUID AND company_id = ${companyId}::UUID
-            AND amount_paid >= ${line.amount}
-          RETURNING id`) as DbRow[];
+    const done = await underInvoiceLock('cancelCreditNote', side, line.invoiceId, async () =>
+      (side === 'customer'
+        ? await sql`
+            UPDATE customer_invoices SET amount_paid = amount_paid - ${line.amount}
+            WHERE id = ${line.invoiceId}::UUID AND company_id = ${companyId}::UUID
+              AND amount_paid >= ${line.amount}
+            RETURNING id`
+        : await sql`
+            UPDATE supplier_invoices SET amount_paid = amount_paid - ${line.amount}
+            WHERE id = ${line.invoiceId}::UUID AND company_id = ${companyId}::UUID
+              AND amount_paid >= ${line.amount}
+            RETURNING id`) as DbRow[]);
     if (done.length === 0) {
       throw new Error(
         `Cannot cancel credit note ${creditNoteId}: invoice ${line.invoiceId} has less applied than the ${line.amount} this note credited.`,

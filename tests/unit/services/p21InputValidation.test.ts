@@ -49,6 +49,17 @@ vi.mock('@/modules/accounting/services/gl/journalEntryService', () => ({
 vi.mock('@/modules/accounting/services/ar/creditNoteLock', () => ({
   lockCreditNoteForUpdate: vi.fn(),
 }));
+// The FIFO application (migration 677) writes `amount_paid` under the BOUNDED
+// invoice row lock, which refuses outside a request transaction. Passed through
+// so this suite keeps describing the credit note; the lock's own contract is
+// covered in tests/unit/services/shared/creditNoteFifo.test.ts and against a
+// real database in tests/integration/k011-invoice-lock-review.int.test.ts.
+vi.mock('@/modules/accounting/services/ar/customerInvoiceLock', () => ({
+  withCustomerInvoiceLock: <T>(_fn: string, _s: string, run: () => Promise<T>) => run(),
+}));
+vi.mock('@/modules/accounting/services/ap/supplierInvoiceLock', () => ({
+  withSupplierInvoiceLock: <T>(_fn: string, _s: string, run: () => Promise<T>) => run(),
+}));
 vi.mock('@/modules/accounting/services/gl/systemAccountResolver', () => ({
   getSystemAccount: vi.fn().mockResolvedValue({ id: 'acct-1' }),
 }));
