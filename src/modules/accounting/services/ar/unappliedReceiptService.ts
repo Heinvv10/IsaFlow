@@ -89,6 +89,11 @@ export interface UnappliedReceiptsOptions {
   limit: number;
   /** Keyset cursor: `[payment_date, id]` of the last row served. */
   after?: { paymentDate: string; id: string } | null;
+  /**
+   * One customer only, or null/absent for every customer. Applied to all three
+   * queries below for the reason given on the AP twin's option.
+   */
+  entityId?: string | null;
 }
 
 interface Row extends DbRow {
@@ -111,6 +116,7 @@ export async function getUnappliedReceipts(
 ): Promise<UnappliedReceiptsResult> {
   const cursorDate = opts.after?.paymentDate ?? null;
   const cursorId = opts.after?.id ?? null;
+  const entityId = opts.entityId ?? null;
 
   // One page of ATTRIBUTED receipts, ordered oldest first: the oldest unapplied
   // cash is the most likely to be the reconciling item somebody is looking for.
@@ -159,6 +165,7 @@ export async function getUnappliedReceipts(
     WHERE cp.company_id = ${companyId}::UUID
       AND cp.status <> 'cancelled'
       AND cp.payment_date <= ${opts.asAt}::DATE
+      AND (${entityId}::UUID IS NULL OR cp.client_id = ${entityId}::UUID)
       AND (cp.total_amount - COALESCE(alloc.allocated, 0)) > ${EPS}
       AND c.id IS NOT NULL
       AND (
@@ -195,6 +202,7 @@ export async function getUnappliedReceipts(
     WHERE cp.company_id = ${companyId}::UUID
       AND cp.status <> 'cancelled'
       AND cp.payment_date <= ${opts.asAt}::DATE
+      AND (${entityId}::UUID IS NULL OR cp.client_id = ${entityId}::UUID)
       AND (cp.total_amount - COALESCE(alloc.allocated, 0)) > ${EPS}
       AND c.id IS NULL
     ORDER BY cp.payment_date ASC, cp.id ASC
@@ -226,6 +234,7 @@ export async function getUnappliedReceipts(
     WHERE cp.company_id = ${companyId}::UUID
       AND cp.status <> 'cancelled'
       AND cp.payment_date <= ${opts.asAt}::DATE
+      AND (${entityId}::UUID IS NULL OR cp.client_id = ${entityId}::UUID)
       AND (cp.total_amount - COALESCE(alloc.allocated, 0)) > ${EPS}
   `) as DbRow[];
   // A COUNT with no GROUP BY always returns exactly one row from Postgres; the
