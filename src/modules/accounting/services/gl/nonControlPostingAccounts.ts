@@ -16,6 +16,18 @@
  * `document_not_on_control_account`, because that item compares each document's
  * balance to what its OWN journal put on the resolved control accounts.
  *
+ * THE TABLE SET IS WIDER THAN THE OLD PROBE'S, deliberately. That probe read
+ * `supplier_invoices` and `supplier_payments` for AP and left `credit_notes` to
+ * the AR side only; here both sides read it. The probe could afford the gap
+ * because everything it found was ADOPTED as a control account, and adopting an
+ * account off a credit note would have been one more wrong control account.
+ * This function only WARNS, so the cost of the two arms is reversed: an account
+ * that supplier credit notes move in the payable direction without carrying the
+ * payable subtype is the same finding as one supplier bills move that way, and
+ * leaving it out would make the warning silent on exactly the settlement route
+ * that is least reviewed. Nothing downstream counts these accounts, so a
+ * widened set cannot move a balance.
+ *
  * The direction rule, unchanged from the arm this replaces and looking at no
  * account name: a control account is moved IN ITS OWN DIRECTION by the
  * documents that create the balance — a receivable is net DEBITED by customer

@@ -17,9 +17,18 @@
  *       are worth. This is the one that catches an item summed off the wrong
  *       column — R453m of `document_not_on_control_account` across bills worth
  *       a fraction of it read as a finding about the books.
- *   unexplained_is_the_residual  the residual is `difference − Σ items`, never
- *       clamped, floored or plugged. A clamped residual is how an incomplete
- *       decomposition comes to look complete.
+ *   unexplained_is_the_residual  the residual is the gap less the NAMED items,
+ *       never clamped, floored or plugged. A clamped residual is how an
+ *       incomplete decomposition comes to look complete.
+ *
+ * THE RESIDUAL IS RE-DERIVED FROM THE BALANCES, not from the `difference` the
+ * caller reports and not from the residual item in the list. `subledgerTotal`
+ * and `controlAccountBalance` are read from the ledger and the subledger; every
+ * other figure here is computed from them, so a check that starts from one of
+ * those computed figures can only ever agree with whatever produced it. A clamp
+ * on the way out — "call anything under a rand zero" — leaves the reported
+ * figure, the residual ITEM and this arithmetic disagreeing, and all three are
+ * compared. The same clamp checked against `difference` alone would pass.
  *
  * RETURNED, NOT THROWN: a violation is the most interesting thing the endpoint
  * can say about a set of books, and a 500 would replace it with nothing.
@@ -29,9 +38,13 @@ import type { ReconciliationInvariant, ReconcilingItem } from './reconcilingItem
 import { round2 } from './reconciliationMath';
 
 export interface InvariantInputs {
+  /** Read from the subledger. An INPUT to the arithmetic, not a result of it. */
   subledgerTotal: number | null;
+  /** Read from the ledger. Likewise. */
   controlAccountBalance: number | null;
+  /** What the response REPORTS as the difference. Checked, never trusted. */
   difference: number | null;
+  /** What the response REPORTS as the residual. Checked, never trusted. */
   unexplained: number | null;
   items: readonly ReconcilingItem[];
 }
@@ -83,18 +96,29 @@ export function checkInvariants({
         .join('; '),
   });
 
-  if (difference === null || unexplained === null) {
+  if (subledgerTotal === null || controlAccountBalance === null || unexplained === null) {
     out.push({
       name: 'unexplained_is_the_residual',
       holds: true,
       detail: 'Not applicable: there is no difference to leave a residual of.',
     });
   } else {
-    const residual = round2(difference - named);
+    // From the two READ figures, never from the reported difference.
+    const gap = round2(subledgerTotal - controlAccountBalance);
+    const residual = round2(gap - named);
+    // The residual is also an ITEM whenever it is non-zero. Absent means zero,
+    // and zero is what it must then equal.
+    const asItem = round2(
+      control.filter((i) => i.type === 'unexplained_difference').reduce((s, i) => s + i.amount, 0),
+    );
+    const differenceAgrees = difference !== null && round2(difference) === gap;
     out.push({
       name: 'unexplained_is_the_residual',
-      holds: unexplained === residual,
-      detail: `difference ${difference} − named items ${named} = ${residual}; unexplainedDifference is ${unexplained}.`,
+      holds: unexplained === residual && asItem === residual && differenceAgrees,
+      detail: `subledgerTotal ${round2(subledgerTotal)} − controlAccountBalance ${round2(controlAccountBalance)} = ${gap}`
+        + `, less named items ${named} = ${residual}; unexplainedDifference is ${unexplained}`
+        + `, the unexplained_difference item carries ${asItem}`
+        + `, and the reported difference is ${difference === null ? 'null' : round2(difference)}.`,
     });
   }
 

@@ -90,6 +90,38 @@ describe('checkInvariants', () => {
     expect(held(bad, 'item_within_cited_gross').holds).toBe(false);
   });
 
+  it('re-derives the residual from the BALANCES, so a wrong difference cannot hide', () => {
+    // difference is a computed figure. Checking the residual against it lets
+    // any error in it agree with itself; the two READ figures cannot.
+    const out = checkInvariants({
+      subledgerTotal: 1100, controlAccountBalance: 1000,
+      difference: 90, // wrong: the balances say 100
+      unexplained: 0, items: [item({ amount: 90, citedGross: 90 })],
+    });
+    expect(held(out, 'unexplained_is_the_residual').holds).toBe(false);
+  });
+
+  it('fails when the residual figure is reported but the ITEM is missing', () => {
+    // The two are written separately, so they can disagree. A reader who works
+    // the itemisation would never see the R10.
+    const out = checkInvariants({
+      subledgerTotal: 1100, controlAccountBalance: 1000, difference: 100,
+      unexplained: 10, items: [item({ amount: 90, citedGross: 90 })],
+    });
+    expect(held(out, 'unexplained_is_the_residual').holds).toBe(false);
+  });
+
+  it('fails on a SUB-RAND residual clamped to zero', () => {
+    // The clamp that survives every fixture built from round amounts: "call
+    // anything under a rand zero". The balances still say one cent is missing.
+    const out = checkInvariants({
+      subledgerTotal: 1000.01, controlAccountBalance: 1000,
+      difference: 0.01, unexplained: 0, items: [],
+    });
+    expect(held(out, 'unexplained_is_the_residual').holds).toBe(false);
+    expect(held(out, 'unexplained_is_the_residual').detail).toContain('0.01');
+  });
+
   it('fails when the residual has been clamped instead of reported', () => {
     // A clamped residual is how an incomplete decomposition comes to look
     // complete: the named items explain 90 of a difference of 100 and the
