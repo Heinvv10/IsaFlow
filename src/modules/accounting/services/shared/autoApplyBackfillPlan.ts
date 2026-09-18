@@ -43,16 +43,30 @@ export interface BackfillSource {
   kind: BackfillSourceKind;
   paymentId: string;
   paymentNumber: string;
-  entityId: string;
+  /** Null when the contact could not be resolved — always a skipped source. */
+  entityId: string | null;
   entityName: string;
   paymentDate: string;
   /** What is left after everything already allocated. Always > EPS. */
   remainder: number;
   /**
-   * Set when this source CANNOT be applied by a live run — today only a credit
-   * note on a database without `credit_note_allocations`. A skipped source
-   * consumes no balances: it is reported with its whole amount outstanding, so
-   * the plan does not promise a later payment a bill this one would have taken.
+   * The journal that put this cash on the control account. Null is itself a
+   * skip: cash on a posted payment with no journal is a data fault, and a
+   * document must never be marked paid off one.
+   */
+  journalEntryId: string | null;
+  /**
+   * Why this source may not be applied, or null when it may.
+   *
+   * DECIDED IN THE POPULATION, so both modes see the same answer. A dry run
+   * that planned a payment the live run then withholds does not merely misstate
+   * that payment: every later payment against the same contact inherits the
+   * divergence, because the balances it plans against were consumed by an
+   * application that never happened.
+   *
+   * A skipped source consumes NOTHING. It is reported with its whole amount
+   * outstanding, so the plan never promises a later payment a document this one
+   * would have taken.
    */
   skippedReason?: string | null;
 }
@@ -78,25 +92,36 @@ export interface PlannedApplication {
 }
 
 /**
- * A payment with nothing to apply to — the list the spec asks to be reported
- * separately and prominently, because in production it is the bigger half.
+ * A source the run WAS allowed to apply and found nothing open for.
  *
- * A source whose entity had no open document at all and one whose open
- * documents an EARLIER payment in this same run consumed are both here: the
- * outcome is identical — the whole amount stays on account — and splitting them
- * would invite the reader to add two numbers that are the same number.
- * `skipped_reason` is the separate question of whether the run was allowed to
- * try.
+ * Only that. A source the run was not allowed to touch is in `skipped` with the
+ * reason, and keeping the two apart is the point: an operator reading
+ * `no_open_documents` is reading a list of contacts with no open documents,
+ * which is a real finding about the books. Mixing in payments withheld by a
+ * fiscal-period guard or an unresolvable contact would make that list say
+ * something it does not mean.
+ *
+ * A contact that had no open document at all and one whose documents an
+ * EARLIER source in this same run consumed are both here: the outcome is
+ * identical — the whole amount stays on account — and splitting them would
+ * invite the reader to add two numbers that are the same number.
  */
 export interface UnappliedSource {
   kind: BackfillSourceKind;
   payment_id: string;
   payment_number: string;
-  entity_id: string;
+  entity_id: string | null;
   entity_name: string;
   payment_date: string;
   amount: number;
-  skipped_reason: string | null;
+}
+
+/**
+ * A source the run may not touch, and why. Reported IDENTICALLY by both modes —
+ * that is what makes a dry run a preview rather than a guess.
+ */
+export interface SkippedSource extends UnappliedSource {
+  reason: string;
 }
 
 export interface BackfillTotals {
@@ -104,6 +129,21 @@ export interface BackfillTotals {
   left_on_account: number;
   no_open_documents_amount: number;
   payments_with_no_open_documents: number;
+  skipped_amount: number;
+  payments_skipped: number;
+  /**
+   * Every remainder this run READ, whatever became of it.
+   *
+   * The completeness identity, and the only figure that proves nothing was
+   * dropped between the population and the plan:
+   *
+   *   applied + left_on_account + no_open_documents_amount + skipped_amount
+   *     === population_amount
+   *
+   * A bucket that silently swallowed a source — the unresolvable contacts the
+   * first version of this dropped with a `.filter()` — breaks it immediately.
+   */
+  population_amount: number;
 }
 
 export interface BackfillPlan {
@@ -113,12 +153,14 @@ export interface BackfillPlan {
   processed: number;
   applications: PlannedApplication[];
   no_open_documents: UnappliedSource[];
+  /** Sources the run was not allowed to touch. The same in both modes. */
+  skipped: SkippedSource[];
   totals: BackfillTotals;
   /** Sources a live run could not finish, with the reason. Empty on a dry run. */
   failed: { payment_id: string; payment_number: string; error: string }[];
 }
 
-function unappliedOf(source: BackfillSource, amount: number): UnappliedSource {
+function unappliedOf(source: BackfillSource): UnappliedSource {
   return {
     kind: source.kind,
     payment_id: source.paymentId,
@@ -126,8 +168,7 @@ function unappliedOf(source: BackfillSource, amount: number): UnappliedSource {
     entity_id: source.entityId,
     entity_name: source.entityName,
     payment_date: source.paymentDate,
-    amount: round2(amount),
-    skipped_reason: source.skippedReason ?? null,
+    amount: round2(source.remainder),
   };
 }
 
@@ -147,12 +188,23 @@ export function assembleBackfillPlan(
 ): BackfillPlan {
   const applications: PlannedApplication[] = [];
   const noOpen: UnappliedSource[] = [];
+  const skipped: SkippedSource[] = [];
   let applied = 0;
   let leftOnAccount = 0;
+  let population = 0;
 
   for (const { source, lines } of decided) {
+    population = round2(population + round2(source.remainder));
+
+    // SKIPPED WINS over everything below. A source the run may not touch has no
+    // lines by construction, and reporting it as "nothing open" would put a
+    // fiscal-period refusal into a list about the state of the books.
+    if (source.skippedReason) {
+      skipped.push({ ...unappliedOf(source), reason: source.skippedReason });
+      continue;
+    }
     if (lines.length === 0) {
-      noOpen.push(unappliedOf(source, source.remainder));
+      noOpen.push(unappliedOf(source));
       continue;
     }
     const total = lines.reduce((sum, l) => round2(sum + l.amount), 0);
@@ -163,7 +215,7 @@ export function assembleBackfillPlan(
       kind: source.kind,
       payment_id: source.paymentId,
       payment_number: source.paymentNumber,
-      entity_id: source.entityId,
+      entity_id: source.entityId ?? '',
       entity_name: source.entityName,
       payment_date: source.paymentDate,
       remainder_before: round2(source.remainder),
@@ -178,11 +230,15 @@ export function assembleBackfillPlan(
     processed: decided.length,
     applications,
     no_open_documents: noOpen,
+    skipped,
     totals: {
       applied,
       left_on_account: leftOnAccount,
       no_open_documents_amount: noOpen.reduce((s, r) => round2(s + r.amount), 0),
       payments_with_no_open_documents: noOpen.length,
+      skipped_amount: skipped.reduce((s, r) => round2(s + r.amount), 0),
+      payments_skipped: skipped.length,
+      population_amount: population,
     },
     failed: [...failed],
   };
@@ -210,9 +266,10 @@ export function buildBackfillPlan(args: {
   const simLines: SimulationLine[] = sources.map((source, index) => ({
     index,
     // A skipped source applies to nothing AND consumes nothing — see the field.
-    entityKey: source.skippedReason ? null : source.entityId,
+    // A source with no resolvable contact has no pool to consume either.
+    entityKey: source.skippedReason || !source.entityId ? null : source.entityId,
     cash: source.remainder,
-    oldestFirst: oldestFirstByEntity.get(source.entityId) ?? true,
+    oldestFirst: source.entityId ? oldestFirstByEntity.get(source.entityId) ?? true : true,
   }));
   const simulated = new Map(
     simulateSequentialApplications(simLines, openByEntity).map((l) => [l.index, l]),

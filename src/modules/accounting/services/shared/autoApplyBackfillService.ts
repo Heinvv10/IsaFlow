@@ -39,9 +39,7 @@ import { withSavepoint } from '@/lib/neon';
 import { log } from '@/lib/logger';
 import type { SimulationDocument } from './autoApplySimulation';
 import {
-  CREDIT_NOTE_TABLE_MISSING,
-  creditNoteAllocationsExist,
-  fetchDocumentDates,
+  fetchDocumentFacts,
   fetchOpenDocuments,
   readBackfillSources,
 } from './autoApplyBackfillPopulation';
@@ -95,17 +93,29 @@ function safeReason(err: unknown): string {
   return message.length > 300 ? `${message.slice(0, 300)}…` : message;
 }
 
-/** Attach `invoice_date` to every line of a finished run, in one statement. */
-async function fillDocumentDates(
+/**
+ * Attach the document NUMBER and DATE to every line of a finished run, in one
+ * statement for the whole run rather than a query per line — a 500-source
+ * back-fill names thousands of documents.
+ *
+ * The number is filled in as well as the date because the credit-note writer
+ * returns ids only; the payment path already knows its numbers and they are
+ * left alone.
+ */
+async function fillDocumentFacts(
   companyId: string,
   subledger: Subledger,
   decided: readonly { source: BackfillSource; lines: PlannedLine[] }[],
 ): Promise<void> {
-  const dates = await fetchDocumentDates(
+  const facts = await fetchDocumentFacts(
     companyId, subledger, decided.flatMap((d) => d.lines.map((l) => l.document_id)),
   );
   for (const { lines } of decided) {
-    for (const line of lines) line.invoice_date = dates.get(line.document_id) ?? null;
+    for (const line of lines) {
+      const fact = facts.get(line.document_id);
+      line.invoice_date = fact?.invoiceDate ?? null;
+      if (!line.document_number) line.document_number = fact?.invoiceNumber ?? '';
+    }
   }
 }
 
@@ -113,21 +123,27 @@ async function planDryRun(req: BackfillRequest, sources: BackfillSource[]): Prom
   const oldestFirstFor = makeStrategyReader(req.companyId, req.subledger);
   const openByEntity = new Map<string, SimulationDocument[]>();
   const oldestFirstByEntity = new Map<string, boolean>();
-  for (const entityId of new Set(sources.map((s) => s.entityId))) {
+  // Only the contacts a source may actually be applied to. Reading open
+  // documents for a skipped source would cost a query to populate a pool
+  // nothing consumes.
+  const entityIds = new Set(
+    sources.filter((s) => !s.skippedReason && s.entityId).map((s) => s.entityId!),
+  );
+  for (const entityId of entityIds) {
     oldestFirstByEntity.set(entityId, await oldestFirstFor(entityId));
-    // Always read OLDEST FIRST: the simulator reverses its own view for a
-    // newest-first contact, and one ordering for the shared pool is what keeps
-    // two payments against one contact consuming the same list.
     // NOT locked: a dry run over a whole subledger would otherwise hold every
     // open document in the book for the length of a preview it throws away.
     openByEntity.set(entityId, await fetchOpenDocuments(
       req.companyId, req.subledger, entityId, true, false,
     ));
   }
-  const documentDates = await fetchDocumentDates(
+  const facts = await fetchDocumentFacts(
     req.companyId,
     req.subledger,
     [...openByEntity.values()].flatMap((docs) => docs.map((d) => d.invoiceId)),
+  );
+  const documentDates = new Map(
+    [...facts].map(([id, f]) => [id, f.invoiceDate]),
   );
   return buildBackfillPlan({
     subledger: req.subledger, sources, openByEntity, oldestFirstByEntity, documentDates,
@@ -142,19 +158,16 @@ async function runLive(req: BackfillRequest, sources: BackfillSource[]): Promise
     idempotencyKey: req.idempotencyKey ?? null,
     oldestFirstFor: makeStrategyReader(req.companyId, req.subledger),
   };
-  // Asked only when the run actually holds a credit note: a to_regclass probe
-  // on every AP payment run answers a question nothing in it depends on.
-  const notesWritable = sources.some((s) => s.kind === 'credit_note')
-    && await creditNoteAllocationsExist();
 
   const decided: { source: BackfillSource; lines: PlannedLine[] }[] = [];
   const failed: BackfillPlan['failed'] = [];
 
   for (const [index, source] of sources.entries()) {
-    if (source.kind === 'credit_note' && !notesWritable) {
-      decided.push({
-        source: { ...source, skippedReason: CREDIT_NOTE_TABLE_MISSING }, lines: [],
-      });
+    // THE SAME DECISION THE DRY RUN MADE, taken from the source rather than
+    // retaken here. Every skip lives in the population for exactly this reason:
+    // a rule applied in one mode and not the other is a preview that lies.
+    if (source.skippedReason) {
+      decided.push({ source, lines: [] });
       continue;
     }
     try {
@@ -181,7 +194,7 @@ async function runLive(req: BackfillRequest, sources: BackfillSource[]): Promise
     }
   }
 
-  await fillDocumentDates(req.companyId, req.subledger, decided);
+  await fillDocumentFacts(req.companyId, req.subledger, decided);
   return assembleBackfillPlan(false, req.subledger, decided, failed);
 }
 
