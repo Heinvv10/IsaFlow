@@ -8,6 +8,7 @@ Last updated: 2026-04-19 · 643 commits on `master` · 144 migrations (000 → 3
 
 ## Unreleased / In Flight
 
+- **`auto_apply_unapplied` — the back-fill for cash already in the ledger** — a new MCP write tool (and `scripts/auto-apply-unapplied-dryrun.ts`) applies the BACKLOG of unapplied supplier payments, customer receipts and credit notes to each contact's oldest open documents, oldest cash first. **Dry run is the default** and posts no journal and creates no document — only the subledger moves. Payments with nothing open to apply to are reported separately as `no_open_documents`, which is usually the larger half of the backlog. Each payment applies in its own savepoint, re-running is a no-op, and every application is an ordinary allocation row that `void_payment` / `void_receipt` reverses.
 - **Bank allocations apply the cash** — allocating a bank line to a supplier or customer without naming a document now applies the cash FIFO to that entity's oldest open documents; pass `auto_apply: "none"` to leave it on account. Users who relied on allocate-now-apply-later will see documents close automatically.
 - **Phase 3b — TOTP 2FA via GoTrue native MFA** — design spec + 17-task implementation plan landed 2026-04-19 (not yet merged)
 - **Xero-parity UX roadmap** — see FEATURES.md §21.1 (Setup Guide drawer, adaptive dashboard, shared component library, breadcrumbs, invoice preview, report favouriting)

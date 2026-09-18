@@ -102,6 +102,16 @@ export interface UnappliedPaymentsOptions {
   limit: number;
   /** Keyset cursor: `[payment_date, id]` of the last row served. */
   after?: { paymentDate: string; id: string } | null;
+  /**
+   * One supplier only, or null/absent for every supplier.
+   *
+   * Applied to ALL THREE queries below — the page, the orphan list and the
+   * totals — so a filtered call stays internally consistent: a `rowsTotal` that
+   * counted the whole book against a page that held one supplier would make the
+   * envelope's completeness check (`rowsTotal + excluded === universeTotal`)
+   * report a fault that does not exist.
+   */
+  entityId?: string | null;
 }
 
 interface Row extends DbRow {
@@ -132,6 +142,7 @@ export async function getUnappliedPayments(
 ): Promise<UnappliedPaymentsResult> {
   const cursorDate = opts.after?.paymentDate ?? null;
   const cursorId = opts.after?.id ?? null;
+  const entityId = opts.entityId ?? null;
 
   // One page of ATTRIBUTED payments, ordered oldest first: the oldest unapplied
   // cash is the most likely to be the reconciling item somebody is looking for.
@@ -178,6 +189,7 @@ export async function getUnappliedPayments(
     WHERE sp.company_id = ${companyId}::UUID
       AND sp.status IN ('processed', 'reconciled')
       AND sp.payment_date <= ${opts.asAt}::DATE
+      AND (${entityId}::UUID IS NULL OR sp.supplier_id = ${entityId}::UUID)
       AND (sp.total_amount - COALESCE(alloc.allocated, 0)) > ${EPS}
       AND s.id IS NOT NULL
       AND (
@@ -215,6 +227,7 @@ export async function getUnappliedPayments(
     WHERE sp.company_id = ${companyId}::UUID
       AND sp.status IN ('processed', 'reconciled')
       AND sp.payment_date <= ${opts.asAt}::DATE
+      AND (${entityId}::UUID IS NULL OR sp.supplier_id = ${entityId}::UUID)
       AND (sp.total_amount - COALESCE(alloc.allocated, 0)) > ${EPS}
       AND s.id IS NULL
     ORDER BY sp.payment_date ASC, sp.id ASC
@@ -246,6 +259,7 @@ export async function getUnappliedPayments(
     WHERE sp.company_id = ${companyId}::UUID
       AND sp.status IN ('processed', 'reconciled')
       AND sp.payment_date <= ${opts.asAt}::DATE
+      AND (${entityId}::UUID IS NULL OR sp.supplier_id = ${entityId}::UUID)
       AND (sp.total_amount - COALESCE(alloc.allocated, 0)) > ${EPS}
   `) as DbRow[];
   // A COUNT with no GROUP BY always returns exactly one row from Postgres; the

@@ -370,6 +370,22 @@ hashArgs(args): string   // sha256 of key-sorted canonical JSON
   date, so taking the first posts one month's journal against another month's
   transaction. `bank_account_id` needs no ownership check — it only narrows a
   query already fenced to the tenant, so a foreign id matches nothing.
+- 2026-09-18: `auto_apply_unapplied` (writeAutoApplyUnapplied.ts) — the back-fill for the
+  unapplied backlog `list_unapplied_payments` / `list_unapplied_receipts` only REPORT.
+  Scope `write:invoices`, `requiresPost`, and **`dry_run` defaults to TRUE**, which is the
+  opposite of every other write tool here: one call can touch hundreds of documents the
+  agent never named, so the safe reading of an under-specified request is "show me". The
+  key is still required for a dry run — registry.call() demands one from every `write: true`
+  tool before the handler is reached — and the dry run sets `wroteNothing` so it does not
+  occupy it. It posts NO journal and creates NO document: the cash is already in the ledger
+  and only the subledger moves. The population is `getUnappliedPayments` /
+  `getUnappliedReceipts` (both gained an optional `entityId`), never a second copy of the
+  predicate, so the tool cannot act on rows the report does not show. FIFO comes from
+  `planGreedyAllocations` and the dry run from `simulateSequentialApplications` — the same
+  two the bulk allocator uses, so preview and live cannot drift. One savepoint per source:
+  a failure on the fortieth is reported in `failed` and the other thirty-nine stand.
+  Credit notes write `credit_note_allocations`, which THIS branch does not create — on a
+  database without it they are reported with `skipped_reason` instead of throwing.
 - 2026-08-27: `list_bank_transactions` gained `cursor` + `fields` (PRD-11 §3). The reply is
   `{ transactions, total, next_cursor }`; `next_cursor` is null on the last page and the
   description tells the agent to loop on it. `fields:"compact"` drops each row to
