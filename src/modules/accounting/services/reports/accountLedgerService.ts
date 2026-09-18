@@ -12,6 +12,7 @@ import { sql } from '@/lib/neon';
 import { fmtDate } from '@/lib/fmtDate';
 import type { DbRow } from '@/lib/neon';
 import { log } from '@/lib/logger';
+import { RunningBalance, toMoney } from '@/lib/money/decimalSum';
 
 type Row = DbRow;
 
@@ -114,8 +115,9 @@ export async function getAccountLedger(
     const obCredit = Number(obRows[0]?.total_credit ?? 0);
     // Debit-normal accounts: balance = debits − credits.
     // Credit-normal accounts: balance = credits − debits.
-    const openingBalance =
-      normalBalance === 'debit' ? obDebit - obCredit : obCredit - obDebit;
+    const openingBalance = toMoney(
+      normalBalance === 'debit' ? obDebit - obCredit : obCredit - obDebit,
+    );
 
     // 3. Count total matching rows in range for pagination.
     const countRows = postedOnly
@@ -202,11 +204,12 @@ export async function getAccountLedger(
         `) as Row[];
 
     // 5. Compute running balance across the paginated slice.
-    let running = openingBalance;
+    const running = new RunningBalance(openingBalance);
     const rows: AccountLedgerRow[] = txnRows.map((r: Row) => {
-      const d = Number(r.debit ?? 0);
-      const c = Number(r.credit ?? 0);
-      running += normalBalance === 'debit' ? d - c : c - d;
+      const d = toMoney(Number(r.debit ?? 0));
+      const c = toMoney(Number(r.credit ?? 0));
+      running.add(normalBalance === 'debit' ? d : c);
+      const runningBalance = running.subtract(normalBalance === 'debit' ? c : d);
       return {
         journalEntryId: String(r.journal_entry_id),
         entryDate: fmtDate(r.entry_date),
@@ -216,7 +219,7 @@ export async function getAccountLedger(
         source: String(r.source ?? 'manual'),
         debit: d,
         credit: c,
-        runningBalance: running,
+        runningBalance,
       };
     });
 
@@ -258,9 +261,10 @@ export async function getAccountLedger(
 
     const periodDebit = Number(periodRows[0]?.period_debit ?? 0);
     const periodCredit = Number(periodRows[0]?.period_credit ?? 0);
-    const periodNet =
-      normalBalance === 'debit' ? periodDebit - periodCredit : periodCredit - periodDebit;
-    const periodClosingBalance = openingBalance + periodNet;
+    const periodNet = toMoney(
+      normalBalance === 'debit' ? periodDebit - periodCredit : periodCredit - periodDebit,
+    );
+    const periodClosingBalance = toMoney(openingBalance + periodNet);
 
     return { rows, total, openingBalance, periodNet, periodClosingBalance, meta };
   } catch (err) {
