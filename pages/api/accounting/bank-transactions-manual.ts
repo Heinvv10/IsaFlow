@@ -14,6 +14,7 @@ import { apiResponse } from '@/lib/apiResponse';
 import { withAuth, type CompanyAuthedRequest, withWriteAccess} from '@/lib/auth';
 import { withCsrf } from '@/lib/auth/withCsrf';
 import { UUID } from '@/lib/schemas/common';
+import { AUTO_APPLY_MODES } from '@/modules/accounting/services/shared/autoAllocateStrategy';
 import { log } from '@/lib/logger';
 import { sql } from '@/lib/neon';
 import {
@@ -38,6 +39,9 @@ const ManualTxSchema = z.object({
   // entityId is a supplier or customer UUID; service casts to ::UUID downstream.
   entityId: UUID.optional(),
   vatCode: z.string().max(20).optional(),
+  // See the allocate action: 'fifo' (the default) settles the contact's oldest
+  // open documents, 'none' leaves the cash on account.
+  autoApply: z.enum(AUTO_APPLY_MODES).optional(),
 }).refine(
   v => !(v.allocationType === 'account' && !v.contraAccountId),
   { message: 'contraAccountId is required when allocationType is account', path: ['contraAccountId'] },
@@ -62,7 +66,7 @@ async function handler(req: CompanyAuthedRequest, res: NextApiResponse) {
   }
   const {
     type, bankAccountId, date, amount: numericAmount,
-    reference, description, allocationType, contraAccountId, entityId, vatCode,
+    reference, description, allocationType, contraAccountId, entityId, vatCode, autoApply,
   } = parsed.data;
 
   // ── Amount sign — negative for spend, positive for receive ─────────────────
@@ -123,6 +127,12 @@ async function handler(req: CompanyAuthedRequest, res: NextApiResponse) {
       allocationType,
       entityId,
       vatCode,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      // The service owns the default; this route only forwards an explicit one.
+      autoApply ? { autoApply } : undefined,
     );
 
     log.info('Manual bank transaction allocated', {
