@@ -28,6 +28,7 @@ import { fmtDate } from '@/lib/fmtDate';
 import { documentInLedgerAsAtFragment } from '../shared/softDeleteLedgerPresence';
 import { classifyStatementInvoice } from '../shared/statementInvoiceExclusion';
 import { creditNoteAppliedAmount } from '../shared/creditNoteAppliedAmount';
+import { RunningBalance, toMoney } from '@/lib/money/decimalSum';
 
 type Row = DbRow;
 
@@ -157,7 +158,7 @@ export async function fetchSupplierStatementData(
       type: 'invoice',
       reference: String(inv.invoice_number ?? ''),
       debit: 0,
-      credit: Number(inv.total_amount),
+      credit: toMoney(Number(inv.total_amount)),
       balance: 0,
     });
   }
@@ -168,7 +169,7 @@ export async function fetchSupplierStatementData(
         id: String(pmt.id),
         reason: 'payment_not_processed',
         detail: `Payment is '${status}'; it settles nothing until it is processed.`,
-        amount: Number(pmt.amount_allocated),
+        amount: toMoney(Number(pmt.amount_allocated)),
         documentNumber: String(pmt.payment_number ?? ''),
       });
       continue;
@@ -177,7 +178,7 @@ export async function fetchSupplierStatementData(
       date: fmtDate(pmt.payment_date),
       type: 'payment',
       reference: String(pmt.payment_number ?? ''),
-      debit: Number(pmt.amount_allocated),
+      debit: toMoney(Number(pmt.amount_allocated)),
       credit: 0,
       balance: 0,
     });
@@ -189,7 +190,7 @@ export async function fetchSupplierStatementData(
         id: String(cn.id),
         reason: 'credit_note_not_live',
         detail: `Credit note is '${status}'; only approved and applied notes reduce what we owe.`,
-        amount: Number(cn.total_amount),
+        amount: toMoney(Number(cn.total_amount)),
         documentNumber: String(cn.credit_note_number ?? ''),
       });
       continue;
@@ -198,7 +199,7 @@ export async function fetchSupplierStatementData(
       date: fmtDate(cn.credit_date),
       type: 'credit_note',
       reference: String(cn.credit_note_number ?? ''),
-      debit: creditNoteAppliedAmount(cn),
+      debit: toMoney(creditNoteAppliedAmount(cn)),
       credit: 0,
       balance: 0,
     });
@@ -218,16 +219,16 @@ export async function fetchSupplierStatementData(
     return (typeOrder[a.type] ?? 9) - (typeOrder[b.type] ?? 9);
   });
 
-  let running = 0;
-  let totalInvoiced = 0;
-  let totalPaid = 0;
-  let totalCredits = 0;
+  const running = new RunningBalance(0);
+  const totalInvoiced = new RunningBalance(0);
+  const totalPaid = new RunningBalance(0);
+  const totalCredits = new RunningBalance(0);
   for (const txn of transactions) {
-    running += txn.credit - txn.debit;
-    txn.balance = running;
-    totalInvoiced += txn.credit;
-    if (txn.type === 'payment') totalPaid += txn.debit;
-    if (txn.type === 'credit_note') totalCredits += txn.debit;
+    running.add(txn.credit);
+    txn.balance = running.subtract(txn.debit);
+    totalInvoiced.add(txn.credit);
+    if (txn.type === 'payment') totalPaid.add(txn.debit);
+    if (txn.type === 'credit_note') totalCredits.add(txn.debit);
   }
 
   return {
@@ -245,7 +246,12 @@ export async function fetchSupplierStatementData(
     // excluded.length`, which is the arithmetic buildEnvelope then checks and
     // so could not fail. A row dropped from BOTH buckets changes this number.
     universeTotal: candidateRows,
-    summary: { totalInvoiced, totalPaid, totalCredits, balance: running },
+    summary: {
+      totalInvoiced: totalInvoiced.value(),
+      totalPaid: totalPaid.value(),
+      totalCredits: totalCredits.value(),
+      balance: running.value(),
+    },
     postedThrough: maxIso([
       ...invoices.map((r) => r.created_at),
       ...payments.map((r) => r.created_at),
