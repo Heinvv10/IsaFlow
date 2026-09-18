@@ -292,6 +292,39 @@ describe('accountLedgerService — getAccountLedger', () => {
       expect(result.periodClosingBalance).toBe(3000); // 1500 opening + 1500 net
     });
 
+    it('a fractional-cent opening balance and movements produce an exact running balance (L4)', async () => {
+      // Opening balance and every movement carry sub-cent NUMERIC noise the
+      // way pg occasionally does; plain JS float accumulation drifts this
+      // past 2dp (verified via `node -e`), whereas the decimal-backed
+      // RunningBalance keeps every row exact to the cent.
+      const txn1 = makeTxnRow({ id: 'je-001', date: new Date('2025-01-10'), debit: 100.05, credit: 0 });
+      const txn2 = makeTxnRow({ id: 'je-002', date: new Date('2025-02-15'), debit: 0, credit: 0.1 });
+      const txn3 = makeTxnRow({ id: 'je-003', date: new Date('2025-03-01'), debit: 0.2, credit: 0 });
+
+      sqlMock
+        .mockResolvedValueOnce([makeAcctRow()])
+        .mockResolvedValueOnce([makeObRow(1500.55, 0)]) // opening: 1500.55
+        .mockResolvedValueOnce([makeCountRow(3)])
+        .mockResolvedValueOnce([txn1, txn2, txn3])
+        .mockResolvedValueOnce([makePeriodRow(100.25, 0.1)]);
+
+      const result = await getAccountLedger({
+        companyId: COMPANY_A,
+        accountId: ACCOUNT_ID,
+        fromDate: FROM,
+        toDate: TO,
+      });
+
+      expect(result.openingBalance).toBe(1500.55);
+      // 1500.55 + 100.05 = 1600.60
+      expect(result.rows[0]?.runningBalance).toBe(1600.6);
+      // 1600.60 - 0.10 = 1600.50
+      expect(result.rows[1]?.runningBalance).toBe(1600.5);
+      // 1600.50 + 0.20 = 1600.70
+      expect(result.rows[2]?.runningBalance).toBe(1600.7);
+      expect(result.periodClosingBalance).toBe(1600.7);
+    });
+
     it('maps row fields correctly', async () => {
       const txn = makeTxnRow({
         id: 'je-abc',
