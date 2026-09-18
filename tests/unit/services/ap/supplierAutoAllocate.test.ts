@@ -97,7 +97,9 @@ describe('recordSupplierBankPayment', () => {
       .mockResolvedValueOnce([{ id: PAYMENT_ID }])          // INSERT ... RETURNING id
       // The supplier's instruction is read FIRST — an 'off' supplier never
       // costs a journal read.
-      .mockResolvedValueOnce([{ auto_allocate_strategy: 'off' }]);
+      .mockResolvedValueOnce([{ auto_allocate_strategy: 'off' }])
+      .mockResolvedValueOnce([{ fiscal_period_id: 'fp-1' }])
+      .mockResolvedValueOnce([]);                            // no open bills
 
     const result = await recordSupplierBankPayment(ARGS);
 
@@ -115,33 +117,36 @@ describe('recordSupplierBankPayment', () => {
     expect(values).toContain(COMPANY_ID);
   });
 
-  it('leaves the payment UNAPPLIED when the supplier has no strategy', async () => {
+  it('applies FIFO even when the supplier column says "off"', async () => {
     mockSql
       .mockResolvedValueOnce([{ id: PAYMENT_ID }])
-      .mockResolvedValueOnce([{ auto_allocate_strategy: 'off' }]);
+      .mockResolvedValueOnce([{ auto_allocate_strategy: 'off' }])
+      .mockResolvedValueOnce([{ fiscal_period_id: 'fp-1' }])
+      .mockResolvedValueOnce([{ id: 'bill-old', outstanding: 1000 }]);
+    mockPlan.mockResolvedValue(planFor([{ invoiceId: 'bill-old', amount: 1000 }], 0));
+    mockApply.mockImplementation(async (_c, plan) => plan);
 
     const result = await recordSupplierBankPayment(ARGS);
 
-    // The whole point of the default: cash nobody instructed us to apply is
-    // visible and correctable, not guessed onto a bill.
-    expect(mockPlan).not.toHaveBeenCalled();
-    expect(mockApply).not.toHaveBeenCalled();
-    expect(result.appliedLines).toEqual([]);
-    expect(result.unappliedRemainder).toBe(1000);
-    expect(result.strategy).toBe('off');
-    // It must NOT have gone looking for bills either — the strategy decides
-    // before any bill is read.
-    expect(queries().some((q) => q.includes('FROM supplier_invoices'))).toBe(false);
+    // 'off' is the column DEFAULT and nothing ever set it, so reading it as
+    // "apply nothing" left every one of these payments at allocated 0. The
+    // call's own mode decides now; the column only chooses a direction.
+    expect(mockPlan).toHaveBeenCalledOnce();
+    expect(result.strategy).toBe('oldest');
+    expect(result.autoApply).toBe('fifo');
+    expect(result.unappliedRemainder).toBe(0);
   });
 
-  it('treats an unreadable or missing supplier row as "off" rather than guessing', async () => {
+  it('treats an unreadable or missing supplier row as oldest-first, not as a refusal', async () => {
     mockSql
       .mockResolvedValueOnce([{ id: PAYMENT_ID }])
-      .mockResolvedValueOnce([]);                            // supplier row gone
+      .mockResolvedValueOnce([])                             // supplier row gone
+      .mockResolvedValueOnce([{ fiscal_period_id: 'fp-1' }])
+      .mockResolvedValueOnce([]);                            // no open bills
 
     const result = await recordSupplierBankPayment(ARGS);
 
-    expect(result.strategy).toBe('off');
+    expect(result.strategy).toBe('oldest');
     expect(mockApply).not.toHaveBeenCalled();
   });
 
@@ -259,14 +264,15 @@ describe('recordSupplierBankPayment — the journal is in no fiscal period', () 
   });
 });
 
-describe('recordSupplierBankPayment — autoApply: false', () => {
+describe("recordSupplierBankPayment — autoApply: 'none'", () => {
   it('creates the document and never even reads the strategy', async () => {
     mockSql.mockResolvedValueOnce([{ id: PAYMENT_ID }]);
 
-    const result = await recordSupplierBankPayment({ ...ARGS, autoApply: false });
+    const result = await recordSupplierBankPayment({ ...ARGS, autoApply: 'none' });
 
     expect(result.paymentId).toBe(PAYMENT_ID);
     expect(result.strategy).toBe('off');
+    expect(result.autoApply).toBe('none');
     expect(result.unappliedRemainder).toBe(1000);
     expect(mockPlan).not.toHaveBeenCalled();
     // Not merely "did not apply" — it must not consult the supplier at all,
@@ -317,5 +323,40 @@ describe('fetchOpenSupplierBills', () => {
     expect(q).toContain('status <> ALL(?::TEXT[])');
     const statuses = mockSql.mock.calls[0]!.slice(1).find(Array.isArray) as string[];
     expect(statuses).toEqual(expect.arrayContaining(['draft', 'cancelled', 'paid', 'written_off']));
+  });
+
+  it('excludes a DISPUTED bill', async () => {
+    // supplier_invoices' CHECK constraint (migration 201) carries 'disputed',
+    // and cash must not settle a bill the company is contesting.
+    mockSql.mockResolvedValueOnce([]);
+    await fetchOpenSupplierBills(COMPANY_ID, SUPPLIER_ID, true);
+    const statuses = mockSql.mock.calls[0]!.slice(1).find(Array.isArray) as string[];
+    expect(statuses).toContain('disputed');
+  });
+
+  it('locks the rows it is about to consume', async () => {
+    // Without FOR UPDATE two concurrent allocations read the same open bill
+    // and each applies its whole amount to it.
+    mockSql.mockResolvedValueOnce([]);
+    await fetchOpenSupplierBills(COMPANY_ID, SUPPLIER_ID, true);
+    expect(queries()[0]!).toContain('FOR UPDATE');
+  });
+
+  it('breaks ties on due date and then id, in both directions', async () => {
+    mockSql.mockResolvedValueOnce([]);
+    await fetchOpenSupplierBills(COMPANY_ID, SUPPLIER_ID, true);
+    expect(queries()[0]!).toContain('ORDER BY invoice_date ASC, due_date ASC NULLS LAST, id ASC');
+
+    mockSql.mockResolvedValueOnce([]);
+    await fetchOpenSupplierBills(COMPANY_ID, SUPPLIER_ID, false);
+    expect(queries()[1]!).toContain('ORDER BY invoice_date DESC, due_date DESC NULLS FIRST, id DESC');
+  });
+
+  it('returns the document number a human reads the bill by', async () => {
+    mockSql.mockResolvedValueOnce([
+      { id: 'bill-1', invoice_number: 'INV-900', outstanding: '250.00' },
+    ]);
+    const open = await fetchOpenSupplierBills(COMPANY_ID, SUPPLIER_ID, true);
+    expect(open).toEqual([{ invoiceId: 'bill-1', invoiceNumber: 'INV-900', outstanding: 250 }]);
   });
 });

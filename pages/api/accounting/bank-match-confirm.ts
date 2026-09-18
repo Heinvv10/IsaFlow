@@ -174,7 +174,7 @@ async function handler(req: CompanyAuthedRequest, res: NextApiResponse) {
       // belongs to.
       await allocateTransaction(
         companyId, bankTransactionId, '', userId, undefined, 'supplier', supplierId,
-        undefined, undefined, undefined, undefined, undefined, { autoApply: false },
+        undefined, undefined, undefined, undefined, undefined, { autoApply: 'none' },
       );
 
       await sql`

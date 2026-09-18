@@ -52,15 +52,29 @@ function queries(): string[] {
 beforeEach(() => vi.clearAllMocks());
 
 describe('autoApplyCustomerReceipt', () => {
-  it('leaves the receipt unapplied when the customer has no strategy', async () => {
-    mockSql.mockResolvedValueOnce([{ auto_allocate_strategy: 'off' }]);
-
-    const result = await autoApplyCustomerReceipt(ARGS);
+  it("leaves the receipt unapplied on autoApply 'none', without reading the customer", async () => {
+    const result = await autoApplyCustomerReceipt({ ...ARGS, autoApply: 'none' });
 
     expect(mockPlan).not.toHaveBeenCalled();
     expect(result.unappliedRemainder).toBe(500);
-    // The invoices are not even read — the instruction decides first.
+    expect(result.autoApply).toBe('none');
+    // Neither the customer nor the invoices are read — the mode decides first.
+    expect(queries().some((q) => q.includes('FROM customers'))).toBe(false);
     expect(queries().some((q) => q.includes('FROM customer_invoices'))).toBe(false);
+  });
+
+  it("applies FIFO even when the customer column says 'off'", async () => {
+    mockSql
+      .mockResolvedValueOnce([{ auto_allocate_strategy: 'off' }])
+      .mockResolvedValueOnce([{ fiscal_period_id: 'fp-1' }])
+      .mockResolvedValueOnce([]);
+
+    const result = await autoApplyCustomerReceipt(ARGS);
+
+    // 'off' is the column default nobody set; it reads as "no preference", and
+    // the invoices ARE consulted now.
+    expect(result.strategy).toBe('oldest');
+    expect(queries().some((q) => q.includes('FROM customer_invoices'))).toBe(true);
   });
 
   it('applies oldest-first, partially settling the invoice the cash runs out on', async () => {
@@ -114,6 +128,45 @@ describe('autoApplyCustomerReceipt', () => {
     mockPlan.mockRejectedValue(new Error('Cannot apply a cancelled payment.'));
 
     await expect(autoApplyCustomerReceipt(ARGS)).rejects.toThrow(/cancelled payment/);
+  });
+});
+
+describe('fetchOpenCustomerInvoices — eligibility', () => {
+  it('locks the invoice rows and skips deleted and disputed ones', async () => {
+    mockSql.mockResolvedValueOnce([]);
+    await fetchOpenCustomerInvoices(COMPANY_ID, CUSTOMER_ID, true);
+    const q = queries()[0]!;
+    // FOR UPDATE OF ci, not a bare FOR UPDATE: the lock belongs to the invoice
+    // rows this receipt is about to consume.
+    expect(q).toContain('FOR UPDATE OF ci');
+    expect(q).toContain('ci.deleted_at IS NULL');
+    const statuses = mockSql.mock.calls[0]!.slice(1).find(Array.isArray) as string[];
+    expect(statuses).toEqual(expect.arrayContaining([
+      'draft', 'pending_approval', 'cancelled', 'paid', 'written_off', 'disputed',
+    ]));
+  });
+
+  it('breaks ties on due date and then id, in both directions', async () => {
+    mockSql.mockResolvedValueOnce([]);
+    await fetchOpenCustomerInvoices(COMPANY_ID, CUSTOMER_ID, true);
+    expect(queries()[0]!).toContain(
+      'ORDER BY ci.invoice_date ASC, ci.due_date ASC NULLS LAST, ci.id ASC',
+    );
+
+    mockSql.mockResolvedValueOnce([]);
+    await fetchOpenCustomerInvoices(COMPANY_ID, CUSTOMER_ID, false);
+    expect(queries()[1]!).toContain(
+      'ORDER BY ci.invoice_date DESC, ci.due_date DESC NULLS FIRST, ci.id DESC',
+    );
+  });
+
+  it('returns the invoice number a human reads it by', async () => {
+    mockSql.mockResolvedValueOnce([
+      { id: 'inv-1', invoice_number: 'INV-77', outstanding: '90.50' },
+    ]);
+    expect(await fetchOpenCustomerInvoices(COMPANY_ID, CUSTOMER_ID, true)).toEqual([
+      { invoiceId: 'inv-1', invoiceNumber: 'INV-77', outstanding: 90.5 },
+    ]);
   });
 });
 
