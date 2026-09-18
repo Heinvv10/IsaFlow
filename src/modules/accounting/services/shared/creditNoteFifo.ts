@@ -208,7 +208,16 @@ export async function applyCreditNote(args: {
   };
 }
 
-/** The documents a note has been applied to, oldest application first. */
+/**
+ * The documents a note has been applied to.
+ *
+ * NOT in application order, and it cannot be: every application in one approval
+ * shares a transaction, and `created_at DEFAULT NOW()` is the TRANSACTION
+ * timestamp, so all the rows carry the same instant. The order below is that
+ * timestamp then the invoice id — stable and deterministic, which is what a
+ * caller rendering a list needs. Which document was settled first is recoverable
+ * from the documents' own dates, since the walk is oldest-first by construction.
+ */
 export async function listCreditNoteAllocations(
   companyId: string,
   creditNoteId: string,
