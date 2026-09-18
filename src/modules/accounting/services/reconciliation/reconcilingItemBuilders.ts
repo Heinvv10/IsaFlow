@@ -12,6 +12,7 @@ import type { SubledgerDocument, SubledgerSnapshot } from '../ar/subledgerTypes'
 import type { UnappliedCash } from './unappliedCashService';
 import type { UnpostedDocument } from './unpostedDocumentService';
 import { round2 } from './reconciliationMath';
+import type { UnappliedCreditNote } from './unappliedCreditNoteService';
 import type { CitableDocument, ReconcilingBridge, ReconcilingItem } from './reconcilingItemTypes';
 
 export function sumBalances(docs: readonly SubledgerDocument[]): number {
@@ -24,6 +25,8 @@ function item(
   description: string,
   amount: number,
   docs: readonly CitableDocument[],
+  /** Summed face value of `docs`. See ReconcilingItem.citedGross. */
+  citedGross: number,
 ): ReconcilingItem {
   return {
     bridge,
@@ -34,7 +37,15 @@ function item(
     documentNumbers: docs
       .map((d) => d.documentNumber)
       .filter((n): n is string => typeof n === 'string' && n.length > 0),
+    citedGross: round2(citedGross),
   };
+}
+
+/** Face value of a set of documents, taken POSITIVE: a credit note's total is
+ *  carried negative in the subledger and a gross of −R50,000 would make every
+ *  item citing it look like a violation. */
+function grossOf(docs: readonly { totalAmount: number }[]): number {
+  return docs.reduce((s, d) => s + Math.abs(d.totalAmount), 0);
 }
 
 const UNPOSTED_TEXT: Record<UnpostedDocument['reason'], string> = {
@@ -48,6 +59,8 @@ export interface ItemInputs {
   snapshot: SubledgerSnapshot & { disputes?: ReadonlyMap<string, number> };
   cash: UnappliedCash;
   unposted: readonly UnpostedDocument[];
+  /** Approved credit the subledger does not already carry. */
+  creditNotes: readonly UnappliedCreditNote[];
 }
 
 /**
@@ -99,6 +112,7 @@ export function buildAgedBridgeItems({
           'Amounts under open dispute. The aged report subtracts these from its bucket totals; the subledger still carries them.',
           disputedTotal,
           disputed,
+          grossOf(disputed),
         ),
       );
     }
@@ -113,6 +127,7 @@ export function buildAgedBridgeItems({
         `${snapshot.creditNotes.length} approved credit note(s) are not applied to any document. The subledger nets them off what is owed; the aged report cannot, because a row with a balance of zero or less never reaches an aging bucket.`,
         creditTotal,
         snapshot.creditNotes,
+        grossOf(snapshot.creditNotes),
       ),
     );
   }
@@ -134,6 +149,7 @@ export function buildAgedBridgeItems({
         amount: residual,
         documentIds: [],
         documentNumbers: [],
+        citedGross: 0,
       });
     }
   }
@@ -146,7 +162,7 @@ export function buildAgedBridgeItems({
  * proper: unapplied cash, postings no document claims, documents whose value
  * never reached a control account.
  */
-export function buildControlBridgeItems({ cash, unposted }: ItemInputs): ReconcilingItem[] {
+export function buildControlBridgeItems({ cash, unposted, creditNotes }: ItemInputs): ReconcilingItem[] {
   const items: ReconcilingItem[] = [];
 
   if (cash.withPaymentRecord.length > 0) {
@@ -154,9 +170,10 @@ export function buildControlBridgeItems({ cash, unposted }: ItemInputs): Reconci
       item(
         'subledger_to_control',
         'unapplied_receipt',
-        `${cash.withPaymentRecord.length} payment document(s) credited to the control account with nothing (or not everything) applied to a document. The GL is reduced; the subledger is not.`,
+        `${cash.withPaymentRecord.length} payment document(s) credited to the control account with nothing (or not everything) applied to a document. The GL is reduced; the subledger is not. The amount is each payment's movement ON THE CONTROL ACCOUNT, which is what it can explain of the difference; list_unapplied_receipts / list_unapplied_payments report the same payments by their document remainder, and the two agree unless cash was posted somewhere other than the control account.`,
         cash.withPaymentRecord.reduce((s, i) => s + i.amount, 0),
         cash.withPaymentRecord,
+        cash.withPaymentRecord.reduce((s, i) => s + Math.abs(i.gross), 0),
       ),
     );
   }
@@ -168,6 +185,19 @@ export function buildControlBridgeItems({ cash, unposted }: ItemInputs): Reconci
         `${cash.withoutPaymentRecord.length} posted journal(s) moved the control account with NO subledger document referencing them, so no cash-application or invoicing tool can see or clear them. Cash that arrived this way needs a payment document created before it can be applied.`,
         cash.withoutPaymentRecord.reduce((s, i) => s + i.amount, 0),
         cash.withoutPaymentRecord,
+        cash.withoutPaymentRecord.reduce((s, i) => s + Math.abs(i.gross), 0),
+      ),
+    );
+  }
+  if (creditNotes.length > 0) {
+    items.push(
+      item(
+        'subledger_to_control',
+        'unapplied_credit_note',
+        `${creditNotes.length} approved credit note(s) carry credit that has not been consumed by any document. The note's journal moved the control account; the subledger does not carry the unconsumed part — on AP it does not carry credit notes at all. Approved credit the AR subledger already counts is deliberately NOT repeated here.`,
+        creditNotes.reduce((s, c) => s + c.amount, 0),
+        creditNotes,
+        creditNotes.reduce((s, c) => s + Math.abs(c.gross), 0),
       ),
     );
   }
@@ -188,6 +218,7 @@ export function buildControlBridgeItems({ cash, unposted }: ItemInputs): Reconci
         `${docs.length} ${UNPOSTED_TEXT[reason]}`,
         docs.reduce((s, d) => s + d.amount, 0),
         docs,
+        docs.reduce((s, d) => s + Math.abs(d.gross), 0),
       ),
     );
   }
@@ -209,5 +240,6 @@ export function unexplainedItem(amount: number): ReconcilingItem {
     amount,
     documentIds: [],
     documentNumbers: [],
+    citedGross: 0,
   };
 }

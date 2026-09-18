@@ -23,8 +23,14 @@ vi.mock('@/modules/accounting/services/gl/controlAccountService', async (orig) =
 }));
 vi.mock('@/modules/accounting/services/ar/arSubledgerService', () => ({ getARSubledger: vi.fn() }));
 vi.mock('@/modules/accounting/services/ap/apSubledgerService', () => ({ getAPSubledger: vi.fn() }));
+vi.mock('@/modules/accounting/services/gl/nonControlPostingAccounts', () => ({
+  getNonControlPostingAccounts: vi.fn(),
+}));
 vi.mock('@/modules/accounting/services/reconciliation/unappliedCashService', () => ({
   getUnappliedControlCash: vi.fn(),
+}));
+vi.mock('@/modules/accounting/services/reconciliation/unappliedCreditNoteService', () => ({
+  getUnappliedCreditNotes: vi.fn(),
 }));
 vi.mock('@/modules/accounting/services/reconciliation/unpostedDocumentService', () => ({
   getUnpostedSubledgerDocuments: vi.fn(),
@@ -41,6 +47,8 @@ vi.mock('@/modules/accounting/services/reports/postedThroughService', () => ({
 }));
 
 import { getControlAccountBalances } from '@/modules/accounting/services/gl/controlAccountService';
+import { getNonControlPostingAccounts } from '@/modules/accounting/services/gl/nonControlPostingAccounts';
+import { getUnappliedCreditNotes } from '@/modules/accounting/services/reconciliation/unappliedCreditNoteService';
 import { getARSubledger } from '@/modules/accounting/services/ar/arSubledgerService';
 import { getUnappliedControlCash } from '@/modules/accounting/services/reconciliation/unappliedCashService';
 import { getUnpostedSubledgerDocuments } from '@/modules/accounting/services/reconciliation/unpostedDocumentService';
@@ -74,8 +82,11 @@ function arSnapshot(over: Record<string, unknown> = {}) {
 beforeEach(() => {
   vi.mocked(getControlAccountBalances).mockReset();
   vi.mocked(getARSubledger).mockReset();
+  vi.mocked(getNonControlPostingAccounts).mockReset().mockResolvedValue([]);
+  vi.mocked(getUnappliedCreditNotes).mockReset().mockResolvedValue([]);
   vi.mocked(getUnappliedControlCash).mockReset().mockResolvedValue({
-    appliedRecords: [], withPaymentRecord: [], withoutPaymentRecord: [], total: 0, postedThrough: null,
+    appliedRecords: [], withPaymentRecord: [], withoutPaymentRecord: [], offControl: [],
+    total: 0, postedThrough: null,
   });
   vi.mocked(getUnpostedSubledgerDocuments).mockReset().mockResolvedValue([]);
   // Default: the aged report agrees with the subledger, so the aged bridge is
@@ -91,12 +102,13 @@ describe('reconcileSubledger — AR', () => {
     vi.mocked(getAgedReportTotal).mockResolvedValue(14272647.6);
     vi.mocked(getUnappliedControlCash).mockResolvedValue({
       withPaymentRecord: [
-        { id: 'pay-1', documentNumber: 'CP-1', entityName: 'Velocity', documentDate: '2026-07-24', amount: 2681024 },
+        { id: 'pay-1', documentNumber: 'CP-1', entityName: 'Velocity', documentDate: '2026-07-24', amount: 2681024, documentUnapplied: 2681024, gross: 2681024 },
       ],
       withoutPaymentRecord: [
-        { id: 'je-9', documentNumber: 'JE-2026-00009', entityName: null, documentDate: '2026-04-13', amount: 10000 },
+        { id: 'je-9', documentNumber: 'JE-2026-00009', entityName: null, documentDate: '2026-04-13', amount: 10000, documentUnapplied: 10000, gross: 10000 },
       ],
       appliedRecords: [],
+      offControl: [],
       total: 2691024,
       postedThrough: '2026-07-24T00:00:00.000Z',
     });
