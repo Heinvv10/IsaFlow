@@ -37,6 +37,15 @@ vi.mock('@/modules/accounting/services/ar/customerInvoiceApprovalService', () =>
     constructor(message: string, notFound = false) { super(message); this.notFound = notFound; }
   },
 }));
+// The allocation rows are read back from the database by the tool. Mocked so
+// the assertions describe the TOOL's reporting, not the shared `sql` fixture
+// that readStates also uses.
+vi.mock('@/modules/accounting/services/shared/creditNoteFifo', async () => {
+  const actual = await vi.importActual<typeof import('@/modules/accounting/services/shared/creditNoteFifo')>(
+    '@/modules/accounting/services/shared/creditNoteFifo',
+  );
+  return { ...actual, listCreditNoteAllocations: vi.fn().mockResolvedValue([]) };
+});
 vi.mock('@/modules/accounting/services/ar/creditNoteService', () => ({
   approveCreditNote: vi.fn(),
 }));
@@ -46,6 +55,7 @@ import { resolvePeriodSkips } from '@/lib/mcp/tools/bulkApprovePeriods';
 import { validateSystemAccounts } from '@/modules/accounting/services/gl/systemAccountResolver';
 import { approveSupplierInvoice } from '@/modules/accounting/services/ap/supplierInvoiceWorkflowService';
 import { approveCreditNote } from '@/modules/accounting/services/ar/creditNoteService';
+import { listCreditNoteAllocations } from '@/modules/accounting/services/shared/creditNoteFifo';
 import { bulkApproveCreditNotesTool } from '@/lib/mcp/tools/writeBulkApproveCreditNotes';
 
 const ctx = { companyId: 'company-1', userId: 'user-1' } as never;
@@ -65,6 +75,8 @@ function rows(...r: Record<string, unknown>[]): void {
 
 beforeEach(() => {
   vi.clearAllMocks();
+  // clearAllMocks wipes the factory's default, so it is re-primed here.
+  vi.mocked(listCreditNoteAllocations).mockResolvedValue([]);
   vi.mocked(resolvePeriodSkips).mockResolvedValue(new Map());
   vi.mocked(validateSystemAccounts).mockResolvedValue([]);
   vi.mocked(approveSupplierInvoice).mockImplementation((async (_c: string, id: string) => ({
@@ -121,19 +133,45 @@ describe('bulk_approve_credit_notes', () => {
    * reading 'approved' vs 'applied' as cosmetic would look for a second apply
    * step and double-credit the invoice, so the link is reported explicitly.
    */
-  it('reports applied_to_invoice_id when the auto-apply fired', async () => {
+  it('names EVERY document the note settled, not just the linked one', async () => {
     vi.mocked(approveCreditNote).mockResolvedValue({
       id: ID(1), creditNoteNumber: 'CN-1', type: 'customer', status: 'applied',
-      totalAmount: 57.5, glJournalEntryId: 'je-1', customerInvoiceId: ID(9),
+      totalAmount: 57.5, appliedAmount: 57.5, glJournalEntryId: 'je-1', customerInvoiceId: ID(9),
     } as never);
+    // The FIFO walk settled two bills; a single `applied_to_invoice_id` could
+    // only ever have named one of them.
+    vi.mocked(listCreditNoteAllocations).mockResolvedValue([
+      { invoiceId: ID(9), amount: 40 },
+      { invoiceId: ID(8), amount: 17.5 },
+    ]);
     rows({ id: ID(1), status: 'draft', credit_date: '2026-09-01',
            credit_note_number: 'CN-1', type: 'customer' });
     const res = payload(await bulkApproveCreditNotesTool.handler(
       { credit_note_ids: [ID(1)], idempotency_key: 'k' }, ctx,
     ) as Result);
-    expect((res.credit_notes as { applied_to_invoice_id: string }[])[0]!.applied_to_invoice_id)
-      .toBe(ID(9));
+    const row = (res.credit_notes as Array<Record<string, unknown>>)[0]!;
+    expect(row.applied_to_invoice_ids).toEqual([
+      { invoice_id: ID(9), amount: 40 },
+      { invoice_id: ID(8), amount: 17.5 },
+    ]);
+    expect(row.applied_amount).toBe(57.5);
     expect(res.applied_count).toBe(1);
+  });
+
+  it('passes auto_apply through to the service and refuses an unknown value', async () => {
+    rows({ id: ID(1), status: 'draft', credit_date: '2026-09-01',
+           credit_note_number: 'CN-1', type: 'customer' });
+    await bulkApproveCreditNotesTool.handler(
+      { credit_note_ids: [ID(1)], auto_apply: 'none', idempotency_key: 'k' }, ctx,
+    );
+    expect(vi.mocked(approveCreditNote).mock.calls[0]![3])
+      .toMatchObject({ autoApply: 'none' });
+
+    const bad = await bulkApproveCreditNotesTool.handler(
+      { credit_note_ids: [ID(1)], auto_apply: 'off', idempotency_key: 'k' }, ctx,
+    ) as Result;
+    expect(bad.isError).toBe(true);
+    expect(bad.content[0]!.text).toContain('auto_apply must be one of');
   });
 
   /**
@@ -175,14 +213,14 @@ describe('bulk_approve_credit_notes', () => {
       .toEqual([ID(1), ID(3)]);
   });
 
-  it('reports no applied link for a note that merely approved', async () => {
+  it('reports no applied documents for a note that merely approved', async () => {
     rows({ id: ID(1), status: 'draft', credit_date: '2026-09-01',
            credit_note_number: 'CN-1', type: 'customer' });
     const res = payload(await bulkApproveCreditNotesTool.handler(
       { credit_note_ids: [ID(1)], idempotency_key: 'k' }, ctx,
     ) as Result);
-    expect((res.credit_notes as { applied_to_invoice_id: string | null }[])[0]!
-      .applied_to_invoice_id).toBeNull();
+    expect((res.credit_notes as Array<Record<string, unknown>>)[0]!
+      .applied_to_invoice_ids).toEqual([]);
     expect(res.applied_count).toBeUndefined();
   });
 });

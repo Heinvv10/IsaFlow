@@ -20,6 +20,11 @@ import {
   cancelCreditNote,
 } from '@/modules/accounting/services/ar/creditNoteService';
 import type { CreditNoteStatus } from '@/modules/accounting/types/ar.types';
+import {
+  CREDIT_NOTE_AUTO_APPLY,
+  listCreditNoteAllocations,
+  parseCreditNoteAutoApply,
+} from '@/modules/accounting/services/shared/creditNoteFifo';
 
 async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse) {
   const { companyId } = req as CompanyAuthedRequest;
@@ -100,9 +105,15 @@ async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse) {
 
       // Auto-post if requested
       if (submitAction === 'post') {
-        const posted = await approveCreditNote(companyId, note.id, userId);
+        const posted = await approveCreditNote(companyId, note.id, userId, { autoApply: 'fifo' });
         log.info('Supplier credit note created and posted', { id: posted.id }, 'accounting-api');
-        return apiResponse.created(res, posted);
+        // The bills this note actually settled — see the same note in
+        // credit-notes-action: the link does not say where the money went.
+        return apiResponse.created(res, {
+          ...posted,
+          applied_to_invoice_ids: (await listCreditNoteAllocations(companyId, posted.id))
+            .map((l) => ({ invoice_id: l.invoiceId, amount: l.amount })),
+        });
       }
 
       log.info('Supplier credit note created as draft', { id: note.id }, 'accounting-api');
@@ -116,7 +127,13 @@ async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse) {
   // ─── PATCH ────────────────────────────────────────────────────────────────
   if (req.method === 'PATCH') {
     try {
-      const { id, action } = req.body as { id?: string; action?: string };
+      const { id, action, autoApply } = req.body as { id?: string; action?: string; autoApply?: string };
+      // Refused rather than coerced: a caller that meant to keep the credit on
+      // account must not have it spent by a typo. See creditNoteFifo.
+      const parsedAutoApply = autoApply === undefined ? 'fifo' as const : parseCreditNoteAutoApply(autoApply);
+      if (parsedAutoApply === null) {
+        return apiResponse.badRequest(res, `autoApply must be one of: ${CREDIT_NOTE_AUTO_APPLY.join(', ')}`);
+      }
       if (!id) return apiResponse.badRequest(res, 'id is required');
       if (!action) return apiResponse.badRequest(res, 'action is required');
 
@@ -125,8 +142,12 @@ async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse) {
       if (existing.type !== 'supplier') return apiResponse.notFound(res, 'Supplier Credit Note', id);
 
       if (action === 'post') {
-        const posted = await approveCreditNote(companyId, id, userId);
-        return apiResponse.success(res, posted);
+        const posted = await approveCreditNote(companyId, id, userId, { autoApply: parsedAutoApply });
+        return apiResponse.success(res, {
+          ...posted,
+          applied_to_invoice_ids: (await listCreditNoteAllocations(companyId, posted.id))
+            .map((l) => ({ invoice_id: l.invoiceId, amount: l.amount })),
+        });
       }
 
       if (action === 'reverse') {

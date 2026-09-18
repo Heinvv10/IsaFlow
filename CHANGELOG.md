@@ -8,6 +8,7 @@ Last updated: 2026-04-19 · 643 commits on `master` · 144 migrations (000 → 3
 
 ## Unreleased / In Flight
 
+- **Credit notes apply FIFO (migration 677)** — approving a credit note now applies it to the entity's open documents oldest first, after its linked document, unless `auto_apply: "none"` is passed. Whatever it cannot place stays as on-account credit and the note reads `partially_applied`. Aged debtors and aged creditors gained an `unapplied` column per entity and a `net` total beside the gross one.
 - **Bank allocations apply the cash** — allocating a bank line to a supplier or customer without naming a document now applies the cash FIFO to that entity's oldest open documents; pass `auto_apply: "none"` to leave it on account. Users who relied on allocate-now-apply-later will see documents close automatically.
 - **Phase 3b — TOTP 2FA via GoTrue native MFA** — design spec + 17-task implementation plan landed 2026-04-19 (not yet merged)
 - **Xero-parity UX roadmap** — see FEATURES.md §21.1 (Setup Guide drawer, adaptive dashboard, shared component library, breadcrumbs, invoice preview, report favouriting)
