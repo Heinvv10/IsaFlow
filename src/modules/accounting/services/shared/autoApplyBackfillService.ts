@@ -118,9 +118,11 @@ async function planDryRun(req: BackfillRequest, sources: BackfillSource[]): Prom
     // Always read OLDEST FIRST: the simulator reverses its own view for a
     // newest-first contact, and one ordering for the shared pool is what keeps
     // two payments against one contact consuming the same list.
-    openByEntity.set(
-      entityId, await fetchOpenDocuments(req.companyId, req.subledger, entityId, true),
-    );
+    // NOT locked: a dry run over a whole subledger would otherwise hold every
+    // open document in the book for the length of a preview it throws away.
+    openByEntity.set(entityId, await fetchOpenDocuments(
+      req.companyId, req.subledger, entityId, true, false,
+    ));
   }
   const documentDates = await fetchDocumentDates(
     req.companyId,

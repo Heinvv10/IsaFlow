@@ -22,8 +22,8 @@ import type { DbRow } from '@/lib/neon';
 import { fmtDate } from '@/lib/fmtDate';
 import { getUnappliedPayments } from '../ap/unappliedPaymentService';
 import { getUnappliedReceipts } from '../ar/unappliedReceiptService';
-import { fetchOpenSupplierBills } from '../ap/supplierAutoAllocate';
-import { fetchOpenCustomerInvoices } from '../ar/customerAutoAllocate';
+import { fetchOpenSupplierBills } from '../ap/openSupplierBills';
+import { fetchOpenCustomerInvoices } from '../ar/openCustomerInvoices';
 import { EPS } from './autoAllocateStrategy';
 import type { SimulationDocument } from './autoApplySimulation';
 import type { BackfillSource, Subledger } from './autoApplyBackfillPlan';
@@ -167,19 +167,24 @@ export async function readBackfillSources(
 }
 
 /**
- * One entity's open documents, oldest first, through the SAME readers the live
- * FIFO path uses — eligible statuses, the ordering contract and the row lock
- * all come from there rather than being restated.
+ * One entity's open documents, through the SAME readers the live FIFO path
+ * uses — eligible statuses and the ordering contract come from there rather
+ * than being restated.
+ *
+ * `forUpdate` is STATED by each caller, never defaulted: a live run is about to
+ * consume these rows and must hold them, while a dry run must not lock a whole
+ * subledger's open documents for the length of a preview it throws away.
  */
 export function fetchOpenDocuments(
   companyId: string,
   subledger: Subledger,
   entityId: string,
   oldestFirst: boolean,
+  forUpdate: boolean,
 ): Promise<SimulationDocument[]> {
   return subledger === 'ap'
-    ? fetchOpenSupplierBills(companyId, entityId, oldestFirst)
-    : fetchOpenCustomerInvoices(companyId, entityId, oldestFirst);
+    ? fetchOpenSupplierBills(companyId, entityId, oldestFirst, { forUpdate })
+    : fetchOpenCustomerInvoices(companyId, entityId, oldestFirst, { forUpdate });
 }
 
 /**

@@ -96,8 +96,10 @@ export async function applyOnePayment(
     : null;
   if (!journalEntryId || !(await journalIsInAPeriod(ctx.companyId, journalEntryId))) return [];
 
+  // LOCKED: this call is about to consume these rows.
   const open = await fetchOpenDocuments(
-    ctx.companyId, ctx.subledger, source.entityId, await ctx.oldestFirstFor(source.entityId),
+    ctx.companyId, ctx.subledger, source.entityId,
+    await ctx.oldestFirstFor(source.entityId), true,
   );
   const allocations = planGreedyAllocations(remainder, open);
   if (allocations.length === 0) return [];
@@ -141,8 +143,10 @@ export async function applyOneCreditNote(
   ctx: ApplyContext,
   source: BackfillSource,
 ): Promise<PlannedLine[]> {
+  // LOCKED: this call is about to consume these rows.
   const open = await fetchOpenDocuments(
-    ctx.companyId, ctx.subledger, source.entityId, await ctx.oldestFirstFor(source.entityId),
+    ctx.companyId, ctx.subledger, source.entityId,
+    await ctx.oldestFirstFor(source.entityId), true,
   );
   return applyCreditNoteRemainder({
     companyId: ctx.companyId,
