@@ -186,9 +186,17 @@ export async function applyCreditNote(args: {
       lines.push({ invoiceId: linkedInvoiceId, amount });
       consumed = amount;
     } else if (!linkedIsApplicable) {
-      log.info('Credit note skipped its linked document', {
+      // A SETTLED linked document is routine — a credit note raised after the
+      // invoice was paid is an ordinary return — and the old capping path
+      // applied nothing to it either. Anything else means the document was
+      // withdrawn after the link was validated, which is worth a line in the
+      // log at info.
+      const routine = linked.status === 'paid';
+      const entry = {
         creditNoteId, linkedInvoiceId, status: linked.status,
-      }, 'accounting');
+      };
+      if (routine) log.debug('Credit note skipped its settled linked document', entry, 'accounting');
+      else log.info('Credit note skipped its linked document', entry, 'accounting');
     }
   }
 
