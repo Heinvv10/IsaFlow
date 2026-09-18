@@ -22,8 +22,7 @@
  * there is nothing open stays on the note as on-account credit, visible through
  * `getUnappliedCreditNotes` and netted by the aged reports.
  *
- * `auto_apply: 'none'` turns the walk off and keeps the old behaviour: the
- * linked document only, or nothing at all.
+ * `auto_apply: 'none'` turns the walk off: the linked document only.
  *
  * ── WHY THE ROWS, NOT THE COLUMN ────────────────────────────────────────────
  *
@@ -50,10 +49,9 @@ import { sql } from '@/lib/neon';
 import type { DbRow } from '@/lib/neon';
 import { fetchOpenSupplierBills } from '../ap/supplierAutoAllocate';
 import { fetchOpenCustomerInvoices } from '../ar/customerAutoAllocate';
-import { recomputeInvoiceStatus } from '../ar/invoiceStatusRecompute';
 import { EPS, planGreedyAllocations, round2 } from './autoAllocateStrategy';
 import {
-  readOutstanding, underInvoiceLock, writeApplication,
+  lockInvoicesForUpdate, undoApplication, writeApplication,
 } from './creditNoteApplicationWrites';
 
 export const CREDIT_NOTE_AUTO_APPLY = ['fifo', 'none'] as const;
@@ -111,20 +109,57 @@ export async function applyCreditNote(args: {
   totalAmount: number;
   linkedInvoiceId: string | null;
   autoApply: CreditNoteAutoApply;
+  /**
+   * What this note has consumed ALREADY, per `credit_notes.applied_amount`.
+   * Approval passes 0. It is checked against the allocation rows before
+   * anything is written — see `assertAllocationsMatchApplied`.
+   */
+  alreadyApplied?: number;
 }): Promise<CreditNoteApplication> {
   const { companyId, creditNoteId, side, entityId, linkedInvoiceId, autoApply } = args;
   const totalAmount = round2(args.totalAmount);
+
+  // The column and the rows must already agree, or this application extends a
+  // figure nobody can reconstruct — see the function's own comment.
+  await assertAllocationsMatchApplied(companyId, creditNoteId, args.alreadyApplied ?? 0);
+
+  // ── 1. WHICH documents could take this credit, in the order they should ────
+  //
+  // Unlocked, and deliberately: this only establishes the CANDIDATE set and the
+  // FIFO order. Every figure it returns is discarded — an invoice settled by a
+  // concurrent request between here and the lock below must not be planned
+  // against its stale balance.
+  const candidates: string[] = [];
+  if (linkedInvoiceId) candidates.push(linkedInvoiceId);
+  if (autoApply === 'fifo' && entityId) {
+    const open = side === 'customer'
+      ? await fetchOpenCustomerInvoices(companyId, entityId, true)
+      : await fetchOpenSupplierBills(companyId, entityId, true);
+    for (const doc of open) {
+      // The linked document is already first in the list. A second entry would
+      // plan against it twice and violate the allocation table's UNIQUE.
+      if (doc.invoiceId !== linkedInvoiceId) candidates.push(doc.invoiceId);
+    }
+  }
+
+  // ── 2. LOCK them, and take the balances as locked ─────────────────────────
+  const locked = await lockInvoicesForUpdate('applyCreditNote', companyId, side, candidates);
+
+  if (linkedInvoiceId && !locked.has(linkedInvoiceId)) {
+    // The link was validated at create time, so a miss means the document was
+    // deleted afterwards. Refusing beats reporting an application that never
+    // happened.
+    throw new Error(
+      `Credit note ${creditNoteId} is linked to invoice ${linkedInvoiceId}, which no longer exists in this company.`,
+    );
+  }
+
+  // ── 3. PLAN against the locked figures ────────────────────────────────────
   const lines: CreditNoteApplicationLine[] = [];
   let consumed = 0;
 
   if (linkedInvoiceId) {
-    const outstanding = await readOutstanding(companyId, side, linkedInvoiceId);
-    if (outstanding === null) {
-      throw new Error(
-        `Credit note ${creditNoteId} is linked to invoice ${linkedInvoiceId}, which no longer exists in this company.`,
-      );
-    }
-    const amount = round2(Math.min(totalAmount, outstanding));
+    const amount = round2(Math.min(totalAmount, locked.get(linkedInvoiceId)!.outstanding));
     if (amount > EPS) {
       lines.push({ invoiceId: linkedInvoiceId, amount });
       consumed = amount;
@@ -132,20 +167,17 @@ export async function applyCreditNote(args: {
   }
 
   const remaining = round2(totalAmount - consumed);
-  if (autoApply === 'fifo' && entityId && remaining > EPS) {
-    const open = side === 'customer'
-      ? await fetchOpenCustomerInvoices(companyId, entityId, true)
-      : await fetchOpenSupplierBills(companyId, entityId, true);
-    // The linked document is dropped from the walk rather than re-read: it has
-    // just been settled as far as this note can settle it, and a second line
-    // for the same pair would violate the allocation table's UNIQUE.
-    const rest = open.filter((d) => d.invoiceId !== linkedInvoiceId);
+  if (remaining > EPS) {
+    const rest = candidates
+      .filter((id) => id !== linkedInvoiceId && locked.has(id))
+      .map((id) => ({ invoiceId: id, outstanding: locked.get(id)!.outstanding }));
     for (const planned of planGreedyAllocations(remaining, rest)) {
       lines.push({ invoiceId: planned.invoiceId, amount: planned.amount });
       consumed = round2(consumed + planned.amount);
     }
   }
 
+  // ── 4. WRITE ──────────────────────────────────────────────────────────────
   for (const line of lines) {
     await writeApplication(companyId, creditNoteId, side, line);
   }
@@ -155,6 +187,45 @@ export async function applyCreditNote(args: {
     lines,
     remainder: round2(totalAmount - consumed),
   };
+}
+
+/**
+ * Refuse when `credit_notes.applied_amount` and the allocation rows disagree.
+ *
+ * They are two records of one fact and `applied_amount` is meant to be the sum
+ * of the rows. One shape breaks that and it is REACHABLE: a note approved
+ * before migration 677 with no link could not be attributed by the backfill, so
+ * it carries `applied_amount > 0` and no rows. Extending such a note — applying
+ * it again, or cancelling it — writes rows for the NEW amount only, and the
+ * document the original credit went to is then never restored: the cancel path
+ * finds rows, skips its legacy fallback, and zeroes a column that was covering
+ * two applications.
+ *
+ * There is no safe automatic repair, because nothing records where the original
+ * credit went. So the note is refused and named, and a person reconciles it.
+ */
+export async function assertAllocationsMatchApplied(
+  companyId: string,
+  creditNoteId: string,
+  appliedAmount: number,
+): Promise<number> {
+  const rows = (await sql`
+    SELECT COALESCE(SUM(amount_allocated), 0) AS allocated
+    FROM credit_note_allocations
+    WHERE credit_note_id = ${creditNoteId}::UUID AND company_id = ${companyId}::UUID
+  `) as DbRow[];
+  const allocated = round2(Number(rows[0]?.allocated ?? 0));
+  const applied = round2(appliedAmount);
+  // A note with NO rows and a non-zero column is the legacy shape the cancel
+  // path still handles through its single link; it is only unsafe to EXTEND,
+  // which is what this guard is called before.
+  if (allocated > EPS && Math.abs(allocated - applied) > EPS) {
+    throw new Error(
+      `Credit note ${creditNoteId} has applied_amount ${applied} but allocation rows totalling ${allocated}. `
+      + 'Reconcile the note by hand before applying or cancelling it.',
+    );
+  }
+  return allocated;
 }
 
 /**
@@ -193,30 +264,22 @@ export async function reverseCreditNoteApplications(
   companyId: string,
   creditNoteId: string,
   side: CreditNoteSide,
+  /** `credit_notes.applied_amount`, checked against the rows before anything moves. */
+  appliedAmount: number,
 ): Promise<CreditNoteApplicationLine[]> {
   const lines = await listCreditNoteAllocations(companyId, creditNoteId);
+  if (lines.length === 0) return lines;
+
+  // Refuses a note whose column and rows disagree — restoring only the rows
+  // would leave the rest of `applied_amount` credited to a document nothing
+  // names. Same guard, same reasoning, as on the way in.
+  await assertAllocationsMatchApplied(companyId, creditNoteId, appliedAmount);
+
+  // Locked in id order, in ONE statement, exactly as the apply path takes them.
+  await lockInvoicesForUpdate('cancelCreditNote', companyId, side, lines.map((l) => l.invoiceId));
 
   for (const line of lines) {
-    // `amount_paid >= X` rather than GREATEST(0, ...): flooring at zero
-    // silently absorbs exactly the corruption worth hearing about.
-    const done = await underInvoiceLock('cancelCreditNote', side, line.invoiceId, async () =>
-      (side === 'customer'
-        ? await sql`
-            UPDATE customer_invoices SET amount_paid = amount_paid - ${line.amount}
-            WHERE id = ${line.invoiceId}::UUID AND company_id = ${companyId}::UUID
-              AND amount_paid >= ${line.amount}
-            RETURNING id`
-        : await sql`
-            UPDATE supplier_invoices SET amount_paid = amount_paid - ${line.amount}
-            WHERE id = ${line.invoiceId}::UUID AND company_id = ${companyId}::UUID
-              AND amount_paid >= ${line.amount}
-            RETURNING id`) as DbRow[]);
-    if (done.length === 0) {
-      throw new Error(
-        `Cannot cancel credit note ${creditNoteId}: invoice ${line.invoiceId} has less applied than the ${line.amount} this note credited.`,
-      );
-    }
-    await recomputeInvoiceStatus(companyId, side, line.invoiceId);
+    await undoApplication(companyId, creditNoteId, side, line);
   }
 
   await sql`

@@ -1,34 +1,29 @@
 /**
  * MCP write tool: approve and POST a whole set of credit notes.
  *
- * The third arm of the bulk approve family, batching `approve_credit_note`.
- * Both note types are accepted in one call and each posts its own shape:
+ * The third arm of the bulk approve family. Both note types post their own shape:
  *
  *   customer note  DR Revenue + DR VAT Output / CR Accounts Receivable
  *   supplier note  DR Accounts Payable / CR Expense + CR VAT Input
  *
  * ── THE SHARP EDGE THAT MAKES THIS THE MOST CONSEQUENTIAL OF THE THREE ──────
  *
- * Approving a LINKED note does not stop at the ledger. `approveCreditNote` also
- * adds the note's total to the linked invoice's `amount_paid` and lands the note
- * in `applied` rather than `approved` — so one call can reduce a customer's
- * outstanding balance on up to 100 invoices at once. That is why every result
- * row reports `applied_to_invoice_id` explicitly: an agent reading `approved`
- * against `applied` as cosmetic would go looking for a second apply step and
- * double-credit the invoice.
+ * Approving does not stop at the ledger: each note settles its linked document
+ * and then walks the entity's other open ones oldest first, so ONE call can
+ * reduce outstanding balances across far more documents than the hundred notes
+ * it names. That is why every result row reports `applied_to_invoice_ids` and
+ * `applied_amount` — an agent reading the status as cosmetic would go looking
+ * for a second apply step and double-credit them.
  *
- * ── SYSTEM ACCOUNTS ARE CHECKED PER TYPE PRESENT ────────────────────────────
+ * The two note types need different system-account roles, so the pre-write
+ * refusal reads the union of what the batch actually contains: a batch of
+ * customer notes must not be refused for a missing `vat_input`.
  *
- * The two note types need different roles, so the pre-write refusal reads the
- * union of what the batch actually contains. A batch of customer notes must not
- * be refused because the chart lacks `vat_input`, which nothing in it would use.
+ * Locking is handled below the tool: `approveCreditNote` takes the note's row
+ * lock and `creditNoteApplicationWrites` takes every document's, and the runner
+ * treats a lock timeout as a retryable skip.
  *
- * Locking is already handled: `approveCreditNote` takes
- * `lockCreditNoteForUpdate` itself, and the runner treats that lock's timeout
- * as a retryable skip.
- *
- * Free to call: `approve_credit_note` is `null` in TOOL_FLOW_OPERATIONS, and
- * N x 0 is 0.
+ * Free to call: `approve_credit_note` is `null` in TOOL_FLOW_OPERATIONS.
  */
 import type { McpTool } from '../types';
 import { sql } from '@/lib/neon';
@@ -81,20 +76,17 @@ interface ApprovedNoteRow {
 
 /**
  * `approveCreditNote` refuses a note whose status moved on with
- * `Cannot approve credit note with status: <status>`, raised from a read taken
- * UNDER the row lock and before anything is posted — so an element that hits it
- * wrote nothing and is a skip. Matched on the wording because the service
- * throws a bare Error, anchored on both halves, and the status is captured
- * rather than flattened to "already approved".
+ * `Cannot approve credit note with status: <status>`, raised UNDER the row lock
+ * and before anything is posted — so an element that hits it wrote nothing and
+ * is a skip. Matched on the wording because the service throws a bare Error.
  */
 const STATUS_REFUSAL = /Cannot approve credit note with status: (\S+)/;
 const NOT_FOUND_REFUSAL = /^Credit note \S+ not found$/;
 
 /**
  * Exported for `bulkApproveRaceReasonDrift.test.ts`, which asserts it against
- * the message the REAL service throws rather than against a second copy of the
- * literal. The regex below matches text owned by another module; a test that
- * hardcoded the same string would restate the drift rather than catch it.
+ * the message the REAL service throws — a test hardcoding the same string would
+ * restate the drift rather than catch it.
  */
 export function racedReason(err: unknown): string | null {
   if (!(err instanceof Error)) return null;
@@ -254,22 +246,20 @@ export const bulkApproveCreditNotesTool: McpTool = {
     // registry's savepoint.
     //
     // Ordered by (LINKED INVOICE, note id), not by note id alone. Sorting by the
-    // note is not enough, because approveCreditNote takes TWO row locks: it locks
-    // the note (lockCreditNoteForUpdate), then UPDATEs the linked invoice's
-    // amount_paid, which locks the invoice too. With only the note sorted, the
-    // invoice lock order is whatever the note order happens to imply — so batch
+    // note is not enough, because approving takes locks on DOCUMENTS as well as
+    // on the note: `lockCreditNoteForUpdate` first, then one `FOR UPDATE` over
+    // every document the note will settle. With only the note sorted, the
+    // document lock order is whatever the note order happens to imply — so batch
     // [CN1, CN2] (CN1 linked to invoice X) and batch [CN2] (also linked to X)
-    // can hold and wait crosswise and deadlock (40P01). Ordering by the invoice
-    // first gives a total order over the rows two batches can actually contend
-    // for. Standalone notes sort under '' and are mutually unconstrained, which
-    // is correct: they take no second lock.
+    // can hold and wait crosswise and deadlock (40P01).
     //
-    // THE FIFO WALK WIDENS THIS, and deliberately does not change the ordering.
-    // A note now locks every document its remainder settles, not just the one it
-    // names. Those are taken in the walk's own order — oldest first, per entity —
-    // which is the SAME order for every batch touching that entity, so two
-    // batches still acquire the shared rows in one direction. Notes for
-    // different entities contend for nothing.
+    // WHAT THE FIFO WALK ACTUALLY LOCKS, since the comment used to overstate it:
+    // one statement takes every candidate document ORDERED BY id
+    // (`creditNoteApplicationWrites.lockInvoicesForUpdate`), so two batches
+    // contending for the same documents acquire them in one direction by
+    // construction. Sorting the batch by linked invoice remains worth doing for
+    // the note-to-first-document leg. Standalone notes sort under '' and are
+    // mutually unconstrained.
     const ordered = [...postable]
       .map((p) => ({ ...p, group: states.get(p.id)?.lockGroup ?? '', entryDate: states.get(p.id)?.entryDate }))
       .sort((a, b) => (a.group !== b.group

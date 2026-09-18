@@ -47,9 +47,25 @@ CREATE INDEX IF NOT EXISTS idx_credit_note_allocations_note
 --
 -- Dropped and re-added by name because the original was created inline by
 -- migration 202 and so carries Postgres's generated name.
-ALTER TABLE credit_notes DROP CONSTRAINT IF EXISTS credit_notes_status_check;
-ALTER TABLE credit_notes ADD CONSTRAINT credit_notes_status_check
-  CHECK (status::TEXT = ANY (ARRAY['draft', 'approved', 'partially_applied', 'applied', 'cancelled']));
+--
+-- Guarded rather than a bare DROP + ADD. `ADD CONSTRAINT` raises 42710 when the
+-- name is already taken, so the pair is not re-runnable on its own: the drop
+-- succeeds, the add fails, and a file re-applied by hand — which is exactly how
+-- the disposable schema fixture is kept current — leaves the table with NO
+-- status constraint at all if the failure is ignored. The runner applies each
+-- file once and refuses on a checksum mismatch, so this cannot happen through
+-- it; the guard is for every other way a migration gets run.
+DO $$
+BEGIN
+  ALTER TABLE credit_notes DROP CONSTRAINT IF EXISTS credit_notes_status_check;
+  IF NOT EXISTS (
+    SELECT 1 FROM pg_constraint
+    WHERE conrelid = 'credit_notes'::REGCLASS AND conname = 'credit_notes_status_check'
+  ) THEN
+    ALTER TABLE credit_notes ADD CONSTRAINT credit_notes_status_check
+      CHECK (status::TEXT = ANY (ARRAY['draft', 'approved', 'partially_applied', 'applied', 'cancelled']));
+  END IF;
+END $$;
 
 -- BACKFILL. Every note that already consumed something did so against the one
 -- invoice it is linked to, and `applied_amount` is exactly what it consumed
@@ -57,6 +73,16 @@ ALTER TABLE credit_notes ADD CONSTRAINT credit_notes_status_check
 -- since migration 529). Without these rows, cancelling a note approved before
 -- this migration would find no allocations and restore nothing — the cancel
 -- path reads the rows, not the column.
+--
+-- THE GUARD IS `NOT EXISTS ON THE NOTE`, NOT `ON CONFLICT`. Once FIFO
+-- application is live a note can carry rows for documents its LINK does not
+-- name: a note whose linked invoice was already settled allocates nothing to it
+-- and places the whole amount elsewhere. `ON CONFLICT (credit_note_id,
+-- invoice_id)` does not fire for such a note, because the (note, link) pair is
+-- genuinely absent — so a second run of this file would invent a row
+-- attributing the note's whole `applied_amount` to a document it never
+-- credited, and double the credit on it. Excluding every note that already has
+-- ANY allocation row makes the backfill idempotent against that shape.
 INSERT INTO credit_note_allocations (company_id, credit_note_id, invoice_id, amount_allocated, created_at)
 SELECT cn.company_id, cn.id,
        COALESCE(cn.customer_invoice_id, cn.supplier_invoice_id),
@@ -66,4 +92,6 @@ FROM credit_notes cn
 WHERE cn.applied_amount > 0
   AND cn.status IN ('approved', 'applied')
   AND COALESCE(cn.customer_invoice_id, cn.supplier_invoice_id) IS NOT NULL
-ON CONFLICT ON CONSTRAINT credit_note_allocations_note_invoice_unique DO NOTHING;
+  AND NOT EXISTS (
+    SELECT 1 FROM credit_note_allocations cna WHERE cna.credit_note_id = cn.id
+  );

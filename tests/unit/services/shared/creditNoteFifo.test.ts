@@ -69,19 +69,39 @@ describe('applyCreditNote — the oldest-first walk', () => {
   }
 
   /**
-   * `open` is served to the FIFO query IN ORDER — the real one orders by
-   * invoice_date — and `linked` answers the single-document read.
+   * `candidates` is what the FIFO query offers, IN ORDER (the real one orders by
+   * invoice_date). `locked` is what the `FOR UPDATE` re-read then returns — the
+   * two are separate on purpose, because the whole point of the lock is that the
+   * plan consumes the LOCKED figures and not the candidate query's. `linked`, if
+   * given, is the named document and is served by the same locked read.
+   *
+   * `allocated` is the sum of the note's existing allocation rows, which the
+   * applied_amount guard reads before anything is written.
    */
-  function wire(open: [string, number][], linked?: { total: number; paid: number } | null): Wired {
+  function wire(
+    candidates: [string, number][],
+    linked?: { id: string; outstanding: number } | null,
+    opts: { locked?: [string, number][]; allocated?: number } = {},
+  ): Wired {
     const rows: [string, number][] = [];
     const money: [string, number][] = [];
+    const lockedRows = opts.locked ?? candidates;
     vi.mocked(sql).mockImplementation(((strings: TemplateStringsArray, ...values: unknown[]) => {
       const text = (strings as unknown as string[]).join('?');
-      if (/SELECT total_amount, amount_paid FROM supplier_invoices/i.test(text)) {
-        return Promise.resolve(linked ? [{ total_amount: linked.total, amount_paid: linked.paid }] : []);
+      if (/SUM\(amount_allocated\)/i.test(text)) {
+        return Promise.resolve([{ allocated: opts.allocated ?? 0 }]);
+      }
+      if (/FOR UPDATE/i.test(text)) {
+        const wanted = new Set((values[0] as string[]) ?? []);
+        const all: [string, number][] = linked
+          ? [[linked.id, linked.outstanding], ...lockedRows]
+          : lockedRows;
+        return Promise.resolve(all
+          .filter(([id]) => wanted.has(id))
+          .map(([id, outstanding]) => ({ id, status: 'approved', outstanding })));
       }
       if (/FROM supplier_invoices/i.test(text) && /ORDER BY/i.test(text)) {
-        return Promise.resolve(open.map(([id, outstanding]) => ({ id, outstanding })));
+        return Promise.resolve(candidates.map(([id, outstanding]) => ({ id, outstanding })));
       }
       if (/INSERT INTO credit_note_allocations/i.test(text)) {
         rows.push([String(values[2]), Number(values[3])]);
@@ -148,7 +168,7 @@ describe('applyCreditNote — the oldest-first walk', () => {
   });
 
   it('caps the LINKED document at its own balance before walking the rest', async () => {
-    const w = wire([[B, 900]], { total: 1000, paid: 850 });
+    const w = wire([[B, 900]], { id: A, outstanding: 150 });
     const out = await inRequest(() => applyCreditNote(args({ totalAmount: 500, linkedInvoiceId: A })));
     // 150 to the named document, the other 350 to the next open one.
     expect(w.money).toEqual([[A, 150], [B, 350]]);
@@ -161,14 +181,14 @@ describe('applyCreditNote — the oldest-first walk', () => {
     // document still listed. It must be dropped, or the allocation table's
     // UNIQUE (credit_note_id, invoice_id) refuses the second row mid-write and
     // the 200 lands on a document that has nothing left to settle.
-    const w = wire([[A, 300], [B, 900]], { total: 1000, paid: 700 });
+    const w = wire([[A, 300], [B, 900]], { id: A, outstanding: 300 });
     await inRequest(() => applyCreditNote(args({ totalAmount: 500, linkedInvoiceId: A })));
     expect(w.money).toEqual([[A, 300], [B, 200]]);
     expect(w.money.filter(([id]) => id === A)).toHaveLength(1);
   });
 
   it('applies only to the linked document when auto_apply is "none"', async () => {
-    const w = wire([[B, 900]], { total: 1000, paid: 900 });
+    const w = wire([[B, 900]], { id: A, outstanding: 100 });
     const out = await inRequest(() => applyCreditNote(args({ linkedInvoiceId: A, autoApply: 'none' })));
     expect(w.money).toEqual([[A, 100]]);
     expect(out.remainder).toBe(400);
@@ -178,6 +198,36 @@ describe('applyCreditNote — the oldest-first walk', () => {
     wire([[B, 900]], null);
     await expect(inRequest(() => applyCreditNote(args({ linkedInvoiceId: A }))))
       .rejects.toThrow(/no longer exists in this company/);
+  });
+
+  it('plans against the LOCKED balance, not the one the candidate query returned', async () => {
+    // The candidate query says 300 is open; by the time the row lock is taken,
+    // a concurrent request has settled all but 100 of it. Planning from the
+    // stale figure is what drives amount_paid past total_amount.
+    const w = wire([[A, 300]], null, { locked: [[A, 100]] });
+    const out = await inRequest(() => applyCreditNote(args({ totalAmount: 500 })));
+    expect(w.money).toEqual([[A, 100]]);
+    expect(out.remainder).toBe(400);
+  });
+
+  it('skips a candidate the lock read cannot see at all', async () => {
+    // Soft-deleted, or gone, between the candidate query and the lock. It is a
+    // skip rather than a refusal: nothing named it.
+    const w = wire([[A, 300], [B, 900]], null, { locked: [[B, 900]] });
+    await inRequest(() => applyCreditNote(args({ totalAmount: 500 })));
+    expect(w.money).toEqual([[B, 500]]);
+  });
+
+  it('refuses when applied_amount and the allocation rows disagree', async () => {
+    wire([[A, 300]], null, { allocated: 250 });
+    await expect(inRequest(() => applyCreditNote(args({ alreadyApplied: 0 }))))
+      .rejects.toThrow(/allocation rows totalling 250/);
+  });
+
+  it('accepts a note whose column and rows agree', async () => {
+    const w = wire([[A, 300]], null, { allocated: 250 });
+    await inRequest(() => applyCreditNote(args({ alreadyApplied: 250 })));
+    expect(w.money).toEqual([[A, 300]]);
   });
 
   it('applies nothing when the entity has no open document', async () => {

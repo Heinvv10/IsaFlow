@@ -74,6 +74,24 @@ export const FIGURE_DEFINITIONS: Readonly<Record<string, FigureDefinition>> = {
     excludes:
       'Draft, cancelled and soft-deleted invoices — a soft-deleted document also has its approval journal reversed, so it leaves this figure and the control account together. Invoices raised AFTER the reporting date. Settlement that carries no date — bank-match confirmation and the Sage import both write amount_paid with no dated trail — stays in the baseline, so a historical figure can UNDERSTATE and will never report a settled invoice as outstanding.',
   }),
+  'ar.subledger_net.v1': def({
+    id: 'ar.subledger_net.v1',
+    label: 'Accounts receivable per the subledger, net of on-account credit',
+    owner: 'shared/agedNetting#netAgingRows',
+    includes:
+      'ar.subledger.v1 for every customer, MINUS the credit standing against that same customer as at the same date: receipts with a payment document that no allocation consumes, and the face value its live credit notes have not consumed (approved and partially_applied notes). A customer in credit with no open invoice appears with zero buckets and a NEGATIVE net.',
+    excludes:
+      'Everything ar.subledger.v1 excludes. Also cash whose customer cannot be resolved — a receipt whose customer row was deleted has no entity row to net against, so it stays in the report\'s unappliedReceipts footer and in no net. The BUCKETS are not netted and remain ar.subledger.v1; only the headline total and each row\'s net are on this figure.',
+  }),
+  'ap.subledger_net.v1': def({
+    id: 'ap.subledger_net.v1',
+    label: 'Accounts payable per the subledger, net of on-account credit',
+    owner: 'shared/agedNetting#netAgingRows',
+    includes:
+      'ap.subledger.v1 for every supplier, MINUS the credit standing against that same supplier as at the same date: payments with a document that no allocation consumes, and the face value its live credit notes have not consumed (approved and partially_applied notes). A supplier in credit with no open bill appears with zero buckets and a NEGATIVE net.',
+    excludes:
+      'Everything ap.subledger.v1 excludes. Also cash whose supplier cannot be resolved, which stays in the report\'s unappliedPayments footer and in no net. The BUCKETS are not netted and remain ap.subledger.v1; only the headline total and each row\'s net are on this figure.',
+  }),
   'ar.control.v1': def({
     id: 'ar.control.v1',
     label: 'Accounts receivable per the GL control account',

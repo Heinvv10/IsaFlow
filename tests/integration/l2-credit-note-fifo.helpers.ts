@@ -165,6 +165,22 @@ export async function makeDraftNote(
   return id;
 }
 
+/**
+ * An APPROVED note that has consumed nothing — the state a note is in between
+ * its journal posting and an application. Used where a test needs to race the
+ * application without racing the journal numbering.
+ */
+export async function makeApprovedNote(
+  f: Fixture,
+  opts: { type: 'customer' | 'supplier'; number: string; total: number; creditDate: string },
+): Promise<string> {
+  const id = await makeDraftNote(f, opts);
+  await f.pool.query(
+    `UPDATE credit_notes SET status = 'approved', approved_by = $2, approved_at = NOW()
+     WHERE id = $1`, [id, f.user]);
+  return id;
+}
+
 export async function billState(f: Fixture, id: string): Promise<{ paid: number; status: string }> {
   const { rows } = await f.pool.query(
     'SELECT amount_paid::float8 AS paid, status FROM supplier_invoices WHERE id=$1', [id]);

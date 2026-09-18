@@ -81,6 +81,7 @@ import {
   approveCreditNote,
   createCreditNote,
   cancelCreditNote,
+  applyCreditNoteToInvoice,
 } from '@/modules/accounting/services/ar/creditNoteService';
 import { reverseJournalEntry } from '@/modules/accounting/services/gl/journalEntryService';
 
@@ -113,21 +114,26 @@ function sqlCallTouches(call: unknown[], textFragment: string, value: unknown): 
  */
 function setNote(row: Record<string, unknown>, ...rest: Record<string, unknown>[][]) {
   vi.mocked(lockCreditNoteForUpdate).mockResolvedValue(row as never);
-  if (rest.length > 0) {
-    let chain = mockSql.mockResolvedValueOnce(rest[0]!);
-    for (const r of rest.slice(1)) chain = chain.mockResolvedValueOnce(r);
-  } else {
+  if (rest.length === 0) {
     mockSql.mockResolvedValue([row]);
+    return;
   }
+  // A ROUTER with a queue behind it, not a bare `mockResolvedValueOnce` chain.
+  //
+  // Approving now issues two statements the caller of this helper does not care
+  // about and cannot see — the applied_amount/allocation-rows guard and the
+  // candidate read for the FIFO walk. A positional queue makes every fixture
+  // depend on how many of those there happen to be, which is how a query added
+  // in the service silently shifts what each test asserts. These two are
+  // answered by SHAPE and the queue serves only what is left.
+  const queue = [...rest];
+  mockSql.mockImplementation(((strings: TemplateStringsArray) => {
+    const text = (strings as unknown as string[]).join('?');
+    if (/SUM\(amount_allocated\)/i.test(text)) return Promise.resolve([{ allocated: 0 }]);
+    if (/SELECT ci\.id/i.test(text) || /FOR UPDATE/i.test(text)) return Promise.resolve([]);
+    return Promise.resolve(queue.shift() ?? []);
+  }) as never);
 }
-
-/**
- * The customer has no other open invoice. Queued ahead of the final UPDATE
- * because approving a note now walks the entity's open documents (the FIFO
- * application, migration 677) before it writes the note's own row — a fixture
- * that omits this answers the walk with the UPDATE's result.
- */
-const OPEN_NONE: Record<string, unknown>[] = [];
 
 function creditNoteRow(overrides: Record<string, unknown> = {}) {
   return {
@@ -157,6 +163,13 @@ function creditNoteRow(overrides: Record<string, unknown> = {}) {
 }
 
 beforeEach(() => {
+  // mockReset, not clearAllMocks: `clear` empties the CALL history but leaves
+  // any `mockResolvedValueOnce` queue a previous test left on `sql` intact, and
+  // a later test that only sets `mockImplementation` is served that stale queue
+  // first. That made "settles the oldest invoice in full" pass alone and fail
+  // when this file ran after another that used setNote(...) — order-dependence,
+  // not a real difference in behaviour.
+  mockSql.mockReset();
   vi.clearAllMocks();
   // The lock returns the standard fixture. It must NOT delegate to mockSql:
   // calling the tagged-template mock with no arguments records a bogus entry in
@@ -187,7 +200,7 @@ beforeEach(() => {
 
 describe('approveCreditNote — credit_date normalization', () => {
   it('formats a Date-typed credit_date as YYYY-MM-DD before creating the journal entry', async () => {
-    setNote(creditNoteRow(), OPEN_NONE, [creditNoteRow({ status: 'approved' })]);
+    setNote(creditNoteRow(), [creditNoteRow({ status: 'approved' })]);
 
     await approveCreditNote(COMPANY_ID, CN_ID, USER_ID);
 
@@ -197,7 +210,7 @@ describe('approveCreditNote — credit_date normalization', () => {
   });
 
   it('formats a string-typed (ISO timestamp) credit_date as YYYY-MM-DD', async () => {
-    setNote(creditNoteRow({ credit_date: '2026-07-04T00:00:00.000Z' }), OPEN_NONE, [creditNoteRow({ status: 'approved' })]);
+    setNote(creditNoteRow({ credit_date: '2026-07-04T00:00:00.000Z' }), [creditNoteRow({ status: 'approved' })]);
 
     await approveCreditNote(COMPANY_ID, CN_ID, USER_ID);
 
@@ -206,7 +219,7 @@ describe('approveCreditNote — credit_date normalization', () => {
   });
 
   it('passes through a plain YYYY-MM-DD string credit_date unchanged', async () => {
-    setNote(creditNoteRow({ credit_date: '2026-07-04' }), OPEN_NONE, [creditNoteRow({ status: 'approved' })]);
+    setNote(creditNoteRow({ credit_date: '2026-07-04' }), [creditNoteRow({ status: 'approved' })]);
 
     await approveCreditNote(COMPANY_ID, CN_ID, USER_ID);
 
@@ -217,7 +230,7 @@ describe('approveCreditNote — credit_date normalization', () => {
 
 describe('approveCreditNote — no sourceDocumentId, linked via gl_journal_entry_id', () => {
   it('does not pass sourceDocumentId to createJournalEntry (would violate fk_gl_je_source_document)', async () => {
-    setNote(creditNoteRow(), OPEN_NONE, [creditNoteRow({ status: 'approved', gl_journal_entry_id: JE_ID })]);
+    setNote(creditNoteRow(), [creditNoteRow({ status: 'approved', gl_journal_entry_id: JE_ID })]);
 
     await approveCreditNote(COMPANY_ID, CN_ID, USER_ID);
 
@@ -226,7 +239,7 @@ describe('approveCreditNote — no sourceDocumentId, linked via gl_journal_entry
   });
 
   it('persists gl_journal_entry_id on the credit note when approving', async () => {
-    setNote(creditNoteRow(), OPEN_NONE, [creditNoteRow({ status: 'approved', gl_journal_entry_id: JE_ID })]);
+    setNote(creditNoteRow(), [creditNoteRow({ status: 'approved', gl_journal_entry_id: JE_ID })]);
 
     const result = await approveCreditNote(COMPANY_ID, CN_ID, USER_ID);
 
@@ -365,14 +378,24 @@ describe('approveCreditNote — auto-apply is capped and verified', () => {
     return creditNoteRow({ customer_invoice_id: INV, total_amount: 1150 });
   }
 
-  /** Answers the credit-note read, the invoice read, and the two UPDATEs. */
+  /** Answers the guard, the locked invoice read, and the two UPDATEs. */
   function wire(invoice: { total_amount: string; amount_paid: string } | null) {
     const applied: number[] = [];
     vi.mocked(lockCreditNoteForUpdate).mockResolvedValue(linkedNote() as never);
     mockSql.mockImplementation(((strings: TemplateStringsArray, ...values: unknown[]) => {
       const text = (strings as unknown as string[]).join('?');
-      if (/SELECT total_amount, amount_paid FROM customer_invoices/i.test(text)) {
-        return Promise.resolve(invoice ? [invoice] : []);
+      if (/SUM\(amount_allocated\)/i.test(text)) {
+        return Promise.resolve([{ allocated: 0 }]);
+      }
+      // The lock read is where the outstanding balance now comes from, so the
+      // cap these tests describe is computed from its figures.
+      if (/FOR UPDATE/i.test(text)) {
+        if (!invoice) return Promise.resolve([]);
+        const outstanding = Number(invoice.total_amount) - Number(invoice.amount_paid);
+        return Promise.resolve([{ id: INV, status: 'approved', outstanding }]);
+      }
+      if (/SELECT ci\.id/i.test(text)) {
+        return Promise.resolve([]);
       }
       if (/UPDATE customer_invoices SET amount_paid = COALESCE\(amount_paid, 0\) \+/i.test(text)) {
         applied.push(Number(values[0]));
@@ -445,7 +468,18 @@ describe('approveCreditNote — FIFO application across open documents', () => {
     );
     mockSql.mockImplementation(((strings: TemplateStringsArray, ...values: unknown[]) => {
       const text = (strings as unknown as string[]).join('?');
-      if (/FROM customer_invoices\s+WHERE ci\.company_id|SELECT ci\.id/i.test(text)) {
+      if (/SUM\(amount_allocated\)/i.test(text)) {
+        return Promise.resolve([{ allocated: 0 }]);
+      }
+      // The locked re-read: the plan consumes THESE figures, not the candidate
+      // query's. Both are served from the same fixture here.
+      if (/FOR UPDATE/i.test(text)) {
+        const wanted = new Set((values[0] as string[]) ?? []);
+        return Promise.resolve(open
+          .filter((o) => wanted.has(o.id))
+          .map((o) => ({ id: o.id, status: 'approved', outstanding: o.outstanding })));
+      }
+      if (/SELECT ci\.id/i.test(text)) {
         return Promise.resolve(open.map((o) => ({ id: o.id, outstanding: o.outstanding })));
       }
       if (/INSERT INTO credit_note_allocations/i.test(text)) {
@@ -503,5 +537,62 @@ describe('approveCreditNote — FIFO application across open documents', () => {
     expect(w.rows).toEqual([]);
     expect(w.status()).toBe('approved');
     expect(w.appliedAmount()).toBe(0);
+  });
+});
+
+/**
+ * The two refusals the MANUAL apply gained.
+ *
+ * Both are about not extending something that cannot be undone correctly. The
+ * status guard stops a credit landing on a document that has posted nothing;
+ * the allocation guard stops a note whose column and rows already disagree from
+ * being given another row, which would strand the original credit on an invoice
+ * nothing names.
+ */
+describe('applyCreditNoteToInvoice — what it refuses before it writes', () => {
+  const INVOICE = 'cccccccc-0000-4000-8000-cccccccccccc';
+  const CLIENT = 'client-uuid';
+
+  function wireApply(invoice: Record<string, unknown>, allocated: number) {
+    vi.mocked(lockCreditNoteForUpdate).mockResolvedValue(
+      creditNoteRow({ status: 'approved', applied_amount: 300 }) as never,
+    );
+    mockSql.mockImplementation(((strings: TemplateStringsArray) => {
+      const text = (strings as unknown as string[]).join('?');
+      if (/SUM\(amount_allocated\)/i.test(text)) return Promise.resolve([{ allocated }]);
+      if (/SELECT \* FROM customer_invoices/i.test(text)) return Promise.resolve([invoice]);
+      return Promise.resolve([creditNoteRow({ status: 'applied' })]);
+    }) as never);
+  }
+
+  const openInvoice = (status: string) => ({
+    id: INVOICE, client_id: CLIENT, customer_id: CLIENT,
+    total_amount: '1000.00', amount_paid: '0.00', status,
+  });
+
+  it('refuses an invoice that has posted nothing', async () => {
+    wireApply(openInvoice('draft'), 300);
+    await expect(applyCreditNoteToInvoice(COMPANY_ID, CN_ID, INVOICE, USER_ID))
+      .rejects.toThrow(/status: draft/);
+  });
+
+  it('refuses a cancelled invoice for the same reason', async () => {
+    wireApply(openInvoice('cancelled'), 300);
+    await expect(applyCreditNoteToInvoice(COMPANY_ID, CN_ID, INVOICE, USER_ID))
+      .rejects.toThrow(/status: cancelled/);
+  });
+
+  it('refuses a note whose applied_amount the allocation rows do not account for', async () => {
+    // applied_amount 300, rows totalling 120 — the other 180 went somewhere no
+    // row names, and a cancel would never give it back.
+    wireApply(openInvoice('sent'), 120);
+    await expect(applyCreditNoteToInvoice(COMPANY_ID, CN_ID, INVOICE, USER_ID))
+      .rejects.toThrow(/Reconcile the note by hand/);
+  });
+
+  it('applies when the status is live and the rows account for the column', async () => {
+    wireApply(openInvoice('sent'), 300);
+    const out = await applyCreditNoteToInvoice(COMPANY_ID, CN_ID, INVOICE, USER_ID);
+    expect(out.status).toBe('applied');
   });
 });
