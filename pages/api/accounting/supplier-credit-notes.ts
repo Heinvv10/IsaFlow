@@ -22,6 +22,7 @@ import {
 import type { CreditNoteStatus } from '@/modules/accounting/types/ar.types';
 import {
   CREDIT_NOTE_AUTO_APPLY,
+  listCreditNoteAllocations,
   parseCreditNoteAutoApply,
 } from '@/modules/accounting/services/shared/creditNoteFifo';
 
@@ -106,7 +107,13 @@ async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse) {
       if (submitAction === 'post') {
         const posted = await approveCreditNote(companyId, note.id, userId, { autoApply: 'fifo' });
         log.info('Supplier credit note created and posted', { id: posted.id }, 'accounting-api');
-        return apiResponse.created(res, posted);
+        // The bills this note actually settled — see the same note in
+        // credit-notes-action: the link does not say where the money went.
+        return apiResponse.created(res, {
+          ...posted,
+          applied_to_invoice_ids: (await listCreditNoteAllocations(companyId, posted.id))
+            .map((l) => ({ invoice_id: l.invoiceId, amount: l.amount })),
+        });
       }
 
       log.info('Supplier credit note created as draft', { id: note.id }, 'accounting-api');
@@ -136,7 +143,11 @@ async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse) {
 
       if (action === 'post') {
         const posted = await approveCreditNote(companyId, id, userId, { autoApply: parsedAutoApply });
-        return apiResponse.success(res, posted);
+        return apiResponse.success(res, {
+          ...posted,
+          applied_to_invoice_ids: (await listCreditNoteAllocations(companyId, posted.id))
+            .map((l) => ({ invoice_id: l.invoiceId, amount: l.amount })),
+        });
       }
 
       if (action === 'reverse') {

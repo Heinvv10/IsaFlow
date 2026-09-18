@@ -13,7 +13,10 @@ import { withCsrf } from '@/lib/auth/withCsrf';
 import { log } from '@/lib/logger';
 import { UUID } from '@/lib/schemas/common';
 import { approveCreditNote, cancelCreditNote, applyCreditNoteToInvoice } from '@/modules/accounting/services/ar/creditNoteService';
-import { CREDIT_NOTE_AUTO_APPLY } from '@/modules/accounting/services/shared/creditNoteFifo';
+import {
+  CREDIT_NOTE_AUTO_APPLY,
+  listCreditNoteAllocations,
+} from '@/modules/accounting/services/shared/creditNoteFifo';
 
 const CreditNoteActionSchema = z.discriminatedUnion('action', [
   // autoApply defaults to 'fifo' — approving a note applies its remainder to the
@@ -27,6 +30,12 @@ const CreditNoteActionSchema = z.discriminatedUnion('action', [
   z.object({ action: z.literal('cancel'), creditNoteId: UUID, reason: z.string().max(500).optional() }),
   z.object({ action: z.literal('apply'), creditNoteId: UUID, invoiceId: UUID }),
 ]);
+
+/** The per-document application lines, in the shape the MCP tools report. */
+async function applicationsOf(companyId: string, creditNoteId: string) {
+  return (await listCreditNoteAllocations(companyId, creditNoteId))
+    .map((l) => ({ invoice_id: l.invoiceId, amount: l.amount }));
+}
 
 async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse) {
   const { companyId } = req as CompanyAuthedRequest;
@@ -48,7 +57,15 @@ async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse) {
         const creditNote = await approveCreditNote(companyId, parsed.data.creditNoteId, userId, {
           autoApply: parsed.data.autoApply ?? 'fifo',
         });
-        return apiResponse.success(res, creditNote);
+        // WHICH documents the money went to, not just how much moved. A note
+        // linked to one invoice can settle entirely different ones — the link is
+        // skipped when that document has posted nothing, and the FIFO walk
+        // settles several — so a reply carrying only an amount and a status
+        // tells the caller that a balance changed without saying whose.
+        return apiResponse.success(res, {
+          ...creditNote,
+          applied_to_invoice_ids: await applicationsOf(companyId, creditNote.id),
+        });
       }
       case 'cancel': {
         const cancelled = await cancelCreditNote(companyId, parsed.data.creditNoteId, userId, parsed.data.reason);
@@ -56,7 +73,10 @@ async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse) {
       }
       case 'apply': {
         const applied = await applyCreditNoteToInvoice(companyId, parsed.data.creditNoteId, parsed.data.invoiceId, userId);
-        return apiResponse.success(res, applied);
+        return apiResponse.success(res, {
+          ...applied,
+          applied_to_invoice_ids: await applicationsOf(companyId, applied.id),
+        });
       }
     }
   } catch (err) {
