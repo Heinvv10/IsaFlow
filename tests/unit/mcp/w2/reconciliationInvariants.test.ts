@@ -20,6 +20,7 @@ const item = (over: Partial<ReconcilingItem> = {}): ReconcilingItem => ({
   documentIds: ['p1'],
   documentNumbers: ['CP-1'],
   citedGross: 100,
+  citedAbsAmount: 100,
   ...over,
 });
 
@@ -54,7 +55,7 @@ describe('checkInvariants', () => {
     // document_not_on_control_account across bills worth a fraction of it.
     const out = checkInvariants({
       subledgerTotal: 1100, controlAccountBalance: 1000, difference: 100,
-      unexplained: 0, items: [item({ amount: 100, citedGross: 40 })],
+      unexplained: 0, items: [item({ amount: 100, citedGross: 40, citedAbsAmount: 100 })],
     });
     expect(held(out, 'item_within_cited_gross').holds).toBe(false);
     expect(held(out, 'item_within_cited_gross').detail).toContain('unapplied_receipt');
@@ -63,16 +64,57 @@ describe('checkInvariants', () => {
   it('checks the ABSOLUTE amount, so an overstated negative item is caught too', () => {
     const out = checkInvariants({
       subledgerTotal: 900, controlAccountBalance: 1000, difference: -100,
-      unexplained: 0, items: [item({ amount: -100, citedGross: 40 })],
+      unexplained: 0, items: [item({ amount: -100, citedGross: 40, citedAbsAmount: 100 })],
     });
     expect(held(out, 'item_within_cited_gross').holds).toBe(false);
+  });
+
+  it('catches an overstated member hiding behind an opposite-signed one', () => {
+    // The group NETS to something small and defensible. One member claims far
+    // more than its own document is worth and an opposite-signed member of the
+    // same group absorbs it. On a production copy posting_with_no_document
+    // netted +R124,704.80 against a cited gross of R686,504.50 for exactly
+    // this reason — two refund journals sat in the group — and a check on the
+    // net could not see it.
+    const out = checkInvariants({
+      subledgerTotal: 1100, controlAccountBalance: 1000, difference: 100,
+      unexplained: 0,
+      items: [item({
+        type: 'posting_with_no_document',
+        amount: 100,
+        documentIds: ['je-1', 'je-2'],
+        documentNumbers: ['JE-1', 'JE-2'],
+        // +900 and −800, against two documents worth 100 each.
+        citedGross: 200,
+        citedAbsAmount: 1700,
+      })],
+    });
+    expect(held(out, 'item_within_cited_gross').holds).toBe(false);
+    expect(held(out, 'item_within_cited_gross').detail).toContain('1700');
+  });
+
+  it('passes a mixed-sign group whose members are each within their document', () => {
+    // The mirror: refunds in the group are fine, and must not be a finding.
+    const out = checkInvariants({
+      subledgerTotal: 1100, controlAccountBalance: 1000, difference: 100,
+      unexplained: 0,
+      items: [item({
+        type: 'posting_with_no_document',
+        amount: 100,
+        documentIds: ['je-1', 'je-2'],
+        documentNumbers: ['JE-1', 'JE-2'],
+        citedGross: 500,
+        citedAbsAmount: 500,
+      })],
+    });
+    expect(held(out, 'item_within_cited_gross').holds).toBe(true);
   });
 
   it('exempts the residual items, which cite no documents on purpose', () => {
     const out = checkInvariants({
       subledgerTotal: 1100, controlAccountBalance: 1000, difference: 100,
       unexplained: 100,
-      items: [item({ type: 'unexplained_difference', amount: 100, documentIds: [], documentNumbers: [], citedGross: 0 })],
+      items: [item({ type: 'unexplained_difference', amount: 100, documentIds: [], documentNumbers: [], citedGross: 0, citedAbsAmount: 0 })],
     });
     expect(held(out, 'item_within_cited_gross').holds).toBe(true);
   });
@@ -80,12 +122,12 @@ describe('checkInvariants', () => {
   it('tolerates a cent of rounding against the cited gross, and no more', () => {
     const ok = checkInvariants({
       subledgerTotal: 1100, controlAccountBalance: 1000, difference: 100,
-      unexplained: 0, items: [item({ amount: 100.01, citedGross: 100 })],
+      unexplained: 0, items: [item({ amount: 100.01, citedGross: 100, citedAbsAmount: 100.01 })],
     });
     expect(held(ok, 'item_within_cited_gross').holds).toBe(true);
     const bad = checkInvariants({
       subledgerTotal: 1100, controlAccountBalance: 1000, difference: 100,
-      unexplained: 0, items: [item({ amount: 100.02, citedGross: 100 })],
+      unexplained: 0, items: [item({ amount: 100.02, citedGross: 100, citedAbsAmount: 100.02 })],
     });
     expect(held(bad, 'item_within_cited_gross').holds).toBe(false);
   });
@@ -106,7 +148,7 @@ describe('checkInvariants', () => {
     // the itemisation would never see the R10.
     const out = checkInvariants({
       subledgerTotal: 1100, controlAccountBalance: 1000, difference: 100,
-      unexplained: 10, items: [item({ amount: 90, citedGross: 90 })],
+      unexplained: 10, items: [item({ amount: 90, citedGross: 90, citedAbsAmount: 90 })],
     });
     expect(held(out, 'unexplained_is_the_residual').holds).toBe(false);
   });
@@ -128,7 +170,7 @@ describe('checkInvariants', () => {
     // response claims nothing is left over.
     const out = checkInvariants({
       subledgerTotal: 1100, controlAccountBalance: 1000, difference: 100,
-      unexplained: 0, items: [item({ amount: 90, citedGross: 90 })],
+      unexplained: 0, items: [item({ amount: 90, citedGross: 90, citedAbsAmount: 90 })],
     });
     expect(held(out, 'unexplained_is_the_residual').holds).toBe(false);
     expect(held(out, 'unexplained_is_the_residual').detail).toContain('10');
@@ -139,8 +181,8 @@ describe('checkInvariants', () => {
       subledgerTotal: 1100, controlAccountBalance: 1000, difference: 100,
       unexplained: 10,
       items: [
-        item({ amount: 90, citedGross: 90 }),
-        item({ type: 'unexplained_difference', amount: 10, documentIds: [], documentNumbers: [], citedGross: 0 }),
+        item({ amount: 90, citedGross: 90, citedAbsAmount: 90 }),
+        item({ type: 'unexplained_difference', amount: 10, documentIds: [], documentNumbers: [], citedGross: 0, citedAbsAmount: 0 }),
       ],
     });
     expect(out.every((i) => i.holds)).toBe(true);
@@ -152,7 +194,7 @@ describe('checkInvariants', () => {
     const out = checkInvariants({
       subledgerTotal: 1100, controlAccountBalance: 1000, difference: 100,
       unexplained: 0,
-      items: [item(), item({ bridge: 'aged_to_subledger', type: 'disputed_amount', amount: 5000, citedGross: 1 })],
+      items: [item(), item({ bridge: 'aged_to_subledger', type: 'disputed_amount', amount: 5000, citedGross: 1, citedAbsAmount: 5000 })],
     });
     expect(out.every((i) => i.holds)).toBe(true);
   });

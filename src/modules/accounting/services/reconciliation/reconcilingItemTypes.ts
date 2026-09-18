@@ -41,6 +41,18 @@ export interface ReconcilingItem {
    * from the check for that reason.
    */
   citedGross: number;
+  /**
+   * Σ|member amount| over the rows behind this item — the same members
+   * `citedGross` sums the face values of.
+   *
+   * WHY THE NET AMOUNT IS NOT ENOUGH. `amount` is the group's NET, so an
+   * overstated member hides behind an opposite-signed one and the check on the
+   * net passes: on a production copy `posting_with_no_document` netted
+   * +R124,704.80 against a cited gross of R686,504.50 because two refund
+   * journals of −R120,290.00 and −R160,609.85 sat in the same group. Absolute
+   * values cannot offset, so this is the figure the invariant compares.
+   */
+  citedAbsAmount: number;
 }
 
 /**

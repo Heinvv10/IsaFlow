@@ -27,6 +27,8 @@ function item(
   docs: readonly CitableDocument[],
   /** Summed face value of `docs`. See ReconcilingItem.citedGross. */
   citedGross: number,
+  /** Σ|member amount|. See ReconcilingItem.citedAbsAmount. */
+  citedAbsAmount: number,
 ): ReconcilingItem {
   return {
     bridge,
@@ -38,7 +40,13 @@ function item(
       .map((d) => d.documentNumber)
       .filter((n): n is string => typeof n === 'string' && n.length > 0),
     citedGross: round2(citedGross),
+    citedAbsAmount: round2(citedAbsAmount),
   };
+}
+
+/** Σ|amount| over a set of members — what an item may not exceed in total. */
+function absOf(members: readonly { amount: number }[]): number {
+  return members.reduce((s, m) => s + Math.abs(m.amount), 0);
 }
 
 /** Face value of a set of documents, taken POSITIVE: a credit note's total is
@@ -113,6 +121,9 @@ export function buildAgedBridgeItems({
           disputedTotal,
           disputed,
           grossOf(disputed),
+          // A dispute is capped at the document's own balance above, so each
+          // member is already positive and bounded by its document.
+          disputed.reduce((sum, d) => sum + Math.min(disputes.get(d.id) ?? 0, d.balance), 0),
         ),
       );
     }
@@ -128,6 +139,7 @@ export function buildAgedBridgeItems({
         creditTotal,
         snapshot.creditNotes,
         grossOf(snapshot.creditNotes),
+        absOf(snapshot.creditNotes.map((d) => ({ amount: d.balance }))),
       ),
     );
   }
@@ -150,6 +162,7 @@ export function buildAgedBridgeItems({
         documentIds: [],
         documentNumbers: [],
         citedGross: 0,
+        citedAbsAmount: 0,
       });
     }
   }
@@ -174,6 +187,7 @@ export function buildControlBridgeItems({ cash, unposted, creditNotes }: ItemInp
         cash.withPaymentRecord.reduce((s, i) => s + i.amount, 0),
         cash.withPaymentRecord,
         cash.withPaymentRecord.reduce((s, i) => s + Math.abs(i.gross), 0),
+        absOf(cash.withPaymentRecord),
       ),
     );
   }
@@ -186,6 +200,7 @@ export function buildControlBridgeItems({ cash, unposted, creditNotes }: ItemInp
         cash.withoutPaymentRecord.reduce((s, i) => s + i.amount, 0),
         cash.withoutPaymentRecord,
         cash.withoutPaymentRecord.reduce((s, i) => s + Math.abs(i.gross), 0),
+        absOf(cash.withoutPaymentRecord),
       ),
     );
   }
@@ -198,6 +213,7 @@ export function buildControlBridgeItems({ cash, unposted, creditNotes }: ItemInp
         creditNotes.reduce((s, c) => s + c.amount, 0),
         creditNotes,
         creditNotes.reduce((s, c) => s + Math.abs(c.gross), 0),
+        absOf(creditNotes),
       ),
     );
   }
@@ -219,6 +235,7 @@ export function buildControlBridgeItems({ cash, unposted, creditNotes }: ItemInp
         docs.reduce((s, d) => s + d.amount, 0),
         docs,
         docs.reduce((s, d) => s + Math.abs(d.gross), 0),
+        absOf(docs),
       ),
     );
   }
@@ -241,5 +258,6 @@ export function unexplainedItem(amount: number): ReconcilingItem {
     documentIds: [],
     documentNumbers: [],
     citedGross: 0,
+    citedAbsAmount: 0,
   };
 }

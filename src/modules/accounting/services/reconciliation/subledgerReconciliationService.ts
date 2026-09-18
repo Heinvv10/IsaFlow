@@ -10,13 +10,10 @@
  * R1,429,774 reconciles to nothing exactly:
  *
  *   aged_to_subledger    why the AGED REPORT'S total is not the subledger's —
- *                        open disputes, which its bucket totals are net of, and
- *                        unallocated credit notes, which never reach a bucket.
- *                        These do NOT explain any GL difference: those
- *                        documents' own journals are in the control account.
- *   subledger_to_control what the SUBLEDGER and the GL disagree about —
- *                        unapplied cash, postings no document claims,
- *                        documents whose value never reached control. This is
+ *                        open disputes and unallocated credit notes. These do
+ *                        NOT explain any GL difference: those documents' own
+ *                        journals are in the control account.
+ *   subledger_to_control what the SUBLEDGER and the GL disagree about. This is
  *                        the reconciliation proper.
  *
  * TWO IDENTITIES, one per bridge, each with its own residual emitted AS AN ITEM
@@ -28,10 +25,6 @@
  *
  * Both are ASSERTED rather than assumed, with the checks that cannot close by
  * construction, in `reconciliationInvariants.ts`.
- *
- * `agedTotal` is READ FROM the aged report, never recomputed here: recomputing
- * it from this service's own snapshot moved both sides together and nothing
- * could go red.
  *
  * POINT IN TIME. `as_at` moves BOTH sides: the subledger readers use the same
  * settlement rewind as the aging reports (`services/shared/agingRewind.ts`) and
@@ -60,7 +53,11 @@ import {
   unexplainedItem,
 } from './reconcilingItemBuilders';
 import { checkInvariants } from './reconciliationInvariants';
-import { nonControlPostingWarnings, offControlCashWarnings } from './reconcilingWarnings';
+import {
+  netZeroItemWarnings,
+  nonControlPostingWarnings,
+  offControlCashWarnings,
+} from './reconcilingWarnings';
 export type {
   ReconciliationInvariant,
   ReconcilingBridge,
@@ -78,11 +75,10 @@ export interface SubledgerReconciliation {
    * rather than recomputed. Null for a role with no aged report.
    */
   agedTotal: number | null;
-  /** Every open document, including the ones that cannot be aged. */
+  /** Every open document, the ones that cannot be aged included. */
   subledgerTotal: number | null;
   /** Why the subledger side is absent, when it is. */
-  subledgerUnavailable: { reason: string; detail: string } | null;
-  /** EVERY candidate control account. There is no canonical one — FINDINGS C1. */
+  subledgerUnavailable: { reason: string; detail: string } | null;  /** EVERY account typed for the role. No canonical one exists — FINDINGS C1. */
   controlAccounts: ControlAccountBalance[];
   /** Sum across all of them. Null when none exists — never a fabricated zero. */
   controlAccountBalance: number | null;
@@ -97,14 +93,11 @@ export interface SubledgerReconciliation {
   difference: number | null;
   reconcilingItems: ReconcilingItem[];
   /** difference − Σ(subledger_to_control items). Zero on a full decomposition. */
-  unexplainedDifference: number | null;
-  excludedRows: Array<{ id: string; reason: string; detail?: string; amount?: number }>;
+  unexplainedDifference: number | null;  excludedRows: Array<{ id: string; reason: string; detail?: string; amount?: number }>;
   /**
    * Bills a matching process already believed settled, still open. NOT a
-   * reconciling item and deliberately outside `reconcilingItems`: the cash is
-   * already counted once as `posting_with_no_document`, so counting it again
-   * would drive the residual to minus this amount. It attributes part of an
-   * existing difference rather than adding to it — see settlementFlagService.
+   * reconciling item and deliberately outside `reconcilingItems`: that cash is
+   * already counted once as `posting_with_no_document`. See settlementFlagService.
    */
   settlementFlagged: SettlementFlagged;
   /**
@@ -128,6 +121,9 @@ async function readSubledger(
   return null;
 }
 
+/** `agedTotal` is READ FROM the aged report, never recomputed: recomputing it
+ *  from this service's own snapshot moved both sides together and nothing could
+ *  go red. */
 const NO_SOURCE_DETAIL: Record<string, string> = {
   bank: 'Bank reconciliation compares a statement feed to the GL, not a document subledger. Use the banking tools, which own the cash figure and its statement-coverage gap.',
   vat: 'VAT is posted from the transactions of other subledgers and has no document subledger of its own. Use the VAT return tools for the return-to-ledger comparison.',
@@ -145,24 +141,18 @@ export async function reconcileSubledger(
   asAtDate: string,
 ): Promise<SubledgerReconciliation> {
   try {
-    // SEQUENTIAL, not Promise.all. Every read here runs on the ONE pg client
-    // the request's transaction holds (via the ALS context), and issuing
-    // queries on a client that is already executing one is deprecated in
-    // node-postgres and removed in pg@9. Several readers, each issuing several
-    // statements, is not the place to rely on the driver's internal queue.
+    // SEQUENTIAL, not Promise.all. Every read runs on the ONE pg client the
+    // request's transaction holds, and querying a client already executing one
+    // is deprecated in node-postgres and removed in pg@9.
     const controlAccounts = await getControlAccountBalances(companyId, role, asAtDate);
     const snapshot = await readSubledger(companyId, role, asAtDate);
     const agedTotal = await getAgedReportTotal(companyId, role, asAtDate);
     const settlementFlagged = await getSettlementFlagged(companyId, role, asAtDate);
-    // The LEDGER side of posted_through. Half this endpoint's answer is
-    // `controlAccountBalance`, read from the journals, and the subledger's own
-    // MAX(created_at) says nothing about them: a journal posted to a control
-    // account after the newest document, dated on or before as_at, moves the
-    // difference while leaving posted_through untouched. The contract's
-    // invariant — same as_at plus same posted_through reproduces the same
-    // figures — would then be false in the one endpoint where the control side
-    // IS the question. Same function every other report uses; one definition of
-    // how fresh a figure is.
+    // The LEDGER side of posted_through. Half this endpoint's answer is read
+    // from the journals, and the subledger's own MAX(created_at) says nothing
+    // about them: a journal posted to a control account after the newest
+    // document, dated on or before as_at, moves the difference while leaving
+    // posted_through untouched. Same function every other report uses.
     const ledgerPostedThrough = await getLedgerPostedThrough(companyId, asAtDate);
     // Accounts this subledger's own documents move in the control direction
     // that are NOT typed for the role. They used to be ADOPTED as control
@@ -259,10 +249,17 @@ export async function reconcileSubledger(
           )
         : [];
 
-    const items = [
+    const built = [
       ...buildAgedBridgeItems({ snapshot, agedTotal }),
       ...buildControlBridgeItems({ snapshot, cash, unposted, creditNotes }),
     ];
+    // A control-bridge item that nets to exactly zero explains nothing and
+    // reads to an agent as a finding that resolves itself. Its rows are real,
+    // so they are named on excludedRows rather than dropped with it.
+    excludedRows.push(...netZeroItemWarnings(built));
+    const items = built.filter(
+      (i) => !(i.bridge === 'subledger_to_control' && i.amount === 0),
+    );
 
     const difference =
       controlAccountBalance === null ? null : round2(snapshot.subledgerTotal - controlAccountBalance);
