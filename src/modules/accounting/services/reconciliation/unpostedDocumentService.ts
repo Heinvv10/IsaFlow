@@ -55,6 +55,8 @@ export interface UnpostedDocument {
    * reported or the decomposition cannot close.
    */
   amount: number;
+  /** The document's face value — the gross an item citing it may not exceed. */
+  gross: number;
   reason: 'document_not_linked_to_journal' | 'document_not_on_control_account';
 }
 
@@ -101,7 +103,7 @@ export async function getUnpostedSubledgerDocuments(
     const rows = (await (isAr
       ? sql`
         SELECT ci.id, ci.invoice_number AS document_number, c.name AS entity_name,
-               ci.invoice_date AS document_date,
+               ci.invoice_date AS document_date, ci.total_amount AS gross,
                CASE WHEN ${sql.unsafe(inPopulation)} ${asAtDate}::DATE
                           AND (ci.total_amount - ${sql.unsafe(paid)}) > 0
                     THEN (ci.total_amount - ${sql.unsafe(paid)}) ELSE 0 END AS balance,
@@ -174,7 +176,7 @@ export async function getUnpostedSubledgerDocuments(
       `
       : sql`
         SELECT si.id, si.invoice_number AS document_number, s.name AS entity_name,
-               si.invoice_date AS document_date,
+               si.invoice_date AS document_date, si.total_amount AS gross,
                CASE WHEN ${sql.unsafe(inPopulation)} ${asAtDate}::DATE
                           AND (si.total_amount - ${sql.unsafe(paid)}) > 0
                     THEN (si.total_amount - ${sql.unsafe(paid)}) ELSE 0 END AS balance,
@@ -244,6 +246,7 @@ export async function getUnpostedSubledgerDocuments(
         entityName: r.entity_name == null ? null : String(r.entity_name),
         documentDate: fmtDate(r.document_date as string | Date),
         amount: shortfall,
+        gross: round2(Number(r.gross ?? 0)),
         reason:
           r.has_journal === true ? 'document_not_on_control_account' : 'document_not_linked_to_journal',
       });

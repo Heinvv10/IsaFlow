@@ -2,77 +2,86 @@
  * Supplier payments in the ledger and attached to no bill — the AP mirror of
  * the unapplied-receipt report.
  *
- * The one difference from AR that matters is the STATUS FILTER, and it is the
- * point of this service. A `customer_payments` row is created already
- * confirmed, so AR filters merely `<> 'cancelled'`. A supplier payment has a
- * lifecycle in front of it: `draft` and `approved` rows have no journal, no
- * cash has left the bank and nothing has touched the AP control account.
- * Listing one as unapplied cash would invent a reconciling item.
+ * WHAT COUNTS AS UNAPPLIED IS NO LONGER DECIDED HERE. The basis, the threshold
+ * and the status filter moved to `shared/unappliedPaymentBasis.ts`, which
+ * `reconcile_subledger` reads through the same function; those rules are
+ * asserted in `tests/unit/services/shared/unappliedPaymentBasis.test.ts`, once.
+ * Two tools that answered "how much supplier cash is unapplied" with two
+ * different numbers is the defect that produced this split.
  *
- * Three separate queries carry that predicate — the page, the orphan stream and
- * the totals — so the tests below assert it on ALL THREE. Three copies of one
- * predicate is exactly the shape that drifts, and a page filtered differently
- * from its totals is a report whose completeness check cannot fail.
+ * What is left here, and what these cases cover: paging, the attributed /
+ * unattributed split, and totals taken from the POPULATION rather than the page.
  */
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 
-const sqlFn = vi.fn();
-vi.mock('@/lib/neon', () => ({ sql: (...a: unknown[]) => sqlFn(...a), withTransaction: vi.fn() }));
-vi.mock('@/lib/logger', () => ({ log: { info: vi.fn(), error: vi.fn(), warn: vi.fn(), debug: vi.fn() } }));
+const basisFn = vi.fn();
+vi.mock('@/modules/accounting/services/shared/unappliedPaymentBasis', () => ({
+  getUnappliedPaymentBasis: (...a: unknown[]) => basisFn(...a),
+}));
 
 import { getUnappliedPayments } from '@/modules/accounting/services/ap/unappliedPaymentService';
 
 const COMPANY = '11111111-1111-4111-8111-111111111111';
 
-/** The query text actually handed to Postgres, not the source file. */
-const queryText = (call: unknown[]): string => (call[0] as string[]).join('?');
-
-const payRow = (over: Record<string, unknown> = {}) => ({
-  id: 'sp1',
-  payment_number: 'SP-2026-00001',
-  payment_date: '2026-05-01',
-  supplier_id: 'dddddddd-0000-4000-8000-000000000001',
-  supplier_name: 'Acme Supplies',
-  total_amount: '100000',
-  allocated_amount: '0',
+const basisRow = (over: Record<string, unknown> = {}) => ({
+  paymentId: 'sp1',
+  paymentNumber: 'SP-2026-00001',
+  paymentDate: '2026-05-01',
+  entityId: 'dddddddd-0000-4000-8000-000000000001',
+  entityName: 'Acme Supplies',
+  attributed: true,
+  totalAmount: 100000,
+  allocatedAmount: 0,
+  unappliedAmount: 100000,
   status: 'processed',
   reference: 'EFT-771',
   description: 'March account',
-  gl_journal_entry_id: 'je1',
-  // The page query selects TRUE here and the orphan query FALSE. The mapper
-  // reads THIS, not a null name — a real supplier with a null `name` must not
-  // be reported as an orphan.
-  attributed: true,
+  journalEntryId: 'je1',
+  createdAt: '2026-05-01T08:00:00.000Z',
   ...over,
 });
 
-const totalsRow = (over: Record<string, unknown> = {}) => ({
-  universe_total: 1,
-  rows_total: 1,
-  total_unapplied: '100000',
-  total_unattributed: '0',
-  posted_through: '2026-05-01T08:00:00.000Z',
-  ...over,
-});
+type Row = ReturnType<typeof basisRow>;
 
-/** page rows, orphan rows, totals, allocation posted_through — in that order. */
-function mockReads(page: unknown[], orphans: unknown[], totals: unknown, allocMax: unknown = null) {
-  sqlFn
-    .mockResolvedValueOnce(page)
-    .mockResolvedValueOnce(orphans)
-    .mockResolvedValueOnce([totals])
-    .mockResolvedValueOnce([{ posted_through: allocMax }]);
+/**
+ * The basis's own aggregate is a SEPARATE statement from its rows, so the mock
+ * takes it separately too. Where a case does not care, it is derived from the
+ * rows — which is exactly what the production code may not do.
+ */
+function mockBasis(
+  rows: unknown[],
+  allocationsPostedThrough: string | null = null,
+  totals?: Partial<{ universeTotal: number; rowsTotal: number; totalUnapplied: number; totalUnattributed: number; postedThrough: string | null }>,
+) {
+  const rs = rows as Row[];
+  const attributed = rs.filter((r) => r.attributed);
+  const orphans = rs.filter((r) => !r.attributed);
+  const add = (list: Row[]) => Math.round(list.reduce((s, r) => s + r.unappliedAmount, 0) * 100) / 100;
+  basisFn.mockResolvedValue({
+    rows,
+    allocationsPostedThrough,
+    totals: {
+      universeTotal: rs.length,
+      rowsTotal: attributed.length,
+      totalUnapplied: add(attributed),
+      totalUnattributed: add(orphans),
+      postedThrough: rs.reduce<string | null>((m, r) => (m === null || (r.createdAt ?? '') > m ? r.createdAt : m), null),
+      ...totals,
+    },
+  });
 }
 
-beforeEach(() => sqlFn.mockReset());
+beforeEach(() => basisFn.mockReset());
 
 describe('getUnappliedPayments', () => {
+  it('reads the AP side of the shared basis, for the company and date it was given', async () => {
+    mockBasis([]);
+    await getUnappliedPayments(COMPANY, { asAt: '2026-09-08', limit: 50 });
+    expect(basisFn).toHaveBeenCalledWith(COMPANY, 'ap', '2026-09-08');
+  });
+
   it('reports a partly applied payment for its REMAINDER only', async () => {
-    mockReads(
-      [payRow({ total_amount: '100000', allocated_amount: '40000' })],
-      [],
-      totalsRow({ total_unapplied: '60000' }),
-    );
+    mockBasis([basisRow({ totalAmount: 100000, allocatedAmount: 40000, unappliedAmount: 60000 })]);
 
     const res = await getUnappliedPayments(COMPANY, { asAt: '2026-09-08', limit: 50 });
     const row = res.rows[0]!;
@@ -85,11 +94,12 @@ describe('getUnappliedPayments', () => {
   });
 
   it('counts a payment whose supplier is gone in the totals, and never drops it', async () => {
-    mockReads(
-      [],
-      [payRow({ id: 'sp9', supplier_name: null, attributed: false, total_amount: '25000' })],
-      totalsRow({ universe_total: 1, rows_total: 0, total_unapplied: '0', total_unattributed: '25000' }),
-    );
+    mockBasis([
+      basisRow({
+        paymentId: 'sp9', attributed: false, entityId: null, entityName: null,
+        totalAmount: 25000, unappliedAmount: 25000,
+      }),
+    ]);
 
     const res = await getUnappliedPayments(COMPANY, { asAt: '2026-09-08', limit: 50 });
     // Not in `rows`, but present, named and priced. The cash is real whether or
@@ -105,8 +115,7 @@ describe('getUnappliedPayments', () => {
   });
 
   it('names the supplier on an attributed payment', async () => {
-    mockReads([payRow()], [], totalsRow());
-
+    mockBasis([basisRow()]);
     const res = await getUnappliedPayments(COMPANY, { asAt: '2026-09-08', limit: 50 });
     expect(res.rows[0]).toMatchObject({
       supplierId: 'dddddddd-0000-4000-8000-000000000001',
@@ -115,10 +124,10 @@ describe('getUnappliedPayments', () => {
   });
 
   it('keeps a supplier with a NULL name on the attributed page, not in the orphans', async () => {
-    // The page query already decided this row is attributed — it matched
-    // `s.id IS NOT NULL`. Re-deriving that from the NAME would contradict the
-    // query and move a live supplier's cash into the orphan stream.
-    mockReads([payRow({ supplier_name: null })], [], totalsRow());
+    // The basis already decided this row is attributed — it matched a live,
+    // non-deleted supplier. Re-deriving that from the NAME would move a live
+    // supplier's cash into the orphan stream.
+    mockBasis([basisRow({ entityName: null })]);
 
     const res = await getUnappliedPayments(COMPANY, { asAt: '2026-09-08', limit: 50 });
     expect(res.rows).toHaveLength(1);
@@ -127,18 +136,15 @@ describe('getUnappliedPayments', () => {
     expect(res.unattributed).toEqual([]);
   });
 
-  it('selects the attribution flag from BOTH streams, so the mapper never guesses', async () => {
-    mockReads([payRow()], [], totalsRow());
-    await getUnappliedPayments(COMPANY, { asAt: '2026-09-08', limit: 50 });
-    expect(queryText(sqlFn.mock.calls[0]!)).toContain('TRUE AS attributed');
-    expect(queryText(sqlFn.mock.calls[1]!)).toContain('FALSE AS attributed');
-  });
-
   it('takes the totals from the population, NOT from the page', async () => {
-    mockReads(
-      [payRow()],
-      [],
-      totalsRow({ universe_total: 39, rows_total: 39, total_unapplied: '37719269.77' }),
+    mockBasis(
+      Array.from({ length: 39 }, (_, i) => basisRow({
+        paymentId: `sp${String(i).padStart(2, '0')}`,
+        paymentDate: `2026-05-${String(i + 1).padStart(2, '0')}`,
+        totalAmount: 1000, unappliedAmount: 1000,
+      })),
+      null,
+      { universeTotal: 39, rowsTotal: 39, totalUnapplied: 39000 },
     );
 
     const res = await getUnappliedPayments(COMPANY, { asAt: '2026-09-08', limit: 1 });
@@ -147,56 +153,46 @@ describe('getUnappliedPayments', () => {
     // more dangerous error: it looks complete.
     expect(res.rowsTotal).toBe(39);
     expect(res.universeTotal).toBe(39);
-    expect(res.totalUnapplied).toBe(37719269.77);
+    expect(res.totalUnapplied).toBe(39000);
   });
 
-  it('counts ONLY posted payments — draft, approved and cancelled are excluded', async () => {
-    mockReads([], [], totalsRow({ universe_total: 0, rows_total: 0, total_unapplied: '0' }));
-    await getUnappliedPayments(COMPANY, { asAt: '2026-09-08', limit: 50 });
-
-    // The page, the orphan stream and the totals. All three define the same
-    // population, so all three must carry the same predicate.
-    const population = sqlFn.mock.calls.slice(0, 3).map(queryText);
-    expect(population).toHaveLength(3);
-    for (const q of population) {
-      expect(q).toContain("sp.status IN ('processed', 'reconciled')");
-      // AR's predicate. A supplier payment at `draft` or `approved` passes it
-      // and has no journal behind it — cash claimed on a control account it
-      // never reached.
-      expect(q).not.toContain("<> 'cancelled'");
-    }
+  it('resumes AFTER the cursor row, never on it', async () => {
+    mockBasis([
+      basisRow({ paymentId: 'a', paymentDate: '2026-05-01' }),
+      basisRow({ paymentId: 'b', paymentDate: '2026-05-02' }),
+      basisRow({ paymentId: 'c', paymentDate: '2026-05-03' }),
+    ]);
+    const res = await getUnappliedPayments(COMPANY, {
+      asAt: '2026-09-08', limit: 50, after: { paymentDate: '2026-05-01', id: 'a' },
+    });
+    // Serving the cursor row again double-counts it for a caller that sums
+    // pages, and a page that never advances loops forever.
+    expect(res.rows.map((r) => r.paymentId)).toEqual(['b', 'c']);
   });
 
-  it('scopes every read by company_id', async () => {
-    mockReads([], [], totalsRow({ universe_total: 0, rows_total: 0, total_unapplied: '0' }));
-    await getUnappliedPayments(COMPANY, { asAt: '2026-09-08', limit: 50 });
-    for (const call of sqlFn.mock.calls) {
-      expect(call.slice(1)).toContain(COMPANY);
-    }
-  });
-
-  it('reads allocations from payment_allocations, the table AP actually posts to', async () => {
-    mockReads([], [], totalsRow({ universe_total: 0, rows_total: 0, total_unapplied: '0' }));
-    await getUnappliedPayments(COMPANY, { asAt: '2026-09-08', limit: 50 });
-    for (const q of sqlFn.mock.calls.map(queryText)) {
-      expect(q).toContain('payment_allocations');
-      // Migration 201's table holds zero rows and nothing writes it: a
-      // remainder computed from it would report every payment as unapplied.
-      expect(q).not.toContain('supplier_payment_allocations');
-    }
+  it('breaks a same-date cursor tie on the id, as the ordering does', async () => {
+    mockBasis([
+      basisRow({ paymentId: 'a', paymentDate: '2026-05-01' }),
+      basisRow({ paymentId: 'b', paymentDate: '2026-05-01' }),
+    ]);
+    const res = await getUnappliedPayments(COMPANY, {
+      asAt: '2026-09-08', limit: 50, after: { paymentDate: '2026-05-01', id: 'a' },
+    });
+    expect(res.rows.map((r) => r.paymentId)).toEqual(['b']);
   });
 
   it('advances posted_through when an ALLOCATION is newer than every payment', async () => {
-    mockReads(
-      [payRow()],
-      [],
-      totalsRow({ posted_through: '2026-05-01T08:00:00.000Z' }),
-      '2026-09-07T17:58:00.000Z',
-    );
+    mockBasis([basisRow({ createdAt: '2026-05-01T08:00:00.000Z' })], '2026-09-07T17:58:00.000Z');
     const res = await getUnappliedPayments(COMPANY, { asAt: '2026-09-08', limit: 50 });
     // An allocation written a minute ago changes an unapplied amount without
     // touching the payment row. A posted_through from supplier_payments alone
     // would claim the figure is re-derivable when it is not.
     expect(res.postedThrough).toBe('2026-09-07T17:58:00.000Z');
+  });
+
+  it('reports the epoch rather than now() when nothing was read', async () => {
+    mockBasis([]);
+    const res = await getUnappliedPayments(COMPANY, { asAt: '2026-09-08', limit: 50 });
+    expect(res.postedThrough).toBe('1970-01-01T00:00:00.000Z');
   });
 });

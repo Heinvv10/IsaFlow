@@ -30,6 +30,32 @@ export interface ReconcilingItem {
   documentIds: string[];
   /** Human-chaseable numbers where the rows carry them. */
   documentNumbers: string[];
+  /**
+   * The summed GROSS value of the documents this item cites — invoice totals,
+   * payment totals, a journal's own movement. An item may not claim more than
+   * the documents behind it are worth, and `reconcile_subledger` checks exactly
+   * that rather than assuming it: the failure this catches is an item built by
+   * summing the wrong column, which looks like a finding about the books.
+   *
+   * Zero on the two residual items, which cite no documents and are excluded
+   * from the check for that reason.
+   */
+  citedGross: number;
+}
+
+/**
+ * An arithmetic claim the reconciliation makes about its own output, and
+ * whether it holds.
+ *
+ * RETURNED, NOT THROWN. A violation means these books break an assumption this
+ * code makes, which is the most interesting thing the endpoint can say; a 500
+ * would replace it with nothing. The tool reports the block and lets the reader
+ * see both the violation and the figures that produced it.
+ */
+export interface ReconciliationInvariant {
+  name: string;
+  holds: boolean;
+  detail: string;
 }
 
 /** Anything an item can cite: it needs an id, and a number when it has one. */
