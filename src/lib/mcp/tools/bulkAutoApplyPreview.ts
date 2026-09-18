@@ -43,23 +43,44 @@ function entityKey(kind: EntityKind, id: string): string {
 }
 
 /**
- * Whether this line's cash could settle a document, and whose.
+ * Whether this line's cash settles anything, whose, and whether the caller is
+ * told about it.
  *
  * DIRECTION IS PART OF THE ANSWER. A money-IN line against a supplier is a
  * refund and a money-OUT line against a customer is a customer refund; neither
  * is applied to anything, and `allocateTransaction` does not create a document
- * for them. A line that already names an invoice_id is applied by
- * `postAndApplyLine` instead, which reports its own result.
+ * for them.
+ *
+ * A line that NAMES an invoice_id settles it through `postAndApplyLine`, which
+ * reports its own result — so the preview does not report it (`reported:
+ * false`) but MUST still consume its balance. Without that, a batch whose first
+ * line names bill A and whose second is FIFO for the same supplier had the
+ * second planned against a bill the first was already paying: the dry run
+ * promised an application the live batch could not make, which is the one
+ * failure a dry run must never have.
  */
-function settlementTargetOf(
-  line: ResolvedLine,
-): { kind: EntityKind; id: string } | null {
+interface SettlementTarget {
+  kind: EntityKind;
+  id: string;
+  /** The document the line names, or null for a FIFO line. */
+  documentId: string | null;
+  /** False for a line whose result another service reports. */
+  reported: boolean;
+}
+
+function settlementTargetOf(line: ResolvedLine): SettlementTarget | null {
   const { allocType, entityId, invoiceId } = line.line;
-  if (!entityId || invoiceId) return null;
+  if (!entityId) return null;
   const signed = line.signedAmount;
   if (signed === undefined) return null;
-  if (allocType === 'supplier' && signed < 0) return { kind: 'supplier', id: entityId };
-  if (allocType === 'customer' && signed > 0) return { kind: 'customer', id: entityId };
+  const documentId = invoiceId ?? null;
+  const reported = documentId === null;
+  if (allocType === 'supplier' && signed < 0) {
+    return { kind: 'supplier', id: entityId, documentId, reported };
+  }
+  if (allocType === 'customer' && signed > 0) {
+    return { kind: 'customer', id: entityId, documentId, reported };
+  }
   return null;
 }
 
@@ -87,7 +108,7 @@ export async function previewBatchApplications(
   companyId: string,
   postable: readonly ResolvedLine[],
 ): Promise<Map<number, SimulatedLine>> {
-  const targets = new Map<number, { kind: EntityKind; id: string }>();
+  const targets = new Map<number, SettlementTarget>();
   for (const line of postable) {
     const target = settlementTargetOf(line);
     if (target) targets.set(line.index, target);
@@ -97,7 +118,9 @@ export async function previewBatchApplications(
   // One read per DISTINCT entity, not per line: a statement batch is routinely
   // fifty lines against a dozen suppliers.
   const distinct = new Map<string, { kind: EntityKind; id: string }>();
-  for (const t of targets.values()) distinct.set(entityKey(t.kind, t.id), t);
+  for (const t of targets.values()) {
+    distinct.set(entityKey(t.kind, t.id), { kind: t.kind, id: t.id });
+  }
 
   const openByEntity = new Map<string, SimulationDocument[]>();
   const oldestFirstByEntity = new Map<string, boolean>();
@@ -126,14 +149,22 @@ export async function previewBatchApplications(
     simLines.push({
       index: line.index,
       // 'none' still reports a line — with its whole amount on account, which
-      // is the fact the caller needs.
-      entityKey: line.line.autoApply === 'none' ? null : key,
+      // is the fact the caller needs. A line that NAMES a document ignores the
+      // mode: naming one IS the instruction.
+      entityKey: target.documentId === null && line.line.autoApply === 'none' ? null : key,
       cash: Math.abs(line.signedAmount ?? 0),
       oldestFirst: oldestFirstByEntity.get(key) ?? true,
+      documentId: target.documentId,
     });
   }
 
+  // Simulated for every line that consumes, REPORTED only for the lines this
+  // tool answers for. An invoice-named line's result comes back from the
+  // service that applies it, and reporting it twice in two shapes would have
+  // the caller counting the same settlement once from each.
   return new Map(
-    simulateSequentialApplications(simLines, openByEntity).map((l) => [l.index, l]),
+    simulateSequentialApplications(simLines, openByEntity)
+      .filter((l) => targets.get(l.index)?.reported === true)
+      .map((l) => [l.index, l]),
   );
 }
