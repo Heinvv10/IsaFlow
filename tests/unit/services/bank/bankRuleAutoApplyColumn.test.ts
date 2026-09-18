@@ -66,13 +66,15 @@ describe('createRule — auto_apply', () => {
     expect(lastValues().filter((v) => v === 'none')).toHaveLength(2);
   });
 
-  it('leaves the column to its own default when the caller names nothing', async () => {
+  it('binds the default EXPLICITLY when the caller names nothing', async () => {
     await createRule(COMPANY, INPUT, USER);
-    // Passed as undefined, so the column default ('fifo') stands rather than a
-    // second copy of the default living in this service. The one 'none' in the
-    // values is vat_code, which does default in this service.
+    // NOT undefined. A parameter bound as undefined reaches pg as an explicit
+    // NULL, and an explicit NULL in an INSERT's column list does not take the
+    // column DEFAULT — it violates the NOT NULL. Binding undefined failed every
+    // rule creation that did not name a mode. The real-database proof is in
+    // bankRuleAutoApplyDb.test.ts; this only pins what is bound.
+    expect(lastValues()).toContain('fifo');
     expect(lastValues().filter((v) => v === 'none')).toHaveLength(1);
-    expect(lastValues()).toContain(undefined);
   });
 
   it('refuses a mode that is not one, before the INSERT', async () => {

@@ -47,7 +47,15 @@ export async function createRule(
   const vatCode = input.vatCode || 'none';
   // Refused, never coerced: a typo'd mode silently becoming 'fifo' would have
   // an unattended sweep apply cash the rule's author asked to leave on account.
-  const autoApply = assertAutoApply(input.autoApply);
+  //
+  // `?? DEFAULT_AUTO_APPLY` and NOT `undefined`: the column is NOT NULL with a
+  // DEFAULT, and a parameter bound as undefined reaches pg as an explicit NULL.
+  // An explicit NULL in an INSERT's column list does NOT take the column
+  // default — it violates the NOT NULL and raises 23502 — so binding undefined
+  // failed EVERY rule creation that did not name a mode, which is the normal
+  // case from the UI. A mocked-sql unit test cannot see this; the DB-gated one
+  // in tests/unit/services/bank/bankRuleAutoApplyDb.test.ts can.
+  const autoApply = assertAutoApply(input.autoApply) ?? DEFAULT_AUTO_APPLY;
   const rows = (await sql`
     INSERT INTO bank_categorisation_rules (
       company_id, rule_name, match_field, match_type, match_pattern,

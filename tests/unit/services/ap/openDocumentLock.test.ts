@@ -174,6 +174,27 @@ describe('the rows are LOCKED in id order and ORDERED in memory', () => {
     expect(out.map((d) => d.invoiceId)).toEqual(['c', 'b', 'a']);
   });
 
+  it('puts an UNDATED invoice last, in BOTH directions', async () => {
+    // customer_invoices.invoice_date is nullable (the AP column is not), and a
+    // null arrives here as an empty string. Sorted as a date it would come
+    // FIRST ascending — cash settling the one invoice whose age nobody can
+    // state, ahead of every invoice that has one — and first descending too if
+    // the comparison were simply reversed. It has no age, so it is never
+    // preferred.
+    const withNull = [
+      { id: 'n', invoice_number: 'N', invoice_date: null, due_date: null, outstanding: 5 },
+      ...rows,
+    ];
+
+    mockSql.mockResolvedValueOnce(withNull as never);
+    const oldest = await fetchOpenCustomerInvoices(COMPANY, ENTITY, true, { forUpdate: false });
+    expect(oldest.map((d) => d.invoiceId)).toEqual(['a', 'b', 'c', 'n']);
+
+    mockSql.mockResolvedValueOnce(withNull as never);
+    const newest = await fetchOpenCustomerInvoices(COMPANY, ENTITY, false, { forUpdate: false });
+    expect(newest.map((d) => d.invoiceId)).toEqual(['c', 'b', 'a', 'n']);
+  });
+
   it('orders the customer side identically', async () => {
     mockSql.mockResolvedValueOnce(rows as never);
     const out = await fetchOpenCustomerInvoices(COMPANY, ENTITY, true, { forUpdate: false });
