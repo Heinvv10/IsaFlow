@@ -137,30 +137,39 @@ beforeEach(() => {
 });
 
 describe('bulk_allocate_bank_transactions — dry run applications', () => {
-  it('consumes the open bills line by line, in posting order', async () => {
+  it('consumes the open bills in POSTING order, not in the order it was sent', async () => {
+    // THE FIXTURE IS REVERSED ON PURPOSE. A batch posts its lines sorted by
+    // transaction id — so that two overlapping batches cannot deadlock on each
+    // other's row locks — and the preview used to consume the bills in the
+    // order the agent SENT them. With the payload already in ascending id
+    // order the two are indistinguishable and the bug survives the test.
     vi.mocked(findBankTransactionAllocationStates).mockImplementation(
       states({ [TX(1)]: -150, [TX(2)]: -150 }) as never,
     );
 
     const res = await bulkAllocateBankTransactionsTool.handler(
       {
-        allocations: [supplierLine(1), supplierLine(2)],
+        // TX(2) FIRST in the payload; TX(1) posts first all the same.
+        allocations: [supplierLine(2), supplierLine(1)],
         dry_run: true,
         idempotency_key: 'k1',
       },
       ctx,
     ) as { content: { text: string }[] };
 
-    const { lines } = payload(res);
-    expect(lines[0]!.applications).toEqual([
+    // Keyed by transaction, because the reply lists lines in the order they
+    // were SENT while they consume in the order they will POST.
+    const byTx = new Map(payload(res).lines.map((l) => [l.transaction_id, l]));
+    expect(byTx.get(TX(1))!.applications).toEqual([
       { document_id: BILL_1, document_number: 'BILL-001', amount: 100 },
       { document_id: BILL_2, document_number: 'BILL-002', amount: 50 },
     ]);
-    // The second line sees what the first consumed — not the opening balance.
-    expect(lines[1]!.applications).toEqual([
+    // The line that posts SECOND sees what the first consumed — not the
+    // opening balance, and not what its own position in the payload suggests.
+    expect(byTx.get(TX(2))!.applications).toEqual([
       { document_id: BILL_2, document_number: 'BILL-002', amount: 150 },
     ]);
-    expect(lines[1]!.on_account).toBe(0);
+    expect(byTx.get(TX(2))!.on_account).toBe(0);
     // One read per DISTINCT entity, whatever the line count — and NO row lock:
     // a preview that held these rows would block every real allocation against
     // the supplier until the request ended.
