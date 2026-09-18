@@ -25,6 +25,27 @@
  * The two are reported separately because the remedy differs: the first can be
  * applied through the existing cash-application path, the second has no
  * document to apply and needs one created first.
+ *
+ * WHICH PAYMENTS ARE UNAPPLIED IS NOT DECIDED HERE. It is
+ * `shared/unappliedPaymentBasis.ts`, the same function `list_unapplied_receipts`
+ * and `list_unapplied_payments` read: one status filter, one threshold, one
+ * basis. This file used to decide it again and differently, so the reconciler
+ * and the listing tools answered the same question with different numbers.
+ *
+ * WHAT IS STILL MEASURED HERE, AND WHY IT MUST BE. A reconciling item's amount
+ * is the part of `subledgerTotal − controlAccountBalance` it explains, so it
+ * has to be the payment's movement ON THE CONTROL ACCOUNT, not its document
+ * total. A receipt that credited some other account moves neither side and
+ * explains nothing: on isaflow_dev, Britech has 130 receipts worth R7,505,599
+ * by the document basis against an AR control balance of −R329,700, and an item
+ * of R7.5m there is an equal and opposite R7.5m of `unexplained_difference` —
+ * the same shape of artefact as the control-account probe this change removed.
+ *
+ * So the SET and the document figure come from the shared basis, the AMOUNT is
+ * the control-side figure, both are carried on the item, and where they differ
+ * the gap is reported as an `unapplied_cash_off_control_account` excluded row
+ * rather than absorbed. On books where the cash is where it should be the two
+ * are equal and the reconciler and the listing tools agree exactly.
  */
 
 import { sql } from '@/lib/neon';
@@ -32,32 +53,29 @@ import type { DbRow } from '@/lib/neon';
 import { log } from '@/lib/logger';
 import { fmtDate } from '@/lib/fmtDate';
 import type { SubledgerRole } from '../gl/controlAccountService';
+import { getUnappliedPaymentCash } from './unappliedPaymentCash';
+import { round2 } from './reconciliationMath';
 import { dropCancelledReversalPairs } from './orphanReversalPairs';
+import type { OffControlCash, UnappliedCashItem } from './unappliedCashTypes';
 
-export interface UnappliedCashItem {
-  /** Payment id (mechanism 1) or journal-entry id (mechanism 2). */
-  id: string;
-  /** Payment number or journal entry number. */
-  documentNumber: string | null;
-  /** Customer / supplier name where the row carries one; null for a bare journal. */
-  entityName: string | null;
-  /** 'YYYY-MM-DD'. */
-  documentDate: string;
-  /** The UNAPPLIED portion, always positive. */
-  amount: number;
-}
+export type { OffControlCash, UnappliedCashItem } from './unappliedCashTypes';
 
 export interface UnappliedCash {
   /** Mechanism 1 — a payment document exists, nothing is allocated against it. */
   withPaymentRecord: UnappliedCashItem[];
   /**
-   * The APPLIED portion of the same payments.
+   * The APPLIED portion of the PARTLY applied payments.
    *
    * NOT a reconciling item: `unpostedDocumentService` owns this movement,
    * because it nets each payment's control posting against the document the
    * payment was allocated to. Counting it here as well double-counts. It is
    * returned so a caller can see the applied/unapplied split of a receipt
    * without a second query.
+   *
+   * NARROWED with the move to the shared basis, which returns only payments
+   * that still have a remainder: a WHOLLY applied payment no longer appears
+   * here. Nothing in this repo reads this field, and the split it describes is
+   * only interesting where there is something left unapplied to split against.
    */
   appliedRecords: UnappliedCashItem[];
   /**
@@ -67,6 +85,13 @@ export interface UnappliedCash {
    * invoice journal whose bill lost its link raises it, so it appears negative.
    */
   withoutPaymentRecord: UnappliedCashItem[];
+  /**
+   * Payments the shared basis counts as unapplied whose cash is not on a
+   * control account — reported, never netted into an item. NOT a reconciling
+   * item: it explains no part of the control difference, which is exactly why
+   * it must not be added to one.
+   */
+  offControl: OffControlCash[];
   total: number;
   postedThrough: string | null;
 }
@@ -75,6 +100,7 @@ const EMPTY: UnappliedCash = {
   appliedRecords: [],
   withPaymentRecord: [],
   withoutPaymentRecord: [],
+  offControl: [],
   total: 0,
   postedThrough: null,
 };
@@ -92,14 +118,24 @@ function shapeFor(role: SubledgerRole): RoleShape | null {
   return null;
 }
 
-function toItem(r: DbRow, amount: number): UnappliedCashItem {
+function toItem(r: DbRow, amount: number, gross: number): UnappliedCashItem {
   return {
     id: String(r.id),
     documentNumber: r.document_number == null ? null : String(r.document_number),
     entityName: r.entity_name == null ? null : String(r.entity_name),
     documentDate: fmtDate(r.document_date as string | Date),
     amount,
+    // A bare journal has no payment document behind it, so there is no
+    // document-basis figure to disagree with the control-side one.
+    documentUnapplied: amount,
+    gross,
   };
+}
+
+function laterIso(a: string | null, b: string | null): string | null {
+  if (a === null) return b;
+  if (b === null) return a;
+  return a > b ? a : b;
 }
 
 function maxIso(rows: readonly DbRow[]): string | null {
@@ -134,55 +170,7 @@ export async function getUnappliedControlCash(
     const isAr = role === 'ar';
 
     // ── Mechanism 1: a payment document with unallocated cash on control ────
-    //
-    // AR and AP run as SEPARATE queries rather than one query branching on a
-    // boolean parameter. The parameterised version type-checked, ran without
-    // error, and returned NOTHING on data where a manual join found the row —
-    // a query that is wrong and silent is the worst outcome available on an
-    // assurance endpoint, and no test that mocks `sql` can see it.
-    const payRows = (await (isAr
-      ? sql`
-        SELECT p.id, p.payment_number AS document_number, c.name AS entity_name,
-               p.payment_date AS document_date, p.created_at,
-               COALESCE(SUM(jl.credit), 0) AS control_credit,
-               COALESCE((SELECT SUM(a.amount_allocated)
-                         FROM customer_payment_allocations a
-                         WHERE a.payment_id = p.id), 0) AS allocated
-        FROM customer_payments p
-        JOIN customers c ON c.id = p.client_id AND c.company_id = ${companyId}::UUID
-        JOIN gl_journal_entries je ON je.id = p.gl_journal_entry_id
-                                  AND je.company_id = ${companyId}::UUID
-                                  AND je.status = 'posted'
-                                  AND je.entry_date <= ${asAtDate}::DATE
-        JOIN gl_journal_lines jl ON jl.journal_entry_id = je.id
-                                AND jl.company_id = ${companyId}::UUID
-                                AND jl.gl_account_id = ANY(${ids}::uuid[])
-        WHERE p.company_id = ${companyId}::UUID
-          AND p.status <> 'cancelled'
-        GROUP BY p.id, p.payment_number, c.name, p.payment_date, p.created_at
-        ORDER BY p.payment_date, p.id
-      `
-      : sql`
-        SELECT p.id, p.payment_number AS document_number, s.name AS entity_name,
-               p.payment_date AS document_date, p.created_at,
-               COALESCE(SUM(jl.debit), 0) AS control_credit,
-               COALESCE((SELECT SUM(a.amount_allocated)
-                         FROM payment_allocations a
-                         WHERE a.payment_id = p.id), 0) AS allocated
-        FROM supplier_payments p
-        JOIN suppliers s ON s.id = p.supplier_id AND s.company_id = ${companyId}::UUID
-        JOIN gl_journal_entries je ON je.id = p.gl_journal_entry_id
-                                  AND je.company_id = ${companyId}::UUID
-                                  AND je.status = 'posted'
-                                  AND je.entry_date <= ${asAtDate}::DATE
-        JOIN gl_journal_lines jl ON jl.journal_entry_id = je.id
-                                AND jl.company_id = ${companyId}::UUID
-                                AND jl.gl_account_id = ANY(${ids}::uuid[])
-        WHERE p.company_id = ${companyId}::UUID
-          AND p.status <> 'cancelled'
-        GROUP BY p.id, p.payment_number, s.name, p.payment_date, p.created_at
-        ORDER BY p.payment_date, p.id
-      `)) as DbRow[];
+    const payments = await getUnappliedPaymentCash(companyId, isAr ? 'ar' : 'ap', asAtDate, ids);
 
     // ── Mechanism 2: control movement no subledger document references ──────
     //
@@ -221,15 +209,29 @@ export async function getUnappliedControlCash(
           AND je.entry_date <= ${asAtDate}::DATE
           AND NOT EXISTS (SELECT 1 FROM customer_invoices d
                           WHERE d.company_id = ${companyId}::UUID AND d.gl_journal_entry_id = je.id)
+          -- A CANCELLED document does not claim its journal. Cancelling posts
+          -- a reversal and undoes the application, so the original and the
+          -- reversal net to zero on the control account and neither relates to
+          -- anything open. While the cancelled document still counted as a
+          -- claimant, only the REVERSAL reached this list -- an unbalanced item
+          -- on a pair that moved the control account by nothing. Letting the
+          -- original through instead lets dropCancelledReversalPairs see both
+          -- legs and drop them together, by the outcome rule it already
+          -- applies. A cancelled document whose journal was never reversed
+          -- still surfaces here, which is right: that cash is on the control
+          -- account and no live document claims it.
           AND NOT EXISTS (SELECT 1 FROM customer_payments d
-                          WHERE d.company_id = ${companyId}::UUID AND d.gl_journal_entry_id = je.id)
+                          WHERE d.company_id = ${companyId}::UUID AND d.gl_journal_entry_id = je.id
+                            AND COALESCE(d.status, '') <> 'cancelled')
           AND NOT EXISTS (SELECT 1 FROM credit_notes d
-                          WHERE d.company_id = ${companyId}::UUID AND d.gl_journal_entry_id = je.id)
+                          WHERE d.company_id = ${companyId}::UUID AND d.gl_journal_entry_id = je.id
+                            AND COALESCE(d.status, '') <> 'cancelled')
           -- A write-off's journal IS claimed — by the write-off, and through it
           -- by the invoice (unpostedDocumentService counts it there). Leaving it
           -- out of this list reported it as a posting with no document.
           AND NOT EXISTS (SELECT 1 FROM customer_write_offs d
-                          WHERE d.company_id = ${companyId}::UUID AND d.gl_journal_entry_id = je.id)
+                          WHERE d.company_id = ${companyId}::UUID AND d.gl_journal_entry_id = je.id
+                            AND COALESCE(d.status, '') <> 'cancelled')
           AND NOT EXISTS (SELECT 1 FROM soft_delete_journal_reversals r
                           WHERE r.company_id = ${companyId}::UUID
                             AND r.reversal_journal_entry_id = je.id)
@@ -251,10 +253,15 @@ export async function getUnappliedControlCash(
           AND je.entry_date <= ${asAtDate}::DATE
           AND NOT EXISTS (SELECT 1 FROM supplier_invoices d
                           WHERE d.company_id = ${companyId}::UUID AND d.gl_journal_entry_id = je.id)
+          -- See the note on the AR query above: a CANCELLED document does not
+          -- claim its journal, so the original joins its reversal here and the
+          -- pair is dropped together.
           AND NOT EXISTS (SELECT 1 FROM supplier_payments d
-                          WHERE d.company_id = ${companyId}::UUID AND d.gl_journal_entry_id = je.id)
+                          WHERE d.company_id = ${companyId}::UUID AND d.gl_journal_entry_id = je.id
+                            AND COALESCE(d.status, '') <> 'cancelled')
           AND NOT EXISTS (SELECT 1 FROM credit_notes d
-                          WHERE d.company_id = ${companyId}::UUID AND d.gl_journal_entry_id = je.id)
+                          WHERE d.company_id = ${companyId}::UUID AND d.gl_journal_entry_id = je.id
+                            AND COALESCE(d.status, '') <> 'cancelled')
           AND NOT EXISTS (SELECT 1 FROM soft_delete_journal_reversals r
                           WHERE r.company_id = ${companyId}::UUID
                             AND r.reversal_journal_entry_id = je.id)
@@ -263,21 +270,14 @@ export async function getUnappliedControlCash(
         ORDER BY je.entry_date, je.id
       `)) as DbRow[];
 
-    const withPaymentRecord: UnappliedCashItem[] = [];
-    const appliedRecords: UnappliedCashItem[] = [];
-    for (const r of payRows) {
-      const posted = Number(r.control_credit ?? 0);
-      const allocated = Math.min(Number(r.allocated ?? 0), posted);
-      const unapplied = Math.round((posted - allocated) * 100) / 100;
-      // A zero-amount row reads to an agent as a finding and is not one, so
-      // each payment lands in whichever bucket it actually has value in.
-      if (unapplied !== 0) withPaymentRecord.push(toItem(r, unapplied));
-      if (allocated !== 0) appliedRecords.push(toItem(r, Math.round(allocated * 100) / 100));
-    }
+    const { withPaymentRecord, appliedRecords, offControl } = payments;
 
-    const withoutPaymentRecord = dropCancelledReversalPairs(orphanRows).map((r) =>
-      toItem(r, Math.round(Number(r.control_credit ?? 0) * 100) / 100),
-    );
+    const withoutPaymentRecord = dropCancelledReversalPairs(orphanRows).map((r) => {
+      const movement = round2(Number(r.control_credit ?? 0));
+      // A bare journal has no document total; its own movement on the control
+      // account IS its gross, so an item citing it can never exceed it.
+      return toItem(r, movement, Math.abs(movement));
+    });
 
     const total =
       withPaymentRecord.reduce((s, i) => s + i.amount, 0) +
@@ -287,8 +287,9 @@ export async function getUnappliedControlCash(
       appliedRecords,
       withPaymentRecord,
       withoutPaymentRecord,
-      total: Math.round(total * 100) / 100,
-      postedThrough: maxIso([...payRows, ...orphanRows]),
+      offControl,
+      total: round2(total),
+      postedThrough: laterIso(payments.postedThrough, maxIso(orphanRows)),
     };
   } catch (err) {
     log.error('Failed to read unapplied control cash', { role, error: err }, 'accounting');

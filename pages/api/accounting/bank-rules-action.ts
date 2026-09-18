@@ -12,6 +12,7 @@ import { withCsrf } from '@/lib/auth/withCsrf';
 import { log } from '@/lib/logger';
 import { deleteRule, deleteRules, toggleRule, applyRules, updateRule } from '@/modules/accounting/services/bank/bankRulesService';
 import { UUID } from '@/lib/schemas/common';
+import { AUTO_APPLY_MODES } from '@/modules/accounting/services/shared/autoAllocateStrategy';
 import { CustomerNotInCompanyError, SupplierNotInCompanyError } from '@/modules/accounting/services/core/contactDirectoryService';
 
 const BankRulesActionSchema = z.discriminatedUnion('action', [
@@ -32,6 +33,9 @@ const BankRulesActionSchema = z.discriminatedUnion('action', [
     priority: z.number().int().optional(),
     autoCreateEntry: z.boolean().optional(),
     vatCode: z.enum(['none', 'standard', 'zero_rated', 'exempt']).optional(),
+    // See migration 676. The update handler forwards every named field, so
+    // naming it here is all that is needed to let it be changed.
+    autoApply: z.enum(AUTO_APPLY_MODES).optional(),
     isActive: z.boolean().optional(),
   }),
   z.object({ action: z.literal('apply'), bankAccountId: UUID }),

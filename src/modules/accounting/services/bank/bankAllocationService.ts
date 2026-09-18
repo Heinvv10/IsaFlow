@@ -26,6 +26,7 @@ import { BankAllocationRefusal } from './bankAllocationRefusal';
 import { assertPostedForAllocation } from './bankFeedStateGuard';
 import { autoLinkCounterpartyTransfer } from './bankTransferAutoLink';
 import { assertCustomerInCompany, assertSupplierInCompany } from '../core/contactDirectoryService';
+import { DEFAULT_AUTO_APPLY, type AutoApplyMode } from '../shared/autoAllocateStrategy';
 
 
 type Row = DbRow;
@@ -76,6 +77,21 @@ async function resolveVatAccountId(
 
 export type AllocationType = 'account' | 'supplier' | 'customer' | 'transfer';
 
+/**
+ * What a line's cash actually settled, for the caller to report back.
+ *
+ * Present on every supplier payment and customer receipt that named no
+ * document — including under `auto_apply: 'none'`, where `applications` is
+ * empty and `onAccount` is the whole line. A caller that cannot tell "applied
+ * nothing" from "was never asked to" cannot explain the balance to its user.
+ */
+export interface AllocationApplicationResult {
+  autoApply: AutoApplyMode;
+  applications: { documentId: string; documentNumber: string; amount: number }[];
+  /** The unapplied remainder left sitting on the contact's account. */
+  onAccount: number;
+}
+
 export interface SplitLine {
   contraAccountId: string;
   amount: number;
@@ -95,15 +111,23 @@ export async function allocateTransaction(
   vatCode?: string, cc1Id?: string, cc2Id?: string, buId?: string,
   invoiceId?: string,
   /**
-   * `autoApply: false` says the CALLER has already named what this cash is for
-   * — a purchase order, say — so the payment document is still created but the
-   * supplier's `auto_allocate_strategy` is NOT run against its open bills.
-   * Applying it elsewhere would contradict the instruction the caller just
-   * gave. Default true: a line with no named target is exactly what the
-   * strategy exists to decide.
+   * `autoApply: 'none'` says the CALLER has already named what this cash is for
+   * — a purchase order, say — so the payment document is still created but
+   * nothing is applied to the contact's open documents. Applying it elsewhere
+   * would contradict the instruction the caller just gave.
+   *
+   * Default `'fifo'`: a line with no named target settles that contact's
+   * oldest open documents. It used to default to the contact's own
+   * `auto_allocate_strategy`, which is 'off' on every row nobody edited — so
+   * the cash got a document and closed nothing.
    */
-  opts?: PostingActorOpts & { autoApply?: boolean },
-): Promise<{ journalEntryId: string; bankTransaction: BankTransaction }> {
+  opts?: PostingActorOpts & { autoApply?: AutoApplyMode },
+): Promise<{
+  journalEntryId: string;
+  bankTransaction: BankTransaction;
+  /** Present only for a supplier/customer line that named no document. */
+  application?: AllocationApplicationResult;
+}> {
   // FOR UPDATE: hold the row for the rest of the request so a concurrent
   // allocate blocks here rather than passing the same status check and posting
   // a second journal for one transaction.
@@ -424,6 +448,10 @@ export async function allocateTransaction(
     }
   }
 
+  // Resolved once: both arms read it, and the response echoes it back so the
+  // caller can show the user which mode produced the applications below.
+  const autoApplyMode: AutoApplyMode = opts?.autoApply ?? DEFAULT_AUTO_APPLY;
+  let application: AllocationApplicationResult | undefined;
   let customerPaymentId: string | null = null;
   // Atomically update bank_transactions and optionally insert the customer_payment record.
   // If either write fails the whole block rolls back — no orphaned allocation state.
@@ -493,12 +521,12 @@ export async function allocateTransaction(
     } else {
       // NOT caught. This writes, and a caught write is a partial commit under a
       // success response — see the header of ap/supplierAutoAllocate.ts.
-      await recordSupplierBankPayment({
+      const recorded = await recordSupplierBankPayment({
         companyId,
         supplierId: entityId,
         // See the `autoApply` note on the signature: a caller that named a
-        // target gets the document without the strategy.
-        autoApply: opts?.autoApply ?? true,
+        // target gets the document without the application.
+        autoApply: autoApplyMode,
         bankTxId,
         bankAccountId,
         journalEntryId: je.id,
@@ -507,6 +535,13 @@ export async function allocateTransaction(
         description: entryDesc,
         userId,
       });
+      application = {
+        autoApply: autoApplyMode,
+        applications: recorded.appliedLines.map((l) => ({
+          documentId: l.invoiceId, documentNumber: l.invoiceNumber, amount: l.amount,
+        })),
+        onAccount: recorded.unappliedRemainder,
+      };
     }
   }
 
@@ -528,16 +563,23 @@ export async function allocateTransaction(
   //     this call. If the strategy settled an older invoice, both writes stand
   //     and the subledger drops by twice the receipt. It passes
   //     `autoApply: false`.
-  if (allocType === 'customer' && entityId && customerPaymentId && !isSpent
-      && !invoiceId && (opts?.autoApply ?? true)) {
-    await autoApplyCustomerReceipt({
+  if (allocType === 'customer' && entityId && customerPaymentId && !isSpent && !invoiceId) {
+    const applied = await autoApplyCustomerReceipt({
       companyId,
       customerId: entityId,
       paymentId: customerPaymentId,
       journalEntryId: je.id,
       amount: totalAmount,
       userId,
+      autoApply: autoApplyMode,
     });
+    application = {
+      autoApply: autoApplyMode,
+      applications: applied.appliedLines.map((l) => ({
+        documentId: l.invoiceId, documentNumber: l.invoiceNumber, amount: l.amount,
+      })),
+      onAccount: applied.unappliedRemainder,
+    };
   }
 
   log.info('Allocated bank transaction', { bankTxId, journalEntryId: je.id, allocType, entityId, contraAccountId }, 'accounting');
@@ -552,7 +594,11 @@ export async function allocateTransaction(
   }
 
   const updated = (await sql`SELECT * FROM bank_transactions WHERE id = ${bankTxId}::UUID AND company_id = ${companyId}::UUID`) as Row[];
-  return { journalEntryId: je.id, bankTransaction: mapTxRow(updated[0]!) };
+  return {
+    journalEntryId: je.id,
+    bankTransaction: mapTxRow(updated[0]!),
+    ...(application ? { application } : {}),
+  };
 }
 
 // ── Split Allocate ────────────────────────────────────────────────────────────
