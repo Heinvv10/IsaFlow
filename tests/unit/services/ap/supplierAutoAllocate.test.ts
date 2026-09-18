@@ -11,6 +11,13 @@
 import { describe, it, expect, vi, beforeEach, type MockedFunction } from 'vitest';
 
 vi.mock('@/lib/neon', () => ({ sql: vi.fn(), getPoolForTests: vi.fn() }));
+// The locking open-document read bounds its wait with SET LOCAL lock_timeout,
+// which needs the request's own client — the same shape fetchBillCandidates
+// uses. Its SQL shape and lock order are asserted in
+// tests/unit/services/ap/openDocumentLock.test.ts.
+vi.mock('@/modules/accounting/services/core/requestTransaction', () => ({
+  requireRequestTransaction: () => ({ query: vi.fn(async () => undefined) }),
+}));
 vi.mock('@/lib/logger', () => ({ log: { info: vi.fn(), error: vi.fn(), warn: vi.fn() } }));
 vi.mock('@/modules/accounting/services/gl/journalEntryCrudService', () => ({
   resolveUserUuid: vi.fn(async (id: string) => id),
@@ -28,7 +35,6 @@ import {
 import {
   recordSupplierBankPayment,
   resolveSupplierAutoAllocateStrategy,
-  fetchOpenSupplierBills,
 } from '@/modules/accounting/services/ap/supplierAutoAllocate';
 
 type SqlFn = MockedFunction<(strings: TemplateStringsArray, ...v: unknown[]) => Promise<unknown[]>>;
@@ -156,8 +162,10 @@ describe('recordSupplierBankPayment', () => {
       .mockResolvedValueOnce([{ auto_allocate_strategy: 'oldest' }])
       .mockResolvedValueOnce([{ fiscal_period_id: 'fp-1' }])
       .mockResolvedValueOnce([
-        { id: 'bill-old', outstanding: 600 },
-        { id: 'bill-new', outstanding: 900 },
+        // Read in id order — the FIFO order is applied in memory, so the
+        // fixture deliberately arrives NOT in date order.
+        { id: 'bill-new', invoice_date: '2026-02-09', due_date: null, outstanding: 900 },
+        { id: 'bill-old', invoice_date: '2026-02-01', due_date: null, outstanding: 600 },
       ]);
     mockPlan.mockResolvedValue(
       planFor([{ invoiceId: 'bill-old', amount: 600 }, { invoiceId: 'bill-new', amount: 400 }], 0),
@@ -177,31 +185,26 @@ describe('recordSupplierBankPayment', () => {
     expect(result.unappliedRemainder).toBe(0);
   });
 
-  it('reads the bills in ASCENDING invoice date for "oldest"', async () => {
-    mockSql
-      .mockResolvedValueOnce([{ id: PAYMENT_ID }])
-      .mockResolvedValueOnce([{ auto_allocate_strategy: 'oldest' }])
-      .mockResolvedValueOnce([{ fiscal_period_id: 'fp-1' }])
-      .mockResolvedValueOnce([]);
-
-    await recordSupplierBankPayment(ARGS);
-
-    const billQuery = queries().find((q) => q.includes('FROM supplier_invoices'))!;
-    expect(billQuery).toContain('ORDER BY invoice_date ASC');
-    expect(billQuery).not.toContain('created_at DESC');
-  });
-
-  it('reads the bills in DESCENDING invoice date for "newest"', async () => {
+  it('consumes the NEWEST bill first when the supplier says "newest"', async () => {
     mockSql
       .mockResolvedValueOnce([{ id: PAYMENT_ID }])
       .mockResolvedValueOnce([{ auto_allocate_strategy: 'newest' }])
       .mockResolvedValueOnce([{ fiscal_period_id: 'fp-1' }])
-      .mockResolvedValueOnce([]);
+      .mockResolvedValueOnce([
+        { id: 'bill-new', invoice_date: '2026-02-09', due_date: null, outstanding: 900 },
+        { id: 'bill-old', invoice_date: '2026-02-01', due_date: null, outstanding: 600 },
+      ]);
+    mockPlan.mockResolvedValue(planFor([{ invoiceId: 'bill-new', amount: 1000 }], 0));
+    mockApply.mockImplementation(async (_c, plan) => plan);
 
     await recordSupplierBankPayment(ARGS);
 
-    const billQuery = queries().find((q) => q.includes('FROM supplier_invoices'))!;
-    expect(billQuery).toContain('ORDER BY invoice_date DESC');
+    // The SQL is id-ordered (see openDocumentLock.test.ts for why); the
+    // DIRECTION is applied in memory, and this is the assertion that it is.
+    expect(mockPlan).toHaveBeenCalledWith(COMPANY_ID, PAYMENT_ID, [
+      { invoiceId: 'bill-new', amount: 900 },
+      { invoiceId: 'bill-old', amount: 100 },
+    ]);
   });
 
   it('leaves the payment unapplied when the supplier has nothing open', async () => {
@@ -307,56 +310,5 @@ describe('resolveSupplierAutoAllocateStrategy', () => {
   it('refuses to honour a value that is not one of the three', async () => {
     mockSql.mockResolvedValueOnce([{ auto_allocate_strategy: 'fifo' }]);
     expect(await resolveSupplierAutoAllocateStrategy(COMPANY_ID, SUPPLIER_ID)).toBe('off');
-  });
-});
-
-describe('fetchOpenSupplierBills', () => {
-  it('excludes bills that cannot take a payment and those with nothing outstanding', async () => {
-    mockSql.mockResolvedValueOnce([]);
-    await fetchOpenSupplierBills(COMPANY_ID, SUPPLIER_ID, true, { forUpdate: true });
-    const q = queries()[0]!;
-    expect(q).toContain('company_id');
-    expect(q).toContain('deleted_at IS NULL');
-    expect(q).toContain('(total_amount - COALESCE(amount_paid, 0)) > ?');
-    // status is passed as an array parameter, so assert the shape of the
-    // predicate and the contents of the parameter separately.
-    expect(q).toContain('status <> ALL(?::TEXT[])');
-    const statuses = mockSql.mock.calls[0]!.slice(1).find(Array.isArray) as string[];
-    expect(statuses).toEqual(expect.arrayContaining(['draft', 'cancelled', 'paid', 'written_off']));
-  });
-
-  it('excludes a DISPUTED bill', async () => {
-    // supplier_invoices' CHECK constraint (migration 201) carries 'disputed',
-    // and cash must not settle a bill the company is contesting.
-    mockSql.mockResolvedValueOnce([]);
-    await fetchOpenSupplierBills(COMPANY_ID, SUPPLIER_ID, true, { forUpdate: true });
-    const statuses = mockSql.mock.calls[0]!.slice(1).find(Array.isArray) as string[];
-    expect(statuses).toContain('disputed');
-  });
-
-  it('locks the rows it is about to consume', async () => {
-    // Without FOR UPDATE two concurrent allocations read the same open bill
-    // and each applies its whole amount to it.
-    mockSql.mockResolvedValueOnce([]);
-    await fetchOpenSupplierBills(COMPANY_ID, SUPPLIER_ID, true, { forUpdate: true });
-    expect(queries()[0]!).toContain('FOR UPDATE');
-  });
-
-  it('breaks ties on due date and then id, in both directions', async () => {
-    mockSql.mockResolvedValueOnce([]);
-    await fetchOpenSupplierBills(COMPANY_ID, SUPPLIER_ID, true, { forUpdate: true });
-    expect(queries()[0]!).toContain('ORDER BY invoice_date ASC, due_date ASC NULLS LAST, id ASC');
-
-    mockSql.mockResolvedValueOnce([]);
-    await fetchOpenSupplierBills(COMPANY_ID, SUPPLIER_ID, false, { forUpdate: true });
-    expect(queries()[1]!).toContain('ORDER BY invoice_date DESC, due_date DESC NULLS FIRST, id DESC');
-  });
-
-  it('returns the document number a human reads the bill by', async () => {
-    mockSql.mockResolvedValueOnce([
-      { id: 'bill-1', invoice_number: 'INV-900', outstanding: '250.00' },
-    ]);
-    const open = await fetchOpenSupplierBills(COMPANY_ID, SUPPLIER_ID, true, { forUpdate: true });
-    expect(open).toEqual([{ invoiceId: 'bill-1', invoiceNumber: 'INV-900', outstanding: 250 }]);
   });
 });

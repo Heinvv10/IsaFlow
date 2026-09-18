@@ -100,6 +100,44 @@ describe('simulateSequentialApplications', () => {
     expect(out).toEqual([{ index: 0, applications: [], onAccount: 500 }]);
   });
 
+  it('consumes a NAMED document, so a later FIFO line sees the reduced balance', () => {
+    // A batch line that names an invoice_id is applied by the live path too —
+    // through a different service, which reports its own result — so the
+    // preview must consume its balance without reporting it, or line 2's FIFO
+    // plan is measured against money line 1 has already spent.
+    const out = simulateSequentialApplications(
+      [line(0, 60, { documentId: 'b2' }), line(1, 300)],
+      new Map([['sup-1', BILLS]]),
+    );
+    expect(out[0]!.applications).toEqual([
+      { documentId: 'b2', documentNumber: 'BILL-002', amount: 60 },
+    ]);
+    expect(out[1]!.applications).toEqual([
+      { documentId: 'b1', documentNumber: 'BILL-001', amount: 100 },
+      { documentId: 'b2', documentNumber: 'BILL-002', amount: 140 },
+      { documentId: 'b3', documentNumber: 'BILL-003', amount: 60 },
+    ]);
+  });
+
+  it('caps a named document at its own balance and leaves the rest on account', () => {
+    const out = simulateSequentialApplications(
+      [line(0, 500, { documentId: 'b1' })],
+      new Map([['sup-1', BILLS]]),
+    );
+    expect(out[0]!.applications).toEqual([
+      { documentId: 'b1', documentNumber: 'BILL-001', amount: 100 },
+    ]);
+    expect(out[0]!.onAccount).toBe(400);
+  });
+
+  it('applies nothing for a named document that is not open', () => {
+    const out = simulateSequentialApplications(
+      [line(0, 50, { documentId: 'gone' })],
+      new Map([['sup-1', BILLS]]),
+    );
+    expect(out[0]!).toEqual({ index: 0, applications: [], onAccount: 50 });
+  });
+
   it('skips a document with under a cent left on it', () => {
     // payment_allocations carries CHECK (amount_allocated > 0); a rounding
     // crumb is not a settlement.
