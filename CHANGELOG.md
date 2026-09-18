@@ -8,6 +8,7 @@ Last updated: 2026-04-19 · 643 commits on `master` · 144 migrations (000 → 3
 
 ## Unreleased / In Flight
 
+- **Credit notes apply FIFO (migration 677)** — approving a credit note now applies it to the entity's open documents oldest first, after its linked document, unless `auto_apply: "none"` is passed. Whatever it cannot place stays as on-account credit and the note reads `partially_applied`. Aged debtors and aged creditors gained an `unapplied` column per entity and a `net` total beside the gross one.
 - **Phase 3b — TOTP 2FA via GoTrue native MFA** — design spec + 17-task implementation plan landed 2026-04-19 (not yet merged)
 - **Xero-parity UX roadmap** — see FEATURES.md §21.1 (Setup Guide drawer, adaptive dashboard, shared component library, breadcrumbs, invoice preview, report favouriting)
 

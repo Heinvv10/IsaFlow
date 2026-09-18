@@ -161,6 +161,26 @@ export function rewindAmount({ companyId, asAtStr, todayStr, side }: RewindInput
           AND cn.credit_date >  ${asAtStr}::date
           AND cn.credit_date <= ${todayStr}::date`;
 
+  // THE PRE-677 SHAPE, and it is not only history: a note carrying
+  // `applied_amount` with no allocation row can only have credited the ONE
+  // document it names, and that is exactly what this reads. It is guarded by
+  // NOT EXISTS so a note that HAS rows is never counted twice — the rows are
+  // authoritative the moment there are any. Dropping this arm would silently
+  // stop rewinding every note the 677 backfill could not attribute.
+  const creditsAppliedLegacy = sql`
+        SELECT cn.applied_amount
+        FROM credit_notes cn
+        WHERE cn.${sql.unsafe(creditLink)} = ${sql.unsafe(`${invoice}.id`)}
+          AND cn.company_id = ${companyId}
+          AND cn.type   = ${creditType}
+          AND cn.status IN ('approved', 'partially_applied', 'applied')
+          AND cn.credit_date >  ${asAtStr}::date
+          AND cn.credit_date <= ${todayStr}::date
+          AND NOT EXISTS (
+            SELECT 1 FROM credit_note_allocations cna2
+            WHERE cna2.credit_note_id = cn.id
+          )`;
+
   // NEGATIVE: in force on the as-at date, cancelled since. amount_paid no
   // longer reflects it but it did then, so it goes back on.
   //
@@ -205,6 +225,10 @@ export function rewindAmount({ companyId, asAtStr, todayStr, side }: RewindInput
         UNION ALL
 
         ${creditsApplied}
+
+        UNION ALL
+
+        ${creditsAppliedLegacy}
         ${writeOffs}
 
         UNION ALL
