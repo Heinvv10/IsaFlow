@@ -18,7 +18,18 @@ vi.mock('@/lib/logger', () => ({ log: { info: vi.fn(), error: vi.fn(), warn: vi.
 // The status recompute is a write of its own and is proved against a real
 // database in tests/integration/l2-credit-note-fifo.int.test.ts. Here it is
 // stubbed so the assertions below are about the WALK and nothing else.
-vi.mock('@/modules/accounting/services/ar/invoiceStatusRecompute', () => ({
+// PARTIAL, and it has to be. This file mocks the module for
+// `recomputeInvoiceStatus` alone, but the open-document fetchers
+// `applyCreditNote` calls now read `FIFO_ELIGIBLE_STATUSES` from it — the
+// single definition of what cash and credit may settle. A factory that
+// returned only the spy made every test here fail with "No
+// FIFO_ELIGIBLE_STATUSES export is defined on the mock", and hard-coding the
+// list instead would let the tests keep passing against statuses the real
+// query no longer accepts.
+vi.mock('@/modules/accounting/services/ar/invoiceStatusRecompute', async (importOriginal) => ({
+  ...(await importOriginal<
+    typeof import('@/modules/accounting/services/ar/invoiceStatusRecompute')
+  >()),
   recomputeInvoiceStatus: vi.fn(),
 }));
 
