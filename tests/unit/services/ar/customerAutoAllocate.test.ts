@@ -134,7 +134,7 @@ describe('autoApplyCustomerReceipt', () => {
 describe('fetchOpenCustomerInvoices — eligibility', () => {
   it('locks the invoice rows and skips deleted and disputed ones', async () => {
     mockSql.mockResolvedValueOnce([]);
-    await fetchOpenCustomerInvoices(COMPANY_ID, CUSTOMER_ID, true);
+    await fetchOpenCustomerInvoices(COMPANY_ID, CUSTOMER_ID, true, { forUpdate: true });
     const q = queries()[0]!;
     // FOR UPDATE OF ci, not a bare FOR UPDATE: the lock belongs to the invoice
     // rows this receipt is about to consume.
@@ -148,13 +148,13 @@ describe('fetchOpenCustomerInvoices — eligibility', () => {
 
   it('breaks ties on due date and then id, in both directions', async () => {
     mockSql.mockResolvedValueOnce([]);
-    await fetchOpenCustomerInvoices(COMPANY_ID, CUSTOMER_ID, true);
+    await fetchOpenCustomerInvoices(COMPANY_ID, CUSTOMER_ID, true, { forUpdate: true });
     expect(queries()[0]!).toContain(
       'ORDER BY ci.invoice_date ASC, ci.due_date ASC NULLS LAST, ci.id ASC',
     );
 
     mockSql.mockResolvedValueOnce([]);
-    await fetchOpenCustomerInvoices(COMPANY_ID, CUSTOMER_ID, false);
+    await fetchOpenCustomerInvoices(COMPANY_ID, CUSTOMER_ID, false, { forUpdate: true });
     expect(queries()[1]!).toContain(
       'ORDER BY ci.invoice_date DESC, ci.due_date DESC NULLS FIRST, ci.id DESC',
     );
@@ -164,7 +164,7 @@ describe('fetchOpenCustomerInvoices — eligibility', () => {
     mockSql.mockResolvedValueOnce([
       { id: 'inv-1', invoice_number: 'INV-77', outstanding: '90.50' },
     ]);
-    expect(await fetchOpenCustomerInvoices(COMPANY_ID, CUSTOMER_ID, true)).toEqual([
+    expect(await fetchOpenCustomerInvoices(COMPANY_ID, CUSTOMER_ID, true, { forUpdate: true })).toEqual([
       { invoiceId: 'inv-1', invoiceNumber: 'INV-77', outstanding: 90.5 },
     ]);
   });
@@ -188,7 +188,7 @@ describe('autoApplyCustomerReceipt — the journal is in no fiscal period', () =
 describe('fetchOpenCustomerInvoices', () => {
   it('matches on either customer column — both exist and either can carry it', async () => {
     mockSql.mockResolvedValueOnce([]);
-    await fetchOpenCustomerInvoices(COMPANY_ID, CUSTOMER_ID, true);
+    await fetchOpenCustomerInvoices(COMPANY_ID, CUSTOMER_ID, true, { forUpdate: true });
     const q = queries()[0]!;
     expect(q).toContain('COALESCE(ci.client_id, ci.customer_id)');
     expect(q).toContain('company_id');
@@ -197,7 +197,7 @@ describe('fetchOpenCustomerInvoices', () => {
 
   it('reverses the order for newest-first', async () => {
     mockSql.mockResolvedValueOnce([]);
-    await fetchOpenCustomerInvoices(COMPANY_ID, CUSTOMER_ID, false);
+    await fetchOpenCustomerInvoices(COMPANY_ID, CUSTOMER_ID, false, { forUpdate: true });
     expect(queries()[0]!).toContain('ORDER BY ci.invoice_date DESC');
   });
 });

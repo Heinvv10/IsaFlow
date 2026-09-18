@@ -57,7 +57,6 @@ import {
 import { journalIsInAPeriod } from '../shared/journalPeriodVisibility';
 import {
   DEFAULT_AUTO_APPLY,
-  EPS,
   parseAutoAllocateStrategy,
   planGreedyAllocations,
   resolveApplicationOrder,
@@ -65,21 +64,13 @@ import {
   type AutoAllocateStrategy,
   type AutoApplyMode,
 } from '../shared/autoAllocateStrategy';
-import type { SimulationDocument } from '../shared/autoApplySimulation';
+import { fetchOpenSupplierBills } from './openSupplierBills';
 
-/**
- * Bill statuses that cannot take a payment. Deliberately the same set
- * `supplierAllocationLines#buildLine` refuses on, plus the terminal ones there
- * is no point selecting: an auto-allocation that planned a line the applier
- * then threw on would roll back a journal over a bill nobody asked to pay.
- *
- * 'disputed' is in `supplier_invoices`' CHECK constraint (migration 201) and is
- * the one the automatic path most needs: cash must not quietly settle a bill
- * the company is contesting. 'written_off' is not in that constraint and so
- * never matches — kept because the AR twin's table does carry it and one list
- * that is wrong in the harmless direction beats two lists that disagree.
- */
-const UNALLOCATABLE_STATUSES = ['draft', 'cancelled', 'paid', 'written_off', 'disputed'];
+// Re-exported: this module is the documented home of the supplier side of the
+// bank-line payment, and every existing caller and test reaches the fetch
+// through it. The fetch itself moved so the LOCK could become the caller's
+// choice — see openSupplierBills.ts.
+export { fetchOpenSupplierBills };
 
 export interface SupplierBankPaymentDocument {
   paymentId: string;
@@ -101,62 +92,9 @@ export async function resolveSupplierAutoAllocateStrategy(
     SELECT auto_allocate_strategy FROM suppliers
     WHERE id = ${supplierId}::UUID AND company_id = ${companyId}::UUID
   `) as DbRow[];
-  // An unreadable or absent value is 'off', never a guess: applying cash to
-  // bills nobody named is the one outcome that must require an instruction.
+  // An unreadable value is 'off', which the mode reads as NO PREFERENCE rather
+  // than as a refusal — see resolveApplicationOrder.
   return parseAutoAllocateStrategy(rows[0]?.auto_allocate_strategy) ?? 'off';
-}
-
-/**
- * The supplier's open bills in the order the cash will consume them, LOCKED.
- *
- * `total_amount - COALESCE(amount_paid, 0)` rather than the generated `balance`
- * column: the same arithmetic every other outstanding figure in this codebase
- * is derived from, so an auto-allocation cannot disagree with the aging report
- * about what is open.
- *
- * FOR UPDATE holds every candidate row for the rest of the request. Without it
- * two concurrent payments to one supplier read the same open bill, each plans
- * its whole amount against it, and the bill ends at twice its own total — the
- * second application is not refused because nothing it read had changed.
- *
- * The tie-breakers are part of the contract, not decoration. `invoice_date`
- * alone leaves same-day bills in heap order, so "oldest first" would mean
- * "whichever row the planner happened to reach first" and two runs over the
- * same books could settle different bills.
- */
-export async function fetchOpenSupplierBills(
-  companyId: string,
-  supplierId: string,
-  oldestFirst: boolean,
-): Promise<SimulationDocument[]> {
-  // Two statements rather than an interpolated ORDER BY: the direction is the
-  // only thing that varies and it must never be built from a string.
-  const rows = (oldestFirst
-    ? await sql`
-        SELECT id, invoice_number, (total_amount - COALESCE(amount_paid, 0)) AS outstanding
-        FROM supplier_invoices
-        WHERE company_id = ${companyId}::UUID
-          AND supplier_id = ${supplierId}::UUID
-          AND deleted_at IS NULL
-          AND status <> ALL(${UNALLOCATABLE_STATUSES}::TEXT[])
-          AND (total_amount - COALESCE(amount_paid, 0)) > ${EPS}
-        ORDER BY invoice_date ASC, due_date ASC NULLS LAST, id ASC
-        FOR UPDATE`
-    : await sql`
-        SELECT id, invoice_number, (total_amount - COALESCE(amount_paid, 0)) AS outstanding
-        FROM supplier_invoices
-        WHERE company_id = ${companyId}::UUID
-          AND supplier_id = ${supplierId}::UUID
-          AND deleted_at IS NULL
-          AND status <> ALL(${UNALLOCATABLE_STATUSES}::TEXT[])
-          AND (total_amount - COALESCE(amount_paid, 0)) > ${EPS}
-        ORDER BY invoice_date DESC, due_date DESC NULLS FIRST, id DESC
-        FOR UPDATE`) as DbRow[];
-  return rows.map((r) => ({
-    invoiceId: String(r.id),
-    invoiceNumber: r.invoice_number ? String(r.invoice_number) : String(r.id),
-    outstanding: Number(r.outstanding),
-  }));
 }
 
 /**
@@ -240,7 +178,10 @@ export async function recordSupplierBankPayment(args: {
     };
   }
 
-  const open = await fetchOpenSupplierBills(companyId, supplierId, strategy === 'oldest');
+  // Locked: this call is about to consume these rows.
+  const open = await fetchOpenSupplierBills(
+    companyId, supplierId, strategy === 'oldest', { forUpdate: true },
+  );
   const allocations = planGreedyAllocations(amount, open);
   if (allocations.length === 0) {
     // Nothing open to apply to. The instruction was honoured; there was simply

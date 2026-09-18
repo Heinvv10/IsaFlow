@@ -26,7 +26,6 @@ import {
 import { journalIsInAPeriod } from '../shared/journalPeriodVisibility';
 import {
   DEFAULT_AUTO_APPLY,
-  EPS,
   parseAutoAllocateStrategy,
   planGreedyAllocations,
   resolveApplicationOrder,
@@ -34,21 +33,11 @@ import {
   type AutoAllocateStrategy,
   type AutoApplyMode,
 } from '../shared/autoAllocateStrategy';
-import type { SimulationDocument } from '../shared/autoApplySimulation';
+import { fetchOpenCustomerInvoices } from './openCustomerInvoices';
 
-/**
- * Statuses that cannot take a receipt — the set `receiptAllocationLines`
- * refuses on, plus the terminal ones.
- *
- * 'disputed' and 'written_off' are NOT in `customer_invoices`' CHECK constraint
- * (migration 000; a dispute lives in `customer_invoice_disputes` instead), so
- * neither ever matches a row. They are listed anyway so this array and its AP
- * twin say the same thing: two lists that disagree about what cash may settle
- * is how the two subledgers drift apart.
- */
-const UNALLOCATABLE_STATUSES = [
-  'draft', 'pending_approval', 'cancelled', 'paid', 'written_off', 'disputed',
-];
+// Re-exported for the same reason as the AP twin: the fetch moved so its LOCK
+// could become the caller's choice, not because this stopped being its home.
+export { fetchOpenCustomerInvoices };
 
 export interface CustomerReceiptApplication {
   appliedLines: { invoiceId: string; invoiceNumber: string; amount: number }[];
@@ -69,52 +58,6 @@ export async function resolveCustomerAutoAllocateStrategy(
     WHERE id = ${customerId}::UUID AND company_id = ${companyId}::UUID
   `) as DbRow[];
   return parseAutoAllocateStrategy(rows[0]?.auto_allocate_strategy) ?? 'off';
-}
-
-/**
- * The customer's open invoices in the order the cash will consume them, LOCKED.
- *
- * `COALESCE(ci.client_id, ci.customer_id)` because both columns exist and
- * either can carry the customer — matching on one alone silently misses half
- * the ledger.
- *
- * `FOR UPDATE OF ci` and not a bare `FOR UPDATE`: the lock is on the invoice
- * rows this receipt is about to consume, and without it two concurrent
- * receipts read the same open invoice and each applies its whole amount to it.
- */
-export async function fetchOpenCustomerInvoices(
-  companyId: string,
-  customerId: string,
-  oldestFirst: boolean,
-): Promise<SimulationDocument[]> {
-  const rows = (oldestFirst
-    ? await sql`
-        SELECT ci.id, ci.invoice_number,
-               (ci.total_amount - COALESCE(ci.amount_paid, 0)) AS outstanding
-        FROM customer_invoices ci
-        WHERE ci.company_id = ${companyId}::UUID
-          AND COALESCE(ci.client_id, ci.customer_id) = ${customerId}::UUID
-          AND ci.deleted_at IS NULL
-          AND ci.status <> ALL(${UNALLOCATABLE_STATUSES}::TEXT[])
-          AND (ci.total_amount - COALESCE(ci.amount_paid, 0)) > ${EPS}
-        ORDER BY ci.invoice_date ASC, ci.due_date ASC NULLS LAST, ci.id ASC
-        FOR UPDATE OF ci`
-    : await sql`
-        SELECT ci.id, ci.invoice_number,
-               (ci.total_amount - COALESCE(ci.amount_paid, 0)) AS outstanding
-        FROM customer_invoices ci
-        WHERE ci.company_id = ${companyId}::UUID
-          AND COALESCE(ci.client_id, ci.customer_id) = ${customerId}::UUID
-          AND ci.deleted_at IS NULL
-          AND ci.status <> ALL(${UNALLOCATABLE_STATUSES}::TEXT[])
-          AND (ci.total_amount - COALESCE(ci.amount_paid, 0)) > ${EPS}
-        ORDER BY ci.invoice_date DESC, ci.due_date DESC NULLS FIRST, ci.id DESC
-        FOR UPDATE OF ci`) as DbRow[];
-  return rows.map((r) => ({
-    invoiceId: String(r.id),
-    invoiceNumber: r.invoice_number ? String(r.invoice_number) : String(r.id),
-    outstanding: Number(r.outstanding),
-  }));
 }
 
 /**
@@ -159,7 +102,10 @@ export async function autoApplyCustomerReceipt(args: {
     return { appliedLines: [], unappliedRemainder: round2(amount), strategy, autoApply };
   }
 
-  const open = await fetchOpenCustomerInvoices(companyId, customerId, strategy === 'oldest');
+  // Locked: this call is about to consume these rows.
+  const open = await fetchOpenCustomerInvoices(
+    companyId, customerId, strategy === 'oldest', { forUpdate: true },
+  );
   const allocations = planGreedyAllocations(amount, open);
   if (allocations.length === 0) {
     log.info('Customer receipt recorded, no open invoice to apply to', {

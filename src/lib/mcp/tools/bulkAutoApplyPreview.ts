@@ -17,16 +17,16 @@
  * preview time, so a batch dated into an unopened year previews applications it
  * will not make. That is the same gap `dry_run` already has for anything
  * decided after the write, and it fails in the safe direction: the preview
- * promises more settlement than the batch delivers, never less.
+ * promises more settlement than the batch delivers, never less. It is stated in
+ * the reply as `preview_caveats` rather than left in this comment: the caller
+ * is an agent, and a limit it cannot read is a limit it cannot honour.
  */
-import {
-  fetchOpenSupplierBills,
-  resolveSupplierAutoAllocateStrategy,
-} from '@/modules/accounting/services/ap/supplierAutoAllocate';
-import {
-  fetchOpenCustomerInvoices,
-  resolveCustomerAutoAllocateStrategy,
-} from '@/modules/accounting/services/ar/customerAutoAllocate';
+import { resolveSupplierAutoAllocateStrategy } from '@/modules/accounting/services/ap/supplierAutoAllocate';
+import { resolveCustomerAutoAllocateStrategy } from '@/modules/accounting/services/ar/customerAutoAllocate';
+// Imported from the fetch modules directly, NOT through the services above:
+// this is a read that must not take the row locks those services ask for.
+import { fetchOpenSupplierBills } from '@/modules/accounting/services/ap/openSupplierBills';
+import { fetchOpenCustomerInvoices } from '@/modules/accounting/services/ar/openCustomerInvoices';
 import {
   simulateSequentialApplications,
   type SimulatedLine,
@@ -72,6 +72,17 @@ function settlementTargetOf(
  * list. "Applied nothing" and "was never going to apply anything" are different
  * answers and the caller reports them differently.
  */
+/**
+ * What the preview cannot answer, in the agent's own reply.
+ *
+ * Returned only when the batch actually previews an application — a caveat
+ * about applications on a batch that plans none is noise.
+ */
+export const PREVIEW_CAVEATS = [
+  'applications assume the journal lands in an open fiscal period; a line whose '
+  + 'date falls in no fiscal period posts its payment or receipt and applies none of it',
+] as const;
+
 export async function previewBatchApplications(
   companyId: string,
   postable: readonly ResolvedLine[],
@@ -99,9 +110,12 @@ export async function previewBatchApplications(
     // Always read OLDEST FIRST: the simulation reverses its own view for a
     // newest-first line, and one ordering for the shared pool is what keeps two
     // lines against one entity consuming the same list.
+    // `forUpdate: false`: a preview writes nothing, and a read that holds the
+    // row locks blocks every real allocation against these entities until the
+    // request ends.
     openByEntity.set(key, kind === 'supplier'
-      ? await fetchOpenSupplierBills(companyId, id, true)
-      : await fetchOpenCustomerInvoices(companyId, id, true));
+      ? await fetchOpenSupplierBills(companyId, id, true, { forUpdate: false })
+      : await fetchOpenCustomerInvoices(companyId, id, true, { forUpdate: false }));
   }
 
   const simLines: SimulationLine[] = [];
