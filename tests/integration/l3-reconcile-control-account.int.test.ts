@@ -32,12 +32,15 @@ import { randomUUID } from 'crypto';
 import type { PoolClient } from 'pg';
 import { als } from '@/lib/als';
 import { sql, getPoolForTests } from '@/lib/neon';
+import { postCustomerInvoiceToGL, confirmCustomerPayment } from '@/modules/accounting/services/ar/customerPaymentAllocationService';
 import { postSupplierInvoiceToGL } from '@/modules/accounting/services/ap/supplierInvoiceWorkflowService';
+import { approveCreditNote } from '@/modules/accounting/services/ar/creditNoteApproveService';
 import { processSupplierPayment } from '@/modules/accounting/services/ap/supplierPaymentWorkflowService';
 import { getControlAccountBalances } from '@/modules/accounting/services/gl/controlAccountService';
 import { reconcileSubledger } from '@/modules/accounting/services/reconciliation/subledgerReconciliationService';
 import { getUnappliedPaymentBasis } from '@/modules/accounting/services/shared/unappliedPaymentBasis';
 import { getUnappliedPayments } from '@/modules/accounting/services/ap/unappliedPaymentService';
+import { getUnappliedReceipts } from '@/modules/accounting/services/ar/unappliedReceiptService';
 
 const describeIfDb = process.env.DATABASE_URL ? describe : describe.skip;
 
@@ -53,7 +56,9 @@ const VAT = 150;
 const GROSS = SUB + VAT;
 
 let supplier = '';
+let customer = '';
 let expense = '';
+let receivable = '';
 let payable = '';
 let loan = '';
 let bank = '';
@@ -123,6 +128,36 @@ async function payment(
   return id;
 }
 
+async function invoice(n: string): Promise<string> {
+  const id = ((await sql`
+    INSERT INTO customer_invoices (company_id, client_id, customer_id, invoice_number, invoice_date,
+      due_date, status, subtotal, tax_rate, tax_amount, total_amount, amount_paid, created_by)
+    VALUES (${COMPANY}::UUID, ${customer}::UUID, ${customer}::UUID, ${TAG + n}, ${DOC_DATE}::date,
+      ${DOC_DATE}::date, 'approved', ${SUB}, 15, ${VAT}, ${GROSS}, 0, ${USER}::UUID)
+    RETURNING id`) as { id: string }[])[0]!.id;
+  await inTx(() => postCustomerInvoiceToGL(COMPANY, id, USER));
+  return id;
+}
+
+/** A confirmed customer receipt: DR Bank / CR Accounts Receivable. */
+async function receipt(
+  n: string, total: number, allocations: Array<{ invoiceId: string; amount: number }>,
+): Promise<string> {
+  const id = ((await sql`
+    INSERT INTO customer_payments (company_id, payment_number, client_id, payment_date,
+      total_amount, status, created_by)
+    VALUES (${COMPANY}::UUID, ${TAG + n}, ${customer}::UUID, ${SETTLE_DATE}::date,
+      ${total}, 'draft', ${USER}::UUID)
+    RETURNING id`) as { id: string }[])[0]!.id;
+  for (const a of allocations) {
+    await sql`
+      INSERT INTO customer_payment_allocations (payment_id, invoice_id, amount_allocated)
+      VALUES (${id}::UUID, ${a.invoiceId}::UUID, ${a.amount})`;
+  }
+  await inTx(() => confirmCustomerPayment(COMPANY, id, USER));
+  return id;
+}
+
 describeIfDb('L3 — control account by subtype, and one definition of unapplied', () => {
   beforeAll(async () => {
     await sql`INSERT INTO companies (id, name, registration_number)
@@ -141,10 +176,13 @@ describeIfDb('L3 — control account by subtype, and one definition of unapplied
     expense = await account('5000', 'Materials', 'expense', 'debit', 'default_expense');
     await account('1300', 'VAT Input', 'asset', 'debit', 'vat_input');
     await account('2200', 'VAT Output', 'liability', 'credit', 'vat_output');
-    await account('1120', 'Trade Debtors', 'asset', 'debit', 'receivable');
+    receivable = await account('1120', 'Trade Debtors', 'asset', 'debit', 'receivable');
+    await account('4000', 'Sales', 'revenue', 'credit', 'default_revenue');
 
     supplier = ((await sql`INSERT INTO suppliers (company_id, name)
       VALUES (${COMPANY}::UUID, ${'supp ' + TAG}) RETURNING id`) as { id: string }[])[0]!.id;
+    customer = ((await sql`INSERT INTO customers (company_id, name)
+      VALUES (${COMPANY}::UUID, ${'cust ' + TAG}) RETURNING id`) as { id: string }[])[0]!.id;
 
     // The contra settlement: DR Accounts Payable / CR Director Loan, in full.
     //
@@ -162,9 +200,36 @@ describeIfDb('L3 — control account by subtype, and one definition of unapplied
     await payment('-WHOLE', 500, bank, 'eft', []);
     await payment('-CENT', 100, bank, 'eft', [{ invoiceId: partBill, amount: 99.99 }]);
     await payment('-NONE', 200, bank, 'eft', [{ invoiceId: await bill('-FULL'), amount: 200 }]);
+
+    // An UNLINKED approved supplier credit note. getAPSubledger has no
+    // credit-note leg at all, so before unapplied_credit_note existed this
+    // note's journal moved the AP control account and fell into the residual
+    // with no name on it.
+    const scn = ((await sql`
+      INSERT INTO credit_notes (company_id, type, supplier_id, credit_note_number, credit_date,
+        subtotal, tax_amount, total_amount, status, applied_amount, created_by)
+      VALUES (${COMPANY}::UUID, 'supplier', ${supplier}::UUID, ${TAG + '-SCN'}, ${SETTLE_DATE}::date,
+        200, 30, 230, 'draft', 0, ${USER}::UUID)
+      RETURNING id`) as { id: string }[])[0]!.id;
+    // APPROVED through the real service, so the journal that debits the AP
+    // control account exists. An unposted note would give the item no ledger
+    // movement to explain and the residual would go to minus its value —
+    // which is the whole failure mode this item exists to remove.
+    await inTx(() => approveCreditNote(COMPANY, scn, USER));
+
+    // AR: an invoice and a receipt with a one-cent remainder, plus one wholly
+    // unapplied, so the AR twin of the payment agreement can be asserted.
+    const arBill = await invoice('-AR-PART');
+    await receipt('-AR-WHOLE', 300, []);
+    await receipt('-AR-CENT', 100, [{ invoiceId: arBill, amount: 99.99 }]);
   }, 180000);
 
   afterAll(async () => {
+    await sql`DELETE FROM customer_payment_allocations WHERE payment_id IN (
+      SELECT id FROM customer_payments WHERE company_id = ${COMPANY}::UUID)`;
+    await sql`DELETE FROM customer_payments WHERE company_id = ${COMPANY}::UUID`;
+    await sql`DELETE FROM credit_notes WHERE company_id = ${COMPANY}::UUID`;
+    await sql`DELETE FROM customer_invoices WHERE company_id = ${COMPANY}::UUID`;
     await sql`DELETE FROM payment_allocations WHERE payment_id IN (
       SELECT id FROM supplier_payments WHERE company_id = ${COMPANY}::UUID)`;
     await sql`DELETE FROM supplier_payments WHERE company_id = ${COMPANY}::UUID`;
@@ -180,6 +245,7 @@ describeIfDb('L3 — control account by subtype, and one definition of unapplied
     await sql`DELETE FROM gl_accounts WHERE company_id = ${COMPANY}::UUID`;
     await sql`DELETE FROM fiscal_periods WHERE company_id = ${COMPANY}::UUID`;
     await sql`DELETE FROM suppliers WHERE company_id = ${COMPANY}::UUID`;
+    await sql`DELETE FROM customers WHERE company_id = ${COMPANY}::UUID`;
     await sql`DELETE FROM users WHERE id = ${USER}`;
     await sql`DELETE FROM companies WHERE id = ${COMPANY}::UUID`;
   }, 120000);
@@ -240,5 +306,35 @@ describeIfDb('L3 — control account by subtype, and one definition of unapplied
     expect(item?.documentIds).toHaveLength(2);
     expect(item?.amount).toBeCloseTo(500.01, 2);
     expect(rec.excludedRows.some((e) => e.reason === 'unapplied_cash_off_control_account')).toBe(false);
+  }, 120000);
+
+  it('list_unapplied_receipts and the reconciler count the same cash, on AR too', async () => {
+    const listed = await getUnappliedReceipts(COMPANY, { asAt: AS_AT, limit: 200 });
+    const basis = await getUnappliedPaymentBasis(COMPANY, 'ar', AS_AT);
+
+    // R300 wholly unapplied and R0.01 left on the R100 receipt.
+    expect(listed.rowsTotal).toBe(2);
+    expect(listed.totalUnapplied).toBeCloseTo(300.01, 2);
+    expect(basis.rows).toHaveLength(2);
+
+    const rec = await reconcileSubledger(COMPANY, 'ar', AS_AT);
+    const item = rec.reconcilingItems.find((i) => i.type === 'unapplied_receipt');
+    expect(item?.amount).toBeCloseTo(300.01, 2);
+    expect(rec.unexplainedDifference).toBe(0);
+    for (const inv of rec.invariants) {
+      expect(inv, `${inv.name}: ${inv.detail}`).toMatchObject({ holds: true });
+    }
+  }, 120000);
+
+  it('names the supplier credit note the AP subledger cannot see', async () => {
+    // getAPSubledger reads supplier invoices and nothing else, so this note's
+    // journal moved the AP control account while subledgerTotal never heard of
+    // it — R230 that used to land in unexplained_difference with no name on it.
+    const rec = await reconcileSubledger(COMPANY, 'ap', AS_AT);
+    const item = rec.reconcilingItems.find((i) => i.type === 'unapplied_credit_note');
+    expect(item).toBeDefined();
+    expect(item!.amount).toBeCloseTo(230, 2);
+    expect(item!.documentNumbers).toEqual([TAG + '-SCN']);
+    expect(rec.unexplainedDifference).toBe(0);
   }, 120000);
 });
