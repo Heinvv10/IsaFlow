@@ -138,8 +138,27 @@ export const CASES: Array<[string, string, number]> = [
 ];
 export const NOHIST_TX = '00000000-0000-0000-0000-0000000bf10d';
 export const CREATE_TX = CASES[0]![0];
-/** Money IN against a supplier -- a refund. Must not be classified at all. */
+// ── The two refund shapes (migration 681) ──────────────────────────────────
+//
+// Money IN against a supplier: DR Bank / CR Accounts Payable. Before 681 the
+// view filtered `b.amount < 0` and this line was classified NOWHERE — not
+// skipped, invisible — while its journal sat on the control account under
+// `posting_with_no_document`. It now mints a NEGATIVE on-account entry.
+/** Money IN against a supplier, with its journal: `create_refund`. */
 export const REFUND_TX = '00000000-0000-0000-0000-0000000bf110';
+export const REFUND_JE = '00000000-0000-0000-0000-0000000bf210';
+export const REFUND_AMOUNT = 2500;
+
+/**
+ * The shape that CANNOT be minted: a deposit allocated straight to the AP
+ * CONTROL ACCOUNT. The journal credits the payable without naming a supplier,
+ * so there is no supplier whose on-account credit the refund belongs to and no
+ * amount of SQL can decide whose money it is. Reported, never minted.
+ * One line on production — R120,290.00 against RohCap.
+ */
+export const CONTROL_REFUND_TX = '00000000-0000-0000-0000-0000000bf115';
+export const CONTROL_REFUND_JE = '00000000-0000-0000-0000-0000000bf215';
+export const CONTROL_REFUND_AMOUNT = 2700;
 
 /** Deterministic journal id per bank transaction, so assertions can name one. */
 export function journalFor(txId: string): string {
@@ -404,11 +423,49 @@ export async function seed(db: Pool): Promise<void> {
      VALUES ($1,$2,$3,'2026-03-15',$4,'Fixture payment','allocated','supplier',$5,$6)`,
     [CO2_TX, CO2, BANK2, -CO2_AMOUNT, SUP_NAME, String(co2Bank.rows[0]!.id)]);
 
-  // The refund: money IN against the same supplier, allocated the same way.
+  // ── The refund: money IN against the same supplier ────────────────────────
+  //
+  // DR Bank / CR Accounts Payable — the exact mirror of the payment journals
+  // above, and the reason the view's guards are stated as SIGNED MOVEMENTS.
   await db.query(
-    `INSERT INTO bank_transactions (id, company_id, bank_account_id, transaction_date, amount, description, status, allocation_type, allocated_entity_name)
-     VALUES ($1,$2,$3,'2026-03-16',2500,'Fixture refund','allocated','supplier',$4)`,
-    [REFUND_TX, CO, BANK, SUP_NAME],
+    `INSERT INTO gl_journal_entries (id, company_id, entry_number, entry_date, description, status, source, created_by)
+     VALUES ($1,$2,'JE-REFUND','2026-03-16','Refund from supplier','posted','auto_supplier_payment',$3)`,
+    [REFUND_JE, CO, USER]);
+  await db.query(
+    `INSERT INTO gl_journal_lines (company_id, journal_entry_id, gl_account_id, debit, credit, description)
+     VALUES ($1,$2,$3,0,$4,'AP leg')`, [CO, REFUND_JE, AP, REFUND_AMOUNT]);
+  const refundBank = await db.query(
+    `INSERT INTO gl_journal_lines (company_id, journal_entry_id, gl_account_id, debit, credit, description)
+     VALUES ($1,$2,$3,$4,0,'Bank leg') RETURNING id::TEXT`,
+    [CO, REFUND_JE, BANK, REFUND_AMOUNT]);
+  await db.query(
+    `INSERT INTO bank_transactions (id, company_id, bank_account_id, transaction_date, amount, description, status, allocation_type, allocated_entity_name, matched_journal_line_id)
+     VALUES ($1,$2,$3,'2026-03-16',$4,'Fixture refund','allocated','supplier',$5,$6)`,
+    [REFUND_TX, CO, BANK, REFUND_AMOUNT, SUP_NAME, String(refundBank.rows[0]!.id)],
+  );
+
+  // ── The control-account refund: same journal shape, no supplier named ─────
+  //
+  // `allocation_type = 'account'` and `allocated_entity_name` is a GL account
+  // LABEL, not a supplier name — which is why it resolves to no supplier and
+  // why `supplier_unresolved` would be the wrong outcome to report: nobody can
+  // fix this by correcting a supplier record.
+  await db.query(
+    `INSERT INTO gl_journal_entries (id, company_id, entry_number, entry_date, description, status, source, created_by)
+     VALUES ($1,$2,'JE-CTRLREF','2026-03-17','Refund on the control account','posted','auto_bank_recon',$3)`,
+    [CONTROL_REFUND_JE, CO, USER]);
+  await db.query(
+    `INSERT INTO gl_journal_lines (company_id, journal_entry_id, gl_account_id, debit, credit, description)
+     VALUES ($1,$2,$3,0,$4,'AP leg')`, [CO, CONTROL_REFUND_JE, AP, CONTROL_REFUND_AMOUNT]);
+  const ctrlBank = await db.query(
+    `INSERT INTO gl_journal_lines (company_id, journal_entry_id, gl_account_id, debit, credit, description)
+     VALUES ($1,$2,$3,$4,0,'Bank leg') RETURNING id::TEXT`,
+    [CO, CONTROL_REFUND_JE, BANK, CONTROL_REFUND_AMOUNT]);
+  await db.query(
+    `INSERT INTO bank_transactions (id, company_id, bank_account_id, transaction_date, amount, description, status, allocation_type, allocated_entity_name, matched_journal_line_id)
+     VALUES ($1,$2,$3,'2026-03-17',$4,'Fixture control refund','allocated','account',$5,$6)`,
+    [CONTROL_REFUND_TX, CO, BANK, CONTROL_REFUND_AMOUNT, '2110 Accounts Payable',
+      String(ctrlBank.rows[0]!.id)],
   );
 }
 

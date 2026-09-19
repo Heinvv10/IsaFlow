@@ -28,7 +28,8 @@ import { Pool } from 'pg';
 import { assertNotProductionDb } from '../helpers/assertNotProductionDb';
 import {
   AP2, BANK, BILL, CASES, CO, CO2, CO2_AMOUNT, CO2_TX, CREATE_TX, DRAFT_REV_J1,
-  LIVE_OTHER_TX, OWN_REVERSER_TX, REALLOC_AMOUNT, REALLOC_TX, REFUND_TX, SUP, SUP2,
+  LIVE_OTHER_TX, OWN_REVERSER_TX, REALLOC_AMOUNT, REALLOC_TX, REFUND_TX, REFUND_AMOUNT,
+  CONTROL_REFUND_TX, CONTROL_REFUND_AMOUNT, REFUND_JE, SUP, SUP2,
   cleanup, cleanupCompany, createdPaymentId, journalFor, ledgerShape, seed,
 } from '../helpers/apBackfillFixture';
 import {
@@ -77,10 +78,45 @@ describeIfDb('AP payment-document backfill (migration 615)', () => {
     for (const [id, expected] of CASES) {
       expect(`${id}=${got.get(id)}`).toBe(`${id}=${expected}`);
     }
-    // The refund is money in: a payment document for it would be cash the
-    // company never paid.
-    expect(got.has(REFUND_TX)).toBe(false);
-    expect(got.size).toBe(CASES.length);
+    // ── The two refund shapes (migration 681) ──────────────────────────────
+    //
+    // Before 681 the view filtered `b.amount < 0`, so neither of these lines
+    // was classified AT ALL — not skipped, invisible — while both journals sat
+    // on the control account with no document. The refund now mints a negative
+    // on-account entry; the control-account one is named and refused.
+    expect(got.get(REFUND_TX)).toBe('create_refund');
+    expect(got.get(CONTROL_REFUND_TX)).toBe('refund_on_control_unresolved');
+    // `refund_on_control_unresolved` is decided BEFORE every supplier guard.
+    // `supplier_unresolved` would be a true statement pointing at the wrong
+    // remedy: the line names a GL account and no supplier record can fix it.
+    expect(got.get(CONTROL_REFUND_TX)).not.toBe('supplier_unresolved');
+    expect(got.size).toBe(CASES.length + 2);
+  });
+
+  it('carries the gross line value for a refund, and resolves its supplier', async () => {
+    const res = await db.query(
+      `SELECT amount, direction, supplier_id::TEXT AS supplier_id
+         FROM ap_payment_document_backfill_candidates WHERE bank_transaction_id = $1::UUID`,
+      [REFUND_TX],
+    );
+    expect(res.rows).toHaveLength(1);
+    // The view always reports the gross; the SIGN is applied at the point of
+    // writing, so nothing downstream has to remember which way an absolute
+    // value was meant to point.
+    expect(Number(res.rows[0]!.amount)).toBe(REFUND_AMOUNT);
+    expect(res.rows[0]!.direction).toBe('refund');
+    expect(res.rows[0]!.supplier_id).toBe(SUP);
+  });
+
+  it('resolves no supplier for a control-account refund', async () => {
+    const res = await db.query(
+      `SELECT amount, direction, supplier_id
+         FROM ap_payment_document_backfill_candidates WHERE bank_transaction_id = $1::UUID`,
+      [CONTROL_REFUND_TX],
+    );
+    expect(res.rows[0]!.supplier_id).toBeNull();
+    expect(Number(res.rows[0]!.amount)).toBe(CONTROL_REFUND_AMOUNT);
+    expect(res.rows[0]!.direction).toBe('refund');
   });
 
   it('resolves the supplier within the company, never across tenants', async () => {
@@ -105,7 +141,9 @@ describeIfDb('AP payment-document backfill (migration 615)', () => {
       [[CO, CO2]],
     );
     const byCompany = new Map(res.rows.map((r) => [r.company_id, Number(r.n)]));
-    expect(byCompany.get(CO)).toBe(CASES.length);
+    // +2: the supplier refund and the control-account refund, both classified
+    // only since 681.
+    expect(byCompany.get(CO)).toBe(CASES.length + 2);
     expect(byCompany.get(CO2)).toBe(1);
   });
 
@@ -204,7 +242,43 @@ describeIfDb('AP payment-document backfill (migration 615)', () => {
     // NOTHING ELSE MOVED, except the one payment row. A second journal would
     // double the AP debit and break the bank reconciliation; a touched
     // `amount_paid` would settle a bill nobody chose.
-    expect(await ledgerShape(db)).toEqual({ ...before, payments: before.payments + 2 });
+    // +3, not +2: the refund line mints its own document in the same run.
+    expect(await ledgerShape(db)).toEqual({ ...before, payments: before.payments + 3 });
+  });
+
+  it('mints the refund as a NEGATIVE on-account entry, applied to nothing', async () => {
+    const pay = await db.query(
+      `SELECT sp.total_amount, sp.payment_method, sp.status,
+              sp.gl_journal_entry_id::TEXT AS je, sp.reference, sp.supplier_id::TEXT AS supplier_id,
+              (SELECT COUNT(*)::INT FROM payment_allocations pa WHERE pa.payment_id = sp.id) AS allocs
+         FROM supplier_payments sp
+         JOIN ap_payment_document_backfill l ON l.supplier_payment_id = sp.id
+        WHERE l.batch_id = $1::UUID AND l.bank_transaction_id = $2::UUID`,
+      [BATCH_1, REFUND_TX]);
+    expect(pay.rows).toHaveLength(1);
+    const r = pay.rows[0]!;
+    expect(Number(r.total_amount)).toBe(-REFUND_AMOUNT);
+    expect(r.payment_method).toBe('refund');
+    expect(r.status).toBe('processed');
+    expect(r.supplier_id).toBe(SUP);
+    expect(r.reference).toBe(REFUND_TX);
+    expect(r.je).toBe(REFUND_JE);
+    // Applied to NOTHING, ever. A negative remainder applied to a bill un-pays
+    // it, which is a correction a person makes deliberately.
+    expect(Number(r.allocs)).toBe(0);
+  });
+
+  it('logs the control-account refund as skipped and mints nothing for it', async () => {
+    const res = await db.query(
+      `SELECT outcome, reason, amount, supplier_payment_id
+         FROM ap_payment_document_backfill
+        WHERE batch_id = $1::UUID AND bank_transaction_id = $2::UUID`,
+      [BATCH_1, CONTROL_REFUND_TX]);
+    expect(res.rows).toHaveLength(1);
+    expect(res.rows[0]!.outcome).toBe('skipped');
+    expect(res.rows[0]!.reason).toBe('refund_on_control_unresolved');
+    expect(res.rows[0]!.supplier_payment_id).toBeNull();
+    expect(Number(res.rows[0]!.amount)).toBe(CONTROL_REFUND_AMOUNT);
   });
 
   it('mints the re-allocated line a document carrying the journal that STANDS', async () => {
@@ -409,8 +483,11 @@ describeIfDb('AP payment-document backfill (migration 615)', () => {
       'SELECT * FROM ap_rollback_supplier_payment_document_backfill($1::UUID)',
       [BATCH_1],
     );
-    expect(Number(res.rows[0]?.deleted_count)).toBe(2);
-    expect(Number(res.rows[0]?.deleted_amount)).toBe(1000 + REALLOC_AMOUNT);
+    expect(Number(res.rows[0]?.deleted_count)).toBe(3);
+    // The refund's total is NEGATIVE, so the rollback's amount NETS it. That is
+    // the honest figure — it is the sum of what was deleted — and it is the one
+    // place in this file where a total is deliberately not a gross.
+    expect(Number(res.rows[0]?.deleted_amount)).toBe(1000 + REALLOC_AMOUNT - REFUND_AMOUNT);
 
     const back = await db.query(
       `SELECT outcome FROM ap_payment_document_backfill_candidates
@@ -433,7 +510,7 @@ describeIfDb('AP payment-document backfill (migration 615)', () => {
         ORDER BY bank_transaction_id`,
       [BATCH_1],
     );
-    expect(log.rows).toHaveLength(2);
+    expect(log.rows).toHaveLength(3);
     expect(log.rows.every((r) => r.rolled_back === true)).toBe(true);
     expect(log.rows.every((r) => r.supplier_payment_id === null)).toBe(true);
 
