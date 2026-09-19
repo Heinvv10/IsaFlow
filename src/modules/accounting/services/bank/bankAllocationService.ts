@@ -19,6 +19,7 @@ import type { JournalLineInput } from '../../types/gl.types';
 import { recordPaymentMatch } from '../capture/fourWayMatchService';
 import { recordSupplierBankPayment } from '../ap/supplierAutoAllocate';
 import { planSupplierRefund, recordSupplierRefund } from '../ap/supplierRefundDocument';
+import { planCustomerRefund, recordCustomerRefund } from '../ar/customerRefundDocument';
 import { autoApplyCustomerReceipt } from '../ar/customerAutoAllocate';
 import { unwindBankAllocationApplication } from './bankAllocationUnwind';
 import type { BankAllocationUnwindResult } from './bankAllocationUnwind';
@@ -347,6 +348,10 @@ export async function allocateTransaction(
     allocEntityName = custName;
     entryDesc = description || (isSpent ? `Refund to ${custName}` : `Receipt from ${custName}`);
     source = 'auto_payment';
+    // The mirror of the supplier arm's ceiling, and decided in the same place
+    // and for the same reason: before `createJournalEntry`, which is the first
+    // write on this path. See the note there.
+    if (isSpent) await planCustomerRefund(companyId, entityId, totalAmount, txDate);
     // The mirror of the supplier arm, and it carried the mirror bug with no
     // occurrence yet: money OUT against a customer is a refund — DR AR, CR Bank
     // — and posting the receipt direction moved the bank the wrong way by twice
@@ -574,6 +579,19 @@ export async function allocateTransaction(
   // `invoiceId` is deliberately not consulted. On the payment arm it says a
   // caller has already claimed the document; no caller names a bill for a
   // refund, and if one ever did, the bill is not what the cash settles.
+  // The customer mirror: money OUT to a customer, DR Accounts Receivable / CR
+  // Bank. Same hole, same shape, opposite side — and the `!isSpent` gate on the
+  // receipt insert above is what left it open. That gate is right and stays:
+  // a POSITIVE receipt row for a refund is cash the company never received.
+  if (allocType === 'customer' && entityId && isSpent) {
+    const refund = await recordCustomerRefund({
+      companyId, customerId: entityId, bankTxId, bankAccountId,
+      journalEntryId: je.id, amount: totalAmount, paymentDate: txDate,
+      description: entryDesc, userId,
+    });
+    application = { autoApply: 'none', applications: [], onAccount: refund.amount };
+  }
+
   if (allocType === 'supplier' && entityId && !isSpent) {
     const refund = await recordSupplierRefund({
       companyId, supplierId: entityId, bankTxId, bankAccountId,

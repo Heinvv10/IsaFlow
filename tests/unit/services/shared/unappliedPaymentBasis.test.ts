@@ -136,7 +136,16 @@ describe('getUnappliedPaymentBasis', () => {
     const population = sqlFn.mock.calls.slice(0, 2).map(queryText);
     expect(population).toHaveLength(2);
     for (const q of population) {
-      expect(q).toContain('LEAST(COALESCE(alloc.allocated, 0), sp.total_amount)');
+      // `GREATEST(sp.total_amount, 0)` is the cap, not the total itself. The
+      // upper bound stops an over-allocated payment reading as negative
+      // unapplied cash; the ZERO is what admits a REFUND (migration 681),
+      // whose negative total would otherwise cap its own allocations and
+      // compute a remainder of exactly zero — dropping it from every figure
+      // built on this basis.
+      expect(q.replace(/\s+/g, ' ')).toContain(
+        'LEAST(COALESCE(alloc.allocated, 0), GREATEST(sp.total_amount, 0))');
+      // `<> 0`, not `> 0`: a refund's remainder is negative and is a row.
+      expect(q.replace(/\s+/g, ' ')).toContain(', 2) <> 0');
       expect(q).toContain("sp.status IN ('processed', 'reconciled')");
     }
   });

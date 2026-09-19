@@ -31,6 +31,7 @@
 
 import {
   getUnappliedPaymentBasis,
+  type UnappliedPaymentKind,
   type UnappliedPaymentBasisRow,
 } from '../shared/unappliedPaymentBasis';
 
@@ -49,7 +50,17 @@ export interface UnappliedReceiptRow {
   customerName: string | null;
   receiptAmount: number;
   allocatedAmount: number;
+  /**
+   * NEGATIVE on a refund (migration 681): cash the company paid BACK to the
+   * customer, which nets against that customer's other remainders rather than
+   * adding to them.
+   */
   unappliedAmount: number;
+  /**
+   * `'refund'` or `'payment'`. Read `kind`, never the sign — the sign is
+   * arithmetic, the kind is what the document IS.
+   */
+  kind: UnappliedPaymentKind;
   status: string;
   reference: string | null;
   description: string | null;
@@ -133,6 +144,7 @@ function mapRow(row: UnappliedPaymentBasisRow): UnappliedReceiptRow {
     receiptAmount: row.totalAmount,
     allocatedAmount: row.allocatedAmount,
     unappliedAmount: row.unappliedAmount,
+    kind: row.kind,
     status: row.status,
     reference: row.reference,
     description: row.description,
