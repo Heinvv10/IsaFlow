@@ -26,6 +26,19 @@
  * INSERT is refused outright, which is loud rather than silent, but it is
  * refused after the diff has been printed and is a wasted run.
  *
+ * WHAT 680 CHANGED ABOUT WHO IS REFUSED, worth knowing before reading a diff
+ * against an older run's output. A cancelled payment document that carries only
+ * the bank line's `reference` and NO `gl_journal_entry_id` no longer refuses its
+ * line. 615 refused it under `document_cancelled_journal_stands`, but there is
+ * no journal on that document to ask whether it stands, while the journal the
+ * line DOES carry has moved cash no live document claims — so the refusal left
+ * that cash undocumented under an outcome naming a journal that does not exist.
+ * Such a line now classifies `create`. Nothing in production has this shape: no
+ * cancelled `supplier_payments` row anywhere carries a null journal with a
+ * non-null reference. A LIVE document with a null journal still finishes its
+ * line, which is a different question — that is this backfill's own older
+ * output, and it is the line's document.
+ *
  * WHAT MUST NOT MOVE, and is asserted rather than asserted-to:
  *   · the AP control balance. No journal is posted; a change means one was.
  *   · every bank account's gl / statement / computed balance and its residual.
