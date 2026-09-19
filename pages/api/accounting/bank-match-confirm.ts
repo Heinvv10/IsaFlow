@@ -20,6 +20,7 @@ import { withAuth, type CompanyAuthedRequest, withWriteAccess} from '@/lib/auth'
 import { withCsrf } from '@/lib/auth/withCsrf';
 import { UUID } from '@/lib/schemas/common';
 import { log } from '@/lib/logger';
+import { classifyBankMatchRefusal } from '@/modules/accounting/services/bank/bankMatchRefusalStatus';
 import { sql } from '@/lib/neon';
 import {
   allocateTransaction,
@@ -35,9 +36,6 @@ import {
   signMismatchReason,
   type SettlementKind,
 } from '@/modules/accounting/services/bank/bankLineDirection';
-import { isBankTransactionLockTimeout } from '@/modules/accounting/services/bank/bankTxLock';
-import { isBankAllocationRefusal } from '@/modules/accounting/services/bank/bankAllocationRefusal';
-import { isFeedNotPostedRefusal } from '@/modules/accounting/services/bank/bankFeedStateGuard';
 type Row = Record<string, unknown>;
 
 const BodySchema = z.object({
@@ -242,26 +240,17 @@ async function handler(req: CompanyAuthedRequest, res: NextApiResponse) {
 
     return apiResponse.success(res, { matched: true, candidateType, candidateId, ...settlement, ...receipt });
   } catch (err) {
-    // TWO of the throws reachable here are decided BEFORE the first write —
-    // `allocateTransaction` raises both from the row it has just locked, and on
-    // every branch above it is the first thing that writes. They keep a 4xx,
-    // which `withAuth` COMMITs: an empty transaction, committed, is a no-op.
-    //
-    // A contended line is the ordinary case of this — a UI double-click — and
-    // the message is written to be read by whoever double-clicked. 409, because
-    // the answer is "retry", and `internalError` would have replaced that
-    // wording with "An internal error occurred" in production anyway.
-    if (isBankTransactionLockTimeout(err)) {
-      log.info('Bank match confirm hit a contended line', { bankTransactionId, candidateType, candidateId }, 'accounting-api');
-      return apiResponse.conflict(res, err.message);
-    }
-    // A pending/removed feed row — bare from matchTransaction, or wrapped by
-    // allocateTransaction — is refused from the locked row before any write.
-    if (isFeedNotPostedRefusal(err)) {
-      return apiResponse.conflict(res, err.message);
-    }
-    if (isBankAllocationRefusal(err)) {
-      return apiResponse.badRequest(res, err.message);
+    // EVERY 4xx this route may give lives in `bankMatchRefusalStatus`, and the
+    // default there is "not classified" — see its header for why the status is
+    // the transaction's fate rather than presentation.
+    const refusal = classifyBankMatchRefusal(err);
+    if (refusal) {
+      if (refusal.contended) {
+        log.info('Bank match confirm hit a contended row', { bankTransactionId, candidateType, candidateId }, 'accounting-api');
+      }
+      return refusal.status === 409
+        ? apiResponse.conflict(res, refusal.message)
+        : apiResponse.badRequest(res, refusal.message);
     }
 
     // 500, not 400, for every REMAINING throw: those happen at or after the

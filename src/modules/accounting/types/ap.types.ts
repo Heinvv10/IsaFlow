@@ -16,13 +16,19 @@ export type SupplierInvoiceStatus =
 
 export type InvoiceMatchStatus = 'unmatched' | 'po_matched' | 'grn_matched' | 'fully_matched';
 /**
+ * `'refund'` (migration 681) is the ONLY method that carries a NEGATIVE
+ * `total_amount`: cash the supplier sent back, recorded as a negative
+ * on-account entry rather than as a credit note. A database CHECK pins the two
+ * together in both directions, so `payment_method` is a safe discriminator and
+ * the sign never has to be one.
+ *
  * `'contra'` (migration 540) records a settlement where NO CASH MOVED — the
  * debt was netted against a loan, intercompany or director's account. Without
  * it such a settlement is indistinguishable from an EFT that never happened,
  * which is the finding behind R371,470 of AP that could not be cleared
  * correctly. The other four all imply a real bank movement.
  */
-export type PaymentMethod = 'eft' | 'cheque' | 'cash' | 'card' | 'contra';
+export type PaymentMethod = 'eft' | 'cheque' | 'cash' | 'card' | 'contra' | 'refund';
 export type PaymentStatus = 'draft' | 'approved' | 'processed' | 'reconciled' | 'cancelled';
 
 // ── Supplier Invoices ────────────────────────────────────────────────────────

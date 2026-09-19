@@ -26,6 +26,30 @@
  * INSERT is refused outright, which is loud rather than silent, but it is
  * refused after the diff has been printed and is a wasted run.
  *
+ * WHAT 681 ADDED: THE OTHER DIRECTION. A money-IN line against a supplier is a
+ * REFUND — DR Bank / CR Accounts Payable — and it had no document either, for
+ * the same reason and with the opposite sign. It now classifies `create_refund`
+ * and mints a `supplier_payments` row with `payment_method = 'refund'` and a
+ * NEGATIVE `total_amount`: a negative on-account entry that nets against that
+ * supplier's other unapplied cash. Same invariants, unchanged — no journal, no
+ * allocation, no `amount_paid`.
+ *
+ * `refund_exceeds_credit` (682) is the shape that MUST NOT be minted. A refund
+ * returns credit the company was holding and cannot return more than it held;
+ * past that point the supplier owes the company, which is a receivable. The
+ * attended path refuses it outright, and the batch path now reports it under
+ * the same ceiling — `ap_supplier_on_account_credit`, measured as at the LINE'S
+ * OWN DATE, so cash applied since cannot retrospectively make a correct refund
+ * wrong. It is the outcome the one production refund actually lands on: Blitz
+ * Fibre held R0.00 on account on 2026-09-04 against a R160,609.85 deposit,
+ * because the FIFO back-fill had already applied all 88 of its payments.
+ *
+ * `refund_on_control_unresolved` is the shape that CANNOT be minted. A deposit
+ * allocated straight to the AP control account credits the payable without
+ * naming a supplier, so there is no on-account credit for the refund to belong
+ * to. It is reported, per batch, and left alone. One line on production:
+ * R120,290.00 against RohCap, which somebody has to attribute by hand.
+ *
  * WHAT 680 CHANGED ABOUT WHO IS REFUSED, worth knowing before reading a diff
  * against an older run's output. A cancelled payment document that carries only
  * the bank line's `reference` and NO `gl_journal_entry_id` no longer refuses its
@@ -98,6 +122,19 @@ const VIEW_MIGRATIONS = [
   '615_ap_payment_document_backfill.sql',
   '679_ap_backfill_candidates_reallocated_lines.sql',
   '680_ap_backfill_reversal_signal_and_generation.sql',
+  // 681 replaces the view AGAIN — the refund direction — and replaces the run
+  // function with one that mints both. A database carrying only 680 classifies
+  // every money-IN supplier line nowhere at all: the old view filtered
+  // `b.amount < 0`, so the refunds were not skipped, they were invisible.
+  '681_supplier_refund_documents.sql',
+  // 682 puts the LIVE path's refund ceiling on the batch path too, and moves
+  // the run onto a single materialised snapshot of the classification. On 681
+  // alone the batch minted refunds the attended path would have refused.
+  '682_ap_backfill_refund_ceiling.sql',
+  // 683 makes the ceiling CUMULATIVE per supplier. On 682 alone, two refund
+  // lines for one supplier that are each under the ceiling but jointly over it
+  // were both minted — neither line is wrong on its own, the pair is.
+  '683_ap_backfill_cumulative_refund_ceiling.sql',
 ] as const;
 
 const money = (n: number): string =>
@@ -343,6 +380,10 @@ async function main(): Promise<void> {
           GROUP BY s.id, s.name, l.company_id ORDER BY s.name`,
         [batchId],
       );
+      // Refunds are `created` too, so they are in this list with the rest and
+      // their `amount` is the GROSS line value — the log stores it unsigned so a
+      // batch summary can be read down one column. The reason column on the RUN
+      // block above (`backfilled` vs `backfilled_refund`) is what separates them.
       console.log(`\nCREATED, BY SUPPLIER — all ${bySupplier.rows.length}. READ THIS LIST.`);
       console.log(`  ${'supplier'.padEnd(46)} ${'lines'.padStart(5)} ${'amount'.padStart(18)} ${'bills'.padStart(5)}  created / earliest line`);
       for (const r of bySupplier.rows) {
