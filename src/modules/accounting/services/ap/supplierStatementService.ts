@@ -34,7 +34,14 @@ type Row = DbRow;
 
 export interface SupplierStatementTransaction {
   date: string;
-  type: 'invoice' | 'payment' | 'credit_note';
+  /**
+   * `'refund'` (migration 681) is cash the supplier sent BACK. It rides in the
+   * same `debit` column as a payment, NEGATIVE, because that is exactly what it
+   * is — a payment of minus this amount. The running balance therefore RISES by
+   * it, which is right: the company owes the supplier again. It is typed
+   * separately so a reader is never asked to work that out from a sign.
+   */
+  type: 'invoice' | 'payment' | 'credit_note' | 'refund';
   reference: string;
   /** Reduces what we owe. */
   debit: number;
@@ -125,13 +132,15 @@ export async function fetchSupplierStatementData(
 
     sql`
       SELECT sp.id, sp.payment_number, sp.payment_date, sp.status, sp.created_at,
+        sp.payment_method,
         COALESCE(SUM(spa.amount_allocated), sp.total_amount) AS amount_allocated
       FROM supplier_payments sp
       LEFT JOIN supplier_payment_allocations spa ON spa.payment_id = sp.id
       WHERE sp.supplier_id = ${supplierId}::UUID
         AND sp.company_id = ${companyId}::UUID
         AND sp.payment_date <= ${asAtDate}::DATE
-      GROUP BY sp.id, sp.payment_number, sp.payment_date, sp.total_amount, sp.status, sp.created_at
+      GROUP BY sp.id, sp.payment_number, sp.payment_date, sp.total_amount, sp.status,
+        sp.payment_method, sp.created_at
     ` as Promise<Row[]>,
 
     sql`
@@ -176,8 +185,16 @@ export async function fetchSupplierStatementData(
     }
     transactions.push({
       date: fmtDate(pmt.payment_date),
-      type: 'payment',
+      // From the METHOD, never from the sign of the amount. The constraint
+      // added in 681 pins the two together, so they cannot disagree — but a
+      // reader that derives the document type from a number is one rounding
+      // artefact away from mislabelling one.
+      type: pmt.payment_method === 'refund' ? 'refund' : 'payment',
       reference: String(pmt.payment_number ?? ''),
+      // Negative for a refund, and deliberately in the SAME column. `totalPaid`
+      // is summed off this column and a refund genuinely reduces what the
+      // company has paid this supplier; splitting it into `credit` beside the
+      // invoices would leave `totalPaid` claiming money that came back.
       debit: toMoney(Number(pmt.amount_allocated)),
       credit: 0,
       balance: 0,

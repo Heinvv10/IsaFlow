@@ -33,7 +33,9 @@ export const allocateBankTransactionTool: McpTool = {
     + 'Identify the transaction by transaction_id OR by bank_reference — the reference printed on the statement '
     + '— so you can allocate straight from a statement without fetching ids first (optionally narrowed by bank_account_id). '
     + 'POSTS a journal entry. Every allocation is attributed to the agent and can be undone with reverse_bank_allocation. '
-    + 'DIRECTION FOLLOWS THE SIGN: a money-out line against a supplier is a payment (DR Accounts Payable / CR Bank) and a money-IN line is a supplier refund (DR Bank / CR Accounts Payable); a money-in line against a customer is a receipt and a money-out line is a customer refund. A refund is NOT applied to an invoice — name no invoice_id for one. '
+    + 'DIRECTION FOLLOWS THE SIGN: a money-out line against a supplier is a payment (DR Accounts Payable / CR Bank) and a money-IN line is a supplier refund (DR Bank / CR Accounts Payable); a money-in line against a customer is a receipt and a money-out line is a customer refund. '
+    + 'A REFUND GETS ITS OWN DOCUMENT: a payment record with payment_method "refund" and a NEGATIVE amount, carrying the journal, applied to nothing. It NETS against that contact\'s other unapplied cash everywhere that is summed — list_unapplied_payments shows it as a negative row, aged_creditors nets it in that supplier\'s "unapplied" and "net", and the statement carries it as a negative payment. Name no invoice_id for one: applying a negative remainder to an invoice would un-pay it. '
+    + 'A refund LARGER than the on-account credit that contact is holding is REFUSED before anything posts — the contact would then owe the company, which is a receivable and belongs on no payable document. '
     + 'An invoice_id whose direction contradicts the line is REFUSED, never guessed. '
     + 'CASH WITH NO invoice_id IS STILL APPLIED: a supplier or customer line that names no invoice settles that '
     + "contact's OLDEST open documents first, in full until the money runs out and part-paying the one it runs out "

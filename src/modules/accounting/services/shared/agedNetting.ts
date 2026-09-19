@@ -81,7 +81,10 @@ export function netAgingRows(
 
   const seen = new Set(rows.map((r) => r.entityId));
   for (const [entityId, credit] of unapplied) {
-    if (seen.has(entityId) || credit.total <= EPS) continue;
+    // ABS: an entity whose only on-account entry is a refund nets NEGATIVE, and
+    // it is exactly as much a row worth emitting as one in credit — the aged
+    // net total omits it otherwise.
+    if (seen.has(entityId) || Math.abs(credit.total) <= EPS) continue;
     out.push({
       entityId,
       entityName: credit.entityName,
@@ -116,6 +119,19 @@ function merge(
  * `ap/unappliedPaymentService` — same status sets, same cent tolerance, same
  * allocation tables — aggregated rather than paged. A payment whose entity is
  * NULL is skipped here and stays in those services' unattributed stream.
+ *
+ * A REFUND (migration 681) is a payment row with a negative total and no
+ * allocations, and it belongs in this sum with its own sign: it is credit the
+ * entity has already handed back, so it must REDUCE what is netted off that
+ * entity's gross. Hence `ABS(...) > EPS` rather than `> EPS` — the positive-only
+ * threshold dropped the row entirely and left the credit overstated — and
+ * `GREATEST(total, 0)` as the allocation cap, without which the negative total
+ * caps its own allocations and the remainder computes to exactly zero.
+ *
+ * A supplier whose refunds exceed its unapplied cash therefore nets NEGATIVE
+ * here, and `netAgingRows` adds that to the gross rather than subtracting it.
+ * That is arithmetically right and reads correctly: the entity is holding less
+ * of the company's money than the aged buckets assume.
  */
 export async function getUnappliedByEntity(
   companyId: string,
@@ -125,7 +141,8 @@ export async function getUnappliedByEntity(
   const cashRows = (side === 'ar'
     ? await sql`
         SELECT cp.client_id AS entity_id, COALESCE(c.name, '') AS entity_name,
-               SUM(cp.total_amount - COALESCE(alloc.allocated, 0)) AS amount
+               SUM(cp.total_amount
+                   - LEAST(COALESCE(alloc.allocated, 0), GREATEST(cp.total_amount, 0))) AS amount
         FROM customer_payments cp
         JOIN customers c ON c.id = cp.client_id AND c.company_id = cp.company_id
         LEFT JOIN LATERAL (
@@ -136,11 +153,13 @@ export async function getUnappliedByEntity(
         WHERE cp.company_id = ${companyId}::UUID
           AND cp.status <> 'cancelled'
           AND cp.payment_date <= ${asAt}::DATE
-          AND (cp.total_amount - COALESCE(alloc.allocated, 0)) > ${EPS}
+          AND ABS(cp.total_amount
+                  - LEAST(COALESCE(alloc.allocated, 0), GREATEST(cp.total_amount, 0))) > ${EPS}
         GROUP BY cp.client_id, c.name`
     : await sql`
         SELECT sp.supplier_id AS entity_id, COALESCE(s.name, '') AS entity_name,
-               SUM(sp.total_amount - COALESCE(alloc.allocated, 0)) AS amount
+               SUM(sp.total_amount
+                   - LEAST(COALESCE(alloc.allocated, 0), GREATEST(sp.total_amount, 0))) AS amount
         FROM supplier_payments sp
         JOIN suppliers s ON s.id = sp.supplier_id AND s.company_id = sp.company_id
         LEFT JOIN LATERAL (
@@ -151,7 +170,8 @@ export async function getUnappliedByEntity(
         WHERE sp.company_id = ${companyId}::UUID
           AND sp.status IN ('processed', 'reconciled')
           AND sp.payment_date <= ${asAt}::DATE
-          AND (sp.total_amount - COALESCE(alloc.allocated, 0)) > ${EPS}
+          AND ABS(sp.total_amount
+                  - LEAST(COALESCE(alloc.allocated, 0), GREATEST(sp.total_amount, 0))) > ${EPS}
         GROUP BY sp.supplier_id, s.name`) as DbRow[];
 
   // The credit half is one query either way: `type` discriminates and the

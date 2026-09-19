@@ -16,11 +16,22 @@
  * separately and compares AGAINST the documents — a comparison that is only
  * meaningful if the document side is defined by the document.
  *
- * THE THRESHOLD IS `round2(remainder) > 0`, not an epsilon: the AP tool's
+ * THE THRESHOLD IS `round2(remainder) <> 0`, not an epsilon: the AP tool's
  * `> 0.01` discards a whole cent of real cash and the reconciler's `!== 0`
- * reports a ten-thousandth of one as a finding. ALLOCATIONS ARE CAPPED AT THE
- * TOTAL, so an over-allocated payment cannot appear as NEGATIVE unapplied cash
- * quietly netting off a real remainder elsewhere in the same total.
+ * reports a ten-thousandth of one as a finding.
+ *
+ * ALLOCATIONS ARE CAPPED INTO `[0, max(total, 0)]`, which is two rules in one
+ * expression. The upper bound stops an over-allocated payment appearing as
+ * NEGATIVE unapplied cash quietly netting off a real remainder elsewhere in the
+ * same total. The zero is what admits a REFUND (migration 681): a refund is a
+ * payment row with a negative total and no allocations, and capping its
+ * allocations at the negative total made its remainder exactly zero — so it
+ * vanished from every figure built on this basis and the entity's on-account
+ * credit read as though the cash had never come back. Its remainder is
+ * NEGATIVE, which is the point: it nets against that entity's other remainders
+ * wherever they are summed, with no reader having to remember to subtract it.
+ * `kind` states which a row is, so nothing downstream infers a document type
+ * from the sign.
  *
  * THE STATUS FILTER DIFFERS BY SIDE, and that is the one asymmetry that is
  * real. A `customer_payments` row is created already confirmed — the receipt
@@ -33,33 +44,16 @@
 
 import { sql } from '@/lib/neon';
 import type { DbRow } from '@/lib/neon';
-import { fmtDate } from '@/lib/fmtDate';
+import { mapBasisRows, round2, toIso } from './unappliedPaymentBasisRow';
+import type { UnappliedPaymentBasisRow } from './unappliedPaymentBasisRow';
+
+// Re-exported, not re-declared. Every caller imports the row shape from this
+// module and the split is an internal seam, not a change to the surface.
+export type {
+  UnappliedPaymentBasisRow, UnappliedPaymentKind,
+} from './unappliedPaymentBasisRow';
 
 export type UnappliedSide = 'ar' | 'ap';
-
-export interface UnappliedPaymentBasisRow {
-  paymentId: string;
-  /** Payment / receipt number, '' when the row carries none. */
-  paymentNumber: string;
-  paymentDate: string;
-  /** Null when the counterparty row is missing or soft-deleted. */
-  entityId: string | null;
-  entityName: string | null;
-  /** Whether the counterparty resolved. Stated BY the query, never inferred. */
-  attributed: boolean;
-  totalAmount: number;
-  /** Σ allocations, capped at `totalAmount`. */
-  allocatedAmount: number;
-  /** `totalAmount − allocatedAmount`, rounded to cents. Always > 0 on a row. */
-  unappliedAmount: number;
-  status: string;
-  reference: string | null;
-  description: string | null;
-  /** The journal that put this cash on the control account, when there is one. */
-  journalEntryId: string | null;
-  /** ISO-8601, or null. Never now(). */
-  createdAt: string | null;
-}
 
 /**
  * Counted and summed by a SEPARATE aggregate, never by measuring `rows`.
@@ -90,16 +84,6 @@ export interface UnappliedPaymentBasis {
    * minute ago changes an unapplied amount without touching the payment row.
    */
   allocationsPostedThrough: string | null;
-}
-
-function toIso(raw: unknown): string | null {
-  if (raw === null || raw === undefined) return null;
-  return raw instanceof Date ? raw.toISOString() : String(raw);
-}
-
-function round2(n: number): number {
-  const r = Math.round(n * 100) / 100;
-  return r === 0 ? 0 : r;
 }
 
 /**
@@ -137,6 +121,7 @@ export async function getUnappliedPaymentBasis(
              cp.description,
              cp.gl_journal_entry_id,
              cp.created_at,
+             cp.payment_method,
              COALESCE(alloc.allocated, 0) AS allocated_amount
       FROM customer_payments cp
       LEFT JOIN customers c
@@ -151,7 +136,8 @@ export async function getUnappliedPaymentBasis(
       WHERE cp.company_id = ${companyId}::UUID
         AND cp.status <> 'cancelled'
         AND cp.payment_date <= ${asAt}::DATE
-        AND ROUND(cp.total_amount - LEAST(COALESCE(alloc.allocated, 0), cp.total_amount), 2) > 0
+        AND ROUND(cp.total_amount
+                  - LEAST(COALESCE(alloc.allocated, 0), GREATEST(cp.total_amount, 0)), 2) <> 0
       ORDER BY cp.payment_date ASC, cp.id ASC
     `
     : sql`
@@ -167,6 +153,7 @@ export async function getUnappliedPaymentBasis(
              sp.description,
              sp.gl_journal_entry_id,
              sp.created_at,
+             sp.payment_method,
              COALESCE(alloc.allocated, 0) AS allocated_amount
       FROM supplier_payments sp
       LEFT JOIN suppliers s
@@ -181,7 +168,8 @@ export async function getUnappliedPaymentBasis(
       WHERE sp.company_id = ${companyId}::UUID
         AND sp.status IN ('processed', 'reconciled')
         AND sp.payment_date <= ${asAt}::DATE
-        AND ROUND(sp.total_amount - LEAST(COALESCE(alloc.allocated, 0), sp.total_amount), 2) > 0
+        AND ROUND(sp.total_amount
+                  - LEAST(COALESCE(alloc.allocated, 0), GREATEST(sp.total_amount, 0)), 2) <> 0
       ORDER BY sp.payment_date ASC, sp.id ASC
     `)) as DbRow[];
 
@@ -191,9 +179,11 @@ export async function getUnappliedPaymentBasis(
     ? sql`
       SELECT COUNT(*)::INT AS universe_total,
              COUNT(*) FILTER (WHERE c.id IS NOT NULL)::INT AS rows_total,
-             COALESCE(SUM(cp.total_amount - LEAST(COALESCE(alloc.allocated, 0), cp.total_amount))
+             COALESCE(SUM(cp.total_amount
+                          - LEAST(COALESCE(alloc.allocated, 0), GREATEST(cp.total_amount, 0)))
                       FILTER (WHERE c.id IS NOT NULL), 0) AS total_unapplied,
-             COALESCE(SUM(cp.total_amount - LEAST(COALESCE(alloc.allocated, 0), cp.total_amount))
+             COALESCE(SUM(cp.total_amount
+                          - LEAST(COALESCE(alloc.allocated, 0), GREATEST(cp.total_amount, 0)))
                       FILTER (WHERE c.id IS NULL), 0) AS total_unattributed,
              MAX(cp.created_at) AS posted_through
       FROM customer_payments cp
@@ -209,14 +199,17 @@ export async function getUnappliedPaymentBasis(
       WHERE cp.company_id = ${companyId}::UUID
         AND cp.status <> 'cancelled'
         AND cp.payment_date <= ${asAt}::DATE
-        AND ROUND(cp.total_amount - LEAST(COALESCE(alloc.allocated, 0), cp.total_amount), 2) > 0
+        AND ROUND(cp.total_amount
+                  - LEAST(COALESCE(alloc.allocated, 0), GREATEST(cp.total_amount, 0)), 2) <> 0
     `
     : sql`
       SELECT COUNT(*)::INT AS universe_total,
              COUNT(*) FILTER (WHERE s.id IS NOT NULL)::INT AS rows_total,
-             COALESCE(SUM(sp.total_amount - LEAST(COALESCE(alloc.allocated, 0), sp.total_amount))
+             COALESCE(SUM(sp.total_amount
+                          - LEAST(COALESCE(alloc.allocated, 0), GREATEST(sp.total_amount, 0)))
                       FILTER (WHERE s.id IS NOT NULL), 0) AS total_unapplied,
-             COALESCE(SUM(sp.total_amount - LEAST(COALESCE(alloc.allocated, 0), sp.total_amount))
+             COALESCE(SUM(sp.total_amount
+                          - LEAST(COALESCE(alloc.allocated, 0), GREATEST(sp.total_amount, 0)))
                       FILTER (WHERE s.id IS NULL), 0) AS total_unattributed,
              MAX(sp.created_at) AS posted_through
       FROM supplier_payments sp
@@ -232,7 +225,8 @@ export async function getUnappliedPaymentBasis(
       WHERE sp.company_id = ${companyId}::UUID
         AND sp.status IN ('processed', 'reconciled')
         AND sp.payment_date <= ${asAt}::DATE
-        AND ROUND(sp.total_amount - LEAST(COALESCE(alloc.allocated, 0), sp.total_amount), 2) > 0
+        AND ROUND(sp.total_amount
+                  - LEAST(COALESCE(alloc.allocated, 0), GREATEST(sp.total_amount, 0)), 2) <> 0
     `)) as DbRow[];
   // A COUNT with no GROUP BY always returns exactly one row from Postgres; the
   // fallback is only for a mocked `sql` in the tool-manifest sweep, which
@@ -255,33 +249,7 @@ export async function getUnappliedPaymentBasis(
       WHERE sp.company_id = ${companyId}::UUID
     `)) as DbRow[];
 
-  const out: UnappliedPaymentBasisRow[] = [];
-  for (const r of rows) {
-    const totalAmount = Number(r.total_amount ?? 0);
-    const allocatedAmount = Math.min(Number(r.allocated_amount ?? 0), totalAmount);
-    const unappliedAmount = round2(totalAmount - allocatedAmount);
-    // The SQL filter is `> 0` at full precision; this is the cents threshold.
-    // Both are needed: the first keeps the scan small, the second is the rule.
-    if (unappliedAmount <= 0) continue;
-    const attributed = r.attributed === true;
-    out.push({
-      paymentId: String(r.id),
-      paymentNumber: r.document_number ? String(r.document_number) : '',
-      paymentDate: fmtDate(r.document_date as string | Date),
-      entityId: attributed && r.entity_id ? String(r.entity_id) : null,
-      entityName: attributed && r.entity_name != null ? String(r.entity_name) : null,
-      attributed,
-      totalAmount,
-      allocatedAmount: round2(allocatedAmount),
-      unappliedAmount,
-      status: String(r.status ?? ''),
-      reference: r.reference ? String(r.reference) : null,
-      description: r.description ? String(r.description) : null,
-      journalEntryId: r.gl_journal_entry_id ? String(r.gl_journal_entry_id) : null,
-      createdAt: toIso(r.created_at),
-    });
-  }
-
+  const out = mapBasisRows(rows);
   return {
     rows: out,
     totals: {

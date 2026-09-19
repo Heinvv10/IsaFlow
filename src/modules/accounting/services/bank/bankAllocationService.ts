@@ -18,6 +18,8 @@ import type { BankTransaction } from '../../types/bank.types';
 import type { JournalLineInput } from '../../types/gl.types';
 import { recordPaymentMatch } from '../capture/fourWayMatchService';
 import { recordSupplierBankPayment } from '../ap/supplierAutoAllocate';
+import { planSupplierRefund, recordSupplierRefund } from '../ap/supplierRefundDocument';
+import { planCustomerRefund, recordCustomerRefund } from '../ar/customerRefundDocument';
 import { autoApplyCustomerReceipt } from '../ar/customerAutoAllocate';
 import { unwindBankAllocationApplication } from './bankAllocationUnwind';
 import type { BankAllocationUnwindResult } from './bankAllocationUnwind';
@@ -299,6 +301,18 @@ export async function allocateTransaction(
     allocEntityName = supName;
     entryDesc = description || (isSpent ? `Payment to ${supName}` : `Refund from ${supName}`);
     source = 'auto_supplier_payment';
+    // THE REFUND CEILING, DECIDED HERE AND NOT LOWER DOWN.
+    //
+    // A money-IN line against a supplier mints a refund document below, and a
+    // refund cannot exceed the credit the supplier is holding — see
+    // ap/supplierRefundDocument. This runs BEFORE `createJournalEntry`, which
+    // is the first write on this path, because `withAuth` COMMITs on a 4xx and
+    // rolls back only on a 5xx: a business refusal raised after the journal has
+    // posted can only be answered by committing an orphan journal or by telling
+    // the user an internal error occurred. Refused here there is nothing
+    // written to unwind, and `BankAllocationRefusal` is the class the routes
+    // already answer 400.
+    if (!isSpent) await planSupplierRefund(companyId, entityId, totalAmount, txDate);
     // isSpent (money out) → a payment: DR AP, CR Bank.
     // deposit (money in)  → a refund:  DR Bank, CR AP.
     //
@@ -334,6 +348,10 @@ export async function allocateTransaction(
     allocEntityName = custName;
     entryDesc = description || (isSpent ? `Refund to ${custName}` : `Receipt from ${custName}`);
     source = 'auto_payment';
+    // The mirror of the supplier arm's ceiling, and decided in the same place
+    // and for the same reason: before `createJournalEntry`, which is the first
+    // write on this path. See the note there.
+    if (isSpent) await planCustomerRefund(companyId, entityId, totalAmount, txDate);
     // The mirror of the supplier arm, and it carried the mirror bug with no
     // occurrence yet: money OUT against a customer is a refund — DR AR, CR Bank
     // — and posting the receipt direction moved the bank the wrong way by twice
@@ -543,6 +561,48 @@ export async function allocateTransaction(
         onAccount: recorded.unappliedRemainder,
       };
     }
+  }
+
+  // ── The refund: cash coming back ───────────────────────────────────────────
+  //
+  // The mirror of the arm above, and the half that did not exist. A money-IN
+  // line against a supplier posted DR Bank / CR Accounts Payable and created no
+  // document at all, so the control account moved, the subledger did not, and
+  // the supplier's on-account credit stayed overstated by the whole refund.
+  //
+  // NEVER APPLIED, at any `autoApply` mode. The document is a NEGATIVE
+  // remainder; "applying" it to a bill would un-pay that bill, which is a
+  // correction a person makes deliberately and not something a sweep decides.
+  // That is why there is no `autoApply` parameter here rather than one set to
+  // 'none'.
+  //
+  // `invoiceId` is deliberately not consulted. On the payment arm it says a
+  // caller has already claimed the document; no caller names a bill for a
+  // refund, and if one ever did, the bill is not what the cash settles.
+  // The customer mirror: money OUT to a customer, DR Accounts Receivable / CR
+  // Bank. Same hole, same shape, opposite side — and the `!isSpent` gate on the
+  // receipt insert above is what left it open. That gate is right and stays:
+  // a POSITIVE receipt row for a refund is cash the company never received.
+  if (allocType === 'customer' && entityId && isSpent) {
+    const refund = await recordCustomerRefund({
+      companyId, customerId: entityId, bankTxId, bankAccountId,
+      journalEntryId: je.id, amount: totalAmount, paymentDate: txDate,
+      description: entryDesc, userId,
+    });
+    application = { autoApply: 'none', applications: [], onAccount: refund.amount };
+  }
+
+  if (allocType === 'supplier' && entityId && !isSpent) {
+    const refund = await recordSupplierRefund({
+      companyId, supplierId: entityId, bankTxId, bankAccountId,
+      journalEntryId: je.id, amount: totalAmount, paymentDate: txDate,
+      description: entryDesc, userId,
+    });
+    application = {
+      autoApply: 'none',
+      applications: [],
+      onAccount: refund.amount,
+    };
   }
 
   // The receipt's own application, on the same rule and the same instruction.

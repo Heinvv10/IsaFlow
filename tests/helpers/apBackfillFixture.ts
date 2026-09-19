@@ -138,8 +138,70 @@ export const CASES: Array<[string, string, number]> = [
 ];
 export const NOHIST_TX = '00000000-0000-0000-0000-0000000bf10d';
 export const CREATE_TX = CASES[0]![0];
-/** Money IN against a supplier -- a refund. Must not be classified at all. */
+// ── The two refund shapes (migration 681) ──────────────────────────────────
+//
+// Money IN against a supplier: DR Bank / CR Accounts Payable. Before 681 the
+// view filtered `b.amount < 0` and this line was classified NOWHERE — not
+// skipped, invisible — while its journal sat on the control account under
+// `posting_with_no_document`. It now mints a NEGATIVE on-account entry.
+/** Money IN against a supplier, with its journal: `create_refund`. */
 export const REFUND_TX = '00000000-0000-0000-0000-0000000bf110';
+export const REFUND_JE = '00000000-0000-0000-0000-0000000bf210';
+export const REFUND_AMOUNT = 2500;
+
+/**
+ * The shape that CANNOT be minted: a deposit allocated straight to the AP
+ * CONTROL ACCOUNT. The journal credits the payable without naming a supplier,
+ * so there is no supplier whose on-account credit the refund belongs to and no
+ * amount of SQL can decide whose money it is. Reported, never minted.
+ * One line on production — R120,290.00 against RohCap.
+ */
+export const CONTROL_REFUND_TX = '00000000-0000-0000-0000-0000000bf115';
+export const CONTROL_REFUND_JE = '00000000-0000-0000-0000-0000000bf215';
+export const CONTROL_REFUND_AMOUNT = 2700;
+
+/**
+ * The CEILING (migration 682). A refund returns credit the company was
+ * holding and cannot return more than it held; past that the supplier owes the
+ * company, which is a receivable and belongs on no payable document. The
+ * attended path refuses it outright; the batch path reports it here.
+ *
+ * `ON_ACCOUNT` below is what makes the ordinary refund pass and this one fail,
+ * and it is a SEEDED payment rather than a figure derived from the other
+ * cases: deriving it would make this outcome depend on which other fixture
+ * rows happen to be processed, and the first unrelated case added would flip
+ * it with no test naming the reason.
+ */
+export const EXCESS_REFUND_TX = '00000000-0000-0000-0000-0000000bf116';
+export const EXCESS_REFUND_JE = '00000000-0000-0000-0000-0000000bf216';
+export const EXCESS_REFUND_AMOUNT = 90000;
+
+/** Unapplied cash on SUP's account, dated before every refund line. */
+export const ON_ACCOUNT = '00000000-0000-0000-0000-0000000bf117';
+export const ON_ACCOUNT_AMOUNT = 10000;
+
+// ── The CUMULATIVE ceiling (migration 683) ─────────────────────────────────
+//
+// Its OWN supplier, deliberately. Put on SUP these two lines would join that
+// supplier's other refunds in one ordered walk, and the case would then depend
+// on every unrelated refund case in this file — the first one added would flip
+// it with no test naming the reason.
+//
+// R3,000 of credit and two SAME-DAY refunds of R2,000. Each is individually
+// under the ceiling, so 682's per-line check mints both and the supplier ends
+// the run having returned R4,000 it never held. Under 683 the first is
+// accepted and the second sees R1,000 left.
+export const PAIR_SUP = '00000000-0000-0000-0000-0000000bf118';
+export const PAIR_SUP_NAME = 'Backfill Fixture Pair Supplier';
+export const PAIR_ON_ACCOUNT = '00000000-0000-0000-0000-0000000bf119';
+export const PAIR_CREDIT = 3000;
+/** Ordered by bank transaction id within the day — A before B, by construction. */
+export const PAIR_A_TX = '00000000-0000-0000-0000-0000000bf11a';
+export const PAIR_A_JE = '00000000-0000-0000-0000-0000000bf21a';
+export const PAIR_B_TX = '00000000-0000-0000-0000-0000000bf11b';
+export const PAIR_B_JE = '00000000-0000-0000-0000-0000000bf21b';
+export const PAIR_AMOUNT = 2000;
+export const PAIR_DAY = '2026-03-20';
 
 /** Deterministic journal id per bank transaction, so assertions can name one. */
 export function journalFor(txId: string): string {
@@ -404,11 +466,116 @@ export async function seed(db: Pool): Promise<void> {
      VALUES ($1,$2,$3,'2026-03-15',$4,'Fixture payment','allocated','supplier',$5,$6)`,
     [CO2_TX, CO2, BANK2, -CO2_AMOUNT, SUP_NAME, String(co2Bank.rows[0]!.id)]);
 
-  // The refund: money IN against the same supplier, allocated the same way.
+  // ── The credit the refunds are measured against ──────────────────────────
+  //
+  // Carries NEITHER a journal NOR a reference, so it finishes no bank line and
+  // cannot be mistaken for one line's document. It exists only to put R10,000
+  // on SUP's account, which is what makes REFUND_TX (R2,500) admissible and
+  // EXCESS_REFUND_TX (R90,000) not.
   await db.query(
-    `INSERT INTO bank_transactions (id, company_id, bank_account_id, transaction_date, amount, description, status, allocation_type, allocated_entity_name)
-     VALUES ($1,$2,$3,'2026-03-16',2500,'Fixture refund','allocated','supplier',$4)`,
-    [REFUND_TX, CO, BANK, SUP_NAME],
+    `INSERT INTO supplier_payments (id, company_id, supplier_id, payment_date, total_amount,
+       payment_method, bank_account_id, status, created_by)
+     VALUES ($1,$2,$3,'2026-03-01',$4,'eft',$5,'processed',$6) ON CONFLICT (id) DO NOTHING`,
+    [ON_ACCOUNT, CO, SUP, ON_ACCOUNT_AMOUNT, BANK, USER]);
+
+  // ── The cumulative-ceiling pair, on their own supplier ───────────────────
+  await db.query(
+    `INSERT INTO suppliers (id, company_id, name) VALUES ($1,$2,$3) ON CONFLICT (id) DO NOTHING`,
+    [PAIR_SUP, CO, PAIR_SUP_NAME]);
+  // The credit, and the supplier's ledger history in one row: without a bill or
+  // a payment the lines would refuse under supplier_has_no_ledger_history and
+  // never reach the ceiling at all.
+  await db.query(
+    `INSERT INTO supplier_payments (id, company_id, supplier_id, payment_date, total_amount,
+       payment_method, bank_account_id, status, created_by)
+     VALUES ($1,$2,$3,'2026-03-01',$4,'eft',$5,'processed',$6) ON CONFLICT (id) DO NOTHING`,
+    [PAIR_ON_ACCOUNT, CO, PAIR_SUP, PAIR_CREDIT, BANK, USER]);
+  for (const [txId, jeId, label] of [
+    [PAIR_A_TX, PAIR_A_JE, 'A'], [PAIR_B_TX, PAIR_B_JE, 'B'],
+  ] as const) {
+    await db.query(
+      `INSERT INTO gl_journal_entries (id, company_id, entry_number, entry_date, description, status, source, created_by)
+       VALUES ($1,$2,$3,$4,$5,'posted','auto_supplier_payment',$6)`,
+      [jeId, CO, `JE-PAIR-${label}`, PAIR_DAY, `Pair refund ${label}`, USER]);
+    await db.query(
+      `INSERT INTO gl_journal_lines (company_id, journal_entry_id, gl_account_id, debit, credit, description)
+       VALUES ($1,$2,$3,0,$4,'AP leg')`, [CO, jeId, AP, PAIR_AMOUNT]);
+    const bankLeg = await db.query(
+      `INSERT INTO gl_journal_lines (company_id, journal_entry_id, gl_account_id, debit, credit, description)
+       VALUES ($1,$2,$3,$4,0,'Bank leg') RETURNING id::TEXT`,
+      [CO, jeId, BANK, PAIR_AMOUNT]);
+    await db.query(
+      `INSERT INTO bank_transactions (id, company_id, bank_account_id, transaction_date, amount, description, status, allocation_type, allocated_entity_name, matched_journal_line_id)
+       VALUES ($1,$2,$3,$4,$5,$6,'allocated','supplier',$7,$8)`,
+      [txId, CO, BANK, PAIR_DAY, PAIR_AMOUNT, `Fixture pair refund ${label}`,
+        PAIR_SUP_NAME, String(bankLeg.rows[0]!.id)]);
+  }
+
+  // ── The refund: money IN against the same supplier ────────────────────────
+  //
+  // DR Bank / CR Accounts Payable — the exact mirror of the payment journals
+  // above, and the reason the view's guards are stated as SIGNED MOVEMENTS.
+  await db.query(
+    `INSERT INTO gl_journal_entries (id, company_id, entry_number, entry_date, description, status, source, created_by)
+     VALUES ($1,$2,'JE-REFUND','2026-03-16','Refund from supplier','posted','auto_supplier_payment',$3)`,
+    [REFUND_JE, CO, USER]);
+  await db.query(
+    `INSERT INTO gl_journal_lines (company_id, journal_entry_id, gl_account_id, debit, credit, description)
+     VALUES ($1,$2,$3,0,$4,'AP leg')`, [CO, REFUND_JE, AP, REFUND_AMOUNT]);
+  const refundBank = await db.query(
+    `INSERT INTO gl_journal_lines (company_id, journal_entry_id, gl_account_id, debit, credit, description)
+     VALUES ($1,$2,$3,$4,0,'Bank leg') RETURNING id::TEXT`,
+    [CO, REFUND_JE, BANK, REFUND_AMOUNT]);
+  await db.query(
+    `INSERT INTO bank_transactions (id, company_id, bank_account_id, transaction_date, amount, description, status, allocation_type, allocated_entity_name, matched_journal_line_id)
+     VALUES ($1,$2,$3,'2026-03-16',$4,'Fixture refund','allocated','supplier',$5,$6)`,
+    [REFUND_TX, CO, BANK, REFUND_AMOUNT, SUP_NAME, String(refundBank.rows[0]!.id)],
+  );
+
+  // ── The control-account refund: same journal shape, no supplier named ─────
+  //
+  // `allocation_type = 'account'` and `allocated_entity_name` is a GL account
+  // LABEL, not a supplier name — which is why it resolves to no supplier and
+  // why `supplier_unresolved` would be the wrong outcome to report: nobody can
+  // fix this by correcting a supplier record.
+  await db.query(
+    `INSERT INTO gl_journal_entries (id, company_id, entry_number, entry_date, description, status, source, created_by)
+     VALUES ($1,$2,'JE-CTRLREF','2026-03-17','Refund on the control account','posted','auto_bank_recon',$3)`,
+    [CONTROL_REFUND_JE, CO, USER]);
+  await db.query(
+    `INSERT INTO gl_journal_lines (company_id, journal_entry_id, gl_account_id, debit, credit, description)
+     VALUES ($1,$2,$3,0,$4,'AP leg')`, [CO, CONTROL_REFUND_JE, AP, CONTROL_REFUND_AMOUNT]);
+  const ctrlBank = await db.query(
+    `INSERT INTO gl_journal_lines (company_id, journal_entry_id, gl_account_id, debit, credit, description)
+     VALUES ($1,$2,$3,$4,0,'Bank leg') RETURNING id::TEXT`,
+    [CO, CONTROL_REFUND_JE, BANK, CONTROL_REFUND_AMOUNT]);
+  await db.query(
+    `INSERT INTO bank_transactions (id, company_id, bank_account_id, transaction_date, amount, description, status, allocation_type, allocated_entity_name, matched_journal_line_id)
+     VALUES ($1,$2,$3,'2026-03-17',$4,'Fixture control refund','allocated','account',$5,$6)`,
+    [CONTROL_REFUND_TX, CO, BANK, CONTROL_REFUND_AMOUNT, '2110 Accounts Payable',
+      String(ctrlBank.rows[0]!.id)],
+  );
+
+  // ── The refund that BREACHES the ceiling ─────────────────────────────────
+  //
+  // Same journal shape as the admissible one, same supplier, same direction —
+  // only the amount differs, so a test that passes here is testing the ceiling
+  // and nothing else.
+  await db.query(
+    `INSERT INTO gl_journal_entries (id, company_id, entry_number, entry_date, description, status, source, created_by)
+     VALUES ($1,$2,'JE-BIGREF','2026-03-18','Large refund from supplier','posted','auto_supplier_payment',$3)`,
+    [EXCESS_REFUND_JE, CO, USER]);
+  await db.query(
+    `INSERT INTO gl_journal_lines (company_id, journal_entry_id, gl_account_id, debit, credit, description)
+     VALUES ($1,$2,$3,0,$4,'AP leg')`, [CO, EXCESS_REFUND_JE, AP, EXCESS_REFUND_AMOUNT]);
+  const bigBank = await db.query(
+    `INSERT INTO gl_journal_lines (company_id, journal_entry_id, gl_account_id, debit, credit, description)
+     VALUES ($1,$2,$3,$4,0,'Bank leg') RETURNING id::TEXT`,
+    [CO, EXCESS_REFUND_JE, BANK, EXCESS_REFUND_AMOUNT]);
+  await db.query(
+    `INSERT INTO bank_transactions (id, company_id, bank_account_id, transaction_date, amount, description, status, allocation_type, allocated_entity_name, matched_journal_line_id)
+     VALUES ($1,$2,$3,'2026-03-18',$4,'Fixture excess refund','allocated','supplier',$5,$6)`,
+    [EXCESS_REFUND_TX, CO, BANK, EXCESS_REFUND_AMOUNT, SUP_NAME, String(bigBank.rows[0]!.id)],
   );
 }
 
