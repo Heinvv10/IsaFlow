@@ -55,6 +55,42 @@ export const DOC_BY_REFERENCE = '00000000-0000-0000-0000-0000000bf10e';
 export const SHARED_A = '00000000-0000-0000-0000-0000000bf10b';
 export const SHARED_B = '00000000-0000-0000-0000-0000000bf10c';
 
+// ── The re-allocated pair ───────────────────────────────────────────────────
+//
+// The production shape migration 679 exists for. A line was allocated once
+// (journal J1, document D1), D1 was cancelled and J1 reversed with it, and the
+// line was then re-allocated — producing journal J2 and, before #343, NO second
+// document. D1 still carries the bank transaction id in its `reference`, which
+// is the only link left between it and the line.
+//
+// The two differ in ONE field, D1's status, and that is the point: it is the
+// A/B that proves the classifier reads the status rather than the reference.
+/** D1 cancelled, J1 reversed, J2 standing with no document -> mint one. */
+export const REALLOC_TX = '00000000-0000-0000-0000-0000000bf111';
+/** D1 alive on J1 while J2 stands -- an anomaly, reported, never minted over. */
+export const LIVE_OTHER_TX = '00000000-0000-0000-0000-0000000bf112';
+/** J1: the journal the FIRST allocation posted. Deliberately NOT `journalFor`'s
+ *  0bf2 range, so an assertion naming J1 cannot be read as naming J2. */
+export const REALLOC_J1 = '00000000-0000-0000-0000-0000000bf411';
+export const LIVE_OTHER_J1 = '00000000-0000-0000-0000-0000000bf412';
+export const REALLOC_AMOUNT = 2300;
+export const LIVE_OTHER_AMOUNT = 2400;
+/**
+ * D1 cancelled, but J1's only reversal is a DRAFT entry — so J1 still stands
+ * and its cash is still on the control account behind a cancelled document.
+ * 615's outcome, and the one a reverser test that ignores `status` would lose.
+ */
+export const DRAFT_REV_TX = '00000000-0000-0000-0000-0000000bf113';
+export const DRAFT_REV_J1 = '00000000-0000-0000-0000-0000000bf413';
+export const DRAFT_REV_AMOUNT = 2500;
+/**
+ * The line's OWN journal, reversed by a posted entry that named it while
+ * leaving `reversed_at` unset — the shape a hand-posted reversal has. Minting
+ * against it would document cash the ledger has already taken back.
+ */
+export const OWN_REVERSER_TX = '00000000-0000-0000-0000-0000000bf114';
+export const OWN_REVERSER_AMOUNT = 2600;
+
 /** bank tx id -> what the view must say about it, and the line amount. */
 export const CASES: Array<[string, string, number]> = [
   ['00000000-0000-0000-0000-0000000bf100', 'create', 1000],
@@ -83,6 +119,22 @@ export const CASES: Array<[string, string, number]> = [
   [SHARED_A, 'journal_shared_by_bank_lines', 2100],
   [SHARED_B, 'journal_shared_by_bank_lines', 2100],
   ['00000000-0000-0000-0000-0000000bf10d', 'supplier_has_no_ledger_history', 2200],
+  // Cancelled document, REVERSED journal, and the line re-allocated onto a
+  // journal that stands with nothing pointing at it. Before 679 the cancelled
+  // document's `reference` alone made this `document_cancelled_journal_stands`
+  // — naming a journal that had in fact been reversed, and leaving the cash
+  // the standing journal moved with no document at all.
+  [REALLOC_TX, 'create', REALLOC_AMOUNT],
+  // Same shape, one field different: the document is LIVE. It points at a
+  // journal that is not this line's, so it neither finishes the line nor
+  // licenses minting a second document beside it.
+  [LIVE_OTHER_TX, 'document_on_other_journal', LIVE_OTHER_AMOUNT],
+  // A DRAFT reversal reverses nothing. J1 stands, its cancelled document
+  // stands with it, and this is still 615's outcome.
+  [DRAFT_REV_TX, 'document_cancelled_journal_stands', DRAFT_REV_AMOUNT],
+  // `reversed_at` is NULL and the status is 'posted'. The only witness that
+  // this line's own journal was reversed is the posted entry naming it.
+  [OWN_REVERSER_TX, 'journal_reversed', OWN_REVERSER_AMOUNT],
 ];
 export const NOHIST_TX = '00000000-0000-0000-0000-0000000bf10d';
 export const CREATE_TX = CASES[0]![0];
@@ -126,12 +178,23 @@ export async function ledgerShape(
   };
 }
 
-export async function createdPaymentId(db: Pool, batch: string): Promise<string> {
+/**
+ * The payment a batch created FOR ONE NAMED BANK LINE. A batch mints more than
+ * one document, so `rows[0]` of an unordered SELECT is whichever row the heap
+ * hands back — the caller names the line it means.
+ */
+export async function createdPaymentId(
+  db: Pool, batch: string, bankTransactionId: string,
+): Promise<string> {
   const r = await db.query(
     `SELECT supplier_payment_id::TEXT AS id FROM ap_payment_document_backfill
-      WHERE batch_id = $1::UUID AND outcome = 'created' AND rolled_back_at IS NULL`,
-    [batch],
+      WHERE batch_id = $1::UUID AND outcome = 'created' AND rolled_back_at IS NULL
+        AND bank_transaction_id = $2::UUID`,
+    [batch, bankTransactionId],
   );
+  if (r.rows.length !== 1) {
+    throw new Error(`expected 1 created payment for ${bankTransactionId}, got ${r.rows.length}`);
+  }
   return String(r.rows[0]!.id);
 }
 
@@ -195,7 +258,7 @@ export async function seed(db: Pool): Promise<void> {
         `INSERT INTO gl_journal_entries (id, company_id, entry_number, entry_date, description, source, status, created_by, posted_by, posted_at, reversed_at)
          VALUES ($1,$2,$3,'2026-03-15',$4,'auto_supplier_payment',$5,$6,$6,NOW(),$7)`,
         [jeId, CO, `BF-JE-${txId.slice(-4)}`, `Payment to ${entityName}`, status, USER,
-         outcome === 'journal_reversed' ? new Date() : null],
+         outcome === 'journal_reversed' && txId !== OWN_REVERSER_TX ? new Date() : null],
       );
       await db.query(
         `INSERT INTO gl_journal_lines (company_id, journal_entry_id, gl_account_id, debit, credit, description)
@@ -224,7 +287,12 @@ export async function seed(db: Pool): Promise<void> {
       [txId, CO, BANK, -amount, entityName, lineId],
     );
 
-    if (outcome === 'already_has_document' || outcome === 'document_cancelled_journal_stands') {
+    // DRAFT_REV_TX reaches the same outcome by a DIFFERENT route and builds its
+    // own document below: a cancelled document on J1, not on this line's own
+    // journal. One here too would satisfy the journal arm outright and the case
+    // would pass without the reversal ever being consulted.
+    if (txId !== DRAFT_REV_TX
+        && (outcome === 'already_has_document' || outcome === 'document_cancelled_journal_stands')) {
       // Exactly ONE of the two links, so neither half of the classifier's OR
       // can be deleted without a test going red.
       const byReferenceOnly = txId === DOC_BY_REFERENCE;
@@ -239,6 +307,60 @@ export async function seed(db: Pool): Promise<void> {
       );
     }
   }
+
+  // ── The first allocation, behind the re-allocated pair ────────────────────
+  //
+  // The CASES loop above has already built each line's CURRENT journal (J2) and
+  // the bank row matched to it. This adds what came before: J1, the journal the
+  // first allocation posted; the entry that reversed it; and D1, the document
+  // that allocation created, carrying the bank transaction id in `reference`
+  // and J1 in `gl_journal_entry_id`.
+  //
+  // J1 is `posted` WITH `reversed_at` set and a reversing entry pointing at it,
+  // because that is how production carries a reversed entry — both signals, and
+  // the status stays 'posted'. A classifier that reads only `status` sees a
+  // journal that stands.
+  for (const [txId, j1Id, amount, docStatus, j1Reversed, reverserStatus] of [
+    [REALLOC_TX, REALLOC_J1, REALLOC_AMOUNT, 'cancelled', true, 'posted'],
+    [LIVE_OTHER_TX, LIVE_OTHER_J1, LIVE_OTHER_AMOUNT, 'processed', true, 'posted'],
+    // `reversed_at` unset and the reverser DRAFT: J1 stands on every signal.
+    [DRAFT_REV_TX, DRAFT_REV_J1, DRAFT_REV_AMOUNT, 'cancelled', false, 'draft'],
+  ] as const) {
+    const tag = txId.slice(-4);
+    await db.query(
+      `INSERT INTO gl_journal_entries (id, company_id, entry_number, entry_date, description, source, status, created_by, posted_by, posted_at, reversed_at)
+       VALUES ($1,$2,$3,'2026-03-10',$4,'auto_supplier_payment','posted',$5,$5,NOW(),$6)`,
+      [j1Id, CO, `BF-JE1-${tag}`, `Payment to ${SUP_NAME}`, USER, j1Reversed ? new Date() : null]);
+    await db.query(
+      `INSERT INTO gl_journal_lines (company_id, journal_entry_id, gl_account_id, debit, credit, description)
+       VALUES ($1,$2,$3,$4,0,'AP leg'), ($1,$2,$5,0,$4,'Bank leg')`,
+      [CO, j1Id, AP, amount, BANK]);
+    // The reverser. `reversal_of_id` is the other half of the signal, and the
+    // UNIQUE on (company_id, reversal_of_id) allows exactly this one. Its
+    // STATUS is the whole of the draft case: an unposted entry has moved no
+    // money and reverses nothing.
+    const rev = await db.query(
+      `INSERT INTO gl_journal_entries (company_id, entry_number, entry_date, description, source, status, created_by, posted_by, posted_at, reversal_of_id)
+       VALUES ($1,$2,'2026-03-11',$3,'auto_supplier_payment',$6,$4,$4,NOW(),$5) RETURNING id::TEXT`,
+      [CO, `BF-JER-${tag}`, `Reversal of payment to ${SUP_NAME}`, USER, j1Id, reverserStatus]);
+    await db.query(
+      `INSERT INTO gl_journal_lines (company_id, journal_entry_id, gl_account_id, debit, credit, description)
+       VALUES ($1,$2,$3,0,$4,'AP leg reversed'), ($1,$2,$5,$4,0,'Bank leg reversed')`,
+      [CO, String(rev.rows[0]!.id), AP, amount, BANK]);
+    // D1. Found by `reference` and by nothing else — its journal is J1, which
+    // is not the journal this bank line now carries.
+    await db.query(
+      `INSERT INTO supplier_payments (company_id, supplier_id, payment_date, total_amount, payment_method, bank_account_id, reference, status, gl_journal_entry_id, created_by)
+       VALUES ($1,$2,'2026-03-10',$3,'eft',$4,$5,$6,$7,$8)`,
+      [CO, SUP, amount, BANK, txId, docStatus, j1Id, USER]);
+  }
+
+  // The posted entry that reverses THIS line's own journal while leaving
+  // `reversed_at` NULL. Nothing else marks that journal as reversed.
+  await db.query(
+    `INSERT INTO gl_journal_entries (company_id, entry_number, entry_date, description, source, status, created_by, posted_by, posted_at, reversal_of_id)
+     VALUES ($1,'BF-JER-OWN','2026-03-16',$2,'auto_supplier_payment','posted',$3,$3,NOW(),$4)`,
+    [CO, `Reversal of payment to ${SUP_NAME}`, USER, journalFor(OWN_REVERSER_TX)]);
 
   // ── The second tenant ─────────────────────────────────────────────────────
   //
@@ -295,7 +417,7 @@ export async function cleanup(db: Pool): Promise<void> {
   await db.query('DELETE FROM users WHERE id = ANY($1::TEXT[])', [[USER, USER2]]);
 }
 
-async function cleanupCompany(db: Pool, CO: string): Promise<void> {
+export async function cleanupCompany(db: Pool, CO: string): Promise<void> {
   await db.query('DELETE FROM ap_payment_document_backfill WHERE company_id = $1::UUID', [CO]);
   await db.query(
     `DELETE FROM payment_allocations WHERE payment_id IN
