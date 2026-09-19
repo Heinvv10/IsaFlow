@@ -10,6 +10,7 @@
 import { sql } from '@/lib/neon';
 import { fmtDate } from '@/lib/fmtDate';
 import { recordSupplierBankPayment } from '../ap/supplierAutoAllocate';
+import { recordSupplierRefund } from '../ap/supplierRefundDocument';
 import {
   createJournalEntry,
   postJournalEntry,
@@ -256,6 +257,31 @@ export async function autoPostRuleLine(input: AutoPostLineInput): Promise<AutoPo
         // and treating that as "apply nothing" would reproduce the very state
         // this change exists to end.
         autoApply: parseAutoApplyMode(rule.auto_apply) ?? DEFAULT_AUTO_APPLY,
+        bankTxId: String(tx.id),
+        bankAccountId: bankGlAccountId,
+        journalEntryId: je.id,
+        amount: totalAmount,
+        paymentDate: entryDate,
+        description: entryDesc,
+        userId,
+      });
+    }
+
+    // The refund half of the same hole. A rule can post a supplier DEPOSIT —
+    // `entryDesc` above already calls it "Refund from <supplier>" and the
+    // journal credits Accounts Payable — and it left no document behind that
+    // either.
+    //
+    // Never applied, at any `auto_apply` the rule carries: a negative remainder
+    // applied to a bill un-pays it. `recordSupplierRefund` carries its own
+    // on-account-credit ceiling, and a sweep line that breaches it throws;
+    // unattended, the sweep's savepoint unwinds THAT LINE and the rest of the
+    // batch stands, which is the right outcome — a refund larger than the
+    // credit is a line a person has to look at.
+    if (allocType === 'supplier' && supplierId && isDeposit) {
+      await recordSupplierRefund({
+        companyId,
+        supplierId,
         bankTxId: String(tx.id),
         bankAccountId: bankGlAccountId,
         journalEntryId: je.id,

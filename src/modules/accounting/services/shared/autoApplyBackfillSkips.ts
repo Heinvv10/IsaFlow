@@ -34,6 +34,19 @@ import type { BackfillSource } from './autoApplyBackfillPlan';
 export const SKIP_CONTACT_UNRESOLVED = 'contact could not be resolved';
 export const SKIP_NO_FISCAL_PERIOD = 'journal not in a fiscal period';
 export const SKIP_NO_JOURNAL = 'no journal entry behind this cash';
+/**
+ * A REFUND (migration 681) is a negative on-account entry: cash the company
+ * sent back, carrying no allocations and a negative remainder. "Applying" it to
+ * an open bill would write a NEGATIVE allocation and un-pay that bill — the
+ * back-fill would be reversing settlements nobody asked it to touch.
+ *
+ * It is SKIPPED WITH A REASON rather than filtered out of the population, for
+ * the same reason every other skip is: the plan has to reconcile line for line
+ * against `list_unapplied_payments`, which reports the refund. Filtering it
+ * would make the plan's total differ from the report an operator is reading
+ * beside it, by exactly the amount nobody can account for.
+ */
+export const SKIP_REFUND = 'a refund is a negative on-account entry and is never applied';
 export const skipUnapplicableStatus = (status: string): string =>
   `status "${status}" cannot take an application`;
 
@@ -88,6 +101,10 @@ export function basisSources(
 }
 
 function skipReasonFor(side: UnappliedSide, row: UnappliedPaymentBasisRow): string | null {
+  // FIRST. A refund with an unresolved contact is still a refund, and naming
+  // the contact as the reason would send somebody to fix a supplier record that
+  // would change nothing about whether this cash may be applied.
+  if (row.kind === 'refund') return SKIP_REFUND;
   if (!row.attributed || !row.entityId) return SKIP_CONTACT_UNRESOLVED;
   if (side === 'ar' && UNAPPLIABLE_RECEIPT_STATUSES.has(row.status)) {
     return skipUnapplicableStatus(row.status);

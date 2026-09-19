@@ -18,6 +18,7 @@ import type { BankTransaction } from '../../types/bank.types';
 import type { JournalLineInput } from '../../types/gl.types';
 import { recordPaymentMatch } from '../capture/fourWayMatchService';
 import { recordSupplierBankPayment } from '../ap/supplierAutoAllocate';
+import { planSupplierRefund, recordSupplierRefund } from '../ap/supplierRefundDocument';
 import { autoApplyCustomerReceipt } from '../ar/customerAutoAllocate';
 import { unwindBankAllocationApplication } from './bankAllocationUnwind';
 import type { BankAllocationUnwindResult } from './bankAllocationUnwind';
@@ -299,6 +300,18 @@ export async function allocateTransaction(
     allocEntityName = supName;
     entryDesc = description || (isSpent ? `Payment to ${supName}` : `Refund from ${supName}`);
     source = 'auto_supplier_payment';
+    // THE REFUND CEILING, DECIDED HERE AND NOT LOWER DOWN.
+    //
+    // A money-IN line against a supplier mints a refund document below, and a
+    // refund cannot exceed the credit the supplier is holding — see
+    // ap/supplierRefundDocument. This runs BEFORE `createJournalEntry`, which
+    // is the first write on this path, because `withAuth` COMMITs on a 4xx and
+    // rolls back only on a 5xx: a business refusal raised after the journal has
+    // posted can only be answered by committing an orphan journal or by telling
+    // the user an internal error occurred. Refused here there is nothing
+    // written to unwind, and `BankAllocationRefusal` is the class the routes
+    // already answer 400.
+    if (!isSpent) await planSupplierRefund(companyId, entityId, totalAmount, txDate);
     // isSpent (money out) → a payment: DR AP, CR Bank.
     // deposit (money in)  → a refund:  DR Bank, CR AP.
     //
@@ -543,6 +556,35 @@ export async function allocateTransaction(
         onAccount: recorded.unappliedRemainder,
       };
     }
+  }
+
+  // ── The refund: cash coming back ───────────────────────────────────────────
+  //
+  // The mirror of the arm above, and the half that did not exist. A money-IN
+  // line against a supplier posted DR Bank / CR Accounts Payable and created no
+  // document at all, so the control account moved, the subledger did not, and
+  // the supplier's on-account credit stayed overstated by the whole refund.
+  //
+  // NEVER APPLIED, at any `autoApply` mode. The document is a NEGATIVE
+  // remainder; "applying" it to a bill would un-pay that bill, which is a
+  // correction a person makes deliberately and not something a sweep decides.
+  // That is why there is no `autoApply` parameter here rather than one set to
+  // 'none'.
+  //
+  // `invoiceId` is deliberately not consulted. On the payment arm it says a
+  // caller has already claimed the document; no caller names a bill for a
+  // refund, and if one ever did, the bill is not what the cash settles.
+  if (allocType === 'supplier' && entityId && !isSpent) {
+    const refund = await recordSupplierRefund({
+      companyId, supplierId: entityId, bankTxId, bankAccountId,
+      journalEntryId: je.id, amount: totalAmount, paymentDate: txDate,
+      description: entryDesc, userId,
+    });
+    application = {
+      autoApply: 'none',
+      applications: [],
+      onAccount: refund.amount,
+    };
   }
 
   // The receipt's own application, on the same rule and the same instruction.
