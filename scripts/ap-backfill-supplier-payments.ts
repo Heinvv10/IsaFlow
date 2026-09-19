@@ -131,6 +131,10 @@ const VIEW_MIGRATIONS = [
   // the run onto a single materialised snapshot of the classification. On 681
   // alone the batch minted refunds the attended path would have refused.
   '682_ap_backfill_refund_ceiling.sql',
+  // 683 makes the ceiling CUMULATIVE per supplier. On 682 alone, two refund
+  // lines for one supplier that are each under the ceiling but jointly over it
+  // were both minted — neither line is wrong on its own, the pair is.
+  '683_ap_backfill_cumulative_refund_ceiling.sql',
 ] as const;
 
 const money = (n: number): string =>

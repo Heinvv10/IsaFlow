@@ -180,6 +180,29 @@ export const EXCESS_REFUND_AMOUNT = 90000;
 export const ON_ACCOUNT = '00000000-0000-0000-0000-0000000bf117';
 export const ON_ACCOUNT_AMOUNT = 10000;
 
+// ── The CUMULATIVE ceiling (migration 683) ─────────────────────────────────
+//
+// Its OWN supplier, deliberately. Put on SUP these two lines would join that
+// supplier's other refunds in one ordered walk, and the case would then depend
+// on every unrelated refund case in this file — the first one added would flip
+// it with no test naming the reason.
+//
+// R3,000 of credit and two SAME-DAY refunds of R2,000. Each is individually
+// under the ceiling, so 682's per-line check mints both and the supplier ends
+// the run having returned R4,000 it never held. Under 683 the first is
+// accepted and the second sees R1,000 left.
+export const PAIR_SUP = '00000000-0000-0000-0000-0000000bf118';
+export const PAIR_SUP_NAME = 'Backfill Fixture Pair Supplier';
+export const PAIR_ON_ACCOUNT = '00000000-0000-0000-0000-0000000bf119';
+export const PAIR_CREDIT = 3000;
+/** Ordered by bank transaction id within the day — A before B, by construction. */
+export const PAIR_A_TX = '00000000-0000-0000-0000-0000000bf11a';
+export const PAIR_A_JE = '00000000-0000-0000-0000-0000000bf21a';
+export const PAIR_B_TX = '00000000-0000-0000-0000-0000000bf11b';
+export const PAIR_B_JE = '00000000-0000-0000-0000-0000000bf21b';
+export const PAIR_AMOUNT = 2000;
+export const PAIR_DAY = '2026-03-20';
+
 /** Deterministic journal id per bank transaction, so assertions can name one. */
 export function journalFor(txId: string): string {
   // SHARED_B carries no journal of its own: it points at SHARED_A's bank leg,
@@ -454,6 +477,39 @@ export async function seed(db: Pool): Promise<void> {
        payment_method, bank_account_id, status, created_by)
      VALUES ($1,$2,$3,'2026-03-01',$4,'eft',$5,'processed',$6) ON CONFLICT (id) DO NOTHING`,
     [ON_ACCOUNT, CO, SUP, ON_ACCOUNT_AMOUNT, BANK, USER]);
+
+  // ── The cumulative-ceiling pair, on their own supplier ───────────────────
+  await db.query(
+    `INSERT INTO suppliers (id, company_id, name) VALUES ($1,$2,$3) ON CONFLICT (id) DO NOTHING`,
+    [PAIR_SUP, CO, PAIR_SUP_NAME]);
+  // The credit, and the supplier's ledger history in one row: without a bill or
+  // a payment the lines would refuse under supplier_has_no_ledger_history and
+  // never reach the ceiling at all.
+  await db.query(
+    `INSERT INTO supplier_payments (id, company_id, supplier_id, payment_date, total_amount,
+       payment_method, bank_account_id, status, created_by)
+     VALUES ($1,$2,$3,'2026-03-01',$4,'eft',$5,'processed',$6) ON CONFLICT (id) DO NOTHING`,
+    [PAIR_ON_ACCOUNT, CO, PAIR_SUP, PAIR_CREDIT, BANK, USER]);
+  for (const [txId, jeId, label] of [
+    [PAIR_A_TX, PAIR_A_JE, 'A'], [PAIR_B_TX, PAIR_B_JE, 'B'],
+  ] as const) {
+    await db.query(
+      `INSERT INTO gl_journal_entries (id, company_id, entry_number, entry_date, description, status, source, created_by)
+       VALUES ($1,$2,$3,$4,$5,'posted','auto_supplier_payment',$6)`,
+      [jeId, CO, `JE-PAIR-${label}`, PAIR_DAY, `Pair refund ${label}`, USER]);
+    await db.query(
+      `INSERT INTO gl_journal_lines (company_id, journal_entry_id, gl_account_id, debit, credit, description)
+       VALUES ($1,$2,$3,0,$4,'AP leg')`, [CO, jeId, AP, PAIR_AMOUNT]);
+    const bankLeg = await db.query(
+      `INSERT INTO gl_journal_lines (company_id, journal_entry_id, gl_account_id, debit, credit, description)
+       VALUES ($1,$2,$3,$4,0,'Bank leg') RETURNING id::TEXT`,
+      [CO, jeId, BANK, PAIR_AMOUNT]);
+    await db.query(
+      `INSERT INTO bank_transactions (id, company_id, bank_account_id, transaction_date, amount, description, status, allocation_type, allocated_entity_name, matched_journal_line_id)
+       VALUES ($1,$2,$3,$4,$5,$6,'allocated','supplier',$7,$8)`,
+      [txId, CO, BANK, PAIR_DAY, PAIR_AMOUNT, `Fixture pair refund ${label}`,
+        PAIR_SUP_NAME, String(bankLeg.rows[0]!.id)]);
+  }
 
   // ── The refund: money IN against the same supplier ────────────────────────
   //
