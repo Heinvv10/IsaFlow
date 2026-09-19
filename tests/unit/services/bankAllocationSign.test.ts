@@ -71,6 +71,22 @@ vi.mock('@/modules/accounting/services/ap/supplierAutoAllocate', () => ({
     paymentId: 'payment-1', appliedLines: [], unappliedRemainder: 0, strategy: 'off',
   })),
 }));
+vi.mock('@/modules/accounting/services/ap/supplierRefundDocument', () => ({
+  planSupplierRefund: vi.fn(async () => ({
+    amount: 0, onAccountCredit: 1e9, supplierName: 'Acme',
+  })),
+  recordSupplierRefund: vi.fn(async () => ({
+    paymentId: 'refund-1', amount: 0, onAccountCredit: 1e9,
+  })),
+}));
+vi.mock('@/modules/accounting/services/ar/customerRefundDocument', () => ({
+  planCustomerRefund: vi.fn(async () => ({
+    amount: 0, onAccountCredit: 1e9, customerName: 'Acme',
+  })),
+  recordCustomerRefund: vi.fn(async () => ({
+    paymentId: 'crefund-1', amount: 0, onAccountCredit: 1e9,
+  })),
+}));
 vi.mock('@/modules/accounting/services/ar/customerAutoAllocate', () => ({
   autoApplyCustomerReceipt: vi.fn(async () => ({
     appliedLines: [], unappliedRemainder: 0, strategy: 'off',

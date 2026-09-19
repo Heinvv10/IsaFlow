@@ -31,6 +31,8 @@ const fx = {
   supplier: '00000000-0000-0000-0000-0000000rf002'.replace(/r/g, 'a'),
   bankAccount: '00000000-0000-0000-0000-0000000rf003'.replace(/r/g, 'a'),
   apAccount: '00000000-0000-0000-0000-0000000rf004'.replace(/r/g, 'a'),
+  customer: '00000000-0000-0000-0000-0000000rf005'.replace(/r/g, 'a'),
+  arAccount: '00000000-0000-0000-0000-0000000rf006'.replace(/r/g, 'a'),
 };
 
 let billSeq = 0;
@@ -79,7 +81,11 @@ async function cleanup(): Promise<void> {
   // `fiscal_periods` rows are created for this tenant by the
   // posting path itself, not by the seed above — which is exactly why they are
   // easy to forget and why the second run is where it bites.
-  for (const t of ['gl_accounts', 'suppliers', 'fiscal_periods']) {
+  await pool.query(
+    `DELETE FROM customer_payment_allocations WHERE payment_id IN
+       (SELECT id FROM customer_payments WHERE company_id = $1::UUID)`, co);
+  await pool.query('DELETE FROM customer_payments WHERE company_id = $1::UUID', co);
+  for (const t of ['gl_accounts', 'suppliers', 'customers', 'fiscal_periods']) {
     await pool.query(`DELETE FROM ${t} WHERE company_id = $1::UUID`, co);
   }
   await pool.query('DELETE FROM companies WHERE id = $1::UUID', co);
@@ -109,6 +115,14 @@ beforeAll(async () => {
        account_subtype, normal_balance, is_active, is_system_account)
      VALUES ($1,$2,'RF2110','Refund Fixture Accounts Payable','liability','payable','credit',true,true)`,
     [fx.apAccount, fx.company]);
+  await pool.query(
+    'INSERT INTO customers (id, company_id, name) VALUES ($1,$2,$3)',
+    [fx.customer, fx.company, 'Refund Fixture Customer']);
+  await pool.query(
+    `INSERT INTO gl_accounts (id, company_id, account_code, account_name, account_type,
+       account_subtype, normal_balance, is_active, is_system_account)
+     VALUES ($1,$2,'RF1100','Refund Fixture Accounts Receivable','asset','receivable','debit',true,true)`,
+    [fx.arAccount, fx.company]);
 });
 
 afterAll(async () => {
@@ -189,6 +203,10 @@ beforeEach(async () => {
   // open by an earlier test silently consumes the next test's payment and its
   // on-account credit reads zero.
   await pool.query('DELETE FROM supplier_invoices WHERE company_id = $1::UUID', [fx.company]);
+  await pool.query(
+    `DELETE FROM customer_payment_allocations WHERE payment_id IN
+       (SELECT id FROM customer_payments WHERE company_id = $1::UUID)`, [fx.company]);
+  await pool.query('DELETE FROM customer_payments WHERE company_id = $1::UUID', [fx.company]);
 });
 
 describe('allocating a supplier deposit', () => {
@@ -347,5 +365,57 @@ describe('reversal', () => {
     expect(refund.status).toBe('cancelled');
     // The credit is back where it was before the refund.
     expect(await supplierUnapplied()).toBeCloseTo(1000, 2);
+  });
+});
+
+describe('the customer mirror', () => {
+  async function allocateCustomer(bankTxId: string) {
+    const { allocateTransaction } = await import(
+      '@/modules/accounting/services/bank/bankAllocationService');
+    return inRequest(() => allocateTransaction(
+      fx.company, bankTxId, null, fx.user, undefined, 'customer', fx.customer,
+    ));
+  }
+
+  async function customerRefunds() {
+    const { rows } = await pool.query(
+      `SELECT total_amount, payment_method, status, bank_reference
+         FROM customer_payments
+        WHERE company_id = $1::UUID AND payment_method = 'refund'`, [fx.company]);
+    return rows;
+  }
+
+  it('mints a negative receipt for money going back out, and nets the credit', async () => {
+    // A receipt with nothing to settle: R900 sitting on the customer's account.
+    await allocateCustomer(await seedBankLine(900));
+
+    const tx = await seedBankLine(-300);
+    await allocateCustomer(tx);
+
+    const [refund] = await customerRefunds();
+    expect(Number(refund.total_amount)).toBe(-300);
+    expect(refund.payment_method).toBe('refund');
+    expect(refund.status).toBe('confirmed');
+    expect(refund.bank_reference).toBe(tx);
+
+    const { getUnappliedReceipts } = await import(
+      '@/modules/accounting/services/ar/unappliedReceiptService');
+    const res = await inRequest(() => getUnappliedReceipts(fx.company, { asAt: DAY, limit: 100 }));
+    const mine = res.rows.filter((r) => r.customerId === fx.customer);
+    expect(mine.reduce((a, r) => a + r.unappliedAmount, 0)).toBeCloseTo(600, 2);
+    expect(mine.filter((r) => r.kind === 'refund')).toHaveLength(1);
+  });
+
+  it('refuses a customer refund with no credit behind it, writing nothing', async () => {
+    const before = await pool.query(
+      'SELECT COUNT(*)::INT AS n FROM gl_journal_entries WHERE company_id = $1::UUID',
+      [fx.company]);
+    const tx = await seedBankLine(-300);
+    await expect(allocateCustomer(tx)).rejects.toThrow(/owing Refund Fixture Customer/i);
+    const after = await pool.query(
+      'SELECT COUNT(*)::INT AS n FROM gl_journal_entries WHERE company_id = $1::UUID',
+      [fx.company]);
+    expect(after.rows[0].n).toBe(before.rows[0].n);
+    expect(await customerRefunds()).toHaveLength(0);
   });
 });

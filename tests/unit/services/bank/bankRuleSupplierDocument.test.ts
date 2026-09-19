@@ -31,6 +31,14 @@ vi.mock('@/modules/accounting/services/bank/bankTxLock', () => ({
 vi.mock('@/modules/accounting/services/gl/ruleVatResolution', () => ({
   resolveRuleVatCode: vi.fn(async () => ({ vatCode: 'none', denied: false, nonSupplyCoerced: false })),
 }));
+vi.mock('@/modules/accounting/services/ap/supplierRefundDocument', () => ({
+  planSupplierRefund: vi.fn(async () => ({
+    amount: 0, onAccountCredit: 1e9, supplierName: 'Acme',
+  })),
+  recordSupplierRefund: vi.fn(async () => ({
+    paymentId: 'refund-1', amount: 0, onAccountCredit: 1e9,
+  })),
+}));
 vi.mock('@/modules/accounting/services/ap/supplierAutoAllocate', () => ({
   recordSupplierBankPayment: vi.fn(async () => ({
     paymentId: 'sp-1', appliedLines: [], unappliedRemainder: 0, strategy: 'off',
@@ -39,6 +47,7 @@ vi.mock('@/modules/accounting/services/ap/supplierAutoAllocate', () => ({
 
 import { sql } from '@/lib/neon';
 import { recordSupplierBankPayment } from '@/modules/accounting/services/ap/supplierAutoAllocate';
+import { recordSupplierRefund } from '@/modules/accounting/services/ap/supplierRefundDocument';
 import { autoPostRuleLine } from '@/modules/accounting/services/bank/bankRuleAutoPostLine';
 import { lockBankTransactionForUpdate } from '@/modules/accounting/services/bank/bankTxLock';
 
@@ -111,7 +120,7 @@ describe('autoPostRuleLine — supplier', () => {
     expect(recordSupplierBankPayment).not.toHaveBeenCalled();
   });
 
-  it('creates nothing for a REFUND — money in is not a payment', async () => {
+  it('creates a REFUND document for money in, never a payment document', async () => {
     await autoPostRuleLine(input({
       tx: {
         id: 'btx-1', amount: 500, transaction_date: '2026-09-08',
@@ -119,7 +128,16 @@ describe('autoPostRuleLine — supplier', () => {
       },
     }));
 
+    // The unattended sweep had the same hole as the attended path: it could
+    // post a supplier deposit and left no document behind any of it.
     expect(recordSupplierBankPayment).not.toHaveBeenCalled();
+    expect(recordSupplierRefund).toHaveBeenCalledOnce();
+    expect(vi.mocked(recordSupplierRefund).mock.calls[0]![0]).toMatchObject({
+      supplierId: SUPPLIER, bankTxId: 'btx-1', amount: 500,
+    });
+    // No `autoApply` at ANY value the rule carries: a negative remainder
+    // applied to a bill un-pays it.
+    expect(vi.mocked(recordSupplierRefund).mock.calls[0]![0]).not.toHaveProperty('autoApply');
   });
 
   it('creates nothing when the rule names no supplier', async () => {
