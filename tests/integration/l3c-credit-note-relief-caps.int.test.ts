@@ -51,6 +51,7 @@ let partB = '';
 let cancelledBill = '';
 let lateBill = '';
 let wrongWayBill = '';
+let wrongWayLegacyBill = '';
 
 async function inTx<T>(fn: () => Promise<T>): Promise<T> {
   const client: PoolClient = await getPoolForTests().connect();
@@ -211,6 +212,18 @@ describeIfDb('L3c — the cap, the floor and the as-at bound on credit-note reli
       journalId: await journal('-WRONGWAY-JE', SETTLE_DATE, -GROSS),
       allocations: [{ invoiceId: wrongWayBill, amount: GROSS }],
     });
+
+    // ── THE SAME WRONG-WAY JOURNAL, ON THE PRE-677 ARM. The case above has
+    // allocation rows, so it exercises only the rows arm and the legacy arm's
+    // own floor stays unpinned. A note carrying applied_amount with NO rows is
+    // read through the link column instead, where the cap is the flat one --
+    // and it needs flooring for exactly the same reason.
+    wrongWayLegacyBill = await bill('-WRONGWAY-LEGACY', GROSS);
+    await note({
+      n: '-WRONGWAY-LEGACY-CN', total: GROSS, applied: GROSS, status: 'applied',
+      creditDate: SETTLE_DATE, journalId: await journal('-WRONGWAY-LEGACY-JE', SETTLE_DATE, -GROSS),
+      linkedTo: wrongWayLegacyBill, allocations: [],
+    });
   }, 180000);
 
   afterAll(async () => {
@@ -261,6 +274,16 @@ describeIfDb('L3c — the cap, the floor and the as-at bound on credit-note reli
     // reached the control account, so the finding is the bill's full value --
     // once. Unfloored it is reported as 2,300 against a bill worth 1,150.
     const doc = docs.find((d) => d.id === wrongWayBill);
+    expect(doc?.amount).toBeCloseTo(-GROSS, 2);
+    expect(Math.abs(doc!.amount)).toBeLessThanOrEqual(doc!.gross);
+  }, 120000);
+
+  it('floors the cap on the PRE-677 arm too, where a note has no rows', async () => {
+    const docs = await unposted();
+    // Read through the link column, the cap is the note's whole control
+    // movement -- negative here -- and unfloored it is SUBTRACTED, so the bill
+    // is reported at 2,300 against a gross of 1,150.
+    const doc = docs.find((d) => d.id === wrongWayLegacyBill);
     expect(doc?.amount).toBeCloseTo(-GROSS, 2);
     expect(Math.abs(doc!.amount)).toBeLessThanOrEqual(doc!.gross);
   }, 120000);
