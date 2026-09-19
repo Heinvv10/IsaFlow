@@ -34,6 +34,7 @@
 import {
   getUnappliedPaymentBasis,
   type UnappliedPaymentBasisRow,
+  type UnappliedPaymentKind,
 } from '../shared/unappliedPaymentBasis';
 
 /**
@@ -51,7 +52,19 @@ export interface UnappliedPaymentRow {
   supplierName: string | null;
   paymentAmount: number;
   allocatedAmount: number;
+  /**
+   * NEGATIVE on a refund. A refund (migration 681) is cash the company sent
+   * BACK to the supplier, recorded as a negative on-account entry, so it nets
+   * against this supplier's other remainders in every total built from these
+   * rows instead of adding to them.
+   */
   unappliedAmount: number;
+  /**
+   * `'refund'` or `'payment'`. Read `kind`, never the sign: a reader that
+   * decides what a row IS from whether a number happens to be negative is one
+   * rounding artefact away from mislabelling a document.
+   */
+  kind: UnappliedPaymentKind;
   status: string;
   reference: string | null;
   description: string | null;
@@ -141,6 +154,7 @@ function mapRow(row: UnappliedPaymentBasisRow): UnappliedPaymentRow {
     paymentAmount: row.totalAmount,
     allocatedAmount: row.allocatedAmount,
     unappliedAmount: row.unappliedAmount,
+    kind: row.kind,
     status: row.status,
     reference: row.reference,
     description: row.description,
