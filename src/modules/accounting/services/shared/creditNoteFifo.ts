@@ -131,6 +131,12 @@ export async function applyCreditNote(args: {
   // FIFO order. Every figure it returns is discarded — an invoice settled by a
   // concurrent request between here and the lock below must not be planned
   // against its stale balance.
+  //
+  // `{ forUpdate: false }` says that out loud. The L1 branch made the option
+  // required precisely because the two callers of these fetchers want opposite
+  // answers, and a default would have silently given one of them the wrong one
+  // — which for this call would mean taking every candidate row's lock twice,
+  // once here and once in lockInvoicesForUpdate below.
   const candidates: string[] = [];
   if (linkedInvoiceId) candidates.push(linkedInvoiceId);
   if (autoApply === 'fifo' && entityId) {

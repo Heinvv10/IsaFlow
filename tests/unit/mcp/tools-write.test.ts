@@ -454,6 +454,9 @@ describe('write-tool manifest invariants', () => {
       'approve_credit_note',
       'approve_pay_run',
       'approve_supplier_invoice',
+      // The back-fill applies cash to documents, which moves their outstanding
+      // balance — the same reason the two single-document appliers are here.
+      'auto_apply_unapplied',
       'bulk_allocate_bank_transactions',
       'bulk_approve_credit_notes',
       'bulk_approve_supplier_invoices',
@@ -642,6 +645,9 @@ describe('write-tool manifest invariants', () => {
       bulk_create_customer_invoices: { ...KEY },
       // Voids refuse the missing document id before any query; behaviour in
       // voidPaymentTools.test.ts.
+      // Refuses on the missing subledger before reading anything; behaviour in
+      // autoApplyUnappliedPlan.test.ts and the integration file.
+      auto_apply_unapplied: { ...KEY },
       void_receipt: { ...KEY },
       void_payment: { ...KEY },
       // Payroll setup refuses on the missing required argument before any

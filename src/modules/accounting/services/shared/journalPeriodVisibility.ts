@@ -62,3 +62,34 @@ export async function journalIsInAPeriod(
   }
   return true;
 }
+
+/**
+ * The batch twin of `journalIsInAPeriod`: which of these entries carry a
+ * fiscal period, in ONE statement.
+ *
+ * A back-fill plans hundreds of payments before it writes anything, and it has
+ * to answer this question for every one of them in BOTH modes — a dry run that
+ * planned a payment the live run then withholds diverges from the run it is
+ * previewing, and every later payment inherits the divergence. One query per
+ * payment for that is 500 round trips to decide a set membership.
+ *
+ * Returns the ids that ARE in a period. An id that is absent from the result —
+ * no period, or no such entry in this company — is withheld by the caller,
+ * which is the safe reading of both, exactly as the single-entry version has it.
+ * No logging here: the caller reports each withheld source by name in its own
+ * output, which is more use than a line per payment in the server log.
+ */
+export async function journalsInAPeriod(
+  companyId: string,
+  journalEntryIds: readonly string[],
+): Promise<Set<string>> {
+  if (journalEntryIds.length === 0) return new Set();
+  const ids = [...new Set(journalEntryIds)];
+  const rows = (await sql`
+    SELECT id FROM gl_journal_entries
+    WHERE company_id = ${companyId}::UUID
+      AND id = ANY(${ids}::UUID[])
+      AND fiscal_period_id IS NOT NULL
+  `) as DbRow[];
+  return new Set(rows.map((r) => String(r.id)));
+}
