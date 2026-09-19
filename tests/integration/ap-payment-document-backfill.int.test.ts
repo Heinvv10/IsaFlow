@@ -27,10 +27,14 @@ import { describe, it, expect, beforeAll, afterAll } from 'vitest';
 import { Pool } from 'pg';
 import { assertNotProductionDb } from '../helpers/assertNotProductionDb';
 import {
-  AP2, BANK, BILL, CASES, CO, CO2, CO2_AMOUNT, CO2_TX, CREATE_TX, LIVE_OTHER_TX,
-  REALLOC_AMOUNT, REALLOC_TX, REFUND_TX, SUP, SUP2,
-  cleanup, createdPaymentId, journalFor, ledgerShape, seed,
+  AP2, BANK, BILL, CASES, CO, CO2, CO2_AMOUNT, CO2_TX, CREATE_TX, DRAFT_REV_J1,
+  LIVE_OTHER_TX, OWN_REVERSER_TX, REALLOC_AMOUNT, REALLOC_TX, REFUND_TX, SUP, SUP2,
+  cleanup, cleanupCompany, createdPaymentId, journalFor, ledgerShape, seed,
 } from '../helpers/apBackfillFixture';
+import {
+  CO3, CO3_AMOUNT, CO3_JE1, CO3_JE2, CO3_TX, USER3,
+  reallocateOntoSecondJournal, seedGeneration,
+} from '../helpers/apBackfillGenerationFixture';
 
 const DATABASE_URL = process.env.DATABASE_URL;
 const describeIfDb = DATABASE_URL ? describe : describe.skip;
@@ -39,6 +43,8 @@ const BATCH_1 = '00000000-0000-0000-0000-0000000bfb01';
 const BATCH_2 = '00000000-0000-0000-0000-0000000bfb02';
 const BATCH_3 = '00000000-0000-0000-0000-0000000bfb03';
 const BATCH_4 = '00000000-0000-0000-0000-0000000bfb04';
+const BATCH_5 = '00000000-0000-0000-0000-0000000bfb05';
+const BATCH_6 = '00000000-0000-0000-0000-0000000bfb06';
 
 describeIfDb('AP payment-document backfill (migration 615)', () => {
   let db: Pool;
@@ -47,12 +53,16 @@ describeIfDb('AP payment-document backfill (migration 615)', () => {
     assertNotProductionDb('This test inserts bank, journal and payment fixtures.');
     db = new Pool({ connectionString: DATABASE_URL, max: 2 });
     await cleanup(db);
+    await cleanupCompany(db, CO3);
     await seed(db);
+    await seedGeneration(db);
   });
 
   afterAll(async () => {
     if (db) {
       await cleanup(db);
+      await cleanupCompany(db, CO3);
+      await db.query('DELETE FROM users WHERE id = $1::TEXT', [USER3]);
       await db.end();
     }
   });
@@ -97,6 +107,43 @@ describeIfDb('AP payment-document backfill (migration 615)', () => {
     const byCompany = new Map(res.rows.map((r) => [r.company_id, Number(r.n)]));
     expect(byCompany.get(CO)).toBe(CASES.length);
     expect(byCompany.get(CO2)).toBe(1);
+  });
+
+  it('does not treat a DRAFT reversal as a reversal', async () => {
+    // A cancelled document whose journal is reversed only by an unposted entry
+    // has not been reversed at all: J1 still stands and its cash is still on
+    // the control account behind a cancelled document. 615's outcome, and the
+    // one a reverser test that ignores `status` would silently convert into a
+    // mint.
+    const je = await db.query(
+      `SELECT status, reversed_at,
+              (SELECT status FROM gl_journal_entries r WHERE r.reversal_of_id = $1::UUID) AS rev_status
+         FROM gl_journal_entries WHERE id = $1::UUID`,
+      [DRAFT_REV_J1],
+    );
+    expect(je.rows[0]!.status).toBe('posted');
+    expect(je.rows[0]!.reversed_at).toBeNull();
+    expect(je.rows[0]!.rev_status).toBe('draft');
+  });
+
+  it('reads a POSTED reversing entry as reversing the line own journal', async () => {
+    // `reversed_at` is NULL and the status is 'posted' — a hand-posted reversal
+    // leaves both untouched on the entry it reverses. The only witness is the
+    // posted entry naming it, and minting here would document cash the ledger
+    // has already taken back.
+    const je = await db.query(
+      `SELECT status, reversed_at FROM gl_journal_entries WHERE id = $1::UUID`,
+      [journalFor(OWN_REVERSER_TX)],
+    );
+    expect(je.rows[0]!.status).toBe('posted');
+    expect(je.rows[0]!.reversed_at).toBeNull();
+    // CASES asserts the outcome is `journal_reversed`; this is what makes it so.
+    const rev = await db.query(
+      `SELECT COUNT(*)::INT AS n FROM gl_journal_entries
+        WHERE reversal_of_id = $1::UUID AND status = 'posted'`,
+      [journalFor(OWN_REVERSER_TX)],
+    );
+    expect(Number(rev.rows[0]!.n)).toBe(1);
   });
 
   it('writes nothing — reading the classification is the dry run', async () => {
@@ -334,9 +381,9 @@ describeIfDb('AP payment-document backfill (migration 615)', () => {
     const id = await createdPaymentId(db, BATCH_1, CREATE_TX);
     await expect(db.query(
       `INSERT INTO ap_payment_document_backfill
-         (batch_id, company_id, bank_transaction_id, supplier_payment_id, amount, outcome, reason)
-       VALUES ($1::UUID, $2::UUID, $3::UUID, $4::UUID, 1000, 'created', 'duplicate')`,
-      ['00000000-0000-0000-0000-0000000bfb09', CO, CREATE_TX, id],
+         (batch_id, company_id, bank_transaction_id, journal_entry_id, supplier_payment_id, amount, outcome, reason)
+       VALUES ($1::UUID, $2::UUID, $3::UUID, $5::UUID, $4::UUID, 1000, 'created', 'duplicate')`,
+      ['00000000-0000-0000-0000-0000000bfb09', CO, CREATE_TX, id, journalFor(CREATE_TX)],
     )).rejects.toThrow(/uq_ap_pdb_created_line/);
   });
 
@@ -396,5 +443,72 @@ describeIfDb('AP payment-document backfill (migration 615)', () => {
       [CO2],
     );
     expect(Number(other.rows[0]!.n)).toBe(1);
+  });
+
+  it('mints once per generation when a line is cancelled and re-allocated again', async () => {
+    // The history a re-allocated line can have TWICE. Generation one is the
+    // ordinary backfill; then its document is cancelled, its journal reversed,
+    // and the line allocated onto a second journal — which is exactly the
+    // shape 679 now classifies `create`. The log's uniqueness floor is what
+    // decides whether that classification can be acted on: keyed on the bank
+    // line alone, generation one's row occupies it forever and the second mint
+    // dies on a duplicate key INSIDE the data-modifying CTE, taking the whole
+    // tenant's run with it rather than failing the one line.
+    const gen1 = await db.query(
+      `SELECT result_outcome, line_count
+         FROM ap_backfill_supplier_payment_documents($1::UUID, $2::UUID)`,
+      [CO3, BATCH_5],
+    );
+    expect(Number(gen1.rows.find((r) => r.result_outcome === 'created')?.line_count ?? 0)).toBe(1);
+    const firstDoc = await db.query(
+      `SELECT gl_journal_entry_id::TEXT AS je FROM supplier_payments WHERE company_id = $1::UUID`,
+      [CO3],
+    );
+    expect(firstDoc.rows).toHaveLength(1);
+    expect(firstDoc.rows[0]!.je).toBe(CO3_JE1);
+
+    await reallocateOntoSecondJournal(db);
+
+    const nowIs = await db.query(
+      `SELECT outcome, journal_entry_id::TEXT AS je
+         FROM ap_payment_document_backfill_candidates WHERE bank_transaction_id = $1::UUID`,
+      [CO3_TX],
+    );
+    expect(nowIs.rows[0]!.outcome).toBe('create');
+    expect(nowIs.rows[0]!.je).toBe(CO3_JE2);
+
+    const gen2 = await db.query(
+      `SELECT result_outcome, line_count
+         FROM ap_backfill_supplier_payment_documents($1::UUID, $2::UUID)`,
+      [CO3, BATCH_6],
+    );
+    expect(Number(gen2.rows.find((r) => r.result_outcome === 'created')?.line_count ?? 0)).toBe(1);
+
+    // ONE live document, carrying the journal that stands. The cancelled first
+    // generation is still there, and its log row is still live — which is the
+    // row that used to make this impossible.
+    const docs = await db.query(
+      `SELECT status, gl_journal_entry_id::TEXT AS je, total_amount
+         FROM supplier_payments WHERE company_id = $1::UUID ORDER BY status`,
+      [CO3],
+    );
+    expect(docs.rows.map((r) => `${r.status}:${r.je}`))
+      .toEqual([`cancelled:${CO3_JE1}`, `processed:${CO3_JE2}`]);
+    expect(Number(docs.rows[1]!.total_amount)).toBe(CO3_AMOUNT);
+
+    const log = await db.query(
+      `SELECT journal_entry_id::TEXT AS je FROM ap_payment_document_backfill
+        WHERE bank_transaction_id = $1::UUID AND outcome = 'created'
+          AND rolled_back_at IS NULL ORDER BY created_at`,
+      [CO3_TX],
+    );
+    expect(log.rows.map((r) => r.je)).toEqual([CO3_JE1, CO3_JE2]);
+
+    // And a THIRD run against the unchanged history mints nothing.
+    const again = await db.query(
+      `SELECT result_outcome FROM ap_backfill_supplier_payment_documents($1::UUID, $2::UUID)`,
+      [CO3, '00000000-0000-0000-0000-0000000bfb07'],
+    );
+    expect(again.rows.some((r) => r.result_outcome === 'created')).toBe(false);
   });
 });

@@ -67,6 +67,26 @@ const ROLLBACK_BATCH = flag('rollback') ?? null;
 const COMMIT = args.includes('--commit');
 const AS_AT = flag('as-at') ?? fmtDate(new Date());
 
+/**
+ * Every migration the classification is made of, in apply order.
+ *
+ * NOT just 615. The view has been replaced twice since — 679 for the bank lines
+ * re-allocated after their first document was cancelled, 680 for what counts as
+ * a reversal and for the uniqueness floor that let a second generation be minted
+ * — and a database carrying only 615 has a view that answers the same questions
+ * with the WRONG answers. Checking `to_regclass` on the view could not see that:
+ * the relation exists in all three states. So the check is the tracking table,
+ * per migration, and a dry run installs whichever are missing.
+ *
+ * Every file here is replayable — 615 is IF NOT EXISTS throughout, 679 and 680
+ * are CREATE OR REPLACE — so applying one that is already present is a no-op.
+ */
+const VIEW_MIGRATIONS = [
+  '615_ap_payment_document_backfill.sql',
+  '679_ap_backfill_candidates_reallocated_lines.sql',
+  '680_ap_backfill_reversal_signal_and_generation.sql',
+] as const;
+
 const money = (n: number): string =>
   `R${n.toLocaleString('en-ZA', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
 
@@ -152,24 +172,32 @@ async function main(): Promise<void> {
     // production, before anyone has deployed. Never on a --commit run: the DDL
     // would commit without a `schema_migrations` row behind it, and the next
     // real apply would then fail on a checksum it has no record of.
-    const installed = await client.query(
-      "SELECT to_regclass('public.ap_payment_document_backfill_candidates') IS NOT NULL AS ok",
+    const tracked = await client.query(
+      'SELECT name FROM schema_migrations WHERE name = ANY($1::TEXT[])',
+      [[...VIEW_MIGRATIONS]],
     );
-    if (!installed.rows[0]?.ok) {
+    const have = new Set(tracked.rows.map((r) => String(r.name)));
+    const missing = VIEW_MIGRATIONS.filter((name) => !have.has(name));
+    if (missing.length > 0) {
       if (COMMIT) {
         throw new Error(
-          'Migration 615 is not applied to this database. Apply it with `bun run db:migrate` '
-          + 'before committing a backfill.',
+          `Not applied to this database: ${missing.join(', ')}. Apply with `
+          + '`bun run db:migrate` before committing a backfill — committing against a '
+          + 'stale classification mints by rules this repo has already replaced.',
         );
       }
+      // IN ORDER. 679 and 680 each replace the whole view, so applying 680
+      // before 679 would leave 679's older definition standing.
+      //
       // Resolved from THIS file, not from cwd: the script is run from wherever
       // the operator happens to be standing.
-      const file = join(
-        dirname(fileURLToPath(import.meta.url)),
-        'migrations', 'sql', '615_ap_payment_document_backfill.sql',
+      for (const name of missing) {
+        const file = join(dirname(fileURLToPath(import.meta.url)), 'migrations', 'sql', name);
+        await client.query(readFileSync(file, 'utf8'));
+      }
+      console.log(
+        `(applied inside this transaction, and rolling back with it: ${missing.join(', ')})`,
       );
-      await client.query(readFileSync(file, 'utf8'));
-      console.log('(migration 615 applied inside this transaction — it will roll back with it)');
     }
     await als.run({ client, userId: 'script:ap-backfill', claims: {} }, async () => {
       if (ROLLBACK_BATCH) {
