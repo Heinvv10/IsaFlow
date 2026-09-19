@@ -35,8 +35,9 @@ import {
   signMismatchReason,
   type SettlementKind,
 } from '@/modules/accounting/services/bank/bankLineDirection';
-import { isBankTransactionLockTimeout } from '@/modules/accounting/services/bank/bankTxLock';
+import { isRetryableContention } from '@/modules/accounting/services/core/retryableContention';
 import { isBankAllocationRefusal } from '@/modules/accounting/services/bank/bankAllocationRefusal';
+import { isSupplierRefundRefusal } from '@/modules/accounting/services/ap/supplierRefundDocument';
 import { isFeedNotPostedRefusal } from '@/modules/accounting/services/bank/bankFeedStateGuard';
 type Row = Record<string, unknown>;
 
@@ -251,9 +252,22 @@ async function handler(req: CompanyAuthedRequest, res: NextApiResponse) {
     // the message is written to be read by whoever double-clicked. 409, because
     // the answer is "retry", and `internalError` would have replaced that
     // wording with "An internal error occurred" in production anyway.
-    if (isBankTransactionLockTimeout(err)) {
-      log.info('Bank match confirm hit a contended line', { bankTransactionId, candidateType, candidateId }, 'accounting-api');
-      return apiResponse.conflict(res, err.message);
+    // `isRetryableContention`, not `isBankTransactionLockTimeout`, and this is
+    // wider than it was. The narrow predicate saw only the BANK LINE's lock, so
+    // every other pre-write contention on this path reached the 500 fallback:
+    // the payment lock `confirmSupplierInvoiceMatch` already takes through
+    // `planSupplierPaymentApplication`, and now the CONTACT lock the refund
+    // ceiling takes. `bank-transactions-action` has answered the same set 409
+    // for exactly this reason, and the comment there already claimed this route
+    // agreed with it. It does now.
+    //
+    // Every member is pre-write and retryable by construction — see
+    // `core/retryableContention` — so the 4xx `withAuth` COMMITs commits
+    // nothing, and "retry" is the true answer rather than "an internal error
+    // occurred".
+    if (isRetryableContention(err)) {
+      log.info('Bank match confirm hit a contended row', { bankTransactionId, candidateType, candidateId }, 'accounting-api');
+      return apiResponse.conflict(res, (err as Error).message);
     }
     // A pending/removed feed row — bare from matchTransaction, or wrapped by
     // allocateTransaction — is refused from the locked row before any write.
@@ -261,6 +275,20 @@ async function handler(req: CompanyAuthedRequest, res: NextApiResponse) {
       return apiResponse.conflict(res, err.message);
     }
     if (isBankAllocationRefusal(err)) {
+      return apiResponse.badRequest(res, err.message);
+    }
+    // A refund larger than the contact's on-account credit. It belongs with the
+    // pre-write refusals above and NOT in the 500 fallback below: both refund
+    // planners run their whole check before `createJournalEntry`, so nothing
+    // has been written when this arrives and the 4xx `withAuth` COMMITs commits
+    // nothing.
+    //
+    // It was reaching the fallback, and the user saw "An internal error
+    // occurred" with no remedy in it — for a refusal whose message names the
+    // supplier, both amounts and what to do instead. One class covers both
+    // sides: `ar/customerRefundDocument` raises the same one deliberately, so a
+    // route cannot answer one side correctly and forget the other.
+    if (isSupplierRefundRefusal(err)) {
       return apiResponse.badRequest(res, err.message);
     }
 
