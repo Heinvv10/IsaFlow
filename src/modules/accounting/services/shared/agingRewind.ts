@@ -179,6 +179,7 @@ export function rewindAmount({ companyId, asAtStr, todayStr, side }: RewindInput
           AND NOT EXISTS (
             SELECT 1 FROM credit_note_allocations cna2
             WHERE cna2.credit_note_id = cn.id
+              AND cna2.company_id = ${companyId}
           )`;
 
   // NEGATIVE: in force on the as-at date, cancelled since. amount_paid no
