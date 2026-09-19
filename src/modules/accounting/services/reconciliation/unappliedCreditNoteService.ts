@@ -23,11 +23,13 @@
  * `unexplained_difference` on books that otherwise tie. A draft note has
  * posted nothing; a cancelled one has been reversed.
  *
- * WRITTEN AGAINST `credit_notes` ALONE, on purpose. A `credit_note_allocations`
- * table and a `partially_applied` status are being added on another branch; a
- * remainder of `total_amount − COALESCE(applied_amount, 0)` over every
- * non-draft, non-cancelled note is true before that merge and after it, so this
- * does not need to land in step with it.
+ * WRITTEN AGAINST `credit_notes` ALONE, on purpose, and it stays that way now
+ * that `credit_note_allocations` exists (migration 677). This item is about the
+ * note, not about any document: a remainder of
+ * `total_amount − COALESCE(applied_amount, 0)` over every non-draft,
+ * non-cancelled note is what no document took up, however many documents the
+ * rest was spread across. The rows answer the other question — how much a
+ * GIVEN document was relieved by — and that read lives in `creditNoteRelief.ts`.
  */
 
 import { sql } from '@/lib/neon';

@@ -8,6 +8,7 @@
 import { sql } from '@/lib/neon';
 import type { DbRow } from '@/lib/neon';
 import { effectivePaidExpr, rewindAmount } from '../shared/agingRewind';
+import { creditNoteReliefExpr } from './creditNoteRelief';
 import { documentInPopulationExpr } from '../shared/documentPopulation';
 
 export interface UnpostedQueryArgs {
@@ -99,46 +100,12 @@ export async function readUnpostedDocumentRows(
                    WHERE a.invoice_id = ci.id
                  ), 0)
                )
-             -- THE APPLIED AMOUNT, not the whole journal, and never a
-             -- cancelled note. A linked note is consumed by the document only
-             -- to the extent of its applied_amount (mig 529); the rest is
-             -- credit no document has taken up and belongs to the
-             -- unapplied_credit_note item, which counts it from the other
-             -- side. Counting the whole journal here put that remainder in
-             -- both places: on a production copy, 12 bills each carried one
-             -- applied and one approved note of the same value, and R5,740.22
-             -- was claimed twice. Cancelling REVERSES the note's journal, so a
-             -- cancelled note relieves nothing at all.
-             - LEAST(
-                 COALESCE((
-                   SELECT SUM(cn.applied_amount)
-                   FROM credit_notes cn
-                   WHERE cn.company_id = ${companyId}::UUID
-                     AND cn.customer_invoice_id = ci.id
-                     AND COALESCE(cn.status, '') <> 'cancelled'
-                     AND EXISTS (
-                       SELECT 1 FROM gl_journal_entries je
-                       WHERE je.id = cn.gl_journal_entry_id
-                         AND je.company_id = ${companyId}::UUID
-                         AND je.status = 'posted'
-                         AND je.entry_date <= ${asAtDate}::DATE
-                     )
-                 ), 0),
-                 COALESCE((
-                   SELECT SUM(jl.credit - jl.debit)
-                   FROM credit_notes cn
-                   JOIN gl_journal_entries je ON je.id = cn.gl_journal_entry_id
-                                             AND je.company_id = ${companyId}::UUID
-                                             AND je.status = 'posted'
-                                             AND je.entry_date <= ${asAtDate}::DATE
-                   JOIN gl_journal_lines jl ON jl.journal_entry_id = je.id
-                                           AND jl.company_id = ${companyId}::UUID
-                                           AND jl.gl_account_id = ANY(${ids}::uuid[])
-                   WHERE cn.company_id = ${companyId}::UUID
-                     AND cn.customer_invoice_id = ci.id
-                     AND COALESCE(cn.status, '') <> 'cancelled'
-                 ), 0)
-               )
+             -- THE CREDIT THIS DOCUMENT WAS RELIEVED BY, from the
+             -- allocation rows -- never the whole journal, never a cancelled
+             -- note and never applied_amount through the link column. The
+             -- reasoning, the cap and the pre-677 fallback all live in
+             -- creditNoteRelief.ts; read its header before changing this.
+             - (${creditNoteReliefExpr({ companyId, asAtDate, ids, side: 'ar' })})
              -- The write-off leg. approveWriteOff raises amount_paid AND
              -- credits the control account, so without its journal here a
              -- written-off invoice read as "not on the control account" by
@@ -222,44 +189,13 @@ export async function readUnpostedDocumentRows(
                    WHERE a.invoice_id = si.id
                  ), 0)
                )
-             -- The credit-note leg, the mirror of the AR one above. A linked
-             -- supplier credit note raises the bill's amount_paid AND debits
-             -- the control account; the AR side counted it and this side did
-             -- not, so every credit-noted bill read as "not on the control
-             -- account" by the note and the same amount fell into
-             -- unexplained_difference. Pre-existing on master; R-059 round 6.
-             -- THE APPLIED AMOUNT, never the whole journal and never a
-             -- cancelled note -- the mirror of the AR leg above.
-             - LEAST(
-                 COALESCE((
-                   SELECT SUM(cn.applied_amount)
-                   FROM credit_notes cn
-                   WHERE cn.company_id = ${companyId}::UUID
-                     AND cn.supplier_invoice_id = si.id
-                     AND COALESCE(cn.status, '') <> 'cancelled'
-                     AND EXISTS (
-                       SELECT 1 FROM gl_journal_entries je
-                       WHERE je.id = cn.gl_journal_entry_id
-                         AND je.company_id = ${companyId}::UUID
-                         AND je.status = 'posted'
-                         AND je.entry_date <= ${asAtDate}::DATE
-                     )
-                 ), 0),
-                 COALESCE((
-                   SELECT SUM(jl.debit - jl.credit)
-                   FROM credit_notes cn
-                   JOIN gl_journal_entries je ON je.id = cn.gl_journal_entry_id
-                                             AND je.company_id = ${companyId}::UUID
-                                             AND je.status = 'posted'
-                                             AND je.entry_date <= ${asAtDate}::DATE
-                   JOIN gl_journal_lines jl ON jl.journal_entry_id = je.id
-                                           AND jl.company_id = ${companyId}::UUID
-                                           AND jl.gl_account_id = ANY(${ids}::uuid[])
-                   WHERE cn.company_id = ${companyId}::UUID
-                     AND cn.supplier_invoice_id = si.id
-                     AND COALESCE(cn.status, '') <> 'cancelled'
-                 ), 0)
-               ) AS control_amount
+             -- The credit-note leg, the mirror of the AR one above: the
+             -- allocation rows, capped at what reached the control account,
+             -- with the pre-677 link column behind a NOT EXISTS. Before this
+             -- read the rows, a supplier note spread FIFO over several bills
+             -- relieved only the one it links to and the rest of the value
+             -- became an unnamed residual.
+             - (${creditNoteReliefExpr({ companyId, asAtDate, ids, side: 'ap' })}) AS control_amount
       FROM supplier_invoices si
       LEFT JOIN suppliers s ON s.id = si.supplier_id AND s.company_id = ${companyId}::UUID
       LEFT JOIN LATERAL (
