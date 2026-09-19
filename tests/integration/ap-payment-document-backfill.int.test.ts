@@ -27,9 +27,14 @@ import { describe, it, expect, beforeAll, afterAll } from 'vitest';
 import { Pool } from 'pg';
 import { assertNotProductionDb } from '../helpers/assertNotProductionDb';
 import {
-  AP2, BANK, BILL, CASES, CO, CO2, CO2_AMOUNT, CO2_TX, CREATE_TX, REFUND_TX, SUP, SUP2,
-  cleanup, createdPaymentId, journalFor, ledgerShape, seed,
+  AP2, BANK, BILL, CASES, CO, CO2, CO2_AMOUNT, CO2_TX, CREATE_TX, DRAFT_REV_J1,
+  LIVE_OTHER_TX, OWN_REVERSER_TX, REALLOC_AMOUNT, REALLOC_TX, REFUND_TX, SUP, SUP2,
+  cleanup, cleanupCompany, createdPaymentId, journalFor, ledgerShape, seed,
 } from '../helpers/apBackfillFixture';
+import {
+  CO3, CO3_AMOUNT, CO3_JE1, CO3_JE2, CO3_TX, USER3,
+  reallocateOntoSecondJournal, seedGeneration,
+} from '../helpers/apBackfillGenerationFixture';
 
 const DATABASE_URL = process.env.DATABASE_URL;
 const describeIfDb = DATABASE_URL ? describe : describe.skip;
@@ -38,6 +43,8 @@ const BATCH_1 = '00000000-0000-0000-0000-0000000bfb01';
 const BATCH_2 = '00000000-0000-0000-0000-0000000bfb02';
 const BATCH_3 = '00000000-0000-0000-0000-0000000bfb03';
 const BATCH_4 = '00000000-0000-0000-0000-0000000bfb04';
+const BATCH_5 = '00000000-0000-0000-0000-0000000bfb05';
+const BATCH_6 = '00000000-0000-0000-0000-0000000bfb06';
 
 describeIfDb('AP payment-document backfill (migration 615)', () => {
   let db: Pool;
@@ -46,12 +53,16 @@ describeIfDb('AP payment-document backfill (migration 615)', () => {
     assertNotProductionDb('This test inserts bank, journal and payment fixtures.');
     db = new Pool({ connectionString: DATABASE_URL, max: 2 });
     await cleanup(db);
+    await cleanupCompany(db, CO3);
     await seed(db);
+    await seedGeneration(db);
   });
 
   afterAll(async () => {
     if (db) {
       await cleanup(db);
+      await cleanupCompany(db, CO3);
+      await db.query('DELETE FROM users WHERE id = $1::TEXT', [USER3]);
       await db.end();
     }
   });
@@ -98,6 +109,43 @@ describeIfDb('AP payment-document backfill (migration 615)', () => {
     expect(byCompany.get(CO2)).toBe(1);
   });
 
+  it('does not treat a DRAFT reversal as a reversal', async () => {
+    // A cancelled document whose journal is reversed only by an unposted entry
+    // has not been reversed at all: J1 still stands and its cash is still on
+    // the control account behind a cancelled document. 615's outcome, and the
+    // one a reverser test that ignores `status` would silently convert into a
+    // mint.
+    const je = await db.query(
+      `SELECT status, reversed_at,
+              (SELECT status FROM gl_journal_entries r WHERE r.reversal_of_id = $1::UUID) AS rev_status
+         FROM gl_journal_entries WHERE id = $1::UUID`,
+      [DRAFT_REV_J1],
+    );
+    expect(je.rows[0]!.status).toBe('posted');
+    expect(je.rows[0]!.reversed_at).toBeNull();
+    expect(je.rows[0]!.rev_status).toBe('draft');
+  });
+
+  it('reads a POSTED reversing entry as reversing the line own journal', async () => {
+    // `reversed_at` is NULL and the status is 'posted' — a hand-posted reversal
+    // leaves both untouched on the entry it reverses. The only witness is the
+    // posted entry naming it, and minting here would document cash the ledger
+    // has already taken back.
+    const je = await db.query(
+      `SELECT status, reversed_at FROM gl_journal_entries WHERE id = $1::UUID`,
+      [journalFor(OWN_REVERSER_TX)],
+    );
+    expect(je.rows[0]!.status).toBe('posted');
+    expect(je.rows[0]!.reversed_at).toBeNull();
+    // CASES asserts the outcome is `journal_reversed`; this is what makes it so.
+    const rev = await db.query(
+      `SELECT COUNT(*)::INT AS n FROM gl_journal_entries
+        WHERE reversal_of_id = $1::UUID AND status = 'posted'`,
+      [journalFor(OWN_REVERSER_TX)],
+    );
+    expect(Number(rev.rows[0]!.n)).toBe(1);
+  });
+
   it('writes nothing — reading the classification is the dry run', async () => {
     const before = await db.query(
       `SELECT (SELECT COUNT(*) FROM supplier_payments WHERE company_id = $1::UUID) AS p,
@@ -113,7 +161,7 @@ describeIfDb('AP payment-document backfill (migration 615)', () => {
     expect(after.rows[0]).toEqual(before.rows[0]);
   });
 
-  it('creates the document for the qualifying line and writes nothing else', async () => {
+  it('creates the document for the qualifying lines and writes nothing else', async () => {
     const before = await ledgerShape(db);
 
     const run = await db.query(
@@ -122,7 +170,9 @@ describeIfDb('AP payment-document backfill (migration 615)', () => {
       [CO, BATCH_1],
     );
     const created = run.rows.find((r) => r.result_outcome === 'created');
-    expect(Number(created?.line_count ?? 0)).toBe(1);
+    // TWO: the never-documented line, and the one re-allocated after its first
+    // document was cancelled and its first journal reversed.
+    expect(Number(created?.line_count ?? 0)).toBe(2);
 
     const pay = await db.query(
       `SELECT sp.supplier_id::TEXT, sp.payment_date::TEXT AS payment_date, sp.total_amount,
@@ -130,8 +180,9 @@ describeIfDb('AP payment-document backfill (migration 615)', () => {
               sp.payment_number, sp.bank_account_id::TEXT AS bank
          FROM supplier_payments sp
          JOIN ap_payment_document_backfill l ON l.supplier_payment_id = sp.id
-        WHERE l.batch_id = $1::UUID AND l.outcome = 'created'`,
-      [BATCH_1],
+        WHERE l.batch_id = $1::UUID AND l.outcome = 'created'
+          AND l.bank_transaction_id = $2::UUID`,
+      [BATCH_1, CREATE_TX],
     );
     expect(pay.rows).toHaveLength(1);
     const p = pay.rows[0]!;
@@ -153,7 +204,48 @@ describeIfDb('AP payment-document backfill (migration 615)', () => {
     // NOTHING ELSE MOVED, except the one payment row. A second journal would
     // double the AP debit and break the bank reconciliation; a touched
     // `amount_paid` would settle a bill nobody chose.
-    expect(await ledgerShape(db)).toEqual({ ...before, payments: before.payments + 1 });
+    expect(await ledgerShape(db)).toEqual({ ...before, payments: before.payments + 2 });
+  });
+
+  it('mints the re-allocated line a document carrying the journal that STANDS', async () => {
+    // The whole point of 679. The document must carry J2 — the journal the
+    // re-allocation posted and which nothing else claims — and never J1, whose
+    // document was cancelled and whose entry was reversed with it.
+    const pay = await db.query(
+      `SELECT sp.total_amount, sp.reference, sp.status,
+              sp.gl_journal_entry_id::TEXT AS je
+         FROM supplier_payments sp
+         JOIN ap_payment_document_backfill l ON l.supplier_payment_id = sp.id
+        WHERE l.batch_id = $1::UUID AND l.outcome = 'created'
+          AND l.bank_transaction_id = $2::UUID`,
+      [BATCH_1, REALLOC_TX],
+    );
+    expect(pay.rows).toHaveLength(1);
+    expect(pay.rows[0]!.je).toBe(journalFor(REALLOC_TX));
+    expect(Number(pay.rows[0]!.total_amount)).toBe(REALLOC_AMOUNT);
+    expect(pay.rows[0]!.reference).toBe(REALLOC_TX);
+    expect(pay.rows[0]!.status).toBe('processed');
+  });
+
+  it('mints NOTHING for a line whose live document sits on another journal', async () => {
+    // Reported, never minted over: a second live document beside the first
+    // would claim the same cash twice, and overriding the first is not this
+    // backfill's call to make.
+    const log = await db.query(
+      `SELECT outcome, reason FROM ap_payment_document_backfill
+        WHERE batch_id = $1::UUID AND bank_transaction_id = $2::UUID`,
+      [BATCH_1, LIVE_OTHER_TX],
+    );
+    expect(log.rows).toHaveLength(1);
+    expect(log.rows[0]!.outcome).toBe('skipped');
+    expect(log.rows[0]!.reason).toBe('document_on_other_journal');
+
+    const docs = await db.query(
+      `SELECT COUNT(*)::INT AS n FROM supplier_payments
+        WHERE company_id = $1::UUID AND reference = $2`,
+      [CO, LIVE_OTHER_TX],
+    );
+    expect(Number(docs.rows[0]!.n)).toBe(1);
   });
 
   it('leaves every other tenant alone', async () => {
@@ -189,6 +281,14 @@ describeIfDb('AP payment-document backfill (migration 615)', () => {
       [CREATE_TX],
     );
     expect(now.rows[0]?.outcome).toBe('already_has_document');
+    // And so is the re-allocated one: its new document carries J2, which IS
+    // this line's journal.
+    const realloc = await db.query(
+      `SELECT outcome FROM ap_payment_document_backfill_candidates
+        WHERE bank_transaction_id = $1::UUID`,
+      [REALLOC_TX],
+    );
+    expect(realloc.rows[0]?.outcome).toBe('already_has_document');
   });
 
   it('serves the other tenant when it is the one asked for', async () => {
@@ -216,7 +316,7 @@ describeIfDb('AP payment-document backfill (migration 615)', () => {
     // that orphan still occupied the unique index, the next run would die on a
     // duplicate key INSIDE the data-modifying CTE and abort the WHOLE tenant's
     // run over one line, with an error naming an index rather than a cause.
-    const id = await createdPaymentId(db, BATCH_3);
+    const id = await createdPaymentId(db, BATCH_3, CO2_TX);
     await db.query('DELETE FROM supplier_payments WHERE id = $1::UUID', [id]);
 
     const orphan = await db.query(
@@ -242,7 +342,7 @@ describeIfDb('AP payment-document backfill (migration 615)', () => {
     // deletable — and rollback would then hard-delete a document somebody
     // deliberately cancelled, which is exactly the "someone else's work" this
     // refusal exists to protect.
-    const id = await createdPaymentId(db, BATCH_1);
+    const id = await createdPaymentId(db, BATCH_1, CREATE_TX);
     await db.query(`UPDATE supplier_payments SET status = 'cancelled' WHERE id = $1::UUID`, [id]);
     await expect(
       db.query('SELECT * FROM ap_rollback_supplier_payment_document_backfill($1::UUID)', [BATCH_1]),
@@ -260,7 +360,7 @@ describeIfDb('AP payment-document backfill (migration 615)', () => {
     // ignores it destroys those rows in silence. This is the ONLY arm of the
     // refusal that fires here — the payment stays `processed` and has no
     // `payment_allocations` row.
-    const id = await createdPaymentId(db, BATCH_1);
+    const id = await createdPaymentId(db, BATCH_1, CREATE_TX);
     await db.query(
       `INSERT INTO supplier_payment_allocations (payment_id, invoice_id, amount_allocated)
        VALUES ($1::UUID, $2::UUID, 50)`,
@@ -278,17 +378,17 @@ describeIfDb('AP payment-document backfill (migration 615)', () => {
     // `uq_ap_pdb_created_line` is the hard floor under idempotency — the one
     // that holds if every guard in the view is wrong at once. Nothing else in
     // this suite reaches it, so it is exercised directly.
-    const id = await createdPaymentId(db, BATCH_1);
+    const id = await createdPaymentId(db, BATCH_1, CREATE_TX);
     await expect(db.query(
       `INSERT INTO ap_payment_document_backfill
-         (batch_id, company_id, bank_transaction_id, supplier_payment_id, amount, outcome, reason)
-       VALUES ($1::UUID, $2::UUID, $3::UUID, $4::UUID, 1000, 'created', 'duplicate')`,
-      ['00000000-0000-0000-0000-0000000bfb09', CO, CREATE_TX, id],
+         (batch_id, company_id, bank_transaction_id, journal_entry_id, supplier_payment_id, amount, outcome, reason)
+       VALUES ($1::UUID, $2::UUID, $3::UUID, $5::UUID, $4::UUID, 1000, 'created', 'duplicate')`,
+      ['00000000-0000-0000-0000-0000000bfb09', CO, CREATE_TX, id, journalFor(CREATE_TX)],
     )).rejects.toThrow(/uq_ap_pdb_created_line/);
   });
 
   it('refuses to roll back a payment a human has since applied', async () => {
-    const id = await createdPaymentId(db, BATCH_1);
+    const id = await createdPaymentId(db, BATCH_1, CREATE_TX);
     await db.query(
       `INSERT INTO payment_allocations (payment_id, invoice_id, amount_allocated)
        VALUES ($1::UUID, $2::UUID, 100)`,
@@ -309,8 +409,8 @@ describeIfDb('AP payment-document backfill (migration 615)', () => {
       'SELECT * FROM ap_rollback_supplier_payment_document_backfill($1::UUID)',
       [BATCH_1],
     );
-    expect(Number(res.rows[0]?.deleted_count)).toBe(1);
-    expect(Number(res.rows[0]?.deleted_amount)).toBe(1000);
+    expect(Number(res.rows[0]?.deleted_count)).toBe(2);
+    expect(Number(res.rows[0]?.deleted_amount)).toBe(1000 + REALLOC_AMOUNT);
 
     const back = await db.query(
       `SELECT outcome FROM ap_payment_document_backfill_candidates
@@ -318,16 +418,24 @@ describeIfDb('AP payment-document backfill (migration 615)', () => {
       [CREATE_TX],
     );
     expect(back.rows[0]?.outcome).toBe('create');
+    const backRealloc = await db.query(
+      `SELECT outcome FROM ap_payment_document_backfill_candidates
+        WHERE bank_transaction_id = $1::UUID`,
+      [REALLOC_TX],
+    );
+    expect(backRealloc.rows[0]?.outcome).toBe('create');
 
     // The log survives the payment it recorded, and says so.
     const log = await db.query(
       `SELECT rolled_back_at IS NOT NULL AS rolled_back, supplier_payment_id
          FROM ap_payment_document_backfill
-        WHERE batch_id = $1::UUID AND outcome = 'created'`,
+        WHERE batch_id = $1::UUID AND outcome = 'created'
+        ORDER BY bank_transaction_id`,
       [BATCH_1],
     );
-    expect(log.rows[0]?.rolled_back).toBe(true);
-    expect(log.rows[0]?.supplier_payment_id).toBeNull();
+    expect(log.rows).toHaveLength(2);
+    expect(log.rows.every((r) => r.rolled_back === true)).toBe(true);
+    expect(log.rows.every((r) => r.supplier_payment_id === null)).toBe(true);
 
     // The OTHER tenant's batch is untouched by this batch's rollback.
     const other = await db.query(
@@ -335,5 +443,72 @@ describeIfDb('AP payment-document backfill (migration 615)', () => {
       [CO2],
     );
     expect(Number(other.rows[0]!.n)).toBe(1);
+  });
+
+  it('mints once per generation when a line is cancelled and re-allocated again', async () => {
+    // The history a re-allocated line can have TWICE. Generation one is the
+    // ordinary backfill; then its document is cancelled, its journal reversed,
+    // and the line allocated onto a second journal — which is exactly the
+    // shape 679 now classifies `create`. The log's uniqueness floor is what
+    // decides whether that classification can be acted on: keyed on the bank
+    // line alone, generation one's row occupies it forever and the second mint
+    // dies on a duplicate key INSIDE the data-modifying CTE, taking the whole
+    // tenant's run with it rather than failing the one line.
+    const gen1 = await db.query(
+      `SELECT result_outcome, line_count
+         FROM ap_backfill_supplier_payment_documents($1::UUID, $2::UUID)`,
+      [CO3, BATCH_5],
+    );
+    expect(Number(gen1.rows.find((r) => r.result_outcome === 'created')?.line_count ?? 0)).toBe(1);
+    const firstDoc = await db.query(
+      `SELECT gl_journal_entry_id::TEXT AS je FROM supplier_payments WHERE company_id = $1::UUID`,
+      [CO3],
+    );
+    expect(firstDoc.rows).toHaveLength(1);
+    expect(firstDoc.rows[0]!.je).toBe(CO3_JE1);
+
+    await reallocateOntoSecondJournal(db);
+
+    const nowIs = await db.query(
+      `SELECT outcome, journal_entry_id::TEXT AS je
+         FROM ap_payment_document_backfill_candidates WHERE bank_transaction_id = $1::UUID`,
+      [CO3_TX],
+    );
+    expect(nowIs.rows[0]!.outcome).toBe('create');
+    expect(nowIs.rows[0]!.je).toBe(CO3_JE2);
+
+    const gen2 = await db.query(
+      `SELECT result_outcome, line_count
+         FROM ap_backfill_supplier_payment_documents($1::UUID, $2::UUID)`,
+      [CO3, BATCH_6],
+    );
+    expect(Number(gen2.rows.find((r) => r.result_outcome === 'created')?.line_count ?? 0)).toBe(1);
+
+    // ONE live document, carrying the journal that stands. The cancelled first
+    // generation is still there, and its log row is still live — which is the
+    // row that used to make this impossible.
+    const docs = await db.query(
+      `SELECT status, gl_journal_entry_id::TEXT AS je, total_amount
+         FROM supplier_payments WHERE company_id = $1::UUID ORDER BY status`,
+      [CO3],
+    );
+    expect(docs.rows.map((r) => `${r.status}:${r.je}`))
+      .toEqual([`cancelled:${CO3_JE1}`, `processed:${CO3_JE2}`]);
+    expect(Number(docs.rows[1]!.total_amount)).toBe(CO3_AMOUNT);
+
+    const log = await db.query(
+      `SELECT journal_entry_id::TEXT AS je FROM ap_payment_document_backfill
+        WHERE bank_transaction_id = $1::UUID AND outcome = 'created'
+          AND rolled_back_at IS NULL ORDER BY created_at`,
+      [CO3_TX],
+    );
+    expect(log.rows.map((r) => r.je)).toEqual([CO3_JE1, CO3_JE2]);
+
+    // And a THIRD run against the unchanged history mints nothing.
+    const again = await db.query(
+      `SELECT result_outcome FROM ap_backfill_supplier_payment_documents($1::UUID, $2::UUID)`,
+      [CO3, '00000000-0000-0000-0000-0000000bfb07'],
+    );
+    expect(again.rows.some((r) => r.result_outcome === 'created')).toBe(false);
   });
 });
