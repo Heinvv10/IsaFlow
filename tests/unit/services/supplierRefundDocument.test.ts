@@ -32,6 +32,17 @@ vi.mock('@/lib/neon', () => {
 vi.mock('@/modules/accounting/services/gl/journalEntryCrudService', () => ({
   resolveUserUuid: vi.fn().mockResolvedValue('11111111-1111-4111-8111-111111111111'),
 }));
+// The contact lock is mocked rather than primed into the positional `sql`
+// queue: it needs a real request transaction on the AsyncLocalStorage client,
+// which a unit test does not have, and threading its read through the queue
+// would put a row for it in front of every other fixture here. THAT THE LOCK
+// IS TAKEN, and taken BEFORE the credit is read, is pinned below and proved in
+// `tests/integration/supplier-refund-document.int.test.ts`, where two real
+// connections contend for it.
+vi.mock('@/modules/accounting/services/core/paymentLock', async (importActual) => ({
+  ...(await importActual<Record<string, unknown>>()),
+  lockContactForRefund: vi.fn(async () => ({ id: 'supplier-row', name: 'ACME' })),
+}));
 
 import { sql } from '@/lib/neon';
 import {
@@ -40,6 +51,7 @@ import {
   isSupplierRefundRefusal,
 } from '@/modules/accounting/services/ap/supplierRefundDocument';
 import { getUnappliedPaymentBasis } from '@/modules/accounting/services/shared/unappliedPaymentBasis';
+import { lockContactForRefund } from '@/modules/accounting/services/core/paymentLock';
 
 const mockSql = sql as unknown as MockedFunction<(...args: unknown[]) => Promise<unknown[]>>;
 
@@ -120,8 +132,25 @@ describe('recordSupplierRefund — the document it writes', () => {
       journalEntryId: JE, amount: 1500, paymentDate: '2026-09-19',
       description: 'Refund from ACME', userId: 'user-1',
     })).rejects.toThrow(/cannot be recorded against/i);
-    // One call — the read. The INSERT never happened.
+    // One call — the credit read. The INSERT never happened.
     expect(mockSql).toHaveBeenCalledTimes(1);
+  });
+
+  it('takes the contact lock BEFORE it reads the credit', async () => {
+    // The ordering is the safety property, not the lock's presence: a lock
+    // taken after the read guards nothing, because the stale figure has already
+    // been used to decide.
+    mockSql
+      .mockResolvedValueOnce([{ credit: '5000.00', supplier_name: 'ACME' }])
+      .mockResolvedValueOnce([{ id: 'pay-1' }]);
+    await recordSupplierRefund({
+      companyId: CO, supplierId: SUP, bankTxId: TX, bankAccountId: BANK,
+      journalEntryId: JE, amount: 1500, paymentDate: '2026-09-19',
+      description: 'Refund from ACME', userId: 'user-1',
+    });
+    expect(lockContactForRefund).toHaveBeenCalledWith(CO, 'supplier', SUP);
+    expect(vi.mocked(lockContactForRefund).mock.invocationCallOrder[0]!)
+      .toBeLessThan(mockSql.mock.invocationCallOrder[0]!);
   });
 });
 

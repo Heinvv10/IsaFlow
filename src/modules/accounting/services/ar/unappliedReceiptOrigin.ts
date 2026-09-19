@@ -85,7 +85,9 @@ export async function getUnappliedReceiptOrigins(
   const rows = (await sql`
     SELECT je.posting_agent,
            COUNT(*)::INT AS receipts,
-           COALESCE(SUM(cp.total_amount - COALESCE(alloc.allocated, 0)), 0) AS unapplied
+           COALESCE(SUM(cp.total_amount
+                        - LEAST(COALESCE(alloc.allocated, 0), GREATEST(cp.total_amount, 0))), 0)
+             AS unapplied
     FROM customer_payments cp
     -- OUTER JOIN: ON carries ONLY join keys. See the note above the query.
     LEFT JOIN gl_journal_entries je
@@ -99,7 +101,15 @@ export async function getUnappliedReceiptOrigins(
     WHERE cp.company_id = ${companyId}::UUID
       AND cp.status <> 'cancelled'
       AND cp.payment_date <= ${asAt}::DATE
-      AND (cp.total_amount - COALESCE(alloc.allocated, 0)) > ${EPS}
+      -- The shared basis's rule, not a fourth one. A REFUND (migration 681) is
+      -- a receipt row with a negative total and no allocations: the positive-
+      -- only threshold dropped it, so this report's totals stopped matching
+      -- list_unapplied_receipts by exactly the cash that went back out, and the
+      -- uncapped subtraction would have let a negative total cap itself to
+      -- zero. Both halves are shared/unappliedPaymentBasis's, spelled the same
+      -- way so a reader can see they are the same rule.
+      AND ABS(cp.total_amount
+              - LEAST(COALESCE(alloc.allocated, 0), GREATEST(cp.total_amount, 0))) > ${EPS}
     GROUP BY je.posting_agent
     ORDER BY unapplied DESC
   `) as DbRow[];

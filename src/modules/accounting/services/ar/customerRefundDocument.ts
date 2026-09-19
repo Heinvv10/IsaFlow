@@ -35,6 +35,7 @@ import { sql } from '@/lib/neon';
 import type { DbRow } from '@/lib/neon';
 import { log } from '@/lib/logger';
 import { resolveUserUuid } from '../gl/journalEntryCrudService';
+import { lockContactForRefund } from '../core/paymentLock';
 import { REFUND_PAYMENT_METHOD, SupplierRefundRefusal } from '../ap/supplierRefundDocument';
 
 /**
@@ -98,7 +99,11 @@ export async function getCustomerOnAccountCredit(
   };
 }
 
-/** The ceiling check, from a read-only query. WRITES NOTHING. */
+/**
+ * The ceiling check. Takes the contact lock, then reads; writes nothing else.
+ * See the AP twin for why a ceiling read without the lock is a number two
+ * concurrent refunds both satisfy.
+ */
 export async function planCustomerRefund(
   companyId: string,
   customerId: string,
@@ -106,6 +111,7 @@ export async function planCustomerRefund(
   paymentDate: string,
 ): Promise<CustomerRefundPlan> {
   const gross = round2(Math.abs(amount));
+  await lockContactForRefund(companyId, 'customer', customerId);
   const { credit, customerName } = await getCustomerOnAccountCredit(
     companyId, customerId, paymentDate,
   );

@@ -55,17 +55,37 @@
  * creates the journal. Its throw is a `BankAllocationRefusal`, which the routes
  * already answer 400, and at that point there is nothing to roll back.
  *
- * `recordSupplierRefund` re-checks anyway, and its throw is a plain refusal
- * that reaches a caller as a 500 — correct, because by then a journal exists
- * and the transaction MUST unwind. The second check is not belt-and-braces: the
- * bank-rule sweep and the backfill reach the writer without the planner, and a
- * writer whose invariant lives in its caller has no invariant.
+ * `recordSupplierRefund` re-checks anyway. The second check is not
+ * belt-and-braces: the bank-rule sweep and the backfill reach the writer
+ * without the planner, and a writer whose invariant lives in its caller has no
+ * invariant.
+ *
+ * BOTH THROWS ARE `SupplierRefundRefusal`, and the routes answer it 400. An
+ * earlier draft of this header said `BankAllocationRefusal`, which was wrong
+ * and load-bearing: `bank-match-confirm` answers 400 only for
+ * `isBankAllocationRefusal`, so an over-credit refund from the bank-match
+ * screen came back as "An internal error occurred" with no remedy in it. Both
+ * REST routes now name this class too.
+ *
+ * ── THE LOCK, AND WHY THE CEILING IS NOTHING WITHOUT IT ─────────────────────
+ *
+ * The ceiling is a check-then-act and the check is the whole safety property.
+ * Two concurrent money-in lines against one supplier both read the same credit,
+ * both pass, and both mint — two −R1,058 refunds against R1,058, reproduced on
+ * dev. The sign CHECK is per row and each row is individually legal; the
+ * illegal thing is the PAIR, which no constraint can see.
+ *
+ * So `planSupplierRefund` takes `lockContactForRefund` BEFORE it reads, and
+ * holds it for the rest of the request transaction. The supplier row is the
+ * only object the two requests share — the row being guarded is the one about
+ * to be inserted, so there is nothing else to lock. See `core/paymentLock`.
  */
 
 import { sql } from '@/lib/neon';
 import type { DbRow } from '@/lib/neon';
 import { log } from '@/lib/logger';
 import { resolveUserUuid } from '../gl/journalEntryCrudService';
+import { lockContactForRefund } from '../core/paymentLock';
 
 /** The one `payment_method` value that carries a negative total. */
 export const REFUND_PAYMENT_METHOD = 'refund';
@@ -177,6 +197,9 @@ export async function planSupplierRefund(
   paymentDate: string,
 ): Promise<SupplierRefundPlan> {
   const gross = round2(Math.abs(amount));
+  // BEFORE the read, and held for the rest of the request. A ceiling read
+  // without this lock is a number two concurrent refunds both satisfy.
+  await lockContactForRefund(companyId, 'supplier', supplierId);
   const { credit, supplierName } = await getSupplierOnAccountCredit(
     companyId, supplierId, paymentDate,
   );
