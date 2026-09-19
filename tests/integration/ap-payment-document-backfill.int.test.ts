@@ -29,7 +29,8 @@ import { assertNotProductionDb } from '../helpers/assertNotProductionDb';
 import {
   AP2, BANK, BILL, CASES, CO, CO2, CO2_AMOUNT, CO2_TX, CREATE_TX, DRAFT_REV_J1,
   LIVE_OTHER_TX, OWN_REVERSER_TX, REALLOC_AMOUNT, REALLOC_TX, REFUND_TX, REFUND_AMOUNT,
-  CONTROL_REFUND_TX, CONTROL_REFUND_AMOUNT, REFUND_JE, SUP, SUP2,
+  CONTROL_REFUND_TX, CONTROL_REFUND_AMOUNT, REFUND_JE,
+  EXCESS_REFUND_TX, EXCESS_REFUND_AMOUNT, ON_ACCOUNT_AMOUNT, SUP, SUP2,
   cleanup, cleanupCompany, createdPaymentId, journalFor, ledgerShape, seed,
 } from '../helpers/apBackfillFixture';
 import {
@@ -90,7 +91,44 @@ describeIfDb('AP payment-document backfill (migration 615)', () => {
     // `supplier_unresolved` would be a true statement pointing at the wrong
     // remedy: the line names a GL account and no supplier record can fix it.
     expect(got.get(CONTROL_REFUND_TX)).not.toBe('supplier_unresolved');
-    expect(got.size).toBe(CASES.length + 2);
+    // 682: the ceiling. Same supplier, same direction, same journal shape as
+    // REFUND_TX — only the amount differs, so this outcome is the ceiling and
+    // nothing else.
+    expect(got.get(EXCESS_REFUND_TX)).toBe('refund_exceeds_credit');
+    expect(got.size).toBe(CASES.length + 3);
+  });
+
+  it('measures the ceiling as at the LINE\'S OWN DATE, and reports the figure', async () => {
+    const res = await db.query(
+      `SELECT bank_transaction_id::TEXT AS id, amount, on_account_credit, outcome
+         FROM ap_payment_document_backfill_candidates
+        WHERE bank_transaction_id = ANY($1::UUID[]) ORDER BY amount`,
+      [[REFUND_TX, EXCESS_REFUND_TX]]);
+    const by = new Map(res.rows.map((r) => [r.id, r]));
+    const credit = Number(by.get(REFUND_TX)!.on_account_credit);
+    // No literal: the figure is every unapplied remainder SUP carries, and
+    // pinning it would make this case fail the first time an unrelated payment
+    // is added to the fixture for an unrelated outcome. What is pinned is the
+    // RELATION — the credit brackets the two refunds — which is the thing the
+    // ceiling actually decides.
+    expect(credit).toBeGreaterThanOrEqual(ON_ACCOUNT_AMOUNT);
+    expect(REFUND_AMOUNT).toBeLessThanOrEqual(credit);
+    expect(EXCESS_REFUND_AMOUNT).toBeGreaterThan(credit);
+    expect(Number(by.get(EXCESS_REFUND_TX)!.on_account_credit)).toBe(credit);
+    expect(by.get(REFUND_TX)!.outcome).toBe('create_refund');
+  });
+
+  it('bounds the on-account credit by the as-at date', async () => {
+    // The ceiling is measured as at the LINE'S OWN DATE, not today's: cash
+    // applied since must not retrospectively make a correct refund wrong, and
+    // cash that arrived later must not fund an earlier refund. The seeded
+    // on-account payment is dated 2026-03-01, so the bound is visible across it.
+    const { rows } = await db.query(
+      `SELECT ap_supplier_on_account_credit($1::UUID, $2::UUID, '2026-02-01'::DATE) AS before_it,
+              ap_supplier_on_account_credit($1::UUID, $2::UUID, '2026-03-01'::DATE) AS on_it`,
+      [CO, SUP]);
+    expect(Number(rows[0]!.on_it) - Number(rows[0]!.before_it))
+      .toBeGreaterThanOrEqual(ON_ACCOUNT_AMOUNT);
   });
 
   it('carries the gross line value for a refund, and resolves its supplier', async () => {
@@ -141,9 +179,9 @@ describeIfDb('AP payment-document backfill (migration 615)', () => {
       [[CO, CO2]],
     );
     const byCompany = new Map(res.rows.map((r) => [r.company_id, Number(r.n)]));
-    // +2: the supplier refund and the control-account refund, both classified
-    // only since 681.
-    expect(byCompany.get(CO)).toBe(CASES.length + 2);
+    // +3: the supplier refund and the control-account refund (681), and the
+    // refund that breaches the ceiling (682).
+    expect(byCompany.get(CO)).toBe(CASES.length + 3);
     expect(byCompany.get(CO2)).toBe(1);
   });
 
@@ -266,6 +304,26 @@ describeIfDb('AP payment-document backfill (migration 615)', () => {
     // Applied to NOTHING, ever. A negative remainder applied to a bill un-pays
     // it, which is a correction a person makes deliberately.
     expect(Number(r.allocs)).toBe(0);
+  });
+
+  it('logs the over-ceiling refund as skipped and mints nothing for it', async () => {
+    // The live path REFUSES this outright. The batch path cannot refuse a whole
+    // tenant's run over one line, so it reports it — but it must not mint, or
+    // the two paths would write the same document under two different rules.
+    const res = await db.query(
+      `SELECT outcome, reason, amount, supplier_payment_id
+         FROM ap_payment_document_backfill
+        WHERE batch_id = $1::UUID AND bank_transaction_id = $2::UUID`,
+      [BATCH_1, EXCESS_REFUND_TX]);
+    expect(res.rows).toHaveLength(1);
+    expect(res.rows[0]!.outcome).toBe('skipped');
+    expect(res.rows[0]!.reason).toBe('refund_exceeds_credit');
+    expect(res.rows[0]!.supplier_payment_id).toBeNull();
+
+    const minted = await db.query(
+      `SELECT COUNT(*)::INT AS n FROM supplier_payments WHERE reference = $1`,
+      [EXCESS_REFUND_TX]);
+    expect(minted.rows[0]!.n).toBe(0);
   });
 
   it('logs the control-account refund as skipped and mints nothing for it', async () => {

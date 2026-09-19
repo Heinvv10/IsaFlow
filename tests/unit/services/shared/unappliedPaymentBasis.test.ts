@@ -150,6 +150,33 @@ describe('getUnappliedPaymentBasis', () => {
     }
   });
 
+  it('maps a REFUND to a NEGATIVE remainder, and caps its allocations at zero', async () => {
+    // THE JS HALF OF THE CAP, which the SQL-text assertion above cannot reach.
+    // Revert `Math.max(totalAmount, 0)` to `totalAmount` and this goes red:
+    // `min(0, -160609.85)` is −160609.85, the remainder computes to exactly
+    // zero, the `=== 0` guard drops the row, and `res.rows` is empty — a refund
+    // silently absent from every figure built on this basis.
+    mockBasis([basisRow({
+      id: 'refund-1', total_amount: '-160609.85', allocated_amount: '0',
+      payment_method: 'refund',
+    })]);
+    const res = await getUnappliedPaymentBasis(COMPANY, 'ap', '2026-09-08');
+    expect(res.rows).toHaveLength(1);
+    expect(res.rows[0]).toMatchObject({
+      totalAmount: -160609.85,
+      allocatedAmount: 0,
+      unappliedAmount: -160609.85,
+      // Read from the METHOD, never from the sign.
+      kind: 'refund',
+    });
+  });
+
+  it('types an ordinary payment as `payment`, whatever its remainder', async () => {
+    mockBasis([basisRow({ total_amount: '1000', allocated_amount: '250' })]);
+    const res = await getUnappliedPaymentBasis(COMPANY, 'ap', '2026-09-08');
+    expect(res.rows[0]).toMatchObject({ unappliedAmount: 750, kind: 'payment' });
+  });
+
   it('reads AP allocations from payment_allocations, the table AP actually posts to', async () => {
     mockBasis([]);
     await getUnappliedPaymentBasis(COMPANY, 'ap', '2026-09-08');
