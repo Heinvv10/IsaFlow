@@ -34,6 +34,16 @@
  * supplier's other unapplied cash. Same invariants, unchanged — no journal, no
  * allocation, no `amount_paid`.
  *
+ * `refund_exceeds_credit` (682) is the shape that MUST NOT be minted. A refund
+ * returns credit the company was holding and cannot return more than it held;
+ * past that point the supplier owes the company, which is a receivable. The
+ * attended path refuses it outright, and the batch path now reports it under
+ * the same ceiling — `ap_supplier_on_account_credit`, measured as at the LINE'S
+ * OWN DATE, so cash applied since cannot retrospectively make a correct refund
+ * wrong. It is the outcome the one production refund actually lands on: Blitz
+ * Fibre held R0.00 on account on 2026-09-04 against a R160,609.85 deposit,
+ * because the FIFO back-fill had already applied all 88 of its payments.
+ *
  * `refund_on_control_unresolved` is the shape that CANNOT be minted. A deposit
  * allocated straight to the AP control account credits the payable without
  * naming a supplier, so there is no on-account credit for the refund to belong
@@ -117,6 +127,10 @@ const VIEW_MIGRATIONS = [
   // every money-IN supplier line nowhere at all: the old view filtered
   // `b.amount < 0`, so the refunds were not skipped, they were invisible.
   '681_supplier_refund_documents.sql',
+  // 682 puts the LIVE path's refund ceiling on the batch path too, and moves
+  // the run onto a single materialised snapshot of the classification. On 681
+  // alone the batch minted refunds the attended path would have refused.
+  '682_ap_backfill_refund_ceiling.sql',
 ] as const;
 
 const money = (n: number): string =>
