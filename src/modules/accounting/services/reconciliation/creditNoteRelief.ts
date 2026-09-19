@@ -136,6 +136,7 @@ export function creditNoteReliefExpr({ companyId, asAtDate, ids, side }: CreditN
                      AND NOT EXISTS (
                        SELECT 1 FROM credit_note_allocations cna2
                        WHERE cna2.credit_note_id = cn.id
+                         AND cna2.company_id = ${companyId}::UUID
                      )
                  ), 0),
                  COALESCE((
@@ -155,6 +156,7 @@ export function creditNoteReliefExpr({ companyId, asAtDate, ids, side }: CreditN
                      AND NOT EXISTS (
                        SELECT 1 FROM credit_note_allocations cna2
                        WHERE cna2.credit_note_id = cn.id
+                         AND cna2.company_id = ${companyId}::UUID
                      )
                  ), 0)
                )`;
