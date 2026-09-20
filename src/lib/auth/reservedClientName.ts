@@ -39,26 +39,89 @@ const CONFUSABLES: Record<string, string> = {
 };
 
 /**
- * Lossy one-way fold used only for reserved-term comparison. Decomposes and
- * drops accents, collapses look-alikes, then strips everything that is not an
- * ASCII alphanumeric — which is what removes separators AND every zero-width or
- * bidi-control character in one step. So "Isa Flow", "Isaflów",
- * "isa-flow", "ＩｓａＦｌｏｗ" and "isa​flow" all land on the same string
- * as "isaflow".
+ * Stands in for exactly one character we could not identify — an unmapped
+ * look-alike, or a symbol used as a letter. Never produced by the tokenizer;
+ * only inserted at a token junction when testing a candidate run.
  */
-export function foldForComparison(value: string): string {
+const WILDCARD = '\u0000';
+
+/**
+ * Splits a name into comparison tokens. Accents are decomposed and dropped and
+ * look-alikes folded onto one representative; everything that is not then an
+ * ASCII alphanumeric is a separator. That covers zero-width and bidi-control
+ * characters too — they separate nothing, because separators are dropped when
+ * a run of tokens is joined back together.
+ *
+ * Lossy and one-way: used only to compare against reserved terms, never to
+ * derive what is displayed or stored.
+ *
+ * Residual risk, stated rather than implied: this stops one substituted glyph,
+ * not several, and not the general n:1 shape ("rn" for "m"). It is one control
+ * among several — every dynamically-registered client also renders the
+ * unverified-app warning on the consent screen, which is what carries the
+ * names this cannot catch.
+ */
+export function tokenizeForComparison(value: string): string[] {
   return value
     .normalize('NFKD')
-    .replace(/[̀-ͯ]/g, '')
+    .replace(/[\u0300-\u036f]/g, '')
     .normalize('NFKC')
     .toLowerCase()
-    .replace(/./gsu, (ch) => CONFUSABLES[ch] ?? ch)
-    .replace(/[^a-z0-9]/g, '');
+    .replace(/./gsu, (ch) => {
+      const folded = CONFUSABLES[ch] ?? ch;
+      return /[a-z0-9]/.test(folded) ? folded : ' ';
+    })
+    // One cheap multi-character look-alike, aimed at this brand's own letters.
+    // The general n:1 class (rn for m, cl for d) is not covered — see the note
+    // on residual risk in the module comment.
+    .replace(/vv/g, 'w')
+    .split(' ')
+    .filter(Boolean);
+}
+
+/** True when `candidate` is `target`, with WILDCARD matching any one character. */
+function matchesTerm(candidate: string, target: string): boolean {
+  if (candidate.length !== target.length) return false;
+  for (let i = 0; i < target.length; i += 1) {
+    if (candidate[i] !== target[i] && candidate[i] !== WILDCARD) return false;
+  }
+  return true;
+}
+
+/**
+ * True when a reserved term is spelled out by a whole run of adjacent tokens.
+ *
+ * Whole runs, not substrings: "Isa Flow" and "isa-flow" spell the brand across
+ * two tokens and are refused, while "Lisa Flow" and "Unofficial Xero Sync" —
+ * which merely contain those letters inside a longer word — are not.
+ *
+ * A separator is also tried as a single wildcard, because a symbol can stand in
+ * for a letter it resembles ("!saflow", "is@flow"). Dropping it and standing it
+ * in for one letter are both considered, so "Isa Flow!" stays refused on the
+ * dropped reading while "!saflow" is caught on the other.
+ */
+function containsTerm(tokens: string[], target: string): boolean {
+  for (let start = 0; start < tokens.length; start += 1) {
+    for (let end = start; end < tokens.length; end += 1) {
+      const run = tokens.slice(start, end + 1);
+      const joined = run.join('');
+      if (joined.length > target.length) break;
+      if (matchesTerm(joined, target)) return true;
+      // ...or with one junction — including the edges — standing in for a letter.
+      for (let gap = 0; gap <= run.length; gap += 1) {
+        const withGap = [...run.slice(0, gap), WILDCARD, ...run.slice(gap)].join('');
+        if (matchesTerm(withGap, target)) return true;
+      }
+    }
+  }
+  return false;
 }
 
 /** Refused wherever they appear — claiming these is never legitimate. */
-const RESERVED_ADJECTIVES = ['official', 'verified', 'firstparty'].map(foldForComparison);
-const BRAND = foldForComparison('isaflow');
+const RESERVED_ADJECTIVES = ['official', 'verified', 'first party'].map((term) =>
+  tokenizeForComparison(term).join(''),
+);
+const BRAND = tokenizeForComparison('isaflow').join('');
 
 /** A trailing "(...)" qualifier, e.g. the "(isaflow)" in "Claude Code (isaflow)". */
 const TRAILING_QUALIFIER_RE = /\s*\([^()]*\)$/;
@@ -68,23 +131,20 @@ const TRAILING_QUALIFIER_RE = /\s*\([^()]*\)$/;
  * "<client> (isaflow)" to read as "<client>, which talks to IsaFlow" rather
  * than as the brand alone — so it needs at least two letters. One glyph, a
  * digit, a stray separator or an invisible character names nothing, and
- * "​(IsaFlow)" renders as plain "(IsaFlow)".
+ * "\u200b(IsaFlow)" renders as plain "(IsaFlow)".
  */
 const MIN_QUALIFIED_PREFIX_LETTERS = 2;
-
-function countLetters(folded: string): number {
-  return folded.replace(/[^a-z]/g, '').length;
-}
 
 /**
  * True when client_name impersonates IsaFlow or claims official standing, and
  * must therefore be refused.
  */
 export function isReservedClientName(name: string): boolean {
-  const folded = foldForComparison(name);
-  if (RESERVED_ADJECTIVES.some((term) => folded.includes(term))) return true;
+  const tokens = tokenizeForComparison(name);
+  if (RESERVED_ADJECTIVES.some((term) => containsTerm(tokens, term))) return true;
 
-  const foldedPrefix = foldForComparison(name.replace(TRAILING_QUALIFIER_RE, ''));
-  const qualifies = countLetters(foldedPrefix) >= MIN_QUALIFIED_PREFIX_LETTERS;
-  return (qualifies ? foldedPrefix : folded).includes(BRAND);
+  const prefixTokens = tokenizeForComparison(name.replace(TRAILING_QUALIFIER_RE, ''));
+  const letters = prefixTokens.join('').replace(/[^a-z]/g, '').length;
+  const subject = letters >= MIN_QUALIFIED_PREFIX_LETTERS ? prefixTokens : tokens;
+  return containsTerm(subject, BRAND);
 }

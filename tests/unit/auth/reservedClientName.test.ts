@@ -7,7 +7,7 @@
  * officially blessed must be refused, however it is spelled.
  */
 import { describe, it, expect } from 'vitest';
-import { isReservedClientName, foldForComparison } from '@/lib/auth/reservedClientName';
+import { isReservedClientName, tokenizeForComparison } from '@/lib/auth/reservedClientName';
 
 /** The handler trims and truncates before checking; mirror that here. */
 const asHandlerWould = (raw: string) => raw.trim().slice(0, 80);
@@ -86,6 +86,70 @@ describe('isReservedClientName', () => {
     }
   });
 
+  // An unrecognised letter cannot be deleted: that would close the gap between
+  // its neighbours and heal the brand into something shorter. It stands in as a
+  // single wildcard instead.
+  it('refuses the brand with one unrecognised look-alike substituted in', () => {
+    for (const name of [
+      'isafl\u0585w', // Armenian o
+      'isafl\u2C9Fw', // Coptic o
+      '\u2C93saflow', // Coptic i
+      'isaflo\u13B3', // Cherokee w
+      'is\u13AAflow', // Cherokee a
+      '\uA4F2saflow', // Lisu i
+      'isafl\u10DDw', // Georgian o
+      'isafl\u{10404}w', // Deseret o
+      'isafl\u{104EA}w', // Osage o
+    ]) {
+      expect(isReservedClientName(asHandlerWould(name)), JSON.stringify(name)).toBe(true);
+    }
+  });
+
+  // Only ONE unidentified character is ever tolerated, so each normalisation
+  // layer has to be exact rather than leaning on the wildcard. Two substitutions
+  // of the same kind are only caught if that layer resolves them properly.
+  it('resolves each look-alike class exactly, not by spending the wildcard', () => {
+    for (const [name, layer] of [
+      ['Isafl\u00f3\u1e83', 'accent decomposition'], // ó and ẃ
+      ['is\u200ba\u200bflow', 'invisible removal'], // two zero-width spaces
+      ['\u0406saf\u04CFow', 'confusable table'], // Cyrillic І and ӏ
+      ['\u0406sa\u0192low', 'NFKD compatibility'], // Cyrillic І and ƒ
+    ] as const) {
+      expect(isReservedClientName(asHandlerWould(name)), layer).toBe(true);
+    }
+  });
+
+  // A symbol can stand in for a letter it resembles. A separator is therefore
+  // tried both as dropped and as one wildcard.
+  it('refuses the brand with a symbol standing in for a letter', () => {
+    for (const name of ['!saflow', '|saflow', 'is@flow', 'i$aflow', 'IsaFlovv']) {
+      expect(isReservedClientName(asHandlerWould(name)), name).toBe(true);
+    }
+    // ...while ordinary trailing punctuation still reads as a separator.
+    expect(isReservedClientName(asHandlerWould('Isa Flow!'))).toBe(true);
+  });
+
+  // The brand must be spelled by WHOLE tokens. These merely contain its letters
+  // inside longer words and are legitimate names a registrant could hold.
+  it('allows names that merely contain the letters of a reserved term', () => {
+    for (const name of [
+      'Lisa Flow',
+      'Visa Flow Tools',
+      'Marisa Flowers',
+      'Elisa Flow',
+      'Luisa Flower Shop',
+      'Medisaflow',
+      'Unofficial Xero Sync',
+      'Unverified Test Client',
+      'Officiate Pro',
+      'Office Ally',
+      'IsoFlow Diagrammer',
+      'CashFlow Tracker',
+    ]) {
+      expect(isReservedClientName(asHandlerWould(name)), name).toBe(false);
+    }
+  });
+
   it('refuses a mid-name aside — only a trailing qualifier is exempt', () => {
     expect(isReservedClientName('Acme (isaflow) Connector')).toBe(true);
   });
@@ -104,15 +168,18 @@ describe('isReservedClientName', () => {
     }
   });
 
-  // The brand compares as a substring of the folded prefix, with no word
-  // boundary: welding it into a longer word still puts it in the subject
-  // position. Deliberately stricter than the rule this replaced, which allowed
-  // these. The trailing-qualifier form ("MySync (IsaFlow)") remains open.
-  it('refuses the brand welded into a longer word', () => {
+  // The brand must be spelled by whole tokens, so welding it into a longer word
+  // is allowed. This is the same rule that lets "Lisa Flow" register: once
+  // separators are normalised the two are indistinguishable, so refusing
+  // "MyIsaFlowSync" would necessarily refuse "Lisa Flow" too. Brand-as-subject
+  // — the actual impersonation — is still caught, because there the brand
+  // stands alone as a token.
+  it('allows the brand welded into a longer word', () => {
     for (const name of ['MyIsaFlowSync', 'IsaFlowly', 'IsaFlowHQ', 'GoIsaFlow']) {
-      expect(isReservedClientName(asHandlerWould(name)), name).toBe(true);
+      expect(isReservedClientName(asHandlerWould(name)), name).toBe(false);
     }
     expect(isReservedClientName(asHandlerWould('MySync (IsaFlow)'))).toBe(false);
+    expect(isReservedClientName(asHandlerWould('IsaFlow Sync'))).toBe(true);
   });
 
   // These render as the brand to a user but are not the literal ASCII string.
@@ -156,18 +223,28 @@ describe('isReservedClientName', () => {
   });
 });
 
-describe('foldForComparison', () => {
-  it('lands every spelling of the brand on one string', () => {
-    const canonical = foldForComparison('isaflow');
-    for (const variant of ['IsaFlow', 'Isa Flow', 'isa-flow', 'ＩｓａＦｌｏｗ', 'isa​flow', 'Іsaflow']) {
-      expect(foldForComparison(variant), variant).toBe(canonical);
+describe('tokenizeForComparison', () => {
+  it('lands every legible spelling of the brand on one token', () => {
+    for (const variant of [
+      'IsaFlow',
+      'Isa Flow',
+      'isa-flow',
+      'ＩｓａＦｌｏｗ',
+      'isa\u200bflow',
+      '\u0406saflow',
+      '\u{1D4D8}\u{1D4C8}\u{1D4B6}\u{1D4BB}\u{1D4C1}\u2134\u{1D4CC}', // Mathematical Script
+      '\u2111\u{1D530}\u{1D51E}\u{1D523}\u{1D529}\u{1D52C}\u{1D534}', // Mathematical Fraktur
+    ]) {
+      expect(tokenizeForComparison(variant).join(''), variant).toBe(
+        tokenizeForComparison('isaflow').join(''),
+      );
     }
   });
 
-  it('does not collapse distinct third-party names onto the brand', () => {
-    const canonical = foldForComparison('isaflow');
-    for (const name of ['Xero', 'Sage', 'QuickBooks', 'Acme Bookkeeping Bot']) {
-      expect(foldForComparison(name), name).not.toBe(canonical);
+  it('keeps distinct third-party names distinct', () => {
+    const brand = tokenizeForComparison('isaflow').join('');
+    for (const name of ['Xero', 'Sage', 'QuickBooks', 'Lisa Flow', 'Medisaflow']) {
+      expect(tokenizeForComparison(name).join(''), name).not.toBe(brand);
     }
   });
 });
