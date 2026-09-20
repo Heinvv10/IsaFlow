@@ -32,6 +32,9 @@ describe('isReservedClientName', () => {
       'Verified Partner',
       'First-Party App',
       'First Party App',
+      'Firstparty App',
+      'FirstParty Tools',
+      'F1rst-P4rty App',
       'Claude Code (Official)',
       'Acme Bot (verified)',
     ]) {
@@ -85,6 +88,31 @@ describe('isReservedClientName', () => {
 
   it('refuses a mid-name aside — only a trailing qualifier is exempt', () => {
     expect(isReservedClientName('Acme (isaflow) Connector')).toBe(true);
+  });
+
+  // Only the LAST "(...)" is a qualifier, and only when nothing follows it.
+  // These shapes each tried to make an earlier bracket look like the trailing
+  // one; the brand still lands in the prefix, so they stay refused.
+  it('refuses the brand around nested, repeated or multiline brackets', () => {
+    for (const name of [
+      'Acme (isaflow) Connector (x)',
+      'Acme (a(x)b) isaflow (q)',
+      'Acme (isaflow)\nbar',
+      'x (isaflow)\ny',
+    ]) {
+      expect(isReservedClientName(asHandlerWould(name)), JSON.stringify(name)).toBe(true);
+    }
+  });
+
+  // The brand compares as a substring of the folded prefix, with no word
+  // boundary: welding it into a longer word still puts it in the subject
+  // position. Deliberately stricter than the rule this replaced, which allowed
+  // these. The trailing-qualifier form ("MySync (IsaFlow)") remains open.
+  it('refuses the brand welded into a longer word', () => {
+    for (const name of ['MyIsaFlowSync', 'IsaFlowly', 'IsaFlowHQ', 'GoIsaFlow']) {
+      expect(isReservedClientName(asHandlerWould(name)), name).toBe(true);
+    }
+    expect(isReservedClientName(asHandlerWould('MySync (IsaFlow)'))).toBe(false);
   });
 
   // These render as the brand to a user but are not the literal ASCII string.
