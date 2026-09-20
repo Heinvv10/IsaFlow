@@ -19,6 +19,7 @@ import type { NextApiHandler } from 'next';
 import { withErrorHandler } from '@/lib/api-error-handler';
 import { apiResponse } from '@/lib/apiResponse';
 import { checkRateLimit, getClientIp } from '@/lib/rateLimit';
+import { isReservedClientName } from '@/lib/auth/reservedClientName';
 import { log } from '@/lib/logger';
 import { registerOauthApp } from '@/lib/auth/oauth';
 import { pruneStaleDynamicApps } from '@/lib/auth/oauthDynamicClients';
@@ -36,34 +37,6 @@ const MAX_REDIRECT_URIS = 5;
 const MAX_REDIRECT_URI_LEN = 512;
 const MAX_NAME_LEN = 80;
 
-// Reserved terms a dynamic client_name may not use (case-insensitive) — stops a
-// public DCR client claiming to BE IsaFlow or to be official/verified to phish
-// consent. Generic suspicion is already handled by the unverified-app warning on
-// the consent screen. First-party apps get is_first_party via a separate authed
-// path, not DCR.
-//
-// Claiming to be official/verified is never legitimate, so these are refused
-// wherever they appear, including inside a qualifier.
-const RESERVED_ADJECTIVE_RE = /\b(official|verified|first[-\s]?party)\b/i;
-// The brand is different: a well-behaved MCP client names the service it
-// connects to ("Claude Code (isaflow)"), and refusing that blocked legitimate
-// registrations. What phishes is the brand as the SUBJECT of the name — "IsaFlow",
-// "IsaFlow Connector", "The IsaFlow App" all read as "this IS IsaFlow". So the
-// brand is allowed only in a trailing parenthetical qualifier, where the client
-// has already identified itself as something else first.
-const BRAND_RE = /\bisaflow\b/i;
-const TRAILING_QUALIFIER_RE = /\s*\([^()]*\)$/;
-
-/**
- * True when client_name impersonates IsaFlow or claims official standing.
- * The brand is tolerated only inside a trailing "(...)" that qualifies a
- * non-empty client name of its own.
- */
-function isReservedClientName(name: string): boolean {
-  if (RESERVED_ADJECTIVE_RE.test(name)) return true;
-  const withoutQualifier = name.replace(TRAILING_QUALIFIER_RE, '').trim();
-  return BRAND_RE.test(withoutQualifier || name);
-}
 const SUPPORTED_GRANT_TYPES = ['authorization_code', 'refresh_token'];
 const SUPPORTED_RESPONSE_TYPES = ['code'];
 
