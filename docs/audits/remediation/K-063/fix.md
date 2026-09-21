@@ -333,12 +333,9 @@ stands (Void on a draft/approved payment, cancelBatch for approved batches).
    through its batch".** Voiding a PROCESSED batch member un-applied its bill
    (amount_paid 300 → 0) while the batch journal's AP debit stood, and the bill
    then took a new 1000. `supplierPaymentGates.ts#voidIfUnprocessed` now refuses
-   a batch member in every status, naming the batch. **There is no batch-level
-   reversal** (batchPaymentService has create/approve/process/cancel only;
-   cancel covers draft/approved), so the message for a processed member says a
-   processed batch "cannot be reversed from here yet" rather than pointing at a
-   route that does not exist. Whether to build one is Hein's decision — raised
-   with the lead, not invented here. Both orders pinned in
+   a batch member in every status, naming the batch. There was no batch-level
+   reversal; Hein decided to build one (Round 6), and the message for a
+   processed member now says "reverse the batch". Both orders pinned in
    `k063-deleted-bill-and-batch-member`: batch processed then member voided →
    400, member still processed, bill 300, AP +300, a new 1000 refused and 700
    accepted; member voided then batch processed → 400, batch pays once (bill
@@ -382,3 +379,74 @@ stands (Void on a draft/approved payment, cancelBatch for approved batches).
 - **Batch member's page.** No Process, Void or Cancel (each would answer 400);
   instead "This payment is managed in its batch — open the batch", linking to
   it. Seen in the browser; component-tested with the link's href.
+
+## Round 6 (2026-09-21) — reverse a processed batch (Hein's decision on r2 HIGH-1)
+
+`batchPaymentReversal.ts#reverseBatch`, the `reverse` action on
+batch-payments-action, a "Reverse batch" button, and migration
+`691_supplier_payment_batch_reversed_status.sql` (adds `reversed` to
+`supplier_payment_batches_status_check`; schema only, idempotent; 684–690 are
+taken on other branches, so 691 is the next unused prefix).
+
+**Approach — one batch-level unwind on the existing primitives, not a void per
+member.** Members carry no journal: `processBatch` posts ONE journal (DR AP / CR
+Bank, batch total). Voiding member by member would need N partial reversals of
+that one journal, which `reverseJournalEntry`'s reversal claim (`reversed_at`)
+and migration 619's unique `reversal_of_id` exist to forbid. So the reversal
+un-applies each bill by exactly THIS batch's allocations to it (summed per bill,
+since a legacy batch can name one bill twice), then calls `reverseJournalEntry`
+on the batch journal — so no path, this one included, can post a second contra.
+Bill status comes from `recomputeInvoiceStatus` (the owner of the threshold), so
+a bill a later payment also paid stays partly/fully paid. Members → `cancelled`
+(the status single void leaves); batch → `reversed`. Allocation rows stay as
+history; cancelled members are outside the pending set, so they no longer
+reserve the bills.
+
+**One transaction** (the request transaction plus a savepoint). **Locks:** the
+batch row (`claimUnderLockTimeout`, 5s → 409), then any bank line matched to the
+batch journal, then the bills through `fetchBillCandidates` (the shared id
+order), then the GL. **Refusals, all before the first write (400):** batch not
+`processed`; any member not `processed`; its bank line reconciled (or claimed by
+an allocated bank line); a bill no longer showing this batch's money; the
+reversal date not in an open period. Already `reversed` (a double-click's loser)
+→ 409.
+
+**Closed period.** The date is decided exactly as `reverseJournalEntry` decides
+it (`resolveReversalDate`): the original date if its period is open, otherwise
+today. Single void does the same, but lets a closed/absent period surface as a
+failed post — a 500 that rolls the whole void back. The batch reversal checks
+that date's period first and refuses 400 with nothing written.
+
+**Bank leg.** A bank line matched to the batch journal is unmatched
+(`unmatchTransaction`, back to `imported`) so the statement line can match
+again; reconciled refuses. Single void does NOT touch a matched bank line today
+— that gap is single void's, noted, not changed here.
+
+**Proof** (`tests/integration/k064-batch-reversal.int.test.ts`, 8 tests): a batch
+of 3 members across 2 bills (X carries two: 300 + 100), processed (X 400, Y 200),
+then a later separate 400 on Y processed → reverse → X 0 `approved`, Y 400
+`partially_paid`, AP net = before + 400 and bank net = before − 400 (only the
+later payment remains), batch `reversed`, members `cancelled`, the later payment
+still `processed`, exactly 1 posted contra, trial balance balanced, and X takes a
+fresh 1000. Double-click: 200 + 409, one contra. Racing a new payment on Y: 200,
+the payment 201 or 400 depending on order, never 500, Y ends 0. Matched bank line
+→ `imported`. Reconciled bank line → 400; closed period → 400; each with batch,
+members, bill, contras and AP unchanged. Not processed → 400; viewer → 403 (same
+`withWriteAccess` as void); a member void → 400 "reverse the batch".
+**Mutations** (`round6-mutations.log`): G1 every reversed/processed/reversed_at
+check removed → double-click red; G2 each bill decremented by the batch TOTAL → 3
+red; G3 reconciled refusal removed → red; G4 batch row lock dropped → red. All
+restored byte-identical.
+
+**UI.** "Reverse batch" only on a processed batch (component-tested for
+processed / approved / reversed). **Browser** (`round6-ui-browser.log`): on an
+approved batch, Process → 200; the page then offered only "Reverse batch"; its
+dialog read "This posts a reversing journal (DR Bank / CR Accounts Payable for
+R 200,00) and reopens 1 bill by exactly what this batch paid. Every payment in the
+batch is voided. Payments made separately stay as they are."
+(`round6-reverse-dialog.png`); confirm → 200; the page shows `reversed`, no
+action buttons, the member `cancelled` (`round6-reversed.png`); the database
+shows the bill back at 0.00 `approved` and one posted contra.
+`BATCH_ALREADY_REVERSED` is registered in the MCP refusal allowlist
+(`toolHelpers.ts`), which `typedRefusalReachesAgent` requires of every
+`readonly code`.

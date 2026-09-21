@@ -10,6 +10,7 @@ import Link from 'next/link';
 import { ArrowLeft, Layers, Loader2, AlertCircle, Check, Zap, XCircle } from 'lucide-react';
 import { formatDate } from '@/utils/formatters';
 import { apiErrorMessage, apiFetch, assertOk } from '@/lib/apiFetch';
+import { ConfirmDialog } from '@/components/accounting/ConfirmDialog';
 
 const fmt = (n: number) => new Intl.NumberFormat('en-ZA', { style: 'currency', currency: 'ZAR' }).format(n);
 
@@ -17,6 +18,7 @@ const STATUS_BADGE: Record<string, string> = {
   draft: 'bg-gray-500/20 text-gray-400',
   approved: 'bg-blue-500/20 text-blue-400',
   processed: 'bg-teal-500/20 text-teal-400',
+  reversed: 'bg-amber-500/20 text-amber-400',
   cancelled: 'bg-red-500/20 text-red-400',
 };
 
@@ -38,6 +40,7 @@ interface BatchDetail {
   bankAccountId?: string;
   status: string;
   payments: BatchPayment[];
+  billCount?: number;
 }
 
 export default function BatchPaymentDetailPage() {
@@ -48,6 +51,7 @@ export default function BatchPaymentDetailPage() {
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState('');
   const [actionBusy, setActionBusy] = useState('');
+  const [confirmReverse, setConfirmReverse] = useState(false);
 
   const load = useCallback(async () => {
     if (!batchId) return;
@@ -140,6 +144,12 @@ export default function BatchPaymentDetailPage() {
                     </button>
                   </>
                 )}
+                {batch.status === 'processed' && (
+                  <button onClick={() => setConfirmReverse(true)} disabled={!!actionBusy}
+                    className="inline-flex items-center gap-2 px-4 py-2 bg-red-600/10 text-red-400 rounded-lg hover:bg-red-600/20 text-sm font-medium disabled:opacity-50">
+                    {actionBusy === 'reverse' ? <Loader2 className="h-4 w-4 animate-spin" /> : <XCircle className="h-4 w-4" />} Reverse batch
+                  </button>
+                )}
               </div>
             )}
           </div>
@@ -216,6 +226,17 @@ export default function BatchPaymentDetailPage() {
           ) : null}
         </div>
       </div>
+      <ConfirmDialog
+        open={confirmReverse}
+        title="Reverse this processed batch?"
+        message={`This posts a reversing journal (DR Bank / CR Accounts Payable for ${batch ? fmt(batch.totalAmount) : 'the batch total'}) and reopens ${batch?.billCount ?? 0} bill${batch?.billCount === 1 ? '' : 's'} by exactly what this batch paid. Every payment in the batch is voided. Payments made separately stay as they are.`}
+        confirmLabel="Reverse batch"
+        cancelLabel="Keep it"
+        confirmTone="danger"
+        busy={actionBusy !== ''}
+        onConfirm={() => { setConfirmReverse(false); void doAction('reverse'); }}
+        onCancel={() => setConfirmReverse(false)}
+      />
     </AppLayout>
   );
 }
