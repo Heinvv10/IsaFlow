@@ -35,8 +35,10 @@ counted.
 
 ## Evidence
 
-- `red-master.log`: the new r116 suite ran against master's endpoints. 4 tests failed. The one that
-  passed is "no as-at date means today".
+- `red-master.log`: the final 6-test r116 suite ran against master's two endpoints, with the
+  branch's endpoint files replaced by master's. 5 tests failed, including the soft-delete test. The
+  one that passed is "no as-at date means today". Page and batch changes are red-proven by
+  mutation only, because the component and unit tests do not exist on master.
 - `green.log`: r116, r115, r112/r113, k053, r082 and r095 (6 files) all passed: 49 tests.
 - Component tests (`tests/unit/components/customerStatementsAsAt.test.tsx`, 10 tests) cover the
   local-date defaults at 01:30 SAST, the drill-down links, the drill-down fetch, its label and its
@@ -55,14 +57,18 @@ counted.
     AR ageing at 2026-08-31 lands on `?as_at_date=2026-08-31`, labelled "as at 2026/08/31", with
     two lines and a balance of R 800,00.
   - No page errors in any run.
-- Blind review (Opus), 3 rounds, final verdict SHIP.
+- Blind review (Opus), 4 rounds, final verdict SHIP.
   - Round 1 (REQUEST_CHANGES: 3 MEDIUM, 3 LOW): the drill-down links and page dropped the date; the
     drill-down PDF used UTC; Overdue used today; there were no page-default tests and no soft-delete
     test; one long comment line.
   - Round 2 (SHIP: 1 MEDIUM, 2 LOW): the AR ageing link and its UTC default; the address change was
     untested; the PDF date was untested.
   - Round 3 (SHIP: 1 LOW): the test stubbed the global `URL` in place.
+  - Round 4 (SHIP: 2 LOW, docs): the red log predated the soft-delete test, and the register named
+    only the first of the three fix commits.
   - All were fixed.
+- Fix commits: `12d4c5040` (endpoints, batch, page defaults), `105b9d9a7` (drill-down, its PDF,
+  Overdue) and `d72dbf70b` (AR ageing link and default).
 
 ## Not changed
 
