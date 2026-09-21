@@ -16,56 +16,9 @@ import type { SupplierInvoice } from '../../types/ap.types';
 import type { JournalLineInput } from '../../types/gl.types';
 import { actorMeta, type PostingActorOpts } from '../gl/journalEntryMeta';
 import { releaseCapturedDocumentPostingClaim } from '../capture/capturePostingClaimRelease';
+import { buildExpenseLines } from './supplierInvoiceExpenseLines';
 
 type Row = DbRow;
-
-/**
- * Build the expense journal lines for a supplier invoice.
- *
- * Handles gross vs net line totals: if the sum of lineTotals matches
- * totalAmount (gross-inclusive storage), scale each line down to net
- * to avoid double-counting VAT. Uses a last-line adjustment so the
- * per-line rounding errors don't accumulate into a debit/credit imbalance.
- */
-function buildExpenseLines(
-  invoice: SupplierInvoice,
-  defaultGlAccountId: string,
-): JournalLineInput[] {
-  const items = invoice.items ?? [];
-  const sumLineTotal = items.reduce((s, i) => s + i.lineTotal, 0);
-  const lineTotalsAreGross = invoice.taxRate > 0 && Math.abs(sumLineTotal - invoice.totalAmount) < 0.02;
-  const netTotal = invoice.subtotal;
-  const lines: JournalLineInput[] = [];
-
-  let allocatedNet = 0;
-  const itemCount = items.length;
-
-  items.forEach((item, idx) => {
-    const glAccountId = item.glAccountId || defaultGlAccountId;
-    let debit: number;
-
-    if (idx === itemCount - 1) {
-      // Last line: absorb rounding residual so debits sum exactly to subtotal.
-      debit = Math.round((netTotal - allocatedNet) * 100) / 100;
-    } else if (lineTotalsAreGross && sumLineTotal > 0) {
-      debit = Math.round(item.lineTotal * (netTotal / sumLineTotal) * 100) / 100;
-    } else {
-      debit = Math.round(item.lineTotal * 100) / 100;
-    }
-
-    allocatedNet += debit;
-    lines.push({
-      glAccountId,
-      debit,
-      credit: 0,
-      description: item.description,
-      projectId: item.projectId || invoice.projectId,
-      costCenterId: item.costCenterId || invoice.costCenterId,
-    });
-  });
-
-  return lines;
-}
 
 export async function approveSupplierInvoice(
   companyId: string,
