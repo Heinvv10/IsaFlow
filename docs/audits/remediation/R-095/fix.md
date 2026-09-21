@@ -96,7 +96,7 @@ Measured on the fixture (`r095-measure-screens.log`; closing balances):
 | Invoice 1000; credit notes: approved 100, partially_applied 200 (50 applied), applied 300 (250 applied), draft 70, cancelled 80 | 450 | 450 | 450 | **900** | **900** |
 | Invoice 1000 dated −400 days; receipt 400 dated −30 days | 600 | 600 | 600 | 600 | **−400** |
 
-### New register item A — `pages/api/accounting/customer-statement-detail.ts`
+### R-112 (registered) — `pages/api/accounting/customer-statement-detail.ts`
 
 This is the Customer Statements detail screen: `/accounting/customer-statements/[clientId]`
 and `generateStatementsBatch`.
@@ -113,7 +113,7 @@ and `applied` count, with an `applied` note at `applied_amount` and the others a
 `total_amount`. The fix is to credit `cp.total_amount`, as
 `statementEmailService` does.
 
-### New register item B — `pages/api/accounting/customer-statement.ts`
+### R-113 (registered) — `pages/api/accounting/customer-statement.ts`
 
 This is the Customers → Statement screen `/accounting/customers/statement`, and
 its PDF (`format=pdf`, and the links in `CustomerStatementTable`). It has three
@@ -211,8 +211,11 @@ through the portal form as `portal-a@test.local` (login 200):
 
 ## Residual
 
-- Register items A and B above: for the team lead to register; not fixed here.
-- The per-invoice link surface's population rule (the dropped WIP): Hein's call.
+- R-112 and R-113 (registered in backlog.json): not fixed here.
+- **Why the WIP's per-invoice token changes were dropped:** they would stop staff
+  ("copy portal link") and dunning links working for draft and pending_approval
+  invoices. That is a product call, not a defect fix, so the file stays as master
+  has it until Hein decides.
 - The AR portal has no logout route. The page's "log out" only clears
   localStorage, and the `portal_session` cookie lives out its 24h. Revocation now
   works server-side, but a shared computer keeps a live session. Not in R-095's
