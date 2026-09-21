@@ -13,6 +13,7 @@ import { getSystemAccount } from '../gl/systemAccountResolver';
 import { defaultHumanMeta } from '../gl/journalEntryMeta';
 import { lockSupplierPaymentForUpdate } from '../core/paymentLock';
 import { getSupplierPaymentById } from './supplierPaymentService';
+import { assertAllocationsStillAllocatable } from './supplierBatchAllocationPlan';
 import type { SupplierPayment } from '../../types/ap.types';
 import type { JournalLineInput } from '../../types/gl.types';
 type Row = DbRow;
@@ -108,6 +109,15 @@ export async function processSupplierPayment(
     }
     const payment = await getSupplierPaymentById(companyId, id);
     if (!payment) throw new SupplierPaymentNotFoundError(id);
+    // Decided under the payment lock, so a double-click's loser is told the
+    // payment is processed (409) rather than that its bills are now paid.
+    if (payment.status !== 'approved') throw new SupplierPaymentNotProcessableError(payment.status);
+
+    // K-063/K-066 where money moves: every bill must STILL be payable and this
+    // supplier's. Refused before the claim, so the payment stays 'approved'.
+    await assertAllocationsStillAllocatable(companyId, byInvoiceId(payment.allocations ?? []).map((a) => ({
+      invoiceId: a.invoiceId, amount: a.amountAllocated, supplierId: payment.supplierId,
+    })));
 
     // CLAIM the payment before anything is posted — the singular twin of
     // batchPaymentService.processBatch, which carried the identical defect.

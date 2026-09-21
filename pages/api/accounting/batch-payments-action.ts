@@ -15,6 +15,10 @@ import {
   cancelBatch,
   BatchNotProcessableError,
 } from '@/modules/accounting/services/ap/batchPaymentService';
+import {
+  isRetryableSupplierPaymentRefusal,
+  isSupplierPaymentRefusal,
+} from '@/modules/accounting/services/ap/supplierPaymentRefusal';
 
 async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse) {
   if (req.method !== 'POST') {
@@ -55,6 +59,10 @@ async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse) {
     if (err instanceof Error && err.message === 'Batch not found') {
       return apiResponse.notFound(res, 'Batch');
     }
+    // K-063/K-066: a bill no longer payable, raised before the claim. A
+    // contended bill is a retry, not the user's mistake.
+    if (isRetryableSupplierPaymentRefusal(err)) return apiResponse.conflict(res, (err as Error).message);
+    if (isSupplierPaymentRefusal(err)) return apiResponse.badRequest(res, err.message);
     throw err;
   }
 }

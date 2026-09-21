@@ -75,7 +75,12 @@ the COMMIT on a 4xx commits nothing; before this round it would have been a 500.
 supplier" cases for supplier-payments and batch-payments POST allocated to the
 seeded bill, which belongs to SUP_A2, on a payment to SUP_A. With this guard
 they were refused, correctly. The fixture now seeds `BILL_A` owned by SUP_A and
-those two cases use it; nothing else read the seeded bill.
+those two cases use it; nothing else read the seeded bill. The old cases passed ONLY
+because of K-066: they allocated a supplier-A payment to supplier A2's bill and
+expected a write. The R-068 assertions themselves are unchanged — the foreign
+(company B) supplier is still refused 400 with "was not found for this company"
+and zero rows, and company A's own supplier still writes exactly one row; only the
+bill id in those two request bodies changed (`ids.BILL` → `ids.BILL_A`).
 
 **Tests.** The two round-1 service-level files are replaced by
 `tests/integration/k066-supplier-payment-foreign-bill.int.test.ts` (route-level):
@@ -88,7 +93,7 @@ written; own approved bill → 201. Red on master 5/7, green 7/7.
 `createSupplierPayment` loop (M3) turns all 5 K-066 refusal cases red. Both
 restored byte-identical.
 
-**Residual, not fixed here.** `processSupplierPayment` does not re-check bill
-status or supplier at process time, so a bill cancelled between creation and
-processing is still settled. The create-time bill read takes no lock, so it
-guards against a bad request, not a concurrent status change.
+**Round 3** closed the process-time gap this round left open — see
+`K-063/fix.md` "Round 3": a bill cancelled, disputed, sent back or reassigned
+between creation and processing is now refused at process time, under the bill
+lock, before any write, and the payment stays `approved`.
