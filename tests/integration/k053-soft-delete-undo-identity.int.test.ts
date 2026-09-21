@@ -183,7 +183,10 @@ describeIfDb('K-053 delete/undo is identity on the ledger', () => {
       INSERT INTO supplier_payments (company_id, supplier_id, payment_date, total_amount, status, created_by)
       VALUES (${COMPANY}::UUID, ${supplier}::UUID, ${DOC_DATE}, 300, 'draft', ${USER}::UUID)
       RETURNING id`) as { id: string }[])[0]!.id;
-    await sql`INSERT INTO supplier_payment_allocations (payment_id, invoice_id, amount_allocated)
+    // `payment_allocations` is the live AP table (the delete guard reads it since
+    // K-063 round 4); migration 201's `supplier_payment_allocations` is read by
+    // nothing and holds zero rows in dev and production.
+    await sql`INSERT INTO payment_allocations (payment_id, invoice_id, amount_allocated)
               VALUES (${supplierPayment}::UUID, ${allocatedBill}::UUID, 300)`;
 
     // Point one invoice at an entry that exists but belongs to another company,
@@ -205,7 +208,7 @@ describeIfDb('K-053 delete/undo is identity on the ledger', () => {
     await sql`DELETE FROM soft_delete_journal_reversals WHERE company_id = ${COMPANY}::UUID`;
     await sql`DELETE FROM customer_payment_allocations WHERE payment_id IN
                 (SELECT id FROM customer_payments WHERE company_id = ${COMPANY}::UUID)`;
-    await sql`DELETE FROM supplier_payment_allocations WHERE payment_id IN
+    await sql`DELETE FROM payment_allocations WHERE payment_id IN
                 (SELECT id FROM supplier_payments WHERE company_id = ${COMPANY}::UUID)`;
     await sql`DELETE FROM customer_payments WHERE company_id = ${COMPANY}::UUID`;
     await sql`DELETE FROM supplier_payments WHERE company_id = ${COMPANY}::UUID`;

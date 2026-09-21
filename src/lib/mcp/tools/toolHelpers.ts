@@ -150,6 +150,9 @@ const REFUSAL_CODES: ReadonlySet<string> = new Set([
   'BANK_TX_ALLOCATED',
   'BANK_TX_LOCK_TIMEOUT',
   'BANK_TX_NOT_POSTED',
+  // Listed because every `readonly code` must be; no MCP tool reverses or
+  // processes a batch yet, so no agent can receive it today.
+  'BATCH_ALREADY_REVERSED',
   'BATCH_NOT_PROCESSABLE',
   // A captured document already claimed for posting, or rejected (K-072). Two
   // fixed messages naming no id, amount or table, raised only after the
@@ -180,6 +183,9 @@ const REFUSAL_CODES: ReadonlySet<string> = new Set([
   // Rematch of a statement already marked reconciled (R-059 r11). The message
   // names no id, amount or table, and the service reads the statement by
   // company_id, so it can only ever describe the caller's own statement.
+  // Bank reverse (and void_payment through it) on cash a completed or Sage
+  // reconciliation holds — R-111. Pre-write, caller-facing.
+  'RECONCILED_CASH',
   'RECONCILIATION_CLOSED',
   'RECURRING_INVOICE_LOCK_TIMEOUT',
   'RECURRING_INVOICE_NOT_DUE',
@@ -239,6 +245,17 @@ export const NOT_A_REFUSAL_CODES: ReadonlySet<string> = new Set([
  * payment." retries the same call. A code-less `Error` is still surfaced: those
  * are the codebase's own `throw new Error(...)` messages, written to be read.
  */
+/**
+ * A THROWN error carrying one of the named refusal codes above. The registry
+ * answers these with their own message (they are caller-facing and carry no
+ * SQL); anything else — a code-less Error, a pg SQLSTATE — stays GENERIC there.
+ */
+export function isRefusalCoded(err: unknown): err is Error {
+  if (!(err instanceof Error)) return false;
+  const code = (err as { code?: unknown }).code;
+  return typeof code === 'string' && REFUSAL_CODES.has(code);
+}
+
 export function safeErrorText(err: unknown, fallback: string): string {
   if (!(err instanceof Error)) return fallback;
   const code = (err as { code?: unknown }).code;

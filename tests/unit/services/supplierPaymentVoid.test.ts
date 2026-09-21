@@ -59,9 +59,22 @@ vi.mock('@/modules/accounting/services/ap/supplierPaymentService', () => ({
   getSupplierPaymentById: vi.fn(),
 }));
 
+// The bank leg and the journal lock are DB-backed (`paymentJournalReversal.ts`)
+// and proved against PostgreSQL in k064-bank-leg-and-void; here they only need
+// to report where in the sequence they run. `assertSameJournal` stays real.
+vi.mock('@/modules/accounting/services/ap/paymentJournalReversal', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('@/modules/accounting/services/ap/paymentJournalReversal')>()),
+  lockPaymentBankLeg: vi.fn(),
+  voidViaBankAllocation: vi.fn(async () => false),
+  lockJournalAndUnmatch: vi.fn(),
+}));
+
 import { sql, withSavepoint } from '@/lib/neon';
 import { reverseJournalEntry } from '@/modules/accounting/services/gl/journalEntryService';
 import { getSupplierPaymentById } from '@/modules/accounting/services/ap/supplierPaymentService';
+import {
+  lockJournalAndUnmatch, lockPaymentBankLeg,
+} from '@/modules/accounting/services/ap/paymentJournalReversal';
 import {
   SupplierPaymentNotFoundError, voidSupplierPayment,
 } from '@/modules/accounting/services/ap/supplierPaymentWorkflowService';
@@ -96,6 +109,9 @@ describe('voidSupplierPayment (P2.1 / audit W4)', () => {
     vi.resetAllMocks();
     mockSql.mockResolvedValue([{ id: PAYMENT_ID, status: 'cancelled' }]);
     mockReverse.mockResolvedValue({ id: 'je-rev' });
+    vi.mocked(lockPaymentBankLeg).mockResolvedValue({
+      journalId: JOURNAL_ID, leg: { alreadyReversed: false, bankLineIds: [], seenLineIds: [], allocatedLineIds: [] },
+    });
   });
 
   it('reverses the GL journal, un-applies allocations, and cancels the payment', async () => {
@@ -118,25 +134,51 @@ describe('voidSupplierPayment (P2.1 / audit W4)', () => {
     expect(allocUpdate!.text).toMatch(/amount_paid - /);
     const payUpdate = calls.find((c) => /UPDATE supplier_payments/i.test(c.text));
     expect(payUpdate!.text).toMatch(/'cancelled'/);
-    expect(payUpdate!.text).toMatch(/status = 'processed'/); // guarded flip
+    expect(payUpdate!.text).toMatch(/status IN \('processed', 'reconciled'\)/); // guarded flip
   });
 
-  it('rejects voiding a non-processed payment', async () => {
-    mockGetPayment.mockResolvedValue(payment({ status: 'draft', glJournalEntryId: undefined }));
+  // K-064 round 4: a draft/approved payment has moved nothing, so voiding it is
+  // a status change only — the way out for one the process gate refuses. It
+  // used to throw a bare Error, which the route answered 500.
+  it('voids an unprocessed payment as a status change: no reversal, no bill touched', async () => {
+    mockGetPayment.mockResolvedValue(payment({ status: 'approved', glJournalEntryId: undefined }));
+    const texts: string[] = [];
+    mockSql.mockImplementation((strings: unknown) => {
+      texts.push((strings as readonly string[]).join(' '));
+      return Promise.resolve([{ id: PAYMENT_ID }]);
+    });
 
-    await expect(voidSupplierPayment(COMPANY_ID, PAYMENT_ID, USER_ID)).rejects.toThrow(
-      /processed/i,
-    );
+    await voidSupplierPayment(COMPANY_ID, PAYMENT_ID, USER_ID);
+
+    expect(mockReverse).not.toHaveBeenCalled();
+    expect(texts.some((t) => /UPDATE supplier_invoices/i.test(t))).toBe(false);
+    expect(texts.some((t) => /UPDATE supplier_payments SET status = 'cancelled'/i.test(t))).toBe(true);
+  });
+
+  it('refuses voiding a cancelled payment with a typed refusal', async () => {
+    mockGetPayment.mockResolvedValue(payment({ status: 'cancelled', glJournalEntryId: undefined }));
+
+    await expect(voidSupplierPayment(COMPANY_ID, PAYMENT_ID, USER_ID)).rejects.toMatchObject({
+      code: 'SUPPLIER_PAYMENT_REFUSED',
+    });
     expect(mockReverse).not.toHaveBeenCalled();
   });
 
-  it('rejects voiding a reconciled payment', async () => {
+  // Round 8: 'reconciled' on a supplier payment means FULLY APPLIED, so it is
+  // voided like 'processed' (bank-reconciled cash is refused by the bank line,
+  // proved in k064-void-applied-and-allocated).
+  it('voids a fully applied (reconciled) payment: reverses the journal and un-applies', async () => {
     mockGetPayment.mockResolvedValue(payment({ status: 'reconciled' }));
+    const texts: string[] = [];
+    mockSql.mockImplementation((strings: TemplateStringsArray) => {
+      texts.push((strings as unknown as string[]).join('?'));
+      return Promise.resolve([{ id: PAYMENT_ID, status: 'cancelled' }]);
+    });
 
-    await expect(voidSupplierPayment(COMPANY_ID, PAYMENT_ID, USER_ID)).rejects.toThrow(
-      /reconcil/i,
-    );
-    expect(mockReverse).not.toHaveBeenCalled();
+    await voidSupplierPayment(COMPANY_ID, PAYMENT_ID, USER_ID);
+
+    expect(mockReverse).toHaveBeenCalledWith(COMPANY_ID, JOURNAL_ID, USER_ID);
+    expect(texts.find((t) => /UPDATE supplier_payments/i.test(t))).toMatch(/IN \('processed', 'reconciled'\)/);
   });
 
   it('runs inside a savepoint (4xx paths must not orphan-commit)', async () => {
@@ -146,7 +188,7 @@ describe('voidSupplierPayment (P2.1 / audit W4)', () => {
     expect(withSavepoint).toHaveBeenCalledWith('void_supplier_payment', expect.any(Function));
   });
 
-  it('takes the payment, then the invoices, then the journal — the canonical order', async () => {
+  it('takes the bank leg, then the payment, then the invoices, then the journal — the canonical order', async () => {
     // The inversion this pins: the void used to open with the journal
     // `FOR UPDATE` and reach `supplier_payments` last, which deadlocks against
     // `voidPaymentDocument` (payment -> invoices -> GL) on the same payment.
@@ -160,14 +202,21 @@ describe('voidSupplierPayment (P2.1 / audit W4)', () => {
       }
       return Promise.resolve([{ id: PAYMENT_ID, status: 'cancelled' }]);
     });
+    vi.mocked(lockPaymentBankLeg).mockImplementation(async () => {
+      texts.push('BANK-LEG');
+      return { journalId: JOURNAL_ID, leg: { alreadyReversed: false, bankLineIds: [] } };
+    });
+    vi.mocked(lockJournalAndUnmatch).mockImplementation(async () => { texts.push('JOURNAL-LOCK'); });
 
     await voidSupplierPayment(COMPANY_ID, PAYMENT_ID, USER_ID);
 
     const at = (re: RegExp) => texts.findIndex((t) => re.test(t));
+    const bank = at(/^BANK-LEG$/);
     const lock = at(/FROM supplier_payments[\s\S]*FOR UPDATE OF sp/i);
     const invoices = at(/UPDATE supplier_invoices/i);
-    const journal = at(/SELECT status, reversed_at/i);
-    expect(lock, 'the payment row must be locked').toBeGreaterThanOrEqual(0);
+    const journal = at(/^JOURNAL-LOCK$/);
+    expect(bank, 'the bank leg must be locked first').toBe(0);
+    expect(lock, 'the payment row must be locked').toBeGreaterThan(bank);
     expect(lock).toBeLessThan(invoices);
     expect(invoices).toBeLessThan(journal);
   });
@@ -203,6 +252,9 @@ describe('voidSupplierPayment (P2.1 / audit W4)', () => {
 
   it('skips the GL reversal when the journal is already reversed', async () => {
     mockGetPayment.mockResolvedValue(payment());
+    vi.mocked(lockPaymentBankLeg).mockResolvedValue({
+      journalId: JOURNAL_ID, leg: { alreadyReversed: true, bankLineIds: [] },
+    });
     mockSql.mockImplementation((strings: TemplateStringsArray) => {
       const text = (strings as unknown as string[]).join('?');
       if (/SELECT status, reversed_at/i.test(text)) {

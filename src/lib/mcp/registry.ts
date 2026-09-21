@@ -32,6 +32,7 @@ import { insufficientScopeMessage } from './scopeRemediation';
  * another's savepoint.
  */
 import { COMPANY_ASSERT_PROPERTY, assertCompanyMatches } from './companyAssert';
+import { isRefusalCoded } from './tools/toolHelpers';
 
 export function savepointNameFor(toolName: string): string {
   return `mcp_${toolName}`.slice(0, 31);
@@ -288,6 +289,12 @@ export class McpRegistry {
       if (err instanceof BankLineDirectionError) {
         return errorResult(bankLineDirectionErrorText(name, err));
       }
+      // Any THROWN typed refusal (a code on REFUSAL_CODES) keeps its own message
+      // — e.g. RECONCILED_CASH from bank reverse, reached by void_payment and
+      // every reverse tool, which do not catch so the savepoint sees the throw.
+      // The savepoint has rolled back; the text is caller-facing, no SQL. An
+      // unclassified Error or a pg error still falls through to GENERIC_FAILURE.
+      if (isRefusalCoded(err)) return errorResult(err.message);
       return errorResult(GENERIC_FAILURE);
     }
   }

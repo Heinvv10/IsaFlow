@@ -11,6 +11,8 @@ import { createJournalEntry, postJournalEntry } from '../gl/journalEntryService'
 import { getSystemAccount } from '../gl/systemAccountResolver';
 import { claimUnderLockTimeout } from '../core/documentClaimLock';
 import { assertSupplierInCompany } from '../core/contactDirectoryService';
+import { assertBatchAllocatable, assertBatchMembersStillAllocatable } from './supplierBatchAllocationPlan';
+import { SupplierPaymentRefusal } from './supplierPaymentRefusal';
 import type { SupplierPaymentBatch, BatchPaymentCreateInput } from '../../types/ap.types';
 import type { JournalLineInput } from '../../types/gl.types';
 
@@ -65,6 +67,12 @@ export async function createBatch(companyId: string,
   // R-068: every payment's supplier_id comes from the body. All refused
   // before the batch row is written.
   for (const p of input.payments) await assertSupplierInCompany(companyId, p.supplierId);
+  // K-064: every bill line, too — tenant, supplier, status and outstanding —
+  // under the bill locks, and all of it before the first INSERT: `withAuth`
+  // COMMITs a 4xx, so a refusal after line 1 was written would keep line 1.
+  await assertBatchAllocatable(companyId, input.payments.map((p) => ({
+    supplierId: p.supplierId, allocations: p.invoiceAllocations,
+  })));
 
   const batchId = await withTransaction(async (tx) => {
     const batchRows = (await tx`
@@ -141,6 +149,21 @@ export class BatchNotProcessableError extends Error {
 export async function processBatch(companyId: string, id: string, userId: string): Promise<void> {
   const batch = await getBatchById(companyId, id);
   if (!batch) throw new Error('Batch not found');
+
+  // K-063/K-066 where money moves: every bill must STILL be payable and its
+  // payment's supplier's. The batch row is locked first (document, then bills —
+  // the order `processSupplierPayment` uses) so a double-click's loser waits
+  // here and is told the batch is processed (409), not that its bills are paid.
+  // Refused before the claim below: the batch stays 'approved', nothing written.
+  const locked = await claimUnderLockTimeout('payment batch', async () => (await sql`
+    SELECT status FROM supplier_payment_batches
+    WHERE id = ${id}::UUID AND company_id = ${companyId}::UUID
+    FOR UPDATE
+  `) as Row[]);
+  if (String(locked[0]?.status) !== 'approved') {
+    throw new BatchNotProcessableError(String(locked[0]?.status ?? 'missing'));
+  }
+  await assertBatchMembersStillAllocatable(companyId, id);
 
   // CLAIM the batch before anything is posted. What this replaced read
   // `batch.status !== 'approved'` and then created and POSTED a journal, so two
@@ -226,11 +249,23 @@ export async function processBatch(companyId: string, id: string, userId: string
   log.info('Processed batch', { id, journalEntryId: je.id }, 'accounting');
 }
 
+/**
+ * Draft OR approved: neither has moved money, and an approved batch the
+ * process-time gate refuses (a bill cancelled or deleted since) must have a way
+ * out — otherwise its allocations stay "promised" and block the bill for ever.
+ * A batch in any other state is refused before anything is written.
+ */
 export async function cancelBatch(companyId: string, id: string): Promise<void> {
   await withTransaction(async (tx) => {
-    await tx`UPDATE supplier_payment_batches SET status = 'cancelled' WHERE id = ${id} AND company_id = ${companyId} AND status = 'draft'`;
-    await tx`UPDATE supplier_payments SET status = 'cancelled' WHERE batch_id = ${id}::UUID AND status = 'draft'
-      AND batch_id IN (SELECT id FROM supplier_payment_batches WHERE company_id = ${companyId}::UUID)`;
+    const done = (await tx`UPDATE supplier_payment_batches SET status = 'cancelled'
+      WHERE id = ${id}::UUID AND company_id = ${companyId}::UUID AND status IN ('draft', 'approved')
+      RETURNING id`) as Row[];
+    if (done.length === 0) {
+      const now = await getBatchById(companyId, id);
+      throw new SupplierPaymentRefusal(`Batch is ${now?.status ?? 'missing'} — only a draft or approved batch can be cancelled.`);
+    }
+    await tx`UPDATE supplier_payments SET status = 'cancelled' WHERE batch_id = ${id}::UUID
+      AND status IN ('draft', 'approved') AND company_id = ${companyId}::UUID`;
   });
   log.info('Cancelled batch', { id }, 'accounting');
 }

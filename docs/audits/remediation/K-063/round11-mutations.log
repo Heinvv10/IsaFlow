@@ -1,0 +1,20 @@
+=== E1 registry: typed refusals no longer surfaced (general rule removed)
+     × MCP void_payment through the registry → the agent reads the refusal, not a generic failure 46ms
+     × MCP reverse_bank_allocation through the registry → the agent reads the refusal 32ms
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 2 ⎯⎯⎯⎯⎯⎯⎯
+ Test Files  1 failed | 2 passed (3)
+      Tests  2 failed | 15 passed (17)
+restored byte-identical cac8cbcc5c3285046dc6693d9ba5fc12487bf4ffd47562c7fc361aeb9cbf98b2
+=== E2 registry: surfaces EVERY thrown message (no allowlist)
+     × an unclassified Error or a pg error thrown by a tool still comes back GENERIC, and is logged 7ms
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 1 ⎯⎯⎯⎯⎯⎯⎯
+ Test Files  1 failed | 2 passed (3)
+      Tests  1 failed | 16 passed (17)
+restored byte-identical cac8cbcc5c3285046dc6693d9ba5fc12487bf4ffd47562c7fc361aeb9cbf98b2
+=== E3 shared rule: in-progress session arm removed
+     × refuses when the bank line is on a in_progress bank reconciliation, writing nothing 66ms
+     × a line in an IN-PROGRESS session is refused exactly as void refuses it; cancelling the session frees it 56ms
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 2 ⎯⎯⎯⎯⎯⎯⎯
+ Test Files  2 failed | 1 passed (3)
+      Tests  2 failed | 15 passed (17)
+restored byte-identical 5696ecd0a5e7b3ffc9ebede3968014a0364e62608248d9e7057a5a3089dad0d1

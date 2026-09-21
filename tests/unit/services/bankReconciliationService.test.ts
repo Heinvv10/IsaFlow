@@ -393,6 +393,7 @@ describe('matchTransaction', () => {
     // company's too.
     vi.mocked(sql).mockResolvedValueOnce([makeTxRow({ status: 'imported' })] as never);
     vi.mocked(sql).mockResolvedValueOnce([{ id: JL_ID }] as never);
+    vi.mocked(sql).mockResolvedValueOnce([] as never);   // the line's journal entry: not reversed
     vi.mocked(sql).mockResolvedValueOnce([] as never);
     vi.mocked(sql).mockResolvedValueOnce([
       makeTxRow({ status: 'matched', matched_journal_line_id: JL_ID }),
@@ -413,6 +414,7 @@ describe('matchTransaction', () => {
     // company's too.
     vi.mocked(sql).mockResolvedValueOnce([makeTxRow({ status: 'imported' })] as never);
     vi.mocked(sql).mockResolvedValueOnce([{ id: JL_ID }] as never);
+    vi.mocked(sql).mockResolvedValueOnce([] as never);   // the line's journal entry: not reversed
     vi.mocked(sql).mockResolvedValueOnce([] as never);
     vi.mocked(sql).mockResolvedValueOnce([{ id: RECON_ID }] as never);
     vi.mocked(sql).mockResolvedValueOnce([
@@ -439,6 +441,7 @@ describe('matchTransaction', () => {
     // company's too.
     vi.mocked(sql).mockResolvedValueOnce([makeTxRow({ status: 'imported' })] as never);
     vi.mocked(sql).mockResolvedValueOnce([{ id: JL_ID }] as never);
+    vi.mocked(sql).mockResolvedValueOnce([] as never);   // the line's journal entry: not reversed
     vi.mocked(sql).mockResolvedValueOnce([] as never);
     vi.mocked(sql).mockResolvedValueOnce([
       makeTxRow({
@@ -527,6 +530,7 @@ describe('autoMatchTransactions', () => {
     // matchTransaction's ownership reads (K-144): the line is in this company,
     // and no other bank transaction already holds it.
     vi.mocked(sql).mockResolvedValueOnce([{ id: JL_ID }] as never);
+    vi.mocked(sql).mockResolvedValueOnce([] as never);   // the line's journal entry: not reversed
     vi.mocked(sql).mockResolvedValueOnce([] as never);
     // matchTransaction UPDATE — called because confidence >= 0.9
     vi.mocked(sql).mockResolvedValueOnce([
@@ -567,6 +571,7 @@ describe('autoMatchTransactions', () => {
     // matchTransaction's ownership reads (K-144): the line is in this company,
     // and no other bank transaction already holds it.
     vi.mocked(sql).mockResolvedValueOnce([{ id: JL_ID }] as never);
+    vi.mocked(sql).mockResolvedValueOnce([] as never);   // the line's journal entry: not reversed
     vi.mocked(sql).mockResolvedValueOnce([] as never);
     // matchTransaction UPDATE
     vi.mocked(sql).mockResolvedValueOnce([

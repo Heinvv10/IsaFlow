@@ -60,9 +60,13 @@ export async function allocatedByLivePayments(
           AND cp.company_id = ${companyId}::UUID
           AND cp.status <> 'cancelled'
       `
+    // `payment_allocations`, the LIVE AP table. This read the dead migration-201
+    // `supplier_payment_allocations` (zero rows everywhere), so a bill carrying
+    // an approved-but-unprocessed payment could be deleted — reversing its AP
+    // credit — and the payment then processed against it (K-063).
     : await sql`
         SELECT COALESCE(SUM(spa.amount_allocated), 0) AS allocated
-        FROM supplier_payment_allocations spa
+        FROM payment_allocations spa
         JOIN supplier_payments sp ON sp.id = spa.payment_id
         WHERE spa.invoice_id = ${entityId}::UUID
           AND sp.company_id = ${companyId}::UUID

@@ -1,0 +1,50 @@
+=== P1 processSupplierPayment: process-time gate removed
+     × single payment: a bill cancelled after creation refuses the process with 400, writing nothing 54ms
+     × single payment: a bill disputed after creation refuses the process with 400, writing nothing 19ms
+     × single payment: a bill pending_approval after creation refuses the process with 400, writing nothing 28ms
+     × single payment: a bill draft after creation refuses the process with 400, writing nothing 16ms
+     × single payment: a bill reassigned to supplier A2 after creation refuses the process with 400, writing nothing 15ms
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 5 ⎯⎯⎯⎯⎯⎯⎯
+ Test Files  1 failed | 1 passed (2)
+      Tests  5 failed | 15 passed (20)
+restored byte-identical 0bc5222b8b401013c83e09a82d88511cd98a0e3cd78b1991bdd36232077d2a1b
+=== P2 processBatch: process-time gate removed
+     × batch: its LAST line's bill cancelled after creation refuses the whole batch, writing nothing 23ms
+     × batch: its LAST line's bill disputed after creation refuses the whole batch, writing nothing 21ms
+     × batch: its LAST line's bill pending_approval after creation refuses the whole batch, writing nothing 23ms
+     × batch: its LAST line's bill draft after creation refuses the whole batch, writing nothing 19ms
+     × batch: its LAST line's bill reassigned to supplier A2 after creation refuses the whole batch, writing nothing 23ms
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 5 ⎯⎯⎯⎯⎯⎯⎯
+ Test Files  1 failed | 1 passed (2)
+      Tests  5 failed | 15 passed (20)
+restored byte-identical 7052a0ad3967de6450ac9d69eab54a0dcd11f77ded32a1d59811771aeb4be800
+=== P3 batch route: process refusal no longer typed (falls to 500)
+     × batch: its LAST line's bill cancelled after creation refuses the whole batch, writing nothing 20ms
+     × batch: its LAST line's bill disputed after creation refuses the whole batch, writing nothing 17ms
+     × batch: its LAST line's bill pending_approval after creation refuses the whole batch, writing nothing 14ms
+     × batch: its LAST line's bill draft after creation refuses the whole batch, writing nothing 16ms
+     × batch: its LAST line's bill reassigned to supplier A2 after creation refuses the whole batch, writing nothing 14ms
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 5 ⎯⎯⎯⎯⎯⎯⎯
+ Test Files  1 failed | 1 passed (2)
+      Tests  5 failed | 15 passed (20)
+restored byte-identical aaa959e9715825fc0191ea42738b68e2f62fe68bcb8735b0f252773a91ea6f47
+=== P4 processBatch: gate moved AFTER the claim UPDATE
+     × batch: its LAST line's bill cancelled after creation refuses the whole batch, writing nothing 23ms
+     × batch: its LAST line's bill disputed after creation refuses the whole batch, writing nothing 15ms
+     × batch: its LAST line's bill pending_approval after creation refuses the whole batch, writing nothing 12ms
+     × batch: its LAST line's bill draft after creation refuses the whole batch, writing nothing 14ms
+     × batch: its LAST line's bill reassigned to supplier A2 after creation refuses the whole batch, writing nothing 13ms
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 5 ⎯⎯⎯⎯⎯⎯⎯
+AssertionError: expected { status: 'processed', …(1) } to deeply equal { status: 'approved', …(1) }
+ Test Files  1 failed (1)
+restored byte-identical 7052a0ad3967de6450ac9d69eab54a0dcd11f77ded32a1d59811771aeb4be800
+=== P5 processSupplierPayment: gate moved AFTER the claim UPDATE
+     × single payment: a bill cancelled after creation refuses the process with 400, writing nothing 39ms
+     × single payment: a bill disputed after creation refuses the process with 400, writing nothing 19ms
+     × single payment: a bill pending_approval after creation refuses the process with 400, writing nothing 13ms
+     × single payment: a bill draft after creation refuses the process with 400, writing nothing 14ms
+     × single payment: a bill reassigned to supplier A2 after creation refuses the process with 400, writing nothing 12ms
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 5 ⎯⎯⎯⎯⎯⎯⎯
+AssertionError: expected { status: 'processed', …(1) } to deeply equal { status: 'approved', …(1) }
+ Test Files  1 failed (1)
+restored byte-identical 0bc5222b8b401013c83e09a82d88511cd98a0e3cd78b1991bdd36232077d2a1b

@@ -1,0 +1,17 @@
+# Round 3 RED — process-time gap, branch tip 5a732e49a (temporary detached worktree),
+# tests/integration/k063-k066-process-time-gate.int.test.ts plus a stdout probe of each outcome.
+# Each payment/batch was CREATED against approved bills of supplier A, approved, then the bill changed, then processed.
+ Test Files  1 failed (1)
+      Tests  10 failed | 1 passed (11)   (the pass is the untouched-bill happy path)
+PROBE single cancelled: http=200 bill={"paid":1000,"status":"paid"} payment={"status":"processed","gl_journal_entry_id":"14713ea6-7c76-4c34-898f-c352372876fc"} apDebitDelta=1000
+PROBE single disputed: http=200 bill={"paid":1000,"status":"paid"} payment={"status":"processed","gl_journal_entry_id":"fe2fcdbd-f72f-4920-979a-dafb586f3663"} apDebitDelta=1000
+PROBE single pending_approval: http=200 bill={"paid":1000,"status":"paid"} payment={"status":"processed","gl_journal_entry_id":"6087f310-a6e9-4483-a542-1b3c6d9cdc83"} apDebitDelta=1000
+PROBE single draft: http=200 bill={"paid":1000,"status":"paid"} payment={"status":"processed","gl_journal_entry_id":"c59e2f87-dee8-4819-896d-69f0b02b8fe2"} apDebitDelta=1000
+PROBE single reassigned to supplier A2: http=200 bill={"paid":1000,"status":"paid"} payment={"status":"processed","gl_journal_entry_id":"0e4877d0-84de-44a9-b931-7c6751945d31"} apDebitDelta=1000
+PROBE batch cancelled: http=200 badBill={"paid":400,"status":"partially_paid"} goodBill={"paid":1000,"status":"paid"} apDebitDelta=1400
+PROBE batch disputed: http=200 badBill={"paid":1000,"status":"paid"} goodBill={"paid":400,"status":"partially_paid"} apDebitDelta=1400
+PROBE batch pending_approval: http=200 badBill={"paid":1000,"status":"paid"} goodBill={"paid":400,"status":"partially_paid"} apDebitDelta=1400
+PROBE batch draft: http=200 badBill={"paid":400,"status":"partially_paid"} goodBill={"paid":1000,"status":"paid"} apDebitDelta=1400
+PROBE batch reassigned to supplier A2: http=200 badBill={"paid":400,"status":"partially_paid"} goodBill={"paid":1000,"status":"paid"} apDebitDelta=1400
+# apDebitDelta = SUM(debit) added to the AP control account by the process call.
+# batch = R400 line + R1000 line; the changed bill is the higher id (the gate's last line).

@@ -28,7 +28,7 @@ export const ids = {
   SUP_A: randomUUID(), SUP_A2: randomUUID(), SUP_B: randomUUID(),
   CUST_A: randomUUID(), CUST_B: randomUUID(),
   GL: randomUUID(), BANK_GL: randomUUID(), AP_GL: randomUUID(), AR_GL: randomUUID(),
-  BILL: randomUUID(), PO: randomUUID(), SPO: randomUUID(),
+  BILL: randomUUID(), BILL_A: randomUUID(), PO: randomUUID(), SPO: randomUUID(),
   RULE: randomUUID(), BANK_TX_SEL: randomUUID(), BANK_TX_PAY: randomUUID(),
   TEMPLATE_A: randomUUID(), TEMPLATE_B: randomUUID(), TEMPLATE_BAD: randomUUID(),
 };
@@ -69,6 +69,12 @@ export async function setUpFixture(label: string): Promise<Fixture> {
       subtotal, tax_amount, total_amount, amount_paid, status, created_by)
     VALUES ($1, $2, 'R068-SEED-BILL', $3, CURRENT_DATE, 100, 15, 115, 0, 'approved', $4)`,
   [ids.BILL, A, ids.SUP_A2, USER]);
+  // SUP_A's own bill, for the payment arms: a payment may settle only its own
+  // supplier's bills (K-066), so the seeded SUP_A2 bill would refuse them.
+  await q(`INSERT INTO supplier_invoices (id, company_id, invoice_number, supplier_id, invoice_date,
+      subtotal, tax_amount, total_amount, amount_paid, status, created_by)
+    VALUES ($1, $2, 'R068-SEED-BILL-A', $3, CURRENT_DATE, 100, 15, 115, 0, 'approved', $4)`,
+  [ids.BILL_A, A, ids.SUP_A, USER]);
   await q(`INSERT INTO purchase_orders (id, company_id, po_number, supplier_id, status)
     VALUES ($1, $2, 'R068-PO-SEED', $3, 'draft')`, [ids.PO, A, ids.SUP_A2]);
   await q(`INSERT INTO supplier_purchase_orders (id, company_id, order_number, supplier_id, status)

@@ -1,0 +1,135 @@
+/**
+ * Reverse a PROCESSED supplier payment batch — the only way a batch member's
+ * money moves back, because a member moves money only through its batch
+ * (`supplierPaymentGates.ts` refuses a single-payment void of one).
+ *
+ * WHY ONE BATCH-LEVEL UNWIND AND NOT A VOID PER MEMBER. The members carry no
+ * journal of their own: `processBatch` posts ONE journal (DR AP / CR Bank for
+ * the batch total) and applies every member's allocations. Voiding member by
+ * member would need N partial reversals of that one journal, which the
+ * one-reversal-per-journal guarantee (`reverseJournalEntry`'s claim on
+ * `reversed_at`, and migration 619's unique index on `reversal_of_id`) exists
+ * to forbid. So this does what single void does, once: un-apply each bill by
+ * exactly THIS batch's allocations to it, then `reverseJournalEntry` on the
+ * batch journal — the same primitive, so no path can post a second contra.
+ *
+ * ORDER, all inside the request transaction (and a savepoint), is the canonical
+ * one: any bank line matched to the batch journal (`lockBankLegOf`, from an
+ * unlocked peek), the batch row, the bills through `fetchBillCandidates`, then
+ * the journal (`lockJournalAndUnmatch`). Every refusal about the books is raised
+ * before the first write; a match landing mid-reversal is a retryable refusal
+ * inside the savepoint, so a 4xx still commits nothing.
+ */
+
+import { sql, withSavepoint } from '@/lib/neon';
+import type { DbRow } from '@/lib/neon';
+import { log } from '@/lib/logger';
+import { claimUnderLockTimeout } from '../core/documentClaimLock';
+import { reverseJournalEntry } from '../gl/journalEntryPostingService';
+import { recomputeInvoiceStatus } from '../ar/invoiceStatusRecompute';
+import { fetchBillCandidates, round2 } from './supplierAllocationLines';
+import { toCents } from './billAllocatable';
+import { SupplierPaymentRefusal } from './supplierPaymentRefusal';
+import { assertSameJournal, lockBankLegOf, lockJournalAndUnmatch } from './paymentJournalReversal';
+
+/** The batch is already reversed — a double-click's loser. Answered 409. */
+export class BatchAlreadyReversedError extends Error {
+  readonly code = 'BATCH_ALREADY_REVERSED';
+  constructor(batchNumber: string) {
+    super(`Batch ${batchNumber} has already been reversed.`);
+    this.name = 'BatchAlreadyReversedError';
+  }
+}
+
+export interface BatchReversal { reversalEntryId: string; billsReopened: number }
+
+export async function reverseBatch(companyId: string, batchId: string, userId: string): Promise<BatchReversal> {
+  return withSavepoint('reverse_payment_batch', () => reverseBatchInner(companyId, batchId, userId));
+}
+
+async function reverseBatchInner(companyId: string, batchId: string, userId: string): Promise<BatchReversal> {
+  // (1) The BANK LINE first, from an unlocked peek of the batch's journal — the
+  // canonical order starts at the bank row. This also runs the pre-write
+  // journal refusals (closed period, reconciled line).
+  const peek = ((await sql`
+    SELECT batch_number, gl_journal_entry_id FROM supplier_payment_batches
+    WHERE id = ${batchId}::UUID AND company_id = ${companyId}::UUID
+  `) as DbRow[])[0];
+  if (!peek) throw new Error('Batch not found');
+  const peekedJournal = peek.gl_journal_entry_id ? String(peek.gl_journal_entry_id) : null;
+  const leg = peekedJournal
+    ? await lockBankLegOf(companyId, peekedJournal, `Batch ${String(peek.batch_number)}`)
+    : null;
+
+  // (2) The batch row. A second click waits here and then reads 'reversed'.
+  const batch = (await claimUnderLockTimeout('payment batch', async () => (await sql`
+    SELECT batch_number, status, gl_journal_entry_id FROM supplier_payment_batches
+    WHERE id = ${batchId}::UUID AND company_id = ${companyId}::UUID
+    FOR UPDATE
+  `) as DbRow[]))[0];
+  if (!batch) throw new Error('Batch not found');
+  const number = String(batch.batch_number);
+  if (batch.status === 'reversed') throw new BatchAlreadyReversedError(number);
+  if (batch.status !== 'processed') {
+    throw new SupplierPaymentRefusal(`Batch ${number} is ${String(batch.status)} — only a processed batch can be reversed.`);
+  }
+  const journalId = batch.gl_journal_entry_id ? String(batch.gl_journal_entry_id) : null;
+  if (!journalId || !leg) throw new SupplierPaymentRefusal(`Batch ${number} has no journal to reverse.`);
+  assertSameJournal(peekedJournal, journalId);
+  if (leg.alreadyReversed) throw new BatchAlreadyReversedError(number);
+  if (leg.allocatedLineIds.length > 0) {
+    throw new SupplierPaymentRefusal(`Batch ${number}'s journal is claimed by an allocated bank line — undo that first.`);
+  }
+
+  const members = (await sql`
+    SELECT id, payment_number, status FROM supplier_payments
+    WHERE batch_id = ${batchId}::UUID AND company_id = ${companyId}::UUID
+  `) as DbRow[];
+  const unsettled = members.find((m) => m.status !== 'processed');
+  if (unsettled) {
+    // 'reconciled' is the single-void rule; anything else means the batch and
+    // its members disagree, which this must not paper over.
+    throw new SupplierPaymentRefusal(`Payment ${String(unsettled.payment_number)} in batch ${number} is `
+      + `${String(unsettled.status)} — the batch cannot be reversed.`);
+  }
+
+  // The bills, locked in the shared order, each by what THIS batch put on it.
+  const perBill = (await sql`
+    SELECT pa.invoice_id, SUM(pa.amount_allocated) AS amount
+    FROM payment_allocations pa JOIN supplier_payments sp ON sp.id = pa.payment_id
+    WHERE sp.batch_id = ${batchId}::UUID AND sp.company_id = ${companyId}::UUID
+    GROUP BY pa.invoice_id ORDER BY pa.invoice_id
+  `) as DbRow[];
+  const bills = await fetchBillCandidates(companyId, null, perBill.map((r) => String(r.invoice_id)));
+  for (const r of perBill) {
+    const bill = bills.get(String(r.invoice_id));
+    if (!bill || toCents(Number(bill.amount_paid ?? 0)) < toCents(Number(r.amount))) {
+      throw new SupplierPaymentRefusal(`A bill paid by batch ${number} no longer shows that payment — `
+        + 'the batch cannot be reversed automatically.');
+    }
+  }
+
+  // ── writes ────────────────────────────────────────────────────────────────
+  for (const r of perBill) {
+    await sql`
+      UPDATE supplier_invoices SET amount_paid = amount_paid - ${round2(Number(r.amount))}, updated_at = NOW()
+      WHERE id = ${String(r.invoice_id)}::UUID AND company_id = ${companyId}::UUID
+    `;
+    await recomputeInvoiceStatus(companyId, 'supplier', String(r.invoice_id));
+  }
+  // (3) The journal last: locked, re-checked for a bank line matched meanwhile, unmatched.
+  await lockJournalAndUnmatch(companyId, journalId, leg, `Batch ${number}`);
+  const reversal = await reverseJournalEntry(companyId, journalId, userId);
+  await sql`
+    UPDATE supplier_payments SET status = 'cancelled', updated_at = NOW()
+    WHERE batch_id = ${batchId}::UUID AND company_id = ${companyId}::UUID AND status = 'processed'
+  `;
+  await sql`
+    UPDATE supplier_payment_batches SET status = 'reversed', updated_at = NOW()
+    WHERE id = ${batchId}::UUID AND company_id = ${companyId}::UUID AND status = 'processed'
+  `;
+  log.info('Reversed supplier payment batch', {
+    batchId, userId, journalId, reversalEntryId: reversal.id, bills: perBill.length, bankLines: leg.bankLineIds.length,
+  }, 'accounting');
+  return { reversalEntryId: String(reversal.id), billsReopened: perBill.length };
+}

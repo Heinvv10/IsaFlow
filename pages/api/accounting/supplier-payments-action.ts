@@ -21,6 +21,7 @@ import {
 } from '@/modules/accounting/services/ap/supplierPaymentWorkflowService';
 import { isRetryableContention } from '@/modules/accounting/services/core/retryableContention';
 import { isSupplierPaymentRefusal } from '@/modules/accounting/services/ap/supplierPaymentRefusal';
+import { cancelSupplierPayment } from '@/modules/accounting/services/ap/supplierPaymentCancel';
 
 async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse) {
   if (req.method !== 'POST') {
@@ -45,6 +46,13 @@ async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse) {
       case 'process': {
         const payment = await processSupplierPayment(companyId, paymentId, userId);
         return apiResponse.success(res, payment);
+      }
+      case 'cancel': {
+        // For money that has NOT moved (draft/approved): posts nothing and stops
+        // the payment reserving its bills. A processed payment is refused —
+        // that is Void's job, because it has a journal to reverse.
+        await cancelSupplierPayment(companyId, paymentId, userId);
+        return apiResponse.success(res, { status: 'cancelled' });
       }
       case 'void': {
         // P2.1 (audit W4): reverses the GL journal and un-applies allocations.

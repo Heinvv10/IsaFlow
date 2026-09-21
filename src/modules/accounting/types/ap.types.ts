@@ -273,7 +273,7 @@ export interface AgingInvoice {
 
 // ── Supplier Batch Payments ──────────────────────────────────────────────────
 
-export type BatchPaymentStatus = 'draft' | 'approved' | 'processed' | 'cancelled';
+export type BatchPaymentStatus = 'draft' | 'approved' | 'processed' | 'cancelled' | 'reversed';
 
 export interface SupplierPaymentBatch {
   id: string;

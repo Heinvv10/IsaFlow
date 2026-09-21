@@ -1,0 +1,98 @@
+=== U: pages/accounting/batch-payments/[batchId].tsx reverted to b1d018a55's error handling
+   × batch detail shows why Process was refused 1030ms
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 1 ⎯⎯⎯⎯⎯⎯⎯
+      Tests  1 failed | 2 passed (3)
+restored byte-identical
+=== U: pages/accounting/supplier-payments/[paymentId].tsx reverted to b1d018a55's error handling
+   × payment detail shows why Process was refused 1008ms
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 1 ⎯⎯⎯⎯⎯⎯⎯
+      Tests  1 failed | 2 passed (3)
+restored byte-identical
+=== U: pages/accounting/batch-payments/new.tsx reverted to b1d018a55's error handling
+   × new batch shows why the batch was refused, not a bare "Failed" 1024ms
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 1 ⎯⎯⎯⎯⎯⎯⎯
+      Tests  1 failed | 2 passed (3)
+restored byte-identical
+=== D1 rule: deleted check removed
+     × a soft-deleted bill refuses a new payment, naming the delete 31ms
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 1 ⎯⎯⎯⎯⎯⎯⎯
+ Test Files  1 failed | 2 passed (3)
+      Tests  1 failed | 27 passed (28)
+restored byte-identical 41a4f37ba75873f8637da6f29fa6d0c85eadd5130cdd0dafb8506b7363cfc9ae
+=== D2 lock read: deleted_at filter removed
+     × a soft-deleted bill is not found by a batch 16ms
+     × a soft-deleted bill is not found when a processed payment is applied to it 9ms
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 2 ⎯⎯⎯⎯⎯⎯⎯
+ Test Files  1 failed | 2 passed (3)
+      Tests  2 failed | 26 passed (28)
+restored byte-identical b2c3cf07f0d4a307a9bc0cf216ec8325dfd9110d40d357e776d7e7b8c8fe2b28
+=== D3 delete guard reads the dead table again
+     × a bill carrying an approved, unprocessed payment cannot be deleted 17ms
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 1 ⎯⎯⎯⎯⎯⎯⎯
+ Test Files  1 failed | 2 passed (3)
+      Tests  1 failed | 27 passed (28)
+restored byte-identical 7728363bbe08c9a6fac8fcc5869357062e0ef861c64036772fea5e5a4501e1c2
+=== B1 single path accepts batch members
+     × member then batch: the member is refused on its own, and the batch moves the money once 36ms
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 1 ⎯⎯⎯⎯⎯⎯⎯
+ Test Files  1 failed | 2 passed (3)
+      Tests  1 failed | 27 passed (28)
+restored byte-identical dfce78c6695a0ae7b8dc397d6756e71a8d4d2c8d66350c5d92710c0782d1711f
+=== B2 batch accepts a member already processed
+     × a batch holding a member already processed on its own (stored before this rule) is refused 23ms
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 1 ⎯⎯⎯⎯⎯⎯⎯
+ Test Files  1 failed | 2 passed (3)
+      Tests  1 failed | 27 passed (28)
+restored byte-identical 6c0ba47c7d13cd5ff21a4b4913cf5353b4afe90bfde27a910a9ad9cd2d693231
+=== R1 pending set widened to cancelled+processed
+     × a CANCELLED payment does not reserve the bill 16ms
+     × a PROCESSED payment reserves nothing beyond what amount_paid already holds 41ms
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 2 ⎯⎯⎯⎯⎯⎯⎯
+ Test Files  1 failed | 2 passed (3)
+      Tests  2 failed | 26 passed (28)
+restored byte-identical 6c0ba47c7d13cd5ff21a4b4913cf5353b4afe90bfde27a910a9ad9cd2d693231
+=== R2 pending set narrowed to draft only
+     × an APPROVED unprocessed payment reserves the bill 48ms
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 1 ⎯⎯⎯⎯⎯⎯⎯
+ Test Files  1 failed | 2 passed (3)
+      Tests  1 failed | 27 passed (28)
+restored byte-identical 6c0ba47c7d13cd5ff21a4b4913cf5353b4afe90bfde27a910a9ad9cd2d693231
+=== C1 outstanding compared with the old 1-cent tolerance
+     × a PROCESSED payment reserves nothing beyond what amount_paid already holds 65ms
+     × a R100.00 bill takes R100.00 and refuses R100.01 12ms
+     × a fully paid bill refuses R0.01 7ms
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 3 ⎯⎯⎯⎯⎯⎯⎯
+ Test Files  1 failed | 2 passed (3)
+      Tests  3 failed | 25 passed (28)
+restored byte-identical b2c3cf07f0d4a307a9bc0cf216ec8325dfd9110d40d357e776d7e7b8c8fe2b28
+=== L1 createSupplierPayment bill lock removed
+     × a single payment waits for a concurrent batch on the same bill, then sees its reservation 320ms
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 1 ⎯⎯⎯⎯⎯⎯⎯
+ Test Files  1 failed | 2 passed (3)
+      Tests  1 failed | 27 passed (28)
+restored byte-identical 6814ec794e43ddedda7156e6582f2484907336c3298f333d965145faa82c161d
+=== X1 cancelBatch back to draft only
+     × an approved batch can be cancelled, freeing its reservation 78ms
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 1 ⎯⎯⎯⎯⎯⎯⎯
+ Test Files  1 failed | 2 passed (3)
+      Tests  1 failed | 27 passed (28)
+restored byte-identical 8305de151c8cc03e683de5207f5a263ab33ac7c18e7a6a3213463c729c984599
+=== L1' createSupplierPayment bill lock removed (reviewer shape)
+     × PREVENTED: a batch and a single payment of 600 each, created at once on a 1000 bill — the second is refused at creation 375ms
+     × ONE LOCK ORDER: a payment, a batch and an application naming two bills in opposite orders all succeed together 2469ms
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 2 ⎯⎯⎯⎯⎯⎯⎯
+ Test Files  1 failed (1)
+      Tests  2 failed | 2 passed (4)
+restored byte-identical 6814ec794e43ddedda7156e6582f2484907336c3298f333d965145faa82c161d
+=== V1 void refuses an approved payment again
+     × RECOVERABLE (single payment loser): winner processes, loser refused, loser released, the rest is paid 51ms
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 1 ⎯⎯⎯⎯⎯⎯⎯
+ Test Files  1 failed (1)
+      Tests  1 failed | 3 passed (4)
+restored byte-identical 1e74241c38e71299eb68a1b9f51b0d065bfdcdce541ae6b040743e222c8ddf53
+=== X1' cancelBatch back to draft only (reviewer shape)
+     × RECOVERABLE (batch loser): winner processes, loser refused, loser released, the rest is paid 40ms
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 1 ⎯⎯⎯⎯⎯⎯⎯
+ Test Files  1 failed (1)
+      Tests  1 failed | 3 passed (4)
+restored byte-identical 8305de151c8cc03e683de5207f5a263ab33ac7c18e7a6a3213463c729c984599

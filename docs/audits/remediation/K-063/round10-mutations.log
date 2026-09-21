@@ -1,0 +1,33 @@
+=== D1 bank-screen reverse (and all 7 callers) without the rule
+     × bank reverse on a line in a COMPLETED reconciliation: 400 naming it, nothing written 103ms
+     × bank reverse on a Sage-imported reconciled line (no reconciliation_id): 400, names no reconciliation 64ms
+     × MCP void_payment reaches the same refusal through bank reverse, nothing written 61ms
+     × REST bank reverse → 400 for a line attached to a completed reconciliation by id only 74ms
+     × MCP void_payment through the registry → the agent reads the refusal, not a generic failure 77ms
+     × auto-post undo → a reconciled SKIP on the line (by id, not only by status), not a failed row 40ms
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 6 ⎯⎯⎯⎯⎯⎯⎯
+ Test Files  2 failed (2)
+      Tests  6 failed | 2 passed (8)
+restored byte-identical 43f55ee6397548dab998d97f65cb6c0b05a9fc53ec162c2380a6a4c0fc5bb3e0
+=== D2 MCP: registry no longer surfaces the refusal (generic failure)
+     × MCP void_payment through the registry → the agent reads the refusal, not a generic failure 50ms
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 1 ⎯⎯⎯⎯⎯⎯⎯
+ Test Files  1 failed | 1 passed (2)
+      Tests  1 failed | 7 passed (8)
+restored byte-identical 96f9ffe09c8197b264d9e4f6acec59e3707f822a408623b9ba83ddde35a25deb
+=== D3 REST void without the rule
+     × REST void → 400 naming the reconciliation, nothing written 87ms
+     × REST bank reverse → 400 for a line attached to a completed reconciliation by id only 45ms
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 2 ⎯⎯⎯⎯⎯⎯⎯
+ Test Files  1 failed | 1 passed (2)
+      Tests  2 failed | 6 passed (8)
+restored byte-identical bf23a852eae3afb0e3fb762cf8a9aea3ee8e353253a616aa639f15af5d7d869c
+=== D4 auto-post undo back to status-only (locked re-check)
+ Test Files  2 passed (2)
+      Tests  8 passed (8)
+restored byte-identical 85f622c5617c26fcb0ca17b10df2d9810ec0f4f3aceb964b7e53517b9a99c049
+=== D4b auto-post undo back to status-only on BOTH checks (the old second copy)
+     × auto-post undo → a reconciled SKIP on the line (by id, not only by status), not a failed row 44ms
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 1 ⎯⎯⎯⎯⎯⎯⎯
+      Tests  1 failed | 3 passed (4)
+restored byte-identical 85f622c5617c26fcb0ca17b10df2d9810ec0f4f3aceb964b7e53517b9a99c049

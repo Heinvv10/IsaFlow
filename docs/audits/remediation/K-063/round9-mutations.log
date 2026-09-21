@@ -1,0 +1,49 @@
+=== Z2 completed-by-reconciliation_id arm removed (status check only)
+     × refuses a MATCHED line whose reconciliation_id names a completed reconciliation (the id arm, not the status) 101ms
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 1 ⎯⎯⎯⎯⎯⎯⎯
+ Test Files  1 failed (1)
+      Tests  1 failed | 6 passed (7)
+restored byte-identical d507f616407bcc03fc53bc8492fb38e6978707fab31a53deb1baa7b8b4710a3b
+=== Z4 two-bank-lines refusal removed
+     × refuses a journal claimed by TWO bank lines (allocated + another), as MCP void_payment does 132ms
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 1 ⎯⎯⎯⎯⎯⎯⎯
+ Test Files  1 failed (1)
+      Tests  1 failed | 6 passed (7)
+restored byte-identical d507f616407bcc03fc53bc8492fb38e6978707fab31a53deb1baa7b8b4710a3b
+=== C1 caller 1: bank reverse no longer applies the rule
+     × bank reverse on a line in a COMPLETED reconciliation: 400 naming it, nothing written 66ms
+     × bank reverse on a Sage-imported reconciled line (no reconciliation_id): 400, names no reconciliation 34ms
+     × MCP void_payment reaches the same refusal through bank reverse, nothing written 41ms
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 3 ⎯⎯⎯⎯⎯⎯⎯
+ Test Files  1 failed | 3 passed (4)
+      Tests  3 failed | 24 passed (27)
+restored byte-identical 43f55ee6397548dab998d97f65cb6c0b05a9fc53ec162c2380a6a4c0fc5bb3e0
+=== C2 callers 2+3: void and batch reversal no longer apply the rule
+     × a void whose bank line is reconciled is a 400 with nothing written 42ms
+     × refuses with 400 and writes nothing when its bank line is reconciled 61ms
+     × refuses with 400 and writes nothing when its bank line is on a COMPLETED reconciliation 63ms
+     × refuses when the bank line is on a completed bank reconciliation, writing nothing 69ms
+     × refuses a MATCHED line whose reconciliation_id names a completed reconciliation (the id arm, not the status) 56ms
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 5 ⎯⎯⎯⎯⎯⎯⎯
+ Test Files  3 failed | 1 passed (4)
+      Tests  5 failed | 22 passed (27)
+restored byte-identical bf23a852eae3afb0e3fb762cf8a9aea3ee8e353253a616aa639f15af5d7d869c
+=== C3 the shared rule's completed arm removed
+     × refuses with 400 and writes nothing when its bank line is on a COMPLETED reconciliation 50ms
+     × refuses when the bank line is on a completed bank reconciliation, writing nothing 63ms
+     × refuses a MATCHED line whose reconciliation_id names a completed reconciliation (the id arm, not the status) 45ms
+     × bank reverse on a line in a COMPLETED reconciliation: 400 naming it, nothing written 61ms
+     × bank reverse on a Sage-imported reconciled line (no reconciliation_id): 400, names no reconciliation 26ms
+     × MCP void_payment reaches the same refusal through bank reverse, nothing written 41ms
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 6 ⎯⎯⎯⎯⎯⎯⎯
+ Test Files  3 failed | 1 passed (4)
+      Tests  6 failed | 21 passed (27)
+restored byte-identical 5d73c22475eb59557c552589791df9787d598cab29f48c2f3910364931d27583
+=== C4 the shared rule's Sage arm removed
+     × refuses with 400 and writes nothing when its bank line is reconciled 50ms
+     × bank reverse on a Sage-imported reconciled line (no reconciliation_id): 400, names no reconciliation 92ms
+     × a void whose bank line is reconciled is a 400 with nothing written 40ms
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 3 ⎯⎯⎯⎯⎯⎯⎯
+ Test Files  3 failed | 1 passed (4)
+      Tests  3 failed | 24 passed (27)
+restored byte-identical 5d73c22475eb59557c552589791df9787d598cab29f48c2f3910364931d27583

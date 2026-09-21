@@ -1,0 +1,6 @@
+# Round 9 GREEN — working tree, same fixture, --no-file-parallelism
+# 90 files: round8's 82 + k064-bank-reverse-reconciled + every file calling bank reverse / void_payment / auto-post undo
+exit=0
+ Test Files  90 passed (90)
+      Tests  586 passed | 1 skipped (587)
+# isaflow_test clone: ap-payment-document-backfill, backfill-auto-apply-unapplied, afs-changes-in-equity: 3 files, 44 tests passed
