@@ -184,7 +184,7 @@ export default function CustomerStatementsPage() {
                   {filteredCustomers.map((c) => (
                     <tr key={c.client_id} className="border-b border-[var(--ff-border-light)] hover:bg-teal-500/[0.04]">
                       <td className="py-3 px-4 text-[var(--ff-text-primary)] font-medium">
-                        <Link href={`/accounting/customer-statements/${c.client_id}`} className="hover:text-purple-400 transition-colors">
+                        <Link href={`/accounting/customer-statements/${c.client_id}?as_at_date=${asAtDate}`} className="hover:text-purple-400 transition-colors">
                           {c.client_name}
                         </Link>
                       </td>
@@ -195,7 +195,7 @@ export default function CustomerStatementsPage() {
                       <td className="py-3 px-4 text-center text-[var(--ff-text-secondary)]">{c.invoice_count}</td>
                       <td className="py-3 px-4 text-[var(--ff-text-secondary)]">{c.last_payment_date?.split('T')[0] || '-'}</td>
                       <td className="py-3 px-4 text-center">
-                        <Link href={`/accounting/customer-statements/${c.client_id}`}
+                        <Link href={`/accounting/customer-statements/${c.client_id}?as_at_date=${asAtDate}`}
                           className="inline-flex items-center gap-1 px-4 py-3 rounded-lg text-purple-400 hover:bg-purple-500/10 hover:text-purple-300 text-sm font-medium transition-colors"
                           title={`View ${c.client_name} statement`}>
                           View <ChevronRight className="h-4 w-4" />
