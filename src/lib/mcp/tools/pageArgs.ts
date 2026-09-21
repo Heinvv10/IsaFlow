@@ -11,9 +11,15 @@
  * on a total order (id as the tiebreak) so nothing else moves between pages.
  */
 
+/** Far past any real directory, and far inside Postgres's bigint OFFSET: an
+ *  integer like 1e20 passes Number.isInteger but raises 22003 as a raw
+ *  database error. */
+export const MAX_OFFSET = 1_000_000;
+
 export const OFFSET_SCHEMA = {
   type: 'integer',
   minimum: 0,
+  maximum: MAX_OFFSET,
   description: 'Rows to skip. Pass the previous page\'s next_offset; omit for the first page.',
 } as const;
 
@@ -21,7 +27,9 @@ export const OFFSET_SCHEMA = {
 export function parseOffset(args: Record<string, unknown>): number | string {
   if (args.offset === undefined || args.offset === null) return 0;
   const n = typeof args.offset === 'number' ? args.offset : Number.NaN;
-  if (!Number.isInteger(n) || n < 0) return 'offset must be a non-negative integer';
+  if (!Number.isInteger(n) || n < 0 || n > MAX_OFFSET) {
+    return `offset must be an integer from 0 to ${MAX_OFFSET}`;
+  }
   return n;
 }
 
