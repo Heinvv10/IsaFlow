@@ -1,0 +1,5 @@
+# Round 12 GREEN — working tree, same fixture, --no-file-parallelism
+# 91 files (round10-green's set)
+exit=0
+ Test Files  91 passed (91)
+      Tests  595 passed | 1 skipped (596)
