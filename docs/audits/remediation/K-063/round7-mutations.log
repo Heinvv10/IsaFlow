@@ -67,3 +67,14 @@ restored byte-identical 4cfdd807e69a639f83b83b35fa60b675009cd142a939c636e5f7328e
  Test Files  2 failed (2)
       Tests  2 failed | 14 passed (16)
 restored byte-identical 4cfdd807e69a639f83b83b35fa60b675009cd142a939c636e5f7328efa91d227
+=== U4 new-batch page: no fallback when reservations fail
+   × new batch still lists bills, at their outstanding, when reservations cannot be loaded — and says so 1008ms
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 1 ⎯⎯⎯⎯⎯⎯⎯
+      Tests  1 failed | 4 passed (5)
+restored byte-identical
+=== U5 reservedFor malformed ids no longer refused
+     × reservedFor refuses a malformed id with a 400 that echoes no database text; a version-0 id is accepted 5ms
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 1 ⎯⎯⎯⎯⎯⎯⎯
+ Test Files  1 failed (1)
+      Tests  1 failed | 12 passed (13)
+restored byte-identical d24f61b6a291c1d411ae3b2fd05fc3ea1aaa610551311e8f2f078c9789f727d3

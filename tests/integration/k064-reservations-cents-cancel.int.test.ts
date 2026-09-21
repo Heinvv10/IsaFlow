@@ -78,6 +78,19 @@ describeIfDb('K-064 review r1 — reservations, cents, locked creation, void/can
     expect((await read()).data).toEqual({});
   });
 
+  it('reservedFor refuses a malformed id with a 400 that echoes no database text; a version-0 id is accepted', async () => {
+    const get = (reservedFor: string) => fx.call(batchPayments, 'GET', {}, { reservedFor });
+    for (const bad of ['------------------------------------', 'not-a-uuid', `${ids.A},zzz`]) {
+      const state = await get(bad);
+      expect(state.statusCode, text(state)).toBe(400);
+      expect(text(state)).not.toMatch(/invalid input syntax|uuid|syntax/i);
+    }
+    const seeded = await get('00000000-0000-0000-0000-0000000bfb01');
+    expect(seeded.statusCode, text(seeded)).toBe(200);
+    const badId = await fx.call(batchPayments, 'GET', {}, { id: '------------------------------------' });
+    expect(badId.statusCode, text(badId)).toBe(400);
+  });
+
   // ── 5. integer cents, no tolerance ────────────────────────────────────────
   it('a R100.00 bill takes R100.00 and refuses R100.01', async () => {
     const b = await approved(100);

@@ -82,8 +82,8 @@
 #   tests/integration/supplier-ownership-fence-services.int.test.ts
 #   tests/integration/supplier-refund-document.int.test.ts
 exit=0
- Test Files  81 passed (81)
-      Tests  517 passed | 1 skipped (518)
+ Test Files  81 passed (81)   (re-run after items 7-8)
+      Tests  518 passed | 1 skipped (519)
 # Name-gated files run on an isaflow_test clone of the fixture: afs-changes-in-equity and
 # backfill-auto-apply-unapplied pass (17 tests); api/csrf needs a dev server on :3200 (not run);
 # ap-payment-document-backfill fails in its own SQL seed (uq_bank_tx_matched_line) - migration 615
