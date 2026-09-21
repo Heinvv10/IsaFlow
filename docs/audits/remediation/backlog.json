@@ -2321,7 +2321,7 @@
       "correctedTrigger": null,
       "severityRationale": "Source priority only; impact and reachability not yet validated.",
       "auditedSha": "5661d6f0f5f2212705151e95455a3f681ddf840e",
-      "currentSha": "2be6dfa4b",
+      "currentSha": "2b6f7f944",
       "status": "fixed",
       "dependencies": [],
       "testNames": [
@@ -2334,7 +2334,7 @@
         "K-063/validation.md",
         "K-063/fix.md"
       ],
-      "fixCommit": "2be6dfa4b",
+      "fixCommit": "2b6f7f944",
       "pr": null,
       "deployedSha": null,
       "historicalDataImpact": "Not assessed",
@@ -2357,7 +2357,7 @@
       "correctedTrigger": null,
       "severityRationale": "Source priority only; impact and reachability not yet validated.",
       "auditedSha": "5661d6f0f5f2212705151e95455a3f681ddf840e",
-      "currentSha": "2be6dfa4b",
+      "currentSha": "2b6f7f944",
       "status": "fixed",
       "dependencies": [],
       "testNames": [
@@ -2374,7 +2374,7 @@
         "K-064/validation.md",
         "K-064/fix.md"
       ],
-      "fixCommit": "2be6dfa4b",
+      "fixCommit": "2b6f7f944",
       "pr": null,
       "deployedSha": null,
       "historicalDataImpact": "Not assessed",
@@ -2429,7 +2429,7 @@
       "correctedTrigger": null,
       "severityRationale": "Source priority only; impact and reachability not yet validated.",
       "auditedSha": "5661d6f0f5f2212705151e95455a3f681ddf840e",
-      "currentSha": "2be6dfa4b",
+      "currentSha": "2b6f7f944",
       "status": "fixed",
       "dependencies": [],
       "testNames": [
@@ -2441,7 +2441,7 @@
         "K-066/validation.md",
         "K-066/fix.md"
       ],
-      "fixCommit": "2be6dfa4b",
+      "fixCommit": "2b6f7f944",
       "pr": null,
       "deployedSha": null,
       "historicalDataImpact": "Not assessed",
@@ -12275,7 +12275,7 @@
       "sourceIds": [],
       "correctedTrigger": "",
       "auditedSha": "6145c07ec",
-      "currentSha": "2be6dfa4b",
+      "currentSha": "2b6f7f944",
       "status": "confirmed",
       "dependencies": [
         "K-063",
@@ -12283,7 +12283,8 @@
         "K-066"
       ],
       "testNames": [
-        "tests/integration/k064-bank-reverse-reconciled.int.test.ts"
+        "tests/integration/k064-bank-reverse-reconciled.int.test.ts",
+        "tests/integration/k064-reconciled-cash-callers.int.test.ts"
       ],
       "fixCommit": null,
       "pr": null,
