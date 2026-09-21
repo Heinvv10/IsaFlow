@@ -13,7 +13,10 @@
  *     what it consumed, anything else at face value.
  */
 import { sql } from '@/lib/neon';
-import { documentInLedgerAsAtFragment } from '../shared/softDeleteLedgerPresence';
+import { fmtDate } from '@/lib/fmtDate';
+import { isRealCalendarDate } from '@/lib/validation';
+import { RunningBalance, toMoney } from '@/lib/money/decimalSum';
+import { asAtTodayStr, documentInLedgerAsAtFragment } from '../shared/softDeleteLedgerPresence';
 import { documentInPopulationExpr } from '../shared/documentPopulation';
 
 export const SETTLING_RECEIPT_STATUSES = ['confirmed', 'reconciled'];
@@ -62,5 +65,77 @@ export async function customerBalanceBroughtForward(
           AND credit_date < ${fromDate}::DATE
       ), 0) AS balance
   `) as { balance: unknown }[];
-  return Number(row?.balance ?? 0);
+  return toMoney(Number(row?.balance ?? 0));
+}
+
+/** One line of an in-app customer statement. */
+export interface StatementLine {
+  id: string;
+  date: string;
+  type: 'invoice' | 'payment' | 'credit_note' | 'opening_balance';
+  reference: string;
+  description: string;
+  debit: number;
+  credit: number;
+  balance: number;
+}
+
+/**
+ * The statement window. Both bounds are LOCAL calendar dates (SAST), as the
+ * emailed statement's as-at date is: `toISOString()` is UTC, so between 00:00
+ * and 02:00 it named yesterday and dropped today's documents. A bound that is
+ * not a real date, or a window that ends before it starts, is refused rather
+ * than cast by Postgres (a 500) or silently emptied.
+ */
+export function resolveStatementWindow(
+  fromDate: unknown,
+  toDate: unknown,
+): { from: string; to: string } | { error: string } {
+  const to = toDate === undefined || toDate === '' ? asAtTodayStr() : toDate;
+  let from = fromDate;
+  if (from === undefined || from === '') {
+    const yearAgo = new Date();
+    yearAgo.setDate(yearAgo.getDate() - 365);
+    from = fmtDate(yearAgo);
+  }
+  if (typeof from !== 'string' || !isRealCalendarDate(from)) return { error: 'fromDate must be a YYYY-MM-DD date' };
+  if (typeof to !== 'string' || !isRealCalendarDate(to)) return { error: 'toDate must be a YYYY-MM-DD date' };
+  if (from > to) return { error: 'fromDate must not be after toDate' };
+  return { from, to };
+}
+
+/**
+ * The brought-forward line, dated at the window's first day. It carries the
+ * opening figure in the debit or credit column (a debt or a credit balance),
+ * so the columns foot to the closing balance like every other line; none when
+ * nothing is brought forward.
+ */
+export function openingBalanceLine(openingBalance: number, from: string): StatementLine | null {
+  if (openingBalance === 0) return null;
+  return {
+    id: 'opening-balance', date: from, type: 'opening_balance', reference: '',
+    description: 'Balance brought forward',
+    debit: openingBalance > 0 ? openingBalance : 0,
+    credit: openingBalance < 0 ? -openingBalance : 0,
+    balance: 0,
+  };
+}
+
+/** Fills each line's running balance in decimal arithmetic, as the email does. */
+export function applyRunningBalance(lines: { debit: number; credit: number; balance: number }[]): void {
+  const running = new RunningBalance();
+  for (const line of lines) {
+    running.add(line.debit);
+    line.balance = running.subtract(line.credit);
+  }
+}
+
+/** Opening + invoiced - paid - credits, rounded to cents. */
+export function statementClosingBalance(
+  openingBalance: number, invoiced: number, paid: number, credits: number,
+): number {
+  const running = new RunningBalance(openingBalance);
+  running.add(invoiced);
+  running.subtract(paid);
+  return running.subtract(credits);
 }

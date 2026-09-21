@@ -127,7 +127,9 @@ describeIfDb('R-112 / R-113 in-app customer statements state the emailed balance
     const data = await statement(c);
     expect(data.summary).toMatchObject({ totalCredits: 350, balance: 650 });
     expect(data.transactions.filter(t => t.type === 'credit_note').map(t => t.credit).sort()).toEqual([150, 200]);
-    expect((await detail(c)).summary.balance).toBe(650);
+    const screen = await detail(c);
+    expect(screen.summary).toMatchObject({ totalCredits: 350, balance: 650 });
+    expect(screen.transactions.filter(t => t.type === 'credit_note').map(t => t.credit).sort()).toEqual([150, 200]);
   });
 
   it('R-113: the R-095 fixture customer states the emailed closing balance on the default statement', async () => {
@@ -147,7 +149,7 @@ describeIfDb('R-112 / R-113 in-app customer statements state the emailed balance
 
     const data = await statement(c);
     expect(data.summary).toMatchObject({ openingBalance: 800, totalInvoiced: 0, totalPaid: 400, totalCredits: 0, balance: 400 });
-    expect(data.transactions[0]).toMatchObject({ type: 'opening_balance', debit: 0, credit: 0, balance: 800 });
+    expect(data.transactions[0]).toMatchObject({ type: 'opening_balance', debit: 800, credit: 0, balance: 800 });
     expect(data.transactions.at(-1)).toMatchObject({ type: 'payment', balance: 400 });
 
     // A window that covers the whole history has nothing to bring forward.
@@ -167,5 +169,58 @@ describeIfDb('R-112 / R-113 in-app customer statements state the emailed balance
     expect(html).toContain('Balance brought forward');
     expect(html).not.toContain('opening_balance');
     expect(html).toMatch(/Balance Due<\/div><div class="value"[^>]*>R\s?600[.,]00/);
+  });
+
+  it('R-113: the brought-forward figure uses the same rules as the window — boundary day, dead credit notes, soft-deleted invoices', async () => {
+    const from = shift(-100);
+    const c = await customerWith('edge', {
+      invoices: [['INV-OLD', 1000, -200], ['INV-EDGE', 70, -100], ['INV-DEL', 555, -150]],
+      credits: [['CN-DRAFT', 'draft', 40, 0, -180], ['CN-CANCELLED', 'cancelled', 60, 0, -170], ['CN-EDGE', 'approved', 30, 0, -100]],
+    });
+    await sql`UPDATE customer_invoices SET deleted_at = NOW() WHERE invoice_number = ${f.tag + '-edge-INV-DEL'}`;
+    // 1000 + 70 - 30; the deleted invoice and the dead notes never count
+    expect(await emailBalance(c)).toBe(1040);
+
+    const data = await statement(c, { fromDate: from });
+    // A document dated ON fromDate is in the window, never also in the opening.
+    expect(data.summary).toMatchObject({ openingBalance: 1000, totalInvoiced: 70, totalCredits: 30, balance: 1040 });
+    expect(data.transactions.map(t => t.type)).toEqual(['opening_balance', 'invoice', 'credit_note']);
+  });
+
+  it('R-112: the detail screen leaves out post-dated documents, as the email as at today does', async () => {
+    const c = await customerWith('future', {
+      invoices: [['INV', 1000, -10], ['INV-FUTURE', 700, 5]],
+      receipts: [['RCPT-FUTURE', 300, 3, 'confirmed']],
+      credits: [['CN-FUTURE', 'approved', 50, 0, 4]],
+    });
+    expect(await emailBalance(c)).toBe(1000);
+    const data = await detail(c);
+    expect(data.summary).toMatchObject({ totalInvoiced: 1000, totalPaid: 0, totalCredits: 0, balance: 1000 });
+    expect(data.transactions).toHaveLength(1);
+  });
+
+  it('R-112: a soft-deleted customer has no statement on the detail screen, as on the email', async () => {
+    const c = await customerWith('gone', { invoices: [['INV', 100, -10]] });
+    await sql`UPDATE customers SET deleted_at = NOW() WHERE id = ${c}::UUID`;
+    expect(await fetchStatementData(f.companyA, c, TODAY)).toBeNull();
+    expect((await callRoute('customer-statement-detail', { client_id: c })).statusCode).toBe(404);
+  });
+
+  it('R-113: balances are summed in cents, not floats', async () => {
+    const c = await customerWith('cents', {
+      invoices: [['INV-1', 100.1, -10], ['INV-2', 200.2, -9]],
+    });
+    expect(await emailBalance(c)).toBe(300.3);
+    for (const data of [await statement(c), await detail(c)]) {
+      expect(data.summary.balance).toBe(300.3);
+      expect(data.transactions.at(-1)!.balance).toBe(300.3);
+    }
+  });
+
+  it('R-113: a window that is not a real date range is a 400, never a database error', async () => {
+    const c = await customerWith('dates', {});
+    for (const q of [{ fromDate: 'garbage' }, { toDate: '2026-02-31' }, { fromDate: TODAY, toDate: shift(-1) }]) {
+      expect((await callRoute('customer-statement', { customerId: c, ...q })).statusCode, JSON.stringify(q)).toBe(400);
+    }
   });
 });

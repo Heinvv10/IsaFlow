@@ -23,6 +23,7 @@ interface ClientData {
 }
 
 interface StatementSummary {
+  openingBalance: number;
   totalInvoiced: number;
   totalPaid: number;
   totalCredits: number;
@@ -109,6 +110,7 @@ export function buildStatementHtml(
 </div>
 <div class="divider"></div>
 <div class="summary">
+  ${summary.openingBalance !== 0 ? `<div class="summary-box"><div class="label">Opening Balance</div><div class="value">${fmtZAR(summary.openingBalance)}</div></div>` : ''}
   <div class="summary-box"><div class="label">Total Invoiced</div><div class="value">${fmtZAR(summary.totalInvoiced)}</div></div>
   <div class="summary-box"><div class="label">Total Paid</div><div class="value">${fmtZAR(summary.totalPaid)}</div></div>
   <div class="summary-box"><div class="label">Credits Applied</div><div class="value">${fmtZAR(summary.totalCredits)}</div></div>

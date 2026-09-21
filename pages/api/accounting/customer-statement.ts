@@ -25,7 +25,9 @@ import { buildStatementHtml } from '@/modules/accounting/utils/customerStatement
 import { documentInLedgerAsAtFragment } from '@/modules/accounting/services/shared/softDeleteLedgerPresence';
 import { documentInPopulationExpr } from '@/modules/accounting/services/shared/documentPopulation';
 import {
-  CREDIT_NOTE_STATEMENT_VALUE, LIVE_CREDIT_NOTE_STATUSES, SETTLING_RECEIPT_STATUSES, customerBalanceBroughtForward,
+  CREDIT_NOTE_STATEMENT_VALUE, LIVE_CREDIT_NOTE_STATUSES, SETTLING_RECEIPT_STATUSES, applyRunningBalance,
+  customerBalanceBroughtForward, openingBalanceLine, resolveStatementWindow, statementClosingBalance,
+  type StatementLine,
 } from '@/modules/accounting/services/ar/customerStatementRules';
 
 type Row = Record<string, unknown>;
@@ -38,17 +40,6 @@ type Row = Record<string, unknown>;
 // aggregate over the FULL (date-filtered) population so they stay correct
 // even if a pathological single customer ever hits the ceiling.
 const STATEMENT_ROW_CEILING = 2000;
-
-interface StatementTransaction {
-  id: string;
-  date: string;
-  type: 'invoice' | 'payment' | 'credit_note' | 'opening_balance';
-  reference: string;
-  description: string;
-  debit: number;
-  credit: number;
-  balance: number;
-}
 
 /** Normalize any date value to YYYY-MM-DD */
 function toISODate(val: unknown): string {
@@ -72,10 +63,9 @@ async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse) {
     return apiResponse.badRequest(res, 'customerId is required');
   }
 
-  const today = new Date().toISOString().split('T')[0] as string;
-  const oneYearAgo = new Date(Date.now() - 365 * 24 * 60 * 60 * 1000).toISOString().split('T')[0] as string;
-  const from = typeof fromDate === 'string' && fromDate ? fromDate : oneYearAgo;
-  const to = typeof toDate === 'string' && toDate ? toDate : today;
+  const statementWindow = resolveStatementWindow(fromDate, toDate);
+  if ('error' in statementWindow) return apiResponse.badRequest(res, statementWindow.error);
+  const { from, to } = statementWindow;
 
   try {
     const customerRows = await sql`
@@ -182,7 +172,7 @@ async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse) {
         ), 0) AS total_credits
     ` as Row[];
 
-    const transactions: StatementTransaction[] = [];
+    const transactions: StatementLine[] = [];
 
     for (const inv of invoices) {
       transactions.push({
@@ -219,26 +209,17 @@ async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse) {
     // Everything before the window is carried in, not dropped (R-113): the
     // default one-year window otherwise stated older debt as paid.
     const openingBalance = await customerBalanceBroughtForward(companyId, customerId, from, to);
-    if (openingBalance !== 0) {
-      transactions.unshift({
-        id: 'opening-balance', date: from, type: 'opening_balance', reference: '',
-        description: 'Balance brought forward', debit: 0, credit: 0, balance: 0,
-      });
-    }
-
+    const opening = openingBalanceLine(openingBalance, from);
+    if (opening) transactions.unshift(opening);
     // Running balance within the (possibly-capped) returned transaction list.
-    let runningBalance = openingBalance;
-    for (const txn of transactions) {
-      runningBalance += txn.debit - txn.credit;
-      txn.balance = runningBalance;
-    }
+    applyRunningBalance(transactions);
 
     const totalInvoiced = Number(totalsRow?.total_invoiced ?? 0);
     const totalPaid = Number(totalsRow?.total_paid ?? 0);
     const totalCredits = Number(totalsRow?.total_credits ?? 0);
     const summary = {
       openingBalance, totalInvoiced, totalPaid, totalCredits,
-      balance: openingBalance + totalInvoiced - totalPaid - totalCredits,
+      balance: statementClosingBalance(openingBalance, totalInvoiced, totalPaid, totalCredits),
     };
     const clientData = {
       id: String(customer.id), name: String(customer.name),
