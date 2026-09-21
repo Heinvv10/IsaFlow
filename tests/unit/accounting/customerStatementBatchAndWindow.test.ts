@@ -62,6 +62,19 @@ describe('generateStatementsBatch', () => {
     expect(new URL(detailCall!, 'http://x').searchParams.get('as_at_date')).toBe('2026-08-31');
     expect(generateStatementPdf.mock.calls[0]![0]).toMatchObject({ asAtDate: '2026-08-31' });
   });
+
+  it('prints the company address the company-details API composes, falling back to the parts', async () => {
+    apiFetch.mockImplementation(async (url: string) => url.includes('company-details')
+      ? reply(200, { data: { name: 'Co', address: '1 Main Rd, Unit 2, Cape Town', address_line1: '1 Main Rd', city: 'Cape Town' } })
+      : reply(200, { data: { client: {}, summary: { balance: 0 }, transactions: [] } }));
+    await generateStatementsBatch(new Set(['live']), customers, '2026-08-31');
+    expect(generateStatementPdf.mock.calls[0]![0]).toMatchObject({ companyAddress: '1 Main Rd, Unit 2, Cape Town' });
+    apiFetch.mockImplementation(async (url: string) => url.includes('company-details')
+      ? reply(200, { data: { name: 'Co', address_line1: '1 Main Rd', city: 'Cape Town' } })
+      : reply(200, { data: { client: {}, summary: { balance: 0 }, transactions: [] } }));
+    await generateStatementsBatch(new Set(['live']), customers, '2026-08-31');
+    expect(generateStatementPdf.mock.calls[1]![0]).toMatchObject({ companyAddress: '1 Main Rd, Cape Town' });
+  });
 });
 
 describe('resolveStatementAsAt', () => {

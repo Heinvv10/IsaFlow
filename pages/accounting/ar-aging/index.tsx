@@ -10,10 +10,12 @@ import { Clock, Loader2, AlertCircle, Download } from 'lucide-react';
 import type { AgingBucket } from '@/modules/accounting/types/ap.types';
 import { formatCurrency } from '@/utils/formatters';
 import { apiFetch } from '@/lib/apiFetch';
+import { fmtDate } from '@/lib/fmtDate';
 
 export default function ARAgingPage() {
   const [buckets, setBuckets] = useState<AgingBucket[]>([]);
-  const [asAtDate, setAsAtDate] = useState(new Date().toISOString().split('T')[0]);
+  // A LOCAL date: toISOString() is UTC and named yesterday before 02:00 SAST.
+  const [asAtDate, setAsAtDate] = useState(() => fmtDate(new Date()));
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState('');
 
@@ -142,7 +144,7 @@ export default function ARAgingPage() {
                   {buckets.map(b => (
                     <tr key={b.entityId} className="border-b border-[var(--ff-border-light)] hover:bg-[var(--ff-bg-primary)] transition-colors">
                       <td className="px-4 py-3 text-[var(--ff-text-primary)] font-medium">
-                        <Link href={`/accounting/customer-statements/${b.entityId}`} className="hover:text-teal-400 transition-colors">
+                        <Link href={`/accounting/customer-statements/${b.entityId}?as_at_date=${asAtDate}`} className="hover:text-teal-400 transition-colors">
                           {b.entityName}
                         </Link>
                       </td>
