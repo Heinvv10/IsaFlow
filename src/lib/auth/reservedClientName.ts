@@ -73,26 +73,35 @@ const WILDCARD = '\u0000';
  * carries the names this cannot catch.
  */
 export function tokenizeForComparison(value: string): string[] {
-  return value
-    .normalize('NFKD')
-    .replace(/[\u0300-\u036f]/g, '')
-    .normalize('NFKC')
-    .toLowerCase()
-    .replace(/./gsu, (ch) => {
-      const folded = CONFUSABLES[ch] ?? ch;
-      if (/[a-z0-9]/.test(folded)) return folded;
-      // A letter or digit we cannot identify stays INSIDE the token as a
-      // wildcard. Treating it as a separator would split the word, and a
-      // welded affix then pushes the run past the length bound and strands it:
-      // "TheIsafl<Armenian o>w" reads as the brand but escaped that way.
-      return /\p{L}|\p{N}/u.test(folded) ? WILDCARD : ' ';
-    })
-    // One cheap multi-character look-alike, aimed at this brand's own letters.
-    // The general n:1 class (rn for m, cl for d) is not covered — see the note
-    // on residual risk in the module comment.
-    .replace(/vv/g, 'w')
-    .split(' ')
-    .filter(Boolean);
+  const decomposed = value.normalize('NFKD').replace(/[\u0300-\u036f]/g, '').normalize('NFKC');
+  // A letter or digit we cannot identify stays INSIDE the token as a wildcard.
+  // Treating it as a separator would split the word, and a welded affix then
+  // pushes the run past the length bound and strands it: "TheIsafl<Armenian
+  // o>w" reads as the brand but escaped that way.
+  return foldAndSplit(decomposed, WILDCARD);
+}
+
+/**
+ * Lowercase, fold look-alikes, and split into tokens. `unidentified` is what a
+ * letter or digit we cannot map becomes. Shared by both passes so that a word
+ * written in plain letters produces the identical token in each.
+ */
+function foldAndSplit(normalized: string, unidentified: string): string[] {
+  return (
+    normalized
+      .toLowerCase()
+      .replace(/./gsu, (ch) => {
+        const folded = CONFUSABLES[ch] ?? ch;
+        if (/[a-z0-9]/.test(folded)) return folded;
+        return /\p{L}|\p{N}/u.test(folded) ? unidentified : ' ';
+      })
+      // One cheap multi-character look-alike, aimed at this brand's own letters.
+      // The general n:1 class (rn for m, cl for d) is not covered — see the note
+      // on residual risk in the module comment.
+      .replace(/vv/g, 'w')
+      .split(' ')
+      .filter(Boolean)
+  );
 }
 
 /**
@@ -122,24 +131,58 @@ function matchesTerm(candidate: string, target: string): boolean {
  */
 const NEGATIONS = ['un', 'non', 'not'];
 
+/**
+ * Which tokens have a plain twin: the same token produced WITHOUT compatibility
+ * folding. NFKD turns superscript and subscript letters into ordinary ones, so
+ * "\u1D58\u207FOfficial" tokenizes as "unofficial" while rendering to a user
+ * as "Official" with a smudge in front. Its plain twin does not exist, because
+ * without NFKD those superscripts are not letters at all.
+ *
+ * Matched one-for-one. A single plainly-written "Unofficial" confirms one token
+ * and cannot vouch for a second, disguised one elsewhere in the same name —
+ * "Unofficial \u1D58\u207FOfficial" would otherwise borrow the shelter.
+ */
+function plainTwins(tokens: string[], name: string): boolean[] {
+  const pool = new Map<string, number>();
+  for (const word of foldAndSplit(name.normalize('NFC'), ' ')) {
+    pool.set(word, (pool.get(word) ?? 0) + 1);
+  }
+  return tokens.map((token) => {
+    const left = pool.get(token) ?? 0;
+    if (left === 0) return false;
+    pool.set(token, left - 1);
+    return true;
+  });
+}
+
+/**
+ * True when the term at `offset` is denied rather than claimed: the token
+ * starts with a negating morpheme and the term follows it directly. The
+ * negation must BE the start of the token, not merely precede the term —
+ * otherwise any word ending in "un", "non" or "not" shelters it, and
+ * "CanonOfficial", "SunOfficial", "KnotVerified" all read as claims.
+ */
 function isNegated(token: string, offset: number): boolean {
-  return NEGATIONS.some((neg) => offset >= neg.length && token.startsWith(neg, offset - neg.length));
+  return NEGATIONS.some((neg) => offset === neg.length && token.startsWith(neg));
 }
 
 /**
  * True when `token` spells `target` somewhere inside it.
  *
- * `negatable` marks a term that ordinary English can deny. Both classes are
+ * `plainTwin` is null for the brand, which has no negation reading. For an
+ * adjective it says whether this token was written in plain letters — the
+ * shelter is a privilege, so it is only granted to a negation a reader sees.
+ * Claims are detected generously; shelters are granted strictly. Both classes are
  * matched anywhere in a token, because restricting either to the start leaves a
  * one-keystroke bypass: "OfficialIsaFlow" for the brand, "ClaudeCodeOfficial"
  * for the adjectives. The difference is that a negated adjective is not a
  * claim, while the brand is a coined word with no such reading — finding it
  * anywhere inside a token means the name trades on it.
  */
-function tokenSpells(token: string, target: string, negatable: boolean): boolean {
+function tokenSpells(token: string, target: string, plainTwin: boolean | null): boolean {
   const last = token.length - target.length;
   for (let offset = 0; offset <= last; offset += 1) {
-    if (negatable && isNegated(token, offset)) continue;
+    if (plainTwin && isNegated(token, offset)) continue;
     if (matchesTerm(token.slice(offset, offset + target.length), target)) return true;
   }
   return false;
@@ -158,8 +201,8 @@ function tokenSpells(token: string, target: string, negatable: boolean): boolean
  * A separator inside a run is also tried as a single wildcard, because a symbol
  * can stand in for a letter it resembles ("!saflow", "is@flow").
  */
-function containsTerm(tokens: string[], target: string, negatable: boolean): boolean {
-  if (tokens.some((token) => tokenSpells(token, target, negatable))) return true;
+function containsTerm(tokens: string[], target: string, twins: boolean[] | null): boolean {
+  if (tokens.some((token, i) => tokenSpells(token, target, twins ? (twins[i] ?? false) : null))) return true;
 
   for (let start = 0; start < tokens.length; start += 1) {
     for (let end = start; end < tokens.length; end += 1) {
@@ -200,10 +243,11 @@ const MIN_QUALIFIED_PREFIX_LETTERS = 2;
  */
 export function isReservedClientName(name: string): boolean {
   const tokens = tokenizeForComparison(name);
-  if (RESERVED_ADJECTIVES.some((term) => containsTerm(tokens, term, true))) return true;
+  const twins = plainTwins(tokens, name);
+  if (RESERVED_ADJECTIVES.some((term) => containsTerm(tokens, term, twins))) return true;
 
   const prefixTokens = tokenizeForComparison(name.replace(TRAILING_QUALIFIER_RE, ''));
   const letters = prefixTokens.join('').replace(/[^a-z]/g, '').length;
   const subject = letters >= MIN_QUALIFIED_PREFIX_LETTERS ? prefixTokens : tokens;
-  return containsTerm(subject, BRAND, false);
+  return containsTerm(subject, BRAND, null);
 }
