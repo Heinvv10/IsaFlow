@@ -1,0 +1,53 @@
+
+ RUN  v4.1.2 /home/hein/Workspace/IsaFlow/.worktrees/audit-remediation-20260908
+
+ ❯ tests/unit/services/capture/k159-whatsapp-amount-glue.test.ts (3 tests | 2 failed) 46ms
+     × does not glue a following quantity onto the amount 35ms
+     × does not glue a following date onto the amount 1ms
+
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 2 ⎯⎯⎯⎯⎯⎯⎯
+
+ FAIL  tests/unit/services/capture/k159-whatsapp-amount-glue.test.ts > K-159 WhatsApp amount parser > does not glue a following quantity onto the amount
+AssertionError: expected 8502 to be 850 // Object.is equality
+
+- Expected
++ Received
+
+- 850
++ 8502
+
+ ❯ tests/unit/services/capture/k159-whatsapp-amount-glue.test.ts:14:73
+     12| describe('K-159 WhatsApp amount parser', () => {
+     13|   it('does not glue a following quantity onto the amount', () => {
+     14|     expect(parseExpenseCommand('paid R850 2 lunches at Kauai')?.amount…
+       |                                                                         ^
+     15|   });
+     16|
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[1/2]⎯
+
+ FAIL  tests/unit/services/capture/k159-whatsapp-amount-glue.test.ts > K-159 WhatsApp amount parser > does not glue a following date onto the amount
+AssertionError: expected 25012 to be 250 // Object.is equality
+
+- Expected
++ Received
+
+- 250
++ 25012
+
+ ❯ tests/unit/services/capture/k159-whatsapp-amount-glue.test.ts:18:62
+     16|
+     17|   it('does not glue a following date onto the amount', () => {
+     18|     expect(parseExpenseCommand('R250 12 Aug Engen')?.amount).toBe(250);
+       |                                                              ^
+     19|   });
+     20|
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[2/2]⎯
+
+
+ Test Files  1 failed (1)
+      Tests  2 failed | 1 passed (3)
+   Start at  11:40:06
+   Duration  1.17s (transform 243ms, setup 0ms, import 343ms, tests 46ms, environment 0ms)
+

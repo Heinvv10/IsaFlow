@@ -1,0 +1,30 @@
+
+ RUN  v4.1.2 /home/hein/Workspace/IsaFlow/.worktrees/audit-remediation-20260908
+
+{"level":"info","message":"API Request: POST /api/admin/companies/bulk-action","timestamp":"2026-09-09T09:35:48.004Z","component":"API","requestId":"01M22RC193PCZR5R2KW3TJSH86","data":{"type":"request","method":"POST","url":"/api/admin/companies/bulk-action","query":{},"body":{"action":"extend_trial","company_ids":["68576e2b-93f6-46fc-99ea-aa6a8f9ba13b","afc58924-f165-4ce1-a79b-e2188aa86903"],"days":90}}}
+{"level":"error","message":"bulk extend_trial failed for company","timestamp":"2026-09-09T09:35:48.046Z","component":"admin-bulk-action","requestId":"01M22RC193PCZR5R2KW3TJSH86","data":{"companyId":"afc58924-f165-4ce1-a79b-e2188aa86903","error":{"length":103,"name":"error","severity":"ERROR","code":"22008","file":"timestamp.c","line":"3118","routine":"timestamptz_pl_interval_internal","message":"timestamp out of range","stack":"error: timestamp out of range\n    at /home/hein/Workspace/IsaFlow/.worktrees/audit-remediation-20260908/node_modules/pg/lib/client.js:631:17\n    at processTicksAndRejections (node:internal/process/task_queues:95:5)\n    at LazyQuery.run (/home/hein/Workspace/IsaFlow/.worktrees/audit-remediation-20260908/src/lib/neon.ts:107:19)\n    at handler (/home/hein/Workspace/IsaFlow/.worktrees/audit-remediation-20260908/pages/api/admin/companies/bulk-action.ts:80:9)\n    at /home/hein/Workspace/IsaFlow/.worktrees/audit-remediation-20260908/src/lib/api-error-handler.ts:118:9\n    at runScoped (/home/hein/Workspace/IsaFlow/.worktrees/audit-remediation-20260908/src/lib/api-error-handler.ts:91:7)\n    at /home/hein/Workspace/IsaFlow/.worktrees/audit-remediation-20260908/src/lib/api-error-handler.ts:192:7\n    at /home/hein/Workspace/IsaFlow/.worktrees/audit-remediation-20260908/src/lib/auth/withPlatformAdmin.ts:137:36\n    at /home/hein/Workspace/IsaFlow/.worktrees/audit-remediation-20260908/src/lib/auth/withPlatformAdmin.ts:146:9\n    at /home/hein/Workspace/IsaFlow/.worktrees/audit-remediation-20260908/tests/integration/k100-admin-bulk-action-shared-tx.int.test.ts:59:5"}}}
+{"level":"info","message":"API Response: POST /api/admin/companies/bulk-action - 200 (64ms)","timestamp":"2026-09-09T09:35:48.067Z","component":"API","requestId":"01M22RC193PCZR5R2KW3TJSH86","data":{"type":"response","method":"POST","url":"/api/admin/companies/bulk-action","statusCode":200,"duration":"64ms"}}
+{"level":"info","message":"request_completed","timestamp":"2026-09-09T09:35:48.068Z","component":"http","requestId":"01M22RC193PCZR5R2KW3TJSH86","data":{"event":"request_completed","route":"/api/admin/companies/bulk-action","method":"POST","status":200,"durationMs":65,"userId":"69fc06e9-be43-4bbd-8854-96fe8d946c86","companyId":null,"outcome":"ok"}}
+ ❯ tests/integration/k100-admin-bulk-action-shared-tx.int.test.ts (1 test | 1 failed) 534ms
+     × a company counted as processed really has its trial extended 199ms
+
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 1 ⎯⎯⎯⎯⎯⎯⎯
+
+ FAIL  tests/integration/k100-admin-bulk-action-shared-tx.int.test.ts > K-100 admin bulk action reports only what it actually wrote > a company counted as processed really has its trial extended
+AssertionError: expected null not to be null
+ ❯ tests/integration/k100-admin-bulk-action-shared-tx.int.test.ts:66:40
+     64|
+     65|     const { rows } = await pool.query('SELECT trial_ends_at FROM compa…
+     66|     expect(rows[0]?.trial_ends_at).not.toBeNull();
+       |                                        ^
+     67|
+     68|     const audit = await pool.query(
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[1/1]⎯
+
+
+ Test Files  1 failed (1)
+      Tests  1 failed (1)
+   Start at  11:35:39
+   Duration  8.78s (transform 2.90s, setup 0ms, import 5.82s, tests 534ms, environment 0ms)
+

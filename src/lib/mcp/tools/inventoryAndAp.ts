@@ -187,7 +187,7 @@ export const supplierStatementTool: McpTool = {
     'A running-balance statement of account for one supplier: every bill, payment and supplier credit note dated on or before as_at, in date order, with what we owe after each. The mirror of customer_statement, and it runs the OTHER WAY — a bill credits the balance (we owe more), a payment debits it (we owe less), and a positive closing balance means we owe the supplier. ' +
     'It runs from INCEPTION to as_at, not over a rolling window; from_date reports the date of the earliest transaction it actually found. ' +
     'A bill that is draft, pending approval or cancelled is not yet an obligation and is left off the statement — it appears in excludedRows with its amount and status, never silently. A NULL status counts as issued. A payment that has not been PROCESSED does not reduce what we owe and appears in excludedRows with its amount — there are 56 draft supplier payments on these books, and a payment sitting in draft is a different problem from one that was never raised. Credit notes count whether they are approved or already applied. ' +
-    'This is OUR ledger of the supplier. It is not the reconciliation of a statement the supplier sent us — that is supplier_statement_reconciliations in the app, and this tool does not read it. detail: "summary" returns the totals with no rows.',
+    'This is OUR ledger of the supplier. It is not the reconciliation of a statement the supplier sent us — that is supplier_statement_reconciliations in the app, and this tool does not read it. detail: "summary" returns the totals with no rows. Balances are exact to the cent.',
   scope: 'read:reports',
   write: false,
   inputSchema: {

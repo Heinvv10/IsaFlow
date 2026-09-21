@@ -8,6 +8,9 @@
  * fault after it must THROW so the registry's savepoint unwinds the batch.
  */
 import type { McpToolContext } from '../types';
+import {
+  AUTO_APPLY_MODES, parseAutoApplyMode,
+} from '@/modules/accounting/services/shared/autoAllocateStrategy';
 import type { SkippedLine } from './bulkAllocationSkip';
 import {
   type AllocationLine,
@@ -22,6 +25,13 @@ import {
 export const MAX_LINES = 500;
 
 export interface ResolvedLine {
+  /**
+   * The bank line's SIGNED amount, carried from the state read that decided the
+   * line was postable. The dry run's FIFO preview needs both the magnitude and
+   * the direction, and re-reading 500 rows to recover them would put a second
+   * query on the hot path.
+   */
+  signedAmount?: number;
   /**
    * Index into the caller's own `allocations` array — carried, not recomputed.
    * Every downstream report (skips, per-line failures) names the line the AGENT
@@ -83,6 +93,13 @@ export async function prepareAllocationLines(
     return `allocations holds ${raw.length} lines — at most ${MAX_LINES} per call. Split the batch.`;
   }
 
+  // A batch-level default, applied to every line that does not carry its own.
+  // Refused rather than coerced, like every other enum on this path.
+  const batchAutoApply = args.auto_apply;
+  if (batchAutoApply !== undefined && parseAutoApplyMode(batchAutoApply) === null) {
+    return `auto_apply must be one of: ${AUTO_APPLY_MODES.join(', ')}`;
+  }
+
   const lines: AllocationLine[] = [];
   const errors: string[] = [];
   for (const [i, entry] of raw.entries()) {
@@ -90,7 +107,14 @@ export async function prepareAllocationLines(
       errors.push(`allocations[${i}] must be an object`);
       continue;
     }
-    const parsed = parseAllocationLine(entry as Record<string, unknown>);
+    const raw = entry as Record<string, unknown>;
+    // The batch default is injected BEFORE parsing, so a line that states its
+    // own mode keeps it and every other line inherits the batch's.
+    const parsed = parseAllocationLine(
+      batchAutoApply !== undefined && raw.auto_apply === undefined
+        ? { ...raw, auto_apply: batchAutoApply }
+        : raw,
+    );
     // The index matters: an agent holding 500 lines cannot act on "alloc_type
     // must be one of…" without being told which line it belongs to.
     if (typeof parsed === 'string') {

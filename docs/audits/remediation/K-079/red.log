@@ -1,0 +1,52 @@
+
+ RUN  v4.1.2 /home/hein/Workspace/IsaFlow/.worktrees/audit-remediation-20260908
+
+ ❯ tests/unit/services/payroll/payrollJournalBuilder-k079-eti-balance.test.ts (4 tests | 3 failed) 9ms
+     × balances 5ms
+     × raises no unbalanced blocker, so the run can post 2ms
+     × credits PAYE payable net of the incentive 1ms
+
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 3 ⎯⎯⎯⎯⎯⎯⎯
+
+ FAIL  tests/unit/services/payroll/payrollJournalBuilder-k079-eti-balance.test.ts > buildPayrollJournalPlan — a run claiming ETI > balances
+AssertionError: expected 101500 to be close to 102000, received difference is 500, but expected 0.005
+ ❯ tests/unit/services/payroll/payrollJournalBuilder-k079-eti-balance.test.ts:76:30
+     74|   it('balances', async () => {
+     75|     const plan = await buildPayrollJournalPlan(COMPANY, RUN);
+     76|     expect(plan!.totalDebit).toBeCloseTo(plan!.totalCredit, 2);
+       |                              ^
+     77|   });
+     78|
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[1/3]⎯
+
+ FAIL  tests/unit/services/payroll/payrollJournalBuilder-k079-eti-balance.test.ts > buildPayrollJournalPlan — a run claiming ETI > raises no unbalanced blocker, so the run can post
+AssertionError: expected [ 'unbalanced' ] to not include 'unbalanced'
+ ❯ tests/unit/services/payroll/payrollJournalBuilder-k079-eti-balance.test.ts:81:51
+     79|   it('raises no unbalanced blocker, so the run can post', async () => {
+     80|     const plan = await buildPayrollJournalPlan(COMPANY, RUN);
+     81|     expect(plan!.blockers.map((b) => b.code)).not.toContain('unbalance…
+       |                                                   ^
+     82|   });
+     83|
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[2/3]⎯
+
+ FAIL  tests/unit/services/payroll/payrollJournalBuilder-k079-eti-balance.test.ts > buildPayrollJournalPlan — a run claiming ETI > credits PAYE payable net of the incentive
+AssertionError: expected 20000 to be close to 19500, received difference is 500, but expected 0.005
+ ❯ tests/unit/services/payroll/payrollJournalBuilder-k079-eti-balance.test.ts:88:26
+     86|     const paye = plan!.lines.find((l) => l.accountCode === '2140');
+     87|     // 20000 PAYE withheld, 500 settled by the incentive → 19500 owed …
+     88|     expect(paye!.credit).toBeCloseTo(20000 - ETI, 2);
+       |                          ^
+     89|   });
+     90|
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[3/3]⎯
+
+
+ Test Files  1 failed (1)
+      Tests  3 failed | 1 passed (4)
+   Start at  11:28:41
+   Duration  628ms (transform 94ms, setup 0ms, import 152ms, tests 9ms, environment 0ms)
+

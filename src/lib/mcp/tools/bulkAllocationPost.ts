@@ -20,6 +20,12 @@ export interface PostedLine {
   journal_entry_id: string;
   /** Present only when a guard changed this line's VAT code before posting. */
   vat_coerced?: { from: string; to: string; reason: VatCoercionReason };
+  /** The mode this line ran under. Absent when it could settle nothing. */
+  auto_apply?: string;
+  /** The documents this line's cash closed, in the order it closed them. */
+  applications?: { document_id: string; document_number: string; amount: number }[];
+  /** The remainder left on the contact's account. */
+  on_account?: number;
 }
 
 /** One line whose VAT claim a guard dropped before it posted. */
@@ -180,6 +186,19 @@ export async function postPreparedLines(
         transaction_id: result.transactionId,
         journal_entry_id: result.journalEntryId,
         ...(result.vatCoerced ? { vat_coerced: result.vatCoerced } : {}),
+        // The same three fields the dry run reports, so a caller can compare
+        // its preview against what actually posted without reshaping either.
+        ...(result.application
+          ? {
+            auto_apply: result.application.autoApply,
+            applications: result.application.applications.map((a) => ({
+              document_id: a.documentId,
+              document_number: a.documentNumber,
+              amount: a.amount,
+            })),
+            on_account: result.application.onAccount,
+          }
+          : {}),
       });
       if (result.vatCoerced) vatCoerced.push({ index, transaction_id: txId, ...result.vatCoerced });
     } catch (err) {

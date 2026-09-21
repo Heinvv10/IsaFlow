@@ -106,6 +106,35 @@ export async function assertCustomerInCompany(
   if (!owned) throw new CustomerNotInCompanyError(customerId);
 }
 
+/** Supplier twin of CustomerNotInCompanyError (R-068). */
+export class SupplierNotInCompanyError extends Error {
+  readonly code = 'SUPPLIER_NOT_FOUND';
+  constructor(supplierId: string) {
+    super(`Supplier ${supplierId} was not found for this company`);
+    this.name = 'SupplierNotInCompanyError';
+  }
+}
+
+/**
+ * Supplier twin of assertCustomerInCompany (R-068), same contract: before the
+ * first write; absent id passes; savepointed read, malformed id refused;
+ * tenant only, not `deleted_at`. Every FK to `suppliers` but one is
+ * tenant-agnostic, so nothing else stops a body id naming another tenant's creditor.
+ */
+export async function assertSupplierInCompany(companyId: string, supplierId: string | null | undefined): Promise<void> {
+  if (!supplierId) return;
+  const owned = await withSavepoint(`supp_own_${++ownershipSeq}`, async () => {
+    const rows = (await sql`
+      SELECT 1 FROM suppliers WHERE id = ${supplierId}::uuid AND company_id = ${companyId} LIMIT 1
+    `) as Row[];
+    return rows.length > 0;
+  }).catch((err: unknown) => {
+    if ((err as { code?: string }).code === '22P02') return false;
+    throw err;
+  });
+  if (!owned) throw new SupplierNotInCompanyError(supplierId);
+}
+
 /**
  * True only if the supplier belongs to companyId. Mirror of
  * customerBelongsToCompany for the AP side: bank allocation resolves the

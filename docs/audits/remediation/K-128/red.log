@@ -1,0 +1,59 @@
+$ node scripts/check-runtime.mjs && vitest run --config vitest.integration.config.ts "tests/integration/k128-invoice-export-legacy-customer-id.int.test.ts"
+
+ RUN  v4.1.2 /home/hein/Workspace/IsaFlow/.worktrees/audit-remediation-20260908
+
+{"level":"info","message":"API Request: GET ","timestamp":"2026-09-09T09:35:53.803Z","component":"API","requestId":"01M22RC6YBMH8MVP8N240RMM5C","data":{"type":"request","method":"GET","url":"","query":{}}}
+{"level":"info","message":"API Response: GET  - 200 (54ms)","timestamp":"2026-09-09T09:35:53.857Z","component":"API","requestId":"01M22RC6YBMH8MVP8N240RMM5C","data":{"type":"response","method":"GET","url":"","statusCode":200,"duration":"54ms"}}
+{"level":"info","message":"request_completed","timestamp":"2026-09-09T09:35:53.858Z","component":"http","requestId":"01M22RC6YBMH8MVP8N240RMM5C","data":{"event":"request_completed","route":"","method":"GET","status":200,"durationMs":55,"userId":"k128","companyId":"56d6e120-70fe-4aa8-a9fc-50ae502910f1","outcome":"ok"}}
+{"level":"info","message":"API Request: GET ","timestamp":"2026-09-09T09:35:53.916Z","component":"API","requestId":"01M22RC71WEC748TB00WZ6TCV4","data":{"type":"request","method":"GET","url":"","query":{"status":"sent"}}}
+{"level":"info","message":"API Response: GET  - 200 (21ms)","timestamp":"2026-09-09T09:35:53.937Z","component":"API","requestId":"01M22RC71WEC748TB00WZ6TCV4","data":{"type":"response","method":"GET","url":"","statusCode":200,"duration":"21ms"}}
+{"level":"info","message":"request_completed","timestamp":"2026-09-09T09:35:53.937Z","component":"http","requestId":"01M22RC71WEC748TB00WZ6TCV4","data":{"event":"request_completed","route":"","method":"GET","status":200,"durationMs":21,"userId":"k128","companyId":"56d6e120-70fe-4aa8-a9fc-50ae502910f1","outcome":"ok"}}
+ ❯ tests/integration/k128-invoice-export-legacy-customer-id.int.test.ts (2 tests | 2 failed) 3393ms
+     × names the customer on a customer_id-only invoice (unfiltered export) 114ms
+     × names the customer on a customer_id-only invoice (status-filtered export) 22ms
+
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 2 ⎯⎯⎯⎯⎯⎯⎯
+
+ FAIL  tests/integration/k128-invoice-export-legacy-customer-id.int.test.ts > K-128 the invoice CSV export must name the customer on legacy invoices > names the customer on a customer_id-only invoice (unfiltered export)
+AssertionError: expected '' to be 'K128 Legacy Customer' // Object.is equality
+
+- Expected
++ Received
+
+- K128 Legacy Customer
+
+ ❯ tests/integration/k128-invoice-export-legacy-customer-id.int.test.ts:94:48
+     92|     expect(clientColumn(lines, 'K128-MODERN')).toBe('K128 Modern Custo…
+     93|     // THE CLAIM: on origin/master this column is empty.
+     94|     expect(clientColumn(lines, 'K128-LEGACY')).toBe('K128 Legacy Custo…
+       |                                                ^
+     95|   });
+     96|
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[1/2]⎯
+
+ FAIL  tests/integration/k128-invoice-export-legacy-customer-id.int.test.ts > K-128 the invoice CSV export must name the customer on legacy invoices > names the customer on a customer_id-only invoice (status-filtered export)
+AssertionError: expected '' to be 'K128 Legacy Customer' // Object.is equality
+
+- Expected
++ Received
+
+- K128 Legacy Customer
+
+ ❯ tests/integration/k128-invoice-export-legacy-customer-id.int.test.ts:99:48
+     97|   it('names the customer on a customer_id-only invoice (status-filtere…
+     98|     const lines = await exportCsv({ status: 'sent' });
+     99|     expect(clientColumn(lines, 'K128-LEGACY')).toBe('K128 Legacy Custo…
+       |                                                ^
+    100|   });
+    101| });
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[2/2]⎯
+
+
+ Test Files  1 failed (1)
+      Tests  2 failed (2)
+   Start at  11:35:48
+   Duration  5.46s (transform 1.15s, setup 0ms, import 765ms, tests 3.39s, environment 0ms)
+
+error: script "test:integration" exited with code 1

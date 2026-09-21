@@ -190,7 +190,13 @@ const REFUSAL_CODES: ReadonlySet<string> = new Set([
   'RECURRING_TEMPLATE_NOT_DUE',
   'RECURRING_TEMPLATE_TOTALS_MISMATCH',
   'RULE_AUTHORITY_REQUIRED',
+  // A refund larger than the contact's on-account credit (migration 681). One
+  // fixed sentence written for the user, naming the contact, the two amounts
+  // and the as-at date the caller itself supplied — no id, no table — and
+  // raised BEFORE the journal posts, so there is nothing written to leak.
+  'SUPPLIER_REFUND_REFUSED',
   'SUPPLIER_INVOICE_LOCK_TIMEOUT',
+  'SUPPLIER_NOT_FOUND',
   'SUPPLIER_PAYMENT_NOT_FOUND',
   'SUPPLIER_PAYMENT_NOT_PROCESSABLE',
   'SUPPLIER_PAYMENT_REFUSED',

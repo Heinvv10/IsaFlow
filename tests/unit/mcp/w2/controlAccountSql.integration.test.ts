@@ -1,10 +1,16 @@
 /**
  * The control-account SQL against isaflow_dev. BEGIN … ROLLBACK; DB-gated.
  *
- * The unit suite mocks `sql`, so it cannot see the query at all — dropping the
- * posting arm from the SQL leaves every unit test green. That arm is the whole
- * point of the resolver (it is what finds Brightsphere's account 1120, subtype
- * NULL, carrying a R10,000 receipt), so it needs a test that actually runs it.
+ * The unit suite mocks `sql`, so it cannot see the query at all — a resolver
+ * that quietly went back to adopting accounts by where documents posted would
+ * leave every unit test green. These cases run the real query.
+ *
+ * THE EXPECTATION HERE IS INVERTED FROM WHAT IT WAS. An untyped account that a
+ * receipt journal credits used to be REPORTED as a control account, on the
+ * theory that it is one nobody typed. It is not — it is whatever the other leg
+ * of that journal happened to be, and on production that made a
+ * `settle_by_contra` loan account into an AP control account. It is now
+ * reported as a WARNING by `getNonControlPostingAccounts` instead.
  */
 import { describe, it, expect, vi } from 'vitest';
 import { als } from '@/lib/als';
@@ -14,6 +20,7 @@ vi.mock('@/lib/logger', () => ({ log: { info: vi.fn(), error: vi.fn(), warn: vi.
 
 import { getPoolForTests, sql } from '@/lib/neon';
 import { getControlAccountBalances } from '@/modules/accounting/services/gl/controlAccountService';
+import { getNonControlPostingAccounts } from '@/modules/accounting/services/gl/nonControlPostingAccounts';
 
 type AlsCtx = Parameters<typeof als.run>[0];
 
@@ -45,7 +52,7 @@ describe('control-account resolution — real database', async () => {
   const reachable = await isDbReachable();
 
   it.skipIf(!reachable)(
-    'finds a NULL-subtype account by its postings, and a deactivated one by its subtype',
+    'refuses a NULL-subtype account a receipt posted to, and keeps a deactivated typed one',
     async () => {
       await inTx(async (companyId) => {
         // A receivable-typed account that is DEACTIVATED and carries a balance:
@@ -110,13 +117,21 @@ describe('control-account resolution — real database', async () => {
         const accounts = await getControlAccountBalances(companyId, 'ar', '2026-12-31');
         const byCode = new Map(accounts.map((a) => [a.accountCode, a]));
 
-        // The posting arm: found despite a NULL subtype, carrying the credit.
-        expect(byCode.get('ZZ-UNTYPED')).toMatchObject({ foundBy: 'posting', balance: -4321 });
+        // NOT a control account: nothing types it as one.
+        expect(byCode.has('ZZ-UNTYPED')).toBe(false);
         // The subtype arm: a deactivated account is still returned.
         expect(byCode.get('ZZ-DORMANT')).toMatchObject({ foundBy: 'subtype', isActive: false });
         expect(byCode.get('ZZ-DORMANT')!.accountId).toBe(dormant!.id);
         // The BANK leg of the same journal must NOT be mistaken for AR control.
         expect(accounts.some((a) => a.accountId === bank!.id)).toBe(false);
+
+        // ...but the postings on it are still surfaced, as a warning. A
+        // receipt CREDITS the receivable direction, so the untyped account's
+        // control-direction movement is negative and it is the BILLING side
+        // that would be flagged; what must never happen is silence about an
+        // account no longer counted. The bank leg is excluded by subtype.
+        const warned = await getNonControlPostingAccounts(companyId, 'ar', '2026-12-31');
+        expect(warned.some((a) => a.accountId === bank!.id)).toBe(false);
       });
     },
   );
@@ -196,9 +211,15 @@ describe('control-account resolution — real database', async () => {
 
         const accounts = await getControlAccountBalances(companyId, 'ap', '2026-12-31');
         expect(accounts.some((a) => a.accountId === taxish!.id)).toBe(false);
-        // ...and the real payable account is still there, so the exclusion is
-        // not simply refusing everything the probe found.
+        // ...and the real payable account is still there, so the resolver is
+        // not simply refusing everything.
         expect(accounts.some((a) => a.accountId === payable!.id)).toBe(true);
+
+        // The tax leg is DEBITED by the bill, so it is not payable-direction
+        // movement and is not warned about either. A warning on every contra
+        // leg of every bill would be noise, not a finding.
+        const warned = await getNonControlPostingAccounts(companyId, 'ap', '2026-12-31');
+        expect(warned.some((a) => a.accountId === taxish!.id)).toBe(false);
       });
     },
   );

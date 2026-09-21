@@ -55,6 +55,7 @@ import { importBankStatementTool, undoBankImportTool } from './tools/writeBankIm
 import {
   bulkAllocateBankTransactionsTool,
 } from './tools/writeBankBulkAllocate';
+import { autoApplyUnappliedTool } from './tools/writeAutoApplyUnapplied';
 import { reverseBankAllocationBatchTool } from './tools/writeBankReverseBatch';
 import { reverseAllocationsTool } from './tools/writeBankReverseRange';
 import { setOpeningBalanceTool } from './tools/writeOpeningBalance';
@@ -233,6 +234,7 @@ export const MCP_TOOLS = [
   allocateBankTransactionTool,
   reverseBankAllocationTool,
   bulkAllocateBankTransactionsTool,
+  autoApplyUnappliedTool,
   reverseBankAllocationBatchTool,
   postReclassificationBatchTool,
   importBankStatementTool,

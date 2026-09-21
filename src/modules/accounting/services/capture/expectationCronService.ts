@@ -121,10 +121,13 @@ async function autoChaseOverdue(
   graceDays: number,
   waChaseEnabled: boolean,
 ): Promise<{ sent: number; skipped: number }> {
+  // R-068: the daily cron runs this with no withAuth, outside RLS, so the
+  // supplier join's company_id is the only thing keeping another tenant's
+  // supplier (its name, email, WhatsApp number) off this company's alert.
   const alertRows = (await sql`
     SELECT a.id AS alert_id, s.whatsapp_number AS supplier_wa
     FROM expected_invoice_alerts a
-    JOIN suppliers s ON s.id = a.supplier_id
+    JOIN suppliers s ON s.id = a.supplier_id AND s.company_id = a.company_id
     WHERE a.company_id = ${companyId}::uuid
       AND a.status = 'pending'
       AND a.expected_by <= (CURRENT_DATE - (${graceDays}::int || ' days')::interval)

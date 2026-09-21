@@ -162,3 +162,64 @@ export async function lockSupplierPaymentForUpdate(
     throw err;
   }
 }
+
+/**
+ * Serialise every refund against ONE contact, for the rest of the request.
+ *
+ * ── THE RACE THIS CLOSES ────────────────────────────────────────────────────
+ *
+ * Recording a refund is a check-then-act, and the check is the whole safety
+ * property: read the contact's on-account credit, refuse if the refund exceeds
+ * it, then insert the document. Two concurrent money-in lines against one
+ * supplier both read the same credit, both pass, and both mint — proved on dev
+ * with two −R1,058 refunds against R1,058 of credit. Nothing in the schema
+ * stops it. The sign CHECK is per row, and each row is individually legal; the
+ * illegal thing is the pair.
+ *
+ * `supplier_payments` has no row to lock, because the row being guarded is the
+ * one about to be INSERTed. So the lock is taken on the CONTACT, which is what
+ * the credit is a property of and is the only object both requests share.
+ *
+ * ── WHY NOT AN ADVISORY LOCK ────────────────────────────────────────────────
+ *
+ * `pg_advisory_xact_lock` would need a bigint key hashed from a uuid, so two
+ * different suppliers can collide and block each other with nothing in the
+ * catalog saying why. The contact row is a real object, the lock is visible in
+ * `pg_locks` with the relation on it, and it costs one index probe.
+ *
+ * ── WHAT IT DOES NOT LOCK ───────────────────────────────────────────────────
+ *
+ * Not the payments, and deliberately. A concurrent APPLICATION of one of this
+ * supplier's payments lowers the credit after this read — but an application
+ * cannot raise it, so the figure this returns is a CEILING on what a
+ * concurrent transaction can leave available, and refusing on a ceiling is the
+ * safe direction. Two REFUNDS are the unsafe pair, and both take this lock.
+ *
+ * Mirrors `lockSupplierPaymentForUpdate` exactly: same 5s `lock_timeout`, same
+ * `isLockContention` mapping so a timeout and a deadlock victim reach the
+ * caller as one retryable refusal rather than a 500.
+ */
+export async function lockContactForRefund(
+  companyId: string,
+  kind: 'supplier' | 'customer',
+  contactId: string,
+): Promise<DbRow | null> {
+  const client = requireRequestTransaction('lockContactForRefund');
+  await client.query("SET LOCAL lock_timeout = '5s'");
+  try {
+    const rows = (kind === 'supplier'
+      ? await sql`
+        SELECT s.id, s.name FROM suppliers s
+        WHERE s.id = ${contactId}::UUID AND s.company_id = ${companyId}::UUID
+        FOR UPDATE OF s`
+      : await sql`
+        SELECT c.id, c.name FROM customers c
+        WHERE c.id = ${contactId}::UUID AND c.company_id = ${companyId}::UUID
+        FOR UPDATE OF c`) as DbRow[];
+    await client.query('SET LOCAL lock_timeout = DEFAULT');
+    return rows[0] ?? null;
+  } catch (err) {
+    if (isLockContention(err)) throw new PaymentLockTimeoutError(contactId);
+    throw err;
+  }
+}
