@@ -2309,7 +2309,7 @@
     },
     {
       "id": "K-063",
-      "claim": "A supplier payment can settle a pending_approval billAllocation has no status guard, so a payment relieves AP for a bill that never credited it.",
+      "claim": "A supplier payment can settle a pending_approval bill. Allocation has no status guard, so a payment relieves AP for a bill that never credited it.",
       "area": "ap",
       "affectedPaths": [
         "src/modules/accounting/services/ap/supplierAllocationLines.ts:29"
@@ -2321,7 +2321,7 @@
       "correctedTrigger": null,
       "severityRationale": "Source priority only; impact and reachability not yet validated.",
       "auditedSha": "5661d6f0f5f2212705151e95455a3f681ddf840e",
-      "currentSha": "2b6f7f944",
+      "currentSha": "64d78749c",
       "status": "fixed",
       "dependencies": [],
       "testNames": [
@@ -2334,7 +2334,7 @@
         "K-063/validation.md",
         "K-063/fix.md"
       ],
-      "fixCommit": "2b6f7f944",
+      "fixCommit": "64d78749c",
       "pr": null,
       "deployedSha": null,
       "historicalDataImpact": "Not assessed",
@@ -2345,7 +2345,7 @@
     },
     {
       "id": "K-064",
-      "claim": "Batch payment creation validates nothingNeither over-payment nor foreign-tenant bills are rejected when a batch is created.",
+      "claim": "Batch payment creation validates nothing. Neither over-payment nor foreign-tenant bills are rejected when a batch is created.",
       "area": "ap",
       "affectedPaths": [
         "src/modules/accounting/services/ap/batchPaymentService.ts:78"
@@ -2357,7 +2357,7 @@
       "correctedTrigger": null,
       "severityRationale": "Source priority only; impact and reachability not yet validated.",
       "auditedSha": "5661d6f0f5f2212705151e95455a3f681ddf840e",
-      "currentSha": "2b6f7f944",
+      "currentSha": "64d78749c",
       "status": "fixed",
       "dependencies": [],
       "testNames": [
@@ -2374,7 +2374,7 @@
         "K-064/validation.md",
         "K-064/fix.md"
       ],
-      "fixCommit": "2b6f7f944",
+      "fixCommit": "64d78749c",
       "pr": null,
       "deployedSha": null,
       "historicalDataImpact": "Not assessed",
@@ -2417,7 +2417,7 @@
     },
     {
       "id": "K-066",
-      "claim": "A supplier payment can be allocated to another supplier's billAllocation checks neither the supplier nor the bill status, so draft, cancelled and foreign-supplier bills are settled.",
+      "claim": "A supplier payment can be allocated to another supplier's bill. Allocation checks neither the supplier nor the bill status, so draft, cancelled and foreign-supplier bills are settled.",
       "area": "ap",
       "affectedPaths": [
         "src/modules/accounting/services/ap/supplierPaymentService.ts:139"
@@ -2429,7 +2429,7 @@
       "correctedTrigger": null,
       "severityRationale": "Source priority only; impact and reachability not yet validated.",
       "auditedSha": "5661d6f0f5f2212705151e95455a3f681ddf840e",
-      "currentSha": "2b6f7f944",
+      "currentSha": "64d78749c",
       "status": "fixed",
       "dependencies": [],
       "testNames": [
@@ -2441,7 +2441,7 @@
         "K-066/validation.md",
         "K-066/fix.md"
       ],
-      "fixCommit": "2b6f7f944",
+      "fixCommit": "64d78749c",
       "pr": null,
       "deployedSha": null,
       "historicalDataImpact": "Not assessed",
@@ -12275,7 +12275,7 @@
       "sourceIds": [],
       "correctedTrigger": "",
       "auditedSha": "6145c07ec",
-      "currentSha": "2b6f7f944",
+      "currentSha": "64d78749c",
       "status": "confirmed",
       "dependencies": [
         "K-063",
