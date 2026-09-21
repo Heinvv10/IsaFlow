@@ -49,7 +49,9 @@ const fmt = (n: number) => `R${Math.abs(n).toLocaleString('en-ZA', { minimumFrac
 export function buildClientContext(ctx: ClientContext): string {
   return [
     `Client: ${ctx.clientName}`,
-    `Outstanding balance: ${fmt(ctx.outstandingBalance)}`,
+    // fmt drops the sign, so a customer in credit must be SAID to be in credit —
+    // "Outstanding balance: R50" for a R50 credit tells them they owe it.
+    ctx.outstandingBalance < 0 ? `In credit: ${fmt(ctx.outstandingBalance)}` : `Outstanding balance: ${fmt(ctx.outstandingBalance)}`,
     ctx.overdueAmount > 0 ? `Overdue: ${fmt(ctx.overdueAmount)}` : 'No overdue amounts',
     `${ctx.openInvoices} open invoice${ctx.openInvoices !== 1 ? 's' : ''}`,
     ctx.lastPaymentDate ? `Last payment: ${fmt(ctx.lastPaymentAmount)} on ${ctx.lastPaymentDate}` : 'No recent payments',

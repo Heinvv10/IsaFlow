@@ -34,7 +34,8 @@ export interface PortalInvoice {
   total: number;
   amountPaid: number;
   balance: number;
-  status: string;
+  /** NULL on the row is kept in the population (documentPopulation); the portal shows no badge for it. */
+  status: string | null;
 }
 
 export interface PortalStatement {
@@ -156,7 +157,7 @@ export async function getClientInvoices(clientId: string, companyId: string): Pr
     total: Number(r.total_amount),
     amountPaid: Number(r.amount_paid),
     balance: Number(r.balance),
-    status: String(r.status),
+    status: r.status == null ? null : String(r.status),
   }));
 }
 
@@ -191,14 +192,22 @@ export async function getClientStatement(
     clientEmail: data.customer.email ?? '',
     asOfDate,
     openingBalance: 0,
-    transactions: data.transactions.map(t => ({
-      date: t.date,
-      reference: t.reference,
-      description: PORTAL_TRANSACTION_DESCRIPTION[t.type],
-      debit: t.debit,
-      credit: t.credit,
-      balance: t.balance,
-    })),
+    transactions: data.transactions.map(t => {
+      // A refund is a customer_payments row with a NEGATIVE total, so the
+      // statement carries it as a negative credit that RAISES the balance.
+      // Shown as-is it read "Payment … R 100,00 CR" beside a balance going
+      // up. It is money paid back to the customer: a debit, named a refund.
+      // The running balance is fetchStatementData's, untouched.
+      const refund = t.type === 'payment' && t.credit < 0;
+      return {
+        date: t.date,
+        reference: t.reference,
+        description: refund ? 'Refund' : PORTAL_TRANSACTION_DESCRIPTION[t.type],
+        debit: refund ? -t.credit : t.debit,
+        credit: refund ? 0 : t.credit,
+        balance: t.balance,
+      };
+    }),
     closingBalance: data.summary.balance,
   };
 }

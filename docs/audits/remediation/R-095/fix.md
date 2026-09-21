@@ -233,3 +233,56 @@ through the portal form as `portal-a@test.local` (login 200):
   tests passed** (`r095-integration-green.log`): both r095 files, k122 and k122b
   (portal token), r082 (statements, twin parity), k012 ×2, k053 as-at and
   statement-grid-foots.
+
+## Round 4 (blind review r1 of f437512a1: 1 MEDIUM, 2 LOW, no security finding)
+
+1. **MEDIUM: the chat's "overdue" was a sum of invoice balances.** The reviewer
+   measured a balance of 629.51 with "Overdue: R944.94" sent to the model. It is
+   now `ar/portalOverdue`, derived from the statement's closing balance with one
+   rule: every credit, allocated or not, settles the oldest-due debt first, so
+   `overdue = clamp(closing - notYetDue, 0, closing)`. An unallocated receipt
+   or credit note therefore reduces overdue before it reduces anything not yet
+   due, and overdue can never exceed the balance or go below zero. `notYetDue`
+   uses the statement's own invoice population: the shared status rule, the
+   dated soft-delete leg, and `invoice_date <= asOf`. Pinned on a customer
+   whose old figure (400) was more than the whole balance: balance 180,
+   overdue **150**, and the prompt captured from the route contains
+   "Outstanding balance: R180" and "Overdue: R150". Over HTTP on the browser
+   fixture, overdue is 144.44 of 1379.00 (the old query would have said 644.44).
+   Two neighbours on the same path were fixed with it. A customer in credit
+   was told "Outstanding balance: R50" (`fmt` drops the sign) and is now told
+   "In credit". "Last payment" could pick a refund, and now counts only
+   positive receipts.
+2. **LOW: a refund showed as "Payment … R 100,00 CR" while the balance rose.**
+   In the portal it is now a **Refund** in the debit column, and the running
+   balance (fetchStatementData's) is untouched. Pinned: every row satisfies
+   `balance = previous + debit - credit`. Browser: "2026/09/19 R095-REFUND
+   Refund R 100,00 … R 1 379,00", and the headline equals the closing balance
+   at R 1 379,00 (`r095-r4-portal.png`).
+3. **LOW: a NULL-status invoice showed a literal "null" badge.** The API now
+   returns `null` and the page renders no badge. Browser: the status cell for
+   R095-INV-NULL is empty.
+4. **Test gap: a chat that takes its company from the body.** Pinned: another
+   tenant's `companyId` / `company_id` in the body leaves the response
+   identical. The reviewer's X4 mutation (N8) is now RED.
+5. **R-114 registered:** per-invoice links serve 200 for a draft invoice and for
+   a soft-deleted customer's invoice. Pre-existing on master. Restricting them
+   is a product call, because staff and dunning links depend on them.
+
+Mutations (`r095-mutations-r4.log`; all RED, restored sha256-identical):
+- N1–N5, the overdue rule: the future-dated invoice, the population rule, the
+  soft-delete leg, the whole balance reported as overdue, and the due-date
+  test inverted.
+- N6: the refund mapping.
+- N7: the NULL status.
+- N8: the chat's company taken from the body.
+- N9: the credit wording (unit).
+
+**The chat rate limiter and the test IP.** The chat's per-IP limit (20 per 15
+min) is DB-backed. The shared test helper sends every request from one fixed
+address, so repeated runs within the window turned chat calls into 429s. The
+first round-4 integration run failed five chat assertions that way, which also
+means an earlier mutation run could have gone "RED" on a 429. The fixture now
+sends one random address per test process. Both mutation sets were re-run
+after that change, and every failure message was captured and checked for 429
+(none). The integration set passes twice in a row: 11 files, 64 tests.

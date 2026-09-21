@@ -12290,6 +12290,38 @@
       "severity": "high",
       "source": "Found by fix-r095 (R-095 round 3, measuring the in-app statements the portal was asked to match).",
       "processNotes": "Registered 2026-09-21 by the R-095 fixer at the team lead's request; measured on a disposable fixture, not fixed in the R-095 PR."
+    },
+    {
+      "claim": "",
+      "sourceLabel": "",
+      "sourceIds": [],
+      "correctedTrigger": "",
+      "auditedSha": "",
+      "currentSha": "6145c07ec",
+      "status": "confirmed",
+      "dependencies": [],
+      "testNames": [],
+      "fixCommit": null,
+      "pr": null,
+      "deployedSha": null,
+      "canonicalItem": null,
+      "reportedSeverity": "medium",
+      "branch": null,
+      "evidencePaths": [
+        "docs/audits/remediation/R-095/fix.md"
+      ],
+      "id": "R-114",
+      "area": "ar",
+      "affectedPaths": [
+        "pages/api/portal/invoice/[token].ts",
+        "src/modules/accounting/services/ar/portalTokenService.ts"
+      ],
+      "severityRationale": "Pre-existing on master, measured by the R-095 blind reviewer (review-r095-r1): the unauthenticated link filters only status != 'cancelled' and the invoice's own deleted_at, so an invoice taken back to draft after its link was minted, and any invoice of a soft-deleted customer, stays publicly readable by its token. The bare != 'cancelled' also drops a NULL-status invoice's link to a 404. Restricting it is a PRODUCT CALL, not a mechanical fix: staff ('copy portal link', portal-link route) and dunning mint and send these links, and a rule that refuses draft/pending_approval invoices changes when a link can be minted and whether one already sent keeps working (the R-095 WIP that did this was dropped for that reason).",
+      "historicalDataImpact": "None on the ledger; draft invoices and soft-deleted customers' invoices may have been viewable by anyone holding a previously issued link.",
+      "title": "Per-invoice portal links (invoice/[token]) serve 200 for a DRAFT invoice and for a soft-deleted customer's invoice",
+      "severity": "medium",
+      "source": "Found by the R-095 blind reviewer (review-r095-r1, route census of invoice/[token]).",
+      "processNotes": "Registered 2026-09-21 by the R-095 fixer at the team lead's request; not fixed in the R-095 PR."
     }
   ],
   "sourceInventory": [

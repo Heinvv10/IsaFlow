@@ -24,7 +24,7 @@ interface PortalInvoice {
   total: number;
   amountPaid: number;
   balance: number;
-  status: string;
+  status: string | null;
 }
 
 const STATUS_STYLES: Record<string, string> = {
@@ -255,9 +255,11 @@ export default function PortalPage() {
                         {formatBalance(inv.balance)}
                       </td>
                       <td className="px-6 py-3 text-center">
-                        <span className={`px-2 py-0.5 rounded-full text-xs font-medium ${STATUS_STYLES[inv.status] || 'bg-gray-500/20 text-gray-400'}`}>
-                          {inv.status}
-                        </span>
+                        {inv.status && (
+                          <span className={`px-2 py-0.5 rounded-full text-xs font-medium ${STATUS_STYLES[inv.status] || 'bg-gray-500/20 text-gray-400'}`}>
+                            {inv.status}
+                          </span>
+                        )}
                       </td>
                     </tr>
                   ))}
