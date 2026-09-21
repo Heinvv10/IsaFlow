@@ -20,3 +20,8 @@ restored byte-identical 92f545a1d8d0c03d7e425a6dd4e55da63d92cfa3576d9997545148f8
 ⎯⎯⎯⎯⎯⎯⎯ Failed Tests 1 ⎯⎯⎯⎯⎯⎯⎯
       Tests  1 failed | 6 passed (7)
 restored byte-identical 92f545a1d8d0c03d7e425a6dd4e55da63d92cfa3576d9997545148f8ad367ee2
+=== U3 new-batch page ignores reservations
+   × new batch offers a bill at what is still available after reservations, not its raw outstanding 27ms
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 1 ⎯⎯⎯⎯⎯⎯⎯
+      Tests  1 failed | 3 passed (4)
+restored byte-identical f16b7ba0a9dfe7294c578c9d8c7ced37414a2be9e6d0d59048c1f52746b19700

@@ -13,6 +13,7 @@ import { log } from '@/lib/logger';
 import { getBatches, getBatchById, createBatch } from '@/modules/accounting/services/ap/batchPaymentService';
 import { SupplierNotInCompanyError } from '@/modules/accounting/services/core/contactDirectoryService';
 import { countBatchBills, getBatchMembers } from '@/modules/accounting/services/ap/batchPaymentMembers';
+import { pendingReservations } from '@/modules/accounting/services/ap/supplierBatchAllocationPlan';
 import {
   isRetryableSupplierPaymentRefusal,
   isSupplierPaymentRefusal,
@@ -22,7 +23,15 @@ async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse) {
   const { companyId } = req as CompanyAuthedRequest;
 
   if (req.method === 'GET') {
-    const { id, status, limit, offset } = req.query;
+    const { id, status, limit, offset, reservedFor } = req.query;
+
+    // What unprocessed payments already reserve on these bills — the SAME
+    // pending set batch creation subtracts — so the new-batch page offers only
+    // an amount the server will accept.
+    if (typeof reservedFor === 'string') {
+      const ids = reservedFor.split(',').filter((v) => /^[0-9a-f-]{36}$/i.test(v)).slice(0, 500);
+      return apiResponse.success(res, Object.fromEntries(await pendingReservations(companyId, ids)));
+    }
 
     // Single batch by ID
     if (id) {
