@@ -1,0 +1,34 @@
+
+ RUN  v4.1.2 /home/hein/Workspace/IsaFlow/.worktrees/audit-remediation-20260908
+
+{"level":"info","message":"Applied supplier payment to bills","timestamp":"2026-09-09T09:20:54.892Z","component":"accounting","data":{"paymentId":"1e8166f8-5662-4e63-920e-53a9af9189fc","lines":1,"applied":1000,"unappliedAfter":0,"userId":"100768a1-6d2b-47f3-8bb8-9e52cdd82675"}}
+ ❯ tests/integration/k063-supplier-payment-settles-unapproved-bill.int.test.ts (1 test | 1 failed) 195ms
+   × refuses to apply a payment to a bill that has not been approved 56ms
+
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 1 ⎯⎯⎯⎯⎯⎯⎯
+
+ FAIL  tests/integration/k063-supplier-payment-settles-unapproved-bill.int.test.ts > refuses to apply a payment to a bill that has not been approved
+AssertionError: expected 1000 to be +0 // Object.is equality
+
+- Expected
++ Received
+
+- 0
++ 1000
+
+ ❯ tests/integration/k063-supplier-payment-settles-unapproved-bill.int.test.ts:78:39
+     76|   const { rows } = await pool.query('SELECT amount_paid, status, gl_jo…
+     77|   expect(rows[0].gl_journal_entry_id).toBeNull();
+     78|   expect(Number(rows[0].amount_paid)).toBe(0);
+       |                                       ^
+     79|   expect(rows[0].status).toBe('pending_approval');
+     80|   expect(String(error)).toMatch(/pending_approval/);
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[1/1]⎯
+
+
+ Test Files  1 failed (1)
+      Tests  1 failed (1)
+   Start at  11:20:54
+   Duration  913ms (transform 254ms, setup 0ms, import 384ms, tests 195ms, environment 0ms)
+

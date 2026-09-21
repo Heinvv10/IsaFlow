@@ -1,0 +1,40 @@
+ FAIL  tests/integration/k069-transfer-reversal-leaves-counterparty.int.test.ts > K-069 reversing one transfer leg leaves the counterparty allocated > returns the counterparty line to the feed when the transfer is reversed
+AssertionError: expected 'allocated' to be 'imported' // Object.is equality
+
+Expected: "imported"
+Received: "allocated"
+
+ ❯ tests/integration/k069-transfer-reversal-leaves-counterparty.int.test.ts:125:30
+    123|         counterparty_account_id: string | null; transfer_journal_entry…
+    124|       }[];
+    125|     expect(after[0]!.status).toBe('imported');
+       |                              ^
+    126|     expect(after[0]!.transfer_journal_entry_id).toBeNull();
+    127|     expect(after[0]!.counterparty_account_id).toBeNull();
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[1/2]⎯
+
+ FAIL  tests/integration/k069-transfer-reversal-leaves-counterparty.int.test.ts > K-069 reversing one transfer leg leaves the counterparty allocated > lets the transfer be re-allocated after the reversal
+AssertionError: promise rejected "Error: A matching transfer already exists…" instead of resolving
+ ❯ tests/integration/k069-transfer-reversal-leaves-counterparty.int.test.ts:153:8
+    151|     await expect(inTx(() => allocateTransaction(
+    152|       COMPANY, outLeg, bankB, USER, `${TAG} transfer2 again`, 'transfe…
+    153|     ))).resolves.toBeDefined();
+       |        ^
+    154|   }, 90000);
+    155| });
+
+Caused by: Error: A matching transfer already exists on the counterparty bank for this amount and date. Match the existing journal entry instead of posting a new one.
+ ❯ allocateTransaction src/modules/accounting/services/bank/bankAllocationService.ts:201:13
+ ❯ inTx tests/integration/k069-transfer-reversal-leaves-counterparty.int.test.ts:52:17
+ ❯ tests/integration/k069-transfer-reversal-leaves-counterparty.int.test.ts:151:5
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[2/2]⎯
+
+
+ Test Files  1 failed (1)
+      Tests  2 failed (2)
+   Start at  11:19:02
+   Duration  1.10s (transform 369ms, setup 0ms, import 499ms, tests 344ms, environment 0ms)
+
+error: script "test:integration" exited with code 1

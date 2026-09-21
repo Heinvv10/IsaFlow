@@ -1,0 +1,10 @@
+$ node scripts/check-runtime.mjs && vitest run --config vitest.integration.config.ts "tests/integration/k068-supplier-statement-uuid-cast.int.test.ts"
+
+ RUN  v4.1.2 /home/hein/Workspace/IsaFlow/.worktrees/audit-remediation-20260908
+
+
+ Test Files  1 passed (1)
+      Tests  2 passed (2)
+   Start at  11:20:43
+   Duration  580ms (transform 36ms, setup 0ms, import 158ms, tests 136ms, environment 0ms)
+
