@@ -49,7 +49,10 @@ notes (`approved`, `partially_applied`, `applied`) at `CREDIT_NOTE_STATEMENT_VAL
   error. The default window start is a year before `toDate`, not before today.
   `tests/unit/accounting/customerStatementBatchAndWindow.test.ts` (3 tests); reverting
   either fix turns one red.
-- `green-round2.log`: r112 (10) + r095 + r082 + k053 ×2 — 5 files, 51 tests passed.
+- `green-round2.log`: r112 (10) + r095 + r082 + k053 ×2 — 5 files, 51 tests passed;
+  `green-unit.log`: the round-2 unit file, 3 passed.
+- Round 3 (SHIP; 3 LOW fixed): the statement run clears a stale message and says how
+  many statements it generated when it skips someone.
 - Browser (`ui.log`, `r112-statement.png`, `r112-detail.png`): dev server on the branch
   against the disposable fixture, headless Chromium as the tenant's staff user. Customer
   with an old invoice 1,000, an old applied note (300, 200 applied), a new invoice 1,500

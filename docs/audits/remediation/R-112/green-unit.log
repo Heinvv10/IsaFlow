@@ -1,0 +1,12 @@
+
+ RUN  v4.1.2 /home/hein/Workspace/IsaFlow/.worktrees/fix-R-112
+
+ ✓ tests/unit/accounting/customerStatementBatchAndWindow.test.ts > generateStatementsBatch > skips and names a customer whose statement call fails, instead of rendering R0.00 2ms
+ ✓ tests/unit/accounting/customerStatementBatchAndWindow.test.ts > resolveStatementWindow > defaults the start to a year before an explicit toDate 0ms
+ ✓ tests/unit/accounting/customerStatementBatchAndWindow.test.ts > resolveStatementWindow > refuses a non-date or an inverted window 0ms
+
+ Test Files  1 passed (1)
+      Tests  3 passed (3)
+   Start at  16:52:36
+   Duration  223ms (transform 66ms, setup 0ms, import 118ms, tests 3ms, environment 0ms)
+

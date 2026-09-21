@@ -43,7 +43,7 @@ describe('generateStatementsBatch', () => {
 
   it('skips and names a customer whose statement call fails, instead of rendering R0.00', async () => {
     const result = await generateStatementsBatch(new Set(['gone', 'live']), customers, '2026-09-21');
-    expect(result.skipped).toEqual([{ name: 'Gone Ltd', reason: 'Client not found' }]);
+    expect(result).toEqual({ generated: 1, skipped: [{ name: 'Gone Ltd', reason: 'Client not found' }] });
     expect(generateStatementPdf).toHaveBeenCalledTimes(1);
     expect(generateStatementPdf.mock.calls[0]![0]).toMatchObject({ clientName: 'Live Ltd', balanceOutstanding: 100 });
   });
