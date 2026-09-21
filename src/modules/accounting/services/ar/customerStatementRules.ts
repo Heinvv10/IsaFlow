@@ -92,14 +92,16 @@ export function resolveStatementWindow(
   toDate: unknown,
 ): { from: string; to: string } | { error: string } {
   const to = toDate === undefined || toDate === '' ? asAtTodayStr() : toDate;
+  if (typeof to !== 'string' || !isRealCalendarDate(to)) return { error: 'toDate must be a YYYY-MM-DD date' };
   let from = fromDate;
   if (from === undefined || from === '') {
-    const yearAgo = new Date();
-    yearAgo.setDate(yearAgo.getDate() - 365);
-    from = fmtDate(yearAgo);
+    // A year before the window's END, so an old toDate alone still has a window.
+    const [y, m, d] = to.split('-').map(Number) as [number, number, number];
+    const yearBefore = new Date(y, m - 1, d);
+    yearBefore.setDate(yearBefore.getDate() - 365);
+    from = fmtDate(yearBefore);
   }
   if (typeof from !== 'string' || !isRealCalendarDate(from)) return { error: 'fromDate must be a YYYY-MM-DD date' };
-  if (typeof to !== 'string' || !isRealCalendarDate(to)) return { error: 'toDate must be a YYYY-MM-DD date' };
   if (from > to) return { error: 'fromDate must not be after toDate' };
   return { from, to };
 }

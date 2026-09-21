@@ -45,13 +45,17 @@ export async function generateStatementsBatch(
   selected: Set<string>,
   customers: CustomerBalance[],
   asAtDate: string
-): Promise<void> {
+): Promise<{ skipped: { name: string; reason: string }[] }> {
   const { generateStatementPdf } = await import(
     '@/modules/accounting/utils/statementPdf'
   );
 
   const companyMeta = await fetchCompanyMeta();
   const pdfs: { name: string; blob: Blob }[] = [];
+  // A customer whose statement cannot be drawn (e.g. soft-deleted: the detail
+  // endpoint answers 404) is named back to the caller, never rendered from the
+  // error envelope as an empty R0.00 statement.
+  const skipped: { name: string; reason: string }[] = [];
 
   for (const clientId of selected) {
     const cust = customers.find(c => c.client_id === clientId);
@@ -61,6 +65,10 @@ export async function generateStatementsBatch(
       `/api/accounting/customer-statement-detail?client_id=${clientId}`
     );
     const detailJson = await detailRes.json();
+    if (!detailRes.ok) {
+      skipped.push({ name: cust.client_name, reason: detailJson.error?.message || `HTTP ${detailRes.status}` });
+      continue;
+    }
     const detail = detailJson.data || detailJson;
 
     const stmtData: StatementData = {
@@ -81,11 +89,11 @@ export async function generateStatementsBatch(
     pdfs.push({ name: `statement-${safeName}.pdf`, blob });
   }
 
-  if (pdfs.length === 0) return;
+  if (pdfs.length === 0) return { skipped };
 
   if (pdfs.length === 1 && pdfs[0]) {
     downloadBlob(pdfs[0].blob, pdfs[0].name);
-    return;
+    return { skipped };
   }
 
   const { default: JSZip } = await import('jszip');
@@ -96,4 +104,5 @@ export async function generateStatementsBatch(
   const zipBlob = await zip.generateAsync({ type: 'blob' });
   downloadBlob(zipBlob, `statements-${asAtDate}.zip`);
   log.info('Statements ZIP generated', { count: pdfs.length }, 'generateStatementsBatch');
+  return { skipped };
 }

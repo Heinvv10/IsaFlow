@@ -89,7 +89,10 @@ export default function StatementRunPage() {
     if (selected.size === 0) return;
     setIsGenerating(true);
     try {
-      await generateStatementsBatch(selected, customers, asAtDate);
+      const { skipped } = await generateStatementsBatch(selected, customers, asAtDate);
+      if (skipped.length > 0) {
+        setError(`No statement for ${skipped.map(s => `${s.name} (${s.reason})`).join(', ')}`);
+      }
     } catch (err) {
       log.error('Statement generation failed', { data: err }, 'StatementRun');
       setError('Failed to generate statements');
