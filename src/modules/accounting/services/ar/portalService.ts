@@ -5,10 +5,14 @@
 
 import { sql } from '@/lib/neon';
 import { log } from '@/lib/logger';
+import { fmtDate } from '@/lib/fmtDate';
 import bcrypt from 'bcryptjs';
 import type { DbRow } from '@/types/db';
 import { asAtTodayStr, documentInLedgerAsAtFragment } from '../shared/softDeleteLedgerPresence';
 import { documentInPopulationExpr } from '../shared/documentPopulation';
+import { fetchStatementData } from './statementEmailService';
+import { getClientOverdue } from './portalOverdue';
+import type { StatementTransaction } from './statementEmailTypes';
 
 
 // ── Types ────────────────────────────────────────────────────────────────────
@@ -31,7 +35,8 @@ export interface PortalInvoice {
   total: number;
   amountPaid: number;
   balance: number;
-  status: string;
+  /** NULL on the row is kept in the population (documentPopulation); the portal shows no badge for it. */
+  status: string | null;
 }
 
 export interface PortalStatement {
@@ -48,6 +53,8 @@ export interface PortalStatement {
     balance: number;
   }>;
   closingBalance: number;
+  /** portalOverdue's figure — the one the chat quotes. */
+  overdueAmount: number;
 }
 
 // ── Portal Auth ──────────────────────────────────────────────────────────────
@@ -72,11 +79,14 @@ export async function authenticatePortalUser(email: string, password: string): P
   // Join customers to bind the portal session to a specific company — pentest H2
   // fixed the missing company_id scope in downstream queries; the token now
   // carries companyId so it's verified against a single tenant.
+  // R-095 L4: a soft-deleted customer has no portal account left to reach —
+  // the record is hidden everywhere else (customer-statement.ts,
+  // customerLedgerService) — so login must not mint a session for one.
   const rows = (await sql`
     SELECT pa.*, c.company_id AS customer_company_id
     FROM portal_access pa
     JOIN customers c ON c.id = pa.client_id
-    WHERE pa.email = ${email} AND pa.is_active = true
+    WHERE pa.email = ${email} AND pa.is_active = true AND c.deleted_at IS NULL
   `) as DbRow[];
   if (!rows[0]) return null;
 
@@ -107,12 +117,24 @@ export async function listPortalUsers(clientId?: string): Promise<PortalUser[]> 
 
 // ── Portal Data ──────────────────────────────────────────────────────────────
 
-export async function getClientInvoices(clientId: string, companyId: string): Promise<PortalInvoice[]> {
+/**
+ * Returns null when the customer does not exist for this company (soft-deleted
+ * or a companyId/clientId combination that doesn't match) — the caller 404s,
+ * matching getClientStatement (R-095 L4: the two views used to disagree —
+ * a soft-deleted customer got a 404 on the statement but still saw their
+ * invoice list).
+ */
+export async function getClientInvoices(clientId: string, companyId: string): Promise<PortalInvoice[] | null> {
+  const customers = (await sql`
+    SELECT id FROM customers WHERE id = ${clientId}::UUID AND company_id = ${companyId}::UUID AND deleted_at IS NULL
+  `) as DbRow[];
+  if (customers.length === 0) return null;
+
   // COALESCE(client_id, customer_id) — both columns historically exist (see CLAUDE.md).
   const rows = (await sql`
-    SELECT id, invoice_number, invoice_date, due_date, total,
+    SELECT id, invoice_number, invoice_date, due_date, total_amount,
            COALESCE(amount_paid, 0) AS amount_paid,
-           (total - COALESCE(amount_paid, 0)) AS balance,
+           (total_amount - COALESCE(amount_paid, 0)) AS balance,
            status
     FROM customer_invoices ci
     WHERE COALESCE(ci.client_id, ci.customer_id) = ${clientId}::UUID
@@ -121,78 +143,76 @@ export async function getClientInvoices(clientId: string, companyId: string): Pr
         -- delete's GL reversal reaches the ledger, and not one day earlier.
         -- See shared/softDeleteLedgerPresence.
       AND ${documentInLedgerAsAtFragment('ci', asAtTodayStr(), companyId)}
-      AND ci.status NOT IN ('draft', 'cancelled')
+      -- R-095/R-082: routed through the shared population rule instead of the
+      -- bare NOT IN ('draft', 'cancelled'), which admitted pending_approval
+      -- and silently dropped a NULL-status invoice via NULL propagation.
+      AND ${sql.unsafe(documentInPopulationExpr('ci'))}
     ORDER BY ci.invoice_date DESC
   `) as DbRow[];
 
   return rows.map((r: DbRow) => ({
     id: String(r.id),
     invoiceNumber: String(r.invoice_number),
-    invoiceDate: String(r.invoice_date),
-    dueDate: String(r.due_date),
-    total: Number(r.total),
+    // pg hands DATE columns back as Date objects; String() of one is
+    // "Mon Jul 23 2026 00:00:00 GMT+0200 …", not a date the portal can show.
+    invoiceDate: fmtDate(r.invoice_date),
+    dueDate: fmtDate(r.due_date),
+    total: Number(r.total_amount),
     amountPaid: Number(r.amount_paid),
     balance: Number(r.balance),
-    status: String(r.status),
+    status: r.status == null ? null : String(r.status),
   }));
 }
 
-export async function getClientStatement(clientId: string, companyId: string, asOfDate: string): Promise<PortalStatement> {
-  // Get client info — scoped to company_id to prevent cross-tenant disclosure.
-  const clients = (await sql`
-    SELECT name, email FROM customers
-    WHERE id = ${clientId}::UUID AND company_id = ${companyId}::UUID
-  `) as DbRow[];
-  const client = clients[0] || { name: 'Unknown', email: '' };
+const PORTAL_TRANSACTION_DESCRIPTION: Record<StatementTransaction['type'], string> = {
+  invoice: 'Invoice',
+  payment: 'Payment',
+  credit_note: 'Credit Note',
+};
 
-  // Get all transactions for this client
-  const rows = (await sql`
-    SELECT invoice_date AS date, invoice_number AS reference,
-           'Invoice' AS description, total AS debit, 0 AS credit
-    FROM customer_invoices ci
-    WHERE COALESCE(ci.client_id, ci.customer_id) = ${clientId}::UUID
-      AND ci.company_id = ${companyId}::UUID
-      AND ${documentInLedgerAsAtFragment('ci', asOfDate, companyId)}
-      -- Hein decided 2026-09-11 (R-082): a statement must not show a draft
-      -- invoice, and must agree with the ageing on a null status. Routed
-      -- through the shared rule (R-059 round 6) instead of the bare
-      -- NOT IN ('draft', 'cancelled'), which already dropped drafts but
-      -- also silently dropped a null-status invoice via NULL propagation.
-      AND ${sql.unsafe(documentInPopulationExpr('ci'))}
-      AND ci.invoice_date <= ${asOfDate}::DATE
-    UNION ALL
-    SELECT payment_date AS date, reference AS reference,
-           'Payment' AS description, 0 AS debit, amount AS credit
-    FROM customer_payments
-    WHERE COALESCE(client_id, customer_id) = ${clientId}::UUID
-      AND company_id = ${companyId}::UUID
-      AND status = 'posted'
-      AND payment_date <= ${asOfDate}::DATE
-    ORDER BY date ASC
-  `) as DbRow[];
-
-  let runningBalance = 0;
-  const transactions = rows.map((r: DbRow) => {
-    const debit = Number(r.debit);
-    const credit = Number(r.credit);
-    runningBalance += debit - credit;
-    return {
-      date: String(r.date),
-      reference: r.reference ? String(r.reference) : '',
-      description: String(r.description),
-      debit,
-      credit,
-      balance: runningBalance,
-    };
-  });
+/**
+ * R-095: this used to be a hand-rolled parallel query — selecting a `total`
+ * column that doesn't exist on customer_invoices (it's `total_amount`) and
+ * filtering payments on `status = 'posted'`, a value the CHECK constraint
+ * forbids — so the route 500s on every call. Routed through the SAME service
+ * the in-app emailed statement uses (statementEmailService.fetchStatementData)
+ * so the portal cannot drift from those figures the way a second query would,
+ * and so it inherits R-082's population rule (draft/pending_approval excluded,
+ * NULL-status kept, only confirmed/reconciled payments settle) for free.
+ * Returns null when the customer does not exist for this company (soft-deleted
+ * or a companyId/clientId combination that doesn't match) — the caller 404s.
+ */
+export async function getClientStatement(
+  clientId: string,
+  companyId: string,
+  asOfDate: string
+): Promise<PortalStatement | null> {
+  const data = await fetchStatementData(companyId, clientId, asOfDate);
+  if (!data) return null;
 
   return {
-    clientName: String(client.name),
-    clientEmail: client.email ? String(client.email) : '',
+    clientName: data.customer.name,
+    clientEmail: data.customer.email ?? '',
     asOfDate,
     openingBalance: 0,
-    transactions,
-    closingBalance: runningBalance,
+    transactions: data.transactions.map(t => {
+      // A refund is a customer_payments row with a NEGATIVE total, so the
+      // statement carries it as a negative credit that RAISES the balance.
+      // Shown as-is it read "Payment … R 100,00 CR" beside a balance going
+      // up. It is money paid back to the customer: a debit, named a refund.
+      // The running balance is fetchStatementData's, untouched.
+      const refund = t.type === 'payment' && t.credit < 0;
+      return {
+        date: t.date,
+        reference: t.reference,
+        description: refund ? 'Refund' : PORTAL_TRANSACTION_DESCRIPTION[t.type],
+        debit: refund ? -t.credit : t.debit,
+        credit: refund ? 0 : t.credit,
+        balance: t.balance,
+      };
+    }),
+    closingBalance: data.summary.balance,
+    overdueAmount: await getClientOverdue(clientId, companyId, asOfDate, data.summary.balance),
   };
 }
 

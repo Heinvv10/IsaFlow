@@ -19,8 +19,10 @@ vi.mock('@/modules/accounting/services/ar/portalChatbotService', () => ({
   classifyClientQuery: vi.fn(), buildClientChatPrompt: vi.fn(),
   parseClientChatResponse: vi.fn(), sanitizeClientResponse: vi.fn(),
 }));
-vi.mock('@/lib/auth/arPortalJwt', () => ({
-  verifyArPortalToken: vi.fn().mockResolvedValue({
+// The route resolves its session through portalSession (JWT + a live
+// portal_access row); that resolver has its own integration coverage.
+vi.mock('@/modules/accounting/services/ar/portalSession', () => ({
+  resolvePortalSession: vi.fn().mockResolvedValue({
     clientId: 'client-1', companyId: '11111111-1111-4111-9111-111111111111',
   }),
 }));
