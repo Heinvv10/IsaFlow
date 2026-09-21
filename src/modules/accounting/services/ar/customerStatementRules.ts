@@ -107,6 +107,19 @@ export function resolveStatementWindow(
 }
 
 /**
+ * The as-at date of a balances list or a full-history statement (R-116). No
+ * date means TODAY, a LOCAL calendar date as `resolveStatementWindow` uses; a
+ * value that is not a real date is refused rather than cast by Postgres (a 500)
+ * or quietly replaced by today, which printed today's figures under the date
+ * the user picked.
+ */
+export function resolveStatementAsAt(asAt: unknown): { asAt: string } | { error: string } {
+  if (asAt === undefined || asAt === '') return { asAt: asAtTodayStr() };
+  if (typeof asAt !== 'string' || !isRealCalendarDate(asAt)) return { error: 'as_at_date must be a YYYY-MM-DD date' };
+  return { asAt };
+}
+
+/**
  * The brought-forward line, dated at the window's first day. It carries the
  * opening figure in the debit or credit column (a debt or a credit balance),
  * so the columns foot to the closing balance like every other line; none when
