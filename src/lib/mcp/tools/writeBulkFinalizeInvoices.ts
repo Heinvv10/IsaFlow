@@ -97,7 +97,7 @@ const adapter: BulkApproveAdapter<FinalizedRow> = {
     // uses as the entry date (via fmtDate), so it is what the fiscal-period
     // verdict must be read for.
     const rows = (await sql`
-      SELECT id, status, invoice_date, invoice_number
+      SELECT id, status, invoice_date, invoice_number, total_amount
       FROM customer_invoices
       WHERE company_id = ${companyId}::UUID AND id = ANY(${[...ids]}::UUID[])
     `) as DbRow[];
@@ -108,6 +108,7 @@ const adapter: BulkApproveAdapter<FinalizedRow> = {
         status: String(r.status),
         entryDate: r.invoice_date as string | Date,
         documentNumber: r.invoice_number == null ? undefined : String(r.invoice_number),
+        totalAmount: Number(r.total_amount),
       },
     ]));
   },

@@ -53,8 +53,8 @@ import {
 const ctx = { companyId: 'company-1', userId: 'user-1' } as never;
 const ID = (n: number) => `0a000000-0000-4000-8000-${String(n).padStart(12, '0')}`;
 
-function state(n: number, status: string, date = '2026-09-01'): DocumentState {
-  return { id: ID(n), status, entryDate: date };
+function state(n: number, status: string, date = '2026-09-01', totalAmount = 115): DocumentState {
+  return { id: ID(n), status, entryDate: date, totalAmount };
 }
 
 function adapterOver(
@@ -166,6 +166,32 @@ describe('partitionDocuments — faults in the DATA skip', () => {
     await partitionDocuments(
       'company-1', [ID(1), ID(2)],
       adapterOver([state(1, 'cancelled', '2020-01-01'), state(2, 'draft', '2026-09-01')]),
+    );
+    const [, dates] = vi.mocked(resolvePeriodSkips).mock.calls[0]!;
+    expect(dates).toEqual(['2026-09-01']);
+  });
+
+  /**
+   * A R0.00 document has no journal to post: its control line (AP credit, AR
+   * debit) would be 0/0, which validateJournalLine refuses. Discovered in
+   * postOne that is an unclassified THROW — one such document unwound every
+   * other element. It is a fault in ONE document's data, so it is a skip.
+   */
+  it('skips a zero-total document and says why, before anything posts', async () => {
+    const { postable, skipped } = await partitionDocuments(
+      'company-1', [ID(1), ID(2)],
+      adapterOver([state(1, 'draft', '2026-09-01', 0), state(2, 'draft')]),
+    );
+    expect(postable.map((p) => p.id)).toEqual([ID(2)]);
+    expect(skipped).toEqual([
+      { index: 0, document_id: ID(1), reason: 'total is R0.00 — there is no journal to post' },
+    ]);
+  });
+
+  it('does not ask for a period verdict on a zero-total document', async () => {
+    await partitionDocuments(
+      'company-1', [ID(1), ID(2)],
+      adapterOver([state(1, 'draft', '2020-01-01', 0), state(2, 'draft', '2026-09-01')]),
     );
     const [, dates] = vi.mocked(resolvePeriodSkips).mock.calls[0]!;
     expect(dates).toEqual(['2026-09-01']);
