@@ -84,6 +84,10 @@ export default function CustomerStatementDetailPage() {
     try {
       const res = await apiFetch(`/api/accounting/customer-statement-detail?client_id=${clientId}`);
       const json = await res.json();
+      if (!res.ok) {
+        setError(json.error?.message || 'Failed to load customer statement');
+        return;
+      }
       const data = json.data || json;
       setClient(data.client || null);
       setTransactions(data.transactions || []);

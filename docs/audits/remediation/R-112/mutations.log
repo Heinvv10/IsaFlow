@@ -1,0 +1,12 @@
+M1 opening invoice < to <=:       Tests  1 failed | 9 passed (10)  failing:      × R-113: the brought-forward figure uses the same rules as the window — boundary day, dead credit notes, soft-deleted invoices|
+M2 opening credit < to <=:       Tests  1 failed | 9 passed (10)  failing:      × R-113: the brought-forward figure uses the same rules as the window — boundary day, dead credit notes, soft-deleted invoices|
+M3 opening CN status filter dropped:       Tests  1 failed | 9 passed (10)  failing:      × R-113: the brought-forward figure uses the same rules as the window — boundary day, dead credit notes, soft-deleted invoices|
+M4 opening soft-delete dropped:       Tests  1 failed | 9 passed (10)  failing:      × R-113: the brought-forward figure uses the same rules as the window — boundary day, dead credit notes, soft-deleted invoices|
+M5 detail future invoice bound dropped:       Tests  1 failed | 9 passed (10)  failing:      × R-112: the detail screen leaves out post-dated documents, as the email as at today does|
+M6 detail future receipt bound dropped:       Tests  1 failed | 9 passed (10)  failing:      × R-112: the detail screen leaves out post-dated documents, as the email as at today does|
+M7 detail future credit bound dropped:       Tests  1 failed | 9 passed (10)  failing:      × R-112: the detail screen leaves out post-dated documents, as the email as at today does|
+M8 detail deleted customer:       Tests  1 failed | 9 passed (10)  failing:      × R-112: a soft-deleted customer has no statement on the detail screen, as on the email|
+M9 float running balance:       Tests  1 failed | 9 passed (10)  failing:      × R-113: balances are summed in cents, not floats|
+M10 window order check dropped:       Tests  1 failed | 9 passed (10)  failing:      × R-113: a window that is not a real date range is a 400, never a database error|
+M11 opening line in balance only:       Tests  1 failed | 9 passed (10)  failing:      × R-113: activity before the default one-year window is brought forward, not dropped|
+M12 receipt at allocated (revert R-112 detail):       Tests  1 failed | 9 passed (10)  failing:      × R-112 + R-113: a partly allocated receipt (R1,000, R600 allocated) is credited in full on both screens|

@@ -1,0 +1,215 @@
+
+ RUN  v4.1.2 /home/hein/Workspace/IsaFlow/.worktrees/fix-R-112
+
+{"level":"info","message":"API Request: GET /api/accounting/mfa-integration-fixture","timestamp":"2026-09-21T14:25:22.737Z","component":"API","requestId":"01M325PWSGS5DS2WTDT06F5W8H","data":{"type":"request","method":"GET","url":"/api/accounting/mfa-integration-fixture","query":{"client_id":"435169b9-e089-4055-8688-fae0b5a840ed"}}}
+{"level":"info","message":"API Response: GET /api/accounting/mfa-integration-fixture - 200 (12ms)","timestamp":"2026-09-21T14:25:22.749Z","component":"API","requestId":"01M325PWSGS5DS2WTDT06F5W8H","data":{"type":"response","method":"GET","url":"/api/accounting/mfa-integration-fixture","statusCode":200,"duration":"12ms"}}
+{"level":"info","message":"request_completed","timestamp":"2026-09-21T14:25:22.749Z","component":"http","requestId":"01M325PWSGS5DS2WTDT06F5W8H","data":{"event":"request_completed","route":"/api/accounting/mfa-integration-fixture","method":"GET","status":200,"durationMs":12,"userId":"3cd7691a-d6ef-4607-8dfe-9cce8de7958d","companyId":"0ca65c11-c15b-4871-9bc1-93dba4bdfccc","outcome":"ok"}}
+{"level":"info","message":"API Request: GET /api/accounting/mfa-integration-fixture","timestamp":"2026-09-21T14:25:22.765Z","component":"API","requestId":"01M325PWTDAH4108RFZMWA59CD","data":{"type":"request","method":"GET","url":"/api/accounting/mfa-integration-fixture","query":{"customerId":"435169b9-e089-4055-8688-fae0b5a840ed"}}}
+{"level":"info","message":"Customer statement fetched","timestamp":"2026-09-21T14:25:22.771Z","component":"accounting","requestId":"01M325PWTDAH4108RFZMWA59CD","data":{"customerId":"435169b9-e089-4055-8688-fae0b5a840ed","from":"2025-09-21","to":"2026-09-21","txnCount":2}}
+{"level":"info","message":"API Response: GET /api/accounting/mfa-integration-fixture - 200 (6ms)","timestamp":"2026-09-21T14:25:22.771Z","component":"API","requestId":"01M325PWTDAH4108RFZMWA59CD","data":{"type":"response","method":"GET","url":"/api/accounting/mfa-integration-fixture","statusCode":200,"duration":"6ms"}}
+{"level":"info","message":"request_completed","timestamp":"2026-09-21T14:25:22.771Z","component":"http","requestId":"01M325PWTDAH4108RFZMWA59CD","data":{"event":"request_completed","route":"/api/accounting/mfa-integration-fixture","method":"GET","status":200,"durationMs":6,"userId":"3cd7691a-d6ef-4607-8dfe-9cce8de7958d","companyId":"0ca65c11-c15b-4871-9bc1-93dba4bdfccc","outcome":"ok"}}
+{"level":"info","message":"API Request: GET /api/accounting/mfa-integration-fixture","timestamp":"2026-09-21T14:25:22.804Z","component":"API","requestId":"01M325PWVM0NR60HPJC3ZE2HP1","data":{"type":"request","method":"GET","url":"/api/accounting/mfa-integration-fixture","query":{"customerId":"21aa219d-48dc-40ba-832c-dff6e93fb686"}}}
+{"level":"info","message":"Customer statement fetched","timestamp":"2026-09-21T14:25:22.812Z","component":"accounting","requestId":"01M325PWVM0NR60HPJC3ZE2HP1","data":{"customerId":"21aa219d-48dc-40ba-832c-dff6e93fb686","from":"2025-09-21","to":"2026-09-21","txnCount":1}}
+{"level":"info","message":"API Response: GET /api/accounting/mfa-integration-fixture - 200 (8ms)","timestamp":"2026-09-21T14:25:22.812Z","component":"API","requestId":"01M325PWVM0NR60HPJC3ZE2HP1","data":{"type":"response","method":"GET","url":"/api/accounting/mfa-integration-fixture","statusCode":200,"duration":"8ms"}}
+{"level":"info","message":"request_completed","timestamp":"2026-09-21T14:25:22.812Z","component":"http","requestId":"01M325PWVM0NR60HPJC3ZE2HP1","data":{"event":"request_completed","route":"/api/accounting/mfa-integration-fixture","method":"GET","status":200,"durationMs":8,"userId":"3cd7691a-d6ef-4607-8dfe-9cce8de7958d","companyId":"0ca65c11-c15b-4871-9bc1-93dba4bdfccc","outcome":"ok"}}
+{"level":"info","message":"API Request: GET /api/accounting/mfa-integration-fixture","timestamp":"2026-09-21T14:25:22.822Z","component":"API","requestId":"01M325PWW683YZYNTG3WK76ARZ","data":{"type":"request","method":"GET","url":"/api/accounting/mfa-integration-fixture","query":{"customerId":"2bcfc4b7-e820-4459-b411-c655bb77184f"}}}
+{"level":"info","message":"Customer statement fetched","timestamp":"2026-09-21T14:25:22.828Z","component":"accounting","requestId":"01M325PWW683YZYNTG3WK76ARZ","data":{"customerId":"2bcfc4b7-e820-4459-b411-c655bb77184f","from":"2025-09-21","to":"2026-09-21","txnCount":8}}
+{"level":"info","message":"API Response: GET /api/accounting/mfa-integration-fixture - 200 (7ms)","timestamp":"2026-09-21T14:25:22.829Z","component":"API","requestId":"01M325PWW683YZYNTG3WK76ARZ","data":{"type":"response","method":"GET","url":"/api/accounting/mfa-integration-fixture","statusCode":200,"duration":"7ms"}}
+{"level":"info","message":"request_completed","timestamp":"2026-09-21T14:25:22.829Z","component":"http","requestId":"01M325PWW683YZYNTG3WK76ARZ","data":{"event":"request_completed","route":"/api/accounting/mfa-integration-fixture","method":"GET","status":200,"durationMs":7,"userId":"3cd7691a-d6ef-4607-8dfe-9cce8de7958d","companyId":"0ca65c11-c15b-4871-9bc1-93dba4bdfccc","outcome":"ok"}}
+{"level":"info","message":"API Request: GET /api/accounting/mfa-integration-fixture","timestamp":"2026-09-21T14:25:22.854Z","component":"API","requestId":"01M325PWX6QJM946SMTN73WDFE","data":{"type":"request","method":"GET","url":"/api/accounting/mfa-integration-fixture","query":{"customerId":"fe6de156-33ee-4870-bddf-e17fb7f78e7b"}}}
+{"level":"info","message":"Customer statement fetched","timestamp":"2026-09-21T14:25:22.860Z","component":"accounting","requestId":"01M325PWX6QJM946SMTN73WDFE","data":{"customerId":"fe6de156-33ee-4870-bddf-e17fb7f78e7b","from":"2025-09-21","to":"2026-09-21","txnCount":1}}
+{"level":"info","message":"API Response: GET /api/accounting/mfa-integration-fixture - 200 (6ms)","timestamp":"2026-09-21T14:25:22.860Z","component":"API","requestId":"01M325PWX6QJM946SMTN73WDFE","data":{"type":"response","method":"GET","url":"/api/accounting/mfa-integration-fixture","statusCode":200,"duration":"6ms"}}
+{"level":"info","message":"request_completed","timestamp":"2026-09-21T14:25:22.860Z","component":"http","requestId":"01M325PWX6QJM946SMTN73WDFE","data":{"event":"request_completed","route":"/api/accounting/mfa-integration-fixture","method":"GET","status":200,"durationMs":6,"userId":"3cd7691a-d6ef-4607-8dfe-9cce8de7958d","companyId":"0ca65c11-c15b-4871-9bc1-93dba4bdfccc","outcome":"ok"}}
+{"level":"info","message":"API Request: GET /api/accounting/mfa-integration-fixture","timestamp":"2026-09-21T14:25:22.873Z","component":"API","requestId":"01M325PWXS1J4801GB2P4NJVJ2","data":{"type":"request","method":"GET","url":"/api/accounting/mfa-integration-fixture","query":{"customerId":"3558b765-25c4-404f-a145-70d1c359e651","format":"pdf"}}}
+{"level":"info","message":"API Response: GET /api/accounting/mfa-integration-fixture - 200 (16ms)","timestamp":"2026-09-21T14:25:22.889Z","component":"API","requestId":"01M325PWXS1J4801GB2P4NJVJ2","data":{"type":"response","method":"GET","url":"/api/accounting/mfa-integration-fixture","statusCode":200,"duration":"16ms"}}
+{"level":"info","message":"request_completed","timestamp":"2026-09-21T14:25:22.889Z","component":"http","requestId":"01M325PWXS1J4801GB2P4NJVJ2","data":{"event":"request_completed","route":"/api/accounting/mfa-integration-fixture","method":"GET","status":200,"durationMs":16,"userId":"3cd7691a-d6ef-4607-8dfe-9cce8de7958d","companyId":"0ca65c11-c15b-4871-9bc1-93dba4bdfccc","outcome":"ok"}}
+ ❯ tests/integration/r112-r113-inapp-customer-statements.int.test.ts (5 tests | 5 failed) 555ms
+     × R-112 + R-113: a partly allocated receipt (R1,000, R600 allocated) is credited in full on both screens 318ms
+     × R-113: every live credit note counts, valued as the email values it (applied at applied_amount, partly applied at face) 36ms
+     × R-113: the R-095 fixture customer states the emailed closing balance on the default statement 17ms
+     × R-113: activity before the default one-year window is brought forward, not dropped 32ms
+     × R-113: the printable statement carries the brought-forward line and the true balance 31ms
+
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 5 ⎯⎯⎯⎯⎯⎯⎯
+
+ FAIL  tests/integration/r112-r113-inapp-customer-statements.int.test.ts > R-112 / R-113 in-app customer statements state the emailed balance > R-112 + R-113: a partly allocated receipt (R1,000, R600 allocated) is credited in full on both screens
+AssertionError: expected { …(8) } to match object { credit: 1000 }
+(7 matching properties omitted from actual)
+
+- Expected
++ Received
+
+  {
+-   "credit": 1000,
++   "credit": 600,
+  }
+
+ ❯ tests/integration/r112-r113-inapp-customer-statements.int.test.ts:114:65
+    112|     expect(await emailBalance(c)).toBe(500);
+    113|     for (const data of [await detail(c), await statement(c)]) {
+    114|       expect(data.transactions.find(t => t.type === 'payment')).toMatc…
+       |                                                                 ^
+    115|       expect(data.summary).toMatchObject({ totalInvoiced: 1500, totalP…
+    116|       expect(data.transactions.at(-1)!.balance).toBe(500);
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[1/5]⎯
+
+ FAIL  tests/integration/r112-r113-inapp-customer-statements.int.test.ts > R-112 / R-113 in-app customer statements state the emailed balance > R-113: every live credit note counts, valued as the email values it (applied at applied_amount, partly applied at face)
+AssertionError: expected { totalInvoiced: 1000, …(3) } to match object { totalCredits: 350, balance: 650 }
+(2 matching properties omitted from actual)
+
+- Expected
++ Received
+
+  {
+-   "balance": 650,
+-   "totalCredits": 350,
++   "balance": 1000,
++   "totalCredits": 0,
+  }
+
+ ❯ tests/integration/r112-r113-inapp-customer-statements.int.test.ts:128:26
+    126|     expect(await emailBalance(c)).toBe(650);
+    127|     const data = await statement(c);
+    128|     expect(data.summary).toMatchObject({ totalCredits: 350, balance: 6…
+       |                          ^
+    129|     expect(data.transactions.filter(t => t.type === 'credit_note').map…
+    130|     expect((await detail(c)).summary.balance).toBe(650);
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[2/5]⎯
+
+ FAIL  tests/integration/r112-r113-inapp-customer-statements.int.test.ts > R-112 / R-113 in-app customer statements state the emailed balance > R-113: the R-095 fixture customer states the emailed closing balance on the default statement
+AssertionError: expected 1634.56 to be 1434.56 // Object.is equality
+
+- Expected
++ Received
+
+- 1434.56
++ 1634.56
+
+ ❯ tests/integration/r112-r113-inapp-customer-statements.int.test.ts:135:60
+    133|   it('R-113: the R-095 fixture customer states the emailed closing bal…
+    134|     expect(await emailBalance(f.customerA)).toBe(EXPECTED_CLOSING);
+    135|     expect((await statement(f.customerA)).summary.balance).toBe(EXPECT…
+       |                                                            ^
+    136|     expect((await detail(f.customerA)).summary.balance).toBe(EXPECTED_…
+    137|   });
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[3/5]⎯
+
+ FAIL  tests/integration/r112-r113-inapp-customer-statements.int.test.ts > R-112 / R-113 in-app customer statements state the emailed balance > R-113: activity before the default one-year window is brought forward, not dropped
+AssertionError: expected { totalInvoiced: +0, …(3) } to match object { openingBalance: 800, …(4) }
+
+- Expected
++ Received
+
+  {
+-   "balance": 400,
+-   "openingBalance": 800,
++   "balance": -400,
+    "totalCredits": 0,
+    "totalInvoiced": 0,
+    "totalPaid": 400,
+  }
+
+ ❯ tests/integration/r112-r113-inapp-customer-statements.int.test.ts:149:26
+    147|
+    148|     const data = await statement(c);
+    149|     expect(data.summary).toMatchObject({ openingBalance: 800, totalInv…
+       |                          ^
+    150|     expect(data.transactions[0]).toMatchObject({ type: 'opening_balanc…
+    151|     expect(data.transactions.at(-1)).toMatchObject({ type: 'payment', …
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[4/5]⎯
+
+ FAIL  tests/integration/r112-r113-inapp-customer-statements.int.test.ts > R-112 / R-113 in-app customer statements state the emailed balance > R-113: the printable statement carries the brought-forward line and the true balance
+AssertionError: expected '<!DOCTYPE html>\n<html lang="en">\n<h…' to contain 'Balance brought forward'
+
+- Expected
++ Received
+
+- Balance brought forward
++ <!DOCTYPE html>
++ <html lang="en">
++ <head>
++ <meta charset="UTF-8">
++ <title>Statement — print R9579849487</title>
++ <style>
++   * { margin:0; padding:0; box-sizing:border-box; }
++   body { font-family: Arial, sans-serif; font-size: 10px; color: #222; padding: 20mm; }
++   h1 { font-size: 20px; margin-bottom: 4px; }
++   .header { display: flex; justify-content: space-between; margin-bottom: 8mm; }
++   .header-left .company { font-size: 12px; font-weight:bold; }
++   .header-right { text-align: right; }
++   .header-right .client-name { font-size: 14px; font-weight:bold; }
++   .divider { border-top: 1px solid #ccc; margin: 4mm 0; }
++   .summary { display: flex; gap: 8mm; margin-bottom: 6mm; padding: 4mm; background:#f5f7fa; border-radius:4px; }
++   .summary-box { flex: 1; text-align: center; }
++   .summary-box .label { font-size: 8px; color:#666; text-transform: uppercase; }
++   .summary-box .value { font-size: 13px; font-weight:bold; }
++   table { width:100%; border-collapse: collapse; margin-top: 4mm; }
++   th { background:#1a3a6b; color:#fff; padding: 4px 6px; text-align:left; font-size:9px; }
++   td { padding: 3px 6px; border-bottom: 1px solid #eee; font-size: 9px; }
++   tr:nth-child(even) td { background: #f8fafc; }
++   .num { text-align:right; font-family: monospace; }
++   .bal { font-weight:bold; }
++   .footer { margin-top: 8mm; font-size: 8px; color: #999; border-top: 1px solid #eee; padding-top: 3mm; }
++   @media print { @page { size: A4 portrait; margin: 15mm; } body { padding:0; } }
++ </style>
++ </head>
++ <body>
++ <div class="header">
++   <div class="header-left">
++     <h1>STATEMENT</h1>
++     
++     
++   </div>
++   <div class="header-right">
++     <div class="client-name">print R9579849487</div>
++     <div>print-R9579849487@test.local</div>
++     
++     <div style="margin-top:4px">Period: 2025-09-21 to 2026-09-21</div>
++     <div>Generated: 2026/09/21</div>
++   </div>
++ </div>
++ <div class="divider"></div>
++ <div class="summary">
++   <div class="summary-box"><div class="label">Total Invoiced</div><div class="value">R 0,00</div></div>
++   <div class="summary-box"><div class="label">Total Paid</div><div class="value">R 400,00</div></div>
++   <div class="summary-box"><div class="label">Credits Applied</div><div class="value">R 0,00</div></div>
++   <div class="summary-box"><div class="label">Balance Due</div><div class="value" style="color:#16a34a">-R 400,00</div></div>
++ </div>
++ <table>
++   <thead><tr><th>Date</th><th>Type</th><th>Reference</th><th>Description</th><th>Debit</th><th>Credit</th><th>Balance</th></tr></thead>
++   <tbody>
++     <tr>
++       <td>22/08/2026</td>
++       <td>Payment</td>
++       <td>R9579849487-print-RCPT</td>
++       <td></td>
++       <td class="num"></td>
++       <td class="num">R 400,00</td>
++       <td class="num bal">-R 400,00</td>
++     </tr></tbody>
++ </table>
++ <div class="footer">ISAFlow Customer Statement — Confidential &nbsp;|&nbsp; print R9579849487 &nbsp;|&nbsp; 2025-09-21 – 2026-09-21</div>
++ <script>window.onload = function() { window.print(); }</script>
++ </body>
++ </html>
+
+ ❯ tests/integration/r112-r113-inapp-customer-statements.int.test.ts:167:18
+    165|     expect(state.statusCode).toBe(200);
+    166|     const html = String(state.body);
+    167|     expect(html).toContain('Balance brought forward');
+       |                  ^
+    168|     expect(html).not.toContain('opening_balance');
+    169|     expect(html).toMatch(/Balance Due<\/div><div class="value"[^>]*>R\…
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[5/5]⎯
+
+
+ Test Files  1 failed (1)
+      Tests  5 failed (5)
+   Start at  16:25:21
+   Duration  969ms (transform 285ms, setup 0ms, import 293ms, tests 555ms, environment 0ms)
+
