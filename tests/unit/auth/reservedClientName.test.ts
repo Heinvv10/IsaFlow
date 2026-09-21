@@ -129,6 +129,15 @@ describe('isReservedClientName', () => {
     expect(isReservedClientName(asHandlerWould('Isa Flow!'))).toBe(true);
   });
 
+  // Digits are part of a token, not separators. A digit that stands in for a
+  // letter is folded ("1saf1ow"); one that resembles nothing just sits inside
+  // the word and keeps it distinct from the brand.
+  it('keeps a non-look-alike digit inside the token', () => {
+    expect(isReservedClientName(asHandlerWould('isaf2low'))).toBe(false);
+    expect(isReservedClientName(asHandlerWould('isaf6low'))).toBe(false);
+    expect(isReservedClientName(asHandlerWould('1saf1ow'))).toBe(true);
+  });
+
   // The brand must be spelled by WHOLE tokens. These merely contain its letters
   // inside longer words and are legitimate names a registrant could hold.
   it('allows names that merely contain the letters of a reserved term', () => {
