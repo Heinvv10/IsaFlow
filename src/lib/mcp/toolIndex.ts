@@ -59,6 +59,7 @@ import {
 import { autoApplyUnappliedTool } from './tools/writeAutoApplyUnapplied';
 import { applyCreditNoteTool } from './tools/writeApplyCreditNote';
 import { cancelSupplierInvoiceTool } from './tools/writeCancelSupplierInvoice';
+import { unapplyCreditNoteTool, unapplySupplierPaymentTool } from './tools/writeUnapply';
 import { reverseBankAllocationBatchTool } from './tools/writeBankReverseBatch';
 import { reverseAllocationsTool } from './tools/writeBankReverseRange';
 import { setOpeningBalanceTool } from './tools/writeOpeningBalance';
@@ -241,6 +242,8 @@ export const MCP_TOOLS = [
   autoApplyUnappliedTool,
   applyCreditNoteTool,
   cancelSupplierInvoiceTool,
+  unapplySupplierPaymentTool,
+  unapplyCreditNoteTool,
   reverseBankAllocationBatchTool,
   postReclassificationBatchTool,
   importBankStatementTool,
