@@ -144,6 +144,7 @@ export const CLIENT_MCP_TOOL_NAMES = [
   'apply_payment_to_supplier_invoice',
   'auto_apply_unapplied',
   'apply_credit_note',
+  'cancel_supplier_invoice',
   'reverse_journal_entry',
   'settle_by_contra',
   'create_customer',

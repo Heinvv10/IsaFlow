@@ -464,6 +464,8 @@ describe('write-tool manifest invariants', () => {
       'bulk_approve_supplier_invoices',
       'bulk_finalize_invoices',
       'cancel_credit_note',
+      // Reverses the bill's approval journal.
+      'cancel_supplier_invoice',
       // Closing a period changes what may post; closing a year posts to equity
       // and locks every period behind it; reopening removes a posting lock; and
       // completing a reconciliation marks transactions terminally reconciled.
@@ -653,6 +655,9 @@ describe('write-tool manifest invariants', () => {
       // Refuses on the missing credit_note_id before reading anything; behaviour
       // in applyCreditNoteTool.test.ts and credit-note-to-document.int.test.ts.
       apply_credit_note: { ...KEY },
+      // Refuses on the missing invoice_id before reading anything; behaviour in
+      // cancelSupplierInvoiceTool.test.ts and cancel-supplier-invoice.int.test.ts.
+      cancel_supplier_invoice: { ...KEY },
       void_receipt: { ...KEY },
       void_payment: { ...KEY },
       // Payroll setup refuses on the missing required argument before any

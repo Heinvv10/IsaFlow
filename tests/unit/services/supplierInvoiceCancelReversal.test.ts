@@ -111,7 +111,8 @@ describe('cancelSupplierInvoice GL reversal (P1.1 sweep / audit C1)', () => {
     const lockText = (mockSql.mock.calls[0]![0] as string[]).join('?');
     expect(lockText).toMatch(/FOR UPDATE/i);
     expect(lockText).toMatch(/company_id/i);
-    expect(mockReverse).toHaveBeenCalledWith(COMPANY_ID, JOURNAL_ID, USER_ID);
+    // No actor from a human caller: reverseJournalEntry falls back to human attribution.
+    expect(mockReverse).toHaveBeenCalledWith(COMPANY_ID, JOURNAL_ID, USER_ID, undefined);
     // reversal happens after the journal-state check, before the UPDATE
     expect(mockReverse.mock.invocationCallOrder[0]!).toBeGreaterThan(
       mockSql.mock.invocationCallOrder[1]!,
@@ -124,6 +125,24 @@ describe('cancelSupplierInvoice GL reversal (P1.1 sweep / audit C1)', () => {
     expect(updateText, 'cancel must clear the journal link').toMatch(
       /gl_journal_entry_id = NULL/i,
     );
+  });
+
+  /**
+   * An agent-driven cancel must stamp its reversal as the agent's, not as the
+   * token owner's hand: list_agent_postings filters posting_agent LIKE 'mcp:%',
+   * and an unstamped contra is invisible to it (approve already carries this).
+   */
+  it('passes a posting actor through to the reversal it posts', async () => {
+    mockSql
+      .mockResolvedValueOnce([lockRow()])
+      .mockResolvedValueOnce([{ status: 'posted', reversed_at: null }])
+      .mockResolvedValueOnce([updatedRow]);
+    mockReverse.mockResolvedValueOnce({ id: REVERSAL_ID });
+    const actor = { postingAgent: 'mcp:cancel_supplier_invoice:v1', actorType: 'agent' as const, actorTokenJti: 'jti' };
+
+    await cancelSupplierInvoice(COMPANY_ID, INVOICE_ID, USER_ID, actor);
+
+    expect(mockReverse).toHaveBeenCalledWith(COMPANY_ID, JOURNAL_ID, USER_ID, actor);
   });
 
   it('skips the reversal when the journal is already reversed (reversed_at set)', async () => {
