@@ -45,7 +45,7 @@ export async function generateStatementsBatch(
   selected: Set<string>,
   customers: CustomerBalance[],
   asAtDate: string
-): Promise<{ skipped: { name: string; reason: string }[] }> {
+): Promise<{ generated: number; skipped: { name: string; reason: string }[] }> {
   const { generateStatementPdf } = await import(
     '@/modules/accounting/utils/statementPdf'
   );
@@ -89,11 +89,11 @@ export async function generateStatementsBatch(
     pdfs.push({ name: `statement-${safeName}.pdf`, blob });
   }
 
-  if (pdfs.length === 0) return { skipped };
+  if (pdfs.length === 0) return { generated: pdfs.length, skipped };
 
   if (pdfs.length === 1 && pdfs[0]) {
     downloadBlob(pdfs[0].blob, pdfs[0].name);
-    return { skipped };
+    return { generated: pdfs.length, skipped };
   }
 
   const { default: JSZip } = await import('jszip');
@@ -104,5 +104,5 @@ export async function generateStatementsBatch(
   const zipBlob = await zip.generateAsync({ type: 'blob' });
   downloadBlob(zipBlob, `statements-${asAtDate}.zip`);
   log.info('Statements ZIP generated', { count: pdfs.length }, 'generateStatementsBatch');
-  return { skipped };
+  return { generated: pdfs.length, skipped };
 }
