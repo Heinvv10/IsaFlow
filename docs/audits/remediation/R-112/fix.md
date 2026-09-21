@@ -53,6 +53,13 @@ notes (`approved`, `partially_applied`, `applied`) at `CREDIT_NOTE_STATEMENT_VAL
   `green-unit.log`: the round-2 unit file, 3 passed.
 - Round 3 (SHIP; 3 LOW fixed): the statement run clears a stale message and says how
   many statements it generated when it skips someone.
+- Round 4 (SHIP; 1 pre-existing LOW fixed): a selected id missing from the list is named
+  in `skipped`, not silently dropped from the count (unit test 4/4; removing the push
+  turns it red).
+- Browser round 2 (`ui-round2.log`, `r112-deleted-detail.png`): the detail page for a
+  soft-deleted customer shows "Client … not found", not an empty statement; the live
+  customer's cards read Invoiced R 2 500,00 · Paid R 1 000,00 · Credits R 200,00 ·
+  Balance R 1 300,00; no page errors.
 - Browser (`ui.log`, `r112-statement.png`, `r112-detail.png`): dev server on the branch
   against the disposable fixture, headless Chromium as the tenant's staff user. Customer
   with an old invoice 1,000, an old applied note (300, 200 applied), a new invoice 1,500
