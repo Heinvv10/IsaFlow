@@ -27,7 +27,7 @@ export const createCreditNoteTool: McpTool = {
     'subtotal is NET of VAT and must be positive — tax_rate (default 15) is applied on top, and total = subtotal + VAT. ' +
     'Optionally link the note to the invoice it corrects with customer_invoice_id / supplier_invoice_id; a LINKED note is AUTO-APPLIED at approve, reducing that invoice\'s outstanding balance by up to its outstanding amount. Leave the link out to raise standalone credit. ' +
     'An identical open draft (same counterparty, linked invoice, date and amount) is REFUSED and its id returned — retrying with a new idempotency_key will not create a second one. ' +
-    'When it is genuinely a SECOND credit (two returns on one day for one amount), pass allow_duplicate: true.',
+    'When it is genuinely a SECOND credit (two returns on one day for one amount), call again with duplicate_of set to the id the refusal named.',
   scope: 'write:invoices',
   write: true,
   inputSchema: {
@@ -42,9 +42,9 @@ export const createCreditNoteTool: McpTool = {
       subtotal: { type: 'number', exclusiveMinimum: 0, description: 'NET of VAT' },
       tax_rate: { type: 'number', minimum: 0, maximum: 100, description: 'VAT %, default 15' },
       reason: { type: 'string' },
-      allow_duplicate: {
-        type: 'boolean',
-        description: 'true only when an identical open draft exists and this is genuinely a second, separate credit.',
+      duplicate_of: {
+        type: 'string',
+        description: 'Only after a refusal: the id of the identical open draft it named, confirming this is a second, separate credit.',
       },
       idempotency_key: { type: 'string' },
     },
@@ -60,7 +60,7 @@ export const createCreditNoteTool: McpTool = {
     if (!creditDate) return toolError('credit_date is required (YYYY-MM-DD)');
 
     const bad = guardCastableArgs(args, {
-      uuid: ['client_id', 'supplier_id', 'customer_invoice_id', 'supplier_invoice_id'],
+      uuid: ['client_id', 'supplier_id', 'customer_invoice_id', 'supplier_invoice_id', 'duplicate_of'],
       date: ['credit_date'],
     });
     if (bad) return bad;
@@ -129,11 +129,18 @@ export const createCreditNoteTool: McpTool = {
     // one amount — and `reason` is not part of the key (an agent regenerating
     // its reason text on a retry would slip past it). Without an override the
     // only way through was to alter the date or amount: falsify the document to
-    // pass the guard. allow_duplicate is that override, and only boolean `true`
-    // opens it. The same idempotency_key still replays a blind retry.
+    // pass the guard.
+    //
+    // The override is `duplicate_of`, and it must NAME the most recent identical
+    // draft — not a boolean. A boolean could be sent blind on a first call, and
+    // then every fresh-key retry mints another note. Naming the MOST RECENT one
+    // (the lookup orders by created_at) also consumes the override: once the
+    // second note exists, a retry still naming the first is refused and told
+    // about the second.
+    const duplicateOf = strArg(args, 'duplicate_of');
     const taxRateForTotal = taxRate ?? 15;
     const total = Math.round(subtotal * (1 + taxRateForTotal / 100) * 100) / 100;
-    const duplicate = args.allow_duplicate === true ? null : await findOpenDuplicateDraft(
+    const duplicate = await findOpenDuplicateDraft(
       ctx.companyId,
       {
         type: type as (typeof TYPES)[number],
@@ -142,11 +149,17 @@ export const createCreditNoteTool: McpTool = {
       },
       total,
     );
-    if (duplicate) {
+    if (duplicateOf && !duplicate) {
+      return toolError(
+        'duplicate_of was given but there is no identical open draft credit note to override. '
+        + 'Omit duplicate_of.',
+      );
+    }
+    if (duplicate && duplicate !== duplicateOf) {
       return toolError(
         `An identical draft credit note already exists (id ${duplicate}) for the same counterparty, `
         + 'linked invoice, date and amount. If this is a retry, approve that one with approve_credit_note. '
-        + 'If it is genuinely a second, separate credit, call again with allow_duplicate: true.',
+        + `If it is genuinely a second, separate credit, call again with duplicate_of: "${duplicate}".`,
       );
     }
 
