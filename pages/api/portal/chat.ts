@@ -8,11 +8,7 @@ import { apiResponse } from '@/lib/apiResponse';
 import { sql } from '@/lib/neon';
 import { log } from '@/lib/logger';
 import { classifyClientQuery, buildClientChatPrompt, parseClientChatResponse, sanitizeClientResponse, type ClientContext } from '@/modules/accounting/services/ar/portalChatbotService';
-import { verifyArPortalToken } from '@/lib/auth/arPortalJwt';
-// R-095 round 3 (HIGH-1): `import cookie from 'cookie'` gives `undefined`
-// under Next's webpack build (the package is CJS with no `default` export) —
-// every one of these routes 500'd on every real request. Named import.
-import { parse } from 'cookie';
+import { resolvePortalSession } from '@/modules/accounting/services/ar/portalSession';
 import { checkRateLimit, getClientIp } from '@/lib/rateLimit';
 import { asAtTodayStr, documentInLedgerAsAtFragment } from '@/modules/accounting/services/shared/softDeleteLedgerPresence';
 import { documentInPopulationExpr } from '@/modules/accounting/services/shared/documentPopulation';
@@ -23,12 +19,9 @@ type Row = Record<string, unknown>;
 async function handler(req: NextApiRequest, res: NextApiResponse) {
   if (req.method !== 'POST') return apiResponse.methodNotAllowed(res, req.method!, ['POST']);
 
-  const cookies = parse(req.headers.cookie || '');
-  const token = cookies.portal_session;
-  if (!token) return res.status(401).json({ success: false, error: { message: 'Not authenticated' } });
-  const session = await verifyArPortalToken(token);
+  const session = await resolvePortalSession(req);
   if (!session) {
-    return res.status(401).json({ success: false, error: { message: 'Invalid session' } });
+    return res.status(401).json({ success: false, error: { message: 'Not authenticated' } });
   }
   const sessionClientId = session.clientId;
   const sessionCompanyId = session.companyId;

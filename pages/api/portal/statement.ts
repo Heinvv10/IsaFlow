@@ -8,12 +8,8 @@ import type { NextApiRequest, NextApiResponse } from 'next';
 import { withErrorHandler } from '@/lib/api-error-handler';
 import { apiResponse } from '@/lib/apiResponse';
 import { getClientStatement } from '@/modules/accounting/services/ar/portalService';
-import { verifyArPortalToken, type ArPortalSession } from '@/lib/auth/arPortalJwt';
+import { resolvePortalSession } from '@/modules/accounting/services/ar/portalSession';
 import { asAtTodayStr } from '@/modules/accounting/services/shared/softDeleteLedgerPresence';
-// R-095 round 3 (HIGH-1): `import cookie from 'cookie'` gives `undefined`
-// under Next's webpack build (the package is CJS with no `default` export) —
-// every one of these routes 500'd on every real request. Named import.
-import { parse } from 'cookie';
 
 const ISO_DATE_RE = /^(\d{4})-(\d{2})-(\d{2})$/;
 
@@ -38,19 +34,12 @@ function isValidIsoDate(s: string): boolean {
   return dt.getUTCFullYear() === year && dt.getUTCMonth() === month - 1 && dt.getUTCDate() === day;
 }
 
-async function getPortalSession(req: NextApiRequest): Promise<ArPortalSession | null> {
-  const cookies = parse(req.headers.cookie || '');
-  const token = cookies.portal_session;
-  if (!token) return null;
-  return verifyArPortalToken(token);
-}
-
 async function handler(req: NextApiRequest, res: NextApiResponse) {
   if (req.method !== 'GET') {
     return apiResponse.methodNotAllowed(res, req.method!, ['GET']);
   }
 
-  const session = await getPortalSession(req);
+  const session = await resolvePortalSession(req);
   if (!session) {
     return apiResponse.unauthorized(res, 'Portal authentication required');
   }

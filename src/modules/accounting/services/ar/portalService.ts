@@ -5,6 +5,7 @@
 
 import { sql } from '@/lib/neon';
 import { log } from '@/lib/logger';
+import { fmtDate } from '@/lib/fmtDate';
 import bcrypt from 'bcryptjs';
 import type { DbRow } from '@/types/db';
 import { asAtTodayStr, documentInLedgerAsAtFragment } from '../shared/softDeleteLedgerPresence';
@@ -148,8 +149,10 @@ export async function getClientInvoices(clientId: string, companyId: string): Pr
   return rows.map((r: DbRow) => ({
     id: String(r.id),
     invoiceNumber: String(r.invoice_number),
-    invoiceDate: String(r.invoice_date),
-    dueDate: String(r.due_date),
+    // pg hands DATE columns back as Date objects; String() of one is
+    // "Mon Jul 23 2026 00:00:00 GMT+0200 …", not a date the portal can show.
+    invoiceDate: fmtDate(r.invoice_date),
+    dueDate: fmtDate(r.due_date),
     total: Number(r.total_amount),
     amountPaid: Number(r.amount_paid),
     balance: Number(r.balance),
