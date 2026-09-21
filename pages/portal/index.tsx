@@ -7,10 +7,7 @@ import { useState, useEffect } from 'react';
 import { BookOpen, FileText, LogOut, Loader2 } from 'lucide-react';
 import Head from 'next/head';
 import Image from 'next/image';
-
-function formatCurrency(amount: number): string {
-  return 'R ' + Math.abs(amount).toLocaleString('en-ZA', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
-}
+import { PortalStatement, formatBalance, formatIsoDate, type PortalStatementData } from '@/components/portal/PortalStatement';
 
 interface PortalUser {
   id: string;
@@ -27,7 +24,7 @@ interface PortalInvoice {
   total: number;
   amountPaid: number;
   balance: number;
-  status: string;
+  status: string | null;
 }
 
 const STATUS_STYLES: Record<string, string> = {
@@ -40,6 +37,10 @@ const STATUS_STYLES: Record<string, string> = {
 export default function PortalPage() {
   const [user, setUser] = useState<PortalUser | null>(null);
   const [invoices, setInvoices] = useState<PortalInvoice[]>([]);
+  const [invoicesError, setInvoicesError] = useState('');
+  const [statement, setStatement] = useState<PortalStatementData | null>(null);
+  const [statementError, setStatementError] = useState('');
+  const [statementLoading, setStatementLoading] = useState(false);
   const [loading, setLoading] = useState(false);
   const [loginEmail, setLoginEmail] = useState('');
   const [loginPassword, setLoginPassword] = useState('');
@@ -72,6 +73,7 @@ export default function PortalPage() {
   const handleLogout = () => {
     setUser(null);
     setInvoices([]);
+    setStatement(null);
     localStorage.removeItem('portal_user');
   };
 
@@ -85,15 +87,50 @@ export default function PortalPage() {
   useEffect(() => {
     if (!user) return;
     setLoading(true);
+    setInvoicesError('');
     fetch(`/api/portal/invoices?clientId=${user.clientId}`)
-      .then(r => r.json())
-      .then(json => setInvoices(json.data?.items ?? []))
-      .catch(() => { /* invoice load failure — non-critical, UI shows empty invoice list */ })
+      .then(async r => {
+        const json = await r.json();
+        // R-095 round 3 (LOW-5): a 404 (the account was soft-deleted, or a
+        // stale session outlived a delete — see R-095 L4) used to fall
+        // through `json.data?.items ?? []` and render as an ordinary,
+        // misleading "no invoices" empty state. Surface it instead.
+        if (!r.ok) {
+          setInvoices([]);
+          setInvoicesError(json.error?.message || 'Could not load your invoices.');
+          return;
+        }
+        setInvoices(json.data?.items ?? []);
+      })
+      .catch(() => setInvoicesError('Could not load your invoices.'))
       .finally(() => setLoading(false));
+
+    setStatementLoading(true);
+    setStatementError('');
+    fetch(`/api/portal/statement?clientId=${user.clientId}`)
+      .then(async r => {
+        const json = await r.json();
+        if (!r.ok) {
+          setStatement(null);
+          setStatementError(json.error?.message || 'Could not load your statement.');
+          return;
+        }
+        setStatement(json.data ?? null);
+      })
+      .catch(() => setStatementError('Could not load your statement.'))
+      .finally(() => setStatementLoading(false));
   }, [user]);
 
-  const totalOutstanding = invoices.reduce((s, inv) => s + inv.balance, 0);
-  const overdueInvoices = invoices.filter(inv => inv.status === 'overdue');
+  // R-095: the headline is the statement's closing balance, not a sum of
+  // invoice balances. amount_paid only moves when money is ALLOCATED, so the
+  // invoice sum ignores an unallocated receipt and an unapplied credit note
+  // and tells the customer they owe more than their statement says.
+  const totalOutstanding = statementLoading ? '…' : statement ? formatBalance(statement.closingBalance) : '—';
+  // The same figure the chat quotes (portalOverdue): the part of the balance on
+  // past-due invoices once credits settle the oldest debt first. Counting
+  // invoices whose status is 'overdue' showed 0 while the chat said R629.51.
+  const overdue = statement?.overdueAmount ?? 0;
+  const overdueText = statementLoading ? '…' : statement ? formatBalance(overdue) : '—';
 
   if (!user) {
     return (
@@ -171,7 +208,7 @@ export default function PortalPage() {
           <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
             <div className="bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-700 rounded-xl p-4">
               <p className="text-xs text-slate-500 dark:text-gray-500 mb-1">Total Outstanding</p>
-              <p className="text-2xl font-bold text-slate-900 dark:text-white">{formatCurrency(totalOutstanding)}</p>
+              <p className="text-2xl font-bold text-slate-900 dark:text-white">{totalOutstanding}</p>
             </div>
             <div className="bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-700 rounded-xl p-4">
               <p className="text-xs text-slate-500 dark:text-gray-500 mb-1">Invoices</p>
@@ -179,8 +216,8 @@ export default function PortalPage() {
             </div>
             <div className="bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-700 rounded-xl p-4">
               <p className="text-xs text-slate-500 dark:text-gray-500 mb-1">Overdue</p>
-              <p className={`text-2xl font-bold ${overdueInvoices.length > 0 ? 'text-red-400' : 'text-teal-400'}`}>
-                {overdueInvoices.length}
+              <p className={`text-2xl font-bold ${overdue > 0 ? 'text-red-400' : 'text-teal-400'}`} data-testid="portal-overdue">
+                {overdueText}
               </p>
             </div>
           </div>
@@ -195,6 +232,8 @@ export default function PortalPage() {
               <div className="flex justify-center py-12">
                 <Loader2 className="h-6 w-6 animate-spin text-teal-500" />
               </div>
+            ) : invoicesError ? (
+              <div className="px-6 py-12 text-center text-red-500">{invoicesError}</div>
             ) : invoices.length === 0 ? (
               <div className="px-6 py-12 text-center text-slate-500 dark:text-gray-500">No invoices found</div>
             ) : (
@@ -213,16 +252,18 @@ export default function PortalPage() {
                   {invoices.map(inv => (
                     <tr key={inv.id} className="hover:bg-slate-50 dark:hover:bg-gray-800/30">
                       <td className="px-6 py-3 text-slate-900 dark:text-white font-medium">{inv.invoiceNumber}</td>
-                      <td className="px-6 py-3 text-slate-600 dark:text-gray-300">{new Date(inv.invoiceDate).toLocaleDateString('en-ZA')}</td>
-                      <td className="px-6 py-3 text-slate-600 dark:text-gray-300">{new Date(inv.dueDate).toLocaleDateString('en-ZA')}</td>
-                      <td className="px-6 py-3 text-right text-slate-600 dark:text-gray-300">{formatCurrency(inv.total)}</td>
+                      <td className="px-6 py-3 text-slate-600 dark:text-gray-300">{formatIsoDate(inv.invoiceDate)}</td>
+                      <td className="px-6 py-3 text-slate-600 dark:text-gray-300">{formatIsoDate(inv.dueDate)}</td>
+                      <td className="px-6 py-3 text-right text-slate-600 dark:text-gray-300">{formatBalance(inv.total)}</td>
                       <td className={`px-6 py-3 text-right font-medium ${inv.balance > 0 ? 'text-amber-400' : 'text-teal-400'}`}>
-                        {formatCurrency(inv.balance)}
+                        {formatBalance(inv.balance)}
                       </td>
                       <td className="px-6 py-3 text-center">
-                        <span className={`px-2 py-0.5 rounded-full text-xs font-medium ${STATUS_STYLES[inv.status] || 'bg-gray-500/20 text-gray-400'}`}>
-                          {inv.status}
-                        </span>
+                        {inv.status && (
+                          <span className={`px-2 py-0.5 rounded-full text-xs font-medium ${STATUS_STYLES[inv.status] || 'bg-gray-500/20 text-gray-400'}`}>
+                            {inv.status}
+                          </span>
+                        )}
                       </td>
                     </tr>
                   ))}
@@ -230,6 +271,8 @@ export default function PortalPage() {
               </table>
             )}
           </div>
+
+          <PortalStatement statement={statement} loading={statementLoading} error={statementError} />
         </div>
       </div>
     </>

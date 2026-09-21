@@ -1,0 +1,9 @@
+=== branch dev server on fixture
+--- POST /api/portal/auth
+{"success":true,"data":{"user":{"id":"3f349c65-2cef-470c-aceb-c8e6c1607dd6","clientId":"1bceb72d-aae4-422a-8517-99996a28888b","companyId":"0a950000-0000-4000-8000-00000000000a","email":"portal-a@test.local","name":"Portal Customer A","isActive":true,"lastLoginAt":"Mon Sep 21 2026 13:10:19 GMT+0200 (South Africa Standard Time)"}},"meta":{"timestamp":"2026-09-21T11:17:50.776Z"}}
+HTTP 200
+--- GET statement
+{"closing":1234.56,"opening":0,"refs":["R095-INV-001","R095-INV-002","R095-RCPT-001","R095-RCPT-002","R095-INV-003","R095-CN-APPROVED","R095-CN-APPLIED","R095-RCPT-UNALLOC"]}
+HTTP 200
+--- GET invoices
+[["R095-INV-003","2026-09-01",1234.56],["R095-INV-002","2026-08-07",0],["R095-INV-001","2026-07-23",600]]
