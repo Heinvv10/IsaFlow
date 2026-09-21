@@ -88,19 +88,15 @@ export async function applyCreditNoteToDocument(
   userId: string,
 ): Promise<CreditNoteToDocumentResult> {
   const note = await lockCreditNoteForUpdate(companyId, input.creditNoteId);
-  if (note) {
-    await lockInvoicesForUpdate(
-      'applyCreditNoteToDocument', companyId,
-      note.type === 'supplier' ? 'supplier' : 'customer', [input.invoiceId],
-    );
-  }
+  const checked = checkNote(note, input);
+  await lockInvoicesForUpdate('applyCreditNoteToDocument', companyId, checked.side, [input.invoiceId]);
   const plan = await buildPlan(companyId, note, input);
 
   const application = await applyCreditNote({
     companyId,
     creditNoteId: plan.creditNoteId,
     side: plan.side,
-    entityId: counterpartyOf(note!, plan.side),
+    entityId: counterpartyOf(checked.note, plan.side),
     totalAmount: plan.amount,
     linkedInvoiceId: plan.invoiceId,
     // Belt and braces: `totalAmount` is already capped at the document's
@@ -109,14 +105,16 @@ export async function applyCreditNoteToDocument(
     autoApply: 'none',
     alreadyApplied: plan.noteAppliedBefore,
   });
-  // The engine re-reads the document under its lock and caps at THAT balance.
-  // Nothing applied means the document was settled or withdrawn between the
-  // plan and the lock — and nothing was written, so a refusal is safe.
+  // Unreachable by construction: the document is locked and the plan refuses
+  // anything the engine would not write (≤ a cent, a closed document). If the
+  // engine still applied nothing, the plan and the engine disagree — a defect,
+  // not the caller's problem. Thrown as a plain Error so the registry unwinds
+  // and answers generically; a "retry" refusal would misstate the cause.
   const applied = round2(application.appliedAmount);
   if (applied <= EPS) {
-    throw new CreditNoteApplyRefusal(
-      `Invoice ${plan.invoiceNumber} changed while this was being applied and can no longer take `
-      + 'credit — read it again and retry.',
+    throw new Error(
+      `applyCreditNoteToDocument: engine applied nothing to invoice ${plan.invoiceId} planned at `
+      + `R${plan.amount.toFixed(2)} under lock — plan and engine disagree.`,
     );
   }
 
@@ -145,11 +143,22 @@ function counterpartyOf(note: DbRow, side: CreditNoteSide): string {
   return String(side === 'customer' ? note.client_id : note.supplier_id);
 }
 
-async function buildPlan(
-  companyId: string,
-  note: DbRow | null,
-  input: CreditNoteToDocumentInput,
-): Promise<CreditNoteToDocumentResult> {
+interface CheckedNote {
+  note: DbRow;
+  number: string;
+  side: CreditNoteSide;
+  total: number;
+  appliedBefore: number;
+  remainder: number;
+}
+
+/**
+ * Every refusal that needs only the NOTE. Synchronous and read-free, so the
+ * live path runs it before locking the document: a call against a draft,
+ * cancelled or used-up note must not hold a row lock on a document it will
+ * refuse to touch.
+ */
+function checkNote(note: DbRow | null, input: CreditNoteToDocumentInput): CheckedNote {
   if (!note) throw new CreditNoteApplyRefusal('Credit note not found.');
   const number = String(note.credit_note_number);
   const side: CreditNoteSide = note.type === 'supplier' ? 'supplier' : 'customer';
@@ -183,6 +192,15 @@ async function buildPlan(
   if (input.amount !== undefined && !(Number.isFinite(input.amount) && input.amount > 0)) {
     throw new CreditNoteApplyRefusal('amount must be a positive number.');
   }
+  return { note, number, side, total, appliedBefore, remainder };
+}
+
+async function buildPlan(
+  companyId: string,
+  noteRow: DbRow | null,
+  input: CreditNoteToDocumentInput,
+): Promise<CreditNoteToDocumentResult> {
+  const { note, number, side, total, appliedBefore, remainder } = checkNote(noteRow, input);
 
   const doc = await readDocument(companyId, side, input.invoiceId);
   // One reply for "absent" and "another tenant's": the read is company-scoped,
