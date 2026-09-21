@@ -638,16 +638,38 @@ the index in place (`pg_indexes` checked on the `isaflow_test` clone): 27 passed
   lines (an allocated line plus another) → 400 "more than one bank line", line
   still allocated, no contra. Mutations Z2 (status-only check) and Z4 (refusal
   removed) each red (`round9-mutations.log`).
-- **MEDIUM-1 held for Hein.** Nothing in the app reopens or cancels a COMPLETED
-  bank reconciliation: `cancelReconciliation` (bank-reconciliations-action
-  `cancel`, MCP `cancel_bank_reconciliation`) refuses anything not
-  `in_progress`, and no reopen exists. So the void message's "reverse it there"
-  names a path that does exist (`bank-transactions-action reverse`) but one that
-  changes a completed reconciliation's figures silently — and making it refuse,
-  as asked, leaves reconciled cash with no remedy at all. The Sage import
-  (`scripts/import-sage-britech.ts`) writes `reconciled` lines with no
-  `reconciliation_id`: the shared rule refuses them, which is right (the cash was
-  reconciled at source), but no reconciliation here can be reopened for them
-  either. Options put to the lead: build "reopen a completed reconciliation"
-  and point every message at it; refuse bank reverse and say no remedy exists;
-  or only drop the misleading remedy from the void message.
+- **MEDIUM-1 — Hein chose "lock now, reopen later" (option b).** Nothing in the
+  app reopens or cancels a COMPLETED bank reconciliation (`cancelReconciliation`
+  refuses anything not `in_progress`; no reopen exists in `bank/` or
+  `pages/api`) — registered as **R-111**. So:
+  - **One rule, three callers.** `bank/reconciledCash.ts` decides whether a bank
+    line's cash is locked: on a COMPLETED reconciliation (status `reconciled`, or
+    a `reconciliation_id` naming a `completed` row), or reconciled in the Sage
+    import (status `reconciled` with no `reconciliation_id` — only
+    `scripts/import-sage-britech.ts` writes that). Single void and batch reversal
+    (via `ap/paymentJournalReversal.ts#assertNotReconciled`) and bank reverse
+    (`reverseReconciledTransaction` — the bank screen's `reverse`, and MCP
+    `void_payment` / `reverse_bank_allocation*` through it) all refuse it before
+    any write. Void and batch reversal additionally refuse a line in an OPEN
+    session (unchanged); bank reverse still reverses one (unchanged, pinned).
+  - **The message says the true thing and names the reconciliation**: "…'s bank
+    line is on the completed reconciliation of <bank account> to <statement
+    date>. A completed reconciliation can't be reopened yet, so this can't be
+    reversed in the app. Correct it with a journal, or contact support." Sage
+    lines: "…was reconciled in the Sage import (no reconciliation in this app
+    holds it), so this can't be reversed in the app. Correct it with a journal,
+    or contact support." No pointer to a path that does not exist.
+  - **Sage lines stay refused**: the cash was reconciled at source. R-111 notes
+    they need a separate "unreconcile a line" path, since a reopen cannot reach a
+    reconciliation that is not here.
+  - `RECONCILED_CASH` (the bank-side error code) is on the MCP refusal allow-list,
+    so an agent calling void_payment / reverse on such a line reads the message.
+  - Tests: `tests/integration/k064-bank-reverse-reconciled.int.test.ts` (bank
+    reverse on a completed-reconciliation line → 400 naming it, nothing written;
+    Sage line → 400 naming no reconciliation; MCP void_payment → the same
+    `RECONCILED_CASH` refusal; in-progress session → still 200), plus the
+    completed-reconciliation case added to batch reversal and the void
+    assertions updated to the new wording. Mutations (`round9-mutations.log`):
+    bank reverse without the rule → 3 red; void/batch without it → 5 red; the
+    rule's completed arm → 6 red; its Sage arm → 3 red. Green: 90 files, 586
+    tests; the three name-gated files 44/44 on an `isaflow_test` clone.

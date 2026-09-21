@@ -159,7 +159,9 @@ describeIfDb('K-064 round 7 — the bank leg of a reversed payment journal', () 
     await q("UPDATE bank_transactions SET status = 'reconciled' WHERE id = $1", [bankTx]);
     const state = await f.paymentAction('void', paymentId);
     expect(state.statusCode, text(state)).toBe(400);
-    expect(text(state)).toContain('bank reconciliation');
+    // Status 'reconciled' with no reconciliation_id: the Sage-import shape.
+    expect(text(state)).toContain('reconciled in the Sage import');
+    expect(text(state)).toContain('Correct it with a journal, or contact support');
     expect(await f.paymentStatus(paymentId)).toBe('processed');
   });
 
