@@ -100,3 +100,21 @@ it('new batch offers a bill at what is still available after reservations, not i
   fireEvent.change(container.querySelector('select[name="invoiceId"]')!, { target: { value: 'i1' } });
   expect((container.querySelector('input[name="amount"]') as HTMLInputElement).value).toBe('300');
 });
+
+it('new batch still lists bills, at their outstanding, when reservations cannot be loaded — and says so', async () => {
+  vi.mocked(apiFetch).mockImplementation(async (url: string) => {
+    if (url.includes('suppliers-list')) return ok({ suppliers: [{ id: 's1', name: 'Supplier One', company_name: null }], total: 1 });
+    if (url.includes('supplier-invoices')) {
+      return ok({ invoices: [{ id: 'i1', supplierId: 's1', invoiceNumber: 'INV-8', totalAmount: 500, amountPaid: 0 }] });
+    }
+    if (url.includes('reservedFor')) return refusal('reservedFor must be a comma-separated list of up to 500 bill ids.');
+    return ok({});
+  });
+  const { container } = render(<NewBatch />);
+  expect(await screen.findByRole('status')).toBeTruthy();
+  expect(screen.getByRole('status').textContent).toContain('could not be loaded');
+  fireEvent.change(container.querySelector('select[name="supplierId"]')!, { target: { value: 's1' } });
+  const option = await screen.findByText(/INV-8/);
+  expect(option.textContent).toMatch(/500,00/);
+  expect(option.textContent).not.toContain('reserved');
+});

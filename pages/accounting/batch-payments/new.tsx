@@ -34,6 +34,7 @@ export default function NewBatchPaymentPage() {
   const [notes, setNotes] = useState('');
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
+  const [reservationsUnavailable, setReservationsUnavailable] = useState(false);
 
   useEffect(() => {
     apiFetch('/api/accounting/suppliers-list', { credentials: 'include' }).then(r => r.json()).then(res => {
@@ -47,13 +48,15 @@ export default function NewBatchPaymentPage() {
       if (list.length === 0) { setInvoices([]); return; }
       // The same pending set batch creation subtracts (supplierBatchAllocationPlan).
       return apiFetch(`/api/accounting/batch-payments?reservedFor=${list.map((i) => i.id).join(',')}`, { credentials: 'include' })
-        .then(r => r.json()).then((rr: { data?: Record<string, number> }) => {
+        .then(async (r) => {
+          if (!r.ok) throw new Error(`reservations ${r.status}`);
+          const rr = (await r.json()) as { data?: Record<string, number> };
           const reserved = rr.data ?? {};
           setInvoices(list.map((i) => ({ ...i, reserved: Number(reserved[i.id] ?? 0) })).filter((i) => available(i) > 0));
         })
-        // Reservations unavailable: still list the bills at their outstanding;
-        // the server refuses anything already promised, with its message.
-        .catch(() => setInvoices(list));
+        // Reservations unavailable: still list the bills at their outstanding and
+        // say so; the server refuses anything already promised, with its message.
+        .catch(() => { setReservationsUnavailable(true); setInvoices(list); });
     }).catch(() => {/* non-critical */});
   }, []);
 
@@ -114,6 +117,11 @@ export default function NewBatchPaymentPage() {
               {error && (
                 <div className="p-3 bg-red-50 dark:bg-red-900/20 rounded-xl border border-red-200 dark:border-red-800 text-red-700 dark:text-red-400 text-sm">
                   {error}
+                </div>
+              )}
+              {reservationsUnavailable && (
+                <div role="status" className="p-3 bg-amber-50 dark:bg-amber-900/20 rounded-xl border border-amber-200 dark:border-amber-800 text-amber-800 dark:text-amber-300 text-sm">
+                  Reservations by unprocessed payments could not be loaded, so amounts show each bill&apos;s full outstanding. A line that is already promised elsewhere will be refused when you create the batch.
                 </div>
               )}
 

@@ -9,6 +9,7 @@ import { withErrorHandler } from '@/lib/api-error-handler';
 import { apiResponse } from '@/lib/apiResponse';
 import { withAuth, type AuthenticatedNextApiRequest, type CompanyAuthedRequest, withWriteAccess} from '@/lib/auth';
 import { withCsrf } from '@/lib/auth/withCsrf';
+import { UUID } from '@/lib/schemas/common';
 import { log } from '@/lib/logger';
 import { getBatches, getBatchById, createBatch } from '@/modules/accounting/services/ap/batchPaymentService';
 import { SupplierNotInCompanyError } from '@/modules/accounting/services/core/contactDirectoryService';
@@ -28,14 +29,20 @@ async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse) {
     // What unprocessed payments already reserve on these bills — the SAME
     // pending set batch creation subtracts — so the new-batch page offers only
     // an amount the server will accept.
+    // Ids are checked with the repo's `UUID` (z.guid — it accepts the seeded
+    // version-0 ids z.uuid() rejects) and refused 400 whole, before any query:
+    // a bad one used to reach the ::UUID cast and answer 500 with pg's text.
     if (typeof reservedFor === 'string') {
-      const uuid = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
-      const ids = reservedFor.split(',').filter((v) => uuid.test(v)).slice(0, 500);
+      const ids = reservedFor.split(',').filter((v) => v !== '');
+      if (ids.length > 500 || ids.some((v) => !UUID.safeParse(v).success)) {
+        return apiResponse.badRequest(res, 'reservedFor must be a comma-separated list of up to 500 bill ids.');
+      }
       return apiResponse.success(res, Object.fromEntries(await pendingReservations(companyId, ids)));
     }
 
     // Single batch by ID
     if (id) {
+      if (!UUID.safeParse(id).success) return apiResponse.badRequest(res, 'id must be a batch id.');
       const batch = await getBatchById(companyId, id as string);
       if (!batch) return apiResponse.notFound(res, 'Batch', id as string);
       return apiResponse.success(res, {

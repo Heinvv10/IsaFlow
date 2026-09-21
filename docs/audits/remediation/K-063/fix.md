@@ -525,9 +525,24 @@ the guard, and it now asserts bank → payment → invoices → journal.
    payment"; removing the check (W4) turns it red.
 6. **LOW — `BATCH_ALREADY_REVERSED`** keeps its MCP allow-list entry with a
    comment that no agent can receive it yet.
-- Also from r6: `reservedFor` now filters real UUIDs only (36 dashes answered 500
-  with a raw pg message), and the new-batch page falls back to the outstanding
-  amounts when the reservations read fails instead of listing nothing.
+7. **LOW — `reservedFor` accepted 36 dashes** (500 with pg's "invalid input
+   syntax for type uuid"). Ids are now checked with the repo's own `UUID`
+   (`@/lib/schemas/common`, `z.guid` — it accepts the seeded version-0 ids that
+   Zod 4's `z.uuid()` rejects) and a malformed list is refused whole with a 400
+   naming the parameter, before any query; the single-batch `id` on the same GET
+   is checked the same way. Pinned: dashes, junk and a mixed list → 400 whose
+   body matches no `invalid input syntax|uuid|syntax`; a version-0 id → 200
+   (mutation U5 red). **Other routes in this change:** 500s go through
+   `apiResponse.internalError`, which outside development returns only "An
+   internal error occurred"; `batch-payments` POST uses `badRequestFromError`,
+   which hides the original outside development. `bank-transactions-action`
+   (touched only through `matchTransaction`) still answers ANY thrown error's
+   message as a 400 — the pre-existing blanket catch recorded as R-060; not
+   changed here.
+8. **LOW — reservations unavailable.** A non-OK or failed reservations read now
+   lists the bills at their plain outstanding and shows a visible note ("could
+   not be loaded… will be refused when you create the batch"). Component test for
+   the failure path; mutation U4 (no fallback) red.
 - **Known residual, unchanged:** a bank line in `allocated` status (a bank
   allocation posted the payment journal itself) is left as single void always
   left it. Undoing that is `reverseReconciledTransaction`'s job, which
