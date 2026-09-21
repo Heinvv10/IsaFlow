@@ -12462,7 +12462,7 @@
       "sourceIds": [],
       "correctedTrigger": "",
       "auditedSha": "",
-      "currentSha": "6145c07ec",
+      "currentSha": "eec2403b6",
       "status": "fixed",
       "dependencies": [],
       "testNames": [
@@ -12471,8 +12471,8 @@
         "tests/unit/accounting/customerStatementBatchAndWindow.test.ts"
       ],
       "fixCommit": "12d4c5040",
-      "pr": null,
-      "deployedSha": null,
+      "pr": "450",
+      "deployedSha": "eec2403b6",
       "canonicalItem": null,
       "reportedSeverity": "medium",
       "branch": "fix/audit-r116-statement-as-at-20260921",
@@ -12509,7 +12509,7 @@
       "title": "customer-statements ignores the as_at_date its three pages send: the balances list is always as at today whatever date the user picks",
       "severity": "medium",
       "source": "Found by the R-115 fixer.",
-      "processNotes": "Registered 2026-09-21. Fixed 2026-09-21 on fix/audit-r116-statement-as-at-20260921: list, detail, batch PDFs, drill-down (from Customer Statements and AR ageing) and the Statements page's Overdue all follow the picked as-at date; the four pages' pickers default to a local date. Fix commits 12d4c5040, 105b9d9a7, d72dbf70b. Blind review (Opus) 4 rounds, final SHIP. Not merged or deployed."
+      "processNotes": "Registered 2026-09-21. Fixed 2026-09-21 on fix/audit-r116-statement-as-at-20260921: list, detail, batch PDFs, drill-down (from Customer Statements and AR ageing) and the Statements page's Overdue all follow the picked as-at date; the four pages' pickers default to a local date. Fix commits 12d4c5040, 105b9d9a7, d72dbf70b. Blind review (Opus) 4 rounds, final SHIP. Merged in PR #450 (eec2403b6); deployed to production 2026-09-21 ~20:10 SAST with Hein's approval (0 migrations, golden paths 13/13, integrity 16/16, rollback snapshot 7025da783)."
     }
   ],
   "sourceInventory": [
