@@ -105,7 +105,11 @@ describe('customer drill-down', () => {
 
   it('prints the PDF as at the date it was opened with', async () => {
     Object.assign(query, { clientId: 'c1', as_at_date: '2026-08-31' });
-    vi.stubGlobal('URL', Object.assign(URL, { createObjectURL: () => 'blob:x', revokeObjectURL: () => undefined }));
+    // A subclass, so the real URL is never changed and unstubAllGlobals restores it whole.
+    vi.stubGlobal('URL', class extends URL {
+      static createObjectURL() { return 'blob:x'; }
+      static revokeObjectURL() { return undefined; }
+    });
     render(<CustomerStatementDetailPage />);
     fireEvent.click(await screen.findByText('Download PDF'));
     await waitFor(() => expect(generateStatementPdf).toHaveBeenCalledTimes(1));
