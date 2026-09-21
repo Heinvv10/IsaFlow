@@ -761,3 +761,37 @@ Green: 91 files, 592 tests (`round11-green.log`).
   completed. A completed reconciliation can't be reopened". Pinned; reverting to
   the completed wording (F3) → red.
 Green: 91 files, 595 tests (`round12-green.log`).
+
+## Round 13 (2026-09-21) — final review of 5b6dae16a, the HIGH (stamp is not a lock)
+
+- **The rule, in one sentence:** a bank line is locked only when a
+  reconciliation's figures count it or completion marked it — status
+  `reconciled` (completion, `bankReconciliationService.ts:127-128`, or the Sage
+  import with no reconciliation) or status `matched` on a reconciliation (the
+  session's matched set, `:28-29`) — and never by the `reconciliation_id` stamp
+  alone, which start puts on every imported line (`:95-98`) and allocation does
+  not clear (`reconciledCash.ts#reconciliationLockOf`, the status filter at its
+  first line).
+- Before, any line whose stamp named a completed reconciliation was locked, so
+  import → start → allocate → complete froze the allocation for good (bank
+  reverse, void, MCP, undo all refused; master returned 200). Now it is 200 on
+  every path and the line is freed, as on master; an allocated line in an open
+  session is reversible too (it is not in the session's figures, and Unmatch
+  refuses allocated lines, so the old "remove it from that session" pointed at
+  nothing).
+- **r8 LOW-2's arm (a `matched` line on a COMPLETED reconciliation)** is
+  unreachable by completion (it converts matched → reconciled in the same
+  transaction), but `matchTransaction` accepts any reconciliation id — kept,
+  fail-closed. The status filter runs first, so it can only ever see a
+  `matched` line; an allocated line never reaches it.
+- Pinned (`k064-stamp-is-not-a-lock.int.test.ts`, through the real
+  start/allocate/complete routes): bank reverse, REST void, MCP `void_payment`
+  and auto-post undo → 200/reversed, line `imported` with no journal and no
+  reconciliation, bill reopened, payment cancelled; and reverse while the
+  session is open → 200. The genuine locks moved from stamped-allocated fixtures
+  to the states reconciliation actually writes (`reconciled`, or `matched` in a
+  session / on a completed rec) and stay green on all callers.
+- Mutations (`round13-mutations.log`): M1 restore 5b6dae16a's stamp-only
+  `reconciledCash.ts` → 5/5 red; M2 drop the status filter → 5/5 red; M3 lock
+  only `reconciled` → 6 genuine-lock tests red.
+Green: 92 files, 600 tests (`round13-green.log`).

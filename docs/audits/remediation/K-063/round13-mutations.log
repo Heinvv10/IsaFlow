@@ -1,0 +1,39 @@
+== M1: restore the stamp-only rule (5b6dae16a's reconciledCash.ts)
+     × the reviewer's repro: import → start → allocate → complete → bank reverse is 200 and frees the line 77ms
+     × the same line voids through the REST route: 200, line freed 38ms
+     × the same line voids through MCP void_payment: no refusal, line freed 48ms
+     × auto-post undo reverses it — not a reconciled skip 42ms
+     × while the session is still OPEN, bank reverse of the allocated line is 200 too 34ms
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 5 ⎯⎯⎯⎯⎯⎯⎯
+ FAIL  tests/integration/k064-stamp-is-not-a-lock.int.test.ts > K-064 final — a reconciliation stamp on an allocated line is not a lock > the reviewer's repro: import → start → allocate → complete → bank reverse is 200 and frees the line
+ FAIL  tests/integration/k064-stamp-is-not-a-lock.int.test.ts > K-064 final — a reconciliation stamp on an allocated line is not a lock > the same line voids through the REST route: 200, line freed
+ FAIL  tests/integration/k064-stamp-is-not-a-lock.int.test.ts > K-064 final — a reconciliation stamp on an allocated line is not a lock > the same line voids through MCP void_payment: no refusal, line freed
+ FAIL  tests/integration/k064-stamp-is-not-a-lock.int.test.ts > K-064 final — a reconciliation stamp on an allocated line is not a lock > auto-post undo reverses it — not a reconciled skip
+ FAIL  tests/integration/k064-stamp-is-not-a-lock.int.test.ts > K-064 final — a reconciliation stamp on an allocated line is not a lock > while the session is still OPEN, bank reverse of the allocated line is 200 too
+      Tests  5 failed (5)
+== M2: drop the status filter (any stamped line consults its reconciliation)
+     × the reviewer's repro: import → start → allocate → complete → bank reverse is 200 and frees the line 72ms
+     × the same line voids through the REST route: 200, line freed 78ms
+     × the same line voids through MCP void_payment: no refusal, line freed 120ms
+     × auto-post undo reverses it — not a reconciled skip 105ms
+     × while the session is still OPEN, bank reverse of the allocated line is 200 too 41ms
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 5 ⎯⎯⎯⎯⎯⎯⎯
+ FAIL  tests/integration/k064-stamp-is-not-a-lock.int.test.ts > K-064 final — a reconciliation stamp on an allocated line is not a lock > the reviewer's repro: import → start → allocate → complete → bank reverse is 200 and frees the line
+ FAIL  tests/integration/k064-stamp-is-not-a-lock.int.test.ts > K-064 final — a reconciliation stamp on an allocated line is not a lock > the same line voids through the REST route: 200, line freed
+ FAIL  tests/integration/k064-stamp-is-not-a-lock.int.test.ts > K-064 final — a reconciliation stamp on an allocated line is not a lock > the same line voids through MCP void_payment: no refusal, line freed
+ FAIL  tests/integration/k064-stamp-is-not-a-lock.int.test.ts > K-064 final — a reconciliation stamp on an allocated line is not a lock > auto-post undo reverses it — not a reconciled skip
+ FAIL  tests/integration/k064-stamp-is-not-a-lock.int.test.ts > K-064 final — a reconciliation stamp on an allocated line is not a lock > while the session is still OPEN, bank reverse of the allocated line is 200 too
+      Tests  5 failed (5)
+== restored
+      Tests  5 passed (5)
+== M3: lock only 'reconciled' (a matched line in a session / on a completed rec goes free)
+1
+     × REST bank reverse → 400 for a 'matched' line on a completed reconciliation (the fail-closed arm) 50ms
+     × auto-post undo on a line MATCHED in an IN-PROGRESS session skips it — not detached, one rule with bank reverse 51ms
+     × auto-post undo → a reconciled SKIP for a 'matched' line on a completed reconciliation, not a failed row 49ms
+     × refuses when the bank line is on a in_progress bank reconciliation, writing nothing 65ms
+     × refuses a MATCHED line whose reconciliation_id names a completed reconciliation (the id arm, not the status) 61ms
+     × a line MATCHED in an IN-PROGRESS session is refused exactly as void refuses it; cancelling the session frees it 42ms
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 6 ⎯⎯⎯⎯⎯⎯⎯
+      Tests  6 failed | 14 passed (20)
+restored
