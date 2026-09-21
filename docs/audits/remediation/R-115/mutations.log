@@ -1,0 +1,7 @@
+M1 credits not subtracted:       Tests  2 failed | 2 passed (4) |      × subtracts every live credit note at the statement valuation|     × every listed balance is the balance of the statement it opens|
+M2 credit status filter dropped:       Tests  2 failed | 2 passed (4) |      × subtracts every live credit note at the statement valuation|     × every listed balance is the balance of the statement it opens|
+M3 credit valued at face:       Tests  2 failed | 2 passed (4) |      × subtracts every live credit note at the statement valuation|     × every listed balance is the balance of the statement it opens|
+M4 post-dated invoices:       Tests  2 failed | 2 passed (4) |      × leaves out post-dated documents, as the statement as at today does|     × every listed balance is the balance of the statement it opens|
+M5 post-dated receipts:       Tests  2 failed | 2 passed (4) |      × leaves out post-dated documents, as the statement as at today does|     × every listed balance is the balance of the statement it opens|
+M6 post-dated credits:       Tests  2 failed | 2 passed (4) |      × leaves out post-dated documents, as the statement as at today does|     × every listed balance is the balance of the statement it opens|
+M7 deleted customer listed:       Tests  2 failed | 2 passed (4) |      × does not list a soft-deleted customer, who has no statement|     × every listed balance is the balance of the statement it opens|
