@@ -7,7 +7,7 @@ import type { ReactNode } from 'react';
 
 const query: Record<string, string> = {};
 vi.mock('next/router', () => ({ useRouter: () => ({ isReady: true, query, push: vi.fn() }) }));
-vi.mock('next/link', () => ({ default: ({ children }: { children: ReactNode }) => <>{children}</> }));
+vi.mock('next/link', () => ({ default: ({ children, href }: { children: ReactNode; href: string }) => <a href={href}>{children}</a> }));
 vi.mock('@/components/layout/AppLayout', () => ({ AppLayout: ({ children }: { children: ReactNode }) => <>{children}</> }));
 vi.mock('@/modules/accounting/documents', () => ({ AccountingDocumentPanel: () => null }));
 vi.mock('@/lib/apiFetch', async (original) => ({ ...await original<typeof import('@/lib/apiFetch')>(), apiFetch: vi.fn() }));
@@ -55,4 +55,23 @@ it('an approved batch shows a Cancel control', async () => {
   render(<BatchDetail />);
   expect(await screen.findByRole('button', { name: /Cancel/ })).toBeTruthy();
   expect(screen.getByRole('button', { name: /Process/ })).toBeTruthy();
+});
+
+it('an allocation row shows its invoice number and rand amount, not the UUID and "RNaN"', async () => {
+  query.paymentId = 'p1';
+  vi.mocked(apiFetch).mockImplementation(async () => ok({ ...payment('approved'),
+    allocations: [{ id: 'a1', paymentId: 'p1', invoiceId: 'i-uuid', amountAllocated: 1234.5, invoiceNumber: 'INV-42' }] }));
+  const { container } = render(<PaymentDetail />);
+  expect(await screen.findByText('INV-42')).toBeTruthy();
+  expect(container.textContent).not.toContain('NaN');
+  expect(container.textContent).toMatch(/1[\s\u00a0]?234,50/);
+});
+
+it('a batch member offers no Process, Void or Cancel, and links to its batch', async () => {
+  query.paymentId = 'p1';
+  vi.mocked(apiFetch).mockImplementation(async () => ok({ ...payment('approved'), batchId: 'b9' }));
+  render(<PaymentDetail />);
+  expect(await screen.findByText(/managed in its batch/)).toBeTruthy();
+  expect(screen.getByRole('link', { name: 'open the batch' }).getAttribute('href')).toBe('/accounting/batch-payments/b9');
+  for (const name of [/Process/, /Void/, 'Cancel payment']) expect(screen.queryByRole('button', { name })).toBeNull();
 });

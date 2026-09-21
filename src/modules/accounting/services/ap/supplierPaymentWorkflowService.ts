@@ -13,9 +13,7 @@ import { getSystemAccount } from '../gl/systemAccountResolver';
 import { defaultHumanMeta } from '../gl/journalEntryMeta';
 import { lockSupplierPaymentForUpdate } from '../core/paymentLock';
 import { getSupplierPaymentById } from './supplierPaymentService';
-import { assertAllocationsStillAllocatable } from './supplierBatchAllocationPlan';
-import { SupplierPaymentRefusal } from './supplierPaymentRefusal';
-import { voidUnprocessedPayment } from './supplierPaymentCancel';
+import { assertPaymentStillProcessable, voidIfUnprocessed } from './supplierPaymentGates';
 import { SupplierPaymentNotFoundError } from './supplierPaymentNotFound';
 import type { SupplierPayment } from '../../types/ap.types';
 import type { JournalLineInput } from '../../types/gl.types';
@@ -99,20 +97,8 @@ export async function processSupplierPayment(
     // Decided under the payment lock, so a double-click's loser is told the
     // payment is processed (409) rather than that its bills are now paid.
     if (payment.status !== 'approved') throw new SupplierPaymentNotProcessableError(payment.status);
-    // A batch member moves money ONLY through its batch: `processBatch` posts
-    // one journal for the batch total and applies every member's allocations,
-    // so processing a member here as well debited AP twice for the same money.
-    if (payment.batchId) {
-      throw new SupplierPaymentRefusal(
-        `Payment ${payment.paymentNumber} belongs to batch ${payment.batchId} — process it through its batch.`,
-      );
-    }
-
-    // K-063/K-066 where money moves: every bill must STILL be payable and this
-    // supplier's. Refused before the claim, so the payment stays 'approved'.
-    await assertAllocationsStillAllocatable(companyId, byInvoiceId(payment.allocations ?? []).map((a) => ({
-      invoiceId: a.invoiceId, amount: a.amountAllocated, supplierId: payment.supplierId,
-    })));
+    // Not a batch member, and every bill still payable (K-063/K-066) — before the claim.
+    await assertPaymentStillProcessable(companyId, payment);
 
     // CLAIM the payment before anything is posted — the singular twin of
     // batchPaymentService.processBatch, which carried the identical defect.
@@ -241,18 +227,9 @@ async function voidSupplierPaymentInner(
     }
     const payment = await getSupplierPaymentById(companyId, id);
     if (!payment) throw new SupplierPaymentNotFoundError(id);
-    if (payment.status === 'reconciled') {
-      throw new SupplierPaymentRefusal('Cannot void a reconciled payment — remove it from the bank reconciliation first');
-    }
-    // Nothing has moved on a draft or approved payment: voiding it is a status
-    // change, and it stops reserving its bills. Anything else is a typed 400.
-    if (payment.status === 'draft' || payment.status === 'approved') {
-      await voidUnprocessedPayment(companyId, payment);
-      return { ...payment, status: 'cancelled' };
-    }
-    if (payment.status !== 'processed') {
-      throw new SupplierPaymentRefusal(`Only draft, approved or processed payments can be voided (status: ${payment.status})`);
-    }
+    // Refuses reconciled, batch members and other statuses; a draft/approved
+    // payment is voided as a status change. Only a processed one continues.
+    if (await voidIfUnprocessed(companyId, payment)) return { ...payment, status: 'cancelled' };
 
     // (3) Un-apply allocations: roll amount_paid back and recompute status.
     // A voided payment returns the invoice to its pre-payment state

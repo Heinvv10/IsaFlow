@@ -19,7 +19,7 @@
  */
 
 import { recomputeInvoiceStatus } from '../ar/invoiceStatusRecompute';
-import { assertBillAllocatable } from './billAllocatable';
+import { assertBillAllocatable, toCents } from './billAllocatable';
 import { SupplierPaymentRefusal } from './supplierPaymentRefusal';
 import { sql } from '@/lib/neon';
 import { requireRequestTransaction } from '../core/requestTransaction';
@@ -28,15 +28,6 @@ import type { DbRow } from '@/lib/neon';
 
 /** A cent. Kept for the payment-side totals that still compare at this tolerance. */
 export const EPS = 0.01;
-
-/**
- * Integer cents. A BILL's outstanding is compared in cents with no tolerance:
- * the old `amount > outstanding + EPS` let a fully paid bill take R0.01 and a
- * R100.00 bill take R100.01.
- */
-export function toCents(n: number): number {
-  return Math.round(n * 100);
-}
 
 export interface SupplierAllocationInput {
   invoiceId: string;

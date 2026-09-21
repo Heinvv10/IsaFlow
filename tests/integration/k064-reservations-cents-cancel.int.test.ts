@@ -109,6 +109,25 @@ describeIfDb('K-064 review r1 — reservations, cents, locked creation, void/can
     expect(Number(rows[0].n)).toBe(1000);
   }, 20000);
 
+  it('a single payment on a contended bill answers 409, like a batch, and writes nothing', async () => {
+    const b = await approved();
+    const holder = new Pool({ connectionString: process.env.DATABASE_URL, max: 1 });
+    const client = await holder.connect();
+    try {
+      await client.query('BEGIN');
+      await client.query('SELECT id FROM supplier_invoices WHERE id = $1 FOR UPDATE', [b]);
+      const single = await f.createPayment(b, 100);
+      const batch = await batchOf(b, 100);
+      expect(single.statusCode, text(single)).toBe(409);
+      expect(batch.statusCode, text(batch)).toBe(409);
+    } finally {
+      await client.query('ROLLBACK');
+      client.release();
+      await holder.end();
+    }
+    expect(await allocationsOn(fx.pool, [b])).toBe(0);
+  }, 30000);
+
   it('an approved batch can be cancelled, freeing its reservation', async () => {
     const b = await approved();
     const batchId = await f.approvedBatch([{ billId: b, amount: 1000 }]);

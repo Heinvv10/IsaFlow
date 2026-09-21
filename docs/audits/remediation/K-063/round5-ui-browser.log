@@ -1,0 +1,14 @@
+SUPPLIER-OPTIONS ["Select Supplier","K065 Supplier"]
+INVOICE-OPTIONS ["Select Invoice","K065-BILL-B — R 500,00","K065-BILL-A — R 1 000,00"]
+AMOUNT-PREFILLED 500
+BAD-LINE 400 {"success":false,"error":{"code":"BAD_REQUEST","message":"R500.00 exceeds the R300.00 outstanding on invoice K065-BILL-B."},"meta":{"timestamp":"2026-09-21T09:1
+BAD-LINE-SHOWN ["R500.00 exceeds the R300.00 outstanding on invoice K065-BILL-B."]
+GOOD-AMOUNT 1000
+GOOD-LINE 200
+AFTER-CREATE-URL http://127.0.0.1:3263/accounting/batch-payments
+BATCH-ROWS ["SP-2026-00001\tK065 Supplier\tR 200,00\tapproved"]
+BATCH-BUTTONS ["Process","Cancel"]
+MEMBER-ALLOC-ROWS ["K065-BILL-B\tR 200,00","Total\tR 200,00"]
+MEMBER-BUTTONS []
+MEMBER-LINK /accounting/batch-payments/a05aa19e-c1d2-4437-ab17-53446ef7d5ca
+PAGEERRORS []

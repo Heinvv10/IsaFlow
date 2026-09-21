@@ -28,11 +28,13 @@ function StatusBadge({ status }: { status: string }) {
   );
 }
 
+// The API's own field names (mapAllocationRow): reading `invoice_number` and
+// `amount` showed the invoice UUID and "RNaN" on every line.
 interface Allocation {
   id: string;
   invoiceId: string;
-  invoice_number?: string;
-  amount: number;
+  invoiceNumber?: string;
+  amountAllocated: number;
 }
 
 interface PaymentDetail {
@@ -48,6 +50,7 @@ interface PaymentDetail {
   description?: string;
   status: string;
   journalEntryId?: string;
+  batchId?: string;
   allocations: Allocation[];
 }
 
@@ -120,7 +123,17 @@ export default function SupplierPaymentDetailPage() {
               </div>
               {payment && <StatusBadge status={payment.status} />}
             </div>
-            {payment && (
+            {payment && payment.batchId && (
+              // A batch member moves money only through its batch; every Process,
+              // Void or Cancel here would answer 400, so none is offered.
+              <div className="text-sm text-[var(--ff-text-secondary)]">
+                This payment is managed in its batch —{' '}
+                <Link href={`/accounting/batch-payments/${payment.batchId}`} className="text-indigo-400 hover:underline">
+                  open the batch
+                </Link>
+              </div>
+            )}
+            {payment && !payment.batchId && (
               <div className="flex items-center gap-2">
                 {payment.status === 'draft' && (
                   <button onClick={() => handleAction('approve')} disabled={!!actionBusy}
@@ -208,10 +221,10 @@ export default function SupplierPaymentDetailPage() {
                       {payment.allocations.map((a, i) => (
                         <tr key={a.id || i} className="border-b border-[var(--ff-border-light)]">
                           <td className="px-4 py-3 text-[var(--ff-text-primary)] font-mono">
-                            {a.invoice_number || a.invoiceId}
+                            {a.invoiceNumber || a.invoiceId}
                           </td>
                           <td className="px-4 py-3 text-right font-mono text-[var(--ff-text-primary)]">
-                            {formatCurrency(Number(a.amount))}
+                            {formatCurrency(Number(a.amountAllocated))}
                           </td>
                         </tr>
                       ))}

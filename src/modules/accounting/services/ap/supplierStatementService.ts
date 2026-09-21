@@ -131,16 +131,18 @@ export async function fetchSupplierStatementData(
     ` as Promise<Row[]>,
 
     sql`
+      -- The CASH paid, i.e. the payment total. This joined the dead migration-201
+      -- supplier_payment_allocations (zero rows everywhere), so the COALESCE
+      -- always fell back to the total. Joining the live payment_allocations
+      -- instead is NOT a fix: measured, a R1,000 payment with R600 applied then
+      -- shows 600, understating what the supplier was paid by the unapplied
+      -- R400 (and a refund's positive allocations would flip its sign).
       SELECT sp.id, sp.payment_number, sp.payment_date, sp.status, sp.created_at,
-        sp.payment_method,
-        COALESCE(SUM(spa.amount_allocated), sp.total_amount) AS amount_allocated
+        sp.payment_method, sp.total_amount AS amount_allocated
       FROM supplier_payments sp
-      LEFT JOIN supplier_payment_allocations spa ON spa.payment_id = sp.id
       WHERE sp.supplier_id = ${supplierId}::UUID
         AND sp.company_id = ${companyId}::UUID
         AND sp.payment_date <= ${asAtDate}::DATE
-      GROUP BY sp.id, sp.payment_number, sp.payment_date, sp.total_amount, sp.status,
-        sp.payment_method, sp.created_at
     ` as Promise<Row[]>,
 
     sql`

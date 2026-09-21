@@ -326,3 +326,59 @@ stands (Void on a draft/approved payment, cancelBatch for approved batches).
 - `SupplierPaymentNotFoundError` moved to `supplierPaymentNotFound.ts` (re-exported
   from the workflow service unchanged) so the cancel module can raise it without
   a circular import.
+
+## Round 5b (2026-09-21) — blind review r2 of 1693bb0fa
+
+1. **HIGH — void was a third way around "a batch member moves money only
+   through its batch".** Voiding a PROCESSED batch member un-applied its bill
+   (amount_paid 300 → 0) while the batch journal's AP debit stood, and the bill
+   then took a new 1000. `supplierPaymentGates.ts#voidIfUnprocessed` now refuses
+   a batch member in every status, naming the batch. **There is no batch-level
+   reversal** (batchPaymentService has create/approve/process/cancel only;
+   cancel covers draft/approved), so the message for a processed member says a
+   processed batch "cannot be reversed from here yet" rather than pointing at a
+   route that does not exist. Whether to build one is Hein's decision — raised
+   with the lead, not invented here. Both orders pinned in
+   `k063-deleted-bill-and-batch-member`: batch processed then member voided →
+   400, member still processed, bill 300, AP +300, a new 1000 refused and 700
+   accepted; member voided then batch processed → 400, batch pays once (bill
+   300, AP +300). Mutation V2 (void refusal removed) → red.
+2. **MEDIUM — the batch-creation page could not build a batch.** It read
+   snake_case invoice fields; supplier-invoices answers camelCase
+   (`invoiceNumber`, `supplierId`, `totalAmount`, `amountPaid`), and
+   suppliers-list answers snake_case with `company_name` often null (the page
+   now falls back to `name`). **Browser** (`round5-ui-browser.log`,
+   `round5-new-batch-refused.png`): supplier option "K065 Supplier"; invoices
+   "K065-BILL-B — R 500,00", "K065-BILL-A — R 1 000,00"; a line of R500 on
+   BILL-B (R200 of it already reserved by an approved batch — the browser's own
+   `max` cannot see that) → 400 and the page shows "R500.00 exceeds the R300.00
+   outstanding on invoice K065-BILL-B."; BILL-A at 1000 → 200 and the page
+   returns to the batch list. (An amount above the SHOWN balance never reaches
+   the server: the amount input's `max` blocks the submit.)
+3. **LOW — contention status.** supplier-payments POST now answers a retryable
+   refusal 409, as batch-payments POST does. Pinned (bill held > 5s: both 409,
+   nothing written); mutation C409 → red.
+4. **LOW — file size.** The process-time gate and the batch-member refusals for
+   process and void moved to `supplierPaymentGates.ts`; `toCents` moved to
+   `billAllocatable.ts`. `supplierPaymentWorkflowService.ts` 321 lines (master
+   333), `supplierAllocationLines.ts` 300 (master 303). Only this change's code
+   moved.
+5. **LOW — the statement's dead-table join.** Measured before switching:
+   joining the live `payment_allocations` would change the statement — a R1,000
+   payment with R600 applied showed 600 instead of 1000 (the unapplied R400
+   vanishes from what the supplier was paid; a refund's positive allocations
+   would also flip its sign). So the join is REMOVED and the figure is the
+   payment total, which is what the dead join always fell back to: FULL 1000 /
+   PARTIAL 1000 before and after. Pinned in
+   `k063-supplier-statement-payment-amount`; all 13 supplier-statement
+   integration files pass.
+- **"RNaN" on the payment page.** Same class: the page read `invoice_number` /
+  `amount`, the API sends `invoiceNumber` / `amountAllocated`. Fixed; browser
+  shows "K065-BILL-B  R 200,00" (`round5-batch-member-page.png`). Checked the
+  other pages this change touches: the batch detail page read `batch.payments`,
+  which the single-batch GET never returned (every batch said "No individual
+  payments"); `batchPaymentMembers.ts` now supplies it and the browser lists
+  "SP-2026-00001  K065 Supplier  R 200,00  approved".
+- **Batch member's page.** No Process, Void or Cancel (each would answer 400);
+  instead "This payment is managed in its batch — open the batch", linking to
+  it. Seen in the browser; component-tested with the link's href.

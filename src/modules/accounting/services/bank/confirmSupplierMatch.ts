@@ -23,7 +23,8 @@ import {
   applyBankLineToSupplierInvoices,
   validateBankSupplierPayment,
 } from '../ap/supplierBankPaymentService';
-import { round2, toCents } from '../ap/supplierAllocationLines';
+import { round2 } from '../ap/supplierAllocationLines';
+import { toCents } from '../ap/billAllocatable';
 import {
   isRetryableSupplierPaymentRefusal,
   isSupplierPaymentRefusal,
