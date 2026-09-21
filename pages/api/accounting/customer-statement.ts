@@ -3,7 +3,8 @@
  * GET /api/accounting/customer-statement
  *   Params:
  *     customerId  — required UUID
- *     fromDate    — YYYY-MM-DD (optional, defaults to 1 year ago)
+ *     fromDate    — YYYY-MM-DD (optional, defaults to 1 year ago); everything
+ *                   before it is carried in as a brought-forward balance
  *     toDate      — YYYY-MM-DD (optional, defaults to today)
  *     format      — 'json' (default) | 'pdf'  (streams PDF)
  */
@@ -23,6 +24,11 @@ import { log } from '@/lib/logger';
 import { buildStatementHtml } from '@/modules/accounting/utils/customerStatementHtml';
 import { documentInLedgerAsAtFragment } from '@/modules/accounting/services/shared/softDeleteLedgerPresence';
 import { documentInPopulationExpr } from '@/modules/accounting/services/shared/documentPopulation';
+import {
+  CREDIT_NOTE_STATEMENT_VALUE, LIVE_CREDIT_NOTE_STATUSES, SETTLING_RECEIPT_STATUSES, applyRunningBalance,
+  customerBalanceBroughtForward, openingBalanceLine, resolveStatementWindow, statementClosingBalance,
+  type StatementLine,
+} from '@/modules/accounting/services/ar/customerStatementRules';
 
 type Row = Record<string, unknown>;
 
@@ -34,17 +40,6 @@ type Row = Record<string, unknown>;
 // aggregate over the FULL (date-filtered) population so they stay correct
 // even if a pathological single customer ever hits the ceiling.
 const STATEMENT_ROW_CEILING = 2000;
-
-interface StatementTransaction {
-  id: string;
-  date: string;
-  type: 'invoice' | 'payment' | 'credit_note';
-  reference: string;
-  description: string;
-  debit: number;
-  credit: number;
-  balance: number;
-}
 
 /** Normalize any date value to YYYY-MM-DD */
 function toISODate(val: unknown): string {
@@ -68,10 +63,9 @@ async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse) {
     return apiResponse.badRequest(res, 'customerId is required');
   }
 
-  const today = new Date().toISOString().split('T')[0] as string;
-  const oneYearAgo = new Date(Date.now() - 365 * 24 * 60 * 60 * 1000).toISOString().split('T')[0] as string;
-  const from = typeof fromDate === 'string' && fromDate ? fromDate : oneYearAgo;
-  const to = typeof toDate === 'string' && toDate ? toDate : today;
+  const statementWindow = resolveStatementWindow(fromDate, toDate);
+  if ('error' in statementWindow) return apiResponse.badRequest(res, statementWindow.error);
+  const { from, to } = statementWindow;
 
   try {
     const customerRows = await sql`
@@ -112,27 +106,27 @@ async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse) {
       LIMIT ${STATEMENT_ROW_CEILING + 1}
     ` as Row[];
 
+    // Receipts at the cash received and live credit notes at the emailed
+    // statement's valuation (R-113) — see customerStatementRules.
     const paymentsRaw = await sql`
-      SELECT cp.id, cp.payment_number, cp.payment_date, cp.bank_reference,
-        COALESCE(SUM(cpa.amount_allocated), cp.total_amount) AS amount_allocated
+      SELECT cp.id, cp.payment_number, cp.payment_date, cp.bank_reference, cp.total_amount
       FROM customer_payments cp
-      LEFT JOIN customer_payment_allocations cpa ON cpa.payment_id = cp.id
       WHERE cp.client_id   = ${customerId}::UUID
         AND cp.company_id  = ${companyId}::UUID
-        AND cp.status IN ('confirmed', 'reconciled')
+        AND cp.status = ANY(${SETTLING_RECEIPT_STATUSES})
         AND cp.payment_date BETWEEN ${from}::DATE AND ${to}::DATE
-      GROUP BY cp.id, cp.payment_number, cp.payment_date, cp.bank_reference, cp.total_amount
       ORDER BY cp.payment_date, cp.id
       LIMIT ${STATEMENT_ROW_CEILING + 1}
     ` as Row[];
 
     const creditNotesRaw = await sql`
-      SELECT id, credit_note_number, credit_date, reason, total_amount
+      SELECT id, credit_note_number, credit_date, reason,
+             ${sql.unsafe(CREDIT_NOTE_STATEMENT_VALUE)} AS total_amount
       FROM credit_notes
       WHERE client_id  = ${customerId}::UUID
         AND company_id = ${companyId}::UUID
         AND type       = 'customer'
-        AND status     = 'approved'
+        AND status     = ANY(${LIVE_CREDIT_NOTE_STATUSES})
         AND credit_date BETWEEN ${from}::DATE AND ${to}::DATE
       ORDER BY credit_date, id
       LIMIT ${STATEMENT_ROW_CEILING + 1}
@@ -165,25 +159,20 @@ async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse) {
             AND ci.invoice_date BETWEEN ${from}::DATE AND ${to}::DATE
         ), 0) AS total_invoiced,
         COALESCE((
-          SELECT SUM(pmt_total) FROM (
-            SELECT COALESCE(SUM(cpa.amount_allocated), cp.total_amount) AS pmt_total
-            FROM customer_payments cp
-            LEFT JOIN customer_payment_allocations cpa ON cpa.payment_id = cp.id
-            WHERE cp.client_id = ${customerId}::UUID AND cp.company_id = ${companyId}::UUID
-              AND cp.status IN ('confirmed', 'reconciled')
-              AND cp.payment_date BETWEEN ${from}::DATE AND ${to}::DATE
-            GROUP BY cp.id, cp.total_amount
-          ) pmt
+          SELECT SUM(cp.total_amount::numeric) FROM customer_payments cp
+          WHERE cp.client_id = ${customerId}::UUID AND cp.company_id = ${companyId}::UUID
+            AND cp.status = ANY(${SETTLING_RECEIPT_STATUSES})
+            AND cp.payment_date BETWEEN ${from}::DATE AND ${to}::DATE
         ), 0) AS total_paid,
         COALESCE((
-          SELECT SUM(total_amount::numeric) FROM credit_notes
+          SELECT SUM(${sql.unsafe(CREDIT_NOTE_STATEMENT_VALUE)}::numeric) FROM credit_notes
           WHERE client_id = ${customerId}::UUID AND company_id = ${companyId}::UUID
-            AND type = 'customer' AND status = 'approved'
+            AND type = 'customer' AND status = ANY(${LIVE_CREDIT_NOTE_STATUSES})
             AND credit_date BETWEEN ${from}::DATE AND ${to}::DATE
         ), 0) AS total_credits
     ` as Row[];
 
-    const transactions: StatementTransaction[] = [];
+    const transactions: StatementLine[] = [];
 
     for (const inv of invoices) {
       transactions.push({
@@ -198,7 +187,7 @@ async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse) {
         id: String(pmt.id), date: toISODate(pmt.payment_date), type: 'payment',
         reference: String(pmt.payment_number),
         description: pmt.bank_reference ? String(pmt.bank_reference) : '',
-        debit: 0, credit: Number(pmt.amount_allocated), balance: 0,
+        debit: 0, credit: Number(pmt.total_amount), balance: 0,
       });
     }
 
@@ -217,17 +206,21 @@ async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse) {
       return (typeOrder[a.type] ?? 9) - (typeOrder[b.type] ?? 9);
     });
 
+    // Everything before the window is carried in, not dropped (R-113): the
+    // default one-year window otherwise stated older debt as paid.
+    const openingBalance = await customerBalanceBroughtForward(companyId, customerId, from, to);
+    const opening = openingBalanceLine(openingBalance, from);
+    if (opening) transactions.unshift(opening);
     // Running balance within the (possibly-capped) returned transaction list.
-    let runningBalance = 0;
-    for (const txn of transactions) {
-      runningBalance += txn.debit - txn.credit;
-      txn.balance = runningBalance;
-    }
+    applyRunningBalance(transactions);
 
     const totalInvoiced = Number(totalsRow?.total_invoiced ?? 0);
     const totalPaid = Number(totalsRow?.total_paid ?? 0);
     const totalCredits = Number(totalsRow?.total_credits ?? 0);
-    const summary = { totalInvoiced, totalPaid, totalCredits, balance: totalInvoiced - totalPaid - totalCredits };
+    const summary = {
+      openingBalance, totalInvoiced, totalPaid, totalCredits,
+      balance: statementClosingBalance(openingBalance, totalInvoiced, totalPaid, totalCredits),
+    };
     const clientData = {
       id: String(customer.id), name: String(customer.name),
       email: customer.email ? String(customer.email) : null,

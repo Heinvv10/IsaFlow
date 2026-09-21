@@ -12316,19 +12316,22 @@
       "correctedTrigger": "",
       "auditedSha": "",
       "currentSha": "6145c07ec",
-      "status": "confirmed",
+      "status": "in-progress",
       "dependencies": [],
-      "testNames": [],
+      "testNames": [
+        "tests/integration/r112-r113-inapp-customer-statements.int.test.ts"
+      ],
       "fixCommit": null,
       "pr": null,
       "deployedSha": null,
       "canonicalItem": null,
       "reportedSeverity": "high",
-      "branch": null,
+      "branch": "fix/audit-r112-r113-customer-statement-20260921",
       "evidencePaths": [
         "docs/audits/remediation/R-095/fix.md",
         "docs/audits/remediation/R-095/r095-measure.log",
-        "docs/audits/remediation/R-095/r095-measure-screens.log"
+        "docs/audits/remediation/R-095/r095-measure-screens.log",
+        "docs/audits/remediation/R-112/fix.md"
       ],
       "id": "R-112",
       "area": "ar",
@@ -12349,19 +12352,22 @@
       "correctedTrigger": "",
       "auditedSha": "",
       "currentSha": "6145c07ec",
-      "status": "confirmed",
+      "status": "in-progress",
       "dependencies": [],
-      "testNames": [],
+      "testNames": [
+        "tests/integration/r112-r113-inapp-customer-statements.int.test.ts"
+      ],
       "fixCommit": null,
       "pr": null,
       "deployedSha": null,
       "canonicalItem": null,
       "reportedSeverity": "high",
-      "branch": null,
+      "branch": "fix/audit-r112-r113-customer-statement-20260921",
       "evidencePaths": [
         "docs/audits/remediation/R-095/fix.md",
         "docs/audits/remediation/R-095/r095-measure.log",
-        "docs/audits/remediation/R-095/r095-measure-screens.log"
+        "docs/audits/remediation/R-095/r095-measure-screens.log",
+        "docs/audits/remediation/R-112/fix.md"
       ],
       "id": "R-113",
       "area": "ar",
@@ -12408,6 +12414,81 @@
       "severity": "medium",
       "source": "Found by the R-095 blind reviewer (review-r095-r1, route census of invoice/[token]).",
       "processNotes": "Registered 2026-09-21 by the R-095 fixer at the team lead's request; not fixed in the R-095 PR."
+    },
+    {
+      "claim": "",
+      "sourceLabel": "",
+      "sourceIds": [],
+      "correctedTrigger": "",
+      "auditedSha": "",
+      "currentSha": "6145c07ec",
+      "status": "in-progress",
+      "dependencies": [],
+      "testNames": [
+        "tests/integration/r115-customer-balances-list.int.test.ts"
+      ],
+      "fixCommit": null,
+      "pr": null,
+      "deployedSha": null,
+      "canonicalItem": null,
+      "reportedSeverity": "medium",
+      "branch": "fix/audit-r112-r113-customer-statement-20260921",
+      "evidencePaths": [
+        "docs/audits/remediation/R-115/fix.md",
+        "docs/audits/remediation/R-115/red-master.log",
+        "docs/audits/remediation/R-115/green.log",
+        "docs/audits/remediation/R-115/mutations.log",
+        "docs/audits/remediation/R-115/ui.log",
+        "docs/audits/remediation/R-115/r115-customer-statements.png",
+        "docs/audits/remediation/R-115/r115-statement-run.png",
+        "docs/audits/remediation/R-115/ui-round2.log",
+        "docs/audits/remediation/R-115/r115-customer-statements-r2.png"
+      ],
+      "id": "R-115",
+      "area": "ar",
+      "affectedPaths": [
+        "pages/api/accounting/customer-statements.ts"
+      ],
+      "severityRationale": "The list's balance is SUM(invoices) - SUM(confirmed/reconciled receipts); credit_notes is never read. A customer with a R1,000 invoice and an approved R300 credit note lists R1,000 against the emailed statement's R700. Staff pick whom to chase and whom to send statements to from this list. Measured on the disposable fixture (R-115/red-master.log): listed 1000 for a statement of 600 (approved 300 + applied note consuming 100); also listed post-dated documents and a soft-deleted customer.",
+      "historicalDataImpact": "None on the ledger; the list has overstated balances for every customer holding a live credit note.",
+      "title": "customer-statements (the balances list on Statements / Statement Run / Customer Statements) ignores credit notes, so every customer's listed balance is overstated by their live credit notes",
+      "severity": "medium",
+      "source": "Found by the R-112/R-113 fixer while tracing the statement consumers.",
+      "processNotes": "Registered 2026-09-21; fixed on the R-112/R-113 branch at Hein's request (PR #447)."
+    },
+    {
+      "claim": "",
+      "sourceLabel": "",
+      "sourceIds": [],
+      "correctedTrigger": "",
+      "auditedSha": "",
+      "currentSha": "6145c07ec",
+      "status": "confirmed",
+      "dependencies": [],
+      "testNames": [],
+      "fixCommit": null,
+      "pr": null,
+      "deployedSha": null,
+      "canonicalItem": null,
+      "reportedSeverity": "medium",
+      "branch": null,
+      "evidencePaths": [
+        "docs/audits/remediation/R-115/fix.md"
+      ],
+      "id": "R-116",
+      "area": "ar",
+      "affectedPaths": [
+        "pages/api/accounting/customer-statements.ts",
+        "pages/accounting/statements/index.tsx",
+        "pages/accounting/statement-run/index.tsx",
+        "pages/accounting/customer-statements/index.tsx"
+      ],
+      "severityRationale": "All three pages send ?as_at_date= and show an as-at date picker; the endpoint never reads it (asAtTodayStr()). A user picking month-end sees today's balances labelled as month-end. The batch PDFs (customer-statement-detail) are also today-only while printing the picked date as 'as at'. Read from the code; not measured.",
+      "historicalDataImpact": "None on the ledger; lists and batch statements labelled with a past as-at date showed today's figures.",
+      "title": "customer-statements ignores the as_at_date its three pages send: the balances list is always as at today whatever date the user picks",
+      "severity": "medium",
+      "source": "Found by the R-115 fixer.",
+      "processNotes": "Registered 2026-09-21; not fixed."
     }
   ],
   "sourceInventory": [

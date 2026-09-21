@@ -13,6 +13,10 @@ import { withAuth, type CompanyAuthedRequest, withWriteAccess} from '@/lib/auth'
 import { log } from '@/lib/logger';
 import { asAtTodayStr, documentInLedgerAsAtFragment } from '@/modules/accounting/services/shared/softDeleteLedgerPresence';
 import { documentInPopulationExpr } from '@/modules/accounting/services/shared/documentPopulation';
+import {
+  CREDIT_NOTE_STATEMENT_VALUE, LIVE_CREDIT_NOTE_STATUSES, SETTLING_RECEIPT_STATUSES, applyRunningBalance,
+  statementClosingBalance,
+} from '@/modules/accounting/services/ar/customerStatementRules';
 type Row = Record<string, unknown>;
 
 // P3.4: this endpoint has no offset-pagination UI (single full-history view
@@ -22,14 +26,6 @@ type Row = Record<string, unknown>;
 // the headline totals from a SQL aggregate over the FULL population so they
 // stay correct even if a pathological single client ever hits the ceiling.
 const STATEMENT_ROW_CEILING = 2000;
-
-/**
- * A credit note is live once it is approved, whether it has been set against an
- * invoice in full ('applied'), in part ('partially_applied', migration 677) or
- * not at all ('approved'). The same set `ar/statementEmailService` and
- * `ap/supplierStatementService` use — this screen is the same document.
- */
-const LIVE_CREDIT_NOTE_STATUSES = ['approved', 'partially_applied', 'applied'];
 
 async function handler(req: NextApiRequest, res: NextApiResponse) {
   if (req.method !== 'GET') {
@@ -42,13 +38,17 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
     return apiResponse.badRequest(res, 'client_id is required');
   }
   // This statement carries no as-at parameter: it is the full history as at
-  // today, so today is the date its soft-delete question is asked at.
+  // today, so today bounds every document date (a post-dated invoice or
+  // receipt is not on the emailed statement either) and is the date its
+  // soft-delete question is asked at.
   const asAtStr = asAtTodayStr();
 
   try {
     // Get client info
     const clientRows = (await sql`
       SELECT id, name, email, phone FROM customers WHERE id = ${clientId}::UUID AND company_id = ${companyId}
+        -- No statement for a soft-deleted customer, as fetchStatementData.
+        AND deleted_at IS NULL
     `) as Row[];
     if (clientRows.length === 0) {
       return apiResponse.notFound(res, 'Client', clientId);
@@ -70,18 +70,20 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
       -- still carries, and a bare deleted_at IS NULL would drop it from this
       -- figure while the GL keeps it. See shared/softDeleteLedgerPresence.
         AND ${documentInLedgerAsAtFragment('ci', asAtStr, companyId)}
+        AND ci.invoice_date <= ${asAtStr}::DATE
       ORDER BY ci.invoice_date, ci.id
       LIMIT ${STATEMENT_ROW_CEILING + 1}
     `) as Row[];
 
-    // Get confirmed payments — includes both allocated and unallocated (bank-sourced)
+    // Settled receipts at the cash received (R-112). COALESCE(SUM(allocated),
+    // total) fell back to the total only when nothing was allocated, so a
+    // partly allocated receipt lost its remainder — see customerStatementRules.
     const paymentsRaw = (await sql`
-      SELECT cp.id, cp.payment_number, cp.payment_date, cp.bank_reference,
-        COALESCE(SUM(cpa.amount_allocated), cp.total_amount) AS amount_allocated
+      SELECT cp.id, cp.payment_number, cp.payment_date, cp.bank_reference, cp.total_amount
       FROM customer_payments cp
-      LEFT JOIN customer_payment_allocations cpa ON cpa.payment_id = cp.id
-      WHERE cp.client_id = ${clientId}::UUID AND cp.company_id = ${companyId} AND cp.status IN ('confirmed', 'reconciled')
-      GROUP BY cp.id, cp.payment_number, cp.payment_date, cp.bank_reference, cp.total_amount
+      WHERE cp.client_id = ${clientId}::UUID AND cp.company_id = ${companyId}
+        AND cp.status = ANY(${SETTLING_RECEIPT_STATUSES})
+        AND cp.payment_date <= ${asAtStr}::DATE
       ORDER BY cp.payment_date, cp.id
       LIMIT ${STATEMENT_ROW_CEILING + 1}
     `) as Row[];
@@ -96,16 +98,17 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
     // visible in one and absent from the other is a customer-facing
     // contradiction.
     //
-    // The CASE is the SQL twin of `shared/creditNoteAppliedAmount`: an 'applied'
+    // CREDIT_NOTE_STATEMENT_VALUE is the SQL twin of `shared/creditNoteAppliedAmount`: an 'applied'
     // note credits what it CONSUMED, because its remainder is stranded and
     // cannot be applied again; anything else credits its face value, because
     // that credit is still the customer's to use. Keep the two in step.
     const creditNotesRaw = (await sql`
       SELECT id, credit_note_number, credit_date, reason,
-             CASE WHEN status = 'applied' THEN applied_amount ELSE total_amount END AS total_amount
+             ${sql.unsafe(CREDIT_NOTE_STATEMENT_VALUE)} AS total_amount
       FROM credit_notes
       WHERE client_id = ${clientId}::UUID AND company_id = ${companyId} AND type = 'customer'
         AND status = ANY(${LIVE_CREDIT_NOTE_STATUSES})
+        AND credit_date <= ${asAtStr}::DATE
       ORDER BY credit_date, id
       LIMIT ${STATEMENT_ROW_CEILING + 1}
     `) as Row[];
@@ -132,23 +135,22 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
           WHERE COALESCE(ci.client_id, ci.customer_id) = ${clientId}::UUID AND ci.company_id = ${companyId}
             AND ${sql.unsafe(documentInPopulationExpr('ci'))}
             AND ${documentInLedgerAsAtFragment('ci', asAtStr, companyId)}
+            AND ci.invoice_date <= ${asAtStr}::DATE
         ), 0) AS total_invoiced,
         COALESCE((
-          SELECT SUM(pmt_total) FROM (
-            SELECT COALESCE(SUM(cpa.amount_allocated), cp.total_amount) AS pmt_total
-            FROM customer_payments cp
-            LEFT JOIN customer_payment_allocations cpa ON cpa.payment_id = cp.id
-            WHERE cp.client_id = ${clientId}::UUID AND cp.company_id = ${companyId} AND cp.status IN ('confirmed', 'reconciled')
-            GROUP BY cp.id, cp.total_amount
-          ) pmt
+          SELECT SUM(cp.total_amount::numeric) FROM customer_payments cp
+          WHERE cp.client_id = ${clientId}::UUID AND cp.company_id = ${companyId}
+            AND cp.status = ANY(${SETTLING_RECEIPT_STATUSES})
+            AND cp.payment_date <= ${asAtStr}::DATE
         ), 0) AS total_paid,
         COALESCE((
           -- Same population and same valuation as the row list above; a total
           -- the rows do not foot to is worse than no total.
-          SELECT SUM((CASE WHEN status = 'applied' THEN applied_amount ELSE total_amount END)::numeric)
+          SELECT SUM(${sql.unsafe(CREDIT_NOTE_STATEMENT_VALUE)}::numeric)
           FROM credit_notes
           WHERE client_id = ${clientId}::UUID AND company_id = ${companyId} AND type = 'customer'
             AND status = ANY(${LIVE_CREDIT_NOTE_STATUSES})
+            AND credit_date <= ${asAtStr}::DATE
         ), 0) AS total_credits
     `) as Row[];
 
@@ -197,7 +199,7 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
         reference: String(pmt.payment_number),
         description: pmt.bank_reference ? String(pmt.bank_reference) : '',
         debit: 0,
-        credit: Number(pmt.amount_allocated),
+        credit: Number(pmt.total_amount),
         balance: 0,
       });
     }
@@ -223,11 +225,7 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
     });
 
     // Running balance within the (possibly-capped) returned transaction list.
-    let runningBalance = 0;
-    for (const txn of transactions) {
-      runningBalance += txn.debit - txn.credit;
-      txn.balance = runningBalance;
-    }
+    applyRunningBalance(transactions);
 
     const totalInvoiced = Number(totalsRow?.total_invoiced ?? 0);
     const totalPaid = Number(totalsRow?.total_paid ?? 0);
@@ -245,7 +243,7 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
         totalInvoiced,
         totalPaid,
         totalCredits,
-        balance: totalInvoiced - totalPaid - totalCredits,
+        balance: statementClosingBalance(0, totalInvoiced, totalPaid, totalCredits),
       },
     }, undefined, 200, { truncated });
   } catch (err) {
