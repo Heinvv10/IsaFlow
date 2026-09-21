@@ -2321,7 +2321,7 @@
       "correctedTrigger": null,
       "severityRationale": "Source priority only; impact and reachability not yet validated.",
       "auditedSha": "5661d6f0f5f2212705151e95455a3f681ddf840e",
-      "currentSha": "432f8aec2",
+      "currentSha": "c04803ba9",
       "status": "fixed",
       "dependencies": [],
       "testNames": [
@@ -2334,7 +2334,7 @@
         "K-063/validation.md",
         "K-063/fix.md"
       ],
-      "fixCommit": "432f8aec2",
+      "fixCommit": "c04803ba9",
       "pr": null,
       "deployedSha": null,
       "historicalDataImpact": "Not assessed",
@@ -2357,7 +2357,7 @@
       "correctedTrigger": null,
       "severityRationale": "Source priority only; impact and reachability not yet validated.",
       "auditedSha": "5661d6f0f5f2212705151e95455a3f681ddf840e",
-      "currentSha": "432f8aec2",
+      "currentSha": "c04803ba9",
       "status": "fixed",
       "dependencies": [],
       "testNames": [
@@ -2367,14 +2367,15 @@
         "tests/integration/k064-batch-reversal.int.test.ts",
         "tests/integration/k064-bank-leg-and-void.int.test.ts",
         "tests/integration/k064-void-applied-and-allocated.int.test.ts",
-        "tests/integration/k064-cancel-payment.int.test.ts"
+        "tests/integration/k064-cancel-payment.int.test.ts",
+        "tests/integration/k064-stamp-is-not-a-lock.int.test.ts"
       ],
       "evidencePaths": [
         "K-064/red.log",
         "K-064/validation.md",
         "K-064/fix.md"
       ],
-      "fixCommit": "432f8aec2",
+      "fixCommit": "c04803ba9",
       "pr": null,
       "deployedSha": null,
       "historicalDataImpact": "Not assessed",
@@ -2429,7 +2430,7 @@
       "correctedTrigger": null,
       "severityRationale": "Source priority only; impact and reachability not yet validated.",
       "auditedSha": "5661d6f0f5f2212705151e95455a3f681ddf840e",
-      "currentSha": "432f8aec2",
+      "currentSha": "c04803ba9",
       "status": "fixed",
       "dependencies": [],
       "testNames": [
@@ -2441,7 +2442,7 @@
         "K-066/validation.md",
         "K-066/fix.md"
       ],
-      "fixCommit": "432f8aec2",
+      "fixCommit": "c04803ba9",
       "pr": null,
       "deployedSha": null,
       "historicalDataImpact": "Not assessed",
@@ -12275,7 +12276,7 @@
       "sourceIds": [],
       "correctedTrigger": "",
       "auditedSha": "6145c07ec",
-      "currentSha": "432f8aec2",
+      "currentSha": "c04803ba9",
       "status": "confirmed",
       "dependencies": [
         "K-063",
