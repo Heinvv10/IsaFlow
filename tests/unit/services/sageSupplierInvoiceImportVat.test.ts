@@ -3,9 +3,9 @@
  * `deriveSageVat` — only the helper itself was tested. Mutating
  * `importSupplierInvoices` back to the inline `Number(inv.subtotal || 0) ||
  * totalAmount / 1.15` left every other test green (the helper is untouched).
- * This test drives the importer directly with `sql` mocked, so once R-021 or
- * the customer twin makes the real SELECT run, a regression here is caught
- * before it reaches the DB.
+ * This test drives the importer directly with `sql` mocked. Since R-021 the
+ * staging row carries no subtotal or tax column at all, so every row takes the
+ * not-stated branch; the stated-figure branches are the helper's own tests.
  */
 
 import { describe, it, expect, vi, beforeEach } from 'vitest';
@@ -31,6 +31,7 @@ vi.mock('@/modules/accounting/services/core/sageMigrationService', () => ({
     startedAt: '', completedAt: null, vatNotStated,
   })),
   failRun: vi.fn(),
+  withRunRecovery: (_runId: string, body: () => Promise<unknown>) => body(),
 }));
 
 vi.mock('@/modules/accounting/services/capture/captureDeduplicationService', () => ({
@@ -50,93 +51,51 @@ function findCall(needle: string): unknown[] {
   return call.slice(1);
 }
 
-const baseRow = {
+const stagedRow = {
   id: 'stg-1',
-  sage_invoice_id: 'SAGE-1',
-  sage_supplier_id: 'sup-sage-1',
+  sage_id: 'SAGE-1',
   invoice_number: 'INV-1',
+  supplier_name: 'Acme',
   invoice_date: '2026-01-01',
-  due_date: null,
   total_amount: 1150,
-  outstanding_amount: null,
-  status: null,
-  ff_purchase_order_id: null,
-  supplier_id: 'sup-1',
-  raw_data: null,
-  line_items: null,
 };
+const supplier = { id: 'sup-1', vat_number: null, payment_terms: 30 };
 
 beforeEach(() => {
   sqlMock.mockReset();
 });
 
 describe('importSupplierInvoices — wired to deriveSageVat, never the inline /1.15', () => {
-  it('a row with no subtotal and no tax imports at 0 VAT, subtotal = total', async () => {
+  it('a staged row imports at 0 VAT, subtotal = total, flagged', async () => {
     sqlMock
-      .mockResolvedValueOnce([{ ...baseRow, subtotal: null, tax_amount: null }]) // SELECT sageInvoices
-      .mockResolvedValueOnce([{ vat_number: null }]) // SELECT vat_number
+      .mockResolvedValueOnce([stagedRow]) // SELECT staging
+      .mockResolvedValueOnce([supplier]) // SELECT suppliers by name
+      .mockResolvedValueOnce([]) // SELECT existing bill by fingerprint
       .mockResolvedValueOnce([{ id: 'new-inv-1' }]) // INSERT ... RETURNING id
       .mockResolvedValueOnce([]); // UPDATE migration_status
 
     const run = await importSupplierInvoices('company-1', 'user-1');
 
     const args = findCall('INSERT INTO supplier_invoices');
-    // Column order: company_id, invoice_number, supplier_id, purchase_order_id,
-    // project_id, invoice_date, due_date, subtotal, tax_rate, tax_amount, total_amount, ...
-    const subtotal = args[7];
-    const taxRate = args[8];
-    const taxAmount = args[9];
-
-    expect(subtotal).toBe('1150.00');
-    expect(taxRate).toBe(0);
-    expect(taxAmount).toBe('0.00');
-
+    // Bound order: company_id, invoice_number, supplier_id, invoice_date,
+    // invoice_date (due base), payment_terms, subtotal, tax_rate, tax_amount, total, ...
+    expect(args[6]).toBe('1150.00');
+    expect(args[7]).toBe(0);
+    expect(args[8]).toBe('0.00');
     // The old defect: subtotal 1000.00, taxAmount 150.00.
-    expect(subtotal).not.toBe('1000.00');
-    expect(taxAmount).not.toBe('150.00');
-    // The flag is the fix's safeguard: the note lands and the run counts it.
+    expect(args[6]).not.toBe('1000.00');
+    expect(args[8]).not.toBe('150.00');
     expect(args).toContain(SAGE_VAT_NOT_STATED_NOTE);
     expect(run.vatNotStated).toBe(1);
-  });
-
-  it('takes the tax its lines state when the header states none, and does not flag it', async () => {
-    const raw = { Lines: [{ Description: 'A', Tax: 100 }, { Description: 'B', Tax: 50 }] };
-    sqlMock
-      .mockResolvedValueOnce([{ ...baseRow, subtotal: null, tax_amount: null, raw_data: raw }])
-      .mockResolvedValueOnce([{ vat_number: null }])
-      .mockResolvedValueOnce([{ id: 'new-inv-1' }])
-      .mockResolvedValue([]);
-
-    const run = await importSupplierInvoices('company-1', 'user-1');
-
-    const args = findCall('INSERT INTO supplier_invoices');
-    expect(args[7]).toBe('1000.00');
-    expect(args[9]).toBe('150.00');
-    expect(args).not.toContain(SAGE_VAT_NOT_STATED_NOTE);
-    expect(run.vatNotStated).toBe(0);
-  });
-
-  it('a row with a stated subtotal keeps it and computes tax by arithmetic', async () => {
-    sqlMock
-      .mockResolvedValueOnce([{ ...baseRow, subtotal: 1000, tax_amount: null }])
-      .mockResolvedValueOnce([{ vat_number: null }])
-      .mockResolvedValueOnce([{ id: 'new-inv-1' }])
-      .mockResolvedValueOnce([]);
-
-    await importSupplierInvoices('company-1', 'user-1');
-
-    const args = findCall('INSERT INTO supplier_invoices');
-    expect(args[7]).toBe('1000.00');
-    expect(args[8]).toBe(15);
-    expect(args[9]).toBe('150.00');
   });
 });
 
 describe('importSupplierInvoices — review round 1 LOW-3: vatNotStated counts only rows that actually import', () => {
   it('a row whose INSERT fails (savepoint rolls back) does not count toward vatNotStated', async () => {
     sqlMock
-      .mockResolvedValueOnce([{ ...baseRow, subtotal: null, tax_amount: null }]) // SELECT sageInvoices
-      .mockResolvedValueOnce([{ vat_number: null }]) // SELECT vat_number
+      .mockResolvedValueOnce([stagedRow]) // SELECT staging
+      .mockResolvedValueOnce([supplier]) // SELECT suppliers by name
+      .mockResolvedValueOnce([]) // SELECT existing bill by fingerprint
       .mockRejectedValueOnce(new Error('23505 duplicate')) // INSERT throws
       .mockResolvedValueOnce([]); // UPDATE migration_status = 'failed'
 
