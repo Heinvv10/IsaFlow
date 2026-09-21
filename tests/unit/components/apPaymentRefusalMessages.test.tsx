@@ -69,6 +69,7 @@ it('new batch shows why the batch was refused, not a bare "Failed"', async () =>
     if (url.includes('supplier-invoices')) {
       return ok({ invoices: [{ id: 'i1', supplierId: 's1', invoiceNumber: 'INV-7', totalAmount: 1000, amountPaid: 0 }] });
     }
+    if (url.includes('reservedFor')) return ok({});
     return refusal(text);
   });
   const { container } = render(<NewBatch />);
@@ -80,4 +81,22 @@ it('new batch shows why the batch was refused, not a bare "Failed"', async () =>
   fireEvent.submit(container.querySelector('form')!);
   expect(await screen.findByText(text)).toBeTruthy();
   expect(screen.queryByText('Failed')).toBeNull();
+});
+
+it('new batch offers a bill at what is still available after reservations, not its raw outstanding', async () => {
+  vi.mocked(apiFetch).mockImplementation(async (url: string) => {
+    if (url.includes('suppliers-list')) return ok({ suppliers: [{ id: 's1', name: 'Supplier One', company_name: null }], total: 1 });
+    if (url.includes('supplier-invoices')) {
+      return ok({ invoices: [{ id: 'i1', supplierId: 's1', invoiceNumber: 'INV-5', totalAmount: 500, amountPaid: 0 }] });
+    }
+    if (url.includes('reservedFor=i1')) return ok({ i1: 200 });
+    return ok({});
+  });
+  const { container } = render(<NewBatch />);
+  await screen.findByText('Supplier One');
+  fireEvent.change(container.querySelector('select[name="supplierId"]')!, { target: { value: 's1' } });
+  const option = await screen.findByText(/INV-5/);
+  expect(option.textContent).toMatch(/300,00 available \(R\s?200,00 reserved\)/);
+  fireEvent.change(container.querySelector('select[name="invoiceId"]')!, { target: { value: 'i1' } });
+  expect((container.querySelector('input[name="amount"]') as HTMLInputElement).value).toBe('300');
 });

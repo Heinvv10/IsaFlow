@@ -73,6 +73,25 @@ export async function assertAllocationsStillAllocatable(
   await checkUnderLock(companyId, allocations, { countPending: false });
 }
 
+/**
+ * What unprocessed (draft / approved) payments have already promised against
+ * each bill — THE pending set. Batch creation subtracts it under the bill lock;
+ * the new-batch page subtracts the same figure so it never offers an amount
+ * this check would refuse. One query, both callers.
+ */
+export async function pendingReservations(companyId: string, invoiceIds: readonly string[]): Promise<Map<string, number>> {
+  const rows = (await sql`
+    SELECT pa.invoice_id, COALESCE(SUM(pa.amount_allocated), 0) AS pending
+    FROM payment_allocations pa
+    JOIN supplier_payments sp ON sp.id = pa.payment_id
+    WHERE pa.invoice_id = ANY(${[...invoiceIds]}::UUID[])
+      AND sp.company_id = ${companyId}::UUID
+      AND sp.status IN ('draft', 'approved')
+    GROUP BY pa.invoice_id
+  `) as DbRow[];
+  return new Map(rows.map((r) => [String(r.invoice_id), Number(r.pending)]));
+}
+
 async function checkUnderLock(
   companyId: string,
   lines: readonly StoredAllocation[],
@@ -86,19 +105,7 @@ async function checkUnderLock(
   // batches (or a batch and a draft payment) each take the full outstanding.
   // A concurrent batch on the same bill waited on the lock above, and under
   // READ COMMITTED this later statement sees the allocations it committed.
-  const taken = new Map<string, number>();
-  if (opts.countPending) {
-    const pendingRows = (await sql`
-      SELECT pa.invoice_id, COALESCE(SUM(pa.amount_allocated), 0) AS pending
-      FROM payment_allocations pa
-      JOIN supplier_payments sp ON sp.id = pa.payment_id
-      WHERE pa.invoice_id = ANY(${ids}::UUID[])
-        AND sp.company_id = ${companyId}::UUID
-        AND sp.status IN ('draft', 'approved')
-      GROUP BY pa.invoice_id
-    `) as DbRow[];
-    for (const r of pendingRows) taken.set(String(r.invoice_id), Number(r.pending));
-  }
+  const taken = opts.countPending ? await pendingReservations(companyId, ids) : new Map<string, number>();
 
   for (const line of lines) {
     const bill = byId.get(line.invoiceId);

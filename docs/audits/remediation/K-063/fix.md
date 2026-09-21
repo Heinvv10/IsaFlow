@@ -450,3 +450,25 @@ shows the bill back at 0.00 `approved` and one posted contra.
 `BATCH_ALREADY_REVERSED` is registered in the MCP refusal allowlist
 (`toolHelpers.ts`), which `typedRefusalReachesAgent` requires of every
 `readonly code`.
+
+### Round 6 additions
+
+- **The new-batch page shows what the server will accept.** Its invoice list
+  subtracted nothing for unprocessed payments, so it offered (and prefilled) a
+  bill's raw outstanding and the server then refused it. The pending-set query
+  is now one exported function, `supplierBatchAllocationPlan.ts#pendingReservations`,
+  used by batch creation under the bill lock AND by a `reservedFor` read on
+  batch-payments GET (company-scoped, same statuses: draft/approved). The page
+  subtracts it and says so. **Browser**: a R500 bill with R200 reserved by an
+  approved payment is listed as "K065-BILL-B — R 300,00 available (R 200,00
+  reserved)", the amount prefills 300 with max 300, and creating the batch at 300
+  → 200 (`round6-new-batch-available.png`). Pinned in
+  `k064-reservations-cents-cancel` (approved counts, voided does not, another
+  company's bill invisible) and a component test; mutation U3 (page ignores
+  reservations) → red.
+- **Evidence for the statement change (round 5b item 5).** Counts measured by
+  the lead: the dead `supplier_payment_allocations` table holds **0 rows on
+  isaflow_dev and 0 rows on isaflow_staging** (a production copy of
+  2026-09-18), against 1,101 and 4,764 live `payment_allocations` rows. The old
+  join therefore matched nothing on real data and every payment already fell
+  back to its total — removing the join changes no statement output on either.

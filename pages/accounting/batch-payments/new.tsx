@@ -14,7 +14,10 @@ import { apiErrorMessage, apiFetch, assertOk } from '@/lib/apiFetch';
 // the required one); supplier-invoices answers camelCase. Reading the other
 // shape left the supplier option blank and the invoice list empty.
 interface Supplier { id: string; name: string; company_name?: string | null }
-interface Invoice { id: string; invoiceNumber: string; totalAmount: number; amountPaid: number; supplierId: string }
+interface Invoice { id: string; invoiceNumber: string; totalAmount: number; amountPaid: number; supplierId: string; reserved?: number }
+
+/** What the server will still accept: outstanding less what unprocessed payments already reserve. */
+const available = (i: Invoice) => Math.round((Number(i.totalAmount) - Number(i.amountPaid) - Number(i.reserved ?? 0)) * 100) / 100;
 interface BatchLine { key: string; supplierId: string; invoiceId: string; amount: number }
 
 const fmt = (n: number) => new Intl.NumberFormat('en-ZA', { style: 'currency', currency: 'ZAR' }).format(n);
@@ -39,8 +42,15 @@ export default function NewBatchPaymentPage() {
     }).catch(() => {/* non-critical */});
     apiFetch('/api/accounting/supplier-invoices?status=approved&status=partially_paid', { credentials: 'include' }).then(r => r.json()).then(res => {
       const d = res.data || res;
-      const list = Array.isArray(d) ? d : d.invoices || d.items || [];
-      setInvoices(list.filter((inv: Invoice) => Number(inv.totalAmount) - Number(inv.amountPaid) > 0.01));
+      const list: Invoice[] = (Array.isArray(d) ? d : d.invoices || d.items || [])
+        .filter((inv: Invoice) => Number(inv.totalAmount) - Number(inv.amountPaid) > 0.01);
+      if (list.length === 0) { setInvoices([]); return; }
+      // The same pending set batch creation subtracts (supplierBatchAllocationPlan).
+      return apiFetch(`/api/accounting/batch-payments?reservedFor=${list.map((i) => i.id).join(',')}`, { credentials: 'include' })
+        .then(r => r.json()).then((rr: { data?: Record<string, number> }) => {
+          const reserved = rr.data ?? {};
+          setInvoices(list.map((i) => ({ ...i, reserved: Number(reserved[i.id] ?? 0) })).filter((i) => available(i) > 0));
+        });
     }).catch(() => {/* non-critical */});
   }, []);
 
@@ -149,7 +159,7 @@ export default function NewBatchPaymentPage() {
                     {lines.map(line => {
                       const supplierInvoices = invoices.filter(i => !line.supplierId || String(i.supplierId) === line.supplierId);
                       const inv = invoices.find(i => i.id === line.invoiceId);
-                      const balance = inv ? Number(inv.totalAmount) - Number(inv.amountPaid) : 0;
+                      const balance = inv ? available(inv) : 0;
                       return (
                         <tr key={line.key} className="group hover:bg-slate-50/50 dark:hover:bg-slate-800/20 transition-colors">
                           <td className="px-3 py-2">
@@ -164,11 +174,11 @@ export default function NewBatchPaymentPage() {
                             <select name="invoiceId" value={line.invoiceId}
                               onChange={e => {
                                 const i = invoices.find(x => x.id === e.target.value);
-                                setLines(p => p.map(l => l.key === line.key ? { ...l, invoiceId: e.target.value, amount: i ? Number(i.totalAmount) - Number(i.amountPaid) : 0 } : l));
+                                setLines(p => p.map(l => l.key === line.key ? { ...l, invoiceId: e.target.value, amount: i ? available(i) : 0 } : l));
                               }}
                               className={inp}>
                               <option value="">Select Invoice</option>
-                              {supplierInvoices.map(i => <option key={i.id} value={i.id}>{i.invoiceNumber} — {fmt(Number(i.totalAmount) - Number(i.amountPaid))}</option>)}
+                              {supplierInvoices.map(i => <option key={i.id} value={i.id}>{i.invoiceNumber} — {fmt(available(i))}{i.reserved ? ` available (${fmt(i.reserved)} reserved)` : ''}</option>)}
                             </select>
                           </td>
                           <td className="px-3 py-2">

@@ -16,6 +16,7 @@ import { assertDisposable } from './mfa-impersonation-postgres.helpers';
 import { ids, setUpFixture, tearDownFixture, type Fixture } from './supplier-ownership-fence.helpers';
 import { allocationsOn, bill } from './ap-allocation-guards.helpers';
 import { flow, text } from './ap-payment-flow.helpers';
+import batchPayments from '../../pages/api/accounting/batch-payments';
 
 const describeIfDb = process.env.DATABASE_URL && process.env.JWT_SECRET ? describe : describe.skip;
 
@@ -64,6 +65,17 @@ describeIfDb('K-064 review r1 — reservations, cents, locked creation, void/can
     expect((await batchOf(b, 600.01)).statusCode).toBe(400);
     const exact = await batchOf(b, 600);
     expect(exact.statusCode, text(exact)).toBe(200);
+  });
+
+  it('the new-batch page reads the SAME reservations: approved counts, voided does not, other company invisible', async () => {
+    const b = await approved();
+    const paymentId = await f.approvedPayment(b, 200);
+    const foreign = await bill(fx.pool, { company: ids.B, supplier: ids.SUP_B, status: 'approved' });
+    const read = async () => (await fx.call(batchPayments, 'GET', {}, { reservedFor: `${b},${foreign}` })).body as
+      { data: Record<string, number> };
+    expect((await read()).data).toEqual({ [b]: 200 });
+    expect((await f.paymentAction('void', paymentId)).statusCode).toBe(200);
+    expect((await read()).data).toEqual({});
   });
 
   // ── 5. integer cents, no tolerance ────────────────────────────────────────
