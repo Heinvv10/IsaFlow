@@ -10,6 +10,7 @@ import Link from 'next/link';
 import { ClipboardList, Loader2, AlertCircle, Download, ChevronRight, Search } from 'lucide-react';
 import { formatCurrency } from '@/utils/formatters';
 import { apiFetch } from '@/lib/apiFetch';
+import { fmtDate } from '@/lib/fmtDate';
 
 interface CustomerBalance {
   client_id: string;
@@ -58,7 +59,8 @@ export default function CustomerStatementsPage() {
   const [hasMore, setHasMore] = useState(false);
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState('');
-  const [asAtDate, setAsAtDate] = useState(new Date().toISOString().split('T')[0]);
+  // A LOCAL date: toISOString() is UTC and named yesterday before 02:00 SAST.
+  const [asAtDate, setAsAtDate] = useState(() => fmtDate(new Date()));
   const [search, setSearch] = useState('');
 
   const filteredCustomers = useMemo(() => {

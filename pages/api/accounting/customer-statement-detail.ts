@@ -2,7 +2,7 @@ import { sql } from '@/lib/neon';
 import { fmtDate } from '@/lib/fmtDate';
 /**
  * Customer Statement Detail API
- * GET /api/accounting/customer-statement-detail?client_id=UUID
+ * GET /api/accounting/customer-statement-detail?client_id=UUID[&as_at_date=YYYY-MM-DD]
  * Returns full transaction-level statement with running balance
  */
 
@@ -11,11 +11,11 @@ import { withErrorHandler } from '@/lib/api-error-handler';
 import { apiResponse } from '@/lib/apiResponse';
 import { withAuth, type CompanyAuthedRequest, withWriteAccess} from '@/lib/auth';
 import { log } from '@/lib/logger';
-import { asAtTodayStr, documentInLedgerAsAtFragment } from '@/modules/accounting/services/shared/softDeleteLedgerPresence';
+import { documentInLedgerAsAtFragment } from '@/modules/accounting/services/shared/softDeleteLedgerPresence';
 import { documentInPopulationExpr } from '@/modules/accounting/services/shared/documentPopulation';
 import {
   CREDIT_NOTE_STATEMENT_VALUE, LIVE_CREDIT_NOTE_STATUSES, SETTLING_RECEIPT_STATUSES, applyRunningBalance,
-  statementClosingBalance,
+  resolveStatementAsAt, statementClosingBalance,
 } from '@/modules/accounting/services/ar/customerStatementRules';
 type Row = Record<string, unknown>;
 
@@ -37,11 +37,13 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
   if (!clientId) {
     return apiResponse.badRequest(res, 'client_id is required');
   }
-  // This statement carries no as-at parameter: it is the full history as at
-  // today, so today bounds every document date (a post-dated invoice or
-  // receipt is not on the emailed statement either) and is the date its
-  // soft-delete question is asked at.
-  const asAtStr = asAtTodayStr();
+  // The full history as at `as_at_date` (R-116: the batch PDFs print that
+  // date), or as at today when none is sent. It bounds every document date (a
+  // post-dated invoice or receipt is not on the emailed statement either) and
+  // is the date its soft-delete question is asked at.
+  const asAt = resolveStatementAsAt(req.query.as_at_date);
+  if ('error' in asAt) return apiResponse.badRequest(res, asAt.error);
+  const asAtStr = asAt.asAt;
 
   try {
     // Get client info
@@ -65,7 +67,7 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
         -- through the shared rule (R-059 round 6) instead of the bare
         -- != 'cancelled', which kept drafts and dropped null-status rows.
         AND ${sql.unsafe(documentInPopulationExpr('ci'))}
-      -- As at TODAY, not undated: a document soft-deleted BEFORE the delete
+      -- As at the as-at date, not undated: a document soft-deleted BEFORE the delete
       -- began reversing its journal has a standing entry the control account
       -- still carries, and a bare deleted_at IS NULL would drop it from this
       -- figure while the GL keeps it. See shared/softDeleteLedgerPresence.

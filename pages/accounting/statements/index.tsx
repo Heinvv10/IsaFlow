@@ -8,6 +8,7 @@ import { useState, useEffect, useCallback, useMemo } from 'react';
 import { AppLayout } from '@/components/layout/AppLayout';
 import { Mail, Loader2, AlertCircle } from 'lucide-react';
 import { apiFetch } from '@/lib/apiFetch';
+import { fmtDate } from '@/lib/fmtDate';
 import { ConfirmSendModal } from '@/components/accounting/statements/ConfirmSendModal';
 import {
   CustomerStatementTable,
@@ -34,7 +35,8 @@ interface AgingBucket {
 // ─── Page ─────────────────────────────────────────────────────────────────
 
 export default function StatementsPage() {
-  const today = new Date().toISOString().split('T')[0] ?? '';
+  // A LOCAL date: toISOString() is UTC and named yesterday before 02:00 SAST.
+  const today = fmtDate(new Date());
   const [customers, setCustomers] = useState<CustomerRow[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState('');

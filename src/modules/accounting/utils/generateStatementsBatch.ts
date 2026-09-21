@@ -65,7 +65,7 @@ export async function generateStatementsBatch(
     }
 
     const detailRes = await apiFetch(
-      `/api/accounting/customer-statement-detail?client_id=${clientId}`
+      `/api/accounting/customer-statement-detail?client_id=${clientId}&as_at_date=${asAtDate}`
     );
     const detailJson = await detailRes.json();
     if (!detailRes.ok) {
