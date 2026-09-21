@@ -64,6 +64,10 @@ describeIfDb('R-115 customer balances list states each statement balance', () =>
   beforeAll(async () => {
     assertDisposable();
     f = await seedPortalFixture();
+    // A member of BOTH companies (an accountant, say): row-level security then
+    // lets company B's rows through, so only the list's own company predicates
+    // keep them out of company A's list.
+    await sql`INSERT INTO company_users (company_id, user_id, role) VALUES (${f.companyB}::UUID, ${f.user}, 'admin')`;
     jwt = await new SignJWT({ sub: f.user, aal: 'aal2' })
       .setProtectedHeader({ alg: 'HS256' }).setExpirationTime('1h')
       .sign(new TextEncoder().encode(process.env.JWT_SECRET));
