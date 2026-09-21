@@ -26,7 +26,8 @@ export const createCreditNoteTool: McpTool = {
     'type "customer" credits a customer and needs client_id (from list_customers); type "supplier" credits a supplier bill and needs supplier_id (from list_suppliers). ' +
     'subtotal is NET of VAT and must be positive — tax_rate (default 15) is applied on top, and total = subtotal + VAT. ' +
     'Optionally link the note to the invoice it corrects with customer_invoice_id / supplier_invoice_id; a LINKED note is AUTO-APPLIED at approve, reducing that invoice\'s outstanding balance by up to its outstanding amount. Leave the link out to raise standalone credit. ' +
-    'An identical open draft (same counterparty, date and amount) is REFUSED and its id returned — retrying with a new idempotency_key will not create a second one.',
+    'An identical open draft (same counterparty, linked invoice, date and amount) is REFUSED and its id returned — retrying with a new idempotency_key will not create a second one. ' +
+    'When it is genuinely a SECOND credit (two returns on one day for one amount), pass allow_duplicate: true.',
   scope: 'write:invoices',
   write: true,
   inputSchema: {
@@ -41,6 +42,10 @@ export const createCreditNoteTool: McpTool = {
       subtotal: { type: 'number', exclusiveMinimum: 0, description: 'NET of VAT' },
       tax_rate: { type: 'number', minimum: 0, maximum: 100, description: 'VAT %, default 15' },
       reason: { type: 'string' },
+      allow_duplicate: {
+        type: 'boolean',
+        description: 'true only when an identical open draft exists and this is genuinely a second, separate credit.',
+      },
       idempotency_key: { type: 'string' },
     },
     required: ['type', 'credit_date', 'subtotal', 'idempotency_key'],
@@ -119,9 +124,16 @@ export const createCreditNoteTool: McpTool = {
     // Deliberately not in the service: the REST route backs a form where a
     // person can see their own draft list, and refusing there would obstruct a
     // legitimate duplicate. The blind retry is an agent problem.
+    //
+    // A legitimate duplicate reaches this tool too — two returns on one day for
+    // one amount — and `reason` is not part of the key (an agent regenerating
+    // its reason text on a retry would slip past it). Without an override the
+    // only way through was to alter the date or amount: falsify the document to
+    // pass the guard. allow_duplicate is that override, and only boolean `true`
+    // opens it. The same idempotency_key still replays a blind retry.
     const taxRateForTotal = taxRate ?? 15;
     const total = Math.round(subtotal * (1 + taxRateForTotal / 100) * 100) / 100;
-    const duplicate = await findOpenDuplicateDraft(
+    const duplicate = args.allow_duplicate === true ? null : await findOpenDuplicateDraft(
       ctx.companyId,
       {
         type: type as (typeof TYPES)[number],
@@ -133,8 +145,8 @@ export const createCreditNoteTool: McpTool = {
     if (duplicate) {
       return toolError(
         `An identical draft credit note already exists (id ${duplicate}) for the same counterparty, `
-        + 'date and amount. Approve that one with approve_credit_note, or change the date, amount or '
-        + 'reason if this is genuinely a second credit.',
+        + 'linked invoice, date and amount. If this is a retry, approve that one with approve_credit_note. '
+        + 'If it is genuinely a second, separate credit, call again with allow_duplicate: true.',
       );
     }
 
