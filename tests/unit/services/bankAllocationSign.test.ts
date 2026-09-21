@@ -39,7 +39,14 @@ import { describe, it, expect, vi, beforeEach, type MockedFunction } from 'vites
 
 vi.mock('@/lib/neon', async () => {
   const actual = await vi.importActual<typeof import('@/lib/neon')>('@/lib/neon');
-  return { sql: vi.fn(), withTransaction: vi.fn(), fmtDate: actual.fmtDate };
+  // withSavepoint passes through: R-067's tenant fence runs its ownership read
+  // inside one, and an undefined mock would make every customer allocation throw.
+  return {
+    sql: vi.fn(),
+    withTransaction: vi.fn(),
+    withSavepoint: vi.fn((_n: string, fn: () => unknown) => Promise.resolve().then(fn)),
+    fmtDate: actual.fmtDate,
+  };
 });
 vi.mock('@/lib/logger', () => ({ log: { info: vi.fn(), error: vi.fn(), warn: vi.fn() } }));
 vi.mock('@/modules/accounting/services/gl/journalEntryService', () => ({
@@ -62,6 +69,22 @@ vi.mock('@/modules/accounting/services/capture/fourWayMatchService', () => ({
 vi.mock('@/modules/accounting/services/ap/supplierAutoAllocate', () => ({
   recordSupplierBankPayment: vi.fn(async () => ({
     paymentId: 'payment-1', appliedLines: [], unappliedRemainder: 0, strategy: 'off',
+  })),
+}));
+vi.mock('@/modules/accounting/services/ap/supplierRefundDocument', () => ({
+  planSupplierRefund: vi.fn(async () => ({
+    amount: 0, onAccountCredit: 1e9, supplierName: 'Acme',
+  })),
+  recordSupplierRefund: vi.fn(async () => ({
+    paymentId: 'refund-1', amount: 0, onAccountCredit: 1e9,
+  })),
+}));
+vi.mock('@/modules/accounting/services/ar/customerRefundDocument', () => ({
+  planCustomerRefund: vi.fn(async () => ({
+    amount: 0, onAccountCredit: 1e9, customerName: 'Acme',
+  })),
+  recordCustomerRefund: vi.fn(async () => ({
+    paymentId: 'crefund-1', amount: 0, onAccountCredit: 1e9,
   })),
 }));
 vi.mock('@/modules/accounting/services/ar/customerAutoAllocate', () => ({
@@ -110,7 +133,7 @@ function txRow(amount: number) {
     bank_account_id: BANK_ACCOUNT_ID,
     amount,
     transaction_date: new Date('2026-02-04'),
-    status: 'imported',
+    status: 'imported', feed_state: 'posted',
     description: 'ROHCAP REFUND',
     reference: 'RC-1187',
   };

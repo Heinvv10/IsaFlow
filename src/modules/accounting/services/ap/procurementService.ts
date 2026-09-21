@@ -163,10 +163,6 @@ export function calculateThreeWayMatch(
 // NUMBER GENERATION
 // ═══════════════════════════════════════════════════════════════════════════
 
-export function generatePONumber(existingCount: number): string {
-  return `PO-${String(existingCount + 1).padStart(5, '0')}`;
-}
-
 export function generateGRNNumber(existingCount: number): string {
   return `GRN-${String(existingCount + 1).padStart(5, '0')}`;
 }

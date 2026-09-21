@@ -85,6 +85,9 @@ import {
 } from '@/lib/mcp/tools/writeBankBulkAllocate';
 import { reverseBankAllocationBatchTool } from '@/lib/mcp/tools/writeBankReverseBatch';
 import { BulkAllocationLineError } from '@/lib/mcp/bulkAllocationLineError';
+import { PaymentLockTimeoutError } from '@/modules/accounting/services/core/paymentLock';
+import { ReceiptRefusal } from '@/modules/accounting/services/ar/receiptRefusal';
+import { SupplierPaymentRefusal } from '@/modules/accounting/services/ap/supplierPaymentRefusal';
 
 const ctx = { companyId: 'company-1', userId: 'user-1' } as never;
 const BATCH = '0f000000-0000-4000-8000-000000000001';
@@ -430,6 +433,74 @@ describe('bulk_allocate_bank_transactions — a row locked by another request', 
       { index: 1, transaction_id: TX(2), reason: 'locked by another request — retry' },
     ]);
     expect(allocateTransaction).toHaveBeenCalledTimes(3);
+  });
+});
+
+describe('bulk_allocate_bank_transactions — every contention member is a skip', () => {
+  /**
+   * `postAllocationLine` reaches `allocateTransaction`, and through
+   * `recordSupplierBankPayment` / `autoApplyCustomerReceipt` it reaches the
+   * payment lock and the two retryable plan refusals as well as the bank lock.
+   * Classifying on BANK_TX_LOCK_TIMEOUT alone failed the whole batch for three
+   * of the four — measured, not argued (K-071 r17). The real classes are used,
+   * not hand-built shapes, so a member that changes its code or its flag breaks
+   * this file rather than silently leaving the batch fatal again.
+   */
+  const CONTENTION: readonly [string, () => Error][] = [
+    ['bank row lock', () => Object.assign(
+      new Error('Bank transaction is being allocated by another request — retry in a moment.'),
+      { code: 'BANK_TX_LOCK_TIMEOUT' },
+    )],
+    ['payment row lock', () => new PaymentLockTimeoutError('payment-1')],
+    ['retryable receipt refusal', () => new ReceiptRefusal(
+      'Invoice is being updated by another request — retry in a moment.', { retryable: true },
+    )],
+    ['retryable supplier-payment refusal', () => new SupplierPaymentRefusal(
+      'Bill is being updated by another request — retry in a moment.', { retryable: true },
+    )],
+  ];
+
+  it.each(CONTENTION)('skips a line refused by the %s and keeps the batch going', async (_n, make) => {
+    statesReturn(state(1, 'imported', null), state(2, 'imported', null), state(3, 'imported', null));
+    vi.mocked(allocateTransaction).mockImplementation((async (_c: string, txId: string) => {
+      if (txId === TX(2)) throw make();
+      return { journalEntryId: `je-for-${txId}`, bankTransaction: { id: txId } };
+    }) as never);
+
+    const res = await bulkAllocateBankTransactionsTool.handler(
+      { allocations: [line(1), line(2), line(3)], idempotency_key: 'k1' }, ctx,
+    );
+
+    expect(res.isError).toBeUndefined();
+    const body = payload(res as never);
+    expect(body.posted).toBe(2);
+    expect(body.skipped).toEqual([
+      { index: 1, transaction_id: TX(2), reason: 'locked by another request — retry' },
+    ]);
+    // The other direction of the guard: line 3 is still attempted.
+    expect(allocateTransaction).toHaveBeenCalledTimes(3);
+  });
+
+  it('still FAILS the batch on a refusal about the books, not about contention', async () => {
+    // The mirror of every member above: same class, `retryable` false. A
+    // cancelled bill is not going to succeed on a retry, so it must not be
+    // reported to the agent as "retry" — it is fatal and locates its line.
+    statesReturn(state(1, 'imported', null), state(2, 'imported', null));
+    vi.mocked(allocateTransaction).mockImplementation((async (_c: string, txId: string) => {
+      if (txId === TX(2)) throw new SupplierPaymentRefusal('Bill BILL-9 is cancelled');
+      return { journalEntryId: `je-for-${txId}`, bankTransaction: { id: txId } };
+    }) as never);
+
+    const call = bulkAllocateBankTransactionsTool.handler(
+      { allocations: [line(1), line(2)], idempotency_key: 'k1' }, ctx,
+    );
+    await expect(call).rejects.toThrow(BulkAllocationLineError);
+    await call.catch((err: unknown) => {
+      const e = err as BulkAllocationLineError;
+      expect(e.index).toBe(1);
+      expect(e.detail).toContain('Bill BILL-9 is cancelled');
+    });
+    expect(recordAllocationBatchLines).not.toHaveBeenCalled();
   });
 });
 

@@ -1,7 +1,7 @@
 /**
- * BalanceSheetReport → two StatementRow[] (assets; liabilities and equity).
- * Every figure is copied from the report except `Total Liabilities and
- * Equity`, which the service does not expose; it is the sum of two service
+ * BalanceSheetReport → two StatementRow[] (assets; equity and liabilities).
+ * Every figure is copied from the report except `Total Equity and
+ * Liabilities`, which the service does not expose; it is the sum of two service
  * totals and is the single derived figure in the statement layer.
  */
 import type { BalanceSheetLineItem, BalanceSheetReport } from '@/modules/accounting/types/gl.report.types';
@@ -62,7 +62,7 @@ export function toBalanceSheetRows(r: BalanceSheetReport, opts: RowOptions): { a
   const c = opts.comparative;
   const assets = block('assets', 'Assets', r.assets, r.totalAssets, r.priorTotalAssets, 'asset', opts, 'No asset balances');
   const le: StatementRow = {
-    id: 'grand:totalLiabilitiesAndEquity', kind: 'grand', label: 'Total Liabilities and Equity', depth: 0,
+    id: 'grand:totalLiabilitiesAndEquity', kind: 'grand', label: 'Total Equity and Liabilities', depth: 0,
     actual: r.totalLiabilities + r.totalEquity, // derived: the service has no field for this
   };
   if (c && r.priorTotalLiabilities !== undefined && r.priorTotalEquity !== undefined) {
@@ -70,8 +70,8 @@ export function toBalanceSheetRows(r: BalanceSheetReport, opts: RowOptions): { a
     le.prior = { value: r.priorTotalLiabilities + r.priorTotalEquity };
   }
   const liabilitiesAndEquity = [
-    ...block('liabilities', 'Liabilities', r.liabilities, r.totalLiabilities, r.priorTotalLiabilities, 'claim', opts, 'No liability balances'),
     ...block('equity', 'Equity', r.equity, r.totalEquity, r.priorTotalEquity, 'claim', opts, 'No equity balances'),
+    ...block('liabilities', 'Liabilities', r.liabilities, r.totalLiabilities, r.priorTotalLiabilities, 'claim', opts, 'No liability balances'),
     le,
   ];
   return { assets, liabilitiesAndEquity };

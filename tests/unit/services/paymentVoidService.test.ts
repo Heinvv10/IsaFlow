@@ -27,16 +27,24 @@ vi.mock('@/lib/neon', () => ({
   // transaction to hold one, so run the block straight through.
   withSavepoint: vi.fn(async (_name: string, fn: () => Promise<unknown>) => fn()),
 }));
-vi.mock('@/modules/accounting/services/core/paymentLock', () => ({
-  lockCustomerPaymentForUpdate: vi.fn(),
-  lockSupplierPaymentForUpdate: vi.fn(),
-}));
+vi.mock('@/modules/accounting/services/core/paymentLock', async () => {
+  // importOriginal, not a hand-written stub: the refusal CLASSES are part of
+  // this module's contract and a stub that omits one turns a typed refusal into
+  // a mock-resolution error that looks nothing like the production failure.
+  const actual = await vi.importActual<typeof import('@/modules/accounting/services/core/paymentLock')>(
+    '@/modules/accounting/services/core/paymentLock',
+  );
+  return { ...actual, lockCustomerPaymentForUpdate: vi.fn(), lockSupplierPaymentForUpdate: vi.fn() };
+});
 vi.mock('@/modules/accounting/services/bank/bankAllocationUnwind', () => ({
   unwindOnePayment: vi.fn(),
   unwindBankAllocationApplication: vi.fn(),
 }));
 vi.mock('@/modules/accounting/services/bank/bankAllocationService', () => ({
   reverseReconciledTransaction: vi.fn(),
+}));
+vi.mock('@/modules/accounting/services/bank/bankTxLock', () => ({
+  lockBankTransactionForUpdate: vi.fn(),
 }));
 vi.mock('@/modules/accounting/services/gl/journalEntryService', () => ({
   reverseJournalEntry: vi.fn(),
@@ -52,6 +60,7 @@ import {
   unwindBankAllocationApplication,
 } from '@/modules/accounting/services/bank/bankAllocationUnwind';
 import { reverseReconciledTransaction } from '@/modules/accounting/services/bank/bankAllocationService';
+import { lockBankTransactionForUpdate } from '@/modules/accounting/services/bank/bankTxLock';
 import { reverseJournalEntry } from '@/modules/accounting/services/gl/journalEntryService';
 import {
   isVoidRefusal,
@@ -75,7 +84,18 @@ function given(payment: Record<string, unknown> | null, ...results: unknown[][])
   vi.mocked(lockCustomerPaymentForUpdate).mockResolvedValue(payment as never);
   vi.mocked(lockSupplierPaymentForUpdate).mockResolvedValue(payment as never);
   const m = vi.mocked(sql);
-  for (const rows of results) m.mockResolvedValueOnce(rows as never);
+  // The UNLOCKED journal-id peek is now the first statement: it resolves the
+  // bank line so THAT can be locked before the payment. See the lock-order
+  // section in paymentVoidService.ts. It agrees with the locked read by
+  // construction here; the mismatch case has its own test below.
+  m.mockResolvedValueOnce((payment === null
+    ? []
+    : [{ gl_journal_entry_id: payment.gl_journal_entry_id ?? null }]) as never);
+  // The bank-line lookup now runs BEFORE the status refusals, because the line
+  // has to be locked before the payment. A test that only asserts a refusal
+  // supplies no results, so stand in an empty bank-line set for it.
+  const queued = results.length === 0 && payment?.gl_journal_entry_id ? [[]] : results;
+  for (const rows of queued) m.mockResolvedValueOnce(rows as never);
 }
 
 const paymentRow = (over: Record<string, unknown> = {}) => ({
@@ -135,6 +155,55 @@ describe('voidPaymentDocument', () => {
     expect(unwindOnePayment).not.toHaveBeenCalled();
     expect(reverseJournalEntry).not.toHaveBeenCalled();
     expect(r.bankTransactionId).toBe(BANK_TX);
+  });
+
+  // MEDIUM-1 follow-through (round 8). This function locks TWO rows nobody else
+  // owns together, and `reverseReconciledTransaction` — the very function it
+  // delegates to — takes the bank line FIRST and reaches the payment afterwards
+  // through `unwindOnePayment`'s `UPDATE …_payments`. Locking the payment first
+  // was the inverse order, so a `void_receipt` on P racing a
+  // `reverse_bank_allocation` on the line P settles held one row each and
+  // deadlocked (40P01 → 500). Canonical order: `bank/.claude.md`.
+  it('locks the bank line BEFORE the payment — the canonical order', async () => {
+    const order: string[] = [];
+    vi.mocked(lockBankTransactionForUpdate).mockImplementation(async () => {
+      order.push('bank'); return null;
+    });
+    vi.mocked(lockCustomerPaymentForUpdate).mockImplementation(async () => {
+      order.push('payment'); return paymentRow() as never;
+    });
+    const m = vi.mocked(sql);
+    m.mockResolvedValueOnce([{ gl_journal_entry_id: JE }] as never);
+    m.mockResolvedValueOnce([{ id: BANK_TX }] as never);
+
+    await voidPaymentDocument(COMPANY, 'customer', PAYMENT, USER);
+    expect(order).toEqual(['bank', 'payment']);
+    expect(lockBankTransactionForUpdate).toHaveBeenCalledWith(COMPANY, BANK_TX);
+  });
+
+  // The peek is UNLOCKED, so the journal id it read can move before the lock is
+  // taken — and then the line locked above is the wrong one. `gl_journal_entry_id`
+  // is written once when a payment posts and never reassigned, so this is the
+  // posting race, not a normal state. Nothing has been written; it must throw
+  // rather than proceed against a line it never locked.
+  it('refuses when the payment posts between the unlocked peek and the lock', async () => {
+    const OTHER_JE = '55555555-5555-4555-8555-555555555555';
+    vi.mocked(lockCustomerPaymentForUpdate)
+      .mockResolvedValue(paymentRow({ gl_journal_entry_id: OTHER_JE }) as never);
+    const m = vi.mocked(sql);
+    m.mockResolvedValueOnce([{ gl_journal_entry_id: null }] as never);  // peek: not posted yet
+
+    const err = await voidPaymentDocument(COMPANY, 'customer', PAYMENT, USER)
+      .then(() => null, (e: unknown) => e);
+    expect((err as Error).message).toMatch(/posted while this void was being prepared/i);
+    // TYPED, not a bare Error: `safeErrorText` surfaces a message only for a
+    // code on `REFUSAL_CODES`, and an agent handed the generic fallback retries
+    // the call it was just refused.
+    expect(err).toMatchObject({ code: 'PAYMENT_POSTED_DURING_VOID' });
+    expect(unwindOnePayment).not.toHaveBeenCalled();
+    expect(unwindBankAllocationApplication).not.toHaveBeenCalled();
+    expect(reverseJournalEntry).not.toHaveBeenCalled();
+    expect(reverseReconciledTransaction).not.toHaveBeenCalled();
   });
 
   it('reports the counts the BANK path actually unwound, never zero', async () => {

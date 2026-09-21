@@ -8,7 +8,7 @@
  */
 import { describe, it, expect } from 'vitest';
 import { buildReportPack, type ReportPackInput } from '@/modules/accounting/services/reports/reportPackService';
-import { packToTotals, packToMargins, packToBsTotals, packToBsDetail, toManagementPandLRows } from '@/modules/accounting/services/reports/statementRows/packMappers';
+import { packToTotals, packToMargins, packToBsTotals, packToBsDetail, toManagementBsRows, toManagementPandLRows } from '@/modules/accounting/services/reports/statementRows/packMappers';
 import { incomeStatementPackRows } from '@/modules/accounting/services/reports/incomeStatementPackRows';
 
 /** Brightsphere, all-time — the tenant whose pack was short by R341,712.00. */
@@ -79,10 +79,19 @@ describe('packToBsTotals and packToBsDetail', () => {
 
   it('coerces a non-numeric value to 0 rather than letting it reach the grid', () => {
     // The cast the page used to do (`d as Record<string, number>`) let a string
-    // through, and the derived Total Liabilities and Equity concatenated it.
+    // through, and the derived Total Equity and Liabilities concatenated it.
     const t = packToBsTotals({ totalAssets: '900000' as unknown, totalLiabilities: 100, totalEquity: 200 });
     expect(t.totalAssets).toBe(0);
     expect(t.totalLiabilities! + t.totalEquity!).toBe(300);
+  });
+
+  it('presents equity before liabilities in the management statement', () => {
+    const rows = toManagementBsRows(packToBsTotals(section('balance_sheet')), packToBsDetail(section('balance_sheet')));
+    expect(rows.map(row => row.label)).toEqual([
+      'Total Assets', 'Current Assets', 'Cash', 'Accounts Receivable',
+      'Total Equity', 'Total Liabilities', 'Accounts Payable',
+      'Total Equity and Liabilities',
+    ]);
   });
 });
 

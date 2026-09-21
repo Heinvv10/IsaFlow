@@ -8,6 +8,7 @@
 
 import type { NextApiRequest, NextApiResponse } from 'next';
 import { incomeStatementPackRows, NO_MARGIN_CELL } from '@/modules/accounting/services/reports/incomeStatementPackRows';
+import { packToBsDetail, packToBsTotals, toManagementBsRows } from '@/modules/accounting/services/reports/statementRows/packMappers';
 import { withErrorHandler } from '@/lib/api-error-handler';
 import { apiResponse } from '@/lib/apiResponse';
 import { withAuth, type CompanyAuthedRequest, withWriteAccess } from '@/lib/auth';
@@ -161,13 +162,8 @@ export function renderSection(
         doc,
         autoTable,
         [['Item', 'Amount']],
-        [
-          ['Current Assets', fmtZAR(n(d.currentAssets))],
-          ['Total Assets', fmtZAR(n(d.totalAssets))],
-          ['Current Liabilities', fmtZAR(n(d.currentLiabilities))],
-          ['Total Liabilities', fmtZAR(n(d.totalLiabilities))],
-          ['Total Equity', fmtZAR(n(d.totalEquity))],
-        ],
+        toManagementBsRows(packToBsTotals(d), packToBsDetail(d))
+          .map(row => [row.label, fmtZAR(row.actual)]),
         y,
         margin,
       );

@@ -74,7 +74,7 @@ describe('allocate_bank_transaction', () => {
     const call = vi.mocked(allocateTransaction).mock.calls[0]!;
     expect(call[0]).toBe('company-1');           // tenant from ctx
     expect(call[3]).toBe('user-1');
-    expect(call[12]).toEqual({ postingAgent: 'mcp:allocate_bank_transaction:v1', actorType: 'agent', actorTokenJti: 'jti' });
+    expect(call[12]).toEqual({ postingAgent: 'mcp:allocate_bank_transaction:v1', actorType: 'agent', actorTokenJti: 'jti', autoApply: 'fifo' });
   });
 
   it('rejects a missing transaction_id without touching the ledger', async () => {

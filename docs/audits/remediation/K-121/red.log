@@ -1,0 +1,35 @@
+        "quoteId": "283ba26b-e737-48e5-99b6-6ab57eb5db2a",
+        "taxRate": 15,
+        "unitPrice": 1000,
+      },
+    ],
+    "notes": null,
+    "quoteDate": "2026-01-01",
+    "quoteNumber": "K121-Q-1",
+    "status": "converted_to_order",
+    "subtotal": 1000,
+    "taxAmount": 150,
+    "terms": null,
+    "total": 1150,
+    "updatedAt": "Wed Sep 09 2026 11:34:26 GMT+0200 (South Africa Standard Time)",
+  },
+  "salesOrderId": "1c4356c4-cb42-41b8-90e9-7bcba7bcb806",
+}
+
+ ❯ tests/integration/k121-quote-convert-to-order-no-status-guard.int.test.ts:60:18
+     58|   expect.soft(String(link.rows[0].converted_order_id)).toBe(first!.sal…
+     59|
+     60|   expect(second).toBeNull();
+       |                  ^
+     61| });
+     62|
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[3/3]⎯
+
+
+ Test Files  1 failed (1)
+      Tests  1 failed (1)
+   Start at  11:34:23
+   Duration  3.39s (transform 1.08s, setup 0ms, import 1.62s, tests 455ms, environment 0ms)
+
+error: script "test:integration" exited with code 1

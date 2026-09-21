@@ -10,6 +10,13 @@
 import { describe, it, expect, vi, beforeEach, type MockedFunction } from 'vitest';
 
 vi.mock('@/lib/neon', () => ({ sql: vi.fn(), getPoolForTests: vi.fn() }));
+// The locking open-document read bounds its wait with SET LOCAL lock_timeout,
+// which needs the request's own client — the same shape fetchBillCandidates
+// uses. Its SQL shape and lock order are asserted in
+// tests/unit/services/ap/openDocumentLock.test.ts.
+vi.mock('@/modules/accounting/services/core/requestTransaction', () => ({
+  requireRequestTransaction: () => ({ query: vi.fn(async () => undefined) }),
+}));
 vi.mock('@/lib/logger', () => ({ log: { info: vi.fn(), error: vi.fn(), warn: vi.fn() } }));
 vi.mock('@/modules/accounting/services/ar/receiptApplicationService', () => ({
   planReceiptApplication: vi.fn(),
@@ -23,7 +30,6 @@ import {
 } from '@/modules/accounting/services/ar/receiptApplicationService';
 import {
   autoApplyCustomerReceipt,
-  fetchOpenCustomerInvoices,
 } from '@/modules/accounting/services/ar/customerAutoAllocate';
 
 type SqlFn = MockedFunction<(strings: TemplateStringsArray, ...v: unknown[]) => Promise<unknown[]>>;
@@ -52,15 +58,29 @@ function queries(): string[] {
 beforeEach(() => vi.clearAllMocks());
 
 describe('autoApplyCustomerReceipt', () => {
-  it('leaves the receipt unapplied when the customer has no strategy', async () => {
-    mockSql.mockResolvedValueOnce([{ auto_allocate_strategy: 'off' }]);
-
-    const result = await autoApplyCustomerReceipt(ARGS);
+  it("leaves the receipt unapplied on autoApply 'none', without reading the customer", async () => {
+    const result = await autoApplyCustomerReceipt({ ...ARGS, autoApply: 'none' });
 
     expect(mockPlan).not.toHaveBeenCalled();
     expect(result.unappliedRemainder).toBe(500);
-    // The invoices are not even read — the instruction decides first.
+    expect(result.autoApply).toBe('none');
+    // Neither the customer nor the invoices are read — the mode decides first.
+    expect(queries().some((q) => q.includes('FROM customers'))).toBe(false);
     expect(queries().some((q) => q.includes('FROM customer_invoices'))).toBe(false);
+  });
+
+  it("applies FIFO even when the customer column says 'off'", async () => {
+    mockSql
+      .mockResolvedValueOnce([{ auto_allocate_strategy: 'off' }])
+      .mockResolvedValueOnce([{ fiscal_period_id: 'fp-1' }])
+      .mockResolvedValueOnce([]);
+
+    const result = await autoApplyCustomerReceipt(ARGS);
+
+    // 'off' is the column default nobody set; it reads as "no preference", and
+    // the invoices ARE consulted now.
+    expect(result.strategy).toBe('oldest');
+    expect(queries().some((q) => q.includes('FROM customer_invoices'))).toBe(true);
   });
 
   it('applies oldest-first, partially settling the invoice the cash runs out on', async () => {
@@ -68,8 +88,9 @@ describe('autoApplyCustomerReceipt', () => {
       .mockResolvedValueOnce([{ auto_allocate_strategy: 'oldest' }])
       .mockResolvedValueOnce([{ fiscal_period_id: 'fp-1' }])
       .mockResolvedValueOnce([
-        { id: 'inv-old', outstanding: 200 },
-        { id: 'inv-new', outstanding: 800 },
+        // id order from the database; the FIFO order is applied in memory.
+        { id: 'inv-new', invoice_date: '2026-02-09', due_date: null, outstanding: 800 },
+        { id: 'inv-old', invoice_date: '2026-02-01', due_date: null, outstanding: 200 },
       ]);
     mockPlan.mockResolvedValue({
       paymentId: PAYMENT_ID, paymentNumber: 'RC-1', customerId: CUSTOMER_ID,
@@ -129,22 +150,5 @@ describe('autoApplyCustomerReceipt — the journal is in no fiscal period', () =
     expect(result.unappliedRemainder).toBe(500);
     // The invoices are never read: the journal decides before they are.
     expect(queries().some((q) => q.includes('FROM customer_invoices'))).toBe(false);
-  });
-});
-
-describe('fetchOpenCustomerInvoices', () => {
-  it('matches on either customer column — both exist and either can carry it', async () => {
-    mockSql.mockResolvedValueOnce([]);
-    await fetchOpenCustomerInvoices(COMPANY_ID, CUSTOMER_ID, true);
-    const q = queries()[0]!;
-    expect(q).toContain('COALESCE(ci.client_id, ci.customer_id)');
-    expect(q).toContain('company_id');
-    expect(q).toContain('ORDER BY ci.invoice_date ASC');
-  });
-
-  it('reverses the order for newest-first', async () => {
-    mockSql.mockResolvedValueOnce([]);
-    await fetchOpenCustomerInvoices(COMPANY_ID, CUSTOMER_ID, false);
-    expect(queries()[0]!).toContain('ORDER BY ci.invoice_date DESC');
   });
 });

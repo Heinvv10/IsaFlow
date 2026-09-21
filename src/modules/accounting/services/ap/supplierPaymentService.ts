@@ -9,7 +9,8 @@ import { fmtDate } from '@/lib/fmtDate';
 import type { DbRow } from '@/lib/neon';
 import { log } from '@/lib/logger';
 import { validatePaymentAllocations } from '../../utils/paymentAllocation';
-import { assertBillAllocatable } from './supplierAllocationLines';
+import { assertSupplierInCompany } from '../core/contactDirectoryService';
+import { assertBillAllocatable } from './billAllocatable';
 import type {
   SupplierPayment,
   PaymentAllocation,
@@ -136,6 +137,8 @@ export async function createSupplierPayment(companyId: string,
   userId: string,
 ): Promise<SupplierPayment> {
   try {
+    // R-068: the invoices below are company-scoped; supplier_id was not.
+    await assertSupplierInCompany(companyId, input.supplierId);
     const invoiceIds = input.allocations.map(a => a.invoiceId);
     const invoiceRows = (await sql`
       SELECT id, invoice_number, supplier_id, status, total_amount, amount_paid, balance
@@ -146,12 +149,11 @@ export async function createSupplierPayment(companyId: string,
     if (invoiceRows.length !== invoiceIds.length) {
       throw new Error('One or more invoice IDs not found or belong to a different company');
     }
-    // The query above names the company and the ids only. Without these two
-    // checks a payment raised against supplier A settled supplier B's bill, and
-    // a draft, cancelled, pending_approval or disputed bill — none of which has
-    // credited AP — took the payment as readily as an approved one. Checked
-    // here rather than in the WHERE clause so the refusal can say which bill and
-    // why: a bare "not found" would mislead on a cancelled bill.
+    // K-066: R-068 above proves the SUPPLIER is this company's; nothing proved
+    // each BILL is that supplier's, or payable. Without this a payment raised
+    // against supplier A settled supplier B's bill, and a draft, cancelled,
+    // pending_approval or disputed bill — none of which credited AP — took the
+    // payment, which `processSupplierPayment` then debited AP against.
     for (const row of invoiceRows) {
       assertBillAllocatable({
         invoiceNumber: String(row.invoice_number),

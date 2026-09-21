@@ -12,16 +12,23 @@ import { getPeriodStatusForDate } from '../gl/periodStatusService';
 import type { JournalEntryMeta, PostingActorOpts } from '../gl/journalEntryMeta';
 import { getSystemAccountId } from '../gl/systemAccountResolver';
 import { isControlAccountSettlement } from '../gl/settlementVat';
+import { isBankSubtype } from '../gl/accountSubtypes';
 import { mapTxRow } from './bankTransactionQueryService';
 import type { BankTransaction } from '../../types/bank.types';
 import type { JournalLineInput } from '../../types/gl.types';
 import { recordPaymentMatch } from '../capture/fourWayMatchService';
 import { recordSupplierBankPayment } from '../ap/supplierAutoAllocate';
+import { planSupplierRefund, recordSupplierRefund } from '../ap/supplierRefundDocument';
+import { planCustomerRefund, recordCustomerRefund } from '../ar/customerRefundDocument';
 import { autoApplyCustomerReceipt } from '../ar/customerAutoAllocate';
 import { unwindBankAllocationApplication } from './bankAllocationUnwind';
 import type { BankAllocationUnwindResult } from './bankAllocationUnwind';
 import { lockBankTransactionForUpdate } from './bankTxLock';
+import { BankAllocationRefusal } from './bankAllocationRefusal';
+import { assertPostedForAllocation } from './bankFeedStateGuard';
 import { autoLinkCounterpartyTransfer } from './bankTransferAutoLink';
+import { assertCustomerInCompany, assertSupplierInCompany } from '../core/contactDirectoryService';
+import { DEFAULT_AUTO_APPLY, type AutoApplyMode } from '../shared/autoAllocateStrategy';
 
 
 type Row = DbRow;
@@ -72,6 +79,21 @@ async function resolveVatAccountId(
 
 export type AllocationType = 'account' | 'supplier' | 'customer' | 'transfer';
 
+/**
+ * What a line's cash actually settled, for the caller to report back.
+ *
+ * Present on every supplier payment and customer receipt that named no
+ * document — including under `auto_apply: 'none'`, where `applications` is
+ * empty and `onAccount` is the whole line. A caller that cannot tell "applied
+ * nothing" from "was never asked to" cannot explain the balance to its user.
+ */
+export interface AllocationApplicationResult {
+  autoApply: AutoApplyMode;
+  applications: { documentId: string; documentNumber: string; amount: number }[];
+  /** The unapplied remainder left sitting on the contact's account. */
+  onAccount: number;
+}
+
 export interface SplitLine {
   contraAccountId: string;
   amount: number;
@@ -91,21 +113,50 @@ export async function allocateTransaction(
   vatCode?: string, cc1Id?: string, cc2Id?: string, buId?: string,
   invoiceId?: string,
   /**
-   * `autoApply: false` says the CALLER has already named what this cash is for
-   * — a purchase order, say — so the payment document is still created but the
-   * supplier's `auto_allocate_strategy` is NOT run against its open bills.
-   * Applying it elsewhere would contradict the instruction the caller just
-   * gave. Default true: a line with no named target is exactly what the
-   * strategy exists to decide.
+   * `autoApply: 'none'` says the CALLER has already named what this cash is for
+   * — a purchase order, say — so the payment document is still created but
+   * nothing is applied to the contact's open documents. Applying it elsewhere
+   * would contradict the instruction the caller just gave.
+   *
+   * Default `'fifo'`: a line with no named target settles that contact's
+   * oldest open documents. It used to default to the contact's own
+   * `auto_allocate_strategy`, which is 'off' on every row nobody edited — so
+   * the cash got a document and closed nothing.
    */
-  opts?: PostingActorOpts & { autoApply?: boolean },
-): Promise<{ journalEntryId: string; bankTransaction: BankTransaction }> {
+  opts?: PostingActorOpts & { autoApply?: AutoApplyMode },
+): Promise<{
+  journalEntryId: string;
+  bankTransaction: BankTransaction;
+  /** Present only for a supplier/customer line that named no document. */
+  application?: AllocationApplicationResult;
+}> {
   // FOR UPDATE: hold the row for the rest of the request so a concurrent
   // allocate blocks here rather than passing the same status check and posting
   // a second journal for one transaction.
   const tx = await lockBankTransactionForUpdate(companyId, bankTxId);
-  if (!tx) throw new Error(`Bank transaction ${bankTxId} not found`);
-  if (tx.status !== 'imported') throw new Error(`Transaction already ${tx.status} — cannot allocate`);
+  // BankAllocationRefusal, not a bare Error: both are decided from the locked
+  // row before the first write, and a caller that can show that ordering may
+  // answer them with a 4xx instead of the 500 every later throw here needs.
+  if (!tx) throw new BankAllocationRefusal(`Bank transaction ${bankTxId} not found`);
+  // A pending/removed feed row carries status 'imported', so the status check
+  // below would let it through. Refused from the locked row, before any write.
+  assertPostedForAllocation(tx, bankTxId, 'allocate');
+  if (tx.status !== 'imported') {
+    throw new BankAllocationRefusal(`Transaction already ${tx.status} — cannot allocate`);
+  }
+
+  // R-067. `entityId` arrives in the request body (bank-transactions-action.ts:40
+  // validates its UUID SHAPE only) and is written into `customer_payments.client_id`
+  // below; the only customer read on this path fetches a NAME and falls back to
+  // `Customer #<id>` on a miss. Measured: company A allocated a receipt against
+  // company B's customer and the row carried B's client_id. Fenced in the service,
+  // not the route — the two screens, bank-match-confirm and the MCP allocate /
+  // bulk-allocate tools all pass through here — and BEFORE `createJournalEntry`,
+  // because withAuth COMMITs a 4xx returned after a write. Supplier twin (R-068):
+  // the supplier arm's name lookup falls back to `Supplier #<id>` the same way,
+  // and recordSupplierBankPayment writes the id into supplier_payments.
+  if (allocType === 'customer') await assertCustomerInCompany(companyId, entityId);
+  if (allocType === 'supplier') await assertSupplierInCompany(companyId, entityId);
 
   const totalAmount = Math.abs(Number(tx.amount));
   const bankAccountId = String(tx.bank_account_id);
@@ -200,7 +251,7 @@ export async function allocateTransaction(
     `) as Row[];
     if (cpRows.length === 0) throw new Error('Counterparty bank account not found');
     const cp = cpRows[0]!;
-    if (String(cp.account_subtype) !== 'bank') {
+    if (!isBankSubtype(cp.account_subtype == null ? null : String(cp.account_subtype))) {
       throw new Error('Transfer counterparty must be a bank account (subtype = bank)');
     }
 
@@ -250,6 +301,18 @@ export async function allocateTransaction(
     allocEntityName = supName;
     entryDesc = description || (isSpent ? `Payment to ${supName}` : `Refund from ${supName}`);
     source = 'auto_supplier_payment';
+    // THE REFUND CEILING, DECIDED HERE AND NOT LOWER DOWN.
+    //
+    // A money-IN line against a supplier mints a refund document below, and a
+    // refund cannot exceed the credit the supplier is holding — see
+    // ap/supplierRefundDocument. This runs BEFORE `createJournalEntry`, which
+    // is the first write on this path, because `withAuth` COMMITs on a 4xx and
+    // rolls back only on a 5xx: a business refusal raised after the journal has
+    // posted can only be answered by committing an orphan journal or by telling
+    // the user an internal error occurred. Refused here there is nothing
+    // written to unwind, and `BankAllocationRefusal` is the class the routes
+    // already answer 400.
+    if (!isSpent) await planSupplierRefund(companyId, entityId, totalAmount, txDate);
     // isSpent (money out) → a payment: DR AP, CR Bank.
     // deposit (money in)  → a refund:  DR Bank, CR AP.
     //
@@ -285,6 +348,10 @@ export async function allocateTransaction(
     allocEntityName = custName;
     entryDesc = description || (isSpent ? `Refund to ${custName}` : `Receipt from ${custName}`);
     source = 'auto_payment';
+    // The mirror of the supplier arm's ceiling, and decided in the same place
+    // and for the same reason: before `createJournalEntry`, which is the first
+    // write on this path. See the note there.
+    if (isSpent) await planCustomerRefund(companyId, entityId, totalAmount, txDate);
     // The mirror of the supplier arm, and it carried the mirror bug with no
     // occurrence yet: money OUT against a customer is a refund — DR AR, CR Bank
     // — and posting the receipt direction moved the bank the wrong way by twice
@@ -334,7 +401,8 @@ export async function allocateTransaction(
   }
 
   const linesWithDims = lines.map(l =>
-    l.glAccountId === bankAccountId ? l : { ...l, costCenterId: cc1Id || l.costCenterId, buId: buId || l.buId }
+    l.glAccountId === bankAccountId ? l : { ...l, costCenterId: cc1Id || l.costCenterId,
+      cc1Id: cc1Id || l.cc1Id, cc2Id: cc2Id || l.cc2Id, buId: buId || l.buId }
   );
 
   // Carry forward source_document_id from the invoice when allocating against a known entity
@@ -398,6 +466,10 @@ export async function allocateTransaction(
     }
   }
 
+  // Resolved once: both arms read it, and the response echoes it back so the
+  // caller can show the user which mode produced the applications below.
+  const autoApplyMode: AutoApplyMode = opts?.autoApply ?? DEFAULT_AUTO_APPLY;
+  let application: AllocationApplicationResult | undefined;
   let customerPaymentId: string | null = null;
   // Atomically update bank_transactions and optionally insert the customer_payment record.
   // If either write fails the whole block rolls back — no orphaned allocation state.
@@ -467,12 +539,12 @@ export async function allocateTransaction(
     } else {
       // NOT caught. This writes, and a caught write is a partial commit under a
       // success response — see the header of ap/supplierAutoAllocate.ts.
-      await recordSupplierBankPayment({
+      const recorded = await recordSupplierBankPayment({
         companyId,
         supplierId: entityId,
         // See the `autoApply` note on the signature: a caller that named a
-        // target gets the document without the strategy.
-        autoApply: opts?.autoApply ?? true,
+        // target gets the document without the application.
+        autoApply: autoApplyMode,
         bankTxId,
         bankAccountId,
         journalEntryId: je.id,
@@ -481,7 +553,56 @@ export async function allocateTransaction(
         description: entryDesc,
         userId,
       });
+      application = {
+        autoApply: autoApplyMode,
+        applications: recorded.appliedLines.map((l) => ({
+          documentId: l.invoiceId, documentNumber: l.invoiceNumber, amount: l.amount,
+        })),
+        onAccount: recorded.unappliedRemainder,
+      };
     }
+  }
+
+  // ── The refund: cash coming back ───────────────────────────────────────────
+  //
+  // The mirror of the arm above, and the half that did not exist. A money-IN
+  // line against a supplier posted DR Bank / CR Accounts Payable and created no
+  // document at all, so the control account moved, the subledger did not, and
+  // the supplier's on-account credit stayed overstated by the whole refund.
+  //
+  // NEVER APPLIED, at any `autoApply` mode. The document is a NEGATIVE
+  // remainder; "applying" it to a bill would un-pay that bill, which is a
+  // correction a person makes deliberately and not something a sweep decides.
+  // That is why there is no `autoApply` parameter here rather than one set to
+  // 'none'.
+  //
+  // `invoiceId` is deliberately not consulted. On the payment arm it says a
+  // caller has already claimed the document; no caller names a bill for a
+  // refund, and if one ever did, the bill is not what the cash settles.
+  // The customer mirror: money OUT to a customer, DR Accounts Receivable / CR
+  // Bank. Same hole, same shape, opposite side — and the `!isSpent` gate on the
+  // receipt insert above is what left it open. That gate is right and stays:
+  // a POSITIVE receipt row for a refund is cash the company never received.
+  if (allocType === 'customer' && entityId && isSpent) {
+    const refund = await recordCustomerRefund({
+      companyId, customerId: entityId, bankTxId, bankAccountId,
+      journalEntryId: je.id, amount: totalAmount, paymentDate: txDate,
+      description: entryDesc, userId,
+    });
+    application = { autoApply: 'none', applications: [], onAccount: refund.amount };
+  }
+
+  if (allocType === 'supplier' && entityId && !isSpent) {
+    const refund = await recordSupplierRefund({
+      companyId, supplierId: entityId, bankTxId, bankAccountId,
+      journalEntryId: je.id, amount: totalAmount, paymentDate: txDate,
+      description: entryDesc, userId,
+    });
+    application = {
+      autoApply: 'none',
+      applications: [],
+      onAccount: refund.amount,
+    };
   }
 
   // The receipt's own application, on the same rule and the same instruction.
@@ -502,16 +623,23 @@ export async function allocateTransaction(
   //     this call. If the strategy settled an older invoice, both writes stand
   //     and the subledger drops by twice the receipt. It passes
   //     `autoApply: false`.
-  if (allocType === 'customer' && entityId && customerPaymentId && !isSpent
-      && !invoiceId && (opts?.autoApply ?? true)) {
-    await autoApplyCustomerReceipt({
+  if (allocType === 'customer' && entityId && customerPaymentId && !isSpent && !invoiceId) {
+    const applied = await autoApplyCustomerReceipt({
       companyId,
       customerId: entityId,
       paymentId: customerPaymentId,
       journalEntryId: je.id,
       amount: totalAmount,
       userId,
+      autoApply: autoApplyMode,
     });
+    application = {
+      autoApply: autoApplyMode,
+      applications: applied.appliedLines.map((l) => ({
+        documentId: l.invoiceId, documentNumber: l.invoiceNumber, amount: l.amount,
+      })),
+      onAccount: applied.unappliedRemainder,
+    };
   }
 
   log.info('Allocated bank transaction', { bankTxId, journalEntryId: je.id, allocType, entityId, contraAccountId }, 'accounting');
@@ -526,7 +654,11 @@ export async function allocateTransaction(
   }
 
   const updated = (await sql`SELECT * FROM bank_transactions WHERE id = ${bankTxId}::UUID AND company_id = ${companyId}::UUID`) as Row[];
-  return { journalEntryId: je.id, bankTransaction: mapTxRow(updated[0]!) };
+  return {
+    journalEntryId: je.id,
+    bankTransaction: mapTxRow(updated[0]!),
+    ...(application ? { application } : {}),
+  };
 }
 
 // ── Split Allocate ────────────────────────────────────────────────────────────
@@ -535,8 +667,18 @@ export async function splitAllocateTransaction(
   companyId: string, bankTxId: string, lines: SplitLine[], userId: string,
 ): Promise<{ journalEntryId: string; bankTransaction: BankTransaction }> {
   const tx = await lockBankTransactionForUpdate(companyId, bankTxId); // see allocateTransaction
-  if (!tx) throw new Error(`Bank transaction ${bankTxId} not found`);
-  if (tx.status !== 'imported') throw new Error(`Transaction already ${tx.status} — cannot split allocate`);
+  // Same two pre-write refusals as `allocateTransaction`, and the same class:
+  // both are decided from the locked row before anything is written, so a
+  // caller that can show that ordering may answer them with a 4xx. Left as bare
+  // Errors here they would have to be told apart by message text — which is
+  // exactly what `BankAllocationRefusal` exists to stop.
+  if (!tx) throw new BankAllocationRefusal(`Bank transaction ${bankTxId} not found`);
+  // Same reasoning as allocateTransaction: refused from the locked row, before
+  // any write, because status alone would let a pending/removed row through.
+  assertPostedForAllocation(tx, bankTxId, 'split allocate');
+  if (tx.status !== 'imported') {
+    throw new BankAllocationRefusal(`Transaction already ${tx.status} — cannot split allocate`);
+  }
   if (!lines || lines.length === 0) throw new Error('At least one split line is required');
 
   const totalAmount = Math.abs(Number(tx.amount));

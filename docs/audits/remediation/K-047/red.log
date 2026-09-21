@@ -1,0 +1,30 @@
+$ node scripts/check-runtime.mjs && vitest run --config vitest.integration.config.ts "tests/integration/k047-depreciation-journal-posted-metadata.int.test.ts"
+
+ RUN  v4.1.2 /home/hein/Workspace/IsaFlow/.worktrees/audit-remediation-20260908
+
+{"level":"info","message":"Asset depreciation GL posted","timestamp":"2026-09-09T09:18:56.055Z","component":"accounting","data":{"assetId":"035efa76-6fdd-4ada-919e-0baed035dacb","entryId":"85f5e54c-6387-4600-8820-69953a1f4c0e","depreciationAmount":2000}}
+{"level":"info","message":"Dual depreciation ledger updated","timestamp":"2026-09-09T09:18:56.056Z","component":"accounting","data":{"assetId":"035efa76-6fdd-4ada-919e-0baed035dacb","yyyymm":"202603","policyDep":2000,"taxDep":2000}}
+ ❯ tests/integration/k047-depreciation-journal-posted-metadata.int.test.ts (2 tests | 1 failed) 266ms
+   × stamps posted_at and posted_by on a journal it writes at status=posted 12ms
+
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 1 ⎯⎯⎯⎯⎯⎯⎯
+
+ FAIL  tests/integration/k047-depreciation-journal-posted-metadata.int.test.ts > stamps posted_at and posted_by on a journal it writes at status=posted
+AssertionError: expected null not to be null
+ ❯ tests/integration/k047-depreciation-journal-posted-metadata.int.test.ts:95:33
+     93|     "SELECT status, posted_at, posted_by FROM gl_journal_entries WHERE…
+     94|   expect(rows[0].status).toBe('posted');
+     95|   expect(rows[0].posted_at).not.toBeNull();
+       |                                 ^
+     96|   expect(rows[0].posted_by).not.toBeNull();
+     97| });
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[1/1]⎯
+
+
+ Test Files  1 failed (1)
+      Tests  1 failed | 1 passed (2)
+   Start at  11:18:55
+   Duration  934ms (transform 220ms, setup 0ms, import 355ms, tests 266ms, environment 0ms)
+
+error: script "test:integration" exited with code 1

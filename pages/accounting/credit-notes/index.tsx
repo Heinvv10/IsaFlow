@@ -10,7 +10,7 @@ import type { CreditNote } from '@/modules/accounting/types/ar.types';
 import { formatCurrency } from '@/utils/formatters';
 import { apiFetch } from '@/lib/apiFetch';
 
-const TABS = ['all', 'draft', 'approved', 'applied', 'cancelled'] as const;
+const TABS = ['all', 'draft', 'approved', 'partially_applied', 'applied', 'cancelled'] as const;
 type Tab = typeof TABS[number];
 
 // Match Bank Transactions colour pattern: Customer = teal, Supplier = amber.

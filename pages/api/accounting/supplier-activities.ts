@@ -12,6 +12,7 @@ import { withAuth, type CompanyAuthedRequest, withWriteAccess } from '@/lib/auth
 import { withCsrf } from '@/lib/auth/withCsrf';
 import { withErrorHandler } from '@/lib/api-error-handler';
 import { log } from '@/lib/logger';
+import { assertSupplierInCompany, SupplierNotInCompanyError } from '@/modules/accounting/services/core/contactDirectoryService';
 
 type Row = Record<string, unknown>;
 
@@ -96,6 +97,15 @@ async function handler(req: CompanyAuthedRequest, res: NextApiResponse) {
     if (!description?.trim()) return apiResponse.badRequest(res, 'description is required');
 
     const subject = body.subject?.trim() || null;
+
+    // R-068: supplierId comes from the request body. Checked before the first
+    // write (withAuth COMMITs a 4xx returned after one).
+    try {
+      await assertSupplierInCompany(companyId, supplierId);
+    } catch (err) {
+      if (err instanceof SupplierNotInCompanyError) return apiResponse.badRequest(res, err.message);
+      throw err;
+    }
 
     try {
       const rows = (await sql`

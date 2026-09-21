@@ -15,6 +15,8 @@ import {
   RecurringInvoiceTemplateError,
 } from './recurringInvoiceTemplate';
 import { lockRecurringTemplate, RecurringInvoiceLockTimeoutError } from './recurringInvoiceLock';
+import { assertCustomerInCompany } from '../core/contactDirectoryService';
+import { insertWithReservedNumber } from '../core/documentNumberRetry';
 import type {
   RecurringInvoice,
   RecurringInvoiceCreateInput,
@@ -71,6 +73,10 @@ export async function createRecurringInvoice(companyId: string,
   input: RecurringInvoiceCreateInput,
   userId: string
 ): Promise<RecurringInvoice> {
+  // R-067: the runner re-mints an invoice from this template EVERY period, so
+  // a foreign client_id accepted here becomes a recurring cross-tenant document.
+  await assertCustomerInCompany(companyId, input.clientId);
+
   const taxRate = input.taxRate ?? 15;
   // W1 family (P2.1): a template with negative lines re-mints a negative
   // approved invoice EVERY period.
@@ -178,13 +184,6 @@ async function runOneTemplate(companyId: string, id: string, userId: string): Pr
   const endDate = ri.end_date ? String(ri.end_date) : null;
   const newStatus = endDate && nextDate > endDate ? 'completed' : 'active';
 
-  // Generate next invoice number
-  const numRows = (await sql`
-    SELECT MAX(CAST(SUBSTRING(invoice_number FROM '[0-9]+$') AS INTEGER)) AS max_num
-    FROM customer_invoices WHERE company_id = ${companyId} AND invoice_number LIKE 'INV-%'
-  `) as Row[];
-  const nextNum = (Number(numRows[0]?.max_num) || 0) + 1;
-  const invoiceNumber = `INV-${String(nextNum).padStart(5, '0')}`;
 
   // The template's lines ARE the invoice. Minting a header with none of them
   // put a receivable in AR with no detail behind it, so refuse rather than
@@ -202,21 +201,30 @@ async function runOneTemplate(companyId: string, id: string, userId: string): Pr
   const totals = deriveTotals(lineItems, taxRate);
   assertAggregateAgrees(id, totals, ri, lineItems.length);
 
-  const inv = (await sql`
-    INSERT INTO customer_invoices (
-      company_id, invoice_number, client_id, customer_id, project_id,
-      invoice_date, due_date, subtotal, tax_rate, tax_amount, total_amount,
-      status, notes, created_by
-    ) VALUES (
-      ${companyId}::UUID, ${invoiceNumber}, ${ri.client_id}::UUID, ${ri.client_id}::UUID,
-      ${ri.project_id || null},
-      CURRENT_DATE, CURRENT_DATE + INTERVAL '30 days',
-      ${totals.subtotal}, ${taxRate}, ${totals.taxAmount}, ${totals.totalAmount},
-      'draft', ${ri.description || ri.template_name}, ${userId}::UUID
-    ) RETURNING id
-  `) as Row[];
-
-  const invoiceId = String(inv[0]!.id);
+  // THE NUMBER COMES FROM THE COMPANY SEQUENCE. MAX(invoice_number)+1 was a
+  // second generator for one uniqueness domain: it left
+  // company_document_numbers.next_number frozen at its seed value while live
+  // numbers ran ahead of it, and it padded to 5 where the sequence pads to the
+  // configured width. The helper reserves, and retries past a number some
+  // legacy row already holds under its own savepoint — without that, a single
+  // such row stalls this template on every future run.
+  const invoiceId = await insertWithReservedNumber(
+    companyId, 'customer_invoice', 'rec_inv_', 'uq_customer_invoices_company_number', async (invoiceNumber) => {
+      const inv = (await sql`
+        INSERT INTO customer_invoices (
+          company_id, invoice_number, client_id, customer_id, project_id,
+          invoice_date, due_date, subtotal, tax_rate, tax_amount, total_amount,
+          status, notes, created_by
+        ) VALUES (
+          ${companyId}::UUID, ${invoiceNumber}, ${ri.client_id}::UUID, ${ri.client_id}::UUID,
+          ${ri.project_id || null},
+          CURRENT_DATE, CURRENT_DATE + INTERVAL '30 days',
+          ${totals.subtotal}, ${taxRate}, ${totals.taxAmount}, ${totals.totalAmount},
+          'draft', ${ri.description || ri.template_name}, ${userId}::UUID
+        ) RETURNING id
+      `) as Row[];
+      return String(inv[0]!.id);
+    });
 
   for (const li of lineItems) {
     await sql`

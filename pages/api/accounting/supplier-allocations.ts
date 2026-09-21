@@ -39,6 +39,11 @@ import {
   applySupplierPaymentPlan,
   planSupplierPaymentApplication,
 } from '@/modules/accounting/services/ap/supplierPaymentApplicationService';
+import {
+  isRetryableSupplierPaymentRefusal,
+  isSupplierPaymentRefusal,
+} from '@/modules/accounting/services/ap/supplierPaymentRefusal';
+import { isPaymentLockTimeout } from '@/modules/accounting/services/core/paymentLock';
 
 interface AllocationItem {
   invoiceId: string;
@@ -121,9 +126,27 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
     try {
       plan = await planSupplierPaymentApplication(companyId, paymentId, allocations);
     } catch (err) {
-      const message = err instanceof Error ? err.message : 'Allocation failed';
-      log.error('Supplier allocation refused', { paymentId, error: err }, 'accounting');
-      return apiResponse.badRequest(res, message);
+      // CONTENTION, not the caller's mistake, and answered 409 so a retry is
+      // what the user is told to do. Two rows can raise it: the payment itself
+      // (`PaymentLockTimeoutError`, the plan's first act) and a bill, which
+      // `planSupplierAllocationLines` raises as a refusal carrying
+      // `retryable: true`. Both are pre-write, so the 4xx `withAuth` COMMITs
+      // commits nothing. The AR mirror is `customer-allocations.ts`.
+      if (isPaymentLockTimeout(err) || isRetryableSupplierPaymentRefusal(err)) {
+        log.info('Supplier allocation hit a contended row', { paymentId }, 'accounting');
+        return apiResponse.conflict(res, (err as Error).message);
+      }
+      // Only a typed refusal may be answered with a 400. Catching everything
+      // put a driver error's raw text (schema and column names included) in
+      // front of the user on a status `withAuth` COMMITs, and monitored a
+      // genuine fault as the user's mistake.
+      if (!isSupplierPaymentRefusal(err)) {
+        log.error('Supplier allocation failed', { paymentId, error: err }, 'accounting');
+        throw err;
+      }
+      // `info`, not `error`: the user's own mistake, answered with the remedy.
+      log.info('Supplier allocation refused', { paymentId, reason: err.message }, 'accounting');
+      return apiResponse.badRequest(res, err.message);
     }
 
     // Nothing below is caught: a failure must reach withAuth as a 5xx so the

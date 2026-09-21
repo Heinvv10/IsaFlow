@@ -1,0 +1,171 @@
+$ node scripts/check-runtime.mjs && vitest run --config vitest.integration.config.ts "tests/integration/k144-match-unvalidated-journal-line.int.test.ts"
+
+ RUN  v4.1.2 /home/hein/Workspace/IsaFlow/.worktrees/audit-remediation-20260908
+
+{"level":"info","message":"Matched bank transaction","timestamp":"2026-09-09T09:44:19.899Z","component":"accounting","data":{"bankTxId":"bcf07a52-5804-4157-8dd6-84cbbafe5318","journalLineId":"c91e22be-3d69-4f7c-8e40-b6b3b14bdfb9"}}
+{"level":"error","message":"Failed to match bank transaction","timestamp":"2026-09-09T09:44:19.918Z","component":"accounting","data":{"bankTxId":"bcf07a52-5804-4157-8dd6-84cbbafe5318","error":{"length":384,"name":"error","severity":"ERROR","code":"23503","detail":"Key (matched_journal_line_id)=(884cfeaa-8606-40b8-a1c0-fdab5f766cd8) is not present in table \"gl_journal_lines\".","schema":"public","table":"bank_transactions","constraint":"bank_transactions_matched_journal_line_id_fkey","file":"ri_triggers.c","line":"2608","routine":"ri_ReportViolation","message":"insert or update on table \"bank_transactions\" violates foreign key constraint \"bank_transactions_matched_journal_line_id_fkey\"","stack":"error: insert or update on table \"bank_transactions\" violates foreign key constraint \"bank_transactions_matched_journal_line_id_fkey\"\n    at /home/hein/Workspace/IsaFlow/.worktrees/audit-remediation-20260908/node_modules/pg/lib/client.js:631:17\n    at processTicksAndRejections (node:internal/process/task_queues:95:5)\n    at LazyQuery.run (/home/hein/Workspace/IsaFlow/.worktrees/audit-remediation-20260908/src/lib/neon.ts:107:19)\n    at matchTransaction (/home/hein/Workspace/IsaFlow/.worktrees/audit-remediation-20260908/src/modules/accounting/services/bank/bankTxStatusMutations.ts:82:15)\n    at /home/hein/Workspace/IsaFlow/.worktrees/audit-remediation-20260908/tests/integration/k144-match-unvalidated-journal-line.int.test.ts:44:19\n    at /home/hein/Workspace/IsaFlow/.worktrees/audit-remediation-20260908/tests/integration/k144-match-unvalidated-journal-line.int.test.ts:119:5\n    at file:///home/hein/Workspace/IsaFlow/.worktrees/audit-remediation-20260908/node_modules/@vitest/runner/dist/chunk-artifact.js:1893:20"}}}
+{"level":"info","message":"Matched bank transaction","timestamp":"2026-09-09T09:44:19.926Z","component":"accounting","data":{"bankTxId":"bcf07a52-5804-4157-8dd6-84cbbafe5318","journalLineId":"5b9e6200-9838-49db-bbb4-912fcb12282d"}}
+{"level":"info","message":"Matched bank transaction","timestamp":"2026-09-09T09:44:19.932Z","component":"accounting","data":{"bankTxId":"608f6c2a-215b-4ae4-a03c-d7d9e0c294a5","journalLineId":"5b9e6200-9838-49db-bbb4-912fcb12282d"}}
+ ❯ tests/integration/k144-match-unvalidated-journal-line.int.test.ts (3 tests | 3 failed) 316ms
+     × refuses a journal line belonging to another company 26ms
+     × refuses a journal line that does not exist at all 11ms
+     × refuses to bind one journal line to a second bank transaction 17ms
+
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 3 ⎯⎯⎯⎯⎯⎯⎯
+
+ FAIL  tests/integration/k144-match-unvalidated-journal-line.int.test.ts > K-144 a matched journal line must belong to the caller company > refuses a journal line belonging to another company
+AssertionError: promise resolved "{ …(44) }" instead of rejecting
+
+- Expected
++ Received
+
+- Error {
+-   "message": "rejected promise",
++ {
++   "allocatedCounterpartyName": undefined,
++   "allocationRuleId": undefined,
++   "allocationRuleName": undefined,
++   "allocationType": undefined,
++   "amount": 500,
++   "bankAccountId": "d62cec01-7978-486a-84d6-31a69edaea91",
++   "bankAccountName": undefined,
++   "bankReference": undefined,
++   "buId": undefined,
++   "buName": undefined,
++   "cc1Id": undefined,
++   "cc1Name": undefined,
++   "cc2Id": undefined,
++   "cc2Name": undefined,
++   "counterpartyAccountId": undefined,
++   "createdAt": "Wed Sep 09 2026 11:44:19 GMT+0200 (South Africa Standard Time)",
++   "description": "K144 receipt one",
++   "excludeReason": undefined,
++   "id": "bcf07a52-5804-4157-8dd6-84cbbafe5318",
++   "importBatchId": undefined,
++   "matchedEntryNumber": undefined,
++   "matchedJournalLineId": "c91e22be-3d69-4f7c-8e40-b6b3b14bdfb9",
++   "notes": undefined,
++   "postedVatAmount": undefined,
++   "postedVatCode": undefined,
++   "reconciliationId": undefined,
++   "reference": undefined,
++   "status": "matched",
++   "suggestedCategory": undefined,
++   "suggestedClientId": undefined,
++   "suggestedClientName": undefined,
++   "suggestedConfidence": undefined,
++   "suggestedCostCentre": undefined,
++   "suggestedGlAccountCode": undefined,
++   "suggestedGlAccountId": undefined,
++   "suggestedGlAccountName": undefined,
++   "suggestedStrategy": undefined,
++   "suggestedSupplierId": undefined,
++   "suggestedSupplierName": undefined,
++   "suggestedVatCode": undefined,
++   "transactionDate": "2026-03-01",
++   "transferJournalEntryId": undefined,
++   "updatedAt": "Wed Sep 09 2026 11:44:19 GMT+0200 (South Africa Standard Time)",
++   "valueDate": undefined,
+  }
+
+ ❯ tests/integration/k144-match-unvalidated-journal-line.int.test.ts:110:80
+    108|
+    109|   it('refuses a journal line belonging to another company', async () =…
+    110|     await expect(inTx(() => matchTransaction(COMPANY_A, bankTxA, forei…
+       |                                                                                ^
+    111|     const row = await admin.query(
+    112|       'SELECT status, matched_journal_line_id FROM bank_transactions W…
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[1/3]⎯
+
+ FAIL  tests/integration/k144-match-unvalidated-journal-line.int.test.ts > K-144 a matched journal line must belong to the caller company > refuses a journal line that does not exist at all
+AssertionError: expected [Function] to throw error matching /not found|does not belong|invalid/i but got 'insert or update on table "bank_trans…'
+
+- Expected:
+/not found|does not belong|invalid/i
+
++ Received:
+"insert or update on table \"bank_transactions\" violates foreign key constraint \"bank_transactions_matched_journal_line_id_fkey\""
+
+ ❯ tests/integration/k144-match-unvalidated-journal-line.int.test.ts:119:74
+    117|   it('refuses a journal line that does not exist at all', async () => {
+    118|     const ghost = randomUUID();
+    119|     await expect(inTx(() => matchTransaction(COMPANY_A, bankTxA, ghost…
+       |                                                                          ^
+    120|       /not found|does not belong|invalid/i);
+    121|   });
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[2/3]⎯
+
+ FAIL  tests/integration/k144-match-unvalidated-journal-line.int.test.ts > K-144 a matched journal line must belong to the caller company > refuses to bind one journal line to a second bank transaction
+AssertionError: promise resolved "{ …(44) }" instead of rejecting
+
+- Expected
++ Received
+
+- Error {
+-   "message": "rejected promise",
++ {
++   "allocatedCounterpartyName": undefined,
++   "allocationRuleId": undefined,
++   "allocationRuleName": undefined,
++   "allocationType": undefined,
++   "amount": 500,
++   "bankAccountId": "d62cec01-7978-486a-84d6-31a69edaea91",
++   "bankAccountName": undefined,
++   "bankReference": undefined,
++   "buId": undefined,
++   "buName": undefined,
++   "cc1Id": undefined,
++   "cc1Name": undefined,
++   "cc2Id": undefined,
++   "cc2Name": undefined,
++   "counterpartyAccountId": undefined,
++   "createdAt": "Wed Sep 09 2026 11:44:19 GMT+0200 (South Africa Standard Time)",
++   "description": "K144 receipt two",
++   "excludeReason": undefined,
++   "id": "608f6c2a-215b-4ae4-a03c-d7d9e0c294a5",
++   "importBatchId": undefined,
++   "matchedEntryNumber": undefined,
++   "matchedJournalLineId": "5b9e6200-9838-49db-bbb4-912fcb12282d",
++   "notes": undefined,
++   "postedVatAmount": undefined,
++   "postedVatCode": undefined,
++   "reconciliationId": undefined,
++   "reference": undefined,
++   "status": "matched",
++   "suggestedCategory": undefined,
++   "suggestedClientId": undefined,
++   "suggestedClientName": undefined,
++   "suggestedConfidence": undefined,
++   "suggestedCostCentre": undefined,
++   "suggestedGlAccountCode": undefined,
++   "suggestedGlAccountId": undefined,
++   "suggestedGlAccountName": undefined,
++   "suggestedStrategy": undefined,
++   "suggestedSupplierId": undefined,
++   "suggestedSupplierName": undefined,
++   "suggestedVatCode": undefined,
++   "transactionDate": "2026-03-02",
++   "transferJournalEntryId": undefined,
++   "updatedAt": "Wed Sep 09 2026 11:44:19 GMT+0200 (South Africa Standard Time)",
++   "valueDate": undefined,
+  }
+
+ ❯ tests/integration/k144-match-unvalidated-journal-line.int.test.ts:125:77
+    123|   it('refuses to bind one journal line to a second bank transaction', …
+    124|     await inTx(() => matchTransaction(COMPANY_A, bankTxA, ownLine));
+    125|     await expect(inTx(() => matchTransaction(COMPANY_A, bankTxA2, ownL…
+       |                                                                             ^
+    126|   });
+    127| });
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[3/3]⎯
+
+
+ Test Files  1 failed (1)
+      Tests  3 failed (3)
+   Start at  11:44:18
+   Duration  1.79s (transform 490ms, setup 0ms, import 713ms, tests 316ms, environment 50ms)
+
+error: script "test:integration" exited with code 1

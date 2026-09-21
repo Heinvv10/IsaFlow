@@ -1,8 +1,13 @@
 /**
  * Client-home metric snapshot for the bureau Level 2 home.
  *
- * The query shapes are copied from pages/api/accounting/dashboard-stats.ts so
- * these numbers match the Trial Balance / aging reports. Reads on the
+ * The query shapes are copied from pages/api/accounting/dashboard-stats.ts, and
+ * each figure is exactly what that page shows: cash, revenue and expenses are
+ * GL balances, so they match the Trial Balance; AR and AP are TODAY's open
+ * balances on the LIVE open-status allowlists, which do NOT match the aging
+ * reports — the aging's population is wider (src/lib/constants/invoiceStatuses.ts
+ * lists the rows the two differ on). This header used to say they matched the
+ * aging reports (corrected in R-059 round 8). Reads on the
  * RLS-bypassing @/lib/neon pool — the CALLER must have already verified that the
  * companyId belongs to the authenticated user: either via getBureauClientForUser
  * (the firm/bureau path, /api/bureau/client/[companyId]) OR via withAuth's
@@ -12,6 +17,9 @@
  */
 import { sql } from '@/lib/neon';
 import { AR_OPEN_STATUSES, AP_OPEN_STATUSES } from '@/lib/constants/invoiceStatuses';
+import { BANK_SUBTYPES } from '@/modules/accounting/services/gl/accountSubtypes';
+import { fmtDate } from '@/lib/fmtDate';
+import { documentInLedgerAsAtFragment } from '@/modules/accounting/services/shared/softDeleteLedgerPresence';
 
 type Scalar = number | string | null | undefined;
 
@@ -55,6 +63,11 @@ export async function clientMetricsSnapshot(companyId: string): Promise<ClientMe
   const now = new Date();
   // NOTE: month boundary uses server local time — matches dashboard-stats.ts
   const monthStart = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-01`;
+  // K-053: these AR/AP figures are "as at now", so now is the date they ask
+  // the soft-delete question at. An undated deleted_at IS NULL would drop a
+  // document deleted BEFORE the delete began reversing its journal — the
+  // control account still carries that one. See shared/softDeleteLedgerPresence.
+  const metricsAsAtStr = fmtDate(now);
 
   const [cash, ar, ap, revenue, expenses] = await Promise.all([
     // Cash: GL bank-account balances (matches Trial Balance, not raw bank_transactions).
@@ -76,21 +89,24 @@ export async function clientMetricsSnapshot(companyId: string): Promise<ClientMe
             AND je.status = 'posted'
           GROUP BY jl.gl_account_id
         ) b ON b.gl_account_id = ga.id
-       WHERE ga.account_subtype = 'bank' AND ga.company_id = ${companyId}::UUID
+       WHERE ga.account_subtype = ANY(${BANK_SUBTYPES as string[]}) AND ga.company_id = ${companyId}::UUID
     `,
-    // AR open (same allowlist as arAgingService)
+    // AR open, on the LIVE allowlist — NOT arAgingService's population, which
+    // this used to claim (see src/lib/constants/invoiceStatuses.ts).
     sql`
       SELECT COALESCE(SUM(total_amount - COALESCE(amount_paid, 0)), 0) AS total
-        FROM customer_invoices
-       WHERE company_id = ${companyId}::UUID
-         AND status = ANY(${Array.from(AR_OPEN_STATUSES)}::text[])
+        FROM customer_invoices ci
+       WHERE ci.company_id = ${companyId}::UUID
+         AND ${documentInLedgerAsAtFragment('ci', metricsAsAtStr, companyId)}
+         AND ci.status = ANY(${Array.from(AR_OPEN_STATUSES)}::text[])
     `,
-    // AP open (same allowlist as apAgingService)
+    // AP open, on the LIVE allowlist — NOT apAgingService's population.
     sql`
       SELECT COALESCE(SUM(total_amount - COALESCE(amount_paid, 0)), 0) AS total
-        FROM supplier_invoices
-       WHERE company_id = ${companyId}::UUID
-         AND status = ANY(${Array.from(AP_OPEN_STATUSES)}::text[])
+        FROM supplier_invoices si
+       WHERE si.company_id = ${companyId}::UUID
+         AND ${documentInLedgerAsAtFragment('si', metricsAsAtStr, companyId)}
+         AND si.status = ANY(${Array.from(AP_OPEN_STATUSES)}::text[])
     `,
     // Revenue MTD — SUM(credit - debit), matches dashboard-stats.ts revenue shape exactly
     sql`

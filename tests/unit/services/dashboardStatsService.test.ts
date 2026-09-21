@@ -14,11 +14,12 @@
 
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import type { NextApiRequest, NextApiResponse } from 'next';
+import { mockUnsafe } from '../helpers/sqlFragmentMock';
 
 // ── Mocks ────────────────────────────────────────────────────────────────────
 
 vi.mock('@/lib/neon', () => {
-  const sqlMock = Object.assign(vi.fn(), { transaction: vi.fn() });
+  const sqlMock = Object.assign(vi.fn(), { transaction: vi.fn(), unsafe: mockUnsafe });
   return { sql: sqlMock };
 });
 

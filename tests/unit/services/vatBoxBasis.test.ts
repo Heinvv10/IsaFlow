@@ -30,6 +30,12 @@ import {
   deriveVatBoxes,
   type VatLineInput,
 } from '@/modules/accounting/services/reports/vatBoxBasis';
+import {
+  CASH_SUBTYPES,
+  PAYABLE_SUBTYPES,
+  RECEIVABLE_SUBTYPES,
+  rawSubtypesFor,
+} from '@/modules/accounting/services/gl/accountSubtypes';
 
 const line = (over: Partial<VatLineInput>): VatLineInput => ({
   journalEntryId: 'je1',
@@ -71,6 +77,85 @@ describe('classifyVatJournalLine', () => {
     for (const subtype of VAT_SETTLEMENT_SUBTYPES) {
       expect(classifyVatJournalLine(line({ accountSubtype: subtype })).role).toBe('settlement');
     }
+  });
+
+  /**
+   * Round 5 review, MEDIUM-1. The membership test read the RAW
+   * `account_subtype` against the four canonical tokens, so only the four
+   * accounts that happened to be spelled that way reached the settlement
+   * branch. Every OTHER spelling `accountSubtypes.ts` enumerates — `debtors`,
+   * `trade_receivables`, `creditors`, `bank_account`, `petty_cash` — fell
+   * through to `base`, where its GROSS, VAT-INCLUSIVE amount was counted as the
+   * value of the supply and over-stated boxes 1 and 15 by the whole leg.
+   *
+   * The loop is over the vocabulary, not over a list written here: a spelling
+   * added to `SUBTYPE_ALIASES` tomorrow is covered without editing this file.
+   */
+  it('classifies EVERY spelling of a settlement subtype as settlement, never base', () => {
+    const spellings = [...new Set([...CASH_SUBTYPES, ...RECEIVABLE_SUBTYPES, ...PAYABLE_SUBTYPES])];
+    // The literal four are a strict subset — otherwise this asserts nothing.
+    expect(spellings.length).toBeGreaterThan(VAT_SETTLEMENT_SUBTYPES.length);
+    for (const subtype of spellings) {
+      const c = classifyVatJournalLine(line({ accountSubtype: subtype, debit: 115, credit: 0 }));
+      expect(c.role, `subtype ${subtype}`).toBe('settlement');
+    }
+  });
+
+  /**
+   * Round 6 review, MEDIUM-1. A card and a sundry creditor settle an invoice
+   * exactly as a bank account does, and both are offerable subtypes in the Add
+   * Account dialog. Against the four-token list the GROSS leg fell through to
+   * `base` and, because base is credit-less-debit on the input side, the box
+   * came back NEGATIVE at exactly minus the VAT.
+   */
+  it('classifies a card or sundry-creditor settlement leg as settlement', () => {
+    for (const token of ['credit_card', 'other_current_liability'] as const) {
+      for (const subtype of rawSubtypesFor(token)) {
+        expect(classifyVatJournalLine(line({ accountType: 'liability', accountSubtype: subtype })).role, subtype)
+          .toBe('settlement');
+      }
+    }
+  });
+
+  it('reports the NET expense as the input base when a card settles the invoice', () => {
+    for (const subtype of ['credit_card', 'other_current_liabilities']) {
+      const boxes = deriveVatBoxes([
+        line({ accountType: 'expense', accountSubtype: 'operating_expense', debit: 1000, credit: 0, vatType: 'standard' }),
+        line({ lineId: 'l2', accountType: 'asset', accountSubtype: 'vat_input', debit: 150, credit: 0, vatType: 'standard' }),
+        line({ lineId: 'l3', accountType: 'liability', accountSubtype: subtype, debit: 0, credit: 1150 }),
+      ]);
+      const input = boxes.boxes.find((b) => b.direction === 'input' && b.vatType === 'standard');
+      expect(input?.base, subtype).toBeCloseTo(1000, 2);
+      expect(input?.base, subtype).not.toBeCloseTo(-150, 2);
+      expect(boxes.inputVariance).toBeCloseTo(0, 2);
+    }
+  });
+
+  it('classifies a cancelled settlement leg by the same widened vocabulary', () => {
+    for (const subtype of [...CASH_SUBTYPES, ...RECEIVABLE_SUBTYPES]) {
+      expect(classifyVatJournalLine(line({ accountSubtype: subtype, cancelledSource: true })).role)
+        .toBe('settlement');
+    }
+    // A cancelled TAX leg is still 'cancelled', whatever the case or spacing.
+    expect(classifyVatJournalLine(line({ accountSubtype: 'VAT Output', cancelledSource: true })).role)
+      .toBe('cancelled');
+  });
+
+  it('canonicalises case and spacing on the tax leg too', () => {
+    const c = classifyVatJournalLine(
+      line({ accountType: 'asset', accountSubtype: 'VAT Input', debit: 15, credit: 0 }),
+    );
+    expect(c).toEqual({ role: 'tax', direction: 'input', amount: 15, vatType: 'standard' });
+  });
+
+  it('still treats the GENERIC tax subtype as unmapped, not as VAT', () => {
+    // `tax` canonicalises to `tax_expense`, which is NOT a VAT tax subtype.
+    // Brightsphere account 34550639 "Pay As You Earn" carries it; reading it as
+    // VAT pulled R23,219.01 of PAYE into box 15.
+    const c = classifyVatJournalLine(
+      line({ accountType: 'expense', accountSubtype: 'tax', vatType: 'standard', debit: 100, credit: 0 }),
+    );
+    expect(c.role).toBe('unmapped');
   });
 
   /**

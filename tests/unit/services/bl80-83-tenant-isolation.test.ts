@@ -352,7 +352,7 @@ describe('BL-80: purgeExpiredDeletes — per-tenant structured logging', () => {
       .mockResolvedValueOnce([] as never)            // customer_invoices
       .mockResolvedValueOnce([] as never);           // supplier_invoices
 
-    const total = await purgeExpiredDeletes();
+    const total = await purgeExpiredDeletes(B180_COMPANY_A);
 
     expect(total).toBe(2);
 
@@ -378,7 +378,7 @@ describe('BL-80: purgeExpiredDeletes — per-tenant structured logging', () => {
       .mockResolvedValueOnce([] as never)
       .mockResolvedValueOnce([] as never);
 
-    const total = await purgeExpiredDeletes();
+    const total = await purgeExpiredDeletes(B180_COMPANY_A);
 
     expect(total).toBe(0);
     expect(vi.mocked(log).info).not.toHaveBeenCalled();
@@ -400,7 +400,7 @@ describe('BL-80: purgeExpiredDeletes — per-tenant structured logging', () => {
       .mockResolvedValueOnce([] as never)
       .mockResolvedValueOnce([] as never);
 
-    await purgeExpiredDeletes();
+    await purgeExpiredDeletes(B180_COMPANY_A);
 
     const infoCall = vi.mocked(log).info.mock.calls[0];
     expect(infoCall).toBeDefined();
@@ -420,7 +420,7 @@ describe('BL-80: purgeExpiredDeletes — per-tenant structured logging', () => {
       .mockResolvedValueOnce([] as never);                       // supplier_invoices
 
     // Should not throw — error is caught and logged per-table
-    const total = await purgeExpiredDeletes();
+    const total = await purgeExpiredDeletes(B180_COMPANY_A);
 
     expect(total).toBe(0);
     expect(vi.mocked(log).error).toHaveBeenCalledWith(
@@ -440,6 +440,6 @@ describe('BL-80: purgeExpiredDeletes — per-tenant structured logging', () => {
       .mockResolvedValueOnce([] as never)
       .mockResolvedValueOnce([] as never);
 
-    await expect(purgeExpiredDeletes()).resolves.toBe(0);
+    await expect(purgeExpiredDeletes(B180_COMPANY_A)).resolves.toBe(0);
   });
 });

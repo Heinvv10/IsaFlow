@@ -11,6 +11,11 @@ import { withAuth, type AuthenticatedNextApiRequest, type CompanyAuthedRequest, 
 import { withCsrf } from '@/lib/auth/withCsrf';
 import { log } from '@/lib/logger';
 import { getBatches, getBatchById, createBatch } from '@/modules/accounting/services/ap/batchPaymentService';
+import { SupplierNotInCompanyError } from '@/modules/accounting/services/core/contactDirectoryService';
+import {
+  isRetryableSupplierPaymentRefusal,
+  isSupplierPaymentRefusal,
+} from '@/modules/accounting/services/ap/supplierPaymentRefusal';
 
 async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse) {
   const { companyId } = req as CompanyAuthedRequest;
@@ -39,6 +44,12 @@ async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse) {
       const item = await createBatch(companyId, req.body, userId);
       return apiResponse.success(res, item);
     } catch (err) {
+      // R-068: refused before the batch row is written; surface the typed message.
+      if (err instanceof SupplierNotInCompanyError) return apiResponse.badRequest(res, err.message);
+      // K-064: every bill line is checked before the first write, so both
+      // answers COMMIT nothing. Contention on a bill is a retry, not a mistake.
+      if (isRetryableSupplierPaymentRefusal(err)) return apiResponse.conflict(res, (err as Error).message);
+      if (isSupplierPaymentRefusal(err)) return apiResponse.badRequest(res, err.message);
       log.error('Batch payment create failed', { error: err }, 'accounting-api');
       return apiResponse.badRequestFromError(res, err, 'Create failed');
     }

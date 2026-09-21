@@ -1,138 +1,73 @@
-/**
- * K-066 — RED. `createSupplierPayment`
- * (src/modules/accounting/services/ap/supplierPaymentService.ts:133-218 on
- * origin/master) loads the bills it is about to allocate with
- *
- *   SELECT id, invoice_number, total_amount, amount_paid, balance
- *   FROM supplier_invoices
- *   WHERE id = ANY(${invoiceIds}::UUID[]) AND company_id = ${companyId}::UUID
- *
- * (lines 139-144). The predicate names the company and the ids — it does NOT
- * name `input.supplierId`, and it does NOT name `status`. The only check that
- * follows is a row-count equality (line 145) and `validatePaymentAllocations`,
- * which is pure and sees only the rows this query returned.
- *
- * So a payment raised against supplier A settles supplier B's bill, and a draft
- * or cancelled bill is settled as readily as an approved one. `processSupplier
- * Payment` then debits Accounts Payable and moves `amount_paid` on that bill.
- *
- * A fixed build rejects both.
- */
+// tests/integration/k066-supplier-payment-foreign-bill.int.test.ts
+//
+// K-066: `createSupplierPayment` read its bills by company and id only. R-068
+// (`assertSupplierInCompany`) since refuses a supplier id from ANOTHER company;
+// it says nothing about whose bill each allocation names, or whether that bill
+// is payable. So a payment to supplier A could name supplier A2's bill in the
+// same company, or a draft / cancelled / pending_approval one. Driven through
+// supplier-payments POST, asserted by status and by the rows left behind.
+
 import { describe, it, expect, beforeAll, afterAll } from 'vitest';
-import { Pool, type PoolClient } from 'pg';
-import { randomUUID } from 'crypto';
-import { als } from '@/lib/als';
-import { sql } from '@/lib/neon';
-import { createSupplierPayment } from '@/modules/accounting/services/ap/supplierPaymentService';
+import { assertDisposable } from './mfa-impersonation-postgres.helpers';
+import { ids, setUpFixture, tearDownFixture, type Fixture } from './supplier-ownership-fence.helpers';
+import { allocationsOn, bill, rowCount, today } from './ap-allocation-guards.helpers';
+import supplierPayments from '../../pages/api/accounting/supplier-payments';
 
-const DATABASE_URL = process.env.DATABASE_URL;
-const describeIfDb = DATABASE_URL ? describe : describe.skip;
+const describeIfDb = process.env.DATABASE_URL && process.env.JWT_SECRET ? describe : describe.skip;
 
-const COMPANY = randomUUID();
-const USER = randomUUID();
-const TAG = `K066-${Date.now()}-${Math.floor(Math.random() * 1e6)}`;
+describeIfDb('K-066 — a supplier payment may name only its own supplier\'s payable bills', () => {
+  let fx: Fixture;
+  const pay = async (supplierId: string, invoiceId: string) =>
+    fx.call(supplierPayments, 'POST', { supplierId, paymentDate: today, totalAmount: 1000,
+      reference: 'K066', allocations: [{ invoiceId, amount: 1000 }] });
 
-let pool: Pool;
-let supplierA: string;
-let supplierB: string;
-let bankAccount: string;
-
-function run<T>(c: PoolClient, fn: () => Promise<T>): Promise<T> {
-  return als.run({ client: c, userId: USER, companyId: COMPANY, claims: {} } as never, fn);
-}
-
-async function inTx<T>(fn: () => Promise<T>): Promise<T> {
-  const c = await pool.connect();
-  await c.query('BEGIN');
-  try {
-    const out = await run(c, fn);
-    await c.query('COMMIT');
-    return out;
-  } catch (e) {
-    await c.query('ROLLBACK').catch(() => {});
-    throw e;
-  } finally {
-    c.release();
-  }
-}
-
-async function makeBill(supplierId: string, number: string, status: string): Promise<string> {
-  const rows = (await sql`
-    INSERT INTO supplier_invoices
-      (company_id, supplier_id, invoice_number, invoice_date, subtotal, tax_rate,
-       tax_amount, total_amount, amount_paid, status, created_by)
-    VALUES (${COMPANY}::UUID, ${supplierId}::UUID, ${number}, '2026-06-30', 100, 15,
-            15, 115, 0, ${status}, ${USER}::UUID)
-    RETURNING id`) as { id: string }[];
-  return rows[0]!.id;
-}
-
-describeIfDb('K-066 supplier payment allocation checks neither the supplier nor the bill status', () => {
   beforeAll(async () => {
-    pool = new Pool({ connectionString: DATABASE_URL, max: 4 });
-    await sql`
-      INSERT INTO companies (id, name, registration_number, created_at)
-      VALUES (${COMPANY}::UUID, ${'K066 ' + TAG}, ${TAG}, NOW())`;
-    const mkSupplier = async (n: string) => ((await sql`
-      INSERT INTO suppliers (name, company_id) VALUES (${n}, ${COMPANY}::UUID)
-      RETURNING id`) as { id: string }[])[0]!.id;
-    supplierA = await mkSupplier('K066 A ' + TAG);
-    supplierB = await mkSupplier('K066 B ' + TAG);
-    bankAccount = ((await sql`
-      INSERT INTO gl_accounts
-        (company_id, account_code, account_name, account_type, account_subtype,
-         normal_balance, is_active, is_system_account)
-      VALUES (${COMPANY}::UUID, '1100', 'K066 Bank', 'asset', 'bank', 'debit', true, true)
-      RETURNING id`) as { id: string }[])[0]!.id;
+    assertDisposable();
+    fx = await setUpFixture('K066');
+  });
+  afterAll(() => tearDownFixture(fx?.pool));
+
+  it("refuses supplier A2's bill on a payment to supplier A — same company, so R-068 passes it", async () => {
+    const invoiceId = await bill(fx.pool, { supplier: ids.SUP_A2, status: 'approved' });
+    const before = await rowCount(fx.pool, 'supplier_payments');
+
+    const state = await pay(ids.SUP_A, invoiceId);
+
+    expect(state.statusCode, JSON.stringify(state.body)).toBe(400);
+    expect(JSON.stringify(state.body)).toContain('belongs to a different supplier than this payment');
+    expect(await rowCount(fx.pool, 'supplier_payments')).toBe(before);
+    expect(await allocationsOn(fx.pool, [invoiceId])).toBe(0);
   });
 
-  afterAll(async () => {
-    await sql`DELETE FROM payment_allocations WHERE payment_id IN (
-      SELECT id FROM supplier_payments WHERE company_id = ${COMPANY}::UUID)`;
-    await sql`DELETE FROM supplier_payments WHERE company_id = ${COMPANY}::UUID`;
-    await sql`DELETE FROM supplier_invoices WHERE company_id = ${COMPANY}::UUID`;
-    await sql`DELETE FROM suppliers WHERE company_id = ${COMPANY}::UUID`;
-    await sql`DELETE FROM gl_accounts WHERE company_id = ${COMPANY}::UUID`;
-    await sql`DELETE FROM companies WHERE id = ${COMPANY}::UUID`;
-    await pool.end();
-  }, 60000);
+  it.each(['draft', 'cancelled', 'pending_approval', 'disputed'])(
+    'refuses a %s bill and writes no payment', async (status) => {
+      const invoiceId = await bill(fx.pool, { supplier: ids.SUP_A, status });
+      const before = await rowCount(fx.pool, 'supplier_payments');
 
-  it("refuses a payment to supplier A that allocates supplier B's bill", async () => {
-    const billOfB = await inTx(() => makeBill(supplierB, `${TAG}-B`, 'approved'));
+      const state = await pay(ids.SUP_A, invoiceId);
 
-    // THE CLAIM: this must be refused. On origin/master it succeeds.
-    await expect(inTx(() => createSupplierPayment(COMPANY, {
-      supplierId: supplierA,
-      paymentDate: '2026-06-30',
-      totalAmount: 115,
-      bankAccountId: bankAccount,
-      allocations: [{ invoiceId: billOfB, amount: 115 }],
-    }, USER))).rejects.toThrow();
+      expect(state.statusCode, JSON.stringify(state.body)).toBe(400);
+      expect(JSON.stringify(state.body)).toContain(`is ${status} and cannot receive a payment`);
+      expect(await rowCount(fx.pool, 'supplier_payments')).toBe(before);
+      expect(await allocationsOn(fx.pool, [invoiceId])).toBe(0);
+    });
 
-    const alloc = (await sql`
-      SELECT count(*)::int AS n FROM payment_allocations WHERE invoice_id = ${billOfB}::UUID`) as { n: number }[];
-    expect(alloc[0]!.n).toBe(0);
-  }, 60000);
+  it("still refuses company B's bill and writes nothing", async () => {
+    const invoiceId = await bill(fx.pool, { company: ids.B, supplier: ids.SUP_B, status: 'approved' });
+    const before = await rowCount(fx.pool, 'supplier_payments');
 
-  it('refuses a payment that allocates a DRAFT bill', async () => {
-    const draft = await inTx(() => makeBill(supplierA, `${TAG}-DRAFT`, 'draft'));
-    await expect(inTx(() => createSupplierPayment(COMPANY, {
-      supplierId: supplierA,
-      paymentDate: '2026-06-30',
-      totalAmount: 115,
-      bankAccountId: bankAccount,
-      allocations: [{ invoiceId: draft, amount: 115 }],
-    }, USER))).rejects.toThrow();
-  }, 60000);
+    const state = await pay(ids.SUP_A, invoiceId);
 
-  it('refuses a payment that allocates a CANCELLED bill', async () => {
-    const cancelled = await inTx(() => makeBill(supplierA, `${TAG}-CANC`, 'cancelled'));
-    await expect(inTx(() => createSupplierPayment(COMPANY, {
-      supplierId: supplierA,
-      paymentDate: '2026-06-30',
-      totalAmount: 115,
-      bankAccountId: bankAccount,
-      allocations: [{ invoiceId: cancelled, amount: 115 }],
-    }, USER))).rejects.toThrow();
-  }, 60000);
+    expect(state.statusCode).toBeGreaterThanOrEqual(400);
+    expect(await rowCount(fx.pool, 'supplier_payments')).toBe(before);
+  });
+
+  it("creates the payment against supplier A's own approved bill", async () => {
+    const invoiceId = await bill(fx.pool, { supplier: ids.SUP_A, status: 'approved' });
+
+    const state = await pay(ids.SUP_A, invoiceId);
+
+    expect(state.statusCode, JSON.stringify(state.body)).toBe(201);
+    expect(await allocationsOn(fx.pool, [invoiceId])).toBe(1);
+  });
 });

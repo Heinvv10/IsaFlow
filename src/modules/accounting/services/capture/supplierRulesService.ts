@@ -7,6 +7,7 @@
 
 import { sql } from '@/lib/neon';
 import { log } from '@/lib/logger';
+import { assertSupplierInCompany } from '../core/contactDirectoryService';
 
 // ── Constants ────────────────────────────────────────────────────────────────
 
@@ -118,6 +119,8 @@ export async function upsertRule(
   patch: Partial<SupplierRule>,
   userId: string,
 ): Promise<SupplierRule> {
+  // R-068: both routes pass a caller-supplied supplier id (body / URL).
+  await assertSupplierInCompany(companyId, supplierId);
   const rows = (await sql`
     INSERT INTO supplier_coding_rules (
       company_id, supplier_id,

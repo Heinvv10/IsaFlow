@@ -1,0 +1,45 @@
+
+ RUN  v4.1.2 /home/hein/Workspace/IsaFlow/.worktrees/audit-remediation-20260908
+
+ ❯ tests/integration/k102-portal-missing-columns.int.test.ts (2 tests | 2 failed) 330ms
+     × getClientInvoices returns the seeded invoice 65ms
+     × getClientStatement returns the seeded invoice as a debit line 44ms
+
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 2 ⎯⎯⎯⎯⎯⎯⎯
+
+ FAIL  tests/integration/k102-portal-missing-columns.int.test.ts > K-102 portal service queries run against the real schema > getClientInvoices returns the seeded invoice
+error: column "total" does not exist
+ ❯ node_modules/pg-pool/index.js:45:11
+ ❯ LazyQuery.run src/lib/neon.ts:110:17
+    108|       return res.rows as T[];
+    109|     }
+    110|     const res = await getPool().query(this.text, this.values);
+       |                 ^
+    111|     return res.rows as T[];
+    112|   }
+ ❯ getClientInvoices src/modules/accounting/services/ar/portalService.ts:110:17
+ ❯ tests/integration/k102-portal-missing-columns.int.test.ts:44:22
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[1/2]⎯
+
+ FAIL  tests/integration/k102-portal-missing-columns.int.test.ts > K-102 portal service queries run against the real schema > getClientStatement returns the seeded invoice as a debit line
+error: column "total" does not exist
+ ❯ node_modules/pg-pool/index.js:45:11
+ ❯ LazyQuery.run src/lib/neon.ts:110:17
+    108|       return res.rows as T[];
+    109|     }
+    110|     const res = await getPool().query(this.text, this.values);
+       |                 ^
+    111|     return res.rows as T[];
+    112|   }
+ ❯ getClientStatement src/modules/accounting/services/ar/portalService.ts:143:17
+ ❯ tests/integration/k102-portal-missing-columns.int.test.ts:49:23
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[2/2]⎯
+
+
+ Test Files  1 failed (1)
+      Tests  2 failed (2)
+   Start at  11:31:53
+   Duration  2.83s (transform 635ms, setup 0ms, import 1.06s, tests 330ms, environment 0ms)
+

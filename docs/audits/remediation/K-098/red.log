@@ -1,0 +1,57 @@
+
+ RUN  v4.1.2 /home/hein/Workspace/IsaFlow/.worktrees/audit-remediation-20260908
+
+ ❯ tests/unit/k098-critical-actions-dead-names.test.ts (3 tests | 2 failed) 41ms
+     × company_feature.override_set is gated 32ms
+     × company_feature.override_removed is gated 1ms
+
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 2 ⎯⎯⎯⎯⎯⎯⎯
+
+ FAIL  tests/unit/k098-critical-actions-dead-names.test.ts > K-098 CRITICAL_ACTIONS covers the actions the admin routes emit > company_feature.override_set is gated
+AssertionError: promise resolved "undefined" instead of rejecting
+
+- Expected:
+Error {
+  "message": "rejected promise",
+}
+
++ Received:
+undefined
+
+ ❯ tests/unit/k098-critical-actions-dead-names.test.ts:40:6
+     38|     await expect(
+     39|       logAdminAction('admin-1', 'company_feature.override_set', 'compa…
+     40|     ).rejects.toBeInstanceOf(CriticalAuditError);
+       |      ^
+     41|   });
+     42|
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[1/2]⎯
+
+ FAIL  tests/unit/k098-critical-actions-dead-names.test.ts > K-098 CRITICAL_ACTIONS covers the actions the admin routes emit > company_feature.override_removed is gated
+AssertionError: promise resolved "undefined" instead of rejecting
+
+- Expected:
+Error {
+  "message": "rejected promise",
+}
+
++ Received:
+undefined
+
+ ❯ tests/unit/k098-critical-actions-dead-names.test.ts:46:6
+     44|     await expect(
+     45|       logAdminAction('admin-1', 'company_feature.override_removed', 'c…
+     46|     ).rejects.toBeInstanceOf(CriticalAuditError);
+       |      ^
+     47|   });
+     48| });
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[2/2]⎯
+
+
+ Test Files  1 failed (1)
+      Tests  2 failed | 1 passed (3)
+   Start at  11:31:18
+   Duration  1.74s (transform 186ms, setup 0ms, import 272ms, tests 41ms, environment 0ms)
+

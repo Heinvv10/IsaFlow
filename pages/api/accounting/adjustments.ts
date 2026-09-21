@@ -11,6 +11,7 @@ import { withAuth, type CompanyAuthedRequest, type AuthenticatedNextApiRequest, 
 import { withCsrf } from '@/lib/auth/withCsrf';
 import { log } from '@/lib/logger';
 import { getAdjustments, createAdjustment } from '@/modules/accounting/services/items/adjustmentService';
+import { CustomerNotInCompanyError, SupplierNotInCompanyError } from '@/modules/accounting/services/core/contactDirectoryService';
 
 async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse) {
   const { companyId } = req as CompanyAuthedRequest;
@@ -32,6 +33,11 @@ async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse) {
       const item = await createAdjustment(companyId, req.body, userId);
       return apiResponse.success(res, item);
     } catch (err) {
+      // R-067 / R-068: both fences run before any write, so the 4xx commits
+      // nothing; surface the typed message rather than the generic fallback.
+      if (err instanceof SupplierNotInCompanyError || err instanceof CustomerNotInCompanyError) {
+        return apiResponse.badRequest(res, err.message);
+      }
       log.error('Adjustment create failed', { error: err }, 'accounting-api');
       return apiResponse.badRequestFromError(res, err, 'Create failed');
     }

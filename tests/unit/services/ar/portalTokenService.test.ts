@@ -23,6 +23,7 @@ vi.mock('@/lib/neon', () => {
 
 import { sql } from '@/lib/neon';
 import {
+  getInvoicePortalToken,
   getOrMintInvoicePortalToken,
   hashSessionToken,
   verifyInvoicePortalToken,
@@ -33,6 +34,7 @@ const mockSql = sql as unknown as MockedFunction<(...args: unknown[]) => Promise
 const COMPANY_ID = '11111111-1111-1111-1111-111111111111';
 const INVOICE_ID = '22222222-2222-2222-2222-222222222222';
 const EXISTING_TOKEN = 'a'.repeat(64);
+const PERSISTED_TOKEN = 'b'.repeat(64);
 
 beforeEach(() => {
   vi.clearAllMocks();
@@ -53,28 +55,47 @@ describe('getOrMintInvoicePortalToken', () => {
   it('mints and persists a 64-hex token when none exists', async () => {
     mockSql
       .mockResolvedValueOnce([{ portal_token: null }])
-      .mockResolvedValueOnce([]);
+      .mockResolvedValueOnce([{ portal_token: PERSISTED_TOKEN }]);
 
     const { token, url } = await getOrMintInvoicePortalToken(INVOICE_ID, COMPANY_ID);
 
-    expect(token).toMatch(/^[a-f0-9]{64}$/);
+    expect(token).toBe(PERSISTED_TOKEN);
     expect(url).toBe(`https://app.isaflow.co.za/portal/invoice/${token}`);
     expect(mockSql).toHaveBeenCalledTimes(2);
 
-    const updateArgs = mockSql.mock.calls[1]!;
-    const updateValues = updateArgs.slice(1);
-    expect(updateValues).toContain(token);
+    const updateValues = mockSql.mock.calls[1]!.slice(1);
     expect(updateValues).toContain(INVOICE_ID);
     expect(updateValues).toContain(COMPANY_ID);
+    // A freshly minted candidate is offered to COALESCE, but the stored value wins.
+    expect(
+      updateValues.some(v => typeof v === 'string' && /^[a-f0-9]{64}$/.test(v) && v !== PERSISTED_TOKEN),
+    ).toBe(true);
+  });
+
+  it('returns the token the UPDATE stored, not its own mint, when a concurrent render won', async () => {
+    // COALESCE(portal_token, $minted) keeps the first writer's token, so
+    // RETURNING hands back the other request's value — emailing our own mint
+    // instead would produce a link that is not in the database (a 404).
+    const RIVAL_TOKEN = 'c'.repeat(64);
+    mockSql
+      .mockResolvedValueOnce([{ portal_token: null }])
+      .mockResolvedValueOnce([{ portal_token: RIVAL_TOKEN }]);
+
+    const { token, url } = await getOrMintInvoicePortalToken(INVOICE_ID, COMPANY_ID);
+
+    expect(token).toBe(RIVAL_TOKEN);
+    expect(url).toBe(`https://app.isaflow.co.za/portal/invoice/${RIVAL_TOKEN}`);
   });
 
   it('throws when the invoice is cancelled or soft-deleted (invoice-lifetime TTL)', async () => {
-    mockSql.mockResolvedValueOnce([]);
+    mockSql
+      .mockResolvedValueOnce([])
+      .mockResolvedValueOnce([]);
 
     await expect(
       getOrMintInvoicePortalToken(INVOICE_ID, COMPANY_ID),
     ).rejects.toThrow(/not found or not eligible/i);
-    expect(mockSql).toHaveBeenCalledOnce();
+    expect(mockSql).toHaveBeenCalledTimes(2);
   });
 
   it('scopes the lookup by company_id', async () => {
@@ -85,6 +106,30 @@ describe('getOrMintInvoicePortalToken', () => {
     const lookupValues = mockSql.mock.calls[0]!.slice(1);
     expect(lookupValues).toContain(COMPANY_ID);
     expect(lookupValues).toContain(INVOICE_ID);
+  });
+});
+
+describe('getInvoicePortalToken (read-only)', () => {
+  it('returns the stored token and issues no UPDATE', async () => {
+    mockSql.mockResolvedValueOnce([{ portal_token: EXISTING_TOKEN }]);
+
+    expect(await getInvoicePortalToken(INVOICE_ID, COMPANY_ID)).toBe(EXISTING_TOKEN);
+    expect(mockSql).toHaveBeenCalledOnce();
+  });
+
+  it('returns null — and still mints nothing — when the invoice has no token', async () => {
+    mockSql.mockResolvedValueOnce([{ portal_token: null }]);
+
+    expect(await getInvoicePortalToken(INVOICE_ID, COMPANY_ID)).toBeNull();
+    expect(mockSql).toHaveBeenCalledOnce();
+  });
+
+  it('returns null for an invoice of another company', async () => {
+    mockSql.mockResolvedValueOnce([]);
+
+    expect(await getInvoicePortalToken(INVOICE_ID, COMPANY_ID)).toBeNull();
+    const lookupValues = mockSql.mock.calls[0]!.slice(1);
+    expect(lookupValues).toContain(COMPANY_ID);
   });
 });
 

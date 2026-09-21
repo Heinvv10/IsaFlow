@@ -12,6 +12,8 @@ import { withAuth, type CompanyAuthedRequest, withWriteAccess} from '@/lib/auth'
 import { sql } from '@/lib/neon';
 import { log } from '@/lib/logger';
 import { AR_OPEN_STATUSES, AP_OPEN_STATUSES } from '@/lib/constants/invoiceStatuses';
+import { fmtDate } from '@/lib/fmtDate';
+import { documentInLedgerAsAtFragment } from '@/modules/accounting/services/shared/softDeleteLedgerPresence';
 
 async function handler(req: NextApiRequest, res: NextApiResponse) {
   if (req.method !== 'GET') {
@@ -25,6 +27,9 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
     const year = now.getFullYear();
     const month = now.getMonth() + 1;
     const monthStart = `${year}-${String(month).padStart(2, '0')}-01`;
+    // The dashboard is "right now", so that is the date the AR/AP totals below
+    // ask their soft-delete question at.
+    const asAtStr = fmtDate(now);
 
     // Run all queries in parallel
     const [
@@ -67,21 +72,27 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
           AND ga.company_id = ${companyId}::UUID
         ORDER BY ga.account_code
       `,
-      // Accounts Payable total (from supplier_invoices, matching AP aging)
-      // Uses AP_OPEN_STATUSES allowlist — same set as apAgingService so dashbord == aging report
+      // Accounts Payable total, TODAY, on the LIVE open set (AP_OPEN_STATUSES).
+      // NOT the ageing's population, and this comment used to claim it was
+      // ("same set as apAgingService so dashboard == aging report"). The
+      // ageing uses shared/documentPopulation, which is wider — see
+      // src/lib/constants/invoiceStatuses.ts for the rows the two differ on.
       sql`
-        SELECT COALESCE(SUM(total_amount - COALESCE(amount_paid, 0)), 0) AS total
-        FROM supplier_invoices
-        WHERE company_id = ${companyId}
-          AND status = ANY(${Array.from(AP_OPEN_STATUSES)}::text[])
+        SELECT COALESCE(SUM(si.total_amount - COALESCE(si.amount_paid, 0)), 0) AS total
+        FROM supplier_invoices si
+        WHERE si.company_id = ${companyId}
+          AND ${documentInLedgerAsAtFragment('si', asAtStr, companyId)}
+          AND si.status = ANY(${Array.from(AP_OPEN_STATUSES)}::text[])
       `,
-      // Accounts Receivable total (from customer_invoices, matching AR aging)
-      // Uses AR_OPEN_STATUSES allowlist — same set as arAgingService so dashboard == aging report
+      // Accounts Receivable total, TODAY, on the LIVE open set (AR_OPEN_STATUSES).
+      // NOT the ageing's population, and this comment used to claim it was.
+      // Same caveat as the AP total above.
       sql`
-        SELECT COALESCE(SUM(total_amount - COALESCE(amount_paid, 0)), 0) AS total
-        FROM customer_invoices
-        WHERE company_id = ${companyId}
-          AND status = ANY(${Array.from(AR_OPEN_STATUSES)}::text[])
+        SELECT COALESCE(SUM(ci.total_amount - COALESCE(ci.amount_paid, 0)), 0) AS total
+        FROM customer_invoices ci
+        WHERE ci.company_id = ${companyId}
+          AND ${documentInLedgerAsAtFragment('ci', asAtStr, companyId)}
+          AND ci.status = ANY(${Array.from(AR_OPEN_STATUSES)}::text[])
       `,
       // Revenue this month (account_type = 'revenue')
       sql`
@@ -103,7 +114,7 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
       `,
       // Unallocated bank transactions
       sql`
-        SELECT COUNT(*) AS count FROM bank_transactions WHERE company_id = ${companyId} AND status = 'imported'
+        SELECT COUNT(*) AS count FROM bank_transactions WHERE company_id = ${companyId} AND status = 'imported' AND feed_state = 'posted'
       `,
       // Recent journal entries (last 5)
       sql`

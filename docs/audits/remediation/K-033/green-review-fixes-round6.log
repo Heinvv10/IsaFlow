@@ -1,0 +1,47 @@
+=== GREEN (round 6 fixes in place) ===
+ Test Files  2 passed (2)
+      Tests  34 passed (34)
+
+=== T1: resolver SELECT no longer filters on the claim marker ===
+ Test Files  2 passed (2)
+      Tests  34 passed (34)
+
+=== T2a: warning blind to 'submitted' again ===
+     × counts and skips a submitted charge that names no subscription 32ms
+ Test Files  1 failed | 1 passed (2)
+      Tests  1 failed | 33 passed (34)
+
+=== T2b: resolver verifies unattributed charges again ===
+     × counts and skips a submitted charge that names no subscription 45ms
+ Test Files  1 failed | 1 passed (2)
+      Tests  1 failed | 33 passed (34)
+
+=== RESTORED ===
+ Test Files  2 passed (2)
+      Tests  34 passed (34)
+
+=== T1: claim UPDATE without the verifying_at predicate (the enforcing half) ===
+ Test Files  2 passed (2)
+      Tests  34 passed (34)
+
+=== T1: no claim marker at all — both the SELECT filter and the claim predicate removed ===
+     × lets only one of two resolver runs verify the same submitted charge 191ms
+ Test Files  1 failed | 1 passed (2)
+      Tests  1 failed | 33 passed (34)
+ Test Files  2 passed (2)
+      Tests  34 passed (34)
+
+=== FULL UNIT SUITE (bunx vitest run --testTimeout=30000, DATABASE_URL and PG* unset) ===
+ Test Files  785 passed | 36 skipped (821)
+      Tests  9326 passed | 234 skipped (9560)
+
+=== GATES ===
+bunx tsc --noEmit                      -> clean
+bunx eslint src pages (the CI scope)   -> clean
+vitest tests/unit/services/billing + the admin route test -> 77 passed
+bun scripts/audit-migration-naming.ts  -> no new duplicate prefixes
+bun scripts/ci/check-migration-rls.ts  -> OK
+bun run agent-docs:check               -> 74 mirrors match
+
+=== MIGRATION 624 RE-APPLIED ON THE FIXTURE DB (verifying_at added) ===
+subscription_charges.verifying_at | timestamp with time zone

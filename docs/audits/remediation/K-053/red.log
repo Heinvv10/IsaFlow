@@ -1,0 +1,41 @@
+$ node scripts/check-runtime.mjs && vitest run --config vitest.integration.config.ts "tests/integration/k053-aging-includes-soft-deleted.int.test.ts"
+
+ RUN  v4.1.2 /home/hein/Workspace/IsaFlow/.worktrees/audit-remediation-20260908
+
+ ❯ tests/integration/k053-aging-includes-soft-deleted.int.test.ts (2 tests | 2 failed) 125ms
+     × AR aging excludes the soft-deleted invoice 10ms
+     × AP aging excludes the soft-deleted bill 3ms
+
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 2 ⎯⎯⎯⎯⎯⎯⎯
+
+ FAIL  tests/integration/k053-aging-includes-soft-deleted.int.test.ts > K-053 aging reports keep aging soft-deleted invoices > AR aging excludes the soft-deleted invoice
+AssertionError: expected 1750 to be close to 1000, received difference is 750, but expected 0.005
+ ❯ tests/integration/k053-aging-includes-soft-deleted.int.test.ts:80:24
+     78|     expect(row).toBeDefined();
+     79|     // R1,750 today: the deleted R750 is still being chased.
+     80|     expect(row!.total).toBeCloseTo(LIVE, 2);
+       |                        ^
+     81|   });
+     82|
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[1/2]⎯
+
+ FAIL  tests/integration/k053-aging-includes-soft-deleted.int.test.ts > K-053 aging reports keep aging soft-deleted invoices > AP aging excludes the soft-deleted bill
+AssertionError: expected 1750 to be close to 1000, received difference is 750, but expected 0.005
+ ❯ tests/integration/k053-aging-includes-soft-deleted.int.test.ts:87:24
+     85|     const row = buckets.find((b) => b.entityId === supplier);
+     86|     expect(row).toBeDefined();
+     87|     expect(row!.total).toBeCloseTo(LIVE, 2);
+       |                        ^
+     88|   });
+     89| });
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[2/2]⎯
+
+
+ Test Files  1 failed (1)
+      Tests  2 failed (2)
+   Start at  11:14:49
+   Duration  674ms (transform 236ms, setup 0ms, import 352ms, tests 125ms, environment 0ms)
+
+error: script "test:integration" exited with code 1

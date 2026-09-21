@@ -83,9 +83,6 @@ const NEW_API_ROUTES = [
   // Smart Categorization
   '/api/accounting/smart-categorize',
 
-  // Bank Feeds
-  '/api/bank-feeds/connections?action=status',
-
   // Portal
   '/api/portal/invoices?clientId=00000000-0000-0000-0000-000000000001',
 ];
@@ -318,11 +315,6 @@ test.describe('Bank Feeds', () => {
     // One of these should be visible
     const any = notConfigured.or(connectButton).or(noConnections);
     await expect(any.first()).toBeVisible();
-  });
-
-  test('bank feeds status API responds', async ({ request }) => {
-    const response = await request.get('/api/bank-feeds/connections?action=status');
-    expect([200, 401]).toContain(response.status());
   });
 });
 

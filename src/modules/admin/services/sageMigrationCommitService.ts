@@ -1,29 +1,29 @@
 /**
  * sageMigrationCommitService.ts
  *
- * Business logic for committing Sage migration data into IsaFlow.
- * Called exclusively from pages/api/admin/migration/sage-commit.ts.
+ * Per-entity commit functions for a Sage migration. The orchestrator that
+ * calls them lives in sageMigrationOrchestrator.ts; both are reached from
+ * pages/api/admin/migration/sage-commit.ts.
  *
  * Types are defined in sageMigrationTypes.ts.
  */
 
-import { sql, withSavepoint } from '@/lib/neon';
+import { sql } from '@/lib/neon';
 import { log } from '@/lib/logger';
 import { createSupplierInvoice } from '@/modules/accounting/services/ap/supplierInvoiceService';
 import { createJournalEntry } from '@/modules/accounting/services/gl/journalEntryCrudService';
 import { getSystemAccount } from '@/modules/accounting/services/gl/systemAccountResolver';
 import { assertNoInactiveAccountLines } from '@/modules/accounting/services/gl/journalEntryPostingService';
 import { postCustomerInvoiceToGL } from '@/modules/accounting/services/ar/customerPaymentAllocationService';
+import { recomputeInvoiceStatus } from '@/modules/accounting/services/ar/invoiceStatusRecompute';
 import type {
   Row,
   MappedCustomer,
   MappedSupplier,
   MappedARInvoice,
   MappedAPInvoice,
-  CommitPayload,
-  CommitSummary,
+  CommitOutcome,
 } from './sageMigrationTypes';
-import { sageAccountSubtype } from './sageAccountSubtype';
 
 export type {
   MappedAccount,
@@ -32,6 +32,7 @@ export type {
   MappedARInvoice,
   MappedAPInvoice,
   BankTx,
+  CommitOutcome,
   CommitPayload,
   CommitSummary,
 } from './sageMigrationTypes';
@@ -90,11 +91,61 @@ async function resolveSupplierId(companyId: string, name: string): Promise<strin
   return rows.length ? String(rows[0]!.id) : null;
 }
 
+/**
+ * The source system's already-settled portion, made safe for the database.
+ *
+ * `balance` is a GENERATED column (`total_amount - amount_paid`) on both
+ * `customer_invoices` and `supplier_invoices`, so whatever lands here lands in
+ * every aggregate that sums a balance. Two hazards, both silent in Postgres:
+ *
+ * - NON-FINITE. `Total - AmountDue` is NaN whenever the Sage document carries
+ *   no numeric `AmountDue`, and neither the pull (`sage-pull-server.ts` casts
+ *   the response `as any`) nor the commit route (`sage-commit.ts` casts
+ *   `req.body`) validates it. `numeric` ACCEPTS NaN, and one NaN row turns the
+ *   whole company's ar/apSubLedgerCheck sum into NaN. Refused, not clamped.
+ * - OUT OF RANGE. A Sage credit or overpayment puts the figure outside
+ *   [0, total], which would store a negative balance.
+ *
+ * `totalAmount` must be the total STORED on the row, not the source's total:
+ * `createSupplierInvoice` re-derives its own from a 2 dp tax rate, so the two
+ * differ by cents on any bill whose blended VAT rate is not exact.
+ *
+ * Every rejection and every clamp is returned as a warning as well as logged —
+ * a discarded overpayment is a customer credit that leaves no other trace.
+ */
+function settledAtSource(
+  invoiceNumber: string, amountPaid: number | undefined, totalAmount: number,
+): { amountPaid: number; warning?: string } {
+  const raw = Number(amountPaid ?? 0);
+  if (!Number.isFinite(raw)) {
+    const warning = `${invoiceNumber}: source paid amount is not a finite number (${String(amountPaid)}) — imported as unpaid`;
+    log.warn('sage commit: non-finite source amountPaid, importing as unpaid', { invoiceNumber, amountPaid }, 'sage-migration');
+    return { amountPaid: 0, warning };
+  }
+  if (raw < 0) {
+    const warning = `${invoiceNumber}: source paid amount is negative (${raw}) — imported as unpaid`;
+    log.warn('sage commit: negative source amountPaid, importing as unpaid', { invoiceNumber, amountPaid: raw }, 'sage-migration');
+    return { amountPaid: 0, warning };
+  }
+  if (raw > totalAmount) {
+    // Below a cent this is arithmetic dust, not a credit: `createSupplierInvoice`
+    // sums `subtotal + totalTax` without re-rounding, so a stored total can be
+    // 1345.6699999999998. Warning on that would bury the real overpayments this
+    // list exists to surface, and would read "0 of credit was NOT imported".
+    const excess = Math.round((raw - totalAmount) * 100) / 100;
+    if (excess < 0.01) return { amountPaid: totalAmount };
+    const warning = `${invoiceNumber}: the source's settled amount exceeds the invoice total of ${totalAmount} by ${excess} — that much credit was NOT imported`;
+    log.warn('sage commit: source amountPaid exceeds the invoice total; excess discarded', { invoiceNumber, amountPaid: raw, totalAmount, excess }, 'sage-migration');
+    return { amountPaid: totalAmount, warning };
+  }
+  return { amountPaid: raw };
+}
+
 // ── Public commit functions ───────────────────────────────────────────────────
 
 export async function commitARInvoice(
   companyId: string, userId: string, inv: MappedARInvoice,
-): Promise<{ invoiceId: string; created: boolean }> {
+): Promise<CommitOutcome> {
   const dupe = (await sql`
     SELECT id FROM customer_invoices
     WHERE company_id = ${companyId}::UUID AND invoice_number = ${inv.invoiceNumber} LIMIT 1
@@ -105,17 +156,19 @@ export async function commitARInvoice(
   if (!customerId) throw new Error(`Customer not found: ${inv.customerName}`);
 
   const taxRate = inv.subtotal > 0 ? Math.round(((inv.taxAmount || 0) / inv.subtotal) * 10000) / 100 : 0;
+  const settled = settledAtSource(inv.invoiceNumber, inv.amountPaid, inv.totalAmount);
+  const amountPaid = settled.amountPaid;
 
   const inserted = (await sql`
     INSERT INTO customer_invoices (
       company_id, invoice_number, customer_id, client_id,
       invoice_date, due_date, subtotal, tax_rate, tax_amount, total_amount,
-      status, notes, created_by, currency_code, exchange_rate, functional_total
+      amount_paid, status, notes, created_by, currency_code, exchange_rate, functional_total
     ) VALUES (
       ${companyId}::UUID, ${inv.invoiceNumber}, ${customerId}::UUID, ${customerId}::UUID,
       ${inv.invoiceDate}, ${inv.dueDate ?? null},
       ${inv.subtotal}, ${taxRate}, ${inv.taxAmount}, ${inv.totalAmount},
-      'approved', ${inv.reference ?? null}, ${userId}, 'ZAR', 1.0, ${inv.totalAmount}
+      ${amountPaid}, 'approved', ${inv.reference ?? null}, ${userId}, 'ZAR', 1.0, ${inv.totalAmount}
     ) RETURNING id
   `) as Row[];
   const invoiceId = String(inserted[0]!.id);
@@ -131,12 +184,15 @@ export async function commitARInvoice(
   // is usually closed. Without this the canonical path would refuse it, and
   // refusing is right everywhere except here.
   await postCustomerInvoiceToGL(companyId, invoiceId, userId, { historicalImport: true });
-  return { invoiceId, created: true };
+  // 'approved' above is only the open-invoice default; the canonical helper
+  // narrows it to partially_paid/paid (and sets paid_at) from amount_paid.
+  if (amountPaid > 0) await recomputeInvoiceStatus(companyId, 'customer', invoiceId);
+  return { invoiceId, created: true, warning: settled.warning };
 }
 
 export async function commitAPInvoice(
   companyId: string, userId: string, inv: MappedAPInvoice,
-): Promise<{ invoiceId: string; created: boolean }> {
+): Promise<CommitOutcome> {
   const dupe = (await sql`
     SELECT id FROM supplier_invoices
     WHERE company_id = ${companyId}::UUID AND invoice_number = ${inv.invoiceNumber} LIMIT 1
@@ -149,10 +205,36 @@ export async function commitAPInvoice(
   const taxRate = inv.subtotal > 0 ? Math.round(((inv.taxAmount || 0) / inv.subtotal) * 10000) / 100 : 0;
 
   const created = await createSupplierInvoice(companyId, {
+    trustSourceTax: true,
     supplierId, invoiceNumber: inv.invoiceNumber, invoiceDate: inv.invoiceDate,
     dueDate: inv.dueDate ?? undefined, taxRate, reference: inv.reference,
-    items: [{ description: inv.reference ?? `Invoice ${inv.invoiceNumber}`, quantity: 1, unitPrice: inv.subtotal, taxRate }],
+    // taxAmount, not just taxRate: `taxRate` is rounded to 2 dp above, and
+    // re-deriving the tax from it moves the stored total off Sage's by cents —
+    // which put the row and the journal posted for the SAME bill R0.44 apart on
+    // a 9,999.99 / 1,234.56 document. Passing the source figure makes the row,
+    // the journal and Sage agree by construction.
+    items: [{ description: inv.reference ?? `Invoice ${inv.invoiceNumber}`, quantity: 1, unitPrice: inv.subtotal, taxRate, taxAmount: inv.taxAmount }],
   }, userId);
+
+  // What Sage says is still OUTSTANDING is the figure to preserve, not what it
+  // says was paid. createSupplierInvoice recomputes the total from the 2 dp
+  // `taxRate` above, so any bill whose blended VAT rate is not exact stores a
+  // total that differs from Sage's by cents — in EITHER direction. Carrying the
+  // source's paid amount across would then store a negative balance (stored
+  // total below Sage's) or strand a fully settled bill at `partially_paid` with
+  // a residual that never clears (stored total above Sage's, the case the clamp
+  // cannot see because it only binds upwards). Re-deriving from the outstanding
+  // amount makes the row agree with the source by construction: AmountDue 0
+  // settles the bill exactly, whatever the recomputed total came to.
+  // An absent field states nothing about the source and must stay silent: with
+  // the totals now equal the derivation gives 0 anyway, but going through it
+  // would report a rounding artefact as a "negative" source amount.
+  const dueAtSource = Number(inv.totalAmount) - Number(inv.amountPaid ?? 0);
+  const paidAgainstStored = Math.round((created.totalAmount - dueAtSource) * 100) / 100;
+  const settled = inv.amountPaid === undefined
+    ? { amountPaid: 0, warning: undefined }
+    : settledAtSource(inv.invoiceNumber, paidAgainstStored, created.totalAmount);
+  const amountPaid = settled.amountPaid;
 
   // Post JE directly — bypasses workflow helper that blocks backdated periods.
   // postJournalEntry is the canonical posting path; this diverges from it for
@@ -177,139 +259,8 @@ export async function commitAPInvoice(
 
   await assertNoInactiveAccountLines(companyId, je.id);
   await sql`UPDATE gl_journal_entries SET status = 'posted', posted_at = NOW() WHERE id = ${je.id}::UUID AND company_id = ${companyId}::UUID`;
-  await sql`UPDATE supplier_invoices SET status = 'approved', approved_at = NOW(), gl_journal_entry_id = ${je.id}::UUID WHERE id = ${created.id}::UUID AND company_id = ${companyId}::UUID`;
-  return { invoiceId: created.id, created: true };
-}
-
-// ── Main orchestrator ─────────────────────────────────────────────────────────
-
-export async function commitSageMigration(payload: CommitPayload): Promise<CommitSummary> {
-  const { companyId, userId, pulled } = payload;
-
-  const summary: CommitSummary = {
-    accounts:         { created: 0, skipped: 0, failed: [] },
-    customers:        { created: 0, skipped: 0, failed: [] },
-    suppliers:        { created: 0, skipped: 0, failed: [] },
-    arInvoices:       { created: 0, skipped: 0, failed: [] },
-    apInvoices:       { created: 0, skipped: 0, failed: [] },
-    bankTransactions: { created: 0, skipped: 0, failed: [] },
-  };
-
-  // Per-record commits rollback to the savepoint on failure; the inner catch in
-  // each loop body has already pushed a structured entry into `summary.*.failed`
-  // and rethrown to trigger the rollback. Log once at this boundary so the
-  // failure isn't completely silent in production.
-  const sp = (name: string, fn: () => Promise<void>) =>
-    withSavepoint(name, fn).catch((err: unknown) => {
-      log.warn('sage commit: savepoint rolled back', {
-        savepoint: name,
-        error: err instanceof Error ? err.message : String(err),
-      }, 'sage-migration');
-    });
-
-  // Chart of Accounts
-  let ai = 0;
-  for (const a of pulled.accounts?.records ?? []) {
-    await sp(`acc_${ai++}`, async () => {
-      try {
-        const ins = (await sql`
-          INSERT INTO gl_accounts (company_id, account_code, account_name, account_type, account_subtype, normal_balance, description, is_system_account, is_active, level, display_order)
-          VALUES (${companyId}::UUID, ${a.accountCode}, ${a.accountName}, ${a.accountType}, ${sageAccountSubtype(a.accountType, a.category, a.accountName)}, ${a.normalBalance}, ${a.description ?? null}, ${a.isSystem ?? false}, ${a.isActive ?? true}, 0, 0)
-          ON CONFLICT (company_id, account_code) DO NOTHING RETURNING id
-        `) as Row[];
-        if (ins.length) summary.accounts.created += 1; else summary.accounts.skipped += 1;
-      } catch (err) {
-        summary.accounts.failed.push(`${a.accountCode} ${a.accountName}: ${err instanceof Error ? err.message : String(err)}`);
-        throw err;
-      }
-    });
-  }
-
-  // Customers
-  let i = 0;
-  for (const c of pulled.customers?.records ?? []) {
-    await sp(`cust_${i++}`, async () => {
-      try {
-        const existed = (await sql`SELECT 1 FROM customers WHERE company_id = ${companyId}::UUID AND LOWER(name) = LOWER(${c.name}) LIMIT 1`) as Row[];
-        await upsertCustomer(companyId, c);
-        if (existed.length) summary.customers.skipped += 1; else summary.customers.created += 1;
-      } catch (err) {
-        summary.customers.failed.push(`${c.name}: ${err instanceof Error ? err.message : String(err)}`);
-        throw err;
-      }
-    });
-  }
-
-  // Suppliers
-  i = 0;
-  for (const s of pulled.suppliers?.records ?? []) {
-    await sp(`supp_${i++}`, async () => {
-      try {
-        const existed = (await sql`SELECT 1 FROM suppliers WHERE company_id = ${companyId}::UUID AND LOWER(name) = LOWER(${s.name}) LIMIT 1`) as Row[];
-        await upsertSupplier(companyId, s);
-        if (existed.length) summary.suppliers.skipped += 1; else summary.suppliers.created += 1;
-      } catch (err) {
-        summary.suppliers.failed.push(`${s.name}: ${err instanceof Error ? err.message : String(err)}`);
-        throw err;
-      }
-    });
-  }
-
-  // AR Invoices
-  i = 0;
-  for (const inv of pulled.arInvoices?.records ?? []) {
-    await sp(`ar_${i++}`, async () => {
-      try {
-        const r = await commitARInvoice(companyId, userId, inv);
-        if (r.created) summary.arInvoices.created += 1; else summary.arInvoices.skipped += 1;
-      } catch (err) {
-        summary.arInvoices.failed.push(`${inv.invoiceNumber}: ${err instanceof Error ? err.message : String(err)}`);
-        throw err;
-      }
-    });
-  }
-
-  // AP Invoices
-  i = 0;
-  for (const inv of pulled.apInvoices?.records ?? []) {
-    await sp(`ap_${i++}`, async () => {
-      try {
-        const r = await commitAPInvoice(companyId, userId, inv);
-        if (r.created) summary.apInvoices.created += 1; else summary.apInvoices.skipped += 1;
-      } catch (err) {
-        summary.apInvoices.failed.push(`${inv.invoiceNumber}: ${err instanceof Error ? err.message : String(err)}`);
-        throw err;
-      }
-    });
-  }
-
-  // Bank Transactions (chunked)
-  const btx = pulled.bankTransactions;
-  if (btx?.records?.length) {
-    const BATCH = 500;
-    const accountId = btx.bankAccountId;
-    const ok = (await sql`SELECT 1 FROM gl_accounts WHERE id = ${accountId}::UUID AND company_id = ${companyId}::UUID AND account_subtype = 'bank' LIMIT 1`) as Row[];
-    if (!ok.length) {
-      summary.bankTransactions.failed.push(`Bank account ${accountId} not found for company`);
-    } else {
-      for (let start = 0; start < btx.records.length; start += BATCH) {
-        const chunk = btx.records.slice(start, start + BATCH);
-        await withSavepoint(`btx_${start}`, async () => {
-          for (const tx of chunk) {
-            try {
-              const dup = (await sql`SELECT 1 FROM bank_transactions WHERE bank_account_id = ${accountId}::UUID AND transaction_date = ${tx.date}::DATE AND amount = ${tx.amount} AND COALESCE(description, '') = ${tx.description ?? ''} LIMIT 1`) as Row[];
-              if (dup.length) { summary.bankTransactions.skipped += 1; continue; }
-              await sql`INSERT INTO bank_transactions (company_id, bank_account_id, transaction_date, amount, description, reference, status) VALUES (${companyId}::UUID, ${accountId}::UUID, ${tx.date}::DATE, ${tx.amount}, ${tx.description ?? null}, ${tx.reference ?? null}, 'imported')`;
-              summary.bankTransactions.created += 1;
-            } catch (err) {
-              summary.bankTransactions.failed.push(`${tx.date} ${tx.amount}: ${err instanceof Error ? err.message : String(err)}`);
-            }
-          }
-        }).catch(() => { /* chunk savepoint — per-record errors already captured */ });
-      }
-    }
-  }
-
-  log.info('Sage commit complete', { companyId, summary }, 'migration');
-  return summary;
+  await sql`UPDATE supplier_invoices SET status = 'approved', approved_at = NOW(), amount_paid = ${amountPaid}, gl_journal_entry_id = ${je.id}::UUID WHERE id = ${created.id}::UUID AND company_id = ${companyId}::UUID`;
+  // Same as AR: 'approved' is the open default, narrowed from amount_paid.
+  if (amountPaid > 0) await recomputeInvoiceStatus(companyId, 'supplier', created.id);
+  return { invoiceId: created.id, created: true, warning: settled.warning };
 }

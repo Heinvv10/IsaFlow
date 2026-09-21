@@ -11,7 +11,14 @@ import { describe, it, expect, vi, beforeEach, type MockedFunction } from 'vites
 
 vi.mock('@/lib/neon', async () => {
   const actual = await vi.importActual<typeof import('@/lib/neon')>('@/lib/neon');
-  return { sql: vi.fn(), withTransaction: vi.fn(), fmtDate: actual.fmtDate };
+  // withSavepoint passes through: R-067's tenant fence runs its ownership read
+  // inside one, and an undefined mock would make every customer allocation throw.
+  return {
+    sql: vi.fn(),
+    withTransaction: vi.fn(),
+    withSavepoint: vi.fn((_n: string, fn: () => unknown) => Promise.resolve().then(fn)),
+    fmtDate: actual.fmtDate,
+  };
 });
 vi.mock('@/lib/logger', () => ({ log: { info: vi.fn(), error: vi.fn(), warn: vi.fn() } }));
 vi.mock('@/modules/accounting/services/gl/journalEntryService', () => ({
@@ -37,12 +44,34 @@ vi.mock('@/modules/accounting/services/ar/customerAutoAllocate', () => ({
     appliedLines: [], unappliedRemainder: 1150, strategy: 'off',
   })),
 }));
+// Mocked rather than primed into the positional `sql` queue below. Both run a
+// read of their own — the on-account credit — and threading it through the
+// queue would make every non-refund test's fixture carry a row for a query it
+// never makes.
+vi.mock('@/modules/accounting/services/ap/supplierRefundDocument', () => ({
+  planSupplierRefund: vi.fn(async () => ({
+    amount: 1150, onAccountCredit: 5000, supplierName: 'Acme',
+  })),
+  recordSupplierRefund: vi.fn(async () => ({
+    paymentId: 'refund-1', amount: -1150, onAccountCredit: 5000,
+  })),
+}));
+vi.mock('@/modules/accounting/services/ar/customerRefundDocument', () => ({
+  planCustomerRefund: vi.fn(async () => ({
+    amount: 1150, onAccountCredit: 5000, customerName: 'Acme',
+  })),
+  recordCustomerRefund: vi.fn(async () => ({
+    paymentId: 'crefund-1', amount: -1150, onAccountCredit: 5000,
+  })),
+}));
 
 import { sql, withTransaction } from '@/lib/neon';
 import { createJournalEntry, postJournalEntry } from '@/modules/accounting/services/gl/journalEntryService';
 import { recordPaymentMatch } from '@/modules/accounting/services/capture/fourWayMatchService';
 import { recordSupplierBankPayment } from '@/modules/accounting/services/ap/supplierAutoAllocate';
 import { autoApplyCustomerReceipt } from '@/modules/accounting/services/ar/customerAutoAllocate';
+import { planSupplierRefund, recordSupplierRefund } from '@/modules/accounting/services/ap/supplierRefundDocument';
+import { planCustomerRefund, recordCustomerRefund } from '@/modules/accounting/services/ar/customerRefundDocument';
 import { allocateTransaction } from '@/modules/accounting/services/bank/bankAllocationService';
 import { enterFakeRequestCtx } from '../../helpers/requestCtx';
 
@@ -64,15 +93,19 @@ const PAYMENT_ROW_ID = 'cp-1';
 /** A payment OUT of R1,150. */
 const SPENT_TX = {
   id: BANK_TX_ID, bank_account_id: BANK_ACCOUNT_ID, amount: -1150,
-  transaction_date: new Date('2026-09-08'), status: 'imported',
+  transaction_date: new Date('2026-09-08'), status: 'imported', feed_state: 'posted',
   description: 'EFT', reference: 'ABC123',
 };
 /** The same line as money IN — a receipt, or a supplier refund. */
 const RECEIVED_TX = { ...SPENT_TX, amount: 1150 };
 
-function primeSql(tx: typeof SPENT_TX) {
+function primeSql(tx: typeof SPENT_TX, kind: 'supplier' | 'customer' = 'supplier') {
+  mockSql.mockResolvedValueOnce([tx]);                              // lock + fetch the line
+  // R-067: the customer arm fences `entityId` against `customers` immediately
+  // after the lock, before anything is posted; R-068 does the same for the
+  // supplier arm against `suppliers`. The queue is positional.
+  mockSql.mockResolvedValueOnce([{ ok: 1 }]);
   mockSql
-    .mockResolvedValueOnce([tx])                                    // lock + fetch the line
     .mockResolvedValueOnce([{ name: 'Acme' }])                      // entity name
     .mockResolvedValueOnce([])                                      // source_document_id carry-forward
     .mockResolvedValueOnce([{ id: 'jl-1' }])                        // bank journal line
@@ -127,15 +160,44 @@ describe('allocateTransaction — supplier payment with no invoice named', () =>
     expect(billLookups).toEqual([]);
   });
 
-  it('creates nothing for a supplier REFUND — money in is not a payment', async () => {
+  it('creates a REFUND document for money in, never a payment document', async () => {
     primeSql(RECEIVED_TX);
 
     await allocateTransaction(
       COMPANY_ID, BANK_TX_ID, null, USER_ID, undefined, 'supplier', ENTITY_ID,
     );
 
+    // A positive payment document for a refund would be cash the company never
+    // paid; a four-way match would settle a bill with money coming back.
     expect(recordSupplierBankPayment).not.toHaveBeenCalled();
     expect(recordPaymentMatch).not.toHaveBeenCalled();
+
+    // Migration 681: the negative on-account entry that used to be missing.
+    expect(recordSupplierRefund).toHaveBeenCalledOnce();
+    expect(vi.mocked(recordSupplierRefund).mock.calls[0]![0]).toMatchObject({
+      companyId: COMPANY_ID, supplierId: ENTITY_ID, bankTxId: BANK_TX_ID,
+      bankAccountId: BANK_ACCOUNT_ID, journalEntryId: JE_ID,
+      amount: 1150, paymentDate: '2026-09-08', userId: USER_ID,
+    });
+    // No `autoApply` on the call at all: a negative remainder applied to a bill
+    // un-pays it, so there is no mode under which this is applied.
+    expect(vi.mocked(recordSupplierRefund).mock.calls[0]![0]).not.toHaveProperty('autoApply');
+  });
+
+  it('checks the refund ceiling BEFORE it posts the journal', async () => {
+    primeSql(RECEIVED_TX);
+
+    await allocateTransaction(
+      COMPANY_ID, BANK_TX_ID, null, USER_ID, undefined, 'supplier', ENTITY_ID,
+    );
+
+    // `withAuth` COMMITs on a 4xx, so a refusal raised after the first write
+    // can only commit an orphan journal or report an internal error. The order
+    // is the guarantee, and it is invoke-order on two mocks.
+    expect(planSupplierRefund).toHaveBeenCalledOnce();
+    const planned = vi.mocked(planSupplierRefund).mock.invocationCallOrder[0]!;
+    const posted = vi.mocked(createJournalEntry).mock.invocationCallOrder[0]!;
+    expect(planned).toBeLessThan(posted);
   });
 });
 
@@ -149,16 +211,16 @@ describe('allocateTransaction — a caller that named a non-bill target', () => 
     // to some unrelated open bill would contradict the match just confirmed.
     await allocateTransaction(
       COMPANY_ID, BANK_TX_ID, null, USER_ID, undefined, 'supplier', ENTITY_ID,
-      undefined, undefined, undefined, undefined, undefined, { autoApply: false },
+      undefined, undefined, undefined, undefined, undefined, { autoApply: 'none' },
     );
 
     expect(recordSupplierBankPayment).toHaveBeenCalledOnce();
     expect(vi.mocked(recordSupplierBankPayment).mock.calls[0]![0]).toMatchObject({
-      autoApply: false,
+      autoApply: 'none',
     });
   });
 
-  it('runs the strategy by default, when no caller named anything', async () => {
+  it('applies FIFO by default, when no caller named anything', async () => {
     primeSql(SPENT_TX);
 
     await allocateTransaction(
@@ -166,7 +228,7 @@ describe('allocateTransaction — a caller that named a non-bill target', () => 
     );
 
     expect(vi.mocked(recordSupplierBankPayment).mock.calls[0]![0]).toMatchObject({
-      autoApply: true,
+      autoApply: 'fifo',
     });
   });
 });
@@ -189,7 +251,7 @@ describe('allocateTransaction — supplier payment that NAMES a bill', () => {
 
 describe('allocateTransaction — customer receipt', () => {
   it('applies the receipt it just inserted, by id', async () => {
-    primeSql(RECEIVED_TX);
+    primeSql(RECEIVED_TX, 'customer');
 
     await allocateTransaction(
       COMPANY_ID, BANK_TX_ID, null, USER_ID, undefined, 'customer', ENTITY_ID,
@@ -203,16 +265,26 @@ describe('allocateTransaction — customer receipt', () => {
       customerId: ENTITY_ID,
       paymentId: PAYMENT_ROW_ID,
       amount: 1150,
+      autoApply: 'fifo',
     });
   });
 
-  it('does nothing for a customer REFUND — cash going out is not a receipt', async () => {
-    primeSql(SPENT_TX);
+  it('mints a REFUND for cash going out, never a receipt', async () => {
+    primeSql(SPENT_TX, 'customer');
 
     await allocateTransaction(
       COMPANY_ID, BANK_TX_ID, null, USER_ID, undefined, 'customer', ENTITY_ID,
     );
 
+    // A positive receipt row for a refund is cash the company never received —
+    // the shape that once put R1.84m of phantom receipts on one statement.
     expect(autoApplyCustomerReceipt).not.toHaveBeenCalled();
+    expect(recordCustomerRefund).toHaveBeenCalledOnce();
+    expect(vi.mocked(recordCustomerRefund).mock.calls[0]![0]).toMatchObject({
+      companyId: COMPANY_ID, customerId: ENTITY_ID, journalEntryId: JE_ID, amount: 1150,
+    });
+    // Same ordering guarantee as the supplier arm.
+    expect(vi.mocked(planCustomerRefund).mock.invocationCallOrder[0]!)
+      .toBeLessThan(vi.mocked(createJournalEntry).mock.invocationCallOrder[0]!);
   });
 });

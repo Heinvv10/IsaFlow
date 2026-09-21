@@ -40,16 +40,21 @@ const PACK = {
   sections: [{ type: 'income_statement', title: 'Income Statement', data: { revenue: 1 } }],
 };
 
-let fetchMock: ReturnType<typeof vi.fn>;
-
 /** The page and the two mounted components all call the API. Answer each URL
- *  with the envelope its route promises, and remember every URL asked for. */
-const asked: string[] = [];
-
-beforeEach(() => {
-  companyRole = 'owner';
-  asked.length = 0;
-  fetchMock = vi.fn(async (url: string) => {
+ *  with the envelope its route promises, and remember every URL asked for.
+ *
+ *  `asked` and `fetchMock` are created FRESH per test and returned to the
+ *  caller, not shared module state — a dangling fetch from a component this
+ *  test unmounted (RTL's `cleanup()` runs afterEach, but does not cancel an
+ *  in-flight promise) still resolves eventually and still pushes into
+ *  whatever array its closure captured. Sharing one array/mock across tests
+ *  let that late push land in the NEXT test's `asked`, corrupting it with a
+ *  stale URL from the test before. A distinct array per test makes that
+ *  impossible: a late push from test N's mock can only ever reach test N's
+ *  own (by then unread) array. */
+function mockFetch() {
+  const asked: string[] = [];
+  const fetchMock = vi.fn(async (url: string) => {
     asked.push(String(url));
     const body = String(url).startsWith('/api/accounting/commentary')
       ? { commentary: [] }
@@ -61,12 +66,16 @@ beforeEach(() => {
     });
   });
   vi.stubGlobal('fetch', fetchMock);
-});
+  return { asked, fetchMock };
+}
+
+beforeEach(() => { companyRole = 'owner'; });
 
 afterEach(() => { vi.unstubAllGlobals(); });
 
 describe('report-packs page — WS3 surfaces are mounted', () => {
   it('opens the share dialog from the Share button', async () => {
+    mockFetch();
     render(<ReportPacksPage />);
     await waitFor(() => expect(screen.getByText(/Brightsphere/)).toBeTruthy());
 
@@ -78,6 +87,7 @@ describe('report-packs page — WS3 surfaces are mounted', () => {
   });
 
   it('hands the dialog the pack the page is showing, not a default', async () => {
+    const { asked, fetchMock } = mockFetch();
     render(<ReportPacksPage />);
     await waitFor(() => expect(screen.getByText(/Brightsphere/)).toBeTruthy());
 
@@ -88,27 +98,37 @@ describe('report-packs page — WS3 surfaces are mounted', () => {
     fireEvent.click(screen.getByRole('button', { name: /Share/ }));
     await waitFor(() => expect(screen.getByRole('dialog', { name: 'Share links' })).toBeTruthy());
 
-    const packCall = asked.find(u => u.includes('/api/accounting/reports-pack?type=monthly'))!;
-    const period = new URL(packCall, 'https://x').searchParams;
+    await waitFor(() => expect(asked.some(u => u.includes('/api/accounting/reports-pack?type=monthly'))).toBe(true));
+    const packCall = asked.find(u => u.includes('/api/accounting/reports-pack?type=monthly'));
+    expect(packCall).toBeDefined();
+    const period = new URL(packCall!, 'https://x').searchParams;
 
     fetchMock.mockClear();
     fireEvent.click(screen.getByRole('button', { name: 'Create' }));
     await waitFor(() => expect(fetchMock.mock.calls.some(c => String(c[0]) === '/api/accounting/share/links')).toBe(true));
 
-    const [, init] = fetchMock.mock.calls.find(c => String(c[0]) === '/api/accounting/share/links')!;
+    const shareCall = fetchMock.mock.calls.find(c => String(c[0]) === '/api/accounting/share/links');
+    expect(shareCall).toBeDefined();
+    const [, init] = shareCall!;
     expect(JSON.parse(String((init as RequestInit).body)).params).toEqual({
       type: 'monthly', from: period.get('from'), to: period.get('to'),
     });
   });
 
   it('mounts the commentary panel against the same pack params', async () => {
+    const { asked } = mockFetch();
     render(<ReportPacksPage />);
     await waitFor(() => expect(screen.getByRole('button', { name: 'Regenerate' })).toBeTruthy());
 
-    const packCall = asked.find(u => u.includes('/api/accounting/reports-pack?'))!;
-    const packQs = new URL(packCall, 'https://x').searchParams;
-    const commentaryCall = asked.find(u => u.startsWith('/api/accounting/commentary?'))!;
-    const cQs = new URL(commentaryCall, 'https://x').searchParams;
+    await waitFor(() => expect(asked.some(u => u.includes('/api/accounting/reports-pack?'))).toBe(true));
+    const packCall = asked.find(u => u.includes('/api/accounting/reports-pack?'));
+    expect(packCall).toBeDefined();
+    const packQs = new URL(packCall!, 'https://x').searchParams;
+
+    await waitFor(() => expect(asked.some(u => u.startsWith('/api/accounting/commentary?'))).toBe(true));
+    const commentaryCall = asked.find(u => u.startsWith('/api/accounting/commentary?'));
+    expect(commentaryCall).toBeDefined();
+    const cQs = new URL(commentaryCall!, 'https://x').searchParams;
 
     expect(cQs.get('type')).toBe(packQs.get('type'));
     expect(cQs.get('from')).toBe(packQs.get('from'));
@@ -117,6 +137,7 @@ describe('report-packs page — WS3 surfaces are mounted', () => {
 
   it('shows no Share button to a role that cannot mint one', async () => {
     companyRole = 'manager';
+    mockFetch();
     render(<ReportPacksPage />);
     await waitFor(() => expect(screen.getByText(/Brightsphere/)).toBeTruthy());
 
@@ -128,6 +149,7 @@ describe('report-packs page — WS3 surfaces are mounted', () => {
     // viewer would put an error under the pack instead of simply not offering
     // commentary — and would fire a request that can only 403.
     companyRole = 'viewer';
+    const { asked } = mockFetch();
     render(<ReportPacksPage />);
     await waitFor(() => expect(screen.getByText(/Brightsphere/)).toBeTruthy());
 
@@ -137,9 +159,10 @@ describe('report-packs page — WS3 surfaces are mounted', () => {
 
   it('draws it for a manager, who may read but not approve', async () => {
     companyRole = 'manager';
+    const { asked } = mockFetch();
     render(<ReportPacksPage />);
     await waitFor(() => expect(screen.getByRole('button', { name: 'Regenerate' })).toBeTruthy());
 
-    expect(asked.some(u => u.startsWith('/api/accounting/commentary'))).toBe(true);
+    await waitFor(() => expect(asked.some(u => u.startsWith('/api/accounting/commentary'))).toBe(true));
   });
 });

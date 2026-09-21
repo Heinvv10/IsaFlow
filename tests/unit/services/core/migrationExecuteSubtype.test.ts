@@ -8,11 +8,19 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 
 const txCalls: unknown[][] = [];
+// Codes the upsert reports as NOT written — the ON CONFLICT guard skipped them
+// because the code already belongs to an account this source did not import.
+const skippedCodes = new Set<string>();
 vi.mock('@/lib/neon', () => ({
   sql: vi.fn(async () => []),
-  transaction: vi.fn(async (fn: (tx: (...a: unknown[]) => Promise<unknown[]>) => Promise<unknown>[]) => {
-    const tx = async (...a: unknown[]) => { txCalls.push(a); return []; };
-    await Promise.all(fn(tx));
+  // Mirrors the real contract: one result set per query, and the upsert's
+  // RETURNING yields no row for a conflict the guard refused to update.
+  transaction: vi.fn(async (fn: (tx: (...a: unknown[]) => Promise<unknown[]>) => Promise<unknown[]>[]) => {
+    const tx = async (...a: unknown[]) => {
+      txCalls.push(a);
+      return skippedCodes.has(String(a[2])) ? [] : [{ account_code: a[2] }];
+    };
+    return Promise.all(fn(tx));
   }),
 }));
 vi.mock('@/lib/logger', () => ({ log: { info: vi.fn(), error: vi.fn(), warn: vi.fn(), debug: vi.fn() } }));
@@ -28,7 +36,7 @@ const CO = '11111111-1111-4111-8111-111111111111';
 const row = (sourceCode: string, extra: Partial<ParsedAccount>): ParsedAccount =>
   ({ sourceCode, sourceName: sourceCode, sourceType: 'x', openingBalance: 0, ...extra });
 
-beforeEach(() => { txCalls.length = 0; vi.clearAllMocks(); });
+beforeEach(() => { txCalls.length = 0; skippedCodes.clear(); vi.clearAllMocks(); });
 
 describe('executeMigration — income-statement rows without a subtype', () => {
   it('imports them under the type default and reports it, never skipping', async () => {
@@ -46,5 +54,17 @@ describe('executeMigration — income-statement rows without a subtype', () => {
     // A re-run fills a NULL subtype on an existing row but never overwrites one that is set.
     const text = (byCode('5900')[0] as TemplateStringsArray).join('?');
     expect(text).toContain('account_subtype = COALESCE(gl_accounts.account_subtype, EXCLUDED.account_subtype)');
+  });
+
+  it('counts only the rows the upsert actually wrote and names the ones it refused', async () => {
+    skippedCodes.add('5900');
+    const r = await executeMigration(CO, 'u', 'xero', [
+      row('5900', { mappedType: 'expense', mappedNormalBalance: 'debit', mappedSubtype: 'operating_expense' }),
+      row('5910', { mappedType: 'expense', mappedNormalBalance: 'debit', mappedSubtype: 'cost_of_sales' }),
+    ], [], []);
+    expect(r.accountsImported).toBe(1);
+    expect(r.errors).toEqual([
+      'Account "5900 5900": code already used by an account the xero import does not own — it was created here, or a partial rollback released it — left unchanged (renumber the source row, or delete the existing account, then re-run)',
+    ]);
   });
 });

@@ -94,79 +94,85 @@ function readStoredSecret(stored: string): string {
   }
 }
 
-/** Fire webhook for an event — non-blocking, never throws to caller. */
+/**
+ * Fire webhook for an event — never throws to the caller.
+ *
+ * Awaitable on purpose (R-075). Its delivery-log INSERT and endpoint UPDATE run
+ * AFTER an outbound fetch, so under a request transaction a detached call would
+ * write on a connection the request had already committed and released. The
+ * caller decides how to detach — `runAfterCommit` inside a request, a plain
+ * un-awaited call outside one — and this function no longer decides for it.
+ * Every statement carries company_id, so it is correct on the pool's role too.
+ */
 export async function fireWebhook(
   companyId: string,
   event: string,
   payload: Record<string, unknown>,
 ): Promise<void> {
-  // Intentionally fire-and-forget — wrap everything in try/catch
-  void (async () => {
-    try {
-      const rows = (await sql`
-        SELECT * FROM webhook_endpoints
-        WHERE company_id = ${companyId}
-          AND is_active = true
-          AND ${event} = ANY(events)
-      `) as Row[];
+  try {
+    const rows = (await sql`
+      SELECT * FROM webhook_endpoints
+      WHERE company_id = ${companyId}
+        AND is_active = true
+        AND ${event} = ANY(events)
+    `) as Row[];
 
-      for (const row of rows) {
-        const endpoint = mapWebhook(row);
-        // Sign with the real (decrypted) secret — mapWebhook masks it, so the old
-        // `endpoint.secret` signed every payload with the literal '••••••••'.
-        const rawSecret = row.secret ? readStoredSecret(String(row.secret)) : null;
-        const body = JSON.stringify(payload);
-        const signature = rawSecret ? signPayload(rawSecret, body) : '';
+    for (const row of rows) {
+      const endpoint = mapWebhook(row);
+      // Sign with the real (decrypted) secret — mapWebhook masks it, so the old
+      // `endpoint.secret` signed every payload with the literal '••••••••'.
+      const rawSecret = row.secret ? readStoredSecret(String(row.secret)) : null;
+      const body = JSON.stringify(payload);
+      const signature = rawSecret ? signPayload(rawSecret, body) : '';
 
-        let responseStatus: number | null = null;
-        let responseBody: string | null = null;
-        let success = false;
+      let responseStatus: number | null = null;
+      let responseBody: string | null = null;
+      let success = false;
 
-        try {
-          // safeFetch re-validates the (re-resolved) target on every delivery, so a
-          // URL that now points to private space (rebinding) is refused fail-closed.
-          const resp = await safeFetch(endpoint.url, {
-            method: 'POST',
-            headers: {
-              'Content-Type': 'application/json',
-              'X-Webhook-Event': event,
-              ...(signature ? { 'X-Webhook-Signature': signature } : {}),
-            },
-            body,
-          });
-          responseStatus = resp.status;
-          responseBody = (await resp.text().catch(() => null))?.slice(0, 2000) ?? null;
-          success = resp.ok;
-        } catch (fetchErr) {
-          log.warn('Webhook delivery failed', { endpointId: endpoint.id, error: fetchErr }, 'webhook');
-        }
-
-        // Record delivery
-        await sql`
-          INSERT INTO webhook_deliveries (webhook_id, event, payload, response_status, response_body, success)
-          VALUES (${endpoint.id}::UUID, ${event}, ${JSON.stringify(payload)}::JSONB,
-                  ${responseStatus}, ${responseBody}, ${success})
-        `;
-
-        if (success) {
-          await sql`
-            UPDATE webhook_endpoints
-            SET last_triggered_at = NOW(), failure_count = 0
-            WHERE id = ${endpoint.id}::UUID
-          `;
-        } else {
-          await sql`
-            UPDATE webhook_endpoints
-            SET failure_count = failure_count + 1,
-                is_active = CASE WHEN failure_count + 1 >= 10 THEN false ELSE is_active END
-            WHERE id = ${endpoint.id}::UUID
-          `;
-        }
+      try {
+        // safeFetch re-validates the (re-resolved) target on every delivery, so a
+        // URL that now points to private space (rebinding) is refused fail-closed.
+        const resp = await safeFetch(endpoint.url, {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            'X-Webhook-Event': event,
+            ...(signature ? { 'X-Webhook-Signature': signature } : {}),
+          },
+          body,
+        });
+        responseStatus = resp.status;
+        responseBody = (await resp.text().catch(() => null))?.slice(0, 2000) ?? null;
+        success = resp.ok;
+      } catch (fetchErr) {
+        log.warn('Webhook delivery failed', { endpointId: endpoint.id, error: fetchErr }, 'webhook');
       }
-    } catch (err) {
-      log.error('fireWebhook error', { companyId, event, error: err }, 'webhook');
+
+      // Record delivery
+      await sql`
+        INSERT INTO webhook_deliveries (webhook_id, event, payload, response_status, response_body, success)
+        VALUES (${endpoint.id}::UUID, ${event}, ${JSON.stringify(payload)}::JSONB,
+                ${responseStatus}, ${responseBody}, ${success})
+      `;
+
+      if (success) {
+        await sql`
+          UPDATE webhook_endpoints
+          SET last_triggered_at = NOW(), failure_count = 0
+          WHERE id = ${endpoint.id}::UUID AND company_id = ${companyId}
+        `;
+      } else {
+        await sql`
+          UPDATE webhook_endpoints
+          SET failure_count = failure_count + 1,
+              is_active = CASE WHEN failure_count + 1 >= 10 THEN false ELSE is_active END
+          WHERE id = ${endpoint.id}::UUID AND company_id = ${companyId}
+        `;
+      }
     }
-  })();
+  } catch (err) {
+    log.error('fireWebhook error', { companyId, event, error: err }, 'webhook');
+  }
 }
 
 /** Alias matching the spec name deliverWebhook — delegates to fireWebhook. */

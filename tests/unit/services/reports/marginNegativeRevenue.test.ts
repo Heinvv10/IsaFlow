@@ -18,9 +18,15 @@
  * call sites are unchanged and still pinned at 0 below.
  */
 import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { mockUnsafe } from '../../helpers/sqlFragmentMock';
 
 const sqlMock = vi.fn();
-vi.mock('@/lib/neon', () => ({ sql: (...a: unknown[]) => sqlMock(...a) }));
+vi.mock('@/lib/neon', () => ({
+  // Part of the real client. The AR/AP figure queries splice the as-at
+  // soft-delete predicate through it (shared/softDeleteLedgerPresence);
+  // building a fragment is NOT a query, so it must not go through the spy.
+  sql: Object.assign((...a: unknown[]) => sqlMock(...(a as [TemplateStringsArray, ...unknown[]])), { unsafe: mockUnsafe }),
+}));
 vi.mock('@/lib/logger', () => ({ log: { info: vi.fn(), error: vi.fn(), warn: vi.fn() } }));
 
 import { buildReportPack, NO_MARGIN_SENTENCE, type ReportPackInput } from '@/modules/accounting/services/reports/reportPackService';

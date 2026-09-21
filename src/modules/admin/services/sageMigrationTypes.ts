@@ -46,6 +46,8 @@ export interface MappedARInvoice {
   subtotal: number;
   taxAmount: number;
   totalAmount: number;
+  /** Already settled at the source (Sage `Total - AmountDue`). */
+  amountPaid?: number;
   reference?: string;
   sageId?: number;
 }
@@ -58,6 +60,8 @@ export interface MappedAPInvoice {
   subtotal: number;
   taxAmount: number;
   totalAmount: number;
+  /** Already settled at the source (Sage `Total - AmountDue`). */
+  amountPaid?: number;
   reference?: string;
   sageId?: number;
 }
@@ -85,6 +89,20 @@ export interface CommitPayload {
   };
 }
 
+// ── Per-record commit result ──────────────────────────────────────────────────
+
+export interface CommitOutcome {
+  invoiceId: string;
+  created: boolean;
+  /**
+   * The record committed, but something in the source was not representable —
+   * a non-numeric or negative paid amount, or an overpayment whose excess was
+   * discarded. Surfaced in CommitSummary.warnings so the operator sees it;
+   * nothing else records that the discarded credit ever existed.
+   */
+  warning?: string;
+}
+
 // ── Result summary ────────────────────────────────────────────────────────────
 
 export interface CommitSummary {
@@ -94,4 +112,6 @@ export interface CommitSummary {
   arInvoices:       { created: number; skipped: number; failed: string[] };
   apInvoices:       { created: number; skipped: number; failed: string[] };
   bankTransactions: { created: number; skipped: number; failed: string[] };
+  /** Non-fatal source problems, one line per affected record. */
+  warnings:         string[];
 }

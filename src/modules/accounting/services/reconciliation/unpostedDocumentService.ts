@@ -1,30 +1,35 @@
 /**
  * Open subledger documents whose value never reached a control account.
  *
- * This was not in the specification. It was found by running the reconciliation
- * over real books and looking at what it could not explain: on isaflow_dev, 169
- * of ISAFlow Demo's open customer invoices carry no `gl_journal_entry_id` at
- * all — R10,664,575.43 of receivable that the subledger counts and the general
- * ledger has never heard of. Reported as `unexplained_difference` that is a
- * number; reported here it is a list of invoice numbers.
+ * Found by running the reconciliation over real books and looking at what it
+ * could not explain: on isaflow_dev, 169 of ISAFlow Demo's open customer
+ * invoices carry no `gl_journal_entry_id` at all — R10,664,575.43 the subledger
+ * counts and the ledger has never heard of. As a residual that is a number;
+ * here it is a list of invoice numbers.
  *
  * EVERY document is scanned — every status, cancelled included, because a
  * cancelled invoice's journal and its reversal both sit on the control account
  * and only cancel each other if both are counted — and the control amount a
  * document is credited with includes the postings of the PAYMENTS ALLOCATED TO
- * IT and of the CREDIT NOTES APPLIED TO IT. Both were learned the hard way. A settled invoice has a balance of zero
- * and a pair of postings on the control account that cancel; scanning only open
- * documents counts the payment leg (which the payment partition sees) without
- * the invoice leg, and drops exactly that much into `unexplained_difference`.
+ * IT and of the CREDIT NOTES APPLIED TO IT, both learned the hard way. A
+ * settled invoice has a balance of zero and a pair of postings that cancel;
+ * scanning only open documents counts the payment leg without the invoice leg.
+ *
+ * NONE OF THOSE LEGS MAY BE CANCELLED. A cancelled payment, credit note or
+ * write-off has had its journal REVERSED, so its value is no longer on the
+ * control account; counting the original against the document understates the
+ * document by that value. On a production copy 22 bills carried R878,993.57 of
+ * this against documents worth R390,110.35 — an item claiming more than the
+ * documents it named were worth, which `item_within_cited_gross` caught.
  *
  * TWO reasons, kept apart because the remedy differs:
  *   `document_not_linked_to_journal`  — the document carries no
  *       `gl_journal_entry_id`. It names exactly that and NOT "never posted":
- *       on isaflow_dev, 385 `auto_supplier_invoice` journals exist while the
- *       bills they came from carry no link back, so the value IS on the control
- *       account and the document simply cannot say which journal put it there.
- *       Those postings are picked up from the ledger side instead, as
- *       `posting_with_no_document`, and the two partitions do not overlap.
+ *       385 `auto_supplier_invoice` journals exist on isaflow_dev while the
+ *       bills carry no link back, so the value IS on the control account and
+ *       the document cannot say which journal put it there. Those are picked up
+ *       from the ledger side as `posting_with_no_document`; the two partitions
+ *       do not overlap.
  *   `document_not_on_control_account`  — a journal IS linked, and the amount it
  *       put on a control account differs from the document's balance.
  *
@@ -34,12 +39,10 @@
  * `kpiChartsService` came to chart every transaction in the company.
  */
 
-import { sql } from '@/lib/neon';
-import type { DbRow } from '@/lib/neon';
 import { log } from '@/lib/logger';
 import { fmtDate } from '@/lib/fmtDate';
-import { effectivePaidExpr, rewindAmount } from '../shared/agingRewind';
 import type { SubledgerRole } from '../gl/controlAccountService';
+import { readUnpostedDocumentRows } from './unpostedDocumentQueries';
 import { round2 } from './reconciliationMath';
 
 export interface UnpostedDocument {
@@ -54,6 +57,8 @@ export interface UnpostedDocument {
    * reported or the decomposition cannot close.
    */
   amount: number;
+  /** The document's face value — the gross an item citing it may not exceed. */
+  gross: number;
   reason: 'document_not_linked_to_journal' | 'document_not_on_control_account';
 }
 
@@ -75,119 +80,12 @@ export async function getUnpostedSubledgerDocuments(
     const isAr = role === 'ar';
     // The document's contribution must be the SAME NUMBER the subledger
     // snapshot counted for it, on the same population and the same
-    // point-in-time basis — the rewind from services/shared/agingRewind.ts,
-    // the status rule, and the as-at cutoff. If the two definitions drift, the
-    // difference between them lands in `unexplained_difference` and reads as a
-    // finding about the books rather than about this code.
-    //
-    // A settled document contributes zero, which is why every status is still
-    // SCANNED: its own posting and its payments' postings cancel on the
-    // control account, and counting one leg without the other drops exactly
-    // that much into the residual.
+    // point-in-time basis — the rewind, the status rule and the as-at cutoff.
+    // Drift between the two definitions lands in `unexplained_difference` and
+    // reads as a finding about the books rather than about this code.
     const todayStr = fmtDate(new Date());
-    const paid = effectivePaidExpr(isAr ? 'ar' : 'ap');
-    const inPopulation = isAr
-      ? `ci.status NOT IN ('draft', 'cancelled') AND COALESCE(ci.invoice_date, ci.created_at::date) <= `
-      : `si.status NOT IN ('draft', 'cancelled') AND COALESCE(si.invoice_date, si.created_at::date) <= `;
 
-    // AR and AP are SEPARATE queries, not one query branching on a boolean
-    // parameter: that form type-checked, ran without error and returned nothing
-    // on data where a manual join found the rows.
-    const rows = (await (isAr
-      ? sql`
-        SELECT ci.id, ci.invoice_number AS document_number, c.name AS entity_name,
-               ci.invoice_date AS document_date,
-               CASE WHEN ${sql.unsafe(inPopulation)} ${asAtDate}::DATE
-                          AND (ci.total_amount - ${sql.unsafe(paid)}) > 0
-                    THEN (ci.total_amount - ${sql.unsafe(paid)}) ELSE 0 END AS balance,
-               (ci.gl_journal_entry_id IS NOT NULL) AS has_journal,
-               COALESCE((
-                 SELECT SUM(jl.debit - jl.credit)
-                 FROM gl_journal_lines jl
-                 JOIN gl_journal_entries je ON je.id = jl.journal_entry_id
-                                           AND je.company_id = ${companyId}::UUID
-                                           AND je.status = 'posted'
-                                           AND je.entry_date <= ${asAtDate}::DATE
-                 WHERE jl.journal_entry_id = ci.gl_journal_entry_id
-                   AND jl.company_id = ${companyId}::UUID
-                   AND jl.gl_account_id = ANY(${ids}::uuid[])
-               ), 0)
-               + COALESCE((
-                 SELECT SUM(jl.debit - jl.credit)
-                 FROM customer_payment_allocations a
-                 JOIN customer_payments p ON p.id = a.payment_id
-                                         AND p.company_id = ${companyId}::UUID
-                 JOIN gl_journal_entries je ON je.id = p.gl_journal_entry_id
-                                           AND je.company_id = ${companyId}::UUID
-                                           AND je.status = 'posted'
-                                           AND je.entry_date <= ${asAtDate}::DATE
-                 JOIN gl_journal_lines jl ON jl.journal_entry_id = je.id
-                                         AND jl.company_id = ${companyId}::UUID
-                                         AND jl.gl_account_id = ANY(${ids}::uuid[])
-                 WHERE a.invoice_id = ci.id
-               ), 0)
-               + COALESCE((
-                 SELECT SUM(jl.debit - jl.credit)
-                 FROM credit_notes cn
-                 JOIN gl_journal_entries je ON je.id = cn.gl_journal_entry_id
-                                           AND je.company_id = ${companyId}::UUID
-                                           AND je.status = 'posted'
-                                           AND je.entry_date <= ${asAtDate}::DATE
-                 JOIN gl_journal_lines jl ON jl.journal_entry_id = je.id
-                                         AND jl.company_id = ${companyId}::UUID
-                                         AND jl.gl_account_id = ANY(${ids}::uuid[])
-                 WHERE cn.company_id = ${companyId}::UUID
-                   AND cn.customer_invoice_id = ci.id
-               ), 0) AS control_amount
-        FROM customer_invoices ci
-        LEFT JOIN customers c ON c.id = COALESCE(ci.client_id, ci.customer_id)
-                             AND c.company_id = ${companyId}::UUID
-        LEFT JOIN LATERAL (
-          ${rewindAmount({ companyId, asAtStr: asAtDate, todayStr, side: 'ar' })}
-        ) unpaid ON TRUE
-        WHERE ci.company_id = ${companyId}::UUID
-        ORDER BY ci.invoice_date, ci.id
-      `
-      : sql`
-        SELECT si.id, si.invoice_number AS document_number, s.name AS entity_name,
-               si.invoice_date AS document_date,
-               CASE WHEN ${sql.unsafe(inPopulation)} ${asAtDate}::DATE
-                          AND (si.total_amount - ${sql.unsafe(paid)}) > 0
-                    THEN (si.total_amount - ${sql.unsafe(paid)}) ELSE 0 END AS balance,
-               (si.gl_journal_entry_id IS NOT NULL) AS has_journal,
-               COALESCE((
-                 SELECT SUM(jl.credit - jl.debit)
-                 FROM gl_journal_lines jl
-                 JOIN gl_journal_entries je ON je.id = jl.journal_entry_id
-                                           AND je.company_id = ${companyId}::UUID
-                                           AND je.status = 'posted'
-                                           AND je.entry_date <= ${asAtDate}::DATE
-                 WHERE jl.journal_entry_id = si.gl_journal_entry_id
-                   AND jl.company_id = ${companyId}::UUID
-                   AND jl.gl_account_id = ANY(${ids}::uuid[])
-               ), 0)
-               + COALESCE((
-                 SELECT SUM(jl.credit - jl.debit)
-                 FROM payment_allocations a
-                 JOIN supplier_payments p ON p.id = a.payment_id
-                                         AND p.company_id = ${companyId}::UUID
-                 JOIN gl_journal_entries je ON je.id = p.gl_journal_entry_id
-                                           AND je.company_id = ${companyId}::UUID
-                                           AND je.status = 'posted'
-                                           AND je.entry_date <= ${asAtDate}::DATE
-                 JOIN gl_journal_lines jl ON jl.journal_entry_id = je.id
-                                         AND jl.company_id = ${companyId}::UUID
-                                         AND jl.gl_account_id = ANY(${ids}::uuid[])
-                 WHERE a.invoice_id = si.id
-               ), 0) AS control_amount
-        FROM supplier_invoices si
-        LEFT JOIN suppliers s ON s.id = si.supplier_id AND s.company_id = ${companyId}::UUID
-        LEFT JOIN LATERAL (
-          ${rewindAmount({ companyId, asAtStr: asAtDate, todayStr, side: 'ap' })}
-        ) unpaid ON TRUE
-        WHERE si.company_id = ${companyId}::UUID
-        ORDER BY si.invoice_date, si.id
-      `)) as DbRow[];
+    const rows = await readUnpostedDocumentRows(isAr, { companyId, asAtDate, todayStr, ids });
 
     const out: UnpostedDocument[] = [];
     for (const r of rows) {
@@ -201,6 +99,7 @@ export async function getUnpostedSubledgerDocuments(
         entityName: r.entity_name == null ? null : String(r.entity_name),
         documentDate: fmtDate(r.document_date as string | Date),
         amount: shortfall,
+        gross: round2(Number(r.gross ?? 0)),
         reason:
           r.has_journal === true ? 'document_not_on_control_account' : 'document_not_linked_to_journal',
       });
