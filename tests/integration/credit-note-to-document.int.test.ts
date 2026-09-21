@@ -68,6 +68,14 @@ async function allocations(noteId: string): Promise<{ invoiceId: string; amount:
   return rows.map((r) => ({ invoiceId: String(r.invoice_id), amount: Number(r.amount_allocated) }));
 }
 
+/** The document's outstanding balance as the database holds it now. */
+async function billOutstanding(id: string): Promise<number> {
+  const r = ((await sql`
+    SELECT total_amount - COALESCE(amount_paid, 0) AS o FROM supplier_invoices
+    WHERE id = ${id}::UUID AND company_id = ${fx.companyId}::UUID`) as Record<string, unknown>[])[0]!;
+  return Number(r.o);
+}
+
 async function journalCount(): Promise<number> {
   const rows = (await sql`
     SELECT COUNT(*)::INT AS n FROM gl_journal_entries WHERE company_id = ${fx.companyId}::UUID`) as Record<string, unknown>[];
@@ -115,6 +123,8 @@ describeIfDb('credit note → one named document, over a real ledger', () => {
     const result = await apply({ creditNoteId: note, invoiceId: named });
 
     expect(result.amount).toBe(50);
+    // What the call REPORTS is what the ledger now holds — the figure an agent acts on.
+    expect(result.invoiceOutstandingAfter).toBe(await billOutstanding(named));
     expect(await allocations(note)).toEqual([{ invoiceId: named, amount: 50 }]);
     expect((await billState(fx, named)).amountPaid).toBe(50);
     expect((await billState(fx, oldest)).amountPaid).toBe(0);
@@ -145,6 +155,7 @@ describeIfDb('credit note → one named document, over a real ledger', () => {
 
     expect(result.amount).toBe(100);
     expect(result.noteRemainderAfter).toBe(400);
+    expect(result.invoiceOutstandingAfter).toBe(await billOutstanding(small));
     expect(await noteState(note)).toEqual({ status: 'partially_applied', applied: 100 });
     expect((await billState(fx, small)).status).toBe('paid');
   });

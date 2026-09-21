@@ -27,7 +27,9 @@ import { lockCreditNoteForUpdate } from '../ar/creditNoteLock';
 import { EPS, round2 } from './autoAllocateStrategy';
 import { APPLICABLE_CREDIT_NOTE_STATUSES } from './autoApplyBackfillApply';
 import { applyCreditNote, deriveCreditNoteStatus, type CreditNoteSide } from './creditNoteFifo';
-import { UNAPPLICABLE_STATUSES, assertAllocationsMatchApplied } from './creditNoteApplicationWrites';
+import {
+  UNAPPLICABLE_STATUSES, assertAllocationsMatchApplied, lockInvoicesForUpdate,
+} from './creditNoteApplicationWrites';
 
 /** A refusal whose message is safe to show the caller: it names no schema. */
 export class CreditNoteApplyRefusal extends Error {
@@ -72,10 +74,14 @@ export async function planCreditNoteToDocument(
 }
 
 /**
- * Apply it. The note is locked FIRST — `applyCreditNote` then locks the
- * document, and cancel and approval both take note-then-document, so the other
- * order would be a reachable deadlock. The plan is rebuilt from the LOCKED row,
- * so two concurrent calls cannot both spend the same remainder.
+ * Apply it. The note is locked FIRST and the document SECOND — the order
+ * `applyCreditNote`, cancel and approval all take, so no other order can
+ * deadlock against them. The plan is then built from rows this transaction
+ * HOLDS: two concurrent calls cannot spend the same remainder, and the figures
+ * reported back (the document's outstanding before and after) are the ones the
+ * write used, not a snapshot a concurrent payment has since moved. A document
+ * deleted before the lock is read as absent and refused by name. The engine
+ * locks the document again; re-locking a row this transaction holds is a no-op.
  */
 export async function applyCreditNoteToDocument(
   companyId: string,
@@ -83,6 +89,12 @@ export async function applyCreditNoteToDocument(
   userId: string,
 ): Promise<CreditNoteToDocumentResult> {
   const note = await lockCreditNoteForUpdate(companyId, input.creditNoteId);
+  if (note) {
+    await lockInvoicesForUpdate(
+      'applyCreditNoteToDocument', companyId,
+      note.type === 'supplier' ? 'supplier' : 'customer', [input.invoiceId],
+    );
+  }
   const plan = await buildPlan(companyId, note, input);
 
   const application = await applyCreditNote({
