@@ -20,10 +20,7 @@ that does not exist.
 **Files.** `src/modules/accounting/services/ap/supplierPaymentService.ts` (270
 lines, under the 300 limit).
 
-**Tests.** Real PostgreSQL (disposable fixture):
-- `tests/integration/k066-supplier-payment-foreign-bill.int.test.ts` — 3 tests (validator's RED, now green): foreign supplier, draft, cancelled.
-- `tests/integration/k066-supplier-payment-guard-cases.int.test.ts` — 3 tests: `pending_approval` refused, another tenant's bill refused as not found, and a valid payment still created with its allocations accounting for the whole payment total.
-- `tests/unit/services/supplierPaymentService.test.ts` — the mocked bill row in "proceeds when all invoices belong to the correct company" gained `supplier_id` and `status`; without them the new check refused it. 8 tests in that file pass.
+**Tests.** Real PostgreSQL (disposable fixture): the validator's three RED cases (foreign supplier, draft, cancelled) plus `pending_approval`, another tenant's bill and a valid payment. `tests/unit/services/supplierPaymentService.test.ts` — the mocked bill row gained `supplier_id` and `status`. Round 1's two service-level files were deleted in round 2; `green.log` / `red.log` in this folder are their 2026-09-09 runs and name files that no longer exist. The live tests are listed under Round 2 onward. (`k066-supplier-payment-foreign-bill.int.test.ts` exists again from round 2, rewritten at route level.)
 
 **Migration / rollback.** None. Revert the commit.
 
@@ -97,3 +94,7 @@ restored byte-identical.
 `K-063/fix.md` "Round 3": a bill cancelled, disputed, sent back or reassigned
 between creation and processing is now refused at process time, under the bill
 lock, before any write, and the payment stays `approved`.
+
+## Round 4 (2026-09-21)
+
+Blind review r1 findings for all three items — soft-deleted bills, batch members processed twice, the UI refusals, the reservation set, integer-cent comparison, dead citations and unlocked payment creation — are fixed and recorded once, in `K-063/fix.md` "Round 4".

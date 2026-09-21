@@ -115,3 +115,28 @@ async function checkUnderLock(
     taken.set(line.invoiceId, round2(before + line.amount));
   }
 }
+
+/**
+ * Processing a BATCH: every member must still be unprocessed and every bill
+ * still allocatable. `processBatch` posts ONE journal for the batch total and
+ * applies every member's allocations, so a member already processed on its own
+ * (the single path now refuses batch members, but stored data may predate
+ * that) would be paid a second time. The caller holds the batch row lock.
+ */
+export async function assertBatchMembersStillAllocatable(companyId: string, batchId: string): Promise<void> {
+  const stored = (await sql`
+    SELECT sp.payment_number, sp.status, sp.supplier_id, pa.invoice_id, pa.amount_allocated
+    FROM supplier_payments sp
+    JOIN payment_allocations pa ON pa.payment_id = sp.id
+    WHERE sp.batch_id = ${batchId}::UUID AND sp.company_id = ${companyId}::UUID
+    ORDER BY pa.invoice_id
+  `) as DbRow[];
+  const moved = stored.find((r) => String(r.status) !== 'approved');
+  if (moved) {
+    throw new SupplierPaymentRefusal(`Payment ${String(moved.payment_number)} in this batch is `
+      + `${String(moved.status)}, not approved — the batch cannot be processed.`);
+  }
+  await assertAllocationsStillAllocatable(companyId, stored.map((r) => ({
+    invoiceId: String(r.invoice_id), amount: Number(r.amount_allocated), supplierId: String(r.supplier_id),
+  })));
+}

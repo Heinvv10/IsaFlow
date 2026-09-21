@@ -22,9 +22,7 @@ check against the same bill. Nothing is written when any line is refused.
 **Files.** `src/modules/accounting/services/ap/batchPaymentService.ts` (255
 lines, under the 300 limit).
 
-**Tests.** Real PostgreSQL (disposable fixture):
-- `tests/integration/k064-batch-payment-creation-unvalidated.int.test.ts` — 2 tests (validator's RED, now green): foreign tenant, over-payment.
-- `tests/integration/k064-batch-payment-guarded.int.test.ts` — 3 tests: a different supplier inside the same tenant refused, one bill named by two payments refused, and a valid batch run through `approveBatch` + `processBatch` where the journal balances (DR 200 = CR 200) and the AP debit equals the `amount_paid` the two bills actually took.
+**Tests.** Real PostgreSQL (disposable fixture): the validator's two RED cases (foreign tenant, over-payment) plus a same-tenant other supplier, one bill named by two payments, and a valid batch processed with the AP debit equal to what its bills took. Round 1's two service-level files were deleted in round 2; `green.log` / `red.log` in this folder are their 2026-09-09 runs and name files that no longer exist. The live tests are listed under Round 2 onward.
 
 **Migration / rollback.** None. Revert the commit.
 
@@ -114,3 +112,7 @@ reads bills without a lock, so a single payment and a batch created concurrently
 can both count the same outstanding at creation; the process-time gate then
 refuses whichever is processed second if the bill no longer has the room
 (the same `buildLine` outstanding check; this ordering is not separately tested).
+
+## Round 4 (2026-09-21)
+
+Blind review r1 findings for all three items — soft-deleted bills, batch members processed twice, the UI refusals, the reservation set, integer-cent comparison, dead citations and unlocked payment creation — are fixed and recorded once, in `K-063/fix.md` "Round 4".
