@@ -141,7 +141,16 @@ describe('getUnpostedSubledgerDocuments', () => {
     nextRows([]);
     await getUnpostedSubledgerDocuments(COMPANY, 'ar', '2026-09-03', CTRL);
     const statement = sqlFn.mock.calls.map(render).find((t) => t.includes('ORDER BY'))!;
-    expect(statement).toContain("ci.status NOT IN ('draft', 'cancelled')");
+    // The STATUS half is deliberately not pinned here any more. This line used
+    // to assert the spelling "ci.status NOT IN ('draft', 'cancelled')" — and
+    // it stayed green while that spelling made a null-status document a false
+    // document_not_on_control_account item on books that tied (R-059 r5). A
+    // test that greps the query is a linter. The status rule is now
+    // shared/documentPopulation, and whether this bridge agrees with the
+    // subledger is proved BY OUTCOME in
+    // tests/integration/r059-reconciliation-mixed-population.int.test.ts:
+    // every bridge 0 and no item named, on null-status, draft, cancelled,
+    // credit-noted, part-paid and written-off documents.
     expect(statement).toContain('COALESCE(ci.invoice_date, ci.created_at::date) <=');
     expect(statement).toContain('LEAST(GREATEST(COALESCE(ci.amount_paid, 0)');
     expect(statement).toContain('unpaid.amount');

@@ -1,15 +1,10 @@
+### RED — origin/master journalEntryPostingService.ts, ux_gl_je_reversal_of DROPPED (pre-fix state)
 $ node scripts/check-runtime.mjs && vitest run --config vitest.integration.config.ts "tests/integration/k010-concurrent-journal-reversal.int.test.ts"
 
- RUN  v4.1.2 /home/hein/Workspace/IsaFlow/.worktrees/audit-remediation-20260908
+ RUN  v4.1.2 /home/hein/Workspace/IsaFlow/.worktrees/fix-K-010
 
-{"level":"info","message":"Created journal entry","timestamp":"2026-09-09T03:39:55.560Z","component":"accounting","data":{"entryId":"52f270c0-07f5-4ca1-bb06-318bc984b4dc","entryNumber":"JE-2026-00002","lineCount":2}}
-{"level":"info","message":"Posted journal entry","timestamp":"2026-09-09T03:39:55.586Z","component":"accounting","data":{"id":"52f270c0-07f5-4ca1-bb06-318bc984b4dc","entryNumber":"JE-2026-00002"}}
-{"level":"info","message":"Reversed journal entry","timestamp":"2026-09-09T03:39:55.608Z","component":"accounting","data":{"originalId":"95fe58cf-ac70-4e00-b49a-40f339e411cd","reversalId":"52f270c0-07f5-4ca1-bb06-318bc984b4dc"}}
-{"level":"info","message":"Created journal entry","timestamp":"2026-09-09T03:39:55.626Z","component":"accounting","data":{"entryId":"14c437e5-4be4-47c6-b7bd-cc38f25f0a14","entryNumber":"JE-2026-00003","lineCount":2}}
-{"level":"info","message":"Posted journal entry","timestamp":"2026-09-09T03:39:55.637Z","component":"accounting","data":{"id":"14c437e5-4be4-47c6-b7bd-cc38f25f0a14","entryNumber":"JE-2026-00003"}}
-{"level":"info","message":"Reversed journal entry","timestamp":"2026-09-09T03:39:55.653Z","component":"accounting","data":{"originalId":"95fe58cf-ac70-4e00-b49a-40f339e411cd","reversalId":"14c437e5-4be4-47c6-b7bd-cc38f25f0a14"}}
- ❯ tests/integration/k010-concurrent-journal-reversal.int.test.ts (1 test | 1 failed) 496ms
-   × refuses the second of two overlapping reversals of the same entry 176ms
+ ❯ tests/integration/k010-concurrent-journal-reversal.int.test.ts (3 tests | 1 failed) 190ms
+   × refuses the second of two overlapping reversals of the same entry 50ms
 
 ⎯⎯⎯⎯⎯⎯⎯ Failed Tests 1 ⎯⎯⎯⎯⎯⎯⎯
 
@@ -22,20 +17,56 @@ AssertionError: expected [ 'posted a reversal', …(1) ] to have a length of 1 b
 - 1
 + 2
 
- ❯ tests/integration/k010-concurrent-journal-reversal.int.test.ts:81:57
-     79|   const [a, b] = await Promise.all(outcomes);
-     80|
-     81|   expect([a, b].filter(o => o === 'posted a reversal')).toHaveLength(1…
+ ❯ tests/integration/k010-concurrent-journal-reversal.int.test.ts:120:57
+    118|   const [a, b] = await Promise.all(outcomes);
+    119|
+    120|   expect([a, b].filter(o => o === 'posted a reversal')).toHaveLength(1…
        |                                                         ^
-     82|   expect([a, b].find(o => o !== 'posted a reversal')).toMatch(/already…
-     83|
+    121|   expect([a, b].find(o => o !== 'posted a reversal')).toMatch(/already…
+    122|   expect(await postedContras(original)).toBe(1);
 
 ⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[1/1]⎯
 
 
  Test Files  1 failed (1)
-      Tests  1 failed (1)
-   Start at  05:39:54
-   Duration  1.21s (transform 260ms, setup 0ms, import 385ms, tests 496ms, environment 0ms)
+      Tests  1 failed | 2 passed (3)
+   Start at  05:48:49
+   Duration  483ms (transform 105ms, setup 0ms, import 167ms, tests 190ms, environment 0ms)
+
+error: script "test:integration" exited with code 1
+### RED (mutation, index only) — origin/master service, ux_gl_je_reversal_of PRESENT
+$ node scripts/check-runtime.mjs && vitest run --config vitest.integration.config.ts "tests/integration/k010-concurrent-journal-reversal.int.test.ts"
+
+ RUN  v4.1.2 /home/hein/Workspace/IsaFlow/.worktrees/fix-K-010
+
+ ❯ tests/integration/k010-concurrent-journal-reversal.int.test.ts (3 tests | 1 failed) 217ms
+   × refuses the second of two overlapping reversals of the same entry 67ms
+
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 1 ⎯⎯⎯⎯⎯⎯⎯
+
+ FAIL  tests/integration/k010-concurrent-journal-reversal.int.test.ts > refuses the second of two overlapping reversals of the same entry
+AssertionError: expected 'duplicate key value violates unique c…' to match /already reversed/
+
+- Expected:
+/already reversed/
+
++ Received:
+"duplicate key value violates unique constraint \"ux_gl_je_reversal_of\""
+
+ ❯ tests/integration/k010-concurrent-journal-reversal.int.test.ts:121:55
+    119|
+    120|   expect([a, b].filter(o => o === 'posted a reversal')).toHaveLength(1…
+    121|   expect([a, b].find(o => o !== 'posted a reversal')).toMatch(/already…
+       |                                                       ^
+    122|   expect(await postedContras(original)).toBe(1);
+    123|   expect(await netOnCash(original)).toBe('0.00');
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[1/1]⎯
+
+
+ Test Files  1 failed (1)
+      Tests  1 failed | 2 passed (3)
+   Start at  05:48:50
+   Duration  542ms (transform 121ms, setup 0ms, import 188ms, tests 217ms, environment 0ms)
 
 error: script "test:integration" exited with code 1

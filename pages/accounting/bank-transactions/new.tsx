@@ -10,6 +10,7 @@ import { AppLayout } from '@/components/layout/AppLayout';
 import { ArrowLeft, Loader2, Receipt, Banknote } from 'lucide-react';
 import { notify } from '@/utils/toast';
 import { apiFetch } from '@/lib/apiFetch';
+import { isBankSubtype } from '@/modules/accounting/services/gl/accountSubtypes';
 
 type TxType = 'spend' | 'receive';
 type AllocType = 'account' | 'supplier' | 'customer';
@@ -76,7 +77,7 @@ export default function NewBankTransactionPage() {
         if (!mounted) return;
         const list = asArray<GlAccountOption>(json.data ?? json);
         setGlAccounts(list
-          .filter(a => a.accountSubtype !== 'bank')
+          .filter(a => !isBankSubtype(a.accountSubtype))
           .map(a => ({ id: a.id, code: a.accountCode ?? a.code ?? undefined, name: a.accountName ?? a.name ?? '' })));
       }),
       apiFetch('/api/accounting/suppliers-list?status=active').then(r => r.json()).then(json => {

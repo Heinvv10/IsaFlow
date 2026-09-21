@@ -1,0 +1,8 @@
+$ bash scripts/ci/run-ci.sh
+
+=== [ci] type-check ===
+$ tsc --noEmit
+[ci] type-check PASS
+
+=== [ci] lint ===
+$ eslint src pages --report-unused-disable-directives

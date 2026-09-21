@@ -141,6 +141,7 @@ export const CLIENT_MCP_TOOL_NAMES = [
   'cancel_credit_note',
   'apply_receipt_to_invoice',
   'apply_payment_to_supplier_invoice',
+  'auto_apply_unapplied',
   'reverse_journal_entry',
   'settle_by_contra',
   'create_customer',

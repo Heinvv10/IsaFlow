@@ -9,6 +9,7 @@
 import type { NextApiResponse } from 'next';
 import { withErrorHandler } from '@/lib/api-error-handler';
 import { apiResponse } from '@/lib/apiResponse';
+import { CustomerNotInCompanyError } from '@/modules/accounting/services/core/contactDirectoryService';
 import { withAuth, type CompanyAuthedRequest, type AuthenticatedNextApiRequest, withWriteAccess} from '@/lib/auth';
 import { withCsrf } from '@/lib/auth/withCsrf';
 import { getQuotes, getQuote, createQuote, updateQuote, deleteQuote, LineValidationError } from '@/modules/accounting/services/ar/quoteService';
@@ -40,6 +41,7 @@ async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse) {
     } catch (err) {
       // Line-validation failures (W1) are client errors, not 500s.
       if (err instanceof LineValidationError) return apiResponse.badRequest(res, err.message);
+      if (err instanceof CustomerNotInCompanyError) return apiResponse.badRequest(res, err.message);
       throw err;
     }
   }
@@ -53,6 +55,7 @@ async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse) {
       return apiResponse.success(res, quote);
     } catch (err) {
       if (err instanceof LineValidationError) return apiResponse.badRequest(res, err.message);
+      if (err instanceof CustomerNotInCompanyError) return apiResponse.badRequest(res, err.message);
       throw err;
     }
   }

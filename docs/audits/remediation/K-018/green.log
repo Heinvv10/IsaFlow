@@ -1,0 +1,76 @@
+=== GREEN: bun run test:integration -- tests/integration/k018-open-banking-fabricated-transactions.int.test.ts ===
+ Test Files  1 passed (1)
+      Tests  11 passed (11)
+
+=== GREEN: bunx vitest run tests/unit/services/openBankingSyncService.test.ts ===
+ Test Files  1 passed (1)
+      Tests  2 passed (2)
+
+=== MUTATION CHECK: production file reverted to origin/master, same integration suite ===
+     × writes no transactions for the unimplemented provider basiq 56ms
+     × writes no transactions for the unimplemented provider tink 20ms
+     × writes no transactions for the unimplemented provider plaid 115ms
+     × marks the sync log and the connection failed when it refuses 51ms
+     × retrying the refused sync still imports nothing 14ms
+     × still returns instructions and imports nothing for the implemented provider manual_csv 21ms
+     × still returns instructions and imports nothing for the implemented provider extension 15ms
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 7 ⎯⎯⎯⎯⎯⎯⎯
+ Test Files  1 failed (1)
+      Tests  7 failed | 4 passed (11)
+(production file restored afterwards; git diff confirms 8 insertions / 110 deletions vs origin/master)
+
+=== FULL UNIT SUITE — env -u DATABASE_URL bunx vitest run (fixture env NOT sourced) ===
+Run 1 (with the fix):     Test Files 1 failed | 783 passed | 36 skipped (820)
+                          Tests      1 failed | 9319 passed | 234 skipped (9554)
+                          failure: tests/unit/services/cashFlowReport.test.ts (10s timeout)
+Run 2 (with the fix):     Test Files 5 failed | 779 passed | 36 skipped (820)
+                          Tests     10 failed | 9310 passed | 234 skipped (9554)
+                          failures: bankAllocationService, cashFlowReport,
+                                    bank/bankAllocationDateShift, bank/bankAllocationUnwind,
+                                    and a fifth file whose name the `tail -10` output filter
+                                    cut off — the control run below shows trackerExclusion
+
+Control — the five changed source files reverted to origin/master, same command:
+                          Test Files 5 failed | 779 passed | 36 skipped (820)
+                          Tests     10 failed | 9310 passed | 234 skipped (9554)
+                          same failures plus unit/components/trackerExclusion
+
+The failing set drifts between runs and is identical with and without the fix, so these are
+pre-existing load/timeout flakes on origin/master, not a consequence of this change. Every failing
+file passes in isolation (bankAllocationService + cashFlowReport + bankAllocationDateShift +
+bankAllocationUnwind: 24/24 passed) and none of them imports any file this commit touches.
+No query was run against the production database at any point.
+
+════════════════════════════════════════════════════════════════════════════════
+REVIEW ROUND 2 — findings MEDIUM-1/2/3 and LOW-1/2/4 fixed (LOW-3 already closed)
+════════════════════════════════════════════════════════════════════════════════
+
+bun run test:integration -- tests/integration/k018-...int.test.ts   12 passed (12)
+bunx vitest run tests/unit/services/bankFeedSyncRouteRefusal.test.ts  5 passed (5)
+bunx vitest run --config vitest.components.config.ts               389 passed (56 files)
+  (includes tests/unit/components/bankFeedUnsupportedProvider.test.tsx — 5 passed)
+bunx tsc --noEmit                                                  clean
+bunx eslint <5 changed source files>                               clean
+bun run agent-docs:check                                           74 mirrors match
+
+MUTATION — revert the route's catch in pages/api/accounting/bank-feeds/[id]/sync.ts
+to HEAD (uncaught throw → 500):
+     × answers badRequest with the reason for basiq
+     × answers badRequest with the reason for tink
+     × answers badRequest with the reason for plaid
+     Tests  3 failed | 2 passed (5)
+Restored; the route test pins the 400 mapping through the real route and the real
+service over a mocked SQL layer. (The integration test alone did NOT pin it — the
+same revert left it 12/12 green, which is why the route unit test exists.)
+
+FULL UNIT SUITE — env -u DATABASE_URL bunx vitest run (fixture env NOT sourced)
+     Test Files  5 failed | 780 passed | 36 skipped (821)
+     Tests      10 failed | 9315 passed | 234 skipped (9559)
+     failures: trackerExclusion, bankAllocationService, cashFlowReport,
+               bank/bankAllocationDateShift, bank/bankAllocationUnwind
+Identical file and test names to the control run recorded above, which was taken
+with this change's source reverted to origin/master — the same pre-existing
+load/timeout flakes, none importing a file this branch touches. Counts moved by
++1 file and +5 tests, which is exactly the new route test.
+
+No query was run against the production database at any point.

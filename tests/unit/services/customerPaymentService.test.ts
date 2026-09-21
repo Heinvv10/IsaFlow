@@ -24,6 +24,15 @@ vi.mock('@/lib/logger', () => ({
   log: { info: vi.fn(), error: vi.fn(), warn: vi.fn() },
 }));
 
+// R-067 added a tenant fence on the caller-supplied customer id. These tests
+// pin behaviour AFTER that check, so it is stubbed here; the fence itself is
+// covered by tests/unit/services/assertCustomerInCompany.test.ts and
+// tests/unit/services/customerOwnershipFence.test.ts.
+vi.mock('@/modules/accounting/services/core/contactDirectoryService', () => ({
+  assertCustomerInCompany: vi.fn(async () => undefined),
+  CustomerNotInCompanyError: class CustomerNotInCompanyError extends Error {},
+}));
+
 vi.mock('@/modules/accounting/services/journalEntryService', () => ({
   createJournalEntry: vi.fn(),
   postJournalEntry: vi.fn(),

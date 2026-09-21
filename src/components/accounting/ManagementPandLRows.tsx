@@ -30,7 +30,7 @@ export function ManagementPandLRows({ is }: { is: Record<string, number> | undef
 }
 
 /** The management pack's balance-sheet summary — three subtotals plus the
- * derived Total Liabilities and Equity line (the report has no field for
+ * derived Total Equity and Liabilities line (the report has no field for
  * this — same exception as balanceSheetRows.ts). `detail` copies in the
  * report's own current-assets/cash/AR/AP figures, no arithmetic. */
 export function ManagementBalanceSheetRows({ bs, detail }: { bs: Record<string, number> | undefined; detail?: BalanceSheetDetail }) {

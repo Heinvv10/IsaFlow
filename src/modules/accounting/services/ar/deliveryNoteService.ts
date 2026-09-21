@@ -6,6 +6,7 @@ import { sql } from '@/lib/neon';
 import { fmtDate } from '@/lib/fmtDate';
 import type { DbRow } from '@/lib/neon';
 import { log } from '@/lib/logger';
+import { assertCustomerInCompany } from '../core/contactDirectoryService';
 
 type Row = DbRow;
 
@@ -188,6 +189,8 @@ export async function createDeliveryNote(
   if (!Array.isArray(input.lines) || input.lines.length === 0) {
     throw new Error('At least one line is required');
   }
+  // R-067: before nextDeliveryNoteNumber(), which writes the company's counter.
+  await assertCustomerInCompany(companyId, input.customer_id);
 
   const noteNumber = await nextDeliveryNoteNumber(companyId);
   const deliveryDate = input.delivery_date ?? new Date().toISOString().split('T')[0];

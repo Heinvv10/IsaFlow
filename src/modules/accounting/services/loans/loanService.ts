@@ -2,113 +2,29 @@ import { sql } from '@/lib/neon';
 import { fmtDate } from '@/lib/fmtDate';
 import type { DbRow } from '@/lib/neon';
 import { log } from '@/lib/logger';
+import { validateCreate, validateEventInput, assertSkipScheduleRepayable } from './loanValidation';
 
 type Row = DbRow;
 
-export type LoanVatType = 'standard' | 'zero' | 'exempt';
+import type {
+  LoanVatType,
+  Loan,
+  LoanCreateInput,
+  LoanUpdateInput,
+  LoanEvent,
+  LoanEventInput,
+  ListLoansFilter,
+} from './loanTypes';
 
-export interface Loan {
-  id: string;
-  companyId: string;
-  curveId: string | null;
-  counterpartyId: string | null;
-  glAccountId: string | null;
-  reference: string | null;
-  product: string | null;
-  description: string | null;
-  principal: number;
-  startDate: string;
-  termMonths: number;
-  rateMode: 'FIXED' | 'PRIME_PLUS' | 'PRIME_MINUS';
-  margin: number;
-  fixedRate: number | null;
-  residual: number;
-  dayCount: 'ACTUAL_365' | 'ACTUAL_360' | '30_360';
-  repriceMode: 'RESOLVE_ON_RATE_CHANGE' | 'RESOLVE_EVERY_PERIOD' | 'FIXED_INSTALLMENT';
-  skipMode: 'EXTEND_TERM' | 'MAINTAIN_TERM';
-  lumpMode: 'REDUCE_INSTALLMENT' | 'MAINTAIN_INSTALLMENT';
-  recurringSkipMonths: number[];
-  status: 'active' | 'closed' | 'written_off';
-  ncaCompliant: boolean;
-  currency: string;
-  /** Upfront origination fee (ZAR, excl VAT). Default 0. */
-  originationFee: number;
-  /** VAT treatment of the origination fee. Interest itself is always exempt. */
-  originationFeeVatType: LoanVatType;
-  createdAt: string;
-  updatedAt: string;
-}
-
-export interface LoanCreateInput {
-  curveId?: string;
-  counterpartyId?: string;
-  glAccountId?: string;
-  reference?: string;
-  product?: string;
-  description?: string;
-  principal: number;
-  startDate: string;
-  termMonths: number;
-  rateMode: 'FIXED' | 'PRIME_PLUS' | 'PRIME_MINUS';
-  margin?: number;
-  fixedRate?: number;
-  residual?: number;
-  dayCount?: 'ACTUAL_365' | 'ACTUAL_360' | '30_360';
-  repriceMode?: 'RESOLVE_ON_RATE_CHANGE' | 'RESOLVE_EVERY_PERIOD' | 'FIXED_INSTALLMENT';
-  skipMode?: 'EXTEND_TERM' | 'MAINTAIN_TERM';
-  lumpMode?: 'REDUCE_INSTALLMENT' | 'MAINTAIN_INSTALLMENT';
-  recurringSkipMonths?: number[];
-  currency?: string;
-  originationFee?: number;
-  originationFeeVatType?: LoanVatType;
-}
-
-export interface LoanUpdateInput {
-  status?: 'active' | 'closed' | 'written_off';
-  glAccountId?: string;
-  reference?: string;
-  description?: string;
-  // Financial terms — editable when no GL postings exist on the loan.
-  principal?: number;
-  startDate?: string;
-  termMonths?: number;
-  rateMode?: 'FIXED' | 'PRIME_PLUS' | 'PRIME_MINUS';
-  margin?: number;
-  fixedRate?: number;
-  residual?: number;
-  dayCount?: 'ACTUAL_365' | 'ACTUAL_360' | '30_360';
-  repriceMode?: 'RESOLVE_ON_RATE_CHANGE' | 'RESOLVE_EVERY_PERIOD' | 'FIXED_INSTALLMENT';
-  skipMode?: 'EXTEND_TERM' | 'MAINTAIN_TERM';
-  lumpMode?: 'REDUCE_INSTALLMENT' | 'MAINTAIN_INSTALLMENT';
-  currency?: string;
-  originationFee?: number;
-  product?: string;
-  counterpartyId?: string;
-}
-
-export interface LoanEvent {
-  id: string;
-  loanId: string;
-  companyId: string;
-  date: string;
-  kind: 'LUMP' | 'SKIP' | 'RESTRUCTURE' | 'WRITEOFF';
-  amount: number | null;
-  note: string | null;
-  postedBy: string | null;
-  postedAt: string;
-}
-
-export interface LoanEventInput {
-  kind: 'LUMP' | 'SKIP' | 'RESTRUCTURE' | 'WRITEOFF';
-  date: string;
-  amount?: number;
-  note?: string;
-}
-
-export interface ListLoansFilter {
-  status?: 'active' | 'closed' | 'written_off';
-  product?: string;
-}
+export type {
+  LoanVatType,
+  Loan,
+  LoanCreateInput,
+  LoanUpdateInput,
+  LoanEvent,
+  LoanEventInput,
+  ListLoansFilter,
+} from './loanTypes';
 
 function mapLoanRow(row: Row): Loan {
   return {
@@ -158,25 +74,6 @@ function mapEventRow(row: Row): LoanEvent {
     postedBy: row.posted_by != null ? String(row.posted_by) : null,
     postedAt: String(row.posted_at),
   };
-}
-
-function validateCreate(input: LoanCreateInput): void {
-  if (!input.principal || input.principal <= 0) throw new Error('principal must be positive');
-  if (!input.termMonths || input.termMonths <= 0) throw new Error('termMonths must be positive');
-  if (input.rateMode === 'FIXED' && (input.fixedRate == null || input.fixedRate <= 0)) {
-    throw new Error('fixedRate is required for FIXED rate mode');
-  }
-  if (input.originationFee != null && input.originationFee < 0) {
-    throw new Error('originationFee must not be negative');
-  }
-}
-
-function validateEventInput(input: LoanEventInput): void {
-  if (input.kind === 'LUMP') {
-    if (input.amount == null || input.amount <= 0) {
-      throw new Error('amount must be positive for LUMP events');
-    }
-  }
 }
 
 export async function listLoans(companyId: string, filter?: ListLoansFilter): Promise<Loan[]> {
@@ -252,6 +149,13 @@ export async function updateLoan(
   input: LoanUpdateInput,
   opts?: { force?: boolean },
 ): Promise<Loan | null> {
+  // recurring_skip_months is not editable here, so only a skipMode switch can
+  // turn a stored schedule into the never-repaying one K-084 describes.
+  if (input.skipMode !== undefined) {
+    const existing = await getLoanById(companyId, loanId);
+    if (existing) assertSkipScheduleRepayable(input.skipMode, existing.recurringSkipMonths);
+  }
+
   const financialTermFields = [
     'principal', 'startDate', 'termMonths', 'rateMode', 'margin', 'fixedRate',
     'residual', 'dayCount', 'repriceMode', 'skipMode', 'lumpMode', 'currency',

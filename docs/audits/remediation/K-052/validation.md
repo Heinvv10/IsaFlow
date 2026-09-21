@@ -58,6 +58,7 @@ FROM reclassification_batch_lines l
 JOIN reclassification_batches b ON b.id = l.batch_id
 JOIN gl_accounts ga ON ga.id = b.target_account_id AND ga.company_id = b.company_id
 WHERE ga.level < 3
+  AND ga.account_type IN ('asset','liability','equity')  -- isSubjectToLeafRule: the income statement has no level filter
   AND EXISTS (SELECT 1 FROM gl_accounts c WHERE c.parent_account_id = ga.id AND c.company_id = ga.company_id)
 GROUP BY b.id, b.company_id, ga.account_code, ga.level;
 ```

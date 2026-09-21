@@ -3,22 +3,22 @@
  * Bank Import Service — statement import and persistence
  */
 
-import { transaction, sql, withTransaction } from '@/lib/neon';
+import { transaction, sql, withTransaction, withSavepoint, assertTxUsable } from '@/lib/neon';
 import { log } from '@/lib/logger';
 import { sweep } from './autoPostGateService';
-import {
-  detectBankFormat,
-  parseFNBStatement,
-  parseStandardBankStatement,
-  parseNedbankStatement,
-  parseABSAStatement,
-  parseCapitecStatement,
-  parseGenericStatement,
-} from '../../utils/bankCsvParsers';
-import { parseOfxStatement } from '../../utils/bankOfxParser';
-import { parseQifStatement } from '../../utils/bankQifParser';
+import { detectBankFormat } from '../../utils/bankCsvParsers';
+import { parseStatement, type StatementFileType } from './bankStatementParseService';
 import type { BankFormat, BankCsvParseResult } from '../../types/bank.types';
-import { relinkTransferCounterparts } from './bankTransferLinkService';
+import { autoLinkImportedBatchTransfers, relinkTransferCounterparts } from './bankTransferLinkService';
+
+/**
+ * Per-call suffix for the auto-post savepoint. `SAVEPOINT x` with a name that is
+ * already live SHADOWS the outer one rather than erroring, so the inner RELEASE
+ * would release its parent's — the same idiom `withTransaction` uses in
+ * `neon.ts`. Sequential calls in one request are safe today; a re-entrant one
+ * would not be, and the failure would be silent.
+ */
+let autoPostSeq = 0;
 
 export interface BulkImportContext {
   bulkImportId: string;
@@ -35,37 +35,15 @@ export async function importBankStatement(
   bankFormat?: BankFormat
 ): Promise<{ batchId: string; transactionCount: number; errors: Array<{ row: number; error: string }> }> {
   try {
+    // Through `parseStatement` rather than calling the parsers directly, so this
+    // entry point inherits the same guard: a file that HAS rows and yielded no
+    // transaction is refused instead of returning a clean `{transactionCount: 0}`,
+    // which told a user who picked the wrong file type that the statement was in.
+    // A genuinely empty period still returns 0 rows.
     const format = bankFormat && bankFormat !== 'unknown' ? bankFormat : detectBankFormat(csvContent);
-    let parseResult;
-
-    switch (format) {
-      case 'fnb':
-        parseResult = parseFNBStatement(csvContent);
-        break;
-      case 'standard_bank':
-        parseResult = parseStandardBankStatement(csvContent);
-        break;
-      case 'nedbank':
-        parseResult = parseNedbankStatement(csvContent);
-        break;
-      case 'absa':
-        parseResult = parseABSAStatement(csvContent);
-        break;
-      case 'capitec':
-        parseResult = parseCapitecStatement(csvContent);
-        break;
-      case 'generic':
-        parseResult = parseGenericStatement(csvContent);
-        break;
-      case 'ofx':
-        parseResult = parseOfxStatement(csvContent);
-        break;
-      case 'qif':
-        parseResult = parseQifStatement(csvContent);
-        break;
-      default:
-        throw new Error('Unable to detect bank format. Please specify the bank.');
-    }
+    const fileType: StatementFileType =
+      format === 'ofx' ? 'ofx' : format === 'qif' ? 'qif' : format === 'mt940' ? 'mt940' : 'csv';
+    const parseResult = await parseStatement({ fileType, csvContent, bankFormat: format });
 
     if (parseResult.transactions.length === 0) {
       return { batchId: '', transactionCount: 0, errors: parseResult.errors };
@@ -216,87 +194,67 @@ export async function importParsedTransactions(
 
     // Auto-link newly imported transactions that are the opposite leg of an
     // existing transfer allocation on another bank account (same company).
-    try {
-      await sql`
-        WITH new_txs AS (
-          SELECT id, amount, transaction_date, bank_account_id
-          FROM bank_transactions
-          WHERE company_id = ${companyId}::UUID
-            AND import_batch_id = ${batchId}::UUID
-            AND status = 'imported'
-        ),
-        matching AS (
-          SELECT DISTINCT ON (n.id)
-            n.id                            AS new_tx_id,
-            et.id                           AS existing_tx_id,
-            et.transfer_journal_entry_id    AS je_id,
-            et.bank_account_id              AS counterparty_bank_id,
-            jl.id                           AS je_line_id,
-            et.allocated_entity_name        AS entity_name
-          FROM new_txs n
-          JOIN bank_transactions et
-            ON  et.company_id = ${companyId}::UUID
-            AND et.bank_account_id != n.bank_account_id
-            AND et.status = 'allocated'
-            AND et.allocation_type = 'transfer'
-            AND et.transfer_journal_entry_id IS NOT NULL
-            AND ABS(et.amount + n.amount) < 0.01
-            AND et.transaction_date BETWEEN (n.transaction_date::DATE - INTERVAL '2 days')
-                                        AND (n.transaction_date::DATE + INTERVAL '2 days')
-          LEFT JOIN gl_journal_lines jl
-            ON  jl.journal_entry_id = et.transfer_journal_entry_id
-            AND jl.gl_account_id    = n.bank_account_id
-            AND jl.company_id       = ${companyId}::UUID
-          ORDER BY n.id, ABS(et.transaction_date::DATE - n.transaction_date::DATE) ASC
-        )
-        UPDATE bank_transactions bt
-        SET status                    = 'allocated',
-            allocation_type           = 'transfer',
-            transfer_journal_entry_id = m.je_id,
-            matched_journal_line_id   = m.je_line_id,
-            counterparty_account_id   = m.counterparty_bank_id,
-            allocated_entity_name     = m.entity_name,
-            -- Clearing these is redundant today (the WHERE is status='imported',
-            -- which a rule-posted row can never be) but keeps every writer of
-            -- allocated_entity_name symmetrical: the next reuse of this UPDATE on
-            -- an already-allocated row would otherwise leave a stale rule label
-            -- beside a freshly rewritten account.
-            allocation_rule_id = NULL, allocation_rule_name = NULL,
-            updated_at                = NOW()
-        FROM matching m
-        WHERE bt.id         = m.new_tx_id
-          AND bt.company_id = ${companyId}::UUID
-          AND bt.status     = 'imported'
-      `;
-    } catch (linkErr) {
-      log.warn('Auto-link transfer counterparts failed — non-fatal', { batchId, error: linkErr }, 'accounting');
-    }
+    // The pass lives in bankTransferLinkService with the broader one below:
+    // both must honour one-bank-line-per-GL-movement and both must run inside
+    // a savepoint, and keeping two copies of that SQL here is what let this
+    // one keep the defect the other had fixed.
+    const batchLink = await autoLinkImportedBatchTransfers(companyId, batchId);
 
     // Broader re-link pass: catches account-type allocations to bank GL accounts
     // (e.g. user allocated the other leg as 'Account' rather than 'Transfer')
-    await relinkTransferCounterparts(companyId, bankAccountId);
+    const accountLink = await relinkTransferCounterparts(companyId, bankAccountId);
 
-    // Auto-provisional posting for outflows (best-effort)
+    // Both passes swallow their error to keep the import non-fatal. Reporting a
+    // clean import when the transfer linking failed outright is what left the
+    // failure visible only in a log line, so it joins the import's own errors.
+    const linkErrors = batchLink.failed || accountLink.failed
+      ? [{ row: 0, error: 'Transfer counterpart linking failed — transfers may still show as unallocated. Re-link from the bank transactions page.' }]
+      : [];
+
+    // Auto-provisional posting for outflows (best-effort). The savepoint is
+    // what makes the swallowing catch safe, for the same reason the transfer
+    // link passes carry one: inside a request the sweep runs on the request's
+    // own client, so an error the catch alone "handles" leaves the transaction
+    // aborted (25P02) and the COMMIT that follows is executed as a ROLLBACK —
+    // discarding the import the caller was just told succeeded.
+    let autoPostFailed = false;
     try {
-      const outflowIds = (await sql`
-        SELECT id FROM bank_transactions
-        WHERE company_id = ${companyId}::UUID
-          AND import_batch_id = ${batchId}::UUID
-          AND amount < 0
-          AND status = 'imported'
-      `) as { id: string }[];
-      if (outflowIds.length > 0) {
-        const systemUser = '00000000-0000-0000-0000-000000000000';
-        await sweep(companyId, outflowIds.map((r) => String(r.id)), 'import', systemUser);
-      }
+      autoPostSeq = (autoPostSeq + 1) % 1_000_000;
+      await withSavepoint(`bank_import_autopost_${autoPostSeq}`, async () => {
+        const outflowIds = (await sql`
+          SELECT id FROM bank_transactions
+          WHERE company_id = ${companyId}::UUID
+            AND import_batch_id = ${batchId}::UUID
+            AND amount < 0
+            AND status = 'imported'
+        `) as { id: string }[];
+        if (outflowIds.length > 0) {
+          const systemUser = '00000000-0000-0000-0000-000000000000';
+          await sweep(companyId, outflowIds.map((r) => String(r.id)), 'import', systemUser);
+        }
+      });
     } catch (provErr) {
+      // The savepoint makes the failure survivable only when the ROLLBACK TO
+      // SAVEPOINT itself succeeded. When it did not, withSavepoint marks the
+      // context and the request transaction really is aborted — degrading THAT
+      // to a warning row would hand back the clean-looking import this fix
+      // exists to prevent, because the COMMIT will still be a ROLLBACK.
+      // assertTxUsable rethrows carrying the original cause.
+      assertTxUsable();
+      autoPostFailed = true;
       log.warn('auto-post sweep failed after parsed import — non-fatal', { batchId, error: provErr }, 'accounting');
     }
+
+    // Same reasoning as linkErrors: a swallowed failure that only reaches a log
+    // line reads to the caller as a clean import.
+    const autoPostErrors = autoPostFailed
+      ? [{ row: 0, error: 'Auto-posting of imported outflows failed — the transactions were imported but are still unposted. Post them from the bank transactions page.' }]
+      : [];
 
     return {
       batchId,
       transactionCount: parseResult.transactions.length,
-      errors: parseResult.errors,
+      errors: [...parseResult.errors, ...linkErrors, ...autoPostErrors],
     };
   } catch (err) {
     log.error('Failed to import parsed bank transactions', { error: err }, 'accounting');

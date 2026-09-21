@@ -347,6 +347,8 @@ describe('postBatch', () => {
             batch_type: 'component_values',
             component_id: COMPONENT_ID,
             status: 'validated',
+            period_year: 2026,
+            period_month: 4,
             is_recurring: false,
           },
         ],
@@ -370,6 +372,9 @@ describe('postBatch', () => {
       c.sql.includes('INSERT INTO payroll_employee_components'),
     );
     expect(componentInserts).toHaveLength(1);
+    // is_recurring false → the row must close at the end of the LINE's own
+    // month, or the amount is paid again in every later run (K-025).
+    expect(componentInserts[0]!.values).toContain('2026-04-30');
   });
 
   it('splits reimbursive_travel into taxable (3702) and non-taxable (3703) component rows', async () => {
@@ -386,6 +391,8 @@ describe('postBatch', () => {
             batch_type: 'reimbursive_travel',
             component_id: null,
             status: 'validated',
+            period_year: 2026,
+            period_month: 4,
             is_recurring: false,
           },
         ]);

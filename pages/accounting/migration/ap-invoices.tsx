@@ -1,8 +1,9 @@
 import { useState, useRef } from 'react';
 import { AppLayout } from '@/components/layout/AppLayout';
+import InvoiceImportResult, { type InvoiceImportResultData } from '@/components/accounting/migration/InvoiceImportResult';
 import Link from 'next/link';
 import { ArrowLeft, Upload, Download, CheckCircle2, AlertCircle, Loader2 } from 'lucide-react';
-import { apiFetch } from '@/lib/apiFetch';
+import { apiFetch, apiJson } from '@/lib/apiFetch';
 
 const AP_FIELDS = [
   'invoice_number', 'supplier_name', 'invoice_date', 'due_date',
@@ -26,18 +27,13 @@ interface SupplierOption {
   name: string;
 }
 
-interface ImportResult {
-  succeeded: number;
-  failed: number;
-}
-
 export default function ApInvoicesPage() {
   const [columns, setColumns] = useState<string[]>([]);
   const [rows, setRows] = useState<ParsedInvoice[]>([]);
   const [fieldMapping, setFieldMapping] = useState<FieldMapping>({});
   const [suppliers, setSuppliers] = useState<SupplierOption[]>([]);
   const [isImporting, setIsImporting] = useState(false);
-  const [importResult, setImportResult] = useState<ImportResult | null>(null);
+  const [importResult, setImportResult] = useState<InvoiceImportResultData | null>(null);
   const [error, setError] = useState('');
   const fileRef = useRef<HTMLInputElement>(null);
 
@@ -110,13 +106,19 @@ export default function ApInvoicesPage() {
     setIsImporting(true);
     setError('');
     try {
-      const sessionRes = await apiFetch('/api/accounting/migration/session');
-      const sessionJson = await sessionRes.json();
-      const sessionId = sessionJson.data?.id;
+      // The envelope is { session: {...} | null } — reading `data.id` always
+      // yielded undefined, so this flow always failed with "No active session."
+      const { session } = await apiJson('/api/accounting/migration/session');
+      const sessionId = session?.id;
       if (!sessionId) throw new Error('No active migration session');
 
+      // No `?? ''`: an unmapped invoice-number column has to reach the route as
+      // an absent field, not as a blank number. JSON.stringify drops undefined
+      // properties, and the route refuses the whole file when NO row carries
+      // one — otherwise every row imports as unnumbered and de-duplicates
+      // against its neighbours, loading part of the file silently.
       const invoices = rows.map(r => ({
-        invoiceNumber: r.mapped.invoice_number ?? '',
+        invoiceNumber: r.mapped.invoice_number,
         supplierId: r.overrideSupplierId ?? r.matchedSupplierId ?? '',
         supplierName: r.mapped.supplier_name ?? '',
         invoiceDate: r.mapped.invoice_date ?? '',
@@ -176,12 +178,7 @@ export default function ApInvoicesPage() {
             <AlertCircle className="h-4 w-4" /> {error}
           </div>
         )}
-        {importResult && (
-          <div className="flex items-center gap-2 p-3 rounded-lg bg-teal-500/10 text-teal-400 text-sm mb-4">
-            <CheckCircle2 className="h-4 w-4" />
-            Imported {importResult.succeeded} invoices. Failed: {importResult.failed}.
-          </div>
-        )}
+        {importResult && <InvoiceImportResult result={importResult} />}
 
         <div className="space-y-6">
           <div className="bg-white dark:bg-gray-800 rounded-lg shadow p-6">

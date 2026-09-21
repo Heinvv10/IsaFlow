@@ -109,9 +109,9 @@ export async function resolveRate(
   onDate: string,
 ): Promise<number | null> {
   const override = (await sql`
-    SELECT rate FROM practice_client_rate_overrides
+    SELECT COALESCE(rate_per_hour, rate) AS rate FROM practice_client_rate_overrides
     WHERE company_id = ${companyId}::UUID
-      AND user_id    = ${userId}::UUID
+      AND (staff_user_id = ${userId}::UUID OR user_id = ${userId}::UUID)
       AND client_id  = ${clientId}::UUID
       AND effective_from <= ${onDate}::DATE
       AND (effective_to IS NULL OR effective_to >= ${onDate}::DATE)
@@ -135,6 +135,7 @@ export async function resolveRate(
   return null;
 }
 
+/** @deprecated Unrouted legacy shape. Use practiceClientRateOverrideService — it is what the API calls. */
 export async function listClientRateOverrides(companyId: string, clientId: string): Promise<ClientRateOverride[]> {
   const rows = (await sql`
     SELECT * FROM practice_client_rate_overrides
@@ -144,6 +145,7 @@ export async function listClientRateOverrides(companyId: string, clientId: strin
   return rows.map(mapOverride);
 }
 
+/** @deprecated Unrouted legacy shape that writes only user_id/rate. Use practiceClientRateOverrideService. */
 export async function createClientRateOverride(
   companyId: string,
   input: { clientId: string; userId: string; rate: number; effectiveFrom: string; effectiveTo?: string },

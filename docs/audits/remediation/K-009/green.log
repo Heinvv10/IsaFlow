@@ -1,0 +1,195 @@
+=== K-009 round 2 (review findings H1 H2 M3 M4 L5 L6) ===
+
+--- Targeted real-DB suite (fixture.env) ---
+ Test Files  2 passed (2)
+      Tests  4 passed (4)
+
+--- Unit (mocked, no DATABASE_URL) ---
+ Test Files  1 passed (1)
+      Tests  2 passed (2)
+
+--- Mutation checks (targeted real-DB suite, 4 tests) ---
+### MUTATION 1: restore imported_from = EXCLUDED.imported_from in DO UPDATE
+ Test Files  2 passed (2)
+      Tests  4 passed (4)
+### MUTATION 2: drop the WHERE gl_accounts.imported_from = EXCLUDED.imported_from guard
+ Test Files  2 failed (2)
+      Tests  2 failed | 2 passed (4)
+### MUTATION 3: replace the per-account savepoint loop with one unqualified DELETE guarded only on gl_journal_lines
+ Test Files  1 failed | 1 passed (2)
+      Tests  1 failed | 3 passed (4)
+### MUTATION 4: drop the imported_from = NULL update on retained accounts
+ Test Files  2 failed (2)
+      Tests  2 failed | 2 passed (4)
+### RESTORED
+ Test Files  2 passed (2)
+      Tests  4 passed (4)
+
+MUTATION 1 is an EQUIVALENT MUTANT, not a test gap: with the
+WHERE gl_accounts.imported_from = EXCLUDED.imported_from guard in place the
+DO UPDATE only ever fires on rows whose tag already equals EXCLUDED's, so
+re-adding the assignment writes the value it already holds. Mutation 2
+removes that guard and kills 2 tests.
+
+--- Full unit suite, no DATABASE_URL (addendum) ---
+branch fix/audit-k009-migration-rollback:
+ Test Files  3 failed | 781 passed | 36 skipped (820)
+      Tests  6 failed | 9315 passed | 234 skipped (9555)
+ FAIL  tests/unit/services/bankAllocationService.test.ts > bankAllocationService — VAT allocation (BL-05) > allocateTransaction — no VAT (vatCode undefined) > succeeds without touching VAT accounts when vatCode is not standard
+ FAIL  tests/unit/services/bankAllocationService.test.ts > bankAllocationService — VAT allocation (BL-05) > allocateTransaction — vatCode=standard (money out) > succeeds when vat_input system account exists (post-migration state)
+ FAIL  tests/unit/services/bankAllocationService.test.ts > bankAllocationService — VAT allocation (BL-05) > bankAllocationService — fallback to account_code when subtype missing > falls back to account_code 1140 when vat_input subtype lookup fails
+ FAIL  tests/unit/services/bankAllocationService.test.ts > bankAllocationService — VAT allocation (BL-05) > bankAllocationService — fallback to account_code when subtype missing > throws a clear error when both subtype and account_code fallback fail
+ FAIL  tests/unit/services/bank/bankAllocationUnwind.test.ts > reverseReconciledTransaction — ordering > unwinds the application before posting the contra
+ FAIL  tests/unit/services/cashFlowReport.test.ts > reports-cash-flow handler (BL-12 snapshot) > returns correct section totals for a deterministic scenario (collapsed 1-query path)
+
+origin/master baseline, same command, run twice:
+ Test Files  2 failed | 782 passed | 36 skipped (820)
+      Tests  2 failed | 9318 passed | 234 skipped (9554)
+ Test Files  3 failed | 781 passed | 36 skipped (820)
+      Tests  6 failed | 9314 passed | 234 skipped (9554)
+ FAIL  tests/unit/services/bankAllocationService.test.ts > bankAllocationService — VAT allocation (BL-05) > allocateTransaction — no VAT (vatCode undefined) > succeeds without touching VAT accounts when vatCode is not standard
+ FAIL  tests/unit/services/bankAllocationService.test.ts > bankAllocationService — VAT allocation (BL-05) > allocateTransaction — vatCode=standard (money out) > succeeds when vat_input system account exists (post-migration state)
+ FAIL  tests/unit/services/bankAllocationService.test.ts > bankAllocationService — VAT allocation (BL-05) > bankAllocationService — fallback to account_code when subtype missing > falls back to account_code 1140 when vat_input subtype lookup fails
+ FAIL  tests/unit/services/bankAllocationService.test.ts > bankAllocationService — VAT allocation (BL-05) > bankAllocationService — fallback to account_code when subtype missing > throws a clear error when both subtype and account_code fallback fail
+ FAIL  tests/unit/services/bank/bankAllocationUnwind.test.ts > reverseReconciledTransaction — ordering > unwinds the application before posting the contra
+ FAIL  tests/unit/services/cashFlowReport.test.ts > reports-cash-flow handler (BL-12 snapshot) > returns correct section totals for a deterministic scenario (collapsed 1-query path)
+
+Run 2 of the baseline reproduces the SAME 6 failures as the branch, in the
+same 3 files. They are pre-existing order-dependent flakes (all 3 files pass
+in isolation on both trees) and none of them import migrationExecuteService.
+Baseline run 1 hit only 2 of the 6, which is what makes them flakes.
+
+=== K-009 round 3 (re-review findings M7 L8 L9 L10 L11) ===
+
+--- Targeted real-DB suite ---
+ Test Files  2 passed (2)
+      Tests  6 passed (6)
+
+--- Mocked unit (migrationExecuteSubtype + migrationOpeningBalances) ---
+ Test Files  2 passed (2)
+      Tests  7 passed (7)
+
+--- Mutation checks (6-test real-DB suite) ---
+### MUTATION A: drop the ON CONFLICT ... WHERE imported_from = EXCLUDED.imported_from guard (M3)
+ Test Files  2 failed (2)
+      Tests  3 failed | 3 passed (6)
+### MUTATION B: replace the per-account savepoint loop with one unqualified DELETE guarded only on gl_journal_lines (H1)
+ Test Files  1 failed | 1 passed (2)
+      Tests  2 failed | 4 passed (6)
+### MUTATION C: drop the imported_from = NULL update on retained accounts (M4)
+ Test Files  2 failed (2)
+      Tests  3 failed | 3 passed (6)
+### MUTATION D: drop AND imported_from = source from the opening-balance account lookup (M7)
+ Test Files  1 failed | 1 passed (2)
+      Tests  1 failed | 5 passed (6)
+### MUTATION E: drop the set-based fast path, leaving only the per-account loop (L11)
+ Test Files  2 passed (2)
+      Tests  6 passed (6)
+### RESTORED
+ Test Files  2 passed (2)
+      Tests  6 passed (6)
+
+MUTATION E is an EQUIVALENT MUTANT: the fast path is a round-trip
+optimisation whose results are identical to the loop's. So is re-adding
+imported_from = EXCLUDED.imported_from (see round 2 above). The L8 zero-row
+branch has NO test: reproducing it needs a concurrent delete or an RLS
+session between the candidate SELECT and the DELETE.
+
+--- Full unit suite, no DATABASE_URL ---
+ Test Files  2 failed | 782 passed | 36 skipped (820)
+      Tests  2 failed | 9319 passed | 234 skipped (9555)
+ FAIL  tests/unit/services/bank/bankAllocationUnwind.test.ts
+ FAIL  tests/unit/services/cashFlowReport.test.ts
+Both reproduce on an origin/master baseline run of the same command
+(base-full-suite.log, round 2 above) and pass in isolation on either tree.
+
+=== K-009 round 4 (re-review findings M12 L13 L14) ===
+
+--- Targeted real-DB suite ---
+ Test Files  2 passed (2)
+      Tests  7 passed (7)
+
+--- Mocked unit (migrationOpeningBalances + migrationExecuteSubtype) ---
+ Test Files  2 passed (2)
+      Tests  8 passed (8)
+
+--- Mutation checks (7-test real-DB suite) ---
+### MUTATION A: drop the ON CONFLICT ... WHERE imported_from = EXCLUDED.imported_from guard (M3)
+ Test Files  2 failed (2)
+      Tests  4 failed | 3 passed (7)
+### MUTATION B: replace bulk+loop with one unqualified DELETE guarded only on gl_journal_lines (H1)
+ Test Files  1 failed | 1 passed (2)
+      Tests  3 failed | 4 passed (7)
+### MUTATION C: drop the imported_from = NULL update on retained accounts (M4)
+ Test Files  2 failed (2)
+      Tests  4 failed | 3 passed (7)
+### MUTATION D: drop the ownership check in the opening-balance lookup (M7)
+ Test Files  1 failed | 1 passed (2)
+      Tests  2 failed | 5 passed (7)
+### MUTATION E: drop the set-based fast path, leaving only the per-account loop (L11)
+ Test Files  2 passed (2)
+      Tests  7 passed (7)
+### MUTATION F: report a not-owned account as 'no GL account was created' again (M12)
+ Test Files  1 failed | 1 passed (2)
+      Tests  2 failed | 5 passed (7)
+### RESTORED
+ Test Files  2 passed (2)
+      Tests  7 passed (7)
+
+MUTATION E is an EQUIVALENT MUTANT: the fast path is a round-trip
+optimisation whose results are identical to the loop's. The L8 and L13
+zero-row branches have NO test: reproducing either needs a concurrent
+delete or an RLS session between the candidate SELECT and the DELETE.
+
+--- Full unit suite, no DATABASE_URL ---
+ Test Files  784 passed | 36 skipped (820)
+      Tests  9322 passed | 234 skipped (9556)
+No failures this run. The two order-dependent flakes seen in earlier rounds
+(bankAllocationUnwind, cashFlowReport) also appear on an origin/master
+baseline run of the same command and pass in isolation on either tree.
+
+=== K-009 round 5 (re-review nits L15 L16) ===
+
+--- Targeted real-DB suite ---
+ Test Files  2 passed (2)
+      Tests  7 passed (7)
+
+--- L15: the re-import test alone, via -t ---
+ Test Files  1 passed (1)
+      Tests  1 passed | 4 skipped (5)
+
+--- Mocked unit ---
+ Test Files  2 passed (2)
+      Tests  9 passed (9)
+
+--- Mutation check for L16 ---
+### MUTATION G: throw on unresolved before checking notOwned (L16 regression)
+ Test Files  1 failed (1)
+      Tests  1 failed | 6 passed (7)
+### RESTORED
+ Test Files  1 passed (1)
+      Tests  7 passed (7)
+
+--- Full unit suite, no DATABASE_URL, branch (two runs) ---
+      Tests  10 failed | 9313 passed | 234 skipped (9557)
+      1  FAIL  tests/unit/components/trackerExclusion.test.ts
+      4  FAIL  tests/unit/services/bankAllocationService.test.ts
+      3  FAIL  tests/unit/services/bank/bankAllocationDateShift.test.ts
+      1  FAIL  tests/unit/services/bank/bankAllocationUnwind.test.ts
+      1  FAIL  tests/unit/services/cashFlowReport.test.ts
+      Tests  2 failed | 9321 passed | 234 skipped (9557)
+      1  FAIL  tests/unit/services/bank/bankAllocationUnwind.test.ts
+      1  FAIL  tests/unit/services/cashFlowReport.test.ts
+
+--- origin/master baseline, same command ---
+      Tests  3 failed | 9332 passed | 234 skipped (9569)
+      1  FAIL  tests/unit/services/bankAllocationService.test.ts
+      1  FAIL  tests/unit/services/bank/bankAllocationUnwind.test.ts
+      1  FAIL  tests/unit/services/cashFlowReport.test.ts
+
+The failing set is unstable across runs on BOTH trees and is drawn from the
+same pool of bank-allocation, cash-flow and tracker tests. All of them pass
+in isolation on this branch, and none imports any migration code. The baseline
+tree also carries 12 more tests than this branch's base, having moved on since
+the branch was cut, so it is a flake reference rather than a like-for-like
+count.

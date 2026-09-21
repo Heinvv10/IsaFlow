@@ -17,7 +17,13 @@ import {
   customersBelongToCompany,
   suppliersBelongToCompany,
 } from '@/modules/accounting/services/core/contactDirectoryService';
-import { allocateTransaction } from '@/modules/accounting/services/bank/bankAllocationService';
+import {
+  allocateTransaction,
+  type AllocationApplicationResult,
+} from '@/modules/accounting/services/bank/bankAllocationService';
+import {
+  AUTO_APPLY_MODES, DEFAULT_AUTO_APPLY, parseAutoApplyMode, type AutoApplyMode,
+} from '@/modules/accounting/services/shared/autoAllocateStrategy';
 import {
   resolveLineVatCode, type AllocationVatFacts, type VatCoercion,
 } from './allocationVatGuard';
@@ -36,6 +42,11 @@ export interface PostedAllocationLine {
   transactionId: string;
   /** Present only when a guard changed the code — absence means it stood. */
   vatCoerced?: VatCoercion;
+  /**
+   * What this line's cash settled, for a supplier/customer line that named no
+   * document. Absent for a GL line, which settles nothing by construction.
+   */
+  application?: AllocationApplicationResult;
 }
 
 // Selector parsing and reference resolution moved to txSelectorResolve.ts when
@@ -82,6 +93,8 @@ export interface AllocationLine {
   vatCode?: VatCode;
   invoiceId?: string;
   description?: string;
+  /** Whether this line's cash is applied to the contact's open documents. */
+  autoApply: AutoApplyMode;
 }
 
 function str(args: Record<string, unknown>, key: string): string {
@@ -171,6 +184,17 @@ export function parseAllocationLine(args: Record<string, unknown>): AllocationLi
   // way; leaving one raw was the inconsistency, not the fix.
   const invoiceId = str(args, 'invoice_id');
 
+  // Same runtime gate as alloc_type and vat_code, for the same reason: the
+  // transport does not enforce inputSchema.enum, and a mode that silently
+  // became the default would apply cash the caller asked to leave on account.
+  const rawAutoApply = args.auto_apply;
+  let autoApply: AutoApplyMode = DEFAULT_AUTO_APPLY;
+  if (rawAutoApply !== undefined) {
+    const parsed = parseAutoApplyMode(rawAutoApply);
+    if (parsed === null) return `auto_apply must be one of: ${AUTO_APPLY_MODES.join(', ')}`;
+    autoApply = parsed;
+  }
+
   const description = typeof args.description === 'string' ? args.description : undefined;
   return {
     selector,
@@ -180,6 +204,7 @@ export function parseAllocationLine(args: Record<string, unknown>): AllocationLi
     vatCode,
     invoiceId: invoiceId || undefined,
     description,
+    autoApply,
   };
 }
 
@@ -280,11 +305,12 @@ export async function postAllocationLine(
     undefined,
     undefined,
     line.invoiceId,
-    mcpPostingOpts(ctx, toolName),
+    { ...mcpPostingOpts(ctx, toolName), autoApply: line.autoApply },
   );
   return {
     journalEntryId: result.journalEntryId,
     transactionId: result.bankTransaction.id,
     vatCoerced,
+    ...(result.application ? { application: result.application } : {}),
   };
 }

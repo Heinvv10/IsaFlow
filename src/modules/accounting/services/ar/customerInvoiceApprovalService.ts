@@ -39,14 +39,17 @@ function isLockTimeout(err: unknown): boolean {
  * Raised when another request holds the invoice row longer than the 5s
  * `lock_timeout`. Carries a stable `code` so the bulk runner can treat it as a
  * retryable skip without importing an AR service to compare constructors.
+ *
+ * ONE class, defined in `customerInvoiceLock.ts` and re-exported here. This
+ * file used to declare a SECOND class carrying the same
+ * `CUSTOMER_INVOICE_LOCK_TIMEOUT` code, so `bulkApproveRunner`'s retryable-skip
+ * list matched both while nothing could tell an approval-path timeout from an
+ * apply-path one. They mean the same thing — this invoice's row is held — so
+ * they are the same error.
  */
-export class CustomerInvoiceLockTimeoutError extends Error {
-  readonly code = 'CUSTOMER_INVOICE_LOCK_TIMEOUT';
-  constructor(invoiceId: string) {
-    super(`Customer invoice ${invoiceId} is being processed by another request — retry in a moment.`);
-    this.name = 'CustomerInvoiceLockTimeoutError';
-  }
-}
+import { CustomerInvoiceLockTimeoutError } from './customerInvoiceLock';
+
+export { CustomerInvoiceLockTimeoutError };
 
 export class InvoiceNotApprovableError extends Error {
   public readonly notFound: boolean;
@@ -117,7 +120,7 @@ export async function approveCustomerInvoice(
       RETURNING id
     `) as Row[];
   } catch (err) {
-    if (isLockTimeout(err)) throw new CustomerInvoiceLockTimeoutError(invoiceId);
+    if (isLockTimeout(err)) throw new CustomerInvoiceLockTimeoutError(`Customer invoice ${invoiceId}`);
     throw err;
   }
   // Restored on the SUCCESS path only — after a lock timeout the transaction is

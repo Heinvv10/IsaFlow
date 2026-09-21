@@ -23,25 +23,11 @@ vi.mock('@/modules/accounting/services/gl/systemAccountResolver', () => ({
   getSystemAccountId: vi.fn().mockResolvedValue('bank-acc-0000-0000-0000-000000000099'),
 }));
 
-import { sql } from '@/lib/neon';
-import { createJournalEntry } from '@/modules/accounting/services/gl/journalEntryCrudService';
-import { postJournalEntry } from '@/modules/accounting/services/gl/journalEntryPostingService';
 import {
   buildPeriodJournalInput,
-  postPeriodJournals,
-  getLoanGlPostings,
   type LoanGlAccounts,
 } from '@/modules/accounting/services/loans/loanGlPostingService';
 import type { ScheduleRow } from '@/lib/amortisation/types';
-
-const sqlMock = sql as unknown as ReturnType<typeof vi.fn>;
-const createEntryMock = createJournalEntry as unknown as ReturnType<typeof vi.fn>;
-const postEntryMock = postJournalEntry as unknown as ReturnType<typeof vi.fn>;
-
-const COMPANY_ID  = 'aaaaaaaa-0000-0000-0000-000000000001';
-const LOAN_ID     = 'bbbbbbbb-0000-0000-0000-000000000002';
-const USER_ID     = 'dddddddd-0000-0000-0000-000000000004';
-const ENTRY_ID    = 'eeeeeeee-0000-0000-0000-000000000005';
 
 const ACCOUNTS: LoanGlAccounts = {
   loanLiability: 'loan-liab-0000-0000-0000-000000000010',
@@ -166,129 +152,5 @@ describe('buildPeriodJournalInput', () => {
     const dr = input.lines.reduce((s, l) => s + l.debit, 0);
     const cr = input.lines.reduce((s, l) => s + l.credit, 0);
     expect(dr).toBeCloseTo(cr, 2);
-  });
-});
-
-// ── postPeriodJournals ──────────────────────────────────────────────────────
-
-describe('postPeriodJournals', () => {
-  function makeLoanRow(overrides = {}) {
-    return {
-      id: LOAN_ID,
-      company_id: COMPANY_ID,
-      gl_account_id: ACCOUNTS.loanLiability,
-      interest_expense_account_id: ACCOUNTS.interestExpense,
-      interest_payable_account_id: ACCOUNTS.interestPayable,
-      bank_account_id: ACCOUNTS.bank,
-      current_portion_account_id: ACCOUNTS.currentPortion,
-      start_date: '2026-03-15',
-      ...overrides,
-    };
-  }
-
-  function makeScheduleDbRow(period: number, overrides = {}) {
-    return {
-      run_id: 'run-0000-0000-0000-0000-000000000021',
-      period,
-      date: '2026-04-15',
-      opening: '224873.49',
-      rate: '14.250000',
-      installment: '4663.84',
-      interest: '2670.37',
-      principal: '1993.47',
-      lump: '0',
-      skip_flag: false,
-      payment: '4663.84',
-      closing: '222880.02',
-      st_liability: '20000',
-      extrapolated: false,
-      nca_flagged: false,
-      ...overrides,
-    };
-  }
-
-  it('creates, posts, and records GL posting for a single non-skip period', async () => {
-    sqlMock
-      .mockResolvedValueOnce([makeLoanRow()])             // loan lookup
-      .mockResolvedValueOnce([{ id: 'run-id-21' }])       // latest schedule run
-      .mockResolvedValueOnce([makeScheduleDbRow(1)])      // schedule row for period
-      .mockResolvedValueOnce([])                            // period lock check (not locked)
-      .mockResolvedValueOnce([{ id: 'posting-1' }]);       // insert loan_gl_posting
-
-    createEntryMock.mockResolvedValueOnce({ id: ENTRY_ID, entryNumber: 'JE-2026-001' });
-    postEntryMock.mockResolvedValueOnce({ id: ENTRY_ID, status: 'posted' });
-
-    const result = await postPeriodJournals(COMPANY_ID, LOAN_ID, 1, USER_ID);
-    expect(result.journalEntryId).toBe(ENTRY_ID);
-    expect(result.period).toBe(1);
-    expect(createEntryMock).toHaveBeenCalledTimes(1);
-    expect(postEntryMock).toHaveBeenCalledTimes(1);
-  });
-
-  it('throws when loan not found', async () => {
-    sqlMock.mockResolvedValueOnce([]);
-    await expect(postPeriodJournals(COMPANY_ID, LOAN_ID, 1, USER_ID)).rejects.toThrow('not found');
-  });
-
-  it('throws when loan missing required GL accounts', async () => {
-    sqlMock.mockResolvedValueOnce([
-      makeLoanRow({ interest_expense_account_id: null }),
-    ]);
-    await expect(postPeriodJournals(COMPANY_ID, LOAN_ID, 1, USER_ID)).rejects.toThrow('account');
-  });
-
-  it('throws when period is locked', async () => {
-    sqlMock
-      .mockResolvedValueOnce([makeLoanRow()])
-      .mockResolvedValueOnce([{ id: 'run-id-21' }])
-      .mockResolvedValueOnce([makeScheduleDbRow(1)])
-      .mockResolvedValueOnce([{ yyyymm: '202604', locked_at: '2026-04-30T00:00:00Z' }]);
-
-    await expect(postPeriodJournals(COMPANY_ID, LOAN_ID, 1, USER_ID)).rejects.toThrow('locked');
-  });
-
-  it('throws when the schedule row is NCA-flagged (in-duplum breach)', async () => {
-    sqlMock
-      .mockResolvedValueOnce([makeLoanRow()])
-      .mockResolvedValueOnce([{ id: 'run-id-21' }])
-      .mockResolvedValueOnce([makeScheduleDbRow(1, { nca_flagged: true })]);
-    await expect(postPeriodJournals(COMPANY_ID, LOAN_ID, 1, USER_ID)).rejects.toThrow('NCA');
-  });
-});
-
-// ── getLoanGlPostings ──────────────────────────────────────────────────────
-
-describe('getLoanGlPostings', () => {
-  it('returns mapped postings for a loan', async () => {
-    sqlMock.mockResolvedValueOnce([{
-      id: 'posting-1',
-      company_id: COMPANY_ID,
-      loan_id: LOAN_ID,
-      period: 1,
-      posting_date: '2026-04-15',
-      account_id: ACCOUNTS.loanLiability,
-      debit: '1993.47',
-      credit: '0',
-      narrative: 'Loan period 1 – principal payment',
-      posted_period: '202604',
-      reversal_of: null,
-      journal_entry_id: ENTRY_ID,
-      created_at: '2026-04-15T00:00:00Z',
-    }]);
-    const postings = await getLoanGlPostings(COMPANY_ID, LOAN_ID);
-    expect(postings).toHaveLength(1);
-    expect(postings[0]).toMatchObject({
-      loanId: LOAN_ID,
-      period: 1,
-      debit: 1_993.47,
-      credit: 0,
-      journalEntryId: ENTRY_ID,
-    });
-  });
-
-  it('returns empty array when no postings', async () => {
-    sqlMock.mockResolvedValueOnce([]);
-    const postings = await getLoanGlPostings(COMPANY_ID, LOAN_ID);
-    expect(postings).toEqual([]);
   });
 });

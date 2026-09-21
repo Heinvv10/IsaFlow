@@ -7,6 +7,7 @@
  * the arrays in allocationLine.ts are what actually reject a bad value.
  */
 import { ALLOC_TYPES, VAT_CODES } from './allocationLine';
+import { AUTO_APPLY_MODES } from '@/modules/accounting/services/shared/autoAllocateStrategy';
 
 /** Schema fragment shared by every tool that names a transaction. */
 export const SELECTOR_PROPERTIES = {
@@ -40,6 +41,16 @@ export const ALLOCATION_PROPERTIES = {
   entity_id: { type: 'string' },
   invoice_id: { type: 'string' },
   vat_code: { type: 'string', enum: [...VAT_CODES] },
+  auto_apply: {
+    type: 'string',
+    enum: [...AUTO_APPLY_MODES],
+    description:
+      'What to do with a supplier or customer line that names no invoice_id. "fifo" (the default) '
+      + "applies the cash to that contact's OLDEST open documents, settling each in full until it "
+      + 'runs out and part-paying the one it runs out on; the remainder stays on account. "none" '
+      + 'creates the payment or receipt and applies none of it, leaving it for apply_supplier_payment '
+      + 'or apply_customer_receipt. Ignored on a GL-account line, which settles no document.',
+  },
 } as const;
 
 /**

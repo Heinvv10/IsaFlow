@@ -41,12 +41,25 @@ vi.mock('@/modules/accounting/services/core/companySettingsService', () => ({
   reserveNextDocumentNumber: vi.fn().mockResolvedValue('INV0000099'),
 }));
 
+import { als } from '@/lib/als';
 import { getQuote } from '@/modules/accounting/services/ar/quoteService';
 import { convertToInvoice } from '@/modules/accounting/services/ar/quoteConvertService';
 import { reserveNextDocumentNumber } from '@/modules/accounting/services/core/companySettingsService';
 
 const COMPANY_ID = 'cccccccc-0000-4000-8000-cccccccccccc';
 const QUOTE_ID = 'aaaaaaaa-0000-4000-8000-aaaaaaaaaaaa';
+
+/**
+ * `claimUnderLockTimeout` refuses to claim outside a request transaction — the
+ * claim would autocommit and could not be rolled back with the writes that
+ * follow it. These unit tests mock `sql`, so the client only has to exist;
+ * `SET LOCAL` goes to the stub.
+ */
+const requestCtx = {
+  client: { query: vi.fn() }, userId: 'u1', companyId: COMPANY_ID, claims: {},
+} as unknown as Parameters<typeof als.run>[0];
+const inRequestTx = <T>(fn: () => Promise<T>): Promise<T> => als.run(requestCtx, fn);
+
 
 function quoteRow(overrides: Record<string, unknown> = {}) {
   return {
@@ -102,11 +115,12 @@ describe('quote date serialization + convert column names (P1.2 residual)', () =
   });
 
   it('convertToInvoice inserts items with amount/gl_account_id (not line_total/account_id)', async () => {
-    // convertToInvoice → getQuote (quote+lines), doc-number INSERT, invoice
-    // INSERT, item INSERT(s), quote UPDATE, final getQuote (quote+lines).
+    // convertToInvoice → getQuote (quote+lines), the status-predicated CLAIM,
+    // invoice INSERT, item INSERT(s), quote link UPDATE, final getQuote.
     sqlResults.push(
       [quoteRow()],
       [lineRow],
+      [{ id: QUOTE_ID }], // claiming UPDATE ... WHERE status='accepted'
       [{ id: 'eeeeeeee-0000-4000-8000-eeeeeeeeeeee' }], // invoice insert
       [], // item insert
       [], // quote update
@@ -114,7 +128,7 @@ describe('quote date serialization + convert column names (P1.2 residual)', () =
       [lineRow],
     );
 
-    const result = await convertToInvoice(COMPANY_ID, QUOTE_ID, 'ffffffff-0000-4000-8000-ffffffffffff');
+    const result = await inRequestTx(() => convertToInvoice(COMPANY_ID, QUOTE_ID, 'ffffffff-0000-4000-8000-ffffffffffff'));
 
     expect(result).toBeTruthy();
     const itemInsert = sqlTexts.find((t) => /INSERT INTO customer_invoice_items/i.test(t));
@@ -130,12 +144,15 @@ describe('quote date serialization + convert column names (P1.2 residual)', () =
   });
 
   it('retries with a fresh number when the INSERT hits a legacy-number collision (23505)', async () => {
+    // The constraint MATTERS: only a clash on the numbering index renumbers.
     const dupe = Object.assign(new Error('duplicate key value violates unique constraint'), {
       code: '23505',
+      constraint: 'uq_customer_invoices_company_number',
     });
     sqlResults.push(
       [quoteRow()],
       [lineRow],
+      [{ id: QUOTE_ID }], // claiming UPDATE
       // first invoice INSERT → 23505; wired via mockImplementation below
     );
     const mockSqlFn = (await import('@/lib/neon')).sql as unknown as ReturnType<typeof vi.fn>;
@@ -151,7 +168,7 @@ describe('quote date serialization + convert column names (P1.2 residual)', () =
       return Promise.resolve(sqlResults.shift() ?? []);
     });
 
-    const result = await convertToInvoice(COMPANY_ID, QUOTE_ID, 'ffffffff-0000-4000-8000-ffffffffffff');
+    const result = await inRequestTx(() => convertToInvoice(COMPANY_ID, QUOTE_ID, 'ffffffff-0000-4000-8000-ffffffffffff'));
 
     expect(result).toBeTruthy();
     expect(invoiceInsertCalls).toBe(2);

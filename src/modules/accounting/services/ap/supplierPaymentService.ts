@@ -9,6 +9,7 @@ import { fmtDate } from '@/lib/fmtDate';
 import type { DbRow } from '@/lib/neon';
 import { log } from '@/lib/logger';
 import { validatePaymentAllocations } from '../../utils/paymentAllocation';
+import { assertSupplierInCompany } from '../core/contactDirectoryService';
 import type {
   SupplierPayment,
   PaymentAllocation,
@@ -135,6 +136,8 @@ export async function createSupplierPayment(companyId: string,
   userId: string,
 ): Promise<SupplierPayment> {
   try {
+    // R-068: the invoices below are company-scoped; supplier_id was not.
+    await assertSupplierInCompany(companyId, input.supplierId);
     const invoiceIds = input.allocations.map(a => a.invoiceId);
     const invoiceRows = (await sql`
       SELECT id, invoice_number, total_amount, amount_paid, balance

@@ -142,7 +142,13 @@ export function CreateRuleModal({ transaction, bankAccountId, glAccounts, suppli
     if (t === 'transfer') return 'bank';
     return 'account';
   });
-  const [vatCode, setVatCode] = useState<RuleVatCode>(() => (selection?.vatCode as RuleVatCode) ?? 'none');
+  // Seeded from the row, but never for a type that posts no VAT line: the
+  // effect below only fires on a CHANGE of alloc type, so a modal opened
+  // straight onto a supplier selection would otherwise keep a code the render
+  // no longer shows and the sweep would discard.
+  const [vatCode, setVatCode] = useState<RuleVatCode>(() => (
+    selection?.type === 'account' ? (selection.vatCode as RuleVatCode) ?? 'none' : 'none'
+  ));
   const [selectedGl, setSelectedGl] = useState<SelectOption | null>(() => {
     if (selection?.type === 'account' && selection.entityId) {
       return glAccounts.find(a => a.id === selection.entityId) ?? null;
@@ -198,6 +204,11 @@ export function CreateRuleModal({ transaction, bankAccountId, glAccounts, suppli
     setSelectedSupplier(null);
     setSelectedClient(null);
     setSelectedBankAccount(null);
+    // Only an `account` rule posts a VAT line. A supplier or customer rule
+    // SETTLES a document that already carried its VAT and a bank rule is a
+    // transfer, so the sweep drops the code — storing one here would keep
+    // showing "Standard 15%" on the rules list for a treatment nothing applies.
+    if (allocType !== 'account') setVatCode('none');
   }, [allocType]);
 
   const needsGlAccount = allocType === 'account';
@@ -369,25 +380,33 @@ export function CreateRuleModal({ transaction, bankAccountId, glAccounts, suppli
             />
           )}
 
-          {/* VAT */}
+          {/* VAT — `account` rules only; the other three post no VAT line. */}
           <div>
             <label className="text-xs text-[var(--ff-text-tertiary)] mb-1 block">VAT Treatment</label>
-            <div className="flex gap-1">
-              {VAT_OPTIONS.map(opt => (
-                <button
-                  key={opt.value}
-                  type="button"
-                  onClick={() => setVatCode(opt.value)}
-                  className={`flex-1 px-2 py-1.5 rounded text-xs font-medium transition-colors ${
-                    vatCode === opt.value
-                      ? 'bg-blue-600 text-white'
-                      : 'bg-[var(--ff-bg-primary)] text-[var(--ff-text-secondary)] hover:text-[var(--ff-text-primary)] border border-[var(--ff-border-light)]'
-                  }`}
-                >
-                  {opt.label}
-                </button>
-              ))}
-            </div>
+            {allocType === 'account' ? (
+              <div className="flex gap-1">
+                {VAT_OPTIONS.map(opt => (
+                  <button
+                    key={opt.value}
+                    type="button"
+                    onClick={() => setVatCode(opt.value)}
+                    className={`flex-1 px-2 py-1.5 rounded text-xs font-medium transition-colors ${
+                      vatCode === opt.value
+                        ? 'bg-blue-600 text-white'
+                        : 'bg-[var(--ff-bg-primary)] text-[var(--ff-text-secondary)] hover:text-[var(--ff-text-primary)] border border-[var(--ff-border-light)]'
+                    }`}
+                  >
+                    {opt.label}
+                  </button>
+                ))}
+              </div>
+            ) : (
+              <p className="text-xs text-[var(--ff-text-tertiary)] italic py-1.5">
+                N/A — {allocType === 'bank'
+                  ? 'a transfer between your own accounts is not a supply.'
+                  : 'settling a bill or an invoice claims no VAT; the document already carried it.'}
+              </p>
+            )}
           </div>
 
           {/* Rule name */}

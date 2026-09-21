@@ -39,7 +39,14 @@ import { describe, it, expect, vi, beforeEach, type MockedFunction } from 'vites
 
 vi.mock('@/lib/neon', async () => {
   const actual = await vi.importActual<typeof import('@/lib/neon')>('@/lib/neon');
-  return { sql: vi.fn(), withTransaction: vi.fn(), fmtDate: actual.fmtDate };
+  // withSavepoint passes through: R-067's tenant fence runs its ownership read
+  // inside one, and an undefined mock would make every customer allocation throw.
+  return {
+    sql: vi.fn(),
+    withTransaction: vi.fn(),
+    withSavepoint: vi.fn((_n: string, fn: () => unknown) => Promise.resolve().then(fn)),
+    fmtDate: actual.fmtDate,
+  };
 });
 vi.mock('@/lib/logger', () => ({ log: { info: vi.fn(), error: vi.fn(), warn: vi.fn() } }));
 vi.mock('@/modules/accounting/services/gl/journalEntryService', () => ({
@@ -64,6 +71,22 @@ vi.mock('@/modules/accounting/services/ap/supplierAutoAllocate', () => ({
     paymentId: 'payment-1', appliedLines: [], unappliedRemainder: 0, strategy: 'off',
   })),
 }));
+vi.mock('@/modules/accounting/services/ap/supplierRefundDocument', () => ({
+  planSupplierRefund: vi.fn(async () => ({
+    amount: 0, onAccountCredit: 1e9, supplierName: 'Acme',
+  })),
+  recordSupplierRefund: vi.fn(async () => ({
+    paymentId: 'refund-1', amount: 0, onAccountCredit: 1e9,
+  })),
+}));
+vi.mock('@/modules/accounting/services/ar/customerRefundDocument', () => ({
+  planCustomerRefund: vi.fn(async () => ({
+    amount: 0, onAccountCredit: 1e9, customerName: 'Acme',
+  })),
+  recordCustomerRefund: vi.fn(async () => ({
+    paymentId: 'crefund-1', amount: 0, onAccountCredit: 1e9,
+  })),
+}));
 vi.mock('@/modules/accounting/services/ar/customerAutoAllocate', () => ({
   autoApplyCustomerReceipt: vi.fn(async () => ({
     appliedLines: [], unappliedRemainder: 0, strategy: 'off',
@@ -77,6 +100,7 @@ import { getSystemAccountId } from '@/modules/accounting/services/gl/systemAccou
 import { recordPaymentMatch } from '@/modules/accounting/services/capture/fourWayMatchService';
 import type { JournalLineInput } from '@/modules/accounting/types/gl.types';
 import { enterFakeRequestCtx } from '../helpers/requestCtx';
+import { log } from '@/lib/logger';
 
 beforeEach(() => enterFakeRequestCtx());
 
@@ -109,7 +133,7 @@ function txRow(amount: number) {
     bank_account_id: BANK_ACCOUNT_ID,
     amount,
     transaction_date: new Date('2026-02-04'),
-    status: 'imported',
+    status: 'imported', feed_state: 'posted',
     description: 'ROHCAP REFUND',
     reference: 'RC-1187',
   };
@@ -203,18 +227,46 @@ describe('allocateTransaction — supplier lines follow the sign', () => {
     }
   });
 
-  it('reverses INPUT tax on a refund, not output tax', async () => {
-    const lines = await allocate('supplier', 115, 'standard');
-    expect(mockGetSystemAccountId).toHaveBeenCalledWith('vat_input', COMPANY_ID);
+  // K-016. These two asserted WHICH VAT account a supplier line reached for,
+  // on both signs. The answer is now NEITHER: the bill claimed the input tax
+  // when it was posted, so settling it in cash claims nothing and the arm has
+  // no VAT line to put on a side. The direction rule itself still lives on the
+  // `account` arm and is covered against the real database in
+  // tests/integration/k016-k017-settlement-vat-adjacent.int.test.ts.
+  it.each([
+    ['a payment out', -115],
+    ['a refund in', 115],
+  ])('claims no VAT on %s, and moves AP by the gross', async (_label, amount) => {
+    const lines = await allocate('supplier', amount, 'standard');
+    expect(mockGetSystemAccountId).not.toHaveBeenCalledWith('vat_input', COMPANY_ID);
     expect(mockGetSystemAccountId).not.toHaveBeenCalledWith('vat_output', COMPANY_ID);
-    expect(lineFor(lines, VAT_INPUT_ID)).toMatchObject({ debit: 0, credit: 15 });
-    expect(lineFor(lines, AP_ID)).toMatchObject({ debit: 0, credit: 100 });
-    expect(lineFor(lines, BANK_ACCOUNT_ID)).toMatchObject({ debit: 115, credit: 0 });
+    expect(lines.filter((l) => l.glAccountId === VAT_INPUT_ID
+      || l.glAccountId === VAT_OUTPUT_ID)).toHaveLength(0);
+    const ap = lineFor(lines, AP_ID);
+    const bank = lineFor(lines, BANK_ACCOUNT_ID);
+    // The gross, on the side the sign dictates — and no vat_type either, or
+    // VAT201 declares the supply a second time with the line gone.
+    expect(Number(ap.debit) + Number(ap.credit)).toBeCloseTo(115, 2);
+    expect(Number(bank.debit) + Number(bank.credit)).toBeCloseTo(115, 2);
+    expect(ap.vatType).toBeUndefined();
+    expect(lines).toHaveLength(2);
   });
 
-  it('still claims INPUT tax on a payment out', async () => {
-    const lines = await allocate('supplier', -115, 'standard');
-    expect(lineFor(lines, VAT_INPUT_ID)).toMatchObject({ debit: 15, credit: 0 });
+  // Review, MEDIUM: the drop was invisible on the attended path too. The screen
+  // renders N/A for these types, so the caller who can still send a code is an
+  // MCP agent or an API client — and a correct posting with a silent discard is
+  // how one keeps sending it.
+  it('logs the code it discarded, and only when there was one', async () => {
+    await allocate('supplier', -115, 'standard');
+    const dropped = vi.mocked(log.info).mock.calls.filter(
+      (c) => String(c[0]).includes('VAT code dropped'));
+    expect(dropped).toHaveLength(1);
+    expect(dropped[0]![1]).toMatchObject({ allocType: 'supplier', requestedVatCode: 'standard' });
+
+    vi.clearAllMocks();
+    await allocate('supplier', -115);
+    expect(vi.mocked(log.info).mock.calls.filter(
+      (c) => String(c[0]).includes('VAT code dropped'))).toHaveLength(0);
   });
 
   it('does not 4-way match a refund against an unpaid bill', async () => {
@@ -268,11 +320,20 @@ describe('allocateTransaction — customer lines follow the sign', () => {
     expect(bank).toMatchObject({ debit: 0, credit: 500 });
   });
 
-  it('reverses OUTPUT tax on a customer refund', async () => {
-    const lines = await allocate('customer', -115, 'standard');
-    expect(mockGetSystemAccountId).toHaveBeenCalledWith('vat_output', COMPANY_ID);
-    expect(mockGetSystemAccountId).not.toHaveBeenCalledWith('vat_input', COMPANY_ID);
-    expect(lineFor(lines, VAT_OUTPUT_ID)).toMatchObject({ debit: 15, credit: 0 });
+  // K-016, the mirror. The invoice raised the output tax; the receipt or the
+  // refund of it only moves AR and the bank.
+  it.each([
+    ['a receipt in', 115],
+    ['a refund out', -115],
+  ])('claims no VAT on %s, and moves AR by the gross', async (_label, amount) => {
+    const lines = await allocate('customer', amount, 'standard');
+    expect(mockGetSystemAccountId).not.toHaveBeenCalledWith('vat_output', COMPANY_ID);
+    expect(lines.filter((l) => l.glAccountId === VAT_OUTPUT_ID
+      || l.glAccountId === VAT_INPUT_ID)).toHaveLength(0);
+    const ar = lineFor(lines, AR_ID);
+    expect(Number(ar.debit) + Number(ar.credit)).toBeCloseTo(115, 2);
+    expect(ar.vatType).toBeUndefined();
+    expect(lines).toHaveLength(2);
   });
 
   // A receipt document for money going OUT is the orphan-shaped defect this

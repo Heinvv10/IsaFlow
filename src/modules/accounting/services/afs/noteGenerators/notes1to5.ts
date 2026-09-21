@@ -8,6 +8,7 @@ import type { NoteContent } from '@/modules/accounting/services/afs/afsTypes';
 import { fmt, toNum, getAccountingPolicies, type FrameworkType } from './noteHelpers';
 import { isVatRegistered, normalizeVatBasis } from '@/modules/bureau/services/vatPeriodHelper';
 import { getFiscalRange } from '@/modules/accounting/services/afs/afsFiscalPeriod';
+import { rawSubtypesFor } from '@/modules/accounting/services/gl/accountSubtypes';
 
 type NoteResult = { dataSnapshot: Record<string, unknown>; content: NoteContent };
 
@@ -92,7 +93,9 @@ export async function generateNote2SignificantEstimates(
       AND gje.entry_date BETWEEN ${start} AND ${end}
       AND gje.status = 'posted'
     WHERE ga.company_id = ${companyId}
-      AND ga.account_subtype IN ('provision', 'impairment', 'deferred_tax', 'depreciation')
+      -- 'depreciation' alone missed depreciation_expense/amortisation/amortization.
+      AND ga.account_subtype = ANY(${['provision', 'impairment', 'deferred_tax',
+        ...rawSubtypesFor('depreciation_expense')]}::TEXT[])
     GROUP BY ga.account_subtype, ga.account_name
     ORDER BY ga.account_subtype
   `) as DbRow[];
@@ -257,7 +260,8 @@ export async function generateNote5IntangibleAssets(
       ON gje.id = gjl.journal_entry_id
       AND gje.entry_date <= ${end} AND gje.status = 'posted'
     WHERE ga.company_id = ${companyId}
-      AND ga.account_subtype IN ('intangible_asset', 'goodwill', 'software', 'patent', 'trademark', 'licence')
+      AND ga.account_subtype = ANY(${[...rawSubtypesFor('intangible_asset'),
+        'goodwill', 'software', 'patent', 'trademark', 'licence']}::TEXT[])
     GROUP BY ga.account_name, ga.account_code, ga.account_subtype
     HAVING COALESCE(SUM(gjl.debit - gjl.credit), 0) <> 0
     ORDER BY ga.account_subtype, ga.account_name

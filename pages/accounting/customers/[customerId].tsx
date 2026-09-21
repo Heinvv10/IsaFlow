@@ -118,7 +118,7 @@ export default function CustomerDetailPage() {
 
   const handleDelete = async () => {
     if (!customerId) return;
-    if (!window.confirm(`Delete customer "${customer?.name}"? This can be undone within 5 minutes.`)) return;
+    if (!window.confirm(`Delete customer "${customer?.name}"? The record is hidden rather than erased, and can be restored.`)) return;
     setDeleting(true);
     try {
       const res = await apiFetch('/api/accounting/soft-delete', {

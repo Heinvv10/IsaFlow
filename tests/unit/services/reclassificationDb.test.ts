@@ -362,7 +362,7 @@ describe('reclassification (real DB)', async () => {
         const { rows } = await client.query<{ n: string }>(
           `SELECT COUNT(*)::TEXT AS n FROM gl_journal_lines
             WHERE id = $1 AND xmax::TEXT::BIGINT <> 0
-              AND xmax::TEXT::BIGINT = pg_current_xact_id()::TEXT::BIGINT`,
+              AND pg_xact_status(xmax::TEXT::xid8) = 'in progress'`,
           [f.lineId],
         );
         return Number(rows[0]!.n);

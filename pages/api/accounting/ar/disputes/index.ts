@@ -14,6 +14,7 @@ import { withAuth, type CompanyAuthedRequest, withWriteAccess } from '@/lib/auth
 import { withCsrf } from '@/lib/auth/withCsrf';
 import { UUID } from '@/lib/schemas/common';
 import {
+  ArRequestError,
   listDisputes,
   raiseDispute,
   type DisputeStatus,
@@ -80,21 +81,16 @@ async function handler(req: NextApiRequest, res: NextApiResponse): Promise<void>
       });
       apiResponse.success(res, dispute);
     } catch (err) {
-      const message = err instanceof Error ? err.message : String(err);
-      if (/already an open dispute/i.test(message)) {
-        res.status(409).json({
-          success: false,
-          error: { code: 'DISPUTE_EXISTS', message },
-        });
-        return;
-      }
-      if (
-        /not found or not eligible/i.test(message) ||
-        /exceeds outstanding/i.test(message) ||
-        /must be greater/i.test(message) ||
-        /reason is required/i.test(message)
-      ) {
-        apiResponse.badRequest(res, message);
+      // Typed, not text-matched — see the note in resolve.ts.
+      if (err instanceof ArRequestError) {
+        if (err.status === 409) {
+          res.status(409).json({
+            success: false,
+            error: { code: err.code, message: err.message },
+          });
+          return;
+        }
+        apiResponse.badRequest(res, err.message);
         return;
       }
       throw err;

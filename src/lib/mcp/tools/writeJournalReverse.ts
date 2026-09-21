@@ -22,11 +22,32 @@ import {
   resolveReversalDate,
   reverseJournalEntry,
 } from '@/modules/accounting/services/gl/journalEntryService';
+import { buildReversalLines } from '@/modules/accounting/services/gl/reversalLines';
 import { fmtDate } from '@/lib/fmtDate';
 import { mcpPostingAgent } from '../postingAgent';
 import { NOT_FOUND, guardCastableArgs, ok, safeErrorText, strArg, toolError } from './toolHelpers';
 
 const TOOL = 'reverse_journal_entry';
+
+/**
+ * A legacy line tagged to another company's project, cost centre or business
+ * unit posts its contra UNTAGGED — carrying the tag forward is refused on the
+ * write, and refusing the reversal outright would make the entry permanently
+ * un-cancellable. See reversalLines.ts. Said in the dry run and in the live
+ * response from the same count, so the preview does not promise a contra the
+ * post will not write.
+ */
+function foreignDimensionWarnings(droppedLines: number): { code: string; detail: string }[] {
+  if (droppedLines === 0) return [];
+  return [{
+    code: 'foreign_dimension_dropped',
+    detail:
+      `${droppedLines} line(s) of this entry carry a project, cost centre or business unit `
+      + 'belonging to another company — a tag no report of yours can match. Those contra lines '
+      + 'post untagged, so the pair nets to zero in the untagged bucket and no figure you '
+      + 'report moves.',
+  }];
+}
 
 export const reverseJournalEntryTool: McpTool = {
   name: TOOL,
@@ -102,6 +123,10 @@ export const reverseJournalEntryTool: McpTool = {
     }
 
     if (args.dry_run === true) {
+      // The same resolution the write does, so the preview cannot promise a
+      // tag the post would drop. The live path below reads the count off the
+      // reversal instead of paying for these three SELECTs twice.
+      const carried = await buildReversalLines(ctx.companyId, entry.lines, { preview: true });
       const result: DryRunResult = {
         dryRun: true,
         journals: [{
@@ -127,7 +152,10 @@ export const reverseJournalEntryTool: McpTool = {
       };
       // wroteNothing keeps the idempotency key free — without it the real call
       // that follows is served this preview forever.
-      return { ...ok(result), wroteNothing: true };
+      return {
+        ...ok({ ...result, warnings: foreignDimensionWarnings(carried.droppedLineCount) }),
+        wroteNothing: true,
+      };
     }
 
     // Nothing below is caught.
@@ -142,6 +170,7 @@ export const reverseJournalEntryTool: McpTool = {
       reversal_entry_id: reversal.id,
       reversal_entry_number: reversal.entryNumber,
       reversal_date: fmtDate(reversal.entryDate),
+      warnings: foreignDimensionWarnings(reversal.foreignDimensionDroppedLines),
       // Stated because it is the property people get wrong about reversals here.
       original_status: 'posted',
       note: 'The original entry stays posted and is marked reversed in metadata; the contra entry offsets it.',

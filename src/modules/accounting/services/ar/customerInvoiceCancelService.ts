@@ -84,10 +84,19 @@ async function cancelCustomerInvoiceInner(
   try {
     // FOR UPDATE locks the invoice row for this request tx so two concurrent
     // cancels can't both pass the guards and double-reverse the journal.
+    // K-053: a soft-deleted invoice is not cancellable. The delete has already
+    // reversed the approval journal but deliberately KEEPS gl_journal_entry_id
+    // pointing at the original so the undo can find it; cancel would null that
+    // link and flip the status, and a later undo would then re-instate the
+    // journal of a document the sub-ledger excludes as cancelled — the tie this
+    // change exists to hold, broken from the other side. Refusing reads as not
+    // found, which is what the delete has already made the document to every
+    // list, and matches what softDeleteInvoiceGuards says on the way in.
     const invRows = (await sql`
       SELECT id, status, amount_paid, gl_journal_entry_id
       FROM customer_invoices
       WHERE id = ${invoiceId}::UUID AND company_id = ${companyId}::UUID
+        AND deleted_at IS NULL
       FOR UPDATE
     `) as Row[];
     if (invRows.length === 0) throw new InvoiceNotFoundError(invoiceId);

@@ -1,6 +1,7 @@
 import { sql } from '@/lib/neon';
 import { log } from '@/lib/logger';
 import type { DbRow } from '@/types/db';
+import { wipInForceAsOf } from './wipAsOf';
 
 // ─── Interfaces ───────────────────────────────────────────────────────────────
 
@@ -199,6 +200,9 @@ export async function getWipAging(
 ): Promise<WipAgingRow[]> {
   const asOfDate = input.asOfDate ?? todayString();
 
+  // POINT IN TIME (R-059). `asOfDate` used to reach only the bucket
+  // arithmetic, over TODAY's unbilled WIP. The population is now the entries
+  // in WIP on that date — see ./wipAsOf for the entry and exit dates.
   const rows = (await sql`
     SELECT te.practice_client_id,
            pc.legal_name,
@@ -214,8 +218,7 @@ export async function getWipAging(
     FROM time_entries te
     JOIN practice_clients pc ON pc.id = te.practice_client_id
     WHERE te.company_id = ${companyId}::UUID
-      AND te.status = 'approved'
-      AND te.billed_at IS NULL
+      AND ${wipInForceAsOf(companyId, asOfDate, todayString())}
       AND te.billable = true
       AND te.line_total IS NOT NULL
     GROUP BY te.practice_client_id, pc.legal_name
@@ -243,12 +246,14 @@ export async function getRevenuePipeline(
 
   const [approvedRows, invoicedRows] = await Promise.all([
     sql`
-      SELECT COALESCE(SUM(line_total), 0) AS v
-      FROM time_entries
-      WHERE company_id = ${companyId}::UUID
-        AND status = 'approved'
-        AND billed_at IS NULL
-        AND billable = true
+      SELECT COALESCE(SUM(te.line_total), 0) AS v
+      FROM time_entries te
+      -- The same as-of population as getWipAging above, from the same
+      -- predicate — these are one figure asked twice, and answering it two
+      -- ways is how they drift.
+      WHERE te.company_id = ${companyId}::UUID
+        AND ${wipInForceAsOf(companyId, asOfDate, todayString())}
+        AND te.billable = true
     ` as Promise<DbRow[]>,
     sql`
       SELECT COALESCE(SUM(line_total), 0) AS v

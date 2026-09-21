@@ -8,6 +8,7 @@ import { AppLayout } from '@/components/layout/AppLayout';
 import Link from 'next/link';
 import { ArrowLeft, ShoppingCart, Loader2, AlertCircle, Download } from 'lucide-react';
 import { apiFetch } from '@/lib/apiFetch';
+import { fmtDate } from '@/lib/fmtDate';
 
 interface Row {
   supplierId: string;
@@ -23,7 +24,9 @@ const fmt = (n: number) => new Intl.NumberFormat('en-ZA', { style: 'currency', c
 function getDefaultDates() {
   const now = new Date();
   const start = new Date(now.getFullYear(), now.getMonth(), 1);
-  return { periodStart: start.toISOString().split('T')[0], periodEnd: now.toISOString().split('T')[0] };
+  // fmtDate, not toISOString: the period end is the date Paid/Balance are
+  // stated at (R-059), and toISOString names yesterday from 00:00 to 02:00 SAST.
+  return { periodStart: fmtDate(start), periodEnd: fmtDate(now) };
 }
 
 export default function SupplierReportsPage() {
@@ -106,8 +109,8 @@ export default function SupplierReportsPage() {
                   <th className="px-4 py-3">Supplier</th>
                   <th className="px-4 py-3 text-right">Invoices</th>
                   <th className="px-4 py-3 text-right">Invoiced</th>
-                  <th className="px-4 py-3 text-right">Paid</th>
-                  <th className="px-4 py-3 text-right">Balance</th>
+                  <th className="px-4 py-3 text-right">Paid at {periodEnd}</th>
+                  <th className="px-4 py-3 text-right">Balance at {periodEnd}</th>
                 </tr></thead>
                 <tbody>
                   {rows.length === 0 && <tr><td colSpan={5} className="px-4 py-8 text-center text-[var(--ff-text-tertiary)]">No data for period</td></tr>}

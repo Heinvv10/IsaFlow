@@ -115,13 +115,36 @@ export async function unwindOnePayment(
   // `supplier_payment_allocations` (migration 201) holds zero rows in dev and
   // in production and is read by nothing, while every supplier service uses
   // `payment_allocations`.
+  //
+  // ORDER BY invoice_id: two unwinds touching the same two invoices in opposite
+  // orders hold one row each and deadlock. Every other multi-invoice path
+  // (`fetchInvoiceCandidates`, `fetchBillCandidates`) already orders by id.
   const allocs = (kind === 'customer'
     ? await sql`
         SELECT invoice_id, amount_allocated FROM customer_payment_allocations
-        WHERE payment_id = ${paymentId}::UUID`
+        WHERE payment_id = ${paymentId}::UUID
+        ORDER BY invoice_id`
     : await sql`
         SELECT invoice_id, amount_allocated FROM payment_allocations
-        WHERE payment_id = ${paymentId}::UUID`) as DbRow[];
+        WHERE payment_id = ${paymentId}::UUID
+        ORDER BY invoice_id`) as DbRow[];
+
+  // (2) THE PAYMENT BEFORE THE INVOICES. This flip used to run AFTER the loop,
+  // so `reverseReconciledTransaction` — the only caller that does not already
+  // hold the payment — took bank -> invoices -> payment, the inverse of
+  // `planReceiptApplication` / `planSupplierPaymentApplication`, which lock the
+  // payment and THEN the invoices. Both reach the same (payment, invoice) pair.
+  // The allocation rows are read above and DELETEd below, so moving only the
+  // status flip changes nothing about what is written.
+  if (kind === 'customer') {
+    await sql`
+      UPDATE customer_payments SET status = 'cancelled', updated_at = NOW()
+      WHERE id = ${paymentId}::UUID AND company_id = ${companyId}::UUID`;
+  } else {
+    await sql`
+      UPDATE supplier_payments SET status = 'cancelled', updated_at = NOW()
+      WHERE id = ${paymentId}::UUID AND company_id = ${companyId}::UUID`;
+  }
 
   for (const a of allocs) {
     const invoiceId = String(a.invoice_id);
@@ -157,16 +180,12 @@ export async function unwindOnePayment(
     amountUnapplied = round2(amountUnapplied + amt);
   }
 
+  // The allocation rows go last: they are what the loop above just reversed,
+  // and deleting them before it would leave a partial unwind unrecoverable.
   if (kind === 'customer') {
     await sql`DELETE FROM customer_payment_allocations WHERE payment_id = ${paymentId}::UUID`;
-    await sql`
-      UPDATE customer_payments SET status = 'cancelled', updated_at = NOW()
-      WHERE id = ${paymentId}::UUID AND company_id = ${companyId}::UUID`;
   } else {
     await sql`DELETE FROM payment_allocations WHERE payment_id = ${paymentId}::UUID`;
-    await sql`
-      UPDATE supplier_payments SET status = 'cancelled', updated_at = NOW()
-      WHERE id = ${paymentId}::UUID AND company_id = ${companyId}::UUID`;
   }
 
   return { invoicesReopened, amountUnapplied };

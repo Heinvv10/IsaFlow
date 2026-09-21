@@ -21,11 +21,13 @@
  * tool description says so in the response's own words, because a reader never
  * sees this file.
  *
- *  - It reports EVERY candidate control account, never one. There is no
- *    canonical AR/AP control account in this schema; thirteen accounts carry
- *    subtype 'receivable' and one carries NULL, and on Brightsphere a R10,000
- *    receipt went to the NULL one while thirty-six others went elsewhere.
- *    Picking one would hide that R10,000 behind a tidier-looking reconciliation.
+ *  - It reports EVERY account TYPED for the role, never one, because there is
+ *    no canonical AR/AP control account in this schema — thirteen accounts
+ *    carry subtype 'receivable'. It no longer adopts accounts by where
+ *    documents posted: `settle_by_contra` reaches a loan account through a
+ *    `supplier_payments` row, so that arm made loan accounts into AP control
+ *    accounts and moved R453m of one production reconciliation. Those accounts
+ *    are reported as `postings_on_non_control_accounts` warnings instead.
  *
  *  - It finds cash on the control account with NO payment document behind it:
  *    a hand-written journal, a receipt whose INSERT `allocateTransaction`
@@ -105,7 +107,11 @@ export const reconcileSubledgerTool: McpTool = {
     'POINT IN TIME: as_at moves BOTH sides. The subledger is reconstructed from settlement that can be dated, on the same basis as aged_debtors/aged_creditors — read the limitations on those tools, which apply here unchanged: the reconstruction will not report a settled document as outstanding, but it can UNDERSTATE a past balance where settlement carries no date (bank-match confirmation and the Sage import both write amount_paid with no dated trail). ' +
     'settlementFlagged lists supplier bills whose payment_matched flag says a matching process considered them settled while their balance says nothing was applied — 397 bills worth R16,151,543.00 on one production company. It is an ATTRIBUTION of part of the difference, NOT an extra reconciling item: that cash is already counted once as posting_with_no_document, so its total is deliberately outside reconcilingItems and must not be added to them. ' +
     'WHAT A RESIDUAL OF ZERO DOES AND DOES NOT MEAN. READ THIS BEFORE RELYING ON IT. unexplainedDifference of 0.00 is NECESSARY AND NOT SUFFICIENT: it says the items sum to the difference, NOT that they are the right items. Two errors that cancel satisfy it exactly. That is not hypothetical — this endpoint reported 0.00 on every production company while wrongly counting a VAT account as an AP control account, because a reconciling item of the same amount across the same 356 documents removed it again. A phantom control account paired with a phantom offset closes the arithmetic and reads as clean books. Treat zero as a precondition for trusting the decomposition and then INSPECT THE ITEMS: check that controlAccounts holds only accounts you accept as control accounts, and that each item names documents you can follow. A non-zero residual is a mechanism this endpoint does not know about; a zero one is an invitation to look, not a conclusion. ' +
-    'LIMITS. There is no canonical control account in this database, so EVERY candidate is returned in controlAccounts with how it was found ("subtype" = typed for the role, "posting" = subledger documents actually posted to it) and controlAccountAmbiguous is set when more than one exists; the balance is their sum. Deactivated accounts are included — is_active is a picker flag and says nothing about whether an account holds money. ' +
+    'CONTROL ACCOUNTS ARE RESOLVED BY SUBTYPE AND BY NOTHING ELSE. There is no canonical control account in this database and no company-level setting names one, so EVERY account carrying the role\'s subtype (receivable for ar, payable for ap) is returned in controlAccounts and controlAccountAmbiguous is set when more than one does; the balance is their sum. An account is NOT adopted because subledger documents happened to post to it — settle_by_contra posts DR Accounts Payable / CR <loan account> through a supplier payment, and adopting the loan account produced three "AP control accounts", a document_not_on_control_account item of +R453m and an unexplained difference of -R437m, none of it a fact about the books. Accounts a subledger\'s own documents move in the control direction without carrying the subtype are reported in excludedRows as postings_on_non_control_accounts, with the amount, and the documents whose value went there appear as document_not_on_control_account. Deactivated accounts are included — is_active is a picker flag and says nothing about whether an account holds money. ' +
+    'INVARIANTS. The response carries an invariants block, each entry {name, holds, detail}, checked rather than assumed and REPORTED rather than thrown — a violation is the most interesting thing this endpoint can say about a set of books, and a 500 would replace it with nothing. control_plus_items_equals_subledger: controlAccountBalance plus the subledger_to_control items reaches subledgerTotal. item_within_cited_gross: no item claims more than the documents it names are worth, which is what catches an item summed off the wrong column. unexplained_is_the_residual: unexplainedDifference is exactly difference minus the NAMED items, never clamped, floored or plugged. Check holds on all three before reading any figure. ' +
+    'UNAPPLIED CASH HAS ONE DEFINITION, shared with list_unapplied_receipts and list_unapplied_payments: a payment\'s total_amount less its allocations, capped, above a cent. The unapplied_receipt item\'s AMOUNT is that payment\'s movement ON THE CONTROL ACCOUNT, because that is what it can explain of the difference, and the item also carries the document figure the listing tools report. Where cash never reached a control account the two differ, and the gap is reported in excludedRows as unapplied_cash_off_control_account rather than folded into an item — on isaflow_dev one company has 130 receipts worth R7.5m in that state against a control balance of -R329,700. ' +
+    'posting_with_no_document IS MOSTLY ONE CAUSE CLASS, and it has a remedy: an ALLOCATION JOURNAL WITH NO PAYMENT DOCUMENT. Allocating a bank line posts the control-account journal and, on some paths, creates no supplier_payments or customer_payments row at all — on a production copy 39 journals worth R124,704.80 were in that state, every one of them stamped mcp:bulk_allocate_bank_transactions. Nothing that reads payment rows can see or clear them, so the fix is to create the missing payment document and apply it; list_unapplied_payments and list_unapplied_receipts are blind to them by construction. Reversal journals are NOT in this item: a cancelled payment or credit note nets against its own reversal and both are dropped. '
+    + 'unapplied_credit_note is approved credit no document has consumed. The AP subledger carries no credit notes at all, so supplier credit used to fall into the residual with no name on it; approved credit the AR subledger already counts is deliberately not repeated. ' +
     'Only "ar" and "ap" have a document subledger to compare against; "bank", "vat", "payroll" and "inventory" return the GL control accounts with subledgerTotal null and subledgerUnavailable explaining why, rather than a difference of zero that means nothing. ' +
     'detail: "summary" returns totals only, "standard" (default) returns one row per reconciling item, "full" returns one row per underlying document and is paginated — call again with cursor until next_cursor is null. Follow a documentId with get_invoice, list_invoices or list_journals depending on the item type.',
   scope: 'read:reports',
@@ -209,6 +215,9 @@ export const reconcileSubledgerTool: McpTool = {
       controlAccountAmbiguous: rec.controlAccountAmbiguous,
       difference: rec.difference,
       unexplainedDifference: rec.unexplainedDifference,
+      // Checked, not assumed, and reported rather than thrown. See the
+      // description and reconciliationInvariants.ts.
+      invariants: rec.invariants,
       // Named, but deliberately UNOWNED in the figure registry: registering an
       // owner would encode an arbitrary choice of control account as truth and
       // destroy the only thing that can detect the break (FINDINGS C1).

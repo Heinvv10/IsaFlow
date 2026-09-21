@@ -119,3 +119,38 @@ export async function lockSupplierInvoiceForUpdate(
     throw err;
   }
 }
+
+/**
+ * Run a statement that takes a `supplier_invoices` row lock under the same 5s
+ * budget and the same typed error as `lockSupplierInvoiceForUpdate`.
+ *
+ * For the writers that do not read the row first — `cancelCreditNote` moves
+ * `amount_paid` with a guarded `UPDATE` and never selects it — which would
+ * otherwise wait on the row without a budget and surface a bare 55P03.
+ */
+export async function withSupplierInvoiceLock<T>(
+  fnName: string,
+  invoiceId: string,
+  run: () => Promise<T>,
+): Promise<T> {
+  const client = als.getStore()?.client;
+  if (!client) {
+    throw new Error(
+      `${fnName} requires a request transaction (withAuth / als.run). `
+      + 'Outside one, FOR UPDATE is released immediately and locks nothing.',
+    );
+  }
+
+  assertTxUsable();
+  await client.query("SET LOCAL lock_timeout = '5s'");
+  try {
+    const result = await run();
+    // Success path only — see lockSupplierInvoiceForUpdate for why not a
+    // `finally` (25P02 would replace the typed error with an opaque one).
+    await client.query('SET LOCAL lock_timeout = DEFAULT');
+    return result;
+  } catch (err) {
+    if (isLockTimeout(err)) throw new SupplierInvoiceLockTimeoutError(invoiceId);
+    throw err;
+  }
+}

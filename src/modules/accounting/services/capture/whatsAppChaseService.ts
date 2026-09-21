@@ -61,11 +61,14 @@ export async function sendWhatsAppChase(
 ): Promise<{ sent: boolean; reason?: string }> {
   void userId; // reserved for audit log in a future phase
 
+  // R-068: the daily cron runs this with no withAuth, outside RLS, so the
+  // supplier join's company_id is the only thing keeping another tenant's
+  // supplier (its name, email, WhatsApp number) off this company's alert.
   const [alertRow] = (await sql`
     SELECT a.*, s.name AS supplier_name, s.whatsapp_number AS supplier_wa,
            se.last_invoice_date AS exp_last_invoice_date
     FROM expected_invoice_alerts a
-    JOIN suppliers s ON s.id = a.supplier_id
+    JOIN suppliers s ON s.id = a.supplier_id AND s.company_id = a.company_id
     LEFT JOIN supplier_expectations se ON se.id = a.expectation_id
     WHERE a.id = ${alertId}::uuid
       AND a.company_id = ${companyId}::uuid

@@ -142,6 +142,46 @@ describe('unwindBankAllocationApplication', () => {
   });
 });
 
+describe('unwindOnePayment — canonical lock order', () => {
+  // `reverseReconciledTransaction` is the one caller that does not already hold
+  // the payment, so the order INSIDE this function is the order that path
+  // takes: it must reach `customer_payments` before `customer_invoices`, or it
+  // inverts `planReceiptApplication` (payment then invoices) on the same pair.
+  it('cancels the payment before it touches the invoices', async () => {
+    customerWithOneAllocation();
+    await unwindBankAllocationApplication(COMPANY, JOURNAL);
+
+    const texts = sqlMock.mock.calls.map((_, i) => textOf(i));
+    const flip = texts.findIndex((t) => /UPDATE customer_payments\s+SET status = 'cancelled'/i.test(t));
+    const invoice = texts.findIndex((t) => /UPDATE customer_invoices/i.test(t));
+    expect(flip, 'the payment must be cancelled').toBeGreaterThanOrEqual(0);
+    expect(invoice, 'the invoice must be rolled back').toBeGreaterThanOrEqual(0);
+    expect(flip).toBeLessThan(invoice);
+  });
+
+  it('reads the allocations in a deterministic invoice order', async () => {
+    // Without ORDER BY, two unwinds sharing two invoices can take them in
+    // opposite orders and deadlock.
+    customerWithOneAllocation();
+    await unwindBankAllocationApplication(COMPANY, JOURNAL);
+
+    const allocRead = sqlMock.mock.calls
+      .map((_, i) => textOf(i))
+      .find((t) => /FROM customer_payment_allocations/i.test(t));
+    expect(allocRead).toMatch(/ORDER BY invoice_id/i);
+  });
+
+  it('deletes the allocation rows only after the loop that reverses them', async () => {
+    customerWithOneAllocation();
+    await unwindBankAllocationApplication(COMPANY, JOURNAL);
+
+    const texts = sqlMock.mock.calls.map((_, i) => textOf(i));
+    const invoice = texts.findIndex((t) => /UPDATE customer_invoices/i.test(t));
+    const del = texts.findIndex((t) => /DELETE FROM customer_payment_allocations/i.test(t));
+    expect(del).toBeGreaterThan(invoice);
+  });
+});
+
 describe('unwindBankAllocationApplication — supplier side', () => {
   function supplierWithOneAllocation() {
     sqlMock.mockReset();
@@ -217,6 +257,10 @@ describe('reverseReconciledTransaction — ordering', () => {
     }));
     vi.doMock('@/modules/accounting/services/gl/journalEntryService', () => ({
       reverseJournalEntry: vi.fn(async () => { order.push('reverse'); }),
+      resolveReversalDate: vi.fn(async () => '2026-08-04'),
+    }));
+    vi.doMock('@/modules/accounting/services/gl/periodStatusService', () => ({
+      getPeriodStatusForDate: vi.fn(async () => 'open'),
     }));
     vi.doMock('@/modules/accounting/services/bank/bankTxLock', () => ({
       lockBankTransactionForUpdate: vi.fn(async () => ({
@@ -224,8 +268,9 @@ describe('reverseReconciledTransaction — ordering', () => {
       })),
     }));
     vi.doMock('@/lib/neon', () => ({
-      sql: vi.fn(async () => [{ journal_entry_id: JOURNAL }]),
+      sql: vi.fn(async () => [{ journal_entry_id: JOURNAL, entry_date: '2026-08-04' }]),
       withTransaction: vi.fn(async (fn: (t: unknown) => Promise<void>) => fn(vi.fn())),
+      withSavepoint: vi.fn(async (_n: string, fn: () => Promise<unknown>) => fn()),
     }));
 
     const { reverseReconciledTransaction } = await import(

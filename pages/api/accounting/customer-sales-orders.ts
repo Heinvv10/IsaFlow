@@ -10,6 +10,7 @@
 import type { NextApiResponse } from 'next';
 import { withErrorHandler } from '@/lib/api-error-handler';
 import { apiResponse } from '@/lib/apiResponse';
+import { CustomerNotInCompanyError } from '@/modules/accounting/services/core/contactDirectoryService';
 import { withAuth, type CompanyAuthedRequest, type AuthenticatedNextApiRequest, withWriteAccess} from '@/lib/auth';
 import { withCsrf } from '@/lib/auth/withCsrf';
 import {
@@ -47,6 +48,7 @@ async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse) {
       return apiResponse.created(res, order);
     } catch (err) {
       if (err instanceof LineValidationError) return apiResponse.badRequest(res, err.message);
+      if (err instanceof CustomerNotInCompanyError) return apiResponse.badRequest(res, err.message);
       throw err;
     }
   }
@@ -60,6 +62,7 @@ async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse) {
       return apiResponse.success(res, order);
     } catch (err) {
       if (err instanceof LineValidationError) return apiResponse.badRequest(res, err.message);
+      if (err instanceof CustomerNotInCompanyError) return apiResponse.badRequest(res, err.message);
       throw err;
     }
   }
