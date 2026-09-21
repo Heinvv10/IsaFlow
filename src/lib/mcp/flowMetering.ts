@@ -319,6 +319,7 @@ const TOOL_FLOW_OPERATIONS: Record<string, FlowOperationCode | null> = {
   // they already hold, posting nothing. Pricing the clearing of a control
   // account that is wrong today would be a toll on fixing the books.
   auto_apply_unapplied: null,
+  apply_credit_note: null,
 
   // A reversal is a correction, and every other reversal here is free for the
   // same reason: pricing the control the agent-safety model depends on is the

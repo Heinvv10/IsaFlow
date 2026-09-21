@@ -447,6 +447,8 @@ describe('write-tool manifest invariants', () => {
     const requiresPost = MCP_TOOLS.filter((t) => t.requiresPost).map((t) => t.name).sort();
     expect(requiresPost).toEqual([
       'allocate_bank_transaction',
+      // Moves a document's outstanding balance and the note's applied amount.
+      'apply_credit_note',
       // Cash application moves a document's outstanding balance and, on the
       // bank-line branch, posts DR Bank / CR AR.
       'apply_payment_to_supplier_invoice',
@@ -648,6 +650,9 @@ describe('write-tool manifest invariants', () => {
       // Refuses on the missing subledger before reading anything; behaviour in
       // autoApplyUnappliedPlan.test.ts and the integration file.
       auto_apply_unapplied: { ...KEY },
+      // Refuses on the missing credit_note_id before reading anything; behaviour
+      // in applyCreditNoteTool.test.ts and credit-note-to-document.int.test.ts.
+      apply_credit_note: { ...KEY },
       void_receipt: { ...KEY },
       void_payment: { ...KEY },
       // Payroll setup refuses on the missing required argument before any
