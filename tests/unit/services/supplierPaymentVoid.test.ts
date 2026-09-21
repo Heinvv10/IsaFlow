@@ -65,6 +65,7 @@ vi.mock('@/modules/accounting/services/ap/supplierPaymentService', () => ({
 vi.mock('@/modules/accounting/services/ap/paymentJournalReversal', async (importOriginal) => ({
   ...(await importOriginal<typeof import('@/modules/accounting/services/ap/paymentJournalReversal')>()),
   lockPaymentBankLeg: vi.fn(),
+  voidViaBankAllocation: vi.fn(async () => false),
   lockJournalAndUnmatch: vi.fn(),
 }));
 
@@ -109,7 +110,7 @@ describe('voidSupplierPayment (P2.1 / audit W4)', () => {
     mockSql.mockResolvedValue([{ id: PAYMENT_ID, status: 'cancelled' }]);
     mockReverse.mockResolvedValue({ id: 'je-rev' });
     vi.mocked(lockPaymentBankLeg).mockResolvedValue({
-      journalId: JOURNAL_ID, leg: { alreadyReversed: false, bankLineIds: [] },
+      journalId: JOURNAL_ID, leg: { alreadyReversed: false, bankLineIds: [], seenLineIds: [], allocatedLineIds: [] },
     });
   });
 
@@ -133,7 +134,7 @@ describe('voidSupplierPayment (P2.1 / audit W4)', () => {
     expect(allocUpdate!.text).toMatch(/amount_paid - /);
     const payUpdate = calls.find((c) => /UPDATE supplier_payments/i.test(c.text));
     expect(payUpdate!.text).toMatch(/'cancelled'/);
-    expect(payUpdate!.text).toMatch(/status = 'processed'/); // guarded flip
+    expect(payUpdate!.text).toMatch(/status IN \('processed', 'reconciled'\)/); // guarded flip
   });
 
   // K-064 round 4: a draft/approved payment has moved nothing, so voiding it is
@@ -163,13 +164,21 @@ describe('voidSupplierPayment (P2.1 / audit W4)', () => {
     expect(mockReverse).not.toHaveBeenCalled();
   });
 
-  it('rejects voiding a reconciled payment', async () => {
+  // Round 8: 'reconciled' on a supplier payment means FULLY APPLIED, so it is
+  // voided like 'processed' (bank-reconciled cash is refused by the bank line,
+  // proved in k064-void-applied-and-allocated).
+  it('voids a fully applied (reconciled) payment: reverses the journal and un-applies', async () => {
     mockGetPayment.mockResolvedValue(payment({ status: 'reconciled' }));
+    const texts: string[] = [];
+    mockSql.mockImplementation((strings: TemplateStringsArray) => {
+      texts.push((strings as unknown as string[]).join('?'));
+      return Promise.resolve([{ id: PAYMENT_ID, status: 'cancelled' }]);
+    });
 
-    await expect(voidSupplierPayment(COMPANY_ID, PAYMENT_ID, USER_ID)).rejects.toThrow(
-      /reconcil/i,
-    );
-    expect(mockReverse).not.toHaveBeenCalled();
+    await voidSupplierPayment(COMPANY_ID, PAYMENT_ID, USER_ID);
+
+    expect(mockReverse).toHaveBeenCalledWith(COMPANY_ID, JOURNAL_ID, USER_ID);
+    expect(texts.find((t) => /UPDATE supplier_payments/i.test(t))).toMatch(/IN \('processed', 'reconciled'\)/);
   });
 
   it('runs inside a savepoint (4xx paths must not orphan-commit)', async () => {

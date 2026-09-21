@@ -15,7 +15,9 @@ import { lockSupplierPaymentForUpdate } from '../core/paymentLock';
 import { getSupplierPaymentById } from './supplierPaymentService';
 import { assertPaymentStillProcessable, voidIfUnprocessed } from './supplierPaymentGates';
 import { SupplierPaymentNotFoundError } from './supplierPaymentNotFound';
-import { assertSameJournal, lockJournalAndUnmatch, lockPaymentBankLeg } from './paymentJournalReversal';
+import {
+  assertSameJournal, lockJournalAndUnmatch, lockPaymentBankLeg, voidViaBankAllocation,
+} from './paymentJournalReversal';
 import type { SupplierPayment } from '../../types/ap.types';
 import type { JournalLineInput } from '../../types/gl.types';
 type Row = DbRow;
@@ -237,6 +239,12 @@ async function voidSupplierPaymentInner(
     // payment is voided as a status change. Only a processed one continues.
     if (await voidIfUnprocessed(companyId, payment)) return { ...payment, status: 'cancelled' };
     assertSameJournal(journalId, payment.glJournalEntryId);
+    // A bank ALLOCATION posted this journal: undo it the MCP void's way — bills,
+    // payment, contra and bank line in one call (`voidViaBankAllocation`).
+    if (leg && !leg.alreadyReversed
+      && await voidViaBankAllocation(companyId, leg, userId, `Payment ${payment.paymentNumber}`)) {
+      return (await getSupplierPaymentById(companyId, id)) ?? { ...payment, status: 'cancelled' };
+    }
 
     // (3) Un-apply allocations: roll amount_paid back and recompute status.
     // A voided payment returns the invoice to its pre-payment state
@@ -276,7 +284,7 @@ async function voidSupplierPaymentInner(
     const rows = (await sql`
       UPDATE supplier_payments
       SET status = 'cancelled'
-      WHERE id = ${id} AND company_id = ${companyId}::UUID AND status = 'processed'
+      WHERE id = ${id} AND company_id = ${companyId}::UUID AND status IN ('processed', 'reconciled')
       RETURNING *
     `) as Row[];
     if (rows.length !== 1) {

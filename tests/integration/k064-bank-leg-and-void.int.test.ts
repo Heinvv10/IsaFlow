@@ -163,15 +163,8 @@ describeIfDb('K-064 round 7 — the bank leg of a reversed payment journal', () 
     expect(await f.paymentStatus(paymentId)).toBe('processed');
   });
 
-  it("4. a fully applied ('reconciled') payment's refusal no longer claims a bank reconciliation", async () => {
-    const b = await approved();
-    const paymentId = await f.approvedPayment(b, 100);
-    await q("UPDATE supplier_payments SET status = 'reconciled' WHERE id = $1", [paymentId]);
-    const state = await f.paymentAction('void', paymentId);
-    expect(state.statusCode, text(state)).toBe(400);
-    expect(text(state)).toContain('fully applied to its bills');
-    expect(text(state)).toContain('does not mean it is on a bank reconciliation');
-  });
+  // 4. (round 8) A fully applied ('reconciled') payment is now VOIDABLE — see
+  // k064-void-applied-and-allocated, which pins it by outcome.
 
   it('5. batch reversal refuses when a bill no longer shows the batch\'s money (a constructed anomaly)', async () => {
     const b = await approved();

@@ -560,3 +560,52 @@ one entry (the journal read); `supplierPaymentVoid.test` mocks the two
 DB-backed steps and records where they run. The census entry moved to
 `paymentJournalReversal.ts`, the file that now reads `bank_transactions`.
 Green: 81 integration files, 517 tests (`round7-green.log`).
+
+## Round 8 (2026-09-21) — fully applied payments are voidable (Hein)
+
+**What 'reconciled' is.** On a supplier payment, `supplierPaymentApplicationService`
+sets `reconciled` when nothing is left unapplied — it means FULLY APPLIED. Bank
+reconciliation lives on the BANK LINE: `bank_transactions.status = 'reconciled'`
+(reachable only by completing a reconciliation) or a `reconciliation_id` naming
+a `bank_reconciliations` row whose status is `completed` (the CHECK allows
+`in_progress` / `completed`). The old guard refused the payment status, so most
+payments that fully settled their bills could not be voided.
+
+1. **Void of a fully applied payment.** `voidIfUnprocessed` now lets
+   `reconciled` through like `processed`; the guarded flip accepts both. It
+   takes the same shared path: bank line (peek) → payment → its own allocations
+   un-applied bill by bill → journal locked, matched line unmatched, one contra.
+2. **One reconciliation rule** (`paymentJournalReversal.ts#assertNotReconciled`,
+   used by single void AND batch reversal): refuse when the bank line is on a
+   COMPLETED reconciliation (status `reconciled`, or its reconciliation is
+   `completed`). A line in an IN-PROGRESS session is refused too, with its own
+   remedy — unmatching it would change that session's figures under the person
+   reconciling. The payment's own status plays no part.
+3. **The allocated-line residual, folded in.** When a bank ALLOCATION posted the
+   journal, REST void now does what MCP `void_payment` (`voidPaymentDocument`,
+   shape 1) does: `reverseReconciledTransaction` on that line — unwind every
+   payment on the journal (bills reopened, payment cancelled), one contra, the
+   line back to `imported` (`voidViaBankAllocation`). Two allocated lines, or an
+   allocated plus a matched line, on one journal are refused, as MCP refuses them.
+   `backfill-auto-apply-unapplied` ("voiding a back-filled payment restores the
+   bills") passes unchanged on an `isaflow_test` clone — the delegated path
+   restores the bills AND frees the line; there was no conflict.
+4. **Pinned by outcome** (`tests/integration/k064-void-applied-and-allocated.int.test.ts`):
+   a 1000 payment processed against X (600) and applied to Y (400) — status
+   `reconciled`, bank line matched — voids 200: X 0 and Y 0 `approved`, payment
+   `cancelled`, exactly one contra, AP and bank net back to before, trial balance
+   balanced, bank line `imported` with no match or reconciliation, and X then
+   takes a fresh 1000. On a completed reconciliation → 400, and on an in-progress
+   one → 400: payment still `reconciled`, X still 600, no contra, AP unchanged.
+   A bank-allocated 115 payment voided through the REST route and a second one
+   through `voidPaymentDocument` end identically: line `imported`, bill 0
+   `approved`, payment `cancelled`, one contra; AP down 115; trial balance
+   balanced.
+5. **Mutations** (`round8-mutations.log`), each restored byte-identical: the
+   completed-reconciliation refusal removed → 3 red (single void, batch reversal,
+   the new file); the allocated path skipped → the MCP-parity test red; fully
+   applied refused again → 2 red.
+
+The round-7 test "4" (the refusal message) is gone with the refusal; the unit
+test "rejects voiding a reconciled payment" now asserts it voids.
+Green: 82 files, 521 tests (`round8-green.log`).

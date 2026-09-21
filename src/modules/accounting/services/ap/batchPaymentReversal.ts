@@ -77,6 +77,9 @@ async function reverseBatchInner(companyId: string, batchId: string, userId: str
   if (!journalId || !leg) throw new SupplierPaymentRefusal(`Batch ${number} has no journal to reverse.`);
   assertSameJournal(peekedJournal, journalId);
   if (leg.alreadyReversed) throw new BatchAlreadyReversedError(number);
+  if (leg.allocatedLineIds.length > 0) {
+    throw new SupplierPaymentRefusal(`Batch ${number}'s journal is claimed by an allocated bank line — undo that first.`);
+  }
 
   const members = (await sql`
     SELECT id, payment_number, status FROM supplier_payments

@@ -37,6 +37,37 @@ export interface BankLeg {
   bankLineIds: string[];
   /** Every bank line seen on the journal, matched or allocated — the re-check's baseline. */
   seenLineIds: string[];
+  /** Lines ALLOCATED to the journal: a bank allocation posted it, so the undo is
+   *  `reverseReconciledTransaction`, not an unmatch. */
+  allocatedLineIds: string[];
+}
+
+/**
+ * THE rule for "this cash is reconciled": the bank line is on a bank
+ * reconciliation — status 'reconciled' (reachable only by completing one) or a
+ * `reconciliation_id` naming a COMPLETED `bank_reconciliations` row. A line in
+ * an IN-PROGRESS session is refused too, with its own remedy: unmatching it
+ * would change that session's figures underneath the person reconciling. It is
+ * NOT the payment's own status: on a supplier payment 'reconciled' means fully
+ * applied to its bills.
+ */
+async function assertNotReconciled(companyId: string, row: DbRow, label: string): Promise<void> {
+  let recStatus: string | null = null;
+  if (row.reconciliation_id) {
+    const rec = (await sql`
+      SELECT status FROM bank_reconciliations
+      WHERE id = ${String(row.reconciliation_id)}::UUID AND company_id = ${companyId}::UUID
+    `) as DbRow[];
+    recStatus = rec[0] ? String(rec[0].status) : null;
+  }
+  if (row.status === 'reconciled' || recStatus === 'completed') {
+    throw new SupplierPaymentRefusal(`${label} is on a completed bank reconciliation — reverse it there `
+      + 'before voiding or reversing the payment.');
+  }
+  if (row.reconciliation_id) {
+    throw new SupplierPaymentRefusal(`${label}'s bank line is in an open bank reconciliation session — `
+      + 'remove it from that session (or cancel the session) first.');
+  }
 }
 
 async function matchedBankLines(companyId: string, journalId: string): Promise<string[]> {
@@ -59,7 +90,7 @@ export async function lockBankLegOf(companyId: string, journalId: string, label:
     WHERE id = ${journalId}::UUID AND company_id = ${companyId}::UUID
   `) as DbRow[];
   if (!je[0]) throw new SupplierPaymentRefusal(`${label}'s journal was not found.`);
-  if (je[0].reversed_at) return { alreadyReversed: true, bankLineIds: [], seenLineIds: [] };
+  if (je[0].reversed_at) return { alreadyReversed: true, bankLineIds: [], seenLineIds: [], allocatedLineIds: [] };
   if (je[0].status !== 'posted') {
     throw new SupplierPaymentRefusal(`${label}'s journal is ${String(je[0].status)}, not posted — there is nothing to reverse.`);
   }
@@ -73,18 +104,17 @@ export async function lockBankLegOf(companyId: string, journalId: string, label:
 
   const ids = await matchedBankLines(companyId, journalId);
   const toUnmatch: string[] = [];
+  const allocated: string[] = [];
   for (const id of ids) {
     const row = await lockBankTransactionForUpdate(companyId, id);
-    if (row && (row.status === 'reconciled' || row.reconciliation_id)) {
-      throw new SupplierPaymentRefusal(`${label} is on a bank reconciliation — remove it from the `
-        + 'reconciliation before reversing.');
-    }
-    // An ALLOCATED line posted this journal itself (a bank allocation); undoing
-    // it is `reverseReconciledTransaction`'s job, not an unmatch. Left exactly as
-    // single void always left it — a known residual, not changed here.
-    if (row && row.status !== 'allocated') toUnmatch.push(id);
+    if (!row) continue;
+    await assertNotReconciled(companyId, row, label);
+    // An ALLOCATED line posted this journal itself (a bank allocation): undoing
+    // it is `reverseReconciledTransaction`'s job — unwind, contra, reset the line.
+    if (row.status === 'allocated') allocated.push(id);
+    else toUnmatch.push(id);
   }
-  return { alreadyReversed: false, bankLineIds: toUnmatch, seenLineIds: ids };
+  return { alreadyReversed: false, bankLineIds: toUnmatch, seenLineIds: ids, allocatedLineIds: allocated };
 }
 
 /**
@@ -124,7 +154,9 @@ export async function lockPaymentBankLeg(
     WHERE id = ${paymentId}::UUID AND company_id = ${companyId}::UUID
   `) as DbRow[];
   const p = rows[0];
-  if (!p || p.status !== 'processed' || !p.gl_journal_entry_id) return { journalId: null, leg: null };
+  if (!p || (p.status !== 'processed' && p.status !== 'reconciled') || !p.gl_journal_entry_id) {
+    return { journalId: null, leg: null };
+  }
   const journalId = String(p.gl_journal_entry_id);
   return { journalId, leg: await lockBankLegOf(companyId, journalId, `Payment ${String(p.payment_number)}`) };
 }
@@ -135,4 +167,28 @@ export function assertSameJournal(peeked: string | null, locked: string | undefi
     throw new SupplierPaymentRefusal('This document changed while it was being reversed — retry in a moment.',
       { retryable: true });
   }
+}
+
+/**
+ * A payment whose journal a bank ALLOCATION posted is undone the way MCP
+ * `void_payment` undoes it (`voidPaymentDocument`, shape 1): through
+ * `reverseReconciledTransaction`, which unwinds every payment hanging off that
+ * journal (bills reopened, the payment cancelled), posts the one contra and
+ * returns the bank line to `imported`. Answers false when there is no such line.
+ * Two allocated lines on one journal are refused, as MCP refuses them: picking
+ * one would leave the other allocated against a reversed journal.
+ */
+export async function voidViaBankAllocation(
+  companyId: string, leg: BankLeg, userId: string, label: string,
+): Promise<boolean> {
+  if (leg.allocatedLineIds.length === 0) return false;
+  if (leg.allocatedLineIds.length > 1 || leg.bankLineIds.length > 0) {
+    throw new SupplierPaymentRefusal(`${label}'s journal is claimed by more than one bank line — `
+      + 'reverse them from the bank screen.');
+  }
+  // Dynamic, as `voidPaymentDocument` imports the GL service: the bank module
+  // reaches back into AP, and a static import here would close that cycle.
+  const { reverseReconciledTransaction } = await import('../bank/bankAllocationService');
+  await reverseReconciledTransaction(companyId, leg.allocatedLineIds[0]!, userId);
+  return true;
 }
