@@ -74,6 +74,11 @@ export interface DocumentState {
    *  query as the status so a result can name the bill an operator recognises
    *  rather than only its UUID. */
   documentNumber?: string;
+  /** The document total. A R0.00 document has no journal to post — its control
+   *  line would be 0/0, which validateJournalLine refuses — so the partition
+   *  skips it rather than letting postOne throw and unwind the batch. Required
+   *  so no adapter can forget to read it. */
+  totalAmount: number;
   /** A per-document discriminator the tool needs after the partition — the
    *  credit-note arm's customer/supplier type, which decides which system
    *  accounts that element's journal will need. Carried HERE rather than in a
@@ -119,6 +124,11 @@ export interface Partitioned {
   states: Map<string, DocumentState>;
 }
 
+/** Compared in cents, so a sub-cent NUMERIC residue still counts as nothing to post. */
+function isZeroTotal(state: DocumentState): boolean {
+  return Math.round(state.totalAmount * 100) === 0;
+}
+
 /**
  * Decide every element from READS alone.
  *
@@ -141,6 +151,7 @@ export async function partitionDocuments(
     .map((id, index) => ({ index, id, state: states.get(id) }))
     .filter((c) => c.state !== undefined
       && adapter.approvableStatuses.includes(c.state.status)
+      && !isZeroTotal(c.state)
       // An undated document is skipped below; asking for a period verdict on ''
       // would reach the auto-create branch, where fiscalYearOfDate throws.
       && fmtDate(c.state.entryDate) !== '');
@@ -167,6 +178,10 @@ export async function partitionDocuments(
       skipped.push({
         index, document_id: id, reason: `status is ${state.status} — only ${adapter.approvableStatuses.join(' or ')} can be approved`,
       });
+      continue;
+    }
+    if (isZeroTotal(state)) {
+      skipped.push({ index, document_id: id, reason: 'total is R0.00 — there is no journal to post' });
       continue;
     }
     // `customer_invoices.invoice_date` is NULLABLE (its supplier and credit-note
