@@ -5,6 +5,8 @@
  *    names them back to the caller instead.
  *  - The windowed statement's default start is a year before its END, so a
  *    caller sending only an old toDate still gets a window, not a 400.
+ * R-116: the batch PDFs print the picked as-at date, so their figures are drawn
+ * as at that date; a bad as-at date is refused, none means today.
  */
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
@@ -14,7 +16,8 @@ vi.mock('@/lib/apiFetch', () => ({ apiFetch: (...a: unknown[]) => apiFetch(...a)
 vi.mock('@/modules/accounting/utils/statementPdf', () => ({ generateStatementPdf: (...a: unknown[]) => generateStatementPdf(...a) }));
 
 import { generateStatementsBatch } from '@/modules/accounting/utils/generateStatementsBatch';
-import { resolveStatementWindow } from '@/modules/accounting/services/ar/customerStatementRules';
+import { resolveStatementAsAt, resolveStatementWindow } from '@/modules/accounting/services/ar/customerStatementRules';
+import { asAtTodayStr } from '@/modules/accounting/services/shared/softDeleteLedgerPresence';
 import type { CustomerBalance } from '@/components/accounting/CustomerStatementTable';
 
 function reply(status: number, body: unknown) {
@@ -51,6 +54,40 @@ describe('generateStatementsBatch', () => {
     expect(result).toEqual({ generated: 1, skipped: [{ name: 'Gone Ltd', reason: 'Client not found' }] });
     expect(generateStatementPdf).toHaveBeenCalledTimes(1);
     expect(generateStatementPdf.mock.calls[0]![0]).toMatchObject({ clientName: 'Live Ltd', balanceOutstanding: 100 });
+  });
+
+  it('draws each statement as at the date it prints', async () => {
+    await generateStatementsBatch(new Set(['live']), customers, '2026-08-31');
+    const detailCall = apiFetch.mock.calls.map(c => String(c[0])).find(u => u.includes('customer-statement-detail'));
+    expect(new URL(detailCall!, 'http://x').searchParams.get('as_at_date')).toBe('2026-08-31');
+    expect(generateStatementPdf.mock.calls[0]![0]).toMatchObject({ asAtDate: '2026-08-31' });
+  });
+
+  it('prints the company address the company-details API composes, falling back to the parts', async () => {
+    apiFetch.mockImplementation(async (url: string) => url.includes('company-details')
+      ? reply(200, { data: { name: 'Co', address: '1 Main Rd, Unit 2, Cape Town', address_line1: '1 Main Rd', city: 'Cape Town' } })
+      : reply(200, { data: { client: {}, summary: { balance: 0 }, transactions: [] } }));
+    await generateStatementsBatch(new Set(['live']), customers, '2026-08-31');
+    expect(generateStatementPdf.mock.calls[0]![0]).toMatchObject({ companyAddress: '1 Main Rd, Unit 2, Cape Town' });
+    apiFetch.mockImplementation(async (url: string) => url.includes('company-details')
+      ? reply(200, { data: { name: 'Co', address_line1: '1 Main Rd', city: 'Cape Town' } })
+      : reply(200, { data: { client: {}, summary: { balance: 0 }, transactions: [] } }));
+    await generateStatementsBatch(new Set(['live']), customers, '2026-08-31');
+    expect(generateStatementPdf.mock.calls[1]![0]).toMatchObject({ companyAddress: '1 Main Rd, Cape Town' });
+  });
+});
+
+describe('resolveStatementAsAt', () => {
+  it('takes a real date as given and defaults to today', () => {
+    expect(resolveStatementAsAt('2026-08-31')).toEqual({ asAt: '2026-08-31' });
+    expect(resolveStatementAsAt(undefined)).toEqual({ asAt: asAtTodayStr() });
+    expect(resolveStatementAsAt('')).toEqual({ asAt: asAtTodayStr() });
+  });
+
+  it('refuses a non-date, an impossible date or a repeated parameter', () => {
+    for (const bad of ['garbage', '2026-02-30', '31/08/2026', ['2026-08-31']]) {
+      expect(resolveStatementAsAt(bad), String(bad)).toHaveProperty('error');
+    }
   });
 });
 

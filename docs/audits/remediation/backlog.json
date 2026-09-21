@@ -12463,17 +12463,34 @@
       "correctedTrigger": "",
       "auditedSha": "",
       "currentSha": "6145c07ec",
-      "status": "confirmed",
+      "status": "fixed",
       "dependencies": [],
-      "testNames": [],
-      "fixCommit": null,
+      "testNames": [
+        "tests/integration/r116-statements-as-at.int.test.ts",
+        "tests/unit/components/customerStatementsAsAt.test.tsx",
+        "tests/unit/accounting/customerStatementBatchAndWindow.test.ts"
+      ],
+      "fixCommit": "12d4c5040",
       "pr": null,
       "deployedSha": null,
       "canonicalItem": null,
       "reportedSeverity": "medium",
-      "branch": null,
+      "branch": "fix/audit-r116-statement-as-at-20260921",
       "evidencePaths": [
-        "docs/audits/remediation/R-115/fix.md"
+        "docs/audits/remediation/R-115/fix.md",
+        "docs/audits/remediation/R-116/fix.md",
+        "docs/audits/remediation/R-116/red-master.log",
+        "docs/audits/remediation/R-116/green.log",
+        "docs/audits/remediation/R-116/mutations.log",
+        "docs/audits/remediation/R-116/ui.log",
+        "docs/audits/remediation/R-116/ui-overdue.log",
+        "docs/audits/remediation/R-116/ui-drilldown.log",
+        "docs/audits/remediation/R-116/ui-aging.log",
+        "docs/audits/remediation/R-116/r116-accounting-customer-statements.png",
+        "docs/audits/remediation/R-116/r116-accounting-statement-run.png",
+        "docs/audits/remediation/R-116/r116-accounting-statements.png",
+        "docs/audits/remediation/R-116/r116-drilldown-2026-08-31.png",
+        "docs/audits/remediation/R-116/r116-aging-drilldown-2026-08-31.png"
       ],
       "id": "R-116",
       "area": "ar",
@@ -12481,14 +12498,18 @@
         "pages/api/accounting/customer-statements.ts",
         "pages/accounting/statements/index.tsx",
         "pages/accounting/statement-run/index.tsx",
-        "pages/accounting/customer-statements/index.tsx"
+        "pages/accounting/customer-statements/index.tsx",
+        "pages/api/accounting/customer-statement-detail.ts",
+        "pages/accounting/customer-statements/[clientId].tsx",
+        "pages/accounting/ar-aging/index.tsx",
+        "src/modules/accounting/utils/generateStatementsBatch.ts"
       ],
-      "severityRationale": "All three pages send ?as_at_date= and show an as-at date picker; the endpoint never reads it (asAtTodayStr()). A user picking month-end sees today's balances labelled as month-end. The batch PDFs (customer-statement-detail) are also today-only while printing the picked date as 'as at'. Read from the code; not measured.",
+      "severityRationale": "All three pages send ?as_at_date= and show an as-at date picker; the endpoint never reads it (asAtTodayStr()). A user picking month-end sees today's balances labelled as month-end. The batch PDFs (customer-statement-detail) are also today-only while printing the picked date as 'as at'. Measured on the disposable fixture (R-116/red-master.log): the list and the detail returned today's balance (500) for as-at dates whose statement balance is 1000 and 600, and a bad date was a 200 as at today.",
       "historicalDataImpact": "None on the ledger; lists and batch statements labelled with a past as-at date showed today's figures.",
       "title": "customer-statements ignores the as_at_date its three pages send: the balances list is always as at today whatever date the user picks",
       "severity": "medium",
       "source": "Found by the R-115 fixer.",
-      "processNotes": "Registered 2026-09-21; not fixed."
+      "processNotes": "Registered 2026-09-21. Fixed 2026-09-21 on fix/audit-r116-statement-as-at-20260921: list, detail, batch PDFs, drill-down (from Customer Statements and AR ageing) and the Statements page's Overdue all follow the picked as-at date; the four pages' pickers default to a local date. Fix commits 12d4c5040, 105b9d9a7, d72dbf70b. Blind review (Opus) 4 rounds, final SHIP. Not merged or deployed."
     }
   ],
   "sourceInventory": [
