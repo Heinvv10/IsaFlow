@@ -718,3 +718,28 @@ branch removed → the MCP test red (generic failure); REST void without the rul
 → red; auto-post undo back to status-only on both checks → red (on the locked
 re-check alone it survives, because the fast path decides first — it is the race
 guard). Green: 91 files, 590 tests.
+
+## Round 11 (2026-09-21) — final review of 3ef167f12
+
+- **MCP, generalised.** The registry no longer special-cases one class: any
+  THROWN error whose `code` is on `REFUSAL_CODES` (`toolHelpers.isRefusalCoded`)
+  is answered with its own message; an unclassified `Error` or a pg SQLSTATE
+  still comes back as the generic failure and is logged ("MCP tool handler
+  failed"). Proven through `McpRegistry.call` on `void_payment` AND
+  `reverse_bank_allocation` (the batch and range reverse tools share its shape),
+  and a thrower tool for the generic case. Mutations: rule removed → both MCP
+  tests red; every message surfaced → the generic test red.
+- **One rule for an open session too.** Bank reverse on a line in an
+  IN-PROGRESS reconciliation detached it and cancelled the payment while the
+  session's stored difference went stale; void already refused it. The session
+  refusal now lives in the shared `reconciledCash.ts#refuseLockedCash`, so bank
+  reverse, void and batch reversal answer it the same way ("…is in an open bank
+  reconciliation session — remove it from that session (Unmatch on the
+  reconciliation screen) or cancel the session first"). Auto-post undo counts it
+  as a `reconciled` skip; the panel's reason now names both remedies. Pinned:
+  bank reverse → 400, nothing written, the line still in the session; after
+  cancelling the session the reverse succeeds. Mutation (session arm removed) →
+  2 red.
+- Register: the K-063/K-064/K-066 claim strings gain their missing sentence
+  separator; `fixCommit` re-pointed at the code tip.
+Green: 91 files, 592 tests (`round11-green.log`).

@@ -44,11 +44,10 @@ export interface BankLeg {
 }
 
 /**
- * The shared reconciled-cash rule (`bank/reconciledCash.ts`, also used by bank
- * reverse), plus one refusal of void's and batch reversal's own: a line in an
- * IN-PROGRESS reconciliation session — unmatching it would change that
- * session's figures under the person reconciling. The payment's own status
- * plays no part: on a supplier payment 'reconciled' means fully applied.
+ * The shared reconciled-cash rule (`bank/reconciledCash.ts`, the same one bank
+ * reverse applies): completed or Sage reconciliation, or an open session. The
+ * payment's own status plays no part: on a supplier payment 'reconciled' means
+ * fully applied.
  */
 async function assertNotReconciled(companyId: string, row: DbRow, label: string): Promise<void> {
   const lock = await reconciliationLockOf(companyId, row);
@@ -58,10 +57,6 @@ async function assertNotReconciled(companyId: string, row: DbRow, label: string)
     // Re-typed so the AP routes answer it 400 like every other refusal here.
     if (err instanceof ReconciledCashError) throw new SupplierPaymentRefusal(err.message);
     throw err;
-  }
-  if (lock?.kind === 'session') {
-    throw new SupplierPaymentRefusal(`${label}'s bank line is in an open bank reconciliation session — `
-      + 'remove it from that session (or cancel the session) first.');
   }
 }
 
