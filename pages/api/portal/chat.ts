@@ -9,7 +9,10 @@ import { sql } from '@/lib/neon';
 import { log } from '@/lib/logger';
 import { classifyClientQuery, buildClientChatPrompt, parseClientChatResponse, sanitizeClientResponse, type ClientContext } from '@/modules/accounting/services/ar/portalChatbotService';
 import { verifyArPortalToken } from '@/lib/auth/arPortalJwt';
-import cookie from 'cookie';
+// R-095 round 3 (HIGH-1): `import cookie from 'cookie'` gives `undefined`
+// under Next's webpack build (the package is CJS with no `default` export) —
+// every one of these routes 500'd on every real request. Named import.
+import { parse } from 'cookie';
 import { checkRateLimit, getClientIp } from '@/lib/rateLimit';
 import { asAtTodayStr, documentInLedgerAsAtFragment } from '@/modules/accounting/services/shared/softDeleteLedgerPresence';
 import { documentInPopulationExpr } from '@/modules/accounting/services/shared/documentPopulation';
@@ -20,7 +23,7 @@ type Row = Record<string, unknown>;
 async function handler(req: NextApiRequest, res: NextApiResponse) {
   if (req.method !== 'POST') return apiResponse.methodNotAllowed(res, req.method!, ['POST']);
 
-  const cookies = cookie.parse(req.headers.cookie || '');
+  const cookies = parse(req.headers.cookie || '');
   const token = cookies.portal_session;
   if (!token) return res.status(401).json({ success: false, error: { message: 'Not authenticated' } });
   const session = await verifyArPortalToken(token);
@@ -73,11 +76,23 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
     sql`SELECT total_amount, payment_date FROM customer_payments WHERE client_id = ${clientId} AND company_id = ${sessionCompanyId}::UUID AND status IN ('confirmed', 'reconciled') ORDER BY payment_date DESC LIMIT 1` as Promise<Row[]>,
     fetchStatementData(sessionCompanyId, clientId, asAtTodayStr()),
   ]);
+
+  // R-095 round 3 (MEDIUM-2): fetchStatementData returns null for a
+  // soft-deleted customer or a clientId/companyId pair that doesn't match —
+  // the same case statement.ts and invoices.ts 404 on. Without this check,
+  // `statementData?.summary.balance ?? 0` quoted a soft-deleted customer a
+  // balance of R0 while overdueAmount/openInvoices (plain customer_invoices
+  // queries with no customer check) kept answering with the real, nonzero
+  // figures — an internally contradictory response, and the only one of the
+  // three session routes that didn't refuse a deleted/cross-company customer.
+  if (!statementData) {
+    return apiResponse.notFound(res, 'Customer', clientId);
+  }
   const clientName = String(clients[0]?.name || 'Client');
 
   const ctx: ClientContext = {
     clientName,
-    outstandingBalance: statementData?.summary.balance ?? 0,
+    outstandingBalance: statementData.summary.balance,
     overdueAmount: Number(overdueRows[0]?.overdue ?? 0),
     lastPaymentDate: lastPay[0] ? String(lastPay[0].payment_date) : '',
     lastPaymentAmount: Number(lastPay[0]?.total_amount ?? 0),

@@ -8,7 +8,13 @@ import { withErrorHandler } from '@/lib/api-error-handler';
 import { apiResponse } from '@/lib/apiResponse';
 import { authenticatePortalUser } from '@/modules/accounting/services/ar/portalService';
 import { signArPortalToken } from '@/lib/auth/arPortalJwt';
-import cookie from 'cookie';
+// R-095 round 3 (HIGH-1): cookie@1.1.1 is CJS with no `default` export
+// (only named exports: parse, serialize, ...). Webpack's ESM interop hands a
+// default import `exports.default`, which is undefined, so every route that
+// wrote `import cookie from 'cookie'` 500'd on every real request — a defect
+// vitest's own (looser) interop could not see. Named import, matching
+// pages/api/invite/[token].ts's existing pattern.
+import { serialize } from 'cookie';
 import { checkRateLimit, getClientIp } from '@/lib/rateLimit';
 
 async function handler(req: NextApiRequest, res: NextApiResponse) {
@@ -44,7 +50,7 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
     email: user.email,
   });
 
-  res.setHeader('Set-Cookie', cookie.serialize('portal_session', token, {
+  res.setHeader('Set-Cookie', serialize('portal_session', token, {
     httpOnly: true,
     secure: process.env.NODE_ENV === 'production',
     sameSite: 'strict',
