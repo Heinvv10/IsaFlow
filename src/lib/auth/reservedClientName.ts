@@ -73,27 +73,20 @@ const WILDCARD = '\u0000';
  * carries the names this cannot catch.
  */
 export function tokenizeForComparison(value: string): string[] {
-  const decomposed = value.normalize('NFKD').replace(/[\u0300-\u036f]/g, '').normalize('NFKC');
-  // A letter or digit we cannot identify stays INSIDE the token as a wildcard.
-  // Treating it as a separator would split the word, and a welded affix then
-  // pushes the run past the length bound and strands it: "TheIsafl<Armenian
-  // o>w" reads as the brand but escaped that way.
-  return foldAndSplit(decomposed, WILDCARD);
-}
-
-/**
- * Lowercase, fold look-alikes, and split into tokens. `unidentified` is what a
- * letter or digit we cannot map becomes. Shared by both passes so that a word
- * written in plain letters produces the identical token in each.
- */
-function foldAndSplit(normalized: string, unidentified: string): string[] {
   return (
-    normalized
+    value
+      .normalize('NFKD')
+      .replace(/[\u0300-\u036f]/g, '')
+      .normalize('NFKC')
       .toLowerCase()
       .replace(/./gsu, (ch) => {
         const folded = CONFUSABLES[ch] ?? ch;
         if (/[a-z0-9]/.test(folded)) return folded;
-        return /\p{L}|\p{N}/u.test(folded) ? unidentified : ' ';
+        // A letter or digit we cannot identify stays INSIDE the token as a
+        // wildcard. Treating it as a separator would split the word, and a
+        // welded affix then pushes the run past the length bound and strands
+        // it: "TheIsafl<Armenian o>w" reads as the brand but escaped that way.
+        return /\p{L}|\p{N}/u.test(folded) ? WILDCARD : ' ';
       })
       // One cheap multi-character look-alike, aimed at this brand's own letters.
       // The general n:1 class (rn for m, cl for d) is not covered — see the note
@@ -132,27 +125,33 @@ function matchesTerm(candidate: string, target: string): boolean {
 const NEGATIONS = ['un', 'non', 'not'];
 
 /**
- * Which tokens have a plain twin: the same token produced WITHOUT compatibility
- * folding. NFKD turns superscript and subscript letters into ordinary ones, so
- * "\u1D58\u207FOfficial" tokenizes as "unofficial" while rendering to a user
- * as "Official" with a smudge in front. Its plain twin does not exist, because
- * without NFKD those superscripts are not letters at all.
+ * True when the name contains a modifier letter that NFKD rewrites into an
+ * ordinary one — the superscript and subscript forms (\u1D58 \u207F \u1D64
+ * \u2099 and kin). NFKD turns "\u1D58\u207FOfficial" into "unofficial" while a
+ * user sees "Official" with a smudge in front, so a negation built from these is
+ * one no reader sees. When any is present the name gets no negation shelter.
  *
- * Matched one-for-one. A single plainly-written "Unofficial" confirms one token
- * and cannot vouch for a second, disguised one elsewhere in the same name —
- * "Unofficial \u1D58\u207FOfficial" would otherwise borrow the shelter.
+ * Every tiny form of u, n and t falls in this set. The lone tiny form outside
+ * it, \u00BA, folds to "o" and can only replace the middle of "non" or "not" —
+ * the full-size letters either side keep the negation visible.
+ *
+ * Only modifiers NFKD actually REWRITES count. The Japanese long-vowel mark and
+ * iteration mark (\u30FC, \u3005) and the okina are modifier letters too, but
+ * NFKD leaves them alone, and gating on them would strip the shelter from
+ * ordinary Japanese and Hawaiian names.
+ *
+ * Whole-name rather than per-token, deliberately. A per-token version was
+ * built, reviewed and replaced: it refused a legitimate disclaimer whenever the
+ * disclaimer word itself carried a ligature or symbol — "Uno\uFB03cial Sync",
+ * which is what "Unofficial" pasted from a PDF becomes. This version's cost is
+ * rarer and stated in the tests: a disclaimer sharing a name with a superscript
+ * letter elsewhere ("Unofficial M\u1D9C Books") is refused.
  */
-function plainTwins(tokens: string[], name: string): boolean[] {
-  const pool = new Map<string, number>();
-  for (const word of foldAndSplit(name.normalize('NFC'), ' ')) {
-    pool.set(word, (pool.get(word) ?? 0) + 1);
+function hasFoldedModifier(name: string): boolean {
+  for (const ch of name) {
+    if (/\p{Lm}/u.test(ch) && ch.normalize('NFKD') !== ch) return true;
   }
-  return tokens.map((token) => {
-    const left = pool.get(token) ?? 0;
-    if (left === 0) return false;
-    pool.set(token, left - 1);
-    return true;
-  });
+  return false;
 }
 
 /**
@@ -169,20 +168,20 @@ function isNegated(token: string, offset: number): boolean {
 /**
  * True when `token` spells `target` somewhere inside it.
  *
- * `plainTwin` is null for the brand, which has no negation reading. For an
- * adjective it says whether this token was written in plain letters — the
- * shelter is a privilege, so it is only granted to a negation a reader sees.
- * Claims are detected generously; shelters are granted strictly. Both classes are
+ * `honourNegation` is null for the brand, which has no negation reading. For an
+ * adjective it says whether a negation may shelter the term at all — the
+ * shelter is a privilege, so it is withheld when the name could be hiding its
+ * negation. Claims are detected generously; shelters are granted strictly. Both classes are
  * matched anywhere in a token, because restricting either to the start leaves a
  * one-keystroke bypass: "OfficialIsaFlow" for the brand, "ClaudeCodeOfficial"
  * for the adjectives. The difference is that a negated adjective is not a
  * claim, while the brand is a coined word with no such reading — finding it
  * anywhere inside a token means the name trades on it.
  */
-function tokenSpells(token: string, target: string, plainTwin: boolean | null): boolean {
+function tokenSpells(token: string, target: string, honourNegation: boolean | null): boolean {
   const last = token.length - target.length;
   for (let offset = 0; offset <= last; offset += 1) {
-    if (plainTwin && isNegated(token, offset)) continue;
+    if (honourNegation && isNegated(token, offset)) continue;
     if (matchesTerm(token.slice(offset, offset + target.length), target)) return true;
   }
   return false;
@@ -201,8 +200,8 @@ function tokenSpells(token: string, target: string, plainTwin: boolean | null): 
  * A separator inside a run is also tried as a single wildcard, because a symbol
  * can stand in for a letter it resembles ("!saflow", "is@flow").
  */
-function containsTerm(tokens: string[], target: string, twins: boolean[] | null): boolean {
-  if (tokens.some((token, i) => tokenSpells(token, target, twins ? (twins[i] ?? false) : null))) return true;
+function containsTerm(tokens: string[], target: string, honourNegation: boolean | null): boolean {
+  if (tokens.some((token) => tokenSpells(token, target, honourNegation))) return true;
 
   for (let start = 0; start < tokens.length; start += 1) {
     for (let end = start; end < tokens.length; end += 1) {
@@ -243,8 +242,8 @@ const MIN_QUALIFIED_PREFIX_LETTERS = 2;
  */
 export function isReservedClientName(name: string): boolean {
   const tokens = tokenizeForComparison(name);
-  const twins = plainTwins(tokens, name);
-  if (RESERVED_ADJECTIVES.some((term) => containsTerm(tokens, term, twins))) return true;
+  const honourNegation = !hasFoldedModifier(name);
+  if (RESERVED_ADJECTIVES.some((term) => containsTerm(tokens, term, honourNegation))) return true;
 
   const prefixTokens = tokenizeForComparison(name.replace(TRAILING_QUALIFIER_RE, ''));
   const letters = prefixTokens.join('').replace(/[^a-z]/g, '').length;

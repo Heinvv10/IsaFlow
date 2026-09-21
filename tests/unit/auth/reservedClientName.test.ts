@@ -272,6 +272,7 @@ describe('isReservedClientName', () => {
       '\u1D64\u2099Official', // subscript un
       '\u1D58\u207FVerified Partner',
       '\u207F\u1D52\u207FOfficial', // superscript non
+      '\u207F\u00BA\u207FOfficial', // superscript n with the ordinal o — the n's still gate it
     ]) {
       expect(isReservedClientName(asHandlerWould(name)), JSON.stringify(name)).toBe(true);
     }
@@ -285,11 +286,40 @@ describe('isReservedClientName', () => {
     expect(isReservedClientName(asHandlerWould('Unofficial Unofficial Sync'))).toBe(false);
   });
 
-  // The measured cost of granting the shelter only to plain letters: a
-  // decorated disclaimer is refused. Recorded so a future loosening is a
-  // decision rather than a bug fix.
-  it('refuses a negation written in decorated letters', () => {
-    expect(isReservedClientName(asHandlerWould('\uFF35\uFF4E\uFF4F\uFF46\uFF46\uFF49\uFF43\uFF49\uFF41\uFF4C'))).toBe(true);
+  // A legitimate disclaimer keeps its shelter even when the disclaimer word
+  // itself carries a ligature, symbol or decoration. The first of these is what
+  // "Unofficial" becomes when pasted from a PDF, which renders "ffi" as one
+  // glyph — the realistic case that decided the whole-name design over a
+  // per-token one, which refused all of these.
+  it('keeps the shelter for a decorated but visible disclaimer', () => {
+    for (const name of [
+      'Uno\uFB03cial Sync', // ffi ligature
+      'Unof\uFB01cial Sync', // fi ligature
+      'Unofficial\u2122 Sync', // trademark sign welded on
+      '\uFF35\uFF4E\uFF4F\uFF46\uFF46\uFF49\uFF43\uFF49\uFF41\uFF4C', // fullwidth
+      'Unoffici\u00e1l Sync', // accented
+    ]) {
+      expect(isReservedClientName(asHandlerWould(name)), JSON.stringify(name)).toBe(false);
+    }
+  });
+
+  // The gate counts only modifier letters NFKD REWRITES. The Japanese long-vowel
+  // and iteration marks are modifier letters that NFKD leaves alone; gating on
+  // them would strip the shelter from ordinary Japanese names.
+  it('does not withhold the shelter for modifiers NFKD leaves alone', () => {
+    for (const name of ['Unofficial \u30B3\u30FC\u30D2\u30FC', 'Unofficial \u4F50\u3005\u6728 Accounting']) {
+      expect(isReservedClientName(asHandlerWould(name)), JSON.stringify(name)).toBe(false);
+    }
+  });
+
+  // The measured cost of withholding the shelter for the whole name: a
+  // disclaimer that shares its name with a superscript letter elsewhere is
+  // refused. Rarer than the cost of the per-token design it replaced, and
+  // fail-closed. Recorded so a future loosening is a decision, not a bug fix.
+  it('withholds the shelter when the name also carries a superscript letter', () => {
+    for (const name of ['Unofficial M\u1D9C Books', 'Unofficial Studio\u1D2C Books', 'Unverified M\u1D9CKenzie Ledger']) {
+      expect(isReservedClientName(asHandlerWould(name)), JSON.stringify(name)).toBe(true);
+    }
   });
 
   // An unidentified letter stays inside the token as a wildcard rather than
