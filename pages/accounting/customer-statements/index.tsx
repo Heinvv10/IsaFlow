@@ -16,6 +16,7 @@ interface CustomerBalance {
   client_name: string;
   total_invoiced: number;
   total_paid: number;
+  total_credits: number;
   balance: number;
   last_payment_date?: string;
   invoice_count: number;
@@ -37,12 +38,13 @@ function triggerCsvDownload(csvContent: string, filename: string): void {
 
 /** Builds CSV content from a list of CustomerBalance rows. */
 function buildCsv(rows: CustomerBalance[]): string {
-  const header = 'Customer,Total Invoiced,Total Paid,Balance,# Invoices,Last Payment';
+  const header = 'Customer,Total Invoiced,Total Paid,Credits,Balance,# Invoices,Last Payment';
   const lines = rows.map((c) =>
     [
       `"${c.client_name.replace(/"/g, '""')}"`,
       c.total_invoiced.toFixed(2),
       c.total_paid.toFixed(2),
+      c.total_credits.toFixed(2),
       c.balance.toFixed(2),
       c.invoice_count,
       c.last_payment_date?.split('T')[0] ?? '',
@@ -169,6 +171,7 @@ export default function CustomerStatementsPage() {
                     <th className="text-left py-3 px-4 text-[10px] tracking-[0.12em] font-semibold text-[var(--ff-text-secondary)] uppercase">Customer</th>
                     <th className="text-right py-3 px-4 text-[10px] tracking-[0.12em] font-semibold text-[var(--ff-text-secondary)] uppercase">Invoiced</th>
                     <th className="text-right py-3 px-4 text-[10px] tracking-[0.12em] font-semibold text-[var(--ff-text-secondary)] uppercase">Paid</th>
+                    <th className="text-right py-3 px-4 text-[10px] tracking-[0.12em] font-semibold text-[var(--ff-text-secondary)] uppercase">Credits</th>
                     <th className="text-right py-3 px-4 text-[10px] tracking-[0.12em] font-semibold text-[var(--ff-text-secondary)] uppercase">Balance</th>
                     <th className="text-center py-3 px-4 text-[10px] tracking-[0.12em] font-semibold text-[var(--ff-text-secondary)] uppercase"># Invoices</th>
                     <th className="text-left py-3 px-4 text-[10px] tracking-[0.12em] font-semibold text-[var(--ff-text-secondary)] uppercase">Last Payment</th>
@@ -185,6 +188,7 @@ export default function CustomerStatementsPage() {
                       </td>
                       <td className="py-3 px-4 text-right tabular-nums text-[var(--ff-text-primary)]">{formatCurrency(c.total_invoiced)}</td>
                       <td className="py-3 px-4 text-right tabular-nums text-teal-400">{formatCurrency(c.total_paid)}</td>
+                      <td className="py-3 px-4 text-right tabular-nums text-amber-400">{formatCurrency(c.total_credits)}</td>
                       <td className="py-3 px-4 text-right tabular-nums font-medium text-[var(--ff-text-primary)]">{formatCurrency(c.balance)}</td>
                       <td className="py-3 px-4 text-center text-[var(--ff-text-secondary)]">{c.invoice_count}</td>
                       <td className="py-3 px-4 text-[var(--ff-text-secondary)]">{c.last_payment_date?.split('T')[0] || '-'}</td>
