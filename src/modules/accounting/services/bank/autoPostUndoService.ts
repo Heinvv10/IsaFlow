@@ -107,7 +107,7 @@ export async function undoRow(companyId: string, runId: string, userId: string, 
   // line whose reconciliation_id names a completed reconciliation fell through
   // to a reversal that now refuses it.)
   const lock = await reconciliationLockOf(companyId, tx);
-  if (lock?.kind === 'completed' || lock?.kind === 'sage') return { kind: 'reconciled' };
+  if (lock) return { kind: 'reconciled' };
   if (tx.matched_journal_line_id && tx.provisional_je_id) {
     log.warn(
       'Auto-post tx has both matched line and provisional JE — reversing matched line only',
@@ -201,7 +201,7 @@ export async function undoRun(companyId: string, runId: string, userId: string):
     // An unlocked fast path by the same shared rule; `undoRow` re-decides it
     // under the row lock.
     const lock = await reconciliationLockOf(companyId, tx);
-    if (lock?.kind === 'completed' || lock?.kind === 'sage') {
+    if (lock) {
       skippedBy.reconciled += 1;
       continue;
     }

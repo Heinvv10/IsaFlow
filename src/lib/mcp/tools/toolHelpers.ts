@@ -245,6 +245,17 @@ export const NOT_A_REFUSAL_CODES: ReadonlySet<string> = new Set([
  * payment." retries the same call. A code-less `Error` is still surfaced: those
  * are the codebase's own `throw new Error(...)` messages, written to be read.
  */
+/**
+ * A THROWN error carrying one of the named refusal codes above. The registry
+ * answers these with their own message (they are caller-facing and carry no
+ * SQL); anything else — a code-less Error, a pg SQLSTATE — stays GENERIC there.
+ */
+export function isRefusalCoded(err: unknown): err is Error {
+  if (!(err instanceof Error)) return false;
+  const code = (err as { code?: unknown }).code;
+  return typeof code === 'string' && REFUSAL_CODES.has(code);
+}
+
 export function safeErrorText(err: unknown, fallback: string): string {
   if (!(err instanceof Error)) return fallback;
   const code = (err as { code?: unknown }).code;

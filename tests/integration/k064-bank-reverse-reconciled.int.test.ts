@@ -20,6 +20,7 @@ import { als } from '../../src/lib/als';
 import { getPoolForTests } from '../../src/lib/neon';
 import { voidPaymentDocument } from '../../src/modules/accounting/services/core/paymentVoidService';
 import bankTransactionsAction from '../../pages/api/accounting/bank-transactions-action';
+import bankReconciliationsAction from '../../pages/api/accounting/bank-reconciliations-action';
 
 const describeIfDb = process.env.DATABASE_URL && process.env.JWT_SECRET ? describe : describe.skip;
 
@@ -110,11 +111,23 @@ describeIfDb('K-064 r9 — bank reverse refuses cash a completed or Sage reconci
     await expectNothingWritten(a, 'reconciled');
   });
 
-  it('a line in an IN-PROGRESS session is not refused by bank reverse (unchanged)', async () => {
+  it('a line in an IN-PROGRESS session is refused exactly as void refuses it; cancelling the session frees it', async () => {
     const a = await allocated();
     await onReconciliation(a.bankTx, 'in_progress');
+    const rec = String((await bankState(a.bankTx)).reconciliation_id);
+    const lines = async () => Number((await q('SELECT count(*) AS n FROM bank_transactions WHERE reconciliation_id = $1', [rec])).rows[0].n);
+    const before = await lines();
+
     const state = await act({ action: 'reverse', bankTransactionId: a.bankTx });
-    expect(state.statusCode, text(state)).toBe(200);
+
+    expect(state.statusCode, text(state)).toBe(400);
+    expect(text(state)).toContain('This bank line is in an open bank reconciliation session');
+    await expectNothingWritten(a, 'allocated');
+    expect(await lines()).toBe(before); // still in the session: not detached
+    // The escape hatch: cancel the session, then the reverse succeeds.
+    const cancel = await fx.call(bankReconciliationsAction, 'POST', { action: 'cancel', reconciliationId: rec });
+    expect(cancel.statusCode, text(cancel)).toBe(200);
+    expect((await act({ action: 'reverse', bankTransactionId: a.bankTx })).statusCode).toBe(200);
     expect(await bankState(a.bankTx)).toEqual({ status: 'imported', reconciliation_id: null });
   });
 });

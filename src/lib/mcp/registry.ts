@@ -32,7 +32,7 @@ import { insufficientScopeMessage } from './scopeRemediation';
  * another's savepoint.
  */
 import { COMPANY_ASSERT_PROPERTY, assertCompanyMatches } from './companyAssert';
-import { ReconciledCashError } from '@/modules/accounting/services/bank/reconciledCash';
+import { isRefusalCoded } from './tools/toolHelpers';
 
 export function savepointNameFor(toolName: string): string {
   return `mcp_${toolName}`.slice(0, 31);
@@ -289,10 +289,12 @@ export class McpRegistry {
       if (err instanceof BankLineDirectionError) {
         return errorResult(bankLineDirectionErrorText(name, err));
       }
-      // Cash on a completed (or Sage) reconciliation — R-111. Raised by bank
-      // reverse before any write, reached by void_payment and the reverse
-      // tools; the message names the reconciliation and carries no SQL.
-      if (err instanceof ReconciledCashError) return errorResult(err.message);
+      // Any THROWN typed refusal (a code on REFUSAL_CODES) keeps its own message
+      // — e.g. RECONCILED_CASH from bank reverse, reached by void_payment and
+      // every reverse tool, which do not catch so the savepoint sees the throw.
+      // The savepoint has rolled back; the text is caller-facing, no SQL. An
+      // unclassified Error or a pg error still falls through to GENERIC_FAILURE.
+      if (isRefusalCoded(err)) return errorResult(err.message);
       return errorResult(GENERIC_FAILURE);
     }
   }

@@ -7,7 +7,7 @@
 // "the operation failed"; auto-post undo → a `reconciled` skip on the line, not
 // a failed row. Each case also proves nothing was written.
 
-import { describe, it, expect, beforeAll, afterAll } from 'vitest';
+import { describe, it, expect, beforeAll, afterAll, vi } from 'vitest';
 import { randomUUID } from 'crypto';
 import type { PoolClient } from 'pg';
 import { assertDisposable } from './mfa-impersonation-postgres.helpers';
@@ -18,6 +18,8 @@ import { als } from '../../src/lib/als';
 import { getPoolForTests } from '../../src/lib/neon';
 import { McpRegistry } from '../../src/lib/mcp/registry';
 import { voidPaymentTool } from '../../src/lib/mcp/tools/writeVoidPayments';
+import { reverseBankAllocationTool } from '../../src/lib/mcp/tools/writeBankAllocate';
+import { log } from '../../src/lib/logger';
 import { undoRun } from '../../src/modules/accounting/services/bank/autoPostUndoService';
 import bankTransactionsAction from '../../pages/api/accounting/bank-transactions-action';
 
@@ -31,6 +33,10 @@ describeIfDb('reconciled cash is locked on every caller of bank reverse', () => 
   const today = new Date().toISOString().slice(0, 10);
   const contrasOf = async (paymentId: string) => Number((await q(`SELECT count(*) AS n FROM gl_journal_entries r
     JOIN supplier_payments sp ON sp.gl_journal_entry_id = r.reversal_of_id WHERE sp.id = $1`, [paymentId])).rows[0].n);
+
+  const mcpCtx = (scopes: string[]) => ({
+    userId: ids.USER, companyId: ids.A, scopes, tokenJti: 'k064', oauthAppId: null,
+  }) as never;
 
   async function inRequest<T>(fn: () => Promise<T>): Promise<T> {
     const client: PoolClient = await getPoolForTests().connect();
@@ -105,13 +111,42 @@ describeIfDb('reconciled cash is locked on every caller of bank reverse', () => 
     const a = await lockedAllocation();
     const registry = new McpRegistry();
     registry.register(voidPaymentTool);
-    const result = await inRequest(() => registry.call('void_payment', { payment_id: a.paymentId, idempotency_key: randomUUID() }, {
-      userId: ids.USER, companyId: ids.A, scopes: ['write:invoices', 'write:post'], tokenJti: 'k064', oauthAppId: null,
-    } as never));
+    const result = await inRequest(() => registry.call('void_payment',
+      { payment_id: a.paymentId, idempotency_key: randomUUID() }, mcpCtx(['write:invoices', 'write:post'])));
     expect(result.isError).toBe(true);
     expect(result.content[0]!.text).toContain('is on the completed reconciliation of R068 Bank');
     expect(result.content[0]!.text).toContain('Correct it with a journal, or contact support');
     await untouched(a, 'reconciled');
+  });
+
+  it('MCP reverse_bank_allocation through the registry → the agent reads the refusal', async () => {
+    const a = await lockedAllocation();
+    const registry = new McpRegistry();
+    registry.register(reverseBankAllocationTool);
+    const result = await inRequest(() => registry.call('reverse_bank_allocation',
+      { transaction_id: a.bankTx, idempotency_key: randomUUID() }, mcpCtx(['write:bank-tx', 'write:post'])));
+    expect(result.isError, JSON.stringify(result)).toBe(true);
+    expect(result.content[0]!.text).toContain('This bank line is on the completed reconciliation of R068 Bank');
+    await untouched(a, 'reconciled');
+  });
+
+  it('an unclassified Error or a pg error thrown by a tool still comes back GENERIC, and is logged', async () => {
+    const registry = new McpRegistry();
+    const thrower = (err: Error) => ({ name: 'k064_thrower', description: 'x', scope: 'write:invoices', write: true,
+      requiresPost: false, inputSchema: { type: 'object', properties: { idempotency_key: { type: 'string' } } },
+      handler: async () => { throw err; } });
+    const logged = vi.spyOn(log, 'error');
+    for (const err of [new Error('internal detail'),
+      Object.assign(new Error('duplicate key value violates unique constraint "x"'), { code: '23505' })]) {
+      const reg = new McpRegistry();
+      reg.register(thrower(err) as never);
+      const r = await inRequest(() => reg.call('k064_thrower', { idempotency_key: randomUUID() }, mcpCtx(['write:invoices'])));
+      expect(r.isError).toBe(true);
+      expect(r.content[0]!.text).not.toContain(err.message);
+    }
+    expect(logged.mock.calls.some((c) => c[0] === 'MCP tool handler failed')).toBe(true);
+    logged.mockRestore();
+    void registry;
   });
 
   it('auto-post undo → a reconciled SKIP on the line (by id, not only by status), not a failed row', async () => {

@@ -64,9 +64,12 @@ export async function reconciliationLockOf(companyId: string, row: DbRow): Promi
 const TAIL = "can't be reopened yet, so this can't be reversed in the app. Correct it with a journal, or contact support.";
 
 /**
- * Refuse a completed-reconciliation or Sage-reconciled line. `subject` reads
- * "This payment's bank line" or "This bank line". An open session is NOT
- * refused here: void and batch reversal refuse it themselves; bank reverse does not.
+ * Refuse a line whose cash a reconciliation holds. `subject` reads "This
+ * payment's bank line" or "This bank line". The same for every caller: a
+ * completed or Sage reconciliation is locked (no reopen yet, R-111); a line in
+ * an IN-PROGRESS session is refused too, because reversing or unmatching it
+ * detaches it and leaves the session's stored difference stale — the remedy
+ * exists there (the reconciliation screen's Unmatch, or cancel the session).
  */
 export function refuseLockedCash(lock: LineLock, subject: string): void {
   if (lock?.kind === 'completed') {
@@ -76,5 +79,9 @@ export function refuseLockedCash(lock: LineLock, subject: string): void {
   if (lock?.kind === 'sage') {
     throw new ReconciledCashError(`${subject} was reconciled in the Sage import (no reconciliation in this app `
       + "holds it), so this can't be reversed in the app. Correct it with a journal, or contact support.");
+  }
+  if (lock?.kind === 'session') {
+    throw new ReconciledCashError(`${subject} is in an open bank reconciliation session — remove it from that `
+      + 'session (Unmatch on the reconciliation screen) or cancel the session first.');
   }
 }

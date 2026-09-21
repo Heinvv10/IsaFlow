@@ -48,7 +48,7 @@ it('says how many lines were reversed and, per reason, why the rest were not', a
   const notice = (await screen.findByRole('status')).textContent;
   expect(notice).toMatch(/^Reversed 1 line\. Not undone:/);
   // R-111: no reopen exists, so the notice must not send the user to one.
-  expect(notice).toMatch(/1 on a completed \(or Sage-imported\) reconciliation — a completed reconciliation can't be reopened yet; correct these with a journal/);
+  expect(notice).toMatch(/1 on a reconciliation — remove them from an open session first; a completed one can't be reopened yet, so correct those with a journal/);
   expect(notice).not.toMatch(/unreconcile/);
   expect(notice).toMatch(/2 in use by another request — try again in a moment/);
   expect(notice).toMatch(/3 could not be reversed .* check those lines/);
