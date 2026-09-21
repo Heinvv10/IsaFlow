@@ -12,3 +12,4 @@ M11 asOf: regex only: RED | Test Files  1 failed (1) | Tests  1 failed | 6 passe
 M12 statement: closing = total invoiced: RED | Test Files  1 failed (1) | Tests  3 failed | 4 passed (7) | restored=identical
 M13 statement: credit notes dropped: RED | Test Files  1 failed (1) | Tests  2 failed | 5 passed (7) | restored=identical
 M14 invoices: bare NOT IN draft/cancelled: RED | Test Files  1 failed (1) | Tests  1 failed | 6 passed (7) | restored=identical
+M15 email: receipt credited at its allocated sum (the screens' rule): RED (partly allocated receipt test) | restored=identical

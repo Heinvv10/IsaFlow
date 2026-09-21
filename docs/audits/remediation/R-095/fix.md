@@ -76,23 +76,75 @@ and the `'posted'` status that the register names. Master had fixed none of it.
 
 ## "Matches the in-app statement": which one
 
-Master has three in-app customer statements, and they disagree with each other
-(`r095-measure.log`). They were measured on the same customer, with one extra
-receipt of 300, of which 100 was allocated:
+Decided (team lead, 2026-09-21): the portal stays on `fetchStatementData`, the
+rule the emailed statement and MCP share. A statement shows the cash received:
+a R1,000 receipt with R600 allocated still reduces the balance by R1,000. This
+is the same call K-063 made on the supplier side. The screens' rule is not
+copied.
 
-| Surface | Closing |
-|---|---|
-| Portal (this fix) | 1134.56 |
-| Emailed statement / MCP (`fetchStatementData`) | 1134.56 |
-| Customer Statements detail screen (`customer-statement-detail`) | 1334.56 — credits a partly allocated receipt at its allocated 100, not the 300 received |
-| Customers → Statement screen and PDF (`customer-statement`) | 1534.56 — the same as the detail screen, and it also drops the `applied` credit note (it filters `status = 'approved'`) |
+**Pinned** (`r095-portal-statement-matches-inapp`, "a partly allocated
+receipt"): an invoice of 1500 and a receipt of 1000 with 600 allocated. The
+portal credits 1000 and closes at 500, equal to the email to the cent.
+Mutation M15, which gives the email the screens' allocated-figure rule, turns
+that test red.
 
-The portal matches the emailed statement row for row, and the detail screen on
-every customer whose receipts are either fully allocated or unallocated (tested).
-It does not copy the screens' allocated-figure rule, because that states a
-balance higher than the customer owes. Both screens have the defect that round
-2's M1 named. It is still unregistered and outside R-095's paths, and is
-**for Hein to register.**
+Measured on the fixture (`r095-measure-screens.log`; closing balances):
+
+| Case | Portal | Email / MCP | Detail screen | Statement screen, full history | Statement screen, default window |
+|---|---|---|---|---|---|
+| Invoice 1500; receipt 1000, 600 allocated | 500 | 500 | **900** | **900** | **900** |
+| Invoice 1000; credit notes: approved 100, partially_applied 200 (50 applied), applied 300 (250 applied), draft 70, cancelled 80 | 450 | 450 | 450 | **900** | **900** |
+| Invoice 1000 dated −400 days; receipt 400 dated −30 days | 600 | 600 | 600 | 600 | **−400** |
+
+### New register item A — `pages/api/accounting/customer-statement-detail.ts`
+
+This is the Customer Statements detail screen: `/accounting/customer-statements/[clientId]`
+and `generateStatementsBatch`.
+
+It credits a receipt at `COALESCE(SUM(cpa.amount_allocated), cp.total_amount)`,
+in both the row list and the `total_paid` aggregate. A partly allocated receipt
+is therefore credited at its allocated part only. The unallocated remainder
+vanishes, and the screen overstates what the customer owes by exactly that
+remainder: **900 against 500**, R400 too high. Fully allocated and unallocated
+receipts agree with the email.
+
+Its credit-note rule already matches the email: `approved`, `partially_applied`
+and `applied` count, with an `applied` note at `applied_amount` and the others at
+`total_amount`. The fix is to credit `cp.total_amount`, as
+`statementEmailService` does.
+
+### New register item B — `pages/api/accounting/customer-statement.ts`
+
+This is the Customers → Statement screen `/accounting/customers/statement`, and
+its PDF (`format=pdf`, and the links in `CustomerStatementTable`). It has three
+defects.
+
+1. **The same allocated-figure receipt rule as item A**: 900 against 500.
+2. **Credit notes: only `status = 'approved'` counts**, in the rows and in
+   `total_credits`. The email counts `approved`, `partially_applied` and
+   `applied` — the three live statuses, since an approved note stays the
+   customer's credit however much of it has been placed. It values an `applied`
+   note at `applied_amount` (its remainder is stranded) and the others at face
+   value; drafts and cancelled notes are excluded (`creditNoteAppliedAmount`,
+   `LIVE_CREDIT_NOTE_STATUSES`). The screen drops every note that has been
+   partly or fully set against an invoice: **900 against 450** in the
+   measurement. The email's rule is the right one. It is also what the detail
+   screen adopted in L2, whose `.claude.md` entry says this screen "filtered
+   `status = 'approved'` alone and so had ALREADY been dropping every 'applied'
+   note". The fix then reached `customer-statement-detail` but not this route.
+3. **The default window alone makes the closing balance wrong.** With no
+   `fromDate`, the route uses `today − 365 days` and computes no opening
+   balance, so a document older than a year disappears from the balance. That
+   is not just from the list. A customer with a 1000 invoice from 400 days ago
+   and a 400 receipt last month shows **−400**, telling them they are in credit,
+   against a true **600**. With `fromDate` set to cover the full history it
+   shows 600. The window is the default on the screen's first load and on the
+   PDF links. A statement either needs an opening balance brought forward to
+   `fromDate`, or has to run from inception as the email does. (The window
+   also comes from `toISOString()`, which rolls back a day between 00:00 and
+   02:00 SAST.)
+
+Neither item is fixed in this PR.
 
 ## Tests
 
@@ -133,6 +185,8 @@ balance higher than the customer owes. Both screens have the defect that round
 - M11: `asOf` checked by regex only.
 - M12: closing balance set to total invoiced.
 - M13: credit notes filtered out of the statement.
+- M15: the email's receipt credited at its allocated sum (the screens' rule) —
+  the partly-allocated-receipt test goes red.
 - M14: the invoice list reverted to the bare `NOT IN ('draft','cancelled')`.
 
 The named-import fix cannot be mutation-tested in vitest, because vitest's
@@ -157,7 +211,7 @@ through the portal form as `portal-a@test.local` (login 200):
 
 ## Residual
 
-- The two in-app screens' allocated-figure rule, above: for Hein to register.
+- Register items A and B above: for the team lead to register; not fixed here.
 - The per-invoice link surface's population rule (the dropped WIP): Hein's call.
 - The AR portal has no logout route. The page's "log out" only clears
   localStorage, and the `portal_session` cookie lives out its 24h. Revocation now
@@ -172,7 +226,7 @@ through the portal form as `portal-a@test.local` (login 200):
   passed / 5 skipped; 91 component files, 564 passed; build PASS). The first run
   failed `tests/unit/security/portalChatDailyCap.test.ts`, whose mock of
   `arPortalJwt` no longer reached the route. It now mocks `resolvePortalSession`.
-- Integration, fixture, `--no-file-parallelism`, 10 files named → **10 files, 58
+- Integration, fixture, `--no-file-parallelism`, 10 files named → **10 files, 59
   tests passed** (`r095-integration-green.log`): both r095 files, k122 and k122b
   (portal token), r082 (statements, twin parity), k012 ×2, k053 as-at and
   statement-grid-foots.
