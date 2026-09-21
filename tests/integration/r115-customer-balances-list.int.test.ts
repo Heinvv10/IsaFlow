@@ -60,6 +60,7 @@ describeIfDb('R-115 customer balances list states each statement balance', () =>
   let deposit = '';
   let postOnly = '';
   let legacy = '';
+  let creditOnly = '';
 
   beforeAll(async () => {
     assertDisposable();
@@ -97,6 +98,8 @@ describeIfDb('R-115 customer balances list states each statement balance', () =>
     postOnly = await customer('postonly');
     await invoice(postOnly, 'P-INV-POST', 900, 6);
     await receipt(postOnly, 'P-RCPT', 300, -1);
+    creditOnly = await customer('creditonly');
+    await credit(creditOnly, 'C-CN', 'approved', 100, 0, -4);
     // An invoice carrying only customer_id (client_id NULL).
     legacy = await customer('legacy');
     await invoice(legacy, 'L-INV', 350, -7, { clientIdColumn: false });
@@ -141,13 +144,15 @@ describeIfDb('R-115 customer balances list states each statement balance', () =>
     expect(rows.find(r => r.client_id === deposit)).toMatchObject({ total_invoiced: 0, total_paid: 500, balance: -500 });
     expect(await emailBalance(postOnly)).toBe(-300);
     expect(rows.find(r => r.client_id === postOnly)).toMatchObject({ total_invoiced: 0, total_paid: 300, balance: -300 });
+    expect(await emailBalance(creditOnly)).toBe(-100);
+    expect(rows.find(r => r.client_id === creditOnly)).toMatchObject({ total_invoiced: 0, total_credits: 100, balance: -100 });
     expect(await emailBalance(legacy)).toBe(350);
     expect(rows.find(r => r.client_id === legacy)).toMatchObject({ total_invoiced: 350, balance: 350 });
   });
 
   it('every listed balance is the balance of the statement it opens', async () => {
     const rows = await list();
-    expect(rows.length).toBeGreaterThanOrEqual(7);
+    expect(rows.length).toBeGreaterThanOrEqual(8);
     for (const r of rows) {
       expect(r.balance, r.client_id).toBe(await emailBalance(r.client_id));
       expect(r.balance).toBeCloseTo(r.total_invoiced - r.total_paid - r.total_credits, 2);
