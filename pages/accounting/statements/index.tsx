@@ -8,6 +8,7 @@ import { useState, useEffect, useCallback, useMemo } from 'react';
 import { AppLayout } from '@/components/layout/AppLayout';
 import { Mail, Loader2, AlertCircle } from 'lucide-react';
 import { apiFetch } from '@/lib/apiFetch';
+import { fmtDate } from '@/lib/fmtDate';
 import { ConfirmSendModal } from '@/components/accounting/statements/ConfirmSendModal';
 import {
   CustomerStatementTable,
@@ -34,7 +35,8 @@ interface AgingBucket {
 // ─── Page ─────────────────────────────────────────────────────────────────
 
 export default function StatementsPage() {
-  const today = new Date().toISOString().split('T')[0] ?? '';
+  // A LOCAL date: toISOString() is UTC and named yesterday before 02:00 SAST.
+  const today = fmtDate(new Date());
   const [customers, setCustomers] = useState<CustomerRow[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState('');
@@ -53,7 +55,8 @@ export default function StatementsPage() {
       const [stmtRes, custRes, agingRes] = await Promise.all([
         apiFetch(`/api/accounting/customer-statements?as_at_date=${asAtDate}`),
         apiFetch('/api/accounting/customers?limit=500'),
-        apiFetch('/api/accounting/ar-aging'),
+        // Overdue as at the same date as the balance beside it (R-116).
+        apiFetch(`/api/accounting/ar-aging?as_at_date=${asAtDate}`),
       ]);
       const [stmtJson, custJson, agingJson] = await Promise.all([
         stmtRes.json() as Promise<Record<string, unknown>>,

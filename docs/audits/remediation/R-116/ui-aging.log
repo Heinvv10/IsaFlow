@@ -1,0 +1,6 @@
+AGING ["R112 Statement Customer\tR 0,00\tR 0,00\tR 0,00\tR 0,00\tR 1 000,00\tR 1 000,00","TOTAL\tR 0,00\tR 0,00\tR 0,00\tR 0,00\tR 1 000,00\tR 1 000,00"]
+URL /accounting/customer-statements/33333333-1122-4000-8000-000000000112?as_at_date=2026-08-31
+SUBTITLE Full transaction history as at 2026/08/31
+ROWS ["2025/08/17\tInvoice\tR112-INV-OLD\t-\tR 1 000,00\t\tR 1 000,00\t","2025/09/06\tCredit Note\tR112-CN-OLD\t-\t\tR 200,00\tR 800,00\t"]
+CARDS ["Total Invoiced","R 1 000,00","Total Paid","R 0,00","Credits Applied","R 200,00","Balance Outstanding","R 800,00"]
+PAGE-ERRORS []

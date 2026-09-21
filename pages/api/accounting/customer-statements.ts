@@ -11,10 +11,10 @@ import { apiResponse } from '@/lib/apiResponse';
 import { withAuth, type CompanyAuthedRequest, withWriteAccess} from '@/lib/auth';
 import { log } from '@/lib/logger';
 import { parsePagination } from '@/lib/pagination';
-import { asAtTodayStr, documentInLedgerAsAtFragment } from '@/modules/accounting/services/shared/softDeleteLedgerPresence';
+import { documentInLedgerAsAtFragment } from '@/modules/accounting/services/shared/softDeleteLedgerPresence';
 import { documentInPopulationExpr } from '@/modules/accounting/services/shared/documentPopulation';
 import {
-  CREDIT_NOTE_STATEMENT_VALUE, LIVE_CREDIT_NOTE_STATUSES, SETTLING_RECEIPT_STATUSES,
+  CREDIT_NOTE_STATEMENT_VALUE, LIVE_CREDIT_NOTE_STATUSES, SETTLING_RECEIPT_STATUSES, resolveStatementAsAt,
 } from '@/modules/accounting/services/ar/customerStatementRules';
 
 
@@ -28,15 +28,17 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
   // invoice history, no LIMIT). One row per customer, so a generous cap
   // keeps every realistic tenant intact while ending the pathological case.
   const { limit, offset } = parsePagination(req.query, 1000, 2000);
-  // A balances summary with no as-at parameter is a summary as at today.
-  const asAtStr = asAtTodayStr();
+  // As at the date the page picked (R-116); with none, as at today.
+  const asAt = resolveStatementAsAt(req.query.as_at_date);
+  if ('error' in asAt) return apiResponse.badRequest(res, asAt.error);
+  const asAtStr = asAt.asAt;
 
   try {
     // Each row states the balance of the statement it opens — the emailed
-    // statement as at today (R-115): invoices less settled receipts at their
-    // full amount, less every live credit note at the statement valuation,
-    // nothing dated after today. The rules are customerStatementRules'; the
-    // list used to ignore credit notes entirely.
+    // statement as at the as-at date (R-115, R-116): invoices less settled
+    // receipts at their full amount, less every live credit note at the
+    // statement valuation, nothing dated after the as-at date. The rules are
+    // customerStatementRules'; the list used to ignore credit notes entirely.
     //
     // Drawn from CUSTOMERS outward: every live customer of this company with
     // any statement activity has a row — including one with only a receipt (a
@@ -66,7 +68,7 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
           -- Hein decided 2026-09-11 (R-082): statements must not show draft
           -- invoices, and must agree with the ageing on a null status.
           AND ${sql.unsafe(documentInPopulationExpr('ci'))}
-          -- As at TODAY, not undated: a document soft-deleted BEFORE the delete
+          -- As at the as-at date, not undated: a document soft-deleted BEFORE the delete
           -- began reversing its journal has a standing entry the control account
           -- still carries. See shared/softDeleteLedgerPresence.
           AND ${documentInLedgerAsAtFragment('ci', asAtStr, companyId)}
