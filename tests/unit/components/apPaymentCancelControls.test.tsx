@@ -75,3 +75,15 @@ it('a batch member offers no Process, Void or Cancel, and links to its batch', a
   expect(screen.getByRole('link', { name: 'open the batch' }).getAttribute('href')).toBe('/accounting/batch-payments/b9');
   for (const name of [/Process/, /Void/, 'Cancel payment']) expect(screen.queryByRole('button', { name })).toBeNull();
 });
+
+it.each(['processed', 'approved', 'reversed'])('Reverse batch appears only on a processed batch (%s)', async (status) => {
+  query.batchId = 'b1';
+  vi.mocked(apiFetch).mockImplementation(async () => ok({ id: 'b1', batchNumber: 'BAT-1', batchDate: '2026-09-21',
+    totalAmount: 600, paymentCount: 3, paymentMethod: 'eft', status, payments: [], billCount: 2 }));
+  render(<BatchDetail />);
+  await screen.findByText('BAT-1');
+  const button = screen.queryByRole('button', { name: /Reverse batch/ });
+  if (status !== 'processed') { expect(button).toBeNull(); return; }
+  fireEvent.click(button!);
+  expect(await screen.findByText(/posts a reversing journal .* and reopens 2 bills/)).toBeTruthy();
+});

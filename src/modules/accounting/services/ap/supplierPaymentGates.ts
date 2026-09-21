@@ -20,7 +20,7 @@ function refuseBatchMember(payment: SupplierPayment, action: 'process' | 'void')
   const where = action === 'process'
     ? 'process it through its batch.'
     : payment.status === 'processed'
-      ? 'it was paid by that batch, and a processed batch cannot be reversed from here yet.'
+      ? 'it was paid by that batch; reverse the batch.'
       : 'cancel it through its batch.';
   throw new SupplierPaymentRefusal(`Payment ${payment.paymentNumber} belongs to batch ${payment.batchId} — ${where}`);
 }

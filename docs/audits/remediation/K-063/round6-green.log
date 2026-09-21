@@ -1,0 +1,5 @@
+# Round 6 GREEN — working tree, fixture + migration 691, --no-file-parallelism
+# 55 files: round5-green.log's 54 + tests/integration/k064-batch-reversal.int.test.ts
+exit=0
+ Test Files  55 passed (55)
+      Tests  364 passed (364)

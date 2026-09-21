@@ -32,3 +32,13 @@ export async function getBatchMembers(companyId: string, batchId: string): Promi
     status: String(r.status),
   }));
 }
+
+/** How many distinct bills the batch pays — what a reversal would reopen. */
+export async function countBatchBills(companyId: string, batchId: string): Promise<number> {
+  const rows = (await sql`
+    SELECT COUNT(DISTINCT pa.invoice_id) AS n
+    FROM payment_allocations pa JOIN supplier_payments sp ON sp.id = pa.payment_id
+    WHERE sp.batch_id = ${batchId}::UUID AND sp.company_id = ${companyId}::UUID
+  `) as DbRow[];
+  return Number(rows[0]?.n ?? 0);
+}

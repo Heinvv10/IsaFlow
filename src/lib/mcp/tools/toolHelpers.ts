@@ -150,6 +150,7 @@ const REFUSAL_CODES: ReadonlySet<string> = new Set([
   'BANK_TX_ALLOCATED',
   'BANK_TX_LOCK_TIMEOUT',
   'BANK_TX_NOT_POSTED',
+  'BATCH_ALREADY_REVERSED',
   'BATCH_NOT_PROCESSABLE',
   // A captured document already claimed for posting, or rejected (K-072). Two
   // fixed messages naming no id, amount or table, raised only after the
