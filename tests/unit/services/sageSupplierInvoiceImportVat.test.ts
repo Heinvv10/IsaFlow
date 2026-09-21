@@ -38,6 +38,7 @@ vi.mock('@/modules/accounting/services/capture/captureDeduplicationService', () 
 }));
 
 import { importSupplierInvoices } from '@/modules/accounting/services/core/sageSupplierInvoiceImportService';
+import { SAGE_VAT_NOT_STATED_NOTE } from '@/modules/accounting/services/shared/sageVatDerivation';
 
 /** Find the args of the call whose SQL text contains `needle`. */
 function findCall(needle: string): unknown[] {
@@ -77,7 +78,7 @@ describe('importSupplierInvoices — wired to deriveSageVat, never the inline /1
       .mockResolvedValueOnce([{ id: 'new-inv-1' }]) // INSERT ... RETURNING id
       .mockResolvedValueOnce([]); // UPDATE migration_status
 
-    await importSupplierInvoices('company-1', 'user-1');
+    const run = await importSupplierInvoices('company-1', 'user-1');
 
     const args = findCall('INSERT INTO supplier_invoices');
     // Column order: company_id, invoice_number, supplier_id, purchase_order_id,
@@ -93,6 +94,26 @@ describe('importSupplierInvoices — wired to deriveSageVat, never the inline /1
     // The old defect: subtotal 1000.00, taxAmount 150.00.
     expect(subtotal).not.toBe('1000.00');
     expect(taxAmount).not.toBe('150.00');
+    // The flag is the fix's safeguard: the note lands and the run counts it.
+    expect(args).toContain(SAGE_VAT_NOT_STATED_NOTE);
+    expect(run.vatNotStated).toBe(1);
+  });
+
+  it('takes the tax its lines state when the header states none, and does not flag it', async () => {
+    const raw = { Lines: [{ Description: 'A', Tax: 100 }, { Description: 'B', Tax: 50 }] };
+    sqlMock
+      .mockResolvedValueOnce([{ ...baseRow, subtotal: null, tax_amount: null, raw_data: raw }])
+      .mockResolvedValueOnce([{ vat_number: null }])
+      .mockResolvedValueOnce([{ id: 'new-inv-1' }])
+      .mockResolvedValue([]);
+
+    const run = await importSupplierInvoices('company-1', 'user-1');
+
+    const args = findCall('INSERT INTO supplier_invoices');
+    expect(args[7]).toBe('1000.00');
+    expect(args[9]).toBe('150.00');
+    expect(args).not.toContain(SAGE_VAT_NOT_STATED_NOTE);
+    expect(run.vatNotStated).toBe(0);
   });
 
   it('a row with a stated subtotal keeps it and computes tax by arithmetic', async () => {

@@ -113,8 +113,8 @@ describe('customer-invoices-detail POST action guards', () => {
 
     const result = await call({ id: INV_ID, action: 'send' });
 
-    const updateText = (sqlMock.mock.calls[0]![0] as readonly string[]).join(' ');
-    expect(updateText).toMatch(/status != 'cancelled'/i);
+    // The status guard itself is proven by outcome on real PostgreSQL in
+    // tests/integration/r086-send-status-guard-route.int.test.ts.
     expect(result.kind).toBe('badRequest');
     expect(result.error).toMatch(/cannot send a cancelled invoice/i);
   });

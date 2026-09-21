@@ -18,7 +18,7 @@ import type { MigrationRun } from './sageMigrationService';
 import { startRun, completeRun, failRun } from './sageMigrationService';
 import type { DbRow } from '@/types/db';
 import { computeFingerprint } from '../capture/captureDeduplicationService';
-import { deriveSageVat, SAGE_VAT_NOT_STATED_NOTE } from '../shared/sageVatDerivation';
+import { deriveSageVat, statedSageFigures, SAGE_VAT_NOT_STATED_NOTE } from '../shared/sageVatDerivation';
 
 // ── Supplier Invoice Import ─────────────────────────────────────────────────
 
@@ -79,16 +79,17 @@ export async function importSupplierInvoices(companyId: string, userId: string):
 
           if (!supplierId) return 'no_supplier';
 
+          const rawObj = parseJson(inv.raw_data);
+          const lines = parseRawData(inv.raw_data, inv.line_items);
+          const stated = statedSageFigures(inv.subtotal, inv.tax_amount, rawObj, lines);
           const { subtotal, taxAmount, taxRate, vatNotStated: rowVatNotStated } =
-            deriveSageVat(inv.subtotal as number | null, inv.tax_amount as number | null, totalAmount);
+            deriveSageVat(stated.subtotal, stated.tax, totalAmount);
 
           // project_id cannot be resolved from purchase_orders in standalone mode
           const projectId: string | null = null;
 
           const isPaid = inv.status === 'paid' || Number(inv.outstanding_amount || 0) === 0;
 
-          // Extract reference from raw_data if available
-          const rawObj = parseJson(inv.raw_data);
           const reference = rawObj?.Reference || null;
 
           // Fingerprint for duplicate detection (PRD-05)
@@ -126,8 +127,7 @@ export async function importSupplierInvoices(companyId: string, userId: string):
 
           // Insert line items from raw_data
           // supplier_invoice_items has no company_id column; tenant-scoped via supplier_invoice_id FK
-          const lines = parseRawData(inv.raw_data, inv.line_items);
-          if (lines && Array.isArray(lines) && lines.length > 0) {
+          if (lines && lines.length > 0) {
             for (const line of lines) {
               const qty = Number(line.Quantity || 1);
               const price = Number(line.UnitPriceExclusive || 0);
