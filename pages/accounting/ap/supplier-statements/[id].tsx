@@ -175,7 +175,10 @@ export default function SupplierStatementDetailPage() {
                 </div>
 
                 <div className="flex flex-wrap gap-2 pt-1">
-                  <button onClick={handleRematch} disabled={rematching}
+                  {/* A reconciled statement is closed: Rematch would overwrite the
+                      variance it was reconciled at, and the route refuses it (409). */}
+                  <button onClick={handleRematch} disabled={rematching || recon.status === 'reconciled'}
+                    title={recon.status === 'reconciled' ? 'Already reconciled' : undefined}
                     className="flex items-center gap-1.5 px-4 py-2 rounded-lg text-sm font-medium bg-amber-600/20 hover:bg-amber-600/30 text-amber-400 border border-amber-500/30 disabled:opacity-50 transition-colors">
                     <RefreshCw className={`h-4 w-4 ${rematching ? 'animate-spin' : ''}`} />
                     {rematching ? 'Rematching…' : 'Rematch'}

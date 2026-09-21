@@ -1,0 +1,66 @@
+$ node scripts/check-runtime.mjs && bun run check:routes && vitest run tests/unit/auth tests/unit/lib/auth tests/unit/api/auth
+$ node scripts/check-duplicate-next-routes.mjs
+No duplicate Next.js pages routes found in pages.
+
+ RUN  v4.1.2 /home/hein/Workspace/IsaFlow/.worktrees/audit-remediation-20260908
+
+Warning: A vi.hoisted() call in "/home/hein/Workspace/IsaFlow/.worktrees/audit-remediation-20260908/tests/unit/auth/suspendedIdentityPaths.test.ts" is not at the top level of the module. Although it appears nested, it will be hoisted and executed before any tests run. Move it to the top level to reflect its actual execution order. This will become an error in a future version.
+See: https://vitest.dev/guide/mocking/modules#how-it-works
+Warning: A vi.hoisted() call in "/home/hein/Workspace/IsaFlow/.worktrees/audit-remediation-20260908/tests/unit/auth/suspendedIdentityPaths.test.ts" is not at the top level of the module. Although it appears nested, it will be hoisted and executed before any tests run. Move it to the top level to reflect its actual execution order. This will become an error in a future version.
+See: https://vitest.dev/guide/mocking/modules#how-it-works
+Warning: A vi.mock("@/lib/auth/withPlatformAdmin.pools") call in "/home/hein/Workspace/IsaFlow/.worktrees/audit-remediation-20260908/tests/unit/auth/suspendedIdentityPaths.test.ts" is not at the top level of the module. Although it appears nested, it will be hoisted and executed before any tests run. Move it to the top level to reflect its actual execution order. This will become an error in a future version.
+See: https://vitest.dev/guide/mocking/modules#how-it-works
+Warning: A vi.mock("@/lib/als") call in "/home/hein/Workspace/IsaFlow/.worktrees/audit-remediation-20260908/tests/unit/auth/suspendedIdentityPaths.test.ts" is not at the top level of the module. Although it appears nested, it will be hoisted and executed before any tests run. Move it to the top level to reflect its actual execution order. This will become an error in a future version.
+See: https://vitest.dev/guide/mocking/modules#how-it-works
+Warning: A vi.mock("@/lib/logger") call in "/home/hein/Workspace/IsaFlow/.worktrees/audit-remediation-20260908/tests/unit/auth/suspendedIdentityPaths.test.ts" is not at the top level of the module. Although it appears nested, it will be hoisted and executed before any tests run. Move it to the top level to reflect its actual execution order. This will become an error in a future version.
+See: https://vitest.dev/guide/mocking/modules#how-it-works
+Warning: A vi.hoisted() call in "/home/hein/Workspace/IsaFlow/.worktrees/audit-remediation-20260908/tests/unit/auth/suspendedIdentityPaths.test.ts" is not at the top level of the module. Although it appears nested, it will be hoisted and executed before any tests run. Move it to the top level to reflect its actual execution order. This will become an error in a future version.
+See: https://vitest.dev/guide/mocking/modules#how-it-works
+Warning: A vi.mock("@/lib/neon") call in "/home/hein/Workspace/IsaFlow/.worktrees/audit-remediation-20260908/tests/unit/auth/suspendedIdentityPaths.test.ts" is not at the top level of the module. Although it appears nested, it will be hoisted and executed before any tests run. Move it to the top level to reflect its actual execution order. This will become an error in a future version.
+See: https://vitest.dev/guide/mocking/modules#how-it-works
+{"level":"warn","message":"Portal token verification failed","timestamp":"2026-09-08T15:58:56.011Z","component":"portalJwt","data":{"error":"\"exp\" claim timestamp check failed"}}
+{"level":"warn","message":"Portal token verification failed","timestamp":"2026-09-08T15:58:56.013Z","component":"portalJwt","data":{"error":"signature verification failed"}}
+{"level":"warn","message":"Portal token verification failed","timestamp":"2026-09-08T15:58:56.013Z","component":"portalJwt","data":{"error":"signature verification failed"}}
+{"level":"warn","message":"withUserAuth: invalid token","timestamp":"2026-09-08T15:58:56.013Z","component":"Auth","data":{"message":"Invalid Compact JWS"}}
+{"level":"info","message":"impersonation ended","timestamp":"2026-09-08T15:58:56.018Z","component":"Admin","data":{"admin":"admin-user","target":"target-user"}}
+{"level":"warn","message":"end-impersonation ownership mismatch","timestamp":"2026-09-08T15:58:56.021Z","component":"Admin","data":{"callerId":"unrelated-user","stashAdmin":"admin-user","stashTarget":"target-user"}}
+{"level":"warn","message":"Extension token verification failed against all keys","timestamp":"2026-09-08T15:58:56.027Z","component":"extensionJwt","data":{}}
+{"level":"warn","message":"Extension token verification failed against all keys","timestamp":"2026-09-08T15:58:56.028Z","component":"extensionJwt","data":{}}
+{"level":"warn","message":"Extension token verification failed against all keys","timestamp":"2026-09-08T15:58:56.028Z","component":"extensionJwt","data":{}}
+{"level":"warn","message":"Extension token verification failed against all keys","timestamp":"2026-09-08T15:58:56.031Z","component":"extensionJwt","data":{}}
+{"level":"warn","message":"withPlatformAdmin: invalid token","timestamp":"2026-09-08T15:58:56.233Z","component":"Auth","data":{"message":"Invalid Compact JWS"}}
+{"level":"error","message":"withAuth: transaction finalize failed after handler responded","timestamp":"2026-09-08T15:58:56.255Z","component":"Auth","data":{"url":"/api/test","status":200,"handlerFailed":false,"message":"commit failed: serialization"}}
+{"level":"info","message":"withAuth: print token accepted","timestamp":"2026-09-08T15:58:56.257Z","component":"Auth","data":{"companyId":"00000000-0000-0000-0000-000000000001","userId":"00000000-0000-0000-0000-000000000002","paths":["/api/accounting/reports-pack","/api/accounting/packs/management/trend"]}}
+{"level":"info","message":"withAuth: print token accepted","timestamp":"2026-09-08T15:58:56.259Z","component":"Auth","data":{"companyId":"00000000-0000-0000-0000-000000000001","userId":"00000000-0000-0000-0000-000000000002","paths":["/api/accounting/reports-pack","/api/accounting/packs/management/trend"]}}
+{"level":"warn","message":"printAuth: path not authorised","timestamp":"2026-09-08T15:58:56.259Z","component":"printAuth","data":{"tokenPaths":["/api/accounting/reports-pack"],"requestPath":"/api/accounting/reports-pack/"}}
+{"level":"warn","message":"withAuth: print token not valid for this request","timestamp":"2026-09-08T15:58:56.260Z","component":"Auth","data":{"requestPath":"/api/accounting/reports-pack/","activeCompanyId":"00000000-0000-0000-0000-000000000001"}}
+{"level":"warn","message":"printAuth: path not authorised","timestamp":"2026-09-08T15:58:56.260Z","component":"printAuth","data":{"tokenPaths":["/api/accounting/reports-pack","/api/accounting/packs/management/trend"],"requestPath":"/api/accounting/customers"}}
+{"level":"warn","message":"withAuth: print token not valid for this request","timestamp":"2026-09-08T15:58:56.261Z","component":"Auth","data":{"requestPath":"/api/accounting/customers","activeCompanyId":"00000000-0000-0000-0000-000000000001"}}
+{"level":"warn","message":"withAuth: print token not valid for this request","timestamp":"2026-09-08T15:58:56.261Z","component":"Auth","data":{"requestPath":"/api/accounting/reports-pack","activeCompanyId":"00000000-0000-0000-0000-0000000000ff"}}
+{"level":"warn","message":"printAuth: path not authorised","timestamp":"2026-09-08T15:58:56.262Z","component":"printAuth","data":{"tokenPaths":["/api/accounting/reports-pack"],"requestPath":"/api/accounting/reports-pack-secret"}}
+{"level":"warn","message":"withAuth: print token not valid for this request","timestamp":"2026-09-08T15:58:56.262Z","component":"Auth","data":{"requestPath":"/api/accounting/reports-pack-secret","activeCompanyId":"00000000-0000-0000-0000-000000000001"}}
+{"level":"warn","message":"printAuth: path not authorised","timestamp":"2026-09-08T15:58:56.262Z","component":"printAuth","data":{"tokenPaths":["/api/accounting/reports-pack"],"requestPath":"/api/accounting/reports-pack/sub"}}
+{"level":"warn","message":"withAuth: print token not valid for this request","timestamp":"2026-09-08T15:58:56.262Z","component":"Auth","data":{"requestPath":"/api/accounting/reports-pack/sub","activeCompanyId":"00000000-0000-0000-0000-000000000001"}}
+{"level":"warn","message":"printAuth: path not authorised","timestamp":"2026-09-08T15:58:56.262Z","component":"printAuth","data":{"tokenPaths":["/api/accounting/reports-pack"],"requestPath":"/api/accounting/reports"}}
+{"level":"warn","message":"withAuth: print token not valid for this request","timestamp":"2026-09-08T15:58:56.262Z","component":"Auth","data":{"requestPath":"/api/accounting/reports","activeCompanyId":"00000000-0000-0000-0000-000000000001"}}
+{"level":"warn","message":"printAuth: path not authorised","timestamp":"2026-09-08T15:58:56.262Z","component":"printAuth","data":{"tokenPaths":["/api/accounting/reports-pack"],"requestPath":"/api/accounting/reports-pack/"}}
+{"level":"warn","message":"withAuth: print token not valid for this request","timestamp":"2026-09-08T15:58:56.262Z","component":"Auth","data":{"requestPath":"/api/accounting/reports-pack/","activeCompanyId":"00000000-0000-0000-0000-000000000001"}}
+{"level":"info","message":"withAuth: print token accepted","timestamp":"2026-09-08T15:58:56.263Z","component":"Auth","data":{"companyId":"00000000-0000-0000-0000-000000000001","userId":"00000000-0000-0000-0000-000000000002","paths":["/api/accounting/reports-pack"]}}
+{"level":"warn","message":"printAuth: path not authorised","timestamp":"2026-09-08T15:58:56.263Z","component":"printAuth","data":{"tokenPaths":["/api/accounting/reports-pack"],"requestPath":"/api/accounting/customers"}}
+{"level":"warn","message":"withAuth: print token not valid for this request","timestamp":"2026-09-08T15:58:56.263Z","component":"Auth","data":{"requestPath":"/api/accounting/customers","activeCompanyId":"00000000-0000-0000-0000-000000000001"}}
+{"level":"warn","message":"printAuth: signature mismatch","timestamp":"2026-09-08T15:58:56.263Z","component":"printAuth","data":{"paths":["/api/accounting/reports-pack"]}}
+{"level":"warn","message":"printAuth: signature mismatch","timestamp":"2026-09-08T15:58:56.263Z","component":"printAuth","data":{"paths":["/api/accounting/reports-pack"]}}
+{"level":"warn","message":"withAuth: invalid token","timestamp":"2026-09-08T15:58:56.263Z","component":"Auth","data":{"message":"no GoTrue session"}}
+{"level":"warn","message":"withAuth: print token not valid for this request","timestamp":"2026-09-08T15:58:56.264Z","component":"Auth","data":{"requestPath":"/api/accounting/reports-pack","activeCompanyId":"00000000-0000-0000-0000-000000000001"}}
+{"level":"warn","message":"withAuth: print token not valid for this request","timestamp":"2026-09-08T15:58:56.264Z","component":"Auth","data":{"requestPath":"/api/accounting/reports-pack","activeCompanyId":"00000000-0000-0000-0000-000000000001"}}
+{"level":"warn","message":"withAuth: print token not valid for this request","timestamp":"2026-09-08T15:58:56.264Z","component":"Auth","data":{"requestPath":"/api/accounting/reports-pack","activeCompanyId":"00000000-0000-0000-0000-000000000001"}}
+{"level":"warn","message":"withAuth: print token not valid for this request","timestamp":"2026-09-08T15:58:56.264Z","component":"Auth","data":{"requestPath":"/api/accounting/reports-pack","activeCompanyId":"00000000-0000-0000-0000-000000000001"}}
+{"level":"warn","message":"withAuth: print token not valid for this request","timestamp":"2026-09-08T15:58:56.264Z","component":"Auth","data":{"requestPath":"/api/accounting/reports-pack","activeCompanyId":"00000000-0000-0000-0000-000000000001"}}
+{"level":"warn","message":"withAuth: print token not valid for this request","timestamp":"2026-09-08T15:58:56.264Z","component":"Auth","data":{"requestPath":"/api/accounting/reports-pack","activeCompanyId":"00000000-0000-0000-0000-000000000001"}}
+{"level":"info","message":"withAuth: print token accepted","timestamp":"2026-09-08T15:58:56.265Z","component":"Auth","data":{"companyId":"00000000-0000-0000-0000-000000000001","userId":"00000000-0000-0000-0000-000000000002","paths":["/api/accounting/reports-pack"]}}
+{"level":"warn","message":"withAuth: print token not valid for this request","timestamp":"2026-09-08T15:58:56.265Z","component":"Auth","data":{"requestPath":"/api/auth/login","activeCompanyId":"00000000-0000-0000-0000-000000000cc1"}}
+
+ Test Files  50 passed (50)
+      Tests  336 passed (336)
+   Start at  17:58:55
+   Duration  1.11s (transform 11.20s, setup 0ms, import 15.13s, tests 3.13s, environment 7ms)

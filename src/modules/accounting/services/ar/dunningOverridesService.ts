@@ -12,6 +12,8 @@
 
 import { sql } from '@/lib/neon';
 import type { DbRow } from '@/lib/neon';
+import { ArRequestError } from '@/modules/accounting/services/ar/arErrors';
+import { assertCustomerInCompany } from '@/modules/accounting/services/core/contactDirectoryService';
 
 export interface CustomerDunningOverride {
   company_id: string;
@@ -67,6 +69,8 @@ export async function setOverride(
   customerId: string,
   input: UpsertOverrideInput,
 ): Promise<CustomerDunningOverride> {
+  // R-067: customer_id comes from the request body; the upsert is the first write.
+  await assertCustomerInCompany(companyId, customerId);
   const current = await getOverride(companyId, customerId);
   const next = {
     suppress_dunning: input.suppress_dunning ?? current?.suppress_dunning ?? false,
@@ -84,7 +88,11 @@ export async function setOverride(
       LIMIT 1
     `) as DbRow[];
     if (exists.length === 0) {
-      throw new Error(`Template ${next.template_id_override} not found for company`);
+      throw new ArRequestError(
+        `Template ${next.template_id_override} not found for company`,
+        404,
+        'DUNNING_TEMPLATE_NOT_FOUND',
+      );
     }
   }
 

@@ -1,0 +1,11 @@
+$ node scripts/check-runtime.mjs && bun run check:routes && vitest run tests/unit/auth/impersonationAssurance.test.ts
+$ node scripts/check-duplicate-next-routes.mjs
+No duplicate Next.js pages routes found in pages.
+
+ RUN  v4.1.2 /home/hein/Workspace/IsaFlow/.worktrees/audit-remediation-20260908
+
+
+ Test Files  1 passed (1)
+      Tests  16 passed (16)
+   Start at  18:09:57
+   Duration  168ms (transform 19ms, setup 0ms, import 42ms, tests 12ms, environment 0ms)

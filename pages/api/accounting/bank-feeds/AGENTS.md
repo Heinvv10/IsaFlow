@@ -3,7 +3,7 @@
 
 # Bank Feeds API routes
 
-Open-banking connection management. Supports multiple providers (`manual_csv`, `basiq`, `tink`, `plaid`) for linking bank accounts to IsaFlow, triggering syncs, and inspecting sync history. Delegates to `services/bank/openBankingService.ts`.
+Open-banking connection management. Supports the two implemented providers (`extension`, `manual_csv`) for linking bank accounts to IsaFlow, triggering syncs, and inspecting sync history. Delegates to `services/bank/openBankingService.ts`.
 
 ## Endpoints
 
@@ -14,6 +14,7 @@ Open-banking connection management. Supports multiple providers (`manual_csv`, `
 | `DELETE /api/accounting/bank-feeds/[id]` | `[id].ts` | Soft-delete a connection. |
 | `POST /api/accounting/bank-feeds/[id]/sync` | `[id]/sync.ts` | Trigger a manual sync for a connection. Returns sync result. |
 | `GET /api/accounting/bank-feeds/[id]/logs` | `[id]/logs.ts` | Fetch sync history. Optional `?limit` (max 50, default 10). Response: `{ items, count }`. |
+| `POST /api/accounting/bank-feeds/[id]/extension-ingest` | `[id]/extension-ingest.ts` | Browser extension feed batch. Thin transport into `ingestBankBatch` (`services/bank/feed/`, Task 6/7, bank sync v1 Release 1). |
 
 ## Auth
 
@@ -27,7 +28,9 @@ All routes use `apiResponse.success` / `.badRequest` / `.notFound`. Creation ret
 
 ## Business rules / gotchas
 
-- Valid providers: `manual_csv | basiq | tink | plaid`. Unrecognised provider → 400.
-- `config` is a free-form JSON object; structure depends on provider.
+- Valid providers: `extension | manual_csv`. Any other provider (including the never-implemented `basiq | tink | plaid`) → 400. Syncing a legacy `basiq`/`tink`/`plaid` connection returns **400**, not 500, carrying "provider is not implemented" — `syncBankFeed` throws `BankFeedProviderNotImplementedError` and `[id]/sync.ts` maps it. The status matters: `withAuth` ROLLBACKs on >= 500, so a 500 would discard the failed sync log and `last_sync_error` the service just wrote (K-018).
+- `config` is `{ bankId: 'absa' }` or absent — strict, so credentials can never be stored in it; `createBankFeedConnection` also refuses any other key.
+- Syncing a `manual_csv` / `extension` connection only returns its instruction: no sync log, no `last_sync_*` change (nothing was synced).
 - DELETE is a soft-delete — the service sets an inactive flag; it does not hard-delete.
 - Sync logs are capped server-side at 50 per call regardless of `?limit`.
+- `[id]/extension-ingest.ts` (Task 7) validates the wire shape, builds content-hash `NormalizedBankTransaction`s, and submits through `ingestBankBatch` (`services/bank/feed/`) — it does not touch `bank_transactions` itself. It no longer auto-posts, auto-links transfers, or runs auto-create rules; only insert + suggestion-rule application happen. `ingestBankBatch` throws `BankIngestionRefusal`: `SYNC_IN_PROGRESS` maps to 409, `DAILY_CAP_EXCEEDED` (decided under the lease; the route passes the 500/day default) to 429, every other code to 400 (a failed sync log the service already wrote COMMITs on 4xx); a fault (not a refusal) rethrows through `withErrorHandler`, which answers 500, and `withExtensionToken` ROLLBACKs (mirrors `withAuth`: `res.statusCode >= 500` → ROLLBACK, afterCommit hooks skipped; else COMMIT; the response is held until COMMIT, and a failed COMMIT answers 500 `COMMIT_FAILED`). Lock order: `ingestBankBatch` takes the connection lease (`FOR NO KEY UPDATE NOWAIT` on `bank_feed_connections`) before any `bank_transactions` lock; this route's own `UPDATE bank_feed_connections` (scraper_version) runs afterward in the same transaction, on the row the service already leased — not a new lock acquisition, so no ordering hazard. The legacy handler updated `bank_feed_connections` only after its bank-row writes; that ordering is now reversed by the lease, and is fine for that reason.

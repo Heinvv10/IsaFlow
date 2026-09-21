@@ -123,6 +123,9 @@ export async function extractFromText(
   const date = extractDate(rawText);
   const referenceNumber = extractReferenceNumber(rawText);
   const amounts = extractAmounts(rawText);
+  // The reader's own doubts about the figures. Losing them here is how a
+  // document that does not reconcile reaches the operator as a bare 400.
+  warnings.push(...amounts.warnings);
   const lineItems = extractLineItems(lines);
 
   const confidence = computeConfidence({

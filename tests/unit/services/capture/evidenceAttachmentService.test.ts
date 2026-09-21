@@ -9,8 +9,16 @@
  * The service issues these SQL calls in order:
  *   1. SELECT captured_documents (doc row lookup)
  *   2. SELECT gl_journal_entries JOIN bank_transactions (provisional match)
- *   3. UPDATE gl_journal_entries (flip to evidenced)
- *   4. UPDATE bank_transactions  (status = 'matched')
+ *   3. UPDATE bank_transactions  (status = 'matched')
+ *   4. UPDATE gl_journal_entries (flip to evidenced)
+ *
+ * CALLS 3 AND 4 ARE IN THAT ORDER ON PURPOSE — the canonical lock order in
+ * `bank/.claude.md` is bank line before a PRE-EXISTING journal, and reversed
+ * these two writes invert every settlement path that holds a bank line and then
+ * reaches a journal. This docblock said 3=GL, 4=bank until round 10 — after the
+ * service had already been reordered — which is an instruction to the next
+ * author to put the deadlock back. `pins the canonical lock order` below is
+ * what makes the swap fail rather than this comment.
  */
 
 import { describe, it, expect, vi, beforeEach } from 'vitest';
@@ -71,8 +79,8 @@ describe('attachEvidenceToProvisional', () => {
   it('returns non-null attachedJeId and bankTxId when a matching provisional exists', async () => {
     vi.mocked(sqlMock).mockResolvedValueOnce([makeDocRow()] as never);       // captured_documents
     vi.mocked(sqlMock).mockResolvedValueOnce([makeMatchRow()] as never);     // provisional match
-    vi.mocked(sqlMock).mockResolvedValueOnce([] as never);                   // UPDATE gl_journal_entries
     vi.mocked(sqlMock).mockResolvedValueOnce([] as never);                   // UPDATE bank_transactions
+    vi.mocked(sqlMock).mockResolvedValueOnce([] as never);                   // UPDATE gl_journal_entries
 
     const result = await attachEvidenceToProvisional(
       COMPANY_ID, DOC_ID, SUPPLIER_ID, MATCHING_AMOUNT, DOCUMENT_DATE,
@@ -80,6 +88,26 @@ describe('attachEvidenceToProvisional', () => {
 
     expect(result.attachedJeId).toBe(JE_ID);
     expect(result.bankTxId).toBe(BANK_TX_ID);
+  });
+
+  it('pins the canonical lock order: UPDATE bank_transactions before UPDATE gl_journal_entries', async () => {
+    vi.mocked(sqlMock).mockResolvedValueOnce([makeDocRow()] as never);
+    vi.mocked(sqlMock).mockResolvedValueOnce([makeMatchRow()] as never);
+    vi.mocked(sqlMock).mockResolvedValueOnce([] as never);
+    vi.mocked(sqlMock).mockResolvedValueOnce([] as never);
+
+    await attachEvidenceToProvisional(
+      COMPANY_ID, DOC_ID, SUPPLIER_ID, MATCHING_AMOUNT, DOCUMENT_DATE,
+    );
+
+    // The template STRINGS, joined — the first argument of a tagged-template
+    // call. Reading `.mock.calls[n][0]` alone would be the array, and
+    // `String()` on it hides which statement it is behind commas.
+    const statementAt = (n: number): string =>
+      (vi.mocked(sqlMock).mock.calls[n]![0] as unknown as string[]).join(' ');
+
+    expect(statementAt(2)).toMatch(/UPDATE\s+bank_transactions/);
+    expect(statementAt(3)).toMatch(/UPDATE\s+gl_journal_entries/);
   });
 
   it('issues exactly 4 SQL calls on the happy path (1 doc SELECT + 1 match SELECT + 2 UPDATEs)', async () => {

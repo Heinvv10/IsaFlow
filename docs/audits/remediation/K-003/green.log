@@ -1,0 +1,17 @@
+
+ RUN  v4.1.2 /home/hein/Workspace/IsaFlow/.worktrees/audit-remediation-20260908
+
+{"level":"info","message":"API Request: POST /api/bureau/clients","timestamp":"2026-09-08T17:11:37.456Z","component":"API","requestId":"01M2101YQF26F6XJCB4T8V50JM","data":{"type":"request","method":"POST","url":"/api/bureau/clients","query":{},"body":{"bureauId":"388b02f4-0ac9-41d1-91bc-ade28e53c682","companyId":"021aa420-7923-434c-8606-95d1ddbe7b8f"}}}
+{"level":"info","message":"API Response: POST /api/bureau/clients - 200 (7ms)","timestamp":"2026-09-08T17:11:37.462Z","component":"API","requestId":"01M2101YQF26F6XJCB4T8V50JM","data":{"type":"response","method":"POST","url":"/api/bureau/clients","statusCode":200,"duration":"7ms"}}
+{"level":"info","message":"request_completed","timestamp":"2026-09-08T17:11:37.462Z","component":"http","requestId":"01M2101YQF26F6XJCB4T8V50JM","data":{"event":"request_completed","route":"/api/bureau/clients","method":"POST","status":200,"durationMs":7,"userId":"ce0b11f9-c596-4032-9350-cbc6e0d8a688","companyId":null,"outcome":"ok"}}
+{"level":"info","message":"API Request: POST /api/bureau/clients","timestamp":"2026-09-08T17:11:37.463Z","component":"API","requestId":"01M2101YQQ2AR6GRABMP2VWR0J","data":{"type":"request","method":"POST","url":"/api/bureau/clients","query":{},"body":{"bureauId":"388b02f4-0ac9-41d1-91bc-ade28e53c682","companyId":"cbd2f879-5128-435d-81c9-ba77dd7d7747"}}}
+{"level":"info","message":"API Response: POST /api/bureau/clients - 403 (1ms)","timestamp":"2026-09-08T17:11:37.464Z","component":"API","requestId":"01M2101YQQ2AR6GRABMP2VWR0J","data":{"type":"response","method":"POST","url":"/api/bureau/clients","statusCode":403,"duration":"1ms"}}
+{"level":"info","message":"request_completed","timestamp":"2026-09-08T17:11:37.464Z","component":"http","requestId":"01M2101YQQ2AR6GRABMP2VWR0J","data":{"event":"request_completed","route":"/api/bureau/clients","method":"POST","status":403,"durationMs":1,"userId":"ce0b11f9-c596-4032-9350-cbc6e0d8a688","companyId":null,"outcome":"client_error"}}
+{"level":"info","message":"API Request: GET /api/bureau/client/cbd2f879-5128-435d-81c9-ba77dd7d7747","timestamp":"2026-09-08T17:11:37.465Z","component":"API","requestId":"01M2101YQS1D6N09WBX93QQ6R9","data":{"type":"request","method":"GET","url":"/api/bureau/client/cbd2f879-5128-435d-81c9-ba77dd7d7747","query":{"companyId":"cbd2f879-5128-435d-81c9-ba77dd7d7747"}}}
+{"level":"info","message":"API Response: GET /api/bureau/client/cbd2f879-5128-435d-81c9-ba77dd7d7747 - 404 (1ms)","timestamp":"2026-09-08T17:11:37.466Z","component":"API","requestId":"01M2101YQS1D6N09WBX93QQ6R9","data":{"type":"response","method":"GET","url":"/api/bureau/client/cbd2f879-5128-435d-81c9-ba77dd7d7747","statusCode":404,"duration":"1ms"}}
+{"level":"info","message":"request_completed","timestamp":"2026-09-08T17:11:37.466Z","component":"http","requestId":"01M2101YQS1D6N09WBX93QQ6R9","data":{"event":"request_completed","route":"/api/bureau/client/cbd2f879-5128-435d-81c9-ba77dd7d7747","method":"GET","status":404,"durationMs":1,"userId":"ce0b11f9-c596-4032-9350-cbc6e0d8a688","companyId":null,"outcome":"client_error"}}
+
+ Test Files  1 passed (1)
+      Tests  1 passed (1)
+   Start at  19:11:36
+   Duration  532ms (transform 122ms, setup 0ms, import 303ms, tests 117ms, environment 0ms)

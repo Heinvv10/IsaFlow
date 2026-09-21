@@ -1,0 +1,29 @@
+$ node scripts/check-runtime.mjs && bun run check:routes && vitest run tests/unit/auth/impersonationAssurance.test.ts
+$ node scripts/check-duplicate-next-routes.mjs
+No duplicate Next.js pages routes found in pages.
+
+ RUN  v4.1.2 /home/hein/Workspace/IsaFlow/.worktrees/audit-remediation-20260908
+
+ ❯ tests/unit/auth/impersonationAssurance.test.ts (0 test)
+
+⎯⎯⎯⎯⎯⎯ Failed Suites 1 ⎯⎯⎯⎯⎯⎯⎯
+
+ FAIL  tests/unit/auth/impersonationAssurance.test.ts [ tests/unit/auth/impersonationAssurance.test.ts ]
+Error: Cannot find package '@/lib/auth/impersonationAssurance' imported from /home/hein/Workspace/IsaFlow/.worktrees/audit-remediation-20260908/tests/unit/auth/impersonationAssurance.test.ts
+ ❯ tests/unit/auth/impersonationAssurance.test.ts:3:1
+      1| import { afterEach, beforeEach, expect, it, vi } from 'vitest';
+      2| import { decodeJwt } from 'jose';
+      3| import { mintImpersonationProof, validateImpersonationProof } from '@/…
+       | ^
+      4|
+      5| const now = Math.floor(Date.now() / 1000);
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[1/1]⎯
+
+
+ Test Files  1 failed (1)
+      Tests  no tests
+   Start at  18:08:14
+   Duration  176ms (transform 16ms, setup 0ms, import 0ms, tests 0ms, environment 0ms)
+
+error: script "test:unit" exited with code 1

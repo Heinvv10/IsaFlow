@@ -79,7 +79,10 @@ export async function getProjectProfitability(companyId: string,
       SELECT DISTINCT jl.project_id, p.name AS project_name
       FROM gl_journal_lines jl
       JOIN gl_journal_entries je ON je.id = jl.journal_entry_id
-      LEFT JOIN projects p ON p.id = jl.project_id
+      -- Scoped: a legacy line can carry another company's project_id (those
+      -- columns have no FK), and an unscoped join rendered that company's
+      -- project NAME in this report. Unowned ids keep their bucket, unnamed.
+      LEFT JOIN projects p ON p.id = jl.project_id AND p.company_id = jl.company_id
       WHERE je.status = 'posted'
         AND je.company_id = ${companyId}::UUID
         AND jl.company_id = ${companyId}::UUID

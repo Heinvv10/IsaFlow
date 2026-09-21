@@ -12,7 +12,7 @@ const sqlMock = vi.fn(async () => [] as unknown[]);
 vi.mock('@/lib/neon', () => ({ sql: (...args: unknown[]) => sqlMock(...(args as [])) }));
 
 async function makeToken(sub: string) {
-  return new SignJWT({ sub, email: 'x@y.z', aud: 'authenticated', role: 'authenticated' })
+  return new SignJWT({ sub, email: 'x@y.z', aud: 'authenticated', role: 'authenticated', aal: 'aal2' })
     .setProtectedHeader({ alg: 'HS256' })
     .setExpirationTime('1h')
     .sign(new TextEncoder().encode(TEST_SECRET));

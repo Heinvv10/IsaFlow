@@ -3,6 +3,9 @@
  * SQL safety validation extracted from nlQueryService.ts.
  */
 
+import { validateQueryRelations } from './nlQueryRelations';
+import { validateQueryFunctions } from './nlQueryFunctions';
+
 export interface SQLValidation {
   valid: boolean;
   error?: string;
@@ -52,7 +55,9 @@ export const ALLOWED_TABLES = new Set([
   'supplier_payments', 'supplier_payment_allocations', 'supplier_payment_batches',
   'supplier_purchase_orders', 'supplier_purchase_order_items',
   'purchase_orders', 'supplier_categories',
-  'bank_transactions', 'bank_accounts', 'bank_reconciliations',
+  // The posted-only view (migration 675), never the base table: a pending or
+  // removed feed row must not reach an LLM-written total.
+  'bank_transactions_posted', 'bank_accounts', 'bank_reconciliations',
   'bank_categorisation_rules', 'bank_import_batches',
   'items', 'item_categories', 'stock_items', 'stock_adjustments',
   'products', 'product_categories',
@@ -97,32 +102,14 @@ export function validateGeneratedSQL(sql: string): SQLValidation {
     return { valid: false, error: 'Multiple statements not allowed', sanitizedSQL: '' };
   }
 
-  // Extract CTE aliases so they pass the table allowlist
-  const cteAliases = new Set<string>();
-  const ctePattern = /\bWITH\s+(\w+)\s+AS\b/gi;
-  let cteMatch: RegExpExecArray | null;
-  while ((cteMatch = ctePattern.exec(sql)) !== null) {
-    cteAliases.add(cteMatch[1]!.toLowerCase());
+  const relationError = validateQueryRelations(sql, ALLOWED_TABLES);
+  if (relationError) {
+    return { valid: false, error: relationError, sanitizedSQL: '' };
   }
 
-  // Table allowlist check — walk ALL FROM/JOIN tokens regardless of paren
-  // depth.  Previously the check skipped depth > 0, which allowed subqueries
-  // such as `WHERE EXISTS (SELECT 1 FROM forbidden_table …)` to slip through.
-  //
-  // Strip SQL comments first so that table names inside comments are not
-  // accidentally flagged, and so that a comment cannot be used to embed a
-  // forbidden token that confuses the regex.
-  const sqlNoComments = sql
-    .replace(/--[^\n]*/g, '')           // single-line comments
-    .replace(/\/\*[\s\S]*?\*\//g, ''); // block comments
-
-  const kwPattern = /\b(?:FROM|JOIN)\s+([a-zA-Z_][a-zA-Z0-9_]*)/gi;
-  let kwMatch: RegExpExecArray | null;
-  while ((kwMatch = kwPattern.exec(sqlNoComments)) !== null) {
-    const tableName = kwMatch[1]!.toLowerCase();
-    if (!ALLOWED_TABLES.has(tableName) && !cteAliases.has(tableName)) {
-      return { valid: false, error: `Table '${kwMatch[1]}' not allowed`, sanitizedSQL: '' };
-    }
+  const functionError = validateQueryFunctions(sql);
+  if (functionError) {
+    return { valid: false, error: functionError, sanitizedSQL: '' };
   }
 
   let sanitizedSQL = sql.trim().replace(/;$/, '');

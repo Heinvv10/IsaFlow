@@ -1,0 +1,41 @@
+$ node scripts/check-runtime.mjs && vitest run --config vitest.integration.config.ts "tests/integration/k130-k131-supplier-statement.int.test.ts"
+
+ RUN  v4.1.2 /home/hein/Workspace/IsaFlow/.worktrees/audit-remediation-20260908
+
+ ❯ tests/integration/k130-k131-supplier-statement.int.test.ts (3 tests | 2 failed) 394ms
+     × K-130: a draft bill is not owed, and is named in `excluded` 113ms
+     × K-131: a row in the dead table must not displace the cash amount 23ms
+
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 2 ⎯⎯⎯⎯⎯⎯⎯
+
+ FAIL  tests/integration/k130-k131-supplier-statement.int.test.ts > K-130 / K-131 supplier statement composition > K-130: a draft bill is not owed, and is named in `excluded`
+AssertionError: expected 1650 to be close to 1250, received difference is 400, but expected 0.005
+ ❯ tests/integration/k130-k131-supplier-statement.int.test.ts:85:31
+     83|     // Approved (1000) + pending_approval (250), matching aged credito…
+     84|     // On origin/master the balance is 1650: the draft's 400 is credit…
+     85|     expect(s.summary.balance).toBeCloseTo(1250, 2);
+       |                               ^
+     86|     expect(s.summary.totalInvoiced).toBeCloseTo(1250, 2);
+     87|     expect(s.transactions.filter(t => t.type === 'invoice')).toHaveLen…
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[1/2]⎯
+
+ FAIL  tests/integration/k130-k131-supplier-statement.int.test.ts > K-130 / K-131 supplier statement composition > K-131: a row in the dead table must not displace the cash amount
+AssertionError: expected 1 to be close to 500, received difference is 499, but expected 0.005
+ ❯ tests/integration/k130-k131-supplier-statement.int.test.ts:135:25
+    133|
+    134|     // R500 left the bank. On origin/master the statement reports R1.
+    135|     expect(line!.debit).toBeCloseTo(500, 2);
+       |                         ^
+    136|   });
+    137| });
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[2/2]⎯
+
+
+ Test Files  1 failed (1)
+      Tests  2 failed | 1 passed (3)
+   Start at  11:43:29
+   Duration  1.94s (transform 437ms, setup 0ms, import 652ms, tests 394ms, environment 0ms)
+
+error: script "test:integration" exited with code 1

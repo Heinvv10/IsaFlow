@@ -11,9 +11,12 @@ import { apiResponse } from '@/lib/apiResponse';
 import { withAuth, type CompanyAuthedRequest } from '@/lib/auth';
 import { withErrorHandler } from '@/lib/api-error-handler';
 import { log } from '@/lib/logger';
+import { isUuidParam, isRealCalendarDate } from '@/lib/validation';
+import { documentInLedgerAsAtFragment } from '@/modules/accounting/services/shared/softDeleteLedgerPresence';
+import { documentInPopulationExpr } from '@/modules/accounting/services/shared/documentPopulation';
 
 interface Transaction {
-  id: number;
+  id: string;
   date: string;
   type: 'invoice' | 'payment' | 'debit_note';
   reference: string;
@@ -36,24 +39,42 @@ export default withAuth(withErrorHandler(async (req: NextApiRequest, res: NextAp
 
   const { companyId } = req as CompanyAuthedRequest;
   const { supplier_id } = req.query;
-  if (!supplier_id) return apiResponse.badRequest(res, 'supplier_id is required');
+  if (!isUuidParam(supplier_id)) return apiResponse.badRequest(res, 'supplier_id must be a valid UUID');
+
+  const asAtDate = req.query.as_at_date ?? fmtDate(new Date());
+  if (typeof asAtDate !== 'string' || !isRealCalendarDate(asAtDate)) {
+    return apiResponse.badRequest(res, 'as_at_date must be a valid calendar date');
+  }
 
   try {
     // Get supplier info
     const supplierRows = await sql`
-      SELECT id, name, email, phone FROM suppliers WHERE id = ${Number(supplier_id)} AND company_id = ${companyId}
+      SELECT id, name, email, phone FROM suppliers WHERE id = ${supplier_id} AND company_id = ${companyId}
     `;
     if (supplierRows.length === 0) return apiResponse.notFound(res, 'Supplier', supplier_id as string);
-    const supplier = supplierRows[0] as { id: number; name: string; email: string | null; phone: string | null };
+    const supplier = supplierRows[0] as { id: string; name: string; email: string | null; phone: string | null };
 
     // Get invoices
     const invoicesRaw = await sql`
       SELECT id, invoice_number as reference, invoice_date as date,
         total_amount as amount, amount_paid, notes as description
-      FROM supplier_invoices
-      WHERE supplier_id = ${Number(supplier_id)} AND company_id = ${companyId}
-        AND status NOT IN ('cancelled', 'draft')
-      ORDER BY invoice_date ASC, id
+      FROM supplier_invoices si
+      WHERE si.supplier_id = ${supplier_id} AND si.company_id = ${companyId}
+        -- The ageing's status rule, shared rather than re-typed, so this page
+        -- and the ageing admit the same BILLS. The page's balance is not the
+        -- ageing's total: it subtracts EVERY processed payment (total_paid
+        -- below), allocated or not, where the ageing nets only what is
+        -- allocated to a bill. So it ties to the payable CONTROL — the ageing
+        -- less unapplied, on-account payments — and K-053 pins it there.
+        -- The bare spelling dropped a null-status bill while still deducting its
+        -- payment: balance -400 against a control of 750 (R-059 round 7).
+        AND ${sql.unsafe(documentInPopulationExpr('si'))}
+        -- A soft-deleted bill leaves this statement exactly when the delete's
+        -- GL reversal reaches the ledger, and not one day earlier — the same
+        -- dated question the ageing and the control account ask.
+        AND ${documentInLedgerAsAtFragment('si', asAtDate, companyId)}
+        AND si.invoice_date <= ${asAtDate}::DATE
+      ORDER BY si.invoice_date ASC, si.id
       LIMIT ${STATEMENT_ROW_CEILING + 1}
     `;
 
@@ -62,8 +83,9 @@ export default withAuth(withErrorHandler(async (req: NextApiRequest, res: NextAp
       SELECT sp.id, sp.payment_number as reference, sp.payment_date as date,
         sp.total_amount as amount, sp.description
       FROM supplier_payments sp
-      WHERE sp.supplier_id = ${Number(supplier_id)} AND sp.company_id = ${companyId}
+      WHERE sp.supplier_id = ${supplier_id} AND sp.company_id = ${companyId}
         AND sp.status NOT IN ('cancelled', 'draft')
+        AND sp.payment_date <= ${asAtDate}::DATE
       ORDER BY sp.payment_date ASC, sp.id
       LIMIT ${STATEMENT_ROW_CEILING + 1}
     `;
@@ -73,9 +95,10 @@ export default withAuth(withErrorHandler(async (req: NextApiRequest, res: NextAp
       SELECT cn.id, cn.credit_note_number as reference, cn.credit_date as date,
         cn.total_amount as amount, cn.reason as description
       FROM credit_notes cn
-      WHERE cn.supplier_id = ${Number(supplier_id)} AND cn.company_id = ${companyId}
+      WHERE cn.supplier_id = ${supplier_id} AND cn.company_id = ${companyId}
         AND cn.type = 'supplier'
         AND cn.status NOT IN ('cancelled', 'draft')
+        AND cn.credit_date <= ${asAtDate}::DATE
       ORDER BY cn.credit_date ASC, cn.id
       LIMIT ${STATEMENT_ROW_CEILING + 1}
     `;
@@ -98,16 +121,21 @@ export default withAuth(withErrorHandler(async (req: NextApiRequest, res: NextAp
     const [totalsRow] = await sql`
       SELECT
         COALESCE((
-          SELECT SUM(total_amount::numeric) FROM supplier_invoices
-          WHERE supplier_id = ${Number(supplier_id)} AND company_id = ${companyId} AND status NOT IN ('cancelled', 'draft')
+          SELECT SUM(si.total_amount::numeric) FROM supplier_invoices si
+          WHERE si.supplier_id = ${supplier_id} AND si.company_id = ${companyId}
+            AND ${sql.unsafe(documentInPopulationExpr('si'))}
+            AND ${documentInLedgerAsAtFragment('si', asAtDate, companyId)}
+            AND si.invoice_date <= ${asAtDate}::DATE
         ), 0) AS total_invoiced,
         COALESCE((
           SELECT SUM(total_amount::numeric) FROM supplier_payments
-          WHERE supplier_id = ${Number(supplier_id)} AND company_id = ${companyId} AND status NOT IN ('cancelled', 'draft')
+          WHERE supplier_id = ${supplier_id} AND company_id = ${companyId} AND status NOT IN ('cancelled', 'draft')
+            AND payment_date <= ${asAtDate}::DATE
         ), 0) AS total_paid,
         COALESCE((
           SELECT SUM(total_amount::numeric) FROM credit_notes
-          WHERE supplier_id = ${Number(supplier_id)} AND company_id = ${companyId} AND type = 'supplier' AND status NOT IN ('cancelled', 'draft')
+          WHERE supplier_id = ${supplier_id} AND company_id = ${companyId} AND type = 'supplier' AND status NOT IN ('cancelled', 'draft')
+            AND credit_date <= ${asAtDate}::DATE
         ), 0) AS total_returns
     ` as { total_invoiced: number; total_paid: number; total_returns: number }[];
 
@@ -124,7 +152,7 @@ export default withAuth(withErrorHandler(async (req: NextApiRequest, res: NextAp
     // Merge into chronological transactions
     const transactions: Transaction[] = [];
 
-    for (const inv of invoices as { id: number; reference: string; date: string; amount: number; description: string }[]) {
+    for (const inv of invoices as { id: string; reference: string; date: string; amount: number; description: string }[]) {
       transactions.push({
         id: inv.id,
         date: toISODate(inv.date),
@@ -137,7 +165,7 @@ export default withAuth(withErrorHandler(async (req: NextApiRequest, res: NextAp
       });
     }
 
-    for (const pmt of payments as { id: number; reference: string; date: string; amount: number; description: string }[]) {
+    for (const pmt of payments as { id: string; reference: string; date: string; amount: number; description: string }[]) {
       transactions.push({
         id: pmt.id,
         date: toISODate(pmt.date),
@@ -150,7 +178,7 @@ export default withAuth(withErrorHandler(async (req: NextApiRequest, res: NextAp
       });
     }
 
-    for (const ret of returns as { id: number; reference: string; date: string; amount: number; description: string }[]) {
+    for (const ret of returns as { id: string; reference: string; date: string; amount: number; description: string }[]) {
       transactions.push({
         id: ret.id,
         date: toISODate(ret.date),
@@ -183,6 +211,7 @@ export default withAuth(withErrorHandler(async (req: NextApiRequest, res: NextAp
 
     return apiResponse.success(res, {
       supplier,
+      asAtDate,
       transactions,
       summary: {
         totalInvoiced,

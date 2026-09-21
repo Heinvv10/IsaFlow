@@ -60,6 +60,7 @@ export async function autoLinkCounterpartyTransfer(input: TransferAutoLinkInput)
         WHERE company_id = ${companyId}::UUID
           AND bank_account_id = ${counterpartyAccountId}::UUID
           AND status = 'imported'
+          AND feed_state = 'posted'
           AND ABS(amount - ${cpAmt}) < 0.01
           AND transaction_date BETWEEN (${txDate}::DATE - INTERVAL '2 days')
                                    AND (${txDate}::DATE + INTERVAL '2 days')
@@ -97,6 +98,7 @@ export async function autoLinkCounterpartyTransfer(input: TransferAutoLinkInput)
         WHERE id = ${cpTxId}::UUID
           AND company_id = ${companyId}::UUID
           AND status = 'imported'
+          AND feed_state = 'posted'
       `;
       log.info('Auto-linked counterparty transfer transaction', { sourceTxId: bankTxId, cpTxId, jeId: journalEntryId }, 'accounting');
     });

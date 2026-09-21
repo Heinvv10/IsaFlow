@@ -1,0 +1,12 @@
+
+ RUN  v4.1.2 /home/hein/Workspace/IsaFlow/.worktrees/audit-k004-capture-inbox-20260908
+
+{"level":"warn","message":"Inbound email: ambiguous destination rejected","timestamp":"2026-09-08T17:26:21.227Z","component":"inbound-email","data":{"toAddress":"legacy-b5639c2e-b2a2-4946-a069-74dcd541699f@inbox.isaflow.co.za"}}
+{"level":"info","message":"Created email capture inbox","timestamp":"2026-09-08T17:26:21.262Z","component":"capture-inbox","data":{"companyId":"e85e1478-92da-4f7c-aad4-8a0a8c9d186d","address":"cap-11111111111111111111111111111111@inbox.isaflow.co.za","attempt":0}}
+{"level":"warn","message":"Address collision — retrying","timestamp":"2026-09-08T17:26:21.263Z","component":"capture-inbox","data":{"attempt":0,"address":"cap-11111111111111111111111111111111@inbox.isaflow.co.za"}}
+{"level":"info","message":"Created email capture inbox","timestamp":"2026-09-08T17:26:21.265Z","component":"capture-inbox","data":{"companyId":"319c78af-e6af-4d6f-83d7-2c3d7f7487a3","address":"cap-22222222222222222222222222222222@inbox.isaflow.co.za","attempt":1}}
+
+ Test Files  1 passed (1)
+      Tests  5 passed (5)
+   Start at  19:26:21
+   Duration  311ms (transform 60ms, setup 0ms, import 88ms, tests 127ms, environment 0ms)

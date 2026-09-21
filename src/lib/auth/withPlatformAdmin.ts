@@ -1,9 +1,11 @@
+import { IMPERSONATION_PROOF_COOKIE } from './impersonation-cookies';
 // src/lib/auth/withPlatformAdmin.ts
 import type { NextApiRequest, NextApiResponse, NextApiHandler } from 'next';
 import * as Sentry from '@sentry/nextjs';
 import { verifyToken } from './gotrue';
 import { parseCookies, clearAuthCookies, ACCESS_COOKIE } from './cookies';
-import { als, type RequestContext } from '@/lib/als';
+import type { RequestContext } from '@/lib/als';
+import { runOwnedContext, drainAfterCommit } from '@/lib/afterCommit';
 import { log } from '@/lib/logger';
 import { setTenantTags, sanitizeRoute } from '@/lib/sentry/tags';
 import { getAppPool, getPlatformAdminPool } from './withPlatformAdmin.pools';
@@ -42,7 +44,7 @@ export function withPlatformAdmin(handler: Handler): NextApiHandler {
 
     let claims;
     try {
-      claims = await verifyToken(token);
+      claims = await verifyToken(token, cookies[IMPERSONATION_PROOF_COOKIE]);
     } catch (err) {
       log.warn(
         'withPlatformAdmin: invalid token',
@@ -131,9 +133,10 @@ export function withPlatformAdmin(handler: Handler): NextApiHandler {
         client: adminClient,
         userId: claims!.sub,
         claims: claims as Record<string, unknown>,
+        afterCommit: [],
       };
       const runHandler = async () =>
-        als.run(ctx, async () => { await handler(req, res); });
+        runOwnedContext(ctx, async () => { await handler(req, res); });
 
       if (process.env.SENTRY_ENABLED === 'true') {
         await Sentry.withIsolationScope(async () => {
@@ -166,6 +169,7 @@ export function withPlatformAdmin(handler: Handler): NextApiHandler {
       }
 
       await adminClient.query('COMMIT');
+      drainAfterCommit(ctx); // R-075: background work starts only after COMMIT, off this client
     } catch (err) {
       try { await adminClient.query('ROLLBACK'); } catch { /* secondary */ }
       throw err;

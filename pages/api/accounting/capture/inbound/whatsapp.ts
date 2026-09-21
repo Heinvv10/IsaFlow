@@ -1,3 +1,4 @@
+import { verifyWhatsAppDestination } from '@/modules/accounting/services/capture/whatsAppVerificationService';
 /**
  * POST /api/accounting/capture/inbound/whatsapp
  * Twilio WABA inbound webhook.
@@ -70,7 +71,7 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
     const signature =
       (req.headers['x-twilio-signature'] as string | undefined) ?? '';
 
-    const webhookUrl = `${appUrl}/api/accounting/capture/inbound/whatsapp`;
+    const webhookUrl = `${appUrl.replace(/\/$/, '')}${req.url ?? '/api/accounting/capture/inbound/whatsapp'}`;
 
     const params = (req.body ?? {}) as Record<string, string>;
     const valid = validateRequest(authToken, signature, webhookUrl, params);
@@ -78,7 +79,7 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
     if (!valid) {
       log.warn(
         'Twilio webhook: invalid signature',
-        { signature },
+        undefined,
         'whatsapp-inbound',
       );
       // Return 403 — Twilio will retry only on 5xx; 4xx is terminal for the message
@@ -93,8 +94,22 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
 
   const payload = req.body as TwilioInboundPayload;
   const from = payload.From ?? '';
+  // A signature also authenticates outbound status callbacks. Those cannot prove
+  // control of the recipient's incoming-message webhook. Inspect signed BODY only.
+  const incoming = typeof payload.From === 'string' && /^whatsapp:\+\d{7,15}$/.test(payload.From)
+    && typeof payload.To === 'string' && /^whatsapp:\+\d{7,15}$/.test(payload.To)
+    && typeof payload.Body === 'string' && typeof payload.NumMedia === 'string'
+    && /^\d+$/.test(payload.NumMedia) && typeof payload.WaId === 'string'
+    && payload.WaId === payload.From.slice('whatsapp:+'.length)
+    && [payload.MessageStatus, payload.SmsStatus].every(status => status === undefined || status === 'received');
+  if (!incoming) return apiResponse.success(res, { rejected: 'destination verification required' });
 
-  const result = await ingestTwilioPayload(payload);
+  const callbackUrl = new URL(req.url ?? '', 'http://localhost');
+  const tokens = callbackUrl.searchParams.getAll('token');
+  const token = tokens.length === 1 ? tokens[0]! : '';
+  const binding = await verifyWhatsAppDestination(token, (payload.To ?? '').replace(/^whatsapp:/i, '').trim());
+  if (!binding) return apiResponse.success(res, { rejected: 'destination verification required' });
+  const result = await ingestTwilioPayload(payload, binding);
 
   if ('rejected' in result) {
     log.info(

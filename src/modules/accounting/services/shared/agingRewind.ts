@@ -39,7 +39,7 @@
  *     customerPaymentAllocationService, receiptAllocationLines,
  *     supplierAllocationLines, supplierPaymentWorkflowService,
  *     batchPaymentService            -> allocation row + payment_date
- *     creditNoteApproveService       -> credit_notes.credit_date
+ *     creditNoteApproveService       -> credit_note_allocations + credit_date
  *     creditNoteCancelService        -> credit_notes.cancelled_at (mig 528)
  *     writeOffService                -> customer_write_offs.write_off_date
  *
@@ -139,24 +139,60 @@ export function rewindAmount({ companyId, asAtStr, todayStr, side }: RewindInput
           AND sp.payment_date >  ${asAtStr}::date
           AND sp.payment_date <= ${todayStr}::date`;
 
-  // applied_amount, not total_amount: approving a note applies
-  // MIN(total, outstanding) and deliberately leaves the excess unapplied
-  // (migration 529), so rewinding the face value credits back more than was
-  // ever taken off. The column is NOT NULL DEFAULT 0, so a COALESCE fallback
-  // to total_amount would be unreachable; a note sitting at 0 was never
-  // applied and reduced nothing to rewind.
+  // THE ALLOCATION ROWS, not `applied_amount` and not the link column
+  // (migration 677). A note can now settle several documents oldest-first, so
+  // `applied_amount` is the sum across all of them and `customer_invoice_id` /
+  // `supplier_invoice_id` names at most one — rewinding either against a single
+  // invoice credits back money that was taken off a different one. Every
+  // application writes a `credit_note_allocations` row carrying the invoice it
+  // credited and the amount, which is exactly what this has to unwind.
+  //
+  // 'partially_applied' joins the live set for the same reason 'approved' and
+  // 'applied' are in it: the note settled something, and what it settled is in
+  // amount_paid today.
   const creditsApplied = sql`
+        SELECT cna.amount_allocated
+        FROM credit_note_allocations cna
+        JOIN credit_notes cn ON cn.id = cna.credit_note_id
+        WHERE cna.invoice_id = ${sql.unsafe(`${invoice}.id`)}
+          AND cna.company_id = ${companyId}
+          AND cn.type   = ${creditType}
+          AND cn.status IN ('approved', 'partially_applied', 'applied')
+          AND cn.credit_date >  ${asAtStr}::date
+          AND cn.credit_date <= ${todayStr}::date`;
+
+  // THE PRE-677 SHAPE, and it is not only history: a note carrying
+  // `applied_amount` with no allocation row can only have credited the ONE
+  // document it names, and that is exactly what this reads. It is guarded by
+  // NOT EXISTS so a note that HAS rows is never counted twice — the rows are
+  // authoritative the moment there are any. Dropping this arm would silently
+  // stop rewinding every note the 677 backfill could not attribute.
+  const creditsAppliedLegacy = sql`
         SELECT cn.applied_amount
         FROM credit_notes cn
         WHERE cn.${sql.unsafe(creditLink)} = ${sql.unsafe(`${invoice}.id`)}
           AND cn.company_id = ${companyId}
           AND cn.type   = ${creditType}
-          AND cn.status IN ('approved', 'applied')
+          AND cn.status IN ('approved', 'partially_applied', 'applied')
           AND cn.credit_date >  ${asAtStr}::date
-          AND cn.credit_date <= ${todayStr}::date`;
+          AND cn.credit_date <= ${todayStr}::date
+          AND NOT EXISTS (
+            SELECT 1 FROM credit_note_allocations cna2
+            WHERE cna2.credit_note_id = cn.id
+              AND cna2.company_id = ${companyId}
+          )`;
 
   // NEGATIVE: in force on the as-at date, cancelled since. amount_paid no
   // longer reflects it but it did then, so it goes back on.
+  //
+  // THIS FRAGMENT IS INERT AND WAS ALREADY INERT: cancelling a note sets
+  // `applied_amount = 0` in the same statement, so the figure read here is
+  // always zero. Migration 677 does not change that — cancel now also deletes
+  // the allocation rows, which is the same story told by a second table. Fixing
+  // it needs a column that records what a cancelled note HAD applied, which is
+  // a schema change and out of this change's scope. Left as-is, and named, so
+  // the next reader does not conclude from its presence that cancelled credit
+  // is rewound.
   const creditsCancelled = sql`
         SELECT -cn.applied_amount
         FROM credit_notes cn
@@ -190,6 +226,10 @@ export function rewindAmount({ companyId, asAtStr, todayStr, side }: RewindInput
         UNION ALL
 
         ${creditsApplied}
+
+        UNION ALL
+
+        ${creditsAppliedLegacy}
         ${writeOffs}
 
         UNION ALL

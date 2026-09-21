@@ -1,0 +1,65 @@
+
+ RUN  v4.1.2 /home/hein/Workspace/IsaFlow/.worktrees/audit-remediation-20260908
+
+ ❯ tests/unit/services/core/nlQueryRelations.test.ts (12 tests | 8 failed) 15ms
+     × rejects unapproved relation: SELECT * FROM "webhook_endpoints" 7ms
+     × rejects unapproved relation: SELECT * FROM customers, "webhook_endpoints" 1ms
+     × rejects unapproved relation: SELECT (SELECT secret FROM "webhook_endpoints") FROM customers 1ms
+     × rejects unapproved relation: SELECT * FROM "CUSTOMERS" 0ms
+     × rejects unapproved relation: WITH x AS (SELECT * FROM "webhook_endpoints") SELECT * FROM x 1ms
+     × rejects unapproved relation: SELECT * FROM "webhook_endpoints" WHERE EXISTS (WITH "webhook_endpoints" AS (SELECT * FROM customers) SELECT * FROM "webhook_endpoints") 0ms
+     × accepts approved relations: SELECT * FROM public.customers 2ms
+     × accepts approved relations: WITH a AS (SELECT * FROM customers), b AS (SELECT * FROM a) SELECT * FROM b 0ms
+
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 8 ⎯⎯⎯⎯⎯⎯⎯
+
+ FAIL  tests/unit/services/core/nlQueryRelations.test.ts > parsed NL query relation allowlist > rejects unapproved relation: SELECT * FROM "webhook_endpoints"
+ FAIL  tests/unit/services/core/nlQueryRelations.test.ts > parsed NL query relation allowlist > rejects unapproved relation: SELECT * FROM customers, "webhook_endpoints"
+ FAIL  tests/unit/services/core/nlQueryRelations.test.ts > parsed NL query relation allowlist > rejects unapproved relation: SELECT (SELECT secret FROM "webhook_endpoints") FROM customers
+ FAIL  tests/unit/services/core/nlQueryRelations.test.ts > parsed NL query relation allowlist > rejects unapproved relation: SELECT * FROM "CUSTOMERS"
+ FAIL  tests/unit/services/core/nlQueryRelations.test.ts > parsed NL query relation allowlist > rejects unapproved relation: WITH x AS (SELECT * FROM "webhook_endpoints") SELECT * FROM x
+ FAIL  tests/unit/services/core/nlQueryRelations.test.ts > parsed NL query relation allowlist > rejects unapproved relation: SELECT * FROM "webhook_endpoints" WHERE EXISTS (WITH "webhook_endpoints" AS (SELECT * FROM customers) SELECT * FROM "webhook_endpoints")
+AssertionError: expected true to be false // Object.is equality
+
+- Expected
++ Received
+
+- false
++ true
+
+ ❯ tests/unit/services/core/nlQueryRelations.test.ts:14:45
+     12|     'SELECT * FROM "webhook_endpoints" WHERE EXISTS (WITH "webhook_end…
+     13|   ])('rejects unapproved relation: %s', sql => {
+     14|     expect(validateGeneratedSQL(sql).valid).toBe(false);
+       |                                             ^
+     15|   });
+     16|   it.each([
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[1/8]⎯
+
+ FAIL  tests/unit/services/core/nlQueryRelations.test.ts > parsed NL query relation allowlist > accepts approved relations: SELECT * FROM public.customers
+ FAIL  tests/unit/services/core/nlQueryRelations.test.ts > parsed NL query relation allowlist > accepts approved relations: WITH a AS (SELECT * FROM customers), b AS (SELECT * FROM a) SELECT * FROM b
+AssertionError: expected false to be true // Object.is equality
+
+- Expected
++ Received
+
+- true
++ false
+
+ ❯ tests/unit/services/core/nlQueryRelations.test.ts:23:45
+     21|     'SELECT * FROM (SELECT * FROM customers) AS c',
+     22|   ])('accepts approved relations: %s', sql => {
+     23|     expect(validateGeneratedSQL(sql).valid).toBe(true);
+       |                                             ^
+     24|   });
+     25| });
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[2/8]⎯
+
+
+ Test Files  1 failed (1)
+      Tests  8 failed | 4 passed (12)
+   Start at  05:09:58
+   Duration  271ms (transform 39ms, setup 0ms, import 51ms, tests 15ms, environment 0ms)
+

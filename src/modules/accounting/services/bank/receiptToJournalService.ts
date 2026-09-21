@@ -5,6 +5,12 @@
  */
 
 import type { ExtractedDocument } from '@/modules/accounting/types/documentCapture.types';
+import type { VatType } from '@/modules/accounting/types/gl.types';
+import { applyVatDenial, VAT_CODE_STANDARD } from '@/modules/accounting/services/gl/inputVatDenial';
+import {
+  unattendedPostingRefusal,
+  type UnattendedPostingInput,
+} from '@/modules/accounting/services/core/unattendedPostingGate';
 
 // ---------------------------------------------------------------------------
 // Types
@@ -26,6 +32,16 @@ export interface JournalLine {
   debit: number;
   credit: number;
   description: string;
+  /**
+   * `'standard'` where input tax is claimed, `'no_vat'` where s17(2)(a) took
+   * the claim away — never absent on the expense legs, so a denial is a
+   * recorded classification rather than the absence of one. Undefined only on
+   * the cash leg, which classifies no supply. Tagging matters beyond reporting:
+   * `vatType` is what puts a posting route inside the scope of
+   * `scripts/ci/check-vat-guard-coverage.ts`, and a path this gate cannot see
+   * is a path the next unattended VAT claim can be added to silently.
+   */
+  vatType?: VatType;
 }
 
 export interface JournalEntryInput {
@@ -33,6 +49,13 @@ export interface JournalEntryInput {
   description: string;
   source: string;
   lines: JournalLine[];
+  /**
+   * True when s17(2)(a) took the claim away. Returned rather than left in the
+   * log, because `inputVatDenial` documents the unattended contract as
+   * "coerces to 'none' AND THE CALLER REPORTS IT" — an operator who is never
+   * told cannot correct a misclassified merchant.
+   */
+  inputVatDenied: boolean;
 }
 
 export interface AccountSuggestion {
@@ -53,19 +76,31 @@ type ReceiptType = 'fuel' | 'meals' | 'travel' | 'office_supplies' | 'general';
 // Merchant → GL Account mapping (SA merchants)
 // ---------------------------------------------------------------------------
 
+/**
+ * Whole words only (K-072 r35): the unanchored `spur|…|mr\s*d` matched
+ * `Spurway Steel` and `Mr Doors`, and `spar`/`rain`/`game` matched any vendor
+ * containing them. A merchant name is a word, so a pattern is one. Only the
+ * MEALS names take a plural or possessive (`Wimpys`, `Spurs`, `Nando's`, r36;
+ * r37: on every category it made `Rains Plumbing` a telecom and `Spars
+ * Engineering` a grocer), and the known glued brands are spelled out
+ * (`CoffeeShop`, `Mr Delivery`).
+ */
+const word = (alternatives: string, plural = false) =>
+  new RegExp(String.raw`(?<![a-z])(?:${alternatives})${plural ? "(?:'?s)?" : ''}(?![a-z])`, 'i');
+
 const MERCHANT_PATTERNS: Array<{ pattern: RegExp; accountCode: string; type: ReceiptType }> = [
   // Fuel
-  { pattern: /engen|shell|caltex|sasol|bp |total |fuel|petrol|diesel/i, accountCode: '5400', type: 'fuel' },
+  { pattern: word(String.raw`engen|shell|caltex|sasol|bp|total|fuel|petrol|diesel`), accountCode: '5400', type: 'fuel' },
   // Meals & entertainment
-  { pattern: /spur|nandos|steers|mcdonald|kfc|wimpy|ocean basket|mugg.*bean|uber\s*eat|mr\s*d|restaurant|cafe|coffee/i, accountCode: '5600', type: 'meals' },
+  { pattern: word(String.raw`spur|nandos|nando|steers|mcdonald|kfc|wimpy|ocean\s+basket|mugg\s*(?:&|and)?\s*bean|uber\s*eat|mr\s*d(?:elivery|\s*food)?|restaurant|cafe|coffee(?:\s*shop)?`, true), accountCode: '5600', type: 'meals' },
   // Travel
-  { pattern: /uber(?!\s*eat)|bolt|taxify|airport|flight|hotel|lodge|airbnb|protea\s*hotel/i, accountCode: '5600', type: 'travel' },
+  { pattern: word(String.raw`uber(?!\s*eats?)|bolt|taxify|airport|flight|hotel|lodge|airbnb|protea\s*hotel`), accountCode: '5600', type: 'travel' },
   // Office supplies
-  { pattern: /office\s*national|pen\s*and\s*paper|waltons|takealot|incredible|stationery/i, accountCode: '5100', type: 'office_supplies' },
+  { pattern: word(String.raw`office\s*national|pen\s*and\s*paper|waltons|takealot|incredible|stationery`), accountCode: '5100', type: 'office_supplies' },
   // Telecoms → admin
-  { pattern: /mtn|vodacom|telkom|cell\s*c|rain|afrihost/i, accountCode: '5600', type: 'general' },
+  { pattern: word(String.raw`mtn|vodacom|telkom|cell\s*c|rain|afrihost`), accountCode: '5600', type: 'general' },
   // Groceries / consumables
-  { pattern: /woolworths|checkers|pick\s*n\s*pay|shoprite|spar|makro|game/i, accountCode: '5100', type: 'general' },
+  { pattern: word(String.raw`woolworths|checkers|pick\s*n\s*pay|shoprite|(?:kwik|super)?spar|makro|game`), accountCode: '5100', type: 'general' },
 ];
 
 // ---------------------------------------------------------------------------
@@ -78,6 +113,11 @@ export function validateReceiptExtraction(extracted: ExtractedDocument): Receipt
 
   if (extracted.totalAmount === null || extracted.totalAmount === undefined) {
     errors.push('totalAmount is required');
+  } else if (extracted.totalAmount <= 0) {
+    // Every caller books a PURCHASE: a zero total is an empty entry, and a
+    // negative one reverses it. The unattended gate already refused both; an
+    // attended post of a paid invoice's `Balance Due 0.00` built a R0.00 entry.
+    errors.push('totalAmount must be positive');
   }
   if (!extracted.date) {
     errors.push('date is required');
@@ -86,7 +126,7 @@ export function validateReceiptExtraction(extracted: ExtractedDocument): Receipt
     if (d > new Date()) errors.push('Receipt date is in the future');
   }
   if (extracted.vatAmount === null || extracted.vatAmount === undefined) {
-    warnings.push('VAT amount not extracted — will be calculated from total');
+    warnings.push(VAT_NOT_READ_WARNING);
   }
   if (!extracted.vendorName) {
     warnings.push('Merchant name not extracted');
@@ -111,50 +151,114 @@ export function mapMerchantToExpenseAccount(
   return null;
 }
 
+/** What a receipt says when its VAT was not read (K-072 r31): none is claimed. */
+export const VAT_NOT_READ_WARNING = 'VAT amount not read from the document — no VAT is claimed; enter it from the document if one is shown';
+export const VAT_NOT_READ_SUFFIX = ' — VAT not read from the document, none claimed';
+
 export function buildExpenseJournalFromReceipt(
   extracted: ExtractedDocument,
   accountIds: { expenseAccountId: string; vatInputAccountId: string; bankAccountId: string },
+  options: { accountVatDenied?: boolean } = {},
 ): JournalEntryInput {
   const total = extracted.totalAmount ?? 0;
-  const vatRate = extracted.vatRate ?? 15;
-
-  let vatAmount: number;
-  let subtotal: number;
-
-  if (extracted.vatAmount !== null && extracted.vatAmount !== undefined && extracted.subtotal !== null && extracted.subtotal !== undefined) {
-    vatAmount = extracted.vatAmount;
-    subtotal = extracted.subtotal;
-  } else {
-    // Calculate VAT-inclusive → exclusive
-    subtotal = Math.round((total / (1 + vatRate / 100)) * 100) / 100;
-    vatAmount = Math.round((total - subtotal) * 100) / 100;
-  }
+  // No VAT read is no VAT claimed (K-072 r31). This derived 15/115 of the total
+  // whenever the VAT (or the net) was missing — R130.43 of input tax on a
+  // non-VAT R1 000 slip, left on a draft the MCP `post_journal` tool could post.
+  // A VAT that WAS read is kept, and the net is what is left of the total.
+  const vatRead = extracted.vatAmount !== null && extracted.vatAmount !== undefined;
+  const vatAmount = vatRead ? extracted.vatAmount! : 0;
+  const subtotal = vatRead ? (extracted.subtotal ?? Math.round((total - vatAmount) * 100) / 100) : total;
 
   const merchantDesc = extracted.vendorName || 'Unknown merchant';
 
+  // s17(2)(a) denies input tax on entertainment. The denial is a property of
+  // the ACCOUNT the receipt is coded to (K-072 r35): `accountVatDenied` is the
+  // `gl_accounts.vat_input_denied` marker migration 521 sets, resolved by the
+  // caller against that account. The vendor name no longer folds a read VAT —
+  // round 22's merchant heuristic did, and `spur` matched `Spurway Steel`, which
+  // auto-posted Dr 5600 1000 / Cr bank with its R130.43 of input VAT dropped.
+  // A meals merchant coded to an account that does NOT deny is not folded and
+  // not posted unattended either (`mealsVatNeedsAPerson`): a person decides.
+  const { denied } = applyVatDenial(
+    Boolean(options.accountVatDenied),
+    VAT_CODE_STANDARD,
+    { vendorName: extracted.vendorName, source: 'receipt_to_journal' },
+  );
+  // A denial is a CLASSIFICATION, so it is recorded as one. Leaving `vatType`
+  // undefined made "denied under s17(2)(a)" indistinguishable from "nobody
+  // classified this line", with the only trace of the decision a description
+  // string — an exception report cannot read prose.
+  //
+  // The value is `'no_vat'`, not the `'none'` that `applyVatDenial` returns.
+  // Those are two vocabularies: `'none'` is the BANK vat_code, and `VatType` —
+  // what `gl_journal_lines.vat_type` stores and VAT201 reads — spells the same
+  // fact `'no_vat'`. `bankAllocationService` maps the code to the type the same
+  // way rather than writing the code through. Writing `'none'` into the column
+  // would put a token in the ledger that no reader recognises.
+  const deniedVatType: VatType = 'no_vat';
+  // The gross stays on the expense leg as subtotal + vatAmount, never `total`:
+  // the three figures are extracted independently and the callers' pre-check
+  // rejects an entry where they disagree. Collapsing to `total` would hide it.
+  const expenseDebit = denied ? Math.round((subtotal + vatAmount) * 100) / 100 : subtotal;
+
+  // The whole cost, unclassified, when the VAT was never read: nothing claimed.
+  const lineVatType: VatType = denied || !vatRead ? deniedVatType : 'standard';
   return {
     entryDate: extracted.date || new Date().toISOString().split('T')[0]!,
-    description: `Receipt: ${merchantDesc}${extracted.referenceNumber ? ` (${extracted.referenceNumber})` : ''}`,
+    description: `Receipt: ${merchantDesc}${extracted.referenceNumber ? ` (${extracted.referenceNumber})` : ''}`
+      + (vatRead ? '' : VAT_NOT_READ_SUFFIX),
     source: 'auto_invoice',
+    inputVatDenied: denied,
     lines: [
-      { accountId: accountIds.expenseAccountId, debit: subtotal, credit: 0, description: merchantDesc },
-      { accountId: accountIds.vatInputAccountId, debit: vatAmount, credit: 0, description: 'VAT Input' },
+      {
+        accountId: accountIds.expenseAccountId,
+        debit: expenseDebit,
+        credit: 0,
+        description: denied ? `${merchantDesc} (input VAT denied — s17(2)(a))` : merchantDesc,
+        vatType: lineVatType,
+      },
+      // Zero on a denial. Both callers drop zero-value legs before posting, so
+      // the entry reaches the ledger with no VAT-input line at all.
+      {
+        accountId: accountIds.vatInputAccountId,
+        debit: denied ? 0 : vatAmount,
+        credit: 0,
+        description: 'VAT Input',
+        vatType: lineVatType,
+      },
       { accountId: accountIds.bankAccountId, debit: 0, credit: total, description: `Payment: ${merchantDesc}` },
     ],
   };
 }
 
+/**
+ * May this receipt post with nobody looking at it?
+ *
+ * The document has to be unambiguous first — `unattendedPostingRefusal` owns
+ * that, and it is the part that decides money: one printed total, a VAT
+ * figure, a net and VAT that add up where a net is printed, no reconciliation
+ * warning, and not a credit note. The whole document is taken rather than its
+ * total, because every one of those facts was a separate way an earlier
+ * version of this gate posted a wrong number: it read the total and the
+ * confidence, and confidence is computed from which FIELDS were found, not
+ * from whether they agree. Only then do the amount cap and the confidence
+ * floor apply.
+ */
 export function shouldAutoPostReceipt(
-  totalAmount: number,
-  confidence: number,
+  extracted: UnattendedPostingInput & Pick<ExtractedDocument, 'confidence'>,
   config: ReceiptAutoPostConfig,
 ): boolean {
-  return totalAmount < config.maxAmount && confidence >= config.minConfidence;
+  if (unattendedPostingRefusal(extracted) !== null) return false;
+  return (extracted.totalAmount ?? 0) < config.maxAmount && extracted.confidence >= config.minConfidence;
 }
 
 export function parseReceiptType(extracted: ExtractedDocument): ReceiptType {
-  if (!extracted.vendorName) return 'general';
-  const name = extracted.vendorName.toLowerCase();
+  return typeOfVendor(extracted.vendorName);
+}
+
+function typeOfVendor(vendorName: string | null | undefined): ReceiptType {
+  if (!vendorName) return 'general';
+  const name = vendorName.toLowerCase();
 
   for (const mapping of MERCHANT_PATTERNS) {
     if (mapping.pattern.test(name)) return mapping.type;
@@ -162,3 +266,29 @@ export function parseReceiptType(extracted: ExtractedDocument): ReceiptType {
 
   return 'general';
 }
+
+/**
+ * THE rule for a meals merchant's input VAT (K-072 r35–r36): a receipt or bill
+ * from a meals merchant that still CLAIMS VAT sits on an account that does not
+ * deny it (a denying account folds the VAT, so nothing is claimed), and s17(2)(a)
+ * denies entertainment input tax — unless the tenant itself trades in it. The
+ * name decides nothing about the VAT; it only decides that a person must look.
+ * Every unattended poster asks this one question, WITH THE SAME INPUTS (r37):
+ * the receipt routes before auto-posting, and MCP `post_journal` and the
+ * approve tools (`capturedVatEvidence`) before posting a captured draft — so
+ * they cannot disagree.
+ */
+export function mealsVatNeedsAPerson(vendor: CapturedVendor, claimedVat: number): boolean {
+  return claimedVat > 0 && typeOfVendor(capturedVendorName(vendor)) === 'meals';
+}
+
+/** The vendor names a captured document carries: a person's correction (`captured_documents.vendor_name`) and the extraction's. */
+export interface CapturedVendor { confirmed?: string | null; extracted?: string | null }
+
+/** The vendor a captured document names: the person-confirmed name first, the extracted one only where none was confirmed. */
+export function capturedVendorName(vendor: CapturedVendor): string | null {
+  return vendor.confirmed?.trim() ? vendor.confirmed : (vendor.extracted ?? null);
+}
+
+/** What a held draft says of itself (K-072 r36): the record a person reads. */
+export const MEALS_VAT_HELD_SUFFIX = ' — HELD for a person: a meals merchant\'s input VAT on an account that does not deny it (s17(2)(a))';

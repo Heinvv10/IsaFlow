@@ -1,0 +1,7 @@
+BEGIN
+company_users|id|uuid
+company_users|user_id|text
+products|code|text
+products|current_stock|numeric
+users|id|character varying
+COMMIT

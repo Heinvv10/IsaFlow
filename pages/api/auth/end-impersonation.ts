@@ -15,7 +15,7 @@ import {
 } from '@/lib/auth/cookies';
 import { ADMIN_STASH_COOKIE, clearImpersonationCookies } from '@/lib/auth/impersonation-cookies';
 import { loadStash, deleteStash } from '@/modules/admin/services/userImpersonationService';
-import { verifyToken } from '@/lib/auth/gotrue';
+import { verifyTokenSignature } from '@/lib/auth/gotrue';
 import { verifyCsrf } from '@/lib/auth/csrf';
 import { sql } from '@/lib/neon';
 import { log } from '@/lib/logger';
@@ -56,7 +56,9 @@ const handler: NextApiHandler = async (req, res) => {
   // refuses to START impersonation of an inactive target (TARGET_INACTIVE).
   let callerId: string;
   try {
-    const claims = await verifyToken(accessToken);
+    // Restoring the owned admin stash must work even when the target needs MFA.
+    // The restored session is subject to the normal completed-session gate.
+    const claims = await verifyTokenSignature(accessToken);
     callerId = claims.sub;
   } catch {
     clearAuthCookies(res);

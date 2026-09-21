@@ -42,6 +42,10 @@ export async function runReport(companyId: string, config: ReportConfig): Promis
   // Defense-in-depth: scope gl_journal_lines by company_id in addition to the entry alias
   const whereParts: string[] = dataSource === 'gl_transactions'
     ? [`${alias}.company_id = $1`, `jl.company_id = $1`]
+    // Totals/reports count posted feed rows only — a pending or removed row
+    // must not appear in an exported bank-transactions report.
+    : dataSource === 'bank_transactions'
+    ? [`${alias}.company_id = $1`, `${alias}.feed_state = 'posted'`]
     : [`${alias}.company_id = $1`];
 
   for (const filter of filters) {

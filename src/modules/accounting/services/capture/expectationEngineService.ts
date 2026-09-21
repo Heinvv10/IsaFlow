@@ -7,6 +7,7 @@ import { sql } from '@/lib/neon';
 import { fmtDate } from '@/lib/fmtDate';
 import { log } from '@/lib/logger';
 import type { DbRow } from '@/lib/neon';
+import { assertSupplierInCompany } from '../core/contactDirectoryService';
 
 type Row = DbRow;
 
@@ -155,6 +156,10 @@ export async function recomputeForSupplier(
   companyId: string,
   supplierId: string,
 ): Promise<SupplierExpectation> {
+  // R-068: the route passes a body supplierId, and the daily cron passes every
+  // supplier_id this company's bills carry — the cron runs outside RLS, and an
+  // expectation's supplier is who the chase email goes to.
+  await assertSupplierInCompany(companyId, supplierId);
   // Fetch last 6 invoices sorted desc
   const invoiceRows = await sql`
     SELECT invoice_date, total_amount

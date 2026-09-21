@@ -1,3 +1,5 @@
+import { getCompanyMembership, type CompanyMembershipRow } from './companyMembership';
+import { IMPERSONATION_PROOF_COOKIE } from './impersonation-cookies';
 // src/lib/auth/withAuth.ts
 import type { NextApiRequest, NextApiResponse, NextApiHandler } from 'next';
 import * as Sentry from '@sentry/nextjs';
@@ -5,11 +7,12 @@ import { verifyToken } from './gotrue';
 import { authenticatePrintToken } from './withAuthPrint';
 import { getAuthPool } from './authPool';
 import { parseCookies, clearAuthCookies, ACCESS_COOKIE, ACTIVE_COMPANY_COOKIE } from './cookies';
-import { als } from '@/lib/als';
+import type { RequestContext } from '@/lib/als';
+import { runOwnedContext, drainAfterCommit } from '@/lib/afterCommit';
 import { log } from '@/lib/logger';
 import { setTenantTags, sanitizeRoute } from '@/lib/sentry/tags';
 import { checkRateLimit } from '@/lib/rateLimit';
-import { isActiveUserAccount, SUSPENDED_ACCOUNT_ERROR, MISSING_PROFILE_ERROR, type UserAccountRow } from './userAccountStatus';
+import { isActiveUserAccount, SUSPENDED_ACCOUNT_ERROR, MISSING_PROFILE_ERROR } from './userAccountStatus';
 
 // Re-exported so every existing `import { withRole } from '@/lib/auth/withAuth'`
 // keeps working; the implementation moved to withRole.ts (300-line ceiling).
@@ -57,7 +60,7 @@ export function withAuth(handler: Handler): NextApiHandler {
 
     let claims;
     try {
-      claims = await verifyToken(token);
+      claims = await verifyToken(token, cookies[IMPERSONATION_PROOF_COOKIE]);
     } catch (err) {
       // Print-pipeline fallback (src/lib/pdf/renderPagePdf.ts): a headless
       // Chromium request carries a short-lived print token instead of a
@@ -114,21 +117,9 @@ export function withAuth(handler: Handler): NextApiHandler {
       // (company_users.user_id has no FK to users) is denied by the predicate
       // rather than silently disappearing into the membership-missing branch.
       // Neither user_id nor users.id is cast: both are TEXT columns.
-      type MembershipRow = UserAccountRow & { role: string; account_user_id: string | null };
-      let membership: { rows: MembershipRow[] };
+      let membership: { rows: CompanyMembershipRow[] };
       try {
-        membership = await client.query<MembershipRow>(
-          `SELECT cu.role,
-                  u.id AS account_user_id,
-                  u.is_active,
-                  u.status,
-                  u.suspended_at
-             FROM company_users cu
-             LEFT JOIN users u ON u.id = cu.user_id
-            WHERE cu.user_id = $1 AND cu.company_id = $2::uuid
-            LIMIT 1`,
-          [claims.sub, activeCompanyId]
-        );
+        membership = await getCompanyMembership(client, claims.sub, activeCompanyId);
       } catch {
         await client.query('ROLLBACK');
         return res.status(403).json({ success: false, error: { code: 'FORBIDDEN', message: 'Not a member of this company' } });
@@ -211,11 +202,10 @@ export function withAuth(handler: Handler): NextApiHandler {
         return res;
       };
 
-      const runHandler = async () =>
-        als.run(
-          { client, userId: claims.sub, companyId: activeCompanyId, claims: claims as Record<string, unknown> },
-          async () => { await handler(req, res); }
-        );
+      const ctx: RequestContext = {
+        client, userId: claims.sub, companyId: activeCompanyId, claims: claims as Record<string, unknown>, afterCommit: [],
+      };
+      const runHandler = async () => runOwnedContext(ctx, async () => { await handler(req, res); });
 
       if (process.env.SENTRY_ENABLED === 'true') {
         await Sentry.withIsolationScope(async () => {
@@ -275,6 +265,9 @@ export function withAuth(handler: Handler): NextApiHandler {
       // never responded there is nothing to replay (Next surfaces its own
       // "resolved without sending a response" path, unchanged from before).
       if (handlerEnded) realEnd(...(bufferedEndArgs ?? []));
+      // Only now may background work start: its rows are visible, and it gets its
+      // own connection instead of this one (R-075). Never after a ROLLBACK.
+      if (!handlerFailed) drainAfterCommit(ctx);
     } catch (err) {
       try { await client.query('ROLLBACK'); } catch { /* secondary */ }
       throw err;

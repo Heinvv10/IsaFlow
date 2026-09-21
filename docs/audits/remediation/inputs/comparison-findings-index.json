@@ -1,0 +1,218 @@
+[
+  {
+    "id": "F01",
+    "title": "MFA can be bypassed with the pending-login token"
+  },
+  {
+    "id": "F02",
+    "title": "Failed payment webhooks are discarded on retry"
+  },
+  {
+    "id": "F03",
+    "title": "Company suspension does not revoke API access"
+  },
+  {
+    "id": "F04",
+    "title": "Cancelling a credit note creates spurious VAT201 amounts"
+  },
+  {
+    "id": "F05",
+    "title": "Concurrent credit-note applications lose invoice settlement"
+  },
+  {
+    "id": "F06",
+    "title": "Supplier bills can be posted to the GL twice"
+  },
+  {
+    "id": "F07",
+    "title": "Concurrent journal reversals can both succeed"
+  },
+  {
+    "id": "F08",
+    "title": "Transfer relinking allocates multiple bank lines to one GL movement"
+  },
+  {
+    "id": "F09",
+    "title": "Recalculating payroll removes loan repayments but keeps the reduced loan balance"
+  },
+  {
+    "id": "F10",
+    "title": "SDL calculations use an invented salary per employee"
+  },
+  {
+    "id": "F11",
+    "title": "Client rate override writes disagree with billing reads"
+  },
+  {
+    "id": "F12",
+    "title": "Overlapping WIP invoice requests can bill the same time twice"
+  },
+  {
+    "id": "F13",
+    "title": "Retrying mandate checkout prevents successful activation"
+  },
+  {
+    "id": "F14",
+    "title": "Journal reversal drops VAT classification"
+  },
+  {
+    "id": "F15",
+    "title": "CaseWare export downloads metadata instead of the actual package"
+  },
+  {
+    "id": "F16",
+    "title": "Word AFS export bypasses the checks enforced for PDF"
+  },
+  {
+    "id": "F17",
+    "title": "AFS PDF covers can display the wrong financial year-end"
+  },
+  {
+    "id": "F18",
+    "title": "Failed bank reversal can commit the payment unwind"
+  },
+  {
+    "id": "F19",
+    "title": "Below-threshold assets can be expensed repeatedly and without write permission"
+  },
+  {
+    "id": "F20",
+    "title": "Depreciation runs do not carry forward accumulated tax depreciation"
+  },
+  {
+    "id": "F21",
+    "title": "PPE annual additions include assets acquired before the year"
+  },
+  {
+    "id": "F22",
+    "title": "Posted depreciation ignores the selected policy method"
+  },
+  {
+    "id": "F23",
+    "title": "Posted disposals are absent from disposal history and reported as unposted"
+  },
+  {
+    "id": "F24",
+    "title": "Reconciliation adjustments do not update the reconciliation balance correctly"
+  },
+  {
+    "id": "F25",
+    "title": "Reversed reconciliation adjustments still block cancellation"
+  },
+  {
+    "id": "F26",
+    "title": "Recurring transaction invoice auto-post uses a forbidden status"
+  },
+  {
+    "id": "F27",
+    "title": "Recurring transaction invoice numbers collide within a month"
+  },
+  {
+    "id": "F28",
+    "title": "Recurring invoices are generated approved without lines or GL posting"
+  },
+  {
+    "id": "F29",
+    "title": "Stock adjustment inserts a nonexistent stock movement column"
+  },
+  {
+    "id": "F30",
+    "title": "Concurrent sales-order confirmation and editing can replace only the lines"
+  },
+  {
+    "id": "F31",
+    "title": "Unsupported bank providers insert fabricated transactions"
+  },
+  {
+    "id": "F32",
+    "title": "Sage invoice migration discards source payment balances"
+  },
+  {
+    "id": "F33",
+    "title": "Scheduled subscription cancellation is ignored during renewal"
+  },
+  {
+    "id": "F34",
+    "title": "Default company billing cancellation uses an unsupported request"
+  },
+  {
+    "id": "F35",
+    "title": "Sage bank chunk rollback leaves inflated success counts"
+  },
+  {
+    "id": "F36",
+    "title": "IMAP cursor advances past failed attachment ingestion"
+  },
+  {
+    "id": "F37",
+    "title": "Migration step updates erase previously completed progress"
+  },
+  {
+    "id": "F38",
+    "title": "Background upload extraction retains a released request client"
+  },
+  {
+    "id": "F39",
+    "title": "Other users cannot consent to a confidential OAuth app"
+  },
+  {
+    "id": "F40",
+    "title": "Token issuance failure consumes the authorization code"
+  },
+  {
+    "id": "F41",
+    "title": "App revocation does not invalidate existing OAuth access tokens"
+  },
+  {
+    "id": "F42",
+    "title": "Annual payroll exports include unapproved and cancelled runs"
+  },
+  {
+    "id": "F43",
+    "title": "e@syFile export strips leading zeros from employee identity numbers"
+  },
+  {
+    "id": "F44",
+    "title": "Time tracking ignores its listing and summary filters"
+  },
+  {
+    "id": "F45",
+    "title": "Owner cash panel treats excess ETI as spendable payroll cash"
+  },
+  {
+    "id": "F46",
+    "title": "Bureau owners can attach unrelated companies and read their finances"
+  },
+  {
+    "id": "F47",
+    "title": "Once-off payroll batches keep paying in subsequent months"
+  },
+  {
+    "id": "F48",
+    "title": "AFS receivable and payable notes report invoice face values after partial payment"
+  },
+  {
+    "id": "F49",
+    "title": "AFS aging drops invoices that are not yet due at year end"
+  },
+  {
+    "id": "F50",
+    "title": "Cookie authentication hides client-specific billing rate overrides"
+  },
+  {
+    "id": "F51",
+    "title": "A loan that skips every month has an unbounded schedule calculation"
+  },
+  {
+    "id": "F52",
+    "title": "Bank allocation cannot create new suppliers or customers"
+  },
+  {
+    "id": "F53",
+    "title": "Supplier pickers call a nonexistent API"
+  },
+  {
+    "id": "F54",
+    "title": "Supplier expectation recompute and gap detection buttons target nonexistent routes"
+  }
+]

@@ -36,6 +36,7 @@ type Row = DbRow;
 
 export interface TrialBalanceOptions {
   costCentreId?: string;
+  businessUnitId?: string;
   /**
    * Keep accounts that have posted lines in range but whose balance AND movement
    * both net to zero. Off by default — those accounts say nothing on a trial
@@ -113,10 +114,12 @@ async function rowsForBasis(
   basis: PeriodBasis,
   options: TrialBalanceOptions,
 ): Promise<TrialBalanceRow[]> {
-  const { costCentreId } = options;
+  const { costCentreId, businessUnitId } = options;
   try {
     const { periodStart, periodEnd, fyStart } = basis;
+    // The selector contains both CC types; legacy attribution is independent.
     const ccId = costCentreId ?? null;
+    const buId = businessUnitId ?? null;
 
     const rows = (await sql`
       SELECT ga.account_code, ga.account_name, ga.account_type, ga.normal_balance,
@@ -135,7 +138,9 @@ async function rowsForBasis(
         AND je.company_id = ${companyId}::UUID
         AND jl.company_id = ${companyId}::UUID
         AND je.entry_date <= ${periodEnd}
-        AND (${ccId}::TEXT IS NULL OR jl.cost_center_id = ${ccId}::UUID)
+        AND (${ccId}::TEXT IS NULL OR jl.cost_center_id = ${ccId}::UUID
+          OR jl.cc1_id = ${ccId}::UUID OR jl.cc2_id = ${ccId}::UUID)
+        AND (${buId}::TEXT IS NULL OR jl.bu_id = ${buId}::UUID)
       GROUP BY ga.id, ga.account_code, ga.account_name, ga.account_type, ga.normal_balance
       ORDER BY ga.account_code
     `) as Row[];
@@ -144,7 +149,7 @@ async function rowsForBasis(
       ? rows.map(toTrialBalanceRow)
       : rows.map(toTrialBalanceRow).filter(isNonEmpty);
 
-    const broughtForward = await getRetainedEarningsBroughtForward(companyId, fyStart, costCentreId);
+    const broughtForward = await getRetainedEarningsBroughtForward(companyId, fyStart, costCentreId, businessUnitId);
     if (Math.abs(broughtForward) >= 0.01) {
       appendBroughtForward(result, fyStart, broughtForward);
       result.sort((a, b) => a.accountCode.localeCompare(b.accountCode));
@@ -248,6 +253,7 @@ export async function getTrialBalanceReport(
     periodEnd: basis?.periodEnd ?? '',
     fiscalYearStart: basis?.fyStart ?? '',
     costCentreId: options.costCentreId,
+    businessUnitId: options.businessUnitId,
     rows,
     accountCount: rows.length,
     totalDebit: round2(rawDebit),

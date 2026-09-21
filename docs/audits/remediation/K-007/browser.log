@@ -1,0 +1,1 @@
+PASS actual GRN form -> owned PO detail -> partial receipt -> select same partially received PO -> final receipt -> list and SQL receipt/PO quantities agree; localhost only.

@@ -1,6 +1,5 @@
 [Unit]
 Description=Weekday trigger for IsaFlow dunning ladder walker
-Requires=isaflow-dunning-send.service
 
 [Timer]
 # Weekdays (Mon–Fri) at 07:30 SAST. Invoice-paid flips from overnight

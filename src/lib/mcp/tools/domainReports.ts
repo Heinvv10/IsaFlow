@@ -36,8 +36,8 @@ export const customerStatementTool: McpTool = {
     'A running-balance statement of account for one customer: every invoice, receipt and credit note dated on or before as_at, in date order, with the balance after each. This is what you send a debtor when you chase them. ' +
     'It runs from INCEPTION to as_at, not over a rolling window — from_date reports the date of the earliest transaction it actually found. ' +
     'Invoices appear at their full value; the statement does not net payments off individual invoices, it lists them as separate credits, so the closing balance is what the customer owes overall rather than an age analysis. Use aged_debtors for ageing. ' +
-    'Cancelled invoices are omitted. A receipt that has not been confirmed or reconciled does NOT reduce the balance and appears in excludedRows with its amount, because a customer who has paid you money nobody has confirmed is a different problem from one who has not paid. Credit notes count whether they are approved or already applied to an invoice. ' +
-    'Every excluded row names a machine-stable reason and, where it has one, its amount. detail: "summary" returns the totals with no rows; "standard" and "full" return the transactions.',
+    'An invoice that is draft, pending approval or cancelled is not yet a claim on the customer and is left off the statement — it appears in excludedRows with its amount and status, never silently. A NULL status counts as issued. A receipt that has not been confirmed or reconciled does NOT reduce the balance and appears in excludedRows with its amount, because a customer who has paid you money nobody has confirmed is a different problem from one who has not paid. Credit notes count whether they are approved or already applied to an invoice. ' +
+    'Every excluded row names a machine-stable reason and, where it has one, its amount. detail: "summary" returns the totals with no rows; "standard" and "full" return the transactions. Balances are exact to the cent.',
   scope: 'read:reports',
   write: false,
   inputSchema: {

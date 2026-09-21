@@ -39,6 +39,15 @@ vi.mock('@/modules/accounting/services/ar/unappliedReceiptService', () => ({
 vi.mock('@/modules/accounting/services/ap/unappliedPaymentService', () => ({
   getUnappliedPayments: vi.fn(),
 }));
+// PARTIAL: `netAgingRows` is pure and stays real — it is the code under test
+// whenever a row's `unapplied` and `net` are asserted. Only the two database
+// readers are replaced.
+vi.mock('@/modules/accounting/services/shared/agedNetting', async () => {
+  const actual = await vi.importActual<typeof import('@/modules/accounting/services/shared/agedNetting')>(
+    '@/modules/accounting/services/shared/agedNetting',
+  );
+  return { ...actual, getUnappliedByEntity: vi.fn(), getUnappliedCreditNotes: vi.fn() };
+});
 vi.mock('@/modules/accounting/services/reports/postedThroughService', () => ({
   getLedgerPostedThrough: vi.fn().mockResolvedValue('2026-08-31T22:15:00.000Z'),
 }));
@@ -47,6 +56,10 @@ import { getARAging, getARAgingDetail } from '@/modules/accounting/services/ar/a
 import { getAPAging, getAPAgingDetail } from '@/modules/accounting/services/ap/apAgingService';
 import { getUnappliedReceipts } from '@/modules/accounting/services/ar/unappliedReceiptService';
 import { getUnappliedPayments } from '@/modules/accounting/services/ap/unappliedPaymentService';
+import {
+  getUnappliedByEntity,
+  getUnappliedCreditNotes,
+} from '@/modules/accounting/services/shared/agedNetting';
 import { agedDebtorsTool, agedCreditorsTool } from '@/lib/mcp/tools/reportsAging';
 import { assertEnvelopeSound } from '@/lib/mcp/contracts';
 import type { McpToolContext } from '@/lib/mcp/types';
@@ -76,6 +89,8 @@ beforeEach(() => {
   vi.mocked(getAPAgingDetail).mockReset();
   vi.mocked(getUnappliedReceipts).mockReset().mockResolvedValue(NO_RECEIPTS as never);
   vi.mocked(getUnappliedPayments).mockReset().mockResolvedValue(NO_RECEIPTS as never);
+  vi.mocked(getUnappliedByEntity).mockReset().mockResolvedValue(new Map());
+  vi.mocked(getUnappliedCreditNotes).mockReset().mockResolvedValue({ count: 0, amount: 0, sample: [] });
 });
 
 describe('aged_debtors', () => {
@@ -259,5 +274,80 @@ describe('aged_creditors', () => {
     // verification.
     expect(body).not.toHaveProperty('universeTotal');
     expect(body).not.toHaveProperty('completenessFault');
+  });
+});
+
+/**
+ * NETTING (L2). The buckets are the age of the debt and must stay gross. What
+ * changed is that the credit sitting against an entity's name — unapplied cash
+ * and the face value its live credit notes have not consumed — is now attributed
+ * PER ENTITY, so each row can carry it and the headline total can be the net.
+ *
+ * The company-wide footer is deliberately NOT the sum of the rows: cash whose
+ * counterparty cannot be resolved has no row to sit on.
+ */
+describe('aged reports net the credit sitting against each entity', () => {
+  const credit = (total: number, payments = 0, creditNotes = 0) => new Map([[
+    'cccccccc-0000-4000-8000-000000000001',
+    { entityName: 'Blitz Fibre', payments, creditNotes, total },
+  ]]);
+
+  it('carries unapplied and net on the row while the buckets stay gross', async () => {
+    vi.mocked(getUnappliedByEntity).mockResolvedValue(credit(315, 200, 115));
+    const body = payload(await agedDebtorsTool.handler({ as_at: '2026-08-31' }, CTX));
+    const row = (body.rows as Array<Record<string, number>>)[0]!;
+    expect(row.total).toBe(1000);
+    expect(row.current).toBe(100);
+    expect(row.days120Plus).toBe(700);
+    expect(row.unapplied).toBe(-315);
+    expect(row.net).toBe(685);
+  });
+
+  it('reports the NET as the headline total and the gross beside it', async () => {
+    vi.mocked(getUnappliedByEntity).mockResolvedValue(credit(315, 200, 115));
+    const body = payload(await agedDebtorsTool.handler({ as_at: '2026-08-31' }, CTX));
+    expect(body.total).toBe(685);
+    expect(body.gross_total).toBe(1000);
+    // The buckets are the gross ones, so they still add up to gross_total.
+    const b = body.buckets as Record<string, number>;
+    expect(b.current + b.days30 + b.days60 + b.days90 + b.days120Plus).toBe(1000);
+  });
+
+  it('emits a row for a supplier that is in credit with no open bill', async () => {
+    vi.mocked(getAPAging).mockResolvedValue([]);
+    vi.mocked(getUnappliedByEntity).mockResolvedValue(new Map([[
+      'dddddddd-0000-4000-8000-000000000009',
+      { entityName: 'Overpaid Ltd', payments: 0, creditNotes: 500, total: 500 },
+    ]]));
+    const body = payload(await agedCreditorsTool.handler({ as_at: '2026-08-31' }, CTX));
+    const row = (body.rows as Array<Record<string, unknown>>)[0]!;
+    expect(row.entityName).toBe('Overpaid Ltd');
+    expect(row.total).toBe(0);
+    expect(row.net).toBe(-500);
+    expect(body.total).toBe(-500);
+  });
+
+  it('reports unapplied credit notes in the footer beside the unapplied cash', async () => {
+    vi.mocked(getUnappliedCreditNotes).mockResolvedValue({
+      count: 3, amount: 1234.56, sample: [],
+    });
+    const body = payload(await agedCreditorsTool.handler({ as_at: '2026-08-31' }, CTX));
+    expect(body.unappliedCreditNotes).toEqual({ count: 3, total: 1234.56 });
+    expect(body).toHaveProperty('unappliedPayments');
+  });
+
+  it('nets the drill-down the same way as the summary row', async () => {
+    vi.mocked(getARAgingDetail).mockResolvedValue({
+      client: { id: 'cccccccc-0000-4000-8000-000000000001', name: 'Blitz Fibre' },
+      invoices: [{ id: 'i1', entityId: 'cccccccc-0000-4000-8000-000000000001', entityName: 'Blitz Fibre', dueDate: '2026-07-01', totalAmount: 1000, amountPaid: 0, balance: 1000 }],
+      buckets: null,
+    } as never);
+    vi.mocked(getUnappliedByEntity).mockResolvedValue(credit(315, 200, 115));
+    const body = payload(await agedDebtorsTool.handler(
+      { as_at: '2026-08-31', entity_id: 'cccccccc-0000-4000-8000-000000000001' }, CTX,
+    ));
+    expect(body.gross_total).toBe(1000);
+    expect(body.unapplied).toBe(-315);
+    expect(body.total).toBe(685);
   });
 });

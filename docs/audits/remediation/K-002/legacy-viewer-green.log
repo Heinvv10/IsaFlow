@@ -1,0 +1,52 @@
+
+ RUN  v4.1.2 /home/hein/Workspace/IsaFlow/.worktrees/audit-remediation-20260908
+
+{"level":"info","message":"OAuth app registered","timestamp":"2026-09-08T16:51:02.517Z","component":"oauth","data":{"appId":"f26aac39-712b-40e1-ad32-b6505142eed1","ownerUserId":"eef219fa-9c2b-43c0-956f-f7ee47d98e93","name":"standing fixture","isDynamic":false}}
+{"level":"info","message":"PAT created","timestamp":"2026-09-08T16:51:02.524Z","component":"pat","data":{"userId":"eef219fa-9c2b-43c0-956f-f7ee47d98e93","companyId":"92523831-1291-42eb-b792-30b4815d11af","name":"standing fixture","scopes":["read:invoices"]}}
+{"level":"info","message":"activateCompany","timestamp":"2026-09-08T16:51:02.527Z","component":"AdminCompanyService","data":{"companyId":"92523831-1291-42eb-b792-30b4815d11af"}}
+{"level":"info","message":"suspendCompany","timestamp":"2026-09-08T16:51:02.538Z","component":"AdminCompanyService","data":{"companyId":"92523831-1291-42eb-b792-30b4815d11af","reason":"disposable regression"}}
+{"level":"info","message":"activateCompany","timestamp":"2026-09-08T16:51:02.543Z","component":"AdminCompanyService","data":{"companyId":"92523831-1291-42eb-b792-30b4815d11af"}}
+{"level":"info","message":"activateCompany","timestamp":"2026-09-08T16:51:02.548Z","component":"AdminCompanyService","data":{"companyId":"92523831-1291-42eb-b792-30b4815d11af"}}
+{"level":"info","message":"deleteCompany (soft)","timestamp":"2026-09-08T16:51:02.554Z","component":"AdminCompanyService","data":{"companyId":"92523831-1291-42eb-b792-30b4815d11af"}}
+{"level":"info","message":"activateCompany","timestamp":"2026-09-08T16:51:02.558Z","component":"AdminCompanyService","data":{"companyId":"92523831-1291-42eb-b792-30b4815d11af"}}
+{"level":"info","message":"activateCompany","timestamp":"2026-09-08T16:51:02.563Z","component":"AdminCompanyService","data":{"companyId":"92523831-1291-42eb-b792-30b4815d11af"}}
+{"level":"info","message":"activateCompany","timestamp":"2026-09-08T16:51:02.572Z","component":"AdminCompanyService","data":{"companyId":"92523831-1291-42eb-b792-30b4815d11af"}}
+{"level":"info","message":"activateCompany","timestamp":"2026-09-08T16:51:02.576Z","component":"AdminCompanyService","data":{"companyId":"92523831-1291-42eb-b792-30b4815d11af"}}
+{"level":"info","message":"suspendCompany","timestamp":"2026-09-08T16:51:02.587Z","component":"AdminCompanyService","data":{"companyId":"92523831-1291-42eb-b792-30b4815d11af","reason":"disposable regression"}}
+{"level":"info","message":"activateCompany","timestamp":"2026-09-08T16:51:02.592Z","component":"AdminCompanyService","data":{"companyId":"92523831-1291-42eb-b792-30b4815d11af"}}
+{"level":"info","message":"activateCompany","timestamp":"2026-09-08T16:51:02.601Z","component":"AdminCompanyService","data":{"companyId":"92523831-1291-42eb-b792-30b4815d11af"}}
+{"level":"info","message":"deleteCompany (soft)","timestamp":"2026-09-08T16:51:02.605Z","component":"AdminCompanyService","data":{"companyId":"92523831-1291-42eb-b792-30b4815d11af"}}
+{"level":"info","message":"activateCompany","timestamp":"2026-09-08T16:51:02.610Z","component":"AdminCompanyService","data":{"companyId":"92523831-1291-42eb-b792-30b4815d11af"}}
+{"level":"info","message":"activateCompany","timestamp":"2026-09-08T16:51:02.614Z","component":"AdminCompanyService","data":{"companyId":"92523831-1291-42eb-b792-30b4815d11af"}}
+{"level":"info","message":"activateCompany","timestamp":"2026-09-08T16:51:02.623Z","component":"AdminCompanyService","data":{"companyId":"92523831-1291-42eb-b792-30b4815d11af"}}
+{"level":"info","message":"activateCompany","timestamp":"2026-09-08T16:51:02.628Z","component":"AdminCompanyService","data":{"companyId":"92523831-1291-42eb-b792-30b4815d11af"}}
+{"level":"info","message":"suspendCompany","timestamp":"2026-09-08T16:51:02.634Z","component":"AdminCompanyService","data":{"companyId":"92523831-1291-42eb-b792-30b4815d11af","reason":"disposable regression"}}
+{"level":"info","message":"activateCompany","timestamp":"2026-09-08T16:51:02.640Z","component":"AdminCompanyService","data":{"companyId":"92523831-1291-42eb-b792-30b4815d11af"}}
+{"level":"info","message":"activateCompany","timestamp":"2026-09-08T16:51:02.644Z","component":"AdminCompanyService","data":{"companyId":"92523831-1291-42eb-b792-30b4815d11af"}}
+{"level":"info","message":"deleteCompany (soft)","timestamp":"2026-09-08T16:51:02.648Z","component":"AdminCompanyService","data":{"companyId":"92523831-1291-42eb-b792-30b4815d11af"}}
+{"level":"info","message":"activateCompany","timestamp":"2026-09-08T16:51:02.654Z","component":"AdminCompanyService","data":{"companyId":"92523831-1291-42eb-b792-30b4815d11af"}}
+{"level":"info","message":"activateCompany","timestamp":"2026-09-08T16:51:02.658Z","component":"AdminCompanyService","data":{"companyId":"92523831-1291-42eb-b792-30b4815d11af"}}
+{"level":"info","message":"activateCompany","timestamp":"2026-09-08T16:51:02.667Z","component":"AdminCompanyService","data":{"companyId":"92523831-1291-42eb-b792-30b4815d11af"}}
+{"level":"info","message":"activateCompany","timestamp":"2026-09-08T16:51:02.671Z","component":"AdminCompanyService","data":{"companyId":"92523831-1291-42eb-b792-30b4815d11af"}}
+{"level":"info","message":"withAuth: print token accepted","timestamp":"2026-09-08T16:51:02.672Z","component":"Auth","data":{"companyId":"92523831-1291-42eb-b792-30b4815d11af","userId":"eef219fa-9c2b-43c0-956f-f7ee47d98e93","paths":["/api/accounting/mfa-integration-fixture"]}}
+{"level":"info","message":"suspendCompany","timestamp":"2026-09-08T16:51:02.675Z","component":"AdminCompanyService","data":{"companyId":"92523831-1291-42eb-b792-30b4815d11af","reason":"disposable regression"}}
+{"level":"info","message":"withAuth: print token accepted","timestamp":"2026-09-08T16:51:02.675Z","component":"Auth","data":{"companyId":"92523831-1291-42eb-b792-30b4815d11af","userId":"eef219fa-9c2b-43c0-956f-f7ee47d98e93","paths":["/api/accounting/mfa-integration-fixture"]}}
+{"level":"info","message":"activateCompany","timestamp":"2026-09-08T16:51:02.679Z","component":"AdminCompanyService","data":{"companyId":"92523831-1291-42eb-b792-30b4815d11af"}}
+{"level":"info","message":"withAuth: print token accepted","timestamp":"2026-09-08T16:51:02.680Z","component":"Auth","data":{"companyId":"92523831-1291-42eb-b792-30b4815d11af","userId":"eef219fa-9c2b-43c0-956f-f7ee47d98e93","paths":["/api/accounting/mfa-integration-fixture"]}}
+{"level":"info","message":"activateCompany","timestamp":"2026-09-08T16:51:02.683Z","component":"AdminCompanyService","data":{"companyId":"92523831-1291-42eb-b792-30b4815d11af"}}
+{"level":"info","message":"withAuth: print token accepted","timestamp":"2026-09-08T16:51:02.683Z","component":"Auth","data":{"companyId":"92523831-1291-42eb-b792-30b4815d11af","userId":"eef219fa-9c2b-43c0-956f-f7ee47d98e93","paths":["/api/accounting/mfa-integration-fixture"]}}
+{"level":"info","message":"deleteCompany (soft)","timestamp":"2026-09-08T16:51:02.687Z","component":"AdminCompanyService","data":{"companyId":"92523831-1291-42eb-b792-30b4815d11af"}}
+{"level":"info","message":"withAuth: print token accepted","timestamp":"2026-09-08T16:51:02.687Z","component":"Auth","data":{"companyId":"92523831-1291-42eb-b792-30b4815d11af","userId":"eef219fa-9c2b-43c0-956f-f7ee47d98e93","paths":["/api/accounting/mfa-integration-fixture"]}}
+{"level":"info","message":"activateCompany","timestamp":"2026-09-08T16:51:02.691Z","component":"AdminCompanyService","data":{"companyId":"92523831-1291-42eb-b792-30b4815d11af"}}
+{"level":"info","message":"withAuth: print token accepted","timestamp":"2026-09-08T16:51:02.691Z","component":"Auth","data":{"companyId":"92523831-1291-42eb-b792-30b4815d11af","userId":"eef219fa-9c2b-43c0-956f-f7ee47d98e93","paths":["/api/accounting/mfa-integration-fixture"]}}
+{"level":"info","message":"activateCompany","timestamp":"2026-09-08T16:51:02.694Z","component":"AdminCompanyService","data":{"companyId":"92523831-1291-42eb-b792-30b4815d11af"}}
+{"level":"info","message":"withAuth: print token accepted","timestamp":"2026-09-08T16:51:02.694Z","component":"Auth","data":{"companyId":"92523831-1291-42eb-b792-30b4815d11af","userId":"eef219fa-9c2b-43c0-956f-f7ee47d98e93","paths":["/api/accounting/mfa-integration-fixture"]}}
+{"level":"info","message":"withAuth: print token accepted","timestamp":"2026-09-08T16:51:02.698Z","component":"Auth","data":{"companyId":"92523831-1291-42eb-b792-30b4815d11af","userId":"eef219fa-9c2b-43c0-956f-f7ee47d98e93","paths":["/api/accounting/mfa-integration-fixture"]}}
+{"level":"info","message":"activateCompany","timestamp":"2026-09-08T16:51:02.702Z","component":"AdminCompanyService","data":{"companyId":"92523831-1291-42eb-b792-30b4815d11af"}}
+{"level":"info","message":"withAuth: print token accepted","timestamp":"2026-09-08T16:51:02.702Z","component":"Auth","data":{"companyId":"92523831-1291-42eb-b792-30b4815d11af","userId":"eef219fa-9c2b-43c0-956f-f7ee47d98e93","paths":["/api/accounting/mfa-integration-fixture"]}}
+{"level":"info","message":"suspendCompany","timestamp":"2026-09-08T16:51:02.711Z","component":"AdminCompanyService","data":{"companyId":"92523831-1291-42eb-b792-30b4815d11af","reason":"ordinary member regression"}}
+
+ Test Files  1 passed (1)
+      Tests  13 passed (13)
+   Start at  18:51:02
+   Duration  620ms (transform 99ms, setup 0ms, import 242ms, tests 271ms, environment 0ms)

@@ -5,7 +5,12 @@
 
 export type CustomerPaymentStatus = 'draft' | 'confirmed' | 'reconciled' | 'cancelled';
 export type CreditNoteType = 'customer' | 'supplier';
-export type CreditNoteStatus = 'draft' | 'approved' | 'applied' | 'cancelled';
+/**
+ * 'partially_applied' (migration 677): 0 < applied_amount < total_amount. A note
+ * whose FIFO walk placed some but not all of its face value is in this state,
+ * and the remainder is on-account credit that can still be applied.
+ */
+export type CreditNoteStatus = 'draft' | 'approved' | 'partially_applied' | 'applied' | 'cancelled';
 
 // ── Customer Payments ────────────────────────────────────────────────────────
 
@@ -16,7 +21,7 @@ export interface CustomerPayment {
   paymentDate: string;
   totalAmount: number;
   /** `'contra'` (migration 540) = settled by netting, no cash moved. */
-  paymentMethod: 'eft' | 'cheque' | 'cash' | 'card' | 'contra';
+  paymentMethod: 'eft' | 'cheque' | 'cash' | 'card' | 'contra' | 'refund';
   bankReference?: string;
   bankAccountId?: string;
   description?: string;
@@ -49,7 +54,7 @@ export interface CustomerPaymentCreateInput {
   paymentDate: string;
   totalAmount: number;
   /** `'contra'` (migration 540) = settled by netting, no cash moved. */
-  paymentMethod?: 'eft' | 'cheque' | 'cash' | 'card' | 'contra';
+  paymentMethod?: 'eft' | 'cheque' | 'cash' | 'card' | 'contra' | 'refund';
   bankReference?: string;
   bankAccountId?: string;
   description?: string;
@@ -101,6 +106,13 @@ export interface CreditNoteCreateInput {
   reason?: string;
   subtotal: number;
   taxRate?: number;
+  /**
+   * Exact VAT amount, when the caller already knows it. Rounding subtotal and
+   * tax independently can leave subtotal + tax a cent off a known gross, so a
+   * caller splitting a VAT-inclusive figure passes the remainder here instead
+   * of letting it be re-derived from taxRate.
+   */
+  taxAmount?: number;
   projectId?: string;
 }
 

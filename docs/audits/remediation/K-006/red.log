@@ -1,0 +1,65 @@
+
+ RUN  v4.1.2 /home/hein/Workspace/IsaFlow/.worktrees/audit-remediation-20260908
+
+{"level":"info","message":"API Request: POST /api/accounting/opening-balances","timestamp":"2026-09-08T19:48:59.370Z","component":"API","requestId":"01M21923B9485VYF6PBYFWCRKS","data":{"type":"request","method":"POST","url":"/api/accounting/opening-balances","query":{},"body":{"balances":[{"accountId":"6be47f4f-d8b9-47c5-8839-1750d07612b9","debit":100,"credit":0},{"accountId":"391fd2ff-fb11-40e9-b26a-9f9dcfa1ebab","debit":0,"credit":100}]}}}
+{"level":"error","message":"withTransaction rolled back (request savepoint)","timestamp":"2026-09-08T19:48:59.372Z","component":"DB","requestId":"01M21923B9485VYF6PBYFWCRKS","data":{"message":"column \"total_debit\" of relation \"gl_journal_entries\" does not exist"}}
+{"level":"error","message":"Failed to save opening balances","timestamp":"2026-09-08T19:48:59.372Z","requestId":"01M21923B9485VYF6PBYFWCRKS","data":{"error":{"length":143,"name":"error","severity":"ERROR","code":"42703","position":"170","file":"parse_target.c","line":"1066","routine":"checkInsertTargets","message":"column \"total_debit\" of relation \"gl_journal_entries\" does not exist","stack":"error: column \"total_debit\" of relation \"gl_journal_entries\" does not exist\n    at /home/hein/Workspace/IsaFlow/.worktrees/audit-remediation-20260908/node_modules/pg/lib/client.js:631:17\n    at processTicksAndRejections (node:internal/process/task_queues:103:5)\n    at tx (/home/hein/Workspace/IsaFlow/.worktrees/audit-remediation-20260908/src/lib/neon.ts:341:19)\n    at /home/hein/Workspace/IsaFlow/.worktrees/audit-remediation-20260908/pages/api/accounting/opening-balances.ts:81:27\n    at withSavepoint (/home/hein/Workspace/IsaFlow/.worktrees/audit-remediation-20260908/src/lib/neon.ts:425:20)\n    at withTransaction (/home/hein/Workspace/IsaFlow/.worktrees/audit-remediation-20260908/src/lib/neon.ts:346:14)\n    at handler (/home/hein/Workspace/IsaFlow/.worktrees/audit-remediation-20260908/pages/api/accounting/opening-balances.ts:80:21)\n    at /home/hein/Workspace/IsaFlow/.worktrees/audit-remediation-20260908/src/lib/api-error-handler.ts:118:9\n    at runScoped (/home/hein/Workspace/IsaFlow/.worktrees/audit-remediation-20260908/src/lib/api-error-handler.ts:91:7)\n    at /home/hein/Workspace/IsaFlow/.worktrees/audit-remediation-20260908/src/lib/api-error-handler.ts:192:7"},"module":"accounting"}}
+{"level":"error","message":"Database Error","timestamp":"2026-09-08T19:48:59.374Z","component":"ApiResponse","requestId":"01M21923B9485VYF6PBYFWCRKS","data":{"message":"column \"total_debit\" of relation \"gl_journal_entries\" does not exist"}}
+{"level":"info","message":"API Response: POST /api/accounting/opening-balances - 500 (5ms)","timestamp":"2026-09-08T19:48:59.374Z","component":"API","requestId":"01M21923B9485VYF6PBYFWCRKS","data":{"type":"response","method":"POST","url":"/api/accounting/opening-balances","statusCode":500,"duration":"5ms"}}
+{"level":"info","message":"request_completed","timestamp":"2026-09-08T19:48:59.374Z","component":"http","requestId":"01M21923B9485VYF6PBYFWCRKS","data":{"event":"request_completed","route":"/api/accounting/opening-balances","method":"POST","status":500,"durationMs":5,"userId":"186e666a-05e7-4920-9781-54edbb5d2a30","companyId":"9da9df2f-0e29-4f42-8ecb-4546090c2c98","outcome":"server_error"}}
+{"level":"info","message":"API Request: POST /api/accounting/opening-balances","timestamp":"2026-09-08T19:48:59.379Z","component":"API","requestId":"01M21923BK826H850WC1WNFBY7","data":{"type":"request","method":"POST","url":"/api/accounting/opening-balances","query":{},"body":{"balances":[{"accountId":"10e61801-117a-4188-98f4-f7c9c0220df6","debit":100,"credit":0},{"accountId":"391fd2ff-fb11-40e9-b26a-9f9dcfa1ebab","debit":0,"credit":100}]}}}
+{"level":"error","message":"withTransaction rolled back (request savepoint)","timestamp":"2026-09-08T19:48:59.380Z","component":"DB","requestId":"01M21923BK826H850WC1WNFBY7","data":{"message":"column \"total_debit\" of relation \"gl_journal_entries\" does not exist"}}
+{"level":"error","message":"Failed to save opening balances","timestamp":"2026-09-08T19:48:59.380Z","requestId":"01M21923BK826H850WC1WNFBY7","data":{"error":{"length":143,"name":"error","severity":"ERROR","code":"42703","position":"170","file":"parse_target.c","line":"1066","routine":"checkInsertTargets","message":"column \"total_debit\" of relation \"gl_journal_entries\" does not exist","stack":"error: column \"total_debit\" of relation \"gl_journal_entries\" does not exist\n    at /home/hein/Workspace/IsaFlow/.worktrees/audit-remediation-20260908/node_modules/pg/lib/client.js:631:17\n    at processTicksAndRejections (node:internal/process/task_queues:103:5)\n    at tx (/home/hein/Workspace/IsaFlow/.worktrees/audit-remediation-20260908/src/lib/neon.ts:341:19)\n    at /home/hein/Workspace/IsaFlow/.worktrees/audit-remediation-20260908/pages/api/accounting/opening-balances.ts:81:27\n    at withSavepoint (/home/hein/Workspace/IsaFlow/.worktrees/audit-remediation-20260908/src/lib/neon.ts:425:20)\n    at withTransaction (/home/hein/Workspace/IsaFlow/.worktrees/audit-remediation-20260908/src/lib/neon.ts:346:14)\n    at handler (/home/hein/Workspace/IsaFlow/.worktrees/audit-remediation-20260908/pages/api/accounting/opening-balances.ts:80:21)\n    at /home/hein/Workspace/IsaFlow/.worktrees/audit-remediation-20260908/src/lib/api-error-handler.ts:118:9\n    at runScoped (/home/hein/Workspace/IsaFlow/.worktrees/audit-remediation-20260908/src/lib/api-error-handler.ts:91:7)\n    at /home/hein/Workspace/IsaFlow/.worktrees/audit-remediation-20260908/src/lib/api-error-handler.ts:192:7"},"module":"accounting"}}
+{"level":"error","message":"Database Error","timestamp":"2026-09-08T19:48:59.380Z","component":"ApiResponse","requestId":"01M21923BK826H850WC1WNFBY7","data":{"message":"column \"total_debit\" of relation \"gl_journal_entries\" does not exist"}}
+{"level":"info","message":"API Response: POST /api/accounting/opening-balances - 500 (1ms)","timestamp":"2026-09-08T19:48:59.380Z","component":"API","requestId":"01M21923BK826H850WC1WNFBY7","data":{"type":"response","method":"POST","url":"/api/accounting/opening-balances","statusCode":500,"duration":"1ms"}}
+{"level":"info","message":"request_completed","timestamp":"2026-09-08T19:48:59.380Z","component":"http","requestId":"01M21923BK826H850WC1WNFBY7","data":{"event":"request_completed","route":"/api/accounting/opening-balances","method":"POST","status":500,"durationMs":1,"userId":"186e666a-05e7-4920-9781-54edbb5d2a30","companyId":"9da9df2f-0e29-4f42-8ecb-4546090c2c98","outcome":"server_error"}}
+ ❯ tests/integration/opening-balances-postgres.int.test.ts (2 tests | 2 failed) 587ms
+   × posts valid opening balances with a covering period and reconciled account cache 17ms
+   × rejects a foreign account before journal or cache writes 4ms
+
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 2 ⎯⎯⎯⎯⎯⎯⎯
+
+ FAIL  tests/integration/opening-balances-postgres.int.test.ts > posts valid opening balances with a covering period and reconciled account cache
+AssertionError: expected 500 to be 200 // Object.is equality
+
+- Expected
++ Received
+
+- 200
++ 500
+
+ ❯ tests/integration/opening-balances-postgres.int.test.ts:41:35
+     39| it('posts valid opening balances with a covering period and reconciled…
+     40|   const result=await post([{accountId:debit,debit:100,credit:0},{accou…
+     41|   expect(result.state.statusCode).toBe(200);
+       |                                   ^
+     42|   const entries=(await pool.query('SELECT id,status,fiscal_period_id F…
+     43|   expect(entries).toHaveLength(1);expect(entries[0]).toMatchObject({st…
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[1/2]⎯
+
+ FAIL  tests/integration/opening-balances-postgres.int.test.ts > rejects a foreign account before journal or cache writes
+AssertionError: expected 500 to be 400 // Object.is equality
+
+- Expected
++ Received
+
+- 400
++ 500
+
+ ❯ tests/integration/opening-balances-postgres.int.test.ts:52:35
+     50|   const before=(await pool.query('SELECT id FROM gl_journal_entries WH…
+     51|   const result=await post([{accountId:foreign,debit:100,credit:0},{acc…
+     52|   expect(result.state.statusCode).toBe(400);
+       |                                   ^
+     53|   expect((await pool.query('SELECT id FROM gl_journal_entries WHERE co…
+     54|   expect((await pool.query('SELECT gl_account_id FROM gl_account_balan…
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[2/2]⎯
+
+
+ Test Files  1 failed (1)
+      Tests  2 failed (2)
+   Start at  21:48:58
+   Duration  959ms (transform 112ms, setup 0ms, import 273ms, tests 587ms, environment 0ms)
+

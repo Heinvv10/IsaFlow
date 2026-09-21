@@ -1,0 +1,72 @@
+### RED — origin/master journalEntryPostingService.ts, ux_gl_je_reversal_of DROPPED (pre-fix state)
+$ node scripts/check-runtime.mjs && vitest run --config vitest.integration.config.ts "tests/integration/k010-concurrent-journal-reversal.int.test.ts"
+
+ RUN  v4.1.2 /home/hein/Workspace/IsaFlow/.worktrees/fix-K-010
+
+ ❯ tests/integration/k010-concurrent-journal-reversal.int.test.ts (3 tests | 1 failed) 190ms
+   × refuses the second of two overlapping reversals of the same entry 50ms
+
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 1 ⎯⎯⎯⎯⎯⎯⎯
+
+ FAIL  tests/integration/k010-concurrent-journal-reversal.int.test.ts > refuses the second of two overlapping reversals of the same entry
+AssertionError: expected [ 'posted a reversal', …(1) ] to have a length of 1 but got 2
+
+- Expected
++ Received
+
+- 1
++ 2
+
+ ❯ tests/integration/k010-concurrent-journal-reversal.int.test.ts:120:57
+    118|   const [a, b] = await Promise.all(outcomes);
+    119|
+    120|   expect([a, b].filter(o => o === 'posted a reversal')).toHaveLength(1…
+       |                                                         ^
+    121|   expect([a, b].find(o => o !== 'posted a reversal')).toMatch(/already…
+    122|   expect(await postedContras(original)).toBe(1);
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[1/1]⎯
+
+
+ Test Files  1 failed (1)
+      Tests  1 failed | 2 passed (3)
+   Start at  05:48:49
+   Duration  483ms (transform 105ms, setup 0ms, import 167ms, tests 190ms, environment 0ms)
+
+error: script "test:integration" exited with code 1
+### RED (mutation, index only) — origin/master service, ux_gl_je_reversal_of PRESENT
+$ node scripts/check-runtime.mjs && vitest run --config vitest.integration.config.ts "tests/integration/k010-concurrent-journal-reversal.int.test.ts"
+
+ RUN  v4.1.2 /home/hein/Workspace/IsaFlow/.worktrees/fix-K-010
+
+ ❯ tests/integration/k010-concurrent-journal-reversal.int.test.ts (3 tests | 1 failed) 217ms
+   × refuses the second of two overlapping reversals of the same entry 67ms
+
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 1 ⎯⎯⎯⎯⎯⎯⎯
+
+ FAIL  tests/integration/k010-concurrent-journal-reversal.int.test.ts > refuses the second of two overlapping reversals of the same entry
+AssertionError: expected 'duplicate key value violates unique c…' to match /already reversed/
+
+- Expected:
+/already reversed/
+
++ Received:
+"duplicate key value violates unique constraint \"ux_gl_je_reversal_of\""
+
+ ❯ tests/integration/k010-concurrent-journal-reversal.int.test.ts:121:55
+    119|
+    120|   expect([a, b].filter(o => o === 'posted a reversal')).toHaveLength(1…
+    121|   expect([a, b].find(o => o !== 'posted a reversal')).toMatch(/already…
+       |                                                       ^
+    122|   expect(await postedContras(original)).toBe(1);
+    123|   expect(await netOnCash(original)).toBe('0.00');
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[1/1]⎯
+
+
+ Test Files  1 failed (1)
+      Tests  1 failed | 2 passed (3)
+   Start at  05:48:50
+   Duration  542ms (transform 121ms, setup 0ms, import 188ms, tests 217ms, environment 0ms)
+
+error: script "test:integration" exited with code 1

@@ -6,33 +6,23 @@
 import { useState, useEffect, useCallback } from 'react';
 import Link from 'next/link';
 import { AppLayout } from '@/components/layout/AppLayout';
-import { AlertTriangle, Loader2, CheckCircle, XCircle, Undo2 } from 'lucide-react';
+import { AlertTriangle, Loader2 } from 'lucide-react';
 import { StatusPill } from '@/components/ui';
 import { formatCurrency, formatDate } from '@/utils/formatters';
 import { apiFetch } from '@/lib/apiFetch';
+import { ResolveModal } from '@/components/accounting/disputes/ResolveModal';
+import type { DisputeRow, DisputeStatus } from '@/components/accounting/disputes/types';
 
-type DisputeStatus = 'open' | 'resolved' | 'withdrawn' | 'rejected';
-
-interface DisputeRow {
-  id: string;
-  customerInvoiceId: string;
-  customerInvoiceLineId: string | null;
-  reason: string;
-  raisedBy: string;
-  raisedAt: string;
-  status: DisputeStatus;
-  disputedAmount: number;
-  resolvedAt: string | null;
-  resolutionMode: string | null;
-  creditNoteId: string | null;
-  invoiceNumber?: string | null;
-  clientName?: string | null;
-}
-
-type ResolveMode = 'resolve_with_credit' | 'resolve_no_credit' | 'rejected';
+const PAGE_SIZE = 50;
 
 export default function DisputesPage() {
   const [disputes, setDisputes] = useState<DisputeRow[]>([]);
+  // The list is LIMIT-ed, so neither count may be derived from `disputes`:
+  // beyond one page the tiles under-report and the pager cannot size itself.
+  const [total, setTotal] = useState(0);
+  const [openTotal, setOpenTotal] = useState(0);
+  const [openDisputedAmount, setOpenDisputedAmount] = useState(0);
+  const [offset, setOffset] = useState(0);
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState('');
   const [statusFilter, setStatusFilter] = useState<'all' | DisputeStatus>('open');
@@ -42,26 +32,34 @@ export default function DisputesPage() {
     try {
       setIsLoading(true);
       setError('');
-      const qs = statusFilter === 'all' ? '' : `?status=${statusFilter}`;
-      const res = await apiFetch(`/api/accounting/ar/disputes${qs}`);
+      const params = new URLSearchParams({ limit: String(PAGE_SIZE), offset: String(offset) });
+      if (statusFilter !== 'all') params.set('status', statusFilter);
+      const res = await apiFetch(`/api/accounting/ar/disputes?${params.toString()}`);
+      if (!res.ok) throw new Error(`Failed to load disputes (HTTP ${res.status})`);
       const json = await res.json();
-      const list: DisputeRow[] = json?.data?.disputes ?? [];
-      setDisputes(list);
+      const data = json?.data;
+      setDisputes(data?.disputes ?? []);
+      setTotal(Number(data?.total ?? 0));
+      setOpenTotal(Number(data?.openTotal ?? 0));
+      setOpenDisputedAmount(Number(data?.openDisputedAmount ?? 0));
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Failed to load disputes');
     } finally {
       setIsLoading(false);
     }
-  }, [statusFilter]);
+  }, [statusFilter, offset]);
 
   useEffect(() => {
     void load();
   }, [load]);
 
-  const openCount = disputes.filter((d) => d.status === 'open').length;
-  const totalDisputed = disputes
-    .filter((d) => d.status === 'open')
-    .reduce((sum, d) => sum + Number(d.disputedAmount || 0), 0);
+  function changeFilter(s: 'all' | DisputeStatus) {
+    setStatusFilter(s);
+    setOffset(0);
+  }
+
+  const firstOnPage = total === 0 ? 0 : offset + 1;
+  const lastOnPage = offset + disputes.length;
 
   return (
     <AppLayout>
@@ -79,9 +77,9 @@ export default function DisputesPage() {
           </div>
           <div className="text-right">
             <div className="text-xs uppercase text-slate-500">Open disputes</div>
-            <div className="text-2xl font-semibold text-slate-900">{openCount}</div>
+            <div className="text-2xl font-semibold text-slate-900">{openTotal}</div>
             <div className="text-xs text-slate-500">
-              {formatCurrency(totalDisputed)} under review
+              {formatCurrency(openDisputedAmount)} under review
             </div>
           </div>
         </div>
@@ -90,7 +88,7 @@ export default function DisputesPage() {
           {(['open', 'resolved', 'withdrawn', 'rejected', 'all'] as const).map((s) => (
             <button
               key={s}
-              onClick={() => setStatusFilter(s)}
+              onClick={() => changeFilter(s)}
               className={`px-3 py-1.5 rounded-md text-sm border ${
                 statusFilter === s
                   ? 'bg-slate-900 text-white border-slate-900'
@@ -176,6 +174,28 @@ export default function DisputesPage() {
                 )}
               </tbody>
             </table>
+
+            <div className="flex items-center justify-between px-4 py-3 border-t border-slate-100 text-sm text-slate-600">
+              <span>
+                Showing {firstOnPage}–{lastOnPage} of {total}
+              </span>
+              <div className="flex gap-2">
+                <button
+                  onClick={() => setOffset((o) => Math.max(0, o - PAGE_SIZE))}
+                  disabled={offset === 0}
+                  className="px-3 py-1.5 rounded-md border border-slate-200 disabled:opacity-40"
+                >
+                  Previous
+                </button>
+                <button
+                  onClick={() => setOffset((o) => o + PAGE_SIZE)}
+                  disabled={lastOnPage >= total}
+                  className="px-3 py-1.5 rounded-md border border-slate-200 disabled:opacity-40"
+                >
+                  Next
+                </button>
+              </div>
+            </div>
           </div>
         )}
       </div>
@@ -191,141 +211,5 @@ export default function DisputesPage() {
         />
       )}
     </AppLayout>
-  );
-}
-
-function ResolveModal({
-  dispute,
-  onClose,
-  onDone,
-}: {
-  dispute: DisputeRow;
-  onClose: () => void;
-  onDone: () => void;
-}) {
-  const [mode, setMode] = useState<ResolveMode>('resolve_with_credit');
-  const [note, setNote] = useState('');
-  const [creditDate, setCreditDate] = useState(() => new Date().toISOString().slice(0, 10));
-  const [submitting, setSubmitting] = useState(false);
-  const [err, setErr] = useState('');
-
-  async function submit(action: 'resolve' | 'withdraw') {
-    try {
-      setSubmitting(true);
-      setErr('');
-      const res =
-        action === 'withdraw'
-          ? await apiFetch(`/api/accounting/ar/disputes/${dispute.id}/withdraw`, {
-              method: 'POST',
-              body: JSON.stringify({ note: note || undefined }),
-            })
-          : await apiFetch(`/api/accounting/ar/disputes/${dispute.id}/resolve`, {
-              method: 'POST',
-              body: JSON.stringify({
-                mode,
-                note: note || undefined,
-                ...(mode === 'resolve_with_credit' ? { creditDate } : {}),
-              }),
-            });
-      if (!res.ok) {
-        const json = await res.json().catch(() => ({}));
-        throw new Error(json?.error?.message ?? `HTTP ${res.status}`);
-      }
-      onDone();
-    } catch (e) {
-      setErr(e instanceof Error ? e.message : 'Failed to resolve dispute');
-    } finally {
-      setSubmitting(false);
-    }
-  }
-
-  return (
-    <div className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center p-4">
-      <div className="bg-white rounded-lg shadow-xl w-full max-w-lg">
-        <div className="p-5 border-b border-slate-100">
-          <h2 className="text-lg font-semibold text-slate-900">Resolve dispute</h2>
-          <p className="text-sm text-slate-500 mt-1">
-            {dispute.invoiceNumber} · {formatCurrency(dispute.disputedAmount)} disputed
-          </p>
-        </div>
-
-        <div className="p-5 space-y-4">
-          <label className="block">
-            <span className="text-sm font-medium text-slate-700">Resolution</span>
-            <select
-              value={mode}
-              onChange={(e) => setMode(e.target.value as ResolveMode)}
-              className="mt-1 w-full border border-slate-200 rounded-md px-3 py-2 text-sm"
-            >
-              <option value="resolve_with_credit">Resolve with credit note</option>
-              <option value="resolve_no_credit">Resolve — no credit</option>
-              <option value="rejected">Reject dispute</option>
-            </select>
-          </label>
-
-          {mode === 'resolve_with_credit' && (
-            <label className="block">
-              <span className="text-sm font-medium text-slate-700">Credit note date</span>
-              <input
-                type="date"
-                value={creditDate}
-                onChange={(e) => setCreditDate(e.target.value)}
-                className="mt-1 w-full border border-slate-200 rounded-md px-3 py-2 text-sm"
-              />
-            </label>
-          )}
-
-          <label className="block">
-            <span className="text-sm font-medium text-slate-700">Internal note (optional)</span>
-            <textarea
-              value={note}
-              onChange={(e) => setNote(e.target.value)}
-              rows={3}
-              className="mt-1 w-full border border-slate-200 rounded-md px-3 py-2 text-sm"
-              placeholder="How this was resolved…"
-            />
-          </label>
-
-          {err && (
-            <div className="p-3 bg-red-50 border border-red-200 rounded text-sm text-red-700">
-              {err}
-            </div>
-          )}
-        </div>
-
-        <div className="p-4 border-t border-slate-100 flex items-center justify-between">
-          <button
-            onClick={() => void submit('withdraw')}
-            disabled={submitting}
-            className="px-3 py-2 text-sm text-slate-600 hover:text-slate-900 flex items-center gap-1"
-          >
-            <Undo2 className="w-4 h-4" /> Withdraw
-          </button>
-          <div className="flex gap-2">
-            <button
-              onClick={onClose}
-              disabled={submitting}
-              className="px-4 py-2 text-sm rounded-md border border-slate-200 text-slate-700"
-            >
-              Cancel
-            </button>
-            <button
-              onClick={() => void submit('resolve')}
-              disabled={submitting}
-              className="px-4 py-2 text-sm rounded-md bg-slate-900 text-white hover:bg-slate-800 flex items-center gap-1"
-            >
-              {submitting ? (
-                <Loader2 className="w-4 h-4 animate-spin" />
-              ) : mode === 'rejected' ? (
-                <XCircle className="w-4 h-4" />
-              ) : (
-                <CheckCircle className="w-4 h-4" />
-              )}
-              {mode === 'rejected' ? 'Reject' : 'Resolve'}
-            </button>
-          </div>
-        </div>
-      </div>
-    </div>
   );
 }

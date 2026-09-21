@@ -21,6 +21,7 @@ import { useBankTxRefData } from '@/components/accounting/bank-transactions/useB
 import { Loader2, AlertCircle } from 'lucide-react';
 import { BankEmptyState } from '@/components/accounting/banking/BankEmptyState';
 import { AutoPostRunsPanel } from '@/components/accounting/bank-transactions/AutoPostRunsPanel';
+import { actionableIds } from '@/components/accounting/bank-transactions/pendingFeedRow';
 
 type Tab = 'new' | 'reviewed' | 'excluded';
 const PAGE_SIZE = 25;
@@ -61,6 +62,7 @@ export default function BankTransactionsPage() {
   const [transactions, setTransactions] = useState<BankTx[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState('');
+  const [relinkFailed, setRelinkFailed] = useState(false);
   // Filter / pagination
   const [tab, setTab] = useState<Tab>('new');
   const [page, setPage] = useState(1);
@@ -166,15 +168,26 @@ export default function BankTransactionsPage() {
     }, 4000);
   }, [loadTransactions]);
 
-  // Silently re-link any imported transactions that are the counterpart of
-  // an existing allocation (covers 'account' type pointing to a bank GL).
+  // Re-link any imported transactions that are the counterpart of an existing
+  // allocation (covers 'account' type pointing to a bank GL). The pass swallows
+  // its own error to stay non-fatal, so `failed` is the only way a user learns
+  // their transfers were not linked; anything else stays silent.
   useEffect(() => {
     if (!selectedBank) return;
+    let cancelled = false;
+    setRelinkFailed(false);
     apiFetch('/api/accounting/bank-relink-transfers', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ bankAccountId: selectedBank }),
-    }).catch(() => {/* non-fatal */});
+    })
+      .then(async res => {
+        if (cancelled || !res.ok) return;
+        const json = await res.json();
+        if (json?.data?.failed) setRelinkFailed(true);
+      })
+      .catch(() => {/* non-fatal */});
+    return () => { cancelled = true; };
   }, [selectedBank]);
 
   // ---- Seed rowSelections from DB suggestion fields ----
@@ -225,7 +238,10 @@ export default function BankTransactionsPage() {
     .filter(b => b.id !== selectedBank)
     .map(b => ({ id: b.id, code: b.accountCode, name: b.groupName ? `${b.groupName} › ${b.accountName}` : b.accountName }));
   const totalPages = Math.ceil(total / PAGE_SIZE);
-  const allSelected = transactions.length > 0 && transactions.every(t => selectedIds.has(t.id));
+  // Pending rows are read-only — select-all only ever selects the actionable
+  // (non-pending) rows, so "all selected" is judged against that subset too.
+  const selectableTxIds = actionableIds(transactions, transactions.map(t => t.id));
+  const allSelected = selectableTxIds.length > 0 && selectableTxIds.every(id => selectedIds.has(id));
   const toggleSelect = (id: string) => setSelectedIds(prev => { const n = new Set(prev); n.has(id) ? n.delete(id) : n.add(id); return n; });
   // Wrap a state setter so it always resets pagination to page 1
   function withReset<T>(fn: (v: T) => void) { return (v: T) => { fn(v); setPage(1); }; }
@@ -297,6 +313,11 @@ export default function BankTransactionsPage() {
         {/* Table */}
         <div className="px-4 py-2">
           <AutoPostRunsPanel onUndone={loadTransactions} />
+          {relinkFailed && (
+            <div className="flex items-center gap-2 text-xs text-amber-400 py-1 pb-2">
+              <AlertCircle className="h-3 w-3" /> Transfer re-linking failed for this account — counterpart transfers may still show as unallocated.
+            </div>
+          )}
           {aiPolling > 0 && (
             <div className="flex items-center gap-2 text-xs text-[var(--ff-text-secondary)] py-1 pb-2">
               <Loader2 className="h-3 w-3 animate-spin" /> AI is categorizing {aiPolling} transaction{aiPolling === 1 ? '' : 's'}…
@@ -318,7 +339,7 @@ export default function BankTransactionsPage() {
               showCC={showCC} showBU={showBU} selectedIds={selectedIds} rowSelections={rowSelections}
               allSelected={allSelected} tab={tab}
               onToggleSelect={toggleSelect}
-              onSelectAll={() => setSelectedIds(allSelected ? new Set() : new Set(transactions.map(t => t.id)))}
+              onSelectAll={() => setSelectedIds(allSelected ? new Set() : new Set(selectableTxIds))}
               onRowTypeChange={actions.handleRowTypeChange} onRowEntityChange={actions.handleRowEntityChange}
               onRowVatChange={actions.handleRowVatChange} onRowDimensionChange={actions.handleRowDimensionChange}
               onAccept={actions.handleAccept} onExclude={actions.handleExclude}

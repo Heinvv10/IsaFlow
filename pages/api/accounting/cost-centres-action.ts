@@ -9,6 +9,7 @@ import { apiResponse } from '@/lib/apiResponse';
 import { withAuth, type CompanyAuthedRequest, withWriteAccess} from '@/lib/auth';
 import { withCsrf } from '@/lib/auth/withCsrf';
 import { log } from '@/lib/logger';
+import { CostCentreActionError } from '@/modules/accounting/services/core/costCentreUsageGuard';
 import {
   updateGlCostCentre, toggleCostCentre, deleteCostCentre,
 } from '@/modules/accounting/services/core/costCentreService';
@@ -37,6 +38,9 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
     }
   } catch (err) {
     log.error('Cost centre action failed', { action, error: err }, 'accounting-api');
+    // The guard's counted refusal is written for the operator; everything else
+    // stays generic so internal detail cannot leak (pentest H16).
+    if (err instanceof CostCentreActionError) return apiResponse.badRequest(res, err.message);
     return apiResponse.badRequestFromError(res, err, 'Action failed');
   }
 }

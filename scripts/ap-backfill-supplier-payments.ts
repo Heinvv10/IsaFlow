@@ -26,6 +26,43 @@
  * INSERT is refused outright, which is loud rather than silent, but it is
  * refused after the diff has been printed and is a wasted run.
  *
+ * WHAT 681 ADDED: THE OTHER DIRECTION. A money-IN line against a supplier is a
+ * REFUND — DR Bank / CR Accounts Payable — and it had no document either, for
+ * the same reason and with the opposite sign. It now classifies `create_refund`
+ * and mints a `supplier_payments` row with `payment_method = 'refund'` and a
+ * NEGATIVE `total_amount`: a negative on-account entry that nets against that
+ * supplier's other unapplied cash. Same invariants, unchanged — no journal, no
+ * allocation, no `amount_paid`.
+ *
+ * `refund_exceeds_credit` (682) is the shape that MUST NOT be minted. A refund
+ * returns credit the company was holding and cannot return more than it held;
+ * past that point the supplier owes the company, which is a receivable. The
+ * attended path refuses it outright, and the batch path now reports it under
+ * the same ceiling — `ap_supplier_on_account_credit`, measured as at the LINE'S
+ * OWN DATE, so cash applied since cannot retrospectively make a correct refund
+ * wrong. It is the outcome the one production refund actually lands on: Blitz
+ * Fibre held R0.00 on account on 2026-09-04 against a R160,609.85 deposit,
+ * because the FIFO back-fill had already applied all 88 of its payments.
+ *
+ * `refund_on_control_unresolved` is the shape that CANNOT be minted. A deposit
+ * allocated straight to the AP control account credits the payable without
+ * naming a supplier, so there is no on-account credit for the refund to belong
+ * to. It is reported, per batch, and left alone. One line on production:
+ * R120,290.00 against RohCap, which somebody has to attribute by hand.
+ *
+ * WHAT 680 CHANGED ABOUT WHO IS REFUSED, worth knowing before reading a diff
+ * against an older run's output. A cancelled payment document that carries only
+ * the bank line's `reference` and NO `gl_journal_entry_id` no longer refuses its
+ * line. 615 refused it under `document_cancelled_journal_stands`, but there is
+ * no journal on that document to ask whether it stands, while the journal the
+ * line DOES carry has moved cash no live document claims — so the refusal left
+ * that cash undocumented under an outcome naming a journal that does not exist.
+ * Such a line now classifies `create`. Nothing in production has this shape: no
+ * cancelled `supplier_payments` row anywhere carries a null journal with a
+ * non-null reference. A LIVE document with a null journal still finishes its
+ * line, which is a different question — that is this backfill's own older
+ * output, and it is the line's document.
+ *
  * WHAT MUST NOT MOVE, and is asserted rather than asserted-to:
  *   · the AP control balance. No journal is posted; a change means one was.
  *   · every bank account's gl / statement / computed balance and its residual.
@@ -66,6 +103,39 @@ const COMPANY_ID = flag('company') ?? null;
 const ROLLBACK_BATCH = flag('rollback') ?? null;
 const COMMIT = args.includes('--commit');
 const AS_AT = flag('as-at') ?? fmtDate(new Date());
+
+/**
+ * Every migration the classification is made of, in apply order.
+ *
+ * NOT just 615. The view has been replaced twice since — 679 for the bank lines
+ * re-allocated after their first document was cancelled, 680 for what counts as
+ * a reversal and for the uniqueness floor that let a second generation be minted
+ * — and a database carrying only 615 has a view that answers the same questions
+ * with the WRONG answers. Checking `to_regclass` on the view could not see that:
+ * the relation exists in all three states. So the check is the tracking table,
+ * per migration, and a dry run installs whichever are missing.
+ *
+ * Every file here is replayable — 615 is IF NOT EXISTS throughout, 679 and 680
+ * are CREATE OR REPLACE — so applying one that is already present is a no-op.
+ */
+const VIEW_MIGRATIONS = [
+  '615_ap_payment_document_backfill.sql',
+  '679_ap_backfill_candidates_reallocated_lines.sql',
+  '680_ap_backfill_reversal_signal_and_generation.sql',
+  // 681 replaces the view AGAIN — the refund direction — and replaces the run
+  // function with one that mints both. A database carrying only 680 classifies
+  // every money-IN supplier line nowhere at all: the old view filtered
+  // `b.amount < 0`, so the refunds were not skipped, they were invisible.
+  '681_supplier_refund_documents.sql',
+  // 682 puts the LIVE path's refund ceiling on the batch path too, and moves
+  // the run onto a single materialised snapshot of the classification. On 681
+  // alone the batch minted refunds the attended path would have refused.
+  '682_ap_backfill_refund_ceiling.sql',
+  // 683 makes the ceiling CUMULATIVE per supplier. On 682 alone, two refund
+  // lines for one supplier that are each under the ceiling but jointly over it
+  // were both minted — neither line is wrong on its own, the pair is.
+  '683_ap_backfill_cumulative_refund_ceiling.sql',
+] as const;
 
 const money = (n: number): string =>
   `R${n.toLocaleString('en-ZA', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
@@ -152,24 +222,32 @@ async function main(): Promise<void> {
     // production, before anyone has deployed. Never on a --commit run: the DDL
     // would commit without a `schema_migrations` row behind it, and the next
     // real apply would then fail on a checksum it has no record of.
-    const installed = await client.query(
-      "SELECT to_regclass('public.ap_payment_document_backfill_candidates') IS NOT NULL AS ok",
+    const tracked = await client.query(
+      'SELECT name FROM schema_migrations WHERE name = ANY($1::TEXT[])',
+      [[...VIEW_MIGRATIONS]],
     );
-    if (!installed.rows[0]?.ok) {
+    const have = new Set(tracked.rows.map((r) => String(r.name)));
+    const missing = VIEW_MIGRATIONS.filter((name) => !have.has(name));
+    if (missing.length > 0) {
       if (COMMIT) {
         throw new Error(
-          'Migration 615 is not applied to this database. Apply it with `bun run db:migrate` '
-          + 'before committing a backfill.',
+          `Not applied to this database: ${missing.join(', ')}. Apply with `
+          + '`bun run db:migrate` before committing a backfill — committing against a '
+          + 'stale classification mints by rules this repo has already replaced.',
         );
       }
+      // IN ORDER. 679 and 680 each replace the whole view, so applying 680
+      // before 679 would leave 679's older definition standing.
+      //
       // Resolved from THIS file, not from cwd: the script is run from wherever
       // the operator happens to be standing.
-      const file = join(
-        dirname(fileURLToPath(import.meta.url)),
-        'migrations', 'sql', '615_ap_payment_document_backfill.sql',
+      for (const name of missing) {
+        const file = join(dirname(fileURLToPath(import.meta.url)), 'migrations', 'sql', name);
+        await client.query(readFileSync(file, 'utf8'));
+      }
+      console.log(
+        `(applied inside this transaction, and rolling back with it: ${missing.join(', ')})`,
       );
-      await client.query(readFileSync(file, 'utf8'));
-      console.log('(migration 615 applied inside this transaction — it will roll back with it)');
     }
     await als.run({ client, userId: 'script:ap-backfill', claims: {} }, async () => {
       if (ROLLBACK_BATCH) {
@@ -302,6 +380,10 @@ async function main(): Promise<void> {
           GROUP BY s.id, s.name, l.company_id ORDER BY s.name`,
         [batchId],
       );
+      // Refunds are `created` too, so they are in this list with the rest and
+      // their `amount` is the GROSS line value — the log stores it unsigned so a
+      // batch summary can be read down one column. The reason column on the RUN
+      // block above (`backfilled` vs `backfilled_refund`) is what separates them.
       console.log(`\nCREATED, BY SUPPLIER — all ${bySupplier.rows.length}. READ THIS LIST.`);
       console.log(`  ${'supplier'.padEnd(46)} ${'lines'.padStart(5)} ${'amount'.padStart(18)} ${'bills'.padStart(5)}  created / earliest line`);
       for (const r of bySupplier.rows) {
