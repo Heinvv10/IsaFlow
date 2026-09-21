@@ -52,7 +52,8 @@ already showed only Balance and Overdue.
   - The test user now belongs to BOTH companies. Row-level security on `app_user` would otherwise hide
     company B's rows and mask the list's own company predicates. Measured: those three mutations
     survived until the user was made a member of both companies.
-- `green.log`: r115 (5) + r112 + r095 + r082 + k053 ×2 — 6 files, 56 tests passed.
+- `green.log` (at 8ab208878, with the credit-note-only customer): r115 (5) + r112 + r095 + r082 +
+  k053 ×2 — 6 files, 56 tests passed.
 - `mutations.log`: 14 mutations (M9–M11 re-run once the user belonged to both companies; M14, the
   credit-note-only arm of the activity predicate, added after review round 2).
   Each fails its own test and the "every listed balance is the balance of the statement it opens"
