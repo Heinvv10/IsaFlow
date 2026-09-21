@@ -82,29 +82,20 @@ export async function completeRun(
   };
 }
 
-/**
- * K-090: a bare UPDATE here ran on the transaction the failure had aborted,
- * raised 25P02 and masked the real cause. `withRunRecovery` rolls back first;
- * this write is isolated too, so the ORIGINAL error always propagates.
- */
 export async function failRun(runId: string, err: unknown): Promise<void> {
   const msg = err instanceof Error ? err.message : 'Unknown error';
-  await withSavepoint('sage_mark_run_failed', async () => {
-    await sql`
-      UPDATE gl_migration_runs SET status = 'failed', error_message = ${msg}, completed_at = NOW()
-      WHERE id = ${runId}::UUID
-    `;
-  }).catch((markErr: unknown) => {
-    log.error('Could not record Sage migration run failure', {
-      runId, markErr: String(markErr), originalError: msg,
-    }, 'accounting');
-  });
+  await sql`
+    UPDATE gl_migration_runs SET status = 'failed', error_message = ${msg}, completed_at = NOW()
+    WHERE id = ${runId}::UUID
+  `;
 }
 
 /**
  * Run a migration body so a failure inside it leaves the request transaction
- * usable and the run markable. `startRun`'s INSERT sits outside the savepoint,
- * so the run row survives the rollback for `failRun` to update.
+ * usable and the run markable (K-090). `failRun` used to run on the
+ * transaction the failure had aborted, raise 25P02 and mask the real cause.
+ * The savepoint is taken before the body and rolled back before `failRun`;
+ * `startRun`'s INSERT sits outside it, so the run row survives to be marked.
  */
 export async function withRunRecovery<T>(runId: string, body: () => Promise<T>): Promise<T> {
   try {

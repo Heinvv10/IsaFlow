@@ -185,6 +185,11 @@ describe('R-021: the importer reads the columns its source table actually has', 
       'SELECT id FROM supplier_invoices WHERE company_id=$1', [companyB],
     )).rows;
     expect(bBills).toHaveLength(0);
+    // Nor may B's staged row be booked into A's AP under A's same-named supplier.
+    const leaked = (await pool.query(
+      'SELECT id FROM supplier_invoices WHERE sage_invoice_id=$1', [`${tag}-SAGE`],
+    )).rows;
+    expect(leaked).toHaveLength(0);
   });
 });
 
