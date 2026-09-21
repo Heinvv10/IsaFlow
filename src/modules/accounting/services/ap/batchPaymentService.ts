@@ -11,7 +11,7 @@ import { createJournalEntry, postJournalEntry } from '../gl/journalEntryService'
 import { getSystemAccount } from '../gl/systemAccountResolver';
 import { claimUnderLockTimeout } from '../core/documentClaimLock';
 import { assertSupplierInCompany } from '../core/contactDirectoryService';
-import { assertBatchAllocatable } from './supplierBatchAllocationPlan';
+import { assertAllocationsStillAllocatable, assertBatchAllocatable } from './supplierBatchAllocationPlan';
 import type { SupplierPaymentBatch, BatchPaymentCreateInput } from '../../types/ap.types';
 import type { JournalLineInput } from '../../types/gl.types';
 
@@ -148,6 +148,30 @@ export class BatchNotProcessableError extends Error {
 export async function processBatch(companyId: string, id: string, userId: string): Promise<void> {
   const batch = await getBatchById(companyId, id);
   if (!batch) throw new Error('Batch not found');
+
+  // K-063/K-066 where money moves: every bill must STILL be payable and its
+  // payment's supplier's. The batch row is locked first (document, then bills —
+  // the order `processSupplierPayment` uses) so a double-click's loser waits
+  // here and is told the batch is processed (409), not that its bills are paid.
+  // Refused before the claim below: the batch stays 'approved', nothing written.
+  const locked = await claimUnderLockTimeout('payment batch', async () => (await sql`
+    SELECT status FROM supplier_payment_batches
+    WHERE id = ${id}::UUID AND company_id = ${companyId}::UUID
+    FOR UPDATE
+  `) as Row[]);
+  if (String(locked[0]?.status) !== 'approved') {
+    throw new BatchNotProcessableError(String(locked[0]?.status ?? 'missing'));
+  }
+  const stored = (await sql`
+    SELECT sp.supplier_id, pa.invoice_id, pa.amount_allocated
+    FROM supplier_payments sp
+    JOIN payment_allocations pa ON pa.payment_id = sp.id
+    WHERE sp.batch_id = ${id}::UUID AND sp.company_id = ${companyId}::UUID
+    ORDER BY pa.invoice_id
+  `) as Row[];
+  await assertAllocationsStillAllocatable(companyId, stored.map((r) => ({
+    invoiceId: String(r.invoice_id), amount: Number(r.amount_allocated), supplierId: String(r.supplier_id),
+  })));
 
   // CLAIM the batch before anything is posted. What this replaced read
   // `batch.status !== 'approved'` and then created and POSTED a journal, so two

@@ -107,7 +107,10 @@ ignore pending allocations → the earlier-batch case red; M6 per-payment shape
 check → the two-payments case red; M7 route answers contention 400 → the 409 case
 red; M8 gate after the writes → 5 red. All restored byte-identical by sha256.
 
-**Residual, not fixed here.** `processBatch` still does not re-check bills at
-process time, and `createSupplierPayment` reads bills without a lock, so a single
-payment and a batch created concurrently can still both count the same
-outstanding.
+**Round 3.** `processBatch` now re-checks every bill at process time — batch row
+locked, then its bills, refused 400 before the claim with the batch left
+`approved` (see `K-063/fix.md` "Round 3"). Still open: `createSupplierPayment`
+reads bills without a lock, so a single payment and a batch created concurrently
+can both count the same outstanding at creation; the process-time gate then
+refuses whichever is processed second if the bill no longer has the room
+(the same `buildLine` outstanding check; this ordering is not separately tested).

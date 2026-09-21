@@ -75,3 +75,84 @@ row; an approved bill still 200 → paid. Red on master 2/6, green on the branch
 **Mutation.** Widening the allow-list back to include pending_approval and
 disputed turns 5 tests red across the three files (`round2-mutations.log`, M1);
 restored byte-identical by sha256.
+
+## Round 3 (2026-09-21) — the process-time gap
+
+**The gap.** Round 2 guarded creation only. `processSupplierPayment` and
+`processBatch` — where DR Accounts Payable / CR Bank is posted and `amount_paid`
+moves — read no bill state. Reproduced on the branch tip `5a732e49a`
+(`round3-red-tip.log`): a payment created and approved against an approved bill,
+the bill then cancelled / disputed / sent to pending_approval / draft / reassigned
+to supplier A2, then processed → **200**, the bill `paid` (R1,000), the payment
+`processed` with a journal, AP debited R1,000. The batch twin (R400 + R1,000
+lines, the higher-id bill changed) → 200, both bills settled, AP debited R1,400.
+That is this item's claim — a payment relieving AP for a bill that is not a
+payable — reached by a different ordering.
+
+**Fix: one rule, where the money moves, under the lock, before any write.**
+`supplierBatchAllocationPlan.ts#assertAllocationsStillAllocatable` runs the
+stored allocations through the SAME `fetchBillCandidates` (id-order `FOR
+UPDATE`, 5s timeout, retryable refusal) and `buildLine` → `assertBillAllocatable`
+the create paths use — status, supplier, tenant (not found) and outstanding. No
+second copy of the rule. Unprocessed payments are not counted here: this payment
+is one of them, and `amount_paid` is what the bill has actually taken.
+- `processSupplierPayment`: payment row lock (existing, first) → status must be
+  `approved` (checked under that lock, so a double-click's loser still gets the
+  409 "not approved", not a misleading "bill already paid") → bill gate → claim.
+- `processBatch`: NEW `SELECT … FOR UPDATE` on the batch row (document first,
+  then bills — the same order as the single path) → status must be `approved` →
+  every allocation of every payment in the batch, with its own payment's
+  supplier → claim.
+- batch-payments-action answers the refusal 400 (retryable → 409); the
+  single-payment action route already answered `SupplierPaymentRefusal` 400 and
+  retryable contention 409.
+
+**What happens to the refused document.** Nothing: it stays `approved`, with no
+journal and no `processed_at`, and its bills are untouched — the refusal is
+raised before the claim UPDATE, the first write. The user can fix the bill
+(re-approve, resolve the dispute, restore the supplier) and process again, or
+void/re-allocate the payment. It cannot end half-processed.
+
+**Tests.** `tests/integration/k063-k066-process-time-gate.int.test.ts` (route
+level, 11 tests): the five changes × single payment and × batch (the bad bill is
+the batch's LAST line in gate order) each → 400 with bills, document status,
+journal link and the AP account's debits all unchanged; an untouched bill still
+processes (200, paid, AP +1,000). Red on the tip 10/11, green 11/11. Full set:
+17 files, 146 tests, plus 4 more process-path files 21 tests (`round3-green.log`).
+The two unit files that assert `processBatch` / `processSupplierPayment` statement
+ORDER mock the gate module (it is proved here against PostgreSQL) and the batch
+one gained the two new statements in its positional mock queue.
+
+**Mutations** (`round3-mutations.log`), each restored byte-identical by sha256:
+P1 remove the single-payment gate → 5 red; P2 remove the batch gate → 5 red;
+P3 batch route stops typing the refusal (500) → 5 red; P4/P5 move the gate AFTER
+the claim → 5 red each, asserting `status: 'processed'` where `'approved'` was
+expected — the `withAuth`-commits-a-4xx trap, measured.
+
+## Fixture used for rounds 2 and 3 (for an independent rebuild)
+
+`fixture-build.log` is the full output of the script that built it.
+1. `pgvector/pgvector:pg16` (the dump needs `vector`), SSL on with a self-signed
+   cert (`scripts/apply-migrations.ts` hardcodes `ssl`), database
+   `isaflow_schema_fixture`.
+2. Roles first: `app_user` NOLOGIN, `platform_admin` LOGIN BYPASSRLS,
+   `migration_admin` NOLOGIN.
+3. Schema-only `pg_dump --no-owner` of `isaflow_dev` (301 tables, supplied by the
+   team lead; 0 errors on load), then its 340 `schema_migrations` rows (max 683).
+4. `bun scripts/apply-migrations.ts`: dev is tracked to 683 but 53 files below it
+   are untracked. The runner applied, in order, 524, 525, 526, 527, 528, 529, 530,
+   531, 532, 533, 535, 540, 570, 580, 581, 605 — all ok — and stopped at **606**
+   (`gl_accounts_company_id_fkey`: it back-fills named tenants that an empty
+   database does not have; data only).
+5. The rest one by one in version order with `psql -1 -v ON_ERROR_STOP=1`: ok —
+   607, 608, 609, 616–620, 623–625, 627, 644–649, 651, 654, 657–660, 662–666,
+   669–672, 674. Failed — **606** (as above), **615** (`cannot drop columns from
+   view`: the AP back-fill view, since redefined by 679/680 which the dump
+   already carries), **626** (`column "user_id" does not exist`: practice rate
+   overrides). None of the three touches the tables these tests read.
+6. **681 re-applied.** 540 (applied in step 4, i.e. AFTER dev's already-applied
+   681) re-creates `supplier_payments_payment_method_check` /
+   `customer_payments_payment_method_check` without `'refund'`, which failed 13
+   `supplier-refund-document` tests. Lines 76–85 of `681_supplier_refund_documents.sql`
+   (the two DROP/ADD CONSTRAINT pairs) were run again. This is an artefact of
+   replaying 540 out of order, not a defect in either migration.
