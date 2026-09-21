@@ -12315,15 +12315,15 @@
       "sourceIds": [],
       "correctedTrigger": "",
       "auditedSha": "",
-      "currentSha": "6145c07ec",
-      "status": "in-progress",
+      "currentSha": "f17ce22a2",
+      "status": "fixed",
       "dependencies": [],
       "testNames": [
         "tests/integration/r112-r113-inapp-customer-statements.int.test.ts"
       ],
-      "fixCommit": null,
-      "pr": null,
-      "deployedSha": null,
+      "fixCommit": "d7509e557",
+      "pr": "447",
+      "deployedSha": "f17ce22a2",
       "canonicalItem": null,
       "reportedSeverity": "high",
       "branch": "fix/audit-r112-r113-customer-statement-20260921",
@@ -12343,7 +12343,7 @@
       "title": "customer-statement-detail credits a partly allocated receipt at only its allocated amount, so the Customer Statements detail screen overstates what the customer owes",
       "severity": "high",
       "source": "Found by fix-r095 (R-095 round 3, measuring the in-app statements the portal was asked to match).",
-      "processNotes": "Registered 2026-09-21 by the R-095 fixer at the team lead's request; measured on a disposable fixture, not fixed in the R-095 PR."
+      "processNotes": "Registered 2026-09-21 by the R-095 fixer at the team lead's request; measured on a disposable fixture, not fixed in the R-095 PR. Merged in PR #447 (f17ce22a2); deployed to production 2026-09-21 17:3x SAST with Hein's approval (golden paths 13/13, integrity green)."
     },
     {
       "claim": "",
@@ -12351,15 +12351,15 @@
       "sourceIds": [],
       "correctedTrigger": "",
       "auditedSha": "",
-      "currentSha": "6145c07ec",
-      "status": "in-progress",
+      "currentSha": "f17ce22a2",
+      "status": "fixed",
       "dependencies": [],
       "testNames": [
         "tests/integration/r112-r113-inapp-customer-statements.int.test.ts"
       ],
-      "fixCommit": null,
-      "pr": null,
-      "deployedSha": null,
+      "fixCommit": "d7509e557",
+      "pr": "447",
+      "deployedSha": "f17ce22a2",
       "canonicalItem": null,
       "reportedSeverity": "high",
       "branch": "fix/audit-r112-r113-customer-statement-20260921",
@@ -12381,7 +12381,7 @@
       "title": "customer-statement (customers/statement screen and PDF) credits a partly allocated receipt at its allocated amount, counts only 'approved' credit notes, and defaults to a one-year window with no opening balance",
       "severity": "high",
       "source": "Found by fix-r095 (R-095 round 3, measuring the in-app statements the portal was asked to match).",
-      "processNotes": "Registered 2026-09-21 by the R-095 fixer at the team lead's request; measured on a disposable fixture, not fixed in the R-095 PR."
+      "processNotes": "Registered 2026-09-21 by the R-095 fixer at the team lead's request; measured on a disposable fixture, not fixed in the R-095 PR. Merged in PR #447 (f17ce22a2); deployed to production 2026-09-21 17:3x SAST with Hein's approval (golden paths 13/13, integrity green)."
     },
     {
       "claim": "",
@@ -12421,15 +12421,15 @@
       "sourceIds": [],
       "correctedTrigger": "",
       "auditedSha": "",
-      "currentSha": "6145c07ec",
-      "status": "in-progress",
+      "currentSha": "f17ce22a2",
+      "status": "fixed",
       "dependencies": [],
       "testNames": [
         "tests/integration/r115-customer-balances-list.int.test.ts"
       ],
-      "fixCommit": null,
-      "pr": null,
-      "deployedSha": null,
+      "fixCommit": "40f2b9c51",
+      "pr": "447",
+      "deployedSha": "f17ce22a2",
       "canonicalItem": null,
       "reportedSeverity": "medium",
       "branch": "fix/audit-r112-r113-customer-statement-20260921",
@@ -12454,7 +12454,7 @@
       "title": "customer-statements (the balances list on Statements / Statement Run / Customer Statements) ignores credit notes, so every customer's listed balance is overstated by their live credit notes",
       "severity": "medium",
       "source": "Found by the R-112/R-113 fixer while tracing the statement consumers.",
-      "processNotes": "Registered 2026-09-21; fixed on the R-112/R-113 branch at Hein's request (PR #447)."
+      "processNotes": "Registered 2026-09-21; fixed on the R-112/R-113 branch at Hein's request (PR #447). Merged in PR #447 (f17ce22a2); deployed to production 2026-09-21 17:3x SAST with Hein's approval (golden paths 13/13, integrity green)."
     },
     {
       "claim": "",
