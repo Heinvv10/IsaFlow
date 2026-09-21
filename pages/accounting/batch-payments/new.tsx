@@ -50,7 +50,10 @@ export default function NewBatchPaymentPage() {
         .then(r => r.json()).then((rr: { data?: Record<string, number> }) => {
           const reserved = rr.data ?? {};
           setInvoices(list.map((i) => ({ ...i, reserved: Number(reserved[i.id] ?? 0) })).filter((i) => available(i) > 0));
-        });
+        })
+        // Reservations unavailable: still list the bills at their outstanding;
+        // the server refuses anything already promised, with its message.
+        .catch(() => setInvoices(list));
     }).catch(() => {/* non-critical */});
   }, []);
 

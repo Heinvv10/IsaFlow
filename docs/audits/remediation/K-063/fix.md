@@ -472,3 +472,76 @@ shows the bill back at 0.00 `approved` and one posted contra.
   2026-09-18), against 1,101 and 4,764 live `payment_allocations` rows. The old
   join therefore matched nothing on real data and every payment already fell
   back to its total — removing the join changes no statement output on either.
+
+## Round 7 (2026-09-21) — the bank leg (review r6; Hein folded these into this PR)
+
+One module now owns reversing a payment journal: `ap/paymentJournalReversal.ts`,
+used by single-payment void AND batch reversal, so the two cannot drift.
+`lockBankLegOf` (first) runs every pre-write refusal about the journal — not
+found, not posted, the reversal date's period (the same `resolveReversalDate`
+rule `reverseJournalEntry` uses), a reconciled bank line — and locks each bank
+line matched to it. `lockJournalAndUnmatch` (last, just before
+`reverseJournalEntry`) locks the journal, re-reads its matched bank lines and
+unmatches them with `unmatchTransaction`, the one unmatch routine.
+
+**Lock order is the canonical one** (`bank/.claude.md`, table updated): bank →
+payment/batch → bills → journal. Both callers take the bank lines from an
+UNLOCKED peek of the journal id, as `voidPaymentDocument` does; void then
+re-checks under the payment lock that the journal is the one it peeked
+(`assertSameJournal`, else a retryable 409). The first cut took the journal
+before the bills, which inverts invoices → GL and is exactly the cycle round 9
+measured against `voidPaymentDocument`; the unit test that pins void's order was
+the guard, and it now asserts bank → payment → invoices → journal.
+
+1. **HIGH — single void left the bank line matched.** Fixed. Test 1: a 450
+   payment processed and matched → void 200 → bank line `imported`, no matched
+   line; bank GL net back to where it started; the bill back to 0 `approved`; the
+   line matches a live journal again (200). (The reconciliation screen lists
+   unreconciled lines by status, so `imported` is what makes it reappear there.)
+2. **MED — matching a reversed journal.** `assertMatchTargets` now takes the
+   target line's journal `FOR SHARE` AFTER the bank row and refuses
+   `LINE_REVERSED` when `reversed_at` is set and `journalReversalState` is not
+   `reReversed` (a re-reversed journal's posting is back on the books). A
+   reversal holds the journal `FOR UPDATE`, so a racing match either waits and is
+   refused, or lands before the journal lock and is caught by the re-read — the
+   reversal then answers 409 with its savepoint discarded, and the retry unmatches
+   it. Proven concurrently: batch reversal vs match 5 trials, single void vs match
+   4 trials, both orders — never a 500, never a deadlock, the statement line
+   always ends free.
+3. **MED — single void 500 in a closed period.** Now a 400 before anything is
+   written (payment still processed, bank line still matched, bill and bank GL
+   unchanged) — the same pre-check batch reversal runs, from the same function.
+4. **LOW — the "reconciled" message.** On a supplier payment, `reconciled` is set
+   by `supplierPaymentApplicationService` when the payment is FULLY APPLIED to its
+   bills; it has nothing to do with bank reconciliation. The stored meaning is NOT
+   changed. The message now says so: "fully applied to its bills (status
+   'reconciled' — this does not mean it is on a bank reconciliation). Voiding a
+   fully applied payment is not supported yet." It no longer tells the user to
+   remove it from a reconciliation it is not on. A truly bank-reconciled journal
+   is refused by its bank line's own state. **Open question for Hein:** whether a
+   fully applied payment should be voidable (the refusal predates this PR).
+5. **LOW — the anomaly refusal is pinned**: test 5 lowers a batch-paid bill's
+   `amount_paid` below the batch's share and expects 400 "no longer shows that
+   payment"; removing the check (W4) turns it red.
+6. **LOW — `BATCH_ALREADY_REVERSED`** keeps its MCP allow-list entry with a
+   comment that no agent can receive it yet.
+- Also from r6: `reservedFor` now filters real UUIDs only (36 dashes answered 500
+  with a raw pg message), and the new-batch page falls back to the outstanding
+  amounts when the reservations read fails instead of listing nothing.
+- **Known residual, unchanged:** a bank line in `allocated` status (a bank
+  allocation posted the payment journal itself) is left as single void always
+  left it. Undoing that is `reverseReconciledTransaction`'s job, which
+  `voidPaymentDocument` (MCP `void_payment`) already delegates to; the route's
+  void does not. Refusing it here broke `backfill-auto-apply-unapplied`
+  ("voiding a back-filled payment restores the bills"), so it was not changed.
+
+**Mutations** (`round7-mutations.log`), each restored byte-identical: shared
+unmatch removed → 5 red; single void skips the journal lock + unmatch → 3 red;
+matching a reversed line allowed → red; match's `FOR SHARE` dropped → both race
+tests red; the mid-reversal re-check removed → both race tests red; the
+closed-period pre-check removed → void and batch closed-period tests red.
+Unit files that queue `sql` results positionally for `matchTransaction` gained
+one entry (the journal read); `supplierPaymentVoid.test` mocks the two
+DB-backed steps and records where they run. The census entry moved to
+`paymentJournalReversal.ts`, the file that now reads `bank_transactions`.
+Green: 81 integration files, 517 tests (`round7-green.log`).

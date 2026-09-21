@@ -1,0 +1,69 @@
+=== M1 bank lines no longer unmatched (shared routine)
+     × 1. voiding a processed, bank-matched payment unmatches the bank line, which can then match again 81ms
+     × 2a. matching a line of a reversed journal is refused 66ms
+     × 2b. a match racing a batch reversal never leaves a statement line on reversed cash (5 trials) 57ms
+     × 2c. a match racing a single void: no 500, no deadlock, the line ends free (4 trials) 58ms
+     × unmatches a bank line matched to the batch journal 68ms
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 5 ⎯⎯⎯⎯⎯⎯⎯
+ Test Files  2 failed (2)
+      Tests  5 failed | 11 passed (16)
+restored byte-identical 7fc68c5c64e659ae11a173f13344145ab2d4e0cc2ee95f2c608ae6c9eccb94ab
+=== M1b single void skips the journal lock + unmatch
+     × 1. voiding a processed, bank-matched payment unmatches the bank line, which can then match again 84ms
+     × 2a. matching a line of a reversed journal is refused 61ms
+     × 2c. a match racing a single void: no 500, no deadlock, the line ends free (4 trials) 47ms
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 3 ⎯⎯⎯⎯⎯⎯⎯
+ Test Files  1 failed | 1 passed (2)
+      Tests  3 failed | 13 passed (16)
+restored byte-identical 06901199c5ec39f239cebb38a74291b9d48966aacda74796bedaab5caebd0b88
+=== M2a matching a reversed journal line allowed again
+     × 2a. matching a line of a reversed journal is refused 53ms
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 1 ⎯⎯⎯⎯⎯⎯⎯
+ Test Files  1 failed | 1 passed (2)
+      Tests  1 failed | 15 passed (16)
+restored byte-identical 3f8ea46bbac2c7c498f06aa8402a3d51a2d1402f4ba901372719c7b261242a94
+=== M2b match no longer locks the journal (FOR SHARE dropped)
+     × 2b. a match racing a batch reversal never leaves a statement line on reversed cash (5 trials) 200ms
+     × 2c. a match racing a single void: no 500, no deadlock, the line ends free (4 trials) 42ms
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 2 ⎯⎯⎯⎯⎯⎯⎯
+ Test Files  1 failed | 1 passed (2)
+      Tests  2 failed | 14 passed (16)
+restored byte-identical 3f8ea46bbac2c7c498f06aa8402a3d51a2d1402f4ba901372719c7b261242a94
+=== M2c reversal no longer re-checks for a line matched mid-reversal
+     × 2b. a match racing a batch reversal never leaves a statement line on reversed cash (5 trials) 139ms
+     × 2c. a match racing a single void: no 500, no deadlock, the line ends free (4 trials) 39ms
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 2 ⎯⎯⎯⎯⎯⎯⎯
+ Test Files  1 failed | 1 passed (2)
+      Tests  2 failed | 14 passed (16)
+restored byte-identical 7fc68c5c64e659ae11a173f13344145ab2d4e0cc2ee95f2c608ae6c9eccb94ab
+=== M3 closed-period pre-check removed from the shared routine
+     × 3. a void in a closed period is a 400 with nothing written 52ms
+     × refuses with 400 and writes nothing when the reversal date falls in a closed period 62ms
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 2 ⎯⎯⎯⎯⎯⎯⎯
+ Test Files  2 failed (2)
+      Tests  2 failed | 14 passed (16)
+restored byte-identical 7fc68c5c64e659ae11a173f13344145ab2d4e0cc2ee95f2c608ae6c9eccb94ab
+=== M1 (re-run on final code) bank lines no longer unmatched
+     × 1. voiding a processed, bank-matched payment unmatches the bank line, which can then match again 85ms
+     × 2a. matching a line of a reversed journal is refused 41ms
+     × 2b. a match racing a batch reversal never leaves a statement line on reversed cash (5 trials) 53ms
+     × 2c. a match racing a single void: no 500, no deadlock, the line ends free (4 trials) 39ms
+     × unmatches a bank line matched to the batch journal 36ms
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 5 ⎯⎯⎯⎯⎯⎯⎯
+ Test Files  2 failed (2)
+      Tests  5 failed | 11 passed (16)
+restored byte-identical 4cfdd807e69a639f83b83b35fa60b675009cd142a939c636e5f7328efa91d227
+=== M2c (re-run on final code) no re-check for a line matched mid-reversal
+     × 2b. a match racing a batch reversal never leaves a statement line on reversed cash (5 trials) 93ms
+     × 2c. a match racing a single void: no 500, no deadlock, the line ends free (4 trials) 28ms
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 2 ⎯⎯⎯⎯⎯⎯⎯
+ Test Files  1 failed | 1 passed (2)
+      Tests  2 failed | 14 passed (16)
+restored byte-identical 4cfdd807e69a639f83b83b35fa60b675009cd142a939c636e5f7328efa91d227
+=== M3 (re-run on final code) closed-period pre-check removed
+     × 3. a void in a closed period is a 400 with nothing written 39ms
+     × refuses with 400 and writes nothing when the reversal date falls in a closed period 35ms
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 2 ⎯⎯⎯⎯⎯⎯⎯
+ Test Files  2 failed (2)
+      Tests  2 failed | 14 passed (16)
+restored byte-identical 4cfdd807e69a639f83b83b35fa60b675009cd142a939c636e5f7328efa91d227
