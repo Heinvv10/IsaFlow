@@ -23,6 +23,7 @@ import { signArPortalToken } from '@/lib/auth/arPortalJwt';
 import { request, response } from './mfa-impersonation-postgres.helpers';
 
 export const EXPECTED_CLOSING = 1434.56;
+const TEST_IP = `10.95.${Math.floor(Math.random() * 250)}.${Math.floor(Math.random() * 250)}`;
 
 export function shift(days: number): string {
   const d = new Date();
@@ -144,7 +145,10 @@ export async function callPortal(
     : route === 'invoices' ? await import('../../pages/api/portal/invoices')
     : await import('../../pages/api/portal/chat');
   const req = request(token ? { portal_session: token } : {}, route === 'chat' ? 'POST' : 'GET');
+  // The chat's per-IP limiter is DB-backed (20 per 15 minutes), so a fixed test
+  // IP makes a re-run within the window a 429. One address per test process.
   Object.assign(req, { query: input.query ?? {}, body: input.body ?? {} });
+  (req.headers as Record<string, string>)['x-forwarded-for'] = TEST_IP;
   const result = response();
   await (mod.default as unknown as Handler)(req, result.res);
   return { status: result.state.statusCode, body: (result.state.body ?? {}) as Record<string, unknown> };
