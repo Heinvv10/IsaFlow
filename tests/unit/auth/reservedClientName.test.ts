@@ -138,13 +138,28 @@ describe('isReservedClientName', () => {
     expect(isReservedClientName(asHandlerWould('1saf1ow'))).toBe(true);
   });
 
+  // The price of closing the welding bypass: a token that happens to contain the
+  // brand is refused even when the registrant meant something else. Measured and
+  // accepted — three contrived names against a one-keystroke bypass of the whole
+  // control. These registrants can still use the qualified form, "Medisa (IsaFlow)".
+  it('refuses a name whose single token happens to contain the brand', () => {
+    for (const name of ['Lisaflow', 'Medisaflow', 'Visaflow']) {
+      expect(isReservedClientName(asHandlerWould(name)), name).toBe(true);
+    }
+  });
+
   // Documented residual: matching is length-preserving, so it catches a swapped
-  // glyph but not an inserted or deleted one. These are recorded as allowed
+  // glyph but not an INTERIOR insertion or deletion. Recorded as allowed
   // deliberately — "IsaFllow" folds to "isafiiow" and "Lisa Flow" to "iisafiow",
   // both the brand plus one character, so refusing the first refuses the second.
-  it('does not catch insertion or deletion, and says so', () => {
-    for (const name of ['IsaFllow', 'IssaFlow', 'IsaFloww', 'IsaFlw', 'Vverified Partner']) {
+  it('does not catch an interior insertion or deletion, and says so', () => {
+    for (const name of ['IsaFllow', 'IssaFlow', 'IsaaFlow', 'Isafflow', 'IsaFlw', 'IsFlow', 'Vverified Partner']) {
       expect(isReservedClientName(asHandlerWould(name)), name).toBe(false);
+    }
+    // ...but an edit at either end leaves the brand intact as a window, so
+    // those ARE caught. Within-token matching narrowed this residual.
+    for (const name of ['IIsaFlow', 'IsaFloww']) {
+      expect(isReservedClientName(asHandlerWould(name)), name).toBe(true);
     }
   });
 
@@ -157,11 +172,12 @@ describe('isReservedClientName', () => {
       'Marisa Flowers',
       'Elisa Flow',
       'Luisa Flower Shop',
-      'Medisaflow',
       'Unofficial Xero Sync',
       'Unverified Test Client',
       'Officiate Pro',
       'Office Ally',
+      'Lisa Accounting',
+      'Visafone Connector',
       'IsoFlow Diagrammer',
       'CashFlow Tracker',
     ]) {
@@ -187,18 +203,37 @@ describe('isReservedClientName', () => {
     }
   });
 
-  // The brand must be spelled by whole tokens, so welding it into a longer word
-  // is allowed. This is the same rule that lets "Lisa Flow" register: once
-  // separators are normalised the two are indistinguishable, so refusing
-  // "MyIsaFlowSync" would necessarily refuse "Lisa Flow" too. Brand-as-subject
-  // — the actual impersonation — is still caught, because there the brand
-  // stands alone as a token.
-  it('allows the brand welded into a longer word', () => {
-    for (const name of ['MyIsaFlowSync', 'IsaFlowly', 'IsaFlowHQ', 'GoIsaFlow', 'TheIsaFlow']) {
-      expect(isReservedClientName(asHandlerWould(name)), name).toBe(false);
+  // Removing a space must not defeat the rule. "OfficialIsaFlow" is
+  // "Official IsaFlow" welded together, and before within-token matching it
+  // slipped past BOTH reserved classes at once — the cheapest bypass there was,
+  // needing nothing but a second attempt after a 400.
+  it('refuses a reserved term welded into a longer word', () => {
+    for (const name of [
+      'OfficialIsaFlow',
+      'VerifiedIsaFlow',
+      'IsaFlowSupport',
+      'GetIsaFlowNow',
+      'TheIsaFlow',
+      'IsaFlowHQ',
+      'GoIsaFlow',
+      'MyIsaFlowSync',
+      'IsaFlowly',
+      'OfficialBot',
+    ]) {
+      expect(isReservedClientName(asHandlerWould(name)), name).toBe(true);
     }
     expect(isReservedClientName(asHandlerWould('MySync (IsaFlow)'))).toBe(false);
-    expect(isReservedClientName(asHandlerWould('IsaFlow Sync'))).toBe(true);
+  });
+
+  // The brand is a coined word, so it is refused anywhere inside a token. The
+  // adjectives are ordinary English that sits inside innocent words, so they
+  // are only refused when they LEAD one — otherwise "Unofficial Xero Sync"
+  // would be refused for disclaiming exactly what the rule polices.
+  it('refuses a leading adjective but not one inside a longer word', () => {
+    expect(isReservedClientName(asHandlerWould('Unofficial Xero Sync'))).toBe(false);
+    expect(isReservedClientName(asHandlerWould('Unverified Test Client'))).toBe(false);
+    expect(isReservedClientName(asHandlerWould('Officiate Pro'))).toBe(false);
+    expect(isReservedClientName(asHandlerWould('OfficialSync'))).toBe(true);
   });
 
   // These render as the brand to a user but are not the literal ASCII string.

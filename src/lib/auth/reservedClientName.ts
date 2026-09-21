@@ -56,19 +56,16 @@ const WILDCARD = '\u0000';
  * derive what is displayed or stored.
  *
  * Residual risk, stated rather than implied. This compares spellings of the
- * same length, so it stops SUBSTITUTION — one swapped glyph — and not
- * insertion or deletion: "IsaFllow", "IssaFlow" and "IsFlow" all register.
+ * same length, so it stops SUBSTITUTION — one swapped glyph — and not an
+ * INTERIOR insertion or deletion: "IsaFllow", "IssaFlow" and "IsFlow" all
+ * register. An edit at either end leaves the brand intact as a window inside
+ * the token, so "IIsaFlow" and "IsaFloww" are caught.
  * That is not a tuning gap. "IsaFllow" folds to "isafiiow" and "Lisa Flow"
  * folds to "iisafiow"; both are the brand plus one character, so no matcher
  * that works on spelling alone can refuse the first and allow the second.
  * Tolerating insertion means refusing ordinary names, and this dial is set to
  * allow them. Nor does it stop several substituted glyphs at once, or the
  * general n:1 shape ("rn" for "m").
- *
- * Nor does it stop the brand welded into one token with no separator at all:
- * "TheIsaFlow" and "IsaFlowHQ" register. Matching a term inside a single token
- * would catch those, at the cost of refusing "Lisaflow", "Medisaflow" and
- * "Visaflow" — the lever to pull if brand-welding shows up in the wild.
  *
  * It is one control among several — every dynamically-registered client also
  * renders the unverified-app warning on the consent screen, which is what
@@ -102,25 +99,44 @@ function matchesTerm(candidate: string, target: string): boolean {
 }
 
 /**
- * True when a reserved term is spelled out by a whole run of adjacent tokens.
+ * True when `token` spells `target` somewhere inside it.
  *
- * Whole runs, not substrings: "Isa Flow" and "isa-flow" spell the brand across
- * two tokens and are refused, while "Lisa Flow" and "Unofficial Xero Sync" —
- * which merely contain those letters inside a longer word — are not.
- *
- * A separator is also tried as a single wildcard, because a symbol can stand in
- * for a letter it resembles ("!saflow", "is@flow"). Dropping it and standing it
- * in for one letter are both considered, so "Isa Flow!" stays refused on the
- * dropped reading while "!saflow" is caught on the other.
+ * `leadingOnly` restricts the search to the start of the token. The brand is a
+ * coined word, so finding it anywhere inside one — "TheIsaFlow", "IsaFlowHQ" —
+ * means the name is trading on it. The adjectives are ordinary English that
+ * appear inside innocent words, so they must lead: "OfficialIsaFlow" claims
+ * official standing, "Unofficial Xero Sync" disclaims it.
  */
-function containsTerm(tokens: string[], target: string): boolean {
+function tokenSpells(token: string, target: string, leadingOnly: boolean): boolean {
+  const last = leadingOnly ? 0 : token.length - target.length;
+  for (let offset = 0; offset <= last; offset += 1) {
+    if (matchesTerm(token.slice(offset, offset + target.length), target)) return true;
+  }
+  return false;
+}
+
+/**
+ * True when a reserved term is spelled either inside one token or by a whole
+ * run of adjacent tokens.
+ *
+ * Both are needed, and neither alone is enough. Whole runs catch a term broken
+ * up by separators — "Isa Flow", "isa-flow" — while leaving "Lisa Flow" alone,
+ * because no run of its tokens is the brand. Within one token catches the same
+ * term welded together — "OfficialIsaFlow" is "Official IsaFlow" with one space
+ * removed, and defeated both rules at once before this was added.
+ *
+ * A separator inside a run is also tried as a single wildcard, because a symbol
+ * can stand in for a letter it resembles ("!saflow", "is@flow").
+ */
+function containsTerm(tokens: string[], target: string, leadingOnly: boolean): boolean {
+  if (tokens.some((token) => tokenSpells(token, target, leadingOnly))) return true;
+
   for (let start = 0; start < tokens.length; start += 1) {
     for (let end = start; end < tokens.length; end += 1) {
       const run = tokens.slice(start, end + 1);
       const joined = run.join('');
       if (joined.length > target.length) break;
       if (matchesTerm(joined, target)) return true;
-      // ...or with one junction — including the edges — standing in for a letter.
       for (let gap = 0; gap <= run.length; gap += 1) {
         const withGap = [...run.slice(0, gap), WILDCARD, ...run.slice(gap)].join('');
         if (matchesTerm(withGap, target)) return true;
@@ -154,10 +170,10 @@ const MIN_QUALIFIED_PREFIX_LETTERS = 2;
  */
 export function isReservedClientName(name: string): boolean {
   const tokens = tokenizeForComparison(name);
-  if (RESERVED_ADJECTIVES.some((term) => containsTerm(tokens, term))) return true;
+  if (RESERVED_ADJECTIVES.some((term) => containsTerm(tokens, term, true))) return true;
 
   const prefixTokens = tokenizeForComparison(name.replace(TRAILING_QUALIFIER_RE, ''));
   const letters = prefixTokens.join('').replace(/[^a-z]/g, '').length;
   const subject = letters >= MIN_QUALIFIED_PREFIX_LETTERS ? prefixTokens : tokens;
-  return containsTerm(subject, BRAND);
+  return containsTerm(subject, BRAND, false);
 }
