@@ -12435,7 +12435,12 @@
       "branch": "fix/audit-r112-r113-customer-statement-20260921",
       "evidencePaths": [
         "docs/audits/remediation/R-115/fix.md",
-        "docs/audits/remediation/R-115/red-master.log"
+        "docs/audits/remediation/R-115/red-master.log",
+        "docs/audits/remediation/R-115/green.log",
+        "docs/audits/remediation/R-115/mutations.log",
+        "docs/audits/remediation/R-115/ui.log",
+        "docs/audits/remediation/R-115/r115-customer-statements.png",
+        "docs/audits/remediation/R-115/r115-statement-run.png"
       ],
       "id": "R-115",
       "area": "ar",
