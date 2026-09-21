@@ -8,7 +8,7 @@
 
 export interface StatementTransaction {
   date: string;
-  type: 'invoice' | 'payment' | 'credit_note';
+  type: 'invoice' | 'payment' | 'credit_note' | 'opening_balance';
   reference: string;
   description: string;
   debit: number;
@@ -190,6 +190,7 @@ export async function generateStatementPdf(data: StatementData): Promise<Blob> {
     invoice:     'Invoice',
     payment:     'Payment',
     credit_note: 'Credit Note',
+    opening_balance: 'Opening',
   };
 
   const tableRows = data.transactions.map(t => [

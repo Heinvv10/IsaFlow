@@ -28,7 +28,7 @@ interface Customer { id: string; name: string; email?: string | null; phone?: st
 interface StatementTransaction {
   id: string;
   date: string;
-  type: 'invoice' | 'payment' | 'credit_note';
+  type: 'invoice' | 'payment' | 'credit_note' | 'opening_balance';
   reference: string;
   description: string;
   debit: number;
@@ -37,6 +37,7 @@ interface StatementTransaction {
 }
 
 interface StatementSummary {
+  openingBalance: number;
   totalInvoiced: number;
   totalPaid: number;
   totalCredits: number;
@@ -55,12 +56,14 @@ const TYPE_LABELS: Record<string, string> = {
   invoice: 'Invoice',
   payment: 'Payment',
   credit_note: 'Credit Note',
+  opening_balance: 'Opening',
 };
 
 const TYPE_COLORS: Record<string, string> = {
   invoice: 'bg-blue-500/10 text-blue-400',
   payment: 'bg-teal-500/10 text-teal-400',
   credit_note: 'bg-amber-500/10 text-amber-400',
+  opening_balance: 'bg-gray-500/10 text-gray-400',
 };
 
 function formatDate(d: string): string {

@@ -6,7 +6,7 @@
 interface StatementTransaction {
   id: string;
   date: string;
-  type: 'invoice' | 'payment' | 'credit_note';
+  type: 'invoice' | 'payment' | 'credit_note' | 'opening_balance';
   reference: string;
   description: string;
   debit: number;
@@ -41,6 +41,7 @@ const typeLabels: Record<string, string> = {
   invoice: 'Invoice',
   payment: 'Payment',
   credit_note: 'Credit Note',
+  opening_balance: 'Opening',
 };
 
 export function buildStatementHtml(
