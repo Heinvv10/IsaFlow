@@ -2335,8 +2335,8 @@
         "K-063/fix.md"
       ],
       "fixCommit": "c04803ba9",
-      "pr": null,
-      "deployedSha": null,
+      "pr": "445",
+      "deployedSha": "983df38a5",
       "historicalDataImpact": "Not assessed",
       "canonicalItem": null,
       "reportedSeverity": "high",
@@ -2376,8 +2376,8 @@
         "K-064/fix.md"
       ],
       "fixCommit": "c04803ba9",
-      "pr": null,
-      "deployedSha": null,
+      "pr": "445",
+      "deployedSha": "983df38a5",
       "historicalDataImpact": "Not assessed",
       "canonicalItem": null,
       "reportedSeverity": "high",
@@ -2443,8 +2443,8 @@
         "K-066/fix.md"
       ],
       "fixCommit": "c04803ba9",
-      "pr": null,
-      "deployedSha": null,
+      "pr": "445",
+      "deployedSha": "983df38a5",
       "historicalDataImpact": "Not assessed",
       "canonicalItem": null,
       "reportedSeverity": "high",
@@ -11806,7 +11806,7 @@
       "severityRationale": "Customer-facing: a customer opening their statement in the portal gets an error. No ledger data is wrong. Severity depends on whether any customer uses the portal — unmeasured.",
       "auditedSha": "",
       "currentSha": "",
-      "status": "confirmed",
+      "status": "fixed",
       "dependencies": [
         "R-082"
       ],
@@ -11814,13 +11814,13 @@
       "evidencePaths": [
         "docs/audits/remediation/R-082/fix.md"
       ],
-      "fixCommit": null,
-      "pr": null,
-      "deployedSha": null,
+      "fixCommit": "e2af2c121",
+      "pr": "444",
+      "deployedSha": "983df38a5",
       "historicalDataImpact": "None on the ledger; the portal statement has never rendered.",
       "canonicalItem": null,
       "reportedSeverity": "",
-      "branch": null,
+      "branch": "fix/audit-r095-portal-statement",
       "title": "Customer portal statement and invoice list are broken: portalService selects columns that don't exist (customer_invoices.total, customer_payments.reference) and filters payments on status 'posted', which the CHECK constraint forbids, so /api/portal/statement throws on every call",
       "severity": "medium",
       "source": "Found by the R-082 fixer and measured by running getClientStatement against the fixture DB. Confirmed on origin/master by the orchestrating session: portalService.ts selects 'total AS debit' from customer_invoices (the column is total_amount), 'reference' from customer_payments, and filters 'status = ''posted''' (allowed values: draft/confirmed/reconciled/cancelled).",
