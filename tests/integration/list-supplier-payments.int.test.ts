@@ -11,6 +11,7 @@
 import { describe, it, expect, beforeAll, afterAll } from 'vitest';
 import { sql } from '@/lib/neon';
 import { listSupplierPayments } from '@/modules/accounting/services/ap/supplierPaymentListService';
+import { getSupplierPayments } from '@/modules/accounting/services/ap/supplierPaymentService';
 import { assertNotProductionDb } from '../helpers/assertNotProductionDb';
 import { dropFixture, seedBill, seedFixture, seedSupplier, type Fixture } from './helpers/l1FifoFixture';
 
@@ -102,6 +103,19 @@ describeIfDb('listSupplierPayments — every payment, filterable, to the last pa
       seen.push(...page.rows.map((r) => r.paymentId));
       offset += page.rows.length;
       if (page.rows.length === 0 || offset >= page.total) break;
+    }
+    expect(seen).toHaveLength(3 + SAME_DATE_COUNT);
+    expect(new Set(seen).size).toBe(3 + SAME_DATE_COUNT);
+  });
+
+  /** The UI's list (supplier-payments page) pages the same table by offset,
+   *  and ordered on the date alone. */
+  it('the UI list, getSupplierPayments, also walks every payment exactly once', async () => {
+    const seen: string[] = [];
+    for (let offset = 0; ; offset += 4) {
+      const page = await getSupplierPayments(fx.companyId, { limit: 4, offset });
+      seen.push(...page.payments.map((p) => p.id));
+      if (offset + 4 >= page.total) break;
     }
     expect(seen).toHaveLength(3 + SAME_DATE_COUNT);
     expect(new Set(seen).size).toBe(3 + SAME_DATE_COUNT);
