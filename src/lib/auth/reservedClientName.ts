@@ -55,11 +55,19 @@ const WILDCARD = '\u0000';
  * Lossy and one-way: used only to compare against reserved terms, never to
  * derive what is displayed or stored.
  *
- * Residual risk, stated rather than implied: this stops one substituted glyph,
- * not several, and not the general n:1 shape ("rn" for "m"). It is one control
- * among several — every dynamically-registered client also renders the
- * unverified-app warning on the consent screen, which is what carries the
- * names this cannot catch.
+ * Residual risk, stated rather than implied. This compares spellings of the
+ * same length, so it stops SUBSTITUTION — one swapped glyph — and not
+ * insertion or deletion: "IsaFllow", "IssaFlow" and "IsFlow" all register.
+ * That is not a tuning gap. "IsaFllow" folds to "isafiiow" and "Lisa Flow"
+ * folds to "iisafiow"; both are the brand plus one character, so no matcher
+ * that works on spelling alone can refuse the first and allow the second.
+ * Tolerating insertion means refusing ordinary names, and this dial is set to
+ * allow them. Nor does it stop several substituted glyphs at once, or the
+ * general n:1 shape ("rn" for "m").
+ *
+ * It is one control among several — every dynamically-registered client also
+ * renders the unverified-app warning on the consent screen, which is what
+ * carries the names this cannot catch.
  */
 export function tokenizeForComparison(value: string): string[] {
   return value

@@ -138,6 +138,16 @@ describe('isReservedClientName', () => {
     expect(isReservedClientName(asHandlerWould('1saf1ow'))).toBe(true);
   });
 
+  // Documented residual: matching is length-preserving, so it catches a swapped
+  // glyph but not an inserted or deleted one. These are recorded as allowed
+  // deliberately — "IsaFllow" folds to "isafiiow" and "Lisa Flow" to "iisafiow",
+  // both the brand plus one character, so refusing the first refuses the second.
+  it('does not catch insertion or deletion, and says so', () => {
+    for (const name of ['IsaFllow', 'IssaFlow', 'IsaFloww', 'IsaFlw', 'Vverified Partner']) {
+      expect(isReservedClientName(asHandlerWould(name)), name).toBe(false);
+    }
+  });
+
   // The brand must be spelled by WHOLE tokens. These merely contain its letters
   // inside longer words and are legitimate names a registrant could hold.
   it('allows names that merely contain the letters of a reserved term', () => {
