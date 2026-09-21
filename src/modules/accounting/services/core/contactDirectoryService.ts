@@ -187,28 +187,22 @@ export async function customersBelongToCompany(
   return rows.length === unique.length;
 }
 
-export async function listCustomers(companyId: string, search?: string | null): Promise<Row[]> {
-  const searchTerm = search && search.trim() ? `%${search.trim()}%` : null;
+export interface CustomerPage {
+  limit: number;
+  offset: number;
+}
 
-  if (searchTerm) {
-    // Search queries are not cached — results change with every keystroke
-    return (await sql`
-      SELECT
-        id, name, email, phone, contact_person,
-        payment_terms, credit_limit, is_active,
-        vat_number, registration_number,
-        created_at
-      FROM customers
-      WHERE company_id = ${companyId}
-        AND deleted_at IS NULL
-        AND (name ILIKE ${searchTerm}
-        OR email ILIKE ${searchTerm}
-        OR vat_number ILIKE ${searchTerm}
-        OR contact_person ILIKE ${searchTerm})
-      ORDER BY name ASC
-      LIMIT 200
-    `) as Row[];
-  }
+/**
+ * Customers ordered by name, then id — a total order, so offset pages neither
+ * skip nor repeat customers that share a name. The UI calls without `page` and
+ * gets the first 200, as it always has.
+ */
+export async function listCustomers(
+  companyId: string,
+  search?: string | null,
+  page: CustomerPage = { limit: 200, offset: 0 },
+): Promise<Row[]> {
+  const searchTerm = search && search.trim() ? `%${search.trim()}%` : null;
 
   return (await sql`
     SELECT
@@ -219,8 +213,13 @@ export async function listCustomers(companyId: string, search?: string | null): 
     FROM customers
     WHERE company_id = ${companyId}
       AND deleted_at IS NULL
-    ORDER BY name ASC
-    LIMIT 200
+      AND (${searchTerm}::text IS NULL
+        OR name ILIKE ${searchTerm}
+        OR email ILIKE ${searchTerm}
+        OR vat_number ILIKE ${searchTerm}
+        OR contact_person ILIKE ${searchTerm})
+    ORDER BY name ASC, id ASC
+    LIMIT ${page.limit} OFFSET ${page.offset}
   `) as Row[];
 }
 
@@ -256,7 +255,7 @@ export async function listSuppliers(
           OR email ILIKE ${searchTerm}
           OR company_name ILIKE ${searchTerm}
           OR contact_person ILIKE ${searchTerm})
-        ORDER BY name ASC
+        ORDER BY name ASC, id ASC
         LIMIT ${limit} OFFSET ${offset}
       `,
       sql`
@@ -282,7 +281,7 @@ export async function listSuppliers(
       FROM suppliers
       WHERE company_id = ${companyId}
         AND deleted_at IS NULL
-      ORDER BY name ASC
+      ORDER BY name ASC, id ASC
       LIMIT ${limit} OFFSET ${offset}
     `,
     sql`

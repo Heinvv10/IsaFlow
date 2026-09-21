@@ -9,11 +9,14 @@ import {
 } from '@/modules/accounting/services/ar/customerInvoiceReadService';
 import { getQuotes } from '@/modules/accounting/services/ar/quoteService';
 import { NOT_FOUND, clampLimit, guardCastableArgs, ok, strArg, toolError } from './toolHelpers';
+import { OFFSET_SCHEMA, nextOffsetFromTotal, parseOffset } from './pageArgs';
 
 export const listInvoicesTool: McpTool = {
   name: 'list_invoices',
   description:
-    'Customer invoices, newest first. Filter by status (draft/sent/paid/…), customer_id, or free-text search. Max 100 rows.',
+    'Customer invoices, newest first. Filter by status (draft/sent/paid/…), customer_id, or free-text search. '
+    + 'Returns {invoices, total, next_offset}: up to `limit` rows (default 25, max 100); when next_offset is '
+    + 'not null, call again with offset=next_offset for the next page.',
   scope: 'read:invoices',
   write: false,
   inputSchema: {
@@ -23,6 +26,7 @@ export const listInvoicesTool: McpTool = {
       customer_id: { type: 'string' },
       search: { type: 'string', description: 'Matches invoice number or customer name' },
       limit: { type: 'integer', minimum: 1, maximum: 100 },
+      offset: OFFSET_SCHEMA,
     },
     additionalProperties: false,
   },
@@ -30,14 +34,20 @@ export const listInvoicesTool: McpTool = {
     // status and search are compared as TEXT; customer_id is a UUID cast.
     const bad = guardCastableArgs(args, { uuid: ['customer_id'] });
     if (bad) return bad;
+    const offset = parseOffset(args);
+    if (typeof offset === 'string') return toolError(offset);
     const status = strArg(args, 'status');
     const result = await listCustomerInvoices(ctx.companyId, {
       status: status && status !== 'all' ? [status] : null,
       clientId: strArg(args, 'customer_id') ?? null,
       search: strArg(args, 'search') ?? null,
       limit: clampLimit(args, 25, 100),
+      offset,
     });
-    return ok(result);
+    return ok({
+      ...result,
+      next_offset: nextOffsetFromTotal(offset, result.invoices.length, result.total),
+    });
   },
 };
 
