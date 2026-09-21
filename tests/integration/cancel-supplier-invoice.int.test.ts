@@ -149,15 +149,23 @@ describeIfDb('cancel_supplier_invoice — plan and cancel over a real ledger', (
     expect(await refusal(plan(bill))).toContain(payNumber);
   });
 
-  /** Ledger review HIGH: the contra would land in a VAT period already filed. */
-  it('refuses when the contra would post into a locked VAT period', async () => {
-    const { bill } = await seedPostedBill('V1', 115, '2026-06-10');
+  /** Ledger review HIGH: the contra would change a VAT201 already filed. Only
+   *  a journal that carries VAT can do that — a zero-VAT bill is not refused. */
+  it('refuses a VAT-carrying contra into a locked VAT period, and allows a zero-VAT one', async () => {
+    const vatInput = await accountId(fx, 'vat_input');
+    const { bill: withVat, je } = await seedPostedBill('V1', 100, '2026-06-10');
+    await sql`
+      INSERT INTO gl_journal_lines (company_id, journal_entry_id, gl_account_id, debit, credit, description)
+      VALUES (${fx.companyId}::UUID, ${je}::UUID, ${vatInput}::UUID, 15, 0, 'VAT'),
+             (${fx.companyId}::UUID, ${je}::UUID, ${apAccount}::UUID, 0, 15, 'AP VAT')`;
+    const { bill: zeroVat } = await seedPostedBill('V2', 100, '2026-06-11');
     await sql`
       INSERT INTO vat_period_locks
         (company_id, period_start, period_end, output_tax, input_tax, net_vat, posted_through, locked_by)
       VALUES (${fx.companyId}::UUID, '2026-06-01', '2026-06-30', 0, 0, 0, '2026-06-30', ${fx.userId}::UUID)`;
     try {
-      expect(await refusal(plan(bill))).toContain('locked VAT period');
+      expect(await refusal(plan(withVat))).toContain('locked VAT period');
+      expect((await plan(zeroVat)).journal).not.toBeNull();
     } finally {
       await sql`DELETE FROM vat_period_locks WHERE company_id = ${fx.companyId}::UUID`;
     }

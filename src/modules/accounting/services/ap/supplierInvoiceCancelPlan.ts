@@ -170,8 +170,9 @@ export async function planSupplierInvoiceCancel(
     );
   }
   const reversalDate = await resolveReversalDate(companyId, fmtDate(entry.entryDate), undefined);
-  // A contra inside a locked VAT period changes a return already filed.
-  if (await isVatPeriodLocked(companyId, reversalDate)) {
+  // A contra inside a locked VAT period changes a return already filed — but
+  // only if it carries VAT. A zero-VAT bill's contra moves no VAT201 figure.
+  if (await carriesVat(companyId, entry.lines) && await isVatPeriodLocked(companyId, reversalDate)) {
     throw new SupplierInvoiceCancelRefusal(
       `Cancelling supplier invoice ${number} would post its reversal on ${reversalDate}, inside a `
       + 'locked VAT period — it would change a VAT201 already filed. Unlock the period, or reverse '
@@ -193,4 +194,19 @@ export async function planSupplierInvoiceCancel(
       })),
     },
   };
+}
+
+/** A line on a VAT control account (by subtype, never by code) or tagged with a VAT type. */
+async function carriesVat(
+  companyId: string,
+  lines: readonly { glAccountId: string; vatType?: string | null }[],
+): Promise<boolean> {
+  if (lines.some((l) => l.vatType)) return true;
+  const ids = [...new Set(lines.map((l) => l.glAccountId))];
+  const rows = (await sql`
+    SELECT 1 FROM gl_accounts
+    WHERE company_id = ${companyId}::UUID AND id = ANY(${ids}::UUID[])
+      AND account_subtype IN ('vat_input', 'vat_output')
+    LIMIT 1`) as DbRow[];
+  return rows.length > 0;
 }
