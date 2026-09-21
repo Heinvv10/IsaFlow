@@ -12,6 +12,7 @@ import { withErrorHandler } from '@/lib/api-error-handler';
 import { apiResponse } from '@/lib/apiResponse';
 import { withAuth, type AuthenticatedNextApiRequest } from '@/lib/auth';
 import { createPaymentLink, getPaymentLink } from '@/modules/accounting/services/ar/portalService';
+import { assertCustomerInCompany, CustomerNotInCompanyError } from '@/modules/accounting/services/core/contactDirectoryService';
 import { sql } from '@/lib/neon';
 import { log } from '@/lib/logger';
 type Row = Record<string, unknown>;
@@ -73,6 +74,14 @@ async function postHandler(req: NextApiRequest, res: NextApiResponse) {
     `) as Row[];
     if (invoice.length === 0) return apiResponse.notFound(res, 'Invoice not found');
 
+    // R-067: clientId comes from the request body, and the unauthenticated GET
+    // above hands the link's client_id to anyone holding the token.
+    try {
+      await assertCustomerInCompany(companyId, clientId);
+    } catch (err) {
+      if (err instanceof CustomerNotInCompanyError) return apiResponse.badRequest(res, err.message);
+      throw err;
+    }
     const token = await createPaymentLink(invoiceId, clientId, amountNum);
     return apiResponse.success(res, { token, url: `/portal/pay/${token}` });
 }

@@ -14,11 +14,16 @@ import { apiResponse } from '@/lib/apiResponse';
 import { withAuth, type CompanyAuthedRequest, withWriteAccess} from '@/lib/auth';
 import { withCsrf } from '@/lib/auth/withCsrf';
 import { UUID } from '@/lib/schemas/common';
+import { AUTO_APPLY_MODES } from '@/modules/accounting/services/shared/autoAllocateStrategy';
 import { log } from '@/lib/logger';
 import { sql } from '@/lib/neon';
 import {
   allocateTransaction,
 } from '@/modules/accounting/services/bank/bankReconciliationService';
+import { isRetryableContention } from '@/modules/accounting/services/core/retryableContention';
+import {
+  assertCustomerInCompany, assertSupplierInCompany, CustomerNotInCompanyError, SupplierNotInCompanyError,
+} from '@/modules/accounting/services/core/contactDirectoryService';
 
 const ManualTxSchema = z.object({
   type: z.enum(['spend', 'receive']),
@@ -34,6 +39,9 @@ const ManualTxSchema = z.object({
   // entityId is a supplier or customer UUID; service casts to ::UUID downstream.
   entityId: UUID.optional(),
   vatCode: z.string().max(20).optional(),
+  // See the allocate action: 'fifo' (the default) settles the contact's oldest
+  // open documents, 'none' leaves the cash on account.
+  autoApply: z.enum(AUTO_APPLY_MODES).optional(),
 }).refine(
   v => !(v.allocationType === 'account' && !v.contraAccountId),
   { message: 'contraAccountId is required when allocationType is account', path: ['contraAccountId'] },
@@ -58,12 +66,25 @@ async function handler(req: CompanyAuthedRequest, res: NextApiResponse) {
   }
   const {
     type, bankAccountId, date, amount: numericAmount,
-    reference, description, allocationType, contraAccountId, entityId, vatCode,
+    reference, description, allocationType, contraAccountId, entityId, vatCode, autoApply,
   } = parsed.data;
 
   // ── Amount sign — negative for spend, positive for receive ─────────────────
 
   const signedAmount = type === 'spend' ? -Math.abs(numericAmount) : Math.abs(numericAmount);
+
+  // R-067 / R-068: `entityId` comes from the body. allocateTransaction fences it,
+  // but only after step 1 has written the bank line, so refuse it here first —
+  // a typed 400 that commits nothing, not a 500 whose rollback is the only guard.
+  try {
+    if (allocationType === 'supplier') await assertSupplierInCompany(companyId, entityId);
+    if (allocationType === 'customer') await assertCustomerInCompany(companyId, entityId);
+  } catch (err) {
+    if (err instanceof SupplierNotInCompanyError || err instanceof CustomerNotInCompanyError) {
+      return apiResponse.badRequest(res, err.message);
+    }
+    throw err;
+  }
 
   try {
     // ── Step 1: Insert bank_transactions row ─────────────────────────────────
@@ -106,6 +127,12 @@ async function handler(req: CompanyAuthedRequest, res: NextApiResponse) {
       allocationType,
       entityId,
       vatCode,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      // The service owns the default; this route only forwards an explicit one.
+      autoApply ? { autoApply } : undefined,
     );
 
     log.info('Manual bank transaction allocated', {
@@ -118,6 +145,20 @@ async function handler(req: CompanyAuthedRequest, res: NextApiResponse) {
       bankTransaction: result.bankTransaction,
     }, 'Transaction recorded and allocated successfully');
   } catch (err) {
+    // Contention is a 409, not a 500. This route calls `allocateTransaction`,
+    // so it raises the identical events the four settlement routes answer 409 —
+    // and `internalError` replaces the service's "retry in a moment" with "An
+    // internal error occurred", which is the one wording the caller can act on.
+    // The INSERT above is NOT rolled back by the choice of status — every
+    // member of `isRetryableContention` descends from 55P03/40P01, which abort
+    // the Postgres transaction, so `withAuth`'s COMMIT on a 4xx is a no-op and
+    // the manual row is discarded either way. What changes is the wording the
+    // caller reads. A blanket catch on a route that writes BEFORE it can refuse
+    // is still a hazard for any non-aborting throw — registered as R-060.
+    if (isRetryableContention(err)) {
+      log.info('Manual bank transaction hit a contended row', { error: err }, 'accounting-api');
+      return apiResponse.conflict(res, (err as Error).message);
+    }
     const message = err instanceof Error ? err.message : 'Failed to record transaction';
     log.error('Manual bank transaction failed', { error: err }, 'accounting-api');
     return apiResponse.internalError(res, err, message);

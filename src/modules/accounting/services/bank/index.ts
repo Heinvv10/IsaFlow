@@ -1,7 +1,5 @@
 // Barrel index for bank/ domain
 // Files with symbol conflicts (import these files directly by path):
-//   bankFeedOAuthService.ts — conflicts: StitchAccount, exchangeCode, fetchStitchAccounts...
-//   bankFeedService.ts — conflicts: BankFeedConnection, StitchAccount, StitchTransaction...
 //   bankMatchDbQueries.ts — conflicts: fetchBankTransaction
 //   bankReconciliationService.ts — conflicts: AllocationType, SplitLine, allocateTransaction...
 //   bankRulesService.ts — conflicts: applyRules
@@ -11,8 +9,6 @@
 //   vlmService.ts — conflicts: extractBankStatementWithVlm, extractPdfWithVlm, extractWithVlm...
 
 export * from './bankAllocationService';
-export * from './bankFeedConnectionService';
-export * from './bankFeedSyncService';
 export * from './bankImportService';
 export * from './bankMatchCandidatesService';
 export * from './bankRulesMatchingService';

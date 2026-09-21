@@ -1,0 +1,136 @@
+K-072 / K-075 / K-076 — GREEN evidence (branch fix/audit-k072-k075-k076-capture-vat-ocr)
+
+$ bunx vitest run tests/unit/services/k072-receipt-entertainment-vat.test.ts \
+      tests/unit/services/k075-ocr-comma-decimal.test.ts \
+      tests/unit/services/k076-ocr-label-boundaries.test.ts
+ Test Files  3 passed (3)
+      Tests  21 passed (21)
+   (K-072 8, K-075 7, K-076 6)
+
+$ source scratchpad/fixture.env; bun run test:integration -- tests/integration/k072-receipt-entertainment-vat.int.test.ts
+ Test Files  1 passed (1)
+      Tests  4 passed (4)
+   Real Postgres. Meals receipt posted 2 legs (no VAT-input line), expense debit
+   1150 = bank credit 1150. Office receipt posted 3 legs, VAT input 150 kept.
+   Derived-VAT meals receipt posted 460 gross. Cross-tenant document → 404, no
+   journal written.
+
+$ bun scripts/ci/check-vat-guard-coverage.ts
+[vat-guard] OK — 1908 files scanned, 14 attended/no-claim paths allowlisted.
+   (14 = unchanged from origin/master. The gate file is NOT modified by this
+   branch and no allowlist entry was added.)
+
+$ bunx tsc --noEmit                                        → clean
+$ bunx eslint <the two changed src files>                   → clean
+
+MUTATION PROOF (production change reverted, test re-run, then restored)
+  1. receiptToJournalService: applyVatDenial(false, ...) i.e. denial disabled
+       → 4 failed | 4 passed
+  2. ocrExtractionService parseAmount → master's str.replace(/[\s,]/g,'')
+       → 4 failed | 3 passed
+  3a. total patterns → master's (no `(?:^|[^A-Za-z])` left boundary)
+       → 2 failed | 4 passed
+  3b. VAT patterns + REGISTRATION_NUMBER reject → master's single loose pattern
+       → 2 failed | 4 passed
+
+FULL UNIT SUITE, fixture env UNSET (env -u DATABASE_URL -u JWT_SECRET bunx vitest run)
+ Test Files  795 passed | 36 skipped (831)
+      Tests  9459 passed | 234 skipped (9693)
+
+=============================================================================
+ROUND 2 — all 13 blind-review findings (see review-round-2.md for dispositions)
+=============================================================================
+
+$ bunx vitest run tests/unit/services/k07{2,5,6}-*.test.ts
+      Tests  55 passed (55)
+   k072-receipt-entertainment-vat      12
+   k075-ocr-comma-decimal              13
+   k075-bank-csv-comma-decimal          6   (new — the same defect in the CSV parser)
+   k076-ocr-label-boundaries           24
+
+$ source fixture.env; bun run test:integration -- tests/integration/k072-receipt-entertainment-vat.int.test.ts
+      Tests  5 passed (5)
+   New case: a Tashas receipt, which MERCHANT_PATTERNS does not know, coded to an
+   account carrying gl_accounts.vat_input_denied (migration 521's marker). Posted
+   2 legs, 1150 on the expense, nothing on VAT Input, debits = credits.
+   The office receipt's legs now come back vat_type = 'standard'.
+
+$ bun scripts/ci/check-vat-guard-coverage.ts
+[vat-guard] OK — 1909 files scanned, 14 attended/no-claim paths allowlisted.
+   14 = unchanged from origin/master. NO allowlist entry was added.
+   inspectVatGuardCoverage on both routes now returns
+     {"kinds":["vat_field_on_a_posting_path"],"guarded":true}
+   where before it returned null — in scope, and guarded.
+
+$ bunx tsc --noEmit                                          → clean
+$ bunx eslint <4 changed src files + 2 changed routes>        → clean
+File sizes: ocrExtractionService 269, ocrAmountPatterns 153   → both under the 300 cap
+
+MUTATION PROOF (each production change reverted, test re-run, then restored)
+  A. HIGH-1  boundary back to `(?:^|[^A-Za-z])`      → 4 failed | 20 passed
+  B. HIGH-2  bare VAT column pattern deleted          → 2 failed | 22 passed
+  C. MED-4   value test back to /^\d{9,10}$/          → 2 failed | 22 passed
+  D. LOW-7/8 parseAmount back to .replace(',', '.')   → 2 failed | 11 passed
+  E. LOW-10  proved-sum branch deleted                → 1 failed | 23 passed
+  F. MED-3   builder ignores options.accountVatDenied → 1 failed | 11 passed
+  G. LOW-12  inputVatDenied hard-coded false          → 3 failed |  9 passed
+  H. MED-5   every inputVatDenial binding removed from receipt-to-journal.ts,
+             vatType kept                             → GATE EXITS 1:
+               "pages/api/accounting/receipt-to-journal.ts
+                  matched: vat_field_on_a_posting_path"
+             Restored → gate exits 0. The path is no longer invisible to CI.
+
+Two mutations (A and D) silently no-opped on the first attempt and reported a false
+GREEN. Both were caught by asserting the edit landed before running the test, and are
+recorded here because the first run of each looked like a passing mutation check.
+
+FULL UNIT SUITE, fixture env UNSET (env -u DATABASE_URL -u JWT_SECRET bunx vitest run)
+ Test Files  796 passed | 36 skipped (832)
+      Tests  9493 passed | 234 skipped (9727)
+
+=============================================================================
+ROUND 3 — post-expense.ts back under the 300-line cap (pure extraction)
+=============================================================================
+
+pages/api/accounting/capture/[id]/post-expense.ts   329 -> 214 lines
+src/modules/accounting/services/capture/pettyCashJournalService.ts  NEW, 181
+
+Behaviour-preserving move of the anonymous petty-cash branch. The existing route
+tests are the check on that, and they were not edited:
+
+$ bunx vitest run tests/unit/services/{postExpenseZeroVatLine,closedFiscalPeriodErrorContract,glEntrySourceConstraint,bankRulesClosedPeriod}.test.ts
+ Test Files  4 passed (4)
+      Tests  26 passed (26)
+
+$ source fixture.env; bun run test:integration -- tests/integration/k072-receipt-entertainment-vat.int.test.ts
+      Tests  5 passed (5)
+
+$ bun scripts/ci/check-vat-guard-coverage.ts
+[vat-guard] OK — 1910 files scanned, 14 attended/no-claim paths allowlisted.
+
+The gate's scope followed the DECISION out of the route, which is the correct
+outcome and not a loss of coverage. inspectVatGuardCoverage now returns:
+  pages/api/accounting/receipt-to-journal.ts                  in scope, guarded
+  src/.../capture/pettyCashJournalService.ts                  in scope, guarded
+  pages/api/accounting/capture/[id]/post-expense.ts           null — it decides
+    nothing any more; it resolves the account and delegates.
+
+MUTATION I — every inputVatDenial binding removed from pettyCashJournalService,
+vatType kept:
+  [vat-guard] These decide or forward a VAT claim without a guard:
+    src/modules/accounting/services/capture/pettyCashJournalService.ts
+  gate exit=1.  Restored -> exit 0.
+
+$ bunx tsc --noEmit                → clean
+$ bunx eslint <both files>         → clean
+$ bun run agent-docs:check         → OK: 74 mirrors match (capture/.claude.md updated
+                                     with the new service, mirror regenerated)
+
+FULL UNIT SUITE, fixture env UNSET
+ Test Files  1 failed | 795 passed | 36 skipped (832)
+      Tests  1 failed | 9492 passed | 234 skipped (9727)
+
+The one failure is tests/unit/services/cashFlowReport.test.ts, a 10009ms timeout
+on a 10s limit, recorded here rather than glossed. It is unrelated to this branch:
+the machine load average was 118 (parallel agent sessions), the test touches no
+file this branch changes, and it passes 2/2 when run on its own immediately after.

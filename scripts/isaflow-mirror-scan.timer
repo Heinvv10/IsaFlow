@@ -1,6 +1,5 @@
 [Unit]
 Description=5-minute trigger for IsaFlow mirror-inbox scan
-Requires=isaflow-mirror-scan.service
 
 [Timer]
 # Every 5 minutes. The cron endpoint internally respects each connection's

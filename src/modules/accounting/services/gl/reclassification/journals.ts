@@ -41,6 +41,8 @@ export interface ReclassSourceLine {
   /** VAT coding on the line. Carried onto both legs — see below. */
   vatType: VatType | null;
   buId: string | null;
+  cc1Id?: string | null;
+  cc2Id?: string | null;
 }
 
 export interface ReclassAccountNames {
@@ -84,10 +86,9 @@ const round2 = (v: number): number => Math.round(v * 100) / 100;
  *   - `buId` — the same argument as project and cost centre, and it was the
  *     only one of the four this file originally forgot.
  *
- * `cc1_id` / `cc2_id` are NOT here because `JournalLineInput` cannot express
- * them at all. A line carrying either is SKIPPED by `candidates.ts` rather than
- * posted with them dropped — the one honest answer available without widening a
- * shared write path used by every journal in the system.
+ * CC1/CC2 are carried for the same reason. The shared writer receives these
+ * journals in `historical-copy` mode, so owned inactive references remain
+ * usable for the correction without becoming available to new assignments.
  */
 function dimensions(line: ReclassSourceLine) {
   return {
@@ -95,6 +96,8 @@ function dimensions(line: ReclassSourceLine) {
     costCenterId: line.costCenterId ?? undefined,
     vatType: line.vatType ?? undefined,
     buId: line.buId ?? undefined,
+    cc1Id: line.cc1Id ?? undefined,
+    cc2Id: line.cc2Id ?? undefined,
   };
 }
 

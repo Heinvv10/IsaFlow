@@ -9,12 +9,15 @@ import { log } from '@/lib/logger';
 import { getSystemAccountId } from '../gl/systemAccountResolver';
 import { fetchVatDenialFlags } from '../gl/inputVatDenial';
 import { fetchAccountNames } from '../gl/nonSupplyVatGuard';
+import { fetchBankContraFlags } from '../gl/bankContraVat';
 import type { RuleApplyResult } from '../../types/bank.types';
 import {
-  toSqlPattern, findMatchingTxs, MAX_RULE_CANDIDATES, type RuleAllocType,
+  findMatchingTxs, MAX_RULE_CANDIDATES, type RuleAllocType,
 } from './bankRulesMatchingHelpers';
-import { BankTransactionLockTimeoutError } from './bankTxLock';
+import { isRetryableContention } from '../core/retryableContention';
+import { applySuggestionRules, rulePattern } from './bankRulesSuggestionPass';
 import { autoPostRuleLine } from './bankRuleAutoPostLine';
+import { BANK_SUBTYPES } from '../gl/accountSubtypes';
 
 export async function applyRules(
   companyId: string,
@@ -50,7 +53,7 @@ export async function applyRules(
       SELECT id FROM gl_accounts
       WHERE id = ${bankAccountId}::UUID
         AND company_id = ${companyId}::UUID
-        AND account_subtype = 'bank'
+        AND account_subtype = ANY(${BANK_SUBTYPES as string[]})
     `) as Record<string, unknown>[];
     const bankGlAccountId = bankAccRows[0]?.id ? String(bankAccRows[0].id) : null;
 
@@ -58,80 +61,12 @@ export async function applyRules(
     const entries: RuleApplyResult['entries'] = [];
 
     const autoCreateRules = rules.filter((r: Record<string, unknown>) => Boolean(r.auto_create_entry));
-    const hasSuggestionRules = rules.some((r: Record<string, unknown>) => !r.auto_create_entry);
+    const suggestionRules = rules.filter((r: Record<string, unknown>) => !r.auto_create_entry);
 
-    if (hasSuggestionRules) {
-      // Match every still-imported transaction against every active suggestion-mode
-      // rule, then keep the highest-priority match per transaction. We deliberately
-      // overwrite any existing suggestion: a freshly-created or higher-priority rule
-      // should take precedence over a stale AI suggestion or earlier rule hit.
-      const suggestionRuleIds = rules
-        .filter((r: Record<string, unknown>) => !r.auto_create_entry)
-        .map((r: Record<string, unknown>) => String(r.id));
-      const updated = (await sql`
-        WITH matched AS (
-          SELECT
-            bt.id                                              AS tx_id,
-            r.gl_account_id,
-            r.supplier_id,
-            r.client_id,
-            r.rule_name,
-            r.vat_code,
-            ROW_NUMBER() OVER (PARTITION BY bt.id ORDER BY r.priority ASC) AS rn
-          FROM bank_transactions bt
-          JOIN bank_categorisation_rules r ON (
-            r.company_id = ${companyId}::UUID
-            AND r.is_active = true
-            AND r.auto_create_entry = false
-            AND r.id = ANY(${suggestionRuleIds}::UUID[])
-            AND (
-              (r.match_field IN ('description', 'both')
-                AND bt.description ILIKE
-                  CASE r.match_type
-                    WHEN 'contains'    THEN '%' || r.match_pattern || '%'
-                    WHEN 'starts_with' THEN        r.match_pattern || '%'
-                    WHEN 'ends_with'   THEN '%' || r.match_pattern
-                    ELSE                           r.match_pattern
-                  END)
-              OR
-              (r.match_field IN ('reference', 'both')
-                AND bt.reference ILIKE
-                  CASE r.match_type
-                    WHEN 'contains'    THEN '%' || r.match_pattern || '%'
-                    WHEN 'starts_with' THEN        r.match_pattern || '%'
-                    WHEN 'ends_with'   THEN '%' || r.match_pattern
-                    ELSE                           r.match_pattern
-                  END)
-            )
-          )
-          WHERE bt.bank_account_id = ${bankAccountId}::UUID
-            AND bt.company_id = ${companyId}::UUID
-            AND bt.status = 'imported'
-            AND bt.matched_journal_line_id IS NULL
-        ),
-        top_match AS (SELECT * FROM matched WHERE rn = 1)
-        UPDATE bank_transactions bt
-        SET
-          suggested_gl_account_id = tm.gl_account_id,
-          suggested_supplier_id   = tm.supplier_id,
-          suggested_client_id     = tm.client_id,
-          suggested_category      = tm.rule_name,
-          suggested_vat_code      = COALESCE(NULLIF(tm.vat_code, ''), 'none')
-        FROM top_match tm
-        WHERE bt.id = tm.tx_id
-          AND (
-            bt.suggested_category    IS DISTINCT FROM tm.rule_name
-            OR bt.suggested_gl_account_id IS DISTINCT FROM tm.gl_account_id
-            OR bt.suggested_supplier_id   IS DISTINCT FROM tm.supplier_id
-            OR bt.suggested_client_id     IS DISTINCT FROM tm.client_id
-          )
-        RETURNING bt.id, tm.rule_name
-      `) as Record<string, unknown>[];
-
-      for (const row of updated) {
-        entries.push({ bankTxId: String(row.id), ruleName: String(row.rule_name), suggestion: true });
-      }
-      totalApplied += updated.length;
+    if (suggestionRules.length > 0) {
+      const suggested = await applySuggestionRules(companyId, bankAccountId, suggestionRules);
+      entries.push(...suggested);
+      totalApplied += suggested.length;
     }
 
     // Auto-create JE mode — sequential (each transaction needs its own JE)
@@ -171,16 +106,21 @@ export async function applyRules(
     const ruleAccountIds = autoCreateRules
       .map((r) => (r.gl_account_id ? String(r.gl_account_id) : ''))
       .filter(Boolean);
-    const [ruleAccountVatDenied, ruleAccountNames] = await Promise.all([
+    const [ruleAccountVatDenied, ruleAccountNames, ruleAccountIsBank] = await Promise.all([
       fetchVatDenialFlags(companyId, ruleAccountIds),
       // The non-supply guard classifies on account NAME, so the batched branch
       // needs these for the same reason and on the same one-query-per-sweep
       // budget as the denial flags beside them.
       fetchAccountNames(companyId, ruleAccountIds),
+      // A transfer rule stores its counterparty BANK in gl_account_id and so
+      // arrives as an ordinary `account` line. The name guard cannot see that
+      // — "FNB Cheque Account" reads like any other — so the subtype comes
+      // along on the same budget.
+      fetchBankContraFlags(companyId, ruleAccountIds),
     ]);
 
     for (const rule of (bankGlAccountId ? autoCreateRules : [])) {
-      const pattern = toSqlPattern(String(rule.match_type), String(rule.match_pattern));
+      const pattern = rulePattern(rule);
       const field = String(rule.match_field);
       const ruleName = String(rule.rule_name);
       const ruleGlAccountId = rule.gl_account_id ? String(rule.gl_account_id) : null;
@@ -250,6 +190,13 @@ export async function applyRules(
             // want when the sweep DID resolve it and the account has no name.
             ruleGlAccountName: ruleGlAccountId
               ? ruleAccountNames.get(ruleGlAccountId) ?? null : null,
+            // No `?? false`. `bankContraVat` states that absent from the map
+            // means "not asked about", never "not a bank", and coalescing here
+            // would skip the guard instead of falling back to the per-line
+            // lookup — the same reason `ruleGlAccountName` above uses `?? null`
+            // for its OWN meaning of absent rather than borrowing this one.
+            ruleGlAccountIsBank: ruleGlAccountId
+              ? ruleAccountIsBank.get(ruleGlAccountId) : false,
             bankGlAccountId: bankGlAccountId!, apAccountId, arAccountId,
             supplierName, supplierId: ruleSupplierId ?? null, customerName,
           }));
@@ -258,7 +205,16 @@ export async function applyRules(
           // not abort a run that has already posted for earlier ones — the
           // route's catch would 400 while withAuth still COMMITted them.
           // Counted and retryable; anything else is a real failure.
-          if (!(lineErr instanceof BankTransactionLockTimeoutError)) throw lineErr;
+          //
+          // The UNION, not the bank-line lock alone: a supplier rule also
+          // reaches `recordSupplierBankPayment`, whose plan phase raises the
+          // payment-lock timeout and the `retryable` refusal for a held bill.
+          // Those surface HERE through a
+          // savepoint that rolled back cleanly, so the request transaction is
+          // still live and re-throwing them committed the earlier lines behind
+          // the route's 400 — measured, every bill held: 400 "Action failed",
+          // line A posted and committed, line B still imported.
+          if (!isRetryableContention(lineErr)) throw lineErr;
           autoPostSkippedLocked++;
           continue;
         }
@@ -278,6 +234,7 @@ export async function applyRules(
       WHERE bank_account_id = ${bankAccountId}::UUID
         AND company_id = ${companyId}::UUID
         AND status = 'imported'
+        AND feed_state = 'posted'
         AND matched_journal_line_id IS NULL
         AND suggested_gl_account_id IS NULL
         AND suggested_supplier_id IS NULL

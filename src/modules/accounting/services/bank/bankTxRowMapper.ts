@@ -6,6 +6,7 @@
 import { fmtDate } from '@/lib/fmtDate';
 import type { DbRow } from '@/lib/neon';
 import type { BankTransaction } from '../../types/bank.types';
+import { feedStateOf } from './bankFeedStateGuard';
 
 type Row = DbRow;
 
@@ -27,6 +28,7 @@ export function mapTxRow(row: Row): BankTransaction {
     reference: row.reference ? String(row.reference) : undefined,
     bankReference: row.bank_reference ? String(row.bank_reference) : undefined,
     status: String(row.status) as BankTransaction['status'],
+    feedState: feedStateOf(row),
     matchedJournalLineId: row.matched_journal_line_id ? String(row.matched_journal_line_id) : undefined,
     reconciliationId: row.reconciliation_id ? String(row.reconciliation_id) : undefined,
     importBatchId: row.import_batch_id ? String(row.import_batch_id) : undefined,

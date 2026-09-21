@@ -36,7 +36,7 @@ more than one distinct rate.
 **Historical-data impact.** No stored row is wrong — `tax_amount` on the header is correct and the
 GL is posted from it. The damage is in documents already sent and in any sealed snapshot:
 ```sql
-SELECT ci.company_id, count(DISTINCT ci.id) AS mixed_rate_invoices
+SELECT ci.company_id, ci.id, count(DISTINCT it.tax_rate) AS distinct_rates
 FROM customer_invoices ci JOIN customer_invoice_items it ON it.invoice_id = ci.id
 GROUP BY ci.company_id, ci.id HAVING count(DISTINCT it.tax_rate) > 1;
 ```

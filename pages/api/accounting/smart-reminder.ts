@@ -27,7 +27,7 @@ async function handler(req: CompanyAuthedRequest, res: NextApiResponse) {
   const companyName = String((companyRows[0] as Record<string, unknown>)?.name || 'Unknown Company');
 
   // Fetch outstanding invoices scoped to this company (IDOR prevention)
-  const balRow = await sql`SELECT COALESCE(SUM(total_amount - COALESCE(amount_paid,0)),0) as bal, COUNT(*) as cnt, MIN(due_date) as oldest FROM customer_invoices WHERE customer_id = ${customerId} AND company_id = ${companyId} AND status NOT IN ('cancelled','draft','paid') AND due_date < CURRENT_DATE` as Row[];
+  const balRow = await sql`SELECT COALESCE(SUM(total_amount - COALESCE(amount_paid,0)),0) as bal, COUNT(*) as cnt, MIN(due_date) as oldest FROM customer_invoices WHERE customer_id = ${customerId} AND company_id = ${companyId} AND status NOT IN ('cancelled','draft','paid') AND deleted_at IS NULL AND due_date < CURRENT_DATE` as Row[];
   const outstanding = Number(balRow[0]?.bal ?? 0);
   const invoiceCount = Number(balRow[0]?.cnt ?? 0);
   const oldestDue = balRow[0]?.oldest ? Math.floor((Date.now() - new Date(String(balRow[0].oldest)).getTime()) / 86400000) : 0;

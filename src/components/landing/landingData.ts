@@ -125,13 +125,13 @@ export const DETAILED_FEATURES: DetailedFeature[] = [
   {
     badge: 'Banking',
     title: 'Bank reconciliation on autopilot',
-    desc: 'Import statements from your bank or connect live bank feeds. Our 4-tier smart matching engine automatically categorises and reconciles transactions with confidence scoring.',
+    desc: 'Import statements from your bank or connect the ABSA browser import. Our 4-tier smart matching engine automatically categorises and reconciles transactions with confidence scoring.',
     bullets: [
       '7+ bank statement formats supported',
       '4-tier auto-matching (rules → reference → amount+date → AI)',
       'AI-powered smart categorisation with anomaly detection',
       'Categorisation rules engine with live preview',
-      'Live bank feeds for real-time sync',
+      'ABSA browser import, plus CSV/PDF/OFX/QIF statement uploads',
       'Batch payments with EFT file generation',
     ],
     imgKey: 'banking',
@@ -253,7 +253,7 @@ export const FAQ_ITEMS: FAQItem[] = [
   },
   {
     q: 'Which banks are supported for statement import?',
-    a: 'ISAFlow supports statement imports from major banks in CSV and PDF formats, plus OFX and QIF for others. Live bank feeds provide automatic transaction syncing. Our AI auto-detects the bank format.',
+    a: 'ISAFlow supports statement imports from major banks in CSV and PDF formats, plus OFX and QIF for others. For ABSA, the browser import extension lets you import from your signed-in bank session yourself, without exporting a file. Our AI auto-detects the bank format.',
   },
   {
     q: 'Is my data secure?',

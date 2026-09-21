@@ -10,6 +10,7 @@ import { withCsrf } from '@/lib/auth/withCsrf';
 import { withWriteAccess } from '@/lib/auth';
 import { withErrorHandler } from '@/lib/api-error-handler';
 import { apiResponse } from '@/lib/apiResponse';
+import { CustomerNotInCompanyError } from '@/modules/accounting/services/core/contactDirectoryService';
 import { log } from '@/lib/logger';
 import {
   listPracticeClients,
@@ -50,7 +51,7 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
     if (!billingModel) return apiResponse.badRequest(res, 'billingModel is required');
     if (!status) return apiResponse.badRequest(res, 'status is required');
 
-    const client = await createPracticeClient(companyId, {
+    const created = await createPracticeClient(companyId, {
       legalName,
       tradingName,
       registrationNo,
@@ -61,7 +62,14 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
       billingModel,
       status,
       linkCustomerId,
+    }).catch((err: unknown) => {
+      if (err instanceof CustomerNotInCompanyError) return err;
+      throw err;
     });
+    if (created instanceof CustomerNotInCompanyError) {
+      return apiResponse.badRequest(res, created.message);
+    }
+    const client = created;
     try {
       await seedDefaultCategories(companyId);
     } catch (err) {

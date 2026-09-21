@@ -211,6 +211,7 @@ async function searchBankTransactions(companyId: string, pattern: string): Promi
       SELECT id, description, reference, amount
       FROM bank_transactions
       WHERE company_id = ${companyId}
+        AND feed_state <> 'removed'
         AND (description ILIKE ${pattern} OR reference ILIKE ${pattern})
       LIMIT 3
     ` as { id: string; description: string; reference: string | null; amount: string | number }[];

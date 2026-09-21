@@ -20,7 +20,7 @@ import { VatTab } from '@/components/accounting/settings/VatTab';
 import { ComplianceTab } from '@/components/accounting/settings/ComplianceTab';
 import { DocumentsTab } from '@/components/accounting/settings/DocumentsTab';
 import { BrandingTab } from '@/components/accounting/settings/BrandingTab';
-import { DimensionsTab } from '@/components/accounting/settings/DimensionsTab';
+import { DimensionSettings } from '@/components/accounting/settings/DimensionSettings';
 import { AgingTab } from '@/components/accounting/settings/AgingTab';
 import { DocMessagesTab } from '@/components/accounting/settings/DocMessagesTab';
 import { EmailTemplatesTab } from '@/components/accounting/settings/EmailTemplatesTab';
@@ -46,11 +46,6 @@ export default function CompanySettingsPage() {
     const tab = parseTabId(router.query.tab);
     if (tab) setActiveTab(tab);
   }, [router.query.tab]);
-
-  // Dimensions
-  const [enableCC, setEnableCC] = useState(false);
-  const [enableBU, setEnableBU] = useState(false);
-  const [dimLoaded, setDimLoaded] = useState(false);
 
   // Documents (statutory files)
   const [documents, setDocuments] = useState<CompanyDocument[]>([]);
@@ -80,12 +75,10 @@ export default function CompanySettingsPage() {
   }, []);
 
   const fetchSupplementary = useCallback(async (companyId: string) => {
-    const [docsRes, numRes, msgRes, ccRes, buRes, dispRes] = await Promise.allSettled([
+    const [docsRes, numRes, msgRes, dispRes] = await Promise.allSettled([
       apiFetch(`/api/accounting/company-documents?companyId=${companyId}`).then(r => r.json()),
       apiFetch('/api/accounting/company-settings?type=document-numbers').then(r => r.json()),
       apiFetch('/api/accounting/company-settings?type=messages').then(r => r.json()),
-      apiFetch('/api/accounting/accounting-settings?key=enable_cost_centres').then(r => r.json()),
-      apiFetch('/api/accounting/accounting-settings?key=enable_business_units').then(r => r.json()),
       apiFetch('/api/accounting/accounting-settings?key=document_display_fields').then(r => r.json()),
     ]);
     if (docsRes.status === 'fulfilled' && docsRes.value.data) setDocuments(docsRes.value.data as CompanyDocument[]);
@@ -95,9 +88,6 @@ export default function CompanySettingsPage() {
       for (const m of msgRes.value.data as { messageType: string; message: string }[]) map[m.messageType] = m.message;
       setMessages(map);
     }
-    setEnableCC(ccRes.status === 'fulfilled' && ccRes.value.data?.value === 'true');
-    setEnableBU(buRes.status === 'fulfilled' && buRes.value.data?.value === 'true');
-    setDimLoaded(true);
     if (dispRes.status === 'fulfilled' && dispRes.value.data?.value) {
       try { setDocDisplayFields(prev => ({ ...prev, ...(JSON.parse(dispRes.value.data.value as string) as Record<string, boolean>) })); } catch { /* keep defaults */ }
     }
@@ -193,12 +183,7 @@ export default function CompanySettingsPage() {
       case 'customer-zone':
         return <CustomerZoneTab company={company} onChange={update} />;
       case 'dimensions':
-        return (
-          <DimensionsTab
-            enableCC={enableCC} enableBU={enableBU} dimLoaded={dimLoaded}
-            onCCChange={setEnableCC} onBUChange={setEnableBU}
-          />
-        );
+        return null; // Kept mounted below so pending saves survive tab navigation.
       case 'udf':
         return <UdfTab />;
       case 'regional':
@@ -246,24 +231,29 @@ export default function CompanySettingsPage() {
           </div>
         )}
 
-        {loading ? (
+        {loading && (
           <div className="flex justify-center py-12">
             <Loader2 className="h-8 w-8 animate-spin text-teal-500" />
           </div>
-        ) : company ? (
-          /*
+        )}
+        <div hidden={loading || !company}>
+          {/*
            * Layout:
            *   mobile  → flex-col: the mobile nav strip (inside SettingsSidebar,
            *             md:hidden) stacks above the content area
            *   desktop → flex-row: sticky sidebar (240 px) left, content (flex-1) right
-           */
+           */}
           <div className="flex flex-col md:flex-row gap-6 items-start">
             <SettingsSidebar activeTab={activeTab} onTabChange={setActiveTab} />
             <div className="flex-1 min-w-0 space-y-6">
               {renderContent()}
+              <div hidden={activeTab !== 'dimensions'}>
+                {activeCompany?.id && <DimensionSettings key={activeCompany.id} />}
+              </div>
             </div>
           </div>
-        ) : (
+        </div>
+        {!loading && !company && (
           <div className="text-center py-12 text-[var(--ff-text-secondary)]">No company configured</div>
         )}
       </div>

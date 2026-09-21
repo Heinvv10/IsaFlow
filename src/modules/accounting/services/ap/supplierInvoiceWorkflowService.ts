@@ -15,6 +15,7 @@ import { lockSupplierInvoiceForUpdate } from './supplierInvoiceLock';
 import type { SupplierInvoice } from '../../types/ap.types';
 import type { JournalLineInput } from '../../types/gl.types';
 import { actorMeta, type PostingActorOpts } from '../gl/journalEntryMeta';
+import { releaseCapturedDocumentPostingClaim } from '../capture/capturePostingClaimRelease';
 
 type Row = DbRow;
 
@@ -198,6 +199,24 @@ export async function postSupplierInvoiceToGL(
   userId: string,
   opts?: PostingActorOpts,
 ): Promise<{ journalEntryId: string; alreadyPosted: boolean }> {
+  // Same check-then-act window approveSupplierInvoice closes at :95, and the
+  // same reason: this function decides on `glJournalEntryId` below and then
+  // overwrites it. Unlocked, two overlapping "Post to GL" calls both read NULL,
+  // both post an Expense/VAT/AP journal, and the second UPDATE strands the
+  // first where cancelSupplierInvoiceInner (which reverses only the id on the
+  // row) can never reach it — AP credited twice for one bill. The bulk action
+  // (supplier-invoices-bulk-action.ts, action=post_gl) walks up to the route's
+  // 200-id cap in one transaction, so the window is seconds. Each id there is
+  // wrapped in its own savepoint, so this lock timing out is that id's failure
+  // and not the batch's. Locking only in approve left this path free to race an
+  // approve that WAS holding the row lock.
+  //
+  // Taken BEFORE the read so the guards below see settled state: a caller that
+  // blocked here re-reads the journal id the winner wrote and early-returns
+  // alreadyPosted.
+  if (!(await lockSupplierInvoiceForUpdate(companyId, id))) {
+    throw new Error(`Supplier invoice ${id} not found`);
+  }
   const invoice = await getSupplierInvoiceById(companyId, id);
   if (!invoice) throw new Error(`Supplier invoice ${id} not found`);
 
@@ -275,9 +294,12 @@ async function cancelSupplierInvoiceInner(
   try {
     // FOR UPDATE: serialise concurrent cancels — both passing the guards
     // would double-reverse the same approval journal.
+    // K-053: a soft-deleted bill is not cancellable — same reasoning as
+    // customerInvoiceCancelService, where it is spelled out.
     const lockRows = (await sql`
       SELECT id, status, gl_journal_entry_id FROM supplier_invoices
       WHERE id = ${id} AND company_id = ${companyId}::UUID
+        AND deleted_at IS NULL
       FOR UPDATE
     `) as Row[];
     if (lockRows.length === 0) throw new Error(`Supplier invoice ${id} not found`);
@@ -319,6 +341,16 @@ async function cancelSupplierInvoiceInner(
     if (rows.length !== 1) {
       throw new Error('Supplier invoice state changed concurrently — cancel aborted');
     }
+
+    // The other half of the capture posting claim's undo. A cancelled invoice
+    // is not a live claim on the receipt behind it, and until this line the
+    // document stayed refused by every posting route with no way back — which
+    // is what made "Reverse the journal or invoice first" a dead end.
+    const cancelledSourceDoc = rows[0]!.source_document_id;
+    if (cancelledSourceDoc) {
+      await releaseCapturedDocumentPostingClaim(companyId, String(cancelledSourceDoc));
+    }
+
     return mapInvoiceRow(rows[0]!);
   } catch (err) {
     log.error('Failed to cancel supplier invoice', { id, error: err }, 'accounting');

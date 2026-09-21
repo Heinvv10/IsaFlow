@@ -152,12 +152,17 @@ describe('getOrComputeSchedule', () => {
         { id: 'p1', curve_id: CURVE_ID, effective_date: '2026-01-01', rate: '10.25' },
       ])
       .mockResolvedValueOnce([makeRunRow()])             // latest run
-      .mockResolvedValueOnce(rows);                      // cached rows
+      .mockResolvedValueOnce(rows)                       // cached rows
+      .mockResolvedValueOnce([{ computed_at: '2026-09-09T00:00:00.000Z' }]); // computed_at touch
 
     const result = await getOrComputeSchedule(COMPANY_ID, LOAN_ID);
     expect(result.rows).toHaveLength(2);
     expect(result.cached).toBe(true);
     expect(result.rows[0]!.period).toBe(1);
+    // K-030 H1: the hit is touched so consumers reading the latest run by
+    // computed_at cannot pick a superseded one after an edit is reverted.
+    expect(result.computedAt).toBe('2026-09-09T00:00:00.000Z');
+    expect(sqlMock).toHaveBeenCalledTimes(6);
   });
 
   it('recomputes and persists when no cached run exists', async () => {

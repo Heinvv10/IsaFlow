@@ -8,57 +8,26 @@ import { sql } from '@/lib/neon';
 import { fmtDate as fmtDbDate } from '@/lib/fmtDate';
 import type { DbRow } from '@/lib/neon';
 import { log } from '@/lib/logger';
+import { documentInLedgerAsAtFragment } from '../shared/softDeleteLedgerPresence';
+import { classifyStatementInvoice } from '../shared/statementInvoiceExclusion';
+import { creditNoteAppliedAmount } from '../shared/creditNoteAppliedAmount';
 import { sendEmail } from '../core/emailService';
 import type { EmailResult } from '../core/emailService';
 import { buildStatementEmailHtml } from './statementEmailTemplate';
 import { appendSignatureToHtml } from '@/lib/email-templates';
+import { RunningBalance, toMoney } from '@/lib/money/decimalSum';
 
 type Row = DbRow;
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
-interface StatementTransaction {
-  date: string;
-  type: 'invoice' | 'payment' | 'credit_note';
-  reference: string;
-  debit: number;
-  credit: number;
-  balance: number;
-}
+import type {
+  StatementTransaction,
+  StatementExclusion,
+  StatementPayload,
+} from './statementEmailTypes';
 
-/** A candidate row the statement could not include, and why. */
-export interface StatementExclusion {
-  id: string;
-  /** Machine-stable snake_case code — callers branch on it. */
-  reason: string;
-  detail?: string;
-  amount?: number;
-  documentNumber?: string;
-}
-
-export interface StatementPayload {
-  customer: { id: string; name: string; email: string | null };
-  /**
-   * The date of the EARLIEST transaction on the statement, not a rolling
-   * window. None of the three queries has a lower bound, so a statement runs
-   * from inception; the previous value was `Date.now() − 365 days` computed
-   * through toISOString(), which both claimed a window the query did not use
-   * and rolled back a day on this UTC+2 host.
-   */
-  fromDate: string;
-  toDate: string;
-  transactions: StatementTransaction[];
-  /** Candidate rows deliberately left out of the running balance. Never omitted. */
-  excluded: StatementExclusion[];
-  /** Candidate rows before any classification filter: transactions + excluded. */
-  universeTotal: number;
-  summary: {
-    totalInvoiced: number;
-    totalPaid: number;
-    totalCredits: number;
-    balance: number;
-  };
-}
+export type { StatementExclusion, StatementPayload };
 
 // ─── Date helper ─────────────────────────────────────────────────────────────
 
@@ -80,26 +49,6 @@ const fmtDate = (d: string): string => {
 
 // ─── Statement Fetcher ────────────────────────────────────────────────────────
 
-/**
- * What a live credit note actually took off the customer's account.
- *
- * Approving a note applies MIN(total_amount, outstanding) and records that
- * capped figure in `applied_amount`; the status only becomes 'applied' when
- * that figure is above zero. So:
- *   - 'applied'  → applied_amount is what was consumed, and total_amount may be
- *     larger. The remainder is stranded: a note at 'applied' cannot be applied
- *     again, so crediting the face value shows the customer more credit than
- *     they received and UNDERSTATES what they owe — on a document we email them.
- *   - 'approved' → applied_amount is 0 by construction, and the note is
- *     unallocated credit the customer holds at face value.
- * Same rule the aging already follows (agingRewind, apAgingService).
- */
-function creditNoteAmount(cn: { status?: unknown; total_amount?: unknown; applied_amount?: unknown }): number {
-  return String(cn.status ?? '') === 'applied'
-    ? Number(cn.applied_amount ?? 0)
-    : Number(cn.total_amount ?? 0);
-}
-
 export async function fetchStatementData(
   companyId: string,
   customerId: string,
@@ -109,6 +58,10 @@ export async function fetchStatementData(
     SELECT id, name, email
     FROM customers
     WHERE id = ${customerId}::UUID AND company_id = ${companyId}::UUID
+    -- A soft-deleted CUSTOMER has no statement: the record is hidden
+    -- everywhere else (customerLedgerService does the same), and drawing one
+    -- here would email a balance for a contact the user has removed.
+      AND deleted_at IS NULL
   ` as Row[];
 
   if (customerRows.length === 0) return null;
@@ -116,24 +69,45 @@ export async function fetchStatementData(
 
   const [invoices, payments, creditNotes] = await Promise.all([
     sql`
-      SELECT id, invoice_number, invoice_date, total_amount
-      FROM customer_invoices
-      WHERE COALESCE(client_id, customer_id) = ${customerId}::UUID
-        AND company_id = ${companyId}::UUID
-        AND status != 'cancelled'
-        AND invoice_date <= ${asAtDate}::DATE
+      SELECT ci.id, ci.invoice_number, ci.invoice_date, ci.total_amount, ci.status
+      FROM customer_invoices ci
+      WHERE COALESCE(ci.client_id, ci.customer_id) = ${customerId}::UUID
+        AND ci.company_id = ${companyId}::UUID
+        -- NOT filtered by status here (R-082 round 2): every candidate
+        -- invoice is fetched, then classified below into transactions or
+        -- excluded with documentInPopulation, the JS twin of the ageing's
+        -- status rule (shared/documentPopulation). A SQL-level filter made a
+        -- draft (and, once decided, a pending-approval or cancelled)
+        -- invoice vanish before it could be counted anywhere — the MCP
+        -- customer_statement tool's own contract claimed only cancelled was
+        -- omitted, and an agent reading it had no way to see a draft leave
+        -- silently.
+        -- The statement is what the customer is asked to pay, drawn AS AT a
+        -- date, so it takes the same DATED soft-delete question arAgingService
+        -- asks (that, and only that, is shared): the
+        -- delete's reversal lands on the delete date, and until that date the
+        -- control account still carries the invoice. An undated
+        -- deleted_at IS NULL here would state a balance to the customer that
+        -- disagrees with both aging and the GL for every earlier as-at date.
+        AND ${documentInLedgerAsAtFragment('ci', asAtDate, companyId)}
+        AND ci.invoice_date <= ${asAtDate}::DATE
       ORDER BY invoice_date
     ` as Promise<Row[]>,
 
+    // The receipt is credited at what the customer PAID, not at what has been
+    // matched to invoices. The old COALESCE(SUM(allocated), total) fell back to
+    // the receipt total only when there were no allocation rows at all, so a
+    // partly allocated receipt was credited at its allocated figure and the
+    // unapplied remainder vanished from a document we email the customer,
+    // overstating what they owe. Allocation is an internal matching detail; the
+    // statement is an account-level document.
     sql`
       SELECT cp.id, cp.payment_number, cp.payment_date, cp.status,
-        COALESCE(SUM(cpa.amount_allocated), cp.total_amount) AS amount_allocated
+        cp.total_amount AS amount_received
       FROM customer_payments cp
-      LEFT JOIN customer_payment_allocations cpa ON cpa.payment_id = cp.id
       WHERE cp.client_id = ${customerId}::UUID
         AND cp.company_id = ${companyId}::UUID
         AND cp.payment_date <= ${asAtDate}::DATE
-      GROUP BY cp.id, cp.payment_number, cp.payment_date, cp.total_amount, cp.status
     ` as Promise<Row[]>,
 
     sql`
@@ -147,13 +121,19 @@ export async function fetchStatementData(
   ]);
 
   const transactions: StatementTransaction[] = [];
+  const excluded: StatementExclusion[] = [];
 
   for (const inv of invoices) {
+    const exclusion = classifyStatementInvoice(inv, 'Invoice');
+    if (exclusion) {
+      excluded.push(exclusion);
+      continue;
+    }
     transactions.push({
       date: toISODate(inv.invoice_date),
       type: 'invoice',
       reference: String(inv.invoice_number ?? ''),
-      debit: Number(inv.total_amount),
+      debit: toMoney(Number(inv.total_amount)),
       credit: 0,
       balance: 0,
     });
@@ -167,8 +147,7 @@ export async function fetchStatementData(
   // been set against an invoice. Both are live credits the customer holds;
   // filtering to 'approved' alone hid every applied note and overstated the
   // balance by their full value.
-  const LIVE_CREDIT_NOTE_STATUSES = new Set(['approved', 'applied']);
-  const excluded: StatementExclusion[] = [];
+  const LIVE_CREDIT_NOTE_STATUSES = new Set(['approved', 'partially_applied', 'applied']);
 
   for (const pmt of payments) {
     const status = String(pmt.status ?? '');
@@ -177,7 +156,7 @@ export async function fetchStatementData(
         id: String(pmt.id),
         reason: 'payment_not_confirmed',
         detail: `Receipt is '${status}'; it settles nothing until it is confirmed or reconciled.`,
-        amount: Number(pmt.amount_allocated),
+        amount: toMoney(Number(pmt.amount_received)),
         documentNumber: String(pmt.payment_number ?? ''),
       });
       continue;
@@ -187,7 +166,7 @@ export async function fetchStatementData(
       type: 'payment',
       reference: String(pmt.payment_number ?? ''),
       debit: 0,
-      credit: Number(pmt.amount_allocated),
+      credit: toMoney(Number(pmt.amount_received)),
       balance: 0,
     });
   }
@@ -198,7 +177,7 @@ export async function fetchStatementData(
         id: String(cn.id),
         reason: 'credit_note_not_live',
         detail: `Credit note is '${status}'; only approved and applied notes credit the customer.`,
-        amount: Number(cn.total_amount),
+        amount: toMoney(Number(cn.total_amount)),
         documentNumber: String(cn.credit_note_number ?? ''),
       });
       continue;
@@ -208,7 +187,7 @@ export async function fetchStatementData(
       type: 'credit_note',
       reference: String(cn.credit_note_number ?? ''),
       debit: 0,
-      credit: creditNoteAmount(cn),
+      credit: toMoney(creditNoteAppliedAmount(cn)),
       balance: 0,
     });
   }
@@ -224,17 +203,17 @@ export async function fetchStatementData(
     return (typeOrder[a.type] ?? 9) - (typeOrder[b.type] ?? 9);
   });
 
-  let running = 0;
-  let totalInvoiced = 0;
-  let totalPaid = 0;
-  let totalCredits = 0;
+  const running = new RunningBalance(0);
+  const totalInvoiced = new RunningBalance(0);
+  const totalPaid = new RunningBalance(0);
+  const totalCredits = new RunningBalance(0);
 
   for (const txn of transactions) {
-    running += txn.debit - txn.credit;
-    txn.balance = running;
-    totalInvoiced += txn.debit;
-    if (txn.type === 'payment') totalPaid += txn.credit;
-    if (txn.type === 'credit_note') totalCredits += txn.credit;
+    running.add(txn.debit);
+    txn.balance = running.subtract(txn.credit);
+    totalInvoiced.add(txn.debit);
+    if (txn.type === 'payment') totalPaid.add(txn.credit);
+    if (txn.type === 'credit_note') totalCredits.add(txn.credit);
   }
 
   return {
@@ -252,7 +231,12 @@ export async function fetchStatementData(
     // excluded.length`, which is the arithmetic buildEnvelope then checks and
     // so could not fail. A row dropped from BOTH buckets changes this number.
     universeTotal: candidateRows,
-    summary: { totalInvoiced, totalPaid, totalCredits, balance: running },
+    summary: {
+      totalInvoiced: totalInvoiced.value(),
+      totalPaid: totalPaid.value(),
+      totalCredits: totalCredits.value(),
+      balance: running.value(),
+    },
   };
 }
 

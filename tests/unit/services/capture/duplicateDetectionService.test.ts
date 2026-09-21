@@ -53,7 +53,7 @@ function makeExactRow(overrides: Record<string, unknown> = {}): Record<string, u
 describe('computeFingerprint', () => {
   it('produces the expected format: vat|inv|amount in lowercase', () => {
     const fp = computeFingerprint('4150165685', 'INV-2026-001', 11500);
-    expect(fp).toBe('4150165685|inv-2026-001|11500');
+    expect(fp).toBe('4150165685|inv-2026-001|11500.00');
   });
 
   it('is deterministic — same inputs always produce the same output', () => {
@@ -67,24 +67,77 @@ describe('computeFingerprint', () => {
     expect(fp).toBe(fp.toLowerCase());
   });
 
+  it('folds A–Z only, because SQL lower() is collation-driven and JS cannot mirror it', () => {
+    // `lower('İNV-1')` is `inv-1` in an en_US.utf8 database; JS toLowerCase
+    // gives a six-character `i̇nv-1` (it appends U+0307). `lower('ΣΟΣ')` is
+    // `σοσ`; JS gives `σος` (final sigma). Migration 670 folds with
+    // translate(A-Z), so a fingerprint that case-folded these would be one the
+    // backfilled row can never reproduce — the duplicate goes on missing.
+    expect(computeFingerprint(null, 'İNV-1', 115)).toBe('no-vat|İnv-1|115.00');
+    expect(computeFingerprint(null, 'ΣΟΣ', 115)).toBe('no-vat|ΣΟΣ|115.00');
+    // The ASCII letters around them are still folded.
+    expect(computeFingerprint('ABİ', 'X-ΣY', 1)).toBe('abİ|x-Σy|1.00');
+  });
+
   it('substitutes "no-vat" when vatNumber is null', () => {
     const fp = computeFingerprint(null, 'INV-001', 100);
-    expect(fp).toBe('no-vat|inv-001|100');
+    expect(fp).toBe('no-vat|inv-001|100.00');
   });
 
   it('substitutes "no-inv" when invoiceNumber is null', () => {
     const fp = computeFingerprint('4150165685', null, 100);
-    expect(fp).toBe('4150165685|no-inv|100');
+    expect(fp).toBe('4150165685|no-inv|100.00');
   });
 
   it('substitutes 0 when totalAmount is null', () => {
     const fp = computeFingerprint('4150165685', 'INV-001', null);
-    expect(fp).toBe('4150165685|inv-001|0');
+    expect(fp).toBe('4150165685|inv-001|0.00');
   });
 
   it('handles all-null inputs', () => {
     const fp = computeFingerprint(null, null, null);
-    expect(fp).toBe('no-vat|no-inv|0');
+    expect(fp).toBe('no-vat|no-inv|0.00');
+  });
+
+  it('renders the amount with two decimals, the way NUMERIC(15,2)::text does', () => {
+    // The SQL producer (migration 412's backfill, migration 670's re-backfill)
+    // reads a NUMERIC(15,2) column, so 115 is `115.00` there. A bare JS number
+    // renders as `115`, and the two producers then never matched each other on
+    // rows written by the other side.
+    expect(computeFingerprint(null, '', 115)).toBe('no-vat||115.00');
+    expect(computeFingerprint(null, '', 230)).toBe('no-vat||230.00');
+    expect(computeFingerprint(null, 'a', 1234.5)).toBe('no-vat|a|1234.50');
+    expect(computeFingerprint(null, 'a', 99.99)).toBe('no-vat|a|99.99');
+  });
+
+  it('rounds a third decimal the way NUMERIC(15,2) does, not the way toFixed does', () => {
+    // `(1.005).toFixed(2)` is "1.00" — it rounds the binary double — while
+    // PostgreSQL rounds the decimal text the driver sends and stores 1.01. A
+    // row whose fingerprint says 1.00 while its total_amount says 1.01 can
+    // never be found by the exact-match lookup, which is this defect one
+    // rounding mode over. Nothing constrains the input to two decimals.
+    expect((1.005).toFixed(2)).toBe('1.00');
+    expect(computeFingerprint(null, 'a', 1.005)).toBe('no-vat|a|1.01');
+    expect(computeFingerprint(null, 'a', 100.005)).toBe('no-vat|a|100.01');
+    expect(computeFingerprint(null, 'a', 0.005)).toBe('no-vat|a|0.01');
+    // Half away from zero, in both directions.
+    expect(computeFingerprint(null, 'a', -1.005)).toBe('no-vat|a|-1.01');
+    // Below the half, still down.
+    expect(computeFingerprint(null, 'a', 1.0049)).toBe('no-vat|a|1.00');
+  });
+
+  it('drops the sign on a negative amount that rounds to zero — NUMERIC has none', () => {
+    // `-0.001::numeric(15,2)` is `0.00`, not `-0.00`. total_amount carries no
+    // non-negative CHECK, so a supplier credit of -0.001 is storable; rendering
+    // it `-0.00` would store a key the column's own value can never reproduce,
+    // which is the exact failure the fixed-scale rendering exists to close.
+    expect(computeFingerprint(null, 'a', -0.001)).toBe('no-vat|a|0.00');
+    expect(computeFingerprint(null, 'a', -0.004)).toBe('no-vat|a|0.00');
+    expect(computeFingerprint(null, 'a', -0.0049999)).toBe('no-vat|a|0.00');
+    // Just past the rounding boundary the sign survives, as the column keeps it.
+    expect(computeFingerprint(null, 'a', -0.005)).toBe('no-vat|a|-0.01');
+    // Exponential form (|n| < 1e-6) takes the toFixed branch — same rule.
+    expect(computeFingerprint(null, 'a', -1e-7)).toBe('no-vat|a|0.00');
   });
 
   it('distinguishes different amounts', () => {

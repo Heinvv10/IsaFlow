@@ -11,6 +11,8 @@ import { withErrorHandler } from '@/lib/api-error-handler';
 import { apiResponse } from '@/lib/apiResponse';
 import { withAuth, type CompanyAuthedRequest, withWriteAccess} from '@/lib/auth';
 import { log } from '@/lib/logger';
+import { asAtTodayStr, documentInLedgerAsAtFragment } from '@/modules/accounting/services/shared/softDeleteLedgerPresence';
+import { documentInPopulationExpr } from '@/modules/accounting/services/shared/documentPopulation';
 type Row = Record<string, unknown>;
 
 // P3.4: this endpoint has no offset-pagination UI (single full-history view
@@ -20,6 +22,14 @@ type Row = Record<string, unknown>;
 // the headline totals from a SQL aggregate over the FULL population so they
 // stay correct even if a pathological single client ever hits the ceiling.
 const STATEMENT_ROW_CEILING = 2000;
+
+/**
+ * A credit note is live once it is approved, whether it has been set against an
+ * invoice in full ('applied'), in part ('partially_applied', migration 677) or
+ * not at all ('approved'). The same set `ar/statementEmailService` and
+ * `ap/supplierStatementService` use — this screen is the same document.
+ */
+const LIVE_CREDIT_NOTE_STATUSES = ['approved', 'partially_applied', 'applied'];
 
 async function handler(req: NextApiRequest, res: NextApiResponse) {
   if (req.method !== 'GET') {
@@ -31,6 +41,9 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
   if (!clientId) {
     return apiResponse.badRequest(res, 'client_id is required');
   }
+  // This statement carries no as-at parameter: it is the full history as at
+  // today, so today is the date its soft-delete question is asked at.
+  const asAtStr = asAtTodayStr();
 
   try {
     // Get client info
@@ -45,9 +58,19 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
     // Get invoices
     const invoicesRaw = (await sql`
       SELECT id, invoice_number, invoice_date, notes, total_amount, status
-      FROM customer_invoices
-      WHERE COALESCE(client_id, customer_id) = ${clientId}::UUID AND company_id = ${companyId} AND status != 'cancelled'
-      ORDER BY invoice_date, id
+      FROM customer_invoices ci
+      WHERE COALESCE(ci.client_id, ci.customer_id) = ${clientId}::UUID AND ci.company_id = ${companyId}
+        -- Hein decided 2026-09-11 (R-082): statements must not show draft
+        -- invoices, and must agree with the ageing on a null status. Routed
+        -- through the shared rule (R-059 round 6) instead of the bare
+        -- != 'cancelled', which kept drafts and dropped null-status rows.
+        AND ${sql.unsafe(documentInPopulationExpr('ci'))}
+      -- As at TODAY, not undated: a document soft-deleted BEFORE the delete
+      -- began reversing its journal has a standing entry the control account
+      -- still carries, and a bare deleted_at IS NULL would drop it from this
+      -- figure while the GL keeps it. See shared/softDeleteLedgerPresence.
+        AND ${documentInLedgerAsAtFragment('ci', asAtStr, companyId)}
+      ORDER BY ci.invoice_date, ci.id
       LIMIT ${STATEMENT_ROW_CEILING + 1}
     `) as Row[];
 
@@ -63,11 +86,26 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
       LIMIT ${STATEMENT_ROW_CEILING + 1}
     `) as Row[];
 
-    // Get approved customer credit notes
+    // Every LIVE credit note, valued the way the emailed statement values it.
+    //
+    // `status = 'approved'` alone was two omissions in one. It dropped every
+    // note that had been set against an invoice ('applied') — the same defect
+    // that once hid applied notes from every statement ever sent — and, since
+    // migration 677, every partly placed note ('partially_applied') too. This
+    // screen and `ar/statementEmailService` are the same document, so a note
+    // visible in one and absent from the other is a customer-facing
+    // contradiction.
+    //
+    // The CASE is the SQL twin of `shared/creditNoteAppliedAmount`: an 'applied'
+    // note credits what it CONSUMED, because its remainder is stranded and
+    // cannot be applied again; anything else credits its face value, because
+    // that credit is still the customer's to use. Keep the two in step.
     const creditNotesRaw = (await sql`
-      SELECT id, credit_note_number, credit_date, reason, total_amount
+      SELECT id, credit_note_number, credit_date, reason,
+             CASE WHEN status = 'applied' THEN applied_amount ELSE total_amount END AS total_amount
       FROM credit_notes
-      WHERE client_id = ${clientId}::UUID AND company_id = ${companyId} AND type = 'customer' AND status = 'approved'
+      WHERE client_id = ${clientId}::UUID AND company_id = ${companyId} AND type = 'customer'
+        AND status = ANY(${LIVE_CREDIT_NOTE_STATUSES})
       ORDER BY credit_date, id
       LIMIT ${STATEMENT_ROW_CEILING + 1}
     `) as Row[];
@@ -90,8 +128,10 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
     const [totalsRow] = (await sql`
       SELECT
         COALESCE((
-          SELECT SUM(total_amount::numeric) FROM customer_invoices
-          WHERE COALESCE(client_id, customer_id) = ${clientId}::UUID AND company_id = ${companyId} AND status != 'cancelled'
+          SELECT SUM(ci.total_amount::numeric) FROM customer_invoices ci
+          WHERE COALESCE(ci.client_id, ci.customer_id) = ${clientId}::UUID AND ci.company_id = ${companyId}
+            AND ${sql.unsafe(documentInPopulationExpr('ci'))}
+            AND ${documentInLedgerAsAtFragment('ci', asAtStr, companyId)}
         ), 0) AS total_invoiced,
         COALESCE((
           SELECT SUM(pmt_total) FROM (
@@ -103,8 +143,12 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
           ) pmt
         ), 0) AS total_paid,
         COALESCE((
-          SELECT SUM(total_amount::numeric) FROM credit_notes
-          WHERE client_id = ${clientId}::UUID AND company_id = ${companyId} AND type = 'customer' AND status = 'approved'
+          -- Same population and same valuation as the row list above; a total
+          -- the rows do not foot to is worse than no total.
+          SELECT SUM((CASE WHEN status = 'applied' THEN applied_amount ELSE total_amount END)::numeric)
+          FROM credit_notes
+          WHERE client_id = ${clientId}::UUID AND company_id = ${companyId} AND type = 'customer'
+            AND status = ANY(${LIVE_CREDIT_NOTE_STATUSES})
         ), 0) AS total_credits
     `) as Row[];
 

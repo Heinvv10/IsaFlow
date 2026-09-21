@@ -10,8 +10,8 @@
  * empty one. Production, 2026-08-28: 9,824 rows have `reference` set and ZERO
  * have `bank_reference`. Every statement importer writes `reference`
  * (`bankImportService`, `bankStatementOcrService`, the classified import,
- * manual capture, the Sage migration commit); only `bankFeedSyncService` and
- * `openBankingSyncService` write `bank_reference`, and they put the provider's
+ * manual capture, the Sage migration commit); only
+ * `openBankingSyncService` writes `bank_reference`, and it puts the provider's
  * external id there rather than the printed reference. Matching
  * `bank_reference` alone therefore answered NOT_FOUND for every reference the
  * MCP pilot could actually read off a statement.
@@ -38,6 +38,7 @@
 import { sql } from '@/lib/neon';
 import { fmtDate } from '@/lib/fmtDate';
 import type { DbRow } from '@/lib/neon';
+import { feedStateOf, type FeedState } from './bankFeedStateGuard';
 
 /** Enough for the caller to disambiguate; never the whole row (no leaking
  *  columns the MCP surface does not otherwise expose). */
@@ -122,6 +123,7 @@ export function bankTxRefCandidateQuery(
       FROM bank_transactions bt
       JOIN wanted w ON btrim(bt.reference, E' \\t\\n\\r\\f') = w.ref
       WHERE bt.company_id = ${companyId}::UUID
+        AND bt.feed_state <> 'removed'
         AND (${bankAccountId}::UUID IS NULL OR bt.bank_account_id = ${bankAccountId}::UUID)
       UNION ALL
       SELECT
@@ -131,6 +133,7 @@ export function bankTxRefCandidateQuery(
       FROM bank_transactions bt
       JOIN wanted w ON btrim(bt.bank_reference, E' \\t\\n\\r\\f') = w.ref
       WHERE bt.company_id = ${companyId}::UUID
+        AND bt.feed_state <> 'removed'
         AND (${bankAccountId}::UUID IS NULL OR bt.bank_account_id = ${bankAccountId}::UUID)
     ),
     ranked AS (
@@ -239,6 +242,8 @@ export interface BankTransactionAllocationState {
   status: string;
   /** The journal line the row is allocated against — null when unallocated. */
   matchedJournalLineId: string | null;
+  /** A pending/removed feed row cannot be allocated at all. */
+  feedState: FeedState;
   /**
    * Signed line amount. Carried so a batch caller can size an allocation
    * without a second read per line — a 200-line batch would otherwise make
@@ -271,7 +276,7 @@ export async function findBankTransactionAllocationStates(
   if (ids.length === 0) return byId;
 
   const rows = (await sql`
-    SELECT id, status, matched_journal_line_id, amount
+    SELECT id, status, matched_journal_line_id, amount, feed_state
     FROM bank_transactions
     WHERE company_id = ${companyId}::UUID AND id = ANY(${ids}::UUID[])
   `) as DbRow[];
@@ -286,6 +291,7 @@ export async function findBankTransactionAllocationStates(
           ? null
           : String(row.matched_journal_line_id),
       amount: Number(row.amount ?? 0),
+      feedState: feedStateOf(row),
     });
   }
   return byId;

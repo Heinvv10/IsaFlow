@@ -1,5 +1,7 @@
 import { sql } from '@/lib/neon';
 import { getAPAging } from './apAgingService';
+import { documentInLedgerAsAtFragment } from '../shared/softDeleteLedgerPresence';
+import { documentInPopulationExpr } from '../shared/documentPopulation';
 import type { AgingBucket } from '../../types/ap.types';
 
 export interface SupplierStatementBalance extends AgingBucket {
@@ -14,15 +16,41 @@ export async function getSupplierStatementBalances(companyId: string, asAtDate: 
   const credits = await sql`
     SELECT s.id AS entity_id, s.name AS entity_name, SUM(funds.amount) AS on_account
     FROM (
-      SELECT sp.supplier_id, GREATEST(sp.total_amount - COALESCE((
+      -- THE NETTING RULE, and it is shared/agedNetting's, not a fourth one.
+      -- NO BACKTICKS IN THIS COMMENT: it lives inside a sql tagged template,
+      -- and one backtick ends the template early. tsc caught it here; in a
+      -- comment that happened to stay syntactically valid it would have
+      -- truncated the query instead.
+      --
+      -- This was GREATEST(sp.total_amount - allocations, 0). The floor exists
+      -- so an over-allocated payment cannot report NEGATIVE on-account funds,
+      -- and on a REFUND (migration 681) it floored the whole row to zero: a
+      -- supplier with R1,000 of credit and a R400 refund read R1,000 here and
+      -- R600 on the aged report, off by exactly the cash that came back.
+      --
+      -- Capping the ALLOCATIONS at GREATEST(total, 0) does the same job for an
+      -- over-allocated payment — the remainder cannot go below zero from that
+      -- direction — while leaving a refund's own negative intact. Same
+      -- expression as the basis and the aged netting, so the three cannot
+      -- disagree.
+      SELECT sp.supplier_id, sp.total_amount - LEAST(COALESCE((
         SELECT SUM(pa.amount_allocated)
         FROM payment_allocations pa
         JOIN supplier_invoices si ON si.id = pa.invoice_id
         WHERE pa.payment_id = sp.id AND si.company_id = ${companyId}::UUID
           AND si.supplier_id = sp.supplier_id
-          AND si.status NOT IN ('draft', 'cancelled')
+          -- Same population as apAgingService — the status half is the shared
+          -- rule (shared/documentPopulation), so a bill the ageing nets a
+          -- payment off is a bill that ABSORBS that payment here. The bare
+          -- spelling dropped a null-status bill, and its payment was then
+          -- deducted twice: once by the ageing and again as on-account funds.
+          AND ${sql.unsafe(documentInPopulationExpr('si'))}
+          -- Dated the same way as the ageing: the
+          -- delete's reversal is dated to the delete, so as at any earlier
+          -- date the bill is still payable and still absorbs these funds.
+          AND ${documentInLedgerAsAtFragment('si', asAtDate, companyId)}
           AND si.invoice_date <= ${asAtDate}::DATE
-      ), 0), 0) AS amount
+      ), 0), GREATEST(sp.total_amount, 0)) AS amount
       FROM supplier_payments sp
       WHERE sp.company_id = ${companyId}::UUID
         AND sp.status NOT IN ('draft', 'cancelled')
@@ -32,7 +60,16 @@ export async function getSupplierStatementBalances(companyId: string, asAtDate: 
         SELECT 1 FROM supplier_invoices si
         WHERE si.id = cn.supplier_invoice_id AND si.company_id = ${companyId}::UUID
           AND si.supplier_id = cn.supplier_id
-          AND si.status NOT IN ('draft', 'cancelled')
+          -- Same population as apAgingService — the status half is the shared
+          -- rule (shared/documentPopulation), so a bill the ageing nets a
+          -- payment off is a bill that ABSORBS that payment here. The bare
+          -- spelling dropped a null-status bill, and its payment was then
+          -- deducted twice: once by the ageing and again as on-account funds.
+          AND ${sql.unsafe(documentInPopulationExpr('si'))}
+          -- Dated the same way as the ageing: the
+          -- delete's reversal is dated to the delete, so as at any earlier
+          -- date the bill is still payable and still absorbs these funds.
+          AND ${documentInLedgerAsAtFragment('si', asAtDate, companyId)}
           AND si.invoice_date <= ${asAtDate}::DATE
       ) THEN cn.applied_amount ELSE 0 END, 0) AS amount
       FROM credit_notes cn
@@ -42,7 +79,11 @@ export async function getSupplierStatementBalances(companyId: string, asAtDate: 
     ) funds
     JOIN suppliers s ON s.id = funds.supplier_id AND s.company_id = ${companyId}::UUID
     GROUP BY s.id, s.name
-    HAVING SUM(funds.amount) > 0
+    -- Not-equal-zero, not greater-than-zero. A supplier whose refunds exceed
+    -- its remaining credit nets NEGATIVE on-account, which raises netBalance —
+    -- correct, and a row worth seeing. The old predicate dropped it and
+    -- compounded the per-row floor above. (No backticks: sql template.)
+    HAVING SUM(funds.amount) <> 0
   ` as { entity_id: string; entity_name: string; on_account: string | number }[];
   const balances = new Map<string, SupplierStatementBalance>(aging.map(row => [row.entityId, {
     ...row, onAccount: 0, netBalance: Number(row.total.toFixed(2)),

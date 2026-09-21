@@ -1,0 +1,92 @@
+K-019 — evidence after the SECOND blind review (1a33abb5): LOW-3 partial, new MEDIUM-4, new LOW-4
+
+=== INTEGRATION (real fixture DB) ===
+tests/integration/k019-transfer-relink-double-bind.int.test.ts   10 passed
+tests/integration/k019-import-autolink-double-bind.int.test.ts    9 passed
+tests/unit/services/bank/bankImportService.bulk.test.ts           9 passed
+Test Files 2 passed | Tests 19 passed (integration)
+
+=== MUTATION CHECK — 15 mutations, one per production behaviour ===
+M1  relink: drop the per_line stage                       -> 1 failed
+M2  relink: drop the winners stage                        -> 14 failed
+M3  relink: drop the tx_rank = line_rank diagonal         -> 2 failed
+M4  relink: drop the NOT EXISTS anti-join                 -> 3 failed
+M5  relink: drop bt_used.company_id                       -> 1 failed
+M6  relink: drop je.company_id / bt_src.company_id        -> 1 failed
+M7  relink: drop source_allocs ORDER BY                   -> 1 failed
+M8  relink: stop writing transfer_journal_entry_id        -> 1 failed
+M9  runner: single pass, no repeat                        -> 3 failed
+M10 runner: drop the savepoint                            -> 2 failed
+M11 import: LEFT JOIN gl_journal_lines instead of JOIN    -> 3 failed
+M12 import: drop the per_line stage                       -> 1 failed
+M13 import: drop the NOT EXISTS anti-join                 -> 2 failed
+M14 import: drop bt_used.company_id                       -> 1 failed
+M15 import: drop et.company_id / jl.company_id            -> 1 failed
+M16 import: link one row per pass (WHERE tx_rank = 1)     -> 1 failed
+M17 relink: link one row per pass (WHERE tx_rank = 1)     -> 3 failed
+RESTORED                                                  -> 19 passed
+
+M1 and M12 first SURVIVED. The mutation script had replaced the first textual
+match, which is the import pass in both cases, so neither had mutated what it
+named; and once aimed correctly, no test covered the case. The rank diagonal is
+not by itself a matching: probed on the fixture DB, two sources four days apart
+plus a row two days from each gives tx_rank = line_rank for THREE pairs, two of
+them on one line.
+
+  tx | line | date_distance | tx_rank | line_rank | on_diagonal
+  d1 | f1   |             0 |       1 |         1 | t
+  d2 | f2   |             0 |       1 |         1 | t
+  d3 | f1   |             2 |       1 |         2 | f
+  d3 | f2   |             2 |       2 |         2 | t
+
+Without per_line the UPDATE binds 3 rows onto 2 lines. That fixture is now a
+test in each file, and both mutations fail with "expected 3 to be 2".
+
+M7 is deterministic only because its fixture inserts the higher-id journal leg
+FIRST, so heap order and id order disagree.
+
+M16/M17 guard the round-3 claim that the rank pairing settles N contenders in ONE
+statement. `TransferLinkResult.passes` reports the linking statements a call ran,
+so both single-statement tests assert passes === 1 rather than only the row count,
+which one-row-per-pass would satisfy just as well.
+
+NOT mutation-proved: the two import routes now pass `result.errors` out as
+`warnings` (bank-transactions-bulk-commit, bank-feeds/[id]/extension-ingest).
+That is a one-line mapping in each, and neither route has a unit-test harness in
+this repo, so nothing fails if it is removed. The service half — the import
+result carrying the entry when a pass reports failed — is covered by two unit
+tests in bankImportService.bulk.test.ts.
+
+=== FULL UNIT SUITE (bunx vitest run, DATABASE_URL and fixture env UNSET) ===
+With the default 10s test timeout this suite is flaky on this box, and this
+branch trips more of it than origin/master does. Interleaved A/B, same tree,
+alternating runs:
+
+  BASE 1 (load 163)   6 failed | 9314 passed
+  MINE 1 (load 176)  11 failed | 9311 passed
+  BASE 2 (load 147)   1 failed | 9319 passed
+  MINE 2 (load 141)  10 failed | 9312 passed
+
+Every one of those failures is `Test timed out in 10000ms` or an assertion
+cascading inside a file after one of its tests timed out. The same suite with
+the timeout raised is completely green:
+
+  bunx vitest run --testTimeout=60000
+  Test Files  784 passed | 36 skipped (820)
+       Tests  9322 passed | 234 skipped (9556)
+
+So no assertion fails on this branch. What is true, and worth saying plainly, is
+that the branch is slower to the point of tripping more borderline timeouts when
+the machine is at load 140-175 (a dozen parallel agent worktrees running their
+own suites). The failing files — trackerExclusion, bankAllocationService,
+bankAllocationDateShift, bankAllocationUnwind, cashFlowReport — all pass in
+isolation and none of them imports bankTransferLinkService,
+bankTransferLinkPasses, bankImportService or the relink route, so there is no
+module path from this diff to them. Reverting the UI page alone did not change
+the count, and neither did removing the two new unit tests.
+
+=== GATES ===
+bunx tsc --noEmit                                          clean
+bunx eslint (5 changed src/pages files)                    clean
+File sizes: bankTransferLinkService 246, bankTransferLinkPasses 83,
+            bankImportService 262 (limit 300)

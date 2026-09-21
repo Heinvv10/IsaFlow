@@ -314,6 +314,11 @@ const TOOL_FLOW_OPERATIONS: Record<string, FlowOperationCode | null> = {
   // Same reasoning on the AP side: POST /api/accounting/supplier-allocations is
   // unmetered and the bank allocation path is free.
   apply_payment_to_supplier_invoice: null,
+  // The back-fill is the same correction in bulk, so it is free for the same
+  // reason — and more so: it applies cash the books already hold to documents
+  // they already hold, posting nothing. Pricing the clearing of a control
+  // account that is wrong today would be a toll on fixing the books.
+  auto_apply_unapplied: null,
 
   // A reversal is a correction, and every other reversal here is free for the
   // same reason: pricing the control the agent-safety model depends on is the

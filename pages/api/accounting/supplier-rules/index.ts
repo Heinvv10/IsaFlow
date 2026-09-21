@@ -13,6 +13,7 @@ import { withCsrf } from '@/lib/auth/withCsrf';
 import { UUID } from '@/lib/schemas/common';
 import { log } from '@/lib/logger';
 import { listRules, upsertRule } from '@/modules/accounting/services/capture/supplierRulesService';
+import { SupplierNotInCompanyError } from '@/modules/accounting/services/core/contactDirectoryService';
 
 // `strict()` — every field the UI in
 // pages/accounting/suppliers/[supplierId]/rules.tsx sends is now declared
@@ -55,7 +56,14 @@ async function handler(req: CompanyAuthedRequest, res: NextApiResponse) {
     }
     const { supplierId, ...patch } = parsed.data;
 
-    const rule = await upsertRule(companyId, supplierId, patch, userId);
+    let rule;
+    try {
+      rule = await upsertRule(companyId, supplierId, patch, userId);
+    } catch (err) {
+      // R-068: refused before the upsert, so nothing has been written.
+      if (err instanceof SupplierNotInCompanyError) return apiResponse.badRequest(res, err.message);
+      throw err;
+    }
     log.info('Supplier rule upserted via API', { companyId, supplierId }, 'supplier-rules-api');
     return apiResponse.created(res, rule, 'Supplier rule saved');
   }

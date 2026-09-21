@@ -15,6 +15,7 @@
  */
 
 import { sql } from '@/lib/neon';
+import { BANK_SUBTYPES } from '../gl/accountSubtypes';
 
 /**
  * Returns true when the company has at least one active GL account
@@ -28,7 +29,7 @@ export async function hasBankAccount(companyId: string): Promise<boolean> {
       SELECT 1
       FROM   gl_accounts
       WHERE  company_id      = ${companyId}::UUID
-        AND  account_subtype = 'bank'
+        AND  account_subtype = ANY(${BANK_SUBTYPES as string[]})
         AND  is_active        = TRUE
     ) AS has_bank_account
   `;
@@ -47,7 +48,7 @@ export async function countBankAccounts(companyId: string): Promise<number> {
     SELECT COUNT(*) AS count
     FROM   gl_accounts
     WHERE  company_id      = ${companyId}::UUID
-      AND  account_subtype = 'bank'
+      AND  account_subtype = ANY(${BANK_SUBTYPES as string[]})
       AND  is_active        = TRUE
   `;
 
