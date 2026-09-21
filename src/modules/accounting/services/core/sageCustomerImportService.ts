@@ -10,7 +10,7 @@ import type { DbRow } from '@/lib/neon';
 import { log } from '@/lib/logger';
 import type { MigrationRun } from './sageMigrationService';
 import { startRun, completeRun, failRun } from './sageMigrationService';
-import { deriveSageVat, SAGE_VAT_NOT_STATED_NOTE } from '../shared/sageVatDerivation';
+import { deriveSageVat, statedSageFigures, SAGE_VAT_NOT_STATED_NOTE } from '../shared/sageVatDerivation';
 type Row = DbRow;
 
 
@@ -62,13 +62,13 @@ export async function importCustomerInvoices(companyId: string, userId: string):
           continue;
         }
 
+        const rawData = parseRawData(inv.raw_data);
+        const lines = Array.isArray(rawData?.Lines) ? rawData.Lines : null;
+        const stated = statedSageFigures(inv.subtotal, inv.tax_amount, rawData, lines);
         const { subtotal, taxAmount, taxRate, vatNotStated: rowVatNotStated } =
-          deriveSageVat(inv.subtotal as number | null, inv.tax_amount as number | null, totalAmount);
+          deriveSageVat(stated.subtotal, stated.tax, totalAmount);
         const isPaid = inv.status === 'paid'
           || Number(inv.outstanding_amount || 0) === 0;
-
-        // Extract reference from raw_data
-        const rawData = parseRawData(inv.raw_data);
         const reference = rawData?.Reference || inv.invoice_number || null;
 
         const newInv = (await sql`
@@ -99,8 +99,7 @@ export async function importCustomerInvoices(companyId: string, userId: string):
         const newInvoiceId = String(newInv[0]!.id);
 
         // Insert line items from raw_data
-        const lines = rawData?.Lines;
-        if (lines && Array.isArray(lines) && lines.length > 0) {
+        if (lines && lines.length > 0) {
           for (const line of lines) {
             const qty = Number(line.Quantity || 1);
             const price = Number(line.UnitPriceExclusive || 0);
