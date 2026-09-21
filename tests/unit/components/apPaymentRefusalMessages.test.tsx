@@ -60,9 +60,14 @@ it('payment detail shows why Process was refused', async () => {
 it('new batch shows why the batch was refused, not a bare "Failed"', async () => {
   const text = 'R1500.00 exceeds the R1000.00 outstanding on invoice INV-7.';
   vi.mocked(apiFetch).mockImplementation(async (url: string) => {
-    if (url.includes('suppliers-list')) return ok([{ id: 's1', company_name: 'Supplier One' }]);
+    // The two lists in the shapes their routes really answer: suppliers-list
+    // snake_case rows under `suppliers` (company_name often null), and
+    // supplier-invoices camelCase under `invoices`.
+    if (url.includes('suppliers-list')) {
+      return ok({ suppliers: [{ id: 's1', name: 'Supplier One', company_name: null }], total: 1 });
+    }
     if (url.includes('supplier-invoices')) {
-      return ok([{ id: 'i1', supplier_id: 's1', invoice_number: 'INV-7', total_amount: 1000, amount_paid: 0 }]);
+      return ok({ invoices: [{ id: 'i1', supplierId: 's1', invoiceNumber: 'INV-7', totalAmount: 1000, amountPaid: 0 }] });
     }
     return refusal(text);
   });

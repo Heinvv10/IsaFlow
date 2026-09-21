@@ -12,6 +12,7 @@ import { withCsrf } from '@/lib/auth/withCsrf';
 import { log } from '@/lib/logger';
 import { getBatches, getBatchById, createBatch } from '@/modules/accounting/services/ap/batchPaymentService';
 import { SupplierNotInCompanyError } from '@/modules/accounting/services/core/contactDirectoryService';
+import { getBatchMembers } from '@/modules/accounting/services/ap/batchPaymentMembers';
 import {
   isRetryableSupplierPaymentRefusal,
   isSupplierPaymentRefusal,
@@ -27,7 +28,7 @@ async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse) {
     if (id) {
       const batch = await getBatchById(companyId, id as string);
       if (!batch) return apiResponse.notFound(res, 'Batch', id as string);
-      return apiResponse.success(res, batch);
+      return apiResponse.success(res, { ...batch, payments: await getBatchMembers(companyId, batch.id) });
     }
 
     const result = await getBatches(companyId, {

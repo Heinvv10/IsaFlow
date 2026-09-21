@@ -21,7 +21,10 @@ import {
 } from '@/modules/accounting/services/ap/supplierPaymentService';
 import type { PaymentStatus } from '@/modules/accounting/types/ap.types';
 import { SupplierNotInCompanyError } from '@/modules/accounting/services/core/contactDirectoryService';
-import { isSupplierPaymentRefusal } from '@/modules/accounting/services/ap/supplierPaymentRefusal';
+import {
+  isRetryableSupplierPaymentRefusal,
+  isSupplierPaymentRefusal,
+} from '@/modules/accounting/services/ap/supplierPaymentRefusal';
 
 const CreateSupplierPaymentSchema = z.object({
   supplierId: UUID,
@@ -85,6 +88,9 @@ async function postHandler(req: AuthenticatedNextApiRequest, res: NextApiRespons
   } catch (err) {
     // R-068: raised before the first write, so the 400's COMMIT commits nothing.
     if (err instanceof SupplierNotInCompanyError) return apiResponse.badRequest(res, err.message);
+    // A bill held by another request: a retry, not the user's mistake — 409, as
+    // batch-payments POST answers the same lock. Pre-write, like every refusal.
+    if (isRetryableSupplierPaymentRefusal(err)) return apiResponse.conflict(res, (err as Error).message);
     // K-066: a bill that is not this supplier's, or not payable. Also pre-write.
     if (isSupplierPaymentRefusal(err)) return apiResponse.badRequest(res, err.message);
     log.error('Failed to create supplier payment', { error: err }, 'accounting-api');

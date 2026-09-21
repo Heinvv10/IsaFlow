@@ -129,6 +129,38 @@ describeIfDb('K-063 review r1 — deleted bills and batch members', () => {
     expect(await billState(fx.pool, id)).toEqual({ paid: 300, status: 'partially_paid' });
   });
 
+  it('processed batch, then void of its member: refused, bill and AP still agree with the batch journal', async () => {
+    const id = await approved();
+    const batchId = await f.approvedBatch([{ billId: id, amount: 300 }]);
+    const member = await f.memberOf(batchId);
+    const ap = await f.apDebits();
+    expect((await f.batchAction('process', batchId)).statusCode).toBe(200);
+
+    const voided = await f.paymentAction('void', member);
+    expect(voided.statusCode, text(voided)).toBe(400);
+    expect(text(voided)).toContain(`belongs to batch ${batchId}`);
+    expect(await f.paymentStatus(member)).toBe('processed');
+    expect(await billState(fx.pool, id)).toEqual({ paid: 300, status: 'partially_paid' });
+    expect(await f.apDebits()).toBe(ap + 300);
+    // The bill still knows about the 300, so it cannot be paid in full again.
+    expect((await f.createPayment(id, 1000)).statusCode).toBe(400);
+    expect((await f.createPayment(id, 700)).statusCode).toBe(201);
+  });
+
+  it('void of an unprocessed member, then the batch: refused, and the batch still pays once', async () => {
+    const id = await approved();
+    const batchId = await f.approvedBatch([{ billId: id, amount: 300 }]);
+    const member = await f.memberOf(batchId);
+    const ap = await f.apDebits();
+
+    const voided = await f.paymentAction('void', member);
+    expect(voided.statusCode, text(voided)).toBe(400);
+    expect(text(voided)).toContain('cancel it through its batch');
+    expect((await f.batchAction('process', batchId)).statusCode).toBe(200);
+    expect(await billState(fx.pool, id)).toEqual({ paid: 300, status: 'partially_paid' });
+    expect(await f.apDebits()).toBe(ap + 300);
+  });
+
   it('a batch holding a member already processed on its own (stored before this rule) is refused', async () => {
     const id = await approved();
     const batchId = await f.approvedBatch([{ billId: id, amount: 300 }]);

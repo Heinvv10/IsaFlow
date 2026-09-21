@@ -47,3 +47,12 @@ export function assertBillAllocatable(
     );
   }
 }
+
+/**
+ * Integer cents. A BILL's outstanding is compared in cents with no tolerance:
+ * the old `amount > outstanding + EPS` let a fully paid bill take R0.01 and a
+ * R100.00 bill take R100.01.
+ */
+export function toCents(n: number): number {
+  return Math.round(n * 100);
+}

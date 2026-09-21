@@ -24,3 +24,15 @@ restored byte-identical e33c3a79cbfb613f296e32679fa7be3677bc9341d7f17dd791b33d59
 ⎯⎯⎯⎯⎯⎯⎯ Failed Tests 2 ⎯⎯⎯⎯⎯⎯⎯
       Tests  2 failed | 2 passed (4)
 restored byte-identical 84f5aa133220065c3e022e8906fa4ff9d242c6a0908fe98cf654cd4f94cdad8a
+=== V2 void no longer refuses a batch member
+     × processed batch, then void of its member: refused, bill and AP still agree with the batch journal 20ms
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 1 ⎯⎯⎯⎯⎯⎯⎯
+ Test Files  1 failed | 1 passed (2)
+      Tests  1 failed | 21 passed (22)
+restored byte-identical 773967382cfa1e4691bff26a4016dd9bd6558b98adff34a0c3d443df36ebc0f3
+=== C409 supplier-payments POST answers contention 400 again
+     × a single payment on a contended bill answers 409, like a batch, and writes nothing 10016ms
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 1 ⎯⎯⎯⎯⎯⎯⎯
+ Test Files  1 failed | 1 passed (2)
+      Tests  1 failed | 21 passed (22)
+restored byte-identical b450f30bc4cddb3aec3c65307685c5b2ab897b1eca4f870d1ce3c490c9fdb3f2
