@@ -225,15 +225,74 @@ describe('isReservedClientName', () => {
     expect(isReservedClientName(asHandlerWould('MySync (IsaFlow)'))).toBe(false);
   });
 
-  // The brand is a coined word, so it is refused anywhere inside a token. The
-  // adjectives are ordinary English that sits inside innocent words, so they
-  // are only refused when they LEAD one — otherwise "Unofficial Xero Sync"
-  // would be refused for disclaiming exactly what the rule polices.
-  it('refuses a leading adjective but not one inside a longer word', () => {
-    expect(isReservedClientName(asHandlerWould('Unofficial Xero Sync'))).toBe(false);
-    expect(isReservedClientName(asHandlerWould('Unverified Test Client'))).toBe(false);
-    expect(isReservedClientName(asHandlerWould('Officiate Pro'))).toBe(false);
-    expect(isReservedClientName(asHandlerWould('OfficialSync'))).toBe(true);
+  // Both classes match anywhere in a token, because restricting either to the
+  // start leaves the same one-keystroke bypass mirrored: "OfficialIsaFlow" for
+  // the brand, "ClaudeCodeOfficial" for the adjectives.
+  it('refuses an adjective wherever it appears in a token', () => {
+    for (const name of ['OfficialSync', 'XeroOfficial', 'AcmeVerified', 'ClaudeCodeOfficial', 'AcmeFirstParty']) {
+      expect(isReservedClientName(asHandlerWould(name)), name).toBe(true);
+    }
+  });
+
+  // ...except directly behind a negating morpheme, which makes it a denial
+  // rather than a claim. Without this, refusing an adjective anywhere would
+  // refuse the names that disclaim exactly what the rule polices.
+  it('allows an adjective that a negation turns into a denial', () => {
+    for (const name of [
+      'Unofficial Xero Sync',
+      'UnofficialXeroSync',
+      'Unverified Test Client',
+      'Nonofficial Tool',
+      'NotOfficial App',
+      'Officiate Pro',
+      'Office Ally',
+    ]) {
+      expect(isReservedClientName(asHandlerWould(name)), name).toBe(false);
+    }
+  });
+
+  // An unidentified letter stays inside the token as a wildcard rather than
+  // splitting it. As a separator it broke the word in two, and a welded affix
+  // then pushed the run past the length bound and stranded the wildcard the
+  // bare form relies on — so "TheIsafl<Armenian o>w" escaped while
+  // "Isafl<Armenian o>w" was refused.
+  it('refuses a welded brand that also carries a substituted glyph', () => {
+    for (const name of ['TheIsafl\u0585w', 'GoIsafl\u10DDw', 'Isafl\u0585wHQ', 'MyIsafl\u0585wSync']) {
+      expect(isReservedClientName(asHandlerWould(name)), JSON.stringify(name)).toBe(true);
+    }
+  });
+
+  // Documented residual: the budget is exactly one unidentified character, so
+  // two different unmapped look-alikes in one name still register. Recorded as
+  // allowed so a budget of two — which would start refusing ordinary words in
+  // unmapped scripts — reads as a decision rather than a fix.
+  it('allows two substituted glyphs, and says so', () => {
+    expect(isReservedClientName(asHandlerWould('\u0585safl\u2C9Fw'))).toBe(false); // Armenian + Coptic
+    expect(isReservedClientName(asHandlerWould('\u0585s\u13AAflow'))).toBe(false); // Armenian + Cherokee
+  });
+
+  // The brand is coined, so no negation reading applies to it — "UnIsaFlow" is
+  // not a disclaimer the way "Unofficial" is, and still trades on the name.
+  it('does not let a negation shelter the brand', () => {
+    for (const name of ['UnIsaFlow', 'NonIsaFlow', 'NotIsaFlow']) {
+      expect(isReservedClientName(asHandlerWould(name)), name).toBe(true);
+    }
+  });
+
+  // The wildcard budget is one. Without it, a window of N wildcards would match
+  // any term of that length, and every word in a script we do not map would be
+  // refused.
+  it('does not refuse ordinary words in unmapped scripts', () => {
+    for (const name of [
+      '\u0431\u0443\u0445\u0433\u0430\u043b\u0442\u0435\u0440\u0438\u044f',
+      '\u4f1a\u8ba1\u52a9\u624b',
+      '\u03bb\u03bf\u03b3\u03b9\u03c3\u03c4\u03b9\u03ba\u03ae',
+      // exactly the brand's length, every character unidentified: matches only
+      // if the budget is raised, which is what pins it at one.
+      '\u4f1a\u8ba1\u52a9\u624b\u7cfb\u7edf\u8868',
+    ]) {
+      expect(isReservedClientName(asHandlerWould(name)), JSON.stringify(name)).toBe(false);
+    }
   });
 
   // These render as the brand to a user but are not the literal ASCII string.
