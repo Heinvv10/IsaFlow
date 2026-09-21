@@ -589,7 +589,14 @@ payments that fully settled their bills could not be voided.
    allocated plus a matched line, on one journal are refused, as MCP refuses them.
    `backfill-auto-apply-unapplied` ("voiding a back-filled payment restores the
    bills") passes unchanged on an `isaflow_test` clone — the delegated path
-   restores the bills AND frees the line; there was no conflict.
+   restores the bills AND frees the line; there was no conflict. (Round 7 called
+   this path "MCP-only"; that was wrong — the bank screen's
+   `bank-transactions-action reverse` is the same `reverseReconciledTransaction`.)
+   Review r7's exact repro is pinned: a −1500 line allocated to a supplier with
+   one 1000 bill (a processed payment, 500 unapplied, line `allocated`) → REST
+   void 200 → line `imported` with no match, bill 0, payment `cancelled`, AP and
+   bank back, and the same line allocates again (200). Before this round the line
+   stayed `allocated` on the reversed journal and re-allocating it answered 400.
 4. **Pinned by outcome** (`tests/integration/k064-void-applied-and-allocated.int.test.ts`):
    a 1000 payment processed against X (600) and applied to Y (400) — status
    `reconciled`, bank line matched — voids 200: X 0 and Y 0 `approved`, payment
@@ -609,3 +616,14 @@ payments that fully settled their bills could not be voided.
 The round-7 test "4" (the refusal message) is gone with the refusal; the unit
 test "rejects voiding a reconciled payment" now asserts it voids.
 Green: 82 files, 521 tests (`round8-green.log`).
+
+### Round 8 addition — `ap-payment-document-backfill` seed (review r7 LOW)
+
+The suite failed in its OWN seed on any database carrying migration **657**
+(`uq_bank_tx_matched_line` — one journal line binds one bank row), not because
+of 615 as round 7 guessed: `SHARED_B` was bound to SHARED_A's bank journal line.
+The seed now gives SHARED_B its own balanced pair (AP leg + bank leg) on the
+SAME journal, so the case is still "two bank lines on one journal" — what
+`journal_shared_by_bank_lines` counts — and every assertion is unchanged. With
+the index in place (`pg_indexes` checked on the `isaflow_test` clone): 27 passed
+(27); before, it failed at `beforeAll` with that 23505.

@@ -2,5 +2,7 @@
 # 82 files: round7-green.log's 81 + tests/integration/k064-void-applied-and-allocated.int.test.ts
 exit=0
  Test Files  82 passed (82)
-      Tests  521 passed | 1 skipped (522)
-# isaflow_test clone: backfill-auto-apply-unapplied + afs-changes-in-equity: 2 files, 17 tests passed.
+      Tests  522 passed | 1 skipped (523)
+# isaflow_test clone (uq_bank_tx_matched_line, migration 657, present):
+#   ap-payment-document-backfill: 1 file, 27 passed (27)  — was failing in its own seed
+#   backfill-auto-apply-unapplied + afs-changes-in-equity: 2 files, 17 tests passed

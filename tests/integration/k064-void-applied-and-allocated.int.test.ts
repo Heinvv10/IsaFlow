@@ -138,6 +138,36 @@ describeIfDb('K-064 round 8 — voiding applied and bank-allocated supplier paym
     payment: await f.paymentStatus(a.paymentId), contras: await contras(await journalOf(a.paymentId)),
   });
 
+  it("review r7's repro: a -1500 allocation over one 1000 bill (500 unapplied) voids with the line FREE to re-allocate", async () => {
+    const supplier = randomUUID();
+    await q("INSERT INTO suppliers (id, company_id, name) VALUES ($1, $2, 'K064 r8 repro supplier')", [supplier, ids.A]);
+    const billId = await bill(fx.pool, { supplier, status: 'approved', total: 1000 });
+    const bankTx = await bankLine(-1500);
+    const before = { ap: await net(ids.AP_GL), bank: await net(ids.BANK_GL) };
+    const r = await act({ action: 'allocate', bankTransactionId: bankTx, allocationType: 'supplier',
+      entityId: supplier, description: 'K064 r8 repro' });
+    expect(r.statusCode, text(r)).toBe(200);
+    const paymentId = String((await q(`SELECT sp.id FROM supplier_payments sp JOIN gl_journal_lines l
+      ON l.journal_entry_id = sp.gl_journal_entry_id JOIN bank_transactions bt ON bt.matched_journal_line_id = l.id
+      WHERE bt.id = $1`, [bankTx])).rows[0].id);
+    expect(await f.paymentStatus(paymentId)).toBe('processed'); // 500 left unapplied
+    expect(await billState(fx.pool, billId)).toEqual({ paid: 1000, status: 'paid' });
+
+    const voided = await f.paymentAction('void', paymentId);
+
+    expect(voided.statusCode, text(voided)).toBe(200);
+    expect(await bankState(bankTx)).toEqual({ status: 'imported', matched_journal_line_id: null, reconciliation_id: null });
+    expect(await billState(fx.pool, billId)).toEqual({ paid: 0, status: 'approved' });
+    expect(await f.paymentStatus(paymentId)).toBe('cancelled');
+    expect(await net(ids.AP_GL)).toBe(before.ap);
+    expect(await net(ids.BANK_GL)).toBe(before.bank);
+    // Not stuck: the same statement line allocates again.
+    const again = await act({ action: 'allocate', bankTransactionId: bankTx, allocationType: 'supplier',
+      entityId: supplier, description: 'K064 r8 repro again' });
+    expect(again.statusCode, text(again)).toBe(200);
+    expect((await bankState(bankTx)).status).toBe('allocated');
+  });
+
   it('voids a bank-ALLOCATED payment through the app route to the same end state as MCP void_payment', async () => {
     const viaRoute = await allocatedPayment();
     const apBefore = await net(ids.AP_GL);
