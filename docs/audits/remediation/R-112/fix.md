@@ -39,16 +39,25 @@ notes (`approved`, `partially_applied`, `applied`) at `CREDIT_NOTE_STATEMENT_VAL
 
 - `red-master.log`: the 5 original tests on master's endpoints — 5 failed.
 - `green.log`: r112 + r095 + r082 + k053 ×2 — 5 files, 46 tests passed (round 0).
-- Round 1 (blind review: 1 HIGH, 5 MEDIUM, 7 LOW — all fixed): the file has 10 tests,
-  all passing; `mutations.log` — 12 mutations of the new guards, each turns exactly its
-  own test red.
+- Round 1 (blind review: 1 HIGH, 5 MEDIUM, 7 LOW — all fixed): the file has 10 tests;
+  `mutations.log` — 12 mutations of the new guards, each turns exactly its own test red.
+- Round 2 (blind review of the fixes: 2 MEDIUM, 3 LOW — all fixed). The detail endpoint's
+  new 404 for a soft-deleted customer reached two callers that never checked `res.ok`
+  (the balances list still shows such a customer): the batch export rendered the error
+  envelope as an empty R0.00 statement, and the detail page showed "no transactions".
+  The batch now skips and names the customer to the statement run; the page shows the
+  error. The default window start is a year before `toDate`, not before today.
+  `tests/unit/accounting/customerStatementBatchAndWindow.test.ts` (3 tests); reverting
+  either fix turns one red.
+- `green-round2.log`: r112 (10) + r095 + r082 + k053 ×2 — 5 files, 51 tests passed.
 - Browser (`ui.log`, `r112-statement.png`, `r112-detail.png`): dev server on the branch
   against the disposable fixture, headless Chromium as the tenant's staff user. Customer
   with an old invoice 1,000, an old applied note (300, 200 applied), a new invoice 1,500
   and a receipt 1,000 (600 allocated); email balance 1,300. Statement screen: Opening
   R 800,00 · Invoiced R 1 500,00 · Paid R 1 000,00 · Credits R 0,00 · Balance R 1 300,00;
   brought-forward row, footer 2 300 / 1 000 / 1 300; "2 transactions"; no page errors.
-  Detail screen: Balance Outstanding R 1 300,00, running balance ends R 1 300,00.
+  Detail screen (`r112-detail.png`; the card values are read from the screenshot, the
+  log records the rows): Balance Outstanding R 1 300,00, running balance ends R 1 300,00.
 
 ## Residual
 
