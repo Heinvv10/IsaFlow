@@ -129,7 +129,16 @@ describeIfDb('K-064 — reverse a processed payment batch', () => {
       const line = (await q(`SELECT l.id FROM gl_journal_lines l JOIN supplier_payment_batches b
         ON b.gl_journal_entry_id = l.journal_entry_id WHERE b.id = $1 AND l.credit > 0`, [batchId])).rows[0].id;
       await q("UPDATE bank_transactions SET status = 'reconciled', matched_journal_line_id = $1 WHERE id = $2", [line, ids.BANK_TX_PAY]);
-    }, 'bank reconciliation'],
+    }, 'reconciled in the Sage import'],
+    ['its bank line is on a COMPLETED reconciliation', async (batchId: string) => {
+      const line = (await q(`SELECT l.id FROM gl_journal_lines l JOIN supplier_payment_batches b
+        ON b.gl_journal_entry_id = l.journal_entry_id WHERE b.id = $1 AND l.credit > 0`, [batchId])).rows[0].id;
+      const rec = randomUUID();
+      await q(`INSERT INTO bank_reconciliations (id, company_id, bank_account_id, statement_date, status, started_by)
+        VALUES ($1, $2, $3, CURRENT_DATE, 'completed', $4)`, [rec, ids.A, ids.BANK_GL, ids.USER]);
+      await q("UPDATE bank_transactions SET status = 'reconciled', matched_journal_line_id = $1, reconciliation_id = $2 WHERE id = $3",
+        [line, rec, ids.BANK_TX_PAY]);
+    }, "is on the completed reconciliation of R068 Bank"],
     ['the reversal date falls in a closed period', async () => {
       await q("UPDATE fiscal_periods SET status = 'closed' WHERE company_id = $1", [ids.A]);
     }, 'not in an open fiscal period'],
@@ -149,7 +158,8 @@ describeIfDb('K-064 — reverse a processed payment batch', () => {
       expect(await net(ids.AP_GL)).toBe(ap);
     } finally {
       await q("UPDATE fiscal_periods SET status = 'open' WHERE company_id = $1", [ids.A]);
-      await q("UPDATE bank_transactions SET status = 'imported', matched_journal_line_id = NULL WHERE company_id = $1", [ids.A]);
+      await q("UPDATE bank_transactions SET status = 'imported', matched_journal_line_id = NULL, reconciliation_id = NULL WHERE company_id = $1", [ids.A]);
+      await q('DELETE FROM bank_reconciliations WHERE company_id = $1', [ids.A]);
     }
   });
 

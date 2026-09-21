@@ -26,6 +26,7 @@ import type { DbRow } from '@/lib/neon';
 import { fmtDate } from '@/lib/fmtDate';
 import { lockBankTransactionForUpdate } from '../bank/bankTxLock';
 import { unmatchTransaction } from '../bank/bankTxStatusMutations';
+import { ReconciledCashError, reconciliationLockOf, refuseLockedCash } from '../bank/reconciledCash';
 import { resolveReversalDate } from '../gl/journalEntryReversalDate';
 import { getPeriodStatusForDate } from '../gl/periodStatusService';
 import { SupplierPaymentRefusal } from './supplierPaymentRefusal';
@@ -43,28 +44,22 @@ export interface BankLeg {
 }
 
 /**
- * THE rule for "this cash is reconciled": the bank line is on a bank
- * reconciliation — status 'reconciled' (reachable only by completing one) or a
- * `reconciliation_id` naming a COMPLETED `bank_reconciliations` row. A line in
- * an IN-PROGRESS session is refused too, with its own remedy: unmatching it
- * would change that session's figures underneath the person reconciling. It is
- * NOT the payment's own status: on a supplier payment 'reconciled' means fully
- * applied to its bills.
+ * The shared reconciled-cash rule (`bank/reconciledCash.ts`, also used by bank
+ * reverse), plus one refusal of void's and batch reversal's own: a line in an
+ * IN-PROGRESS reconciliation session — unmatching it would change that
+ * session's figures under the person reconciling. The payment's own status
+ * plays no part: on a supplier payment 'reconciled' means fully applied.
  */
 async function assertNotReconciled(companyId: string, row: DbRow, label: string): Promise<void> {
-  let recStatus: string | null = null;
-  if (row.reconciliation_id) {
-    const rec = (await sql`
-      SELECT status FROM bank_reconciliations
-      WHERE id = ${String(row.reconciliation_id)}::UUID AND company_id = ${companyId}::UUID
-    `) as DbRow[];
-    recStatus = rec[0] ? String(rec[0].status) : null;
+  const lock = await reconciliationLockOf(companyId, row);
+  try {
+    refuseLockedCash(lock, `${label}'s bank line`);
+  } catch (err) {
+    // Re-typed so the AP routes answer it 400 like every other refusal here.
+    if (err instanceof ReconciledCashError) throw new SupplierPaymentRefusal(err.message);
+    throw err;
   }
-  if (row.status === 'reconciled' || recStatus === 'completed') {
-    throw new SupplierPaymentRefusal(`${label} is on a completed bank reconciliation — reverse it there `
-      + 'before voiding or reversing the payment.');
-  }
-  if (row.reconciliation_id) {
+  if (lock?.kind === 'session') {
     throw new SupplierPaymentRefusal(`${label}'s bank line is in an open bank reconciliation session — `
       + 'remove it from that session (or cancel the session) first.');
   }
