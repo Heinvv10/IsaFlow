@@ -7,7 +7,7 @@
  * Every query must scope to companyId. See audit item #28.
  */
 
-import { sql } from '@/lib/neon';
+import { sql, withSavepoint } from '@/lib/neon';
 import type { DbRow } from '@/lib/neon';
 import { log } from '@/lib/logger';
 type Row = DbRow;
@@ -82,12 +82,37 @@ export async function completeRun(
   };
 }
 
+/**
+ * K-090: a bare UPDATE here ran on the transaction the failure had aborted,
+ * raised 25P02 and masked the real cause. `withRunRecovery` rolls back first;
+ * this write is isolated too, so the ORIGINAL error always propagates.
+ */
 export async function failRun(runId: string, err: unknown): Promise<void> {
   const msg = err instanceof Error ? err.message : 'Unknown error';
-  await sql`
-    UPDATE gl_migration_runs SET status = 'failed', error_message = ${msg}, completed_at = NOW()
-    WHERE id = ${runId}::UUID
-  `;
+  await withSavepoint('sage_mark_run_failed', async () => {
+    await sql`
+      UPDATE gl_migration_runs SET status = 'failed', error_message = ${msg}, completed_at = NOW()
+      WHERE id = ${runId}::UUID
+    `;
+  }).catch((markErr: unknown) => {
+    log.error('Could not record Sage migration run failure', {
+      runId, markErr: String(markErr), originalError: msg,
+    }, 'accounting');
+  });
+}
+
+/**
+ * Run a migration body so a failure inside it leaves the request transaction
+ * usable and the run markable. `startRun`'s INSERT sits outside the savepoint,
+ * so the run row survives the rollback for `failRun` to update.
+ */
+export async function withRunRecovery<T>(runId: string, body: () => Promise<T>): Promise<T> {
+  try {
+    return await withSavepoint('sage_migration_run', body);
+  } catch (err) {
+    await failRun(runId, err);
+    throw err;
+  }
 }
 
 // ── Migration Status ────────────────────────────────────────────────────────
@@ -206,7 +231,7 @@ function nameSimilarity(a: string, b: string): number {
 
 export async function autoMapAccounts(companyId: string, userId: string): Promise<MigrationRun> {
   const runId = await startRun('account_mapping', userId, companyId);
-  try {
+  return withRunRecovery(runId, async () => {
     const sageAccounts = (await sql`
       SELECT id, sage_account_id, name, account_type, balance FROM sage_accounts WHERE company_id = ${companyId}::UUID AND gl_account_id IS NULL ORDER BY name
     `) as Row[];
@@ -239,7 +264,7 @@ export async function autoMapAccounts(companyId: string, userId: string): Promis
       } else { skipped++; }
     }
     return await completeRun(runId, sageAccounts.length, succeeded, 0, skipped);
-  } catch (err) { await failRun(runId, err); throw err; }
+  });
 }
 
 export async function mapAccount(companyId: string, sageAccountId: string, glAccountId: string | null, notes?: string): Promise<void> {

@@ -15,45 +15,52 @@
 import { sql, withSavepoint } from '@/lib/neon';
 import { log } from '@/lib/logger';
 import type { MigrationRun } from './sageMigrationService';
-import { startRun, completeRun, failRun } from './sageMigrationService';
+import { startRun, completeRun, withRunRecovery } from './sageMigrationService';
 import type { DbRow } from '@/types/db';
 import { computeFingerprint } from '../capture/captureDeduplicationService';
-import { deriveSageVat, statedSageFigures, SAGE_VAT_NOT_STATED_NOTE } from '../shared/sageVatDerivation';
+import { deriveSageVat, SAGE_VAT_NOT_STATED_NOTE } from '../shared/sageVatDerivation';
 
 // ── Supplier Invoice Import ─────────────────────────────────────────────────
+
+type RowOutcome = 'imported' | 'already_in_ap' | 'no_supplier';
 
 /**
  * Import sage_supplier_invoices into the supplier_invoices table.
  * Matches Sage's approach: invoices are standalone AP documents,
  * no separate GL journal entries are created per invoice.
  *
- * R-089 (fix.md): the VAT split below never invents a rate — see
- * `deriveSageVat`. NOTE for whoever lands R-021 here: this function's SELECT
- * names columns (`sage_invoice_id`, `subtotal`, `tax_amount`, `supplier_id`,
- * …) that do not exist on `sage_supplier_invoices` today (confirmed against
- * the schema fixture, 42703), so this whole function is currently unreached —
- * R-021 (unmerged branch `fix/audit-r021-k088-k090-sage-importer`) rewrites
- * the row mapping to the columns the table actually has, and derives VAT
- * UNCONDITIONALLY at the standard rate because staging carries none at all.
- * That reintroduces exactly what this fix removes, for every row instead of
- * only the ones with none stated. Reconcile the two: post-R-021, every row
- * "carries none" by definition, so `deriveSageVat(null, null, totalAmount)`
- * is what every row should get, not an unconditional 15% unwind.
+ * R-021: the staging table holds only what the Sage invoice list returns —
+ * (sage_id, invoice_number, supplier_name, invoice_date, total_amount). It has
+ * no supplier id, due date, tax split, payment state or line items; an earlier
+ * revision SELECTed eleven such columns, so the first statement raised 42703
+ * for every tenant and no bill ever came through this path. The row mapping
+ * reads what the table has and derives the rest:
+ *   - supplier: the ONE supplier of that name (case-insensitive) on the
+ *     company. None, or more than one, fails the row — supplier_id drives every
+ *     AP balance, and a bill on the wrong supplier never reconciles.
+ *   - due date: invoice date plus the supplier's payment_terms days.
+ *   - VAT: none stated, so none recorded and the bill flagged (R-089,
+ *     `deriveSageVat`). Never a 15% unwind of the total.
+ *   - payment state: unpaid. Staging carries no payment, and a bill called
+ *     paid with no payment behind it drops out of AP aging with nothing in the
+ *     bank to match.
+ *
+ * K-088: a re-run after `resetMigration` must not book the bill twice. A bill
+ * already in AP for the same supplier with the same duplicate fingerprint
+ * (VAT number | invoice number | total — the key every other AP entry path
+ * checks) is linked, not re-inserted, and counted as skipped.
  */
 export async function importSupplierInvoices(companyId: string, userId: string): Promise<MigrationRun> {
   const runId = await startRun('invoice_import', userId, companyId);
 
-  try {
+  return withRunRecovery(runId, async () => {
     // BL-40: Added AND company_id to prevent cross-tenant SELECT
     const sageInvoices = (await sql`
-      SELECT id, sage_invoice_id, sage_supplier_id, invoice_number,
-        invoice_date, due_date, subtotal, tax_amount, total_amount,
-        outstanding_amount, status, ff_purchase_order_id, supplier_id,
-        raw_data, line_items
+      SELECT id, sage_id, invoice_number, supplier_name, invoice_date, total_amount
       FROM sage_supplier_invoices
       WHERE migration_status = 'pending'
         AND company_id = ${companyId}::UUID
-      ORDER BY invoice_date
+      ORDER BY invoice_date, id
     `) as DbRow[];
 
     let succeeded = 0;
@@ -66,170 +73,119 @@ export async function importSupplierInvoices(companyId: string, userId: string):
         const totalAmount = Number(inv.total_amount || 0);
         if (totalAmount === 0) { skipped++; continue; }
 
-        // Every statement for this record runs inside its own savepoint. Any
-        // SQL failure on a record used to abort the whole request transaction,
-        // so the `migration_status = 'failed'` marker in the catch below then
-        // raised 25P02, escaped to failRun() — more SQL on the same dead
-        // transaction — and rolled back every invoice the run had imported.
-        const outcome = await withSavepoint('sage_supplier_invoice_record', async (): Promise<'imported' | 'no_supplier'> => {
-
-          // NOTE: purchase_orders table is not available in standalone accounting app.
-          // Supplier ID must come from the Sage import data directly; PO lookup is stubbed.
-          const supplierId = inv.supplier_id;
-
-          if (!supplierId) return 'no_supplier';
-
-          const rawObj = parseJson(inv.raw_data);
-          const lines = parseRawData(inv.raw_data, inv.line_items);
-          const stated = statedSageFigures(inv.subtotal, inv.tax_amount, rawObj, lines);
-          const { subtotal, taxAmount, taxRate, vatNotStated: rowVatNotStated } =
-            deriveSageVat(stated.subtotal, stated.tax, totalAmount);
-
-          // project_id cannot be resolved from purchase_orders in standalone mode
-          const projectId: string | null = null;
-
-          const isPaid = inv.status === 'paid' || Number(inv.outstanding_amount || 0) === 0;
-
-          const reference = rawObj?.Reference || null;
-
-          // Fingerprint for duplicate detection (PRD-05)
-          const [supVatRow] = (await sql`
-            SELECT vat_number FROM suppliers
-            WHERE id = ${supplierId}::UUID AND company_id = ${companyId}::UUID
+        // Every statement for this record runs inside its own savepoint, so a
+        // failing row rolls back alone and the 'failed' marker below lands on
+        // a usable transaction (K-090, the per-row half).
+        const outcome = await withSavepoint('sage_supplier_invoice_record', async (): Promise<RowOutcome> => {
+          const supplierName = String(inv.supplier_name ?? '').trim();
+          const suppliers = (await sql`
+            SELECT id, vat_number, payment_terms
+            FROM suppliers
+            WHERE company_id = ${companyId}::UUID
+              AND deleted_at IS NULL
+              AND lower(name) = lower(${supplierName})
+            LIMIT 2
           `) as DbRow[];
-          const invNumber = inv.invoice_number || `SAGE-${inv.sage_invoice_id}`;
+          if (suppliers.length !== 1) {
+            log.warn('Sage supplier invoice does not name exactly one supplier on this company', {
+              companyId, stagingId: inv.id, supplierName, matches: suppliers.length,
+            }, 'accounting');
+            return 'no_supplier';
+          }
+          const supplier = suppliers[0]!;
+          const supplierId = String(supplier.id);
+
+          const sageId = inv.sage_id ? String(inv.sage_id) : null;
+          const invNumber = inv.invoice_number
+            ? String(inv.invoice_number)
+            : `SAGE-${sageId ?? String(inv.id)}`;
           const dupFingerprint = computeFingerprint(
-            supVatRow?.vat_number ?? null,
+            supplier.vat_number ? String(supplier.vat_number) : null,
             invNumber,
             totalAmount,
           );
 
-          // BL-40: Added company_id to INSERT — was missing, causing NOT NULL violation
-          const newInv = (await sql`
-            INSERT INTO supplier_invoices (
-              company_id, invoice_number, supplier_id, purchase_order_id, project_id,
-              invoice_date, due_date, subtotal, tax_rate, tax_amount, total_amount,
-              amount_paid, status, sage_invoice_id, reference, notes, created_by,
-              duplicate_fingerprint
-            ) VALUES (
-              ${companyId}::UUID,
-              ${invNumber},
-              ${supplierId}, ${inv.ff_purchase_order_id || null}, ${projectId},
-              ${inv.invoice_date}, ${inv.due_date || inv.invoice_date},
-              ${subtotal.toFixed(2)}, ${taxRate}, ${taxAmount.toFixed(2)}, ${totalAmount},
-              ${isPaid ? totalAmount : 0}, ${isPaid ? 'paid' : 'approved'},
-              ${inv.sage_invoice_id}, ${reference}, ${rowVatNotStated ? SAGE_VAT_NOT_STATED_NOTE : null}, ${userId},
-              ${dupFingerprint}
-            ) RETURNING id
+          const [existing] = (await sql`
+            SELECT id FROM supplier_invoices
+            WHERE company_id = ${companyId}::UUID
+              AND supplier_id = ${supplierId}::UUID
+              AND duplicate_fingerprint = ${dupFingerprint}
+              AND deleted_at IS NULL
+            ORDER BY created_at, id
+            LIMIT 1
           `) as DbRow[];
 
-          const newInvoiceId = String(newInv[0]!.id);
+          let billId: string;
+          let rowVatNotStated = false;
+          if (existing) {
+            billId = String(existing.id);
+          } else {
+            // Staging has no subtotal and no tax column, so no VAT is stated.
+            const vat = deriveSageVat(null, null, totalAmount);
+            rowVatNotStated = vat.vatNotStated;
+            const paymentTerms = Number(supplier.payment_terms ?? 30) || 0;
 
-          // Insert line items from raw_data
-          // supplier_invoice_items has no company_id column; tenant-scoped via supplier_invoice_id FK
-          if (lines && lines.length > 0) {
-            for (const line of lines) {
-              const qty = Number(line.Quantity || 1);
-              const price = Number(line.UnitPriceExclusive || 0);
-              const lineTax = Number(line.Tax || 0);
-              const lineTotal = Number(line.Exclusive || line.Total || price * qty);
-              const lineTaxPct = Number(line.TaxPercentage || 0) * 100;
-
-              if (projectId) {
-                await sql`
-                  INSERT INTO supplier_invoice_items (
-                    supplier_invoice_id, description, quantity, unit_price,
-                    tax_rate, tax_amount, line_total, project_id
-                  ) VALUES (
-                    ${newInvoiceId}::UUID, ${line.Description || 'Line item'},
-                    ${qty}, ${price}, ${lineTaxPct}, ${lineTax}, ${lineTotal},
-                    ${projectId}::UUID
-                  )
-                `;
-              } else {
-                await sql`
-                  INSERT INTO supplier_invoice_items (
-                    supplier_invoice_id, description, quantity, unit_price,
-                    tax_rate, tax_amount, line_total
-                  ) VALUES (
-                    ${newInvoiceId}::UUID, ${line.Description || 'Line item'},
-                    ${qty}, ${price}, ${lineTaxPct}, ${lineTax}, ${lineTotal}
-                  )
-                `;
-              }
-            }
+            // BL-40: Added company_id to INSERT — was missing, causing NOT NULL violation
+            const newInv = (await sql`
+              INSERT INTO supplier_invoices (
+                company_id, invoice_number, supplier_id, invoice_date, due_date,
+                subtotal, tax_rate, tax_amount, total_amount,
+                amount_paid, status, sage_invoice_id, notes, created_by,
+                duplicate_fingerprint
+              ) VALUES (
+                ${companyId}::UUID, ${invNumber}, ${supplierId}::UUID,
+                ${inv.invoice_date}, ${inv.invoice_date}::DATE + ${paymentTerms}::INT,
+                ${vat.subtotal.toFixed(2)}, ${vat.taxRate}, ${vat.taxAmount.toFixed(2)}, ${totalAmount},
+                0, 'approved', ${sageId},
+                ${rowVatNotStated ? SAGE_VAT_NOT_STATED_NOTE : null}, ${userId},
+                ${dupFingerprint}
+              ) RETURNING id
+            `) as DbRow[];
+            billId = String(newInv[0]!.id);
           }
 
           // BL-40: UPDATE scoped by company_id
           await sql`
             UPDATE sage_supplier_invoices
-            SET migration_status = 'imported', gl_supplier_invoice_id = ${newInvoiceId}::UUID
+            SET migration_status = 'imported', gl_supplier_invoice_id = ${billId}::UUID
             WHERE id = ${inv.id}
               AND company_id = ${companyId}::UUID
           `;
 
-          // Counted here, not at the derivation above: a row that never
-          // reaches this line (INSERT/UPDATE fails, savepoint rolls back)
-          // must not inflate the reported review count for a document that
-          // does not exist (review-r089-r1.md LOW-3).
+          // Counted only once the row has landed: a row whose savepoint rolls
+          // back must not inflate the review count (review-r089-r1.md LOW-3).
           if (rowVatNotStated) vatNotStated++;
-
-          return 'imported';
+          return existing ? 'already_in_ap' : 'imported';
         });
 
         if (outcome === 'imported') {
           succeeded++;
+        } else if (outcome === 'already_in_ap') {
+          skipped++;
         } else {
           // Outside the savepoint, so the marker survives.
-          await sql`
-            UPDATE sage_supplier_invoices
-            SET migration_status = 'failed'
-            WHERE id = ${inv.id}
-              AND company_id = ${companyId}::UUID
-          `;
+          await markFailed(companyId, inv.id);
           failed++;
         }
       } catch (err) {
-        // The savepoint has rolled back, so the transaction is usable and these
-        // statements will land.
+        // The savepoint has rolled back, so the transaction is usable and this
+        // statement will land.
         log.error('Failed to import sage invoice', { invoiceId: inv.id, error: err }, 'accounting');
-        // BL-40: UPDATE scoped by company_id
-        await sql`
-          UPDATE sage_supplier_invoices
-          SET migration_status = 'failed'
-          WHERE id = ${inv.id}
-            AND company_id = ${companyId}::UUID
-        `;
+        await markFailed(companyId, inv.id);
         failed++;
       }
     }
 
     return await completeRun(runId, sageInvoices.length, succeeded, failed, skipped, vatNotStated);
-  } catch (err) {
-    await failRun(runId, err);
-    throw err;
-  }
+  });
 }
 
-// ── Helpers ─────────────────────────────────────────────────────────────────
-
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
-function parseRawData(rawData: unknown, lineItems: unknown): any[] | null {
-  // Try raw_data.Lines first (full Sage response with includeDetail)
-  const raw = parseJson(rawData);
-  if (raw?.Lines && Array.isArray(raw.Lines) && raw.Lines.length > 0) {
-    return raw.Lines;
-  }
-  // Fall back to line_items JSONB column
-  const items = parseJson(lineItems);
-  if (Array.isArray(items) && items.length > 0) return items;
-  return null;
-}
-
-function parseJson(val: unknown): Record<string, unknown> | null {
-  if (!val) return null;
-  if (typeof val === 'string') {
-    try { return JSON.parse(val); } catch { return null; }
-  }
-  return val as Record<string, unknown>;
+/** Mark one staging row failed, scoped by company_id (BL-40). */
+async function markFailed(companyId: string, stagingId: unknown): Promise<void> {
+  await sql`
+    UPDATE sage_supplier_invoices
+    SET migration_status = 'failed'
+    WHERE id = ${stagingId}
+      AND company_id = ${companyId}::UUID
+  `;
 }

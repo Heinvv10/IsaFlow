@@ -21,7 +21,7 @@ import {
 import { roundToCents } from '@/modules/accounting/utils/doubleEntry';
 import { decideLedgerRelink } from './sageLedgerRelinkGuard';
 import type { MigrationRun } from './sageMigrationService';
-import { startRun, completeRun, failRun } from './sageMigrationService';
+import { startRun, completeRun, withRunRecovery } from './sageMigrationService';
 import type { DbRow } from '@/types/db';
 
 export { importSupplierInvoices } from './sageSupplierInvoiceImportService';
@@ -60,7 +60,7 @@ export { importSupplierInvoices } from './sageSupplierInvoiceImportService';
 export async function importLedgerTransactions(companyId: string, userId: string): Promise<MigrationRun> {
   const runId = await startRun('ledger_import', userId, companyId);
 
-  try {
+  return withRunRecovery(runId, async () => {
     // BL-40: Added AND slt.company_id + AND sa.company_id to prevent cross-tenant SELECT
     const allLines = (await sql`
       SELECT slt.id, slt.document_number, slt.transaction_date, slt.description,
@@ -274,8 +274,5 @@ export async function importLedgerTransactions(companyId: string, userId: string
     }
 
     return await completeRun(runId, groups.length, succeeded, failed, skipped);
-  } catch (err) {
-    await failRun(runId, err);
-    throw err;
-  }
+  });
 }

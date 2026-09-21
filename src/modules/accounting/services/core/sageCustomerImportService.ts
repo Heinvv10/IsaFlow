@@ -9,7 +9,7 @@ import { sql } from '@/lib/neon';
 import type { DbRow } from '@/lib/neon';
 import { log } from '@/lib/logger';
 import type { MigrationRun } from './sageMigrationService';
-import { startRun, completeRun, failRun } from './sageMigrationService';
+import { startRun, completeRun, withRunRecovery } from './sageMigrationService';
 import { deriveSageVat, statedSageFigures, SAGE_VAT_NOT_STATED_NOTE } from '../shared/sageVatDerivation';
 type Row = DbRow;
 
@@ -30,7 +30,7 @@ type Row = DbRow;
 export async function importCustomerInvoices(companyId: string, userId: string): Promise<MigrationRun> {
   const runId = await startRun('customer_invoice_import', userId, companyId);
 
-  try {
+  return withRunRecovery(runId, async () => {
     const sageInvoices = (await sql`
       SELECT id, sage_invoice_id, sage_customer_id, client_id,
         invoice_number, invoice_date, due_date,
@@ -145,10 +145,7 @@ export async function importCustomerInvoices(companyId: string, userId: string):
     }
 
     return await completeRun(runId, sageInvoices.length, succeeded, failed, skipped, vatNotStated);
-  } catch (err) {
-    await failRun(runId, err);
-    throw err;
-  }
+  });
 }
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
