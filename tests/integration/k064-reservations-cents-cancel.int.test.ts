@@ -8,7 +8,7 @@
 // 5. The outstanding is compared in integer cents with no tolerance.
 // 7. `createSupplierPayment` locks the bills before it reads what is promised,
 //    so it and a concurrent batch cannot both take the same outstanding; and an
-//    approved document that can no longer process has a way out (cancel).
+//    approved document that can no longer process has a way out (void / cancel).
 
 import { describe, it, expect, beforeAll, afterAll } from 'vitest';
 import { Pool } from 'pg';
@@ -19,7 +19,7 @@ import { flow, text } from './ap-payment-flow.helpers';
 
 const describeIfDb = process.env.DATABASE_URL && process.env.JWT_SECRET ? describe : describe.skip;
 
-describeIfDb('K-064 review r1 — reservations, cents, locked creation, cancel', () => {
+describeIfDb('K-064 review r1 — reservations, cents, locked creation, void/cancel', () => {
   let fx: Fixture;
   const f = flow(() => fx);
   const approved = (total = 1000, paid = 0) =>
@@ -50,8 +50,8 @@ describeIfDb('K-064 review r1 — reservations, cents, locked creation, cancel',
   it('a CANCELLED payment does not reserve the bill', async () => {
     const b = await approved();
     const paymentId = await f.approvedPayment(b, 1000);
-    const cancel = await f.paymentAction('cancel', paymentId);
-    expect(cancel.statusCode, text(cancel)).toBe(200);
+    const voided = await f.paymentAction('void', paymentId);
+    expect(voided.statusCode, text(voided)).toBe(200);
     expect(await f.paymentStatus(paymentId)).toBe('cancelled');
     const state = await batchOf(b, 1000);
     expect(state.statusCode, text(state)).toBe(200);
@@ -128,18 +128,13 @@ describeIfDb('K-064 review r1 — reservations, cents, locked creation, cancel',
     expect(await f.batchStatus(batchId)).toBe('processed');
   });
 
-  it('a processed payment cannot be cancelled, and a batch member is cancelled through its batch', async () => {
+  it('a batch member is voided only through its batch', async () => {
     const b = await approved();
-    const paymentId = await f.approvedPayment(b, 100);
-    expect((await f.paymentAction('process', paymentId)).statusCode).toBe(200);
-    const processed = await f.paymentAction('cancel', paymentId);
-    expect(processed.statusCode, text(processed)).toBe(400);
-    expect(await f.paymentStatus(paymentId)).toBe('processed');
-
-    const batchId = await f.approvedBatch([{ billId: await approved(), amount: 100 }]);
+    const batchId = await f.approvedBatch([{ billId: b, amount: 100 }]);
     const member = await f.memberOf(batchId);
-    const alone = await f.paymentAction('cancel', member);
+    const alone = await f.paymentAction('void', member);
     expect(alone.statusCode, text(alone)).toBe(400);
+    expect(text(alone)).toContain('cancel it through its batch');
     expect(await f.paymentStatus(member)).toBe('approved');
     expect(await allocationsOn(fx.pool, [b])).toBe(1);
   });

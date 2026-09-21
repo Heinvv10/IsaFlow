@@ -160,8 +160,7 @@ expected — the `withAuth`-commits-a-4xx trap, measured.
 Every finding fixed; the two HIGHs predate this branch but reach the same
 outcome (AP relieved for money no bill stands behind). Tests below are all
 route-level against the fixture; mutations in `round4-mutations.log`, each
-restored byte-identical by sha256; green run in `round4-green.log` (51 files,
-342 tests).
+restored byte-identical by sha256; green run in `round4-green.log`.
 
 1. **HIGH — soft-deleted bills.** A soft-delete reverses the approval journal
    but leaves `status = 'approved'`, so the allow-list admitted it (reviewer:
@@ -221,14 +220,53 @@ restored byte-identical by sha256; green run in `round4-green.log` (51 files,
    the bill lock; its two refusals ("not found…", "Invalid allocations") are now
    `SupplierPaymentRefusal` → 400 pre-write instead of 500. Test: bill held,
    batch queued, single queued, release → 200 + 400, 1,000 allocated; mutation
-   L1 (lock removed) red. Way out: `cancelBatch` now accepts `draft` or
-   `approved` and answers 400 when it matches nothing; a new
-   `supplierPaymentCancel.ts` (`cancel` action on supplier-payments-action)
-   cancels a draft/approved non-batch payment and refuses processed ones and
-   batch members. Both pages show a Cancel button for approved documents.
-   Mutation X1 (cancel back to draft only) red.
+   L1 (lock removed) red. Way out — see "Round 4b" below.
 
 Unit files that assert statement ORDER mock the two new DB-backed steps
 (`fetchBillCandidates` in `supplierPaymentService.test.ts`,
 `assertBatchMembersStillAllocatable` in `batchPaymentService.test.ts`); both
 are proved against PostgreSQL above.
+
+## Round 4b (2026-09-21) — MEDIUM-7 in the reviewer's shape
+
+600 + 600 against a 1000 bill, `tests/integration/k064-stuck-loser-recovery.int.test.ts`.
+
+- **Prevented.** `createSupplierPayment` takes the bills through
+  `fetchBillCandidates` — the id-order `FOR UPDATE` the batch planner and every
+  settlement path use — before reading the bills and the promised allocations.
+  Created at once (bill held, batch first, single 150ms later, release): batch
+  200, single **400 at creation** ("exceeds invoice … balance"). Mutation L1'
+  (lock removed) → red.
+- **One lock order, no deadlock.** A single payment, a batch and a
+  supplier-allocations apply naming the same two bills in opposite orders,
+  queued behind a hold on both and released together: all three 2xx, each bill
+  paid exactly what the apply moved. With the create lock removed this test is
+  red too.
+- **Recoverable** (the stuck state seeded as the unlocked creation left it): the
+  winner processes (200); the loser's process is refused 400 "exceeds the
+  R400.00 outstanding"; the loser is released through the EXISTING routes —
+  `void` on supplier-payments-action for a single payment, `cancel` on
+  batch-payments-action for a batch — both 200 and `cancelled`; the remaining
+  400 is then created, approved and processed; bill 1000 `paid`, AP debited
+  exactly 1000. Both loser kinds.
+  - `voidSupplierPayment` on a `draft`/`approved` payment is now a status change
+    (`supplierPaymentCancel.ts#voidUnprocessedPayment`): no journal to reverse,
+    no `amount_paid` to roll back. A batch member is refused (400, "cancel it
+    through its batch"). Any other non-processed status, and `reconciled`, are
+    now `SupplierPaymentRefusal` (400) — they were bare Errors, i.e. the **500**
+    the reviewer saw. Mutation V1 → red. The round-4 `cancel` action I had added
+    to supplier-payments-action is removed; `void` covers it. The payment page's
+    button for draft/approved is labelled Void.
+  - `cancelBatch` cancels `draft` OR `approved` and refuses anything else with
+    400; it no longer answers 200 while matching nothing. Mutation X1' → red.
+  - Once voided/cancelled a document stops reserving its bill: the pending set is
+    `draft`/`approved` only (pinned in round 4, item 4).
+  - The other **500** — supplier-payments POST for the remaining 400 — was
+    `createSupplierPayment` throwing a bare `Error('Invalid allocations…')`
+    because the stuck allocation still counted as pending; that is a
+    `SupplierPaymentRefusal` (400, pre-write) since round 4, and after the void
+    the allocation no longer counts.
+- `tests/unit/services/supplierPaymentVoid.test.ts`: "rejects voiding a
+  non-processed payment" encoded the old rule; it now asserts an approved payment
+  voids with no reversal and no bill UPDATE, and a cancelled one is a typed
+  refusal.

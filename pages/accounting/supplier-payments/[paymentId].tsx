@@ -133,9 +133,9 @@ export default function SupplierPaymentDetailPage() {
                   </button>
                 )}
                 {(payment.status === 'draft' || payment.status === 'approved') && (
-                  <button onClick={() => handleAction('cancel')} disabled={!!actionBusy}
+                  <button onClick={() => handleAction('void')} disabled={!!actionBusy}
                     className="inline-flex items-center gap-2 px-4 py-2 bg-red-600/10 text-red-400 rounded-lg hover:bg-red-600/20 text-sm font-medium disabled:opacity-50">
-                    Cancel
+                    Void
                   </button>
                 )}
               </div>
