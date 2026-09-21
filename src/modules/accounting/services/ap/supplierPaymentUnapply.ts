@@ -21,6 +21,7 @@ import { sql } from '@/lib/neon';
 import type { DbRow } from '@/lib/neon';
 import { log } from '@/lib/logger';
 import { lockSupplierPaymentForUpdate } from '../core/paymentLock';
+import { withSupplierInvoiceLock } from './supplierInvoiceLock';
 import { FIFO_ELIGIBLE_STATUSES, recomputeInvoiceStatus } from '../ar/invoiceStatusRecompute';
 import { UnapplyRefusal } from '../shared/unapplyRefusal';
 
@@ -66,13 +67,18 @@ export async function unapplySupplierPayment(
 ): Promise<PaymentUnapplyResult> {
   // Payment first, then its bills by id: the order void and process take.
   await lockSupplierPaymentForUpdate(companyId, input.paymentId);
-  await sql`
+  // BOUNDED: lockSupplierPaymentForUpdate restores the default lock_timeout on
+  // its way out, and there is no session default, so a bare FOR UPDATE here
+  // would wait forever on a contended bill. The shared helper bounds it and
+  // raises SUPPLIER_INVOICE_LOCK_TIMEOUT, which reaches the agent as "retry".
+  await withSupplierInvoiceLock('unapplySupplierPayment', `payment ${input.paymentId}`, () => sql`
     SELECT si.id FROM supplier_invoices si
     JOIN payment_allocations pa ON pa.invoice_id = si.id
     WHERE pa.payment_id = ${input.paymentId}::UUID AND si.company_id = ${companyId}::UUID
+      AND si.deleted_at IS NULL
       AND (${input.invoiceId ?? null}::UUID IS NULL OR si.id = ${input.invoiceId ?? null}::UUID)
     ORDER BY si.id
-    FOR UPDATE OF si`;
+    FOR UPDATE OF si`);
   const plan = await buildPlan(companyId, input);
 
   for (const line of plan.lines) {
@@ -130,7 +136,7 @@ async function buildPlan(companyId: string, input: PaymentUnapplyInput): Promise
 
   const rows = (await sql`
     SELECT pa.invoice_id, pa.amount_allocated, si.invoice_number, si.status,
-           si.total_amount, COALESCE(si.amount_paid, 0) AS amount_paid
+           si.total_amount, COALESCE(si.amount_paid, 0) AS amount_paid, si.deleted_at
     FROM payment_allocations pa
     JOIN supplier_invoices si ON si.id = pa.invoice_id AND si.company_id = ${companyId}::UUID
     WHERE pa.payment_id = ${input.paymentId}::UUID
@@ -149,6 +155,14 @@ async function buildPlan(companyId: string, input: PaymentUnapplyInput): Promise
     const invNumber = String(r.invoice_number);
     const amount = round2(Number(r.amount_allocated));
     const paid = round2(Number(r.amount_paid));
+    // A soft-delete reverses the bill's journal and leaves its status alone:
+    // restoring its balance would move money the ledger no longer carries.
+    if (r.deleted_at != null) {
+      throw new UnapplyRefusal(
+        `Bill ${invNumber} has been deleted; its allocation from payment ${number} cannot be taken back here. `
+        + 'Reconcile it by hand.',
+      );
+    }
     // Only a balance-derived bill has a balance to give back to: a cancelled
     // or written-off bill carrying an allocation is a defect to reconcile by hand.
     if (!FIFO_ELIGIBLE_STATUSES.includes(String(r.status))) {

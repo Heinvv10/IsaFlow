@@ -110,7 +110,7 @@ async function buildPlan(
   const rows = (side === 'customer'
     ? await sql`
         SELECT a.invoice_id, a.amount_allocated, d.invoice_number, d.status, d.total_amount,
-               COALESCE(d.amount_paid, 0) AS amount_paid
+               COALESCE(d.amount_paid, 0) AS amount_paid, d.deleted_at
         FROM credit_note_allocations a
         JOIN customer_invoices d ON d.id = a.invoice_id AND d.company_id = a.company_id
         WHERE a.credit_note_id = ${input.creditNoteId}::UUID AND a.company_id = ${companyId}::UUID
@@ -118,7 +118,7 @@ async function buildPlan(
         ORDER BY a.invoice_id`
     : await sql`
         SELECT a.invoice_id, a.amount_allocated, d.invoice_number, d.status, d.total_amount,
-               COALESCE(d.amount_paid, 0) AS amount_paid
+               COALESCE(d.amount_paid, 0) AS amount_paid, d.deleted_at
         FROM credit_note_allocations a
         JOIN supplier_invoices d ON d.id = a.invoice_id AND d.company_id = a.company_id
         WHERE a.credit_note_id = ${input.creditNoteId}::UUID AND a.company_id = ${companyId}::UUID
@@ -137,6 +137,14 @@ async function buildPlan(
     const docNumber = String(r.invoice_number);
     const amount = round2(Number(r.amount_allocated));
     const paid = round2(Number(r.amount_paid));
+    // Soft-deleted: its journal is reversed, so its balance is not the ledger's.
+    // lockInvoicesForUpdate would also have left it unlocked.
+    if (r.deleted_at != null) {
+      throw new UnapplyRefusal(
+        `Document ${docNumber} has been deleted; credit note ${number}'s application to it cannot be taken `
+        + 'back here. Reconcile it by hand.',
+      );
+    }
     if (!FIFO_ELIGIBLE_STATUSES.includes(String(r.status))) {
       throw new UnapplyRefusal(
         `Document ${docNumber} is ${String(r.status)}; credit note ${number}'s application to it cannot be `
