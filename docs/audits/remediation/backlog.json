@@ -2321,7 +2321,7 @@
       "correctedTrigger": null,
       "severityRationale": "Source priority only; impact and reachability not yet validated.",
       "auditedSha": "5661d6f0f5f2212705151e95455a3f681ddf840e",
-      "currentSha": "2725e1a68",
+      "currentSha": "2be6dfa4b",
       "status": "fixed",
       "dependencies": [],
       "testNames": [
@@ -2334,7 +2334,7 @@
         "K-063/validation.md",
         "K-063/fix.md"
       ],
-      "fixCommit": "2725e1a68",
+      "fixCommit": "2be6dfa4b",
       "pr": null,
       "deployedSha": null,
       "historicalDataImpact": "Not assessed",
@@ -2357,7 +2357,7 @@
       "correctedTrigger": null,
       "severityRationale": "Source priority only; impact and reachability not yet validated.",
       "auditedSha": "5661d6f0f5f2212705151e95455a3f681ddf840e",
-      "currentSha": "2725e1a68",
+      "currentSha": "2be6dfa4b",
       "status": "fixed",
       "dependencies": [],
       "testNames": [
@@ -2374,7 +2374,7 @@
         "K-064/validation.md",
         "K-064/fix.md"
       ],
-      "fixCommit": "2725e1a68",
+      "fixCommit": "2be6dfa4b",
       "pr": null,
       "deployedSha": null,
       "historicalDataImpact": "Not assessed",
@@ -2429,7 +2429,7 @@
       "correctedTrigger": null,
       "severityRationale": "Source priority only; impact and reachability not yet validated.",
       "auditedSha": "5661d6f0f5f2212705151e95455a3f681ddf840e",
-      "currentSha": "2725e1a68",
+      "currentSha": "2be6dfa4b",
       "status": "fixed",
       "dependencies": [],
       "testNames": [
@@ -2441,7 +2441,7 @@
         "K-066/validation.md",
         "K-066/fix.md"
       ],
-      "fixCommit": "2725e1a68",
+      "fixCommit": "2be6dfa4b",
       "pr": null,
       "deployedSha": null,
       "historicalDataImpact": "Not assessed",
@@ -12268,6 +12268,44 @@
       "severity": "medium",
       "source": "Blind reviewer run 2026-09-21 (K-063/K-064/K-066 PR review): aal2 tokens were accepted on the same dev server.",
       "processNotes": "Registered 2026-09-21 by fix-k063 (K-063/K-064/K-066 PR), from the reviewer evidence; not re-run by the registering session."
+    },
+    {
+      "claim": "No way to reopen or cancel a completed bank reconciliation; since K-063, a payment on reconciled cash (including Sage-imported reconciled lines, which have no reconciliation to reopen) cannot be reversed in the app. The Sage lines need a separate \"unreconcile a line\" path, since a reopen cannot reach them.",
+      "sourceLabel": "",
+      "sourceIds": [],
+      "correctedTrigger": "",
+      "auditedSha": "6145c07ec",
+      "currentSha": "2be6dfa4b",
+      "status": "confirmed",
+      "dependencies": [
+        "K-063",
+        "K-064",
+        "K-066"
+      ],
+      "testNames": [
+        "tests/integration/k064-bank-reverse-reconciled.int.test.ts"
+      ],
+      "fixCommit": null,
+      "pr": null,
+      "deployedSha": null,
+      "canonicalItem": null,
+      "reportedSeverity": "medium",
+      "branch": null,
+      "evidencePaths": [
+        "K-063/fix.md"
+      ],
+      "id": "R-111",
+      "area": "bank",
+      "affectedPaths": [
+        "src/modules/accounting/services/bank/bankReconciliationCancelService.ts",
+        "src/modules/accounting/services/bank/reconciledCash.ts"
+      ],
+      "severityRationale": "Deliberate lock (Hein, 2026-09-21: lock now, reopen later): void, batch reversal and bank reverse refuse cash on a completed or Sage reconciliation, so the only correction is a manual journal until a reopen exists.",
+      "historicalDataImpact": "None; a missing capability. Sage-imported reconciled lines (scripts/import-sage-britech.ts) are affected from day one.",
+      "title": "No way to reopen or cancel a completed bank reconciliation, so payments on reconciled cash cannot be reversed in the app",
+      "severity": "medium",
+      "source": "cancelReconciliation refuses anything not in_progress (\"Only an in-progress reconciliation can be cancelled\"), and a search of src/modules/accounting/services/bank and pages/api finds no reopen; found while fixing review r8 MEDIUM-1.",
+      "processNotes": "Registered 2026-09-21 by fix-k063 (K-063/K-064/K-066 PR)."
     }
   ],
   "sourceInventory": [
