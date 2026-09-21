@@ -10,12 +10,36 @@ import { apiResponse } from '@/lib/apiResponse';
 import { getClientStatement } from '@/modules/accounting/services/ar/portalService';
 import { verifyArPortalToken, type ArPortalSession } from '@/lib/auth/arPortalJwt';
 import { asAtTodayStr } from '@/modules/accounting/services/shared/softDeleteLedgerPresence';
-import cookie from 'cookie';
+// R-095 round 3 (HIGH-1): `import cookie from 'cookie'` gives `undefined`
+// under Next's webpack build (the package is CJS with no `default` export) —
+// every one of these routes 500'd on every real request. Named import.
+import { parse } from 'cookie';
 
-const ISO_DATE_RE = /^\d{4}-\d{2}-\d{2}$/;
+const ISO_DATE_RE = /^(\d{4})-(\d{2})-(\d{2})$/;
+
+/**
+ * R-095 round 3 (MEDIUM-3): `new Date('2026-02-31T00:00:00Z')` does not
+ * return Invalid Date — it ROLLS OVER to 3 March, so `!isNaN(...)` admitted
+ * a calendar-invalid date and it reached a `::date` comparison in Postgres,
+ * which does reject it, so the route still 500'd (the exact defect L3
+ * claimed to have closed). Reconstructing the date from its own y/m/d and
+ * checking Date.UTC's normalised output still equals the input catches the
+ * rollover directly, instead of trusting `Date` to reject what it silently
+ * "fixes".
+ */
+function isValidIsoDate(s: string): boolean {
+  const m = ISO_DATE_RE.exec(s);
+  if (!m) return false;
+  const year = Number(m[1]);
+  const month = Number(m[2]);
+  const day = Number(m[3]);
+  if (month < 1 || month > 12 || day < 1 || day > 31) return false;
+  const dt = new Date(Date.UTC(year, month - 1, day));
+  return dt.getUTCFullYear() === year && dt.getUTCMonth() === month - 1 && dt.getUTCDate() === day;
+}
 
 async function getPortalSession(req: NextApiRequest): Promise<ArPortalSession | null> {
-  const cookies = cookie.parse(req.headers.cookie || '');
+  const cookies = parse(req.headers.cookie || '');
   const token = cookies.portal_session;
   if (!token) return null;
   return verifyArPortalToken(token);
@@ -51,7 +75,7 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
   }
   let asOfDate = asAtTodayStr();
   if (asOfParam) {
-    if (!ISO_DATE_RE.test(asOfParam) || isNaN(new Date(`${asOfParam}T00:00:00Z`).getTime())) {
+    if (!isValidIsoDate(asOfParam)) {
       return apiResponse.badRequest(res, 'asOf must be a valid YYYY-MM-DD date');
     }
     asOfDate = asOfParam;

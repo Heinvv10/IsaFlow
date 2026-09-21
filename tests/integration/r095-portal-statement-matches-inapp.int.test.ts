@@ -52,6 +52,32 @@
  *      default (asAtTodayStr(), not a UTC-rolling toISOString() slice).
  *   7. Round 2 L4: a soft-deleted customer cannot log in, and a session
  *      minted before the delete cannot still list invoices.
+ *
+ * Round 3 review (review-r095-r2.md) found the fix above STILL didn't clear
+ * R-095's own register trigger:
+ *   8. HIGH-1: every one of these routes wrote `import cookie from 'cookie'`.
+ *      cookie@1.1.1 is CJS with no `default` export, so webpack's ESM
+ *      interop hands `undefined` and the route 500s on every REAL request —
+ *      `next dev` AND a production `next build && next start`. Vitest's own
+ *      module interop is looser and resolves the (wrong) default import to
+ *      the CJS `module.exports`, so `cookie.parse`/`cookie.serialize`
+ *      "worked" under every test in this file while every real HTTP request
+ *      failed. This is NOT re-testable from vitest — see
+ *      scripts/verify-r095-next-build.sh (round 3) for the real
+ *      `next build && next start` + curl verification this class needs;
+ *      fix.md records its output. The routes now use the named imports
+ *      (`parse`, `serialize`) `pages/api/invite/[token].ts` already used.
+ *   9. MEDIUM-2: /api/portal/chat had no customer-existence check, unlike
+ *      its two siblings — `statementData?.summary.balance ?? 0` quoted a
+ *      soft-deleted customer a balance of R0 while overdueAmount/openInvoices
+ *      (plain queries with no customer check) kept answering with the real
+ *      figures. Now 404s like statement/invoices when fetchStatementData
+ *      returns null.
+ *  10. MEDIUM-3: the asOf guard used `!isNaN(new Date(...))`, which does not
+ *      reject a calendar-invalid date — `new Date('2026-02-31...')` rolls
+ *      over to 3 March instead of returning Invalid Date — so it still
+ *      reached Postgres and 500'd. Now reconstructs the date from its own
+ *      y/m/d and checks Date.UTC's normalised output equals the input.
  */
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { randomUUID } from 'crypto';
@@ -330,5 +356,123 @@ describeIfDb('R-095 portal statement matches the emailed/MCP statement (screen p
     expect(result.state.statusCode).toBe(404);
 
     await sql`UPDATE customers SET deleted_at = NULL WHERE id = ${customerD}::UUID`;
+  });
+
+  it('MEDIUM-2: /api/portal/chat 404s a soft-deleted customer instead of quoting a R0 balance', async () => {
+    const customerE = ((await sql`
+      INSERT INTO customers (company_id, name, email) VALUES (${COMPANY_A}::UUID, ${'cust-e ' + TAG}, ${'e-' + TAG + '@test.local'})
+      RETURNING id`) as { id: string }[])[0]!.id;
+    await sql`
+      INSERT INTO customer_invoices (company_id, client_id, customer_id, invoice_number, invoice_date, due_date,
+        status, subtotal, tax_amount, total_amount, amount_paid, created_by)
+      VALUES (${COMPANY_A}::UUID, ${customerE}::UUID, ${customerE}::UUID, ${TAG + '-E'}, ${shift(-30)}::date, ${shift(-15)}::date,
+        'approved', 700, 0, 700, 0, ${USER}::UUID)`;
+
+    const token = await signArPortalToken({ clientId: customerE, companyId: COMPANY_A, email: 'e@test.local' });
+    const { default: route } = await import('../../pages/api/portal/chat');
+
+    // Before delete: a real, nonzero balance.
+    const req1 = request({ portal_session: token }, 'POST');
+    (req1 as unknown as { body: unknown }).body = { question: 'what do I owe?', clientId: customerE };
+    const result1 = response();
+    await (route as unknown as (a: unknown, b: unknown) => Promise<void>)(req1, result1.res);
+    expect(result1.state.statusCode).toBe(200);
+    expect((result1.state.body as { data: { clientContext: { balance: number } } }).data.clientContext.balance).toBe(700);
+
+    await sql`UPDATE customers SET deleted_at = NOW() WHERE id = ${customerE}::UUID`;
+
+    // After delete: must 404, not silently quote R0 while overdue/openInvoices
+    // still answer with the real (nonzero) figures.
+    const req2 = request({ portal_session: token }, 'POST');
+    (req2 as unknown as { body: unknown }).body = { question: 'what do I owe?', clientId: customerE };
+    const result2 = response();
+    await (route as unknown as (a: unknown, b: unknown) => Promise<void>)(req2, result2.res);
+    expect(result2.state.statusCode).toBe(404);
+
+    await sql`DELETE FROM customer_invoices WHERE client_id = ${customerE}::UUID`;
+    await sql`DELETE FROM customers WHERE id = ${customerE}::UUID`;
+  });
+
+  it('MEDIUM-3: asOf rejects a calendar-invalid date (2026-02-31, 0000-01-01) with 400, not 500', async () => {
+    const token = await signArPortalToken({ clientId: customerA, companyId: COMPANY_A, email: 'a@test.local' });
+    const { default: route } = await import('../../pages/api/portal/statement');
+
+    for (const badDate of ['2026-02-31', '0000-01-01', '2026-13-01', '2026-00-10']) {
+      const req = request({ portal_session: token }, 'GET');
+      (req as unknown as { query: unknown }).query = { clientId: customerA, asOf: badDate };
+      const result = response();
+      await (route as unknown as (a: unknown, b: unknown) => Promise<void>)(req, result.res);
+      expect(result.state.statusCode, `asOf=${badDate} should be 400`).toBe(400);
+    }
+
+    // A real calendar date still works.
+    const req = request({ portal_session: token }, 'GET');
+    (req as unknown as { query: unknown }).query = { clientId: customerA, asOf: '2026-02-28' };
+    const result = response();
+    await (route as unknown as (a: unknown, b: unknown) => Promise<void>)(req, result.res);
+    expect(result.state.statusCode).toBe(200);
+  });
+
+  it('LOW-4: a per-invoice portal token follows the same population rule (NULL kept, draft/pending_approval refused) and refuses a soft-deleted customer', async () => {
+    const { getOrMintInvoicePortalToken, verifyInvoicePortalToken, getInvoicePortalToken } =
+      await import('@/modules/accounting/services/ar/portalTokenService');
+    const { default: route } = await import('../../pages/api/portal/invoice/[token]');
+
+    const customerF = ((await sql`
+      INSERT INTO customers (company_id, name, email) VALUES (${COMPANY_A}::UUID, ${'cust-f ' + TAG}, ${'f-' + TAG + '@test.local'})
+      RETURNING id`) as { id: string }[])[0]!.id;
+
+    // NULL and ISSUED (approved) are portal-eligible from the start; the
+    // DRAFT case starts APPROVED (so a token can be minted at all — the
+    // fixed getOrMintInvoicePortalToken now refuses to mint one for an
+    // already-draft invoice, correctly) and is then reverted to draft AFTER
+    // minting — the exact "invoice reverted to draft keeps its live link"
+    // scenario the review measured.
+    const invoiceIds: Record<string, string> = {};
+    for (const [suffix, status] of [['NULL', null], ['DRAFT', 'approved'], ['ISSUED', 'approved']] as const) {
+      const id = ((await sql`
+        INSERT INTO customer_invoices (company_id, client_id, customer_id, invoice_number, invoice_date, due_date,
+          status, subtotal, tax_amount, total_amount, amount_paid, created_by)
+        VALUES (${COMPANY_A}::UUID, ${customerF}::UUID, ${customerF}::UUID, ${TAG + '-TOK-' + suffix}, ${shift(-5)}::date, ${shift(10)}::date,
+          ${status}, 100, 0, 100, 0, ${USER}::UUID)
+        RETURNING id`) as { id: string }[])[0]!.id;
+      invoiceIds[suffix] = id;
+    }
+
+    const nullToken = (await getOrMintInvoicePortalToken(invoiceIds.NULL!, COMPANY_A)).token;
+    const draftToken = (await getOrMintInvoicePortalToken(invoiceIds.DRAFT!, COMPANY_A)).token;
+    const issuedToken = (await getOrMintInvoicePortalToken(invoiceIds.ISSUED!, COMPANY_A)).token;
+    await sql`UPDATE customer_invoices SET status = 'draft' WHERE id = ${invoiceIds.DRAFT!}::UUID`;
+
+    async function getByToken(token: string) {
+      const req = { method: 'GET', query: { token }, headers: {}, socket: { remoteAddress: '127.0.0.80' } };
+      const result = response();
+      await (route as unknown as (a: unknown, b: unknown) => Promise<void>)(req as never, result.res);
+      return result.state.statusCode;
+    }
+
+    // A NULL-status invoice's link must resolve (documentInPopulationExpr
+    // keeps it in the population) — the bare `!= 'cancelled'` NULL-propagated
+    // this to a dead 404.
+    expect(await getByToken(nullToken)).toBe(200);
+    // Pin verifyInvoicePortalToken and getInvoicePortalToken DIRECTLY too —
+    // the GET route above runs its OWN inline query, not these functions
+    // (verifyInvoicePortalToken is used by pixel/[token].ts and
+    // invoice/[token]/dispute.ts + pdf.ts instead), so a route-level 200/404
+    // check alone does not exercise their independent `status != 'cancelled'`
+    // predicates.
+    expect(await verifyInvoicePortalToken(nullToken)).not.toBeNull();
+    expect(await getInvoicePortalToken(invoiceIds.NULL!, COMPANY_A)).toBe(nullToken);
+    // A draft invoice — never issued — must NOT be publicly readable.
+    expect(await getByToken(draftToken)).toBe(404);
+    // An issued invoice still resolves normally.
+    expect(await getByToken(issuedToken)).toBe(200);
+
+    // A soft-deleted customer's invoice must stop resolving too.
+    await sql`UPDATE customers SET deleted_at = NOW() WHERE id = ${customerF}::UUID`;
+    expect(await getByToken(issuedToken)).toBe(404);
+
+    await sql`DELETE FROM customer_invoices WHERE client_id = ${customerF}::UUID`;
+    await sql`DELETE FROM customers WHERE id = ${customerF}::UUID`;
   });
 });

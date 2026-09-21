@@ -40,6 +40,7 @@ const STATUS_STYLES: Record<string, string> = {
 export default function PortalPage() {
   const [user, setUser] = useState<PortalUser | null>(null);
   const [invoices, setInvoices] = useState<PortalInvoice[]>([]);
+  const [invoicesError, setInvoicesError] = useState('');
   const [loading, setLoading] = useState(false);
   const [loginEmail, setLoginEmail] = useState('');
   const [loginPassword, setLoginPassword] = useState('');
@@ -85,10 +86,22 @@ export default function PortalPage() {
   useEffect(() => {
     if (!user) return;
     setLoading(true);
+    setInvoicesError('');
     fetch(`/api/portal/invoices?clientId=${user.clientId}`)
-      .then(r => r.json())
-      .then(json => setInvoices(json.data?.items ?? []))
-      .catch(() => { /* invoice load failure — non-critical, UI shows empty invoice list */ })
+      .then(async r => {
+        const json = await r.json();
+        // R-095 round 3 (LOW-5): a 404 (the account was soft-deleted, or a
+        // stale session outlived a delete — see R-095 L4) used to fall
+        // through `json.data?.items ?? []` and render as an ordinary,
+        // misleading "no invoices" empty state. Surface it instead.
+        if (!r.ok) {
+          setInvoices([]);
+          setInvoicesError(json.error?.message || 'Could not load your invoices.');
+          return;
+        }
+        setInvoices(json.data?.items ?? []);
+      })
+      .catch(() => setInvoicesError('Could not load your invoices.'))
       .finally(() => setLoading(false));
   }, [user]);
 
@@ -195,6 +208,8 @@ export default function PortalPage() {
               <div className="flex justify-center py-12">
                 <Loader2 className="h-6 w-6 animate-spin text-teal-500" />
               </div>
+            ) : invoicesError ? (
+              <div className="px-6 py-12 text-center text-red-500">{invoicesError}</div>
             ) : invoices.length === 0 ? (
               <div className="px-6 py-12 text-center text-slate-500 dark:text-gray-500">No invoices found</div>
             ) : (
