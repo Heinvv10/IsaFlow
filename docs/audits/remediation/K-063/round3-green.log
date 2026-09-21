@@ -1,0 +1,9 @@
+# Round 3 GREEN — working tree (committed as the round-3 commit), same fixture, --no-file-parallelism
+# 17 files: the 16 of round2-green.log + k063-k066-process-time-gate.int.test.ts
+exit=0
+ Test Files  17 passed (17)
+      Tests  146 passed (146)
+# plus 4 more process-path files (k071-void-lock-order, l3-reconcile-control-account,
+# r059-reconciliation-mixed-population, r059-supplier-statement-detail-population):
+ Test Files  4 passed (4)
+      Tests  21 passed (21)

@@ -1,0 +1,21 @@
+=== F1 undo's locked re-check removed
+     × auto-post undo's LOCKED re-check: a completion that commits after the fast path still makes it a 'reconciled' skip 488ms
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 1 ⎯⎯⎯⎯⎯⎯⎯
+ Test Files  1 failed | 1 passed (2)
+      Tests  1 failed | 12 passed (13)
+restored byte-identical fa71ca2514eef31d0d82d5afa3ba87f91b38b7781c9daa97e864a29ca8f9cfc4
+=== F2 undo skips only completed/Sage (session falls through)
+ Test Files  2 passed (2)
+      Tests  13 passed (13)
+restored byte-identical fa71ca2514eef31d0d82d5afa3ba87f91b38b7781c9daa97e864a29ca8f9cfc4
+=== F3 anomaly reported as completed again
+     × a line marked 'reconciled' on a reconciliation that isn't completed gets its own honest message 132ms
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 1 ⎯⎯⎯⎯⎯⎯⎯
+ Test Files  1 failed | 1 passed (2)
+      Tests  1 failed | 12 passed (13)
+restored byte-identical ed0f4075f11e633a435b951d50c13e7c3413bd54f84a596d0a2bf64df6947c21
+=== F2b undo skips only completed/Sage on BOTH checks (session falls through to bank reverse)
+     × auto-post undo on a line in an IN-PROGRESS session skips it — not detached, one rule with bank reverse 83ms
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 1 ⎯⎯⎯⎯⎯⎯⎯
+      Tests  1 failed | 7 passed (8)
+restored byte-identical fa71ca2514eef31d0d82d5afa3ba87f91b38b7781c9daa97e864a29ca8f9cfc4

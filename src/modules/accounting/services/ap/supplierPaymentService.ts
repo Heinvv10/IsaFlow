@@ -10,6 +10,9 @@ import type { DbRow } from '@/lib/neon';
 import { log } from '@/lib/logger';
 import { validatePaymentAllocations } from '../../utils/paymentAllocation';
 import { assertSupplierInCompany } from '../core/contactDirectoryService';
+import { assertBillAllocatable } from './billAllocatable';
+import { fetchBillCandidates } from './supplierAllocationLines';
+import { SupplierPaymentRefusal } from './supplierPaymentRefusal';
 import type {
   SupplierPayment,
   PaymentAllocation,
@@ -139,14 +142,34 @@ export async function createSupplierPayment(companyId: string,
     // R-068: the invoices below are company-scoped; supplier_id was not.
     await assertSupplierInCompany(companyId, input.supplierId);
     const invoiceIds = input.allocations.map(a => a.invoiceId);
+    // Lock the bills first, in the settlement path's id order, and only then
+    // read them and the allocations already promised against them. Unlocked, a
+    // batch created at the same instant counted the same outstanding, and the
+    // loser was left an approved document that could never process.
+    await fetchBillCandidates(companyId, null, invoiceIds);
     const invoiceRows = (await sql`
-      SELECT id, invoice_number, total_amount, amount_paid, balance
+      SELECT id, invoice_number, supplier_id, status, deleted_at, total_amount, amount_paid, balance
       FROM supplier_invoices
       WHERE id = ANY(${invoiceIds}::UUID[])
         AND company_id = ${companyId}::UUID
     `) as Row[];
     if (invoiceRows.length !== invoiceIds.length) {
-      throw new Error('One or more invoice IDs not found or belong to a different company');
+      // A refusal (400), raised before the first write — a 500 here told the
+      // user nothing and was monitored as a fault.
+      throw new SupplierPaymentRefusal('One or more invoice IDs not found or belong to a different company');
+    }
+    // K-066: R-068 above proves the SUPPLIER is this company's; nothing proved
+    // each BILL is that supplier's, or payable. Without this a payment raised
+    // against supplier A settled supplier B's bill, and a draft, cancelled,
+    // pending_approval or disputed bill — none of which credited AP — took the
+    // payment, which `processSupplierPayment` then debited AP against.
+    for (const row of invoiceRows) {
+      assertBillAllocatable({
+        invoiceNumber: String(row.invoice_number),
+        status: String(row.status),
+        supplierId: String(row.supplier_id),
+        deleted: row.deleted_at != null,
+      }, input.supplierId);
     }
 
     // W3-AP (P2.1): amount_paid only moves at PROCESS time — without counting
@@ -180,7 +203,7 @@ export async function createSupplierPayment(companyId: string,
 
     const validation = validatePaymentAllocations(input.totalAmount, input.allocations, invoices);
     if (!validation.valid) {
-      throw new Error(`Invalid allocations: ${validation.errors.join('; ')}`);
+      throw new SupplierPaymentRefusal(`Invalid allocations: ${validation.errors.join('; ')}`);
     }
 
     const paymentRow = await withTransaction(async (tx) => {

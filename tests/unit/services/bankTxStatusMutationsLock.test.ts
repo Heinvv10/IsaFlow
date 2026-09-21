@@ -71,7 +71,7 @@ const MUTATIONS: Array<{ name: string; run: () => Promise<unknown>; preWrite: un
   {
     name: 'matchTransaction',
     run: () => matchTransaction(COMPANY_ID, TX_ID, JL_ID),
-    preWrite: [[{ id: JL_ID }], []],
+    preWrite: [[{ id: JL_ID }], [], []],  // line, its journal (not reversed), claim
   },
   { name: 'unmatchTransaction', run: () => unmatchTransaction(COMPANY_ID, TX_ID), preWrite: [] },
   { name: 'excludeTransaction', run: () => excludeTransaction(COMPANY_ID, TX_ID, 'dup'), preWrite: [] },
@@ -174,9 +174,11 @@ describe('bank transaction status mutations — locked and guarded', () => {
     vi.mocked(sql)
       .mockResolvedValueOnce([row()] as never)
       .mockResolvedValueOnce([{ id: JL_ID }] as never)
+      .mockResolvedValueOnce([] as never)   // the line's journal entry: not reversed
       .mockResolvedValueOnce([{ id: 'eeeeeeee-0000-0000-0000-eeeeeeeeeeee' }] as never);
 
     await expect(matchTransaction(COMPANY_ID, TX_ID, JL_ID)).rejects.toThrow(/already matched/i);
-    expect(vi.mocked(sql)).toHaveBeenCalledTimes(3);
+    // lock, line, the line's journal (reversal check), claim — and no UPDATE.
+    expect(vi.mocked(sql)).toHaveBeenCalledTimes(4);
   });
 });

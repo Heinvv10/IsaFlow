@@ -19,17 +19,15 @@
  */
 
 import { recomputeInvoiceStatus } from '../ar/invoiceStatusRecompute';
+import { assertBillAllocatable, toCents } from './billAllocatable';
 import { SupplierPaymentRefusal } from './supplierPaymentRefusal';
 import { sql } from '@/lib/neon';
 import { requireRequestTransaction } from '../core/requestTransaction';
 import { isLockContention } from '../core/lockContention';
 import type { DbRow } from '@/lib/neon';
 
-/** A cent. Money comparisons are made at this tolerance, never exactly. */
+/** A cent. Kept for the payment-side totals that still compare at this tolerance. */
 export const EPS = 0.01;
-
-/** Statuses whose bill is void or not yet a payable and cannot take a payment. */
-const UNALLOCATABLE_STATUSES = new Set(['cancelled', 'draft']);
 
 export interface SupplierAllocationInput {
   invoiceId: string;
@@ -48,13 +46,14 @@ export interface SupplierApplicationLine {
   fullySettled: boolean;
 }
 
-interface BillCandidate extends DbRow {
+export interface BillCandidate extends DbRow {
   id: string;
   invoice_number: string;
   supplier_id: string;
   total_amount: string | number;
   amount_paid: string | number | null;
   status: string;
+  deleted_at: Date | string | null;
   already_allocated: string | number | null;
 }
 
@@ -146,7 +145,7 @@ export async function planSupplierAllocationLines(
  * answered the same way, via `isLockContention` — see the canonical lock order
  * in `bank/.claude.md` for why one should not arise here at all.
  */
-async function fetchBillCandidates(
+export async function fetchBillCandidates(
   companyId: string,
   paymentId: string | null,
   invoiceIds: readonly string[],
@@ -182,6 +181,7 @@ async function lockBillCandidates(
            si.total_amount,
            si.amount_paid,
            si.status,
+           si.deleted_at,
            COALESCE((
              SELECT SUM(pa.amount_allocated)
              FROM payment_allocations pa
@@ -191,6 +191,7 @@ async function lockBillCandidates(
     FROM supplier_invoices si
     WHERE si.company_id = ${companyId}::UUID
       AND si.id = ANY(${[...invoiceIds]}::UUID[])
+      AND si.deleted_at IS NULL
     ORDER BY si.id
     FOR UPDATE OF si
   `) as BillCandidate[];
@@ -203,26 +204,22 @@ async function lockBillCandidates(
   return new Map(rows.map((r) => [String(r.id), r]));
 }
 
-function buildLine(
+export function buildLine(
   alloc: SupplierAllocationInput,
   bill: BillCandidate,
   supplierId: string,
 ): SupplierApplicationLine {
   const statusBefore = String(bill.status);
-  if (UNALLOCATABLE_STATUSES.has(statusBefore)) {
-    throw new SupplierPaymentRefusal(
-      `Invoice ${String(bill.invoice_number)} is ${statusBefore} and cannot receive a payment.`,
-    );
-  }
+  assertBillAllocatable({
+    invoiceNumber: String(bill.invoice_number),
+    status: statusBefore,
+    supplierId: String(bill.supplier_id),
+    deleted: bill.deleted_at != null,
+  }, supplierId);
   if (Number(bill.already_allocated ?? 0) > 0) {
     throw new SupplierPaymentRefusal(
       `This payment is already allocated against invoice ${String(bill.invoice_number)}. `
       + 'A payment applies to a bill once; use a second payment to apply more.',
-    );
-  }
-  if (String(bill.supplier_id) !== supplierId) {
-    throw new SupplierPaymentRefusal(
-      `Invoice ${String(bill.invoice_number)} belongs to a different supplier than this payment.`,
     );
   }
 
@@ -230,17 +227,17 @@ function buildLine(
   const outstandingBefore = round2(total - Number(bill.amount_paid ?? 0));
   // The LAST line of defence on this threshold, not the only one. A caller that
   // must decide the refusal before its first write refuses earlier on the same
-  // arithmetic and the same EPS — `confirmSupplierMatch.ts` does, because a 4xx
-  // raised after a write COMMITs it — so this one is unreachable from that path.
-  // Both must move together if the tolerance ever changes.
-  if (alloc.amount > outstandingBefore + EPS) {
+  // arithmetic — `confirmSupplierMatch.ts` does, in the same integer cents,
+  // because a 4xx raised after a write COMMITs it — so this one is unreachable
+  // from that path. Both must move together.
+  if (toCents(alloc.amount) > toCents(outstandingBefore)) {
     throw new SupplierPaymentRefusal(
       `R${alloc.amount.toFixed(2)} exceeds the R${outstandingBefore.toFixed(2)} outstanding on `
       + `invoice ${String(bill.invoice_number)}.`,
     );
   }
   const outstandingAfter = round2(outstandingBefore - alloc.amount);
-  const fullySettled = outstandingAfter <= EPS;
+  const fullySettled = toCents(outstandingAfter) <= 0;
 
   return {
     invoiceId: alloc.invoiceId,

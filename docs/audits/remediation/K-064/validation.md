@@ -22,7 +22,8 @@ relieved. An over-allocation is posted in full and drives `amount_paid` past
 - File unchanged between `5661d6f0` and `origin/master`; constraints read from
   the fixture schema. Reachable at `pages/api/accounting/batch-payments.ts:39`,
   which passes `req.body` straight in.
-- RED test: `tests/integration/k064-batch-payment-creation-unvalidated.int.test.ts`.
+- RED test (a service-level file, deleted in round 2 of the fix; the route-level successor is
+  `tests/integration/k064-batch-payment-guarded.int.test.ts`).
   Two companies, one bill each at R100. Test 1 batches company A against
   company B's bill; test 2 batches R500 against a R100 bill. Both expected a
   rejection and zero allocation rows; both batches were created, the second with

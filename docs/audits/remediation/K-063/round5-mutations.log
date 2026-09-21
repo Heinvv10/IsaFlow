@@ -1,0 +1,38 @@
+=== P cancel: processed/other-status refusals removed
+     × refuses a PROCESSED payment with a 400 pointing to Void, and leaves its journal standing 38ms
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 1 ⎯⎯⎯⎯⎯⎯⎯
+ Test Files  1 failed (1)
+      Tests  1 failed | 5 passed (6)
+restored byte-identical 2bbf2b06013d36d7f9e27a68bda2961f71b3090cbf3c862a785ac305c375ac6d
+=== P2 cancel: BOTH status refusals removed (processed payment reaches the UPDATE)
+     × refuses a PROCESSED payment with a 400 pointing to Void, and leaves its journal standing 34ms
+     × cancel racing process: exactly one outcome, never an orphaned journal (6 trials) 22ms
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 2 ⎯⎯⎯⎯⎯⎯⎯
+AssertionError: {"success":true,"data":{"status":"cancelled"},"meta":{"timestamp":"2026-09-21T08:27:21.554Z"}}: expected 200 to be 400 // Object.is equality
+AssertionError: {"success":true,"data":{"id":"6e62f1a2-8a6d-49a0-8331-2b1a91effb76","paymentNumber":"SP-2026-00006","supplierId":"ce1faf7e-09de-4705-882f-7150012b463d","paymentDate":"2026-09-21","tota
+      Tests  2 failed | 4 passed (6)
+restored byte-identical 2bbf2b06013d36d7f9e27a68bda2961f71b3090cbf3c862a785ac305c375ac6d
+=== G role gate (withWriteAccess) removed from supplier-payments-action
+     × is gated exactly as Void: a viewer is refused both, and nothing changes 21ms
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 1 ⎯⎯⎯⎯⎯⎯⎯
+AssertionError: {"success":true,"data":{"status":"cancelled"},"meta":{"timestamp":"2026-09-21T08:27:22.549Z"}}: expected 200 to be 403 // Object.is equality
+      Tests  1 failed | 5 passed (6)
+restored byte-identical e33c3a79cbfb613f296e32679fa7be3677bc9341d7f17dd791b33d590c4369e2
+=== U2 Cancel button removed from the payment page
+   × a draft payment offers Cancel, explains it posts nothing, and sends action=cancel 1021ms
+   × a approved payment offers Cancel, explains it posts nothing, and sends action=cancel 1006ms
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 2 ⎯⎯⎯⎯⎯⎯⎯
+      Tests  2 failed | 2 passed (4)
+restored byte-identical 84f5aa133220065c3e022e8906fa4ff9d242c6a0908fe98cf654cd4f94cdad8a
+=== V2 void no longer refuses a batch member
+     × processed batch, then void of its member: refused, bill and AP still agree with the batch journal 20ms
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 1 ⎯⎯⎯⎯⎯⎯⎯
+ Test Files  1 failed | 1 passed (2)
+      Tests  1 failed | 21 passed (22)
+restored byte-identical 773967382cfa1e4691bff26a4016dd9bd6558b98adff34a0c3d443df36ebc0f3
+=== C409 supplier-payments POST answers contention 400 again
+     × a single payment on a contended bill answers 409, like a batch, and writes nothing 10016ms
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 1 ⎯⎯⎯⎯⎯⎯⎯
+ Test Files  1 failed | 1 passed (2)
+      Tests  1 failed | 21 passed (22)
+restored byte-identical b450f30bc4cddb3aec3c65307685c5b2ab897b1eca4f870d1ce3c490c9fdb3f2

@@ -1,0 +1,30 @@
+# Round 2 RED — the three new route-level files run against origin/master c19508a12
+# (temporary detached worktree, same disposable fixture: schema-only isaflow_dev dump
+# at migration 683 + master's pending migrations, pgvector/pgvector:pg16, zero rows).
+$ bunx vitest run --config vitest.integration.config.ts \
+    tests/integration/k063-supplier-allocation-status-gate.int.test.ts \
+    tests/integration/k064-batch-payment-guarded.int.test.ts \
+    tests/integration/k066-supplier-payment-foreign-bill.int.test.ts --no-file-parallelism
+     × refuses company B's bill as not found                         (got 200, batch BAT-2026-00001 written)
+     × refuses an over-payment                                       (got 200, R1500 batch on a R1000 bill)
+     × refuses supplier A2's bill on supplier A's payment            (got 200)
+     × refuses a pending_approval bill                               (got 200)
+     × refuses a batch whose LAST line is the bad one, ...           (got 200, R3500 batch written whole)
+     × refuses one bill named by two payments, ...                   (got 200, R1200 against a R1000 bill)
+     × counts an earlier unprocessed batch's allocation ...          (got 200, second R1000 batch on the same bill)
+     × answers a bill held by another request 409 ...                (20006ms timeout: the FK check waits on the
+                                                                      row lock with no lock_timeout — unbounded)
+     × a valid batch processes with the AP debit ...                 (30021ms — collateral of the hung request above;
+                                                                      passes alone on master: 1 passed | 8 skipped)
+     × refuses supplier A2's bill on a payment to supplier A — same company, so R-068 passes it  (got 201)
+     × refuses a draft bill and writes no payment                    (got 201)
+     × refuses a cancelled bill and writes no payment                (got 201)
+     × refuses a pending_approval bill and writes no payment         (got 201)
+     × refuses a disputed bill and writes no payment                 (got 201)
+     × refuses a pending_approval bill with a 400 and moves nothing  (got 200: newStatus "paid", payment "reconciled")
+     × refuses a disputed bill with a 400 and moves nothing          (got 200: newStatus "paid", payment "reconciled")
+ Test Files  3 failed (3)
+      Tests  16 failed | 5 passed (21)
+# The 5 that pass on master: K-063 draft + cancelled (the old deny-list), K-063 approved
+# happy path, K-066 company-B bill (row-count check -> 500, rolled back), K-066 own
+# approved bill (201).

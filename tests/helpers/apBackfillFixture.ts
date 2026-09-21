@@ -205,8 +205,8 @@ export const PAIR_DAY = '2026-03-20';
 
 /** Deterministic journal id per bank transaction, so assertions can name one. */
 export function journalFor(txId: string): string {
-  // SHARED_B carries no journal of its own: it points at SHARED_A's bank leg,
-  // which is exactly how a transfer's second leg reaches the same entry.
+  // SHARED_B carries no journal of its own: its bank leg sits on SHARED_A's
+  // entry, which is exactly how a transfer's second leg reaches the same entry.
   if (txId === SHARED_B) return journalFor(SHARED_A);
   return txId.replace('0bf1', '0bf2');
 }
@@ -293,9 +293,11 @@ export async function seed(db: Pool): Promise<void> {
 
   for (const [txId, outcome, amount] of CASES) {
     const jeId = journalFor(txId);
-    // SHARED_B is the second leg: it reuses SHARED_A's journal and bank line
-    // rather than posting its own, which is how a transfer's two sides both
-    // reach one entry.
+    // SHARED_B is the second leg: it reuses SHARED_A's JOURNAL rather than
+    // posting its own, which is how a transfer's two sides both reach one entry.
+    // It gets its OWN bank line on that journal: migration 657's
+    // uq_bank_tx_matched_line lets one journal line bind one bank row, so the old
+    // seed (both rows on SHARED_A's line) failed on every database carrying 657.
     const needsJournal = outcome !== 'no_journal' && txId !== SHARED_B;
     // `posted` unless the case is about a journal that is not.
     const status = outcome === 'journal_not_posted' ? 'draft' : 'posted';
@@ -336,11 +338,15 @@ export async function seed(db: Pool): Promise<void> {
         [CO, jeId, creditAccount, bankCredit]);
       lineId = String(bankLine.rows[0]!.id);
     } else if (txId === SHARED_B) {
-      const existing = await db.query(
-        `SELECT id::TEXT FROM gl_journal_lines
-          WHERE journal_entry_id = $1::UUID AND gl_account_id = $2::UUID`,
-        [jeId, BANK]);
-      lineId = String(existing.rows[0]!.id);
+      // A balanced second pair on the shared entry: its own AP leg and bank leg.
+      await db.query(
+        `INSERT INTO gl_journal_lines (company_id, journal_entry_id, gl_account_id, debit, credit, description)
+         VALUES ($1,$2,$3,$4,0,'AP leg (second)')`, [CO, jeId, AP, amount]);
+      const own = await db.query(
+        `INSERT INTO gl_journal_lines (company_id, journal_entry_id, gl_account_id, debit, credit, description)
+         VALUES ($1,$2,$3,0,$4,'Bank leg (second)') RETURNING id::TEXT`,
+        [CO, jeId, BANK, amount]);
+      lineId = String(own.rows[0]!.id);
     }
 
     await db.query(

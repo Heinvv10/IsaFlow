@@ -8,10 +8,16 @@ import { useRouter } from 'next/router';
 import { AppLayout } from '@/components/layout/AppLayout';
 import Link from 'next/link';
 import { ArrowLeft, Layers, Plus, Trash2, Loader2, Receipt } from 'lucide-react';
-import { apiFetch } from '@/lib/apiFetch';
+import { apiErrorMessage, apiFetch, assertOk } from '@/lib/apiFetch';
 
-interface Supplier { id: string; company_name: string }
-interface Invoice { id: string; invoice_number: string; total_amount: number; amount_paid: number; supplier_id: string }
+// suppliers-list answers snake_case rows (company_name is often empty — `name` is
+// the required one); supplier-invoices answers camelCase. Reading the other
+// shape left the supplier option blank and the invoice list empty.
+interface Supplier { id: string; name: string; company_name?: string | null }
+interface Invoice { id: string; invoiceNumber: string; totalAmount: number; amountPaid: number; supplierId: string; reserved?: number }
+
+/** What the server will still accept: outstanding less what unprocessed payments already reserve. */
+const available = (i: Invoice) => Math.round((Number(i.totalAmount) - Number(i.amountPaid) - Number(i.reserved ?? 0)) * 100) / 100;
 interface BatchLine { key: string; supplierId: string; invoiceId: string; amount: number }
 
 const fmt = (n: number) => new Intl.NumberFormat('en-ZA', { style: 'currency', currency: 'ZAR' }).format(n);
@@ -28,6 +34,7 @@ export default function NewBatchPaymentPage() {
   const [notes, setNotes] = useState('');
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
+  const [reservationsUnavailable, setReservationsUnavailable] = useState(false);
 
   useEffect(() => {
     apiFetch('/api/accounting/suppliers-list', { credentials: 'include' }).then(r => r.json()).then(res => {
@@ -36,8 +43,20 @@ export default function NewBatchPaymentPage() {
     }).catch(() => {/* non-critical */});
     apiFetch('/api/accounting/supplier-invoices?status=approved&status=partially_paid', { credentials: 'include' }).then(r => r.json()).then(res => {
       const d = res.data || res;
-      const list = Array.isArray(d) ? d : d.invoices || d.items || [];
-      setInvoices(list.filter((inv: Invoice) => Number(inv.total_amount) - Number(inv.amount_paid) > 0.01));
+      const list: Invoice[] = (Array.isArray(d) ? d : d.invoices || d.items || [])
+        .filter((inv: Invoice) => Number(inv.totalAmount) - Number(inv.amountPaid) > 0.01);
+      if (list.length === 0) { setInvoices([]); return; }
+      // The same pending set batch creation subtracts (supplierBatchAllocationPlan).
+      return apiFetch(`/api/accounting/batch-payments?reservedFor=${list.map((i) => i.id).join(',')}`, { credentials: 'include' })
+        .then(async (r) => {
+          if (!r.ok) throw new Error(`reservations ${r.status}`);
+          const rr = (await r.json()) as { data?: Record<string, number> };
+          const reserved = rr.data ?? {};
+          setInvoices(list.map((i) => ({ ...i, reserved: Number(reserved[i.id] ?? 0) })).filter((i) => available(i) > 0));
+        })
+        // Reservations unavailable: still list the bills at their outstanding and
+        // say so; the server refuses anything already promised, with its message.
+        .catch(() => { setReservationsUnavailable(true); setInvoices(list); });
     }).catch(() => {/* non-critical */});
   }, []);
 
@@ -62,11 +81,12 @@ export default function NewBatchPaymentPage() {
         credentials: 'include',
         body: JSON.stringify({ paymentMethod: method, notes: notes || undefined, payments }),
       });
-      const json = await res.json();
-      if (!res.ok) throw new Error(json.message || 'Failed');
+      // The refusal's text is at `error.message`; `json.message` is absent on
+      // a 4xx, so this used to show a bare "Failed".
+      await assertOk(res, 'Failed to create batch');
       void router.push('/accounting/batch-payments');
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Failed');
+      setError(apiErrorMessage(err, 'Failed to create batch'));
     } finally {
       setBusy(false);
     }
@@ -97,6 +117,11 @@ export default function NewBatchPaymentPage() {
               {error && (
                 <div className="p-3 bg-red-50 dark:bg-red-900/20 rounded-xl border border-red-200 dark:border-red-800 text-red-700 dark:text-red-400 text-sm">
                   {error}
+                </div>
+              )}
+              {reservationsUnavailable && (
+                <div role="status" className="p-3 bg-amber-50 dark:bg-amber-900/20 rounded-xl border border-amber-200 dark:border-amber-800 text-amber-800 dark:text-amber-300 text-sm">
+                  Reservations by unprocessed payments could not be loaded, so amounts show each bill&apos;s full outstanding. A line that is already promised elsewhere will be refused when you create the batch.
                 </div>
               )}
 
@@ -143,9 +168,9 @@ export default function NewBatchPaymentPage() {
                   </thead>
                   <tbody className="divide-y divide-slate-100 dark:divide-slate-800">
                     {lines.map(line => {
-                      const supplierInvoices = invoices.filter(i => !line.supplierId || String(i.supplier_id) === line.supplierId);
+                      const supplierInvoices = invoices.filter(i => !line.supplierId || String(i.supplierId) === line.supplierId);
                       const inv = invoices.find(i => i.id === line.invoiceId);
-                      const balance = inv ? Number(inv.total_amount) - Number(inv.amount_paid) : 0;
+                      const balance = inv ? available(inv) : 0;
                       return (
                         <tr key={line.key} className="group hover:bg-slate-50/50 dark:hover:bg-slate-800/20 transition-colors">
                           <td className="px-3 py-2">
@@ -153,18 +178,18 @@ export default function NewBatchPaymentPage() {
                               onChange={e => setLines(p => p.map(l => l.key === line.key ? { ...l, supplierId: e.target.value, invoiceId: '' } : l))}
                               className={inp}>
                               <option value="">Select Supplier</option>
-                              {suppliers.map(s => <option key={s.id} value={s.id}>{s.company_name}</option>)}
+                              {suppliers.map(s => <option key={s.id} value={s.id}>{s.company_name || s.name}</option>)}
                             </select>
                           </td>
                           <td className="px-3 py-2">
                             <select name="invoiceId" value={line.invoiceId}
                               onChange={e => {
                                 const i = invoices.find(x => x.id === e.target.value);
-                                setLines(p => p.map(l => l.key === line.key ? { ...l, invoiceId: e.target.value, amount: i ? Number(i.total_amount) - Number(i.amount_paid) : 0 } : l));
+                                setLines(p => p.map(l => l.key === line.key ? { ...l, invoiceId: e.target.value, amount: i ? available(i) : 0 } : l));
                               }}
                               className={inp}>
                               <option value="">Select Invoice</option>
-                              {supplierInvoices.map(i => <option key={i.id} value={i.id}>{i.invoice_number} — {fmt(Number(i.total_amount) - Number(i.amount_paid))}</option>)}
+                              {supplierInvoices.map(i => <option key={i.id} value={i.id}>{i.invoiceNumber} — {fmt(available(i))}{i.reserved ? ` available (${fmt(i.reserved)} reserved)` : ''}</option>)}
                             </select>
                           </td>
                           <td className="px-3 py-2">

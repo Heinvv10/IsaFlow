@@ -28,6 +28,15 @@ vi.mock('@/modules/accounting/services/gl/journalEntryService', () => ({
   createJournalEntry: vi.fn(),
   postJournalEntry: vi.fn(),
 }));
+// The process-time bill gate (K-063/K-066) is its own module, proved against
+// real PostgreSQL in the k063/k064/k066 integration files; here it only has to
+// let the ordering under test run.
+vi.mock('@/modules/accounting/services/ap/supplierBatchAllocationPlan', () => ({
+  assertAllocationsStillAllocatable: vi.fn().mockResolvedValue(undefined),
+  assertBatchAllocatable: vi.fn().mockResolvedValue(undefined),
+  assertBatchMembersStillAllocatable: vi.fn().mockResolvedValue(undefined),
+}));
+
 vi.mock('@/modules/accounting/services/gl/systemAccountResolver', () => ({
   getSystemAccount: vi.fn(),
 }));
@@ -116,6 +125,7 @@ describe('processBatch — no sourceDocumentId, linked via gl_journal_entry_id',
   it('does not pass sourceDocumentId to createJournalEntry (would violate fk_gl_je_source_document)', async () => {
     mockSql
       .mockResolvedValueOnce([batchRow()]) // getBatchById
+      .mockResolvedValueOnce([{ status: 'approved' }]) // batch row lock (K-063/K-066)
       .mockResolvedValueOnce([{ id: BATCH_ID }]) // the status-predicated CLAIM, one row = won
       .mockResolvedValueOnce([]) // SELECT supplier_payments/payment_allocations (no payments in batch)
       .mockResolvedValueOnce([]) // UPDATE supplier_payments SET status='processed'
@@ -131,6 +141,7 @@ describe('processBatch — no sourceDocumentId, linked via gl_journal_entry_id',
   it('persists gl_journal_entry_id on the batch when processing', async () => {
     mockSql
       .mockResolvedValueOnce([batchRow()])
+      .mockResolvedValueOnce([{ status: 'approved' }])
       .mockResolvedValueOnce([{ id: BATCH_ID }])
       .mockResolvedValueOnce([])
       .mockResolvedValueOnce([])
@@ -138,7 +149,7 @@ describe('processBatch — no sourceDocumentId, linked via gl_journal_entry_id',
 
     await inRequestTx(() => processBatch(COMPANY_ID, BATCH_ID, USER_ID));
 
-    const finalUpdateCall = mockSql.mock.calls[4]!;
+    const finalUpdateCall = mockSql.mock.calls[5]!;
     expect(sqlCallTouches(finalUpdateCall, 'gl_journal_entry_id', JE_ID)).toBe(true);
   });
 });

@@ -9,21 +9,47 @@ import { withErrorHandler } from '@/lib/api-error-handler';
 import { apiResponse } from '@/lib/apiResponse';
 import { withAuth, type AuthenticatedNextApiRequest, type CompanyAuthedRequest, withWriteAccess} from '@/lib/auth';
 import { withCsrf } from '@/lib/auth/withCsrf';
+import { UUID } from '@/lib/schemas/common';
 import { log } from '@/lib/logger';
 import { getBatches, getBatchById, createBatch } from '@/modules/accounting/services/ap/batchPaymentService';
 import { SupplierNotInCompanyError } from '@/modules/accounting/services/core/contactDirectoryService';
+import { countBatchBills, getBatchMembers } from '@/modules/accounting/services/ap/batchPaymentMembers';
+import { pendingReservations } from '@/modules/accounting/services/ap/supplierBatchAllocationPlan';
+import {
+  isRetryableSupplierPaymentRefusal,
+  isSupplierPaymentRefusal,
+} from '@/modules/accounting/services/ap/supplierPaymentRefusal';
 
 async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse) {
   const { companyId } = req as CompanyAuthedRequest;
 
   if (req.method === 'GET') {
-    const { id, status, limit, offset } = req.query;
+    const { id, status, limit, offset, reservedFor } = req.query;
+
+    // What unprocessed payments already reserve on these bills — the SAME
+    // pending set batch creation subtracts — so the new-batch page offers only
+    // an amount the server will accept.
+    // Ids are checked with the repo's `UUID` (z.guid — it accepts the seeded
+    // version-0 ids z.uuid() rejects) and refused 400 whole, before any query:
+    // a bad one used to reach the ::UUID cast and answer 500 with pg's text.
+    if (typeof reservedFor === 'string') {
+      const ids = reservedFor.split(',').filter((v) => v !== '');
+      if (ids.length > 500 || ids.some((v) => !UUID.safeParse(v).success)) {
+        return apiResponse.badRequest(res, 'reservedFor must be a comma-separated list of up to 500 bill ids.');
+      }
+      return apiResponse.success(res, Object.fromEntries(await pendingReservations(companyId, ids)));
+    }
 
     // Single batch by ID
     if (id) {
+      if (!UUID.safeParse(id).success) return apiResponse.badRequest(res, 'id must be a batch id.');
       const batch = await getBatchById(companyId, id as string);
       if (!batch) return apiResponse.notFound(res, 'Batch', id as string);
-      return apiResponse.success(res, batch);
+      return apiResponse.success(res, {
+        ...batch,
+        payments: await getBatchMembers(companyId, batch.id),
+        billCount: await countBatchBills(companyId, batch.id),
+      });
     }
 
     const result = await getBatches(companyId, {
@@ -42,6 +68,10 @@ async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse) {
     } catch (err) {
       // R-068: refused before the batch row is written; surface the typed message.
       if (err instanceof SupplierNotInCompanyError) return apiResponse.badRequest(res, err.message);
+      // K-064: every bill line is checked before the first write, so both
+      // answers COMMIT nothing. Contention on a bill is a retry, not a mistake.
+      if (isRetryableSupplierPaymentRefusal(err)) return apiResponse.conflict(res, (err as Error).message);
+      if (isSupplierPaymentRefusal(err)) return apiResponse.badRequest(res, err.message);
       log.error('Batch payment create failed', { error: err }, 'accounting-api');
       return apiResponse.badRequestFromError(res, err, 'Create failed');
     }

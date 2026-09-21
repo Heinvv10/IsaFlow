@@ -20,7 +20,8 @@ the same time. `disputed` is the same hole.
 - Files unchanged between `5661d6f0` and `origin/master`; status constraint read
   from the fixture schema. Reachable from `supplierPaymentApplicationService.ts:109`
   and `supplierBankPaymentService.ts:124`.
-- RED test: `tests/integration/k063-supplier-payment-settles-unapproved-bill.int.test.ts`.
+- RED test (a service-level file, deleted in round 2 of the fix; the route-level successor is
+  `tests/integration/k063-supplier-allocation-status-gate.int.test.ts`).
   A R1,000 `pending_approval` bill with no journal, and a `processed` R1,000
   payment, run through `planSupplierPaymentApplication` +
   `applySupplierPaymentPlan` inside an `als` request transaction.

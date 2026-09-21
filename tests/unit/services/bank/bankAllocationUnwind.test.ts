@@ -20,7 +20,13 @@ const { sqlMock, recomputeInvoiceStatus } = vi.hoisted(() => ({
 
 vi.mock('@/lib/neon', () => ({ sql: sqlMock }));
 vi.mock('@/lib/logger', () => ({ log: { info: vi.fn(), warn: vi.fn(), error: vi.fn() } }));
-vi.mock('@/modules/accounting/services/ar/invoiceStatusRecompute', () => ({ recomputeInvoiceStatus }));
+// `importOriginal` keeps BALANCE_DERIVED real — `supplierAllocationLines`
+// builds its allocatable-status allow-list from it at module load, so a
+// hand-written stub would silently decide which statuses may take a payment.
+vi.mock('@/modules/accounting/services/ar/invoiceStatusRecompute', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('@/modules/accounting/services/ar/invoiceStatusRecompute')>()),
+  recomputeInvoiceStatus,
+}));
 
 import { unwindBankAllocationApplication } from '@/modules/accounting/services/bank/bankAllocationUnwind';
 

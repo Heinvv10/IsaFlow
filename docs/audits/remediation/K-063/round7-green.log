@@ -1,0 +1,90 @@
+# Round 7 GREEN — working tree, same fixture, --no-file-parallelism
+# 81 files (the round-6 set + k064-bank-leg-and-void + every integration file touching match / void / reconciliation):
+#   tests/integration/api/BL-47-supplierPaymentWorkflow-tenant.test.ts
+#   tests/integration/api/BL-48-batchPayment-tenant.test.ts
+#   tests/integration/api/BL-49-50-51-bankAllocation-tenant.test.ts
+#   tests/integration/api/supplier-allocations.test.ts
+#   tests/integration/bank-feed-ingestion-hardening.int.test.ts
+#   tests/integration/bank-feed-pending-writers.int.test.ts
+#   tests/integration/bank-feed-schema-guard.int.test.ts
+#   tests/integration/k015-ap-migration-balance-due-column.int.test.ts
+#   tests/integration/k016-bank-allocation-vat-net-control-account.int.test.ts
+#   tests/integration/k018-open-banking-fabricated-transactions.int.test.ts
+#   tests/integration/k020-reconciled-balance-double-count.int.test.ts
+#   tests/integration/k020-reconciled-balance-recompute.int.test.ts
+#   tests/integration/k021-failed-reversal-commits-unwind.int.test.ts
+#   tests/integration/k021-reversal-atomicity.int.test.ts
+#   tests/integration/k024b-annual-surfaces-declarable-status.int.test.ts
+#   tests/integration/k052-reclassification-onto-header-account.int.test.ts
+#   tests/integration/k053-afs-notes-tie-to-gl.int.test.ts
+#   tests/integration/k053-aging-as-at-reversal-date.int.test.ts
+#   tests/integration/k053-aging-includes-soft-deleted.int.test.ts
+#   tests/integration/k053-aging-route-vs-service-rewind.int.test.ts
+#   tests/integration/k053-aging-soft-delete-adjacent.int.test.ts
+#   tests/integration/k053-close-readiness-tie.int.test.ts
+#   tests/integration/k053-dashboard-todos-soft-deleted.int.test.ts
+#   tests/integration/k053-dunning-cron-soft-deleted.int.test.ts
+#   tests/integration/k053-figure-surfaces-tie-to-gl.int.test.ts
+#   tests/integration/k053-group-and-integrity-tie-to-gl.int.test.ts
+#   tests/integration/k053-out-of-order-reversal-chain.int.test.ts
+#   tests/integration/k053-purge-expired-deletes-cascade.int.test.ts
+#   tests/integration/k053-soft-delete-chase-surfaces.int.test.ts
+#   tests/integration/k053-soft-delete-gl-tie.int.test.ts
+#   tests/integration/k053-soft-delete-undo-identity.int.test.ts
+#   tests/integration/k053-statement-recon-variance.int.test.ts
+#   tests/integration/k053-statements-as-at-reversal-date.int.test.ts
+#   tests/integration/k053-unapplied-cash-delete-reversal.int.test.ts
+#   tests/integration/k063-deleted-bill-and-batch-member.int.test.ts
+#   tests/integration/k063-k066-process-time-gate.int.test.ts
+#   tests/integration/k063-supplier-allocation-status-gate.int.test.ts
+#   tests/integration/k063-supplier-statement-payment-amount.int.test.ts
+#   tests/integration/k064-bank-leg-and-void.int.test.ts
+#   tests/integration/k064-batch-payment-guarded.int.test.ts
+#   tests/integration/k064-batch-reversal.int.test.ts
+#   tests/integration/k064-cancel-payment.int.test.ts
+#   tests/integration/k064-reservations-cents-cancel.int.test.ts
+#   tests/integration/k064-stuck-loser-recovery.int.test.ts
+#   tests/integration/k066-supplier-payment-foreign-bill.int.test.ts
+#   tests/integration/k071-lock-order-deadlock.int.test.ts
+#   tests/integration/k071-rule-sweep-undo-contention.int.test.ts
+#   tests/integration/k071-void-lock-order.int.test.ts
+#   tests/integration/k074-bank-match-confirm-customer.int.test.ts
+#   tests/integration/k074-bank-match-confirm-supplier-balance.int.test.ts
+#   tests/integration/k091-cash-flow-reconciliation-bank-subtype.int.test.ts
+#   tests/integration/k091e-note-contra-line-footing.int.test.ts
+#   tests/integration/k107-batch-payment-double-post.int.test.ts
+#   tests/integration/k107-recurring-number-sequence-adjacent.int.test.ts
+#   tests/integration/k107-supplier-payment-double-post.int.test.ts
+#   tests/integration/k111-bulk-accept-row-count.int.test.ts
+#   tests/integration/k111-row-count-adjacent.int.test.ts
+#   tests/integration/k142-match-candidate-filters.int.test.ts
+#   tests/integration/k142-supplier-match-scores-gross.int.test.ts
+#   tests/integration/k143-undo-counts-nothing-reversed.int.test.ts
+#   tests/integration/k144-concurrent-double-binding.int.test.ts
+#   tests/integration/k144-match-line-lock-timeout.int.test.ts
+#   tests/integration/k144-match-table-lock-not-a-race.int.test.ts
+#   tests/integration/k144-match-unvalidated-journal-line.int.test.ts
+#   tests/integration/l3b-credit-note-allocations.int.test.ts
+#   tests/integration/l3c-credit-note-relief-caps.int.test.ts
+#   tests/integration/l3-reconcile-control-account.int.test.ts
+#   tests/integration/r005-emp501-reconciliation-declarable-status.int.test.ts
+#   tests/integration/r059-integrity-checks-as-at.int.test.ts
+#   tests/integration/r059-reconciliation-mixed-population.int.test.ts
+#   tests/integration/r059-statement-recon-as-at-statement-date.int.test.ts
+#   tests/integration/r059-statement-recon-match-candidates.int.test.ts
+#   tests/integration/r059-statement-recon-rematch.int.test.ts
+#   tests/integration/r059-subledger-population-equals-ageing.int.test.ts
+#   tests/integration/r059-supplier-statement-detail-population.int.test.ts
+#   tests/integration/r082-documentpopulation-twin-parity.int.test.ts
+#   tests/integration/r096-dunning-skips-unissued-invoices.int.test.ts
+#   tests/integration/supplier-ownership-fence-documents.int.test.ts
+#   tests/integration/supplier-ownership-fence-satellites.int.test.ts
+#   tests/integration/supplier-ownership-fence-services.int.test.ts
+#   tests/integration/supplier-refund-document.int.test.ts
+exit=0
+ Test Files  81 passed (81)   (re-run after items 7-8)
+      Tests  518 passed | 1 skipped (519)
+# Name-gated files run on an isaflow_test clone of the fixture: afs-changes-in-equity and
+# backfill-auto-apply-unapplied pass (17 tests); api/csrf needs a dev server on :3200 (not run);
+# ap-payment-document-backfill fails in its own SQL seed (uq_bank_tx_matched_line) - migration 615
+# does not apply on this fixture (fixture-build.log); it exercises none of this change's code.

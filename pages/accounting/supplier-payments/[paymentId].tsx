@@ -10,7 +10,8 @@ import Link from 'next/link';
 import { ArrowLeft, Wallet, Loader2, AlertCircle, Check, Zap } from 'lucide-react';
 import { AccountingDocumentPanel } from '@/modules/accounting/documents';
 import { formatCurrency, formatDate } from '@/utils/formatters';
-import { apiFetch } from '@/lib/apiFetch';
+import { apiErrorMessage, apiFetch, assertOk } from '@/lib/apiFetch';
+import { ConfirmDialog } from '@/components/accounting/ConfirmDialog';
 
 function StatusBadge({ status }: { status: string }) {
   const colors: Record<string, string> = {
@@ -27,11 +28,13 @@ function StatusBadge({ status }: { status: string }) {
   );
 }
 
+// The API's own field names (mapAllocationRow): reading `invoice_number` and
+// `amount` showed the invoice UUID and "RNaN" on every line.
 interface Allocation {
   id: string;
   invoiceId: string;
-  invoice_number?: string;
-  amount: number;
+  invoiceNumber?: string;
+  amountAllocated: number;
 }
 
 interface PaymentDetail {
@@ -47,6 +50,7 @@ interface PaymentDetail {
   description?: string;
   status: string;
   journalEntryId?: string;
+  batchId?: string;
   allocations: Allocation[];
 }
 
@@ -58,6 +62,7 @@ export default function SupplierPaymentDetailPage() {
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState('');
   const [actionBusy, setActionBusy] = useState('');
+  const [confirming, setConfirming] = useState<'' | 'cancel' | 'void'>('');
 
   const load = useCallback(async () => {
     if (!paymentId) return;
@@ -85,14 +90,12 @@ export default function SupplierPaymentDetailPage() {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ action, paymentId: payment.id }),
       });
-      if (!res.ok) {
-        const json = await res.json();
-        setError(json.error || `Failed to ${action}`);
-      } else {
-        void load();
-      }
-    } catch {
-      setError(`Failed to ${action} payment`);
+      // The body's `error` is an object ({ code, message }); rendering it
+      // crashed the page. `assertOk` pulls out the refusal's own message.
+      await assertOk(res, `Failed to ${action} payment`);
+      void load();
+    } catch (err) {
+      setError(apiErrorMessage(err, `Failed to ${action} payment`));
     } finally {
       setActionBusy('');
     }
@@ -120,7 +123,17 @@ export default function SupplierPaymentDetailPage() {
               </div>
               {payment && <StatusBadge status={payment.status} />}
             </div>
-            {payment && (
+            {payment && payment.batchId && (
+              // A batch member moves money only through its batch; every Process,
+              // Void or Cancel here would answer 400, so none is offered.
+              <div className="text-sm text-[var(--ff-text-secondary)]">
+                This payment is managed in its batch —{' '}
+                <Link href={`/accounting/batch-payments/${payment.batchId}`} className="text-indigo-400 hover:underline">
+                  open the batch
+                </Link>
+              </div>
+            )}
+            {payment && !payment.batchId && (
               <div className="flex items-center gap-2">
                 {payment.status === 'draft' && (
                   <button onClick={() => handleAction('approve')} disabled={!!actionBusy}
@@ -132,6 +145,19 @@ export default function SupplierPaymentDetailPage() {
                   <button onClick={() => handleAction('process')} disabled={!!actionBusy}
                     className="inline-flex items-center gap-2 px-4 py-2 bg-teal-600 text-white rounded-lg hover:bg-teal-700 text-sm font-medium disabled:opacity-50">
                     {actionBusy === 'process' ? <Loader2 className="h-4 w-4 animate-spin" /> : <Zap className="h-4 w-4" />} Process
+                  </button>
+                )}
+                {/* Cancel = money never moved; Void = reverse money that did. */}
+                {(payment.status === 'draft' || payment.status === 'approved') && (
+                  <button onClick={() => setConfirming('cancel')} disabled={!!actionBusy}
+                    className="inline-flex items-center gap-2 px-4 py-2 bg-red-600/10 text-red-400 rounded-lg hover:bg-red-600/20 text-sm font-medium disabled:opacity-50">
+                    Cancel payment
+                  </button>
+                )}
+                {payment.status === 'processed' && (
+                  <button onClick={() => setConfirming('void')} disabled={!!actionBusy}
+                    className="inline-flex items-center gap-2 px-4 py-2 bg-red-600/10 text-red-400 rounded-lg hover:bg-red-600/20 text-sm font-medium disabled:opacity-50">
+                    Void (reverse journal)
                   </button>
                 )}
               </div>
@@ -195,10 +221,10 @@ export default function SupplierPaymentDetailPage() {
                       {payment.allocations.map((a, i) => (
                         <tr key={a.id || i} className="border-b border-[var(--ff-border-light)]">
                           <td className="px-4 py-3 text-[var(--ff-text-primary)] font-mono">
-                            {a.invoice_number || a.invoiceId}
+                            {a.invoiceNumber || a.invoiceId}
                           </td>
                           <td className="px-4 py-3 text-right font-mono text-[var(--ff-text-primary)]">
-                            {formatCurrency(Number(a.amount))}
+                            {formatCurrency(Number(a.amountAllocated))}
                           </td>
                         </tr>
                       ))}
@@ -233,6 +259,19 @@ export default function SupplierPaymentDetailPage() {
           ) : null}
         </div>
       </div>
+      <ConfirmDialog
+        open={confirming !== ''}
+        title={confirming === 'void' ? 'Void this processed payment?' : 'Cancel this payment?'}
+        message={confirming === 'void'
+          ? 'The payment has been posted. Void reverses its journal (DR Bank / CR Accounts Payable) and reopens the bills it paid.'
+          : 'Nothing has been posted for this payment yet. Cancelling stops it for good and releases the bills it was going to pay — no journal is created or reversed. To undo a payment that has already been processed, use Void instead.'}
+        confirmLabel={confirming === 'void' ? 'Void payment' : 'Cancel payment'}
+        cancelLabel="Keep it"
+        confirmTone="danger"
+        busy={actionBusy !== ''}
+        onConfirm={() => { const a = confirming; setConfirming(''); if (a) void handleAction(a); }}
+        onCancel={() => setConfirming('')}
+      />
     </AppLayout>
   );
 }

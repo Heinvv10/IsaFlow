@@ -1,0 +1,28 @@
+=== R8a completed-reconciliation refusal removed
+     × a void whose bank line is reconciled is a 400 with nothing written 65ms
+     × refuses with 400 and writes nothing when its bank line is reconciled 76ms
+     × refuses when the bank line is on a completed bank reconciliation, writing nothing 112ms
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 3 ⎯⎯⎯⎯⎯⎯⎯
+ Test Files  3 failed (3)
+      Tests  3 failed | 16 passed (19)
+restored byte-identical d507f616407bcc03fc53bc8492fb38e6978707fab31a53deb1baa7b8b4710a3b
+=== R8b allocated-line path skipped (REST void back to leaving the line allocated)
+     × voids a bank-ALLOCATED payment through the app route to the same end state as MCP void_payment 98ms
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 1 ⎯⎯⎯⎯⎯⎯⎯
+ Test Files  1 failed | 2 passed (3)
+      Tests  1 failed | 18 passed (19)
+restored byte-identical d507f616407bcc03fc53bc8492fb38e6978707fab31a53deb1baa7b8b4710a3b
+=== R8c fully applied payments refused again
+     × voids a fully applied payment across 2 bills: each reopens by its share, one contra, books and bank line restored 96ms
+     × voids a bank-ALLOCATED payment through the app route to the same end state as MCP void_payment 33ms
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 2 ⎯⎯⎯⎯⎯⎯⎯
+ Test Files  1 failed | 2 passed (3)
+      Tests  2 failed | 17 passed (19)
+restored byte-identical 484e222436be7fc37dea41076f59bd92164d1ef324abce744a8f4246b600b86b
+=== R8b' (with the r7 repro) allocated-line path skipped
+     × review r7's repro: a -1500 allocation over one 1000 bill (500 unapplied) voids with the line FREE to re-allocate 48ms
+     × voids a bank-ALLOCATED payment through the app route to the same end state as MCP void_payment 91ms
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 2 ⎯⎯⎯⎯⎯⎯⎯
+ Test Files  1 failed (1)
+      Tests  2 failed | 3 passed (5)
+restored byte-identical d507f616407bcc03fc53bc8492fb38e6978707fab31a53deb1baa7b8b4710a3b

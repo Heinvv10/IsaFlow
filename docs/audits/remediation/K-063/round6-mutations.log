@@ -1,0 +1,27 @@
+=== G1 single-reversal guards removed (reversed status, non-processed status, journal reversed_at)
+     × double-click: exactly one reversal, the other 409, one contra 66ms
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 1 ⎯⎯⎯⎯⎯⎯⎯
+      Tests  1 failed | 6 passed (7)
+restored byte-identical 92f545a1d8d0c03d7e425a6dd4e55da63d92cfa3576d9997545148f8ad367ee2
+=== G2 each bill decremented by the batch TOTAL instead of this batch's allocation to it
+     × puts everything back as it was before the batch, except a later payment, which stands 109ms
+     × double-click: exactly one reversal, the other 409, one contra 59ms
+     × racing a new payment on the same bill: no deadlock, no 500, the bill ends consistent 65ms
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 3 ⎯⎯⎯⎯⎯⎯⎯
+      Tests  3 failed | 4 passed (7)
+restored byte-identical 92f545a1d8d0c03d7e425a6dd4e55da63d92cfa3576d9997545148f8ad367ee2
+=== G3 reconciled bank line no longer refused
+     × refuses with 400 and writes nothing when its bank line is reconciled 61ms
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 1 ⎯⎯⎯⎯⎯⎯⎯
+      Tests  1 failed | 6 passed (7)
+restored byte-identical 92f545a1d8d0c03d7e425a6dd4e55da63d92cfa3576d9997545148f8ad367ee2
+=== G4 batch row lock dropped
+     × double-click: exactly one reversal, the other 409, one contra 64ms
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 1 ⎯⎯⎯⎯⎯⎯⎯
+      Tests  1 failed | 6 passed (7)
+restored byte-identical 92f545a1d8d0c03d7e425a6dd4e55da63d92cfa3576d9997545148f8ad367ee2
+=== U3 new-batch page ignores reservations
+   × new batch offers a bill at what is still available after reservations, not its raw outstanding 27ms
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 1 ⎯⎯⎯⎯⎯⎯⎯
+      Tests  1 failed | 3 passed (4)
+restored byte-identical f16b7ba0a9dfe7294c578c9d8c7ced37414a2be9e6d0d59048c1f52746b19700

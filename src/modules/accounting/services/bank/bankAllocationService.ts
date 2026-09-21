@@ -3,6 +3,7 @@
  * Bank Allocation Service — Sage Process Bank equivalent (allocate, split, reverse)
  */
 
+import { reconciliationLockOf, refuseLockedCash } from './reconciledCash';
 import { sql, withSavepoint, withTransaction } from '@/lib/neon';
 import { fmtDate } from '@/lib/fmtDate';
 import type { DbRow } from '@/lib/neon';
@@ -822,6 +823,11 @@ export async function reverseReconciledTransaction(
   if (tx.status !== 'allocated' && tx.status !== 'matched' && tx.status !== 'reconciled') {
     throw new Error('Can only reverse allocated, matched, or reconciled transactions');
   }
+  // Cash on a COMPLETED reconciliation (or reconciled in the Sage import) is
+  // locked — the shared rule void and batch reversal apply. Reversing it here
+  // changed a completed reconciliation's figures with the reconciliation still
+  // reading "completed". Before any write, so every caller answers it 400.
+  refuseLockedCash(await reconciliationLockOf(companyId, tx), 'This bank line');
   let journalEntryId: string | null = null;
   if (tx.matched_journal_line_id) {
     const jlRows = (await sql`

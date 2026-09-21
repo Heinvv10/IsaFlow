@@ -61,6 +61,14 @@ vi.mock('@/modules/accounting/services/gl/systemAccountResolver', () => ({
   getSystemAccount: vi.fn().mockResolvedValue({ id: 'acc-payable-001' }),
 }));
 
+// The process-time bill gate (K-063/K-066) is its own module, proved against
+// real PostgreSQL in the k063/k064/k066 integration files; here it only has to
+// let the ordering under test run.
+vi.mock('@/modules/accounting/services/ap/supplierBatchAllocationPlan', () => ({
+  assertAllocationsStillAllocatable: vi.fn().mockResolvedValue(undefined),
+  assertBatchAllocatable: vi.fn().mockResolvedValue(undefined),
+}));
+
 const getSupplierPaymentById = vi.fn();
 vi.mock('@/modules/accounting/services/ap/supplierPaymentService', () => ({
   getSupplierPaymentById: (...args: unknown[]) => getSupplierPaymentById(...args),

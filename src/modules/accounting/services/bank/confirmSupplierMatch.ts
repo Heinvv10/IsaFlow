@@ -23,7 +23,8 @@ import {
   applyBankLineToSupplierInvoices,
   validateBankSupplierPayment,
 } from '../ap/supplierBankPaymentService';
-import { EPS, round2 } from '../ap/supplierAllocationLines';
+import { round2 } from '../ap/supplierAllocationLines';
+import { toCents } from '../ap/billAllocatable';
 import {
   isRetryableSupplierPaymentRefusal,
   isSupplierPaymentRefusal,
@@ -78,7 +79,7 @@ export async function confirmSupplierInvoiceMatch(
 
   const inv = invRows[0]!;
   const outstanding = round2(Number(inv.total_amount) - Number(inv.amount_paid || 0));
-  if (outstanding <= EPS) {
+  if (toCents(outstanding) <= 0) {
     return { ok: false, kind: 'refused', message: 'This supplier invoice is already fully paid.' };
   }
 
@@ -94,7 +95,7 @@ export async function confirmSupplierInvoiceMatch(
   // caller: it derives the allocation itself from the single bill the user
   // picked, so a remainder here is a mis-match rather than an instruction, and
   // the honest answer is to name the excess and let the user split the line.
-  if (paymentAmount > outstanding + EPS) {
+  if (toCents(paymentAmount) > toCents(outstanding)) {
     return {
       ok: false,
       kind: 'refused',

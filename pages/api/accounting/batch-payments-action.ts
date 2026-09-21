@@ -15,6 +15,12 @@ import {
   cancelBatch,
   BatchNotProcessableError,
 } from '@/modules/accounting/services/ap/batchPaymentService';
+import { BatchAlreadyReversedError, reverseBatch } from '@/modules/accounting/services/ap/batchPaymentReversal';
+import { DocumentClaimLockTimeoutError } from '@/modules/accounting/services/core/documentClaimLock';
+import {
+  isRetryableSupplierPaymentRefusal,
+  isSupplierPaymentRefusal,
+} from '@/modules/accounting/services/ap/supplierPaymentRefusal';
 
 async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse) {
   if (req.method !== 'POST') {
@@ -40,6 +46,13 @@ async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse) {
       case 'cancel':
         await cancelBatch(companyId, id);
         return apiResponse.success(res, { status: 'cancelled' });
+      case 'reverse': {
+        // A PROCESSED batch: one contra of the batch journal, every bill
+        // un-applied by this batch's allocations, members voided. Same gate as
+        // every other action here, and as single-payment void.
+        const reversal = await reverseBatch(companyId, id, userId);
+        return apiResponse.success(res, { status: 'reversed', ...reversal });
+      }
       default:
         return apiResponse.badRequest(res, `Unknown action: ${action}`);
     }
@@ -49,12 +62,17 @@ async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse) {
     // with a 4xx: withAuth COMMITs anything below 500, so a blanket
     // badRequestFromError committed a half-processed batch — a posted journal
     // with the invoices not updated — and reported it to the user as a 400.
-    if (err instanceof BatchNotProcessableError) {
+    if (err instanceof BatchNotProcessableError || err instanceof BatchAlreadyReversedError
+      || err instanceof DocumentClaimLockTimeoutError) {
       return apiResponse.conflict(res, err.message);
     }
     if (err instanceof Error && err.message === 'Batch not found') {
       return apiResponse.notFound(res, 'Batch');
     }
+    // K-063/K-066: a bill no longer payable, raised before the claim. A
+    // contended bill is a retry, not the user's mistake.
+    if (isRetryableSupplierPaymentRefusal(err)) return apiResponse.conflict(res, (err as Error).message);
+    if (isSupplierPaymentRefusal(err)) return apiResponse.badRequest(res, err.message);
     throw err;
   }
 }

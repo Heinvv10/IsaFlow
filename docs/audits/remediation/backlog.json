@@ -2309,7 +2309,7 @@
     },
     {
       "id": "K-063",
-      "claim": "A supplier payment can settle a pending_approval billAllocation has no status guard, so a payment relieves AP for a bill that never credited it.",
+      "claim": "A supplier payment can settle a pending_approval bill. Allocation has no status guard, so a payment relieves AP for a bill that never credited it.",
       "area": "ap",
       "affectedPaths": [
         "src/modules/accounting/services/ap/supplierAllocationLines.ts:29"
@@ -2321,27 +2321,31 @@
       "correctedTrigger": null,
       "severityRationale": "Source priority only; impact and reachability not yet validated.",
       "auditedSha": "5661d6f0f5f2212705151e95455a3f681ddf840e",
-      "currentSha": "57ef8405",
-      "status": "in-progress",
+      "currentSha": "c04803ba9",
+      "status": "fixed",
       "dependencies": [],
       "testNames": [
-        "tests/integration/k063-supplier-payment-settles-unapproved-bill.int.test.ts"
+        "tests/integration/k063-supplier-allocation-status-gate.int.test.ts",
+        "tests/integration/k063-k066-process-time-gate.int.test.ts",
+        "tests/integration/k063-deleted-bill-and-batch-member.int.test.ts"
       ],
       "evidencePaths": [
         "K-063/red.log",
-        "K-063/validation.md"
+        "K-063/validation.md",
+        "K-063/fix.md"
       ],
-      "fixCommit": "57ef8405",
+      "fixCommit": "c04803ba9",
       "pr": null,
       "deployedSha": null,
       "historicalDataImpact": "Not assessed",
       "canonicalItem": null,
       "reportedSeverity": "high",
-      "branch": "fix/audit-k063-k064-k066-ap-allocation-guards"
+      "branch": "fix/audit-k063-k064-k066-ap-allocation-guards",
+      "scopeNote": "This PR also covers batch reversal (a new feature Hein asked for), single-void bank-leg repairs, and fully applied supplier payments becoming voidable."
     },
     {
       "id": "K-064",
-      "claim": "Batch payment creation validates nothingNeither over-payment nor foreign-tenant bills are rejected when a batch is created.",
+      "claim": "Batch payment creation validates nothing. Neither over-payment nor foreign-tenant bills are rejected when a batch is created.",
       "area": "ap",
       "affectedPaths": [
         "src/modules/accounting/services/ap/batchPaymentService.ts:78"
@@ -2353,23 +2357,32 @@
       "correctedTrigger": null,
       "severityRationale": "Source priority only; impact and reachability not yet validated.",
       "auditedSha": "5661d6f0f5f2212705151e95455a3f681ddf840e",
-      "currentSha": "57ef8405",
-      "status": "in-progress",
+      "currentSha": "c04803ba9",
+      "status": "fixed",
       "dependencies": [],
       "testNames": [
-        "tests/integration/k064-batch-payment-creation-unvalidated.int.test.ts"
+        "tests/integration/k064-batch-payment-guarded.int.test.ts",
+        "tests/integration/k064-reservations-cents-cancel.int.test.ts",
+        "tests/integration/k064-stuck-loser-recovery.int.test.ts",
+        "tests/integration/k064-batch-reversal.int.test.ts",
+        "tests/integration/k064-bank-leg-and-void.int.test.ts",
+        "tests/integration/k064-void-applied-and-allocated.int.test.ts",
+        "tests/integration/k064-cancel-payment.int.test.ts",
+        "tests/integration/k064-stamp-is-not-a-lock.int.test.ts"
       ],
       "evidencePaths": [
         "K-064/red.log",
-        "K-064/validation.md"
+        "K-064/validation.md",
+        "K-064/fix.md"
       ],
-      "fixCommit": "57ef8405",
+      "fixCommit": "c04803ba9",
       "pr": null,
       "deployedSha": null,
       "historicalDataImpact": "Not assessed",
       "canonicalItem": null,
       "reportedSeverity": "high",
-      "branch": "fix/audit-k063-k064-k066-ap-allocation-guards"
+      "branch": "fix/audit-k063-k064-k066-ap-allocation-guards",
+      "scopeNote": "This PR also covers batch reversal (a new feature Hein asked for), single-void bank-leg repairs, and fully applied supplier payments becoming voidable."
     },
     {
       "id": "K-065",
@@ -2405,7 +2418,7 @@
     },
     {
       "id": "K-066",
-      "claim": "A supplier payment can be allocated to another supplier's billAllocation checks neither the supplier nor the bill status, so draft, cancelled and foreign-supplier bills are settled.",
+      "claim": "A supplier payment can be allocated to another supplier's bill. Allocation checks neither the supplier nor the bill status, so draft, cancelled and foreign-supplier bills are settled.",
       "area": "ap",
       "affectedPaths": [
         "src/modules/accounting/services/ap/supplierPaymentService.ts:139"
@@ -2417,23 +2430,26 @@
       "correctedTrigger": null,
       "severityRationale": "Source priority only; impact and reachability not yet validated.",
       "auditedSha": "5661d6f0f5f2212705151e95455a3f681ddf840e",
-      "currentSha": "57ef8405",
-      "status": "in-progress",
+      "currentSha": "c04803ba9",
+      "status": "fixed",
       "dependencies": [],
       "testNames": [
-        "tests/integration/k066-supplier-payment-foreign-bill.int.test.ts"
+        "tests/integration/k066-supplier-payment-foreign-bill.int.test.ts",
+        "tests/integration/k063-k066-process-time-gate.int.test.ts"
       ],
       "evidencePaths": [
         "K-066/red.log",
-        "K-066/validation.md"
+        "K-066/validation.md",
+        "K-066/fix.md"
       ],
-      "fixCommit": "57ef8405",
+      "fixCommit": "c04803ba9",
       "pr": null,
       "deployedSha": null,
       "historicalDataImpact": "Not assessed",
       "canonicalItem": null,
       "reportedSeverity": "high",
-      "branch": "fix/audit-k063-k064-k066-ap-allocation-guards"
+      "branch": "fix/audit-k063-k064-k066-ap-allocation-guards",
+      "scopeNote": "This PR also covers batch reversal (a new feature Hein asked for), single-void bank-leg repairs, and fully applied supplier payments becoming voidable."
     },
     {
       "id": "K-067",
@@ -12222,6 +12238,76 @@
       "severity": "low",
       "source": "Found by fix-r084a (R-084, out of scope item 3).",
       "processNotes": "Registered 2026-09-14 by session 71c707d0 (wave R-1)."
+    },
+    {
+      "claim": "The api/csrf integration test mints a JWT without an aal claim, so 3 of its 5 cases fail with 401 before the CSRF check runs; the test never exercises CSRF",
+      "sourceLabel": "",
+      "sourceIds": [],
+      "correctedTrigger": "",
+      "auditedSha": "6145c07ec",
+      "currentSha": "6145c07ec",
+      "status": "confirmed",
+      "dependencies": [],
+      "testNames": [
+        "tests/integration/api/csrf.test.ts"
+      ],
+      "fixCommit": null,
+      "pr": null,
+      "deployedSha": null,
+      "canonicalItem": null,
+      "reportedSeverity": "medium",
+      "branch": null,
+      "evidencePaths": [],
+      "id": "R-110",
+      "area": "auth",
+      "affectedPaths": [
+        "tests/integration/api/csrf.test.ts"
+      ],
+      "severityRationale": "A security gate that does not gate: the CSRF cases are refused by the auth layer (401) before CSRF is evaluated, so a regression in CSRF enforcement would pass this test.",
+      "historicalDataImpact": "None; test-only.",
+      "title": "api/csrf integration test mints JWTs without aal, so 3 of 5 cases 401 before CSRF runs and CSRF is never exercised",
+      "severity": "medium",
+      "source": "Blind reviewer run 2026-09-21 (K-063/K-064/K-066 PR review): aal2 tokens were accepted on the same dev server.",
+      "processNotes": "Registered 2026-09-21 by fix-k063 (K-063/K-064/K-066 PR), from the reviewer evidence; not re-run by the registering session."
+    },
+    {
+      "claim": "No way to reopen or cancel a completed bank reconciliation; since K-063, a payment on reconciled cash (including Sage-imported reconciled lines, which have no reconciliation to reopen) cannot be reversed in the app. The Sage lines need a separate \"unreconcile a line\" path, since a reopen cannot reach them.",
+      "sourceLabel": "",
+      "sourceIds": [],
+      "correctedTrigger": "",
+      "auditedSha": "6145c07ec",
+      "currentSha": "c04803ba9",
+      "status": "confirmed",
+      "dependencies": [
+        "K-063",
+        "K-064",
+        "K-066"
+      ],
+      "testNames": [
+        "tests/integration/k064-bank-reverse-reconciled.int.test.ts",
+        "tests/integration/k064-reconciled-cash-callers.int.test.ts"
+      ],
+      "fixCommit": null,
+      "pr": null,
+      "deployedSha": null,
+      "canonicalItem": null,
+      "reportedSeverity": "medium",
+      "branch": null,
+      "evidencePaths": [
+        "K-063/fix.md"
+      ],
+      "id": "R-111",
+      "area": "bank",
+      "affectedPaths": [
+        "src/modules/accounting/services/bank/bankReconciliationCancelService.ts",
+        "src/modules/accounting/services/bank/reconciledCash.ts"
+      ],
+      "severityRationale": "Deliberate lock (Hein, 2026-09-21: lock now, reopen later): void, batch reversal and bank reverse refuse cash on a completed or Sage reconciliation, so the only correction is a manual journal until a reopen exists.",
+      "historicalDataImpact": "None; a missing capability. Sage-imported reconciled lines (scripts/import-sage-britech.ts) are affected from day one.",
+      "title": "No way to reopen or cancel a completed bank reconciliation, so payments on reconciled cash cannot be reversed in the app",
+      "severity": "medium",
+      "source": "cancelReconciliation refuses anything not in_progress (\"Only an in-progress reconciliation can be cancelled\"), and a search of src/modules/accounting/services/bank and pages/api finds no reopen; found while fixing review r8 MEDIUM-1.",
+      "processNotes": "Registered 2026-09-21 by fix-k063 (K-063/K-064/K-066 PR)."
     },
     {
       "claim": "",

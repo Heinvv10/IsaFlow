@@ -13,6 +13,11 @@ import { getSystemAccount } from '../gl/systemAccountResolver';
 import { defaultHumanMeta } from '../gl/journalEntryMeta';
 import { lockSupplierPaymentForUpdate } from '../core/paymentLock';
 import { getSupplierPaymentById } from './supplierPaymentService';
+import { assertPaymentStillProcessable, voidIfUnprocessed } from './supplierPaymentGates';
+import { SupplierPaymentNotFoundError } from './supplierPaymentNotFound';
+import {
+  assertSameJournal, lockJournalAndUnmatch, lockPaymentBankLeg, voidViaBankAllocation,
+} from './paymentJournalReversal';
 import type { SupplierPayment } from '../../types/ap.types';
 import type { JournalLineInput } from '../../types/gl.types';
 type Row = DbRow;
@@ -51,23 +56,7 @@ export async function approveSupplierPayment(
   }
 }
 
-/**
- * Raised when the payment id does not resolve inside this company. Raised by
- * approve, process and void BEFORE any write, so a route may answer it 404.
- *
- * Typed rather than matched on the message: the route classified it with
- * `/not found$/`, which also matched 'Bank account not found' — thrown AFTER
- * `processSupplierPayment` has claimed the payment. That answered 404, and
- * `withAuth` COMMITs below 500, so the payment stayed 'processed' with no
- * journal and no path back: every retry hit the claim it had already taken.
- */
-export class SupplierPaymentNotFoundError extends Error {
-  readonly code = 'SUPPLIER_PAYMENT_NOT_FOUND';
-  constructor(readonly paymentId: string) {
-    super(`Payment ${paymentId} not found`);
-    this.name = 'SupplierPaymentNotFoundError';
-  }
-}
+export { SupplierPaymentNotFoundError };
 
 /**
  * Raised when the payment is not 'approved' when the claim runs — because it
@@ -108,6 +97,11 @@ export async function processSupplierPayment(
     }
     const payment = await getSupplierPaymentById(companyId, id);
     if (!payment) throw new SupplierPaymentNotFoundError(id);
+    // Decided under the payment lock, so a double-click's loser is told the
+    // payment is processed (409) rather than that its bills are now paid.
+    if (payment.status !== 'approved') throw new SupplierPaymentNotProcessableError(payment.status);
+    // Not a batch member, and every bill still payable (K-063/K-066) — before the claim.
+    await assertPaymentStillProcessable(companyId, payment);
 
     // CLAIM the payment before anything is posted — the singular twin of
     // batchPaymentService.processBatch, which carried the identical defect.
@@ -224,7 +218,12 @@ async function voidSupplierPaymentInner(
   userId: string,
 ): Promise<SupplierPayment> {
   try {
-    // (2) THE PAYMENT FIRST. This used to open with the unlocked
+    // (1) THE BANK LINE matched to its journal, from an unlocked peek — the
+    // canonical order starts at the bank row (as `voidPaymentDocument` does).
+    // This also runs the pre-write journal refusals: a closed period or a
+    // reconciled line is a 400 here, not a 500 inside `reverseJournalEntry`.
+    const { journalId, leg } = await lockPaymentBankLeg(companyId, id);
+    // (2) THEN THE PAYMENT. This used to open with the unlocked
     // `getSupplierPaymentById` and take `gl_journal_entries` before
     // `supplier_invoices` before `supplier_payments` — the exact inverse of the
     // canonical order in `bank/.claude.md`, and a reachable cycle against
@@ -236,11 +235,15 @@ async function voidSupplierPaymentInner(
     }
     const payment = await getSupplierPaymentById(companyId, id);
     if (!payment) throw new SupplierPaymentNotFoundError(id);
-    if (payment.status === 'reconciled') {
-      throw new Error('Cannot void a reconciled payment — remove it from the bank reconciliation first');
-    }
-    if (payment.status !== 'processed') {
-      throw new Error(`Only processed payments can be voided (status: ${payment.status})`);
+    // Refuses reconciled, batch members and other statuses; a draft/approved
+    // payment is voided as a status change. Only a processed one continues.
+    if (await voidIfUnprocessed(companyId, payment)) return { ...payment, status: 'cancelled' };
+    assertSameJournal(journalId, payment.glJournalEntryId);
+    // A bank ALLOCATION posted this journal: undo it the MCP void's way — bills,
+    // payment, contra and bank line in one call (`voidViaBankAllocation`).
+    if (leg && !leg.alreadyReversed
+      && await voidViaBankAllocation(companyId, leg, userId, `Payment ${payment.paymentNumber}`)) {
+      return (await getSupplierPaymentById(companyId, id)) ?? { ...payment, status: 'cancelled' };
     }
 
     // (3) Un-apply allocations: roll amount_paid back and recompute status.
@@ -267,23 +270,11 @@ async function voidSupplierPaymentInner(
       `;
     }
 
-    // (4) Reverse the payment journal LAST — the pre-existing entry is the
-    // most-contended row of the four and the canonical order puts it last.
-    // Skip if already reversed: `reversed_at` is the marker; the original keeps
-    // status='posted' under metadata semantics.
-    if (payment.glJournalEntryId) {
-      const jeRows = (await sql`
-        SELECT status, reversed_at FROM gl_journal_entries
-        WHERE id = ${payment.glJournalEntryId}::UUID AND company_id = ${companyId}::UUID
-        FOR UPDATE
-      `) as Row[];
-      if (
-        jeRows.length > 0 &&
-        String(jeRows[0]!.status) === 'posted' &&
-        jeRows[0]!.reversed_at == null
-      ) {
-        await reverseJournalEntry(companyId, payment.glJournalEntryId, userId);
-      }
+    // (4) Free the bank line, then reverse the payment journal. Skipped when the
+    // journal already carries a reversal claim (`reversed_at`).
+    if (journalId && leg && !leg.alreadyReversed) {
+      await lockJournalAndUnmatch(companyId, journalId, leg, `Payment ${payment.paymentNumber}`);
+      await reverseJournalEntry(companyId, journalId, userId);
     }
 
     // Guarded flip: the status re-assertion is now redundant against a
@@ -293,7 +284,7 @@ async function voidSupplierPaymentInner(
     const rows = (await sql`
       UPDATE supplier_payments
       SET status = 'cancelled'
-      WHERE id = ${id} AND company_id = ${companyId}::UUID AND status = 'processed'
+      WHERE id = ${id} AND company_id = ${companyId}::UUID AND status IN ('processed', 'reconciled')
       RETURNING *
     `) as Row[];
     if (rows.length !== 1) {

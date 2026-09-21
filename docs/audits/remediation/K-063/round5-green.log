@@ -1,0 +1,60 @@
+# Round 5 GREEN — working tree, same fixture (fixture-build.log), --no-file-parallelism
+# 54 files:
+#   tests/integration/api/BL-47-supplierPaymentWorkflow-tenant.test.ts
+#   tests/integration/api/BL-48-batchPayment-tenant.test.ts
+#   tests/integration/api/BL-49-50-51-bankAllocation-tenant.test.ts
+#   tests/integration/api/supplier-allocations.test.ts
+#   tests/integration/k015-ap-migration-balance-due-column.int.test.ts
+#   tests/integration/k053-afs-notes-tie-to-gl.int.test.ts
+#   tests/integration/k053-aging-as-at-reversal-date.int.test.ts
+#   tests/integration/k053-aging-includes-soft-deleted.int.test.ts
+#   tests/integration/k053-aging-route-vs-service-rewind.int.test.ts
+#   tests/integration/k053-aging-soft-delete-adjacent.int.test.ts
+#   tests/integration/k053-close-readiness-tie.int.test.ts
+#   tests/integration/k053-dashboard-todos-soft-deleted.int.test.ts
+#   tests/integration/k053-dunning-cron-soft-deleted.int.test.ts
+#   tests/integration/k053-figure-surfaces-tie-to-gl.int.test.ts
+#   tests/integration/k053-group-and-integrity-tie-to-gl.int.test.ts
+#   tests/integration/k053-out-of-order-reversal-chain.int.test.ts
+#   tests/integration/k053-purge-expired-deletes-cascade.int.test.ts
+#   tests/integration/k053-soft-delete-chase-surfaces.int.test.ts
+#   tests/integration/k053-soft-delete-gl-tie.int.test.ts
+#   tests/integration/k053-soft-delete-undo-identity.int.test.ts
+#   tests/integration/k053-statement-recon-variance.int.test.ts
+#   tests/integration/k053-statements-as-at-reversal-date.int.test.ts
+#   tests/integration/k053-unapplied-cash-delete-reversal.int.test.ts
+#   tests/integration/k063-deleted-bill-and-batch-member.int.test.ts
+#   tests/integration/k063-k066-process-time-gate.int.test.ts
+#   tests/integration/k063-supplier-allocation-status-gate.int.test.ts
+#   tests/integration/k064-batch-payment-guarded.int.test.ts
+#   tests/integration/k064-reservations-cents-cancel.int.test.ts
+#   tests/integration/k066-supplier-payment-foreign-bill.int.test.ts
+#   tests/integration/k071-lock-order-deadlock.int.test.ts
+#   tests/integration/k071-void-lock-order.int.test.ts
+#   tests/integration/k074-bank-match-confirm-customer.int.test.ts
+#   tests/integration/k074-bank-match-confirm-supplier-balance.int.test.ts
+#   tests/integration/k107-batch-payment-double-post.int.test.ts
+#   tests/integration/k107-recurring-number-sequence-adjacent.int.test.ts
+#   tests/integration/k107-supplier-payment-double-post.int.test.ts
+#   tests/integration/k111-row-count-adjacent.int.test.ts
+#   tests/integration/k142-match-candidate-filters.int.test.ts
+#   tests/integration/k142-supplier-match-scores-gross.int.test.ts
+#   tests/integration/k144-match-unvalidated-journal-line.int.test.ts
+#   tests/integration/l3b-credit-note-allocations.int.test.ts
+#   tests/integration/l3-reconcile-control-account.int.test.ts
+#   tests/integration/r059-integrity-checks-as-at.int.test.ts
+#   tests/integration/r059-reconciliation-mixed-population.int.test.ts
+#   tests/integration/r059-supplier-statement-detail-population.int.test.ts
+#   tests/integration/r082-documentpopulation-twin-parity.int.test.ts
+#   tests/integration/r096-dunning-skips-unissued-invoices.int.test.ts
+#   tests/integration/supplier-ownership-fence-documents.int.test.ts
+#   tests/integration/supplier-ownership-fence-satellites.int.test.ts
+#   tests/integration/supplier-ownership-fence-services.int.test.ts
+#   tests/integration/supplier-refund-document.int.test.ts
+#   tests/integration/k064-stuck-loser-recovery.int.test.ts
+#   tests/integration/k064-cancel-payment.int.test.ts
+#   tests/integration/k063-supplier-statement-payment-amount.int.test.ts
+exit=0
+ Test Files  54 passed (54)
+      Tests  356 passed (356)
+# plus every supplier-statement integration file (13 files): 13 passed, 77 tests
