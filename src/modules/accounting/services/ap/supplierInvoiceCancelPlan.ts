@@ -17,6 +17,7 @@ import { resolveReversalDate } from '../gl/journalEntryReversalDate';
 import { isVatPeriodLocked } from '../reports/vatPeriodLockService';
 import { FIFO_ELIGIBLE_STATUSES } from '../ar/invoiceStatusRecompute';
 import { lockSupplierInvoiceForUpdate } from './supplierInvoiceLock';
+import { VAT_RETURN_SUBTYPES } from '../gl/reclassification/planGuards';
 
 /** A refusal whose message is safe to show the caller. */
 export class SupplierInvoiceCancelRefusal extends Error {
@@ -196,17 +197,23 @@ export async function planSupplierInvoiceCancel(
   };
 }
 
-/** A line on a VAT control account (by subtype, never by code) or tagged with a VAT type. */
+/**
+ * Does this journal move a VAT-return figure? A line on an account whose
+ * subtype the VAT return counts — the ONE shared set, VAT_RETURN_SUBTYPES,
+ * which still includes the legacy 'tax' leg because getVATReturn counts it —
+ * or a line tagged with a VAT type other than 'no_vat' (the box basis
+ * excludes that tag).
+ */
 async function carriesVat(
   companyId: string,
   lines: readonly { glAccountId: string; vatType?: string | null }[],
 ): Promise<boolean> {
-  if (lines.some((l) => l.vatType)) return true;
+  if (lines.some((l) => l.vatType && l.vatType !== 'no_vat')) return true;
   const ids = [...new Set(lines.map((l) => l.glAccountId))];
   const rows = (await sql`
     SELECT 1 FROM gl_accounts
     WHERE company_id = ${companyId}::UUID AND id = ANY(${ids}::UUID[])
-      AND account_subtype IN ('vat_input', 'vat_output')
+      AND account_subtype = ANY(${[...VAT_RETURN_SUBTYPES]}::TEXT[])
     LIMIT 1`) as DbRow[];
   return rows.length > 0;
 }

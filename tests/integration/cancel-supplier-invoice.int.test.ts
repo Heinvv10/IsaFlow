@@ -171,6 +171,33 @@ describeIfDb('cancel_supplier_invoice — plan and cancel over a real ledger', (
     }
   });
 
+  /** Ledger re-review MEDIUM: getVATReturn still counts the legacy 'tax'
+   *  subtype, so a line there moves a filed figure. A 'no_vat' tag moves none. */
+  it('treats a tax-subtype line as VAT, and a no_vat tag as not VAT', async () => {
+    const taxAccount = String(((await sql`
+      INSERT INTO gl_accounts
+        (company_id, account_code, account_name, account_type, account_subtype, normal_balance, is_active)
+      VALUES (${fx.companyId}::UUID, '2190', ${`Tax ${fx.tag}`}, 'liability', 'tax', 'credit', true)
+      RETURNING id`) as { id: string }[])[0]!.id);
+    const { bill: onTax, je: taxJe } = await seedPostedBill('T1', 100, '2026-07-10');
+    await sql`
+      INSERT INTO gl_journal_lines (company_id, journal_entry_id, gl_account_id, debit, credit, description)
+      VALUES (${fx.companyId}::UUID, ${taxJe}::UUID, ${taxAccount}::UUID, 15, 0, 'tax leg'),
+             (${fx.companyId}::UUID, ${taxJe}::UUID, ${apAccount}::UUID, 0, 15, 'AP tax')`;
+    const { bill: noVat, je: noVatJe } = await seedPostedBill('T2', 100, '2026-07-11');
+    await sql`UPDATE gl_journal_lines SET vat_type = 'no_vat' WHERE journal_entry_id = ${noVatJe}::UUID`;
+    await sql`
+      INSERT INTO vat_period_locks
+        (company_id, period_start, period_end, output_tax, input_tax, net_vat, posted_through, locked_by)
+      VALUES (${fx.companyId}::UUID, '2026-07-01', '2026-07-31', 0, 0, 0, '2026-07-31', ${fx.userId}::UUID)`;
+    try {
+      expect(await refusal(plan(onTax))).toContain('locked VAT period');
+      expect((await plan(noVat)).journal).not.toBeNull();
+    } finally {
+      await sql`DELETE FROM vat_period_locks WHERE company_id = ${fx.companyId}::UUID`;
+    }
+  });
+
   /** Ledger review HIGH: an approved bill with no approval journal (a Sage
    *  import, a stranded journal) would leave the AP subledger while any
    *  control-account credit behind it stays. */
