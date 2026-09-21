@@ -27,9 +27,8 @@ import { lockCreditNoteForUpdate } from '../ar/creditNoteLock';
 import { EPS, round2 } from './autoAllocateStrategy';
 import { APPLICABLE_CREDIT_NOTE_STATUSES } from './autoApplyBackfillApply';
 import { applyCreditNote, deriveCreditNoteStatus, type CreditNoteSide } from './creditNoteFifo';
-import {
-  UNAPPLICABLE_STATUSES, assertAllocationsMatchApplied, lockInvoicesForUpdate,
-} from './creditNoteApplicationWrites';
+import { assertAllocationsMatchApplied, lockInvoicesForUpdate } from './creditNoteApplicationWrites';
+import { FIFO_ELIGIBLE_STATUSES } from '../ar/invoiceStatusRecompute';
 
 /** A refusal whose message is safe to show the caller: it names no schema. */
 export class CreditNoteApplyRefusal extends Error {
@@ -159,9 +158,17 @@ async function buildPlan(
   const remainder = round2(total - appliedBefore);
   const status = String(note.status);
 
-  // 'applied' is a note with nothing left, not a wrong status. Every other
-  // status outside the applicable set is refused BEFORE the remainder is read:
-  // cancelling resets applied_amount to 0, so a cancelled note looks unspent.
+  // 'applied' is a note with nothing left, not a wrong status — unless its
+  // amounts say otherwise (a legacy row), which is named rather than misstated.
+  // Every other status outside the applicable set is refused BEFORE the
+  // remainder is read: cancelling resets applied_amount to 0, so a cancelled
+  // note looks unspent.
+  if (status === 'applied' && remainder > EPS) {
+    throw new CreditNoteApplyRefusal(
+      `Credit note ${number} is marked applied but R${remainder.toFixed(2)} of it is unapplied — its `
+      + 'status and amounts disagree, so it cannot be applied here. Reconcile it by hand.',
+    );
+  }
   if (status === 'applied' || (APPLICABLE_CREDIT_NOTE_STATUSES.has(status) && remainder <= EPS)) {
     throw new CreditNoteApplyRefusal(`Credit note ${number} has nothing left to apply.`);
   }
@@ -187,8 +194,12 @@ async function buildPlan(
       `Invoice ${invoiceNumber} belongs to a different ${side} than credit note ${number}.`,
     );
   }
+  // An ALLOW-list, the set the FIFO walk and every cash path use (K-063):
+  // pending_approval and disputed bills never credited AP, so crediting one
+  // leaves the subledger apart from the GL. 'paid' is in the set because a
+  // balance can reach it; it has nothing left to take.
   const docStatus = String(doc.status);
-  if (UNAPPLICABLE_STATUSES[side].includes(docStatus)) {
+  if (!FIFO_ELIGIBLE_STATUSES.includes(docStatus) || docStatus === 'paid') {
     throw new CreditNoteApplyRefusal(
       `Invoice ${invoiceNumber} is ${docStatus} — only an approved, unpaid document can take credit.`,
     );
@@ -219,6 +230,11 @@ async function buildPlan(
   }
 
   const amount = round2(Math.min(input.amount ?? remainder, remainder, outstanding));
+  // The engine writes only lines ABOVE a cent. A plan below that would promise
+  // what the live call then cannot do.
+  if (amount <= EPS) {
+    throw new CreditNoteApplyRefusal(`The smallest amount that can be applied is R${(EPS + 0.01).toFixed(2)}.`);
+  }
   const appliedAfter = round2(appliedBefore + amount);
   return {
     creditNoteId: input.creditNoteId,

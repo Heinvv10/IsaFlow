@@ -181,6 +181,51 @@ describeIfDb('credit note → one named document, over a real ledger', () => {
     expect(await noteState(note)).toEqual({ status: 'approved', applied: 0 });
   });
 
+  /**
+   * Ledger review HIGH: eligibility is an ALLOW-list. pending_approval and
+   * disputed bills never credited AP (K-063), and the FIFO walk skips them; a
+   * deny-list let the named-document path credit them, leaving AP subledger
+   * and GL apart.
+   */
+  it('refuses a pending_approval or disputed bill — only balance-derived documents take credit', async () => {
+    const pending = await seedBill(fx, { number: 'PA1', date: '2026-01-15', total: 100, status: 'pending_approval' });
+    const disputed = await seedBill(fx, { number: 'DS1', date: '2026-01-16', total: 100, status: 'disputed' });
+    const note = await seedNote('supplier', fx.supplierId, 'CN12', 100);
+
+    expect(await refusal(apply({ creditNoteId: note, invoiceId: pending }))).toContain('is pending_approval');
+    expect(await refusal(apply({ creditNoteId: note, invoiceId: disputed }))).toContain('is disputed');
+    expect(await refusal(plan({ creditNoteId: note, invoiceId: pending }))).toContain('is pending_approval');
+    expect((await billState(fx, pending)).amountPaid).toBe(0);
+    expect((await billState(fx, disputed)).amountPaid).toBe(0);
+    expect(await noteState(note)).toEqual({ status: 'approved', applied: 0 });
+  });
+
+  /** Ledger review LOW: the engine writes only lines above a cent, so the dry
+   *  run must not promise what the live call cannot do. */
+  it('refuses an amount below the smallest the engine can write, in the plan as well as live', async () => {
+    const bill = await seedBill(fx, { number: 'AM1', date: '2026-01-17', total: 100 });
+    const note = await seedNote('supplier', fx.supplierId, 'CN13', 50);
+
+    for (const amount of [0.004, 0.01]) {
+      expect(await refusal(plan({ creditNoteId: note, invoiceId: bill, amount }))).toContain('R0.02');
+      expect(await refusal(apply({ creditNoteId: note, invoiceId: bill, amount }))).toContain('R0.02');
+    }
+    const ok = await apply({ creditNoteId: note, invoiceId: bill, amount: 0.02 });
+    expect(ok.amount).toBe(0.02);
+  });
+
+  /** Ledger review LOW: a legacy 'applied' note with money on it must not be
+   *  told it has nothing left — that misstates a stranded balance. */
+  it('names the contradiction on an applied note that still carries a remainder', async () => {
+    const bill = await seedBill(fx, { number: 'LG1', date: '2026-01-18', total: 100 });
+    const note = await seedNote('supplier', fx.supplierId, 'CN14', 100, 'applied');
+
+    const msg = await refusal(apply({ creditNoteId: note, invoiceId: bill }));
+
+    expect(msg).toContain('R100.00');
+    expect(msg).not.toContain('nothing left');
+  });
+
   it('refuses a draft, cancelled or fully applied note', async () => {
     const bill = await seedBill(fx, { number: 'S3', date: '2026-01-11', total: 100 });
     const draft = await seedNote('supplier', fx.supplierId, 'CN6', 50, 'draft');
