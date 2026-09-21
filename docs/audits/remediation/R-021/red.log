@@ -1,0 +1,173 @@
+
+ RUN  v4.1.2 /home/hein/Workspace/IsaFlow/.worktrees/fix-R-021b
+
+ ❯ tests/integration/r021-k090-sage-supplier-import.int.test.ts (7 tests | 7 failed) 504ms
+     × imports a staged bill end to end and agrees with the staged total 14ms
+     × fails the row rather than inventing a supplier when the name matches none 8ms
+     × fails the row when the name matches more than one live supplier 13ms
+     × ignores a soft-deleted supplier of the same name 22ms
+     × leaves another tenant’s pending rows alone 7ms
+     × surfaces the original error, not 25P02, and marks the run failed with it 2ms
+     × recovers the transaction after a row-level failure and marks that row failed 12ms
+ ❯ tests/integration/k088-sage-supplier-import-rerun.int.test.ts (2 tests | 2 failed) 171ms
+     × links the staged row to the bill already in AP and counts it skipped 12ms
+     × imports again once the earlier bill is soft-deleted 8ms
+
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 9 ⎯⎯⎯⎯⎯⎯⎯
+
+ FAIL  tests/integration/k088-sage-supplier-import-rerun.int.test.ts > K-088: a re-run after reset does not book the bill twice > links the staged row to the bill already in AP and counts it skipped
+error: current transaction is aborted, commands ignored until end of transaction block
+ ❯ node_modules/pg/lib/client.js:631:17
+ ❯ LazyQuery.run src/lib/neon.ts:115:19
+    113|       // ORIGINAL cause rather than the bare 25P02 pg would answer wit…
+    114|       assertTxUsable();
+    115|       const res = await ctxClient.query(this.text, this.values);
+       |                   ^
+    116|       return res.rows as T[];
+    117|     }
+ ❯ failRun src/modules/accounting/services/core/sageMigrationService.ts:87:3
+ ❯ importSupplierInvoices src/modules/accounting/services/core/sageSupplierInvoiceImportService.ts:209:5
+ ❯ drive tests/integration/r021-sage-supplier-import.helpers.ts:19:19
+ ❯ tests/integration/k088-sage-supplier-import-rerun.int.test.ts:53:19
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[1/9]⎯
+
+ FAIL  tests/integration/k088-sage-supplier-import-rerun.int.test.ts > K-088: a re-run after reset does not book the bill twice > imports again once the earlier bill is soft-deleted
+error: current transaction is aborted, commands ignored until end of transaction block
+ ❯ node_modules/pg/lib/client.js:631:17
+ ❯ LazyQuery.run src/lib/neon.ts:115:19
+    113|       // ORIGINAL cause rather than the bare 25P02 pg would answer wit…
+    114|       assertTxUsable();
+    115|       const res = await ctxClient.query(this.text, this.values);
+       |                   ^
+    116|       return res.rows as T[];
+    117|     }
+ ❯ failRun src/modules/accounting/services/core/sageMigrationService.ts:87:3
+ ❯ importSupplierInvoices src/modules/accounting/services/core/sageSupplierInvoiceImportService.ts:209:5
+ ❯ drive tests/integration/r021-sage-supplier-import.helpers.ts:19:19
+ ❯ tests/integration/k088-sage-supplier-import-rerun.int.test.ts:75:5
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[2/9]⎯
+
+ FAIL  tests/integration/r021-k090-sage-supplier-import.int.test.ts > R-021: the importer reads the columns its source table actually has > imports a staged bill end to end and agrees with the staged total
+error: current transaction is aborted, commands ignored until end of transaction block
+ ❯ node_modules/pg/lib/client.js:631:17
+ ❯ LazyQuery.run src/lib/neon.ts:115:19
+    113|       // ORIGINAL cause rather than the bare 25P02 pg would answer wit…
+    114|       assertTxUsable();
+    115|       const res = await ctxClient.query(this.text, this.values);
+       |                   ^
+    116|       return res.rows as T[];
+    117|     }
+ ❯ failRun src/modules/accounting/services/core/sageMigrationService.ts:87:3
+ ❯ importSupplierInvoices src/modules/accounting/services/core/sageSupplierInvoiceImportService.ts:209:5
+ ❯ drive tests/integration/r021-sage-supplier-import.helpers.ts:19:19
+ ❯ tests/integration/r021-k090-sage-supplier-import.int.test.ts:72:20
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[3/9]⎯
+
+ FAIL  tests/integration/r021-k090-sage-supplier-import.int.test.ts > R-021: the importer reads the columns its source table actually has > fails the row rather than inventing a supplier when the name matches none
+error: current transaction is aborted, commands ignored until end of transaction block
+ ❯ node_modules/pg/lib/client.js:631:17
+ ❯ LazyQuery.run src/lib/neon.ts:115:19
+    113|       // ORIGINAL cause rather than the bare 25P02 pg would answer wit…
+    114|       assertTxUsable();
+    115|       const res = await ctxClient.query(this.text, this.values);
+       |                   ^
+    116|       return res.rows as T[];
+    117|     }
+ ❯ failRun src/modules/accounting/services/core/sageMigrationService.ts:87:3
+ ❯ importSupplierInvoices src/modules/accounting/services/core/sageSupplierInvoiceImportService.ts:209:5
+ ❯ drive tests/integration/r021-sage-supplier-import.helpers.ts:19:19
+ ❯ tests/integration/r021-k090-sage-supplier-import.int.test.ts:117:20
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[4/9]⎯
+
+ FAIL  tests/integration/r021-k090-sage-supplier-import.int.test.ts > R-021: the importer reads the columns its source table actually has > fails the row when the name matches more than one live supplier
+error: current transaction is aborted, commands ignored until end of transaction block
+ ❯ node_modules/pg/lib/client.js:631:17
+ ❯ LazyQuery.run src/lib/neon.ts:115:19
+    113|       // ORIGINAL cause rather than the bare 25P02 pg would answer wit…
+    114|       assertTxUsable();
+    115|       const res = await ctxClient.query(this.text, this.values);
+       |                   ^
+    116|       return res.rows as T[];
+    117|     }
+ ❯ failRun src/modules/accounting/services/core/sageMigrationService.ts:87:3
+ ❯ importSupplierInvoices src/modules/accounting/services/core/sageSupplierInvoiceImportService.ts:209:5
+ ❯ drive tests/integration/r021-sage-supplier-import.helpers.ts:19:19
+ ❯ tests/integration/r021-k090-sage-supplier-import.int.test.ts:141:20
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[5/9]⎯
+
+ FAIL  tests/integration/r021-k090-sage-supplier-import.int.test.ts > R-021: the importer reads the columns its source table actually has > ignores a soft-deleted supplier of the same name
+error: current transaction is aborted, commands ignored until end of transaction block
+ ❯ node_modules/pg/lib/client.js:631:17
+ ❯ LazyQuery.run src/lib/neon.ts:115:19
+    113|       // ORIGINAL cause rather than the bare 25P02 pg would answer wit…
+    114|       assertTxUsable();
+    115|       const res = await ctxClient.query(this.text, this.values);
+       |                   ^
+    116|       return res.rows as T[];
+    117|     }
+ ❯ failRun src/modules/accounting/services/core/sageMigrationService.ts:87:3
+ ❯ importSupplierInvoices src/modules/accounting/services/core/sageSupplierInvoiceImportService.ts:209:5
+ ❯ drive tests/integration/r021-sage-supplier-import.helpers.ts:19:19
+ ❯ tests/integration/r021-k090-sage-supplier-import.int.test.ts:163:20
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[6/9]⎯
+
+ FAIL  tests/integration/r021-k090-sage-supplier-import.int.test.ts > R-021: the importer reads the columns its source table actually has > leaves another tenant’s pending rows alone
+error: current transaction is aborted, commands ignored until end of transaction block
+ ❯ node_modules/pg/lib/client.js:631:17
+ ❯ LazyQuery.run src/lib/neon.ts:115:19
+    113|       // ORIGINAL cause rather than the bare 25P02 pg would answer wit…
+    114|       assertTxUsable();
+    115|       const res = await ctxClient.query(this.text, this.values);
+       |                   ^
+    116|       return res.rows as T[];
+    117|     }
+ ❯ failRun src/modules/accounting/services/core/sageMigrationService.ts:87:3
+ ❯ importSupplierInvoices src/modules/accounting/services/core/sageSupplierInvoiceImportService.ts:209:5
+ ❯ drive tests/integration/r021-sage-supplier-import.helpers.ts:19:19
+ ❯ tests/integration/r021-k090-sage-supplier-import.int.test.ts:178:5
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[7/9]⎯
+
+ FAIL  tests/integration/r021-k090-sage-supplier-import.int.test.ts > K-090: a failed run reports its own cause and is recorded > surfaces the original error, not 25P02, and marks the run failed with it
+error: current transaction is aborted, commands ignored until end of transaction block
+ ❯ node_modules/pg/lib/client.js:631:17
+ ❯ driveExpectingFailure tests/integration/r021-sage-supplier-import.helpers.ts:43:20
+     41|       let error: unknown;
+     42|       await run(c, companyId, fn).catch((e: unknown) => { error = e; }…
+     43|       const runs = await c.query<{ status: string; error_message: stri…
+       |                    ^
+     44|         'SELECT status, error_message FROM gl_migration_runs WHERE com…
+     45|         [companyId],
+ ❯ tests/integration/r021-k090-sage-supplier-import.int.test.ts:199:21
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[8/9]⎯
+
+ FAIL  tests/integration/r021-k090-sage-supplier-import.int.test.ts > K-090: a failed run reports its own cause and is recorded > recovers the transaction after a row-level failure and marks that row failed
+error: current transaction is aborted, commands ignored until end of transaction block
+ ❯ node_modules/pg/lib/client.js:631:17
+ ❯ LazyQuery.run src/lib/neon.ts:115:19
+    113|       // ORIGINAL cause rather than the bare 25P02 pg would answer wit…
+    114|       assertTxUsable();
+    115|       const res = await ctxClient.query(this.text, this.values);
+       |                   ^
+    116|       return res.rows as T[];
+    117|     }
+ ❯ failRun src/modules/accounting/services/core/sageMigrationService.ts:87:3
+ ❯ importSupplierInvoices src/modules/accounting/services/core/sageSupplierInvoiceImportService.ts:209:5
+ ❯ drive tests/integration/r021-sage-supplier-import.helpers.ts:19:19
+ ❯ tests/integration/r021-k090-sage-supplier-import.int.test.ts:226:20
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[9/9]⎯
+
+
+ Test Files  2 failed (2)
+      Tests  9 failed (9)
+   Start at  21:36:04
+   Duration  1.14s (transform 154ms, setup 0ms, import 280ms, tests 674ms, environment 0ms)
+
