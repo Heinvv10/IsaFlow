@@ -1,0 +1,214 @@
+K-081 GREEN evidence — round 2, after the blind review of 8488ef09
+Branch fix/audit-k081-k084-loans, base origin/master 31fc2f10.
+
+Targeted tests (2026-09-09):
+  unit    tests/unit/services/loans/ + tests/unit/lib/amortisation/ — 12 files, 167 passed
+  real DB tests/integration/k08{1,2,3}-*.int.test.ts — 3 files, 18 passed
+  Fixture PostgreSQL with migrations 644 and 645 applied. No production query was run.
+
+Full unit suite, DATABASE_URL unset:
+  832 files (36 skipped) — 9462 passed, 234 skipped, 7 failed.
+  Failures: bankAllocationUnwind, trackerExclusion, bankAllocationDateShift, cashFlowReport,
+  bankAllocationService. All 5 files pass when re-run together on their own (27 passed).
+  Load average was 153 during the full run and every failure is a 10s+ timeout. None touch
+  loans, amortisation or GL posting. An earlier run at load 110 failed a different subset of
+  the same group, which is the signature of the saturation, not of this branch.
+
+Mutation proofs (change reverted, test re-run, restored):
+  H1 loan_gl_postings fallback reinstated as settlement   unit 1 failed; DB 2 failed
+  H2 prior read off any earlier period lock               DB 2 failed
+  H3 engine cap returned to 5x the term                   unit 2 failed
+  M3 prior read off the latest schedule run               DB 7 failed
+  L4 journal_entry_id IS NOT NULL dropped from the guard  DB 1 failed
+  K-081 movement -> full stLiability                      unit 4 failed
+  K-083 already-posted lookup removed                     DB 1 failed
+  K-084 both validation guards removed                    unit 3 failed
+  M1 is covered by a test that posts a period, marks its rows reversed, proves the re-post is
+  still refused, then proves it succeeds once the rows are deleted.
+
+Engine equivalence (H3): pre-fix vs post-fix engine over 144 combinations
+  (terms 6/12/24/60/120/360 x EXTEND_TERM|MAINTAIN_TERM x k=0..11) — 0 differences.
+  Basis for leaving ENGINE_VERSION at 1.0.0.
+
+Migration 645 backfill probed on the fixture inside a rolled-back transaction:
+  two legacy closes of 100 000 and 92 000 leave a GL current-portion balance of 192 000, and the
+  backfill reconstructs exactly 202602=100 000, 202603=192 000;
+  a second run inserts 0 rows (idempotent);
+  a row written by the application is not overwritten by a further run;
+  no row lands under any other company_id (the INSERT is a per-company loop with company_id bound
+  as a parameter and repeated on every join).
+
+Gates: bunx tsc --noEmit clean. bunx eslint on src/modules/accounting/services/loans/ and
+       src/lib/amortisation/engine.ts clean. check-migration-rls.ts OK. agent-docs:check OK.
+File sizes: every file in the loans module is under the 300-line limit.
+
+=== Review round 2 (H1, M2-M5, L1-L6) ===
+
+Integration (fixture PostgreSQL, --no-file-parallelism):
+  k081-loan-reclass-movement.int.test.ts
+  k081-loan-reclass-backfill.int.test.ts      (new, 8)
+  k081-loan-close-ordering.int.test.ts        (new, 3)
+  k082-loan-arrears-staging.int.test.ts
+  k083-loan-period-journal-idempotency.int.test.ts
+  k083-loan-post-lock-timeout.int.test.ts     (new, 3)
+  -> Test Files 6 passed, Tests 32 passed
+
+Unit (loans + amortisation): 13 files, 177 passed.
+FULL unit suite with DATABASE_URL UNSET: 796 passed | 36 skipped (832 files),
+9469 passed | 234 skipped (9703 tests).
+
+bunx tsc --noEmit: clean.
+bunx eslint (5 loan service files + engine.ts): clean.
+bun run agent-docs:check: OK, 74 mirrors match.
+bunx tsx scripts/ci/check-migration-rls.ts: OK.
+bunx tsx scripts/ci/check-gl-journal-lines-scope.ts: OK.
+psql -f scripts/migrations/sql/659_...sql against the fixture: DO, 0 rows reconstructed.
+
+Mutation proof:
+  * backfill test pointed at 645's DO block instead of 659's -> 5 of 8 RED
+    (H1 duplicate reference, clean-loan-alongside-refused, M3 same-month sum,
+     L4 reversed entry, tenant-named abort). Restored.
+  * assertClosesInOrder + assertFiscalPeriodResolved calls commented out in
+    closeLoanPeriod -> all 3 ordering tests RED. Restored.
+  * SET LOCAL lock_timeout removed from lockLoanForUpdate -> the lock test and
+    the following one hang to the 30s vitest timeout instead of failing fast
+    (2 RED). Restored.
+
+── Round 4 (fixing the round-3 blind review of 4ceaf1aca) ──────────────────
+
+H1 end-to-end, through the REAL runner (not a unit test):
+  fixture seeded with company 1111…e2 — two loans both reference='LN-AMB' plus
+  a posted reclass journal, and a second journal whose description uses a
+  hyphen instead of the en dash.
+  $ cd <scratch>/e2e && DATABASE_URL=<fixture> bun <worktree>/scripts/apply-migrations.ts
+    applying 659_loan_reclass_postings_backfill_rebuild.sql ...
+      [NOTICE] policy "tenant_isolation" for relation "loan_reclass_backfill_refusals" does not exist, skipping
+      [WARNING] loan_reclass_postings backfill refused to reconstruct these loans; their next close
+                reclassifies the full current portion, so correct them by hand and re-run this
+                migration (…). Every refusal is also a row in loan_reclass_backfill_refusals:
+      [WARNING] company_id=11111111-1111-1111-1111-1111111111e2 loan_key=LN-AMB reason=reference is shared by 2 loans
+      [WARNING] company_id=11111111-1111-1111-1111-1111111111e2 loan_key=(unparsed) reason=description does not parse into a loan key and period
+      [NOTICE] loan_reclass_postings rebuilt: 0 row(s) reconstructed from posted reclass journals
+      [NOTICE] refusals recorded: SELECT * FROM loan_reclass_backfill_refusals ORDER BY company_id, yyyymm;
+      ok (58ms)
+    Applied 1 migrations
+  MUTATION — same migration, same DB, `git show origin/master:scripts/apply-migrations.ts`:
+    applying 659_loan_reclass_postings_backfill_rebuild.sql ...
+      ok (12ms)
+    Applied 1 migrations
+  Nothing. The refusals were invisible on a real deploy; that is the defect.
+  Durable record survives regardless:
+    loan_key | yyyymm |                 reason
+    LN-AMB   | 202602 | reference is shared by 2 loans
+             |        | description does not parse into a loan key and period
+
+Integration (fixture DB):
+  k081-loan-reclass-backfill.int.test.ts        11 passed  (was 8)
+  k081-loan-close-ordering.int.test.ts           4 passed  (was 3)
+  k081-loan-reclass-movement.int.test.ts         7 passed
+  k082-loan-arrears-staging.int.test.ts          6 passed
+  k083-loan-period-journal-idempotency.int.test  4 passed
+  k083-loan-post-lock-timeout.int.test.ts        3 passed
+                                          total 35 passed
+
+Unit, loans module: 10 files / 134 passed.
+FULL unit suite, fixture env UNSET (env -u DATABASE_URL -u ISAFLOW_DISPOSABLE_AUTH_TEST bunx vitest run):
+  Test Files  796 passed | 36 skipped (832)
+       Tests  9469 passed | 234 skipped (9703)
+
+Mutation, round 4:
+  pg_advisory_xact_lock removed from assertClosesInOrder     → M4 case RED 3/3; restored GREEN 3/3
+  DELETE loses `AND source = 'backfill'`                     → M1/M5 case RED
+  candidate filter reverted to round-2 strict (> 35, parsed) → M3 + empty-reference cases RED
+  refusal INSERT commented out                               → H1 durable-record + M3 cases RED
+
+Gates: bunx tsc --noEmit clean. eslint clean on the changed src files
+(scripts/apply-migrations.ts is outside the eslint tsconfig project — pre-existing,
+same on origin/master). scripts/ci/check-migration-rls.ts OK (the new
+loan_reclass_backfill_refusals table is under RLS). scripts/audit-migration-naming.ts
+OK. scripts/ci/check-gl-journal-lines-scope.ts OK. bun run agent-docs:check OK.
+
+=== Round 4 (blind review of 259c45453: 0 HIGH, 2 MEDIUM, 7 LOW) — 2026-09-10 ===
+tests/unit/services/loans/                                    9 files, 124 passed
+tests/integration/k081-loan-close-concurrency.int.test.ts     3 passed   (M1, M2)
+tests/integration/k081-loan-reclass-refusal-sweep.int.test.ts 2 passed   (L3, L4)
+k081/k082/k083 integration (8 files)                          41 passed
+FULL unit suite, fixture env UNSET (env -u DATABASE_URL):     796 files, 9469 passed | 234 skipped | 0 failed
+bunx tsc --noEmit                                             clean (exit 0)
+bunx eslint loanPostingGuards.ts loanPeriodCloseService.ts    clean (exit 0)
+bun run agent-docs:check                                      OK: 74 mirrors match
+bun scripts/audit-migration-naming.ts                         341 files, no new duplicate prefixes
+bun scripts/ci/check-migration-rls.ts                         OK
+bash scripts/ci/check-internal-apis.sh                        OK
+
+Mutation proof (applied, run, restored; restored tree byte-identical to pre-mutation diff):
+  M1  drop the request-transaction assert            -> "refuses to close outside a request transaction (M1)" RED
+  M2  assertClosesInOrder back below isPeriodLocked   -> M2 case RED: 23505 loan_period_locks_pkey, not the named error
+  L1  hashtextextended(621) -> hashtext(concat)       -> M4 ordering case RED (holder no longer blocks the close)
+  L4  UNION refusals -> SELECT DISTINCT FROM loans    -> L4 sweep case RED
+  L3  drop ORDER BY 1 LIMIT 50                        -> L3 case RED (51 lines, no "… and 1 more")
+
+L2 notice filter, proven end-to-end on scratch database k081probe (dropped afterwards), one probe
+migration with a duplicate CREATE TABLE IF NOT EXISTS plus its own RAISE NOTICE and RAISE WARNING:
+  origin/master runner (no listener):   applying ... / ok            <- nothing surfaces at all
+  259c45453 runner (unfiltered):        [NOTICE] relation "k081_probe_t" already exists, skipping
+                                        [NOTICE] PROBE-MIGRATION-NOTICE  [WARNING] PROBE-MIGRATION-WARNING
+  round-4 runner (filtered):            [NOTICE] PROBE-MIGRATION-NOTICE  [WARNING] PROBE-MIGRATION-WARNING
+Only the Postgres IF-NOT-EXISTS chatter is dropped; the migration's own NOTICE and WARNING survive.
+
+Shared fixture end state (L5): schema_migrations has no 65% row (621/622/624 only);
+loan_reclass_postings and loan_reclass_backfill_refusals exist with 0 rows.
+
+=== Round 5 (M1 renamed-reference hole, M2 645 re-run, L1/L2/L3) ===
+k081-loan-close-concurrency, k081-loan-close-ordering, k081-loan-reclass-backfill,
+k081-loan-reclass-movement, k081-loan-reclass-refusal-sweep, k081-loan-reclass-rename-hole (new),
+k081-loan-lock-keyspace (new), k082-loan-arrears-staging, k083-loan-period-journal-idempotency,
+k083-loan-post-lock-timeout  ->  Test Files 10 passed (10) / Tests 49 passed (49)
+tests/unit/scripts/migrationNoticeListener.test.ts (new) -> 7 passed
+Full unit suite, fixture env UNSET (env -u DATABASE_URL -u PLATFORM_ADMIN_DATABASE_URL
+-u ISAFLOW_DISPOSABLE_AUTH_TEST bunx vitest run):
+  Test Files 797 passed | 36 skipped (833)
+  Tests      9476 passed | 234 skipped (9710)
+bun run type-check          -> clean
+eslint src/modules/accounting/services/loans/ src/lib/amortisation/engine.ts -> clean
+bun run agent-docs:check    -> OK: 74 agent document mirror(s) match canonical sources
+bun scripts/ci/check-migration-rls.ts -> OK
+
+Mutation proof (each applied, run, restored; git diff byte-identical afterwards):
+  1. 659: drop `AND t.loan_id NOT IN (SELECT loan_id FROM tmp_k081_tainted)`
+       -> rename-hole: Tests 4 failed | 3 passed (7)
+  2. 659: drop the unattributable-journal taint INSERT entirely
+       -> rename-hole: Tests 4 failed | 3 passed (7)
+  3. 659: taint WHERE narrowed from `NOT t.parsed OR t.n_loans = 0` to `t.n_loans = 0`
+       -> rename-hole: Tests 1 failed | 6 passed (7)  [the unparsed-hole case]
+  4. 645: remove the `IF EXISTS (… column_name = 'source') … RETURN` guard
+       -> rename-hole: Tests 1 failed | 6 passed (7)  [the M2 case]
+  5. migrationNoticeListener: filter back to `(n.code ?? '00000') !== '00000'`
+       -> unit: 2 failed | 5 passed (7)  [truncated-identifier + own-ERRCODE cases]
+  6. loanPostingGuards.ts: hashtextextended(companyId,621) -> hashtext(companyId)::bigint
+       -> k081-loan-lock-keyspace: 1 failed, `canceling statement due to statement timeout`
+
+Shared fixture reconciled (round-5 M2): schema_migrations now carries
+644_loan_gl_postings_period_once.sql, 645_loan_reclass_postings.sql and
+659_loan_reclass_postings_backfill_rebuild.sql with their file checksums, so the runner cannot
+re-apply 645 there. Every probe ran inside BEGIN … ROLLBACK; no lock held across a statement batch.
+
+── Round 8 (closing round; fixture rebuilt after the 2026-09-10 host reboot, new ports) ──
+tests/integration/k08{1,2,3}-*.int.test.ts, --no-file-parallelism
+  -> Test Files 12 passed (12) / Tests 56 passed (56)
+Full unit suite, fixture env UNSET (env -u DATABASE_URL -u PLATFORM_ADMIN_DATABASE_URL
+-u MIGRATION_ADMIN_DATABASE_URL -u ISAFLOW_DISPOSABLE_AUTH_TEST bunx vitest run):
+  Test Files 799 passed | 36 skipped (835)
+  Tests      9476 passed | 234 skipped (9710)
+bun run type-check                       -> clean
+tsc -p <scratch>/tsconfig.scripts.json (scripts/simulate-fy2026-*.ts, noUnusedLocals) -> clean
+npx tsx import probe of scripts/simulate-fy2026-loans.ts -> '@/lib/als' resolves, exports present
+bun run agent-docs:check                 -> OK: 74 agent document mirror(s) match canonical sources
+bun scripts/ci/check-migration-rls.ts    -> OK
+eslint scripts/simulate-fy2026-*.ts      -> not parseable: scripts/** is outside the eslint project
+                                            service, as tests/** is. No src/ file changed this round.
+
+Mutation proof (file copy taken, mutation applied, test run, copy restored; git diff unchanged):
+  1. 659: exact schedule confirmation reverted to `ABS(COALESCE(lsr.st_liability,0) - r.st_liability) <= 0.01`
+       -> k081-loan-reclass-key-swap: Tests 1 failed | 6 passed (7) — the failure is the new
+          one-cent swap case; the six pre-existing cases stayed green.

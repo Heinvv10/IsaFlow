@@ -76,6 +76,9 @@ function primeSqlToStepFive() {
     if (call === 3) return [{ financial_year_start: 3 }];
     if (call === 4) return [{ id: 'rev-1', account_code: '4000', account_name: 'Sales', balance: '1000' }];
     if (call === 5) return [{ id: 'exp-1', account_code: '5000', account_name: 'Rent', balance: '400' }];
+    // The year's own closing journal, read before the write (K-113). No row:
+    // this year has never been closed.
+    if (call === 6) return [];
     // The fiscal period covering the closing date, resolved before the write
     // transaction opens: a NULL fiscal_period_id would leave the year-end
     // journal outside the trial balance permanently, and the next statement

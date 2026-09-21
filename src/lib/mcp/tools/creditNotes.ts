@@ -32,7 +32,7 @@ import {
   toolError,
 } from './toolHelpers';
 
-const STATUSES = ['draft', 'approved', 'applied', 'cancelled'] as const;
+const STATUSES = ['draft', 'approved', 'partially_applied', 'applied', 'cancelled'] as const;
 const TYPES = ['customer', 'supplier'] as const;
 
 /**

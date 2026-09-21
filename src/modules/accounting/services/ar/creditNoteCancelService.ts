@@ -17,9 +17,21 @@ import { getSystemAccount } from '../gl/systemAccountResolver';
 import type { CreditNote } from '../../types/ar.types';
 import type { JournalLineInput } from '../../types/gl.types';
 import { lockCreditNoteForUpdate } from './creditNoteLock';
+import { withCustomerInvoiceLock } from './customerInvoiceLock';
+import { withSupplierInvoiceLock } from '../ap/supplierInvoiceLock';
 import { recomputeInvoiceStatus } from './invoiceStatusRecompute';
+import {
+  assertAllocationsMatchApplied,
+  deriveCreditNoteStatus,
+  reverseCreditNoteApplications,
+} from '../shared/creditNoteFifo';
+import { UNAPPLICABLE_STATUSES } from '../shared/creditNoteApplicationWrites';
+import { EPS, round2 } from '../shared/autoAllocateStrategy';
 import { mapRow } from './creditNoteMapper';
 import { actorMeta, type PostingActorOpts } from '../gl/journalEntryMeta';
+
+/** The states that have something to reverse. A draft has posted nothing. */
+const CANCELLABLE_STATUSES = new Set(['approved', 'partially_applied', 'applied']);
 
 export async function cancelCreditNote(companyId: string, 
   id: string,
@@ -40,9 +52,15 @@ export async function cancelCreditNote(companyId: string,
     // 'applied' at approve (N6), and the un-apply + GL-reversal below already
     // handles the applied state — restricting to 'approved' made every
     // linked/applied note permanently uncancellable.
-    if (String(cn.status) !== 'approved' && String(cn.status) !== 'applied') {
+    // 'partially_applied' joins the two: a note that consumed part of its face
+    // value has both a journal to reverse and allocations to give back, so
+    // excluding it would make exactly the notes the FIFO walk produces
+    // uncancellable.
+    if (!CANCELLABLE_STATUSES.has(String(cn.status))) {
       throw new Error(`Cannot cancel credit note with status: ${cn.status}`);
     }
+
+    const side = String(cn.type) === 'customer' ? 'customer' as const : 'supplier' as const;
 
     // Reverse the GL journal entry. (It used to manage its own transaction; it
     // now runs on the ALS-bound request client like everything else, so the
@@ -56,40 +74,57 @@ export async function cancelCreditNote(companyId: string,
       );
     }
 
-    // Un-apply exactly what was applied, never the note's face value. The apply
-    // path caps at the invoice's outstanding balance (min(total, outstanding)),
-    // so reversing total_amount erased real cash receipts: an invoice of 1000
-    // with 950 paid absorbs only 50 of a 115 note, and un-crediting 115 left it
-    // showing 115 outstanding against a true 50.
-    //
-    // The guard is `amount_paid >= X` rather than GREATEST(0, ...): flooring at
-    // zero silently absorbs exactly the corruption worth hearing about, so a
-    // row that cannot absorb the reversal refuses loudly instead.
+    // Un-apply exactly what was applied, never the note's face value, and do it
+    // from the ALLOCATION ROWS rather than a single column: since migration 677
+    // a note can be spread over several documents, and `applied_amount` cannot
+    // say which. reverseCreditNoteApplications restores each document,
+    // recomputes its status and deletes the rows, refusing loudly when a row
+    // cannot absorb the reversal.
+    const restored = await reverseCreditNoteApplications(
+      companyId, id, side, Number(cn.applied_amount ?? 0),
+    );
+
+    // LEGACY FALLBACK. A note approved before migration 677 whose backfill could
+    // not name a document — `applied_amount > 0` with no link — has no rows to
+    // read. Its single linked document is the only thing it can have credited,
+    // so the pre-677 path still runs for it. Dropping this would silently leave
+    // those invoices over-credited after a cancel.
     const unapply = Number(cn.applied_amount ?? 0);
-    if (unapply > 0) {
-      const invoiceTable = String(cn.type) === 'customer' ? cn.customer_invoice_id : cn.supplier_invoice_id;
-      if (String(cn.type) === 'customer' && invoiceTable) {
-        const done = (await sql`
-          UPDATE customer_invoices
-          SET amount_paid = amount_paid - ${unapply}
-          WHERE id = ${invoiceTable}::UUID AND company_id = ${companyId}::UUID
-            AND amount_paid >= ${unapply}
-          RETURNING id
-        `) as Record<string, unknown>[];
+    if (restored.length === 0 && unapply > 0) {
+      const invoiceTable = side === 'customer' ? cn.customer_invoice_id : cn.supplier_invoice_id;
+      if (side === 'customer' && invoiceTable) {
+        // Bounded like every other invoice row lock in this file: a bare
+        // UPDATE waits on the row for as long as the holder lives, while this
+        // request is itself holding the credit note.
+        const done = await withCustomerInvoiceLock(
+          'cancelCreditNote',
+          `Invoice ${String(invoiceTable)}`,
+          async () => (await sql`
+            UPDATE customer_invoices
+            SET amount_paid = amount_paid - ${unapply}
+            WHERE id = ${invoiceTable}::UUID AND company_id = ${companyId}::UUID
+              AND amount_paid >= ${unapply}
+            RETURNING id
+          `) as Record<string, unknown>[],
+        );
         if (done.length === 0) {
           throw new Error(
             `Cannot cancel credit note ${id}: invoice ${String(invoiceTable)} has less applied than the ${unapply} this note credited.`,
           );
         }
         await recomputeInvoiceStatus(companyId, 'customer', String(invoiceTable));
-      } else if (String(cn.type) === 'supplier' && invoiceTable) {
-        const done = (await sql`
-          UPDATE supplier_invoices
-          SET amount_paid = amount_paid - ${unapply}
-          WHERE id = ${invoiceTable}::UUID AND company_id = ${companyId}::UUID
-            AND amount_paid >= ${unapply}
-          RETURNING id
-        `) as Record<string, unknown>[];
+      } else if (side === 'supplier' && invoiceTable) {
+        const done = await withSupplierInvoiceLock(
+          'cancelCreditNote',
+          String(invoiceTable),
+          async () => (await sql`
+            UPDATE supplier_invoices
+            SET amount_paid = amount_paid - ${unapply}
+            WHERE id = ${invoiceTable}::UUID AND company_id = ${companyId}::UUID
+              AND amount_paid >= ${unapply}
+            RETURNING id
+          `) as Record<string, unknown>[],
+        );
         if (done.length === 0) {
           throw new Error(
             `Cannot cancel credit note ${id}: supplier invoice ${String(invoiceTable)} has less applied than the ${unapply} this note credited.`,
@@ -111,7 +146,9 @@ export async function cancelCreditNote(companyId: string,
     const updated = cancelledRows[0];
     if (!updated) throw new Error(`Credit note ${id} vanished while being cancelled.`);
 
-    log.info('Cancelled credit note', { id, reason }, 'accounting');
+    log.info('Cancelled credit note', {
+      id, reason, restoredDocuments: restored.length,
+    }, 'accounting');
     return mapRow(updated);
   } catch (err) {
     log.error('Failed to cancel credit note', { id, error: err }, 'accounting');
@@ -139,34 +176,77 @@ export async function applyCreditNoteToInvoice(
   //      retryable to an agent).
   const cn = await lockCreditNoteForUpdate(companyId, creditNoteId);
   if (!cn) throw new Error('Credit note not found');
-  if (String(cn.status) !== 'approved') throw new Error('Credit note must be approved before applying');
+  // 'partially_applied' is applicable too: what is left of the note is real
+  // credit, and refusing here would strand it the moment the FIFO walk could
+  // not place the whole face value.
+  if (String(cn.status) !== 'approved' && String(cn.status) !== 'partially_applied') {
+    throw new Error('Credit note must be approved before applying');
+  }
   if (String(cn.type) !== 'customer') throw new Error('Only customer credit notes can be applied to invoices');
 
-  const invRows = (await sql`
-    SELECT * FROM customer_invoices
-    WHERE id = ${invoiceId}::UUID AND company_id = ${companyId}
-  `) as Record<string, unknown>[];
+  // ...and the invoice SECOND, also locked. Without FOR UPDATE, `outstanding`
+  // below is derived from a row another request may already be changing, and
+  // the absolute write erases whatever it wrote: a second credit note or a
+  // receipt allocation applied concurrently vanishes from amount_paid while
+  // still counting as applied. The note-then-invoice order is the one the
+  // comment above establishes, so the lock added here does not create a cycle.
+  const invRows = await withCustomerInvoiceLock(
+    'applyCreditNoteToInvoice',
+    `Invoice ${invoiceId}`,
+    async () => (await sql`
+      SELECT * FROM customer_invoices
+      WHERE id = ${invoiceId}::UUID AND company_id = ${companyId}
+      FOR UPDATE
+    `) as Record<string, unknown>[],
+  );
   if (invRows.length === 0) throw new Error('Invoice not found');
   const inv = invRows[0]!;
 
   const clientMatch = String(inv.client_id || inv.customer_id) === String(cn.client_id);
   if (!clientMatch) throw new Error('Invoice and credit note must belong to the same customer');
 
-  const outstanding = Math.max(0, Number(inv.total_amount) - Number(inv.amount_paid));
-  const applyAmount = Math.min(Number(cn.total_amount), outstanding);
-  if (applyAmount <= 0) throw new Error('Invoice has no outstanding balance');
+  // The status guard the CREATE path already applies to a link
+  // (creditNoteLinkService), which this path never had: it would credit a draft
+  // or cancelled invoice — a document that has posted nothing, so reducing its
+  // balance moves a receivable the ledger does not carry. Same set the FIFO
+  // walk refuses on, so the manual and automatic paths agree about eligibility.
+  const invStatus = String(inv.status ?? '');
+  if (UNAPPLICABLE_STATUSES.customer.includes(invStatus)) {
+    throw new Error(`Cannot apply a credit note to an invoice with status: ${invStatus}`);
+  }
 
-  const newPaid = Number(inv.amount_paid) + applyAmount;
+  // The column and the rows must agree before this extends either — an
+  // unattributable legacy note is reconciled by hand, never silently extended.
+  await assertAllocationsMatchApplied(companyId, creditNoteId, Number(cn.applied_amount ?? 0));
+
+  const outstanding = Math.max(0, round2(Number(inv.total_amount) - Number(inv.amount_paid)));
+  // The note's REMAINING credit, not its face value: a partly applied note has
+  // already consumed some of itself, and applying the face value again would
+  // credit the same money twice.
+  const alreadyApplied = round2(Number(cn.applied_amount ?? 0));
+  const available = round2(Number(cn.total_amount) - alreadyApplied);
+  const applyAmount = round2(Math.min(available, outstanding));
+  if (applyAmount <= EPS) throw new Error('Invoice has no outstanding balance');
+
+  // The allocation row, then the money: a row that exists without the balance
+  // move is the one inconsistency `credit_note_allocations` was added to make
+  // impossible, and its UNIQUE refuses a second application to the same pair.
+  await sql`
+    INSERT INTO credit_note_allocations (company_id, credit_note_id, invoice_id, amount_allocated)
+    VALUES (${companyId}::UUID, ${creditNoteId}::UUID, ${invoiceId}::UUID, ${applyAmount})
+  `;
   await sql`
     UPDATE customer_invoices
-    SET amount_paid = ${newPaid}
+    SET amount_paid = COALESCE(amount_paid, 0) + ${applyAmount}
     WHERE id = ${invoiceId}::UUID AND company_id = ${companyId}
   `;
   await recomputeInvoiceStatus(companyId, 'customer', invoiceId);
+  const nowApplied = round2(alreadyApplied + applyAmount);
   const appliedRows = (await sql`
     UPDATE credit_notes
-    SET status = 'applied', customer_invoice_id = ${invoiceId}::UUID, updated_at = NOW(),
-        applied_amount = ${applyAmount}
+    SET status = ${deriveCreditNoteStatus(nowApplied, Number(cn.total_amount))},
+        customer_invoice_id = ${invoiceId}::UUID, updated_at = NOW(),
+        applied_amount = ${nowApplied}
     WHERE id = ${creditNoteId}::UUID AND company_id = ${companyId}
     RETURNING *
   `) as Record<string, unknown>[];

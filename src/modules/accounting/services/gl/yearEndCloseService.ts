@@ -29,62 +29,32 @@
  *    match is now preferred explicitly.
  */
 
-import { sql, withTransaction } from '@/lib/neon';
-import type { AccountBalanceRow } from './yearEndJournalBuilder';
+import { sql } from '@/lib/neon';
 import { log } from '@/lib/logger';
 import { fmtDate } from '@/lib/fmtDate';
 import { getFiscalPeriodIdForDate } from './fiscalPeriodService';
 import { getFiscalYearStartMonth } from './fiscalYearBasis';
-import { buildPreview, resolveRetainedEarnings } from './yearEndJournalBuilder';
+import { roundToCents } from '../../utils/doubleEntry';
+import {
+  buildPreview, loadPLBalances, reloadNetIncome, resolveRetainedEarnings, type FiscalYearRange,
+} from './yearEndJournalBuilder';
+import {
+  alreadyClosedResult, classifyClosingJournal, findClosingJournal, isClosingNumberConflict,
+  postClosingJournal,
+} from './yearEndJournalPoster';
 import { fiscalYearRange } from './fiscalYearCalendar';
 
-export interface YearEndJournalLine {
-  accountId: string;
-  accountCode: string;
-  accountName: string;
-  debit: number;
-  credit: number;
-}
-
-export interface YearEndJournalPreview {
-  /** The year's last day — where the closing journal lands. */
-  entryDate: string;
-  entryNumber: string;
-  description: string;
-  lines: YearEndJournalLine[];
-  totalDebit: number;
-  totalCredit: number;
-}
-
-export interface CloseYearResult {
-  closingEntry: Record<string, unknown>;
-  netIncome: number;
-  message: string;
-}
-
-export interface CloseYearDryRunResult {
-  dryRun: true;
-  netIncome: number;
-  preview: YearEndJournalPreview;
-}
-
-export type CloseYearError =
-  | { error: 'open_periods'; count: number; openPeriods: Array<{ id: string; periodName: string; periodNumber: number }> }
-  | { error: 'year_not_found' }
-  | { error: 'no_retained_earnings' }
-  | { error: 'ambiguous_retained_earnings'; accountCodes: string[] }
-  | { error: 'no_fiscal_period'; entryDate: string }
-  | {
-      error: 'period_range_mismatch';
-      expected: { startDate: string; endDate: string };
-      actual: { startDate: string; endDate: string };
-      startMonth: number;
-    };
-
-export interface CloseYearOptions {
-  /** Run every guard and return the journal, writing nothing. */
-  dryRun?: boolean;
-}
+export type {
+  CloseYearDryRunResult,
+  CloseYearError,
+  CloseYearOptions,
+  CloseYearResult,
+  YearEndJournalLine,
+  YearEndJournalPreview,
+} from './yearEndCloseTypes';
+import type {
+  CloseYearDryRunResult, CloseYearError, CloseYearOptions, CloseYearResult,
+} from './yearEndCloseTypes';
 
 export async function closeFiscalYear(
   companyId: string,
@@ -118,8 +88,14 @@ export async function closeFiscalYear(
     SELECT MIN(start_date) AS start_date, MAX(end_date) AS end_date
     FROM fiscal_periods WHERE fiscal_year = ${yearLabel} AND company_id = ${companyId}
   `;
-  const yearRange = rangeRows[0];
-  if (!yearRange || yearRange.start_date === null) return { error: 'year_not_found' };
+  const aggregate = rangeRows[0] as
+    { start_date: Date | string | null; end_date: Date | string | null } | undefined;
+  if (!aggregate || aggregate.start_date === null || aggregate.end_date === null) {
+    return { error: 'year_not_found' };
+  }
+  const yearRange: FiscalYearRange = {
+    start_date: aggregate.start_date, end_date: aggregate.end_date,
+  };
 
   // 2a. The periods must actually BE this company's fiscal year.
   //
@@ -140,35 +116,9 @@ export async function closeFiscalYear(
     return { error: 'period_range_mismatch', expected, actual, startMonth };
   }
 
-  const revenueAccounts = (await sql`
-    SELECT ga.id, ga.account_code, ga.account_name,
-      COALESCE(SUM(CASE WHEN je.id IS NULL THEN 0 ELSE jl.credit - jl.debit END), 0)::numeric AS balance
-    FROM gl_accounts ga
-    LEFT JOIN gl_journal_lines jl ON jl.gl_account_id = ga.id AND jl.company_id = ${companyId}::UUID
-    LEFT JOIN gl_journal_entries je ON je.id = jl.journal_entry_id AND je.company_id = ${companyId}
-      AND je.status = 'posted'
-      AND je.entry_date >= ${yearRange.start_date}
-      AND je.entry_date <= ${yearRange.end_date}
-    WHERE ga.account_type = 'revenue' AND ga.company_id = ${companyId}
-    GROUP BY ga.id, ga.account_code, ga.account_name
-    HAVING COALESCE(SUM(CASE WHEN je.id IS NULL THEN 0 ELSE jl.credit - jl.debit END), 0) != 0
-    ORDER BY ga.account_code
-  `) as unknown as AccountBalanceRow[];
-
-  const expenseAccounts = (await sql`
-    SELECT ga.id, ga.account_code, ga.account_name,
-      COALESCE(SUM(CASE WHEN je.id IS NULL THEN 0 ELSE jl.debit - jl.credit END), 0)::numeric AS balance
-    FROM gl_accounts ga
-    LEFT JOIN gl_journal_lines jl ON jl.gl_account_id = ga.id AND jl.company_id = ${companyId}::UUID
-    LEFT JOIN gl_journal_entries je ON je.id = jl.journal_entry_id AND je.company_id = ${companyId}
-      AND je.status = 'posted'
-      AND je.entry_date >= ${yearRange.start_date}
-      AND je.entry_date <= ${yearRange.end_date}
-    WHERE ga.account_type = 'expense' AND ga.company_id = ${companyId}
-    GROUP BY ga.id, ga.account_code, ga.account_name
-    HAVING COALESCE(SUM(CASE WHEN je.id IS NULL THEN 0 ELSE jl.debit - jl.credit END), 0) != 0
-    ORDER BY ga.account_code
-  `) as unknown as AccountBalanceRow[];
+  const { revenueAccounts, expenseAccounts } = await loadPLBalances(
+    companyId, yearRange.start_date, yearRange.end_date,
+  );
 
   const totalRevenue = revenueAccounts.reduce((s, a) => s + Number(a.balance), 0);
   const totalExpenses = expenseAccounts.reduce((s, a) => s + Number(a.balance), 0);
@@ -181,76 +131,105 @@ export async function closeFiscalYear(
     yearLabel, fmtDate(yearRange.end_date), revenueAccounts, expenseAccounts, retained, netIncome,
   );
 
-  if (dryRun) return { dryRun: true, netIncome, preview };
+  // BEFORE the dry-run return, and before the write: both halves have to tell
+  // an already-closed year apart from a dormant one, and a re-run after P&L
+  // landed in the closed year has a NON-empty preview, so it used to reach the
+  // INSERT and die on uq_gl_je_company_entry_number as a raw 23505.
+  const existingEntry = await findClosingJournal(companyId, preview.entryNumber);
+  if (existingEntry) {
+    const refusal = classifyClosingJournal(preview.entryNumber, existingEntry);
+    if (refusal) return refusal;
+  }
 
-  // Resolved BEFORE the transaction opens. A journal with a NULL
-  // fiscal_period_id is outside the trial balance, the VAT201 and the AFS
-  // permanently, and this one is followed immediately by LOCKING every period
-  // in the year — so an unstamped year-end journal could never be corrected in
-  // place afterwards. The raw INSERT bypasses createJournalEntry, which is what
-  // resolves the period everywhere else.
-  const fiscalPeriodId = await getFiscalPeriodIdForDate(companyId, preview.entryDate);
-  if (!fiscalPeriodId) return { error: 'no_fiscal_period', entryDate: preview.entryDate };
+  if (dryRun) {
+    // RE-READ for the same reason `alreadyClosedResult` re-reads: the netIncome
+    // above was read before the closing-journal lookup, so a close that
+    // committed in between would have it report the winner's own movement as
+    // stranded.
+    const unclosedNetIncome = existingEntry
+      ? roundToCents(await reloadNetIncome(companyId, yearRange.start_date, yearRange.end_date))
+      : 0;
+    // Two shapes, not one shape plus a flag: an already-closed year hands back
+    // `preview: null` and names its journal `residualPreview`, so a consumer
+    // cannot read money the close will never sweep up as an offer to post.
+    // `netIncome` follows the same rule as `alreadyClosedResult` — once the
+    // year is known to be closed it is the figure read AFTER the lookup, not
+    // the stale pre-lookup one a racing close would leave holding its own
+    // movement.
+    return existingEntry
+      ? {
+        dryRun: true,
+        netIncome: unclosedNetIncome,
+        preview: null,
+        residualPreview: preview,
+        alreadyClosed: true,
+        existingEntry,
+        unclosedNetIncome,
+      }
+      : {
+        dryRun: true, netIncome, preview, alreadyClosed: false, existingEntry: null,
+        unclosedNetIncome,
+      };
+  }
 
-  const closingEntry = await postClosingJournal(
-    companyId, userId, yearLabel, preview, fiscalPeriodId,
-  );
+  if (existingEntry) {
+    return alreadyClosedResult(companyId, yearLabel, existingEntry, yearRange);
+  }
+
+  let closingEntry: Record<string, unknown> | null;
+  let periodsLocked: number;
+  try {
+    // Resolved BEFORE the transaction opens, and only where a journal is
+    // actually written. A journal with a NULL fiscal_period_id is outside the
+    // trial balance, the VAT201 and the AFS permanently, and this one is
+    // followed immediately by LOCKING every period in the year — so an
+    // unstamped year-end journal could never be corrected in place afterwards.
+    // The raw INSERT bypasses createJournalEntry, which resolves the period
+    // everywhere else. A DORMANT year writes no journal, so refusing it for
+    // want of a period to stamp would block a close that stamps nothing.
+    let fiscalPeriodId: string | null = null;
+    if (preview.lines.length > 0) {
+      fiscalPeriodId = await getFiscalPeriodIdForDate(companyId, preview.entryDate);
+      if (!fiscalPeriodId) return { error: 'no_fiscal_period', entryDate: preview.entryDate };
+    }
+
+    ({ entry: closingEntry, periodsLocked } = await postClosingJournal(
+      companyId, userId, yearLabel, preview, fiscalPeriodId,
+    ));
+  } catch (err) {
+    // The lookup above is a separate statement from the INSERT, so two
+    // simultaneous closes both read `null` and both arrive here. The unique
+    // index holds the ledger — one journal, never two — and the loser's whole
+    // transaction rolled back, so it wrote nothing. What it must NOT do is
+    // answer 500 for a year that is now correctly closed.
+    if (!isClosingNumberConflict(err)) throw err;
+    const winner = await findClosingJournal(companyId, preview.entryNumber);
+    // Nothing holds the number now: the 23505 is not the one this branch
+    // explains, so it must not be dressed up as a closed year.
+    if (!winner) throw err;
+    // Only a POSTED year_end row means the year is closed. Anything else took
+    // the number BETWEEN the lookup and the INSERT — the same squatter the
+    // lookup refuses by name, arriving a moment later — so it earns the same
+    // typed refusal rather than a rethrown 23505 → HTTP 500.
+    const refusal = classifyClosingJournal(preview.entryNumber, winner);
+    if (refusal) return refusal;
+    log.info('Year-end close lost the race for the closing entry number; reporting the winner',
+      { companyId, year: yearLabel, entryId: winner.id, module: 'accounting' });
+    return alreadyClosedResult(companyId, yearLabel, winner, yearRange);
+  }
 
   log.info('Year-end processed', {
-    year: yearLabel, entryId: closingEntry.id, netIncome, module: 'accounting',
+    year: yearLabel, entryId: closingEntry?.id ?? null, periodsLocked, netIncome, module: 'accounting',
   });
 
   return {
     closingEntry,
+    periodsLockedInYear: periodsLocked,
+    alreadyClosed: false,
     netIncome,
-    message: `Year ${yearLabel} closed. Net income R${netIncome.toFixed(2)} transferred to Retained Earnings.`,
+    unclosedNetIncome: 0,
+    message: closingEntry
+      ? `Year ${yearLabel} closed. Net income R${netIncome.toFixed(2)} transferred to Retained Earnings.`
+      : `Year ${yearLabel} closed. No posted profit or loss in the year, so no closing journal was needed.`,
   };
-}
-
-async function postClosingJournal(
-  companyId: string,
-  userId: string,
-  yearLabel: string,
-  preview: YearEndJournalPreview,
-  fiscalPeriodId: string | null,
-): Promise<Record<string, unknown>> {
-  // Atomic: a partial year-end close is unrecoverable — half the P&L zeroed and
-  // the periods left open.
-  return withTransaction(async (tx) => {
-    // NO total_debit / total_credit. Those columns do not exist on
-    // gl_journal_entries — not in isaflow_dev, not in production — so this
-    // INSERT raised 42703 and EVERY live year-end close failed before writing a
-    // line, over MCP and through the UI route alike. Brightsphere's four
-    // unclosed years are that, not an oversight by whoever runs the close. The
-    // totals live on the lines and every reader derives them (see
-    // transactionLedgerService, sageMigrationCompareService); the preview still
-    // reports them to the caller, which is where they were actually wanted.
-    const closingRows = await tx`
-      INSERT INTO gl_journal_entries (
-        id, company_id, entry_number, entry_date, fiscal_period_id, description,
-        source, status, created_by, created_at, posted_by, posted_at, posting_agent
-      ) VALUES (
-        gen_random_uuid(), ${companyId}, ${preview.entryNumber}, ${preview.entryDate},
-        ${fiscalPeriodId}, ${preview.description}, 'year_end', 'posted',
-        ${userId}, NOW(), ${userId}, NOW(), 'system:year-end-close'
-      ) RETURNING *
-    `;
-    const entry = (closingRows as Record<string, unknown>[])[0];
-    if (!entry) throw new Error('Failed to create closing journal entry');
-
-    for (const line of preview.lines) {
-      await tx`
-        INSERT INTO gl_journal_lines (id, journal_entry_id, gl_account_id, debit, credit, description, created_at, company_id)
-        VALUES (gen_random_uuid(), ${entry.id}, ${line.accountId}, ${line.debit}, ${line.credit},
-                'Year-end close', NOW(), ${companyId}::UUID)
-      `;
-    }
-
-    await tx`
-      UPDATE fiscal_periods SET status = 'locked'
-      WHERE fiscal_year = ${yearLabel} AND company_id = ${companyId}
-    `;
-
-    return entry;
-  });
 }

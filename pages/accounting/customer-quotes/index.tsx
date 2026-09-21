@@ -173,8 +173,16 @@ export default function CustomerQuotesPage() {
     if (!window.confirm(`Convert ${q.quoteNumber} to a Sales Order?`)) return;
     setConvertingToSO(q.id);
     const res = await apiFetch('/api/accounting/customer-quotes-action', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ id: q.id, action: 'convert-to-order' }) });
-    const json = await res.json() as { data?: { salesOrderId?: string }; salesOrderId?: string; error?: { message?: string } };
+    const json = await res.json() as {
+      data?: { salesOrderId?: string }; salesOrderId?: string;
+      error?: { message?: string; details?: { salesOrderId?: string | null } };
+    };
+    // A 409 with an order id is the double-click: the first click already made
+    // the order, so open it rather than reporting a failure the user caused by
+    // succeeding twice.
+    const existingOrderId = json.error?.details?.salesOrderId;
     if (res.ok) await router.push(`/accounting/customer-sales-orders/${json.data?.salesOrderId || json.salesOrderId}`);
+    else if (res.status === 409 && existingOrderId) await router.push(`/accounting/customer-sales-orders/${existingOrderId}`);
     else window.alert(json?.error?.message || 'Failed');
     setConvertingToSO(null);
   };

@@ -1,0 +1,5 @@
+import { validateGeneratedSQL } from './nlQueryValidationService';
+import { enforceTenantScope } from './nlQueryScopeGuard';
+for (const q of ["SELECT query_to_xml('SELECT marker FROM r004_private_fixture', true, false, '')", "SELECT table_to_xml('r004_private_fixture', true, false, '')", "SELECT lo_get(123)"]) {
+ const v = validateGeneratedSQL(q); console.log(JSON.stringify({q,validation:v,scope:v.valid?enforceTenantScope(v.sanitizedSQL,'11111111-1111-1111-1111-111111111111'):null}));
+}

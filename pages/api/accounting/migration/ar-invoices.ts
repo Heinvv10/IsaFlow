@@ -11,8 +11,12 @@ import { withAuth, type CompanyAuthedRequest, type AuthenticatedNextApiRequest, 
 import { withCsrf } from '@/lib/auth/withCsrf';
 import { log } from '@/lib/logger';
 import {
+  ARInvoiceRowSchema,
+  ImportEnvelopeSchema,
+  parseInvoiceRows,
+} from '@/modules/accounting/services/core/migrationRowSchemas';
+import {
   importARInvoices,
-  type ARInvoiceRow,
 } from '@/modules/accounting/services/core/migrationImportService';
 
 async function handler(req: NextApiRequest, res: NextApiResponse) {
@@ -22,19 +26,23 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
 
   const { companyId } = req as CompanyAuthedRequest;
   const userId = (req as AuthenticatedNextApiRequest).user.id;
-  const { sessionId, invoices } = req.body as {
-    sessionId?: string;
-    invoices?: ARInvoiceRow[];
-  };
-
-  if (!sessionId?.trim()) {
-    return apiResponse.validationError(res, { sessionId: 'Session ID is required' });
+  const parsed = ImportEnvelopeSchema.safeParse(req.body);
+  if (!parsed.success) {
+    return apiResponse.validationError(res, parsed.error.flatten().fieldErrors);
   }
-  if (!invoices || !Array.isArray(invoices) || invoices.length === 0) {
-    return apiResponse.validationError(res, { invoices: 'Non-empty invoices array is required' });
-  }
+  const { sessionId, invoices } = parsed.data;
 
-  const result = await importARInvoices(companyId, sessionId, invoices, userId);
+  // Per row, not per file: a single malformed line used to 400 the whole
+  // upload with no row number. The failures travel with the rest of the run's
+  // errors so the operator sees every bad line at once, by row.
+  const { rows, sourceRows, errors: rowErrors } = parseInvoiceRows(
+    ARInvoiceRowSchema, 'ar_invoices', invoices,
+  );
+
+  const result = await importARInvoices(companyId, sessionId, rows, userId, {
+    sourceRows,
+    priorErrors: rowErrors,
+  });
 
   log.info('AR invoices imported', {
     companyId,

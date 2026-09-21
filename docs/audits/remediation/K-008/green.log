@@ -1,0 +1,20 @@
+
+ RUN  v4.1.2 /home/hein/Workspace/IsaFlow/.worktrees/audit-remediation-20260908
+
+{"level":"info","message":"API Request: POST /api/accounting/nl-query","timestamp":"2026-09-09T03:10:52.179Z","component":"API","requestId":"01M222B6RJXXFKVK45HGPGK6P8","data":{"type":"request","method":"POST","url":"/api/accounting/nl-query","query":{},"body":{"question":"Show requested financial records"}}}
+{"level":"info","message":"API Response: POST /api/accounting/nl-query - 200 (21ms)","timestamp":"2026-09-09T03:10:52.199Z","component":"API","requestId":"01M222B6RJXXFKVK45HGPGK6P8","data":{"type":"response","method":"POST","url":"/api/accounting/nl-query","statusCode":200,"duration":"21ms"}}
+{"level":"info","message":"request_completed","timestamp":"2026-09-09T03:10:52.199Z","component":"http","requestId":"01M222B6RJXXFKVK45HGPGK6P8","data":{"event":"request_completed","route":"/api/accounting/nl-query","method":"POST","status":200,"durationMs":21,"userId":"718483ff-dce1-489b-b607-e3863b3c026d","companyId":"8f79833e-aab8-4a4f-be6a-c2dff9ee9f26","outcome":"ok"}}
+{"level":"info","message":"API Request: POST /api/accounting/nl-query","timestamp":"2026-09-09T03:10:52.217Z","component":"API","requestId":"01M222B6SSJS328X04SCR4KGRG","data":{"type":"request","method":"POST","url":"/api/accounting/nl-query","query":{},"body":{"question":"Show requested financial records"}}}
+{"level":"info","message":"NL query executed","timestamp":"2026-09-09T03:10:52.237Z","component":"ai","requestId":"01M222B6SSJS328X04SCR4KGRG","data":{"question":"Show requested financial records","intent":"general","rowCount":1}}
+{"level":"info","message":"API Response: POST /api/accounting/nl-query - 200 (22ms)","timestamp":"2026-09-09T03:10:52.239Z","component":"API","requestId":"01M222B6SSJS328X04SCR4KGRG","data":{"type":"response","method":"POST","url":"/api/accounting/nl-query","statusCode":200,"duration":"22ms"}}
+{"level":"info","message":"request_completed","timestamp":"2026-09-09T03:10:52.239Z","component":"http","requestId":"01M222B6SSJS328X04SCR4KGRG","data":{"event":"request_completed","route":"/api/accounting/nl-query","method":"POST","status":200,"durationMs":22,"userId":"718483ff-dce1-489b-b607-e3863b3c026d","companyId":"8f79833e-aab8-4a4f-be6a-c2dff9ee9f26","outcome":"ok"}}
+{"level":"info","message":"API Request: POST /api/accounting/nl-query","timestamp":"2026-09-09T03:10:52.245Z","component":"API","requestId":"01M222B6TNDXPZD8CRJNWE2JMY","data":{"type":"request","method":"POST","url":"/api/accounting/nl-query","query":{},"body":{"question":"Show requested financial records"}}}
+{"level":"warn","message":"NL query failed tenant-scope guard — rejected","timestamp":"2026-09-09T03:10:52.255Z","component":"ai","requestId":"01M222B6TNDXPZD8CRJNWE2JMY","data":{"question":"Show requested financial records","companyId":"8f79833e-aab8-4a4f-be6a-c2dff9ee9f26","reason":"no company_id scope bound to the caller company"}}
+{"level":"info","message":"API Response: POST /api/accounting/nl-query - 200 (10ms)","timestamp":"2026-09-09T03:10:52.255Z","component":"API","requestId":"01M222B6TNDXPZD8CRJNWE2JMY","data":{"type":"response","method":"POST","url":"/api/accounting/nl-query","statusCode":200,"duration":"10ms"}}
+{"level":"info","message":"request_completed","timestamp":"2026-09-09T03:10:52.255Z","component":"http","requestId":"01M222B6TNDXPZD8CRJNWE2JMY","data":{"event":"request_completed","route":"/api/accounting/nl-query","method":"POST","status":200,"durationMs":10,"userId":"718483ff-dce1-489b-b607-e3863b3c026d","companyId":"8f79833e-aab8-4a4f-be6a-c2dff9ee9f26","outcome":"ok"}}
+
+ Test Files  1 passed (1)
+      Tests  3 passed (3)
+   Start at  05:10:51
+   Duration  1.37s (transform 369ms, setup 0ms, import 782ms, tests 358ms, environment 0ms)
+

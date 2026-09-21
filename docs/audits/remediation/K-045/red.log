@@ -1,0 +1,58 @@
+$ node scripts/check-runtime.mjs && vitest run --config vitest.integration.config.ts "tests/integration/k-045-documents-supplier-invoice-ownership.int.test.ts"
+
+ RUN  v4.1.2 /home/hein/Workspace/IsaFlow/.worktrees/audit-remediation-20260908
+
+ ❯ tests/integration/k-045-documents-supplier-invoice-ownership.int.test.ts (2 tests | 2 failed) 222ms
+   × recognises a live supplier invoice as an owned document entity 45ms
+   × lists documents for a live supplier invoice instead of reporting entity_not_found 6ms
+
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 2 ⎯⎯⎯⎯⎯⎯⎯
+
+ FAIL  tests/integration/k-045-documents-supplier-invoice-ownership.int.test.ts > recognises a live supplier invoice as an owned document entity
+AssertionError: expected false to be true // Object.is equality
+
+- Expected
++ Received
+
+- true
++ false
+
+ ❯ tests/integration/k-045-documents-supplier-invoice-ownership.int.test.ts:60:53
+     58|   await expect(verifyEntityOwnership(invoice, company)).resolves.toBe(…
+     59|   // RED: the live AP bill is not recognised, so uploads and listings …
+     60|   await expect(verifyEntityOwnership(bill, company)).resolves.toBe(tru…
+       |                                                     ^
+     61| });
+     62|
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[1/2]⎯
+
+ FAIL  tests/integration/k-045-documents-supplier-invoice-ownership.int.test.ts > lists documents for a live supplier invoice instead of reporting entity_not_found
+AssertionError: expected { ok: false, …(1) } to match object { ok: true }
+(1 matching property omitted from actual)
+
+- Expected
++ Received
+
+  {
+-   "ok": true,
++   "ok": false,
+  }
+
+ ❯ tests/integration/k-045-documents-supplier-invoice-ownership.int.test.ts:65:18
+     63| it('lists documents for a live supplier invoice instead of reporting e…
+     64|   const result = await listEntityDocuments(company, 'supplier_invoice'…
+     65|   expect(result).toMatchObject({ ok: true });
+       |                  ^
+     66| });
+     67|
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[2/2]⎯
+
+
+ Test Files  1 failed (1)
+      Tests  2 failed (2)
+   Start at  11:16:54
+   Duration  901ms (transform 277ms, setup 0ms, import 390ms, tests 222ms, environment 0ms)
+
+error: script "test:integration" exited with code 1

@@ -7,6 +7,7 @@
 
 import { sql } from '@/lib/neon';
 import type { DbRow } from '@/lib/neon';
+import { BANK_SUBTYPES } from '../gl/accountSubtypes';
 
 
 export interface CoverageDirectionRow {
@@ -58,6 +59,7 @@ export async function fetchCoverageDirections(
               WHERE bt2.bank_account_id = ga.id
                 AND bt2.company_id = ${companyId}::UUID
                 AND bt2.transaction_date <= ${asAt}::DATE
+                AND bt2.feed_state = 'posted'
                 AND bt2.matched_journal_line_id IS NULL), 0)::numeric AS statement_only
       FROM gl_accounts ga
       LEFT JOIN gl_journal_lines jl
@@ -69,7 +71,7 @@ export async function fetchCoverageDirections(
             AND je.status     = 'posted'
             AND je.entry_date <= ${asAt}::DATE
      WHERE ga.company_id      = ${companyId}::UUID
-       AND ga.account_subtype = 'bank'
+       AND ga.account_subtype = ANY(${BANK_SUBTYPES as string[]})
        AND (${bankAccountId ?? null}::UUID IS NULL OR ga.id = ${bankAccountId ?? null}::UUID)
      GROUP BY ga.id
   `) as DbRow[];

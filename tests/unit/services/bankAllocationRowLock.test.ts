@@ -124,6 +124,34 @@ describe('lockBankTransactionForUpdate — helper guarantees', () => {
     expect(client.query).toHaveBeenCalledWith("SET LOCAL lock_timeout = '5s'");
   });
 
+  // `SET LOCAL` lasts to the end of the TRANSACTION, not the statement, and both
+  // confirm arms and `voidPaymentDocument` now call this helper FIRST — so
+  // without the restore the 5s budget silently governs every lock they take
+  // afterwards. Every sibling lock (`paymentLock`, `creditNoteLock`,
+  // `supplierInvoiceLock`, the two allocation-line fetchers) restores it and is
+  // pinned in both directions; this one was not.
+  it('restores lock_timeout to DEFAULT once the lock is taken', async () => {
+    const client = { query: vi.fn(async () => ({ rows: [] })) };
+    await runInRequestCtx(() => lockBankTransactionForUpdate(COMPANY_ID, TX_ID), client);
+
+    expect(client.query).toHaveBeenCalledWith('SET LOCAL lock_timeout = DEFAULT');
+  });
+
+  // The other direction, and the reason the restore is NOT in a `finally`:
+  // after a lock timeout the transaction is aborted, so the restore would
+  // itself raise 25P02 and replace the typed error with an opaque one.
+  it('does not attempt the restore after a lock timeout', async () => {
+    const client = { query: vi.fn(async () => ({ rows: [] })) };
+    vi.mocked(sql).mockRejectedValueOnce(
+      Object.assign(new Error('canceling statement due to lock timeout'), { code: '55P03' }) as never,
+    );
+
+    await expect(
+      runInRequestCtx(() => lockBankTransactionForUpdate(COMPANY_ID, TX_ID), client),
+    ).rejects.toBeInstanceOf(BankTransactionLockTimeoutError);
+    expect(client.query).not.toHaveBeenCalledWith('SET LOCAL lock_timeout = DEFAULT');
+  });
+
   it('turns a 55P03 lock timeout into a readable, retryable error', async () => {
     const lockErr = Object.assign(new Error('canceling statement due to lock timeout'), { code: '55P03' });
     vi.mocked(sql).mockRejectedValueOnce(lockErr as never);

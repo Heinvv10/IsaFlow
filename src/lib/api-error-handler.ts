@@ -8,6 +8,7 @@ import { logRequestCompleted } from '@/lib/observability/requestLogger';
 import { setTenantTags, sanitizeRoute } from '@/lib/sentry/tags';
 import { safeCorsOrigin } from '@/lib/cors';
 import { redactShareToken, redactTokenParams } from '@/lib/observability/redactShareToken';
+import { respondIfLockTimeout } from '@/lib/apiDocumentLock';
 
 const SENSITIVE_KEYS = new Set([
   'password', 'confirmPassword', 'password_hash', 'token', 'secret', 'apiKey', 'api_key',
@@ -147,6 +148,15 @@ export function withErrorHandler(
         // Check if headers were already sent
         if (res.headersSent) {
           apiLogger.warn({ method: req.method, url: safeUrl }, 'Headers already sent, cannot send error response');
+          return;
+        }
+
+        // Contention on a document number, a claimed document or a time-entry
+        // row is transient and the caller should retry — it is not a bug, and
+        // the generic 500 below masks its message in production, so the user
+        // could not tell the two apart. 503 (not 4xx) because 55P03 leaves the
+        // transaction aborted and withAuth must ROLLBACK; see apiDocumentLock.
+        if (respondIfLockTimeout(res, error)) {
           return;
         }
 

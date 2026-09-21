@@ -144,8 +144,9 @@ export async function markAsInvoiced(
       AND id = ANY(${entryIds}::UUID[])
       AND status = 'approved'
       AND billable = true
+    RETURNING id
   `) as DbRow[];
-  const count = Array.isArray(result) ? result.length : 0;
+  const count = result.length;
   log.info('Marked time entries as invoiced', { count, invoiceId }, 'accounting');
   return count;
 }

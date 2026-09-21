@@ -43,6 +43,7 @@ import {
   validateBankReceiptApplication,
   confirmReceiptMatch,
 } from '@/modules/accounting/services/ar/receiptMatchConfirmService';
+import { ReceiptRefusal } from '@/modules/accounting/services/ar/receiptRefusal';
 import handler from '../../../pages/api/accounting/ar/receipt-match/confirm';
 
 const BANK_TX = '66666666-6666-4666-8666-666666666666';
@@ -87,13 +88,31 @@ beforeEach(() => {
 describe('POST /api/accounting/ar/receipt-match/confirm', () => {
   it('A PRE-WRITE REFUSAL IS A 400 — nothing was written and the reason is actionable', async () => {
     vi.mocked(validateBankReceiptApplication).mockRejectedValue(
-      new Error(`Invoice ${INV_A} not found`),
+      new ReceiptRefusal(`Invoice ${INV_A} not found`),
     );
     const { req, res } = mockReqRes(BODY);
     await handler(req, res);
     expect(res.statusCode).toBe(400);
     expect(JSON.stringify(res.sent)).toMatch(/not found/i);
     // The posting service was never reached.
+    expect(confirmReceiptMatch).not.toHaveBeenCalled();
+  });
+
+  // The OTHER direction of the same classifier: contention is not the caller's
+  // mistake, so it is 409 and not the 400 this route answered it. Still
+  // pre-write — the validation only reads — so nothing has been committed
+  // either way.
+  it('A CONTENDED INVOICE IS A 409, not the 400 a books refusal gets', async () => {
+    vi.mocked(validateBankReceiptApplication).mockRejectedValue(
+      new ReceiptRefusal(
+        'Another request is applying cash to one of these invoices — retry in a moment.',
+        { retryable: true },
+      ),
+    );
+    const { req, res } = mockReqRes(BODY);
+    await handler(req, res);
+    expect(res.statusCode).toBe(409);
+    expect(JSON.stringify(res.sent)).toMatch(/retry in a moment/i);
     expect(confirmReceiptMatch).not.toHaveBeenCalled();
   });
 
@@ -127,6 +146,19 @@ describe('POST /api/accounting/ar/receipt-match/confirm', () => {
     vi.mocked(validateBankReceiptApplication).mockRejectedValue(pgError);
     const { req, res } = mockReqRes(BODY);
     await expect(handler(req, res)).rejects.toThrow();
+    expect(res.statusCode).not.toBe(400);
+  });
+
+  // The classifier's OTHER direction, and why it is typed rather than
+  // "carries no SQLSTATE code": a TypeError raised inside the validation is
+  // equally code-less. Under the old predicate its text was handed to the user
+  // verbatim as a 400 — a status withAuth COMMITs, monitored as their mistake.
+  it('does not surface a code-less internal bug as a caller-actionable 400', async () => {
+    vi.mocked(validateBankReceiptApplication).mockRejectedValue(
+      new TypeError("Cannot read properties of undefined (reading 'total_amount')"),
+    );
+    const { req, res } = mockReqRes(BODY);
+    await expect(handler(req, res)).rejects.toThrow(/total_amount/);
     expect(res.statusCode).not.toBe(400);
   });
 

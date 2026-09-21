@@ -1,0 +1,153 @@
+K-095 GREEN — fix/audit-k095-k096-k097-billing-admin (merged with origin/master @46da1253)
+
+Integration (real fixture DB, bun run test:integration):
+  tests/integration/k095-flow-purchase-fails-open-without-paystack.int.test.ts  1 passed
+  tests/integration/k095-flow-purchase-fallback-gate.int.test.ts                3 passed
+
+Mutation proof — `git show origin/master:pages/api/billing/flows/purchase.ts` restored,
+both suites re-run:
+  Test Files  2 failed (2) / Tests  4 failed (4)
+Production file restored; both suites green again (4 passed).
+
+Full unit suite, DATABASE_URL unset (bunx vitest run):
+  Test Files  800 passed | 40 skipped (840)
+  Tests  9547 passed | 243 skipped (9790)
+
+bunx tsc --noEmit                              exit 0, no output
+bunx eslint pages/api/billing/flows/purchase.ts exit 0, no output
+
+Note: the two K-095 suites both need plans.code = 'payg', which is globally unique.
+Their fixtures were changed to ON CONFLICT (code) DO NOTHING + resolve the id, and to
+drop the plan row only when no sibling suite still holds a subscription on it. Without
+that the pair collides on plans_code_key when vitest runs the files in parallel.
+
+--- Round 2 (blind review finding LOW-1) ---
+
+ALLOW_UNPAID_FLOW_PURCHASE documented in .env.example (commented out, next to the Paystack
+keys). Docs-only; the two K-095 suites are unchanged and still 4 passed.
+
+Full unit suite, round 2, DATABASE_URL unset (bunx vitest run --maxWorkers=4):
+  Test Files  800 passed | 40 skipped (840)
+  Tests  9548 passed | 243 skipped (9791)
+At the default worker count this box was at load average 150-160 from other agents and a
+SHIFTING set of 4-5 unrelated suites (bank allocation, cash flow, tracker exclusion) timed out
+— a different set each run, all passing in isolation, none importing anything changed here.
+--maxWorkers=4 removes the contention and the suite is clean.
+
+=== ROUND 3 (2026-09-09) ===
+$ bunx vitest run --config vitest.integration.config.ts tests/integration/k095-mandate-activation-guards.int.test.ts
+  Test Files  1 passed (1)   Tests  4 passed (4)
+
+MUTATION (activateAuthorisedMandate -> blind UPDATE, no NOT EXISTS / status guard / savepoint):
+  Test Files  1 failed (1)   Tests  4 failed (4)
+  AssertionError: expected error: duplicate key value violates unique constraint
+    "ux_sub_mandates_company_active" to be null
+  -> restored, re-run green.
+
+MUTATION (logAdminAction catch returns instead of throwing):
+  tests/integration/k097*: Test Files 2 failed   Tests 18 failed | 1 passed
+  tests/unit/services/admin/auditService.test.ts + adminCriticalActions.test.ts:
+    Test Files 1 failed | 1 passed   Tests 3 failed | 6 passed
+  -> restored, re-run green.
+
+$ bunx vitest run --config vitest.integration.config.ts tests/integration/k095 k096 k097
+  Test Files  9 passed (9)   Tests  37 passed (37)
+
+FULL UNIT SUITE, fixture env UNSET (env -u DATABASE_URL -u PLATFORM_ADMIN_DATABASE_URL
+  -u ISAFLOW_DISPOSABLE_AUTH_TEST bunx vitest run):
+  Test Files  800 passed | 40 skipped (840)
+  Tests  9548 passed | 243 skipped (9791)
+
+$ bunx tsc --noEmit                 -> exit 0
+$ bunx eslint <4 changed src/pages> -> exit 0, no output
+$ bun run agent-docs:check          -> OK: 74 agent document mirror(s) match canonical sources.
+
+MIGRATION: none added in round 3. The constraint HIGH-1 asked for
+(ux_sub_mandates_company_active, UNIQUE on company_id WHERE status='active') already exists
+from migration 429_stitch_payments.sql:103, confirmed present on the fixture DB.
+Reserved prefix 656 is RELEASED, unused.
+
+=== Round 4 (findings from review-k095-r3.md, commit 131bf415d) ===
+$ bunx vitest run tests/unit/services/paystackMandateActivation.test.ts
+  Test Files 1 passed (1) · Tests 7 passed (7)
+$ bun run test:integration -- tests/integration/k095-r4-fallback-attribution.int.test.ts
+  Test Files 1 passed (1) · Tests 3 passed (3)
+$ bun run test:integration -- tests/integration/k095 tests/integration/k096 tests/integration/k097
+  Test Files 10 passed (10) · Tests 40 passed (40)
+$ env -u DATABASE_URL bunx vitest run        # full unit suite, fixture env UNSET
+  Test Files 801 passed | 40 skipped (841) · Tests 9555 passed | 243 skipped (9798)
+$ bunx tsc --noEmit                          # clean
+$ bunx eslint <5 changed src/pages files>    # clean
+$ bun run agent-docs:check                   # OK: 74 mirrors match
+
+Mutation proof (production code reverted, then restored):
+  - drop the `!mandate.linked && authorizationCode !== …` guard AND restore bare `code === '23505'`
+      unit: 2 failed | 5 passed  (already_active_other_code; other-constraint rethrow)
+      integration k095-r4: 2 failed | 1 passed (second checkout unlabelled; dangling link)
+  - restore `mandate === null` as the verify fallback predicate (`else if (true)`)
+      integration k095-r4: dangling-link test red (reported the company's own active row)
+  - drop `failureReason ? 'failed'` from publicStatus
+      integration k095-mandate-activation-guards: 1 failed | 3 passed
+  All production files restored from backup and re-verified GREEN above.
+
+=== Round 5 (blind review of 1d5aa28fd: 1 HIGH, 4 LOW) ===
+$ bun run test:integration -- tests/integration/k095-r5-verify-webhook-race.int.test.ts
+  Test Files  1 passed (1)   Tests  6 passed (6)
+$ bun run test:integration -- <k095 x5, k096 x4, k097 x2>
+  Test Files  11 passed (11)  Tests  46 passed (46)
+$ env -u DATABASE_URL bunx vitest run tests/unit/services/paystackMandateActivation.test.ts
+  Test Files  1 passed (1)   Tests  10 passed (10)
+$ bunx vitest run --config vitest.components.config.ts tests/unit/components/paystackMandateReturn.test.tsx
+  Test Files  1 passed (1)   Tests  2 passed (2)
+$ bun run test:components
+  Test Files  68 passed (68)  Tests  443 passed (443)
+$ env -u DATABASE_URL bunx vitest run      # FULL unit suite, fixture env UNSET
+  Test Files  801 passed | 40 skipped (841)
+  Tests  9558 passed | 243 skipped (9801)
+$ bunx tsc --noEmit                        -> clean
+$ bun run lint                             -> 0 errors, 11 pre-existing warnings (none in changed files)
+$ bun run agent-docs:check                 -> OK: 74 mirrors match
+
+MUTATIONS (each applied, run, then restored; git diff empty afterwards)
+ M1 reclassifyAfterNoUpdate(...) -> return 'blocked'
+      integration 2 failed | 3 passed (5, pre-heal-test)  unit 3 failed | 7 passed (10)
+ M2 publicStatus reordered so failureReason outranks an active own mandate
+      integration 1 failed | 5 passed (6)
+ M3 `const own = fresh[0]` (LOW-1 gating removed)
+      integration 1 failed | 4 passed (5)
+ M4 failureReason: undefined in the response
+      2 files: 3 failed | 7 passed (10)
+ M5 return.tsx link label forced back to "Try again"
+      components 1 failed | 1 passed (2)
+
+LOW-3 DISPUTED — executed against the fixture DB:
+$ psql "$DATABASE_URL" -c "\d paystack_payment_requests"
+  "paystack_payment_requests_paystack_reference_key" UNIQUE CONSTRAINT, btree (paystack_reference)
+  (declared inline at scripts/migrations/sql/486_paystack_billing.sql:31 as `TEXT NOT NULL UNIQUE`)
+No migration written. Prefix 664 released, unused.
+
+=== ROUND 6 (LOW-1, unlinked failed fallback) ===
+RED (production file reverted to 5c6e1a50c, new test only)
+$ bunx vitest run --config vitest.integration.config.ts tests/integration/k095-r6-unlinked-failed-fallback.int.test.ts
+  Tests  2 failed | 2 passed (4)
+   - "reports the failure from its OWN request row, naming no mandate at all"
+       expected <other checkout's mandate id> to be null
+   - "a completed request that resolved nothing stays pending rather than borrowing a failure"
+       expected 'failed' to be 'pending'
+
+GREEN (fix restored) — all four K-095 integration files together
+$ bunx vitest run --config vitest.integration.config.ts \
+    tests/integration/k095-r6-unlinked-failed-fallback.int.test.ts \
+    tests/integration/k095-r5-verify-webhook-race.int.test.ts \
+    tests/integration/k095-r4-fallback-attribution.int.test.ts \
+    tests/integration/k095-mandate-activation-guards.int.test.ts
+  Test Files  4 passed (4)      Tests  17 passed (17)
+
+MUTATION M6 (applied, run, restored): drop `|| pr.status === 'failed'` from publicStatus
+  AssertionError: expected 'pending' to be 'failed'   (test 1 red)
+
+$ env -u DATABASE_URL bunx vitest run     -> 801 passed | 40 skipped (841 files); 9558 passed | 243 skipped
+$ bunx tsc --noEmit                       -> exit 0
+$ bunx eslint pages/api/billing/paystack/mandate/verify.ts -> exit 0
+   (eslint on tests/integration/*.int.test.ts reports "not found by the project service" for the new
+    file AND for the existing k095-r5 file — tests/** is outside tsconfig; environmental, not new.)

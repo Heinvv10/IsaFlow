@@ -100,7 +100,7 @@ export async function listAlerts(
     rows = await sql`
       SELECT a.*, s.name AS supplier_name, s.email AS supplier_email, s.whatsapp_number AS supplier_whatsapp_number
       FROM expected_invoice_alerts a
-      JOIN suppliers s ON s.id = a.supplier_id
+      JOIN suppliers s ON s.id = a.supplier_id AND s.company_id = a.company_id
       WHERE a.company_id = ${companyId}::uuid
         AND a.status = ${statusFilter}
       ORDER BY a.expected_by DESC
@@ -109,7 +109,7 @@ export async function listAlerts(
     rows = await sql`
       SELECT a.*, s.name AS supplier_name, s.email AS supplier_email, s.whatsapp_number AS supplier_whatsapp_number
       FROM expected_invoice_alerts a
-      JOIN suppliers s ON s.id = a.supplier_id
+      JOIN suppliers s ON s.id = a.supplier_id AND s.company_id = a.company_id
       WHERE a.company_id = ${companyId}::uuid
       ORDER BY a.expected_by DESC
     ` as Row[];
@@ -236,12 +236,14 @@ export async function sendEmailChase(
   alertId: string,
   userId: string,
 ): Promise<{ sent: boolean; reason?: string }> {
-  // Load alert
+  // R-068: the daily cron runs this with no withAuth, outside RLS, so the
+  // supplier join's company_id is the only thing keeping another tenant's
+  // supplier (its name, email, WhatsApp number) off this company's alert.
   const [alertRow] = await sql`
     SELECT a.*, s.name AS supplier_name, s.email AS supplier_email,
            se.last_invoice_date AS exp_last_invoice_date
     FROM expected_invoice_alerts a
-    JOIN suppliers s ON s.id = a.supplier_id
+    JOIN suppliers s ON s.id = a.supplier_id AND s.company_id = a.company_id
     LEFT JOIN supplier_expectations se ON se.id = a.expectation_id
     WHERE a.id = ${alertId}::uuid
       AND a.company_id = ${companyId}::uuid

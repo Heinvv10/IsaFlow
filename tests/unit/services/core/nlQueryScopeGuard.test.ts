@@ -146,3 +146,23 @@ describe('enforceTenantScope — allows correctly-scoped queries', () => {
     expect(enforceTenantScope(sql, CID).ok).toBe(true);
   });
 });
+
+describe('R-009 global reference tables do not propagate scope', () => {
+  const own = '11111111-1111-1111-1111-111111111111';
+  it('rejects a join back through asset_categories to another tenant assets', () => {
+    const sql = `SELECT a2.company_id, a2.name FROM assets a1 JOIN asset_categories ac ON a1.category_id = ac.id JOIN assets a2 ON a2.category_id = ac.id WHERE a1.company_id = '${own}'`;
+    expect(enforceTenantScope(sql, own).ok).toBe(false);
+  });
+  it('rejects reaching gl_accounts through asset_categories', () => {
+    const sql = `SELECT g.account_name FROM assets a JOIN asset_categories ac ON a.category_id = ac.id JOIN gl_accounts g ON ac.gl_asset_account_id = g.id WHERE a.company_id = '${own}'`;
+    expect(enforceTenantScope(sql, own).ok).toBe(false);
+  });
+  it('rejects leave_applications joined back through leave_types', () => {
+    const sql = `SELECT la2.employee_id FROM leave_applications la1 JOIN leave_types lt ON la1.leave_type_id = lt.id JOIN leave_applications la2 ON la2.leave_type_id = lt.id WHERE la1.company_id = '${own}'`;
+    expect(enforceTenantScope(sql, own).ok).toBe(false);
+  });
+  it('still allows a tenant-scoped parent to reach its company-less child rows', () => {
+    const sql = `SELECT ci.invoice_number, cii.description FROM customer_invoices ci JOIN customer_invoice_items cii ON cii.invoice_id = ci.id WHERE ci.company_id = '${own}'`;
+    expect(enforceTenantScope(sql, own).ok).toBe(true);
+  });
+});

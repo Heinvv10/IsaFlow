@@ -6,6 +6,9 @@
  * `VAT_CLASS_SUBTYPES` below is a cross-branch landmine that needs a stable
  * home a grep will find.
  */
+
+import { isBankSubtype } from './accountSubtypes';
+
 /**
  * The reporting class of a subtype — the axis a merge may NOT cross.
  *
@@ -81,7 +84,7 @@ const VAT_CLASS_SUBTYPES: ReadonlySet<string> = new Set(['vat_input', 'vat_outpu
 export function reportingClassFor(subtype: string | null): ReportingClass {
   if (subtype === null) return 'ordinary';
   if (VAT_CLASS_SUBTYPES.has(subtype)) return 'vat';
-  if (subtype === 'bank') return 'bank';
+  if (isBankSubtype(subtype)) return 'bank';
   return 'ordinary';
 }
 

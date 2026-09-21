@@ -12,6 +12,7 @@ import { withCsrf } from '@/lib/auth/withCsrf';
 import { UUID } from '@/lib/schemas/common';
 import { log } from '@/lib/logger';
 import { sql } from '@/lib/neon';
+import { BANK_SUBTYPES, isBankSubtype } from '@/modules/accounting/services/gl/accountSubtypes';
 import { getBankAccountsStatus } from '@/modules/accounting/services/bank/bankAccountStatusService';
 
 // Fields are nullable as well as optional. The UI clears a field by sending
@@ -53,11 +54,12 @@ async function assignParent(companyId: string, id: string, parentId: string | nu
       FROM gl_accounts
       WHERE id = ${parentId} AND company_id = ${companyId}
     `;
-    if (!parent || parent.account_subtype !== 'bank') return 'Group must be a bank account in this company';
-    if (parent.parent_subtype === 'bank') return 'Group account is already a sub-account of another group';
+    if (!parent || !isBankSubtype(parent.account_subtype as string | null)) return 'Group must be a bank account in this company';
+    if (isBankSubtype(parent.parent_subtype as string | null)) return 'Group account is already a sub-account of another group';
     const [self] = await sql`
       SELECT 1 FROM gl_accounts
-      WHERE parent_account_id = ${id} AND company_id = ${companyId} AND account_subtype = 'bank'
+      WHERE parent_account_id = ${id} AND company_id = ${companyId}
+        AND account_subtype = ANY(${BANK_SUBTYPES as string[]})
       LIMIT 1
     `;
     if (self) return 'This account is a group itself — move its sub-accounts first';
@@ -73,7 +75,7 @@ async function assignParent(companyId: string, id: string, parentId: string | nu
   }
   await sql`
     UPDATE gl_accounts SET parent_account_id = ${parentId}, updated_at = NOW()
-    WHERE id = ${id} AND account_subtype = 'bank' AND company_id = ${companyId}
+    WHERE id = ${id} AND account_subtype = ANY(${BANK_SUBTYPES as string[]}) AND company_id = ${companyId}
   `;
   return null;
 }
@@ -114,7 +116,7 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
           account_name = COALESCE(${s(b.accountName)}, account_name),
           is_active = COALESCE(${bool(b.isActive)}, is_active),
           updated_at = NOW()
-        WHERE id = ${id} AND account_subtype = 'bank' AND company_id = ${companyId}
+        WHERE id = ${id} AND account_subtype = ANY(${BANK_SUBTYPES as string[]}) AND company_id = ${companyId}
       `;
       return apiResponse.success(res, { updated: true });
     } catch (err) {

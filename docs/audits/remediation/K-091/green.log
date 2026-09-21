@@ -1,0 +1,263 @@
+Branch fix/audit-k091-k093-k126-report-figures — GREEN evidence (2026-09-09)
+
+$ bun run test:integration -- tests/integration/k126-invoice-pdf-line-vat-header-rate.int.test.ts
+ Test Files  1 passed (1)
+      Tests  5 passed (5)
+
+MUTATION 1 — production change fully reverted (git checkout of invoicePdfBuilder.ts):
+   x prints each line's own VAT rate, and the VAT column foots to the totals block
+   x drops the percentage from the totals label when the lines carry more than one rate
+      Tests  2 failed | 3 passed (5)
+
+MUTATION 2 — only `?? 15` reverted to `|| 15`:
+      Tests  5 passed (5)
+   No change. pg returns numeric(5,2) as the string '0.00', which is truthy, so the two
+   operators are equivalent. That half of the edit is defensive, not defect-driven, and is
+   recorded as such in fix.md rather than claimed as proven.
+
+Regression runs of the two sibling items on the same branch:
+$ bun run test:integration -- tests/integration/k091-cash-flow-reconciliation-bank-subtype.int.test.ts
+      Tests  3 passed (3)
+$ bun run test:integration -- tests/integration/k093-sales-by-customer-legacy-customer-id.int.test.ts
+      Tests  4 passed (4)
+
+FULL UNIT SUITE, fixture env unset (env -u DATABASE_URL bunx vitest run):
+ Test Files  793 passed | 36 skipped (829)
+      Tests  9447 passed | 234 skipped (9681)
+
+$ bunx tsc --noEmit                              -> clean (exit 0)
+$ bunx eslint invoicePdfBuilder.ts cashFlowReconciliationService.ts sales-by-customer.ts
+                                                 -> clean (exit 0)
+
+================================================================================
+Review remediation round (7 findings from the blind review of ade12166)
+================================================================================
+
+$ bun run test:integration -- k091 k093 k126 k126b
+ Test Files  4 passed (4)
+      Tests  17 passed (17)
+   (K-091 4, K-093 5, K-126 5, K-126b quote label 3)
+
+MUTATION MATRIX for the new changes:
+ M9  delete `AND ga.account_type = 'asset'` from getCashBalance
+       -> K-091: 2 failed | 2 passed (4)   [petty-cash tie, opening-cash test]
+ M10 LEFT JOIN customers -> JOIN customers (sales-by-customer)
+       -> K-093: 3 failed | 2 passed (5)
+ M11 SUM(total_amount - COALESCE(amount_paid,0)) -> SUM(total_amount - amount_paid)
+       -> K-093: 1 failed | 4 passed (5)
+ M12 quote totals label -> the literal 'VAT (15%)'
+       -> K-126b: 1 failed | 2 passed (3)
+All four restored and re-run green.
+
+FULL UNIT SUITE, fixture env unset (env -u DATABASE_URL bunx vitest run):
+ Test Files  793 passed | 36 skipped (829)
+      Tests  9447 passed | 234 skipped (9681)
+
+$ bunx tsc --noEmit   -> clean
+$ bunx eslint cashBalanceService.ts quotePdfBuilder.ts invoicePdfBuilder.ts sales-by-customer.ts
+                      -> clean
+
+================================================================================
+Round-2 review remediation (5 findings from the blind review of 3d8ad9ba)
+================================================================================
+
+$ bun run test:integration -- k091 k091b k093 k126 k126b k126c
+ Test Files  6 passed (6)
+      Tests  26 passed (26)
+   (K-091 4, K-091b 3, K-093 5, K-126 6, K-126b 5, K-126c 3)
+
+MUTATION MATRIX:
+ M13 delete the asset guard from bankGlAccountBelongsToCompany
+       -> k091b: 1 failed | 2 passed (3)   [overdraft accepted for import]
+ M14 delete the asset guard from fetchCoverageAccounts
+       -> k091b: 1 failed | 2 passed (3)   [overdraft listed in coverage]
+ M15 delete the asset guard from cash-flow-export.ts
+       -> k091b: 1 failed | 2 passed (3)   [opening balance 5900.00, not 5000.00]
+ M16 invoice totals label back to "mixed ? 'VAT' : header rate"
+       -> k126:  1 failed | 5 passed (6)   [uniform zero-rated lines labelled 15%]
+ M17 quote totals label, same mutation
+       -> k126b: 1 failed | 4 passed (5)
+ M18 quote line cell back to Number(line.tax_rate || 15)      [LOW-6]
+       -> k126b: 1 failed | 4 passed (5)   [NULL line rate printed 15%, not 20%]
+ M19 restore the bare try/catch on credit_note_items          [LOW-7]
+       -> k126c: 1 failed | 2 passed (3)   [transaction aborted, COMMIT dead]
+ M20 restore COALESCE(cn.client_id, cn.customer_id)
+       -> k126c: 3 failed (3)              [42703 on every call]
+All eight restored and re-run green.
+
+FULL UNIT SUITE, fixture env unset:
+ First run at load average 169 reported 9 failed across 4 files. All four files
+ pass in isolation and none of them references anything changed on this branch;
+ several failures were exactly the 10000ms vitest timeout. Re-run with
+ --maxWorkers=4 --testTimeout=30000 at load average 135:
+ Test Files  793 passed | 36 skipped (829)
+      Tests  9447 passed | 234 skipped (9681)
+
+$ bunx tsc --noEmit  -> clean
+$ bunx eslint <all 9 changed production files>  -> clean
+
+=== Round 4 (round-3 review findings) — 2026-09-09 ===
+
+bunx vitest run --config vitest.integration.config.ts \
+  tests/integration/k091b-bank-account-definition.int.test.ts \
+  tests/integration/k091-cash-flow-reconciliation-bank-subtype.int.test.ts \
+  tests/integration/k093-sales-by-customer-legacy-customer-id.int.test.ts \
+  tests/integration/k126-invoice-pdf-line-vat-header-rate.int.test.ts \
+  tests/integration/k126b-quote-pdf-mixed-vat-rate-label.int.test.ts \
+  tests/integration/k126c-credit-note-pdf-transaction-safety.int.test.ts
+ Test Files  6 passed (6)
+      Tests  39 passed (39)
+
+Mutation proofs (each mutation applied alone, matching file re-run, then restored):
+M1  coverage query re-narrowed to account_type='asset'        exit=1  3 failed | 4 passed (7)
+M2  cashBalanceService loses the asset guard                  exit=1  3 failed | 4 passed (7)
+M3  importer re-narrowed to account_type='asset'              exit=1  1 failed | 6 passed (7)
+M4  sales-by-customer back to bare `status != 'cancelled'`    exit=1  4 failed | 2 passed (6)
+M5  sales-by-customer placeholder loses the id                exit=1  3 failed | 3 passed (6)
+M6a afsKpiService.fetchCash back to subtype='bank'            exit=1  1 failed | 4 passed (5)
+M6b afsKpiService.fetchClosingCash back to subtype='bank'     exit=1  1 failed | 4 passed (5)
+M6c both halves back to subtype='bank'                        exit=1  1 failed | 4 passed (5)
+M7  invoice VAT column derived per line again                 exit=1  1 failed | 8 passed (9)
+M8  invoice customers join loses company_id                   exit=1  1 failed | 8 passed (9)
+M9  quote VAT disagreement notice removed                     exit=1  1 failed | 7 passed (8)
+M10 quote customers join loses company_id                     exit=1  1 failed | 7 passed (8)
+M11 credit-note customers join loses company_id               exit=1  1 failed | 3 passed (4)
+M12 MCP coverage row drops `misclassified`                    exit=1  1 failed | 6 passed (7)
+
+Full unit suite, DATABASE_URL / fixture env UNSET (`env -u DATABASE_URL ... bunx vitest run`):
+ Test Files  801 passed | 40 skipped (841)
+      Tests  9559 passed | 243 skipped (9802)
+
+bunx tsc --noEmit                exit 0
+bunx eslint <10 changed files>   exit 0
+
+Re-verified AFTER rebasing the branch onto origin/master (LOW-4):
+ Test Files  6 passed (6)   Tests  39 passed (39)   (the six integration files)
+ Test Files  803 passed | 40 skipped (843)  Tests  9568 passed | 243 skipped (9811)  (full unit suite, fixture env unset)
+ bunx tsc --noEmit  exit 0
+
+── Round 5 ─────────────────────────────────────────────────────────────────────
+integration (fixture DB, 6 files) : 44 passed / 44
+unit  tests/unit/services/vatLineAllocation.test.ts    : 10 passed
+unit  tests/unit/services/bankSubtypeVocabulary.test.ts:  5 passed
+full unit suite (DATABASE_URL unset): 805 files, 9583 passed / 243 skipped / 0 failed
+bunx tsc --noEmit                  : clean
+bunx eslint <changed src+pages>    : clean (tests/** are outside tsconfig; eslint
+                                     reports a parse error for any test file, on
+                                     master too — not a finding)
+bun run agent-docs:check           : OK, 74 mirrors match
+
+mutations (each reverted immediately after):
+  M-A  vatLineAllocation: absorb any residual (drop the tolerance)  -> 6 unit red
+  M-B  vatLineAllocation: let a zero-rated line absorb a cent       -> 1 unit red
+  M-C  bankCoverageQueries: back to the literal 'bank'              -> 3 int red
+  M-D  bankStatementImportService: back to the literal 'bank'       -> 4 int red
+  M-F  quotePdfBuilder: restore `lines.length > 0` on the note      -> 1 int red
+  M-G  isBankSubtype: narrow to `subtype === 'bank'`                -> 1 unit red
+baseline green before each.
+
+=== Round 7 (census rebuilt from consumers; HIGH-1 + 3 MEDIUM + 5 LOW) ===
+date: 2026-09-10
+
+Enumeration (not a grep for literals):
+  git grep -n 'account_subtype|accountSubtype' -- src pages  => 661 occurrences, 152 files
+  each occurrence's comparison operand parsed and its literals checked against
+  SUBTYPE_ALIASES; a literal that is a STRICT SUBSET of its token's spellings is
+  a gap. 17 gap sites converted, 3 allow-listed, the rest tabled in fix.md.
+
+Integration (fixture DB, --testTimeout=180000 --hookTimeout=180000):
+  k091 + k091b + k091c + k091d ............ 4 files, 35 passed
+  k093 + k126 + k126b + k126c ............. 4 files, 32 passed
+  branch total ............................ 8 files, 67 passed
+
+Unit:
+  tests/unit/services/bankCashSubtypeCensus.test.ts .... 1 passed
+  tests/unit/services/vatBoxBasis.test.ts .............. 25 passed
+  FULL suite, DATABASE_URL unset (env -u DATABASE_URL bunx vitest run):
+      Test Files  806 passed | 40 skipped (846)
+      Tests       9590 passed | 243 skipped (9833)   0 failed
+
+bunx tsc --noEmit ......... exit 0
+bunx eslint <15 changed src/pages files> ... exit 0, no output
+
+Mutation proof — 11 mutations, each applied to the working tree, run, then
+restored from the index (changes were staged first; `git checkout -- <path>`
+against an UNSTAGED edit discards it, which cost one round of rework):
+  M19 current assets -> NOT IN ('fixed_asset','accumulated_depreciation')
+      k091d 3 failed / 8 passed ; census lint 1 failed
+  M20 current liabilities -> no non-current exclusion    k091d 2 failed / 9 passed
+  M21 KPI cogs -> = 'cost_of_sales'    k091d 1 failed / 10 passed ; lint 1 failed
+  M22 AR close gate -> = 'receivable'  k091d 1 failed / 10 passed ; lint 1 failed
+  M23 migration validator -> = 'receivable'              k091d 1 failed / 10 passed
+  M24 note 27 -> no account_type = 'asset'               k091d 1 failed / 10 passed
+  M25 inventories note -> literal list  k091d 1 failed / 10 passed ; lint 1 failed
+  M26 VAT_SETTLEMENT_SUBTYPES -> four tokens
+      k091d 1 failed / 10 passed ; vatBoxBasis unit 2 failed / 23 passed
+  M27 invoice balance -> balance_due (no such column)    k091d 1 failed / 10 passed
+  M28 a NEW multi-line IN ('bank','cash') in a service   census lint 1 failed
+      (round 6's [^\n]-bounded lint could not see this)
+  M29 a NEW accountSubtype === 'bank' in pages/home.tsx  census lint 1 failed
+      (round 6's 'pages/**/*.tsx' pathspec excluded depth-1 files)
+  working tree restored after each: git status --porcelain empty.
+
+Allow-list honesty check: the lint was run once with ALLOWED emptied. Only 4
+hits are actually suppressed (vatBoxBasisQuery:92, vatReturnService:103,
+classificationCoverageService:73 x2); the entries that suppressed nothing were
+deleted rather than left as decoration.
+
+=== ROUND 8 (round-7 review: 1 HIGH, 4 MEDIUM, 2 LOW) ===
+
+bunx vitest run tests/unit/services/bankCashSubtypeCensus.test.ts
+  1 file, 1 test PASS
+
+bunx vitest run --config vitest.integration.config.ts \
+  k091 k091b k091c k091d k091-cash-flow k093 k126 k126b k126c
+  Test Files  8 passed (8)
+  Tests      69 passed (69)      (k091d 11 -> 13)
+
+bunx tsc --noEmit                          clean
+bunx eslint <8 changed src/pages files>    clean
+
+env -u DATABASE_URL bunx vitest run        (FULL unit suite, no fixture env)
+  Test Files  806 passed | 40 skipped (846)
+  Tests      9590 passed | 243 skipped (9833)
+
+MUTATION PROOF (round 8)
+| M30 | note 20 exclusion reverted to the round-7 hand-list | k091d "note 20 and expenseBand partition the expense book identically" FAILED: expected 34 subtypes, got 24 (1 failed / 12 passed) |
+| M31 | extended-ratios tax back to IN ('income_tax_expense','deferred_tax_expense') AND VAT_LEGITIMATE list back to the hand-list | lint FAILED with 6 offenders (2 pass-1, 4 pass-3) |
+| M32 | extended-ratios tax to a spelling outside the vocabulary, 'prior_year_tax_expense' | lint FAILED: "compares a subtype against 'prior_year_tax_expense', which names 'tax_expense'" — pass 2 alone |
+All three restored; the suite above is the restored tree.
+
+════════════════════════════ ROUND 9 ════════════════════════════
+2026-09-10, worktree .worktrees/fix-K-091, branch fix/audit-k091-k093-k126-report-figures
+
+bunx vitest run --config vitest.integration.config.ts --no-file-parallelism \
+  tests/integration/k091{,b,c,d}-*.int.test.ts
+  Test Files  4 passed (4)
+  Tests      40 passed (40)          (k091d alone: 16, was 13)
+
+bun run type-check                          clean
+bun run lint                                0 errors, 11 pre-existing warnings
+                                            (none in a file this round touched)
+env -u DATABASE_URL bun run test:unit       (FULL unit suite, no fixture env)
+  Test Files  806 passed | 40 skipped (846)
+  Tests      9590 passed | 243 skipped (9833)
+
+env -u DATABASE_URL bun run ci              [ci] all checks passed
+  type-check · lint · agent-docs · security-guards · unit · migration-naming · build
+
+MUTATION PROOF (round 9) — reader mutations, via file copies in the agent scratch dir
+| M1  | note 20 HAVING back to SUM(debit-credit) > 0                    | 2 red: note 20 partition; note 20 = income statement |
+| M2  | note 20 GROUP BY back to (account_name, account_subtype)        | 2 red: same two |
+| M3  | note 21 HAVING back to SUM(debit-credit) > 0                    | 1 red: note 21 keeps a net-credit finance cost |
+| M4  | the four bandCo sign-space seeds deleted (the round-8 fixture)  | 2 red: fixture spans the sign space; note 20 partition |
+| M5  | NON_CURRENT_SUBTYPES truncated to 1 spelling, afsKpiService     | 2 red: current ratio both arms; denominator |
+| M6  | cost_of_sales + depreciation_expense truncated, KPI query       | 1 red: gross profit and EBITDA |
+| M7  | RECEIVABLE_/PAYABLE_SUBTYPES truncated, ar/apSubLedgerCheck     | 1 red: AR and AP close gates |
+| M8  | RECEIVABLE_/PAYABLE_SUBTYPES truncated, migrationValidation     | 1 red: post-migration validation |
+| M9  | note 27 asset arm loses its account_type = 'asset' guard        | 1 red: note 27 paycard |
+| M10 | credit_card/other_current_liability out of VAT_SETTLEMENT_...   | 1 red: VAT201 settlement leg |
+| M11 | notes 5/8/9/19/21/22 token sets truncated to 1 spelling         | 2 red: AFS notes list every spelling; note 21 |
+| M12 | COALESCE(account_subtype,'') removed so <> ALL is NULL          | 1 red: an asset with NO subtype |
+All twelve restored from file copies; `git status` then showed exactly the three
+intended files. The suite above is the restored tree.

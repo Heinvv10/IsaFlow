@@ -190,12 +190,12 @@ describe('previewAccountMerge', async () => {
       const p = await previewAccountMerge(f.companyId, f.sourceId, f.targetId);
       const ids = p.childAccounts.map((c) => c.accountId).sort();
       expect(ids).toEqual([f.childId, f.grandchildId].sort());
-      // source level 1 -> target level 2, so the whole subtree shifts by +1.
+      // source level 1 -> report-visible target level 3, so the subtree shifts by +2.
       const child = p.childAccounts.find((c) => c.accountId === f.childId);
       expect(child?.level).toBe(2);
-      expect(child?.levelAfter).toBe(3);
+      expect(child?.levelAfter).toBe(4);
       const grand = p.childAccounts.find((c) => c.accountId === f.grandchildId);
-      expect(grand?.levelAfter).toBe(4);
+      expect(grand?.levelAfter).toBe(5);
     });
   }, 60_000);
 

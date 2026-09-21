@@ -1,0 +1,46 @@
+$ node scripts/check-runtime.mjs && vitest run --config vitest.integration.config.ts "tests/integration/k022-payroll-recalc-drops-loan-deduction.int.test.ts"
+
+ RUN  v4.1.2 /home/hein/Workspace/IsaFlow/.worktrees/audit-remediation-20260908
+
+{"level":"info","message":"Calculating payroll run","timestamp":"2026-09-09T03:42:12.384Z","component":"payrollRunService","data":{"runId":"dace890e-6b03-4eeb-a28f-6dfb3095865b","companyId":"95ac3b6a-bd80-4800-9a49-4fb051e398f0"}}
+{"level":"info","message":"Loan payment applied","timestamp":"2026-09-09T03:42:12.433Z","component":"payrollLoanService","data":{"companyId":"95ac3b6a-bd80-4800-9a49-4fb051e398f0","loanId":"3b8675a1-f8b7-413e-964d-e0d6a4fd8b81","periodYear":2026,"periodMonth":3,"interest":0,"principal":1000,"fringeBenefit":0,"newBalance":9000}}
+{"level":"info","message":"Loan components injected into payroll run","timestamp":"2026-09-09T03:42:12.434Z","component":"payrollRunService","data":{"companyId":"95ac3b6a-bd80-4800-9a49-4fb051e398f0","count":1}}
+{"level":"info","message":"Payroll run calculated","timestamp":"2026-09-09T03:42:12.448Z","component":"payrollRunService","data":{"runId":"dace890e-6b03-4eeb-a28f-6dfb3095865b","employeeCount":1,"totalGross":20000}}
+{"level":"info","message":"Calculating payroll run","timestamp":"2026-09-09T03:42:12.451Z","component":"payrollRunService","data":{"runId":"dace890e-6b03-4eeb-a28f-6dfb3095865b","companyId":"95ac3b6a-bd80-4800-9a49-4fb051e398f0"}}
+{"level":"info","message":"Payroll run calculated","timestamp":"2026-09-09T03:42:12.468Z","component":"payrollRunService","data":{"runId":"dace890e-6b03-4eeb-a28f-6dfb3095865b","employeeCount":1,"totalGross":20000}}
+ ❯ tests/integration/k022-payroll-recalc-drops-loan-deduction.int.test.ts (1 test | 1 failed) 289ms
+     × keeps the loan deduction and the loan balance consistent across a recalculation 92ms
+
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 1 ⎯⎯⎯⎯⎯⎯⎯
+
+ FAIL  tests/integration/k022-payroll-recalc-drops-loan-deduction.int.test.ts > K-022 payroll recalculation and loan repayment > keeps the loan deduction and the loan balance consistent across a recalculation
+AssertionError: expected { netPay: 18003.8, …(2) } to deeply equal { netPay: 17003.8, …(2) }
+
+- Expected
++ Received
+
+  {
+-   "loanDeduction": 1000,
+-   "netPay": 17003.8,
++   "loanDeduction": 0,
++   "netPay": 18003.8,
+    "outstanding": 9000,
+  }
+
+ ❯ tests/integration/k022-payroll-recalc-drops-loan-deduction.int.test.ts:108:20
+    106|     // A recalculation with no input change must reproduce the same pa…
+    107|     // must not leave the loan reading as repaid without a deduction.
+    108|     expect(second).toEqual(first);
+       |                    ^
+    109|   });
+    110| });
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[1/1]⎯
+
+
+ Test Files  1 failed (1)
+      Tests  1 failed (1)
+   Start at  05:42:11
+   Duration  746ms (transform 205ms, setup 0ms, import 289ms, tests 289ms, environment 0ms)
+
+error: script "test:integration" exited with code 1

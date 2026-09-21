@@ -1,0 +1,42 @@
+
+ RUN  v4.1.2 /home/hein/Workspace/IsaFlow/.worktrees/audit-remediation-20260908
+
+{"level":"info","message":"API Request: POST /api/accounting/nl-query","timestamp":"2026-09-09T03:05:26.309Z","component":"API","requestId":"01M22218H45NPC4AEE61MPSPTX","data":{"type":"request","method":"POST","url":"/api/accounting/nl-query","query":{},"body":{"question":"Show requested financial records"}}}
+{"level":"info","message":"NL query executed","timestamp":"2026-09-09T03:05:26.328Z","component":"ai","requestId":"01M22218H45NPC4AEE61MPSPTX","data":{"question":"Show requested financial records","intent":"general","rowCount":2}}
+{"level":"info","message":"API Response: POST /api/accounting/nl-query - 200 (20ms)","timestamp":"2026-09-09T03:05:26.328Z","component":"API","requestId":"01M22218H45NPC4AEE61MPSPTX","data":{"type":"response","method":"POST","url":"/api/accounting/nl-query","statusCode":200,"duration":"20ms"}}
+{"level":"info","message":"request_completed","timestamp":"2026-09-09T03:05:26.328Z","component":"http","requestId":"01M22218H45NPC4AEE61MPSPTX","data":{"event":"request_completed","route":"/api/accounting/nl-query","method":"POST","status":200,"durationMs":20,"userId":"63afadd6-48d6-421a-b9c0-b54c0dded196","companyId":"339bdf57-eb70-4ea6-9c05-b86525184472","outcome":"ok"}}
+{"level":"info","message":"API Request: POST /api/accounting/nl-query","timestamp":"2026-09-09T03:05:26.346Z","component":"API","requestId":"01M22218JAXV4KHSP9CZW48DHJ","data":{"type":"request","method":"POST","url":"/api/accounting/nl-query","query":{},"body":{"question":"Show requested financial records"}}}
+{"level":"info","message":"NL query executed","timestamp":"2026-09-09T03:05:26.360Z","component":"ai","requestId":"01M22218JAXV4KHSP9CZW48DHJ","data":{"question":"Show requested financial records","intent":"general","rowCount":1}}
+{"level":"info","message":"API Response: POST /api/accounting/nl-query - 200 (14ms)","timestamp":"2026-09-09T03:05:26.360Z","component":"API","requestId":"01M22218JAXV4KHSP9CZW48DHJ","data":{"type":"response","method":"POST","url":"/api/accounting/nl-query","statusCode":200,"duration":"14ms"}}
+{"level":"info","message":"request_completed","timestamp":"2026-09-09T03:05:26.360Z","component":"http","requestId":"01M22218JAXV4KHSP9CZW48DHJ","data":{"event":"request_completed","route":"/api/accounting/nl-query","method":"POST","status":200,"durationMs":14,"userId":"63afadd6-48d6-421a-b9c0-b54c0dded196","companyId":"339bdf57-eb70-4ea6-9c05-b86525184472","outcome":"ok"}}
+{"level":"info","message":"API Request: POST /api/accounting/nl-query","timestamp":"2026-09-09T03:05:26.365Z","component":"API","requestId":"01M22218JXN4KZW1HEXT9EG47Y","data":{"type":"request","method":"POST","url":"/api/accounting/nl-query","query":{},"body":{"question":"Show requested financial records"}}}
+{"level":"warn","message":"NL query failed tenant-scope guard — rejected","timestamp":"2026-09-09T03:05:26.367Z","component":"ai","requestId":"01M22218JXN4KZW1HEXT9EG47Y","data":{"question":"Show requested financial records","companyId":"339bdf57-eb70-4ea6-9c05-b86525184472","reason":"no company_id scope bound to the caller company"}}
+{"level":"info","message":"API Response: POST /api/accounting/nl-query - 200 (2ms)","timestamp":"2026-09-09T03:05:26.367Z","component":"API","requestId":"01M22218JXN4KZW1HEXT9EG47Y","data":{"type":"response","method":"POST","url":"/api/accounting/nl-query","statusCode":200,"duration":"2ms"}}
+{"level":"info","message":"request_completed","timestamp":"2026-09-09T03:05:26.367Z","component":"http","requestId":"01M22218JXN4KZW1HEXT9EG47Y","data":{"event":"request_completed","route":"/api/accounting/nl-query","method":"POST","status":200,"durationMs":2,"userId":"63afadd6-48d6-421a-b9c0-b54c0dded196","companyId":"339bdf57-eb70-4ea6-9c05-b86525184472","outcome":"ok"}}
+ ❯ tests/integration/nl-query-allowlist-postgres.int.test.ts (3 tests | 1 failed) 273ms
+   × blocks quoted non-allowlisted endpoint rows including legacy plaintext and current ciphertext 105ms
+
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 1 ⎯⎯⎯⎯⎯⎯⎯
+
+ FAIL  tests/integration/nl-query-allowlist-postgres.int.test.ts > blocks quoted non-allowlisted endpoint rows including legacy plaintext and current ciphertext
+AssertionError: expected '{"success":true,"data":{"intent":"gen…' not to contain 'disposable-legacy-signing-secret'
+
+Expected: "disposable-legacy-signing-secret"
+Received: "{"success":true,"data":{"intent":"general","question":"Show requested financial records","sql":"SELECT name,secret FROM \"webhook_endpoints\" WHERE company_id='339bdf57-eb70-4ea6-9c05-b86525184472' LIMIT 100","explanation":"Disposable provider output","rows":[{"name":"Legacy fixture","secret":"disposable-legacy-signing-secret"},{"name":"Encrypted fixture","secret":"8beb5bcee1f80193896ea93d:231dc1735bcda4b7580ea9abb7c8c98d:f285b87d95fe8350e3da8ea8ddf2afa41317a615ff37fd78c124843a95"}],"columns":["name","secret"],"numericColumns":[],"summary":"2 results returned.","rowCount":2},"meta":{"timestamp":"2026-09-09T03:05:26.328Z"}}"
+
+ ❯ tests/integration/nl-query-allowlist-postgres.int.test.ts:47:49
+     45|   const result=await ask(`SELECT name,secret FROM "webhook_endpoints" …
+     46|   expect(result.state.statusCode).toBe(200);
+     47|   expect(JSON.stringify(result.state.body)).not.toContain('disposable-…
+       |                                                 ^
+     48|   expect(result.state.body).toMatchObject({data:{summary:'Query reject…
+     49| });
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[1/1]⎯
+
+
+ Test Files  1 failed (1)
+      Tests  1 failed | 2 passed (3)
+   Start at  05:05:25
+   Duration  942ms (transform 220ms, setup 0ms, import 510ms, tests 273ms, environment 0ms)
+

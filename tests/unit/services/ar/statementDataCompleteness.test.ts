@@ -17,16 +17,26 @@
  *     "this customer has paid you R50,000 that nobody has confirmed".
  */
 import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { mockUnsafe, recordSqlCall } from '../../helpers/sqlFragmentMock';
 
 const sqlCalls: Array<{ sql: string; values: unknown[] }> = [];
 let mockImpl: (strings: TemplateStringsArray, ...values: unknown[]) => Promise<unknown[]> =
   () => Promise.resolve([]);
 
 vi.mock('@/lib/neon', () => ({
-  sql: (strings: TemplateStringsArray, ...values: unknown[]) => {
-    sqlCalls.push({ sql: strings.join('?'), values });
-    return mockImpl(strings, ...values);
-  },
+  sql: Object.assign(
+    (strings: TemplateStringsArray, ...values: unknown[]) => {
+      sqlCalls.push(recordSqlCall(strings, values));
+      return mockImpl(strings, ...values);
+    },
+    // Part of the real client. The statement queries splice the as-at
+    // soft-delete predicate through it (shared/softDeleteLedgerPresence), and
+    // building a fragment is NOT a query: recording it here would shift every
+    // queued response after it. mockUnsafe reproduces the real client's
+    // splicing (text into the SQL, values into the parameters) and rejects if
+    // the fragment is awaited instead of interpolated — see the helper.
+    { unsafe: mockUnsafe },
+  ),
 }));
 vi.mock('@/lib/logger', () => ({ log: { info: vi.fn(), warn: vi.fn(), error: vi.fn() } }));
 vi.mock('@/modules/accounting/services/core/emailService', () => ({ sendEmail: vi.fn() }));
@@ -46,7 +56,7 @@ const INVOICES = [
   { id: 'i2', invoice_number: 'INV0002', invoice_date: '2026-02-15', total_amount: 5000 },
 ];
 const PAYMENTS = [
-  { id: 'p1', payment_number: 'PMT0001', payment_date: '2026-02-01', amount_allocated: 4000, status: 'confirmed' },
+  { id: 'p1', payment_number: 'PMT0001', payment_date: '2026-02-01', amount_received: 4000, status: 'confirmed' },
 ];
 // applied_amount DIFFERS from total_amount on purpose. Approving a note applies
 // MIN(total, outstanding) and leaves the excess unapplied, so a note whose two
@@ -101,7 +111,7 @@ describe('fetchStatementData — what it drops, it names', () => {
     routeMock({
       payments: [
         ...PAYMENTS,
-        { id: 'p2', payment_number: 'PMT0002', payment_date: '2026-03-01', amount_allocated: 50000, status: 'draft' },
+        { id: 'p2', payment_number: 'PMT0002', payment_date: '2026-03-01', amount_received: 50000, status: 'draft' },
       ],
     });
     const payload = (await fetchStatementData(COMPANY, CUSTOMER, '2026-03-31'))!;
@@ -120,7 +130,7 @@ describe('fetchStatementData — what it drops, it names', () => {
     routeMock({
       payments: [
         ...PAYMENTS,
-        { id: 'p2', payment_number: 'PMT0002', payment_date: '2026-03-01', amount_allocated: 50000, status: 'cancelled' },
+        { id: 'p2', payment_number: 'PMT0002', payment_date: '2026-03-01', amount_received: 50000, status: 'cancelled' },
       ],
     });
     const payload = (await fetchStatementData(COMPANY, CUSTOMER, '2026-03-31'))!;

@@ -20,11 +20,18 @@ import { withAuth, type CompanyAuthedRequest, withWriteAccess} from '@/lib/auth'
 import { withCsrf } from '@/lib/auth/withCsrf';
 import { UUID } from '@/lib/schemas/common';
 import { log } from '@/lib/logger';
+import { classifyBankMatchRefusal } from '@/modules/accounting/services/bank/bankMatchRefusalStatus';
 import { sql } from '@/lib/neon';
 import {
   allocateTransaction,
   matchTransaction,
 } from '@/modules/accounting/services/bank/bankReconciliationService';
+import {
+  confirmSupplierInvoiceMatch,
+} from '@/modules/accounting/services/bank/confirmSupplierMatch';
+import {
+  confirmCustomerInvoiceMatch,
+} from '@/modules/accounting/services/bank/confirmCustomerMatch';
 import {
   signMismatchReason,
   type SettlementKind,
@@ -63,13 +70,13 @@ async function handler(req: CompanyAuthedRequest, res: NextApiResponse) {
     if (txRows.length === 0) {
       return apiResponse.notFound(res, 'Bank transaction', bankTransactionId);
     }
-    // SIGNED first, magnitude second. This route settles the document with
-    // arithmetic of its own (`amount_paid += min(paymentAmount, outstanding)`)
-    // which has no idea which way the money went, and `allocateTransaction` now
-    // posts the journal in the direction the sign implies. Unguarded, a refund
-    // matched here raises the AP liability in the GL while this route reduces
-    // it in the subledger — control and subledger differ by TWICE the line,
-    // behind a match a human confirmed on screen.
+    // SIGNED first, magnitude second. Both settling arms take the ABSOLUTE
+    // value from here and apply it as a settlement, which has no idea which way
+    // the money went, while `allocateTransaction` posts the journal in the
+    // direction the sign implies. Unguarded, a refund matched here raises the
+    // AP liability in the GL while the settlement reduces it in the subledger —
+    // control and subledger differ by TWICE the line, behind a match a human
+    // confirmed on screen.
     //
     // Refused rather than reinterpreted, and BEFORE the first write: `withAuth`
     // decides COMMIT vs ROLLBACK on `statusCode >= 500`, so a 400 raised after
@@ -88,92 +95,61 @@ async function handler(req: CompanyAuthedRequest, res: NextApiResponse) {
       if (wrongWay) return apiResponse.badRequest(res, wrongWay);
     }
     const paymentAmount = Math.abs(signedAmount);
+    // Named in the response when a branch creates a payment document, so the
+    // screen can say which one settled the line.
+    let settlement: { supplierPaymentId: string; paymentNumber: string; allocated: number } | undefined;
+    let receipt: { customerPaymentId: string; allocated: number } | undefined;
 
     if (candidateType === 'supplier_invoice') {
-      const invRows = (await sql`
-        SELECT id, supplier_id, total_amount, amount_paid, balance
-        FROM supplier_invoices WHERE id = ${candidateId}::UUID AND company_id = ${companyId}
-      `) as Row[];
-      if (invRows.length === 0) {
-        return apiResponse.notFound(res, 'Supplier invoice', candidateId);
-      }
-      const inv = invRows[0]!;
-      const supplierId = String(inv.supplier_id);
-      const currentPaid = Number(inv.amount_paid || 0);
-      const invoiceTotal = Number(inv.total_amount);
-      const outstandingBalance = invoiceTotal - currentPaid;
-
-      // Create GL entry: DR Accounts Payable, CR Bank. Pass candidateId so the
-      // 4-way match targets this specific invoice rather than the
-      // most-recent-unpaid heuristic.
-      await allocateTransaction(
-        companyId, bankTransactionId, '', userId, undefined, 'supplier', supplierId,
-        undefined, undefined, undefined, undefined, candidateId,
+      // The whole arm lives in `confirmSupplierInvoiceMatch`: what it may
+      // settle, what it must refuse, and — load-bearing — the fact that every
+      // refusal is decided from READS, before the first write, because a 4xx
+      // raised after one COMMITs it.
+      const outcome = await confirmSupplierInvoiceMatch(
+        companyId, bankTransactionId, candidateId, userId, paymentAmount,
       );
-
-      // Update invoice payment tracking
-      const newPaid = currentPaid + Math.min(paymentAmount, outstandingBalance);
-      const newBalance = invoiceTotal - newPaid;
-      const newStatus = newBalance <= 0.01 ? 'paid' : 'partially_paid';
-
-      await sql`
-        UPDATE supplier_invoices
-        SET amount_paid = ${newPaid}::NUMERIC,
-            balance = ${newBalance}::NUMERIC,
-            status = ${newStatus},
-            updated_at = NOW()
-        WHERE id = ${candidateId}::UUID AND company_id = ${companyId}::UUID
-      `;
-
-      log.info('Confirmed match: supplier invoice', {
-        bankTransactionId, candidateId,
-        paymentAmount, outstandingBalance, newStatus,
-      }, 'accounting-api');
+      if (!outcome.ok) {
+        if (outcome.kind === 'not_found') {
+          return apiResponse.notFound(res, 'Supplier invoice', candidateId);
+        }
+        // 409, not 400: contention on the BILL is the same event as contention
+        // on the bank line, which `lockBankTransactionForUpdate` already
+        // answers 409. Both are pre-write, so the 4xx `withAuth` COMMITs
+        // commits nothing.
+        return outcome.kind === 'contended'
+          ? apiResponse.conflict(res, outcome.message)
+          : apiResponse.badRequest(res, outcome.message);
+      }
+      settlement = {
+        supplierPaymentId: outcome.supplierPaymentId,
+        paymentNumber: outcome.paymentNumber,
+        allocated: outcome.allocated,
+      };
 
     } else if (candidateType === 'customer_invoice') {
-      const ciRows = (await sql`
-        SELECT id, customer_id, total_amount, amount_paid
-        FROM customer_invoices WHERE id = ${candidateId}::UUID AND company_id = ${companyId}
-      `) as Row[];
-      if (ciRows.length === 0) {
-        return apiResponse.notFound(res, 'Customer invoice', candidateId);
-      }
-      const ci = ciRows[0]!;
-      const customerId = String(ci.customer_id);
-      const currentPaid = Number(ci.amount_paid || 0);
-      const invoiceTotal = Number(ci.total_amount);
-      const outstandingBalance = invoiceTotal - currentPaid;
-
-      // Create GL entry: DR Bank, CR Accounts Receivable.
-      //
-      // `autoApply: false`: this branch settles `candidateId` itself, with the
-      // absolute `amount_paid` write below, computed from a balance read
-      // BEFORE this call. Letting the customer's auto-allocate strategy also
-      // apply the receipt would reduce the subledger twice for one deposit —
-      // once on whichever invoice the strategy picked, once here — while the
-      // AR control account moved only by the line.
-      await allocateTransaction(
-        companyId, bankTransactionId, '', userId, undefined, 'customer', customerId,
-        undefined, undefined, undefined, undefined, undefined, { autoApply: false },
+      // The mirror of the supplier arm, and moved out for the same reason: this
+      // branch used to write `amount_paid` absolutely with no
+      // `customer_payment_allocations` row behind it, which no reversal can
+      // undo. `confirmCustomerMatch.ts` routes it through `confirmReceiptMatch`
+      // — one journal, one `customer_payments` document carrying it, applied
+      // through the allocation table `bankAllocationUnwind` reads — and refuses
+      // everything it must refuse from READS, before the first write.
+      const outcome = await confirmCustomerInvoiceMatch(
+        companyId, bankTransactionId, candidateId, userId, paymentAmount,
       );
-
-      // Update invoice payment tracking
-      const newPaid = currentPaid + Math.min(paymentAmount, outstandingBalance);
-      const newStatus = (newPaid >= invoiceTotal - 0.01) ? 'paid' : 'partially_paid';
-
-      await sql`
-        UPDATE customer_invoices
-        SET amount_paid = ${newPaid}::NUMERIC,
-            status = ${newStatus},
-            paid_at = ${newStatus === 'paid' ? new Date().toISOString() : null},
-            updated_at = NOW()
-        WHERE id = ${candidateId}::UUID AND company_id = ${companyId}::UUID
-      `;
-
-      log.info('Confirmed match: customer invoice', {
-        bankTransactionId, candidateId,
-        paymentAmount, outstandingBalance, newStatus,
-      }, 'accounting-api');
+      if (!outcome.ok) {
+        if (outcome.kind === 'not_found') {
+          return apiResponse.notFound(res, 'Customer invoice', candidateId);
+        }
+        // 409 for contention — see the supplier arm above.
+        return outcome.kind === 'contended'
+          ? apiResponse.conflict(res, outcome.message)
+          : apiResponse.badRequest(res, outcome.message);
+      }
+      receipt = {
+        customerPaymentId: outcome.customerPaymentId,
+        allocated: outcome.allocated,
+      };
 
     } else if (candidateType === 'purchase_order') {
       const poRows = (await sql`
@@ -196,7 +172,7 @@ async function handler(req: CompanyAuthedRequest, res: NextApiResponse) {
       // belongs to.
       await allocateTransaction(
         companyId, bankTransactionId, '', userId, undefined, 'supplier', supplierId,
-        undefined, undefined, undefined, undefined, undefined, { autoApply: false },
+        undefined, undefined, undefined, undefined, undefined, { autoApply: 'none' },
       );
 
       await sql`
@@ -262,11 +238,31 @@ async function handler(req: CompanyAuthedRequest, res: NextApiResponse) {
       log.info('Confirmed match: journal line', { bankTransactionId, candidateId }, 'accounting-api');
     }
 
-    return apiResponse.success(res, { matched: true, candidateType, candidateId });
+    return apiResponse.success(res, { matched: true, candidateType, candidateId, ...settlement, ...receipt });
   } catch (err) {
+    // EVERY 4xx this route may give lives in `bankMatchRefusalStatus`, and the
+    // default there is "not classified" — see its header for why the status is
+    // the transaction's fate rather than presentation.
+    const refusal = classifyBankMatchRefusal(err);
+    if (refusal) {
+      if (refusal.contended) {
+        log.info('Bank match confirm hit a contended row', { bankTransactionId, candidateType, candidateId }, 'accounting-api');
+      }
+      return refusal.status === 409
+        ? apiResponse.conflict(res, refusal.message)
+        : apiResponse.badRequest(res, refusal.message);
+    }
+
+    // 500, not 400, for every REMAINING throw: those happen at or after the
+    // first write of `allocateTransaction`, which has posted a journal, touched
+    // `bank_transactions` and may have written a payment document. `withAuth`
+    // decides COMMIT vs ROLLBACK on `statusCode >= 500`, so answering 400 here
+    // committed exactly the half-finished match this route must not leave
+    // behind. The pre-write refusals above are plain `return`s and keep their
+    // 4xx.
     const message = err instanceof Error ? err.message : 'Match confirmation failed';
     log.error('Failed to confirm bank match', { bankTransactionId, candidateType, candidateId, error: err }, 'accounting-api');
-    return apiResponse.badRequest(res, message);
+    return apiResponse.internalError(res, err, message);
   }
 }
 

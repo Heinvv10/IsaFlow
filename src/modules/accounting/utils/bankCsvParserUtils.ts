@@ -63,8 +63,12 @@ export function parseAmount(value: string): number | null {
   let cleaned = value.trim().replace(/^["']|["']$/g, '').trim();
   const decimalComma = !cleaned.includes('.') && /,\d{2}$/.test(cleaned);
 
+  // `.replace(',', '.')` is NON-GLOBAL, so "1 234,56" was fine but "1,234,56"
+  // converted only its first comma and parseFloat("1.234,56") stopped at 1.23
+  // — a thousandfold under-read of the row, silently. Anchor the replacement on
+  // the decimal comma and strip the rest.
   cleaned = decimalComma
-    ? cleaned.replace(/[\s\u00A0]/g, '').replace(',', '.')
+    ? cleaned.replace(/[\s\u00A0]/g, '').replace(/,(?=\d{2}$)/, '.').replace(/,/g, '')
     : cleaned.replace(/[,\s\u00A0]/g, '');
 
   const num = parseFloat(cleaned);

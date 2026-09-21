@@ -127,3 +127,13 @@ describe('withErrorHandler — share token redaction', () => {
     expect(serialized).toContain('[token]');
   });
 });
+
+it('redacts encoded token names and values before logging a WhatsApp callback', async () => {
+  apiLoggerInfo.mockReset();
+  const encoded = '%41'.repeat(43);
+  const { req, res } = makeReqRes(`/api/accounting/capture/inbound/whatsapp?%74oken=${encoded}`, { token: TOKEN });
+  await withErrorHandler(async () => {})(req, res);
+  expect(JSON.stringify(apiLoggerInfo.mock.calls)).not.toContain(encoded);
+  expect(JSON.stringify(apiLoggerInfo.mock.calls)).not.toContain(TOKEN);
+  expect(JSON.stringify(apiLoggerInfo.mock.calls)).toContain('[token]');
+});

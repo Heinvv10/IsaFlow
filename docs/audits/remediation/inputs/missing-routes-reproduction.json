@@ -1,0 +1,22 @@
+[
+  {
+    "url": "/api/accounting/suppliers",
+    "status": 404
+  },
+  {
+    "url": "/api/suppliers",
+    "status": 404
+  },
+  {
+    "url": "/api/clients",
+    "status": 404
+  },
+  {
+    "url": "/api/accounting/supplier-expectations/recompute",
+    "status": 404
+  },
+  {
+    "url": "/api/accounting/expected-invoice-alerts/detect-gaps",
+    "status": 404
+  }
+]

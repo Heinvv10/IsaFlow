@@ -19,7 +19,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
 
   try {
     const [txResult, bizResult, invResult] = await Promise.all([
-      sql`SELECT COALESCE(SUM(ABS(amount)), 0) AS total FROM bank_transactions`,
+      sql`SELECT COALESCE(SUM(ABS(amount)), 0) AS total FROM bank_transactions WHERE feed_state = 'posted'`,
       sql`
         SELECT COUNT(*) AS cnt FROM companies
         WHERE name NOT LIKE 'Test%'

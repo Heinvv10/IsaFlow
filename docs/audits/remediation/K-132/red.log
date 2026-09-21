@@ -1,0 +1,46 @@
+
+ RUN  v4.1.2 /home/hein/Workspace/IsaFlow/.worktrees/audit-remediation-20260908
+
+ ❯ tests/unit/k132-netcash-missing-keys-report-success.test.ts (2 tests | 2 failed) 45ms
+     × does not report success when the service key and payouts key are absent 37ms
+     × does not report an in-flight status when the service key is absent 1ms
+
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 2 ⎯⎯⎯⎯⎯⎯⎯
+
+ FAIL  tests/unit/k132-netcash-missing-keys-report-success.test.ts > K-132 missing Netcash credentials are reported as a successful payment run > does not report success when the service key and payouts key are absent
+AssertionError: expected true to be false // Object.is equality
+
+- Expected
++ Received
+
+- false
++ true
+
+ ❯ tests/unit/k132-netcash-missing-keys-report-success.test.ts:31:28
+     29|
+     30|     // THE CLAIM: on origin/master this is { success: true, batchRefer…
+     31|     expect(result.success).toBe(false);
+       |                            ^
+     32|     expect(result.error).toBeTruthy();
+     33|     expect(result.batchReference ?? '').not.toMatch(/^MOCK-/);
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[1/2]⎯
+
+ FAIL  tests/unit/k132-netcash-missing-keys-report-success.test.ts > K-132 missing Netcash credentials are reported as a successful payment run > does not report an in-flight status when the service key is absent
+AssertionError: expected 'processing' not to be 'processing' // Object.is equality
+ ❯ tests/unit/k132-netcash-missing-keys-report-success.test.ts:41:31
+     39|     // THE CLAIM: on origin/master this is { status: 'processing', … }…
+     40|     // poller therefore never resolves the submission to a terminal st…
+     41|     expect(status.status).not.toBe('processing');
+       |                               ^
+     42|   });
+     43| });
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[2/2]⎯
+
+
+ Test Files  1 failed (1)
+      Tests  2 failed (2)
+   Start at  11:33:28
+   Duration  1.44s (transform 219ms, setup 0ms, import 262ms, tests 45ms, environment 0ms)
+

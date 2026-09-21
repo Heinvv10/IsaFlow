@@ -20,6 +20,8 @@ interface BelowThresholdAsset {
   status: string;
   created_at: string;
   belowThreshold: boolean;
+  /** True once the asset has been expensed to GL — the API refuses a repeat. */
+  expensed: boolean;
   suggestedTreatment: string;
 }
 
@@ -54,7 +56,8 @@ export default function BelowThresholdPage() {
         body: JSON.stringify({ assetId }),
       });
       const json = await res.json();
-      if (!res.ok) { setError(json.message || 'Failed to post expense'); }
+      // apiResponse nests the message: { success: false, error: { code, message } }.
+      if (!res.ok) { setError(json.error?.message || 'Failed to post expense'); }
       else { setDone(prev => new Set([...prev, assetId])); }
     } catch { setError('Network error'); }
     setPosting(null);
@@ -115,7 +118,8 @@ export default function BelowThresholdPage() {
                   </tr>
                 )}
                 {assets.map((a, i) => {
-                  const isDone = done.has(a.id);
+                  // `expensed` survives a reload; `done` only covers this page view.
+                  const isDone = done.has(a.id) || a.expensed === true;
                   return (
                     <tr key={a.id} className={`border-b border-[var(--ff-border-light)] ${i % 2 === 0 ? '' : 'bg-[var(--ff-bg-primary)]/10'} ${isDone ? 'opacity-50' : ''}`}>
                       <td className="px-4 py-3 font-mono text-xs font-semibold text-amber-400">{a.asset_number}</td>

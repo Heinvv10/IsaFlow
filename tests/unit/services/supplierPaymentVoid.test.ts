@@ -13,6 +13,21 @@
 
 import { describe, it, expect, vi, beforeEach, type MockedFunction } from 'vitest';
 
+// `lockSupplierPaymentForUpdate` refuses to run outside a request transaction —
+// its `FOR UPDATE` would be released at the end of its own statement and
+// protect nothing. Stand in for the withAuth-bound client so the ORDER under
+// test is actually exercised.
+const { mockTx } = vi.hoisted(() => ({
+  mockTx: {
+    queries: [] as string[],
+    client: { query: (t: string) => { mockTx.queries.push(t); return Promise.resolve(undefined); } },
+  },
+}));
+vi.mock('@/lib/als', async () => {
+  const actual = await vi.importActual<typeof import('@/lib/als')>('@/lib/als');
+  return { ...actual, als: { ...actual.als, getStore: () => ({ client: mockTx.client }) } };
+});
+
 vi.mock('@/lib/neon', () => {
   const sqlMock = Object.assign(vi.fn().mockResolvedValue([]), {
     transaction: vi.fn(),
@@ -47,7 +62,9 @@ vi.mock('@/modules/accounting/services/ap/supplierPaymentService', () => ({
 import { sql, withSavepoint } from '@/lib/neon';
 import { reverseJournalEntry } from '@/modules/accounting/services/gl/journalEntryService';
 import { getSupplierPaymentById } from '@/modules/accounting/services/ap/supplierPaymentService';
-import { voidSupplierPayment } from '@/modules/accounting/services/ap/supplierPaymentWorkflowService';
+import {
+  SupplierPaymentNotFoundError, voidSupplierPayment,
+} from '@/modules/accounting/services/ap/supplierPaymentWorkflowService';
 
 const mockSql = sql as unknown as MockedFunction<(...args: unknown[]) => Promise<unknown[]>>;
 const mockReverse = reverseJournalEntry as unknown as MockedFunction<
@@ -127,6 +144,61 @@ describe('voidSupplierPayment (P2.1 / audit W4)', () => {
     await voidSupplierPayment(COMPANY_ID, PAYMENT_ID, USER_ID).catch(() => undefined);
 
     expect(withSavepoint).toHaveBeenCalledWith('void_supplier_payment', expect.any(Function));
+  });
+
+  it('takes the payment, then the invoices, then the journal — the canonical order', async () => {
+    // The inversion this pins: the void used to open with the journal
+    // `FOR UPDATE` and reach `supplier_payments` last, which deadlocks against
+    // `voidPaymentDocument` (payment -> invoices -> GL) on the same payment.
+    mockGetPayment.mockResolvedValue(payment());
+    const texts: string[] = [];
+    mockSql.mockImplementation((strings: TemplateStringsArray) => {
+      const text = (strings as unknown as string[]).join('?');
+      texts.push(text);
+      if (/SELECT status, reversed_at/i.test(text)) {
+        return Promise.resolve([{ status: 'posted', reversed_at: null }]);
+      }
+      return Promise.resolve([{ id: PAYMENT_ID, status: 'cancelled' }]);
+    });
+
+    await voidSupplierPayment(COMPANY_ID, PAYMENT_ID, USER_ID);
+
+    const at = (re: RegExp) => texts.findIndex((t) => re.test(t));
+    const lock = at(/FROM supplier_payments[\s\S]*FOR UPDATE OF sp/i);
+    const invoices = at(/UPDATE supplier_invoices/i);
+    const journal = at(/SELECT status, reversed_at/i);
+    expect(lock, 'the payment row must be locked').toBeGreaterThanOrEqual(0);
+    expect(lock).toBeLessThan(invoices);
+    expect(invoices).toBeLessThan(journal);
+  });
+
+  it('refuses a payment that does not exist for this tenant, before any write', async () => {
+    mockSql.mockResolvedValue([]);
+    // TYPED: the lock-first refusal is the same pre-write event the route
+    // answers 404, so it must be the class the route keys on (K-107).
+    await expect(voidSupplierPayment(COMPANY_ID, PAYMENT_ID, USER_ID)).rejects.toBeInstanceOf(SupplierPaymentNotFoundError);
+    expect(mockGetPayment).not.toHaveBeenCalled();
+  });
+
+  it('un-applies allocations in ascending invoice id, not capture order', async () => {
+    const LOW = '11111111-0000-4000-8000-111111111111';
+    const HIGH = '99999999-0000-4000-8000-999999999999';
+    mockGetPayment.mockResolvedValue(payment({
+      allocations: [{ invoiceId: HIGH, amountAllocated: 5 }, { invoiceId: LOW, amountAllocated: 5 }],
+    }));
+    const seen: string[] = [];
+    mockSql.mockImplementation((strings: TemplateStringsArray, ...values: unknown[]) => {
+      const text = (strings as unknown as string[]).join('?');
+      if (/UPDATE supplier_invoices/i.test(text)) seen.push(String(values[values.length - 2]));
+      if (/SELECT status, reversed_at/i.test(text)) {
+        return Promise.resolve([{ status: 'posted', reversed_at: null }]);
+      }
+      return Promise.resolve([{ id: PAYMENT_ID, status: 'cancelled' }]);
+    });
+
+    await voidSupplierPayment(COMPANY_ID, PAYMENT_ID, USER_ID);
+
+    expect(seen).toEqual([LOW, HIGH]);
   });
 
   it('skips the GL reversal when the journal is already reversed', async () => {

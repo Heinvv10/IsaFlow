@@ -19,6 +19,7 @@ import {
 } from '@/modules/accounting/services/core/smartCategorizationService';
 import { sweep, getAutoPostSettings } from '@/modules/accounting/services/bank/autoPostGateService';
 import { sql } from '@/lib/neon';
+import { runAfterCommit } from '@/lib/afterCommit';
 import {
   selectResidualTxIds,
   runLlmResidualPass,
@@ -110,7 +111,8 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
             const willRunLlm = apSettings.llmEnabled && residualIds.length > 0;
             if (willRunLlm) {
               const deps = await buildRunDeps(companyId, userId, residualIds);
-              void runLlmResidualPass(companyId, residualIds, userId, deps); // fire-and-forget
+              // After COMMIT, off this request's connection (R-075).
+              runAfterCommit('LLM residual pass', () => runLlmResidualPass(companyId, residualIds, userId, deps));
             }
 
             return apiResponse.success(res, { ...result, residualCount: willRunLlm ? residualIds.length : 0 });
@@ -143,7 +145,7 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
           const willRunLlm = apSettings.llmEnabled && residualIds.length > 0;
           if (willRunLlm) {
             const deps = await buildRunDeps(companyId, userId, residualIds);
-            void runLlmResidualPass(companyId, residualIds, userId, deps); // fire-and-forget
+            runAfterCommit('LLM residual pass', () => runLlmResidualPass(companyId, residualIds, userId, deps));
           }
 
           return apiResponse.success(res, { ...result, autoPost, residualCount: willRunLlm ? residualIds.length : 0 });

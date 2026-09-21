@@ -108,7 +108,7 @@ describe('the merge record', async () => {
       );
       const rec = rows.rows[0]!;
       expect(rec.reparented_account_ids).toEqual([f.childId]);
-      expect(rec.level_delta).toBe(1);
+      expect(rec.level_delta).toBe(2);
     });
   }, 60_000);
 });

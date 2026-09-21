@@ -49,11 +49,22 @@ vi.mock('@/modules/accounting/services/gl/journalEntryService', () => ({
 vi.mock('@/modules/accounting/services/ar/creditNoteLock', () => ({
   lockCreditNoteForUpdate: vi.fn(),
 }));
+// The FIFO application (migration 677) writes `amount_paid` under the BOUNDED
+// invoice row lock, which refuses outside a request transaction. Passed through
+// so this suite keeps describing the credit note; the lock's own contract is
+// covered in tests/unit/services/shared/creditNoteFifo.test.ts and against a
+// real database in tests/integration/k011-invoice-lock-review.int.test.ts.
+vi.mock('@/modules/accounting/services/ar/customerInvoiceLock', () => ({
+  withCustomerInvoiceLock: <T>(_fn: string, _s: string, run: () => Promise<T>) => run(),
+}));
+vi.mock('@/modules/accounting/services/ap/supplierInvoiceLock', () => ({
+  withSupplierInvoiceLock: <T>(_fn: string, _s: string, run: () => Promise<T>) => run(),
+}));
 vi.mock('@/modules/accounting/services/gl/systemAccountResolver', () => ({
   getSystemAccount: vi.fn().mockResolvedValue({ id: 'acct-1' }),
 }));
 
-import { sql } from '@/lib/neon';
+import { sql, withSavepoint } from '@/lib/neon';
 import { getSystemAccount } from '@/modules/accounting/services/gl/systemAccountResolver';
 import { createJournalEntry, reverseJournalEntry } from '@/modules/accounting/services/gl/journalEntryService';
 import { createQuote } from '@/modules/accounting/services/ar/quoteService';
@@ -85,6 +96,9 @@ function mockByText(routes: Record<string, unknown[] | Error>) {
 beforeEach(() => {
   vi.resetAllMocks(); // wipes factory implementations too — re-prime below
   mockSql.mockResolvedValue([]);
+  // Includes withSavepoint: resetAllMocks wipes the factory's passthrough, and
+  // R-067's ownership fence runs inside one.
+  vi.mocked(withSavepoint).mockImplementation((_n: string, fn: () => unknown) => fn() as never);
   (getSystemAccount as unknown as ReturnType<typeof vi.fn>).mockResolvedValue({ id: 'acct-1' });
   (createJournalEntry as unknown as ReturnType<typeof vi.fn>).mockResolvedValue({ id: 'je-1' });
   (reverseJournalEntry as unknown as ReturnType<typeof vi.fn>).mockResolvedValue({ id: 'je-rev' });
@@ -122,7 +136,7 @@ describe('W2 — soft-delete blocked while open documents exist', () => {
       'FROM customer_invoices': [{ open_count: '2' }],
     });
 
-    await expect(softDelete(COMPANY_ID, 'customer', ENTITY_ID)).rejects.toThrow(
+    await expect(softDelete(COMPANY_ID, 'customer', ENTITY_ID, USER_ID)).rejects.toThrow(
       /open (invoice|document)/i,
     );
     // never reached the UPDATE
@@ -137,7 +151,7 @@ describe('W2 — soft-delete blocked while open documents exist', () => {
       'FROM supplier_invoices': [{ open_count: '1' }],
     });
 
-    await expect(softDelete(COMPANY_ID, 'supplier', ENTITY_ID)).rejects.toThrow(
+    await expect(softDelete(COMPANY_ID, 'supplier', ENTITY_ID, USER_ID)).rejects.toThrow(
       /open (invoice|document)/i,
     );
   });
@@ -149,7 +163,7 @@ describe('W2 — soft-delete blocked while open documents exist', () => {
       'UPDATE customers SET deleted_at': [{ id: ENTITY_ID }],
     });
 
-    const result = await softDelete(COMPANY_ID, 'customer', ENTITY_ID);
+    const result = await softDelete(COMPANY_ID, 'customer', ENTITY_ID, USER_ID);
     expect(result.undoToken).toBeTruthy();
   });
 });
@@ -161,6 +175,8 @@ describe('W3 — draft payment allocations count pending drafts', () => {
     // invoice: total 115, confirmed paid 0 — but another DRAFT payment
     // already allocates the full 115.
     mockByText({
+      // R-067 fences the caller-supplied clientId before any of this runs.
+      'FROM customers': [{ ok: 1 }],
       'SELECT total_amount, amount_paid': [{ total_amount: '115.00', amount_paid: '0.00' }],
       'customer_payment_allocations': [{ pending: '115.00' }],
     });
@@ -196,13 +212,19 @@ describe('N6 — linked credit note cannot be applied twice', () => {
     mockSql.mockImplementation((strings: TemplateStringsArray, ...values: unknown[]) => {
       const text = (strings as unknown as string[]).join('?');
       if (/SELECT \* FROM credit_notes/i.test(text)) return Promise.resolve([cnRow]);
-      // Approve now READS the linked invoice to cap the applied amount at its
-      // outstanding balance, so the mock has to answer that lookup. Outstanding
-      // here (1150 - 0) exceeds the note's 115, so the full amount applies and
-      // the note still lands in 'applied' — which is what this test is about.
-      if (/SELECT total_amount, amount_paid FROM customer_invoices/i.test(text)) {
-        return Promise.resolve([{ total_amount: '1150.00', amount_paid: '0.00' }]);
+      // A draft note has consumed nothing, so the applied_amount/allocation
+      // guard sees no rows.
+      if (/SUM\(amount_allocated\)/i.test(text)) return Promise.resolve([{ allocated: 0 }]);
+      // Approve LOCKS the linked invoice and caps the applied amount at the
+      // balance that read returns. Outstanding here (1150) exceeds the note's
+      // 115, so the full amount applies and the note still lands in 'applied' —
+      // which is what this test is about.
+      if (/FOR UPDATE/i.test(text)) {
+        return Promise.resolve([{
+          id: 'bbbbbbbb-0000-4000-8000-bbbbbbbbbbbb', status: 'approved', outstanding: '1150.00',
+        }]);
       }
+      if (/SELECT ci\.id/i.test(text)) return Promise.resolve([]);
       if (/UPDATE customer_invoices SET amount_paid/i.test(text)) {
         return Promise.resolve([{ id: 'bbbbbbbb-0000-4000-8000-bbbbbbbbbbbb' }]);
       }

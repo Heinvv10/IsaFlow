@@ -7,6 +7,7 @@
 
 import type { NextApiRequest, NextApiResponse } from 'next';
 import { incomeStatementPackRows, NO_MARGIN_CELL } from '@/modules/accounting/services/reports/incomeStatementPackRows';
+import { packToBsDetail, packToBsTotals, toManagementBsRows } from '@/modules/accounting/services/reports/statementRows/packMappers';
 import { withErrorHandler } from '@/lib/api-error-handler';
 import { apiResponse } from '@/lib/apiResponse';
 import { withAuth, type CompanyAuthedRequest, withWriteAccess} from '@/lib/auth';
@@ -157,16 +158,9 @@ export function renderSectionHtml(section: PackSection): string {
       return tableHtml(['Item', 'Amount', 'Margin'], rows);
 
     case 'balance_sheet':
-      rows = [
-        ['Current Assets', fmtZAR(d.currentAssets)],
-        ['Total Assets', fmtZAR(d.totalAssets)],
-        ['Current Liabilities', fmtZAR(d.currentLiabilities)],
-        ['Total Liabilities', fmtZAR(d.totalLiabilities)],
-        ['Total Equity', fmtZAR(d.totalEquity)],
-        ['Cash', fmtZAR(d.cash)],
-        ['Accounts Receivable', fmtZAR(d.accountsReceivable)],
-        ['Accounts Payable', fmtZAR(d.accountsPayable)],
-      ].map(([l, v]) => `<tr><td>${l}</td><td class="num">${v}</td></tr>`).join('');
+      rows = toManagementBsRows(packToBsTotals(d), packToBsDetail(d))
+        .map(row => `<tr><td>${row.label}</td><td class="num">${fmtZAR(row.actual)}</td></tr>`)
+        .join('');
       return tableHtml(['Item', 'Amount'], rows);
 
     case 'cash_flow':

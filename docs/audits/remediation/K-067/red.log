@@ -1,0 +1,35 @@
+
+- Expected
++ Received
+
+- false
++ true
+
+ ❯ tests/unit/eft/k067-eft-padleft-truncation.test.ts:71:30
+     69|     const validation = validateEFTBatch(header, [payment({ beneficiary…
+     70|     // THE CLAIM: nothing rejects it, and the file names an account no…
+     71|     expect(validation.valid).toBe(false);
+       |                              ^
+     72|   });
+     73|
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[2/3]⎯
+
+ FAIL  tests/unit/eft/k067-eft-padleft-truncation.test.ts > K-067 EFT builders truncate over-long values instead of rejecting them > the generated Standard Bank file carries the truncated figures
+AssertionError: expected '76543210123' not to be '76543210123' // Object.is equality
+ ❯ tests/unit/eft/k067-eft-padleft-truncation.test.ts:80:34
+     78|     const txn = file.split('\n').find((l) => l.startsWith('T'))!;
+     79|     // T + 6 branch + 11 account + 1 type + 11 amount
+     80|     expect(txn.slice(7, 18)).not.toBe('76543210123');
+       |                                  ^
+     81|     expect(txn.slice(19, 30)).not.toBe('00000000000');
+     82|   });
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[3/3]⎯
+
+
+ Test Files  1 failed (1)
+      Tests  3 failed (3)
+   Start at  11:16:55
+   Duration  307ms (transform 59ms, setup 0ms, import 75ms, tests 10ms, environment 0ms)
+

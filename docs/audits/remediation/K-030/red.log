@@ -1,0 +1,36 @@
+$ node scripts/check-runtime.mjs && vitest run --config vitest.integration.config.ts "tests/integration/k-030-loan-schedule-cache-hash.int.test.ts"
+
+ RUN  v4.1.2 /home/hein/Workspace/IsaFlow/.worktrees/audit-remediation-20260908
+
+{"level":"info","message":"Computed and cached schedule","timestamp":"2026-09-09T03:36:06.364Z","component":"loans","data":{"loanId":"4065c583-2108-4a53-853d-6bfbed31c3e3","runId":"05fe7824-0503-44a8-9e8b-bb11db90b30f","periods":60}}
+ ❯ tests/integration/k-030-loan-schedule-cache-hash.int.test.ts (1 test | 1 failed) 828ms
+   × recomputes the schedule after the principal and rate are edited 495ms
+
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 1 ⎯⎯⎯⎯⎯⎯⎯
+
+ FAIL  tests/integration/k-030-loan-schedule-cache-hash.int.test.ts > recomputes the schedule after the principal and rate are edited
+AssertionError: expected true to be false // Object.is equality
+
+- Expected
++ Received
+
+- false
++ true
+
+ ❯ tests/integration/k-030-loan-schedule-cache-hash.int.test.ts:54:24
+     52|
+     53|   const after = await getOrComputeSchedule(company, loanId);
+     54|   expect(after.cached).toBe(false);
+       |                        ^
+     55|   expect(after.rows[0]!.opening).toBeCloseTo(250000, 2);
+     56|   expect(after.rows.length).toBe(84);
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[1/1]⎯
+
+
+ Test Files  1 failed (1)
+      Tests  1 failed (1)
+   Start at  05:36:05
+   Duration  1.03s (transform 58ms, setup 0ms, import 104ms, tests 828ms, environment 0ms)
+
+error: script "test:integration" exited with code 1

@@ -1,0 +1,39 @@
+$ node scripts/check-runtime.mjs && bun run check:routes && vitest run tests/unit/auth/mfa-impersonation-workflow.test.ts
+$ node scripts/check-duplicate-next-routes.mjs
+No duplicate Next.js pages routes found in pages.
+
+ RUN  v4.1.2 /home/hein/Workspace/IsaFlow/.worktrees/audit-remediation-20260908
+
+{"level":"warn","message":"withAuth: invalid token","timestamp":"2026-09-08T16:09:50.463Z","component":"Auth","data":{"message":"MFA challenge required or factor state unavailable"}}
+{"level":"warn","message":"withAuth: invalid token","timestamp":"2026-09-08T16:09:50.468Z","component":"Auth","data":{"message":"MFA challenge required or factor state unavailable"}}
+ ❯ tests/unit/auth/mfa-impersonation-workflow.test.ts (4 tests | 1 failed) 29ms
+   × starts an authorized MFA-target impersonation, uses the emitted cookies on withAuth, and restores the admin 25ms
+
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 1 ⎯⎯⎯⎯⎯⎯⎯
+
+ FAIL  tests/unit/auth/mfa-impersonation-workflow.test.ts > starts an authorized MFA-target impersonation, uses the emitted cookies on withAuth, and restores the admin
+AssertionError: expected 401 to be 200 // Object.is equality
+
+- Expected
++ Received
+
+- 200
++ 401
+
+ ❯ tests/unit/auth/mfa-impersonation-workflow.test.ts:106:46
+    104|   const protectedResponse = response();
+    105|   await withAuth(protectedHandler)(request(jar, 'GET'), protectedRespo…
+    106|   expect(protectedResponse.state.statusCode).toBe(200);
+       |                                              ^
+    107|   expect(protectedHandler).toHaveBeenCalledOnce();
+    108|   expect(jar['sb-impersonation-proof']).toBeTruthy();
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[1/1]⎯
+
+
+ Test Files  1 failed (1)
+      Tests  1 failed | 3 passed (4)
+   Start at  18:09:50
+   Duration  358ms (transform 82ms, setup 0ms, import 227ms, tests 29ms, environment 0ms)
+
+error: script "test:unit" exited with code 1

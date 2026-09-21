@@ -8,6 +8,7 @@
 import type { NextApiResponse } from 'next';
 import { withErrorHandler } from '@/lib/api-error-handler';
 import { apiResponse } from '@/lib/apiResponse';
+import { EMP201_DECLARABLE_STATUSES } from '@/lib/constants/payrollRunStatuses';
 import { withAuth, type AuthenticatedNextApiRequest, type CompanyAuthedRequest } from '@/lib/auth';
 import { withCsrf } from '@/lib/auth/withCsrf';
 import { sql } from '@/lib/neon';
@@ -68,6 +69,9 @@ async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse): 
   const taxYear = taxYearRaw;
 
   const { startMonth, startYear, endMonth, endYear } = taxYearRange(taxYear);
+  // The screen previews the e@syFile export, so it must aggregate exactly the
+  // runs that export declares.
+  const declarableStatuses: string[] = [...EMP201_DECLARABLE_STATUSES];
 
   // Employees, payroll aggregates, both component lookups, and severance-
   // directive presence all fan out in parallel.
@@ -90,6 +94,7 @@ async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse): 
       FROM payroll_run_lines prl
       JOIN payroll_run_headers prh ON prh.id = prl.run_id
       WHERE prh.company_id = ${companyId}::uuid
+        AND prh.status = ANY(${declarableStatuses}::text[])
         AND (
           (prh.period_year = ${startYear} AND prh.period_month >= ${startMonth})
           OR

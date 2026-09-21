@@ -31,6 +31,7 @@ vi.mock('@/modules/accounting/services/gl/systemAccountResolver', () => ({
   getSystemAccount: vi.fn(),
 }));
 
+import { als } from '@/lib/als';
 import { sql } from '@/lib/neon';
 import {
   createJournalEntry,
@@ -49,6 +50,18 @@ const WO_ID = '22222222-2222-2222-2222-222222222222';
 const USER_ID = '33333333-3333-3333-3333-333333333333';
 const JE_ID = '44444444-4444-4444-4444-444444444444';
 const INVOICE_ID = '55555555-5555-5555-5555-555555555555';
+
+/**
+ * `claimUnderLockTimeout` refuses to claim outside a request transaction — the
+ * claim would autocommit and could not be rolled back with the posting that
+ * follows it. These unit tests mock `sql`, so the client only has to exist;
+ * `SET LOCAL` goes to the stub.
+ */
+const requestCtx = {
+  client: { query: vi.fn() }, userId: USER_ID, companyId: COMPANY_ID, claims: {},
+} as unknown as Parameters<typeof als.run>[0];
+const inRequestTx = <T>(fn: () => Promise<T>): Promise<T> => als.run(requestCtx, fn);
+
 
 function sqlCallTouches(call: unknown[], textFragment: string, value: unknown): boolean {
   const [strings, ...values] = call as [readonly string[], ...unknown[]];
@@ -104,11 +117,12 @@ describe('approveWriteOff — no sourceDocumentId, linked via gl_journal_entry_i
   it('does not pass sourceDocumentId to createJournalEntry (would violate fk_gl_je_source_document)', async () => {
     mockSql
       .mockResolvedValueOnce([writeOffRow()]) // SELECT customer_write_offs JOIN customer_invoices
+      .mockResolvedValueOnce([{ id: WO_ID }]) // the status-predicated CLAIM, one row = won
       .mockResolvedValueOnce([{ total_amount: 1000, tax_amount: 130.43 }]) // SELECT invoice VAT details
       .mockResolvedValueOnce([]) // UPDATE customer_invoices
       .mockResolvedValueOnce([writeOffRow({ status: 'approved', gl_journal_entry_id: JE_ID })]); // UPDATE ... RETURNING *
 
-    await approveWriteOff(COMPANY_ID, WO_ID, USER_ID);
+    await inRequestTx(() => approveWriteOff(COMPANY_ID, WO_ID, USER_ID));
 
     expect(mockCreateJournalEntry).toHaveBeenCalledTimes(1);
     const [, journalInput] = mockCreateJournalEntry.mock.calls[0]!;
@@ -118,14 +132,15 @@ describe('approveWriteOff — no sourceDocumentId, linked via gl_journal_entry_i
   it('persists gl_journal_entry_id on the write-off when approving', async () => {
     mockSql
       .mockResolvedValueOnce([writeOffRow()])
+      .mockResolvedValueOnce([{ id: WO_ID }]) // CLAIM
       .mockResolvedValueOnce([{ total_amount: 1000, tax_amount: 130.43 }])
       .mockResolvedValueOnce([])
       .mockResolvedValueOnce([writeOffRow({ status: 'approved', gl_journal_entry_id: JE_ID })]);
 
-    const result = await approveWriteOff(COMPANY_ID, WO_ID, USER_ID);
+    const result = await inRequestTx(() => approveWriteOff(COMPANY_ID, WO_ID, USER_ID));
 
     expect(result.glJournalEntryId).toBe(JE_ID);
-    const updateCall = mockSql.mock.calls[3]!;
+    const updateCall = mockSql.mock.calls[4]!;
     expect(sqlCallTouches(updateCall, 'gl_journal_entry_id', JE_ID)).toBe(true);
   });
 });

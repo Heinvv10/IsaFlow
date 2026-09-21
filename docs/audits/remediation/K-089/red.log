@@ -1,0 +1,54 @@
+$ node scripts/check-runtime.mjs && vitest run --config vitest.integration.config.ts "tests/integration/k089-ar-migration-balance-due-column.int.test.ts"
+
+ RUN  v4.1.2 /home/hein/Workspace/IsaFlow/.worktrees/audit-remediation-20260908
+
+ ❯ tests/integration/k089-ar-migration-balance-due-column.int.test.ts (2 tests | 2 failed) 212ms
+     × the column exists in the schema it is written to 13ms
+     × imports the invoice and leaves the request transaction usable 22ms
+
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 2 ⎯⎯⎯⎯⎯⎯⎯
+
+ FAIL  tests/integration/k089-ar-migration-balance-due-column.int.test.ts > K-089 AR migration writes a non-existent balance_due column > the column exists in the schema it is written to
+AssertionError: expected [] to deeply equal [ 'balance_due' ]
+
+- Expected
++ Received
+
+- [
+-   "balance_due",
+- ]
++ []
+
+ ❯ tests/integration/k089-ar-migration-balance-due-column.int.test.ts:84:42
+     82|       SELECT column_name FROM information_schema.columns
+     83|       WHERE table_name = 'customer_invoices' AND column_name = 'balanc…
+     84|     expect(rows.map(r => r.column_name)).toEqual(['balance_due']);
+       |                                          ^
+     85|   });
+     86|
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[1/2]⎯
+
+ FAIL  tests/integration/k089-ar-migration-balance-due-column.int.test.ts > K-089 AR migration writes a non-existent balance_due column > imports the invoice and leaves the request transaction usable
+error: current transaction is aborted, commands ignored until end of transaction block
+ ❯ node_modules/pg/lib/client.js:631:17
+ ❯ LazyQuery.run src/lib/neon.ts:107:19
+    105|       // ORIGINAL cause rather than the bare 25P02 pg would answer wit…
+    106|       assertTxUsable();
+    107|       const res = await ctxClient.query(this.text, this.values);
+       |                   ^
+    108|       return res.rows as T[];
+    109|     }
+ ❯ updateSession src/modules/accounting/services/core/migrationService.ts:123:17
+ ❯ importARInvoices src/modules/accounting/services/core/migrationImportService.ts:186:3
+ ❯ tests/integration/k089-ar-migration-balance-due-column.int.test.ts:91:22
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[2/2]⎯
+
+
+ Test Files  1 failed (1)
+      Tests  2 failed (2)
+   Start at  05:39:38
+   Duration  876ms (transform 278ms, setup 0ms, import 390ms, tests 212ms, environment 0ms)
+
+error: script "test:integration" exited with code 1

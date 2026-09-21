@@ -1,0 +1,1 @@
+PASS actual Capture Settings -> authenticated POST -> pending SQL -> signed HTTP callback -> verified SQL -> Check status -> pending rotation -> reload/restart; no external browser traffic or outbound messages.

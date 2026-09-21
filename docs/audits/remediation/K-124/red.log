@@ -1,0 +1,35 @@
+"K124 legacy customer"
+
++ Received:
+null
+
+ ❯ tests/integration/k124-dispute-credit-legacy-customer-id.int.test.ts:50:35
+     48|   const { disputes } = await listDisputes(company, {});
+     49|   expect(disputes).toHaveLength(1);
+     50|   expect(disputes[0]!.clientName).toBe('K124 legacy customer');
+       |                                   ^
+     51| });
+     52|
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[1/2]⎯
+
+ FAIL  tests/integration/k124-dispute-credit-legacy-customer-id.int.test.ts > resolves a legacy-linked dispute with a credit note
+Error: Cannot auto-create credit note: invoice has no client
+ ❯ resolveDispute src/modules/accounting/services/ar/disputeService.ts:299:13
+    297|     const clientId = invoiceRows[0]?.client_id != null ? String(invoic…
+    298|     if (!clientId) {
+    299|       throw new Error('Cannot auto-create credit note: invoice has no …
+       |             ^
+    300|     }
+    301|
+ ❯ tests/integration/k124-dispute-credit-legacy-customer-id.int.test.ts:54:20
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[2/2]⎯
+
+
+ Test Files  1 failed (1)
+      Tests  2 failed (2)
+   Start at  11:31:12
+   Duration  3.21s (transform 1.52s, setup 0ms, import 2.20s, tests 377ms, environment 0ms)
+
+error: script "test:integration" exited with code 1

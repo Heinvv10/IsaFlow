@@ -37,7 +37,7 @@ import enrollHandler from '../../../../pages/api/auth/2fa-enroll';
 type Handler = (req: NextApiRequest, res: NextApiResponse) => unknown | Promise<unknown>;
 
 async function tok() {
-  return new SignJWT({ sub: 'user-1', email: 'u@e.z', aud: 'authenticated', role: 'authenticated' })
+  return new SignJWT({ sub: 'user-1', email: 'u@e.z', aud: 'authenticated', role: 'authenticated', aal: 'aal2' })
     .setProtectedHeader({ alg: 'HS256' }).setExpirationTime('1h')
     .sign(new TextEncoder().encode(TEST_SECRET));
 }

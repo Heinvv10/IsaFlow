@@ -29,6 +29,7 @@ import {
   fetchVatDenialFlags,
 } from '@/modules/accounting/services/gl/inputVatDenial';
 import { fetchAccountNames } from '@/modules/accounting/services/gl/nonSupplyVatGuard';
+import { fetchBankContraFlags } from '@/modules/accounting/services/gl/bankContraVat';
 import { resolveRuleVatCode } from '@/modules/accounting/services/gl/ruleVatResolution';
 import { VAT_CODE_NONE } from '@/modules/accounting/services/gl/nonSupplyAccounts';
 
@@ -43,8 +44,12 @@ export interface GuardableLine {
   vatCode?: string;
 }
 
-/** Why a claim was dropped. Distinct, because they are different statutes. */
-export type VatCoercionReason = 'input_tax_denied' | 'no_supply';
+/**
+ * Why a claim was dropped. Distinct, because they are different reasons: the
+ * first two are different statutes, and `settlement` is not a statute at all —
+ * the document this cash settles accounted for the VAT when it was raised.
+ */
+export type VatCoercionReason = 'input_tax_denied' | 'no_supply' | 'settlement';
 
 /** Present on a result only when a guard actually changed the code. */
 export interface VatCoercion {
@@ -60,6 +65,8 @@ export interface VatCoercion {
 export interface AllocationVatFacts {
   denied: Map<string, boolean>;
   names: Map<string, string>;
+  /** Contra accounts that ARE bank accounts, i.e. transfers. */
+  isBank: Map<string, boolean>;
 }
 
 /** Two queries for the batch, rather than two per line. */
@@ -68,12 +75,13 @@ export async function prefetchAllocationVatFacts(
   accountIds: Array<string | null | undefined>,
 ): Promise<AllocationVatFacts> {
   const ids = [...new Set(accountIds.filter((id): id is string => Boolean(id)))];
-  if (ids.length === 0) return { denied: new Map(), names: new Map() };
-  const [denied, names] = await Promise.all([
+  if (ids.length === 0) return { denied: new Map(), names: new Map(), isBank: new Map() };
+  const [denied, names, isBank] = await Promise.all([
     fetchVatDenialFlags(companyId, ids),
     fetchAccountNames(companyId, ids),
+    fetchBankContraFlags(companyId, ids),
   ]);
-  return { denied, names };
+  return { denied, names, isBank };
 }
 
 export interface ResolvedLineVat {
@@ -102,7 +110,12 @@ export async function resolveLineVatCode(
   const accountId = line.contraAccountId || null;
   const prefetched = facts && accountId
     && facts.denied.has(accountId) && facts.names.has(accountId)
-    ? { denied: facts.denied.get(accountId)!, name: facts.names.get(accountId)! }
+    && facts.isBank.has(accountId)
+    ? {
+      denied: facts.denied.get(accountId)!,
+      name: facts.names.get(accountId)!,
+      isBank: facts.isBank.get(accountId)!,
+    }
     : null;
 
   const guarded = await resolveRuleVatCode({
@@ -112,12 +125,18 @@ export async function resolveLineVatCode(
     glAccountId: accountId,
     ruleGlAccountVatDenied: prefetched?.denied,
     ruleGlAccountName: prefetched?.name,
+    ruleGlAccountIsBank: prefetched?.isBank,
     denialContext: { bankTxId: txId, toolName, source: 'mcp' },
     guardContext: { bankTxId: txId, ruleName: toolName },
   });
 
-  if (!guarded.denied && !guarded.nonSupplyCoerced) {
+  if (!guarded.denied && !guarded.nonSupplyCoerced && !guarded.settlementDropped) {
     // Byte-identical to before this guard existed, `undefined` included.
+    return { effectiveVatCode: line.vatCode };
+  }
+  // A settlement whose caller asked for nothing changed nothing — reporting a
+  // coercion from 'none' to 'none' would be noise on every supplier line.
+  if (guarded.settlementDropped && (line.vatCode ?? VAT_CODE_NONE) === VAT_CODE_NONE) {
     return { effectiveVatCode: line.vatCode };
   }
   return {
@@ -125,7 +144,8 @@ export async function resolveLineVatCode(
     vatCoerced: {
       from: line.vatCode ?? VAT_CODE_NONE,
       to: guarded.vatCode,
-      reason: guarded.denied ? 'input_tax_denied' : 'no_supply',
+      reason: guarded.denied ? 'input_tax_denied'
+        : guarded.nonSupplyCoerced ? 'no_supply' : 'settlement',
     },
   };
 }

@@ -9,7 +9,7 @@
 
 import { sql } from '@/lib/neon';
 import { fmtDate } from '@/lib/fmtDate';
-import { recordSupplierBankPayment } from '../ap/supplierAutoAllocate';
+import { recordRuleSupplierDocument } from './bankRuleSupplierDocument';
 import {
   createJournalEntry,
   postJournalEntry,
@@ -18,6 +18,7 @@ import {
 import { buildAutoCreateLines, getPeriodStatusForDate, type RuleAllocType } from './bankRulesMatchingHelpers';
 import { lockBankTransactionForUpdate } from './bankTxLock';
 import { resolveRuleVatCode } from '../gl/ruleVatResolution';
+import { feedStateOf } from './bankFeedStateGuard';
 
 const SA_VAT_RATE_PCT = 15; // Standard SA VAT rate; update if SARS changes the statutory rate
 
@@ -51,6 +52,11 @@ export interface AutoPostLineInput {
    * per-line resolver rather than treating undefined as "nothing to check".
    */
   ruleGlAccountName?: string | null;
+  /**
+   * Whether the rule's contra account IS a bank account. Pre-resolved by the
+   * sweep; undefined means "look it up per line", never "not a bank".
+   */
+  ruleGlAccountIsBank?: boolean;
   ruleName: string;
   allocType: RuleAllocType;
   ruleGlAccountId: string | null;
@@ -78,7 +84,8 @@ export async function autoPostRuleLine(input: AutoPostLineInput): Promise<AutoPo
   // allocation committed in between would otherwise get a second journal
   // posted on top of it, and the UPDATE below would relink the row to it.
   const locked = await lockBankTransactionForUpdate(companyId, String(tx.id));
-  if (!locked || String(locked.status) !== 'imported' || locked.matched_journal_line_id) {
+  if (!locked || String(locked.status) !== 'imported' || locked.matched_journal_line_id
+      || feedStateOf(locked) !== 'posted') {
     return { kind: 'raced' };
   }
 
@@ -125,6 +132,7 @@ export async function autoPostRuleLine(input: AutoPostLineInput): Promise<AutoPo
     glAccountId: ruleGlAccountId,
     ruleGlAccountVatDenied: input.ruleGlAccountVatDenied,
     ruleGlAccountName: input.ruleGlAccountName,
+    ruleGlAccountIsBank: input.ruleGlAccountIsBank,
     denialContext,
     guardContext: { bankTxId: String(tx.id), ruleName, glAccountId: ruleGlAccountId ?? undefined },
   });
@@ -222,23 +230,13 @@ export async function autoPostRuleLine(input: AutoPostLineInput): Promise<AutoPo
     // produces a leg on `bankGlAccountId`, so this is theoretical; it costs one
     // level of indentation to make it impossible.
     //
-    // This function posts its OWN journal rather than calling
-    // `allocateTransaction`, so the payment document that path creates was never
-    // created here: a rule sweep debited Accounts Payable hundreds of times and
-    // left no supplier payment behind any of it. Every one of those lines is
-    // cash on the control account that no document, and therefore no report and
-    // no apply tool, can reach.
-    //
-    // `!isDeposit` gates it for the same reason it gates the attended path: a
-    // refund is money coming back IN and is not a payment.
-    //
-    // NOT caught. It writes, and a caught write is a partial commit reported as
-    // a success — see ap/supplierAutoAllocate.ts. The sweep's own savepoint
-    // unwinds this line and leaves the rest of the batch alone.
-    if (allocType === 'supplier' && supplierId && !isDeposit) {
-      await recordSupplierBankPayment({
+    // Both directions, the rule's apply instruction and why a refund has none,
+    // and why neither call is caught: `bankRuleSupplierDocument`.
+    if (allocType === 'supplier' && supplierId) {
+      await recordRuleSupplierDocument({
         companyId,
         supplierId,
+        ruleAutoApply: rule.auto_apply,
         bankTxId: String(tx.id),
         bankAccountId: bankGlAccountId,
         journalEntryId: je.id,
@@ -246,6 +244,7 @@ export async function autoPostRuleLine(input: AutoPostLineInput): Promise<AutoPo
         paymentDate: entryDate,
         description: entryDesc,
         userId,
+        isDeposit,
       });
     }
   }

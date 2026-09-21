@@ -59,7 +59,20 @@ export default function YearEndPage() {
       });
       const json = await res.json();
       if (res.ok) {
-        setMessage({ type: 'success', text: `Year ${yearLabel} closed. Closing journal created.` });
+        // The SERVICE's sentence, not a hardcoded one. A 200 no longer means a
+        // closing journal was written: a dormant year closes with no journal at
+        // all, and a re-run of an already-closed year reports the journal some
+        // earlier close wrote. Announcing "Closing journal created" for either
+        // tells the operator this run posted something it did not.
+        const data = json.data || json;
+        setMessage({
+          // A residual is P&L sitting in a closed year that no closing journal
+          // and no equity account contains, and that no re-run can sweep up.
+          // The service says so in the sentence; a green tick beside it would
+          // read as "nothing to do here", which is the opposite.
+          type: Number(data.unclosedNetIncome ?? 0) !== 0 ? 'error' : 'success',
+          text: data.message || `Year ${yearLabel} closed.`,
+        });
         void loadYears();
       } else {
         setMessage({ type: 'error', text: json.message || 'Year-end processing failed' });

@@ -24,8 +24,23 @@ type Row = Record<string, unknown>;
 // ── Fingerprint ───────────────────────────────────────────────────────────────
 
 /**
- * Compute the duplicate-detection fingerprint.
- * Mirrors the SQL in migration 412: lower(vat_number|invoice_number|total_amount)
+ * Compute the duplicate-detection fingerprint — the ONE producer of this
+ * string in TypeScript. Its SQL mirror is the expression in migration 670, and
+ * ONLY that one. Migration 412's backfill is not a second mirror: it differs in
+ * the amount segment (`total_amount::text`, which renders a NULL as `0` rather
+ * than `0.00`) and in the fold (`lower()`, which is collation-driven — see
+ * asciiLower below). 670 rewrites every row 412 wrote, so the disagreement is
+ * historical, but do not read 412 as agreeing by construction.
+ *
+ * THE AMOUNT IS FIXED-2 BECAUSE THE COLUMN IS. `total_amount` is
+ * NUMERIC(15,2), so the SQL side renders 115 as `115.00`, while template
+ * interpolation of the JS number renders it as `115`. The two producers
+ * therefore disagreed on every amount whose JS rendering is not two decimals,
+ * and since 412 backfilled every row that predated it in the SQL format, a
+ * lookup from here could not match any of them: the duplicate went undetected
+ * and was posted a second time. Migration 670 rewrites the stored column in
+ * this format for every row; do not change the shape here without a matching
+ * re-backfill.
  */
 export function computeFingerprint(
   vatNumber: string | null,
@@ -34,8 +49,65 @@ export function computeFingerprint(
 ): string {
   const vat = vatNumber ?? 'no-vat';
   const inv = invoiceNumber ?? 'no-inv';
-  const amt = totalAmount ?? 0;
-  return `${vat}|${inv}|${amt}`.toLowerCase();
+  const amt = toColumnScale(totalAmount ?? 0);
+  return asciiLower(`${vat}|${inv}|${amt}`);
+}
+
+/**
+ * Fold A–Z, and nothing else.
+ *
+ * NOT `toLowerCase()`. Its SQL mirror is `lower()`, and the two disagree on
+ * Unicode: in an `en_US.utf8` database `lower('İNV-1')` is `inv-1` while
+ * `'İNV-1'.toLowerCase()` is `i̇nv-1` (six characters — it appends U+0307), and
+ * `lower('ΣΟΣ')` is `σοσ` while JS gives `σος` (final sigma). `invoice_number`
+ * is free text off a CSV or an OCR read, so one such character would put the
+ * stored key and the looked-up key out of step — the same miss this branch
+ * exists to close, one character class over. Folding only the ASCII letters is
+ * a mapping both sides can perform identically (`translate()` in migration
+ * 670, which is collation-independent), and it is the only range South African
+ * VAT numbers, bill numbers and the fixed-2 amount ever occupy.
+ */
+function asciiLower(s: string): string {
+  return s.replace(/[A-Z]/g, c => String.fromCharCode(c.charCodeAt(0) + 32));
+}
+
+/**
+ * Render an amount exactly as `NUMERIC(15,2)` stores it.
+ *
+ * NOT `toFixed(2)`. The driver sends the number as its shortest decimal text
+ * and PostgreSQL rounds THAT decimal, half away from zero; `toFixed` rounds the
+ * binary double instead. They disagree on any `.xx5`: `(1.005).toFixed(2)` is
+ * `"1.00"` while `'1.005'::numeric(15,2)` is `1.01`. Nothing constrains the
+ * inputs to two decimals — `APInvoiceRowSchema.totalAmount` is a bare
+ * `z.number()` — so a CSV cell of `100.005` would otherwise store a fingerprint
+ * the column's own value can never reproduce, and the row would be permanently
+ * invisible to the exact-match lookup. Rounding the text keeps the two sides
+ * equal for every amount, not merely for the ones that happen to be exact.
+ */
+function toColumnScale(n: number): string {
+  const s = String(n);
+  // Exponential form (|n| < 1e-6 or >= 1e21) is far outside the column's
+  // meaningful range; toFixed agrees with the column on all of it, except that
+  // it keeps the sign on a negative that rounds to zero (see below).
+  if (!/^-?\d+(\.\d+)?$/.test(s)) return unsignZero(n.toFixed(2));
+
+  const sign = s.startsWith('-') ? '-' : '';
+  const [whole, frac = ''] = (sign ? s.slice(1) : s).split('.');
+  if (frac.length <= 2) return `${sign}${whole}.${frac.padEnd(2, '0')}`;
+
+  const cents = BigInt(whole + frac.slice(0, 2)) + (frac[2]! >= '5' ? 1n : 0n);
+  // NUMERIC has no signed zero: `-0.001::numeric(15,2)` is `0.00`, so a
+  // negative amount whose magnitude rounds away must drop the sign or the
+  // fingerprint is one the column's own value can never reproduce — exactly the
+  // failure this function exists to close. `total_amount` carries no
+  // non-negative CHECK, so negative bills (supplier credits) are storable.
+  if (cents === 0n) return '0.00';
+  const digits = cents.toString().padStart(3, '0');
+  return `${sign}${digits.slice(0, -2)}.${digits.slice(-2)}`;
+}
+
+function unsignZero(s: string): string {
+  return s === '-0.00' ? '0.00' : s;
 }
 
 // ── Helpers ───────────────────────────────────────────────────────────────────

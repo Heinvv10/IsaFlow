@@ -1,0 +1,47 @@
+{
+  "sha": "5661d6f0f5f2212705151e95455a3f681ddf840e",
+  "scope": "Synthetic fixture database only; real PostgreSQL executes committed service SQL and selected exact migrations.",
+  "F08": {
+    "count": 2,
+    "linked": [
+      {
+        "id": "00000000-0000-0000-0000-000000000021",
+        "status": "allocated",
+        "matched_journal_line_id": "00000000-0000-0000-0000-000000000012"
+      },
+      {
+        "id": "00000000-0000-0000-0000-000000000022",
+        "status": "allocated",
+        "matched_journal_line_id": "00000000-0000-0000-0000-000000000012"
+      }
+    ],
+    "confirmed": true
+  },
+  "F11": {
+    "failedInsert": {
+      "code": "23502",
+      "column": "user_id"
+    },
+    "rates": [
+      {
+        "rate": "100.00",
+        "rate_per_hour": "200.00"
+      }
+    ],
+    "confirmed": true
+  },
+  "practiceRls": {
+    "cookieVisible": 0,
+    "bearerVisible": 1,
+    "confirmed": true
+  },
+  "loanTermination": {
+    "normalRows": 12,
+    "allSkipOutcome": {
+      "error": "AUDIT_DATE_BUDGET_EXCEEDED",
+      "dateConstructions": 10001
+    },
+    "confirmed": true,
+    "note": "Date-construction safety budget aborts a nonterminating schedule before excessive resource use; no production inputs or external requests."
+  }
+}

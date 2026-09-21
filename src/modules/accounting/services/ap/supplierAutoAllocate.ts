@@ -56,32 +56,34 @@ import {
 } from './supplierPaymentApplicationService';
 import { journalIsInAPeriod } from '../shared/journalPeriodVisibility';
 import {
-  EPS,
+  DEFAULT_AUTO_APPLY,
   parseAutoAllocateStrategy,
   planGreedyAllocations,
+  resolveApplicationOrder,
   round2,
-  strategyOrdersOldestFirst,
   type AutoAllocateStrategy,
-  type OpenDocument,
+  type AutoApplyMode,
 } from '../shared/autoAllocateStrategy';
+import { fetchOpenSupplierBills } from './openSupplierBills';
 
-/**
- * Bill statuses that cannot take a payment. Deliberately the same set
- * `supplierAllocationLines#buildLine` refuses on, plus the terminal ones there
- * is no point selecting: an auto-allocation that planned a line the applier
- * then threw on would roll back a journal over a bill nobody asked to pay.
- */
-const UNALLOCATABLE_STATUSES = ['draft', 'cancelled', 'paid', 'written_off'];
+// Re-exported: this module is the documented home of the supplier side of the
+// bank-line payment, and every existing caller and test reaches the fetch
+// through it. The fetch itself moved so the LOCK could become the caller's
+// choice — see openSupplierBills.ts.
+export { fetchOpenSupplierBills };
 
 export interface SupplierBankPaymentDocument {
   paymentId: string;
   /** Bills this payment was automatically applied to. Empty when none was. */
   appliedLines: { invoiceId: string; invoiceNumber: string; amount: number }[];
   unappliedRemainder: number;
+  /** The order the cash was consumed in, or 'off' when none of it was. */
   strategy: AutoAllocateStrategy;
+  /** The mode this call ran under. */
+  autoApply: AutoApplyMode;
 }
 
-/** The supplier's instruction, or 'off' when the supplier row has gone. */
+/** The supplier's stated preference, or 'off' (no preference) when unreadable. */
 export async function resolveSupplierAutoAllocateStrategy(
   companyId: string,
   supplierId: string,
@@ -90,46 +92,9 @@ export async function resolveSupplierAutoAllocateStrategy(
     SELECT auto_allocate_strategy FROM suppliers
     WHERE id = ${supplierId}::UUID AND company_id = ${companyId}::UUID
   `) as DbRow[];
-  // An unreadable or absent value is 'off', never a guess: applying cash to
-  // bills nobody named is the one outcome that must require an instruction.
+  // An unreadable value is 'off', which the mode reads as NO PREFERENCE rather
+  // than as a refusal — see resolveApplicationOrder.
   return parseAutoAllocateStrategy(rows[0]?.auto_allocate_strategy) ?? 'off';
-}
-
-/**
- * The supplier's open bills in the strategy's order.
- *
- * `total_amount - COALESCE(amount_paid, 0)` rather than the generated `balance`
- * column: the same arithmetic every other outstanding figure in this codebase
- * is derived from, so an auto-allocation cannot disagree with the aging report
- * about what is open.
- */
-export async function fetchOpenSupplierBills(
-  companyId: string,
-  supplierId: string,
-  oldestFirst: boolean,
-): Promise<OpenDocument[]> {
-  // Two statements rather than an interpolated ORDER BY: the direction is the
-  // only thing that varies and it must never be built from a string.
-  const rows = (oldestFirst
-    ? await sql`
-        SELECT id, (total_amount - COALESCE(amount_paid, 0)) AS outstanding
-        FROM supplier_invoices
-        WHERE company_id = ${companyId}::UUID
-          AND supplier_id = ${supplierId}::UUID
-          AND deleted_at IS NULL
-          AND status <> ALL(${UNALLOCATABLE_STATUSES}::TEXT[])
-          AND (total_amount - COALESCE(amount_paid, 0)) > ${EPS}
-        ORDER BY invoice_date ASC, created_at ASC, id ASC`
-    : await sql`
-        SELECT id, (total_amount - COALESCE(amount_paid, 0)) AS outstanding
-        FROM supplier_invoices
-        WHERE company_id = ${companyId}::UUID
-          AND supplier_id = ${supplierId}::UUID
-          AND deleted_at IS NULL
-          AND status <> ALL(${UNALLOCATABLE_STATUSES}::TEXT[])
-          AND (total_amount - COALESCE(amount_paid, 0)) > ${EPS}
-        ORDER BY invoice_date DESC, created_at DESC, id DESC`) as DbRow[];
-  return rows.map((r) => ({ invoiceId: String(r.id), outstanding: Number(r.outstanding) }));
 }
 
 /**
@@ -151,18 +116,22 @@ export async function recordSupplierBankPayment(args: {
   description: string;
   userId: string;
   /**
-   * False when the caller has already said what this cash settles — the
+   * `'none'` when the caller has already said what this cash settles — the
    * `bank-match-confirm` purchase-order branch, for one. The document is still
-   * created; the supplier's strategy is not run. Applying the money to a bill
-   * the caller did not name would contradict the match they just confirmed.
+   * created; nothing is applied. Applying the money to a bill the caller did
+   * not name would contradict the match they just confirmed.
+   *
+   * Defaults to `'fifo'`: a line with no named target is exactly what the mode
+   * exists to decide, and leaving it unapplied is what put every one of these
+   * payments at allocated 0.
    */
-  autoApply?: boolean;
+  autoApply?: AutoApplyMode;
 }): Promise<SupplierBankPaymentDocument> {
   const {
     companyId, supplierId, bankTxId, bankAccountId, journalEntryId,
     amount, paymentDate, description, userId,
   } = args;
-  const autoApply = args.autoApply ?? true;
+  const autoApply = args.autoApply ?? DEFAULT_AUTO_APPLY;
 
   // `created_by` is uuid-typed and NOT NULL, and a GoTrue user id is not always
   // uuid-shaped — the same trap the customer_payments insert works around.
@@ -184,29 +153,34 @@ export async function recordSupplierBankPayment(args: {
   `) as DbRow[];
   const paymentId = String(paymentRows[0]!.id);
 
-  // THE SUPPLIER'S INSTRUCTION IS READ FIRST, and the order is deliberate: a
-  // sweep of 200 lines against suppliers who opted into nothing would otherwise
-  // run 200 extra journal reads to arrive at 'off'. The period check only has
-  // to answer for cash that is actually about to be applied.
+  // THE MODE DECIDES FIRST, and the order is deliberate: a sweep of 200 lines
+  // sent with `auto_apply: 'none'` must not cost 200 supplier reads and 200
+  // journal reads to arrive at "apply nothing". The period check only has to
+  // answer for cash that is actually about to be applied.
   //
   // A bill must not be marked paid off a journal that is in no fiscal period —
   // see journalPeriodVisibility. The document above stands either way; only the
   // application is withheld.
-  const requested = autoApply
-    ? await resolveSupplierAutoAllocateStrategy(companyId, supplierId)
-    : 'off';
-  const strategy = requested !== 'off' && await journalIsInAPeriod(companyId, journalEntryId)
+  const requested = autoApply === 'none'
+    ? null
+    : resolveApplicationOrder(
+      autoApply, await resolveSupplierAutoAllocateStrategy(companyId, supplierId),
+    );
+  const strategy = requested !== null && await journalIsInAPeriod(companyId, journalEntryId)
     ? requested
     : 'off';
   if (strategy === 'off') {
     log.info('Supplier bank payment recorded, left unapplied', {
-      bankTxId, supplierId, paymentId, amount,
+      bankTxId, supplierId, paymentId, amount, autoApply,
     }, 'accounting');
-    return { paymentId, appliedLines: [], unappliedRemainder: round2(amount), strategy };
+    return {
+      paymentId, appliedLines: [], unappliedRemainder: round2(amount), strategy, autoApply,
+    };
   }
 
+  // Locked: this call is about to consume these rows.
   const open = await fetchOpenSupplierBills(
-    companyId, supplierId, strategyOrdersOldestFirst(strategy),
+    companyId, supplierId, strategy === 'oldest', { forUpdate: true },
   );
   const allocations = planGreedyAllocations(amount, open);
   if (allocations.length === 0) {
@@ -215,7 +189,9 @@ export async function recordSupplierBankPayment(args: {
     log.info('Supplier bank payment recorded, no open bill to apply to', {
       bankTxId, supplierId, paymentId, amount, strategy,
     }, 'accounting');
-    return { paymentId, appliedLines: [], unappliedRemainder: round2(amount), strategy };
+    return {
+      paymentId, appliedLines: [], unappliedRemainder: round2(amount), strategy, autoApply,
+    };
   }
 
   // plan → apply, the split this service pair already enforces: the plan takes
@@ -238,5 +214,6 @@ export async function recordSupplierBankPayment(args: {
     })),
     unappliedRemainder: plan.unappliedAfter,
     strategy,
+    autoApply,
   };
 }

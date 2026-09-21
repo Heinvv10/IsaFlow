@@ -1,0 +1,61 @@
+$ node scripts/check-runtime.mjs && vitest run --config vitest.integration.config.ts "tests/integration/k115-integrity-check-totals.int.test.ts"
+
+ RUN  v4.1.2 /home/hein/Workspace/IsaFlow/.worktrees/audit-remediation-20260908
+
+ ❯ tests/integration/k115-integrity-check-totals.int.test.ts (3 tests | 3 failed) 384ms
+   × A: reports the money sitting on deactivated accounts, not the net of it 49ms
+   × B: counts bank transactions, not the VAT lines on their journals 15ms
+   × C: does not re-count one journal's VAT once per bank transaction matched to it 42ms
+
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 3 ⎯⎯⎯⎯⎯⎯⎯
+
+ FAIL  tests/integration/k115-integrity-check-totals.int.test.ts > A: reports the money sitting on deactivated accounts, not the net of it
+AssertionError: expected +0 to be close to 1000000, received difference is 1000000, but expected 0.005
+ ❯ tests/integration/k115-integrity-check-totals.int.test.ts:86:20
+     84|   expect(r.count).toBe(2);
+     85|   // R1,000,000 is switched off and unreported. R0.00 says there is no…
+     86|   expect(r.amount).toBeCloseTo(1_000_000, 2);
+       |                    ^
+     87| });
+     88|
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[1/3]⎯
+
+ FAIL  tests/integration/k115-integrity-check-totals.int.test.ts > B: counts bank transactions, not the VAT lines on their journals
+AssertionError: expected 2 to be 1 // Object.is equality
+
+- Expected
++ Received
+
+- 1
++ 2
+
+ ❯ tests/integration/k115-integrity-check-totals.int.test.ts:92:19
+     90|   const r = await vatDisplayedDiffersFromPosted(ctx);
+     91|   // One bank transaction shows "No VAT" while its journal claims R300.
+     92|   expect(r.count).toBe(1);
+       |                   ^
+     93|   expect(r.amount).toBeCloseTo(300, 2);
+     94| });
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[2/3]⎯
+
+ FAIL  tests/integration/k115-integrity-check-totals.int.test.ts > C: does not re-count one journal's VAT once per bank transaction matched to it
+AssertionError: expected 600 to be close to 300, received difference is 300, but expected 0.005
+ ❯ tests/integration/k115-integrity-check-totals.int.test.ts:109:22
+    107|     const r = await vatDisplayedDiffersFromPosted(ctx);
+    108|     // Two transactions against ONE journal claiming R300 in total.
+    109|     expect(r.amount).toBeCloseTo(300, 2);
+       |                      ^
+    110|     expect(r.count).toBe(2);
+    111|   } finally {
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[3/3]⎯
+
+
+ Test Files  1 failed (1)
+      Tests  3 failed (3)
+   Start at  11:40:05
+   Duration  2.35s (transform 472ms, setup 0ms, import 708ms, tests 384ms, environment 0ms)
+
+error: script "test:integration" exited with code 1

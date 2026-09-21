@@ -111,8 +111,10 @@ export async function createCreditNote(companyId: string,
     if (linkError) throw new Error(linkError);
 
     const taxRate = input.taxRate ?? 15;
-    const taxAmount = Math.round(input.subtotal * taxRate / 100 * 100) / 100;
-    const totalAmount = input.subtotal + taxAmount;
+    const taxAmount = input.taxAmount != null
+      ? Math.round(input.taxAmount * 100) / 100
+      : Math.round(input.subtotal * taxRate / 100 * 100) / 100;
+    const totalAmount = Math.round((input.subtotal + taxAmount) * 100) / 100;
 
     // supplier_id is a UUID column (migration 202) referencing suppliers(id),
     // NOT an integer. The previous `Number(input.supplierId)` turned every real

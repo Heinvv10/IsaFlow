@@ -26,6 +26,21 @@ export interface RequestContext {
    * a flag on the context that a later step is obliged to check.
    */
   txUnusable?: string;
+  /**
+   * Set by runOwnedContext once the owner's callback has settled. From then on
+   * the owner COMMITs or ROLLs BACK and releases `client` to its pool, where the
+   * next request is handed the same connection. A query that outlived the
+   * request (an un-awaited promise) would otherwise run inside that stranger's
+   * transaction, under its claims, or autocommit as the pool's role (R-075).
+   * assertTxUsable refuses instead.
+   */
+  finished?: boolean;
+  /**
+   * Work to start only after this transaction COMMITs (see `@/lib/afterCommit`).
+   * Present only when the owner drains it; a context without it refuses
+   * registration rather than dropping the work.
+   */
+  afterCommit?: Array<{ label: string; fn: () => Promise<unknown> }>;
 }
 
 export const als = new AsyncLocalStorage<RequestContext>();
@@ -73,6 +88,12 @@ export function markTxUnusable(original: unknown, rollbackErr: unknown): void {
  */
 export function assertTxUsable(): void {
   const store = als.getStore();
+  if (store?.finished) {
+    throw new Error(
+      'Request transaction has already finished and its connection was released — '
+      + 'work that outlives the request must be registered with runAfterCommit (@/lib/afterCommit)',
+    );
+  }
   if (store?.txUnusable) {
     throw new Error(
       `Request transaction is unusable — a savepoint rollback failed earlier: ${store.txUnusable}`,

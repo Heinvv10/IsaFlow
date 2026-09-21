@@ -16,16 +16,26 @@
  * And the sign runs the other way: this is a payable.
  */
 import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { mockUnsafe, recordSqlCall } from '../../helpers/sqlFragmentMock';
 
 const sqlCalls: Array<{ sql: string; values: unknown[] }> = [];
 let mockImpl: (strings: TemplateStringsArray, ...values: unknown[]) => Promise<unknown[]> =
   () => Promise.resolve([]);
 
 vi.mock('@/lib/neon', () => ({
-  sql: (strings: TemplateStringsArray, ...values: unknown[]) => {
-    sqlCalls.push({ sql: strings.join('?'), values });
-    return mockImpl(strings, ...values);
-  },
+  sql: Object.assign(
+    (strings: TemplateStringsArray, ...values: unknown[]) => {
+      sqlCalls.push(recordSqlCall(strings, values));
+      return mockImpl(strings, ...values);
+    },
+    // Part of the real client. The statement queries splice the as-at
+    // soft-delete predicate through it (shared/softDeleteLedgerPresence), and
+    // building a fragment is NOT a query: recording it here would shift every
+    // queued response after it. mockUnsafe reproduces the real client's
+    // splicing (text into the SQL, values into the parameters) and rejects if
+    // the fragment is awaited instead of interpolated — see the helper.
+    { unsafe: mockUnsafe },
+  ),
 }));
 
 import { fetchSupplierStatementData } from '@/modules/accounting/services/ap/supplierStatementService';
@@ -69,18 +79,18 @@ describe('fetchSupplierStatementData — a payable runs the other way', () => {
     routeMock();
     const p = (await fetchSupplierStatementData(COMPANY, SUPPLIER, '2026-03-31'))!;
     // 20,000 billed − 8,000 paid − 2,000 credited = 10,000 still owed.
-    expect(p.summary.totalInvoiced).toBeCloseTo(20000, 2);
-    expect(p.summary.totalPaid).toBeCloseTo(8000, 2);
+    expect(p.summary.totalInvoiced).toBe(20000);
+    expect(p.summary.totalPaid).toBe(8000);
     // The note's face value is 2,000 but only 1,200 was ever applied.
-    expect(p.summary.totalCredits).toBeCloseTo(1200, 2);
-    expect(p.summary.balance).toBeCloseTo(10800, 2);
+    expect(p.summary.totalCredits).toBe(1200);
+    expect(p.summary.balance).toBe(10800);
   });
 
   it('the running balance is positive while we still owe money', async () => {
     routeMock();
     const p = (await fetchSupplierStatementData(COMPANY, SUPPLIER, '2026-03-31'))!;
-    expect(p.transactions[0]!.balance).toBeCloseTo(20000, 2);
-    expect(p.transactions[p.transactions.length - 1]!.balance).toBeCloseTo(10800, 2);
+    expect(p.transactions[0]!.balance).toBe(20000);
+    expect(p.transactions[p.transactions.length - 1]!.balance).toBe(10800);
   });
 
   it('counts an APPLIED supplier credit note, not only an approved one', async () => {
@@ -105,9 +115,9 @@ describe('fetchSupplierStatementData — what it drops, it names', () => {
     const ex = p.excluded.find((e) => e.id === 'p2')!;
 
     expect(ex.reason).toBe('payment_not_processed');
-    expect(ex.amount).toBeCloseTo(5000, 2);
+    expect(ex.amount).toBe(5000);
     // A draft payment must not have reduced what we owe.
-    expect(p.summary.balance).toBeCloseTo(10800, 2);
+    expect(p.summary.balance).toBe(10800);
   });
 
   it('accounts for every candidate row', async () => {
@@ -139,6 +149,19 @@ describe('fetchSupplierStatementData — what it drops, it names', () => {
     expect(await fetchSupplierStatementData(COMPANY, SUPPLIER, '2026-03-31')).toBeNull();
   });
 
+  // MEDIUM-1, round 6: only worth asserting because the `unsafe` mock now
+  // splices the fragment the way the real client does. Under the old
+  // `(t) => t` stub the predicate was recorded as a VALUE and this assertion
+  // would have been scored against a fiction.
+  it('asks the DATED soft-delete question, bound to the as-at date', async () => {
+    routeMock();
+    await fetchSupplierStatementData(COMPANY, SUPPLIER, '2026-03-31');
+    const q = sqlCalls.find((c) => c.sql.includes('FROM supplier_invoices'))!;
+    expect(q.sql).toContain('si.deleted_at IS NULL');
+    expect(q.sql).toContain('reversal_of_id');
+    expect(q.values).toContain('2026-03-31');
+  });
+
   it('scopes every query by company', async () => {
     routeMock();
     await fetchSupplierStatementData(COMPANY, SUPPLIER, '2026-03-31');
@@ -158,8 +181,8 @@ describe('supplier statement — a partly-applied credit note debits what was ap
     // R1,200 came off what we owe; the other R800 is stranded — a note at
     // 'applied' cannot be applied again. Debiting 2,000 understates the
     // liability to the supplier.
-    expect(cn.debit).toBeCloseTo(1200, 2);
-    expect(p.summary.totalCredits).toBeCloseTo(1200, 2);
+    expect(cn.debit).toBe(1200);
+    expect(p.summary.totalCredits).toBe(1200);
   });
 
   it('debits the face value of an approved note, which has nothing applied yet', async () => {
@@ -170,7 +193,7 @@ describe('supplier statement — a partly-applied credit note debits what was ap
     });
     const p = (await fetchSupplierStatementData(COMPANY, SUPPLIER, '2026-03-31'))!;
     const cn = p.transactions.find(t => t.type === 'credit_note')!;
-    expect(cn.debit).toBeCloseTo(2000, 2);
+    expect(cn.debit).toBe(2000);
   });
 
   it('asks the database for applied_amount at all', async () => {

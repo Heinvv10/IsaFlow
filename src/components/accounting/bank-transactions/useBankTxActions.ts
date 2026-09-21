@@ -10,6 +10,7 @@ import { log } from '@/lib/logger';
 import { extractPattern } from '@/components/accounting/CreateRuleModal';
 import type { AllocType, VatCode, BankTx, SelectOption, RowSelection } from '@/components/accounting/BankTxTable';
 import type { RulePrompt } from './BankTxBatchPanel';
+import { actionableIds } from './pendingFeedRow';
 
 interface ActionDeps {
   transactions: BankTx[];
@@ -71,7 +72,11 @@ export function buildBankTxActions(deps: ActionDeps) {
     if (!sel?.entityId) { notify.error('Select an account/supplier/customer first'); return; }
     const tx = transactions.find(t => t.id === txId);
     try {
-      const body: Record<string, string> = { action: 'allocate', bankTransactionId: txId, allocationType: sel.type, vatCode: sel.vatCode || 'none' };
+      // `autoApply` is stated rather than left to the default: a supplier or
+      // customer line allocated here settles that contact's oldest open
+      // documents, and the screen that posts it should say so rather than
+      // inherit it. Nothing here offers 'none' yet — the REST action takes it.
+      const body: Record<string, string> = { action: 'allocate', bankTransactionId: txId, allocationType: sel.type, vatCode: sel.vatCode || 'none', autoApply: 'fifo' };
       if (sel.type === 'account' || sel.type === 'transfer') body.contraAccountId = sel.entityId;
       else body.entityId = sel.entityId;
       if (sel.cc1Id) body.cc1Id = sel.cc1Id;
@@ -127,14 +132,19 @@ export function buildBankTxActions(deps: ActionDeps) {
     } catch (e) { notify.error(e instanceof Error ? e.message : 'Failed to save note'); loadTransactions(); }
   };
   const handleBatchAccept = async () => {
-    const toAccept = Array.from(selectedIds).filter(id => rowSelections[id]?.entityId);
+    const actionable = actionableIds(transactions, Array.from(selectedIds));
+    const toAccept = actionable.filter(id => rowSelections[id]?.entityId);
+    if (actionable.length === 0 && selectedIds.size > 0) {
+      notify.error("Pending transactions can't be processed until they post.");
+      return;
+    }
     if (toAccept.length === 0) { notify.error('Select transactions with accounts assigned'); return; }
     let ok = 0, fail = 0;
     for (const txId of toAccept) {
       try {
         const sel = rowSelections[txId];
         if (!sel) continue;
-        const body: Record<string, string> = { action: 'allocate', bankTransactionId: txId, allocationType: sel.type, vatCode: sel.vatCode || 'none' };
+        const body: Record<string, string> = { action: 'allocate', bankTransactionId: txId, allocationType: sel.type, vatCode: sel.vatCode || 'none', autoApply: 'fifo' };
         if (sel.type === 'account' || sel.type === 'transfer') body.contraAccountId = sel.entityId;
         else body.entityId = sel.entityId;
         if (sel.cc1Id) body.cc1Id = sel.cc1Id;
@@ -147,23 +157,32 @@ export function buildBankTxActions(deps: ActionDeps) {
   };
   const handleBatchDelete = async () => {
     if (selectedIds.size === 0) return;
-    if (!window.confirm(`Delete ${selectedIds.size} transaction(s)? This cannot be undone.`)) return;
+    const toDelete = actionableIds(transactions, Array.from(selectedIds));
+    if (toDelete.length === 0) { notify.error("Pending transactions can't be processed until they post."); return; }
+    if (!window.confirm(`Delete ${toDelete.length} transaction(s)? This cannot be undone.`)) return;
     try {
-      await callAction({ action: 'delete', bankTransactionIds: Array.from(selectedIds) } as unknown as Record<string, string>);
-      notify.success(`${selectedIds.size} transaction(s) deleted`);
+      await callAction({ action: 'delete', bankTransactionIds: toDelete } as unknown as Record<string, string>);
+      notify.success(`${toDelete.length} transaction(s) deleted`);
       setSelectedIds(() => new Set()); loadTransactions(); refreshBankAccounts();
     } catch (e) { notify.error(e instanceof Error ? e.message : 'Delete failed'); }
   };
   const handleBulkAccept = async () => {
     if (selectedIds.size === 0) return;
+    const toAccept = actionableIds(transactions, Array.from(selectedIds));
+    if (toAccept.length === 0) { notify.error("Pending transactions can't be processed until they post."); return; }
     try {
       const res = await apiFetch('/api/accounting/bank-transactions-action', {
         method: 'POST', headers: { 'Content-Type': 'application/json' }, credentials: 'include',
-        body: JSON.stringify({ action: 'bulk_accept', bankTransactionIds: Array.from(selectedIds) }),
+        body: JSON.stringify({ action: 'bulk_accept', bankTransactionIds: toAccept }),
       });
       const json = await res.json();
-      if (!res.ok || json.success === false) throw new Error(json.message || 'Failed to mark as reviewed');
-      notify.success(`${json.data?.accepted ?? selectedIds.size} transaction(s) marked as reviewed`);
+      if (!res.ok || json.success === false) throw new Error(json.error?.message || json.message || 'Failed to mark as reviewed');
+      const accepted: number = json.data?.accepted ?? toAccept.length;
+      if (accepted < toAccept.length) {
+        notify.warning(`${accepted} of ${toAccept.length} transaction(s) marked as reviewed`, `${toAccept.length - accepted} were already reviewed or no longer eligible`);
+      } else {
+        notify.success(`${accepted} transaction(s) marked as reviewed`);
+      }
       setSelectedIds(() => new Set()); loadTransactions(); refreshBankAccounts();
     } catch (e) { notify.error(e instanceof Error ? e.message : 'Failed to mark as reviewed'); }
   };

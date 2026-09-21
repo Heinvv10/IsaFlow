@@ -1,0 +1,12 @@
+$ node scripts/check-runtime.mjs && bun run check:routes && vitest run tests/unit/auth/pending-mfa-access.test.ts
+$ node scripts/check-duplicate-next-routes.mjs
+No duplicate Next.js pages routes found in pages.
+
+ RUN  v4.1.2 /home/hein/Workspace/IsaFlow/.worktrees/audit-remediation-20260908
+
+{"level":"warn","message":"withAuth: print token not valid for this request","timestamp":"2026-09-08T15:53:17.434Z","component":"Auth","data":{"requestPath":"/api/auth/login","activeCompanyId":"00000000-0000-0000-0000-000000000cc1"}}
+
+ Test Files  1 passed (1)
+      Tests  2 passed (2)
+   Start at  17:53:17
+   Duration  424ms (transform 88ms, setup 0ms, import 269ms, tests 28ms, environment 0ms)

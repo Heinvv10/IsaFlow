@@ -93,7 +93,10 @@ beforeEach(() => {
 describe('importAPInvoices — no sourceDocumentId, linked via gl_journal_entry_id', () => {
   it('does not pass sourceDocumentId to createJournalEntry (would violate fk_gl_je_source_document)', async () => {
     mockSql
+      .mockResolvedValueOnce([]) // pg_advisory_xact_lock
+      .mockResolvedValueOnce([]) // steps_completed: no opening control total on the session
       .mockResolvedValueOnce([{ id: SUPPLIER_ID, name: 'Widget Supplies', vat_number: '4123456789' }]) // suppliers lookup
+      .mockResolvedValueOnce([]) // idempotency lookup: no bill with this fingerprint yet
       .mockResolvedValueOnce([{ id: INVOICE_ID }]) // INSERT supplier_invoices RETURNING id
       .mockResolvedValueOnce([]); // UPDATE supplier_invoices SET gl_journal_entry_id
 
@@ -107,13 +110,16 @@ describe('importAPInvoices — no sourceDocumentId, linked via gl_journal_entry_
 
   it('persists gl_journal_entry_id on the migrated invoice', async () => {
     mockSql
+      .mockResolvedValueOnce([]) // pg_advisory_xact_lock
+      .mockResolvedValueOnce([]) // steps_completed: no opening control total on the session
       .mockResolvedValueOnce([{ id: SUPPLIER_ID, name: 'Widget Supplies', vat_number: '4123456789' }])
+      .mockResolvedValueOnce([])
       .mockResolvedValueOnce([{ id: INVOICE_ID }])
       .mockResolvedValueOnce([]);
 
     await importAPInvoices(COMPANY_ID, SESSION_ID, [invoiceRow], USER_ID);
 
-    const linkageCall = mockSql.mock.calls[2]!;
+    const linkageCall = mockSql.mock.calls[5]!;
     expect(sqlCallTouches(linkageCall, 'gl_journal_entry_id', JE_ID)).toBe(true);
     expect(sqlCallTouches(linkageCall, 'gl_journal_entry_id', INVOICE_ID)).toBe(true);
   });

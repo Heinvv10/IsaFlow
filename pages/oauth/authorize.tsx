@@ -1,3 +1,4 @@
+import { IMPERSONATION_PROOF_COOKIE } from '@/lib/auth/impersonation-cookies';
 /**
  * /oauth/authorize — OAuth 2.0 consent screen (PRD-10 Layer 2).
  *
@@ -229,7 +230,7 @@ export const getServerSideProps: GetServerSideProps<Props | ErrorProps> = async 
   let userId = '';
   if (accessToken) {
     try {
-      const claims = await verifyToken(accessToken);
+      const claims = await verifyToken(accessToken, cookies[IMPERSONATION_PROOF_COOKIE]);
       userId = claims.sub;
     } catch { /* fall through to login redirect */ }
   }

@@ -55,9 +55,13 @@ export async function parseStatement(args: ParseStatementArgs): Promise<BankCsvP
     throw new Error('csvContent is required for CSV / OFX / QIF / MT940 imports');
   }
 
-  if (fileType === 'ofx') return parseOfxStatement(csvContent);
-  if (fileType === 'qif') return parseQifStatement(csvContent);
-  if (fileType === 'mt940') return parseMt940Statement(csvContent);
+  // Through the same guard as the CSV arms below. All three of these parsers
+  // return `{transactions: [], errors: []}` rather than throwing when the body
+  // is not the shape they expect, so a user who picked the wrong file type got
+  // the clean "imported 0 transactions" requireTransactions exists to stop.
+  if (fileType === 'ofx') return requireTransactions(parseOfxStatement(csvContent), 'ofx', csvContent);
+  if (fileType === 'qif') return requireTransactions(parseQifStatement(csvContent), 'qif', csvContent);
+  if (fileType === 'mt940') return requireTransactions(parseMt940Statement(csvContent), 'mt940', csvContent);
 
   // CSV path with bank-format dispatch.
   const format = bankFormat && bankFormat !== 'unknown' ? bankFormat : detectBankFormat(csvContent);
@@ -77,9 +81,10 @@ export async function parseStatement(args: ParseStatementArgs): Promise<BankCsvP
  * A file with rows in it that yielded no transactions is a failed import, not
  * an empty one.
  *
- * Every CSV parser here returns `{transactions: [], errors: []}` rather than
- * throwing when the file's columns are not the ones it expects — correct for a
- * parser, wrong for an import: naming the wrong bank produced a clean
+ * Every parser here — CSV, OFX, QIF and MT940 alike — returns
+ * `{transactions: [], errors: []}` rather than throwing when the file is not
+ * the shape it expects — correct for a parser, wrong for an import: naming the
+ * wrong bank, or picking the wrong file type, produced a clean
  * "imported 0 transactions", so a user who guessed wrong believed the statement
  * was in.
  *
@@ -88,7 +93,13 @@ export async function parseStatement(args: ParseStatementArgs): Promise<BankCsvP
  * trade one misleading success for a misleading failure. Only a file that HAS
  * rows and produced nothing from them is refused.
  *
- * Known edge: an export whose header sits below title lines and carries no data
+ * `hasDataRows` alone answers that for CSV, where an empty period really is one
+ * header line. OFX, QIF and MT940 all carry a multi-line envelope even with no
+ * transaction in it, so the line count says "has rows" for every empty-period
+ * export in those three formats — `isEmptyPeriodEnvelope` is what keeps the
+ * guard one-sided for them.
+ *
+ * Known edge: a CSV whose header sits below title lines and carries no data
  * rows is counted as having rows and is refused. The message says what to check,
  * and this direction is the safer one to be wrong in — a refusal is visible,
  * whereas the silent empty import it replaces was not.
@@ -105,11 +116,12 @@ function requireTransactions(
 ): BankCsvParseResult {
   if (result.transactions.length > 0) return result;
   if (!hasDataRows(csv)) return result;
+  if (isEmptyPeriodEnvelope(format, csv)) return result;
   const detail = result.errors.length > 0
     ? ` Row errors: ${result.errors.slice(0, 3).map(e => `row ${e.row}: ${e.error}`).join('; ')}`
       + (result.errors.length > 3 ? ` (and ${result.errors.length - 3} more)` : '')
-    : ` No row matched the columns a ${format} statement is expected to have.`
-      + ' Check that the file is really from this bank, or re-export it.';
+    : ` Nothing in it was readable as a ${format} statement.`
+      + ' Check that the file is really in that format and from this bank, or re-export it.';
   throw new StatementNotImportableError(
     `Parsed no transactions from this statement.${detail}`,
   );
@@ -125,4 +137,41 @@ function requireTransactions(
  */
 function hasDataRows(csv: string): boolean {
   return csv.split('\n').filter(l => l.trim() !== '').length > 1;
+}
+
+/**
+ * Did this file bring its format's own envelope but no transaction record?
+ *
+ * That is an empty period, not an unreadable file — the same case a one-line
+ * CSV represents. Refusing it told the user to check that the file "is really
+ * in that format", which is wrong advice for a file that plainly is.
+ *
+ * Only the envelope marker counts as proof of format. A body carrying neither
+ * envelope nor record is still refused: that is the wrong-file-type case the
+ * guard exists for.
+ */
+function isEmptyPeriodEnvelope(format: BankFormat, body: string): boolean {
+  if (format === 'ofx') {
+    return /<BANKTRANLIST\b/i.test(body) && !/<STMTTRN\b/i.test(body);
+  }
+  if (format === 'qif') {
+    // A QIF with a type header and no `^` terminator has declared itself a QIF
+    // and delivered no records; the parser reports exactly that.
+    //
+    // The `^` test alone is not enough: a file carrying real records whose
+    // FINAL terminator is missing has no `^` either, and would import silently
+    // as zero rows — the misleading success this guard exists to stop. `D`
+    // (date) and `T` (amount) open every transaction record, so their absence
+    // is what makes "no records" true rather than merely unterminated.
+    // `\s*[DTdt]`, not `[DT]`: `parseQifRecord` trims each line and upper-cases
+    // the prefix, so ` D10/03/2026` and `d10/03/2026` are records to the parser.
+    // A stricter test here refuses a file the parser can read as records.
+    return /^\s*!Type:/im.test(body) && !/\^/.test(body) && !/^\s*[DTdt]/m.test(body);
+  }
+  if (format === 'mt940') {
+    // :20: opens the statement, :61: is the statement line. An account with no
+    // movement still gets :20:/:25:/:60F:/:62F:.
+    return /^:20:/m.test(body) && !/^:61:/m.test(body);
+  }
+  return false;
 }

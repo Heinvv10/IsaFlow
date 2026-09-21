@@ -26,14 +26,21 @@ function isValidTokenShape(token: string): boolean {
   return /^[a-f0-9]{64}$/.test(token);
 }
 
+function portalUrl(token: string): string {
+  const appUrl = process.env.NEXT_PUBLIC_APP_URL ?? 'http://localhost:3101';
+  return `${appUrl}/portal/invoice/${token}`;
+}
+
 /**
- * Idempotent: returns the invoice's existing portal_token if one is stored,
- * otherwise mints a fresh 32-byte hex token and persists it. Company-scoped.
+ * Read-only: the invoice's stored portal_token, or null when none is stored
+ * or the invoice is not portal-eligible. Mints nothing — use this on paths
+ * that only display a link (preview), so a read-shaped request never
+ * persists a permanent unauthenticated credential.
  */
-export async function getOrMintInvoicePortalToken(
+export async function getInvoicePortalToken(
   invoiceId: string,
   companyId: string,
-): Promise<{ token: string; url: string }> {
+): Promise<string | null> {
   const rows = (await sql`
     SELECT portal_token
     FROM customer_invoices
@@ -44,24 +51,44 @@ export async function getOrMintInvoicePortalToken(
     LIMIT 1
   `) as DbRow[];
 
+  return rows[0]?.portal_token ? String(rows[0].portal_token) : null;
+}
+
+/**
+ * Idempotent: returns the invoice's existing portal_token if one is stored,
+ * otherwise mints a fresh 32-byte hex token and persists it. Company-scoped.
+ *
+ * The mint is a single COALESCE UPDATE ... RETURNING, not a read-modify-write:
+ * two concurrent renders of the same invoice (the dunning cron and a manual
+ * send) would otherwise both see NULL, both mint, and the loser would email a
+ * token that is not the one in the database — a dead link, which is the exact
+ * 404 this path exists to remove. COALESCE makes the second writer keep the
+ * first writer's token and RETURNING hands back whatever is actually stored.
+ */
+export async function getOrMintInvoicePortalToken(
+  invoiceId: string,
+  companyId: string,
+): Promise<{ token: string; url: string }> {
+  const existing = await getInvoicePortalToken(invoiceId, companyId);
+  if (existing) return { token: existing, url: portalUrl(existing) };
+
+  const minted = crypto.randomBytes(32).toString('hex');
+  const rows = (await sql`
+    UPDATE customer_invoices
+    SET portal_token = COALESCE(portal_token, ${minted})
+    WHERE id = ${invoiceId}::uuid
+      AND company_id = ${companyId}::uuid
+      AND status != 'cancelled'
+      AND deleted_at IS NULL
+    RETURNING portal_token
+  `) as DbRow[];
+
   if (!rows[0]) {
     throw new Error(`Invoice not found or not eligible for portal: ${invoiceId}`);
   }
 
-  let token = rows[0].portal_token ? String(rows[0].portal_token) : null;
-
-  if (!token) {
-    token = crypto.randomBytes(32).toString('hex');
-    await sql`
-      UPDATE customer_invoices
-      SET portal_token = ${token}
-      WHERE id = ${invoiceId}::uuid
-        AND company_id = ${companyId}::uuid
-    `;
-  }
-
-  const appUrl = process.env.NEXT_PUBLIC_APP_URL ?? 'http://localhost:3101';
-  return { token, url: `${appUrl}/portal/invoice/${token}` };
+  const token = String(rows[0].portal_token);
+  return { token, url: portalUrl(token) };
 }
 
 /**

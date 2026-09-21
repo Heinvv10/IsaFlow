@@ -1,0 +1,102 @@
+
+ RUN  v4.1.2 /home/hein/Workspace/IsaFlow/.worktrees/audit-remediation-20260908
+
+{"level":"info","message":"Parsed QIF statement","timestamp":"2026-09-09T09:38:39.029Z","component":"accounting","data":{"transactionCount":0,"errorCount":1}}
+{"level":"info","message":"Parsed MT940 statement","timestamp":"2026-09-09T09:38:39.032Z","component":"accounting","data":{"transactionCount":0,"errorCount":0}}
+{"level":"info","message":"Parsed QIF statement","timestamp":"2026-09-09T09:38:39.051Z","component":"accounting","data":{"transactionCount":0,"errorCount":1}}
+{"level":"info","message":"Parsed MT940 statement","timestamp":"2026-09-09T09:38:39.062Z","component":"accounting","data":{"transactionCount":0,"errorCount":0}}
+ ❯ tests/unit/bank/k145-non-csv-parse-guard.test.ts (5 tests | 3 failed) 71ms
+     × OFX: a file with rows that yields no transactions is refused 24ms
+     × QIF: a file with rows that yields no transactions is refused 3ms
+     × MT940: a file with rows that yields no transactions is refused 18ms
+
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 3 ⎯⎯⎯⎯⎯⎯⎯
+
+ FAIL  tests/unit/bank/k145-non-csv-parse-guard.test.ts > K-145 a non-CSV import that parses nothing must not report success > OFX: a file with rows that yields no transactions is refused
+AssertionError: promise resolved "{ transactions: [], …(2) }" instead of rejecting
+
+- Expected
++ Received
+
+- Error {
+-   "message": "rejected promise",
++ {
++   "bankFormat": "ofx",
++   "errors": [
++     {
++       "error": "No STMTTRN transaction blocks found in OFX content",
++       "row": 0,
++     },
++   ],
++   "transactions": [],
+  }
+
+ ❯ tests/unit/bank/k145-non-csv-parse-guard.test.ts:42:6
+     40|     await expect(
+     41|       parseStatement({ fileType: 'ofx', csvContent: CSV_WITH_ROWS }),
+     42|     ).rejects.toBeInstanceOf(StatementNotImportableError);
+       |      ^
+     43|   });
+     44|
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[1/3]⎯
+
+ FAIL  tests/unit/bank/k145-non-csv-parse-guard.test.ts > K-145 a non-CSV import that parses nothing must not report success > QIF: a file with rows that yields no transactions is refused
+AssertionError: promise resolved "{ transactions: [], …(2) }" instead of rejecting
+
+- Expected
++ Received
+
+- Error {
+-   "message": "rejected promise",
++ {
++   "bankFormat": "qif",
++   "errors": [
++     {
++       "error": "Invalid date: ate,Description,Amount,Balance",
++       "row": 1,
++     },
++   ],
++   "transactions": [],
+  }
+
+ ❯ tests/unit/bank/k145-non-csv-parse-guard.test.ts:48:6
+     46|     await expect(
+     47|       parseStatement({ fileType: 'qif', csvContent: CSV_WITH_ROWS }),
+     48|     ).rejects.toBeInstanceOf(StatementNotImportableError);
+       |      ^
+     49|   });
+     50|
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[2/3]⎯
+
+ FAIL  tests/unit/bank/k145-non-csv-parse-guard.test.ts > K-145 a non-CSV import that parses nothing must not report success > MT940: a file with rows that yields no transactions is refused
+AssertionError: promise resolved "{ transactions: [], errors: [], …(1) }" instead of rejecting
+
+- Expected
++ Received
+
+- Error {
+-   "message": "rejected promise",
++ {
++   "bankFormat": "mt940",
++   "errors": [],
++   "transactions": [],
+  }
+
+ ❯ tests/unit/bank/k145-non-csv-parse-guard.test.ts:54:6
+     52|     await expect(
+     53|       parseStatement({ fileType: 'mt940', csvContent: CSV_WITH_ROWS }),
+     54|     ).rejects.toBeInstanceOf(StatementNotImportableError);
+       |      ^
+     55|   });
+     56|
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[3/3]⎯
+
+
+ Test Files  1 failed (1)
+      Tests  3 failed | 2 passed (5)
+   Start at  11:38:37
+   Duration  1.98s (transform 744ms, setup 0ms, import 938ms, tests 71ms, environment 0ms)
+

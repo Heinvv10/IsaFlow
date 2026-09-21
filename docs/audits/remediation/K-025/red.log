@@ -1,0 +1,118 @@
+$ node scripts/check-runtime.mjs && vitest run --config vitest.integration.config.ts "tests/integration/k025-once-off-batch-recurs.int.test.ts"
+
+ RUN  v4.1.2 /home/hein/Workspace/IsaFlow/.worktrees/audit-remediation-20260908
+
+{"level":"info","message":"Creating payroll batch","timestamp":"2026-09-09T03:37:33.224Z","component":"payrollBatchService","data":{"companyId":"9c3fb8e4-ebd5-4ff6-911c-51f5c9740042","batchType":"component_values","componentId":"ad19f1b2-2eb8-47e2-9cce-92ddeb189163","periodYear":2025,"periodMonth":3}}
+{"level":"info","message":"Payroll batch posted","timestamp":"2026-09-09T03:37:33.281Z","component":"payrollBatchService","data":{"companyId":"9c3fb8e4-ebd5-4ff6-911c-51f5c9740042","batchId":"90881553-8f1d-460d-8083-825c9d1b1f4b","userId":"bd459e6e-c763-461c-9f43-0e1d13a118fe","inserted":1,"batchType":"component_values"}}
+ ❯ tests/integration/k025-once-off-batch-recurs.int.test.ts (4 tests | 4 failed) 533ms
+   × the once-off assignment is stored open-ended 4ms
+   × the bonus IS paid in the batch period it was captured for (March 2025) 3ms
+   × the bonus is NOT paid again in April 2025 2ms
+   × and not in the following tax year either 1ms
+
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 4 ⎯⎯⎯⎯⎯⎯⎯
+
+ FAIL  tests/integration/k025-once-off-batch-recurs.int.test.ts > the once-off assignment is stored open-ended
+AssertionError: expected null not to be null
+ ❯ tests/integration/k025-once-off-batch-recurs.int.test.ts:76:36
+     74|   expect(rows[0].is_recurring).toBe(false);
+     75|   // A once-off assignment must not be open-ended.
+     76|   expect(rows[0].effective_to).not.toBeNull();
+       |                                    ^
+     77| });
+     78|
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[1/4]⎯
+
+ FAIL  tests/integration/k025-once-off-batch-recurs.int.test.ts > the bonus IS paid in the batch period it was captured for (March 2025)
+AssertionError: expected [] to deeply equal [ 25000 ]
+
+- Expected
++ Received
+
+- [
+-   25000,
+- ]
++ []
+
+ ❯ tests/integration/k025-once-off-batch-recurs.int.test.ts:85:36
+     83| it('the bonus IS paid in the batch period it was captured for (March 2…
+     84|   const march = await getEmployeeComponents(employee, company, periodD…
+     85|   expect(march.map(c => c.amount)).toEqual([25000]);
+       |                                    ^
+     86| });
+     87|
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[2/4]⎯
+
+ FAIL  tests/integration/k025-once-off-batch-recurs.int.test.ts > the bonus is NOT paid again in April 2025
+AssertionError: expected [ { component: { …(7) }, …(1) } ] to deeply equal []
+
+- Expected
++ Received
+
+- []
++ [
++   {
++     "amount": 25000,
++     "component": {
++       "componentType": "earning",
++       "id": "ad19f1b2-2eb8-47e2-9cce-92ddeb189163",
++       "isSdlApplicable": true,
++       "isTaxable": true,
++       "isUifApplicable": true,
++       "name": "March bonus",
++       "sarsSourceCode": "3605",
++     },
++   },
++ ]
+
+ ❯ tests/integration/k025-once-off-batch-recurs.int.test.ts:90:17
+     88| it('the bonus is NOT paid again in April 2025', async () => {
+     89|   const april = await getEmployeeComponents(employee, company, periodD…
+     90|   expect(april).toEqual([]);
+       |                 ^
+     91| });
+     92|
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[3/4]⎯
+
+ FAIL  tests/integration/k025-once-off-batch-recurs.int.test.ts > and not in the following tax year either
+AssertionError: expected [ { component: { …(7) }, …(1) } ] to deeply equal []
+
+- Expected
++ Received
+
+- []
++ [
++   {
++     "amount": 25000,
++     "component": {
++       "componentType": "earning",
++       "id": "ad19f1b2-2eb8-47e2-9cce-92ddeb189163",
++       "isSdlApplicable": true,
++       "isTaxable": true,
++       "isUifApplicable": true,
++       "name": "March bonus",
++       "sarsSourceCode": "3605",
++     },
++   },
++ ]
+
+ ❯ tests/integration/k025-once-off-batch-recurs.int.test.ts:95:17
+     93| it('and not in the following tax year either', async () => {
+     94|   const later = await getEmployeeComponents(employee, company, periodD…
+     95|   expect(later).toEqual([]);
+       |                 ^
+     96| });
+     97|
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[4/4]⎯
+
+
+ Test Files  1 failed (1)
+      Tests  4 failed (4)
+   Start at  05:37:32
+   Duration  731ms (transform 53ms, setup 0ms, import 95ms, tests 533ms, environment 0ms)
+
+error: script "test:integration" exited with code 1
