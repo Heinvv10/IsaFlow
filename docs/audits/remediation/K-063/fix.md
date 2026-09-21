@@ -627,3 +627,27 @@ SAME journal, so the case is still "two bank lines on one journal" — what
 `journal_shared_by_bank_lines` counts — and every assertion is unchanged. With
 the index in place (`pg_indexes` checked on the `isaflow_test` clone): 27 passed
 (27); before, it failed at `beforeAll` with that 23505.
+
+## Round 9 (2026-09-21) — review r8
+
+- **LOW-2, two unpinned refusals, now pinned** in
+  `k064-void-applied-and-allocated`: (a) a MATCHED line whose
+  `reconciliation_id` names a COMPLETED reconciliation → 400 "completed bank
+  reconciliation", nothing written — the id arm, reachable when a line attached
+  to a session is matched after it completes; (b) a journal claimed by two bank
+  lines (an allocated line plus another) → 400 "more than one bank line", line
+  still allocated, no contra. Mutations Z2 (status-only check) and Z4 (refusal
+  removed) each red (`round9-mutations.log`).
+- **MEDIUM-1 held for Hein.** Nothing in the app reopens or cancels a COMPLETED
+  bank reconciliation: `cancelReconciliation` (bank-reconciliations-action
+  `cancel`, MCP `cancel_bank_reconciliation`) refuses anything not
+  `in_progress`, and no reopen exists. So the void message's "reverse it there"
+  names a path that does exist (`bank-transactions-action reverse`) but one that
+  changes a completed reconciliation's figures silently — and making it refuse,
+  as asked, leaves reconciled cash with no remedy at all. The Sage import
+  (`scripts/import-sage-britech.ts`) writes `reconciled` lines with no
+  `reconciliation_id`: the shared rule refuses them, which is right (the cash was
+  reconciled at source), but no reconciliation here can be reopened for them
+  either. Options put to the lead: build "reopen a completed reconciliation"
+  and point every message at it; refuse bank reverse and say no remedy exists;
+  or only drop the misleading remedy from the void message.

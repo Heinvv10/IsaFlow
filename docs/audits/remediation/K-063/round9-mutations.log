@@ -1,0 +1,12 @@
+=== Z2 completed-by-reconciliation_id arm removed (status check only)
+     × refuses a MATCHED line whose reconciliation_id names a completed reconciliation (the id arm, not the status) 101ms
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 1 ⎯⎯⎯⎯⎯⎯⎯
+ Test Files  1 failed (1)
+      Tests  1 failed | 6 passed (7)
+restored byte-identical d507f616407bcc03fc53bc8492fb38e6978707fab31a53deb1baa7b8b4710a3b
+=== Z4 two-bank-lines refusal removed
+     × refuses a journal claimed by TWO bank lines (allocated + another), as MCP void_payment does 132ms
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 1 ⎯⎯⎯⎯⎯⎯⎯
+ Test Files  1 failed (1)
+      Tests  1 failed | 6 passed (7)
+restored byte-identical d507f616407bcc03fc53bc8492fb38e6978707fab31a53deb1baa7b8b4710a3b
