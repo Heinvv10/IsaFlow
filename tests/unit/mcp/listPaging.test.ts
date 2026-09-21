@@ -64,11 +64,12 @@ describe('list_customers — paging', () => {
     expect(listCustomers).toHaveBeenCalledWith(COMPANY_ID, 'brit', { limit: 201, offset: 0 });
   });
 
-  it('refuses a negative or fractional offset rather than guessing', async () => {
-    for (const offset of [-1, 1.5, 'ten']) {
+  it('refuses a negative, fractional or absurd offset rather than guessing', async () => {
+    // 1e20 is an integer to JS but overflows Postgres's bigint OFFSET (22003).
+    for (const offset of [-1, 1.5, 'ten', 1e20, 1_000_001]) {
       const r = await listCustomersTool.handler({ offset }, ctx);
       expect(r.isError).toBe(true);
-      expect(r.content[0]!.text).toBe('offset must be a non-negative integer');
+      expect(r.content[0]!.text).toBe('offset must be an integer from 0 to 1000000');
     }
     expect(listCustomers).not.toHaveBeenCalled();
   });
