@@ -234,8 +234,23 @@ describe('create_credit_note — pre-write guards', () => {
 
   it('refuses duplicate_of when there is no identical draft — it cannot be sent blind', async () => {
     const r = await createCreditNoteTool.handler({ ...base, client_id: CUSTOMER, duplicate_of: DUP }, ctx());
-    expect(errText(r)).toContain('no identical open draft');
+    expect(errText(r)).toContain('no longer an identical open draft');
     expect(createCreditNote).not.toHaveBeenCalled();
+  });
+
+  /**
+   * Re-review LOW: the named draft may have been APPROVED between the refusal
+   * and the retry. Telling the agent to "omit duplicate_of" walked it into a
+   * second note identical to an approved one — which the draft-only guard can
+   * no longer see. The refusal must say the draft is gone and why that matters.
+   */
+  it('does not tell the agent to simply drop duplicate_of once the named draft has moved on', async () => {
+    const r = await createCreditNoteTool.handler({ ...base, client_id: CUSTOMER, duplicate_of: DUP }, ctx());
+    const text = errText(r);
+    expect(text).toContain(DUP);
+    expect(text).toContain('approved or cancelled');
+    expect(text).toContain('get_credit_note');
+    expect(text).not.toContain('Omit duplicate_of');
   });
 
   it('refuses a duplicate_of that is not a uuid, before any read', async () => {

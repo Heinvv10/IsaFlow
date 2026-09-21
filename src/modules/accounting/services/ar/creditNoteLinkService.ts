@@ -150,7 +150,9 @@ export async function findOpenDuplicateDraft(
       AND supplier_invoice_id IS NOT DISTINCT FROM ${input.supplierInvoiceId || null}::UUID
     -- The MOST RECENT identical draft: create_credit_note's duplicate_of
     -- override must name this one, so a retry naming an older draft is refused.
-    ORDER BY created_at DESC, id DESC
+    -- created_at is nullable; NULLS LAST, or a NULL-dated legacy draft would
+    -- stay "most recent" forever and the override would never be consumed.
+    ORDER BY created_at DESC NULLS LAST, id DESC
     LIMIT 1
   `) as Row[];
   return rows.length > 0 ? String(rows[0]!.id) : null;
