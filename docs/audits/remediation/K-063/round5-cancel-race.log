@@ -1,0 +1,6 @@
+RACE trial=0 first=process outcome=processed codes=200/400
+RACE trial=1 first=cancel outcome=cancelled codes=200/409
+RACE trial=2 first=process outcome=processed codes=200/400
+RACE trial=3 first=cancel outcome=processed codes=400/200
+RACE trial=4 first=process outcome=cancelled codes=409/200
+RACE trial=5 first=cancel outcome=cancelled codes=200/409

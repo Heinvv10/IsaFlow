@@ -1,0 +1,5 @@
+# Round 5 GREEN — working tree, same fixture (fixture-build.log), --no-file-parallelism
+# 53 files: round4-green.log's 52 + tests/integration/k064-cancel-payment.int.test.ts
+exit=0
+ Test Files  53 passed (53)
+      Tests  352 passed (352)
