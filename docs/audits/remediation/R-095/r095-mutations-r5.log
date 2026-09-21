@@ -1,0 +1,2 @@
+O1 statement overdue hard-coded 0 (the old card):  Tests 2 failed | 5 passed (7) | 429s=0 | restored=identical
+O2 statement overdue = whole balance:  Tests 1 failed | 6 passed (7) | 429s=0 | restored=identical

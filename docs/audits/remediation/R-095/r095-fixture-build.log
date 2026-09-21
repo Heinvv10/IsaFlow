@@ -1,0 +1,60 @@
+schema load errors: 0
+--- runner (stops at first failure)
+524_redate_remaining_batch_dated_journals.sql ...	  ok (9ms)
+525_dedupe_system_account_subtypes.sql ...	  ok (3ms)
+526_gl_je_source_record_id.sql ...	  ok (3ms)
+527_practice_taxonomy_unique_names.sql ...	  ok (3ms)
+528_credit_note_cancellation_columns.sql ...	  ok (3ms)
+529_credit_note_applied_amount.sql ...	  ok (4ms)
+530_external_ref_and_actor_identity.sql ...	  ok (4ms)
+531_credit_note_actor_and_lock_notes.sql ...	  ok (3ms)
+532_company_relationships_audit.sql ...	  ok (11ms)
+533_afs_statement_line_totals.sql ...	  ok (4ms)
+535_credit_note_invoice_indexes.sql ...	  ok (3ms)
+540_payment_method_contra.sql ...	  ok (14ms)
+570_vat_period_locks.sql ...	  ok (4ms)
+580_document_link_lookup_index.sql ...	  ok (6ms)
+581_acting_company_on_writes.sql ...	  ok (3ms)
+605_seed_missing_system_account_roles.sql ...	  ok (2ms)
+606_backfill_system_account_roles.sql ...	error: insert or update on table "gl_accounts" violates foreign key constraint "gl_accounts_company_id_fkey"
+--- remaining, one by one in version order (psql, single transaction each)
+606_backfill_system_account_roles.sql: ERROR:  insert or update on table "gl_accounts" violates foreign key constraint "gl_accounts_company_id_fkey"
+607_fix_near_miss_system_account_roles.sql: ok
+608_backfill_income_statement_subtypes.sql: ok
+609_seed_chart_income_statement_header_subtypes.sql: ok
+615_ap_payment_document_backfill.sql: ERROR:  cannot drop columns from view
+616_capture_email_address_identity.sql: ok
+617_capture_whatsapp_destination_identity.sql: ok
+618_capture_whatsapp_provider_proof.sql: ok
+619_gl_journal_entry_single_reversal.sql: ok
+620_customer_payments_card_reference_unique.sql: ok
+623_gl_je_reversal_of_index.sql: ok
+624_subscription_charges_subscription_id.sql: ok
+625_supplier_invoice_duplicate_fingerprint_lookup.sql: ok
+626_practice_rate_override_column_mirror.sql: ERROR:  column "user_id" does not exist
+627_gl_je_source_year_end.sql: ok
+644_loan_gl_postings_period_once.sql: ok
+645_loan_reclass_postings.sql: ok
+646_supplier_invoice_number_unique.sql: ok
+647_approval_rules_condition_operator_check.sql: ok
+648_invite_company_name_security_definer.sql: ok
+649_cost_centre_delete_restrict.sql: ok
+651_paystack_payment_request_mandate_id.sql: ok
+654_gl_je_reversal_of_index_reconcile.sql: ok
+657_bank_tx_matched_line_unique.sql: ok
+658_approval_rules_operator_check_rescope.sql: ok
+659_loan_reclass_postings_backfill_rebuild.sql: ok
+660_cost_centre_parent_delete_restrict.sql: ok
+662_invite_token_encoding_retire_stale.sql: ok
+663_invite_company_name_definer_hardening.sql: ok
+664_gl_journal_lines_account_company_fk.sql: ok
+665_approval_requests_one_pending_per_document.sql: ok
+666_customer_quote_number_unique.sql: ok
+669_approval_requests_required_role_ratchet.sql: ok
+670_supplier_invoice_fingerprint_canonical_backfill.sql: ok
+671_stock_adjustment_number_unique.sql: ok
+672_capture_posting_claim_fence.sql: ok
+674_gl_accounts_normalise_subtype.sql: ok
+--- re-apply 681's payment-method CHECK block (lines 76-85; 540 applied after it narrowed the set)
+681 block: ok
+port=32798
