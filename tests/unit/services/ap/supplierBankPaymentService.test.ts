@@ -13,6 +13,29 @@
  */
 import { describe, it, expect, vi, beforeEach, type MockedFunction } from 'vitest';
 
+// `fetchInvoiceCandidates` / `fetchBillCandidates` refuse to run outside a
+// request transaction — their `FOR UPDATE` would be released at the end of its
+// own statement and protect nothing. Stand in for the withAuth-bound client so
+// the guards under test are exercised, and so the 5s `SET LOCAL lock_timeout`
+// is observable.
+const { mockTx } = vi.hoisted(() => ({
+  mockTx: {
+    queries: [] as string[],
+    present: true,
+    client: { query: (t: string) => { mockTx.queries.push(t); return Promise.resolve(undefined); } },
+  },
+}));
+vi.mock('@/lib/als', async () => {
+  const actual = await vi.importActual<typeof import('@/lib/als')>('@/lib/als');
+  return {
+    ...actual,
+    als: {
+      ...actual.als,
+      getStore: () => (mockTx.present ? { client: mockTx.client } : undefined),
+    },
+  };
+});
+
 vi.mock('@/lib/neon', async () => {
   const actual = await vi.importActual<typeof import('@/lib/neon')>('@/lib/neon');
   const sqlMock = Object.assign(vi.fn(), { transaction: vi.fn() });

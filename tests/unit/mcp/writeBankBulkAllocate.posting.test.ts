@@ -150,7 +150,7 @@ describe('bulk_allocate_bank_transactions — posting', () => {
     for (const call of vi.mocked(allocateTransaction).mock.calls) {
       expect(call[0]).toBe('company-1');
       expect(call[3]).toBe('user-1');
-      expect(call[12]).toEqual({ postingAgent: 'mcp:bulk_allocate_bank_transactions:v1', actorType: 'agent', actorTokenJti: 'jti' });
+      expect(call[12]).toEqual({ postingAgent: 'mcp:bulk_allocate_bank_transactions:v1', actorType: 'agent', actorTokenJti: 'jti', autoApply: 'fifo' });
     }
     const body = payload(res as never);
     expect(body.batch_id).toBe(BATCH);

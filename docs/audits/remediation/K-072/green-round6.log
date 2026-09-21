@@ -1,0 +1,65 @@
+K-072 / K-075 / K-076 — round 6 (reviewer round-5 findings: 3 HIGH, 2 MEDIUM, 2 LOW)
+
+Structural change: the posting fence moved off the overloaded lifecycle column
+`captured_documents.status` onto a dedicated `captured_documents.posted_at`
+(migration 672), with a partial UNIQUE index behind it.
+
+GREEN
+  tests/integration/k072-capture-posting-fence.int.test.ts     9/9 pass   (new)
+  tests/integration/k072-capture-double-post.int.test.ts       7/7 pass
+  tests/integration/k072-claim-vat-classification.int.test.ts  ) 14/14 pass
+  tests/integration/k072-post-expense-claim-vat.int.test.ts    )
+  tests/integration/k072-receipt-entertainment-vat.int.test.ts )
+  tests/unit/services/k072-posting-fence-refusal.test.ts      11/11 pass  (new)
+
+MUTATION PROOF (production change reverted, test re-run, then restored)
+  A  claim + read guard deleted from capture/[id]/post.ts
+       -> 3 failed / 6 passed   (200 to be 400; 409 to be 200; 409 to be 400)
+  B  `AND posted_at IS NULL` deleted from document-capture-action handleConfirm
+       -> 1 failed / 8 passed   (200 to be 400)
+  C  'rejected' removed from refusalForPosting AND from the claim predicate
+       -> int: 2 failed / 7 passed   unit: 1 failed / 10 passed
+  D  uq_gl_je_capture_source_document dropped from the fixture DB
+       -> 1 failed / 8 passed   (promise resolved instead of rejecting 23505)
+
+MIGRATION 672, applied to the disposable fixture DB
+  ALTER TABLE / COMMENT / CREATE INDEX / UPDATE 0 / DO  — clean on a fresh schema.
+  Duplicate-safety branch proved in a rolled-back transaction: with two
+  'auto_expense_receipt' journals on one document seeded, the DO block emitted
+  WARNING "K-072: 1 captured document(s) already carry more than one posting
+  journal; uq_gl_je_capture_source_document NOT created", the index count came
+  back 0, and the migration still exited 0 — so an existing production duplicate
+  cannot abort the deploy. The backfill set posted_at on that document (UPDATE 1).
+
+FULL UNIT SUITE, fixture env UNSET (no DATABASE_URL / PLATFORM_ADMIN_DATABASE_URL /
+ISAFLOW_DISPOSABLE_AUTH_TEST in the shell)
+  Test Files  799 passed | 36 skipped (835)
+  Tests       9648 passed | 234 skipped (9882)
+  bun run test:components   62 files / 418 tests pass
+
+GATES
+  bunx tsc --noEmit                       clean
+  bun run lint                            0 errors, 11 warnings (all pre-existing)
+  eslint on every changed src/pages file  clean
+  bun run agent-docs:check                OK, 74 mirrors match
+  check-internal-apis / audit-user-id-casts / check-is-active-in-balances /
+  check-raw-transaction-control / check-self-defining-universe /
+  check-findings-numbering / check-migration-rls / audit-migration-naming   all PASS
+  check-vat-guard-coverage                PASS — see note below
+
+NOTE ON THE VAT-GUARD GATE (found in this round, not reported by the reviewer)
+  Round 5 added a `vatType` write to `expenseClaimService.postClaimToGl`, which
+  put that file in scope for scripts/ci/check-vat-guard-coverage.ts and FAILED
+  the gate at 47e73f95b — i.e. `bun run ci` was red on the branch as scored.
+  Disposed as an ATTENDED allowlist entry with the argument the gate asks for:
+  `postClaimToGl` has one caller (`expense-claims/[id]/post`, a person clicking
+  Post to GL on one claim), the approve endpoint hands back
+  INPUT_VAT_DENIED_ADVICE and the detail page now renders it, and the file picks
+  no account, holds no rate, and only LABELS a zero-VAT leg `no_vat`. Widening
+  the guard-module regex to admit `claimVatAdvice` was rejected: it would let any
+  future file count as guarded by importing a labeller.
+
+NOT RUN
+  production build (skipped deliberately: a production build in a worktree kills
+  a running dev server on this box) and the production database (never queried;
+  the historical-impact SQL is read-only text in fix.md).

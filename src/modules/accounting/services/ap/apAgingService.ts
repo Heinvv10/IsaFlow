@@ -10,6 +10,8 @@ import { calculateAgingBuckets } from '../../utils/aging';
 import type { AgingBucket, AgingInvoice } from '../../types/ap.types';
 import { fmtDate } from '@/lib/fmtDate';
 import { rewindAmount, effectivePaidExpr } from '@/modules/accounting/services/shared/agingRewind';
+import { documentInLedgerAsAtFragment } from '@/modules/accounting/services/shared/softDeleteLedgerPresence';
+import { documentInPopulationExpr } from '@/modules/accounting/services/shared/documentPopulation';
 type Row = DbRow;
 
 
@@ -85,7 +87,14 @@ export async function getAPAging(companyId: string, asAtDate?: string): Promise<
         ${rewindAmount({ companyId, asAtStr, todayStr, side: 'ap' })}
       ) unpaid ON TRUE
       WHERE si.company_id = ${companyId}::UUID
-        AND si.status NOT IN ('draft', 'cancelled')
+        -- Status rule: shared/documentPopulation (NULL-safe, one definition).
+        AND ${sql.unsafe(documentInPopulationExpr('si'))}
+        -- A soft-deleted bill leaves this report exactly when the delete's
+        -- reversal reaches the ledger, and not one day earlier: the reversal is
+        -- dated TODAY whenever the bill's own period is closed, so an undated
+        -- exclusion drops the document from every earlier as-at date while the
+        -- control account still carries it. See shared/softDeleteLedgerPresence.
+        AND ${documentInLedgerAsAtFragment('si', asAtStr, companyId)}
         AND si.invoice_date <= ${asAtStr}::date
         AND (si.total_amount - ${sql.unsafe(effectivePaidExpr('ap'))}) > 0
       -- Same omission as AR, and larger: 357 supplier invoices worth
@@ -149,7 +158,14 @@ export async function getAPAgingDetail(companyId: string,
       ) unpaid ON TRUE
       WHERE si.company_id = ${companyId}::UUID
         AND si.supplier_id = ${supplierId}::UUID
-        AND si.status NOT IN ('draft', 'cancelled')
+        -- Status rule: shared/documentPopulation (NULL-safe, one definition).
+        AND ${sql.unsafe(documentInPopulationExpr('si'))}
+        -- A soft-deleted bill leaves this report exactly when the delete's
+        -- reversal reaches the ledger, and not one day earlier: the reversal is
+        -- dated TODAY whenever the bill's own period is closed, so an undated
+        -- exclusion drops the document from every earlier as-at date while the
+        -- control account still carries it. See shared/softDeleteLedgerPresence.
+        AND ${documentInLedgerAsAtFragment('si', asAtStr, companyId)}
         AND si.invoice_date <= ${asAtStr}::date
         AND (si.total_amount - ${sql.unsafe(effectivePaidExpr('ap'))}) > 0
       -- Undated invoices belong here for the same reason they belong in the

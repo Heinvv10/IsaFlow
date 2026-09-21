@@ -1,0 +1,143 @@
+
+ RUN  v4.1.2 /home/hein/Workspace/IsaFlow/.worktrees/audit-remediation-20260908
+
+ ❯ tests/unit/services/payroll/etiEngine-k080-sars-tables.test.ts (11 tests | 10 failed) 35ms
+     × pays R1,500 for the R5,000 employee in the flat band 11ms
+     × pays 60% of remuneration below the R2,500 minimum wage 1ms
+     × pays 60% for a very low wage rather than nothing 0ms
+     × tapers at 75c in the rand from R5,500 0ms
+     × pays R750 for the R5,000 employee in the flat band 2ms
+     × pays 30% of remuneration below R2,500 0ms
+     × pays 75% of remuneration below the R2,000 minimum wage 0ms
+     × claims nothing at R6,500, which was the ceiling then 8ms
+     × tapers from R4,500 at 75c in the rand 1ms
+     × gives different answers for March and May 2025, both inside tax year 2026 10ms
+
+⎯⎯⎯⎯⎯⎯ Failed Tests 10 ⎯⎯⎯⎯⎯⎯⎯
+
+ FAIL  tests/unit/services/payroll/etiEngine-k080-sars-tables.test.ts > calculateEti — 1 April 2025 table, first 12 months > pays R1,500 for the R5,000 employee in the flat band
+AssertionError: expected 1250 to be close to 1500, received difference is 250, but expected 0.005
+ ❯ tests/unit/services/payroll/etiEngine-k080-sars-tables.test.ts:66:66
+     64|   it('pays R1,500 for the R5,000 employee in the flat band', () => {
+     65|     // R2,500–R5,499.99 → R1,500. The engine tapers from R4,500 instea…
+     66|     expect(calculateEti(yearOneMay2025(5_000), 2026).monthlyEti).toBeC…
+       |                                                                  ^
+     67|   });
+     68|
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[1/10]⎯
+
+ FAIL  tests/unit/services/payroll/etiEngine-k080-sars-tables.test.ts > calculateEti — 1 April 2025 table, first 12 months > pays 60% of remuneration below the R2,500 minimum wage
+AssertionError: expected +0 to be close to 1200, received difference is 1200, but expected 0.005
+ ❯ tests/unit/services/payroll/etiEngine-k080-sars-tables.test.ts:70:66
+     68|
+     69|   it('pays 60% of remuneration below the R2,500 minimum wage', () => {
+     70|     expect(calculateEti(yearOneMay2025(2_000), 2026).monthlyEti).toBeC…
+       |                                                                  ^
+     71|   });
+     72|
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[2/10]⎯
+
+ FAIL  tests/unit/services/payroll/etiEngine-k080-sars-tables.test.ts > calculateEti — 1 April 2025 table, first 12 months > pays 60% for a very low wage rather than nothing
+AssertionError: expected +0 to be close to 600, received difference is 600, but expected 0.005
+ ❯ tests/unit/services/payroll/etiEngine-k080-sars-tables.test.ts:74:66
+     72|
+     73|   it('pays 60% for a very low wage rather than nothing', () => {
+     74|     expect(calculateEti(yearOneMay2025(1_000), 2026).monthlyEti).toBeC…
+       |                                                                  ^
+     75|   });
+     76|
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[3/10]⎯
+
+ FAIL  tests/unit/services/payroll/etiEngine-k080-sars-tables.test.ts > calculateEti — 1 April 2025 table, first 12 months > tapers at 75c in the rand from R5,500
+AssertionError: expected 750 to be close to 1125, received difference is 375, but expected 0.005
+ ❯ tests/unit/services/payroll/etiEngine-k080-sars-tables.test.ts:79:66
+     77|   it('tapers at 75c in the rand from R5,500', () => {
+     78|     // 1500 − 0.75 × (6000 − 5500) = 1125
+     79|     expect(calculateEti(yearOneMay2025(6_000), 2026).monthlyEti).toBeC…
+       |                                                                  ^
+     80|   });
+     81|
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[4/10]⎯
+
+ FAIL  tests/unit/services/payroll/etiEngine-k080-sars-tables.test.ts > calculateEti — 1 April 2025 table, second 12 months > pays R750 for the R5,000 employee in the flat band
+AssertionError: expected 625 to be close to 750, received difference is 125, but expected 0.005
+ ❯ tests/unit/services/payroll/etiEngine-k080-sars-tables.test.ts:89:66
+     87| describe('calculateEti — 1 April 2025 table, second 12 months', () => {
+     88|   it('pays R750 for the R5,000 employee in the flat band', () => {
+     89|     expect(calculateEti(yearTwoMay2025(5_000), 2026).monthlyEti).toBeC…
+       |                                                                  ^
+     90|   });
+     91|
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[5/10]⎯
+
+ FAIL  tests/unit/services/payroll/etiEngine-k080-sars-tables.test.ts > calculateEti — 1 April 2025 table, second 12 months > pays 30% of remuneration below R2,500
+AssertionError: expected +0 to be close to 600, received difference is 600, but expected 0.005
+ ❯ tests/unit/services/payroll/etiEngine-k080-sars-tables.test.ts:93:66
+     91|
+     92|   it('pays 30% of remuneration below R2,500', () => {
+     93|     expect(calculateEti(yearTwoMay2025(2_000), 2026).monthlyEti).toBeC…
+       |                                                                  ^
+     94|   });
+     95| });
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[6/10]⎯
+
+ FAIL  tests/unit/services/payroll/etiEngine-k080-sars-tables.test.ts > calculateEti — 1 March 2022 table still applies before April 2025 > pays 75% of remuneration below the R2,000 minimum wage
+AssertionError: expected +0 to be close to 1125, received difference is 1125, but expected 0.005
+ ❯ tests/unit/services/payroll/etiEngine-k080-sars-tables.test.ts:99:66
+     97| describe('calculateEti — 1 March 2022 table still applies before April…
+     98|   it('pays 75% of remuneration below the R2,000 minimum wage', () => {
+     99|     expect(calculateEti(yearOneFeb2025(1_500), 2025).monthlyEti).toBeC…
+       |                                                                  ^
+    100|   });
+    101|
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[7/10]⎯
+
+ FAIL  tests/unit/services/payroll/etiEngine-k080-sars-tables.test.ts > calculateEti — 1 March 2022 table still applies before April 2025 > claims nothing at R6,500, which was the ceiling then
+AssertionError: expected 500 to be close to +0, received difference is 500, but expected 0.005
+ ❯ tests/unit/services/payroll/etiEngine-k080-sars-tables.test.ts:104:66
+    102|   it('claims nothing at R6,500, which was the ceiling then', () => {
+    103|     // The engine claims R500 here against a ceiling that did not yet …
+    104|     expect(calculateEti(yearOneFeb2025(6_500), 2025).monthlyEti).toBeC…
+       |                                                                  ^
+    105|   });
+    106|
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[8/10]⎯
+
+ FAIL  tests/unit/services/payroll/etiEngine-k080-sars-tables.test.ts > calculateEti — 1 March 2022 table still applies before April 2025 > tapers from R4,500 at 75c in the rand
+AssertionError: expected 1250 to be close to 1125, received difference is 125, but expected 0.005
+ ❯ tests/unit/services/payroll/etiEngine-k080-sars-tables.test.ts:109:66
+    107|   it('tapers from R4,500 at 75c in the rand', () => {
+    108|     // 1500 − 0.75 × (5000 − 4500) = 1125
+    109|     expect(calculateEti(yearOneFeb2025(5_000), 2025).monthlyEti).toBeC…
+       |                                                                  ^
+    110|   });
+    111| });
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[9/10]⎯
+
+ FAIL  tests/unit/services/payroll/etiEngine-k080-sars-tables.test.ts > calculateEti — the table changed mid-tax-year > gives different answers for March and May 2025, both inside tax year 2026
+AssertionError: expected 1250 to be close to 1125, received difference is 125, but expected 0.005
+ ❯ tests/unit/services/payroll/etiEngine-k080-sars-tables.test.ts:119:19
+    117|     const may = calculateEti(yearOneMay2025(5_000), 2026).monthlyEti;
+    118|
+    119|     expect(march).toBeCloseTo(1_125, 2);
+       |                   ^
+    120|     expect(may).toBeCloseTo(1_500, 2);
+    121|     expect(march).not.toBeCloseTo(may, 2);
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[10/10]⎯
+
+
+ Test Files  1 failed (1)
+      Tests  10 failed | 1 passed (11)
+   Start at  11:29:27
+   Duration  1.03s (transform 195ms, setup 0ms, import 254ms, tests 35ms, environment 0ms)
+

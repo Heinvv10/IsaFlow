@@ -1,0 +1,72 @@
+=== M1 allow-list widened to pending_approval+disputed
+     × refuses a pending_approval bill 10ms
+     × refuses a pending_approval bill and writes no payment 11ms
+     × refuses a disputed bill and writes no payment 9ms
+     × refuses a pending_approval bill with a 400 and moves nothing 28ms
+     × refuses a disputed bill with a 400 and moves nothing 11ms
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 5 ⎯⎯⎯⎯⎯⎯⎯
+ Test Files  3 failed (3)
+      Tests  5 failed | 16 passed (21)
+restored byte-identical f6076e46c0e1d59cb7632c450ad0e8e37332cd6a43a38f759c225727dac9990b
+=== M2 supplier check removed from assertBillAllocatable
+     × refuses supplier A2's bill on supplier A's payment 13ms
+     × refuses supplier A2's bill on a payment to supplier A — same company, so R-068 passes it 26ms
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 2 ⎯⎯⎯⎯⎯⎯⎯
+ Test Files  2 failed | 1 passed (3)
+      Tests  2 failed | 19 passed (21)
+restored byte-identical f6076e46c0e1d59cb7632c450ad0e8e37332cd6a43a38f759c225727dac9990b
+=== M3 createSupplierPayment loop removed
+     × refuses supplier A2's bill on a payment to supplier A — same company, so R-068 passes it 25ms
+     × refuses a draft bill and writes no payment 6ms
+     × refuses a cancelled bill and writes no payment 7ms
+     × refuses a pending_approval bill and writes no payment 6ms
+     × refuses a disputed bill and writes no payment 5ms
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 5 ⎯⎯⎯⎯⎯⎯⎯
+ Test Files  1 failed | 2 passed (3)
+      Tests  5 failed | 16 passed (21)
+restored byte-identical 2730b66e80f161cd60ac95e293ce0f55fb9d179fcb8afed6427089d655142f0f
+=== M4 createBatch gate call removed
+     × refuses company B's bill as not found 21ms
+     × refuses an over-payment 6ms
+     × refuses supplier A2's bill on supplier A's payment 5ms
+     × refuses a pending_approval bill 10ms
+     × refuses a batch whose LAST line is the bad one, leaving the good lines unwritten 11ms
+     × refuses one bill named by two payments, each within the balance alone 7ms
+     × counts an earlier unprocessed batch's allocation against the outstanding 8ms
+     × answers a bill held by another request 409 — contention, not a validation error 20005ms
+     × a valid batch processes with the AP debit equal to what its bills took 30020ms
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 9 ⎯⎯⎯⎯⎯⎯⎯
+ Test Files  1 failed | 2 passed (3)
+      Tests  9 failed | 12 passed (21)
+restored byte-identical 0a944ee1858c91f97f7cd20a00279e2e1b260c64d44d4f0011e9a4a5ba2d0089
+=== M5 pending allocations ignored
+     × counts an earlier unprocessed batch's allocation against the outstanding 16ms
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 1 ⎯⎯⎯⎯⎯⎯⎯
+ Test Files  1 failed | 2 passed (3)
+      Tests  1 failed | 20 passed (21)
+restored byte-identical c446d42be4f9fc5c4a1bae7d46989b897e7a74c97c61b42055dd7229c7e03ad5
+=== M6 batch-wide shape check reduced to per-payment
+     × refuses one bill named by two payments, each within the balance alone 13ms
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 1 ⎯⎯⎯⎯⎯⎯⎯
+ Test Files  1 failed | 2 passed (3)
+      Tests  1 failed | 20 passed (21)
+restored byte-identical c446d42be4f9fc5c4a1bae7d46989b897e7a74c97c61b42055dd7229c7e03ad5
+=== M7 route: contention answered 400
+     × answers a bill held by another request 409 — contention, not a validation error 5012ms
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 1 ⎯⎯⎯⎯⎯⎯⎯
+ Test Files  1 failed | 2 passed (3)
+      Tests  1 failed | 20 passed (21)
+restored byte-identical c12acf56033e14c5d6ef0076b6ed9b33828468e7713e9805187f9323fb451f24
+=== M8 gate moved after the batch INSERTs (inside withTransaction)
+     × refuses an over-payment 9ms
+     × refuses a batch whose LAST line is the bad one, leaving the good lines unwritten 7ms
+     × counts an earlier unprocessed batch's allocation against the outstanding 5ms
+     × answers a bill held by another request 409 — contention, not a validation error 20006ms
+     × a valid batch processes with the AP debit equal to what its bills took 30021ms
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 5 ⎯⎯⎯⎯⎯⎯⎯
+AssertionError: expected '{"success":false,"error":{"code":"BAD…' to contain 'exceeds the R1000.00 outstanding'
+AssertionError: expected '{"success":false,"error":{"code":"BAD…' to contain 'exceeds the R1000.00 outstanding'
+AssertionError: {"success":false,"error":{"code":"BAD_REQUEST","message":"R1000.00 exceeds the R0.00 outstanding on invoice K06X-8e07e6f6."},"meta":{"timestamp":"2026-09-21T06:47:41.962Z"}}: expected 400 to be 200 // Object.is equality
+ Test Files  1 failed (1)
+      Tests  5 failed | 4 passed (9)
+restored byte-identical 0a944ee1858c91f97f7cd20a00279e2e1b260c64d44d4f0011e9a4a5ba2d0089

@@ -1,0 +1,70 @@
+$ node scripts/check-runtime.mjs && vitest run --config vitest.integration.config.ts "tests/integration/k155-duplicate-detection-ignores-status.int.test.ts"
+
+ RUN  v4.1.2 /home/hein/Workspace/IsaFlow/.worktrees/audit-remediation-20260908
+
+{"level":"info","message":"Exact duplicate fingerprint hit","timestamp":"2026-09-09T09:45:45.283Z","component":"duplicate-detection","data":{"companyId":"d1724dea-1fd5-4967-b495-b01b5dfd478d","supplierId":"2693d54d-23ff-41d9-b306-ed55f2a9604e","fingerprint":"4123456789|inv-k155-a|1000","existingId":"95c1724b-2d1b-4686-bcde-c80406ae7b62"}}
+{"level":"info","message":"Exact duplicate fingerprint hit","timestamp":"2026-09-09T09:45:45.303Z","component":"duplicate-detection","data":{"companyId":"d1724dea-1fd5-4967-b495-b01b5dfd478d","supplierId":"2693d54d-23ff-41d9-b306-ed55f2a9604e","fingerprint":"4123456789|inv-k155-b|2000","existingId":"79399e2f-c389-4852-b272-3d64541103e6"}}
+{"level":"info","message":"Exact duplicate fingerprint hit","timestamp":"2026-09-09T09:45:45.310Z","component":"duplicate-detection","data":{"companyId":"d1724dea-1fd5-4967-b495-b01b5dfd478d","supplierId":"2693d54d-23ff-41d9-b306-ed55f2a9604e","fingerprint":"4123456789|inv-k155-c|3000","existingId":"edbde812-e3b0-4681-bf3b-84fa4f7d37e1"}}
+ ❯ tests/integration/k155-duplicate-detection-ignores-status.int.test.ts (3 tests | 2 failed) 213ms
+   × does not block re-capture against a cancelled supplier invoice 74ms
+   × does not block re-capture against a soft-deleted supplier invoice 7ms
+
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 2 ⎯⎯⎯⎯⎯⎯⎯
+
+ FAIL  tests/integration/k155-duplicate-detection-ignores-status.int.test.ts > does not block re-capture against a cancelled supplier invoice
+AssertionError: expected { …(5) } to be null
+
+- Expected:
+null
+
++ Received:
+{
+  "confidence": 1,
+  "invoiceDate": "2026-03-10",
+  "invoiceNumber": "INV-K155-A",
+  "supplierInvoiceId": "95c1724b-2d1b-4686-bcde-c80406ae7b62",
+  "totalAmount": 1000,
+}
+
+ ❯ tests/integration/k155-duplicate-detection-ignores-status.int.test.ts:55:15
+     53| it('does not block re-capture against a cancelled supplier invoice', a…
+     54|   const hit = await findDuplicate(company, supplier, 'INV-K155-A', 100…
+     55|   expect(hit).toBeNull();
+       |               ^
+     56| });
+     57|
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[1/2]⎯
+
+ FAIL  tests/integration/k155-duplicate-detection-ignores-status.int.test.ts > does not block re-capture against a soft-deleted supplier invoice
+AssertionError: expected { …(5) } to be null
+
+- Expected:
+null
+
++ Received:
+{
+  "confidence": 1,
+  "invoiceDate": "2026-03-10",
+  "invoiceNumber": "INV-K155-B",
+  "supplierInvoiceId": "79399e2f-c389-4852-b272-3d64541103e6",
+  "totalAmount": 2000,
+}
+
+ ❯ tests/integration/k155-duplicate-detection-ignores-status.int.test.ts:60:15
+     58| it('does not block re-capture against a soft-deleted supplier invoice'…
+     59|   const hit = await findDuplicate(company, supplier, 'INV-K155-B', 200…
+     60|   expect(hit).toBeNull();
+       |               ^
+     61| });
+     62|
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[2/2]⎯
+
+
+ Test Files  1 failed (1)
+      Tests  2 failed | 1 passed (3)
+   Start at  11:45:44
+   Duration  1.09s (transform 262ms, setup 0ms, import 441ms, tests 213ms, environment 0ms)
+
+error: script "test:integration" exited with code 1

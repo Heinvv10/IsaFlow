@@ -24,12 +24,20 @@ vi.mock('@/modules/accounting/services/gl/periodStatusService', () => ({
 }));
 vi.mock('@/modules/accounting/services/bank/bankTxLock', () => ({
   lockBankTransactionForUpdate: vi.fn(async () => ({
-    id: 'btx-1', status: 'imported', matched_journal_line_id: null,
+    id: 'btx-1', status: 'imported', feed_state: 'posted', matched_journal_line_id: null,
   })),
   BankTransactionLockTimeoutError: class extends Error {},
 }));
 vi.mock('@/modules/accounting/services/gl/ruleVatResolution', () => ({
   resolveRuleVatCode: vi.fn(async () => ({ vatCode: 'none', denied: false, nonSupplyCoerced: false })),
+}));
+vi.mock('@/modules/accounting/services/ap/supplierRefundDocument', () => ({
+  planSupplierRefund: vi.fn(async () => ({
+    amount: 0, onAccountCredit: 1e9, supplierName: 'Acme',
+  })),
+  recordSupplierRefund: vi.fn(async () => ({
+    paymentId: 'refund-1', amount: 0, onAccountCredit: 1e9,
+  })),
 }));
 vi.mock('@/modules/accounting/services/ap/supplierAutoAllocate', () => ({
   recordSupplierBankPayment: vi.fn(async () => ({
@@ -39,7 +47,9 @@ vi.mock('@/modules/accounting/services/ap/supplierAutoAllocate', () => ({
 
 import { sql } from '@/lib/neon';
 import { recordSupplierBankPayment } from '@/modules/accounting/services/ap/supplierAutoAllocate';
+import { recordSupplierRefund } from '@/modules/accounting/services/ap/supplierRefundDocument';
 import { autoPostRuleLine } from '@/modules/accounting/services/bank/bankRuleAutoPostLine';
+import { lockBankTransactionForUpdate } from '@/modules/accounting/services/bank/bankTxLock';
 
 const COMPANY = '11111111-1111-4111-8111-111111111111';
 const SUPPLIER = '22222222-2222-4222-8222-222222222222';
@@ -110,7 +120,7 @@ describe('autoPostRuleLine — supplier', () => {
     expect(recordSupplierBankPayment).not.toHaveBeenCalled();
   });
 
-  it('creates nothing for a REFUND — money in is not a payment', async () => {
+  it('creates a REFUND document for money in, never a payment document', async () => {
     await autoPostRuleLine(input({
       tx: {
         id: 'btx-1', amount: 500, transaction_date: '2026-09-08',
@@ -118,7 +128,16 @@ describe('autoPostRuleLine — supplier', () => {
       },
     }));
 
+    // The unattended sweep had the same hole as the attended path: it could
+    // post a supplier deposit and left no document behind any of it.
     expect(recordSupplierBankPayment).not.toHaveBeenCalled();
+    expect(recordSupplierRefund).toHaveBeenCalledOnce();
+    expect(vi.mocked(recordSupplierRefund).mock.calls[0]![0]).toMatchObject({
+      supplierId: SUPPLIER, bankTxId: 'btx-1', amount: 500,
+    });
+    // No `autoApply` at ANY value the rule carries: a negative remainder
+    // applied to a bill un-pays it.
+    expect(vi.mocked(recordSupplierRefund).mock.calls[0]![0]).not.toHaveProperty('autoApply');
   });
 
   it('creates nothing when the rule names no supplier', async () => {
@@ -131,5 +150,25 @@ describe('autoPostRuleLine — supplier', () => {
       allocType: 'account', supplierId: null, ruleGlAccountId: 'gl-1', apAccountId: null,
     }));
     expect(recordSupplierBankPayment).not.toHaveBeenCalled();
+  });
+});
+
+describe('autoPostRuleLine — feed-state guard', () => {
+  it('returns { kind: "raced" } and issues no INSERT/UPDATE for a pending feed row', async () => {
+    // findMatchingTxs read the candidate possibly seconds ago; the lock SELECT
+    // is the only re-check before this would post a journal. A row still
+    // pending at the bank must be treated exactly like a row raced by a
+    // concurrent allocation — see the DB backstop this guards ahead of
+    // (migration 675) and bankFeedStateGuard.ts.
+    vi.mocked(lockBankTransactionForUpdate).mockResolvedValueOnce({
+      id: 'btx-1', status: 'imported', matched_journal_line_id: null, feed_state: 'pending',
+    } as never);
+
+    const result = await autoPostRuleLine(input());
+
+    expect(result).toEqual({ kind: 'raced' });
+    expect(recordSupplierBankPayment).not.toHaveBeenCalled();
+    const texts = vi.mocked(sql).mock.calls.map((c) => (c[0] as unknown as string[]).join('?'));
+    expect(texts.some((t) => /\bINSERT\b|(?<!FOR )\bUPDATE\b/i.test(t))).toBe(false);
   });
 });

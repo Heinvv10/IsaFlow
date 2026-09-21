@@ -1,0 +1,71 @@
+
+ RUN  v4.1.2 /home/hein/Workspace/IsaFlow/.worktrees/audit-remediation-20260908
+
+ ❯ tests/integration/k103-rate-limit-rolls-back-with-request.int.test.ts (2 tests | 2 failed) 2332ms
+     × charges the counter even when the request transaction rolls back 157ms
+     × does not hold the counter row lock for the rest of the request 2136ms
+
+⎯⎯⎯⎯⎯⎯ Failed Suites 1 ⎯⎯⎯⎯⎯⎯⎯
+
+ FAIL  tests/integration/k103-rate-limit-rolls-back-with-request.int.test.ts [ tests/integration/k103-rate-limit-rolls-back-with-request.int.test.ts ]
+error: current transaction is aborted, commands ignored until end of transaction block
+ ❯ node_modules/pg-pool/index.js:45:11
+ ❯ tests/integration/k103-rate-limit-rolls-back-with-request.int.test.ts:30:5
+     28| afterAll(async () => {
+     29|   try {
+     30|     await pool.query('DELETE FROM rate_limit_counters WHERE key = ANY(…
+       |     ^
+     31|   } finally { await pool.end(); }
+     32| });
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[1/3]⎯
+
+
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 2 ⎯⎯⎯⎯⎯⎯⎯
+
+ FAIL  tests/integration/k103-rate-limit-rolls-back-with-request.int.test.ts > K-103 rate-limit counter survives the request that spent it > charges the counter even when the request transaction rolls back
+AssertionError: expected undefined to be 1 // Object.is equality
+
+- Expected:
+1
+
++ Received:
+undefined
+
+ ❯ tests/integration/k103-rate-limit-rolls-back-with-request.int.test.ts:47:28
+     45|
+     46|     const { rows } = await pool.query('SELECT count FROM rate_limit_co…
+     47|     expect(rows[0]?.count).toBe(1);
+       |                            ^
+     48|   });
+     49|
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[2/3]⎯
+
+ FAIL  tests/integration/k103-rate-limit-rolls-back-with-request.int.test.ts > K-103 rate-limit counter survives the request that spent it > does not hold the counter row lock for the rest of the request
+AssertionError: promise rejected "error: canceling statement due to lock ti… { …(15) }" instead of resolving
+ ❯ tests/integration/k103-rate-limit-rolls-back-with-request.int.test.ts:68:31
+     66|         await checkRateLimit(keyLock, { max: 100, windowSecs: 900 });
+     67|       });
+     68|       await expect(concurrent).resolves.toBeUndefined();
+       |                               ^
+     69|       await second.query('COMMIT');
+     70|       await first.query('COMMIT');
+
+Caused by: error: canceling statement due to lock timeout
+ ❯ node_modules/pg/lib/client.js:631:17
+ ❯ LazyQuery.run src/lib/neon.ts:107:19
+ ❯ checkRateLimit src/lib/rateLimit.ts:89:17
+ ❯ tests/integration/k103-rate-limit-rolls-back-with-request.int.test.ts:66:9
+ ❯ tests/integration/k103-rate-limit-rolls-back-with-request.int.test.ts:68:7
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯
+Serialized Error: { length: 174, severity: 'ERROR', code: '55P03', detail: undefined, hint: undefined, position: undefined, internalPosition: undefined, internalQuery: undefined, where: 'while inserting index tuple (0,30) in relation "rate_limit_counters"', schema: undefined, table: undefined, dataType: undefined, constraint: undefined, file: 'postgres.c', routine: 'ProcessInterrupts' }
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[3/3]⎯
+
+
+ Test Files  1 failed (1)
+      Tests  2 failed (2)
+   Start at  11:32:41
+   Duration  5.58s (transform 745ms, setup 0ms, import 1.50s, tests 2.33s, environment 0ms)
+

@@ -27,11 +27,14 @@ export const FK_PAIRS = new Set<string>([
   'bank_categorisation_rules.gl_account_id|gl_accounts.id',
   'bank_categorisation_rules.supplier_id|suppliers.id',
   'bank_reconciliations.bank_account_id|gl_accounts.id',
-  'bank_reconciliations.id|bank_transactions.reconciliation_id',
-  'bank_transactions.bank_account_id|gl_accounts.id',
-  'bank_transactions.matched_journal_line_id|gl_journal_lines.id',
-  'bank_transactions.predicted_supplier_id|suppliers.id',
-  'bank_transactions.provisional_je_id|gl_journal_entries.id',
+  // bank_transactions_posted is a view over bank_transactions (migration 675);
+  // its edges are the base table's FKs, carried by hand — regeneration from
+  // pg_constraint will not list them.
+  'bank_reconciliations.id|bank_transactions_posted.reconciliation_id',
+  'bank_transactions_posted.bank_account_id|gl_accounts.id',
+  'bank_transactions_posted.matched_journal_line_id|gl_journal_lines.id',
+  'bank_transactions_posted.predicted_supplier_id|suppliers.id',
+  'bank_transactions_posted.provisional_je_id|gl_journal_entries.id',
   'captured_documents.id|customer_invoices.source_document_id',
   'captured_documents.id|dunning_sends.source_document_id',
   'captured_documents.id|gl_journal_entries.source_document_id',

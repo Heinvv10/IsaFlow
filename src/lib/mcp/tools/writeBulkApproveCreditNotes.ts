@@ -1,34 +1,29 @@
 /**
  * MCP write tool: approve and POST a whole set of credit notes.
  *
- * The third arm of the bulk approve family, batching `approve_credit_note`.
- * Both note types are accepted in one call and each posts its own shape:
+ * The third arm of the bulk approve family. Both note types post their own shape:
  *
  *   customer note  DR Revenue + DR VAT Output / CR Accounts Receivable
  *   supplier note  DR Accounts Payable / CR Expense + CR VAT Input
  *
  * ── THE SHARP EDGE THAT MAKES THIS THE MOST CONSEQUENTIAL OF THE THREE ──────
  *
- * Approving a LINKED note does not stop at the ledger. `approveCreditNote` also
- * adds the note's total to the linked invoice's `amount_paid` and lands the note
- * in `applied` rather than `approved` — so one call can reduce a customer's
- * outstanding balance on up to 100 invoices at once. That is why every result
- * row reports `applied_to_invoice_id` explicitly: an agent reading `approved`
- * against `applied` as cosmetic would go looking for a second apply step and
- * double-credit the invoice.
+ * Approving does not stop at the ledger: each note settles its linked document
+ * and then walks the entity's other open ones oldest first, so ONE call can
+ * reduce outstanding balances across far more documents than the hundred notes
+ * it names. That is why every result row reports `applied_to_invoice_ids` and
+ * `applied_amount` — an agent reading the status as cosmetic would go looking
+ * for a second apply step and double-credit them.
  *
- * ── SYSTEM ACCOUNTS ARE CHECKED PER TYPE PRESENT ────────────────────────────
+ * The two note types need different system-account roles, so the pre-write
+ * refusal reads the union of what the batch actually contains: a batch of
+ * customer notes must not be refused for a missing `vat_input`.
  *
- * The two note types need different roles, so the pre-write refusal reads the
- * union of what the batch actually contains. A batch of customer notes must not
- * be refused because the chart lacks `vat_input`, which nothing in it would use.
+ * Locking is handled below the tool: `approveCreditNote` takes the note's row
+ * lock and `creditNoteApplicationWrites` takes every document's, and the runner
+ * treats a lock timeout as a retryable skip.
  *
- * Locking is already handled: `approveCreditNote` takes
- * `lockCreditNoteForUpdate` itself, and the runner treats that lock's timeout
- * as a retryable skip.
- *
- * Free to call: `approve_credit_note` is `null` in TOOL_FLOW_OPERATIONS, and
- * N x 0 is 0.
+ * Free to call: `approve_credit_note` is `null` in TOOL_FLOW_OPERATIONS.
  */
 import type { McpTool } from '../types';
 import { sql } from '@/lib/neon';
@@ -36,6 +31,12 @@ import type { DbRow } from '@/lib/neon';
 import { approveCreditNote } from '@/modules/accounting/services/ar/creditNoteService';
 import { validateSystemAccounts } from '@/modules/accounting/services/gl/systemAccountResolver';
 import { mcpPostingOpts } from '../mcpActor';
+import {
+  CREDIT_NOTE_AUTO_APPLY,
+  listCreditNoteAllocations,
+  parseCreditNoteAutoApply,
+  type CreditNoteAutoApply,
+} from '@/modules/accounting/services/shared/creditNoteFifo';
 import {
   type BulkApproveAdapter,
   type DocumentState,
@@ -68,25 +69,24 @@ interface ApprovedNoteRow {
   status: string;
   total_amount: number;
   gl_journal_entry_id: string | null;
-  applied_to_invoice_id: string | null;
+  applied_amount: number;
+  /** Every document this note settled — the FIFO walk can settle several. */
+  applied_to_invoice_ids: { invoice_id: string; amount: number }[];
 }
 
 /**
  * `approveCreditNote` refuses a note whose status moved on with
- * `Cannot approve credit note with status: <status>`, raised from a read taken
- * UNDER the row lock and before anything is posted — so an element that hits it
- * wrote nothing and is a skip. Matched on the wording because the service
- * throws a bare Error, anchored on both halves, and the status is captured
- * rather than flattened to "already approved".
+ * `Cannot approve credit note with status: <status>`, raised UNDER the row lock
+ * and before anything is posted — so an element that hits it wrote nothing and
+ * is a skip. Matched on the wording because the service throws a bare Error.
  */
 const STATUS_REFUSAL = /Cannot approve credit note with status: (\S+)/;
 const NOT_FOUND_REFUSAL = /^Credit note \S+ not found$/;
 
 /**
  * Exported for `bulkApproveRaceReasonDrift.test.ts`, which asserts it against
- * the message the REAL service throws rather than against a second copy of the
- * literal. The regex below matches text owned by another module; a test that
- * hardcoded the same string would restate the drift rather than catch it.
+ * the message the REAL service throws — a test hardcoding the same string would
+ * restate the drift rather than catch it.
  */
 export function racedReason(err: unknown): string | null {
   if (!(err instanceof Error)) return null;
@@ -95,7 +95,13 @@ export function racedReason(err: unknown): string | null {
   return NOT_FOUND_REFUSAL.test(err.message) ? 'not found' : null;
 }
 
-const adapter: BulkApproveAdapter<ApprovedNoteRow> = {
+/**
+ * The adapter is built per call rather than declared once, because `auto_apply`
+ * is an argument and `postOne` has no other way to see it. A module-level
+ * mutable would be shared by concurrent requests on the same process.
+ */
+function buildAdapter(autoApply: CreditNoteAutoApply): BulkApproveAdapter<ApprovedNoteRow> {
+  return {
   toolName: TOOL,
   // `bulk_appr_cn_99` — 15 characters at the widest index.
   savepointPrefix: 'bulk_appr_cn_',
@@ -123,7 +129,10 @@ const adapter: BulkApproveAdapter<ApprovedNoteRow> = {
     ]));
   },
   async postOne(ctx, id) {
-    const updated = await approveCreditNote(ctx.companyId, id, ctx.userId, mcpPostingOpts(ctx, TOOL));
+    const updated = await approveCreditNote(ctx.companyId, id, ctx.userId, {
+      ...mcpPostingOpts(ctx, TOOL),
+      autoApply,
+    });
     return {
       index: -1,
       id: updated.id,
@@ -132,20 +141,24 @@ const adapter: BulkApproveAdapter<ApprovedNoteRow> = {
       status: updated.status,
       total_amount: updated.totalAmount,
       gl_journal_entry_id: updated.glJournalEntryId ?? null,
-      // 'applied' is the auto-apply having fired — see the header.
-      applied_to_invoice_id: updated.status === 'applied'
-        ? (updated.customerInvoiceId ?? updated.supplierInvoiceId ?? null)
-        : null,
+      applied_amount: updated.appliedAmount,
+      // Read back from the allocation rows rather than inferred from the
+      // status: a partially applied note settles documents too, and the status
+      // alone cannot name them.
+      applied_to_invoice_ids: (await listCreditNoteAllocations(ctx.companyId, id))
+        .map((l) => ({ invoice_id: l.invoiceId, amount: l.amount })),
     };
   },
-};
+  };
+}
 
 export const bulkApproveCreditNotesTool: McpTool = {
   name: TOOL,
   description:
     'Approve and POST up to 100 DRAFT credit notes in ONE call. Requires the write:post permission. '
     + 'Customer note: DR Revenue + DR VAT Output / CR Accounts Receivable. Supplier note: DR Accounts Payable / CR Expense + CR VAT Input. Both types may be mixed in one call. '
-    + 'A LINKED note is also AUTO-APPLIED — the linked invoice\'s amount_paid rises by the note total and the note lands in status "applied" instead of "approved". The result reports applied_to_invoice_id per note; do NOT apply it again. '
+    + 'Approving also APPLIES each note: its linked document first, capped at that document\'s outstanding balance, then the REMAINDER FIFO across the same entity\'s other open documents, oldest first. auto_apply "none" applies only to the linked document. '
+    + 'The status is DERIVED — "approved", "partially_applied" or "applied" — and each row reports applied_amount and applied_to_invoice_ids; do NOT apply those documents again. '
     + 'A note that cannot be approved is SKIPPED, not a failure: not found, not a draft, or dated in a CLOSED fiscal period — each is listed in "skipped" with its reason and the rest of the batch still posts. '
     + 'ALL OR NOTHING for real faults: if a note genuinely fails to post, the whole batch is rolled back, nothing is posted, and the error names the element. '
     + 'A repeated credit_note_id is REFUSED (not skipped) — each note may appear once. '
@@ -163,6 +176,12 @@ export const bulkApproveCreditNotesTool: McpTool = {
         items: { type: 'string', description: 'Credit note UUID' },
         description: `The notes to approve — at most ${MAX_DOCUMENTS}, each named once.`,
       },
+      auto_apply: {
+        type: 'string',
+        enum: [...CREDIT_NOTE_AUTO_APPLY],
+        description:
+          '"fifo" (default) applies each note\'s remainder to its entity\'s open documents oldest first; "none" applies only to the linked document.',
+      },
       dry_run: {
         type: 'boolean',
         description: 'Report what would post and what would be skipped, and write nothing.',
@@ -175,6 +194,15 @@ export const bulkApproveCreditNotesTool: McpTool = {
   handler: async (args, ctx) => {
     const ids = parseDocumentIds(args.credit_note_ids, 'credit_note_ids');
     if (typeof ids === 'string') return toolError(ids);
+
+    // Refused rather than coerced — see the same guard in approve_credit_note.
+    const autoApply = args.auto_apply === undefined
+      ? 'fifo' as const
+      : parseCreditNoteAutoApply(args.auto_apply);
+    if (autoApply === null) {
+      return toolError(`auto_apply must be one of: ${CREDIT_NOTE_AUTO_APPLY.join(', ')}`);
+    }
+    const adapter = buildAdapter(autoApply);
 
     const { postable, skipped, states } = await partitionDocuments(ctx.companyId, ids, adapter);
 
@@ -218,15 +246,20 @@ export const bulkApproveCreditNotesTool: McpTool = {
     // registry's savepoint.
     //
     // Ordered by (LINKED INVOICE, note id), not by note id alone. Sorting by the
-    // note is not enough, because approveCreditNote takes TWO row locks: it locks
-    // the note (lockCreditNoteForUpdate), then UPDATEs the linked invoice's
-    // amount_paid, which locks the invoice too. With only the note sorted, the
-    // invoice lock order is whatever the note order happens to imply — so batch
+    // note is not enough, because approving takes locks on DOCUMENTS as well as
+    // on the note: `lockCreditNoteForUpdate` first, then one `FOR UPDATE` over
+    // every document the note will settle. With only the note sorted, the
+    // document lock order is whatever the note order happens to imply — so batch
     // [CN1, CN2] (CN1 linked to invoice X) and batch [CN2] (also linked to X)
-    // can hold and wait crosswise and deadlock (40P01). Ordering by the invoice
-    // first gives a total order over the rows two batches can actually contend
-    // for. Standalone notes sort under '' and are mutually unconstrained, which
-    // is correct: they take no second lock.
+    // can hold and wait crosswise and deadlock (40P01).
+    //
+    // WHAT THE FIFO WALK ACTUALLY LOCKS, since the comment used to overstate it:
+    // one statement takes every candidate document ORDERED BY id
+    // (`creditNoteApplicationWrites.lockInvoicesForUpdate`), so two batches
+    // contending for the same documents acquire them in one direction by
+    // construction. Sorting the batch by linked invoice remains worth doing for
+    // the note-to-first-document leg. Standalone notes sort under '' and are
+    // mutually unconstrained.
     const ordered = [...postable]
       .map((p) => ({ ...p, group: states.get(p.id)?.lockGroup ?? '', entryDate: states.get(p.id)?.entryDate }))
       .sort((a, b) => (a.group !== b.group
@@ -251,7 +284,7 @@ export const bulkApproveCreditNotesTool: McpTool = {
       return nothing;
     }
 
-    const applied = rows.filter((r) => r.applied_to_invoice_id !== null);
+    const applied = rows.filter((r) => r.applied_to_invoice_ids.length > 0);
     return ok({
       posted: rows.length,
       skipped_count: allSkipped.length,

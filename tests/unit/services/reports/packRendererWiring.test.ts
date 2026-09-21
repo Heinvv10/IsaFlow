@@ -35,6 +35,21 @@ const BANDS = [
   'Operating Expenses', 'Operating Profit', 'Other Expenses', 'Net Profit',
 ];
 
+const BALANCE_SHEET = {
+  type: 'balance_sheet',
+  title: 'Balance Sheet',
+  data: {
+    currentAssets: 300, totalAssets: 500, cash: 100, accountsReceivable: 200,
+    totalEquity: 300, currentLiabilities: 150, totalLiabilities: 200, accountsPayable: 125,
+  },
+} as never;
+
+const BALANCE_SHEET_ROWS = [
+  'Total Assets', 'Current Assets', 'Cash', 'Accounts Receivable',
+  'Total Equity', 'Total Liabilities', 'Accounts Payable',
+  'Total Equity and Liabilities',
+];
+
 describe('HTML pack renderer', () => {
   it('emits every band', () => {
     const html = renderSectionHtml(SECTION);
@@ -65,6 +80,13 @@ describe('HTML pack renderer', () => {
     for (const r of rows) {
       expect((r.match(/<td/g) ?? []).length, r).toBe(3);
     }
+  });
+
+  it('renders the balance sheet Equity before Liabilities with the combined total', () => {
+    const html = renderSectionHtml(BALANCE_SHEET);
+    const positions = BALANCE_SHEET_ROWS.map(label => html.indexOf(`<td>${label}</td>`));
+    expect(positions.every(position => position >= 0)).toBe(true);
+    expect(positions).toEqual([...positions].sort((a, b) => a - b));
   });
 });
 
@@ -119,6 +141,17 @@ describe('PDF pack renderer', () => {
     const labels = calls[0]!.body.map(r => r[0]);
     expect(labels).not.toContain('Other Income');
     expect(labels).toContain('Operating Profit');
+  });
+
+  it('renders the balance sheet Equity before Liabilities with the combined total', () => {
+    const calls: Array<{ body: string[][] }> = [];
+    const autoTable = (_d: unknown, o: { body: string[][] }) => { calls.push(o); };
+    const doc = {
+      lastAutoTable: { finalY: 20 }, setFontSize: () => {}, setFont: () => {},
+      setTextColor: () => {}, text: () => {}, addPage: () => {}, setFillColor: () => {}, rect: () => {},
+    } as never;
+    renderSection(doc, autoTable, BALANCE_SHEET, 210, 297, 10, { r: 0, g: 0, b: 0 });
+    expect(calls[0]!.body.map(row => row[0])).toEqual(BALANCE_SHEET_ROWS);
   });
 });
 

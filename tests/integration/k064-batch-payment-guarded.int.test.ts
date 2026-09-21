@@ -1,129 +1,146 @@
-/**
- * K-064 adjacent cases for the batch-creation gate.
- *
- * `createBatch` now routes every line through `planSupplierAllocationLines`
- * before it writes anything. The two cases the RED test does not cover are a
- * bill belonging to a DIFFERENT SUPPLIER inside the same tenant, and the same
- * bill named by two payments of one batch — which would otherwise pass the
- * per-payment balance check twice and settle the bill twice.
- *
- * The happy path runs the batch all the way through `processBatch`, because
- * that is where the damage landed: its journal debits Accounts Payable for the
- * batch's full total while the subledger UPDATE is company-scoped. The test
- * asserts the journal balances AND that the AP debit equals what the bills
- * actually took.
- */
-import { afterAll, beforeAll, expect, it } from 'vitest';
+// tests/integration/k064-batch-payment-guarded.int.test.ts
+//
+// K-064: `createBatch` INSERTed `payment_allocations` straight from the body.
+// R-068 since refuses a supplier from another company, but no statement read
+// the BILLS: company B's bill, supplier A2's bill, an unapproved bill and an
+// over-payment were all accepted, and `processBatch` debits AP for the batch
+// total. Driven through batch-payments POST: `withAuth` COMMITs a 4xx, so every
+// refusal must come before the first INSERT — the cases whose bad line is the
+// LAST one prove that nothing earlier in the batch survived.
+
+import { describe, it, expect, beforeAll, afterAll } from 'vitest';
 import { Pool } from 'pg';
 import { assertDisposable } from './mfa-impersonation-postgres.helpers';
-import {
-  createBatch,
-  approveBatch,
-  processBatch,
-} from '../../src/modules/accounting/services/ap/batchPaymentService';
-import { clearSystemAccountCache } from '../../src/modules/accounting/services/gl/systemAccountResolver';
+import { ids, setUpFixture, tearDownFixture, type Fixture } from './supplier-ownership-fence.helpers';
+import { allocationsOn, bill, billState, rowCount } from './ap-allocation-guards.helpers';
+import batchPayments from '../../pages/api/accounting/batch-payments';
+import batchPaymentsAction from '../../pages/api/accounting/batch-payments-action';
 
-assertDisposable();
-const pool = new Pool({ connectionString: process.env.DATABASE_URL });
-const company = crypto.randomUUID(), user = crypto.randomUUID();
-const supplierA = crypto.randomUUID(), supplierB = crypto.randomUUID();
-const billA1 = crypto.randomUUID(), billA2 = crypto.randomUUID(), billB = crypto.randomUUID();
-let bankAccount = '';
+const describeIfDb = process.env.DATABASE_URL && process.env.JWT_SECRET ? describe : describe.skip;
 
-async function bill(id: string, supplier: string, number: string) {
-  await pool.query(
-    `INSERT INTO supplier_invoices(id,company_id,supplier_id,invoice_number,invoice_date,due_date,
-       subtotal,tax_amount,total_amount,amount_paid,status,created_by)
-     VALUES($1,$2,$3,$4,CURRENT_DATE - 5,CURRENT_DATE + 25,100,0,100,0,'approved',$5)`,
-    [id, company, supplier, number, user],
-  );
-}
+type Line = { invoiceId: string; amount: number };
 
-beforeAll(async () => {
-  await pool.query('INSERT INTO companies(id,name) VALUES($1,$2)', [company, 'K064 guarded']);
-  await pool.query("INSERT INTO users(id,email,role,is_active) VALUES($1,$2,'admin',true)", [user, `${user}@test.local`]);
-  await pool.query('INSERT INTO suppliers(id,company_id,name) VALUES($1,$2,$3),($4,$5,$6)',
-    [supplierA, company, 'K064G supplier A', supplierB, company, 'K064G supplier B']);
-  await bill(billA1, supplierA, 'K064G-A-1');
-  await bill(billA2, supplierA, 'K064G-A-2');
-  await bill(billB, supplierB, 'K064G-B-1');
-  const { rows } = await pool.query(
-    `INSERT INTO gl_accounts(company_id,account_code,account_name,account_type,account_subtype,
-       normal_balance,is_active,is_system_account)
-     VALUES($1,'2100','K064G AP','liability','payable','credit',true,true),
-           ($1,'1100','K064G Bank','asset','bank','debit',true,true)
-     RETURNING id, account_subtype`, [company]);
-  bankAccount = String(rows.find((r) => r.account_subtype === 'bank')!.id);
-  clearSystemAccountCache(company);
+describeIfDb('K-064 — a batch checks every bill line before it writes anything', () => {
+  let fx: Fixture;
+  const create = async (payments: { supplierId: string; lines: Line[] }[]) =>
+    fx.call(batchPayments, 'POST', { notes: 'K064', payments: payments.map((p) => ({
+      supplierId: p.supplierId, invoiceAllocations: p.lines })) });
+
+  /** Refused with `status`, and not one batch, payment or allocation row written. */
+  async function expectRefusedClean(
+    payments: { supplierId: string; lines: Line[] }[], status: number, text: string,
+  ): Promise<void> {
+    const batches = await rowCount(fx.pool, 'supplier_payment_batches');
+    const pays = await rowCount(fx.pool, 'supplier_payments');
+    const named = payments.flatMap((p) => p.lines.map((l) => l.invoiceId));
+    const allocs = await allocationsOn(fx.pool, named);
+
+    const state = await create(payments);
+
+    expect(state.statusCode, JSON.stringify(state.body)).toBe(status);
+    expect(JSON.stringify(state.body)).toContain(text);
+    expect(await rowCount(fx.pool, 'supplier_payment_batches')).toBe(batches);
+    expect(await rowCount(fx.pool, 'supplier_payments')).toBe(pays);
+    expect(await allocationsOn(fx.pool, named)).toBe(allocs);
+  }
+
+  const approved = (supplier = ids.SUP_A, total = 1000) =>
+    bill(fx.pool, { supplier, status: 'approved', total });
+
+  beforeAll(async () => {
+    assertDisposable();
+    fx = await setUpFixture('K064');
+  });
+  afterAll(() => tearDownFixture(fx?.pool));
+
+  it("refuses company B's bill as not found", async () => {
+    const foreign = await bill(fx.pool, { company: ids.B, supplier: ids.SUP_B, status: 'approved' });
+    await expectRefusedClean([{ supplierId: ids.SUP_A, lines: [{ invoiceId: foreign, amount: 100 }] }],
+      400, 'not found');
+    expect(await billState(fx.pool, foreign)).toEqual({ paid: 0, status: 'approved' });
+  });
+
+  it('refuses an over-payment', async () => {
+    const b = await approved();
+    await expectRefusedClean([{ supplierId: ids.SUP_A, lines: [{ invoiceId: b, amount: 1500 }] }],
+      400, 'exceeds the R1000.00 outstanding');
+  });
+
+  it("refuses supplier A2's bill on supplier A's payment", async () => {
+    const b = await approved(ids.SUP_A2);
+    await expectRefusedClean([{ supplierId: ids.SUP_A, lines: [{ invoiceId: b, amount: 100 }] }],
+      400, 'belongs to a different supplier');
+  });
+
+  it('refuses a pending_approval bill', async () => {
+    const b = await bill(fx.pool, { supplier: ids.SUP_A, status: 'pending_approval' });
+    await expectRefusedClean([{ supplierId: ids.SUP_A, lines: [{ invoiceId: b, amount: 100 }] }],
+      400, 'is pending_approval and cannot receive a payment');
+  });
+
+  it('refuses a batch whose LAST line is the bad one, leaving the good lines unwritten', async () => {
+    const [ok1, ok2, over] = [await approved(), await approved(), await approved()];
+    await expectRefusedClean([
+      { supplierId: ids.SUP_A, lines: [{ invoiceId: ok1, amount: 1000 }] },
+      { supplierId: ids.SUP_A, lines: [{ invoiceId: ok2, amount: 500 }, { invoiceId: over, amount: 2000 }] },
+    ], 400, 'exceeds the R1000.00 outstanding');
+  });
+
+  it('refuses one bill named by two payments, each within the balance alone', async () => {
+    const b = await approved();
+    await expectRefusedClean([
+      { supplierId: ids.SUP_A, lines: [{ invoiceId: b, amount: 600 }] },
+      { supplierId: ids.SUP_A, lines: [{ invoiceId: b, amount: 600 }] },
+    ], 400, 'appears more than once');
+  });
+
+  it("counts an earlier unprocessed batch's allocation against the outstanding", async () => {
+    const b = await approved();
+    const first = await create([{ supplierId: ids.SUP_A, lines: [{ invoiceId: b, amount: 1000 }] }]);
+    expect(first.statusCode, JSON.stringify(first.body)).toBe(200);
+    await expectRefusedClean([{ supplierId: ids.SUP_A, lines: [{ invoiceId: b, amount: 1000 }] }],
+      400, 'exceeds the R0.00 outstanding');
+  });
+
+  it('answers a bill held by another request 409 — contention, not a validation error', async () => {
+    const b = await approved();
+    const holder = new Pool({ connectionString: process.env.DATABASE_URL, max: 1 });
+    const client = await holder.connect();
+    try {
+      await client.query('BEGIN');
+      await client.query('SELECT id FROM supplier_invoices WHERE id = $1 FOR UPDATE', [b]);
+      await expectRefusedClean([{ supplierId: ids.SUP_A, lines: [{ invoiceId: b, amount: 100 }] }],
+        409, 'retry');
+    } finally {
+      await client.query('ROLLBACK');
+      client.release();
+      await holder.end();
+    }
+  }, 20000);
+
+  it('a valid batch processes with the AP debit equal to what its bills took', async () => {
+    const [b1, b2] = [await approved(ids.SUP_A, 400), await approved(ids.SUP_A2, 300)];
+    const state = await create([
+      { supplierId: ids.SUP_A, lines: [{ invoiceId: b1, amount: 400 }] },
+      { supplierId: ids.SUP_A2, lines: [{ invoiceId: b2, amount: 250 }] },
+    ]);
+    expect(state.statusCode, JSON.stringify(state.body)).toBe(200);
+    const { rows } = await fx.pool.query(`SELECT DISTINCT sp.batch_id FROM supplier_payments sp
+      JOIN payment_allocations pa ON pa.payment_id = sp.id WHERE pa.invoice_id = $1`, [b1]);
+    const batchId = String(rows[0].batch_id);
+
+    for (const action of ['approve', 'process']) {
+      const r = await fx.call(batchPaymentsAction, 'POST', { action, id: batchId });
+      expect(r.statusCode, JSON.stringify(r.body)).toBe(200);
+    }
+
+    expect(await billState(fx.pool, b1)).toEqual({ paid: 400, status: 'paid' });
+    expect(await billState(fx.pool, b2)).toEqual({ paid: 250, status: 'partially_paid' });
+    const { rows: je } = await fx.pool.query(`SELECT SUM(l.debit) AS dr, SUM(l.credit) AS cr,
+        SUM(l.debit) FILTER (WHERE l.gl_account_id = $2) AS ap_dr
+      FROM supplier_payment_batches b JOIN gl_journal_lines l ON l.journal_entry_id = b.gl_journal_entry_id
+      WHERE b.id = $1`, [batchId, ids.AP_GL]);
+    expect(Number(je[0].dr)).toBe(Number(je[0].cr));
+    expect(Number(je[0].ap_dr)).toBe(650);
+  });
 });
-
-afterAll(async () => {
-  try {
-    await pool.query('DELETE FROM payment_allocations WHERE payment_id IN (SELECT id FROM supplier_payments WHERE company_id=$1)', [company]);
-    await pool.query('DELETE FROM supplier_payments WHERE company_id=$1', [company]);
-    await pool.query('DELETE FROM supplier_payment_batches WHERE company_id=$1', [company]);
-    await pool.query('DELETE FROM supplier_invoices WHERE company_id=$1', [company]);
-    await pool.query('DELETE FROM suppliers WHERE company_id=$1', [company]);
-    await pool.query('DELETE FROM gl_journal_lines WHERE company_id=$1', [company]);
-    await pool.query('DELETE FROM gl_journal_entries WHERE company_id=$1', [company]);
-    await pool.query('DELETE FROM gl_account_balances WHERE gl_account_id IN (SELECT id FROM gl_accounts WHERE company_id=$1)', [company]);
-    await pool.query('DELETE FROM gl_accounts WHERE company_id=$1', [company]);
-    await pool.query('DELETE FROM fiscal_periods WHERE company_id=$1', [company]);
-    await pool.query('DELETE FROM companies WHERE id=$1', [company]);
-    await pool.query('DELETE FROM users WHERE id=$1', [user]);
-  } finally { await pool.end(); }
-}, 60000);
-
-it("refuses a batch line against another supplier's bill in the same tenant", async () => {
-  await expect(createBatch(company, {
-    paymentMethod: 'eft',
-    payments: [{ supplierId: supplierA, invoiceAllocations: [{ invoiceId: billB, amount: 100 }] }],
-  } as never, user)).rejects.toThrow(/different supplier/);
-
-  const { rows } = await pool.query('SELECT COUNT(*)::int AS n FROM payment_allocations WHERE invoice_id=$1', [billB]);
-  expect(rows[0].n).toBe(0);
-});
-
-it('refuses one bill named by two payments of the same batch', async () => {
-  await expect(createBatch(company, {
-    paymentMethod: 'eft',
-    payments: [
-      { supplierId: supplierA, invoiceAllocations: [{ invoiceId: billA1, amount: 100 }] },
-      { supplierId: supplierA, invoiceAllocations: [{ invoiceId: billA1, amount: 100 }] },
-    ],
-  } as never, user)).rejects.toThrow(/more than one payment/);
-
-  const { rows } = await pool.query('SELECT COUNT(*)::int AS n FROM payment_allocations WHERE invoice_id=$1', [billA1]);
-  expect(rows[0].n).toBe(0);
-});
-
-it('processes a valid batch with a balanced journal that agrees with the bills', async () => {
-  const batch = await createBatch(company, {
-    paymentMethod: 'eft',
-    bankAccountId: bankAccount,
-    payments: [{
-      supplierId: supplierA,
-      invoiceAllocations: [{ invoiceId: billA1, amount: 100 }, { invoiceId: billA2, amount: 100 }],
-    }],
-  } as never, user);
-  expect(batch.totalAmount).toBe(200);
-
-  await approveBatch(company, batch.id, user);
-  await processBatch(company, batch.id, user);
-
-  const { rows: je } = await pool.query(
-    `SELECT COALESCE(SUM(l.debit),0)::numeric AS dr, COALESCE(SUM(l.credit),0)::numeric AS cr
-     FROM gl_journal_lines l
-     JOIN supplier_payment_batches b ON b.gl_journal_entry_id = l.journal_entry_id
-     WHERE b.id = $1 AND l.company_id = $2`, [batch.id, company]);
-  expect(Number(je[0].dr)).toBe(200);
-  expect(Number(je[0].cr)).toBe(Number(je[0].dr));
-
-  const { rows: bills } = await pool.query(
-    `SELECT COALESCE(SUM(amount_paid),0)::numeric AS paid, COUNT(*) FILTER (WHERE status='paid')::int AS settled
-     FROM supplier_invoices WHERE id = ANY($1) AND company_id = $2`, [[billA1, billA2], company]);
-  // The AP debit is exactly what the subledger took — the agreement the
-  // unvalidated batch broke by debiting AP for bills it then skipped.
-  expect(Number(bills[0].paid)).toBe(Number(je[0].dr));
-  expect(bills[0].settled).toBe(2);
-}, 60000);

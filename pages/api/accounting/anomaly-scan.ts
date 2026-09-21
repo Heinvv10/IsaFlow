@@ -28,6 +28,7 @@ async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse) {
   const txRows = await sql`
     SELECT id, description, amount, transaction_date as date FROM bank_transactions
     WHERE company_id = ${companyId}::UUID AND transaction_date >= ${fromDate}
+      AND feed_state = 'posted'
     ORDER BY transaction_date DESC LIMIT 1000
   ` as Row[];
   const transactions: Transaction[] = txRows.map((r: Row) => ({ id: String(r.id), amount: Number(r.amount), description: String(r.description), date: String(r.date) }));

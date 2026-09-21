@@ -4,6 +4,12 @@
  */
 
 export type BankTxStatus = 'imported' | 'allocated' | 'matched' | 'reconciled' | 'excluded';
+/**
+ * Bank feed lifecycle state (migration 675). A row is `pending` or `removed`
+ * at the bank until the provider posts it; declared here (types must not
+ * depend on services) and re-exported by `services/bank/bankFeedStateGuard`.
+ */
+export type FeedState = 'pending' | 'posted' | 'removed';
 export type BankReconStatus = 'in_progress' | 'completed';
 export type BankFormat = 'fnb' | 'standard_bank' | 'nedbank' | 'absa' | 'capitec' | 'generic' | 'ofx' | 'qif' | 'mt940' | 'unknown';
 
@@ -47,6 +53,7 @@ export interface BankTransaction {
   reference?: string;
   bankReference?: string;
   status: BankTxStatus;
+  feedState: FeedState;
   matchedJournalLineId?: string;
   reconciliationId?: string;
   importBatchId?: string;
@@ -164,6 +171,13 @@ export interface AutoMatchResult {
    * either — the user sees a lower `matched` and needs to know why.
    */
   skippedRaced?: number;
+  /**
+   * High-confidence matches that were NOT applied because `bank_transactions`
+   * was locked at the table level — DDL, a migration's index build. Counted
+   * apart from `skippedRaced`: nothing is known about those rows, so calling
+   * them "allocated by another request" would be a false claim.
+   */
+  skippedUnavailable?: number;
 }
 
 // ── Bank Categorisation Rules ───────────────────────────────────────────────
@@ -172,6 +186,8 @@ export type RuleMatchField = 'description' | 'reference' | 'both';
 export type RuleMatchType = 'contains' | 'starts_with' | 'ends_with' | 'exact';
 
 export type RuleVatCode = 'none' | 'standard' | 'zero_rated' | 'exempt';
+
+import type { AutoApplyMode } from '../services/shared/autoAllocateStrategy';
 
 export interface BankCategorisationRule {
   id: string;
@@ -187,6 +203,12 @@ export interface BankCategorisationRule {
   isActive: boolean;
   autoCreateEntry: boolean;
   vatCode: RuleVatCode;
+  /**
+   * What an auto-posted supplier/customer line does with its cash (migration
+   * 676): 'fifo' applies it to the contact's oldest open documents, 'none'
+   * leaves it on account. Unattended, there is no caller to ask.
+   */
+  autoApply: AutoApplyMode;
   cc1Id?: string;
   cc2Id?: string;
   buId?: string;
@@ -215,6 +237,7 @@ export interface RuleCreateInput {
   priority?: number;
   autoCreateEntry?: boolean;
   vatCode?: RuleVatCode;
+  autoApply?: AutoApplyMode;
   cc1Id?: string;
   cc2Id?: string;
   buId?: string;

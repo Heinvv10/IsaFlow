@@ -18,30 +18,16 @@
  * why its allocations never affected anything downstream.
  */
 
-import { BALANCE_DERIVED, recomputeInvoiceStatus } from '../ar/invoiceStatusRecompute';
+import { recomputeInvoiceStatus } from '../ar/invoiceStatusRecompute';
+import { assertBillAllocatable } from './billAllocatable';
+import { SupplierPaymentRefusal } from './supplierPaymentRefusal';
 import { sql } from '@/lib/neon';
+import { requireRequestTransaction } from '../core/requestTransaction';
+import { isLockContention } from '../core/lockContention';
 import type { DbRow } from '@/lib/neon';
 
 /** A cent. Money comparisons are made at this tolerance, never exactly. */
 export const EPS = 0.01;
-
-/**
- * Statuses a bill may be in to take a payment — an ALLOW-list, deliberately.
- *
- * The deny-list this replaces named 'cancelled' and 'draft' only, so the other
- * two statuses `supplier_invoices_status_check` permits — 'pending_approval'
- * and 'disputed' — passed the gate. AP is credited only by
- * `approveSupplierInvoice`, so such a bill has no journal at all: the payment's
- * DR Accounts Payable had no matching credit, and `recomputeInvoiceStatus`
- * left the status alone (it too restricts itself to BALANCE_DERIVED), so the
- * bill read unapproved and fully paid at the same time.
- *
- * It is the SAME set `recomputeInvoiceStatus` will act on afterwards, which is
- * the point: a status that recompute refuses to move must not be allowed to
- * take money either. A status added to the CHECK constraint later fails closed
- * here rather than silently joining the allowed set.
- */
-const ALLOCATABLE_STATUSES = new Set(BALANCE_DERIVED);
 
 export interface SupplierAllocationInput {
   invoiceId: string;
@@ -60,7 +46,7 @@ export interface SupplierApplicationLine {
   fullySettled: boolean;
 }
 
-interface BillCandidate extends DbRow {
+export interface BillCandidate extends DbRow {
   id: string;
   invoice_number: string;
   supplier_id: string;
@@ -76,17 +62,17 @@ export function round2(n: number): number {
 
 /** Faults in the REQUEST — checked before any query, naming the offending bill. */
 export function assertAllocationShape(allocations: readonly SupplierAllocationInput[]): void {
-  if (allocations.length === 0) throw new Error('Provide at least one allocation.');
+  if (allocations.length === 0) throw new SupplierPaymentRefusal('Provide at least one allocation.');
   const seen = new Set<string>();
   for (const alloc of allocations) {
     if (!Number.isFinite(alloc.amount) || alloc.amount <= 0) {
-      throw new Error(`Allocation amount for invoice ${alloc.invoiceId} must be a positive number.`);
+      throw new SupplierPaymentRefusal(`Allocation amount for invoice ${alloc.invoiceId} must be a positive number.`);
     }
     if (seen.has(alloc.invoiceId)) {
       // The unique index on (payment_id, invoice_id) would raise 23505 halfway
       // through the write instead — a database error the caller cannot act on,
       // arriving after earlier lines have been written.
-      throw new Error(`Invoice ${alloc.invoiceId} appears more than once in this request.`);
+      throw new SupplierPaymentRefusal(`Invoice ${alloc.invoiceId} appears more than once in this request.`);
     }
     seen.add(alloc.invoiceId);
   }
@@ -120,19 +106,72 @@ export async function planSupplierAllocationLines(
     const bill = byId.get(alloc.invoiceId);
     // Same wording as a genuine miss: a bill in another tenant must not be
     // distinguishable from one that does not exist.
-    if (!bill) throw new Error(`Invoice ${alloc.invoiceId} not found`);
+    if (!bill) throw new SupplierPaymentRefusal(`Invoice ${alloc.invoiceId} not found`);
     supplierId ??= String(bill.supplier_id);
     lines.push(buildLine(alloc, bill, supplierId));
   }
 
-  if (!supplierId) throw new Error('Provide at least one allocation.');
+  if (!supplierId) throw new SupplierPaymentRefusal('Provide at least one allocation.');
   return { supplierId, lines };
 }
 
-async function fetchBillCandidates(
+/**
+ * Read the bills this allocation names, holding a row lock on each until the
+ * end of the surrounding transaction.
+ *
+ * THE LOCK IS LOAD-BEARING, and for the same reason as its AR mirror
+ * `fetchInvoiceCandidates`. Paying a bill is a check-then-act on
+ * `supplier_invoices.amount_paid`: `outstandingBefore` is read here, the
+ * over-payment guard is decided from it in `buildLine`, and the column is moved
+ * much later in `applyLineToBill`. Nothing else on the AP path locks the bill —
+ * `lockSupplierPaymentForUpdate` protects a PAYMENT the same transaction
+ * created, and `bankTxLock` protects a bank LINE, a different row per request.
+ * So two bank lines confirmed against one bill both read the same outstanding,
+ * both pass, and both apply; the only thing that ever stopped them was a
+ * collision on `uq_gl_je_company_entry_number` inside `createJournalEntry` —
+ * the money path's safety resting on an index that exists to number journals.
+ *
+ * `ORDER BY si.id` fixes the lock ORDER (`LockRows` sits above `Sort`), so two
+ * requests naming the same pair of bills take them in the same sequence and
+ * cannot deadlock against each other.
+ *
+ * A timeout is a REFUSAL: it is raised before anything on this path has been
+ * written, and retrying unchanged is the right move. (55P03 aborts the
+ * transaction, so the 409 the caller answers with is COMMITted over an
+ * already-rolled-back transaction — which writes nothing, the same as every
+ * other pre-write refusal here. The AR mirror is `receiptAllocationLines.ts`.)
+ * A DEADLOCK (40P01) is
+ * answered the same way, via `isLockContention` — see the canonical lock order
+ * in `bank/.claude.md` for why one should not arise here at all.
+ */
+export async function fetchBillCandidates(
   companyId: string,
   paymentId: string | null,
   invoiceIds: readonly string[],
+): Promise<Map<string, BillCandidate>> {
+  const client = requireRequestTransaction('fetchBillCandidates');
+  await client.query("SET LOCAL lock_timeout = '5s'");
+  try {
+    return await lockBillCandidates(companyId, paymentId, invoiceIds, client);
+  } catch (err) {
+    if (isLockContention(err)) {
+      // `retryable`: the ONE refusal on this path that is not the caller's
+      // fault. Without the flag the confirm arm cannot tell it from "this bill
+      // is cancelled" and answers both 400.
+      throw new SupplierPaymentRefusal(
+        'Another request is paying one of these bills — retry in a moment.',
+        { retryable: true },
+      );
+    }
+    throw err;
+  }
+}
+
+async function lockBillCandidates(
+  companyId: string,
+  paymentId: string | null,
+  invoiceIds: readonly string[],
+  client: { query: (t: string) => Promise<unknown> },
 ): Promise<Map<string, BillCandidate>> {
   const rows = (await sql`
     SELECT si.id,
@@ -150,33 +189,19 @@ async function fetchBillCandidates(
     FROM supplier_invoices si
     WHERE si.company_id = ${companyId}::UUID
       AND si.id = ANY(${[...invoiceIds]}::UUID[])
+    ORDER BY si.id
+    FOR UPDATE OF si
   `) as BillCandidate[];
+  // Restore the default on the SUCCESS path only. `SET LOCAL` lasts to the end
+  // of the TRANSACTION, so without this the 5s budget silently governs every
+  // lock taken afterwards in the same request. Deliberately NOT in a `finally`:
+  // after a timeout the transaction is aborted and this statement would itself
+  // throw 25P02, replacing the typed refusal with an opaque error.
+  await client.query('SET LOCAL lock_timeout = DEFAULT');
   return new Map(rows.map((r) => [String(r.id), r]));
 }
 
-/**
- * The two facts about a bill that decide whether ANY payment may touch it: its
- * status, and whose bill it is. Exported because `createSupplierPayment` runs
- * its own bill query (it additionally counts unprocessed payments' pending
- * allocations, which this file does not) and must refuse on the same terms.
- */
-export function assertBillAllocatable(
-  bill: { invoiceNumber: string; status: string; supplierId: string },
-  expectedSupplierId: string,
-): void {
-  if (!ALLOCATABLE_STATUSES.has(bill.status)) {
-    throw new Error(
-      `Invoice ${bill.invoiceNumber} is ${bill.status} and cannot receive a payment.`,
-    );
-  }
-  if (bill.supplierId !== expectedSupplierId) {
-    throw new Error(
-      `Invoice ${bill.invoiceNumber} belongs to a different supplier than this payment.`,
-    );
-  }
-}
-
-function buildLine(
+export function buildLine(
   alloc: SupplierAllocationInput,
   bill: BillCandidate,
   supplierId: string,
@@ -188,15 +213,21 @@ function buildLine(
     supplierId: String(bill.supplier_id),
   }, supplierId);
   if (Number(bill.already_allocated ?? 0) > 0) {
-    throw new Error(
+    throw new SupplierPaymentRefusal(
       `This payment is already allocated against invoice ${String(bill.invoice_number)}. `
       + 'A payment applies to a bill once; use a second payment to apply more.',
     );
   }
+
   const total = Number(bill.total_amount);
   const outstandingBefore = round2(total - Number(bill.amount_paid ?? 0));
+  // The LAST line of defence on this threshold, not the only one. A caller that
+  // must decide the refusal before its first write refuses earlier on the same
+  // arithmetic and the same EPS — `confirmSupplierMatch.ts` does, because a 4xx
+  // raised after a write COMMITs it — so this one is unreachable from that path.
+  // Both must move together if the tolerance ever changes.
   if (alloc.amount > outstandingBefore + EPS) {
-    throw new Error(
+    throw new SupplierPaymentRefusal(
       `R${alloc.amount.toFixed(2)} exceeds the R${outstandingBefore.toFixed(2)} outstanding on `
       + `invoice ${String(bill.invoice_number)}.`,
     );

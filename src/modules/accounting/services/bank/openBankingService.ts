@@ -23,11 +23,13 @@ export {
 export { syncBankFeed, BankFeedProviderNotImplementedError } from './openBankingSyncService';
 
 export type {
-  Provider,
+  SupportedProvider,
   ConnectionStatus,
   SyncStatus,
   BankFeedConnection,
   BankFeedConnectionInput,
   BankFeedSyncResult,
   BankFeedSyncLog,
+  BankFeedSyncCounts,
 } from './openBankingTypes';
+export { isSupportedProvider } from './openBankingTypes';

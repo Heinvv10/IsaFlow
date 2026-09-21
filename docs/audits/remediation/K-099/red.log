@@ -1,0 +1,33 @@
+
+ RUN  v4.1.2 /home/hein/Workspace/IsaFlow/.worktrees/audit-remediation-20260908
+
+ ❯ tests/integration/k099-platform-admin-commits-on-4xx.int.test.ts (2 tests | 1 failed) 268ms
+     × rolls back the write behind a 400 61ms
+
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 1 ⎯⎯⎯⎯⎯⎯⎯
+
+ FAIL  tests/integration/k099-platform-admin-commits-on-4xx.int.test.ts > K-099 withPlatformAdmin does not persist a write the handler rejected > rolls back the write behind a 400
+AssertionError: expected 1 to be +0 // Object.is equality
+
+- Expected
++ Received
+
+- 0
++ 1
+
+ ❯ tests/integration/k099-platform-admin-commits-on-4xx.int.test.ts:73:22
+     71|     expect(result.state.statusCode).toBe(400);
+     72|     const { rowCount } = await pool.query('SELECT 1 FROM companies WHE…
+     73|     expect(rowCount).toBe(0);
+       |                      ^
+     74|   });
+     75| });
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[1/1]⎯
+
+
+ Test Files  1 failed (1)
+      Tests  1 failed | 1 passed (2)
+   Start at  11:37:51
+   Duration  2.99s (transform 516ms, setup 0ms, import 1.68s, tests 268ms, environment 0ms)
+

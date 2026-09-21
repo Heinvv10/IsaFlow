@@ -1,0 +1,34 @@
+$ node scripts/check-runtime.mjs && vitest run --config vitest.integration.config.ts "tests/integration/k158-vat-registration-number-as-vat-code.int.test.ts"
+
+ RUN  v4.1.2 /home/hein/Workspace/IsaFlow/.worktrees/audit-remediation-20260908
+
+{"level":"info","message":"API Request: POST /api/accounting/capture/c87f0a4f-5a29-420c-ae74-d26e6a1c13b8/post","timestamp":"2026-09-09T09:49:11.297Z","component":"API","requestId":"01M22S4HR0GZKVEZPSR7HTAGQE","data":{"type":"request","method":"POST","url":"/api/accounting/capture/c87f0a4f-5a29-420c-ae74-d26e6a1c13b8/post","query":{"id":"c87f0a4f-5a29-420c-ae74-d26e6a1c13b8"}}}
+{"level":"info","message":"Gate decision: route_review","timestamp":"2026-09-09T09:49:11.348Z","component":"auto-publish-gate","requestId":"01M22S4HR0GZKVEZPSR7HTAGQE","data":{"companyId":"f4650147-4a2d-4438-80c1-e0d890ea94d3","supplierId":"6645320e-8e6d-4903-91be-cd8994474814","outcome":"route_review","reason":"no rule"}}
+{"level":"info","message":"Capture event posted","timestamp":"2026-09-09T09:49:11.369Z","component":"capture-post","requestId":"01M22S4HR0GZKVEZPSR7HTAGQE","data":{"eventId":"c87f0a4f-5a29-420c-ae74-d26e6a1c13b8","documentId":"a773eb76-343d-4456-9460-e6d2db0ce38b","invoiceId":"fb832a4d-c772-4981-ab2b-1ace41c41c15","supplier":"K158 Supplies","gateOutcome":"route_review"}}
+{"level":"info","message":"API Response: POST /api/accounting/capture/c87f0a4f-5a29-420c-ae74-d26e6a1c13b8/post - 200 (81ms)","timestamp":"2026-09-09T09:49:11.377Z","component":"API","requestId":"01M22S4HR0GZKVEZPSR7HTAGQE","data":{"type":"response","method":"POST","url":"/api/accounting/capture/c87f0a4f-5a29-420c-ae74-d26e6a1c13b8/post","statusCode":200,"duration":"81ms"}}
+{"level":"info","message":"request_completed","timestamp":"2026-09-09T09:49:11.377Z","component":"http","requestId":"01M22S4HR0GZKVEZPSR7HTAGQE","data":{"event":"request_completed","route":"/api/accounting/capture/c87f0a4f-5a29-420c-ae74-d26e6a1c13b8/post","method":"POST","status":200,"durationMs":81,"userId":"65813fb7-dc8f-4a95-a490-b96f6243b02b","companyId":"f4650147-4a2d-4438-80c1-e0d890ea94d3","outcome":"ok"}}
+{"level":"info","message":"withAuth slow request","timestamp":"2026-09-09T09:49:11.383Z","component":"Auth","data":{"ms":133,"url":"/api/accounting/capture/c87f0a4f-5a29-420c-ae74-d26e6a1c13b8/post"}}
+ ❯ tests/integration/k158-vat-registration-number-as-vat-code.int.test.ts (1 test | 1 failed) 386ms
+   × does not record the supplier VAT registration number as a VAT code 154ms
+
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 1 ⎯⎯⎯⎯⎯⎯⎯
+
+ FAIL  tests/integration/k158-vat-registration-number-as-vat-code.int.test.ts > does not record the supplier VAT registration number as a VAT code
+AssertionError: expected '4123456789' not to be '4123456789' // Object.is equality
+ ❯ tests/integration/k158-vat-registration-number-as-vat-code.int.test.ts:121:40
+    119|   );
+    120|   expect(history.rowCount).toBe(1);
+    121|   expect(history.rows[0].vat_code).not.toBe(VAT_REGISTRATION_NUMBER);
+       |                                        ^
+    122|
+    123|   // Downstream harm: the unattended provisional poster mines this col…
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[1/1]⎯
+
+
+ Test Files  1 failed (1)
+      Tests  1 failed (1)
+   Start at  11:49:07
+   Duration  4.27s (transform 2.04s, setup 0ms, import 3.15s, tests 386ms, environment 0ms)
+
+error: script "test:integration" exited with code 1

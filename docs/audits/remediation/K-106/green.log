@@ -1,0 +1,250 @@
+# K-104 / K-105 / K-106 / R-030 — GREEN + mutation proof
+# Re-run after the migration was renumbered 628 -> 637 -> 643 (643 is the first
+# prefix free of every branch: `git ls-tree` over all refs plus every worktree
+# shows 619-642 taken, highest 642_bank_statement_attestation_intents.sql).
+# Fixture: disposable PostgreSQL, migration 643 applied, production schema.
+# Files: k-041, k-042, k104-k105, k106 integration tests.
+=== GREEN baseline (migration 643 applied) ===
+ Test Files  4 passed (4)
+      Tests  15 passed (15)
+=== M1: POST /api/invitations stores the RAW token again (K-104) ===
+0
+   × K-104: both invitation systems store one encoding, and either link resolves 627ms
+ Test Files  1 failed | 3 passed (4)
+      Tests  1 failed | 14 passed (15)
+=== M2: withInviteToken sets the GUC to the raw token (K-104/R-030) ===
+1
+   × does NOT reset an already-registered account password when its invitation is accepted 51ms
+   × attaches the membership when the existing account proves ownership with its own password 6ms
+   × still sets the password for a brand-new invitee who has no users row yet 3ms
+   × K-104: both invitation systems store one encoding, and either link resolves 684ms
+   × R-030: a live invitation resolves, with the email masked, and expired or accepted ones do not 28ms
+ Test Files  2 failed | 2 passed (4)
+      Tests  5 failed | 10 passed (15)
+=== M3: the lookup stops masking the email (R-030) ===
+1
+   × R-030: a live invitation resolves, with the email masked, and expired or accepted ones do not 25ms
+ Test Files  1 failed | 3 passed (4)
+      Tests  1 failed | 14 passed (15)
+=== M4: the email-failure branch returns 502 again (K-106) ===
+   × the response after a failed invite email describes what actually survived 430ms
+ Test Files  1 failed | 3 passed (4)
+      Tests  1 failed | 14 passed (15)
+=== RESTORED ===
+ Test Files  4 passed (4)
+      Tests  15 passed (15)
+=== M1 (redo, asserted patch): POST /api/invitations stores the RAW token again (K-104) ===
+   × K-104: both invitation systems store one encoding, and either link resolves 937ms
+ Test Files  1 failed | 3 passed (4)
+      Tests  1 failed | 14 passed (15)
+=== restored ===
+ Test Files  4 passed (4)
+      Tests  15 passed (15)
+=== M5: drop policy companies_invite_token_read (R-030 migration half) ===
+DROP POLICY
+   × K-104: both invitation systems store one encoding, and either link resolves 565ms
+   × R-030: a live invitation resolves, with the email masked, and expired or accepted ones do not 10ms
+   × R-030: the invite-token session can read that one company and no other 4ms
+ Test Files  1 failed (1)
+      Tests  3 failed | 1 passed (4)
+DROP POLICY
+CREATE POLICY
+UPDATE 0
+=== restored ===
+ Test Files  1 passed (1)
+      Tests  4 passed (4)
+
+=== full unit suite, fixture env UNSET (DATABASE_URL etc. removed) ===
+ Test Files  792 passed | 36 skipped (828)
+      Tests  9438 passed | 234 skipped (9672)
+
+=== bunx tsc --noEmit ===  exit 0, no output
+=== bunx eslint <5 changed src/pages files> ===  exit 0, no output
+
+################################################################################
+# Round 2 — the nine blind-review findings on effc7d4d.
+# Migrations 643 and 648 applied to the disposable fixture. 18 tests across the
+# four invitation files (was 15; H1, L4 and L6 added).
+#
+# WARNING on the first M1 attempt below: the CREATE POLICY had an extra closing
+# paren, psql answered `ERROR: syntax error`, and the policy was never created —
+# so that run's "18 passed" proves NOTHING. The redo at the bottom is the real
+# mutation and it fails the test.
+################################################################################
+=== GREEN baseline (migrations 643 + 648 applied) ===
+ Test Files  4 passed (4)
+      Tests  18 passed (18)
+=== H1a: accept.ts drops the gotrue_user_id IS NOT NULL guard ===
+mutated
+   × H1: a userInvitationService invitation is sent to its own flow, not this one 22ms
+ Test Files  1 failed | 3 passed (4)
+      Tests  1 failed | 17 passed (18)
+=== H1b: the lookup stops sending legacy invitations to their own flow ===
+mutated
+   × H1: a userInvitationService invitation is sent to its own flow, not this one 258ms
+ Test Files  1 failed | 3 passed (4)
+      Tests  1 failed | 17 passed (18)
+=== L4: the attempt cap is removed from accept ===
+mutated
+   × L4: the accept endpoint caps password attempts per invitation token 151ms
+ Test Files  1 failed | 3 passed (4)
+      Tests  1 failed | 17 passed (18)
+=== L6: membership insert goes back to ON CONFLICT DO NOTHING ===
+mutated
+   × L6: re-inviting an existing member at a new role changes their role on accept 65ms
+ Test Files  1 failed | 3 passed (4)
+      Tests  1 failed | 17 passed (18)
+=== RESTORED ===
+ Test Files  4 passed (4)
+      Tests  18 passed (18)
+=== M1(new): 643's whole-row policy on companies is put back ===
+ Test Files  4 passed (4)
+      Tests  18 passed (18)
+=== M1b: drop the SECURITY DEFINER function (648) ===
+   × K-104: both invitation systems store one encoding, and either link resolves 654ms
+   × R-030: a live invitation resolves, with the email masked, and expired or accepted ones do not 3ms
+   × R-030: the invite session gets the company NAME and no other column of it 3ms
+   × R-030: an expired invitation exposes neither the invitation nor the company 4ms
+   × H1: a userInvitationService invitation is sent to its own flow, not this one 9ms
+ Test Files  1 failed | 3 passed (4)
+      Tests  5 failed | 13 passed (18)
+648 reapplied
+=== K-104: store the raw token again ===
+mutated
+   × K-104: both invitation systems store one encoding, and either link resolves 723ms
+ Test Files  1 failed | 3 passed (4)
+      Tests  1 failed | 17 passed (18)
+=== K-104/R-030: GUC set to the raw token ===
+mutated
+   × does NOT reset an already-registered account password when its invitation is accepted 65ms
+   × attaches the membership when the existing account proves ownership with its own password 32ms
+   × still sets the password for a brand-new invitee who has no users row yet 16ms
+   × L6: re-inviting an existing member at a new role changes their role on accept 18ms
+   × L4: the accept endpoint caps password attempts per invitation token 242ms
+   × K-104: both invitation systems store one encoding, and either link resolves 1226ms
+   × R-030: a live invitation resolves, with the email masked, and expired or accepted ones do not 45ms
+   × H1: a userInvitationService invitation is sent to its own flow, not this one 25ms
+ Test Files  2 failed | 2 passed (4)
+      Tests  8 failed | 10 passed (18)
+=== K-105: stop masking the email ===
+mutated
+   × R-030: a live invitation resolves, with the email masked, and expired or accepted ones do not 38ms
+ Test Files  1 failed | 3 passed (4)
+      Tests  1 failed | 17 passed (18)
+=== K-106: restore the 502 ===
+mutated
+   × the response after a failed invite email describes what actually survived 811ms
+ Test Files  1 failed | 3 passed (4)
+      Tests  1 failed | 17 passed (18)
+=== RESTORED ===
+ Test Files  4 passed (4)
+      Tests  18 passed (18)
+=== M1 (REDO — the run above had a SQL syntax error and proved nothing) ===
+CREATE POLICY
+companies_invite_token_read
+   × R-030: the invite session gets the company NAME and no other column of it 20ms
+AssertionError: expected { name: 'K104 fixture', rows: 1, …(1) } to deeply equal { Object (name, rows, ...) }
+-   "rows": 0,
+-   "secrets": 0,
++   "rows": 1,
++   "secrets": 1,
+    170|   expect(seen).toEqual({ name: 'K104 fixture', rows: 0, secrets: 0 });
+ Test Files  1 failed (1)
+      Tests  1 failed | 4 passed (5)
+DROP POLICY
+=== restored ===
+ Test Files  1 passed (1)
+      Tests  5 passed (5)
+
+=== full unit suite, fixture env UNSET (round 2) ===
+ Test Files  792 passed | 36 skipped (828)
+      Tests  9438 passed | 234 skipped (9672)
+
+=== bunx tsc --noEmit ===  exit 0, no output
+=== bunx eslint <6 changed src/pages files> ===  exit 0, no output
+=== bun scripts/audit-migration-naming.ts ===  340 files scanned, no duplicate prefixes
+=== bun scripts/ci/check-migration-rls.ts ===  OK
+
+---
+
+## Round 3 (fix of review-k041-r3.md) — gates executed 2026-09-09
+
+Integration, disposable PostgreSQL fixture (`isaflow_schema_fixture`), five invitation files:
+
+```
+ Test Files  5 passed (5)
+      Tests  28 passed (28)
+```
+
+(26 before this round; +1 k106 "a genuine throw from sendEmail is still recorded",
++1 k-041-invite-page "L6: accepting an invitation never writes the raw token to the log".
+The round-3 L1 and L7 assertions were added to the existing GoTrue-outage test.)
+
+Component suite (`vitest.components.config.ts`), DATABASE_URL unset:
+
+```
+ Test Files  62 passed (62)
+      Tests  424 passed (424)
+```
+
+Full unit suite, fixture env UNSET (`env -u DATABASE_URL -u PLATFORM_ADMIN_DATABASE_URL -u JWT_SECRET bunx vitest run`):
+
+```
+ Test Files  792 passed | 36 skipped (828)
+      Tests  9438 passed | 234 skipped (9672)
+```
+
+`bunx tsc --noEmit`: clean. `bunx eslint` on every changed `pages/` file: clean.
+(`tests/**` is outside `tsconfig.json`, so eslint's project service cannot parse test files;
+`bun run lint` only covers `src pages`.)
+
+### Mutation proofs
+
+| Mutation | Result |
+|---|---|
+| `if (!emailResult.success) emailError = …` → `void emailResult` (H1) | RED — k106 "a resolved send failure is recorded and reported, not read as success": `expected { status: 201, rowsPersisted: 1, …} to deeply equal {…}` (`emailSent: true, emailError: undefined`) |
+| `if (opened) await client.query('ROLLBACK')` → unconditional (L1) | RED — `expected [ …(2) ] to not include 'ROLLBACK'` at the admin-client assertion |
+| `withErrorHandler(withInviteToken(handler))` → `withInviteToken(handler)` on accept.ts (L7) | RED — `Error: disposable gotrue outage` escapes the handler again |
+| `log.info(…, { inviteId: inv.id, … })` → `{ token, … }` (L6) | RED — `expected '[["Invitation accepted via token page…' not to contain 'k041l000…'` |
+| `/register` reads `router.query.signup === '1'` instead of the server verdict (L3) | RED — "ignores ?signup=1 on a token the accept flow can complete" |
+
+### Direct fixture probes (not tests)
+
+M1 — the guarded `ALTER FUNCTION … OWNER TO` silently no-ops when the role is absent, and
+the unconditional form fails loudly (both inside `BEGIN … ROLLBACK`):
+
+```
+--- guarded form, role absent (silent no-op) ---
+ owner_after_guarded_form | rolsuper
+ postgres                 | t
+--- unconditional form, role absent (fails loudly) ---
+ERROR:  role "role_absent_probe" does not exist
+```
+
+Applied state after 663:
+
+```
+invite_token_company_name|migration_admin|f|t|{"search_path=pg_catalog, public"}|t
+```
+
+L5 — 662 applied twice inside one transaction against three seeded invitations
+(one clean, one with a prior SMTP error, one already carrying the note in the
+wording this file wrote when it was numbered 660), with `expires_at` reset
+between applications:
+
+```
+UPDATE 2      <- first application; the row already noted under 660 is skipped
+UPDATE 0      <- second application, nothing left to do
+ tok662a | Invitation link retired by migration 662 (token encoding change) — please resend
+ tok662b | SMTP boom | Invitation link retired by migration 662 (token encoding change) — please resend
+ tok662c | Invitation link retired by migration 660 (token encoding change) — please resend
+```
+
+M2 — policies on `public.companies` on the fixture after 662 → 648 → 663:
+
+```
+companies_admin_update
+companies_member_read
+```
+
+No invite policy. Nothing left behind: every probe ran inside `BEGIN … ROLLBACK`.

@@ -31,6 +31,7 @@ vi.mock('@/modules/accounting/services/ar/quoteService', () => ({
 }));
 
 import { sql } from '@/lib/neon';
+import { als } from '@/lib/als';
 import { getQuote } from '@/modules/accounting/services/ar/quoteService';
 import { convertToInvoice } from '@/modules/accounting/services/ar/quoteConvertService';
 
@@ -40,6 +41,18 @@ const mockGetQuote = getQuote as unknown as MockedFunction<typeof getQuote>;
 const COMPANY_ID = '11111111-1111-1111-1111-111111111111';
 const QUOTE_ID = '22222222-2222-2222-2222-222222222222';
 const GL_ACCOUNT_ID = '33333333-3333-3333-3333-333333333333';
+
+/**
+ * `claimUnderLockTimeout` refuses to claim outside a request transaction — the
+ * claim would autocommit and could not be rolled back with the writes that
+ * follow it. These unit tests mock `sql`, so the client only has to exist;
+ * `SET LOCAL` goes to the stub.
+ */
+const requestCtx = {
+  client: { query: vi.fn() }, userId: 'u1', companyId: COMPANY_ID, claims: {},
+} as unknown as Parameters<typeof als.run>[0];
+const inRequestTx = <T>(fn: () => Promise<T>): Promise<T> => als.run(requestCtx, fn);
+
 
 function acceptedQuote() {
   return {
@@ -85,12 +98,13 @@ beforeEach(() => {
 describe('convertToInvoice — writes real customer_invoice_items columns', () => {
   it('inserts line items using amount/gl_account_id, not line_total/account_id', async () => {
     mockGetQuote.mockResolvedValueOnce(acceptedQuote() as never);
+    mockSql.mockResolvedValueOnce([{ id: QUOTE_ID }]); // claiming UPDATE customer_quotes
     mockSql.mockResolvedValueOnce([{ id: 'inv-1' }]); // INSERT customer_invoices RETURNING id
     mockSql.mockResolvedValueOnce([]); // INSERT customer_invoice_items
-    mockSql.mockResolvedValueOnce([]); // UPDATE customer_quotes status
+    mockSql.mockResolvedValueOnce([]); // UPDATE customer_quotes converted_invoice_id
     mockGetQuote.mockResolvedValueOnce({ ...acceptedQuote(), status: 'converted' } as never);
 
-    await convertToInvoice(COMPANY_ID, QUOTE_ID);
+    await inRequestTx(() => convertToInvoice(COMPANY_ID, QUOTE_ID));
 
     // Pin the shared sequence — reverting to the old 'invoice'/'INV-' counter
     // (collides with historical numbers) must fail here.

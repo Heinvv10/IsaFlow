@@ -52,3 +52,62 @@ each claim a bill's full balance — the same gap the planner has generally, and
 wider than this defect. `processBatch` itself is unchanged, and its inline
 status CASE still bypasses `recomputeInvoiceStatus`. Routing through the shared
 planner changes the error messages the UI will surface.
+
+## Round 2 (2026-09-21) — reconciled with master 638 commits later
+
+**What R-068 (`adbe783a1`) covers.** `createBatch` now refuses a payment whose
+`supplierId` belongs to another company. It still reads no bill.
+
+**Still REAL on origin/master c19508a12**, measured through batch-payments POST
+(`K-063/round2-red-master.log`): company B's bill under our own supplier → **200**
+and a batch written; R1,500 on a R1,000 bill → 200; supplier A2's bill on a
+supplier-A payment → 200; a pending_approval bill → 200; one bill named by two
+payments (R600 + R600 on R1,000) → 200; a second batch for a bill an earlier
+unprocessed batch already pays in full → 200. And a bill row-locked by another
+request made the POST wait with no bound (20s test timeout): the FK check on
+`payment_allocations` waits on the lock with no `lock_timeout`.
+
+**Merge.** `batchPaymentService.ts` taken from master (keeps R-068 and the
+`processBatch` claim). The round-1 `assertBatchAllocatable` called
+`planSupplierAllocationLines` once per payment, before any request transaction;
+on master that function takes `FOR UPDATE` and REQUIRES the request transaction,
+and one call per payment would lock bills in a different order per request. So it
+moved to a new `supplierBatchAllocationPlan.ts` and was rebuilt:
+1. shape (positive amounts, no bill twice) checked across the WHOLE batch;
+2. ONE `fetchBillCandidates` read over every bill in the batch — the same id-order
+   lock, 5s timeout and retryable refusal the rest of the settlement path uses;
+3. AFTER the lock, allocations of unprocessed (`draft`/`approved`) payments are
+   added to `amount_paid` before the balance check. This closes the round-1 limit
+   ("two separate batches can still each claim a bill's full balance"): a
+   concurrent batch on the same bill waited on the lock, and under READ COMMITTED
+   the later statement sees what it committed;
+4. every line through `buildLine` — tenant (not found), supplier, status
+   (`assertBillAllocatable`), outstanding.
+It runs after R-068's loop and before `withTransaction`, so nothing is written
+when any line is refused. batch-payments POST answers a retryable refusal **409**
+and any other `SupplierPaymentRefusal` 400; everything else keeps master's
+handling.
+
+**Partial-write trap.** `withAuth` COMMITs a 4xx. The test "refuses a batch whose
+LAST line is the bad one" sends payment 1 (valid) and payment 2 (valid line, then
+an over-paying line) and asserts 400 with zero new batches, payments and
+allocations. Mutation M8 moves the gate inside `withTransaction` after the
+INSERTs: 5 tests go red, including that one.
+
+**Tests.** The two round-1 files are replaced by
+`tests/integration/k064-batch-payment-guarded.int.test.ts` (route-level, 9
+tests): the six refusals above each 400 with nothing written; a row-locked bill →
+409 with nothing written; a valid two-supplier batch → 200, then approve + process
+→ bills paid 400 / partially_paid 250, journal balanced, AP debit 650. Red on
+master 9/9 in the full run (the happy path only as collateral of the hung
+contention request — it passes alone on master); green 9/9 on the branch.
+
+**Mutation** (`K-063/round2-mutations.log`): M4 remove the call → 9 red; M5
+ignore pending allocations → the earlier-batch case red; M6 per-payment shape
+check → the two-payments case red; M7 route answers contention 400 → the 409 case
+red; M8 gate after the writes → 5 red. All restored byte-identical by sha256.
+
+**Residual, not fixed here.** `processBatch` still does not re-check bills at
+process time, and `createSupplierPayment` reads bills without a lock, so a single
+payment and a batch created concurrently can still both count the same
+outstanding.

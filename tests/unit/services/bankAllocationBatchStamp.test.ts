@@ -98,7 +98,7 @@ describe('allocateTransaction', () => {
       const t = textOf(strings);
       if (t.includes('FROM bank_transactions')) {
         return Promise.resolve([
-          { id: TX, amount: -100, bank_account_id: BANK, transaction_date: '2026-08-01', status: 'imported' },
+          { id: TX, amount: -100, bank_account_id: BANK, transaction_date: '2026-08-01', status: 'imported', feed_state: 'posted' },
         ]);
       }
       if (t.includes('FROM gl_journal_lines')) return Promise.resolve([{ id: 'jl-1' }]);

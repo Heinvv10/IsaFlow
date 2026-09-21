@@ -1,0 +1,98 @@
+### GREEN — fix applied, ux_gl_je_reversal_of present
+$ node scripts/check-runtime.mjs && vitest run --config vitest.integration.config.ts "tests/integration/k010-concurrent-journal-reversal.int.test.ts" "tests/integration/k010-reversal-claim-atomicity.int.test.ts"
+
+ RUN  v4.1.2 /home/hein/Workspace/IsaFlow/.worktrees/fix-K-010
+
+
+ Test Files  2 passed (2)
+      Tests  7 passed (7)
+   Start at  06:24:10
+   Duration  1.12s (transform 479ms, setup 0ms, import 789ms, tests 804ms, environment 0ms)
+
+
+### GREEN — reversal unit suites
+ RUN  v4.1.2 /home/hein/Workspace/IsaFlow/.worktrees/fix-K-010
+
+
+ Test Files  4 passed (4)
+      Tests  28 passed (28)
+   Start at  06:24:11
+   Duration  632ms (transform 772ms, setup 0ms, import 1.08s, tests 84ms, environment 0ms)
+
+
+### Full unit suite — `bunx vitest run`, DATABASE_URL unset
+ Test Files  785 passed | 36 skipped (821)
+      Tests  9325 passed | 234 skipped (9559)
+Run at the default 10s per-test timeout, two files intermittently time out under
+parallel load: tests/unit/services/bank/bankAllocationUnwind.test.ts (the
+resetModules + doMock ordering test, which mocks reverseJournalEntry entirely and
+never reaches this change) and tests/unit/services/cashFlowReport.test.ts (no
+reference to reversal code at all). Both pass in isolation and both pass in the
+full suite at --testTimeout=30000, which is the run recorded above. Reported
+rather than hidden: they are slow, not broken by this commit.
+
+### Migration 619 — proven both directions on the fixture DB
+seeded duplicates -> ERROR: K-010: 1 journal entr(ies) already carry more than one
+                    contra (2 contra rows). Repair them before this index can be
+                    created — see docs/audits/remediation/K-010/fix.md ...
+clean table       -> DO / CREATE INDEX / DROP INDEX; \di shows ux_gl_je_reversal_of
+                    present and idx_gl_je_reversal_of gone.
+
+### Mutation checks
+1. K-010 itself (red.log): reverting journalEntryPostingService.ts to origin/master
+   with the index dropped posts two contras — "expected 1 got 2".
+2. The claim's transaction: making withReversalTransaction a pass-through turns
+   k010-reversal-claim-atomicity red on "does not commit the claim until the contra
+   is posted with it" — expected <timestamp> to be null, i.e. the claim was visible
+   to another connection mid-flight, which is review finding H1.
+
+### Gates
+bunx tsc --noEmit                        clean
+bunx eslint <4 changed src files>        clean
+bun scripts/audit-migration-naming.ts    OK; 619 still unused on origin/master (re-checked)
+bun scripts/ci/check-migration-rls.ts    OK
+bun run agent-docs:check                 OK: 74 mirrors match
+
+### Databases touched
+Fixture DB only (disposable, from scratchpad fixture.env). No query of any kind was
+run against production; both probes in fix.md are unexecuted.
+
+### Follow-up review (5 LOW) — verification
+tests/unit/lib/alsTransaction.test.ts                                   4 passed
+reversal unit suites (4 files)                                         32 passed
+k010 integration (2 files)                                              7 passed
+full unit suite, DATABASE_URL unset, --testTimeout=30000     786 files / 9329 passed
+bunx tsc --noEmit                                                       clean
+bunx eslint <4 changed src files>                                       clean
+migration 619 re-applied to the fixture DB after DROP INDEX              DO / CREATE INDEX / DROP INDEX
+bun scripts/audit-migration-naming.ts                                   OK
+bun run agent-docs:check                                                OK: 74 mirrors match
+619 still unused on origin/master                                       re-checked
+No production query was run.
+
+### Round-3 review (3 LOW) — verification
+reversal + alsTransaction unit suites (5 files)                        32 passed
+k010 integration (2 files)                                              7 passed
+full unit suite, DATABASE_URL unset, --testTimeout=30000     786 files / 9329 passed
+bunx tsc --noEmit                                                       clean
+bunx eslint <4 changed src files>                                       clean
+src/lib/neon.ts diff vs branch base is now the getPool export only (stray blank line dropped)
+No production query was run.
+
+### After merging origin/master (merge commit 7d0e4636)
+Master's PR #363 added a business-unit reversal test whose sql queue predates the
+K-010 claim, so its first mocked response was consumed by the claim UPDATE and
+every later response landed one statement early — the inactive-account guard read
+the fiscal-period row and threw "Cannot post to deactivated GL account: undefined
+undefined". vi.clearAllMocks() does not drain an unconsumed mockResolvedValueOnce
+queue, so the surplus leaked forward and all 7 tests in the file failed.
+Fixture-only fix: the claim row is prepended to that test's queue, matching the
+two queues already in the file. No production change; the active-account guard is
+untouched and buId still flows through reversalLines (journalEntryPostingService:182).
+
+tests/unit/services/gl/journalEntryReversal.test.ts                     7 passed
+k010 integration (2 files)                                              7 passed
+full unit suite, DATABASE_URL unset, --testTimeout=30000     794 files / 9443 passed
+bunx tsc --noEmit                                                       clean
+bun run agent-docs:check                                                OK: 74 mirrors match
+No production query was run.

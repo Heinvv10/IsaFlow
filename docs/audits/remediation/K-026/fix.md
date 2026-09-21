@@ -1,0 +1,122 @@
+# K-026 fix — below-threshold asset expense: write gate + idempotency
+
+**Trigger.** `POST /api/accounting/assets/below-threshold` posted an unconditional
+expense journal. Two ordinary sequential requests expensed the same asset twice
+(2 400.00 debited for a 1 200.00 asset), and the route carried no `withWriteAccess`,
+so a company `viewer` reached the ledger write.
+
+**Before.** `withAuth(withCsrf(withErrorHandler(handler)))`; the POST branch SELECTed
+the asset without a lock, never read `below_threshold`, and called
+`postCapitalizationExpenseToGL`, which posts first and sets `below_threshold = true`
+afterwards. Nothing read that flag back.
+
+**After.** The route is wrapped `withWriteAccess` (owner/admin/manager), matching the
+sibling `assets/[assetId]/dispose.ts` order. The POST branch selects the asset
+`FOR UPDATE OF a` (company-scoped; `OF a` because `asset_categories` is joined LEFT and
+is a shared reference table) and returns 400 "Asset has already been expensed" when
+`below_threshold` is already true. `withAuth` runs each request in its own transaction,
+so the lock is held until COMMIT and a concurrent second request blocks, then sees the
+committed flag.
+
+**Files.** `pages/api/accounting/assets/below-threshold.ts`, `pages/accounting/assets/below-threshold.tsx`, `pages/api/accounting/assets/.claude.md` (+ its AGENTS.md mirror).
+
+**Tests.** `tests/integration/k026-below-threshold-expense-repeat.int.test.ts` —
+7 tests, real Postgres, real handler: repeat POST posts once; account 6000 debited 1 200
+once; viewer gets 403 and posts nothing; journal balances (Dr 1 200 = Cr 1 200);
+another company's asset returns 404 and leaves that tenant with zero journals and its
+flag unset; a body with no `assetId` returns 400 and posts nothing; two concurrent POSTs
+yield [200, 400] and exactly one 700.00 journal.
+Mutation-checked both ways — see `green.log`.
+
+**Migration.** None. `below_threshold` already exists and is already written by the hook.
+
+**Rollback.** Revert the single file; no data or schema change.
+
+**Historical-data impact.** Assets expensed more than once carry duplicate
+`auto_asset_expense` journals. Read-only query (NOT run against production):
+
+```sql
+SELECT je.company_id, je.description, count(*) AS postings, sum(jl.debit) AS debited
+FROM gl_journal_entries je
+JOIN gl_journal_lines jl ON jl.journal_entry_id = je.id AND jl.debit > 0
+WHERE je.source = 'auto_asset_expense'
+GROUP BY 1, 2 HAVING count(*) > 1
+ORDER BY debited DESC;
+```
+Grouped by `description` (which carries the asset name and number) rather than
+`reference`, because `reference` embeds the posting date and repeats across days would
+not collapse. Existing duplicates are not corrected by this fix.
+
+**Limits.** The guard keys on `below_threshold`, which nothing resets, so a legitimate
+re-expense after a reversal is refused; if reversal becomes a supported workflow the
+guard must key on a live journal instead. The validator's separate observation that the
+journal credits `bank` (double-counting the spend when the purchase was already captured
+as a bill or bank payment) is untouched here and needs its own K id.
+
+---
+
+## Review round (blind review of 637b6609)
+
+**M1 — a disposed asset could still be expensed.** The locked SELECT read `a.status`
+and never used it, so an asset whose disposal had already recognised the gain or loss
+returned 200 and posted the cost a second time. Now 400 for `disposed` and
+`written_off`, mirroring `dispose.ts`.
+
+**M2 — the list route hid the new refusal.** `GET` overwrote the real column with a
+hardcoded `belowThreshold: true`, so the page offered "Post to GL" on an asset the POST
+now refuses forever. `GET` returns `expensed` from `assets.below_threshold`, and the page
+renders those rows as Expensed with no button.
+
+**M3 — `pages/api/accounting/assets/.claude.md`** stated the old wrapper and described
+the POST as a plain delegation. Auth and Business-rules bullets updated;
+`bun run agent-docs:generate` re-mirrored `AGENTS.md` (74 mirrors, check OK).
+
+**L1 — 400 was the wrong status for a repeat.** Now `apiResponse.conflict` (409), so a
+caller can tell a state conflict from the route's three input 400s.
+
+**L2 — the refusal never reached the user.** The page read `json.message`, but
+`apiResponse` nests it under `error`, so every failure showed the generic fallback. Now
+`json.error?.message`.
+
+**L3 — the row lock had no bound.** `SET LOCAL lock_timeout = '5s'` before the `FOR
+UPDATE`, restored to `DEFAULT` on the success path only (a `finally` would throw 25P02
+over the typed error — see `creditNoteLock.ts`), and `55P03` maps to 409 with a retry
+message. `dispose.ts` carries the same gap and is deliberately not changed from here.
+
+**L4 — a closed fiscal period returned 500.** Fixed by pre-checking the period covering
+today, NOT by catching `ClosedFiscalPeriodError`: by the time that throws, the hook has
+already created the draft journal, and `withAuth` COMMITs on a 4xx, so a post-hoc catch
+would leave an orphan draft behind where the 500 rolled back cleanly. A date with no
+period row is left alone — the posting service creates one.
+
+**H1 — the journal credits Bank, double-crediting a purchase already captured.** Not
+changed here, on both reviewers' instruction: it needs its own K id, a swap of the credit
+leg to `resolveAssetAccountId`, and correction of historical `auto_asset_expense`
+postings. Registered, not fixed.
+
+Tests: integration file now 12 tests (disposed, written-off, closed period, lock
+contention, GET `expensed`, plus the original seven); new component test
+`tests/unit/components/belowThresholdAssetsPage.test.tsx`, 2 tests. Every behavioural
+finding mutation-checked individually — see `green.log`.
+
+---
+
+## Re-review round (3 LOW on b8d13138)
+
+**`assertTxUsable()` was missing from the copied lock pattern.** Added before the
+`SET LOCAL`, matching `creditNoteLock.ts`. Unreachable today — nothing sets
+`txUnusable` before this point in the route — so it carries no test; it is there so
+the copy does not drift from the precedent it cites.
+
+**The lock test leaked its holder connection on failure.** The assertions now sit in
+their own `try`, with `ROLLBACK`/`release()` in a `finally`. That alone was not enough:
+vitest abandons a timed-out test without unwinding it, so the `finally` never ran and
+the row stayed locked. The holder transaction now sets
+`idle_in_transaction_session_timeout = '8s'`, so Postgres frees the row even when the
+test is abandoned. Re-running the L3 mutation proves it: the failure went from 20s plus
+a 10s hook timeout and four leftover companies, to 8s, no hook timeout and nothing left
+behind.
+
+**Transaction plumbing inlined in the route.** Left as it is, on the reviewer's own
+recommendation ("worth an `assets/assetLock.ts` next time this pattern is needed a
+fourth time") and the repo's no-abstraction-for-single-use rule. There is one caller.

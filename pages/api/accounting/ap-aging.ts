@@ -9,6 +9,8 @@ import { withErrorHandler } from '@/lib/api-error-handler';
 import { apiResponse } from '@/lib/apiResponse';
 import { withAuth, type CompanyAuthedRequest, withWriteAccess} from '@/lib/auth';
 import { log } from '@/lib/logger';
+import { fmtDate } from '@/lib/fmtDate';
+import { getUnappliedByEntity, netAgingRows } from '@/modules/accounting/services/shared/agedNetting';
 import { getAPAging, getAPAgingDetail } from '@/modules/accounting/services/ap/apAgingService';
 
 async function handler(req: NextApiRequest, res: NextApiResponse) {
@@ -27,8 +29,16 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
       return apiResponse.success(res, detail);
     }
 
+    // Each row keeps its GROSS buckets and its gross `total` — existing callers
+    // read that and it is the figure reconcile_subledger compares against — and
+    // gains `unapplied` (negative) and `net` beside them, so the UI can show
+    // what is actually owed to a supplier once the credit standing against their
+    // name is taken off. See services/shared/agedNetting.
     const aging = await getAPAging(companyId, asAtDate);
-    return apiResponse.success(res, aging);
+    const unapplied = await getUnappliedByEntity(
+      companyId, 'ap', asAtDate ?? fmtDate(new Date()),
+    );
+    return apiResponse.success(res, netAgingRows(aging, unapplied));
   } catch (err) {
     const message = err instanceof Error ? err.message : 'Failed to get AP aging';
     log.error('Failed to get AP aging', { error: err }, 'accounting-api');

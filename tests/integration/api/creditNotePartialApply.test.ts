@@ -61,9 +61,18 @@ describe('partial application then cancel', () => {
   it('must not erase more than was applied', async () => {
     // standalone note (no link) for 115
     const cn = await inTx(() => createCreditNote(COMPANY, { type: 'customer', clientId: customer, creditDate: '2026-06-30', subtotal: 100, taxRate: 15 }, USER));
-    await inTx(() => approveCreditNote(COMPANY, cn.id, USER));
+    // auto_apply 'none' because approving now applies a note FIFO to the
+    // customer's open invoices (migration 677) — the default would consume this
+    // very invoice at approval and leave the manual apply below nothing to do.
+    // This test is about what a MANUAL apply consumes and what a cancel then
+    // gives back, so the automatic walk is switched off to isolate it.
+    await inTx(() => approveCreditNote(COMPANY, cn.id, USER, { autoApply: 'none' }));
     const applied = await inTx(() => applyCreditNoteToInvoice(COMPANY, cn.id, invoice, USER));
-    expect(applied.status).toBe('applied');
+    // 'partially_applied', not 'applied': only 50 of the 115 was consumed, and
+    // since migration 677 the status is DERIVED from that rather than set to
+    // 'applied' the moment anything at all was applied. The old value is what
+    // stranded the other 65 — an 'applied' note cannot be applied again.
+    expect(applied.status).toBe('partially_applied');
 
     let inv = await sql`SELECT amount_paid FROM customer_invoices WHERE id=${invoice}::UUID` as {amount_paid:string}[];
     // eslint-disable-next-line no-console

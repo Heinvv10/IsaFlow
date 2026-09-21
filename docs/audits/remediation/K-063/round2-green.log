@@ -1,0 +1,21 @@
+# Round 2 GREEN — branch working tree after the merge, same fixture, --no-file-parallelism
+# 3 new route-level files + 13 existing AP-allocation / supplier-payment / R-068 files:
+#   tests/integration/k063-supplier-allocation-status-gate.int.test.ts
+#   tests/integration/k064-batch-payment-guarded.int.test.ts
+#   tests/integration/k066-supplier-payment-foreign-bill.int.test.ts
+#   tests/integration/supplier-ownership-fence-documents.int.test.ts
+#   tests/integration/supplier-ownership-fence-satellites.int.test.ts
+#   tests/integration/supplier-ownership-fence-services.int.test.ts
+#   tests/integration/api/supplier-allocations.test.ts
+#   tests/integration/api/BL-47-supplierPaymentWorkflow-tenant.test.ts
+#   tests/integration/api/BL-48-batchPayment-tenant.test.ts
+#   tests/integration/api/BL-49-50-51-bankAllocation-tenant.test.ts
+#   tests/integration/k074-bank-match-confirm-supplier-balance.int.test.ts
+#   tests/integration/k107-batch-payment-double-post.int.test.ts
+#   tests/integration/k107-supplier-payment-double-post.int.test.ts
+#   tests/integration/k142-supplier-match-scores-gross.int.test.ts
+#   tests/integration/l3b-credit-note-allocations.int.test.ts
+#   tests/integration/supplier-refund-document.int.test.ts
+exit=0
+ Test Files  16 passed (16)
+      Tests  135 passed (135)

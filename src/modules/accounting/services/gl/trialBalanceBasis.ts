@@ -45,8 +45,10 @@ export async function getRetainedEarningsBroughtForward(
   companyId: string,
   fromDate: string,
   costCentreId?: string,
+  businessUnitId?: string,
 ): Promise<number> {
   const ccId = costCentreId ?? null;
+  const buId = businessUnitId ?? null;
   const rows = (await sql`
     SELECT COALESCE(SUM(jl.credit - jl.debit), 0) AS retained
     FROM gl_journal_lines jl
@@ -57,7 +59,9 @@ export async function getRetainedEarningsBroughtForward(
       AND jl.company_id = ${companyId}::UUID
       AND je.entry_date < ${fromDate}
       AND ga.account_type IN ('revenue', 'expense')
-      AND (${ccId}::TEXT IS NULL OR jl.cost_center_id = ${ccId}::UUID)
+      AND (${ccId}::TEXT IS NULL OR jl.cost_center_id = ${ccId}::UUID
+        OR jl.cc1_id = ${ccId}::UUID OR jl.cc2_id = ${ccId}::UUID)
+      AND (${buId}::TEXT IS NULL OR jl.bu_id = ${buId}::UUID)
   `) as DbRow[];
   return round2(Number(rows[0]?.retained ?? 0));
 }

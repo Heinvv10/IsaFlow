@@ -72,7 +72,25 @@ export const FIGURE_DEFINITIONS: Readonly<Record<string, FigureDefinition>> = {
     includes:
       'Customer invoices still outstanding AS AT the reporting date, at total_amount less the settlement that can be dated to on or before it. An invoice with no due date IS included, aged from its invoice date — it is not dropped and it is not an excludedRow.',
     excludes:
-      'Draft and cancelled invoices. Invoices raised AFTER the reporting date. Settlement that carries no date — bank-match confirmation and the Sage import both write amount_paid with no dated trail — stays in the baseline, so a historical figure can UNDERSTATE and will never report a settled invoice as outstanding.',
+      'Draft, cancelled and soft-deleted invoices — a soft-deleted document also has its approval journal reversed, so it leaves this figure and the control account together. Invoices raised AFTER the reporting date. Settlement that carries no date — bank-match confirmation and the Sage import both write amount_paid with no dated trail — stays in the baseline, so a historical figure can UNDERSTATE and will never report a settled invoice as outstanding.',
+  }),
+  'ar.subledger_net.v1': def({
+    id: 'ar.subledger_net.v1',
+    label: 'Accounts receivable per the subledger, net of on-account credit',
+    owner: 'shared/agedNetting#netAgingRows',
+    includes:
+      'ar.subledger.v1 for every customer, MINUS the credit standing against that same customer as at the same date: receipts with a payment document that no allocation consumes, and the face value its live credit notes have not consumed (approved and partially_applied notes). A customer in credit with no open invoice appears with zero buckets and a NEGATIVE net.',
+    excludes:
+      'Everything ar.subledger.v1 excludes. Also cash whose customer cannot be resolved — a receipt whose customer row was deleted has no entity row to net against, so it stays in the report\'s unappliedReceipts footer and in no net. The BUCKETS are not netted and remain ar.subledger.v1; only the headline total and each row\'s net are on this figure.',
+  }),
+  'ap.subledger_net.v1': def({
+    id: 'ap.subledger_net.v1',
+    label: 'Accounts payable per the subledger, net of on-account credit',
+    owner: 'shared/agedNetting#netAgingRows',
+    includes:
+      'ap.subledger.v1 for every supplier, MINUS the credit standing against that same supplier as at the same date: payments with a document that no allocation consumes, and the face value its live credit notes have not consumed (approved and partially_applied notes). A supplier in credit with no open bill appears with zero buckets and a NEGATIVE net.',
+    excludes:
+      'Everything ap.subledger.v1 excludes. Also cash whose supplier cannot be resolved, which stays in the report\'s unappliedPayments footer and in no net. The BUCKETS are not netted and remain ap.subledger.v1; only the headline total and each row\'s net are on this figure.',
   }),
   'ar.control.v1': def({
     id: 'ar.control.v1',
@@ -92,7 +110,7 @@ export const FIGURE_DEFINITIONS: Readonly<Record<string, FigureDefinition>> = {
     includes:
       'Supplier bills still outstanding AS AT the reporting date, at total_amount less the settlement that can be dated to on or before it. A bill with no due date IS included, aged from its invoice date.',
     excludes:
-      'Draft and cancelled bills, and bills raised AFTER the reporting date. Undated settlement stays in the baseline — see ar.subledger.v1. Note that 397 bills on one production company carry payment_matched = true with amount_paid = 0, so they are counted here as fully owed; reconcile_subledger reports them in settlementFlagged.',
+      'Draft, cancelled and soft-deleted bills — a soft-deleted bill also has its approval journal reversed, so it leaves this figure and the control account together. Bills raised AFTER the reporting date. Undated settlement stays in the baseline — see ar.subledger.v1. Note that 397 bills on one production company carry payment_matched = true with amount_paid = 0, so they are counted here as fully owed; reconcile_subledger reports them in settlementFlagged.',
   }),
   'ap.control.v1': def({
     id: 'ap.control.v1',

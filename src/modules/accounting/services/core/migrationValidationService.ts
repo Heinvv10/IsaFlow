@@ -9,6 +9,7 @@ import { sql } from '@/lib/neon';
 import { log } from '@/lib/logger';
 import { validateSystemAccounts } from '../gl/systemAccountResolver';
 import { checkAccountSubtypeCoverage } from './migrationSubtypeCheck';
+import { PAYABLE_SUBTYPES, RECEIVABLE_SUBTYPES } from '../gl/accountSubtypes';
 import type { DbRow } from '@/types/db';
 
 
@@ -89,7 +90,7 @@ async function checkTrialBalance(companyId: string): Promise<ValidationResult> {
 async function checkARvsGL(companyId: string): Promise<ValidationResult> {
   // Sum of open customer invoice balances
   const invRows = (await sql`
-    SELECT COALESCE(SUM(balance_due), 0) AS total
+    SELECT COALESCE(SUM(total_amount - COALESCE(amount_paid, 0)), 0) AS total
     FROM customer_invoices
     WHERE company_id = ${companyId}::UUID
       AND status IN ('approved', 'partially_paid', 'overdue')
@@ -104,7 +105,7 @@ async function checkARvsGL(companyId: string): Promise<ValidationResult> {
     WHERE je.company_id = ${companyId}::UUID
       AND jl.company_id = ${companyId}::UUID
       AND je.status = 'posted'
-      AND ga.account_subtype = 'receivable'
+      AND ga.account_subtype = ANY(${RECEIVABLE_SUBTYPES as string[]}::TEXT[])
       AND ga.company_id = ${companyId}::UUID
   `) as DbRow[];
 
@@ -126,7 +127,7 @@ async function checkARvsGL(companyId: string): Promise<ValidationResult> {
 
 async function checkAPvsGL(companyId: string): Promise<ValidationResult> {
   const invRows = (await sql`
-    SELECT COALESCE(SUM(balance_due), 0) AS total
+    SELECT COALESCE(SUM(total_amount - COALESCE(amount_paid, 0)), 0) AS total
     FROM supplier_invoices
     WHERE company_id = ${companyId}::UUID
       AND status IN ('approved', 'partially_paid', 'overdue')
@@ -140,7 +141,7 @@ async function checkAPvsGL(companyId: string): Promise<ValidationResult> {
     WHERE je.company_id = ${companyId}::UUID
       AND jl.company_id = ${companyId}::UUID
       AND je.status = 'posted'
-      AND ga.account_subtype = 'payable'
+      AND ga.account_subtype = ANY(${PAYABLE_SUBTYPES as string[]}::TEXT[])
       AND ga.company_id = ${companyId}::UUID
   `) as DbRow[];
 
