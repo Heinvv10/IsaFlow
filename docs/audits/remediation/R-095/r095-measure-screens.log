@@ -1,0 +1,4 @@
+R095MEASURE partly-allocated-receipt: portal=500 email=500 detail=900 screen_full_history=900 screen_default_window=900
+R095MEASURE credit-note-statuses: portal=450 email=450 detail=450 screen_full_history=900 screen_default_window=900
+R095MEASURE activity-older-than-a-year: portal=600 email=600 detail=600 screen_full_history=600 screen_default_window=-400
+Tests  1 passed (1)

@@ -10,7 +10,8 @@
  *     (statementEmailService.fetchStatementData) — same rows, same running
  *     balance, same closing balance, to the cent — and agrees with the in-app
  *     Customer Statements detail screen (customer-statement-detail) on every
- *     row and on the closing balance;
+ *     row and on the closing balance; a partly allocated receipt is credited at
+ *     the cash received, as the email does (the screens differ — fix.md);
  *   - draft, cancelled and pending_approval invoices, a soft-deleted invoice,
  *     a draft receipt and a draft credit note never reach the portal, through
  *     the one shared population rule (shared/documentPopulation);
@@ -88,6 +89,37 @@ describeIfDb('R-095 portal statement matches the in-app statement', () => {
     const shape = (t: Txn) => ({ date: t.date, reference: t.reference, debit: t.debit, credit: t.credit, balance: t.balance });
     expect(portal.transactions.map(shape)).toEqual(screen.transactions.map(shape));
     expect(portal.closingBalance).toBe(screen.summary.balance);
+  });
+
+  it('statement: a partly allocated receipt is credited at the cash received (R1,000 with R600 allocated), equal to the email', async () => {
+    const email = `p-${f.tag}@test.local`;
+    const [c] = (await sql`INSERT INTO customers (company_id, name, email) VALUES (${f.companyA}::UUID, ${'part ' + f.tag}, ${email}) RETURNING id`) as { id: string }[];
+    try {
+      await sql`INSERT INTO portal_access (client_id, email, password_hash, name) VALUES (${c!.id}::UUID, ${email}, 'x', 'part')`;
+      const [inv] = (await sql`
+        INSERT INTO customer_invoices (company_id, client_id, customer_id, invoice_number, invoice_date, due_date, status, subtotal, tax_amount, total_amount, amount_paid, created_by)
+        VALUES (${f.companyA}::UUID, ${c!.id}::UUID, ${c!.id}::UUID, ${f.tag + '-PART-INV'}, ${shift(-20)}::date, ${shift(10)}::date, 'approved', 1500, 0, 1500, 600, ${f.user}::UUID)
+        RETURNING id`) as { id: string }[];
+      const [rcpt] = (await sql`
+        INSERT INTO customer_payments (company_id, client_id, payment_number, payment_date, total_amount, status, created_by)
+        VALUES (${f.companyA}::UUID, ${c!.id}::UUID, ${f.tag + '-PART-RCPT'}, ${shift(-10)}::date, 1000, 'confirmed', ${f.user}::UUID)
+        RETURNING id`) as { id: string }[];
+      await sql`INSERT INTO customer_payment_allocations (payment_id, invoice_id, amount_allocated) VALUES (${rcpt!.id}::UUID, ${inv!.id}::UUID, 600)`;
+
+      const expected = await fetchStatementData(f.companyA, c!.id, TODAY);
+      const { status, body } = await callPortal('statement', await tokenFor(c!.id, f.companyA, email), { query: { clientId: c!.id } });
+      expect(status).toBe(200);
+      const data = body.data as { closingBalance: number; transactions: Txn[] };
+      expect(data.transactions.find(t => t.reference === f.tag + '-PART-RCPT')).toMatchObject({ credit: 1000 });
+      expect(data.closingBalance).toBe(expected!.summary.balance);
+      expect(data.closingBalance).toBe(500);
+    } finally {
+      await sql`DELETE FROM portal_access WHERE client_id = ${c!.id}::UUID`;
+      await sql`DELETE FROM customer_payment_allocations WHERE payment_id IN (SELECT id FROM customer_payments WHERE client_id = ${c!.id}::UUID)`;
+      await sql`DELETE FROM customer_payments WHERE client_id = ${c!.id}::UUID`;
+      await sql`DELETE FROM customer_invoices WHERE client_id = ${c!.id}::UUID`;
+      await sql`DELETE FROM customers WHERE id = ${c!.id}::UUID`;
+    }
   });
 
   it('statement: asOf is honoured — a date before RCPT-U, INV-3 and both credit notes gives the emailed figure at that date', async () => {
