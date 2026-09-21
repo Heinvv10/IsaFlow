@@ -8,14 +8,14 @@ import { describe, it, expect, vi, beforeEach } from 'vitest';
 vi.mock('@/lib/neon', () => ({ sql: vi.fn().mockResolvedValue([{ id: 'rev-1', entry_number: 'JE-9' }]) }));
 vi.mock('@/modules/accounting/services/ap/supplierInvoiceCancelPlan', () => {
   class SupplierInvoiceCancelRefusal extends Error {}
-  return { SupplierInvoiceCancelRefusal, planSupplierInvoiceCancel: vi.fn() };
+  return { SupplierInvoiceCancelRefusal, lockAndPlanSupplierInvoiceCancel: vi.fn() };
 });
 vi.mock('@/modules/accounting/services/ap/supplierInvoiceWorkflowService', () => ({
   cancelSupplierInvoice: vi.fn(),
 }));
 
 import {
-  SupplierInvoiceCancelRefusal, planSupplierInvoiceCancel,
+  SupplierInvoiceCancelRefusal, lockAndPlanSupplierInvoiceCancel,
 } from '@/modules/accounting/services/ap/supplierInvoiceCancelPlan';
 import { cancelSupplierInvoice } from '@/modules/accounting/services/ap/supplierInvoiceWorkflowService';
 import { cancelSupplierInvoiceTool } from '@/lib/mcp/tools/writeCancelSupplierInvoice';
@@ -40,7 +40,7 @@ const plan = {
 
 beforeEach(() => {
   vi.clearAllMocks();
-  vi.mocked(planSupplierInvoiceCancel).mockResolvedValue(plan);
+  vi.mocked(lockAndPlanSupplierInvoiceCancel).mockResolvedValue(plan);
   vi.mocked(cancelSupplierInvoice).mockResolvedValue({ status: 'cancelled' } as never);
 });
 
@@ -48,18 +48,18 @@ describe('cancel_supplier_invoice', () => {
   it('refuses a missing or non-uuid invoice_id before any read', async () => {
     expect(text(await cancelSupplierInvoiceTool.handler({ ...KEY }, ctx))).toBe('invoice_id is required');
     expect((await cancelSupplierInvoiceTool.handler({ invoice_id: 'x', ...KEY }, ctx)).isError).toBe(true);
-    expect(planSupplierInvoiceCancel).not.toHaveBeenCalled();
+    expect(lockAndPlanSupplierInvoiceCancel).not.toHaveBeenCalled();
   });
 
   it('returns a plan refusal as a toolError and never cancels', async () => {
-    vi.mocked(planSupplierInvoiceCancel).mockRejectedValue(new SupplierInvoiceCancelRefusal('has R40.00 applied'));
+    vi.mocked(lockAndPlanSupplierInvoiceCancel).mockRejectedValue(new SupplierInvoiceCancelRefusal('has R40.00 applied'));
     const r = await cancelSupplierInvoiceTool.handler({ invoice_id: BILL, ...KEY }, ctx);
     expect(text(r)).toBe('has R40.00 applied');
     expect(cancelSupplierInvoice).not.toHaveBeenCalled();
   });
 
   it('rethrows a plan failure that is not a refusal', async () => {
-    vi.mocked(planSupplierInvoiceCancel).mockRejectedValue(new Error('connection reset'));
+    vi.mocked(lockAndPlanSupplierInvoiceCancel).mockRejectedValue(new Error('connection reset'));
     await expect(cancelSupplierInvoiceTool.handler({ invoice_id: BILL, ...KEY }, ctx)).rejects.toThrow('connection reset');
   });
 
