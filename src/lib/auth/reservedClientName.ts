@@ -65,6 +65,11 @@ const WILDCARD = '\u0000';
  * allow them. Nor does it stop several substituted glyphs at once, or the
  * general n:1 shape ("rn" for "m").
  *
+ * Nor does it stop the brand welded into one token with no separator at all:
+ * "TheIsaFlow" and "IsaFlowHQ" register. Matching a term inside a single token
+ * would catch those, at the cost of refusing "Lisaflow", "Medisaflow" and
+ * "Visaflow" — the lever to pull if brand-welding shows up in the wild.
+ *
  * It is one control among several — every dynamically-registered client also
  * renders the unverified-app warning on the consent screen, which is what
  * carries the names this cannot catch.

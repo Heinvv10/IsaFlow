@@ -194,7 +194,7 @@ describe('isReservedClientName', () => {
   // — the actual impersonation — is still caught, because there the brand
   // stands alone as a token.
   it('allows the brand welded into a longer word', () => {
-    for (const name of ['MyIsaFlowSync', 'IsaFlowly', 'IsaFlowHQ', 'GoIsaFlow']) {
+    for (const name of ['MyIsaFlowSync', 'IsaFlowly', 'IsaFlowHQ', 'GoIsaFlow', 'TheIsaFlow']) {
       expect(isReservedClientName(asHandlerWould(name)), name).toBe(false);
     }
     expect(isReservedClientName(asHandlerWould('MySync (IsaFlow)'))).toBe(false);
