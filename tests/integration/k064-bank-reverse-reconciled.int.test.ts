@@ -53,7 +53,8 @@ describeIfDb('K-064 r9 — bank reverse refuses cash a completed or Sage reconci
     await q(`INSERT INTO bank_reconciliations (id, company_id, bank_account_id, statement_date, status, started_by)
       VALUES ($1, $2, $3, CURRENT_DATE, $4, $5)`, [rec, ids.A, ids.BANK_GL, status, ids.USER]);
     await q('UPDATE bank_transactions SET status = $1, reconciliation_id = $2 WHERE id = $3',
-      [status === 'completed' ? 'reconciled' : 'allocated', rec, bankTx]);
+      // In a session only the lines it counts are held: 'matched' (a stamp alone is not a lock).
+      [status === 'completed' ? 'reconciled' : 'matched', rec, bankTx]);
   }
   async function expectNothingWritten(a: { bankTx: string; billId: string; paymentId: string }, status: string) {
     expect((await bankState(a.bankTx)).status).toBe(status);
@@ -124,7 +125,7 @@ describeIfDb('K-064 r9 — bank reverse refuses cash a completed or Sage reconci
     await expectNothingWritten(a, 'reconciled');
   });
 
-  it('a line in an IN-PROGRESS session is refused exactly as void refuses it; cancelling the session frees it', async () => {
+  it('a line MATCHED in an IN-PROGRESS session is refused exactly as void refuses it; cancelling the session frees it', async () => {
     const a = await allocated();
     await onReconciliation(a.bankTx, 'in_progress');
     const rec = String((await bankState(a.bankTx)).reconciliation_id);
@@ -135,12 +136,11 @@ describeIfDb('K-064 r9 — bank reverse refuses cash a completed or Sage reconci
 
     expect(state.statusCode, text(state)).toBe(400);
     expect(text(state)).toContain('This bank line is in an open bank reconciliation session');
-    await expectNothingWritten(a, 'allocated');
+    await expectNothingWritten(a, 'matched');
     expect(await lines()).toBe(before); // still in the session: not detached
-    // The escape hatch: cancel the session, then the reverse succeeds.
+    // The escape hatch: cancelling the session undoes its matching — the line is free again.
     const cancel = await fx.call(bankReconciliationsAction, 'POST', { action: 'cancel', reconciliationId: rec });
     expect(cancel.statusCode, text(cancel)).toBe(200);
-    expect((await act({ action: 'reverse', bankTransactionId: a.bankTx })).statusCode).toBe(200);
     expect(await bankState(a.bankTx)).toEqual({ status: 'imported', reconciliation_id: null });
   });
 });

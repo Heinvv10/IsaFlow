@@ -51,8 +51,13 @@ describeIfDb('reconciled cash is locked on every caller of bank reverse', () => 
     } finally { client.release(); }
   }
 
-  /** A -115 supplier allocation over one bill, then its line put on a completed reconciliation. */
-  async function lockedAllocation(opts: { byIdOnly?: boolean } = {}) {
+  /**
+   * A -115 supplier allocation over one bill, then its line put on a
+   * reconciliation as a figure it counts: 'reconciled' on a completed one, or
+   * 'matched' (the session's own set). A stamp alone never locks — see
+   * k064-stamp-is-not-a-lock.int.test.ts.
+   */
+  async function lockedAllocation(opts: { status?: 'reconciled' | 'matched'; recStatus?: string } = {}) {
     const billId = await bill(fx.pool, { supplier: ids.SUP_A2, status: 'approved', total: 115 });
     const bankTx = randomUUID();
     await q(`INSERT INTO bank_transactions (id, company_id, bank_account_id, transaction_date, amount, description, status)
@@ -63,10 +68,9 @@ describeIfDb('reconciled cash is locked on every caller of bank reverse', () => 
       WHERE bt.id = $1`, [bankTx])).rows[0].id);
     const rec = randomUUID();
     await q(`INSERT INTO bank_reconciliations (id, company_id, bank_account_id, statement_date, status, started_by)
-      VALUES ($1, $2, $3, CURRENT_DATE, 'completed', $4)`, [rec, ids.A, ids.BANK_GL, ids.USER]);
-    // byIdOnly: still 'allocated' by status, but attached to the completed rec.
+      VALUES ($1, $2, $3, CURRENT_DATE, $4, $5)`, [rec, ids.A, ids.BANK_GL, opts.recStatus ?? 'completed', ids.USER]);
     await q('UPDATE bank_transactions SET reconciliation_id = $1, status = $2 WHERE id = $3',
-      [rec, opts.byIdOnly ? 'allocated' : 'reconciled', bankTx]);
+      [rec, opts.status ?? 'reconciled', bankTx]);
     return { billId, bankTx, paymentId };
   }
   async function untouched(a: { billId: string; bankTx: string; paymentId: string }, status: string) {
@@ -99,12 +103,12 @@ describeIfDb('reconciled cash is locked on every caller of bank reverse', () => 
     await untouched(a, 'reconciled');
   });
 
-  it('REST bank reverse → 400 for a line attached to a completed reconciliation by id only', async () => {
-    const a = await lockedAllocation({ byIdOnly: true });
+  it("REST bank reverse → 400 for a 'matched' line on a completed reconciliation (the fail-closed arm)", async () => {
+    const a = await lockedAllocation({ status: 'matched' });
     const state = await act({ action: 'reverse', bankTransactionId: a.bankTx });
     expect(state.statusCode, text(state)).toBe(400);
     expect(text(state)).toContain('This bank line is on the completed reconciliation of R068 Bank');
-    await untouched(a, 'allocated');
+    await untouched(a, 'matched');
   });
 
   it('MCP void_payment through the registry → the agent reads the refusal, not a generic failure', async () => {
@@ -180,9 +184,8 @@ describeIfDb('reconciled cash is locked on every caller of bank reverse', () => 
     expect((await q('SELECT status FROM bank_transactions WHERE id = $1', [bankTx])).rows[0].status).toBe('reconciled');
   }, 20000);
 
-  it('auto-post undo on a line in an IN-PROGRESS session skips it — not detached, one rule with bank reverse', async () => {
-    const a = await lockedAllocation({ byIdOnly: true });
-    await q("UPDATE bank_reconciliations SET status = 'in_progress' WHERE id = (SELECT reconciliation_id FROM bank_transactions WHERE id = $1)", [a.bankTx]);
+  it("auto-post undo on a line MATCHED in an IN-PROGRESS session skips it — not detached, one rule with bank reverse", async () => {
+    const a = await lockedAllocation({ status: 'matched', recStatus: 'in_progress' });
     const run = String((await q(`INSERT INTO bank_auto_post_runs (company_id, source, min_confidence, amount_cap,
       created_by, posted_count, total_amount) VALUES ($1, 'categorization', 0.9, 0, $2, 1, 115) RETURNING id`,
     [ids.A, ids.USER])).rows[0].id);
@@ -190,17 +193,17 @@ describeIfDb('reconciled cash is locked on every caller of bank reverse', () => 
     const result = await inRequest(() => undoRun(ids.A, run, ids.USER));
     expect(result.skippedBy).toMatchObject({ reconciled: 1, failed: 0 });
     expect((await q('SELECT reconciliation_id FROM bank_transactions WHERE id = $1', [a.bankTx])).rows[0].reconciliation_id).not.toBeNull();
-    await untouched(a, 'allocated');
+    await untouched(a, 'matched');
   });
 
-  it('auto-post undo → a reconciled SKIP on the line (by id, not only by status), not a failed row', async () => {
-    const a = await lockedAllocation({ byIdOnly: true });
+  it("auto-post undo → a reconciled SKIP for a 'matched' line on a completed reconciliation, not a failed row", async () => {
+    const a = await lockedAllocation({ status: 'matched' });
     const run = String((await q(`INSERT INTO bank_auto_post_runs (company_id, source, min_confidence, amount_cap,
       created_by, posted_count, total_amount) VALUES ($1, 'categorization', 0.9, 0, $2, 1, 115) RETURNING id`,
     [ids.A, ids.USER])).rows[0].id);
     await q('UPDATE bank_transactions SET auto_post_run_id = $1 WHERE id = $2', [run, a.bankTx]);
     const result = await inRequest(() => undoRun(ids.A, run, ids.USER));
     expect(result.skippedBy).toMatchObject({ reconciled: 1, failed: 0 });
-    await untouched(a, 'allocated');
+    await untouched(a, 'matched');
   });
 });

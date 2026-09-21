@@ -3,12 +3,11 @@
  * rule, three callers: single-payment void and batch reversal (through
  * `ap/paymentJournalReversal.ts`) and bank reverse (`reverseReconciledTransaction`).
  *
- * A line is locked when it is on a COMPLETED bank reconciliation — status
- * 'reconciled' (in src/ only `completeReconciliation` writes it) or a
- * `reconciliation_id` naming a `bank_reconciliations` row in `completed` — or
- * when it arrived already reconciled from the Sage import
- * (`scripts/import-sage-britech.ts` writes 'reconciled' with no
- * reconciliation_id: the cash was reconciled at source).
+ * A line is locked only when a reconciliation's figures count it or completion
+ * marked it: status 'reconciled' (completion wrote it, or the Sage import
+ * `scripts/import-sage-britech.ts` did, with no reconciliation_id), or status
+ * 'matched' on a reconciliation. The `reconciliation_id` stamp alone never
+ * locks — start stamps every imported line and allocation does not clear it.
  *
  * Nothing in the app reopens or cancels a completed reconciliation yet
  * (`cancelReconciliation` refuses anything not in_progress) — R-111. So the
@@ -36,28 +35,41 @@ export type LineLock =
   | { kind: 'session' }
   | null;
 
-/** How a (locked) bank row stands against reconciliation. Reads only. */
+/**
+ * How a (locked) bank row stands against reconciliation. Reads only.
+ *
+ * Decided by what a reconciliation COUNTS and MARKS, never by the stamp alone:
+ * `startReconciliation` stamps its id on every imported line of the account
+ * (bankReconciliationService.ts:95-98), and allocating a line later does not
+ * clear it — but the session counts only `matched` (and `imported`) lines
+ * (:28-29), and completion marks only `matched` lines `reconciled` (:127-128).
+ * So: a `reconciled` line is locked (completion or the Sage import wrote it); a
+ * `matched` line carrying a session's id is locked by that session; anything
+ * else — an allocated line still carrying the stamp — is not.
+ */
 export async function reconciliationLockOf(companyId: string, row: DbRow): Promise<LineLock> {
-  if (row.reconciliation_id) {
-    const rec = (await sql`
-      SELECT r.status, r.statement_date, a.account_name
-      FROM bank_reconciliations r
-      LEFT JOIN gl_accounts a ON a.id = r.bank_account_id AND a.company_id = r.company_id
-      WHERE r.id = ${String(row.reconciliation_id)}::UUID AND r.company_id = ${companyId}::UUID
-    `) as DbRow[];
-    const r = rec[0];
-    if (row.status === 'reconciled' || r?.status === 'completed') {
-      const account = r?.account_name ? String(r.account_name) : 'the bank account';
-      const date = r?.statement_date ? fmtDate(r.statement_date) : 'an unknown date';
-      // 'reconciled' by name on a session that is NOT completed is an anomaly
-      // (only completion writes that status): locked all the same, with its own
-      // message rather than one that calls it completed.
-      if (r?.status !== 'completed') return { kind: 'anomaly' };
-      return { kind: 'completed', reconciliation: `on the completed reconciliation of ${account} to ${date}` };
-    }
-    return { kind: 'session' };
+  const status = String(row.status ?? '');
+  if (status !== 'reconciled' && status !== 'matched') return null;
+  if (!row.reconciliation_id) return status === 'reconciled' ? { kind: 'sage' } : null;
+  const rec = (await sql`
+    SELECT r.status, r.statement_date, a.account_name
+    FROM bank_reconciliations r
+    LEFT JOIN gl_accounts a ON a.id = r.bank_account_id AND a.company_id = r.company_id
+    WHERE r.id = ${String(row.reconciliation_id)}::UUID AND r.company_id = ${companyId}::UUID
+  `) as DbRow[];
+  const r = rec[0];
+  if (r?.status === 'completed') {
+    // A `matched` line on a COMPLETED reconciliation cannot come from
+    // completion (it converts matched → reconciled in the same transaction),
+    // but `matchTransaction` accepts any reconciliation id; fail closed.
+    const account = r.account_name ? String(r.account_name) : 'the bank account';
+    const date = r.statement_date ? fmtDate(r.statement_date) : 'an unknown date';
+    return { kind: 'completed', reconciliation: `on the completed reconciliation of ${account} to ${date}` };
   }
-  return row.status === 'reconciled' ? { kind: 'sage' } : null;
+  // 'reconciled' by name on a reconciliation that is NOT completed: an anomaly
+  // (only completion writes that status) — locked, with its own message.
+  if (status === 'reconciled') return { kind: 'anomaly' };
+  return { kind: 'session' };
 }
 
 const TAIL = "can't be reopened yet, so this can't be reversed in the app. Correct it with a journal, or contact support.";
