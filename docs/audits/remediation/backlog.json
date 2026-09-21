@@ -12440,7 +12440,9 @@
         "docs/audits/remediation/R-115/mutations.log",
         "docs/audits/remediation/R-115/ui.log",
         "docs/audits/remediation/R-115/r115-customer-statements.png",
-        "docs/audits/remediation/R-115/r115-statement-run.png"
+        "docs/audits/remediation/R-115/r115-statement-run.png",
+        "docs/audits/remediation/R-115/ui-round2.log",
+        "docs/audits/remediation/R-115/r115-customer-statements-r2.png"
       ],
       "id": "R-115",
       "area": "ar",
