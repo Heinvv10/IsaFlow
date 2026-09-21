@@ -1,0 +1,117 @@
+
+ RUN  v4.1.2 /home/hein/Workspace/IsaFlow/.worktrees/fix-R-112
+
+{"level":"info","message":"API Request: GET /api/accounting/mfa-integration-fixture","timestamp":"2026-09-21T15:06:42.608Z","component":"API","requestId":"01M3282JHF2F4EMGDWKC1415YJ","data":{"type":"request","method":"GET","url":"/api/accounting/mfa-integration-fixture","query":{}}}
+{"level":"info","message":"API Response: GET /api/accounting/mfa-integration-fixture - 200 (5ms)","timestamp":"2026-09-21T15:06:42.612Z","component":"API","requestId":"01M3282JHF2F4EMGDWKC1415YJ","data":{"type":"response","method":"GET","url":"/api/accounting/mfa-integration-fixture","statusCode":200,"duration":"5ms"}}
+{"level":"info","message":"request_completed","timestamp":"2026-09-21T15:06:42.612Z","component":"http","requestId":"01M3282JHF2F4EMGDWKC1415YJ","data":{"event":"request_completed","route":"/api/accounting/mfa-integration-fixture","method":"GET","status":200,"durationMs":5,"userId":"2ba60273-c77c-4b59-852a-5474cfab43f4","companyId":"9d7c613e-64b5-43de-a4ae-9436686cf40a","outcome":"ok"}}
+{"level":"info","message":"API Request: GET /api/accounting/mfa-integration-fixture","timestamp":"2026-09-21T15:06:42.623Z","component":"API","requestId":"01M3282JHZKDYMWT15XF3KA2H7","data":{"type":"request","method":"GET","url":"/api/accounting/mfa-integration-fixture","query":{}}}
+{"level":"info","message":"API Response: GET /api/accounting/mfa-integration-fixture - 200 (2ms)","timestamp":"2026-09-21T15:06:42.625Z","component":"API","requestId":"01M3282JHZKDYMWT15XF3KA2H7","data":{"type":"response","method":"GET","url":"/api/accounting/mfa-integration-fixture","statusCode":200,"duration":"2ms"}}
+{"level":"info","message":"request_completed","timestamp":"2026-09-21T15:06:42.625Z","component":"http","requestId":"01M3282JHZKDYMWT15XF3KA2H7","data":{"event":"request_completed","route":"/api/accounting/mfa-integration-fixture","method":"GET","status":200,"durationMs":2,"userId":"2ba60273-c77c-4b59-852a-5474cfab43f4","companyId":"9d7c613e-64b5-43de-a4ae-9436686cf40a","outcome":"ok"}}
+{"level":"info","message":"API Request: GET /api/accounting/mfa-integration-fixture","timestamp":"2026-09-21T15:06:42.628Z","component":"API","requestId":"01M3282JJ4ZKRPNM645NF4A1CS","data":{"type":"request","method":"GET","url":"/api/accounting/mfa-integration-fixture","query":{}}}
+{"level":"info","message":"API Response: GET /api/accounting/mfa-integration-fixture - 200 (2ms)","timestamp":"2026-09-21T15:06:42.630Z","component":"API","requestId":"01M3282JJ4ZKRPNM645NF4A1CS","data":{"type":"response","method":"GET","url":"/api/accounting/mfa-integration-fixture","statusCode":200,"duration":"2ms"}}
+{"level":"info","message":"request_completed","timestamp":"2026-09-21T15:06:42.630Z","component":"http","requestId":"01M3282JJ4ZKRPNM645NF4A1CS","data":{"event":"request_completed","route":"/api/accounting/mfa-integration-fixture","method":"GET","status":200,"durationMs":2,"userId":"2ba60273-c77c-4b59-852a-5474cfab43f4","companyId":"9d7c613e-64b5-43de-a4ae-9436686cf40a","outcome":"ok"}}
+{"level":"info","message":"API Request: GET /api/accounting/mfa-integration-fixture","timestamp":"2026-09-21T15:06:42.632Z","component":"API","requestId":"01M3282JJ8M6H9K0EBAJY9V5R8","data":{"type":"request","method":"GET","url":"/api/accounting/mfa-integration-fixture","query":{}}}
+{"level":"info","message":"API Response: GET /api/accounting/mfa-integration-fixture - 200 (1ms)","timestamp":"2026-09-21T15:06:42.633Z","component":"API","requestId":"01M3282JJ8M6H9K0EBAJY9V5R8","data":{"type":"response","method":"GET","url":"/api/accounting/mfa-integration-fixture","statusCode":200,"duration":"1ms"}}
+{"level":"info","message":"request_completed","timestamp":"2026-09-21T15:06:42.633Z","component":"http","requestId":"01M3282JJ8M6H9K0EBAJY9V5R8","data":{"event":"request_completed","route":"/api/accounting/mfa-integration-fixture","method":"GET","status":200,"durationMs":1,"userId":"2ba60273-c77c-4b59-852a-5474cfab43f4","companyId":"9d7c613e-64b5-43de-a4ae-9436686cf40a","outcome":"ok"}}
+ × tests/integration/r115-customer-balances-list.int.test.ts > R-115 customer balances list states each statement balance > subtracts every live credit note at the statement valuation 257ms
+   → expected { …(7) } to match object { total_invoiced: 1000, …(3) }
+(4 matching properties omitted from actual)
+ × tests/integration/r115-customer-balances-list.int.test.ts > R-115 customer balances list states each statement balance > leaves out post-dated documents, as the statement as at today does 9ms
+   → expected { …(7) } to match object { total_invoiced: 800, …(3) }
+(4 matching properties omitted from actual)
+ × tests/integration/r115-customer-balances-list.int.test.ts > R-115 customer balances list states each statement balance > does not list a soft-deleted customer, who has no statement 4ms
+   → expected true to be false // Object.is equality
+ × tests/integration/r115-customer-balances-list.int.test.ts > R-115 customer balances list states each statement balance > every listed balance is the balance of the statement it opens 5ms
+   → expected 5000 to be close to NaN, received difference is NaN, but expected 0.005
+
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 4 ⎯⎯⎯⎯⎯⎯⎯
+
+ FAIL  tests/integration/r115-customer-balances-list.int.test.ts > R-115 customer balances list states each statement balance > subtracts every live credit note at the statement valuation
+AssertionError: expected { …(7) } to match object { total_invoiced: 1000, …(3) }
+(4 matching properties omitted from actual)
+
+- Expected
++ Received
+
+  {
+-   "balance": 600,
+-   "total_credits": 400,
++   "balance": 1000,
+    "total_invoiced": 1000,
+    "total_paid": 0,
+  }
+
+ ❯ tests/integration/r115-customer-balances-list.int.test.ts:89:61
+     87|     // 1000 - 300 (approved, face) - 100 (applied, what it consumed); …
+     88|     expect(await emailBalance(noted)).toBe(600);
+     89|     expect((await list()).find(r => r.client_id === noted)).toMatchObj…
+       |                                                             ^
+     90|       total_invoiced: 1000, total_paid: 0, total_credits: 400, balance…
+     91|     });
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[1/4]⎯
+
+ FAIL  tests/integration/r115-customer-balances-list.int.test.ts > R-115 customer balances list states each statement balance > leaves out post-dated documents, as the statement as at today does
+AssertionError: expected { …(7) } to match object { total_invoiced: 800, …(3) }
+(4 matching properties omitted from actual)
+
+- Expected
++ Received
+
+  {
+-   "balance": 800,
+-   "total_credits": 0,
+-   "total_invoiced": 800,
+-   "total_paid": 0,
++   "balance": 1100,
++   "total_invoiced": 1300,
++   "total_paid": 200,
+  }
+
+ ❯ tests/integration/r115-customer-balances-list.int.test.ts:96:62
+     94|   it('leaves out post-dated documents, as the statement as at today do…
+     95|     expect(await emailBalance(future)).toBe(800);
+     96|     expect((await list()).find(r => r.client_id === future)).toMatchOb…
+       |                                                              ^
+     97|       total_invoiced: 800, total_paid: 0, total_credits: 0, balance: 8…
+     98|     });
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[2/4]⎯
+
+ FAIL  tests/integration/r115-customer-balances-list.int.test.ts > R-115 customer balances list states each statement balance > does not list a soft-deleted customer, who has no statement
+AssertionError: expected true to be false // Object.is equality
+
+- Expected
++ Received
+
+- false
++ true
+
+ ❯ tests/integration/r115-customer-balances-list.int.test.ts:103:60
+    101|   it('does not list a soft-deleted customer, who has no statement', as…
+    102|     expect(await fetchStatementData(f.companyA, gone, TODAY)).toBeNull…
+    103|     expect((await list()).some(r => r.client_id === gone)).toBe(false);
+       |                                                            ^
+    104|   });
+    105|
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[3/4]⎯
+
+ FAIL  tests/integration/r115-customer-balances-list.int.test.ts > R-115 customer balances list states each statement balance > every listed balance is the balance of the statement it opens
+AssertionError: expected 5000 to be close to NaN, received difference is NaN, but expected 0.005
+ ❯ tests/integration/r115-customer-balances-list.int.test.ts:111:25
+    109|     for (const r of rows) {
+    110|       expect(r.balance, r.client_id).toBe(await emailBalance(r.client_…
+    111|       expect(r.balance).toBeCloseTo(r.total_invoiced - r.total_paid - …
+       |                         ^
+    112|     }
+    113|   });
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[4/4]⎯
+
+
+ Test Files  1 failed (1)
+      Tests  4 failed (4)
+   Start at  17:06:41
+   Duration  1.04s (transform 229ms, setup 0ms, import 234ms, tests 692ms, environment 0ms)
+

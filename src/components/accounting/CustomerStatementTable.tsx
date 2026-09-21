@@ -13,6 +13,7 @@ export interface CustomerBalance {
   phone?: string;
   total_invoiced: number;
   total_paid: number;
+  total_credits: number;
   balance: number;
   invoice_count: number;
 }
@@ -59,6 +60,9 @@ export function CustomerStatementTable({
               Paid
             </th>
             <th className="text-right px-4 py-3 text-[10px] tracking-[0.12em] font-semibold text-[var(--ff-text-secondary)] uppercase">
+              Credits
+            </th>
+            <th className="text-right px-4 py-3 text-[10px] tracking-[0.12em] font-semibold text-[var(--ff-text-secondary)] uppercase">
               Balance
             </th>
             <th className="text-center px-4 py-3 text-[10px] tracking-[0.12em] font-semibold text-[var(--ff-text-secondary)] uppercase">
@@ -95,6 +99,9 @@ export function CustomerStatementTable({
               </td>
               <td className="px-4 py-3 text-right tabular-nums text-teal-400">
                 {formatCurrency(c.total_paid)}
+              </td>
+              <td className="px-4 py-3 text-right tabular-nums text-amber-400">
+                {formatCurrency(c.total_credits)}
               </td>
               <td className="px-4 py-3 text-right tabular-nums font-medium text-[var(--ff-text-primary)]">
                 {formatCurrency(c.balance)}
