@@ -19,6 +19,7 @@ import type { NextApiHandler } from 'next';
 import { withErrorHandler } from '@/lib/api-error-handler';
 import { apiResponse } from '@/lib/apiResponse';
 import { checkRateLimit, getClientIp } from '@/lib/rateLimit';
+import { isReservedClientName } from '@/lib/auth/reservedClientName';
 import { log } from '@/lib/logger';
 import { registerOauthApp } from '@/lib/auth/oauth';
 import { pruneStaleDynamicApps } from '@/lib/auth/oauthDynamicClients';
@@ -36,13 +37,6 @@ const MAX_REDIRECT_URIS = 5;
 const MAX_REDIRECT_URI_LEN = 512;
 const MAX_NAME_LEN = 80;
 
-// Reserved terms a dynamic client_name may not contain (case-insensitive) —
-// stops a public DCR client claiming to BE IsaFlow or to be official/verified
-// to phish consent. Kept narrow to the impersonation-specific words so legit
-// names ("Acme Billing Bot", "Support Desk Connector") aren't blocked; generic
-// suspicion is already handled by the unverified-app warning on the consent
-// screen. First-party apps get is_first_party via a separate authed path, not DCR.
-const RESERVED_NAME_RE = /\b(isaflow|official|verified|first[-\s]?party)\b/i;
 const SUPPORTED_GRANT_TYPES = ['authorization_code', 'refresh_token'];
 const SUPPORTED_RESPONSE_TYPES = ['code'];
 
@@ -107,11 +101,15 @@ const handler: NextApiHandler = async (req, res) => {
   }
 
   // Optional metadata — validate what we honour, reject what we can't.
+  // Truncate BEFORE the reserved-name check, never after: the check's cost grows
+  // with length, and it runs before the global rate limit is charged, so a
+  // refused name is bounded only by this cut (~0.6ms at 80 chars, ~20ms on an
+  // untruncated 8kb body).
   const clientName =
     typeof body.client_name === 'string' && body.client_name.trim()
       ? body.client_name.trim().slice(0, MAX_NAME_LEN)
       : 'MCP Client';
-  if (RESERVED_NAME_RE.test(clientName)) {
+  if (isReservedClientName(clientName)) {
     return res.status(400).json(
       rfcError('invalid_client_metadata', 'client_name may not impersonate IsaFlow or use a reserved term'),
     );

@@ -149,17 +149,44 @@ describe('POST /api/oauth/register', () => {
   });
 
   it('rejects a client_name that impersonates IsaFlow / claims official or verified status', async () => {
-    for (const name of ['IsaFlow Official', 'isaflow support', 'Verified Partner', 'First-Party App']) {
+    const rejected = [
+      // the brand as the subject of the name — reads as "this IS IsaFlow"
+      'IsaFlow',
+      'IsaFlow Official',
+      'isaflow support',
+      'IsaFlow Connector',
+      'The IsaFlow App',
+      'Get IsaFlow Free',
+      'IsaFlow (Claude Code)',
+      // bare parenthetical leaves no qualifying client behind
+      '(isaflow)',
+      // the qualifier must be trailing — a mid-name aside is not a qualifier
+      'Acme (isaflow) Connector',
+      // reserved adjectives anywhere, including inside a qualifier
+      'Verified Partner',
+      'First-Party App',
+      'Claude Code (Official)',
+    ];
+    for (const name of rejected) {
       const res = makeRes();
       await handler(makeReq({ redirect_uris: ['https://c.example/cb'], client_name: name }), res);
-      expect(res.statusCode).toBe(400);
+      expect(res.statusCode, `expected 400 for ${name}`).toBe(400);
       expect(res.body!.error).toBe('invalid_client_metadata');
     }
-    // legit names — including ones with generic words — are NOT blocked
-    for (const name of ['Acme Bookkeeping Bot', 'Acme Billing Bot', 'Support Desk Connector']) {
+
+    // legit names are NOT blocked — including a client naming the service it
+    // connects to in a trailing qualifier, which is what MCP clients do.
+    const allowed = [
+      'Acme Bookkeeping Bot',
+      'Acme Billing Bot',
+      'Support Desk Connector',
+      'Claude Code (isaflow)',
+      'Claude Code (IsaFlow MCP)',
+    ];
+    for (const name of allowed) {
       const ok = makeRes();
       await handler(makeReq({ redirect_uris: ['https://c.example/cb'], client_name: name }), ok);
-      expect(ok.statusCode).toBe(201);
+      expect(ok.statusCode, `expected 201 for ${name}`).toBe(201);
     }
   });
 
