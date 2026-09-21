@@ -1,0 +1,137 @@
+/**
+ * cancel_supplier_invoice's plan and the cancel it gates, against a real ledger.
+ *
+ * The plan answers every refusal from reads, so the write needs no catch — a
+ * catch cannot tell a refusal from a failure after the contra posted. These
+ * cases pin that each refusal the live cancel could hit is named first, that
+ * the preview's contra is the one the cancel posts, and that the GL nets out.
+ */
+import { describe, it, expect, beforeAll, afterAll } from 'vitest';
+import { sql } from '@/lib/neon';
+import {
+  SupplierInvoiceCancelRefusal, planSupplierInvoiceCancel,
+} from '@/modules/accounting/services/ap/supplierInvoiceCancelPlan';
+import { cancelSupplierInvoice } from '@/modules/accounting/services/ap/supplierInvoiceWorkflowService';
+import { assertNotProductionDb } from '../helpers/assertNotProductionDb';
+import { dropFixture, inTx, seedBill, seedFixture, type Fixture } from './helpers/l1FifoFixture';
+
+const DATABASE_URL = process.env.DATABASE_URL;
+const describeIfDb = DATABASE_URL ? describe : describe.skip;
+
+let fx: Fixture;
+let other: Fixture;
+let apAccount: string;
+let expenseAccount: string;
+const ACTOR = { postingAgent: 'mcp:cancel_supplier_invoice:v1', actorType: 'agent' as const, actorTokenJti: 'jti-1' };
+
+async function accountId(f: Fixture, subtype: string): Promise<string> {
+  return String(((await sql`
+    SELECT id FROM gl_accounts WHERE company_id = ${f.companyId}::UUID AND account_subtype = ${subtype}
+    LIMIT 1`) as Record<string, unknown>[])[0]!.id);
+}
+
+/** An approved bill carrying a real, posted DR Expense / CR AP approval journal. */
+async function seedPostedBill(number: string, total: number, date = '2026-05-01'): Promise<{ bill: string; je: string }> {
+  const bill = await seedBill(fx, { number, date, total });
+  const je = String(((await sql`
+    INSERT INTO gl_journal_entries
+      (company_id, entry_number, entry_date, description, status, created_by, fiscal_period_id, posted_at, source)
+    VALUES (${fx.companyId}::UUID, ${`JE-${number}-${fx.tag}`}, ${date}::DATE, ${`Supplier invoice ${number}`},
+            'posted', ${fx.userId}::UUID,
+            (SELECT id FROM fiscal_periods WHERE company_id = ${fx.companyId}::UUID LIMIT 1), NOW(),
+            'auto_supplier_invoice')
+    RETURNING id`) as { id: string }[])[0]!.id);
+  await sql`
+    INSERT INTO gl_journal_lines (company_id, journal_entry_id, gl_account_id, debit, credit, description)
+    VALUES (${fx.companyId}::UUID, ${je}::UUID, ${expenseAccount}::UUID, ${total}, 0, 'expense'),
+           (${fx.companyId}::UUID, ${je}::UUID, ${apAccount}::UUID, 0, ${total}, 'AP')`;
+  await sql`UPDATE supplier_invoices SET gl_journal_entry_id = ${je}::UUID WHERE id = ${bill}::UUID`;
+  return { bill, je };
+}
+
+async function refusal(p: Promise<unknown>): Promise<string> {
+  const err = await p.then(() => null, (e: unknown) => e);
+  expect(err).toBeInstanceOf(SupplierInvoiceCancelRefusal);
+  return (err as Error).message;
+}
+
+const plan = (id: string, f: Fixture = fx) => inTx(f, () => planSupplierInvoiceCancel(f.companyId, id));
+
+describeIfDb('cancel_supplier_invoice — plan and cancel over a real ledger', () => {
+  beforeAll(async () => {
+    assertNotProductionDb('This test posts and reverses journals.');
+    fx = await seedFixture('CSI', DATABASE_URL!);
+    other = await seedFixture('CSX', DATABASE_URL!);
+    apAccount = await accountId(fx, 'payable');
+    expenseAccount = await accountId(fx, 'default_expense');
+  }, 120000);
+
+  afterAll(async () => {
+    for (const f of [fx, other]) {
+      await sql`DELETE FROM payment_allocations WHERE payment_id IN (
+        SELECT id FROM supplier_payments WHERE company_id = ${f.companyId}::UUID)`;
+      await sql`UPDATE supplier_invoices SET gl_journal_entry_id = NULL WHERE company_id = ${f.companyId}::UUID`;
+      await sql`DELETE FROM gl_journal_lines WHERE company_id = ${f.companyId}::UUID`;
+      await sql`UPDATE gl_journal_entries SET reversal_of_id = NULL, reversed_by = NULL
+                WHERE company_id = ${f.companyId}::UUID`;
+      await sql`DELETE FROM gl_journal_entries WHERE company_id = ${f.companyId}::UUID`;
+      await dropFixture(f);
+    }
+  }, 120000);
+
+  it('previews the contra the cancel then posts, stamps it as the agent\'s, and the GL nets to zero', async () => {
+    const { bill, je } = await seedPostedBill('C1', 230);
+
+    const planned = await plan(bill);
+    expect(planned.journal).toMatchObject({ id: je });
+    expect(planned.journal!.lines.map((l) => [l.debit, l.credit]).sort()).toEqual([[0, 230], [230, 0]]);
+
+    await inTx(fx, () => cancelSupplierInvoice(fx.companyId, bill, fx.userId, ACTOR));
+
+    const contra = ((await sql`
+      SELECT id, entry_date::TEXT AS d, posting_agent FROM gl_journal_entries
+      WHERE company_id = ${fx.companyId}::UUID AND reversal_of_id = ${je}::UUID`) as Record<string, unknown>[])[0]!;
+    expect(contra.d).toBe(planned.journal!.reversalDate);
+    expect(contra.posting_agent).toBe(ACTOR.postingAgent);
+    const ap = ((await sql`
+      SELECT COALESCE(SUM(debit - credit), 0) AS net FROM gl_journal_lines
+      WHERE company_id = ${fx.companyId}::UUID AND gl_account_id = ${apAccount}::UUID
+        AND journal_entry_id IN (${je}::UUID, ${String(contra.id)}::UUID)`) as Record<string, unknown>[])[0]!;
+    expect(Number(ap.net)).toBe(0);
+    const row = ((await sql`SELECT status, gl_journal_entry_id FROM supplier_invoices WHERE id = ${bill}::UUID`) as Record<string, unknown>[])[0]!;
+    expect(row).toEqual({ status: 'cancelled', gl_journal_entry_id: null });
+  });
+
+  it('plans a draft bill with no journal as a status change only', async () => {
+    const bill = await seedBill(fx, { number: 'C2', date: '2026-05-02', total: 50, status: 'draft' });
+    expect((await plan(bill)).journal).toBeNull();
+  });
+
+  it('refuses a bill with anything applied, naming the remedy', async () => {
+    const { bill } = await seedPostedBill('C3', 100);
+    await sql`UPDATE supplier_invoices SET amount_paid = 40, status = 'partially_paid' WHERE id = ${bill}::UUID`;
+    const msg = await refusal(plan(bill));
+    expect(msg).toContain('R40.00');
+    expect(msg).toContain('void_payment');
+  });
+
+  it('refuses a bill a draft or approved payment still plans to pay, naming the payment', async () => {
+    const { bill } = await seedPostedBill('C4', 100);
+    const payNumber = `PC4-${fx.tag}`.slice(0, 30); // payment_number is VARCHAR(30)
+    const pay = String(((await sql`
+      INSERT INTO supplier_payments (company_id, supplier_id, payment_number, payment_date, total_amount, status, created_by)
+      VALUES (${fx.companyId}::UUID, ${fx.supplierId}::UUID, ${payNumber}, '2026-05-05', 100, 'approved', ${fx.userId}::UUID)
+      RETURNING id`) as { id: string }[])[0]!.id);
+    await sql`INSERT INTO payment_allocations (payment_id, invoice_id, amount_allocated) VALUES (${pay}::UUID, ${bill}::UUID, 100)`;
+
+    expect(await refusal(plan(bill))).toContain(payNumber);
+  });
+
+  it('refuses an already-cancelled bill, and another company\'s bill reads as not found', async () => {
+    const cancelled = await seedBill(fx, { number: 'C5', date: '2026-05-03', total: 10, status: 'cancelled' });
+    expect(await refusal(plan(cancelled))).toContain('already cancelled');
+
+    const foreign = await seedBill(other, { number: 'C6', date: '2026-05-03', total: 10 });
+    expect(await refusal(plan(foreign))).toBe('Not found');
+  });
+});
