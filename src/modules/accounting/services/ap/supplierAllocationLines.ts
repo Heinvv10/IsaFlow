@@ -26,8 +26,17 @@ import { requireRequestTransaction } from '../core/requestTransaction';
 import { isLockContention } from '../core/lockContention';
 import type { DbRow } from '@/lib/neon';
 
-/** A cent. Money comparisons are made at this tolerance, never exactly. */
+/** A cent. Kept for the payment-side totals that still compare at this tolerance. */
 export const EPS = 0.01;
+
+/**
+ * Integer cents. A BILL's outstanding is compared in cents with no tolerance:
+ * the old `amount > outstanding + EPS` let a fully paid bill take R0.01 and a
+ * R100.00 bill take R100.01.
+ */
+export function toCents(n: number): number {
+  return Math.round(n * 100);
+}
 
 export interface SupplierAllocationInput {
   invoiceId: string;
@@ -53,6 +62,7 @@ export interface BillCandidate extends DbRow {
   total_amount: string | number;
   amount_paid: string | number | null;
   status: string;
+  deleted_at: Date | string | null;
   already_allocated: string | number | null;
 }
 
@@ -180,6 +190,7 @@ async function lockBillCandidates(
            si.total_amount,
            si.amount_paid,
            si.status,
+           si.deleted_at,
            COALESCE((
              SELECT SUM(pa.amount_allocated)
              FROM payment_allocations pa
@@ -189,6 +200,7 @@ async function lockBillCandidates(
     FROM supplier_invoices si
     WHERE si.company_id = ${companyId}::UUID
       AND si.id = ANY(${[...invoiceIds]}::UUID[])
+      AND si.deleted_at IS NULL
     ORDER BY si.id
     FOR UPDATE OF si
   `) as BillCandidate[];
@@ -211,6 +223,7 @@ export function buildLine(
     invoiceNumber: String(bill.invoice_number),
     status: statusBefore,
     supplierId: String(bill.supplier_id),
+    deleted: bill.deleted_at != null,
   }, supplierId);
   if (Number(bill.already_allocated ?? 0) > 0) {
     throw new SupplierPaymentRefusal(
@@ -223,17 +236,17 @@ export function buildLine(
   const outstandingBefore = round2(total - Number(bill.amount_paid ?? 0));
   // The LAST line of defence on this threshold, not the only one. A caller that
   // must decide the refusal before its first write refuses earlier on the same
-  // arithmetic and the same EPS — `confirmSupplierMatch.ts` does, because a 4xx
-  // raised after a write COMMITs it — so this one is unreachable from that path.
-  // Both must move together if the tolerance ever changes.
-  if (alloc.amount > outstandingBefore + EPS) {
+  // arithmetic — `confirmSupplierMatch.ts` does, in the same integer cents,
+  // because a 4xx raised after a write COMMITs it — so this one is unreachable
+  // from that path. Both must move together.
+  if (toCents(alloc.amount) > toCents(outstandingBefore)) {
     throw new SupplierPaymentRefusal(
       `R${alloc.amount.toFixed(2)} exceeds the R${outstandingBefore.toFixed(2)} outstanding on `
       + `invoice ${String(bill.invoice_number)}.`,
     );
   }
   const outstandingAfter = round2(outstandingBefore - alloc.amount);
-  const fullySettled = outstandingAfter <= EPS;
+  const fullySettled = toCents(outstandingAfter) <= 0;
 
   return {
     invoiceId: alloc.invoiceId,

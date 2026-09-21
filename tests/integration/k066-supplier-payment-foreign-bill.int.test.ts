@@ -58,7 +58,9 @@ describeIfDb('K-066 — a supplier payment may name only its own supplier\'s pay
 
     const state = await pay(ids.SUP_A, invoiceId);
 
-    expect(state.statusCode).toBeGreaterThanOrEqual(400);
+    // A pre-write refusal (400) that does not say whether the bill exists elsewhere.
+    expect(state.statusCode, JSON.stringify(state.body)).toBe(400);
+    expect(JSON.stringify(state.body)).toContain('not found or belong to a different company');
     expect(await rowCount(fx.pool, 'supplier_payments')).toBe(before);
   });
 

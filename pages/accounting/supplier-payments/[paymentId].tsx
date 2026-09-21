@@ -10,7 +10,7 @@ import Link from 'next/link';
 import { ArrowLeft, Wallet, Loader2, AlertCircle, Check, Zap } from 'lucide-react';
 import { AccountingDocumentPanel } from '@/modules/accounting/documents';
 import { formatCurrency, formatDate } from '@/utils/formatters';
-import { apiFetch } from '@/lib/apiFetch';
+import { apiErrorMessage, apiFetch, assertOk } from '@/lib/apiFetch';
 
 function StatusBadge({ status }: { status: string }) {
   const colors: Record<string, string> = {
@@ -85,14 +85,12 @@ export default function SupplierPaymentDetailPage() {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ action, paymentId: payment.id }),
       });
-      if (!res.ok) {
-        const json = await res.json();
-        setError(json.error || `Failed to ${action}`);
-      } else {
-        void load();
-      }
-    } catch {
-      setError(`Failed to ${action} payment`);
+      // The body's `error` is an object ({ code, message }); rendering it
+      // crashed the page. `assertOk` pulls out the refusal's own message.
+      await assertOk(res, `Failed to ${action} payment`);
+      void load();
+    } catch (err) {
+      setError(apiErrorMessage(err, `Failed to ${action} payment`));
     } finally {
       setActionBusy('');
     }
@@ -132,6 +130,12 @@ export default function SupplierPaymentDetailPage() {
                   <button onClick={() => handleAction('process')} disabled={!!actionBusy}
                     className="inline-flex items-center gap-2 px-4 py-2 bg-teal-600 text-white rounded-lg hover:bg-teal-700 text-sm font-medium disabled:opacity-50">
                     {actionBusy === 'process' ? <Loader2 className="h-4 w-4 animate-spin" /> : <Zap className="h-4 w-4" />} Process
+                  </button>
+                )}
+                {(payment.status === 'draft' || payment.status === 'approved') && (
+                  <button onClick={() => handleAction('cancel')} disabled={!!actionBusy}
+                    className="inline-flex items-center gap-2 px-4 py-2 bg-red-600/10 text-red-400 rounded-lg hover:bg-red-600/20 text-sm font-medium disabled:opacity-50">
+                    Cancel
                   </button>
                 )}
               </div>

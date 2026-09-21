@@ -25,9 +25,17 @@ const ALLOCATABLE_STATUSES = new Set(BALANCE_DERIVED);
  * calls this so it refuses on the same terms.
  */
 export function assertBillAllocatable(
-  bill: { invoiceNumber: string; status: string; supplierId: string },
+  bill: { invoiceNumber: string; status: string; supplierId: string; deleted: boolean },
   expectedSupplierId: string,
 ): void {
+  // A soft-delete reverses the approval journal but leaves `status` alone, so
+  // a deleted 'approved' bill has no AP credit behind it — paying it drove AP
+  // to a debit balance. Deleted is checked before, and apart from, status.
+  if (bill.deleted) {
+    throw new SupplierPaymentRefusal(
+      `Invoice ${bill.invoiceNumber} has been deleted and cannot receive a payment.`,
+    );
+  }
   if (!ALLOCATABLE_STATUSES.has(bill.status)) {
     throw new SupplierPaymentRefusal(
       `Invoice ${bill.invoiceNumber} is ${bill.status} and cannot receive a payment.`,

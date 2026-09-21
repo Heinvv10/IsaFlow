@@ -22,9 +22,7 @@ terms; ordering of the messages changed (supplier before already-allocated).
 - `src/modules/accounting/services/ap/supplierAllocationLines.ts` — allow-list + `assertBillAllocatable`.
 - `tests/unit/services/bank/bankAllocationUnwind.test.ts` — its `vi.mock` of the recompute module now uses `importOriginal`, since the allow-list is built from the real export at module load.
 
-**Tests.** Real PostgreSQL (disposable fixture):
-- `tests/integration/k063-supplier-payment-settles-unapproved-bill.int.test.ts` — 1 test (validator's RED, now green).
-- `tests/integration/k063-supplier-allocation-status-gate.int.test.ts` — 3 tests: `disputed` refused, foreign tenant refused as "not found", and an approved bill still settling with allocations, `amount_paid`, `balance` and payment status in agreement.
+**Tests.** Real PostgreSQL (disposable fixture): the validator's RED (a `pending_approval` bill) plus `disputed` refused, a foreign tenant refused as "not found", and an approved bill still settling. Round 1's two service-level files were deleted in round 2; `green.log` / `red.log` in this folder are their 2026-09-09 runs and name files that no longer exist. The live tests are listed under Round 2 onward.
 
 **Migration / rollback.** None. Revert the commit to restore the old gate.
 
@@ -156,3 +154,81 @@ expected — the `withAuth`-commits-a-4xx trap, measured.
    `supplier-refund-document` tests. Lines 76–85 of `681_supplier_refund_documents.sql`
    (the two DROP/ADD CONSTRAINT pairs) were run again. This is an artefact of
    replaying 540 out of order, not a defect in either migration.
+
+## Round 4 (2026-09-21) — blind review r1 of b1d018a55
+
+Every finding fixed; the two HIGHs predate this branch but reach the same
+outcome (AP relieved for money no bill stands behind). Tests below are all
+route-level against the fixture; mutations in `round4-mutations.log`, each
+restored byte-identical by sha256; green run in `round4-green.log` (51 files,
+342 tests).
+
+1. **HIGH — soft-deleted bills.** A soft-delete reverses the approval journal
+   but leaves `status = 'approved'`, so the allow-list admitted it (reviewer:
+   AP ended at −1,150). Now: `assertBillAllocatable` takes `deleted` and
+   refuses first ("has been deleted and cannot receive a payment");
+   `lockBillCandidates` adds `AND si.deleted_at IS NULL`, so every locked path
+   (bank line, payment application, batch create, both process gates) reads a
+   deleted bill as not found; `createSupplierPayment` selects `deleted_at` and
+   passes it to the rule. `openSupplierBills` (auto-allocate) already filtered
+   it. The delete guard (`softDeleteInvoiceGuards.ts#allocatedByLivePayments`)
+   read the dead `supplier_payment_allocations` table, so a bill carrying an
+   approved unprocessed payment could be deleted and then processed; it now
+   reads `payment_allocations`. `k053-soft-delete-undo-identity` seeded its
+   "DRAFT allocation" case into the dead table and passed only because the
+   guard read the same dead table — its seed and cleanup now use
+   `payment_allocations`; the assertion is unchanged.
+   Tests: `tests/integration/k063-deleted-bill-and-batch-member.int.test.ts`
+   (new payment 400 "deleted"; batch 400 "not found"; supplier-allocations 400
+   "not found"; delete refused while a payment is pending; payment and batch
+   whose bill was deleted before processing → 400, document `approved`, AP
+   unchanged). Mutations D1 (rule), D2 (lock filter), D3 (dead table) each red.
+2. **HIGH — batch member processed twice. Rule: a batch member moves money
+   only through its batch.** `processSupplierPayment` refuses a payment with a
+   `batch_id` (400, "belongs to batch <id> — process it through its batch"),
+   checked under the payment lock after the status check. `processBatch`, via
+   `assertBatchMembersStillAllocatable`, refuses (400) if any member is not
+   `approved` — stored data may predate the single-path rule. Proven both
+   orders: member-then-batch → member 400, batch 200, AP +300, bill 300;
+   batch-then-member → batch 200, member 4xx, AP +300 once. Mutations B1, B2 red.
+3. **MEDIUM — the 400s crashed or hid.** `batch-payments/[batchId].tsx` and
+   `supplier-payments/[paymentId].tsx` rendered `json.error` (an object);
+   `batch-payments/new.tsx` read an absent `json.message`. All three now go
+   through `assertOk` + `apiErrorMessage`. `tests/unit/components/apPaymentRefusalMessages.test.tsx`
+   builds each 400 body with `apiResponse.badRequest` (the routes' serializer)
+   and asserts the refusal text renders; reverting each page turns its test red.
+   **Browser**: dev server on :3263 against the fixture, headless Chromium, an
+   approved batch whose bill is cancelled, Process clicked → the route answered
+   400 and the page showed "Invoice K063-UI-BILL is cancelled and cannot receive
+   a payment." under the header, no page error (`round4-ui-batch-refusal.png`).
+4. **LOW — which payments reserve a bill.** Pinned both ways in
+   `tests/integration/k064-reservations-cents-cancel.int.test.ts`: approved and
+   draft reserve; cancelled does not; processed reserves nothing beyond
+   `amount_paid` (600 accepted, 600.01 refused after a processed 400).
+   Mutations R1 (widened to cancelled+processed) and R2 (narrowed to draft) red.
+5. **LOW — 1-cent tolerance.** `buildLine` compares `toCents(amount) >
+   toCents(outstanding)` with no tolerance, and `confirmSupplierMatch.ts`'s
+   pre-write check moved with it (both must agree, or a refusal lands after a
+   write). R100.00 takes 100.00 and refuses 100.01; a fully paid bill refuses
+   0.01. Mutation C1 (old tolerance) → 3 red. `EPS` stays for payment-side
+   totals, which the review did not question.
+6. **LOW — dead citations.** Round-1 file names removed from `fix.md` and
+   `validation.md` of all three items; every `tests/…`, `src/…`, `pages/…` path
+   cited in these folders now exists (checked by script).
+7. **MEDIUM (addendum) — unlocked creation and no way out.**
+   `createSupplierPayment` now calls `fetchBillCandidates` before reading the
+   bills and the pending allocations, so it and a concurrent batch serialise on
+   the bill lock; its two refusals ("not found…", "Invalid allocations") are now
+   `SupplierPaymentRefusal` → 400 pre-write instead of 500. Test: bill held,
+   batch queued, single queued, release → 200 + 400, 1,000 allocated; mutation
+   L1 (lock removed) red. Way out: `cancelBatch` now accepts `draft` or
+   `approved` and answers 400 when it matches nothing; a new
+   `supplierPaymentCancel.ts` (`cancel` action on supplier-payments-action)
+   cancels a draft/approved non-batch payment and refuses processed ones and
+   batch members. Both pages show a Cancel button for approved documents.
+   Mutation X1 (cancel back to draft only) red.
+
+Unit files that assert statement ORDER mock the two new DB-backed steps
+(`fetchBillCandidates` in `supplierPaymentService.test.ts`,
+`assertBatchMembersStillAllocatable` in `batchPaymentService.test.ts`); both
+are proved against PostgreSQL above.

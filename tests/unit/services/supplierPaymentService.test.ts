@@ -23,6 +23,13 @@ vi.mock('@/lib/logger', () => ({
 // R-068's tenant fence runs ahead of this path's first query and is pinned by
 // tests/integration/supplier-ownership-fence-*.int.test.ts. Stubbed so the
 // queue below stays positional.
+// The bill LOCK (K-066 round 4) takes `FOR UPDATE` on the request transaction;
+// it is proved against PostgreSQL in k064-reservations-cents-cancel. Here it
+// only has to resolve so the query sequence under test runs.
+vi.mock('@/modules/accounting/services/ap/supplierAllocationLines', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('@/modules/accounting/services/ap/supplierAllocationLines')>()),
+  fetchBillCandidates: vi.fn().mockResolvedValue(new Map()),
+}));
 vi.mock('@/modules/accounting/services/core/contactDirectoryService', () => ({
   assertSupplierInCompany: vi.fn(async () => undefined),
 }));

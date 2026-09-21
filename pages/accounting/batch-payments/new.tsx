@@ -8,7 +8,7 @@ import { useRouter } from 'next/router';
 import { AppLayout } from '@/components/layout/AppLayout';
 import Link from 'next/link';
 import { ArrowLeft, Layers, Plus, Trash2, Loader2, Receipt } from 'lucide-react';
-import { apiFetch } from '@/lib/apiFetch';
+import { apiErrorMessage, apiFetch, assertOk } from '@/lib/apiFetch';
 
 interface Supplier { id: string; company_name: string }
 interface Invoice { id: string; invoice_number: string; total_amount: number; amount_paid: number; supplier_id: string }
@@ -62,11 +62,12 @@ export default function NewBatchPaymentPage() {
         credentials: 'include',
         body: JSON.stringify({ paymentMethod: method, notes: notes || undefined, payments }),
       });
-      const json = await res.json();
-      if (!res.ok) throw new Error(json.message || 'Failed');
+      // The refusal's text is at `error.message`; `json.message` is absent on
+      // a 4xx, so this used to show a bare "Failed".
+      await assertOk(res, 'Failed to create batch');
       void router.push('/accounting/batch-payments');
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Failed');
+      setError(apiErrorMessage(err, 'Failed to create batch'));
     } finally {
       setBusy(false);
     }

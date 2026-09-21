@@ -9,7 +9,7 @@ import { AppLayout } from '@/components/layout/AppLayout';
 import Link from 'next/link';
 import { ArrowLeft, Layers, Loader2, AlertCircle, Check, Zap, XCircle } from 'lucide-react';
 import { formatDate } from '@/utils/formatters';
-import { apiFetch } from '@/lib/apiFetch';
+import { apiErrorMessage, apiFetch, assertOk } from '@/lib/apiFetch';
 
 const fmt = (n: number) => new Intl.NumberFormat('en-ZA', { style: 'currency', currency: 'ZAR' }).format(n);
 
@@ -75,14 +75,12 @@ export default function BatchPaymentDetailPage() {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ action, id: batch.id }),
       });
-      if (!res.ok) {
-        const json = await res.json();
-        setError(json.error || `Failed to ${action}`);
-      } else {
-        void load();
-      }
-    } catch {
-      setError(`Failed to ${action} batch`);
+      // The body's `error` is an object ({ code, message }); rendering it
+      // crashed the page. `assertOk` pulls out the refusal's own message.
+      await assertOk(res, `Failed to ${action} batch`);
+      void load();
+    } catch (err) {
+      setError(apiErrorMessage(err, `Failed to ${action} batch`));
     } finally {
       setActionBusy('');
     }
@@ -129,10 +127,18 @@ export default function BatchPaymentDetailPage() {
                   </>
                 )}
                 {batch.status === 'approved' && (
-                  <button onClick={() => doAction('process')} disabled={!!actionBusy}
-                    className="inline-flex items-center gap-2 px-4 py-2 bg-teal-600 text-white rounded-lg hover:bg-teal-700 text-sm font-medium disabled:opacity-50">
-                    {actionBusy === 'process' ? <Loader2 className="h-4 w-4 animate-spin" /> : <Zap className="h-4 w-4" />} Process
-                  </button>
+                  <>
+                    <button onClick={() => doAction('process')} disabled={!!actionBusy}
+                      className="inline-flex items-center gap-2 px-4 py-2 bg-teal-600 text-white rounded-lg hover:bg-teal-700 text-sm font-medium disabled:opacity-50">
+                      {actionBusy === 'process' ? <Loader2 className="h-4 w-4 animate-spin" /> : <Zap className="h-4 w-4" />} Process
+                    </button>
+                    {/* Nothing has moved yet, so an approved batch the process
+                        gate refuses must be cancellable. */}
+                    <button onClick={() => doAction('cancel')} disabled={!!actionBusy}
+                      className="inline-flex items-center gap-2 px-4 py-2 bg-red-600/10 text-red-400 rounded-lg hover:bg-red-600/20 text-sm font-medium disabled:opacity-50">
+                      <XCircle className="h-4 w-4" /> Cancel
+                    </button>
+                  </>
                 )}
               </div>
             )}
