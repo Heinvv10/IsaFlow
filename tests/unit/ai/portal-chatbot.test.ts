@@ -62,6 +62,12 @@ describe('Client Chat Prompt', () => {
     const prompt = buildClientChatPrompt('When is my next payment due?', ctx);
     expect(prompt).toContain('next payment due');
   });
+
+  it('a customer in credit is told they are in credit, not that they owe it (R-095)', () => {
+    const prompt = buildClientChatPrompt('What do I owe?', { ...ctx, outstandingBalance: -50, overdueAmount: 0 });
+    expect(prompt).toContain('In credit: R50');
+    expect(prompt).not.toContain('Outstanding balance');
+  });
 });
 
 // ═══════════════════════════════════════════════════════════════════════════

@@ -12308,6 +12308,106 @@
       "severity": "medium",
       "source": "cancelReconciliation refuses anything not in_progress (\"Only an in-progress reconciliation can be cancelled\"), and a search of src/modules/accounting/services/bank and pages/api finds no reopen; found while fixing review r8 MEDIUM-1.",
       "processNotes": "Registered 2026-09-21 by fix-k063 (K-063/K-064/K-066 PR)."
+    },
+    {
+      "claim": "",
+      "sourceLabel": "",
+      "sourceIds": [],
+      "correctedTrigger": "",
+      "auditedSha": "",
+      "currentSha": "6145c07ec",
+      "status": "confirmed",
+      "dependencies": [],
+      "testNames": [],
+      "fixCommit": null,
+      "pr": null,
+      "deployedSha": null,
+      "canonicalItem": null,
+      "reportedSeverity": "high",
+      "branch": null,
+      "evidencePaths": [
+        "docs/audits/remediation/R-095/fix.md",
+        "docs/audits/remediation/R-095/r095-measure.log",
+        "docs/audits/remediation/R-095/r095-measure-screens.log"
+      ],
+      "id": "R-112",
+      "area": "ar",
+      "affectedPaths": [
+        "pages/api/accounting/customer-statement-detail.ts"
+      ],
+      "severityRationale": "Customer-facing wrong balance. The row and the total_paid aggregate both use COALESCE(SUM(cpa.amount_allocated), cp.total_amount), so a receipt's unallocated remainder vanishes. Measured: 1334.56 against the emailed statement's correct 1134.56 (receipt 300, 100 allocated); and 900 against 500 (receipt 1000, 600 allocated). Credit-note statuses already match the email.",
+      "historicalDataImpact": "None on the ledger; screens and batch statements (generateStatementsBatch) shown or sent while a receipt was partly allocated overstated the balance by the unallocated remainder.",
+      "title": "customer-statement-detail credits a partly allocated receipt at only its allocated amount, so the Customer Statements detail screen overstates what the customer owes",
+      "severity": "high",
+      "source": "Found by fix-r095 (R-095 round 3, measuring the in-app statements the portal was asked to match).",
+      "processNotes": "Registered 2026-09-21 by the R-095 fixer at the team lead's request; measured on a disposable fixture, not fixed in the R-095 PR."
+    },
+    {
+      "claim": "",
+      "sourceLabel": "",
+      "sourceIds": [],
+      "correctedTrigger": "",
+      "auditedSha": "",
+      "currentSha": "6145c07ec",
+      "status": "confirmed",
+      "dependencies": [],
+      "testNames": [],
+      "fixCommit": null,
+      "pr": null,
+      "deployedSha": null,
+      "canonicalItem": null,
+      "reportedSeverity": "high",
+      "branch": null,
+      "evidencePaths": [
+        "docs/audits/remediation/R-095/fix.md",
+        "docs/audits/remediation/R-095/r095-measure.log",
+        "docs/audits/remediation/R-095/r095-measure-screens.log"
+      ],
+      "id": "R-113",
+      "area": "ar",
+      "affectedPaths": [
+        "pages/api/accounting/customer-statement.ts",
+        "pages/accounting/customers/statement.tsx",
+        "src/components/accounting/statements/CustomerStatementTable.tsx"
+      ],
+      "severityRationale": "Customer-facing wrong balance, three causes. Per cause, from r095-measure-screens.log: (1) receipt rule 900 vs 500 (1000 received, 600 allocated); (2) 'approved'-only credit notes 900 vs 450; (3) default window -400 vs 600. Combined case: Measured 1534.56 against a correct 1134.56: +200 from the receipt rule (300 received, 100 allocated, same defect as R-112) and +200 from dropping an 'applied' credit note (status = 'approved' only; the email counts approved, partially_applied and applied, an applied note at applied_amount — the email's rule is right). The window did not contribute there (all activity inside a year). The window ALONE misstates older activity: invoice 1000 dated 400 days ago plus a receipt of 400 last month shows -400 (in credit) against a true 600 by default; 600 with fromDate covering the full history.",
+      "historicalDataImpact": "None on the ledger; screens and PDFs produced with a partly allocated receipt, an applied or partly applied credit note, or pre-window activity stated a wrong balance to the customer.",
+      "title": "customer-statement (customers/statement screen and PDF) credits a partly allocated receipt at its allocated amount, counts only 'approved' credit notes, and defaults to a one-year window with no opening balance",
+      "severity": "high",
+      "source": "Found by fix-r095 (R-095 round 3, measuring the in-app statements the portal was asked to match).",
+      "processNotes": "Registered 2026-09-21 by the R-095 fixer at the team lead's request; measured on a disposable fixture, not fixed in the R-095 PR."
+    },
+    {
+      "claim": "",
+      "sourceLabel": "",
+      "sourceIds": [],
+      "correctedTrigger": "",
+      "auditedSha": "",
+      "currentSha": "6145c07ec",
+      "status": "confirmed",
+      "dependencies": [],
+      "testNames": [],
+      "fixCommit": null,
+      "pr": null,
+      "deployedSha": null,
+      "canonicalItem": null,
+      "reportedSeverity": "medium",
+      "branch": null,
+      "evidencePaths": [
+        "docs/audits/remediation/R-095/fix.md"
+      ],
+      "id": "R-114",
+      "area": "ar",
+      "affectedPaths": [
+        "pages/api/portal/invoice/[token].ts",
+        "src/modules/accounting/services/ar/portalTokenService.ts"
+      ],
+      "severityRationale": "Pre-existing on master, measured by the R-095 blind reviewer (review-r095-r1): the unauthenticated link filters only status != 'cancelled' and the invoice's own deleted_at, so an invoice taken back to draft after its link was minted, and any invoice of a soft-deleted customer, stays publicly readable by its token. The bare != 'cancelled' also drops a NULL-status invoice's link to a 404. Restricting it is a PRODUCT CALL, not a mechanical fix: staff ('copy portal link', portal-link route) and dunning mint and send these links, and a rule that refuses draft/pending_approval invoices changes when a link can be minted and whether one already sent keeps working (the R-095 WIP that did this was dropped for that reason).",
+      "historicalDataImpact": "None on the ledger; draft invoices and soft-deleted customers' invoices may have been viewable by anyone holding a previously issued link.",
+      "title": "Per-invoice portal links (invoice/[token]) serve 200 for a DRAFT invoice and for a soft-deleted customer's invoice",
+      "severity": "medium",
+      "source": "Found by the R-095 blind reviewer (review-r095-r1, route census of invoice/[token]).",
+      "processNotes": "Registered 2026-09-21 by the R-095 fixer at the team lead's request; not fixed in the R-095 PR."
     }
   ],
   "sourceInventory": [
