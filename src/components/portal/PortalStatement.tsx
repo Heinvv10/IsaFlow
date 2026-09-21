@@ -13,6 +13,7 @@ export interface PortalStatementData {
   asOfDate: string;
   openingBalance: number;
   closingBalance: number;
+  overdueAmount: number;
   transactions: Array<{
     date: string;
     reference: string;

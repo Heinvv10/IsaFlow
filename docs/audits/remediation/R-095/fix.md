@@ -286,3 +286,23 @@ means an earlier mutation run could have gone "RED" on a 429. The fixture now
 sends one random address per test process. Both mutation sets were re-run
 after that change, and every failure message was captured and checked for 429
 (none). The integration set passes twice in a row: 11 files, 64 tests.
+
+## Round 5 (review r2: the page's Overdue card)
+
+The card counted invoices whose `status` was 'overdue' and showed **0**, while
+the chat on the same page said R629.51 was overdue. The statement API now
+returns `overdueAmount` from `portalOverdue.getClientOverdue`, the function the
+chat calls, and the card shows that amount. There is no separate invoice
+count, so there is nothing to derive a count from.
+- Pinned in `r095-portal-round4`: on the reviewer-shaped customer
+  (closing 629.51, all past due), the statement's `overdueAmount` is 629.51 and
+  equals the chat's. It also equals the chat's for customer R (150) and
+  customer A (200).
+- Mutations (`r095-mutations-r5.log`, restored identically, no 429s): O1, the
+  card's figure hard-coded to 0 (the old outcome), is RED. O2, the whole
+  balance reported as overdue, is RED.
+- Browser (`r095-r5-ui.log`, `r095-r5-overdue-card.png`): logged in as the
+  reviewer-shaped customer, Total Outstanding reads **R 629,51**, the Overdue
+  card **R 629,51**, and the closing balance **R 629,51**. The chat, called from
+  the same browser session, returns `{"balance":629.51,"overdue":629.51}`.
+  No page errors.
