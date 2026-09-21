@@ -9,7 +9,7 @@
 import { describe, it, expect, beforeAll, afterAll } from 'vitest';
 import { sql } from '@/lib/neon';
 import {
-  SupplierInvoiceCancelRefusal, planSupplierInvoiceCancel,
+  SupplierInvoiceCancelRefusal, planSupplierInvoiceCancel, lockAndPlanSupplierInvoiceCancel,
 } from '@/modules/accounting/services/ap/supplierInvoiceCancelPlan';
 import { cancelSupplierInvoice } from '@/modules/accounting/services/ap/supplierInvoiceWorkflowService';
 import { assertNotProductionDb } from '../helpers/assertNotProductionDb';
@@ -56,6 +56,28 @@ async function refusal(p: Promise<unknown>): Promise<string> {
 }
 
 const plan = (id: string, f: Fixture = fx) => inTx(f, () => planSupplierInvoiceCancel(f.companyId, id));
+const lockedPlan = (id: string) => inTx(fx, () => lockAndPlanSupplierInvoiceCancel(fx.companyId, id));
+
+/** A posted journal with two lines, optionally pointing back at a bill. */
+async function seedJournal(number: string, date: string, amount: number, opts: {
+  status?: string; sourceRecordId?: string; source?: string;
+} = {}): Promise<string> {
+  const je = String(((await sql`
+    INSERT INTO gl_journal_entries
+      (company_id, entry_number, entry_date, description, status, created_by, fiscal_period_id, posted_at,
+       source, source_record_id)
+    VALUES (${fx.companyId}::UUID, ${`JE-${number}-${fx.tag}`}, ${date}::DATE, ${number},
+            ${opts.status ?? 'posted'}, ${fx.userId}::UUID,
+            (SELECT id FROM fiscal_periods WHERE company_id = ${fx.companyId}::UUID LIMIT 1),
+            ${opts.status === 'draft' ? null : new Date().toISOString()}::TIMESTAMPTZ,
+            ${opts.source ?? 'manual'}, ${opts.sourceRecordId ?? null}::UUID)
+    RETURNING id`) as { id: string }[])[0]!.id);
+  await sql`
+    INSERT INTO gl_journal_lines (company_id, journal_entry_id, gl_account_id, debit, credit, description)
+    VALUES (${fx.companyId}::UUID, ${je}::UUID, ${expenseAccount}::UUID, ${amount}, 0, 'dr'),
+           (${fx.companyId}::UUID, ${je}::UUID, ${apAccount}::UUID, 0, ${amount}, 'cr')`;
+  return je;
+}
 
 describeIfDb('cancel_supplier_invoice — plan and cancel over a real ledger', () => {
   beforeAll(async () => {
@@ -125,6 +147,59 @@ describeIfDb('cancel_supplier_invoice — plan and cancel over a real ledger', (
     await sql`INSERT INTO payment_allocations (payment_id, invoice_id, amount_allocated) VALUES (${pay}::UUID, ${bill}::UUID, 100)`;
 
     expect(await refusal(plan(bill))).toContain(payNumber);
+  });
+
+  /** Ledger review HIGH: the contra would land in a VAT period already filed. */
+  it('refuses when the contra would post into a locked VAT period', async () => {
+    const { bill } = await seedPostedBill('V1', 115, '2026-06-10');
+    await sql`
+      INSERT INTO vat_period_locks
+        (company_id, period_start, period_end, output_tax, input_tax, net_vat, posted_through, locked_by)
+      VALUES (${fx.companyId}::UUID, '2026-06-01', '2026-06-30', 0, 0, 0, '2026-06-30', ${fx.userId}::UUID)`;
+    try {
+      expect(await refusal(plan(bill))).toContain('locked VAT period');
+    } finally {
+      await sql`DELETE FROM vat_period_locks WHERE company_id = ${fx.companyId}::UUID`;
+    }
+  });
+
+  /** Ledger review HIGH: an approved bill with no approval journal (a Sage
+   *  import, a stranded journal) would leave the AP subledger while any
+   *  control-account credit behind it stays. */
+  it('refuses an approved bill that has no approval journal to reverse', async () => {
+    const bill = await seedBill(fx, { number: 'NJ1', date: '2026-05-06', total: 80 });
+    expect(await refusal(plan(bill))).toContain('no approval journal');
+  });
+
+  /** Ledger review MEDIUM: bank-matched with amount_paid 0 (the legacy path). */
+  it('refuses a bank-matched bill', async () => {
+    const { bill } = await seedPostedBill('BM1', 60);
+    await sql`UPDATE supplier_invoices SET payment_matched = true WHERE id = ${bill}::UUID`;
+    expect(await refusal(plan(bill))).toContain('matched to a bank payment');
+  });
+
+  /** Ledger review MEDIUM: a DRC VAT journal (or any other posted journal
+   *  sourced from the bill) would be left standing for a cancelled bill. */
+  it('refuses while another posted journal sourced from the bill stands, naming it', async () => {
+    const { bill } = await seedPostedBill('DR1', 115);
+    await seedJournal('DRC1', '2026-05-01', 15, { sourceRecordId: bill, source: 'auto_vat_adjustment' });
+    expect(await refusal(plan(bill))).toContain(`JE-DRC1-${fx.tag}`);
+  });
+
+  /** Ledger review LOW: a DRAFT approval journal would be orphaned and could be posted later. */
+  it('refuses a bill whose linked journal is still a draft', async () => {
+    const bill = await seedBill(fx, { number: 'DJ1', date: '2026-05-07', total: 40, status: 'draft' });
+    const je = await seedJournal('DJ1', '2026-05-07', 40, { status: 'draft' });
+    await sql`UPDATE supplier_invoices SET gl_journal_entry_id = ${je}::UUID WHERE id = ${bill}::UUID`;
+    expect(await refusal(plan(bill))).toContain('draft journal');
+  });
+
+  /** Ledger review MEDIUM (TOCTOU): the plan the live cancel uses reads a LOCKED row. */
+  it('lockAndPlan plans from the locked row and refuses what the plan refuses', async () => {
+    const { bill } = await seedPostedBill('LK1', 90);
+    expect((await lockedPlan(bill)).journal).not.toBeNull();
+    await sql`UPDATE supplier_invoices SET amount_paid = 5 WHERE id = ${bill}::UUID`;
+    expect(await refusal(lockedPlan(bill))).toContain('R5.00');
   });
 
   it('refuses an already-cancelled bill, and another company\'s bill reads as not found', async () => {

@@ -16,7 +16,7 @@ import { sql } from '@/lib/neon';
 import type { DbRow } from '@/lib/neon';
 import {
   SupplierInvoiceCancelRefusal,
-  planSupplierInvoiceCancel,
+  lockAndPlanSupplierInvoiceCancel,
   type SupplierInvoiceCancelPlan,
 } from '@/modules/accounting/services/ap/supplierInvoiceCancelPlan';
 import { cancelSupplierInvoice } from '@/modules/accounting/services/ap/supplierInvoiceWorkflowService';
@@ -32,9 +32,13 @@ export const cancelSupplierInvoiceTool: McpTool = {
     + 'cancelled. An APPROVED bill also has its approval journal (DR Expense/VAT, CR Accounts Payable) '
     + 'reversed by a contra entry dated like reverse_journal_entry dates it — the original date when '
     + 'its period is open, otherwise today — and both entries stay in the ledger. '
-    + 'Refused when anything is applied to the bill (undo it first with void_payment or '
-    + 'cancel_credit_note), when a draft or approved payment still plans to pay it, or when it is '
-    + 'already cancelled. Cancelling is final: there is no un-cancel; re-enter the bill if needed. '
+    + 'Refused, with the reason and the remedy named, when: anything is applied to the bill '
+    + '(void_payment / cancel_credit_note first); it is matched to a bank payment '
+    + '(reverse_bank_allocation first); a draft or approved payment still plans to pay it; another '
+    + 'posted journal sourced from it stands (e.g. a DRC VAT journal — reverse_journal_entry first); '
+    + 'its journal is still a draft; it is approved but has NO approval journal to reverse; the '
+    + 'reversal would land in a locked VAT period; or it is already cancelled. '
+    + 'Cancelling is final: there is no un-cancel; re-enter the bill if needed. '
     + 'Run with dry_run first: it shows the contra journal it would post and writes nothing.',
   scope: 'write:invoices',
   write: true,
@@ -54,9 +58,11 @@ export const cancelSupplierInvoiceTool: McpTool = {
     const bad = guardCastableArgs(args, { uuid: ['invoice_id'] });
     if (bad) return bad;
 
+    // Planned on the LOCKED row: the cancel below re-locks it (a no-op), so no
+    // concurrent payment or approval can move what the plan decided.
     let plan: SupplierInvoiceCancelPlan;
     try {
-      plan = await planSupplierInvoiceCancel(ctx.companyId, invoiceId);
+      plan = await lockAndPlanSupplierInvoiceCancel(ctx.companyId, invoiceId);
     } catch (err) {
       // Reads only: nothing has been written, so a refusal is safe to return.
       if (err instanceof SupplierInvoiceCancelRefusal) return toolError(err.message);
@@ -72,7 +78,9 @@ export const cancelSupplierInvoiceTool: McpTool = {
     const contra = plan.journal
       ? ((await sql`
           SELECT id, entry_number FROM gl_journal_entries
-          WHERE company_id = ${ctx.companyId}::UUID AND reversal_of_id = ${plan.journal.id}::UUID`) as DbRow[])[0]
+          WHERE company_id = ${ctx.companyId}::UUID AND reversal_of_id = ${plan.journal.id}::UUID
+          ORDER BY created_at DESC, id DESC
+          LIMIT 1`) as DbRow[])[0]
       : undefined;
     return ok({
       invoice_id: plan.invoiceId,
