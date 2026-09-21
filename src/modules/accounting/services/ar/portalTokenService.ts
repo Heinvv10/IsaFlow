@@ -15,7 +15,6 @@
 import crypto from 'node:crypto';
 
 import { sql, type DbRow } from '@/lib/neon';
-import { documentInPopulationExpr } from '../shared/documentPopulation';
 
 export interface VerifiedPortalToken {
   invoiceId: string;
@@ -44,15 +43,11 @@ export async function getInvoicePortalToken(
 ): Promise<string | null> {
   const rows = (await sql`
     SELECT portal_token
-    FROM customer_invoices ci
-    WHERE ci.id = ${invoiceId}::uuid
-      AND ci.company_id = ${companyId}::uuid
-      -- R-095 round 3 (LOW-4): routed through the shared population rule
-      -- instead of the bare status != 'cancelled', which admits a
-      -- reverted-to-draft or pending_approval invoice and NULL-propagates a
-      -- NULL-status one out of the query entirely.
-      AND ${sql.unsafe(documentInPopulationExpr('ci'))}
-      AND ci.deleted_at IS NULL
+    FROM customer_invoices
+    WHERE id = ${invoiceId}::uuid
+      AND company_id = ${companyId}::uuid
+      AND status != 'cancelled'
+      AND deleted_at IS NULL
     LIMIT 1
   `) as DbRow[];
 
@@ -79,12 +74,12 @@ export async function getOrMintInvoicePortalToken(
 
   const minted = crypto.randomBytes(32).toString('hex');
   const rows = (await sql`
-    UPDATE customer_invoices ci
-    SET portal_token = COALESCE(ci.portal_token, ${minted})
-    WHERE ci.id = ${invoiceId}::uuid
-      AND ci.company_id = ${companyId}::uuid
-      AND ${sql.unsafe(documentInPopulationExpr('ci'))}
-      AND ci.deleted_at IS NULL
+    UPDATE customer_invoices
+    SET portal_token = COALESCE(portal_token, ${minted})
+    WHERE id = ${invoiceId}::uuid
+      AND company_id = ${companyId}::uuid
+      AND status != 'cancelled'
+      AND deleted_at IS NULL
     RETURNING portal_token
   `) as DbRow[];
 
@@ -109,11 +104,10 @@ export async function verifyInvoicePortalToken(
 
   const rows = (await sql`
     SELECT id, company_id, status
-    FROM customer_invoices ci
-    WHERE ci.portal_token = ${token}
-      -- R-095 round 3 (LOW-4): same routing as getInvoicePortalToken above.
-      AND ${sql.unsafe(documentInPopulationExpr('ci'))}
-      AND ci.deleted_at IS NULL
+    FROM customer_invoices
+    WHERE portal_token = ${token}
+      AND status != 'cancelled'
+      AND deleted_at IS NULL
     LIMIT 1
   `) as DbRow[];
 

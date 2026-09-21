@@ -1,0 +1,15 @@
+=== master 6145c07ec, dev server on fixture
+--- POST /api/portal/auth (valid credentials)
+{"message":"Cannot read properties of undefined (reading 'serialize')","code":"INTERNAL_SERVER_ERROR"}
+HTTP 500
+--- GET /api/portal/statement?clientId=1bceb72d-aae4-422a-8517-99996a28888b with a valid portal_session
+{"success":false,"data":null,"message":"Cannot read properties of undefined (reading 'parse')","code":"INTERNAL_SERVER_ERROR",
+HTTP 500
+--- GET /api/portal/invoices?clientId=1bceb72d-aae4-422a-8517-99996a28888b with a valid portal_session
+{"success":false,"data":null,"message":"Cannot read properties of undefined (reading 'parse')","code":"INTERNAL_SERVER_ERROR",
+HTTP 500
+--- service functions called directly (past the cookie defect)
+getClientStatement THREW column "total" does not exist
+getClientInvoices THREW column "total" does not exist
+chat: {"success":false,"data":null,"message":"Cannot read properties of undefined (reading 'parse')","code":"INTERNAL_SERVER_ERROR",
+chat: HTTP 500

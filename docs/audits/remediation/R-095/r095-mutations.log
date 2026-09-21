@@ -1,0 +1,14 @@
+M1 session: drop is_active: RED | Test Files  1 failed (1) | Tests  1 failed | 6 passed (7) | restored=identical
+M2 session: drop company check: RED | Test Files  1 failed (1) | Tests  1 failed | 6 passed (7) | restored=identical
+M3 session: drop email check: RED | Test Files  1 failed (1) | Tests  1 failed | 6 passed (7) | restored=identical
+M4 session: drop customer deleted_at: RED | Test Files  1 failed (1) | Tests  1 failed | 6 passed (7) | restored=identical
+M5 session: JWT only, no DB check: RED | Test Files  1 failed (1) | Tests  4 failed | 3 passed (7) | restored=identical
+M6 invoices: drop ci.company_id: RED | Test Files  2 failed (2) | Tests  2 failed | 12 passed (14) | restored=identical
+M7 shared rule: pending_approval not excluded: RED | Test Files  1 failed (1) | Tests  3 failed | 4 passed (7) | restored=identical
+M8 statement: drop clientId guard: RED | Test Files  1 failed (1) | Tests  1 failed | 6 passed (7) | restored=identical
+M9 invoices: drop clientId guard: RED | Test Files  1 failed (1) | Tests  1 failed | 6 passed (7) | restored=identical
+M10 chat: drop clientId guard: RED | Test Files  1 failed (1) | Tests  1 failed | 6 passed (7) | restored=identical
+M11 asOf: regex only: RED | Test Files  1 failed (1) | Tests  1 failed | 6 passed (7) | restored=identical
+M12 statement: closing = total invoiced: RED | Test Files  1 failed (1) | Tests  3 failed | 4 passed (7) | restored=identical
+M13 statement: credit notes dropped: RED | Test Files  1 failed (1) | Tests  2 failed | 5 passed (7) | restored=identical
+M14 invoices: bare NOT IN draft/cancelled: RED | Test Files  1 failed (1) | Tests  1 failed | 6 passed (7) | restored=identical

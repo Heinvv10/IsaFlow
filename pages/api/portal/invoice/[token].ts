@@ -13,7 +13,6 @@ import { withAuth, type AuthenticatedNextApiRequest } from '@/lib/auth';
 import crypto from 'crypto';
 import { hashSessionToken } from '@/modules/accounting/services/ar/portalTokenService';
 import { logCustomerInvoiceView } from '@/modules/accounting/services/ar/readReceiptService';
-import { documentInPopulationExpr } from '@/modules/accounting/services/shared/documentPopulation';
 
 function clientIp(req: NextApiRequest): string | null {
   const xf = req.headers['x-forwarded-for'];
@@ -88,19 +87,8 @@ async function handleGet(req: NextApiRequest, res: NextApiResponse) {
     LEFT JOIN customers cu ON cu.id = ci.client_id
     LEFT JOIN companies co ON co.id = ci.company_id
     WHERE ci.portal_token = ${token}
-      -- R-095 round 3 (LOW-4): was a bare status != 'cancelled', which
-      -- NULL-propagates a NULL-status invoice's link to a dead 404 (the
-      -- exact bug documentInPopulationExpr exists to prevent), and kept a
-      -- DRAFT invoice's link publicly readable — a document that by
-      -- definition has never been issued. Routed through the shared rule.
-      AND ${sql.unsafe(documentInPopulationExpr('ci'))}
+      AND ci.status != 'cancelled'
       AND ci.deleted_at IS NULL
-      -- A soft-deleted customer's invoice must not be servable by name — the
-      -- same "hidden everywhere else" reasoning R-095 L4 applied to the
-      -- session-cookie routes. cu.deleted_at is NULL both when the customer
-      -- is live and when the LEFT JOIN found no row at all; either way the
-      -- invoice is not renderable without a real, live customer.
-      AND cu.deleted_at IS NULL
     LIMIT 1
   `) as Row[];
 
@@ -194,13 +182,11 @@ async function handleGenerateToken(req: AuthenticatedNextApiRequest, res: NextAp
   }
   const companyId = String(companyRows[0].company_id);
 
-  // Verify invoice belongs to this company. R-095 round 3 (LOW-4): same
-  // routing as handleGet's own lookup above — a bare `status != 'cancelled'`
-  // NULL-propagates a NULL-status invoice out of this query too.
+  // Verify invoice belongs to this company
   const existing = (await sql`
-    SELECT id, portal_token FROM customer_invoices ci
-    WHERE ci.id = ${invoiceId}::UUID AND ci.company_id = ${companyId}::UUID
-      AND ${sql.unsafe(documentInPopulationExpr('ci'))}
+    SELECT id, portal_token FROM customer_invoices
+    WHERE id = ${invoiceId}::UUID AND company_id = ${companyId}::UUID
+      AND status != 'cancelled'
     LIMIT 1
   `) as Row[];
 
