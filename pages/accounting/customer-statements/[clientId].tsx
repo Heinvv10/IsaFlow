@@ -11,63 +11,18 @@ import { ArrowLeft, ClipboardList, Loader2, AlertCircle, Download, FileText, Sea
 // generateStatementPdf is loaded dynamically inside handleDownloadPDF
 import { formatCurrency, formatDate } from '@/utils/formatters';
 import { apiFetch } from '@/lib/apiFetch';
-
-interface Transaction {
-  id: number | string;
-  date: string;
-  type: 'invoice' | 'payment' | 'credit_note';
-  reference: string;
-  description: string;
-  debit: number;
-  credit: number;
-  balance: number;
-}
-
-interface ClientInfo {
-  id: string;
-  name: string;
-  email: string | null;
-  phone: string | null;
-}
-
-interface Summary {
-  totalInvoiced: number;
-  totalPaid: number;
-  totalCredits: number;
-  balance: number;
-}
-
-type TypeFilter = 'all' | 'invoice' | 'payment' | 'credit_note';
-
-function getTransactionUrl(txn: Transaction): string | null {
-  switch (txn.type) {
-    case 'invoice': return `/accounting/customer-invoices/${txn.id}`;
-    case 'payment': return `/accounting/customer-payments/${txn.id}`;
-    default: return null;
-  }
-}
-
-function TypeBadge({ type }: { type: string }) {
-  const styles: Record<string, string> = {
-    invoice: 'bg-blue-500/10 text-blue-400',
-    payment: 'bg-teal-500/10 text-teal-400',
-    credit_note: 'bg-amber-500/10 text-amber-400',
-  };
-  const labels: Record<string, string> = {
-    invoice: 'Invoice',
-    payment: 'Payment',
-    credit_note: 'Credit Note',
-  };
-  return (
-    <span className={`px-2 py-0.5 rounded-full text-xs font-medium ${styles[type] || ''}`}>
-      {labels[type] || type}
-    </span>
-  );
-}
+import { fmtDate } from '@/lib/fmtDate';
+import { fetchCompanyMeta } from '@/modules/accounting/utils/generateStatementsBatch';
+import {
+  getTransactionUrl, TypeBadge, type ClientInfo, type Summary, type Transaction, type TypeFilter,
+} from '@/components/accounting/statements/customerStatementDetailParts';
 
 export default function CustomerStatementDetailPage() {
   const router = useRouter();
   const clientId = router.query.clientId as string;
+  // As at the date the balances list was drawn at (R-116), else as at today.
+  const asAtParam = typeof router.query.as_at_date === 'string' ? router.query.as_at_date : '';
+  const asAtDate = asAtParam || fmtDate(new Date());
 
   const [client, setClient] = useState<ClientInfo | null>(null);
   const [transactions, setTransactions] = useState<Transaction[]>([]);
@@ -82,7 +37,8 @@ export default function CustomerStatementDetailPage() {
     setIsLoading(true);
     setError('');
     try {
-      const res = await apiFetch(`/api/accounting/customer-statement-detail?client_id=${clientId}`);
+      const asAtQuery = asAtParam ? `&as_at_date=${encodeURIComponent(asAtParam)}` : '';
+      const res = await apiFetch(`/api/accounting/customer-statement-detail?client_id=${clientId}${asAtQuery}`);
       const json = await res.json();
       if (!res.ok) {
         setError(json.error?.message || 'Failed to load customer statement');
@@ -97,7 +53,7 @@ export default function CustomerStatementDetailPage() {
     } finally {
       setIsLoading(false);
     }
-  }, [clientId]);
+  }, [clientId, asAtParam]);
 
   useEffect(() => { void loadStatement(); }, [loadStatement]);
 
@@ -135,27 +91,19 @@ export default function CustomerStatementDetailPage() {
   async function handleDownloadPDF() {
     if (!client || !summary || transactions.length === 0) return;
     const { generateStatementPdf } = await import('@/modules/accounting/utils/statementPdf');
-    let companyName = '', companyVatNumber = '', companyEmail = '', companyPhone = '', companyAddress = '', accentColor = '#0d9488';
-    try {
-      const cRes = await apiFetch('/api/accounting/company-details');
-      const cJson = await cRes.json() as { data?: Record<string, string> } & Record<string, string>;
-      const c = (cJson.data ?? cJson) as Record<string, string>;
-      companyName = c.name || ''; companyVatNumber = c.vat_number || '';
-      companyEmail = c.email || ''; companyPhone = c.phone || '';
-      companyAddress = c.address || ''; accentColor = c.primary_color || '#0d9488';
-    } catch { /* use defaults */ }
+    const companyMeta = await fetchCompanyMeta();
 
     const blob = await generateStatementPdf({
+      ...companyMeta,
       clientName: client.name,
       clientEmail: client.email || undefined,
       clientPhone: client.phone || undefined,
-      asAtDate: new Date().toISOString().split('T')[0] ?? '',
+      asAtDate,
       totalInvoiced: summary.totalInvoiced,
       totalPaid: summary.totalPaid,
       totalCredits: summary.totalCredits,
       balanceOutstanding: summary.balance,
       transactions,
-      companyName, companyVatNumber, companyEmail, companyPhone, companyAddress, accentColor,
     });
     const url = URL.createObjectURL(blob);
     const a = document.createElement('a');
@@ -191,7 +139,7 @@ export default function CustomerStatementDetailPage() {
                     {client?.name || 'Customer Statement'}
                   </h1>
                   <p className="text-sm text-[var(--ff-text-secondary)]">
-                    Full transaction history
+                    Full transaction history as at {formatDate(asAtDate)}
                   </p>
                 </div>
               </div>

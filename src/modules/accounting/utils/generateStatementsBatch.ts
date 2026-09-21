@@ -8,7 +8,7 @@ import { apiFetch } from '@/lib/apiFetch';
 import type { CustomerBalance } from '@/components/accounting/CustomerStatementTable';
 import type { StatementData } from '@/modules/accounting/utils/statementPdf';
 
-async function fetchCompanyMeta(): Promise<Partial<StatementData>> {
+export async function fetchCompanyMeta(): Promise<Partial<StatementData>> {
   try {
     const res = await apiFetch('/api/accounting/company-details');
     const json = await res.json();
@@ -19,7 +19,7 @@ async function fetchCompanyMeta(): Promise<Partial<StatementData>> {
       companyVatNumber: c.vat_number || c.company_vat_number || '',
       companyEmail: c.email || c.company_email || '',
       companyPhone: c.phone || c.company_phone || '',
-      companyAddress: parts.join(', '),
+      companyAddress: c.address || parts.join(', '),
       accentColor: c.primary_color || '#0d9488',
     };
   } catch (err) {

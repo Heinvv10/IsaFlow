@@ -37,8 +37,8 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
     // Each row states the balance of the statement it opens — the emailed
     // statement as at the as-at date (R-115, R-116): invoices less settled
     // receipts at their full amount, less every live credit note at the
-    // statement valuation, nothing dated after the as-at date. The rules are customerStatementRules'; the
-    // list used to ignore credit notes entirely.
+    // statement valuation, nothing dated after the as-at date. The rules are
+    // customerStatementRules'; the list used to ignore credit notes entirely.
     //
     // Drawn from CUSTOMERS outward: every live customer of this company with
     // any statement activity has a row — including one with only a receipt (a

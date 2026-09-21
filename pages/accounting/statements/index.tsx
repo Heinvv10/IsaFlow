@@ -55,7 +55,8 @@ export default function StatementsPage() {
       const [stmtRes, custRes, agingRes] = await Promise.all([
         apiFetch(`/api/accounting/customer-statements?as_at_date=${asAtDate}`),
         apiFetch('/api/accounting/customers?limit=500'),
-        apiFetch('/api/accounting/ar-aging'),
+        // Overdue as at the same date as the balance beside it (R-116).
+        apiFetch(`/api/accounting/ar-aging?as_at_date=${asAtDate}`),
       ]);
       const [stmtJson, custJson, agingJson] = await Promise.all([
         stmtRes.json() as Promise<Record<string, unknown>>,
