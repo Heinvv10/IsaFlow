@@ -143,6 +143,25 @@ describeIfDb('unapply — cash and credit taken back from named documents', () =
     });
   });
 
+  describe('documents that cannot take a balance back', () => {
+    it('refuses a soft-deleted bill and a cancelled bill, for a payment and for a note', async () => {
+      const deleted = await seedBill(fx, { number: 'D1', date: '2026-05-20', total: 70 });
+      const cancelledBill = await seedBill(fx, { number: 'D2', date: '2026-05-21', total: 70 });
+      const pay = await seedAppliedPayment('UP9', 140, [{ bill: deleted, amount: 70 }, { bill: cancelledBill, amount: 70 }]);
+      const note = await seedAppliedNote('UN9', 140, [{ bill: deleted, amount: 70 }, { bill: cancelledBill, amount: 70 }]);
+      // A soft-delete reverses the bill's journal and leaves its status alone.
+      await sql`UPDATE supplier_invoices SET deleted_at = NOW() WHERE id = ${deleted}::UUID`;
+      await sql`UPDATE supplier_invoices SET status = 'cancelled' WHERE id = ${cancelledBill}::UUID`;
+
+      const plan = (invoiceId: string) => inTx(fx, () => planSupplierPaymentUnapply(fx.companyId, { paymentId: pay, invoiceId }));
+      const notePlan = (invoiceId: string) => inTx(fx, () => planCreditNoteUnapply(fx.companyId, { creditNoteId: note, invoiceId }));
+      expect(await refusal(plan(deleted))).toContain('deleted');
+      expect(await refusal(plan(cancelledBill))).toContain('is cancelled');
+      expect(await refusal(notePlan(deleted))).toContain('deleted');
+      expect(await refusal(notePlan(cancelledBill))).toContain('is cancelled');
+    });
+  });
+
   describe('unapply_credit_note', () => {
     it('takes one application back: the bill reopens, the note keeps its journal and gains a remainder', async () => {
       const b1 = await seedBill(fx, { number: 'N1', date: '2026-05-06', total: 60 });
