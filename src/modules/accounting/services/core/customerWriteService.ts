@@ -78,6 +78,26 @@ function trimmed(value: string | null | undefined): string | null {
   return t ? t.slice(0, MAX_TEXT) : null;
 }
 
+/**
+ * The trimmed value of a field whose column is NARROWER than MAX_TEXT, or a
+ * refusal naming it. `trimmed()` slices to 255, which does nothing for a
+ * VARCHAR(50): the value reached the INSERT and Postgres raised 22001, whose
+ * message names the type but not the column. Refused, not sliced — a VAT or
+ * bank number cut short is a wrong number, not a shorter one.
+ */
+export function boundedText(
+  value: string | null | undefined,
+  field: string,
+  max: number,
+): string | null {
+  if (typeof value !== 'string') return null;
+  const t = value.trim();
+  if (t.length > max) {
+    throw new ContactValidationError(`${field} is ${t.length} characters; the maximum is ${max}`);
+  }
+  return t || null;
+}
+
 function assertName(name: string | undefined): string {
   const t = typeof name === 'string' ? name.trim() : '';
   if (!t) throw new ContactValidationError('Customer name is required');
@@ -143,17 +163,17 @@ export async function createCustomer(
       ${companyId}::UUID,
       ${name},
       ${trimmed(input.email)},
-      ${trimmed(input.phone)},
-      ${trimmed(input.mobile)},
-      ${trimmed(input.fax)},
+      ${boundedText(input.phone, 'phone', 50)},
+      ${boundedText(input.mobile, 'mobile', 50)},
+      ${boundedText(input.fax, 'fax', 50)},
       ${trimmed(input.webAddress)},
-      ${trimmed(input.vatNumber)},
-      ${trimmed(input.registrationNumber)},
+      ${boundedText(input.vatNumber, 'vat_number', 50)},
+      ${boundedText(input.registrationNumber, 'registration_number', 50)},
       ${trimmed(input.billingAddress)},
       ${trimmed(input.shippingAddress)},
       ${trimmed(input.contactPerson)},
       ${input.paymentTerms ?? 30},
-      ${trimmed(input.paymentTermsType) ?? 'days'},
+      ${boundedText(input.paymentTermsType, 'payment_terms_type', 30) ?? 'days'},
       ${input.creditLimit ?? null},
       ${input.isActive ?? true},
       ${trimmed(input.notes)},
@@ -164,12 +184,12 @@ export async function createCustomer(
       ${input.acceptsElectronicInvoices ?? false},
       ${strategy},
       ${strategy !== 'off'},
-      ${trimmed(input.statementDistribution) ?? 'email'},
+      ${boundedText(input.statementDistribution, 'statement_distribution', 20) ?? 'email'},
       ${input.defaultDiscount ?? 0},
-      ${trimmed(input.defaultVatType)},
+      ${boundedText(input.defaultVatType, 'default_vat_type', 50)},
       ${input.subjectToDrcVat ?? false},
       ${input.invoicesViewableOnline ?? true},
-      ${trimmed(input.defaultPriceList)}
+      ${boundedText(input.defaultPriceList, 'default_price_list', 100)}
     )
     RETURNING *
   `) as DbRow[];
@@ -215,24 +235,24 @@ export async function updateCustomer(
     UPDATE customers SET
       name            = COALESCE(${name}, name),
       email           = COALESCE(${trimmed(input.email)}, email),
-      phone           = COALESCE(${trimmed(input.phone)}, phone),
-      mobile          = COALESCE(${trimmed(input.mobile)}, mobile),
-      fax             = COALESCE(${trimmed(input.fax)}, fax),
+      phone           = COALESCE(${boundedText(input.phone, 'phone', 50)}, phone),
+      mobile          = COALESCE(${boundedText(input.mobile, 'mobile', 50)}, mobile),
+      fax             = COALESCE(${boundedText(input.fax, 'fax', 50)}, fax),
       web_address     = COALESCE(${trimmed(input.webAddress)}, web_address),
-      vat_number      = COALESCE(${trimmed(input.vatNumber)}, vat_number),
-      registration_number = COALESCE(${trimmed(input.registrationNumber)}, registration_number),
+      vat_number      = COALESCE(${boundedText(input.vatNumber, 'vat_number', 50)}, vat_number),
+      registration_number = COALESCE(${boundedText(input.registrationNumber, 'registration_number', 50)}, registration_number),
       billing_address = COALESCE(${trimmed(input.billingAddress)}, billing_address),
       shipping_address = COALESCE(${trimmed(input.shippingAddress)}, shipping_address),
       contact_person  = COALESCE(${trimmed(input.contactPerson)}, contact_person),
       payment_terms   = COALESCE(${input.paymentTerms ?? null}, payment_terms),
-      payment_terms_type = COALESCE(${trimmed(input.paymentTermsType)}, payment_terms_type),
+      payment_terms_type = COALESCE(${boundedText(input.paymentTermsType, 'payment_terms_type', 30)}, payment_terms_type),
       credit_limit    = COALESCE(${input.creditLimit ?? null}, credit_limit),
       is_active       = COALESCE(${input.isActive ?? null}, is_active),
       notes           = COALESCE(${trimmed(input.notes)}, notes),
       category_id     = COALESCE(${trimmed(input.categoryId)}::UUID, category_id),
       cash_sale       = COALESCE(${input.cashSale ?? null}, cash_sale),
       default_discount = COALESCE(${input.defaultDiscount ?? null}, default_discount),
-      default_vat_type = COALESCE(${trimmed(input.defaultVatType)}, default_vat_type),
+      default_vat_type = COALESCE(${boundedText(input.defaultVatType, 'default_vat_type', 50)}, default_vat_type),
       subject_to_drc_vat = COALESCE(${input.subjectToDrcVat ?? null}, subject_to_drc_vat),
       accepts_electronic_invoices =
         COALESCE(${input.acceptsElectronicInvoices ?? null}, accepts_electronic_invoices),
@@ -240,9 +260,9 @@ export async function updateCustomer(
       auto_allocate_receipts = COALESCE(
         ${strategy !== undefined ? strategy !== 'off' : null}, auto_allocate_receipts
       ),
-      statement_distribution = COALESCE(${trimmed(input.statementDistribution)}, statement_distribution),
+      statement_distribution = COALESCE(${boundedText(input.statementDistribution, 'statement_distribution', 20)}, statement_distribution),
       invoices_viewable_online = COALESCE(${input.invoicesViewableOnline ?? null}, invoices_viewable_online),
-      default_price_list = COALESCE(${trimmed(input.defaultPriceList)}, default_price_list),
+      default_price_list = COALESCE(${boundedText(input.defaultPriceList, 'default_price_list', 100)}, default_price_list),
       updated_at      = NOW()
     WHERE id = ${customerId}::UUID
       AND company_id = ${companyId}::UUID

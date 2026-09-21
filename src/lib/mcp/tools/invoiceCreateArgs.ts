@@ -17,6 +17,33 @@ import { castableArgError, strArg } from './toolHelpers';
 /** More lines than this on one invoice is a mistake, not a bill. */
 export const MAX_LINES = 200;
 
+/**
+ * supplier_invoices column widths for the free-text fields an agent supplies.
+ * Past them Postgres raises 22001, whose message names the TYPE but not the
+ * column — the agent saw a generic database error, and in the bulk tool one
+ * such element unwound the batch. The inputSchema maxLength is documentation
+ * only (the transport does not validate), so this is the enforcement.
+ */
+export const SUPPLIER_INVOICE_TEXT_LIMITS = {
+  invoice_number: 50,
+  payment_terms: 50,
+  reference: 255,
+} as const;
+
+/** The first field whose trimmed value is over its limit, as a refusal. */
+function overLimit(
+  args: Record<string, unknown>,
+  limits: Readonly<Record<string, number>>,
+): string | null {
+  for (const [field, max] of Object.entries(limits)) {
+    const value = strArg(args, field);
+    if (value !== undefined && value.length > max) {
+      return `${field} is ${value.length} characters; the maximum is ${max}`;
+    }
+  }
+  return null;
+}
+
 export interface ParsedSupplierInvoice {
   supplierId: string;
   invoiceNumber: string;
@@ -122,6 +149,9 @@ export function parseSupplierInvoiceInput(
   if (!supplierId) return 'supplier_id is required';
   if (!invoiceNumber) return 'invoice_number is required';
   if (!invoiceDate) return 'invoice_date is required (YYYY-MM-DD)';
+
+  const tooLong = overLimit(args, SUPPLIER_INVOICE_TEXT_LIMITS);
+  if (tooLong) return tooLong;
 
   const bad = castableArgError(args, {
     uuid: ['supplier_id'],

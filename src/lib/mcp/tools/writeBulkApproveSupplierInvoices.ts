@@ -89,13 +89,18 @@ const adapter: BulkApproveAdapter<ApprovedRow> = {
     // as the entry date, so it is what the fiscal-period verdict must be read
     // for — not today's date, and not due_date.
     const rows = (await sql`
-      SELECT id, status, invoice_date
+      SELECT id, status, invoice_date, total_amount
       FROM supplier_invoices
       WHERE company_id = ${companyId}::UUID AND id = ANY(${[...ids]}::UUID[])
     `) as DbRow[];
     return new Map<string, DocumentState>(rows.map((r) => [
       String(r.id),
-      { id: String(r.id), status: String(r.status), entryDate: r.invoice_date as string | Date },
+      {
+        id: String(r.id),
+        status: String(r.status),
+        entryDate: r.invoice_date as string | Date,
+        totalAmount: Number(r.total_amount),
+      },
     ]));
   },
   async postOne(ctx, id) {

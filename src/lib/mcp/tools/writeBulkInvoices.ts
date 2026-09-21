@@ -31,7 +31,7 @@ import { createSupplierInvoice } from '@/modules/accounting/services/ap/supplier
 import { supplierBelongsToCompany } from '@/modules/accounting/services/core/contactDirectoryService';
 import { accountsBelongToCompany } from '@/modules/accounting/services/gl/chartOfAccountsService';
 import { mcpPostingOpts } from '../mcpActor';
-import { MAX_LINES } from './invoiceCreateArgs';
+import { MAX_LINES, SUPPLIER_INVOICE_TEXT_LIMITS as TEXT_LIMITS } from './invoiceCreateArgs';
 import { partitionSupplierInvoiceBatch } from './bulkInvoiceDuplicateSkip';
 import { NOT_FOUND, ok, safeErrorText, toolError } from './toolHelpers';
 import { MissingSystemAccountError } from '@/modules/accounting/services/gl/systemAccountKeys';
@@ -118,12 +118,16 @@ export const bulkCreateSupplierInvoicesTool: McpTool = {
           type: 'object',
           properties: {
             supplier_id: { type: 'string', description: 'Supplier UUID (from list_suppliers)' },
-            invoice_number: { type: 'string', description: "The supplier's own invoice number" },
+            invoice_number: {
+              type: 'string',
+              maxLength: TEXT_LIMITS.invoice_number,
+              description: `The supplier's own invoice number. Refused over ${TEXT_LIMITS.invoice_number} characters.`,
+            },
             invoice_date: { type: 'string', format: 'date', description: 'YYYY-MM-DD' },
             due_date: { type: 'string', format: 'date' },
             tax_rate: { type: 'number', description: 'Invoice-level VAT %, default 15' },
-            payment_terms: { type: 'string' },
-            reference: { type: 'string' },
+            payment_terms: { type: 'string', maxLength: TEXT_LIMITS.payment_terms },
+            reference: { type: 'string', maxLength: TEXT_LIMITS.reference },
             notes: { type: 'string' },
             lines: {
               type: 'array', minItems: 1, maxItems: MAX_LINES, items: SUPPLIER_LINE_SCHEMA,

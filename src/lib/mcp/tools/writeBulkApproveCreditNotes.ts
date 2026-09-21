@@ -108,7 +108,7 @@ function buildAdapter(autoApply: CreditNoteAutoApply): BulkApproveAdapter<Approv
   approvableStatuses: APPROVABLE,
   async readStates(companyId, ids) {
     const rows = (await sql`
-      SELECT id, status, credit_date, credit_note_number, type,
+      SELECT id, status, credit_date, credit_note_number, type, total_amount,
              COALESCE(customer_invoice_id, supplier_invoice_id) AS linked_invoice_id
       FROM credit_notes
       WHERE company_id = ${companyId}::UUID AND id = ANY(${[...ids]}::UUID[])
@@ -121,6 +121,7 @@ function buildAdapter(autoApply: CreditNoteAutoApply): BulkApproveAdapter<Approv
         entryDate: r.credit_date as string | Date,
         documentNumber: r.credit_note_number == null ? undefined : String(r.credit_note_number),
         documentType: String(r.type),
+        totalAmount: Number(r.total_amount),
         // The invoice this note is linked to, or '' when standalone. Carried
         // because it decides the SECOND row lock each element takes — see the
         // ordering note in the handler.
