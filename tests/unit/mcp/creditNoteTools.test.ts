@@ -194,6 +194,40 @@ describe('create_credit_note — pre-write guards', () => {
     expect(createCreditNote).not.toHaveBeenCalled();
   });
 
+  /**
+   * Two genuine returns to one supplier on one day for one amount are two
+   * credits. The refusal used to say "change the date, amount or reason" — but
+   * reason is not part of the duplicate key, so the only way through was to
+   * alter the date or the amount: falsify the document to pass the guard.
+   */
+  it('tells the truth about the way through: allow_duplicate, not a changed reason', async () => {
+    vi.mocked(findOpenDuplicateDraft).mockResolvedValue('dupe-id-1');
+    const r = await createCreditNoteTool.handler({ ...base, client_id: CUSTOMER, reason: 'other' }, ctx());
+    expect(errText(r)).toContain('allow_duplicate: true');
+    expect(errText(r)).not.toContain('reason');
+  });
+
+  it('creates a genuine second credit when allow_duplicate is true, without checking', async () => {
+    vi.mocked(findOpenDuplicateDraft).mockResolvedValue('dupe-id-1');
+    vi.mocked(createCreditNote).mockResolvedValue(draftNote as never);
+    const out = parseOk(await createCreditNoteTool.handler(
+      { ...base, client_id: CUSTOMER, allow_duplicate: true }, ctx(),
+    ));
+    expect(out).toMatchObject({ id: NOTE, status: 'draft' });
+    expect(findOpenDuplicateDraft).not.toHaveBeenCalled();
+  });
+
+  it('still refuses when allow_duplicate is anything but boolean true', async () => {
+    vi.mocked(findOpenDuplicateDraft).mockResolvedValue('dupe-id-1');
+    for (const allow_duplicate of [false, 'true', 1]) {
+      const r = await createCreditNoteTool.handler(
+        { ...base, client_id: CUSTOMER, allow_duplicate }, ctx(),
+      );
+      expect(r.isError).toBe(true);
+    }
+    expect(createCreditNote).not.toHaveBeenCalled();
+  });
+
   it('checks for a duplicate using the VAT-inclusive total, not the subtotal', async () => {
     vi.mocked(createCreditNote).mockResolvedValue(draftNote as never);
     await createCreditNoteTool.handler({ ...base, client_id: CUSTOMER }, ctx());
