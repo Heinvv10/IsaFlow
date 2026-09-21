@@ -31,6 +31,7 @@ export class ReconciledCashError extends Error {
 
 export type LineLock =
   | { kind: 'completed'; reconciliation: string }
+  | { kind: 'anomaly' }
   | { kind: 'sage' }
   | { kind: 'session' }
   | null;
@@ -49,12 +50,10 @@ export async function reconciliationLockOf(companyId: string, row: DbRow): Promi
       const account = r?.account_name ? String(r.account_name) : 'the bank account';
       const date = r?.statement_date ? fmtDate(r.statement_date) : 'an unknown date';
       // 'reconciled' by name on a session that is NOT completed is an anomaly
-      // (only completion writes that status); it is locked all the same, and
-      // the message says what it actually is rather than calling it completed.
-      const where = r?.status === 'completed'
-        ? `on the completed reconciliation of ${account} to ${date}`
-        : `marked reconciled on the reconciliation of ${account} to ${date}, which is not completed`;
-      return { kind: 'completed', reconciliation: where };
+      // (only completion writes that status): locked all the same, with its own
+      // message rather than one that calls it completed.
+      if (r?.status !== 'completed') return { kind: 'anomaly' };
+      return { kind: 'completed', reconciliation: `on the completed reconciliation of ${account} to ${date}` };
     }
     return { kind: 'session' };
   }
@@ -75,6 +74,10 @@ export function refuseLockedCash(lock: LineLock, subject: string): void {
   if (lock?.kind === 'completed') {
     throw new ReconciledCashError(
       `${subject} is ${lock.reconciliation}. A completed reconciliation ${TAIL}`);
+  }
+  if (lock?.kind === 'anomaly') {
+    throw new ReconciledCashError(`${subject} is marked reconciled on a reconciliation that isn't completed. `
+      + "That shouldn't happen, so contact support.");
   }
   if (lock?.kind === 'sage') {
     throw new ReconciledCashError(`${subject} was reconciled in the Sage import (no reconciliation in this app `

@@ -96,6 +96,19 @@ describeIfDb('K-064 r9 — bank reverse refuses cash a completed or Sage reconci
     await expectNothingWritten(a, 'reconciled');
   });
 
+  it("a line marked 'reconciled' on a reconciliation that isn't completed gets its own honest message", async () => {
+    const a = await allocated();
+    const rec = randomUUID();
+    await q(`INSERT INTO bank_reconciliations (id, company_id, bank_account_id, statement_date, status, started_by)
+      VALUES ($1, $2, $3, CURRENT_DATE, 'in_progress', $4)`, [rec, ids.A, ids.BANK_GL, ids.USER]);
+    await q("UPDATE bank_transactions SET status = 'reconciled', reconciliation_id = $1 WHERE id = $2", [rec, a.bankTx]);
+    const state = await act({ action: 'reverse', bankTransactionId: a.bankTx });
+    expect(state.statusCode, text(state)).toBe(400);
+    expect(text(state)).toContain("This bank line is marked reconciled on a reconciliation that isn't completed. That shouldn't happen, so contact support.");
+    expect(text(state)).not.toContain("can't be reopened");
+    await expectNothingWritten(a, 'reconciled');
+  });
+
   it('MCP void_payment reaches the same refusal through bank reverse, nothing written', async () => {
     const a = await allocated();
     await onReconciliation(a.bankTx, 'completed');

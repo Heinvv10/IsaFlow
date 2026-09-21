@@ -743,3 +743,21 @@ guard). Green: 91 files, 590 tests.
 - Register: the K-063/K-064/K-066 claim strings gain their missing sentence
   separator; `fixCommit` re-pointed at the code tip.
 Green: 91 files, 592 tests (`round11-green.log`).
+
+## Round 12 (2026-09-21) — final review of b4bc48633, the two LOWs
+
+- **Auto-post undo's locked re-check is pinned by a race.** A "completion" holds
+  the bank row and writes a completed reconciliation onto it; the undo's
+  unlocked fast path reads the line as unreconciled; the completion commits; the
+  undo's `undoRow`, now holding the lock, sees it reconciled → a `reconciled`
+  skip, no failure, nothing written. Removing the locked re-check (F1) makes it a
+  `failed` row → red. Undo on a line in an IN-PROGRESS session is a `reconciled`
+  skip too (one rule with bank reverse; the line stays in its session); both
+  undo checks restricted to completed/Sage (F2b) → red.
+- **The anomaly has its own message.** A line marked `reconciled` on a
+  reconciliation that is not completed (only completion writes that status)
+  now reads: "…is marked reconciled on a reconciliation that isn't completed.
+  That shouldn't happen, so contact support." — no longer "…which is not
+  completed. A completed reconciliation can't be reopened". Pinned; reverting to
+  the completed wording (F3) → red.
+Green: 91 files, 595 tests (`round12-green.log`).

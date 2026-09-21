@@ -149,6 +149,50 @@ describeIfDb('reconciled cash is locked on every caller of bank reverse', () => 
     void registry;
   });
 
+  it("auto-post undo's LOCKED re-check: a completion that commits after the fast path still makes it a 'reconciled' skip", async () => {
+    // Allocated, NOT yet on a reconciliation: the unlocked fast path lets it through.
+    const billId = await bill(fx.pool, { supplier: ids.SUP_A2, status: 'approved', total: 115 });
+    const bankTx = randomUUID();
+    await q(`INSERT INTO bank_transactions (id, company_id, bank_account_id, transaction_date, amount, description, status)
+      VALUES ($1, $2, $3, CURRENT_DATE, -115, 'K064 race', 'imported')`, [bankTx, ids.A, ids.BANK_GL]);
+    expect((await act({ action: 'allocate', bankTransactionId: bankTx, allocationType: 'supplier', entityId: ids.SUP_A2 })).statusCode).toBe(200);
+    const run = String((await q(`INSERT INTO bank_auto_post_runs (company_id, source, min_confidence, amount_cap,
+      created_by, posted_count, total_amount) VALUES ($1, 'categorization', 0.9, 0, $2, 1, 115) RETURNING id`,
+    [ids.A, ids.USER])).rows[0].id);
+    await q('UPDATE bank_transactions SET auto_post_run_id = $1 WHERE id = $2', [run, bankTx]);
+    const rec = randomUUID();
+    await q(`INSERT INTO bank_reconciliations (id, company_id, bank_account_id, statement_date, status, started_by)
+      VALUES ($1, $2, $3, CURRENT_DATE, 'completed', $4)`, [rec, ids.A, ids.BANK_GL, ids.USER]);
+
+    // A "completion" holds the row, writes the reconciliation onto it, and
+    // commits only after the undo has read the line in its fast path.
+    const holder: PoolClient = await getPoolForTests().connect();
+    try {
+      await holder.query('BEGIN');
+      await holder.query("UPDATE bank_transactions SET status = 'reconciled', reconciliation_id = $1 WHERE id = $2", [rec, bankTx]);
+      const undo = inRequest(() => undoRun(ids.A, run, ids.USER));
+      await new Promise((r) => setTimeout(r, 400));
+      await holder.query('COMMIT');
+      const result = await undo;
+      expect(result.skippedBy).toMatchObject({ reconciled: 1, failed: 0 });
+    } finally { holder.release(); }
+    expect(await billState(fx.pool, billId)).toEqual({ paid: 115, status: 'paid' });
+    expect((await q('SELECT status FROM bank_transactions WHERE id = $1', [bankTx])).rows[0].status).toBe('reconciled');
+  }, 20000);
+
+  it('auto-post undo on a line in an IN-PROGRESS session skips it — not detached, one rule with bank reverse', async () => {
+    const a = await lockedAllocation({ byIdOnly: true });
+    await q("UPDATE bank_reconciliations SET status = 'in_progress' WHERE id = (SELECT reconciliation_id FROM bank_transactions WHERE id = $1)", [a.bankTx]);
+    const run = String((await q(`INSERT INTO bank_auto_post_runs (company_id, source, min_confidence, amount_cap,
+      created_by, posted_count, total_amount) VALUES ($1, 'categorization', 0.9, 0, $2, 1, 115) RETURNING id`,
+    [ids.A, ids.USER])).rows[0].id);
+    await q('UPDATE bank_transactions SET auto_post_run_id = $1 WHERE id = $2', [run, a.bankTx]);
+    const result = await inRequest(() => undoRun(ids.A, run, ids.USER));
+    expect(result.skippedBy).toMatchObject({ reconciled: 1, failed: 0 });
+    expect((await q('SELECT reconciliation_id FROM bank_transactions WHERE id = $1', [a.bankTx])).rows[0].reconciliation_id).not.toBeNull();
+    await untouched(a, 'allocated');
+  });
+
   it('auto-post undo → a reconciled SKIP on the line (by id, not only by status), not a failed row', async () => {
     const a = await lockedAllocation({ byIdOnly: true });
     const run = String((await q(`INSERT INTO bank_auto_post_runs (company_id, source, min_confidence, amount_cap,
