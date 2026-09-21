@@ -41,6 +41,11 @@ describe('generateStatementsBatch', () => {
   });
   afterEach(() => { vi.unstubAllGlobals(); });
 
+  it('names a selected id that is not in the list, instead of dropping it from the count', async () => {
+    const result = await generateStatementsBatch(new Set(['live', 'stale']), customers, '2026-09-21');
+    expect(result).toEqual({ generated: 1, skipped: [{ name: 'stale', reason: 'not in the current balances list' }] });
+  });
+
   it('skips and names a customer whose statement call fails, instead of rendering R0.00', async () => {
     const result = await generateStatementsBatch(new Set(['gone', 'live']), customers, '2026-09-21');
     expect(result).toEqual({ generated: 1, skipped: [{ name: 'Gone Ltd', reason: 'Client not found' }] });

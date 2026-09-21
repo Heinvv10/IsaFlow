@@ -59,7 +59,10 @@ export async function generateStatementsBatch(
 
   for (const clientId of selected) {
     const cust = customers.find(c => c.client_id === clientId);
-    if (!cust) continue;
+    if (!cust) {
+      skipped.push({ name: clientId, reason: 'not in the current balances list' });
+      continue;
+    }
 
     const detailRes = await apiFetch(
       `/api/accounting/customer-statement-detail?client_id=${clientId}`
