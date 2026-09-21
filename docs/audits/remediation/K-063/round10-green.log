@@ -1,0 +1,5 @@
+# Round 10 GREEN — working tree, same fixture, --no-file-parallelism
+# 91 files: round9-green's 90 + tests/integration/k064-reconciled-cash-callers.int.test.ts
+exit=0
+ Test Files  91 passed (91)
+      Tests  590 passed | 1 skipped (591)
