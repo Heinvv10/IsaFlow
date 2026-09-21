@@ -19,11 +19,7 @@ export function buildExpenseLines(
   invoice: SupplierInvoice,
   defaultGlAccountId: string,
 ): JournalLineInput[] {
-  // A R0 item posts nothing, and a 0/0 journal line is refused by
-  // validateJournalLine — one such bill unwound a whole bulk approve. Dropped
-  // BEFORE allocation, so the rounding residual lands on the last real line:
-  // dropped after, a R0 last item would carry the residual (±R0.01) alone.
-  const items = (invoice.items ?? []).filter((i) => i.lineTotal !== 0);
+  const items = invoice.items ?? [];
   const sumLineTotal = items.reduce((s, i) => s + i.lineTotal, 0);
   const lineTotalsAreGross = invoice.taxRate > 0 && Math.abs(sumLineTotal - invoice.totalAmount) < 0.02;
   const netTotal = invoice.subtotal;
@@ -56,5 +52,35 @@ export function buildExpenseLines(
     });
   });
 
-  return lines;
+  return dropValuelessLines(lines);
+}
+
+/**
+ * validateJournalLine refuses a 0/0 line and a negative debit, and one such
+ * bill unwinds a whole bulk approve. Allocation above is left EXACTLY as it
+ * was — the last item keeps carrying the residual, on its own account and
+ * dimensions, even when it is a R0 item (an unread price from the capture
+ * pipeline carries the whole subtotal that way). Only afterwards:
+ *
+ *   - a last line that is a sub-cent-per-line NEGATIVE rounding overshoot is
+ *     folded into the largest line (ties → the later one). It is rounding, not
+ *     value. A larger negative is inconsistent data (Σ lines > subtotal) and is
+ *     left for the validator to refuse: folding it would re-dimension real value.
+ *   - a line that comes out at exactly R0.00 is dropped. It carries nothing.
+ */
+function dropValuelessLines(lines: JournalLineInput[]): JournalLineInput[] {
+  const last = lines[lines.length - 1];
+  const roundingTolerance = lines.length * 0.01;
+  if (last && last.debit < 0 && -last.debit <= roundingTolerance + 1e-9) {
+    let largest = -1;
+    for (let i = 0; i < lines.length - 1; i++) {
+      if (largest === -1 || lines[i]!.debit >= lines[largest]!.debit) largest = i;
+    }
+    if (largest !== -1) {
+      const target = lines[largest]!;
+      target.debit = Math.round((target.debit + last.debit) * 100) / 100;
+      last.debit = 0;
+    }
+  }
+  return lines.filter((l) => l.debit !== 0);
 }

@@ -87,17 +87,69 @@ describe('buildExpenseLines — zero-value items', () => {
     expect(validateJournalEntry(fullJournal(inv)).valid).toBe(true);
   });
 
-  it('puts the rounding residual on the last NON-zero line when the last item is R0', () => {
+  it('folds a sub-cent NEGATIVE residual on a R0 last item into the largest line', () => {
     // Gross storage (line totals sum to totalAmount 20.00): each R10 line scales
-    // to 10 × 17.41/20 = 8.705 → 8.71, overshooting net 17.41 by R0.01. Before
-    // the fix the R0 last item absorbed it as a −0.01 debit, which the
-    // validator also refuses. It must land on the second R10 line instead.
+    // to 10 × 17.41/20 = 8.705 → 8.71, overshooting net 17.41 by R0.01. The R0
+    // last item was handed that as a −0.01 debit, which the validator refuses.
+    // It is rounding, so it folds into the largest line (ties → the later one).
     const inv = invoice([item(10), item(10), item(0)], 17.41, 2.59);
 
     const lines = buildExpenseLines(inv, DEFAULT_EXPENSE);
 
     expect(lines.map((l) => l.debit)).toEqual([8.71, 8.7]);
     expect(validateJournalEntry(fullJournal(inv)).valid).toBe(true);
+  });
+
+  /**
+   * Adversarial review HIGH: the AI capture pipeline writes an unread line
+   * price as 0 and the header subtotal from the document total. The last item
+   * has always carried the residual — here the whole R1,000 — so dropping R0
+   * items BEFORE allocation left no expense line and an unbalanced journal on a
+   * bill that used to post.
+   */
+  it('keeps a single R0 item that carries the whole subtotal as its residual', () => {
+    const inv = invoice([item(0, { glAccountId: 'gl-exp-b' })], 1000, 150);
+
+    const lines = buildExpenseLines(inv, DEFAULT_EXPENSE);
+
+    expect(lines).toEqual([expect.objectContaining({ glAccountId: 'gl-exp-b', debit: 1000 })]);
+    expect(validateJournalEntry(fullJournal(inv)).valid).toBe(true);
+  });
+
+  /** Adversarial review MEDIUM: the residual must stay on the account and
+   *  project it always landed on, not move to another line. */
+  it('leaves a real residual on the R0 last item\'s own account and project', () => {
+    const inv = invoice([
+      item(500, { glAccountId: 'gl-exp-a', projectId: 'p1' }),
+      item(0, { glAccountId: 'gl-exp-b', projectId: 'p2' }),
+    ], 1000);
+
+    const lines = buildExpenseLines(inv, DEFAULT_EXPENSE);
+
+    expect(lines).toEqual([
+      expect.objectContaining({ glAccountId: 'gl-exp-a', projectId: 'p1', debit: 500 }),
+      expect.objectContaining({ glAccountId: 'gl-exp-b', projectId: 'p2', debit: 500 }),
+    ]);
+  });
+
+  /** Adversarial review LOW: a tiny last item can round to R0.00 exactly. */
+  it('drops a last line that rounds to exactly R0.00', () => {
+    const inv = invoice([item(100), item(0.01)], 100);
+
+    expect(buildExpenseLines(inv, DEFAULT_EXPENSE).map((l) => l.debit)).toEqual([100]);
+    expect(validateJournalEntry(fullJournal(inv)).valid).toBe(true);
+  });
+
+  it('does NOT fold a negative residual larger than rounding — that is bad data, left to refuse', () => {
+    // Σ line totals 1,200 against a net subtotal of 1,000, net storage: the last
+    // line comes out at −200. Moving R200 onto another line would silently
+    // re-dimension real value, so the builder leaves it for the validator.
+    const inv = invoice([item(600), item(600), item(0)], 1000);
+
+    const lines = buildExpenseLines(inv, DEFAULT_EXPENSE);
+
+    expect(lines.map((l) => l.debit)).toEqual([600, 600, -200]);
+    expect(validateJournalEntry(fullJournal(inv)).valid).toBe(false);
   });
 
   it('leaves a bill with no zero items unchanged', () => {
