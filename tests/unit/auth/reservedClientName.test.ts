@@ -251,6 +251,47 @@ describe('isReservedClientName', () => {
     }
   });
 
+  // The negation must BE the start of the token. Checking only what sits in
+  // front of the term let any word ending in "un", "non" or "not" shelter it —
+  // each of these reads as a claim, and is one deleted space from a refusal.
+  it('does not let a word that merely ends in un/non/not shelter a term', () => {
+    for (const name of ['CanonOfficial', 'CanonVerified', 'SunOfficial', 'XenonOfficial', 'RunVerified', 'KnotVerified', 'CanonFirstParty']) {
+      expect(isReservedClientName(asHandlerWould(name)), name).toBe(true);
+    }
+    // A negation shelters only the term directly behind it. A second copy
+    // further along the same token is still a claim.
+    expect(isReservedClientName(asHandlerWould('UnofficialOfficial'))).toBe(true);
+  });
+
+  // The shelter is a privilege, so it is granted only for a negation written in
+  // plain letters. NFKD folds superscripts into ordinary letters, so these
+  // tokenize as "unofficial" while rendering as "Official" with a smudge.
+  it('does not let a near-invisible negation shelter a term', () => {
+    for (const name of [
+      '\u1D58\u207FOfficial', // superscript un
+      '\u1D64\u2099Official', // subscript un
+      '\u1D58\u207FVerified Partner',
+      '\u207F\u1D52\u207FOfficial', // superscript non
+    ]) {
+      expect(isReservedClientName(asHandlerWould(name)), JSON.stringify(name)).toBe(true);
+    }
+  });
+
+  // The plain confirmation is bound to the token it vouches for. One visible
+  // "Unofficial" must not lend its shelter to a disguised "Official" beside it.
+  it('does not let one plain negation shelter a disguised one elsewhere', () => {
+    expect(isReservedClientName(asHandlerWould('Unofficial \u1D58\u207FOfficial'))).toBe(true);
+    // ...while two plain negations each shelter their own token.
+    expect(isReservedClientName(asHandlerWould('Unofficial Unofficial Sync'))).toBe(false);
+  });
+
+  // The measured cost of granting the shelter only to plain letters: a
+  // decorated disclaimer is refused. Recorded so a future loosening is a
+  // decision rather than a bug fix.
+  it('refuses a negation written in decorated letters', () => {
+    expect(isReservedClientName(asHandlerWould('\uFF35\uFF4E\uFF4F\uFF46\uFF46\uFF49\uFF43\uFF49\uFF41\uFF4C'))).toBe(true);
+  });
+
   // An unidentified letter stays inside the token as a wildcard rather than
   // splitting it. As a separator it broke the word in two, and a welded affix
   // then pushed the run past the length bound and stranded the wildcard the
