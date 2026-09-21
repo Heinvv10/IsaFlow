@@ -101,6 +101,10 @@ const handler: NextApiHandler = async (req, res) => {
   }
 
   // Optional metadata — validate what we honour, reject what we can't.
+  // Truncate BEFORE the reserved-name check, never after: the check's cost grows
+  // with length, and it runs before the global rate limit is charged, so a
+  // refused name is bounded only by this cut (~0.6ms at 80 chars, ~20ms on an
+  // untruncated 8kb body).
   const clientName =
     typeof body.client_name === 'string' && body.client_name.trim()
       ? body.client_name.trim().slice(0, MAX_NAME_LEN)
