@@ -199,32 +199,56 @@ describe('create_credit_note — pre-write guards', () => {
    * credits. The refusal used to say "change the date, amount or reason" — but
    * reason is not part of the duplicate key, so the only way through was to
    * alter the date or the amount: falsify the document to pass the guard.
+   *
+   * The override must NAME the draft it overrides (adversarial review): a bare
+   * boolean could be sent blind on a first call, after which every fresh-key
+   * retry would mint another identical note — the case the guard exists for.
    */
-  it('tells the truth about the way through: allow_duplicate, not a changed reason', async () => {
-    vi.mocked(findOpenDuplicateDraft).mockResolvedValue('dupe-id-1');
+  const DUP = '0b0b0b0b-0000-4000-8000-000000000001';
+  const NEWER_DUP = '0b0b0b0b-0000-4000-8000-000000000002';
+
+  it('tells the truth about the way through: duplicate_of naming the draft, not a changed reason', async () => {
+    vi.mocked(findOpenDuplicateDraft).mockResolvedValue(DUP);
     const r = await createCreditNoteTool.handler({ ...base, client_id: CUSTOMER, reason: 'other' }, ctx());
-    expect(errText(r)).toContain('allow_duplicate: true');
+    expect(errText(r)).toContain(`duplicate_of: "${DUP}"`);
     expect(errText(r)).not.toContain('reason');
+    expect(createCreditNote).not.toHaveBeenCalled();
   });
 
-  it('creates a genuine second credit when allow_duplicate is true, without checking', async () => {
-    vi.mocked(findOpenDuplicateDraft).mockResolvedValue('dupe-id-1');
+  it('creates a genuine second credit when duplicate_of names the current identical draft', async () => {
+    vi.mocked(findOpenDuplicateDraft).mockResolvedValue(DUP);
     vi.mocked(createCreditNote).mockResolvedValue(draftNote as never);
     const out = parseOk(await createCreditNoteTool.handler(
-      { ...base, client_id: CUSTOMER, allow_duplicate: true }, ctx(),
+      { ...base, client_id: CUSTOMER, duplicate_of: DUP }, ctx(),
     ));
     expect(out).toMatchObject({ id: NOTE, status: 'draft' });
-    expect(findOpenDuplicateDraft).not.toHaveBeenCalled();
   });
 
-  it('still refuses when allow_duplicate is anything but boolean true', async () => {
-    vi.mocked(findOpenDuplicateDraft).mockResolvedValue('dupe-id-1');
-    for (const allow_duplicate of [false, 'true', 1]) {
-      const r = await createCreditNoteTool.handler(
-        { ...base, client_id: CUSTOMER, allow_duplicate }, ctx(),
-      );
-      expect(r.isError).toBe(true);
-    }
+  it('refuses a stale duplicate_of — a fresh-key retry after the override cannot mint a third', async () => {
+    // The override created NEWER_DUP; the retry still names DUP.
+    vi.mocked(findOpenDuplicateDraft).mockResolvedValue(NEWER_DUP);
+    const r = await createCreditNoteTool.handler({ ...base, client_id: CUSTOMER, duplicate_of: DUP }, ctx());
+    expect(errText(r)).toContain(NEWER_DUP);
+    expect(createCreditNote).not.toHaveBeenCalled();
+  });
+
+  it('refuses duplicate_of when there is no identical draft — it cannot be sent blind', async () => {
+    const r = await createCreditNoteTool.handler({ ...base, client_id: CUSTOMER, duplicate_of: DUP }, ctx());
+    expect(errText(r)).toContain('no identical open draft');
+    expect(createCreditNote).not.toHaveBeenCalled();
+  });
+
+  it('refuses a duplicate_of that is not a uuid, before any read', async () => {
+    const r = await createCreditNoteTool.handler({ ...base, client_id: CUSTOMER, duplicate_of: 'yes' }, ctx());
+    expect(r.isError).toBe(true);
+    expect(findOpenDuplicateDraft).not.toHaveBeenCalled();
+    expect(createCreditNote).not.toHaveBeenCalled();
+  });
+
+  it('ignores the old boolean: allow_duplicate no longer opens the guard', async () => {
+    vi.mocked(findOpenDuplicateDraft).mockResolvedValue(DUP);
+    const r = await createCreditNoteTool.handler({ ...base, client_id: CUSTOMER, allow_duplicate: true }, ctx());
+    expect(r.isError).toBe(true);
     expect(createCreditNote).not.toHaveBeenCalled();
   });
 

@@ -127,7 +127,7 @@ async function validateSupplierLinks(
  * point it is two journals and two credits against one invoice — the drafts
  * being harmless is exactly what makes the pair easy to miss.
  *
- * Returns the existing note's id, or null.
+ * Returns the MOST RECENT identical draft's id (the one duplicate_of must name), or null.
  */
 export async function findOpenDuplicateDraft(
   companyId: string,
@@ -148,6 +148,9 @@ export async function findOpenDuplicateDraft(
       AND supplier_id IS NOT DISTINCT FROM ${input.supplierId || null}::UUID
       AND customer_invoice_id IS NOT DISTINCT FROM ${input.customerInvoiceId || null}::UUID
       AND supplier_invoice_id IS NOT DISTINCT FROM ${input.supplierInvoiceId || null}::UUID
+    -- The MOST RECENT identical draft: create_credit_note's duplicate_of
+    -- override must name this one, so a retry naming an older draft is refused.
+    ORDER BY created_at DESC, id DESC
     LIMIT 1
   `) as Row[];
   return rows.length > 0 ? String(rows[0]!.id) : null;
