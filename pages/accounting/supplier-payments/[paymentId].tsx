@@ -11,6 +11,7 @@ import { ArrowLeft, Wallet, Loader2, AlertCircle, Check, Zap } from 'lucide-reac
 import { AccountingDocumentPanel } from '@/modules/accounting/documents';
 import { formatCurrency, formatDate } from '@/utils/formatters';
 import { apiErrorMessage, apiFetch, assertOk } from '@/lib/apiFetch';
+import { ConfirmDialog } from '@/components/accounting/ConfirmDialog';
 
 function StatusBadge({ status }: { status: string }) {
   const colors: Record<string, string> = {
@@ -58,6 +59,7 @@ export default function SupplierPaymentDetailPage() {
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState('');
   const [actionBusy, setActionBusy] = useState('');
+  const [confirming, setConfirming] = useState<'' | 'cancel' | 'void'>('');
 
   const load = useCallback(async () => {
     if (!paymentId) return;
@@ -132,10 +134,17 @@ export default function SupplierPaymentDetailPage() {
                     {actionBusy === 'process' ? <Loader2 className="h-4 w-4 animate-spin" /> : <Zap className="h-4 w-4" />} Process
                   </button>
                 )}
+                {/* Cancel = money never moved; Void = reverse money that did. */}
                 {(payment.status === 'draft' || payment.status === 'approved') && (
-                  <button onClick={() => handleAction('void')} disabled={!!actionBusy}
+                  <button onClick={() => setConfirming('cancel')} disabled={!!actionBusy}
                     className="inline-flex items-center gap-2 px-4 py-2 bg-red-600/10 text-red-400 rounded-lg hover:bg-red-600/20 text-sm font-medium disabled:opacity-50">
-                    Void
+                    Cancel payment
+                  </button>
+                )}
+                {payment.status === 'processed' && (
+                  <button onClick={() => setConfirming('void')} disabled={!!actionBusy}
+                    className="inline-flex items-center gap-2 px-4 py-2 bg-red-600/10 text-red-400 rounded-lg hover:bg-red-600/20 text-sm font-medium disabled:opacity-50">
+                    Void (reverse journal)
                   </button>
                 )}
               </div>
@@ -237,6 +246,19 @@ export default function SupplierPaymentDetailPage() {
           ) : null}
         </div>
       </div>
+      <ConfirmDialog
+        open={confirming !== ''}
+        title={confirming === 'void' ? 'Void this processed payment?' : 'Cancel this payment?'}
+        message={confirming === 'void'
+          ? 'The payment has been posted. Void reverses its journal (DR Bank / CR Accounts Payable) and reopens the bills it paid.'
+          : 'Nothing has been posted for this payment yet. Cancelling stops it for good and releases the bills it was going to pay — no journal is created or reversed. To undo a payment that has already been processed, use Void instead.'}
+        confirmLabel={confirming === 'void' ? 'Void payment' : 'Cancel payment'}
+        cancelLabel="Keep it"
+        confirmTone="danger"
+        busy={actionBusy !== ''}
+        onConfirm={() => { const a = confirming; setConfirming(''); if (a) void handleAction(a); }}
+        onCancel={() => setConfirming('')}
+      />
     </AppLayout>
   );
 }

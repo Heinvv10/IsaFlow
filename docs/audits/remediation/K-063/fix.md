@@ -270,3 +270,59 @@ are proved against PostgreSQL above.
   non-processed payment" encoded the old rule; it now asserts an approved payment
   voids with no reversal and no bill UPDATE, and a cancelled one is a typed
   refusal.
+
+## Round 5 (2026-09-21) — Cancel restored, alongside Void (Hein's decision)
+
+1693bb0fa removed the round-4 `cancel` action before the decision to keep it
+arrived. It is back on `supplier-payments-action`; everything else in 1693bb0fa
+stands (Void on a draft/approved payment, cancelBatch for approved batches).
+
+- **What Cancel is.** `supplierPaymentCancel.ts#cancelSupplierPayment`, for money
+  that never moved: `draft` or `approved` only. It posts nothing (no journal is
+  created or reversed) and flips the payment to `cancelled`, which drops its
+  allocations out of the pending set, so the bill can be promised again.
+  Refused with 400: a `processed` or `reconciled` payment ("its journal is
+  posted. Use Void, which reverses it"), any other status, and a batch member
+  ("cancel it through its batch"). The guarded UPDATE now RETURNs and refuses if
+  it matched nothing, so neither Cancel nor Void-of-unprocessed can answer 200
+  while doing nothing.
+- **Same gate as Void, exactly.** Both are actions on the one route, behind the
+  one `withWriteAccess` (default roles owner / admin / manager) and `withCsrf`;
+  a `viewer` gets 403 on both. Company-scoped: the payment lock and the read
+  both carry `company_id`; another company's id is 404. Audit: `log.info`
+  'Cancelled supplier payment' with id, userId and the status it left, the same
+  structured log Void writes (there is no DB audit trigger on
+  `supplier_payments` for either).
+- **Cancel racing Process.** Both take `lockSupplierPaymentForUpdate` first, so
+  one wins and the other is refused (400 or 409), never 500. 6 concurrent trials,
+  order alternated: 3 ended `processed` (journal linked, exactly one journal,
+  AP +1000, bill paid) and 3 `cancelled` (no journal, AP unchanged, bill untouched)
+  — `round5-cancel-race.log`.
+- **UI.** Payment page: "Cancel payment" for draft/approved only, with a
+  confirm dialog: "Nothing has been posted for this payment yet. Cancelling stops
+  it for good and releases the bills it was going to pay — no journal is created
+  or reversed. To undo a payment that has already been processed, use Void
+  instead." A processed payment shows "Void (reverse journal)" instead, whose
+  dialog says it reverses DR Bank / CR Accounts Payable. Batch page: an APPROVED
+  batch shows Cancel next to Process (added in round 4; seen in
+  `round4-ui-batch-refusal.png`). **Browser**: dev server on the fixture, an
+  approved payment: header buttons "Process" and "Cancel payment"; the dialog
+  text above (`round5-ui-cancel-dialog.png`); confirm → POST 200, the server
+  logged 'Cancelled supplier payment', the page reloads showing `cancelled` with
+  no action buttons (`round5-ui-cancel-after.png`). Seen in passing, not
+  changed: the allocations table on that page shows "RNaN" per line.
+- **Tests.** `tests/integration/k064-cancel-payment.int.test.ts` (approved and
+  draft cancel, processed refused with journal intact, viewer 403 on cancel and
+  void, foreign id 404, the race); `tests/unit/components/apPaymentCancelControls.test.tsx`
+  (Cancel only for draft/approved and sends `action: cancel`; Void only for
+  processed; approved batch shows Cancel). 53 integration files, 352 tests
+  (`round5-green.log`).
+- **Mutations** (`round5-mutations.log`): removing the processed refusal alone
+  still refuses (the second status check), with the wrong words → red; removing
+  BOTH checks → the processed payment is answered 200 and left processed → red
+  (the RETURNING guard since added makes that a 400 too); dropping
+  `withWriteAccess` → viewer 200 → red; removing the Cancel button → 2 red. All
+  restored byte-identical.
+- `SupplierPaymentNotFoundError` moved to `supplierPaymentNotFound.ts` (re-exported
+  from the workflow service unchanged) so the cancel module can raise it without
+  a circular import.
