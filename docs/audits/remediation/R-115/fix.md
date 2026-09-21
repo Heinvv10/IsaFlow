@@ -64,6 +64,11 @@ already showed only Balance and Overdue.
   listed row is proven by the integration test. The soft-deleted customer (invoice R 250) is not
   listed. No page errors.
 
+- Browser round 2 (`ui-round2.log`, `r115-customer-statements-r2.png`), after the list moved to a
+  customer-first query: `R112 Deposit Customer` (a R 500 receipt, no invoice) is listed as
+  Invoiced R 0,00 · Paid R 500,00 · Credits R 0,00 · Balance -R 500,00; the statement customer is
+  unchanged at R 1 300,00; no page errors.
+
 ## Not changed
 
 The list ignores the `as_at_date` its pages send and is always as at today, as it was on master.
