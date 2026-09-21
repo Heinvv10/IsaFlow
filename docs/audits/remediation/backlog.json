@@ -2321,23 +2321,27 @@
       "correctedTrigger": null,
       "severityRationale": "Source priority only; impact and reachability not yet validated.",
       "auditedSha": "5661d6f0f5f2212705151e95455a3f681ddf840e",
-      "currentSha": "57ef8405",
-      "status": "in-progress",
+      "currentSha": "2725e1a68",
+      "status": "fixed",
       "dependencies": [],
       "testNames": [
-        "tests/integration/k063-supplier-payment-settles-unapproved-bill.int.test.ts"
+        "tests/integration/k063-supplier-allocation-status-gate.int.test.ts",
+        "tests/integration/k063-k066-process-time-gate.int.test.ts",
+        "tests/integration/k063-deleted-bill-and-batch-member.int.test.ts"
       ],
       "evidencePaths": [
         "K-063/red.log",
-        "K-063/validation.md"
+        "K-063/validation.md",
+        "K-063/fix.md"
       ],
-      "fixCommit": "57ef8405",
+      "fixCommit": "2725e1a68",
       "pr": null,
       "deployedSha": null,
       "historicalDataImpact": "Not assessed",
       "canonicalItem": null,
       "reportedSeverity": "high",
-      "branch": "fix/audit-k063-k064-k066-ap-allocation-guards"
+      "branch": "fix/audit-k063-k064-k066-ap-allocation-guards",
+      "scopeNote": "This PR also covers batch reversal (a new feature Hein asked for), single-void bank-leg repairs, and fully applied supplier payments becoming voidable."
     },
     {
       "id": "K-064",
@@ -2353,23 +2357,31 @@
       "correctedTrigger": null,
       "severityRationale": "Source priority only; impact and reachability not yet validated.",
       "auditedSha": "5661d6f0f5f2212705151e95455a3f681ddf840e",
-      "currentSha": "57ef8405",
-      "status": "in-progress",
+      "currentSha": "2725e1a68",
+      "status": "fixed",
       "dependencies": [],
       "testNames": [
-        "tests/integration/k064-batch-payment-creation-unvalidated.int.test.ts"
+        "tests/integration/k064-batch-payment-guarded.int.test.ts",
+        "tests/integration/k064-reservations-cents-cancel.int.test.ts",
+        "tests/integration/k064-stuck-loser-recovery.int.test.ts",
+        "tests/integration/k064-batch-reversal.int.test.ts",
+        "tests/integration/k064-bank-leg-and-void.int.test.ts",
+        "tests/integration/k064-void-applied-and-allocated.int.test.ts",
+        "tests/integration/k064-cancel-payment.int.test.ts"
       ],
       "evidencePaths": [
         "K-064/red.log",
-        "K-064/validation.md"
+        "K-064/validation.md",
+        "K-064/fix.md"
       ],
-      "fixCommit": "57ef8405",
+      "fixCommit": "2725e1a68",
       "pr": null,
       "deployedSha": null,
       "historicalDataImpact": "Not assessed",
       "canonicalItem": null,
       "reportedSeverity": "high",
-      "branch": "fix/audit-k063-k064-k066-ap-allocation-guards"
+      "branch": "fix/audit-k063-k064-k066-ap-allocation-guards",
+      "scopeNote": "This PR also covers batch reversal (a new feature Hein asked for), single-void bank-leg repairs, and fully applied supplier payments becoming voidable."
     },
     {
       "id": "K-065",
@@ -2417,23 +2429,26 @@
       "correctedTrigger": null,
       "severityRationale": "Source priority only; impact and reachability not yet validated.",
       "auditedSha": "5661d6f0f5f2212705151e95455a3f681ddf840e",
-      "currentSha": "57ef8405",
-      "status": "in-progress",
+      "currentSha": "2725e1a68",
+      "status": "fixed",
       "dependencies": [],
       "testNames": [
-        "tests/integration/k066-supplier-payment-foreign-bill.int.test.ts"
+        "tests/integration/k066-supplier-payment-foreign-bill.int.test.ts",
+        "tests/integration/k063-k066-process-time-gate.int.test.ts"
       ],
       "evidencePaths": [
         "K-066/red.log",
-        "K-066/validation.md"
+        "K-066/validation.md",
+        "K-066/fix.md"
       ],
-      "fixCommit": "57ef8405",
+      "fixCommit": "2725e1a68",
       "pr": null,
       "deployedSha": null,
       "historicalDataImpact": "Not assessed",
       "canonicalItem": null,
       "reportedSeverity": "high",
-      "branch": "fix/audit-k063-k064-k066-ap-allocation-guards"
+      "branch": "fix/audit-k063-k064-k066-ap-allocation-guards",
+      "scopeNote": "This PR also covers batch reversal (a new feature Hein asked for), single-void bank-leg repairs, and fully applied supplier payments becoming voidable."
     },
     {
       "id": "K-067",
@@ -12222,6 +12237,37 @@
       "severity": "low",
       "source": "Found by fix-r084a (R-084, out of scope item 3).",
       "processNotes": "Registered 2026-09-14 by session 71c707d0 (wave R-1)."
+    },
+    {
+      "claim": "The api/csrf integration test mints a JWT without an aal claim, so 3 of its 5 cases fail with 401 before the CSRF check runs; the test never exercises CSRF",
+      "sourceLabel": "",
+      "sourceIds": [],
+      "correctedTrigger": "",
+      "auditedSha": "6145c07ec",
+      "currentSha": "6145c07ec",
+      "status": "confirmed",
+      "dependencies": [],
+      "testNames": [
+        "tests/integration/api/csrf.test.ts"
+      ],
+      "fixCommit": null,
+      "pr": null,
+      "deployedSha": null,
+      "canonicalItem": null,
+      "reportedSeverity": "medium",
+      "branch": null,
+      "evidencePaths": [],
+      "id": "R-110",
+      "area": "auth",
+      "affectedPaths": [
+        "tests/integration/api/csrf.test.ts"
+      ],
+      "severityRationale": "A security gate that does not gate: the CSRF cases are refused by the auth layer (401) before CSRF is evaluated, so a regression in CSRF enforcement would pass this test.",
+      "historicalDataImpact": "None; test-only.",
+      "title": "api/csrf integration test mints JWTs without aal, so 3 of 5 cases 401 before CSRF runs and CSRF is never exercised",
+      "severity": "medium",
+      "source": "Blind reviewer run 2026-09-21 (K-063/K-064/K-066 PR review): aal2 tokens were accepted on the same dev server.",
+      "processNotes": "Registered 2026-09-21 by fix-k063 (K-063/K-064/K-066 PR), from the reviewer evidence; not re-run by the registering session."
     }
   ],
   "sourceInventory": [
