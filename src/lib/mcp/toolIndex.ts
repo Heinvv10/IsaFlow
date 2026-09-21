@@ -21,6 +21,7 @@ import { attachDocumentTool } from './tools/writeAttachDocument';
 import { getMatchCandidatesTool } from './tools/bankMatch';
 import { listUnappliedReceiptsTool, suggestReceiptMatchesTool } from './tools/receipts';
 import { listUnappliedPaymentsTool } from './tools/supplierPayments';
+import { listSupplierPaymentsTool } from './tools/listSupplierPayments';
 import { applyReceiptToInvoiceTool } from './tools/writeApplyReceipt';
 import { applyPaymentToSupplierInvoiceTool } from './tools/writeApplySupplierPayment';
 import { reverseJournalEntryTool } from './tools/writeJournalReverse';
@@ -193,6 +194,7 @@ export const MCP_TOOLS = [
   suggestReceiptMatchesTool,
   listUnappliedReceiptsTool,
   listUnappliedPaymentsTool,
+  listSupplierPaymentsTool,
   // Period control and bank completeness (W3). The five reads that let a caller
   // see the posting lock and prove a bank account's history.
   listFiscalPeriodsTool,

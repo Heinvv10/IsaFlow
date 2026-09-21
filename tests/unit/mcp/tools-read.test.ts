@@ -97,6 +97,9 @@ vi.mock('@/modules/accounting/services/ar/customerInvoiceReadService', () => ({
   getCustomerInvoiceDetail: vi.fn(),
 }));
 vi.mock('@/modules/accounting/services/ar/quoteService', () => ({ getQuotes: vi.fn() }));
+vi.mock('@/modules/accounting/services/ap/supplierPaymentListService', () => ({
+  listSupplierPayments: vi.fn(),
+}));
 vi.mock('@/modules/accounting/services/core/contactDirectoryService', () => ({
   listCustomers: vi.fn(),
   listSuppliers: vi.fn(),
@@ -146,6 +149,7 @@ import {
   listCustomers,
   listSuppliers,
 } from '@/modules/accounting/services/core/contactDirectoryService';
+import { listSupplierPayments } from '@/modules/accounting/services/ap/supplierPaymentListService';
 import { getBankAccountsStatus } from '@/modules/accounting/services/bank/bankAccountStatusService';
 import { getBankTransactions } from '@/modules/accounting/services/bank/bankTransactionQueryService';
 import { InvalidCursorError } from '@/modules/accounting/services/bank/bankTxCursor';
@@ -571,7 +575,7 @@ describe('suite-wide invariants', () => {
   const READ_TOOLS = MCP_TOOLS.filter((t) => !t.write);
 
   it('exactly 69 read tools, all write:false, additionalProperties:false everywhere', () => {
-    expect(READ_TOOLS).toHaveLength(69);
+    expect(READ_TOOLS).toHaveLength(70);
     // Every registered tool is drift-guarded against CLIENT_MCP_TOOL_NAMES.
     expect(MCP_TOOLS).toHaveLength(CLIENT_MCP_TOOL_NAMES.length);
     for (const t of READ_TOOLS) {
@@ -664,6 +668,9 @@ describe('suite-wide invariants', () => {
     // Feed every service mock innocuous data, run every tool, scan everything.
     vi.mocked(getCompany).mockResolvedValue({ name: 'Co' } as never);
     vi.mocked(getFiscalPeriodIdForDate).mockResolvedValue('fp-1');
+    vi.mocked(listSupplierPayments).mockResolvedValue({
+      rows: [], total: 0, totals: { paymentAmount: 0, allocatedAmount: 0, unappliedAmount: 0 },
+    });
     vi.mocked(getTrialBalanceReport).mockResolvedValue({
       fiscalPeriodId: 'fp-1', rows: [], accountCount: 0, totalDebit: 0, totalCredit: 0,
       difference: 0, balanced: true, periodStart: '2026-03-01', periodEnd: '2026-03-31',
