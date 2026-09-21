@@ -43,6 +43,7 @@ const emailBalance = async (c: string, asAt: string) => (await fetchStatementDat
 describeIfDb('R-116 statements honour the as-at date they are asked for', () => {
   let paying = '';
   let late = '';
+  let removed = '';
 
   beforeAll(async () => {
     assertDisposable();
@@ -71,9 +72,30 @@ describeIfDb('R-116 statements honour the as-at date they are asked for', () => 
     // A customer whose only document is dated after the earlier as-at dates.
     late = await customer('late');
     await invoice(late, 'L-INV', 250, -3);
+
+    // An invoice raised 30 days ago and soft-deleted today, whose journal the
+    // delete reversed 2 days ago: the ledger carried it until then, so a
+    // statement as at a date before the reversal still owes it.
+    removed = await customer('removed');
+    await invoice(removed, 'R-INV', 700, -30);
+    const [original] = (await sql`
+      INSERT INTO gl_journal_entries (company_id, entry_date, description, status, created_by)
+      VALUES (${f.companyA}::UUID, ${shift(-30)}::date, ${f.tag + ' R-INV'}, 'posted', ${f.user}::UUID) RETURNING id`) as { id: string }[];
+    await sql`
+      INSERT INTO gl_journal_entries (company_id, entry_date, description, status, reversal_of_id, created_by)
+      VALUES (${f.companyA}::UUID, ${shift(-2)}::date, ${f.tag + ' R-INV reversal'}, 'posted', ${original!.id}::UUID, ${f.user}::UUID)`;
+    await sql`
+      UPDATE customer_invoices SET gl_journal_entry_id = ${original!.id}::UUID, deleted_at = NOW()
+      WHERE company_id = ${f.companyA}::UUID AND invoice_number = ${f.tag + '-R-INV'}`;
   }, 120000);
 
-  afterAll(async () => { await cleanupPortalFixture(f); }, 120000);
+  afterAll(async () => {
+    // The shared cleanup knows nothing of journals; clear this suite's first.
+    await sql`UPDATE customer_invoices SET gl_journal_entry_id = NULL WHERE company_id = ${f.companyA}::UUID`;
+    await sql`DELETE FROM gl_journal_entries WHERE company_id = ${f.companyA}::UUID AND reversal_of_id IS NOT NULL`;
+    await sql`DELETE FROM gl_journal_entries WHERE company_id = ${f.companyA}::UUID`;
+    await cleanupPortalFixture(f);
+  }, 120000);
 
   it('the list states each balance as at the date asked, not as at today', async () => {
     for (const [days, balance] of [[-20, 1000], [-7, 600], [0, 500]] as const) {
@@ -102,6 +124,16 @@ describeIfDb('R-116 statements honour the as-at date they are asked for', () => 
     expect(d.transactions.map(t => t.reference)).toEqual([f.tag + '-P-INV', f.tag + '-P-RCPT']);
     expect(d.summary.balance).toBe(await emailBalance(paying, shift(-7)));
     expect((await detail(paying)).summary.balance).toBe(500);
+  });
+
+  it('asks whether a soft-deleted invoice is on the ledger at the as-at date, not today', async () => {
+    const before = shift(-7);
+    expect(await emailBalance(removed, before)).toBe(700);
+    expect((await list(before)).find(r => r.client_id === removed)).toMatchObject({ total_invoiced: 700, balance: 700 });
+    expect((await detail(removed, before)).summary.balance).toBe(700);
+    // As at today the delete's reversal has landed: no statement activity left.
+    expect((await list()).some(r => r.client_id === removed)).toBe(false);
+    expect((await detail(removed)).summary.balance).toBe(0);
   });
 
   it('refuses an as-at date that is not a real date, instead of a 500 or today', async () => {
