@@ -150,9 +150,13 @@ export const createCreditNoteTool: McpTool = {
       total,
     );
     if (duplicateOf && !duplicate) {
+      // The named draft is no longer an open draft — most likely approved or
+      // cancelled since the refusal. The dedupe only sees drafts, so a note
+      // created now would sit beside an APPROVED identical one unguarded.
       return toolError(
-        'duplicate_of was given but there is no identical open draft credit note to override. '
-        + 'Omit duplicate_of.',
+        `duplicate_of names ${duplicateOf}, which is no longer an identical open draft — it has probably `
+        + 'been approved or cancelled since. Check it with get_credit_note first: if it was approved, '
+        + 'creating another note now would credit the same amount twice.',
       );
     }
     if (duplicate && duplicate !== duplicateOf) {
