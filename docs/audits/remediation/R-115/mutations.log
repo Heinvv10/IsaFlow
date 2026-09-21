@@ -14,3 +14,4 @@ M13 client_id only on invoices:       Tests  5 failed (5) |      × subtracts ev
 M9 receipts company filter dropped (user in both companies):       Tests  2 failed | 3 passed (5) |      × subtracts every live credit note at the statement valuation|     × every listed balance is the balance of the statement it opens|
 M10 credits company filter dropped (user in both companies):       Tests  2 failed | 3 passed (5) |      × subtracts every live credit note at the statement valuation|     × every listed balance is the balance of the statement it opens|
 M11 customer company filter dropped (user in both companies):       Tests  2 failed | 3 passed (5) |      × does not list a soft-deleted customer, or another company's customer, who have no statement here|     × every listed balance is the balance of the statement it opens|
+M14 credit-only arm dropped:       Tests  2 failed | 3 passed (5)
