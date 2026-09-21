@@ -35,23 +35,29 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
     // Each row states the balance of the statement it opens — the emailed
     // statement as at today (R-115): invoices less settled receipts at their
     // full amount, less every live credit note at the statement valuation,
-    // nothing dated after today, and no row for a soft-deleted customer (who
-    // has no statement). The rules are customerStatementRules'; the list used
-    // to ignore credit notes entirely.
+    // nothing dated after today. The rules are customerStatementRules'; the
+    // list used to ignore credit notes entirely.
     //
-    // COALESCE(client_id, customer_id): both columns exist and either may
-    // hold the customer reference (project rule).
+    // Drawn from CUSTOMERS outward: every live customer of this company with
+    // any statement activity has a row — including one with only a receipt (a
+    // deposit, a credit balance), which an invoice-first list never showed. A
+    // soft-deleted customer, or an invoice naming no customer of this company,
+    // has no statement and so no row (the ageing still carries that debt).
+    //
+    // COALESCE(client_id, customer_id): both invoice columns exist and either
+    // may hold the customer reference (project rule).
     const customers = await sql`
       SELECT
-        inv.client_id,
+        c.id AS client_id,
         c.name AS client_name,
-        inv.total_invoiced,
+        COALESCE(inv.total_invoiced, 0) AS total_invoiced,
         COALESCE(paid.total_paid, 0) AS total_paid,
         COALESCE(cr.total_credits, 0) AS total_credits,
-        inv.total_invoiced - COALESCE(paid.total_paid, 0) - COALESCE(cr.total_credits, 0) AS balance,
+        COALESCE(inv.total_invoiced, 0) - COALESCE(paid.total_paid, 0) - COALESCE(cr.total_credits, 0) AS balance,
         paid.last_payment_date,
-        inv.invoice_count
-      FROM (
+        COALESCE(inv.invoice_count, 0) AS invoice_count
+      FROM customers c
+      LEFT JOIN (
         SELECT COALESCE(ci.client_id, ci.customer_id) AS client_id,
           SUM(ci.total_amount::numeric) AS total_invoiced,
           COUNT(*)::int AS invoice_count
@@ -66,9 +72,7 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
           AND ${documentInLedgerAsAtFragment('ci', asAtStr, companyId)}
           AND ci.invoice_date <= ${asAtStr}::DATE
         GROUP BY COALESCE(ci.client_id, ci.customer_id)
-        HAVING SUM(ci.total_amount::numeric) > 0
-      ) inv
-      JOIN customers c ON c.id = inv.client_id AND c.company_id = ${companyId} AND c.deleted_at IS NULL
+      ) inv ON inv.client_id = c.id
       LEFT JOIN (
         SELECT client_id,
           SUM(total_amount::numeric) AS total_paid,
@@ -77,7 +81,7 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
         WHERE company_id = ${companyId} AND status = ANY(${SETTLING_RECEIPT_STATUSES})
           AND payment_date <= ${asAtStr}::DATE
         GROUP BY client_id
-      ) paid ON paid.client_id = inv.client_id
+      ) paid ON paid.client_id = c.id
       LEFT JOIN (
         SELECT client_id, SUM(${sql.unsafe(CREDIT_NOTE_STATEMENT_VALUE)}::numeric) AS total_credits
         FROM credit_notes
@@ -85,8 +89,11 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
           AND status = ANY(${LIVE_CREDIT_NOTE_STATUSES})
           AND credit_date <= ${asAtStr}::DATE
         GROUP BY client_id
-      ) cr ON cr.client_id = inv.client_id
-      ORDER BY balance DESC, inv.client_id
+      ) cr ON cr.client_id = c.id
+      WHERE c.company_id = ${companyId}
+        AND c.deleted_at IS NULL
+        AND (inv.client_id IS NOT NULL OR paid.client_id IS NOT NULL OR cr.client_id IS NOT NULL)
+      ORDER BY balance DESC, c.id
       LIMIT ${limit + 1} OFFSET ${offset}
     `;
 
