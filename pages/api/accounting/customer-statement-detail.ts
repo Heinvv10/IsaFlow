@@ -13,6 +13,9 @@ import { withAuth, type CompanyAuthedRequest, withWriteAccess} from '@/lib/auth'
 import { log } from '@/lib/logger';
 import { asAtTodayStr, documentInLedgerAsAtFragment } from '@/modules/accounting/services/shared/softDeleteLedgerPresence';
 import { documentInPopulationExpr } from '@/modules/accounting/services/shared/documentPopulation';
+import {
+  CREDIT_NOTE_STATEMENT_VALUE, LIVE_CREDIT_NOTE_STATUSES, SETTLING_RECEIPT_STATUSES,
+} from '@/modules/accounting/services/ar/customerStatementRules';
 type Row = Record<string, unknown>;
 
 // P3.4: this endpoint has no offset-pagination UI (single full-history view
@@ -22,14 +25,6 @@ type Row = Record<string, unknown>;
 // the headline totals from a SQL aggregate over the FULL population so they
 // stay correct even if a pathological single client ever hits the ceiling.
 const STATEMENT_ROW_CEILING = 2000;
-
-/**
- * A credit note is live once it is approved, whether it has been set against an
- * invoice in full ('applied'), in part ('partially_applied', migration 677) or
- * not at all ('approved'). The same set `ar/statementEmailService` and
- * `ap/supplierStatementService` use — this screen is the same document.
- */
-const LIVE_CREDIT_NOTE_STATUSES = ['approved', 'partially_applied', 'applied'];
 
 async function handler(req: NextApiRequest, res: NextApiResponse) {
   if (req.method !== 'GET') {
@@ -74,14 +69,14 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
       LIMIT ${STATEMENT_ROW_CEILING + 1}
     `) as Row[];
 
-    // Get confirmed payments — includes both allocated and unallocated (bank-sourced)
+    // Settled receipts at the cash received (R-112). COALESCE(SUM(allocated),
+    // total) fell back to the total only when nothing was allocated, so a
+    // partly allocated receipt lost its remainder — see customerStatementRules.
     const paymentsRaw = (await sql`
-      SELECT cp.id, cp.payment_number, cp.payment_date, cp.bank_reference,
-        COALESCE(SUM(cpa.amount_allocated), cp.total_amount) AS amount_allocated
+      SELECT cp.id, cp.payment_number, cp.payment_date, cp.bank_reference, cp.total_amount
       FROM customer_payments cp
-      LEFT JOIN customer_payment_allocations cpa ON cpa.payment_id = cp.id
-      WHERE cp.client_id = ${clientId}::UUID AND cp.company_id = ${companyId} AND cp.status IN ('confirmed', 'reconciled')
-      GROUP BY cp.id, cp.payment_number, cp.payment_date, cp.bank_reference, cp.total_amount
+      WHERE cp.client_id = ${clientId}::UUID AND cp.company_id = ${companyId}
+        AND cp.status = ANY(${SETTLING_RECEIPT_STATUSES})
       ORDER BY cp.payment_date, cp.id
       LIMIT ${STATEMENT_ROW_CEILING + 1}
     `) as Row[];
@@ -96,13 +91,13 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
     // visible in one and absent from the other is a customer-facing
     // contradiction.
     //
-    // The CASE is the SQL twin of `shared/creditNoteAppliedAmount`: an 'applied'
+    // CREDIT_NOTE_STATEMENT_VALUE is the SQL twin of `shared/creditNoteAppliedAmount`: an 'applied'
     // note credits what it CONSUMED, because its remainder is stranded and
     // cannot be applied again; anything else credits its face value, because
     // that credit is still the customer's to use. Keep the two in step.
     const creditNotesRaw = (await sql`
       SELECT id, credit_note_number, credit_date, reason,
-             CASE WHEN status = 'applied' THEN applied_amount ELSE total_amount END AS total_amount
+             ${sql.unsafe(CREDIT_NOTE_STATEMENT_VALUE)} AS total_amount
       FROM credit_notes
       WHERE client_id = ${clientId}::UUID AND company_id = ${companyId} AND type = 'customer'
         AND status = ANY(${LIVE_CREDIT_NOTE_STATUSES})
@@ -134,18 +129,14 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
             AND ${documentInLedgerAsAtFragment('ci', asAtStr, companyId)}
         ), 0) AS total_invoiced,
         COALESCE((
-          SELECT SUM(pmt_total) FROM (
-            SELECT COALESCE(SUM(cpa.amount_allocated), cp.total_amount) AS pmt_total
-            FROM customer_payments cp
-            LEFT JOIN customer_payment_allocations cpa ON cpa.payment_id = cp.id
-            WHERE cp.client_id = ${clientId}::UUID AND cp.company_id = ${companyId} AND cp.status IN ('confirmed', 'reconciled')
-            GROUP BY cp.id, cp.total_amount
-          ) pmt
+          SELECT SUM(cp.total_amount::numeric) FROM customer_payments cp
+          WHERE cp.client_id = ${clientId}::UUID AND cp.company_id = ${companyId}
+            AND cp.status = ANY(${SETTLING_RECEIPT_STATUSES})
         ), 0) AS total_paid,
         COALESCE((
           -- Same population and same valuation as the row list above; a total
           -- the rows do not foot to is worse than no total.
-          SELECT SUM((CASE WHEN status = 'applied' THEN applied_amount ELSE total_amount END)::numeric)
+          SELECT SUM(${sql.unsafe(CREDIT_NOTE_STATEMENT_VALUE)}::numeric)
           FROM credit_notes
           WHERE client_id = ${clientId}::UUID AND company_id = ${companyId} AND type = 'customer'
             AND status = ANY(${LIVE_CREDIT_NOTE_STATUSES})
@@ -197,7 +188,7 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
         reference: String(pmt.payment_number),
         description: pmt.bank_reference ? String(pmt.bank_reference) : '',
         debit: 0,
-        credit: Number(pmt.amount_allocated),
+        credit: Number(pmt.total_amount),
         balance: 0,
       });
     }
