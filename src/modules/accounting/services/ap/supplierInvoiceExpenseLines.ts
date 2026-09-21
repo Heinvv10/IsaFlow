@@ -52,7 +52,13 @@ export function buildExpenseLines(
     });
   });
 
-  return dropValuelessLines(lines);
+  // Only a SCALED (gross) allocation rounds, and only when the last item is
+  // not itself negative: net line totals are NUMERIC(15,2), so in net storage
+  // any negative residual is inconsistent data, and a negative last ITEM is a
+  // real discount line whose own account and project must not be merged away.
+  const lastItem = items[itemCount - 1];
+  const residualIsRounding = lineTotalsAreGross && lastItem !== undefined && lastItem.lineTotal >= 0;
+  return dropValuelessLines(lines, residualIsRounding);
 }
 
 /**
@@ -62,16 +68,17 @@ export function buildExpenseLines(
  * dimensions, even when it is a R0 item (an unread price from the capture
  * pipeline carries the whole subtotal that way). Only afterwards:
  *
- *   - a last line that is a sub-cent-per-line NEGATIVE rounding overshoot is
- *     folded into the largest line (ties → the later one). It is rounding, not
- *     value. A larger negative is inconsistent data (Σ lines > subtotal) and is
- *     left for the validator to refuse: folding it would re-dimension real value.
+ *   - when the residual can only be rounding (`residualIsRounding`), a last
+ *     line that is a sub-cent-per-line NEGATIVE overshoot is folded into the
+ *     largest line (ties → the later one). Otherwise a negative last line is
+ *     real value or bad data and is left for the validator to refuse: folding
+ *     it would re-dimension it onto another account and project.
  *   - a line that comes out at exactly R0.00 is dropped. It carries nothing.
  */
-function dropValuelessLines(lines: JournalLineInput[]): JournalLineInput[] {
+function dropValuelessLines(lines: JournalLineInput[], residualIsRounding: boolean): JournalLineInput[] {
   const last = lines[lines.length - 1];
   const roundingTolerance = lines.length * 0.01;
-  if (last && last.debit < 0 && -last.debit <= roundingTolerance + 1e-9) {
+  if (residualIsRounding && last && last.debit < 0 && -last.debit <= roundingTolerance + 1e-9) {
     let largest = -1;
     for (let i = 0; i < lines.length - 1; i++) {
       if (largest === -1 || lines[i]!.debit >= lines[largest]!.debit) largest = i;

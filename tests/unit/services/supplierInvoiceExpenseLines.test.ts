@@ -140,6 +140,42 @@ describe('buildExpenseLines — zero-value items', () => {
     expect(validateJournalEntry(fullJournal(inv)).valid).toBe(true);
   });
 
+  /**
+   * Re-review MEDIUM: a line-count tolerance cannot tell rounding from a real
+   * negative item. 199 × R10 on A plus a −R1.50 discount on its own account and
+   * project fell inside 200 × 1c, and folding it merged the discount into an A
+   * line — the discount account and project never posted. Only a SCALED (gross)
+   * allocation rounds, and only when the last item is not itself negative.
+   */
+  it('never folds a genuinely negative last item into another line', () => {
+    const items = [
+      ...Array.from({ length: 199 }, () => item(10, { glAccountId: 'gl-exp-a' })),
+      item(-1.5, { glAccountId: 'gl-discount', projectId: 'px' }),
+    ];
+    const inv = invoice(items, 1988.5);
+
+    const lines = buildExpenseLines(inv, DEFAULT_EXPENSE);
+
+    expect(lines[lines.length - 1]).toEqual(
+      expect.objectContaining({ glAccountId: 'gl-discount', projectId: 'px', debit: -1.5 }),
+    );
+    expect(lines.filter((l) => l.glAccountId === 'gl-exp-a').every((l) => l.debit === 10)).toBe(true);
+    expect(validateJournalEntry(fullJournal(inv)).valid).toBe(false);
+  });
+
+  it('never folds in NET storage — line totals are whole cents, so a negative residual is bad data', () => {
+    // Items [0.02 A, 0.01 B, R0 C] against subtotal 0.01: folding took A to 0.00
+    // and dropped it although A has the larger line total.
+    const inv = invoice([
+      item(0.02, { glAccountId: 'gl-a' }), item(0.01, { glAccountId: 'gl-b' }), item(0, { glAccountId: 'gl-c' }),
+    ], 0.01);
+
+    const lines = buildExpenseLines(inv, DEFAULT_EXPENSE);
+
+    expect(lines.map((l) => [l.glAccountId, l.debit])).toEqual([['gl-a', 0.02], ['gl-b', 0.01], ['gl-c', -0.02]]);
+    expect(validateJournalEntry(fullJournal(inv)).valid).toBe(false);
+  });
+
   it('does NOT fold a negative residual larger than rounding — that is bad data, left to refuse', () => {
     // Σ line totals 1,200 against a net subtotal of 1,000, net storage: the last
     // line comes out at −200. Moving R200 onto another line would silently
