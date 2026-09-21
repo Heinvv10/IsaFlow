@@ -36,7 +36,7 @@ export const applyCreditNoteTool: McpTool = {
     + 'for a customer credit note, a supplier bill for a supplier credit note. Use it when the note '
     + 'belongs to a specific invoice — approve_credit_note and auto_apply_unapplied apply oldest-first '
     + 'instead. The document must belong to the same customer/supplier as the note and be approved '
-    + 'and unpaid. Applies the whole remainder by default, capped at the document\'s outstanding '
+    + 'and unpaid — a draft, pending_approval, disputed, cancelled or paid document is refused. Applies the whole remainder by default, capped at the document\'s outstanding '
     + 'balance; pass amount to apply less. Whatever is not applied stays on the note as on-account '
     + 'credit, and the note can be applied again to another document. '
     + 'Posts NO journal — the note\'s journal posted at approval; only balances move. '
