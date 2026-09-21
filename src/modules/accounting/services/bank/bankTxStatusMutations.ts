@@ -25,6 +25,7 @@ import {
   withBankLockBudget,
 } from './bankTxLock';
 import { assertFeedPosted } from './bankFeedStateGuard';
+import { journalReversalState } from './journalReversalState';
 export { BankMatchUnavailableError } from './bankTxLock';
 
 type Row = DbRow;
@@ -69,7 +70,7 @@ export class BankTransactionAllocatedError extends Error {
  * only fire when a peer binds the line in between), so the code is what lets
  * the loop skip that one case and keep rethrowing the rest.
  */
-export type BankMatchTargetCode = 'LINE_NOT_FOUND' | 'LINE_CLAIMED' | 'RECONCILIATION_NOT_FOUND';
+export type BankMatchTargetCode = 'LINE_NOT_FOUND' | 'LINE_CLAIMED' | 'LINE_REVERSED' | 'RECONCILIATION_NOT_FOUND';
 
 export class BankMatchTargetError extends Error {
   constructor(readonly code: BankMatchTargetCode, message: string) {
@@ -112,11 +113,23 @@ async function assertMatchTargets(
   companyId: string, bankTxId: string, journalLineId: string, reconciliationId?: string,
 ): Promise<void> {
   const line = (await sql`
-    SELECT id FROM gl_journal_lines
+    SELECT id, journal_entry_id FROM gl_journal_lines
     WHERE id = ${journalLineId}::UUID AND company_id = ${companyId}::UUID
     LIMIT 1`) as Row[];
   if (line.length === 0) {
     throw new BankMatchTargetError('LINE_NOT_FOUND', `Journal line ${journalLineId} not found`);
+  }
+  // A reversed journal's cash is off the books: a statement line matched to it
+  // reads as paid for money the GL no longer shows. FOR SHARE on the entry, AFTER
+  // the bank row (the shared order): a reversal in flight holds it FOR UPDATE
+  // (`paymentJournalReversal.ts`), so this waits and then sees the reversal.
+  const jeId = String(line[0]!.journal_entry_id);
+  const je = (await sql`
+    SELECT reversed_at FROM gl_journal_entries
+    WHERE id = ${jeId}::UUID AND company_id = ${companyId}::UUID
+    FOR SHARE`) as Row[];
+  if (je[0]?.reversed_at && (await journalReversalState(companyId, jeId)) !== 'reReversed') {
+    throw new BankMatchTargetError('LINE_REVERSED', `Journal line ${journalLineId} belongs to a reversed journal`);
   }
 
   const claimed = (await sql`

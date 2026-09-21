@@ -55,6 +55,7 @@ function updateFailsWith(err: unknown): void {
   lockMock.mockResolvedValue({ id: TX, status: 'imported', feed_state: 'posted' });
   sqlMock
     .mockResolvedValueOnce([{ id: LINE }] as never)   // assertMatchTargets: line exists
+    .mockResolvedValueOnce([] as never)   // the line's journal entry: not reversed
     .mockResolvedValueOnce([] as never)               // assertMatchTargets: unclaimed
     .mockRejectedValueOnce(err as never);             // the write
 }

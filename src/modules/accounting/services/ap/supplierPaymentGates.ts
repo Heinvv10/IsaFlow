@@ -41,8 +41,15 @@ export async function assertPaymentStillProcessable(companyId: string, payment: 
  * processed payment, whose journal the caller reverses.
  */
 export async function voidIfUnprocessed(companyId: string, payment: SupplierPayment): Promise<boolean> {
+  // On a SUPPLIER PAYMENT, 'reconciled' means fully applied to its bills
+  // (supplierPaymentApplicationService sets it when nothing is left unapplied) —
+  // NOT that it is on a bank reconciliation, which is what this message used to
+  // claim. A bank-reconciled journal is refused separately, by the bank line's
+  // own state (`prepareJournalReversal`). The refusal itself is unchanged.
   if (payment.status === 'reconciled') {
-    throw new SupplierPaymentRefusal('Cannot void a reconciled payment — remove it from the bank reconciliation first');
+    throw new SupplierPaymentRefusal(`Payment ${payment.paymentNumber} is fully applied to its bills (status `
+      + "'reconciled' — this does not mean it is on a bank reconciliation). Voiding a fully applied payment "
+      + 'is not supported yet.');
   }
   refuseBatchMember(payment, 'void');
   if (payment.status === 'draft' || payment.status === 'approved') {

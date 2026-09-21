@@ -29,7 +29,8 @@ async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse) {
     // pending set batch creation subtracts — so the new-batch page offers only
     // an amount the server will accept.
     if (typeof reservedFor === 'string') {
-      const ids = reservedFor.split(',').filter((v) => /^[0-9a-f-]{36}$/i.test(v)).slice(0, 500);
+      const uuid = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+      const ids = reservedFor.split(',').filter((v) => uuid.test(v)).slice(0, 500);
       return apiResponse.success(res, Object.fromEntries(await pendingReservations(companyId, ids)));
     }
 
