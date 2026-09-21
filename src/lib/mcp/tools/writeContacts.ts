@@ -63,10 +63,10 @@ const AUTO_ALLOCATE_STRATEGY_DESCRIPTION =
 const CUSTOMER_FIELDS = {
   name: { type: 'string', maxLength: 255, description: 'Trading name. Rejected over 255 characters — it identifies the record.' },
   email: { type: 'string' },
-  phone: { type: 'string' },
-  mobile: { type: 'string' },
-  vat_number: { type: 'string', description: 'SARS VAT registration number.' },
-  registration_number: { type: 'string', description: 'CIPC company registration number.' },
+  phone: { type: 'string', maxLength: 50 },
+  mobile: { type: 'string', maxLength: 50 },
+  vat_number: { type: 'string', maxLength: 50, description: 'SARS VAT registration number.' },
+  registration_number: { type: 'string', maxLength: 50, description: 'CIPC company registration number.' },
   billing_address: { type: 'string' },
   shipping_address: { type: 'string' },
   contact_person: { type: 'string' },
@@ -74,7 +74,7 @@ const CUSTOMER_FIELDS = {
   credit_limit: { type: 'number' },
   is_active: { type: 'boolean' },
   notes: { type: 'string' },
-  default_vat_type: { type: 'string' },
+  default_vat_type: { type: 'string', maxLength: 50 },
   default_discount: { type: 'number', description: 'Percent.' },
   auto_allocate_strategy: {
     type: 'string',
@@ -99,19 +99,19 @@ const SUPPLIER_FIELDS = {
   // company_id assertion exists to prevent.
   registered_name: { type: 'string', description: "The supplier's registered name, when it differs from its trading name." },
   email: { type: 'string' },
-  phone: { type: 'string' },
-  vat_number: { type: 'string' },
-  registration_number: { type: 'string' },
+  phone: { type: 'string', maxLength: 50 },
+  vat_number: { type: 'string', maxLength: 50 },
+  registration_number: { type: 'string', maxLength: 50 },
   address: { type: 'string' },
   contact_person: { type: 'string' },
   payment_terms: { type: 'number', description: 'Days. Default 30 on create.' },
-  bank_name: { type: 'string' },
-  bank_account_number: { type: 'string', description: 'What a payment run pays into. Change it deliberately.' },
-  bank_branch_code: { type: 'string' },
-  bank_account_type: { type: 'string' },
+  bank_name: { type: 'string', maxLength: 100 },
+  bank_account_number: { type: 'string', maxLength: 50, description: 'What a payment run pays into. Change it deliberately.' },
+  bank_branch_code: { type: 'string', maxLength: 20 },
+  bank_account_type: { type: 'string', maxLength: 20 },
   is_active: { type: 'boolean' },
   notes: { type: 'string' },
-  category: { type: 'string' },
+  category: { type: 'string', maxLength: 100 },
   auto_allocate_strategy: {
     type: 'string',
     enum: [...AUTO_ALLOCATE_STRATEGIES],
@@ -193,8 +193,9 @@ export const createCustomerTool: McpTool = {
   name: 'create_customer',
   description:
     'Create a customer. Posts nothing to the ledger. name is required and is rejected over 255 '
-    + 'characters; every other free-text field is truncated to 255. payment_terms defaults to 30 '
-    + 'days and is_active to true. '
+    + 'characters. phone, mobile, vat_number, registration_number and default_vat_type are '
+    + 'rejected over 50; other free-text fields are truncated to 255. '
+    + 'payment_terms defaults to 30 days and is_active to true. '
     + 'Does NOT set an opening balance — use set_opening_balance, which posts a real journal, so '
     + 'that the trial balance and the customer agree. Does NOT check for an existing customer of '
     + 'the same name: list_customers first if you are migrating and might already have one. '
@@ -271,8 +272,10 @@ export const createSupplierTool: McpTool = {
   name: 'create_supplier',
   description:
     'Create a supplier. Posts nothing to the ledger. name is required and is rejected over 255 '
-    + 'characters; every other free-text field is truncated to 255. payment_terms defaults to 30 '
-    + 'days and is_active to true. Banking details are optional here and are what a payment run '
+    + 'characters. phone, vat_number, registration_number and bank_account_number are rejected over '
+    + '50, bank_branch_code and bank_account_type over 20, bank_name and category over 100; other '
+    + 'free-text fields are truncated to 255. payment_terms defaults to 30 days and is_active to '
+    + 'true. Banking details are optional here and are what a payment run '
     + 'pays into. '
     + 'Does NOT set an opening balance — use set_opening_balance, which posts a real journal. '
     + 'Does NOT check for an existing supplier of the same name: list_suppliers first if you are '
