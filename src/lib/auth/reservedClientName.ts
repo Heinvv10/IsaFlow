@@ -65,7 +65,8 @@ const WILDCARD = '\u0000';
  * that works on spelling alone can refuse the first and allow the second.
  * Tolerating insertion means refusing ordinary names, and this dial is set to
  * allow them. Nor does it stop several substituted glyphs at once, or the
- * general n:1 shape ("rn" for "m").
+ * general n:1 shape ("rn" for "m"). Nor an adjective sheltered behind a
+ * negation it does not mean ("UnUnofficial").
  *
  * It is one control among several — every dynamically-registered client also
  * renders the unverified-app warning on the consent screen, which is what
@@ -79,7 +80,12 @@ export function tokenizeForComparison(value: string): string[] {
     .toLowerCase()
     .replace(/./gsu, (ch) => {
       const folded = CONFUSABLES[ch] ?? ch;
-      return /[a-z0-9]/.test(folded) ? folded : ' ';
+      if (/[a-z0-9]/.test(folded)) return folded;
+      // A letter or digit we cannot identify stays INSIDE the token as a
+      // wildcard. Treating it as a separator would split the word, and a
+      // welded affix then pushes the run past the length bound and strands it:
+      // "TheIsafl<Armenian o>w" reads as the brand but escaped that way.
+      return /\p{L}|\p{N}/u.test(folded) ? WILDCARD : ' ';
     })
     // One cheap multi-character look-alike, aimed at this brand's own letters.
     // The general n:1 class (rn for m, cl for d) is not covered — see the note
@@ -89,27 +95,51 @@ export function tokenizeForComparison(value: string): string[] {
     .filter(Boolean);
 }
 
+/**
+ * At most one character of a reserved term may go unidentified. One swapped
+ * glyph is the cheap legible attack; allowing more would refuse ordinary words
+ * in scripts we do not map, since every one of their letters is a wildcard.
+ */
+const MAX_WILDCARDS = 1;
+
 /** True when `candidate` is `target`, with WILDCARD matching any one character. */
 function matchesTerm(candidate: string, target: string): boolean {
   if (candidate.length !== target.length) return false;
+  let wildcards = 0;
   for (let i = 0; i < target.length; i += 1) {
-    if (candidate[i] !== target[i] && candidate[i] !== WILDCARD) return false;
+    if (candidate[i] === target[i]) continue;
+    if (candidate[i] !== WILDCARD) return false;
+    wildcards += 1;
+    if (wildcards > MAX_WILDCARDS) return false;
   }
   return true;
 }
 
 /**
+ * Morphemes that turn a claim into its denial. "Unofficial Xero Sync" and
+ * "Unverified Test Client" disclaim exactly what the adjective rule polices, so
+ * a term directly behind one of these is not a claim at all.
+ */
+const NEGATIONS = ['un', 'non', 'not'];
+
+function isNegated(token: string, offset: number): boolean {
+  return NEGATIONS.some((neg) => offset >= neg.length && token.startsWith(neg, offset - neg.length));
+}
+
+/**
  * True when `token` spells `target` somewhere inside it.
  *
- * `leadingOnly` restricts the search to the start of the token. The brand is a
- * coined word, so finding it anywhere inside one — "TheIsaFlow", "IsaFlowHQ" —
- * means the name is trading on it. The adjectives are ordinary English that
- * appear inside innocent words, so they must lead: "OfficialIsaFlow" claims
- * official standing, "Unofficial Xero Sync" disclaims it.
+ * `negatable` marks a term that ordinary English can deny. Both classes are
+ * matched anywhere in a token, because restricting either to the start leaves a
+ * one-keystroke bypass: "OfficialIsaFlow" for the brand, "ClaudeCodeOfficial"
+ * for the adjectives. The difference is that a negated adjective is not a
+ * claim, while the brand is a coined word with no such reading — finding it
+ * anywhere inside a token means the name trades on it.
  */
-function tokenSpells(token: string, target: string, leadingOnly: boolean): boolean {
-  const last = leadingOnly ? 0 : token.length - target.length;
+function tokenSpells(token: string, target: string, negatable: boolean): boolean {
+  const last = token.length - target.length;
   for (let offset = 0; offset <= last; offset += 1) {
+    if (negatable && isNegated(token, offset)) continue;
     if (matchesTerm(token.slice(offset, offset + target.length), target)) return true;
   }
   return false;
@@ -128,8 +158,8 @@ function tokenSpells(token: string, target: string, leadingOnly: boolean): boole
  * A separator inside a run is also tried as a single wildcard, because a symbol
  * can stand in for a letter it resembles ("!saflow", "is@flow").
  */
-function containsTerm(tokens: string[], target: string, leadingOnly: boolean): boolean {
-  if (tokens.some((token) => tokenSpells(token, target, leadingOnly))) return true;
+function containsTerm(tokens: string[], target: string, negatable: boolean): boolean {
+  if (tokens.some((token) => tokenSpells(token, target, negatable))) return true;
 
   for (let start = 0; start < tokens.length; start += 1) {
     for (let end = start; end < tokens.length; end += 1) {
