@@ -11,6 +11,7 @@
  * picks up exactly the rows still tagged.
  */
 
+import { reconciliationLockOf } from './reconciledCash';
 import { sql, withSavepoint } from '@/lib/neon';
 import type { DbRow } from '@/lib/neon';
 import { log } from '@/lib/logger';
@@ -100,7 +101,13 @@ export async function undoRow(companyId: string, runId: string, userId: string, 
   // act on the same row in between: whichever comes second finds it gone.
   const tx = await lockBankTransactionForUpdate(companyId, txId);
   if (!tx || String(tx.auto_post_run_id ?? '') !== runId) return { kind: 'gone' };
-  if (String(tx.status) === 'reconciled') return { kind: 'reconciled' };
+  // The shared reconciled-cash rule (`reconciledCash.ts`), not a second copy:
+  // a completed reconciliation or a Sage-reconciled line is a SKIP with its
+  // reason, never a failed row. (This checked status 'reconciled' alone, so a
+  // line whose reconciliation_id names a completed reconciliation fell through
+  // to a reversal that now refuses it.)
+  const lock = await reconciliationLockOf(companyId, tx);
+  if (lock?.kind === 'completed' || lock?.kind === 'sage') return { kind: 'reconciled' };
   if (tx.matched_journal_line_id && tx.provisional_je_id) {
     log.warn(
       'Auto-post tx has both matched line and provisional JE — reversing matched line only',
@@ -177,7 +184,7 @@ export async function undoRun(companyId: string, runId: string, userId: string):
   if (runRows[0]!.undone_at) throw new Error('Run already undone');
 
   const txRows = (await sql`
-    SELECT id, status, matched_journal_line_id, provisional_je_id
+    SELECT id, status, matched_journal_line_id, provisional_je_id, reconciliation_id
     FROM bank_transactions
     WHERE auto_post_run_id = ${runId}::UUID AND company_id = ${companyId}::UUID
     ORDER BY id
@@ -191,7 +198,10 @@ export async function undoRun(companyId: string, runId: string, userId: string):
 
   for (const tx of txRows) {
     const txId = String(tx.id);
-    if (String(tx.status) === 'reconciled') {
+    // An unlocked fast path by the same shared rule; `undoRow` re-decides it
+    // under the row lock.
+    const lock = await reconciliationLockOf(companyId, tx);
+    if (lock?.kind === 'completed' || lock?.kind === 'sage') {
       skippedBy.reconciled += 1;
       continue;
     }

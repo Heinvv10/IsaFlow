@@ -37,7 +37,10 @@ interface UndoResult {
  */
 function partialUndoMessage({ reversed, skippedBy }: UndoResult): string {
   const reasons = [
-    skippedBy.reconciled > 0 ? `${skippedBy.reconciled} reconciled — unreconcile them first` : null,
+    // No reopen exists yet (R-111), so do not send the user to one.
+    skippedBy.reconciled > 0
+      ? `${skippedBy.reconciled} on a completed (or Sage-imported) reconciliation — a completed reconciliation can't be reopened yet; correct these with a journal`
+      : null,
     skippedBy.contended > 0 ? `${skippedBy.contended} in use by another request — try again in a moment` : null,
     skippedBy.failed > 0
       ? `${skippedBy.failed} could not be reversed (for example, a closed period) — check those lines`

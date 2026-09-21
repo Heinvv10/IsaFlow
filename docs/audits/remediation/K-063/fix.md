@@ -673,3 +673,48 @@ the index in place (`pg_indexes` checked on the `isaflow_test` clone): 27 passed
     bank reverse without the rule → 3 red; void/batch without it → 5 red; the
     rule's completed arm → 6 red; its Sage arm → 3 red. Green: 90 files, 586
     tests; the three name-gated files 44/44 on an `isaflow_test` clone.
+
+## Round 10 (2026-09-21) — option (b) on all seven callers
+
+Hein: a completed reconciliation is locked like a closed period until R-111
+builds a reopen. The rule is implemented ONCE, in `reverseReconciledTransaction`
+(2be6dfa4b), so all seven of its callers inherit it: the bank screen's
+`reverse`; MCP `void_payment`/`void_receipt` (via `voidPaymentDocument`),
+bank-allocate's reversal, `reverse_bank_allocation_batch` and
+`reverse_range`; REST void's allocated-line path; and auto-post undo. Void and
+batch reversal apply the same `reconciledCash.ts` rule on their own path too.
+
+Each caller surfaces it properly:
+- **REST** — 400 (bank-transactions-action and supplier-payments-action both
+  answer a pre-write refusal 400).
+- **MCP** — the void and reverse tools do not catch (the registry's savepoint
+  must see a throw), so the registry turned it into "the operation failed".
+  `registry.ts` now returns a `ReconciledCashError`'s own message, as it already
+  does for `BankLineDirectionError`; `RECONCILED_CASH` is on the refusal
+  allow-list for tools that catch with `safeErrorText`. Proven through
+  `McpRegistry.call('void_payment', …)`: `isError`, and the text names the
+  reconciliation.
+- **Auto-post undo** — R-079's check was a SECOND copy: `status = 'reconciled'`
+  only, in both the fast path and `undoRow`. A line attached to a completed
+  reconciliation by `reconciliation_id` but still `allocated` fell through to a
+  reversal that now refuses — a failed row. Both checks now use the shared rule,
+  so it is a `reconciled` SKIP; the panel's reason no longer says "unreconcile
+  them first" (nothing does that) but "on a completed (or Sage-imported)
+  reconciliation — a completed reconciliation can't be reopened yet; correct
+  these with a journal".
+- **A line 'reconciled' by name but not on a completed reconciliation**: status
+  `reconciled` is written only by completion (and the Sage import), so a
+  `reconciled` line whose reconciliation is still in progress is an anomaly. It
+  is locked all the same, and the message says what it is: "marked reconciled on
+  the reconciliation of <account> to <date>, which is not completed". A
+  `reconciled` line with no reconciliation is the Sage shape.
+
+Tests: `tests/integration/k064-reconciled-cash-callers.int.test.ts` — REST void
+400 naming the reconciliation; bank reverse 400 on a line attached by id only;
+MCP `void_payment` through the registry returns the refusal text; auto-post undo
+counts a `reconciled` skip and no failure. Nothing written in any. Mutations
+(`round10-mutations.log`): bank reverse without the rule → 6 red; the registry
+branch removed → the MCP test red (generic failure); REST void without the rule
+→ red; auto-post undo back to status-only on both checks → red (on the locked
+re-check alone it survives, because the fast path decides first — it is the race
+guard). Green: 91 files, 590 tests.

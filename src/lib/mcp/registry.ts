@@ -32,6 +32,7 @@ import { insufficientScopeMessage } from './scopeRemediation';
  * another's savepoint.
  */
 import { COMPANY_ASSERT_PROPERTY, assertCompanyMatches } from './companyAssert';
+import { ReconciledCashError } from '@/modules/accounting/services/bank/reconciledCash';
 
 export function savepointNameFor(toolName: string): string {
   return `mcp_${toolName}`.slice(0, 31);
@@ -288,6 +289,10 @@ export class McpRegistry {
       if (err instanceof BankLineDirectionError) {
         return errorResult(bankLineDirectionErrorText(name, err));
       }
+      // Cash on a completed (or Sage) reconciliation — R-111. Raised by bank
+      // reverse before any write, reached by void_payment and the reverse
+      // tools; the message names the reconciliation and carries no SQL.
+      if (err instanceof ReconciledCashError) return errorResult(err.message);
       return errorResult(GENERIC_FAILURE);
     }
   }
