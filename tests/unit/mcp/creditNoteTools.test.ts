@@ -194,6 +194,79 @@ describe('create_credit_note — pre-write guards', () => {
     expect(createCreditNote).not.toHaveBeenCalled();
   });
 
+  /**
+   * Two genuine returns to one supplier on one day for one amount are two
+   * credits. The refusal used to say "change the date, amount or reason" — but
+   * reason is not part of the duplicate key, so the only way through was to
+   * alter the date or the amount: falsify the document to pass the guard.
+   *
+   * The override must NAME the draft it overrides (adversarial review): a bare
+   * boolean could be sent blind on a first call, after which every fresh-key
+   * retry would mint another identical note — the case the guard exists for.
+   */
+  const DUP = '0b0b0b0b-0000-4000-8000-000000000001';
+  const NEWER_DUP = '0b0b0b0b-0000-4000-8000-000000000002';
+
+  it('tells the truth about the way through: duplicate_of naming the draft, not a changed reason', async () => {
+    vi.mocked(findOpenDuplicateDraft).mockResolvedValue(DUP);
+    const r = await createCreditNoteTool.handler({ ...base, client_id: CUSTOMER, reason: 'other' }, ctx());
+    expect(errText(r)).toContain(`duplicate_of: "${DUP}"`);
+    expect(errText(r)).not.toContain('reason');
+    expect(createCreditNote).not.toHaveBeenCalled();
+  });
+
+  it('creates a genuine second credit when duplicate_of names the current identical draft', async () => {
+    vi.mocked(findOpenDuplicateDraft).mockResolvedValue(DUP);
+    vi.mocked(createCreditNote).mockResolvedValue(draftNote as never);
+    const out = parseOk(await createCreditNoteTool.handler(
+      { ...base, client_id: CUSTOMER, duplicate_of: DUP }, ctx(),
+    ));
+    expect(out).toMatchObject({ id: NOTE, status: 'draft' });
+  });
+
+  it('refuses a stale duplicate_of — a fresh-key retry after the override cannot mint a third', async () => {
+    // The override created NEWER_DUP; the retry still names DUP.
+    vi.mocked(findOpenDuplicateDraft).mockResolvedValue(NEWER_DUP);
+    const r = await createCreditNoteTool.handler({ ...base, client_id: CUSTOMER, duplicate_of: DUP }, ctx());
+    expect(errText(r)).toContain(NEWER_DUP);
+    expect(createCreditNote).not.toHaveBeenCalled();
+  });
+
+  it('refuses duplicate_of when there is no identical draft — it cannot be sent blind', async () => {
+    const r = await createCreditNoteTool.handler({ ...base, client_id: CUSTOMER, duplicate_of: DUP }, ctx());
+    expect(errText(r)).toContain('no longer an identical open draft');
+    expect(createCreditNote).not.toHaveBeenCalled();
+  });
+
+  /**
+   * Re-review LOW: the named draft may have been APPROVED between the refusal
+   * and the retry. Telling the agent to "omit duplicate_of" walked it into a
+   * second note identical to an approved one — which the draft-only guard can
+   * no longer see. The refusal must say the draft is gone and why that matters.
+   */
+  it('does not tell the agent to simply drop duplicate_of once the named draft has moved on', async () => {
+    const r = await createCreditNoteTool.handler({ ...base, client_id: CUSTOMER, duplicate_of: DUP }, ctx());
+    const text = errText(r);
+    expect(text).toContain(DUP);
+    expect(text).toContain('approved or cancelled');
+    expect(text).toContain('get_credit_note');
+    expect(text).not.toContain('Omit duplicate_of');
+  });
+
+  it('refuses a duplicate_of that is not a uuid, before any read', async () => {
+    const r = await createCreditNoteTool.handler({ ...base, client_id: CUSTOMER, duplicate_of: 'yes' }, ctx());
+    expect(r.isError).toBe(true);
+    expect(findOpenDuplicateDraft).not.toHaveBeenCalled();
+    expect(createCreditNote).not.toHaveBeenCalled();
+  });
+
+  it('ignores the old boolean: allow_duplicate no longer opens the guard', async () => {
+    vi.mocked(findOpenDuplicateDraft).mockResolvedValue(DUP);
+    const r = await createCreditNoteTool.handler({ ...base, client_id: CUSTOMER, allow_duplicate: true }, ctx());
+    expect(r.isError).toBe(true);
+    expect(createCreditNote).not.toHaveBeenCalled();
+  });
+
   it('checks for a duplicate using the VAT-inclusive total, not the subtotal', async () => {
     vi.mocked(createCreditNote).mockResolvedValue(draftNote as never);
     await createCreditNoteTool.handler({ ...base, client_id: CUSTOMER }, ctx());

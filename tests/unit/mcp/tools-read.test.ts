@@ -319,7 +319,7 @@ describe('invoice + quote tools', () => {
       { status: 'sent', customer_id: '21d12090-6fd3-44b1-8c7a-5ea3e84254bb', limit: 500 }, ctx(),
     ));
     expect(listCustomerInvoices).toHaveBeenCalledWith(COMPANY_ID, {
-      status: ['sent'], clientId: '21d12090-6fd3-44b1-8c7a-5ea3e84254bb', search: null, limit: 100,
+      status: ['sent'], clientId: '21d12090-6fd3-44b1-8c7a-5ea3e84254bb', search: null, limit: 100, offset: 0,
     });
   });
 
@@ -350,7 +350,7 @@ describe('contact + bank + vat tools', () => {
     parseOk(await tool('bank_accounts_status').handler({}, ctx()));
     parseOk(await tool('list_bank_transactions').handler({ allocation_filter: 'unallocated' }, ctx()));
 
-    expect(listCustomers).toHaveBeenCalledWith(COMPANY_ID, 'brit');
+    expect(listCustomers).toHaveBeenCalledWith(COMPANY_ID, 'brit', { limit: 201, offset: 0 });
     expect(listSuppliers).toHaveBeenCalledWith(COMPANY_ID, expect.any(Object));
     // companyId stays first — the point of this test. The options arg opts the
     // tool into inactive accounts: an agent asking for status is asking about

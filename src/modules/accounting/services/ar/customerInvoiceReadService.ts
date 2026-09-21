@@ -25,6 +25,8 @@ export interface CustomerInvoiceListFilters {
   agingFilters?: Array<'due-soon' | 'overdue-90' | 'viewed-unpaid'>;
   limit?: number;
   page?: number;
+  /** Rows to skip. Wins over `page` when given — the MCP tool pages by offset. */
+  offset?: number;
 }
 
 export async function listCustomerInvoices(
@@ -38,6 +40,7 @@ export async function listCustomerInvoices(
     agingFilters = [],
     limit,
     page,
+    offset: offsetRaw,
   } = filters;
 
   // Cap at 100 — aligns with BL-11 / BL-24 limit policy.
@@ -45,7 +48,9 @@ export async function listCustomerInvoices(
   // same as the route did before extraction.
   const safeLimit = Number.isFinite(limit) && (limit as number) > 0 ? Math.min(Math.floor(limit as number), 100) : 25;
   const safePage = Number.isFinite(page) && (page as number) >= 1 ? Math.floor(page as number) : 1;
-  const offset = (safePage - 1) * safeLimit;
+  const offset = Number.isInteger(offsetRaw) && (offsetRaw as number) >= 0
+    ? (offsetRaw as number)
+    : (safePage - 1) * safeLimit;
 
   const statusValues: string[] | null = status && status.length > 0 ? status : null;
   const clientIdFilter: string | null = clientId && clientId.trim() ? clientId.trim() : null;
@@ -117,7 +122,9 @@ export async function listCustomerInvoices(
           ci.status = 'sent'
           AND vs.last_viewed_at IS NOT NULL
         ))
-      ORDER BY ci.invoice_date DESC
+      -- id breaks ties: dozens of invoices share a date, and without a total
+      -- order OFFSET pages can skip or repeat them.
+      ORDER BY ci.invoice_date DESC, ci.id DESC
       LIMIT ${safeLimit} OFFSET ${offset}
     `,
     sql`
