@@ -27,6 +27,7 @@ vi.mock('@/modules/accounting/services/core/sageMigrationService', () => ({
     startedAt: '', completedAt: null, vatNotStated,
   })),
   failRun: vi.fn(),
+  withRunRecovery: (_runId: string, body: () => Promise<unknown>) => body(),
 }));
 
 import { importCustomerInvoices } from '@/modules/accounting/services/core/sageCustomerImportService';
