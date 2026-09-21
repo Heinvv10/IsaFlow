@@ -106,6 +106,53 @@ describeIfDb('R-095 round 4', () => {
     expect((injected.body as unknown as ChatBody).data.clientContext).toEqual((plain.body as unknown as ChatBody).data.clientContext);
   });
 
+  it("the page's Overdue card and the chat quote ONE figure (the reviewer's 629.51 customer, all past due)", async () => {
+    const email = `v-${f.tag}@test.local`;
+    const [c] = (await sql`INSERT INTO customers (company_id, name, email) VALUES (${f.companyA}::UUID, ${'cust-v ' + f.tag}, ${email}) RETURNING id`) as { id: string }[];
+    const v = c!.id;
+    try {
+      await sql`INSERT INTO portal_access (client_id, email, password_hash, name) VALUES (${v}::UUID, ${email}, 'x', 'V')`;
+      const inv = async (suffix: string, status: string | null, total: number, paid: number) =>
+        ((await sql`
+          INSERT INTO customer_invoices (company_id, client_id, customer_id, invoice_number, invoice_date, due_date, status, subtotal, tax_amount, total_amount, amount_paid, created_by)
+          VALUES (${f.companyA}::UUID, ${v}::UUID, ${v}::UUID, ${f.tag + '-' + suffix}, ${shift(-70)}::date, ${shift(-40)}::date, ${status}, ${total}, 0, ${total}, ${paid}, ${f.user}::UUID)
+          RETURNING id`) as { id: string }[])[0]!.id;
+      const a1 = await inv('V-INV-1', 'approved', 1000, 600);
+      await inv('V-INV-2', 'sent', 500.5, 0);
+      await inv('V-INV-N', null, 44.44, 0);
+      const [p] = (await sql`
+        INSERT INTO customer_payments (company_id, client_id, payment_number, payment_date, total_amount, payment_method, status, created_by)
+        VALUES (${f.companyA}::UUID, ${v}::UUID, ${f.tag + '-V-RCPT'}, ${shift(-30)}::date, 800, 'eft', 'confirmed', ${f.user}::UUID),
+               (${f.companyA}::UUID, ${v}::UUID, ${f.tag + '-V-REFUND'}, ${shift(-10)}::date, -100, 'refund', 'confirmed', ${f.user}::UUID)
+        RETURNING id`) as { id: string }[];
+      await sql`INSERT INTO customer_payment_allocations (payment_id, invoice_id, amount_allocated) VALUES (${p!.id}::UUID, ${a1}::UUID, 600)`;
+      await sql`
+        INSERT INTO credit_notes (company_id, client_id, type, credit_note_number, credit_date, status, subtotal, total_amount, applied_amount, created_by)
+        VALUES (${f.companyA}::UUID, ${v}::UUID, 'customer', ${f.tag + '-V-CN-1'}, ${shift(-20)}::date, 'approved', 65.43, 65.43, 0, ${f.user}::UUID),
+               (${f.companyA}::UUID, ${v}::UUID, 'customer', ${f.tag + '-V-CN-2'}, ${shift(-20)}::date, 'applied', 200, 200, 150, ${f.user}::UUID)`;
+
+      const token = await tokenFor(v, f.companyA, email);
+      const statement = (await callPortal('statement', token, { query: { clientId: v } })).body.data as { closingBalance: number; overdueAmount: number };
+      const chat = (await callPortal('chat', token, { body: { question: 'overdue?', clientId: v } })).body as unknown as ChatBody;
+      expect(statement.closingBalance).toBe(629.51);
+      expect(statement.overdueAmount).toBe(629.51);
+      expect(chat.data.clientContext.overdue).toBe(statement.overdueAmount);
+    } finally {
+      await sql`DELETE FROM portal_access WHERE client_id = ${v}::UUID`;
+      await sql`DELETE FROM customer_payment_allocations WHERE payment_id IN (SELECT id FROM customer_payments WHERE client_id = ${v}::UUID)`;
+    }
+  });
+
+  it('statement: overdueAmount equals the chat for customer R (150) and customer A (200)', async () => {
+    for (const [id, email, expected] of [[customerR, emailR(), 150], [f.customerA, f.emailA, 200]] as const) {
+      const token = await tokenFor(id, f.companyA, email);
+      const statement = (await callPortal('statement', token, { query: { clientId: id } })).body.data as { overdueAmount: number };
+      const chat = (await callPortal('chat', token, { body: { question: 'overdue?', clientId: id } })).body as unknown as ChatBody;
+      expect(statement.overdueAmount).toBe(expected);
+      expect(chat.data.clientContext.overdue).toBe(statement.overdueAmount);
+    }
+  });
+
   it('statement: a refund is a debit named "Refund" and the balance moves the way the columns say', async () => {
     const { status, body } = await callPortal('statement', await tokenFor(customerR, f.companyA, emailR()), { query: { clientId: customerR } });
     expect(status).toBe(200);

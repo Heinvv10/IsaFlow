@@ -11,6 +11,7 @@ import type { DbRow } from '@/types/db';
 import { asAtTodayStr, documentInLedgerAsAtFragment } from '../shared/softDeleteLedgerPresence';
 import { documentInPopulationExpr } from '../shared/documentPopulation';
 import { fetchStatementData } from './statementEmailService';
+import { getClientOverdue } from './portalOverdue';
 import type { StatementTransaction } from './statementEmailTypes';
 
 
@@ -52,6 +53,8 @@ export interface PortalStatement {
     balance: number;
   }>;
   closingBalance: number;
+  /** portalOverdue's figure — the one the chat quotes. */
+  overdueAmount: number;
 }
 
 // ── Portal Auth ──────────────────────────────────────────────────────────────
@@ -209,6 +212,7 @@ export async function getClientStatement(
       };
     }),
     closingBalance: data.summary.balance,
+    overdueAmount: await getClientOverdue(clientId, companyId, asOfDate, data.summary.balance),
   };
 }
 

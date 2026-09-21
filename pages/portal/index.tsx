@@ -121,12 +121,16 @@ export default function PortalPage() {
       .finally(() => setStatementLoading(false));
   }, [user]);
 
-  const overdueInvoices = invoices.filter(inv => inv.status === 'overdue');
   // R-095: the headline is the statement's closing balance, not a sum of
   // invoice balances. amount_paid only moves when money is ALLOCATED, so the
   // invoice sum ignores an unallocated receipt and an unapplied credit note
   // and tells the customer they owe more than their statement says.
   const totalOutstanding = statementLoading ? '…' : statement ? formatBalance(statement.closingBalance) : '—';
+  // The same figure the chat quotes (portalOverdue): the part of the balance on
+  // past-due invoices once credits settle the oldest debt first. Counting
+  // invoices whose status is 'overdue' showed 0 while the chat said R629.51.
+  const overdue = statement?.overdueAmount ?? 0;
+  const overdueText = statementLoading ? '…' : statement ? formatBalance(overdue) : '—';
 
   if (!user) {
     return (
@@ -212,8 +216,8 @@ export default function PortalPage() {
             </div>
             <div className="bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-700 rounded-xl p-4">
               <p className="text-xs text-slate-500 dark:text-gray-500 mb-1">Overdue</p>
-              <p className={`text-2xl font-bold ${overdueInvoices.length > 0 ? 'text-red-400' : 'text-teal-400'}`}>
-                {overdueInvoices.length}
+              <p className={`text-2xl font-bold ${overdue > 0 ? 'text-red-400' : 'text-teal-400'}`} data-testid="portal-overdue">
+                {overdueText}
               </p>
             </div>
           </div>
