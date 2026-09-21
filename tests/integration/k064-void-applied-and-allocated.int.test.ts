@@ -120,6 +120,20 @@ describeIfDb('K-064 round 8 — voiding applied and bank-allocated supplier paym
     expect(await net(ids.AP_GL)).toBe(ap);
   });
 
+  it('refuses a MATCHED line whose reconciliation_id names a completed reconciliation (the id arm, not the status)', async () => {
+    const { paymentId, x, bankTx } = await fullyApplied();
+    const recId = randomUUID();
+    await q(`INSERT INTO bank_reconciliations (id, company_id, bank_account_id, statement_date, status, started_by)
+      VALUES ($1, $2, $3, CURRENT_DATE, 'completed', $4)`, [recId, ids.A, ids.BANK_GL, ids.USER]);
+    // Status stays 'matched': attached to the session, matched after it completed.
+    await q('UPDATE bank_transactions SET reconciliation_id = $1 WHERE id = $2', [recId, bankTx]);
+    const state = await f.paymentAction('void', paymentId);
+    expect(state.statusCode, text(state)).toBe(400);
+    expect(text(state)).toContain('completed bank reconciliation');
+    expect(await billState(fx.pool, x)).toEqual({ paid: 600, status: 'partially_paid' });
+    expect(await contras(await journalOf(paymentId))).toBe(0);
+  });
+
   /** A supplier bank ALLOCATION of a 115 line against one 115 bill → the payment and its journal. */
   async function allocatedPayment(): Promise<{ bankTx: string; billId: string; paymentId: string }> {
     const billId = await bill(fx.pool, { supplier: ids.SUP_A2, status: 'approved', total: 115 });
@@ -136,6 +150,21 @@ describeIfDb('K-064 round 8 — voiding applied and bank-allocated supplier paym
   const endState = async (a: { bankTx: string; billId: string; paymentId: string }) => ({
     bank: await bankState(a.bankTx), bill: await billState(fx.pool, a.billId),
     payment: await f.paymentStatus(a.paymentId), contras: await contras(await journalOf(a.paymentId)),
+  });
+
+  it('refuses a journal claimed by TWO bank lines (allocated + another), as MCP void_payment does', async () => {
+    const a = await allocatedPayment();
+    const apLine = (await q('SELECT id FROM gl_journal_lines WHERE journal_entry_id = $1 AND debit > 0 LIMIT 1',
+      [await journalOf(a.paymentId)])).rows[0].id;
+    const second = await bankLine(-115);
+    await q("UPDATE bank_transactions SET status = 'allocated', matched_journal_line_id = $1 WHERE id = $2", [apLine, second]);
+    const state = await f.paymentAction('void', a.paymentId);
+    expect(state.statusCode, text(state)).toBe(400);
+    expect(text(state)).toContain('more than one bank line');
+    expect((await bankState(a.bankTx)).status).toBe('allocated');
+    expect(await f.paymentStatus(a.paymentId)).not.toBe('cancelled');
+    expect(await contras(await journalOf(a.paymentId))).toBe(0);
+    await q("UPDATE bank_transactions SET status = 'imported', matched_journal_line_id = NULL WHERE id = $1", [second]);
   });
 
   it("review r7's repro: a -1500 allocation over one 1000 bill (500 unapplied) voids with the line FREE to re-allocate", async () => {
