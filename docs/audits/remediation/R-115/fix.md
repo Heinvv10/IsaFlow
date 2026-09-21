@@ -53,7 +53,8 @@ already showed only Balance and Overdue.
     company B's rows and mask the list's own company predicates. Measured: those three mutations
     survived until the user was made a member of both companies.
 - `green.log`: r115 (5) + r112 + r095 + r082 + k053 ×2 — 6 files, 56 tests passed.
-- `mutations.log`: 13 mutations (the last three re-run once the user belonged to both companies).
+- `mutations.log`: 14 mutations (M9–M11 re-run once the user belonged to both companies; M14, the
+  credit-note-only arm of the activity predicate, added after review round 2).
   Each fails its own test and the "every listed balance is the balance of the statement it opens"
   parity test.
 - Browser (`ui.log`, `r115-customer-statements.png`, `r115-statement-run.png`): dev server on the
