@@ -121,12 +121,30 @@ describe('voidSupplierPayment (P2.1 / audit W4)', () => {
     expect(payUpdate!.text).toMatch(/status = 'processed'/); // guarded flip
   });
 
-  it('rejects voiding a non-processed payment', async () => {
-    mockGetPayment.mockResolvedValue(payment({ status: 'draft', glJournalEntryId: undefined }));
+  // K-064 round 4: a draft/approved payment has moved nothing, so voiding it is
+  // a status change only — the way out for one the process gate refuses. It
+  // used to throw a bare Error, which the route answered 500.
+  it('voids an unprocessed payment as a status change: no reversal, no bill touched', async () => {
+    mockGetPayment.mockResolvedValue(payment({ status: 'approved', glJournalEntryId: undefined }));
+    const texts: string[] = [];
+    mockSql.mockImplementation((strings: unknown) => {
+      texts.push((strings as readonly string[]).join(' '));
+      return Promise.resolve([{ id: PAYMENT_ID }]);
+    });
 
-    await expect(voidSupplierPayment(COMPANY_ID, PAYMENT_ID, USER_ID)).rejects.toThrow(
-      /processed/i,
-    );
+    await voidSupplierPayment(COMPANY_ID, PAYMENT_ID, USER_ID);
+
+    expect(mockReverse).not.toHaveBeenCalled();
+    expect(texts.some((t) => /UPDATE supplier_invoices/i.test(t))).toBe(false);
+    expect(texts.some((t) => /UPDATE supplier_payments SET status = 'cancelled'/i.test(t))).toBe(true);
+  });
+
+  it('refuses voiding a cancelled payment with a typed refusal', async () => {
+    mockGetPayment.mockResolvedValue(payment({ status: 'cancelled', glJournalEntryId: undefined }));
+
+    await expect(voidSupplierPayment(COMPANY_ID, PAYMENT_ID, USER_ID)).rejects.toMatchObject({
+      code: 'SUPPLIER_PAYMENT_REFUSED',
+    });
     expect(mockReverse).not.toHaveBeenCalled();
   });
 

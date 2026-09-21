@@ -1,5 +1,5 @@
-# Round 4 GREEN — working tree, same fixture (fixture-build.log), --no-file-parallelism
-# 51 files:
+# Round 4/4b GREEN — working tree, same fixture (fixture-build.log), --no-file-parallelism
+# 52 files:
 #   tests/integration/api/BL-47-supplierPaymentWorkflow-tenant.test.ts
 #   tests/integration/api/BL-48-batchPayment-tenant.test.ts
 #   tests/integration/api/BL-49-50-51-bankAllocation-tenant.test.ts
@@ -51,8 +51,9 @@
 #   tests/integration/supplier-ownership-fence-satellites.int.test.ts
 #   tests/integration/supplier-ownership-fence-services.int.test.ts
 #   tests/integration/supplier-refund-document.int.test.ts
+#   tests/integration/k064-stuck-loser-recovery.int.test.ts
 # (aging-point-in-time and customer-ownership-fence were left out: they refuse to run on any
 #  database not named isaflow_dev / isaflow_test, by their own guard.)
 exit=0
- Test Files  51 passed (51)
-      Tests  342 passed (342)
+ Test Files  52 passed (52)
+      Tests  346 passed (346)

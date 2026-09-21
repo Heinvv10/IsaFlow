@@ -15,6 +15,7 @@ import { lockSupplierPaymentForUpdate } from '../core/paymentLock';
 import { getSupplierPaymentById } from './supplierPaymentService';
 import { assertAllocationsStillAllocatable } from './supplierBatchAllocationPlan';
 import { SupplierPaymentRefusal } from './supplierPaymentRefusal';
+import { voidUnprocessedPayment } from './supplierPaymentCancel';
 import type { SupplierPayment } from '../../types/ap.types';
 import type { JournalLineInput } from '../../types/gl.types';
 type Row = DbRow;
@@ -256,10 +257,16 @@ async function voidSupplierPaymentInner(
     const payment = await getSupplierPaymentById(companyId, id);
     if (!payment) throw new SupplierPaymentNotFoundError(id);
     if (payment.status === 'reconciled') {
-      throw new Error('Cannot void a reconciled payment — remove it from the bank reconciliation first');
+      throw new SupplierPaymentRefusal('Cannot void a reconciled payment — remove it from the bank reconciliation first');
+    }
+    // Nothing has moved on a draft or approved payment: voiding it is a status
+    // change, and it stops reserving its bills. Anything else is a typed 400.
+    if (payment.status === 'draft' || payment.status === 'approved') {
+      await voidUnprocessedPayment(companyId, payment);
+      return { ...payment, status: 'cancelled' };
     }
     if (payment.status !== 'processed') {
-      throw new Error(`Only processed payments can be voided (status: ${payment.status})`);
+      throw new SupplierPaymentRefusal(`Only draft, approved or processed payments can be voided (status: ${payment.status})`);
     }
 
     // (3) Un-apply allocations: roll amount_paid back and recompute status.

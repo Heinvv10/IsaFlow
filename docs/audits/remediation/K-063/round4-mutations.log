@@ -77,3 +77,22 @@ restored byte-identical 6814ec794e43ddedda7156e6582f2484907336c3298f333d965145fa
  Test Files  1 failed | 2 passed (3)
       Tests  1 failed | 27 passed (28)
 restored byte-identical 8305de151c8cc03e683de5207f5a263ab33ac7c18e7a6a3213463c729c984599
+=== L1' createSupplierPayment bill lock removed (reviewer shape)
+     × PREVENTED: a batch and a single payment of 600 each, created at once on a 1000 bill — the second is refused at creation 375ms
+     × ONE LOCK ORDER: a payment, a batch and an application naming two bills in opposite orders all succeed together 2469ms
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 2 ⎯⎯⎯⎯⎯⎯⎯
+ Test Files  1 failed (1)
+      Tests  2 failed | 2 passed (4)
+restored byte-identical 6814ec794e43ddedda7156e6582f2484907336c3298f333d965145faa82c161d
+=== V1 void refuses an approved payment again
+     × RECOVERABLE (single payment loser): winner processes, loser refused, loser released, the rest is paid 51ms
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 1 ⎯⎯⎯⎯⎯⎯⎯
+ Test Files  1 failed (1)
+      Tests  1 failed | 3 passed (4)
+restored byte-identical 1e74241c38e71299eb68a1b9f51b0d065bfdcdce541ae6b040743e222c8ddf53
+=== X1' cancelBatch back to draft only (reviewer shape)
+     × RECOVERABLE (batch loser): winner processes, loser refused, loser released, the rest is paid 40ms
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 1 ⎯⎯⎯⎯⎯⎯⎯
+ Test Files  1 failed (1)
+      Tests  1 failed | 3 passed (4)
+restored byte-identical 8305de151c8cc03e683de5207f5a263ab33ac7c18e7a6a3213463c729c984599
