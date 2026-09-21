@@ -26,6 +26,7 @@ import { resolvePendingAlertForInvoice } from '../capture/alertResolutionService
 import { mapInvoiceRow } from './supplierInvoiceQueryService';
 import type { PostingActorOpts } from '../gl/journalEntryMeta';
 import { DEFAULT_SUPPLIER_TAX_RATE } from '../../constants/supplierInvoiceDefaults';
+import { assertSupplierInCompany } from '../core/contactDirectoryService';
 
 type Row = DbRow;
 
@@ -81,6 +82,9 @@ export async function createSupplierInvoice(
     // Only an importer's own input object can turn this on; every REST route
     // builds its input field by field and never copies it from a body.
     const trustSourceTax = 'trustSourceTax' in input && input.trustSourceTax === true;
+    // R-068: supplier_invoices.supplier_id's FK is tenant-agnostic and the one
+    // supplier read below (the VAT number) yields NULL on a miss. Before any write.
+    await assertSupplierInCompany(companyId, input.supplierId);
 
     // W1 (P2.1): negative quantities/prices produce negative documents.
     for (const item of input.items || []) {

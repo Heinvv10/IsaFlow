@@ -9,7 +9,7 @@
 import { sql } from '@/lib/neon';
 import type { DbRow } from '@/types/db';
 import { computeFingerprint } from '../capture/captureDeduplicationService';
-import { assertCustomerInCompany } from './contactDirectoryService';
+import { assertCustomerInCompany, assertSupplierInCompany } from './contactDirectoryService';
 import { insertWithReservedNumber } from './documentNumberRetry';
 import { headerTotals, normaliseLines } from './recurringTemplateLines';
 import type { RecurringTemplate } from './recurringTransactionService';
@@ -111,6 +111,8 @@ export async function mintRecurringSupplierInvoice(
   // because the failed reservation rolls back with the request and the next
   // run reserves the very same number again.
   const supplierId = String(data.supplierId || '');
+  // R-068: the template row is company-scoped, the id inside its JSON is not.
+  await assertSupplierInCompany(companyId, supplierId);
   const lines = normaliseLines(data);
   // Asserted BEFORE the first write of the run, so the route may answer 4xx.
   const totals = headerTotals(template.id, data, lines);

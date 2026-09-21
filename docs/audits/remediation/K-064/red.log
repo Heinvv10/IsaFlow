@@ -1,0 +1,89 @@
+
+ RUN  v4.1.2 /home/hein/Workspace/IsaFlow/.worktrees/audit-remediation-20260908
+
+{"level":"info","message":"Created batch payment","timestamp":"2026-09-09T09:21:30.645Z","component":"accounting","data":{"batchId":"86502886-3683-43ea-a112-92574f018794","paymentCount":1}}
+{"level":"info","message":"Created batch payment","timestamp":"2026-09-09T09:21:30.673Z","component":"accounting","data":{"batchId":"3bd77bd3-da29-496d-aac6-2ae9fd0bfeaf","paymentCount":1}}
+ ❯ tests/integration/k064-batch-payment-creation-unvalidated.int.test.ts (2 tests | 2 failed) 224ms
+   × refuses a batch line against another tenant's bill 56ms
+   × refuses a batch line for more than the bill has outstanding 13ms
+
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 2 ⎯⎯⎯⎯⎯⎯⎯
+
+ FAIL  tests/integration/k064-batch-payment-creation-unvalidated.int.test.ts > refuses a batch line against another tenant's bill
+AssertionError: promise resolved "{ …(15) }" instead of rejecting
+
+- Expected
++ Received
+
+- Error {
+-   "message": "rejected promise",
++ {
++   "bankAccountId": undefined,
++   "batchDate": "2026-09-09",
++   "batchNumber": "BAT-2026-00001",
++   "createdAt": "Wed Sep 09 2026 11:21:30 GMT+0200 (South Africa Standard Time)",
++   "createdBy": "5cd1f00d-996b-41d5-a2b2-735749c84d78",
++   "glJournalEntryId": undefined,
++   "id": "86502886-3683-43ea-a112-92574f018794",
++   "notes": undefined,
++   "paymentCount": 1,
++   "paymentMethod": "eft",
++   "processedAt": undefined,
++   "processedBy": undefined,
++   "status": "draft",
++   "totalAmount": 100,
++   "updatedAt": "Wed Sep 09 2026 11:21:30 GMT+0200 (South Africa Standard Time)",
+  }
+
+ ❯ tests/integration/k064-batch-payment-creation-unvalidated.int.test.ts:63:21
+     61|     paymentMethod: 'eft',
+     62|     payments: [{ supplierId: supplierA, invoiceAllocations: [{ invoice…
+     63|   } as never, user)).rejects.toThrow();
+       |                     ^
+     64|
+     65|   const { rows } = await pool.query('SELECT COUNT(*)::int AS n FROM pa…
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[1/2]⎯
+
+ FAIL  tests/integration/k064-batch-payment-creation-unvalidated.int.test.ts > refuses a batch line for more than the bill has outstanding
+AssertionError: promise resolved "{ …(15) }" instead of rejecting
+
+- Expected
++ Received
+
+- Error {
+-   "message": "rejected promise",
++ {
++   "bankAccountId": undefined,
++   "batchDate": "2026-09-09",
++   "batchNumber": "BAT-2026-00002",
++   "createdAt": "Wed Sep 09 2026 11:21:30 GMT+0200 (South Africa Standard Time)",
++   "createdBy": "5cd1f00d-996b-41d5-a2b2-735749c84d78",
++   "glJournalEntryId": undefined,
++   "id": "3bd77bd3-da29-496d-aac6-2ae9fd0bfeaf",
++   "notes": undefined,
++   "paymentCount": 1,
++   "paymentMethod": "eft",
++   "processedAt": undefined,
++   "processedBy": undefined,
++   "status": "draft",
++   "totalAmount": 500,
++   "updatedAt": "Wed Sep 09 2026 11:21:30 GMT+0200 (South Africa Standard Time)",
+  }
+
+ ❯ tests/integration/k064-batch-payment-creation-unvalidated.int.test.ts:73:21
+     71|     paymentMethod: 'eft',
+     72|     payments: [{ supplierId: supplierA, invoiceAllocations: [{ invoice…
+     73|   } as never, user)).rejects.toThrow();
+       |                     ^
+     74|
+     75|   const { rows } = await pool.query('SELECT COUNT(*)::int AS n FROM pa…
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[2/2]⎯
+
+
+ Test Files  1 failed (1)
+      Tests  2 failed (2)
+   Start at  11:21:29
+   Duration  954ms (transform 352ms, setup 0ms, import 473ms, tests 224ms, environment 0ms)
+

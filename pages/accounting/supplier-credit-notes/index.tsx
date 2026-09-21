@@ -10,12 +10,13 @@ import type { CreditNote } from '@/modules/accounting/types/ar.types';
 import { formatCurrency } from '@/utils/formatters';
 import { apiFetch } from '@/lib/apiFetch';
 
-const TABS = ['all', 'draft', 'approved', 'applied', 'cancelled'] as const;
+const TABS = ['all', 'draft', 'approved', 'partially_applied', 'applied', 'cancelled'] as const;
 type Tab = typeof TABS[number];
 
 const STATUS_CLS: Record<string, string> = {
   draft:     'bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-300',
   approved:  'bg-emerald-50 dark:bg-emerald-900/30 text-emerald-700 dark:text-emerald-400',
+  partially_applied: 'bg-amber-50 dark:bg-amber-900/30 text-amber-700 dark:text-amber-400',
   applied:   'bg-emerald-50 dark:bg-emerald-900/30 text-emerald-700 dark:text-emerald-400',
   cancelled: 'bg-slate-100 dark:bg-slate-800 text-slate-500 dark:text-slate-400',
 };

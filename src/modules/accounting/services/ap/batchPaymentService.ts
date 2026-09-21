@@ -10,6 +10,7 @@ import { log } from '@/lib/logger';
 import { createJournalEntry, postJournalEntry } from '../gl/journalEntryService';
 import { getSystemAccount } from '../gl/systemAccountResolver';
 import { claimUnderLockTimeout } from '../core/documentClaimLock';
+import { assertSupplierInCompany } from '../core/contactDirectoryService';
 import type { SupplierPaymentBatch, BatchPaymentCreateInput } from '../../types/ap.types';
 import type { JournalLineInput } from '../../types/gl.types';
 
@@ -61,6 +62,9 @@ export async function createBatch(companyId: string,
 ): Promise<SupplierPaymentBatch> {
   const paymentMethod = input.paymentMethod || 'eft';
   const batchDate = input.batchDate || new Date().toISOString().split('T')[0]!;
+  // R-068: every payment's supplier_id comes from the body. All refused
+  // before the batch row is written.
+  for (const p of input.payments) await assertSupplierInCompany(companyId, p.supplierId);
 
   const batchId = await withTransaction(async (tx) => {
     const batchRows = (await tx`

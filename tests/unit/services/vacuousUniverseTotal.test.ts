@@ -62,7 +62,12 @@ describe('no report may synthesize its own universe', () => {
   it('leaves genuinely independent universe counts in place', () => {
     expect(src('src/modules/accounting/services/core/documentQueryService.ts'))
       .toMatch(/universeTotal:\s*Number\(universe\?\.cnt/);
-    expect(src('src/modules/accounting/services/ar/unappliedReceiptService.ts'))
+    // Moved with the report's definition into the shared basis: one COUNT(*)
+    // over the population, a second statement from the row query, so a row
+    // query that drops rows breaks the identity instead of moving it.
+    expect(src('src/modules/accounting/services/shared/unappliedPaymentBasis.ts'))
       .toMatch(/universeTotal:\s*Number\(totals\.universe_total/);
+    expect(src('src/modules/accounting/services/ar/unappliedReceiptService.ts'))
+      .toMatch(/universeTotal:\s*basis\.totals\.universeTotal/);
   });
 });

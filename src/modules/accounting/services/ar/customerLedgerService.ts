@@ -40,7 +40,7 @@ const BILLABLE_INVOICE_STATUSES = [
 ] as const;
 
 /** Credit note statuses that reduce what the customer owes. */
-const EFFECTIVE_CREDIT_NOTE_STATUSES = ['approved', 'applied'] as const;
+const EFFECTIVE_CREDIT_NOTE_STATUSES = ['approved', 'partially_applied', 'applied'] as const;
 
 export type LedgerEntryType = 'invoice' | 'receipt' | 'credit_note';
 

@@ -5,6 +5,7 @@
  */
 
 import sql, { withTransaction, TxSql } from '@/lib/neon';
+import { assertSupplierInCompany } from '../core/contactDirectoryService';
 
 export interface PurchaseOrderItem {
   description: string;
@@ -177,6 +178,8 @@ export async function listPurchaseOrders(input: ListPurchaseOrdersInput) {
 
 export async function createPurchaseOrder(input: CreatePurchaseOrderInput) {
   const { companyId, userId, items } = input;
+  // R-068: before generateOrderNumber, which is a counter write.
+  await assertSupplierInCompany(companyId, input.supplier_id);
   const orderNumber = await generateOrderNumber(companyId);
   const { subtotal, taxAmount, totalAmount } = calcTotals(items);
 
@@ -219,6 +222,7 @@ export async function updatePurchaseOrder(input: UpdatePurchaseOrderInput) {
 
   if (existing.length === 0) return { error: 'not_found' as const };
   if (existing[0]!.status !== 'draft') return { error: 'not_draft' as const };
+  await assertSupplierInCompany(companyId, input.supplier_id);
 
   let subtotal: number | null = null;
   let taxAmount: number | null = null;
