@@ -3141,7 +3141,7 @@
       "correctedTrigger": null,
       "severityRationale": "Source priority only; impact and reachability not yet validated.",
       "auditedSha": "5661d6f0f5f2212705151e95455a3f681ddf840e",
-      "currentSha": "31fc2f10",
+      "currentSha": "6e093d020",
       "status": "fixed",
       "dependencies": [
         "R-021: the import raises 42703 before any row is written; reproduce K-088 after R-021",
@@ -3156,7 +3156,7 @@
       ],
       "fixCommit": "6e093d020",
       "pr": "453",
-      "deployedSha": null,
+      "deployedSha": "6e093d020",
       "historicalDataImpact": "Not assessed",
       "canonicalItem": "R-021",
       "reportedSeverity": "high",
@@ -3214,7 +3214,7 @@
       "correctedTrigger": null,
       "severityRationale": "Source priority only; impact and reachability not yet validated.",
       "auditedSha": "5661d6f0f5f2212705151e95455a3f681ddf840e",
-      "currentSha": "31fc2f10",
+      "currentSha": "6e093d020",
       "status": "fixed",
       "dependencies": [
         "Trigger moved: the per-row catch is unreachable; failRun in the outer handler dies on the aborted transaction and masks the R-021 error; fix with R-021 as one change"
@@ -3228,7 +3228,7 @@
       ],
       "fixCommit": "6e093d020",
       "pr": "453",
-      "deployedSha": null,
+      "deployedSha": "6e093d020",
       "historicalDataImpact": "Not assessed",
       "canonicalItem": null,
       "reportedSeverity": "high",
@@ -9411,7 +9411,7 @@
       "correctedTrigger": null,
       "severityRationale": "Named by a fixer or reviewer during remediation; not yet reproduced as its own test.",
       "auditedSha": "5661d6f0f5f2212705151e95455a3f681ddf840e",
-      "currentSha": "faa2ef39",
+      "currentSha": "6e093d020",
       "status": "fixed",
       "dependencies": [
         "Refines K-088 (Sage supplier-invoice import idempotency): the import has never run; validate K-088 on top of this"
@@ -9428,7 +9428,7 @@
       ],
       "fixCommit": "6e093d020",
       "pr": "453",
-      "deployedSha": null,
+      "deployedSha": "6e093d020",
       "historicalDataImpact": "None: no supplier_invoices row ever came through this path. gl_migration_runs rows stuck at running from earlier failed calls may exist; read-only SELECT in fix.md.",
       "canonicalItem": null,
       "reportedSeverity": "high",
@@ -11516,7 +11516,7 @@
       "correctedTrigger": "",
       "severityRationale": "The migration validation compares its AR total with the GL control account, but excludes 'sent' invoices, so any migrated company with sent, posted invoices shows a false AR-vs-GL failure. It misleads the migration sign-off rather than moving money.",
       "auditedSha": "",
-      "currentSha": "",
+      "currentSha": "6e093d020",
       "status": "fixed",
       "dependencies": [
         "R-059"
@@ -11531,7 +11531,7 @@
       ],
       "fixCommit": "f1379ac97",
       "pr": "452",
-      "deployedSha": null,
+      "deployedSha": "6e093d020",
       "historicalDataImpact": "No ledger data is wrong; past validation reports for migrated companies may show false failures.",
       "canonicalItem": null,
       "reportedSeverity": "",
@@ -11623,7 +11623,7 @@
       "correctedTrigger": "",
       "severityRationale": "The same class K-072 removed from capture: a document from a non-VAT supplier, or a zero-rated one, is imported with 15/115 of its total as VAT, so input VAT (supplier side) or output VAT (customer side) is overstated for migrated companies. Scope is migration imports only.",
       "auditedSha": "",
-      "currentSha": "",
+      "currentSha": "6e093d020",
       "status": "fixed",
       "dependencies": [
         "K-072"
@@ -11639,7 +11639,7 @@
       ],
       "fixCommit": "f1379ac97",
       "pr": "452",
-      "deployedSha": null,
+      "deployedSha": "6e093d020",
       "historicalDataImpact": "Unknown; production not measured. Count Sage-imported documents whose source row had no subtotal and that now carry a non-zero tax amount, per company.",
       "canonicalItem": null,
       "reportedSeverity": "",
