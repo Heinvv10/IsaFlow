@@ -20,13 +20,14 @@ vi.mock('@/lib/logger', () => ({
 vi.mock('@/modules/accounting/services/core/sageMigrationService', () => ({
   startRun: vi.fn().mockResolvedValue('run-1'),
   completeRun: vi.fn((
-    runId: string, total: number, succeeded: number, failed: number, skipped: number, vatNotStated = 0,
+    runId: string, _companyId: string, total: number, succeeded: number, failed: number, skipped: number, vatNotStated = 0,
   ) => Promise.resolve({
     id: runId, runType: 'customer_invoice_import', status: 'completed', totalRecords: total,
     processed: succeeded + failed + skipped, succeeded, failed, skipped,
     startedAt: '', completedAt: null, vatNotStated,
   })),
   failRun: vi.fn(),
+  withRunRecovery: (_runId: string, _companyId: string, body: () => Promise<unknown>) => body(),
 }));
 
 import { importCustomerInvoices } from '@/modules/accounting/services/core/sageCustomerImportService';
