@@ -66,13 +66,13 @@ describe('K-090: a failed run reports its own cause and is recorded', () => {
   });
 
   it('does not mark a run of another company failed', async () => {
-    const outcome = await driveExpectingFailure(companyB, async () => {
-      const foreignRun = await startRun('invoice_import', user, companyA);
-      return withRunRecovery(foreignRun, companyB, () => sql`SELECT no_such_column FROM sage_supplier_invoices`);
+    // A's run, marked under B's scope: A's row must stay 'running'.
+    const outcome = await driveExpectingFailure(companyA, async () => {
+      const runOfA = await startRun('invoice_import', user, companyA);
+      return withRunRecovery(runOfA, companyB, () => sql`SELECT no_such_column FROM sage_supplier_invoices`);
     });
     expect(outcome.error.message).toMatch(/does not exist/);
-    // companyB has no run row of its own here; A's stays 'running'.
-    expect(outcome.status).toBe('');
+    expect(outcome.status).toBe('running');
   });
 
   it('recovers the transaction after a row-level failure and marks that row failed', async () => {
