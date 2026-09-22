@@ -9185,7 +9185,8 @@
       "deployedSha": null,
       "historicalDataImpact": "Not assessed",
       "canonicalItem": null,
-      "reportedSeverity": "medium"
+      "reportedSeverity": "medium",
+      "processNotes": "2026-09-21 (R-086 round 4): the default path's today-fallback can date a reversal BEFORE a future-dated original. documentInLedgerAsAtFragment's parity precondition then fails for the dates between the two, so every as-at consumer (ageing, statements) reads that document wrong; migration validation sidesteps it with a far-future sentinel. Fix here must add an earlier-than-original guard to the default path."
     },
     {
       "id": "R-013",
@@ -11523,7 +11524,7 @@
       "title": "migrationValidationService's AR status list omits 'sent', so a posted 'sent' invoice fails the AR-vs-GL check (R0 vs R1150)",
       "severity": "low",
       "source": "Measured by the R-059 round-7 blind reviewer on the schema fixture; pre-existing on master.",
-      "processNotes": "Route the population through shared/documentPopulation.documentInPopulationExpr (R-059) instead of a hand-written status list."
+      "processNotes": "Route the population through shared/documentPopulation.documentInPopulationExpr (R-059) instead of a hand-written status list. 2026-09-22 round 4: the customer-invoice send action now accepts only approved|sent (it took anything but cancelled). The UI only offered Mark Sent on approved; via the API/MCP, overdue and partially_paid invoices now get a 400 too."
     },
     {
       "id": "R-087",
@@ -12510,6 +12511,61 @@
       "severity": "medium",
       "source": "Found by the R-115 fixer.",
       "processNotes": "Registered 2026-09-21. Fixed 2026-09-21 on fix/audit-r116-statement-as-at-20260921: list, detail, batch PDFs, drill-down (from Customer Statements and AR ageing) and the Statements page's Overdue all follow the picked as-at date; the four pages' pickers default to a local date. Fix commits 12d4c5040, 105b9d9a7, d72dbf70b. Blind review (Opus) 4 rounds, final SHIP. Merged in PR #450 (eec2403b6); deployed to production 2026-09-21 ~20:10 SAST with Hein's approval (0 migrations, golden paths 13/13, integrity 16/16, rollback snapshot 7025da783)."
+    },
+    {
+      "id": "R-117",
+      "claim": "agingRewind.effectivePaidExpr clamps amount_paid into [0, total_amount] one-sidedly, so a negative-total document (credit-note shape, total -1150, amount_paid 0) yields LEAST(0,-1150) = -1150 and a balance of 0: the document vanishes from the ageing and the subledger while its journal stays on the GL.",
+      "area": "reports",
+      "affectedPaths": [
+        "src/modules/accounting/services/shared/agingRewind.ts"
+      ],
+      "sourceLabel": "R-086 review round 4 (adversarial)",
+      "sourceIds": [],
+      "correctedTrigger": null,
+      "severityRationale": "Named by a reviewer during remediation; proven arithmetically, not yet reproduced against a real document through the ageing.",
+      "auditedSha": "8b10851b4",
+      "currentSha": "8b10851b4",
+      "status": "candidate",
+      "dependencies": [],
+      "testNames": [],
+      "evidencePaths": [
+        "docs/audits/remediation/R-089/fix.md"
+      ],
+      "fixCommit": null,
+      "pr": null,
+      "deployedSha": null,
+      "historicalDataImpact": "Not assessed",
+      "canonicalItem": null,
+      "reportedSeverity": "medium",
+      "processNotes": "2026-09-22: migrationValidationService (R-086 round 4) uses the sign-aware form LEAST(GREATEST(paid, LEAST(total,0)), GREATEST(total,0)); apply the same to effectivePaidExpr and prove it through getARSubledger with a negative-total row."
+    },
+    {
+      "id": "R-118",
+      "claim": "supplier-invoices-bulk-action post_gl calls postSupplierInvoiceToGL, whose only status guard is 'cancelled', so a DRAFT bill can be posted to the GL. Its journal is then on the GL half of every AP-vs-GL reconciliation while the draft is outside the document population (documentInPopulationExpr excludes draft), a permanent difference by the bill's full amount.",
+      "area": "ap",
+      "affectedPaths": [
+        "pages/api/accounting/supplier-invoices-bulk-action.ts",
+        "src/modules/accounting/services/ap/supplierInvoiceWorkflowService.ts"
+      ],
+      "sourceLabel": "R-086 review round 5 (adversarial)",
+      "sourceIds": [],
+      "correctedTrigger": null,
+      "severityRationale": "Named by a reviewer; the guard is confirmed by reading (status === 'cancelled' only) and not yet reproduced as a test.",
+      "auditedSha": "7b3ebd2fd",
+      "currentSha": "7b3ebd2fd",
+      "status": "candidate",
+      "dependencies": [],
+      "testNames": [],
+      "evidencePaths": [
+        "docs/audits/remediation/R-089/fix.md"
+      ],
+      "fixCommit": null,
+      "pr": null,
+      "deployedSha": null,
+      "historicalDataImpact": "Not assessed: count supplier_invoices with status='draft' AND gl_journal_entry_id IS NOT NULL per company.",
+      "canonicalItem": null,
+      "reportedSeverity": "medium",
+      "processNotes": null
     }
   ],
   "sourceInventory": [

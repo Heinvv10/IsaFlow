@@ -10,11 +10,22 @@ import type { DbRow } from '@/lib/neon';
 import { log } from '@/lib/logger';
 import type { MigrationRun } from './sageMigrationService';
 import { startRun, completeRun, failRun } from './sageMigrationService';
+import { deriveSageVat, statedSageFigures, SAGE_VAT_NOT_STATED_NOTE } from '../shared/sageVatDerivation';
 type Row = DbRow;
 
 
 /**
  * Import sage_customer_invoices into customer_invoices with line items
+ *
+ * R-089 (fix.md): the VAT split below never invents a rate — see
+ * `deriveSageVat`. This function's SELECT names columns (`sage_invoice_id`,
+ * `client_id`, `subtotal`, `tax_amount`, `raw_data`, …) that do not exist on
+ * `sage_customer_invoices` today (confirmed against the schema fixture,
+ * 42703) — the twin of R-021's finding on the supplier side, unflagged until
+ * now. The whole function is currently unreached; fixing the column mismatch
+ * is a separate, larger change (name-matched customer, derived due date,
+ * proper handling of what staging actually carries) and is out of scope
+ * here — registered as a new finding, not fixed.
  */
 export async function importCustomerInvoices(companyId: string, userId: string): Promise<MigrationRun> {
   const runId = await startRun('customer_invoice_import', userId, companyId);
@@ -34,6 +45,7 @@ export async function importCustomerInvoices(companyId: string, userId: string):
     let succeeded = 0;
     let failed = 0;
     let skipped = 0;
+    let vatNotStated = 0;
 
     for (const inv of sageInvoices) {
       try {
@@ -50,16 +62,13 @@ export async function importCustomerInvoices(companyId: string, userId: string):
           continue;
         }
 
-        const subtotal = Number(inv.subtotal || 0) || totalAmount / 1.15;
-        const taxAmount = Number(inv.tax_amount || 0) || totalAmount - subtotal;
-        const taxRate = subtotal > 0
-          ? Math.round((taxAmount / subtotal) * 100 * 100) / 100
-          : 15;
+        const rawData = parseRawData(inv.raw_data);
+        const lines = Array.isArray(rawData?.Lines) ? rawData.Lines : null;
+        const stated = statedSageFigures(inv.subtotal, inv.tax_amount, rawData, lines);
+        const { subtotal, taxAmount, taxRate, vatNotStated: rowVatNotStated } =
+          deriveSageVat(stated.subtotal, stated.tax, totalAmount);
         const isPaid = inv.status === 'paid'
           || Number(inv.outstanding_amount || 0) === 0;
-
-        // Extract reference from raw_data
-        const rawData = parseRawData(inv.raw_data);
         const reference = rawData?.Reference || inv.invoice_number || null;
 
         const newInv = (await sql`
@@ -68,7 +77,7 @@ export async function importCustomerInvoices(companyId: string, userId: string):
             invoice_number, customer_id, client_id, invoice_date, due_date,
             billing_period_start, billing_period_end,
             subtotal, tax_rate, tax_amount, total_amount,
-            amount_paid, status, sage_invoice_id, reference, created_by
+            amount_paid, status, sage_invoice_id, reference, notes, created_by
           ) VALUES (
             ${companyId}::UUID,
             ${inv.invoice_number || `SAGE-${inv.sage_invoice_id}`},
@@ -82,6 +91,7 @@ export async function importCustomerInvoices(companyId: string, userId: string):
             ${isPaid ? 'paid' : 'approved'},
             ${inv.sage_invoice_id},
             ${reference},
+            ${rowVatNotStated ? SAGE_VAT_NOT_STATED_NOTE : null},
             ${userId}
           ) RETURNING id
         `) as Row[];
@@ -89,8 +99,7 @@ export async function importCustomerInvoices(companyId: string, userId: string):
         const newInvoiceId = String(newInv[0]!.id);
 
         // Insert line items from raw_data
-        const lines = rawData?.Lines;
-        if (lines && Array.isArray(lines) && lines.length > 0) {
+        if (lines && lines.length > 0) {
           for (const line of lines) {
             const qty = Number(line.Quantity || 1);
             const price = Number(line.UnitPriceExclusive || 0);
@@ -117,6 +126,12 @@ export async function importCustomerInvoices(companyId: string, userId: string):
           WHERE id = ${inv.id} AND company_id = ${companyId}::UUID
         `;
 
+        // Counted here, not at the derivation above: a row that never
+        // reaches this line (INSERT/UPDATE throws) must not inflate the
+        // reported review count for a document that does not exist
+        // (review-r089-r1.md LOW-3).
+        if (rowVatNotStated) vatNotStated++;
+
         succeeded++;
       } catch (err) {
         log.error('Failed to import customer invoice',
@@ -129,7 +144,7 @@ export async function importCustomerInvoices(companyId: string, userId: string):
       }
     }
 
-    return await completeRun(runId, sageInvoices.length, succeeded, failed, skipped);
+    return await completeRun(runId, sageInvoices.length, succeeded, failed, skipped, vatNotStated);
   } catch (err) {
     await failRun(runId, err);
     throw err;

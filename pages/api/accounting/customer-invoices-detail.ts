@@ -235,19 +235,23 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
     // action to 'approve' | 'send' | 'cancel', both handled above).
     const newStatus = 'sent';
 
-    // 'sent' is in AR_OPEN_STATUSES — sending a cancelled invoice would
-    // resurrect it into outstanding AR against a net-zero reversed journal.
+    // Only an approved (posted) invoice can be sent; re-sending keeps 'sent'.
+    // 'sent' is in the AR population: a draft marked sent is AR with no
+    // journal behind it, a cancelled one is resurrected against a reversed
+    // journal, and a paid one is demoted back to open.
     const sent = (await sql`
       UPDATE customer_invoices
       SET status = 'sent', updated_at = NOW()
       WHERE id = ${id}::UUID AND company_id = ${companyId}
-        AND status != 'cancelled'
+        AND status IN ('approved', 'sent')
       RETURNING id
     `) as Row[];
     if (sent.length === 0) {
       const cur = (await sql`SELECT status FROM customer_invoices WHERE id = ${id}::UUID AND company_id = ${companyId}`) as Row[];
       if (cur.length === 0) return apiResponse.notFound(res, 'Invoice', id);
-      return apiResponse.badRequest(res, 'Cannot send a cancelled invoice');
+      return apiResponse.badRequest(res, cur[0]!.status === 'cancelled'
+        ? 'Cannot send a cancelled invoice'
+        : `Cannot send a ${String(cur[0]!.status)} invoice — only an approved invoice can be sent`);
     }
 
     // PRD-06 Phase 1: seal the rendered PDF as evidence on send.
