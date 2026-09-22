@@ -32,13 +32,15 @@
  * PRECONDITION: no reversal is ever dated BEFORE the entry it reverses. Parity
  * of the entries dated on or before the as-at date only equals the chain's net
  * position when those entries form a PREFIX of the chain, and that is what
- * makes them one. resolveReversalDate (gl/journalEntryPostingService) enforces
- * it — it returns the target's own date or TODAY when the target's period is
- * closed, and refuses an explicit reversal_date earlier than the entry it
- * corrects. A change there that let a reversal be back-dated past its original
- * would make this predicate answer the wrong way round for the dates between
- * the two, silently. k053-out-of-order-reversal-chain.int.test.ts hand-builds
- * such a chain in SQL and pins that failure mode so the coupling is visible.
+ * makes them one. resolveReversalDate (gl/journalEntryReversalDate) refuses
+ * an EXPLICIT reversal_date earlier than the entry it corrects, but its
+ * default path does not: when the original's period is not open it dates the
+ * reversal TODAY, which is before a future-dated original (R-012). For that
+ * shape this predicate answers the wrong way round for the dates between the
+ * two. The migration validation sidesteps it with a far-future sentinel; the
+ * as-at consumers (ageing, statements) are exposed to it until R-012 lands.
+ * k053-out-of-order-reversal-chain.int.test.ts hand-builds such a chain in
+ * SQL and pins that failure mode so the coupling is visible.
  *
  * CASE rather than OR so the recursive walk is only ever evaluated for a
  * deleted row: CASE guarantees the arms are not evaluated when the condition

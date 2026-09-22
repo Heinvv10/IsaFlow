@@ -18,6 +18,7 @@ import type { MigrationRun } from './sageMigrationService';
 import { startRun, completeRun, failRun } from './sageMigrationService';
 import type { DbRow } from '@/types/db';
 import { computeFingerprint } from '../capture/captureDeduplicationService';
+import { deriveSageVat, statedSageFigures, SAGE_VAT_NOT_STATED_NOTE } from '../shared/sageVatDerivation';
 
 // ── Supplier Invoice Import ─────────────────────────────────────────────────
 
@@ -25,6 +26,19 @@ import { computeFingerprint } from '../capture/captureDeduplicationService';
  * Import sage_supplier_invoices into the supplier_invoices table.
  * Matches Sage's approach: invoices are standalone AP documents,
  * no separate GL journal entries are created per invoice.
+ *
+ * R-089 (fix.md): the VAT split below never invents a rate — see
+ * `deriveSageVat`. NOTE for whoever lands R-021 here: this function's SELECT
+ * names columns (`sage_invoice_id`, `subtotal`, `tax_amount`, `supplier_id`,
+ * …) that do not exist on `sage_supplier_invoices` today (confirmed against
+ * the schema fixture, 42703), so this whole function is currently unreached —
+ * R-021 (unmerged branch `fix/audit-r021-k088-k090-sage-importer`) rewrites
+ * the row mapping to the columns the table actually has, and derives VAT
+ * UNCONDITIONALLY at the standard rate because staging carries none at all.
+ * That reintroduces exactly what this fix removes, for every row instead of
+ * only the ones with none stated. Reconcile the two: post-R-021, every row
+ * "carries none" by definition, so `deriveSageVat(null, null, totalAmount)`
+ * is what every row should get, not an unconditional 15% unwind.
  */
 export async function importSupplierInvoices(companyId: string, userId: string): Promise<MigrationRun> {
   const runId = await startRun('invoice_import', userId, companyId);
@@ -45,6 +59,7 @@ export async function importSupplierInvoices(companyId: string, userId: string):
     let succeeded = 0;
     let failed = 0;
     let skipped = 0;
+    let vatNotStated = 0;
 
     for (const inv of sageInvoices) {
       try {
@@ -64,19 +79,17 @@ export async function importSupplierInvoices(companyId: string, userId: string):
 
           if (!supplierId) return 'no_supplier';
 
-          const subtotal = Number(inv.subtotal || 0) || totalAmount / 1.15;
-          const taxAmount = Number(inv.tax_amount || 0) || totalAmount - subtotal;
-          const taxRate = subtotal > 0
-            ? Math.round((taxAmount / subtotal) * 100 * 100) / 100
-            : 15;
+          const rawObj = parseJson(inv.raw_data);
+          const lines = parseRawData(inv.raw_data, inv.line_items);
+          const stated = statedSageFigures(inv.subtotal, inv.tax_amount, rawObj, lines);
+          const { subtotal, taxAmount, taxRate, vatNotStated: rowVatNotStated } =
+            deriveSageVat(stated.subtotal, stated.tax, totalAmount);
 
           // project_id cannot be resolved from purchase_orders in standalone mode
           const projectId: string | null = null;
 
           const isPaid = inv.status === 'paid' || Number(inv.outstanding_amount || 0) === 0;
 
-          // Extract reference from raw_data if available
-          const rawObj = parseJson(inv.raw_data);
           const reference = rawObj?.Reference || null;
 
           // Fingerprint for duplicate detection (PRD-05)
@@ -96,7 +109,7 @@ export async function importSupplierInvoices(companyId: string, userId: string):
             INSERT INTO supplier_invoices (
               company_id, invoice_number, supplier_id, purchase_order_id, project_id,
               invoice_date, due_date, subtotal, tax_rate, tax_amount, total_amount,
-              amount_paid, status, sage_invoice_id, reference, created_by,
+              amount_paid, status, sage_invoice_id, reference, notes, created_by,
               duplicate_fingerprint
             ) VALUES (
               ${companyId}::UUID,
@@ -105,7 +118,7 @@ export async function importSupplierInvoices(companyId: string, userId: string):
               ${inv.invoice_date}, ${inv.due_date || inv.invoice_date},
               ${subtotal.toFixed(2)}, ${taxRate}, ${taxAmount.toFixed(2)}, ${totalAmount},
               ${isPaid ? totalAmount : 0}, ${isPaid ? 'paid' : 'approved'},
-              ${inv.sage_invoice_id}, ${reference}, ${userId},
+              ${inv.sage_invoice_id}, ${reference}, ${rowVatNotStated ? SAGE_VAT_NOT_STATED_NOTE : null}, ${userId},
               ${dupFingerprint}
             ) RETURNING id
           `) as DbRow[];
@@ -114,8 +127,7 @@ export async function importSupplierInvoices(companyId: string, userId: string):
 
           // Insert line items from raw_data
           // supplier_invoice_items has no company_id column; tenant-scoped via supplier_invoice_id FK
-          const lines = parseRawData(inv.raw_data, inv.line_items);
-          if (lines && Array.isArray(lines) && lines.length > 0) {
+          if (lines && lines.length > 0) {
             for (const line of lines) {
               const qty = Number(line.Quantity || 1);
               const price = Number(line.UnitPriceExclusive || 0);
@@ -156,6 +168,12 @@ export async function importSupplierInvoices(companyId: string, userId: string):
               AND company_id = ${companyId}::UUID
           `;
 
+          // Counted here, not at the derivation above: a row that never
+          // reaches this line (INSERT/UPDATE fails, savepoint rolls back)
+          // must not inflate the reported review count for a document that
+          // does not exist (review-r089-r1.md LOW-3).
+          if (rowVatNotStated) vatNotStated++;
+
           return 'imported';
         });
 
@@ -186,7 +204,7 @@ export async function importSupplierInvoices(companyId: string, userId: string):
       }
     }
 
-    return await completeRun(runId, sageInvoices.length, succeeded, failed, skipped);
+    return await completeRun(runId, sageInvoices.length, succeeded, failed, skipped, vatNotStated);
   } catch (err) {
     await failRun(runId, err);
     throw err;

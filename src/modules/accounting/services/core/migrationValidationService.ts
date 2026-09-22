@@ -10,7 +10,29 @@ import { log } from '@/lib/logger';
 import { validateSystemAccounts } from '../gl/systemAccountResolver';
 import { checkAccountSubtypeCoverage } from './migrationSubtypeCheck';
 import { PAYABLE_SUBTYPES, RECEIVABLE_SUBTYPES } from '../gl/accountSubtypes';
+import { documentInPopulationExpr } from '../shared/documentPopulation';
+import { documentInLedgerAsAtFragment } from '../shared/softDeleteLedgerPresence';
 import type { DbRow } from '@/types/db';
+
+/**
+ * This check reconciles the CURRENT document total against the CURRENT GL
+ * balance, not a point in time. The GL half sums every posted line whatever
+ * its date, so the document half asks `documentInLedgerAsAtFragment` for
+ * chain parity over the WHOLE reversal chain: at this sentinel every entry
+ * in a chain is "on or before" it, so the parity is the full chain's and no
+ * longer depends on entry order. Bounding either half to today breaks on a
+ * future-dated journal whose reversal `resolveReversalDate` dated to today
+ * (see that function: the default path has no earlier-than-original guard,
+ * R-012). The measurements behind this are in R-089/fix.md, round 3.
+ *
+ * `amount_paid` is clamped between 0 and total_amount in the total's own
+ * direction: [0, total] for a bill, [total, 0] for a negative-total
+ * (credit-note-shaped) document. The population includes paid documents and
+ * bank-match-confirm can leave amount_paid above the total; a one-sided
+ * clamp (the ageing's `effectivePaidExpr`, see R-117) zeroes a negative
+ * document instead.
+ */
+const CURRENT_STATE_SENTINEL = '9999-12-31';
 
 
 export type ValidationStatus = 'pass' | 'fail' | 'warn';
@@ -90,13 +112,20 @@ async function checkTrialBalance(companyId: string): Promise<ValidationResult> {
 async function checkARvsGL(companyId: string): Promise<ValidationResult> {
   // Sum of open customer invoice balances
   const invRows = (await sql`
-    SELECT COALESCE(SUM(total_amount - COALESCE(amount_paid, 0)), 0) AS total
-    FROM customer_invoices
-    WHERE company_id = ${companyId}::UUID
-      AND status IN ('approved', 'partially_paid', 'overdue')
+    SELECT COALESCE(SUM(total_amount - LEAST(GREATEST(COALESCE(amount_paid, 0), LEAST(total_amount, 0)), GREATEST(total_amount, 0))), 0) AS total
+    FROM customer_invoices ci
+    WHERE ci.company_id = ${companyId}::UUID
+      AND ${sql.unsafe(documentInPopulationExpr('ci'))}
+      -- A soft-deleted invoice's approval journal is reversed, so it must
+      -- drop off the invoice side exactly once that reversal exists — the
+      -- CURRENT_STATE_SENTINEL comment above explains why "exists" and not
+      -- "as at today" (shared/softDeleteLedgerPresence).
+      AND ${documentInLedgerAsAtFragment('ci', CURRENT_STATE_SENTINEL, companyId)}
   `) as DbRow[];
 
-  // GL balance on receivable account
+  // GL balance on receivable account — unbounded by date, same as the
+  // document half above (see CURRENT_STATE_SENTINEL comment): this is a
+  // CURRENT balance, not a point-in-time one.
   const glRows = (await sql`
     SELECT COALESCE(SUM(jl.debit - jl.credit), 0) AS balance
     FROM gl_journal_lines jl
@@ -127,12 +156,15 @@ async function checkARvsGL(companyId: string): Promise<ValidationResult> {
 
 async function checkAPvsGL(companyId: string): Promise<ValidationResult> {
   const invRows = (await sql`
-    SELECT COALESCE(SUM(total_amount - COALESCE(amount_paid, 0)), 0) AS total
-    FROM supplier_invoices
-    WHERE company_id = ${companyId}::UUID
-      AND status IN ('approved', 'partially_paid', 'overdue')
+    SELECT COALESCE(SUM(total_amount - LEAST(GREATEST(COALESCE(amount_paid, 0), LEAST(total_amount, 0)), GREATEST(total_amount, 0))), 0) AS total
+    FROM supplier_invoices si
+    WHERE si.company_id = ${companyId}::UUID
+      AND ${sql.unsafe(documentInPopulationExpr('si'))}
+      -- See checkARvsGL — same current-state parity rule, AP side.
+      AND ${documentInLedgerAsAtFragment('si', CURRENT_STATE_SENTINEL, companyId)}
   `) as DbRow[];
 
+  // See checkARvsGL — unbounded by date, AP side.
   const glRows = (await sql`
     SELECT COALESCE(SUM(jl.credit - jl.debit), 0) AS balance
     FROM gl_journal_lines jl

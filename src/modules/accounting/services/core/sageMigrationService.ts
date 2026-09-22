@@ -31,6 +31,8 @@ export interface MigrationRun {
   id: string; runType: string; status: string; totalRecords: number;
   processed: number; succeeded: number; failed: number; skipped: number;
   startedAt: string; completedAt: string | null;
+  /** Imported rows whose source carried no VAT figure — R-089, none invented; see fix.md. */
+  vatNotStated: number;
 }
 
 export interface AccountMapping {
@@ -60,12 +62,14 @@ export async function startRun(runType: string, userId: string, companyId: strin
 
 export async function completeRun(
   runId: string, total: number, succeeded: number, failed: number, skipped: number,
+  vatNotStated = 0,
 ): Promise<MigrationRun> {
   const status = failed === 0 ? 'completed' : 'partial';
   const rows = (await sql`
     UPDATE gl_migration_runs
     SET status = ${status}, total_records = ${total}, processed = ${succeeded + failed + skipped},
-        succeeded = ${succeeded}, failed = ${failed}, skipped = ${skipped}, completed_at = NOW()
+        succeeded = ${succeeded}, failed = ${failed}, skipped = ${skipped},
+        details = ${JSON.stringify({ vatNotStated })}::JSONB, completed_at = NOW()
     WHERE id = ${runId}::UUID RETURNING *
   `) as Row[];
   const r = rows[0]!;
@@ -74,6 +78,7 @@ export async function completeRun(
     totalRecords: Number(r.total_records), processed: Number(r.processed),
     succeeded: Number(r.succeeded), failed: Number(r.failed), skipped: Number(r.skipped),
     startedAt: String(r.started_at), completedAt: r.completed_at ? String(r.completed_at) : null,
+    vatNotStated,
   };
 }
 
@@ -125,7 +130,7 @@ export async function getMigrationStatus(companyId: string): Promise<MigrationSt
 
     const runs = (await sql`
       SELECT id, run_type, status, total_records, processed, succeeded, failed, skipped,
-        started_at, completed_at
+        started_at, completed_at, details
       FROM gl_migration_runs WHERE company_id = ${companyId}::UUID ORDER BY started_at DESC LIMIT 10
     `) as Row[];
 
@@ -154,6 +159,7 @@ export async function getMigrationStatus(companyId: string): Promise<MigrationSt
         totalRecords: Number(r.total_records), processed: Number(r.processed),
         succeeded: Number(r.succeeded), failed: Number(r.failed), skipped: Number(r.skipped),
         startedAt: String(r.started_at), completedAt: r.completed_at ? String(r.completed_at) : null,
+        vatNotStated: Number((r.details as { vatNotStated?: number } | null)?.vatNotStated ?? 0),
       })),
     };
   } catch (err) {
