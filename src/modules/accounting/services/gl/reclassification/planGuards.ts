@@ -48,7 +48,7 @@ export interface ReclassRefusal {
  * what it ought to read; narrowing it here would silently re-open the hole
  * while that defect stands.
  */
-const VAT_RETURN_SUBTYPES = new Set(['vat_input', 'vat_output', 'tax']);
+export const VAT_RETURN_SUBTYPES: ReadonlySet<string> = new Set(['vat_input', 'vat_output', 'tax']);
 
 async function loadAccount(
   companyId: string,

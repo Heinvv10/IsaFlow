@@ -230,12 +230,15 @@ export async function cancelSupplierInvoice(
   companyId: string,
   id: string,
   userId: string,
+  // Optional and last-positional, as on approveSupplierInvoice: an MCP cancel
+  // must stamp its reversal as the agent's, or list_agent_postings cannot see it.
+  opts?: PostingActorOpts,
 ): Promise<SupplierInvoice> {
   // SAVEPOINT: callers map errors to 400 and withAuth commits on <5xx —
   // a failure after the reversal's draft INSERTs must roll them back
   // instead of orphan-committing (see customerInvoiceCancelService).
   return withSavepoint('cancel_supplier_invoice', () =>
-    cancelSupplierInvoiceInner(companyId, id, userId),
+    cancelSupplierInvoiceInner(companyId, id, userId, opts),
   );
 }
 
@@ -243,6 +246,7 @@ async function cancelSupplierInvoiceInner(
   companyId: string,
   id: string,
   userId: string,
+  opts?: PostingActorOpts,
 ): Promise<SupplierInvoice> {
   try {
     // FOR UPDATE: serialise concurrent cancels — both passing the guards
@@ -280,7 +284,7 @@ async function cancelSupplierInvoiceInner(
         String(jeRows[0]!.status) === 'posted' &&
         jeRows[0]!.reversed_at == null
       ) {
-        await reverseJournalEntry(companyId, String(locked.gl_journal_entry_id), userId);
+        await reverseJournalEntry(companyId, String(locked.gl_journal_entry_id), userId, opts);
       }
     }
 
