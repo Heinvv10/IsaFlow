@@ -24,14 +24,18 @@ vi.mock('@/lib/logger', () => ({
 vi.mock('@/modules/accounting/services/core/sageMigrationService', () => ({
   startRun: vi.fn().mockResolvedValue('run-1'),
   completeRun: vi.fn((
-    runId: string, total: number, succeeded: number, failed: number, skipped: number, vatNotStated = 0,
+    runId: string, _companyId: string, total: number, succeeded: number, failed: number, skipped: number, vatNotStated = 0,
   ) => Promise.resolve({
     id: runId, runType: 'invoice_import', status: 'completed', totalRecords: total,
     processed: succeeded + failed + skipped, succeeded, failed, skipped,
     startedAt: '', completedAt: null, vatNotStated,
   })),
   failRun: vi.fn(),
-  withRunRecovery: (_runId: string, body: () => Promise<unknown>) => body(),
+  withRunRecovery: (_runId: string, _companyId: string, body: () => Promise<unknown>) => body(),
+}));
+
+vi.mock('@/modules/accounting/services/core/migrationPostingSupport', () => ({
+  lockMigrationImport: vi.fn(),
 }));
 
 vi.mock('@/modules/accounting/services/capture/captureDeduplicationService', () => ({
@@ -70,7 +74,8 @@ describe('importSupplierInvoices — wired to deriveSageVat, never the inline /1
     sqlMock
       .mockResolvedValueOnce([stagedRow]) // SELECT staging
       .mockResolvedValueOnce([supplier]) // SELECT suppliers by name
-      .mockResolvedValueOnce([]) // SELECT existing bill by fingerprint
+      .mockResolvedValueOnce([]) // SELECT existing bill by sage_invoice_id
+      .mockResolvedValueOnce([]) // SELECT existing bill by invoice_number
       .mockResolvedValueOnce([{ id: 'new-inv-1' }]) // INSERT ... RETURNING id
       .mockResolvedValueOnce([]); // UPDATE migration_status
 
@@ -95,7 +100,8 @@ describe('importSupplierInvoices — review round 1 LOW-3: vatNotStated counts o
     sqlMock
       .mockResolvedValueOnce([stagedRow]) // SELECT staging
       .mockResolvedValueOnce([supplier]) // SELECT suppliers by name
-      .mockResolvedValueOnce([]) // SELECT existing bill by fingerprint
+      .mockResolvedValueOnce([]) // SELECT existing bill by sage_invoice_id
+      .mockResolvedValueOnce([]) // SELECT existing bill by invoice_number
       .mockRejectedValueOnce(new Error('23505 duplicate')) // INSERT throws
       .mockResolvedValueOnce([]); // UPDATE migration_status = 'failed'
 
@@ -106,7 +112,7 @@ describe('importSupplierInvoices — review round 1 LOW-3: vatNotStated counts o
     expect(run.succeeded).toBe(0);
     expect(run.vatNotStated).toBe(0);
     expect(vi.mocked(completeRun)).toHaveBeenCalledWith(
-      'run-1', 1, 0, 1, 0, 0,
+      'run-1', 'company-1', 1, 0, 1, 0, 0,
     );
   });
 });

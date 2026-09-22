@@ -60,11 +60,11 @@ vi.mock('@/modules/accounting/services/gl/journalEntryService', () => ({
 }));
 vi.mock('@/modules/accounting/services/core/sageMigrationService', () => ({
   startRun: vi.fn().mockResolvedValue('run-1'),
-  completeRun: vi.fn(async (_id, total, succeeded, failed, skipped) => ({
+  completeRun: vi.fn(async (_id, _companyId, total, succeeded, failed, skipped) => ({
     total, succeeded, failed, skipped,
   })),
   failRun: vi.fn(),
-  withRunRecovery: (_runId: string, body: () => Promise<unknown>) => body(),
+  withRunRecovery: (_runId: string, _companyId: string, body: () => Promise<unknown>) => body(),
 }));
 vi.mock('@/modules/accounting/services/capture/captureDeduplicationService', () => ({
   computeFingerprint: vi.fn(() => 'fp'),

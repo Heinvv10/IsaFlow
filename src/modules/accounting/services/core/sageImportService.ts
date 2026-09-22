@@ -60,7 +60,7 @@ export { importSupplierInvoices } from './sageSupplierInvoiceImportService';
 export async function importLedgerTransactions(companyId: string, userId: string): Promise<MigrationRun> {
   const runId = await startRun('ledger_import', userId, companyId);
 
-  return withRunRecovery(runId, async () => {
+  return withRunRecovery(runId, companyId, async () => {
     // BL-40: Added AND slt.company_id + AND sa.company_id to prevent cross-tenant SELECT
     const allLines = (await sql`
       SELECT slt.id, slt.document_number, slt.transaction_date, slt.description,
@@ -273,6 +273,6 @@ export async function importLedgerTransactions(companyId: string, userId: string
       }
     }
 
-    return await completeRun(runId, groups.length, succeeded, failed, skipped);
+    return await completeRun(runId, companyId, groups.length, succeeded, failed, skipped);
   });
 }

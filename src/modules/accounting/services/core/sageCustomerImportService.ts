@@ -30,7 +30,7 @@ type Row = DbRow;
 export async function importCustomerInvoices(companyId: string, userId: string): Promise<MigrationRun> {
   const runId = await startRun('customer_invoice_import', userId, companyId);
 
-  return withRunRecovery(runId, async () => {
+  return withRunRecovery(runId, companyId, async () => {
     const sageInvoices = (await sql`
       SELECT id, sage_invoice_id, sage_customer_id, client_id,
         invoice_number, invoice_date, due_date,
@@ -144,7 +144,7 @@ export async function importCustomerInvoices(companyId: string, userId: string):
       }
     }
 
-    return await completeRun(runId, sageInvoices.length, succeeded, failed, skipped, vatNotStated);
+    return await completeRun(runId, companyId, sageInvoices.length, succeeded, failed, skipped, vatNotStated);
   });
 }
 
