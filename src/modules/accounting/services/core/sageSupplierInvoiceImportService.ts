@@ -52,10 +52,11 @@ type RowOutcome = 'imported' | 'already_in_ap' | 'failed';
  * K-088: a re-run after `resetMigration` must not book the bill twice. The
  * staged row is matched to a live bill by (supplier, sage_invoice_id) first —
  * the identity Sage gave it — and only then by the table's own unique key
- * (supplier, invoice_number). A live bill under that number that carries a
- * DIFFERENT sage_invoice_id is a distinct Sage document; the row fails rather
- * than being merged into it. The whole run holds the company's migration
- * import lock, so two concurrent runs cannot race the same pending rows.
+ * (supplier, invoice_number); either way the totals must agree. A live bill
+ * under that number with a different Sage id or a different total is a
+ * distinct document; the row fails rather than being merged into it (see
+ * `findExistingBill`). The whole run holds the company's migration import
+ * lock, so two concurrent runs cannot race the same pending rows.
  */
 export async function importSupplierInvoices(companyId: string, userId: string): Promise<MigrationRun> {
   const runId = await startRun('invoice_import', userId, companyId);
@@ -111,10 +112,10 @@ export async function importSupplierInvoices(companyId: string, userId: string):
           const sageId = inv.sage_id ? String(inv.sage_id) : null;
           const invNumber = inv.invoice_number ? String(inv.invoice_number) : `SAGE-${sageId ?? String(inv.id)}`;
 
-          const existing = await findExistingBill(companyId, supplierId, sageId, invNumber);
+          const existing = await findExistingBill(companyId, supplierId, sageId, invNumber, totalAmount);
           if (existing === 'conflict') {
-            log.warn('A live bill already carries this invoice number for a different Sage invoice', {
-              companyId, stagingId: inv.id, supplierId, invNumber, sageId,
+            log.warn('A live bill under this number is a different document (other Sage id or total)', {
+              companyId, stagingId: inv.id, supplierId, invNumber, sageId, totalAmount,
             }, 'accounting');
             return 'failed';
           }
@@ -182,32 +183,38 @@ export async function importSupplierInvoices(companyId: string, userId: string):
 
 /**
  * The live bill this staged row already is, if any. `null` when there is
- * none; `'conflict'` when the invoice number is taken by a different Sage
- * document, which the unique index would refuse anyway — refused here so
- * the row is failed for the right reason rather than a 23505.
+ * none; `'conflict'` when a live bill under this number is a DIFFERENT
+ * document — it carries another Sage id, or its total differs — so the row is
+ * failed for a person to resolve rather than merged. A bill found by number
+ * with no Sage id (captured by hand before the migration) is adopted only when
+ * its total matches, and it takes the staged row's Sage id so the next staged
+ * row under that number conflicts instead of joining it.
  */
 async function findExistingBill(
-  companyId: string, supplierId: string, sageId: string | null, invNumber: string,
+  companyId: string, supplierId: string, sageId: string | null, invNumber: string, totalAmount: number,
 ): Promise<string | 'conflict' | null> {
-  if (sageId) {
-    const [bySageId] = (await sql`
-      SELECT id FROM supplier_invoices
-      WHERE company_id = ${companyId}::UUID AND supplier_id = ${supplierId}::UUID
-        AND sage_invoice_id = ${sageId} AND deleted_at IS NULL
-      ORDER BY created_at, id LIMIT 1
-    `) as DbRow[];
-    if (bySageId) return String(bySageId.id);
-  }
-  const [byNumber] = (await sql`
-    SELECT id, sage_invoice_id FROM supplier_invoices
+  const [bill] = (await sql`
+    SELECT id, sage_invoice_id, total_amount FROM supplier_invoices
     WHERE company_id = ${companyId}::UUID AND supplier_id = ${supplierId}::UUID
-      AND invoice_number = ${invNumber} AND deleted_at IS NULL
-    ORDER BY created_at, id LIMIT 1
+      AND deleted_at IS NULL
+      AND (
+        (${sageId}::TEXT IS NOT NULL AND sage_invoice_id = ${sageId}::TEXT)
+        OR invoice_number = ${invNumber}
+      )
+    ORDER BY (sage_invoice_id = ${sageId}::TEXT) DESC NULLS LAST, created_at, id
+    LIMIT 1
   `) as DbRow[];
-  if (!byNumber) return null;
-  const existingSageId = byNumber.sage_invoice_id ? String(byNumber.sage_invoice_id) : null;
+  if (!bill) return null;
+  const existingSageId = bill.sage_invoice_id ? String(bill.sage_invoice_id) : null;
   if (existingSageId && sageId && existingSageId !== sageId) return 'conflict';
-  return String(byNumber.id);
+  if (Math.abs(Number(bill.total_amount) - totalAmount) > 0.005) return 'conflict';
+  if (!existingSageId && sageId) {
+    await sql`
+      UPDATE supplier_invoices SET sage_invoice_id = ${sageId}
+      WHERE id = ${String(bill.id)}::UUID AND company_id = ${companyId}::UUID
+    `;
+  }
+  return String(bill.id);
 }
 
 /** Mark one staging row failed, scoped by company_id (BL-40). */
