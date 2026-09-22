@@ -15,6 +15,8 @@ import {
 } from '@/modules/accounting/services/ap/supplierPaymentUnapply';
 import { planCreditNoteUnapply, unapplyCreditNote } from '@/modules/accounting/services/shared/creditNoteUnapply';
 import { cancelCreditNote } from '@/modules/accounting/services/ar/creditNoteCancelService';
+import { unwindOnePayment } from '@/modules/accounting/services/bank/bankAllocationUnwind';
+import { runOn } from './helpers/l1FifoFixture';
 import { assertNotProductionDb } from '../helpers/assertNotProductionDb';
 import { billState, dropFixture, inTx, seedBill, seedFixture, type Fixture } from './helpers/l1FifoFixture';
 
@@ -179,6 +181,44 @@ describeIfDb('unapply — cash and credit taken back from named documents', () =
    * behind it in the GL. Un-applying it would mint on-account credit that
    * auto_apply_unapplied and the supplier-refund ceiling would then spend.
    */
+  /**
+   * Ledger review MEDIUM, reproduced: unwindOnePayment (void_payment,
+   * reverse_bank_allocation) read the allocation rows BEFORE taking the payment
+   * row lock. An unapply that committed in between had already deleted a row
+   * and restored the bill; the unwind then subtracted the stale row again and
+   * R1,150 left the AP subledger. The unwind must lock the payment first.
+   */
+  describe('racing an unwind', () => {
+    it('an unwind that waited on an unapply does not subtract the allocation twice', async () => {
+      const bill = await seedBill(fx, { number: 'RC1', date: '2026-05-25', total: 2300 });
+      const p = await seedAppliedPayment('URP', 1150, [{ bill, amount: 1150 }]);
+      const q = await seedAppliedPayment('URQ', 1150, [{ bill, amount: 1150 }]);
+      expect((await billState(fx, bill)).amountPaid).toBe(2300);
+
+      // T1: unapply P and hold the transaction open. T2: unwind P, which must
+      // block on P's row until T1 commits, then see NO rows for P.
+      const c1 = await fx.pool.connect();
+      const c2 = await fx.pool.connect();
+      try {
+        await c1.query('BEGIN');
+        await runOn(fx, c1, () => unapplySupplierPayment(fx.companyId, { paymentId: p }, fx.userId));
+        await c2.query('BEGIN');
+        const t2 = runOn(fx, c2, () => unwindOnePayment(fx.companyId, 'supplier', p));
+        await new Promise((r) => setTimeout(r, 400));
+        await c1.query('COMMIT');
+        const unwound = await t2;
+        await c2.query('COMMIT');
+        expect(unwound.amountUnapplied).toBe(0);
+      } finally {
+        c1.release(); c2.release();
+      }
+
+      // Q's R1,150 is still applied; the bill must still show it.
+      expect(await billState(fx, bill)).toMatchObject({ amountPaid: 1150, status: 'partially_paid' });
+      expect(await paymentState(q)).toEqual({ status: 'processed', allocated: 1150 });
+    });
+  });
+
   describe('sources with no live journal', () => {
     it('refuses a payment with no journal, or a reversed one, and a note with no journal', async () => {
       const b = await seedBill(fx, { number: 'J1', date: '2026-05-22', total: 90 });

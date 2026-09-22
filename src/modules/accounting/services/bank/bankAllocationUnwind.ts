@@ -111,6 +111,27 @@ export async function unwindOnePayment(
   let invoicesReopened = 0;
   let amountUnapplied = 0;
 
+  // (1) THE PAYMENT FIRST, AND BEFORE ITS ROWS ARE READ. This flip is the
+  // payment row lock. It used to run AFTER the loop, so
+  // `reverseReconciledTransaction` — the only caller that does not already
+  // hold the payment — took bank -> invoices -> payment, the inverse of
+  // `planReceiptApplication` / `planSupplierPaymentApplication`, which lock the
+  // payment and THEN the invoices. It then ran after the allocation READ, which
+  // was the second defect: an un-apply that committed while this waited had
+  // already deleted a row and restored the bill, and the stale row was
+  // subtracted again — R1,150 left the AP subledger (adversarial review,
+  // reproduced). Reading the rows only once the row is held is what makes them
+  // the rows this transaction will act on.
+  if (kind === 'customer') {
+    await sql`
+      UPDATE customer_payments SET status = 'cancelled', updated_at = NOW()
+      WHERE id = ${paymentId}::UUID AND company_id = ${companyId}::UUID`;
+  } else {
+    await sql`
+      UPDATE supplier_payments SET status = 'cancelled', updated_at = NOW()
+      WHERE id = ${paymentId}::UUID AND company_id = ${companyId}::UUID`;
+  }
+
   // customer_payment_allocations vs payment_allocations is not a typo:
   // `supplier_payment_allocations` (migration 201) holds zero rows in dev and
   // in production and is read by nothing, while every supplier service uses
@@ -128,23 +149,6 @@ export async function unwindOnePayment(
         SELECT invoice_id, amount_allocated FROM payment_allocations
         WHERE payment_id = ${paymentId}::UUID
         ORDER BY invoice_id`) as DbRow[];
-
-  // (2) THE PAYMENT BEFORE THE INVOICES. This flip used to run AFTER the loop,
-  // so `reverseReconciledTransaction` — the only caller that does not already
-  // hold the payment — took bank -> invoices -> payment, the inverse of
-  // `planReceiptApplication` / `planSupplierPaymentApplication`, which lock the
-  // payment and THEN the invoices. Both reach the same (payment, invoice) pair.
-  // The allocation rows are read above and DELETEd below, so moving only the
-  // status flip changes nothing about what is written.
-  if (kind === 'customer') {
-    await sql`
-      UPDATE customer_payments SET status = 'cancelled', updated_at = NOW()
-      WHERE id = ${paymentId}::UUID AND company_id = ${companyId}::UUID`;
-  } else {
-    await sql`
-      UPDATE supplier_payments SET status = 'cancelled', updated_at = NOW()
-      WHERE id = ${paymentId}::UUID AND company_id = ${companyId}::UUID`;
-  }
 
   for (const a of allocs) {
     const invoiceId = String(a.invoice_id);
