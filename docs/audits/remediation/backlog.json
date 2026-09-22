@@ -3141,25 +3141,26 @@
       "correctedTrigger": null,
       "severityRationale": "Source priority only; impact and reachability not yet validated.",
       "auditedSha": "5661d6f0f5f2212705151e95455a3f681ddf840e",
-      "currentSha": "31fc2f10",
-      "status": "false-positive",
+      "currentSha": "6e093d020",
+      "status": "fixed",
       "dependencies": [
         "R-021: the import raises 42703 before any row is written; reproduce K-088 after R-021",
         "As stated, false: the importer dies on its first SELECT (R-021); the missing unique index is latent and must ship with the schema repair, never after it"
       ],
       "testNames": [
-        "tests/integration/k088-k090-sage-importers-schema-unreachable.int.test.ts"
+        "tests/integration/k088-sage-supplier-import-rerun.int.test.ts"
       ],
       "evidencePaths": [
-        "K-088/red.log",
-        "K-088/validation.md"
+        "docs/audits/remediation/K-088/validation.md",
+        "docs/audits/remediation/R-021/fix.md"
       ],
-      "fixCommit": null,
-      "pr": null,
-      "deployedSha": null,
+      "fixCommit": "6e093d020",
+      "pr": "453",
+      "deployedSha": "6e093d020",
       "historicalDataImpact": "Not assessed",
       "canonicalItem": "R-021",
-      "reportedSeverity": "high"
+      "reportedSeverity": "high",
+      "processNotes": null
     },
     {
       "id": "K-089",
@@ -3213,24 +3214,25 @@
       "correctedTrigger": null,
       "severityRationale": "Source priority only; impact and reachability not yet validated.",
       "auditedSha": "5661d6f0f5f2212705151e95455a3f681ddf840e",
-      "currentSha": "31fc2f10",
-      "status": "confirmed",
+      "currentSha": "6e093d020",
+      "status": "fixed",
       "dependencies": [
         "Trigger moved: the per-row catch is unreachable; failRun in the outer handler dies on the aborted transaction and masks the R-021 error; fix with R-021 as one change"
       ],
       "testNames": [
-        "tests/integration/k088-k090-sage-importers-schema-unreachable.int.test.ts"
+        "tests/integration/k090-sage-import-run-recovery.int.test.ts"
       ],
       "evidencePaths": [
-        "K-090/red.log",
-        "K-090/validation.md"
+        "docs/audits/remediation/K-090/validation.md",
+        "docs/audits/remediation/R-021/fix.md"
       ],
-      "fixCommit": null,
-      "pr": null,
-      "deployedSha": null,
+      "fixCommit": "6e093d020",
+      "pr": "453",
+      "deployedSha": "6e093d020",
       "historicalDataImpact": "Not assessed",
       "canonicalItem": null,
-      "reportedSeverity": "high"
+      "reportedSeverity": "high",
+      "processNotes": null
     },
     {
       "id": "K-091",
@@ -9409,20 +9411,29 @@
       "correctedTrigger": null,
       "severityRationale": "Named by a fixer or reviewer during remediation; not yet reproduced as its own test.",
       "auditedSha": "5661d6f0f5f2212705151e95455a3f681ddf840e",
-      "currentSha": "faa2ef39",
-      "status": "candidate",
+      "currentSha": "6e093d020",
+      "status": "fixed",
       "dependencies": [
         "Refines K-088 (Sage supplier-invoice import idempotency): the import has never run; validate K-088 on top of this"
       ],
-      "testNames": [],
-      "evidencePaths": [],
-      "fixCommit": null,
-      "pr": null,
-      "deployedSha": null,
-      "historicalDataImpact": "Not assessed",
+      "testNames": [
+        "tests/integration/r021-sage-supplier-import.int.test.ts",
+        "tests/integration/k088-sage-supplier-import-rerun.int.test.ts",
+        "tests/integration/k090-sage-import-run-recovery.int.test.ts"
+      ],
+      "evidencePaths": [
+        "docs/audits/remediation/R-021/fix.md",
+        "docs/audits/remediation/R-021/red.log",
+        "docs/audits/remediation/R-021/mutations.log"
+      ],
+      "fixCommit": "6e093d020",
+      "pr": "453",
+      "deployedSha": "6e093d020",
+      "historicalDataImpact": "None: no supplier_invoices row ever came through this path. gl_migration_runs rows stuck at running from earlier failed calls may exist; read-only SELECT in fix.md.",
       "canonicalItem": null,
       "reportedSeverity": "high",
-      "processNotes": "2026-09-14: its unmerged patch derives VAT at the standard rate for every row (staging has no VAT columns) — that reintroduces R-089. Before merging, call deriveSageVat(null,null,total) instead (fix/audit-r086-r089-migration-import)."
+      "processNotes": "2026-09-14: its unmerged patch derives VAT at the standard rate for every row (staging has no VAT columns) — that reintroduces R-089. Before merging, call deriveSageVat(null,null,total) instead (fix/audit-r086-r089-migration-import).",
+      "branch": "fix/audit-r021-sage-supplier-import-20260921"
     },
     {
       "id": "R-022",
@@ -11505,22 +11516,26 @@
       "correctedTrigger": "",
       "severityRationale": "The migration validation compares its AR total with the GL control account, but excludes 'sent' invoices, so any migrated company with sent, posted invoices shows a false AR-vs-GL failure. It misleads the migration sign-off rather than moving money.",
       "auditedSha": "",
-      "currentSha": "",
-      "status": "confirmed",
+      "currentSha": "6e093d020",
+      "status": "fixed",
       "dependencies": [
         "R-059"
       ],
-      "testNames": [],
-      "evidencePaths": [
-        "docs/audits/remediation/R-059/fix.md"
+      "testNames": [
+        "tests/integration/r086-migration-validation-sent-status.int.test.ts",
+        "tests/integration/r086-migration-validation-future-dated.int.test.ts",
+        "tests/integration/r086-send-status-guard-route.int.test.ts"
       ],
-      "fixCommit": null,
-      "pr": null,
-      "deployedSha": null,
+      "evidencePaths": [
+        "docs/audits/remediation/R-089/fix.md"
+      ],
+      "fixCommit": "f1379ac97",
+      "pr": "452",
+      "deployedSha": "6e093d020",
       "historicalDataImpact": "No ledger data is wrong; past validation reports for migrated companies may show false failures.",
       "canonicalItem": null,
       "reportedSeverity": "",
-      "branch": null,
+      "branch": "fix/audit-r086-r089-rebased-20260921",
       "title": "migrationValidationService's AR status list omits 'sent', so a posted 'sent' invoice fails the AR-vs-GL check (R0 vs R1150)",
       "severity": "low",
       "source": "Measured by the R-059 round-7 blind reviewer on the schema fixture; pre-existing on master.",
@@ -11608,26 +11623,31 @@
       "correctedTrigger": "",
       "severityRationale": "The same class K-072 removed from capture: a document from a non-VAT supplier, or a zero-rated one, is imported with 15/115 of its total as VAT, so input VAT (supplier side) or output VAT (customer side) is overstated for migrated companies. Scope is migration imports only.",
       "auditedSha": "",
-      "currentSha": "",
-      "status": "confirmed",
+      "currentSha": "6e093d020",
+      "status": "fixed",
       "dependencies": [
         "K-072"
       ],
-      "testNames": [],
-      "evidencePaths": [
-        "docs/audits/remediation/K-072/fix.md"
+      "testNames": [
+        "tests/unit/services/sageVatDerivation.test.ts",
+        "tests/unit/services/sageSupplierInvoiceImportVat.test.ts",
+        "tests/unit/services/sageCustomerImportVat.test.ts",
+        "tests/integration/r089-migration-run-vat-count.int.test.ts"
       ],
-      "fixCommit": null,
-      "pr": null,
-      "deployedSha": null,
+      "evidencePaths": [
+        "docs/audits/remediation/R-089/fix.md"
+      ],
+      "fixCommit": "f1379ac97",
+      "pr": "452",
+      "deployedSha": "6e093d020",
       "historicalDataImpact": "Unknown; production not measured. Count Sage-imported documents whose source row had no subtotal and that now carry a non-zero tax amount, per company.",
       "canonicalItem": null,
       "reportedSeverity": "",
-      "branch": null,
+      "branch": "fix/audit-r086-r089-rebased-20260921",
       "title": "Sage import derives subtotal = total / 1.15 when a row carries none, so an imported bill or invoice gets a VAT amount the source never recorded",
       "severity": "medium",
       "source": "Found by the K-072 round-31 fixer during a census by pattern of every VAT-from-total derivation (fix.md census table): sageSupplierInvoiceImportService.ts:67 and sageCustomerImportService.ts:53.",
-      "processNotes": "Fix like K-072 round 30/31: no VAT in the source means none recorded (0, flagged), never derived. Verify the paths before editing; the file paths are from the K-072 census."
+      "processNotes": "Fix like K-072 round 30/31: no VAT in the source means none recorded (0, flagged), never derived. Verify the paths before editing; the file paths are from the K-072 census. 2026-09-22: merged; R-089 is reachable on the supplier side once R-021 landed in the same deploy; the customer side stays dead (R-101)."
     },
     {
       "id": "R-090",
