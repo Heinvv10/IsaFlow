@@ -62,3 +62,13 @@ This is read-only and has not been run on production.
 | LOW: the run-row UPDATEs had no `company_id`. | `completeRun`, `failRun`, `withRunRecovery` take and use it. | M19 red. |
 | LOW: K-090's outer test relied on R-101. | It triggers a failing statement directly. | k090 file. |
 | LOW: empty catches in the helper; whitespace in stored names; the doc comment overstated the persisted run row. | Fixed. | R021WS test; M5 red. |
+
+## Review round 2 (adversarial reviewer; the general reviewer had SHIPped round 1)
+
+| Finding | Fix | Proof |
+|---|---|---|
+| HIGH: a hand-captured bill with no Sage id under the same number absorbed every staged row of that number (R9,000 manual bill swallowed two R10,000 Sage invoices, run 'completed'). | `findExistingBill` is one query preferring the Sage-id match, and a link requires the totals to agree; a bill found by number with no Sage id is adopted once and stamped with the staged row's Sage id, so the next row under that number conflicts. | K088M (totals differ: both rows fail, bill untouched), K088A (adopted once, second row fails), K088O (Sage-id match preferred). M20, M21, M22 red. |
+| MEDIUM: links never compared totals (a R100 bill counted a R5,000 staged row as already in AP). | Same total check. | K088T; M20 red. |
+| LOW: a staged row with no Sage id could never conflict. | The total check applies to it too; a different total fails the row. | K088M covers a NULL-id bill; the NULL-staged-id case is the same branch. |
+
+24/24 integration across the three files.

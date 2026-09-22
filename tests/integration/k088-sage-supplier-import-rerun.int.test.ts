@@ -171,4 +171,67 @@ describe('K-088: a re-run after reset does not book the bill twice', () => {
     expect(bills).toHaveLength(2);
     expect(bills.map(b => b.supplier_id)).toContain(other);
   });
+  it('does not let a hand-captured bill with no Sage id absorb Sage invoices of another total', async () => {
+    const tag = `K088M-${randomUUID().slice(0, 8)}`;
+    const supplierId = (await pool.query<{ id: string }>(
+      'SELECT id FROM suppliers WHERE company_id=$1 AND name=$2', [companyC, SUPPLIER_NAME])).rows[0]!.id;
+    await pool.query(
+      `INSERT INTO supplier_invoices (company_id, invoice_number, supplier_id, invoice_date, subtotal, total_amount, status, created_by)
+       VALUES ($1, $2, $3, '2026-05-01', 9000, 9000, 'approved', $4)`, [companyC, `${tag}-RENT`, supplierId, user]);
+    const m1 = await seedStaging(companyC, { sageId: `${tag}-M1`, invoiceNumber: `${tag}-RENT`, supplierName: SUPPLIER_NAME, total: 10000, invoiceDate: '2026-06-30' });
+    const m2 = await seedStaging(companyC, { sageId: `${tag}-M2`, invoiceNumber: `${tag}-RENT`, supplierName: SUPPLIER_NAME, total: 10000, invoiceDate: '2026-07-31' });
+    const result = await drive(companyC, () => importSupplierInvoices(companyC, user));
+    expect(result.skipped).toBe(0);
+    expect(result.succeeded).toBe(0);
+    expect(result.failed).toBe(2);
+    const rows = (await pool.query('SELECT migration_status FROM sage_supplier_invoices WHERE id = ANY($1)', [[m1, m2]])).rows;
+    expect(rows.map(r => r.migration_status)).toEqual(['failed', 'failed']);
+    expect((await pool.query(
+      'SELECT sage_invoice_id FROM supplier_invoices WHERE company_id=$1 AND invoice_number=$2', [companyC, `${tag}-RENT`])).rows[0]!.sage_invoice_id).toBeNull();
+  });
+
+  it('adopts a hand-captured bill of the same number and total once, then refuses the next Sage invoice under it', async () => {
+    const tag = `K088A-${randomUUID().slice(0, 8)}`;
+    const supplierId = (await pool.query<{ id: string }>(
+      'SELECT id FROM suppliers WHERE company_id=$1 AND name=$2', [companyC, SUPPLIER_NAME])).rows[0]!.id;
+    const manual = (await pool.query<{ id: string }>(
+      `INSERT INTO supplier_invoices (company_id, invoice_number, supplier_id, invoice_date, subtotal, total_amount, status, created_by)
+       VALUES ($1, $2, $3, '2026-05-01', 10000, 10000, 'approved', $4) RETURNING id`, [companyC, `${tag}-RENT`, supplierId, user])).rows[0]!.id;
+    await seedStaging(companyC, { sageId: `${tag}-A1`, invoiceNumber: `${tag}-RENT`, supplierName: SUPPLIER_NAME, total: 10000, invoiceDate: '2026-06-30' });
+    const a2 = await seedStaging(companyC, { sageId: `${tag}-A2`, invoiceNumber: `${tag}-RENT`, supplierName: SUPPLIER_NAME, total: 10000, invoiceDate: '2026-07-31' });
+    const result = await drive(companyC, () => importSupplierInvoices(companyC, user));
+    expect(result.skipped).toBe(1);
+    expect(result.failed).toBe(1);
+    expect(result.succeeded).toBe(0);
+    const bill = (await pool.query('SELECT sage_invoice_id FROM supplier_invoices WHERE id=$1', [manual])).rows[0]!;
+    expect(bill.sage_invoice_id).toBe(`${tag}-A1`);
+    expect((await pool.query('SELECT migration_status FROM sage_supplier_invoices WHERE id=$1', [a2])).rows[0]!.migration_status).toBe('failed');
+  });
+
+  it('fails, not links, a re-pended row whose total no longer matches the bill', async () => {
+    const tag = `K088T-${randomUUID().slice(0, 8)}`;
+    const stagingId = await seedStaging(companyC, { sageId: `${tag}-SAGE`, invoiceNumber: `${tag}-INV`, supplierName: SUPPLIER_NAME, total: 100 });
+    await drive(companyC, () => importSupplierInvoices(companyC, user));
+    await pool.query("UPDATE sage_supplier_invoices SET migration_status='pending', gl_supplier_invoice_id=NULL, total_amount=5000 WHERE id=$1", [stagingId]);
+    const again = await drive(companyC, () => importSupplierInvoices(companyC, user));
+    expect(again.failed).toBe(1);
+    expect((await pool.query('SELECT migration_status FROM sage_supplier_invoices WHERE id=$1', [stagingId])).rows[0]!.migration_status).toBe('failed');
+    expect((await billsFor(`${tag}-SAGE`)).length).toBe(1);
+  });
+  it('prefers the bill that already carries the Sage id over an older bill that only shares the number', async () => {
+    const tag = `K088O-${randomUUID().slice(0, 8)}`;
+    const supplierId = (await pool.query<{ id: string }>(
+      'SELECT id FROM suppliers WHERE company_id=$1 AND name=$2', [companyC, SUPPLIER_NAME])).rows[0]!.id;
+    const older = (await pool.query<{ id: string }>(
+      `INSERT INTO supplier_invoices (company_id, invoice_number, supplier_id, invoice_date, subtotal, total_amount, status, created_by, created_at)
+       VALUES ($1, $2, $3, '2026-05-01', 100, 100, 'approved', $4, NOW() - INTERVAL '1 day') RETURNING id`, [companyC, `${tag}-N2`, supplierId, user])).rows[0]!.id;
+    const bySage = (await pool.query<{ id: string }>(
+      `INSERT INTO supplier_invoices (company_id, invoice_number, supplier_id, invoice_date, subtotal, total_amount, status, sage_invoice_id, created_by)
+       VALUES ($1, $2, $3, '2026-05-02', 100, 100, 'approved', $5, $4) RETURNING id`, [companyC, `${tag}-N1`, supplierId, user, `${tag}-S1`])).rows[0]!.id;
+    const stagingId = await seedStaging(companyC, { sageId: `${tag}-S1`, invoiceNumber: `${tag}-N2`, supplierName: SUPPLIER_NAME, total: 100 });
+    await drive(companyC, () => importSupplierInvoices(companyC, user));
+    const row = (await pool.query('SELECT gl_supplier_invoice_id FROM sage_supplier_invoices WHERE id=$1', [stagingId])).rows[0]!;
+    expect(row.gl_supplier_invoice_id).toBe(bySage);
+    expect((await pool.query('SELECT sage_invoice_id FROM supplier_invoices WHERE id=$1', [older])).rows[0]!.sage_invoice_id).toBeNull();
+  });
 });
