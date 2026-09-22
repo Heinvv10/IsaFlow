@@ -34,7 +34,7 @@ import type { BackfillSource, PlannedLine, Subledger } from './autoApplyBackfill
  * Statuses a credit note may still be applied FROM. 'applied' and 'cancelled'
  * are terminal for this purpose, and 'draft' has no journal behind it yet.
  */
-const APPLICABLE_CREDIT_NOTE_STATUSES = new Set(['approved', 'partially_applied']);
+export const APPLICABLE_CREDIT_NOTE_STATUSES: ReadonlySet<string> = new Set(['approved', 'partially_applied']);
 
 /** What both application plans have in common, which is all this file reads. */
 interface AppliedPlan {
