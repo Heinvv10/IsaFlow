@@ -19,7 +19,7 @@ import { lockCreditNoteForUpdate } from '../ar/creditNoteLock';
 import { FIFO_ELIGIBLE_STATUSES } from '../ar/invoiceStatusRecompute';
 import { deriveCreditNoteStatus, type CreditNoteSide } from './creditNoteFifo';
 import { assertAllocationsMatchApplied, lockInvoicesForUpdate, undoApplication } from './creditNoteApplicationWrites';
-import { UnapplyRefusal } from './unapplyRefusal';
+import { UnapplyRefusal, assertSourceJournalLive } from './unapplyRefusal';
 import type { UnapplyLine } from '../ap/supplierPaymentUnapply';
 
 export interface CreditNoteUnapplyInput {
@@ -95,6 +95,7 @@ async function buildPlan(
   if (!UNAPPLIABLE_NOTE.has(status)) {
     throw new UnapplyRefusal(`Credit note ${number} is ${status} and has no application to take back.`);
   }
+  await assertSourceJournalLive(sql, companyId, note.gl_journal_entry_id, `Credit note ${number}`);
   const side: CreditNoteSide = note.type === 'supplier' ? 'supplier' : 'customer';
   const total = round2(Number(note.total_amount));
   const appliedBefore = round2(Number(note.applied_amount ?? 0));

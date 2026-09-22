@@ -27,16 +27,41 @@ async function journalCount(): Promise<number> {
     SELECT COUNT(*)::INT AS n FROM gl_journal_entries WHERE company_id = ${fx.companyId}::UUID`) as Record<string, unknown>[])[0]!.n);
 }
 
+/** A posted journal with two balanced lines — the source document's own journal. */
+async function seedPostedJournal(tag: string, amount: number, reversed = false): Promise<string> {
+  const acct = String(((await sql`
+    SELECT id FROM gl_accounts WHERE company_id = ${fx.companyId}::UUID AND account_subtype = 'payable' LIMIT 1`) as Record<string, unknown>[])[0]!.id);
+  const bank = String(((await sql`
+    SELECT id FROM gl_accounts WHERE company_id = ${fx.companyId}::UUID AND account_subtype = 'bank' LIMIT 1`) as Record<string, unknown>[])[0]!.id);
+  const je = String(((await sql`
+    INSERT INTO gl_journal_entries
+      (company_id, entry_number, entry_date, description, status, created_by, fiscal_period_id, posted_at, reversed_at)
+    VALUES (${fx.companyId}::UUID, ${`JE-${tag}-${fx.tag}`}, '2026-06-01'::DATE, ${tag}, 'posted', ${fx.userId}::UUID,
+            (SELECT id FROM fiscal_periods WHERE company_id = ${fx.companyId}::UUID LIMIT 1), NOW(),
+            ${reversed ? new Date().toISOString() : null}::TIMESTAMPTZ)
+    RETURNING id`) as { id: string }[])[0]!.id);
+  await sql`
+    INSERT INTO gl_journal_lines (company_id, journal_entry_id, gl_account_id, debit, credit)
+    VALUES (${fx.companyId}::UUID, ${je}::UUID, ${acct}::UUID, ${amount}, 0),
+           (${fx.companyId}::UUID, ${je}::UUID, ${bank}::UUID, 0, ${amount})`;
+  return je;
+}
+
 /** A payment already applied: allocation rows and the bills' amount_paid agree, as the apply path leaves them. */
 async function seedAppliedPayment(
   number: string, total: number, allocs: { bill: string; amount: number }[],
-  opts: { status?: string; batchId?: string } = {},
+  opts: { status?: string; batchId?: string; journal?: 'posted' | 'none' | 'reversed' } = {},
 ): Promise<string> {
+  // A processed payment carries its DR AP / CR Bank journal; 'none' and
+  // 'reversed' are the shapes the unapply must refuse.
+  const journal = opts.journal ?? 'posted';
+  const je = journal === 'none' ? null : await seedPostedJournal(`P-${number}`, total, journal === 'reversed');
   const pay = String(((await sql`
     INSERT INTO supplier_payments
-      (company_id, supplier_id, payment_number, payment_date, total_amount, status, created_by, batch_id)
+      (company_id, supplier_id, payment_number, payment_date, total_amount, status, created_by, batch_id,
+       gl_journal_entry_id)
     VALUES (${fx.companyId}::UUID, ${fx.supplierId}::UUID, ${`${number}-${fx.tag}`.slice(0, 30)}, '2026-06-01',
-            ${total}, ${opts.status ?? 'processed'}, ${fx.userId}::UUID, ${opts.batchId ?? null}::UUID)
+            ${total}, ${opts.status ?? 'processed'}, ${fx.userId}::UUID, ${opts.batchId ?? null}::UUID, ${je}::UUID)
     RETURNING id`) as { id: string }[])[0]!.id);
   for (const a of allocs) {
     await sql`INSERT INTO payment_allocations (payment_id, invoice_id, amount_allocated) VALUES (${pay}::UUID, ${a.bill}::UUID, ${a.amount})`;
@@ -55,13 +80,19 @@ async function paymentState(id: string): Promise<{ status: string; allocated: nu
 }
 
 /** An approved supplier note already applied to bills: rows, column and bills agree. */
-async function seedAppliedNote(number: string, total: number, allocs: { bill: string; amount: number }[], status?: string): Promise<string> {
+async function seedAppliedNote(
+  number: string, total: number, allocs: { bill: string; amount: number }[], status?: string,
+  journal: 'posted' | 'none' = 'posted',
+): Promise<string> {
   const applied = allocs.reduce((s, a) => s + a.amount, 0);
+  const je = journal === 'none' ? null : await seedPostedJournal(`N-${number}`, total);
   const note = String(((await sql`
     INSERT INTO credit_notes
-      (company_id, type, supplier_id, credit_note_number, credit_date, subtotal, total_amount, applied_amount, status, created_by)
+      (company_id, type, supplier_id, credit_note_number, credit_date, subtotal, total_amount, applied_amount, status,
+       created_by, gl_journal_entry_id)
     VALUES (${fx.companyId}::UUID, 'supplier', ${fx.supplierId}::UUID, ${`${number}-${fx.tag}`.slice(0, 30)}, '2026-06-02',
-            ${total}, ${total}, ${applied}, ${status ?? (applied >= total ? 'applied' : 'partially_applied')}, ${fx.userId}::UUID)
+            ${total}, ${total}, ${applied}, ${status ?? (applied >= total ? 'applied' : 'partially_applied')},
+            ${fx.userId}::UUID, ${je}::UUID)
     RETURNING id`) as { id: string }[])[0]!.id);
   for (const a of allocs) {
     await sql`INSERT INTO credit_note_allocations (company_id, credit_note_id, invoice_id, amount_allocated)
@@ -140,6 +171,27 @@ describeIfDb('unapply — cash and credit taken back from named documents', () =
       expect(await refusal(inTx(fx, () => planSupplierPaymentUnapply(fx.companyId, { paymentId: member })))).toContain('batch');
       expect(await refusal(inTx(fx, () => planSupplierPaymentUnapply(fx.companyId, { paymentId: plain, invoiceId: other }))))
         .toContain('not applied to');
+    });
+  });
+
+  /**
+   * Ledger review MEDIUM: a source with no live journal has no cash (or credit)
+   * behind it in the GL. Un-applying it would mint on-account credit that
+   * auto_apply_unapplied and the supplier-refund ceiling would then spend.
+   */
+  describe('sources with no live journal', () => {
+    it('refuses a payment with no journal, or a reversed one, and a note with no journal', async () => {
+      const b = await seedBill(fx, { number: 'J1', date: '2026-05-22', total: 90 });
+      const none = await seedAppliedPayment('UJ1', 30, [{ bill: b, amount: 30 }], { journal: 'none' });
+      const reversed = await seedAppliedPayment('UJ2', 30, [{ bill: b, amount: 30 }], { journal: 'reversed' });
+      const note = await seedAppliedNote('UJ3', 30, [{ bill: b, amount: 30 }], undefined, 'none');
+
+      expect(await refusal(inTx(fx, () => planSupplierPaymentUnapply(fx.companyId, { paymentId: none }))))
+        .toContain('no posted journal');
+      expect(await refusal(inTx(fx, () => planSupplierPaymentUnapply(fx.companyId, { paymentId: reversed }))))
+        .toContain('reversed');
+      expect(await refusal(inTx(fx, () => planCreditNoteUnapply(fx.companyId, { creditNoteId: note }))))
+        .toContain('no posted journal');
     });
   });
 
