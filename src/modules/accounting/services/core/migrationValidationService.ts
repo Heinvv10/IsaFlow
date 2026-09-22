@@ -15,35 +15,19 @@ import { documentInLedgerAsAtFragment } from '../shared/softDeleteLedgerPresence
 import type { DbRow } from '@/types/db';
 
 /**
- * This check reconciles the CURRENT invoice total against the CURRENT GL
- * balance — not a point-in-time reconstruction like the ageing reports. So
- * neither half is bounded by a real as-at date; the GL half was never date-
- * bounded (it sums every posted line, whenever dated), and the document half
- * must match that by asking `documentInLedgerAsAtFragment` for chain parity
- * over the WHOLE reversal chain, not "as at today".
+ * This check reconciles the CURRENT document total against the CURRENT GL
+ * balance, not a point in time. The GL half sums every posted line whatever
+ * its date, so the document half asks `documentInLedgerAsAtFragment` for
+ * chain parity over the WHOLE reversal chain: at this sentinel every entry
+ * in a chain is "on or before" it, so the parity is the full chain's and no
+ * longer depends on entry order. Bounding either half to today breaks on a
+ * future-dated journal whose reversal `resolveReversalDate` dated to today
+ * (see that function: the default path has no earlier-than-original guard,
+ * R-012). The measurements behind this are in R-089/fix.md, round 3.
  *
- * A REAL as-at date (round 3 review's first attempt: `asAtTodayStr()`) broke
- * on a document whose journal is dated in the future with no open fiscal
- * period for that date: `resolveReversalDate`'s default (no explicit date)
- * path falls back to TODAY when the target period isn't open, with no guard
- * against today being EARLIER than the future original — the one case
- * `documentInLedgerAsAtFragment`'s own precondition (no reversal dated before
- * its original) doesn't hold. Bounding the document half to today then
- * excluded the future original from the "on or before" filter while still
- * counting its reversal, flipping the parity to the wrong answer; bounding
- * the GL half to today the same way excluded the future original from the
- * SUM while still netting the reversal against nothing, for a different
- * wrong number. Measured on a fresh company each: a live future-dated
- * invoice regressed from pass to fail, and the soft-deleted one stayed wrong
- * (fail, different wrong numbers) either way.
- *
- * This sentinel sidesteps that precondition instead of tripping over it: at
- * a date far beyond any real journal entry, EVERY entry in the chain is
- * "on or before" it, so the filtered count is the chain's FULL length and its
- * parity no longer depends on which entry the chain happens to be checked
- * against — order stops mattering, which is exactly what a CURRENT-state
- * question (not a historical one) needs. Both future-dated shapes (live and
- * soft-deleted, fresh companies, AR and AP) pass with this — see fix.md.
+ * `amount_paid` is clamped into [0, total_amount], as the ageing's
+ * `effectivePaidExpr` does: the population includes paid documents, and
+ * bank-match-confirm can leave amount_paid above the total.
  */
 const CURRENT_STATE_SENTINEL = '9999-12-31';
 
@@ -125,7 +109,7 @@ async function checkTrialBalance(companyId: string): Promise<ValidationResult> {
 async function checkARvsGL(companyId: string): Promise<ValidationResult> {
   // Sum of open customer invoice balances
   const invRows = (await sql`
-    SELECT COALESCE(SUM(total_amount - COALESCE(amount_paid, 0)), 0) AS total
+    SELECT COALESCE(SUM(total_amount - LEAST(GREATEST(COALESCE(amount_paid, 0), 0), total_amount)), 0) AS total
     FROM customer_invoices ci
     WHERE ci.company_id = ${companyId}::UUID
       AND ${sql.unsafe(documentInPopulationExpr('ci'))}
@@ -169,7 +153,7 @@ async function checkARvsGL(companyId: string): Promise<ValidationResult> {
 
 async function checkAPvsGL(companyId: string): Promise<ValidationResult> {
   const invRows = (await sql`
-    SELECT COALESCE(SUM(total_amount - COALESCE(amount_paid, 0)), 0) AS total
+    SELECT COALESCE(SUM(total_amount - LEAST(GREATEST(COALESCE(amount_paid, 0), 0), total_amount)), 0) AS total
     FROM supplier_invoices si
     WHERE si.company_id = ${companyId}::UUID
       AND ${sql.unsafe(documentInPopulationExpr('si'))}

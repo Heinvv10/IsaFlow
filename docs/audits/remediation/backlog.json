@@ -9185,7 +9185,8 @@
       "deployedSha": null,
       "historicalDataImpact": "Not assessed",
       "canonicalItem": null,
-      "reportedSeverity": "medium"
+      "reportedSeverity": "medium",
+      "processNotes": "2026-09-21 (R-086 round 4): the default path's today-fallback can date a reversal BEFORE a future-dated original. documentInLedgerAsAtFragment's parity precondition then fails for the dates between the two, so every as-at consumer (ageing, statements) reads that document wrong; migration validation sidesteps it with a far-future sentinel. Fix here must add an earlier-than-original guard to the default path."
     },
     {
       "id": "R-013",
