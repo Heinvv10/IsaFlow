@@ -154,4 +154,21 @@ describe('K-088: a re-run after reset does not book the bill twice', () => {
     )).rows[0]!.n;
     expect(bills).toBe(4);
   });
+  it('does not link a staged row to another supplier’s bill that happens to carry the same Sage id', async () => {
+    const tag = `K088X-${randomUUID().slice(0, 8)}`;
+    const other = (await pool.query<{ id: string }>(
+      'INSERT INTO suppliers(company_id,name) VALUES($1,$2) RETURNING id', [companyC, `${tag} Other`],
+    )).rows[0]!.id;
+    await pool.query(
+      `INSERT INTO supplier_invoices (company_id, invoice_number, supplier_id, invoice_date, subtotal, total_amount, status, sage_invoice_id, created_by)
+       VALUES ($1, $2, $3, '2026-06-01', 90, 90, 'approved', $4, $5)`,
+      [companyC, `${tag}-OTHER`, other, `${tag}-SAGE`, user],
+    );
+    await seedStaging(companyC, { sageId: `${tag}-SAGE`, invoiceNumber: `${tag}-MINE`, supplierName: SUPPLIER_NAME, total: 90 });
+    const result = await drive(companyC, () => importSupplierInvoices(companyC, user));
+    expect(result.succeeded).toBe(1);
+    const bills = await billsFor(`${tag}-SAGE`);
+    expect(bills).toHaveLength(2);
+    expect(bills.map(b => b.supplier_id)).toContain(other);
+  });
 });
