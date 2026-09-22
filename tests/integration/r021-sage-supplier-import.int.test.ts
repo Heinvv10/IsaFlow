@@ -6,9 +6,7 @@
  *   bill ever reached the row loop. RED log:
  *   docs/audits/remediation/R-021/red.log (2 failed / 2, under the validator's
  *   original file name k088-k090-sage-importers-schema-unreachable.int.test.ts).
- * K-090: the failure then ran recovery SQL on the aborted request transaction,
- *   so the operator saw 25P02 instead of the real cause and the run was never
- *   marked failed.
+ * K-090 (recovery from a failed statement) is in k090-sage-import-run-recovery.int.test.ts.
  * K-088 (re-run after reset) is in k088-sage-supplier-import-rerun.int.test.ts.
  * R-089: staging carries no VAT figure, so the bill records none and is
  *   flagged — never a 15% unwind of the total.
@@ -20,7 +18,6 @@ import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { Pool } from 'pg';
 import { randomUUID } from 'crypto';
 import { importSupplierInvoices } from '@/modules/accounting/services/core/sageImportService';
-import { importCustomerInvoices } from '@/modules/accounting/services/core/sageCustomerImportService';
 import { SAGE_VAT_NOT_STATED_NOTE } from '@/modules/accounting/services/shared/sageVatDerivation';
 import { assertDisposable } from './mfa-impersonation-postgres.helpers';
 import { sageImportHarness } from './r021-sage-supplier-import.helpers';
@@ -32,7 +29,7 @@ const companyB = randomUUID();
 const user = randomUUID();
 const SUPPLIER_NAME = 'R021 Supplier';
 
-const { drive, driveExpectingFailure, seedStaging, fmt } = sageImportHarness(pool, user);
+const { drive, seedStaging, fmt } = sageImportHarness(pool, user);
 
 beforeAll(async () => {
   for (const [id, name] of [[companyA, 'R021 company A'], [companyB, 'R021 company B']] as const) {
@@ -169,6 +166,57 @@ describe('R-021: the importer reads the columns its source table actually has', 
     expect(bill[0]!.supplier_id).toBe(live);
   });
 
+  it('gives a supplier with no payment terms no due date rather than an invented one', async () => {
+    const tag = `R021T0-${randomUUID().slice(0, 8)}`;
+    const name = `${tag} Termless`;
+    await pool.query('INSERT INTO suppliers(company_id,name,payment_terms) VALUES($1,$2,NULL)', [companyA, name]);
+    await seedStaging(companyA, { sageId: `${tag}-SAGE`, invoiceNumber: `${tag}-INV`, supplierName: name, total: 100 });
+    const result = await drive(companyA, () => importSupplierInvoices(companyA, user));
+    expect(result.succeeded).toBe(1);
+    const bill = (await pool.query(
+      'SELECT due_date FROM supplier_invoices WHERE company_id=$1 AND sage_invoice_id=$2', [companyA, `${tag}-SAGE`],
+    )).rows[0]!;
+    expect(bill.due_date).toBeNull();
+  });
+
+  it('uses the supplier’s own terms for the due date', async () => {
+    const tag = `R021T45-${randomUUID().slice(0, 8)}`;
+    const name = `${tag} Net45`;
+    await pool.query('INSERT INTO suppliers(company_id,name,payment_terms) VALUES($1,$2,45)', [companyA, name]);
+    await seedStaging(companyA, { sageId: `${tag}-SAGE`, invoiceNumber: `${tag}-INV`, supplierName: name, total: 100 });
+    await drive(companyA, () => importSupplierInvoices(companyA, user));
+    const bill = (await pool.query(
+      'SELECT due_date FROM supplier_invoices WHERE company_id=$1 AND sage_invoice_id=$2', [companyA, `${tag}-SAGE`],
+    )).rows[0]!;
+    expect(fmt(bill.due_date)).toBe('2026-08-14');
+  });
+
+  it.each([-500, 0])('fails a row whose total is %s instead of booking it as a bill', async (total) => {
+    const tag = `R021NEG-${randomUUID().slice(0, 8)}`;
+    const stagingId = await seedStaging(companyA, {
+      sageId: `${tag}-SAGE`, invoiceNumber: `${tag}-INV`, supplierName: SUPPLIER_NAME, total,
+    });
+    const result = await drive(companyA, () => importSupplierInvoices(companyA, user));
+    expect(result.failed).toBe(1);
+    expect(result.succeeded).toBe(0);
+    expect((await pool.query('SELECT migration_status FROM sage_supplier_invoices WHERE id=$1', [stagingId])).rows[0]!.migration_status).toBe('failed');
+    expect((await pool.query('SELECT id FROM supplier_invoices WHERE company_id=$1 AND sage_invoice_id=$2', [companyA, `${tag}-SAGE`])).rows).toHaveLength(0);
+  });
+
+  it('matches a supplier stored with surrounding whitespace', async () => {
+    const tag = `R021WS-${randomUUID().slice(0, 8)}`;
+    const live = (await pool.query<{ id: string }>(
+      'INSERT INTO suppliers(company_id,name) VALUES($1,$2) RETURNING id', [companyA, `  ${tag} Padded  `],
+    )).rows[0]!.id;
+    await seedStaging(companyA, { sageId: `${tag}-SAGE`, invoiceNumber: `${tag}-INV`, supplierName: `${tag} Padded`, total: 50 });
+    const result = await drive(companyA, () => importSupplierInvoices(companyA, user));
+    expect(result.succeeded).toBe(1);
+    const bill = (await pool.query(
+      'SELECT supplier_id FROM supplier_invoices WHERE company_id=$1 AND sage_invoice_id=$2', [companyA, `${tag}-SAGE`],
+    )).rows[0]!;
+    expect(bill.supplier_id).toBe(live);
+  });
+
   it('leaves another tenant’s pending rows alone', async () => {
     const tag = `R021T-${randomUUID().slice(0, 8)}`;
     const bStagingId = await seedStaging(companyB, {
@@ -190,54 +238,5 @@ describe('R-021: the importer reads the columns its source table actually has', 
       'SELECT id FROM supplier_invoices WHERE sage_invoice_id=$1', [`${tag}-SAGE`],
     )).rows;
     expect(leaked).toHaveLength(0);
-  });
-});
-
-describe('K-090: a failed run reports its own cause and is recorded', () => {
-  it('surfaces the original error, not 25P02, and marks the run failed with it', async () => {
-    // The customer-invoice importer still SELECTs columns
-    // sage_customer_invoices does not have — the sibling of R-021, left open
-    // deliberately (see docs/audits/remediation/R-021/fix.md). It is the
-    // honest vehicle for an outer-handler failure: before this fix the caller
-    // saw "current transaction is aborted" from failRun's own UPDATE and the
-    // run stayed 'running'.
-    const outcome = await driveExpectingFailure(companyB, () => importCustomerInvoices(companyB, user));
-
-    expect(outcome.error).toBeInstanceOf(Error);
-    expect(outcome.error.message).toMatch(/does not exist/);
-    expect(outcome.error.message).not.toMatch(/current transaction is aborted/);
-    expect(outcome.status).toBe('failed');
-    expect(outcome.errorMessage).toMatch(/does not exist/);
-  });
-
-  it('recovers the transaction after a row-level failure and marks that row failed', async () => {
-    // invoice_date is nullable in staging and NOT NULL on supplier_invoices,
-    // so this row raises 23502 inside the per-row INSERT. Before the per-row
-    // savepoint, the markFailed UPDATE that follows ran on the transaction
-    // that INSERT had just aborted.
-    const tag = `K090R-${randomUUID().slice(0, 8)}`;
-    const badId = (await pool.query<{ id: string }>(
-      `INSERT INTO sage_supplier_invoices
-         (company_id, sage_id, invoice_number, supplier_name, invoice_date, total_amount, migration_status)
-       VALUES ($1,$2,$3,$4,NULL,900,'pending') RETURNING id`,
-      [companyA, `${tag}-SAGE`, `${tag}-INV`, SUPPLIER_NAME],
-    )).rows[0]!.id;
-    const goodId = await seedStaging(companyA, {
-      sageId: `${tag}-OK`, invoiceNumber: `${tag}-OKINV`, supplierName: SUPPLIER_NAME, total: 1150,
-    });
-
-    // The run must COMPLETE — the whole point is that one bad row no longer
-    // takes the transaction, and therefore the request, down with it.
-    const result = await drive(companyA, () => importSupplierInvoices(companyA, user));
-    expect(result.status).toBe('partial');
-    expect(result.failed).toBe(1);
-    expect(result.succeeded).toBe(1);
-
-    const rows = (await pool.query(
-      'SELECT id, migration_status FROM sage_supplier_invoices WHERE id = ANY($1)',
-      [[badId, goodId]],
-    )).rows;
-    expect(rows.find(r => r.id === badId)!.migration_status).toBe('failed');
-    expect(rows.find(r => r.id === goodId)!.migration_status).toBe('imported');
   });
 });

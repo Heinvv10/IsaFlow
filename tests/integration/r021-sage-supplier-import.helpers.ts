@@ -15,12 +15,14 @@ export function sageImportHarness(pool: Pool, user: string) {
   async function drive<T>(companyId: string, fn: () => Promise<T>): Promise<T> {
     const c = await pool.connect();
     await c.query('BEGIN');
+    let committed = false;
     try {
       const out = await run(c, companyId, fn);
       await c.query('COMMIT');
+      committed = true;
       return out;
     } finally {
-      await c.query('ROLLBACK').catch(() => {});
+      if (!committed) await c.query('ROLLBACK');
       c.release();
     }
   }
@@ -50,7 +52,7 @@ export function sageImportHarness(pool: Pool, user: string) {
         errorMessage: runs.rows[0]?.error_message ?? '',
       };
     } finally {
-      await c.query('ROLLBACK').catch(() => {});
+      await c.query('ROLLBACK');
       c.release();
     }
   }
@@ -64,13 +66,13 @@ export function sageImportHarness(pool: Pool, user: string) {
 
   async function seedStaging(
     companyId: string,
-    opts: { sageId: string | null; invoiceNumber: string; supplierName: string; total: number },
+    opts: { sageId: string | null; invoiceNumber: string; supplierName: string; total: number; invoiceDate?: string },
   ): Promise<string> {
     const rows = await pool.query<{ id: string }>(
       `INSERT INTO sage_supplier_invoices
          (company_id, sage_id, invoice_number, supplier_name, invoice_date, total_amount, migration_status)
-       VALUES ($1,$2,$3,$4,'2026-06-30',$5,'pending') RETURNING id`,
-      [companyId, opts.sageId, opts.invoiceNumber, opts.supplierName, opts.total],
+       VALUES ($1,$2,$3,$4,$6,$5,'pending') RETURNING id`,
+      [companyId, opts.sageId, opts.invoiceNumber, opts.supplierName, opts.total, opts.invoiceDate ?? '2026-06-30'],
     );
     return rows.rows[0]!.id;
   }
