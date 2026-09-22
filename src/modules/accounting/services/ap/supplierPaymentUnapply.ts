@@ -23,7 +23,7 @@ import { log } from '@/lib/logger';
 import { lockSupplierPaymentForUpdate } from '../core/paymentLock';
 import { withSupplierInvoiceLock } from './supplierInvoiceLock';
 import { FIFO_ELIGIBLE_STATUSES, recomputeInvoiceStatus } from '../ar/invoiceStatusRecompute';
-import { UnapplyRefusal } from '../shared/unapplyRefusal';
+import { UnapplyRefusal, assertSourceJournalLive } from '../shared/unapplyRefusal';
 
 export { UnapplyRefusal };
 
@@ -112,7 +112,7 @@ export async function unapplySupplierPayment(
 
 async function buildPlan(companyId: string, input: PaymentUnapplyInput): Promise<PaymentUnapplyResult> {
   const pay = ((await sql`
-    SELECT id, payment_number, status, total_amount, batch_id FROM supplier_payments
+    SELECT id, payment_number, status, total_amount, batch_id, gl_journal_entry_id FROM supplier_payments
     WHERE id = ${input.paymentId}::UUID AND company_id = ${companyId}::UUID`) as DbRow[])[0];
   // One reply for absent and foreign — the read is company-scoped.
   if (!pay) throw new UnapplyRefusal('Not found');
@@ -133,6 +133,7 @@ async function buildPlan(companyId: string, input: PaymentUnapplyInput): Promise
   if (pay.batch_id) {
     throw new UnapplyRefusal(`Payment ${number} belongs to batch ${String(pay.batch_id)} — undo it through its batch.`);
   }
+  await assertSourceJournalLive(sql, companyId, pay.gl_journal_entry_id, `Payment ${number}`);
 
   const rows = (await sql`
     SELECT pa.invoice_id, pa.amount_allocated, si.invoice_number, si.status,
