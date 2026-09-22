@@ -322,6 +322,8 @@ const TOOL_FLOW_OPERATIONS: Record<string, FlowOperationCode | null> = {
   auto_apply_unapplied: null,
   apply_credit_note: null,
   cancel_supplier_invoice: null,
+  unapply_supplier_payment: null,
+  unapply_credit_note: null,
 
   // A reversal is a correction, and every other reversal here is free for the
   // same reason: pricing the control the agent-safety model depends on is the

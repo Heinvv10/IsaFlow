@@ -497,6 +497,9 @@ describe('write-tool manifest invariants', () => {
       // A contra settles a debtor or creditor against a balance-sheet account,
       // so it posts.
       'settle_by_contra',
+      // Un-applying moves documents' outstanding balances, as applying does.
+      'unapply_credit_note',
+      'unapply_supplier_payment',
       // Voiding a posted receipt or payment writes a reversing journal — the
       // same authority reverse_bank_allocation asks for.
       'void_payment',
@@ -658,6 +661,10 @@ describe('write-tool manifest invariants', () => {
       // Refuses on the missing invoice_id before reading anything; behaviour in
       // cancelSupplierInvoiceTool.test.ts and cancel-supplier-invoice.int.test.ts.
       cancel_supplier_invoice: { ...KEY },
+      // Refuse on the missing source id before reading anything; behaviour in
+      // unapplyTools.test.ts and unapply.int.test.ts.
+      unapply_supplier_payment: { ...KEY },
+      unapply_credit_note: { ...KEY },
       void_receipt: { ...KEY },
       void_payment: { ...KEY },
       // Payroll setup refuses on the missing required argument before any
