@@ -456,3 +456,17 @@ need a real as-at date. Worth a proper fix in `journalEntryReversalDate.ts` (e.g
 `min(today, originalDate)`, or refuse and surface a `ReversalPeriodError`-style typed error the
 caller can act on) plus a re-audit of the ageing/close-check consumers against the same shape this
 ticket used to find it.
+
+## Round 4 — rebased on master 2026-09-21; two blind reviewers (general + adversarial), all findings fixed
+
+Commits `7016a7ae3` and `00556ab63`.
+
+| Finding | Fix | Proof |
+|---|---|---|
+| MEDIUM (adversarial): `send` accepted any status but cancelled, so a draft became `sent`: AR with no journal, which the status-keyed population now counts. Proven on the fixture: invoice half 1150, GL 0. | The route sends only `approved` or `sent`. | `r086-send-status-guard-route.int.test.ts` drives the real handler: draft, paid and cancelled refused with 400 and untouched; approved and sent become sent. 5/5. |
+| MEDIUM (both): the "VAT not stated" flag (count, note, `details` round trip) was untested. | Assertions on the note argument and `vatNotStated === 1` in both importer unit tests; `r089-migration-run-vat-count.int.test.ts` writes 3 through `completeRun` and reads it back through `getMigrationStatus`. | Deleting the counter or the note now goes red. |
+| MEDIUM/LOW (both): header VAT ignored VAT the raw document or its lines stated, so a taxed document was booked at 0 VAT above taxed lines and flagged. | `statedSageFigures` reads the staging columns, then raw `Exclusive`/`Tax`, then the sum of line `Tax`, before `deriveSageVat`. | Unit tests on the helper (4) and on both importers with taxed lines and no header figure: booked at 150 tax, not flagged. |
+| LOW: paid rows now in the population with an unclamped `amount_paid`. | Clamped into [0, total], as the ageing's `effectivePaidExpr`. | Overpaid invoice contributes R0.00; unclamped mutation goes red. |
+| LOW: three comments contradicted each other on whether `resolveReversalDate` can date a reversal before a future original. | It can, on the default path. `softDeleteLedgerPresence` and the test now say so; R-012 in the register names the parity consequence for the as-at consumers. | — |
+| LOW: 30-line process comment; test file 505 lines; no AP out-of-order twin; no pre-run cleanup; page 422 lines; false `as number` casts. | Comment cut to the invariant; test split into helpers + two files; AP twin added; `setupCompanies` cleans first; page parts extracted to `components/accounting/sageMigration`; casts gone with `statedSageFigures`. | 13/13 integration, 24/24 unit, page at 300 lines. |
+| LOW: the importers cannot run against the staging schema (42703). | Not fixed here. R-021 (supplier) is on the branch built on top of this one; R-101 (customer) stays open. The register entry for R-089 records that it is unreachable until those land. | — |
