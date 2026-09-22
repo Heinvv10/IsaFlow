@@ -7,7 +7,7 @@
  * Every query must scope to companyId. See audit item #28.
  */
 
-import { sql } from '@/lib/neon';
+import { sql, withSavepoint } from '@/lib/neon';
 import type { DbRow } from '@/lib/neon';
 import { log } from '@/lib/logger';
 type Row = DbRow;
@@ -61,7 +61,7 @@ export async function startRun(runType: string, userId: string, companyId: strin
 }
 
 export async function completeRun(
-  runId: string, total: number, succeeded: number, failed: number, skipped: number,
+  runId: string, companyId: string, total: number, succeeded: number, failed: number, skipped: number,
   vatNotStated = 0,
 ): Promise<MigrationRun> {
   const status = failed === 0 ? 'completed' : 'partial';
@@ -70,7 +70,7 @@ export async function completeRun(
     SET status = ${status}, total_records = ${total}, processed = ${succeeded + failed + skipped},
         succeeded = ${succeeded}, failed = ${failed}, skipped = ${skipped},
         details = ${JSON.stringify({ vatNotStated })}::JSONB, completed_at = NOW()
-    WHERE id = ${runId}::UUID RETURNING *
+    WHERE id = ${runId}::UUID AND company_id = ${companyId}::UUID RETURNING *
   `) as Row[];
   const r = rows[0]!;
   return {
@@ -82,12 +82,30 @@ export async function completeRun(
   };
 }
 
-export async function failRun(runId: string, err: unknown): Promise<void> {
+export async function failRun(runId: string, companyId: string, err: unknown): Promise<void> {
   const msg = err instanceof Error ? err.message : 'Unknown error';
   await sql`
     UPDATE gl_migration_runs SET status = 'failed', error_message = ${msg}, completed_at = NOW()
-    WHERE id = ${runId}::UUID
+    WHERE id = ${runId}::UUID AND company_id = ${companyId}::UUID
   `;
+}
+
+/**
+ * Run a migration body so a failure inside it leaves the request transaction
+ * usable and the ORIGINAL error is what propagates (K-090). `failRun` used to
+ * run on the transaction the failure had aborted and raise 25P02, masking the
+ * cause. The savepoint is taken before the body and rolled back before
+ * `failRun`. The 'failed' run row is written inside the request transaction;
+ * withAuth rolls that back with the 500, so it is observable to this
+ * transaction and to tests, not persisted for the operator.
+ */
+export async function withRunRecovery<T>(runId: string, companyId: string, body: () => Promise<T>): Promise<T> {
+  try {
+    return await withSavepoint('sage_migration_run', body);
+  } catch (err) {
+    await failRun(runId, companyId, err);
+    throw err;
+  }
 }
 
 // ── Migration Status ────────────────────────────────────────────────────────
@@ -206,7 +224,7 @@ function nameSimilarity(a: string, b: string): number {
 
 export async function autoMapAccounts(companyId: string, userId: string): Promise<MigrationRun> {
   const runId = await startRun('account_mapping', userId, companyId);
-  try {
+  return withRunRecovery(runId, companyId, async () => {
     const sageAccounts = (await sql`
       SELECT id, sage_account_id, name, account_type, balance FROM sage_accounts WHERE company_id = ${companyId}::UUID AND gl_account_id IS NULL ORDER BY name
     `) as Row[];
@@ -238,8 +256,8 @@ export async function autoMapAccounts(companyId: string, userId: string): Promis
         succeeded++;
       } else { skipped++; }
     }
-    return await completeRun(runId, sageAccounts.length, succeeded, 0, skipped);
-  } catch (err) { await failRun(runId, err); throw err; }
+    return await completeRun(runId, companyId, sageAccounts.length, succeeded, 0, skipped);
+  });
 }
 
 export async function mapAccount(companyId: string, sageAccountId: string, glAccountId: string | null, notes?: string): Promise<void> {
