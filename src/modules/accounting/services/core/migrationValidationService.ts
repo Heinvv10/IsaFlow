@@ -29,7 +29,7 @@ import type { DbRow } from '@/types/db';
  * direction: [0, total] for a bill, [total, 0] for a negative-total
  * (credit-note-shaped) document. The population includes paid documents and
  * bank-match-confirm can leave amount_paid above the total; a one-sided
- * clamp (the ageing's `effectivePaidExpr`, see R-118) zeroes a negative
+ * clamp (the ageing's `effectivePaidExpr`, see R-117) zeroes a negative
  * document instead.
  */
 const CURRENT_STATE_SENTINEL = '9999-12-31';

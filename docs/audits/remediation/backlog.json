@@ -12538,6 +12538,34 @@
       "canonicalItem": null,
       "reportedSeverity": "medium",
       "processNotes": "2026-09-22: migrationValidationService (R-086 round 4) uses the sign-aware form LEAST(GREATEST(paid, LEAST(total,0)), GREATEST(total,0)); apply the same to effectivePaidExpr and prove it through getARSubledger with a negative-total row."
+    },
+    {
+      "id": "R-118",
+      "claim": "supplier-invoices-bulk-action post_gl calls postSupplierInvoiceToGL, whose only status guard is 'cancelled', so a DRAFT bill can be posted to the GL. Its journal is then on the GL half of every AP-vs-GL reconciliation while the draft is outside the document population (documentInPopulationExpr excludes draft), a permanent difference by the bill's full amount.",
+      "area": "ap",
+      "affectedPaths": [
+        "pages/api/accounting/supplier-invoices-bulk-action.ts",
+        "src/modules/accounting/services/ap/supplierInvoiceWorkflowService.ts"
+      ],
+      "sourceLabel": "R-086 review round 5 (adversarial)",
+      "sourceIds": [],
+      "correctedTrigger": null,
+      "severityRationale": "Named by a reviewer; the guard is confirmed by reading (status === 'cancelled' only) and not yet reproduced as a test.",
+      "auditedSha": "7b3ebd2fd",
+      "currentSha": "7b3ebd2fd",
+      "status": "candidate",
+      "dependencies": [],
+      "testNames": [],
+      "evidencePaths": [
+        "docs/audits/remediation/R-089/fix.md"
+      ],
+      "fixCommit": null,
+      "pr": null,
+      "deployedSha": null,
+      "historicalDataImpact": "Not assessed: count supplier_invoices with status='draft' AND gl_journal_entry_id IS NOT NULL per company.",
+      "canonicalItem": null,
+      "reportedSeverity": "medium",
+      "processNotes": null
     }
   ],
   "sourceInventory": [
