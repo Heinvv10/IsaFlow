@@ -25,9 +25,12 @@ import type { DbRow } from '@/types/db';
  * (see that function: the default path has no earlier-than-original guard,
  * R-012). The measurements behind this are in R-089/fix.md, round 3.
  *
- * `amount_paid` is clamped into [0, total_amount], as the ageing's
- * `effectivePaidExpr` does: the population includes paid documents, and
- * bank-match-confirm can leave amount_paid above the total.
+ * `amount_paid` is clamped between 0 and total_amount in the total's own
+ * direction: [0, total] for a bill, [total, 0] for a negative-total
+ * (credit-note-shaped) document. The population includes paid documents and
+ * bank-match-confirm can leave amount_paid above the total; a one-sided
+ * clamp (the ageing's `effectivePaidExpr`, see R-118) zeroes a negative
+ * document instead.
  */
 const CURRENT_STATE_SENTINEL = '9999-12-31';
 
@@ -109,7 +112,7 @@ async function checkTrialBalance(companyId: string): Promise<ValidationResult> {
 async function checkARvsGL(companyId: string): Promise<ValidationResult> {
   // Sum of open customer invoice balances
   const invRows = (await sql`
-    SELECT COALESCE(SUM(total_amount - LEAST(GREATEST(COALESCE(amount_paid, 0), 0), total_amount)), 0) AS total
+    SELECT COALESCE(SUM(total_amount - LEAST(GREATEST(COALESCE(amount_paid, 0), LEAST(total_amount, 0)), GREATEST(total_amount, 0))), 0) AS total
     FROM customer_invoices ci
     WHERE ci.company_id = ${companyId}::UUID
       AND ${sql.unsafe(documentInPopulationExpr('ci'))}
@@ -153,7 +156,7 @@ async function checkARvsGL(companyId: string): Promise<ValidationResult> {
 
 async function checkAPvsGL(companyId: string): Promise<ValidationResult> {
   const invRows = (await sql`
-    SELECT COALESCE(SUM(total_amount - LEAST(GREATEST(COALESCE(amount_paid, 0), 0), total_amount)), 0) AS total
+    SELECT COALESCE(SUM(total_amount - LEAST(GREATEST(COALESCE(amount_paid, 0), LEAST(total_amount, 0)), GREATEST(total_amount, 0))), 0) AS total
     FROM supplier_invoices si
     WHERE si.company_id = ${companyId}::UUID
       AND ${sql.unsafe(documentInPopulationExpr('si'))}

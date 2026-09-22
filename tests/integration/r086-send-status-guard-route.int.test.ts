@@ -63,6 +63,10 @@ describeIfDb('R-086 r4 — only an approved invoice can be marked sent', () => {
   afterAll(async () => {
     if (!pool) return;
     try {
+      // A successful send seals a PDF snapshot into captured_documents, which
+      // customer_invoices.source_document_id then points at.
+      await pool.query('UPDATE customer_invoices SET source_document_id = NULL WHERE company_id = $1', [CO]);
+      await pool.query('DELETE FROM captured_documents WHERE company_id = $1', [CO]);
       await pool.query('DELETE FROM customer_invoices WHERE company_id = $1', [CO]);
       await pool.query('DELETE FROM customers WHERE company_id = $1', [CO]);
       await pool.query('DELETE FROM company_users WHERE company_id = $1', [CO]);

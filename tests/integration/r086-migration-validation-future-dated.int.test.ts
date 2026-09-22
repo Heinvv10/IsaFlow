@@ -20,7 +20,9 @@ const COMPANY_AP_FUTURE_DEL = '00000000-0000-0000-0086-0000000000aa';
 const COMPANY_AR_ORDER = '00000000-0000-0000-0086-0000000000ab';
 const COMPANY_AP_ORDER = '00000000-0000-0000-0086-0000000000ac';
 const COMPANY_AR_PAID = '00000000-0000-0000-0086-0000000000ad';
+const COMPANY_AR_NEG = '00000000-0000-0000-0086-0000000000ae';
 const COMPANIES: Array<[string, string]> = [
+  [COMPANY_AR_NEG, 'R086 Test Company AR Negative Total'],
   ['00000000-0000-0000-0086-0000000000a7', 'R086 Test Company AR Future Live'],
   ['00000000-0000-0000-0086-0000000000a8', 'R086 Test Company AP Future Live'],
   ['00000000-0000-0000-0086-0000000000a9', 'R086 Test Company AR Future Deleted'],
@@ -158,17 +160,9 @@ describe('R-086 review round 3, MEDIUM: a future-dated posted journal must not d
 });
 
 describe('R-086 review round 3, MEDIUM (deterministic): a hand-built out-of-order reversal chain', () => {
-  // Reproducing the precondition violation through the real softDelete/
-  // resolveReversalDate path is racy: whether the fallback actually lands on
-  // TODAY instead of the future original's date depends on whether that
-  // date's fiscal period was already open at the moment of the check (see
-  // the "future-dated" tests above, which exercise the real path and pass
-  // regardless — but don't reliably PROVE this fix handles the violated
-  // precondition, because the violation may or may not occur that run).
-  // This test builds the illegal chain directly in SQL instead — the same
-  // technique tests/integration/k053-out-of-order-reversal-chain.int.test.ts
-  // uses to pin documentInLedgerAsAtFragment's own precondition — so the
-  // proof does not depend on timing.
+  // Through the real softDelete path the violation depends on whether the
+  // future date's fiscal period is already open, so the chain is built in
+  // SQL, as k053-out-of-order-reversal-chain.int.test.ts does.
   it('AR vs GL passes even when the reversal is dated before the entry it reverses', async () => {
     const receivableId = await createGlAccount(COMPANY_AR_ORDER, 'R086OO-AR-1200', 'receivable', 'asset', 'debit');
     const revenueId = await createGlAccount(COMPANY_AR_ORDER, 'R086OO-AR-4000', 'default_revenue', 'revenue', 'credit');
@@ -276,5 +270,27 @@ describe('R-086 review round 4, LOW: a paid document with amount_paid above its 
     const ar = results.find(r => r.check === 'AR vs GL');
     expect(ar?.status).toBe('pass');
     expect(ar?.detail).toBe('R0.00');
+  });
+  it('AR vs GL passes for a negative-total document, which the clamp must not erase', async () => {
+    const receivableId = await createGlAccount(COMPANY_AR_NEG, 'R086NG-AR-1200', 'receivable', 'asset', 'debit');
+    const revenueId = await createGlAccount(COMPANY_AR_NEG, 'R086NG-AR-4000', 'default_revenue', 'revenue', 'credit');
+    const [customer] = (await sql`
+      INSERT INTO customers (name, company_id) VALUES ('R086NG Customer', ${COMPANY_AR_NEG}::UUID) RETURNING id
+    `) as Array<{ id: string }>;
+    // A credit-note-shaped row: CR receivable 1150.
+    const jeId = await postJournal(COMPANY_AR_NEG, revenueId, receivableId, 1150.00, 'R086NG-JE-1');
+    await sql`
+      INSERT INTO customer_invoices (
+        company_id, invoice_number, customer_id, client_id, invoice_date, due_date,
+        subtotal, tax_rate, tax_amount, total_amount, amount_paid, status, gl_journal_entry_id, created_by
+      ) VALUES (
+        ${COMPANY_AR_NEG}::UUID, 'R086NG-CI-1', ${customer.id}::UUID, ${customer.id}::UUID, CURRENT_DATE, CURRENT_DATE,
+        -1000.00, 15.00, -150.00, -1150.00, 0, 'sent', ${jeId}::UUID, ${USER_ID}::UUID
+      )
+    `;
+    const results = await validateMigration(COMPANY_AR_NEG, 'r086-negative-ar');
+    const ar = results.find(r => r.check === 'AR vs GL');
+    expect(ar?.status).toBe('pass');
+    expect(ar?.detail).toBe('R-1150.00');
   });
 });

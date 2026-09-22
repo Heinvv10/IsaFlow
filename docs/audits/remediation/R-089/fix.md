@@ -470,3 +470,13 @@ Commits `7016a7ae3` and `00556ab63`.
 | LOW: three comments contradicted each other on whether `resolveReversalDate` can date a reversal before a future original. | It can, on the default path. `softDeleteLedgerPresence` and the test now say so; R-012 in the register names the parity consequence for the as-at consumers. | — |
 | LOW: 30-line process comment; test file 505 lines; no AP out-of-order twin; no pre-run cleanup; page 422 lines; false `as number` casts. | Comment cut to the invariant; test split into helpers + two files; AP twin added; `setupCompanies` cleans first; page parts extracted to `components/accounting/sageMigration`; casts gone with `statedSageFigures`. | 13/13 integration, 24/24 unit, page at 300 lines. |
 | LOW: the importers cannot run against the staging schema (42703). | Not fixed here. R-021 (supplier) is on the branch built on top of this one; R-101 (customer) stays open. The register entry for R-089 records that it is unreachable until those land. | — |
+
+## Round 5 — reconfirmation of round 4 (both reviewers), all findings fixed
+
+| Finding | Fix | Proof |
+|---|---|---|
+| MEDIUM (both): `r086-send-status-guard-route` failed in `afterAll` on `captured_documents_company_id_fkey` (the send seals a PDF snapshot) and leaked its company. My own run had reported `Tests 5 passed`; the `Test Files 1 failed` line was not read. | Cleanup nulls `source_document_id`, deletes `captured_documents`, then the rest. The four leaked companies were removed from the fixture by hand. | `Test Files 1 passed`, 5/5; `count(*)` of leaked companies 0 after the run. |
+| MEDIUM (adversarial): the one-sided clamp `LEAST(GREATEST(paid,0), total)` zeroes a negative-total document. | Sign-aware: `LEAST(GREATEST(paid, LEAST(total,0)), GREATEST(total,0))`. The ageing's `effectivePaidExpr` has the same defect and is registered as R-117 rather than changed in this PR. | Negative-total AR test expects `R-1150.00`; the one-sided form goes red. |
+| LOW: send guard scope. | Recorded on R-086 in the register: overdue and partially_paid now also get 400 via the API. | — |
+| LOW: a stated `Tax: 0` beside a stated `Exclusive` is treated as not stated, so tax is booked by subtraction. | Not changed. The module header's rule ("zero is not stated") is deliberate, and a header where `Exclusive + 0 ≠ Total` is a document that does not foot either way. Left for Hein: if Sage exports `Tax: 0` for zero-rated documents whose total includes a non-VAT charge, `statedSageFigures` must distinguish present-zero from absent. | — |
+| LOW: a non-numeric string figure books NaN and the INSERT fails loudly. | Not changed; fails closed and the row is counted failed. | — |
