@@ -61,7 +61,7 @@ export async function getSupplierPayments(companyId: string, filters?: PaymentFi
         FROM supplier_payments sp LEFT JOIN suppliers s ON s.id = sp.supplier_id
         WHERE sp.company_id = ${companyId}::UUID
           AND sp.status = ${filters.status} AND sp.supplier_id = ${filters.supplierId}
-        ORDER BY sp.payment_date DESC LIMIT ${limit} OFFSET ${offset}
+        ORDER BY sp.payment_date DESC, sp.id DESC LIMIT ${limit} OFFSET ${offset}
       `) as Row[];
       countRows = (await sql`
         SELECT COUNT(*) AS cnt FROM supplier_payments
@@ -73,7 +73,7 @@ export async function getSupplierPayments(companyId: string, filters?: PaymentFi
         SELECT sp.*, s.name AS supplier_name
         FROM supplier_payments sp LEFT JOIN suppliers s ON s.id = sp.supplier_id
         WHERE sp.company_id = ${companyId}::UUID AND sp.status = ${filters.status}
-        ORDER BY sp.payment_date DESC LIMIT ${limit} OFFSET ${offset}
+        ORDER BY sp.payment_date DESC, sp.id DESC LIMIT ${limit} OFFSET ${offset}
       `) as Row[];
       countRows = (await sql`
         SELECT COUNT(*) AS cnt FROM supplier_payments
@@ -84,7 +84,7 @@ export async function getSupplierPayments(companyId: string, filters?: PaymentFi
         SELECT sp.*, s.name AS supplier_name
         FROM supplier_payments sp LEFT JOIN suppliers s ON s.id = sp.supplier_id
         WHERE sp.company_id = ${companyId}::UUID AND sp.supplier_id = ${filters.supplierId}
-        ORDER BY sp.payment_date DESC LIMIT ${limit} OFFSET ${offset}
+        ORDER BY sp.payment_date DESC, sp.id DESC LIMIT ${limit} OFFSET ${offset}
       `) as Row[];
       countRows = (await sql`
         SELECT COUNT(*) AS cnt FROM supplier_payments
@@ -95,7 +95,7 @@ export async function getSupplierPayments(companyId: string, filters?: PaymentFi
         SELECT sp.*, s.name AS supplier_name
         FROM supplier_payments sp LEFT JOIN suppliers s ON s.id = sp.supplier_id
         WHERE sp.company_id = ${companyId}::UUID
-        ORDER BY sp.payment_date DESC LIMIT ${limit} OFFSET ${offset}
+        ORDER BY sp.payment_date DESC, sp.id DESC LIMIT ${limit} OFFSET ${offset}
       `) as Row[];
       countRows = (await sql`
         SELECT COUNT(*) AS cnt FROM supplier_payments WHERE company_id = ${companyId}::UUID
