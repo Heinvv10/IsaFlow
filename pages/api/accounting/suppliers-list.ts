@@ -2,6 +2,7 @@
  * Suppliers List API
  * GET  /api/accounting/suppliers-list    - List suppliers (optional ?q= search)
  * POST /api/accounting/suppliers-list    - Create a new supplier
+ * PATCH /api/accounting/suppliers-list   - Set { id, subject_to_drc_vat } — the one supplier field the UI edits
  *
  * Named suppliers-list.ts to avoid conflict with any existing suppliers route.
  */
@@ -9,7 +10,8 @@
 import type { NextApiRequest, NextApiResponse } from 'next';
 import { sql } from '@/lib/neon';
 import { apiResponse } from '@/lib/apiResponse';
-import { createSupplier } from '@/modules/accounting/services/core/supplierWriteService';
+import { UUID_RE } from '@/lib/validation';
+import { createSupplier, updateSupplier } from '@/modules/accounting/services/core/supplierWriteService';
 import type { AutoAllocateStrategy } from '@/modules/accounting/services/shared/autoAllocateStrategy';
 import { ContactValidationError } from '@/modules/accounting/services/core/customerWriteService';
 import { withAuth, type CompanyAuthedRequest, withWriteAccess} from '@/lib/auth';
@@ -34,7 +36,7 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
       if (typeof singleId === 'string') {
         const rows = (await sql`
           SELECT id, name, company_name, email, phone,
-                 contact_person, is_active, vat_number, payment_terms, created_at
+                 contact_person, is_active, vat_number, payment_terms, subject_to_drc_vat, created_at
           FROM suppliers
           WHERE id = ${singleId}::UUID AND company_id = ${companyId} AND deleted_at IS NULL
         `) as Row[];
@@ -114,6 +116,7 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
         // tick over the wire would re-open the door the migration closed.
         autoAllocateStrategy: str('auto_allocate_strategy') as AutoAllocateStrategy | undefined,
         autoAllocatePayments: bool('auto_allocate_payments'),
+        subjectToDrcVat: bool('subject_to_drc_vat'),
       })];
 
       cache.invalidate(CACHE_KEYS.suppliers(companyId));
@@ -129,7 +132,24 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
     }
   }
 
-  return apiResponse.methodNotAllowed(res, req.method ?? 'UNKNOWN', ['GET', 'POST']);
+  // ─── PATCH: the DRC flag ────────────────────────────────────────────────────
+  // Deliberately this ONE field: there is no supplier edit screen, and a general
+  // update route would put bank details one request away from any writer.
+  if (req.method === 'PATCH') {
+    const b = (typeof req.body === 'object' && req.body !== null ? req.body : {}) as Record<string, unknown>;
+    const id = typeof b.id === 'string' ? b.id : '';
+    if (!UUID_RE.test(id)) return apiResponse.badRequest(res, 'id must be a supplier id');
+    if (typeof b.subject_to_drc_vat !== 'boolean') {
+      return apiResponse.badRequest(res, 'subject_to_drc_vat must be true or false');
+    }
+    const row = await updateSupplier(companyId, id, { subjectToDrcVat: b.subject_to_drc_vat });
+    if (!row) return apiResponse.notFound(res, 'Supplier');
+    cache.invalidate(CACHE_KEYS.suppliers(companyId));
+    log.info('Supplier DRC flag set', { id, subjectToDrcVat: b.subject_to_drc_vat, module: 'accounting' });
+    return apiResponse.success(res, { id, subject_to_drc_vat: row.subject_to_drc_vat });
+  }
+
+  return apiResponse.methodNotAllowed(res, req.method ?? 'UNKNOWN', ['GET', 'POST', 'PATCH']);
 }
 
 export default withAuth(withErrorHandler(withCsrf(withWriteAccess(handler))));
