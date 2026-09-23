@@ -27,6 +27,14 @@
 -- seed a pre-guard row, the same way migration 664's NOT VALID FK is seeded.
 -- A trigger also carries a HINT naming the remedy, which a CHECK cannot.
 --
+-- REPAIRING a legacy row: the negative arms carry a "newly negative" test, so
+-- a row that is already negative can be cancelled, settled or corrected one
+-- column at a time. The NaN arm deliberately does NOT — a row holding NaN may
+-- not be half-repaired, because a column still holding NaN poisons every SUM
+-- over it. Cancelling or soft-deleting such a row works (none of the three
+-- columns is in the SET list); correcting it means setting total_amount,
+-- subtotal and tax_amount in ONE statement.
+--
 -- Existing rows are untouched by construction: a trigger fires on writes, so
 -- this needs no NOT VALID/VALIDATE dance and cannot fail on historical data.
 -- An UPDATE that leaves an already-negative total alone still passes, so the

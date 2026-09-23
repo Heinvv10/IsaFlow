@@ -49,11 +49,20 @@ GRANT SET ON PARAMETER session_replication_role TO platform_admin;  -- PG15+
 - **Wrong-signed settlements** (`amount_paid +500` on a −1150 document). `effectivePaidExpr` reports 0 settled for these; an integrity check should name them. Recorded on this item.
 
 ```sql
-SELECT company_id, count(*), sum(total_amount) FROM customer_invoices WHERE total_amount < 0 GROUP BY 1;
-SELECT company_id, count(*), sum(total_amount) FROM supplier_invoices WHERE total_amount < 0 GROUP BY 1;
--- and, for those rows, whether any carry a journal:
-SELECT count(*) FROM customer_invoices WHERE total_amount < 0 AND gl_journal_entry_id IS NOT NULL;
-SELECT count(*) FROM supplier_invoices WHERE total_amount < 0 AND gl_journal_entry_id IS NOT NULL;
+-- NaN as well as negatives: `NaN < 0` is FALSE, so a sign-only census does
+-- not find a NaN row, and NaN was reachable before this fix.
+SELECT company_id, count(*) FROM customer_invoices
+ WHERE total_amount < 0 OR subtotal < 0 OR tax_amount < 0
+    OR total_amount = 'NaN' OR subtotal = 'NaN' OR tax_amount = 'NaN' GROUP BY 1;
+SELECT company_id, count(*) FROM supplier_invoices
+ WHERE total_amount < 0 OR subtotal < 0 OR tax_amount < 0
+    OR total_amount = 'NaN' OR subtotal = 'NaN' OR tax_amount = 'NaN' GROUP BY 1;
+-- and, for those rows, whether any carry a journal — a posted one is a
+-- journal-reversal exercise, not a data edit:
+SELECT count(*) FROM customer_invoices
+ WHERE (total_amount < 0 OR total_amount = 'NaN') AND gl_journal_entry_id IS NOT NULL;
+SELECT count(*) FROM supplier_invoices
+ WHERE (total_amount < 0 OR total_amount = 'NaN') AND gl_journal_entry_id IS NOT NULL;
 ```
 Read-only, not run against production by this session.
 
@@ -83,3 +92,16 @@ Asked the adversarial reviewer whether NaN could also enter through `subtotal` o
 | LOW: the Sage importer marks a staged credit note `'failed'`, which is indistinguishable from a genuine failure and unfindable by a later credit-note import. | Not changed — the function is unreachable (R-101) and inventing a status nobody reads would be speculative. Recorded on R-101 instead, so whoever revives that importer handles credit notes deliberately. | — |
 
 **Regression after the leg guard:** the same 171-file sweep — 151 passed, 987 tests, the same 4 failures that fail identically on master. Zero failures mention the trigger.
+
+
+## Review round 3 — all findings fixed
+
+| Finding | Fix | Proof |
+|---|---|---|
+| **MEDIUM (adversarial): round 2 put the LEGS under the trigger without giving the AI capture pipeline the matching validator line**, so the highest-volume automated writer now reached the raw trigger. Both routes write `subtotal = totalAmount − vatAmount` and `tax_amount = vatAmount`; an extractor reading a VAT-inclusive figure as the VAT (`vatAmount > totalAmount`) makes the subtotal negative, and a negative `vatAmount` makes the tax leg negative. Nothing catches 23514, so a bad scan was a 500 and a paged engineer. | `validatePipelineInput` refuses a non-finite or negative `vatAmount` and one exceeding the total, on the branch that already answers 400 with the errors. | 4 unit cases, including the accept case; the same defect class as round 1's masked 500, one layer down. |
+| **MEDIUM (general): the take-on guard shipped with no test** — deleting it from either importer left the suites green, the row reaching migration 692 and being reported with the raw trigger message instead of the file row and the remedy. | A parameterised case per importer (negative and NaN): refused by file row, remedy named, `createJournalEntry` never called, no INSERT issued. | `migrationImportService.test.ts` and `migrationApService.test.ts`. |
+| **LOW-MEDIUM (adversarial): the census query misses NaN rows** (`NaN < 0` is FALSE), and NaN was reachable before this fix — so prod may hold rows nobody would look for. | The census in this file and in the register for R-119 and R-117 now tests NaN and the legs too. | — |
+| **LOW (adversarial): the NaN arm has no "unchanged" exemption**, so a legacy NaN row cannot be repaired one column at a time. | Deliberate, now documented in the migration: a column still holding NaN poisons every SUM, so a repair sets all three in one statement. Cancelling works either way. | The reviewer's own probe: cancel OK, repair-total-only refused, repair-all-three OK. |
+| **LOW: `deriveSageVat` with stated figures can return `taxAmount = total − subtotal < 0`**, which the leg arms now refuse. | Recorded on R-101, since that importer is the only caller that can reach the branch and is dead until R-101 lands. | — |
+
+The general reviewer also confirmed the take-on guard's SHAPE was the right call: refusing and naming the row beats translating a negative open item into a `credit_notes` row the file never supplied a number, approval state or application target for.
