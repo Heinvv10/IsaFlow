@@ -233,6 +233,15 @@ const TRAILING_QUALIFIER_RE = /\s*\([^()]*\)$/;
  * than as the brand alone — so it needs at least two letters. One glyph, a
  * digit, a stray separator or an invisible character names nothing, and
  * "\u200b(IsaFlow)" renders as plain "(IsaFlow)".
+ *
+ * A WILDCARD counts as a letter, because that is what it is: a letter we could
+ * not identify. Counting only ASCII refused every client whose name is written
+ * in a script with no Latin look-alikes — "\u4f1a\u8ba1 (IsaFlow)" folds to two
+ * wildcards and was read as naming nothing. Cyrillic and Greek passed only by
+ * accident, because some of their letters are in CONFUSABLES for an unrelated
+ * reason. This does not reopen the invisible-prefix case: a zero-width or bidi
+ * character is \p{Cf}, not a letter, so it becomes a SEPARATOR rather than a
+ * wildcard and still counts nothing.
  */
 const MIN_QUALIFIED_PREFIX_LETTERS = 2;
 
@@ -246,7 +255,8 @@ export function isReservedClientName(name: string): boolean {
   if (RESERVED_ADJECTIVES.some((term) => containsTerm(tokens, term, honourNegation))) return true;
 
   const prefixTokens = tokenizeForComparison(name.replace(TRAILING_QUALIFIER_RE, ''));
-  const letters = prefixTokens.join('').replace(/[^a-z]/g, '').length;
+  const prefix = prefixTokens.join('');
+  const letters = [...prefix].filter((ch) => /[a-z]/.test(ch) || ch === WILDCARD).length;
   const subject = letters >= MIN_QUALIFIED_PREFIX_LETTERS ? prefixTokens : tokens;
   return containsTerm(subject, BRAND, null);
 }
