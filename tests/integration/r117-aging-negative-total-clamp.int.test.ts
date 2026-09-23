@@ -22,6 +22,7 @@ import { getCustomerReport, getSupplierReport } from '@/modules/accounting/servi
 import { SignJWT } from 'jose';
 import { assertDisposable, request, response } from './mfa-impersonation-postgres.helpers';
 import salesByCustomer from '../../pages/api/accounting/reports/sales-by-customer';
+import purchasesBySupplier from '../../pages/api/accounting/reports/purchases-by-supplier';
 
 assertDisposable();
 
@@ -149,25 +150,42 @@ describeIfDb('R-117 a negative-total document reports nothing settled, not its o
       DELETE FROM customer_invoices WHERE company_id = ${COMPANY}::UUID AND invoice_number = 'R117-CI-2'`;
   });
 
-  it('sales-by-customer reports nothing received on the unpaid credit', async () => {
-    // The route SUMs the same expression with no balance filter, as
-    // purchases-by-supplier does on the AP side; its Received and Outstanding
-    // columns move with this change and nothing else covered them.
+  /** Drive a report route through withAuth, as the page does. */
+  async function callReport(
+    handler: (req: never, res: never) => unknown, url: string,
+  ): Promise<Array<Record<string, unknown>>> {
     const token = await new SignJWT({ sub: USER, aal: 'aal2' })
       .setProtectedHeader({ alg: 'HS256' }).setExpirationTime('1h')
       .sign(new TextEncoder().encode(process.env.JWT_SECRET));
     const req = request({ 'sb-access-token': token, active_company_id: COMPANY }, 'GET') as never as
       { query: Record<string, string>; url: string };
     req.query = { from: PERIOD_START, to: PERIOD_END };
-    req.url = '/api/accounting/reports/sales-by-customer';
+    req.url = url;
     const out = response();
-    await salesByCustomer(req as never, out.res as never);
+    await handler(req as never, out.res as never);
     expect(out.state.statusCode).toBe(200);
-    const body = out.state.body as { data?: Array<Record<string, unknown>> };
-    const row = (body.data ?? []).find((r) => String(r.clientId) === customerId);
+    return (out.state.body as { data?: Array<Record<string, unknown>> }).data ?? [];
+  }
+
+  it('sales-by-customer reports nothing received on the unpaid credit', async () => {
+    // The route SUMs the same expression with no balance filter; its Received
+    // and Outstanding columns move with this change and nothing covered them.
+    const rows = await callReport(salesByCustomer, '/api/accounting/reports/sales-by-customer');
+    const row = rows.find((r) => String(r.clientId) === customerId);
     expect(row).toBeDefined();
     expect(Number(row!.totalSales)).toBe(-1150);
     expect(Number(row!.paymentsReceived)).toBe(0);
+    expect(Number(row!.outstanding)).toBe(-1150);
+  });
+
+  it('purchases-by-supplier reports nothing paid on the unpaid credit', async () => {
+    // The AP twin of the same unfiltered SUM: its SQL is a copy, so it needs
+    // its own assertion or a divergence in that one file goes unnoticed.
+    const rows = await callReport(purchasesBySupplier, '/api/accounting/reports/purchases-by-supplier');
+    const row = rows.find((r) => String(r.supplierId) === supplierId);
+    expect(row).toBeDefined();
+    expect(Number(row!.totalPurchases)).toBe(-1150);
+    expect(Number(row!.paymentsMade)).toBe(0);
     expect(Number(row!.outstanding)).toBe(-1150);
   });
 });

@@ -47,3 +47,8 @@ The reviewer proved in SQL that for `total_amount >= 0` the new form is bit-iden
 Two traps hit while fixing this, both caught by running the suite rather than reasoning: `users.id` is VARCHAR, so `${USER}::UUID` in teardown raised 42883 and the FILE failed while all 8 tests passed; and the route's response is `data: [...]` with camelCase keys, not `data.rows` with snake_case.
 
 Mutations, round 2 (`mutations.log`): old one-sided clamp → 6 red; lower clamp dropped → 1 red; upper bound unclamped → 6 red.
+
+## Review round 2 — SHIP, with both residuals closed
+The reviewer confirmed the guard is the repo's dominant convention (192 files call `assertDisposable` at top level), replicated `sales-by-customer`'s aggregate in psql to prove the route case is red on master (`received_old -1150 / outstanding_old 0` versus `received_new 0 / outstanding_new -1150`), and raised two non-blocking residuals, both now closed:
+- `purchases-by-supplier` was named but not exercised. It has its own case; the shared `callReport` helper drives both routes through `withAuth`. Both go red under the old clamp.
+- The branch was 7 commits behind master, so the CI gate would not have run against current master. Rebased.
