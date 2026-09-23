@@ -2,11 +2,12 @@
  * applyDRCVat against a real ledger.
  *
  * DRC VAT self-assesses input and output VAT on a supplier bill. It checked no
- * status, so it posted on DRAFTS — a bill whose figures can still change — and
- * never linked the journal on the bill. It also read `is_drc` without a lock,
- * so two concurrent calls could both post. And the route turns every throw
- * into a 400, which `withAuth` COMMITS, so a failure after the journal was
- * created left it behind. These pin all four.
+ * status, so it posted on DRAFTS — a bill whose figures can still change. It
+ * also read `is_drc` without a lock, so two concurrent calls could both post,
+ * and the route turns every throw into a 400, which `withAuth` COMMITS, so a
+ * failure after the journal was created left it behind. These pin those three
+ * plus soft-deleted and foreign bills. The journal is still not linked on the
+ * bill (`gl_journal_entry_id`); nothing here claims otherwise.
  */
 import { describe, it, expect, beforeAll, afterAll } from 'vitest';
 import { sql } from '@/lib/neon';
