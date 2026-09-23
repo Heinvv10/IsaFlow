@@ -85,6 +85,30 @@ describe('isReservedClientName', () => {
     }
   });
 
+  // The Hangul fillers are \p{Lo} — letters by Unicode's own definition — that
+  // draw zero ink (measured the same as a space, not the tofu box an unassigned
+  // code point gives). Treated as letters they became wildcards, which evaded
+  // the brand check outright and satisfied the prefix floor whose entire job is
+  // refusing a prefix that renders as nothing. \p{Cf} does not cover them;
+  // \p{Default_Ignorable_Code_Point} does.
+  it('refuses the brand broken up by an invisible LETTER, not just an invisible format char', () => {
+    for (const name of ['isa\u3164flow', 'Isa\u3164Flow', 'isa\u115Fflow', 'Isa\uFFA0Flow', 'isa\u1160flow']) {
+      expect(isReservedClientName(asHandlerWould(name)), JSON.stringify(name)).toBe(true);
+    }
+  });
+
+  it('does not let an invisible letter qualify a prefix', () => {
+    for (const name of [
+      '\u3164\u3164 (IsaFlow)',
+      '\u115F\u115F (IsaFlow)',
+      '\u1160\u1160 (IsaFlow)',
+      '\uFFA0\uFFA0 (IsaFlow)',
+      '\u3164a (IsaFlow)', // one real letter plus one that draws nothing
+    ]) {
+      expect(isReservedClientName(asHandlerWould(name)), JSON.stringify(name)).toBe(true);
+    }
+  });
+
   // ...and this must NOT reopen the invisible prefix. A zero-width or bidi
   // character is \p{Cf}, not a letter, so it becomes a separator rather than a
   // wildcard and still counts nothing. This is the whole risk of the change
