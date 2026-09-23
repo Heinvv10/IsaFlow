@@ -42,6 +42,28 @@ describe('consent screen — where the authorisation goes', () => {
     expect(container.textContent).not.toContain('localhost');
   });
 
+  // The registrable domain is at the END of a host, so anything that shortens
+  // or clips the string hides the part that identifies the recipient. An
+  // attacker can register a ~400-character host within the 512 cap. Adversarial
+  // review measured the pre-wrap version clipping the tail off the card with no
+  // ellipsis, on desktop AND blowing the column out on mobile.
+  it('renders the whole host, including the tail that identifies the domain', () => {
+    const host = 'claude.ai.' + 'a.'.repeat(185) + 'evil.example';
+    const { container } = render(<AuthorizePage {...props(`https://${host}/cb`)} />);
+    const rendered = container.querySelector('span.break-all');
+    expect(rendered?.textContent).toBe(host);
+    expect(rendered?.textContent?.endsWith('evil.example')).toBe(true);
+  });
+
+  // happy-dom cannot measure layout, so this pins the wrapping class itself.
+  // Without it the host renders on one unbroken line and the card's
+  // overflow-hidden silently eats the tail — verified in a real browser, where
+  // break-all wraps a 392-character host across 5 line boxes inside the card.
+  it('keeps the host breakable so a long one cannot be clipped', () => {
+    const { container } = render(<AuthorizePage {...props('https://claude.ai/cb')} />);
+    expect(container.querySelector('span.break-all')).not.toBeNull();
+  });
+
   // Two different clients must not produce the same sentence.
   it('renders the two kinds differently', () => {
     const hosted = render(<AuthorizePage {...props('https://claude.ai/cb')} />).container.textContent;
