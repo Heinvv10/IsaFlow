@@ -29,7 +29,7 @@
 import type { McpTool } from '../types';
 import { createSupplierInvoice } from '@/modules/accounting/services/ap/supplierInvoiceService';
 import { supplierBelongsToCompany } from '@/modules/accounting/services/core/contactDirectoryService';
-import { accountsBelongToCompany } from '@/modules/accounting/services/gl/chartOfAccountsService';
+import { billLineAccountRefusal } from '@/modules/accounting/services/ap/billLineAccountGuard';
 import { mcpPostingOpts } from '../mcpActor';
 import { MAX_LINES, SUPPLIER_INVOICE_TEXT_LIMITS as TEXT_LIMITS } from './invoiceCreateArgs';
 import { partitionSupplierInvoiceBatch } from './bulkInvoiceDuplicateSkip';
@@ -154,15 +154,21 @@ export const bulkCreateSupplierInvoicesTool: McpTool = {
     const { kept, skipped, supplierIds, accountIds } = partitioned;
 
     // Ownership for the WHOLE batch, before the first write, over the DISTINCT
-    // ids rather than one pair of queries per element. NOT_FOUND rather than
-    // naming the element: a reply that says which id was foreign is an
-    // existence oracle.
+    // ids rather than one pair of queries per element. A foreign supplier is
+    // NOT_FOUND without naming the element (a distinct reply is an existence
+    // oracle). A line-account refusal names the element; its wording is the
+    // same whether a foreign account id exists elsewhere or not at all.
     for (const supplierId of supplierIds) {
       if (!(await supplierBelongsToCompany(ctx.companyId, supplierId))) return toolError(NOT_FOUND);
     }
-    if (accountIds.size > 0
-        && !(await accountsBelongToCompany(ctx.companyId, [...accountIds]))) {
-      return toolError('One or more lines[].gl_account_id values are not GL accounts in your company.');
+    const accountRefusal = await billLineAccountRefusal(ctx.companyId, [...accountIds]);
+    if (accountRefusal) {
+      // Name the element: one query per element, on the refusal path only.
+      for (const { index, inv } of kept) {
+        const own = await billLineAccountRefusal(ctx.companyId, inv.items.map((i) => i.glAccountId));
+        if (own) return toolError(`invoices[${index}]: ${own}`);
+      }
+      return toolError(accountRefusal);
     }
 
     const created: Record<string, unknown>[] = [];

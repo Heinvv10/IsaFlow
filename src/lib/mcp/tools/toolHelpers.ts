@@ -154,6 +154,7 @@ const REFUSAL_CODES: ReadonlySet<string> = new Set([
   // processes a batch yet, so no agent can receive it today.
   'BATCH_ALREADY_REVERSED',
   'BATCH_NOT_PROCESSABLE',
+  'BILL_LINE_ACCOUNT_REFUSED',
   // A captured document already claimed for posting, or rejected (K-072). Two
   // fixed messages naming no id, amount or table, raised only after the
   // service read the document by company_id — the caller's own document.
@@ -192,6 +193,7 @@ const REFUSAL_CODES: ReadonlySet<string> = new Set([
   'RECURRING_INVOICE_TEMPLATE_INVALID',
   'RECURRING_JOURNAL_LOCK_TIMEOUT',
   'RECURRING_JOURNAL_NOT_FOUND',
+  'RECURRING_TEMPLATE_LINE_ACCOUNT',
   'RECURRING_TEMPLATE_LOCK_TIMEOUT',
   'RECURRING_TEMPLATE_NOT_DUE',
   'RECURRING_TEMPLATE_TOTALS_MISMATCH',

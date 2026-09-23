@@ -11,6 +11,8 @@ import type { DbRow } from '@/types/db';
 import { computeFingerprint } from '../capture/captureDeduplicationService';
 import { assertCustomerInCompany, assertSupplierInCompany } from './contactDirectoryService';
 import { insertWithReservedNumber } from './documentNumberRetry';
+import { billLineAccountRefusal } from '../ap/billLineAccountGuard';
+import { RecurringTemplateLineAccountError } from './recurringTransactionErrors';
 import { headerTotals, normaliseLines } from './recurringTemplateLines';
 import type { RecurringTemplate } from './recurringTransactionService';
 import { assertNonNegativeDocumentTotal } from '../shared/documentTotalSign';
@@ -118,6 +120,11 @@ export async function mintRecurringSupplierInvoice(
   // R-068: the template row is company-scoped, the id inside its JSON is not.
   await assertSupplierInCompany(companyId, supplierId);
   const lines = normaliseLines(data);
+  // The template's JSON names accounts nothing re-checks, tenant included.
+  const accountRefusal = await billLineAccountRefusal(companyId, lines.map((l) => l.glAccountId));
+  if (accountRefusal) {
+    throw new RecurringTemplateLineAccountError(template.id, `Recurring template "${template.name}": ${accountRefusal}`);
+  }
   // Asserted BEFORE the first write of the run, so the route may answer 4xx.
   const totals = headerTotals(template.id, data, lines);
   // R-119, AP side of the same opaque templateData.

@@ -25,6 +25,7 @@ import { mapInvoiceRow } from './supplierInvoiceQueryService';
 import type { PostingActorOpts } from '../gl/journalEntryMeta';
 import { DEFAULT_SUPPLIER_TAX_RATE } from '../../constants/supplierInvoiceDefaults';
 import { assertSupplierInCompany } from '../core/contactDirectoryService';
+import { assertBillLineAccounts } from './billLineAccountGuard';
 import {
   assertSupplierInvoiceLines,
   computeSupplierInvoiceTotals,
@@ -86,6 +87,7 @@ export async function createSupplierInvoice(
     await assertSupplierInCompany(companyId, input.supplierId);
 
     assertSupplierInvoiceLines(input.items || [], trustSourceTax);
+    await assertBillLineAccounts(companyId, (input.items || []).map((i) => i.glAccountId));
     const invoiceTaxRate = input.taxRate ?? DEFAULT_SUPPLIER_TAX_RATE;
     const { items: computedItems, subtotal, totalTax, totalAmount } =
       computeSupplierInvoiceTotals(input.items, invoiceTaxRate, trustSourceTax);
