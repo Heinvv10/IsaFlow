@@ -67,6 +67,18 @@ async function snapshot(id: string): Promise<Row> {
   return { ...head, lines };
 }
 
+/**
+ * A draft carrying a posted DRC journal. applyDRCVat now refuses drafts, but
+ * rows written before that fix exist, so the edit guard must still hold:
+ * apply while approved, then put the bill back to draft as the old path left it.
+ */
+async function drcOnDraft(id: string) {
+  await sql`UPDATE supplier_invoices SET status = 'approved' WHERE id = ${id}::UUID`;
+  const drc = await inTx(fx, () => applyDRCVat(fx.companyId, id, fx.userId));
+  await sql`UPDATE supplier_invoices SET status = 'draft' WHERE id = ${id}::UUID`;
+  return drc;
+}
+
 describeIfDb('update_supplier_invoice — drafts over a real ledger', () => {
   beforeAll(async () => {
     assertNotProductionDb('This test creates, edits and approves supplier bills.');
@@ -223,10 +235,10 @@ describeIfDb('update_supplier_invoice — drafts over a real ledger', () => {
     expect((await snapshot(id)).duplicate_fingerprint).toBe('sentinel');
   });
 
-  /** Ledger review MEDIUM: applyDRCVat posts on a DRAFT and leaves gl_journal_entry_id NULL. */
+  /** Ledger review MEDIUM: applyDRCVat posted on DRAFTS (legacy rows remain) and leaves gl_journal_entry_id NULL. */
   it('refuses any edit of a draft that already carries a posted DRC VAT journal', async () => {
     const id = await draft();
-    await inTx(fx, () => applyDRCVat(fx.companyId, id, fx.userId));
+    await drcOnDraft(id);
     const before = await snapshot(id);
     const r = await update(id, { lines: [{ description: 'Bigger', quantity: 1, unit_price: 5000 }] });
     expect(text(r)).toContain('is sourced from it');
@@ -270,7 +282,7 @@ describeIfDb('update_supplier_invoice — drafts over a real ledger', () => {
   /** Ledger re-review LOW: reversing a DRC journal leaves is_drc set, so the only remedy is a new bill. */
   it('names cancel-and-re-enter once the DRC journal is already reversed', async () => {
     const id = await draft();
-    const drc = await inTx(fx, () => applyDRCVat(fx.companyId, id, fx.userId));
+    const drc = await drcOnDraft(id);
     await inTx(fx, () => reverseJournalEntry(fx.companyId, drc.journalEntryId, fx.userId));
     const msg = text(await update(id, { reference: 'x' }));
     expect(msg).toContain('already reversed');

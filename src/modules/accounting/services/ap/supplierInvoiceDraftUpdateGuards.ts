@@ -126,9 +126,9 @@ export async function refuseIfSettlementPlanned(companyId: string, invoiceId: st
 }
 
 /**
- * A posted, unreversed journal sourced from this bill. `applyDRCVat` posts one
- * on a DRAFT (it checks no status) and leaves `gl_journal_entry_id` NULL, so the
- * link column alone misses it; editing the base under it would leave the DRC
+ * A posted, unreversed journal sourced from this bill. `applyDRCVat` posted one
+ * on DRAFTS until 2026-09-23 (legacy rows remain) and leaves `gl_journal_entry_id`
+ * NULL, so the link column alone misses it; editing the base under it would leave the DRC
  * VAT on the old figure, and nothing re-runs it (`is_drc` bills are excluded).
  */
 export async function refuseIfJournalNamesBill(
