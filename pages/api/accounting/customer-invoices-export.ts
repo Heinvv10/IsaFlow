@@ -1,16 +1,20 @@
 /**
  * Customer Invoices Export API
  * GET — export customer invoices as CSV
+ *
+ * Takes the list's query params and filters (customerInvoiceListParams), so the
+ * file holds what the list shows — across every page, up to EXPORT_ROW_CEILING.
  */
 
 import type { NextApiRequest, NextApiResponse } from 'next';
-import { sql } from '@/lib/neon';
 import { apiResponse } from '@/lib/apiResponse';
 import { withAuth, type CompanyAuthedRequest, withWriteAccess} from '@/lib/auth';
 import { log } from '@/lib/logger';
 import { withErrorHandler } from '@/lib/api-error-handler';
 import { csvCell } from '@/lib/csv';
 import { EXPORT_ROW_CEILING } from '@/lib/pagination';
+import { exportCustomerInvoices } from '@/modules/accounting/services/ar/customerInvoiceReadService';
+import { parseCustomerInvoiceListParams } from '@/modules/accounting/services/ar/customerInvoiceListParams';
 
 async function handler(req: NextApiRequest, res: NextApiResponse) {
   const { companyId } = req as CompanyAuthedRequest;
@@ -18,35 +22,10 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
   if (req.method !== 'GET') return apiResponse.methodNotAllowed(res, req.method || 'UNKNOWN', ['GET']);
 
   try {
-    const { status } = req.query;
+    const parsed = parseCustomerInvoiceListParams(req.query);
+    if (!parsed.ok) return apiResponse.badRequest(res, parsed.error);
 
-    let rows;
-    if (status && status !== 'all') {
-      rows = await sql`
-        SELECT ci.invoice_number, c.name AS client_name,
-          ci.total_amount, ci.amount_paid, ci.status,
-          to_char(ci.invoice_date, 'YYYY-MM-DD') AS invoice_date,
-          to_char(ci.due_date, 'YYYY-MM-DD') AS due_date, NULL as project_name
-        FROM customer_invoices ci
-        LEFT JOIN customers c ON c.id = ci.client_id
-        WHERE ci.company_id = ${companyId}
-          AND ci.status = ${status as string}
-        ORDER BY ci.invoice_date DESC
-        LIMIT ${EXPORT_ROW_CEILING + 1}
-      `;
-    } else {
-      rows = await sql`
-        SELECT ci.invoice_number, c.name AS client_name,
-          ci.total_amount, ci.amount_paid, ci.status,
-          to_char(ci.invoice_date, 'YYYY-MM-DD') AS invoice_date,
-          to_char(ci.due_date, 'YYYY-MM-DD') AS due_date, NULL as project_name
-        FROM customer_invoices ci
-        LEFT JOIN customers c ON c.id = ci.client_id
-        WHERE ci.company_id = ${companyId}
-        ORDER BY ci.invoice_date DESC
-        LIMIT ${EXPORT_ROW_CEILING + 1}
-      `;
-    }
+    const rows = await exportCustomerInvoices(companyId, parsed.filters);
 
     // P3.4: cap the export rather than paginate — the extra row (if present)
     // is dropped and replaced with a truncation marker row.
