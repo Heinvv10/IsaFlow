@@ -87,7 +87,12 @@ export default function App({ Component, pageProps }: AppProps) {
     // element — preflight declares font-family on <html>, above this div, so a
     // variable defined here alone changes nothing; the div just inherits the
     // value html already computed. See src/lib/fonts.ts.
-    <div className={`${dmSans.variable} font-sans`}>
+    // font-sans is withheld from a print render on purpose. packPrint.css pins
+    // the pack's own face on `html.print-mode body`, and this div is a
+    // DESCENDANT of body — declaring font-sans here would override it and
+    // re-render every PDF in DM Sans, changing text metrics on layouts that are
+    // tuned to IBM Plex. The variable still goes on, so nothing else breaks.
+    <div className={printRender ? dmSans.variable : `${dmSans.variable} font-sans`}>
     <ThemeProvider>
       <AuthProvider skipFetch={skipProviders}>
         <CompanyProvider skipFetch={skipProviders}>
