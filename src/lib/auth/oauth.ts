@@ -14,6 +14,7 @@
  */
 
 import { createHash, randomBytes, timingSafeEqual } from 'crypto';
+import { isReservedClientName } from '@/lib/auth/reservedClientName';
 import { sql } from '@/lib/neon';
 import { log } from '@/lib/logger';
 
@@ -66,6 +67,18 @@ export interface RegisteredApp {
   clientSecret: string | null;
 }
 
+/**
+ * A name the consent screen must never show. Thrown rather than returned so a
+ * caller cannot ignore it by accident — which is the whole reason this lives
+ * here and not only in the routes.
+ */
+export class ReservedClientNameError extends Error {
+  constructor() {
+    super('client_name may not impersonate IsaFlow or use a reserved term');
+    this.name = 'ReservedClientNameError';
+  }
+}
+
 export async function registerOauthApp(input: RegisterAppInput): Promise<RegisteredApp> {
   if (input.redirectUris.length === 0) {
     throw new Error('registerOauthApp: at least one redirect URI required');
@@ -77,6 +90,15 @@ export async function registerOauthApp(input: RegisterAppInput): Promise<Registe
   if (!isDynamic && !input.ownerUserId) {
     throw new Error('registerOauthApp: ownerUserId required for non-dynamic apps');
   }
+  // Every writer, not just the one that remembered. The reserved-name rule was
+  // enforced only on the RFC 7591 route, so the developer route could store a
+  // name the consent screen then rendered verbatim — an app called plainly
+  // "IsaFlow". A route-level check protects the routes that have it; this
+  // protects the table. NFC for the same reason the endpoint does it: what is
+  // stored must be what was compared, or a name can render as something the
+  // check never saw.
+  const name = input.name.normalize('NFC');
+  if (isReservedClientName(name)) throw new ReservedClientNameError();
 
   const clientId = `client_${base62(24)}`;
   const secret = isDynamic ? null : generateToken('cls_', 32);
@@ -88,7 +110,7 @@ export async function registerOauthApp(input: RegisterAppInput): Promise<Registe
       is_dynamic, token_endpoint_auth_method
     )
     VALUES (
-      ${input.name},
+      ${name},
       ${input.description ?? null},
       ${input.logoUrl ?? null},
       ${input.homepageUrl ?? null},
@@ -196,7 +218,14 @@ export async function getOauthAppByClientId(clientId: string): Promise<PublicOau
   const r = rows[0]!;
   return {
     id: r.id as string,
-    name: r.name as string,
+    // Normalised on READ, not only on write, because rows predating the write
+    // guard still hold whatever was stored. Some code points are letters the
+    // browser declines to draw — a name saved as "Isa<U+FACF>Flow" renders as
+    // "Isa Flow" and the reserved-name check does not re-run at consent time.
+    // In the loader rather than the consent page so every consumer — screen,
+    // developer list, logs — sees one string; doing it in the page would
+    // rebuild the stored-not-equal-to-displayed defect somewhere new.
+    name: (r.name as string).normalize('NFC'),
     description: r.description as string | null,
     logoUrl: r.logo_url as string | null,
     homepageUrl: r.homepage_url as string | null,

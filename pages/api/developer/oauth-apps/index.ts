@@ -10,6 +10,7 @@ import { withErrorHandler } from '@/lib/api-error-handler';
 import { apiResponse } from '@/lib/apiResponse';
 import { withAuth, type CompanyAuthedRequest } from '@/lib/auth';
 import { withCsrf } from '@/lib/auth/withCsrf';
+import { isReservedClientName } from '@/lib/auth/reservedClientName';
 import { listOauthApps, registerOauthApp } from '@/lib/auth/oauth';
 
 const MAX_NAME_LEN = 80;
@@ -26,13 +27,21 @@ async function handler(req: CompanyAuthedRequest, res: NextApiResponse) {
 
   if (req.method === 'POST') {
     const body = (req.body ?? {}) as Record<string, unknown>;
-    const name = typeof body.name === 'string' ? body.name.trim() : '';
+    // NFC so what is stored is what the guard compared, and what the consent
+    // screen later renders. Same reason as the RFC 7591 route.
+    const name = typeof body.name === 'string' ? body.name.trim().normalize('NFC') : '';
     const description = typeof body.description === 'string' ? body.description.trim() : null;
     const logoUrl = typeof body.logoUrl === 'string' ? body.logoUrl.trim() : null;
     const homepageUrl = typeof body.homepageUrl === 'string' ? body.homepageUrl.trim() : null;
     const redirectUris = Array.isArray(body.redirectUris) ? body.redirectUris : [];
 
     if (!name) return apiResponse.badRequest(res, 'name is required');
+    // registerOauthApp enforces this too, and throws. Checked here as well so
+    // the caller gets a 400 explaining the refusal rather than a 500 from an
+    // uncaught throw — the service guard is the backstop, not the interface.
+    if (isReservedClientName(name)) {
+      return apiResponse.badRequest(res, 'name may not impersonate IsaFlow or use a reserved term');
+    }
     if (name.length > MAX_NAME_LEN) return apiResponse.badRequest(res, `name must be ≤ ${MAX_NAME_LEN} characters`);
     if (description && description.length > MAX_DESC_LEN) {
       return apiResponse.badRequest(res, `description must be ≤ ${MAX_DESC_LEN} characters`);
