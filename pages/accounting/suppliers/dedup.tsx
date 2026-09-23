@@ -65,8 +65,8 @@ export default function SupplierDedupPage() {
         body: JSON.stringify({ target_id: pending.keepId, source_id: pending.mergeId }),
       });
       if (!res.ok) {
-        const body = await res.json() as { message?: string };
-        throw new Error(body.message ?? `HTTP ${res.status}`);
+        const body = await res.json() as { message?: string; error?: { message?: string } };
+        throw new Error(body.error?.message ?? body.message ?? `HTTP ${res.status}`);
       }
       // Remove all pairs that involved either supplier
       setPairs((prev) =>
