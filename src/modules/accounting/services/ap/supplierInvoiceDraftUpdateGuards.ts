@@ -55,17 +55,19 @@ export async function planLines(
     WHERE supplier_invoice_id = ${invoiceId}::UUID`) as DbRow[];
   const totals = computeSupplierInvoiceTotals(items, taxRate, false);
   // Lines resent exactly as stored: nothing to replace, and nothing to drop.
-  type LineKey = Pick<ComputedSupplierInvoiceItem,
-    'description' | 'quantity' | 'unitPrice' | 'taxRate' | 'taxAmount' | 'lineTotal' | 'glAccountId'>;
-  const sig = (l: LineKey) => [l.description, l.quantity.toFixed(4), l.unitPrice.toFixed(2),
-    l.taxRate.toFixed(2), l.taxAmount.toFixed(2), l.lineTotal.toFixed(2), l.glAccountId ?? ''].join('|');
-  const storedSigs = kept.map((l) => sig({
+  // Structural, not a joined string: description is free text and may carry
+  // any separator, so a joined form lets one sent line equal two stored ones.
+  const key = (l: Pick<ComputedSupplierInvoiceItem,
+    'description' | 'quantity' | 'unitPrice' | 'taxRate' | 'taxAmount' | 'lineTotal' | 'glAccountId'>) =>
+    JSON.stringify([l.description, l.quantity.toFixed(4), l.unitPrice.toFixed(2), l.taxRate.toFixed(2),
+      l.taxAmount.toFixed(2), l.lineTotal.toFixed(2), l.glAccountId ?? null]);
+  const stored = kept.map((l) => key({
     description: String(l.description), quantity: Number(l.quantity), unitPrice: Number(l.unit_price),
     taxRate: Number(l.tax_rate), taxAmount: Number(l.tax_amount), lineTotal: Number(l.line_total),
     glAccountId: l.gl_account_id ? String(l.gl_account_id) : undefined,
   })).sort();
-  const sentSigs = totals.items.map(sig).sort();
-  if (storedSigs.join('\n') === sentSigs.join('\n')) return null;
+  const sent = totals.items.map(key).sort();
+  if (stored.length === sent.length && stored.every((k, i) => k === sent[i])) return null;
   const lost = kept.find((l) => l.po_item_id || l.project_id || l.cost_center_id
     || (l.vat_classification
         && l.vat_classification !== defaultVatClassification(Number(l.tax_rate ?? 0))));
@@ -138,11 +140,20 @@ export async function refuseIfJournalNamesBill(
       AND status = 'posted' AND reversed_at IS NULL
     ORDER BY entry_number LIMIT 1`) as DbRow[];
   if (rows[0] || isDrc) {
+    const what = rows[0]
+      ? `posted journal ${String(rows[0].entry_number)} is sourced from it`
+      : 'is marked as DRC VAT applied';
+    // Reversing a DRC journal leaves is_drc set, so for a DRC bill the only way
+    // back is a new bill: cancel_supplier_invoice refuses while the journal stands.
+    const cancel = 'cancel the bill with cancel_supplier_invoice and re-enter it.';
+    const remedy = !isDrc
+      ? `Reverse that journal with reverse_journal_entry, or ${cancel}`
+      : rows[0]
+        ? `Reverse that journal with reverse_journal_entry, then ${cancel}`
+        : `Its DRC journal is already reversed; ${cancel}`;
     throw new SupplierInvoiceDraftUpdateRefusal(
-      `Supplier invoice ${number} is a draft but ${rows[0]
-        ? `posted journal ${String(rows[0].entry_number)} is sourced from it`
-        : 'is marked as DRC VAT applied'}, so editing it would leave that VAT on the old figures. `
-      + 'Reverse the journal with reverse_journal_entry, or cancel the bill and re-enter it.',
+      `Supplier invoice ${number} is a draft but ${what}, so editing it would leave that VAT on the `
+      + `old figures. ${remedy}`,
     );
   }
 }

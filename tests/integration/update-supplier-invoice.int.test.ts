@@ -16,9 +16,12 @@ import {
 import { createSupplierInvoice } from '@/modules/accounting/services/ap/supplierInvoiceService';
 import { approveSupplierInvoice } from '@/modules/accounting/services/ap/supplierInvoiceWorkflowService';
 import { applyDRCVat } from '@/modules/accounting/services/reports/drcVatService';
+import { reverseJournalEntry } from '@/modules/accounting/services/gl/journalEntryPostingService';
+import { withSavepoint } from '@/lib/neon';
+import { savepointNameFor } from '@/lib/mcp/registry';
 import type { McpToolContext } from '@/lib/mcp/types';
 import { assertNotProductionDb } from '../helpers/assertNotProductionDb';
-import { dropFixture, inTx, seedFixture, seedSupplier, type Fixture } from './helpers/l1FifoFixture';
+import { dropFixture, inTx, runOn, seedFixture, seedSupplier, type Fixture } from './helpers/l1FifoFixture';
 
 const DATABASE_URL = process.env.DATABASE_URL;
 const describeIfDb = DATABASE_URL ? describe : describe.skip;
@@ -263,4 +266,55 @@ describeIfDb('update_supplier_invoice — drafts over a real ledger', () => {
       .toContain('supplier coding history');
     expect((await update(coded, { invoice_number: `CODED-${fx.tag}`.slice(0, 50) })).isError).toBeFalsy();
   });
+
+  /** Ledger re-review LOW: reversing a DRC journal leaves is_drc set, so the only remedy is a new bill. */
+  it('names cancel-and-re-enter once the DRC journal is already reversed', async () => {
+    const id = await draft();
+    const drc = await inTx(fx, () => applyDRCVat(fx.companyId, id, fx.userId));
+    await inTx(fx, () => reverseJournalEntry(fx.companyId, drc.journalEntryId, fx.userId));
+    const msg = text(await update(id, { reference: 'x' }));
+    expect(msg).toContain('already reversed');
+    expect(msg).toContain('cancel_supplier_invoice');
+  });
+
+  /** Ledger re-review LOW: a joined-string signature let one sent line equal two stored ones. */
+  it('does not treat one line whose description embeds another line as unchanged', async () => {
+    const id = await inTx(fx, () => createSupplierInvoice(fx.companyId, {
+      supplierId: fx.supplierId, invoiceNumber: `NL-${fx.tag}`.slice(0, 50), invoiceDate: '2026-05-01',
+      items: [{ description: 'A', quantity: 1, unitPrice: 100 }, { description: 'B', quantity: 1, unitPrice: 200 }],
+    }, fx.userId)).then((b) => b.id);
+    const r = await update(id, { lines: [{ description: 'A|1.0000|100.00|15.00|15.00|100.00|\nB', quantity: 1, unit_price: 200 }] });
+    expect(JSON.parse(text(r)).changed).toEqual(['lines']);
+    expect((await snapshot(id)).lines).toHaveLength(1);
+  });
+
+  /** Ledger re-review: K-052 — a caught lock timeout must leave the transaction usable. */
+  it('hands back the retry wording, not 25P02, when another request holds the bill', async () => {
+    const id = await draft();
+    const holder = await fx.pool.connect();
+    const runner = await fx.pool.connect();
+    try {
+      await holder.query('BEGIN');
+      await holder.query('SELECT id FROM supplier_invoices WHERE id = $1 FOR UPDATE', [id]);
+      await runner.query('BEGIN');
+      const { out, afterwards } = await runOn(fx, runner, async () => {
+        // EXACTLY registry.call's shape for a write tool, then a statement on
+        // the surviving transaction where the registry writes its audit row.
+        const result = await withSavepoint(savepointNameFor('update_supplier_invoice'),
+          () => updateSupplierInvoiceTool.handler({ invoice_id: id, reference: 'x', ...key() }, ctxOf(fx)));
+        const probe = (await sql`SELECT 1 AS ok`) as Row[];
+        return { out: result, afterwards: probe.length };
+      });
+      await runner.query('COMMIT');
+      expect(out.isError).toBe(true);
+      expect(text(out)).toContain('retry');
+      expect(afterwards).toBe(1);
+    } finally {
+      await holder.query('ROLLBACK').catch(() => undefined);
+      holder.release();
+      await runner.query('ROLLBACK').catch(() => undefined);
+      runner.release();
+    }
+    expect((await snapshot(id)).reference).toBe('orig-ref');
+  }, 30_000);
 });
