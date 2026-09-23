@@ -21,6 +21,7 @@ import type { DbRow } from '@/lib/neon';
 import { approveSupplierInvoice } from '@/modules/accounting/services/ap/supplierInvoiceWorkflowService';
 import { validateSystemAccounts } from '@/modules/accounting/services/gl/systemAccountResolver';
 import { invoiceVatRefusals } from '@/modules/accounting/services/capture/capturedVatEvidence';
+import { supplierInvoiceLineAccountRefusals } from '@/modules/accounting/services/ap/billLineAccountGuard';
 import { mcpPostingOpts } from '../mcpActor';
 import {
   type BulkApproveAdapter,
@@ -172,7 +173,13 @@ export const bulkApproveSupplierInvoicesTool: McpTool = {
     const { states } = partitioned;
     // K-072 r30–r36: a bill carrying a VAT its captured document never showed, or a meals
     // merchant's VAT, is SKIPPED — read, not written, so the dry run and the live call decide it alike.
-    const refusals = await invoiceVatRefusals(ctx.companyId, partitioned.postable.map((p) => p.id));
+    // So is a bill whose stored line names an account a bill line may not
+    // (billLineAccountGuard.ts): approve would throw, and unwind the batch.
+    const candidateIds = partitioned.postable.map((p) => p.id);
+    const refusals = new Map([
+      ...await supplierInvoiceLineAccountRefusals(ctx.companyId, candidateIds),
+      ...await invoiceVatRefusals(ctx.companyId, candidateIds),
+    ]);
     const postable = partitioned.postable.filter((p) => !refusals.has(p.id));
     const skipped = [...partitioned.skipped, ...partitioned.postable.filter((p) => refusals.has(p.id))
       .map((p) => ({ index: p.index, document_id: p.id, reason: refusals.get(p.id)! }))]

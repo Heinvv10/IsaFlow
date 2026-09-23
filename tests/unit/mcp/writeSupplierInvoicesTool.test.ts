@@ -33,8 +33,8 @@ vi.mock('@/modules/accounting/services/capture/capturedVatEvidence', () => ({
 vi.mock('@/modules/accounting/services/core/contactDirectoryService', () => ({
   supplierBelongsToCompany: vi.fn(),
 }));
-vi.mock('@/modules/accounting/services/gl/chartOfAccountsService', () => ({
-  accountsBelongToCompany: vi.fn(),
+vi.mock('@/modules/accounting/services/ap/billLineAccountGuard', () => ({
+  billLineAccountRefusal: vi.fn(),
 }));
 
 import {
@@ -44,7 +44,7 @@ import {
 import { approveSupplierInvoice } from '@/modules/accounting/services/ap/supplierInvoiceWorkflowService';
 import { supplierBelongsToCompany } from '@/modules/accounting/services/core/contactDirectoryService';
 import { invoiceVatRefusals } from '@/modules/accounting/services/capture/capturedVatEvidence';
-import { accountsBelongToCompany } from '@/modules/accounting/services/gl/chartOfAccountsService';
+import { billLineAccountRefusal } from '@/modules/accounting/services/ap/billLineAccountGuard';
 import {
   createSupplierInvoiceTool,
   approveSupplierInvoiceTool,
@@ -91,7 +91,7 @@ function createArgs(over: Record<string, unknown> = {}) {
 beforeEach(() => {
   vi.clearAllMocks();
   vi.mocked(supplierBelongsToCompany).mockResolvedValue(true);
-  vi.mocked(accountsBelongToCompany).mockResolvedValue(true);
+  vi.mocked(billLineAccountRefusal).mockResolvedValue(null);
   vi.mocked(createSupplierInvoice).mockResolvedValue({
     id: INVOICE, invoiceNumber: 'INV-9001', supplierId: SUPPLIER,
     invoiceDate: '2026-06-30', subtotal: 1000, taxAmount: 150,
@@ -117,19 +117,14 @@ describe('create_supplier_invoice', () => {
   });
 
   it('checks every line gl_account_id in ONE batched call, before writing', async () => {
-    vi.mocked(accountsBelongToCompany).mockResolvedValue(false);
+    vi.mocked(billLineAccountRefusal).mockResolvedValue('One or more lines[].gl_account_id values are not GL accounts in your company.');
     const r = await createSupplierInvoiceTool.handler(
       createArgs({ lines: [{ ...GOOD_LINE, gl_account_id: ACCOUNT }] }),
       ctx(),
     );
     expect(errText(r)).toContain('not GL accounts in your company');
     expect(createSupplierInvoice).not.toHaveBeenCalled();
-    expect(vi.mocked(accountsBelongToCompany).mock.calls[0]![1]).toEqual([ACCOUNT]);
-  });
-
-  it('skips the account ownership query entirely when no line names an account', async () => {
-    await createSupplierInvoiceTool.handler(createArgs(), ctx());
-    expect(accountsBelongToCompany).not.toHaveBeenCalled();
+    expect(vi.mocked(billLineAccountRefusal).mock.calls[0]![1]).toEqual([ACCOUNT]);
   });
 
   it('names the offending line INDEX and refuses before any query', async () => {

@@ -29,8 +29,8 @@ vi.mock('@/modules/accounting/services/core/contactDirectoryService', () => ({
   supplierBelongsToCompany: vi.fn(),
   customerBelongsToCompany: vi.fn(),
 }));
-vi.mock('@/modules/accounting/services/gl/chartOfAccountsService', () => ({
-  accountsBelongToCompany: vi.fn(),
+vi.mock('@/modules/accounting/services/ap/billLineAccountGuard', () => ({
+  billLineAccountRefusal: vi.fn(),
 }));
 
 import { createSupplierInvoice } from '@/modules/accounting/services/ap/supplierInvoiceService';
@@ -39,7 +39,7 @@ import {
   supplierBelongsToCompany,
   customerBelongsToCompany,
 } from '@/modules/accounting/services/core/contactDirectoryService';
-import { accountsBelongToCompany } from '@/modules/accounting/services/gl/chartOfAccountsService';
+import { billLineAccountRefusal } from '@/modules/accounting/services/ap/billLineAccountGuard';
 import { bulkCreateSupplierInvoicesTool } from '@/lib/mcp/tools/writeBulkInvoices';
 import { bulkCreateCustomerInvoicesTool } from '@/lib/mcp/tools/writeBulkCustomerInvoices';
 import type { McpToolContext, McpToolResult } from '@/lib/mcp/types';
@@ -97,7 +97,7 @@ describe('bulk_create_supplier_invoices', () => {
   beforeEach(() => {
     vi.clearAllMocks();
     vi.mocked(supplierBelongsToCompany).mockResolvedValue(true);
-    vi.mocked(accountsBelongToCompany).mockResolvedValue(true);
+    vi.mocked(billLineAccountRefusal).mockResolvedValue(null);
     let n = 0;
     vi.mocked(createSupplierInvoice).mockImplementation(async () => madeInvoice(++n) as never);
   });
@@ -173,8 +173,19 @@ describe('bulk_create_supplier_invoices', () => {
     }, ctx());
     // Two elements, one supplier and one account between them.
     expect(supplierBelongsToCompany).toHaveBeenCalledTimes(1);
-    expect(accountsBelongToCompany).toHaveBeenCalledTimes(1);
-    expect(vi.mocked(accountsBelongToCompany).mock.calls[0]![1]).toEqual([ACCOUNT]);
+    expect(billLineAccountRefusal).toHaveBeenCalledTimes(1);
+    expect(vi.mocked(billLineAccountRefusal).mock.calls[0]![1]).toEqual([ACCOUNT]);
+  });
+
+  it('refuses the whole batch on a line-account refusal, writing nothing', async () => {
+    vi.mocked(billLineAccountRefusal).mockImplementation(async (_c, ids) => (
+      ids.includes(ACCOUNT) ? 'A bill line cannot be coded to 1000 Bank: it is a bank account.' : null));
+    const r = await bulkCreateSupplierInvoicesTool.handler({
+      invoices: [bill(), bill({ invoice_number: 'INV-9002', lines: [{ ...LINE, gl_account_id: ACCOUNT }] })],
+      ...KEY,
+    }, ctx());
+    expect(errText(r)).toBe('invoices[1]: A bill line cannot be coded to 1000 Bank: it is a bank account.');
+    expect(createSupplierInvoice).not.toHaveBeenCalled();
   });
 
   it('refuses a foreign supplier generically, writing nothing', async () => {

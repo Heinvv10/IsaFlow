@@ -17,6 +17,7 @@ import type { JournalLineInput } from '../../types/gl.types';
 import { actorMeta, type PostingActorOpts } from '../gl/journalEntryMeta';
 import { releaseCapturedDocumentPostingClaim } from '../capture/capturePostingClaimRelease';
 import { buildExpenseLines } from './supplierInvoiceExpenseLines';
+import { assertSupplierInvoiceLinesPostable } from './billLineAccountGuard';
 import { documentInPopulation } from '../shared/documentPopulation';
 
 type Row = DbRow;
@@ -96,6 +97,7 @@ export async function approveSupplierInvoice(
     const vatAccount = await getSystemAccount('vat_input', companyId);
     const defaultExpenseAccount = await getSystemAccount('default_expense', companyId);
 
+    await assertSupplierInvoiceLinesPostable(companyId, invoice);
     const lines: JournalLineInput[] = buildExpenseLines(invoice, defaultExpenseAccount.id);
 
     if (invoice.taxAmount > 0) {
@@ -205,6 +207,7 @@ export async function postSupplierInvoiceToGL(
   const vatAccount = await getSystemAccount('vat_input', companyId);
   const defaultExpenseAccount = await getSystemAccount('default_expense', companyId);
 
+  await assertSupplierInvoiceLinesPostable(companyId, invoice);
   const lines: JournalLineInput[] = buildExpenseLines(invoice, defaultExpenseAccount.id);
 
   if (invoice.taxAmount > 0) {
