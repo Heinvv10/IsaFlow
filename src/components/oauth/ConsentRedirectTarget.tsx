@@ -19,7 +19,7 @@ export function ConsentRedirectTarget({ redirectUri }: { redirectUri: string }) 
       <span>
         Sends your authorisation to{' '}
         <span className="font-medium text-slate-200 break-all">
-          {target.kind === 'web' ? target.host : 'a program running on this computer'}
+          {target.kind === 'web' ? target.host : 'a program on this computer — IsaFlow cannot tell you which one'}
         </span>
       </span>
     </p>

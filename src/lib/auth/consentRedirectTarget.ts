@@ -16,9 +16,11 @@
  *  - A client on the reader's own machine redirects to a loopback address on a
  *    port the operating system handed out. "localhost:57526" identifies nobody
  *    — the legitimate client and a hostile one look identical — so showing it
- *    would imply a check the reader cannot actually make. Say what IS true and
- *    useful: the code goes to a program on their computer rather than to a
- *    website. Never show the port; it carries no meaning and reads like one.
+ *    would imply a check the reader cannot actually make. So the line states
+ *    the category AND its own limit: a program on this computer, and that we
+ *    cannot say which one. Saying only the category read as reassurance —
+ *    malware is also a program running on this computer. Never show the port;
+ *    it carries no meaning and reads like one.
  */
 import { isLoopbackHost } from '@/lib/auth/oauthLoopback';
 
