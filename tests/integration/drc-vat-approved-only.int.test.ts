@@ -11,7 +11,7 @@
  */
 import { describe, it, expect, beforeAll, afterAll } from 'vitest';
 import { sql } from '@/lib/neon';
-import { applyDRCVat } from '@/modules/accounting/services/reports/drcVatService';
+import { applyDRCVat, getDRCEligibleInvoices } from '@/modules/accounting/services/reports/drcVatService';
 import { assertNotProductionDb } from '../helpers/assertNotProductionDb';
 import { dropFixture, inTx, runOn, seedBill, seedFixture, type Fixture } from './helpers/l1FifoFixture';
 
@@ -135,5 +135,25 @@ describeIfDb('applyDRCVat — approved bills only, once, all-or-nothing', () => 
       await sql`UPDATE fiscal_periods SET status = 'open' WHERE company_id = ${fx.companyId}::UUID`;
     }
     expect(await state(id)).toEqual({ isDrc: false, journals: 0 });
+  });
+
+  /**
+   * Approval already posted DR Input VAT = tax_amount. DRC posting DR Input VAT
+   * again on the subtotal claims the same input VAT twice. A reverse-charge
+   * invoice carries no supplier VAT, so a taxed bill is not one.
+   */
+  it('refuses a bill that already carries supplier VAT, and does not list it', async () => {
+    const taxed = await bill('approved');
+    await sql`UPDATE supplier_invoices SET subtotal = 1000, tax_amount = 150 WHERE id = ${taxed}::UUID`;
+    const clean = await bill('approved');
+    await sql`UPDATE supplier_invoices SET subtotal = 1000, tax_amount = 0 WHERE id = ${clean}::UUID`;
+
+    const msg = await refusal(inTx(fx, () => applyDRCVat(fx.companyId, taxed, fx.userId)));
+    expect(msg).toContain('R150.00');
+    expect(await state(taxed)).toEqual({ isDrc: false, journals: 0 });
+
+    const listed = (await inTx(fx, () => getDRCEligibleInvoices(fx.companyId))).map((i) => i.id);
+    expect(listed).toContain(clean);
+    expect(listed).not.toContain(taxed);
   });
 });
