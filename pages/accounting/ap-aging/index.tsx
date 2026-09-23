@@ -3,19 +3,24 @@
  * PRD-060 Phase 2: Current / 30 / 60 / 90 / 120+ day buckets
  */
 
-import { useState, useEffect, useCallback } from 'react';
+import { Fragment, useState, useEffect, useCallback } from 'react';
 import { AppLayout } from '@/components/layout/AppLayout';
 import Link from 'next/link';
-import { Clock, Loader2, AlertCircle, Download } from 'lucide-react';
+import { Clock, Loader2, AlertCircle, Download, ChevronDown, ChevronRight } from 'lucide-react';
 import type { AgingBucket } from '@/modules/accounting/types/ap.types';
 import { formatCurrency } from '@/utils/formatters';
 import { apiFetch } from '@/lib/apiFetch';
+import { SupplierInvoicesPanel } from '@/components/accounting/SupplierInvoicesPanel';
+import { useAgingReturn, agingRowId } from '@/components/accounting/useAgingReturn';
 
 export default function APAgingPage() {
   const [buckets, setBuckets] = useState<AgingBucket[]>([]);
   const [asAtDate, setAsAtDate] = useState(new Date().toISOString().split('T')[0]);
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState('');
+  const { restored, expandedId, toggle } = useAgingReturn({
+    entityParam: 'supplier', rowsReady: !isLoading && buckets.length > 0, onAsAtDate: setAsAtDate,
+  });
 
   const loadAging = useCallback(async () => {
     setIsLoading(true);
@@ -34,7 +39,11 @@ export default function APAgingPage() {
     }
   }, [asAtDate]);
 
-  useEffect(() => { void loadAging(); }, [loadAging]);
+  // Wait for a restored ?as_at_date= so the first load is already the right date.
+  useEffect(() => { if (restored) void loadAging(); }, [restored, loadAging]);
+  const panelNote = asAtDate === new Date().toISOString().split('T')[0]
+    ? undefined
+    : 'Invoices open today — they can differ from the as-at buckets above.';
 
   const totals = buckets.reduce(
     (acc, b) => ({
@@ -128,6 +137,7 @@ export default function APAgingPage() {
               <table className="w-full">
                 <thead>
                   <tr className="border-b border-[var(--ff-border-light)] bg-[var(--ff-bg-tertiary)]">
+                    <th className="w-6 px-4 py-3"></th>
                     <th className="px-4 py-3 text-left text-[10px] tracking-[0.12em] font-semibold text-[var(--ff-text-secondary)] uppercase">Supplier</th>
                     <th className="px-4 py-3 text-right text-[10px] tracking-[0.12em] font-semibold text-teal-500 uppercase">Current</th>
                     <th className="px-4 py-3 text-right text-[10px] tracking-[0.12em] font-semibold text-amber-700 dark:text-amber-400 uppercase">30 Days</th>
@@ -139,9 +149,13 @@ export default function APAgingPage() {
                 </thead>
                 <tbody className="divide-y divide-[var(--ff-border-light)]">
                   {buckets.map(b => (
-                    <tr key={b.entityId} className="hover:bg-teal-500/[0.04] transition-colors">
+                    <Fragment key={b.entityId}>
+                    <tr id={agingRowId(b.entityId)} onClick={() => toggle(b.entityId)} className="hover:bg-teal-500/[0.04] transition-colors cursor-pointer">
+                      <td className="px-4 py-3 text-[var(--ff-text-tertiary)]">
+                        {expandedId === b.entityId ? <ChevronDown className="h-4 w-4" /> : <ChevronRight className="h-4 w-4" />}
+                      </td>
                       <td className="px-4 py-3 text-sm font-medium text-[var(--ff-text-primary)]">
-                        <Link href={`/accounting/supplier-statements/${b.entityId}`} className="hover:text-teal-400 transition-colors">
+                        <Link href={`/accounting/supplier-statements/${b.entityId}`} onClick={e => e.stopPropagation()} className="hover:text-teal-400 transition-colors">
                           {b.entityName}
                         </Link>
                       </td>
@@ -152,10 +166,15 @@ export default function APAgingPage() {
                       <td className="px-4 py-3 text-sm text-right font-mono text-rose-700 dark:text-rose-400">{b.days120Plus > 0 ? formatCurrency(b.days120Plus) : '-'}</td>
                       <td className="px-4 py-3 text-sm text-right font-mono font-bold text-[var(--ff-text-primary)]">{formatCurrency(b.total)}</td>
                     </tr>
+                    {expandedId === b.entityId && (
+                      <SupplierInvoicesPanel supplierId={b.entityId} supplierName={b.entityName} colSpan={8} asAtDate={asAtDate} note={panelNote} />
+                    )}
+                    </Fragment>
                   ))}
                 </tbody>
                 <tfoot>
                   <tr className="border-t-2 border-[var(--ff-border-medium)] bg-[var(--ff-bg-tertiary)]">
+                    <td className="px-4 py-3"></td>
                     <td className="px-4 py-3 text-sm font-bold text-[var(--ff-text-primary)]">TOTAL</td>
                     <td className="px-4 py-3 text-sm text-right font-mono font-bold text-teal-500">{formatCurrency(totals.current)}</td>
                     <td className="px-4 py-3 text-sm text-right font-mono font-bold text-amber-700 dark:text-amber-400">{formatCurrency(totals.days30)}</td>
