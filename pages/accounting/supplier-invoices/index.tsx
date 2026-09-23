@@ -12,7 +12,7 @@ import { useCallback, useEffect, useMemo, useState } from 'react';
 import Link from 'next/link';
 import { AlertCircle, Download, Loader2, Plus } from 'lucide-react';
 import { AppLayout } from '@/components/layout/AppLayout';
-import { apiFetch } from '@/lib/apiFetch';
+import { apiFetch, assertOk, apiErrorMessage } from '@/lib/apiFetch';
 import { log } from '@/lib/logger';
 import type { SupplierInvoice } from '@/modules/accounting/types/ap.types';
 import { useSupplierInvoiceListState } from '@/components/accounting/supplier-invoices/useSupplierInvoiceListState';
@@ -68,6 +68,9 @@ export default function SupplierInvoicesPage() {
     setError('');
     try {
       const res = await apiFetch(`/api/accounting/supplier-invoices?${listParams}`);
+      // A 400 (e.g. a malformed date in a hand-edited URL) must say so, not
+      // render as an empty list.
+      await assertOk(res, 'Failed to load supplier invoices');
       const json = await res.json();
       const payload = (json.data || json) as ListResult;
       setInvoices(payload.invoices || []);
@@ -75,7 +78,9 @@ export default function SupplierInvoicesPage() {
       setSelected(new Set());
     } catch (err) {
       log.warn('Failed to load supplier invoices', { error: err }, 'supplier-invoices');
-      setError('Failed to load supplier invoices');
+      setInvoices([]);
+      setTotal(0);
+      setError(apiErrorMessage(err, 'Failed to load supplier invoices'));
     } finally {
       setIsLoading(false);
     }
@@ -140,11 +145,12 @@ export default function SupplierInvoicesPage() {
 
           <FilterBar
             filters={filters}
-            filtersActive={filtersActive}
             setSearch={state.setSearch}
+            setTab={state.setTab}
             selectSupplier={state.selectSupplier}
             clearSupplier={state.clearSupplier}
             setDatePreset={state.setDatePreset}
+            setMonth={state.setMonth}
             setCustomDate={state.setCustomDate}
             setAmountRange={state.setAmountRange}
             resetFilters={state.resetFilters}

@@ -1,0 +1,80 @@
+/**
+ * Invoice-date period control: all dates, one month, or a custom from/to.
+ * Emits an inclusive from/to pair; a month is only a way of picking one.
+ */
+
+import { useEffect, useState } from 'react';
+import { currentMonth, monthRange, wholeMonthOf } from './invoicePeriod';
+
+type Mode = 'all' | 'month' | 'custom';
+
+interface Props {
+  from: string;
+  to: string;
+  onChange: (from: string, to: string) => void;
+  inputClassName: string;
+}
+
+function modeOf(from: string, to: string): Mode {
+  if (!from && !to) return 'all';
+  return wholeMonthOf(from, to) ? 'month' : 'custom';
+}
+
+export function PeriodControl({ from, to, onChange, inputClassName }: Props) {
+  const [mode, setMode] = useState<Mode>(() => modeOf(from, to));
+
+  // Follow the URL (deep link, back/forward, clear all), but keep a custom
+  // range custom even when it happens to cover exactly one month.
+  useEffect(() => {
+    setMode(m => (m === 'custom' && (from || to) ? 'custom' : modeOf(from, to)));
+  }, [from, to]);
+
+  function pickMode(next: Mode) {
+    setMode(next);
+    if (next === 'all') onChange('', '');
+    if (next === 'month') {
+      const r = monthRange(currentMonth());
+      if (r) onChange(r.from, r.to);
+    }
+  }
+
+  const month = wholeMonthOf(from, to) ?? '';
+
+  return (
+    <div className="flex items-center gap-2">
+      <select
+        name="period"
+        aria-label="Invoice date period"
+        value={mode}
+        onChange={e => pickMode(e.target.value as Mode)}
+        className={inputClassName}
+      >
+        <option value="all">All dates</option>
+        <option value="month">Month</option>
+        <option value="custom">Custom range</option>
+      </select>
+      {mode === 'month' && (
+        <input
+          type="month"
+          name="month"
+          aria-label="Invoice month"
+          value={month}
+          onChange={e => {
+            const r = monthRange(e.target.value);
+            if (r) onChange(r.from, r.to);
+          }}
+          className={inputClassName}
+        />
+      )}
+      {mode === 'custom' && (
+        <>
+          <input type="date" name="from" aria-label="Invoice date from" value={from} max={to || undefined}
+            onChange={e => onChange(e.target.value, to)} className={inputClassName} />
+          <span className="text-[var(--ff-text-tertiary)] text-sm">to</span>
+          <input type="date" name="to" aria-label="Invoice date to" value={to} min={from || undefined}
+            onChange={e => onChange(from, e.target.value)} className={inputClassName} />
+        </>
+      )}
+    </div>
+  );
+}
