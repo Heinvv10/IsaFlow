@@ -8,6 +8,9 @@
 
 import type { AgingBucket, AgingBucketName, AgingInvoice } from '../types/ap.types';
 
+/** An invoice from a per-entity aging detail, which also carries its number. */
+export type AgingDetailInvoice = AgingInvoice & { invoiceNumber: string };
+
 /**
  * Classify a single invoice into an aging bucket based on due date.
  *
