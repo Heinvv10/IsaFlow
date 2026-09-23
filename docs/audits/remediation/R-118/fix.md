@@ -38,4 +38,6 @@ The AR mirror. `customer_invoices` has no equivalent bulk post action; approval 
 | LOW: the module docs record every behavioural change to these functions. | Noted in `ap/.claude.md` and `ar/.claude.md`; mirrors regenerated. | `agent-docs:check` OK. |
 | LOW: the bulk bar showed only the first error, so a page of drafts gave one generic banner. | Failures are grouped by reason with counts. | — |
 
-Mutations (`mutations.log`), all red: AP guard removed, AP guard narrowed to draft-only, AP guard above the early return, AR guard removed, AR guard narrowed to draft-only.
+Mutations (`mutations.log`), all red: AP guard removed, AP guard narrowed to draft-only, AP guard above the early return, AR guard removed, AR guard narrowed to draft-only, and — the one the re-expressed reuse test exists for — `approveSupplierInvoice`'s reuse branch removed, which is what would mint a second journal.
+
+Re-review verdict: SHIP. Its two non-blocking notes are done: the reuse test's setup assertions are labelled as being about the donor, and that sixth mutation is measured rather than reasoned. `supplierInvoiceWorkflowService.ts` remains over the 300-line cap, which predates this change.

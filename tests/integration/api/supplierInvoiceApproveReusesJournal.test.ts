@@ -171,6 +171,9 @@ describe('approveSupplierInvoice on a draft that already carries a journal', () 
     await sql`
       UPDATE supplier_invoices SET gl_journal_entry_id = ${posted.journalEntryId}::UUID
       WHERE id = ${id}::UUID AND company_id = ${COMPANY}::UUID`;
+    // Both of these are about the DONOR, not the subject: the donor posted its
+    // own journal, and nothing has posted one under `number`. They pin the
+    // setup, not step 1 — the subject's state is what the next block asserts.
     expect(posted.alreadyPosted).toBe(false);
     expect(await journalCountFor(number)).toBe(0);
     const stillDraft = (await sql`
