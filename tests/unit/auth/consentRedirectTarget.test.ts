@@ -30,6 +30,18 @@ describe('describeRedirectTarget', () => {
     });
   });
 
+  // An IDN host stays in its punycode form. That is the safe rendering: the
+  // classic homograph trick needs the Unicode label to be DISPLAYED, and a
+  // visibly garbled "xn--" string is a stronger tell than a clean lookalike.
+  // Asserted because it is the subtlest property here and easy to "fix" wrongly
+  // by decoding for readability.
+  it('leaves an internationalised host in punycode rather than decoding it', () => {
+    const target = describeRedirectTarget('https://xn--80ak6aa92e.com/cb');
+    expect(target).toEqual({ kind: 'web', host: 'xn--80ak6aa92e.com' });
+    // the decoded lookalike must never reach the screen
+    expect(JSON.stringify(target)).not.toContain('\u0430'); // Cyrillic a
+  });
+
   // Every RFC 8252 loopback form registration accepts. None may surface a host
   // or port: "localhost:57526" names nobody, and Claude Code and an impostor
   // look the same there.
