@@ -15,6 +15,7 @@ import { withCsrf } from '@/lib/auth/withCsrf';
 import type { AuthenticatedNextApiRequest } from '@/lib/auth';
 import { log } from '@/lib/logger';
 import { mergeEntities } from '@/modules/accounting/services/core/duplicateDetectionService';
+import { SupplierMergeRefusal } from '@/modules/accounting/services/core/duplicateMergeService';
 
 const VALID_ENTITY_TYPES = ['customer', 'supplier', 'item'] as const;
 type EntityType = typeof VALID_ENTITY_TYPES[number];
@@ -69,6 +70,8 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
 
     return apiResponse.success(res, result);
   } catch (err) {
+    // Refused before anything moved — the caller can act on the message.
+    if (err instanceof SupplierMergeRefusal) return apiResponse.badRequest(res, err.message);
     log.error('Entity merge failed', { error: err, companyId, entityType, primaryId, duplicateId }, 'duplicates-api');
     return apiResponse.internalError(res, err, 'Failed to merge entities');
   }
