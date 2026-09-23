@@ -89,6 +89,11 @@ export function validatePipelineInput(extracted: ExtractedDocument): PipelineVal
   const warnings: string[] = [];
 
   if (extracted.totalAmount === null || extracted.totalAmount === undefined) errors.push('totalAmount is required');
+  // R-119: the extractor reads whatever the document says, and a credit note
+  // fed through this pipeline reads as a negative total. It is not a bill.
+  else if (extracted.totalAmount < 0) {
+    errors.push('totalAmount is negative — a credit is a credit note, not a supplier invoice');
+  }
   if (!extracted.vendorName) errors.push('vendorName is required');
   if (!extracted.date) errors.push('date is required');
   if (!extracted.referenceNumber) warnings.push('No reference/invoice number extracted');

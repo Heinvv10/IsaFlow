@@ -1,0 +1,4 @@
+M1 pipeline guard removed -> Test Files  1 failed | 1 passed (2) | Tests  1 failed | 14 passed (15)
+M2 recurring AR guard removed -> Test Files  1 failed | 1 passed (2) | Tests  1 failed | 14 passed (15)
+M3 helper accepts negatives -> Test Files  1 failed | 1 passed (2) | Tests  1 failed | 14 passed (15)
+M4 migration 692 dropped -> Test Files  1 failed | 1 passed (2) | Tests  3 failed | 12 passed (15)
