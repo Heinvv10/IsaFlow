@@ -84,17 +84,19 @@ async function applyDRCVatInner(
       `DRC VAT can only be applied to an approved supplier invoice; ${String(inv.invoice_number)} is ${status}.`,
     );
   }
-  // A reverse-charge invoice carries no supplier VAT. Approval already posted
-  // DR Input VAT = tax_amount, so DRC's own DR Input VAT would claim it twice.
+  // A reverse-charge invoice carries no supplier VAT. On a bill that does, DRC
+  // is the wrong treatment: approval posts DR Input VAT = tax_amount, and DRC's
+  // DR Input / CR Output on top inflates both VAT201 boxes (net unchanged).
+  // Not every taxed bill has an approval journal (Sage-era bills), so the
+  // refusal says the supplier charged VAT, not that it was already claimed.
   // Any non-zero figure, negative included: the eligible list admits exactly
   // tax_amount = 0, and the two must never disagree.
   const supplierVat = Number(inv.tax_amount ?? 0);
   if (supplierVat !== 0) {
     throw new Error(
       `DRC VAT applies only to a bill on which the supplier charged no VAT; ${String(inv.invoice_number)} `
-      + `carries R${supplierVat.toFixed(2)} VAT, already claimed as input VAT when it was approved, so DRC `
-      + 'would claim it twice. If the supplier should not have charged VAT, correct the bill first '
-      + '(cancel and re-enter it without VAT).',
+      + `records R${supplierVat.toFixed(2)} of supplier VAT, so it is not a reverse-charge supply. `
+      + 'If that VAT was captured in error, correct the bill first (cancel and re-enter it without VAT).',
     );
   }
 
