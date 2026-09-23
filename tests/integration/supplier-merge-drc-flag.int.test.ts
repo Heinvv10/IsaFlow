@@ -96,5 +96,8 @@ describeIfDb('supplier merge — DRC flags must agree', () => {
       b.release();
     }
     expect(order).toEqual(['merge committed', 'flag changed']);
+    // The waiting request really did change the flag once the lock was released.
+    expect(((await sql`SELECT subject_to_drc_vat FROM suppliers WHERE id = ${y}::UUID`) as
+      { subject_to_drc_vat: boolean }[])[0]!.subject_to_drc_vat).toBe(true);
   });
 });
