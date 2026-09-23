@@ -84,6 +84,17 @@ async function applyDRCVatInner(
       `DRC VAT can only be applied to an approved supplier invoice; ${String(inv.invoice_number)} is ${status}.`,
     );
   }
+  // Zero VAT alone is not reverse charge — zero-rated, exempt and foreign
+  // supplies carry none either. The supplier's own flag decides.
+  const [supplier] = (await sql`
+    SELECT subject_to_drc_vat FROM suppliers
+    WHERE id = ${inv.supplier_id}::UUID AND company_id = ${companyId}::UUID`) as Row[];
+  if (supplier?.subject_to_drc_vat !== true) {
+    throw new Error(
+      `DRC VAT applies only to a supplier marked as subject to DRC VAT; ${String(inv.invoice_number)}'s supplier `
+      + 'is not marked as subject to DRC. Set it on the supplier first if its supplies are reverse-charge.',
+    );
+  }
   // A reverse-charge invoice carries no supplier VAT. On a bill that does, DRC
   // is the wrong treatment: approval posts DR Input VAT = tax_amount, and DRC's
   // DR Input / CR Output on top inflates both VAT201 boxes (net unchanged).
@@ -157,6 +168,7 @@ export async function getDRCEligibleInvoices(companyId: string): Promise<Array<{
       AND si.status = ANY(${BALANCE_DERIVED}::TEXT[])
       AND si.deleted_at IS NULL
       AND COALESCE(si.tax_amount, 0) = 0
+      AND s.subject_to_drc_vat = true
       AND (si.is_drc IS NULL OR si.is_drc = false)
     ORDER BY si.invoice_date DESC
   `) as Row[];
