@@ -1,0 +1,124 @@
+/**
+ * The refusals `lockAndPlanSupplierInvoiceDraftUpdate` raises that need their
+ * own reads: the replacement lines, a settlement naming the bill, and a
+ * number another live bill of the supplier already carries. All run before
+ * any write. Split from supplierInvoiceDraftUpdate.ts for the 300-line cap.
+ */
+import { sql } from '@/lib/neon';
+import type { DbRow } from '@/lib/neon';
+import type { SupplierInvoiceItemInput } from '../../types/ap.types';
+import { accountsBelongToCompany } from '../gl/chartOfAccountsService';
+import {
+  assertSupplierInvoiceLines,
+  computeSupplierInvoiceTotals,
+  defaultVatClassification,
+  type ComputedSupplierInvoiceItem,
+  type SupplierInvoiceTotals,
+} from './supplierInvoiceTotals';
+
+/** A refusal whose message is safe to show the caller. Raised before any write. */
+export class SupplierInvoiceDraftUpdateRefusal extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = 'SupplierInvoiceDraftUpdateRefusal';
+  }
+}
+
+/**
+ * Validate the replacement lines and refuse when the stored lines carry what
+ * the replacement cannot express — a purchase-order line link, a project or
+ * cost centre, or a VAT classification other than the rate's default (an
+ * exempt 0% line would silently become zero-rated). Dropping those is data loss.
+ */
+export async function planLines(
+  companyId: string,
+  invoiceId: string,
+  number: string,
+  items: SupplierInvoiceItemInput[],
+  taxRate: number,
+): Promise<(SupplierInvoiceTotals & { taxRate: number }) | null> {
+  try {
+    assertSupplierInvoiceLines(items, false);
+  } catch (err) {
+    throw new SupplierInvoiceDraftUpdateRefusal((err as Error).message);
+  }
+  const accountIds = items.map((i) => i.glAccountId).filter((id): id is string => Boolean(id));
+  if (!(await accountsBelongToCompany(companyId, accountIds))) {
+    throw new SupplierInvoiceDraftUpdateRefusal(
+      'One or more lines[].gl_account_id values are not GL accounts in your company.',
+    );
+  }
+  const kept = (await sql`
+    SELECT description, quantity, unit_price, tax_rate, tax_amount, line_total, gl_account_id,
+           po_item_id, project_id, cost_center_id, vat_classification
+    FROM supplier_invoice_items
+    WHERE supplier_invoice_id = ${invoiceId}::UUID`) as DbRow[];
+  const totals = computeSupplierInvoiceTotals(items, taxRate, false);
+  // Lines resent exactly as stored: nothing to replace, and nothing to drop.
+  type LineKey = Pick<ComputedSupplierInvoiceItem,
+    'description' | 'quantity' | 'unitPrice' | 'taxRate' | 'taxAmount' | 'lineTotal' | 'glAccountId'>;
+  const sig = (l: LineKey) => [l.description, l.quantity.toFixed(4), l.unitPrice.toFixed(2),
+    l.taxRate.toFixed(2), l.taxAmount.toFixed(2), l.lineTotal.toFixed(2), l.glAccountId ?? ''].join('|');
+  const storedSigs = kept.map((l) => sig({
+    description: String(l.description), quantity: Number(l.quantity), unitPrice: Number(l.unit_price),
+    taxRate: Number(l.tax_rate), taxAmount: Number(l.tax_amount), lineTotal: Number(l.line_total),
+    glAccountId: l.gl_account_id ? String(l.gl_account_id) : undefined,
+  })).sort();
+  const sentSigs = totals.items.map(sig).sort();
+  if (storedSigs.join('\n') === sentSigs.join('\n')) return null;
+  const lost = kept.find((l) => l.po_item_id || l.project_id || l.cost_center_id
+    || (l.vat_classification
+        && l.vat_classification !== defaultVatClassification(Number(l.tax_rate ?? 0))));
+  if (lost) {
+    throw new SupplierInvoiceDraftUpdateRefusal(
+      `Supplier invoice ${number}'s line "${String(lost.description)}" carries a purchase-order link, `
+      + 'project, cost centre or VAT classification that replacing the lines would drop. '
+      + 'Edit it in the app instead, or cancel and re-enter it.',
+    );
+  }
+  return { ...totals, taxRate };
+}
+
+/** Migration 646's index — (company, supplier, number) on live, non-blank rows — as a worded refusal. */
+export async function refuseIfNumberTaken(
+  companyId: string, invoiceId: string, supplierId: string, invoiceNumber: string,
+): Promise<void> {
+  const taken = (await sql`
+    SELECT status FROM supplier_invoices
+    WHERE company_id = ${companyId}::UUID AND supplier_id = ${supplierId}::UUID
+      AND invoice_number = ${invoiceNumber} AND invoice_number <> '' AND deleted_at IS NULL
+      AND id <> ${invoiceId}::UUID
+    LIMIT 1`) as DbRow[];
+  if (taken[0]) {
+    throw new SupplierInvoiceDraftUpdateRefusal(
+      `This supplier already has a ${String(taken[0].status)} bill numbered ${invoiceNumber}.`,
+    );
+  }
+}
+
+/**
+ * A live payment allocation or credit note already names this bill and its
+ * amount. Changing the total or the supplier under it would leave that
+ * settlement pointing at a different debt.
+ */
+export async function refuseIfSettlementPlanned(companyId: string, invoiceId: string, number: string): Promise<void> {
+  const refs = (await sql`
+    SELECT 'payment' AS kind, sp.payment_number AS ref, sp.status
+    FROM payment_allocations pa
+    JOIN supplier_payments sp ON sp.id = pa.payment_id
+    WHERE pa.invoice_id = ${invoiceId}::UUID AND sp.company_id = ${companyId}::UUID
+      AND sp.status <> 'cancelled'
+    UNION ALL
+    SELECT 'credit note', cn.credit_note_number, cn.status
+    FROM credit_notes cn
+    WHERE cn.supplier_invoice_id = ${invoiceId}::UUID AND cn.company_id = ${companyId}::UUID
+      AND cn.status <> 'cancelled'
+    LIMIT 1`) as DbRow[];
+  if (refs[0]) {
+    throw new SupplierInvoiceDraftUpdateRefusal(
+      `Supplier invoice ${number} is named on ${String(refs[0].status)} ${String(refs[0].kind)} `
+      + `${String(refs[0].ref)}, so its total and supplier cannot change. Remove it from that `
+      + `${String(refs[0].kind)} first.`,
+    );
+  }
+}
