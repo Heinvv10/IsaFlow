@@ -42,7 +42,8 @@ import {
   netAgingRows,
   type AgedSide,
 } from '@/modules/accounting/services/shared/agedNetting';
-import type { AgingBucket, AgingInvoice } from '@/modules/accounting/types/ap.types';
+import type { AgingBucket } from '@/modules/accounting/types/ap.types';
+import type { AgingDetailInvoice } from '@/modules/accounting/utils/aging';
 import {
   buildEnvelope,
   decodeCursor,
@@ -62,7 +63,7 @@ interface AgingSide {
   entityLabel: string;
   aging: (companyId: string, asAt: string) => Promise<AgingBucket[]>;
   detail: (companyId: string, entityId: string, asAt: string) => Promise<{
-    invoices: AgingInvoice[];
+    invoices: AgingDetailInvoice[];
     entity: { id: string; name: string };
   }>;
   /** The GROSS figure the buckets and `gross_total` are on. */

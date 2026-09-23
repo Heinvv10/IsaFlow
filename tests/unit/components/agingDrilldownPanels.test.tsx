@@ -19,27 +19,25 @@ afterEach(() => { vi.mocked(apiFetch).mockReset(); });
 
 describe('AgingInvoicesPanel', () => {
   it('links each as-at invoice back with ar-aging, the customer and the date', async () => {
-    vi.mocked(apiFetch).mockImplementation(async (url: string) => url.startsWith('/api/accounting/ar-aging')
-      ? ok({ invoices: [
-        { id: 'i1', entityId: CUSTOMER, entityName: 'Herotel', dueDate: '2026-05-01', totalAmount: 100, amountPaid: 0, balance: 100, disputedAmount: 25 },
-        { id: 'i2', entityId: CUSTOMER, entityName: 'Herotel', dueDate: '2026-06-01', totalAmount: 50, amountPaid: 0, balance: 50, dueDateMissing: true },
-      ] })
-      : ok({ invoices: [{ id: 'i1', invoice_number: 'INV-1' }], total: 1 }));
+    vi.mocked(apiFetch).mockResolvedValue(ok({ invoices: [
+      { id: 'i1', invoiceNumber: 'INV-1', entityId: CUSTOMER, entityName: 'Herotel', dueDate: '2026-05-01', totalAmount: 100, amountPaid: 0, balance: 100, disputedAmount: 25 },
+      { id: 'i2', invoiceNumber: 'INV-2', entityId: CUSTOMER, entityName: 'Herotel', dueDate: '2026-06-01', totalAmount: 50, amountPaid: 0, balance: 50, dueDateMissing: true },
+    ] }));
 
     inTable(<AgingInvoicesPanel side="ar" entityId={CUSTOMER} entityName="Herotel" asAtDate="2026-05-31" colSpan={8} />);
 
     const link = await screen.findByRole('link', { name: 'INV-1' });
     expect(link.getAttribute('href')).toBe(`/accounting/customer-invoices/i1?from=ar-aging&customer=${CUSTOMER}&as_at_date=2026-05-31`);
-    expect(screen.getByRole('link', { name: 'View invoice' }).getAttribute('href')).toContain('/accounting/customer-invoices/i2?');
+    expect(screen.getByRole('link', { name: 'INV-2' }).getAttribute('href')).toContain('/accounting/customer-invoices/i2?');
     expect(screen.getByText('30d')).toBeTruthy();
     expect(screen.getByText(/disputed/)).toBeTruthy();
     expect(screen.getByText(/no due date/)).toBeTruthy();
   });
 
   it('links AP invoices to the supplier invoice page', async () => {
-    vi.mocked(apiFetch).mockImplementation(async (url: string) => url.startsWith('/api/accounting/ap-aging')
-      ? ok({ invoices: [{ id: 's1', entityId: CUSTOMER, entityName: 'Acme', dueDate: '2026-05-01', totalAmount: 1, amountPaid: 0, balance: 1 }] })
-      : ok({ invoices: [{ id: 's1', invoiceNumber: 'SI-1' }], total: 1 }));
+    vi.mocked(apiFetch).mockResolvedValue(ok({ invoices: [
+      { id: 's1', invoiceNumber: 'SI-1', entityId: CUSTOMER, entityName: 'Acme', dueDate: '2026-05-01', totalAmount: 1, amountPaid: 0, balance: 1 },
+    ] }));
 
     inTable(<AgingInvoicesPanel side="ap" entityId={CUSTOMER} entityName="Acme" asAtDate="2026-05-31" colSpan={8} />);
 
