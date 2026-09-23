@@ -55,6 +55,13 @@ vi.mock('@/modules/accounting/services/ap/supplierInvoiceService', () => ({
 // postSupplierInvoiceToGL now takes the row lock before its read (audit K-014),
 // the same way approveSupplierInvoice does. The real helper needs a request
 // transaction; here the lock is granted so the guards under test still run.
+// The plan's refusals on the shared path are pinned against a real ledger by
+// tests/integration/cancel-supplier-invoice-shared-path.int.test.ts; stubbed so
+// the sql queue below stays positional.
+vi.mock('@/modules/accounting/services/ap/supplierInvoiceCancelPlan', () => ({
+  planSupplierInvoiceCancel: vi.fn(async () => ({})),
+  SupplierInvoiceCancelRefusal: class SupplierInvoiceCancelRefusal extends Error {},
+}));
 vi.mock('@/modules/accounting/services/ap/supplierInvoiceLock', () => ({
   lockSupplierInvoiceForUpdate: vi.fn(),
 }));
@@ -63,6 +70,9 @@ vi.mock('@/modules/accounting/services/ap/supplierInvoiceLock', () => ({
 
 import { sql, withSavepoint } from '@/lib/neon';
 import { reverseJournalEntry } from '@/modules/accounting/services/gl/journalEntryService';
+import {
+  planSupplierInvoiceCancel, SupplierInvoiceCancelRefusal,
+} from '@/modules/accounting/services/ap/supplierInvoiceCancelPlan';
 import { getSupplierInvoiceById } from '@/modules/accounting/services/ap/supplierInvoiceService';
 import { lockSupplierInvoiceForUpdate } from '@/modules/accounting/services/ap/supplierInvoiceLock';
 import {
@@ -155,6 +165,28 @@ describe('cancelSupplierInvoice GL reversal (P1.1 sweep / audit C1)', () => {
 
     expect(mockReverse).not.toHaveBeenCalled();
     expect(mockSql).toHaveBeenCalledTimes(3);
+  });
+
+  it('runs the cancel plan on the locked row, before the journal lock and any reversal', async () => {
+    mockSql
+      .mockResolvedValueOnce([lockRow()])
+      .mockResolvedValueOnce([{ status: 'posted', reversed_at: null }])
+      .mockResolvedValueOnce([updatedRow]);
+    mockReverse.mockResolvedValueOnce({ id: REVERSAL_ID });
+    await cancelSupplierInvoice(COMPANY_ID, INVOICE_ID, USER_ID);
+    const plan = vi.mocked(planSupplierInvoiceCancel);
+    expect(plan).toHaveBeenCalledWith(COMPANY_ID, INVOICE_ID);
+    const planAt = plan.mock.invocationCallOrder[0]!;
+    expect(planAt).toBeGreaterThan(mockSql.mock.invocationCallOrder[0]!);
+    expect(planAt).toBeLessThan(mockSql.mock.invocationCallOrder[1]!);
+  });
+
+  it('writes nothing when the plan refuses', async () => {
+    mockSql.mockResolvedValueOnce([lockRow()]);
+    vi.mocked(planSupplierInvoiceCancel).mockRejectedValueOnce(new SupplierInvoiceCancelRefusal('matched to a bank payment'));
+    await expect(cancelSupplierInvoice(COMPANY_ID, INVOICE_ID, USER_ID)).rejects.toThrow('matched to a bank payment');
+    expect(mockSql).toHaveBeenCalledTimes(1);
+    expect(mockReverse).not.toHaveBeenCalled();
   });
 
   it('propagates reversal failure and never flips status', async () => {

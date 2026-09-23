@@ -17,6 +17,7 @@ import type { JournalLineInput } from '../../types/gl.types';
 import { actorMeta, type PostingActorOpts } from '../gl/journalEntryMeta';
 import { releaseCapturedDocumentPostingClaim } from '../capture/capturePostingClaimRelease';
 import { buildExpenseLines } from './supplierInvoiceExpenseLines';
+import { planSupplierInvoiceCancel } from './supplierInvoiceCancelPlan';
 import { documentInPopulation } from '../shared/documentPopulation';
 
 type Row = DbRow;
@@ -285,6 +286,9 @@ async function cancelSupplierInvoiceInner(
     if (status === 'cancelled') {
       throw new Error('Supplier invoice is already cancelled');
     }
+    // Every refusal the MCP tool's plan makes, on the row just locked, before
+    // any write — the UI Cancel button and the bulk action reach only this.
+    await planSupplierInvoiceCancel(companyId, id);
 
     // P1.1 (audit C1, systemic): approve posts GL — cancel must reverse it.
     // Reverse BEFORE the flip so a blocked reversal (locked period) aborts
