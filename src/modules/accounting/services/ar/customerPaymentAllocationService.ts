@@ -18,6 +18,7 @@ import { lockCustomerPaymentForUpdate } from '../core/paymentLock';
 import { getCustomerPaymentById } from './customerPaymentService';
 import type { CustomerPayment } from '../../types/ar.types';
 import type { JournalLineInput } from '../../types/gl.types';
+import { documentInPopulation } from '../shared/documentPopulation';
 
 type Row = DbRow;
 
@@ -237,6 +238,22 @@ export async function postCustomerInvoiceToGL(
     }
 
     if (inv.gl_journal_entry_id) return String(inv.gl_journal_entry_id);
+
+    // R-118, AR side. Below the early return for the same reason as the AP
+    // twin: an invoice that already carries a journal posts nothing here.
+    // What is refused is a NEW journal for a document outside the AR
+    // population — pages/api/accounting/customer-invoices-gl.ts posts whatever
+    // invoiceId the body names, with no status filter, so a draft's journal
+    // would stand in the GL while documentInPopulationExpr keeps the draft off
+    // the document half of every AR-vs-GL reconciliation. Approving is what
+    // posts a draft: approveCustomerInvoice sets the status first, then calls
+    // this, so the ordinary path is unaffected.
+    if (!documentInPopulation(String(inv.status))) {
+      throw new Error(
+        `Cannot post a ${String(inv.status)} invoice to GL — approve it instead, `
+        + 'which posts the journal and moves the status together.',
+      );
+    }
 
     const arAccount = await getSystemAccount('receivable', companyId);
     const revenueAccount = await getSystemAccount('default_revenue', companyId);
