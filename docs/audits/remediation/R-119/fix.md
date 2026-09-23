@@ -105,3 +105,14 @@ Asked the adversarial reviewer whether NaN could also enter through `subtotal` o
 | **LOW: `deriveSageVat` with stated figures can return `taxAmount = total − subtotal < 0`**, which the leg arms now refuse. | Recorded on R-101, since that importer is the only caller that can reach the branch and is dead until R-101 lands. | — |
 
 The general reviewer also confirmed the take-on guard's SHAPE was the right call: refusing and naming the row beats translating a negative open item into a `credit_notes` row the file never supplied a number, approval state or application target for.
+
+
+## Review round 4 — the last leg writer
+
+| Finding | Fix | Proof |
+|---|---|---|
+| **MEDIUM (adversarial): `createDraftCustomerInvoice` takes `taxRate` off the request body and never validates it** — the main customer-invoice create route. `{"taxRate": -50}` gives `subtotal 1000, tax_amount -500, total_amount 500`: the total reads clean, so neither a total guard nor 692's total arm sees it, while the VAT return and the output-VAT GL leg go negative. **This PR is what changes its behaviour**: before 692 it silently wrote the bad leg; after 692 it 500s through the route's hand-rolled `CREATE_FAILED` and pages someone. The same defect fixed at `time-entries-invoice.ts` in round 1, on the higher-traffic route. | The rate must be finite and within 0–100, thrown as `InvoiceLineValidationError` — the file's existing idiom, which the route already maps to 400 — beside the line guards the July-4 audit added. The MCP twins already clamp `tax_rate` at the schema. | `tests/unit/services/ar/customerInvoiceCreateTaxRate.test.ts`: negative, over-100 and NaN refused with nothing written; 0, 15, 100 and unset pass the guard. Removing the guard turns all three refusal cases red. |
+| LOW (adversarial): the practice WIP route masks the underlying message via `badRequestFromError`, so a refused WIP invoice says "WIP invoice failed" with nothing to act on. No data risk — the write is inside a savepoint. | Registered as R-120, not fixed here. | — |
+| LOW (general): `deriveSageVat` with stated figures can return a negative tax leg, and both Sage importers guard the total only. | Registered on R-101 — the AR importer is dead until then, and the AP one calls it in the both-unstated branch, so no live path reaches it. | — |
+
+Four rounds, and the shape repeated each time: **every guard I added moved the failure one layer down**, from the total to NaN, to the legs, to the writers that compute a leg from an unvalidated rate. The reviewers found each one; three of the four were consequences of my own previous round.
