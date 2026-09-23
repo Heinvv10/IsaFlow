@@ -35,6 +35,9 @@ export default defineConfig(({ mode }) => {
     },
     resolve: {
       alias: {
+      // see tests/stubs/nextFontGoogle.ts — next/font is a build-time
+      // transform vitest does not apply, so the real export is not callable
+      'next/font/google': path.resolve(__dirname, './tests/stubs/nextFontGoogle.ts'),
         '@': path.resolve(__dirname, './src'),
       },
     },

@@ -11,6 +11,7 @@ import { ThemeModeProvider } from '@/contexts/ThemeModeContext';
 import { ErrorBoundary } from '@/components/ErrorBoundary';
 import { TrackerScript } from '@/components/analytics/TrackerScript';
 import { isSharePath } from '@/lib/paths/isSharePath';
+import { dmSans } from '@/lib/fonts';
 import '../styles/globals.css';
 import '../styles/print.css';
 
@@ -81,7 +82,12 @@ export default function App({ Component, pageProps }: AppProps) {
   }, [sharePage]);
 
   return (
-    <div>
+    // dmSans.variable must sit above every page, not inside AppLayout: a page
+    // without AppLayout never saw the variable. font-sans has to be on the SAME
+    // element — preflight declares font-family on <html>, above this div, so a
+    // variable defined here alone changes nothing; the div just inherits the
+    // value html already computed. See src/lib/fonts.ts.
+    <div className={`${dmSans.variable} font-sans`}>
     <ThemeProvider>
       <AuthProvider skipFetch={skipProviders}>
         <CompanyProvider skipFetch={skipProviders}>
