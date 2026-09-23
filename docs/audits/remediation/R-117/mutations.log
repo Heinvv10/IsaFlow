@@ -2,3 +2,7 @@ M1 old one-sided clamp -> Test Files  1 failed | 1 passed (2) | Tests  4 failed 
 M2 no clamp at all -> Test Files  1 failed | 1 passed (2) | Tests  1 failed | 7 passed (8)
 M3 upper bound unclamped -> Test Files  1 failed | 1 passed (2) | Tests  4 failed | 4 passed (8)
 M4 lower bound unclamped -> Test Files  1 failed | 1 passed (2) | Tests  1 failed | 7 passed (8)
+--- round 2 (expanded suite: truth-table cases + sales-by-customer route) ---
+M1 old one-sided clamp -> Test Files  1 failed | 1 passed (2) | Tests  6 failed | 6 passed (12)
+M5 lower clamp dropped for negatives -> Test Files  1 failed | 1 passed (2) | Tests  1 failed | 11 passed (12)
+M6 upper bound = total (unclamped) -> Test Files  1 failed | 1 passed (2) | Tests  6 failed | 6 passed (12)

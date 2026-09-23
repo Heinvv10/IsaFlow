@@ -257,8 +257,15 @@ export function rewindAmount({ companyId, asAtStr, todayStr, side }: RewindInput
  * document, so the customer and supplier reports said the full amount had
  * been settled and the balance computed to exactly zero. The ageing and the
  * subledger filter `balance > 0`, so they excluded such a document either
- * way; the reports SUM this expression with no filter, which is where it
- * surfaced. Same form as migrationValidationService's AR/AP-vs-GL halves.
+ * way. Four sites SUM this expression with NO filter, and that is where it
+ * surfaced: transactionReportingService's customer and supplier reports, and
+ * the sales-by-customer / purchases-by-supplier routes (Received,
+ * Outstanding). Same form as migrationValidationService's AR/AP-vs-GL halves.
+ *
+ * A WRONG-SIGNED settlement (amount_paid +500 on a -1150 document) now reads
+ * as nothing settled, because +500 is outside [total, 0]. That is a data
+ * defect the clamp cannot repair and must not propagate; surfacing it is
+ * R-119's business, not this expression's.
  */
 export function effectivePaidExpr(side: AgingSide): string {
   const invoice = side === 'ar' ? 'ci' : 'si';

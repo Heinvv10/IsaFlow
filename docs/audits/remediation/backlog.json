@@ -12618,7 +12618,7 @@
       "historicalDataImpact": "Not assessed: SELECT company_id, count(*), sum(total_amount) FROM customer_invoices WHERE total_amount < 0 GROUP BY 1 (and the supplier_invoices twin).",
       "canonicalItem": null,
       "reportedSeverity": "medium",
-      "processNotes": "Decide the rule first: refuse a negative total at every writer (a credit is a credit_note), or accept it deliberately and teach the ageing/subledger to carry it. Do not fix writer-by-writer without that decision."
+      "processNotes": "Decide the rule first: refuse a negative total at every writer (a credit is a credit_note), or accept it deliberately and teach the ageing/subledger to carry it. Do not fix writer-by-writer without that decision. 2026-09-23 (R-117 review): also decide what surfaces a WRONG-SIGNED settlement — amount_paid +500 on a -1150 document. effectivePaidExpr now reports 0 settled for it (the 500 is outside [total, 0]); the clamp cannot repair it, so an integrity check should name it rather than a report silently carrying it."
     }
   ],
   "sourceInventory": [
