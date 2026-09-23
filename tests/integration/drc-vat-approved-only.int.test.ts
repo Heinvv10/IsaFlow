@@ -13,7 +13,7 @@ import { describe, it, expect, beforeAll, afterAll } from 'vitest';
 import { sql } from '@/lib/neon';
 import { applyDRCVat, getDRCEligibleInvoices } from '@/modules/accounting/services/reports/drcVatService';
 import { assertNotProductionDb } from '../helpers/assertNotProductionDb';
-import { dropFixture, inTx, runOn, seedBill, seedFixture, type Fixture } from './helpers/l1FifoFixture';
+import { dropFixture, inTx, runOn, seedBill, seedFixture, seedSupplier, type Fixture } from './helpers/l1FifoFixture';
 
 const DATABASE_URL = process.env.DATABASE_URL;
 const describeIfDb = DATABASE_URL ? describe : describe.skip;
@@ -63,6 +63,11 @@ describeIfDb('applyDRCVat — approved bills only, once, all-or-nothing', () => 
     other = await seedFixture('DRX', DATABASE_URL!);
     // seedBill writes no subtotal split; DRC is computed on the subtotal.
     await sql`UPDATE supplier_invoices SET subtotal = 1000 WHERE company_id = ${fx.companyId}::UUID`;
+    // DRC applies only to a supplier flagged subject to it; every other case
+    // in this file is about the bill, so the fixture supplier is flagged.
+    for (const f of [fx, other]) {
+      await sql`UPDATE suppliers SET subject_to_drc_vat = true WHERE id = ${f.supplierId}::UUID`;
+    }
   }, 120000);
 
   afterAll(async () => {
@@ -161,5 +166,43 @@ describeIfDb('applyDRCVat — approved bills only, once, all-or-nothing', () => 
     expect(listed).toContain(clean);
     expect(listed).not.toContain(taxed);
     expect(listed).not.toContain(negative);
+  });
+
+  /**
+   * Zero VAT alone does not make a bill reverse-charge: zero-rated, exempt and
+   * foreign supplies carry none either. The supplier's own flag decides.
+   */
+  it('refuses and does not list a zero-VAT bill from a supplier not subject to DRC', async () => {
+    const plain = await seedSupplier(fx, `PLAIN-${++seq}`);
+    const id = await seedBill(fx, { number: `DRC${++seq}`, date: '2026-05-01', total: 1000, status: 'approved', supplierId: plain });
+    await sql`UPDATE supplier_invoices SET subtotal = 1000, tax_amount = 0 WHERE id = ${id}::UUID`;
+
+    expect(await refusal(inTx(fx, () => applyDRCVat(fx.companyId, id, fx.userId)))).toContain('not marked as subject to DRC');
+    expect(await state(id)).toEqual({ isDrc: false, journals: 0 });
+    expect((await inTx(fx, () => getDRCEligibleInvoices(fx.companyId))).map((i) => i.id)).not.toContain(id);
+
+    await sql`UPDATE suppliers SET subject_to_drc_vat = true WHERE id = ${plain}::UUID`;
+    expect((await inTx(fx, () => getDRCEligibleInvoices(fx.companyId))).map((i) => i.id)).toContain(id);
+    await inTx(fx, () => applyDRCVat(fx.companyId, id, fx.userId));
+    expect(await state(id)).toEqual({ isDrc: true, journals: 1 });
+  });
+
+  it('ignores a deleted supplier\'s flag, and a supplier from another tenant, on both list and apply', async () => {
+    const gone = await seedSupplier(fx, `GONE-${++seq}`);
+    await sql`UPDATE suppliers SET subject_to_drc_vat = true WHERE id = ${gone}::UUID`;
+    const id = await seedBill(fx, { number: `DRC${++seq}`, date: '2026-05-01', total: 1000, status: 'paid', supplierId: gone });
+    await sql`UPDATE supplier_invoices SET subtotal = 1000, tax_amount = 0 WHERE id = ${id}::UUID`;
+    await sql`UPDATE suppliers SET deleted_at = NOW() WHERE id = ${gone}::UUID`;
+    expect((await inTx(fx, () => getDRCEligibleInvoices(fx.companyId))).map((i) => i.id)).not.toContain(id);
+    expect(await refusal(inTx(fx, () => applyDRCVat(fx.companyId, id, fx.userId)))).toContain('not marked as subject to DRC');
+
+    // A bill whose supplier_id names ANOTHER tenant's flagged supplier (the FK
+    // is single-column, so the schema accepts it): neither lists nor applies.
+    const forged = await seedBill(fx, { number: `DRC${++seq}`, date: '2026-05-01', total: 1000, status: 'approved' });
+    await sql`UPDATE supplier_invoices SET subtotal = 1000, tax_amount = 0, supplier_id = ${other.supplierId}::UUID
+              WHERE id = ${forged}::UUID`;
+    expect((await inTx(fx, () => getDRCEligibleInvoices(fx.companyId))).map((i) => i.id)).not.toContain(forged);
+    expect(await refusal(inTx(fx, () => applyDRCVat(fx.companyId, forged, fx.userId)))).toContain('not marked');
+    expect(await state(forged)).toEqual({ isDrc: false, journals: 0 });
   });
 });

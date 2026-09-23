@@ -85,6 +85,12 @@ export const SUPPLIER_FIELDS = {
       "DEPRECATED — use auto_allocate_strategy. true maps to 'oldest', false to 'off'; "
       + 'ignored when auto_allocate_strategy is also given.',
   },
+  subject_to_drc_vat: {
+    type: 'boolean',
+    description:
+      "The supplier's supplies fall under the domestic reverse charge (DRC). Only a flagged "
+      + "supplier's approved, zero-VAT bills are eligible for DRC VAT. Default false on create.",
+  },
 } as const;
 
 export function customerInput(args: Record<string, unknown>): CustomerWriteInput {
@@ -133,6 +139,7 @@ export function supplierInput(args: Record<string, unknown>): SupplierWriteInput
     // resolveStrategy() and throws, rather than being silently dropped.
     autoAllocateStrategy: strArg(args, 'auto_allocate_strategy') as AutoAllocateStrategy | undefined,
     autoAllocatePayments: boolArg(args, 'auto_allocate_payments'),
+    subjectToDrcVat: boolArg(args, 'subject_to_drc_vat'),
   };
 }
 
