@@ -27,6 +27,11 @@ export class SupplierMergeRefusal extends Error {
  * unflagged supplier's zero-VAT bills (zero-rated, exempt, foreign) DRC
  * candidates, or silently drop eligible ones — so both merge paths refuse
  * until the flags agree. Reads live suppliers of THIS company only.
+ *
+ * ALSO THE EXISTENCE AND TENANT CHECK for both merge paths — removing the DRC
+ * comparison must not remove this function. It takes FOR UPDATE on both rows,
+ * held to the end of the request transaction, so a flag change (updateSupplier
+ * locks the same row) cannot land between this check and the re-parenting.
  */
 export async function assertSupplierMergeKeepsDrcFlag(
   companyId: string, a: string, b: string,
@@ -34,6 +39,8 @@ export async function assertSupplierMergeKeepsDrcFlag(
   const rows = (await sql`
     SELECT name, COALESCE(subject_to_drc_vat, false) AS drc FROM suppliers
     WHERE id IN (${a}::UUID, ${b}::UUID) AND company_id = ${companyId}::UUID AND deleted_at IS NULL
+    ORDER BY id
+    FOR UPDATE
   `) as { name: string; drc: boolean }[];
   if (rows.length !== 2) {
     throw new SupplierMergeRefusal('One or both suppliers not found or do not belong to this company');

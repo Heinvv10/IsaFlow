@@ -13,7 +13,8 @@ import {
   SupplierMergeRefusal, assertSupplierMergeKeepsDrcFlag, mergeEntities,
 } from '@/modules/accounting/services/core/duplicateMergeService';
 import { assertNotProductionDb } from '../helpers/assertNotProductionDb';
-import { dropFixture, inTx, seedBill, seedFixture, seedSupplier, type Fixture } from './helpers/l1FifoFixture';
+import { dropFixture, inTx, runOn, seedBill, seedFixture, seedSupplier, type Fixture } from './helpers/l1FifoFixture';
+import { updateSupplier } from '@/modules/accounting/services/core/supplierWriteService';
 
 const DATABASE_URL = process.env.DATABASE_URL;
 const describeIfDb = DATABASE_URL ? describe : describe.skip;
@@ -70,4 +71,31 @@ describeIfDb('supplier merge — DRC flags must agree', () => {
     const msg = await refusal(inTx(fx, () => assertSupplierMergeKeepsDrcFlag(fx.companyId, flagged, foreign)));
     expect(msg).toContain('not found');
   });
+
+  it('holds both rows: a flag change waits until the merge\'s transaction ends', async () => {
+    const x = await seedSupplier(fx, 'Lock X');
+    const y = await seedSupplier(fx, 'Lock Y');
+    const a = await fx.pool.connect();
+    const b = await fx.pool.connect();
+    const order: string[] = [];
+    try {
+      await a.query('BEGIN');
+      await runOn(fx, a, () => assertSupplierMergeKeepsDrcFlag(fx.companyId, x, y));
+      await b.query('BEGIN');
+      const flip = runOn(fx, b, () => updateSupplier(fx.companyId, y, { subjectToDrcVat: true }))
+        .then(() => order.push('flag changed'));
+      await new Promise((r) => setTimeout(r, 300));
+      order.push('merge committed');
+      await a.query('COMMIT');
+      await flip;
+      await b.query('COMMIT');
+    } finally {
+      await a.query('ROLLBACK').catch(() => undefined);
+      await b.query('ROLLBACK').catch(() => undefined);
+      a.release();
+      b.release();
+    }
+    expect(order).toEqual(['merge committed', 'flag changed']);
+  });
 });
+
