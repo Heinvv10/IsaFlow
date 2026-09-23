@@ -98,4 +98,3 @@ describeIfDb('supplier merge — DRC flags must agree', () => {
     expect(order).toEqual(['merge committed', 'flag changed']);
   });
 });
-
