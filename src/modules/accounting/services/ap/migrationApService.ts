@@ -94,6 +94,22 @@ export async function importAPInvoices(
       // drift in a source export cost nothing. Refusing at a cent lost real
       // invoices over the exporter's own rounding. Import up to 5c with a
       // warning; refuse beyond that, where the file is wrong rather than rounded.
+      // R-119: a take-on file that carries its credit notes as NEGATIVE open
+      // items. Migration 692 refuses the row at the database, so without this
+      // the operator would get a raw trigger message against a file row. There
+      // is no credit-note step in this importer, so the honest answer is to
+      // name the row and say where it belongs — the opening balance is short
+      // by it until those are loaded as credit notes.
+      if (!Number.isFinite(inv.totalAmount) || inv.totalAmount < 0) {
+        errors.push({
+          step: 'ap_invoices', row: fileRow(i), field: 'totalAmount',
+          message: `${inv.invoiceNumber} has a total of ${String(inv.totalAmount)}, which a take-on bill may not carry. `
+            + 'Load a credit as a credit note against the document it reduces.',
+        });
+        skipped++;
+        continue;
+      }
+
       const amountsDrift = Math.abs(inv.subtotal + inv.taxAmount - inv.totalAmount);
       if (amountsDrift > 0.005) {
         const detail = `subtotal ${inv.subtotal.toFixed(2)} + tax ${inv.taxAmount.toFixed(2)} != total ${inv.totalAmount.toFixed(2)}`;
