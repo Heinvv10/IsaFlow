@@ -12545,19 +12545,24 @@
       "severityRationale": "Named by a reviewer during remediation; proven arithmetically, not yet reproduced against a real document through the ageing.",
       "auditedSha": "8b10851b4",
       "currentSha": "8b10851b4",
-      "status": "confirmed",
+      "status": "fixed",
       "dependencies": [],
-      "testNames": [],
-      "evidencePaths": [
-        "docs/audits/remediation/R-089/fix.md"
+      "testNames": [
+        "tests/integration/r117-aging-negative-total-clamp.int.test.ts"
       ],
-      "fixCommit": null,
-      "pr": null,
+      "evidencePaths": [
+        "docs/audits/remediation/R-117/fix.md",
+        "docs/audits/remediation/R-117/red.log",
+        "docs/audits/remediation/R-117/mutations.log"
+      ],
+      "fixCommit": "28a2dfd1a",
+      "pr": "473",
       "deployedSha": null,
-      "historicalDataImpact": "Not assessed",
+      "historicalDataImpact": "None written; the expression is read-only. Mis-stated documents: SELECT company_id, count(*), sum(total_amount) FROM customer_invoices WHERE total_amount < 0 GROUP BY 1 (and the supplier_invoices twin).",
       "canonicalItem": null,
       "reportedSeverity": "medium",
-      "processNotes": "2026-09-23: confirmed reachable — no CHECK constraint on either table and four unguarded writers (see R-119). The ageing and subledger exclude negative documents via balance > 0; the customer/supplier reports SUM the expression unfiltered, which is where it mis-stated."
+      "processNotes": "2026-09-23: confirmed reachable — no CHECK constraint on either table and four unguarded writers (see R-119). The ageing and subledger exclude negative documents via balance > 0; the customer/supplier reports SUM the expression unfiltered, which is where it mis-stated.",
+      "branch": "fix/audit-r117-aging-negative-clamp-20260923"
     },
     {
       "id": "R-118",
@@ -12573,19 +12578,24 @@
       "severityRationale": "Named by a reviewer; the guard is confirmed by reading (status === 'cancelled' only) and not yet reproduced as a test.",
       "auditedSha": "7b3ebd2fd",
       "currentSha": "7b3ebd2fd",
-      "status": "candidate",
+      "status": "fixed",
       "dependencies": [],
-      "testNames": [],
-      "evidencePaths": [
-        "docs/audits/remediation/R-089/fix.md"
+      "testNames": [
+        "tests/integration/r118-post-gl-draft-guard.int.test.ts"
       ],
-      "fixCommit": null,
-      "pr": null,
+      "evidencePaths": [
+        "docs/audits/remediation/R-118/fix.md",
+        "docs/audits/remediation/R-118/red.log",
+        "docs/audits/remediation/R-118/mutations.log"
+      ],
+      "fixCommit": "27bf7a545",
+      "pr": "472",
       "deployedSha": null,
-      "historicalDataImpact": "Not assessed: count supplier_invoices with status='draft' AND gl_journal_entry_id IS NOT NULL per company.",
+      "historicalDataImpact": "Not assessed: SELECT company_id, count(*), sum(total_amount) FROM supplier_invoices WHERE status IN ('draft','pending_approval') AND gl_journal_entry_id IS NOT NULL GROUP BY company_id.",
       "canonicalItem": null,
       "reportedSeverity": "medium",
-      "processNotes": null
+      "processNotes": "2026-09-23: the AR mirror postCustomerInvoiceToGL was fixed in the same PR. pages/api/accounting/customer-invoices-gl.ts has no consumer in pages/ or src/ — consider removing it.",
+      "branch": "fix/audit-r118-post-gl-draft-guard-20260923"
     },
     {
       "id": "R-119",
