@@ -18,6 +18,7 @@ import { getOauthAppByClientId, OAUTH_SCOPES } from '@/lib/auth/oauth';
 import { ConsentScopeList } from '@/components/oauth/ConsentScopeList';
 import { ConsentCompanyPicker } from '@/components/oauth/ConsentCompanyPicker';
 import { ConsentRejected } from '@/components/oauth/ConsentRejected';
+import { ConsentRedirectTarget } from '@/components/oauth/ConsentRedirectTarget';
 import { partitionRequestedScopes } from '@/lib/auth/consentScopes';
 import { apiFetch } from '@/lib/apiFetch';
 import { parseCookies, ACCESS_COOKIE, ACTIVE_COMPANY_COOKIE } from '@/lib/auth/cookies';
@@ -151,6 +152,7 @@ export default function AuthorizePage(props: Props | ErrorProps) {
                   {app.homepageUrl}
                 </a>
               )}
+              <ConsentRedirectTarget redirectUri={redirectUri} />
             </div>
           </div>
           {app.description && (
