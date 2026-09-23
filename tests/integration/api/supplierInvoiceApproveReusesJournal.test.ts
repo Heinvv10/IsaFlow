@@ -135,16 +135,44 @@ afterAll(async () => {
   await pool.end();
 });
 
+/** An APPROVED bill, so postSupplierInvoiceToGL will post a journal for it. */
+async function inTxApproved(baseNumber: string): Promise<string> {
+  const rows = (await sql`
+    INSERT INTO supplier_invoices
+      (company_id, supplier_id, invoice_number, invoice_date, subtotal,
+       tax_rate, tax_amount, total_amount, status, created_by)
+    VALUES
+      (${COMPANY}::UUID, ${supplier}::UUID, ${baseNumber + '-SRC'}, '2026-06-30', 100,
+       15, 15, 115, 'approved', ${USER}::UUID)
+    RETURNING id`) as { id: string }[];
+  const srcId = rows[0]!.id;
+  await sql`
+    INSERT INTO supplier_invoice_items
+      (supplier_invoice_id, description, quantity, unit_price, tax_rate,
+       tax_amount, line_total, gl_account_id)
+    VALUES (${srcId}::UUID, 'reuse src line', 1, 100, 15, 15, 100, ${expenseAccount}::UUID)`;
+  return srcId;
+}
+
 describe('approveSupplierInvoice on a draft that already carries a journal', () => {
   it('posts ONE journal, not two, and keeps the original', async () => {
     const number = `${TAG}-A`;
     const id = await inTx(() => makeInvoice(number));
 
-    // Step 1 — the operator's "Post to GL" bulk action. Journal posted, status
-    // deliberately untouched: this is the state the guard exists for.
-    const posted = await inTx(() => postSupplierInvoiceToGL(COMPANY, id, USER));
+    // Step 1 — the bill acquires a journal while its status stays 'draft'.
+    // R-118 closed the route that used to produce this (postSupplierInvoiceToGL
+    // now refuses a document outside the AP population), so the state is seeded
+    // directly: rows in this shape were written before that guard, and the
+    // reuse guard below is what stops a second journal for them.
+    const posted = await inTx(async () => {
+      const approvedTwin = await postSupplierInvoiceToGL(COMPANY, await inTxApproved(number), USER);
+      return approvedTwin;
+    });
+    await sql`
+      UPDATE supplier_invoices SET gl_journal_entry_id = ${posted.journalEntryId}::UUID
+      WHERE id = ${id}::UUID AND company_id = ${COMPANY}::UUID`;
     expect(posted.alreadyPosted).toBe(false);
-    expect(await journalCountFor(number)).toBe(1);
+    expect(await journalCountFor(number)).toBe(0);
     const stillDraft = (await sql`
       SELECT status, gl_journal_entry_id FROM supplier_invoices WHERE id = ${id}::UUID
     `) as { status: string; gl_journal_entry_id: string }[];
@@ -154,8 +182,9 @@ describe('approveSupplierInvoice on a draft that already carries a journal', () 
     // Step 2 — the agent approves the same bill.
     const approved = await inTx(() => approveSupplierInvoice(COMPANY, id, USER));
 
-    // The whole point: still ONE journal, and it is the ORIGINAL one.
-    expect(await journalCountFor(number)).toBe(1);
+    // The whole point: no SECOND journal for this bill, and the link is the
+    // ORIGINAL one.
+    expect(await journalCountFor(number)).toBe(0);
     expect(approved.status).toBe('approved');
     expect(approved.glJournalEntryId).toBe(posted.journalEntryId);
   });

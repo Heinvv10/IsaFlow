@@ -53,8 +53,20 @@ export function BulkActionBar({
       }
       const data = (json.data || json) as BulkActionResult;
       if (data.failed > 0) {
-        const firstError = data.results.find((r) => !r.ok)?.error || '';
-        onError(`${data.failed} of ${data.total} ${action}s failed${firstError ? `: ${firstError}` : ''}`);
+        // Group by message rather than showing only the first: a mixed
+        // selection typically fails for ONE reason (a status the action
+        // refuses), and the operator needs to know which reason and how many,
+        // not the first id's message alone.
+        const byReason = new Map<string, number>();
+        for (const r of data.results) {
+          if (r.ok) continue;
+          const reason = r.error || 'unknown error';
+          byReason.set(reason, (byReason.get(reason) ?? 0) + 1);
+        }
+        const detail = Array.from(byReason.entries())
+          .map(([reason, count]) => (byReason.size > 1 ? `${count}× ${reason}` : reason))
+          .join('; ');
+        onError(`${data.failed} of ${data.total} ${action}s failed${detail ? `: ${detail}` : ''}`);
       }
       await onComplete();
     } catch (err) {

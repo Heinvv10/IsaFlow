@@ -181,23 +181,24 @@ export async function postSupplierInvoiceToGL(
     throw new Error('Cannot post a cancelled supplier invoice to GL');
   }
 
-  // R-118: this is the backfill for documents that are already IN the AP
-  // population. A draft or pending-approval bill posted here leaves its
-  // journal on the GL half of every AP-vs-GL reconciliation while
-  // documentInPopulationExpr keeps the document off the other half — a
-  // permanent difference by the bill's full amount. The bulk "Post to GL"
-  // action offers itself on any selection, so this is reachable in one click.
-  // Approving is what posts a draft: approveSupplierInvoice moves the status
-  // and posts the journal together.
+  if (invoice.glJournalEntryId) {
+    return { journalEntryId: invoice.glJournalEntryId, alreadyPosted: true };
+  }
+
+  // R-118: BELOW the early return on purpose — a bill that already carries a
+  // journal posts nothing here whatever its status, and refusing it would turn
+  // an idempotent no-op into an error for rows written before this guard.
+  // What is refused is posting a NEW journal outside the AP population: a
+  // draft's journal stands on the GL half of every AP-vs-GL reconciliation
+  // while documentInPopulationExpr keeps the document off the other half — a
+  // permanent difference by the bill's full amount, in one click, because the
+  // bulk "Post to GL" action offers itself on any selection. Approving is what
+  // posts a draft: approveSupplierInvoice moves the status and posts together.
   if (!documentInPopulation(invoice.status)) {
     throw new Error(
       `Cannot post a ${invoice.status} supplier invoice to GL — approve it instead, `
       + 'which posts the journal and moves the status together.',
     );
-  }
-
-  if (invoice.glJournalEntryId) {
-    return { journalEntryId: invoice.glJournalEntryId, alreadyPosted: true };
   }
 
   const apAccount = await getSystemAccount('payable', companyId);
