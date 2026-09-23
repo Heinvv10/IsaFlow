@@ -7,7 +7,7 @@
 import { sql } from '@/lib/neon';
 import type { DbRow } from '@/lib/neon';
 import type { SupplierInvoiceItemInput } from '../../types/ap.types';
-import { accountsBelongToCompany } from '../gl/chartOfAccountsService';
+import { billLineAccountRefusal } from './billLineAccountGuard';
 import {
   assertSupplierInvoiceLines,
   computeSupplierInvoiceTotals,
@@ -42,12 +42,8 @@ export async function planLines(
   } catch (err) {
     throw new SupplierInvoiceDraftUpdateRefusal((err as Error).message);
   }
-  const accountIds = items.map((i) => i.glAccountId).filter((id): id is string => Boolean(id));
-  if (!(await accountsBelongToCompany(companyId, accountIds))) {
-    throw new SupplierInvoiceDraftUpdateRefusal(
-      'One or more lines[].gl_account_id values are not GL accounts in your company.',
-    );
-  }
+  const accountRefusal = await billLineAccountRefusal(companyId, items.map((i) => i.glAccountId));
+  if (accountRefusal) throw new SupplierInvoiceDraftUpdateRefusal(accountRefusal);
   const kept = (await sql`
     SELECT description, quantity, unit_price, tax_rate, tax_amount, line_total, gl_account_id,
            po_item_id, project_id, cost_center_id, vat_classification
