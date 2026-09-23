@@ -224,18 +224,47 @@ describe('oauth_apps trust flags (migration 693)', () => {
     expect(err).toMatch(/may not be changed by the application/i);
   });
 
+  // A BEFORE trigger alone is a convention, not a guard: BEFORE row triggers
+  // fire in NAME order and each one's NEW feeds the next, so a later-sorting
+  // trigger can set a flag on a row this guard already approved — the row
+  // checked is not the row stored. Reproduced before the fix: a `zz_later`
+  // BEFORE INSERT doing `NEW.is_verified := TRUE` stored is_verified = t with
+  // no error. The AFTER trigger sees the STORED row and cannot be pre-empted,
+  // because AFTER triggers cannot modify NEW.
+  it('cannot be pre-empted by a later-sorting BEFORE trigger', async () => {
+    const err = await asOwner(async (q) => {
+      await q(`CREATE OR REPLACE FUNCTION zz_trust_probe() RETURNS trigger
+               LANGUAGE plpgsql AS $f$ BEGIN NEW.is_verified := TRUE; RETURN NEW; END $f$`);
+      await q(`CREATE TRIGGER zz_trust_probe_trg BEFORE INSERT ON oauth_apps
+               FOR EACH ROW EXECUTE FUNCTION zz_trust_probe()`);
+      // Names no flag, so the BEFORE guard passes it; zz_ then sets it.
+      await q(
+        `INSERT INTO oauth_apps (name, redirect_uris, client_id, owner_user_id,
+                                 is_dynamic, token_endpoint_auth_method)
+         VALUES ('ordering', ARRAY['https://ok.example/cb'], 'c_zz_order', $1, TRUE, 'none')`,
+        [OWNER],
+      );
+    });
+    expect(err).toMatch(/may not be set by the application/i);
+  });
+
   // Asserting the MODE, not just existence: a later `ALTER TABLE ... ENABLE
   // TRIGGER` silently resets ALWAYS back to 'O' and re-opens the bypass, and
   // an existence-only check stays green through that. Verified: the existence
   // query returns true on a downgraded trigger.
-  it('keeps the trigger in ALWAYS mode', async () => {
+  it('keeps BOTH triggers in ALWAYS mode', async () => {
     const res = await pool.query(
-      `SELECT tgenabled::text AS mode FROM pg_trigger
+      `SELECT tgname, tgenabled::text AS mode FROM pg_trigger
         WHERE tgrelid = 'oauth_apps'::regclass
-          AND tgname = 'oauth_apps_guard_trust_flags_trg'
-          AND NOT tgisinternal`,
+          AND NOT tgisinternal
+          AND tgname IN ('oauth_apps_guard_trust_flags_trg',
+                         'oauth_apps_guard_trust_flags_after_trg')
+        ORDER BY tgname`,
     );
-    expect(res.rows[0]?.mode).toBe('A');
+    expect(res.rows.map((r: { tgname: string; mode: string }) => [r.tgname, r.mode])).toEqual([
+      ['oauth_apps_guard_trust_flags_after_trg', 'A'],
+      ['oauth_apps_guard_trust_flags_trg', 'A'],
+    ]);
   });
 
   // The escape hatch has to work, or nobody can ever verify an app at all —

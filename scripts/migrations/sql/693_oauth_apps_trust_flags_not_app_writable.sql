@@ -111,6 +111,7 @@ END;
 $$;
 
 DROP TRIGGER IF EXISTS oauth_apps_guard_trust_flags_trg ON oauth_apps;
+DROP TRIGGER IF EXISTS oauth_apps_guard_trust_flags_after_trg ON oauth_apps;
 CREATE TRIGGER oauth_apps_guard_trust_flags_trg
   BEFORE INSERT OR UPDATE ON oauth_apps
   FOR EACH ROW EXECUTE FUNCTION oauth_apps_guard_trust_flags();
@@ -120,6 +121,25 @@ CREATE TRIGGER oauth_apps_guard_trust_flags_trg
 -- and re-opens the bypass, which is why the post-condition asserts the MODE
 -- and not merely the trigger's existence.
 ALTER TABLE oauth_apps ENABLE ALWAYS TRIGGER oauth_apps_guard_trust_flags_trg;
+
+-- ── The BEFORE trigger alone is a convention, not a guard ───────────────────
+-- BEFORE row triggers fire in NAME order and each one's returned NEW feeds the
+-- next, so a trigger sorting after `oauth_apps_guard_...` can set a flag on a
+-- row this guard already approved. The row the guard checked is then not the
+-- row that lands. Reproduced on dev: with a `zz_later` BEFORE INSERT trigger
+-- doing `NEW.is_verified := TRUE`, an INSERT naming NO flag stored
+-- is_verified = t and raised nothing.
+--
+-- An AFTER row trigger sees the row as actually stored and cannot be
+-- pre-empted, because AFTER triggers cannot modify NEW. So the AFTER one is
+-- what binds; the BEFORE one is kept because it fails earlier and its error
+-- names the offending statement more usefully. Same function: the checks are
+-- identical and an AFTER trigger's return value is ignored.
+CREATE TRIGGER oauth_apps_guard_trust_flags_after_trg
+  AFTER INSERT OR UPDATE ON oauth_apps
+  FOR EACH ROW EXECUTE FUNCTION oauth_apps_guard_trust_flags();
+
+ALTER TABLE oauth_apps ENABLE ALWAYS TRIGGER oauth_apps_guard_trust_flags_after_trg;
 
 -- ── Post-condition: a REVOKE that granted nothing back still exits 0 ────────
 -- Applying this file as a role that did not issue the original grants is a
@@ -138,17 +158,22 @@ BEGIN
                     'Re-apply as the owner of oauth_apps (a role can only revoke grants it issued).';
   END IF;
 
-  IF NOT EXISTS (
-    SELECT 1 FROM pg_trigger
+  -- BOTH triggers, BOTH ALWAYS. 'A' = ALWAYS; an existence-only check passes
+  -- on a trigger downgraded to 'O', which is green while the replica-mode
+  -- bypass is wide open. And the AFTER one is the one that survives a
+  -- later-sorting BEFORE trigger, so its absence is not cosmetic.
+  IF (
+    SELECT count(*) FROM pg_trigger
     WHERE tgrelid = 'oauth_apps'::regclass
-      AND tgname = 'oauth_apps_guard_trust_flags_trg'
+      AND tgname IN ('oauth_apps_guard_trust_flags_trg',
+                     'oauth_apps_guard_trust_flags_after_trg')
       AND NOT tgisinternal
-      -- 'A' = ALWAYS. An existence-only check passes on a trigger downgraded
-      -- to 'O', which is green while the replica-mode bypass is wide open.
       AND tgenabled = 'A'
-  ) THEN
-    RAISE EXCEPTION 'migration 693 did not take: the trust-flag trigger is missing '
-                    'or is not ENABLE ALWAYS (session_replication_role would skip it).';
+  ) <> 2 THEN
+    RAISE EXCEPTION 'migration 693 did not take: a trust-flag trigger is missing '
+                    'or is not ENABLE ALWAYS (session_replication_role would skip it, '
+                    'and without the AFTER trigger a later-sorting BEFORE trigger can '
+                    'rewrite a row this guard approved).';
   END IF;
 
   -- The writes the application legitimately makes must still work.
