@@ -322,6 +322,8 @@ const TOOL_FLOW_OPERATIONS: Record<string, FlowOperationCode | null> = {
   auto_apply_unapplied: null,
   apply_credit_note: null,
   cancel_supplier_invoice: null,
+  // Editing a draft bill: the create already paid for the document.
+  update_supplier_invoice: null,
   unapply_supplier_payment: null,
   unapply_credit_note: null,
 
