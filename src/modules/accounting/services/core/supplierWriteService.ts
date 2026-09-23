@@ -117,8 +117,8 @@ export async function createSupplier(
       payment_terms,
       bank_name, bank_account_number, bank_branch_code, bank_account_type,
       is_active, notes, category,
-      opening_balance, opening_balance_date,
-      auto_allocate_strategy, auto_allocate_payments, subject_to_drc_vat
+      opening_balance, opening_balance_date, subject_to_drc_vat,
+      auto_allocate_strategy, auto_allocate_payments
     ) VALUES (
       ${companyId}::UUID,
       ${name},
@@ -139,9 +139,9 @@ export async function createSupplier(
       ${boundedText(input.category, 'category', 100)},
       ${input.openingBalance ?? 0},
       ${trimmed(input.openingBalanceDate)}::DATE,
+      ${input.subjectToDrcVat ?? false},
       ${strategy},
-      ${strategy !== 'off'},
-      ${input.subjectToDrcVat ?? false}
+      ${strategy !== 'off'}
     )
     RETURNING
       id, name, company_name, email, phone,
