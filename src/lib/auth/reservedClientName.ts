@@ -80,6 +80,15 @@ export function tokenizeForComparison(value: string): string[] {
       .normalize('NFKC')
       .toLowerCase()
       .replace(/./gsu, (ch) => {
+        // Ignored in rendering, so ignored here: a separator, never a letter.
+        // \p{Cf} alone is not this set. The Hangul fillers (U+115F, U+1160,
+        // U+3164, U+FFA0) are \p{Lo} — letters by Unicode's own definition —
+        // and draw zero ink, measured the same as a space rather than as the
+        // tofu box an unassigned code point gives. Treated as letters they
+        // became wildcards, which let "isa<filler>flow" evade the brand check
+        // outright and let two of them satisfy the qualified-prefix floor whose
+        // entire job is refusing a prefix that renders as nothing.
+        if (/\p{Default_Ignorable_Code_Point}/u.test(ch)) return ' ';
         const folded = CONFUSABLES[ch] ?? ch;
         if (/[a-z0-9]/.test(folded)) return folded;
         // A letter or digit we cannot identify stays INSIDE the token as a
