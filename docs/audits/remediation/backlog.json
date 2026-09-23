@@ -12614,21 +12614,29 @@
       "severityRationale": "Writers enumerated by reading every INSERT site; the absence of a DB constraint is verified. Not yet reproduced end to end through each route.",
       "auditedSha": "9f41022a5",
       "currentSha": "9f41022a5",
-      "status": "candidate",
+      "status": "fixed",
       "dependencies": [
         "R-117 fixed the clamp that mis-stated these documents; this is the source"
       ],
-      "testNames": [],
-      "evidencePaths": [
-        "docs/audits/remediation/R-117/fix.md"
+      "testNames": [
+        "tests/integration/r119-negative-total-guard.int.test.ts",
+        "tests/unit/services/ar/customerInvoiceCreateTaxRate.test.ts",
+        "tests/unit/services/core/migrationImportService.test.ts",
+        "tests/unit/services/ap/migrationApService.test.ts",
+        "tests/unit/ai/ai-invoice-pipeline.test.ts"
       ],
-      "fixCommit": null,
-      "pr": null,
+      "evidencePaths": [
+        "docs/audits/remediation/R-119/fix.md",
+        "docs/audits/remediation/R-119/mutations.log"
+      ],
+      "fixCommit": "f10b1f064",
+      "pr": "484",
       "deployedSha": null,
       "historicalDataImpact": "Not assessed. The census must look for NaN as well as negatives — `NaN < 0` is FALSE, so a `WHERE total_amount < 0` query does not find a NaN row, and NaN was reachable before this fix: SELECT company_id, count(*) FROM customer_invoices WHERE total_amount < 0 OR subtotal < 0 OR tax_amount < 0 OR total_amount = 'NaN' OR subtotal = 'NaN' OR tax_amount = 'NaN' GROUP BY 1; (and the supplier_invoices twin). For any row found, check gl_journal_entry_id IS NOT NULL — a posted one is a journal-reversal exercise, not a data edit.",
       "canonicalItem": null,
       "reportedSeverity": "medium",
-      "processNotes": "Decide the rule first: refuse a negative total at every writer (a credit is a credit_note), or accept it deliberately and teach the ageing/subledger to carry it. Do not fix writer-by-writer without that decision. 2026-09-23 (R-117 review): also decide what surfaces a WRONG-SIGNED settlement — amount_paid +500 on a -1150 document. effectivePaidExpr now reports 0 settled for it (the 500 is outside [total, 0]); the clamp cannot repair it, so an integrity check should name it rather than a report silently carrying it."
+      "processNotes": "Decide the rule first: refuse a negative total at every writer (a credit is a credit_note), or accept it deliberately and teach the ageing/subledger to carry it. Do not fix writer-by-writer without that decision. 2026-09-23 (R-117 review): also decide what surfaces a WRONG-SIGNED settlement — amount_paid +500 on a -1150 document. effectivePaidExpr now reports 0 settled for it (the 500 is outside [total, 0]); the clamp cannot repair it, so an integrity check should name it rather than a report silently carrying it.",
+      "branch": "fix/audit-r119-negative-total-guard-20260923"
     },
     {
       "id": "R-120",
