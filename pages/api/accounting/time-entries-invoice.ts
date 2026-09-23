@@ -14,6 +14,7 @@ import { withCsrf } from '@/lib/auth/withCsrf';
 import { log } from '@/lib/logger';
 import { sql } from '@/lib/neon';
 import { respondIfLockTimeout } from '@/lib/apiDocumentLock';
+import { assertNonNegativeDocumentTotal } from '@/modules/accounting/services/shared/documentTotalSign';
 import { insertWithReservedNumber } from '@/modules/accounting/services/core/documentNumberRetry';
 import { lockTimeEntries, TimeEntriesNotClaimedError } from '@/modules/accounting/services/practice/timeEntryLock';
 
@@ -81,6 +82,9 @@ async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse) {
     subtotal = Math.round(subtotal * 100) / 100;
     const taxAmount = Math.round(subtotal * (rate / 100) * 100) / 100;
     const totalAmount = subtotal + taxAmount;
+    // R-119: neither this route nor createTimeEntry guards the sign of hours
+    // or rate, so a negative entry would bill as a negative invoice.
+    assertNonNegativeDocumentTotal(totalAmount, `Invoice for ${entries.length} time entries`, 'customer');
 
     // 4. Reserve the number from the company sequence. What this replaced was a
     // fourth MAX(invoice_number)+1 generator inside the sequence's own uniqueness
