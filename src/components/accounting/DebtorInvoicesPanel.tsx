@@ -10,6 +10,7 @@ import { apiFetch } from '@/lib/apiFetch';
 import { formatCurrency } from '@/utils/formatters';
 import type { DebtorInvoice } from '@/modules/accounting/services/ar/debtorsManagerService';
 import { buildInvoiceHref } from './invoiceReturnContext';
+import { ViewAllInvoicesFooter } from './ViewAllInvoicesLink';
 import { fmtDay, PANEL_TH, INVOICE_LINK } from './agingPanelFormat';
 
 const BUCKET_COLORS = {
@@ -87,6 +88,7 @@ export function DebtorInvoicesPanel({ clientId, clientName }: { clientId: string
               </tr>
             ))}
           </tbody>
+          <ViewAllInvoicesFooter ledger="customer" entityId={clientId} entityName={clientName} colSpan={7} />
         </table>
       </td>
     </tr>

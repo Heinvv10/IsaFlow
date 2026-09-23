@@ -23,6 +23,7 @@ import {
   type APSignalChip,
 } from './listTypes';
 import { presetToRange } from './datePresets';
+import { currentMonth, monthRange, wholeMonthOf } from '../invoicePeriod';
 
 const SORT_KEYS: readonly SortKey[] = [
   'invoice_number', 'supplier_name', 'reference', 'invoice_date',
@@ -75,9 +76,13 @@ function hydrateFromQuery(query: Record<string, string | string[] | undefined>):
   const sortOrder: SortOrder = sortOrderParam === 'asc' ? 'asc' : 'desc';
 
   const datePresetParam = pickStr(query, 'date_preset');
+  const fromDate = pickStr(query, 'from_date');
+  const toDate = pickStr(query, 'to_date');
+  // A deep link may carry only from/to; show the range it actually applies.
+  const impliedPreset: DatePreset = !fromDate && !toDate ? 'all' : wholeMonthOf(fromDate, toDate) ? 'month' : 'custom';
   const datePreset = (DATE_PRESETS as readonly string[]).includes(datePresetParam)
     ? datePresetParam as DatePreset
-    : 'all';
+    : impliedPreset;
 
   const pageRaw = Number(pickStr(query, 'page')) || 1;
   const page = Math.max(1, pageRaw);
@@ -91,10 +96,12 @@ function hydrateFromQuery(query: Record<string, string | string[] | undefined>):
     tab,
     search: pickStr(query, 'search'),
     supplierId: pickStr(query, 'supplier_id'),
-    supplierLabel: pickStr(query, 'supplier_label'),
+    // Never read from the URL: a URL label could name a different supplier than
+    // the id it filters. The page names it from the loaded rows (or the typeahead).
+    supplierLabel: '',
     datePreset,
-    fromDate: pickStr(query, 'from_date'),
-    toDate: pickStr(query, 'to_date'),
+    fromDate,
+    toDate,
     fromAmount: pickStr(query, 'from_amount'),
     toAmount: pickStr(query, 'to_amount'),
     fromBalance: pickStr(query, 'from_balance'),
@@ -114,10 +121,7 @@ function filtersToQuery(f: SupplierInvoiceListFilters): Record<string, string> {
   const q: Record<string, string> = {};
   if (f.tab !== 'all') q.status = f.tab;
   if (f.search) q.search = f.search;
-  if (f.supplierId) {
-    q.supplier_id = f.supplierId;
-    if (f.supplierLabel) q.supplier_label = f.supplierLabel;
-  }
+  if (f.supplierId) q.supplier_id = f.supplierId;
   if (f.datePreset !== 'all') q.date_preset = f.datePreset;
   if (f.fromDate) q.from_date = f.fromDate;
   if (f.toDate) q.to_date = f.toDate;
@@ -152,6 +156,8 @@ export interface SupplierInvoiceListState {
   selectSupplier: (id: string, label: string) => void;
   clearSupplier: () => void;
   setDatePreset: (p: DatePreset) => void;
+  /** Pick one whole month (YYYY-MM) — stored as an inclusive from/to pair. */
+  setMonth: (yearMonth: string) => void;
   setCustomDate: (key: 'fromDate' | 'toDate', value: string) => void;
   setAmountRange: (key: 'fromAmount' | 'toAmount' | 'fromBalance' | 'toBalance', value: string) => void;
   toggleSort: (col: SortKey) => void;
@@ -200,12 +206,18 @@ export function useSupplierInvoiceListState(): SupplierInvoiceListState {
     update({ supplierId: '', supplierLabel: '', page: 1 });
   }, [update]);
 
+  const setMonth = useCallback((yearMonth: string) => {
+    const r = monthRange(yearMonth);
+    if (r) update({ datePreset: 'month', fromDate: r.from, toDate: r.to, page: 1 });
+  }, [update]);
+
   const setDatePreset = useCallback((p: DatePreset) => {
     if (p === 'all') return update({ datePreset: 'all', fromDate: '', toDate: '', page: 1 });
     if (p === 'custom') return update({ datePreset: 'custom', page: 1 });
+    if (p === 'month') return setMonth(currentMonth());
     const r = presetToRange(p);
     update({ datePreset: p, fromDate: r.from || '', toDate: r.to || '', page: 1 });
-  }, [update]);
+  }, [update, setMonth]);
 
   const setCustomDate = useCallback((key: 'fromDate' | 'toDate', value: string) => {
     update({ [key]: value, datePreset: 'custom', page: 1 } as Partial<SupplierInvoiceListFilters>);
@@ -273,7 +285,7 @@ export function useSupplierInvoiceListState(): SupplierInvoiceListState {
     filters, hydrated, update,
     setTab, setSearch,
     selectSupplier, clearSupplier,
-    setDatePreset, setCustomDate, setAmountRange,
+    setDatePreset, setMonth, setCustomDate, setAmountRange,
     toggleSort, setPage, setPerPage, resetFilters,
     toggleSignalChip,
     clearSignalChips,

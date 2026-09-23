@@ -12,11 +12,12 @@ import { useCallback, useEffect, useMemo, useState } from 'react';
 import Link from 'next/link';
 import { AlertCircle, Download, Loader2, Plus } from 'lucide-react';
 import { AppLayout } from '@/components/layout/AppLayout';
-import { apiFetch } from '@/lib/apiFetch';
+import { apiFetch, assertOk, apiErrorMessage } from '@/lib/apiFetch';
 import { log } from '@/lib/logger';
 import type { SupplierInvoice } from '@/modules/accounting/types/ap.types';
 import { useSupplierInvoiceListState } from '@/components/accounting/supplier-invoices/useSupplierInvoiceListState';
 import { FilterBar } from '@/components/accounting/supplier-invoices/FilterBar';
+import { supplierLabelFromRows } from '@/components/accounting/supplier-invoices/supplierLabelFromRows';
 import { StatusTabs } from '@/components/accounting/supplier-invoices/StatusTabs';
 import { BulkActionBar } from '@/components/accounting/supplier-invoices/BulkActionBar';
 import { InvoiceTable } from '@/components/accounting/supplier-invoices/InvoiceTable';
@@ -63,11 +64,18 @@ export default function SupplierInvoicesPage() {
     return p;
   }, [filters]);
 
+  // Keyed on the query STRING: a change that sends nothing new (the supplier's
+  // display name) must not refetch, which would also clear the row selection.
+  const listQuery = listParams.toString();
+
   const loadInvoices = useCallback(async () => {
     setIsLoading(true);
     setError('');
     try {
-      const res = await apiFetch(`/api/accounting/supplier-invoices?${listParams}`);
+      const res = await apiFetch(`/api/accounting/supplier-invoices?${listQuery}`);
+      // A 400 (e.g. a malformed date in a hand-edited URL) must say so, not
+      // render as an empty list.
+      await assertOk(res, 'Failed to load supplier invoices');
       const json = await res.json();
       const payload = (json.data || json) as ListResult;
       setInvoices(payload.invoices || []);
@@ -75,11 +83,21 @@ export default function SupplierInvoicesPage() {
       setSelected(new Set());
     } catch (err) {
       log.warn('Failed to load supplier invoices', { error: err }, 'supplier-invoices');
-      setError('Failed to load supplier invoices');
+      setInvoices([]);
+      setTotal(0);
+      setError(apiErrorMessage(err, 'Failed to load supplier invoices'));
     } finally {
       setIsLoading(false);
     }
-  }, [listParams]);
+  }, [listQuery]);
+
+  // A deep link carries only the supplier id; name it from its own rows. The
+  // id check keeps the previous supplier's rows from naming a new selection.
+  const { update } = state;
+  useEffect(() => {
+    const label = supplierLabelFromRows(invoices, filters.supplierId, filters.supplierLabel);
+    if (label !== null) update({ supplierLabel: label });
+  }, [invoices, filters.supplierId, filters.supplierLabel, update]);
 
   const loadCounts = useCallback(async () => {
     try {
@@ -140,11 +158,12 @@ export default function SupplierInvoicesPage() {
 
           <FilterBar
             filters={filters}
-            filtersActive={filtersActive}
             setSearch={state.setSearch}
+            setTab={state.setTab}
             selectSupplier={state.selectSupplier}
             clearSupplier={state.clearSupplier}
             setDatePreset={state.setDatePreset}
+            setMonth={state.setMonth}
             setCustomDate={state.setCustomDate}
             setAmountRange={state.setAmountRange}
             resetFilters={state.resetFilters}
