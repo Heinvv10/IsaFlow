@@ -11,8 +11,8 @@ import type { AgingBucket } from '@/modules/accounting/types/ap.types';
 import { formatCurrency } from '@/utils/formatters';
 import { apiFetch } from '@/lib/apiFetch';
 import { fmtDate } from '@/lib/fmtDate';
-import { DebtorInvoicesPanel } from '@/components/accounting/DebtorInvoicesPanel';
-import { useAgingReturn, agingRowId } from '@/components/accounting/useAgingReturn';
+import { AgingInvoicesPanel } from '@/components/accounting/AgingInvoicesPanel';
+import { useAgingReturn } from '@/components/accounting/useAgingReturn';
 
 export default function ARAgingPage() {
   const [buckets, setBuckets] = useState<AgingBucket[]>([]);
@@ -20,7 +20,7 @@ export default function ARAgingPage() {
   const [asAtDate, setAsAtDate] = useState(() => fmtDate(new Date()));
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState('');
-  const { restored, expandedId, toggle } = useAgingReturn({
+  const { restored, expandedId, rowProps } = useAgingReturn({
     entityParam: 'customer', rowsReady: !isLoading && buckets.length > 0, onAsAtDate: setAsAtDate,
   });
 
@@ -43,9 +43,6 @@ export default function ARAgingPage() {
 
   // Wait for a restored ?as_at_date= so the first load is already the right date.
   useEffect(() => { if (restored) void loadAging(); }, [restored, loadAging]);
-  const panelNote = asAtDate === fmtDate(new Date())
-    ? undefined
-    : 'Invoices open today — they can differ from the as-at buckets above.';
 
   function handleExport() {
     const params = new URLSearchParams();
@@ -153,7 +150,7 @@ export default function ARAgingPage() {
                 <tbody>
                   {buckets.map(b => (
                     <Fragment key={b.entityId}>
-                    <tr id={agingRowId(b.entityId)} onClick={() => toggle(b.entityId)} className="border-b border-[var(--ff-border-light)] hover:bg-[var(--ff-bg-primary)] transition-colors cursor-pointer">
+                    <tr {...rowProps(b.entityId)} className="border-b border-[var(--ff-border-light)] hover:bg-[var(--ff-bg-primary)] transition-colors cursor-pointer">
                       <td className="px-4 py-3 text-[var(--ff-text-tertiary)]">
                         {expandedId === b.entityId ? <ChevronDown className="h-4 w-4" /> : <ChevronRight className="h-4 w-4" />}
                       </td>
@@ -170,7 +167,7 @@ export default function ARAgingPage() {
                       <td className="px-4 py-3 text-right font-mono font-bold text-[var(--ff-text-primary)]">{formatCurrency(b.total)}</td>
                     </tr>
                     {expandedId === b.entityId && (
-                      <DebtorInvoicesPanel clientId={b.entityId} clientName={b.entityName} from="ar-aging" colSpan={8} asAtDate={asAtDate} note={panelNote} />
+                      <AgingInvoicesPanel side="ar" entityId={b.entityId} entityName={b.entityName} asAtDate={asAtDate} colSpan={8} />
                     )}
                     </Fragment>
                   ))}

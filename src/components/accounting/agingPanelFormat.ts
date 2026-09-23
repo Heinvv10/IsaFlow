@@ -1,9 +1,5 @@
 /** Display formatting shared by the aging drill-down panels. */
 
-export function fmtZar(amount: number): string {
-  return new Intl.NumberFormat('en-ZA', { style: 'currency', currency: 'ZAR' }).format(amount);
-}
-
 export function fmtDay(iso: string | null | undefined): string {
   if (!iso) return '—';
   return new Date(iso).toLocaleDateString('en-ZA');

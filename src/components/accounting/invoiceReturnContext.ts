@@ -62,7 +62,7 @@ const LIST_SOURCE: Record<InvoiceKind, InvoiceSource> = {
   supplier: 'supplier-invoices',
 };
 
-const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+export const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 export const ISO_DATE = /^\d{4}-\d{2}-\d{2}$/;
 
 function isSource(value: QueryValue): value is InvoiceSource {

@@ -2,11 +2,12 @@
  * Restores an aging view to where an invoice drill-down left it: re-expands
  * the `?customer=` / `?supplier=` row, scrolls it into view, and hands back a
  * `?as_at_date=`. The counterpart of buildInvoiceHref in invoiceReturnContext.
+ * Also owns row expansion, so every aging table toggles rows the same way.
  */
 
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useRef, useState, type KeyboardEvent } from 'react';
 import { useRouter } from 'next/router';
-import { ISO_DATE } from './invoiceReturnContext';
+import { ISO_DATE, UUID } from './invoiceReturnContext';
 
 export function agingRowId(entityId: string): string {
   return `aging-row-${entityId}`;
@@ -30,7 +31,7 @@ export function useAgingReturn({ entityParam, rowsReady, onAsAtDate }: Options) 
     if (!router.isReady || restored) return;
     const entity = router.query[entityParam];
     const asAt = router.query.as_at_date;
-    if (typeof entity === 'string' && entity) {
+    if (typeof entity === 'string' && UUID.test(entity)) {
       setExpandedId(entity);
       pendingScroll.current = entity;
     }
@@ -47,5 +48,19 @@ export function useAgingReturn({ entityParam, rowsReady, onAsAtDate }: Options) 
 
   const toggle = useCallback((id: string) => setExpandedId(cur => (cur === id ? null : id)), []);
 
-  return { restored, expandedId, toggle };
+  /** Props for an expandable row: click, Enter/Space, and its expanded state. */
+  const rowProps = useCallback((id: string) => ({
+    id: agingRowId(id),
+    role: 'button' as const,
+    tabIndex: 0,
+    'aria-expanded': expandedId === id,
+    onClick: () => toggle(id),
+    onKeyDown: (e: KeyboardEvent<HTMLTableRowElement>) => {
+      if (e.target !== e.currentTarget || (e.key !== 'Enter' && e.key !== ' ')) return;
+      e.preventDefault();
+      toggle(id);
+    },
+  }), [expandedId, toggle]);
+
+  return { restored, expandedId, rowProps };
 }

@@ -1,15 +1,16 @@
 /**
- * Expanded per-customer invoice list, shared by Debtors Manager and AR Aging.
- * Each invoice number drills through to the invoice with a return context.
+ * Debtors Manager's expanded per-customer invoice list. Each invoice number
+ * drills through to the invoice with a return context.
  */
 
 import { useEffect, useState } from 'react';
 import Link from 'next/link';
 import { Loader2, AlertCircle } from 'lucide-react';
 import { apiFetch } from '@/lib/apiFetch';
+import { formatCurrency } from '@/utils/formatters';
 import type { DebtorInvoice } from '@/modules/accounting/services/ar/debtorsManagerService';
 import { buildInvoiceHref } from './invoiceReturnContext';
-import { fmtZar, fmtDay, PANEL_TH, INVOICE_LINK } from './agingPanelFormat';
+import { fmtDay, PANEL_TH, INVOICE_LINK } from './agingPanelFormat';
 
 const BUCKET_COLORS = {
   current: 'text-teal-500',
@@ -19,17 +20,9 @@ const BUCKET_COLORS = {
   days90Plus: 'text-red-600',
 };
 
-interface Props {
-  clientId: string;
-  clientName: string;
-  from: 'debtors' | 'ar-aging';
-  colSpan: number;
-  asAtDate?: string;
-  /** Shown above the list, e.g. when it is not as at the parent view's date. */
-  note?: string;
-}
+const COL_SPAN = 8;
 
-export function DebtorInvoicesPanel({ clientId, clientName, from, colSpan, asAtDate, note }: Props) {
+export function DebtorInvoicesPanel({ clientId, clientName }: { clientId: string; clientName: string }) {
   const [invoices, setInvoices] = useState<DebtorInvoice[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
@@ -51,7 +44,7 @@ export function DebtorInvoicesPanel({ clientId, clientName, from, colSpan, asAtD
   }, [clientId]);
 
   if (loading || error) return (
-    <tr><td colSpan={colSpan} className="px-6 py-4 bg-[var(--ff-bg-primary)]">
+    <tr><td colSpan={COL_SPAN} className="px-6 py-4 bg-[var(--ff-bg-primary)]">
       <div className={`flex items-center gap-2 text-sm ${error ? 'text-red-400' : 'text-[var(--ff-text-secondary)]'}`}>
         {error
           ? <><AlertCircle className="h-4 w-4" /> Could not load invoices for {clientName} ({error})</>
@@ -62,8 +55,7 @@ export function DebtorInvoicesPanel({ clientId, clientName, from, colSpan, asAtD
 
   return (
     <tr>
-      <td colSpan={colSpan} className="px-0 py-0 bg-[var(--ff-bg-primary)]">
-        {note && <p className="pl-12 pr-4 py-2 text-xs text-[var(--ff-text-tertiary)]">{note}</p>}
+      <td colSpan={COL_SPAN} className="px-0 py-0 bg-[var(--ff-bg-primary)]">
         <table className="w-full">
           <thead>
             <tr className="bg-[var(--ff-bg-tertiary)]">
@@ -80,15 +72,15 @@ export function DebtorInvoicesPanel({ clientId, clientName, from, colSpan, asAtD
             {invoices.map(inv => (
               <tr key={inv.id} className="hover:bg-[var(--ff-bg-secondary)]">
                 <td className="pl-12 pr-4 py-2 text-sm font-mono">
-                  <Link href={buildInvoiceHref(inv.id, { from, entityId: clientId, asAtDate })} className={INVOICE_LINK}>
+                  <Link href={buildInvoiceHref(inv.id, { from: 'debtors', entityId: clientId })} className={INVOICE_LINK}>
                     {inv.invoiceNumber}
                   </Link>
                 </td>
                 <td className="px-4 py-2 text-sm text-[var(--ff-text-secondary)]">{fmtDay(inv.invoiceDate)}</td>
                 <td className="px-4 py-2 text-sm text-[var(--ff-text-secondary)]">{fmtDay(inv.dueDate)}</td>
-                <td className="px-4 py-2 text-sm text-right font-mono text-[var(--ff-text-primary)]">{fmtZar(inv.totalAmount)}</td>
-                <td className="px-4 py-2 text-sm text-right font-mono text-teal-500">{inv.amountPaid > 0 ? fmtZar(inv.amountPaid) : '—'}</td>
-                <td className={`px-4 py-2 text-sm text-right font-mono font-bold ${BUCKET_COLORS[inv.agingBucket]}`}>{fmtZar(inv.outstanding)}</td>
+                <td className="px-4 py-2 text-sm text-right font-mono text-[var(--ff-text-primary)]">{formatCurrency(inv.totalAmount)}</td>
+                <td className="px-4 py-2 text-sm text-right font-mono text-teal-500">{inv.amountPaid > 0 ? formatCurrency(inv.amountPaid) : '—'}</td>
+                <td className={`px-4 py-2 text-sm text-right font-mono font-bold ${BUCKET_COLORS[inv.agingBucket]}`}>{formatCurrency(inv.outstanding)}</td>
                 <td className={`px-4 py-2 text-sm text-right font-mono ${inv.daysOverdue > 0 ? 'text-red-400' : 'text-teal-500'}`}>
                   {inv.daysOverdue > 0 ? `${inv.daysOverdue}d` : 'Current'}
                 </td>
