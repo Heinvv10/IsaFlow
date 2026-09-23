@@ -84,6 +84,17 @@ async function applyDRCVatInner(
       `DRC VAT can only be applied to an approved supplier invoice; ${String(inv.invoice_number)} is ${status}.`,
     );
   }
+  // A reverse-charge invoice carries no supplier VAT. Approval already posted
+  // DR Input VAT = tax_amount, so DRC's own DR Input VAT would claim it twice.
+  const supplierVat = Number(inv.tax_amount ?? 0);
+  if (supplierVat > 0) {
+    throw new Error(
+      `DRC VAT applies only to a bill on which the supplier charged no VAT; ${String(inv.invoice_number)} `
+      + `carries R${supplierVat.toFixed(2)} VAT, already claimed as input VAT when it was approved, so DRC `
+      + 'would claim it twice. If the supplier should not have charged VAT, correct the bill first '
+      + '(cancel and re-enter it without VAT).',
+    );
+  }
 
   // DRC VAT is calculated on the pre-VAT base (subtotal), not the gross total
   const totalExclVat = Number(inv.subtotal);
@@ -140,6 +151,7 @@ export async function getDRCEligibleInvoices(companyId: string): Promise<Array<{
     WHERE si.company_id = ${companyId}
       AND si.status = ANY(${BALANCE_DERIVED}::TEXT[])
       AND si.deleted_at IS NULL
+      AND COALESCE(si.tax_amount, 0) = 0
       AND (si.is_drc IS NULL OR si.is_drc = false)
     ORDER BY si.invoice_date DESC
   `) as Row[];
