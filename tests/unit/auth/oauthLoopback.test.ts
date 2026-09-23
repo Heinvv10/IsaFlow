@@ -15,7 +15,7 @@ describe('isLoopbackHost', () => {
   });
 
   it('rejects hosts that merely look local', () => {
-    for (const h of ['localhost.evil.example', 'notlocalhost', '127.0.0.2', 'evil.example', '']) {
+    for (const h of ['localhost.evil.example', 'notlocalhost', '127.0.0.2', '0.0.0.0', '127.1', '::2', 'evil.example', '']) {
       expect(isLoopbackHost(h), h).toBe(false);
     }
   });
