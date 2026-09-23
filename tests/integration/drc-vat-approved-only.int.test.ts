@@ -205,4 +205,3 @@ describeIfDb('applyDRCVat — approved bills only, once, all-or-nothing', () => 
     expect(await state(forged)).toEqual({ isDrc: false, journals: 0 });
   });
 });
-
