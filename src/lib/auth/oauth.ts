@@ -14,6 +14,7 @@
  */
 
 import { createHash, randomBytes, timingSafeEqual } from 'crypto';
+import { mayDecorate } from '@/lib/auth/consentAppView';
 import { isReservedClientName } from '@/lib/auth/reservedClientName';
 import { sql } from '@/lib/neon';
 import { log } from '@/lib/logger';
@@ -584,7 +585,8 @@ export async function listConnectedApps(userId: string, companyId: string): Prom
   const rows = (await sql`
     SELECT a.id AS authorisation_id, a.oauth_app_id, a.scopes, a.company_id,
            a.last_used_at, a.created_at,
-           app.name AS app_name, app.logo_url AS app_logo_url, app.is_verified
+           app.name AS app_name, app.logo_url AS app_logo_url,
+           app.is_verified, app.is_first_party
     FROM oauth_authorisations a
     JOIN oauth_apps app ON app.id = a.oauth_app_id
     WHERE a.user_id = ${userId}
@@ -599,7 +601,19 @@ export async function listConnectedApps(userId: string, companyId: string): Prom
     // This feeds the screen where a user decides to CUT OFF an app's access —
     // it must not show a different string from the one they consented to.
     appName: (r.app_name as string).normalize('NFC'),
-    appLogoUrl: r.app_logo_url as string | null,
+    // Withheld for an unverified app, for the same reason the consent screen
+    // withholds it: a logo is free branding, this screen renders it as a raw
+    // <img>, and it is where a user decides whether to CUT OFF access. An app
+    // that cannot fake our branding at consent must not be able to fake it
+    // here either. Withheld server-side, so the URL is never fetched and
+    // cannot beacon the viewer's IP. Same predicate object as the consent
+    // screen, so the two surfaces cannot drift apart.
+    appLogoUrl: mayDecorate({
+      isVerified: Boolean(r.is_verified),
+      isFirstParty: Boolean(r.is_first_party),
+    })
+      ? (r.app_logo_url as string | null)
+      : null,
     appIsVerified: Boolean(r.is_verified),
     scopes: Array.isArray(r.scopes) ? (r.scopes as string[]) : [],
     companyId: r.company_id as string,

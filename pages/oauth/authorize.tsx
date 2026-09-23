@@ -25,6 +25,7 @@ import { parseCookies, ACCESS_COOKIE, ACTIVE_COMPANY_COOKIE } from '@/lib/auth/c
 import { resolveConsentCompany, type ConsentCompany } from '@/lib/auth/consentCompany';
 import { getUserCompanies } from '@/modules/accounting/services/core/companyService';
 import { verifyToken } from '@/lib/auth/gotrue';
+import { consentAppView } from '@/lib/auth/consentAppView';
 
 interface ConsentApp {
   name: string;
@@ -282,13 +283,7 @@ export const getServerSideProps: GetServerSideProps<Props | ErrorProps> = async 
       ok: true,
       companies: choice.companies,
       selectedCompanyId: choice.selectedCompanyId,
-      app: {
-        name: app.name,
-        description: app.description,
-        logoUrl: app.logoUrl,
-        homepageUrl: app.homepageUrl,
-        isVerified: app.isVerified,
-      },
+      app: consentAppView(app),
       clientId,
       redirectUri,
       scopes,
