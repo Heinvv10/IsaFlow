@@ -15,6 +15,7 @@ import { billLineAccountRefusal } from '../ap/billLineAccountGuard';
 import { RecurringTemplateLineAccountError } from './recurringTransactionErrors';
 import { headerTotals, normaliseLines } from './recurringTemplateLines';
 import type { RecurringTemplate } from './recurringTransactionService';
+import { assertNonNegativeDocumentTotal } from '../shared/documentTotalSign';
 
 export async function mintRecurringCustomerInvoice(
   companyId: string,
@@ -38,6 +39,9 @@ export async function mintRecurringCustomerInvoice(
   const lines = normaliseLines(data);
   // Asserted BEFORE the first write of the run, so the route may answer 4xx.
   const totals = headerTotals(template.id, data, lines);
+  // R-119: templateData is opaque JSON, and the create-time qty/price guard
+  // does not re-run here. Refused before the number is reserved.
+  assertNonNegativeDocumentTotal(totals.totalAmount, `Recurring template ${template.id}`, 'customer');
   const entityId = await insertWithReservedNumber(
     companyId, 'customer_invoice', 'rec_txn_inv_', 'uq_customer_invoices_company_number', async (invoiceNumber) => {
       const ciRows = (await sql`
@@ -123,6 +127,8 @@ export async function mintRecurringSupplierInvoice(
   }
   // Asserted BEFORE the first write of the run, so the route may answer 4xx.
   const totals = headerTotals(template.id, data, lines);
+  // R-119, AP side of the same opaque templateData.
+  assertNonNegativeDocumentTotal(totals.totalAmount, `Recurring template ${template.id}`, 'supplier');
   const total = totals.totalAmount;
 
   // Fetch supplier vat_number for fingerprint

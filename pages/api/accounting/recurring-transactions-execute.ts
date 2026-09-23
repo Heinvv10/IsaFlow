@@ -11,6 +11,7 @@ import { withCsrf } from '@/lib/auth/withCsrf';
 import { log } from '@/lib/logger';
 import { executeRecurring } from '@/modules/accounting/services/core/recurringTransactionService';
 import { RecurringTemplateLineAccountError, RecurringTemplateNotDueError, RecurringTemplateNotFoundError, RecurringTemplateTotalsMismatchError } from '@/modules/accounting/services/core/recurringTransactionErrors';
+import { NegativeDocumentTotalError } from '@/modules/accounting/services/shared/documentTotalSign';
 import { CustomerNotInCompanyError, SupplierNotInCompanyError } from '@/modules/accounting/services/core/contactDirectoryService';
 
 async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse) {
@@ -58,6 +59,13 @@ async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse) {
     // company (or not a UUID at all). The operator has to re-pick the customer.
     // R-068: the same for a bill template's supplierId.
     if (err instanceof CustomerNotInCompanyError || err instanceof SupplierNotInCompanyError) {
+      return apiResponse.badRequest(res, err.message);
+    }
+    // R-119, the same pre-write class: the template's stored figures make a
+    // negative or non-numeric total. The operator re-saves the template — and
+    // a credit belongs on a credit note — so this is a 400 with the remedy,
+    // not a 500 that pages someone.
+    if (err instanceof NegativeDocumentTotalError) {
       return apiResponse.badRequest(res, err.message);
     }
     throw err;

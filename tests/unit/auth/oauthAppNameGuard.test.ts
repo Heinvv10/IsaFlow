@@ -113,6 +113,55 @@ describe('reading a name written before the guard existed', () => {
     expect(apps[0]?.appName).not.toContain('\uFACF');
   });
 
+  // A logo is free branding and this screen renders it as a raw <img>. An
+  // unverified app that cannot fake our branding at consent must not be able to
+  // fake it on the screen where access gets revoked.
+  it('withholds an unverified app\'s logo from the revoke screen', async () => {
+    const row = (verified: boolean, firstParty = false) => [{
+      authorisation_id: 'auth-1', oauth_app_id: 'a', scopes: [], company_id: 'c1',
+      last_used_at: null, created_at: new Date(), app_name: 'Acme',
+      app_logo_url: 'https://evil.example/isaflow-logo.png',
+      is_verified: verified, is_first_party: firstParty,
+    }];
+
+    sqlMock.mockResolvedValue(row(false));
+    const unverified = await listConnectedApps('user-1', 'c1');
+    expect(unverified[0]?.appLogoUrl).toBeNull();
+
+    sqlMock.mockResolvedValue(row(true));
+    const verified = await listConnectedApps('user-1', 'c1');
+    expect(verified[0]?.appLogoUrl).toBe('https://evil.example/isaflow-logo.png');
+  });
+
+  // The two screens must answer the same question. Nothing writes
+  // is_first_party today, so a narrower `is_verified` check here would be
+  // observationally identical — and would start showing a logo at consent and
+  // an initial at revoke for the same app the moment one is marked by hand.
+  //
+  // Scope, so nobody credits this with more than it does: sqlMock returns a
+  // fixed value and never reads the tagged template, so NO test here can see
+  // what the SELECT asks for. Delete `app.is_first_party` from the query and
+  // all of these still pass, while in production r.is_first_party would be
+  // undefined -> false and a first-party app would lose its logo here again.
+  // This pins the mapper's branch. The query is unpinned at every level —
+  // listConnectedApps has no integration coverage — and is the first case to
+  // add if oauth ever gets a DB-backed test. Asserting the SQL string contains
+  // the column would be a linter, not a test: green on a selected-but-unused
+  // column, red on a reformat.
+  it('shows a first-party app\'s logo on the revoke screen, as consent does', async () => {
+    sqlMock.mockResolvedValue([{
+      authorisation_id: 'auth-1', oauth_app_id: 'a', scopes: [], company_id: 'c1',
+      last_used_at: null, created_at: new Date(), app_name: 'Acme',
+      app_logo_url: 'https://cdn.example/logo.png',
+      is_verified: false, is_first_party: true,
+    }]);
+    const apps = await listConnectedApps('user-1', 'c1');
+    expect(apps[0]?.appLogoUrl).toBe('https://cdn.example/logo.png');
+    // The badge reads appIsVerified alone, so it stays off — logo without badge,
+    // exactly the shape consentAppView produces for the same app.
+    expect(apps[0]?.appIsVerified).toBe(false);
+  });
+
   // The developer list and the consent screen must not disagree about what an
   // app is called.
   it('normalises the name the developer list shows', async () => {

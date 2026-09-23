@@ -89,6 +89,34 @@ export function validatePipelineInput(extracted: ExtractedDocument): PipelineVal
   const warnings: string[] = [];
 
   if (extracted.totalAmount === null || extracted.totalAmount === undefined) errors.push('totalAmount is required');
+  // R-119: the extractor reads whatever the document says, and a credit note
+  // fed through this pipeline reads as a negative total. It is not a bill.
+  else if (!Number.isFinite(extracted.totalAmount as number)) {
+    errors.push('totalAmount is not a number — check the extracted figure');
+  } else if ((extracted.totalAmount as number) < 0) {
+    errors.push('totalAmount is negative — a credit is a credit note, not a supplier invoice');
+  }
+
+  // The VAT LEG, separately: `buildInvoiceFromExtraction` writes
+  // `subtotal = totalAmount - vatAmount` and `tax_amount = vatAmount`, so a
+  // VAT figure above the total makes the subtotal negative and a negative one
+  // makes the tax leg negative — while the TOTAL stays clean, which is
+  // exactly the shape migration 692's leg arms refuse. Caught here, the
+  // operator gets a 400 naming the figure; uncaught, a bad scan is a 500 and
+  // a paged engineer, on the highest-volume automated path in this module.
+  const vat = extracted.vatAmount;
+  if (vat !== null && vat !== undefined) {
+    if (!Number.isFinite(vat)) {
+      errors.push('vatAmount is not a number — check the extracted figure');
+    } else if (vat < 0) {
+      errors.push('vatAmount is negative — a credit is a credit note, not a supplier invoice');
+    } else if (Number.isFinite(extracted.totalAmount as number) && vat > (extracted.totalAmount as number)) {
+      errors.push(
+        `vatAmount (${vat}) is greater than totalAmount (${extracted.totalAmount}) — `
+        + 'the VAT-inclusive and exclusive figures look swapped',
+      );
+    }
+  }
   if (!extracted.vendorName) errors.push('vendorName is required');
   if (!extracted.date) errors.push('date is required');
   if (!extracted.referenceNumber) warnings.push('No reference/invoice number extracted');
