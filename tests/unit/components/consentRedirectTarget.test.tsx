@@ -64,6 +64,21 @@ describe('consent screen — where the authorisation goes', () => {
     expect(container.querySelector('span.break-all')).not.toBeNull();
   });
 
+  // break-all must NOT reach the loopback sentence. A host is one unbreakable
+  // token that has to wrap or it gets clipped; the sentence is ordinary words,
+  // and break-all shatters them mid-word — on the real page at 360/390/414/430
+  // it split the brand as "I" / "saFlow", on a screen whose whole argument is
+  // that the name above cannot be trusted.
+  it('does not let the host wrapping rule reach the loopback sentence', () => {
+    const { container } = render(<AuthorizePage {...props('http://localhost:57526/callback')} />);
+    expect(container.querySelector('span.break-all')).toBeNull();
+    const sentence = [...container.querySelectorAll('span')].find((el) =>
+      el.textContent?.startsWith('a program on this computer'),
+    );
+    expect(sentence).toBeDefined();
+    expect(sentence?.className).not.toContain('break-all');
+  });
+
   // Two different clients must not produce the same sentence.
   it('renders the two kinds differently', () => {
     const hosted = render(<AuthorizePage {...props('https://claude.ai/cb')} />).container.textContent;
