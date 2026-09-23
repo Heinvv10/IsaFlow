@@ -86,6 +86,15 @@ export default function SupplierInvoicesPage() {
     }
   }, [listParams]);
 
+  // A deep link carries only the supplier id; name it from its own rows. The
+  // id check keeps the previous supplier's rows from naming a new selection.
+  const { update } = state;
+  useEffect(() => {
+    const row = invoices[0];
+    if (!filters.supplierId || !row?.supplierName || row.supplierId !== filters.supplierId) return;
+    if (row.supplierName !== filters.supplierLabel) update({ supplierLabel: row.supplierName });
+  }, [invoices, filters.supplierId, filters.supplierLabel, update]);
+
   const loadCounts = useCallback(async () => {
     try {
       const res = await apiFetch('/api/accounting/supplier-invoices?status_counts=1');

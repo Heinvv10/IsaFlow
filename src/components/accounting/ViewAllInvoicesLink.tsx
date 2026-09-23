@@ -11,12 +11,11 @@ import { INVOICE_LINK } from './agingPanelFormat';
 
 export type InvoiceLedger = 'customer' | 'supplier';
 
-export function allInvoicesHref(ledger: InvoiceLedger, entityId: string, entityName: string): string {
-  if (ledger === 'customer') {
-    return `/accounting/customer-invoices?${new URLSearchParams({ customer: entityId })}`;
-  }
-  // The supplier list reads its chip label from the URL (useSupplierInvoiceListState).
-  return `/accounting/supplier-invoices?${new URLSearchParams({ supplier_id: entityId, supplier_label: entityName })}`;
+export function allInvoicesHref(ledger: InvoiceLedger, entityId: string): string {
+  // Only the id: each list names the entity from its own rows, never from the URL.
+  return ledger === 'customer'
+    ? `/accounting/customer-invoices?${new URLSearchParams({ customer: entityId })}`
+    : `/accounting/supplier-invoices?${new URLSearchParams({ supplier_id: entityId })}`;
 }
 
 interface Props {
@@ -31,7 +30,7 @@ export function ViewAllInvoicesFooter({ ledger, entityId, entityName, colSpan }:
     <tfoot>
       <tr>
         <td colSpan={colSpan} className="pl-12 pr-4 py-2 text-sm border-t border-[var(--ff-border-light)]">
-          <Link href={allInvoicesHref(ledger, entityId, entityName)} className={`inline-flex items-center gap-1 ${INVOICE_LINK}`}>
+          <Link href={allInvoicesHref(ledger, entityId)} className={`inline-flex items-center gap-1 ${INVOICE_LINK}`}>
             View all invoices for {entityName} <ArrowRight className="h-3.5 w-3.5" />
           </Link>
         </td>

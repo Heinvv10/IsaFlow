@@ -13,15 +13,14 @@ const ID = '3f8a1c2e-1b2c-4d5e-8f90-a1b2c3d4e5f6';
 
 describe('allInvoicesHref', () => {
   it('customer link is exactly what the customer list hydrates as a customer filter', () => {
-    const href = allInvoicesHref('customer', ID, 'Herotel & Sons');
+    const href = allInvoicesHref('customer', ID);
     expect(href).toBe(`/accounting/customer-invoices?customer=${ID}`);
     const query = Object.fromEntries(new URL(href, 'http://x').searchParams);
     expect(hydrateARFilters(query).customerId).toBe(ID);
   });
 
-  it('supplier link carries the id and an encoded label', () => {
-    expect(allInvoicesHref('supplier', ID, 'A&B Supplies'))
-      .toBe(`/accounting/supplier-invoices?supplier_id=${ID}&supplier_label=A%26B+Supplies`);
+  it('supplier link carries only the id — the list never takes a name from the URL', () => {
+    expect(allInvoicesHref('supplier', ID)).toBe(`/accounting/supplier-invoices?supplier_id=${ID}`);
   });
 });
 

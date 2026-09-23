@@ -70,6 +70,11 @@ describe('parseSupplierInvoiceFilters', () => {
     }
   });
 
+  it('rejects a repeated supplier_id instead of dropping the supplier filter', () => {
+    const r = parseSupplierInvoiceFilters({ supplier_id: ['aaaaaaaa-0000-0000-0000-aaaaaaaaaaaa', 'x'] });
+    expect(r.ok).toBe(false);
+  });
+
   it('rejects an inverted date range', () => {
     expect(parseSupplierInvoiceFilters({ from_date: '2026-07-01', to_date: '2026-06-30' }).ok).toBe(false);
   });

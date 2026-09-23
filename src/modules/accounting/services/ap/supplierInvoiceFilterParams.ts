@@ -78,6 +78,10 @@ export function parseSupplierInvoiceFilters(query: Record<string, unknown>): Fil
     return { ok: false, error: `Invalid sort: ${sort}` };
   }
 
+  // A repeated `supplier_id` arrives as an array; dropping it would widen the list.
+  if (query.supplier_id !== undefined && typeof query.supplier_id !== 'string') {
+    return { ok: false, error: 'Invalid supplier_id (must be a single UUID)' };
+  }
   const supplierIdRaw = pickStr(query.supplier_id);
   if (supplierIdRaw && !UUID_REGEX.test(supplierIdRaw)) {
     return { ok: false, error: 'Invalid supplier_id (must be UUID)' };
