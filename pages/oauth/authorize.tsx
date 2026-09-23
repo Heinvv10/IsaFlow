@@ -13,18 +13,18 @@ import { IMPERSONATION_PROOF_COOKIE } from '@/lib/auth/impersonation-cookies';
 import { useState, type FormEvent } from 'react';
 import Image from 'next/image';
 import type { GetServerSideProps } from 'next';
-import { ShieldCheck, AlertTriangle, Loader2, CornerDownRight } from 'lucide-react';
+import { ShieldCheck, AlertTriangle, Loader2 } from 'lucide-react';
 import { getOauthAppByClientId, OAUTH_SCOPES } from '@/lib/auth/oauth';
 import { ConsentScopeList } from '@/components/oauth/ConsentScopeList';
 import { ConsentCompanyPicker } from '@/components/oauth/ConsentCompanyPicker';
 import { ConsentRejected } from '@/components/oauth/ConsentRejected';
+import { ConsentRedirectTarget } from '@/components/oauth/ConsentRedirectTarget';
 import { partitionRequestedScopes } from '@/lib/auth/consentScopes';
 import { apiFetch } from '@/lib/apiFetch';
 import { parseCookies, ACCESS_COOKIE, ACTIVE_COMPANY_COOKIE } from '@/lib/auth/cookies';
 import { resolveConsentCompany, type ConsentCompany } from '@/lib/auth/consentCompany';
 import { getUserCompanies } from '@/modules/accounting/services/core/companyService';
 import { verifyToken } from '@/lib/auth/gotrue';
-import { describeRedirectTarget } from '@/lib/auth/consentRedirectTarget';
 
 interface ConsentApp {
   name: string;
@@ -68,7 +68,6 @@ export default function AuthorizePage(props: Props | ErrorProps) {
   if (!props.ok) return <ConsentRejected error={props.error} />;
 
   const { app, clientId, redirectUri, scopes, state, codeChallenge, codeChallengeMethod, companies } = props;
-  const redirectTarget = describeRedirectTarget(redirectUri);
 
   // Posting scopes (write:post) are opt-in: shown UNCHECKED even when the
   // client requested them, and granted only if the user actively ticks them.
@@ -153,27 +152,7 @@ export default function AuthorizePage(props: Props | ErrorProps) {
                   {app.homepageUrl}
                 </a>
               )}
-              {/*
-                Where the authorisation actually goes. The name above is
-                whatever the app asked to be called; this is registered up front
-                and checked before this page renders, so it is the one line here
-                a hostile app cannot simply choose.
-              */}
-              {redirectTarget.kind !== 'unknown' && (
-                <p className="text-xs text-slate-400 mt-1.5 flex items-start gap-1.5">
-                  <CornerDownRight className="h-3.5 w-3.5 shrink-0 mt-px text-slate-500" />
-                  <span>
-                    Sends your authorisation to{' '}
-                    {redirectTarget.kind === 'web' ? (
-                      <span className="font-medium text-slate-200">{redirectTarget.host}</span>
-                    ) : (
-                      <span className="font-medium text-slate-200">
-                        a program running on this computer
-                      </span>
-                    )}
-                  </span>
-                </p>
-              )}
+              <ConsentRedirectTarget redirectUri={redirectUri} />
             </div>
           </div>
           {app.description && (

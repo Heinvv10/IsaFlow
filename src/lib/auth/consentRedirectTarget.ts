@@ -20,13 +20,12 @@
  *    useful: the code goes to a program on their computer rather than to a
  *    website. Never show the port; it carries no meaning and reads like one.
  */
+import { isLoopbackHost } from '@/lib/auth/oauthLoopback';
+
 export type ConsentRedirectTarget =
   | { kind: 'web'; host: string }
   | { kind: 'local' }
   | { kind: 'unknown' };
-
-/** RFC 8252 loopback hosts, the only ones registration accepts over plain http. */
-const LOOPBACK_HOSTS = new Set(['localhost', '127.0.0.1', '[::1]', '::1']);
 
 export function describeRedirectTarget(redirectUri: string): ConsentRedirectTarget {
   let url: URL;
@@ -39,6 +38,6 @@ export function describeRedirectTarget(redirectUri: string): ConsentRedirectTarg
   }
 
   if (url.protocol === 'https:') return { kind: 'web', host: url.host };
-  if (url.protocol === 'http:' && LOOPBACK_HOSTS.has(url.hostname)) return { kind: 'local' };
+  if (url.protocol === 'http:' && isLoopbackHost(url.hostname)) return { kind: 'local' };
   return { kind: 'unknown' };
 }

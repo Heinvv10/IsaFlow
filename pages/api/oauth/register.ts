@@ -20,6 +20,7 @@ import { withErrorHandler } from '@/lib/api-error-handler';
 import { apiResponse } from '@/lib/apiResponse';
 import { checkRateLimit, getClientIp } from '@/lib/rateLimit';
 import { isReservedClientName } from '@/lib/auth/reservedClientName';
+import { isLoopbackHost } from '@/lib/auth/oauthLoopback';
 import { log } from '@/lib/logger';
 import { registerOauthApp } from '@/lib/auth/oauth';
 import { pruneStaleDynamicApps } from '@/lib/auth/oauthDynamicClients';
@@ -49,12 +50,7 @@ function isAcceptableRedirect(raw: string): boolean {
   let url: URL;
   try { url = new URL(raw); } catch { return false; }
   if (url.protocol === 'https:') return true;
-  if (
-    url.protocol === 'http:' &&
-    ['localhost', '127.0.0.1', '[::1]', '::1'].includes(url.hostname)
-  ) {
-    return true;
-  }
+  if (url.protocol === 'http:' && isLoopbackHost(url.hostname)) return true;
   return false;
 }
 
