@@ -17,6 +17,7 @@ import { log } from '@/lib/logger';
 import type { SupplierInvoice } from '@/modules/accounting/types/ap.types';
 import { useSupplierInvoiceListState } from '@/components/accounting/supplier-invoices/useSupplierInvoiceListState';
 import { FilterBar } from '@/components/accounting/supplier-invoices/FilterBar';
+import { supplierLabelFromRows } from '@/components/accounting/supplier-invoices/supplierLabelFromRows';
 import { StatusTabs } from '@/components/accounting/supplier-invoices/StatusTabs';
 import { BulkActionBar } from '@/components/accounting/supplier-invoices/BulkActionBar';
 import { InvoiceTable } from '@/components/accounting/supplier-invoices/InvoiceTable';
@@ -63,11 +64,15 @@ export default function SupplierInvoicesPage() {
     return p;
   }, [filters]);
 
+  // Keyed on the query STRING: a change that sends nothing new (the supplier's
+  // display name) must not refetch, which would also clear the row selection.
+  const listQuery = listParams.toString();
+
   const loadInvoices = useCallback(async () => {
     setIsLoading(true);
     setError('');
     try {
-      const res = await apiFetch(`/api/accounting/supplier-invoices?${listParams}`);
+      const res = await apiFetch(`/api/accounting/supplier-invoices?${listQuery}`);
       // A 400 (e.g. a malformed date in a hand-edited URL) must say so, not
       // render as an empty list.
       await assertOk(res, 'Failed to load supplier invoices');
@@ -84,15 +89,14 @@ export default function SupplierInvoicesPage() {
     } finally {
       setIsLoading(false);
     }
-  }, [listParams]);
+  }, [listQuery]);
 
   // A deep link carries only the supplier id; name it from its own rows. The
   // id check keeps the previous supplier's rows from naming a new selection.
   const { update } = state;
   useEffect(() => {
-    const row = invoices[0];
-    if (!filters.supplierId || !row?.supplierName || row.supplierId !== filters.supplierId) return;
-    if (row.supplierName !== filters.supplierLabel) update({ supplierLabel: row.supplierName });
+    const label = supplierLabelFromRows(invoices, filters.supplierId, filters.supplierLabel);
+    if (label !== null) update({ supplierLabel: label });
   }, [invoices, filters.supplierId, filters.supplierLabel, update]);
 
   const loadCounts = useCallback(async () => {
