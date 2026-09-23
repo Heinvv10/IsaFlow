@@ -36,13 +36,17 @@ async function handler(req: CompanyAuthedRequest, res: NextApiResponse) {
     const redirectUris = Array.isArray(body.redirectUris) ? body.redirectUris : [];
 
     if (!name) return apiResponse.badRequest(res, 'name is required');
+    // Length BEFORE the reserved-name check, never after: the check's cost
+    // grows with length, and this route rejects rather than truncating, so the
+    // cap is the only thing bounding what reaches it. Same ordering, same
+    // reason, as pages/api/oauth/register.ts.
+    if (name.length > MAX_NAME_LEN) return apiResponse.badRequest(res, `name must be ≤ ${MAX_NAME_LEN} characters`);
     // registerOauthApp enforces this too, and throws. Checked here as well so
     // the caller gets a 400 explaining the refusal rather than a 500 from an
     // uncaught throw — the service guard is the backstop, not the interface.
     if (isReservedClientName(name)) {
       return apiResponse.badRequest(res, 'name may not impersonate IsaFlow or use a reserved term');
     }
-    if (name.length > MAX_NAME_LEN) return apiResponse.badRequest(res, `name must be ≤ ${MAX_NAME_LEN} characters`);
     if (description && description.length > MAX_DESC_LEN) {
       return apiResponse.badRequest(res, `description must be ≤ ${MAX_DESC_LEN} characters`);
     }
