@@ -211,6 +211,22 @@ describe('POST /api/oauth/register', () => {
     expect(vi.mocked(registerOauthApp).mock.calls[0]?.[0].name).not.toContain('\uFACF');
   });
 
+  // Normalise BEFORE the slice. `.slice()` counts UTF-16 units and NFC can
+  // EXPAND: U+FACF is one unit and its canonical target U+2284A is a surrogate
+  // pair, so cutting first and normalising after stores 81 units against an
+  // 80-unit cap. Found by the reviewer, who built the distinguishing input the
+  // ordering mutation needed.
+  it('keeps the stored name inside the length cap when NFC expands', async () => {
+    const raw = `\uFACF${'a'.repeat(69)} (IsaFlow)`;
+    expect(raw.length).toBe(80);
+
+    const res = makeRes();
+    await handler(makeReq({ redirect_uris: ['https://c.example/cb'], client_name: raw }), res);
+
+    const stored = vi.mocked(registerOauthApp).mock.calls[0]?.[0].name ?? '';
+    expect(stored.length).toBeLessThanOrEqual(80);
+  });
+
   // NFC, never NFKC. Compatibility folding here would erase the very
   // distinctions the reserved-name rule depends on: it rewrites the superscript
   // "un" of "\u1D58\u207FOfficial" into a plain one, which the rule then

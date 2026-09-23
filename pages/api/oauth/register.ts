@@ -107,6 +107,14 @@ const handler: NextApiHandler = async (req, res) => {
   // — a glyph that does render — and the gap between shown and compared closes
   // at the boundary rather than in the matcher, which was right all along.
   //
+  // A name already in NFC is stored byte-identical; a DECOMPOSED one is not,
+  // and that is the point — a macOS pasteboard hands you NFD, and composing it
+  // means the stored name is compared as the same thing it displays as.
+  //
+  // Normalise BEFORE the slice, not after. `.slice()` counts UTF-16 units and
+  // NFC can EXPAND: U+FACF is one unit, its canonical target is a surrogate
+  // pair, so cutting first would store 81 units against this 80-unit cap.
+  //
   // Truncate BEFORE the reserved-name check, never after: the check's cost
   // grows with length, and it runs before the global rate limit is charged, so
   // a refused name is bounded only by this cut (~0.6ms at 80 chars, ~20ms on
