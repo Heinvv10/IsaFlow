@@ -12545,7 +12545,7 @@
       "severityRationale": "Named by a reviewer during remediation; proven arithmetically, not yet reproduced against a real document through the ageing.",
       "auditedSha": "8b10851b4",
       "currentSha": "8b10851b4",
-      "status": "candidate",
+      "status": "confirmed",
       "dependencies": [],
       "testNames": [],
       "evidencePaths": [
@@ -12557,7 +12557,7 @@
       "historicalDataImpact": "Not assessed",
       "canonicalItem": null,
       "reportedSeverity": "medium",
-      "processNotes": "2026-09-22: migrationValidationService (R-086 round 4) uses the sign-aware form LEAST(GREATEST(paid, LEAST(total,0)), GREATEST(total,0)); apply the same to effectivePaidExpr and prove it through getARSubledger with a negative-total row."
+      "processNotes": "2026-09-23: confirmed reachable — no CHECK constraint on either table and four unguarded writers (see R-119). The ageing and subledger exclude negative documents via balance > 0; the customer/supplier reports SUM the expression unfiltered, which is where it mis-stated."
     },
     {
       "id": "R-118",
@@ -12586,6 +12586,39 @@
       "canonicalItem": null,
       "reportedSeverity": "medium",
       "processNotes": null
+    },
+    {
+      "id": "R-119",
+      "claim": "Several writers accept a NEGATIVE total_amount onto customer_invoices/supplier_invoices, and no CHECK constraint or trigger forbids it (verified on the schema fixture). Confirmed unguarded: recurring-template EXECUTION (core/recurringTemplateLines.ts headerTotals/normaliseLines — templateData is opaque JSON from the request body, and the create-time qty/price guard does not re-run), the AI capture pipeline (pages/api/accounting/ai-invoice-pipeline.ts and capture/[id]/post.ts — validatePipelineInput checks null/undefined only), time-entry billing (pages/api/accounting/time-entries-invoice.ts, and createTimeEntry does not guard hours/rate), and the Sage AR import (core/sageCustomerImportService.ts skips totalAmount === 0 but not < 0, unlike its AP sibling). A negative-total document is an ad-hoc credit note outside credit_notes: it is invisible to the ageing and the subledger (both filter balance > 0) while its journal, if posted, stands in the GL.",
+      "area": "ar",
+      "affectedPaths": [
+        "src/modules/accounting/services/core/recurringTemplateLines.ts",
+        "pages/api/accounting/ai-invoice-pipeline.ts",
+        "pages/api/accounting/capture/[id]/post.ts",
+        "pages/api/accounting/time-entries-invoice.ts",
+        "src/modules/accounting/services/core/sageCustomerImportService.ts"
+      ],
+      "sourceLabel": "R-117 census (2026-09-23)",
+      "sourceIds": [],
+      "correctedTrigger": null,
+      "severityRationale": "Writers enumerated by reading every INSERT site; the absence of a DB constraint is verified. Not yet reproduced end to end through each route.",
+      "auditedSha": "9f41022a5",
+      "currentSha": "9f41022a5",
+      "status": "candidate",
+      "dependencies": [
+        "R-117 fixed the clamp that mis-stated these documents; this is the source"
+      ],
+      "testNames": [],
+      "evidencePaths": [
+        "docs/audits/remediation/R-117/fix.md"
+      ],
+      "fixCommit": null,
+      "pr": null,
+      "deployedSha": null,
+      "historicalDataImpact": "Not assessed: SELECT company_id, count(*), sum(total_amount) FROM customer_invoices WHERE total_amount < 0 GROUP BY 1 (and the supplier_invoices twin).",
+      "canonicalItem": null,
+      "reportedSeverity": "medium",
+      "processNotes": "Decide the rule first: refuse a negative total at every writer (a credit is a credit_note), or accept it deliberately and teach the ageing/subledger to carry it. Do not fix writer-by-writer without that decision."
     }
   ],
   "sourceInventory": [
