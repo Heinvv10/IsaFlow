@@ -188,4 +188,30 @@ describeIfDb('update_supplier_invoice — drafts over a real ledger', () => {
     expect(err).toBeInstanceOf(SupplierInvoiceDraftUpdateRefusal);
     expect((err as Error).message).toContain('unit price cannot be negative');
   });
+
+  it('refuses a number the supplier already uses on another live bill', async () => {
+    const taken = await draft();
+    const takenNumber = String((await snapshot(taken)).invoice_number);
+    const id = await draft();
+    const before = await snapshot(id);
+    expect(text(await update(id, { invoice_number: takenNumber }))).toContain(`already has a draft bill numbered ${takenNumber}`);
+    expect(await snapshot(id)).toEqual(before);
+    // Another supplier may use the same number.
+    const s2 = await seedSupplier(fx, `S3-${seq}`);
+    expect((await update(id, { supplier_id: s2, invoice_number: takenNumber })).isError).toBeFalsy();
+  });
+
+  it('keeps the fingerprint on a header-only edit, and treats identical lines as unchanged', async () => {
+    const id = await draft();
+    await sql`UPDATE supplier_invoices SET duplicate_fingerprint = 'sentinel' WHERE id = ${id}::UUID`;
+    await update(id, { reference: 'header-only' });
+    expect((await snapshot(id)).duplicate_fingerprint).toBe('sentinel');
+
+    // The stored line carries a project, so a REAL replacement would be refused.
+    await sql`UPDATE supplier_invoice_items SET project_id = ${randomUUID()}::UUID WHERE supplier_invoice_id = ${id}::UUID`;
+    const same = await update(id, { lines: [{ description: 'Original', quantity: 1, unit_price: 100 }] });
+    expect(same.isError).toBeFalsy();
+    expect(JSON.parse(text(same)).changed).toEqual([]);
+    expect((await snapshot(id)).duplicate_fingerprint).toBe('sentinel');
+  });
 });
