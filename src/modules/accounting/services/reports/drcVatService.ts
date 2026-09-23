@@ -84,6 +84,22 @@ async function applyDRCVatInner(
       `DRC VAT can only be applied to an approved supplier invoice; ${String(inv.invoice_number)} is ${status}.`,
     );
   }
+  // A reverse-charge invoice carries no supplier VAT. On a bill that does, DRC
+  // is the wrong treatment: approval posts DR Input VAT = tax_amount, and DRC's
+  // DR Input / CR Output on top inflates both VAT201 boxes (net unchanged).
+  // Not every taxed bill has an approval journal (e.g. bills written approved
+  // without one — 496 of 1,229 on dev, not Sage imports), so the
+  // refusal says the supplier charged VAT, not that it was already claimed.
+  // Any non-zero figure, negative included: the eligible list admits exactly
+  // tax_amount = 0, and the two must never disagree.
+  const supplierVat = Number(inv.tax_amount ?? 0);
+  if (supplierVat !== 0) {
+    throw new Error(
+      `DRC VAT applies only to a bill on which the supplier charged no VAT; ${String(inv.invoice_number)} `
+      + `records R${supplierVat.toFixed(2)} of supplier VAT, so it is not a reverse-charge supply. `
+      + 'If that VAT was captured in error, correct the bill first (cancel and re-enter it without VAT).',
+    );
+  }
 
   // DRC VAT is calculated on the pre-VAT base (subtotal), not the gross total
   const totalExclVat = Number(inv.subtotal);
@@ -140,6 +156,7 @@ export async function getDRCEligibleInvoices(companyId: string): Promise<Array<{
     WHERE si.company_id = ${companyId}
       AND si.status = ANY(${BALANCE_DERIVED}::TEXT[])
       AND si.deleted_at IS NULL
+      AND COALESCE(si.tax_amount, 0) = 0
       AND (si.is_drc IS NULL OR si.is_drc = false)
     ORDER BY si.invoice_date DESC
   `) as Row[];

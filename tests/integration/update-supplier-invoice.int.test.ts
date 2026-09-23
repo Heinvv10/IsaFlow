@@ -68,14 +68,18 @@ async function snapshot(id: string): Promise<Row> {
 }
 
 /**
- * A draft carrying a posted DRC journal. applyDRCVat now refuses drafts, but
- * rows written before that fix exist, so the edit guard must still hold:
- * apply while approved, then put the bill back to draft as the old path left it.
+ * A draft carrying a posted DRC journal. applyDRCVat now refuses drafts and
+ * taxed bills, but rows written before those fixes exist, so the edit guard
+ * must still hold.
  */
 async function drcOnDraft(id: string) {
-  await sql`UPDATE supplier_invoices SET status = 'approved' WHERE id = ${id}::UUID`;
+  // The old path also ignored supplier VAT; apply as a clean approved bill,
+  // then restore the draft exactly as that path left it.
+  const [{ tax_amount: tax }] = (await sql`
+    SELECT tax_amount FROM supplier_invoices WHERE id = ${id}::UUID`) as { tax_amount: string }[];
+  await sql`UPDATE supplier_invoices SET status = 'approved', tax_amount = 0 WHERE id = ${id}::UUID`;
   const drc = await inTx(fx, () => applyDRCVat(fx.companyId, id, fx.userId));
-  await sql`UPDATE supplier_invoices SET status = 'draft' WHERE id = ${id}::UUID`;
+  await sql`UPDATE supplier_invoices SET status = 'draft', tax_amount = ${tax} WHERE id = ${id}::UUID`;
   return drc;
 }
 
