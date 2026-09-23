@@ -97,13 +97,31 @@ const handler: NextApiHandler = async (req, res) => {
   }
 
   // Optional metadata — validate what we honour, reject what we can't.
-  // Truncate BEFORE the reserved-name check, never after: the check's cost grows
-  // with length, and it runs before the global rate limit is charged, so a
-  // refused name is bounded only by this cut (~0.6ms at 80 chars, ~20ms on an
-  // untruncated 8kb body).
+  // NFC first, so the name we STORE and later display is the same string the
+  // reserved-name check compares. Some code points are letters the browser
+  // declines to draw — the CJK compatibility ideographs (U+FACF, U+2F803 and
+  // kin) render as nothing in Chromium even with CJK fonts installed, while
+  // occupying a full ideograph cell. "Isa<U+FACF>Flow" therefore READS as
+  // "Isa Flow", which this endpoint refuses, while comparing as neither. They
+  // are canonical singletons, so NFC maps each to the ideograph it stands for
+  // — a glyph that does render — and the gap between shown and compared closes
+  // at the boundary rather than in the matcher, which was right all along.
+  //
+  // A name already in NFC is stored byte-identical; a DECOMPOSED one is not,
+  // and that is the point — a macOS pasteboard hands you NFD, and composing it
+  // means the stored name is compared as the same thing it displays as.
+  //
+  // Normalise BEFORE the slice, not after. `.slice()` counts UTF-16 units and
+  // NFC can EXPAND: U+FACF is one unit, its canonical target is a surrogate
+  // pair, so cutting first would store 81 units against this 80-unit cap.
+  //
+  // Truncate BEFORE the reserved-name check, never after: the check's cost
+  // grows with length, and it runs before the global rate limit is charged, so
+  // a refused name is bounded only by this cut (~0.6ms at 80 chars, ~20ms on
+  // an untruncated 8kb body).
   const clientName =
     typeof body.client_name === 'string' && body.client_name.trim()
-      ? body.client_name.trim().slice(0, MAX_NAME_LEN)
+      ? body.client_name.trim().normalize('NFC').slice(0, MAX_NAME_LEN)
       : 'MCP Client';
   if (isReservedClientName(clientName)) {
     return res.status(400).json(
