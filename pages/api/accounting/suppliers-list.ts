@@ -10,6 +10,7 @@
 import type { NextApiRequest, NextApiResponse } from 'next';
 import { sql } from '@/lib/neon';
 import { apiResponse } from '@/lib/apiResponse';
+import { UUID_RE } from '@/lib/validation';
 import { createSupplier, updateSupplier } from '@/modules/accounting/services/core/supplierWriteService';
 import type { AutoAllocateStrategy } from '@/modules/accounting/services/shared/autoAllocateStrategy';
 import { ContactValidationError } from '@/modules/accounting/services/core/customerWriteService';
@@ -137,7 +138,7 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
   if (req.method === 'PATCH') {
     const b = req.body as Record<string, unknown>;
     const id = typeof b.id === 'string' ? b.id : '';
-    if (!/^[0-9a-f-]{36}$/i.test(id)) return apiResponse.badRequest(res, 'id must be a supplier id');
+    if (!UUID_RE.test(id)) return apiResponse.badRequest(res, 'id must be a supplier id');
     if (typeof b.subject_to_drc_vat !== 'boolean') {
       return apiResponse.badRequest(res, 'subject_to_drc_vat must be true or false');
     }
