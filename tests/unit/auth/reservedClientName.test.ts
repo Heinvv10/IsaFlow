@@ -67,6 +67,34 @@ describe('isReservedClientName', () => {
     }
   });
 
+  // A wildcard is a letter we could not identify, so it counts toward the
+  // prefix floor. Counting only ASCII refused every client whose name uses a
+  // script with no Latin look-alikes, while Cyrillic and Greek passed by
+  // accident because some of their letters sit in CONFUSABLES for an unrelated
+  // reason. Nobody is let in by this: these names are refused for naming
+  // themselves in Japanese, not for impersonating anything.
+  it('lets a client name itself in a script with no Latin look-alikes', () => {
+    for (const name of [
+      '\u4f1a\u8ba1 (IsaFlow)', // Chinese
+      '\u30b3\u30fc\u30d2\u30fc (IsaFlow)', // Japanese
+      '\u05d7\u05e9\u05d1\u05d5\u05e0\u05d0\u05d5\u05ea (IsaFlow)', // Hebrew
+      '\u0645\u062d\u0627\u0633\u0628\u0629 (IsaFlow)', // Arabic
+      '\u0411\u0443\u0445\u0433\u0430\u043b\u0442\u0435\u0440 (IsaFlow)', // Cyrillic
+    ]) {
+      expect(isReservedClientName(asHandlerWould(name)), JSON.stringify(name)).toBe(false);
+    }
+  });
+
+  // ...and this must NOT reopen the invisible prefix. A zero-width or bidi
+  // character is \p{Cf}, not a letter, so it becomes a separator rather than a
+  // wildcard and still counts nothing. This is the whole risk of the change
+  // above, so it is asserted right next to it.
+  it('still counts an invisible prefix as naming nothing', () => {
+    for (const name of ['\u200b(IsaFlow)', '\u200c(IsaFlow)', '\u2060(IsaFlow)', '\ufeff(IsaFlow)']) {
+      expect(isReservedClientName(asHandlerWould(name)), JSON.stringify(name)).toBe(true);
+    }
+  });
+
   // A qualifier qualifies something. If nothing legible precedes it, the name
   // renders as the brand alone — "​(IsaFlow)" shows as "(IsaFlow)".
   it('refuses a qualifier with no legible client name in front of it', () => {
@@ -81,6 +109,7 @@ describe('isReservedClientName', () => {
       '* (IsaFlow)',
       '1 (IsaFlow)',
       'A (IsaFlow)', // one letter names nothing
+      '12 (IsaFlow)', // nor do digits, however many
     ]) {
       expect(isReservedClientName(asHandlerWould(name)), JSON.stringify(name)).toBe(true);
     }
