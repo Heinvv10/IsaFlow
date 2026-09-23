@@ -161,6 +161,23 @@ describeIfDb('R-119 a negative total is refused', () => {
     ).rejects.toThrow(/NaN amount/i);
   });
 
+  it.each([
+    ['subtotal', 'negative subtotal'],
+    ['tax_amount', 'negative tax amount'],
+  ])('customer_invoices refuses a negative %s even when the total looks clean', async (column, message) => {
+    // The nastier shape: total 115 reads clean, so a total-only guard hides
+    // it from anyone checking totals, while SUM(subtotal) and SUM(tax_amount)
+    // — the VAT return and every sales-analysis report — go wrong.
+    const values: Record<string, number> = { subtotal: 100, tax_amount: 15 };
+    values[column] = -1000;
+    await expect(sql`
+      INSERT INTO customer_invoices (company_id, invoice_number, customer_id, client_id, invoice_date,
+        subtotal, tax_amount, total_amount, status, created_by)
+      VALUES (${COMPANY}::UUID, ${`${TAG}-negleg-${column}`}, ${customerId}::UUID, ${customerId}::UUID, CURRENT_DATE,
+        ${values.subtotal}, ${values.tax_amount}, 115, 'sent', ${USER})`
+    ).rejects.toThrow(new RegExp(message, 'i'));
+  });
+
   it('supplier_invoices refuses a legacy negative row being re-set to another negative', async () => {
     const supplierId = ((await sql`
       INSERT INTO suppliers (name, company_id) VALUES ('R119 Supplier', ${COMPANY}::UUID) RETURNING id

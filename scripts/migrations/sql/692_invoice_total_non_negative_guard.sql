@@ -1,4 +1,4 @@
--- 692: an invoice may not carry a negative total. A credit is a credit note.
+-- 692: an invoice may not carry a negative or NaN amount. A credit is a credit note.
 --
 -- R-119. Nothing in the database restricted the sign of `total_amount` on
 -- `customer_invoices` or `supplier_invoices` (no CHECK, no trigger — verified
@@ -58,9 +58,9 @@ BEGIN
             HINT = 'A non-numeric amount reached the writer — check the source figure.';
   END IF;
 
-  -- Only a NEWLY negative total is refused. On UPDATE, a row whose total was
-  -- already negative may be corrected, settled or cancelled; what it may not
-  -- do is move to a different negative value.
+  -- Only a NEWLY negative figure is refused. On UPDATE, a row that is already
+  -- negative may be corrected, settled or cancelled; what it may not do is
+  -- move to a different negative value.
   IF NEW.total_amount < 0
      AND (TG_OP = 'INSERT' OR OLD.total_amount IS DISTINCT FROM NEW.total_amount)
   THEN
@@ -70,6 +70,35 @@ BEGIN
       USING ERRCODE = 'check_violation',
             HINT = 'A reduction is a credit note: create one against the original document.';
   END IF;
+
+  -- The LEGS, for the same reason and separately. A row can carry
+  -- `subtotal -1000, tax -150, total 115`: the total reads clean, so a
+  -- total-only guard hides the damage from anyone checking totals, while
+  -- SUM(subtotal) and SUM(tax_amount) — the VAT return and every
+  -- sales-analysis report — go wrong. It reaches here by the same opaque
+  -- `templateData` path: `headerTotals` compares the stored legs against
+  -- derived ones only when the template HAS lines, and production carries
+  -- line-less templates.
+  IF NEW.subtotal < 0
+     AND (TG_OP = 'INSERT' OR OLD.subtotal IS DISTINCT FROM NEW.subtotal)
+  THEN
+    RAISE EXCEPTION
+      'Document % may not carry a negative subtotal (%)',
+      COALESCE(NEW.invoice_number, '(no number)'), NEW.subtotal
+      USING ERRCODE = 'check_violation',
+            HINT = 'A reduction is a credit note: create one against the original document.';
+  END IF;
+
+  IF NEW.tax_amount < 0
+     AND (TG_OP = 'INSERT' OR OLD.tax_amount IS DISTINCT FROM NEW.tax_amount)
+  THEN
+    RAISE EXCEPTION
+      'Document % may not carry a negative tax amount (%)',
+      COALESCE(NEW.invoice_number, '(no number)'), NEW.tax_amount
+      USING ERRCODE = 'check_violation',
+            HINT = 'A negative VAT leg means the rate or the source figure is wrong.';
+  END IF;
+
   RETURN NEW;
 END;
 $$ LANGUAGE plpgsql
