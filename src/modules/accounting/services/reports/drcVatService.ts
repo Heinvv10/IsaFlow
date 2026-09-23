@@ -87,7 +87,8 @@ async function applyDRCVatInner(
   // A reverse-charge invoice carries no supplier VAT. On a bill that does, DRC
   // is the wrong treatment: approval posts DR Input VAT = tax_amount, and DRC's
   // DR Input / CR Output on top inflates both VAT201 boxes (net unchanged).
-  // Not every taxed bill has an approval journal (Sage-era bills), so the
+  // Not every taxed bill has an approval journal (e.g. bills written approved
+  // without one — 496 of 1,229 on dev, not Sage imports), so the
   // refusal says the supplier charged VAT, not that it was already claimed.
   // Any non-zero figure, negative included: the eligible list admits exactly
   // tax_amount = 0, and the two must never disagree.
