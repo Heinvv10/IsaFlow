@@ -44,7 +44,6 @@ import { AccountingTour } from '@/components/onboarding/AccountingTour';
 import { SetupGuideButton } from '@/components/onboarding/SetupGuideButton';
 import { ImpersonationBanner } from '@/components/layout/ImpersonationBanner';
 import { PayrollPeriodBar } from '@/components/payroll/PayrollPeriodBar';
-import { dmSans } from '@/lib/fonts';
 
 
 
@@ -312,7 +311,7 @@ export function AppLayout({ children }: AppLayoutProps) {
   const showSidebar = navMode === 'side';
 
   return (
-    <div className={`${dmSans.variable} flex flex-col h-screen overflow-hidden`} style={{ background: 'var(--ff-canvas-base)' }}>
+    <div className="flex flex-col h-screen overflow-hidden" style={{ background: 'var(--ff-canvas-base)' }}>
       <ImpersonationBanner />
 
       <div className="flex flex-1 min-h-0 overflow-hidden">
