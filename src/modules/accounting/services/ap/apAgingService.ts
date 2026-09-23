@@ -6,7 +6,7 @@
 import { sql } from '@/lib/neon';
 import type { DbRow } from '@/lib/neon';
 import { log } from '@/lib/logger';
-import { calculateAgingBuckets } from '../../utils/aging';
+import { calculateAgingBuckets, type AgingDetailInvoice } from '../../utils/aging';
 import type { AgingBucket, AgingInvoice } from '../../types/ap.types';
 import { fmtDate } from '@/lib/fmtDate';
 import { rewindAmount, effectivePaidExpr } from '@/modules/accounting/services/shared/agingRewind';
@@ -124,7 +124,7 @@ export async function getAPAging(companyId: string, asAtDate?: string): Promise<
 export async function getAPAgingDetail(companyId: string, 
   supplierId: string,
   asAtDate?: string
-): Promise<{ supplier: { id: string; name: string }; invoices: AgingInvoice[]; buckets: AgingBucket | null }> {
+): Promise<{ supplier: { id: string; name: string }; invoices: AgingDetailInvoice[]; buckets: AgingBucket | null }> {
   try {
     const asAt = asAtDate ? new Date(asAtDate) : new Date();
     if (asAtDate && isNaN(asAt.getTime())) {
@@ -175,8 +175,9 @@ export async function getAPAgingDetail(companyId: string,
       ORDER BY COALESCE(si.due_date, si.invoice_date)
     `) as Row[];
 
-    const invoices: AgingInvoice[] = rows.map((r: Row) => ({
+    const invoices: AgingDetailInvoice[] = rows.map((r: Row) => ({
       id: String(r.id),
+      invoiceNumber: String(r.invoice_number),
       entityId: String(r.entity_id),
       entityName: String(r.entity_name),
       dueDate: String(r.due_date),

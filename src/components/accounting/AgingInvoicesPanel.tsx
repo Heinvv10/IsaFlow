@@ -75,7 +75,7 @@ export function AgingInvoicesPanel({ side, entityId, entityName, asAtDate, colSp
                 <tr key={inv.id} className="hover:bg-[var(--ff-bg-secondary)]">
                   <td className="pl-12 pr-4 py-2 text-sm font-mono">
                     <Link href={buildInvoiceHref(inv.id, { from, entityId, asAtDate })} className={INVOICE_LINK}>
-                      {inv.invoiceNumber ?? 'View invoice'}
+                      {inv.invoiceNumber}
                     </Link>
                   </td>
                   <td className="px-4 py-2 text-sm text-[var(--ff-text-secondary)]">
