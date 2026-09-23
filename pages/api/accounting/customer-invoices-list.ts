@@ -9,6 +9,9 @@
  *
  * 2026-04-27: Added days_overdue and aging_bucket computed columns (server-side
  * CASE WHEN) for the AR aging column on the invoice list. Added ?aging filter.
+ *
+ * 2026-09-23: Added ?from_date / ?to_date (inclusive invoice_date). Query
+ * parsing lives in customerInvoiceListParams, shared with the CSV export.
  */
 
 import type { NextApiRequest, NextApiResponse } from 'next';
@@ -17,20 +20,7 @@ import { apiResponse } from '@/lib/apiResponse';
 import { withAuth, type CompanyAuthedRequest, withWriteAccess } from '@/lib/auth';
 import { log } from '@/lib/logger';
 import { listCustomerInvoices } from '@/modules/accounting/services/ar/customerInvoiceReadService';
-
-/**
- * Valid aging filter values accepted via ?aging= query param.
- * 'due-soon'   — due_date between today and today+7 (unpaid)
- * 'overdue-90' — days_overdue > 90
- * 'viewed-unpaid' — sent + last_viewed_at IS NOT NULL
- */
-type AgingFilter = 'due-soon' | 'overdue-90' | 'viewed-unpaid';
-const VALID_AGING_FILTERS = new Set<AgingFilter>(['due-soon', 'overdue-90', 'viewed-unpaid']);
-
-function parseAgingFilters(raw: string | string[] | undefined): AgingFilter[] {
-  const arr = Array.isArray(raw) ? raw : raw ? raw.split(',') : [];
-  return arr.filter((v): v is AgingFilter => VALID_AGING_FILTERS.has(v as AgingFilter));
-}
+import { parseCustomerInvoiceListParams } from '@/modules/accounting/services/ar/customerInvoiceListParams';
 
 async function handler(req: NextApiRequest, res: NextApiResponse) {
   const { companyId } = req as CompanyAuthedRequest;
@@ -40,47 +30,10 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
   }
 
   try {
-    const {
-      status,
-      limit: limitParam = '25',
-      page: pageParam = '1',
-      q,
-      client_id,
-      aging,
-    } = req.query;
+    const parsed = parseCustomerInvoiceListParams(req.query);
+    if (!parsed.ok) return apiResponse.badRequest(res, parsed.error);
 
-    // Cap at 100 — aligns with BL-11 / BL-24 limit policy
-    // Sanitise: NaN / negative values from query-string coercion become safe defaults.
-    const limitNum = Number(limitParam);
-    const pageNum = Number(pageParam);
-    const safeLimit = Number.isFinite(limitNum) && limitNum > 0 ? Math.min(Math.floor(limitNum), 100) : 25;
-    const page = Number.isFinite(pageNum) && pageNum >= 1 ? Math.floor(pageNum) : 1;
-
-    // Normalize status: single value or array; null means "no filter"
-    const statusValues: string[] | null =
-      Array.isArray(status)
-        ? status
-        : status && status !== 'all'
-          ? [status]
-          : null;
-
-    // Null means "no filter" — typed guards in SQL use ::text / ::uuid IS NULL checks
-    const clientIdFilter: string | null =
-      typeof client_id === 'string' && client_id.trim() ? client_id.trim() : null;
-
-    const rawSearch = typeof q === 'string' ? q.trim() : '';
-    const searchTermFilter: string | null = rawSearch || null;
-
-    const agingFilters = parseAgingFilters(aging);
-
-    const { invoices, total } = await listCustomerInvoices(companyId, {
-      status: statusValues,
-      clientId: clientIdFilter,
-      search: searchTermFilter,
-      agingFilters,
-      limit: safeLimit,
-      page,
-    });
+    const { invoices, total } = await listCustomerInvoices(companyId, parsed.filters);
 
     return apiResponse.success(res, { invoices, total });
   } catch (err) {
