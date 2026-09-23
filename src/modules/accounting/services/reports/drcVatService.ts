@@ -11,12 +11,14 @@
  * The invoice amount stays the same but both sides of VAT are recorded.
  */
 
-import { sql } from '@/lib/neon';
+import { sql, withSavepoint } from '@/lib/neon';
 import type { DbRow } from '@/lib/neon';
 import { log } from '@/lib/logger';
 import { createJournalEntry, postJournalEntry } from '../gl/journalEntryService';
 import { getSystemAccountId } from '../gl/systemAccountResolver';
 import type { JournalLineInput } from '../../types/gl.types';
+import { BALANCE_DERIVED } from '../ar/invoiceStatusRecompute';
+import { lockSupplierInvoiceForUpdate } from '../ap/supplierInvoiceLock';
 
 type Row = DbRow;
 
@@ -46,22 +48,42 @@ export interface DRCResult {
 /**
  * Apply DRC VAT to a supplier invoice.
  * Creates a journal entry: DR Input VAT, CR Output VAT.
+ *
+ * Approved bills only — approved, partially_paid or paid. The allow-list is
+ * BALANCE_DERIVED (posted documents), shared with AR, so it also names
+ * 'sent'/'overdue', which the supplier_invoices status check never admits. Not
+ * FIFO_ELIGIBLE_STATUSES: that is "where cash may land" and may narrow for cash
+ * reasons. A draft's figures can still change under the journal, and nothing
+ * re-runs DRC on an `is_drc` bill to correct it. The row lock serialises two concurrent calls
+ * so the second sees `is_drc` and refuses. Everything runs in one savepoint:
+ * the route turns any throw into a 400, which `withAuth` COMMITS, so without
+ * it a failure after `createJournalEntry` left an orphan draft journal.
  */
-export async function applyDRCVat(companyId: string, 
+export async function applyDRCVat(companyId: string,
   supplierInvoiceId: string,
   userId: string
 ): Promise<DRCResult> {
-  // Get invoice details
-  const invoices = (await sql`
-    SELECT si.id, si.invoice_number, si.subtotal, si.total_amount, si.is_drc
-    FROM supplier_invoices si
-    WHERE si.id = ${supplierInvoiceId}::UUID AND si.company_id = ${companyId}
-  `) as Row[];
+  return withSavepoint('drc_vat_apply', () => applyDRCVatInner(companyId, supplierInvoiceId, userId));
+}
 
-  if (!invoices[0]) throw new Error('Supplier invoice not found');
-  const inv = invoices[0];
+async function applyDRCVatInner(
+  companyId: string,
+  supplierInvoiceId: string,
+  userId: string,
+): Promise<DRCResult> {
+  const inv = await lockSupplierInvoiceForUpdate(companyId, supplierInvoiceId);
+  // One reply for absent, foreign and soft-deleted: no existence oracle. The
+  // lock is held through the post on purpose — released earlier, a second
+  // call could read is_drc = false again.
+  if (!inv || inv.deleted_at) throw new Error('Supplier invoice not found');
 
   if (inv.is_drc) throw new Error('DRC VAT already applied to this invoice');
+  const status = String(inv.status);
+  if (!BALANCE_DERIVED.includes(status)) {
+    throw new Error(
+      `DRC VAT can only be applied to an approved supplier invoice; ${String(inv.invoice_number)} is ${status}.`,
+    );
+  }
 
   // DRC VAT is calculated on the pre-VAT base (subtotal), not the gross total
   const totalExclVat = Number(inv.subtotal);
@@ -116,7 +138,8 @@ export async function getDRCEligibleInvoices(companyId: string): Promise<Array<{
     FROM supplier_invoices si
     LEFT JOIN suppliers s ON s.id = si.supplier_id
     WHERE si.company_id = ${companyId}
-      AND si.status IN ('approved', 'partially_paid', 'paid')
+      AND si.status = ANY(${BALANCE_DERIVED}::TEXT[])
+      AND si.deleted_at IS NULL
       AND (si.is_drc IS NULL OR si.is_drc = false)
     ORDER BY si.invoice_date DESC
   `) as Row[];
