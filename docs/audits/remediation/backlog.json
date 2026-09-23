@@ -12629,6 +12629,34 @@
       "canonicalItem": null,
       "reportedSeverity": "medium",
       "processNotes": "Decide the rule first: refuse a negative total at every writer (a credit is a credit_note), or accept it deliberately and teach the ageing/subledger to carry it. Do not fix writer-by-writer without that decision. 2026-09-23 (R-117 review): also decide what surfaces a WRONG-SIGNED settlement — amount_paid +500 on a -1150 document. effectivePaidExpr now reports 0 settled for it (the 500 is outside [total, 0]); the clamp cannot repair it, so an integrity check should name it rather than a report silently carrying it."
+    },
+    {
+      "id": "R-120",
+      "claim": "pages/api/accounting/practice/wip/invoice.ts answers badRequestFromError, which masks the underlying message in production, so an operator whose WIP invoice is refused (e.g. by migration 692's leg arms, reached through practiceWipService's subtotal built from time_entries.line_total — the same unguarded source as the time-entry route) is told 'WIP invoice failed' with nothing to act on. No data risk: the write sits inside withSavepoint('wip_invoice_build'), so the invoice and its reserved number roll back.",
+      "area": "practice",
+      "affectedPaths": [
+        "pages/api/accounting/practice/wip/invoice.ts",
+        "src/modules/accounting/services/practice/practiceWipService.ts"
+      ],
+      "sourceLabel": "R-119 review round 3 (adversarial)",
+      "sourceIds": [],
+      "correctedTrigger": null,
+      "severityRationale": "Named by a reviewer while surveying leg writers; the masking is confirmed by reading, the refusal path is not yet reproduced.",
+      "auditedSha": "e41401627",
+      "currentSha": "e41401627",
+      "status": "candidate",
+      "dependencies": [],
+      "testNames": [],
+      "evidencePaths": [
+        "docs/audits/remediation/R-119/fix.md"
+      ],
+      "fixCommit": null,
+      "pr": null,
+      "deployedSha": null,
+      "historicalDataImpact": "None — the write rolls back.",
+      "canonicalItem": null,
+      "reportedSeverity": "low",
+      "processNotes": null
     }
   ],
   "sourceInventory": [
