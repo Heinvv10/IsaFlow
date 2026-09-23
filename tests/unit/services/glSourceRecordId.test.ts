@@ -75,9 +75,12 @@ describe('applyDRCVat', () => {
     // The locked invoice row.
     vi.mocked(lockSupplierInvoiceForUpdate).mockResolvedValue(
       { id: INVOICE_ID, invoice_number: 'INV-1', subtotal: 1000, total_amount: 1150, is_drc: false,
-        status: 'approved', deleted_at: null } as never,
+        status: 'approved', deleted_at: null, supplier_id: 'eeeeeeee-0000-0000-0000-000000000007',
+        tax_amount: 0 } as never,
     );
     vi.mocked(sql)
+      // the supplier's DRC flag
+      .mockResolvedValueOnce([{ subject_to_drc_vat: true }] as never)
       // vat_rate setting
       .mockResolvedValueOnce([{ value: '0.15' }] as never)
       // UPDATE supplier_invoices

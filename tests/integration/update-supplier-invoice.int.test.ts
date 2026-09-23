@@ -78,6 +78,7 @@ async function drcOnDraft(id: string) {
   const [{ tax_amount: tax }] = (await sql`
     SELECT tax_amount FROM supplier_invoices WHERE id = ${id}::UUID`) as { tax_amount: string }[];
   await sql`UPDATE supplier_invoices SET status = 'approved', tax_amount = 0 WHERE id = ${id}::UUID`;
+  await sql`UPDATE suppliers SET subject_to_drc_vat = true WHERE id = ${fx.supplierId}::UUID`;
   const drc = await inTx(fx, () => applyDRCVat(fx.companyId, id, fx.userId));
   await sql`UPDATE supplier_invoices SET status = 'draft', tax_amount = ${tax} WHERE id = ${id}::UUID`;
   return drc;

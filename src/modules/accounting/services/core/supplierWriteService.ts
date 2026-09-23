@@ -50,6 +50,8 @@ export interface SupplierWriteInput {
   autoAllocateStrategy?: AutoAllocateStrategy;
   /** @deprecated Legacy boolean from migration 246. Use autoAllocateStrategy — true maps to 'oldest'. */
   autoAllocatePayments?: boolean;
+  /** The supplier's supplies fall under the domestic reverse charge; the one thing DRC VAT eligibility reads. */
+  subjectToDrcVat?: boolean;
 }
 
 function trimmed(value: string | null | undefined): string | null {
@@ -116,7 +118,7 @@ export async function createSupplier(
       bank_name, bank_account_number, bank_branch_code, bank_account_type,
       is_active, notes, category,
       opening_balance, opening_balance_date,
-      auto_allocate_strategy, auto_allocate_payments
+      auto_allocate_strategy, auto_allocate_payments, subject_to_drc_vat
     ) VALUES (
       ${companyId}::UUID,
       ${name},
@@ -138,7 +140,8 @@ export async function createSupplier(
       ${input.openingBalance ?? 0},
       ${trimmed(input.openingBalanceDate)}::DATE,
       ${strategy},
-      ${strategy !== 'off'}
+      ${strategy !== 'off'},
+      ${input.subjectToDrcVat ?? false}
     )
     RETURNING
       id, name, company_name, email, phone,
@@ -147,7 +150,7 @@ export async function createSupplier(
       bank_name, bank_account_number, bank_branch_code, bank_account_type,
       is_active, notes, category,
       opening_balance, opening_balance_date,
-      auto_allocate_strategy, auto_allocate_payments,
+      auto_allocate_strategy, auto_allocate_payments, subject_to_drc_vat,
       created_at
   `) as DbRow[];
 
@@ -201,6 +204,7 @@ export async function updateSupplier(
       auto_allocate_payments = COALESCE(
         ${strategy !== undefined ? strategy !== 'off' : null}, auto_allocate_payments
       ),
+      subject_to_drc_vat  = COALESCE(${input.subjectToDrcVat ?? null}, subject_to_drc_vat),
       updated_at          = NOW()
     WHERE id = ${supplierId}::UUID
       AND company_id = ${companyId}::UUID
@@ -212,7 +216,7 @@ export async function updateSupplier(
       bank_name, bank_account_number, bank_branch_code, bank_account_type,
       is_active, notes, category,
       opening_balance, opening_balance_date,
-      auto_allocate_strategy, auto_allocate_payments,
+      auto_allocate_strategy, auto_allocate_payments, subject_to_drc_vat,
       created_at
   `) as DbRow[];
 

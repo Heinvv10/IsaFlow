@@ -12,6 +12,7 @@ import Link from 'next/link';
 import { ArrowLeft, Building2, Loader2, AlertCircle, CheckCircle2, XCircle, Trash2 } from 'lucide-react';
 import { apiFetch } from '@/lib/apiFetch';
 import { RecordNavigation } from '@/components/accounting/RecordNavigation';
+import { DrcFlagToggle } from '@/components/accounting/suppliers/DrcFlagToggle';
 
 interface Supplier {
   id: string;
@@ -23,6 +24,7 @@ interface Supplier {
   vat_number: string | null;
   payment_terms: number | null;
   is_active: boolean;
+  subject_to_drc_vat: boolean;
   created_at: string;
 }
 
@@ -202,6 +204,7 @@ export default function SupplierDetailPage() {
                   </p>
                 )}
               </div>
+              <DrcFlagToggle key={supplier.id} supplierId={supplier.id} initial={supplier.subject_to_drc_vat === true} />
             </div>
           )}
 
