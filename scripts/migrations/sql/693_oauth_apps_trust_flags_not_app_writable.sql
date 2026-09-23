@@ -22,9 +22,19 @@
 -- granted back explicitly. Same reason a REVOKE of a privilege held via PUBLIC
 -- does nothing.
 --
--- Fails closed by construction: a future writer that names a column absent
--- from these lists gets "permission denied for table oauth_apps", which is a
--- loud test failure, not a silent privilege escalation.
+-- COLUMN PRIVILEGES ALONE DO NOT CLOSE THIS. A table's OWNER is never checked
+-- against them, and the pool connects as `postgres`, which owns oauth_apps.
+-- The routes that run as app_user are the ones that issue
+-- `SET LOCAL ROLE app_user` (withAuth, bearerPipeline, withPlatformAdmin,
+-- withExtensionToken, withInviteToken) — and the public, unauthenticated DCR
+-- endpoint is NOT one of them: pages/api/oauth/register.ts is
+-- `withErrorHandler(handler)` with no auth wrapper, so registerOauthApp's
+-- INSERT runs as the owner. Verified: as the pool role, an INSERT naming both
+-- flags TRUE succeeds and reads back true.
+--
+-- So the grants below are defence in depth for app_user, and the TRIGGER at
+-- the bottom is what actually binds the property, because a BEFORE trigger
+-- fires for every role including the owner.
 
 -- ── UPDATE: revokeOauthApp only ever sets revoked_at (src/lib/auth/oauth.ts) ──
 REVOKE UPDATE ON oauth_apps FROM app_user;
@@ -42,3 +52,90 @@ GRANT INSERT (
 
 -- SELECT and DELETE are unchanged: reads are already row-scoped by the RLS
 -- policy, and pruneStaleDynamicApps deletes whole rows it owns.
+
+-- ── The actual binding: a trigger, because it fires for the owner too ───────
+-- RAISE rather than silently coercing the flags back. A silent coercion means
+-- a future writer believes it set a flag, reads back false, and the mismatch
+-- surfaces somewhere else entirely — the dormant-defect shape. A loud refusal
+-- is a failing test on the branch that introduces it.
+--
+-- The escape hatch is deliberate and explicit: nothing in the application may
+-- mark an app verified, but a human must be able to. `SET LOCAL
+-- isaflow.allow_trust_flag_write = 'on'` inside the transaction that does it
+-- makes that act visible in the statement log rather than indistinguishable
+-- from an ordinary UPDATE.
+--
+-- Not absolute, and not claimed to be: a superuser can set
+-- `session_replication_role = 'replica'` and skip every trigger. That is a
+-- deliberate act by someone who already owns the database, which is a
+-- different threat model from "a route grew a column in its INSERT list".
+CREATE OR REPLACE FUNCTION oauth_apps_guard_trust_flags()
+RETURNS trigger
+LANGUAGE plpgsql
+AS $$
+BEGIN
+  IF coalesce(current_setting('isaflow.allow_trust_flag_write', true), '') = 'on' THEN
+    RETURN NEW;
+  END IF;
+
+  IF TG_OP = 'INSERT' THEN
+    -- A fresh row may only arrive untrusted. Both columns DEFAULT FALSE, so a
+    -- writer that does not name them is unaffected.
+    IF NEW.is_verified OR NEW.is_first_party THEN
+      RAISE EXCEPTION
+        'oauth_apps: is_verified/is_first_party may not be set by the application'
+        USING HINT = 'These decide whether an app may brand the consent screen. '
+                     'To change one deliberately, SET LOCAL isaflow.allow_trust_flag_write = ''on'' '
+                     'in the same transaction.';
+    END IF;
+  ELSIF NEW.is_verified IS DISTINCT FROM OLD.is_verified
+     OR NEW.is_first_party IS DISTINCT FROM OLD.is_first_party THEN
+    -- IS DISTINCT FROM, not <>: these are NOT NULL today, but a nullable
+    -- future column would make <> return NULL and skip the guard.
+    RAISE EXCEPTION
+      'oauth_apps: is_verified/is_first_party may not be changed by the application'
+      USING HINT = 'SET LOCAL isaflow.allow_trust_flag_write = ''on'' in the same transaction.';
+  END IF;
+
+  RETURN NEW;
+END;
+$$;
+
+DROP TRIGGER IF EXISTS oauth_apps_guard_trust_flags_trg ON oauth_apps;
+CREATE TRIGGER oauth_apps_guard_trust_flags_trg
+  BEFORE INSERT OR UPDATE ON oauth_apps
+  FOR EACH ROW EXECUTE FUNCTION oauth_apps_guard_trust_flags();
+
+-- ── Post-condition: a REVOKE that granted nothing back still exits 0 ────────
+-- Applying this file as a role that did not issue the original grants is a
+-- silent no-op (a role may only revoke what it granted; these came from the
+-- owner). The runner uses DATABASE_URL, which is the owner — but the failure
+-- mode is invisible, the integration test is skipped in CI, and deploy.sh runs
+-- this against production. So assert the outcome here, where it fails loudly
+-- at apply time.
+DO $$
+BEGIN
+  IF has_column_privilege('app_user', 'oauth_apps', 'is_verified', 'UPDATE')
+     OR has_column_privilege('app_user', 'oauth_apps', 'is_first_party', 'UPDATE')
+     OR has_column_privilege('app_user', 'oauth_apps', 'is_verified', 'INSERT')
+     OR has_column_privilege('app_user', 'oauth_apps', 'is_first_party', 'INSERT') THEN
+    RAISE EXCEPTION 'migration 693 did not take: app_user can still write a trust flag. '
+                    'Re-apply as the owner of oauth_apps (a role can only revoke grants it issued).';
+  END IF;
+
+  IF NOT EXISTS (
+    SELECT 1 FROM pg_trigger
+    WHERE tgrelid = 'oauth_apps'::regclass
+      AND tgname = 'oauth_apps_guard_trust_flags_trg'
+      AND NOT tgisinternal
+  ) THEN
+    RAISE EXCEPTION 'migration 693 did not take: the trust-flag trigger is missing.';
+  END IF;
+
+  -- The writes the application legitimately makes must still work.
+  IF NOT has_column_privilege('app_user', 'oauth_apps', 'revoked_at', 'UPDATE')
+     OR NOT has_column_privilege('app_user', 'oauth_apps', 'client_id', 'INSERT') THEN
+    RAISE EXCEPTION 'migration 693 over-revoked: app_user can no longer perform a legitimate write.';
+  END IF;
+END;
+$$;

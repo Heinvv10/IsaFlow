@@ -268,8 +268,13 @@ export const getServerSideProps: GetServerSideProps<Props | ErrorProps> = async 
   for (const s of scopes) {
     if (!VALID_SCOPES.has(s)) {
       // The token goes to the log, never to the page — see consentRejection.ts.
-      // Truncated because it is attacker-chosen and uncapped in the URL.
-      log.warn('OAuth consent: unknown scope requested', { clientId, scope: s.slice(0, 120) }, 'oauth');
+      // BOTH values are truncated: each is attacker-chosen and neither is
+      // length-capped on the way in (clientId comes straight off q.client_id).
+      log.warn(
+        'OAuth consent: unknown scope requested',
+        { clientId: clientId.slice(0, 120), scope: s.slice(0, 120) },
+        'oauth',
+      );
       return { props: { ok: false, error: rejectionForUnknownScope(s) } };
     }
   }
