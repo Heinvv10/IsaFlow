@@ -4,7 +4,8 @@
  * Paths: /accounting/debtors-manager
  */
 
-import { useState, useEffect, useCallback } from 'react';
+import { Fragment, useState, useEffect, useCallback } from 'react';
+import Link from 'next/link';
 import { AppLayout } from '@/components/layout/AppLayout';
 import { Loader2, AlertCircle, Users, TrendingDown, Clock, Percent, ChevronDown, ChevronRight, Search } from 'lucide-react';
 import { apiFetch } from '@/lib/apiFetch';
@@ -12,8 +13,11 @@ import type {
   DebtorSummary,
   CollectionStats,
   OverdueInvoice,
-  DebtorInvoice,
 } from '@/modules/accounting/services/ar/debtorsManagerService';
+import { DebtorInvoicesPanel } from '@/components/accounting/DebtorInvoicesPanel';
+import { buildInvoiceHref } from '@/components/accounting/invoiceReturnContext';
+import { useAgingReturn } from '@/components/accounting/useAgingReturn';
+import { INVOICE_LINK } from '@/components/accounting/agingPanelFormat';
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
@@ -25,14 +29,6 @@ function fmtDate(iso: string | null): string {
   if (!iso) return '—';
   return new Date(iso).toLocaleDateString('en-ZA');
 }
-
-const BUCKET_COLORS = {
-  current: 'text-teal-500',
-  days30: 'text-amber-500',
-  days60: 'text-orange-500',
-  days90: 'text-red-400',
-  days90Plus: 'text-red-600',
-};
 
 // ── Stat Card ─────────────────────────────────────────────────────────────────
 
@@ -50,65 +46,6 @@ function StatCard({ label, value, sub, icon: Icon, color }: StatCardProps) {
   );
 }
 
-// ── Detail Panel ──────────────────────────────────────────────────────────────
-
-function DebtorDetailPanel({ clientId, clientName }: { clientId: string; clientName: string }) {
-  const [invoices, setInvoices] = useState<DebtorInvoice[]>([]);
-  const [loading, setLoading] = useState(true);
-
-  useEffect(() => {
-    setLoading(true);
-    apiFetch(`/api/accounting/debtors-manager?customerId=${clientId}`)
-      .then(r => r.json())
-      .then(json => setInvoices(Array.isArray(json.data) ? json.data : []))
-      .catch(() => setInvoices([]))
-      .finally(() => setLoading(false));
-  }, [clientId]);
-
-  if (loading) return (
-    <tr><td colSpan={7} className="px-6 py-4 bg-[var(--ff-bg-primary)]">
-      <div className="flex items-center gap-2 text-sm text-[var(--ff-text-secondary)]">
-        <Loader2 className="h-4 w-4 animate-spin" /> Loading invoices for {clientName}...
-      </div>
-    </td></tr>
-  );
-
-  return (
-    <tr>
-      <td colSpan={7} className="px-0 py-0 bg-[var(--ff-bg-primary)]">
-        <table className="w-full">
-          <thead>
-            <tr className="bg-[var(--ff-bg-tertiary)]">
-              <th className="pl-12 pr-4 py-2 text-left text-[10px] tracking-[0.12em] font-semibold text-[var(--ff-text-secondary)] uppercase">Invoice #</th>
-              <th className="px-4 py-2 text-left text-[10px] tracking-[0.12em] font-semibold text-[var(--ff-text-secondary)] uppercase">Invoice Date</th>
-              <th className="px-4 py-2 text-left text-[10px] tracking-[0.12em] font-semibold text-[var(--ff-text-secondary)] uppercase">Due Date</th>
-              <th className="px-4 py-2 text-right text-[10px] tracking-[0.12em] font-semibold text-[var(--ff-text-secondary)] uppercase">Total</th>
-              <th className="px-4 py-2 text-right text-[10px] tracking-[0.12em] font-semibold text-[var(--ff-text-secondary)] uppercase">Paid</th>
-              <th className="px-4 py-2 text-right text-[10px] tracking-[0.12em] font-semibold text-[var(--ff-text-secondary)] uppercase">Outstanding</th>
-              <th className="px-4 py-2 text-right text-[10px] tracking-[0.12em] font-semibold text-[var(--ff-text-secondary)] uppercase">Days Overdue</th>
-            </tr>
-          </thead>
-          <tbody className="divide-y divide-[var(--ff-border-light)]">
-            {invoices.map(inv => (
-              <tr key={inv.id} className="hover:bg-[var(--ff-bg-secondary)]">
-                <td className="pl-12 pr-4 py-2 text-sm font-mono text-[var(--ff-text-primary)]">{inv.invoiceNumber}</td>
-                <td className="px-4 py-2 text-sm text-[var(--ff-text-secondary)]">{fmtDate(inv.invoiceDate)}</td>
-                <td className="px-4 py-2 text-sm text-[var(--ff-text-secondary)]">{fmtDate(inv.dueDate)}</td>
-                <td className="px-4 py-2 text-sm text-right font-mono text-[var(--ff-text-primary)]">{fmt(inv.totalAmount)}</td>
-                <td className="px-4 py-2 text-sm text-right font-mono text-teal-500">{inv.amountPaid > 0 ? fmt(inv.amountPaid) : '—'}</td>
-                <td className={`px-4 py-2 text-sm text-right font-mono font-bold ${BUCKET_COLORS[inv.agingBucket]}`}>{fmt(inv.outstanding)}</td>
-                <td className={`px-4 py-2 text-sm text-right font-mono ${inv.daysOverdue > 0 ? 'text-red-400' : 'text-teal-500'}`}>
-                  {inv.daysOverdue > 0 ? `${inv.daysOverdue}d` : 'Current'}
-                </td>
-              </tr>
-            ))}
-          </tbody>
-        </table>
-      </td>
-    </tr>
-  );
-}
-
 // ── Main Page ─────────────────────────────────────────────────────────────────
 
 export default function DebtorsManagerPage() {
@@ -118,7 +55,9 @@ export default function DebtorsManagerPage() {
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState('');
   const [search, setSearch] = useState('');
-  const [expandedId, setExpandedId] = useState<string | null>(null);
+  const { expandedId, rowProps } = useAgingReturn({
+    entityParam: 'customer', rowsReady: !isLoading && summary.length > 0,
+  });
 
   const loadData = useCallback(async () => {
     setIsLoading(true);
@@ -142,8 +81,6 @@ export default function DebtorsManagerPage() {
   const filtered = summary.filter(d =>
     d.clientName.toLowerCase().includes(search.toLowerCase())
   );
-
-  const toggleExpand = (id: string) => setExpandedId(expandedId === id ? null : id);
 
   return (
     <AppLayout>
@@ -215,11 +152,10 @@ export default function DebtorsManagerPage() {
                 </thead>
                 <tbody className="divide-y divide-[var(--ff-border-light)]">
                   {filtered.map(d => (
-                    <>
+                    <Fragment key={d.clientId}>
                       <tr
-                        key={d.clientId}
+                        {...rowProps(d.clientId)}
                         className="hover:bg-teal-500/[0.04] transition-colors cursor-pointer"
-                        onClick={() => toggleExpand(d.clientId)}
                       >
                         <td className="px-4 py-3 text-[var(--ff-text-tertiary)]">
                           {expandedId === d.clientId
@@ -227,7 +163,9 @@ export default function DebtorsManagerPage() {
                             : <ChevronRight className="h-4 w-4" />}
                         </td>
                         <td className="px-4 py-3 text-sm font-medium text-[var(--ff-text-primary)]">
-                          {d.clientName}
+                          <Link href={`/accounting/customers/${d.clientId}`} onClick={e => e.stopPropagation()} className="hover:text-teal-400 hover:underline">
+                            {d.clientName}
+                          </Link>
                           <span className="ml-2 text-xs text-[var(--ff-text-tertiary)]">({d.invoiceCount} inv.)</span>
                         </td>
                         <td className="px-4 py-3 text-sm text-right font-mono text-teal-500">{d.current > 0 ? fmt(d.current) : '—'}</td>
@@ -238,9 +176,9 @@ export default function DebtorsManagerPage() {
                         <td className="px-4 py-3 text-sm text-right font-mono font-bold text-[var(--ff-text-primary)]">{fmt(d.totalOutstanding)}</td>
                       </tr>
                       {expandedId === d.clientId && (
-                        <DebtorDetailPanel clientId={d.clientId} clientName={d.clientName} />
+                        <DebtorInvoicesPanel clientId={d.clientId} clientName={d.clientName} />
                       )}
-                    </>
+                    </Fragment>
                   ))}
                 </tbody>
                 <tfoot>
@@ -280,7 +218,11 @@ export default function DebtorsManagerPage() {
                 <tbody className="divide-y divide-[var(--ff-border-light)]">
                   {overdueInvoices.slice(0, 10).map(inv => (
                     <tr key={inv.id} className="hover:bg-teal-500/[0.04]">
-                      <td className="px-4 py-2 text-sm font-mono text-[var(--ff-text-primary)]">{inv.invoiceNumber}</td>
+                      <td className="px-4 py-2 text-sm font-mono">
+                        <Link href={buildInvoiceHref(inv.id, { from: 'debtors', entityId: inv.clientId })} className={INVOICE_LINK}>
+                          {inv.invoiceNumber}
+                        </Link>
+                      </td>
                       <td className="px-4 py-2 text-sm text-[var(--ff-text-secondary)]">{inv.clientName}</td>
                       <td className="px-4 py-2 text-sm text-[var(--ff-text-secondary)]">{fmtDate(inv.dueDate)}</td>
                       <td className="px-4 py-2 text-sm text-right font-mono tabular-nums text-red-400">{inv.daysOverdue}d</td>

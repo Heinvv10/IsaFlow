@@ -16,6 +16,8 @@ import { ThreeWayMatchPanel } from '@/components/accounting/ap/ThreeWayMatchPane
 import { InvoiceActionBar } from '@/components/invoices/InvoiceActionBar';
 import { SupplierInvoiceSummary } from '@/components/invoices/SupplierInvoiceSummary';
 import { ConfirmDialog } from '@/components/ui/ConfirmDialog';
+import { Breadcrumb } from '@/components/ui/Breadcrumb';
+import { buildInvoiceTrail } from '@/components/accounting/invoiceReturnContext';
 import { useSupplierInvoiceActions } from '@/modules/accounting/hooks/useSupplierInvoiceActions';
 
 function StatusBadge({ status }: { status: string }) {
@@ -123,12 +125,15 @@ export default function SupplierInvoiceDetailPage() {
     </AppLayout>
   );
 
+  const trail = buildInvoiceTrail('supplier', router.query, invoice.supplierName, invoice.invoiceNumber);
+
   return (
     <AppLayout>
       <div className="min-h-screen bg-[var(--ff-bg-primary)]">
         <div className="border-b border-[var(--ff-border-light)] bg-[var(--ff-bg-secondary)] px-6 py-4">
-          <Link href="/accounting/supplier-invoices" className="inline-flex items-center gap-1 text-sm text-[var(--ff-text-secondary)] hover:text-teal-600 mb-3">
-            <ArrowLeft className="h-4 w-4" /> Back to Supplier Invoices
+          <Breadcrumb items={trail.items} className="mb-3" />
+          <Link href={trail.back.href} className="inline-flex items-center gap-1 text-sm text-[var(--ff-text-secondary)] hover:text-teal-600 mb-3">
+            <ArrowLeft className="h-4 w-4" /> Back to {trail.back.label}
           </Link>
           <div className="flex items-end justify-between gap-4 flex-wrap">
             <div className="flex items-center gap-3">
