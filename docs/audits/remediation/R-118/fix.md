@@ -26,3 +26,16 @@ Read-only, not run against production by this session.
 
 ## Not covered
 The AR mirror. `customer_invoices` has no equivalent bulk post action; approval is the only posting path there.
+
+## Review round 1 (blind reviewer), all findings fixed
+
+| Finding | Fix | Proof |
+|---|---|---|
+| HIGH: the guard broke `tests/integration/api/supplierInvoiceApproveReusesJournal.test.ts`, whose step 1 was "Post to GL a draft" — the very sequence R-118 forbids — leaving the reuse guard (one journal, not two) without cover. My own run had missed it: I ran only the R-118 and K-014 suites, and CI does not run integration (gated on DATABASE_URL). | The test now seeds `gl_journal_entry_id` from a separate approved bill, which is the pre-guard production shape, and keeps both assertions. | The file passes, and mutation M3 (guard above the early return) turns it red again. |
+| MEDIUM: the guard sat ABOVE the `glJournalEntryId` early return, so a draft that already carried a journal — the shape the register calls unassessed — threw instead of returning `alreadyPosted`. | Moved below it. Nothing new is posted for such a row, so refusing it only broke idempotency. | New case "is still an idempotent no-op for a draft that already carries a journal"; M3 red. |
+| MEDIUM: `journalCount()` matched `description LIKE '%<uuid>%'`, but the description carries the invoice NUMBER, so it returned 0 either way. | Keyed on the invoice number. Caught a second trap while fixing it: a `<number>-SRC` helper bill matches `LIKE '%<number>%'`, so the donor bill has an unrelated number. | M1 now fails 2 tests rather than 1. |
+| MEDIUM: the AR mirror `postCustomerInvoiceToGL` had the identical defect, reachable from `customer-invoices-gl.ts` with no status filter. | Same guard, same position. `approveCustomerInvoice` sets the status before posting, so approval is unaffected. | Two AR cases; M4 and M5 red. |
+| LOW: the module docs record every behavioural change to these functions. | Noted in `ap/.claude.md` and `ar/.claude.md`; mirrors regenerated. | `agent-docs:check` OK. |
+| LOW: the bulk bar showed only the first error, so a page of drafts gave one generic banner. | Failures are grouped by reason with counts. | — |
+
+Mutations (`mutations.log`), all red: AP guard removed, AP guard narrowed to draft-only, AP guard above the early return, AR guard removed, AR guard narrowed to draft-only.
