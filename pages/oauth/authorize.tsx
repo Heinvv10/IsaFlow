@@ -26,6 +26,8 @@ import { resolveConsentCompany, type ConsentCompany } from '@/lib/auth/consentCo
 import { getUserCompanies } from '@/modules/accounting/services/core/companyService';
 import { verifyToken } from '@/lib/auth/gotrue';
 import { consentAppView } from '@/lib/auth/consentAppView';
+import { rejectionForUnknownScope } from '@/lib/auth/consentRejection';
+import { log } from '@/lib/logger';
 
 interface ConsentApp {
   name: string;
@@ -167,7 +169,6 @@ export default function AuthorizePage(props: Props | ErrorProps) {
             value={companyId}
             onChange={setCompanyId}
             disabled={submitting}
-            appName={app.name}
           />
 
           <div>
@@ -265,7 +266,12 @@ export const getServerSideProps: GetServerSideProps<Props | ErrorProps> = async 
 
   const scopes = scopeStr.split(/[\s,]+/).filter(Boolean);
   for (const s of scopes) {
-    if (!VALID_SCOPES.has(s)) return { props: { ok: false, error: `Unknown scope: ${s}` } };
+    if (!VALID_SCOPES.has(s)) {
+      // The token goes to the log, never to the page — see consentRejection.ts.
+      // Truncated because it is attacker-chosen and uncapped in the URL.
+      log.warn('OAuth consent: unknown scope requested', { clientId, scope: s.slice(0, 120) }, 'oauth');
+      return { props: { ok: false, error: rejectionForUnknownScope(s) } };
+    }
   }
   if (scopes.length === 0) return { props: { ok: false, error: 'At least one scope must be requested' } };
 
