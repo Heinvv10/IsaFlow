@@ -1,0 +1,61 @@
+
+ RUN  v4.1.2 /home/hein/Workspace/IsaFlow/.worktrees/fix-R-118
+
+ ❯ tests/integration/r118-post-gl-draft-guard.int.test.ts (4 tests | 2 failed) 1968ms
+     × refuses a draft bill and posts nothing 455ms
+     × refuses a pending_approval bill and posts nothing 44ms
+
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 2 ⎯⎯⎯⎯⎯⎯⎯
+
+ FAIL  tests/integration/r118-post-gl-draft-guard.int.test.ts > R-118 postSupplierInvoiceToGL refuses a document outside the AP population > refuses a draft bill and posts nothing
+AssertionError: promise resolved "{ …(2) }" instead of rejecting
+
+- Expected
++ Received
+
+- Error {
+-   "message": "rejected promise",
++ {
++   "alreadyPosted": false,
++   "journalEntryId": "08d8ffe1-b909-4813-9954-267afdbbe1a1",
+  }
+
+ ❯ tests/integration/r118-post-gl-draft-guard.int.test.ts:119:74
+    117|     const id = await drive(() => makeInvoice(`${TAG}-${status}`, statu…
+    118|
+    119|     await expect(drive(() => postSupplierInvoiceToGL(COMPANY, id, USER…
+       |                                                                          ^
+    120|
+    121|     const after = (await sql`
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[1/2]⎯
+
+ FAIL  tests/integration/r118-post-gl-draft-guard.int.test.ts > R-118 postSupplierInvoiceToGL refuses a document outside the AP population > refuses a pending_approval bill and posts nothing
+AssertionError: promise resolved "{ …(2) }" instead of rejecting
+
+- Expected
++ Received
+
+- Error {
+-   "message": "rejected promise",
++ {
++   "alreadyPosted": false,
++   "journalEntryId": "952699e2-365d-4f92-92e9-90d815bbd2b6",
+  }
+
+ ❯ tests/integration/r118-post-gl-draft-guard.int.test.ts:119:74
+    117|     const id = await drive(() => makeInvoice(`${TAG}-${status}`, statu…
+    118|
+    119|     await expect(drive(() => postSupplierInvoiceToGL(COMPANY, id, USER…
+       |                                                                          ^
+    120|
+    121|     const after = (await sql`
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[2/2]⎯
+
+
+ Test Files  1 failed (1)
+      Tests  2 failed | 2 passed (4)
+   Start at  14:16:05
+   Duration  2.47s (transform 249ms, setup 0ms, import 396ms, tests 1.97s, environment 0ms)
+
