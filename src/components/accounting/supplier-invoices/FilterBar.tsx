@@ -1,28 +1,32 @@
 /**
  * Top filter bar for the Supplier Invoices list — search, supplier typeahead,
- * date preset (and custom range), amount + balance ranges, reset button.
+ * date preset (a month, or a custom range), amount + balance ranges, and the
+ * active filters as removable chips with "Clear all".
  */
 
 import { useEffect, useState } from 'react';
-import { Search, X, RotateCcw } from 'lucide-react';
+import { Search, X } from 'lucide-react';
 import { SupplierTypeahead } from './SupplierTypeahead';
-import type { DatePreset, SupplierInvoiceListFilters } from './listTypes';
+import { ActiveFilterChips, periodChipLabel, type ActiveFilterChip } from '../ActiveFilterChips';
+import { wholeMonthOf } from '../invoicePeriod';
+import { SUPPLIER_INVOICE_TAB_LABEL, type DatePreset, type SupplierInvoiceListFilters } from './listTypes';
 
 interface Props {
   filters: SupplierInvoiceListFilters;
-  filtersActive: boolean;
   setSearch: (s: string) => void;
   selectSupplier: (id: string, label: string) => void;
   clearSupplier: () => void;
   setDatePreset: (p: DatePreset) => void;
+  setMonth: (yearMonth: string) => void;
+  setTab: (t: 'all') => void;
   setCustomDate: (key: 'fromDate' | 'toDate', value: string) => void;
   setAmountRange: (key: 'fromAmount' | 'toAmount' | 'fromBalance' | 'toBalance', value: string) => void;
   resetFilters: () => void;
 }
 
 export function FilterBar({
-  filters, filtersActive, setSearch, selectSupplier, clearSupplier,
-  setDatePreset, setCustomDate, setAmountRange, resetFilters,
+  filters, setSearch, selectSupplier, clearSupplier,
+  setDatePreset, setMonth, setTab, setCustomDate, setAmountRange, resetFilters,
 }: Props) {
   // Local debounced search input — committed to the parent on a 300ms idle.
   const [searchInput, setSearchInput] = useState(filters.search);
@@ -79,8 +83,20 @@ export function FilterBar({
           <option value="last_30_days">Last 30 days</option>
           <option value="this_fy">This FY</option>
           <option value="last_fy">Last FY</option>
+          <option value="month">Month…</option>
           <option value="custom">Custom</option>
         </select>
+
+        {filters.datePreset === 'month' && (
+          <input
+            type="month"
+            name="month"
+            aria-label="Invoice month"
+            value={wholeMonthOf(filters.fromDate, filters.toDate) ?? ''}
+            onChange={(e) => setMonth(e.target.value)}
+            className="px-3 py-2 rounded-lg bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 text-sm text-slate-900 dark:text-slate-100"
+          />
+        )}
 
         {filters.datePreset === 'custom' && (
           <>
@@ -101,15 +117,6 @@ export function FilterBar({
           </>
         )}
 
-        {filtersActive && (
-          <button
-            type="button"
-            onClick={resetFilters}
-            className="ml-auto flex items-center gap-1.5 px-3 py-2 text-sm text-slate-600 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800 rounded-lg transition-colors"
-          >
-            <RotateCcw className="h-3.5 w-3.5" /> Reset filters
-          </button>
-        )}
       </div>
 
       <div className="flex flex-wrap items-center gap-3 text-xs">
@@ -117,8 +124,34 @@ export function FilterBar({
         <span className="text-slate-300 dark:text-slate-600">|</span>
         <RangeInput label="Outstanding" minName="fromBalance" maxName="toBalance" filters={filters} onChange={setAmountRange} />
       </div>
+
+      <ActiveFilterChips
+        chips={activeChips(filters, { setTab, setSearch, clearSupplier, setDatePreset, setAmountRange })}
+        onClearAll={() => { setSearchInput(''); resetFilters(); }}
+      />
     </div>
   );
+}
+
+type ChipActions = Pick<Props, 'setTab' | 'setSearch' | 'clearSupplier' | 'setDatePreset' | 'setAmountRange'>;
+
+function activeChips(f: SupplierInvoiceListFilters, a: ChipActions): ActiveFilterChip[] {
+  const chips: ActiveFilterChip[] = [];
+  if (f.tab !== 'all') chips.push({ key: 'status', label: `Status: ${SUPPLIER_INVOICE_TAB_LABEL[f.tab]}`, onRemove: () => a.setTab('all') });
+  if (f.search) chips.push({ key: 'search', label: `Search: “${f.search}”`, onRemove: () => a.setSearch('') });
+  if (f.supplierId) chips.push({ key: 'supplier', label: `Supplier: ${f.supplierLabel || 'selected'}`, onRemove: a.clearSupplier });
+  if (f.fromDate || f.toDate) {
+    chips.push({
+      key: 'period',
+      label: periodChipLabel(f.fromDate, f.toDate, wholeMonthOf(f.fromDate, f.toDate)),
+      onRemove: () => a.setDatePreset('all'),
+    });
+  }
+  const ranges = [['fromAmount', 'Total ≥'], ['toAmount', 'Total ≤'], ['fromBalance', 'Outstanding ≥'], ['toBalance', 'Outstanding ≤']] as const;
+  for (const [key, label] of ranges) {
+    if (f[key]) chips.push({ key, label: `${label} ${f[key]}`, onRemove: () => a.setAmountRange(key, '') });
+  }
+  return chips;
 }
 
 interface RangeProps {

@@ -26,7 +26,7 @@ export type SortOrder = 'asc' | 'desc';
 
 export const DATE_PRESETS = [
   'all', 'this_month', 'last_month', 'last_30_days',
-  'this_fy', 'last_fy', 'custom',
+  'this_fy', 'last_fy', 'month', 'custom',
 ] as const;
 export type DatePreset = typeof DATE_PRESETS[number];
 

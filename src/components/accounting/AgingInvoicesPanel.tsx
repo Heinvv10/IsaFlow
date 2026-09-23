@@ -8,6 +8,7 @@ import Link from 'next/link';
 import { Loader2, AlertCircle } from 'lucide-react';
 import { formatCurrency } from '@/utils/formatters';
 import { buildInvoiceHref } from './invoiceReturnContext';
+import { ViewAllInvoicesFooter } from './ViewAllInvoicesLink';
 import { fmtDay, PANEL_TH, INVOICE_LINK } from './agingPanelFormat';
 import { loadAgingPanelRows, daysOverdueAsAt, type AgingPanelRow, type AgingSide } from './agingPanelRows';
 
@@ -97,6 +98,7 @@ export function AgingInvoicesPanel({ side, entityId, entityName, asAtDate, colSp
               );
             })}
           </tbody>
+          <ViewAllInvoicesFooter ledger={side === 'ar' ? 'customer' : 'supplier'} entityId={entityId} entityName={entityName} colSpan={6} />
         </table>
       </td>
     </tr>
