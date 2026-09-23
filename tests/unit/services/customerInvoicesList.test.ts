@@ -81,14 +81,14 @@ describe('customer-invoices-list handler (BL-23)', () => {
     vi.clearAllMocks();
   });
 
-  it('no filter — fires two SQL calls (main + count); all filter params are null', async () => {
+  it('no filter — fires the WHERE fragment, main and count queries; all filter params are null', async () => {
     await (handler as Function)(makeReq({ limit: '25' }), makeRes());
 
-    // Two SQL calls: main query + count
-    expect(sqlCalls.length).toBe(2);
+    // Three sql calls: the shared WHERE fragment, the main query, the count
+    expect(sqlCalls.length).toBe(3);
 
     // All filter params should be null
-    const mainCallValues = sqlCalls[0];
+    const mainCallValues = sqlCalls.flat();
     expect(mainCallValues).toContain(COMPANY_ID);
     // statusValues, clientIdFilter, searchTermFilter should all be null
     const nullCount = mainCallValues.filter((v) => v === null).length;
@@ -98,7 +98,7 @@ describe('customer-invoices-list handler (BL-23)', () => {
   it('limit cap — requesting 200 is clamped to 100', async () => {
     await (handler as Function)(makeReq({ limit: '200' }), makeRes());
 
-    const mainCallValues = sqlCalls[0];
+    const mainCallValues = sqlCalls.flat();
     // safeLimit = Math.min(200, 100) = 100
     expect(mainCallValues).toContain(100);
     expect(mainCallValues).not.toContain(200);
@@ -107,8 +107,8 @@ describe('customer-invoices-list handler (BL-23)', () => {
   it('status filter — statusValues array [approved] is passed as non-null', async () => {
     await (handler as Function)(makeReq({ status: 'approved' }), makeRes());
 
-    expect(sqlCalls.length).toBe(2);
-    const mainCallValues = sqlCalls[0];
+    expect(sqlCalls.length).toBe(3);
+    const mainCallValues = sqlCalls.flat();
 
     // statusValues should be ['approved']
     const statusArg = mainCallValues.find(
@@ -123,8 +123,8 @@ describe('customer-invoices-list handler (BL-23)', () => {
   it('clientId filter — clientIdFilter uuid is passed, statusValues remains null', async () => {
     await (handler as Function)(makeReq({ client_id: CLIENT_ID }), makeRes());
 
-    expect(sqlCalls.length).toBe(2);
-    const mainCallValues = sqlCalls[0];
+    expect(sqlCalls.length).toBe(3);
+    const mainCallValues = sqlCalls.flat();
 
     expect(mainCallValues).toContain(CLIENT_ID);
     // statusValues array should NOT be present (it is null, not an array)
@@ -137,8 +137,8 @@ describe('customer-invoices-list handler (BL-23)', () => {
   it('searchTerm filter — searchTermFilter string is passed for q=INV-001', async () => {
     await (handler as Function)(makeReq({ q: 'INV-001' }), makeRes());
 
-    expect(sqlCalls.length).toBe(2);
-    const mainCallValues = sqlCalls[0];
+    expect(sqlCalls.length).toBe(3);
+    const mainCallValues = sqlCalls.flat();
 
     expect(mainCallValues).toContain('INV-001');
     // statusValues should remain null
@@ -151,8 +151,8 @@ describe('customer-invoices-list handler (BL-23)', () => {
   it('combined status + clientId — both non-null, searchTerm null', async () => {
     await (handler as Function)(makeReq({ status: 'sent', client_id: CLIENT_ID }), makeRes());
 
-    expect(sqlCalls.length).toBe(2);
-    const mainCallValues = sqlCalls[0];
+    expect(sqlCalls.length).toBe(3);
+    const mainCallValues = sqlCalls.flat();
 
     const statusArg = mainCallValues.find(
       (v) => Array.isArray(v) && (v as string[]).includes('sent'),
@@ -166,8 +166,8 @@ describe('customer-invoices-list handler (BL-23)', () => {
   it('status=all is treated as no filter (statusValues is null, not [all])', async () => {
     await (handler as Function)(makeReq({ status: 'all' }), makeRes());
 
-    expect(sqlCalls.length).toBe(2);
-    const mainCallValues = sqlCalls[0];
+    expect(sqlCalls.length).toBe(3);
+    const mainCallValues = sqlCalls.flat();
 
     // statusValues should be null (not ['all'])
     const hasAllArray = mainCallValues.some(

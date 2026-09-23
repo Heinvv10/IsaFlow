@@ -2,7 +2,7 @@
  * Shared query-param parser for the supplier-invoices list and export routes.
  *
  * Single source of truth for: status enum validation, sort whitelist, numeric
- * coercion. Both `pages/api/accounting/supplier-invoices.ts` and
+ * coercion, strict from_date/to_date (invoiceDateRangeParams). Both `pages/api/accounting/supplier-invoices.ts` and
  * `supplier-invoices-export.ts` import this — adding a new filter goes in
  * exactly one place.
  */
@@ -12,6 +12,7 @@ import {
   type SupplierInvoiceSort,
   SUPPLIER_INVOICE_SORT_KEYS,
 } from './supplierInvoiceService';
+import { parseInvoiceDateRange } from '../core/invoiceDateRangeParams';
 
 const STATUS_VALUES: readonly SupplierInvoiceStatus[] = [
   'draft', 'pending_approval', 'approved', 'partially_paid', 'paid',
@@ -59,12 +60,6 @@ function parseNumeric(v: unknown): number | undefined {
   return Number.isFinite(n) ? n : undefined;
 }
 
-const ISO_DATE = /^\d{4}-\d{2}-\d{2}$/;
-function parseIsoDate(v: unknown): string | undefined {
-  const s = pickStr(v);
-  return s && ISO_DATE.test(s) ? s : undefined;
-}
-
 const UUID_REGEX = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
 export function parseSupplierInvoiceFilters(query: Record<string, unknown>): FilterParseResult {
@@ -83,10 +78,19 @@ export function parseSupplierInvoiceFilters(query: Record<string, unknown>): Fil
     return { ok: false, error: `Invalid sort: ${sort}` };
   }
 
+  // A repeated `supplier_id` arrives as an array; dropping it would widen the list.
+  if (query.supplier_id !== undefined && typeof query.supplier_id !== 'string') {
+    return { ok: false, error: 'Invalid supplier_id (must be a single UUID)' };
+  }
   const supplierIdRaw = pickStr(query.supplier_id);
   if (supplierIdRaw && !UUID_REGEX.test(supplierIdRaw)) {
     return { ok: false, error: 'Invalid supplier_id (must be UUID)' };
   }
+
+  // A malformed date is an error, not a dropped filter: silently widening the
+  // range hands back invoices the user did not ask for.
+  const range = parseInvoiceDateRange(query);
+  if (!range.ok) return range;
 
   const sortOrderRaw = pickStr(query.sort_order);
   const sortOrder = sortOrderRaw === 'asc' || sortOrderRaw === 'desc' ? sortOrderRaw : undefined;
@@ -124,8 +128,8 @@ export function parseSupplierInvoiceFilters(query: Record<string, unknown>): Fil
       supplierId: supplierIdRaw,
       matchStatus: matchStatus as InvoiceMatchStatus | undefined,
       search: pickStr(query.search),
-      fromDate: parseIsoDate(query.from_date),
-      toDate: parseIsoDate(query.to_date),
+      fromDate: range.fromDate,
+      toDate: range.toDate,
       fromAmount: parseNumeric(query.from_amount),
       toAmount: parseNumeric(query.to_amount),
       fromBalance: parseNumeric(query.from_balance),

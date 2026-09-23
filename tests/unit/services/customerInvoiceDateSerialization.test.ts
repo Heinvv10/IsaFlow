@@ -104,7 +104,8 @@ describe('customer-invoice DATE serialization (UTC+2 rollback regression)', () =
     await (listHandler as Function)(makeReq({ limit: '25' }), makeRes());
 
     expect(sqlTexts.length).toBeGreaterThan(0);
-    const mainQuery = sqlTexts[0];
+    // sqlTexts[0] is the shared WHERE fragment; the main query is the first SELECT.
+    const mainQuery = sqlTexts.find(t => t.includes('SELECT')) ?? '';
     expect(mainQuery).toMatch(/to_char\(ci\.invoice_date, 'YYYY-MM-DD'\)\s+AS\s+invoice_date/);
     expect(mainQuery).toMatch(/to_char\(ci\.due_date, 'YYYY-MM-DD'\)\s+AS\s+due_date/);
     // The SELECT list must not expose the raw DATE columns (ORDER BY may still

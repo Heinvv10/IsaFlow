@@ -5,112 +5,64 @@
  *
  * 2026-04-27: Added AR aging column (aging_bucket + days_overdue from server)
  * and ARFilters chip strip. Aging filter persists in URL (?aging=...).
+ *
+ * 2026-09-23: Sage-style filters — customer, invoice-date period, status,
+ * search and aging, all in the URL (see customer-invoices/listQuery) and
+ * shown as removable chips. The CSV export carries the same filters.
  */
 
-import { useState, useEffect, useCallback } from 'react';
-import { useRouter } from 'next/router';
+import { useEffect, useState } from 'react';
 import { AppLayout } from '@/components/layout/AppLayout';
-import { FileText, Loader2, AlertCircle, Plus, AlertTriangle, CheckCircle, CircleDollarSign, Eye } from 'lucide-react';
+import { FileText, Loader2, AlertCircle, Plus, AlertTriangle, CheckCircle, CircleDollarSign } from 'lucide-react';
 import { ExportCSVButton } from '@/components/shared/ExportCSVButton';
-import { StatusPill, KpiStrip } from '@/components/ui';
+import { KpiStrip } from '@/components/ui';
 import Link from 'next/link';
-import { formatCurrency, formatDate } from '@/utils/formatters';
-import { apiFetch } from '@/lib/apiFetch';
-import { ARFilters, parseAgingParam, encodeAgingParam, toBucketKey, relativeTimeSince } from '@/components/invoices/ARFilters';
-import type { AgingFilterId } from '@/components/invoices/ARFilters';
-import { BUCKET_COLORS, BUCKET_LABELS } from '@/lib/format/aging';
-
-const VALID_STATUSES = new Set(['all', 'draft', 'approved', 'sent', 'partially_paid', 'paid', 'overdue']);
-
-interface Invoice {
-  id: string;
-  invoice_number: string;
-  project_id: string;
-  project_name?: string;
-  client_name?: string;
-  total_amount: number;
-  amount_paid: number;
-  status: string;
-  reference?: string;
-  invoice_date: string;
-  due_date?: string;
-  last_viewed_at?: string | null;
-  view_count?: number;
-  days_overdue?: number | null;
-  aging_bucket?: string | null;
-}
+import { apiFetch, assertOk, apiErrorMessage } from '@/lib/apiFetch';
+import { log } from '@/lib/logger';
+import { ARFilterBar } from '@/components/accounting/customer-invoices/ARFilterBar';
+import { CustomerInvoiceTable, type CustomerInvoiceRow } from '@/components/accounting/customer-invoices/CustomerInvoiceTable';
+import { useCustomerInvoiceListState } from '@/components/accounting/customer-invoices/useCustomerInvoiceListState';
+import { arFiltersToApiParams } from '@/components/accounting/customer-invoices/listQuery';
 
 const LIMIT = 25;
 
 export default function CustomerInvoicesPage() {
-  const router = useRouter();
-  const [invoices, setInvoices] = useState<Invoice[]>([]);
+  const state = useCustomerInvoiceListState();
+  const { filters, hydrated, nameCustomer } = state;
+  const [invoices, setInvoices] = useState<CustomerInvoiceRow[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState('');
-  const [statusFilter, setStatusFilter] = useState('all');
-  const [search, setSearch] = useState('');
-  const [debouncedSearch, setDebouncedSearch] = useState('');
-  const [page, setPage] = useState(1);
   const [total, setTotal] = useState(0);
-  const [agingFilters, setAgingFilters] = useState<AgingFilterId[]>([]);
 
-  // Honour ?filter=<status> and ?aging=<chips> deep links from the dashboard.
   useEffect(() => {
-    if (!router.isReady) return;
-    const f = router.query.filter;
-    if (typeof f === 'string' && VALID_STATUSES.has(f)) setStatusFilter(f);
-    setAgingFilters(parseAgingParam(router.query.aging));
-  }, [router.isReady, router.query.filter, router.query.aging]);
-
-  // Debounce search input
-  useEffect(() => {
-    const t = setTimeout(() => {
-      setDebouncedSearch(search);
-      setPage(1);
-    }, 300);
-    return () => clearTimeout(t);
-  }, [search]);
-
-  // Reset page when filters change
-  useEffect(() => { setPage(1); }, [statusFilter, agingFilters]);
-
-  const loadInvoices = useCallback(async () => {
+    if (!hydrated) return;
+    let live = true;
     setIsLoading(true);
     setError('');
-    try {
-      const params = new URLSearchParams();
-      if (statusFilter !== 'all') params.set('status', statusFilter);
-      if (debouncedSearch) params.set('q', debouncedSearch);
-      params.set('page', String(page));
-      params.set('limit', String(LIMIT));
-      if (agingFilters.length > 0) params.set('aging', agingFilters.join(','));
-      const res = await apiFetch(`/api/accounting/customer-invoices-list?${params}`);
-      const json = await res.json();
-      const data = json.data || json;
-      setInvoices(data.invoices || []);
-      setTotal(data.total ?? 0);
-    } catch {
-      setError('Failed to load customer invoices');
-    } finally {
-      setIsLoading(false);
-    }
-  }, [statusFilter, debouncedSearch, page, agingFilters]);
-
-  useEffect(() => { void loadInvoices(); }, [loadInvoices]);
-
-  function handleAgingChange(next: AgingFilterId[]) {
-    setAgingFilters(next);
-    const query = { ...router.query };
-    const encoded = encodeAgingParam(next);
-    if (encoded) {
-      query.aging = encoded;
-    } else {
-      delete query.aging;
-    }
-    void router.replace({ query }, undefined, { shallow: true });
-  }
-
-  const statuses = ['all', 'draft', 'approved', 'sent', 'partially_paid', 'paid', 'overdue'];
+    const params = new URLSearchParams({ ...arFiltersToApiParams(filters), page: String(filters.page), limit: String(LIMIT) });
+    void (async () => {
+      try {
+        const res = await apiFetch(`/api/accounting/customer-invoices-list?${params}`);
+        await assertOk(res, 'Failed to load customer invoices');
+        const json = await res.json() as { data?: { invoices?: CustomerInvoiceRow[]; total?: number } };
+        if (!live) return;
+        const rows = json.data?.invoices ?? [];
+        setInvoices(rows);
+        setTotal(json.data?.total ?? 0);
+        // A deep link carries only the customer id; the rows carry its name.
+        if (filters.customerId && rows[0]?.client_name) nameCustomer(filters.customerId, rows[0].client_name);
+      } catch (err) {
+        if (!live) return;
+        log.warn('Customer invoice list failed to load', { error: err }, 'customer-invoices');
+        setInvoices([]);
+        setTotal(0);
+        setError(apiErrorMessage(err, 'Failed to load customer invoices'));
+      } finally {
+        if (live) setIsLoading(false);
+      }
+    })();
+    return () => { live = false; };
+  }, [hydrated, filters, nameCustomer]);
 
   return (
     <AppLayout>
@@ -128,7 +80,7 @@ export default function CustomerInvoicesPage() {
                 </div>
               </div>
               <div className="flex items-center gap-2">
-                <ExportCSVButton endpoint="/api/accounting/customer-invoices-export" filenamePrefix="customer-invoices" params={{ status: statusFilter }} label="Export CSV" />
+                <ExportCSVButton endpoint="/api/accounting/customer-invoices-export" filenamePrefix="customer-invoices" params={arFiltersToApiParams(filters)} label="Export CSV" />
                 <Link href="/accounting/customer-invoices/new" className="flex items-center gap-1.5 px-4 py-2 bg-teal-600 hover:bg-teal-500 text-white rounded-lg text-sm">
                   <Plus className="h-4 w-4" /> New Invoice
                 </Link>
@@ -154,33 +106,7 @@ export default function CustomerInvoicesPage() {
             );
           })()}
 
-          {/* Filters row */}
-          <div className="flex flex-col gap-3 mb-6">
-            <div className="flex items-center gap-3">
-              <select
-                name="statusFilter"
-                value={statusFilter}
-                onChange={(e) => setStatusFilter(e.target.value)}
-                className="px-3 py-2 rounded-lg bg-[var(--ff-bg-tertiary)] border border-[var(--ff-border-light)] text-[var(--ff-text-primary)] text-sm"
-              >
-                {statuses.map(s => (
-                  <option key={s} value={s}>{s === 'all' ? 'All Statuses' : s.replace('_', ' ').replace(/\b\w/g, l => l.toUpperCase())}</option>
-                ))}
-              </select>
-              <input
-                type="text"
-                name="search"
-                value={search}
-                onChange={e => setSearch(e.target.value)}
-                placeholder="Search invoice # or client..."
-                className="px-3 py-2 rounded-lg bg-[var(--ff-bg-tertiary)] border border-[var(--ff-border-light)] text-[var(--ff-text-primary)] text-sm w-64"
-              />
-              {!isLoading && (
-                <span className="text-sm text-[var(--ff-text-secondary)]">{total} invoice{total !== 1 ? 's' : ''}</span>
-              )}
-            </div>
-            <ARFilters selectedFilters={agingFilters} onChange={handleAgingChange} />
-          </div>
+          <ARFilterBar state={state} total={isLoading ? null : total} />
 
           {/* Content */}
           {isLoading ? (
@@ -199,89 +125,7 @@ export default function CustomerInvoicesPage() {
               <p className="text-sm text-[var(--ff-text-tertiary)] mt-1">Customer invoices are created from project billing</p>
             </div>
           ) : (
-            <div className="overflow-x-auto">
-              <table className="w-full text-sm">
-                <thead>
-                  <tr className="border-b border-[var(--ff-border-light)]">
-                    <th className="text-left py-3 px-4 text-[10px] tracking-[0.12em] font-semibold text-[var(--ff-text-secondary)] uppercase">Invoice #</th>
-                    <th className="text-left py-3 px-4 text-[10px] tracking-[0.12em] font-semibold text-[var(--ff-text-secondary)] uppercase">Client</th>
-                    <th className="text-left py-3 px-4 text-[10px] tracking-[0.12em] font-semibold text-[var(--ff-text-secondary)] uppercase">Reference</th>
-                    <th className="text-left py-3 px-4 text-[10px] tracking-[0.12em] font-semibold text-[var(--ff-text-secondary)] uppercase">Date</th>
-                    <th className="text-right py-3 px-4 text-[10px] tracking-[0.12em] font-semibold text-[var(--ff-text-secondary)] uppercase">Amount</th>
-                    <th className="text-right py-3 px-4 text-[10px] tracking-[0.12em] font-semibold text-[var(--ff-text-secondary)] uppercase">Outstanding</th>
-                    <th className="text-left py-3 px-4 text-[10px] tracking-[0.12em] font-semibold text-[var(--ff-text-secondary)] uppercase">Aging</th>
-                    <th className="text-left py-3 px-4 text-[10px] tracking-[0.12em] font-semibold text-[var(--ff-text-secondary)] uppercase">Last Viewed</th>
-                    <th className="text-left py-3 px-4 text-[10px] tracking-[0.12em] font-semibold text-[var(--ff-text-secondary)] uppercase">Status</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {invoices.map((inv) => {
-                    const outstanding = Number(inv.total_amount) - Number(inv.amount_paid);
-                    const bucketKey = toBucketKey(inv.aging_bucket);
-                    const bucketLabel = inv.aging_bucket === 'Current' ? 'Current' : (bucketKey ? BUCKET_LABELS[bucketKey] : null);
-                    const bucketColor = bucketKey ? BUCKET_COLORS[bucketKey] : 'text-teal-500';
-                    return (
-                      <tr key={inv.id} className="border-b border-[var(--ff-border-light)] hover:bg-teal-500/[0.04]">
-                        <td className="py-3 px-4 font-mono">
-                          <Link href={`/accounting/customer-invoices/${inv.id}`} className="text-blue-400 hover:text-blue-300">{inv.invoice_number}</Link>
-                        </td>
-                        <td className="py-3 px-4 text-[var(--ff-text-primary)]">{inv.client_name || '-'}</td>
-                        <td className="py-3 px-4 text-[var(--ff-text-tertiary)] max-w-[200px] truncate" title={inv.reference}>
-                          {inv.reference || inv.project_name || '-'}
-                        </td>
-                        <td className="py-3 px-4 text-[var(--ff-text-secondary)] whitespace-nowrap">{formatDate(inv.invoice_date)}</td>
-                        <td className="py-3 px-4 text-right font-mono tabular-nums text-[var(--ff-text-primary)]">{formatCurrency(Number(inv.total_amount))}</td>
-                        <td className={`py-3 px-4 text-right font-mono tabular-nums ${outstanding > 0 ? 'text-amber-400' : 'text-teal-400'}`}>
-                          {formatCurrency(outstanding)}
-                        </td>
-                        <td className="py-3 px-4 whitespace-nowrap">
-                          {inv.status === 'paid' ? (
-                            <span className="text-xs text-[var(--ff-text-tertiary)]">Paid</span>
-                          ) : bucketLabel ? (
-                            <span className={`text-xs font-medium ${bucketColor}`}>{bucketLabel}</span>
-                          ) : (
-                            <span className="text-xs text-[var(--ff-text-tertiary)]">—</span>
-                          )}
-                        </td>
-                        <td className="py-3 px-4 whitespace-nowrap">
-                          {inv.last_viewed_at ? (
-                            <span
-                              className="inline-flex items-center gap-1.5 text-xs text-[var(--ff-text-secondary)]"
-                              title={`${inv.view_count ?? 0} view${inv.view_count === 1 ? '' : 's'} · ${new Date(inv.last_viewed_at).toLocaleString('en-ZA')}`}
-                            >
-                              <Eye className="h-3.5 w-3.5 text-teal-400" />
-                              {relativeTimeSince(inv.last_viewed_at)}
-                            </span>
-                          ) : (
-                            <span className="text-xs text-[var(--ff-text-tertiary)]">—</span>
-                          )}
-                        </td>
-                        <td className="py-3 px-4">
-                          <StatusPill status={inv.status} />
-                        </td>
-                      </tr>
-                    );
-                  })}
-                </tbody>
-              </table>
-
-              {/* Pagination */}
-              {total > LIMIT && (
-                <div className="flex items-center justify-between px-4 py-3 border-t border-[var(--ff-border-light)]">
-                  <span className="text-sm text-[var(--ff-text-secondary)]">
-                    Showing {(page - 1) * LIMIT + 1}–{Math.min(page * LIMIT, total)} of {total}
-                  </span>
-                  <div className="flex gap-2">
-                    <button onClick={() => setPage(p => Math.max(1, p - 1))} disabled={page === 1} className="px-3 py-1.5 text-sm bg-[var(--ff-bg-tertiary)] hover:bg-[var(--ff-bg-secondary)] disabled:opacity-40 rounded-lg text-[var(--ff-text-primary)] border border-[var(--ff-border-light)]">
-                      Previous
-                    </button>
-                    <button onClick={() => setPage(p => p + 1)} disabled={page * LIMIT >= total} className="px-3 py-1.5 text-sm bg-[var(--ff-bg-tertiary)] hover:bg-[var(--ff-bg-secondary)] disabled:opacity-40 rounded-lg text-[var(--ff-text-primary)] border border-[var(--ff-border-light)]">
-                      Next
-                    </button>
-                  </div>
-                </div>
-              )}
-            </div>
+            <CustomerInvoiceTable invoices={invoices} page={filters.page} limit={LIMIT} total={total} onPage={state.setPage} />
           )}
         </div>
       </div>

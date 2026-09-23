@@ -62,10 +62,21 @@ describe('parseSupplierInvoiceFilters', () => {
     if (!r.ok) expect(r.error).toMatch(/supplier_id/);
   });
 
-  it('drops non-ISO date strings (returns undefined, not an error)', () => {
-    const f = ok(parseSupplierInvoiceFilters({ from_date: '01/15/2026', to_date: 'yesterday' }));
-    expect(f.fromDate).toBeUndefined();
-    expect(f.toDate).toBeUndefined();
+  it('rejects a malformed or impossible date instead of dropping the filter', () => {
+    for (const query of [{ from_date: '01/15/2026' }, { to_date: 'yesterday' }, { to_date: '2026-02-30' }]) {
+      const r = parseSupplierInvoiceFilters(query);
+      expect(r.ok).toBe(false);
+      if (!r.ok) expect(r.error).toMatch(/_date/);
+    }
+  });
+
+  it('rejects a repeated supplier_id instead of dropping the supplier filter', () => {
+    const r = parseSupplierInvoiceFilters({ supplier_id: ['aaaaaaaa-0000-0000-0000-aaaaaaaaaaaa', 'x'] });
+    expect(r.ok).toBe(false);
+  });
+
+  it('rejects an inverted date range', () => {
+    expect(parseSupplierInvoiceFilters({ from_date: '2026-07-01', to_date: '2026-06-30' }).ok).toBe(false);
   });
 
   it('keeps ISO-format date strings', () => {
