@@ -6,7 +6,7 @@
 import { sql } from '@/lib/neon';
 import type { DbRow } from '@/lib/neon';
 import { log } from '@/lib/logger';
-import { calculateAgingBuckets } from '../../utils/aging';
+import { calculateAgingBuckets, type AgingDetailInvoice } from '../../utils/aging';
 import type { AgingBucket, AgingInvoice } from '../../types/ap.types';
 import { fmtDate } from '@/lib/fmtDate';
 import { getOpenDisputeTotals } from './disputeService';
@@ -147,7 +147,7 @@ export async function getARAging(companyId: string, asAtDate?: string): Promise<
 export async function getARAgingDetail(companyId: string, 
   clientId: string,
   asAtDate?: string
-): Promise<{ client: { id: string; name: string }; invoices: AgingInvoice[]; buckets: AgingBucket | null }> {
+): Promise<{ client: { id: string; name: string }; invoices: AgingDetailInvoice[]; buckets: AgingBucket | null }> {
   try {
     const asAt = asAtDate ? new Date(asAtDate) : new Date();
     // The other three aging entry points guard this; this one did not, so
@@ -206,8 +206,9 @@ export async function getARAgingDetail(companyId: string,
     // dispute raised after asAtStr had not moved anything out of a bucket then.
     const disputedTotals = await getOpenDisputeTotals(companyId, invoiceIds, asAtStr);
 
-    const invoices: AgingInvoice[] = rows.map((r: Row) => ({
+    const invoices: AgingDetailInvoice[] = rows.map((r: Row) => ({
       id: String(r.id),
+      invoiceNumber: String(r.invoice_number),
       entityId: String(r.entity_id),
       entityName: String(r.entity_name),
       dueDate: String(r.due_date),
