@@ -37,7 +37,7 @@ describe('consent screen — where the authorisation goes', () => {
   // a random loopback port. Showing it would imply a check the reader cannot make.
   it('does not show a host or port for a client on the reader\'s machine', () => {
     const { container } = render(<AuthorizePage {...props('http://localhost:57526/callback')} />);
-    expect(screen.getByText('a program running on this computer')).toBeTruthy();
+    expect(screen.getByText('a program on this computer — IsaFlow cannot tell you which one')).toBeTruthy();
     expect(container.textContent).not.toContain('57526');
     expect(container.textContent).not.toContain('localhost');
   });
