@@ -18,9 +18,19 @@ export function ConsentRedirectTarget({ redirectUri }: { redirectUri: string }) 
       <CornerDownRight className="h-3.5 w-3.5 shrink-0 mt-px text-slate-500" />
       <span>
         Sends your authorisation to{' '}
-        <span className="font-medium text-slate-200 break-all">
-          {target.kind === 'web' ? target.host : 'a program on this computer — IsaFlow cannot tell you which one'}
-        </span>
+        {/*
+          break-all belongs to the host and ONLY the host: a host is one
+          unbreakable token that must wrap or it gets clipped, while the
+          loopback sentence is ordinary words that break-all shatters
+          mid-word — at 360/390/414/430 it split the brand as "I" / "saFlow".
+        */}
+        {target.kind === 'web' ? (
+          <span className="font-medium text-slate-200 break-all">{target.host}</span>
+        ) : (
+          <span className="font-medium text-slate-200">
+            a program on this computer — IsaFlow cannot tell you which one
+          </span>
+        )}
       </span>
     </p>
   );
