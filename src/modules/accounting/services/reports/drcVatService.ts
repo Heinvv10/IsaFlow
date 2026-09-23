@@ -86,8 +86,10 @@ async function applyDRCVatInner(
   }
   // A reverse-charge invoice carries no supplier VAT. Approval already posted
   // DR Input VAT = tax_amount, so DRC's own DR Input VAT would claim it twice.
+  // Any non-zero figure, negative included: the eligible list admits exactly
+  // tax_amount = 0, and the two must never disagree.
   const supplierVat = Number(inv.tax_amount ?? 0);
-  if (supplierVat > 0) {
+  if (supplierVat !== 0) {
     throw new Error(
       `DRC VAT applies only to a bill on which the supplier charged no VAT; ${String(inv.invoice_number)} `
       + `carries R${supplierVat.toFixed(2)} VAT, already claimed as input VAT when it was approved, so DRC `

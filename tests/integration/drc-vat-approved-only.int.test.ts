@@ -152,8 +152,14 @@ describeIfDb('applyDRCVat — approved bills only, once, all-or-nothing', () => 
     expect(msg).toContain('R150.00');
     expect(await state(taxed)).toEqual({ isDrc: false, journals: 0 });
 
+    // A negative figure (bad data) is not a clean reverse-charge bill either.
+    const negative = await bill('approved');
+    await sql`UPDATE supplier_invoices SET subtotal = 1000, tax_amount = -5 WHERE id = ${negative}::UUID`;
+    expect(await refusal(inTx(fx, () => applyDRCVat(fx.companyId, negative, fx.userId)))).toContain('R-5.00');
+
     const listed = (await inTx(fx, () => getDRCEligibleInvoices(fx.companyId))).map((i) => i.id);
     expect(listed).toContain(clean);
     expect(listed).not.toContain(taxed);
+    expect(listed).not.toContain(negative);
   });
 });
