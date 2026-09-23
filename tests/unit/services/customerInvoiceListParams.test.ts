@@ -40,6 +40,8 @@ describe('parseCustomerInvoiceListParams', () => {
     [{ to_date: 'june' }, /to_date/],
     [{ from_date: '2026-07-01', to_date: '2026-06-01' }, /on or before/],
     [{ client_id: "x' OR 1=1" }, /client_id/],
+    // A repeated param must not silently drop the customer filter.
+    [{ client_id: [CLIENT, CLIENT] }, /client_id/],
   ])('rejects %j', (query, message) => {
     const r = parseCustomerInvoiceListParams(query);
     expect(r.ok).toBe(false);

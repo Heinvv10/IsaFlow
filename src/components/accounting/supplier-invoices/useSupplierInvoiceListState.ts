@@ -96,7 +96,9 @@ function hydrateFromQuery(query: Record<string, string | string[] | undefined>):
     tab,
     search: pickStr(query, 'search'),
     supplierId: pickStr(query, 'supplier_id'),
-    supplierLabel: pickStr(query, 'supplier_label'),
+    // Never read from the URL: a URL label could name a different supplier than
+    // the id it filters. The page names it from the loaded rows (or the typeahead).
+    supplierLabel: '',
     datePreset,
     fromDate,
     toDate,
@@ -119,10 +121,7 @@ function filtersToQuery(f: SupplierInvoiceListFilters): Record<string, string> {
   const q: Record<string, string> = {};
   if (f.tab !== 'all') q.status = f.tab;
   if (f.search) q.search = f.search;
-  if (f.supplierId) {
-    q.supplier_id = f.supplierId;
-    if (f.supplierLabel) q.supplier_label = f.supplierLabel;
-  }
+  if (f.supplierId) q.supplier_id = f.supplierId;
   if (f.datePreset !== 'all') q.date_preset = f.datePreset;
   if (f.fromDate) q.from_date = f.fromDate;
   if (f.toDate) q.to_date = f.toDate;

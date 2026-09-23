@@ -13,16 +13,22 @@ import { z } from 'zod';
 
 const ISO_DATE = /^(\d{4})-(\d{2})-(\d{2})$/;
 
-/** True for a real calendar date in YYYY-MM-DD form (rejects 2026-02-30). */
+const DAYS_IN_MONTH = [31, 28, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31];
+
+// No accounting record predates this. It also keeps year 0000 — which Postgres
+// rejects with a 500 — out of the query.
+const MIN_YEAR = 1900;
+
+/** True for a real calendar date in YYYY-MM-DD form (rejects 2026-02-30), year >= 1900. */
 export function isCalendarDate(value: string): boolean {
   const m = ISO_DATE.exec(value);
   if (!m) return false;
   const year = Number(m[1]);
   const month = Number(m[2]);
   const day = Number(m[3]);
-  if (month < 1 || month > 12 || day < 1) return false;
-  // Day 0 of the next month is the last day of this one; UTC keeps it off the box's zone.
-  return day <= new Date(Date.UTC(year, month, 0)).getUTCDate();
+  if (year < MIN_YEAR || month < 1 || month > 12 || day < 1) return false;
+  const leap = year % 4 === 0 && (year % 100 !== 0 || year % 400 === 0);
+  return day <= (month === 2 && leap ? 29 : DAYS_IN_MONTH[month - 1]!);
 }
 
 const optionalDate = (name: string) => z

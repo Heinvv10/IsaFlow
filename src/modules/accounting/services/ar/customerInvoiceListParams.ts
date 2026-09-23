@@ -30,7 +30,9 @@ export type CustomerInvoiceListParseResult =
 export function parseCustomerInvoiceListParams(query: Record<string, unknown>): CustomerInvoiceListParseResult {
   const { status, limit: limitParam = '25', page: pageParam = '1', q, client_id } = query;
 
-  const clientId = typeof client_id === 'string' && client_id.trim() ? client_id.trim() : null;
+  // A repeated `client_id` arrives as an array; dropping it would widen the list.
+  if (client_id !== undefined && typeof client_id !== 'string') return { ok: false, error: 'client_id must be a single UUID' };
+  const clientId = client_id && client_id.trim() ? client_id.trim() : null;
   if (clientId && !UUID_SHAPE.test(clientId)) return { ok: false, error: 'client_id must be a UUID' };
 
   const range = parseInvoiceDateRange(query);
