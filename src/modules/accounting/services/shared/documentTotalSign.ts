@@ -24,7 +24,7 @@
  * message naming the remedy, instead of surfacing a raw trigger error.
  */
 
-/** Thrown when a writer is handed a negative document total. */
+/** Thrown when a writer is handed a negative — or non-finite — document total. */
 export class NegativeDocumentTotalError extends Error {
   constructor(message: string) {
     super(message);
@@ -45,8 +45,20 @@ export function assertNonNegativeDocumentTotal(
   label: string,
   side: 'customer' | 'supplier',
 ): void {
-  if (!(totalAmount < 0)) return;
+  // `Number.isFinite`, not `!(total < 0)`: NaN fails every comparison, so a
+  // sign test lets it through — and NaN is worse than a negative. It passes
+  // the `balance > 0` filter the ageing uses (NaN > 0 is TRUE in PostgreSQL)
+  // and poisons every SUM over the column. `Number(...)` on a non-numeric
+  // field — opaque templateData, an extractor's output — is where it comes
+  // from. Infinity is refused for the same reason.
+  if (Number.isFinite(totalAmount) && totalAmount >= 0) return;
   const document = side === 'customer' ? 'customer invoice' : 'supplier invoice';
+  if (!Number.isFinite(totalAmount)) {
+    throw new NegativeDocumentTotalError(
+      `${label} has a total that is not a number (${String(totalAmount)}), which a ${document} `
+      + 'may not carry. Check the source figure.',
+    );
+  }
   throw new NegativeDocumentTotalError(
     `${label} has a negative total (${totalAmount.toFixed(2)}), which a ${document} may not carry. `
     + 'A reduction is a credit note: raise one against the original document.',

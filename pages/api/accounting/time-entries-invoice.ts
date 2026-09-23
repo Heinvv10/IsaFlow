@@ -14,7 +14,7 @@ import { withCsrf } from '@/lib/auth/withCsrf';
 import { log } from '@/lib/logger';
 import { sql } from '@/lib/neon';
 import { respondIfLockTimeout } from '@/lib/apiDocumentLock';
-import { assertNonNegativeDocumentTotal } from '@/modules/accounting/services/shared/documentTotalSign';
+import { assertNonNegativeDocumentTotal, NegativeDocumentTotalError } from '@/modules/accounting/services/shared/documentTotalSign';
 import { insertWithReservedNumber } from '@/modules/accounting/services/core/documentNumberRetry';
 import { lockTimeEntries, TimeEntriesNotClaimedError } from '@/modules/accounting/services/practice/timeEntryLock';
 
@@ -44,6 +44,14 @@ async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse) {
   const userId = String(req.user.id);
   const invDate = typeof invoiceDate === 'string' && invoiceDate ? invoiceDate : new Date().toISOString().split('T')[0];
   const rate = typeof taxRate === 'number' ? taxRate : 15;
+  // R-119 review: the rate is taken off the body and used for the invoice's
+  // tax_amount, its line tax_rate and the output-VAT GL leg. A negative rate
+  // makes all three negative while the TOTAL stays positive, so neither the
+  // total guard below nor the database trigger sees it. A rate over 100 is
+  // the same class in the other direction.
+  if (!Number.isFinite(rate) || rate < 0 || rate > 100) {
+    return apiResponse.badRequest(res, `taxRate must be between 0 and 100, got ${String(taxRate)}`);
+  }
 
   try {
     // 1. Verify customer belongs to company
@@ -173,6 +181,12 @@ async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse) {
     // 503 with Retry-After for contention, 500 for everything else. Both are
     // >= 500, so withAuth ROLLBACKs either way and no partial invoice survives.
     if (respondIfLockTimeout(res, err)) return;
+    // R-119, pre-write: the entries or the tax rate make a negative or
+    // non-numeric total. The operator fixes the entry — it is not a fault —
+    // so answer 400 with the remedy rather than a 500 that pages someone.
+    if (err instanceof NegativeDocumentTotalError) {
+      return apiResponse.badRequest(res, err.message);
+    }
     return apiResponse.internalError(res, err, 'Failed to create invoice from time entries');
   }
 }
