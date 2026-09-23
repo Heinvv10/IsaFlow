@@ -129,7 +129,7 @@ export async function registerOauthApp(input: RegisterAppInput): Promise<Registe
 
   log.info(
     'OAuth app registered',
-    { appId: rows[0].id, ownerUserId: input.ownerUserId, name: input.name, isDynamic },
+    { appId: rows[0].id, ownerUserId: input.ownerUserId, name, isDynamic },
     'oauth',
   );
   return { id: rows[0].id as string, clientId, clientSecret: secret?.raw ?? null };
@@ -161,7 +161,9 @@ export async function listOauthApps(ownerUserId: string): Promise<OauthAppListIt
 
   return rows.map((r) => ({
     id: r.id as string,
-    name: r.name as string,
+    // Same reason as getOauthAppByClientId: a legacy row can hold a name the
+    // browser will not draw. Every surface that shows a name normalises it.
+    name: (r.name as string).normalize('NFC'),
     description: r.description as string | null,
     logoUrl: r.logo_url as string | null,
     homepageUrl: r.homepage_url as string | null,
@@ -594,7 +596,9 @@ export async function listConnectedApps(userId: string, companyId: string): Prom
   return rows.map((r) => ({
     authorisationId: r.authorisation_id as string,
     appId: r.oauth_app_id as string,
-    appName: r.app_name as string,
+    // This feeds the screen where a user decides to CUT OFF an app's access —
+    // it must not show a different string from the one they consented to.
+    appName: (r.app_name as string).normalize('NFC'),
     appLogoUrl: r.app_logo_url as string | null,
     appIsVerified: Boolean(r.is_verified),
     scopes: Array.isArray(r.scopes) ? (r.scopes as string[]) : [],
