@@ -137,6 +137,17 @@ describe('reading a name written before the guard existed', () => {
   // is_first_party today, so a narrower `is_verified` check here would be
   // observationally identical — and would start showing a logo at consent and
   // an initial at revoke for the same app the moment one is marked by hand.
+  //
+  // Scope, so nobody credits this with more than it does: sqlMock returns a
+  // fixed value and never reads the tagged template, so NO test here can see
+  // what the SELECT asks for. Delete `app.is_first_party` from the query and
+  // all of these still pass, while in production r.is_first_party would be
+  // undefined -> false and a first-party app would lose its logo here again.
+  // This pins the mapper's branch. The query is unpinned at every level —
+  // listConnectedApps has no integration coverage — and is the first case to
+  // add if oauth ever gets a DB-backed test. Asserting the SQL string contains
+  // the column would be a linter, not a test: green on a selected-but-unused
+  // column, red on a reformat.
   it('shows a first-party app\'s logo on the revoke screen, as consent does', async () => {
     sqlMock.mockResolvedValue([{
       authorisation_id: 'auth-1', oauth_app_id: 'a', scopes: [], company_id: 'c1',
