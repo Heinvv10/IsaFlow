@@ -186,4 +186,23 @@ describeIfDb('applyDRCVat — approved bills only, once, all-or-nothing', () => 
     await inTx(fx, () => applyDRCVat(fx.companyId, id, fx.userId));
     expect(await state(id)).toEqual({ isDrc: true, journals: 1 });
   });
+
+  it('ignores a deleted supplier\'s flag, and a supplier from another tenant, on both list and apply', async () => {
+    const gone = await seedSupplier(fx, `GONE-${++seq}`);
+    await sql`UPDATE suppliers SET subject_to_drc_vat = true WHERE id = ${gone}::UUID`;
+    const id = await seedBill(fx, { number: `DRC${++seq}`, date: '2026-05-01', total: 1000, status: 'paid', supplierId: gone });
+    await sql`UPDATE supplier_invoices SET subtotal = 1000, tax_amount = 0 WHERE id = ${id}::UUID`;
+    await sql`UPDATE suppliers SET deleted_at = NOW() WHERE id = ${gone}::UUID`;
+    expect((await inTx(fx, () => getDRCEligibleInvoices(fx.companyId))).map((i) => i.id)).not.toContain(id);
+    expect(await refusal(inTx(fx, () => applyDRCVat(fx.companyId, id, fx.userId)))).toContain('not marked as subject to DRC');
+
+    // A bill whose supplier_id names ANOTHER tenant's flagged supplier (the FK
+    // is single-column, so the schema accepts it): neither lists nor applies.
+    const forged = await seedBill(fx, { number: `DRC${++seq}`, date: '2026-05-01', total: 1000, status: 'approved' });
+    await sql`UPDATE supplier_invoices SET subtotal = 1000, tax_amount = 0, supplier_id = ${other.supplierId}::UUID
+              WHERE id = ${forged}::UUID`;
+    expect((await inTx(fx, () => getDRCEligibleInvoices(fx.companyId))).map((i) => i.id)).not.toContain(forged);
+    expect(await state(forged)).toEqual({ isDrc: false, journals: 0 });
+  });
 });
+

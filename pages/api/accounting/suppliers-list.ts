@@ -136,7 +136,7 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
   // Deliberately this ONE field: there is no supplier edit screen, and a general
   // update route would put bank details one request away from any writer.
   if (req.method === 'PATCH') {
-    const b = req.body as Record<string, unknown>;
+    const b = (typeof req.body === 'object' && req.body !== null ? req.body : {}) as Record<string, unknown>;
     const id = typeof b.id === 'string' ? b.id : '';
     if (!UUID_RE.test(id)) return apiResponse.badRequest(res, 'id must be a supplier id');
     if (typeof b.subject_to_drc_vat !== 'boolean') {
