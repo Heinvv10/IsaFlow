@@ -124,3 +124,27 @@ describe('importAPInvoices — no sourceDocumentId, linked via gl_journal_entry_
     expect(sqlCallTouches(linkageCall, 'gl_journal_entry_id', INVOICE_ID)).toBe(true);
   });
 });
+
+describe('importAPInvoices — R-119: a take-on row may not carry a negative or NaN total', () => {
+  it.each([
+    ['a negative total', -1150],
+    ['a NaN total', Number.NaN],
+  ])('refuses %s by file row, names credit notes, and never reaches the INSERT', async (_label, totalAmount) => {
+    mockSql
+      .mockResolvedValueOnce([]) // pg_advisory_xact_lock
+      .mockResolvedValueOnce([]) // steps_completed
+      .mockResolvedValueOnce([{ id: SUPPLIER_ID, name: 'Widget Supplies', vat_number: '4123456789' }]);
+
+    const result = await importAPInvoices(
+      COMPANY_ID, SESSION_ID, [{ ...invoiceRow, totalAmount }], USER_ID,
+    );
+
+    expect(result.imported).toBe(0);
+    expect(result.skipped).toBe(1);
+    expect(result.errors.map((e) => e.message).join(' ')).toMatch(/credit note/i);
+    expect(mockCreateJournalEntry).not.toHaveBeenCalled();
+    const insertCalls = mockSql.mock.calls.filter((c) =>
+      String((c as [readonly string[]])[0]?.join?.('') ?? '').includes('INSERT INTO supplier_invoices'));
+    expect(insertCalls).toHaveLength(0);
+  });
+});
