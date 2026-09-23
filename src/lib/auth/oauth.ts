@@ -599,7 +599,13 @@ export async function listConnectedApps(userId: string, companyId: string): Prom
     // This feeds the screen where a user decides to CUT OFF an app's access —
     // it must not show a different string from the one they consented to.
     appName: (r.app_name as string).normalize('NFC'),
-    appLogoUrl: r.app_logo_url as string | null,
+    // Withheld for an unverified app, for the same reason the consent screen
+    // withholds it: a logo is free branding, this screen renders it as a raw
+    // <img>, and it is where a user decides whether to CUT OFF access. An app
+    // that cannot fake our branding at consent must not be able to fake it
+    // here either. Withheld server-side, so the URL is never fetched and
+    // cannot beacon the viewer's IP.
+    appLogoUrl: r.is_verified ? (r.app_logo_url as string | null) : null,
     appIsVerified: Boolean(r.is_verified),
     scopes: Array.isArray(r.scopes) ? (r.scopes as string[]) : [],
     companyId: r.company_id as string,

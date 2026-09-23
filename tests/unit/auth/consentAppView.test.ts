@@ -55,5 +55,10 @@ describe('consentAppView', () => {
     const view = consentAppView({ ...attacker, isFirstParty: true });
     expect(view.description).toBe(attacker.description);
     expect(view.logoUrl).toBe(attacker.logoUrl);
+    // ...but isVerified stays what the row says. Trusted enough to decorate is
+    // not the same claim as verified: passing `trusted` through here would put
+    // the "Verified" badge on a first-party app and suppress the amber
+    // not-verified warning, both of which read off this one field.
+    expect(view.isVerified).toBe(false);
   });
 });

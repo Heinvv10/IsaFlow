@@ -113,6 +113,25 @@ describe('reading a name written before the guard existed', () => {
     expect(apps[0]?.appName).not.toContain('\uFACF');
   });
 
+  // A logo is free branding and this screen renders it as a raw <img>. An
+  // unverified app that cannot fake our branding at consent must not be able to
+  // fake it on the screen where access gets revoked.
+  it('withholds an unverified app\'s logo from the revoke screen', async () => {
+    const row = (verified: boolean) => [{
+      authorisation_id: 'auth-1', oauth_app_id: 'a', scopes: [], company_id: 'c1',
+      last_used_at: null, created_at: new Date(), app_name: 'Acme',
+      app_logo_url: 'https://evil.example/isaflow-logo.png', is_verified: verified,
+    }];
+
+    sqlMock.mockResolvedValue(row(false));
+    const unverified = await listConnectedApps('user-1', 'c1');
+    expect(unverified[0]?.appLogoUrl).toBeNull();
+
+    sqlMock.mockResolvedValue(row(true));
+    const verified = await listConnectedApps('user-1', 'c1');
+    expect(verified[0]?.appLogoUrl).toBe('https://evil.example/isaflow-logo.png');
+  });
+
   // The developer list and the consent screen must not disagree about what an
   // app is called.
   it('normalises the name the developer list shows', async () => {
