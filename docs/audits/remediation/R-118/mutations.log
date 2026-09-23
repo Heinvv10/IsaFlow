@@ -3,3 +3,5 @@ M2 AP guard narrowed to draft -> Test Files  1 failed | 2 passed (3) | Tests  1 
 M3 AP guard above the early return -> Test Files  2 failed | 1 passed (3) | Tests  3 failed | 10 passed (13)
 M4 AR guard removed -> Test Files  1 failed | 2 passed (3) | Tests  2 failed | 11 passed (13)
 M5 AR guard narrowed to draft -> Test Files  1 failed | 2 passed (3) | Tests  1 failed | 12 passed (13)
+--- round 1: the mutation the reuse test exists for ---
+M6 approve reuse branch removed -> Test Files  1 failed | 1 passed (2) | Tests  1 failed | 8 passed (9)
