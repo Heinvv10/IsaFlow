@@ -10,15 +10,17 @@ import { Clock, Loader2, AlertCircle, Download, ChevronDown, ChevronRight } from
 import type { AgingBucket } from '@/modules/accounting/types/ap.types';
 import { formatCurrency } from '@/utils/formatters';
 import { apiFetch } from '@/lib/apiFetch';
-import { SupplierInvoicesPanel } from '@/components/accounting/SupplierInvoicesPanel';
-import { useAgingReturn, agingRowId } from '@/components/accounting/useAgingReturn';
+import { fmtDate } from '@/lib/fmtDate';
+import { AgingInvoicesPanel } from '@/components/accounting/AgingInvoicesPanel';
+import { useAgingReturn } from '@/components/accounting/useAgingReturn';
 
 export default function APAgingPage() {
   const [buckets, setBuckets] = useState<AgingBucket[]>([]);
-  const [asAtDate, setAsAtDate] = useState(new Date().toISOString().split('T')[0]);
+  // A LOCAL date: toISOString() is UTC and named yesterday before 02:00 SAST.
+  const [asAtDate, setAsAtDate] = useState(() => fmtDate(new Date()));
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState('');
-  const { restored, expandedId, toggle } = useAgingReturn({
+  const { restored, expandedId, rowProps } = useAgingReturn({
     entityParam: 'supplier', rowsReady: !isLoading && buckets.length > 0, onAsAtDate: setAsAtDate,
   });
 
@@ -41,9 +43,6 @@ export default function APAgingPage() {
 
   // Wait for a restored ?as_at_date= so the first load is already the right date.
   useEffect(() => { if (restored) void loadAging(); }, [restored, loadAging]);
-  const panelNote = asAtDate === new Date().toISOString().split('T')[0]
-    ? undefined
-    : 'Invoices open today — they can differ from the as-at buckets above.';
 
   const totals = buckets.reduce(
     (acc, b) => ({
@@ -150,7 +149,7 @@ export default function APAgingPage() {
                 <tbody className="divide-y divide-[var(--ff-border-light)]">
                   {buckets.map(b => (
                     <Fragment key={b.entityId}>
-                    <tr id={agingRowId(b.entityId)} onClick={() => toggle(b.entityId)} className="hover:bg-teal-500/[0.04] transition-colors cursor-pointer">
+                    <tr {...rowProps(b.entityId)} className="hover:bg-teal-500/[0.04] transition-colors cursor-pointer">
                       <td className="px-4 py-3 text-[var(--ff-text-tertiary)]">
                         {expandedId === b.entityId ? <ChevronDown className="h-4 w-4" /> : <ChevronRight className="h-4 w-4" />}
                       </td>
@@ -167,7 +166,7 @@ export default function APAgingPage() {
                       <td className="px-4 py-3 text-sm text-right font-mono font-bold text-[var(--ff-text-primary)]">{formatCurrency(b.total)}</td>
                     </tr>
                     {expandedId === b.entityId && (
-                      <SupplierInvoicesPanel supplierId={b.entityId} supplierName={b.entityName} colSpan={8} asAtDate={asAtDate} note={panelNote} />
+                      <AgingInvoicesPanel side="ap" entityId={b.entityId} entityName={b.entityName} asAtDate={asAtDate} colSpan={8} />
                     )}
                     </Fragment>
                   ))}

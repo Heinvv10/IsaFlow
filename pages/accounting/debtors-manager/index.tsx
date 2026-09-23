@@ -16,7 +16,7 @@ import type {
 } from '@/modules/accounting/services/ar/debtorsManagerService';
 import { DebtorInvoicesPanel } from '@/components/accounting/DebtorInvoicesPanel';
 import { buildInvoiceHref } from '@/components/accounting/invoiceReturnContext';
-import { useAgingReturn, agingRowId } from '@/components/accounting/useAgingReturn';
+import { useAgingReturn } from '@/components/accounting/useAgingReturn';
 import { INVOICE_LINK } from '@/components/accounting/agingPanelFormat';
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
@@ -55,7 +55,7 @@ export default function DebtorsManagerPage() {
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState('');
   const [search, setSearch] = useState('');
-  const { expandedId, toggle: toggleExpand } = useAgingReturn({
+  const { expandedId, rowProps } = useAgingReturn({
     entityParam: 'customer', rowsReady: !isLoading && summary.length > 0,
   });
 
@@ -154,9 +154,8 @@ export default function DebtorsManagerPage() {
                   {filtered.map(d => (
                     <Fragment key={d.clientId}>
                       <tr
-                        id={agingRowId(d.clientId)}
+                        {...rowProps(d.clientId)}
                         className="hover:bg-teal-500/[0.04] transition-colors cursor-pointer"
-                        onClick={() => toggleExpand(d.clientId)}
                       >
                         <td className="px-4 py-3 text-[var(--ff-text-tertiary)]">
                           {expandedId === d.clientId
@@ -177,7 +176,7 @@ export default function DebtorsManagerPage() {
                         <td className="px-4 py-3 text-sm text-right font-mono font-bold text-[var(--ff-text-primary)]">{fmt(d.totalOutstanding)}</td>
                       </tr>
                       {expandedId === d.clientId && (
-                        <DebtorInvoicesPanel clientId={d.clientId} clientName={d.clientName} from="debtors" colSpan={8} />
+                        <DebtorInvoicesPanel clientId={d.clientId} clientName={d.clientName} />
                       )}
                     </Fragment>
                   ))}
