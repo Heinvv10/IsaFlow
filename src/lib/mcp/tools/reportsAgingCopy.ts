@@ -22,7 +22,7 @@ export const NETTING_NOTE =
 
 export const TOTALS_NOTE =
   'total is the NET over EVERY entity and gross_total is the same figure before credit is netted; buckets are gross and over every entity, not just this page — rowsTotal says how many entities there are and truncated says whether you are seeing them all. '
-  + 'entity_id drills into one customer or supplier and returns its INVOICES instead of the bucket summary. '
+  + 'entity_id drills into one customer or supplier and returns its INVOICES, each with its invoiceNumber, instead of the bucket summary. '
   + 'agedFromInvoiceDate counts invoices with no due date: they ARE in the buckets, aged from their invoice date, so their age is derived rather than known. '
   + 'detail "summary" returns the totals with no rows.';
 
