@@ -17,6 +17,7 @@ import type { JournalLineInput } from '../../types/gl.types';
 import { actorMeta, type PostingActorOpts } from '../gl/journalEntryMeta';
 import { releaseCapturedDocumentPostingClaim } from '../capture/capturePostingClaimRelease';
 import { buildExpenseLines } from './supplierInvoiceExpenseLines';
+import { documentInPopulation } from '../shared/documentPopulation';
 
 type Row = DbRow;
 
@@ -178,6 +179,21 @@ export async function postSupplierInvoiceToGL(
   // journal for a cancelled document (the inverse of audit C1).
   if (invoice.status === 'cancelled') {
     throw new Error('Cannot post a cancelled supplier invoice to GL');
+  }
+
+  // R-118: this is the backfill for documents that are already IN the AP
+  // population. A draft or pending-approval bill posted here leaves its
+  // journal on the GL half of every AP-vs-GL reconciliation while
+  // documentInPopulationExpr keeps the document off the other half — a
+  // permanent difference by the bill's full amount. The bulk "Post to GL"
+  // action offers itself on any selection, so this is reachable in one click.
+  // Approving is what posts a draft: approveSupplierInvoice moves the status
+  // and posts the journal together.
+  if (!documentInPopulation(invoice.status)) {
+    throw new Error(
+      `Cannot post a ${invoice.status} supplier invoice to GL — approve it instead, `
+      + 'which posts the journal and moves the status together.',
+    );
   }
 
   if (invoice.glJournalEntryId) {
