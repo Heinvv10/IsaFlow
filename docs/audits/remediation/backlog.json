@@ -12026,7 +12026,7 @@
       "title": "The Sage customer-invoice importer selects columns sage_customer_invoices does not have, so it fails with 42703 before its loop and has never imported a row — the untracked customer twin of R-021",
       "severity": "medium",
       "source": "Found by fix-r089a on the fixture while fixing R-089.",
-      "processNotes": "Registered 2026-09-14 by session 71c707d0 (wave R-1)."
+      "processNotes": "Registered 2026-09-14 by session 71c707d0 (wave R-1). 2026-09-23 (R-119): when this importer is revived it must handle a staged CREDIT NOTE deliberately — sageCustomerImportService now marks a negative staged total 'failed', which is indistinguishable from a genuine failure and unfindable by a later credit-note import. Give it its own status or route it to credit_notes."
     },
     {
       "claim": "",

@@ -71,3 +71,15 @@ Read-only, not run against production by this session.
 | **LOW (general): module docs not updated.** | Entries in `core/.claude.md` and `ap/.claude.md`; mirrors regenerated. | `agent-docs:check` OK. |
 
 Mutations after this round (`mutations.log`), all red: trigger NaN arm, helper NaN check, supplier trigger UPDATE arm, AP recurring guard, time-entry guard, taxRate range, 400 mapping — plus round 1's pipeline guard, recurring guard, helper no-op and dropping the migration entirely.
+
+
+## Review round 2 — the legs
+
+Asked the adversarial reviewer whether NaN could also enter through `subtotal` or `tax_amount`. It could, and so could a NEGATIVE leg, which round 1 did not close:
+
+| Finding | Fix | Proof |
+|---|---|---|
+| **MEDIUM: the guard covered `total_amount` only.** A row can carry `subtotal -1000, tax -150, total 115`. The total reads clean, so a total-only guard *hides* the damage from anyone checking totals, while `SUM(subtotal)` and `SUM(tax_amount)` — the VAT return and every sales-analysis report — go wrong. Reachable by the same opaque-`templateData` path, because `headerTotals` compares stored legs against derived ones only when the template HAS lines, and production carries line-less templates. | The trigger refuses a newly-negative `subtotal` and `tax_amount` with their own messages, on the same "changed" semantics so legacy rows stay correctable. NaN on the legs was already closed in round 1. | Reproduced in psql first (`negative legs accepted: subtotal=-1000.00 tax=-150.00 total=115.00`), then two tests; mutations M12 and M13 red. |
+| LOW: the Sage importer marks a staged credit note `'failed'`, which is indistinguishable from a genuine failure and unfindable by a later credit-note import. | Not changed — the function is unreachable (R-101) and inventing a status nobody reads would be speculative. Recorded on R-101 instead, so whoever revives that importer handles credit notes deliberately. | — |
+
+**Regression after the leg guard:** the same 171-file sweep — 151 passed, 987 tests, the same 4 failures that fail identically on master. Zero failures mention the trigger.
