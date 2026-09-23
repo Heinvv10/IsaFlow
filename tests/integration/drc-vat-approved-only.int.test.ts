@@ -138,9 +138,9 @@ describeIfDb('applyDRCVat — approved bills only, once, all-or-nothing', () => 
   });
 
   /**
-   * Approval already posted DR Input VAT = tax_amount. DRC posting DR Input VAT
-   * again on the subtotal claims the same input VAT twice. A reverse-charge
-   * invoice carries no supplier VAT, so a taxed bill is not one.
+   * A reverse-charge invoice carries no supplier VAT, so a taxed bill is not
+   * one. DRC on it added DR Input / CR Output on top of approval's input VAT,
+   * inflating both VAT201 boxes (net payable unchanged).
    */
   it('refuses a bill that already carries supplier VAT, and does not list it', async () => {
     const taxed = await bill('approved');
