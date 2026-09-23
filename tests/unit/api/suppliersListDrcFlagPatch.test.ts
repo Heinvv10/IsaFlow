@@ -52,6 +52,8 @@ describe('suppliers-list PATCH — the DRC flag only', () => {
 
   it('refuses a missing id or a non-boolean flag before any write', async () => {
     for (const body of [{ subject_to_drc_vat: true }, { id: 'nope', subject_to_drc_vat: true },
+      // 36 characters of hex and hyphens, but not a UUID: must be a 400, not a 22P02 500.
+      { id: '------------------------------------', subject_to_drc_vat: true },
       { id: SUPPLIER, subject_to_drc_vat: 'yes' }, { id: SUPPLIER }]) {
       const res = response();
       await handler(patch(body), res);
