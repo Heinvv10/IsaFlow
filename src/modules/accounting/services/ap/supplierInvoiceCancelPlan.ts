@@ -2,10 +2,12 @@
  * Everything cancelling a supplier bill would refuse, answered from READS, and
  * the contra journal it would post.
  *
- * `cancelSupplierInvoice` raises its own refusals as plain Errors from inside
- * the write. A caller that turned those into a refusal could not tell one from
- * a failure after the contra posted, so the MCP tool asks this first and calls
- * the cancel with no catch. Every check here is one the cancel makes (or one
+ * `cancelSupplierInvoice` runs this plan itself on its locked row, before any
+ * write, so the UI Cancel button and the bulk action are held to every refusal
+ * here (no override). The MCP tool still asks first — for its dry-run preview,
+ * and because a caller that caught the cancel's errors could not tell a
+ * refusal from a failure after the contra posted — and calls the cancel with
+ * no catch. Every check here is one the cancel makes (or one
  * whose absence would leave a dangling record behind it), and the preview's
  * date comes from the same `resolveReversalDate` the reversal uses.
  */
@@ -94,7 +96,7 @@ export async function planSupplierInvoiceCancel(
   if (status === 'paid' || status === 'partially_paid' || paid > EPS) {
     throw new SupplierInvoiceCancelRefusal(
       `Supplier invoice ${number} has R${paid.toFixed(2)} applied to it by payments or credit notes. `
-      + 'Undo those first (void_payment, cancel_credit_note), then cancel it.',
+      + 'Void the payment or cancel the credit note first (MCP: void_payment, cancel_credit_note), then cancel it.',
     );
   }
   // Bank-matched with nothing applied: the legacy allocation path posted DR AP
@@ -102,8 +104,8 @@ export async function planSupplierInvoiceCancel(
   // unexplained supplier debit with no live document behind it.
   if (bill.payment_matched === true) {
     throw new SupplierInvoiceCancelRefusal(
-      `Supplier invoice ${number} is matched to a bank payment. Reverse that allocation first `
-      + '(reverse_bank_allocation), then cancel it.',
+      `Supplier invoice ${number} is matched to a bank payment. Reverse that bank allocation first `
+      + '(MCP: reverse_bank_allocation), then cancel it.',
     );
   }
   // A draft or approved payment planning to pay this bill would be left
@@ -135,8 +137,8 @@ export async function planSupplierInvoiceCancel(
   if (others.length > 0) {
     throw new SupplierInvoiceCancelRefusal(
       `Supplier invoice ${number} has other posted journal(s) sourced from it that the cancel would `
-      + `leave standing: ${others.map((r) => String(r.entry_number)).join(', ')}. Reverse them with `
-      + 'reverse_journal_entry first.',
+      + `leave standing: ${others.map((r) => String(r.entry_number)).join(', ')}. Reverse them first `
+      + '(MCP: reverse_journal_entry).',
     );
   }
 
@@ -177,7 +179,7 @@ export async function planSupplierInvoiceCancel(
     throw new SupplierInvoiceCancelRefusal(
       `Cancelling supplier invoice ${number} would post its reversal on ${reversalDate}, inside a `
       + 'locked VAT period — it would change a VAT201 already filed. Unlock the period, or reverse '
-      + 'the journal with reverse_journal_entry on a date in an open VAT period, then cancel.',
+      + 'the journal on a date in an open VAT period (MCP: reverse_journal_entry), then cancel.',
     );
   }
   return {
