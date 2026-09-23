@@ -20,6 +20,11 @@ vi.mock('@/lib/neon', () => ({
 vi.mock('@/lib/mcp/tools/bulkApprovePeriods', () => ({
   resolvePeriodSkips: vi.fn(async () => new Map()),
 }));
+// The line-account skip is pinned against a real chart by
+// tests/integration/bill-line-account-guard.int.test.ts.
+vi.mock('@/modules/accounting/services/ap/billLineAccountGuard', () => ({
+  supplierInvoiceLineAccountRefusals: vi.fn(async () => new Map<string, string>()),
+}));
 vi.mock('@/modules/accounting/services/capture/capturedVatEvidence', () => ({
   invoiceVatRefusals: vi.fn(async () => new Map<string, string>()),
 }));

@@ -10,7 +10,7 @@ import { withAuth, type CompanyAuthedRequest, type AuthenticatedNextApiRequest, 
 import { withCsrf } from '@/lib/auth/withCsrf';
 import { log } from '@/lib/logger';
 import { executeRecurring } from '@/modules/accounting/services/core/recurringTransactionService';
-import { RecurringTemplateNotDueError, RecurringTemplateNotFoundError, RecurringTemplateTotalsMismatchError } from '@/modules/accounting/services/core/recurringTransactionErrors';
+import { RecurringTemplateLineAccountError, RecurringTemplateNotDueError, RecurringTemplateNotFoundError, RecurringTemplateTotalsMismatchError } from '@/modules/accounting/services/core/recurringTransactionErrors';
 import { CustomerNotInCompanyError, SupplierNotInCompanyError } from '@/modules/accounting/services/core/contactDirectoryService';
 
 async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse) {
@@ -50,7 +50,8 @@ async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse) {
     // Also pre-write: the mint functions assert the template's aggregate
     // against its lines before they touch anything. 400 rather than a 500,
     // because the operator has to re-save the template — it is not a bug.
-    if (err instanceof RecurringTemplateTotalsMismatchError) {
+    // Same for a bill template line coded to an account a bill line may not name.
+    if (err instanceof RecurringTemplateTotalsMismatchError || err instanceof RecurringTemplateLineAccountError) {
       return apiResponse.badRequest(res, err.message);
     }
     // R-067, also pre-write: the template's clientId is not a customer of this

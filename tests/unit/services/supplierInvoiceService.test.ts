@@ -36,6 +36,11 @@ vi.mock('@/lib/logger', () => ({
 vi.mock('@/modules/accounting/services/core/contactDirectoryService', () => ({
   assertSupplierInCompany: vi.fn(async () => undefined),
 }));
+// Same for the line-account guard: pinned against a real chart by
+// tests/integration/bill-line-account-guard.int.test.ts.
+vi.mock('@/modules/accounting/services/ap/billLineAccountGuard', () => ({
+  assertBillLineAccounts: vi.fn(async () => undefined),
+}));
 
 vi.mock('@/modules/accounting/services/journalEntryService', () => ({
   createJournalEntry: vi.fn(),
