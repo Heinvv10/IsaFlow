@@ -44,9 +44,9 @@ import { AccountingTour } from '@/components/onboarding/AccountingTour';
 import { SetupGuideButton } from '@/components/onboarding/SetupGuideButton';
 import { ImpersonationBanner } from '@/components/layout/ImpersonationBanner';
 import { PayrollPeriodBar } from '@/components/payroll/PayrollPeriodBar';
-import { DM_Sans } from 'next/font/google';
+import { dmSans } from '@/lib/fonts';
 
-const dmSans = DM_Sans({ subsets: ['latin'], variable: '--font-dm-sans', display: 'swap' });
+
 
 const AccountingNav = dynamic(
   () => import('@/components/accounting/AccountingNav').then(mod => ({ default: mod.AccountingNav })),

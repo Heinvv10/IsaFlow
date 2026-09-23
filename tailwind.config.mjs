@@ -151,7 +151,11 @@ export default {
       },
       fontFamily: {
         sans: [
-          'var(--font-dm-sans)',
+          // Inline fallback, not just the stack below it: an undefined var()
+          // invalidates the WHOLE font-family declaration, so the entries that
+          // follow never apply and the browser default serif wins. This is what
+          // put every signed-out page in Times New Roman.
+          'var(--font-dm-sans, system-ui)',
           'system-ui',
           '-apple-system',
           'BlinkMacSystemFont',
