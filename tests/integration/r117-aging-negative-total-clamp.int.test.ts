@@ -9,14 +9,21 @@
  * time-entry billing, the Sage AR import) apply no sign guard. The writers are
  * a separate finding; this one is the clamp.
  *
- * The customer and supplier reports SUM the expression with no balance filter,
- * so they are where the mis-statement surfaces. The ageing and the subledger
- * both filter `balance > 0`, which excludes a negative document either way.
+ * Four sites SUM the expression with NO balance filter, and they are where the
+ * mis-statement surfaces: `transactionReportingService`'s customer and supplier
+ * reports, and the `sales-by-customer` / `purchases-by-supplier` routes
+ * (Received and Outstanding). The ageing and the subledger filter
+ * `balance > 0`, which excludes a negative document either way.
  */
 import { describe, it, expect, beforeAll, afterAll } from 'vitest';
 import { randomUUID } from 'crypto';
 import { sql } from '@/lib/neon';
 import { getCustomerReport, getSupplierReport } from '@/modules/accounting/services/reports/transactionReportingService';
+import { SignJWT } from 'jose';
+import { assertDisposable, request, response } from './mfa-impersonation-postgres.helpers';
+import salesByCustomer from '../../pages/api/accounting/reports/sales-by-customer';
+
+assertDisposable();
 
 const DATABASE_URL = process.env.DATABASE_URL;
 const describeIfDb = DATABASE_URL ? describe : describe.skip;
@@ -34,6 +41,12 @@ describeIfDb('R-117 a negative-total document reports nothing settled, not its o
     await sql`
       INSERT INTO companies (id, name, registration_number, created_at)
       VALUES (${COMPANY}::UUID, ${'R117 ' + COMPANY.slice(0, 8)}, 'R117-TEST', NOW())`;
+    await sql`
+      INSERT INTO users (id, email, role, is_active)
+      VALUES (${USER}, ${'r117-' + USER + '@isaflow.test'}, 'admin', true)`;
+    await sql`
+      INSERT INTO company_users (company_id, user_id, role)
+      VALUES (${COMPANY}::UUID, ${USER}, 'admin')`;
     customerId = ((await sql`
       INSERT INTO customers (name, company_id) VALUES ('R117 Customer', ${COMPANY}::UUID) RETURNING id
     `) as { id: string }[])[0]!.id;
@@ -67,7 +80,10 @@ describeIfDb('R-117 a negative-total document reports nothing settled, not its o
     await sql`DELETE FROM supplier_invoices WHERE company_id = ${COMPANY}::UUID`;
     await sql`DELETE FROM customers WHERE company_id = ${COMPANY}::UUID`;
     await sql`DELETE FROM suppliers WHERE company_id = ${COMPANY}::UUID`;
+    await sql`DELETE FROM company_users WHERE company_id = ${COMPANY}::UUID`;
     await sql`DELETE FROM companies WHERE id = ${COMPANY}::UUID`;
+    // users.id is VARCHAR, not UUID — casting the column's side raises 42883.
+    await sql`DELETE FROM users WHERE id = ${USER}`;
   }, 60000);
 
   it('the customer report shows nothing paid on an unpaid negative-total invoice', async () => {
@@ -88,17 +104,30 @@ describeIfDb('R-117 a negative-total document reports nothing settled, not its o
     expect(Number(row!.totalPaid)).toBe(0);
   });
 
-  it('a settlement against a negative document is kept, not clamped away', async () => {
-    // A refund of 500 against the -1150 credit: 500 of it is settled.
+  it.each([
+    // [amount_paid on a -1150 document, what the report must say was settled]
+    [-500, -500],    // a partial refund: kept, not clamped away
+    [-1150, -1150],  // settled in full
+    [-2000, -1150],  // over-settled: bounded by the document's own total
+    [500, 0],        // wrong-signed: outside [total, 0], so nothing is settled
+  ])('amount_paid %s on a -1150 document reports %s settled', async (paid, expected) => {
+    // Its own document, so the case cannot depend on another case restoring
+    // state — and its own customer, so the report row is only this document.
+    const isolated = ((await sql`
+      INSERT INTO customers (name, company_id) VALUES (${'R117 iso ' + paid}, ${COMPANY}::UUID)
+      RETURNING id`) as { id: string }[])[0]!.id;
     await sql`
-      UPDATE customer_invoices SET amount_paid = -500
-      WHERE company_id = ${COMPANY}::UUID AND invoice_number = 'R117-CI-1'`;
+      INSERT INTO customer_invoices (
+        company_id, invoice_number, customer_id, client_id, invoice_date, due_date,
+        subtotal, tax_rate, tax_amount, total_amount, amount_paid, status, created_by
+      ) VALUES (
+        ${COMPANY}::UUID, ${'R117-ISO-' + paid}, ${isolated}::UUID, ${isolated}::UUID,
+        ${PERIOD_END}::DATE, ${PERIOD_END}::DATE,
+        -1000.00, 15.00, -150.00, -1150.00, ${paid}, 'sent', ${USER}::UUID
+      )`;
     const rows = await getCustomerReport(COMPANY, PERIOD_START, PERIOD_END);
-    const row = rows.find((r) => r.clientId === customerId);
-    expect(Number(row!.totalPaid)).toBe(-500);
-    await sql`
-      UPDATE customer_invoices SET amount_paid = 0
-      WHERE company_id = ${COMPANY}::UUID AND invoice_number = 'R117-CI-1'`;
+    const row = rows.find((r) => r.clientId === isolated);
+    expect(Number(row!.totalPaid)).toBe(expected);
   });
 
   it('a positive document is unaffected: an overpayment still clamps to the total', async () => {
@@ -118,5 +147,27 @@ describeIfDb('R-117 a negative-total document reports nothing settled, not its o
     expect(Number(row!.totalPaid)).toBe(1150);
     await sql`
       DELETE FROM customer_invoices WHERE company_id = ${COMPANY}::UUID AND invoice_number = 'R117-CI-2'`;
+  });
+
+  it('sales-by-customer reports nothing received on the unpaid credit', async () => {
+    // The route SUMs the same expression with no balance filter, as
+    // purchases-by-supplier does on the AP side; its Received and Outstanding
+    // columns move with this change and nothing else covered them.
+    const token = await new SignJWT({ sub: USER, aal: 'aal2' })
+      .setProtectedHeader({ alg: 'HS256' }).setExpirationTime('1h')
+      .sign(new TextEncoder().encode(process.env.JWT_SECRET));
+    const req = request({ 'sb-access-token': token, active_company_id: COMPANY }, 'GET') as never as
+      { query: Record<string, string>; url: string };
+    req.query = { from: PERIOD_START, to: PERIOD_END };
+    req.url = '/api/accounting/reports/sales-by-customer';
+    const out = response();
+    await salesByCustomer(req as never, out.res as never);
+    expect(out.state.statusCode).toBe(200);
+    const body = out.state.body as { data?: Array<Record<string, unknown>> };
+    const row = (body.data ?? []).find((r) => String(r.clientId) === customerId);
+    expect(row).toBeDefined();
+    expect(Number(row!.totalSales)).toBe(-1150);
+    expect(Number(row!.paymentsReceived)).toBe(0);
+    expect(Number(row!.outstanding)).toBe(-1150);
   });
 });
