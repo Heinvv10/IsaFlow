@@ -124,3 +124,46 @@ describe('importAPInvoices — no sourceDocumentId, linked via gl_journal_entry_
     expect(sqlCallTouches(linkageCall, 'gl_journal_entry_id', INVOICE_ID)).toBe(true);
   });
 });
+
+describe('importAPInvoices — R-119: a take-on row may not carry a negative or NaN total', () => {
+  it.each([
+    ['a negative total', -1150],
+    ['a NaN total', Number.NaN],
+  ])('refuses %s by file row, names credit notes, and never reaches the INSERT', async (_label, totalAmount) => {
+    mockSql
+      .mockResolvedValueOnce([]) // pg_advisory_xact_lock
+      .mockResolvedValueOnce([]) // steps_completed
+      .mockResolvedValueOnce([{ id: SUPPLIER_ID, name: 'Widget Supplies', vat_number: '4123456789' }]);
+
+    const result = await importAPInvoices(
+      COMPANY_ID, SESSION_ID, [{ ...invoiceRow, totalAmount }], USER_ID,
+    );
+
+    expect(result.imported).toBe(0);
+    expect(result.skipped).toBe(1);
+    expect(result.errors.map((e) => e.message).join(' ')).toMatch(/credit note/i);
+    expect(mockCreateJournalEntry).not.toHaveBeenCalled();
+    const insertCalls = mockSql.mock.calls.filter((c) =>
+      String((c as [readonly string[]])[0]?.join?.('') ?? '').includes('INSERT INTO supplier_invoices'));
+    expect(insertCalls).toHaveLength(0);
+  });
+});
+
+describe('importAPInvoices — R-119: a swapped LEG passes the drift check and must still be refused', () => {
+  it('refuses subtotal 1200 / tax -200 / total 1000, which |subtotal+tax-total| accepts', async () => {
+    mockSql
+      .mockResolvedValueOnce([]) // pg_advisory_xact_lock
+      .mockResolvedValueOnce([]) // steps_completed
+      .mockResolvedValueOnce([{ id: SUPPLIER_ID, name: 'Widget Supplies', vat_number: '4123456789' }])
+      .mockResolvedValueOnce([{ source_system: 'sage' }]);
+
+    const result = await importAPInvoices(
+      COMPANY_ID, SESSION_ID, [{ ...invoiceRow, subtotal: 1200, taxAmount: -200, totalAmount: 1000 }], USER_ID,
+    );
+
+    expect(result.imported).toBe(0);
+    expect(result.skipped).toBe(1);
+    expect(result.errors.map((e) => e.message).join(' ')).toMatch(/credit note/i);
+    expect(mockCreateJournalEntry).not.toHaveBeenCalled();
+  });
+});

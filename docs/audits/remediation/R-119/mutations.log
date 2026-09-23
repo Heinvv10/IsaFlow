@@ -1,0 +1,15 @@
+M1 pipeline guard removed -> Test Files  1 failed | 1 passed (2) | Tests  1 failed | 14 passed (15)
+M2 recurring AR guard removed -> Test Files  1 failed | 1 passed (2) | Tests  1 failed | 14 passed (15)
+M3 helper accepts negatives -> Test Files  1 failed | 1 passed (2) | Tests  1 failed | 14 passed (15)
+M4 migration 692 dropped -> Test Files  1 failed | 1 passed (2) | Tests  3 failed | 12 passed (15)
+--- round 2 (after review round 1) ---
+M5 trigger NaN arm removed -> Test Files  1 failed | 1 passed (2) | Tests  3 failed | 19 passed (22)
+M6 helper NaN check weakened -> Test Files  2 passed (2) | Tests  22 passed (22)
+M7 supplier trigger INSERT-only -> Test Files  1 failed | 1 passed (2) | Tests  1 failed | 21 passed (22)
+M8 AP recurring guard removed -> Test Files  1 failed | 1 passed (2) | Tests  1 failed | 21 passed (22)
+M9 time-entry guard removed -> Test Files  1 failed | 1 passed (2) | Tests  1 failed | 21 passed (22)
+M10 taxRate range check removed -> Test Files  1 failed | 1 passed (2) | Tests  1 failed | 21 passed (22)
+M11 error no longer mapped to 400 -> Test Files  1 failed | 1 passed (2) | Tests  1 failed | 21 passed (22)
+--- round 3 (leg arms) ---
+M12 subtotal arm removed -> Test Files  1 failed (1) | Tests  1 failed | 15 passed (16)
+M13 tax_amount arm removed -> Test Files  1 failed (1) | Tests  1 failed | 15 passed (16)

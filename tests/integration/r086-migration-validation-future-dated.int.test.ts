@@ -6,6 +6,8 @@
  */
 
 import { describe, it, expect, afterAll, beforeAll } from 'vitest';
+import { Pool } from 'pg';
+import { insertPreConstraintRow } from './helpers/preConstraintRow';
 import { sql } from '@/lib/neon';
 import { validateMigration } from '@/modules/accounting/services/core/migrationValidationService';
 import { softDelete } from '@/modules/accounting/services/core/softDeleteService';
@@ -279,15 +281,21 @@ describe('R-086 review round 4, LOW: a paid document with amount_paid above its 
     `) as Array<{ id: string }>;
     // A credit-note-shaped row: CR receivable 1150.
     const jeId = await postJournal(COMPANY_AR_NEG, revenueId, receivableId, 1150.00, 'R086NG-JE-1');
-    await sql`
-      INSERT INTO customer_invoices (
-        company_id, invoice_number, customer_id, client_id, invoice_date, due_date,
-        subtotal, tax_rate, tax_amount, total_amount, amount_paid, status, gl_journal_entry_id, created_by
-      ) VALUES (
-        ${COMPANY_AR_NEG}::UUID, 'R086NG-CI-1', ${customer.id}::UUID, ${customer.id}::UUID, CURRENT_DATE, CURRENT_DATE,
-        -1000.00, 15.00, -150.00, -1150.00, 0, 'sent', ${jeId}::UUID, ${USER_ID}::UUID
-      )
-    `;
+    // Migration 692 (R-119) refuses a NEW negative total; rows in this shape
+    // are in production from before it, which is what the clamp serves.
+    // Seeded the way migration 664's rows are, through replica mode.
+    const pool = new Pool({ connectionString: process.env.DATABASE_URL, max: 1 });
+    try {
+      await insertPreConstraintRow(pool, `
+        INSERT INTO customer_invoices (
+          company_id, invoice_number, customer_id, client_id, invoice_date, due_date,
+          subtotal, tax_rate, tax_amount, total_amount, amount_paid, status, gl_journal_entry_id, created_by
+        ) VALUES ($1::UUID, 'R086NG-CI-1', $2::UUID, $2::UUID, CURRENT_DATE, CURRENT_DATE,
+          -1000.00, 15.00, -150.00, -1150.00, 0, 'sent', $3::UUID, $4::UUID)`,
+        [COMPANY_AR_NEG, customer.id, jeId, USER_ID]);
+    } finally {
+      await pool.end();
+    }
     const results = await validateMigration(COMPANY_AR_NEG, 'r086-negative-ar');
     const ar = results.find(r => r.check === 'AR vs GL');
     expect(ar?.status).toBe('pass');

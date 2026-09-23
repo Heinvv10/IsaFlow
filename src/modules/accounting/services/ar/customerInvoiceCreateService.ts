@@ -70,13 +70,26 @@ export async function createDraftCustomerInvoice(
     if (!(price >= 0)) throw new InvoiceLineValidationError('Line unit prices cannot be negative');
   }
 
+  // R-119: the same audit, one field over. `taxRate` comes off the request
+  // body and is used below for `tax_amount` and the output-VAT journal leg. A
+  // negative rate leaves the TOTAL positive — `subtotal 1000, tax -500,
+  // total 500` — so neither a total guard nor migration 692's total arm sees
+  // it, while the VAT return and the GL leg go negative. Thrown as a line
+  // validation error because that is what it is to the operator, and the
+  // route already answers 400 for it. The MCP twins clamp `tax_rate` at the
+  // schema (minimum 0); this is the HTTP route's own guard.
+  const requestedRate = taxRate ?? 15;
+  if (!Number.isFinite(requestedRate) || requestedRate < 0 || requestedRate > 100) {
+    throw new InvoiceLineValidationError(`Tax rate must be between 0 and 100, got ${String(taxRate)}`);
+  }
+
   // Currency defaults
   const invCurrencyCode = (typeof currencyCode === 'string' && currencyCode.trim())
     ? currencyCode.trim().toUpperCase() : 'ZAR';
   const invExchangeRate = (typeof exchangeRate === 'number' && exchangeRate > 0) ? exchangeRate : 1.0;
 
   // Calculate totals (in foreign currency)
-  const rate = taxRate ?? 15;
+  const rate = requestedRate;
   let subtotal = 0;
   for (const item of items) {
     subtotal += (item.quantity || 1) * item.unitPrice;

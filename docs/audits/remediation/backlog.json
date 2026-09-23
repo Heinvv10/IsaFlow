@@ -12026,7 +12026,7 @@
       "title": "The Sage customer-invoice importer selects columns sage_customer_invoices does not have, so it fails with 42703 before its loop and has never imported a row — the untracked customer twin of R-021",
       "severity": "medium",
       "source": "Found by fix-r089a on the fixture while fixing R-089.",
-      "processNotes": "Registered 2026-09-14 by session 71c707d0 (wave R-1)."
+      "processNotes": "Registered 2026-09-14 by session 71c707d0 (wave R-1). 2026-09-23 (R-119): when this importer is revived it must handle a staged CREDIT NOTE deliberately — sageCustomerImportService now marks a negative staged total 'failed', which is indistinguishable from a genuine failure and unfindable by a later credit-note import. Give it its own status or route it to credit_notes. Also: deriveSageVat with STATED figures can return taxAmount = total - subtotal < 0, which migration 692's leg arms now refuse — so reviving this importer means handling that branch, not just the SELECT. Both Sage importers guard the TOTAL only (AR `< 0`, AP `> 0`), never the legs, so a stated-figure row whose derived tax is negative reaches migration 692's tax-leg arm and fails per-row with the raw trigger message instead of a named one. The next Sage import round should add the leg check beside the total check."
     },
     {
       "claim": "",
@@ -12558,7 +12558,7 @@
       "fixCommit": "28a2dfd1a",
       "pr": "473",
       "deployedSha": "6ceb334d6",
-      "historicalDataImpact": "None written; the expression is read-only. Mis-stated documents: SELECT company_id, count(*), sum(total_amount) FROM customer_invoices WHERE total_amount < 0 GROUP BY 1 (and the supplier_invoices twin).",
+      "historicalDataImpact": "None written; the expression is read-only. Mis-stated documents are found with the R-119 census, which must include NaN as well as negatives (NaN < 0 is FALSE).",
       "canonicalItem": null,
       "reportedSeverity": "medium",
       "processNotes": "2026-09-23: confirmed reachable — no CHECK constraint on either table and four unguarded writers (see R-119). The ageing and subledger exclude negative documents via balance > 0; the customer/supplier reports SUM the expression unfiltered, which is where it mis-stated.",
@@ -12625,10 +12625,38 @@
       "fixCommit": null,
       "pr": null,
       "deployedSha": null,
-      "historicalDataImpact": "Not assessed: SELECT company_id, count(*), sum(total_amount) FROM customer_invoices WHERE total_amount < 0 GROUP BY 1 (and the supplier_invoices twin).",
+      "historicalDataImpact": "Not assessed. The census must look for NaN as well as negatives — `NaN < 0` is FALSE, so a `WHERE total_amount < 0` query does not find a NaN row, and NaN was reachable before this fix: SELECT company_id, count(*) FROM customer_invoices WHERE total_amount < 0 OR subtotal < 0 OR tax_amount < 0 OR total_amount = 'NaN' OR subtotal = 'NaN' OR tax_amount = 'NaN' GROUP BY 1; (and the supplier_invoices twin). For any row found, check gl_journal_entry_id IS NOT NULL — a posted one is a journal-reversal exercise, not a data edit.",
       "canonicalItem": null,
       "reportedSeverity": "medium",
       "processNotes": "Decide the rule first: refuse a negative total at every writer (a credit is a credit_note), or accept it deliberately and teach the ageing/subledger to carry it. Do not fix writer-by-writer without that decision. 2026-09-23 (R-117 review): also decide what surfaces a WRONG-SIGNED settlement — amount_paid +500 on a -1150 document. effectivePaidExpr now reports 0 settled for it (the 500 is outside [total, 0]); the clamp cannot repair it, so an integrity check should name it rather than a report silently carrying it."
+    },
+    {
+      "id": "R-120",
+      "claim": "pages/api/accounting/practice/wip/invoice.ts answers badRequestFromError, which masks the underlying message in production, so an operator whose WIP invoice is refused (e.g. by migration 692's leg arms, reached through practiceWipService's subtotal built from time_entries.line_total — the same unguarded source as the time-entry route) is told 'WIP invoice failed' with nothing to act on. No data risk: the write sits inside withSavepoint('wip_invoice_build'), so the invoice and its reserved number roll back.",
+      "area": "practice",
+      "affectedPaths": [
+        "pages/api/accounting/practice/wip/invoice.ts",
+        "src/modules/accounting/services/practice/practiceWipService.ts"
+      ],
+      "sourceLabel": "R-119 review round 3 (adversarial)",
+      "sourceIds": [],
+      "correctedTrigger": null,
+      "severityRationale": "Named by a reviewer while surveying leg writers; the masking is confirmed by reading, the refusal path is not yet reproduced.",
+      "auditedSha": "e41401627",
+      "currentSha": "e41401627",
+      "status": "candidate",
+      "dependencies": [],
+      "testNames": [],
+      "evidencePaths": [
+        "docs/audits/remediation/R-119/fix.md"
+      ],
+      "fixCommit": null,
+      "pr": null,
+      "deployedSha": null,
+      "historicalDataImpact": "None — the write rolls back.",
+      "canonicalItem": null,
+      "reportedSeverity": "low",
+      "processNotes": null
     }
   ],
   "sourceInventory": [
