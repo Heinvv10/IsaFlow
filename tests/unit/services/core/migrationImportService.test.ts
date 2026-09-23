@@ -156,3 +156,22 @@ describe('importARInvoices — R-119: a take-on row may not carry a negative or 
     expect(insertCalls).toHaveLength(0);
   });
 });
+
+describe('importARInvoices — R-119: a swapped LEG passes the drift check and must still be refused', () => {
+  it('refuses subtotal 1200 / tax -200 / total 1000, which |subtotal+tax-total| accepts', async () => {
+    mockSql
+      .mockResolvedValueOnce([]) // pg_advisory_xact_lock
+      .mockResolvedValueOnce([]) // steps_completed
+      .mockResolvedValueOnce([{ id: CUSTOMER_ID, name: 'Acme Corp', vat_number: '4123456789' }])
+      .mockResolvedValueOnce([{ source_system: 'sage' }]);
+
+    const result = await importARInvoices(
+      COMPANY_ID, SESSION_ID, [{ ...invoiceRow, subtotal: 1200, taxAmount: -200, totalAmount: 1000 }], USER_ID,
+    );
+
+    expect(result.imported).toBe(0);
+    expect(result.skipped).toBe(1);
+    expect(result.errors.map((e) => e.message).join(' ')).toMatch(/credit note/i);
+    expect(mockCreateJournalEntry).not.toHaveBeenCalled();
+  });
+});

@@ -115,4 +115,6 @@ The general reviewer also confirmed the take-on guard's SHAPE was the right call
 | LOW (adversarial): the practice WIP route masks the underlying message via `badRequestFromError`, so a refused WIP invoice says "WIP invoice failed" with nothing to act on. No data risk — the write is inside a savepoint. | Registered as R-120, not fixed here. | — |
 | LOW (general): `deriveSageVat` with stated figures can return a negative tax leg, and both Sage importers guard the total only. | Registered on R-101 — the AR importer is dead until then, and the AP one calls it in the both-unstated branch, so no live path reaches it. | — |
 
+**Round 4 residual, closed rather than registered:** the take-on guard checked the total only, and the drift check beside it is `|subtotal + tax − total|`, which a SWAPPED leg satisfies exactly — `subtotal 1200, tax −200, total 1000` passed both and reached 692's leg arm with a raw message. The guard now covers all three figures on both importers, with a case per side; removing the leg arm goes red.
+
 Four rounds, and the shape repeated each time: **every guard I added moved the failure one layer down**, from the total to NaN, to the legs, to the writers that compute a leg from an unvalidated rate. The reviewers found each one; three of the four were consequences of my own previous round.
