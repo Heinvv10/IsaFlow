@@ -202,6 +202,7 @@ describeIfDb('applyDRCVat — approved bills only, once, all-or-nothing', () => 
     await sql`UPDATE supplier_invoices SET subtotal = 1000, tax_amount = 0, supplier_id = ${other.supplierId}::UUID
               WHERE id = ${forged}::UUID`;
     expect((await inTx(fx, () => getDRCEligibleInvoices(fx.companyId))).map((i) => i.id)).not.toContain(forged);
+    expect(await refusal(inTx(fx, () => applyDRCVat(fx.companyId, forged, fx.userId)))).toContain('not marked');
     expect(await state(forged)).toEqual({ isDrc: false, journals: 0 });
   });
 });
