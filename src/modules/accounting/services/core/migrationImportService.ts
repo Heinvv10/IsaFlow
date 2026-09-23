@@ -93,6 +93,30 @@ export async function importARInvoices(
       // drift in a source export cost nothing. Refusing at a cent lost real
       // invoices over the exporter's own rounding. Import up to 5c with a
       // warning; refuse beyond that, where the file is wrong rather than rounded.
+      // R-119: a take-on file that carries its credit notes as NEGATIVE open
+      // items. Migration 692 refuses the row at the database, so without this
+      // the operator would get a raw trigger message against a file row. There
+      // is no credit-note step in this importer, so the honest answer is to
+      // name the row and say where it belongs — the opening balance is short
+      // by it until those are loaded as credit notes.
+      // The LEGS as well as the total: the drift check below is
+      // |subtotal + tax - total|, which a SWAPPED leg satisfies exactly —
+      // `subtotal 1200, tax -200, total 1000` passes both it and a total-only
+      // guard, then hits migration 692's leg arm with a raw message instead of
+      // this one.
+      if (!Number.isFinite(inv.totalAmount) || inv.totalAmount < 0
+          || !Number.isFinite(inv.subtotal) || inv.subtotal < 0
+          || !Number.isFinite(inv.taxAmount) || inv.taxAmount < 0) {
+        errors.push({
+          step: 'ar_invoices', row: fileRow(i), field: 'totalAmount',
+          message: `${inv.invoiceNumber} has an amount a take-on invoice may not carry `
+            + `(total ${String(inv.totalAmount)}, subtotal ${String(inv.subtotal)}, tax ${String(inv.taxAmount)}). `
+            + 'Load a credit as a credit note against the document it reduces.',
+        });
+        skipped++;
+        continue;
+      }
+
       const amountsDrift = Math.abs(inv.subtotal + inv.taxAmount - inv.totalAmount);
       if (amountsDrift > 0.005) {
         const detail = `subtotal ${inv.subtotal.toFixed(2)} + tax ${inv.taxAmount.toFixed(2)} != total ${inv.totalAmount.toFixed(2)}`;

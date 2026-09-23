@@ -4,10 +4,11 @@
  * reads `LEAST(GREATEST(0, 0), -1150)` = -1150: the report says R1,150 was
  * settled on a document nobody paid, and the balance computes to exactly zero.
  *
- * Negative totals are reachable today — no CHECK constraint on either table,
- * and several writers (recurring-template execution, the AI capture pipeline,
- * time-entry billing, the Sage AR import) apply no sign guard. The writers are
- * a separate finding; this one is the clamp.
+ * Negative totals are in production today. Migration 692 (R-119) now refuses
+ * NEW ones, so these fixtures are written through `insertPreConstraintRow`,
+ * which suppresses the guard for one transaction — the same way migration
+ * 664's rows are seeded. The rows this clamp serves are exactly the ones
+ * written before that guard existed.
  *
  * Four sites SUM the expression with NO balance filter, and they are where the
  * mis-statement surfaces: `transactionReportingService`'s customer and supplier
@@ -16,8 +17,10 @@
  * `balance > 0`, which excludes a negative document either way.
  */
 import { describe, it, expect, beforeAll, afterAll } from 'vitest';
+import { Pool } from 'pg';
 import { randomUUID } from 'crypto';
 import { sql } from '@/lib/neon';
+import { insertPreConstraintRow } from './helpers/preConstraintRow';
 import { getCustomerReport, getSupplierReport } from '@/modules/accounting/services/reports/transactionReportingService';
 import { SignJWT } from 'jose';
 import { assertDisposable, request, response } from './mfa-impersonation-postgres.helpers';
@@ -34,11 +37,18 @@ const USER = randomUUID();
 const PERIOD_START = '2026-06-01';
 const PERIOD_END = '2026-06-30';
 
+let pool: Pool;
 let customerId: string;
 let supplierId: string;
 
+/** A negative-total document: migration 692 refuses these, so bypass it. */
+async function seedNegative(table: 'customer_invoices' | 'supplier_invoices', text: string, values: unknown[]) {
+  await insertPreConstraintRow(pool, text, values);
+}
+
 describeIfDb('R-117 a negative-total document reports nothing settled, not its own total', () => {
   beforeAll(async () => {
+    pool = new Pool({ connectionString: DATABASE_URL, max: 2 });
     await sql`
       INSERT INTO companies (id, name, registration_number, created_at)
       VALUES (${COMPANY}::UUID, ${'R117 ' + COMPANY.slice(0, 8)}, 'R117-TEST', NOW())`;
@@ -56,24 +66,20 @@ describeIfDb('R-117 a negative-total document reports nothing settled, not its o
     `) as { id: string }[])[0]!.id;
 
     // Nobody has paid either document: amount_paid 0 on a negative total.
-    await sql`
+    await seedNegative('customer_invoices', `
       INSERT INTO customer_invoices (
         company_id, invoice_number, customer_id, client_id, invoice_date, due_date,
         subtotal, tax_rate, tax_amount, total_amount, amount_paid, status, created_by
-      ) VALUES (
-        ${COMPANY}::UUID, 'R117-CI-1', ${customerId}::UUID, ${customerId}::UUID,
-        ${PERIOD_END}::DATE, ${PERIOD_END}::DATE,
-        -1000.00, 15.00, -150.00, -1150.00, 0, 'sent', ${USER}::UUID
-      )`;
-    await sql`
+      ) VALUES ($1::UUID, 'R117-CI-1', $2::UUID, $2::UUID, $3::DATE, $3::DATE,
+        -1000.00, 15.00, -150.00, -1150.00, 0, 'sent', $4)`,
+      [COMPANY, customerId, PERIOD_END, USER]);
+    await seedNegative('supplier_invoices', `
       INSERT INTO supplier_invoices (
         company_id, invoice_number, supplier_id, invoice_date, due_date,
         subtotal, tax_rate, tax_amount, total_amount, amount_paid, status, created_by
-      ) VALUES (
-        ${COMPANY}::UUID, 'R117-SI-1', ${supplierId}::UUID,
-        ${PERIOD_END}::DATE, ${PERIOD_END}::DATE,
-        -1000.00, 15.00, -150.00, -1150.00, 0, 'approved', ${USER}::UUID
-      )`;
+      ) VALUES ($1::UUID, 'R117-SI-1', $2::UUID, $3::DATE, $3::DATE,
+        -1000.00, 15.00, -150.00, -1150.00, 0, 'approved', $4)`,
+      [COMPANY, supplierId, PERIOD_END, USER]);
   });
 
   afterAll(async () => {
@@ -85,6 +91,7 @@ describeIfDb('R-117 a negative-total document reports nothing settled, not its o
     await sql`DELETE FROM companies WHERE id = ${COMPANY}::UUID`;
     // users.id is VARCHAR, not UUID — casting the column's side raises 42883.
     await sql`DELETE FROM users WHERE id = ${USER}`;
+    await pool.end();
   }, 60000);
 
   it('the customer report shows nothing paid on an unpaid negative-total invoice', async () => {
@@ -117,15 +124,13 @@ describeIfDb('R-117 a negative-total document reports nothing settled, not its o
     const isolated = ((await sql`
       INSERT INTO customers (name, company_id) VALUES (${'R117 iso ' + paid}, ${COMPANY}::UUID)
       RETURNING id`) as { id: string }[])[0]!.id;
-    await sql`
+    await seedNegative('customer_invoices', `
       INSERT INTO customer_invoices (
         company_id, invoice_number, customer_id, client_id, invoice_date, due_date,
         subtotal, tax_rate, tax_amount, total_amount, amount_paid, status, created_by
-      ) VALUES (
-        ${COMPANY}::UUID, ${'R117-ISO-' + paid}, ${isolated}::UUID, ${isolated}::UUID,
-        ${PERIOD_END}::DATE, ${PERIOD_END}::DATE,
-        -1000.00, 15.00, -150.00, -1150.00, ${paid}, 'sent', ${USER}::UUID
-      )`;
+      ) VALUES ($1::UUID, $2, $3::UUID, $3::UUID, $4::DATE, $4::DATE,
+        -1000.00, 15.00, -150.00, -1150.00, $5, 'sent', $6)`,
+      [COMPANY, `R117-ISO-${paid}`, isolated, PERIOD_END, paid, USER]);
     const rows = await getCustomerReport(COMPANY, PERIOD_START, PERIOD_END);
     const row = rows.find((r) => r.clientId === isolated);
     expect(Number(row!.totalPaid)).toBe(expected);

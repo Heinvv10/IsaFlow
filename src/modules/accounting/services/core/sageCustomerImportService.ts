@@ -51,6 +51,19 @@ export async function importCustomerInvoices(companyId: string, userId: string):
       try {
         const totalAmount = Number(inv.total_amount || 0);
         if (totalAmount === 0) { skipped++; continue; }
+        // R-119: `=== 0` let a negative staged total through, where the AP
+        // sibling guards `> 0`. A Sage credit note is not a customer invoice.
+        if (totalAmount < 0) {
+          log.warn('Sage customer invoice has a negative total; not booked as an invoice', {
+            companyId, stagingId: inv.id, totalAmount,
+          }, 'accounting');
+          await sql`
+            UPDATE sage_customer_invoices SET migration_status = 'failed'
+            WHERE id = ${inv.id} AND company_id = ${companyId}::UUID
+          `;
+          failed++;
+          continue;
+        }
 
         const clientId = inv.client_id;
         if (!clientId) {
