@@ -239,7 +239,8 @@ export function rewindAmount({ companyId, asAtStr, todayStr, side }: RewindInput
 }
 
 /**
- * The effective amount settled as at the date, clamped into [0, total_amount].
+ * The effective amount settled as at the date, clamped between 0 and
+ * total_amount — in the TOTAL'S OWN DIRECTION.
  *
  * Two-sided because `net` points both ways: a positive rewind could otherwise
  * drive the figure below zero (dated settlement exceeds amount_paid on 40
@@ -247,9 +248,28 @@ export function rewindAmount({ companyId, asAtStr, todayStr, side }: RewindInput
  * absolutely while the allocation rows survive — unclamped, a supplier was
  * aged R50,275.55 on a R38,614.57 invoice), and a negative one could drive it
  * above the invoice and produce a negative balance.
+ *
+ * The bounds follow the sign of the total, not the constants 0 and total
+ * (R-117). On a NEGATIVE-total document — reachable today: no CHECK
+ * constraint, and recurring-template execution, the AI capture pipeline,
+ * time-entry billing and the Sage AR import apply no sign guard — the old
+ * `LEAST(GREATEST(paid, 0), total)` returned the TOTAL for an unpaid
+ * document, so the customer and supplier reports said the full amount had
+ * been settled and the balance computed to exactly zero. The ageing and the
+ * subledger filter `balance > 0`, so they excluded such a document either
+ * way. Four sites SUM this expression with NO filter, and that is where it
+ * surfaced: transactionReportingService's customer and supplier reports, and
+ * the sales-by-customer / purchases-by-supplier routes (Received,
+ * Outstanding). Same form as migrationValidationService's AR/AP-vs-GL halves.
+ *
+ * A WRONG-SIGNED settlement (amount_paid +500 on a -1150 document) now reads
+ * as nothing settled, because +500 is outside [total, 0]. That is a data
+ * defect the clamp cannot repair and must not propagate; surfacing it is
+ * R-119's business, not this expression's.
  */
 export function effectivePaidExpr(side: AgingSide): string {
   const invoice = side === 'ar' ? 'ci' : 'si';
-  return `LEAST(GREATEST(COALESCE(${invoice}.amount_paid, 0)`
-    + `\n             - COALESCE(unpaid.amount, 0), 0), ${invoice}.total_amount)`;
+  const paid = `COALESCE(${invoice}.amount_paid, 0) - COALESCE(unpaid.amount, 0)`;
+  return `LEAST(GREATEST(${paid},`
+    + `\n             LEAST(${invoice}.total_amount, 0)), GREATEST(${invoice}.total_amount, 0))`;
 }
