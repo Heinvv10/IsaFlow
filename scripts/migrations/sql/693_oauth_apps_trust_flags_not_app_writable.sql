@@ -65,10 +65,19 @@ GRANT INSERT (
 -- makes that act visible in the statement log rather than indistinguishable
 -- from an ordinary UPDATE.
 --
--- Not absolute, and not claimed to be: a superuser can set
--- `session_replication_role = 'replica'` and skip every trigger. That is a
--- deliberate act by someone who already owns the database, which is a
--- different threat model from "a route grew a column in its INSERT list".
+-- The trigger is ENABLE ALWAYS, and that is load-bearing rather than tidy.
+-- `session_replication_role = 'replica'` skips every ordinary ('O') trigger,
+-- and setting it does NOT require superuser: on this cluster `postgres` has
+-- rolsuper = f and still set it, then flipped is_first_party to true with the
+-- trigger installed. That role is exactly the pool role the anonymous DCR
+-- endpoint runs as, so the bypass sat on the path this guard exists for.
+-- Verified both ways on dev: as 'O' the replica-mode UPDATE returned UPDATE 1
+-- and read back true; as 'A' the identical sequence raises. `app_user` cannot
+-- set the parameter at all ("permission denied to set parameter").
+--
+-- Still not absolute, and not claimed to be: anyone who can execute arbitrary
+-- SQL as the owner can DROP the trigger. The property this defends is "a route
+-- grew a column in its INSERT list", not "an attacker already has psql".
 CREATE OR REPLACE FUNCTION oauth_apps_guard_trust_flags()
 RETURNS trigger
 LANGUAGE plpgsql
@@ -106,6 +115,12 @@ CREATE TRIGGER oauth_apps_guard_trust_flags_trg
   BEFORE INSERT OR UPDATE ON oauth_apps
   FOR EACH ROW EXECUTE FUNCTION oauth_apps_guard_trust_flags();
 
+-- ALWAYS, not the 'O' a bare CREATE TRIGGER gives — see above. Note that a
+-- later `ALTER TABLE ... ENABLE TRIGGER` silently downgrades this back to 'O'
+-- and re-opens the bypass, which is why the post-condition asserts the MODE
+-- and not merely the trigger's existence.
+ALTER TABLE oauth_apps ENABLE ALWAYS TRIGGER oauth_apps_guard_trust_flags_trg;
+
 -- ── Post-condition: a REVOKE that granted nothing back still exits 0 ────────
 -- Applying this file as a role that did not issue the original grants is a
 -- silent no-op (a role may only revoke what it granted; these came from the
@@ -128,8 +143,12 @@ BEGIN
     WHERE tgrelid = 'oauth_apps'::regclass
       AND tgname = 'oauth_apps_guard_trust_flags_trg'
       AND NOT tgisinternal
+      -- 'A' = ALWAYS. An existence-only check passes on a trigger downgraded
+      -- to 'O', which is green while the replica-mode bypass is wide open.
+      AND tgenabled = 'A'
   ) THEN
-    RAISE EXCEPTION 'migration 693 did not take: the trust-flag trigger is missing.';
+    RAISE EXCEPTION 'migration 693 did not take: the trust-flag trigger is missing '
+                    'or is not ENABLE ALWAYS (session_replication_role would skip it).';
   END IF;
 
   -- The writes the application legitimately makes must still work.

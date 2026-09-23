@@ -205,6 +205,39 @@ describe('oauth_apps trust flags (migration 693)', () => {
     expect(err).toBeNull();
   });
 
+  // `session_replication_role = 'replica'` skips every ordinary ('O') trigger,
+  // and setting it does NOT need superuser — the pool role has rolsuper = f
+  // and can set it. That is the role the anonymous DCR endpoint runs as, so
+  // this is the bypass sitting on the exact path the guard exists for. The
+  // migration answers it with ENABLE ALWAYS; this proves the answer.
+  it('is not bypassable by session_replication_role (the trigger is ENABLE ALWAYS)', async () => {
+    const err = await asOwner(async (q) => {
+      await q(
+        `INSERT INTO oauth_apps (name, redirect_uris, client_id, owner_user_id,
+                                 is_dynamic, token_endpoint_auth_method)
+         VALUES ('Replica', ARRAY['https://ok.example/cb'], 'c_replica_test', $1, TRUE, 'none')`,
+        [OWNER],
+      );
+      await q(`SET LOCAL session_replication_role = 'replica'`);
+      await q(`UPDATE oauth_apps SET is_first_party = TRUE WHERE client_id = 'c_replica_test'`);
+    });
+    expect(err).toMatch(/may not be changed by the application/i);
+  });
+
+  // Asserting the MODE, not just existence: a later `ALTER TABLE ... ENABLE
+  // TRIGGER` silently resets ALWAYS back to 'O' and re-opens the bypass, and
+  // an existence-only check stays green through that. Verified: the existence
+  // query returns true on a downgraded trigger.
+  it('keeps the trigger in ALWAYS mode', async () => {
+    const res = await pool.query(
+      `SELECT tgenabled::text AS mode FROM pg_trigger
+        WHERE tgrelid = 'oauth_apps'::regclass
+          AND tgname = 'oauth_apps_guard_trust_flags_trg'
+          AND NOT tgisinternal`,
+    );
+    expect(res.rows[0]?.mode).toBe('A');
+  });
+
   // The escape hatch has to work, or nobody can ever verify an app at all —
   // which was the open question behind this whole change.
   it('allows a deliberate hand-SQL write under the explicit GUC', async () => {
