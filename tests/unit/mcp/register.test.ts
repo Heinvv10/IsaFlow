@@ -223,7 +223,24 @@ describe('POST /api/oauth/register', () => {
     const res = makeRes();
     await handler(makeReq({ redirect_uris: ['https://c.example/cb'], client_name: raw }), res);
 
+    // Assert what the endpoint DOES first. Without this the `?? ''` below turns
+    // "registerOauthApp was never called" into a zero-length string that
+    // satisfies the cap trivially — the same shape as `?? []` turning a
+    // mismatch into empty data. Here the cut lands inside the qualifier, so the
+    // name reads as the brand alone and is refused.
+    expect(res.statusCode).toBe(400);
+    expect(vi.mocked(registerOauthApp)).not.toHaveBeenCalled();
+
+    // ...and when it IS stored, normalising before the cut keeps it in bounds.
+    vi.mocked(registerOauthApp).mockClear();
+    const ok = makeRes();
+    await handler(
+      makeReq({ redirect_uris: ['https://c.example/cb'], client_name: `\uFACF${'a'.repeat(70)}` }),
+      ok,
+    );
+    expect(ok.statusCode).toBe(201);
     const stored = vi.mocked(registerOauthApp).mock.calls[0]?.[0].name ?? '';
+    expect(stored.length).toBeGreaterThan(0);
     expect(stored.length).toBeLessThanOrEqual(80);
   });
 
