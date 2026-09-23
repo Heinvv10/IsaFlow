@@ -15,6 +15,7 @@ import {
   type SupplierInvoiceDraftUpdatePlan,
 } from '@/modules/accounting/services/ap/supplierInvoiceDraftUpdate';
 import { getSupplierInvoiceById } from '@/modules/accounting/services/ap/supplierInvoiceService';
+import { SupplierInvoiceLockTimeoutError } from '@/modules/accounting/services/ap/supplierInvoiceLock';
 import { MAX_LINES, SUPPLIER_INVOICE_TEXT_LIMITS as TEXT_LIMITS, parseSupplierLines } from './invoiceCreateArgs';
 import { NOT_FOUND, castableArgError, ok, strArg, toolError } from './toolHelpers';
 
@@ -35,7 +36,9 @@ export const updateSupplierInvoiceTool: McpTool = {
     + 'REPLACES every line and the subtotal, VAT and total are recomputed exactly as create_supplier_invoice '
     + 'computes them (amounts NET of VAT; tax_rate defaults the lines\' rate and is accepted only with lines). '
     + 'Refused, with the reason, when: the bill is not a draft (approved bills: cancel_supplier_invoice, then '
-    + 're-enter); the total or supplier would change while a payment or credit note names the bill; or the '
+    + 're-enter); a posted journal (e.g. DRC VAT) is sourced from it; the total, supplier or number would '
+    + 'change while a payment, credit note, approval request or matched statement line names the bill, or '
+    + 'the supplier already has a live bill with that number; or the '
     + 'stored lines carry a purchase-order link, project, cost centre or VAT classification that replacing '
     + 'them would drop. due_date is never re-derived from payment_terms — send it when the dates change.',
   scope: 'write:invoices',
@@ -91,6 +94,9 @@ export const updateSupplierInvoiceTool: McpTool = {
       if (err instanceof SupplierInvoiceDraftUpdateRefusal) {
         return toolError(err.message === 'Not found' ? NOT_FOUND : err.message);
       }
+      // The row lock is the plan's first statement, so a timeout on it is
+      // write-free too — and its message says "retry", which GENERIC_FAILURE would not.
+      if (err instanceof SupplierInvoiceLockTimeoutError) return toolError(err.message);
       throw err;
     }
 

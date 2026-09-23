@@ -122,3 +122,63 @@ export async function refuseIfSettlementPlanned(companyId: string, invoiceId: st
     );
   }
 }
+
+/**
+ * A posted, unreversed journal sourced from this bill. `applyDRCVat` posts one
+ * on a DRAFT (it checks no status) and leaves `gl_journal_entry_id` NULL, so the
+ * link column alone misses it; editing the base under it would leave the DRC
+ * VAT on the old figure, and nothing re-runs it (`is_drc` bills are excluded).
+ */
+export async function refuseIfJournalNamesBill(
+  companyId: string, invoiceId: string, number: string, isDrc: boolean,
+): Promise<void> {
+  const rows = (await sql`
+    SELECT entry_number FROM gl_journal_entries
+    WHERE company_id = ${companyId}::UUID AND source_record_id = ${invoiceId}::UUID
+      AND status = 'posted' AND reversed_at IS NULL
+    ORDER BY entry_number LIMIT 1`) as DbRow[];
+  if (rows[0] || isDrc) {
+    throw new SupplierInvoiceDraftUpdateRefusal(
+      `Supplier invoice ${number} is a draft but ${rows[0]
+        ? `posted journal ${String(rows[0].entry_number)} is sourced from it`
+        : 'is marked as DRC VAT applied'}, so editing it would leave that VAT on the old figures. `
+      + 'Reverse the journal with reverse_journal_entry, or cancel the bill and re-enter it.',
+    );
+  }
+}
+
+/**
+ * Records that captured this bill's identity or amount and would describe a
+ * different bill after the edit: an approval request (its `amount` is a
+ * snapshot — approving R1,000 then raising the draft leaves the approval
+ * vouching for a figure it never saw), a supplier-statement line matched to it,
+ * and — on a supplier change only — the coding history that taught the old
+ * supplier's rules from it.
+ */
+export async function refuseIfRecordsPinBill(
+  companyId: string, invoiceId: string, number: string, supplierChanges: boolean,
+): Promise<void> {
+  const rows = (await sql`
+    SELECT 'an approval request' AS kind, ar.status AS detail
+    FROM approval_requests ar
+    WHERE ar.company_id = ${companyId}::UUID AND ar.document_type = 'supplier_invoice'
+      AND ar.document_id = ${invoiceId}::UUID AND ar.status IN ('pending', 'approved')
+    UNION ALL
+    SELECT 'a supplier-statement line', ssl.reference
+    FROM supplier_statement_lines ssl
+    JOIN supplier_statement_reconciliations ssr ON ssr.id = ssl.reconciliation_id
+    WHERE ssr.company_id = ${companyId}::UUID AND ssl.matched_supplier_invoice_id = ${invoiceId}::UUID
+    UNION ALL
+    SELECT 'supplier coding history', NULL
+    FROM supplier_coding_history h
+    WHERE ${supplierChanges} AND h.company_id = ${companyId}::UUID
+      AND h.supplier_invoice_id = ${invoiceId}::UUID
+    LIMIT 1`) as DbRow[];
+  if (rows[0]) {
+    throw new SupplierInvoiceDraftUpdateRefusal(
+      `Supplier invoice ${number} is recorded on ${String(rows[0].kind)}`
+      + `${rows[0].detail ? ` (${String(rows[0].detail)})` : ''}, so its supplier, number and total `
+      + 'cannot change. Cancel the bill and re-enter it.',
+    );
+  }
+}
