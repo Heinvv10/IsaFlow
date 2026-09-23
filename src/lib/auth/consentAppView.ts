@@ -34,10 +34,24 @@ export interface ConsentAppView {
   isVerified: boolean;
 }
 
+/**
+ * May this app's free-text/free-URL fields be shown at all?
+ *
+ * Exported so the revoke screen (listConnectedApps) asks the same question as
+ * the consent screen. The two ran the same check by accident — nothing writes
+ * `is_first_party` today, so `is_verified` alone was observationally identical
+ * — and the day that stops being true is the day a first-party app is marked by
+ * hand, with nobody watching. Same inputs, same picture, both screens.
+ *
+ * First-party apps are marked through an authed path, never by
+ * self-registration, so they are trusted for the same reason verified ones are.
+ */
+export function mayDecorate(app: { isVerified: boolean; isFirstParty: boolean }): boolean {
+  return app.isVerified || app.isFirstParty;
+}
+
 export function consentAppView(app: ConsentAppSource): ConsentAppView {
-  // First-party apps are marked through an authed path, never by
-  // self-registration, so they are trusted for the same reason verified ones are.
-  const trusted = app.isVerified || app.isFirstParty;
+  const trusted = mayDecorate(app);
   return {
     name: app.name,
     description: trusted ? app.description : null,

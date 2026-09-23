@@ -117,10 +117,11 @@ describe('reading a name written before the guard existed', () => {
   // unverified app that cannot fake our branding at consent must not be able to
   // fake it on the screen where access gets revoked.
   it('withholds an unverified app\'s logo from the revoke screen', async () => {
-    const row = (verified: boolean) => [{
+    const row = (verified: boolean, firstParty = false) => [{
       authorisation_id: 'auth-1', oauth_app_id: 'a', scopes: [], company_id: 'c1',
       last_used_at: null, created_at: new Date(), app_name: 'Acme',
-      app_logo_url: 'https://evil.example/isaflow-logo.png', is_verified: verified,
+      app_logo_url: 'https://evil.example/isaflow-logo.png',
+      is_verified: verified, is_first_party: firstParty,
     }];
 
     sqlMock.mockResolvedValue(row(false));
@@ -130,6 +131,24 @@ describe('reading a name written before the guard existed', () => {
     sqlMock.mockResolvedValue(row(true));
     const verified = await listConnectedApps('user-1', 'c1');
     expect(verified[0]?.appLogoUrl).toBe('https://evil.example/isaflow-logo.png');
+  });
+
+  // The two screens must answer the same question. Nothing writes
+  // is_first_party today, so a narrower `is_verified` check here would be
+  // observationally identical — and would start showing a logo at consent and
+  // an initial at revoke for the same app the moment one is marked by hand.
+  it('shows a first-party app\'s logo on the revoke screen, as consent does', async () => {
+    sqlMock.mockResolvedValue([{
+      authorisation_id: 'auth-1', oauth_app_id: 'a', scopes: [], company_id: 'c1',
+      last_used_at: null, created_at: new Date(), app_name: 'Acme',
+      app_logo_url: 'https://cdn.example/logo.png',
+      is_verified: false, is_first_party: true,
+    }]);
+    const apps = await listConnectedApps('user-1', 'c1');
+    expect(apps[0]?.appLogoUrl).toBe('https://cdn.example/logo.png');
+    // The badge reads appIsVerified alone, so it stays off — logo without badge,
+    // exactly the shape consentAppView produces for the same app.
+    expect(apps[0]?.appIsVerified).toBe(false);
   });
 
   // The developer list and the consent screen must not disagree about what an
