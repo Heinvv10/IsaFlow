@@ -88,11 +88,13 @@ async function applyDRCVatInner(
   // supplies carry none either. The supplier's own flag decides.
   const [supplier] = (await sql`
     SELECT subject_to_drc_vat FROM suppliers
-    WHERE id = ${inv.supplier_id}::UUID AND company_id = ${companyId}::UUID`) as Row[];
+    WHERE id = ${inv.supplier_id}::UUID AND company_id = ${companyId}::UUID
+      AND deleted_at IS NULL`) as Row[];
   if (supplier?.subject_to_drc_vat !== true) {
     throw new Error(
       `DRC VAT applies only to a supplier marked as subject to DRC VAT; ${String(inv.invoice_number)}'s supplier `
-      + 'is not marked as subject to DRC. Set it on the supplier first if its supplies are reverse-charge.',
+      + 'is not marked as subject to DRC (or has been deleted). Set it on the supplier first if its supplies '
+      + 'are reverse-charge.',
     );
   }
   // A reverse-charge invoice carries no supplier VAT. On a bill that does, DRC
@@ -169,6 +171,11 @@ export async function getDRCEligibleInvoices(companyId: string): Promise<Array<{
       AND si.deleted_at IS NULL
       AND COALESCE(si.tax_amount, 0) = 0
       AND s.subject_to_drc_vat = true
+      -- The flag is read only from a live supplier of THIS company: a deleted
+      -- one's flag can no longer be changed, and the FK alone does not stop a
+      -- bill naming another tenant's supplier.
+      AND s.company_id = si.company_id
+      AND s.deleted_at IS NULL
       AND (si.is_drc IS NULL OR si.is_drc = false)
     ORDER BY si.invoice_date DESC
   `) as Row[];

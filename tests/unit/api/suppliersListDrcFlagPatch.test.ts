@@ -59,6 +59,10 @@ describe('suppliers-list PATCH — the DRC flag only', () => {
       await handler(patch(body), res);
       expect(status(res)).toBe(400);
     }
+    // A JSON null body is a 400, not a TypeError 500.
+    const res = response();
+    await handler({ method: 'PATCH', companyId: COMPANY, user: { id: 'u' }, query: {}, body: null } as unknown as NextApiRequest, res);
+    expect(status(res)).toBe(400);
     expect(mocks.updateSupplier).not.toHaveBeenCalled();
   });
 
