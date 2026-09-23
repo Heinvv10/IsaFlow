@@ -24,6 +24,7 @@ import {
 } from '@/modules/accounting/services/ap/supplierInvoiceDraftUpdate';
 import { getSupplierInvoiceById } from '@/modules/accounting/services/ap/supplierInvoiceService';
 import { updateSupplierInvoiceTool } from '@/lib/mcp/tools/writeUpdateSupplierInvoice';
+import { SupplierInvoiceLockTimeoutError } from '@/modules/accounting/services/ap/supplierInvoiceLock';
 import type { McpToolContext } from '@/lib/mcp/types';
 
 const BILL = 'b1b1b1b1-0000-4000-8000-000000000001';
@@ -62,6 +63,12 @@ describe('update_supplier_invoice', () => {
   it('returns a plan refusal as a toolError and never writes', async () => {
     vi.mocked(lockAndPlanSupplierInvoiceDraftUpdate).mockRejectedValue(new SupplierInvoiceDraftUpdateRefusal('is approved'));
     expect(text(await run({ reference: 'x' }))).toBe('is approved');
+    expect(applySupplierInvoiceDraftUpdate).not.toHaveBeenCalled();
+  });
+
+  it('returns a lock timeout as a retryable toolError and never writes', async () => {
+    vi.mocked(lockAndPlanSupplierInvoiceDraftUpdate).mockRejectedValue(new SupplierInvoiceLockTimeoutError(BILL));
+    expect(text(await run({ reference: 'x' }))).toContain('retry in a moment');
     expect(applySupplierInvoiceDraftUpdate).not.toHaveBeenCalled();
   });
 

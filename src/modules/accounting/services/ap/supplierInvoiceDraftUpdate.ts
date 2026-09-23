@@ -24,7 +24,9 @@ import { defaultVatClassification, type SupplierInvoiceTotals } from './supplier
 import {
   SupplierInvoiceDraftUpdateRefusal,
   planLines,
+  refuseIfJournalNamesBill,
   refuseIfNumberTaken,
+  refuseIfRecordsPinBill,
   refuseIfSettlementPlanned,
 } from './supplierInvoiceDraftUpdateGuards';
 
@@ -97,6 +99,7 @@ export async function lockAndPlanSupplierInvoiceDraftUpdate(
       + 'Reconcile it by hand.',
     );
   }
+  await refuseIfJournalNamesBill(companyId, invoiceId, number, row.is_drc === true);
   if (patch.taxRate !== undefined && !patch.items) {
     throw new SupplierInvoiceDraftUpdateRefusal(
       'tax_rate only defaults the rate of the lines you send; pass lines with it (each stored line already carries its own rate).',
@@ -131,6 +134,9 @@ export async function lockAndPlanSupplierInvoiceDraftUpdate(
   const invoiceNumber = patch.invoiceNumber ?? number;
   if (supplierChanges || invoiceNumber !== number) {
     await refuseIfNumberTaken(companyId, invoiceId, supplierId, invoiceNumber);
+  }
+  if (totalChanges || supplierChanges || invoiceNumber !== number) {
+    await refuseIfRecordsPinBill(companyId, invoiceId, number, supplierChanges);
   }
 
   const stored: Record<string, unknown> = {

@@ -15,6 +15,7 @@ import {
 } from '@/modules/accounting/services/ap/supplierInvoiceDraftUpdate';
 import { createSupplierInvoice } from '@/modules/accounting/services/ap/supplierInvoiceService';
 import { approveSupplierInvoice } from '@/modules/accounting/services/ap/supplierInvoiceWorkflowService';
+import { applyDRCVat } from '@/modules/accounting/services/reports/drcVatService';
 import type { McpToolContext } from '@/lib/mcp/types';
 import { assertNotProductionDb } from '../helpers/assertNotProductionDb';
 import { dropFixture, inTx, seedFixture, seedSupplier, type Fixture } from './helpers/l1FifoFixture';
@@ -76,6 +77,10 @@ describeIfDb('update_supplier_invoice — drafts over a real ledger', () => {
   afterAll(async () => {
     for (const f of [fx, other]) {
       await sql`DELETE FROM credit_notes WHERE company_id = ${f.companyId}::UUID`;
+      await sql`DELETE FROM approval_requests WHERE company_id = ${f.companyId}::UUID`;
+      await sql`DELETE FROM supplier_coding_history WHERE company_id = ${f.companyId}::UUID`;
+      await sql`DELETE FROM supplier_statement_reconciliations WHERE company_id = ${f.companyId}::UUID`;
+      await sql`DELETE FROM captured_documents WHERE company_id = ${f.companyId}::UUID`;
       await sql`UPDATE supplier_invoices SET gl_journal_entry_id = NULL WHERE company_id = ${f.companyId}::UUID`;
       await dropFixture(f);
     }
@@ -213,5 +218,49 @@ describeIfDb('update_supplier_invoice — drafts over a real ledger', () => {
     expect(same.isError).toBeFalsy();
     expect(JSON.parse(text(same)).changed).toEqual([]);
     expect((await snapshot(id)).duplicate_fingerprint).toBe('sentinel');
+  });
+
+  /** Ledger review MEDIUM: applyDRCVat posts on a DRAFT and leaves gl_journal_entry_id NULL. */
+  it('refuses any edit of a draft that already carries a posted DRC VAT journal', async () => {
+    const id = await draft();
+    await inTx(fx, () => applyDRCVat(fx.companyId, id, fx.userId));
+    const before = await snapshot(id);
+    const r = await update(id, { lines: [{ description: 'Bigger', quantity: 1, unit_price: 5000 }] });
+    expect(text(r)).toContain('is sourced from it');
+    expect(text(await update(id, { reference: 'x' }))).toContain('reverse_journal_entry');
+    expect(await snapshot(id)).toEqual(before);
+  });
+
+  it('refuses a total, supplier or number change while an approval request or statement line records the bill', async () => {
+    const approved = await draft();
+    await sql`
+      INSERT INTO approval_requests (company_id, document_type, document_id, amount, status, requested_by)
+      VALUES (${fx.companyId}::UUID, 'supplier_invoice', ${approved}::UUID, 115, 'approved', ${fx.userId}::UUID)`;
+    expect(text(await update(approved, { lines: LINES }))).toContain('approval request (approved)');
+    expect((await update(approved, { reference: 'header-ok' })).isError).toBeFalsy();
+
+    const matched = await draft();
+    const doc = String(((await sql`
+      INSERT INTO captured_documents (company_id, file_name, file_type)
+      VALUES (${fx.companyId}::UUID, 'stmt.pdf', 'application/pdf') RETURNING id`) as Row[])[0]!.id);
+    const rec = String(((await sql`
+      INSERT INTO supplier_statement_reconciliations
+        (company_id, supplier_id, source_document_id, statement_date, supplier_balance, isaflow_balance, variance)
+      VALUES (${fx.companyId}::UUID, ${fx.supplierId}::UUID, ${doc}::UUID, '2026-05-31', 115, 115, 0)
+      RETURNING id`) as Row[])[0]!.id);
+    await sql`
+      INSERT INTO supplier_statement_lines (reconciliation_id, reference, debit, matched_supplier_invoice_id)
+      VALUES (${rec}::UUID, 'STMT-1', 115, ${matched}::UUID)`;
+    expect(text(await update(matched, { invoice_number: `NEW-${fx.tag}`.slice(0, 50) })))
+      .toContain('supplier-statement line (STMT-1)');
+
+    // Coding history pins the SUPPLIER only: a number change stays allowed.
+    const coded = await draft();
+    await sql`
+      INSERT INTO supplier_coding_history (company_id, supplier_id, supplier_invoice_id, gl_account_id, posted_by)
+      VALUES (${fx.companyId}::UUID, ${fx.supplierId}::UUID, ${coded}::UUID, ${expenseAccount}::UUID, ${fx.userId}::UUID)`;
+    expect(text(await update(coded, { supplier_id: await seedSupplier(fx, `S4-${seq}`) })))
+      .toContain('supplier coding history');
+    expect((await update(coded, { invoice_number: `CODED-${fx.tag}`.slice(0, 50) })).isError).toBeFalsy();
   });
 });
