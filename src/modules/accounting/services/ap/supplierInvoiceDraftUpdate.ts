@@ -12,7 +12,7 @@
  * no catch. A catch around the write could not tell a refusal from a failure
  * part-way through replacing the lines.
  */
-import { sql, withTransaction } from '@/lib/neon';
+import { sql, withSavepoint, withTransaction } from '@/lib/neon';
 import { fmtDate } from '@/lib/fmtDate';
 import type { DbRow } from '@/lib/neon';
 import type { SupplierInvoiceItemInput } from '../../types/ap.types';
@@ -72,7 +72,11 @@ export async function lockAndPlanSupplierInvoiceDraftUpdate(
   invoiceId: string,
   patch: SupplierInvoiceDraftPatch,
 ): Promise<SupplierInvoiceDraftUpdatePlan> {
-  const row = await lockSupplierInvoiceForUpdate(companyId, invoiceId);
+  // Its own savepoint (K-052): a lock timeout ABORTS the transaction, and a
+  // caught error does not un-abort it — the registry's RELEASE would then 25P02
+  // and the agent would get GENERIC_FAILURE instead of the "retry" wording.
+  // The row lock itself survives the RELEASE; the parent inherits it.
+  const row = await withSavepoint('usi_bill_lock', () => lockSupplierInvoiceForUpdate(companyId, invoiceId));
   // One reply for absent, foreign and soft-deleted: no existence oracle.
   if (!row || row.deleted_at) throw new SupplierInvoiceDraftUpdateRefusal('Not found');
   const number = String(row.invoice_number);
