@@ -1,0 +1,93 @@
+
+ RUN  v4.1.2 /home/hein/Workspace/IsaFlow/.worktrees/fix-R-117
+
+ ❯ tests/integration/r117-aging-negative-total-clamp.int.test.ts (4 tests | 4 failed) 288ms
+     × the customer report shows nothing paid on an unpaid negative-total invoice 12ms
+     × the supplier report shows nothing paid on an unpaid negative-total bill 4ms
+     × a settlement against a negative document is kept, not clamped away 25ms
+     × a positive document is unaffected: an overpayment still clamps to the total 8ms
+
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 4 ⎯⎯⎯⎯⎯⎯⎯
+
+ FAIL  tests/integration/r117-aging-negative-total-clamp.int.test.ts > R-117 a negative-total document reports nothing settled, not its own total > the customer report shows nothing paid on an unpaid negative-total invoice
+AssertionError: expected -1150 to be +0 // Object.is equality
+
+- Expected
++ Received
+
+- 0
++ -1150
+
+ ❯ tests/integration/r117-aging-negative-total-clamp.int.test.ts:79:36
+     77|     expect(Number(row!.totalInvoiced)).toBe(-1150);
+     78|     // The defect reported -1150 "paid", which also made outstanding l…
+     79|     expect(Number(row!.totalPaid)).toBe(0);
+       |                                    ^
+     80|     expect(Number(row!.totalInvoiced) - Number(row!.totalPaid)).toBe(-…
+     81|   });
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[1/4]⎯
+
+ FAIL  tests/integration/r117-aging-negative-total-clamp.int.test.ts > R-117 a negative-total document reports nothing settled, not its own total > the supplier report shows nothing paid on an unpaid negative-total bill
+AssertionError: expected -1150 to be +0 // Object.is equality
+
+- Expected
++ Received
+
+- 0
++ -1150
+
+ ❯ tests/integration/r117-aging-negative-total-clamp.int.test.ts:88:36
+     86|     expect(row).toBeDefined();
+     87|     expect(Number(row!.totalInvoiced)).toBe(-1150);
+     88|     expect(Number(row!.totalPaid)).toBe(0);
+       |                                    ^
+     89|   });
+     90|
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[2/4]⎯
+
+ FAIL  tests/integration/r117-aging-negative-total-clamp.int.test.ts > R-117 a negative-total document reports nothing settled, not its own total > a settlement against a negative document is kept, not clamped away
+AssertionError: expected -1150 to be -500 // Object.is equality
+
+- Expected
++ Received
+
+- -500
++ -1150
+
+ ❯ tests/integration/r117-aging-negative-total-clamp.int.test.ts:98:36
+     96|     const rows = await getCustomerReport(COMPANY, PERIOD_START, PERIOD…
+     97|     const row = rows.find((r) => r.clientId === customerId);
+     98|     expect(Number(row!.totalPaid)).toBe(-500);
+       |                                    ^
+     99|     await sql`
+    100|       UPDATE customer_invoices SET amount_paid = 0
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[3/4]⎯
+
+ FAIL  tests/integration/r117-aging-negative-total-clamp.int.test.ts > R-117 a negative-total document reports nothing settled, not its own total > a positive document is unaffected: an overpayment still clamps to the total
+AssertionError: expected +0 to be 1150 // Object.is equality
+
+- Expected
++ Received
+
+- 1150
++ 0
+
+ ❯ tests/integration/r117-aging-negative-total-clamp.int.test.ts:118:36
+    116|     // -1150 + 1150 invoiced; paid 0 on the credit and 1150 (not 1200)…
+    117|     expect(Number(row!.totalInvoiced)).toBe(0);
+    118|     expect(Number(row!.totalPaid)).toBe(1150);
+       |                                    ^
+    119|     await sql`
+    120|       DELETE FROM customer_invoices WHERE company_id = ${COMPANY}::UUI…
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[4/4]⎯
+
+
+ Test Files  1 failed (1)
+      Tests  4 failed (4)
+   Start at  14:19:26
+   Duration  532ms (transform 82ms, setup 0ms, import 132ms, tests 288ms, environment 0ms)
+
