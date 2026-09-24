@@ -12666,7 +12666,8 @@
         "tests/integration/r120-wip-invoice-refusal.int.test.ts",
         "tests/unit/services/practice/wipInvoiceGuards.test.ts",
         "tests/unit/components/WipInvoiceRefusalMessage.test.tsx",
-        "tests/integration/r120-time-entry-edit.int.test.ts"
+        "tests/integration/r120-time-entry-edit.int.test.ts",
+        "tests/unit/components/R120TimeEntryRemedyPages.test.tsx"
       ],
       "evidencePaths": [
         "docs/audits/remediation/R-120/fix.md",

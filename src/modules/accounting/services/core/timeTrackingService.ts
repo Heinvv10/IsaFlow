@@ -170,7 +170,7 @@ export async function updateTimeEntry(
   input: Partial<TimeEntryInput>,
 ): Promise<TimeEntry> {
   const existing = (await sql`
-    SELECT status, practice_client_id FROM time_entries
+    SELECT status, practice_client_id, hours, rate FROM time_entries
     WHERE id = ${id}::UUID AND company_id = ${companyId}::UUID
   `) as DbRow[];
   if (!existing.length) throw new Error('Time entry not found');
@@ -179,7 +179,11 @@ export async function updateTimeEntry(
   // line_total, so on a practice entry it left a line WIP billing then refuses
   // — and once approved the entry can no longer be edited at all. The
   // practice path (updatePracticeEntry) re-resolves the rate and recomputes.
-  if (existing[0]!.practice_client_id != null && (input.hours != null || input.rate != null)) {
+  // Only a CHANGE is refused: the time-tracking form sends hours on every save.
+  const changes = (next: unknown, prev: unknown): boolean =>
+    next != null && (prev == null || Number(next) !== Number(prev));
+  const prev = existing[0]!;
+  if (prev.practice_client_id != null && (changes(input.hours, prev.hours) || changes(input.rate, prev.rate))) {
     throw new TimeEntryEditRefusal(
       'This is a practice time entry: change its hours or rate on the practice timesheet, '
       + 'which recomputes its billable amount.',
