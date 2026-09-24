@@ -45,7 +45,7 @@ import {
 
 export type ProvisionalAttachResult =
   | { kind: 'attached'; bankTxId: string | null }
-  | { kind: 'not_found'; what: 'Journal entry' | 'Captured document' }
+  | { kind: 'not_found'; what: 'Journal entry' | 'Captured document'; id: string }
   | { kind: 'refused'; message: string }
   | { kind: 'contended'; message: string };
 
@@ -71,13 +71,13 @@ export async function attachDocumentToProvisional(
       SELECT needs_evidence, reversed_at FROM gl_journal_entries
       WHERE id = ${jeId}::UUID AND company_id = ${companyId}::UUID
       FOR UPDATE`) as DbRow[]);
-    if (!je) return { kind: 'not_found', what: 'Journal entry' };
+    if (!je) return { kind: 'not_found', what: 'Journal entry', id: jeId };
     if (je.reversed_at != null) return { kind: 'refused', message: 'Journal entry has been reversed' };
     if (!je.needs_evidence) return { kind: 'refused', message: 'Journal entry is already evidenced' };
 
     // (3) The document, under a bounded wait (the claim UPDATE alone would wait unbounded).
     const doc = await lockCapturedDocumentForUpdate(companyId, documentId);
-    if (!doc) return { kind: 'not_found', what: 'Captured document' };
+    if (!doc) return { kind: 'not_found', what: 'Captured document', id: documentId };
   } catch (err) {
     if (err instanceof BankTransactionLockTimeoutError || err instanceof CaptureRowLockTimeoutError
       || isLockContention(err)) {

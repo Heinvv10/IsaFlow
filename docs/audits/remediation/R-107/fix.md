@@ -91,7 +91,7 @@ and is not fenced by this claim — that is R-088 (content de-duplication).
   `receipt-to-journal`, `document-capture-action`), withAuth, app_user, RLS.
 - `tests/unit/services/capture/provisionalAttachRouteLockOrder.test.ts` pins the lock / claim /
   write order.
-- Mutations: 19 of 19 killed (`mutations.log`; M10 and M19 initially survived and are killed by the
+- Mutations: 20 of 20 killed (`mutations.log`; M10 and M19 initially survived and are killed by the
   pre-DELETE refusal test and the unlinked-bank-line test added for them).
 
 ## Side finding (registered as R-127, not fixed here)
@@ -160,3 +160,10 @@ SELECT je.company_id, COUNT(*) AS unclaimed_evidence
 - `journalEntryReversal.test.ts`'s default mock answers only the post-claim re-read; any other
   unqueued statement fails the case.
 - Dead `provisional_je_id` field removed from the lock-order unit mock.
+
+### PR-level /review (#512, APPROVED with two LOWs — both fixed)
+
+- The "nothing links a line to an existing provisional journal" invariant the unlocked peek relies on
+  is now pinned by a ratchet, `tests/unit/guards/provisionalLinkWriterCensus.test.ts` (only
+  `postProvisional` may set `provisional_je_id` to a value; mutation M20).
+- The not_found result carries its own id, so the route cannot pair the wrong id with the resource.
