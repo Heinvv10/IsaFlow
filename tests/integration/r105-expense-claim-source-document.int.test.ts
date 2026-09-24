@@ -172,10 +172,17 @@ describe('R-105: a manual expense claim line claims its source document', () => 
     expect(await linesOn(postedDoc)).toBe(0);
   });
 
-  it('refuses an already-posted slip whatever the case of its id', async () => {
-    const out = await createClaim([line(postedDoc.toUpperCase())]);
-    expect(out.statusCode, JSON.stringify(out.body)).toBe(400);
-    expect(out.body.error?.message).toMatch(/already posted/i);
+  it('refuses an already-posted slip whatever form its id is written in', async () => {
+    for (const form of [postedDoc.toUpperCase(), `{${postedDoc}}`, postedDoc.replace(/-/g, '')]) {
+      const out = await createClaim([line(form)]);
+      expect(out.statusCode, `${form} ${JSON.stringify(out.body)}`).toBe(400);
+      expect(out.body.error?.message, form).toMatch(/already posted/i);
+    }
+    const dup = await createClaim([line(freshDoc.toUpperCase()), line(freshDoc)]);
+    expect(dup.body.error?.message).toMatch(/more than one line/i);
+    const bad = await createClaim([line('not-a-uuid')]);
+    expect(bad.statusCode, JSON.stringify(bad.body)).toBe(400);
+    expect(bad.body.error?.message).toMatch(/not found/i);
   });
 
   // Lines written before R-105 never stamped posted_at.

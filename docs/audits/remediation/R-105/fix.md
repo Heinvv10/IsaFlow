@@ -13,7 +13,7 @@
 `src/modules/accounting/services/expense/claimSourceDocuments.ts`:
 - **`claimLineSourceDocuments(companyId, lines)`** takes the capture posting claim (`posted_at`, the same fence as `claimCapturedDocumentForPosting`) on every line's source document, **in one statement**. It locks the eligible set and updates only when that set is complete: all slips are claimed, or none are. This matters because `withAuth` COMMITs on a 4xx, so a line-by-line claim that refused the second slip would commit the first slip's stamp with no claim behind it. The statement is company-scoped itself, not left to RLS.
   - Lines written before this fix never stamped `posted_at`, so the claim also refuses a slip that is already on a LIVE claim line (any status except rejected or cancelled), whatever its `posted_at` says.
-  - Ids are lower-cased first, because Postgres returns uuids lower-case.
+  - Ids are put in canonical form first (lower-case, hyphenated; braces and missing hyphens accepted, as Postgres does), because the refusal lookup and the duplicate check compare strings. A malformed id is refused as not found instead of failing the uuid cast.
   - A duplicate slip, or one that is missing, foreign, already posted, on another live claim or rejected, throws `ClaimSourceDocumentError` before anything is written. The routes answer it with a 400.
   - The lock wait is bounded at 5s, like the capture posting paths' (`captureRowLock`). A timeout or deadlock is the `busy` refusal, answered 409 ("retry in a moment"). The lock error has aborted the transaction, so the 4xx commits nothing.
   - If the statement ever stamps some slips and not all (only possible without the lock), it throws a plain error. The request then rolls back, because a 4xx would COMMIT the partial stamps.
@@ -76,6 +76,13 @@ All runs are on the r112 fixture.
 | LOW: a claim DELETE racing an add-line could strand a claimed slip. | Already fixed in the general round (claim-row lock, M15). |
 | LOW: an upper-case uuid got "not found" instead of "already posted". | Ids lower-cased. Test; M17 goes red. |
 | LOW: a released slip keeps status 'matched', so the inbox shows it as settled; the docs said it "goes back to the capture inbox". | The docs now say it can be posted again and keeps 'matched'. The status is left alone: the shared `releaseCapturedDocumentPostingClaim` behaves the same after `rejectClaim` on master, and changing it touches every capture path. See Not covered. |
+
+## Review round 3 (general, on adccf2f85)
+| Finding | Fix |
+|---|---|
+| LOW: the partial-claim error was safe only because the create route answers 500; the add-line route's catch answers 400, which commits. | `PartialSourceDocumentClaimError`, rethrown by the add-line route before its 4xx mapping. |
+| LOW: braces or hyphenless uuids passed the string checks and got the wrong refusal. | Canonicalised; test covers upper case, braces, no hyphens, a cross-form duplicate and a malformed id. |
+| LOW: the live-line check ignores another company's line that points at this company's slip. | By design. That foreign line is the corrupt row (census query 1 finds it); letting it block would let one tenant's bad row lock another tenant's slip. |
 
 ## For Hein (read-only on prod): what already exists
 ```sql
