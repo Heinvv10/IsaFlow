@@ -33,7 +33,7 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
     const { id, invoiceNumber, invoiceDate, dueDate, paymentTerms, notes } = req.body;
     if (!id) return apiResponse.badRequest(res, 'id is required');
     try {
-      await sql`
+      const updatedRows = await sql`
         UPDATE supplier_invoices
         SET invoice_number = COALESCE(${invoiceNumber || null}, invoice_number),
             invoice_date = COALESCE(${invoiceDate || null}, invoice_date),
@@ -42,7 +42,18 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
             notes = COALESCE(${notes || null}, notes),
             updated_at = NOW()
         WHERE id = ${id}::UUID AND company_id = ${companyId} AND status IN ('draft', 'pending_approval')
+        RETURNING id
       `;
+      if (updatedRows.length === 0) {
+        const existing = await getSupplierInvoiceById(companyId, id);
+        if (!existing) return apiResponse.notFound(res, 'Supplier invoice', id);
+        // Status moved back to editable between the UPDATE and this read.
+        if (existing.status === 'draft' || existing.status === 'pending_approval') {
+          return apiResponse.conflict(res, 'The invoice changed while saving; reload and try again');
+        }
+        return apiResponse.badRequest(res,
+          `Only draft or pending-approval invoices can be edited (this invoice is ${existing.status})`);
+      }
       log.info('Supplier invoice updated', { id });
       const updated = await getSupplierInvoiceById(companyId, id);
       return apiResponse.success(res, updated);
