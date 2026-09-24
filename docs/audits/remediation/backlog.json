@@ -9175,8 +9175,8 @@
       "correctedTrigger": null,
       "severityRationale": "Discovered during fix or review of the named item; not yet independently reproduced as its own test.",
       "auditedSha": "5661d6f0f5f2212705151e95455a3f681ddf840e",
-      "currentSha": "d0f4f5dc",
-      "status": "fix-in-review",
+      "currentSha": "738741ddb",
+      "status": "fixed",
       "dependencies": [
         "Bank path guarded by the K-021 fix; other callers open"
       ],
@@ -9190,13 +9190,13 @@
         "docs/audits/remediation/R-012/red.log",
         "docs/audits/remediation/R-012/mutations.log"
       ],
-      "fixCommit": null,
-      "pr": null,
-      "deployedSha": null,
+      "fixCommit": "738741ddb",
+      "pr": "495",
+      "deployedSha": "738741ddb",
       "historicalDataImpact": "Reversals dated before their original may exist from before the fix; census in R-012/fix.md, not run on production.",
       "canonicalItem": null,
       "reportedSeverity": "medium",
-      "processNotes": "2026-09-21 (R-086 round 4): the default path's today-fallback can date a reversal BEFORE a future-dated original. documentInLedgerAsAtFragment's parity precondition then fails for the dates between the two, so every as-at consumer (ageing, statements) reads that document wrong; migration validation sidesteps it with a far-future sentinel. Fix here must add an earlier-than-original guard to the default path. 2026-09-24: fixed on fix/r012-reversal-date-20260924. The default arm never dates before the original: it auto-create-dates it with the original, or refuses with ReversalBeforeOriginalError (IS-A ClosedFiscalPeriodError). The MCP reverse tool refuses a closed target pre-write. The paymentVoid half is moot (K-021 savepoint). Census SELECT in fix.md. Round 1: only a CLOSED period refuses; a typo'd out-of-window year keeps today (documented exception).",
+      "processNotes": "2026-09-21 (R-086 round 4): the default path's today-fallback can date a reversal BEFORE a future-dated original. documentInLedgerAsAtFragment's parity precondition then fails for the dates between the two, so every as-at consumer (ageing, statements) reads that document wrong; migration validation sidesteps it with a far-future sentinel. Fix here must add an earlier-than-original guard to the default path. 2026-09-24: fixed on fix/r012-reversal-date-20260924. The default arm never dates before the original: it auto-create-dates it with the original, or refuses with ReversalBeforeOriginalError (IS-A ClosedFiscalPeriodError). The MCP reverse tool refuses a closed target pre-write. The paymentVoid half is moot (K-021 savepoint). Census SELECT in fix.md. Round 1: only a CLOSED period refuses; a typo'd out-of-window year keeps today (documented exception). 2026-09-24: merged (PR #495, 738741ddb) and deployed 11:44 SAST on Hein's explicit approval.",
       "branch": "fix/r012-reversal-date-20260924"
     },
     {
@@ -12668,8 +12668,8 @@
       "correctedTrigger": null,
       "severityRationale": "Named by a reviewer while surveying leg writers; the masking is confirmed by reading, the refusal path is not yet reproduced.",
       "auditedSha": "e41401627",
-      "currentSha": "e41401627",
-      "status": "fix-in-review",
+      "currentSha": "f96138904",
+      "status": "fixed",
       "dependencies": [],
       "testNames": [
         "tests/integration/r120-wip-invoice-refusal.int.test.ts",
@@ -12683,13 +12683,13 @@
         "docs/audits/remediation/R-120/red.log",
         "docs/audits/remediation/R-120/mutations.log"
       ],
-      "fixCommit": null,
-      "pr": null,
-      "deployedSha": null,
+      "fixCommit": "f96138904",
+      "pr": "494",
+      "deployedSha": "f96138904",
       "historicalDataImpact": "Invoices may have BOOKED with tax_rate > 100 or with a negative/NULL-rate time entry billed inside a positive selection; census SELECT (joined through time_entries.invoice_id) in R-120/fix.md, not run on production. The masking itself wrote nothing.",
       "canonicalItem": null,
       "reportedSeverity": "medium",
-      "processNotes": "2026-09-24: reproduced and widened. Beyond the masking, the red run found that taxRate 101 BOOKED an invoice (201) and that a negative time entry inside a positive selection booked as an embedded credit line. It also found that the page read json.error as a string, and that lock contention was a masked 400. Severity raised low→medium: real invoices with wrong figures. Census SELECT in fix.md. Review round 1 widened it again: a 3-decimal tax rate, a line_total inconsistent with hours × rate, and a cross-tenant link_customer_id all booked, and are now refused. A partial selection now reports skippedEntryCount (K-040 keeps billing the remainder). Round 2: the consistency refusal had no exit for approved entries. Hein chose to refuse and fix the source: core updateTimeEntry no longer edits a practice entry's hours or rate, and the refusals name write-off + re-log. Run the stuck-entry census before deploying.",
+      "processNotes": "2026-09-24: reproduced and widened. Beyond the masking, the red run found that taxRate 101 BOOKED an invoice (201) and that a negative time entry inside a positive selection booked as an embedded credit line. It also found that the page read json.error as a string, and that lock contention was a masked 400. Severity raised low→medium: real invoices with wrong figures. Census SELECT in fix.md. Review round 1 widened it again: a 3-decimal tax rate, a line_total inconsistent with hours × rate, and a cross-tenant link_customer_id all booked, and are now refused. A partial selection now reports skippedEntryCount (K-040 keeps billing the remainder). Round 2: the consistency refusal had no exit for approved entries. Hein chose to refuse and fix the source: core updateTimeEntry no longer edits a practice entry's hours or rate, and the refusals name write-off + re-log. Run the stuck-entry census before deploying. 2026-09-24: merged (PR #494, f96138904) and deployed 11:22 SAST on Hein's explicit approval.",
       "branch": "fix/r120-wip-refusal-message-20260924"
     },
     {
