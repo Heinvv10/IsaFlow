@@ -70,33 +70,3 @@ export function deriveSageVat(
 
   return { subtotal, taxAmount, taxRate, vatNotStated: false };
 }
-
-interface SageLine { Tax?: unknown }
-
-/**
- * The subtotal and tax the Sage source states, wherever it states them: the
- * staging columns first, then the raw document's `Exclusive`/`Tax`, then the
- * sum of its lines' `Tax`. Without the fallbacks a row with taxed lines but no
- * header figures was flagged "VAT not stated" and booked at 0 VAT above lines
- * that carry VAT (review round 4). Returns raw figures for `deriveSageVat`.
- */
-export function statedSageFigures(
-  columnSubtotal: unknown,
-  columnTax: unknown,
-  raw: { Exclusive?: unknown; Tax?: unknown } | null,
-  lines: SageLine[] | null,
-): { subtotal: string | number | null; tax: string | number | null } {
-  const pick = (...vals: unknown[]): string | number | null => {
-    for (const v of vals) {
-      if ((typeof v === 'number' || typeof v === 'string') && hasFigure(v)) return v;
-    }
-    return null;
-  };
-  const lineTax = lines && lines.length > 0
-    ? lines.reduce((t, l) => t + (Number(l.Tax) || 0), 0)
-    : null;
-  return {
-    subtotal: pick(columnSubtotal, raw?.Exclusive),
-    tax: pick(columnTax, raw?.Tax, lineTax === null ? null : Math.round(lineTax * 100) / 100),
-  };
-}

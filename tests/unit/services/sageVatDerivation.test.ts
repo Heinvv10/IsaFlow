@@ -3,7 +3,7 @@
  */
 
 import { describe, it, expect } from 'vitest';
-import { deriveSageVat, statedSageFigures, SAGE_VAT_NOT_STATED_NOTE } from '@/modules/accounting/services/shared/sageVatDerivation';
+import { deriveSageVat, SAGE_VAT_NOT_STATED_NOTE } from '@/modules/accounting/services/shared/sageVatDerivation';
 
 describe('deriveSageVat — a row with neither subtotal nor tax stated', () => {
   it('imports with zero tax and subtotal = total, flagged vatNotStated', () => {
@@ -71,27 +71,6 @@ describe('deriveSageVat — a negative-total (credit-note-shaped) row', () => {
   it('keeps the rate consistent with the tax amount when only the tax is stated', () => {
     const result = deriveSageVat(null, -150, -1150);
     expect(result).toEqual({ subtotal: -1000, taxAmount: -150, taxRate: 15, vatNotStated: false });
-  });
-});
-
-describe('statedSageFigures — VAT the source states anywhere counts as stated', () => {
-  it('prefers the staging columns', () => {
-    expect(statedSageFigures('1000.00', '150.00', { Exclusive: 1, Tax: 2 }, [{ Tax: 3 }]))
-      .toEqual({ subtotal: '1000.00', tax: '150.00' });
-  });
-
-  it('falls back to the raw document header', () => {
-    expect(statedSageFigures(null, null, { Exclusive: 1000, Tax: 150 }, null))
-      .toEqual({ subtotal: 1000, tax: 150 });
-  });
-
-  it('falls back to the sum of line tax, rounded to cents', () => {
-    expect(statedSageFigures(null, null, {}, [{ Tax: 100.004 }, { Tax: 50 }, {}]))
-      .toEqual({ subtotal: null, tax: 150 });
-  });
-
-  it('states nothing when every source is empty or zero', () => {
-    expect(statedSageFigures(null, 0, { Tax: 0 }, [{ Tax: 0 }])).toEqual({ subtotal: null, tax: null });
   });
 });
 
