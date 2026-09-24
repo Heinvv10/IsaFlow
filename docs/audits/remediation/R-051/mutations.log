@@ -1,0 +1,45 @@
+# R-051 (approveVATAdjustment) mutations — each applied alone to ff63a3989, restored from HEAD after.
+# A mutation is KILLED when at least one test goes red.
+
+## N1 status read without FOR UPDATE [src/modules/accounting/services/reports/vatAdjustmentService.ts] -> KILLED
+     × two approvals raced together post exactly one journal 32ms
+     × a second approval that read draft while the first was still in flight does not post again (deterministic) 79ms
+     × answers 409 while another request holds the adjustment, and posts nothing 30002ms
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 3 ⎯⎯⎯⎯⎯⎯⎯
+      Tests  3 failed | 6 passed (9)
+
+## N2 no not-draft refusal [src/modules/accounting/services/reports/vatAdjustmentService.ts] -> KILLED
+     × a second approval is refused and posts nothing more 57ms
+     × two approvals raced together post exactly one journal 39ms
+     × a second approval that read draft while the first was still in flight does not post again (deterministic) 76ms
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 3 ⎯⎯⎯⎯⎯⎯⎯
+      Tests  3 failed | 6 passed (9)
+
+## N3 journal writes outside the savepoint [src/modules/accounting/services/reports/vatAdjustmentService.ts] -> KILLED
+     × an approval refused at post (closed fiscal period) leaves no draft journal behind 117ms
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 1 ⎯⎯⎯⎯⎯⎯⎯
+      Tests  1 failed | 8 passed (9)
+
+## N4 contention not typed [src/modules/accounting/services/reports/vatAdjustmentService.ts] -> KILLED
+     × answers 409 while another request holds the adjustment, and posts nothing 5009ms
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 1 ⎯⎯⎯⎯⎯⎯⎯
+      Tests  1 failed | 8 passed (9)
+
+## N5 no lock_timeout bound [src/modules/accounting/services/reports/vatAdjustmentService.ts] -> KILLED
+     × answers 409 while another request holds the adjustment, and posts nothing 30002ms
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 1 ⎯⎯⎯⎯⎯⎯⎯
+      Tests  1 failed | 8 passed (9)
+
+## N6 route: not_found answered 400 [pages/api/accounting/vat-adjustments-action.ts] -> KILLED
+     × answers 404 for another company's adjustment, and writes nothing 9ms
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 1 ⎯⎯⎯⎯⎯⎯⎯
+      Tests  1 failed | 8 passed (9)
+
+## N7 route: contended answered 400 [pages/api/accounting/vat-adjustments-action.ts] -> KILLED
+     × answers 409 while another request holds the adjustment, and posts nothing 5016ms
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 1 ⎯⎯⎯⎯⎯⎯⎯
+      Tests  1 failed | 8 passed (9)
+
+## N8 lock read drops company_id [src/modules/accounting/services/reports/vatAdjustmentService.ts] -> SURVIVED
+      Tests  9 passed (9)
+
