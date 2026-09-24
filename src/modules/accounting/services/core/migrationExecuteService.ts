@@ -9,6 +9,8 @@ import { postOpeningBalances } from './migrationOpeningBalanceService';
 import type { ParsedAccount, ParsedEntity, MigrationSource } from './migrationParserService';
 import type { DbRow } from '@/types/db';
 import { defaultIncomeStatementSubtype } from '../gl/accountSubtypeRules';
+import { VatPeriodLockedError } from '../gl/journalVatLockGuard';
+import { assertAccountChangesKeepVatLocks, type AccountAttributeChange } from '../gl/vatLockLineClassification';
 
 // Rollback lives in its own file for the 300-line cap; re-exported so the API
 // route and the wizard keep importing it from here.
@@ -69,6 +71,19 @@ export async function executeMigration(
     errors.push(`Account "${acct.sourceCode} ${acct.sourceName}": no subtype; imported as ${fallback}`);
     return { ...acct, mappedSubtype: fallback };
   });
+
+  // Before ANY write: re-importing the same source re-types its own accounts
+  // (`account_type = EXCLUDED.account_type`, and fills a NULL subtype). One that
+  // would move a posted line inside a locked (filed) VAT period into a
+  // different box refuses the WHOLE migration, naming account and period —
+  // later steps post opening balances against these accounts.
+  try {
+    await assertAccountChangesKeepVatLocks(companyId, await reimportAttributeChanges(companyId, source, validAccounts));
+  } catch (err) {
+    if (!(err instanceof VatPeriodLockedError)) throw err;
+    log.warn('Migration refused: it would change a filed VAT period', { companyId, source, error: err.message }, 'migration');
+    return { accountsImported: 0, customersImported: 0, suppliersImported: 0, openingBalancesSet: 0, errors: [...errors, err.message] };
+  }
 
   if (validAccounts.length > 0) {
     try {
@@ -226,4 +241,33 @@ export async function verifyBalances(
   }
 
   return results;
+}
+
+/**
+ * The type/subtype changes the upsert above would make to accounts this SAME
+ * source already imported (its ON CONFLICT only updates rows whose
+ * imported_from matches): type := mapped type, subtype := COALESCE(existing,
+ * mapped). Rows another source or the company owns are left alone by the
+ * upsert, so they are not changes.
+ */
+async function reimportAttributeChanges(
+  companyId: string, source: MigrationSource, accounts: readonly ParsedAccount[],
+): Promise<AccountAttributeChange[]> {
+  const codes = accounts.map((a) => a.sourceCode || a.sourceName.substring(0, 20));
+  if (codes.length === 0) return [];
+  const rows = (await sql`
+    SELECT id, account_code, account_type, account_subtype FROM gl_accounts
+    WHERE company_id = ${companyId}::UUID AND imported_from = ${source}
+      AND account_code = ANY(${codes}::TEXT[])`) as DbRow[];
+  const byCode = new Map(accounts.map((a, i) => [codes[i]!, a]));
+  return rows.flatMap((r) => {
+    const acct = byCode.get(String(r.account_code));
+    if (!acct) return [];
+    const subtype = r.account_subtype == null ? null : String(r.account_subtype);
+    return [{
+      accountId: String(r.id), accountCode: String(r.account_code),
+      from: { accountType: String(r.account_type), accountSubtype: subtype },
+      to: { accountType: String(acct.mappedType), accountSubtype: subtype ?? acct.mappedSubtype ?? null },
+    }];
+  });
 }

@@ -19,9 +19,10 @@ import type { McpTool } from '../types';
 import { MUTATION_ARG_SCHEMA, type DryRunResult } from '@/lib/mcp/contracts';
 import {
   getJournalEntryById,
-  resolveReversalDate,
+  resolveReversalDateDetailed,
   reverseJournalEntry,
 } from '@/modules/accounting/services/gl/journalEntryService';
+import type { VatLockRoll } from '@/modules/accounting/services/gl/journalEntryReversalDate';
 import { buildReversalLines } from '@/modules/accounting/services/gl/reversalLines';
 import { fmtDate } from '@/lib/fmtDate';
 import { mcpPostingAgent } from '../postingAgent';
@@ -59,6 +60,10 @@ export const reverseJournalEntryTool: McpTool = {
     + 'open, and to TODAY when it is closed — a correction belongs in the period it corrects. '
     + 'Override with reversal_date, which must be a real YYYY-MM-DD day, must not fall before the '
     + 'entry being reversed, and must land in a fiscal period that EXISTS and is open. '
+    + 'LOCKED VAT PERIODS: when the entry moves a VAT-return figure and the DEFAULT date falls inside a '
+    + 'locked (filed) VAT period, the contra is dated forward to the first date outside every locked VAT '
+    + 'period and inside an open fiscal period, and reversal_date_roll says so; a reversal_date you name '
+    + 'inside a locked VAT period is refused. '
     + 'Refuses an entry that is a draft, already reversed, or has no lines. '
     + 'Does NOT cover: bank allocations (reverse_bank_allocation, or reverse_allocations for a '
     + 'date range) — reversing their journal directly would leave the bank transaction still '
@@ -116,8 +121,12 @@ export const reverseJournalEntryTool: McpTool = {
     // the agent as a generic failure from inside the write path.
     const originalDate = fmtDate(entry.entryDate);
     let resolvedDate: string;
+    let roll: VatLockRoll | null;
     try {
-      resolvedDate = await resolveReversalDate(ctx.companyId, originalDate, reversalDate);
+      // With the lines, so a locked VAT period rolls (or refuses) here exactly
+      // as it will inside reverseJournalEntry.
+      ({ date: resolvedDate, vatLockRoll: roll } = await resolveReversalDateDetailed(
+        ctx.companyId, originalDate, reversalDate, entry.lines));
     } catch (err) {
       return toolError(safeErrorText(err, 'Could not reverse this journal entry.'));
     }
@@ -153,7 +162,11 @@ export const reverseJournalEntryTool: McpTool = {
       // wroteNothing keeps the idempotency key free — without it the real call
       // that follows is served this preview forever.
       return {
-        ...ok({ ...result, warnings: foreignDimensionWarnings(carried.droppedLineCount) }),
+        ...ok({
+          ...result,
+          warnings: foreignDimensionWarnings(carried.droppedLineCount),
+          reversal_date_roll: roll,
+        }),
         wroteNothing: true,
       };
     }
@@ -171,6 +184,8 @@ export const reverseJournalEntryTool: McpTool = {
       reversal_entry_number: reversal.entryNumber,
       reversal_date: fmtDate(reversal.entryDate),
       warnings: foreignDimensionWarnings(reversal.foreignDimensionDroppedLines),
+      // Non-null when a locked VAT period moved the default date forward.
+      reversal_date_roll: reversal.vatLockRoll ?? null,
       // Stated because it is the property people get wrong about reversals here.
       original_status: 'posted',
       note: 'The original entry stays posted and is marked reversed in metadata; the contra entry offsets it.',

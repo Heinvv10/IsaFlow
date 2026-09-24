@@ -5,7 +5,19 @@
  */
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 
-vi.mock('@/lib/neon', () => ({ sql: vi.fn() }));
+vi.mock('@/lib/neon', () => ({ sql: vi.fn(), withSavepoint: vi.fn((_n: string, fn: () => unknown) => fn()) }));
+// The import's VAT-lock check (a savepoint around the writes, a before/after
+// attribute snapshot, and the lock query) is pinned against a real ledger in
+// tests/integration/vat-period-lock-coa-writers.int.test.ts. Stubbed here so
+// this file's positional sql mock still lines up with the import's own writes.
+vi.mock('@/lib/alsTransaction', () => ({ withAlsTransaction: vi.fn((_a: unknown, fn: () => unknown) => fn()) }));
+vi.mock('@/modules/accounting/services/core/migrationCoaVatLock', () => ({
+  accountAttributes: vi.fn(async () => new Map()),
+  attributeChanges: vi.fn(() => []),
+}));
+vi.mock('@/modules/accounting/services/gl/vatLockLineClassification', () => ({
+  assertAccountChangesKeepVatLocks: vi.fn(async () => undefined),
+}));
 vi.mock('@/lib/logger', () => ({ log: { info: vi.fn(), error: vi.fn(), warn: vi.fn(), debug: vi.fn() } }));
 vi.mock('@/modules/accounting/services/gl/systemAccountResolver', () => ({ clearSystemAccountCache: vi.fn() }));
 vi.mock('@/modules/accounting/services/core/migrationService', () => ({ updateSession: vi.fn() }));

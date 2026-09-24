@@ -18,6 +18,19 @@
  */
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 
+// The VAT-lock guard runs its own queries (advisory lock, active-lock read,
+// account subtypes), which would shift this file's positional sql mock. It is
+// exercised against a real ledger in tests/integration/vat-period-lock-*.int.test.ts;
+// here it is a no-op, and the error class stays real.
+vi.mock('@/modules/accounting/services/gl/journalVatLockGuard', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('@/modules/accounting/services/gl/journalVatLockGuard')>()),
+  assertJournalVatPeriodOpen: vi.fn(async () => undefined),
+  assertJournalDateOutsideVatLock: vi.fn(async () => undefined),
+  takeVatLockShared: vi.fn(async () => undefined),
+  findActiveVatLock: vi.fn(async () => null),
+  journalMovesVatFigure: vi.fn(async () => false),
+  loadJournalVatLines: vi.fn(async () => []),
+}));
 vi.mock('@/lib/logger', () => ({
   log: { info: vi.fn(), error: vi.fn(), warn: vi.fn(), debug: vi.fn() },
 }));
@@ -123,7 +136,7 @@ describe('voidPaymentDocument', () => {
     vi.mocked(unwindBankAllocationApplication).mockResolvedValue({
       invoicesReopened: 2, amountUnapplied: 1500, paymentsCancelled: 1,
     });
-    vi.mocked(reverseJournalEntry).mockResolvedValue(undefined as never);
+    vi.mocked(reverseJournalEntry).mockResolvedValue({ vatLockRoll: null } as never);
     vi.mocked(reverseReconciledTransaction).mockResolvedValue({
       invoicesReopened: 3, amountUnapplied: 2750.25, paymentsCancelled: 1,
     } as never);
@@ -267,7 +280,7 @@ describe('voidPaymentDocument', () => {
     vi.mocked(unwindBankAllocationApplication).mockResolvedValue({
       invoicesReopened: 0, amountUnapplied: 0, paymentsCancelled: 0,
     });
-    vi.mocked(reverseJournalEntry).mockResolvedValue(undefined as never);
+    vi.mocked(reverseJournalEntry).mockResolvedValue({ vatLockRoll: null } as never);
     given(paymentRow(), []);
     await voidPaymentDocument(COMPANY, 'supplier', PAYMENT, USER);
     expect(lockSupplierPaymentForUpdate).toHaveBeenCalledWith(COMPANY, PAYMENT);
@@ -282,7 +295,7 @@ describe('voidPaymentDocument', () => {
     });
     vi.mocked(reverseJournalEntry).mockImplementation(async () => {
       order.push('reverse');
-      return undefined as never;
+      return { vatLockRoll: null } as never;
     });
 
     const r = asResult(await voidPaymentDocument(COMPANY, 'customer', PAYMENT, USER));

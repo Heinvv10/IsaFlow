@@ -87,6 +87,7 @@ export async function findReclassCandidates(
            EXISTS (
              SELECT 1 FROM vat_period_locks vpl
               WHERE vpl.company_id = jl.company_id
+                AND vpl.unlocked_at IS NULL  -- an unlocked lock is history (migration 695)
                 AND vpl.period_start <= je.entry_date
                 AND vpl.period_end   >= je.entry_date
            ) AS vat_period_locked

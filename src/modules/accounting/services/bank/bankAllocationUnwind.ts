@@ -58,6 +58,7 @@ import { sql } from '@/lib/neon';
 import type { DbRow } from '@/lib/neon';
 import { log } from '@/lib/logger';
 import { recomputeInvoiceStatus } from '../ar/invoiceStatusRecompute';
+import type { VatLockRoll } from '../gl/journalEntryReversalVatRoll';
 
 export interface BankAllocationUnwindResult {
   /** Invoices whose `amount_paid` was reduced. */
@@ -66,6 +67,8 @@ export interface BankAllocationUnwindResult {
   amountUnapplied: number;
   /** Payment documents cancelled. */
   paymentsCancelled: number;
+  /** Set by the reversal when a locked VAT period moved its default date forward. */
+  vatLockRoll?: VatLockRoll | null;
 }
 
 function round2(n: number): number {
