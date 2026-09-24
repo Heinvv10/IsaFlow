@@ -45,6 +45,7 @@ import {
   type ExpenseClaimLine,
 } from '@/modules/accounting/services/expense/expenseClaimService';
 import { VatPeriodLockedError } from '@/modules/accounting/services/gl/journalVatLockGuard';
+import { documentLineAccountRefusal } from '@/modules/accounting/services/gl/documentLineAccountGuard';
 
 interface PostExpenseBody {
   employeeId?: string;
@@ -123,6 +124,9 @@ async function handler(req: CompanyAuthedRequest, res: NextApiResponse) {
   if (resolvedGlAccountId === null) {
     return apiResponse.badRequest(res, 'glAccountId not found for this company');
   }
+  // Before the first write, so the 400 commits nothing; FOR SHARE also holds a merge off until commit.
+  const accountRefusal = await documentLineAccountRefusal(companyId, [resolvedGlAccountId]);
+  if (accountRefusal) return apiResponse.badRequest(res, accountRefusal);
 
   // Always resolve VAT Input account — required for correct journal
   let vatInputAccountId: string;
@@ -195,6 +199,8 @@ async function handler(req: CompanyAuthedRequest, res: NextApiResponse) {
       return apiResponse.badRequest(res, CAPTURED_DOCUMENT_REFUSAL_MESSAGE[claimRefusal]);
     }
 
+    // The pre-check above holds its FOR SHARE lock to commit, so this cannot
+    // refuse; if it ever does, it is left a 5xx so the claim write rolls back.
     const claim = await createClaim({
       companyId,
       employeeId,
