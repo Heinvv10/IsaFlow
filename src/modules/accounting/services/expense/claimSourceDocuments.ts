@@ -95,8 +95,13 @@ export async function claimLineSourceDocuments(
   // 5s, then a retryable refusal. A lock error aborts the transaction, so the
   // route's 4xx still commits nothing; the bound is reset once granted so it
   // does not cap later waits in the request.
+  // Outside a request transaction FOR UPDATE is released at once and SET LOCAL
+  // does nothing, so the claim would guard nothing: refuse to run there.
   const client = als.getStore()?.client;
-  if (client) await client.query("SET LOCAL lock_timeout = '5s'");
+  if (!client) {
+    throw new Error('Claiming source documents requires a request transaction (withAuth / als.run)');
+  }
+  await client.query("SET LOCAL lock_timeout = '5s'");
   let claimed: DbRow[];
   try {
     claimed = (await sql`
@@ -126,7 +131,7 @@ export async function claimLineSourceDocuments(
     if (typeof code === 'string' && LOCK_ERRORS.has(code)) throw new ClaimSourceDocumentError('busy', ids[0]!);
     throw err;
   }
-  if (client) await client.query('SET LOCAL lock_timeout = DEFAULT');
+  await client.query('SET LOCAL lock_timeout = DEFAULT');
   if (claimed.length === ids.length) return;
   // Some slips stamped and not all: only possible if the lock above stopped
   // holding the set (tested by removing it). A 4xx here would COMMIT the
