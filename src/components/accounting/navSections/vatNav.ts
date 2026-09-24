@@ -16,6 +16,7 @@ const VAT_SURFACES = [
   '/accounting/vat-adjustments',
   '/accounting/drc-vat',
   '/accounting/sars/vat201',
+  '/accounting/sars/vat-locks',
 ];
 
 /** True for a link into a VAT-only page. Query strings are ignored. */
