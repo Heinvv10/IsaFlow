@@ -4,9 +4,10 @@
  * createPracticeEntry / updatePracticeEntry write time_entries.amount (no
  * migration creates it), and createClientRateOverride / resolveRate / migration
  * 626's trigger use practice_client_rate_overrides.user_id and .rate, which a
- * table predating migration 372 lacks. The schema fixture is a production
- * schema dump (2026-09-08): on it every one of these raised 42703. Migration
- * 698 adds whatever is missing, additively.
+ * table predating migration 372 lacks. The r112 fixture is a DEV schema dump,
+ * and on it every one of these raised 42703. Migration 625b adds the missing
+ * columns (ordered before 626, which needs them). Migration 699 grants the
+ * table and replaces 395's company_id-claim policy with tenant_isolation.
  */
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { Pool } from 'pg';
@@ -25,6 +26,8 @@ const user = randomUUID();
 const client = randomUUID();
 const category = randomUUID();
 const workItem = randomUUID();
+const otherCompany = randomUUID();
+const otherClient = randomUUID();
 // GoTrue owns auth.users and it does not ship in the schema fixture; the
 // override service joins it. Same stub and lock as k-039 (they share it).
 const AUTH_USERS_STUB_LOCK = 39039039;
@@ -52,11 +55,14 @@ beforeAll(async () => {
     await pool.query('CREATE TABLE auth.users(id UUID PRIMARY KEY, email TEXT, raw_user_meta_data JSONB)');
     await pool.query('GRANT SELECT ON auth.users TO app_user');
   }
-  await pool.query('INSERT INTO companies(id,name) VALUES($1,$2)', [company, 'R121 company']);
+  await pool.query('INSERT INTO companies(id,name) VALUES($1,$2),($3,$4)', [company, 'R121 company', otherCompany, 'R121 other tenant']);
   await pool.query("INSERT INTO users(id,email,role,is_active) VALUES($1,$2,'admin',true)", [user, `${user}@test.local`]);
   await pool.query(
     "INSERT INTO practice_clients(id,company_id,legal_name,billing_model,status) VALUES($1,$2,'R121 client','hourly','active')",
     [client, company]);
+  await pool.query(
+    "INSERT INTO practice_clients(id,company_id,legal_name,billing_model,status) VALUES($1,$2,'R121 other client','hourly','active')",
+    [otherClient, otherCompany]);
   await pool.query('INSERT INTO practice_job_categories(id,company_id,name) VALUES($1,$2,$3)', [category, company, 'R121 cat']);
   await pool.query('INSERT INTO practice_work_items(id,company_id,category_id,name) VALUES($1,$2,$3,$4)',
     [workItem, company, category, 'R121 item']);
@@ -69,12 +75,12 @@ afterAll(async () => {
   try {
     await pool.query('DELETE FROM time_entries WHERE company_id=$1', [company]);
     await pool.query('DELETE FROM practice_staff_rates WHERE company_id=$1', [company]);
-    await pool.query('DELETE FROM practice_client_rate_overrides WHERE company_id=$1', [company]);
+    await pool.query('DELETE FROM practice_client_rate_overrides WHERE company_id = ANY($1)', [[company, otherCompany]]);
     await pool.query('DELETE FROM practice_work_items WHERE company_id=$1', [company]);
     await pool.query('DELETE FROM practice_job_categories WHERE company_id=$1', [company]);
-    await pool.query('DELETE FROM practice_clients WHERE company_id=$1', [company]);
+    await pool.query('DELETE FROM practice_clients WHERE company_id = ANY($1)', [[company, otherCompany]]);
     await pool.query('DELETE FROM company_users WHERE company_id=$1', [company]);
-    await pool.query('DELETE FROM companies WHERE id=$1', [company]);
+    await pool.query('DELETE FROM companies WHERE id = ANY($1)', [[company, otherCompany]]);
     await pool.query('DELETE FROM users WHERE id=$1', [user]);
     if (createdAuthUsers) await pool.query('DROP TABLE auth.users');
     await lockClient.query('SELECT pg_advisory_unlock($1)', [AUTH_USERS_STUB_LOCK]);
@@ -129,5 +135,37 @@ describe('R-121: practice time capture runs on a repo-built schema', () => {
     const listed = await call('GET');
     expect(listed.statusCode).toBe(200);
     expect(JSON.stringify(listed.body.data)).toContain('990');
+  });
+
+  // Tenant isolation under the new policy, as withAuth runs it: app_user, the
+  // user's `sub`, and app.current_company_id — no company_id claim.
+  async function asAppUser<T>(fn: (c: import('pg').PoolClient) => Promise<T>): Promise<T> {
+    const c = await pool.connect();
+    try {
+      await c.query('BEGIN');
+      await c.query('SET LOCAL ROLE app_user');
+      await c.query("SELECT set_config('request.jwt.claims', $1, true)", [JSON.stringify({ sub: user })]);
+      await c.query("SELECT set_config('app.current_company_id', $1, true)", [company]);
+      return await fn(c);
+    } finally {
+      await c.query('ROLLBACK').catch(() => undefined);
+      c.release();
+    }
+  }
+
+  it('app_user cannot see another company\'s override', async () => {
+    await pool.query(
+      `INSERT INTO practice_client_rate_overrides (company_id, client_id, staff_user_id, user_id, rate_per_hour, rate, effective_from)
+       VALUES ($1, $2, $3, $3, 777, 777, '2026-01-01')`, [otherCompany, otherClient, user]);
+    const seen = await asAppUser((c) => c.query(
+      'SELECT id FROM practice_client_rate_overrides WHERE company_id = $1', [otherCompany]));
+    expect(seen.rows).toHaveLength(0);
+  });
+
+  it('app_user cannot insert an override into another company (WITH CHECK)', async () => {
+    const err = await asAppUser((c) => c.query(
+      `INSERT INTO practice_client_rate_overrides (company_id, client_id, staff_user_id, user_id, rate_per_hour, rate, effective_from)
+       VALUES ($1, $2, $3, $3, 555, 555, '2026-02-01')`, [otherCompany, otherClient, user])).catch((e: unknown) => e);
+    expect(String((err as Error)?.message)).toMatch(/row-level security/);
   });
 });

@@ -135,7 +135,8 @@ export async function runBearerRequest(
     await client.query('SET LOCAL ROLE app_user');
     // Synthesize the JWT claims that RLS policies actually read. `sub` keys
     // policies via auth.uid(); `company_id` is read directly by mig 395
-    // (practice_client_rate_overrides) and mig 396 (payroll_leave_*) — without
+    // (practice_client_rate_overrides, until 699 replaced it) and mig 396
+    // (payroll_leave_*, R-122) — without
     // it those policies evaluate `NULL = NULL` and silently return zero rows.
     const claims = { sub: ctx.userId, role: 'authenticated', company_id: ctx.companyId };
     await client.query(`SELECT set_config('request.jwt.claims', $1, true)`, [JSON.stringify(claims)]);

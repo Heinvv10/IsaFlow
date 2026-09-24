@@ -12724,7 +12724,7 @@
       "historicalDataImpact": "None known. The prod journal (from 2026-09-20) shows no practice time-entry requests at all.",
       "canonicalItem": null,
       "reportedSeverity": "high",
-      "processNotes": "2026-09-24: for Hein, read-only — SELECT column_name, data_type FROM information_schema.columns WHERE table_name='time_entries' AND column_name='amount'; If present on prod, the fix is a migration adding it IF NOT EXISTS; if absent, drop the column from the two writers (line_total is the figure). 2026-09-24: widened — four layers (see fix.md). The r112 fixture is a DEV schema dump, so the column/grant layers are likely dev drift; the 395 policy layer is on prod. Migration 698 (additive, idempotent) fixes all four.",
+      "processNotes": "2026-09-24: for Hein, read-only — SELECT column_name, data_type FROM information_schema.columns WHERE table_name='time_entries' AND column_name='amount'; If present on prod, the fix is a migration adding it IF NOT EXISTS; if absent, drop the column from the two writers (line_total is the figure). 2026-09-24: widened — four layers (see fix.md). The r112 fixture is a DEV schema dump, so the column/grant layers are likely dev drift; the 395 policy layer is on prod. Migrations 625b (columns, ordered before 626) and 699 (grants + tenant_isolation) fix them; see fix.md for the auth.users caveat.",
       "branch": "fix/r121-practice-schema-20260924",
       "severity": "high",
       "title": "Practice time capture and rate overrides fail against the real schema: time_entries.amount and the overrides' legacy columns/grants are missing on dev-shaped DBs, and the overrides policy reads a company_id JWT claim withAuth never sets"

@@ -1,2 +1,5 @@
-M-POLICY old claim-based policy:       Tests  1 failed | 2 passed (3)
-M-GRANTS no app grants:       Tests  3 failed (3)
+# R-121 mutations, applied to the r112 fixture as postgres; 699 re-applied after each. Suite: r121-practice-entry-writes (5 tests).
+MP1 policy isolates nothing | SQL: DROP POLICY tenant_isolation ON practice_client_rate_overrides; CREATE POLICY tenant_isolation ON practice_client_rate_overrides FOR ALL TO app_user USING (true) WITH CHECK (true); |       Tests  2 failed | 3 passed (5)
+MP2 WITH CHECK removed | SQL: DROP POLICY tenant_isolation ON practice_client_rate_overrides; CREATE POLICY tenant_isolation ON practice_client_rate_overrides FOR ALL TO app_user USING (company_id IN (SELECT company_id FROM public.company_users WHERE user_id = auth.uid())) WITH CHECK (true); |       Tests  1 failed | 4 passed (5)
+MP3 395's claim-based policy restored | SQL: DROP POLICY tenant_isolation ON practice_client_rate_overrides; CREATE POLICY pcro_company_isolation ON practice_client_rate_overrides USING (company_id = (SELECT ((current_setting('request.jwt.claims', true)::jsonb->>'company_id'))::uuid)); |       Tests  1 failed | 4 passed (5)
+MG app grants revoked | SQL: REVOKE ALL ON practice_client_rate_overrides FROM app_user, platform_admin; |       Tests  5 failed (5)
