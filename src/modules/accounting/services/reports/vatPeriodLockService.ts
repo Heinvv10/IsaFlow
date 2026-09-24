@@ -41,6 +41,9 @@ export interface VatPeriodLock {
   /** MAX(created_at) of the journals the figures came from, ISO-8601. */
   postedThrough: string;
   lockedBy: string;
+  /** users.first_name + last_name for lockedBy, falling back to the raw id
+   *  (an agent lock, or a human whose user row is gone). */
+  lockedByName: string;
   actorType: 'human' | 'agent' | 'system';
   actorTokenJti: string | null;
   lockedAt: string;
@@ -49,6 +52,8 @@ export interface VatPeriodLock {
   active: boolean;
   unlockedAt: string | null;
   unlockedBy: string | null;
+  /** Same fallback as lockedByName; null exactly when unlockedBy is null. */
+  unlockedByName: string | null;
   unlockReason: string | null;
 }
 
@@ -86,7 +91,16 @@ function dateOnly(v: unknown): string {
   return String(v ?? '').slice(0, 10);
 }
 
+/** A joined display name, or the id itself when there is no user row (e.g. an
+ *  agent lock) or the row's name columns are blank. */
+function nameOrId(name: unknown, id: string): string {
+  const trimmed = name == null ? '' : String(name).trim();
+  return trimmed !== '' ? trimmed : id;
+}
+
 function map(r: DbRow): VatPeriodLock {
+  const lockedBy = String(r.locked_by ?? '');
+  const unlockedBy = r.unlocked_by == null ? null : String(r.unlocked_by);
   return {
     id: String(r.id),
     periodStart: dateOnly(r.period_start),
@@ -95,14 +109,16 @@ function map(r: DbRow): VatPeriodLock {
     inputTax: num(r.input_tax),
     netVat: num(r.net_vat),
     postedThrough: iso(r.posted_through),
-    lockedBy: String(r.locked_by ?? ''),
+    lockedBy,
+    lockedByName: nameOrId(r.locked_by_name, lockedBy),
     actorType: (String(r.actor_type ?? 'agent') as VatPeriodLock['actorType']),
     actorTokenJti: r.actor_token_jti == null ? null : String(r.actor_token_jti),
     lockedAt: iso(r.locked_at),
     notes: r.notes == null ? null : String(r.notes),
     active: r.unlocked_at == null,
     unlockedAt: r.unlocked_at == null ? null : iso(r.unlocked_at),
-    unlockedBy: r.unlocked_by == null ? null : String(r.unlocked_by),
+    unlockedBy,
+    unlockedByName: unlockedBy == null ? null : nameOrId(r.unlocked_by_name, unlockedBy),
     unlockReason: r.unlock_reason == null ? null : String(r.unlock_reason),
   };
 }
@@ -129,12 +145,30 @@ export async function getVatPeriodLock(
   return rows[0] ? map(rows[0]) : null;
 }
 
-/** Every lock INCLUDING history, newest period first; `active` says which still lock. */
+/**
+ * Every lock INCLUDING history, newest period first; `active` says which
+ * still lock.
+ *
+ * Resolves `locked_by` / `unlocked_by` (TEXT, holding a users.id — VARCHAR)
+ * to a display name via the same LEFT JOIN + CONCAT_WS(first_name,
+ * last_name) pattern as transactionLedgerService/auditTrailLedgerService's
+ * `created_by_name`. `users` is a platform table, not company-scoped — the
+ * join carries no company_id, same as the credit-note PDF builder's
+ * `approved_by` join.
+ */
 export async function listVatPeriodLocks(companyId: string, limit = 50): Promise<VatPeriodLock[]> {
   const rows = (await sql`
-    SELECT ${SELECT_COLUMNS} FROM vat_period_locks
-    WHERE company_id = ${companyId}::UUID
-    ORDER BY period_start DESC, locked_at DESC
+    SELECT
+      vpl.id, vpl.period_start, vpl.period_end, vpl.output_tax, vpl.input_tax, vpl.net_vat,
+      vpl.posted_through, vpl.locked_by, vpl.actor_type, vpl.actor_token_jti, vpl.locked_at, vpl.notes,
+      vpl.unlocked_at, vpl.unlocked_by, vpl.unlock_reason,
+      NULLIF(TRIM(CONCAT_WS(' ', lu.first_name, lu.last_name)), '') AS locked_by_name,
+      NULLIF(TRIM(CONCAT_WS(' ', uu.first_name, uu.last_name)), '') AS unlocked_by_name
+    FROM vat_period_locks vpl
+    LEFT JOIN users lu ON lu.id::TEXT = vpl.locked_by::TEXT
+    LEFT JOIN users uu ON uu.id::TEXT = vpl.unlocked_by::TEXT
+    WHERE vpl.company_id = ${companyId}::UUID
+    ORDER BY vpl.period_start DESC, vpl.locked_at DESC
     LIMIT ${limit}
   `) as DbRow[];
   return rows.map(map);

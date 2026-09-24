@@ -5,7 +5,7 @@
 import { useState, useEffect, useCallback } from 'react';
 import { AppLayout } from '@/components/layout/AppLayout';
 import Link from 'next/link';
-import { FileText, Loader2, Save, Send, Download, ChevronLeft } from 'lucide-react';
+import { FileText, Loader2, Save, Send, Download, ChevronLeft, ShieldCheck } from 'lucide-react';
 import { apiFetch } from '@/lib/apiFetch';
 import { VAT201PeriodSelector } from '@/components/accounting/sars/VAT201PeriodSelector';
 import { TransactionTable } from '@/components/accounting/sars/VAT201FormSections';
@@ -181,11 +181,16 @@ export default function VAT201Page() {
                 <p className="text-sm text-[var(--ff-text-secondary)]">SARS Value-Added Tax Declaration</p>
               </div>
             </div>
-            {data && (
-              <button onClick={exportCSV} className="inline-flex items-center gap-1.5 px-3 py-2 rounded-lg border border-[var(--ff-border-light)] text-sm text-[var(--ff-text-secondary)] hover:text-[var(--ff-text-primary)] hover:border-teal-500/30">
-                <Download className="h-4 w-4" /> Export CSV
-              </button>
-            )}
+            <div className="flex items-center gap-2">
+              <Link href="/accounting/sars/vat-locks" className="inline-flex items-center gap-1.5 px-3 py-2 rounded-lg border border-[var(--ff-border-light)] text-sm text-[var(--ff-text-secondary)] hover:text-[var(--ff-text-primary)] hover:border-teal-500/30">
+                <ShieldCheck className="h-4 w-4" /> Period Locks
+              </Link>
+              {data && (
+                <button onClick={exportCSV} className="inline-flex items-center gap-1.5 px-3 py-2 rounded-lg border border-[var(--ff-border-light)] text-sm text-[var(--ff-text-secondary)] hover:text-[var(--ff-text-primary)] hover:border-teal-500/30">
+                  <Download className="h-4 w-4" /> Export CSV
+                </button>
+              )}
+            </div>
           </div>
         </div>
 
