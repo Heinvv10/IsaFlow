@@ -12139,27 +12139,33 @@
       "correctedTrigger": "",
       "auditedSha": "",
       "currentSha": "7d708aac1",
-      "status": "confirmed",
+      "status": "fix-in-review",
       "dependencies": [],
-      "testNames": [],
+      "testNames": [
+        "tests/integration/r105-expense-claim-source-document.int.test.ts"
+      ],
       "fixCommit": null,
       "pr": null,
       "deployedSha": null,
       "canonicalItem": null,
       "reportedSeverity": "",
-      "branch": null,
+      "branch": "fix/r105-expense-claim-source-document-20260924",
       "id": "R-105",
       "area": "accounting/capture",
       "affectedPaths": [
         "src/modules/accounting/services/expenseClaimService.ts"
       ],
-      "severityRationale": "Provisional HIGH: a double claim of the same input VAT, and a possible cross-tenant reference. journal-entries.ts already refuses a foreign id for the same column. Read from code, not yet measured.",
-      "evidencePaths": [],
+      "severityRationale": "HIGH, measured: through the real routes a slip already posted through capture, a rejected slip, a repeated slip and ANOTHER COMPANY'S captured document were all accepted onto a manual claim (red.log). Double input-VAT claim plus a cross-tenant reference.",
+      "evidencePaths": [
+        "docs/audits/remediation/R-105/fix.md",
+        "docs/audits/remediation/R-105/red.log",
+        "docs/audits/remediation/R-105/mutations.log"
+      ],
       "historicalDataImpact": "Unknown; count expense-claim lines whose source document is already posted, or belongs to another company.",
       "title": "POST /api/accounting/expense-claims takes lines[].sourceDocumentId from the body with no ownership check and no posting claim: a slip already posted through capture can go on a manual claim (a second input-VAT claim), and a foreign tenant's captured_documents id may be accepted because FK checks bypass RLS",
       "severity": "high",
       "source": "Found by fix-r088a while fixing R-088 (read, not measured).",
-      "processNotes": "Registered 2026-09-14 by session 71c707d0 (wave R-1)."
+      "processNotes": "Registered 2026-09-14 by session 71c707d0 (wave R-1). 2026-09-24: reproduced (7/9 red on master) and fixed: claimLineSourceDocuments takes the posting claim on every line's slip in one all-or-nothing, company-scoped statement before the first write; line and draft-claim deletes release. 10/10 mutations red. Prod census SQL in fix.md."
     },
     {
       "claim": "",
