@@ -158,7 +158,7 @@ describe('R-107: a reversal racing an attach', () => {
 });
 
 describe('R-107: a bank line unlinked while the attach waits for it', () => {
-  it('is not marked matched: the write re-checks the link it peeked', async () => {
+  it('is not marked matched: the bank UPDATE re-checks provisional_je_id after the lock', async () => {
     const { je, bt } = await seedProvisional({ amount: 444 });
     const doc = await seedDoc(company);
     const unlinker = await pool.connect();

@@ -36,7 +36,7 @@ vi.mock('@/modules/accounting/services/bank/bankTxLock', () => ({
   BankTransactionLockTimeoutError: class extends Error {},
   lockBankTransactionForUpdate: vi.fn(async (_c: string, id: string) => {
     events.push(`lock bank ${id}`);
-    return { id, provisional_je_id: '00000000-0000-0000-0000-000000000002' };
+    return { id };
   }),
 }));
 vi.mock('@/modules/accounting/services/capture/captureRowLock', () => ({
