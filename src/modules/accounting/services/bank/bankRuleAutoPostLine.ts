@@ -15,6 +15,7 @@ import {
   postJournalEntry,
   ClosedFiscalPeriodError,
 } from '../gl/journalEntryService';
+import { VatPeriodLockedError } from '../gl/journalVatLockGuard';
 import { buildAutoCreateLines, getPeriodStatusForDate, type RuleAllocType } from './bankRulesMatchingHelpers';
 import { lockBankTransactionForUpdate } from './bankTxLock';
 import { resolveRuleVatCode } from '../gl/ruleVatResolution';
@@ -29,7 +30,9 @@ export type AutoPostOutcome =
   /** Its date falls in a closed/locked period - re-open the period to post it. */
   | { kind: 'closed_period' }
   /** No fiscal period covers its date - the year has not been created. */
-  | { kind: 'no_period' };
+  | { kind: 'no_period' }
+  /** Its journal moves a VAT figure and its date is inside a locked (filed) VAT period. */
+  | { kind: 'vat_period_locked' };
 
 export interface AutoPostLineInput {
   companyId: string;
@@ -183,15 +186,16 @@ export async function autoPostRuleLine(input: AutoPostLineInput): Promise<AutoPo
     // fiscal-period state can flip between the pre-flight and the post
     // (rare race; admin closing a period mid-apply). On that path we
     // hard-delete the draft we just inserted instead of leaving it
-    // dangling, then report the skip. Anything else re-throws.
-    if (err instanceof ClosedFiscalPeriodError) {
+    // dangling, then report the skip. A locked (filed) VAT period is the same
+    // shape — a skip, not a failure that aborts the sweep. Anything else re-throws.
+    if (err instanceof ClosedFiscalPeriodError || err instanceof VatPeriodLockedError) {
       await sql`
         DELETE FROM gl_journal_entries
         WHERE id = ${je.id}::UUID
           AND company_id = ${companyId}::UUID
           AND status = 'draft'
       `;
-      return { kind: 'closed_period' };
+      return { kind: err instanceof VatPeriodLockedError ? 'vat_period_locked' : 'closed_period' };
     }
     throw err;
   }

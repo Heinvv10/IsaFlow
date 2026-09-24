@@ -61,6 +61,7 @@ import {
 import { reverseReconciledTransaction } from '../bank/bankAllocationService';
 import { lockBankTransactionForUpdate } from '../bank/bankTxLock';
 import type { PostingActorOpts } from '../gl/journalEntryMeta';
+import type { VatLockRoll } from '../gl/journalEntryReversalVatRoll';
 
 export type PaymentKind = 'customer' | 'supplier';
 
@@ -76,6 +77,8 @@ export interface VoidPaymentResult {
   journalEntryId: string | null;
   /** The bank line returned to `imported`, when the payment settled one. */
   bankTransactionId: string | null;
+  /** Non-null when a locked VAT period moved the contra's default date forward. */
+  vatLockRoll: VatLockRoll | null;
 }
 
 /** Why a void was refused. Distinguished so the caller can word each one. */
@@ -251,6 +254,7 @@ export async function voidPaymentDocument(
       amountUnapplied: unwoundViaBank.amountUnapplied,
       journalEntryId: payment.journalEntryId,
       bankTransactionId,
+      vatLockRoll: unwoundViaBank.vatLockRoll ?? null,
     };
   }
 
@@ -270,6 +274,7 @@ export async function voidPaymentDocument(
   // that turned the throw into a 4xx, would commit the unwind with the journal
   // still standing — the invoice reopened and the cash still posted. Owning the
   // boundary here makes that independent of who calls it.
+  let vatLockRoll: VatLockRoll | null = null;
   const unwound = await withSavepoint('void_payment_unwind', async () => {
     const result = payment.journalEntryId
       ? await unwindBankAllocationApplication(companyId, payment.journalEntryId)
@@ -280,7 +285,7 @@ export async function voidPaymentDocument(
       // No catch: a closed period or an already-reversed entry must reach the
       // savepoint above — and through it the caller's. Flattening it into a
       // returned error would RELEASE both and commit the unwind.
-      await reverseJournalEntry(companyId, payment.journalEntryId, userId, opts);
+      vatLockRoll = (await reverseJournalEntry(companyId, payment.journalEntryId, userId, opts)).vatLockRoll ?? null;
     }
     return result;
   });
@@ -300,5 +305,6 @@ export async function voidPaymentDocument(
     amountUnapplied: unwound.amountUnapplied,
     journalEntryId: payment.journalEntryId,
     bankTransactionId: null,
+    vatLockRoll,
   };
 }

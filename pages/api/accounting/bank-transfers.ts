@@ -15,6 +15,7 @@ import { withAuth, type AuthenticatedNextApiRequest, type CompanyAuthedRequest, 
 import { withCsrf } from '@/lib/auth/withCsrf';
 import { UUID } from '@/lib/schemas/common';
 import { log } from '@/lib/logger';
+import { assertJournalVatPeriodOpen, VatPeriodLockedError } from '@/modules/accounting/services/gl/journalVatLockGuard';
 
 const TransferSchema = z.object({
   fromAccountId: UUID,
@@ -73,6 +74,13 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
     `;
 
     const entry = await withTransaction(async (tx) => {  
+      // This route INSERTs straight at status='posted', so it never meets
+      // postJournalEntry. Neither account is required to be a bank account, so
+      // a transfer onto a VAT control account inside a filed VAT period is
+      // refused like any other post that moves a VAT figure — on `tx`, the
+      // connection that posts, so the shared advisory key is held by it.
+      await assertJournalVatPeriodOpen(
+        companyId, txDate, [{ glAccountId: toAccountId }, { glAccountId: fromAccountId }], tx);
 
       const entryRows = await tx`
         INSERT INTO gl_journal_entries (
@@ -116,6 +124,7 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
       message: `Transferred R${Number(amount).toFixed(2)} from ${fromAcct?.account_name} to ${toAcct?.account_name}`,
     });
   } catch (err) {
+    if (err instanceof VatPeriodLockedError) return apiResponse.badRequest(res, err.message);
     log.error('Failed to process bank transfer', { error: err, module: 'accounting' });
     return apiResponse.databaseError(res, err, 'Failed to process bank transfer');
   }

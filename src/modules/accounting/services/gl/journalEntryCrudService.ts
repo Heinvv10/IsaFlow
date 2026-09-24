@@ -12,6 +12,7 @@ import { assertJournalLinesOwned } from './journalLineOwnership';
 import type { DimensionAssignmentMode } from './journalCostCentreValidation';
 import { defaultHumanMeta, type JournalEntryMeta } from './journalEntryMeta';
 import { ensureFiscalPeriodForDate } from './fiscalPeriodAutoCreate';
+import { assertJournalVatPeriodOpen } from './journalVatLockGuard';
 
 const UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
@@ -215,6 +216,10 @@ async function createJournalEntryInTransaction(
       input.lines,
       opts?.dimensionAssignmentMode,
     ); // journalLineOwnership.ts
+    // A journal that moves a VAT figure into a locked (filed) VAT period can
+    // never post, so refuse it BEFORE the draft exists: a draft refused only at
+    // post was committed by every route that answers the refusal with a 4xx.
+    await assertJournalVatPeriodOpen(companyId, input.entryDate, input.lines);
 
     let fiscalPeriodId = input.fiscalPeriodId;
     if (!fiscalPeriodId) {

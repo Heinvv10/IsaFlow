@@ -8,6 +8,13 @@
  * block exists to make the target tenant visible rather than implied by
  * whatever company happened to be active in the browser. A single-company user
  * gets a plain statement — a dropdown with one option is noise, not a choice.
+ *
+ * The app's name is deliberately NOT a prop. This block is the only place the
+ * name was ever interpolated into a sentence ISAFlow wrote, and a name that
+ * ends that sentence early ("Nothing.") makes our own reassurance say
+ * something we did not say. The name is already the h1 two elements above, so
+ * "This app" loses nothing. Removing the prop rather than escaping it keeps
+ * the whole class out instead of policing it (#483).
  */
 import type { ConsentCompany } from '@/lib/auth/consentCompany';
 
@@ -16,11 +23,9 @@ interface Props {
   value: string;
   onChange: (companyId: string) => void;
   disabled: boolean;
-  /** App name, used to say plainly what this app will and won't see. */
-  appName: string;
 }
 
-export function ConsentCompanyPicker({ companies, value, onChange, disabled, appName }: Props) {
+export function ConsentCompanyPicker({ companies, value, onChange, disabled }: Props) {
   const multiple = companies.length > 1;
 
   return (
@@ -48,7 +53,7 @@ export function ConsentCompanyPicker({ companies, value, onChange, disabled, app
             ))}
           </select>
           <p className="text-xs text-slate-500 mt-1.5">
-            {appName} will only ever see this company. To grant another, authorise it separately.
+            This app will only ever see this company. To grant another, authorise it separately.
           </p>
         </>
       ) : (

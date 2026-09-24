@@ -154,6 +154,7 @@ const REFUSAL_CODES: ReadonlySet<string> = new Set([
   // processes a batch yet, so no agent can receive it today.
   'BATCH_ALREADY_REVERSED',
   'BATCH_NOT_PROCESSABLE',
+  'BILL_LINE_ACCOUNT_REFUSED',
   // A captured document already claimed for posting, or rejected (K-072). Two
   // fixed messages naming no id, amount or table, raised only after the
   // service read the document by company_id — the caller's own document.
@@ -192,6 +193,7 @@ const REFUSAL_CODES: ReadonlySet<string> = new Set([
   'RECURRING_INVOICE_TEMPLATE_INVALID',
   'RECURRING_JOURNAL_LOCK_TIMEOUT',
   'RECURRING_JOURNAL_NOT_FOUND',
+  'RECURRING_TEMPLATE_LINE_ACCOUNT',
   'RECURRING_TEMPLATE_LOCK_TIMEOUT',
   'RECURRING_TEMPLATE_NOT_DUE',
   'RECURRING_TEMPLATE_TOTALS_MISMATCH',
@@ -209,6 +211,18 @@ const REFUSAL_CODES: ReadonlySet<string> = new Set([
   'TAX_DIRECTIVE_ALREADY_APPLIED',
   'TIME_ENTRIES_NOT_CLAIMED',
   'TIME_ENTRY_LOCK_TIMEOUT',
+  // The exclusive VAT-lock key was not free within 5s (posts in flight).
+  // Says "retry"; raised before any write.
+  'VAT_LOCK_TIMEOUT',
+  // A journal that moves a VAT-return figure, dated inside a locked (filed) VAT
+  // period (gl/journalVatLockGuard). The message names the caller's own period
+  // dates and the remedy — no id, amount or table — and is raised before the
+  // write that would post.
+  'VAT_PERIOD_LOCKED',
+  // Lock/unlock of a VAT period refused (reports/vatPeriodLockBounds): a
+  // future end, a span over 12 months, an overlap naming the caller's own
+  // locked period, a blank unlock reason. Pre-write, no id or table named.
+  'VAT_PERIOD_LOCK_REFUSED',
   'WIP_ENTRIES_LOCKED',
   'WRITE_OFF_NOT_APPROVABLE',
 ]);

@@ -19,7 +19,7 @@ import {
 import { approveSupplierInvoice } from '@/modules/accounting/services/ap/supplierInvoiceWorkflowService';
 import { invoiceVatRefusals } from '@/modules/accounting/services/capture/capturedVatEvidence';
 import { supplierBelongsToCompany } from '@/modules/accounting/services/core/contactDirectoryService';
-import { accountsBelongToCompany } from '@/modules/accounting/services/gl/chartOfAccountsService';
+import { billLineAccountRefusal } from '@/modules/accounting/services/ap/billLineAccountGuard';
 import { mcpPostingOpts } from '../mcpActor';
 import { MAX_LINES, SUPPLIER_INVOICE_TEXT_LIMITS as TEXT_LIMITS, parseSupplierInvoiceInput } from './invoiceCreateArgs';
 import {
@@ -80,19 +80,17 @@ export const createSupplierInvoiceTool: McpTool = {
     const parsed = parseSupplierInvoiceInput(args);
     if (typeof parsed === 'string') return toolError(parsed);
 
-    // Ownership, batched, before the first write. Neither the service nor the
-    // database re-checks the tenant — supplier_id and gl_account_id become
-    // plain foreign keys with no composite (id, company_id) constraint — so
-    // this is the only thing standing between a foreign id and a cross-tenant
-    // document. NOT_FOUND for both: a distinct "belongs to another company"
-    // reply is an existence oracle.
+    // Ownership, batched, before the first write. supplier_id and
+    // gl_account_id are plain foreign keys with no composite (id, company_id)
+    // constraint, so the database never re-checks the tenant. NOT_FOUND for
+    // the supplier: a distinct "belongs to another company" reply is an
+    // existence oracle. The line-account check also refuses accounts a bill
+    // line may not name (billLineAccountGuard.ts); the service repeats it.
     if (!(await supplierBelongsToCompany(ctx.companyId, parsed.supplierId))) {
       return toolError(NOT_FOUND);
     }
-    if (parsed.accountIds.length > 0 &&
-        !(await accountsBelongToCompany(ctx.companyId, parsed.accountIds))) {
-      return toolError('One or more lines[].gl_account_id values are not GL accounts in your company.');
-    }
+    const accountRefusal = await billLineAccountRefusal(ctx.companyId, parsed.accountIds);
+    if (accountRefusal) return toolError(accountRefusal);
 
     try {
       const invoice = await createSupplierInvoice(

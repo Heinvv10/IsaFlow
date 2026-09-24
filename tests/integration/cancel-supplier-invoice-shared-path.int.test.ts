@@ -130,7 +130,10 @@ describeIfDb('cancelSupplierInvoice — the shared path the UI and bulk cancel u
     await refusedLeavingItAlone(bill, /no approval journal/);
   });
 
-  it('refuses a VAT-carrying reversal into a locked VAT period', async () => {
+  // Ruling for reversals (central VAT lock, #491): a contra whose default date
+  // is inside a locked VAT period rolls FORWARD past the lock rather than
+  // refusing — so the UI cancel succeeds and its contra lands after the lock.
+  it('rolls a VAT-carrying reversal past a locked VAT period instead of refusing', async () => {
     const bill = await seedBill(fx, { number: `SP${++seq}`, date: '2026-06-10', total: 115 });
     const je = await seedJournal(115, '2026-06-10', { extraAccount: await accountId('vat_input') });
     await sql`UPDATE supplier_invoices SET gl_journal_entry_id = ${je}::UUID WHERE id = ${bill}::UUID`;
@@ -139,7 +142,12 @@ describeIfDb('cancelSupplierInvoice — the shared path the UI and bulk cancel u
         (company_id, period_start, period_end, output_tax, input_tax, net_vat, posted_through, locked_by)
       VALUES (${fx.companyId}::UUID, '2026-06-01', '2026-06-30', 0, 0, 0, '2026-06-30', ${fx.userId}::UUID)`;
     try {
-      await refusedLeavingItAlone(bill, /locked VAT period/);
+      await inTx(fx, () => cancelSupplierInvoice(fx.companyId, bill, fx.userId));
+      expect((await state(bill)).status).toBe('cancelled');
+      const contra = ((await sql`
+        SELECT entry_date::TEXT AS d FROM gl_journal_entries
+        WHERE company_id = ${fx.companyId}::UUID AND reversal_of_id = ${je}::UUID`) as Row[])[0]!;
+      expect(contra.d > '2026-06-30').toBe(true);
     } finally {
       await sql`DELETE FROM vat_period_locks WHERE company_id = ${fx.companyId}::UUID`;
     }

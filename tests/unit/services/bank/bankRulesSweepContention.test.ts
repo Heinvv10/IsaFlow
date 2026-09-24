@@ -56,6 +56,7 @@ import { BankTransactionLockTimeoutError } from '@/modules/accounting/services/b
 import { PaymentLockTimeoutError } from '@/modules/accounting/services/core/paymentLock';
 import { ReceiptRefusal } from '@/modules/accounting/services/ar/receiptRefusal';
 import { SupplierPaymentRefusal } from '@/modules/accounting/services/ap/supplierPaymentRefusal';
+import { VatPeriodLockedError } from '@/modules/accounting/services/gl/journalVatLockGuard';
 
 const COMPANY = '11111111-1111-1111-1111-111111111111';
 const BANK_GL = '22222222-2222-2222-2222-222222222222';
@@ -102,6 +103,23 @@ describe('applyRules — a contended candidate is counted, and the run goes on',
     expect(result.autoPostSkippedLocked).toBe(1);
     expect(result.applied).toBe(1);
     expect(result.entries).toEqual([{ bankTxId: 'tx-2', ruleName: 'Bank charges', journalEntryId: 'je-2' }]);
+    expect(autoPostMock).toHaveBeenCalledTimes(2);
+  });
+});
+
+describe('applyRules — a line dated in a locked (filed) VAT period is a skip, not a failure', () => {
+  // createJournalEntry refuses it before its draft exists, inside the line's
+  // savepoint; re-throwing it aborted the sweep and the route's 400 committed
+  // every line already posted.
+  it('counts it as autoPostSkippedVatLocked and still posts the next candidate', async () => {
+    autoPostMock
+      .mockRejectedValueOnce(new VatPeriodLockedError('2026-08-13', { id: 'l', periodStart: '2026-07-01', periodEnd: '2026-08-31' }))
+      .mockResolvedValueOnce({ kind: 'posted', journalEntryId: 'je-2' });
+
+    const result = await applyRules(COMPANY, BANK_GL, USER);
+
+    expect(result.autoPostSkippedVatLocked).toBe(1);
+    expect(result.applied).toBe(1);
     expect(autoPostMock).toHaveBeenCalledTimes(2);
   });
 });

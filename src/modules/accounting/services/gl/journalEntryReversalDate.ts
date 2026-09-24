@@ -8,6 +8,18 @@
 
 import { fmtDate } from '@/lib/fmtDate';
 import { getPeriodStatusForDate } from './periodStatusService';
+import {
+  VatPeriodLockedError, findActiveVatLock, journalMovesVatFigure, takeVatLockShared, type VatLineRef,
+} from './journalVatLockGuard';
+import { rollDefaultReversalDate, type VatLockRoll } from './journalEntryReversalVatRoll';
+
+export type { VatLockRoll } from './journalEntryReversalVatRoll';
+
+/** The contra's date, and — when a locked VAT period moved it — the roll that did. */
+export interface ReversalDateResolution {
+  date: string;
+  vatLockRoll: VatLockRoll | null;
+}
 
 /**
  * A correction belongs in the period it corrects. Dating every reversal to
@@ -99,12 +111,44 @@ export async function resolveReversalDate(
   companyId: string,
   originalDate: string,
   requested: string | undefined,
+  lines?: readonly VatLineRef[],
 ): Promise<string> {
+  return (await resolveReversalDateDetailed(companyId, originalDate, requested, lines)).date;
+}
+
+/**
+ * `resolveReversalDate`, plus the VAT-lock rules when the ORIGINAL's `lines`
+ * are passed (reverseJournalEntry and every preview of it pass them):
+ *
+ *   - no date named, the default lands inside an ACTIVE VAT lock and the
+ *     journal moves a VAT figure → ROLL forward (journalEntryReversalVatRoll)
+ *     and report the roll, or refuse when nothing up to today is postable;
+ *   - a date named inside an active lock, for a journal that moves a VAT
+ *     figure → refuse. Rolling a date the caller chose would override them.
+ *
+ * Without `lines` the VAT lock is not consulted here; postJournalEntry's
+ * central guard still refuses the post.
+ *
+ * With `lines` it takes the SHARED VAT-lock key first. Previews (the cancel
+ * plan, the MCP cancel/reverse dry runs) call this as a prediction of the
+ * post's date; holding the key means no lock or unlock can land between the
+ * prediction and the post in the same request, so both see the same locks.
+ */
+export async function resolveReversalDateDetailed(
+  companyId: string,
+  originalDate: string,
+  requested: string | undefined,
+  lines?: readonly VatLineRef[],
+): Promise<ReversalDateResolution> {
+  if (lines) await takeVatLockShared(companyId);
   if (requested === undefined) {
     const originalPeriod = await getPeriodStatusForDate(companyId, originalDate);
     // fmtDate(new Date()), not toISOString — between 00:00 and 02:00 SAST the
     // latter stamps yesterday.
-    return originalPeriod === 'open' ? originalDate : fmtDate(new Date());
+    const date = originalPeriod === 'open' ? originalDate : fmtDate(new Date());
+    if (!lines) return { date, vatLockRoll: null };
+    const rolled = await rollDefaultReversalDate(companyId, date, lines);
+    return { date: rolled.date, vatLockRoll: rolled.roll };
   }
   if (!isCalendarDate(requested)) {
     throw new Error(`reversal_date must be a real calendar date in YYYY-MM-DD format, got "${requested}"`);
@@ -130,5 +174,11 @@ export async function resolveReversalDate(
   if (targetPeriod !== 'open') {
     throw new ReversalPeriodError(`The fiscal period covering reversal_date ${requested} is closed.`);
   }
-  return requested;
+  if (lines) {
+    const lock = await findActiveVatLock(companyId, requested);
+    if (lock && await journalMovesVatFigure(companyId, lines)) {
+      throw new VatPeriodLockedError(requested, lock, `Cannot reverse on reversal_date ${requested}`);
+    }
+  }
+  return { date: requested, vatLockRoll: null };
 }

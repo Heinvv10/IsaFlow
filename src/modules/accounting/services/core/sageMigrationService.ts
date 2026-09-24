@@ -23,7 +23,7 @@ export interface MigrationStatus {
   accounts: { sageTotal: number; mapped: number; unmapped: number; autoMapped: number };
   ledger: { sageTotal: number; imported: number; pending: number; failed: number; dateRange: { earliest: string | null; latest: string | null } };
   invoices: { sageTotal: number; imported: number; pending: number; failed: number };
-  customerInvoices: { sageTotal: number; imported: number; pending: number; failed: number };
+  customerInvoices: { sageTotal: number; imported: number; pending: number; failed: number; creditNotes: number };
   lastRuns: MigrationRun[];
 }
 
@@ -134,12 +134,13 @@ export async function getMigrationStatus(companyId: string): Promise<MigrationSt
       FROM sage_supplier_invoices WHERE company_id = ${companyId}::UUID
     `) as Row[];
 
-    let customerInvoiceStats: Row[] = [{ total: 0, imported: 0, pending: 0, failed: 0 }];
+    let customerInvoiceStats: Row[] = [{ total: 0, imported: 0, pending: 0, failed: 0, credit_notes: 0 }];
     try {
       customerInvoiceStats = (await sql`
         SELECT COUNT(*) AS total, COUNT(*) FILTER (WHERE migration_status = 'imported') AS imported,
           COUNT(*) FILTER (WHERE migration_status = 'pending') AS pending,
-          COUNT(*) FILTER (WHERE migration_status = 'failed') AS failed
+          COUNT(*) FILTER (WHERE migration_status = 'failed') AS failed,
+          COUNT(*) FILTER (WHERE migration_status = 'credit_note') AS credit_notes
         FROM sage_customer_invoices WHERE company_id = ${companyId}::UUID
       `) as Row[];
     } catch (err) {
@@ -171,6 +172,7 @@ export async function getMigrationStatus(companyId: string): Promise<MigrationSt
         imported: Number(customerInvoiceStats[0]?.imported || 0),
         pending: Number(customerInvoiceStats[0]?.pending || 0),
         failed: Number(customerInvoiceStats[0]?.failed || 0),
+        creditNotes: Number(customerInvoiceStats[0]?.credit_notes || 0),
       },
       lastRuns: runs.map((r: Row) => ({
         id: String(r.id), runType: String(r.run_type), status: String(r.status),
