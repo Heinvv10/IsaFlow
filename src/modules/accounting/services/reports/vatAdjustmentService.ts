@@ -80,32 +80,41 @@ export class VatAdjustmentRefusal extends Error {
 }
 
 /**
- * The adjustment row under `FOR UPDATE` for the rest of the request, with a
- * bounded wait. This is the guard (R-051): the status read and the journal it
- * decides on used to be unlocked, so two approvals both read 'draft' and both
- * posted. Holding the row makes the second wait for the first to commit, then
- * read 'approved' and refuse. `cancelVATAdjustment`'s `status = 'draft'` UPDATE
- * waits on the same row, so a cancel cannot slip in either.
+ * Run one statement on the adjustment row under a bounded lock wait (5s), reset on
+ * success only — after a timeout the tx is aborted and a reset would mask the error.
+ * Contention (55P03 / 40P01) becomes the retryable `contended` refusal; it aborts the
+ * request transaction, so the 409 commits nothing.
  */
-async function lockAdjustmentForUpdate(companyId: string, id: string): Promise<Row | null> {
+async function underBoundedLock<T>(statement: () => Promise<T>): Promise<T> {
   const client = als.getStore()?.client;
   if (!client) {
-    throw new Error('approveVATAdjustment requires a request transaction (withAuth / als.run); outside one FOR UPDATE locks nothing.');
+    throw new Error('VAT adjustment writes require a request transaction (withAuth / als.run); outside one a row lock holds nothing.');
   }
   assertTxUsable();
   await client.query("SET LOCAL lock_timeout = '5s'");
   try {
-    const rows = (await sql`
-      SELECT * FROM vat_adjustments WHERE id = ${id} AND company_id = ${companyId} FOR UPDATE`) as Row[];
-    // Reset on success only: after a timeout the tx is aborted and this would mask the error.
+    const out = await statement();
     await client.query('SET LOCAL lock_timeout = DEFAULT');
-    return rows[0] ?? null;
+    return out;
   } catch (err) {
     if (isLockContention(err)) {
       throw new VatAdjustmentRefusal('contended', 'This VAT adjustment is being changed by another request — retry in a moment.');
     }
     throw err;
   }
+}
+
+/**
+ * The adjustment row under `FOR UPDATE` for the rest of the request. This is the
+ * guard (R-051): the status read and the journal it decides on used to be
+ * unlocked, so two approvals both read 'draft' and both posted. Holding the row
+ * makes the second wait for the first to commit, then read 'approved' and
+ * refuse. `cancelVATAdjustment` waits on the same row, so a cancel cannot slip in.
+ */
+async function lockAdjustmentForUpdate(companyId: string, id: string): Promise<Row | null> {
+  const rows = await underBoundedLock(async () => (await sql`
+    SELECT * FROM vat_adjustments WHERE id = ${id} AND company_id = ${companyId} FOR UPDATE`) as Row[]);
+  return rows[0] ?? null;
 }
 
 export async function approveVATAdjustment(companyId: string,
@@ -179,8 +188,14 @@ export async function approveVATAdjustment(companyId: string,
 }
 
 export async function cancelVATAdjustment(companyId: string, id: string): Promise<void> {
-  const result = (await sql`UPDATE vat_adjustments SET status = 'cancelled' WHERE id = ${id} AND company_id = ${companyId} AND status = 'draft' RETURNING id`) as DbRow[];
-  if (result.length === 0) throw new Error(`VAT adjustment not found or not in draft status: ${id}`);
+  // Bounded like approve: it waits on the row an approval holds for its whole post.
+  const result = await underBoundedLock(async () => (await sql`
+    UPDATE vat_adjustments SET status = 'cancelled'
+    WHERE id = ${id} AND company_id = ${companyId} AND status = 'draft' RETURNING id`) as DbRow[]);
+  if (result.length > 0) return;
+  const [row] = (await sql`SELECT status FROM vat_adjustments WHERE id = ${id} AND company_id = ${companyId}`) as Row[];
+  if (!row) throw new VatAdjustmentRefusal('not_found', 'VAT adjustment not found');
+  throw new VatAdjustmentRefusal('not_draft', `VAT adjustment is ${String(row.status)}, not draft`);
 }
 
 function mapRow(row: Row): VATAdjustment {
