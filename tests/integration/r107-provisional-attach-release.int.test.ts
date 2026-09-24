@@ -123,3 +123,37 @@ describe('R-107: the claim is released only when the provisional journal is', ()
     expect(await docPostedAt(doc)).toBeNull();
   });
 });
+
+describe('R-107: a reversal racing an attach', () => {
+  it('releases the slip an attach committed while the reversal waited on the journal', async () => {
+    const { je } = await seedProvisional();
+    const doc = await seedDoc(company);
+    // The attach, by hand and uncommitted: it holds the journal row.
+    const attacher = await pool.connect();
+    let reversal: Promise<unknown> | undefined;
+    try {
+      await attacher.query('BEGIN');
+      await attacher.query(
+        `UPDATE gl_journal_entries SET source_document_id=$2, needs_evidence=false, evidenced_at=NOW() WHERE id=$1`,
+        [je, doc]);
+      await attacher.query('UPDATE captured_documents SET posted_at=NOW() WHERE id=$1', [doc]);
+      const pid = (await attacher.query('SELECT pg_backend_pid() AS p')).rows[0].p as number;
+      // The reversal reads the journal (no document yet) and then waits on its claim.
+      reversal = inTx(() => reverseJournalEntry(company, je, user));
+      for (let i = 0; i < 200; i += 1) {
+        const rows = (await pool.query(
+          'SELECT 1 FROM pg_stat_activity WHERE $1 = ANY(pg_blocking_pids(pid))', [pid])).rows;
+        if (rows.length > 0) break;
+        await new Promise((r) => setTimeout(r, 25));
+      }
+      await attacher.query('COMMIT');
+    } finally {
+      await attacher.query('ROLLBACK').catch(() => undefined);
+      attacher.release();
+    }
+    await reversal;
+
+    expect(await docPostedAt(doc)).toBeNull();
+  }, 30_000);
+});
+

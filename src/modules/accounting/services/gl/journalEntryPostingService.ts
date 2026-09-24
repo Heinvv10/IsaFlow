@@ -255,8 +255,13 @@ export async function reverseJournalEntry(
 
     // A reversed capture journal releases its document's posting claim, so "Reverse the journal
     // first" works; the helper still refuses while another live journal or invoice references it.
-    const claimReleased = entry.sourceDocumentId
-      ? await releaseCapturedDocumentPostingClaim(companyId, entry.sourceDocumentId) : false;
+    // The document is re-read, not taken from `entry`: that read was unlocked, and a provisional
+    // evidence attach that committed while the claim waited set source_document_id after it (R-107).
+    const [current] = (await sql`
+      SELECT source_document_id FROM gl_journal_entries
+      WHERE id = ${id}::UUID AND company_id = ${companyId}::UUID`) as Row[];
+    const claimReleased = current?.source_document_id
+      ? await releaseCapturedDocumentPostingClaim(companyId, String(current.source_document_id)) : false;
     log.info('Reversed journal entry',
       { originalId: id, reversalId: reversalEntry.id, claimReleased }, 'accounting');
     // The count rides on the returned entry so every caller — the REST action
