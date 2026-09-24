@@ -117,3 +117,10 @@
 ## M19 bank UPDATE drops the provisional_je_id re-check [src/modules/accounting/services/capture/provisionalEvidenceAttach.ts] -> SURVIVED
       Tests  22 passed (22)
 
+
+# Re-run on 676b0b364 after adding the unlinked-line test:
+## M19 bank UPDATE drops the provisional_je_id re-check [src/modules/accounting/services/capture/provisionalEvidenceAttach.ts] -> KILLED
+     × is not marked matched: the write re-checks the link it peeked 109ms
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 1 ⎯⎯⎯⎯⎯⎯⎯
+      Tests  1 failed | 22 passed (23)
+

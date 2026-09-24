@@ -89,8 +89,8 @@ and is not fenced by this claim — that is R-088 (content de-duplication).
   `receipt-to-journal`, `document-capture-action`), withAuth, app_user, RLS.
 - `tests/unit/services/capture/provisionalAttachRouteLockOrder.test.ts` pins the lock / claim /
   write order.
-- Mutations: 15 of 15 killed (`mutations.log`; M10 initially survived and is killed by the
-  pre-DELETE refusal test added for it).
+- Mutations: 19 of 19 killed (`mutations.log`; M10 and M19 initially survived and are killed by the
+  pre-DELETE refusal test and the unlinked-bank-line test added for them).
 
 ## Side finding (registered as R-127, not fixed here)
 
