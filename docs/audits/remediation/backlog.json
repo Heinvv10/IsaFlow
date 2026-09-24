@@ -12613,7 +12613,7 @@
       "correctedTrigger": null,
       "severityRationale": "Writers enumerated by reading every INSERT site; the absence of a DB constraint is verified. Not yet reproduced end to end through each route.",
       "auditedSha": "9f41022a5",
-      "currentSha": "9f41022a5",
+      "currentSha": "f5c26f07a",
       "status": "fixed",
       "dependencies": [
         "R-117 fixed the clamp that mis-stated these documents; this is the source"
@@ -12631,7 +12631,7 @@
       ],
       "fixCommit": "f10b1f064",
       "pr": "484",
-      "deployedSha": null,
+      "deployedSha": "f10b1f064",
       "historicalDataImpact": "Not assessed. The census must look for NaN as well as negatives — `NaN < 0` is FALSE, so a `WHERE total_amount < 0` query does not find a NaN row, and NaN was reachable before this fix: SELECT company_id, count(*) FROM customer_invoices WHERE total_amount < 0 OR subtotal < 0 OR tax_amount < 0 OR total_amount = 'NaN' OR subtotal = 'NaN' OR tax_amount = 'NaN' GROUP BY 1; (and the supplier_invoices twin). For any row found, check gl_journal_entry_id IS NOT NULL — a posted one is a journal-reversal exercise, not a data edit.",
       "canonicalItem": null,
       "reportedSeverity": "medium",
