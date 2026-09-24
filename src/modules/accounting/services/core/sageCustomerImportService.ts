@@ -15,6 +15,9 @@ import { deriveSageVat, SAGE_VAT_NOT_STATED_NOTE } from '../shared/sageVatDeriva
 
 type RowOutcome = 'imported' | 'already_in_ar' | 'credit_note' | 'failed';
 
+/** Statuses whose invoice stands in AR; a draft or cancelled one does not. */
+const IN_AR_STATUSES = new Set(['approved', 'sent', 'paid', 'partially_paid', 'overdue']);
+
 /**
  * Import sage_customer_invoices into customer_invoices.
  *
@@ -22,8 +25,8 @@ type RowOutcome = 'imported' | 'already_in_ar' | 'credit_note' | 'failed';
  * invoice_date, total_amount). An earlier revision SELECTed columns it has
  * never had, so every run died on 42703 before its loop — the customer twin
  * of R-021, and mapped the same way:
- *   - customer: the ONE live customer of that name (case- and whitespace-
- *     insensitive). None, or more than one, fails the row.
+ *   - customer: the ONE live customer of that name (case-insensitive, ends
+ *     trimmed). None, or more than one, fails the row.
  *   - due date: invoice date plus the customer's payment_terms days; no terms,
  *     no due date.
  *   - VAT: none stated, so none recorded and the invoice flagged (R-089).
@@ -31,7 +34,8 @@ type RowOutcome = 'imported' | 'already_in_ar' | 'credit_note' | 'failed';
  *   - a negative total is a Sage credit note. It is not booked and not
  *     'failed': it is marked 'credit_note', so a later credit-note import can
  *     find it and a genuine failure stays distinguishable (R-119).
- *   - a zero or non-numeric total fails the row.
+ *   - a zero or non-numeric total fails the row, and so does a missing
+ *     invoice date (the ageing would date the debt by created_at).
  *   - the Sage id is kept as external_ref / external_system = 'sage', and the
  *     Sage number as external_document_number (migration 530).
  *
@@ -76,6 +80,13 @@ export async function importCustomerInvoices(companyId: string, userId: string):
             return 'failed';
           }
 
+          if (!inv.invoice_date) {
+            log.warn('Sage customer invoice has no invoice date; not booked', {
+              companyId, stagingId: inv.id,
+            }, 'accounting');
+            return 'failed';
+          }
+
           const customerName = String(inv.customer_name ?? '').trim();
           const customers = (await sql`
             SELECT id, payment_terms
@@ -96,7 +107,10 @@ export async function importCustomerInvoices(companyId: string, userId: string):
           const sageId = inv.sage_id ? String(inv.sage_id) : null;
           const invNumber = inv.invoice_number ? String(inv.invoice_number) : `SAGE-${sageId ?? String(inv.id)}`;
 
-          const existing = await findExistingInvoice(companyId, customerId, sageId, invNumber, totalAmount);
+          const existing = await findExistingInvoice(
+            companyId, customerId, sageId, invNumber, inv.invoice_number ? String(inv.invoice_number) : null,
+            totalAmount, inv.invoice_date,
+          );
           if (existing === 'conflict') {
             log.warn('The invoice number is held by a different document (customer, Sage id, total or state)', {
               companyId, stagingId: inv.id, customerId, invNumber, sageId, totalAmount,
@@ -161,20 +175,27 @@ export async function importCustomerInvoices(companyId: string, userId: string):
  *
  * Invoice numbers are unique per company, including soft-deleted and cancelled
  * invoices (uq_customer_invoices_company_number), so the number is looked up
- * across all of them: any holder that is not this customer's live invoice of
- * the same Sage id and total is a conflict, never a 23505 mid-run. A live
- * invoice already carrying the Sage id is preferred over a number match, and
- * is a conflict when it sits on another customer: that is the same Sage
- * document, resolved to a different customer this time (a rename between
- * runs), and booking it again would count the debt twice. An invoice with no external reference (captured by hand before the
- * migration) is adopted only when customer and total agree, and takes the Sage
- * id, so the next staged row under that number conflicts instead of joining it.
+ * across all of them. Any holder that is not this customer's live, in-AR
+ * invoice (not draft, pending approval or cancelled) of the same Sage id and
+ * total is a conflict — never a 23505 mid-run, and never a Sage debt linked to
+ * a document the ageing does not carry. A live invoice already carrying the
+ * Sage id is preferred over a number match, and is a conflict when it sits on
+ * another customer: that is the same Sage document resolved to a different
+ * customer this time (a rename between runs), and booking it again would
+ * count the debt twice. An invoice with no external reference (captured by
+ * hand before the migration) is adopted only when customer, total and invoice
+ * date agree,
+ * and takes the Sage id and number, so the next staged row under that number
+ * conflicts instead of joining it. An external reference from another system
+ * is a different document's identity and conflicts.
  */
 async function findExistingInvoice(
-  companyId: string, customerId: string, sageId: string | null, invNumber: string, totalAmount: number,
+  companyId: string, customerId: string, sageId: string | null, invNumber: string,
+  sageNumber: string | null, totalAmount: number, invoiceDate: unknown,
 ): Promise<string | 'conflict' | null> {
   const [found] = (await sql`
-    SELECT id, customer_id, total_amount, status, deleted_at, external_ref, external_system
+    SELECT id, customer_id, total_amount, status, deleted_at, external_ref, external_system,
+      invoice_date IS NOT DISTINCT FROM ${invoiceDate}::DATE AS same_date
     FROM customer_invoices
     WHERE company_id = ${companyId}::UUID
       AND (
@@ -187,14 +208,19 @@ async function findExistingInvoice(
     LIMIT 1
   `) as DbRow[];
   if (!found) return null;
-  if (found.deleted_at || found.status === 'cancelled') return 'conflict';
+  if (found.deleted_at || !IN_AR_STATUSES.has(String(found.status))) return 'conflict';
   if (String(found.customer_id) !== customerId) return 'conflict';
   if (Math.abs(Number(found.total_amount) - totalAmount) > 0.005) return 'conflict';
   const ref = found.external_ref == null ? null : String(found.external_ref);
   if (ref !== null && (found.external_system !== 'sage' || ref !== sageId)) return 'conflict';
+  // Adopting an unreferenced invoice also needs the same date: a monthly fee
+  // under a colliding number, customer and amount is a different document.
+  if (ref === null && found.same_date !== true) return 'conflict';
   if (ref === null && sageId) {
     await sql`
-      UPDATE customer_invoices SET external_ref = ${sageId}, external_system = 'sage'
+      UPDATE customer_invoices
+      SET external_ref = ${sageId}, external_system = 'sage',
+          external_document_number = COALESCE(external_document_number, ${sageNumber})
       WHERE id = ${String(found.id)}::UUID AND company_id = ${companyId}::UUID
     `;
   }

@@ -1,21 +1,31 @@
-# R-101 mutations — each applied alone to sageCustomerImportService.ts, both r101 files run against the fixture (pg16, migrations through 694).
-# M13/M17/M19 first SURVIVED; M13 led to a null-safe ORDER key, M17 to the cross-customer conflict rule, M19 to the soft-deleted re-import test. Final run below.
-M1 staging SELECT loses company_id: RED (10 tests failed)
+# R-101 mutations: each applied alone to sageCustomerImportService.ts. Both r101 importer files were run against the fixture (pg16, migrations through 694).
+# Round 0: M13, M17 and M19 first SURVIVED. M13 led to a null-safe ORDER key, M17 to the cross-customer conflict rule, M19 to the soft-deleted re-import test.
+# Review round 1: M14 survived once (a timing-dependent race), so the concurrent test now uses 25 rows and 3 runs, and was red 3 of 3. M20 survived until the non-Sage-ref test used the same ref string.
+# Final run:
+M1 staging SELECT loses company_id: RED (11 tests failed)
 M2 credit note booked as failed: RED (1 tests failed)
 M3 zero total not refused: RED (1 tests failed)
 M4 soft-deleted customers count: RED (1 tests failed)
 M5 exact name match: RED (2 tests failed)
 M6 LIMIT 1 hides ambiguity: RED (1 tests failed)
 M7 constant 30-day terms: RED (3 tests failed)
-M8 deleted/cancelled holder linked: RED (2 tests failed)
-M9 other customer's invoice linked: RED (2 tests failed)
-M10 totals not compared: RED (2 tests failed)
-M11 other Sage id linked: RED (2 tests failed)
+M8 deleted/out-of-AR holder linked: RED (4 tests failed)
+M9 other customer's invoice linked: RED (1 tests failed)
+M10 totals not compared: RED (1 tests failed)
+M11 other Sage id linked: RED (3 tests failed)
 M12 adoption not stamped: RED (1 tests failed)
 M13 Sage-id match not preferred: RED (1 tests failed)
 M14 no run lock: RED (1 tests failed)
 M15 no per-row savepoint: RED (2 tests failed)
-M16 no external_system on insert: RED (5 tests failed)
+M16 no external_system on insert: RED (6 tests failed)
 M17 sage-id arm scoped to this customer: RED (1 tests failed)
-M19 sage-id arm includes deleted invoices: RED (1 tests failed)
+M19 sage-id arm includes deleted invoices: RED (2 tests failed)
+M20 other-system ref adopted: RED (1 tests failed)
+M21 draft holder linked: RED (2 tests failed)
+M22 adoption keeps no Sage number: RED (1 tests failed)
+M23 adoption ignores the date: RED (1 tests failed)
+M24 undated row booked: RED (1 tests failed)
 M18 VAT unwound at 15%: RED (1 tests failed)
+# FK mutations: the archive test run with each link re-created as NO ACTION on the fixture, then restored.
+M-FK customer NO ACTION:       Tests  1 failed (1)
+M-FK supplier NO ACTION:       Tests  1 failed (1)

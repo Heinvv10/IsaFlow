@@ -142,6 +142,17 @@ describe('R-101: the importer reads the columns its source table actually has', 
     expect(status.customerInvoices.creditNotes).toBeGreaterThanOrEqual(1);
   });
 
+  it('fails a row with no invoice date rather than booking an undated approved invoice', async () => {
+    const t = tag('R101ND');
+    const stagingId = (await pool.query<{ id: string }>(
+      `INSERT INTO sage_customer_invoices (company_id, sage_id, invoice_number, customer_name, invoice_date, total_amount, migration_status)
+       VALUES ($1,$2,$3,$4,NULL,250,'pending') RETURNING id`, [companyA, `${t}-SAGE`, `${t}-INV`, CUSTOMER_NAME],
+    )).rows[0]!.id;
+    expect((await importA()).failed).toBe(1);
+    expect((await staged(stagingId)).migration_status).toBe('failed');
+    expect(await invoicesFor(companyA, `${t}-SAGE`)).toHaveLength(0);
+  });
+
   it('fails a row whose total is zero', async () => {
     const t = tag('R101Z');
     const stagingId = await seedStaging(companyA, { sageId: `${t}-SAGE`, invoiceNumber: `${t}-INV`, customerName: CUSTOMER_NAME, total: 0 });
