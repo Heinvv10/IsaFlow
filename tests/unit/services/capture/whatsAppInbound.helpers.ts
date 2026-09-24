@@ -18,7 +18,7 @@ import { vi } from 'vitest';
 
 const {
   sqlMock, storeMock, sha256Mock, routeEventMock,
-  findOpenQueryMock, attachReplyMediaMock, markQueryRepliedMock,
+  findOpenQueryMock, attachReplyMediaMock, markQueryRepliedMock, ingestedPartsMock,
 } = vi.hoisted(() => {
   const sqlMock = Object.assign(vi.fn(), {
     unsafe: vi.fn().mockReturnValue(''),
@@ -35,9 +35,10 @@ const {
   const findOpenQueryMock = vi.fn();
   const attachReplyMediaMock = vi.fn(async () => true);
   const markQueryRepliedMock = vi.fn(async () => undefined);
+  const ingestedPartsMock = vi.fn(async () => new Set<number>());
   return {
     sqlMock, storeMock, sha256Mock, routeEventMock,
-    findOpenQueryMock, attachReplyMediaMock, markQueryRepliedMock,
+    findOpenQueryMock, attachReplyMediaMock, markQueryRepliedMock, ingestedPartsMock,
   };
 });
 
@@ -56,6 +57,12 @@ vi.mock('@/modules/accounting/services/capture/bankTxQueryReplyService', () => (
   findOpenQuery: (...a: unknown[]) => findOpenQueryMock(...(a as [string, string])),
   attachReplyMedia: (...a: unknown[]) => attachReplyMediaMock(...(a as [])),
   markQueryReplied: (...a: unknown[]) => markQueryRepliedMock(...(a as [])),
+}));
+// The already-ingested lookup is its own module so the positional sqlMock
+// sequences below stay the ingest writes; the DB-backed K-160 tests cover it.
+vi.mock('@/modules/accounting/services/capture/whatsAppMessageDedupe', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('@/modules/accounting/services/capture/whatsAppMessageDedupe')>()),
+  ingestedParts: (...a: unknown[]) => ingestedPartsMock(...(a as [])),
 }));
 
 import {
@@ -129,6 +136,7 @@ function resetMocks() {
     vi.mocked(findOpenQueryMock).mockResolvedValue(null);
     vi.mocked(attachReplyMediaMock).mockResolvedValue(true);
     vi.mocked(markQueryRepliedMock).mockResolvedValue(undefined);
+    vi.mocked(ingestedPartsMock).mockResolvedValue(new Set<number>());
   }
 
-export { sqlMock, storeMock, sha256Mock, routeEventMock, findOpenQueryMock, attachReplyMediaMock, markQueryRepliedMock, ingestTwilioPayload, ingestVerifiedPayload, COMPANY_ID, INBOX_ID, DOC_ID, EVENT_ID, WA_NUMBER, makePayload, makeInboxRow, mockMediaHappyPath, makeMediaPayload, resetMocks };
+export { sqlMock, storeMock, sha256Mock, routeEventMock, findOpenQueryMock, attachReplyMediaMock, markQueryRepliedMock, ingestedPartsMock, ingestTwilioPayload, ingestVerifiedPayload, COMPANY_ID, INBOX_ID, DOC_ID, EVENT_ID, WA_NUMBER, makePayload, makeInboxRow, mockMediaHappyPath, makeMediaPayload, resetMocks };
