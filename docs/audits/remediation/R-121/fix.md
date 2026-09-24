@@ -13,7 +13,7 @@ It started from one column, `time_entries.amount`. `createPracticeEntry` and `up
 **Is prod affected?** The column and grant layers are probably DEV drift, not prod. The K-039 test (2026-09) documents `user_id`/`rate` present as NOT NULL, and today's deploy counted 626 as already applied on prod, which it cannot be without those columns. The policy layer comes from a migration, so it IS on prod, unless it was changed by hand. The prod query to settle this is below.
 
 ## Fix
-Two migrations, additive and idempotent, safe whatever prod's shape is.
+Two idempotent migrations, safe whatever prod's shape is. 625b only adds; 699 also drops 395's policy.
 - **625b** adds the columns. It is ordered BEFORE 626 because 626's trigger and back-fill reference `user_id`/`rate`: on a dev-shaped database 626 raised 42703, and the runner stops at the first failure. Proven on a throwaway database: bare shape → 625b → 626 → 699 applies, while 626 alone fails. On prod, where 626 is already recorded, 625b is new and runs as a no-op.
 - **699** sets the grants and the policy. The prefix 698 was taken on isaflow_dev by a peer's uncommitted `698_gl_account_merges_document_rows.sql`. It enables and forces RLS before granting, as the sibling practice tables are. It drops only 395's `pcro_company_isolation`; a `tenant_isolation` policy that already exists is kept, not replaced. Re-running it changes nothing.
 
