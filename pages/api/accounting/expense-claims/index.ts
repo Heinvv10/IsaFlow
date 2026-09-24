@@ -51,7 +51,9 @@ async function handler(req: CompanyAuthedRequest, res: NextApiResponse) {
       return apiResponse.created(res, { claim });
     } catch (err) {
       // Refused before anything was written, so a 400 commits nothing.
-      if (err instanceof ClaimSourceDocumentError) return apiResponse.badRequest(res, err.message);
+      if (err instanceof ClaimSourceDocumentError) {
+        return err.refusal === 'busy' ? apiResponse.conflict(res, err.message) : apiResponse.badRequest(res, err.message);
+      }
       throw err;
     }
   }

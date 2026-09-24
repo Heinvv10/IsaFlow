@@ -21,9 +21,11 @@ import claimRoute from '../../pages/api/accounting/expense-claims/[id]';
 import lineRoute from '../../pages/api/accounting/expense-claims/[id]/lines/[lineId]';
 import { assertDisposable, request, response } from './mfa-impersonation-postgres.helpers';
 import { als } from '@/lib/als';
+import { sql } from '@/lib/neon';
 import {
   ClaimSourceDocumentError,
   claimLineSourceDocuments,
+  lockClaimReadSourceDocumentIds,
 } from '@/modules/accounting/services/expense/claimSourceDocuments';
 
 assertDisposable();
@@ -44,8 +46,11 @@ const twiceInOneDoc = crypto.randomUUID();
 const deleteLineDoc = crypto.randomUUID();
 const deleteClaimDoc = crypto.randomUUID();
 const addLineDoc = crypto.randomUUID();
+const raceDoc = crypto.randomUUID();
+const busyDoc = crypto.randomUUID();
+const deleteRaceDoc = crypto.randomUUID();
 const ownDocs = [postedDoc, rejectedDoc, freshDoc, atomicFreshDoc, twiceInOneDoc,
-  deleteLineDoc, deleteClaimDoc, addLineDoc];
+  deleteLineDoc, deleteClaimDoc, addLineDoc, raceDoc, busyDoc, deleteRaceDoc];
 
 const today = new Date().toISOString().slice(0, 10);
 let token = '';
@@ -127,7 +132,8 @@ beforeAll(async () => {
   await seedDoc(postedDoc, company, 'matched', true);
   await seedDoc(rejectedDoc, company, 'rejected');
   await seedDoc(foreignDoc, otherCompany);
-  for (const id of [freshDoc, atomicFreshDoc, twiceInOneDoc, deleteLineDoc, deleteClaimDoc, addLineDoc]) {
+  for (const id of [freshDoc, atomicFreshDoc, twiceInOneDoc, deleteLineDoc, deleteClaimDoc, addLineDoc,
+    raceDoc, busyDoc, deleteRaceDoc]) {
     await seedDoc(id, company);
   }
   token = await new SignJWT({ sub: user, aal: 'aal2' })
@@ -138,6 +144,20 @@ beforeAll(async () => {
 afterAll(async () => {
   try { await purge(); } finally { await pool.end(); }
 }, 60_000);
+
+/** An open request transaction on its own connection, as withAuth runs one. */
+async function openTx() {
+  const c = await pool.connect();
+  await c.query('BEGIN');
+  const run = <T>(fn: () => Promise<T>) =>
+    als.run({ client: c, userId: user, companyId: company, claims: {} } as never, fn);
+  const end = async (verb: 'COMMIT' | 'ROLLBACK') => {
+    try { await c.query(verb); } finally { c.release(); }
+  };
+  return { run, end };
+}
+const settle = <T>(p: Promise<T>) => p.then((v) => ({ ok: true as const, v }), (e: unknown) => ({ ok: false as const, e }));
+const pause = (ms: number) => new Promise((r) => setTimeout(r, ms));
 
 describe('R-105: a manual expense claim line claims its source document', () => {
   it('refuses a slip already posted through capture, and creates no claim', async () => {
@@ -219,6 +239,63 @@ describe('R-105: a manual expense claim line claims its source document', () => 
     const added = await addLine(claimId, line(addLineDoc));
     expect(added.statusCode, JSON.stringify(added.body)).toBe(200);
     expect(await postedAt(addLineDoc)).not.toBeNull();
+  });
+
+  it('two concurrent claims on one slip: the second waits, then is refused', async () => {
+    const a = await openTx();
+    const b = await openTx();
+    try {
+      await a.run(() => claimLineSourceDocuments(company, [{ sourceDocumentId: raceDoc }]));
+      const second = settle(b.run(() => claimLineSourceDocuments(company, [{ sourceDocumentId: raceDoc }])));
+      await pause(300);
+      await a.end('COMMIT');
+      const out = await second;
+      expect(out.ok).toBe(false);
+      expect((out as { e: ClaimSourceDocumentError }).e.refusal).toBe('already_posted');
+    } finally {
+      await b.end('ROLLBACK');
+    }
+  });
+
+  it('a claim that cannot get the lock in 5s is refused as busy, not left hanging', async () => {
+    const holder = await pool.connect();
+    const b = await openTx();
+    try {
+      await holder.query('BEGIN');
+      await holder.query('SELECT id FROM captured_documents WHERE id=$1 FOR UPDATE', [busyDoc]);
+      const out = await settle(b.run(() => claimLineSourceDocuments(company, [{ sourceDocumentId: busyDoc }])));
+      expect(out.ok).toBe(false);
+      expect((out as { e: ClaimSourceDocumentError }).e.refusal).toBe('busy');
+    } finally {
+      await holder.query('ROLLBACK').catch(() => undefined);
+      holder.release();
+      await b.end('ROLLBACK');
+    }
+    expect(await postedAt(busyDoc)).toBeNull();
+  }, 20_000);
+
+  it('the draft-claim delete waits for a concurrent add-line and sees its slip', async () => {
+    const created = await createClaim([line(null)]);
+    expect(created.statusCode, JSON.stringify(created.body)).toBe(201);
+    const claimId = created.body.data!.claim!.id;
+    const adder = await openTx();
+    const deleter = await openTx();
+    try {
+      // An add-line, mid-request: slip claimed and line inserted, not committed.
+      await adder.run(async () => {
+        await claimLineSourceDocuments(company, [{ sourceDocumentId: deleteRaceDoc }]);
+        await sql`INSERT INTO expense_claim_lines (claim_id, company_id, line_date, description, amount, vat_amount, source_document_id)
+                  VALUES (${claimId}::uuid, ${company}::uuid, ${today}::date, 'R105 race', 115, 15, ${deleteRaceDoc}::uuid)`;
+      });
+      const read = settle(deleter.run(() => lockClaimReadSourceDocumentIds(claimId, company)));
+      await pause(300);
+      await adder.end('COMMIT');
+      const out = await read;
+      expect(out.ok).toBe(true);
+      expect((out as { v: string[] }).v).toContain(deleteRaceDoc);
+    } finally {
+      await deleter.end('ROLLBACK');
+    }
   });
 
   it('deleting a line gives its slip back', async () => {
