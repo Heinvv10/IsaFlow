@@ -91,7 +91,7 @@ and is not fenced by this claim — that is R-088 (content de-duplication).
   `receipt-to-journal`, `document-capture-action`), withAuth, app_user, RLS.
 - `tests/unit/services/capture/provisionalAttachRouteLockOrder.test.ts` pins the lock / claim /
   write order.
-- Mutations: 25 of 25 killed (`mutations.log`; M10 and M19 initially survived and are killed by the
+- Mutations: 26 of 26 killed (`mutations.log`; M10 and M19 initially survived and are killed by the
   pre-DELETE refusal test and the unlinked-bank-line test added for them).
 
 ## Side finding (registered as R-127, not fixed here)
@@ -178,3 +178,6 @@ SELECT je.company_id, COUNT(*) AS unclaimed_evidence
   so the census is now fail-closed: it pins, for each listed file, every line that mentions
   `provisional_je_id`. Any change to how those files use the column goes red; `ONLY` is recognised;
   every tracked text file under src/, pages/ and scripts/ is scanned. All four evasions killed.
+- Third census round: a migration trigger assigning `NEW.provisional_je_id` now counts as touching
+  (E5 killed; migration 675 is listed and pinned — it only compares). A whole-row copy and a
+  runtime-built column name are out of reach of any source-text census; the header names both.

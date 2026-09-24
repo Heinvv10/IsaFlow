@@ -140,3 +140,5 @@
 ## E2 tuple SET link in unlink-only provisionalDismissService.ts -> KILLED
 ## E3 UPDATE ONLY bank_transactions link in a new src file -> KILLED
 ## E4 psql UPDATE link in a new scripts/*.sh -> KILLED
+## E5 a migration BEFORE trigger assigning NEW.provisional_je_id (new scripts/migrations/sql/999_zz.sql) -> KILLED (trigger rule added; 675 now listed and pinned)
+# E6 (row copy without naming the column) and E7 (runtime column name) are inherent to a source-text census: named in the header as review's job.

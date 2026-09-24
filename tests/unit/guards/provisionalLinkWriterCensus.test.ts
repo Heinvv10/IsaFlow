@@ -19,8 +19,12 @@
  *   2. For each listed file, the exact lines that mention provisional_je_id
  *      are pinned. ANY edit to how a listed file uses the column goes red, and
  *      whoever updates the pin has to re-read the attach's lock order.
- * Scope limit: a column name built at runtime (`SET ${col}`) is invisible to
- * any source-text census; review catches that.
+ *   A trigger that assigns `NEW.provisional_je_id` counts as touching too.
+ * Scope limits, inherent to a source-text census; review catches these: a
+ * column name built at runtime (`SET ${col}`, a camelCase field map into a
+ * generic updater), and a whole-row copy (`INSERT ... SELECT *` / `(row).*`)
+ * that carries the link without naming it — the realistic way in would be a
+ * future "split bank line" feature.
  */
 import { describe, expect, it } from 'vitest';
 import { execFileSync } from 'node:child_process';
@@ -61,6 +65,15 @@ const CLASSIFICATION: Record<string, { why: string; lines: string[] }> = {
       'JOIN bank_transactions bt ON bt.provisional_je_id = je.id',
     ],
   },
+  'scripts/migrations/sql/675_bank_feed_canonical_ingestion.sql': {
+    why: 'reads only: the feed-state CHECK and the guard trigger compare NEW/OLD, never assign',
+    lines: [
+      'AND provisional_je_id IS NULL AND allocation_type IS NULL)) NOT VALID;',
+      'NEW.provisional_je_id, NEW.auto_post_run_id, NEW.allocation_batch_id, NEW.allocation_rule_id',
+      'OLD.provisional_je_id, OLD.auto_post_run_id, OLD.allocation_batch_id, OLD.allocation_rule_id',
+      'OR OLD.reconciliation_id IS NOT NULL OR OLD.provisional_je_id IS NOT NULL)',
+    ],
+  },
   'src/modules/accounting/services/capture/provisionalEvidenceAttach.ts': {
     why: 'reads only: peeks and filters on the link; writes status',
     lines: [
@@ -83,7 +96,8 @@ const WRITES_BANK_TRANSACTIONS =
   /\b(?:UPDATE(?:\s+ONLY)?|INSERT\s+INTO|MERGE\s+INTO)\s+(?:"?public"?\s*\.\s*)?"?bank_transactions(?:_posted)?"?/i;
 
 function touchesLink(src: string): boolean {
-  return /provisional_je_id/i.test(src) && WRITES_BANK_TRANSACTIONS.test(src);
+  return /\bNEW\s*\.\s*"?provisional_je_id/i.test(src)
+    || (/provisional_je_id/i.test(src) && WRITES_BANK_TRANSACTIONS.test(src));
 }
 
 function mentionLines(src: string): string[] {
@@ -101,6 +115,7 @@ describe('provisional_je_id link-writer census (ratchet)', () => {
       'MERGE INTO bank_transactions t USING s ON true WHEN MATCHED THEN UPDATE SET provisional_je_id = s.j',
       'UPDATE bank_transactions_posted SET provisional_je_id = ${x}',
       'INSERT INTO bank_transactions SELECT * FROM staging -- provisional_je_id carried',
+      'CREATE FUNCTION f() RETURNS trigger AS $$ BEGIN NEW.provisional_je_id := (SELECT 1); RETURN NEW; END $$',
     ]) expect(touchesLink(sql), sql).toBe(true);
     expect(touchesLink('SELECT 1 FROM bank_transactions WHERE provisional_je_id = ${x}')).toBe(false);
   });
