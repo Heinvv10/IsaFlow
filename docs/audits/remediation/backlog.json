@@ -12794,6 +12794,34 @@
       "branch": null,
       "severity": "medium",
       "title": "Rate-override service joins auth.users as app_user, which no migration grants"
+    },
+    {
+      "id": "R-124",
+      "claim": "releaseCapturedDocumentPostingClaim clears captured_documents.posted_at but leaves status = 'matched', which the capture inbox reads as settled. After a claim rejection or cancel (rejectClaim/cancelClaim), and after R-105's line/draft-claim delete, a released slip is postable again but does not reappear as to-do in the inbox. rejectClaim's comment says the slips 'go back to the capture inbox'.",
+      "area": "capture",
+      "affectedPaths": [
+        "src/modules/accounting/services/capture/capturePostingClaimRelease.ts"
+      ],
+      "sourceLabel": "R-105 adversarial review LOW 4",
+      "sourceIds": [],
+      "correctedTrigger": null,
+      "severityRationale": "No ledger effect; an operator cannot find a postable slip from the inbox. The pre-claim status is not recorded, so a restore needs a rule for which status to return to.",
+      "auditedSha": "HEAD",
+      "currentSha": "HEAD",
+      "status": "candidate",
+      "dependencies": [],
+      "testNames": [],
+      "evidencePaths": [],
+      "fixCommit": null,
+      "pr": null,
+      "deployedSha": null,
+      "historicalDataImpact": "None to the ledger.",
+      "canonicalItem": null,
+      "reportedSeverity": "low",
+      "processNotes": "2026-09-24: registered from R-105 (adversarial repro: create with a pending slip, delete the line → {status:'matched', posted_at:null}).",
+      "branch": null,
+      "severity": "low",
+      "title": "A released capture slip keeps status 'matched', so the inbox still shows it as settled"
     }
   ],
   "sourceInventory": [
