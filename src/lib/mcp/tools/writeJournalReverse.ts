@@ -25,6 +25,7 @@ import {
 import type { VatLockRoll } from '@/modules/accounting/services/gl/journalEntryReversalDate';
 import { buildReversalLines } from '@/modules/accounting/services/gl/reversalLines';
 import { fmtDate } from '@/lib/fmtDate';
+import { getPeriodStatusForDate } from '@/modules/accounting/services/gl/periodStatusService';
 import { mcpPostingAgent } from '../postingAgent';
 import { NOT_FOUND, guardCastableArgs, ok, safeErrorText, strArg, toolError } from './toolHelpers';
 
@@ -129,6 +130,17 @@ export const reverseJournalEntryTool: McpTool = {
         ctx.companyId, originalDate, reversalDate, entry.lines));
     } catch (err) {
       return toolError(safeErrorText(err, 'Could not reverse this journal entry.'));
+    }
+    // R-012: the default falls back to TODAY when the original's period is not
+    // open, and nothing above asks whether today's is. postJournalEntry would
+    // refuse inside the write, after dry_run had promised the reversal. `closed`
+    // only: a missing period is created on demand (fiscalPeriodAutoCreate), and
+    // an explicit date has already been proven open.
+    if ((await getPeriodStatusForDate(ctx.companyId, resolvedDate)) === 'closed') {
+      return toolError(
+        `The reversal would be dated ${resolvedDate}, in a fiscal period that is not open (closed or locked). `
+        + 'Re-open it, or pass reversal_date inside an open period on or after the entry date.',
+      );
     }
 
     if (args.dry_run === true) {

@@ -137,6 +137,20 @@ async function autoCreatablePredicate(
 }
 
 /**
+ * Would posting on `date` create its fiscal year on demand (R-012)? The same
+ * predicate the roll uses, over the company's current periods.
+ */
+export async function isDateAutoCreatable(companyId: string, date: string): Promise<boolean> {
+  const rows = (await sql`
+    SELECT fiscal_year, start_date, end_date FROM fiscal_periods
+    WHERE company_id = ${companyId}::UUID`) as Row[];
+  const existing = rows.map((r) => ({
+    start: fmtDate(r.start_date as string), end: fmtDate(r.end_date as string), fiscalYear: Number(r.fiscal_year),
+  }));
+  return (await autoCreatablePredicate(companyId, existing))(date);
+}
+
+/**
  * `defaultDate`, or the date it rolls to. `roll` is null when nothing rolled:
  * no active lock covers the default, or the journal moves no VAT figure.
  */
