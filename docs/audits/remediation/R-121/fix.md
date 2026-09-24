@@ -66,6 +66,8 @@ All runs are on the r112 fixture.
 | LOW: keep-if-exists kept a weaker hand-applied `tenant_isolation` (WITH CHECK active company only); a non-member could write into the active company. | 699 always drops and re-creates `tenant_isolation`. |
 | LOW: nothing tested the membership half of WITH CHECK (M5 survived 8/8). | New test: a non-member with that company active, INSERT without RETURNING, is refused. M5 is red. |
 
+Round 4 (adversarial, on bf36e3bde): SHIP. One docs LOW: the prod privilege query passed a comma list to `has_table_privilege`, which is true if any one privilege is held. It now checks each separately.
+
 ## For Hein (read-only on prod)
 ```sql
 SELECT table_name, column_name, is_nullable FROM information_schema.columns
@@ -73,8 +75,10 @@ WHERE (table_name='time_entries' AND column_name='amount')
    OR (table_name='practice_client_rate_overrides' AND column_name IN ('user_id','rate','staff_user_id','rate_per_hour'));
 SELECT grantee, string_agg(privilege_type, ',') FROM information_schema.role_table_grants
 WHERE table_name='practice_client_rate_overrides' GROUP BY 1;
-SELECT r.rolname, has_table_privilege(r.rolname, 'practice_client_rate_overrides', 'SELECT,INSERT,UPDATE,DELETE') AS dml
-FROM pg_roles r WHERE r.rolname IN ('app_user','platform_admin','migration_admin');
+-- One call per privilege: a comma list is true if ANY one is held.
+SELECT r.rolname, p.priv, has_table_privilege(r.rolname, 'practice_client_rate_overrides', p.priv) AS held
+FROM pg_roles r CROSS JOIN unnest(ARRAY['SELECT','INSERT','UPDATE','DELETE']) AS p(priv)
+WHERE r.rolname IN ('app_user','platform_admin','migration_admin') ORDER BY 1, 2;
 SELECT relrowsecurity, relforcerowsecurity FROM pg_class WHERE relname='practice_client_rate_overrides';
 SELECT tablename, policyname, roles, qual, with_check FROM pg_policies
 WHERE tablename IN ('practice_client_rate_overrides','payroll_leave_types','payroll_leave_balances','payroll_leave_requests');
