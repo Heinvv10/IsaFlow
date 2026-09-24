@@ -103,14 +103,14 @@ describe('generateWipInvoice', () => {
   });
 
   it('rejects when no eligible entries found', async () => {
-    sqlMock.mockResolvedValueOnce([{ id: CLIENT, status: 'active', link_customer_id: LINK_CUSTOMER }]);
+    sqlMock.mockResolvedValueOnce([{ id: CLIENT, status: 'active', link_customer_id: LINK_CUSTOMER, own_customer_id: LINK_CUSTOMER }]);
     sqlMock.mockResolvedValueOnce([]);
     await expect(inTx(() => generateWipInvoice(COMPANY, USER, baseInput)))
       .rejects.toThrow(/no eligible approved/);
   });
 
   it('creates invoice with detailed line items and marks entries billed', async () => {
-    sqlMock.mockResolvedValueOnce([{ id: CLIENT, status: 'active', link_customer_id: LINK_CUSTOMER }]);
+    sqlMock.mockResolvedValueOnce([{ id: CLIENT, status: 'active', link_customer_id: LINK_CUSTOMER, own_customer_id: LINK_CUSTOMER }]);
     sqlMock.mockResolvedValueOnce([
       {
         id: ENTRY_A, hours: 2, applied_rate: 850, line_total: 1700,
@@ -155,7 +155,7 @@ describe('generateWipInvoice', () => {
   });
 
   it('groupBy=by_work_item collapses entries per work item', async () => {
-    sqlMock.mockResolvedValueOnce([{ id: CLIENT, status: 'active', link_customer_id: LINK_CUSTOMER }]);
+    sqlMock.mockResolvedValueOnce([{ id: CLIENT, status: 'active', link_customer_id: LINK_CUSTOMER, own_customer_id: LINK_CUSTOMER }]);
     sqlMock.mockResolvedValueOnce([
       {
         id: ENTRY_A, hours: 2, applied_rate: 850, line_total: 1700,
@@ -194,7 +194,7 @@ describe('generateWipInvoice', () => {
   });
 
   it('groupBy=by_category collapses entries per category', async () => {
-    sqlMock.mockResolvedValueOnce([{ id: CLIENT, status: 'active', link_customer_id: LINK_CUSTOMER }]);
+    sqlMock.mockResolvedValueOnce([{ id: CLIENT, status: 'active', link_customer_id: LINK_CUSTOMER, own_customer_id: LINK_CUSTOMER }]);
     sqlMock.mockResolvedValueOnce([
       {
         id: ENTRY_A, hours: 2, applied_rate: 850, line_total: 1700,
@@ -228,13 +228,13 @@ describe('generateWipInvoice', () => {
   });
 
   it('refuses to run outside a request transaction', async () => {
-    sqlMock.mockResolvedValueOnce([{ id: CLIENT, status: 'active', link_customer_id: LINK_CUSTOMER }]);
+    sqlMock.mockResolvedValueOnce([{ id: CLIENT, status: 'active', link_customer_id: LINK_CUSTOMER, own_customer_id: LINK_CUSTOMER }]);
     await expect(generateWipInvoice(COMPANY, USER, baseInput))
       .rejects.toThrow(/requires a request transaction/);
   });
 
   it('throws when fewer entries were marked billed than were selected', async () => {
-    sqlMock.mockResolvedValueOnce([{ id: CLIENT, status: 'active', link_customer_id: LINK_CUSTOMER }]);
+    sqlMock.mockResolvedValueOnce([{ id: CLIENT, status: 'active', link_customer_id: LINK_CUSTOMER, own_customer_id: LINK_CUSTOMER }]);
     sqlMock.mockResolvedValueOnce([
       {
         id: ENTRY_A, hours: 2, applied_rate: 850, line_total: 1700,
@@ -258,7 +258,7 @@ describe('generateWipInvoice', () => {
   });
 
   it('maps a deadlock on the eligibility read to the retryable lock error', async () => {
-    sqlMock.mockResolvedValueOnce([{ id: CLIENT, status: 'active', link_customer_id: LINK_CUSTOMER }]);
+    sqlMock.mockResolvedValueOnce([{ id: CLIENT, status: 'active', link_customer_id: LINK_CUSTOMER, own_customer_id: LINK_CUSTOMER }]);
     sqlMock.mockRejectedValueOnce(Object.assign(new Error('deadlock detected'), { code: '40P01' }));
     await expect(inTx(() => generateWipInvoice(COMPANY, USER, baseInput)))
       .rejects.toThrow(/being invoiced by another request/);

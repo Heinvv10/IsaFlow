@@ -8,6 +8,14 @@ import { log } from '@/lib/logger';
 import { assertCustomerInCompany } from './contactDirectoryService';
 import type { DbRow } from '@/types/db';
 
+/** An edit the operator asked for that this path refuses, with the reason (R-120). */
+export class TimeEntryEditRefusal extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = 'TimeEntryEditRefusal';
+  }
+}
+
 
 export interface TimeEntry {
   id: string;
@@ -162,11 +170,25 @@ export async function updateTimeEntry(
   input: Partial<TimeEntryInput>,
 ): Promise<TimeEntry> {
   const existing = (await sql`
-    SELECT status FROM time_entries
+    SELECT status, practice_client_id, hours, rate FROM time_entries
     WHERE id = ${id}::UUID AND company_id = ${companyId}::UUID
   `) as DbRow[];
   if (!existing.length) throw new Error('Time entry not found');
   if (String(existing[0]!.status) !== 'draft') throw new Error('Only draft entries can be edited');
+  // R-120: this UPDATE sets hours and rate but never applied_rate or
+  // line_total, so on a practice entry it left a line WIP billing then refuses
+  // — and once approved the entry can no longer be edited at all. The
+  // practice path (updatePracticeEntry) re-resolves the rate and recomputes.
+  // Only a CHANGE is refused: the time-tracking form sends hours on every save.
+  const changes = (next: unknown, prev: unknown): boolean =>
+    next != null && (prev == null || Number(next) !== Number(prev));
+  const prev = existing[0]!;
+  if (prev.practice_client_id != null && (changes(input.hours, prev.hours) || changes(input.rate, prev.rate))) {
+    throw new TimeEntryEditRefusal(
+      'This is a practice time entry: change its hours or rate on the practice timesheet, '
+      + 'which recomputes its billable amount.',
+    );
+  }
   await assertCustomerInCompany(companyId, input.customerId);
 
   const rows = (await sql`

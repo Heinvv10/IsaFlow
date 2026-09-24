@@ -1,0 +1,175 @@
+
+ RUN  v4.1.2 /home/hein/Workspace/IsaFlow/.worktrees/fix-r120
+
+{"level":"info","message":"API Request: POST /api/accounting/practice/wip/invoice","timestamp":"2026-09-24T06:24:18.189Z","component":"API","requestId":"01M391C5RCK4KJYK06VV7JWYN0","data":{"type":"request","method":"POST","url":"/api/accounting/practice/wip/invoice","query":{},"body":{"practiceClientId":"3473794a-520b-4551-bafa-9c7738792627","timeEntryIds":["d74fce14-f3af-49d8-9f27-2a461da38616"]}}}
+{"level":"error","message":"WIP invoice generation failed","timestamp":"2026-09-24T06:24:18.191Z","component":"practice-api","requestId":"01M391C5RCK4KJYK06VV7JWYN0","data":{"error":{"name":"Error","message":"practice client has no linked AR customer — set link_customer_id before generating an invoice","stack":"Error: practice client has no linked AR customer — set link_customer_id before generating an invoice\n    at generateWipInvoice (/home/hein/Workspace/IsaFlow/.worktrees/fix-r120/src/modules/accounting/services/practice/practiceWipService.ts:154:11)\n    at processTicksAndRejections (node:internal/process/task_queues:95:5)\n    at handler (/home/hein/Workspace/IsaFlow/.worktrees/fix-r120/pages/api/accounting/practice/wip/invoice.ts:25:20)\n    at /home/hein/Workspace/IsaFlow/.worktrees/fix-r120/src/lib/api-error-handler.ts:119:9\n    at runScoped (/home/hein/Workspace/IsaFlow/.worktrees/fix-r120/src/lib/api-error-handler.ts:92:7)\n    at /home/hein/Workspace/IsaFlow/.worktrees/fix-r120/src/lib/api-error-handler.ts:202:7\n    at /home/hein/Workspace/IsaFlow/.worktrees/fix-r120/src/lib/auth/withAuth.ts:208:73\n    at runOwnedContext (/home/hein/Workspace/IsaFlow/.worktrees/fix-r120/src/lib/afterCommit.ts:50:12)\n    at /home/hein/Workspace/IsaFlow/.worktrees/fix-r120/src/lib/auth/withAuth.ts:216:9\n    at callRoute (/home/hein/Workspace/IsaFlow/.worktrees/fix-r120/tests/integration/r120-wip-invoice-refusal.int.test.ts:40:3)"}}}
+{"level":"warn","message":"Bad request","timestamp":"2026-09-24T06:24:18.195Z","component":"ApiResponse","requestId":"01M391C5RCK4KJYK06VV7JWYN0","data":{"message":"practice client has no linked AR customer — set link_customer_id before generating an invoice","stack":"Error: practice client has no linked AR customer — set link_customer_id before generating an invoice\n    at generateWipInvoice (/home/hein/Workspace/IsaFlow/.worktrees/fix-r120/src/modules/accounting/services/practice/practiceWipService.ts:154:11)\n    at processTicksAndRejections (node:internal/process/task_queues:95:5)\n    at handler (/home/hein/Workspace/IsaFlow/.worktrees/fix-r120/pages/api/accounting/practice/wip/invoice.ts:25:20)\n    at /home/hein/Workspace/IsaFlow/.worktrees/fix-r120/src/lib/api-error-handler.ts:119:9\n    at runScoped (/home/hein/Workspace/IsaFlow/.worktrees/fix-r120/src/lib/api-error-handler.ts:92:7)\n    at /home/hein/Workspace/IsaFlow/.worktrees/fix-r120/src/lib/api-error-handler.ts:202:7\n    at /home/hein/Workspace/IsaFlow/.worktrees/fix-r120/src/lib/auth/withAuth.ts:208:73\n    at runOwnedContext (/home/hein/Workspace/IsaFlow/.worktrees/fix-r120/src/lib/afterCommit.ts:50:12)\n    at /home/hein/Workspace/IsaFlow/.worktrees/fix-r120/src/lib/auth/withAuth.ts:216:9\n    at callRoute (/home/hein/Workspace/IsaFlow/.worktrees/fix-r120/tests/integration/r120-wip-invoice-refusal.int.test.ts:40:3)"}}
+{"level":"info","message":"API Response: POST /api/accounting/practice/wip/invoice - 400 (6ms)","timestamp":"2026-09-24T06:24:18.195Z","component":"API","requestId":"01M391C5RCK4KJYK06VV7JWYN0","data":{"type":"response","method":"POST","url":"/api/accounting/practice/wip/invoice","statusCode":400,"duration":"6ms"}}
+{"level":"info","message":"request_completed","timestamp":"2026-09-24T06:24:18.195Z","component":"http","requestId":"01M391C5RCK4KJYK06VV7JWYN0","data":{"event":"request_completed","route":"/api/accounting/practice/wip/invoice","method":"POST","status":400,"durationMs":6,"userId":"df361a2d-f4c9-496e-a87a-fdd2032894f9","companyId":"f443f2df-c64b-4ae4-92af-c44bb8ba4886","outcome":"client_error"}}
+{"level":"info","message":"API Request: POST /api/accounting/practice/wip/invoice","timestamp":"2026-09-24T06:24:18.201Z","component":"API","requestId":"01M391C5RSN4J4BCMD39QHBSJE","data":{"type":"request","method":"POST","url":"/api/accounting/practice/wip/invoice","query":{},"body":{"practiceClientId":"b39055ad-2584-4582-8296-364017b70e79","timeEntryIds":["6e3d9cc8-ccf3-4071-9838-72efe0b6afa2"]}}}
+{"level":"error","message":"WIP invoice generation failed","timestamp":"2026-09-24T06:24:18.204Z","component":"practice-api","requestId":"01M391C5RSN4J4BCMD39QHBSJE","data":{"error":{"name":"Error","message":"no eligible approved time entries in selection","stack":"Error: no eligible approved time entries in selection\n    at generateWipInvoice (/home/hein/Workspace/IsaFlow/.worktrees/fix-r120/src/modules/accounting/services/practice/practiceWipService.ts:164:30)\n    at processTicksAndRejections (node:internal/process/task_queues:95:5)\n    at handler (/home/hein/Workspace/IsaFlow/.worktrees/fix-r120/pages/api/accounting/practice/wip/invoice.ts:25:20)\n    at /home/hein/Workspace/IsaFlow/.worktrees/fix-r120/src/lib/api-error-handler.ts:119:9\n    at runScoped (/home/hein/Workspace/IsaFlow/.worktrees/fix-r120/src/lib/api-error-handler.ts:92:7)\n    at /home/hein/Workspace/IsaFlow/.worktrees/fix-r120/src/lib/api-error-handler.ts:202:7\n    at /home/hein/Workspace/IsaFlow/.worktrees/fix-r120/src/lib/auth/withAuth.ts:208:73\n    at runOwnedContext (/home/hein/Workspace/IsaFlow/.worktrees/fix-r120/src/lib/afterCommit.ts:50:12)\n    at /home/hein/Workspace/IsaFlow/.worktrees/fix-r120/src/lib/auth/withAuth.ts:216:9\n    at callRoute (/home/hein/Workspace/IsaFlow/.worktrees/fix-r120/tests/integration/r120-wip-invoice-refusal.int.test.ts:40:3)"}}}
+{"level":"warn","message":"Bad request","timestamp":"2026-09-24T06:24:18.204Z","component":"ApiResponse","requestId":"01M391C5RSN4J4BCMD39QHBSJE","data":{"message":"no eligible approved time entries in selection","stack":"Error: no eligible approved time entries in selection\n    at generateWipInvoice (/home/hein/Workspace/IsaFlow/.worktrees/fix-r120/src/modules/accounting/services/practice/practiceWipService.ts:164:30)\n    at processTicksAndRejections (node:internal/process/task_queues:95:5)\n    at handler (/home/hein/Workspace/IsaFlow/.worktrees/fix-r120/pages/api/accounting/practice/wip/invoice.ts:25:20)\n    at /home/hein/Workspace/IsaFlow/.worktrees/fix-r120/src/lib/api-error-handler.ts:119:9\n    at runScoped (/home/hein/Workspace/IsaFlow/.worktrees/fix-r120/src/lib/api-error-handler.ts:92:7)\n    at /home/hein/Workspace/IsaFlow/.worktrees/fix-r120/src/lib/api-error-handler.ts:202:7\n    at /home/hein/Workspace/IsaFlow/.worktrees/fix-r120/src/lib/auth/withAuth.ts:208:73\n    at runOwnedContext (/home/hein/Workspace/IsaFlow/.worktrees/fix-r120/src/lib/afterCommit.ts:50:12)\n    at /home/hein/Workspace/IsaFlow/.worktrees/fix-r120/src/lib/auth/withAuth.ts:216:9\n    at callRoute (/home/hein/Workspace/IsaFlow/.worktrees/fix-r120/tests/integration/r120-wip-invoice-refusal.int.test.ts:40:3)"}}
+{"level":"info","message":"API Response: POST /api/accounting/practice/wip/invoice - 400 (3ms)","timestamp":"2026-09-24T06:24:18.204Z","component":"API","requestId":"01M391C5RSN4J4BCMD39QHBSJE","data":{"type":"response","method":"POST","url":"/api/accounting/practice/wip/invoice","statusCode":400,"duration":"3ms"}}
+{"level":"info","message":"request_completed","timestamp":"2026-09-24T06:24:18.204Z","component":"http","requestId":"01M391C5RSN4J4BCMD39QHBSJE","data":{"event":"request_completed","route":"/api/accounting/practice/wip/invoice","method":"POST","status":400,"durationMs":3,"userId":"df361a2d-f4c9-496e-a87a-fdd2032894f9","companyId":"f443f2df-c64b-4ae4-92af-c44bb8ba4886","outcome":"client_error"}}
+{"level":"info","message":"API Request: POST /api/accounting/practice/wip/invoice","timestamp":"2026-09-24T06:24:18.220Z","component":"API","requestId":"01M391C5SCHQYV0MVEJR7KY36V","data":{"type":"request","method":"POST","url":"/api/accounting/practice/wip/invoice","query":{},"body":{"practiceClientId":"b39055ad-2584-4582-8296-364017b70e79","timeEntryIds":["059865cc-c36e-42f1-b2ff-8c1ea3725740"],"taxRate":-99}}}
+{"level":"error","message":"WIP invoice generation failed","timestamp":"2026-09-24T06:24:18.227Z","component":"practice-api","requestId":"01M391C5SCHQYV0MVEJR7KY36V","data":{"error":{"length":268,"name":"error","severity":"ERROR","code":"23514","hint":"A negative VAT leg means the rate or the source figure is wrong.","where":"PL/pgSQL function accounting_assert_total_non_negative() line 56 at RAISE","file":"pl_exec.c","line":"3897","routine":"exec_stmt_raise","message":"Document INV0000001 may not carry a negative tax amount (-990.00)","stack":"error: Document INV0000001 may not carry a negative tax amount (-990.00)\n    at /home/hein/Workspace/IsaFlow/.worktrees/fix-r120/node_modules/pg/lib/client.js:631:17\n    at processTicksAndRejections (node:internal/process/task_queues:95:5)\n    at LazyQuery.run (/home/hein/Workspace/IsaFlow/.worktrees/fix-r120/src/lib/neon.ts:115:19)\n    at /home/hein/Workspace/IsaFlow/.worktrees/fix-r120/src/modules/accounting/services/practice/practiceWipService.ts:188:26\n    at withSavepoint (/home/hein/Workspace/IsaFlow/.worktrees/fix-r120/src/lib/neon.ts:442:20)\n    at insertWithReservedNumber (/home/hein/Workspace/IsaFlow/.worktrees/fix-r120/src/modules/accounting/services/core/documentNumberRetry.ts:53:14)\n    at /home/hein/Workspace/IsaFlow/.worktrees/fix-r120/src/modules/accounting/services/practice/practiceWipService.ts:185:42\n    at withSavepoint (/home/hein/Workspace/IsaFlow/.worktrees/fix-r120/src/lib/neon.ts:442:20)\n    at handler (/home/hein/Workspace/IsaFlow/.worktrees/fix-r120/pages/api/accounting/practice/wip/invoice.ts:25:20)\n    at /home/hein/Workspace/IsaFlow/.worktrees/fix-r120/src/lib/api-error-handler.ts:119:9"}}}
+{"level":"warn","message":"Bad request","timestamp":"2026-09-24T06:24:18.228Z","component":"ApiResponse","requestId":"01M391C5SCHQYV0MVEJR7KY36V","data":{"message":"Document INV0000001 may not carry a negative tax amount (-990.00)","stack":"error: Document INV0000001 may not carry a negative tax amount (-990.00)\n    at /home/hein/Workspace/IsaFlow/.worktrees/fix-r120/node_modules/pg/lib/client.js:631:17\n    at processTicksAndRejections (node:internal/process/task_queues:95:5)\n    at LazyQuery.run (/home/hein/Workspace/IsaFlow/.worktrees/fix-r120/src/lib/neon.ts:115:19)\n    at /home/hein/Workspace/IsaFlow/.worktrees/fix-r120/src/modules/accounting/services/practice/practiceWipService.ts:188:26\n    at withSavepoint (/home/hein/Workspace/IsaFlow/.worktrees/fix-r120/src/lib/neon.ts:442:20)\n    at insertWithReservedNumber (/home/hein/Workspace/IsaFlow/.worktrees/fix-r120/src/modules/accounting/services/core/documentNumberRetry.ts:53:14)\n    at /home/hein/Workspace/IsaFlow/.worktrees/fix-r120/src/modules/accounting/services/practice/practiceWipService.ts:185:42\n    at withSavepoint (/home/hein/Workspace/IsaFlow/.worktrees/fix-r120/src/lib/neon.ts:442:20)\n    at handler (/home/hein/Workspace/IsaFlow/.worktrees/fix-r120/pages/api/accounting/practice/wip/invoice.ts:25:20)\n    at /home/hein/Workspace/IsaFlow/.worktrees/fix-r120/src/lib/api-error-handler.ts:119:9"}}
+{"level":"info","message":"API Response: POST /api/accounting/practice/wip/invoice - 400 (8ms)","timestamp":"2026-09-24T06:24:18.228Z","component":"API","requestId":"01M391C5SCHQYV0MVEJR7KY36V","data":{"type":"response","method":"POST","url":"/api/accounting/practice/wip/invoice","statusCode":400,"duration":"8ms"}}
+{"level":"info","message":"request_completed","timestamp":"2026-09-24T06:24:18.228Z","component":"http","requestId":"01M391C5SCHQYV0MVEJR7KY36V","data":{"event":"request_completed","route":"/api/accounting/practice/wip/invoice","method":"POST","status":400,"durationMs":8,"userId":"df361a2d-f4c9-496e-a87a-fdd2032894f9","companyId":"f443f2df-c64b-4ae4-92af-c44bb8ba4886","outcome":"client_error"}}
+{"level":"info","message":"API Request: POST /api/accounting/practice/wip/invoice","timestamp":"2026-09-24T06:24:18.277Z","component":"API","requestId":"01M391C5V5ENF0X41CV9Q8F8PQ","data":{"type":"request","method":"POST","url":"/api/accounting/practice/wip/invoice","query":{},"body":{"practiceClientId":"b39055ad-2584-4582-8296-364017b70e79","timeEntryIds":["e36f0ac2-ed24-4b86-90ec-c499ac5a14e4"],"taxRate":101}}}
+{"level":"info","message":"Marked time entries billed","timestamp":"2026-09-24T06:24:18.284Z","component":"practice","requestId":"01M391C5V5ENF0X41CV9Q8F8PQ","data":{"count":1,"invoiceId":"fbe01911-1ac0-4839-b7f8-3b03de0375d9"}}
+{"level":"info","message":"Generated WIP invoice","timestamp":"2026-09-24T06:24:18.284Z","component":"practice","requestId":"01M391C5V5ENF0X41CV9Q8F8PQ","data":{"invoiceId":"fbe01911-1ac0-4839-b7f8-3b03de0375d9","invoiceNumber":"INV0000001","lineCount":1,"subtotal":1000,"totalAmount":2010}}
+{"level":"info","message":"API Response: POST /api/accounting/practice/wip/invoice - 201 (7ms)","timestamp":"2026-09-24T06:24:18.284Z","component":"API","requestId":"01M391C5V5ENF0X41CV9Q8F8PQ","data":{"type":"response","method":"POST","url":"/api/accounting/practice/wip/invoice","statusCode":201,"duration":"7ms"}}
+{"level":"info","message":"request_completed","timestamp":"2026-09-24T06:24:18.284Z","component":"http","requestId":"01M391C5V5ENF0X41CV9Q8F8PQ","data":{"event":"request_completed","route":"/api/accounting/practice/wip/invoice","method":"POST","status":201,"durationMs":7,"userId":"df361a2d-f4c9-496e-a87a-fdd2032894f9","companyId":"f443f2df-c64b-4ae4-92af-c44bb8ba4886","outcome":"ok"}}
+{"level":"info","message":"API Request: POST /api/accounting/practice/wip/invoice","timestamp":"2026-09-24T06:24:18.351Z","component":"API","requestId":"01M391C5XFKHR1CWB53WA0EDKH","data":{"type":"request","method":"POST","url":"/api/accounting/practice/wip/invoice","query":{},"body":{"practiceClientId":"b39055ad-2584-4582-8296-364017b70e79","timeEntryIds":["d4e96181-bab3-4bb0-9e1a-12b36a5d442b"],"taxRate":"abc"}}}
+{"level":"error","message":"WIP invoice generation failed","timestamp":"2026-09-24T06:24:18.354Z","component":"practice-api","requestId":"01M391C5XFKHR1CWB53WA0EDKH","data":{"error":{"length":137,"name":"error","severity":"ERROR","code":"22P02","where":"unnamed portal parameter $6 = '...'","file":"numeric.c","line":"800","routine":"numeric_in","message":"invalid input syntax for type numeric: \"abc\"","stack":"error: invalid input syntax for type numeric: \"abc\"\n    at /home/hein/Workspace/IsaFlow/.worktrees/fix-r120/node_modules/pg/lib/client.js:631:17\n    at processTicksAndRejections (node:internal/process/task_queues:95:5)\n    at LazyQuery.run (/home/hein/Workspace/IsaFlow/.worktrees/fix-r120/src/lib/neon.ts:115:19)\n    at /home/hein/Workspace/IsaFlow/.worktrees/fix-r120/src/modules/accounting/services/practice/practiceWipService.ts:188:26\n    at withSavepoint (/home/hein/Workspace/IsaFlow/.worktrees/fix-r120/src/lib/neon.ts:442:20)\n    at insertWithReservedNumber (/home/hein/Workspace/IsaFlow/.worktrees/fix-r120/src/modules/accounting/services/core/documentNumberRetry.ts:53:14)\n    at /home/hein/Workspace/IsaFlow/.worktrees/fix-r120/src/modules/accounting/services/practice/practiceWipService.ts:185:42\n    at withSavepoint (/home/hein/Workspace/IsaFlow/.worktrees/fix-r120/src/lib/neon.ts:442:20)\n    at handler (/home/hein/Workspace/IsaFlow/.worktrees/fix-r120/pages/api/accounting/practice/wip/invoice.ts:25:20)\n    at /home/hein/Workspace/IsaFlow/.worktrees/fix-r120/src/lib/api-error-handler.ts:119:9"}}}
+{"level":"warn","message":"Bad request","timestamp":"2026-09-24T06:24:18.354Z","component":"ApiResponse","requestId":"01M391C5XFKHR1CWB53WA0EDKH","data":{"message":"invalid input syntax for type numeric: \"abc\"","stack":"error: invalid input syntax for type numeric: \"abc\"\n    at /home/hein/Workspace/IsaFlow/.worktrees/fix-r120/node_modules/pg/lib/client.js:631:17\n    at processTicksAndRejections (node:internal/process/task_queues:95:5)\n    at LazyQuery.run (/home/hein/Workspace/IsaFlow/.worktrees/fix-r120/src/lib/neon.ts:115:19)\n    at /home/hein/Workspace/IsaFlow/.worktrees/fix-r120/src/modules/accounting/services/practice/practiceWipService.ts:188:26\n    at withSavepoint (/home/hein/Workspace/IsaFlow/.worktrees/fix-r120/src/lib/neon.ts:442:20)\n    at insertWithReservedNumber (/home/hein/Workspace/IsaFlow/.worktrees/fix-r120/src/modules/accounting/services/core/documentNumberRetry.ts:53:14)\n    at /home/hein/Workspace/IsaFlow/.worktrees/fix-r120/src/modules/accounting/services/practice/practiceWipService.ts:185:42\n    at withSavepoint (/home/hein/Workspace/IsaFlow/.worktrees/fix-r120/src/lib/neon.ts:442:20)\n    at handler (/home/hein/Workspace/IsaFlow/.worktrees/fix-r120/pages/api/accounting/practice/wip/invoice.ts:25:20)\n    at /home/hein/Workspace/IsaFlow/.worktrees/fix-r120/src/lib/api-error-handler.ts:119:9"}}
+{"level":"info","message":"API Response: POST /api/accounting/practice/wip/invoice - 400 (3ms)","timestamp":"2026-09-24T06:24:18.354Z","component":"API","requestId":"01M391C5XFKHR1CWB53WA0EDKH","data":{"type":"response","method":"POST","url":"/api/accounting/practice/wip/invoice","statusCode":400,"duration":"3ms"}}
+{"level":"info","message":"request_completed","timestamp":"2026-09-24T06:24:18.354Z","component":"http","requestId":"01M391C5XFKHR1CWB53WA0EDKH","data":{"event":"request_completed","route":"/api/accounting/practice/wip/invoice","method":"POST","status":400,"durationMs":3,"userId":"df361a2d-f4c9-496e-a87a-fdd2032894f9","companyId":"f443f2df-c64b-4ae4-92af-c44bb8ba4886","outcome":"client_error"}}
+{"level":"info","message":"API Request: POST /api/accounting/practice/wip/invoice","timestamp":"2026-09-24T06:24:18.373Z","component":"API","requestId":"01M391C5Y5BE439BCR64DWWM6D","data":{"type":"request","method":"POST","url":"/api/accounting/practice/wip/invoice","query":{},"body":{"practiceClientId":"b39055ad-2584-4582-8296-364017b70e79","timeEntryIds":["not-a-uuid"]}}}
+{"level":"error","message":"WIP invoice generation failed","timestamp":"2026-09-24T06:24:18.374Z","component":"practice-api","requestId":"01M391C5Y5BE439BCR64DWWM6D","data":{"error":{"length":142,"name":"error","severity":"ERROR","code":"22P02","where":"unnamed portal parameter $1 = '...'","file":"uuid.c","line":"133","routine":"string_to_uuid","message":"invalid input syntax for type uuid: \"not-a-uuid\"","stack":"error: invalid input syntax for type uuid: \"not-a-uuid\"\n    at /home/hein/Workspace/IsaFlow/.worktrees/fix-r120/node_modules/pg/lib/client.js:631:17\n    at processTicksAndRejections (node:internal/process/task_queues:95:5)\n    at LazyQuery.run (/home/hein/Workspace/IsaFlow/.worktrees/fix-r120/src/lib/neon.ts:115:19)\n    at lockEligibleWipEntries (/home/hein/Workspace/IsaFlow/.worktrees/fix-r120/src/modules/accounting/services/practice/wipEntryLock.ts:86:13)\n    at generateWipInvoice (/home/hein/Workspace/IsaFlow/.worktrees/fix-r120/src/modules/accounting/services/practice/practiceWipService.ts:162:19)\n    at handler (/home/hein/Workspace/IsaFlow/.worktrees/fix-r120/pages/api/accounting/practice/wip/invoice.ts:25:20)\n    at /home/hein/Workspace/IsaFlow/.worktrees/fix-r120/src/lib/api-error-handler.ts:119:9\n    at runScoped (/home/hein/Workspace/IsaFlow/.worktrees/fix-r120/src/lib/api-error-handler.ts:92:7)\n    at /home/hein/Workspace/IsaFlow/.worktrees/fix-r120/src/lib/api-error-handler.ts:202:7\n    at /home/hein/Workspace/IsaFlow/.worktrees/fix-r120/src/lib/auth/withAuth.ts:208:73"}}}
+{"level":"warn","message":"Bad request","timestamp":"2026-09-24T06:24:18.375Z","component":"ApiResponse","requestId":"01M391C5Y5BE439BCR64DWWM6D","data":{"message":"invalid input syntax for type uuid: \"not-a-uuid\"","stack":"error: invalid input syntax for type uuid: \"not-a-uuid\"\n    at /home/hein/Workspace/IsaFlow/.worktrees/fix-r120/node_modules/pg/lib/client.js:631:17\n    at processTicksAndRejections (node:internal/process/task_queues:95:5)\n    at LazyQuery.run (/home/hein/Workspace/IsaFlow/.worktrees/fix-r120/src/lib/neon.ts:115:19)\n    at lockEligibleWipEntries (/home/hein/Workspace/IsaFlow/.worktrees/fix-r120/src/modules/accounting/services/practice/wipEntryLock.ts:86:13)\n    at generateWipInvoice (/home/hein/Workspace/IsaFlow/.worktrees/fix-r120/src/modules/accounting/services/practice/practiceWipService.ts:162:19)\n    at handler (/home/hein/Workspace/IsaFlow/.worktrees/fix-r120/pages/api/accounting/practice/wip/invoice.ts:25:20)\n    at /home/hein/Workspace/IsaFlow/.worktrees/fix-r120/src/lib/api-error-handler.ts:119:9\n    at runScoped (/home/hein/Workspace/IsaFlow/.worktrees/fix-r120/src/lib/api-error-handler.ts:92:7)\n    at /home/hein/Workspace/IsaFlow/.worktrees/fix-r120/src/lib/api-error-handler.ts:202:7\n    at /home/hein/Workspace/IsaFlow/.worktrees/fix-r120/src/lib/auth/withAuth.ts:208:73"}}
+{"level":"info","message":"API Response: POST /api/accounting/practice/wip/invoice - 400 (2ms)","timestamp":"2026-09-24T06:24:18.375Z","component":"API","requestId":"01M391C5Y5BE439BCR64DWWM6D","data":{"type":"response","method":"POST","url":"/api/accounting/practice/wip/invoice","statusCode":400,"duration":"2ms"}}
+{"level":"info","message":"request_completed","timestamp":"2026-09-24T06:24:18.375Z","component":"http","requestId":"01M391C5Y5BE439BCR64DWWM6D","data":{"event":"request_completed","route":"/api/accounting/practice/wip/invoice","method":"POST","status":400,"durationMs":2,"userId":"df361a2d-f4c9-496e-a87a-fdd2032894f9","companyId":"f443f2df-c64b-4ae4-92af-c44bb8ba4886","outcome":"client_error"}}
+{"level":"info","message":"API Request: POST /api/accounting/practice/wip/invoice","timestamp":"2026-09-24T06:24:18.436Z","component":"API","requestId":"01M391C6047AYRJP084Y7MT5PT","data":{"type":"request","method":"POST","url":"/api/accounting/practice/wip/invoice","query":{},"body":{"practiceClientId":"b39055ad-2584-4582-8296-364017b70e79","timeEntryIds":["5ffafc9b-0427-48df-8147-4a020e95a3a2","a739b23e-d31d-4303-9082-883bcdc036a4"]}}}
+{"level":"info","message":"Marked time entries billed","timestamp":"2026-09-24T06:24:18.441Z","component":"practice","requestId":"01M391C6047AYRJP084Y7MT5PT","data":{"count":2,"invoiceId":"8ecf74f8-f87f-4ccb-8bbc-de3903d8d871"}}
+{"level":"info","message":"Generated WIP invoice","timestamp":"2026-09-24T06:24:18.441Z","component":"practice","requestId":"01M391C6047AYRJP084Y7MT5PT","data":{"invoiceId":"8ecf74f8-f87f-4ccb-8bbc-de3903d8d871","invoiceNumber":"INV0000002","lineCount":2,"subtotal":800,"totalAmount":920}}
+{"level":"info","message":"API Response: POST /api/accounting/practice/wip/invoice - 201 (5ms)","timestamp":"2026-09-24T06:24:18.441Z","component":"API","requestId":"01M391C6047AYRJP084Y7MT5PT","data":{"type":"response","method":"POST","url":"/api/accounting/practice/wip/invoice","statusCode":201,"duration":"5ms"}}
+{"level":"info","message":"request_completed","timestamp":"2026-09-24T06:24:18.441Z","component":"http","requestId":"01M391C6047AYRJP084Y7MT5PT","data":{"event":"request_completed","route":"/api/accounting/practice/wip/invoice","method":"POST","status":201,"durationMs":5,"userId":"df361a2d-f4c9-496e-a87a-fdd2032894f9","companyId":"f443f2df-c64b-4ae4-92af-c44bb8ba4886","outcome":"ok"}}
+{"level":"info","message":"API Request: POST /api/accounting/practice/wip/invoice","timestamp":"2026-09-24T06:24:18.499Z","component":"API","requestId":"01M391C6232Q329AEQ14VVB1MQ","data":{"type":"request","method":"POST","url":"/api/accounting/practice/wip/invoice","query":{},"body":{"practiceClientId":"b39055ad-2584-4582-8296-364017b70e79","timeEntryIds":["4826b824-dbdc-4d80-939d-6ba499b081bf"],"taxRate":15}}}
+{"level":"info","message":"Marked time entries billed","timestamp":"2026-09-24T06:24:18.504Z","component":"practice","requestId":"01M391C6232Q329AEQ14VVB1MQ","data":{"count":1,"invoiceId":"c67a6246-e0a9-49ad-9cf6-8311f50b3a99"}}
+{"level":"info","message":"Generated WIP invoice","timestamp":"2026-09-24T06:24:18.504Z","component":"practice","requestId":"01M391C6232Q329AEQ14VVB1MQ","data":{"invoiceId":"c67a6246-e0a9-49ad-9cf6-8311f50b3a99","invoiceNumber":"INV0000003","lineCount":1,"subtotal":1000,"totalAmount":1150}}
+{"level":"info","message":"API Response: POST /api/accounting/practice/wip/invoice - 201 (5ms)","timestamp":"2026-09-24T06:24:18.504Z","component":"API","requestId":"01M391C6232Q329AEQ14VVB1MQ","data":{"type":"response","method":"POST","url":"/api/accounting/practice/wip/invoice","statusCode":201,"duration":"5ms"}}
+{"level":"info","message":"request_completed","timestamp":"2026-09-24T06:24:18.504Z","component":"http","requestId":"01M391C6232Q329AEQ14VVB1MQ","data":{"event":"request_completed","route":"/api/accounting/practice/wip/invoice","method":"POST","status":201,"durationMs":5,"userId":"df361a2d-f4c9-496e-a87a-fdd2032894f9","companyId":"f443f2df-c64b-4ae4-92af-c44bb8ba4886","outcome":"ok"}}
+ ❯ tests/integration/r120-wip-invoice-refusal.int.test.ts (8 tests | 7 failed) 1202ms
+     × names the missing AR customer link 28ms
+     × says when nothing in the selection is billable 8ms
+     × refuses taxRate -99 before anything is written, naming the field 34ms
+     × refuses taxRate 101 before anything is written, naming the field 73ms
+     × refuses taxRate abc before anything is written, naming the field 59ms
+     × refuses a malformed selection by field, not with a database error 5ms
+     × refuses an entry whose line is negative, and leaves it unbilled 116ms
+
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 7 ⎯⎯⎯⎯⎯⎯⎯
+
+ FAIL  tests/integration/r120-wip-invoice-refusal.int.test.ts > R-120: a refused WIP invoice tells the operator why > names the missing AR customer link
+AssertionError: expected 'WIP invoice failed' to match /no linked AR customer/
+
+- Expected:
+/no linked AR customer/
+
++ Received:
+"WIP invoice failed"
+
+ ❯ tests/integration/r120-wip-invoice-refusal.int.test.ts:91:26
+     89|     const out = await callRoute({ practiceClientId: unlinkedClient, ti…
+     90|     expect(out.statusCode).toBe(400);
+     91|     expect(message(out)).toMatch(/no linked AR customer/);
+       |                          ^
+     92|   });
+     93|
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[1/7]⎯
+
+ FAIL  tests/integration/r120-wip-invoice-refusal.int.test.ts > R-120: a refused WIP invoice tells the operator why > says when nothing in the selection is billable
+AssertionError: expected 'WIP invoice failed' to match /no eligible approved time entries/
+
+- Expected:
+/no eligible approved time entries/
+
++ Received:
+"WIP invoice failed"
+
+ ❯ tests/integration/r120-wip-invoice-refusal.int.test.ts:97:26
+     95|     const out = await callRoute({ practiceClientId: client, timeEntryI…
+     96|     expect(out.statusCode).toBe(400);
+     97|     expect(message(out)).toMatch(/no eligible approved time entries/);
+       |                          ^
+     98|   });
+     99|
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[2/7]⎯
+
+ FAIL  tests/integration/r120-wip-invoice-refusal.int.test.ts > R-120: a refused WIP invoice tells the operator why > refuses taxRate -99 before anything is written, naming the field
+ FAIL  tests/integration/r120-wip-invoice-refusal.int.test.ts > R-120: a refused WIP invoice tells the operator why > refuses taxRate abc before anything is written, naming the field
+AssertionError: expected 'WIP invoice failed' to match /taxRate/
+
+- Expected:
+/taxRate/
+
++ Received:
+"WIP invoice failed"
+
+ ❯ tests/integration/r120-wip-invoice-refusal.int.test.ts:105:26
+    103|     const out = await callRoute({ practiceClientId: client, timeEntryI…
+    104|     expect(out.statusCode).toBe(400);
+    105|     expect(message(out)).toMatch(/taxRate/);
+       |                          ^
+    106|     expect(await invoiceCount()).toBe(before);
+    107|   });
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[3/7]⎯
+
+ FAIL  tests/integration/r120-wip-invoice-refusal.int.test.ts > R-120: a refused WIP invoice tells the operator why > refuses taxRate 101 before anything is written, naming the field
+AssertionError: expected 201 to be 400 // Object.is equality
+
+- Expected
++ Received
+
+- 400
++ 201
+
+ ❯ tests/integration/r120-wip-invoice-refusal.int.test.ts:104:28
+    102|     const before = await invoiceCount();
+    103|     const out = await callRoute({ practiceClientId: client, timeEntryI…
+    104|     expect(out.statusCode).toBe(400);
+       |                            ^
+    105|     expect(message(out)).toMatch(/taxRate/);
+    106|     expect(await invoiceCount()).toBe(before);
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[4/7]⎯
+
+ FAIL  tests/integration/r120-wip-invoice-refusal.int.test.ts > R-120: a refused WIP invoice tells the operator why > refuses a malformed selection by field, not with a database error
+AssertionError: expected 'WIP invoice failed' to match /timeEntryIds/
+
+- Expected:
+/timeEntryIds/
+
++ Received:
+"WIP invoice failed"
+
+ ❯ tests/integration/r120-wip-invoice-refusal.int.test.ts:112:26
+    110|     const out = await callRoute({ practiceClientId: client, timeEntryI…
+    111|     expect(out.statusCode).toBe(400);
+    112|     expect(message(out)).toMatch(/timeEntryIds/);
+       |                          ^
+    113|   });
+    114|
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[5/7]⎯
+
+ FAIL  tests/integration/r120-wip-invoice-refusal.int.test.ts > R-120: a refused WIP invoice tells the operator why > refuses an entry whose line is negative, and leaves it unbilled
+AssertionError: expected 201 to be 400 // Object.is equality
+
+- Expected
++ Received
+
+- 400
++ 201
+
+ ❯ tests/integration/r120-wip-invoice-refusal.int.test.ts:122:28
+    120|     const before = await invoiceCount();
+    121|     const out = await callRoute({ practiceClientId: client, timeEntryI…
+    122|     expect(out.statusCode).toBe(400);
+       |                            ^
+    123|     expect(message(out)).toMatch(/negative/i);
+    124|     expect(await invoiceCount()).toBe(before);
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[6/7]⎯
+
+
+ Test Files  1 failed (1)
+      Tests  7 failed | 1 passed (8)
+   Start at  08:24:17
+   Duration  1.80s (transform 227ms, setup 0ms, import 452ms, tests 1.20s, environment 0ms)
+

@@ -24,12 +24,14 @@ import { DocumentNumberLockTimeoutError } from '@/modules/accounting/services/co
 import { TimeEntryLockTimeoutError } from '@/modules/accounting/services/practice/timeEntryLock';
 import { DocumentClaimLockTimeoutError } from '@/modules/accounting/services/core/documentClaimLock';
 import { RecurringTemplateLockTimeoutError } from '@/modules/accounting/services/core/recurringTemplateLock';
+import { WipEntriesLockedError } from '@/modules/accounting/services/practice/wipEntryLock';
 
 export function respondIfLockTimeout(res: NextApiResponse, err: unknown): boolean {
   if (!(err instanceof DocumentNumberLockTimeoutError)
     && !(err instanceof TimeEntryLockTimeoutError)
     && !(err instanceof DocumentClaimLockTimeoutError)
-    && !(err instanceof RecurringTemplateLockTimeoutError)) {
+    && !(err instanceof RecurringTemplateLockTimeoutError)
+    && !(err instanceof WipEntriesLockedError)) {
     return false;
   }
   res.setHeader('Retry-After', '2');

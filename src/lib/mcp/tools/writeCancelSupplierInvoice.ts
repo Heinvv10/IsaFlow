@@ -21,6 +21,7 @@ import {
 } from '@/modules/accounting/services/ap/supplierInvoiceCancelPlan';
 import { cancelSupplierInvoice } from '@/modules/accounting/services/ap/supplierInvoiceWorkflowService';
 import { VatPeriodLockedError } from '@/modules/accounting/services/gl/journalVatLockGuard';
+import { ReversalBeforeOriginalError } from '@/modules/accounting/services/gl/journalEntryReversalDate';
 import { mcpPostingOpts } from '../mcpActor';
 import { guardCastableArgs, ok, strArg, toolError } from './toolHelpers';
 
@@ -68,7 +69,8 @@ export const cancelSupplierInvoiceTool: McpTool = {
       plan = await lockAndPlanSupplierInvoiceCancel(ctx.companyId, invoiceId);
     } catch (err) {
       // Reads only: nothing has been written, so a refusal is safe to return.
-      if (err instanceof SupplierInvoiceCancelRefusal || err instanceof VatPeriodLockedError) {
+      if (err instanceof SupplierInvoiceCancelRefusal || err instanceof VatPeriodLockedError
+        || err instanceof ReversalBeforeOriginalError) {
         return toolError(err.message);
       }
       throw err;
