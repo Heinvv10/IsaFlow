@@ -104,3 +104,24 @@ describe('K-154 adjacent cases', () => {
     expect(inserts.filter((i) => i.mismatchReason === 'missing_in_statement')).toHaveLength(0);
   });
 });
+
+describe('K-154 allocation order', () => {
+  it('lets an exact-reference line keep its invoice even when a fuzzy line comes first', () => {
+    const invoices = [
+      { id: 'inv-1', invoiceNumber: 'INV-001', invoiceDate: '2026-03-10', totalAmount: 1000 },
+      { id: 'inv-2', invoiceNumber: 'INV-002', invoiceDate: '2026-03-10', totalAmount: 1005 },
+    ];
+    // Line 1 carries no usable reference and fuzzy-matches inv-1 by amount and
+    // date; line 2 names INV-001 exactly. Claiming in line order would give
+    // inv-1 to line 1 and push line 2 onto nothing it references.
+    const lines = [
+      { date: '2026-03-10', debit: 1000 },
+      { date: '2026-03-10', reference: 'INV-001', debit: 1000 },
+    ];
+
+    const { inserts } = buildInserts('recon-order', lines, invoices);
+
+    expect(inserts[1]).toMatchObject({ reference: 'INV-001', matchedInvoiceId: 'inv-1', matchConfidence: 1.0, mismatchReason: null });
+    expect(inserts[0]).toMatchObject({ matchedInvoiceId: 'inv-2', matchConfidence: 0.85 });
+  });
+});
