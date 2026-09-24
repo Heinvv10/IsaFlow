@@ -163,6 +163,10 @@ const REFUSAL_CODES: ReadonlySet<string> = new Set([
   // Another request holds the capture row (K-072): says "retry", names only the
   // id the caller passed, and the row is locked by id AND company_id.
   'CAPTURE_ROW_LOCK_TIMEOUT',
+  // A manual expense-claim line's source document could not be claimed (R-105).
+  // Six fixed messages naming no id, amount or table, raised before any write;
+  // the claim is scoped by company_id. No MCP tool creates expense claims today.
+  'CLAIM_SOURCE_DOCUMENT_REFUSED',
   'CREDIT_NOTE_LOCK_TIMEOUT',
   'CUSTOMER_INVOICE_LOCK_TIMEOUT',
   'CUSTOMER_NOT_FOUND',

@@ -34,6 +34,7 @@ Invoked by `withCompany`-wrapped API routes in `pages/api/accounting/expense/*`.
 - `scripts/migrations/sql/420_*`, `421_*`, `422_auto_expense_claim_je_source.sql` — expense schema + JE source CHECK.
 
 ## Recent changes
+- 2026-09-24 (R-105): `claimSourceDocuments.ts` — `claimLineSourceDocuments` takes the capture posting claim (`posted_at`) on every line's source document in ONE statement, all or nothing, company-scoped (not left to RLS). `createClaim` and `addLine` call it before their first write; `createClaim({ sourceDocumentsClaimed: true })` is for `post-expense`, which claims its slip itself. `deleteLine` and the draft-claim DELETE release through `releaseCapturedDocumentPostingClaim`, which keeps any slip something live still references.
 - 2026-09-09: `claimVatAdvice.ts` — `deniedVatTypeForLine` tags a claim's expense leg
   `vat_type = 'no_vat'` when the line claims nothing on a `vat_input_denied` account (a denial is
   a recorded classification, not a NULL); `claimInputVatWarnings` returns `INPUT_VAT_DENIED_ADVICE`
