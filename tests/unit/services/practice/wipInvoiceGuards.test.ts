@@ -37,6 +37,10 @@ describe('assertWipEntryLines', () => {
 
   it('passes a line within 1c of hours × rate, refuses one that disagrees', () => {
     expect(() => assertWipEntryLines([entry({ hours: 1.33, applied_rate: 333.3333, line_total: 443.33 })])).not.toThrow();
+    // Exactly 1c off, as pg returns them (strings): allowed, as the census allows it.
+    expect(() => assertWipEntryLines([entry({ hours: '1.00', applied_rate: '100.0000', line_total: '100.01' })])).not.toThrow();
+    expect(() => assertWipEntryLines([entry({ hours: '2.00', applied_rate: '50.0000', line_total: '99.99' })])).not.toThrow();
+    expect(() => assertWipEntryLines([entry({ hours: '1.00', applied_rate: '100.0000', line_total: '100.02' })])).toThrow(WipInvoiceRefusal);
     expect(() => assertWipEntryLines([entry({ hours: 2, applied_rate: 100, line_total: 5000 })]))
       .toThrow(/not its 2h × 100/);
   });
