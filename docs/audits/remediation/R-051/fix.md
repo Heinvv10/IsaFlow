@@ -29,6 +29,9 @@ journal, then stamped `status='approved'` with an UPDATE that did not re-check t
   catch answers every failure 400, and `withAuth` COMMITs a 4xx, so the draft stayed.
 - A foreign or missing id answered 400 "Action failed", not 404.
 
+(The locked-VAT-period refusal is raised in `createJournalEntry` BEFORE the draft exists, so it never
+left a draft; its test is a regression test only. The closed fiscal period is the measured case.)
+
 ## Measured (red.log)
 
 Against master's service and route: the deterministic interleaving posts two journals (both 200);
@@ -44,6 +47,19 @@ the closed-period approval leaves a draft journal; 404 and 409 cases red. 5 of 9
   → 409) and are all raised before the first write.
 - The journal create, post and the adjustment stamp run inside one `withSavepoint`, so any refusal
   from `postJournalEntry` rolls the draft back before the route answers 400.
+
+### Review round 1
+
+rev-r051-adversarial: SHIP with three LOWs; rev-r051-general: LOWs. All fixed:
+- Contention (55P03/40P01) and a journal-number collision (23505 on `uq_gl_je_company_entry_number`,
+  the R-043 race) raised inside approve's savepoint answer 409, not 400 "Action failed"; the
+  savepoint has already rolled them back, so the 409 commits nothing.
+- The route validates `id` as a uuid (400 with a reason) instead of letting 22P02 answer "Action failed".
+- Closed fiscal period, inactive account and locked VAT period refusals answer 400 with their own message.
+- `cancelVATAdjustment` waits on the same row under the same 5s bound (409), and refuses with typed
+  `not_found` (404) / `not_draft` (400, naming the status).
+- Tests: the 409 case is bounded (a regression fails in 15s instead of hanging with the row held);
+  the VAT-lock case is labelled a regression test; new `r051-vat-adjustment-route.int.test.ts` (5).
 
 ## Tests
 
