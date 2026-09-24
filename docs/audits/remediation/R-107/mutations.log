@@ -124,3 +124,8 @@
 ⎯⎯⎯⎯⎯⎯⎯ Failed Tests 1 ⎯⎯⎯⎯⎯⎯⎯
       Tests  1 failed | 22 passed (23)
 
+
+# /review (pr512-review) LOW 1 — provisionalLinkWriterCensus.test.ts pins 'only postProvisional links a bank line':
+## M20 provisionalDismissService sets provisional_je_id to a value instead of NULL -> KILLED
+     × only postProvisional links a bank line to a provisional journal
++   "src/modules/accounting/services/bank/provisionalDismissService.ts",

@@ -37,7 +37,7 @@ async function handler(req: CompanyAuthedRequest, res: NextApiResponse) {
   const result = await attachDocumentToProvisional(companyId, jeId, capturedDocumentId);
   switch (result.kind) {
     case 'not_found':
-      return apiResponse.notFound(res, result.what, result.what === 'Journal entry' ? jeId : capturedDocumentId);
+      return apiResponse.notFound(res, result.what, result.id);
     case 'refused':
       return apiResponse.badRequest(res, result.message);
     case 'contended':
