@@ -1,0 +1,92 @@
+# R-107 mutations — each applied alone to a248537c9, restored from HEAD after.
+# A mutation is KILLED when at least one test goes red.
+
+## M1 no posted_at claim [src/modules/accounting/services/capture/provisionalEvidenceAttach.ts] -> KILLED
+     × evidences the journal from the slip and claims the slip 85ms
+     × the attached slip cannot then be posted again through a capture route 85ms
+     × refuses a slip already posted through capture, and writes nothing 32ms
+     × refuses a rejected slip, and writes nothing 31ms
+     × one slip raced onto two journals lands on exactly one 66ms
+     × two slips raced onto one journal: one wins, and the loser stays unclaimed 50ms
+     × drops an extraction confidence outside [0, 1] rather than overflowing the journal column 38ms
+     × confirm and reject in the capture inbox do not release a slip evidencing a live provisional journal 52ms
+     × a generic release (e.g. a cancelled invoice on the same slip) keeps it claimed while the provisional journal stands 37ms
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 9 ⎯⎯⎯⎯⎯⎯⎯
+      Tests  9 failed | 9 passed (18)
+
+## M2 no reversed-journal refusal [src/modules/accounting/services/capture/provisionalEvidenceAttach.ts] -> KILLED
+     × refuses a reversed provisional journal, and claims nothing 34ms
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 1 ⎯⎯⎯⎯⎯⎯⎯
+      Tests  1 failed | 17 passed (18)
+
+## M3 no already-evidenced refusal [src/modules/accounting/services/capture/provisionalEvidenceAttach.ts] -> KILLED
+     × refuses a journal that is already evidenced, and claims nothing 50ms
+     × two slips raced onto one journal: one wins, and the loser stays unclaimed 52ms
+     × two slips raced onto a journal with no bank line: the journal lock alone decides it 129ms
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 3 ⎯⎯⎯⎯⎯⎯⎯
+      Tests  3 failed | 15 passed (18)
+
+## M4 journal read without FOR UPDATE [src/modules/accounting/services/capture/provisionalEvidenceAttach.ts] -> KILLED
+     × two slips raced onto a journal with no bank line: the journal lock alone decides it 107ms
+     × answers 409 while another request holds the journal, and claims nothing 30007ms
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 2 ⎯⎯⎯⎯⎯⎯⎯
+      Tests  2 failed | 16 passed (18)
+
+## M5 no bank-line lock [src/modules/accounting/services/capture/provisionalEvidenceAttach.ts] -> KILLED
+     × answers 409 while another request holds the bank line, and claims nothing 30003ms
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 1 ⎯⎯⎯⎯⎯⎯⎯
+      Tests  1 failed | 17 passed (18)
+     × locks bank line, then journal, then document; claims before the first write; updates bank before journal 5ms
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 1 ⎯⎯⎯⎯⎯⎯⎯
+      Tests  1 failed (1)
+
+## M6 no document lock (existence read only) [src/modules/accounting/services/capture/provisionalEvidenceAttach.ts] -> KILLED
+     × answers 409 while another request holds the document, and evidences nothing 30013ms
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 1 ⎯⎯⎯⎯⎯⎯⎯
+      Tests  1 failed | 17 passed (18)
+
+## M7 no uuid validation on capturedDocumentId [pages/api/accounting/provisional/[jeId]/attach.ts] -> KILLED
+     × answers 400 for ids that are not uuids 19ms
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 1 ⎯⎯⎯⎯⎯⎯⎯
+      Tests  1 failed | 17 passed (18)
+
+## M8 no uuid validation on jeId [pages/api/accounting/provisional/[jeId]/attach.ts] -> KILLED
+     × answers 400 for ids that are not uuids 22ms
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 1 ⎯⎯⎯⎯⎯⎯⎯
+      Tests  1 failed | 17 passed (18)
+
+## M9 generic release ignores the evidenced journal [src/modules/accounting/services/capture/capturePostingClaimRelease.ts] -> KILLED
+     × a generic release (e.g. a cancelled invoice on the same slip) keeps it claimed while the provisional journal stands 30ms
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 1 ⎯⎯⎯⎯⎯⎯⎯
+      Tests  1 failed | 17 passed (18)
+
+## M10 inbox release ignores the evidenced journal [src/modules/accounting/services/capture/capturePostingClaimRelease.ts] -> SURVIVED
+      Tests  18 passed (18)
+
+## M11 release treats a reversed evidenced journal as live [src/modules/accounting/services/capture/capturePostingClaimRelease.ts] -> KILLED
+     × reversing the provisional journal releases the slip 55ms
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 1 ⎯⎯⎯⎯⎯⎯⎯
+      Tests  1 failed | 17 passed (18)
+
+## M12 no confidence bound [src/modules/accounting/services/capture/provisionalEvidenceAttach.ts] -> KILLED
+     × drops an extraction confidence outside [0, 1] rather than overflowing the journal column 29ms
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 1 ⎯⎯⎯⎯⎯⎯⎯
+      Tests  1 failed | 17 passed (18)
+
+## M13 contention not answered 409 [src/modules/accounting/services/capture/provisionalEvidenceAttach.ts] -> KILLED
+     × answers 409 while another request holds the bank line, and claims nothing 5042ms
+     × answers 409 while another request holds the journal, and claims nothing 5029ms
+     × answers 409 while another request holds the document, and evidences nothing 5034ms
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 3 ⎯⎯⎯⎯⎯⎯⎯
+      Tests  3 failed | 15 passed (18)
+
+## M14 journal locked before bank line [src/modules/accounting/services/capture/provisionalEvidenceAttach.ts] -> KILLED
+     × locks bank line, then journal, then document; claims before the first write; updates bank before journal 6ms
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 1 ⎯⎯⎯⎯⎯⎯⎯
+      Tests  1 failed (1)
+
+## M15 bank line updated after the journal [src/modules/accounting/services/capture/provisionalEvidenceAttach.ts] -> KILLED
+     × locks bank line, then journal, then document; claims before the first write; updates bank before journal 5ms
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 1 ⎯⎯⎯⎯⎯⎯⎯
+      Tests  1 failed (1)
+

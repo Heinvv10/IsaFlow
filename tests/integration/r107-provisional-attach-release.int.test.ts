@@ -5,7 +5,7 @@ import { describe, expect, it } from 'vitest';
 import { releaseCapturedDocumentPostingClaim } from '@/modules/accounting/services/capture/capturePostingClaimRelease';
 import { reverseJournalEntry } from '@/modules/accounting/services/gl/journalEntryService';
 import {
-  attach, btStatus, captureAction, company, docPostedAt, holding, inTx, jeState, seedDoc, seedProvisional,
+  attach, btStatus, captureAction, company, docPostedAt, holding, inTx, jeState, pool, seedDoc, seedProvisional,
   useR107Fixture, user,
 } from './r107-provisional-attach.helpers';
 
@@ -80,6 +80,26 @@ describe('R-107: the claim is released only when the provisional journal is', ()
     expect(reject.statusCode, JSON.stringify(reject.body)).toBe(400);
     expect(await docPostedAt(doc)).not.toBeNull();
     expect((await jeState(je)).source_document_id).toBe(doc);
+  });
+
+  it('the inbox refuses BEFORE it discards drafts: a draft journal on the slip survives the refused confirm', async () => {
+    const { je } = await seedProvisional();
+    const doc = await seedDoc(company);
+    expect((await attach(je, doc)).statusCode).toBe(200);
+    // Not reachable through the product today (a claimed slip cannot be posted again); seeded by
+    // hand to pin the ORDER: the refusal must be decided before the DELETE, because the route's
+    // 400 is COMMITted by withAuth and would carry the discard with it.
+    const draft = crypto.randomUUID();
+    await pool.query(
+      `INSERT INTO gl_journal_entries(id,company_id,entry_date,description,source,status,created_by,source_document_id)
+       VALUES($1,$2,CURRENT_DATE,'R107 receipt draft','auto_expense_receipt','draft',$3,$4)`,
+      [draft, company, user, doc]);
+
+    const confirm = await captureAction(doc, 'confirm');
+
+    expect(confirm.statusCode, JSON.stringify(confirm.body)).toBe(400);
+    expect((await pool.query('SELECT 1 FROM gl_journal_entries WHERE id=$1', [draft])).rowCount).toBe(1);
+    expect(await docPostedAt(doc)).not.toBeNull();
   });
 
   it('a generic release (e.g. a cancelled invoice on the same slip) keeps it claimed while the provisional journal stands', async () => {
