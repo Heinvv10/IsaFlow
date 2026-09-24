@@ -12697,7 +12697,10 @@
       "claim": "practiceTimeEntryService.ts INSERTs (line ~122) and UPDATEs (line ~209) time_entries.amount since 3e10dd811 (2026-04-19). No file in scripts/migrations/sql adds that column (git log -S finds none), and neither the schema fixture nor isaflow_dev has it (information_schema, 2026-09-24). So creating or editing a practice time entry raises 42703 there; duplicatePracticeEntry and bulk-from-template go through createPracticeEntry.",
       "area": "practice",
       "affectedPaths": [
-        "src/modules/accounting/services/practice/practiceTimeEntryService.ts"
+        "src/modules/accounting/services/practice/practiceTimeEntryService.ts",
+        "src/modules/accounting/services/practice/practiceClientRateOverrideService.ts",
+        "src/modules/accounting/services/practice/practiceStaffRateService.ts",
+        "scripts/migrations/sql/395_practice_client_rate_overrides.sql"
       ],
       "sourceLabel": "R-120 review round 3 (adversarial), side finding",
       "sourceIds": [],
@@ -12705,6 +12708,40 @@
       "severityRationale": "If production lacks the column, practice time capture is broken there; if it has it (added by hand), every repo-built database (dev, fixture, restores) diverges from production. Not yet reproduced end to end; prod unchecked.",
       "auditedSha": "af7578b79",
       "currentSha": "af7578b79",
+      "status": "fix-in-review",
+      "dependencies": [],
+      "testNames": [
+        "tests/integration/r121-practice-entry-writes.int.test.ts"
+      ],
+      "evidencePaths": [
+        "docs/audits/remediation/R-121/fix.md",
+        "docs/audits/remediation/R-121/red.log",
+        "docs/audits/remediation/R-121/mutations.log"
+      ],
+      "fixCommit": null,
+      "pr": null,
+      "deployedSha": null,
+      "historicalDataImpact": "None known. The prod journal (from 2026-09-20) shows no practice time-entry requests at all.",
+      "canonicalItem": null,
+      "reportedSeverity": "high",
+      "processNotes": "2026-09-24: for Hein, read-only — SELECT column_name, data_type FROM information_schema.columns WHERE table_name='time_entries' AND column_name='amount'; If present on prod, the fix is a migration adding it IF NOT EXISTS; if absent, drop the column from the two writers (line_total is the figure). 2026-09-24: widened — four layers (see fix.md). The r112 fixture is a DEV schema dump, so the column/grant layers are likely dev drift; the 395 policy layer is on prod. Migrations 625b (columns, ordered before 626) and 699 (grants + tenant_isolation) fix them; see fix.md for the auth.users caveat.",
+      "branch": "fix/r121-practice-schema-20260924",
+      "severity": "high",
+      "title": "Practice time capture and rate overrides fail against the real schema: time_entries.amount and the overrides' legacy columns/grants are missing on dev-shaped DBs, and the overrides policy reads a company_id JWT claim withAuth never sets"
+    },
+    {
+      "id": "R-122",
+      "claim": "396 creates three policies USING (company_id = request.jwt.claims->>'company_id'). withAuth sets request.jwt.claims to the GoTrue token's claims, which carry no company_id (no custom access-token hook in the repo); only the MCP bearer pipeline synthesises it. Same shape as R-121's practice_client_rate_overrides policy, proven there by a route test.",
+      "area": "payroll",
+      "affectedPaths": [
+        "scripts/migrations/sql/396_payroll_leave_company_seed.sql"
+      ],
+      "sourceLabel": "R-121 (found while fixing)",
+      "sourceIds": [],
+      "correctedTrigger": null,
+      "severityRationale": "Unreproduced for these tables; the r112 (dev-schema) fixture no longer carries 396 policies. Prod state unknown.",
+      "auditedSha": "HEAD",
+      "currentSha": "HEAD",
       "status": "candidate",
       "dependencies": [],
       "testNames": [],
@@ -12712,13 +12749,43 @@
       "fixCommit": null,
       "pr": null,
       "deployedSha": null,
-      "historicalDataImpact": "None known. The prod journal (from 2026-09-20) shows no practice time-entry requests at all.",
+      "historicalDataImpact": "None written; reads/inserts refused or empty.",
       "canonicalItem": null,
-      "reportedSeverity": "high",
-      "processNotes": "2026-09-24: for Hein, read-only — SELECT column_name, data_type FROM information_schema.columns WHERE table_name='time_entries' AND column_name='amount'; If present on prod, the fix is a migration adding it IF NOT EXISTS; if absent, drop the column from the two writers (line_total is the figure).",
+      "reportedSeverity": "medium",
+      "processNotes": "2026-09-24: registered from R-121. Fix shape: replace with the standard tenant_isolation (348), as 698 does for the overrides table.",
       "branch": null,
-      "severity": "high",
-      "title": "time_entries.amount is written by createPracticeEntry/updatePracticeEntry but no migration creates it — practice time capture fails 42703 on any schema built from the repo"
+      "severity": "medium",
+      "title": "payroll_leave_* RLS policies (migration 396) read a company_id JWT claim that withAuth never sets, so the web app likely sees no leave data"
+    },
+    {
+      "id": "R-123",
+      "claim": "The rate-override service (listClientRateOverrides, create/update re-read, listCompanyStaff) LEFT JOINs auth.users as app_user. No migration grants app_user SELECT on auth.users, so wherever it lacks that grant the route raises 'permission denied'. R-121's tests stub auth.users with a grant, so no test fails where the grant is missing.",
+      "area": "practice",
+      "affectedPaths": [
+        "src/modules/accounting/services/practice/practiceClientRateOverrideService.ts"
+      ],
+      "sourceLabel": "R-121 (found while fixing; PR #498 blind review LOW)",
+      "sourceIds": [],
+      "correctedTrigger": null,
+      "severityRationale": "Unreproduced on prod; isaflow_dev has no auth.users at all. A blanket grant would expose every user's email across tenants, so the fix is a tenant-scoped SECURITY DEFINER lookup or a public users-table join, not a grant.",
+      "auditedSha": "HEAD",
+      "currentSha": "HEAD",
+      "status": "candidate",
+      "dependencies": [
+        "R-121"
+      ],
+      "testNames": [],
+      "evidencePaths": [],
+      "fixCommit": null,
+      "pr": null,
+      "deployedSha": null,
+      "historicalDataImpact": "None written; the override screens fail to load or save.",
+      "canonicalItem": null,
+      "reportedSeverity": "medium",
+      "processNotes": "2026-09-24: registered from R-121. The R-121 prod query checks has_table_privilege('app_user','auth.users','SELECT').",
+      "branch": null,
+      "severity": "medium",
+      "title": "Rate-override service joins auth.users as app_user, which no migration grants"
     }
   ],
   "sourceInventory": [
