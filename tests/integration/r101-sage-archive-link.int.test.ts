@@ -21,6 +21,8 @@ import { sageCustomerStaging } from './r101-sage-customer-import.helpers';
 assertDisposable();
 const pool = new Pool({ connectionString: process.env.DATABASE_URL, max: 4 });
 const company = randomUUID();
+/** Its own company, so the re-created-supplier case does not ride on the first test's rows. */
+const company2 = randomUUID();
 const user = randomUUID();
 const NAME = 'R101AR Counterparty';
 
@@ -29,16 +31,18 @@ const { drive } = supplierHarness;
 const { seedStaging, staged, addCustomer, setUp, tearDown } = sageCustomerStaging(pool);
 
 beforeAll(async () => {
-  await setUp([[company, 'R101 archive company']], user);
+  await setUp([[company, 'R101 archive company'], [company2, 'R101 archive company 2']], user);
   await addCustomer(company, NAME);
-  await pool.query('INSERT INTO suppliers(company_id,name) VALUES($1,$2)', [company, NAME]);
+  for (const id of [company, company2]) {
+    await pool.query('INSERT INTO suppliers(company_id,name) VALUES($1,$2)', [id, NAME]);
+  }
 });
 
 afterAll(async () => {
   for (const t of ['archive_customer_invoices', 'archive_supplier_invoices', 'archive_runs', 'sage_supplier_invoices', 'supplier_invoices', 'suppliers']) {
-    await pool.query(`DELETE FROM ${t} WHERE company_id=$1`, [company]);
+    for (const id of [company, company2]) await pool.query(`DELETE FROM ${t} WHERE company_id=$1`, [id]);
   }
-  await tearDown([company], user);
+  await tearDown([company, company2], user);
 });
 
 describe('R-101: an imported Sage document can still be archived', () => {
@@ -77,20 +81,20 @@ describe('R-101: an imported Sage document can still be archived', () => {
   });
 
   it('still refuses the archived bill after its supplier is re-created under the same name', async () => {
-    const supStaging = await supplierHarness.seedStaging(company, {
+    const supStaging = await supplierHarness.seedStaging(company2, {
       sageId: 'R101AR-S2', invoiceNumber: 'R101AR-SINV2', supplierName: NAME, total: 410, invoiceDate: '2020-02-15',
     });
-    expect((await drive(company, () => importSupplierInvoices(company, user))).succeeded).toBe(1);
-    await pool.query("UPDATE supplier_invoices SET status='paid', amount_paid=total_amount WHERE company_id=$1", [company]);
-    await drive(company, () => executeArchive(company, '2021-01-01', user));
-    await pool.query('UPDATE suppliers SET deleted_at=NOW() WHERE company_id=$1', [company]);
-    await pool.query('INSERT INTO suppliers(company_id,name) VALUES($1,$2)', [company, NAME]);
-    await drive(company, () => resetMigration(company, 'invoices'));
+    expect((await drive(company2, () => importSupplierInvoices(company2, user))).succeeded).toBe(1);
+    await pool.query("UPDATE supplier_invoices SET status='paid', amount_paid=total_amount WHERE company_id=$1", [company2]);
+    await drive(company2, () => executeArchive(company2, '2021-01-01', user));
+    await pool.query('UPDATE suppliers SET deleted_at=NOW() WHERE company_id=$1', [company2]);
+    await pool.query('INSERT INTO suppliers(company_id,name) VALUES($1,$2)', [company2, NAME]);
+    await drive(company2, () => resetMigration(company2, 'invoices'));
 
-    const again = await drive(company, () => importSupplierInvoices(company, user));
+    const again = await drive(company2, () => importSupplierInvoices(company2, user));
     expect(again.succeeded).toBe(0);
     expect((await pool.query(
       'SELECT migration_status FROM sage_supplier_invoices WHERE id=$1', [supStaging])).rows[0]!.migration_status).toBe('failed');
-    expect((await pool.query('SELECT count(*)::int AS n FROM supplier_invoices WHERE company_id=$1', [company])).rows[0]!.n).toBe(0);
+    expect((await pool.query('SELECT count(*)::int AS n FROM supplier_invoices WHERE company_id=$1', [company2])).rows[0]!.n).toBe(0);
   });
 });
