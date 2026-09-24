@@ -50,3 +50,31 @@
 ⎯⎯⎯⎯⎯⎯⎯ Failed Tests 1 ⎯⎯⎯⎯⎯⎯⎯
       Tests  1 failed | 9 passed (10)
 
+
+# Review round 1 guards — each applied alone to d5f747f43, restored from HEAD after.
+## N9 route: no uuid validation [pages/api/accounting/vat-adjustments-action.ts] -> KILLED
+     × a malformed id is a 400 that says so, and writes nothing 36ms
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 1 ⎯⎯⎯⎯⎯⎯⎯
+      Tests  1 failed | 14 passed (15)
+
+## N10 route: 23505 collision answered 400 [pages/api/accounting/vat-adjustments-action.ts] -> KILLED
+     × a journal-number collision with a concurrent posting is a retryable 409, and writes nothing 28ms
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 1 ⎯⎯⎯⎯⎯⎯⎯
+      Tests  1 failed | 14 passed (15)
+
+## N11 route: posting refusals lose their message [pages/api/accounting/vat-adjustments-action.ts] -> KILLED
+     × an approval refused at post (closed fiscal period) leaves no draft journal behind 17ms
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 1 ⎯⎯⎯⎯⎯⎯⎯
+      Tests  1 failed | 14 passed (15)
+
+## N12 cancel: unbounded wait [src/modules/accounting/services/reports/vatAdjustmentService.ts] -> KILLED
+     × a cancel that waits on a held adjustment answers 409, and cancels nothing 15030ms
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 1 ⎯⎯⎯⎯⎯⎯⎯
+      Tests  1 failed | 14 passed (15)
+
+## N13 cancel: untyped refusal [src/modules/accounting/services/reports/vatAdjustmentService.ts] -> KILLED
+     × cancelling an approved adjustment is refused with its status, and it stays approved 77ms
+     × cancelling another company's adjustment answers 404 and leaves it draft 15ms
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 2 ⎯⎯⎯⎯⎯⎯⎯
+      Tests  2 failed | 13 passed (15)
+
