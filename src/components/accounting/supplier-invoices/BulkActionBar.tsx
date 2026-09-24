@@ -4,7 +4,7 @@
  * fan-out from the client.
  */
 
-import type { ReactNode } from 'react';
+import type { Dispatch, ReactNode, SetStateAction } from 'react';
 import { apiFetch } from '@/lib/apiFetch';
 import { log } from '@/lib/logger';
 
@@ -21,7 +21,8 @@ interface Props {
   selected: ReadonlySet<string>;
   busy: BulkAction | null;
   onBusyChange: (b: BulkAction | null) => void;
-  onError: (msg: string) => void;
+  /** The page's error setter: the refusal is joined to whatever the reload left. */
+  onError: Dispatch<SetStateAction<string>>;
   onComplete: () => void | Promise<void>;
   onClear: () => void;
 }
@@ -52,6 +53,7 @@ export function BulkActionBar({
         return;
       }
       const data = (json.data || json) as BulkActionResult;
+      let failure = '';
       if (data.failed > 0) {
         // Group by message rather than showing only the first: a mixed
         // selection typically fails for ONE reason (a status the action
@@ -66,9 +68,13 @@ export function BulkActionBar({
         const detail = Array.from(byReason.entries())
           .map(([reason, count]) => (byReason.size > 1 ? `${count}× ${reason}` : reason))
           .join('; ');
-        onError(`${data.failed} of ${data.total} ${action}s failed${detail ? `: ${detail}` : ''}`);
+        failure = `${data.failed} of ${data.total} ${action}s failed${detail ? `: ${detail}` : ''}`;
       }
+      // Reload first: the page's reload clears its error, so a failure set
+      // before it would vanish as soon as it appeared. Join rather than
+      // replace, so a failed reload still says the list is stale.
       await onComplete();
+      if (failure) onError((prev) => (prev ? `${prev} — ${failure}` : failure));
     } catch (err) {
       log.warn('Bulk action failed', { action, error: err }, 'supplier-invoices');
       onError(`${action} failed: ${err instanceof Error ? err.message : 'unknown error'}`);
