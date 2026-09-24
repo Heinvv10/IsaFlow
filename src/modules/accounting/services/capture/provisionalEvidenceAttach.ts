@@ -12,15 +12,22 @@
  *
  * Lock order is bank line → journal → document. The first pair is the
  * canonical order in `services/bank/.claude.md` (a pre-existing journal after
- * its bank line); the document comes last because `reverseJournalEntry` takes
- * the journal and then releases the document, and nothing takes a document
- * before a pre-existing journal or bank line.
+ * its bank line); the document comes last to match `reverseJournalEntry`, which
+ * takes the journal and then releases the document. Two paths take the SAME
+ * rows the other way round — `capture/[id]/post` (via `capturePostFollowUps`)
+ * and `ai-invoice-pipeline` lock and claim the slip, then run the automatic
+ * `attachEvidenceToProvisional`, which updates the bank line and the journal.
+ * That cycle cannot be ordered away (the reversal pins the other end), so it is
+ * made SAFE instead: whichever side Postgres picks as the 40P01 victim, the
+ * outcome is an answer, not a corruption. Here the victim answers 409 with
+ * nothing written; there the automatic attach runs in its own savepoint, so
+ * only the attach rolls back and the post commits (tests/integration/
+ * r107-auto-attach-savepoint.int.test.ts).
  *
  * Every refusal is decided before the first write, because `withAuth` COMMITs
  * a 4xx: a refusal here has written nothing.
  */
 
-import { als, assertTxUsable } from '@/lib/als';
 import { sql } from '@/lib/neon';
 import type { DbRow } from '@/lib/neon';
 import {
@@ -33,6 +40,7 @@ import {
   CaptureRowLockTimeoutError,
   claimCapturedDocumentForPosting,
   lockCapturedDocumentForUpdate,
+  lockWithTimeout,
 } from './captureRowLock';
 
 export type ProvisionalAttachResult =
@@ -43,38 +51,29 @@ export type ProvisionalAttachResult =
 
 const CONTENDED = 'This journal or document is being changed by another request — retry in a moment.';
 
-/** The provisional journal under a bounded `FOR UPDATE`, or null. Throws the raw error on contention. */
-async function lockJournalForUpdate(companyId: string, jeId: string): Promise<DbRow | null> {
-  const client = als.getStore()?.client;
-  if (!client) {
-    throw new Error('Attaching evidence requires a request transaction (withAuth / als.run).');
-  }
-  assertTxUsable();
-  await client.query("SET LOCAL lock_timeout = '5s'");
-  const rows = (await sql`
-    SELECT needs_evidence, reversed_at FROM gl_journal_entries
-    WHERE id = ${jeId}::UUID AND company_id = ${companyId}::UUID
-    FOR UPDATE`) as DbRow[];
-  // Reset on success only: after a timeout the tx is aborted and this would mask the error.
-  await client.query('SET LOCAL lock_timeout = DEFAULT');
-  return rows[0] ?? null;
-}
-
 export async function attachDocumentToProvisional(
   companyId: string,
   jeId: string,
   documentId: string,
 ): Promise<ProvisionalAttachResult> {
+  const lockedLines: string[] = [];
   try {
-    // (1) The bank line(s) first. The peek is unlocked; each row is re-read under its lock.
+    // (1) The bank line(s) first. The peek is unlocked, so each row is re-checked under its
+    // lock, and only the lines still linked to this journal are written below.
     const lines = (await sql`
       SELECT id FROM bank_transactions
       WHERE provisional_je_id = ${jeId}::UUID AND company_id = ${companyId}::UUID
       ORDER BY id`) as DbRow[];
-    for (const line of lines) await lockBankTransactionForUpdate(companyId, String(line.id));
+    for (const line of lines) {
+      const row = await lockBankTransactionForUpdate(companyId, String(line.id));
+      if (row && String(row.provisional_je_id).toLowerCase() === jeId.toLowerCase()) lockedLines.push(String(row.id));
+    }
 
-    // (2) The journal.
-    const je = await lockJournalForUpdate(companyId, jeId);
+    // (2) The journal, under the same bounded wait as the document.
+    const je = await lockWithTimeout(jeId, async () => (await sql`
+      SELECT needs_evidence, reversed_at FROM gl_journal_entries
+      WHERE id = ${jeId}::UUID AND company_id = ${companyId}::UUID
+      FOR UPDATE`) as DbRow[]);
     if (!je) return { kind: 'not_found', what: 'Journal entry' };
     if (je.reversed_at != null) return { kind: 'refused', message: 'Journal entry has been reversed' };
     if (!je.needs_evidence) return { kind: 'refused', message: 'Journal entry is already evidenced' };
@@ -109,7 +108,8 @@ export async function attachDocumentToProvisional(
   const [bankRow] = (await sql`
     UPDATE bank_transactions
     SET status = 'matched'
-    WHERE provisional_je_id = ${jeId}::UUID AND company_id = ${companyId}::UUID
+    WHERE id = ANY(${lockedLines}::uuid[]) AND provisional_je_id = ${jeId}::UUID
+      AND company_id = ${companyId}::UUID
     RETURNING id`) as DbRow[];
 
   await sql`

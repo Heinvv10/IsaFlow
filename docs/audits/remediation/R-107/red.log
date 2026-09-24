@@ -55,3 +55,15 @@ AssertionError: {"success":true,"data":{"id":"f25e9eef-d9cf-442c-b6a1-f950338e90
 AssertionError: expected null not to be null
  Test Files  1 failed (1)
       Tests  10 failed | 3 passed (13)
+
+# Review round 1 (rev-r107-general MEDIUM; also K-157): tests/integration/r107-auto-attach-savepoint.int.test.ts with
+# evidenceAttachmentService.ts as on master. (1) A hand-built deadlock (post holds the slip and waits on the bank line;
+# manual attach holds the bank line and reaches for the slip) makes the post's auto-attach the victim: it swallows the
+# 40P01 and the post's next statement is 25P02 — the transaction the route answers 200 for is dead. (2) An auto-attach
+# that matched while a manual attach was in flight overwrites the manual attach's journal.
+     × a deadlock inside the auto-attach rolls back only the attach; the post keeps its transaction and commits 1250ms
+     × an auto-attach that lost the journal to a manual attach does not overwrite it 348ms
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 2 ⎯⎯⎯⎯⎯⎯⎯
+AssertionError: promise rejected "error: current transaction is aborted, co… { …(15) }" instead of resolving
+AssertionError: expected { …(2) } to deeply equal { attachedJeId: null, bankTxId: null }
+      Tests  2 failed (2)

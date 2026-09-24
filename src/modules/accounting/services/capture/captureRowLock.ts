@@ -88,7 +88,7 @@ function isRetryableLockError(err: unknown): boolean {
  * escapes as a 500 (R-058, `captureEventLock.ts`). Not reset after a failure:
  * the tx is aborted, and another statement would mask the error with 25P02.
  */
-async function lockWithTimeout(rowId: string, read: () => Promise<DbRow[]>): Promise<DbRow | null> {
+export async function lockWithTimeout(rowId: string, read: () => Promise<DbRow[]>): Promise<DbRow | null> {
   const client = als.getStore()?.client;
   if (!client) {
     throw new Error(

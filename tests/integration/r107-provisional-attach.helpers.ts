@@ -69,10 +69,11 @@ export async function seedDoc(
  * bank_transactions.bank_account_id references gl_accounts, not bank_accounts.
  */
 export async function seedProvisional(
-  opts: { reversed?: boolean; evidenced?: boolean; noBankLine?: boolean } = {},
+  opts: { reversed?: boolean; evidenced?: boolean; noBankLine?: boolean; amount?: number } = {},
 ): Promise<{ je: string; bt: string }> {
   const je = crypto.randomUUID();
   const bt = crypto.randomUUID();
+  const amount = opts.amount ?? 115;
   await pool.query(
     `INSERT INTO gl_journal_entries(id,company_id,entry_number,entry_date,description,source,status,created_by,
                                     posting_agent,needs_evidence,reversed_at,reversed_by)
@@ -82,13 +83,13 @@ export async function seedProvisional(
   );
   await pool.query(
     `INSERT INTO gl_journal_lines(company_id,journal_entry_id,gl_account_id,debit,credit,description)
-     VALUES($4,$1,$2,115,0,'R107 fuel'),($4,$1,$3,0,115,'R107 fuel')`, [je, expenseGl, bankGl, company]);
+     VALUES($4,$1,$2,$5,0,'R107 fuel'),($4,$1,$3,0,$5,'R107 fuel')`, [je, expenseGl, bankGl, company, amount]);
   await pool.query(`UPDATE gl_journal_entries SET status='posted', posted_at=NOW(), posted_by=$2 WHERE id=$1`, [je, user]);
   if (opts.noBankLine) return { je, bt };
   await pool.query(
     `INSERT INTO bank_transactions(id,company_id,bank_account_id,transaction_date,amount,description,status,provisional_je_id)
-     VALUES($1,$2,$3,CURRENT_DATE,-115,'ENGEN RIVONIA',$4,$5)`,
-    [bt, company, bankGl, opts.evidenced ? 'matched' : 'provisional', je]);
+     VALUES($1,$2,$3,CURRENT_DATE,$6,'ENGEN RIVONIA',$4,$5)`,
+    [bt, company, bankGl, opts.evidenced ? 'matched' : 'provisional', je, -amount]);
   return { je, bt };
 }
 

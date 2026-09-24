@@ -3,7 +3,10 @@
  * PRE-EXISTING journal — the canonical lock order in
  * `src/modules/accounting/services/bank/.claude.md` — and the captured document
  * last (R-107), after the journal, which is the order `reverseJournalEntry`
- * takes them in (journal, then the release of the document).
+ * takes them in (journal, then the release of the document). The capture post
+ * paths take the slip FIRST and the bank line after it (the automatic attach);
+ * that cycle is made safe, not ordered away — see the header of
+ * `provisionalEvidenceAttach.ts` and `r107-auto-attach-savepoint.int.test.ts`.
  *
  * This route is the twin of `capture/evidenceAttachmentService`: both write
  * `bank_transactions` and then `gl_journal_entries`, and both took them the
@@ -33,7 +36,7 @@ vi.mock('@/modules/accounting/services/bank/bankTxLock', () => ({
   BankTransactionLockTimeoutError: class extends Error {},
   lockBankTransactionForUpdate: vi.fn(async (_c: string, id: string) => {
     events.push(`lock bank ${id}`);
-    return { id };
+    return { id, provisional_je_id: '00000000-0000-0000-0000-000000000002' };
   }),
 }));
 vi.mock('@/modules/accounting/services/capture/captureRowLock', () => ({
@@ -43,6 +46,7 @@ vi.mock('@/modules/accounting/services/capture/captureRowLock', () => ({
     events.push('lock document');
     return { status: 'pending', posted_at: null };
   }),
+  lockWithTimeout: vi.fn(async (_id: string, read: () => Promise<unknown[]>) => (await read())[0] ?? null),
   claimCapturedDocumentForPosting: vi.fn(async () => {
     events.push('claim document');
     return null;
