@@ -796,7 +796,8 @@ async function assertReversalDatePostable(
   // calls ensureFiscalPeriodForDate, which CREATES the fiscal year on demand for
   // any year inside the auto-create window, and the only uncovered date that can
   // reach here is today: resolveReversalDate has already proven an explicit date
-  // open, and its default arm returns either an open original date or today.
+  // open, and its default arm returns an open original date, an original date
+  // whose year posting will create (R-012), or today.
   // Today is always inside that window, so refusing here would turn a reversal
   // that used to auto-create its year into a 400 — the one outcome
   // fiscalPeriodAutoCreate.ts was written to avoid. A guard fronting a write must

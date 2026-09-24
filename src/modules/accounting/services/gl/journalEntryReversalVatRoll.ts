@@ -2,7 +2,8 @@
  * Rolling a reversal's DEFAULT date past locked VAT periods.
  *
  * A reversal with no date named defaults to the original entry's date (or to
- * today when that fiscal period is closed — see journalEntryReversalDate). When
+ * today when that fiscal period is not open — see journalEntryReversalDate for
+ * the future-dated cases). When
  * the original moves a VAT-return figure and that default lands inside an
  * ACTIVE VAT lock, posting the contra there would change a VAT201 already
  * filed. Reversals are the one posting the lock does not simply refuse: the
@@ -134,6 +135,45 @@ async function autoCreatablePredicate(
     return () => false;
   }
   return makeAutoCreatable(startMonth, existing);
+}
+
+/**
+ * Would posting on `date` create its fiscal year on demand (R-012)? The same
+ * predicate the roll uses, over the company's current periods.
+ */
+export async function isDateAutoCreatable(companyId: string, date: string): Promise<boolean> {
+  const rows = (await sql`
+    SELECT fiscal_year, start_date, end_date FROM fiscal_periods
+    WHERE company_id = ${companyId}::UUID`) as Row[];
+  const existing = rows.map((r) => ({
+    start: fmtDate(r.start_date as string), end: fmtDate(r.end_date as string), fiscalYear: Number(r.fiscal_year),
+  }));
+  return (await autoCreatablePredicate(companyId, existing))(date);
+}
+
+/**
+ * Is `date`'s fiscal year outside the auto-create window (R-012)? A typo'd
+ * year such as 9999: posting never creates it. Distinct from "not
+ * auto-creatable", which also covers an IN-window gap or overlap. When the
+ * company's alignment cannot be resolved the answer is unknown: false — which
+ * makes the resolver REFUSE even a typo'd-year entry. Deliberate: failing
+ * closed, and createFiscalYear needs the same alignment, so the remedy (fix the
+ * company's period alignment) is the same either way.
+ */
+export async function isOutsideAutoCreateWindow(companyId: string, date: string): Promise<boolean> {
+  let startMonth: number;
+  try {
+    ({ startMonth } = await resolveCompanyPeriodAlignment(companyId));
+  } catch {
+    return false; // unknown alignment: not provably a typo'd year
+  }
+  let year: number;
+  try {
+    year = fiscalYearOfDate(date, startMonth);
+  } catch {
+    return false;
+  }
+  return Number.isInteger(year) && !isAutoCreatableYear(year);
 }
 
 /**
