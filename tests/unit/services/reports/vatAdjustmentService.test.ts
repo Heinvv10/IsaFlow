@@ -26,6 +26,13 @@ vi.mock('@/lib/neon', async () => {
   const sqlMock = Object.assign(vi.fn(), { transaction: vi.fn() });
   return { ...actual, sql: sqlMock };
 });
+// approveVATAdjustment locks the row and wraps its writes in a savepoint, both on
+// the request transaction's client (R-051); a stub client stands in for it.
+vi.mock('@/lib/als', () => ({
+  als: { getStore: () => ({ client: { query: vi.fn(async () => ({ rows: [] })) } }) },
+  assertTxUsable: vi.fn(),
+  markTxUnusable: vi.fn(),
+}));
 vi.mock('@/lib/logger', () => ({
   log: { info: vi.fn(), error: vi.fn(), warn: vi.fn() },
 }));

@@ -12,6 +12,7 @@ import { log } from '@/lib/logger';
 import {
   approveVATAdjustment,
   cancelVATAdjustment,
+  VatAdjustmentRefusal,
 } from '@/modules/accounting/services/reports/vatAdjustmentService';
 
 async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse) {
@@ -38,6 +39,11 @@ async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse) {
         return apiResponse.badRequest(res, `Unknown action: ${action}`);
     }
   } catch (err) {
+    if (err instanceof VatAdjustmentRefusal) {
+      if (err.kind === 'not_found') return apiResponse.notFound(res, 'VAT adjustment', String(req.body?.id));
+      if (err.kind === 'contended') return apiResponse.conflict(res, err.message);
+      return apiResponse.badRequest(res, err.message);
+    }
     log.error('VAT adjustment action failed', { error: err }, 'accounting-api');
     return apiResponse.badRequestFromError(res, err, 'Action failed');
   }
