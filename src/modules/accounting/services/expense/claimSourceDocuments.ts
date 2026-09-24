@@ -22,11 +22,13 @@ import type { DbRow } from '@/lib/neon';
 import { als } from '@/lib/als';
 import { releaseCapturedDocumentPostingClaim } from '@/modules/accounting/services/capture/capturePostingClaimRelease';
 
-export type ClaimSourceDocumentRefusal = 'not_found' | 'already_posted' | 'rejected' | 'duplicate' | 'busy';
+export type ClaimSourceDocumentRefusal =
+  'not_found' | 'already_posted' | 'on_claim' | 'rejected' | 'duplicate' | 'busy';
 
 const MESSAGE: Record<ClaimSourceDocumentRefusal, string> = {
   not_found: 'Source document not found',
   already_posted: 'Document already posted',
+  on_claim: 'Document is already on another expense claim',
   rejected: 'Document was rejected — reopen it before posting',
   duplicate: 'The same source document is on more than one line',
   busy: 'A source document is being posted by another request — retry in a moment',
@@ -56,7 +58,10 @@ export async function claimLineSourceDocuments(
   companyId: string,
   lines: ReadonlyArray<{ sourceDocumentId?: string | null }>,
 ): Promise<void> {
-  const ids = lines.map((l) => l.sourceDocumentId).filter((id): id is string => !!id);
+  // Lower-cased: Postgres returns uuids lower-case, and the refusal lookup and
+  // the duplicate check compare strings.
+  const ids = lines.map((l) => l.sourceDocumentId).filter((id): id is string => !!id)
+    .map((id) => id.toLowerCase());
   if (ids.length === 0) return;
   const duplicate = ids.find((id, i) => ids.indexOf(id) !== i);
   if (duplicate) throw new ClaimSourceDocumentError('duplicate', duplicate);
@@ -83,6 +88,14 @@ export async function claimLineSourceDocuments(
          AND company_id = ${companyId}
          AND posted_at IS NULL
          AND status <> 'rejected'
+         -- Lines written before R-105 never stamped posted_at: a slip on a live
+         -- claim line is taken whatever its posted_at says.
+         AND NOT EXISTS (
+           SELECT 1 FROM expense_claim_lines ecl
+             JOIN expense_claims ec ON ec.id = ecl.claim_id AND ec.company_id = ecl.company_id
+            WHERE ecl.source_document_id = captured_documents.id
+              AND ecl.company_id = captured_documents.company_id
+              AND ec.status NOT IN ('rejected', 'cancelled'))
        FOR UPDATE
     )
     UPDATE captured_documents cd
@@ -98,20 +111,27 @@ export async function claimLineSourceDocuments(
   if (client) await client.query('SET LOCAL lock_timeout = DEFAULT');
   if (claimed.length === ids.length) return;
   // Some slips stamped and not all: only possible if the lock above stopped
-  // holding the set (tested by removing it). A 4xx here would COMMIT the partial stamps, so this is an
-  // error the request rolls back, never a refusal.
+  // holding the set (tested by removing it). A 4xx here would COMMIT the
+  // partial stamps, so this is an error the request rolls back, never a refusal.
   if (claimed.length > 0) {
     throw new Error(`Partial source-document claim (${claimed.length} of ${ids.length}); rolled back`);
   }
 
   const rows = (await sql`
-    SELECT id, status, posted_at FROM captured_documents
-     WHERE id = ANY(${ids}::uuid[]) AND company_id = ${companyId}`) as DbRow[];
+    SELECT cd.id, cd.status, cd.posted_at,
+           EXISTS (
+             SELECT 1 FROM expense_claim_lines ecl
+               JOIN expense_claims ec ON ec.id = ecl.claim_id AND ec.company_id = ecl.company_id
+              WHERE ecl.source_document_id = cd.id AND ecl.company_id = cd.company_id
+                AND ec.status NOT IN ('rejected', 'cancelled')) AS on_claim
+      FROM captured_documents cd
+     WHERE cd.id = ANY(${ids}::uuid[]) AND cd.company_id = ${companyId}`) as DbRow[];
   const byId = new Map(rows.map((r) => [String(r.id), r]));
   for (const id of ids) {
     const row = byId.get(id);
     if (!row) throw new ClaimSourceDocumentError('not_found', id);
     if (row.posted_at != null) throw new ClaimSourceDocumentError('already_posted', id);
+    if (row.on_claim === true) throw new ClaimSourceDocumentError('on_claim', id);
     if (row.status === 'rejected') throw new ClaimSourceDocumentError('rejected', id);
   }
   // Every slip read as claimable a moment after the claim refused one: a
