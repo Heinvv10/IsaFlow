@@ -3,13 +3,15 @@
  * Phase 1 Sage Alignment: Manual VAT corrections with GL posting
  */
 
-import { sql } from '@/lib/neon';
+import { sql, withSavepoint } from '@/lib/neon';
+import { als, assertTxUsable } from '@/lib/als';
 import { fmtDate } from '@/lib/fmtDate';
 import type { DbRow } from '@/lib/neon';
 import { log } from '@/lib/logger';
 import { createJournalEntry, postJournalEntry } from '../gl/journalEntryService';
 import { getSystemAccount } from '../gl/systemAccountResolver';
 import { resolveUserUuid } from '../gl/journalEntryCrudService';
+import { isLockContention } from '../core/lockContention';
 import type { VATAdjustment, VATAdjustmentCreateInput } from '../../types/gl.types';
 import type { JournalLineInput } from '../../types/gl.types';
 type Row = DbRow;
@@ -64,16 +66,57 @@ export async function createVATAdjustment(companyId: string,
   return mapRow(rows[0]!);
 }
 
+/**
+ * Why an approval was refused. Every refusal is raised before the first write,
+ * so the route may answer it 4xx: `withAuth` COMMITs a 4xx, and here there is
+ * nothing to commit.
+ */
+export class VatAdjustmentRefusal extends Error {
+  readonly code = 'VAT_ADJUSTMENT_REFUSED';
+  constructor(readonly kind: 'not_found' | 'not_draft' | 'contended', message: string) {
+    super(message);
+    this.name = 'VatAdjustmentRefusal';
+  }
+}
+
+/**
+ * The adjustment row under `FOR UPDATE` for the rest of the request, with a
+ * bounded wait. This is the guard (R-051): the status read and the journal it
+ * decides on used to be unlocked, so two approvals both read 'draft' and both
+ * posted. Holding the row makes the second wait for the first to commit, then
+ * read 'approved' and refuse. `cancelVATAdjustment`'s `status = 'draft'` UPDATE
+ * waits on the same row, so a cancel cannot slip in either.
+ */
+async function lockAdjustmentForUpdate(companyId: string, id: string): Promise<Row | null> {
+  const client = als.getStore()?.client;
+  if (!client) {
+    throw new Error('approveVATAdjustment requires a request transaction (withAuth / als.run); outside one FOR UPDATE locks nothing.');
+  }
+  assertTxUsable();
+  await client.query("SET LOCAL lock_timeout = '5s'");
+  try {
+    const rows = (await sql`
+      SELECT * FROM vat_adjustments WHERE id = ${id} AND company_id = ${companyId} FOR UPDATE`) as Row[];
+    // Reset on success only: after a timeout the tx is aborted and this would mask the error.
+    await client.query('SET LOCAL lock_timeout = DEFAULT');
+    return rows[0] ?? null;
+  } catch (err) {
+    if (isLockContention(err)) {
+      throw new VatAdjustmentRefusal('contended', 'This VAT adjustment is being changed by another request — retry in a moment.');
+    }
+    throw err;
+  }
+}
+
 export async function approveVATAdjustment(companyId: string,
   id: string,
   userId: string
 ): Promise<VATAdjustment> {
   const safeUserId = await resolveUserUuid(userId);
-  const vaRows = (await sql`SELECT * FROM vat_adjustments WHERE id = ${id} AND company_id = ${companyId}`) as Row[];
-  if (!vaRows[0]) throw new Error('VAT adjustment not found');
-  if (vaRows[0].status !== 'draft') throw new Error('VAT adjustment is not in draft status');
+  const va = await lockAdjustmentForUpdate(companyId, id);
+  if (!va) throw new VatAdjustmentRefusal('not_found', 'VAT adjustment not found');
+  if (va.status !== 'draft') throw new VatAdjustmentRefusal('not_draft', 'VAT adjustment is not in draft status');
 
-  const va = vaRows[0];
   const amount = Number(va.amount);
   const isInput = va.adjustment_type === 'input';
 
@@ -110,23 +153,29 @@ export async function approveVATAdjustment(companyId: string,
   // captured_documents(id) only (migration 409); a VAT adjustment's own id
   // would violate it. The adjustment <-> journal entry link is instead
   // persisted below via vat_adjustments.gl_journal_entry_id.
-  const je = await createJournalEntry(companyId, {
-    entryDate,
-    description: `VAT adjustment ${va.adjustment_number}`,
-    source: 'auto_vat_adjustment',
-    lines,
-  }, safeUserId);
-  await postJournalEntry(companyId, je.id, safeUserId);
+  // All or nothing. postJournalEntry refuses some journals only AFTER the draft
+  // exists (a closed fiscal period, an inactive account), and the route answers
+  // that refusal 400, which withAuth COMMITs — the draft used to stay behind.
+  // The savepoint rolls the draft back with the refusal.
+  return withSavepoint('vat_adjustment_approve', async () => {
+    const je = await createJournalEntry(companyId, {
+      entryDate,
+      description: `VAT adjustment ${va.adjustment_number}`,
+      source: 'auto_vat_adjustment',
+      lines,
+    }, safeUserId);
+    await postJournalEntry(companyId, je.id, safeUserId);
 
-  const updated = (await sql`
-    UPDATE vat_adjustments
-    SET status = 'approved', approved_by = ${safeUserId}::UUID, approved_at = NOW(),
-        gl_journal_entry_id = ${je.id}::UUID
-    WHERE id = ${id} AND company_id = ${companyId} RETURNING *
-  `) as Row[];
+    const updated = (await sql`
+      UPDATE vat_adjustments
+      SET status = 'approved', approved_by = ${safeUserId}::UUID, approved_at = NOW(),
+          gl_journal_entry_id = ${je.id}::UUID
+      WHERE id = ${id} AND company_id = ${companyId} RETURNING *
+    `) as Row[];
 
-  log.info('Approved VAT adjustment', { id, journalEntryId: je.id }, 'accounting');
-  return mapRow(updated[0]!);
+    log.info('Approved VAT adjustment', { id, journalEntryId: je.id }, 'accounting');
+    return mapRow(updated[0]!);
+  });
 }
 
 export async function cancelVATAdjustment(companyId: string, id: string): Promise<void> {

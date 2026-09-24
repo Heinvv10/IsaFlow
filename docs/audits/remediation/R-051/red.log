@@ -1,0 +1,14 @@
+# R-051 (residual: approveVATAdjustment) RED — tests/integration/r051-vat-adjustment-approve.int.test.ts against origin/master a30e44177, 2026-09-24T21:18:13+02:00
+# 'deterministic': the test holds the adjustment row so the first approval stalls after posting its journal (in a fiscal
+# year it had to create), starts a second approval while the first is uncommitted, then releases. Both answer 200 and
+# two journals post — red 3/3 runs. The free race (Promise.all) is red only sometimes: when it passes on master the loser
+# died on 23505 uq_gl_je_company_entry_number or 40P01 deadlock (answered 400 'Action failed'), i.e. by accident.
+# 404: a foreign id answers 400 'Action failed'. 409: no lock, so the approval blocks on the held row until the test times out.
+     × a second approval that read draft while the first was still in flight does not post again (deterministic) 92ms
+     × answers 404 for another company's adjustment, and writes nothing 6ms
+     × answers 409 while another request holds the adjustment, and posts nothing 30001ms
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 3 ⎯⎯⎯⎯⎯⎯⎯
+AssertionError: expected [ 200, 200 ] to deeply equal [ 200, 400 ]
+AssertionError: {"success":false,"error":{"code":"BAD_REQUEST","message":"Action failed"},"meta":{"timestamp":"2026-09-24T19:18:14.662Z"}}: expected 400 to be 404 // Object.is equality
+ Test Files  1 failed (1)
+      Tests  3 failed | 5 passed (8)
