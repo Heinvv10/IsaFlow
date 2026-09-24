@@ -70,11 +70,17 @@ export async function claimLineSourceDocuments(
   companyId: string,
   lines: ReadonlyArray<{ sourceDocumentId?: string | null }>,
 ): Promise<void> {
-  // Lower-cased: Postgres returns uuids lower-case, and the refusal lookup and
-  // the duplicate check compare strings.
-  const ids = lines.map((l) => l.sourceDocumentId).filter((id): id is string => !!id)
-    .map((id) => id.toLowerCase());
-  if (ids.length === 0) return;
+  // Canonical form (lower-case, hyphenated): Postgres accepts braces, missing
+  // hyphens and upper case, and returns the canonical form, while the refusal
+  // lookup and the duplicate check compare strings. A malformed id is refused
+  // as not found here rather than failing the uuid cast.
+  const raw = lines.map((l) => l.sourceDocumentId).filter((id): id is string => !!id);
+  if (raw.length === 0) return;
+  const ids = raw.map((id) => {
+    const hex = id.toLowerCase().replace(/^\{|\}$/g, '').replace(/-/g, '');
+    if (!/^[0-9a-f]{32}$/.test(hex)) throw new ClaimSourceDocumentError('not_found', id);
+    return `${hex.slice(0, 8)}-${hex.slice(8, 12)}-${hex.slice(12, 16)}-${hex.slice(16, 20)}-${hex.slice(20)}`;
+  });
   const duplicate = ids.find((id, i) => ids.indexOf(id) !== i);
   if (duplicate) throw new ClaimSourceDocumentError('duplicate', duplicate);
 
