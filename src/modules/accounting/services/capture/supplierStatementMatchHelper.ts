@@ -176,15 +176,22 @@ export function buildInserts(
   const matchedIds = new Set<string>();
   const confidences: number[] = [];
   const inserts: LineInsert[] = [];
+  // A ledger invoice satisfies at most one statement line: consume it from the
+  // pool once claimed so a repeated charge stays visible as unmatched.
+  const pool = [...invoices];
 
   for (const line of extractedLines) {
     const { invoiceId, confidence, mismatchReason } = matchLine(
       line.reference,
       line.debit,
       line.date,
-      invoices,
+      pool,
     );
-    if (invoiceId) matchedIds.add(invoiceId);
+    if (invoiceId) {
+      matchedIds.add(invoiceId);
+      const idx = pool.findIndex((inv) => inv.id === invoiceId);
+      if (idx >= 0) pool.splice(idx, 1);
+    }
     if (confidence != null) confidences.push(confidence);
     inserts.push({
       reconciliationId: reconId,
