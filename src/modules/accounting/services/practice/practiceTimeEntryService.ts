@@ -190,13 +190,14 @@ export async function updatePracticeEntry(
   const effectiveHours = roundHours(input.hours ?? Number(row.hours));
   const lineTotal = lineTotalFor(effectiveHours, appliedRate);
 
+  // R-120: store effectiveHours, not raw input — PG rounds 1.005 up, JS down; the line must match.
   const updateNotes = 'notes' in input;
   const notesValue = input.notes ?? null;
 
   const rows = (await sql`
     UPDATE time_entries SET
       entry_date         = COALESCE(${input.entryDate ?? null}::DATE, entry_date),
-      hours              = COALESCE(${input.hours ?? null}, hours),
+      hours              = COALESCE(${input.hours !== undefined ? effectiveHours : null}, hours),
       practice_client_id = COALESCE(${input.practiceClientId ?? null}::UUID, practice_client_id),
       job_category_id    = COALESCE(${input.jobCategoryId ?? null}::UUID, job_category_id),
       work_item_id       = COALESCE(${input.workItemId ?? null}::UUID, work_item_id),

@@ -12682,6 +12682,34 @@
       "reportedSeverity": "medium",
       "processNotes": "2026-09-24: reproduced and widened. Beyond the masking, the red run found that taxRate 101 BOOKED an invoice (201) and that a negative time entry inside a positive selection booked as an embedded credit line. It also found that the page read json.error as a string, and that lock contention was a masked 400. Severity raised low→medium: real invoices with wrong figures. Census SELECT in fix.md. Review round 1 widened it again: a 3-decimal tax rate, a line_total inconsistent with hours × rate, and a cross-tenant link_customer_id all booked, and are now refused. A partial selection now reports skippedEntryCount (K-040 keeps billing the remainder). Round 2: the consistency refusal had no exit for approved entries. Hein chose to refuse and fix the source: core updateTimeEntry no longer edits a practice entry's hours or rate, and the refusals name write-off + re-log. Run the stuck-entry census before deploying.",
       "branch": "fix/r120-wip-refusal-message-20260924"
+    },
+    {
+      "id": "R-121",
+      "claim": "practiceTimeEntryService.ts INSERTs (line ~122) and UPDATEs (line ~209) time_entries.amount since 3e10dd811 (2026-04-19). No file in scripts/migrations/sql adds that column (git log -S finds none), and neither the schema fixture nor isaflow_dev has it (information_schema, 2026-09-24). So creating or editing a practice time entry raises 42703 there; duplicatePracticeEntry and bulk-from-template go through createPracticeEntry.",
+      "area": "practice",
+      "affectedPaths": [
+        "src/modules/accounting/services/practice/practiceTimeEntryService.ts"
+      ],
+      "sourceLabel": "R-120 review round 3 (adversarial), side finding",
+      "sourceIds": [],
+      "correctedTrigger": null,
+      "severityRationale": "If production lacks the column, practice time capture is broken there; if it has it (added by hand), every repo-built database (dev, fixture, restores) diverges from production. Not yet reproduced end to end; prod unchecked.",
+      "auditedSha": "af7578b79",
+      "currentSha": "af7578b79",
+      "status": "candidate",
+      "dependencies": [],
+      "testNames": [],
+      "evidencePaths": [],
+      "fixCommit": null,
+      "pr": null,
+      "deployedSha": null,
+      "historicalDataImpact": "None known. The prod journal (from 2026-09-20) shows no practice time-entry requests at all.",
+      "canonicalItem": null,
+      "reportedSeverity": "high",
+      "processNotes": "2026-09-24: for Hein, read-only — SELECT column_name, data_type FROM information_schema.columns WHERE table_name='time_entries' AND column_name='amount'; If present on prod, the fix is a migration adding it IF NOT EXISTS; if absent, drop the column from the two writers (line_total is the figure).",
+      "branch": null,
+      "severity": "high",
+      "title": "time_entries.amount is written by createPracticeEntry/updatePracticeEntry but no migration creates it — practice time capture fails 42703 on any schema built from the repo"
     }
   ],
   "sourceInventory": [

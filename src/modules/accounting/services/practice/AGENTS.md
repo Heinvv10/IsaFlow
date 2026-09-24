@@ -47,6 +47,8 @@ Invoked by `withCompany`-wrapped API routes in `pages/api/accounting/practice/*`
   - a linked customer that is not a live customer of THIS company. There is no FK, and a legacy cross-tenant link used to bill another tenant's customer;
   - an entry with a negative, NULL or non-numeric rate, or a `line_total` more than 1c from `round2(hours × applied_rate)` (`assertWipEntryLines`). This is checked per line, not on the sum, because a small negative entry inside a positive selection used to book as a credit embedded in a sale. `time_entries` CHECKs `hours > 0`, but nothing constrains `rate` or `line_total`.
 
+  `updatePracticeEntry` now stores `effectiveHours` (the rounded value its line is computed from), not the raw input: NUMERIC(6,2) rounds 1.005 to 1.01 while JS rounds it to 1.00, and the raw value made a line WIP refuses. The refusals send the operator to Approvals, status "Approved, not billed", to write the entry off. `time_entries.amount`, written by create and update, exists in no migration: see R-121.
+
   A partly ineligible selection still bills the remainder, as K-040 requires. The result's `skippedEntryCount` says how many entries were left out, and the page shows it.
 
   The route answers a `WipInvoiceRefusal` with 400 and its message, and a body that fails its zod schema (`UUID` = `z.guid()`) with 400 naming the field. Everything else is re-thrown to `withErrorHandler`. `WipEntriesLockedError` is now in `respondIfLockTimeout` (503 + Retry-After). Its "retry" message had been masked inside a 400. The page reads the error through `assertOk`/`apiErrorMessage`; it used to read `json.error` as a string, which printed "[object Object]".
