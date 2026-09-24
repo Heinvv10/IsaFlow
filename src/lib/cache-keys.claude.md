@@ -6,7 +6,7 @@ Centralised TTL constants and `companyId`-prefixed cache key generators — prev
 ## Key exports
 
 - `CACHE_TTL` — object of TTL constants (ms):
-  - `REFERENCE_DATA` — 5 min (GL accounts, customers, suppliers, items)
+  - `REFERENCE_DATA` — 5 min (GL accounts, customers, items); the supplier list is deliberately not cached (K-139)
   - `REPORT_RESULTS` — 2 min (report query results)
   - `PERMISSIONS` — 10 min (user permissions)
   - `SETTINGS` — 15 min (company settings)
@@ -15,7 +15,6 @@ Centralised TTL constants and `companyId`-prefixed cache key generators — prev
   - `glAccounts(companyId)` → `"<id>:gl-accounts"`
   - `glAccountsInactive(companyId)` → `"<id>:gl-accounts:all"` (includes inactive)
   - `customers(companyId)` → `"<id>:customers"`
-  - `suppliers(companyId)` → `"<id>:suppliers"`
   - `items(companyId)` → `"<id>:items"`
   - `report(companyId, type, paramsHash)` → `"<id>:report:<type>:<hash>"`
   - `permissions(companyId, userId)` → `"<id>:perms:<userId>"`

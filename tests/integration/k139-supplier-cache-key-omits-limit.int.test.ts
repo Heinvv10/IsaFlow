@@ -83,4 +83,20 @@ describeIfDb('K-139 the supplier list cache must not serve the wrong page size',
     expect(large.total).toBe(SUPPLIER_COUNT);
     expect(large.suppliers).toHaveLength(SUPPLIER_COUNT);
   });
+
+  // Merge, soft-delete, MCP, capture and the import services all write
+  // `suppliers` without going through this route, so no invalidation can
+  // follow them. The default page must reflect such a write immediately.
+  it('reflects a supplier deleted by another write path on the very next default-page read', async () => {
+    const before = await list('25');
+    const victim = (before.suppliers[0] as { id: string }).id;
+    await admin.query('UPDATE suppliers SET deleted_at = NOW() WHERE id = $1 AND company_id = $2', [victim, COMPANY]);
+    try {
+      const after = await list('25');
+      expect(after.total).toBe(SUPPLIER_COUNT - 1);
+      expect(after.suppliers.map((s) => (s as { id: string }).id)).not.toContain(victim);
+    } finally {
+      await admin.query('UPDATE suppliers SET deleted_at = NULL WHERE id = $1 AND company_id = $2', [victim, COMPANY]);
+    }
+  });
 });
