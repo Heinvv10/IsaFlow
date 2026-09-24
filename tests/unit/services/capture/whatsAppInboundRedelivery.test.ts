@@ -1,4 +1,9 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
+const { removeMock } = vi.hoisted(() => ({ removeMock: vi.fn(async () => undefined) }));
+vi.mock('@/lib/supabaseStorage', () => ({
+  removeCapturedDocument: (...a: unknown[]) => removeMock(...(a as [])),
+}));
+
 import { sqlMock, routeEventMock, findOpenQueryMock, attachReplyMediaMock, markQueryRepliedMock, ingestedPartsMock, ingestTwilioPayload, COMPANY_ID, DOC_ID, makePayload, makeInboxRow, makeMediaPayload, resetMocks } from './whatsAppInbound.helpers';
 
 // K-160: a Twilio redelivery of an already-ingested message must not re-ingest,
@@ -6,7 +11,10 @@ import { sqlMock, routeEventMock, findOpenQueryMock, attachReplyMediaMock, markQ
 // the bank-tx query reply.
 describe('Twilio redelivery (K-160)', () => {
   const OPEN_QUERY = { id: 'q1', bankTransactionId: 'tx1', status: 'sent' as const };
-  beforeEach(resetMocks);
+  beforeEach(() => {
+    resetMocks();
+    removeMock.mockReset().mockResolvedValue(undefined);
+  });
 
   it('looks up ingested parts for this company and MessageSid', async () => {
     vi.mocked(sqlMock).mockResolvedValueOnce([makeInboxRow()] as never);
@@ -43,7 +51,7 @@ describe('Twilio redelivery (K-160)', () => {
     expect(markQueryRepliedMock).not.toHaveBeenCalled();
   });
 
-  it('a delivery that loses the insert race discards its document and does not route it', async () => {
+  function mockLostRace() {
     process.env.TWILIO_ACCOUNT_SID = 'ACtest';
     process.env.TWILIO_AUTH_TOKEN = 'token';
     vi.stubGlobal('fetch', vi.fn().mockResolvedValue({
@@ -58,16 +66,31 @@ describe('Twilio redelivery (K-160)', () => {
       .mockResolvedValueOnce([] as never)                // UPDATE storage pointer
       .mockResolvedValueOnce([] as never)                // INSERT capture_events → conflict
       .mockResolvedValueOnce([] as never);               // DELETE own document
+  }
 
+  it('a delivery that loses the insert race discards its document and object and does not route it', async () => {
+    mockLostRace();
     const result = await ingestTwilioPayload(makeMediaPayload(1, 'here is the slip'));
 
     expect(result).toEqual({ captureEventIds: [], companyId: COMPANY_ID, parsedCommand: null });
     const deleteCall = vi.mocked(sqlMock).mock.calls[4]!;
     expect((deleteCall[0] as unknown as string[]).join('?')).toMatch(/DELETE FROM captured_documents/);
     expect(deleteCall.slice(1)).toEqual([DOC_ID, COMPANY_ID]);
+    expect(removeMock).toHaveBeenCalledWith('captured-documents', 'company/doc-id');
     expect(routeEventMock).not.toHaveBeenCalled();
     expect(attachReplyMediaMock).not.toHaveBeenCalled();
     expect(markQueryRepliedMock).not.toHaveBeenCalled();
+    vi.unstubAllGlobals();
+  });
+
+  it('a failed object delete is logged and the delivery still resolves', async () => {
+    mockLostRace();
+    removeMock.mockRejectedValueOnce(new Error('storage down'));
+
+    const result = await ingestTwilioPayload(makeMediaPayload(1));
+
+    expect(removeMock).toHaveBeenCalledTimes(1);
+    expect(result).toEqual({ captureEventIds: [], companyId: COMPANY_ID, parsedCommand: null });
     vi.unstubAllGlobals();
   });
 });
