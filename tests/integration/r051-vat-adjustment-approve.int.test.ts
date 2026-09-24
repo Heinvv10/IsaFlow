@@ -15,6 +15,8 @@ import { Pool } from 'pg';
 import { SignJWT } from 'jose';
 import actionRoute from '../../pages/api/accounting/vat-adjustments-action';
 import { assertDisposable, request, response } from './mfa-impersonation-postgres.helpers';
+import { als } from '@/lib/als';
+import { approveVATAdjustment, VatAdjustmentRefusal } from '@/modules/accounting/services/reports/vatAdjustmentService';
 
 assertDisposable();
 const pool = new Pool({ connectionString: process.env.DATABASE_URL, max: 4 });
@@ -228,6 +230,25 @@ describe('R-051: approving a VAT adjustment posts its journal once', () => {
 
     expect(out.statusCode, JSON.stringify(out.body)).toBe(404);
     expect((await pool.query('SELECT status FROM vat_adjustments WHERE id=$1', [foreign])).rows[0].status).toBe('draft');
+  });
+
+  it('the company scope holds without RLS: the service refuses a foreign id on a BYPASSRLS connection', async () => {
+    // The route runs as app_user, where RLS alone would hide the row; this pins the
+    // service's own company_id predicate for callers that run without RLS (cron, admin).
+    const foreign = await seedAdjustment(otherCompany);
+    const c = await pool.connect();
+    let caught: unknown;
+    try {
+      await c.query('BEGIN');
+      await als.run({ client: c, userId: user, companyId: company, claims: {} } as never,
+        () => approveVATAdjustment(company, foreign, user)).catch((e: unknown) => { caught = e; });
+    } finally {
+      await c.query('ROLLBACK');
+      c.release();
+    }
+
+    expect(caught).toBeInstanceOf(VatAdjustmentRefusal);
+    expect((caught as VatAdjustmentRefusal).kind).toBe('not_found');
   });
 
   it('answers 409 while another request holds the adjustment, and posts nothing', async () => {
