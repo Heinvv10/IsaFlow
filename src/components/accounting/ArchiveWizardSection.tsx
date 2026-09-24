@@ -1,9 +1,10 @@
 /**
  * Archive Wizard section for the Data Archiving page.
- * Contains the cutoff date picker, validate/preview/archive buttons, and result displays.
+ * Contains the cutoff date picker, validate/preview buttons, and result displays.
+ * Executing an archive is switched off (the route refuses it); the notice says why.
  */
 
-import { Archive, CheckCircle2, XCircle, Eye, Loader2 } from 'lucide-react';
+import { AlertTriangle, CheckCircle2, XCircle, Eye, Loader2 } from 'lucide-react';
 import type { ArchivePreview, ArchiveValidation } from '@/modules/accounting/services/core/dataArchivingService';
 
 interface Props {
@@ -13,18 +14,14 @@ interface Props {
   validating: boolean;
   preview: ArchivePreview | null;
   previewing: boolean;
-  archiving: boolean;
-  archiveError: string | null;
-  archiveSuccess: boolean;
   onCutoffChange: (v: string) => void;
   onValidate: () => void;
   onPreview: () => void;
-  onRequestArchive: () => void;
 }
 
 export function ArchiveWizardSection({
   cutoffDate, maxCutoff, validation, validating, preview, previewing,
-  archiving, archiveError, archiveSuccess, onCutoffChange, onValidate, onPreview, onRequestArchive,
+  onCutoffChange, onValidate, onPreview,
 }: Props) {
   return (
     <div className="space-y-6">
@@ -48,10 +45,15 @@ export function ArchiveWizardSection({
           className="flex items-center gap-2 text-sm px-4 py-2 rounded-lg border border-[var(--ff-border)] hover:bg-[var(--ff-bg-secondary)] text-[var(--ff-text-primary)] disabled:opacity-50 disabled:cursor-not-allowed transition-colors">
           {previewing ? <Loader2 className="h-4 w-4 animate-spin" /> : <Eye className="h-4 w-4" />} Preview
         </button>
-        <button onClick={onRequestArchive} disabled={!validation?.valid || archiving}
-          className="flex items-center gap-2 text-sm px-4 py-2 rounded-lg bg-red-600 hover:bg-red-700 text-white disabled:opacity-50 disabled:cursor-not-allowed transition-colors">
-          {archiving ? <Loader2 className="h-4 w-4 animate-spin" /> : <Archive className="h-4 w-4" />} Archive Now
-        </button>
+      </div>
+
+      <div className="flex items-start gap-2 rounded-lg border border-amber-300 bg-amber-50 p-4 text-sm text-amber-900">
+        <AlertTriangle className="h-5 w-5 text-amber-600 flex-shrink-0 mt-0.5" />
+        <p>
+          Archiving is switched off. It deletes posted journals, and the reports do not read the archive,
+          so every trial balance, balance sheet and VAT return before the cutoff would change.
+          Validate and Preview still show what an archive would cover.
+        </p>
       </div>
 
       {validation && (
@@ -91,19 +93,6 @@ export function ArchiveWizardSection({
               <dd className="text-lg font-bold text-teal-800">{preview.totalRecords.toLocaleString()}</dd>
             </div>
           </dl>
-        </div>
-      )}
-
-      {archiveSuccess && (
-        <div className="flex items-center gap-2 rounded-lg border border-green-300 bg-green-50 p-4 text-sm text-green-800">
-          <CheckCircle2 className="h-5 w-5 text-green-600 flex-shrink-0" />
-          Archive completed successfully. Data has been moved to archive tables.
-        </div>
-      )}
-      {archiveError && (
-        <div className="flex items-center gap-2 rounded-lg border border-red-300 bg-red-50 p-4 text-sm text-red-800">
-          <XCircle className="h-5 w-5 text-red-600 flex-shrink-0" />
-          {archiveError}
         </div>
       )}
     </div>
