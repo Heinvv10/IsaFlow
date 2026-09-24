@@ -32,8 +32,9 @@ const RETRYABLE_LOCK_ERRORS = new Set(['55P03', '40P01']);
 /**
  * Raised when another run holds the selected entries longer than the 5s
  * `lock_timeout`, or when Postgres breaks a lock cycle between two overlapping
- * runs. The WIP route answers a caught service error's message as a 400, so
- * this wording is what the caller reads — it has to say "retry".
+ * runs. `respondIfLockTimeout` answers it 503 + Retry-After with this message
+ * (R-120: the route used to fold it into a masked 400), so the wording is what
+ * the caller reads — it has to say "retry".
  */
 export class WipEntriesLockedError extends Error {
   readonly code = 'WIP_ENTRIES_LOCKED';

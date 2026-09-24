@@ -6,7 +6,10 @@ import { markEntriesBilled } from './practiceTimeEntryWorkflow';
 import { insertWithReservedNumber } from '../core/documentNumberRetry';
 import { mapEntry } from './practiceTimeEntryService';
 import { lockEligibleWipEntries } from './wipEntryLock';
+import { WipInvoiceRefusal, assertWipTaxRate, assertWipEntryLines } from './wipInvoiceGuards';
 import type { PracticeTimeEntry } from './practiceTimeEntryTypes';
+
+export { WipInvoiceRefusal } from './wipInvoiceGuards';
 
 export interface WipClientRow {
   practiceClientId: string;
@@ -142,6 +145,8 @@ export async function generateWipInvoice(
   userId: string,
   input: GenerateWipInvoiceInput,
 ): Promise<WipInvoiceResult> {
+  const taxRate = assertWipTaxRate(input.taxRate);
+
   // 1. Validate practice client — active + link_customer_id required
   const clientRows = (await sql`
     SELECT id, status, link_customer_id FROM practice_clients
@@ -149,9 +154,9 @@ export async function generateWipInvoice(
       AND company_id = ${companyId}::UUID
   `) as DbRow[];
   if (!clientRows[0] || clientRows[0].status !== 'active')
-    throw new Error('practice client not found or not active');
+    throw new WipInvoiceRefusal('practice client not found or not active');
   if (!clientRows[0].link_customer_id)
-    throw new Error('practice client has no linked AR customer — set link_customer_id before generating an invoice');
+    throw new WipInvoiceRefusal('practice client has no linked AR customer — set link_customer_id before generating an invoice');
   const customerId = String(clientRows[0].link_customer_id);
 
   // 2. Load eligible entries, holding a row lock on each for the rest of the
@@ -161,10 +166,11 @@ export async function generateWipInvoice(
   //    predicate re-evaluates against the billed row and the entry drops out.
   const entries = await lockEligibleWipEntries(companyId, input.practiceClientId, input.timeEntryIds);
 
-  if (!entries.length) throw new Error('no eligible approved time entries in selection');
+  if (!entries.length) throw new WipInvoiceRefusal('no eligible approved time entries in selection');
+
+  assertWipEntryLines(entries);
 
   const subtotal = round2(entries.reduce((s, e) => s + Number(e.line_total ?? 0), 0));
-  const taxRate = input.taxRate ?? 15;
   const taxAmount = round2(subtotal * (taxRate / 100));
   const totalAmount = round2(subtotal + taxAmount);
   const invDate = input.invoiceDate ?? new Date().toISOString().split('T')[0]!;
@@ -263,7 +269,7 @@ export async function generateWipInvoice(
       log.error('WIP invoice billed fewer entries than selected — rolling back', {
         invoiceId, invoiceNumber, marked, selected: eligibleIds.length,
       }, 'practice');
-      throw new Error('time entries were billed concurrently — invoice not generated');
+      throw new WipInvoiceRefusal('time entries were billed concurrently — invoice not generated');
     }
 
     log.info('Generated WIP invoice', {

@@ -1,0 +1,12 @@
+# R-120 mutations. Each was applied alone and the named suite run: the integration suite is r120 on the fixture; the unit suite is wipInvoiceGuards.
+# First round: M4 and M6 survived. M4 was run only against the integration test, whose bad entry is negative in both rate and line. M6 was a duplicated range check in the route schema; the range now lives only in the service.
+M1 refusal re-thrown (500): RED — 6 failed | 4 passed (10)
+M2 no per-line guard: RED — 1 failed | 9 passed (10)
+M3 line guard ignores rate: RED — 1 failed | 8 passed (9)
+M4 line guard allows negative: RED — 1 failed | 8 passed (9)
+M5 service rate guard upper bound gone: RED — 1 failed | 8 passed (9)
+M6 service rate guard skipped: RED — 2 failed | 8 passed (10)
+M7 lock contention not 503: RED — 1 failed | 9 passed (10)
+M8 Zod .uuid() instead of guid: RED — 1 failed | 9 passed (10)
+M9 refusal message masked: RED — 6 failed | 4 passed (10)
+M10 page on master (reads json.error as a string), component test WipInvoiceRefusalMessage: RED (1 failed); fixed page: 1 passed.

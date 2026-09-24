@@ -57,7 +57,7 @@ Clients, staff rates, time entries, WIP, jobs/tasks, billing, reports. All servi
 - Client creation fires `seedDefaultCategories` — failure is non-fatal (warn-log, doesn't roll back)
 - `billingModel` and `status` required when creating a client
 - `rate-resolve` precedence: client-specific staff rate → default staff rate → category default
-- `wip/invoice` requires practice client has `link_customer_id` set (otherwise 400)
+- `wip/invoice` answers a `WipInvoiceRefusal` with 400 **and its own message**. That covers: no `link_customer_id`, nothing eligible, `taxRate` outside 0–100, a negative or non-numeric entry, and a concurrent billing. A body that fails the schema is a 400 naming the field. Lock contention is 503; any other error is 500 (R-120).
 
 ## Related files
 - `src/modules/accounting/services/practice/*` — clients, contacts, jobs, tasks, time-entries, rates, wip, invoice, reports, cron
