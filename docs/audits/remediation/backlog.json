@@ -12825,7 +12825,7 @@
     },
     {
       "id": "R-125",
-      "claim": "The customer-list and GL-account caches (in-process, 5-minute REFERENCE_DATA TTL) are invalidated only by some writers. customers: 10 files write the table; only customers.ts and customers-bulk.ts invalidate CACHE_KEYS.customers. gl_accounts: 12 files write it; about six invalidate the gl-accounts prefix. The cache is per process, so no invalidation reaches other processes. A write through any other path (MCP tools, merges, soft-delete, imports) serves a stale list for up to 5 minutes. Same class as K-139, where the supplier list cache was removed.",
+      "claim": "The customer-list and GL-account caches (in-process, 5-minute REFERENCE_DATA TTL) are invalidated only by some writers. customers: 10 files write the table; only customers.ts and customers-bulk.ts invalidate CACHE_KEYS.customers. gl_accounts: 12 files write it; five invalidate the gl-accounts prefix. The cache is per process, so no invalidation reaches other processes. A write through any other path (MCP tools, merges, soft-delete, imports) serves a stale list for up to 5 minutes. Same class as K-139, where the supplier list cache was removed.",
       "area": "core",
       "affectedPaths": [
         "pages/api/accounting/customers.ts",
