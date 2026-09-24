@@ -35,7 +35,7 @@ left a draft; its test is a regression test only. The closed fiscal period is th
 ## Measured (red.log)
 
 Against master's service and route: the deterministic interleaving posts two journals (both 200);
-the closed-period approval leaves a draft journal; 404 and 409 cases red. 5 of 9 tests red.
+the closed-period approval leaves a draft journal; 404 and 409 cases red. 5 of the 9 tests that existed at that run red (red.log); the BYPASSRLS scope test was added after.
 
 ## Fix
 
@@ -63,13 +63,13 @@ rev-r051-adversarial: SHIP with three LOWs; rev-r051-general: LOWs. All fixed:
 
 ## Tests
 
-- `tests/integration/r051-vat-adjustment-approve.int.test.ts` (9), through
+- `tests/integration/r051-vat-adjustment-approve.int.test.ts` (10), through
   `POST /api/accounting/vat-adjustments-action` (withAuth, app_user, RLS). The deterministic race
   holds the adjustment row from the test and tracks the blocked backends by `pg_blocking_pids`
   (never by statement text — the fixture database is shared).
 - `tests/unit/services/reports/vatAdjustmentService.test.ts` now runs inside a stub request
   transaction.
-- Mutations: 8 of 8 killed (`mutations.log`; N8 initially survived behind RLS and is killed by the BYPASSRLS scope test).
+- Mutations: 13 of 13 killed (`mutations.log`; N8 initially survived behind RLS and is killed by the BYPASSRLS scope test; N9–N13 cover review round 1).
 
 ## Census SQL for Hein (prod, read-only — agents never run this)
 
