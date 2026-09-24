@@ -188,8 +188,9 @@ export async function importSupplierInvoices(companyId: string, userId: string):
  * failed for a person to resolve rather than merged. A bill found by number
  * with no Sage id (captured by hand before the migration) is adopted only when
  * its total matches, and it takes the staged row's Sage id so the next staged
- * row under that number conflicts instead of joining it. An ARCHIVED bill of
- * this supplier under the Sage id or number also conflicts.
+ * row under that number conflicts instead of joining it. An ARCHIVED bill
+ * with this Sage id (any supplier), or of this supplier under this number,
+ * also conflicts.
  */
 async function findExistingBill(
   companyId: string, supplierId: string, sageId: string | null, invNumber: string, totalAmount: number,
@@ -208,11 +209,14 @@ async function findExistingBill(
   if (!bill) {
     // An archived bill (executeArchive deletes old paid bills, and the staging
     // link goes NULL with it, 694) is still this document: a reset + re-run
-    // must not book the settled debt again as a live bill.
+    // must not book the settled debt again as a live bill. The Sage id is
+    // matched company-wide: a supplier re-created under the same name after
+    // the archive is a new supplier_id, and the settled bill would come back.
     const [archived] = (await sql`
       SELECT 1 FROM archive_supplier_invoices
-      WHERE company_id = ${companyId}::UUID AND supplier_id = ${supplierId}::UUID
-        AND ((${sageId}::TEXT IS NOT NULL AND sage_invoice_id = ${sageId}::TEXT) OR invoice_number = ${invNumber})
+      WHERE company_id = ${companyId}::UUID
+        AND ((${sageId}::TEXT IS NOT NULL AND sage_invoice_id = ${sageId}::TEXT)
+          OR (supplier_id = ${supplierId}::UUID AND invoice_number = ${invNumber}))
       LIMIT 1
     `) as DbRow[];
     return archived ? 'conflict' : null;

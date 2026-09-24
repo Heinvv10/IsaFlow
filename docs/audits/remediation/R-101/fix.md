@@ -58,8 +58,14 @@ All runs are against the fixture database `isaflow-fixture-r112` (pg16, migratio
 ## Review round 2
 | Finding | Fix | Proof |
 |---|---|---|
-| MEDIUM (general): with the links SET NULL, archive, then reset, then re-run booked an archived, paid invoice again as a live unpaid debt. The reset-then-archive order already did this at 49cffce90, and the supplier side does it too. | Both importers now treat a document held in the archive as a conflict. On the customer side the match is by number (`archive_customer_invoices` keeps no external ref). On the supplier side it is the same supplier, by Sage id or number. | The archive-link test now runs a reset and re-run for both sides and asserts that nothing lands. Removing either check turns it red. |
+| MEDIUM (general): with the links SET NULL, archive, then reset, then re-run booked an archived, paid invoice again as a live unpaid debt. The reset-then-archive order already did this at 49cffce90, and the supplier side does it too. | Both importers now treat a document held in the archive as a conflict. On the customer side the match is by number (`archive_customer_invoices` keeps no external ref). On the supplier side it is the Sage id across the whole company, or the same supplier plus number (see round 3). | The archive-link test now runs a reset and re-run for both sides and asserts that nothing lands. Removing either check turns it red. |
 | LOW (general): the doc omitted that reset re-pends an archived row. | .claude.md entry extended. | — |
+
+## Review round 3
+| Finding | Fix | Proof |
+|---|---|---|
+| MEDIUM (adv. REPRO8): the supplier archive check was scoped to `supplier_id`, so a supplier soft-deleted and re-created under the same name after the archive let the settled bill come back as open AP. | The archived Sage id is matched across the whole company. The number match stays per supplier. | Test "re-created supplier". Re-scoping the Sage-id match per supplier turns it red. |
+| LOW (general): identity-drift edge cases in the archive check. | Recorded under "Not covered". | — |
 
 ## Two stale tests fixed on the way
 `tests/integration/api/sageMigrationService.test.ts` (B, C) and `r089-migration-run-vat-count` called `completeRun` without the `companyId` that R-021 added. They failed on master before this change, with `invalid input syntax for type integer: "NaN"` and `type uuid: "5"`. They are the only tests of `getMigrationStatus`, and this change edits that function.
@@ -69,5 +75,10 @@ None. No `customer_invoices` row can have come from this path. Migration 694 onl
 
 ## Not covered
 - `payment_terms_type = 'end_of_month'` is ignored, as it is on the supplier side.
+- The archive check fails in two edge cases:
+  - **Too broad:** a genuinely different Sage invoice that reuses a number now held only in `archive_customer_invoices` (for example, a Sage sequence restarted years later) fails the row. It fails closed and shows in the failed count.
+  - **Too narrow:** the customer archive keeps no external reference, so a document that Sage RENUMBERED between runs, after its invoice was archived, is not recognised and would be booked again. The supplier side matches the Sage id across the whole company, so it covers a renamed or re-created supplier. It is exposed only when the staged row has no Sage id.
+
+  Both cases need a reset after an archive plus identity drift in the source. Closing them needs `external_ref` on the archive tables.
 - No credit-note importer consumes `'credit_note'` rows yet.
 - The migration page (`pages/accounting/sage-migration/index.tsx`) has no customer-invoice section, so `creditNotes` is exposed through the API only.

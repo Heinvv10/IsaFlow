@@ -75,4 +75,22 @@ describe('R-101: an imported Sage document can still be archived', () => {
     expect(await live('customer_invoices')).toBe(0);
     expect(await live('supplier_invoices')).toBe(0);
   });
+
+  it('still refuses the archived bill after its supplier is re-created under the same name', async () => {
+    const supStaging = await supplierHarness.seedStaging(company, {
+      sageId: 'R101AR-S2', invoiceNumber: 'R101AR-SINV2', supplierName: NAME, total: 410, invoiceDate: '2020-02-15',
+    });
+    expect((await drive(company, () => importSupplierInvoices(company, user))).succeeded).toBe(1);
+    await pool.query("UPDATE supplier_invoices SET status='paid', amount_paid=total_amount WHERE company_id=$1", [company]);
+    await drive(company, () => executeArchive(company, '2021-01-01', user));
+    await pool.query('UPDATE suppliers SET deleted_at=NOW() WHERE company_id=$1', [company]);
+    await pool.query('INSERT INTO suppliers(company_id,name) VALUES($1,$2)', [company, NAME]);
+    await drive(company, () => resetMigration(company, 'invoices'));
+
+    const again = await drive(company, () => importSupplierInvoices(company, user));
+    expect(again.succeeded).toBe(0);
+    expect((await pool.query(
+      'SELECT migration_status FROM sage_supplier_invoices WHERE id=$1', [supStaging])).rows[0]!.migration_status).toBe('failed');
+    expect((await pool.query('SELECT count(*)::int AS n FROM supplier_invoices WHERE company_id=$1', [company])).rows[0]!.n).toBe(0);
+  });
 });

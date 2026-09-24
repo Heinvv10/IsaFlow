@@ -32,3 +32,5 @@ M-FK supplier NO ACTION:       Tests  1 failed (1)
 # Review round 2: the archive check in each importer (return archived ? 'conflict' : null  ->  null), run against r101-sage-archive-link:
 M-ARCH sageCustomerImportService:       Tests  1 failed (1)
 M-ARCH sageSupplierInvoiceImportService:       Tests  1 failed (1)
+# Review round 3: supplier archive Sage-id match re-scoped per supplier:
+M-ARCH-SCOPE (Sage id per supplier):       Tests  1 failed | 1 passed (2)
