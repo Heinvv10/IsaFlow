@@ -9,7 +9,7 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import type { NextApiRequest, NextApiResponse } from 'next';
 
-const mocks = vi.hoisted(() => ({ updateSupplier: vi.fn(), invalidate: vi.fn() }));
+const mocks = vi.hoisted(() => ({ updateSupplier: vi.fn() }));
 
 vi.mock('@/lib/neon', () => ({ sql: vi.fn(async () => []) }));
 vi.mock('@/lib/logger', () => ({ log: { info: vi.fn(), error: vi.fn(), warn: vi.fn(), debug: vi.fn() } }));
@@ -19,7 +19,6 @@ vi.mock('@/lib/auth', () => ({
 }));
 vi.mock('@/lib/api-error-handler', () => ({ withErrorHandler: (handler: unknown) => handler }));
 vi.mock('@/lib/auth/withCsrf', () => ({ withCsrf: (handler: unknown) => handler }));
-vi.mock('@/lib/cache', () => ({ cache: { invalidate: mocks.invalidate }, cacheThrough: vi.fn() }));
 vi.mock('@/modules/accounting/services/core/supplierWriteService', () => ({
   createSupplier: vi.fn(),
   updateSupplier: mocks.updateSupplier,
@@ -47,7 +46,6 @@ describe('suppliers-list PATCH — the DRC flag only', () => {
     await handler(patch({ id: SUPPLIER, subject_to_drc_vat: true, bank_account_number: '999', name: 'x' }), res);
     expect(mocks.updateSupplier).toHaveBeenCalledWith(COMPANY, SUPPLIER, { subjectToDrcVat: true });
     expect(status(res)).toBe(200);
-    expect(mocks.invalidate).toHaveBeenCalled();
   });
 
   it('refuses a missing id or a non-boolean flag before any write', async () => {

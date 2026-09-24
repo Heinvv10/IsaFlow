@@ -5,8 +5,8 @@
  * read-tool layer can call the exact same functions the API routes use. SQL
  * text and parameter semantics are unchanged from the routes. No caching
  * lives here — cacheThrough wrapping (for the uncached-list case in
- * customers.ts, and the page-1 case in suppliers-list.ts) stays in the
- * routes.
+ * customers.ts) stays in the route. The supplier list is deliberately not
+ * cached (K-139).
  */
 
 import { sql, withSavepoint } from '@/lib/neon';
