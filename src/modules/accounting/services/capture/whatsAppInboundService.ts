@@ -18,6 +18,7 @@ import {
   markQueryReplied,
 } from './bankTxQueryReplyService';
 import { fetchTwilioMedia } from './twilioMediaFetch';
+import { ingestedParts, discardLostRaceDocument, insertTextCommandEvent } from './whatsAppMessageDedupe';
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -114,9 +115,20 @@ export async function ingestTwilioPayload(
   const companyId = String(inbox.company_id);
   const inboxId = String(inbox.id);
 
+  // K-160: Twilio redelivers on any non-2xx or timeout. Parts an earlier
+  // delivery already ingested are skipped; a concurrent delivery that loses the
+  // insert race to the unique index is a duplicate too. Either way: 200, no re-ack.
+  const ingested = await ingestedParts(companyId, payload.MessageSid);
+  let duplicate = ingested.size > 0;
+  if (duplicate) {
+    log.info('whatsAppInbound: redelivered message — skipping ingested parts', {
+      companyId, messageSid: payload.MessageSid, parts: [...ingested],
+    }, 'whatsapp-inbound');
+  }
+
   // Workstream D: is this sender replying to an open bank-tx query?
   // All query-loop calls fail OPEN — a throw here would 500 the webhook and
-  // make Twilio retry, re-ingesting the document (no MessageSid dedupe).
+  // make Twilio retry.
   const openQuery = await findOpenQuery(companyId, stripWaPrefix(payload.From)).catch(
     (err: unknown) => {
       log.warn('whatsAppInbound: query lookup failed — proceeding without reply routing', {
@@ -136,7 +148,7 @@ export async function ingestTwilioPayload(
     const rawContentType =
       (payload[`MediaContentType${i}`] as string | undefined) ?? '';
 
-    if (!mediaUrl) continue;
+    if (!mediaUrl || ingested.has(i)) continue;
 
     const mimeType = rawContentType.toLowerCase().split(';')[0]!.trim();
     if (!isAllowedMime(mimeType)) {
@@ -193,11 +205,12 @@ export async function ingestTwilioPayload(
         AND company_id = ${companyId}
     `;
 
-    // 2d. Insert capture_event
+    // 2d. Insert capture_event — the unique index arbitrates concurrent deliveries
     const eventRows = (await sql`
       INSERT INTO capture_events (
         company_id, inbox_id, channel, sender, subject,
-        status, captured_document_id, received_at
+        status, captured_document_id, received_at,
+        provider_message_id, provider_message_part
       ) VALUES (
         ${companyId},
         ${inboxId}::uuid,
@@ -206,10 +219,20 @@ export async function ingestTwilioPayload(
         ${payload.MessageSid},
         'received',
         ${documentId}::uuid,
-        NOW()
+        NOW(),
+        ${payload.MessageSid},
+        ${i}
       )
+      ON CONFLICT (company_id, provider_message_id, provider_message_part)
+        WHERE provider_message_id IS NOT NULL DO NOTHING
       RETURNING id
     `) as Row[];
+
+    if (eventRows.length === 0) {
+      duplicate = true;
+      await discardLostRaceDocument(companyId, documentId, stored.path, payload.MessageSid);
+      continue;
+    }
 
     const eventId = String(eventRows[0]!.id);
     eventIds.push(eventId);
@@ -247,36 +270,15 @@ export async function ingestTwilioPayload(
   //    text-only capture_event so the inbox shows the intent for human review
   //    (the user promotes to a provisional JE from there). We deliberately do
   //    NOT auto-post — PRD §9 bans auto-publish of unverified GL data.
-  if (parsedCommand && eventIds.length === 0) {
-    const subject = payload.Body
-      ? `text: ${payload.Body.slice(0, 120)}`
-      : `text: (command: ${parsedCommand.action})`;
-    const eventRows = (await sql`
-      INSERT INTO capture_events (
-        company_id, inbox_id, channel, sender, subject, status, received_at,
-        error
-      ) VALUES (
-        ${companyId},
-        ${inboxId}::uuid,
-        'whatsapp',
-        ${payload.From},
-        ${subject},
-        'extracted',
-        NOW(),
-        ${'wa-text-command: R' + parsedCommand.amount + ' / ' + (parsedCommand.supplierHint ?? '?')}
-      )
-      RETURNING id
-    `) as Row[];
-    const eventId = String(eventRows[0]!.id);
-    eventIds.push(eventId);
-    log.info('whatsAppInbound: text-command capture event created', {
-      companyId, inboxId, eventId, parsedCommand,
-    }, 'whatsapp-inbound');
+  if (parsedCommand && eventIds.length === 0 && !duplicate) {
+    const eventId = await insertTextCommandEvent(companyId, inboxId, payload, parsedCommand);
+    if (eventId) eventIds.push(eventId);
+    else duplicate = true;
   }
 
   // Workstream D: flip the query to replied (text and/or media)
   const replyBody = (payload.Body ?? '').trim();
-  if (openQuery && (eventIds.length > 0 || replyBody)) {
+  if (openQuery && (eventIds.length > 0 || (replyBody && !duplicate))) {
     await markQueryReplied(companyId, openQuery.id, replyBody || null, eventIds[0] ?? null)
       .catch((err: unknown) => {
         log.warn('whatsAppInbound: mark replied failed', {
@@ -286,5 +288,6 @@ export async function ingestTwilioPayload(
       });
   }
 
-  return { captureEventIds: eventIds, companyId, parsedCommand };
+  // A duplicate returns no command so the route does not acknowledge it again.
+  return { captureEventIds: eventIds, companyId, parsedCommand: duplicate ? null : parsedCommand };
 }
