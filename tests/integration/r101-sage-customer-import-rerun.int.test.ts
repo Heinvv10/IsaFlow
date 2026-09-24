@@ -34,7 +34,7 @@ const { drive } = sageImportHarness(pool, user);
 const { seedStaging, staged, addCustomer, addInvoice, setUp, tearDown, tag } = sageCustomerStaging(pool);
 const run = () => drive(companyC, () => importCustomerInvoices(companyC, user));
 const byNumber = async (number: string) => (await pool.query(
-  'SELECT id, external_ref, external_system, customer_id FROM customer_invoices WHERE company_id=$1 AND invoice_number=$2',
+  'SELECT id, external_ref, external_system, external_document_number, customer_id FROM customer_invoices WHERE company_id=$1 AND invoice_number=$2',
   [companyC, number],
 )).rows;
 
@@ -71,18 +71,32 @@ describe('R-101: a re-run does not book the invoice twice', () => {
     expect(await byNumber(`${t}-NEW`)).toHaveLength(1);
   });
 
+  it('a staged row with no Sage id and no number imports under SAGE-<staging id>, and a re-run links it', async () => {
+    const stagingId = await seedStaging(companyC, { sageId: null, invoiceNumber: null, customerName: NAME, total: 33 });
+    expect((await run()).failed).toBe(0);
+    const rows = await byNumber(`SAGE-${stagingId}`);
+    expect(rows).toHaveLength(1);
+    expect([rows[0]!.external_ref, rows[0]!.external_system, rows[0]!.external_document_number]).toEqual([null, null, null]);
+    await drive(companyC, () => resetMigration(companyC, 'customer_invoices'));
+    const again = await run();
+    expect(again.failed).toBe(0);
+    expect(await byNumber(`SAGE-${stagingId}`)).toHaveLength(1);
+    expect(await staged(stagingId)).toEqual({ migration_status: 'imported', gl_customer_invoice_id: rows[0]!.id });
+  });
+
   it('two concurrent runs book each pending row once and leave no row failed', async () => {
     const t = tag('R101C');
-    for (let i = 0; i < 4; i++) {
+    const N = 25;
+    for (let i = 0; i < N; i++) {
       await seedStaging(companyC, { sageId: `${t}-${i}`, invoiceNumber: `${t}-INV${i}`, customerName: NAME, total: 100 + i });
     }
-    const runs = await Promise.all([run(), run()]);
-    expect(runs.map(r => r.failed)).toEqual([0, 0]);
-    expect(runs[0]!.succeeded + runs[1]!.succeeded).toBe(4);
+    const runs = await Promise.all([run(), run(), run()]);
+    expect(runs.map(r => r.failed)).toEqual([0, 0, 0]);
+    expect(runs.reduce((n, r) => n + r.succeeded, 0)).toBe(N);
     const n = (await pool.query(
       `SELECT count(*)::int AS n FROM customer_invoices WHERE company_id=$1 AND external_ref LIKE $2`, [companyC, `${t}-%`],
     )).rows[0]!.n;
-    expect(n).toBe(4);
+    expect(n).toBe(N);
   });
 });
 
@@ -115,6 +129,8 @@ describe('R-101: a staged row never merges into a different invoice', () => {
   it.each([
     ['soft-deleted', { deleted: true }],
     ['cancelled', { status: 'cancelled' }],
+    ['draft', { status: 'draft' }],
+    ['pending-approval', { status: 'pending_approval' }],
   ])('fails, without aborting the run, a row whose number a %s invoice holds', async (_label, opts) => {
     const t = tag('R101H');
     await addInvoice(companyC, customerId, user, { number: `${t}-INV`, total: 640, externalRef: `${t}-SAGE`, ...opts });
@@ -139,10 +155,21 @@ describe('R-101: a staged row never merges into a different invoice', () => {
     expect((await byNumber(`${t}-RENT`))[0]!.external_ref).toBeNull();
   });
 
-  it('adopts a hand-captured invoice of the same number, customer and total once, then refuses the next', async () => {
+  it('does not adopt a hand-captured invoice of the same number, customer and total but another date', async () => {
+    const t = tag('R101DT');
+    const hand = await addInvoice(companyC, customerId, user, { number: `${t}-FEE`, total: 100 });
+    const stagingId = await seedStaging(companyC, { sageId: `${t}-SAGE`, invoiceNumber: `${t}-FEE`, customerName: NAME, total: 100, invoiceDate: '2026-06-30' });
+    const result = await run();
+    expect(result.failed).toBe(1);
+    expect(result.skipped).toBe(0);
+    expect((await staged(stagingId)).migration_status).toBe('failed');
+    expect((await pool.query('SELECT external_ref FROM customer_invoices WHERE id=$1', [hand])).rows[0]!.external_ref).toBeNull();
+  });
+
+  it('adopts a hand-captured invoice of the same number, customer, total and date once, then refuses the next', async () => {
     const t = tag('R101AD');
     const manual = await addInvoice(companyC, customerId, user, { number: `${t}-RENT`, total: 10000 });
-    const a1 = await seedStaging(companyC, { sageId: `${t}-A1`, invoiceNumber: `${t}-RENT`, customerName: NAME, total: 10000, invoiceDate: '2026-06-30' });
+    const a1 = await seedStaging(companyC, { sageId: `${t}-A1`, invoiceNumber: `${t}-RENT`, customerName: NAME, total: 10000, invoiceDate: '2026-05-01' });
     const a2 = await seedStaging(companyC, { sageId: `${t}-A2`, invoiceNumber: `${t}-RENT`, customerName: NAME, total: 10000, invoiceDate: '2026-07-31' });
     const result = await run();
     expect(result.skipped).toBe(1);
@@ -151,7 +178,16 @@ describe('R-101: a staged row never merges into a different invoice', () => {
     expect(await staged(a1)).toEqual({ migration_status: 'imported', gl_customer_invoice_id: manual });
     expect((await staged(a2)).migration_status).toBe('failed');
     const [inv] = await byNumber(`${t}-RENT`);
-    expect([inv!.external_ref, inv!.external_system]).toEqual([`${t}-A1`, 'sage']);
+    expect([inv!.external_ref, inv!.external_system, inv!.external_document_number]).toEqual([`${t}-A1`, 'sage', `${t}-RENT`]);
+  });
+
+  it('fails a row whose number is held by an invoice another system references, even under the same ref string', async () => {
+    const t = tag('R101XR');
+    await addInvoice(companyC, customerId, user, { number: `${t}-INV`, total: 75, externalRef: `${t}-SAGE`, externalSystem: 'xero' });
+    const stagingId = await seedStaging(companyC, { sageId: `${t}-SAGE`, invoiceNumber: `${t}-INV`, customerName: NAME, total: 75 });
+    expect((await run()).failed).toBe(1);
+    expect((await staged(stagingId)).migration_status).toBe('failed');
+    expect((await byNumber(`${t}-INV`))[0]!.external_system).toBe('xero');
   });
 
   it('fails, not links, a re-pended row whose total no longer matches the invoice', async () => {

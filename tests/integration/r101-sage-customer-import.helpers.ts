@@ -9,7 +9,7 @@ import { randomUUID } from 'crypto';
 export function sageCustomerStaging(pool: Pool) {
   async function seedStaging(
     companyId: string,
-    opts: { sageId: string | null; invoiceNumber: string; customerName: string; total: number; invoiceDate?: string },
+    opts: { sageId: string | null; invoiceNumber: string | null; customerName: string; total: number; invoiceDate?: string },
   ): Promise<string> {
     const rows = await pool.query<{ id: string }>(
       `INSERT INTO sage_customer_invoices
@@ -36,14 +36,17 @@ export function sageCustomerStaging(pool: Pool) {
   /** An invoice captured in IsaFlow by hand, before the migration ran. */
   async function addInvoice(
     companyId: string, customerId: string, user: string,
-    opts: { number: string; total: number; status?: string; externalRef?: string; deleted?: boolean; createdAgo?: string },
+    opts: {
+      number: string; total: number; status?: string; externalRef?: string; externalSystem?: string;
+      deleted?: boolean; createdAgo?: string;
+    },
   ): Promise<string> {
     return (await pool.query<{ id: string }>(
       `INSERT INTO customer_invoices (company_id, invoice_number, customer_id, invoice_date, subtotal, total_amount,
          status, external_ref, external_system, deleted_at, created_by, created_at)
        VALUES ($1,$2,$3,'2026-05-01',$4,$4,$5,$6,$7,CASE WHEN $8 THEN NOW() END,$9,NOW() - $10::INTERVAL) RETURNING id`,
       [companyId, opts.number, customerId, opts.total, opts.status ?? 'approved',
-        opts.externalRef ?? null, opts.externalRef ? 'sage' : null, opts.deleted ?? false, user, opts.createdAgo ?? '0'],
+        opts.externalRef ?? null, opts.externalRef ? (opts.externalSystem ?? 'sage') : null, opts.deleted ?? false, user, opts.createdAgo ?? '0'],
     )).rows[0]!.id;
   }
 
