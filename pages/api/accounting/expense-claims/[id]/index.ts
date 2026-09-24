@@ -18,6 +18,7 @@ import {
 } from '@/modules/accounting/services/expense/expenseClaimService';
 import {
   ClaimSourceDocumentError,
+  PartialSourceDocumentClaimError,
   lockClaimReadSourceDocumentIds,
   releaseSourceDocuments,
 } from '@/modules/accounting/services/expense/claimSourceDocuments';
@@ -45,6 +46,8 @@ async function handler(req: CompanyAuthedRequest, res: NextApiResponse) {
       if (!claim) return apiResponse.notFound(res, 'Expense claim', id);
       return apiResponse.success(res, { claim });
     } catch (err) {
+      // Stamps were written: this must reach a 5xx so the request rolls back.
+      if (err instanceof PartialSourceDocumentClaimError) throw err;
       if (err instanceof ClaimSourceDocumentError) {
         return err.refusal === 'busy' ? apiResponse.conflict(res, err.message) : apiResponse.badRequest(res, err.message);
       }

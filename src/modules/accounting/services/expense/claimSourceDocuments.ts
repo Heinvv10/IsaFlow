@@ -34,6 +34,18 @@ const MESSAGE: Record<ClaimSourceDocumentRefusal, string> = {
   busy: 'A source document is being posted by another request — retry in a moment',
 };
 
+/**
+ * Some slips were stamped and not all. NOT a refusal: callers must let it reach
+ * a 5xx so the request rolls the stamps back — a route catch that answers 4xx
+ * for any error has to rethrow this one, because withAuth COMMITs a 4xx.
+ */
+export class PartialSourceDocumentClaimError extends Error {
+  constructor(claimed: number, wanted: number) {
+    super(`Partial source-document claim (${claimed} of ${wanted}); rolled back`);
+    this.name = 'PartialSourceDocumentClaimError';
+  }
+}
+
 /** `lock_not_available` (the bounded wait elapsed) and `deadlock_detected`. */
 const LOCK_ERRORS = new Set(['55P03', '40P01']);
 
@@ -114,7 +126,7 @@ export async function claimLineSourceDocuments(
   // holding the set (tested by removing it). A 4xx here would COMMIT the
   // partial stamps, so this is an error the request rolls back, never a refusal.
   if (claimed.length > 0) {
-    throw new Error(`Partial source-document claim (${claimed.length} of ${ids.length}); rolled back`);
+    throw new PartialSourceDocumentClaimError(claimed.length, ids.length);
   }
 
   const rows = (await sql`
