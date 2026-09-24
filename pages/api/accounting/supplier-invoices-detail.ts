@@ -47,7 +47,12 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
       if (updatedRows.length === 0) {
         const existing = await getSupplierInvoiceById(companyId, id);
         if (!existing) return apiResponse.notFound(res, 'Supplier invoice', id);
-        return apiResponse.badRequest(res, 'Only draft or pending-approval invoices can be edited');
+        // Status moved back to editable between the UPDATE and this read.
+        if (existing.status === 'draft' || existing.status === 'pending_approval') {
+          return apiResponse.conflict(res, 'The invoice changed while saving; reload and try again');
+        }
+        return apiResponse.badRequest(res,
+          `Only draft or pending-approval invoices can be edited (this invoice is ${existing.status})`);
       }
       log.info('Supplier invoice updated', { id });
       const updated = await getSupplierInvoiceById(companyId, id);
