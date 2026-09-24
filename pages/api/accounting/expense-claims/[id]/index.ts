@@ -22,6 +22,7 @@ import {
   lockClaimReadSourceDocumentIds,
   releaseSourceDocuments,
 } from '@/modules/accounting/services/expense/claimSourceDocuments';
+import { DocumentLineAccountRefusal } from '@/modules/accounting/services/gl/documentLineAccountGuard';
 
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
@@ -51,6 +52,7 @@ async function handler(req: CompanyAuthedRequest, res: NextApiResponse) {
       if (err instanceof ClaimSourceDocumentError) {
         return err.refusal === 'busy' ? apiResponse.conflict(res, err.message) : apiResponse.badRequest(res, err.message);
       }
+      if (err instanceof DocumentLineAccountRefusal) return apiResponse.badRequest(res, err.message);
       return apiResponse.badRequestFromError(res, err, 'Request failed');
     }
   }

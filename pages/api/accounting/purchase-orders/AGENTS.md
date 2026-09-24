@@ -30,6 +30,7 @@ Sub-routes for single-PO operations + supplier-scoped unmatched-PO helper. Prima
 - Schema: `po_items` table
 
 ## Recent changes
+- 2026-09-24: `[id].ts` PUT checks every replacement item's `gl_account_id` with `gl/documentLineAccountGuard.assertDocumentLineAccounts` before the `po_items` DELETE+INSERT — refuses an inactive or another company's account (400, nothing written). Closes the "Known limit" a GL account merge left open for PO lines (see `gl/.claude.md`).
 - 2026-04-24: PR-8 L-tier IDOR code-smell cleanup
 - 2026-04-20: UUID guard on PO [id], use `gl_account_id` in custom reports
 - 2026-04-18: codemod handlers onto withAuth / withUserAuth

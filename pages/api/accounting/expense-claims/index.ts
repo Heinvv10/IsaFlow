@@ -15,6 +15,7 @@ import {
   type ExpenseClaimLine,
 } from '@/modules/accounting/services/expense/expenseClaimService';
 import { ClaimSourceDocumentError } from '@/modules/accounting/services/expense/claimSourceDocuments';
+import { DocumentLineAccountRefusal } from '@/modules/accounting/services/gl/documentLineAccountGuard';
 
 interface CreateBody {
   employeeId?: string;
@@ -54,6 +55,7 @@ async function handler(req: CompanyAuthedRequest, res: NextApiResponse) {
       if (err instanceof ClaimSourceDocumentError) {
         return err.refusal === 'busy' ? apiResponse.conflict(res, err.message) : apiResponse.badRequest(res, err.message);
       }
+      if (err instanceof DocumentLineAccountRefusal) return apiResponse.badRequest(res, err.message);
       throw err;
     }
   }
