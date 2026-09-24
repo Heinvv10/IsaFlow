@@ -191,7 +191,7 @@ export async function mergeAccounts(
       `The document lines changed while this merge was being prepared: the dry run counted `
       + `${JSON.stringify(preview.documentRowsToRepoint)} and the write found `
       + `${JSON.stringify(documentRowsRepointed)}. Nothing has been changed. Re-run the dry run.`,
-      'ledger_moved_during_merge',
+      'document_rows_moved_during_merge',
     );
   }
 
