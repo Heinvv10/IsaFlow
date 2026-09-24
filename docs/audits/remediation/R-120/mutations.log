@@ -19,4 +19,7 @@ M17 3-decimal rate allowed: RED — 1 failed | 17 passed (18)
 M18 line consistency unchecked: RED — 1 failed | 17 passed (18)
 M19 skipped count always 0: RED — 1 failed | 17 passed (18)
 M20 page hides skipped entries: RED — 1 failed | 1 passed (2)
+# Review round 2:
+M21 generic edit desyncs a practice entry: RED — 2 failed | 2 passed (4)
+M22 edit refusal masked: RED — 2 failed | 2 passed (4)
 M10 page on master (reads json.error as a string), component test WipInvoiceRefusalMessage: RED (1 failed); fixed page: 1 passed.
