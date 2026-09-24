@@ -168,4 +168,16 @@ describe('R-121: practice time capture runs on a repo-built schema', () => {
        VALUES ($1, $2, $3, $3, 555, 555, '2026-02-01')`, [otherCompany, otherClient, user])).catch((e: unknown) => e);
     expect(String((err as Error)?.message)).toMatch(/row-level security/);
   });
+
+  it('a member of two companies cannot write into the one that is not active', async () => {
+    await pool.query("INSERT INTO company_users(company_id,user_id,role) VALUES($1,$2,'admin')", [otherCompany, user]);
+    try {
+      const err = await asAppUser((c) => c.query(
+        `INSERT INTO practice_client_rate_overrides (company_id, client_id, staff_user_id, user_id, rate_per_hour, rate, effective_from)
+         VALUES ($1, $2, $3, $3, 444, 444, '2026-02-02')`, [otherCompany, otherClient, user])).catch((e: unknown) => e);
+      expect(String((err as Error)?.message)).toMatch(/row-level security/);
+    } finally {
+      await pool.query('DELETE FROM company_users WHERE company_id=$1 AND user_id=$2', [otherCompany, user]);
+    }
+  });
 });

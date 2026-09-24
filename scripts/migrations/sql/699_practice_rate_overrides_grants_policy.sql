@@ -9,12 +9,30 @@
 -- carry none, so a web request saw zero rows and could insert none. The
 -- standard tenant_isolation (348) keys on company_users and
 -- app.current_company_id, which every pipeline sets.
+--
+-- RLS is enabled and forced BEFORE the grant: on a table without it, the new
+-- grant would expose every tenant's rows. A tenant_isolation policy that
+-- already exists is KEPT, never replaced (it may be stricter); only 395's
+-- claim-based one is dropped. The new policy's WITH CHECK requires membership
+-- AND the active company, like the sibling tables (membership) plus 348's
+-- active-company rule, so a non-member cannot write into a company even when
+-- the GUC names it.
+ALTER TABLE practice_client_rate_overrides ENABLE ROW LEVEL SECURITY;
+ALTER TABLE practice_client_rate_overrides FORCE ROW LEVEL SECURITY;
+
 GRANT SELECT, INSERT, UPDATE, DELETE ON practice_client_rate_overrides TO app_user, platform_admin;
 GRANT ALL ON practice_client_rate_overrides TO migration_admin;
 
 DROP POLICY IF EXISTS pcro_company_isolation ON practice_client_rate_overrides;
-DROP POLICY IF EXISTS tenant_isolation ON practice_client_rate_overrides;
-CREATE POLICY tenant_isolation ON practice_client_rate_overrides
-  FOR ALL TO app_user
-  USING (company_id IN (SELECT company_id FROM public.company_users WHERE user_id = auth.uid()))
-  WITH CHECK (company_id = app.current_company_id());
+DO $$
+BEGIN
+  IF NOT EXISTS (
+    SELECT 1 FROM pg_policies
+    WHERE schemaname = 'public' AND tablename = 'practice_client_rate_overrides' AND policyname = 'tenant_isolation'
+  ) THEN
+    CREATE POLICY tenant_isolation ON practice_client_rate_overrides
+      FOR ALL TO app_user
+      USING (company_id IN (SELECT auth.user_companies()))
+      WITH CHECK (company_id IN (SELECT auth.user_companies()) AND company_id = app.current_company_id());
+  END IF;
+END $$;

@@ -22,7 +22,8 @@
 -- NULLABLE (372's NOT NULL would refuse the rows 395 wrote) and back-filled
 -- from the pair every reader prefers; 626's trigger keeps them in step after.
 
-ALTER TABLE time_entries ADD COLUMN IF NOT EXISTS amount NUMERIC(15,2);
+-- (18,2), the precision of line_total, which it duplicates.
+ALTER TABLE time_entries ADD COLUMN IF NOT EXISTS amount NUMERIC(18,2);
 
 ALTER TABLE practice_client_rate_overrides
   ADD COLUMN IF NOT EXISTS user_id UUID,
