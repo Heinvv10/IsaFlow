@@ -7,12 +7,14 @@
 -- And its policy (395) read a `company_id` JWT claim that only the MCP bearer
 -- pipeline synthesises: withAuth passes the GoTrue token's own claims, which
 -- carry none, so a web request saw zero rows and could insert none. The
--- standard tenant_isolation (348) keys on company_users and
+-- replacement keys on auth.user_companies() (351, membership via `sub`) and
 -- app.current_company_id, which every pipeline sets.
 --
 -- RLS is enabled and forced BEFORE the grant: on a table without it, the new
 -- grant would expose every tenant's rows. A tenant_isolation policy that
--- already exists is KEPT, never replaced (it may be stricter); only 395's
+-- already exists is KEPT, never replaced (it may be stricter), and is judged
+-- by name only, as in 498: a looser hand-made one would survive. The R-121
+-- prod query prints its USING and WITH CHECK to rule that out. Only 395's
 -- claim-based one is dropped. The new policy's WITH CHECK requires membership
 -- AND the active company, like the sibling tables (membership) plus 348's
 -- active-company rule, so a non-member cannot write into a company even when
