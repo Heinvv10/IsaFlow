@@ -70,6 +70,8 @@ export async function documentLineAccountRefusal(
     ORDER BY a.id
     FOR SHARE OF a
   `) as DocumentLineAccountRow[];
+  // A missing row means the id is not an account of THIS company: foreign, or
+  // deleted, or never existed. One message for all three, as billLineAccountGuard.
   return rows.length !== unique.length ? FOREIGN_DOCUMENT_LINE_ACCOUNT : firstRefusal(rows);
 }
 

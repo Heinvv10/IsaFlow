@@ -111,10 +111,17 @@ async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse) {
     // Before the first write: an inactive or foreign account on a replacement
     // line would otherwise land in po_items with nothing to catch it — the
     // same window a GL account merge opens on every other document-line
-    // writer (gl/documentLineAccountGuard.ts).
+    // writer (gl/documentLineAccountGuard.ts). Only accounts this PO does not
+    // already carry are checked: the PUT replaces every line, so an untouched
+    // line on a since-deactivated account must not block an unrelated edit.
     if (Array.isArray(items) && items.length > 0) {
+      const kept = new Set(((await sql`
+        SELECT DISTINCT lower(gl_account_id::TEXT) AS a FROM po_items
+         WHERE purchase_order_id = ${id}::UUID AND gl_account_id IS NOT NULL
+      `) as Row[]).map((r) => String(r.a)));
       try {
-        await assertDocumentLineAccounts(companyId, items.map((i) => i.gl_account_id));
+        await assertDocumentLineAccounts(companyId,
+          items.map((i) => i.gl_account_id).filter((a) => !a || !kept.has(String(a).toLowerCase())));
       } catch (err) {
         if (err instanceof DocumentLineAccountRefusal) return apiResponse.badRequest(res, err.message);
         throw err;
