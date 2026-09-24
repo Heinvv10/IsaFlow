@@ -20,6 +20,7 @@ import { sql } from '@/lib/neon';
 import { log } from '@/lib/logger';
 import type { MergeAccount } from './accountMergeGuards';
 import type { PostingActorOpts } from './journalEntryMeta';
+import type { MovedDocumentRows } from './accountMergeDocumentRows';
 
 export interface AccountMergeRecordInput {
   companyId: string;
@@ -31,6 +32,8 @@ export interface AccountMergeRecordInput {
   movedLineIds: string[];
   /** sha256 over the same ids — what the dry run printed and a reader signed. */
   movedLinesDigest: string;
+  /** Every repointed document row id, per table (migration 698). */
+  movedDocumentRows: MovedDocumentRows;
   reparentedAccountIds: string[];
   relevelledAccountIds: string[];
   levelDelta: number;
@@ -46,7 +49,7 @@ export async function recordAccountMerge(input: AccountMergeRecordInput): Promis
       source_account_code, target_account_code,
       source_account_subtype, target_account_subtype,
       lines_repointed, entries_affected,
-      moved_line_ids, moved_line_ids_digest,
+      moved_line_ids, moved_line_ids_digest, moved_document_rows,
       reparented_account_ids, relevelled_account_ids, level_delta,
       merged_by, actor_type, actor_token_jti, posted_through
     ) VALUES (
@@ -55,6 +58,7 @@ export async function recordAccountMerge(input: AccountMergeRecordInput): Promis
       ${input.source.accountSubtype}, ${input.target.accountSubtype},
       ${input.linesRepointed}, ${input.entriesAffected},
       ${input.movedLineIds}::uuid[], ${input.movedLinesDigest},
+      ${JSON.stringify(input.movedDocumentRows)}::jsonb,
       ${input.reparentedAccountIds}::uuid[], ${input.relevelledAccountIds}::uuid[],
       ${input.levelDelta},
       ${input.userId ?? null}::TEXT, ${input.actor?.actorType ?? null},
