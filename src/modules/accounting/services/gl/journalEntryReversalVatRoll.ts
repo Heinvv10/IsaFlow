@@ -155,7 +155,10 @@ export async function isDateAutoCreatable(companyId: string, date: string): Prom
  * Is `date`'s fiscal year outside the auto-create window (R-012)? A typo'd
  * year such as 9999: posting never creates it. Distinct from "not
  * auto-creatable", which also covers an IN-window gap or overlap. When the
- * company's alignment cannot be resolved the answer is unknown: false.
+ * company's alignment cannot be resolved the answer is unknown: false — which
+ * makes the resolver REFUSE even a typo'd-year entry. Deliberate: failing
+ * closed, and createFiscalYear needs the same alignment, so the remedy (fix the
+ * company's period alignment) is the same either way.
  */
 export async function isOutsideAutoCreateWindow(companyId: string, date: string): Promise<boolean> {
   let startMonth: number;

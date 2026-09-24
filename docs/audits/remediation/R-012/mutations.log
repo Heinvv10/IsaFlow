@@ -16,3 +16,5 @@ M11 invoice cancel drops the reversal's reason: unit       Tests  5 passed (5) |
 # Round 3:
 M12 dismiss route: closed period is a 500:       Tests  1 failed | 2 passed (3)
 M13 no refusal code:       Tests  1 failed | 5 passed (6)
+# Round 4:
+MOUT isOutsideAutoCreateWindow always false:       Tests  1 failed | 3 passed (4)
