@@ -12006,27 +12006,35 @@
       "correctedTrigger": "",
       "auditedSha": "",
       "currentSha": "7d708aac1",
-      "status": "confirmed",
+      "status": "fix-in-review",
       "dependencies": [],
-      "testNames": [],
+      "testNames": [
+        "tests/integration/r101-sage-customer-import.int.test.ts",
+        "tests/integration/r101-sage-customer-import-rerun.int.test.ts",
+        "tests/unit/services/sageCustomerImportVat.test.ts"
+      ],
       "fixCommit": null,
       "pr": null,
       "deployedSha": null,
       "canonicalItem": null,
       "reportedSeverity": "",
-      "branch": null,
+      "branch": "fix/r101-sage-ar-import-20260924",
       "id": "R-101",
       "area": "accounting/migration",
       "affectedPaths": [
         "src/modules/accounting/services/core/sageCustomerImportService.ts"
       ],
       "severityRationale": "A migrated company's customer invoices never import; the importer looks available. Fixing it needs the same redesign R-021 did (name-matched customer, derived due date) and must use deriveSageVat (R-089), never a derived VAT rate.",
-      "evidencePaths": [],
+      "evidencePaths": [
+        "docs/audits/remediation/R-101/fix.md",
+        "docs/audits/remediation/R-101/red.log",
+        "docs/audits/remediation/R-101/mutations.log"
+      ],
       "historicalDataImpact": "None written; migrated companies may be missing their customer invoice history.",
       "title": "The Sage customer-invoice importer selects columns sage_customer_invoices does not have, so it fails with 42703 before its loop and has never imported a row — the untracked customer twin of R-021",
       "severity": "medium",
       "source": "Found by fix-r089a on the fixture while fixing R-089.",
-      "processNotes": "Registered 2026-09-14 by session 71c707d0 (wave R-1). 2026-09-23 (R-119): when this importer is revived it must handle a staged CREDIT NOTE deliberately — sageCustomerImportService now marks a negative staged total 'failed', which is indistinguishable from a genuine failure and unfindable by a later credit-note import. Give it its own status or route it to credit_notes. Also: deriveSageVat with STATED figures can return taxAmount = total - subtotal < 0, which migration 692's leg arms now refuse — so reviving this importer means handling that branch, not just the SELECT. Both Sage importers guard the TOTAL only (AR `< 0`, AP `> 0`), never the legs, so a stated-figure row whose derived tax is negative reaches migration 692's tax-leg arm and fails per-row with the raw trigger message instead of a named one. The next Sage import round should add the leg check beside the total check."
+      "processNotes": "Registered 2026-09-14 by session 71c707d0 (wave R-1). 2026-09-23 (R-119): when this importer is revived it must handle a staged CREDIT NOTE deliberately — sageCustomerImportService now marks a negative staged total 'failed', which is indistinguishable from a genuine failure and unfindable by a later credit-note import. Give it its own status or route it to credit_notes. Also: deriveSageVat with STATED figures can return taxAmount = total - subtotal < 0, which migration 692's leg arms now refuse — so reviving this importer means handling that branch, not just the SELECT. Both Sage importers guard the TOTAL only (AR `< 0`, AP `> 0`), never the legs, so a stated-figure row whose derived tax is negative reaches migration 692's tax-leg arm and fails per-row with the raw trigger message instead of a named one. The next Sage import round should add the leg check beside the total check. 2026-09-24: fixed on fix/r101-sage-ar-import-20260924 — migration 694 adds gl_customer_invoice_id; negative staged total -> migration_status 'credit_note'; the leg concern is moot (no staging table states VAT; statedSageFigures removed)."
     },
     {
       "claim": "",
