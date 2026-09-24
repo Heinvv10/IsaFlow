@@ -88,3 +88,5 @@ SELECT has_table_privilege('app_user', 'auth.users', 'SELECT');
 
 ## Not covered
 - **R-122:** migration 396's `payroll_leave_*` policies read the same `company_id` claim. The web app likely sees no leave data under RLS. Not fixed here; prod state is unknown.
+- **R-123 (open gap, registered):** the override service joins `auth.users` as app_user, and no migration grants it. The tests stub the table with a grant, so no test fails where it is missing. The prod query checks it.
+- **Stricter than 498's siblings, deliberately:** 498 gives sibling tables a membership-only WITH CHECK. 699 also requires the active company. The override routes always write `req.companyId`, which `withAuth` sets from the active company, so no legitimate write is refused today. A future caller that writes a non-active member company would be refused here and must set `app.current_company_id` to it.

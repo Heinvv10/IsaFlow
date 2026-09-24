@@ -12756,6 +12756,36 @@
       "branch": null,
       "severity": "medium",
       "title": "payroll_leave_* RLS policies (migration 396) read a company_id JWT claim that withAuth never sets, so the web app likely sees no leave data"
+    },
+    {
+      "id": "R-123",
+      "claim": "The rate-override service (listClientRateOverrides, create/update re-read, listCompanyStaff) LEFT JOINs auth.users as app_user. No migration grants app_user SELECT on auth.users, so wherever it lacks that grant the route raises 'permission denied'. R-121's tests stub auth.users with a grant, so no test fails where the grant is missing.",
+      "area": "practice",
+      "affectedPaths": [
+        "src/modules/accounting/services/practice/practiceClientRateOverrideService.ts"
+      ],
+      "sourceLabel": "R-121 (found while fixing; PR #498 blind review LOW)",
+      "sourceIds": [],
+      "correctedTrigger": null,
+      "severityRationale": "Unreproduced on prod; isaflow_dev has no auth.users at all. A blanket grant would expose every user's email across tenants, so the fix is a tenant-scoped SECURITY DEFINER lookup or a public users-table join, not a grant.",
+      "auditedSha": "HEAD",
+      "currentSha": "HEAD",
+      "status": "candidate",
+      "dependencies": [
+        "R-121"
+      ],
+      "testNames": [],
+      "evidencePaths": [],
+      "fixCommit": null,
+      "pr": null,
+      "deployedSha": null,
+      "historicalDataImpact": "None written; the override screens fail to load or save.",
+      "canonicalItem": null,
+      "reportedSeverity": "medium",
+      "processNotes": "2026-09-24: registered from R-121. The R-121 prod query checks has_table_privilege('app_user','auth.users','SELECT').",
+      "branch": null,
+      "severity": "medium",
+      "title": "Rate-override service joins auth.users as app_user, which no migration grants"
     }
   ],
   "sourceInventory": [
