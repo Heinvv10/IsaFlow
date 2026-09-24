@@ -289,7 +289,8 @@ export async function deleteLine(
     WHERE id = ${lineId}::uuid AND claim_id = ${claimId}::uuid AND company_id = ${companyId}::uuid
     RETURNING source_document_id
   `) as Row[];
-  // The slip the line held goes back to the capture inbox (R-105).
+  // The slip the line held can be posted again (R-105). Its status stays
+  // 'matched', as after rejectClaim's release.
   await releaseSourceDocuments(companyId,
     deleted.map((r) => r.source_document_id).filter((id) => id != null).map(String));
   await recomputeTotals(claimId, companyId);

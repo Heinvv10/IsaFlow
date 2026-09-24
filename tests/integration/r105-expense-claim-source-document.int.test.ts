@@ -51,7 +51,8 @@ const busyDoc = crypto.randomUUID();
 const deleteRaceDoc = crypto.randomUUID();
 const pairRaceX = crypto.randomUUID();
 const pairRaceY = crypto.randomUUID();
-const ownDocs = [pairRaceX, pairRaceY, postedDoc, rejectedDoc, freshDoc, atomicFreshDoc, twiceInOneDoc,
+const legacyDoc = crypto.randomUUID();
+const ownDocs = [legacyDoc, pairRaceX, pairRaceY, postedDoc, rejectedDoc, freshDoc, atomicFreshDoc, twiceInOneDoc,
   deleteLineDoc, deleteClaimDoc, addLineDoc, raceDoc, busyDoc, deleteRaceDoc];
 
 const today = new Date().toISOString().slice(0, 10);
@@ -135,7 +136,7 @@ beforeAll(async () => {
   await seedDoc(rejectedDoc, company, 'rejected');
   await seedDoc(foreignDoc, otherCompany);
   for (const id of [freshDoc, atomicFreshDoc, twiceInOneDoc, deleteLineDoc, deleteClaimDoc, addLineDoc,
-    raceDoc, busyDoc, deleteRaceDoc, pairRaceX, pairRaceY]) {
+    raceDoc, busyDoc, deleteRaceDoc, pairRaceX, pairRaceY, legacyDoc]) {
     await seedDoc(id, company);
   }
   token = await new SignJWT({ sub: user, aal: 'aal2' })
@@ -169,6 +170,32 @@ describe('R-105: a manual expense claim line claims its source document', () => 
     expect(out.body.error?.message).toMatch(/already posted/i);
     expect(await claimCount()).toBe(before);
     expect(await linesOn(postedDoc)).toBe(0);
+  });
+
+  it('refuses an already-posted slip whatever the case of its id', async () => {
+    const out = await createClaim([line(postedDoc.toUpperCase())]);
+    expect(out.statusCode, JSON.stringify(out.body)).toBe(400);
+    expect(out.body.error?.message).toMatch(/already posted/i);
+  });
+
+  // Lines written before R-105 never stamped posted_at.
+  it('refuses a slip already on a live claim line that never claimed it', async () => {
+    const legacy = crypto.randomUUID();
+    await pool.query(
+      `INSERT INTO expense_claims (id, company_id, employee_id, claim_number, claim_date, status)
+       VALUES ($1, $2, $3, 'R105-LEGACY', CURRENT_DATE, 'submitted')`, [legacy, company, employee]);
+    await pool.query(
+      `INSERT INTO expense_claim_lines (claim_id, company_id, line_date, description, amount, vat_amount, source_document_id)
+       VALUES ($1, $2, CURRENT_DATE, 'R105 legacy', 115, 15, $3)`, [legacy, company, legacyDoc]);
+    expect(await postedAt(legacyDoc)).toBeNull();
+    const out = await createClaim([line(legacyDoc)]);
+    expect(out.statusCode, JSON.stringify(out.body)).toBe(400);
+    expect(out.body.error?.message).toMatch(/already on another expense claim/i);
+    expect(await linesOn(legacyDoc)).toBe(1);
+    // Once that claim is rejected, the slip is free.
+    await pool.query("UPDATE expense_claims SET status='rejected' WHERE id=$1", [legacy]);
+    const again = await createClaim([line(legacyDoc)]);
+    expect(again.statusCode, JSON.stringify(again.body)).toBe(201);
   });
 
   it('refuses a slip an operator rejected', async () => {
