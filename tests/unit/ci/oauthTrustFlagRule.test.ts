@@ -199,6 +199,44 @@ ALTER TABLE oauth_apps ENABLE ALWAYS TRIGGER oauth_apps_guard_trust_flags_trg;`,
     ).toHaveLength(1);
   });
 
+  // ── Second adversarial round: regressions introduced BY the first fix ────
+
+  it('does not match a table whose name merely STARTS with oauth_apps', () => {
+    // `TABLE_REF` lost the trailing \b when it replaced the inline literal, so
+    // it matched as a prefix. A future `oauth_apps_archive` or
+    // `oauth_apps_history` would have failed the build on an unrelated GRANT.
+    expect(
+      findGuardRegressions([later('900_h.sql', 'GRANT UPDATE ON oauth_apps_archive TO app_user;')]),
+    ).toEqual([]);
+    expect(
+      findGuardRegressions([later('900_i.sql', 'GRANT UPDATE ON oauth_apps2 TO app_user;')]),
+    ).toEqual([]);
+    expect(
+      findGuardRegressions([later('900_j.sql', 'GRANT UPDATE ON "oauth_apps_archive" TO app_user;')]),
+    ).toEqual([]);
+  });
+
+  it('fires when oauth_apps is not the FIRST table in a multi-table GRANT', () => {
+    // Ordinary Postgres, and a silent false negative: the pattern required the
+    // name immediately after ON, so a batch grant hid it completely.
+    expect(
+      findGuardRegressions([
+        later('900_k.sql', 'GRANT UPDATE ON customers, suppliers, oauth_apps TO app_user;'),
+      ]),
+    ).toHaveLength(1);
+    expect(
+      findGuardRegressions([
+        later('900_l.sql', 'GRANT UPDATE ON customers, public.oauth_apps TO app_user;'),
+      ]),
+    ).toHaveLength(1);
+  });
+
+  it('stays quiet on a multi-table GRANT that does not include oauth_apps', () => {
+    expect(
+      findGuardRegressions([later('900_m.sql', 'GRANT UPDATE ON customers, suppliers TO app_user;')]),
+    ).toEqual([]);
+  });
+
   it('stays quiet on DISABLE TRIGGER ALL for a different table', () => {
     expect(
       findGuardRegressions([later('900_g.sql', 'ALTER TABLE customers DISABLE TRIGGER ALL;')]),

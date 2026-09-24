@@ -48,8 +48,16 @@ const APP_ROLE = 'app_user';
  * schema-qualified, and with either part quoted. Matching the bare literal
  * alone meant `public.oauth_apps` and `"oauth_apps"` both slipped past — the
  * same statement, written the way Postgres also accepts.
+ *
+ * The trailing `(?!\w)` is load-bearing and replaces the `\b` that the
+ * per-callsite literal used to carry: without it this matched as a PREFIX, so
+ * a future `oauth_apps_archive` or `oauth_apps_history` failed the build on a
+ * completely unrelated GRANT. A plain `\b` will not do here — it would sit
+ * after an OPTIONAL `"`, a non-word character, and so assert against the
+ * wrong side depending on whether the quote is present. A negative lookahead
+ * is correct for both the quoted and bare forms.
  */
-const TABLE_REF = String.raw`(?:"?\w+"?\s*\.\s*)?"?${GUARDED_TABLE}"?`;
+const TABLE_REF = String.raw`(?:"?\w+"?\s*\.\s*)?"?${GUARDED_TABLE}"?(?!\w)`;
 
 /** The guard triggers, quoted or not. */
 const TRIGGER_REF = String.raw`"?${GUARD_TRIGGER_PREFIX}\w*"?`;
@@ -151,7 +159,11 @@ export function findGuardRegressions(files: Array<{ file: string; text: string }
     // GRANT ... ON oauth_apps TO app_user, with no column list between the
     // privilege list and ON. A column list is the safe, intended form.
     const tableGrant = new RegExp(
-      String.raw`\bGRANT\s+(?![^;]*\()[\w\s,]*?\bON\s+(?:TABLE\s+)?${TABLE_REF}[^;]*?\bTO\s+[^;]*\b${APP_ROLE}\b`,
+      // `(?:[\w".\s]+,\s*)*` lets the guarded table appear ANYWHERE in a
+      // comma-separated table list, not only first. `GRANT UPDATE ON
+      // customers, suppliers, oauth_apps TO app_user` is ordinary Postgres and
+      // was a silent false negative while the name had to follow ON directly.
+      String.raw`\bGRANT\s+(?![^;]*\()[\w\s,]*?\bON\s+(?:TABLE\s+)?(?:[\w".\s]+,\s*)*${TABLE_REF}[^;]*?\bTO\s+[^;]*\b${APP_ROLE}\b`,
       'gis',
     );
     for (const m of text.matchAll(tableGrant)) {
