@@ -42,7 +42,7 @@ All runs are on the r112 fixture.
     - the draft-claim delete waits for a concurrent add-line and sees its slip.
 - **Capture path unchanged:** `k072-post-expense-claim-vat`, `k072-claim-vat-classification`, `k072-receipt-vat-unread`, `r058-capture-post-double-post` and `k072-draft-claim-release` pass, 55 of 56.
   - The one failure, "migration 672's backfill agrees with the release", fails identically on master 2d69e30d9 with `must be owner of table captured_documents`. It is a fixture-role problem, not this change.
-- **Mutations** (`mutations.log`): 15 of 15 go red (the id-form mutation now drops canonicalisation, not only lower-casing).
+- **Mutations** (`mutations.log`): 16 of 16 go red (the id-form mutation drops canonicalisation; M18 drops the add-line partial-claim rethrow).
   - Claim removed from create or from add-line.
   - Company filter removed. This one was not caught at first, because RLS hides the foreign row on the route; the service-level test was added for it.
   - All-or-nothing count removed.
