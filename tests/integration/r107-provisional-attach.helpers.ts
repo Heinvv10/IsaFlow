@@ -168,7 +168,17 @@ export async function holding<T>(lockSql: string, id: string, fn: () => Promise<
   try {
     await c.query('BEGIN');
     await c.query(lockSql, [id]);
-    return await fn();
+    // Bounded: if the code under test waits on this lock instead of timing out (a lock
+    // mutation), fail in 15s rather than hang the run with the lock held.
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    const bound = new Promise<never>((_, reject) => {
+      timer = setTimeout(() => reject(new Error('code under test waited on the held lock for 15s')), 15_000);
+    });
+    try {
+      return await Promise.race([fn(), bound]);
+    } finally {
+      clearTimeout(timer);
+    }
   } finally {
     await c.query('ROLLBACK');
     c.release();
