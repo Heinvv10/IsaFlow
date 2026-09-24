@@ -353,6 +353,25 @@ describeIfAuth('document-line account guard — driven through the real routes',
       expect(items.rows.map((r) => r.gl_account_id)).toEqual([routeAcc.inactive, routeAcc.active]);
     });
 
+    // The exemption is per LINE, not per account: a new line reusing the
+    // deactivated account the PO already carries is still refused.
+    it('refuses a new extra line on the deactivated account an existing line keeps', async () => {
+      const poId = await seedPo();
+      await pool.query(
+        `INSERT INTO po_items (purchase_order_id, description, quantity, unit_price, tax_rate, line_total, tax_amount, gl_account_id, sort_order)
+         VALUES ($1, 'Old line', 1, 50, 15, 50, 7.5, $2, 0)`, [poId, routeAcc.inactive]);
+      const state = await call(purchaseOrderHandler as never, { id: poId }, 'PUT', {
+        supplier_id: SUPPLIER,
+        items: [
+          { description: 'Old line', quantity: 1, unit_price: 50, gl_account_id: routeAcc.inactive },
+          { description: 'Second line', quantity: 3, unit_price: 20, gl_account_id: routeAcc.inactive },
+        ],
+      });
+      expect(state.statusCode, JSON.stringify(state.body)).toBe(400);
+      const items = await pool.query('SELECT description FROM po_items WHERE purchase_order_id = $1', [poId]);
+      expect(items.rows.map((r) => r.description)).toEqual(['Old line']);
+    });
+
     it('accepts an active account of this company', async () => {
       const poId = await seedPo();
       const state = await call(purchaseOrderHandler as never, { id: poId }, 'PUT', {
