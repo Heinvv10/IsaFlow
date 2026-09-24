@@ -12660,19 +12660,26 @@
       "severityRationale": "Named by a reviewer while surveying leg writers; the masking is confirmed by reading, the refusal path is not yet reproduced.",
       "auditedSha": "e41401627",
       "currentSha": "e41401627",
-      "status": "candidate",
+      "status": "fix-in-review",
       "dependencies": [],
-      "testNames": [],
+      "testNames": [
+        "tests/integration/r120-wip-invoice-refusal.int.test.ts",
+        "tests/unit/services/practice/wipInvoiceGuards.test.ts",
+        "tests/unit/components/WipInvoiceRefusalMessage.test.tsx"
+      ],
       "evidencePaths": [
-        "docs/audits/remediation/R-119/fix.md"
+        "docs/audits/remediation/R-120/fix.md",
+        "docs/audits/remediation/R-120/red.log",
+        "docs/audits/remediation/R-120/mutations.log"
       ],
       "fixCommit": null,
       "pr": null,
       "deployedSha": null,
       "historicalDataImpact": "None — the write rolls back.",
       "canonicalItem": null,
-      "reportedSeverity": "low",
-      "processNotes": null
+      "reportedSeverity": "medium",
+      "processNotes": "2026-09-24: reproduced and widened. Beyond the masking, the red run found that taxRate 101 BOOKED an invoice (201) and that a negative time entry inside a positive selection booked as an embedded credit line. It also found that the page read json.error as a string, and that lock contention was a masked 400. Severity raised low→medium: real invoices with wrong figures. Census SELECT in fix.md.",
+      "branch": "fix/r120-wip-refusal-message-20260924"
     }
   ],
   "sourceInventory": [
