@@ -55,15 +55,24 @@ async function one(c: PoolClient, text: string, params: unknown[]): Promise<stri
 }
 
 /** One row in each of the four document tables, owned by `companyId`, coded to `accountId`. */
-async function seedDocuments(c: PoolClient, companyId: string, accountId: string): Promise<DocIds> {
+async function seedDocuments(
+  c: PoolClient, companyId: string, accountId: string, billStatus: 'posted' | 'draft' = 'posted',
+): Promise<DocIds> {
   const tag = Math.random().toString(36).slice(2, 8);
   const supplier = await one(c,
     `INSERT INTO suppliers (company_id, name) VALUES ($1, $2) RETURNING id`, [companyId, `ZZ doc ${tag}`]);
   const invoice = await one(c,
     `INSERT INTO supplier_invoices (company_id, invoice_number, supplier_id, invoice_date,
        subtotal, total_amount, created_by, status)
-     VALUES ($1, $2, $3, CURRENT_DATE, 100, 115, $4, 'approved') RETURNING id`,
-    [companyId, `ZZ-INV-${tag}`, supplier, USER]);
+     VALUES ($1, $2, $3, CURRENT_DATE, 100, 115, $4, $5) RETURNING id`,
+    [companyId, `ZZ-INV-${tag}`, supplier, USER, billStatus === 'posted' ? 'approved' : 'draft']);
+  if (billStatus === 'posted') {
+    // Stands in for its approval journal: an approved bill whose journal is posted.
+    await c.query(
+      `UPDATE supplier_invoices SET gl_journal_entry_id = (
+         SELECT id FROM gl_journal_entries WHERE company_id = $2 AND status = 'posted' ORDER BY id LIMIT 1)
+       WHERE id = $1`, [invoice, companyId]);
+  }
   const supplierInvoiceItem = await one(c,
     `INSERT INTO supplier_invoice_items (supplier_invoice_id, description, quantity, unit_price, line_total, gl_account_id)
      VALUES ($1, 'doc fixture', 1, 100, 100, $2) RETURNING id`, [invoice, accountId]);
@@ -195,6 +204,37 @@ describe.skipIf(!hasDb)('mergeAccounts repoints document lines', () => {
 
       const result = await mergeAccounts(f.companyId, f.cleanSourceId, f.targetId, USER);
       expect(result.documentRowsRepointed).toEqual(preview.documentRowsToRepoint);
+    });
+  }, 120_000);
+
+  // The bill-line guard refuses bill lines on control, bank, VAT, system and
+  // header accounts. A bill still to be approved or posted whose line moves
+  // onto such a target could never be approved again, so the merge refuses.
+  it('(e) refuses when a bill still to be posted would land on an account bill lines may not use', async () => {
+    await withFixture(async (c, f) => {
+      // The fixture's target has a child, so it is a header: refused for bill lines.
+      const docs = await seedDocuments(c, f.companyId, f.cleanSourceId, 'draft');
+
+      for (const attempt of [
+        () => previewAccountMerge(f.companyId, f.cleanSourceId, f.targetId),
+        () => mergeAccounts(f.companyId, f.cleanSourceId, f.targetId, USER),
+      ]) {
+        const err = await attempt().then(() => null, (e: unknown) => e);
+        expect(err).toBeInstanceOf(AccountMergeError);
+        expect((err as AccountMergeError).code).toBe('target_refused_for_open_bill_lines');
+        expect((err as Error).message).toMatch(/ZZ-INV-/);
+      }
+      expect(await accountsOf(c, docs)).toEqual([
+        f.cleanSourceId, f.cleanSourceId, f.cleanSourceId, f.cleanSourceId]);
+    });
+  }, 120_000);
+
+  it('(f) a draft bill still moves onto a target bill lines may use', async () => {
+    await withFixture(async (c, f) => {
+      const docs = await seedDocuments(c, f.companyId, f.cleanSourceId, 'draft');
+      await mergeAccounts(f.companyId, f.cleanSourceId, f.targetChildId, USER);
+      expect(await accountsOf(c, docs)).toEqual([
+        f.targetChildId, f.targetChildId, f.targetChildId, f.targetChildId]);
     });
   }, 120_000);
 });
