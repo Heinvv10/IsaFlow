@@ -17,6 +17,7 @@ import { describe, it, expect } from 'vitest';
 import {
   findHatchUsages,
   findGuardRegressions,
+  migrationNumber,
   TRUST_FLAG_GUC,
 } from '../../../scripts/ci/oauthTrustFlagRule';
 
@@ -137,6 +138,71 @@ ALTER TABLE oauth_apps ENABLE ALWAYS TRIGGER oauth_apps_guard_trust_flags_trg;`,
       },
     ]);
     expect(v).toEqual([]);
+  });
+
+  // ── Bypasses found by adversarial review of the first version ───────────
+  // Every one of these reopened the hole while the gate printed OK. They are
+  // all the same defect: matching a name as bare literal text, and trusting a
+  // filename to parse.
+
+  it('reads the FULL migration number, not the first three digits', () => {
+    // The worst of them. `/^(\d{3})/` read 1001_ as 100, which is <= 693, so
+    // the file was skipped entirely and a table-level re-grant was invisible.
+    // Nothing else in CI enforces a 3-digit prefix: audit-migration-naming.ts
+    // accepts any digit count and always exits 0.
+    expect(migrationNumber('scripts/migrations/sql/1001_foo.sql')).toBe(1001);
+    expect(migrationNumber('scripts/migrations/sql/694_x.sql')).toBe(694);
+    // The repo's documented "insert between existing numbers" form.
+    expect(migrationNumber('scripts/migrations/sql/244b_x.sql')).toBe(244);
+  });
+
+  it('fires on a 4-digit migration that re-grants', () => {
+    expect(
+      findGuardRegressions([later('1001_regrant.sql', 'GRANT UPDATE ON oauth_apps TO app_user;')]),
+    ).toHaveLength(1);
+  });
+
+  it('scans a file whose name has no parseable number, rather than skipping it', () => {
+    // Fail closed: an unparseable name must not buy exemption.
+    expect(
+      findGuardRegressions([
+        { file: 'scripts/migrations/sql/hotfix.sql', text: 'GRANT UPDATE ON oauth_apps TO app_user;' },
+      ]),
+    ).toHaveLength(1);
+  });
+
+  it('fires on a schema-qualified table name', () => {
+    expect(
+      findGuardRegressions([later('900_a.sql', 'GRANT UPDATE ON public.oauth_apps TO app_user;')]),
+    ).toHaveLength(1);
+  });
+
+  it('fires on quoted identifiers, for the table and the trigger alike', () => {
+    expect(
+      findGuardRegressions([later('900_b.sql', 'GRANT UPDATE ON "oauth_apps" TO app_user;')]),
+    ).toHaveLength(1);
+    expect(
+      findGuardRegressions([later('900_c.sql', 'DROP TRIGGER "oauth_apps_guard_trust_flags_trg" ON oauth_apps;')]),
+    ).toHaveLength(1);
+    expect(
+      findGuardRegressions([later('900_d.sql', 'GRANT UPDATE ON "public"."oauth_apps" TO app_user;')]),
+    ).toHaveLength(1);
+  });
+
+  it('fires on DISABLE TRIGGER ALL / USER, which kill the guard without naming it', () => {
+    // Stronger than the ALWAYS-downgrade case already covered, and valid SQL.
+    expect(
+      findGuardRegressions([later('900_e.sql', 'ALTER TABLE oauth_apps DISABLE TRIGGER ALL;')]),
+    ).toHaveLength(1);
+    expect(
+      findGuardRegressions([later('900_f.sql', 'ALTER TABLE public.oauth_apps DISABLE TRIGGER USER;')]),
+    ).toHaveLength(1);
+  });
+
+  it('stays quiet on DISABLE TRIGGER ALL for a different table', () => {
+    expect(
+      findGuardRegressions([later('900_g.sql', 'ALTER TABLE customers DISABLE TRIGGER ALL;')]),
+    ).toEqual([]);
   });
 
   it('ignores SQL comments, so prose about the hazard does not fail the build', () => {

@@ -43,6 +43,17 @@ const GUARD_TRIGGER_PREFIX = 'oauth_apps_guard_trust_flags';
 const GUARDED_TABLE = 'oauth_apps';
 const APP_ROLE = 'app_user';
 
+/**
+ * The guarded table as SQL may legitimately spell it: bare,
+ * schema-qualified, and with either part quoted. Matching the bare literal
+ * alone meant `public.oauth_apps` and `"oauth_apps"` both slipped past — the
+ * same statement, written the way Postgres also accepts.
+ */
+const TABLE_REF = String.raw`(?:"?\w+"?\s*\.\s*)?"?${GUARDED_TABLE}"?`;
+
+/** The guard triggers, quoted or not. */
+const TRIGGER_REF = String.raw`"?${GUARD_TRIGGER_PREFIX}\w*"?`;
+
 export interface Violation {
   file: string;
   line: number;
@@ -67,10 +78,21 @@ function stripSqlComments(text: string): string {
     .replace(/\/\*[\s\S]*?\*\//g, (m) => m.replace(/[^\n]/g, ' '));
 }
 
-/** The 3-digit prefix of a migration filename, or null when it has none. */
+/**
+ * The numeric prefix of a migration filename, or null when it has none.
+ *
+ * ALL leading digits, not three. `/^(\d{3})/` read `1001_foo.sql` as 100,
+ * which is <= 693, so such a file was skipped entirely and a table-level
+ * re-grant inside it was invisible while this gate printed OK. Nothing else
+ * in CI enforces a 3-digit prefix: audit-migration-naming.ts accepts any
+ * digit count and always exits 0.
+ *
+ * `244b_` (this repo's form for inserting between numbers) yields 244 — the
+ * letter orders within a number, it does not change it.
+ */
 export function migrationNumber(file: string): number | null {
   const base = file.split('/').pop() ?? file;
-  const m = /^(\d{3})[_a-z0-9]*\.sql$/i.exec(base);
+  const m = /^(\d+)[a-z]?[_-]/i.exec(base);
   if (!m?.[1]) return null;
   // Base 10 explicitly: a leading zero must not be read as octal.
   return parseInt(m[1], 10);
@@ -120,13 +142,16 @@ export function findGuardRegressions(files: Array<{ file: string; text: string }
 
   for (const { file, text: raw } of files) {
     const n = migrationNumber(file);
-    if (n === null || n <= GUARD_MIGRATION) continue;
+    // Fail CLOSED on an unparseable name: null means we cannot prove the file
+    // predates the guard, so it gets scanned anyway. An odd filename must not
+    // buy exemption from a security gate.
+    if (n !== null && n <= GUARD_MIGRATION) continue;
     const text = stripSqlComments(raw);
 
     // GRANT ... ON oauth_apps TO app_user, with no column list between the
     // privilege list and ON. A column list is the safe, intended form.
     const tableGrant = new RegExp(
-      String.raw`\bGRANT\s+(?![^;]*\()[\w\s,]*?\bON\s+(?:TABLE\s+)?${GUARDED_TABLE}\b[^;]*?\bTO\s+[^;]*\b${APP_ROLE}\b`,
+      String.raw`\bGRANT\s+(?![^;]*\()[\w\s,]*?\bON\s+(?:TABLE\s+)?${TABLE_REF}[^;]*?\bTO\s+[^;]*\b${APP_ROLE}\b`,
       'gis',
     );
     for (const m of text.matchAll(tableGrant)) {
@@ -150,7 +175,14 @@ export function findGuardRegressions(files: Array<{ file: string; text: string }
     }
 
     const dropOrDisable = new RegExp(
-      String.raw`\b(?:DROP\s+TRIGGER(?:\s+IF\s+EXISTS)?\s+${GUARD_TRIGGER_PREFIX}\w*|DISABLE\s+TRIGGER\s+${GUARD_TRIGGER_PREFIX}\w*)`,
+      // Two forms. The NAMED one needs no table scoping: the trigger name is
+      // ours. The ALL/USER one must be scoped to this table, or the guard
+      // fires on every unrelated `ALTER TABLE customers DISABLE TRIGGER ALL`
+      // — tightening a guard makes its mirror-image false positive, so the
+      // table has to be in the pattern rather than assumed.
+      String.raw`\b(?:DROP\s+TRIGGER(?:\s+IF\s+EXISTS)?\s+${TRIGGER_REF}` +
+        String.raw`|DISABLE\s+TRIGGER\s+${TRIGGER_REF}` +
+        String.raw`|ALTER\s+TABLE\s+(?:ONLY\s+)?${TABLE_REF}\s+DISABLE\s+TRIGGER\s+(?:ALL|USER)\b)`,
       'gis',
     );
     for (const m of text.matchAll(dropOrDisable)) {
@@ -163,7 +195,7 @@ export function findGuardRegressions(files: Array<{ file: string; text: string }
 
     // ENABLE TRIGGER <guard> that is not ENABLE ALWAYS TRIGGER.
     const enableNotAlways = new RegExp(
-      String.raw`\bENABLE\s+(?!ALWAYS\b)(?:REPLICA\s+)?TRIGGER\s+${GUARD_TRIGGER_PREFIX}\w*`,
+      String.raw`\bENABLE\s+(?!ALWAYS\b)(?:REPLICA\s+)?TRIGGER\s+${TRIGGER_REF}`,
       'gis',
     );
     for (const m of text.matchAll(enableNotAlways)) {
