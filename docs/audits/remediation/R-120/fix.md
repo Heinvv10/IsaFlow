@@ -25,7 +25,7 @@ All runs are against the fixture `isaflow-fixture-r112`.
 - `tests/unit/services/practice/wipInvoiceGuards.test.ts`: 12 of 12. The component test has 2 cases.
 - `tests/unit/components/WipInvoiceRefusalMessage.test.tsx`: red on master's page, green on the fix.
 - **Existing WIP suites:** k-040 ×2 and k107, integration, pass. So do the practice unit tests, 18 files and 226 tests.
-- **Mutations** (`mutations.log`): 23, all red, plus the two page tests, which are red on master's pages. M4 was retired as redundant, and the reason is in the table above. Two survived the first round (M4, M6), and the reason for each is in the log.
+- **Mutations** (`mutations.log`): 24, all red, plus the two page tests, which are red on master's pages. M4 was retired as redundant, and the reason is in the table above. Two survived the first round (M4, M6), and the reason for each is in the log.
 
 ## Review round 1
 | Finding | Fix | Proof |
@@ -57,6 +57,13 @@ All runs are against the fixture `isaflow-fixture-r112`.
 | MEDIUM (general): the remedy had no UI. Write-off accepts `approved`, but the Approvals page listed only `submitted`. | Approvals has a Status filter (Submitted / Approved, not billed). On approved entries Approve is disabled and write-off works. The page reads errors through `assertOk`, and it too had read `json.error` as a string. | Component test `R120TimeEntryRemedyPages`: red on master's page. |
 | MEDIUM (general): the time-tracking form sends hours (and rate) on EVERY save, so every practice-entry edit was refused, and the page showed "Failed" (it read `json.message`). | Only a CHANGE to hours or rate is refused, compared against the stored row. The page uses `assertOk`/`apiErrorMessage`. | The integration test now sends the same hours and rate with a notes edit; M24 goes red. The component test is red on master's page. |
 | LOW (general): the stuck-entry census counted rows the lock never selects. | It now matches the lock's predicate (`billable`, `line_total IS NOT NULL`). | Parsed against the fixture. |
+
+## Review round 4
+| Finding | Fix | Proof |
+|---|---|---|
+| MEDIUM (adv. R3-1): `updatePracticeEntry` stored the RAW hours but computed the line from JS-rounded hours. NUMERIC(6,2) rounds 1.005 to 1.01 and JS rounds it to 1.00, so the stored line was R1500 where the stored hours implied R1515. That live writer kept creating entries WIP refuses. | It now writes `effectiveHours`, the value the line is computed from. | Unit test with 1.005h; M26 goes red. |
+| LOW (adv.): the refusal said "mark it not billable", but the UI calls the action "Write off". | The text now says "write it off on the Approvals page (status "Approved, not billed")". | — |
+| Side finding (adv.): `time_entries.amount` exists in no migration. Neither the fixture nor dev has it, yet `createPracticeEntry` and `updatePracticeEntry` write it. | Out of scope; registered as **R-121**. | — |
 
 ## Historical-data impact
 None from the masking. The two booking defects may have left rows. Hand this to Hein; it is read-only and has **not** been run on production:

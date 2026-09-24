@@ -177,6 +177,23 @@ describe('updatePracticeEntry', () => {
     expect(updateValues).toContain(true);  // updateNotes sentinel
   });
 
+  it('stores the rounded hours its line is computed from, not the raw input (R-120)', async () => {
+    // NUMERIC(6,2) would store 1.005 as 1.01 while the line was computed from
+    // JS-rounded 1.00: a line WIP billing refuses once the entry is approved.
+    sqlMock.mockResolvedValueOnce([{
+      status: 'draft', practice_client_id: CLIENT, entry_date: '2026-04-19', user_id: USER,
+      hours: 2, job_category_id: CATEGORY, work_item_id: WORK_ITEM,
+    }]);
+    resolveRateMock.mockResolvedValueOnce(1500);
+    sqlMock.mockResolvedValueOnce([entryRow]);
+
+    await updatePracticeEntry(COMPANY, ENTRY_ID, { hours: 1.005 });
+    const updateValues = sqlMock.mock.calls[1]!.slice(1);
+    expect(updateValues).not.toContain(1.005);
+    const hoursWritten = updateValues.find((v) => typeof v === 'number' && Math.abs(v - 1.005) < 0.01 && v !== 1500) as number;
+    expect(updateValues).toContain(Math.round(hoursWritten * 1500 * 100) / 100);
+  });
+
   it('rejects update when entry not draft', async () => {
     sqlMock.mockResolvedValueOnce([{ status: 'approved' }]);
     await expect(updatePracticeEntry(COMPANY, ENTRY_ID, { hours: 3 }))

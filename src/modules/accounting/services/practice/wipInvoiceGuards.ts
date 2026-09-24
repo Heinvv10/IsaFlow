@@ -55,8 +55,8 @@ export function assertWipEntryLines(entries: DbRow[]): void {
       throw new WipInvoiceRefusal(
         `time entry of ${fmtDate(e.entry_date)} ("${String(e.task_description)}") has a negative or `
         + `non-numeric amount (rate ${String(e.applied_rate)}, line ${String(e.line_total)}). `
-        + 'An approved entry cannot be edited: mark it not billable and log a corrected one, '
-        + 'or bill a reduction as a credit note.',
+        + 'An approved entry cannot be edited: write it off on the Approvals page (status "Approved, not billed") '
+        + 'and log a corrected one, or bill a reduction as a credit note.',
       );
     }
     // Every writer stores line_total = round2(hours × applied_rate)
@@ -67,7 +67,7 @@ export function assertWipEntryLines(entries: DbRow[]): void {
       throw new WipInvoiceRefusal(
         `time entry of ${fmtDate(e.entry_date)} ("${String(e.task_description)}") has a line of ${String(e.line_total)} `
         + `that is not its ${String(e.hours)}h × ${String(e.applied_rate)}. An approved entry cannot be edited: `
-        + 'mark it not billable and log a corrected entry.',
+        + 'write it off on the Approvals page (status "Approved, not billed") and log a corrected entry.',
       );
     }
   }
