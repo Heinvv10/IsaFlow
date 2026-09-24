@@ -31,18 +31,21 @@ const vatInput = crypto.randomUUID();
 const defaultExpense = crypto.randomUUID();
 const entertainment = crypto.randomUUID();
 const stationery = crypto.randomUUID();
+const retired = crypto.randomUUID();
 
 const deniedDoc = crypto.randomUUID();
 const claimableDoc = crypto.randomUUID();
 const unbalancedDoc = crypto.randomUUID();
 const tenantDoc = crypto.randomUUID();
-const documents = [deniedDoc, claimableDoc, unbalancedDoc, tenantDoc];
+const inactiveDoc = crypto.randomUUID();
+const documents = [deniedDoc, claimableDoc, unbalancedDoc, tenantDoc, inactiveDoc];
 
 const deniedEvent = crypto.randomUUID();
 const claimableEvent = crypto.randomUUID();
 const unbalancedEvent = crypto.randomUUID();
 const tenantEvent = crypto.randomUUID();
-const events = [deniedEvent, claimableEvent, unbalancedEvent, tenantEvent];
+const inactiveEvent = crypto.randomUUID();
+const events = [deniedEvent, claimableEvent, unbalancedEvent, tenantEvent, inactiveEvent];
 
 const today = new Date().toISOString().slice(0, 10);
 let token = '';
@@ -93,7 +96,7 @@ async function purge(): Promise<void> {
   await pool.query('DELETE FROM gl_journal_lines WHERE company_id=ANY($1::uuid[])', [companies]);
   await pool.query('DELETE FROM gl_journal_entries WHERE company_id=ANY($1::uuid[])', [companies]);
   await pool.query('DELETE FROM gl_account_balances WHERE gl_account_id=ANY($1::uuid[])',
-    [[bank, vatInput, defaultExpense, entertainment, stationery]]);
+    [[bank, vatInput, defaultExpense, entertainment, stationery, retired]]);
   await pool.query('DELETE FROM gl_accounts WHERE company_id=ANY($1::uuid[])', [companies]);
   await pool.query('DELETE FROM fiscal_periods WHERE company_id=ANY($1::uuid[])', [companies]);
   await pool.query('DELETE FROM company_users WHERE company_id=ANY($1::uuid[])', [companies]);
@@ -122,8 +125,9 @@ beforeAll(async () => {
            ($2,$6,'1140','K072b VAT Input','asset','vat_input','debit',true,true),
            ($3,$6,'K72BDE','K072b Default expense','expense','default_expense','debit',true,true),
            ($4,$6,'5610','K072b Staff welfare','expense',NULL,'debit',false,true),
-           ($5,$6,'5100','K072b Office supplies','expense',NULL,'debit',false,true)`,
-    [bank, vatInput, defaultExpense, entertainment, stationery, company],
+           ($5,$6,'5100','K072b Office supplies','expense',NULL,'debit',false,true),
+           ($7,$6,'5199','K072b Retired expense','expense',NULL,'debit',false,false)`,
+    [bank, vatInput, defaultExpense, entertainment, stationery, company, retired],
   );
   // The marker migration 521 sets, on the account the claim will be coded to.
   await pool.query('UPDATE gl_accounts SET vat_input_denied = true WHERE id=$1 AND company_id=$2',
@@ -138,6 +142,8 @@ beforeAll(async () => {
   // independently, so a slip mixing zero- and standard-rated items does this.
   await seed(unbalancedDoc, unbalancedEvent, company,
     { vendorName: 'Waltons Stationery', subtotal: 1010, vatAmount: 150, total: 1150 });
+  await seed(inactiveDoc, inactiveEvent, company,
+    { vendorName: 'Waltons Stationery', subtotal: 1000, vatAmount: 150, total: 1150 });
   await seed(tenantDoc, tenantEvent, otherCompany,
     { vendorName: 'Waltons Stationery', subtotal: 1000, vatAmount: 150, total: 1150 });
 
@@ -225,4 +231,29 @@ describe('K-072 the petty-cash branch answers 400 on a mis-extracted receipt', (
       'SELECT status FROM capture_events WHERE id=$1', [unbalancedEvent],
     )).rows[0].status).toBe('extracted');
   });
+});
+
+// A deactivated account (a merge's source, or one retired by hand) must be
+// refused before the first write, so the 400 commits nothing and the capture
+// can be re-posted to a live account.
+describe('post-expense refuses an inactive account before writing anything', () => {
+  for (const branch of ['employee claim', 'petty cash'] as const) {
+    it(`refuses on the ${branch} branch`, async () => {
+      const body = branch === 'employee claim'
+        ? { employeeId: employee, glAccountId: retired }
+        : { glAccountId: retired };
+      const result = await post(inactiveEvent, body);
+      expect(result.state.statusCode).toBe(400);
+      const error = (result.state.body as { error: { message: string } }).error;
+      expect(error.message).toContain('5199');
+
+      expect(await claimLines(inactiveDoc)).toHaveLength(0);
+      expect((await pool.query(
+        'SELECT COUNT(*)::int AS n FROM gl_journal_entries WHERE source_document_id=$1', [inactiveDoc],
+      )).rows[0].n).toBe(0);
+      expect((await pool.query(
+        'SELECT status FROM capture_events WHERE id=$1', [inactiveEvent],
+      )).rows[0].status).toBe('extracted');
+    });
+  }
 });

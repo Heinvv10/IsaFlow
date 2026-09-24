@@ -17,6 +17,7 @@ import {
   computeMileageAmount,
   addLine,
 } from '@/modules/accounting/services/expense/expenseClaimService';
+import { DocumentLineAccountRefusal } from '@/modules/accounting/services/gl/documentLineAccountGuard';
 
 type GlRow = { id: string };
 
@@ -94,6 +95,7 @@ async function handler(req: CompanyAuthedRequest, res: NextApiResponse) {
       if (!claim) return apiResponse.notFound(res, 'Expense claim', body.claimId);
       return apiResponse.success(res, { claim, line: linePayload, rate });
     } catch (err) {
+      if (err instanceof DocumentLineAccountRefusal) return apiResponse.badRequest(res, err.message);
       return apiResponse.badRequestFromError(res, err, 'Request failed');
     }
   }
