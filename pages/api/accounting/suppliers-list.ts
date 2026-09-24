@@ -59,8 +59,9 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
         const result = await listSuppliers(companyId, { search: searchQuery, limit, offset });
         rows = result.suppliers as Row[];
         total = result.total;
-      } else if (page === 1) {
-        // Only cache the first page of unfiltered results
+      } else if (page === 1 && limit === 25) {
+        // Only cache the default page size — a different limit on page 1
+        // would otherwise be served the 25 rows cached for the default call.
         const result = await cacheThrough(
           CACHE_KEYS.suppliers(companyId),
           async () => listSuppliers(companyId, { limit, offset }),
