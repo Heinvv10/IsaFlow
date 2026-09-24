@@ -194,6 +194,15 @@ describe('updatePracticeEntry', () => {
     expect(updateValues).toContain(Math.round(hoursWritten * 1500 * 100) / 100);
   });
 
+  it('refuses hours that round to zero before touching the row (R-120)', async () => {
+    sqlMock.mockResolvedValueOnce([{
+      status: 'draft', practice_client_id: CLIENT, entry_date: '2026-04-19', user_id: USER,
+      hours: 2, job_category_id: CATEGORY, work_item_id: WORK_ITEM,
+    }]);
+    await expect(updatePracticeEntry(COMPANY, ENTRY_ID, { hours: 0.004 })).rejects.toThrow(/between 0 and 24/);
+    expect(sqlMock.mock.calls.some((c) => (c[0] as string[]).join('').includes('UPDATE time_entries'))).toBe(false);
+  });
+
   it('rejects update when entry not draft', async () => {
     sqlMock.mockResolvedValueOnce([{ status: 'approved' }]);
     await expect(updatePracticeEntry(COMPANY, ENTRY_ID, { hours: 3 }))
