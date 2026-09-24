@@ -11,7 +11,8 @@ import { getPeriodStatusForDate } from './periodStatusService';
 import {
   VatPeriodLockedError, findActiveVatLock, journalMovesVatFigure, takeVatLockShared, type VatLineRef,
 } from './journalVatLockGuard';
-import { rollDefaultReversalDate, type VatLockRoll } from './journalEntryReversalVatRoll';
+import { isDateAutoCreatable, rollDefaultReversalDate, type VatLockRoll } from './journalEntryReversalVatRoll';
+import { ClosedFiscalPeriodError } from './journalEntryPostingGuards';
 
 export type { VatLockRoll } from './journalEntryReversalVatRoll';
 
@@ -52,6 +53,25 @@ export class ReversalPeriodError extends Error {
   constructor(message: string) {
     super(message);
     this.name = 'ReversalPeriodError';
+  }
+}
+
+/**
+ * R-012: the default arm would date the contra TODAY, and today is BEFORE the
+ * entry being reversed — a future-dated original whose period is not open. A
+ * correction dated before what it corrects breaks the as-at parity every
+ * ageing and statement reads (softDeleteLedgerPresence's precondition), so it
+ * is refused, pre-write. It IS-A ClosedFiscalPeriodError on purpose: the
+ * remedy is the same (open the period, or create the year), and every route
+ * that already answers a closed period with a 400 answers this one too.
+ */
+export class ReversalBeforeOriginalError extends ClosedFiscalPeriodError {
+  constructor(originalDate: string, today: string, originalPeriod: 'closed' | 'no_period') {
+    super(originalPeriod === 'no_period' ? 'missing' : 'closed');
+    this.name = 'ReversalBeforeOriginalError';
+    this.message = `Cannot reverse: the entry is dated ${originalDate}, in a fiscal period that is `
+      + `${originalPeriod === 'no_period' ? 'not created' : 'not open'}, and a reversal dated today (${today}) `
+      + 'would precede it. Open (or create) the period covering the entry, or name a reversal date on or after it.';
   }
 }
 
@@ -145,7 +165,18 @@ export async function resolveReversalDateDetailed(
     const originalPeriod = await getPeriodStatusForDate(companyId, originalDate);
     // fmtDate(new Date()), not toISOString — between 00:00 and 02:00 SAST the
     // latter stamps yesterday.
-    const date = originalPeriod === 'open' ? originalDate : fmtDate(new Date());
+    const today = fmtDate(new Date());
+    let date = originalPeriod === 'open' ? originalDate : today;
+    // R-012: today would precede a future-dated original. When its year does
+    // not exist yet but posting would create it, date the contra WITH the
+    // original — in the period it corrects. Otherwise refuse, pre-write.
+    if (originalPeriod !== 'open' && today < originalDate) {
+      if (originalPeriod === 'no_period' && await isDateAutoCreatable(companyId, originalDate)) {
+        date = originalDate;
+      } else {
+        throw new ReversalBeforeOriginalError(originalDate, today, originalPeriod);
+      }
+    }
     if (!lines) return { date, vatLockRoll: null };
     const rolled = await rollDefaultReversalDate(companyId, date, lines);
     return { date: rolled.date, vatLockRoll: rolled.roll };

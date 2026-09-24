@@ -1,0 +1,3 @@
+M-MCP no pre-write check:       Tests  1 failed | 2 passed (3)
+M-CORE no before-original guard: unit       Tests  2 failed | 19 passed (21) | int       Tests  1 failed | 2 passed (3)
+M-AUTO no auto-create branch: unit       Tests  1 failed | 21 passed (22) | r086       Tests  2 failed | 6 passed (8)

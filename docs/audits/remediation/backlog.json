@@ -9176,19 +9176,27 @@
       "severityRationale": "Discovered during fix or review of the named item; not yet independently reproduced as its own test.",
       "auditedSha": "5661d6f0f5f2212705151e95455a3f681ddf840e",
       "currentSha": "d0f4f5dc",
-      "status": "candidate",
+      "status": "fix-in-review",
       "dependencies": [
         "Bank path guarded by the K-021 fix; other callers open"
       ],
-      "testNames": [],
-      "evidencePaths": [],
+      "testNames": [
+        "tests/unit/services/journalEntryReversalDate.test.ts",
+        "tests/integration/r012-reversal-default-date.int.test.ts"
+      ],
+      "evidencePaths": [
+        "docs/audits/remediation/R-012/fix.md",
+        "docs/audits/remediation/R-012/red.log",
+        "docs/audits/remediation/R-012/mutations.log"
+      ],
       "fixCommit": null,
       "pr": null,
       "deployedSha": null,
-      "historicalDataImpact": "Not assessed",
+      "historicalDataImpact": "Reversals dated before their original may exist from before the fix; census in R-012/fix.md, not run on production.",
       "canonicalItem": null,
       "reportedSeverity": "medium",
-      "processNotes": "2026-09-21 (R-086 round 4): the default path's today-fallback can date a reversal BEFORE a future-dated original. documentInLedgerAsAtFragment's parity precondition then fails for the dates between the two, so every as-at consumer (ageing, statements) reads that document wrong; migration validation sidesteps it with a far-future sentinel. Fix here must add an earlier-than-original guard to the default path."
+      "processNotes": "2026-09-21 (R-086 round 4): the default path's today-fallback can date a reversal BEFORE a future-dated original. documentInLedgerAsAtFragment's parity precondition then fails for the dates between the two, so every as-at consumer (ageing, statements) reads that document wrong; migration validation sidesteps it with a far-future sentinel. Fix here must add an earlier-than-original guard to the default path. 2026-09-24: fixed on fix/r012-reversal-date-20260924. The default arm never dates before the original: it auto-create-dates it with the original, or refuses with ReversalBeforeOriginalError (IS-A ClosedFiscalPeriodError). The MCP reverse tool refuses a closed target pre-write. The paymentVoid half is moot (K-021 savepoint). Census SELECT in fix.md.",
+      "branch": "fix/r012-reversal-date-20260924"
     },
     {
       "id": "R-013",
