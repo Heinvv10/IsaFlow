@@ -176,15 +176,39 @@ export function buildInserts(
   const matchedIds = new Set<string>();
   const confidences: number[] = [];
   const inserts: LineInsert[] = [];
+  // A ledger invoice satisfies at most one statement line: consume it from the
+  // pool once claimed so a repeated charge stays visible as unmatched.
+  const pool = [...invoices];
+  const claim = (id: string | null) => {
+    if (!id) return;
+    matchedIds.add(id);
+    const idx = pool.findIndex((inv) => inv.id === id);
+    if (idx >= 0) pool.splice(idx, 1);
+  };
+  const sameNumber = (inv: InvoiceRecord, ref: string) =>
+    inv.invoiceNumber.trim().toLowerCase() === ref.trim().toLowerCase();
 
-  for (const line of extractedLines) {
-    const { invoiceId, confidence, mismatchReason } = matchLine(
-      line.reference,
-      line.debit,
-      line.date,
-      invoices,
-    );
-    if (invoiceId) matchedIds.add(invoiceId);
+  // Pass 1: exact-reference matches claim first, so an earlier fuzzy line
+  // cannot take the invoice a later line names outright.
+  const results: (MatchResult | undefined)[] = extractedLines.map((line) => {
+    const ref = line.reference;
+    const exact = ref ? pool.find((inv) => sameNumber(inv, ref)) : undefined;
+    if (!exact) return undefined;
+    const result = matchLine(ref, line.debit, line.date, [exact]);
+    claim(result.invoiceId);
+    return result;
+  });
+
+  // Pass 2: everything else matches against what is left, in statement order.
+  extractedLines.forEach((line, i) => {
+    if (results[i]) return;
+    const result = matchLine(line.reference, line.debit, line.date, pool);
+    claim(result.invoiceId);
+    results[i] = result;
+  });
+
+  extractedLines.forEach((line, i) => {
+    const { invoiceId, confidence, mismatchReason } = results[i]!;
     if (confidence != null) confidences.push(confidence);
     inserts.push({
       reconciliationId: reconId,
@@ -198,7 +222,7 @@ export function buildInserts(
       matchConfidence: confidence,
       mismatchReason,
     });
-  }
+  });
 
   const missing = buildMissingInvoices(invoices, matchedIds);
   for (const inv of missing) {
