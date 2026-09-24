@@ -53,7 +53,7 @@ the closed-period approval leaves a draft journal; 404 and 409 cases red. 5 of 9
   (never by statement text — the fixture database is shared).
 - `tests/unit/services/reports/vatAdjustmentService.test.ts` now runs inside a stub request
   transaction.
-- Mutations: see `mutations.log`.
+- Mutations: 8 of 8 killed (`mutations.log`; N8 initially survived behind RLS and is killed by the BYPASSRLS scope test).
 
 ## Census SQL for Hein (prod, read-only — agents never run this)
 

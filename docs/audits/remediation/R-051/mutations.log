@@ -43,3 +43,10 @@
 ## N8 lock read drops company_id [src/modules/accounting/services/reports/vatAdjustmentService.ts] -> SURVIVED
       Tests  9 passed (9)
 
+
+# Re-run on 04f92d939 after adding the BYPASSRLS scope test:
+## N8 lock read drops company_id [src/modules/accounting/services/reports/vatAdjustmentService.ts] -> KILLED
+     × the company scope holds without RLS: the service refuses a foreign id on a BYPASSRLS connection 12ms
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 1 ⎯⎯⎯⎯⎯⎯⎯
+      Tests  1 failed | 9 passed (10)
+
