@@ -27,6 +27,10 @@ import {
   postJournalEntry,
 } from '@/modules/accounting/services/gl/journalEntryService';
 import { deniedVatTypeForLine } from '@/modules/accounting/services/expense/claimVatAdvice';
+import {
+  claimLineSourceDocuments,
+  releaseSourceDocuments,
+} from '@/modules/accounting/services/expense/claimSourceDocuments';
 import { roundToCents } from '@/modules/accounting/utils/doubleEntry';
 import type { JournalLineInput } from '@/modules/accounting/types/gl.types';
 
@@ -190,10 +194,19 @@ export interface CreateClaimInput {
   description?: string | null;
   createdBy?: string | null;
   lines?: ExpenseClaimLine[];
+  /**
+   * The caller already claimed the lines' source documents (`post-expense`
+   * claims its slip before it builds the claim). Every other caller leaves
+   * this unset and `createClaim` claims them itself.
+   */
+  sourceDocumentsClaimed?: boolean;
 }
 
 export async function createClaim(input: CreateClaimInput): Promise<ExpenseClaim> {
   const claimDate = input.claimDate ?? new Date().toISOString().slice(0, 10);
+  // Before the first write (R-105): a refusal here has written nothing, so the
+  // route's 400 commits nothing.
+  if (!input.sourceDocumentsClaimed) await claimLineSourceDocuments(input.companyId, input.lines ?? []);
   const claimNumber = await nextClaimNumber(input.companyId, claimDate);
 
   const [claim] = (await sql`
@@ -255,6 +268,7 @@ export async function addLine(
   if (claim.status !== 'draft') {
     throw new Error(`Cannot add line to claim in status '${claim.status}'`);
   }
+  await claimLineSourceDocuments(companyId, [line]);
   await insertLine(claimId, companyId, line);
   await recomputeTotals(claimId, companyId);
   return await getClaim(claimId, companyId);
@@ -270,10 +284,15 @@ export async function deleteLine(
   if (claim.status !== 'draft') {
     throw new Error(`Cannot delete line from claim in status '${claim.status}'`);
   }
-  await sql`
+  const deleted = (await sql`
     DELETE FROM expense_claim_lines
     WHERE id = ${lineId}::uuid AND claim_id = ${claimId}::uuid AND company_id = ${companyId}::uuid
-  `;
+    RETURNING source_document_id
+  `) as Row[];
+  // The slip the line held can be posted again (R-105). Its status stays
+  // 'matched', as after rejectClaim's release.
+  await releaseSourceDocuments(companyId,
+    deleted.map((r) => r.source_document_id).filter((id) => id != null).map(String));
   await recomputeTotals(claimId, companyId);
   return await getClaim(claimId, companyId);
 }

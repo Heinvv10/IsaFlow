@@ -1,0 +1,147 @@
+# R-105 RED: tests/integration/r105-expense-claim-source-document.int.test.ts against master 4db98a9ba's expense-claim code on the r112 fixture (routes via withAuth/app_user). JSON log lines stripped.
+
+ RUN  v4.1.2 /home/hein/Workspace/IsaFlow/.worktrees/fix-r105
+
+ ❯ tests/integration/r105-expense-claim-source-document.int.test.ts (9 tests | 7 failed) 984ms
+     × refuses a slip already posted through capture, and creates no claim 112ms
+     × refuses a slip an operator rejected 21ms
+     × refuses another company's captured document, and leaves it unclaimed 14ms
+     × claims a fresh slip, and a second claim on the same slip is refused 25ms
+     × is all or nothing: one refused line leaves the other slip unclaimed and no claim behind 25ms
+     × refuses the same slip on two lines of one claim 19ms
+     × adding a line to a draft claims its slip too, and refuses a posted one 33ms
+
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 7 ⎯⎯⎯⎯⎯⎯⎯
+
+ FAIL  tests/integration/r105-expense-claim-source-document.int.test.ts > R-105: a manual expense claim line claims its source document > refuses a slip already posted through capture, and creates no claim
+AssertionError: {"success":true,"data":{"claim":{"id":"9e4bc331-9050-4c45-bfbd-0e673e52752a","companyId":"1def4b5b-85fc-4c9f-b3e2-c74eab606722","employeeId":"ecd3cbe3-b0ae-4666-b30d-06b4528d70a8","claimNumber":"CL-2026-0001","claimDate":"2026-09-24","title":null,"description":null,"status":"draft","totalAmount":115,"totalVat":15,"approvedBy":null,"approvedAt":null,"rejectionReason":null,"postedJeId":null,"postedAt":null,"submittedAt":null,"createdBy":"7e023017-d717-40f0-9420-c76ac3998dc2","createdAt":"Thu Sep 24 2026 17:11:15 GMT+0200 (South Africa Standard Time)","updatedAt":"Thu Sep 24 2026 17:11:15 GMT+0200 (South Africa Standard Time)","lines":[{"id":"7bfd3aaf-1b98-49ef-b19f-fdae50a7a0d8","claimId":"9e4bc331-9050-4c45-bfbd-0e673e52752a","lineDate":"2026-09-24","description":"R105 slip","merchant":"Waltons","amount":115,"vatAmount":15,"vatCode":"standard","glAccountId":"bbf76001-8e6c-4d89-b9cc-ddb058ce83d9","costCentreId":null,"projectId":null,"sourceDocumentId":"3e935b7b-284f-4ef9-8993-0a674784c294","kmTravelled":null,"kmRate":null,"mileageFrom":null,"mileageTo":null}]}},"message":"Resource created successfully","meta":{"timestamp":"2026-09-24T15:11:16.047Z"}}: expected 201 to be 400 // Object.is equality
+
+- Expected
++ Received
+
+- 400
++ 201
+
+ ❯ tests/integration/r105-expense-claim-source-document.int.test.ts:141:54
+    139|     const before = await claimCount();
+    140|     const out = await createClaim([line(postedDoc)]);
+    141|     expect(out.statusCode, JSON.stringify(out.body)).toBe(400);
+       |                                                      ^
+    142|     expect(out.body.error?.message).toMatch(/already posted/i);
+    143|     expect(await claimCount()).toBe(before);
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[1/7]⎯
+
+ FAIL  tests/integration/r105-expense-claim-source-document.int.test.ts > R-105: a manual expense claim line claims its source document > refuses a slip an operator rejected
+AssertionError: {"success":true,"data":{"claim":{"id":"b531c825-a8f4-47a2-85f2-df417ec653d9","companyId":"1def4b5b-85fc-4c9f-b3e2-c74eab606722","employeeId":"ecd3cbe3-b0ae-4666-b30d-06b4528d70a8","claimNumber":"CL-2026-0002","claimDate":"2026-09-24","title":null,"description":null,"status":"draft","totalAmount":115,"totalVat":15,"approvedBy":null,"approvedAt":null,"rejectionReason":null,"postedJeId":null,"postedAt":null,"submittedAt":null,"createdBy":"7e023017-d717-40f0-9420-c76ac3998dc2","createdAt":"Thu Sep 24 2026 17:11:16 GMT+0200 (South Africa Standard Time)","updatedAt":"Thu Sep 24 2026 17:11:16 GMT+0200 (South Africa Standard Time)","lines":[{"id":"462ef9ce-8d6b-4938-9c64-0ad32df9a267","claimId":"b531c825-a8f4-47a2-85f2-df417ec653d9","lineDate":"2026-09-24","description":"R105 slip","merchant":"Waltons","amount":115,"vatAmount":15,"vatCode":"standard","glAccountId":"bbf76001-8e6c-4d89-b9cc-ddb058ce83d9","costCentreId":null,"projectId":null,"sourceDocumentId":"0998613e-9ddd-49c5-9d2b-71a099173ea2","kmTravelled":null,"kmRate":null,"mileageFrom":null,"mileageTo":null}]}},"message":"Resource created successfully","meta":{"timestamp":"2026-09-24T15:11:16.073Z"}}: expected 201 to be 400 // Object.is equality
+
+- Expected
++ Received
+
+- 400
++ 201
+
+ ❯ tests/integration/r105-expense-claim-source-document.int.test.ts:149:54
+    147|   it('refuses a slip an operator rejected', async () => {
+    148|     const out = await createClaim([line(rejectedDoc)]);
+    149|     expect(out.statusCode, JSON.stringify(out.body)).toBe(400);
+       |                                                      ^
+    150|     expect(out.body.error?.message).toMatch(/rejected/i);
+    151|     expect(await linesOn(rejectedDoc)).toBe(0);
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[2/7]⎯
+
+ FAIL  tests/integration/r105-expense-claim-source-document.int.test.ts > R-105: a manual expense claim line claims its source document > refuses another company's captured document, and leaves it unclaimed
+AssertionError: {"success":true,"data":{"claim":{"id":"2bca6812-8e87-4891-877d-895f622b14bd","companyId":"1def4b5b-85fc-4c9f-b3e2-c74eab606722","employeeId":"ecd3cbe3-b0ae-4666-b30d-06b4528d70a8","claimNumber":"CL-2026-0003","claimDate":"2026-09-24","title":null,"description":null,"status":"draft","totalAmount":115,"totalVat":15,"approvedBy":null,"approvedAt":null,"rejectionReason":null,"postedJeId":null,"postedAt":null,"submittedAt":null,"createdBy":"7e023017-d717-40f0-9420-c76ac3998dc2","createdAt":"Thu Sep 24 2026 17:11:16 GMT+0200 (South Africa Standard Time)","updatedAt":"Thu Sep 24 2026 17:11:16 GMT+0200 (South Africa Standard Time)","lines":[{"id":"09a0b1f0-dde9-4bd7-b086-a1e81b04a187","claimId":"2bca6812-8e87-4891-877d-895f622b14bd","lineDate":"2026-09-24","description":"R105 slip","merchant":"Waltons","amount":115,"vatAmount":15,"vatCode":"standard","glAccountId":"bbf76001-8e6c-4d89-b9cc-ddb058ce83d9","costCentreId":null,"projectId":null,"sourceDocumentId":"33dfc741-38f0-4d87-b7c8-815abd7713e9","kmTravelled":null,"kmRate":null,"mileageFrom":null,"mileageTo":null}]}},"message":"Resource created successfully","meta":{"timestamp":"2026-09-24T15:11:16.087Z"}}: expected 201 to be 400 // Object.is equality
+
+- Expected
++ Received
+
+- 400
++ 201
+
+ ❯ tests/integration/r105-expense-claim-source-document.int.test.ts:156:54
+    154|   it('refuses another company\'s captured document, and leaves it uncl…
+    155|     const out = await createClaim([line(foreignDoc)]);
+    156|     expect(out.statusCode, JSON.stringify(out.body)).toBe(400);
+       |                                                      ^
+    157|     expect(out.body.error?.message).toMatch(/not found/i);
+    158|     expect(await linesOn(foreignDoc)).toBe(0);
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[3/7]⎯
+
+ FAIL  tests/integration/r105-expense-claim-source-document.int.test.ts > R-105: a manual expense claim line claims its source document > claims a fresh slip, and a second claim on the same slip is refused
+AssertionError: expected null not to be null
+ ❯ tests/integration/r105-expense-claim-source-document.int.test.ts:165:42
+    163|     const first = await createClaim([line(freshDoc)]);
+    164|     expect(first.statusCode, JSON.stringify(first.body)).toBe(201);
+    165|     expect(await postedAt(freshDoc)).not.toBeNull();
+       |                                          ^
+    166|     const second = await createClaim([line(freshDoc)]);
+    167|     expect(second.statusCode, JSON.stringify(second.body)).toBe(400);
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[4/7]⎯
+
+ FAIL  tests/integration/r105-expense-claim-source-document.int.test.ts > R-105: a manual expense claim line claims its source document > is all or nothing: one refused line leaves the other slip unclaimed and no claim behind
+AssertionError: {"success":true,"data":{"claim":{"id":"446ec5f7-0bbe-4af8-a0c0-49edae8521fa","companyId":"1def4b5b-85fc-4c9f-b3e2-c74eab606722","employeeId":"ecd3cbe3-b0ae-4666-b30d-06b4528d70a8","claimNumber":"CL-2026-0005","claimDate":"2026-09-24","title":null,"description":null,"status":"draft","totalAmount":230,"totalVat":30,"approvedBy":null,"approvedAt":null,"rejectionReason":null,"postedJeId":null,"postedAt":null,"submittedAt":null,"createdBy":"7e023017-d717-40f0-9420-c76ac3998dc2","createdAt":"Thu Sep 24 2026 17:11:16 GMT+0200 (South Africa Standard Time)","updatedAt":"Thu Sep 24 2026 17:11:16 GMT+0200 (South Africa Standard Time)","lines":[{"id":"bcacd111-16fb-43ed-a8c6-0bac71402b00","claimId":"446ec5f7-0bbe-4af8-a0c0-49edae8521fa","lineDate":"2026-09-24","description":"R105 slip","merchant":"Waltons","amount":115,"vatAmount":15,"vatCode":"standard","glAccountId":"bbf76001-8e6c-4d89-b9cc-ddb058ce83d9","costCentreId":null,"projectId":null,"sourceDocumentId":"a5d2e46c-f4ff-436c-8f0f-84e5b631dbbb","kmTravelled":null,"kmRate":null,"mileageFrom":null,"mileageTo":null},{"id":"8d8d843c-ccd3-47f1-8942-c3bb705c2c65","claimId":"446ec5f7-0bbe-4af8-a0c0-49edae8521fa","lineDate":"2026-09-24","description":"R105 slip","merchant":"Waltons","amount":115,"vatAmount":15,"vatCode":"standard","glAccountId":"bbf76001-8e6c-4d89-b9cc-ddb058ce83d9","costCentreId":null,"projectId":null,"sourceDocumentId":"3e935b7b-284f-4ef9-8993-0a674784c294","kmTravelled":null,"kmRate":null,"mileageFrom":null,"mileageTo":null}]}},"message":"Resource created successfully","meta":{"timestamp":"2026-09-24T15:11:16.137Z"}}: expected 201 to be 400 // Object.is equality
+
+- Expected
++ Received
+
+- 400
++ 201
+
+ ❯ tests/integration/r105-expense-claim-source-document.int.test.ts:174:54
+    172|     const before = await claimCount();
+    173|     const out = await createClaim([line(atomicFreshDoc), line(postedDo…
+    174|     expect(out.statusCode, JSON.stringify(out.body)).toBe(400);
+       |                                                      ^
+    175|     expect(await postedAt(atomicFreshDoc)).toBeNull();
+    176|     expect(await claimCount()).toBe(before);
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[5/7]⎯
+
+ FAIL  tests/integration/r105-expense-claim-source-document.int.test.ts > R-105: a manual expense claim line claims its source document > refuses the same slip on two lines of one claim
+AssertionError: {"success":true,"data":{"claim":{"id":"bcffa472-5c76-47e4-b60c-37d1c5c87f6e","companyId":"1def4b5b-85fc-4c9f-b3e2-c74eab606722","employeeId":"ecd3cbe3-b0ae-4666-b30d-06b4528d70a8","claimNumber":"CL-2026-0006","claimDate":"2026-09-24","title":null,"description":null,"status":"draft","totalAmount":230,"totalVat":30,"approvedBy":null,"approvedAt":null,"rejectionReason":null,"postedJeId":null,"postedAt":null,"submittedAt":null,"createdBy":"7e023017-d717-40f0-9420-c76ac3998dc2","createdAt":"Thu Sep 24 2026 17:11:16 GMT+0200 (South Africa Standard Time)","updatedAt":"Thu Sep 24 2026 17:11:16 GMT+0200 (South Africa Standard Time)","lines":[{"id":"cae83dd2-a0fc-4d17-86d8-010c0ff83238","claimId":"bcffa472-5c76-47e4-b60c-37d1c5c87f6e","lineDate":"2026-09-24","description":"R105 slip","merchant":"Waltons","amount":115,"vatAmount":15,"vatCode":"standard","glAccountId":"bbf76001-8e6c-4d89-b9cc-ddb058ce83d9","costCentreId":null,"projectId":null,"sourceDocumentId":"b88b2c67-063f-4b8e-a523-cdb540ad86b0","kmTravelled":null,"kmRate":null,"mileageFrom":null,"mileageTo":null},{"id":"269fa8dc-dff6-46cc-83b5-385126aecc7e","claimId":"bcffa472-5c76-47e4-b60c-37d1c5c87f6e","lineDate":"2026-09-24","description":"R105 slip","merchant":"Waltons","amount":115,"vatAmount":15,"vatCode":"standard","glAccountId":"bbf76001-8e6c-4d89-b9cc-ddb058ce83d9","costCentreId":null,"projectId":null,"sourceDocumentId":"b88b2c67-063f-4b8e-a523-cdb540ad86b0","kmTravelled":null,"kmRate":null,"mileageFrom":null,"mileageTo":null}]}},"message":"Resource created successfully","meta":{"timestamp":"2026-09-24T15:11:16.155Z"}}: expected 201 to be 400 // Object.is equality
+
+- Expected
++ Received
+
+- 400
++ 201
+
+ ❯ tests/integration/r105-expense-claim-source-document.int.test.ts:181:54
+    179|   it('refuses the same slip on two lines of one claim', async () => {
+    180|     const out = await createClaim([line(twiceInOneDoc), line(twiceInOn…
+    181|     expect(out.statusCode, JSON.stringify(out.body)).toBe(400);
+       |                                                      ^
+    182|     expect(await postedAt(twiceInOneDoc)).toBeNull();
+    183|     expect(await linesOn(twiceInOneDoc)).toBe(0);
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[6/7]⎯
+
+ FAIL  tests/integration/r105-expense-claim-source-document.int.test.ts > R-105: a manual expense claim line claims its source document > adding a line to a draft claims its slip too, and refuses a posted one
+AssertionError: {"success":true,"data":{"claim":{"id":"528d3978-5591-4b96-b5e8-1b46b50d2192","companyId":"1def4b5b-85fc-4c9f-b3e2-c74eab606722","employeeId":"ecd3cbe3-b0ae-4666-b30d-06b4528d70a8","claimNumber":"CL-2026-0007","claimDate":"2026-09-24","title":null,"description":null,"status":"draft","totalAmount":230,"totalVat":30,"approvedBy":null,"approvedAt":null,"rejectionReason":null,"postedJeId":null,"postedAt":null,"submittedAt":null,"createdBy":"7e023017-d717-40f0-9420-c76ac3998dc2","createdAt":"Thu Sep 24 2026 17:11:16 GMT+0200 (South Africa Standard Time)","updatedAt":"Thu Sep 24 2026 17:11:16 GMT+0200 (South Africa Standard Time)","lines":[{"id":"f6da3040-4962-4672-a7ee-af6382759d51","claimId":"528d3978-5591-4b96-b5e8-1b46b50d2192","lineDate":"2026-09-24","description":"R105 slip","merchant":"Waltons","amount":115,"vatAmount":15,"vatCode":"standard","glAccountId":"bbf76001-8e6c-4d89-b9cc-ddb058ce83d9","costCentreId":null,"projectId":null,"sourceDocumentId":null,"kmTravelled":null,"kmRate":null,"mileageFrom":null,"mileageTo":null},{"id":"23593a33-1b45-4f83-aa66-18f9de0a7129","claimId":"528d3978-5591-4b96-b5e8-1b46b50d2192","lineDate":"2026-09-24","description":"R105 slip","merchant":"Waltons","amount":115,"vatAmount":15,"vatCode":"standard","glAccountId":"bbf76001-8e6c-4d89-b9cc-ddb058ce83d9","costCentreId":null,"projectId":null,"sourceDocumentId":"3e935b7b-284f-4ef9-8993-0a674784c294","kmTravelled":null,"kmRate":null,"mileageFrom":null,"mileageTo":null}]}},"meta":{"timestamp":"2026-09-24T15:11:16.185Z"}}: expected 200 to be 400 // Object.is equality
+
+- Expected
++ Received
+
+- 400
++ 200
+
+ ❯ tests/integration/r105-expense-claim-source-document.int.test.ts:191:62
+    189|     const claimId = created.body.data!.claim!.id;
+    190|     const refused = await addLine(claimId, line(postedDoc));
+    191|     expect(refused.statusCode, JSON.stringify(refused.body)).toBe(400);
+       |                                                              ^
+    192|     expect(refused.body.error?.message).toMatch(/already posted/i);
+    193|     expect(await linesOn(postedDoc)).toBe(0);
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[7/7]⎯
+
+
+ Test Files  1 failed (1)
+      Tests  7 failed | 2 passed (9)
+   Start at  17:11:14
+   Duration  2.55s (transform 584ms, setup 0ms, import 1.28s, tests 984ms, environment 0ms)
+

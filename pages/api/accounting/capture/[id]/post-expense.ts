@@ -202,6 +202,7 @@ async function handler(req: CompanyAuthedRequest, res: NextApiResponse) {
       title: extracted.vendorName ? `Expense: ${extracted.vendorName}` : 'Expense receipt',
       createdBy: userId,
       lines: [line],
+      sourceDocumentsClaimed: true,
     });
 
     // Auto-submit so it enters the approval queue immediately
