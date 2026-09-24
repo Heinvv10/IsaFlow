@@ -141,7 +141,7 @@ function InvoiceModal({ client, selectedIds, state, onChange, onConfirm, onCance
 // ---- page ----
 
 type GroupBy = 'detailed' | 'by_work_item' | 'by_category';
-type InvoiceResult = { invoiceId: string; invoiceNumber: string; totalAmount: number };
+type InvoiceResult = { invoiceId: string; invoiceNumber: string; totalAmount: number; skippedEntryCount?: number };
 
 export default function WipBoardPage() {
   const [groups, setGroups] = useState<WipClientRow[]>([]);
@@ -200,7 +200,10 @@ export default function WipBoardPage() {
       await assertOk(res, 'Invoice generation failed');
       const json = (await res.json()) as { data?: InvoiceResult } & InvoiceResult;
       const r: InvoiceResult = json.data ?? json;
-      setToast({ message: `Invoice ${r.invoiceNumber} created (${fmtMoney(r.totalAmount)})`, href: `/accounting/customer-invoices?id=${r.invoiceId}` });
+      // R-120: entries a peer billed or that stopped being billable are left out
+      // (K-040) — say so rather than invoice part of the selection silently.
+      const skipped = r.skippedEntryCount ? ` — ${r.skippedEntryCount} selected entr${r.skippedEntryCount === 1 ? 'y was' : 'ies were'} no longer billable and left out` : '';
+      setToast({ message: `Invoice ${r.invoiceNumber} created (${fmtMoney(r.totalAmount)})${skipped}`, href: `/accounting/customer-invoices?id=${r.invoiceId}` });
       setModalClient(null);
       setModalState({ invoiceDate: todayIso(), taxRate: 15, groupBy: 'detailed' });
       await loadWip();

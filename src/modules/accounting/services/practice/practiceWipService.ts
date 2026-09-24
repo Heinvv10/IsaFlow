@@ -36,6 +36,8 @@ export interface WipInvoiceResult {
   subtotal: number;
   taxAmount: number;
   totalAmount: number;
+  /** Selected ids not billed: gone, billed by a peer, or not this client's (R-120). */
+  skippedEntryCount: number;
 }
 
 export interface WipFilters {
@@ -148,16 +150,23 @@ export async function generateWipInvoice(
   const taxRate = assertWipTaxRate(input.taxRate);
 
   // 1. Validate practice client — active + link_customer_id required
+  //    The linked customer must be a live customer of THIS company: there is
+  //    no FK, and a legacy cross-tenant link billed another tenant's customer.
   const clientRows = (await sql`
-    SELECT id, status, link_customer_id FROM practice_clients
-    WHERE id = ${input.practiceClientId}::UUID
-      AND company_id = ${companyId}::UUID
+    SELECT pc.id, pc.status, pc.link_customer_id, c.id AS own_customer_id
+    FROM practice_clients pc
+    LEFT JOIN customers c ON c.id = pc.link_customer_id
+      AND c.company_id = ${companyId}::UUID AND c.deleted_at IS NULL
+    WHERE pc.id = ${input.practiceClientId}::UUID
+      AND pc.company_id = ${companyId}::UUID
   `) as DbRow[];
   if (!clientRows[0] || clientRows[0].status !== 'active')
     throw new WipInvoiceRefusal('practice client not found or not active');
   if (!clientRows[0].link_customer_id)
     throw new WipInvoiceRefusal('practice client has no linked AR customer — set link_customer_id before generating an invoice');
-  const customerId = String(clientRows[0].link_customer_id);
+  if (!clientRows[0].own_customer_id)
+    throw new WipInvoiceRefusal('the linked AR customer is not a live customer of this company — relink the practice client');
+  const customerId = String(clientRows[0].own_customer_id);
 
   // 2. Load eligible entries, holding a row lock on each for the rest of the
   //    request so a concurrent run cannot bill the same hours (K-040). The lock
@@ -176,10 +185,10 @@ export async function generateWipInvoice(
   const invDate = input.invoiceDate ?? new Date().toISOString().split('T')[0]!;
   const eligibleIds = entries.map((e) => String(e.id));
 
-  // Steps 3-5 write; the route answers a caught error with a 400, which withAuth
-  // COMMITs. The savepoint is what makes the billed-count guard below able to
-  // undo the invoice — and the number reserved for it — instead of leaving an
-  // orphan behind.
+  // Steps 3-5 write. The route answers a WipInvoiceRefusal with a 400, which
+  // withAuth COMMITs — so the savepoint is what lets the billed-count refusal
+  // below undo the invoice, and the number reserved for it, instead of leaving
+  // an orphan behind. Any other error is a 500 and withAuth rolls back.
   return withSavepoint('wip_invoice_build', async () => {
     // 3. Reserve the number from the company sequence. What this replaced was a
     // third MAX(invoice_number)+1 generator inside the sequence's own uniqueness
@@ -276,6 +285,7 @@ export async function generateWipInvoice(
       invoiceId, invoiceNumber, lineCount, subtotal, totalAmount,
     }, 'practice');
 
-    return { invoiceId, invoiceNumber, lineCount, subtotal, taxAmount, totalAmount };
+    const skippedEntryCount = new Set(input.timeEntryIds).size - eligibleIds.length;
+    return { invoiceId, invoiceNumber, lineCount, subtotal, taxAmount, totalAmount, skippedEntryCount };
   });
 }

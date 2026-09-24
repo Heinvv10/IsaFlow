@@ -12675,10 +12675,10 @@
       "fixCommit": null,
       "pr": null,
       "deployedSha": null,
-      "historicalDataImpact": "None — the write rolls back.",
+      "historicalDataImpact": "Invoices may have BOOKED with tax_rate > 100 or with a negative/NULL-rate time entry billed inside a positive selection; census SELECT (joined through time_entries.invoice_id) in R-120/fix.md, not run on production. The masking itself wrote nothing.",
       "canonicalItem": null,
       "reportedSeverity": "medium",
-      "processNotes": "2026-09-24: reproduced and widened. Beyond the masking, the red run found that taxRate 101 BOOKED an invoice (201) and that a negative time entry inside a positive selection booked as an embedded credit line. It also found that the page read json.error as a string, and that lock contention was a masked 400. Severity raised low→medium: real invoices with wrong figures. Census SELECT in fix.md.",
+      "processNotes": "2026-09-24: reproduced and widened. Beyond the masking, the red run found that taxRate 101 BOOKED an invoice (201) and that a negative time entry inside a positive selection booked as an embedded credit line. It also found that the page read json.error as a string, and that lock contention was a masked 400. Severity raised low→medium: real invoices with wrong figures. Census SELECT in fix.md. Review round 1 widened it again: a 3-decimal tax rate, a line_total inconsistent with hours × rate, and a cross-tenant link_customer_id all booked, and are now refused. A partial selection now reports skippedEntryCount (K-040 keeps billing the remainder).",
       "branch": "fix/r120-wip-refusal-message-20260924"
     }
   ],

@@ -28,9 +28,11 @@ const WipInvoiceBody = z.object({
   // UUID is z.guid(): Zod 4's .uuid() rejects seeded, non-RFC-version ids.
   practiceClientId: UUID,
   timeEntryIds: z.array(UUID).min(1),
-  invoiceDate: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).optional(),
+  // A real calendar date: 2026-02-30 would otherwise reach Postgres as 22008.
+  invoiceDate: z.iso.date().optional(),
   // Range (0-100) is the service's rule, assertWipTaxRate: one place, one message.
-  taxRate: z.number().finite().optional(),
+  // null keeps meaning "default 15", as it did before the schema existed.
+  taxRate: z.number().finite().nullish().transform((v) => v ?? undefined),
   groupBy: z.enum(['detailed', 'by_work_item', 'by_category']).optional(),
 });
 
