@@ -12708,7 +12708,7 @@
       "severityRationale": "If production lacks the column, practice time capture is broken there; if it has it (added by hand), every repo-built database (dev, fixture, restores) diverges from production. Not yet reproduced end to end; prod unchecked.",
       "auditedSha": "af7578b79",
       "currentSha": "af7578b79",
-      "status": "fix-in-review",
+      "status": "fixed",
       "dependencies": [],
       "testNames": [
         "tests/integration/r121-practice-entry-writes.int.test.ts"
@@ -12718,14 +12718,14 @@
         "docs/audits/remediation/R-121/red.log",
         "docs/audits/remediation/R-121/mutations.log"
       ],
-      "fixCommit": null,
-      "pr": null,
-      "deployedSha": null,
+      "fixCommit": "2d69e30d9",
+      "pr": "498",
+      "deployedSha": "2d69e30d9",
       "historicalDataImpact": "None known. The prod journal (from 2026-09-20) shows no practice time-entry requests at all.",
       "canonicalItem": null,
       "reportedSeverity": "high",
-      "processNotes": "2026-09-24: for Hein, read-only — SELECT column_name, data_type FROM information_schema.columns WHERE table_name='time_entries' AND column_name='amount'; If present on prod, the fix is a migration adding it IF NOT EXISTS; if absent, drop the column from the two writers (line_total is the figure). 2026-09-24: widened — four layers (see fix.md). The r112 fixture is a DEV schema dump, so the column/grant layers are likely dev drift; the 395 policy layer is on prod. Migrations 625b (columns, ordered before 626) and 699 (grants + tenant_isolation) fix them; see fix.md for the auth.users caveat.",
-      "branch": "fix/r121-practice-schema-20260924",
+      "processNotes": "2026-09-24: for Hein, read-only — SELECT column_name, data_type FROM information_schema.columns WHERE table_name='time_entries' AND column_name='amount'; If present on prod, the fix is a migration adding it IF NOT EXISTS; if absent, drop the column from the two writers (line_total is the figure). 2026-09-24: widened — four layers (see fix.md). The r112 fixture is a DEV schema dump, so the column/grant layers are likely dev drift; the 395 policy layer is on prod. Migrations 625b (columns, ordered before 626) and 699 (grants + tenant_isolation) fix them; see fix.md for the auth.users caveat. Review: 4 rounds general + adversarial, then PR-level /review; all SHIP. 2026-09-24: merged (PR #498, 2d69e30d9) and deployed 16:49 SAST on Hein's explicit approval. The prod migration log confirms the policy layer: 626 was already tracked, 699 dropped an existing pcro_company_isolation (no 'does not exist' notice) and created tenant_isolation fresh. Open: R-123 (auth.users join), R-122 (payroll_leave_* claim policies).",
+      "branch": "fix/r121-time-entries-amount-20260924",
       "severity": "high",
       "title": "Practice time capture and rate overrides fail against the real schema: time_entries.amount and the overrides' legacy columns/grants are missing on dev-shaped DBs, and the overrides policy reads a company_id JWT claim withAuth never sets"
     },
