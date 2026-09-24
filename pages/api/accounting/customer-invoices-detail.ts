@@ -212,7 +212,7 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
         // that as a 400 instead of a 500 so the caller knows to reopen the period.
         // Its own message says what is wrong — a reversal dated before a future-dated
         // invoice — which the generic closed-period text below would lose (R-012).
-        if (err instanceof ReversalBeforeOriginalError) return apiResponse.badRequest(res, `Cannot cancel: ${err.message}`);
+        if (err instanceof ReversalBeforeOriginalError) return apiResponse.badRequest(res, err.message);
         if (err instanceof ClosedFiscalPeriodError) {
           return apiResponse.badRequest(res, `Cannot cancel: the invoice's journal is in a ${err.periodStatus} fiscal period. Reopen the period, then retry.`);
         }

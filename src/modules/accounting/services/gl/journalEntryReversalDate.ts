@@ -11,7 +11,9 @@ import { getPeriodStatusForDate } from './periodStatusService';
 import {
   VatPeriodLockedError, findActiveVatLock, journalMovesVatFigure, takeVatLockShared, type VatLineRef,
 } from './journalVatLockGuard';
-import { isDateAutoCreatable, rollDefaultReversalDate, type VatLockRoll } from './journalEntryReversalVatRoll';
+import {
+  isDateAutoCreatable, isOutsideAutoCreateWindow, rollDefaultReversalDate, type VatLockRoll,
+} from './journalEntryReversalVatRoll';
 import { ClosedFiscalPeriodError } from './journalEntryPostingGuards';
 
 export type { VatLockRoll } from './journalEntryReversalVatRoll';
@@ -70,12 +72,16 @@ export class ReversalPeriodError extends Error {
  */
 export class ReversalBeforeOriginalError extends ClosedFiscalPeriodError {
   readonly code = 'REVERSAL_BEFORE_ORIGINAL';
-  constructor(originalDate: string, today: string) {
+  constructor(originalDate: string, today: string, why: 'closed' | 'uncreatable' = 'closed') {
     super('closed');
     this.name = 'ReversalBeforeOriginalError';
-    this.message = `Cannot reverse: the entry is dated ${originalDate}, in a closed fiscal period, and a reversal `
-      + `dated today (${today}) would precede it. Re-open the period covering the entry, or name a reversal `
-      + 'date on or after it in an open period.';
+    this.message = why === 'closed'
+      ? `Cannot reverse: the entry is dated ${originalDate}, in a closed fiscal period, and a reversal `
+        + `dated today (${today}) would precede it. Re-open the period covering the entry, or name a reversal `
+        + 'date on or after it in an open period.'
+      : `Cannot reverse: the entry is dated ${originalDate}, where no fiscal period exists and none can be `
+        + `created automatically, and a reversal dated today (${today}) would precede it. Create the period `
+        + 'covering the entry, or name a reversal date on or after it in an open period.';
   }
 }
 
@@ -177,13 +183,21 @@ export async function resolveReversalDateDetailed(
     //  - its period is CLOSED → refuse, pre-write (open the period);
     //  - no period, but posting would create its year → date the contra WITH
     //    the original, in the period it corrects;
-    //  - no period and outside the auto-create window (a typo'd year such as
-    //    9999, posted with a NULL period) → keep today. That entry sits outside
-    //    every period-bounded report already, and refusing would leave it
-    //    reversible only by creating the bogus year.
+    //  - no period and its fiscal year outside the auto-create window (a typo'd
+    //    year such as 9999, posted with a NULL period) → keep today, the ONE
+    //    exception to the ordering. That entry sits outside every
+    //    period-bounded report already, and refusing would leave it reversible
+    //    only by creating the bogus year;
+    //  - no period, in the window but not creatable (a gap or an overlap in
+    //    the company's layout) → refuse: the remedy is to create the period.
     if (today < originalDate) {
       if (originalPeriod === 'closed') throw new ReversalBeforeOriginalError(originalDate, today);
-      if (originalPeriod === 'no_period' && await isDateAutoCreatable(companyId, originalDate)) date = originalDate;
+      if (originalPeriod === 'no_period') {
+        if (await isDateAutoCreatable(companyId, originalDate)) date = originalDate;
+        else if (!(await isOutsideAutoCreateWindow(companyId, originalDate))) {
+          throw new ReversalBeforeOriginalError(originalDate, today, 'uncreatable');
+        }
+      }
     }
     if (!lines) return { date, vatLockRoll: null };
     const rolled = await rollDefaultReversalDate(companyId, date, lines);

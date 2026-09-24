@@ -11,7 +11,8 @@ The register's other claim, that `paymentVoidService` writes before learning the
 - **Default arm, when today < original:**
   - The original's period is CLOSED: refused pre-write with `ReversalBeforeOriginalError`. It IS-A `ClosedFiscalPeriodError` (periodStatus 'closed'), so every route that already answers a closed period with a 400 answers this one too. `customer-invoices-detail` shows its own message.
   - The original has no period and posting would create its year (`isDateAutoCreatable`, the VAT roll's own predicate): the contra is dated WITH the original.
-  - The original has no period and falls outside the auto-create window: **today is kept**. This is a typo'd year such as 9999, posted with a NULL period. The entry already sits outside every period-bounded report, and refusing would leave it reversible only by creating the bogus year. It is a documented exception to the ordering.
+  - The original has no period, is inside the auto-create window, but its year cannot be created (a gap or an overlap in the layout): **refused**, with a message saying to create the period.
+  - The original's fiscal year is OUTSIDE the auto-create window (`isOutsideAutoCreateWindow`): **today is kept**. This is a typo'd year such as 9999, posted with a NULL period. The entry already sits outside every period-bounded report, and refusing would leave it reversible only by creating the bogus year. It is the ONE documented exception to the ordering, and `softDeleteLedgerPresence` says so.
 - **`reverse_journal_entry` (MCP):** after resolving the date, a CLOSED period is a `toolError`, and so is a missing period that posting could not create (a gap or an overlap: `isDateAutoCreatable`). This applies to the dry run too.
 - **Deliberately not centralised:** a check on TODAY's own period inside `resolveReversalDate`. The bank (`assertReversalDatePostable`) and AP (`lockBankLegOf`) paths already do it with their own messages; moving it would change the errors of 40+ callers.
 
@@ -57,6 +58,14 @@ The claim that "every route that answers a closed period with a 400 answers this
 | REPRO2: `cancel_credit_note` and `cancel_supplier_invoice` threw a GENERIC_FAILURE, which tells the agent to retry. | `ReversalBeforeOriginalError` carries `code = 'REVERSAL_BEFORE_ORIGINAL'`, which is on `REFUSAL_CODES`, and both tools return a `toolError`. | Tests; M6 and M7 go red. |
 | Found while auditing the REST callers: `supplier-credit-notes` reverse answered only `VatPeriodLockedError` with a 400, so it became a 500. | Added. The other cancel routes (`credit-notes-action`, `supplier-invoices-action`, `bank-transactions-action`) answer every error with a 400 and its message. | Route test; M9 goes red. |
 | REPRO3, pre-existing: MCP dry run and live disagreed when the target date was uncovered and not creatable (FiscalPeriodOverlapError mid-write). | The tool refuses `no_period` unless `isDateAutoCreatable`. | Separate-company test; M8 goes red. |
+
+## Review round 2
+| Finding | Fix | Proof |
+|---|---|---|
+| adv. REPRO4: the carve-out kept today for ANY uncreatable no-period original, including an in-window gap or overlap, so the contra still landed before its original. The general reviewer's LOW said the same. | The carve-out is narrowed to a year outside the window. An in-window uncreatable date is refused. | Unit test and real-DB test (`r012-reversal-gap-and-cancel`); M10 goes red. |
+| Doc claims false: the gl/.claude.md headline, the softDeleteLedgerPresence comment, and fix.md's wording. | All three corrected. | — |
+| Cosmetic: "Cannot cancel: Cannot reverse:", a doubled prefix. The invoice-cancel branch was untested (general LOW). | The route answers with the error's message alone. Route test added. | M11 goes red. |
+| The adversarial REPROs 1–3 re-sent on fa032502e. | Fixed in c67c29ea8; that review crossed with the fix. | — |
 
 ## Historical-data impact
 Rows written before this change can already have the shape: a reversal dated before its original. Read-only, and not run on production:
