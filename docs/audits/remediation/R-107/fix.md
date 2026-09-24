@@ -91,7 +91,7 @@ and is not fenced by this claim — that is R-088 (content de-duplication).
   `receipt-to-journal`, `document-capture-action`), withAuth, app_user, RLS.
 - `tests/unit/services/capture/provisionalAttachRouteLockOrder.test.ts` pins the lock / claim /
   write order.
-- Mutations: 20 of 20 killed (`mutations.log`; M10 and M19 initially survived and are killed by the
+- Mutations: 21 of 21 killed (`mutations.log`; M10 and M19 initially survived and are killed by the
   pre-DELETE refusal test and the unlinked-bank-line test added for them).
 
 ## Side finding (registered as R-127, not fixed here)
@@ -167,3 +167,9 @@ SELECT je.company_id, COUNT(*) AS unclaimed_evidence
   is now pinned by a ratchet, `tests/unit/guards/provisionalLinkWriterCensus.test.ts` (only
   `postProvisional` may set `provisional_je_id` to a value; mutation M20).
 - The not_found result carries its own id, so the route cannot pair the wrong id with the resource.
+- Adversarial re-review of the census: the narrow SET regex missed tuple SETs, quoted or
+  schema-qualified names, ON CONFLICT DO UPDATE, MERGE, the `bank_transactions_posted` view, and
+  files outside src/ and pages/. A coarse rule now requires every tracked file under src/, pages/
+  and scripts/ (fix scripts and SQL migrations included) that names the column and writes the table
+  in any of those shapes to be classified (mutation M21). A runtime-built column name remains out of
+  reach of any source-text census, and the header says so.

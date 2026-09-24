@@ -129,3 +129,8 @@
 ## M20 provisionalDismissService sets provisional_je_id to a value instead of NULL -> KILLED
      × only postProvisional links a bank line to a provisional journal
 +   "src/modules/accounting/services/bank/provisionalDismissService.ts",
+# rev-r107-adversarial LOW on the census (tuple SET, quoted/qualified names, ON CONFLICT, MERGE, the view, scripts/ and migrations): coarse rule added.
+## M21 a schema-qualified UPDATE of bank_transactions naming provisional_je_id in an untracked scripts/fixes/*.sql (git add -N) -> KILLED
++   "scripts/fixes/zz-census-probe.sql",
+## M20 re-run against the rewritten census (dismiss unlink -> link) -> KILLED
+     × only a file classified 'link' gives provisional_je_id a value
