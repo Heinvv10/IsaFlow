@@ -64,8 +64,9 @@ export async function claimLineSourceDocuments(
   // The eligible set is locked, and the UPDATE applies only when it is the
   // whole set. A concurrent claimer that got there first leaves its row out
   // of `eligible` (re-checked after the lock wait), so the count falls short
-  // and nothing is written. The outer `posted_at IS NULL` is the same fence a
-  // second time, so the claim holds even if the lock is ever dropped.
+  // and nothing is written. Without the lock the snapshot count could pass
+  // while a concurrent claimer took one row, and only part of the set would
+  // be stamped (see the partial-claim error below).
   //
   // The wait is bounded like the capture posting paths' (`captureRowLock`):
   // 5s, then a retryable refusal. A lock error aborts the transaction, so the
@@ -87,7 +88,6 @@ export async function claimLineSourceDocuments(
     UPDATE captured_documents cd
        SET posted_at = NOW(), status = 'matched', updated_at = NOW()
      WHERE cd.id IN (SELECT id FROM eligible)
-       AND cd.posted_at IS NULL
        AND (SELECT COUNT(*) FROM eligible) = ${ids.length}
     RETURNING cd.id`) as DbRow[];
   } catch (err) {
@@ -98,7 +98,7 @@ export async function claimLineSourceDocuments(
   if (client) await client.query('SET LOCAL lock_timeout = DEFAULT');
   if (claimed.length === ids.length) return;
   // Some slips stamped and not all: only possible if the lock above stopped
-  // holding the set. A 4xx here would COMMIT the partial stamps, so this is an
+  // holding the set (tested by removing it). A 4xx here would COMMIT the partial stamps, so this is an
   // error the request rolls back, never a refusal.
   if (claimed.length > 0) {
     throw new Error(`Partial source-document claim (${claimed.length} of ${ids.length}); rolled back`);
