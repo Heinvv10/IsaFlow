@@ -12,7 +12,7 @@ The register's other claim, that `paymentVoidService` writes before learning the
   - The original's period is CLOSED: refused pre-write with `ReversalBeforeOriginalError`. It IS-A `ClosedFiscalPeriodError` (periodStatus 'closed'), so every route that already answers a closed period with a 400 answers this one too. `customer-invoices-detail` shows its own message.
   - The original has no period and posting would create its year (`isDateAutoCreatable`, the VAT roll's own predicate): the contra is dated WITH the original.
   - The original has no period and falls outside the auto-create window: **today is kept**. This is a typo'd year such as 9999, posted with a NULL period. The entry already sits outside every period-bounded report, and refusing would leave it reversible only by creating the bogus year. It is a documented exception to the ordering.
-- **`reverse_journal_entry` (MCP):** after resolving the date, a CLOSED period is a `toolError`, for the dry run too. A missing period is left to auto-create.
+- **`reverse_journal_entry` (MCP):** after resolving the date, a CLOSED period is a `toolError`, and so is a missing period that posting could not create (a gap or an overlap: `isDateAutoCreatable`). This applies to the dry run too.
 - **Deliberately not centralised:** a check on TODAY's own period inside `resolveReversalDate`. The bank (`assertReversalDatePostable`) and AP (`lockBankLegOf`) paths already do it with their own messages; moving it would change the errors of 40+ callers.
 
 ## Evidence
@@ -23,7 +23,7 @@ The register's other claim, that `paymentVoidService` writes before learning the
   - original dated today with its period closed → still today.
 
   RED before the fix (`red.log`, the first cut of these tests): 2 failed.
-- **Integration** (`r012-reversal-default-date.int.test.ts`, 3 tests, on isaflow_dev, the harness's required database):
+- **Integration** (`r012-reversal-default-date.int.test.ts`, 8 tests, on isaflow_dev, the harness's required database):
   - a closed future period → refused with no journal written;
   - an open future period → dated with the original;
   - the MCP tool refuses on both the dry run and the live call, and writes nothing.
@@ -47,6 +47,16 @@ The register's other claim, that `paymentVoidService` writes before learning the
 | LOW: the `no_period` conjunct and `closed` ordering were untested. | M4 test: closed never consults auto-create. |
 | LOW: the mutation log was from an older test shape. | Re-run against the committed tests. |
 | LOW: the test file had grown past the cap. | The new tests were moved to their own file; the old file is back to master's. |
+
+## Review round 1 (adversarial, on 48f0e8aad)
+The claim that "every route that answers a closed period with a 400 answers this one too" was false. Several callers answer only their OWN typed refusals.
+
+| Finding | Fix | Proof |
+|---|---|---|
+| REPRO1, a regression: an AP payment void or batch reversal (`lockBankLegOf`) became a 500. | Converted to `SupplierPaymentRefusal`. | Test; M5 goes red. |
+| REPRO2: `cancel_credit_note` and `cancel_supplier_invoice` threw a GENERIC_FAILURE, which tells the agent to retry. | `ReversalBeforeOriginalError` carries `code = 'REVERSAL_BEFORE_ORIGINAL'`, which is on `REFUSAL_CODES`, and both tools return a `toolError`. | Tests; M6 and M7 go red. |
+| Found while auditing the REST callers: `supplier-credit-notes` reverse answered only `VatPeriodLockedError` with a 400, so it became a 500. | Added. The other cancel routes (`credit-notes-action`, `supplier-invoices-action`, `bank-transactions-action`) answer every error with a 400 and its message. | Route test; M9 goes red. |
+| REPRO3, pre-existing: MCP dry run and live disagreed when the target date was uncovered and not creatable (FiscalPeriodOverlapError mid-write). | The tool refuses `no_period` unless `isDateAutoCreatable`. | Separate-company test; M8 goes red. |
 
 ## Historical-data impact
 Rows written before this change can already have the shape: a reversal dated before its original. Read-only, and not run on production:
