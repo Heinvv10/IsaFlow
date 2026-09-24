@@ -35,6 +35,11 @@ run_step "vat-guard-coverage"   bun scripts/ci/check-vat-guard-coverage.ts
 run_step "self-defining-universe" bash scripts/ci/check-self-defining-universe.sh
 run_step "findings-numbering"     bash scripts/ci/check-findings-numbering.sh
 run_step "migration-rls"          bun scripts/ci/check-migration-rls.ts
+# The oauth_apps trust flags decide whether an app may brand the consent
+# screen. Migration 693 makes them unwritable; the only other guard on that is
+# an integration test this script SKIPS without DATABASE_URL, so a change that
+# undid 693 would leave CI green. Text-only, so it runs every time.
+run_step "oauth-trust-flags"      bun scripts/ci/check-oauth-trust-flags.ts
 run_step "unit-tests"        bun run test:unit
 run_step "component-tests"   bun run test:components
 run_step "migration-naming"  bun scripts/audit-migration-naming.ts
