@@ -58,15 +58,15 @@ export async function attachDocumentToProvisional(
 ): Promise<ProvisionalAttachResult> {
   const lockedLines: string[] = [];
   try {
-    // (1) The bank line(s) first. The peek is unlocked, so each row is re-checked under its
-    // lock, and only the lines still linked to this journal are written below.
+    // (1) The bank line(s) first. The peek is unlocked: only the lines locked here are written
+    // below, and that UPDATE re-checks provisional_je_id, so a line unlinked meanwhile is skipped.
     const lines = (await sql`
       SELECT id FROM bank_transactions
       WHERE provisional_je_id = ${jeId}::UUID AND company_id = ${companyId}::UUID
       ORDER BY id`) as DbRow[];
     for (const line of lines) {
-      const row = await lockBankTransactionForUpdate(companyId, String(line.id));
-      if (row && String(row.provisional_je_id).toLowerCase() === jeId.toLowerCase()) lockedLines.push(String(row.id));
+      await lockBankTransactionForUpdate(companyId, String(line.id));
+      lockedLines.push(String(line.id));
     }
 
     // (2) The journal, under the same bounded wait as the document.
