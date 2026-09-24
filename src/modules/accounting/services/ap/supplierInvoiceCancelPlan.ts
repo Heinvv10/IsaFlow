@@ -79,7 +79,7 @@ export async function planSupplierInvoiceCancel(
   // cancellable (K-053). One reply for absent and foreign — no existence oracle.
   const rows = (await sql`
     SELECT invoice_number, status, total_amount, COALESCE(amount_paid, 0) AS amount_paid,
-           gl_journal_entry_id, COALESCE(payment_matched, false) AS payment_matched, sage_invoice_id
+           gl_journal_entry_id, COALESCE(payment_matched, false) AS payment_matched, source_document_id
     FROM supplier_invoices
     WHERE id = ${invoiceId}::UUID AND company_id = ${companyId}::UUID AND deleted_at IS NULL`) as DbRow[];
   const bill = rows[0];
@@ -154,14 +154,17 @@ export async function planSupplierInvoiceCancel(
       + 'that journal first, then cancel.',
     );
   }
-  // A Sage-imported approved bill has NO journal behind it, and its liability may
-  // sit in the GL through the take-on: cancelling drops it from the AP subledger
-  // while that credit stays. An approved bill that was simply never posted (the
-  // capture/AI pipeline's auto-approve, awaiting Post to GL) put nothing in the
-  // GL, so it cancels as a plain status change. A stranded journal that names the
-  // bill as its source is refused above ("other posted journals"). A journal
-  // already reversed is different: the GL has already let go of it.
-  if (!entry && bill.sage_invoice_id != null && FIFO_ELIGIBLE_STATUSES.includes(status)) {
+  // An approved bill with NO journal behind it is refused, because its liability
+  // may sit in the GL by other means (a Sage take-on, a seeded history) and
+  // cancelling drops it from the AP subledger while that credit stays. The ONE
+  // exception is a bill the capture routes created (ai-invoice-pipeline,
+  // capture/[id]/post: the only writers of `source_document_id`). They
+  // auto-approve with no journal, awaiting Post to GL, so nothing of theirs is in
+  // the GL and they cancel as a plain status change. An allowlist, not a
+  // `sage_invoice_id` test: the Sage importer writes NULL there when staging has
+  // no id. A stranded journal naming the bill as its source is refused above
+  // ("other posted journals"). A journal already reversed: the GL has let go.
+  if (!entry && bill.source_document_id == null && FIFO_ELIGIBLE_STATUSES.includes(status)) {
     throw new SupplierInvoiceCancelRefusal(
       `Supplier invoice ${number} is ${status} but has no approval journal to reverse, so cancelling `
       + 'it would take it out of the AP subledger while the general ledger keeps whatever carried it. '
