@@ -285,7 +285,8 @@ export async function generateWipInvoice(
       invoiceId, invoiceNumber, lineCount, subtotal, totalAmount,
     }, 'practice');
 
-    const skippedEntryCount = new Set(input.timeEntryIds).size - eligibleIds.length;
+    // Lower-cased: Postgres compares UUIDs case-insensitively, a Set of strings does not.
+    const skippedEntryCount = new Set(input.timeEntryIds.map((id) => id.toLowerCase())).size - eligibleIds.length;
     return { invoiceId, invoiceNumber, lineCount, subtotal, taxAmount, totalAmount, skippedEntryCount };
   });
 }

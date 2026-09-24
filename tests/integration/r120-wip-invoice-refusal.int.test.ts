@@ -193,6 +193,13 @@ describe('R-120: a refused WIP invoice tells the operator why', () => {
     expect((out.body as unknown as { data: { skippedEntryCount: number } }).data.skippedEntryCount).toBe(1);
   });
 
+  it('does not count one id sent in two cases as skipped', async () => {
+    const entry = await seedEntry();
+    const out = await callRoute({ practiceClientId: client, timeEntryIds: [entry, entry.toUpperCase()] });
+    expect(out.statusCode).toBe(201);
+    expect((out.body as unknown as { data: { skippedEntryCount: number } }).data.skippedEntryCount).toBe(0);
+  });
+
   it('refuses an impossible invoice date by field', async () => {
     const out = await callRoute({ practiceClientId: client, timeEntryIds: [randomUUID()], invoiceDate: '2026-02-30' });
     expect(out.statusCode).toBe(400);

@@ -22,4 +22,5 @@ M20 page hides skipped entries: RED — 1 failed | 1 passed (2)
 # Review round 2:
 M21 generic edit desyncs a practice entry: RED — 2 failed | 2 passed (4)
 M22 edit refusal masked: RED — 2 failed | 2 passed (4)
+M23 case-sensitive skipped count: RED — 1 failed | 18 passed (19)
 M10 page on master (reads json.error as a string), component test WipInvoiceRefusalMessage: RED (1 failed); fixed page: 1 passed.
