@@ -126,6 +126,7 @@ const CLASSIFICATION: Readonly<Record<string, string>> = {
   'src/modules/accounting/services/capture/bankTxQueryService.ts': 'exempt: writer (Task 3) send path; listing is an audit trail of already-created queries, not a financial total',
   'src/modules/accounting/services/capture/captureBankTxAttachService.ts': 'exempt: writer (Task 3) — ownership preflight before a write',
   'src/modules/accounting/services/capture/evidenceAttachmentService.ts': "exempt: non-posted rows cannot carry provisional_je_id (trigger 675)",
+  'src/modules/accounting/services/capture/provisionalEvidenceAttach.ts': "exempt: the peek is keyed on provisional_je_id, which a non-posted row cannot carry (trigger 675); it locks lines, no total or queue scope",
   'src/modules/accounting/services/capture/provisionalPostingService.ts': 'exempt: writer (Task 3)',
   'src/modules/accounting/services/core/archiveExecutionService.ts': "exempt: status='reconciled' is only reachable via a posted row's reconciliation workflow (trigger 675); writer",
   'src/modules/accounting/services/core/archiveQueryService.ts': 'exempt: archive row-inventory stats (row_count/oldest/newest), not a financial total',
