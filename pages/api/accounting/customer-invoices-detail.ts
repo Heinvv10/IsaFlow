@@ -23,6 +23,7 @@ import {
   InvoiceNotApprovableError,
 } from '@/modules/accounting/services/ar/customerInvoiceApprovalService';
 import { ClosedFiscalPeriodError } from '@/modules/accounting/services/gl/journalEntryService';
+import { VatPeriodLockedError } from '@/modules/accounting/services/gl/journalVatLockGuard';
 import {
   GetQuerySchema,
   PutBodySchema,
@@ -210,6 +211,10 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
         // that as a 400 instead of a 500 so the caller knows to reopen the period.
         if (err instanceof ClosedFiscalPeriodError) {
           return apiResponse.badRequest(res, `Cannot cancel: the invoice's journal is in a ${err.periodStatus} fiscal period. Reopen the period, then retry.`);
+        }
+        // The reversal could not be dated out of a locked (filed) VAT period.
+        if (err instanceof VatPeriodLockedError) {
+          return apiResponse.badRequest(res, `Cannot cancel: ${err.message}`);
         }
         throw err;
       }

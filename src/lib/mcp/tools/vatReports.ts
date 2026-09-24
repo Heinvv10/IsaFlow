@@ -15,6 +15,8 @@ import {
   getVatPeriodLock,
   lockVatPeriod,
 } from '@/modules/accounting/services/reports/vatPeriodLockService';
+import { computeVatLockFigures } from '@/modules/accounting/services/reports/vatPeriodLockFigures';
+import { VatPeriodLockRefusal, assertLockablePeriod } from '@/modules/accounting/services/reports/vatPeriodLockBounds';
 import { guardCastableArgs, ok, strArg, toolError } from './toolHelpers';
 
 function periodArgs(args: Record<string, unknown>): { start: string; end: string } | string {
@@ -112,8 +114,10 @@ export const lockVatPeriodTool: McpTool = {
     + 'WHY YOU NEED IT: nothing else stops a journal being posted into a period that has already been filed. One live ledger accepts a 2022 posting made today, and the return submitted for 2022 no longer agrees with the ledger it came from, with nothing recording that it ever did. '
     + 'RUN dry_run FIRST. The dry run runs every guard the live call runs — the period must not run backwards, must not already be locked, and its 15% check is reported — and writes nothing. '
     + 'It REFUSES to lock a period whose rateCheck.ties is false unless you pass force:true, because a return that fails SARS\'s own check is not one to freeze; fix it or record explicitly that you are filing it as it stands. '
+    + 'BOUNDS: the period must end on or before today, span at most 12 months, and not overlap another active lock. '
     + 'IDEMPOTENT BY THE PERIOD ITSELF: locking a period that is already locked returns the EXISTING lock and does not overwrite its figures, so a retry can never rewrite what was filed. '
-    + 'LIMITS: the lock is a record that posting paths read, not a database trigger. It does not unlock — that is deliberate; a lock you can lift with one call is not a control.',
+    + 'ENFORCED: once locked, every posting that would move a VAT-return figure dated inside the period is refused (a journal with no VAT line still posts), and a reversal whose default date falls inside it is dated forward past the lock. '
+    + 'LIMITS: there is no MCP unlock, deliberately — a lock an agent can lift with one call is not a control. An owner or admin unlocks it in the app, with a reason, and the unlocked lock is kept as history.',
   scope: 'read:vat',
   write: true,
   requiresPost: true,
@@ -141,8 +145,19 @@ export const lockVatPeriodTool: McpTool = {
     const bad = guardCastableArgs(args, { date: ['period_start', 'period_end'] });
     if (bad) return bad;
 
+    // The snapshot first: it takes the exclusive VAT-lock key, so no journal
+    // can post between these figures and the lock that records them.
+    const { figures, report } = await computeVatLockFigures(ctx.companyId, period.start, period.end);
     const existing = await getVatPeriodLock(ctx.companyId, period.start, period.end);
-    const report = await getVat201Report(ctx.companyId, period.start, period.end, { detail: 'summary' });
+    // The bounds lockVatPeriod enforces (no future end, at most 12 months, no
+    // overlap with another active lock), run here too so the dry run refuses
+    // what the live call would — as a refusal from a read, before any write.
+    try {
+      await assertLockablePeriod(ctx.companyId, period.start, period.end);
+    } catch (err) {
+      if (err instanceof VatPeriodLockRefusal) return toolError(err.message);
+      throw err;
+    }
 
     if (!existing && report.rateCheck.ties === false && args.force !== true) {
       return toolError(
@@ -150,13 +165,6 @@ export const lockVatPeriodTool: McpTool = {
         + 'Read vat_status detail="full" to find which journals, or pass force:true to lock it as it stands.',
       );
     }
-
-    const figures = {
-      outputTax: report.totals.outputTax,
-      inputTax: report.totals.inputTax,
-      netVat: report.totals.netVat,
-      postedThrough: report.postedThrough,
-    };
 
     if (args.dry_run === true) {
       return {

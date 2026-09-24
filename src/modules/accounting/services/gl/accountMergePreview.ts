@@ -15,6 +15,7 @@ import {
   reportingClassFor, type MergeAccount, type ReportingClass,
 } from './accountMergeGuards';
 import { CAVEAT, CLASS_NOTE, SYSTEM_NOTE } from './accountMergeNotes';
+import { findLockedReclassification, lockedReclassMessage } from './vatLockLineClassification';
 import {
   accountsWithPostedLines, classifySourceLines, descendantsOf, postedThroughForAccounts,
   postedTotalsExcluding, postedTotalsForAccount, postedTotalsForCompany, systemClaimantsForSubtype,
@@ -179,6 +180,25 @@ export async function previewAccountMerge(
   const target = await loadMergeAccount(companyId, targetId);
   if (!source || !target) throw new AccountMergeError('Not found', 'account_not_found');
   await assertMergeable(companyId, source, target);
+  // A repoint posts nothing, so the posting guard never sees it — but a posted
+  // line inside a filed VAT period that the snapshot would classify differently
+  // on the target than on the source changes what that return was built from.
+  // Refused here, so the dry run and the live merge (which runs this preview)
+  // refuse alike; the shared VAT-lock key it takes is held until the merge
+  // commits. Lines that classify the same on both accounts move freely.
+  // The source's lines take the target's attributes: the same question as a
+  // reclassification of the source account.
+  const vatLock = await findLockedReclassification(companyId, [{
+    accountId: source.id, accountCode: source.accountCode,
+    from: { accountType: source.accountType, accountSubtype: source.accountSubtype },
+    to: { accountType: target.accountType, accountSubtype: target.accountSubtype },
+  }]);
+  if (vatLock) {
+    throw new AccountMergeError(
+      lockedReclassMessage(vatLock, `moving onto ${target.accountCode}`),
+      'source_lines_in_locked_vat_period',
+    );
+  }
 
   const [sourcePosted, targetPosted, companyPosted, otherPosted, accountCount] = await Promise.all([
     postedTotalsForAccount(companyId, source.id),

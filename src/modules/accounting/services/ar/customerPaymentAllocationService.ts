@@ -14,6 +14,7 @@ import { defaultHumanMeta, actorMeta, type PostingActorOpts } from '../gl/journa
 import { getSystemAccount } from '../gl/systemAccountResolver';
 import { assertNoInactiveAccountLines } from '../gl/journalEntryPostingService';
 import { getPeriodStatusForDate } from '../gl/periodStatusService';
+import { assertJournalVatPeriodOpen } from '../gl/journalVatLockGuard';
 import { lockCustomerPaymentForUpdate } from '../core/paymentLock';
 import { getCustomerPaymentById } from './customerPaymentService';
 import type { CustomerPayment } from '../../types/ar.types';
@@ -298,6 +299,11 @@ export async function postCustomerInvoiceToGL(
         );
       }
     }
+    // A locked (filed) VAT period refuses a journal that moves a VAT figure —
+    // historicalImport included: a migration may land in a CLOSED fiscal period
+    // but not in a filed VAT return. Before createJournalEntry, for the same
+    // orphan-draft reason as the period check above.
+    await assertJournalVatPeriodOpen(companyId, entryDate, lines);
     // sourceDocumentId FKs to captured_documents(id) — not customer_invoices.
     // The invoice↔JE link is maintained via customer_invoices.gl_journal_entry_id
     // below.

@@ -10,6 +10,7 @@ import { sql, withTransaction, type TxSql } from '@/lib/neon';
 import { log } from '@/lib/logger';
 import { roundToCents, validateJournalEntry } from '../../utils/doubleEntry';
 import { reloadNetIncome, type FiscalYearRange } from './yearEndJournalBuilder';
+import { assertJournalVatPeriodOpen } from './journalVatLockGuard';
 import type { CloseYearError, CloseYearResult, YearEndJournalPreview } from './yearEndCloseTypes';
 
 /** The two refusals a row holding the closing entry number can earn. */
@@ -157,6 +158,16 @@ export async function postClosingJournal(
   // Atomic: a partial year-end close is unrecoverable — half the P&L zeroed and
   // the periods left open.
   return withTransaction(async (tx) => {
+    // The VAT-lock refusal every other poster meets in postJournalEntry. The
+    // closing lines carry no vat_type, so this refuses only when a P&L account
+    // being zeroed is a VAT tax leg (canonical vat_input / vat_output subtype) —
+    // a year end inside a filed VAT period would then change a recorded tax
+    // figure. An untagged generic 'tax' account (PAYE, income tax) is in no box
+    // of the return and closes freely. On `tx`, so the shared advisory lock is
+    // held by the connection that writes the journal.
+    await assertJournalVatPeriodOpen(
+      companyId, preview.entryDate, preview.lines.map((l) => ({ glAccountId: l.accountId })), tx,
+    );
     // NO total_debit / total_credit. Those columns do not exist on
     // gl_journal_entries — not in isaflow_dev, not in production — so this
     // INSERT raised 42703 and EVERY live year-end close failed before writing a
