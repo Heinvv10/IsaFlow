@@ -1,0 +1,133 @@
+/**
+ * R-121 — practice time capture writes columns not every database has.
+ *
+ * createPracticeEntry / updatePracticeEntry write time_entries.amount (no
+ * migration creates it), and createClientRateOverride / resolveRate / migration
+ * 626's trigger use practice_client_rate_overrides.user_id and .rate, which a
+ * table predating migration 372 lacks. The schema fixture is a production
+ * schema dump (2026-09-08): on it every one of these raised 42703. Migration
+ * 698 adds whatever is missing, additively.
+ */
+import { afterAll, beforeAll, describe, expect, it } from 'vitest';
+import { Pool } from 'pg';
+import { randomUUID } from 'crypto';
+import { als } from '@/lib/als';
+import { SignJWT } from 'jose';
+import { assertDisposable, request, response } from './mfa-impersonation-postgres.helpers';
+import rateOverridesRoute from '../../pages/api/accounting/practice/clients/[id]/rate-overrides';
+import { createPracticeEntry, updatePracticeEntry } from '@/modules/accounting/services/practice/practiceTimeEntryService';
+import { createClientRateOverride } from '@/modules/accounting/services/practice/practiceClientRateOverrideService';
+
+assertDisposable();
+const pool = new Pool({ connectionString: process.env.DATABASE_URL, max: 3 });
+const company = randomUUID();
+const user = randomUUID();
+const client = randomUUID();
+const category = randomUUID();
+const workItem = randomUUID();
+// GoTrue owns auth.users and it does not ship in the schema fixture; the
+// override service joins it. Same stub and lock as k-039 (they share it).
+const AUTH_USERS_STUB_LOCK = 39039039;
+let createdAuthUsers = false;
+let lockClient: import('pg').PoolClient;
+
+async function inTx<T>(fn: () => Promise<T>): Promise<T> {
+  const c = await pool.connect();
+  try {
+    await c.query('BEGIN');
+    const out = await als.run({ client: c, userId: user, companyId: company, claims: {} } as never, fn);
+    await c.query('COMMIT');
+    return out;
+  } catch (err) {
+    await c.query('ROLLBACK').catch(() => undefined);
+    throw err;
+  } finally { c.release(); }
+}
+
+beforeAll(async () => {
+  lockClient = await pool.connect();
+  await lockClient.query('SELECT pg_advisory_lock($1)', [AUTH_USERS_STUB_LOCK]);
+  createdAuthUsers = (await pool.query("SELECT to_regclass('auth.users') AS reg")).rows[0].reg === null;
+  if (createdAuthUsers) {
+    await pool.query('CREATE TABLE auth.users(id UUID PRIMARY KEY, email TEXT, raw_user_meta_data JSONB)');
+    await pool.query('GRANT SELECT ON auth.users TO app_user');
+  }
+  await pool.query('INSERT INTO companies(id,name) VALUES($1,$2)', [company, 'R121 company']);
+  await pool.query("INSERT INTO users(id,email,role,is_active) VALUES($1,$2,'admin',true)", [user, `${user}@test.local`]);
+  await pool.query(
+    "INSERT INTO practice_clients(id,company_id,legal_name,billing_model,status) VALUES($1,$2,'R121 client','hourly','active')",
+    [client, company]);
+  await pool.query('INSERT INTO practice_job_categories(id,company_id,name) VALUES($1,$2,$3)', [category, company, 'R121 cat']);
+  await pool.query('INSERT INTO practice_work_items(id,company_id,category_id,name) VALUES($1,$2,$3,$4)',
+    [workItem, company, category, 'R121 item']);
+  await pool.query("INSERT INTO company_users(company_id,user_id,role) VALUES($1,$2,'admin')", [company, user]);
+  await pool.query("INSERT INTO practice_staff_rates(company_id,user_id,rate,effective_from) VALUES($1,$2,850,'2020-01-01')",
+    [company, user]);
+});
+
+afterAll(async () => {
+  try {
+    await pool.query('DELETE FROM time_entries WHERE company_id=$1', [company]);
+    await pool.query('DELETE FROM practice_staff_rates WHERE company_id=$1', [company]);
+    await pool.query('DELETE FROM practice_client_rate_overrides WHERE company_id=$1', [company]);
+    await pool.query('DELETE FROM practice_work_items WHERE company_id=$1', [company]);
+    await pool.query('DELETE FROM practice_job_categories WHERE company_id=$1', [company]);
+    await pool.query('DELETE FROM practice_clients WHERE company_id=$1', [company]);
+    await pool.query('DELETE FROM company_users WHERE company_id=$1', [company]);
+    await pool.query('DELETE FROM companies WHERE id=$1', [company]);
+    await pool.query('DELETE FROM users WHERE id=$1', [user]);
+    if (createdAuthUsers) await pool.query('DROP TABLE auth.users');
+    await lockClient.query('SELECT pg_advisory_unlock($1)', [AUTH_USERS_STUB_LOCK]);
+    lockClient.release();
+  } finally { await pool.end(); }
+});
+
+describe('R-121: practice time capture runs on a repo-built schema', () => {
+  it('creates and then edits a practice entry, keeping line_total = hours × rate', async () => {
+    const created = await inTx(() => createPracticeEntry(company, user, {
+      entryDate: '2026-01-05', hours: 2, practiceClientId: client, jobCategoryId: category,
+      workItemId: workItem, taskDescription: 'R121 work',
+    }));
+    expect(created.lineTotal).toBe(1700);
+
+    const updated = await inTx(() => updatePracticeEntry(company, created.id, { hours: 3 }));
+    expect(updated.lineTotal).toBe(2550);
+    const row = (await pool.query('SELECT hours, applied_rate, line_total FROM time_entries WHERE id=$1', [created.id])).rows[0];
+    expect(row).toMatchObject({ hours: '3.00', line_total: '2550.00' });
+  });
+
+  it('records a client rate override, and a new entry bills at it', async () => {
+    await inTx(() => createClientRateOverride(company, client, {
+      staffUserId: user, ratePerHour: 1200, effectiveFrom: '2026-01-01',
+    }));
+    const entry = await inTx(() => createPracticeEntry(company, user, {
+      entryDate: '2026-01-06', hours: 1.5, practiceClientId: client, jobCategoryId: category,
+      workItemId: workItem, taskDescription: 'R121 override work',
+    }));
+    expect(entry.lineTotal).toBe(1800);
+    const row = (await pool.query(
+      'SELECT user_id, rate, staff_user_id, rate_per_hour FROM practice_client_rate_overrides WHERE company_id=$1', [company])).rows[0];
+    expect(row).toMatchObject({ user_id: user, rate: '1200.00', staff_user_id: user, rate_per_hour: '1200.00' });
+  });
+
+  it('the rate-overrides route works through withAuth (app_user, RLS, a GoTrue token with no company_id claim)', async () => {
+    const token = await new SignJWT({ sub: user, aal: 'aal2' })
+      .setProtectedHeader({ alg: 'HS256' }).setExpirationTime('1h')
+      .sign(new TextEncoder().encode(process.env.JWT_SECRET));
+    const call = async (method: string, body: Record<string, unknown> = {}) => {
+      const req = request({ 'sb-access-token': token, active_company_id: company }, method) as never as
+        { body: unknown; query: Record<string, string>; url: string };
+      req.body = body;
+      req.query = { id: client };
+      req.url = `/api/accounting/practice/clients/${client}/rate-overrides`;
+      const out = response();
+      await rateOverridesRoute(req as never, out.res as never);
+      return out.state as { statusCode: number; body: { data?: unknown; error?: { message?: string } } };
+    };
+    const created = await call('POST', { staffUserId: user, ratePerHour: 990, effectiveFrom: '2026-03-01' });
+    expect(created.statusCode, JSON.stringify(created.body)).toBeLessThan(300);
+    const listed = await call('GET');
+    expect(listed.statusCode).toBe(200);
+    expect(JSON.stringify(listed.body.data)).toContain('990');
+  });
+});
