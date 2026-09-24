@@ -16,7 +16,7 @@
   - Ids are put in canonical form first (lower-case, hyphenated; braces and missing hyphens accepted, as Postgres does), because the refusal lookup and the duplicate check compare strings. A malformed id is refused as not found instead of failing the uuid cast.
   - A duplicate slip, or one that is missing, foreign, already posted, on another live claim or rejected, throws `ClaimSourceDocumentError` before anything is written. The routes answer it with a 400.
   - The lock wait is bounded at 5s, like the capture posting paths' (`captureRowLock`). A timeout or deadlock is the `busy` refusal, answered 409 ("retry in a moment"). The lock error has aborted the transaction, so the 4xx commits nothing.
-  - If the statement ever stamps some slips and not all (only possible without the lock), it throws a plain error. The request then rolls back, because a 4xx would COMMIT the partial stamps.
+  - If the statement ever stamps some slips and not all (only possible without the lock), it throws `PartialSourceDocumentClaimError`, which every route lets reach a 5xx (the add-line route rethrows it past its 4xx mapping), so the request rolls back. A 4xx would COMMIT the partial stamps.
 - **`createClaim`** calls it before its first write. `post-expense` already claims its slip, so it passes `sourceDocumentsClaimed: true`.
 - **`addLine`** calls it before inserting the line.
 - **Release:**
