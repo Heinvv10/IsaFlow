@@ -91,7 +91,7 @@ and is not fenced by this claim — that is R-088 (content de-duplication).
   `receipt-to-journal`, `document-capture-action`), withAuth, app_user, RLS.
 - `tests/unit/services/capture/provisionalAttachRouteLockOrder.test.ts` pins the lock / claim /
   write order.
-- Mutations: 21 of 21 killed (`mutations.log`; M10 and M19 initially survived and are killed by the
+- Mutations: 25 of 25 killed (`mutations.log`; M10 and M19 initially survived and are killed by the
   pre-DELETE refusal test and the unlinked-bank-line test added for them).
 
 ## Side finding (registered as R-127, not fixed here)
@@ -173,3 +173,8 @@ SELECT je.company_id, COUNT(*) AS unclaimed_evidence
   and scripts/ (fix scripts and SQL migrations included) that names the column and writes the table
   in any of those shapes to be classified (mutation M21). A runtime-built column name remains out of
   reach of any source-text census, and the header says so.
+- Second census round: four more evasions (INSERT column list or tuple SET inside an already-listed
+  file, `UPDATE ONLY`, a `.sh`/`.cjs` file). A pattern for "a link" can always miss one more shape,
+  so the census is now fail-closed: it pins, for each listed file, every line that mentions
+  `provisional_je_id`. Any change to how those files use the column goes red; `ONLY` is recognised;
+  every tracked text file under src/, pages/ and scripts/ is scanned. All four evasions killed.

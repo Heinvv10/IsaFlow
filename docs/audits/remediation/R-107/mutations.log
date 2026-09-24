@@ -134,3 +134,9 @@
 +   "scripts/fixes/zz-census-probe.sql",
 ## M20 re-run against the rewritten census (dismiss unlink -> link) -> KILLED
      × only a file classified 'link' gives provisional_je_id a value
+
+# rev-r107-adversarial round on ed404d815 (4 LOW evasions): census made fail-closed — every mention line of provisional_je_id in a listed file is pinned; ONLY allowed; extension filter dropped.
+## E1 extra provisional_je_id mention in reads-only bankIngestionPersistence.ts -> KILLED
+## E2 tuple SET link in unlink-only provisionalDismissService.ts -> KILLED
+## E3 UPDATE ONLY bank_transactions link in a new src file -> KILLED
+## E4 psql UPDATE link in a new scripts/*.sh -> KILLED
