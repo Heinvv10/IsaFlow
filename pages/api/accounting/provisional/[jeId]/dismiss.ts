@@ -13,6 +13,7 @@ import { apiResponse } from '@/lib/apiResponse';
 import { withAuth, withWriteAccess, type CompanyAuthedRequest } from '@/lib/auth';
 import { withCsrf } from '@/lib/auth/withCsrf';
 import { dismissProvisionalEntry } from '@/modules/accounting/services/bank/provisionalDismissService';
+import { ClosedFiscalPeriodError, VatPeriodLockedError } from '@/modules/accounting/services/gl/journalEntryService';
 
 async function handler(req: CompanyAuthedRequest, res: NextApiResponse) {
   if (req.method !== 'POST') {
@@ -34,6 +35,13 @@ async function handler(req: CompanyAuthedRequest, res: NextApiResponse) {
     // Double-dismiss race (second tab / rapid retry): reverseJournalEntry's
     // own guard throws — a friendly 400 beats an opaque 500.
     if (/already reversed/i.test(msg)) return apiResponse.badRequest(res, 'Journal entry already reversed');
+    // The contra cannot be dated into an open, unlocked period — including a
+    // reversal that would precede a future-dated entry (R-012's
+    // ReversalBeforeOriginalError IS-A ClosedFiscalPeriodError). The reversal
+    // runs before the service's only write, so this 400 commits nothing.
+    if (err instanceof ClosedFiscalPeriodError || err instanceof VatPeriodLockedError) {
+      return apiResponse.badRequest(res, msg);
+    }
     throw err;
   }
 }

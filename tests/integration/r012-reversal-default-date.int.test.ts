@@ -201,6 +201,7 @@ describeIfDb('R-012: the default reversal date', () => {
 describeIfDb('R-012: the MCP reverse tool and an uncreatable missing period', () => {
   let fx2: Fixture;
   beforeAll(async () => {
+    assertNotProductionDb('This test posts and reverses journals.');
     fx2 = await seedFixture('R012G', DATABASE_URL!);
     await sql`DELETE FROM gl_account_balances WHERE fiscal_period_id IN (
       SELECT id FROM fiscal_periods WHERE company_id = ${fx2.companyId}::UUID)`;
