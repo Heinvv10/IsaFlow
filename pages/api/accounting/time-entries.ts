@@ -18,6 +18,7 @@ import {
   createTimeEntry,
   updateTimeEntry,
   deleteTimeEntry,
+  TimeEntryEditRefusal,
 } from '@/modules/accounting/services/core/timeTrackingService';
 
 async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse) {
@@ -64,6 +65,8 @@ async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse) {
       const entry = await updateTimeEntry(companyId, id, input);
       return apiResponse.success(res, entry);
     } catch (err) {
+      // badRequestFromError masks the message; a refusal is written for the operator.
+      if (err instanceof TimeEntryEditRefusal) return apiResponse.badRequest(res, err.message);
       log.error('Time entry update failed', { error: err }, 'accounting-api');
       return apiResponse.badRequestFromError(res, err, 'Update failed');
     }

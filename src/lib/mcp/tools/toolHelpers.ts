@@ -197,6 +197,7 @@ const REFUSAL_CODES: ReadonlySet<string> = new Set([
   'RECURRING_TEMPLATE_LOCK_TIMEOUT',
   'RECURRING_TEMPLATE_NOT_DUE',
   'RECURRING_TEMPLATE_TOTALS_MISMATCH',
+  'REVERSAL_BEFORE_ORIGINAL', // R-012: names only the caller's entry date and today; pre-write.
   'RULE_AUTHORITY_REQUIRED',
   // A refund larger than the contact's on-account credit (migration 681). One
   // fixed sentence written for the user, naming the contact, the two amounts

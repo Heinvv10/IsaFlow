@@ -1,0 +1,20 @@
+# Round 1 (after the general review). Each mutation applied alone. Suites: the two unit files; r086 on the fixture; r012 on isaflow_dev.
+M1 closed future original not refused: unit       Tests  1 failed | 21 passed (22) | r086       Tests  8 passed (8) | r012       Tests  1 failed | 2 passed (3)
+M2 no auto-create branch: unit       Tests  1 failed | 21 passed (22) | r086       Tests  8 passed (8) | r012       Tests  3 passed (3)
+M3 typo'd year refused (no carve-out): unit       Tests  1 failed | 21 passed (22) | r086       Tests  8 passed (8) | r012       Tests  3 passed (3)
+M4 closed check consults auto-create first: unit       Tests  1 failed | 21 passed (22) | r086       Tests  8 passed (8) | r012       Tests  3 passed (3)
+M-MCP no pre-write check:       Tests  1 failed | 2 passed (3)
+# Round 1 (adversarial). Each applied alone, run against r012-reversal-default-date on isaflow_dev:
+M5 AP void: no refusal conversion:       Tests  1 failed | 6 passed (7)
+M6 cancel_credit_note: no catch:       Tests  1 failed | 6 passed (7)
+M7 cancel_supplier_invoice: no catch:       Tests  1 failed | 6 passed (7)
+M8 MCP reverse: missing period never checked:       Tests  1 failed | 6 passed (7)
+M9 supplier credit-note route: 500 not 400:       Tests  1 failed | 7 passed (8)
+# Round 2:
+M10 in-window gap keeps today: unit       Tests  1 failed | 4 passed (5) | int       Tests  2 failed (2)
+M11 invoice cancel drops the reversal's reason: unit       Tests  5 passed (5) | int       Tests  1 failed | 1 passed (2)
+# Round 3:
+M12 dismiss route: closed period is a 500:       Tests  1 failed | 2 passed (3)
+M13 no refusal code:       Tests  1 failed | 5 passed (6)
+# Round 4:
+MOUT isOutsideAutoCreateWindow always false:       Tests  1 failed | 3 passed (4)

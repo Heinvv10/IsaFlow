@@ -23,6 +23,7 @@ import {
   InvoiceNotApprovableError,
 } from '@/modules/accounting/services/ar/customerInvoiceApprovalService';
 import { ClosedFiscalPeriodError } from '@/modules/accounting/services/gl/journalEntryService';
+import { ReversalBeforeOriginalError } from '@/modules/accounting/services/gl/journalEntryReversalDate';
 import { VatPeriodLockedError } from '@/modules/accounting/services/gl/journalVatLockGuard';
 import {
   GetQuerySchema,
@@ -209,6 +210,9 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
         if (err instanceof InvoiceHasPaymentsError) return apiResponse.badRequest(res, err.message);
         // The GL reversal cannot post into a closed/locked fiscal period; surface
         // that as a 400 instead of a 500 so the caller knows to reopen the period.
+        // Its own message says what is wrong — a reversal dated before a future-dated
+        // invoice — which the generic closed-period text below would lose (R-012).
+        if (err instanceof ReversalBeforeOriginalError) return apiResponse.badRequest(res, err.message);
         if (err instanceof ClosedFiscalPeriodError) {
           return apiResponse.badRequest(res, `Cannot cancel: the invoice's journal is in a ${err.periodStatus} fiscal period. Reopen the period, then retry.`);
         }

@@ -25,6 +25,8 @@ import {
 import type { VatLockRoll } from '@/modules/accounting/services/gl/journalEntryReversalDate';
 import { buildReversalLines } from '@/modules/accounting/services/gl/reversalLines';
 import { fmtDate } from '@/lib/fmtDate';
+import { getPeriodStatusForDate } from '@/modules/accounting/services/gl/periodStatusService';
+import { isDateAutoCreatable } from '@/modules/accounting/services/gl/journalEntryReversalVatRoll';
 import { mcpPostingAgent } from '../postingAgent';
 import { NOT_FOUND, guardCastableArgs, ok, safeErrorText, strArg, toolError } from './toolHelpers';
 
@@ -81,8 +83,9 @@ export const reverseJournalEntryTool: McpTool = {
         type: 'string',
         format: 'date',
         description:
-          'YYYY-MM-DD. Omit to use the default (the original entry date when its period is open, '
-          + 'otherwise today).',
+          'YYYY-MM-DD. Omit to use the default: the original entry date when its period is open (or, for a '
+          + 'future-dated entry, when its year would be created on posting), otherwise today. A future-dated '
+          + 'entry in a closed period is refused rather than reversed before it.',
       },
       ...MUTATION_ARG_SCHEMA,
     },
@@ -129,6 +132,20 @@ export const reverseJournalEntryTool: McpTool = {
         ctx.companyId, originalDate, reversalDate, entry.lines));
     } catch (err) {
       return toolError(safeErrorText(err, 'Could not reverse this journal entry.'));
+    }
+    // R-012: the default falls back to TODAY when the original's period is not
+    // open, and nothing above asks whether today's is. postJournalEntry would
+    // refuse inside the write, after dry_run had promised the reversal. A
+    // missing period passes only when posting will create it — a gap or an
+    // overlap throws FiscalPeriodOverlapError mid-write otherwise.
+    const targetStatus = await getPeriodStatusForDate(ctx.companyId, resolvedDate);
+    if (targetStatus === 'closed'
+      || (targetStatus === 'no_period' && !(await isDateAutoCreatable(ctx.companyId, resolvedDate)))) {
+      return toolError(
+        `The reversal would be dated ${resolvedDate}, which is not in an open fiscal period (closed, locked, or `
+        + 'a year that cannot be created here). Re-open or create it, or pass reversal_date inside an open period '
+        + 'on or after the entry date.',
+      );
     }
 
     if (args.dry_run === true) {
