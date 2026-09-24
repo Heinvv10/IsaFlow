@@ -1,4 +1,4 @@
-# R-105 mutations on the r112 fixture. Each mutation edits one line of the committed fix (423618050), runs the named suite, and restores the file from that commit. Output verbatim.
+# R-105 mutations on the r112 fixture. Each mutation edits one line of the committed fix (2950dd6a6), runs the named suite, and restores the file from that commit. Output verbatim.
 BASELINE r105 | Tests  16 passed (16)
 BASELINE k072-post-expense | Tests  4 passed (4)
 M1 createClaim does not claim | src/modules/accounting/services/expense/expenseClaimService.ts | Tests  9 failed | 7 passed (16) (r105-expense-claim-source-document.int.test.ts)
@@ -9,8 +9,8 @@ M11 FOR UPDATE removed | src/modules/accounting/services/expense/claimSourceDocu
 M14 lock wait unbounded | src/modules/accounting/services/expense/claimSourceDocuments.ts | Tests  4 failed | 12 passed (16) (r105-expense-claim-source-document.int.test.ts)
 M15 delete does not lock the claim | src/modules/accounting/services/expense/claimSourceDocuments.ts | Tests  1 failed | 15 passed (16) (r105-expense-claim-source-document.int.test.ts)
 M16 live-claim-line check removed | src/modules/accounting/services/expense/claimSourceDocuments.ts | Tests  1 failed | 15 passed (16) (r105-expense-claim-source-document.int.test.ts)
-M17 ids not lower-cased | src/modules/accounting/services/expense/claimSourceDocuments.ts | Tests  1 failed | 15 passed (16) (r105-expense-claim-source-document.int.test.ts)
-M5 duplicate check removed | src/modules/accounting/services/expense/claimSourceDocuments.ts | Tests  1 failed | 15 passed (16) (r105-expense-claim-source-document.int.test.ts)
+M17 ids not canonicalised | src/modules/accounting/services/expense/claimSourceDocuments.ts | Tests  1 failed | 15 passed (16) (r105-expense-claim-source-document.int.test.ts)
+M5 duplicate check removed | src/modules/accounting/services/expense/claimSourceDocuments.ts | Tests  2 failed | 14 passed (16) (r105-expense-claim-source-document.int.test.ts)
 M6 posted_at predicate removed | src/modules/accounting/services/expense/claimSourceDocuments.ts | Tests  4 failed | 12 passed (16) (r105-expense-claim-source-document.int.test.ts)
 M7 rejected predicate removed | src/modules/accounting/services/expense/claimSourceDocuments.ts | Tests  1 failed | 15 passed (16) (r105-expense-claim-source-document.int.test.ts)
 M8 deleteLine does not release | src/modules/accounting/services/expense/expenseClaimService.ts | Tests  1 failed | 15 passed (16) (r105-expense-claim-source-document.int.test.ts)
