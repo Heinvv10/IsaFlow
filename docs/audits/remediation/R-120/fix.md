@@ -25,7 +25,7 @@ All runs are against the fixture `isaflow-fixture-r112`.
 - `tests/unit/services/practice/wipInvoiceGuards.test.ts`: 12 of 12. The component test has 2 cases.
 - `tests/unit/components/WipInvoiceRefusalMessage.test.tsx`: red on master's page, green on the fix.
 - **Existing WIP suites:** k-040 ×2 and k107, integration, pass. So do the practice unit tests, 18 files and 226 tests.
-- **Mutations** (`mutations.log`): 25, all red, plus the two page tests, which are red on master's pages. M4 was retired as redundant, and the reason is in the table above. Two survived the first round (M4, M6), and the reason for each is in the log.
+- **Mutations** (`mutations.log`): 26, all red, plus the two page tests, which are red on master's pages. M4 was retired as redundant, and the reason is in the table above. Two survived the first round (M4, M6), and the reason for each is in the log.
 
 ## Review round 1
 | Finding | Fix | Proof |
@@ -68,6 +68,7 @@ All runs are against the fixture `isaflow-fixture-r112`.
 ## Review round 5
 | Finding | Fix | Proof |
 |---|---|---|
+| Pre-existing (adv. note): `updatePracticeEntry` validated the RAW hours, so 0.004 passed, was stored as 0.00, and hit CHECK hours > 0 as a raw 23514. | It now validates the rounded value, as `createPracticeEntry` does. | Unit test; M28 goes red. |
 | LOW-MEDIUM (adv. R5-1): the 1c tolerance compared floats. \|100 − 100.01\| is 0.010000000000005, so a line exactly 1c off was refused, while the numeric census (`> 0.01`) did not count it and the pre-deploy count would come in low. | The comparison is now in whole cents (`≤ 1` cent), which agrees with the census. | Unit cases at exactly ±1c (allowed) and 2c (refused); M27 goes red. |
 
 ## Historical-data impact

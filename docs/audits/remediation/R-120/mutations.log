@@ -27,4 +27,5 @@ M24 any hours/rate in the body refused (not a change): RED — 1 failed | 3 pass
 M25 approvals + time-tracking pages on master, component test R120TimeEntryRemedyPages: each RED (1 failed); fixed pages: 2 passed.
 M26 updatePracticeEntry stores raw hours (unit, practiceTimeEntryService): RED — 1 failed | 37 passed (38)
 M27 float 1c tolerance (unit, wipInvoiceGuards): RED — 1 failed | 11 passed (12)
+M28 updatePracticeEntry validates raw hours (unit): RED — 1 failed | 38 passed (39)
 M10 page on master (reads json.error as a string), component test WipInvoiceRefusalMessage: RED (1 failed); fixed page: 1 passed.

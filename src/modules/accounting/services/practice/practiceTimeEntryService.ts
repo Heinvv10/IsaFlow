@@ -160,7 +160,8 @@ export async function updatePracticeEntry(
 
   // Validate hours if provided
   if (input.hours !== undefined) {
-    if (!(input.hours > 0 && input.hours <= 24)) {
+    // The ROUNDED value, as createPracticeEntry checks: 0.004 rounds to 0.00 and hit CHECK hours > 0.
+    if (!(roundHours(input.hours) > 0 && input.hours <= 24)) {
       throw new Error('hours must be between 0 and 24');
     }
   }
