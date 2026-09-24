@@ -38,7 +38,10 @@ async function handler(req: CompanyAuthedRequest, res: NextApiResponse) {
     // The contra cannot be dated into an open, unlocked period — including a
     // reversal that would precede a future-dated entry (R-012's
     // ReversalBeforeOriginalError IS-A ClosedFiscalPeriodError). The reversal
-    // runs before the service's only write, so this 400 commits nothing.
+    // runs before the service's own write, and reverseJournalEntry deletes its
+    // draft and releases its claim on failure, so the ledger is untouched. A
+    // fiscal year createJournalEntry auto-created on the way (a post-time
+    // refusal) does commit under this 400 — harmless, and correct on its own.
     if (err instanceof ClosedFiscalPeriodError || err instanceof VatPeriodLockedError) {
       return apiResponse.badRequest(res, msg);
     }
