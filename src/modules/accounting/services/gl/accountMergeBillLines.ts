@@ -24,6 +24,12 @@ export interface MergeTargetForBillLines {
 /** Why the merge must refuse for bill lines, or null when it may proceed. */
 export async function openBillLinesRefusal(
   companyId: string, sourceId: string, sourceCode: string, target: MergeTargetForBillLines,
+  /**
+   * After the write: only these bill-line ids, the ones the merge actually
+   * moved. The pre-write check can be beaten by a line recoded between it and
+   * the write; this identity check cannot. `accountId` is then the target.
+   */
+  movedItemIds?: string[],
 ): Promise<string | null> {
   const problem = billLineAccountProblem({
     account_code: target.accountCode,
@@ -44,7 +50,10 @@ export async function openBillLinesRefusal(
        AND si.status <> 'cancelled'
        AND (je.id IS NULL OR je.status <> 'posted')
        AND EXISTS (SELECT 1 FROM supplier_invoice_items sii
-                    WHERE sii.supplier_invoice_id = si.id AND sii.gl_account_id = ${sourceId}::UUID)
+                    WHERE sii.supplier_invoice_id = si.id
+                      AND (${movedItemIds ?? null}::UUID[] IS NULL
+                           AND sii.gl_account_id = ${sourceId}::UUID
+                           OR sii.id = ANY(${movedItemIds ?? null}::UUID[])))
      ORDER BY si.invoice_number
      LIMIT ${NAMED}
   `) as { invoice_number: string; total: string | number }[];

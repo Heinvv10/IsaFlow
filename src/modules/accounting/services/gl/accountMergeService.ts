@@ -22,7 +22,7 @@
  * Nothing is deleted. `gl_journal_lines` are updated in place, and the source
  * account stays in the chart, deactivated, carrying zero.
  */
-import { sql } from '@/lib/neon';
+import { sql, withSavepoint } from '@/lib/neon';
 import { log } from '@/lib/logger';
 import { cache } from '@/lib/cache';
 import { clearSystemAccountCache } from './systemAccountResolver';
@@ -35,6 +35,8 @@ import {
   DOCUMENT_ROW_TABLES, countsOf, repointDocumentRows, type DocumentRowCounts,
 } from './accountMergeDocumentRows';
 import { lockGlAccountsForUpdate } from './glAccountLock';
+import { openBillLinesRefusal } from './accountMergeBillLines';
+import { hasChildAccounts } from './isReportVisibleLeaf';
 import type { PostingActorOpts } from './journalEntryMeta';
 
 export {
@@ -87,7 +89,19 @@ export async function repointMovableLines(
   return rows.map((r) => String(r.id)).sort();
 }
 
+/**
+ * All or nothing on its own: several refusals fire AFTER a write (the
+ * ledger/document count checks, the moved-bill-line check), so the body runs
+ * in a savepoint rather than relying on every caller to wrap it.
+ */
 export async function mergeAccounts(
+  companyId: string, sourceId: string, targetId: string,
+  userId?: string, actor?: PostingActorOpts,
+): Promise<MergeAccountsResult> {
+  return withSavepoint('account_merge', () => mergeAccountsInner(companyId, sourceId, targetId, userId, actor));
+}
+
+async function mergeAccountsInner(
   companyId: string, sourceId: string, targetId: string,
   userId?: string, actor?: PostingActorOpts,
 ): Promise<MergeAccountsResult> {
@@ -194,6 +208,14 @@ export async function mergeAccounts(
       'document_rows_moved_during_merge',
     );
   }
+  // The same bill-line refusal assertMergeable made, re-asked of exactly the
+  // lines that moved: a line recoded onto the source after that check would
+  // otherwise land on a target no unposted bill may use. Throwing rolls it back.
+  const strandedBills = await openBillLinesRefusal(companyId, sourceId, source.accountCode, {
+    ...target,
+    willHaveChildren: (await hasChildAccounts(companyId, targetId)) || (await hasChildAccounts(companyId, sourceId)),
+  }, movedDocumentRows.supplier_invoice_items);
+  if (strandedBills) throw new AccountMergeError(strandedBills, 'target_refused_for_open_bill_lines');
 
   // Children move onto the target, and the whole subtree takes the level shift —
   // without it, descendants keep the depth they had under the old parent and
