@@ -13,7 +13,7 @@
 -- RLS is enabled and forced BEFORE the grant: on a table without it, the new
 -- grant would expose every tenant's rows. 395's claim-based policy is dropped,
 -- and any tenant_isolation is REPLACED: every form a migration or draft has
--- written (348, 351, 498, the draft 698) is no stricter than this one, and
+-- written (348, 351, 498, this migration's draft b9240f81a) is no stricter, and
 -- keeping an existing one by name kept a weaker WITH CHECK (active company
 -- only) where one had been applied by hand. The new policy's WITH CHECK requires membership
 -- AND the active company, like the sibling tables (membership) plus 348's
