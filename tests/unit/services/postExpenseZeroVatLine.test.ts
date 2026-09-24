@@ -73,6 +73,11 @@ vi.mock('@/modules/accounting/services/gl/journalEntryPostingService', () => ({
 vi.mock('@/modules/accounting/services/gl/systemAccountResolver', () => ({
   getSystemAccountId: vi.fn(async (key: string) => `acct-${key}`),
 }));
+// The account guard has its own suite (document-line-account-guard.int.test.ts);
+// here it passes, so the sql mock sees only the statements this file pins.
+vi.mock('@/modules/accounting/services/gl/documentLineAccountGuard', () => ({
+  documentLineAccountRefusal: vi.fn(async () => null),
+}));
 vi.mock('@/modules/accounting/services/expense/expenseClaimService', () => ({
   createClaim: vi.fn(),
   submitClaim: vi.fn(),

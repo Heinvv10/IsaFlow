@@ -171,6 +171,8 @@ const REFUSAL_CODES: ReadonlySet<string> = new Set([
   'CUSTOMER_INVOICE_LOCK_TIMEOUT',
   'CUSTOMER_NOT_FOUND',
   'DOCUMENT_CLAIM_LOCK_TIMEOUT',
+  // Inactive or not-this-company line account (gl/documentLineAccountGuard): names only the caller's own account.
+  'DOCUMENT_LINE_ACCOUNT_REFUSED',
   'DOCUMENT_NUMBER_LOCK_TIMEOUT',
   'GL_ACCOUNT_LOCK_TIMEOUT',
   // Confirming a manual journal as the correction of an auto-posted line was
