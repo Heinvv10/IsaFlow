@@ -299,21 +299,22 @@ describeIfDb('R-119 a negative total is refused', () => {
     expect(await invoiceCount()).toBe(before);
   });
 
-  it('the Sage AR import cannot yet reach its own guard — R-101 kills it first', async () => {
-    // Honest about the state: sageCustomerImportService SELECTs columns
-    // sage_customer_invoices does not have, so the run dies at 42703 before
-    // any row is read (R-101, the twin of R-021 on the AR side). The sign
-    // guard added there is therefore unreachable until R-101 lands; it is in
-    // place so the importer cannot be revived without it, and the database
-    // trigger covers the path meanwhile. This test pins WHY, so the next
-    // session does not read the guard as proven.
+  it('the Sage AR import sets a negative staged total aside instead of booking it', async () => {
+    // Reachable since R-101 revived the importer (it died on 42703 before).
+    // A negative staged total is a Sage credit note: marked 'credit_note',
+    // never an invoice.
     const before = await invoiceCount();
     await sql`
       INSERT INTO sage_customer_invoices
         (company_id, sage_id, invoice_number, customer_name, invoice_date, total_amount, migration_status)
       VALUES (${COMPANY}::UUID, ${TAG + '-SAGE'}, ${TAG + '-SINV'}, 'R119 Customer', '2026-06-30', -115, 'pending')`;
 
-    await expect(drive(() => importCustomerInvoices(COMPANY, USER))).rejects.toThrow(/does not exist/);
+    const run = await drive(() => importCustomerInvoices(COMPANY, USER));
+    expect(run.failed).toBe(0);
     expect(await invoiceCount()).toBe(before);
+    const [staged] = (await sql`
+      SELECT migration_status FROM sage_customer_invoices
+      WHERE company_id = ${COMPANY}::UUID AND sage_id = ${TAG + '-SAGE'}`) as { migration_status: string }[];
+    expect(staged!.migration_status).toBe('credit_note');
   });
 });

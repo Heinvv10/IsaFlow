@@ -48,7 +48,7 @@ describe('R-089: the vatNotStated count reaches the migration history', () => {
   it('is written by completeRun and read back by getMigrationStatus', async () => {
     const run = await inTx(async () => {
       const runId = await startRun('invoice_import', user, company);
-      return completeRun(runId, 5, 4, 0, 1, 3);
+      return completeRun(runId, company, 5, 4, 0, 1, 3);
     });
     expect(run.vatNotStated).toBe(3);
 
