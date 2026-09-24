@@ -20,6 +20,7 @@
 import { sql } from '@/lib/neon';
 import type { DbRow } from '@/lib/neon';
 import { als } from '@/lib/als';
+import { ClaimOutsideTransactionError } from '@/modules/accounting/services/core/documentClaimLock';
 import { releaseCapturedDocumentPostingClaim } from '@/modules/accounting/services/capture/capturePostingClaimRelease';
 
 export type ClaimSourceDocumentRefusal =
@@ -98,9 +99,7 @@ export async function claimLineSourceDocuments(
   // Outside a request transaction FOR UPDATE is released at once and SET LOCAL
   // does nothing, so the claim would guard nothing: refuse to run there.
   const client = als.getStore()?.client;
-  if (!client) {
-    throw new Error('Claiming source documents requires a request transaction (withAuth / als.run)');
-  }
+  if (!client) throw new ClaimOutsideTransactionError('source document');
   await client.query("SET LOCAL lock_timeout = '5s'");
   let claimed: DbRow[];
   try {
