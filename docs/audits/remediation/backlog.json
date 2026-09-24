@@ -12153,7 +12153,9 @@
       "id": "R-105",
       "area": "accounting/capture",
       "affectedPaths": [
-        "src/modules/accounting/services/expenseClaimService.ts"
+        "src/modules/accounting/services/expense/expenseClaimService.ts",
+        "pages/api/accounting/expense-claims/index.ts",
+        "pages/api/accounting/expense-claims/[id]/index.ts"
       ],
       "severityRationale": "HIGH, measured: through the real routes a slip already posted through capture, a rejected slip, a repeated slip and ANOTHER COMPANY'S captured document were all accepted onto a manual claim (red.log). Double input-VAT claim plus a cross-tenant reference.",
       "evidencePaths": [

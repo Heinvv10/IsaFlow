@@ -13,11 +13,13 @@
 `src/modules/accounting/services/expense/claimSourceDocuments.ts`:
 - **`claimLineSourceDocuments(companyId, lines)`** takes the capture posting claim (`posted_at`, the same fence as `claimCapturedDocumentForPosting`) on every line's source document, **in one statement**. It locks the eligible set and updates only when that set is complete: all slips are claimed, or none are. This matters because `withAuth` COMMITs on a 4xx, so a line-by-line claim that refused the second slip would commit the first slip's stamp with no claim behind it. The statement is company-scoped itself, not left to RLS.
   - A duplicate slip, or one that is missing, foreign, already posted or rejected, throws `ClaimSourceDocumentError` before anything is written. The routes answer it with a 400.
+  - The lock wait is bounded at 5s, like the capture posting paths' (`captureRowLock`). A timeout or deadlock is the `busy` refusal, answered 409 ("retry in a moment"). The lock error has aborted the transaction, so the 4xx commits nothing.
+  - If the statement ever stamps some slips and not all (only possible without the lock), it throws a plain error. The request then rolls back, because a 4xx would COMMIT the partial stamps.
 - **`createClaim`** calls it before its first write. `post-expense` already claims its slip, so it passes `sourceDocumentsClaimed: true`.
 - **`addLine`** calls it before inserting the line.
 - **Release:**
   - `deleteLine` releases the slip of the line it deleted.
-  - The draft-claim DELETE route reads the slips before the cascade and releases them after.
+  - The draft-claim DELETE route locks the claim row, reads its slips, deletes, then releases them. The lock makes the read complete: a concurrent add-line's INSERT needs a key-share lock on the claim row, so it either finished first (and is read) or fails on the deleted parent (and its claim rolls back).
   - Both go through `releaseCapturedDocumentPostingClaim`, which keeps any slip that something live in the ledger still references.
 
 No migration.
@@ -25,15 +27,20 @@ No migration.
 ## Evidence
 All runs are on the r112 fixture.
 - **RED** (`red.log`): 7 of 9 fail on master's code. The two delete-release tests passed there vacuously, because nothing was ever claimed.
-- **GREEN:** `tests/integration/r105-expense-claim-source-document.int.test.ts`, 10 of 10:
+- **GREEN:** `tests/integration/r105-expense-claim-source-document.int.test.ts`, 14 of 14:
   - refusals for a posted, a rejected, a foreign and a repeated slip;
   - all or nothing: one refused line leaves the other slip unclaimed and no claim row;
   - add-line claims its slip, and refuses a posted one;
   - line delete and draft-claim delete give the slip back;
-  - the claim's own company filter, on a connection RLS does not narrow.
+  - the claim's own company filter, on a connection RLS does not narrow;
+  - races on two real connections:
+    - a second claim on one slip waits, then is refused;
+    - a two-slip claim racing a claim on one of its slips stamps neither, even when its refusal is COMMITted;
+    - a held lock gives `busy` after 5s instead of hanging;
+    - the draft-claim delete waits for a concurrent add-line and sees its slip.
 - **Capture path unchanged:** `k072-post-expense-claim-vat`, `k072-claim-vat-classification`, `k072-receipt-vat-unread`, `r058-capture-post-double-post` and `k072-draft-claim-release` pass, 55 of 56.
   - The one failure, "migration 672's backfill agrees with the release", fails identically on master 2d69e30d9 with `must be owner of table captured_documents`. It is a fixture-role problem, not this change.
-- **Mutations** (`mutations.log`): 10 of 10 go red.
+- **Mutations** (`mutations.log`): 13 of 13 go red.
   - Claim removed from create or from add-line.
   - Company filter removed. This one was not caught at first, because RLS hides the foreign row on the route; the service-level test was added for it.
   - All-or-nothing count removed.
@@ -42,6 +49,20 @@ All runs are on the r112 fixture.
   - `rejected` predicate removed.
   - Release removed from line delete or from claim delete.
   - `post-expense` claiming twice.
+  - Round 1 added three:
+    - the claim's `FOR UPDATE` removed;
+    - the lock wait unbounded;
+    - the delete's claim-row lock removed.
+
+## Review round 1
+| Finding | Fix |
+|---|---|
+| MEDIUM (general): the claim's `FOR UPDATE` was untested. Removing it stayed green, and two connections then both claimed. | Race tests. Without the lock, a two-slip claim could also stamp PART of its set and COMMIT that on the 4xx; a partial stamp is now an error that rolls back. M11 goes red. |
+| LOW: the draft-claim DELETE read its slips without locking the claim, so a concurrent add-line's slip could be stranded. | The claim row is locked first (`lockClaimReadSourceDocumentIds`). Race test; M15 goes red. |
+| LOW: the lock wait was unbounded. | 5s `lock_timeout`, then `busy` → 409. M14 goes red. |
+| LOW: `claimSourceDocumentIds` read too much like `claimLineSourceDocuments`. | Renamed `lockClaimReadSourceDocumentIds`. |
+| LOW: `expenseClaimService.ts` over 300 lines. | Pre-existing (554 on master). Not split here; see below. |
+| LOW: R-105's `affectedPaths` was wrong in backlog.json. | Corrected. |
 
 ## For Hein (read-only on prod): what already exists
 ```sql
