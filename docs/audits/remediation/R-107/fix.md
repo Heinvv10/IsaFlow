@@ -31,7 +31,8 @@ shell that validates both ids as uuids and maps the result):
 1. Locks, in order: the bank line(s) with `provisional_je_id = jeId` (`lockBankTransactionForUpdate`),
    then the journal (`FOR UPDATE`, 5s bound), then the document (`lockCapturedDocumentForUpdate`).
    Bank → journal is the canonical order (`services/bank/.claude.md`); the document is last,
-   matching `reverseJournalEntry` (journal, then the document's release).
+   matching `reverseJournalEntry` (journal, then the document's release). The capture post paths
+   take the other order; see review round 1.
 2. Refuses, before any write: journal not found (404), reversed (400), already evidenced (400);
    document not found / other tenant (404).
 3. Claims the slip with `claimCapturedDocumentForPosting` — one predicated UPDATE, so a claimed or
@@ -48,6 +49,25 @@ inbox's refusal is still decided before it discards drafts. Reversing the provis
 releases it (`reverseJournalEntry` already calls the release). `evidenced_at` rather than
 `source = 'auto_bank_recon'`: bank allocation journals copy an invoice's `source_document_id`
 (`bankAllocationService`) and are not evidence of the slip.
+
+### Review round 1 (rev-r107-general)
+
+- **MEDIUM — the lock order is not total.** `capture/[id]/post` (through `capturePostFollowUps`) and
+  `ai-invoice-pipeline` lock and claim the slip, then the automatic `attachEvidenceToProvisional`
+  updates the bank line and the journal: slip → bank → journal, the reverse of the manual attach.
+  It cannot be ordered away (moving the slip first in the manual attach inverts it against
+  `reverseJournalEntry`, journal → slip), so it is made safe: the automatic attach now runs in its
+  own `withSavepoint`. When the post is the 40P01 victim only the attach rolls back and the post
+  commits. Before, the swallowed deadlock left the request transaction aborted, the route answered
+  200, and withAuth's COMMIT was a silent ROLLBACK of the invoice (measured, red.log round 1: 25P02).
+  This also closes K-157 (the same swallow, for any SQL error). When the manual attach is the
+  victim it answers 409 with nothing written.
+- The automatic attach's journal UPDATE now carries `AND needs_evidence = true AND reversed_at IS
+  NULL` and throws on 0 rows (rolling back its bank UPDATE): its match is read unlocked, and it used
+  to overwrite a manual attach that committed while it waited (measured, red.log round 1).
+- LOW: bank lines are re-checked under their lock and only the lines still linked are written.
+- LOW: the journal lock uses `captureRowLock.lockWithTimeout` (exported) instead of a copy.
+- Test: `tests/integration/r107-auto-attach-savepoint.int.test.ts` (2).
 
 Not in scope: a byte-identical re-upload of the slip is a different `captured_documents` row
 and is not fenced by this claim — that is R-088 (content de-duplication).
