@@ -74,9 +74,10 @@ describe('R-120: the generic time-entry edit cannot desync a practice entry', ()
     expect(await row(id)).toMatchObject({ hours: '4.00', rate: '250.00', line_total: '1000.00' });
   });
 
-  it('still edits a practice entry\'s other fields', async () => {
+  it('still edits a practice entry\'s other fields when the form resends the same hours and rate', async () => {
+    // The time-tracking page sends hours (and rate) on every save.
     const id = await seed(client);
-    const out = await put({ id, notes: 'R120 note' });
+    const out = await put({ id, notes: 'R120 note', hours: 4, rate: 250 });
     expect(out.statusCode).toBe(200);
     expect((await row(id)).notes).toBe('R120 note');
   });

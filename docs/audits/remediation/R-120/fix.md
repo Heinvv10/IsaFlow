@@ -25,7 +25,7 @@ All runs are against the fixture `isaflow-fixture-r112`.
 - `tests/unit/services/practice/wipInvoiceGuards.test.ts`: 12 of 12. The component test has 2 cases.
 - `tests/unit/components/WipInvoiceRefusalMessage.test.tsx`: red on master's page, green on the fix.
 - **Existing WIP suites:** k-040 ×2 and k107, integration, pass. So do the practice unit tests, 18 files and 226 tests.
-- **Mutations** (`mutations.log`): 22, all red. M4 was retired as redundant, and the reason is in the table above. Two survived the first round (M4, M6), and the reason for each is in the log.
+- **Mutations** (`mutations.log`): 23, all red, plus the two page tests, which are red on master's pages. M4 was retired as redundant, and the reason is in the table above. Two survived the first round (M4, M6), and the reason for each is in the log.
 
 ## Review round 1
 | Finding | Fix | Proof |
@@ -51,6 +51,13 @@ All runs are against the fixture `isaflow-fixture-r112`.
 | adv. N2 (LOW): an id sent in two cases counted as skipped. | The ids are lower-cased before counting. | Test added; M23 goes red. |
 | LOW (general): the census did not measure the new mismatch class. | Mismatch arm added, plus a count of approved, unbilled entries this change will refuse, to run before deploy. | EXPLAIN on the fixture. |
 
+## Review round 3
+| Finding | Fix | Proof |
+|---|---|---|
+| MEDIUM (general): the remedy had no UI. Write-off accepts `approved`, but the Approvals page listed only `submitted`. | Approvals has a Status filter (Submitted / Approved, not billed). On approved entries Approve is disabled and write-off works. The page reads errors through `assertOk`, and it too had read `json.error` as a string. | Component test `R120TimeEntryRemedyPages`: red on master's page. |
+| MEDIUM (general): the time-tracking form sends hours (and rate) on EVERY save, so every practice-entry edit was refused, and the page showed "Failed" (it read `json.message`). | Only a CHANGE to hours or rate is refused, compared against the stored row. The page uses `assertOk`/`apiErrorMessage`. | The integration test now sends the same hours and rate with a notes edit; M24 goes red. The component test is red on master's page. |
+| LOW (general): the stuck-entry census counted rows the lock never selects. | It now matches the lock's predicate (`billable`, `line_total IS NOT NULL`). | Parsed against the fixture. |
+
 ## Historical-data impact
 None from the masking. The two booking defects may have left rows. Hand this to Hein; it is read-only and has **not** been run on production:
 ```sql
@@ -66,12 +73,14 @@ WHERE ci.tax_rate > 100
                 AND (te.line_total < 0 OR te.applied_rate < 0 OR te.applied_rate IS NULL
                      OR abs(round(te.hours * te.applied_rate, 2) - te.line_total) > 0.01));
 
--- Approved, unbilled entries this change will REFUSE to bill (they need a
--- write-off and a corrected entry): count them before deploying.
+-- Entries WIP can select (lockEligibleWipEntries' predicate) that this change
+-- will REFUSE to bill: each needs a write-off (Approvals → status "Approved,
+-- not billed") and a corrected entry. Count them before deploying.
 SELECT company_id, count(*) AS stuck, sum(line_total) AS value
 FROM time_entries
-WHERE status = 'approved' AND billed_at IS NULL AND practice_client_id IS NOT NULL
-  AND (line_total IS NULL OR applied_rate IS NULL OR applied_rate < 0
+WHERE status = 'approved' AND billed_at IS NULL AND billable
+  AND practice_client_id IS NOT NULL AND line_total IS NOT NULL
+  AND (applied_rate IS NULL OR applied_rate < 0
        OR abs(round(hours * applied_rate, 2) - line_total) > 0.01)
 GROUP BY company_id;
 ```
