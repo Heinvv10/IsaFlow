@@ -94,7 +94,9 @@ FROM time_entries
 WHERE status = 'approved' AND billed_at IS NULL AND billable
   AND practice_client_id IS NOT NULL AND line_total IS NOT NULL
   AND (applied_rate IS NULL OR applied_rate < 0
-       OR abs(round(hours * applied_rate, 2) - line_total) > 0.01)
+       -- > 0.005, not > 0.01: the guard rounds in JS, which can land a half
+       -- cent away from PG's round(); this errs toward over-counting.
+       OR abs(round(hours * applied_rate, 2) - line_total) > 0.005)
 GROUP BY company_id;
 ```
 
