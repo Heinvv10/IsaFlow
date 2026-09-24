@@ -15,25 +15,26 @@ It started from one column, `time_entries.amount`. `createPracticeEntry` and `up
 ## Fix
 Two migrations, additive and idempotent, safe whatever prod's shape is.
 - **625b** adds the columns. It is ordered BEFORE 626 because 626's trigger and back-fill reference `user_id`/`rate`: on a dev-shaped database 626 raised 42703, and the runner stops at the first failure. Proven on a throwaway database: bare shape → 625b → 626 → 699 applies, while 626 alone fails. On prod, where 626 is already recorded, 625b is new and runs as a no-op.
-- **699** sets the grants and the policy. The prefix 698 was taken on isaflow_dev by a peer's uncommitted `698_gl_account_merges_document_rows.sql`. The policy is DROPped and re-CREATEd on every run: that is idempotent in outcome, not a no-op.
+- **699** sets the grants and the policy. The prefix 698 was taken on isaflow_dev by a peer's uncommitted `698_gl_account_merges_document_rows.sql`. It enables and forces RLS before granting, as the sibling practice tables are. It drops only 395's `pcro_company_isolation`; a `tenant_isolation` policy that already exists is kept, not replaced. Re-running it changes nothing.
 
 What they do:
 - `time_entries.amount` is added if missing. It is a nullable duplicate of `line_total`, which the writers set.
 - `practice_client_rate_overrides.user_id` and `.rate` are added if missing, nullable, and back-filled from `staff_user_id` / `rate_per_hour`. 626's trigger keeps the two pairs in step afterwards.
 - The table gets the sibling tables' grants (app_user and platform_admin: DML; migration_admin: ALL).
-- `pcro_company_isolation` is replaced by the standard `tenant_isolation` (348: `company_users` / `auth.uid()`, WITH CHECK `app.current_company_id()`).
+- `pcro_company_isolation` is replaced by `tenant_isolation`, for app_user: USING membership (`auth.user_companies()`), WITH CHECK membership AND `app.current_company_id()`.
 
 No application code changed.
 
 ## Evidence
 All runs are on the r112 fixture.
 - **RED** (`red.log`): on the dev-shaped schema, create/edit failed with 42703 and the override service and route failed with "permission denied".
-- **GREEN:** `tests/integration/r121-practice-entry-writes.int.test.ts`, 5 of 5:
+- **GREEN:** `tests/integration/r121-practice-entry-writes.int.test.ts`, 6 of 6:
   - a practice entry is created and edited, and its line equals hours × rate;
   - an override is recorded and a new entry bills at it, with both column pairs mirrored;
   - the rate-overrides ROUTE works through `withAuth` (app_user, RLS, a GoTrue token without a `company_id` claim). It POSTs, then GETs the row back;
-  - as app_user, another company's override is invisible, and a cross-tenant INSERT is refused by the WITH CHECK.
-- **Mutations** (`mutations.log`, each with its SQL): a policy that isolates nothing, WITH CHECK removed, 395's policy restored, and the grants revoked. All four are red. Dropping `time_entries.amount` fails 2 (general reviewer).
+  - as app_user, another company's override is invisible, and a cross-tenant INSERT is refused by the WITH CHECK;
+  - a member of two companies cannot write into the one that is not active.
+- **Mutations** (`mutations.log`, each with its SQL and verbatim result): a policy that isolates nothing (3 red), WITH CHECK removed (2), WITH CHECK without the active-company clause (1), 395's policy restored (1), RLS disabled (3), grants revoked (6). The restored 699 is 6 of 6 green. Dropping `time_entries.amount` fails 2 (general reviewer).
 - **Fixture provisioning:** the fixture had no `auth.users`, since GoTrue owns it. A stub was created as postgres, with SELECT for app_user and platform_admin; k-039 stubs it the same way. **Caveat:** the override service LEFT JOINs `auth.users` as app_user, and no migration grants that. On a database where app_user cannot read `auth.users`, the route still fails; isaflow_dev has no `auth.users` at all. The prod query below checks it. Granting app_user blanket SELECT on `auth.users` would expose every user's email across tenants, so it is deliberately not done here.
 
 ## Review round 1 (general)
@@ -48,6 +49,16 @@ All runs are on the r112 fixture.
 | LOW: stale `bearerPipeline` comment. | Updated. |
 | LOW: mutations recorded without their SQL. | The log carries the SQL. |
 
+## Review round 2 (adversarial, on b9240f81a)
+| Finding | Fix |
+|---|---|
+| 1–2 (fixed in 4988e3bee) | See that commit. |
+| 3: an existing `tenant_isolation` was silently replaced. | Created only if missing; an existing one is kept. |
+| 4: WITH CHECK was the active company only. | Membership AND the active company. New test; MP4 goes red. |
+| 5: the grant could land on a table without RLS. | RLS enabled and forced first, as on the siblings. MR goes red. |
+| 6: `amount` precision differed from `line_total`. | NUMERIC(18,2). |
+| Docs: prod query incomplete. | Now checks privileges, RLS flags, policy roles and WITH CHECK, and whether 626 is recorded. |
+
 ## For Hein (read-only on prod)
 ```sql
 SELECT table_name, column_name, is_nullable FROM information_schema.columns
@@ -55,7 +66,12 @@ WHERE (table_name='time_entries' AND column_name='amount')
    OR (table_name='practice_client_rate_overrides' AND column_name IN ('user_id','rate','staff_user_id','rate_per_hour'));
 SELECT grantee, string_agg(privilege_type, ',') FROM information_schema.role_table_grants
 WHERE table_name='practice_client_rate_overrides' GROUP BY 1;
-SELECT policyname, qual FROM pg_policies WHERE tablename IN ('practice_client_rate_overrides','payroll_leave_types','payroll_leave_balances','payroll_leave_requests');
+SELECT r.rolname, has_table_privilege(r.rolname, 'practice_client_rate_overrides', 'SELECT,INSERT,UPDATE,DELETE') AS dml
+FROM pg_roles r WHERE r.rolname IN ('app_user','platform_admin','migration_admin');
+SELECT relrowsecurity, relforcerowsecurity FROM pg_class WHERE relname='practice_client_rate_overrides';
+SELECT tablename, policyname, roles, qual, with_check FROM pg_policies
+WHERE tablename IN ('practice_client_rate_overrides','payroll_leave_types','payroll_leave_balances','payroll_leave_requests');
+SELECT name FROM schema_migrations WHERE name LIKE '626%' OR name LIKE '395%';
 SELECT has_table_privilege('app_user', 'auth.users', 'SELECT');
 ```
 
