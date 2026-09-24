@@ -67,3 +67,8 @@ AssertionError: expected null not to be null
 AssertionError: promise rejected "error: current transaction is aborted, co… { …(15) }" instead of resolving
 AssertionError: expected { …(2) } to deeply equal { attachedJeId: null, bankTxId: null }
       Tests  2 failed (2)
+
+# Review round 1 (rev-r107-adversarial LOW): 'a reversal racing an attach' with journalEntryPostingService.ts as on master —
+# the reversal read the journal before the attach committed and released on that stale (NULL) source_document_id:
+     × releases the slip an attach committed while the reversal waited on the journal
+AssertionError: expected 2026-09-24T19:38:47.913Z to be null

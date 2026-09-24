@@ -69,6 +69,15 @@ releases it (`reverseJournalEntry` already calls the release). `evidenced_at` ra
 - LOW: the journal lock uses `captureRowLock.lockWithTimeout` (exported) instead of a copy.
 - Test: `tests/integration/r107-auto-attach-savepoint.int.test.ts` (2).
 
+### Review round 1 (rev-r107-adversarial)
+
+- MEDIUM: the same cycle as above, measured through `ai-invoice-pipeline` (a 200 with an approved
+  invoice id and 0 `supplier_invoices` rows). Closed by the savepoint above.
+- LOW: `reverseJournalEntry` released on the `source_document_id` it read BEFORE its claim; an
+  attach that committed while the claim waited was missed, and the slip stayed claimed. It now
+  re-reads the column after the claim. Test: "a reversal racing an attach" in
+  `r107-provisional-attach-release.int.test.ts` (red.log round 1).
+
 Not in scope: a byte-identical re-upload of the slip is a different `captured_documents` row
 and is not fenced by this claim — that is R-088 (content de-duplication).
 

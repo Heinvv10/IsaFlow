@@ -129,7 +129,14 @@ function joinSql(call: unknown[]): string {
   return (call[0] as readonly string[]).join(' ');
 }
 
-beforeEach(() => vi.clearAllMocks());
+beforeEach(() => {
+  // mockReset, not clearAllMocks: a once-queue left over by a failing case must not leak.
+  mockSql.mockReset();
+  vi.clearAllMocks();
+  // Statements past each case's queue — the post-claim re-read of source_document_id
+  // (R-107) — see no row: these fixtures carry no captured document.
+  mockSql.mockResolvedValue([]);
+});
 
 describe('reverseJournalEntry — semantics', () => {
   it.each(['capital_goods', 'standard', 'zero_rated', undefined])(
