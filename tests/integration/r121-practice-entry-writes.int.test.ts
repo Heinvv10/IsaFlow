@@ -139,13 +139,13 @@ describe('R-121: practice time capture runs on a repo-built schema', () => {
 
   // Tenant isolation under the new policy, as withAuth runs it: app_user, the
   // user's `sub`, and app.current_company_id — no company_id claim.
-  async function asAppUser<T>(fn: (c: import('pg').PoolClient) => Promise<T>): Promise<T> {
+  async function asAppUser<T>(fn: (c: import('pg').PoolClient) => Promise<T>, active = company): Promise<T> {
     const c = await pool.connect();
     try {
       await c.query('BEGIN');
       await c.query('SET LOCAL ROLE app_user');
       await c.query("SELECT set_config('request.jwt.claims', $1, true)", [JSON.stringify({ sub: user })]);
-      await c.query("SELECT set_config('app.current_company_id', $1, true)", [company]);
+      await c.query("SELECT set_config('app.current_company_id', $1, true)", [active]);
       return await fn(c);
     } finally {
       await c.query('ROLLBACK').catch(() => undefined);
@@ -166,6 +166,14 @@ describe('R-121: practice time capture runs on a repo-built schema', () => {
     const err = await asAppUser((c) => c.query(
       `INSERT INTO practice_client_rate_overrides (company_id, client_id, staff_user_id, user_id, rate_per_hour, rate, effective_from)
        VALUES ($1, $2, $3, $3, 555, 555, '2026-02-01')`, [otherCompany, otherClient, user])).catch((e: unknown) => e);
+    expect(String((err as Error)?.message)).toMatch(/row-level security/);
+  });
+
+  // No RETURNING: it would be refused by USING and hide a WITH CHECK that lacks membership.
+  it('a non-member cannot write into a company even when it is the active one', async () => {
+    const err = await asAppUser((c) => c.query(
+      `INSERT INTO practice_client_rate_overrides (company_id, client_id, staff_user_id, user_id, rate_per_hour, rate, effective_from)
+       VALUES ($1, $2, $3, $3, 333, 333, '2026-02-03')`, [otherCompany, otherClient, user]), otherCompany).catch((e: unknown) => e);
     expect(String((err as Error)?.message)).toMatch(/row-level security/);
   });
 

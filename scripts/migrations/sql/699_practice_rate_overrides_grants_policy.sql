@@ -11,11 +11,11 @@
 -- app.current_company_id, which every pipeline sets.
 --
 -- RLS is enabled and forced BEFORE the grant: on a table without it, the new
--- grant would expose every tenant's rows. A tenant_isolation policy that
--- already exists is KEPT, never replaced (it may be stricter), and is judged
--- by name only, as in 498: a looser hand-made one would survive. The R-121
--- prod query prints its USING and WITH CHECK to rule that out. Only 395's
--- claim-based one is dropped. The new policy's WITH CHECK requires membership
+-- grant would expose every tenant's rows. 395's claim-based policy is dropped,
+-- and any tenant_isolation is REPLACED: every form a migration or draft has
+-- written (348, 351, 498, the draft 698) is no stricter than this one, and
+-- keeping an existing one by name kept a weaker WITH CHECK (active company
+-- only) where one had been applied by hand. The new policy's WITH CHECK requires membership
 -- AND the active company, like the sibling tables (membership) plus 348's
 -- active-company rule, so a non-member cannot write into a company even when
 -- the GUC names it.
@@ -26,15 +26,8 @@ GRANT SELECT, INSERT, UPDATE, DELETE ON practice_client_rate_overrides TO app_us
 GRANT ALL ON practice_client_rate_overrides TO migration_admin;
 
 DROP POLICY IF EXISTS pcro_company_isolation ON practice_client_rate_overrides;
-DO $$
-BEGIN
-  IF NOT EXISTS (
-    SELECT 1 FROM pg_policies
-    WHERE schemaname = 'public' AND tablename = 'practice_client_rate_overrides' AND policyname = 'tenant_isolation'
-  ) THEN
-    CREATE POLICY tenant_isolation ON practice_client_rate_overrides
-      FOR ALL TO app_user
-      USING (company_id IN (SELECT auth.user_companies()))
-      WITH CHECK (company_id IN (SELECT auth.user_companies()) AND company_id = app.current_company_id());
-  END IF;
-END $$;
+DROP POLICY IF EXISTS tenant_isolation ON practice_client_rate_overrides;
+CREATE POLICY tenant_isolation ON practice_client_rate_overrides
+  FOR ALL TO app_user
+  USING (company_id IN (SELECT auth.user_companies()))
+  WITH CHECK (company_id IN (SELECT auth.user_companies()) AND company_id = app.current_company_id());
