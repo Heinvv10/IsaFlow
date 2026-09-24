@@ -65,7 +65,9 @@ releases it (`reverseJournalEntry` already calls the release). `evidenced_at` ra
 - The automatic attach's journal UPDATE now carries `AND needs_evidence = true AND reversed_at IS
   NULL` and throws on 0 rows (rolling back its bank UPDATE): its match is read unlocked, and it used
   to overwrite a manual attach that committed while it waited (measured, red.log round 1).
-- LOW: bank lines are re-checked under their lock and only the lines still linked are written.
+- LOW: a bank line unlinked while the attach waited for its lock is not written: the UPDATE re-checks
+  `provisional_je_id` after the lock (test: the unlinked-line case; mutation M19). A line cannot be
+  linked meanwhile — `postProvisional` links only the journal it just created.
 - LOW: the journal lock uses `captureRowLock.lockWithTimeout` (exported) instead of a copy.
 - Test: `tests/integration/r107-auto-attach-savepoint.int.test.ts` (2).
 
@@ -150,3 +152,11 @@ SELECT je.company_id, COUNT(*) AS unclaimed_evidence
  WHERE je.evidenced_at IS NOT NULL AND je.reversed_at IS NULL AND cd.posted_at IS NULL
  GROUP BY je.company_id;
 ```
+
+### Review round 2 (rev-r107-general, SHIP with LOWs — all fixed)
+
+- The unlinked-line test pins the `provisional_je_id` re-check; the extra `id = ANY(locked)` predicate
+  it did not pin guarded an impossible case and was removed.
+- `journalEntryReversal.test.ts`'s default mock answers only the post-claim re-read; any other
+  unqueued statement fails the case.
+- Dead `provisional_je_id` field removed from the lock-order unit mock.

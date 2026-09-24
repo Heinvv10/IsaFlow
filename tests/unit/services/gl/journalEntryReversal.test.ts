@@ -133,9 +133,14 @@ beforeEach(() => {
   // mockReset, not clearAllMocks: a once-queue left over by a failing case must not leak.
   mockSql.mockReset();
   vi.clearAllMocks();
-  // Statements past each case's queue — the post-claim re-read of source_document_id
-  // (R-107) — see no row: these fixtures carry no captured document.
-  mockSql.mockResolvedValue([]);
+  // Past each case's queue, only the post-claim re-read of source_document_id (R-107) is
+  // answered (no row: these fixtures carry no captured document). Any other unqueued
+  // statement fails the case, so a new statement in reverseJournalEntry still surfaces here.
+  mockSql.mockImplementation(async (strings: unknown) => {
+    const text = Array.isArray(strings) ? strings.join(' ') : String(strings);
+    if (/SELECT source_document_id FROM gl_journal_entries/.test(text)) return [];
+    throw new Error(`unexpected statement: ${text}`);
+  });
 });
 
 describe('reverseJournalEntry — semantics', () => {
