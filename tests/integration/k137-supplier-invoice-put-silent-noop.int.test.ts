@@ -104,7 +104,8 @@ describeIfDb('K-137 a PUT that changes nothing must not answer 200', () => {
     const res = await put({ id: approvedInvoice, invoiceNumber: 'K137-REWRITTEN' });
     const row = await admin.query('SELECT invoice_number FROM supplier_invoices WHERE id = $1', [approvedInvoice]);
     expect(row.rows[0].invoice_number).toBe('K137-APPROVED');   // nothing changed …
-    expect(res.statusCode).toBeGreaterThanOrEqual(400);          // … and the caller was told so
+    expect(res.statusCode).toBe(400);                            // … and the caller was told so,
+    expect(JSON.stringify(res.body)).toContain('approved');      // with the status that blocked it
   });
 
   it('answers 404 for an invoice belonging to another company', async () => {
