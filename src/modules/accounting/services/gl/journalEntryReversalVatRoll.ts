@@ -2,7 +2,8 @@
  * Rolling a reversal's DEFAULT date past locked VAT periods.
  *
  * A reversal with no date named defaults to the original entry's date (or to
- * today when that fiscal period is closed — see journalEntryReversalDate). When
+ * today when that fiscal period is not open — see journalEntryReversalDate for
+ * the future-dated cases). When
  * the original moves a VAT-return figure and that default lands inside an
  * ACTIVE VAT lock, posting the contra there would change a VAT201 already
  * filed. Reversals are the one posting the lock does not simply refuse: the

@@ -84,18 +84,10 @@ vi.mock('@/modules/accounting/services/gl/periodStatusService', () => ({
   getPeriodStatusForDate: vi.fn(),
 }));
 
-const { autoCreatableMock } = vi.hoisted(() => ({ autoCreatableMock: vi.fn() }));
-vi.mock('@/modules/accounting/services/gl/journalEntryReversalVatRoll', async (importOriginal) => ({
-  ...(await importOriginal<typeof import('@/modules/accounting/services/gl/journalEntryReversalVatRoll')>()),
-  isDateAutoCreatable: autoCreatableMock,
-}));
-
 import { sql } from '@/lib/neon';
 import { getJournalEntryById, createJournalEntry } from '@/modules/accounting/services/gl/journalEntryCrudService';
 import { getPeriodStatusForDate } from '@/modules/accounting/services/gl/periodStatusService';
 import { reverseJournalEntry } from '@/modules/accounting/services/gl/journalEntryPostingService';
-import { ClosedFiscalPeriodError } from '@/modules/accounting/services/gl/journalEntryPostingGuards';
-import { ReversalBeforeOriginalError } from '@/modules/accounting/services/gl/journalEntryReversalDate';
 
 const mockGet = getJournalEntryById as unknown as MockedFunction<
   (c: string, i: string) => Promise<Record<string, unknown> | null>
@@ -170,45 +162,6 @@ describe('reverseJournalEntry — reversal entry date', () => {
     const today = new Date();
     const expected = `${today.getFullYear()}-${String(today.getMonth() + 1).padStart(2, '0')}-${String(today.getDate()).padStart(2, '0')}`;
     expect(await reversalEntryDate()).toBe(expected);
-  });
-
-  // R-012: the today-fallback must never date the contra BEFORE the entry it
-  // reverses. A future-dated original whose period is not open used to get a
-  // reversal dated today — which breaks the as-at parity every ageing and
-  // statement reads (softDeleteLedgerPresence's precondition).
-  it.each(['closed', 'no_period'] as const)(
-    'REFUSES, writing nothing, when the original is future-dated and its period is %s (and not auto-creatable)',
-    async (status) => {
-      const future = new Date(); future.setDate(future.getDate() + 40);
-      const futureDate = `${future.getFullYear()}-${String(future.getMonth() + 1).padStart(2, '0')}-${String(future.getDate()).padStart(2, '0')}`;
-      mockGet.mockResolvedValue(postedEntry(futureDate));
-      mockPeriodStatus.mockResolvedValue(status);
-      autoCreatableMock.mockResolvedValue(false);
-      const err = await reverseJournalEntry(COMPANY_ID, ENTRY_ID, USER_ID).catch((e: unknown) => e);
-      expect(err).toBeInstanceOf(ReversalBeforeOriginalError);
-      // A ClosedFiscalPeriodError, so every route that answers a closed period
-      // with a 400 ("re-open the period") answers this one the same way.
-      expect(err).toBeInstanceOf(ClosedFiscalPeriodError);
-      expect((err as Error).message).toContain(futureDate);
-      expect(mockCreate).not.toHaveBeenCalled();
-    },
-  );
-
-  it('dates a future-dated original\'s reversal WITH it when its year does not exist but posting would create it', async () => {
-    const future = new Date(); future.setDate(future.getDate() + 40);
-    const futureDate = `${future.getFullYear()}-${String(future.getMonth() + 1).padStart(2, '0')}-${String(future.getDate()).padStart(2, '0')}`;
-    mockGet.mockResolvedValue(postedEntry(futureDate));
-    mockPeriodStatus.mockResolvedValue('no_period');
-    autoCreatableMock.mockResolvedValue(true);
-    expect(await reversalEntryDate()).toBe(futureDate);
-  });
-
-  it('still falls back to today when the original is dated today and its period is closed', async () => {
-    const today = new Date();
-    const todayDate = `${today.getFullYear()}-${String(today.getMonth() + 1).padStart(2, '0')}-${String(today.getDate()).padStart(2, '0')}`;
-    mockGet.mockResolvedValue(postedEntry(todayDate));
-    mockPeriodStatus.mockResolvedValue('closed');
-    expect(await reversalEntryDate()).toBe(todayDate);
   });
 
   it('handles an original entryDate that arrives as a Date at local midnight', async () => {

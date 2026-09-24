@@ -82,8 +82,9 @@ export const reverseJournalEntryTool: McpTool = {
         type: 'string',
         format: 'date',
         description:
-          'YYYY-MM-DD. Omit to use the default (the original entry date when its period is open, '
-          + 'otherwise today).',
+          'YYYY-MM-DD. Omit to use the default: the original entry date when its period is open (or, for a '
+          + 'future-dated entry, when its year would be created on posting), otherwise today. A future-dated '
+          + 'entry in a closed period is refused rather than reversed before it.',
       },
       ...MUTATION_ARG_SCHEMA,
     },
