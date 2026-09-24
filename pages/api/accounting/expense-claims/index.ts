@@ -14,6 +14,7 @@ import {
   createClaim,
   type ExpenseClaimLine,
 } from '@/modules/accounting/services/expense/expenseClaimService';
+import { ClaimSourceDocumentError } from '@/modules/accounting/services/expense/claimSourceDocuments';
 
 interface CreateBody {
   employeeId?: string;
@@ -37,16 +38,22 @@ async function handler(req: CompanyAuthedRequest, res: NextApiResponse) {
   if (req.method === 'POST') {
     const body = (req.body ?? {}) as CreateBody;
     if (!body.employeeId) return apiResponse.badRequest(res, 'employeeId is required');
-    const claim = await createClaim({
-      companyId,
-      employeeId: body.employeeId,
-      claimDate: body.claimDate,
-      title: body.title ?? null,
-      description: body.description ?? null,
-      createdBy: req.user?.id ?? null,
-      lines: body.lines,
-    });
-    return apiResponse.created(res, { claim });
+    try {
+      const claim = await createClaim({
+        companyId,
+        employeeId: body.employeeId,
+        claimDate: body.claimDate,
+        title: body.title ?? null,
+        description: body.description ?? null,
+        createdBy: req.user?.id ?? null,
+        lines: body.lines,
+      });
+      return apiResponse.created(res, { claim });
+    } catch (err) {
+      // Refused before anything was written, so a 400 commits nothing.
+      if (err instanceof ClaimSourceDocumentError) return apiResponse.badRequest(res, err.message);
+      throw err;
+    }
   }
 
   return apiResponse.methodNotAllowed(res, req.method ?? '', ['GET', 'POST']);

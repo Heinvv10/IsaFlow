@@ -16,6 +16,11 @@ import {
   addLine,
   type ExpenseClaimLine,
 } from '@/modules/accounting/services/expense/expenseClaimService';
+import {
+  ClaimSourceDocumentError,
+  claimSourceDocumentIds,
+  releaseSourceDocuments,
+} from '@/modules/accounting/services/expense/claimSourceDocuments';
 
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
@@ -40,11 +45,14 @@ async function handler(req: CompanyAuthedRequest, res: NextApiResponse) {
       if (!claim) return apiResponse.notFound(res, 'Expense claim', id);
       return apiResponse.success(res, { claim });
     } catch (err) {
+      if (err instanceof ClaimSourceDocumentError) return apiResponse.badRequest(res, err.message);
       return apiResponse.badRequestFromError(res, err, 'Request failed');
     }
   }
 
   if (req.method === 'DELETE') {
+    // Read before the delete cascades the lines away, release after it (R-105).
+    const documentIds = await claimSourceDocumentIds(id, companyId);
     const rows = (await sql`
       DELETE FROM expense_claims
       WHERE id = ${id}::uuid AND company_id = ${companyId}::uuid
@@ -54,6 +62,7 @@ async function handler(req: CompanyAuthedRequest, res: NextApiResponse) {
     if (rows.length === 0) {
       return apiResponse.badRequest(res, 'Claim not found or not deletable (must be draft/cancelled/rejected)');
     }
+    await releaseSourceDocuments(companyId, documentIds);
     return apiResponse.success(res, { deleted: true });
   }
 

@@ -1,0 +1,109 @@
+/**
+ * The capture posting claim, taken by a MANUAL expense claim line (R-105).
+ *
+ * `post-expense` stamps `captured_documents.posted_at` before it creates its
+ * claim. The manual routes (`POST /expense-claims`, `POST /expense-claims/[id]`)
+ * wrote `lines[].sourceDocumentId` with no check at all, so:
+ *   - a slip already posted through capture went on a manual claim too, and the
+ *     same input VAT was claimed twice;
+ *   - one slip could sit on two claims;
+ *   - another company's `captured_documents` id was accepted, because the FK
+ *     check that guards the column runs without RLS.
+ *
+ * `claimLineSourceDocuments` is the same `posted_at` fence the posting routes
+ * use (`claimCapturedDocumentForPosting`), taken for every line in ONE
+ * statement: every slip is claimed or none is. That matters because `withAuth`
+ * COMMITs on a 4xx: a line-by-line claim that refused the second slip would
+ * commit the first one's stamp with no claim behind it.
+ */
+
+import { sql } from '@/lib/neon';
+import type { DbRow } from '@/lib/neon';
+import { releaseCapturedDocumentPostingClaim } from '@/modules/accounting/services/capture/capturePostingClaimRelease';
+
+export type ClaimSourceDocumentRefusal = 'not_found' | 'already_posted' | 'rejected' | 'duplicate';
+
+const MESSAGE: Record<ClaimSourceDocumentRefusal, string> = {
+  not_found: 'Source document not found',
+  already_posted: 'Document already posted',
+  rejected: 'Document was rejected — reopen it before posting',
+  duplicate: 'The same source document is on more than one line',
+};
+
+/**
+ * A line's source document cannot be claimed. Thrown before anything is
+ * written, so the route may answer 400 with it.
+ */
+export class ClaimSourceDocumentError extends Error {
+  readonly code = 'CLAIM_SOURCE_DOCUMENT_REFUSED';
+  constructor(readonly refusal: ClaimSourceDocumentRefusal, readonly documentId: string) {
+    super(MESSAGE[refusal]);
+    this.name = 'ClaimSourceDocumentError';
+  }
+}
+
+/**
+ * Claim every line's source document for this company, all or nothing.
+ * Lines without one are ignored. Throws `ClaimSourceDocumentError` and writes
+ * nothing when any slip is missing, foreign, already claimed or rejected.
+ */
+export async function claimLineSourceDocuments(
+  companyId: string,
+  lines: ReadonlyArray<{ sourceDocumentId?: string | null }>,
+): Promise<void> {
+  const ids = lines.map((l) => l.sourceDocumentId).filter((id): id is string => !!id);
+  if (ids.length === 0) return;
+  const duplicate = ids.find((id, i) => ids.indexOf(id) !== i);
+  if (duplicate) throw new ClaimSourceDocumentError('duplicate', duplicate);
+
+  // The eligible set is locked, and the UPDATE applies only when it is the
+  // whole set. A concurrent claimer that got there first leaves its row out
+  // of `eligible` (re-checked after the lock wait), so the count falls short
+  // and nothing is written.
+  const claimed = (await sql`
+    WITH eligible AS (
+      SELECT id FROM captured_documents
+       WHERE id = ANY(${ids}::uuid[])
+         AND company_id = ${companyId}
+         AND posted_at IS NULL
+         AND status <> 'rejected'
+       FOR UPDATE
+    )
+    UPDATE captured_documents cd
+       SET posted_at = NOW(), status = 'matched', updated_at = NOW()
+     WHERE cd.id IN (SELECT id FROM eligible)
+       AND (SELECT COUNT(*) FROM eligible) = ${ids.length}
+    RETURNING cd.id`) as DbRow[];
+  if (claimed.length === ids.length) return;
+
+  const rows = (await sql`
+    SELECT id, status, posted_at FROM captured_documents
+     WHERE id = ANY(${ids}::uuid[]) AND company_id = ${companyId}`) as DbRow[];
+  const byId = new Map(rows.map((r) => [String(r.id), r]));
+  for (const id of ids) {
+    const row = byId.get(id);
+    if (!row) throw new ClaimSourceDocumentError('not_found', id);
+    if (row.posted_at != null) throw new ClaimSourceDocumentError('already_posted', id);
+    if (row.status === 'rejected') throw new ClaimSourceDocumentError('rejected', id);
+  }
+  // Every slip read as claimable a moment after the claim refused one: a
+  // concurrent claim came and went. Refuse rather than guess.
+  throw new ClaimSourceDocumentError('already_posted', ids[0]!);
+}
+
+/** The source documents on a claim's lines, for release after a delete. */
+export async function claimSourceDocumentIds(claimId: string, companyId: string): Promise<string[]> {
+  const rows = (await sql`
+    SELECT DISTINCT source_document_id FROM expense_claim_lines
+     WHERE claim_id = ${claimId}::uuid AND company_id = ${companyId}
+       AND source_document_id IS NOT NULL`) as DbRow[];
+  return rows.map((r) => String(r.source_document_id));
+}
+
+/**
+ * Give back the slips of lines that no longer exist. The release only succeeds
+ * when nothing live in the ledger still references the slip.
+ */
+export async function releaseSourceDocuments(companyId: string, documentIds: readonly string[]): Promise<void> {
+  for (const id of documentIds) await releaseCapturedDocumentPostingClaim(companyId, id);
+}
