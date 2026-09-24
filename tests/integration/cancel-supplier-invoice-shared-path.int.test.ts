@@ -125,9 +125,16 @@ describeIfDb('cancelSupplierInvoice — the shared path the UI and bulk cancel u
     await refusedLeavingItAlone(bill, /draft journal/);
   });
 
-  it('refuses an approved bill with no approval journal to reverse', async () => {
+  it('refuses a Sage-imported approved bill with no approval journal to reverse', async () => {
     const bill = await seedBill(fx, { number: `SP${++seq}`, date: '2026-05-06', total: 80 });
+    await sql`UPDATE supplier_invoices SET sage_invoice_id = ${`SAGE-SP${seq}`} WHERE id = ${bill}::UUID`;
     await refusedLeavingItAlone(bill, /no approval journal/);
+  });
+
+  it('cancels an approved bill that was never posted, posting nothing', async () => {
+    const bill = await seedBill(fx, { number: `SP${++seq}`, date: '2026-05-06', total: 80 });
+    await inTx(fx, () => cancelSupplierInvoice(fx.companyId, bill, fx.userId));
+    expect(await state(bill)).toEqual({ status: 'cancelled', gl_journal_entry_id: null, contras: 0 });
   });
 
   // Ruling for reversals (central VAT lock, #491): a contra whose default date

@@ -214,12 +214,22 @@ describeIfDb('cancel_supplier_invoice — plan and cancel over a real ledger', (
     }
   });
 
-  /** Ledger review HIGH: an approved bill with no approval journal (a Sage
-   *  import, a stranded journal) would leave the AP subledger while any
-   *  control-account credit behind it stays. */
-  it('refuses an approved bill that has no approval journal to reverse', async () => {
+  /** Ledger review HIGH: a Sage-imported approved bill has no approval
+   *  journal, and its liability may sit in the GL through the take-on, so
+   *  cancelling it would leave the AP subledger while the GL keeps it. */
+  it('refuses a Sage-imported approved bill that has no approval journal to reverse', async () => {
     const bill = await seedBill(fx, { number: 'NJ1', date: '2026-05-06', total: 80 });
+    await sql`UPDATE supplier_invoices SET sage_invoice_id = 'SAGE-NJ1' WHERE id = ${bill}::UUID`;
     expect(await refusal(plan(bill))).toContain('no approval journal');
+  });
+
+  /** An approved bill that was never posted (the capture/AI pipeline's
+   *  auto-approve, awaiting Post to GL) put nothing in the GL, so there is
+   *  nothing to reverse: the plan lets it cancel with no contra. */
+  it('plans a plain cancel for an approved bill that was never posted', async () => {
+    const bill = await seedBill(fx, { number: 'NJ2', date: '2026-05-06', total: 80 });
+    const planned = await plan(bill);
+    expect(planned.journal).toBeNull();
   });
 
   /** Ledger review MEDIUM: bank-matched with amount_paid 0 (the legacy path). */
