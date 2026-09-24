@@ -21,6 +21,7 @@ import {
   postedTotalsExcluding, postedTotalsForAccount, postedTotalsForCompany, systemClaimantsForSubtype,
   type LedgerTotals, type MergeSkip, type MovableLine,
 } from './accountMergeFigures';
+import { countDocumentRows, type DocumentRowCounts } from './accountMergeDocumentRows';
 
 /**
  * `entries` carries a LINE-level sample; `entryIds` carries the complete list.
@@ -80,6 +81,8 @@ export interface MergePreview {
   truncatedEntryIds: boolean;
   /** sha256 over EVERY moved line id, in order. Never truncated. */
   movedLinesDigest: string;
+  /** Document rows (bill, expense-claim, PO lines, capture events) the merge repoints, per table. */
+  documentRowsToRepoint: DocumentRowCounts;
   skips: MergeSkip[];
   skipsTotal: number;
   truncatedSkips: boolean;
@@ -211,6 +214,7 @@ export async function previewAccountMerge(
   const descendants = await descendantsOf(companyId, source.id, MAX_TREE_DEPTH);
   const claimants = await systemClaimantsForSubtype(companyId, target.accountSubtype);
   const postedThrough = await postedThroughForAccounts(companyId, source.id, target.id);
+  const documentRowsToRepoint = await countDocumentRows(companyId, source.id);
 
   const moving = postedMovement(movable);
   const entries = groupIntoEntries(movable);
@@ -251,6 +255,7 @@ export async function previewAccountMerge(
     entryIds: entries.slice(0, ENTRY_ID_CAP).map((e) => e.journalEntryId),
     truncatedEntryIds: entries.length > ENTRY_ID_CAP,
     movedLinesDigest: digestLineIds(movable.map((l) => l.journalLineId)),
+    documentRowsToRepoint,
     skips: skips.slice(0, SAMPLE_CAP),
     skipsTotal: skips.length,
     truncatedSkips: skips.length > SAMPLE_CAP,

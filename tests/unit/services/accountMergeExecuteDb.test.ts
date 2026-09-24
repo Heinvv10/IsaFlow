@@ -246,6 +246,12 @@ describe('the configuration-reference sweep', async () => {
         CONFIGURATION_REFERENCE_EXCLUSIONS.some((e) => e.table === r.tbl && e.column === r.col));
       expect(excluded).toHaveLength(CONFIGURATION_REFERENCE_EXCLUSIONS.length);
       expect(rows.length).toBeGreaterThan(CONFIGURATION_REFERENCE_EXCLUSIONS.length);
+      // The document-line columns the merge repoints are real FKs and are excluded
+      // by name — each is excluded because the merge moves it, not by accident.
+      expect(excluded.map((r) => `${r.tbl}.${r.col}`)).toEqual(expect.arrayContaining([
+        'supplier_invoice_items.gl_account_id', 'expense_claim_lines.gl_account_id',
+        'po_items.gl_account_id', 'capture_events.resolved_gl_account_id',
+      ]));
     } finally {
       client.release();
     }
