@@ -26,6 +26,7 @@ import type { VatLockRoll } from '@/modules/accounting/services/gl/journalEntryR
 import { buildReversalLines } from '@/modules/accounting/services/gl/reversalLines';
 import { fmtDate } from '@/lib/fmtDate';
 import { getPeriodStatusForDate } from '@/modules/accounting/services/gl/periodStatusService';
+import { isDateAutoCreatable } from '@/modules/accounting/services/gl/journalEntryReversalVatRoll';
 import { mcpPostingAgent } from '../postingAgent';
 import { NOT_FOUND, guardCastableArgs, ok, safeErrorText, strArg, toolError } from './toolHelpers';
 
@@ -134,13 +135,16 @@ export const reverseJournalEntryTool: McpTool = {
     }
     // R-012: the default falls back to TODAY when the original's period is not
     // open, and nothing above asks whether today's is. postJournalEntry would
-    // refuse inside the write, after dry_run had promised the reversal. `closed`
-    // only: a missing period is created on demand (fiscalPeriodAutoCreate), and
-    // an explicit date has already been proven open.
-    if ((await getPeriodStatusForDate(ctx.companyId, resolvedDate)) === 'closed') {
+    // refuse inside the write, after dry_run had promised the reversal. A
+    // missing period passes only when posting will create it — a gap or an
+    // overlap throws FiscalPeriodOverlapError mid-write otherwise.
+    const targetStatus = await getPeriodStatusForDate(ctx.companyId, resolvedDate);
+    if (targetStatus === 'closed'
+      || (targetStatus === 'no_period' && !(await isDateAutoCreatable(ctx.companyId, resolvedDate)))) {
       return toolError(
-        `The reversal would be dated ${resolvedDate}, in a fiscal period that is not open (closed or locked). `
-        + 'Re-open it, or pass reversal_date inside an open period on or after the entry date.',
+        `The reversal would be dated ${resolvedDate}, which is not in an open fiscal period (closed, locked, or `
+        + 'a year that cannot be created here). Re-open or create it, or pass reversal_date inside an open period '
+        + 'on or after the entry date.',
       );
     }
 

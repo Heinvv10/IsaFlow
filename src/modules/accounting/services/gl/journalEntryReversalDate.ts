@@ -69,6 +69,7 @@ export class ReversalPeriodError extends Error {
  * that already answers a closed period with a 400 answers this one too.
  */
 export class ReversalBeforeOriginalError extends ClosedFiscalPeriodError {
+  readonly code = 'REVERSAL_BEFORE_ORIGINAL';
   constructor(originalDate: string, today: string) {
     super('closed');
     this.name = 'ReversalBeforeOriginalError';

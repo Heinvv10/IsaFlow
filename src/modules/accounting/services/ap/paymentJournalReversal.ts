@@ -27,7 +27,7 @@ import { fmtDate } from '@/lib/fmtDate';
 import { lockBankTransactionForUpdate } from '../bank/bankTxLock';
 import { unmatchTransaction } from '../bank/bankTxStatusMutations';
 import { ReconciledCashError, reconciliationLockOf, refuseLockedCash } from '../bank/reconciledCash';
-import { resolveReversalDate } from '../gl/journalEntryReversalDate';
+import { ReversalBeforeOriginalError, resolveReversalDate } from '../gl/journalEntryReversalDate';
 import { loadJournalVatLines } from '../gl/journalVatLockGuard';
 import { getPeriodStatusForDate } from '../gl/periodStatusService';
 import { SupplierPaymentRefusal } from './supplierPaymentRefusal';
@@ -90,8 +90,15 @@ export async function lockBankLegOf(companyId: string, journalId: string, label:
   // With the lines: a VAT-carrying journal whose default date is in a locked
   // VAT period rolls forward here exactly as it will in reverseJournalEntry,
   // and refuses pre-write when nothing up to today can take it.
-  const reversalDate = await resolveReversalDate(
-    companyId, fmtDate(je[0].entry_date), undefined, await loadJournalVatLines(companyId, journalId));
+  let reversalDate: string;
+  try {
+    reversalDate = await resolveReversalDate(
+      companyId, fmtDate(je[0].entry_date), undefined, await loadJournalVatLines(companyId, journalId));
+  } catch (err) {
+    // R-012: the route answers only typed refusals with a 4xx; this one is too.
+    if (err instanceof ReversalBeforeOriginalError) throw new SupplierPaymentRefusal(err.message);
+    throw err;
+  }
   if ((await getPeriodStatusForDate(companyId, reversalDate)) !== 'open') {
     throw new SupplierPaymentRefusal(`The reversal would be dated ${reversalDate}, which is not in an open `
       + 'fiscal period — re-open it or create the fiscal year first.');

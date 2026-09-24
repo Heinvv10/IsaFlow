@@ -24,7 +24,7 @@ import {
 } from '@/modules/accounting/services/ar/creditNoteService';
 import { validateSystemAccounts } from '@/modules/accounting/services/gl/systemAccountResolver';
 import { getJournalEntryById } from '@/modules/accounting/services/gl/journalEntryService';
-import { resolveReversalDateDetailed, type VatLockRoll } from '@/modules/accounting/services/gl/journalEntryReversalDate';
+import { ReversalBeforeOriginalError, resolveReversalDateDetailed, type VatLockRoll } from '@/modules/accounting/services/gl/journalEntryReversalDate';
 import { VatPeriodLockedError } from '@/modules/accounting/services/gl/journalVatLockGuard';
 import { fmtDate } from '@/lib/fmtDate';
 import { mcpPostingOpts } from '../mcpActor';
@@ -181,7 +181,7 @@ export const cancelCreditNoteTool: McpTool = {
       try {
         roll = (await resolveReversalDateDetailed(ctx.companyId, fmtDate(je.entryDate), undefined, je.lines)).vatLockRoll;
       } catch (err) {
-        if (err instanceof VatPeriodLockedError) return toolError(err.message);
+        if (err instanceof VatPeriodLockedError || err instanceof ReversalBeforeOriginalError) return toolError(err.message);
         throw err;
       }
     }
