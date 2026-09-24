@@ -75,10 +75,11 @@ vi.mock('@/modules/accounting/services/gl/periodStatusService', () => ({
   getPeriodStatusForDate: vi.fn(),
 }));
 
-const { autoCreatableMock } = vi.hoisted(() => ({ autoCreatableMock: vi.fn() }));
+const { autoCreatableMock, outsideWindowMock } = vi.hoisted(() => ({ autoCreatableMock: vi.fn(), outsideWindowMock: vi.fn() }));
 vi.mock('@/modules/accounting/services/gl/journalEntryReversalVatRoll', async (importOriginal) => ({
   ...(await importOriginal<typeof import('@/modules/accounting/services/gl/journalEntryReversalVatRoll')>()),
   isDateAutoCreatable: autoCreatableMock,
+  isOutsideAutoCreateWindow: outsideWindowMock,
 }));
 
 import { sql } from '@/lib/neon';
@@ -165,7 +166,19 @@ describe('R-012: the default reversal date and a future-dated original', () => {
     mockGet.mockResolvedValue(postedEntry('9999-12-31'));
     mockPeriodStatus.mockResolvedValue('no_period');
     autoCreatableMock.mockResolvedValue(false);
+    outsideWindowMock.mockResolvedValue(true);
     expect(await reversalEntryDate()).toBe(ymd(0));
+  });
+
+  it('REFUSES an in-window original whose year cannot be created (a gap or overlap), rather than dating before it', async () => {
+    mockGet.mockResolvedValue(postedEntry(ymd(40)));
+    mockPeriodStatus.mockResolvedValue('no_period');
+    autoCreatableMock.mockResolvedValue(false);
+    outsideWindowMock.mockResolvedValue(false);
+    const err = await reverseJournalEntry(COMPANY_ID, ENTRY_ID, USER_ID).catch((e: unknown) => e);
+    expect(err).toBeInstanceOf(ReversalBeforeOriginalError);
+    expect((err as Error).message).toMatch(/none can be created automatically/);
+    expect(mockCreate).not.toHaveBeenCalled();
   });
 
   it('still falls back to today when the original is dated today and its period is closed', async () => {

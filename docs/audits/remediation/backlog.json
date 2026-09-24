@@ -9182,7 +9182,8 @@
       ],
       "testNames": [
         "tests/unit/services/journalEntryReversalDateFuture.test.ts",
-        "tests/integration/r012-reversal-default-date.int.test.ts"
+        "tests/integration/r012-reversal-default-date.int.test.ts",
+        "tests/integration/r012-reversal-gap-and-cancel.int.test.ts"
       ],
       "evidencePaths": [
         "docs/audits/remediation/R-012/fix.md",

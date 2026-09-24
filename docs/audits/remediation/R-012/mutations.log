@@ -10,3 +10,6 @@ M6 cancel_credit_note: no catch:       Tests  1 failed | 6 passed (7)
 M7 cancel_supplier_invoice: no catch:       Tests  1 failed | 6 passed (7)
 M8 MCP reverse: missing period never checked:       Tests  1 failed | 6 passed (7)
 M9 supplier credit-note route: 500 not 400:       Tests  1 failed | 7 passed (8)
+# Round 2:
+M10 in-window gap keeps today: unit       Tests  1 failed | 4 passed (5) | int       Tests  2 failed (2)
+M11 invoice cancel drops the reversal's reason: unit       Tests  5 passed (5) | int       Tests  1 failed | 1 passed (2)

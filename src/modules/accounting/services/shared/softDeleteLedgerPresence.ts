@@ -37,9 +37,12 @@
  * R-012 (2026-09-24) its default path does too: where today would precede a
  * future-dated original whose period is not open, the contra is dated with the
  * original when posting would create that year, and refused otherwise
- * (ReversalBeforeOriginalError). Rows written before R-012 can still have the
- * shape; k053-out-of-order-reversal-chain.int.test.ts hand-builds such a chain
- * in SQL and pins what this predicate does with it.
+ * (ReversalBeforeOriginalError) — EXCEPT for an original whose fiscal year is
+ * outside the auto-create window (a typo'd year posted with a NULL period),
+ * which keeps today. That one shape still breaks this precondition, by
+ * design; so can rows written before R-012.
+ * k053-out-of-order-reversal-chain.int.test.ts hand-builds such a chain in SQL
+ * and pins what this predicate does with it.
  *
  * CASE rather than OR so the recursive walk is only ever evaluated for a
  * deleted row: CASE guarantees the arms are not evaluated when the condition
