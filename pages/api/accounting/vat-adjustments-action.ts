@@ -58,7 +58,8 @@ async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse) {
       return apiResponse.badRequest(res, err.message);
     }
     // Everything below was raised inside approve's savepoint (rolled back) or aborted the
-    // transaction, so none of these answers commits a write.
+    // transaction, so none of these answers commits a write. PRECONDITION: approve writes
+    // nothing before its savepoint. A write added before it would be COMMITted behind these 4xx.
     if (isLockContention(err) || isEntryNumberCollision(err)) {
       return apiResponse.conflict(res, 'Another posting was in progress — retry in a moment.');
     }

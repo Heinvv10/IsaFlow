@@ -218,6 +218,8 @@ const REFUSAL_CODES: ReadonlySet<string> = new Set([
   'TAX_DIRECTIVE_ALREADY_APPLIED',
   'TIME_ENTRIES_NOT_CLAIMED',
   'TIME_ENTRY_LOCK_TIMEOUT',
+  // VAT adjustment approve/cancel refusals (reports/vatAdjustmentService): not found, not draft, contended.
+  'VAT_ADJUSTMENT_REFUSED',
   // The exclusive VAT-lock key was not free within 5s (posts in flight).
   // Says "retry"; raised before any write.
   'VAT_LOCK_TIMEOUT',
