@@ -41,3 +41,18 @@ it('shows the server’s refusal message, not "[object Object]"', async () => {
   expect(await screen.findByText(REFUSAL)).toBeInTheDocument();
   expect(screen.queryByText(/object Object/)).not.toBeInTheDocument();
 });
+
+it('says when part of the selection was left out of the invoice', async () => {
+  vi.mocked(apiFetch).mockImplementation(async (url, init) => {
+    if (init?.method === 'POST') {
+      return Response.json({ success: true, data: { invoiceId: 'inv-1', invoiceNumber: 'INV-9', totalAmount: 1150, skippedEntryCount: 1 } }, { status: 201 });
+    }
+    return Response.json({ success: true, data: [group] });
+  });
+  render(<WipBoardPage />);
+  await screen.findByText('Acme Practice Client');
+  fireEvent.click(screen.getAllByRole('checkbox')[0]!);
+  fireEvent.click(screen.getByRole('button', { name: /generate invoice/i }));
+  fireEvent.click(screen.getByRole('button', { name: /confirm/i }));
+  expect(await screen.findByText(/1 selected entry was no longer billable and left out/)).toBeInTheDocument();
+});

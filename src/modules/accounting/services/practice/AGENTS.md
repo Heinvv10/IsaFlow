@@ -43,8 +43,11 @@ Invoked by `withCompany`-wrapped API routes in `pages/api/accounting/practice/*`
   - a client with no linked AR customer;
   - nothing eligible in the selection;
   - a concurrent billing;
-  - a tax rate outside 0–100 (`assertWipTaxRate`). A rate of 101 used to BOOK, with VAT larger than the subtotal;
-  - an entry with a negative or non-numeric rate or line (`assertWipEntryLines`). This is checked per line, not on the sum, because a small negative entry inside a positive selection used to book as a credit embedded in a sale. `time_entries` CHECKs `hours > 0`, but nothing constrains `rate` or `line_total`.
+  - a tax rate outside 0–100, or with more than 2 decimals (`assertWipTaxRate`; `tax_rate` is `numeric(5,2)`). A rate of 101 used to BOOK, with VAT larger than the subtotal;
+  - a linked customer that is not a live customer of THIS company. There is no FK, and a legacy cross-tenant link used to bill another tenant's customer;
+  - an entry with a negative, NULL or non-numeric rate, or a `line_total` more than 1c from `round2(hours × applied_rate)` (`assertWipEntryLines`). This is checked per line, not on the sum, because a small negative entry inside a positive selection used to book as a credit embedded in a sale. `time_entries` CHECKs `hours > 0`, but nothing constrains `rate` or `line_total`.
+
+  A partly ineligible selection still bills the remainder, as K-040 requires. The result's `skippedEntryCount` says how many entries were left out, and the page shows it.
 
   The route answers a `WipInvoiceRefusal` with 400 and its message, and a body that fails its zod schema (`UUID` = `z.guid()`) with 400 naming the field. Everything else is re-thrown to `withErrorHandler`. `WipEntriesLockedError` is now in `respondIfLockTimeout` (503 + Retry-After). Its "retry" message had been masked inside a 400. The page reads the error through `assertOk`/`apiErrorMessage`; it used to read `json.error` as a string, which printed "[object Object]".
 - 2026-09-10: **R-059 — WIP as of a date is `wipAsOf.wipInForceAsOf`**, shared by `getWipAging` and `getRevenuePipeline.totalApproved`. Entry is approval (`approved_at`; an undated approval counts from `LEAST(entry_date, today)`); exits are `billed_at`, the linked invoice's date, and `written_off_at`, each rewound; an undated exit counts as always having happened. At today it is exactly `status='approved' AND billed_at IS NULL`. `timeTrackingService.approveEntries` now stamps `approved_at`.

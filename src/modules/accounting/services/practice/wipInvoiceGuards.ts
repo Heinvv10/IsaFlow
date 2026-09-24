@@ -30,6 +30,11 @@ export function assertWipTaxRate(input: number | undefined): number {
   if (!Number.isFinite(taxRate) || taxRate < 0 || taxRate > 100) {
     throw new WipInvoiceRefusal(`taxRate must be between 0 and 100, got ${String(input)}`);
   }
+  // tax_rate is numeric(5,2): 15.555 would be stored as 15.56 beside VAT
+  // computed at 15.555, so the stored rate would not explain the VAT.
+  if (Math.abs(taxRate * 100 - Math.round(taxRate * 100)) > 1e-6) {
+    throw new WipInvoiceRefusal(`taxRate allows at most 2 decimals, got ${String(input)}`);
+  }
   return taxRate;
 }
 
@@ -41,13 +46,26 @@ export function assertWipTaxRate(input: number | undefined): number {
  */
 export function assertWipEntryLines(entries: DbRow[]): void {
   for (const e of entries) {
-    const line = Number(e.line_total);
-    const rate = Number(e.applied_rate);
-    if (!Number.isFinite(line) || line < 0 || !Number.isFinite(rate) || rate < 0) {
+    // null → NaN, not Number(null) = 0: a missing rate is not a free line.
+    const line = e.line_total == null ? Number.NaN : Number(e.line_total);
+    const rate = e.applied_rate == null ? Number.NaN : Number(e.applied_rate);
+    // hours > 0 is a CHECK and line must equal hours × rate (below), so a
+    // negative rate is the one sign to test: it is what makes a line negative.
+    if (!Number.isFinite(line) || !Number.isFinite(rate) || rate < 0) {
       throw new WipInvoiceRefusal(
         `time entry of ${fmtDate(e.entry_date)} ("${String(e.task_description)}") has a negative or `
         + `non-numeric amount (rate ${String(e.applied_rate)}, line ${String(e.line_total)}). `
         + 'Correct the entry, or bill the reduction as a credit note.',
+      );
+    }
+    // Every writer stores line_total = round2(hours × applied_rate)
+    // (lineTotalFor); a line that disagrees would bill a figure its own
+    // hours and rate do not explain. 1c tolerance for the rounding.
+    const hours = Number(e.hours);
+    if (!(Math.abs(Math.round(hours * rate * 100) / 100 - line) <= 0.01)) {
+      throw new WipInvoiceRefusal(
+        `time entry of ${fmtDate(e.entry_date)} ("${String(e.task_description)}") has a line of ${String(e.line_total)} `
+        + `that is not its ${String(e.hours)}h × ${String(e.applied_rate)}. Re-save the entry to recompute it.`,
       );
     }
   }

@@ -26,6 +26,11 @@ const user = randomUUID();
 const customer = randomUUID();
 const client = randomUUID();
 const unlinkedClient = randomUUID();
+const inactiveClient = randomUUID();
+const otherClient = randomUUID();
+const crossLinkedClient = randomUUID();
+const otherCompany = randomUUID();
+const otherCustomer = randomUUID();
 
 async function callRoute(body: Record<string, unknown>) {
   const token = await new SignJWT({ sub: user, aal: 'aal2' })
@@ -41,7 +46,7 @@ async function callRoute(body: Record<string, unknown>) {
   return out.state as { statusCode: number; body: { error?: { message?: string } } };
 }
 
-async function seedEntry(opts: { hours?: number; rate?: number; lineTotal?: number } = {}): Promise<string> {
+async function seedEntry(opts: { hours?: number; rate?: number; lineTotal?: number | string; pc?: string } = {}): Promise<string> {
   const id = randomUUID();
   const hours = opts.hours ?? 4;
   const rate = opts.rate ?? 250;
@@ -49,7 +54,7 @@ async function seedEntry(opts: { hours?: number; rate?: number; lineTotal?: numb
     `INSERT INTO time_entries(id,company_id,user_id,task_description,entry_date,hours,rate,
                               billable,invoiced,status,practice_client_id,applied_rate,line_total,origin)
      VALUES($1,$2,$3,'R120 fieldwork','2026-01-05',$4,$5,true,false,'approved',$6,$5,$7,'manual')`,
-    [id, company, user, hours, rate, client, opts.lineTotal ?? hours * rate]);
+    [id, company, user, hours, rate, opts.pc ?? client, opts.lineTotal ?? hours * rate]);
   return id;
 }
 
@@ -58,14 +63,17 @@ const invoiceCount = async (): Promise<number> => (await pool.query(
 const message = (out: { body: { error?: { message?: string } } }): string => String(out.body.error?.message ?? '');
 
 beforeAll(async () => {
-  await pool.query('INSERT INTO companies(id,name) VALUES($1,$2)', [company, 'R120 WIP company']);
+  await pool.query('INSERT INTO companies(id,name) VALUES($1,$2),($3,$4)', [company, 'R120 WIP company', otherCompany, 'R120 other tenant']);
+  await pool.query('INSERT INTO customers(id,company_id,name) VALUES($1,$2,$3)', [otherCustomer, otherCompany, 'R120 other tenant customer']);
   await pool.query("INSERT INTO users(id,email,role,is_active) VALUES($1,$2,'admin',true)", [user, `${user}@test.local`]);
   await pool.query("INSERT INTO company_users(company_id,user_id,role) VALUES($1,$2,'admin')", [company, user]);
   await pool.query('INSERT INTO customers(id,company_id,name) VALUES($1,$2,$3)', [customer, company, 'R120 customer']);
   await pool.query(
     `INSERT INTO practice_clients(id,company_id,legal_name,billing_model,status,link_customer_id)
-     VALUES($1,$2,'R120 client','hourly','active',$3), ($4,$2,'R120 unlinked','hourly','active',NULL)`,
-    [client, company, customer, unlinkedClient]);
+     VALUES($1,$2,'R120 client','hourly','active',$3), ($4,$2,'R120 unlinked','hourly','active',NULL),
+           ($5,$2,'R120 inactive','hourly','inactive',$3), ($6,$2,'R120 other client','hourly','active',$3),
+           ($7,$2,'R120 cross-linked (legacy)','hourly','active',$8)`,
+    [client, company, customer, unlinkedClient, inactiveClient, otherClient, crossLinkedClient, otherCustomer]);
   await ensureDocumentNumbers(company);
 });
 
@@ -79,7 +87,8 @@ afterAll(async () => {
     await pool.query('DELETE FROM company_document_numbers WHERE company_id=$1', [company]);
     await pool.query('DELETE FROM customers WHERE company_id=$1', [company]);
     await pool.query('DELETE FROM company_users WHERE company_id=$1', [company]);
-    await pool.query('DELETE FROM companies WHERE id=$1', [company]);
+    await pool.query('DELETE FROM customers WHERE company_id=$1', [otherCompany]);
+    await pool.query('DELETE FROM companies WHERE id = ANY($1)', [[company, otherCompany]]);
     await pool.query('DELETE FROM users WHERE id=$1', [user]);
   } finally { await pool.end(); }
 });
@@ -89,6 +98,12 @@ describe('R-120: a refused WIP invoice tells the operator why', () => {
     const out = await callRoute({ practiceClientId: unlinkedClient, timeEntryIds: [randomUUID()] });
     expect(out.statusCode).toBe(400);
     expect(message(out)).toMatch(/no linked AR customer/);
+  });
+
+  it('names an inactive client', async () => {
+    const out = await callRoute({ practiceClientId: inactiveClient, timeEntryIds: [randomUUID()] });
+    expect(out.statusCode).toBe(400);
+    expect(message(out)).toMatch(/not found or not active/);
   });
 
   it('says when nothing in the selection is billable', async () => {
@@ -146,6 +161,61 @@ describe('R-120: a refused WIP invoice tells the operator why', () => {
       holder.release();
     }
   }, 20_000);
+
+  it('refuses a client linked to ANOTHER company\'s customer (legacy link, no FK)', async () => {
+    const entry = await seedEntry({ pc: crossLinkedClient });
+    const before = await invoiceCount();
+    const out = await callRoute({ practiceClientId: crossLinkedClient, timeEntryIds: [entry] });
+    expect(out.statusCode).toBe(400);
+    expect(message(out)).toMatch(/not a live customer of this company/);
+    expect(await invoiceCount()).toBe(before);
+  });
+
+  it('refuses a line its own hours and rate do not explain', async () => {
+    const entry = await seedEntry({ hours: 2, rate: 100, lineTotal: 5000 });
+    const out = await callRoute({ practiceClientId: client, timeEntryIds: [entry] });
+    expect(out.statusCode).toBe(400);
+    expect(message(out)).toMatch(/not its 2(\.00)?h/);
+  });
+
+  it('refuses a tax rate with more than 2 decimals', async () => {
+    const entry = await seedEntry();
+    const out = await callRoute({ practiceClientId: client, timeEntryIds: [entry], taxRate: 15.555 });
+    expect(out.statusCode).toBe(400);
+    expect(message(out)).toMatch(/at most 2 decimals/);
+  });
+
+  it('reports the selected entries it left out (K-040 bills the remainder)', async () => {
+    const good = await seedEntry();
+    const foreign = await seedEntry({ pc: otherClient });
+    const out = await callRoute({ practiceClientId: client, timeEntryIds: [good, foreign] });
+    expect(out.statusCode).toBe(201);
+    expect((out.body as unknown as { data: { skippedEntryCount: number } }).data.skippedEntryCount).toBe(1);
+  });
+
+  it('refuses an impossible invoice date by field', async () => {
+    const out = await callRoute({ practiceClientId: client, timeEntryIds: [randomUUID()], invoiceDate: '2026-02-30' });
+    expect(out.statusCode).toBe(400);
+    expect(message(out)).toMatch(/invoiceDate/);
+  });
+
+  it('a fault that is not a refusal is a 500 and nothing is committed', async () => {
+    // A consistent entry (2000h × R9e9 = 1.8e13) fits time_entries.line_total
+    // numeric(18,2) but overflows the invoice subtotal numeric(15,2): 22003.
+    const entry = await seedEntry({ hours: 2000, rate: 9_000_000_000 });
+    const before = await invoiceCount();
+    const out = await callRoute({ practiceClientId: client, timeEntryIds: [entry] });
+    expect(out.statusCode).toBe(500);
+    expect(await invoiceCount()).toBe(before);
+    expect((await pool.query('SELECT status, invoice_id FROM time_entries WHERE id=$1', [entry])).rows[0])
+      .toEqual({ status: 'approved', invoice_id: null });
+  });
+
+  it('treats taxRate null as the default, as before the schema', async () => {
+    const entry = await seedEntry();
+    const out = await callRoute({ practiceClientId: client, timeEntryIds: [entry], taxRate: null });
+    expect(out.statusCode).toBe(201);
+  });
 
   it('still bills a valid selection (201)', async () => {
     const entry = await seedEntry();
