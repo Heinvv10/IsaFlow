@@ -55,6 +55,12 @@ All runs are against the fixture database `isaflow-fixture-r112` (pg16, migratio
 | LOW (both): "whitespace-insensitive" was false. | The docs and code comment now say "case-insensitive, ends trimmed". Inner spacing must match, which fails safe, like the supplier side. | Doc only. |
 | LOW (general): stale R-021/R-119 lines in .claude.md. | Annotated. | — |
 
+## Review round 2
+| Finding | Fix | Proof |
+|---|---|---|
+| MEDIUM (general): with the links SET NULL, archive, then reset, then re-run booked an archived, paid invoice again as a live unpaid debt. The reset-then-archive order already did this at 49cffce90, and the supplier side does it too. | Both importers now treat a document held in the archive as a conflict. On the customer side the match is by number (`archive_customer_invoices` keeps no external ref). On the supplier side it is the same supplier, by Sage id or number. | The archive-link test now runs a reset and re-run for both sides and asserts that nothing lands. Removing either check turns it red. |
+| LOW (general): the doc omitted that reset re-pends an archived row. | .claude.md entry extended. | — |
+
 ## Two stale tests fixed on the way
 `tests/integration/api/sageMigrationService.test.ts` (B, C) and `r089-migration-run-vat-count` called `completeRun` without the `companyId` that R-021 added. They failed on master before this change, with `invalid input syntax for type integer: "NaN"` and `type uuid: "5"`. They are the only tests of `getMigrationStatus`, and this change edits that function.
 

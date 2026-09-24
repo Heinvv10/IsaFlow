@@ -29,3 +29,6 @@ M18 VAT unwound at 15%: RED (1 tests failed)
 # FK mutations: the archive test run with each link re-created as NO ACTION on the fixture, then restored.
 M-FK customer NO ACTION:       Tests  1 failed (1)
 M-FK supplier NO ACTION:       Tests  1 failed (1)
+# Review round 2: the archive check in each importer (return archived ? 'conflict' : null  ->  null), run against r101-sage-archive-link:
+M-ARCH sageCustomerImportService:       Tests  1 failed (1)
+M-ARCH sageSupplierInvoiceImportService:       Tests  1 failed (1)
