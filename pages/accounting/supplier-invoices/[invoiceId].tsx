@@ -89,15 +89,16 @@ export default function SupplierInvoiceDetailPage() {
   const handleSaveEdit = async () => {
     setActionLoading('save');
     try {
-      await apiFetch('/api/accounting/supplier-invoices-detail', {
+      const res = await apiFetch('/api/accounting/supplier-invoices-detail', {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ id: invoiceId, ...editForm }),
       });
+      if (!res.ok) { const err = await res.json(); throw new Error(err.error?.message || 'Save failed'); }
       setEditing(false);
       await loadInvoice();
-    } catch {
-      setError('Save failed');
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Save failed');
     }
     setActionLoading('');
   };
