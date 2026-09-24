@@ -1,0 +1,31 @@
+# R-120 mutations. Each was applied alone and the named suite run: the integration suite is r120 on the fixture; the unit suite is wipInvoiceGuards.
+# First round: M4 and M6 survived. M4 was run only against the integration test, whose bad entry is negative in both rate and line. M6 was a duplicated range check in the route schema; the range now lives only in the service.
+# Review round 1 added M11-M20; M4 (line < 0) retired as redundant with the consistency check (hours > 0 CHECK).
+M1 refusal re-thrown (500): RED — 10 failed | 8 passed (18)
+M2 no per-line guard: RED — 2 failed | 16 passed (18)
+M3 line guard ignores a negative rate: RED — 1 failed | 11 passed (12)
+M5 service rate guard upper bound gone: RED — 1 failed | 11 passed (12)
+M6 service rate guard skipped: RED — 3 failed | 15 passed (18)
+M7 lock contention not 503: RED — 1 failed | 17 passed (18)
+M8 Zod .uuid() instead of guid: RED — 1 failed | 17 passed (18)
+M9 refusal message masked: RED — 10 failed | 8 passed (18)
+M11 faults masked as 400: RED — 2 failed | 16 passed (18)
+M12 NULL rate read as 0: RED — 1 failed | 11 passed (12)
+M13 date regex only: RED — 1 failed | 17 passed (18)
+M14 taxRate null refused: RED — 1 failed | 17 passed (18)
+M15 inactive client a plain Error: RED — 1 failed | 17 passed (18)
+M16 customer link not tenant-checked: RED — 1 failed | 17 passed (18)
+M17 3-decimal rate allowed: RED — 1 failed | 17 passed (18)
+M18 line consistency unchecked: RED — 1 failed | 17 passed (18)
+M19 skipped count always 0: RED — 1 failed | 17 passed (18)
+M20 page hides skipped entries: RED — 1 failed | 1 passed (2)
+# Review round 2:
+M21 generic edit desyncs a practice entry: RED — 2 failed | 2 passed (4)
+M22 edit refusal masked: RED — 2 failed | 2 passed (4)
+M23 case-sensitive skipped count: RED — 1 failed | 18 passed (19)
+M24 any hours/rate in the body refused (not a change): RED — 1 failed | 3 passed (4)
+M25 approvals + time-tracking pages on master, component test R120TimeEntryRemedyPages: each RED (1 failed); fixed pages: 2 passed.
+M26 updatePracticeEntry stores raw hours (unit, practiceTimeEntryService): RED — 1 failed | 37 passed (38)
+M27 float 1c tolerance (unit, wipInvoiceGuards): RED — 1 failed | 11 passed (12)
+M28 updatePracticeEntry validates raw hours (unit): RED — 1 failed | 38 passed (39)
+M10 page on master (reads json.error as a string), component test WipInvoiceRefusalMessage: RED (1 failed); fixed page: 1 passed.
