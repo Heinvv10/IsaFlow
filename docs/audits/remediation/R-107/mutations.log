@@ -97,3 +97,23 @@
 ⎯⎯⎯⎯⎯⎯⎯ Failed Tests 1 ⎯⎯⎯⎯⎯⎯⎯
       Tests  1 failed | 18 passed (19)
 
+
+# Review round 1 guards — each applied alone to d96c08750, restored from HEAD after.
+## M16 auto-attach outside its savepoint [src/modules/accounting/services/capture/evidenceAttachmentService.ts] -> KILLED
+     × a deadlock inside the auto-attach rolls back only the attach; the post keeps its transaction and commits 1048ms
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 1 ⎯⎯⎯⎯⎯⎯⎯
+      Tests  1 failed | 21 passed (22)
+
+## M17 auto-attach flips an evidenced journal [src/modules/accounting/services/capture/evidenceAttachmentService.ts] -> KILLED
+     × an auto-attach that lost the journal to a manual attach does not overwrite it 60ms
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 1 ⎯⎯⎯⎯⎯⎯⎯
+      Tests  1 failed | 21 passed (22)
+
+## M18 reversal releases on the pre-claim read [src/modules/accounting/services/gl/journalEntryPostingService.ts] -> KILLED
+     × releases the slip an attach committed while the reversal waited on the journal 77ms
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 1 ⎯⎯⎯⎯⎯⎯⎯
+      Tests  1 failed | 21 passed (22)
+
+## M19 bank UPDATE drops the provisional_je_id re-check [src/modules/accounting/services/capture/provisionalEvidenceAttach.ts] -> SURVIVED
+      Tests  22 passed (22)
+

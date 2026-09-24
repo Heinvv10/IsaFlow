@@ -157,3 +157,33 @@ describe('R-107: a reversal racing an attach', () => {
   }, 30_000);
 });
 
+describe('R-107: a bank line unlinked while the attach waits for it', () => {
+  it('is not marked matched: the write re-checks the link it peeked', async () => {
+    const { je, bt } = await seedProvisional({ amount: 444 });
+    const doc = await seedDoc(company);
+    const unlinker = await pool.connect();
+    let out: Awaited<ReturnType<typeof attach>> | undefined;
+    try {
+      await unlinker.query('BEGIN');
+      // Unlinks the line, uncommitted: the attach peeks it as linked, then waits on its lock.
+      await unlinker.query('UPDATE bank_transactions SET provisional_je_id = NULL WHERE id=$1', [bt]);
+      const pid = (await unlinker.query('SELECT pg_backend_pid() AS p')).rows[0].p as number;
+      const pending = attach(je, doc);
+      for (let i = 0; i < 200; i += 1) {
+        const rows = (await pool.query(
+          'SELECT 1 FROM pg_stat_activity WHERE $1 = ANY(pg_blocking_pids(pid))', [pid])).rows;
+        if (rows.length > 0) break;
+        await new Promise((r) => setTimeout(r, 25));
+      }
+      await unlinker.query('COMMIT');
+      out = await pending;
+    } finally {
+      await unlinker.query('ROLLBACK').catch(() => undefined);
+      unlinker.release();
+    }
+
+    expect(out!.statusCode, JSON.stringify(out!.body)).toBe(200);
+    expect(await btStatus(bt)).toBe('provisional');
+  }, 30_000);
+});
+
