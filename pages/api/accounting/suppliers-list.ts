@@ -17,8 +17,6 @@ import { ContactValidationError } from '@/modules/accounting/services/core/custo
 import { withAuth, type CompanyAuthedRequest, withWriteAccess} from '@/lib/auth';
 import { withCsrf } from '@/lib/auth/withCsrf';
 import { log } from '@/lib/logger';
-import { cacheThrough, cache } from '@/lib/cache';
-import { CACHE_KEYS, CACHE_TTL } from '@/lib/cache-keys';
 import { withErrorHandler } from '@/lib/api-error-handler';
 import { listSuppliers } from '@/modules/accounting/services/core/contactDirectoryService';
 
@@ -51,28 +49,12 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
       const offset = (page - 1) * limit;
       const searchQuery = typeof q === 'string' && q.trim() ? q : null;
 
-      let rows: Row[];
-      let total: number;
-
-      if (searchQuery) {
-        // Search queries are not cached — results change with every keystroke
-        const result = await listSuppliers(companyId, { search: searchQuery, limit, offset });
-        rows = result.suppliers as Row[];
-        total = result.total;
-      } else if (page === 1) {
-        // Only cache the first page of unfiltered results
-        const result = await cacheThrough(
-          CACHE_KEYS.suppliers(companyId),
-          async () => listSuppliers(companyId, { limit, offset }),
-          CACHE_TTL.REFERENCE_DATA,
-        );
-        rows = result.suppliers as Row[];
-        total = result.total;
-      } else {
-        const result = await listSuppliers(companyId, { limit, offset });
-        rows = result.suppliers as Row[];
-        total = result.total;
-      }
+      // Not cached: merge, soft-delete, MCP, capture and the import services all
+      // write `suppliers` without passing through this route, so no invalidation
+      // here could keep a cached page honest (K-139).
+      const result = await listSuppliers(companyId, { search: searchQuery ?? undefined, limit, offset });
+      const rows = result.suppliers as Row[];
+      const total = result.total;
 
       return apiResponse.success(res, { suppliers: rows, total });
     } catch (err: unknown) {
@@ -119,7 +101,6 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
         subjectToDrcVat: bool('subject_to_drc_vat'),
       })];
 
-      cache.invalidate(CACHE_KEYS.suppliers(companyId));
       log.info('Supplier created', { id: rows[0]?.id, name: rows[0]?.name, module: 'accounting' });
       return apiResponse.success(res, rows[0]);
     } catch (err: unknown) {
@@ -144,7 +125,6 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
     }
     const row = await updateSupplier(companyId, id, { subjectToDrcVat: b.subject_to_drc_vat });
     if (!row) return apiResponse.notFound(res, 'Supplier');
-    cache.invalidate(CACHE_KEYS.suppliers(companyId));
     log.info('Supplier DRC flag set', { id, subjectToDrcVat: b.subject_to_drc_vat, module: 'accounting' });
     return apiResponse.success(res, { id, subject_to_drc_vat: row.subject_to_drc_vat });
   }
