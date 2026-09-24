@@ -70,6 +70,7 @@ describe('importCustomerInvoices — wired to deriveSageVat, never the inline /1
       .mockResolvedValueOnce([stagedRow]) // SELECT staging
       .mockResolvedValueOnce([customer]) // SELECT customers by name
       .mockResolvedValueOnce([]) // SELECT existing invoice by Sage id or number
+      .mockResolvedValueOnce([]) // SELECT archived invoice (R-101 round 2)
       .mockResolvedValueOnce([{ id: 'new-inv-1' }]) // INSERT ... RETURNING id
       .mockResolvedValueOnce([]); // UPDATE migration_status
 
@@ -95,6 +96,7 @@ describe('importCustomerInvoices — review round 1 LOW-3: vatNotStated counts o
       .mockResolvedValueOnce([stagedRow]) // SELECT staging
       .mockResolvedValueOnce([customer]) // SELECT customers by name
       .mockResolvedValueOnce([]) // SELECT existing invoice by Sage id or number
+      .mockResolvedValueOnce([]) // SELECT archived invoice (R-101 round 2)
       .mockRejectedValueOnce(new Error('23505 duplicate')) // INSERT throws
       .mockResolvedValueOnce([]); // UPDATE migration_status = 'failed'
 
