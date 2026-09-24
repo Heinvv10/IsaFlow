@@ -49,7 +49,9 @@ const addLineDoc = crypto.randomUUID();
 const raceDoc = crypto.randomUUID();
 const busyDoc = crypto.randomUUID();
 const deleteRaceDoc = crypto.randomUUID();
-const ownDocs = [postedDoc, rejectedDoc, freshDoc, atomicFreshDoc, twiceInOneDoc,
+const pairRaceX = crypto.randomUUID();
+const pairRaceY = crypto.randomUUID();
+const ownDocs = [pairRaceX, pairRaceY, postedDoc, rejectedDoc, freshDoc, atomicFreshDoc, twiceInOneDoc,
   deleteLineDoc, deleteClaimDoc, addLineDoc, raceDoc, busyDoc, deleteRaceDoc];
 
 const today = new Date().toISOString().slice(0, 10);
@@ -133,7 +135,7 @@ beforeAll(async () => {
   await seedDoc(rejectedDoc, company, 'rejected');
   await seedDoc(foreignDoc, otherCompany);
   for (const id of [freshDoc, atomicFreshDoc, twiceInOneDoc, deleteLineDoc, deleteClaimDoc, addLineDoc,
-    raceDoc, busyDoc, deleteRaceDoc]) {
+    raceDoc, busyDoc, deleteRaceDoc, pairRaceX, pairRaceY]) {
     await seedDoc(id, company);
   }
   token = await new SignJWT({ sub: user, aal: 'aal2' })
@@ -255,6 +257,27 @@ describe('R-105: a manual expense claim line claims its source document', () => 
     } finally {
       await b.end('ROLLBACK');
     }
+  });
+
+  it('a two-slip claim racing a claim on one of its slips stamps neither, and commits nothing', async () => {
+    const a = await openTx();
+    const b = await openTx();
+    let bOutcome: 'COMMIT' | 'ROLLBACK' = 'ROLLBACK';
+    try {
+      await a.run(() => claimLineSourceDocuments(company, [{ sourceDocumentId: pairRaceX }]));
+      const pair = settle(b.run(() => claimLineSourceDocuments(company,
+        [{ sourceDocumentId: pairRaceY }, { sourceDocumentId: pairRaceX }])));
+      await pause(300);
+      await a.end('COMMIT');
+      const out = await pair;
+      expect(out.ok).toBe(false);
+      // A refusal is answered 4xx, and withAuth COMMITs a 4xx: commit it here too.
+      expect((out as { e: unknown }).e).toBeInstanceOf(ClaimSourceDocumentError);
+      bOutcome = 'COMMIT';
+    } finally {
+      await b.end(bOutcome);
+    }
+    expect(await postedAt(pairRaceY)).toBeNull();
   });
 
   it('a claim that cannot get the lock in 5s is refused as busy, not left hanging', async () => {

@@ -97,6 +97,12 @@ export async function claimLineSourceDocuments(
   }
   if (client) await client.query('SET LOCAL lock_timeout = DEFAULT');
   if (claimed.length === ids.length) return;
+  // Some slips stamped and not all: only possible if the lock above stopped
+  // holding the set. A 4xx here would COMMIT the partial stamps, so this is an
+  // error the request rolls back, never a refusal.
+  if (claimed.length > 0) {
+    throw new Error(`Partial source-document claim (${claimed.length} of ${ids.length}); rolled back`);
+  }
 
   const rows = (await sql`
     SELECT id, status, posted_at FROM captured_documents
