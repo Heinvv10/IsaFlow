@@ -67,6 +67,15 @@ The claim that "every route that answers a closed period with a 400 answers this
 | Cosmetic: "Cannot cancel: Cannot reverse:", a doubled prefix. The invoice-cancel branch was untested (general LOW). | The route answers with the error's message alone. Route test added. | M11 goes red. |
 | The adversarial REPROs 1–3 re-sent on fa032502e. | Fixed in c67c29ea8; that review crossed with the fix. | — |
 
+## Review round 3
+| Finding | Fix | Proof |
+|---|---|---|
+| adv. REPRO5, a regression: `provisional/[jeId]/dismiss` answered only its three regex arms with a 400, so the refusal became a 500 where the parent returned 200. | `ClosedFiscalPeriodError` (which covers `ReversalBeforeOriginalError`) and `VatPeriodLockedError` now answer 400. The reversal runs before the service's only write, so this commits nothing. It also covers the older "today's period closed" 500. | Route test; M12 goes red. |
+| General LOW: the refusal code itself was untested. | Unit test: `isRefusalCoded` is true, which is the registry's path for tools that do not catch (void_payment, the bank reverse tools). | M13 goes red. |
+| General LOW: the second describe block had no production-DB check. | `assertNotProductionDb` added in its `beforeAll`. | — |
+| General LOW: `toolHelpers.ts` 310 → 311 lines. | Already over the cap on master; one line added. Not split here. | — |
+| adv. hypothesis: `migration/opening-balances` has no catch, so a future-dated opening-balance journal in a closed period would 500. | Not fixed. There is no repro, and the reviewer judged the shape unrealistic; recorded here. | — |
+
 ## Historical-data impact
 Rows written before this change can already have the shape: a reversal dated before its original. Read-only, and not run on production:
 ```sql

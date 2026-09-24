@@ -187,3 +187,12 @@ describe('R-012: the default reversal date and a future-dated original', () => {
     expect(await reversalEntryDate()).toBe(ymd(0));
   });
 });
+
+describe('R-012: the refusal reaches an MCP agent with its message', () => {
+  it('is a coded refusal, so the registry answers an uncaught throw with its message, not GENERIC_FAILURE', async () => {
+    // registry.ts: `if (isRefusalCoded(err)) return errorResult(err.message)` — the
+    // path void_payment and the bank reverse tools take, since they do not catch.
+    const { isRefusalCoded } = await import('@/lib/mcp/tools/toolHelpers');
+    expect(isRefusalCoded(new ReversalBeforeOriginalError('2026-11-03', '2026-09-24'))).toBe(true);
+  });
+});

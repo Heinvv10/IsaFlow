@@ -17,6 +17,7 @@ import { isDateAutoCreatable } from '@/modules/accounting/services/gl/journalEnt
 import { assertNotProductionDb } from '../helpers/assertNotProductionDb';
 import { request, response } from './mfa-impersonation-postgres.helpers';
 import customerInvoicesDetail from '../../pages/api/accounting/customer-invoices-detail';
+import dismissRoute from '../../pages/api/accounting/provisional/[jeId]/dismiss';
 import { dropFixture, inTx, seedFixture, type Fixture } from './helpers/l1FifoFixture';
 
 const DATABASE_URL = process.env.DATABASE_URL;
@@ -66,6 +67,9 @@ describeIfDb('R-012 round 2: in-window gaps, and the invoice-cancel message', ()
       acc[k] = String(((await sql`SELECT id FROM gl_accounts WHERE company_id = ${fx.companyId}::UUID
         AND account_subtype = ${subtype} LIMIT 1`) as Row[])[0]!.id);
     }
+    await sql`INSERT INTO users (id, email, role, is_active) VALUES (${fx.userId}, ${`r012b-${fx.userId}@isaflow.test`}, 'admin', true)
+              ON CONFLICT (id) DO NOTHING`;
+    await sql`INSERT INTO company_users (company_id, user_id, role) VALUES (${fx.companyId}::UUID, ${fx.userId}, 'admin')`;
   }, 120000);
 
   afterAll(async () => {
@@ -97,9 +101,6 @@ describeIfDb('R-012 round 2: in-window gaps, and the invoice-cancel message', ()
       VALUES (${fx.companyId}::UUID, ${`R012B-${fx.tag.slice(-10)}`}, ${fx.customerId}::UUID, ${day(40)}::DATE,
               100, 0, 100, 'approved', ${fx.userId}, ${je}::UUID)
       RETURNING id`) as Row[])[0]!.id);
-    await sql`INSERT INTO users (id, email, role, is_active) VALUES (${fx.userId}, ${`r012b-${fx.userId}@isaflow.test`}, 'admin', true)
-              ON CONFLICT (id) DO NOTHING`;
-    await sql`INSERT INTO company_users (company_id, user_id, role) VALUES (${fx.companyId}::UUID, ${fx.userId}, 'admin')`;
     const token = await new SignJWT({ sub: fx.userId, aal: 'aal2' })
       .setProtectedHeader({ alg: 'HS256' }).setExpirationTime('1h')
       .sign(new TextEncoder().encode(process.env.JWT_SECRET));
@@ -115,5 +116,24 @@ describeIfDb('R-012 round 2: in-window gaps, and the invoice-cancel message', ()
     expect(String(state.body.error?.message)).toMatch(/would precede it/);
     const status = ((await sql`SELECT status FROM customer_invoices WHERE id = ${inv}::UUID`) as Row[])[0]!.status;
     expect(status).toBe('approved');
+  });
+
+  it('dismissing a future-dated provisional entry in a closed period answers 400, not 500', async () => {
+    // Layout left by the previous case: day(11)..day(100) is closed.
+    const je = await postedJournal(day(40));
+    await sql`UPDATE gl_journal_entries SET needs_evidence = true WHERE id = ${je}::UUID`;
+    const token = await new SignJWT({ sub: fx.userId, aal: 'aal2' })
+      .setProtectedHeader({ alg: 'HS256' }).setExpirationTime('1h')
+      .sign(new TextEncoder().encode(process.env.JWT_SECRET));
+    const req = request({ 'sb-access-token': token, active_company_id: fx.companyId }, 'POST') as never as
+      { body: unknown; query: Record<string, string>; url: string };
+    req.body = {};
+    req.query = { jeId: je };
+    req.url = `/api/accounting/provisional/${je}/dismiss`;
+    const out = response();
+    await dismissRoute(req as never, out.res as never);
+    const state = out.state as { statusCode: number; body: { error?: { message?: string } } };
+    expect(state.statusCode).toBe(400);
+    expect(String(state.body.error?.message)).toMatch(/would precede it/);
   });
 });
