@@ -128,6 +128,10 @@ export async function tearDownFixture(pool: Pool | undefined): Promise<void> {
     await pool.query('DELETE FROM bank_transactions WHERE company_id = ANY($1::uuid[])', both);
     await pool.query(`DELETE FROM gl_journal_lines WHERE journal_entry_id IN
       (SELECT id FROM gl_journal_entries WHERE company_id = ANY($1::uuid[]))`, both);
+    // A soft-deleted bill's reversal is recorded and chained to the original.
+    await pool.query('DELETE FROM soft_delete_journal_reversals WHERE company_id = ANY($1::uuid[])', both);
+    await pool.query(`UPDATE gl_journal_entries SET reversal_of_id = NULL, reversed_by = NULL
+      WHERE company_id = ANY($1::uuid[])`, both);
     for (const t of ['expected_invoice_alerts', 'supplier_expectations', 'supplier_coding_rules',
       'supplier_activities', 'supplier_contacts', 'accounting_adjustments', 'credit_notes',
       'supplier_payments', 'customer_payments', 'supplier_payment_batches', 'recurring_transaction_templates',

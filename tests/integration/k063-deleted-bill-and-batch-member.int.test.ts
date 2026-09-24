@@ -11,6 +11,7 @@
 //    debited twice for one payment. Rule: a batch member moves money only
 //    through its batch; the batch refuses a member that has already moved.
 
+import { randomUUID } from 'node:crypto';
 import { describe, it, expect, beforeAll, afterAll } from 'vitest';
 import { assertDisposable } from './mfa-impersonation-postgres.helpers';
 import { ids, setUpFixture, tearDownFixture, type Fixture } from './supplier-ownership-fence.helpers';
@@ -27,8 +28,26 @@ describeIfDb('K-063 review r1 — deleted bills and batch members', () => {
   const approved = (total = 1000) => bill(fx.pool, { supplier: ids.SUP_A, status: 'approved', total });
   const markDeleted = (id: string) =>
     fx.pool.query('UPDATE supplier_invoices SET deleted_at = NOW() WHERE id = $1', [id]);
+  // The delete is held to the cancel plan, which refuses an approved bill with
+  // no approval journal to reverse — so the bill carries a posted one.
+  async function approvedWithJournal(total = 1000): Promise<string> {
+    const id = await approved(total);
+    const je = randomUUID();
+    await fx.pool.query(
+      `INSERT INTO gl_journal_entries (id, company_id, entry_number, entry_date, description, status,
+         posted_at, source, source_record_id, created_by)
+       VALUES ($1, $2, $3, CURRENT_DATE - 5, 'K063 bill approval', 'posted', NOW(),
+               'auto_supplier_invoice', $4, $5)`,
+      [je, ids.A, `K063-JE-${je.slice(0, 8)}`, id, ids.USER]);
+    await fx.pool.query(
+      `INSERT INTO gl_journal_lines (company_id, journal_entry_id, gl_account_id, debit, credit, description)
+       VALUES ($1, $2, $3, $5, 0, 'dr'), ($1, $2, $4, 0, $5, 'cr')`,
+      [ids.A, je, ids.GL, ids.AP_GL, total]);
+    await fx.pool.query('UPDATE supplier_invoices SET gl_journal_entry_id = $1 WHERE id = $2', [je, id]);
+    return id;
+  }
   async function deletedViaRoute(): Promise<string> {
-    const id = await approved();
+    const id = await approvedWithJournal();
     const del = await fx.call(softDelete, 'POST', { entityType: 'supplier_invoice', entityId: id });
     expect(del.statusCode, text(del)).toBe(200);
     return id;
