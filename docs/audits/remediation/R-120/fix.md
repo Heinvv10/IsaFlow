@@ -25,7 +25,7 @@ All runs are against the fixture `isaflow-fixture-r112`.
 - `tests/unit/services/practice/wipInvoiceGuards.test.ts`: 12 of 12. The component test has 2 cases.
 - `tests/unit/components/WipInvoiceRefusalMessage.test.tsx`: red on master's page, green on the fix.
 - **Existing WIP suites:** k-040 ×2 and k107, integration, pass. So do the practice unit tests, 18 files and 226 tests.
-- **Mutations** (`mutations.log`): 21, all red. M4 was retired as redundant, and the reason is in the table above. Two survived the first round (M4, M6), and the reason for each is in the log.
+- **Mutations** (`mutations.log`): 22, all red. M4 was retired as redundant, and the reason is in the table above. Two survived the first round (M4, M6), and the reason for each is in the log.
 
 ## Review round 1
 | Finding | Fix | Proof |
@@ -47,6 +47,8 @@ All runs are against the fixture `isaflow-fixture-r112`.
 | Finding | Fix | Proof |
 |---|---|---|
 | MEDIUM (general): an approved entry with an inconsistent line was refused with no way out. "Re-save" was impossible, because only drafts can be edited. The sources are legacy rows (pre-rounding writers) and a LIVE writer: core `updateTimeEntry` (`PUT /api/accounting/time-entries`) set hours and rate on practice drafts without recomputing `applied_rate`/`line_total`. | Hein chose (2026-09-24): keep refusing, and fix the source. `updateTimeEntry` now refuses an hours or rate edit on a practice entry with `TimeEntryEditRefusal`, returned as a 400 with its message; the practice timesheet recomputes. Both WIP refusals now name the real remedy: write the entry off (not billable, allowed from `approved`) and log a corrected one. | `r120-time-entry-edit.int.test.ts`, 4 tests; M21 and M22 go red. The R-067 fence suite still covers `time-entries` PUT: 32 of 32 on dev. |
+| adv. N1 (MEDIUM): the same dead end, shown for legacy rows. Before c7ba3d917 (2026-09-02), `createPracticeEntry` derived `line_total` from UNROUNDED hours (0.3333h at R1500 was stored as 0.33h with a line of 499.95). | The same decision as above: refuse, with the write-off remedy. The pre-deploy count measures these rows. | — |
+| adv. N2 (LOW): an id sent in two cases counted as skipped. | The ids are lower-cased before counting. | Test added; M23 goes red. |
 | LOW (general): the census did not measure the new mismatch class. | Mismatch arm added, plus a count of approved, unbilled entries this change will refuse, to run before deploy. | EXPLAIN on the fixture. |
 
 ## Historical-data impact
