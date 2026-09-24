@@ -25,7 +25,7 @@ All runs are against the fixture `isaflow-fixture-r112`.
 - `tests/unit/services/practice/wipInvoiceGuards.test.ts`: 12 of 12. The component test has 2 cases.
 - `tests/unit/components/WipInvoiceRefusalMessage.test.tsx`: red on master's page, green on the fix.
 - **Existing WIP suites:** k-040 ×2 and k107, integration, pass. So do the practice unit tests, 18 files and 226 tests.
-- **Mutations** (`mutations.log`): 24, all red, plus the two page tests, which are red on master's pages. M4 was retired as redundant, and the reason is in the table above. Two survived the first round (M4, M6), and the reason for each is in the log.
+- **Mutations** (`mutations.log`): 25, all red, plus the two page tests, which are red on master's pages. M4 was retired as redundant, and the reason is in the table above. Two survived the first round (M4, M6), and the reason for each is in the log.
 
 ## Review round 1
 | Finding | Fix | Proof |
@@ -64,6 +64,11 @@ All runs are against the fixture `isaflow-fixture-r112`.
 | MEDIUM (adv. R3-1): `updatePracticeEntry` stored the RAW hours but computed the line from JS-rounded hours. NUMERIC(6,2) rounds 1.005 to 1.01 and JS rounds it to 1.00, so the stored line was R1500 where the stored hours implied R1515. That live writer kept creating entries WIP refuses. | It now writes `effectiveHours`, the value the line is computed from. | Unit test with 1.005h; M26 goes red. |
 | LOW (adv.): the refusal said "mark it not billable", but the UI calls the action "Write off". | The text now says "write it off on the Approvals page (status "Approved, not billed")". | — |
 | Side finding (adv.): `time_entries.amount` exists in no migration. Neither the fixture nor dev has it, yet `createPracticeEntry` and `updatePracticeEntry` write it. | Out of scope; registered as **R-121**. | — |
+
+## Review round 5
+| Finding | Fix | Proof |
+|---|---|---|
+| LOW-MEDIUM (adv. R5-1): the 1c tolerance compared floats. \|100 − 100.01\| is 0.010000000000005, so a line exactly 1c off was refused, while the numeric census (`> 0.01`) did not count it and the pre-deploy count would come in low. | The comparison is now in whole cents (`≤ 1` cent), which agrees with the census. | Unit cases at exactly ±1c (allowed) and 2c (refused); M27 goes red. |
 
 ## Historical-data impact
 None from the masking. The two booking defects may have left rows. Hand this to Hein; it is read-only and has **not** been run on production:

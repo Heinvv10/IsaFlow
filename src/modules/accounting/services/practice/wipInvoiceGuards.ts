@@ -61,9 +61,11 @@ export function assertWipEntryLines(entries: DbRow[]): void {
     }
     // Every writer stores line_total = round2(hours × applied_rate)
     // (lineTotalFor); a line that disagrees would bill a figure its own
-    // hours and rate do not explain. 1c tolerance for the rounding.
+    // hours and rate do not explain. 1c tolerance for the rounding, compared
+    // in whole cents: in floats |100 - 100.01| is 0.010000000000005 > 0.01,
+    // which refused exactly-1c lines the numeric census does not count.
     const hours = Number(e.hours);
-    if (!(Math.abs(Math.round(hours * rate * 100) / 100 - line) <= 0.01)) {
+    if (!(Math.abs(Math.round(hours * rate * 100) - Math.round(line * 100)) <= 1)) {
       throw new WipInvoiceRefusal(
         `time entry of ${fmtDate(e.entry_date)} ("${String(e.task_description)}") has a line of ${String(e.line_total)} `
         + `that is not its ${String(e.hours)}h × ${String(e.applied_rate)}. An approved entry cannot be edited: `
