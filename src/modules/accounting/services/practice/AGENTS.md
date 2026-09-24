@@ -38,6 +38,7 @@ Invoked by `withCompany`-wrapped API routes in `pages/api/accounting/practice/*`
 - `scripts/migrations/sql/395_practice_client_rate_overrides.sql`, `scripts/migrations/sql/626_practice_rate_override_column_mirror.sql`, `*practice_*` migrations.
 
 ## Recent changes
+- 2026-09-24 (R-121): **Migration 698 makes practice time capture and rate overrides work on every database.** Additive and idempotent. It adds `time_entries.amount` and the overrides' legacy `user_id`/`rate` (nullable, back-filled) where missing. It grants the overrides table like its siblings. It replaces 395's `pcro_company_isolation`, which read a `company_id` JWT claim `withAuth` never sets, so the web app saw no overrides and could save none, with the standard `tenant_isolation`. Dev and the r112 fixture (a dev schema dump) lacked the columns and grants: every practice entry failed 42703 or "permission denied" there. The same claim-based policy remains on `payroll_leave_*` (R-122).
 - 2026-09-24 (R-120): **The WIP invoice route now tells the operator why an invoice was refused.** The operator used to see only "WIP invoice failed". `generateWipInvoice` throws `WipInvoiceRefusal` (`wipInvoiceGuards.ts`) for anything the operator can act on:
   - an inactive or unknown client;
   - a client with no linked AR customer;
