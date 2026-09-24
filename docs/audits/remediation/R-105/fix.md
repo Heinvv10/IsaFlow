@@ -12,7 +12,9 @@
 ## Fix
 `src/modules/accounting/services/expense/claimSourceDocuments.ts`:
 - **`claimLineSourceDocuments(companyId, lines)`** takes the capture posting claim (`posted_at`, the same fence as `claimCapturedDocumentForPosting`) on every line's source document, **in one statement**. It locks the eligible set and updates only when that set is complete: all slips are claimed, or none are. This matters because `withAuth` COMMITs on a 4xx, so a line-by-line claim that refused the second slip would commit the first slip's stamp with no claim behind it. The statement is company-scoped itself, not left to RLS.
-  - A duplicate slip, or one that is missing, foreign, already posted or rejected, throws `ClaimSourceDocumentError` before anything is written. The routes answer it with a 400.
+  - Lines written before this fix never stamped `posted_at`, so the claim also refuses a slip that is already on a LIVE claim line (any status except rejected or cancelled), whatever its `posted_at` says.
+  - Ids are lower-cased first, because Postgres returns uuids lower-case.
+  - A duplicate slip, or one that is missing, foreign, already posted, on another live claim or rejected, throws `ClaimSourceDocumentError` before anything is written. The routes answer it with a 400.
   - The lock wait is bounded at 5s, like the capture posting paths' (`captureRowLock`). A timeout or deadlock is the `busy` refusal, answered 409 ("retry in a moment"). The lock error has aborted the transaction, so the 4xx commits nothing.
   - If the statement ever stamps some slips and not all (only possible without the lock), it throws a plain error. The request then rolls back, because a 4xx would COMMIT the partial stamps.
 - **`createClaim`** calls it before its first write. `post-expense` already claims its slip, so it passes `sourceDocumentsClaimed: true`.
@@ -27,8 +29,8 @@ No migration.
 ## Evidence
 All runs are on the r112 fixture.
 - **RED** (`red.log`): 7 of 9 fail on master's code. The two delete-release tests passed there vacuously, because nothing was ever claimed.
-- **GREEN:** `tests/integration/r105-expense-claim-source-document.int.test.ts`, 14 of 14:
-  - refusals for a posted, a rejected, a foreign and a repeated slip;
+- **GREEN:** `tests/integration/r105-expense-claim-source-document.int.test.ts`, 16 of 16:
+  - refusals for a posted (in any id case), a rejected, a foreign and a repeated slip, and for a slip on a live legacy line that never claimed it. The same slip is free again once that claim is rejected;
   - all or nothing: one refused line leaves the other slip unclaimed and no claim row;
   - add-line claims its slip, and refuses a posted one;
   - line delete and draft-claim delete give the slip back;
@@ -40,7 +42,7 @@ All runs are on the r112 fixture.
     - the draft-claim delete waits for a concurrent add-line and sees its slip.
 - **Capture path unchanged:** `k072-post-expense-claim-vat`, `k072-claim-vat-classification`, `k072-receipt-vat-unread`, `r058-capture-post-double-post` and `k072-draft-claim-release` pass, 55 of 56.
   - The one failure, "migration 672's backfill agrees with the release", fails identically on master 2d69e30d9 with `must be owner of table captured_documents`. It is a fixture-role problem, not this change.
-- **Mutations** (`mutations.log`): 13 of 13 go red.
+- **Mutations** (`mutations.log`): 15 of 15 go red.
   - Claim removed from create or from add-line.
   - Company filter removed. This one was not caught at first, because RLS hides the foreign row on the route; the service-level test was added for it.
   - All-or-nothing count removed.
@@ -53,6 +55,9 @@ All runs are on the r112 fixture.
     - the claim's `FOR UPDATE` removed;
     - the lock wait unbounded;
     - the delete's claim-row lock removed.
+  - The adversarial round added two:
+    - the live-claim-line check removed;
+    - ids not lower-cased.
 
 ## Review round 1
 | Finding | Fix |
@@ -63,6 +68,14 @@ All runs are on the r112 fixture.
 | LOW: `claimSourceDocumentIds` read too much like `claimLineSourceDocuments`. | Renamed `lockClaimReadSourceDocumentIds`. |
 | LOW: `expenseClaimService.ts` over 300 lines. | Pre-existing (554 on master). Not split here; see below. |
 | LOW: R-105's `affectedPaths` was wrong in backlog.json. | Corrected. |
+
+## Review round 1 (adversarial, on e7098d1ad)
+| Finding | Fix |
+|---|---|
+| MEDIUM: a slip on a live line written before this fix (posted_at NULL) could go on a second live claim; the repro gave 201 with the slip on 2 lines. | The claim refuses a slip on any live claim line (`on_claim`). Test; M16 goes red. |
+| LOW: a claim DELETE racing an add-line could strand a claimed slip. | Already fixed in the general round (claim-row lock, M15). |
+| LOW: an upper-case uuid got "not found" instead of "already posted". | Ids lower-cased. Test; M17 goes red. |
+| LOW: a released slip keeps status 'matched', so the inbox shows it as settled; the docs said it "goes back to the capture inbox". | The docs now say it can be posted again and keeps 'matched'. The status is left alone: the shared `releaseCapturedDocumentPostingClaim` behaves the same after `rejectClaim` on master, and changing it touches every capture path. See Not covered. |
 
 ## For Hein (read-only on prod): what already exists
 ```sql
@@ -96,4 +109,5 @@ If any query returns rows, they need an accountant's decision. They are not repa
 ## Not covered
 - **R-070's recommended backstop**, a partial unique index on `expense_claim_lines(source_document_id)`, is not built. It needs the second query above to come back empty on prod first, or the index will not build.
 - **The add-line route's catch-all answers 400** for any other error, including one after a write (R-060's class). That was already the case and is unchanged here.
+- **A released slip keeps `status = 'matched'`** (the inbox reads that as settled). That is also true on master after a claim rejection or cancel (`rejectClaim`'s comment says the slips "go back to the capture inbox"; on screen they do not). Restoring the status belongs in `releaseCapturedDocumentPostingClaim`, which every capture path shares. Not changed here.
 - **`expenseClaimService.ts` was already over the 300-line cap** (554 lines on master; 572 now). The new logic lives in its own module. The service gained only the call sites, and splitting it is left out of this fix.
