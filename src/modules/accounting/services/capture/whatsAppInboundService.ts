@@ -230,7 +230,7 @@ export async function ingestTwilioPayload(
 
     if (eventRows.length === 0) {
       duplicate = true;
-      await discardLostRaceDocument(companyId, documentId, stored.path, payload.MessageSid);
+      await discardLostRaceDocument(companyId, documentId, stored, payload.MessageSid);
       continue;
     }
 

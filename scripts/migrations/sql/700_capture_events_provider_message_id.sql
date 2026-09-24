@@ -1,4 +1,4 @@
--- 842: a Twilio retry must not ingest the same WhatsApp message twice (K-160).
+-- 700: a Twilio retry must not ingest the same WhatsApp message twice (K-160).
 --
 -- Twilio redelivers a webhook on any non-2xx or timeout. ingestTwilioPayload
 -- had no natural key, so every redelivery created another captured_documents
@@ -20,6 +20,7 @@ ALTER TABLE capture_events DROP CONSTRAINT IF EXISTS capture_events_provider_mes
 ALTER TABLE capture_events ADD CONSTRAINT capture_events_provider_message_part_check
   CHECK ((provider_message_id IS NULL) = (provider_message_part IS NULL));
 
+-- Not CONCURRENTLY (the runner wraps each file in a transaction); partial on an all-NULL new column, so the build is near-instant.
 CREATE UNIQUE INDEX IF NOT EXISTS uq_capture_events_provider_message
   ON capture_events (company_id, provider_message_id, provider_message_part)
   WHERE provider_message_id IS NOT NULL;

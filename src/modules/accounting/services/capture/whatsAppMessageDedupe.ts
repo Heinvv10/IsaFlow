@@ -1,11 +1,12 @@
 /**
- * Twilio redelivery dedupe for WhatsApp ingestion (K-160, migration 842).
+ * Twilio redelivery dedupe for WhatsApp ingestion (K-160, migration 700).
  * A capture_event is keyed by (company_id, provider_message_id, provider_message_part):
  * the part is the media index, or TEXT_PART for the text-command event.
  */
 
 import { sql } from '@/lib/neon';
 import { log } from '@/lib/logger';
+import { removeCapturedDocument } from '@/lib/supabaseStorage';
 import type { TwilioInboundPayload } from './whatsAppInboundService';
 import type { WhatsAppExpenseCommand } from './whatsAppTextCommandParser';
 
@@ -23,19 +24,28 @@ export async function ingestedParts(companyId: string, messageSid: string): Prom
 
 /**
  * A concurrent delivery of the same message claimed this part first: drop the
- * captured_documents row this delivery inserted so the inbox holds one copy.
- * The uploaded bytes stay in storage, unreferenced; the path is logged.
+ * captured_documents row this delivery inserted so the inbox holds one copy,
+ * then its uploaded object. The object delete is best-effort — a failure is
+ * logged and the webhook still answers 200.
  */
 export async function discardLostRaceDocument(
-  companyId: string, documentId: string, storagePath: string, messageSid: string,
+  companyId: string, documentId: string, stored: { bucket: string; path: string }, messageSid: string,
 ): Promise<void> {
   await sql`
     DELETE FROM captured_documents
     WHERE id = ${documentId}::uuid AND company_id = ${companyId}::uuid
   `;
   log.warn('whatsAppInbound: concurrent redelivery lost the race — duplicate document discarded', {
-    companyId, documentId, storagePath, messageSid,
+    companyId, documentId, storagePath: stored.path, messageSid,
   }, 'whatsapp-inbound');
+  try {
+    await removeCapturedDocument(stored.bucket, stored.path);
+  } catch (err: unknown) {
+    log.warn('whatsAppInbound: duplicate document object not removed — orphaned in storage', {
+      companyId, documentId, bucket: stored.bucket, storagePath: stored.path,
+      error: err instanceof Error ? err.message : String(err),
+    }, 'whatsapp-inbound');
+  }
 }
 
 /**
