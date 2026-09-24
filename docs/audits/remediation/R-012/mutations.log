@@ -1,3 +1,6 @@
+# Round 1 (after the general review). Each mutation applied alone. Suites: the two unit files; r086 on the fixture; r012 on isaflow_dev.
+M1 closed future original not refused: unit       Tests  1 failed | 21 passed (22) | r086       Tests  8 passed (8) | r012       Tests  1 failed | 2 passed (3)
+M2 no auto-create branch: unit       Tests  1 failed | 21 passed (22) | r086       Tests  8 passed (8) | r012       Tests  3 passed (3)
+M3 typo'd year refused (no carve-out): unit       Tests  1 failed | 21 passed (22) | r086       Tests  8 passed (8) | r012       Tests  3 passed (3)
+M4 closed check consults auto-create first: unit       Tests  1 failed | 21 passed (22) | r086       Tests  8 passed (8) | r012       Tests  3 passed (3)
 M-MCP no pre-write check:       Tests  1 failed | 2 passed (3)
-M-CORE no before-original guard: unit       Tests  2 failed | 19 passed (21) | int       Tests  1 failed | 2 passed (3)
-M-AUTO no auto-create branch: unit       Tests  1 failed | 21 passed (22) | r086       Tests  2 failed | 6 passed (8)

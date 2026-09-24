@@ -30,7 +30,10 @@ export interface ReversalDateResolution {
  * while the next one is understated.
  *
  * So: date the reversal to the ORIGINAL entry_date when that period is still
- * open, and fall back to today only when it is not. The fallback is what the
+ * open (or, for a future-dated original with no period yet, when posting would
+ * create its year — R-012), and fall back to today only when it is not — never
+ * to a today that precedes a future-dated original in a closed period, which
+ * is refused (ReversalBeforeOriginalError). The fallback is what the
  * previous unconditional-today rule was really protecting — a closed original
  * period must not make old documents permanently un-cancellable, and
  * postJournalEntry would throw ClosedFiscalPeriodError.
@@ -58,7 +61,7 @@ export class ReversalPeriodError extends Error {
 
 /**
  * R-012: the default arm would date the contra TODAY, and today is BEFORE the
- * entry being reversed — a future-dated original whose period is not open. A
+ * entry being reversed — a future-dated original whose period is CLOSED. A
  * correction dated before what it corrects breaks the as-at parity every
  * ageing and statement reads (softDeleteLedgerPresence's precondition), so it
  * is refused, pre-write. It IS-A ClosedFiscalPeriodError on purpose: the
@@ -66,12 +69,12 @@ export class ReversalPeriodError extends Error {
  * that already answers a closed period with a 400 answers this one too.
  */
 export class ReversalBeforeOriginalError extends ClosedFiscalPeriodError {
-  constructor(originalDate: string, today: string, originalPeriod: 'closed' | 'no_period') {
-    super(originalPeriod === 'no_period' ? 'missing' : 'closed');
+  constructor(originalDate: string, today: string) {
+    super('closed');
     this.name = 'ReversalBeforeOriginalError';
-    this.message = `Cannot reverse: the entry is dated ${originalDate}, in a fiscal period that is `
-      + `${originalPeriod === 'no_period' ? 'not created' : 'not open'}, and a reversal dated today (${today}) `
-      + 'would precede it. Open (or create) the period covering the entry, or name a reversal date on or after it.';
+    this.message = `Cannot reverse: the entry is dated ${originalDate}, in a closed fiscal period, and a reversal `
+      + `dated today (${today}) would precede it. Re-open the period covering the entry, or name a reversal `
+      + 'date on or after it in an open period.';
   }
 }
 
@@ -87,7 +90,9 @@ function isCalendarDate(value: string): boolean {
  * Which date the contra carries.
  *
  * Without an explicit date this is the default described above: the original
- * entry's date when its period is open, today when it is closed.
+ * entry's date when its period is open (or would be auto-created, for a
+ * future-dated original), otherwise today — unless today precedes a
+ * future-dated original in a closed period, which is refused.
  *
  * With one, the caller wins over the ORIGINAL period's status — that fallback is
  * exactly what people ask to override (correcting a closed month from the open
@@ -167,15 +172,17 @@ export async function resolveReversalDateDetailed(
     // latter stamps yesterday.
     const today = fmtDate(new Date());
     let date = originalPeriod === 'open' ? originalDate : today;
-    // R-012: today would precede a future-dated original. When its year does
-    // not exist yet but posting would create it, date the contra WITH the
-    // original — in the period it corrects. Otherwise refuse, pre-write.
-    if (originalPeriod !== 'open' && today < originalDate) {
-      if (originalPeriod === 'no_period' && await isDateAutoCreatable(companyId, originalDate)) {
-        date = originalDate;
-      } else {
-        throw new ReversalBeforeOriginalError(originalDate, today, originalPeriod);
-      }
+    // R-012: today would precede a future-dated original.
+    //  - its period is CLOSED → refuse, pre-write (open the period);
+    //  - no period, but posting would create its year → date the contra WITH
+    //    the original, in the period it corrects;
+    //  - no period and outside the auto-create window (a typo'd year such as
+    //    9999, posted with a NULL period) → keep today. That entry sits outside
+    //    every period-bounded report already, and refusing would leave it
+    //    reversible only by creating the bogus year.
+    if (today < originalDate) {
+      if (originalPeriod === 'closed') throw new ReversalBeforeOriginalError(originalDate, today);
+      if (originalPeriod === 'no_period' && await isDateAutoCreatable(companyId, originalDate)) date = originalDate;
     }
     if (!lines) return { date, vatLockRoll: null };
     const rolled = await rollDefaultReversalDate(companyId, date, lines);

@@ -9,25 +9,44 @@ The register's other claim, that `paymentVoidService` writes before learning the
 
 ## Fix
 - **Default arm, when today < original:**
+  - The original's period is CLOSED: refused pre-write with `ReversalBeforeOriginalError`. It IS-A `ClosedFiscalPeriodError` (periodStatus 'closed'), so every route that already answers a closed period with a 400 answers this one too. `customer-invoices-detail` shows its own message.
   - The original has no period and posting would create its year (`isDateAutoCreatable`, the VAT roll's own predicate): the contra is dated WITH the original.
-  - Otherwise: refused pre-write with `ReversalBeforeOriginalError`. It IS-A `ClosedFiscalPeriodError`, so `customer-invoices-detail`, `soft-delete` and every other route that already answers a closed period with a 400 answers this one too. The remedy (open or create the period) is the same.
+  - The original has no period and falls outside the auto-create window: **today is kept**. This is a typo'd year such as 9999, posted with a NULL period. The entry already sits outside every period-bounded report, and refusing would leave it reversible only by creating the bogus year. It is a documented exception to the ordering.
 - **`reverse_journal_entry` (MCP):** after resolving the date, a CLOSED period is a `toolError`, for the dry run too. A missing period is left to auto-create.
 - **Deliberately not centralised:** a check on TODAY's own period inside `resolveReversalDate`. The bank (`assertReversalDatePostable`) and AP (`lockBankLegOf`) paths already do it with their own messages; moving it would change the errors of 40+ callers.
 
 ## Evidence
-- **Unit** (`journalEntryReversalDate.test.ts`, 22 tests): future-dated original with period closed, or no period and not creatable → refused, nothing created. No period but creatable → dated with the original. Original dated today with its period closed → still today. RED before the fix (`red.log`): 2 failed.
+- **Unit** (`journalEntryReversalDateFuture.test.ts`, 4 tests, split out because `journalEntryReversalDate.test.ts` was already over the 300-line cap):
+  - future-dated original in a closed period → refused, nothing created, and auto-create never consulted;
+  - no period but creatable → dated with the original;
+  - typo'd year outside the window → today;
+  - original dated today with its period closed → still today.
+
+  RED before the fix (`red.log`, the first cut of these tests): 2 failed.
 - **Integration** (`r012-reversal-default-date.int.test.ts`, 3 tests, on isaflow_dev, the harness's required database):
   - a closed future period → refused with no journal written;
   - an open future period → dated with the original;
   - the MCP tool refuses on both the dry run and the live call, and writes nothing.
-- **Mutations:** each red.
-  - Removing the before-original guard fails 2 unit and 1 integration test.
+- **Mutations** (`mutations.log`): each red.
+  - M1: removing the closed refusal.
+  - M2: removing the auto-create branch.
+  - M3: refusing the typo'd year.
+  - M4: consulting auto-create before the closed check.
   - Removing the MCP pre-write check fails the MCP test.
-  - Removing the auto-create branch fails 1 unit test and 2 r086 tests.
 - **Regression:**
   - On the fixture, 20 reversal-touching integration suites match master exactly: the same 1 K-072 failure on both, and it pre-exists. `r086-migration-validation-future-dated` failed twice on the first cut, which refused the no-period future case; that is why the auto-create branch exists.
   - On isaflow_dev, the dev-only suites (vat-period-lock-reversal/bounds, update-supplier-invoice, r012) pass, 35 tests.
 - **Fixture:** migrations 695–697 (merged, VAT-lock unlock history) were applied, because both master and the branch failed on `unlocked_at` without them.
+
+## Review round 1 (general)
+| Finding | Fix |
+|---|---|
+| MEDIUM: a typo'd far-future entry (NULL period, outside the auto-create window) became irreversible without creating the bogus year. | Kept on today, as a documented exception; test M3. |
+| LOW: `customer-invoices-detail` rebuilt the message from `periodStatus` ("missing fiscal period… reopen"). | It answers `ReversalBeforeOriginalError` with its own message. `periodStatus` is now always 'closed', because the error is only thrown for a closed period. `closeRun`'s mapping sits on the posting path, which this error does not reach. |
+| LOW: stale docstrings and the MCP `reversal_date` schema text. | Updated in journalEntryReversalDate, journalEntryReversalVatRoll, bankAllocationService and writeJournalReverse. |
+| LOW: the `no_period` conjunct and `closed` ordering were untested. | M4 test: closed never consults auto-create. |
+| LOW: the mutation log was from an older test shape. | Re-run against the committed tests. |
+| LOW: the test file had grown past the cap. | The new tests were moved to their own file; the old file is back to master's. |
 
 ## Historical-data impact
 Rows written before this change can already have the shape: a reversal dated before its original. Read-only, and not run on production:
