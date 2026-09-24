@@ -20,6 +20,11 @@ import claimsRoute from '../../pages/api/accounting/expense-claims';
 import claimRoute from '../../pages/api/accounting/expense-claims/[id]';
 import lineRoute from '../../pages/api/accounting/expense-claims/[id]/lines/[lineId]';
 import { assertDisposable, request, response } from './mfa-impersonation-postgres.helpers';
+import { als } from '@/lib/als';
+import {
+  ClaimSourceDocumentError,
+  claimLineSourceDocuments,
+} from '@/modules/accounting/services/expense/claimSourceDocuments';
 
 assertDisposable();
 const pool = new Pool({ connectionString: process.env.DATABASE_URL, max: 3 });
@@ -156,6 +161,25 @@ describe('R-105: a manual expense claim line claims its source document', () => 
     expect(out.statusCode, JSON.stringify(out.body)).toBe(400);
     expect(out.body.error?.message).toMatch(/not found/i);
     expect(await linesOn(foreignDoc)).toBe(0);
+    expect(await postedAt(foreignDoc)).toBeNull();
+  });
+
+  // The service's own company filter, on a connection RLS does not narrow
+  // (the fixture's role bypasses RLS, as a cron or MCP path's may): the route
+  // test above would pass on RLS alone.
+  it('the claim is company-scoped even where RLS does not apply', async () => {
+    const c = await pool.connect();
+    try {
+      await c.query('BEGIN');
+      const err = await als.run({ client: c, userId: user, companyId: company, claims: {} } as never,
+        () => claimLineSourceDocuments(company, [{ sourceDocumentId: foreignDoc }])).catch((e: unknown) => e);
+      await c.query('COMMIT');
+      expect(err).toBeInstanceOf(ClaimSourceDocumentError);
+      expect((err as ClaimSourceDocumentError).refusal).toBe('not_found');
+    } finally {
+      await c.query('ROLLBACK').catch(() => undefined);
+      c.release();
+    }
     expect(await postedAt(foreignDoc)).toBeNull();
   });
 
