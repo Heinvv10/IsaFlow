@@ -90,3 +90,10 @@
 ⎯⎯⎯⎯⎯⎯⎯ Failed Tests 1 ⎯⎯⎯⎯⎯⎯⎯
       Tests  1 failed (1)
 
+
+# Re-run on 4a5c4ecf0 after adding the pre-DELETE refusal test:
+## M10 inbox release ignores the evidenced journal [src/modules/accounting/services/capture/capturePostingClaimRelease.ts] -> KILLED
+     × the inbox refuses BEFORE it discards drafts: a draft journal on the slip survives the refused confirm 37ms
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 1 ⎯⎯⎯⎯⎯⎯⎯
+      Tests  1 failed | 18 passed (19)
+
