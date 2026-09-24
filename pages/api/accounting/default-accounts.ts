@@ -18,6 +18,10 @@ import { withCsrf } from '@/lib/auth/withCsrf';
 import { log } from '@/lib/logger';
 import { sql, withTransaction } from '@/lib/neon';
 import { clearSystemAccountCache } from '@/modules/accounting/services/gl/systemAccountResolver';
+import { VatPeriodLockedError } from '@/modules/accounting/services/gl/journalVatLockGuard';
+import {
+  assertAccountChangesKeepVatLocks, type AccountAttributeChange,
+} from '@/modules/accounting/services/gl/vatLockLineClassification';
 
 const SETTINGS_KEY = 'accounting_default_accounts';
 
@@ -74,28 +78,51 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
       return apiResponse.validationError(res, { mappings: 'Object of key-value mappings required' });
     }
 
-    // Validate account_type compatibility before touching the DB.
+    // Validate account_type compatibility before touching the DB, and collect
+    // every subtype this save will REWRITE: marking an account as the system
+    // account for a role sets its account_subtype, and the filed VAT201 was
+    // built from the subtypes its lines carried.
+    const changes: AccountAttributeChange[] = [];
     for (const [uiKey, accountId] of Object.entries(mappings)) {
       const subtype = KEY_TO_SYSTEM_SUBTYPE[uiKey];
-      const expectedType = subtype ? SUBTYPE_EXPECTED_TYPE[subtype] : null;
-      if (!subtype || !accountId || !expectedType) continue;
+      if (!subtype || !accountId) continue;
+      const expectedType = SUBTYPE_EXPECTED_TYPE[subtype];
 
       const rows = await sql`
-        SELECT account_type FROM gl_accounts
+        SELECT account_code, account_type, account_subtype FROM gl_accounts
         WHERE id = ${accountId as string}
           AND company_id = ${companyId}
         LIMIT 1
       ` as Row[];
 
       if (rows.length === 0) {
+        if (!expectedType) continue;
         return apiResponse.badRequest(res, `Account for '${uiKey}' not found`);
       }
-      if (rows[0]!.account_type !== expectedType) {
+      if (expectedType && rows[0]!.account_type !== expectedType) {
         return apiResponse.badRequest(
           res,
           `Account for '${uiKey}' must be of type '${expectedType}' (got '${rows[0]!.account_type}')`,
         );
       }
+      const type = String(rows[0]!.account_type);
+      changes.push({
+        accountId: accountId as string,
+        accountCode: String(rows[0]!.account_code),
+        from: { accountType: type, accountSubtype: rows[0]!.account_subtype == null ? null : String(rows[0]!.account_subtype) },
+        to: { accountType: type, accountSubtype: subtype },
+      });
+    }
+
+    // Before the first write: a subtype change that would move a line inside a
+    // locked (filed) VAT period into a different box is refused, naming the
+    // account and the period. Nothing has been written, so the 400 commits
+    // nothing.
+    try {
+      await assertAccountChangesKeepVatLocks(companyId, changes);
+    } catch (err) {
+      if (err instanceof VatPeriodLockedError) return apiResponse.badRequest(res, err.message);
+      throw err;
     }
 
     try {

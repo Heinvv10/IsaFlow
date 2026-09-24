@@ -13,6 +13,7 @@ import { sql, withSavepoint } from '@/lib/neon';
 import { log } from '@/lib/logger';
 import { fmtDate } from '@/lib/fmtDate';
 import { getSystemAccountId } from './systemAccountResolver';
+import { assertJournalVatPeriodOpen } from './journalVatLockGuard';
 import { lockAssetTaxBase, writeAssetTaxAccumulation } from './assetTaxAccumulation';
 import {
   calculatePolicyDepreciation,
@@ -113,6 +114,13 @@ async function postAssetDepreciationToGLThrows(
 
   const depExpenseId = await getSystemAccountId('depreciation_expense', companyId);
   const accumDepId = await getSystemAccountId('accumulated_depreciation', companyId);
+  // This INSERT is born posted, so it never meets postJournalEntry's VAT-lock
+  // refusal. It cannot move a VAT figure today — both accounts resolve BY
+  // subtype (depreciation_expense / accumulated_depreciation, never VAT class)
+  // and no vat_type is written — so the guard never refuses here; it holds the
+  // shared VAT-lock key like every other post, and stays correct if either
+  // changes.
+  await assertJournalVatPeriodOpen(companyId, period, [{ glAccountId: depExpenseId }, { glAccountId: accumDepId }]);
 
   const entry = (await sql`
     INSERT INTO gl_journal_entries (

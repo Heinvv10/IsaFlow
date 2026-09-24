@@ -1,0 +1,341 @@
+
+ RUN  v4.1.2 /home/hein/Workspace/IsaFlow/.worktrees/fix-r101
+
+ ❯ tests/integration/r101-sage-customer-import-rerun.int.test.ts (10 tests | 10 failed) 902ms
+     × links the staged row to the invoice already in AR after a reset, and counts it skipped 59ms
+     × two concurrent runs book each pending row once and leave no row failed 55ms
+     × fails a distinct Sage invoice that reuses a number already booked 21ms
+     × fails a row whose number another customer’s invoice holds (the number is unique per company) 57ms
+     × fails, without aborting the run, a row whose number a soft-deleted invoice holds 25ms
+     × fails, without aborting the run, a row whose number a cancelled invoice holds 15ms
+     × does not let a hand-captured invoice of another total absorb Sage invoices under its number 19ms
+     × adopts a hand-captured invoice of the same number, customer and total once, then refuses the next 30ms
+     × fails, not links, a re-pended row whose total no longer matches the invoice 9ms
+     × prefers the invoice that already carries the Sage id over an older one that only shares the number 18ms
+ ❯ tests/integration/r101-sage-customer-import.int.test.ts (9 tests | 9 failed) 907ms
+     × imports a staged invoice end to end and agrees with the staged total 43ms
+     × fails the row rather than inventing a customer when the name matches none 14ms
+     × fails the row when the name matches more than one live customer 24ms
+     × ignores a soft-deleted customer of the same name, and matches one stored with padding 34ms
+     × derives the due date from the customer’s own terms (null days → null) 14ms
+     × derives the due date from the customer’s own terms (45 days → 2026-08-14) 14ms
+     × sets a negative staged total aside as a credit note — not failed, not booked 12ms
+     × fails a row whose total is zero 21ms
+     × leaves another tenant’s pending rows alone and never books them into this company 16ms
+
+⎯⎯⎯⎯⎯⎯ Failed Tests 19 ⎯⎯⎯⎯⎯⎯⎯
+
+ FAIL  tests/integration/r101-sage-customer-import-rerun.int.test.ts > R-101: a re-run does not book the invoice twice > links the staged row to the invoice already in AR after a reset, and counts it skipped
+error: column "sage_invoice_id" does not exist
+ ❯ node_modules/pg/lib/client.js:631:17
+ ❯ LazyQuery.run src/lib/neon.ts:115:19
+    113|       // ORIGINAL cause rather than the bare 25P02 pg would answer wit…
+    114|       assertTxUsable();
+    115|       const res = await ctxClient.query(this.text, this.values);
+       |                   ^
+    116|       return res.rows as T[];
+    117|     }
+ ❯ src/modules/accounting/services/core/sageCustomerImportService.ts:34:27
+ ❯ withSavepoint src/lib/neon.ts:442:20
+ ❯ withRunRecovery src/modules/accounting/services/core/sageMigrationService.ts:104:12
+ ❯ drive tests/integration/r021-sage-supplier-import.helpers.ts:20:19
+ ❯ tests/integration/r101-sage-customer-import-rerun.int.test.ts:52:13
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[1/19]⎯
+
+ FAIL  tests/integration/r101-sage-customer-import-rerun.int.test.ts > R-101: a re-run does not book the invoice twice > two concurrent runs book each pending row once and leave no row failed
+error: column "sage_invoice_id" does not exist
+ ❯ node_modules/pg/lib/client.js:631:17
+ ❯ LazyQuery.run src/lib/neon.ts:115:19
+    113|       // ORIGINAL cause rather than the bare 25P02 pg would answer wit…
+    114|       assertTxUsable();
+    115|       const res = await ctxClient.query(this.text, this.values);
+       |                   ^
+    116|       return res.rows as T[];
+    117|     }
+ ❯ src/modules/accounting/services/core/sageCustomerImportService.ts:34:27
+ ❯ withSavepoint src/lib/neon.ts:442:20
+ ❯ withRunRecovery src/modules/accounting/services/core/sageMigrationService.ts:104:12
+ ❯ drive tests/integration/r021-sage-supplier-import.helpers.ts:20:19
+ ❯ tests/integration/r101-sage-customer-import-rerun.int.test.ts:70:18
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[2/19]⎯
+
+ FAIL  tests/integration/r101-sage-customer-import-rerun.int.test.ts > R-101: a staged row never merges into a different invoice > fails a distinct Sage invoice that reuses a number already booked
+error: column "sage_invoice_id" does not exist
+ ❯ node_modules/pg/lib/client.js:631:17
+ ❯ LazyQuery.run src/lib/neon.ts:115:19
+    113|       // ORIGINAL cause rather than the bare 25P02 pg would answer wit…
+    114|       assertTxUsable();
+    115|       const res = await ctxClient.query(this.text, this.values);
+       |                   ^
+    116|       return res.rows as T[];
+    117|     }
+ ❯ src/modules/accounting/services/core/sageCustomerImportService.ts:34:27
+ ❯ withSavepoint src/lib/neon.ts:442:20
+ ❯ withRunRecovery src/modules/accounting/services/core/sageMigrationService.ts:104:12
+ ❯ drive tests/integration/r021-sage-supplier-import.helpers.ts:20:19
+ ❯ tests/integration/r101-sage-customer-import-rerun.int.test.ts:85:20
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[3/19]⎯
+
+ FAIL  tests/integration/r101-sage-customer-import-rerun.int.test.ts > R-101: a staged row never merges into a different invoice > fails a row whose number another customer’s invoice holds (the number is unique per company)
+error: column "sage_invoice_id" does not exist
+ ❯ node_modules/pg/lib/client.js:631:17
+ ❯ LazyQuery.run src/lib/neon.ts:115:19
+    113|       // ORIGINAL cause rather than the bare 25P02 pg would answer wit…
+    114|       assertTxUsable();
+    115|       const res = await ctxClient.query(this.text, this.values);
+       |                   ^
+    116|       return res.rows as T[];
+    117|     }
+ ❯ src/modules/accounting/services/core/sageCustomerImportService.ts:34:27
+ ❯ withSavepoint src/lib/neon.ts:442:20
+ ❯ withRunRecovery src/modules/accounting/services/core/sageMigrationService.ts:104:12
+ ❯ drive tests/integration/r021-sage-supplier-import.helpers.ts:20:19
+ ❯ tests/integration/r101-sage-customer-import-rerun.int.test.ts:97:20
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[4/19]⎯
+
+ FAIL  tests/integration/r101-sage-customer-import-rerun.int.test.ts > R-101: a staged row never merges into a different invoice > fails, without aborting the run, a row whose number a soft-deleted invoice holds
+ FAIL  tests/integration/r101-sage-customer-import-rerun.int.test.ts > R-101: a staged row never merges into a different invoice > fails, without aborting the run, a row whose number a cancelled invoice holds
+error: column "sage_invoice_id" does not exist
+ ❯ node_modules/pg/lib/client.js:631:17
+ ❯ LazyQuery.run src/lib/neon.ts:115:19
+    113|       // ORIGINAL cause rather than the bare 25P02 pg would answer wit…
+    114|       assertTxUsable();
+    115|       const res = await ctxClient.query(this.text, this.values);
+       |                   ^
+    116|       return res.rows as T[];
+    117|     }
+ ❯ src/modules/accounting/services/core/sageCustomerImportService.ts:34:27
+ ❯ withSavepoint src/lib/neon.ts:442:20
+ ❯ withRunRecovery src/modules/accounting/services/core/sageMigrationService.ts:104:12
+ ❯ drive tests/integration/r021-sage-supplier-import.helpers.ts:20:19
+ ❯ tests/integration/r101-sage-customer-import-rerun.int.test.ts:114:20
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[5/19]⎯
+
+ FAIL  tests/integration/r101-sage-customer-import-rerun.int.test.ts > R-101: a staged row never merges into a different invoice > does not let a hand-captured invoice of another total absorb Sage invoices under its number
+error: column "sage_invoice_id" does not exist
+ ❯ node_modules/pg/lib/client.js:631:17
+ ❯ LazyQuery.run src/lib/neon.ts:115:19
+    113|       // ORIGINAL cause rather than the bare 25P02 pg would answer wit…
+    114|       assertTxUsable();
+    115|       const res = await ctxClient.query(this.text, this.values);
+       |                   ^
+    116|       return res.rows as T[];
+    117|     }
+ ❯ src/modules/accounting/services/core/sageCustomerImportService.ts:34:27
+ ❯ withSavepoint src/lib/neon.ts:442:20
+ ❯ withRunRecovery src/modules/accounting/services/core/sageMigrationService.ts:104:12
+ ❯ drive tests/integration/r021-sage-supplier-import.helpers.ts:20:19
+ ❯ tests/integration/r101-sage-customer-import-rerun.int.test.ts:126:20
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[6/19]⎯
+
+ FAIL  tests/integration/r101-sage-customer-import-rerun.int.test.ts > R-101: a staged row never merges into a different invoice > adopts a hand-captured invoice of the same number, customer and total once, then refuses the next
+error: column "sage_invoice_id" does not exist
+ ❯ node_modules/pg/lib/client.js:631:17
+ ❯ LazyQuery.run src/lib/neon.ts:115:19
+    113|       // ORIGINAL cause rather than the bare 25P02 pg would answer wit…
+    114|       assertTxUsable();
+    115|       const res = await ctxClient.query(this.text, this.values);
+       |                   ^
+    116|       return res.rows as T[];
+    117|     }
+ ❯ src/modules/accounting/services/core/sageCustomerImportService.ts:34:27
+ ❯ withSavepoint src/lib/neon.ts:442:20
+ ❯ withRunRecovery src/modules/accounting/services/core/sageMigrationService.ts:104:12
+ ❯ drive tests/integration/r021-sage-supplier-import.helpers.ts:20:19
+ ❯ tests/integration/r101-sage-customer-import-rerun.int.test.ts:138:20
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[7/19]⎯
+
+ FAIL  tests/integration/r101-sage-customer-import-rerun.int.test.ts > R-101: a staged row never merges into a different invoice > fails, not links, a re-pended row whose total no longer matches the invoice
+error: column "sage_invoice_id" does not exist
+ ❯ node_modules/pg/lib/client.js:631:17
+ ❯ LazyQuery.run src/lib/neon.ts:115:19
+    113|       // ORIGINAL cause rather than the bare 25P02 pg would answer wit…
+    114|       assertTxUsable();
+    115|       const res = await ctxClient.query(this.text, this.values);
+       |                   ^
+    116|       return res.rows as T[];
+    117|     }
+ ❯ src/modules/accounting/services/core/sageCustomerImportService.ts:34:27
+ ❯ withSavepoint src/lib/neon.ts:442:20
+ ❯ withRunRecovery src/modules/accounting/services/core/sageMigrationService.ts:104:12
+ ❯ drive tests/integration/r021-sage-supplier-import.helpers.ts:20:19
+ ❯ tests/integration/r101-sage-customer-import-rerun.int.test.ts:151:5
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[8/19]⎯
+
+ FAIL  tests/integration/r101-sage-customer-import-rerun.int.test.ts > R-101: a staged row never merges into a different invoice > prefers the invoice that already carries the Sage id over an older one that only shares the number
+error: column "sage_invoice_id" does not exist
+ ❯ node_modules/pg/lib/client.js:631:17
+ ❯ LazyQuery.run src/lib/neon.ts:115:19
+    113|       // ORIGINAL cause rather than the bare 25P02 pg would answer wit…
+    114|       assertTxUsable();
+    115|       const res = await ctxClient.query(this.text, this.values);
+       |                   ^
+    116|       return res.rows as T[];
+    117|     }
+ ❯ src/modules/accounting/services/core/sageCustomerImportService.ts:34:27
+ ❯ withSavepoint src/lib/neon.ts:442:20
+ ❯ withRunRecovery src/modules/accounting/services/core/sageMigrationService.ts:104:12
+ ❯ drive tests/integration/r021-sage-supplier-import.helpers.ts:20:19
+ ❯ tests/integration/r101-sage-customer-import-rerun.int.test.ts:165:5
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[9/19]⎯
+
+ FAIL  tests/integration/r101-sage-customer-import.int.test.ts > R-101: the importer reads the columns its source table actually has > imports a staged invoice end to end and agrees with the staged total
+error: column "sage_invoice_id" does not exist
+ ❯ node_modules/pg/lib/client.js:631:17
+ ❯ LazyQuery.run src/lib/neon.ts:115:19
+    113|       // ORIGINAL cause rather than the bare 25P02 pg would answer wit…
+    114|       assertTxUsable();
+    115|       const res = await ctxClient.query(this.text, this.values);
+       |                   ^
+    116|       return res.rows as T[];
+    117|     }
+ ❯ src/modules/accounting/services/core/sageCustomerImportService.ts:34:27
+ ❯ withSavepoint src/lib/neon.ts:442:20
+ ❯ withRunRecovery src/modules/accounting/services/core/sageMigrationService.ts:104:12
+ ❯ drive tests/integration/r021-sage-supplier-import.helpers.ts:20:19
+ ❯ tests/integration/r101-sage-customer-import.int.test.ts:52:20
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[10/19]⎯
+
+ FAIL  tests/integration/r101-sage-customer-import.int.test.ts > R-101: the importer reads the columns its source table actually has > fails the row rather than inventing a customer when the name matches none
+error: column "sage_invoice_id" does not exist
+ ❯ node_modules/pg/lib/client.js:631:17
+ ❯ LazyQuery.run src/lib/neon.ts:115:19
+    113|       // ORIGINAL cause rather than the bare 25P02 pg would answer wit…
+    114|       assertTxUsable();
+    115|       const res = await ctxClient.query(this.text, this.values);
+       |                   ^
+    116|       return res.rows as T[];
+    117|     }
+ ❯ src/modules/accounting/services/core/sageCustomerImportService.ts:34:27
+ ❯ withSavepoint src/lib/neon.ts:442:20
+ ❯ withRunRecovery src/modules/accounting/services/core/sageMigrationService.ts:104:12
+ ❯ drive tests/integration/r021-sage-supplier-import.helpers.ts:20:19
+ ❯ tests/integration/r101-sage-customer-import.int.test.ts:88:20
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[11/19]⎯
+
+ FAIL  tests/integration/r101-sage-customer-import.int.test.ts > R-101: the importer reads the columns its source table actually has > fails the row when the name matches more than one live customer
+error: column "sage_invoice_id" does not exist
+ ❯ node_modules/pg/lib/client.js:631:17
+ ❯ LazyQuery.run src/lib/neon.ts:115:19
+    113|       // ORIGINAL cause rather than the bare 25P02 pg would answer wit…
+    114|       assertTxUsable();
+    115|       const res = await ctxClient.query(this.text, this.values);
+       |                   ^
+    116|       return res.rows as T[];
+    117|     }
+ ❯ src/modules/accounting/services/core/sageCustomerImportService.ts:34:27
+ ❯ withSavepoint src/lib/neon.ts:442:20
+ ❯ withRunRecovery src/modules/accounting/services/core/sageMigrationService.ts:104:12
+ ❯ drive tests/integration/r021-sage-supplier-import.helpers.ts:20:19
+ ❯ tests/integration/r101-sage-customer-import.int.test.ts:102:20
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[12/19]⎯
+
+ FAIL  tests/integration/r101-sage-customer-import.int.test.ts > R-101: the importer reads the columns its source table actually has > ignores a soft-deleted customer of the same name, and matches one stored with padding
+error: column "sage_invoice_id" does not exist
+ ❯ node_modules/pg/lib/client.js:631:17
+ ❯ LazyQuery.run src/lib/neon.ts:115:19
+    113|       // ORIGINAL cause rather than the bare 25P02 pg would answer wit…
+    114|       assertTxUsable();
+    115|       const res = await ctxClient.query(this.text, this.values);
+       |                   ^
+    116|       return res.rows as T[];
+    117|     }
+ ❯ src/modules/accounting/services/core/sageCustomerImportService.ts:34:27
+ ❯ withSavepoint src/lib/neon.ts:442:20
+ ❯ withRunRecovery src/modules/accounting/services/core/sageMigrationService.ts:104:12
+ ❯ drive tests/integration/r021-sage-supplier-import.helpers.ts:20:19
+ ❯ tests/integration/r101-sage-customer-import.int.test.ts:113:13
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[13/19]⎯
+
+ FAIL  tests/integration/r101-sage-customer-import.int.test.ts > R-101: the importer reads the columns its source table actually has > derives the due date from the customer’s own terms (null days → null)
+ FAIL  tests/integration/r101-sage-customer-import.int.test.ts > R-101: the importer reads the columns its source table actually has > derives the due date from the customer’s own terms (45 days → 2026-08-14)
+error: column "sage_invoice_id" does not exist
+ ❯ node_modules/pg/lib/client.js:631:17
+ ❯ LazyQuery.run src/lib/neon.ts:115:19
+    113|       // ORIGINAL cause rather than the bare 25P02 pg would answer wit…
+    114|       assertTxUsable();
+    115|       const res = await ctxClient.query(this.text, this.values);
+       |                   ^
+    116|       return res.rows as T[];
+    117|     }
+ ❯ src/modules/accounting/services/core/sageCustomerImportService.ts:34:27
+ ❯ withSavepoint src/lib/neon.ts:442:20
+ ❯ withRunRecovery src/modules/accounting/services/core/sageMigrationService.ts:104:12
+ ❯ drive tests/integration/r021-sage-supplier-import.helpers.ts:20:19
+ ❯ tests/integration/r101-sage-customer-import.int.test.ts:125:15
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[14/19]⎯
+
+ FAIL  tests/integration/r101-sage-customer-import.int.test.ts > R-101: the importer reads the columns its source table actually has > sets a negative staged total aside as a credit note — not failed, not booked
+error: column "sage_invoice_id" does not exist
+ ❯ node_modules/pg/lib/client.js:631:17
+ ❯ LazyQuery.run src/lib/neon.ts:115:19
+    113|       // ORIGINAL cause rather than the bare 25P02 pg would answer wit…
+    114|       assertTxUsable();
+    115|       const res = await ctxClient.query(this.text, this.values);
+       |                   ^
+    116|       return res.rows as T[];
+    117|     }
+ ❯ src/modules/accounting/services/core/sageCustomerImportService.ts:34:27
+ ❯ withSavepoint src/lib/neon.ts:442:20
+ ❯ withRunRecovery src/modules/accounting/services/core/sageMigrationService.ts:104:12
+ ❯ drive tests/integration/r021-sage-supplier-import.helpers.ts:20:19
+ ❯ tests/integration/r101-sage-customer-import.int.test.ts:134:20
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[15/19]⎯
+
+ FAIL  tests/integration/r101-sage-customer-import.int.test.ts > R-101: the importer reads the columns its source table actually has > fails a row whose total is zero
+error: column "sage_invoice_id" does not exist
+ ❯ node_modules/pg/lib/client.js:631:17
+ ❯ LazyQuery.run src/lib/neon.ts:115:19
+    113|       // ORIGINAL cause rather than the bare 25P02 pg would answer wit…
+    114|       assertTxUsable();
+    115|       const res = await ctxClient.query(this.text, this.values);
+       |                   ^
+    116|       return res.rows as T[];
+    117|     }
+ ❯ src/modules/accounting/services/core/sageCustomerImportService.ts:34:27
+ ❯ withSavepoint src/lib/neon.ts:442:20
+ ❯ withRunRecovery src/modules/accounting/services/core/sageMigrationService.ts:104:12
+ ❯ drive tests/integration/r021-sage-supplier-import.helpers.ts:20:19
+ ❯ tests/integration/r101-sage-customer-import.int.test.ts:148:20
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[16/19]⎯
+
+ FAIL  tests/integration/r101-sage-customer-import.int.test.ts > R-101: the importer reads the columns its source table actually has > leaves another tenant’s pending rows alone and never books them into this company
+error: column "sage_invoice_id" does not exist
+ ❯ node_modules/pg/lib/client.js:631:17
+ ❯ LazyQuery.run src/lib/neon.ts:115:19
+    113|       // ORIGINAL cause rather than the bare 25P02 pg would answer wit…
+    114|       assertTxUsable();
+    115|       const res = await ctxClient.query(this.text, this.values);
+       |                   ^
+    116|       return res.rows as T[];
+    117|     }
+ ❯ src/modules/accounting/services/core/sageCustomerImportService.ts:34:27
+ ❯ withSavepoint src/lib/neon.ts:442:20
+ ❯ withRunRecovery src/modules/accounting/services/core/sageMigrationService.ts:104:12
+ ❯ drive tests/integration/r021-sage-supplier-import.helpers.ts:20:19
+ ❯ tests/integration/r101-sage-customer-import.int.test.ts:157:5
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[17/19]⎯
+
+
+ Test Files  2 failed (2)
+      Tests  19 failed (19)
+   Start at  04:25:49
+   Duration  2.09s (transform 1.18s, setup 0ms, import 1.79s, tests 1.81s, environment 4ms)
+

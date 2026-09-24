@@ -428,7 +428,7 @@ describe('reverse_bank_allocation', () => {
   });
 
   it('reverses using the tenant from ctx', async () => {
-    vi.mocked(reverseReconciledTransaction).mockResolvedValue(undefined);
+    vi.mocked(reverseReconciledTransaction).mockResolvedValue({ invoicesReopened: 0, amountUnapplied: 0, paymentsCancelled: 0 });
 
     const res = await reverseBankAllocationTool.handler(
       { transaction_id: '045ef594-d81d-4f21-84d6-1151ed71260d', idempotency_key: 'k9' }, ctx,
@@ -447,7 +447,7 @@ describe('reverse_bank_allocation', () => {
   // mechanism the whole attribution safety model leans on would be the one
   // operation the review surface cannot see.
   it('stamps the contra journal with the reversal tool, not the human default', async () => {
-    vi.mocked(reverseReconciledTransaction).mockResolvedValue(undefined);
+    vi.mocked(reverseReconciledTransaction).mockResolvedValue({ invoicesReopened: 0, amountUnapplied: 0, paymentsCancelled: 0 });
 
     await reverseBankAllocationTool.handler(
       { transaction_id: '045ef594-d81d-4f21-84d6-1151ed71260d', idempotency_key: 'k9' }, ctx,

@@ -46,3 +46,16 @@ export class RecurringTemplateTotalsMismatchError extends Error {
     this.name = 'RecurringTemplateTotalsMismatchError';
   }
 }
+
+/**
+ * A bill template's line names an account a bill line may not
+ * (ap/billLineAccountGuard.ts). Raised before the first INSERT of the run, so
+ * the route may answer 4xx: the operator has to recode the template.
+ */
+export class RecurringTemplateLineAccountError extends Error {
+  readonly code = 'RECURRING_TEMPLATE_LINE_ACCOUNT';
+  constructor(public readonly templateId: string, message: string) {
+    super(message);
+    this.name = 'RecurringTemplateLineAccountError';
+  }
+}

@@ -25,6 +25,7 @@ import {
   listCreditNoteAllocations,
   parseCreditNoteAutoApply,
 } from '@/modules/accounting/services/shared/creditNoteFifo';
+import { VatPeriodLockedError } from '@/modules/accounting/services/gl/journalVatLockGuard';
 
 async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse) {
   const { companyId } = req as CompanyAuthedRequest;
@@ -157,6 +158,13 @@ async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse) {
 
       return apiResponse.badRequest(res, `Unknown action: ${action}. Valid: post, reverse`);
     } catch (err) {
+      // 'reverse' (cancelCreditNote): the refusal comes from dating the
+      // reversal (resolveReversalDateDetailed) BEFORE reverseJournalEntry
+      // claims anything, and the cancel's only earlier statements are the
+      // credit-note row lock and reads — so this 4xx commits nothing. 'post'
+      // (approveCreditNote) refuses in createJournalEntry before its draft,
+      // after only reads of the note.
+      if (err instanceof VatPeriodLockedError) return apiResponse.badRequest(res, err.message);
       log.error('supplier-credit-notes PATCH failed', { error: err }, 'accounting-api');
       return apiResponse.internalError(res, err, 'Failed to update supplier credit note');
     }

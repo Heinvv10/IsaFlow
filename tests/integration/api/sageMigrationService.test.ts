@@ -57,7 +57,7 @@ describe('BL-43: startRun persists company_id', () => {
   it('B: getMigrationStatus for company A sees company A run', async () => {
     const runId = await startRun('invoice_import', USER_ID, COMPANY_A);
     createdRunIds.push(runId);
-    await completeRun(runId, 0, 0, 0, 0);
+    await completeRun(runId, COMPANY_A, 0, 0, 0, 0);
 
     const status = await getMigrationStatus(COMPANY_A);
     const found = status.lastRuns.some((r) => r.id === runId);
@@ -67,7 +67,7 @@ describe('BL-43: startRun persists company_id', () => {
   it('C: getMigrationStatus for company B does NOT see company A run', async () => {
     const runId = await startRun('customer_invoice_import', USER_ID, COMPANY_A);
     createdRunIds.push(runId);
-    await completeRun(runId, 0, 0, 0, 0);
+    await completeRun(runId, COMPANY_A, 0, 0, 0, 0);
 
     const status = await getMigrationStatus(COMPANY_B);
     const found = status.lastRuns.some((r) => r.id === runId);

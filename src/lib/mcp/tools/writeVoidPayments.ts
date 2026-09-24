@@ -103,6 +103,8 @@ function voidTool(
         amount_unapplied: result.amountUnapplied,
         journal_entry_id: result.journalEntryId,
         bank_transaction_id: result.bankTransactionId,
+        // Non-null when the contra was dated past a locked (filed) VAT period.
+        reversal_date_roll: result.vatLockRoll,
       });
     },
   };

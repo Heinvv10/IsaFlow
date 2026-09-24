@@ -14,6 +14,7 @@ import { createSupplierInvoice } from '@/modules/accounting/services/ap/supplier
 import { createJournalEntry } from '@/modules/accounting/services/gl/journalEntryCrudService';
 import { getSystemAccount } from '@/modules/accounting/services/gl/systemAccountResolver';
 import { assertNoInactiveAccountLines } from '@/modules/accounting/services/gl/journalEntryPostingService';
+import { assertJournalVatPeriodOpen } from '@/modules/accounting/services/gl/journalVatLockGuard';
 import { postCustomerInvoiceToGL } from '@/modules/accounting/services/ar/customerPaymentAllocationService';
 import { recomputeInvoiceStatus } from '@/modules/accounting/services/ar/invoiceStatusRecompute';
 import type {
@@ -252,6 +253,10 @@ export async function commitAPInvoice(
   if ((inv.taxAmount || 0) > 0) lines.push({ glAccountId: vatAccount.id, debit: inv.taxAmount, credit: 0, description: `VAT on ${inv.invoiceNumber}` });
   lines.push({ glAccountId: apAccount.id, debit: 0, credit: inv.totalAmount, description: `AP: ${inv.invoiceNumber}` });
 
+  // A closed fiscal period is waived for a migration; a FILED VAT return is
+  // not. The orchestrator runs each row in its own savepoint, so this refusal
+  // takes the row's supplier_invoices INSERT above back with it.
+  await assertJournalVatPeriodOpen(companyId, inv.invoiceDate, lines);
   const je = await createJournalEntry(companyId, {
     entryDate: inv.invoiceDate, description: `Supplier invoice ${inv.invoiceNumber}`,
     source: 'auto_supplier_invoice', lines,

@@ -149,9 +149,11 @@ describeIfDb('cancel_supplier_invoice — plan and cancel over a real ledger', (
     expect(await refusal(plan(bill))).toContain(payNumber);
   });
 
-  /** Ledger review HIGH: the contra would change a VAT201 already filed. Only
-   *  a journal that carries VAT can do that — a zero-VAT bill is not refused. */
-  it('refuses a VAT-carrying contra into a locked VAT period, and allows a zero-VAT one', async () => {
+  /** A contra dated into a filed VAT period would change a VAT201 already
+   *  filed. Only a journal that carries VAT can do that, and a defaulted
+   *  reversal date ROLLS FORWARD past the lock (it is not refused) — the plan
+   *  previews the rolled date and says why. A zero-VAT bill keeps its date. */
+  it('previews a VAT-carrying contra rolled past a locked VAT period, and a zero-VAT one on its own date', async () => {
     const vatInput = await accountId(fx, 'vat_input');
     const { bill: withVat, je } = await seedPostedBill('V1', 100, '2026-06-10');
     await sql`
@@ -164,16 +166,30 @@ describeIfDb('cancel_supplier_invoice — plan and cancel over a real ledger', (
         (company_id, period_start, period_end, output_tax, input_tax, net_vat, posted_through, locked_by)
       VALUES (${fx.companyId}::UUID, '2026-06-01', '2026-06-30', 0, 0, 0, '2026-06-30', ${fx.userId}::UUID)`;
     try {
-      expect(await refusal(plan(withVat))).toContain('locked VAT period');
-      expect((await plan(zeroVat)).journal).not.toBeNull();
+      const rolled = (await plan(withVat)).journal!;
+      expect(rolled.reversalDate).toBe('2026-07-01');
+      expect(rolled.vatLockRoll).toMatchObject({ rolledFrom: '2026-06-10', date: '2026-07-01' });
+      expect(rolled.vatLockRoll!.reason).toContain('locked VAT period');
+      const plain = (await plan(zeroVat)).journal!;
+      expect(plain.reversalDate).toBe('2026-06-11');
+      expect(plain.vatLockRoll).toBeNull();
+
+      // The live cancel posts the contra on the date the plan previewed.
+      await inTx(fx, () => cancelSupplierInvoice(fx.companyId, withVat, fx.userId, ACTOR));
+      const contra = ((await sql`
+        SELECT entry_date::TEXT AS d FROM gl_journal_entries
+        WHERE company_id = ${fx.companyId}::UUID AND reversal_of_id = ${je}::UUID`) as Record<string, unknown>[])[0]!;
+      expect(contra.d).toBe('2026-07-01');
     } finally {
       await sql`DELETE FROM vat_period_locks WHERE company_id = ${fx.companyId}::UUID`;
     }
   });
 
-  /** Ledger re-review MEDIUM: getVATReturn still counts the legacy 'tax'
-   *  subtype, so a line there moves a filed figure. A 'no_vat' tag moves none. */
-  it('treats a tax-subtype line as VAT, and a no_vat tag as not VAT', async () => {
+  /** The lock records the VAT201 snapshot (vatBoxBasis), which reads only the
+   *  vat_input / vat_output legs and vat_type-tagged lines — an UNTAGGED
+   *  'tax'-subtype leg is in no box, so its contra keeps its date. A vat_input
+   *  leg rolls; a 'no_vat' tag moves nothing. */
+  it('rolls only what the return recorded: not an untagged tax-subtype leg, not a no_vat tag', async () => {
     const taxAccount = String(((await sql`
       INSERT INTO gl_accounts
         (company_id, account_code, account_name, account_type, account_subtype, normal_balance, is_active)
@@ -191,8 +207,8 @@ describeIfDb('cancel_supplier_invoice — plan and cancel over a real ledger', (
         (company_id, period_start, period_end, output_tax, input_tax, net_vat, posted_through, locked_by)
       VALUES (${fx.companyId}::UUID, '2026-07-01', '2026-07-31', 0, 0, 0, '2026-07-31', ${fx.userId}::UUID)`;
     try {
-      expect(await refusal(plan(onTax))).toContain('locked VAT period');
-      expect((await plan(noVat)).journal).not.toBeNull();
+      expect((await plan(onTax)).journal!.reversalDate).toBe('2026-07-10');
+      expect((await plan(noVat)).journal!.reversalDate).toBe('2026-07-11');
     } finally {
       await sql`DELETE FROM vat_period_locks WHERE company_id = ${fx.companyId}::UUID`;
     }
