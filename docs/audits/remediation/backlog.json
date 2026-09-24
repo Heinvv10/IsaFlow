@@ -12139,14 +12139,14 @@
       "correctedTrigger": "",
       "auditedSha": "",
       "currentSha": "7d708aac1",
-      "status": "fix-in-review",
+      "status": "fixed",
       "dependencies": [],
       "testNames": [
         "tests/integration/r105-expense-claim-source-document.int.test.ts"
       ],
-      "fixCommit": null,
-      "pr": null,
-      "deployedSha": null,
+      "fixCommit": "8c1fb9986",
+      "pr": "503",
+      "deployedSha": "8c1fb9986",
       "canonicalItem": null,
       "reportedSeverity": "",
       "branch": "fix/r105-expense-claim-source-document-20260924",
@@ -12167,7 +12167,7 @@
       "title": "POST /api/accounting/expense-claims takes lines[].sourceDocumentId from the body with no ownership check and no posting claim: a slip already posted through capture can go on a manual claim (a second input-VAT claim), and a foreign tenant's captured_documents id may be accepted because FK checks bypass RLS",
       "severity": "high",
       "source": "Found by fix-r088a while fixing R-088 (read, not measured).",
-      "processNotes": "Registered 2026-09-14 by session 71c707d0 (wave R-1). 2026-09-24: reproduced (7/9 red on master) and fixed: claimLineSourceDocuments takes the posting claim on every line's slip in one all-or-nothing, company-scoped statement before the first write; line and draft-claim deletes release. 10/10 mutations red. Prod census SQL in fix.md."
+      "processNotes": "Registered 2026-09-14 by session 71c707d0 (wave R-1). 2026-09-24: reproduced (7/9 red on master) and fixed: claimLineSourceDocuments takes the posting claim on every line's slip in one all-or-nothing, company-scoped statement before the first write; line and draft-claim deletes release. 10/10 mutations red. Prod census SQL in fix.md. 2026-09-24: merged (PR #503, 8c1fb9986) and deployed to prod in df5e2dfd6 at 20:19 SAST by a peer session's deploy; the live bundle carries the R-105 refusal string. Open: R-124 (a released slip keeps status=matched)."
     },
     {
       "claim": "",
