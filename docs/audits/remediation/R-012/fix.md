@@ -76,6 +76,12 @@ The claim that "every route that answers a closed period with a 400 answers this
 | General LOW: `toolHelpers.ts` 310 → 311 lines. | Already over the cap on master; one line added. Not split here. | — |
 | adv. hypothesis: `migration/opening-balances` has no catch, so a future-dated opening-balance journal in a closed period would 500. | Not fixed. There is no repro, and the reviewer judged the shape unrealistic; recorded here. | — |
 
+## Review round 4 (general)
+| Finding | Fix | Proof |
+|---|---|---|
+| MEDIUM: the real `isOutsideAutoCreateWindow`, the only thing keeping a typo'd-year entry reversible, ran in no test that fails if it breaks. The unit test mocks it; forcing it to false passed every suite. | DB-backed case: a posted 9999-12-31 entry with a NULL period reverses by default, dated today. | MOUT goes red. |
+| LOW: when the alignment is unresolvable the function answers false, so even a typo'd year is refused. | Kept as a deliberate fail-closed and documented in the docstring: `createFiscalYear` needs the same alignment, so the remedy is the same. | — |
+
 ## Historical-data impact
 Rows written before this change can already have the shape: a reversal dated before its original. Read-only, and not run on production:
 ```sql

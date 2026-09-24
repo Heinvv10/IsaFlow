@@ -136,4 +136,11 @@ describeIfDb('R-012 round 2: in-window gaps, and the invoice-cancel message', ()
     expect(state.statusCode).toBe(400);
     expect(String(state.body.error?.message)).toMatch(/would precede it/);
   });
+
+  it('still reverses a typo\'d-year entry (9999, NULL period) by default, dated today — the real isOutsideAutoCreateWindow', async () => {
+    // Today is in the open period of the current layout; 9999 is outside every window.
+    const je = await postedJournal('9999-12-31');
+    const r = await inTx(fx, () => reverseJournalEntry(fx.companyId, je, fx.userId));
+    expect(fmtDate(r.entryDate)).toBe(day(0));
+  });
 });
