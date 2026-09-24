@@ -28,6 +28,7 @@ import { lockBankTransactionForUpdate } from '../bank/bankTxLock';
 import { unmatchTransaction } from '../bank/bankTxStatusMutations';
 import { ReconciledCashError, reconciliationLockOf, refuseLockedCash } from '../bank/reconciledCash';
 import { resolveReversalDate } from '../gl/journalEntryReversalDate';
+import { loadJournalVatLines } from '../gl/journalVatLockGuard';
 import { getPeriodStatusForDate } from '../gl/periodStatusService';
 import { SupplierPaymentRefusal } from './supplierPaymentRefusal';
 
@@ -86,7 +87,11 @@ export async function lockBankLegOf(companyId: string, journalId: string, label:
   }
   // The date exactly as `reverseJournalEntry` will choose it: the original's if
   // that period is open, otherwise today. Closed or missing → 400, pre-write.
-  const reversalDate = await resolveReversalDate(companyId, fmtDate(je[0].entry_date), undefined);
+  // With the lines: a VAT-carrying journal whose default date is in a locked
+  // VAT period rolls forward here exactly as it will in reverseJournalEntry,
+  // and refuses pre-write when nothing up to today can take it.
+  const reversalDate = await resolveReversalDate(
+    companyId, fmtDate(je[0].entry_date), undefined, await loadJournalVatLines(companyId, journalId));
   if ((await getPeriodStatusForDate(companyId, reversalDate)) !== 'open') {
     throw new SupplierPaymentRefusal(`The reversal would be dated ${reversalDate}, which is not in an open `
       + 'fiscal period — re-open it or create the fiscal year first.');

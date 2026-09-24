@@ -23,6 +23,10 @@ import {
   getCreditNoteById,
 } from '@/modules/accounting/services/ar/creditNoteService';
 import { validateSystemAccounts } from '@/modules/accounting/services/gl/systemAccountResolver';
+import { getJournalEntryById } from '@/modules/accounting/services/gl/journalEntryService';
+import { resolveReversalDateDetailed, type VatLockRoll } from '@/modules/accounting/services/gl/journalEntryReversalDate';
+import { VatPeriodLockedError } from '@/modules/accounting/services/gl/journalVatLockGuard';
+import { fmtDate } from '@/lib/fmtDate';
 import { mcpPostingOpts } from '../mcpActor';
 import {
   CREDIT_NOTE_AUTO_APPLY,
@@ -167,6 +171,21 @@ export const cancelCreditNoteTool: McpTool = {
       return toolError(`Cannot cancel credit note with status: ${note.status}`);
     }
 
+    // Also from a read: the date the reversal will carry. reverseJournalEntry
+    // resolves it the same way, so this is the roll past a locked (filed) VAT
+    // period it will make — or the refusal it would raise mid-write when no
+    // date up to today can take the contra.
+    let roll: VatLockRoll | null = null;
+    const je = note.glJournalEntryId ? await getJournalEntryById(ctx.companyId, note.glJournalEntryId) : null;
+    if (je && je.status === 'posted' && !je.reversedAt && je.lines && je.lines.length > 0) {
+      try {
+        roll = (await resolveReversalDateDetailed(ctx.companyId, fmtDate(je.entryDate), undefined, je.lines)).vatLockRoll;
+      } catch (err) {
+        if (err instanceof VatPeriodLockedError) return toolError(err.message);
+        throw err;
+      }
+    }
+
     const updated = await cancelCreditNote(
       ctx.companyId,
       id,
@@ -180,6 +199,8 @@ export const cancelCreditNoteTool: McpTool = {
       credit_note_number: updated.creditNoteNumber,
       status: updated.status,
       total_amount: updated.totalAmount,
+      // Non-null when the reversal was dated past a locked (filed) VAT period.
+      reversal_date_roll: roll,
     });
   },
 };

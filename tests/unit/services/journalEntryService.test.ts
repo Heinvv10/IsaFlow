@@ -9,6 +9,19 @@
 
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 
+// The VAT-lock guard runs its own queries (advisory lock, active-lock read,
+// account subtypes), which would shift this file's positional sql mock. It is
+// exercised against a real ledger in tests/integration/vat-period-lock-*.int.test.ts;
+// here it is a no-op, and the error class stays real.
+vi.mock('@/modules/accounting/services/gl/journalVatLockGuard', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('@/modules/accounting/services/gl/journalVatLockGuard')>()),
+  assertJournalVatPeriodOpen: vi.fn(async () => undefined),
+  assertJournalDateOutsideVatLock: vi.fn(async () => undefined),
+  takeVatLockShared: vi.fn(async () => undefined),
+  findActiveVatLock: vi.fn(async () => null),
+  journalMovesVatFigure: vi.fn(async () => false),
+  loadJournalVatLines: vi.fn(async () => []),
+}));
 vi.mock('@/lib/neon', () => {
   const sqlMock = Object.assign(vi.fn(), { transaction: vi.fn() });
   return {
@@ -449,7 +462,11 @@ describe('createJournalEntry', () => {
 describe('postJournalEntry', () => {
   beforeEach(() => vi.clearAllMocks());
 
+  // postJournalEntry locks the header FOR UPDATE before it reads anything.
+  const mockHeaderLock = () => vi.mocked(sql).mockResolvedValueOnce([{ id: ENTRY_ID }] as never);
+
   function mockGetEntryById(status = 'draft') {
+    mockHeaderLock();
     // getJournalEntryById: entry query
     vi.mocked(sql).mockResolvedValueOnce([makeEntryRow({ status })] as never);
     // getJournalEntryById: lines query
@@ -475,6 +492,7 @@ describe('postJournalEntry', () => {
   });
 
   it('throws when entry does not exist', async () => {
+    mockHeaderLock();
     // getJournalEntryById returns null (empty rows)
     vi.mocked(sql).mockResolvedValueOnce([] as never);
 

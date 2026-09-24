@@ -27,6 +27,7 @@ import { ParentAccountError, assertParentUsable } from './accountParentRules';
 import { clearSystemAccountCache } from './systemAccountResolver';
 import { getAccountById } from './chartOfAccountsService';
 import { isBankSubtype } from './accountSubtypes';
+import { findLockedReclassification, lockedReclassMessage } from './vatLockLineClassification';
 
 export interface ReclassifyAccountInput {
   /** `undefined` leaves it alone; `null` clears it. */
@@ -198,6 +199,17 @@ export async function reclassifyAccount(
     assertSubtypeAllowed(account, next);
     if (isBankSubtype(account.account_subtype) && !isBankSubtype(next)) {
       await assertBankSubtypeRemovable(companyId, account);
+    }
+    // The filed VAT201 classifies every posted line by its account's subtype:
+    // a new subtype can move a locked line into a different box without any
+    // posting. Refused only when one actually would move (vatLockLineClassification).
+    const vatLock = await findLockedReclassification(companyId, [{
+      accountId: account.id, accountCode: account.account_code,
+      from: { accountType: account.account_type, accountSubtype: account.account_subtype },
+      to: { accountType: account.account_type, accountSubtype: next },
+    }]);
+    if (vatLock) {
+      throw new ReclassifyError(lockedReclassMessage(vatLock, `the change to ${next ?? 'no subtype'}`));
     }
   }
 

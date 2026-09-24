@@ -182,7 +182,7 @@ export const reverseBankAllocationTool: McpTool = {
     // model it depends on.
     //
     // No try/catch: a mid-write failure must reach the registry's savepoint.
-    await reverseReconciledTransaction(
+    const unwound = await reverseReconciledTransaction(
       ctx.companyId,                                              // tenant from ctx ONLY
       txId,
       ctx.userId,
@@ -194,6 +194,7 @@ export const reverseBankAllocationTool: McpTool = {
         ...(reversalDate === undefined ? {} : { reversalDate }),
       },
     );
-    return ok({ transaction_id: txId, reversed: true });
+    // reversal_date_roll: non-null when the contra was dated past a locked VAT period.
+    return ok({ transaction_id: txId, reversed: true, reversal_date_roll: unwound.vatLockRoll ?? null });
   },
 };

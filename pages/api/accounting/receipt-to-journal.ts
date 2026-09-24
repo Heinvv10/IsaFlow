@@ -40,6 +40,7 @@ import {
 } from '@/modules/accounting/services/gl/inputVatDenial';
 import { validateJournalEntry } from '@/modules/accounting/utils/doubleEntry';
 import type { ExtractedDocument } from '@/modules/accounting/types/documentCapture.types';
+import { VatPeriodLockedError, assertJournalVatPeriodOpen } from '@/modules/accounting/services/gl/journalVatLockGuard';
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 type Row = Record<string, any>;
@@ -215,6 +216,19 @@ async function handler(req: CompanyAuthedRequest, res: NextApiResponse) {
   //
   // This is the last point at which a 4xx is safe — `withAuth` COMMITs on 4xx,
   // and a refusal here has written nothing because the UPDATE matched no row.
+  // A receipt that moves a VAT figure into a locked (filed) VAT period can
+  // never post; createJournalEntry would refuse it, but only AFTER the claim
+  // below — the route's first write — so its 500 would roll the claim back with
+  // no reason shown. Refused here instead, while nothing has been written, as a
+  // 400 the caller can act on. Only THIS refusal is caught: anything thrown
+  // after the claim still propagates and rolls back.
+  try {
+    await assertJournalVatPeriodOpen(companyId, journalInput.entryDate, postableLines);
+  } catch (err) {
+    if (err instanceof VatPeriodLockedError) return apiResponse.badRequest(res, err.message);
+    throw err;
+  }
+
   const refusal = await claimCapturedDocumentForPosting(companyId, documentId);
   if (refusal) {
     return apiResponse.badRequest(res, CAPTURED_DOCUMENT_REFUSAL_MESSAGE[refusal]);

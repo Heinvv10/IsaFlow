@@ -7,17 +7,16 @@
  * a failure after the contra posted, so the MCP tool asks this first and calls
  * the cancel with no catch. Every check here is one the cancel makes (or one
  * whose absence would leave a dangling record behind it), and the preview's
- * date comes from the same `resolveReversalDate` the reversal uses.
+ * date comes from the same `resolveReversalDateDetailed` the reversal uses —
+ * including its roll past a locked VAT period.
  */
 import { sql } from '@/lib/neon';
 import type { DbRow } from '@/lib/neon';
 import { fmtDate } from '@/lib/fmtDate';
 import { getJournalEntryById } from '../gl/journalEntryService';
-import { resolveReversalDate } from '../gl/journalEntryReversalDate';
-import { isVatPeriodLocked } from '../reports/vatPeriodLockService';
+import { resolveReversalDateDetailed, type VatLockRoll } from '../gl/journalEntryReversalDate';
 import { FIFO_ELIGIBLE_STATUSES } from '../ar/invoiceStatusRecompute';
 import { lockSupplierInvoiceForUpdate } from './supplierInvoiceLock';
-import { VAT_RETURN_SUBTYPES } from '../gl/reclassification/planGuards';
 
 /** A refusal whose message is safe to show the caller. */
 export class SupplierInvoiceCancelRefusal extends Error {
@@ -45,6 +44,8 @@ export interface SupplierInvoiceCancelPlan {
     id: string;
     entryNumber: string;
     reversalDate: string;
+    /** Non-null when a locked (filed) VAT period moved the default date forward, and why. */
+    vatLockRoll: VatLockRoll | null;
     /** The CONTRA's lines: the original's debits and credits swapped. */
     lines: CancelPreviewLine[];
   } | null;
@@ -170,22 +171,20 @@ export async function planSupplierInvoiceCancel(
       + 'Reconcile it by hand.',
     );
   }
-  const reversalDate = await resolveReversalDate(companyId, fmtDate(entry.entryDate), undefined);
-  // A contra inside a locked VAT period changes a return already filed — but
-  // only if it carries VAT. A zero-VAT bill's contra moves no VAT201 figure.
-  if (await carriesVat(companyId, entry.lines) && await isVatPeriodLocked(companyId, reversalDate)) {
-    throw new SupplierInvoiceCancelRefusal(
-      `Cancelling supplier invoice ${number} would post its reversal on ${reversalDate}, inside a `
-      + 'locked VAT period — it would change a VAT201 already filed. Unlock the period, or reverse '
-      + 'the journal with reverse_journal_entry on a date in an open VAT period, then cancel.',
-    );
-  }
+  // With the lines: a contra whose default date is inside a locked VAT period
+  // and that moves a VAT figure is dated FORWARD past the lock (the ruling for
+  // reversals), exactly as reverseJournalEntry will date it — so the preview
+  // shows the rolled date and why. Only when no date up to today can take it
+  // does this refuse (VatPeriodLockedError, a refusal the MCP boundary shows).
+  const { date: reversalDate, vatLockRoll } = await resolveReversalDateDetailed(
+    companyId, fmtDate(entry.entryDate), undefined, entry.lines);
   return {
     ...base,
     journal: {
       id: entry.id,
       entryNumber: entry.entryNumber,
       reversalDate,
+      vatLockRoll,
       lines: entry.lines.map((l) => ({
         accountId: l.glAccountId,
         accountCode: l.accountCode ?? '',
@@ -195,25 +194,4 @@ export async function planSupplierInvoiceCancel(
       })),
     },
   };
-}
-
-/**
- * Does this journal move a VAT-return figure? A line on an account whose
- * subtype the VAT return counts — the ONE shared set, VAT_RETURN_SUBTYPES,
- * which still includes the legacy 'tax' leg because getVATReturn counts it —
- * or a line tagged with a VAT type other than 'no_vat' (the box basis
- * excludes that tag).
- */
-async function carriesVat(
-  companyId: string,
-  lines: readonly { glAccountId: string; vatType?: string | null }[],
-): Promise<boolean> {
-  if (lines.some((l) => l.vatType && l.vatType !== 'no_vat')) return true;
-  const ids = [...new Set(lines.map((l) => l.glAccountId))];
-  const rows = (await sql`
-    SELECT 1 FROM gl_accounts
-    WHERE company_id = ${companyId}::UUID AND id = ANY(${ids}::UUID[])
-      AND account_subtype = ANY(${[...VAT_RETURN_SUBTYPES]}::TEXT[])
-    LIMIT 1`) as DbRow[];
-  return rows.length > 0;
 }

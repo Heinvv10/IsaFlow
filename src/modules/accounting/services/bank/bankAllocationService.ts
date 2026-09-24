@@ -10,6 +10,7 @@ import type { DbRow } from '@/lib/neon';
 import { log } from '@/lib/logger';
 import { createJournalEntry, postJournalEntry, resolveReversalDate } from '../gl/journalEntryService';
 import { getPeriodStatusForDate } from '../gl/periodStatusService';
+import { loadJournalVatLines } from '../gl/journalVatLockGuard';
 import type { JournalEntryMeta, PostingActorOpts } from '../gl/journalEntryMeta';
 import { getSystemAccountId } from '../gl/systemAccountResolver';
 import { isControlAccountSettlement } from '../gl/settlementVat';
@@ -786,7 +787,10 @@ async function assertReversalDatePostable(
     WHERE id = ${journalEntryId}::UUID AND company_id = ${companyId}::UUID`) as Row[];
   if (rows.length === 0) throw new Error('Cannot reverse: journal entry not found');
   const originalDate = fmtDate(rows[0]!.entry_date as string | Date);
-  const reversalDate = await resolveReversalDate(companyId, originalDate, requested);
+  // With the journal's lines, so a locked VAT period rolls the date (or
+  // refuses, pre-write) exactly as reverseJournalEntry will.
+  const reversalDate = await resolveReversalDate(
+    companyId, originalDate, requested, await loadJournalVatLines(companyId, journalEntryId));
   const status = await getPeriodStatusForDate(companyId, reversalDate);
   // `closed` ONLY — `no_period` is deliberately allowed through. createJournalEntry
   // calls ensureFiscalPeriodForDate, which CREATES the fiscal year on demand for
@@ -866,8 +870,16 @@ export async function reverseReconciledTransaction(
       result = await unwindBankAllocationApplication(companyId, journalEntryId);
       const { reverseJournalEntry } = await import('../gl/journalEntryService');
       try {
-        await reverseJournalEntry(companyId, journalEntryId, userId, opts);
+        const reversal = await reverseJournalEntry(companyId, journalEntryId, userId, opts);
+        // Carried out so reverse_bank_allocation / void_receipt can say the
+        // contra was dated past a locked VAT period.
+        result = { ...result, vatLockRoll: reversal.vatLockRoll ?? null };
       } catch (e) {
+        // A CODED refusal (VatPeriodLockedError and its kin: a string code that
+        // is not a 5-character SQLSTATE) passes through as itself — rewrapped,
+        // it lost the class routes map to 4xx and the code MCP surfaces.
+        const code = (e as { code?: unknown } | null)?.code;
+        if (e instanceof Error && typeof code === 'string' && !/^[0-9A-Z]{5}$/.test(code)) throw e;
         throw new Error(`Cannot reverse: ${e instanceof Error ? e.message : 'Journal reversal failed'}`);
       }
     }

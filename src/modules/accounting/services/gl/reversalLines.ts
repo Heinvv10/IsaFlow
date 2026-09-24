@@ -56,6 +56,7 @@
  * `foreign_dimension_dropped` warning in the dry run and the live call alike.
  */
 
+import type { VatLockRoll } from './journalEntryReversalVatRoll';
 import { log } from '@/lib/logger';
 import { ownedDimensions, ownedOrNull } from './journalLineOwnership';
 import type { JournalEntry, JournalLine, JournalLineInput } from '../../types/gl.types';
@@ -65,7 +66,11 @@ import type { JournalEntry, JournalLine, JournalLineInput } from '../../types/gl
  * does not own (see reversalLines.ts). Additive: every existing caller reads it
  * as a `JournalEntry`.
  */
-export type ReversalEntry = JournalEntry & { foreignDimensionDroppedLines: number };
+export type ReversalEntry = JournalEntry & {
+  foreignDimensionDroppedLines: number;
+  /** Set when a locked VAT period moved the DEFAULT date forward (journalEntryReversalVatRoll). */
+  vatLockRoll?: VatLockRoll | null;
+};
 
 export interface ReversalLines {
   /** The contra lines, with any dimension this company does not own left off. */

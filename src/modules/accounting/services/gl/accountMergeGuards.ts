@@ -120,6 +120,7 @@ export type MergeRefusalCode =
   | 'source_bank_subtype_referenced'
   | 'source_referenced_by_configuration'
   | 'lines_cannot_be_repointed'
+  | 'source_lines_in_locked_vat_period'
   | 'ledger_moved_during_merge';
 
 async function countBankTransactions(companyId: string, accountId: string): Promise<number> {

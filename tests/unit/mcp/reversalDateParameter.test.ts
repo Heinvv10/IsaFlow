@@ -52,7 +52,7 @@ const JE = '0c000000-0000-4000-8000-000000000001';
 beforeEach(() => {
   vi.clearAllMocks();
   vi.mocked(getBankTransactionStatus).mockResolvedValue('allocated' as never);
-  vi.mocked(reverseReconciledTransaction).mockResolvedValue(undefined as never);
+  vi.mocked(reverseReconciledTransaction).mockResolvedValue({ invoicesReopened: 0, amountUnapplied: 0, paymentsCancelled: 0 } as never);
   vi.mocked(getAllocationBatchLines).mockResolvedValue([
     { transactionId: TX, journalEntryId: JE, currentJournalEntryId: JE, transactionExists: true },
   ] as never);

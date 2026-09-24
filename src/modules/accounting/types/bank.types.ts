@@ -268,6 +268,12 @@ export interface RuleApplyResult {
    */
   autoPostSkippedNoPeriod?: number;
   /**
+   * Auto-post attempts skipped because the journal moves a VAT figure and its
+   * date is inside a locked (filed) VAT period. Remedy: an owner/admin unlocks
+   * the period, or the line is allocated by hand on another date.
+   */
+  autoPostSkippedVatLocked?: number;
+  /**
    * Number of auto-post attempts skipped because the transaction had been
    * allocated (or otherwise moved off `imported`) by another request between
    * the rule's candidate query and the row lock. Counted rather than silently

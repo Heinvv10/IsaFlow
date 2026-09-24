@@ -20,6 +20,7 @@ import { log } from '@/lib/logger';
 import { withSavepoint } from '@/lib/neon';
 import { getCloseReadiness } from '../periodCloseReadinessService';
 import { postJournalEntry, ClosedFiscalPeriodError } from '../journalEntryPostingService';
+import { VatPeriodLockedError } from '../journalVatLockGuard';
 import { logAuditOrThrow } from '../../core/auditTrailService';
 import { buildProposals, validateDecision, computeAccuracy } from './closeRunProposalBuilder';
 import * as repo from './closeRunRepo';
@@ -143,6 +144,9 @@ export async function decideProposal(
 function asDecisionError(err: unknown, title: string): never {
   if (err instanceof ClosedFiscalPeriodError) {
     throw new ProposalDecisionError(`Cannot post ${title}: the fiscal period is ${err.periodStatus}, not open.`);
+  }
+  if (err instanceof VatPeriodLockedError) {
+    throw new ProposalDecisionError(`Cannot post ${title}: ${err.message}`);
   }
   const msg = err instanceof Error ? err.message : '';
   // Matched against postJournalEntry's own specific thrown messages ("Journal

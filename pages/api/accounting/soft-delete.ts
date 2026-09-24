@@ -35,6 +35,7 @@ import {
   ClosedFiscalPeriodError,
   ReversalPeriodError,
 } from '@/modules/accounting/services/gl/journalEntryPostingService';
+import { VatPeriodLockedError } from '@/modules/accounting/services/gl/journalVatLockGuard';
 
 /**
  * Refusals the caller can act on, as opposed to a fault. Both the delete and
@@ -60,7 +61,9 @@ function isUserFixable(err: unknown): err is Error {
   return (
     err instanceof SoftDeleteRefusalError ||
     err instanceof ClosedFiscalPeriodError ||
-    err instanceof ReversalPeriodError
+    err instanceof ReversalPeriodError ||
+    // A reversal that cannot be dated out of a locked (filed) VAT period.
+    err instanceof VatPeriodLockedError
   );
 }
 

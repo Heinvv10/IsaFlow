@@ -18,6 +18,7 @@ import { isRetryableContention } from '../core/retryableContention';
 import { applySuggestionRules, rulePattern } from './bankRulesSuggestionPass';
 import { autoPostRuleLine } from './bankRuleAutoPostLine';
 import { BANK_SUBTYPES } from '../gl/accountSubtypes';
+import { VatPeriodLockedError } from '../gl/journalVatLockGuard';
 
 export async function applyRules(
   companyId: string,
@@ -88,6 +89,8 @@ export async function applyRules(
     // their periods were all open but the year hadn't been created.
     let autoPostSkippedClosedPeriod = 0;
     let autoPostSkippedNoPeriod = 0;
+    // Its journal moves a VAT figure inside a locked (filed) VAT period.
+    let autoPostSkippedVatLocked = 0;
     let autoPostSkippedRaced = 0;
     let autoPostSkippedLocked = 0;
     let autoPostTruncatedRules = 0;
@@ -214,6 +217,10 @@ export async function applyRules(
           // still live and re-throwing them committed the earlier lines behind
           // the route's 400 — measured, every bill held: 400 "Action failed",
           // line A posted and committed, line B still imported.
+          // createJournalEntry refuses a VAT-moving line dated in a locked
+          // VAT period before its draft exists; the line's savepoint has rolled
+          // back cleanly, so it is a skip like a closed period, not a failure.
+          if (lineErr instanceof VatPeriodLockedError) { autoPostSkippedVatLocked++; continue; }
           if (!isRetryableContention(lineErr)) throw lineErr;
           autoPostSkippedLocked++;
           continue;
@@ -221,6 +228,7 @@ export async function applyRules(
         if (outcome.kind === 'raced') { autoPostSkippedRaced++; continue; }
         if (outcome.kind === 'no_period') { autoPostSkippedNoPeriod++; continue; }
         if (outcome.kind === 'closed_period') { autoPostSkippedClosedPeriod++; continue; }
+        if (outcome.kind === 'vat_period_locked') { autoPostSkippedVatLocked++; continue; }
 
         entries.push({ bankTxId: String(tx.id), ruleName, journalEntryId: outcome.journalEntryId });
         if (outcome.vatDenied) autoPostVatDenied++;
@@ -251,6 +259,7 @@ export async function applyRules(
         autoPostRulesSkippedNoBankGl,
         autoPostSkippedClosedPeriod,
         autoPostSkippedNoPeriod,
+        autoPostSkippedVatLocked,
         autoPostSkippedRaced,
         autoPostSkippedLocked,
         autoPostTruncatedRules,
@@ -266,6 +275,7 @@ export async function applyRules(
       autoPostRulesSkippedNoBankGl,
       autoPostSkippedClosedPeriod,
       autoPostSkippedNoPeriod,
+      autoPostSkippedVatLocked,
       autoPostSkippedRaced,
       autoPostSkippedLocked,
       autoPostTruncatedRules,

@@ -18,13 +18,8 @@
  */
 import { sql } from '@/lib/neon';
 import type { DbRow } from '@/lib/neon';
-import {
-  BALANCE_SHEET_TYPES,
-  VAT_LEGITIMATE_BALANCE_SHEET_SUBTYPES,
-} from './vatBalanceSheetExceptions';
-import { VAT_TAX_SUBTYPES, type VatLineInput } from './vatBoxBasis';
-
-const NON_VAT_TYPES: readonly string[] = ['no_vat'];
+import type { VatLineInput } from './vatBoxBasis';
+import { vatEntryMemberLineSql } from './vatEntryMembership';
 
 /**
  * A document in one of these states raises no VAT, but its journal may still be
@@ -75,24 +70,8 @@ export async function getVatPeriodLines(
         AND je.status = 'posted'
         AND je.entry_date >= ${periodStart}::DATE
         AND je.entry_date <= ${periodEnd}::DATE
-        AND (
-          COALESCE(ga.account_subtype, '') = ANY(${VAT_TAX_SUBTYPES as unknown as string[]}::TEXT[])
-          OR (
-            jl.vat_type IS NOT NULL
-            AND jl.vat_type <> ALL(${NON_VAT_TYPES as string[]}::TEXT[])
-            AND (
-              -- A VAT code on a balance-sheet account with no VAT treatment.
-              (
-                ga.account_type = ANY(${BALANCE_SHEET_TYPES as string[]}::TEXT[])
-                AND COALESCE(ga.account_subtype, '') <> ALL(
-                  ${VAT_LEGITIMATE_BALANCE_SHEET_SUBTYPES as string[]}::TEXT[]
-                )
-              )
-              -- Or on the GENERIC tax subtype, which is PAYE as often as VAT.
-              OR COALESCE(ga.account_subtype, '') = 'tax'
-            )
-          )
-        )
+        -- The membership rule, shared with the VAT-lock reclassification check.
+        AND ${vatEntryMemberLineSql()}
     )
     , cancelled_entries_base AS (
       SELECT ci.gl_journal_entry_id AS id FROM customer_invoices ci

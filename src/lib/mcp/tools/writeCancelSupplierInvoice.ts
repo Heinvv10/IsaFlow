@@ -20,6 +20,7 @@ import {
   type SupplierInvoiceCancelPlan,
 } from '@/modules/accounting/services/ap/supplierInvoiceCancelPlan';
 import { cancelSupplierInvoice } from '@/modules/accounting/services/ap/supplierInvoiceWorkflowService';
+import { VatPeriodLockedError } from '@/modules/accounting/services/gl/journalVatLockGuard';
 import { mcpPostingOpts } from '../mcpActor';
 import { guardCastableArgs, ok, strArg, toolError } from './toolHelpers';
 
@@ -31,13 +32,15 @@ export const cancelSupplierInvoiceTool: McpTool = {
     'Cancel a supplier bill (supplier invoice). A draft, pending or disputed bill simply becomes '
     + 'cancelled. An APPROVED bill also has its approval journal (DR Expense/VAT, CR Accounts Payable) '
     + 'reversed by a contra entry dated like reverse_journal_entry dates it — the original date when '
-    + 'its period is open, otherwise today — and both entries stay in the ledger. '
+    + 'its period is open, otherwise today — and both entries stay in the ledger. When that date is inside '
+    + 'a locked (filed) VAT period and the journal carries VAT, the contra is dated forward to the first date '
+    + 'outside every locked VAT period (reversal_date_roll says so). '
     + 'Refused, with the reason and the remedy named, when: anything is applied to the bill '
     + '(void_payment / cancel_credit_note first); it is matched to a bank payment '
     + '(reverse_bank_allocation first); a draft or approved payment still plans to pay it; another '
     + 'posted journal sourced from it stands (e.g. a DRC VAT journal — reverse_journal_entry first); '
-    + 'its journal is still a draft; it is approved but has NO approval journal to reverse; the '
-    + 'reversal would land in a locked VAT period; or it is already cancelled. '
+    + 'its journal is still a draft; it is approved but has NO approval journal to reverse; no date up '
+    + 'to today is outside the locked VAT periods for its VAT-carrying reversal; or it is already cancelled. '
     + 'Cancelling is final: there is no un-cancel; re-enter the bill if needed. '
     + 'Run with dry_run first: it shows the contra journal it would post and writes nothing.',
   scope: 'write:invoices',
@@ -65,7 +68,9 @@ export const cancelSupplierInvoiceTool: McpTool = {
       plan = await lockAndPlanSupplierInvoiceCancel(ctx.companyId, invoiceId);
     } catch (err) {
       // Reads only: nothing has been written, so a refusal is safe to return.
-      if (err instanceof SupplierInvoiceCancelRefusal) return toolError(err.message);
+      if (err instanceof SupplierInvoiceCancelRefusal || err instanceof VatPeriodLockedError) {
+        return toolError(err.message);
+      }
       throw err;
     }
 
@@ -92,6 +97,7 @@ export const cancelSupplierInvoiceTool: McpTool = {
       reversal_journal_entry_id: contra ? String(contra.id) : null,
       reversal_entry_number: contra ? String(contra.entry_number) : null,
       reversal_date: plan.journal?.reversalDate ?? null,
+      reversal_date_roll: plan.journal?.vatLockRoll ?? null,
     });
   },
 };
@@ -123,5 +129,5 @@ function dryRunResult(plan: SupplierInvoiceCancelPlan) {
     journalsTotal: j ? 1 : 0,
     truncated: false,
   };
-  return { ...ok(result), wroteNothing: true };
+  return { ...ok({ ...result, reversal_date_roll: j?.vatLockRoll ?? null }), wroteNothing: true };
 }
