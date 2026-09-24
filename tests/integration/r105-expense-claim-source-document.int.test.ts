@@ -239,6 +239,12 @@ describe('R-105: a manual expense claim line claims its source document', () => 
     expect(await postedAt(foreignDoc)).toBeNull();
   });
 
+  it('refuses to run outside a request transaction, where its lock would guard nothing', async () => {
+    await expect(claimLineSourceDocuments(company, [{ sourceDocumentId: freshDoc }]))
+      .rejects.toThrow(/request transaction/);
+    expect(await postedAt(freshDoc)).toBeNull();
+  });
+
   it('claims a fresh slip, and a second claim on the same slip is refused', async () => {
     const first = await createClaim([line(freshDoc)]);
     expect(first.statusCode, JSON.stringify(first.body)).toBe(201);
