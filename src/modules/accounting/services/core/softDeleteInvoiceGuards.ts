@@ -8,6 +8,10 @@
 import { sql } from '@/lib/neon';
 import type { DbRow } from '@/lib/neon';
 import { SoftDeleteRefusalError } from './softDeleteErrors';
+import {
+  planSupplierInvoiceCancel,
+  SupplierInvoiceCancelRefusal,
+} from '../ap/supplierInvoiceCancelPlan';
 
 /** Amounts below this (in currency units) are treated as zero, as in cancel. */
 export const ZERO_TOLERANCE = 0.005;
@@ -96,6 +100,20 @@ export async function assertInvoiceDeletable(
   }
   if ((await allocatedByLivePayments(entityType, entityId, companyId)) > ZERO_TOLERANCE) {
     throw new SoftDeleteRefusalError(`Cannot delete a ${entityType} with payments`);
+  }
+  // Deleting a bill takes it out of AP and reverses its journal, as cancelling
+  // does, so it is held to every refusal the cancel plan makes — otherwise the
+  // delete is a way around Cancel. A cancelled bill is past the plan; deleting
+  // it stays possible.
+  if (entityType === 'supplier_invoice' && String(row.status) !== 'cancelled') {
+    try {
+      await planSupplierInvoiceCancel(companyId, entityId);
+    } catch (err) {
+      if (err instanceof SupplierInvoiceCancelRefusal) {
+        throw new SoftDeleteRefusalError(`Cannot delete this bill. ${err.message}`);
+      }
+      throw err;
+    }
   }
   return row;
 }
