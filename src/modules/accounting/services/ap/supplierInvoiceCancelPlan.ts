@@ -171,6 +171,25 @@ export async function planSupplierInvoiceCancel(
       + 'Reconcile it by hand.',
     );
   }
+  // The capture exemption holds only while the captured document is in no
+  // posted journal. The bank-first flow (capture/evidenceAttachmentService)
+  // evidences a bank journal already posted for this spend by stamping the
+  // document on it, and never links it to the bill: that money IS in the GL.
+  if (!entry && bill.source_document_id != null && FIFO_ELIGIBLE_STATUSES.includes(status)) {
+    const carried = (await sql`
+      SELECT entry_number FROM gl_journal_entries
+      WHERE company_id = ${companyId}::UUID AND source_document_id = ${bill.source_document_id}::UUID
+        AND status = 'posted' AND reversed_at IS NULL
+      ORDER BY entry_number LIMIT 1`) as DbRow[];
+    if (carried[0]) {
+      throw new SupplierInvoiceCancelRefusal(
+        `Supplier invoice ${number} has no approval journal, but its captured document already carries `
+        + `posted journal ${String(carried[0].entry_number)}, so cancelling it would leave that in the GL. `
+        + 'Reverse that journal first (MCP: reverse_journal_entry), then cancel.',
+      );
+    }
+  }
+
   // The cancel reverses only a posted, not-yet-reversed journal — the same test here.
   if (!entry || entry.status !== 'posted' || entry.reversedAt) return { ...base, journal: null };
   if (!entry.lines || entry.lines.length === 0) {
