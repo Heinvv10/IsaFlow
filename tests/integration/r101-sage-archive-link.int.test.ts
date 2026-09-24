@@ -4,6 +4,8 @@
  * invoices after copying them to the archive tables. Migration 694 makes both
  * links ON DELETE SET NULL; before it, a NO ACTION reference failed the whole
  * archive run (the supplier link from 205 had the same latent defect).
+ * Round 2: with the link NULL, a reset re-pends the row, so both importers
+ * treat an archived holder of the document as a conflict.
  */
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { Pool } from 'pg';
@@ -11,6 +13,7 @@ import { randomUUID } from 'crypto';
 import { importCustomerInvoices } from '@/modules/accounting/services/core/sageCustomerImportService';
 import { importSupplierInvoices } from '@/modules/accounting/services/core/sageImportService';
 import { executeArchive } from '@/modules/accounting/services/core/archiveExecutionService';
+import { resetMigration } from '@/modules/accounting/services/core/sageMigrationCompareService';
 import { assertDisposable } from './mfa-impersonation-postgres.helpers';
 import { sageImportHarness } from './r021-sage-supplier-import.helpers';
 import { sageCustomerStaging } from './r101-sage-customer-import.helpers';
@@ -60,5 +63,16 @@ describe('R-101: an imported Sage document can still be archived', () => {
       'SELECT gl_supplier_invoice_id FROM sage_supplier_invoices WHERE id=$1', [supStaging],
     )).rows[0]!;
     expect(sup.gl_supplier_invoice_id).toBeNull();
+
+    // Review round 2: a reset then re-pends both rows. The re-run must not book
+    // the archived, settled debts again as live unpaid documents.
+    await drive(company, () => resetMigration(company, 'customer_invoices'));
+    await drive(company, () => resetMigration(company, 'invoices'));
+    expect((await drive(company, () => importCustomerInvoices(company, user))).failed).toBe(1);
+    expect((await drive(company, () => importSupplierInvoices(company, user))).failed).toBe(1);
+    const live = async (table: string) => (await pool.query(
+      `SELECT count(*)::int AS n FROM ${table} WHERE company_id=$1`, [company])).rows[0]!.n;
+    expect(await live('customer_invoices')).toBe(0);
+    expect(await live('supplier_invoices')).toBe(0);
   });
 });
