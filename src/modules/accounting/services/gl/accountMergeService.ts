@@ -22,7 +22,7 @@
  * Nothing is deleted. `gl_journal_lines` are updated in place, and the source
  * account stays in the chart, deactivated, carrying zero.
  */
-import { sql } from '@/lib/neon';
+import { sql, withSavepoint } from '@/lib/neon';
 import { log } from '@/lib/logger';
 import { cache } from '@/lib/cache';
 import { clearSystemAccountCache } from './systemAccountResolver';
@@ -31,7 +31,12 @@ import {
 } from './accountMergeGuards';
 import { digestLineIds, previewAccountMerge } from './accountMergePreview';
 import { recordAccountMerge } from './accountMergeRecord';
+import {
+  DOCUMENT_ROW_TABLES, countsOf, repointDocumentRows, type DocumentRowCounts,
+} from './accountMergeDocumentRows';
 import { lockGlAccountsForUpdate } from './glAccountLock';
+import { openBillLinesRefusal } from './accountMergeBillLines';
+import { hasChildAccounts } from './isReportVisibleLeaf';
 import type { PostingActorOpts } from './journalEntryMeta';
 
 export {
@@ -61,6 +66,8 @@ export interface MergeAccountsResult {
   mergeRecordId: string;
   /** sha256 over the moved line ids — compare against the dry run's. */
   movedLinesDigest: string;
+  /** Document rows repointed per table; the ids are on the merge record. */
+  documentRowsRepointed: DocumentRowCounts;
 }
 
 export async function repointMovableLines(
@@ -82,7 +89,19 @@ export async function repointMovableLines(
   return rows.map((r) => String(r.id)).sort();
 }
 
+/**
+ * All or nothing on its own: several refusals fire AFTER a write (the
+ * ledger/document count checks, the moved-bill-line check), so the body runs
+ * in a savepoint rather than relying on every caller to wrap it.
+ */
 export async function mergeAccounts(
+  companyId: string, sourceId: string, targetId: string,
+  userId?: string, actor?: PostingActorOpts,
+): Promise<MergeAccountsResult> {
+  return withSavepoint('account_merge', () => mergeAccountsInner(companyId, sourceId, targetId, userId, actor));
+}
+
+async function mergeAccountsInner(
   companyId: string, sourceId: string, targetId: string,
   userId?: string, actor?: PostingActorOpts,
 ): Promise<MergeAccountsResult> {
@@ -176,6 +195,28 @@ export async function mergeAccounts(
     );
   }
 
+  // The document side of the same postings — bill, expense-claim and PO lines
+  // and capture events coded to the source — moves with the ledger, under the
+  // same account locks, and must match what the dry run reported per table.
+  const movedDocumentRows = await repointDocumentRows(companyId, sourceId, targetId);
+  const documentRowsRepointed = countsOf(movedDocumentRows);
+  if (DOCUMENT_ROW_TABLES.some((t) => documentRowsRepointed[t] !== preview.documentRowsToRepoint[t])) {
+    throw new AccountMergeError(
+      `The document lines changed while this merge was being prepared: the dry run counted `
+      + `${JSON.stringify(preview.documentRowsToRepoint)} and the write found `
+      + `${JSON.stringify(documentRowsRepointed)}. Nothing has been changed. Re-run the dry run.`,
+      'document_rows_moved_during_merge',
+    );
+  }
+  // The same bill-line refusal assertMergeable made, re-asked of exactly the
+  // lines that moved: a line recoded onto the source after that check would
+  // otherwise land on a target no unposted bill may use. Throwing rolls it back.
+  const strandedBills = await openBillLinesRefusal(companyId, sourceId, source.accountCode, {
+    ...target,
+    willHaveChildren: (await hasChildAccounts(companyId, targetId)) || (await hasChildAccounts(companyId, sourceId)),
+  }, movedDocumentRows.supplier_invoice_items);
+  if (strandedBills) throw new AccountMergeError(strandedBills, 'target_refused_for_open_bill_lines');
+
   // Children move onto the target, and the whole subtree takes the level shift —
   // without it, descendants keep the depth they had under the old parent and
   // several reports group on `level`.
@@ -229,6 +270,7 @@ export async function mergeAccounts(
     entriesAffected: preview.entriesTotal,
     movedLineIds,
     movedLinesDigest,
+    movedDocumentRows,
     reparentedAccountIds: movedRootIds,
     relevelledAccountIds: relevelled.map((r) => String((r as { id: string }).id)),
     levelDelta,
@@ -251,5 +293,6 @@ export async function mergeAccounts(
     postedThrough: preview.postedThrough,
     mergeRecordId,
     movedLinesDigest,
+    documentRowsRepointed,
   };
 }

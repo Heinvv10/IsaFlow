@@ -21,6 +21,7 @@ import { sql } from '@/lib/neon';
 import { reportingClassFor } from './accountReportingClass';
 import { isBankSubtype } from './accountSubtypes';
 import { hasChildAccounts, isSubjectToLeafRule } from './isReportVisibleLeaf';
+import { openBillLinesRefusal } from './accountMergeBillLines';
 import {
   CONFIGURATION_REFERENCE_EXCLUSIONS,
   findConfigurationReferences,
@@ -121,7 +122,9 @@ export type MergeRefusalCode =
   | 'source_referenced_by_configuration'
   | 'lines_cannot_be_repointed'
   | 'source_lines_in_locked_vat_period'
-  | 'ledger_moved_during_merge';
+  | 'ledger_moved_during_merge'
+  | 'document_rows_moved_during_merge'
+  | 'target_refused_for_open_bill_lines';
 
 async function countBankTransactions(companyId: string, accountId: string): Promise<number> {
   const rows = (await sql`
@@ -280,4 +283,9 @@ export async function assertMergeable(
       references,
     );
   }
+  const billLines = await openBillLinesRefusal(companyId, source.id, source.accountCode, {
+    ...target,
+    willHaveChildren: (await hasChildAccounts(companyId, target.id)) || (await hasChildAccounts(companyId, source.id)),
+  });
+  if (billLines) throw new AccountMergeError(billLines, 'target_refused_for_open_bill_lines');
 }

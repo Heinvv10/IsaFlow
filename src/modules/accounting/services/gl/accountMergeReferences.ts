@@ -30,7 +30,7 @@ export interface ConfigurationReference {
 }
 
 /**
- * The three FK columns the sweep below deliberately does NOT treat as
+ * The FK columns the sweep below deliberately does NOT treat as
  * configuration, and why. Everything else referencing `gl_accounts.id` is
  * configuration and blocks the merge.
  *
@@ -50,6 +50,14 @@ export const CONFIGURATION_REFERENCE_EXCLUSIONS: readonly { table: string; colum
   // every later one — including a corrective merge back.
   { table: 'gl_account_merges', column: 'source_account_id' },
   { table: 'gl_account_merges', column: 'target_account_id' },
+  // Document lines — the merge REPOINTS these onto the target in the same
+  // transaction as the journal lines and records every moved row id
+  // (`accountMergeDocumentRows.ts`). Refusing on them made any account ever
+  // coded on a bill unmergeable, with no other way to recode posted bill lines.
+  { table: 'supplier_invoice_items', column: 'gl_account_id' },
+  { table: 'expense_claim_lines', column: 'gl_account_id' },
+  { table: 'po_items', column: 'gl_account_id' },
+  { table: 'capture_events', column: 'resolved_gl_account_id' },
 ];
 
 export async function findConfigurationReferences(
