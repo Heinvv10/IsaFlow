@@ -19,16 +19,21 @@
 
 import { sql } from '@/lib/neon';
 import type { DbRow } from '@/lib/neon';
+import { als } from '@/lib/als';
 import { releaseCapturedDocumentPostingClaim } from '@/modules/accounting/services/capture/capturePostingClaimRelease';
 
-export type ClaimSourceDocumentRefusal = 'not_found' | 'already_posted' | 'rejected' | 'duplicate';
+export type ClaimSourceDocumentRefusal = 'not_found' | 'already_posted' | 'rejected' | 'duplicate' | 'busy';
 
 const MESSAGE: Record<ClaimSourceDocumentRefusal, string> = {
   not_found: 'Source document not found',
   already_posted: 'Document already posted',
   rejected: 'Document was rejected — reopen it before posting',
   duplicate: 'The same source document is on more than one line',
+  busy: 'A source document is being posted by another request — retry in a moment',
 };
+
+/** `lock_not_available` (the bounded wait elapsed) and `deadlock_detected`. */
+const LOCK_ERRORS = new Set(['55P03', '40P01']);
 
 /**
  * A line's source document cannot be claimed. Thrown before anything is
@@ -59,8 +64,18 @@ export async function claimLineSourceDocuments(
   // The eligible set is locked, and the UPDATE applies only when it is the
   // whole set. A concurrent claimer that got there first leaves its row out
   // of `eligible` (re-checked after the lock wait), so the count falls short
-  // and nothing is written.
-  const claimed = (await sql`
+  // and nothing is written. The outer `posted_at IS NULL` is the same fence a
+  // second time, so the claim holds even if the lock is ever dropped.
+  //
+  // The wait is bounded like the capture posting paths' (`captureRowLock`):
+  // 5s, then a retryable refusal. A lock error aborts the transaction, so the
+  // route's 4xx still commits nothing; the bound is reset once granted so it
+  // does not cap later waits in the request.
+  const client = als.getStore()?.client;
+  if (client) await client.query("SET LOCAL lock_timeout = '5s'");
+  let claimed: DbRow[];
+  try {
+    claimed = (await sql`
     WITH eligible AS (
       SELECT id FROM captured_documents
        WHERE id = ANY(${ids}::uuid[])
@@ -72,8 +87,15 @@ export async function claimLineSourceDocuments(
     UPDATE captured_documents cd
        SET posted_at = NOW(), status = 'matched', updated_at = NOW()
      WHERE cd.id IN (SELECT id FROM eligible)
+       AND cd.posted_at IS NULL
        AND (SELECT COUNT(*) FROM eligible) = ${ids.length}
     RETURNING cd.id`) as DbRow[];
+  } catch (err) {
+    const code = (err as { code?: unknown } | null)?.code;
+    if (typeof code === 'string' && LOCK_ERRORS.has(code)) throw new ClaimSourceDocumentError('busy', ids[0]!);
+    throw err;
+  }
+  if (client) await client.query('SET LOCAL lock_timeout = DEFAULT');
   if (claimed.length === ids.length) return;
 
   const rows = (await sql`
@@ -91,8 +113,18 @@ export async function claimLineSourceDocuments(
   throw new ClaimSourceDocumentError('already_posted', ids[0]!);
 }
 
-/** The source documents on a claim's lines, for release after a delete. */
-export async function claimSourceDocumentIds(claimId: string, companyId: string): Promise<string[]> {
+/**
+ * Lock the claim row, then read the source documents on its lines, for release
+ * after a delete. The lock is what makes the read complete: a concurrent
+ * add-line's INSERT needs a key-share lock on the claim row, so it either
+ * finished before this (and its line is read here) or waits and then fails on
+ * the deleted parent (and its claim rolls back with it).
+ */
+export async function lockClaimReadSourceDocumentIds(claimId: string, companyId: string): Promise<string[]> {
+  await sql`
+    SELECT id FROM expense_claims
+     WHERE id = ${claimId}::uuid AND company_id = ${companyId}
+     FOR UPDATE`;
   const rows = (await sql`
     SELECT DISTINCT source_document_id FROM expense_claim_lines
      WHERE claim_id = ${claimId}::uuid AND company_id = ${companyId}
