@@ -19,11 +19,12 @@ import {
   releaseJournalReversalClaim,
   withReversalTransaction,
 } from './journalEntryReversalClaim';
-import { resolveReversalDate, ReversalPeriodError } from './journalEntryReversalDate';
+import { resolveReversalDate, resolveReversalDateDetailed, ReversalPeriodError } from './journalEntryReversalDate';
+import { assertJournalVatPeriodOpen, VatPeriodLockedError } from './journalVatLockGuard';
 import { releaseCapturedDocumentPostingClaim } from '../capture/capturePostingClaimRelease';
 
 // Re-exported: the MCP reverse tool and journalEntryService import them from here.
-export { resolveReversalDate, ReversalPeriodError };
+export { resolveReversalDate, resolveReversalDateDetailed, ReversalPeriodError, VatPeriodLockedError };
 export type { ReversalEntry } from './reversalLines';
 
 type Row = DbRow;
@@ -40,6 +41,10 @@ export { ClosedFiscalPeriodError, InactiveAccountError, assertNoInactiveAccountL
 
 export async function postJournalEntry(companyId: string, id: string, userId: string): Promise<JournalEntry> {
   try {
+    // Lock the header BEFORE reading it: the VAT-lock guard below decides on
+    // entry_date, and a concurrent edit of the draft's date must not land
+    // between that decision and the status UPDATE.
+    await sql`SELECT id FROM gl_journal_entries WHERE id = ${id}::UUID AND company_id = ${companyId}::UUID FOR UPDATE`;
     const entry = await getJournalEntryById(companyId, id);
     if (!entry) throw new Error(`Journal entry ${id} not found`);
     if (entry.status !== 'draft') throw new Error(`Cannot post entry with status: ${entry.status}`);
@@ -74,6 +79,12 @@ export async function postJournalEntry(companyId: string, id: string, userId: st
     // journal unbalanced, and the refusal has to land before the UPDATE so the
     // surrounding transaction commits nothing (the 400-after-write class).
     await assertNoInactiveAccountLines(companyId, id);
+
+    // A journal that moves a VAT-return figure may not post inside a locked
+    // (filed) VAT period. Before the UPDATE, like the two refusals above, and
+    // it takes the shared advisory lock a VAT lock's figure snapshot excludes.
+    // Reversals reach here with a date already rolled past any lock.
+    await assertJournalVatPeriodOpen(companyId, entry.entryDate, entry.lines ?? []);
 
     const safePostUserId = await resolveUserUuid(userId);
     const rows = (await sql`
@@ -134,7 +145,10 @@ export async function reverseJournalEntry(
     // fiscal period FROM that date, so the period can never disagree with it.
     // Why that date and not today: see journalEntryReversalDate.
     const originalDate = fmtDate(entry.entryDate);
-    const reversalDate = await resolveReversalDate(companyId, originalDate, opts?.reversalDate);
+    // The original's lines let a locked VAT period ROLL a defaulted date
+    // forward (and refuse a named one inside it) — journalEntryReversalDate.
+    const { date: reversalDate, vatLockRoll } = await resolveReversalDateDetailed(
+      companyId, originalDate, opts?.reversalDate, entry.lines);
 
     // Claim the reversal BEFORE any contra is written. The `entry.reversedAt`
     // guard above reads an unlocked row, so two overlapping callers both saw
@@ -248,7 +262,9 @@ export async function reverseJournalEntry(
     // The count rides on the returned entry so every caller — the REST action
     // route passes this straight through — can tell the operator that the
     // contra is not tag-for-tag identical to what it reverses.
-    return { ...reversalEntry, foreignDimensionDroppedLines: carried.droppedLineCount };
+    // vatLockRoll rides the same way, so a caller can say the contra was dated
+    // later than the default because a filed VAT period was in the way.
+    return { ...reversalEntry, foreignDimensionDroppedLines: carried.droppedLineCount, vatLockRoll };
   } catch (err) {
     log.error('Failed to reverse journal entry', { id, error: err }, 'accounting');
     throw err;

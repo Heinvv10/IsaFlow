@@ -18,6 +18,19 @@ const { sqlMock, recomputeInvoiceStatus } = vi.hoisted(() => ({
   recomputeInvoiceStatus: vi.fn(),
 }));
 
+// The VAT-lock guard runs its own queries (advisory lock, active-lock read,
+// account subtypes), which would shift this file's positional sql mock. It is
+// exercised against a real ledger in tests/integration/vat-period-lock-*.int.test.ts;
+// here it is a no-op, and the error class stays real.
+vi.mock('@/modules/accounting/services/gl/journalVatLockGuard', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('@/modules/accounting/services/gl/journalVatLockGuard')>()),
+  assertJournalVatPeriodOpen: vi.fn(async () => undefined),
+  assertJournalDateOutsideVatLock: vi.fn(async () => undefined),
+  takeVatLockShared: vi.fn(async () => undefined),
+  findActiveVatLock: vi.fn(async () => null),
+  journalMovesVatFigure: vi.fn(async () => false),
+  loadJournalVatLines: vi.fn(async () => []),
+}));
 vi.mock('@/lib/neon', () => ({ sql: sqlMock }));
 vi.mock('@/lib/logger', () => ({ log: { info: vi.fn(), warn: vi.fn(), error: vi.fn() } }));
 // `importOriginal` keeps BALANCE_DERIVED real — `supplierAllocationLines`
@@ -284,7 +297,7 @@ describe('reverseReconciledTransaction — ordering', () => {
       }),
     }));
     vi.doMock('@/modules/accounting/services/gl/journalEntryService', () => ({
-      reverseJournalEntry: vi.fn(async () => { order.push('reverse'); }),
+      reverseJournalEntry: vi.fn(async () => { order.push('reverse'); return { vatLockRoll: null }; }),
       resolveReversalDate: vi.fn(async () => '2026-08-04'),
     }));
     vi.doMock('@/modules/accounting/services/gl/periodStatusService', () => ({

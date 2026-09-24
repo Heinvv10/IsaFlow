@@ -39,6 +39,7 @@ import {
   postJournalEntry,
   ClosedFiscalPeriodError,
 } from '@/modules/accounting/services/gl/journalEntryPostingService';
+import { VatPeriodLockedError, assertJournalVatPeriodOpen } from '@/modules/accounting/services/gl/journalVatLockGuard';
 
 export interface PettyCashJournalInput {
   companyId: string;
@@ -151,6 +152,12 @@ export async function postReceiptAsPettyCashJournal(
   // nothing. The route read `captured_documents.status` under the row lock; this
   // status-predicated UPDATE is the write that settles who posts, and it is what
   // stops the same receipt being posted through `receipt-to-journal` as well.
+  // A receipt that moves a VAT figure into a locked (filed) VAT period can
+  // never post, and createJournalEntry would refuse it — but only AFTER the
+  // claim below has been written. Refused here, before that first write, so the
+  // route's 4xx for it commits nothing and the document stays claimable.
+  await assertJournalVatPeriodOpen(companyId, entryDate, postableLines);
+
   const refusal = await claimCapturedDocumentForPosting(companyId, documentId, 'expense');
   if (refusal) {
     throw new CapturedDocumentAlreadyPostedError(refusal);
@@ -193,9 +200,11 @@ export async function postReceiptAsPettyCashJournal(
       // Postgres error that ABORTS the request transaction; continuing past it
       // would run the stamps below against a dead transaction and report 200
       // for writes that can never commit.
-      if (!(postErr instanceof ClosedFiscalPeriodError)) throw postErr;
-      log.warn('Auto-post of expense receipt JE skipped — fiscal period closed, left as draft', {
-        eventId, jeId: jeEntry.id,
+      // A locked (filed) VAT period is the same kind of outcome: nothing may
+      // post there until an owner/admin unlocks it, so the draft waits.
+      if (!(postErr instanceof ClosedFiscalPeriodError) && !(postErr instanceof VatPeriodLockedError)) throw postErr;
+      log.warn('Auto-post of expense receipt JE skipped — fiscal or VAT period locked, left as draft', {
+        eventId, jeId: jeEntry.id, reason: postErr.name,
       }, 'capture-post-expense');
     }
   }

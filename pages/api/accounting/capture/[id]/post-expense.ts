@@ -44,6 +44,7 @@ import {
   submitClaim,
   type ExpenseClaimLine,
 } from '@/modules/accounting/services/expense/expenseClaimService';
+import { VatPeriodLockedError } from '@/modules/accounting/services/gl/journalVatLockGuard';
 
 interface PostExpenseBody {
   employeeId?: string;
@@ -263,6 +264,12 @@ async function handler(req: CompanyAuthedRequest, res: NextApiResponse) {
     // The service claims the document after its last SELECT, so this is a 4xx
     // that commits nothing either.
     if (err instanceof CapturedDocumentAlreadyPostedError) {
+      return apiResponse.badRequest(res, err.message);
+    }
+    // A receipt dated in a locked (filed) VAT period. The service refuses it
+    // before claiming the document — its first write — so this 4xx commits
+    // nothing either.
+    if (err instanceof VatPeriodLockedError) {
       return apiResponse.badRequest(res, err.message);
     }
     // The service resolves the Bank role as its first statement, before any

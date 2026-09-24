@@ -14,6 +14,19 @@
  */
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 
+// The VAT-lock guard runs its own queries (advisory lock, active-lock read,
+// account subtypes), which would shift this file's positional sql mock. It is
+// exercised against a real ledger in tests/integration/vat-period-lock-*.int.test.ts;
+// here it is a no-op, and the error class stays real.
+vi.mock('@/modules/accounting/services/gl/journalVatLockGuard', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('@/modules/accounting/services/gl/journalVatLockGuard')>()),
+  assertJournalVatPeriodOpen: vi.fn(async () => undefined),
+  assertJournalDateOutsideVatLock: vi.fn(async () => undefined),
+  takeVatLockShared: vi.fn(async () => undefined),
+  findActiveVatLock: vi.fn(async () => null),
+  journalMovesVatFigure: vi.fn(async () => false),
+  loadJournalVatLines: vi.fn(async () => []),
+}));
 vi.mock('@/lib/neon', () => {
   const sql = Object.assign(vi.fn(), { transaction: vi.fn() });
   const tx = vi.fn();
