@@ -80,7 +80,7 @@ All runs are on the r112 fixture.
 ## Review round 3 (general, on adccf2f85)
 | Finding | Fix |
 |---|---|
-| LOW: the partial-claim error was safe only because the create route answers 500; the add-line route's catch answers 400, which commits. | `PartialSourceDocumentClaimError`, rethrown by the add-line route before its 4xx mapping. |
+| LOW: the partial-claim error was safe only because the create route answers 500; the add-line route's catch answers 400, which commits. | `PartialSourceDocumentClaimError`, rethrown by the add-line route before its 4xx mapping (3ffe0e2be). Both reviewers then asked for a test: `r105-partial-claim-rethrow.int.test.ts` replaces the claim with one that stamps and throws, and expects a 5xx and no stamp. Removing the rethrow answers 400 with the stamp committed. **Note:** commit 2950dd6a6 dropped the rethrow by accident: an older copy of `[id]/index.ts` was staged in the shared worktree's index by another process, and that commit swept it in. The new test caught it, and the rethrow is restored. |
 | LOW: braces or hyphenless uuids passed the string checks and got the wrong refusal. | Canonicalised; test covers upper case, braces, no hyphens, a cross-form duplicate and a malformed id. |
 | LOW: the live-line check ignores another company's line that points at this company's slip. | By design. That foreign line is the corrupt row (census query 1 finds it); letting it block would let one tenant's bad row lock another tenant's slip. |
 
@@ -116,5 +116,7 @@ If any query returns rows, they need an accountant's decision. They are not repa
 ## Not covered
 - **R-070's recommended backstop**, a partial unique index on `expense_claim_lines(source_document_id)`, is not built. It needs the second query above to come back empty on prod first, or the index will not build.
 - **The add-line route's catch-all answers 400** for any other error, including one after a write (R-060's class). That was already the case and is unchanged here.
+- **The capture posting routes** (`post-expense`, `receipt-to-journal`) do not check live legacy claim lines either. Census query 4 finds those rows.
+- **The claim-row lock in the draft-claim DELETE has no `lock_timeout`**; it waits on an in-flight add-line only. Low risk.
 - **A released slip keeps `status = 'matched'`** (the inbox reads that as settled). That is also true on master after a claim rejection or cancel (`rejectClaim`'s comment says the slips "go back to the capture inbox"; on screen they do not). Restoring the status belongs in `releaseCapturedDocumentPostingClaim`, which every capture path shares. Registered as R-124; not changed here.
 - **`expenseClaimService.ts` was already over the 300-line cap** (554 lines on master; 572 now). The new logic lives in its own module. The service gained only the call sites, and splitting it is left out of this fix.
