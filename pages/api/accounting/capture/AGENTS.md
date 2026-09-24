@@ -48,6 +48,7 @@ Four ingestion channels: PWA upload, Postmark inbound email, Twilio WhatsApp WAB
 - `pages/accounting/capture/{inbox,settings,index}.tsx`
 
 ## Recent changes
+- 2026-09-24: `[id]/post-expense.ts`'s employee-claim branch calls `expenseClaimService.createClaim` (which now runs `gl/documentLineAccountGuard` before its own first write) with no local catch, on purpose: `claimCapturedDocumentForPosting` has already written the document claim by that point, so a `DocumentLineAccountRefusal` here must reach a 5xx and roll the request back, not a 400 `withAuth` would COMMIT with the document claimed and no expense claim behind it.
 - 2026-04-24: second pentest batch — M1, M6, M14/M15, M20, M21, L4 + codemod
 - 2026-04-24: remediate pentest findings — 2 Critical + 11 High
 - 2026-04-22: Phase 9 — mirror inbox (IMAP) with Gmail/M365 stubs

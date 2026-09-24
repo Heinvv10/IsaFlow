@@ -32,6 +32,7 @@ import {
   releaseSourceDocuments,
 } from '@/modules/accounting/services/expense/claimSourceDocuments';
 import { roundToCents } from '@/modules/accounting/utils/doubleEntry';
+import { assertDocumentLineAccounts } from '@/modules/accounting/services/gl/documentLineAccountGuard';
 import type { JournalLineInput } from '@/modules/accounting/types/gl.types';
 
 type Row = Record<string, unknown>;
@@ -204,6 +205,16 @@ export interface CreateClaimInput {
 
 export async function createClaim(input: CreateClaimInput): Promise<ExpenseClaim> {
   const claimDate = input.claimDate ?? new Date().toISOString().slice(0, 10);
+  // Before the first write, and before `claimLineSourceDocuments` (which DOES
+  // write — it stamps `captured_documents.posted_at`): an account merge holds
+  // FOR UPDATE on the source and target `gl_accounts` rows for its whole
+  // transaction and deactivates the source, so this FOR SHARE read waits on
+  // that lock, then refuses the now-inactive account
+  // (gl/documentLineAccountGuard.ts). Checking every line here, once, is what
+  // lets a caller's 400 commit nothing — a check inside `insertLine`'s own
+  // per-line loop would run AFTER the source-document stamp and the claim
+  // header row were already written.
+  await assertDocumentLineAccounts(input.companyId, (input.lines ?? []).map((l) => l.glAccountId));
   // Before the first write (R-105): a refusal here has written nothing, so the
   // route's 400 commits nothing.
   if (!input.sourceDocumentsClaimed) await claimLineSourceDocuments(input.companyId, input.lines ?? []);
@@ -233,6 +244,13 @@ export async function createClaim(input: CreateClaimInput): Promise<ExpenseClaim
   return (await getClaim(claimId, input.companyId))!;
 }
 
+/**
+ * Callers must have already run `assertDocumentLineAccounts` for every line
+ * they are about to insert, BEFORE their own first write — `createClaim` and
+ * `addLine` both write before this loop runs (a source-document claim, or the
+ * claim header itself), so a check placed here would run too late for a
+ * caller's 400 to commit nothing.
+ */
 async function insertLine(
   claimId: string,
   companyId: string,
@@ -268,6 +286,9 @@ export async function addLine(
   if (claim.status !== 'draft') {
     throw new Error(`Cannot add line to claim in status '${claim.status}'`);
   }
+  // Before `claimLineSourceDocuments`, which writes (stamps the source
+  // document's `posted_at`) — see the identical comment in `createClaim`.
+  await assertDocumentLineAccounts(companyId, [line.glAccountId]);
   await claimLineSourceDocuments(companyId, [line]);
   await insertLine(claimId, companyId, line);
   await recomputeTotals(claimId, companyId);

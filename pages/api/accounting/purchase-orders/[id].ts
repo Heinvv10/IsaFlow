@@ -18,6 +18,7 @@ import { withCsrf } from '@/lib/auth/withCsrf';
 import { sql } from '@/lib/neon';
 import { log } from '@/lib/logger';
 import { assertSupplierInCompany, SupplierNotInCompanyError } from '@/modules/accounting/services/core/contactDirectoryService';
+import { DocumentLineAccountRefusal, assertDocumentLineAccounts } from '@/modules/accounting/services/gl/documentLineAccountGuard';
 
 type Row = Record<string, unknown>;
 
@@ -105,6 +106,19 @@ async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse) {
     } catch (err) {
       if (err instanceof SupplierNotInCompanyError) return apiResponse.badRequest(res, err.message);
       throw err;
+    }
+
+    // Before the first write: an inactive or foreign account on a replacement
+    // line would otherwise land in po_items with nothing to catch it — the
+    // same window a GL account merge opens on every other document-line
+    // writer (gl/documentLineAccountGuard.ts).
+    if (Array.isArray(items) && items.length > 0) {
+      try {
+        await assertDocumentLineAccounts(companyId, items.map((i) => i.gl_account_id));
+      } catch (err) {
+        if (err instanceof DocumentLineAccountRefusal) return apiResponse.badRequest(res, err.message);
+        throw err;
+      }
     }
 
     // Compute totals from items if provided

@@ -11,6 +11,7 @@ import { withCsrf } from '@/lib/auth/withCsrf';
 import { sql } from '@/lib/neon';
 import { claimInputVatWarnings } from '@/modules/accounting/services/expense/claimVatAdvice';
 import { deleteLine, getClaim } from '@/modules/accounting/services/expense/expenseClaimService';
+import { DocumentLineAccountRefusal, assertDocumentLineAccounts } from '@/modules/accounting/services/gl/documentLineAccountGuard';
 
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
@@ -39,6 +40,17 @@ async function handler(req: CompanyAuthedRequest, res: NextApiResponse) {
 
   if (req.method === 'PATCH') {
     const body = (req.body ?? {}) as PatchBody;
+    // Before the UPDATE, and only when the caller is actually naming an
+    // account: a line whose EXISTING account went inactive under it must
+    // still take an edit that leaves that column alone (`COALESCE` below).
+    if (body.glAccountId) {
+      try {
+        await assertDocumentLineAccounts(companyId, [body.glAccountId]);
+      } catch (err) {
+        if (err instanceof DocumentLineAccountRefusal) return apiResponse.badRequest(res, err.message);
+        throw err;
+      }
+    }
     const rows = (await sql`
       UPDATE expense_claim_lines
       SET gl_account_id  = COALESCE(${body.glAccountId ?? null}::uuid, gl_account_id),
