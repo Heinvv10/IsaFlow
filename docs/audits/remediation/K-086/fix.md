@@ -43,7 +43,10 @@ direct API call with a session or API token. The census below says whether anyon
   cents, and the cost is `unitCost::NUMERIC * magnitude::NUMERIC`, rounded once by the column.
 - **A `warehouseId` must belong to the company.** It is checked before the first write, the same
   way as the product. It used to be written into both documents unchecked. The check is company
-  scoped because RLS admits every company the user belongs to.
+  scoped because RLS admits every company the user belongs to. One consequence: 244b_inventory.sql seeds a
+  "Main Warehouse" with a NULL `company_id`. That warehouse was accepted before and is now refused
+  (404). A tenant-less row belongs to no company, so refusing it is intended. No warehouse API or UI
+  exists in the repo, and the fixture has no such row.
 - A `count` now requires `unitCost`, as `increase` already did. Whenever `unitCost` is given, it must
   be exact cents and zero or more. A count's correction is what moves the valuation, which is costed
   on the movement. Without a cost, shrinkage would leave at R0 and its value would stay on the books.

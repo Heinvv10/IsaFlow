@@ -190,6 +190,17 @@ it('a count and a decrease of the same 0.05 cost the same: 0.05 x 0.5 = 0.03, no
   expect(await movementsOf(productA)).toEqual([{ movement_type: 'adjustment_out', q: 0.05, c: 0.03 }]);
 });
 
+it('total_cost is multiplied in SQL NUMERIC: 0.03 x 5.5 = 0.165 -> 0.17 on a decrease and on a count', async () => {
+  // In float 0.03 * 5.5 is 0.16499999999999998, which Postgres rounds to 0.16.
+  // Exact-cent inputs do not save a product, only NUMERIC arithmetic does.
+  expect((await adjust({ productId: productA, adjustmentType: 'decrease', quantity: 0.03, unitCost: 5.5, reason: 'shrinkage' })).state.statusCode).toBe(201);
+  expect(await movementsOf(productA)).toEqual([{ movement_type: 'adjustment_out', q: 0.03, c: 0.17 }]);
+  await pool.query('DELETE FROM stock_movements WHERE product_id=$1', [productA]);
+  await pool.query('UPDATE products SET current_stock=100 WHERE id=$1', [productA]);
+  expect((await adjust({ productId: productA, adjustmentType: 'count', quantity: 99.97, unitCost: 5.5, reason: 'stocktake' })).state.statusCode).toBe(201);
+  expect(await movementsOf(productA)).toEqual([{ movement_type: 'adjustment_out', q: 0.03, c: 0.17 }]);
+});
+
 it('the count correction is taken in whole cents: 0.10 on hand, 0.07 counted, books 0.03 at 0.015 -> 0.02', async () => {
   // In float, 0.07*100 - 0.10*100 is -2.9999999999999991, so an un-rounded
   // correction is 0.029999999999999992 and its cost 0.0149… rounds to 0.01.

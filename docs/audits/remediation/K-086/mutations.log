@@ -211,3 +211,12 @@ Each mutation alone. C1 and C4 survived their first run and got new cases (0.10 
 ⎯⎯⎯⎯⎯⎯⎯ Failed Tests 1 ⎯⎯⎯⎯⎯⎯⎯
       Tests  1 failed | 18 passed (19)
 ```
+
+## Round 5 correction (after /review re-review of dd3cd3e7f)
+The round-4 C2 mutation above was not the bare JS multiply: it also put back a float magnitude for a count, so it proved nothing about total_cost alone. Two reviewers reverted only the multiply and it survived: 0.05 x 0.5 is 0.025 in float too. A case where the float product lands below the half cent (0.03 x 5.5 = 0.16499999999999998) was added, on a decrease and on a count. The bare mutation now goes red:
+```
+### C2 (corrected) total_cost multiplied in JS float, integer-cents magnitude left in place
+   × total_cost is multiplied in SQL NUMERIC: 0.03 x 5.5 = 0.165 -> 0.17 on a decrease and on a count 45ms
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 1 ⎯⎯⎯⎯⎯⎯⎯
+      Tests  1 failed | 19 passed (20)
+```
