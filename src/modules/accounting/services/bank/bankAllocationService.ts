@@ -9,6 +9,8 @@ import { fmtDate } from '@/lib/fmtDate';
 import type { DbRow } from '@/lib/neon';
 import { log } from '@/lib/logger';
 import { createJournalEntry, postJournalEntry, resolveReversalDate } from '../gl/journalEntryService';
+import { planLateClaimCompanionReversal } from '../gl/vatLateClaimSplit';
+import type { LateClaimInfo } from '../gl/vatLateClaimPlan';
 import { getPeriodStatusForDate } from '../gl/periodStatusService';
 import { loadJournalVatLines } from '../gl/journalVatLockGuard';
 import type { JournalEntryMeta, PostingActorOpts } from '../gl/journalEntryMeta';
@@ -125,10 +127,13 @@ export async function allocateTransaction(
    * `auto_allocate_strategy`, which is 'off' on every row nobody edited — so
    * the cash got a document and closed nothing.
    */
-  opts?: PostingActorOpts & { autoApply?: AutoApplyMode },
+  // allowLateInputClaim: a USER's allocation only (gl/vatLateClaimPlan) — never the rule auto-post.
+  opts?: PostingActorOpts & { autoApply?: AutoApplyMode; allowLateInputClaim?: boolean },
 ): Promise<{
   journalEntryId: string;
   bankTransaction: BankTransaction;
+  /** Set when the allocation's input VAT was claimed late (s16(3)). */
+  lateClaim?: LateClaimInfo;
   /** Present only for a supplier/customer line that named no document. */
   application?: AllocationApplicationResult;
 }> {
@@ -441,8 +446,8 @@ export async function allocateTransaction(
 
   const je = await createJournalEntry(companyId, {
     entryDate: txDate, description: entryDesc, source, lines: linesWithDims,
-  }, userId, allocationMeta);
-  await postJournalEntry(companyId, je.id, userId);
+  }, userId, allocationMeta, { allowLateInputClaim: opts?.allowLateInputClaim });
+  const { lateClaim } = await postJournalEntry(companyId, je.id, userId, { allowLateInputClaim: opts?.allowLateInputClaim });
 
   // Resolve journal line id and optional customer payment user BEFORE opening tx (read-only lookups)
   const jeLines = (await sql`
@@ -660,6 +665,7 @@ export async function allocateTransaction(
     journalEntryId: je.id,
     bankTransaction: mapTxRow(updated[0]!),
     ...(application ? { application } : {}),
+    ...(lateClaim ? { lateClaim } : {}),
   };
 }
 
@@ -667,7 +673,8 @@ export async function allocateTransaction(
 
 export async function splitAllocateTransaction(
   companyId: string, bankTxId: string, lines: SplitLine[], userId: string,
-): Promise<{ journalEntryId: string; bankTransaction: BankTransaction }> {
+  opts?: { allowLateInputClaim?: boolean }, // a USER's split only — see allocateTransaction
+): Promise<{ journalEntryId: string; bankTransaction: BankTransaction; lateClaim?: LateClaimInfo }> {
   const tx = await lockBankTransactionForUpdate(companyId, bankTxId); // see allocateTransaction
   // Same two pre-write refusals as `allocateTransaction`, and the same class:
   // both are decided from the locked row before anything is written, so a
@@ -738,8 +745,8 @@ export async function splitAllocateTransaction(
   const splitMeta: JournalEntryMeta = { postingAgent: 'system:bank-allocation:v1' };
   const je = await createJournalEntry(companyId, {
     entryDate: txDate, description: entryDesc, source: 'auto_bank_recon', lines: journalLines,
-  }, userId, splitMeta);
-  await postJournalEntry(companyId, je.id, userId);
+  }, userId, splitMeta, { allowLateInputClaim: opts?.allowLateInputClaim });
+  const { lateClaim } = await postJournalEntry(companyId, je.id, userId, { allowLateInputClaim: opts?.allowLateInputClaim });
 
   const jeLines = (await sql`
     SELECT jl.id FROM gl_journal_lines jl
@@ -762,7 +769,7 @@ export async function splitAllocateTransaction(
 
   log.info('Split-allocated bank transaction', { bankTxId, journalEntryId: je.id, lineCount: lines.length }, 'accounting');
   const updated = (await sql`SELECT * FROM bank_transactions WHERE id = ${bankTxId}::UUID AND company_id = ${companyId}::UUID`) as Row[];
-  return { journalEntryId: je.id, bankTransaction: mapTxRow(updated[0]!) };
+  return { journalEntryId: je.id, bankTransaction: mapTxRow(updated[0]!), ...(lateClaim ? { lateClaim } : {}) };
 }
 
 // ── Reverse Reconciled ────────────────────────────────────────────────────────
@@ -786,6 +793,8 @@ async function assertReversalDatePostable(
     SELECT entry_date FROM gl_journal_entries
     WHERE id = ${journalEntryId}::UUID AND company_id = ${companyId}::UUID`) as Row[];
   if (rows.length === 0) throw new Error('Cannot reverse: journal entry not found');
+  // A late-claim companion is reversed with the journal: refused here, pre-write, if it cannot be.
+  await planLateClaimCompanionReversal(companyId, journalEntryId);
   const originalDate = fmtDate(rows[0]!.entry_date as string | Date);
   // With the journal's lines, so a locked VAT period rolls the date (or
   // refuses, pre-write) exactly as reverseJournalEntry will.

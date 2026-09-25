@@ -92,11 +92,12 @@ export async function findVatAllocationMismatches(
         je.id                                   AS journal_entry_id,
         je.entry_number,
         -- The tax line is what reaches VAT201, so its presence — not the
-        -- contra line's vat_type — is what makes a journal "standard".
-        SUM(CASE WHEN va.account_subtype IN ('vat_input', 'vat_output')
+        -- contra line's vat_type — is what makes a journal "standard". A late
+        -- claim's tax sits on 'vat_input_late_claim' (gl/vatLateClaimSplit).
+        SUM(CASE WHEN va.account_subtype IN ('vat_input', 'vat_output', 'vat_input_late_claim')
                  THEN ABS(COALESCE(jl.debit, 0)) + ABS(COALESCE(jl.credit, 0))
                  ELSE 0 END)                    AS posted_vat_amount,
-        SUM(CASE WHEN va.account_subtype = 'vat_input'
+        SUM(CASE WHEN va.account_subtype IN ('vat_input', 'vat_input_late_claim')
                  THEN ABS(COALESCE(jl.debit, 0)) + ABS(COALESCE(jl.credit, 0))
                  ELSE 0 END)                    AS input_vat_amount,
         MAX(jl.vat_type) FILTER (
@@ -109,15 +110,15 @@ export async function findVatAllocationMismatches(
         -- the denied-account flag — the report could not name what to fix.
         (ARRAY_AGG(va.account_code ORDER BY GREATEST(jl.debit, jl.credit) DESC)
            FILTER (WHERE COALESCE(va.account_subtype, '') <> ALL(${BANK_SUBTYPES as string[]}::TEXT[])
-                     AND COALESCE(va.account_subtype, '') NOT IN ('vat_input', 'vat_output')
+                     AND COALESCE(va.account_subtype, '') NOT IN ('vat_input', 'vat_output', 'vat_input_late_claim')
                      AND jl.gl_account_id IS DISTINCT FROM bt.bank_account_id))[1] AS account_code,
         (ARRAY_AGG(va.account_name ORDER BY GREATEST(jl.debit, jl.credit) DESC)
            FILTER (WHERE COALESCE(va.account_subtype, '') <> ALL(${BANK_SUBTYPES as string[]}::TEXT[])
-                     AND COALESCE(va.account_subtype, '') NOT IN ('vat_input', 'vat_output')
+                     AND COALESCE(va.account_subtype, '') NOT IN ('vat_input', 'vat_output', 'vat_input_late_claim')
                      AND jl.gl_account_id IS DISTINCT FROM bt.bank_account_id))[1] AS account_name,
         (ARRAY_AGG(COALESCE(va.vat_input_denied, false) ORDER BY GREATEST(jl.debit, jl.credit) DESC)
            FILTER (WHERE COALESCE(va.account_subtype, '') <> ALL(${BANK_SUBTYPES as string[]}::TEXT[])
-                     AND COALESCE(va.account_subtype, '') NOT IN ('vat_input', 'vat_output')
+                     AND COALESCE(va.account_subtype, '') NOT IN ('vat_input', 'vat_output', 'vat_input_late_claim')
                      AND jl.gl_account_id IS DISTINCT FROM bt.bank_account_id))[1] AS account_vat_input_denied
       FROM bank_transactions bt
       JOIN gl_journal_lines mjl

@@ -131,8 +131,9 @@ async function handler(req: CompanyAuthedRequest, res: NextApiResponse) {
       undefined,
       undefined,
       undefined,
-      // The service owns the default; this route only forwards an explicit one.
-      autoApply ? { autoApply } : undefined,
+      // The service owns the autoApply default; this route only forwards an
+      // explicit one. A person entering it: s16(3) late input-VAT claim where allowed.
+      { ...(autoApply ? { autoApply } : {}), allowLateInputClaim: true },
     );
 
     log.info('Manual bank transaction allocated', {
