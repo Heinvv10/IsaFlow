@@ -117,4 +117,29 @@ describeIfDb('late input VAT claim: the split', () => {
     expect(c!.vat_type).toBe('standard');
     expect(await balanceOf(fx, fx.clearingId)).toBe(0);
   });
+
+  it('two input-VAT lines with DIFFERENT codes become two companion lines, each keeping its code', async () => {
+    const asset = String(((await sql`
+      INSERT INTO gl_accounts (company_id, account_code, account_name, account_type, account_subtype,
+                               normal_balance, is_active)
+      VALUES (${fx.companyId}::UUID, '1500', ${`Vehicles ${fx.tag}`}, 'asset', 'fixed_asset', 'debit', true)
+      RETURNING id`) as Row[])[0]!.id);
+    const posted = await inTx(fx, async () => {
+      const je = await createJournalEntry(fx.companyId, { entryDate: '2026-06-21', description: 'LC two codes', lines: [
+        { glAccountId: fx.expenseId, debit: 1000, credit: 0, vatType: 'standard' as const },
+        { glAccountId: asset, debit: 2000, credit: 0, vatType: 'capital_goods' as const },
+        { glAccountId: fx.vatInputId, debit: 150, credit: 0, vatType: 'standard' as const },
+        { glAccountId: fx.vatInputId, debit: 300, credit: 0, vatType: 'capital_goods' as const },
+        { glAccountId: fx.apId, debit: 0, credit: 3450 },
+      ] }, fx.userId, undefined, { allowLateInputClaim: true });
+      return postJournalEntry(fx.companyId, je.id, fx.userId, { allowLateInputClaim: true });
+    });
+    const legs = (await sql`
+      SELECT vat_type, debit::NUMERIC AS debit FROM gl_journal_lines
+      WHERE journal_entry_id = ${posted.lateClaim!.companionEntryId}::UUID AND gl_account_id = ${fx.vatInputId}::UUID
+      ORDER BY vat_type`) as Row[];
+    expect(legs.map((l) => [l.vat_type, Number(l.debit)])).toEqual([['capital_goods', 300], ['standard', 150]]);
+    const r = await inTx(fx, () => getVat201Report(fx.companyId, NEXT.start, NEXT.end, { detail: 'summary' }));
+    expect(r.boxes.find((b) => b.box === '14')).toMatchObject({ tax: 300, lateClaimTax: 300 });
+  });
 });
