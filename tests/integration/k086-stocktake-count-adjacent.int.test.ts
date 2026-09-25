@@ -4,15 +4,18 @@
  * The RED file proves the headline claim (a count is absolute and its
  * movement is the correction). This file covers the cases around it that the
  * fix could plausibly get wrong: the untouched delta path, a count that
- * RAISES stock, a count that agrees with the shelf, a fractional count, a
- * count racing a concurrent writer, a second company's stock, and a product
- * belonging to another tenant.
+ * RAISES stock, a count that agrees with the shelf, a two-decimal count, a
+ * refused third decimal, refused "NaN"/string/uncosted input, the value a
+ * shrinkage count takes out of the valuation, the decrease clamp, a
+ * transfer, a count racing a concurrent writer, a second company's stock,
+ * and a product belonging to another tenant.
  */
 import { afterAll, beforeAll, beforeEach, expect, it } from 'vitest';
 import { Pool } from 'pg';
 import { SignJWT } from 'jose';
 import stockAdjustments from '../../pages/api/accounting/stock-adjustments';
 import { assertDisposable, request, response } from './mfa-impersonation-postgres.helpers';
+import { getStockValuation } from '../../src/modules/accounting/services/items/stockValuationService';
 
 assertDisposable();
 const pool = new Pool({ connectionString: process.env.DATABASE_URL });
@@ -116,17 +119,76 @@ it('a count that agrees with stock on hand moves nothing and records no movement
   expect(rows[0].n).toBe(1);
 });
 
-it('a fractional count keeps stock and movement in step to the cent', async () => {
-  // Three decimals on purpose: the columns hold two. Rounding the count and
-  // the correction separately (100 - 60.555 = 39.445 -> 39.45 while the count
-  // stores 60.56) would leave stock + correction at 100.01, so the movement
-  // ledger would no longer explain the stock. Both come from one cent figure.
-  const result = await adjust({ productId: productA, adjustmentType: 'count', quantity: 60.555, unitCost: 1, reason: 'stocktake by weight' });
+it('a two-decimal count is exact: 100 -> 60.35 books 39.65 out, and the document agrees', async () => {
+  const result = await adjust({ productId: productA, adjustmentType: 'count', quantity: 60.35, unitCost: 1, reason: 'stocktake by weight' });
   expect(result.state.statusCode).toBe(201);
-  const stock = await stockOf(productA);
-  const [movement] = await movementsOf(productA);
-  expect(movement?.movement_type).toBe('adjustment_out');
-  expect(Math.round(((stock ?? 0) + (movement?.q ?? 0)) * 100)).toBe(10000);
+  expect(await stockOf(productA)).toBe(60.35);
+  expect(await movementsOf(productA)).toEqual([{ movement_type: 'adjustment_out', q: 39.65, c: 39.65 }]);
+  const { rows } = await pool.query('SELECT quantity::float8 AS q FROM stock_adjustments WHERE company_id=$1', [companyA]);
+  expect(rows).toEqual([{ q: 60.35 }]);
+});
+
+it('a third decimal is refused before anything is written', async () => {
+  // Postgres rounds 1.005 to 1.01 while float cents give 1.00, so the stored
+  // count and the stock it set would disagree. withAuth commits on a 4xx, so
+  // the refusal has to come before the first INSERT.
+  for (const adjustmentType of ['count', 'increase']) {
+    const result = await adjust({ productId: productA, adjustmentType, quantity: 1.005, unitCost: 1, reason: 'sub-cent' });
+    expect(result.state.statusCode).toBe(422);
+  }
+  const { rows } = await pool.query('SELECT count(*)::int AS n FROM stock_adjustments WHERE company_id=$1', [companyA]);
+  expect(rows[0].n).toBe(0);
+  expect(await stockOf(productA)).toBe(100);
+  expect(await movementsOf(productA)).toEqual([]);
+});
+
+it('"NaN", a string quantity and a count with no unit cost are refused before anything is written', async () => {
+  // "NaN" is truthy and not <= 0, and NUMERIC stores NaN, which Postgres ranks
+  // above 0 — so without the type check it passed the CHECK and poisoned stock.
+  const bodies = [
+    { adjustmentType: 'count', quantity: 'NaN', unitCost: 1 },
+    { adjustmentType: 'decrease', quantity: 'NaN', unitCost: 1 },
+    { adjustmentType: 'count', quantity: '60', unitCost: 1 },
+    { adjustmentType: 'count', quantity: 60 },
+    { adjustmentType: 'count', quantity: 60, unitCost: 'NaN' },
+  ];
+  for (const body of bodies) {
+    const result = await adjust({ productId: productA, reason: 'bad input', ...body });
+    expect(result.state.statusCode).toBe(422);
+  }
+  const { rows } = await pool.query('SELECT count(*)::int AS n FROM stock_adjustments WHERE company_id=$1', [companyA]);
+  expect(rows[0].n).toBe(0);
+  expect(await stockOf(productA)).toBe(100);
+  expect(await movementsOf(productA)).toEqual([]);
+});
+
+it('a shrinkage count takes its value out of the stock valuation, not just its units', async () => {
+  // Start from a product whose on-hand is fully explained by movements, so the
+  // valuation (which sums movements) and current_stock describe the same stock.
+  await pool.query('UPDATE products SET current_stock=0 WHERE id=$1', [productA]);
+  expect((await adjust({ productId: productA, adjustmentType: 'increase', quantity: 100, unitCost: 10, reason: 'receipt' })).state.statusCode).toBe(201);
+  expect((await adjust({ productId: productA, adjustmentType: 'count', quantity: 60, unitCost: 10, reason: 'stocktake' })).state.statusCode).toBe(201);
+  expect(await stockOf(productA)).toBe(60);
+  const valuation = await getStockValuation(companyA, '2999-12-31');
+  const row = valuation.rows.find((r) => r.productId === productA);
+  expect(row?.quantityOnHand).toBe(60);
+  expect(row?.value).toBe(600);
+});
+
+it('a decrease past zero is still clamped at 0 and books the full requested quantity out', async () => {
+  // Pre-existing semantics, kept: the clamp means movements (-150) and stock
+  // (-100) disagree by 50. Recorded as a residual in K-086/fix.md.
+  const result = await adjust({ productId: productA, adjustmentType: 'decrease', quantity: 150, unitCost: 1, reason: 'shrinkage' });
+  expect(result.state.statusCode).toBe(201);
+  expect(await stockOf(productA)).toBe(0);
+  expect(await movementsOf(productA)).toEqual([{ movement_type: 'adjustment_out', q: 150, c: 150 }]);
+});
+
+it('a transfer is still an outbound delta', async () => {
+  const result = await adjust({ productId: productA, adjustmentType: 'transfer', quantity: 20, unitCost: 1, reason: 'to branch' });
+  expect(result.state.statusCode).toBe(201);
+  expect(await stockOf(productA)).toBe(80);
+  expect(await movementsOf(productA)).toEqual([{ movement_type: 'adjustment_out', q: 20, c: 20 }]);
 });
 
 it('a count waits for a competing writer and corrects from what it then reads', async () => {

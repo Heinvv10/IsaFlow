@@ -24,9 +24,21 @@ direct API call with a session or API token. The census below says whether anyon
   movement_type `count`, because `stockValuationService` treats that type as non-delta and leaves it
   out of quantity on hand. A count equal to the shelf moves nothing, so it writes no movement; the
   `stock_adjustments` row still records it.
-- The arithmetic is done in cents. The columns are `NUMERIC(15,2)`. Rounding the count and the
-  correction separately let stock + correction drift a cent off the previous on-hand.
-- `increase` / `decrease` / `write_off` / `transfer` are unchanged: they are deltas and keep the clamp.
+- `validateStockAdjustment` now refuses a quantity that is not a number, or that has more than
+  2 decimals. This check runs before the first write. A string `"NaN"` used to pass, because it is
+  truthy and not <= 0. `NUMERIC` stores NaN, and Postgres ranks NaN above 0, so
+  `CHECK (quantity > 0)` admitted it too. NaN would have been written into stock, the movement and
+  the adjustment, and into every valuation after them.
+- A `count` now requires `unitCost`, as `increase` already did. `unitCost` must be a finite number
+  of zero or more whenever it is given. The correction is what moves the valuation, which is costed
+  on the movement. Without a cost, shrinkage would leave at R0 and its value would stay on the
+  books. The columns are `NUMERIC(15,2)`, and Postgres
+  rounds `1.005` to `1.01` while JS float arithmetic gives `1.00`. The stored document and the stock
+  it set would then disagree, and that held for every adjustment type, not only `count`. With 2
+  decimals guaranteed, plain arithmetic in the route is exact at the columns' scale.
+- `increase` / `decrease` / `write_off` / `transfer` keep their delta semantics and the clamp at
+  zero. The one change for them is that a sub-cent, string or NaN quantity, or a bad `unitCost`, is
+  now refused (422).
 
 The approach and both test files are ported from `c5a52e421`. That was an unpushed local branch from
 2026-09-09 that K-085's separate fix overtook.
@@ -44,31 +56,42 @@ It runs against the disposable fixture.
   - a count racing a writer that holds the row and moves it 100 → 55;
   - a second company, and another tenant's product;
   - a user who belongs to both companies.
+- The adjacent file also covers the delta types that were not exercised before: `decrease` past
+  zero (the clamp) and `transfer`. It also covers the refused inputs (a third decimal, `"NaN"`, a
+  string, a count with no cost), none of which may leave rows behind. And it checks the value a
+  shrinkage count takes out of `getStockValuation`.
 - `red.log`: on master, 5 of 10 fail. For example, `expected 160 to be 60`.
-- `green.log`: 12 of 12 pass.
-- `mutations.log`: each of the 7 guards, reverted alone, turns at least one test red. M7 (dropping
-  `company_id` from the lock) first survived, because RLS refused a stranger's product on its own. The
-  two-company-user case was added for it and now fails under M7.
+- `green.log`: every test passes, with the k107 numbering suite alongside.
+- `mutations.log`: each guard, reverted alone, turns at least one test red.
+  - M7 (dropping `company_id` from the lock) survived at first, because RLS refused a stranger's
+    product on its own. The two-company-user case was added for it.
+  - A cents-arithmetic guard survived once the validator guaranteed 2 decimals. It was redundant, so
+    it was removed rather than kept as untestable code.
 - `tests/integration/k107-stock-adjustment-numbering.int.test.ts`: 4 of 4 still pass.
 
 ## Census for Hein (read-only; NOT run, and must not be run by an agent)
 
-Were any counts posted since the K-085 fix went live? If so, their stock is wrong by roughly the full
-on-hand.
+Were any counts posted before this fix deployed? The old code has a unique signature. It booked the
+COUNTED quantity as an `adjustment_out` and added the count to stock. After this fix deploys, a
+correct count can also come back unfiltered, so the query keeps only rows with that signature. Set
+`:k086_deployed_at` to the deploy time, or to now() if it has not deployed yet.
 
 ```sql
 SELECT sa.company_id, sa.adjustment_number, sa.product_id, sa.quantity AS counted,
        sa.created_at, sm.movement_type, sm.quantity AS movement_qty, p.current_stock
   FROM stock_adjustments sa
   JOIN products p ON p.id = sa.product_id AND p.company_id = sa.company_id
-  LEFT JOIN stock_movements sm
-         ON sm.reference_type = 'stock_adjustment' AND sm.reference_id = sa.id
+  JOIN stock_movements sm
+    ON sm.reference_type = 'stock_adjustment' AND sm.reference_id = sa.id
  WHERE sa.adjustment_type = 'count'
+   AND sm.movement_type = 'adjustment_out'
+   AND sm.quantity = sa.quantity
+   AND sa.created_at < :'k086_deployed_at'
  ORDER BY sa.created_at;
 ```
 
-Expect zero rows. Any row that comes back needs a human-decided correcting count. Nothing is corrected
-automatically.
+Expect zero rows. For any row that comes back, `current_stock` was raised by `counted` when it should
+have been set to it. The correction needs a human-decided count. Nothing is corrected automatically.
 
 ## Residuals (not built)
 
@@ -77,6 +100,9 @@ automatically.
    cannot be recorded as a count. Fixing it needs a migration. **Hein's call.**
 2. **Two on-hand figures.** The route keeps `products.current_stock`, but `stockValuationService`
    derives quantity on hand from `stock_movements`. Wherever the two already disagree, a count makes
-   `current_stock` right while the valuation stays off by the old gap. This predates K-086.
+   `current_stock` right while the valuation stays off by the old gap. The clamp is one way they
+   split: a `decrease` of 150 against 100 sets stock to 0 but books 150 out, so the movements imply
+   -50. Refusing a decrease past zero instead would be Hein's call, and the refusal would have to
+   come before the adjustment INSERT. All of this predates K-086.
 3. **`transfer` is booked as an `adjustment_out` delta**, with no destination warehouse, and
    `stock_levels` (per warehouse) is not written by this route at all. Both predate K-086.
