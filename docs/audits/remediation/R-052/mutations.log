@@ -161,6 +161,25 @@ There are 49 cases.
       Tests  2 failed | 47 passed (49)
 ```
 
+## Round 8 (re-reviews of 130796360): the token is pinned and the timeout must be an integer
+Top-level `permissions` must be exactly `{contents: read}` and no job may set its own, because
+`actions: write` lets any job cancel the run. The timeout check is now `Number.isInteger`, since
+the separate typeof check was redundant, and a 20.5 case covers it. There are 52 cases.
+```
+### R21 top-level permissions not pinned
+     × actions: write on the workflow token (any job could then cancel the run) 4ms
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 1 ⎯⎯⎯⎯⎯⎯⎯
+      Tests  1 failed | 51 passed (52)
+### R22 job-level permissions allowed
+     × a job widening its own token 4ms
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 1 ⎯⎯⎯⎯⎯⎯⎯
+      Tests  1 failed | 51 passed (52)
+### R23 integer check dropped (typeof number only)
+     × a fractional timeout: the check ends cancelled, never red 2ms
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 1 ⎯⎯⎯⎯⎯⎯⎯
+      Tests  1 failed | 51 passed (52)
+```
+
 ## Round 1 (superseded): the grep-based check-workflow-runs-ci.sh
 It caught these four, and blind review then got nine other edits past it, which is why round 2 replaced it.
 ```

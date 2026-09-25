@@ -108,6 +108,7 @@ describe('refuses every way found to keep the job green while skipping gates', (
   it.each([
     ['a timeout too short to finish', 'timeout-minutes: 1'],
     ['a timeout given as an expression', "timeout-minutes: '30'"],
+    ['a fractional timeout', 'timeout-minutes: 20.5'],
     ['no timeout floor (key removed)', null],
   ])('%s: the check ends cancelled, never red', (_label, line) => {
     // Anchored on quality's own comment: golden-paths also has timeout-minutes: 30.
@@ -139,6 +140,16 @@ describe('refuses every way found to keep the job green while skipping gates', (
   it('golden-paths concurrency removed or set to cancel', () => {
     expect(check(edit('    concurrency:\n      group: golden-paths-dev-demo\n      cancel-in-progress: false\n', '')).length).toBeGreaterThan(0);
     expect(check(edit('      cancel-in-progress: false\n', '      cancel-in-progress: true\n')).length).toBeGreaterThan(0);
+  });
+
+  it('actions: write on the workflow token (any job could then cancel the run)', () => {
+    expect(check(edit('permissions:\n  contents: read\n', 'permissions:\n  contents: read\n  actions: write\n')).length).toBeGreaterThan(0);
+    expect(check(edit('permissions:\n  contents: read\n', 'permissions: write-all\n')).length).toBeGreaterThan(0);
+    expect(check(edit('permissions:\n  contents: read\n', '')).length).toBeGreaterThan(0);
+  });
+
+  it('a job widening its own token', () => {
+    expect(check(edit('    concurrency:\n      group: golden-paths-dev-demo\n', '    permissions:\n      actions: write\n    concurrency:\n      group: golden-paths-dev-demo\n')).length).toBeGreaterThan(0);
   });
 
   it('a third job in ci.yml', () => {

@@ -70,6 +70,12 @@ const CONCURRENCY = { group: 'ci-${{ github.ref }}', 'cancel-in-progress': true 
 export const WORKFLOW_FILES = ['ci.yml'];
 const JOBS = ['quality', 'golden-paths'];
 const GOLDEN_PATHS_CONCURRENCY = { group: 'golden-paths-dev-demo', 'cancel-in-progress': false };
+/**
+ * The token every job gets. With `actions: write` any job (golden-paths
+ * included) could `gh run cancel` the run, ending quality CANCELLED. Pinned at
+ * the top level, and no job may widen it.
+ */
+const PERMISSIONS = { contents: 'read' };
 const MIN_TIMEOUT_MINUTES = 20;
 const CHECKOUT = /^actions\/checkout@v\d+$/;
 const INSTALL = 'bun install --frozen-lockfile --ignore-scripts';
@@ -121,6 +127,10 @@ export function checkWorkflowRunsCi(workflow: unknown, scripts: unknown, workflo
 
   const topExtra = extraKeys(workflow, ['name', 'on', 'concurrency', 'permissions', 'jobs']);
   if (topExtra.length) errors.push(`ci.yml sets top-level ${topExtra.join(', ')}; env/defaults there reach the gate step`);
+  const perms = workflow.permissions;
+  if (!isObj(perms) || !sameList(Object.keys(perms), Object.keys(PERMISSIONS)) || perms.contents !== PERMISSIONS.contents) {
+    errors.push(`ci.yml permissions must be exactly ${JSON.stringify(PERMISSIONS)}; a writable actions scope lets any job cancel the run`);
+  }
   const conc = workflow.concurrency;
   if (!isObj(conc) || extraKeys(conc, Object.keys(CONCURRENCY)).length
     || conc.group !== CONCURRENCY.group || conc['cancel-in-progress'] !== CONCURRENCY['cancel-in-progress']) {
@@ -139,6 +149,8 @@ export function checkWorkflowRunsCi(workflow: unknown, scripts: unknown, workflo
     if (!sameList(Object.keys(jobs), JOBS)) {
       errors.push(`ci.yml jobs must be exactly ${JOBS.join(', ')}; another job can take the ci- concurrency group and cancel quality`);
     }
+    const widened = Object.entries(jobs).filter(([, j]) => isObj(j) && 'permissions' in j).map(([name]) => name);
+    if (widened.length) errors.push(`jobs ${widened.join(', ')} set permissions; only the top-level {contents: read} token is allowed`);
     const gp = jobs['golden-paths'];
     const gpc = isObj(gp) ? gp.concurrency : undefined;
     if (!isObj(gpc) || extraKeys(gpc, Object.keys(GOLDEN_PATHS_CONCURRENCY)).length
@@ -152,7 +164,7 @@ export function checkWorkflowRunsCi(workflow: unknown, scripts: unknown, workflo
   const jobExtra = extraKeys(job, ['name', 'runs-on', 'timeout-minutes', 'steps']);
   if (jobExtra.length) errors.push(`jobs.${QUALITY_JOB} sets ${jobExtra.join(', ')}; if/continue-on-error/defaults/env/strategy can skip or neutralise the gate`);
   const timeout = job['timeout-minutes'];
-  if (typeof timeout !== 'number' || !Number.isInteger(timeout) || timeout < MIN_TIMEOUT_MINUTES) {
+  if (!Number.isInteger(timeout) || (timeout as number) < MIN_TIMEOUT_MINUTES) {
     errors.push(`jobs.${QUALITY_JOB}.timeout-minutes must be an integer >= ${MIN_TIMEOUT_MINUTES}; a job that cannot finish ends cancelled, never red`);
   }
 
