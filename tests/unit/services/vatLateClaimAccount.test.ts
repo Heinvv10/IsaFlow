@@ -16,8 +16,8 @@ const SUBTYPE = 'vat_input_late_claim';
 describe('vat_input_late_claim', () => {
   it('is an ordinary account, not VAT class', () => {
     expect(reportingClassFor(SUBTYPE)).toBe('ordinary');
-    expect(canonicalSubtype(SUBTYPE)).not.toBe('vat_input');
-    expect(canonicalSubtype(SUBTYPE)).not.toBe('vat_output');
+    // Classified (the census reports no unclassified account), and as ITSELF — not a VAT control subtype.
+    expect(canonicalSubtype(SUBTYPE)).toBe('vat_input_late_claim');
   });
 
   it('an untagged line on it moves no VAT figure (the lock lets the original post)', () => {
