@@ -125,9 +125,33 @@ describeIfDb('cancelSupplierInvoice — the shared path the UI and bulk cancel u
     await refusedLeavingItAlone(bill, /draft journal/);
   });
 
-  it('refuses an approved bill with no approval journal to reverse', async () => {
+  it('refuses an approved bill with no approval journal that no capture created', async () => {
     const bill = await seedBill(fx, { number: `SP${++seq}`, date: '2026-05-06', total: 80 });
     await refusedLeavingItAlone(bill, /no approval journal/);
+  });
+
+  it('cancels a captured, auto-approved bill that was never posted, posting nothing', async () => {
+    const bill = await seedBill(fx, { number: `SP${++seq}`, date: '2026-05-06', total: 80 });
+    const doc = String(((await sql`
+      INSERT INTO captured_documents (company_id, file_name, file_type, document_type, status)
+       VALUES (${fx.companyId}::UUID, 'capture.pdf', 'application/pdf', 'invoice', 'posted') RETURNING id`) as Array<{ id: string }>)[0]!.id);
+    await sql`UPDATE supplier_invoices SET source_document_id = ${doc}::UUID WHERE id = ${bill}::UUID`;
+    await inTx(fx, () => cancelSupplierInvoice(fx.companyId, bill, fx.userId));
+    expect(await state(bill)).toEqual({ status: 'cancelled', gl_journal_entry_id: null, contras: 0 });
+  });
+
+  // The bank-first flow (capture/evidenceAttachmentService) evidences a bank
+  // journal already posted for this spend by stamping the captured document on
+  // it, and never links it to the bill: the money IS in the GL.
+  it('refuses a captured bill whose document already carries a posted journal', async () => {
+    const bill = await seedBill(fx, { number: `SP${++seq}`, date: '2026-05-06', total: 333 });
+    const doc = String(((await sql`
+      INSERT INTO captured_documents (company_id, file_name, file_type, document_type, status)
+       VALUES (${fx.companyId}::UUID, 'slip.pdf', 'application/pdf', 'receipt', 'posted') RETURNING id`) as Array<{ id: string }>)[0]!.id);
+    await sql`UPDATE supplier_invoices SET source_document_id = ${doc}::UUID WHERE id = ${bill}::UUID`;
+    const je = await seedJournal(333, '2026-05-06', { source: 'auto_bank_recon' });
+    await sql`UPDATE gl_journal_entries SET source_document_id = ${doc}::UUID WHERE id = ${je}::UUID`;
+    await refusedLeavingItAlone(bill, /already carries posted journal/);
   });
 
   // Ruling for reversals (central VAT lock, #491): a contra whose default date
