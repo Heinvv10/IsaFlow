@@ -18,6 +18,9 @@ import type { BankTxFilters } from './bankTxFilters';
 // 'standard' is asserted from the PRESENCE OF A VAT-ACCOUNT LINE, not from
 // gl_journal_lines.vat_type: the tax line is what reaches VAT201, and a vat_type
 // left unset on the contra line would otherwise hide a real claim.
+// 'vat_input_late_claim' counts too: a user allocation dated in a filed VAT
+// period parks its tax there and claims it in the next period (s16(3),
+// gl/vatLateClaimSplit) — still a standard-rated allocation.
 // V-05 census: no auto_vat_submission exclusion is needed here. This is a
 // per-transaction lateral entered through bt.matched_journal_line_id, and the
 // clearing journal is not matched to any bank transaction, so it cannot reach
@@ -29,7 +32,7 @@ const POSTED_VAT_LATERAL = `
       -- this arm an unallocated transaction reported 'none' — indistinguishable
       -- from one that WAS allocated and genuinely claimed nothing.
       WHEN COUNT(jl.id) = 0 THEN NULL
-      WHEN SUM(CASE WHEN va.account_subtype IN ('vat_input', 'vat_output')
+      WHEN SUM(CASE WHEN va.account_subtype IN ('vat_input', 'vat_output', 'vat_input_late_claim')
                     THEN ABS(COALESCE(jl.debit, 0)) + ABS(COALESCE(jl.credit, 0))
                     ELSE 0 END) > 0 THEN 'standard'
       ELSE COALESCE(
@@ -37,7 +40,7 @@ const POSTED_VAT_LATERAL = `
         'none')
     END AS posted_vat_code,
     CASE WHEN COUNT(jl.id) = 0 THEN NULL ELSE
-      SUM(CASE WHEN va.account_subtype IN ('vat_input', 'vat_output')
+      SUM(CASE WHEN va.account_subtype IN ('vat_input', 'vat_output', 'vat_input_late_claim')
                THEN ABS(COALESCE(jl.debit, 0)) + ABS(COALESCE(jl.credit, 0))
                ELSE 0 END)
     END AS posted_vat_amount
@@ -95,7 +98,7 @@ const ALLOCATED_ACCOUNT_LATERAL = `
     WHERE bl.id = bt.matched_journal_line_id
       AND bl.company_id = bt.company_id
       AND bl.gl_account_id = bt.bank_account_id
-      AND COALESCE(aga.account_subtype, '') NOT IN ('vat_input', 'vat_output')
+      AND COALESCE(aga.account_subtype, '') NOT IN ('vat_input', 'vat_output', 'vat_input_late_claim')
     ORDER BY GREATEST(al.debit, al.credit) DESC, aga.account_code ASC
     LIMIT 1
   ) aa ON TRUE`;

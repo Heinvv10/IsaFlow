@@ -131,8 +131,9 @@ async function handler(req: CompanyAuthedRequest, res: NextApiResponse) {
       undefined,
       undefined,
       undefined,
-      // The service owns the default; this route only forwards an explicit one.
-      autoApply ? { autoApply } : undefined,
+      // The service owns the autoApply default; this route only forwards an
+      // explicit one. A person entering it: s16(3) late input-VAT claim where allowed.
+      { ...(autoApply ? { autoApply } : {}), allowLateInputClaim: true },
     );
 
     log.info('Manual bank transaction allocated', {
@@ -143,6 +144,7 @@ async function handler(req: CompanyAuthedRequest, res: NextApiResponse) {
       bankTransactionId: txId,
       journalEntryId: result.journalEntryId,
       bankTransaction: result.bankTransaction,
+      ...(result.lateClaim ? { lateClaim: result.lateClaim } : {}), // VAT claimed in a later period (s16(3))
     }, 'Transaction recorded and allocated successfully');
   } catch (err) {
     // Contention is a 409, not a 500. This route calls `allocateTransaction`,

@@ -161,15 +161,18 @@ export async function getVatExceptions(
         LEFT JOIN suppliers s ON s.id = si.supplier_id
         LEFT JOIN gl_journal_entries je_any
           ON je_any.id = si.gl_journal_entry_id AND je_any.company_id = ${companyId}::UUID
+        -- The bill's journal AND its late-claim companion (gl/vatLateClaimSplit),
+        -- which carries the input VAT; such a bill is dated by the companion.
         LEFT JOIN gl_journal_entries je
-          ON je.id = si.gl_journal_entry_id AND je.status = 'posted'
-          AND je.company_id = ${companyId}::UUID
+          ON (je.id = si.gl_journal_entry_id OR je.late_claim_of_id = si.gl_journal_entry_id)
+          AND je.status = 'posted' AND je.company_id = ${companyId}::UUID
         LEFT JOIN gl_journal_lines jl
           ON jl.journal_entry_id = je.id AND jl.company_id = ${companyId}::UUID
         LEFT JOIN gl_accounts ga ON ga.id = jl.gl_account_id
         WHERE si.company_id = ${companyId}::UUID
-          AND si.invoice_date >= ${periodStart}::DATE
-          AND si.invoice_date <= ${periodEnd}::DATE
+          AND COALESCE((SELECT lc.entry_date FROM gl_journal_entries lc
+                WHERE lc.company_id = ${companyId}::UUID AND lc.late_claim_of_id = si.gl_journal_entry_id
+                  AND lc.status = 'posted' AND lc.reversed_at IS NULL LIMIT 1), si.invoice_date) BETWEEN ${periodStart}::DATE AND ${periodEnd}::DATE
           AND si.status != 'cancelled'
           AND si.gl_journal_entry_id IS NOT NULL
         GROUP BY si.id, si.invoice_number, si.invoice_date, si.tax_amount, s.name, je_any.status

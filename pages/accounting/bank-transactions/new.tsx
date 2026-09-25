@@ -11,6 +11,7 @@ import { ArrowLeft, Loader2, Receipt, Banknote } from 'lucide-react';
 import { notify } from '@/utils/toast';
 import { apiFetch } from '@/lib/apiFetch';
 import { isBankSubtype } from '@/modules/accounting/services/gl/accountSubtypes';
+import { notifyLateClaims } from '@/components/accounting/lateClaimNotice';
 
 type TxType = 'spend' | 'receive';
 type AllocType = 'account' | 'supplier' | 'customer';
@@ -148,6 +149,7 @@ export default function NewBankTransactionPage() {
       if (!res.ok || json.success === false)
         throw new Error(json.error?.message ?? json.message ?? 'Failed to record transaction');
       notify.success('Transaction recorded successfully');
+      notifyLateClaims(json); // VAT claimed in a later period (s16(3))
       void router.push('/accounting/bank-transactions');
     } catch (error) {
       notify.error(error instanceof Error ? error.message : 'Failed to record transaction');

@@ -27,6 +27,7 @@ export type CanonicalSubtype =
   | 'current_asset'
   | 'other_current_asset'
   | 'vat_input'
+  | 'vat_input_late_claim' // the late-claim clearing account (migration 701) — NOT a VAT control subtype
   | 'fixed_asset'
   | 'accumulated_depreciation'
   | 'intangible_asset'
@@ -91,6 +92,7 @@ const SUBTYPE_ALIASES: Record<string, CanonicalSubtype> = {
   other_current_asset: 'other_current_asset',
   other_current_assets: 'other_current_asset',
   vat_input: 'vat_input',
+  vat_input_late_claim: 'vat_input_late_claim',
   fixed_asset: 'fixed_asset',
   fixed_assets: 'fixed_asset',
   property_plant_equipment: 'fixed_asset',

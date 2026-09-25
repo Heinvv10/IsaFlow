@@ -112,6 +112,7 @@ export const MAX_TREE_DEPTH = 32;
 export type MergeRefusalCode =
   | 'account_not_found'
   | 'source_equals_target'
+  | 'late_claim_clearing_account'
   | 'account_type_mismatch'
   | 'account_subtype_reporting_class'
   | 'target_is_inactive'
@@ -211,6 +212,12 @@ export async function assertMergeable(
 ): Promise<void> {
   if (source.id === target.id) {
     throw new AccountMergeError('An account cannot be merged into itself', 'source_equals_target');
+  }
+  // Only the s16(3) split writes the late-claim clearing account (gl/vatLateClaimSplit).
+  const clearing = [source, target].find((a) => a.accountSubtype === 'vat_input_late_claim');
+  if (clearing) {
+    throw new AccountMergeError(`${clearing.accountCode} is the "Input VAT - late claims" clearing account; only a `
+      + 'late input-VAT claim posts to it, so it cannot be merged in either direction.', 'late_claim_clearing_account');
   }
   if (!target.isActive) {
     throw new AccountMergeError(

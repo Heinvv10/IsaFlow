@@ -19,6 +19,7 @@ import { ConfirmDialog } from '@/components/ui/ConfirmDialog';
 import { Breadcrumb } from '@/components/ui/Breadcrumb';
 import { buildInvoiceTrail } from '@/components/accounting/invoiceReturnContext';
 import { useSupplierInvoiceActions } from '@/modules/accounting/hooks/useSupplierInvoiceActions';
+import { notifyLateClaims } from '@/components/accounting/lateClaimNotice';
 
 function StatusBadge({ status }: { status: string }) {
   const colors: Record<string, string> = {
@@ -78,6 +79,7 @@ export default function SupplierInvoiceDetailPage() {
         body: JSON.stringify({ action, invoiceId }),
       });
       if (!res.ok) { const err = await res.json(); throw new Error(err.error?.message || 'Action failed'); }
+      notifyLateClaims(await res.json()); // approve: VAT claimed in a later period (s16(3))
       await loadInvoice();
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Action failed');

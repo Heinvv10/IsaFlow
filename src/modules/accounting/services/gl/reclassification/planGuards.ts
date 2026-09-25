@@ -117,6 +117,12 @@ export async function admitReclassification(
   if (!source) return { refused: 'NOT_FOUND' };
   const target = await loadAccount(companyId, input.targetAccountId);
   if (!target) return { refused: 'NOT_FOUND' };
+  // Only the s16(3) split writes the late-claim clearing account (gl/vatLateClaimSplit).
+  const clearing = [source, target].find((a) => a.subtype === 'vat_input_late_claim');
+  if (clearing) {
+    return { refused: `Account ${clearing.code} is the "Input VAT - late claims" clearing account; only a late `
+      + 'input-VAT claim posts to it, so nothing may be reclassified onto or off it.' };
+  }
 
   // A deactivated account refuses every posting (`assertNoInactiveAccountLines`),
   // so EVERY journal in the batch would fail. That is a fault in the request —

@@ -50,6 +50,25 @@ interface AllowedEntry {
 }
 const ALLOWED: Record<string, AllowedEntry> = {
   // ── ATTENDED ──────────────────────────────────────────────────────────────
+  'src/modules/accounting/services/gl/vatLateClaimSplit.ts': {
+    kinds: ['vat_field_on_a_posting_path'],
+    reason: 'Attended by construction: the late-claim split runs only when a human-initiated '
+    + 'caller opts in (allowLateInputClaim; MCP only with an explicit allow_late_input_claim), '
+    + 'and every unattended poster keeps the lock refusal (vat-late-claim-unattended.int.test.ts). '
+    + 'It decides no claim of its own: it copies each vat_type the original posting already '
+    + 'carried onto the companion, after qualifiesForLateClaim has refused output VAT, input '
+    + 'reductions and non-supply or input-denied accounts.',
+  },
+  'src/modules/accounting/services/gl/vatLateClaimRules.ts': {
+    kinds: ['rate_constant'],
+    reason: 'This IS the late-claim guard (qualifiesForLateClaim). The rate is the VAT201\'s own, '
+    + 'used only to REFUSE a claim that does not fit its base; it predicts no VAT and posts nothing.',
+  },
+  'src/modules/accounting/services/reports/vatLateClaimBasis.ts': {
+    kinds: ['rate_constant'],
+    reason: 'Report code: it derives the VAT201 boxes (the 15% base check) including late claims. '
+    + 'It posts nothing and decides no claim.',
+  },
   'src/modules/accounting/services/bank/bankAllocationService.ts': {
     kinds: ['rate_constant', 'vat_field_on_a_posting_path', 'allocate_call'],
     reason: 'THE attended path. The bank screen shows the s17(2)(a) and non-supply '

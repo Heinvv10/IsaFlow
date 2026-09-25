@@ -121,7 +121,7 @@ beforeEach(() => {
   vi.mocked(createJournalEntry).mockResolvedValue({
     id: JE_ID, companyId: COMPANY_ID, entryDate: '2026-09-08', status: 'draft',
   } as never);
-  vi.mocked(postJournalEntry).mockResolvedValue(undefined as never);
+  vi.mocked(postJournalEntry).mockResolvedValue({} as never); // the caller reads .lateClaim off it
 });
 
 describe('allocateTransaction — supplier payment with no invoice named', () => {
