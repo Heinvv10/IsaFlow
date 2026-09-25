@@ -67,5 +67,5 @@ Later commits change only workflowRunsCiRule.ts, its unit test, docs, and the jo
 the final head is recorded as a PR comment on #525. A commit cannot contain the record of its own run.
 
 ## Timeout
-The measured job took 8m13s at load average ~45 on 32 cores. timeout-minutes is set to 30: about 3.5x
-the measured time, for heavier load. It was 15, and the build alone did not fit that.
+The measured job took 8m13s (the canary 7m47s) at load average ~45 on 32 cores. timeout-minutes is set to 30: about 3.5x
+the measured time, for heavier load. A floor of 20 minutes is now enforced by workflow-runs-ci.

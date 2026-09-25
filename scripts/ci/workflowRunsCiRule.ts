@@ -53,6 +53,14 @@ export const CI_SCRIPT = 'bash scripts/ci/run-ci.sh';
 const HOOK_PREFIX = /^(pre|post)/;
 const ALLOWED_PREFIXED = new Set(['prepare']);
 const RUNS_ON = ['self-hosted', 'linux', 'velo'];
+/**
+ * A timeout too short to finish, or a concurrency group shared with other
+ * refs, ends the check CANCELLED, never red, and this repo has merged on
+ * cancelled checks. Concurrency is pinned exactly; the timeout has a floor
+ * (the job measured 8m13s under load, R-052/green.log).
+ */
+const CONCURRENCY = { group: 'ci-${{ github.ref }}', 'cancel-in-progress': true };
+const MIN_TIMEOUT_MINUTES = 20;
 const CHECKOUT = /^actions\/checkout@v\d+$/;
 const INSTALL = 'bun install --frozen-lockfile --ignore-scripts';
 const RUN_CI = 'bun run ci';
@@ -94,11 +102,16 @@ export function checkWorkflowRunsCi(workflow: unknown, scripts: unknown): string
     errors.push(`package.json scripts.ci must be exactly "${CI_SCRIPT}" (it is ${JSON.stringify(pkg.ci)})`);
   }
   const hooks = Object.keys(pkg).filter((k) => HOOK_PREFIX.test(k) && !ALLOWED_PREFIXED.has(k));
-  if (hooks.length) errors.push(`package.json sets ${hooks.join(', ')}; bun runs pre/post scripts around every \`bun run\` inside the gate, so any of them could defuse it`);
+  if (hooks.length) errors.push(`package.json sets ${hooks.join(', ')}; bun runs pre<X>/post<X> around every \`bun run X\` inside the gate, so every pre/post-prefixed name is refused (a name that hooks nothing must be renamed, or allowed here in review)`);
   if (!isObj(workflow)) return [...errors, 'ci.yml is not a YAML mapping'];
 
   const topExtra = extraKeys(workflow, ['name', 'on', 'concurrency', 'permissions', 'jobs']);
   if (topExtra.length) errors.push(`ci.yml sets top-level ${topExtra.join(', ')}; env/defaults there reach the gate step`);
+  const conc = workflow.concurrency;
+  if (!isObj(conc) || extraKeys(conc, Object.keys(CONCURRENCY)).length
+    || conc.group !== CONCURRENCY.group || conc['cancel-in-progress'] !== CONCURRENCY['cancel-in-progress']) {
+    errors.push(`ci.yml concurrency must be exactly ${JSON.stringify(CONCURRENCY)}; a group shared across refs cancels other PRs' checks instead of failing them`);
+  }
 
   const on = workflow.on;
   if (!isObj(on)) errors.push('ci.yml has no `on` mapping');
@@ -113,6 +126,10 @@ export function checkWorkflowRunsCi(workflow: unknown, scripts: unknown): string
 
   const jobExtra = extraKeys(job, ['name', 'runs-on', 'timeout-minutes', 'steps']);
   if (jobExtra.length) errors.push(`jobs.${QUALITY_JOB} sets ${jobExtra.join(', ')}; if/continue-on-error/defaults/env/strategy can skip or neutralise the gate`);
+  const timeout = job['timeout-minutes'];
+  if (typeof timeout !== 'number' || !Number.isInteger(timeout) || timeout < MIN_TIMEOUT_MINUTES) {
+    errors.push(`jobs.${QUALITY_JOB}.timeout-minutes must be an integer >= ${MIN_TIMEOUT_MINUTES}; a job that cannot finish ends cancelled, never red`);
+  }
 
   if (!sameList(job['runs-on'], RUNS_ON)) {
     errors.push(`jobs.${QUALITY_JOB}.runs-on must be exactly [${RUNS_ON.join(', ')}]; an unknown label queues forever and never goes red`);

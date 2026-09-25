@@ -5,7 +5,7 @@
 ## Measured
 
 The register title says "eleven of sixteen". That was counted before oauth-trust-flags existed. On
-`0ecf6d06e`, `scripts/ci/run-ci.sh` has 17 gates, and this PR adds an 18th (`workflow-runs-ci`).
+`0ecf6d06e`, `scripts/ci/run-ci.sh` has 17 gates. This PR adds two more (`no-bunfig` and `workflow-runs-ci`), so it has 19.
 `.github/workflows/ci.yml`'s `quality` job listed 5 of them by hand:
 - agent-docs
 - type-check
@@ -43,6 +43,10 @@ locally. On GitHub every job passed and `mergeStateStatus` was `CLEAN`.
   - **The `quality` job** has only `name`, `runs-on`, `timeout-minutes` and `steps`. So there is no
     job-level `if`, `continue-on-error`, `env`, `defaults` or `strategy`. `runs-on` is exactly
     `[self-hosted, linux, velo]`: an unknown label queues forever and never goes red.
+    `timeout-minutes` must be an integer of at least 20. The workflow's `concurrency` is pinned to
+    exactly `ci-${{ github.ref }}` with `cancel-in-progress: true`. A timeout too short to finish, or
+    a group shared across refs, ends the check cancelled rather than red, and this repo has merged
+    on cancelled checks.
   - **Steps:** exactly three:
     1. checkout, with no `with`;
     2. `bun install --frozen-lockfile --ignore-scripts`. Without the flag, bun runs the lifecycle
@@ -72,7 +76,7 @@ locally. On GitHub every job passed and `mergeStateStatus` was `CLEAN`.
 
 - `mutations.log`: each clause of the rule, disabled alone, fails at least one bypass case.
 - `green.log` holds both GitHub runs:
-  - **#525 at `3c46f3507`:** all 18 gates run on the runner and pass, the build included, installed
+  - **#525 at `3c46f3507`:** all 18 non-skipped gates run on the runner and pass (integration-tests is skipped, as below), the build included, installed
     with `--ignore-scripts`, in 8m13s.
   - **Canary #526:** #521's file on top of this branch. The quality job fails on exactly
     `is-active-filters` (`[ci] FAILED: is-active-filters`), and every other gate passes.
@@ -103,8 +107,10 @@ locally. On GitHub every job passed and `mergeStateStatus` was `CLEAN`.
    The shared fixture `isaflow_schema_fixture` is used by parallel sessions, so pointing the runner
    at it would add a writer. A per-run database is an infrastructure decision.
 4. **run-ci.sh and the bodies of the package scripts it calls are not guarded.** Examples are
-   `"lint": "true"`, or a gate script rewritten to exit 0. An edit there that drops or skips a gate
-   is left to code review.
+   `"lint": "true"`, or a gate script rewritten to exit 0. So is a `patchedDependencies` entry in
+   package.json with its `patches/` file, which bun applies at install even with `--ignore-scripts`,
+   so a patched tsc, eslint or vitest could exit 0. An edit to any of these that drops or skips a
+   gate is left to code review.
 5. **The runner is persistent and trusts itself.** IsaFlow has one self-hosted runner
    (`velo-server-u`, user `gha-isaflow`). That user owns `~/.bun/bin`. Any job that runs there, such
    as `golden-paths` (which still installs with scripts) or another workflow file, could replace `bun` with a binary that exits 0, and
@@ -121,4 +127,4 @@ locally. On GitHub every job passed and `mergeStateStatus` was `CLEAN`.
 ## Historical impact
 
 Every PR merged on a green GitHub check was checked by 5 gates only. #525's run is master plus this
-change, and all 17 of master's gates pass there, so nothing merged unchecked is failing a gate today.
+change. The 16 of master's 17 gates that can run without a database all pass there, so nothing merged unchecked is failing a gate today.
