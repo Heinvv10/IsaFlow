@@ -29,7 +29,6 @@ import { fmtDate } from '@/lib/fmtDate';
 import { createJournalEntry, getJournalEntryById } from './journalEntryCrudService';
 import { resolveReversalDateDetailed, type VatLockRoll } from './journalEntryReversalDate';
 import { assertJournalVatPeriodOpen, loadJournalVatLines } from './journalVatLockGuard';
-import { getSystemAccountId } from './systemAccountResolver';
 import type { JournalEntryMeta } from './journalEntryMeta';
 import { planLockedVatPosting, type LateClaimInfo, type LateClaimPlan } from './vatLateClaimPlan';
 
@@ -77,7 +76,7 @@ export async function applyLateClaimSplit(
   hooks: SplitHooks,
 ): Promise<JournalEntry & { lateClaim: LateClaimInfo }> {
   return withSavepoint('vat_late_claim', async () => {
-    const clearingId = await getSystemAccountId('vat_input_late_claim', companyId);
+    const { clearingId } = plan;
     const taxLineIds = plan.taxLines.map((t) => t.id).filter((v): v is string => Boolean(v));
     if (taxLineIds.length !== plan.taxLines.length) throw new Error('Late claim: the draft\'s tax lines have no ids');
 

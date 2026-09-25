@@ -26,6 +26,7 @@ import {
 } from './journalVatLockGuard';
 import { isDateAutoCreatable } from './journalEntryReversalVatRoll';
 import { canonicalSubtype } from './accountSubtypes';
+import { getSystemAccountId } from './systemAccountResolver';
 import {
   isWithinLateClaimWindow,
   lateClaimDate,
@@ -65,6 +66,8 @@ export interface LateClaimInfo {
 
 export interface LateClaimPlan {
   lock: ActiveVatLock;
+  /** The "Input VAT - late claims" account (migration 701). */
+  clearingId: string;
   claimDate: string;
   inputTax: number;
   /** The draft's input-VAT lines (ids present only for a stored draft). */
@@ -162,8 +165,12 @@ export async function planLockedVatPosting(
     throw new VatLateClaimRefusal(date, lock, 'claim_period_closed', `the claim date would be ${claimDate}`);
   }
 
+  // Resolved HERE, not in the split: a company without the account is refused
+  // (MissingSystemAccountError) before createJournalEntry inserts a draft that a
+  // 4xx answer would then commit.
+  const clearingId = await getSystemAccountId('vat_input_late_claim', companyId);
   const taxLines = lines
     .filter((l, i) => canonicalSubtype(facts[i]!.accountSubtype) === 'vat_input' && Number(l.debit) > 0)
     .map((l) => ({ id: l.id, glAccountId: l.glAccountId, amount: Number(l.debit), vatType: l.vatType ?? null }));
-  return { lock, claimDate, inputTax: verdict.inputTax, taxLines };
+  return { lock, clearingId, claimDate, inputTax: verdict.inputTax, taxLines };
 }
