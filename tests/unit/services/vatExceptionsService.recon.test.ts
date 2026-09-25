@@ -11,11 +11,11 @@ vi.mock('@/lib/neon', () => ({ sql: vi.fn() }));
 vi.mock('@/lib/logger', () => ({
   log: { info: vi.fn(), error: vi.fn(), warn: vi.fn() },
 }));
-vi.mock('@/modules/accounting/services/reports/vat201Service', () => ({
-  generateVAT201: vi.fn(),
+vi.mock('@/modules/accounting/services/reports/vat201LedgerFields', () => ({
+  getLedgerVAT201: vi.fn(),
 }));
 
-import { generateVAT201 } from '@/modules/accounting/services/reports/vat201Service';
+import { getLedgerVAT201 } from '@/modules/accounting/services/reports/vat201LedgerFields';
 import { getVatExceptions } from '@/modules/accounting/services/reports/vatExceptionsService';
 import {
   COMPANY_ID, PERIOD_START, PERIOD_END,
@@ -31,7 +31,7 @@ describe('getVatExceptions — clean books', () => {
     mockExceptionsSql({
       glControl: [{ gl_output: '1500.00', gl_input: '600.00' }],
     });
-    vi.mocked(generateVAT201).mockResolvedValueOnce(makeVat201(1500, 600));
+    vi.mocked(getLedgerVAT201).mockResolvedValueOnce(makeVat201(1500, 600));
 
     const report = await getVatExceptions(COMPANY_ID, PERIOD_START, PERIOD_END);
 
@@ -55,7 +55,7 @@ describe('getVatExceptions — clean books', () => {
 
   it('treats an empty GL control result (no VAT accounts yet) as zero movement', async () => {
     mockExceptionsSql({ glControl: [] });
-    vi.mocked(generateVAT201).mockResolvedValueOnce(makeVat201(0, 0));
+    vi.mocked(getLedgerVAT201).mockResolvedValueOnce(makeVat201(0, 0));
 
     const report = await getVatExceptions(COMPANY_ID, PERIOD_START, PERIOD_END);
 
@@ -72,7 +72,7 @@ describe('getVatExceptions — VAT control reconciliation', () => {
     mockExceptionsSql({
       glControl: [{ gl_output: '1499.85', gl_input: '600.10' }],
     });
-    vi.mocked(generateVAT201).mockResolvedValueOnce(makeVat201(1500, 600));
+    vi.mocked(getLedgerVAT201).mockResolvedValueOnce(makeVat201(1500, 600));
 
     const report = await getVatExceptions(COMPANY_ID, PERIOD_START, PERIOD_END);
 
@@ -89,11 +89,25 @@ describe('getVatExceptions — VAT control reconciliation', () => {
     expect(report.totalExceptions).toBe(2);
   });
 
+  it('ties the FILED ledger figures (getLedgerVAT201 fields 5 and 10) to the control accounts', async () => {
+    // VAT on a bank allocation, an expense claim or a credit note is in the GL
+    // AND in the ledger return; the invoice-only generateVAT201 missed it and
+    // the recon blocked filing on VAT that is filed.
+    mockExceptionsSql({ glControl: [{ gl_output: '1730.00', gl_input: '845.00' }] });
+    vi.mocked(getLedgerVAT201).mockResolvedValueOnce(makeVat201(1730, 845));
+
+    const report = await getVatExceptions(COMPANY_ID, PERIOD_START, PERIOD_END);
+
+    expect(getLedgerVAT201).toHaveBeenCalledWith(COMPANY_ID, PERIOD_START, PERIOD_END);
+    expect(report.controlRecon).toMatchObject({ outputVat201: 1730, inputVat201: 845, outputVariance: 0, inputVariance: 0 });
+    expect(report.totalExceptions).toBe(0);
+  });
+
   it('counts a single recon exception when only one side is out', async () => {
     mockExceptionsSql({
       glControl: [{ gl_output: '1490.00', gl_input: '600.00' }],
     });
-    vi.mocked(generateVAT201).mockResolvedValueOnce(makeVat201(1500, 600));
+    vi.mocked(getLedgerVAT201).mockResolvedValueOnce(makeVat201(1500, 600));
 
     const report = await getVatExceptions(COMPANY_ID, PERIOD_START, PERIOD_END);
 
@@ -113,7 +127,7 @@ describe('getVatExceptions — VAT control reconciliation', () => {
         },
       ],
     });
-    vi.mocked(generateVAT201).mockResolvedValueOnce(makeVat201(0, 0));
+    vi.mocked(getLedgerVAT201).mockResolvedValueOnce(makeVat201(0, 0));
 
     const report = await getVatExceptions(COMPANY_ID, PERIOD_START, PERIOD_END);
 
@@ -131,7 +145,7 @@ describe('getVatExceptions — date handling', () => {
     mockExceptionsSql({
       uncoded: [makeUncodedRow({ entry_date: new Date(2026, 2, 15) })],
     });
-    vi.mocked(generateVAT201).mockResolvedValueOnce(makeVat201(0, 0));
+    vi.mocked(getLedgerVAT201).mockResolvedValueOnce(makeVat201(0, 0));
 
     const report = await getVatExceptions(COMPANY_ID, PERIOD_START, PERIOD_END);
 

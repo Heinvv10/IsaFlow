@@ -9,7 +9,7 @@
 import { sql } from '@/lib/neon';
 import type { DbRow } from '@/lib/neon';
 import { log } from '@/lib/logger';
-import { generateVAT201 } from './vat201Service';
+import { getLedgerVAT201 } from './vat201LedgerFields';
 import {
   mapMismatch, mapTaxIssue, mapUncodedLine, r2, toNum, totalCount,
 } from './vatExceptionsTypes';
@@ -36,8 +36,8 @@ const CENT = 0.005;
 
 /**
  * Build the VAT exceptions report for a period.
- * Runs 9 scoped queries plus the invoice-based VAT201 (single source of truth
- * for box totals so the recon matches what the VAT201 page displays).
+ * Runs 9 scoped queries plus the LEDGER VAT201 (getLedgerVAT201 — the figures
+ * the return files), so the recon ties what is filed to the control accounts.
  */
 export async function getVatExceptions(
   companyId: string,
@@ -222,7 +222,12 @@ export async function getVatExceptions(
       // donations, exempt financial services. Appended after 8 for the same
       // reason 8 was appended after 7: the test helper queues by index.
       findVatNonSupplyLines(companyId, periodStart, periodEnd),
-      generateVAT201(companyId, periodStart, periodEnd),
+      // The FILED figures (fields 5 and 10), not the invoice-derived ones:
+      // generateVAT201 reads bills and invoices only, so VAT on bank
+      // allocations, expense claims, receipts, credit notes and journals showed
+      // as recon variance although it is filed (Hein, 2026-09-25). Invoice-vs-GL
+      // posting gaps stay visible per document in queries 4 and 5.
+      getLedgerVAT201(companyId, periodStart, periodEnd),
     ]);
 
   const uncodedGlLines = uncoded.map(mapUncodedLine);

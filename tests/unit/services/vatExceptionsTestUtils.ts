@@ -2,7 +2,8 @@
  * Shared builders/mocks for vatExceptionsService tests.
  *
  * The service runs 9 SQL queries (in declaration order inside Promise.all)
- * plus one generateVAT201 call. mockExceptionsSql queues each in sequence:
+ * plus one getLedgerVAT201 call (the FILED figures the recon ties to the GL
+ * control accounts). mockExceptionsSql queues each in sequence:
  *  1. Uncoded GL VAT lines (vat_type IS NULL on vat_input/vat_output accounts)
  *  2. Customer invoices with tax-code issues
  *  3. Supplier invoices with tax-code issues
