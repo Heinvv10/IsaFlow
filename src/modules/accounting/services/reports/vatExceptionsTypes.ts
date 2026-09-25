@@ -128,6 +128,20 @@ export interface InputVatSupportLine {
   reason: 'no_document' | 'amount_mismatch' | 'no_tax_invoice';
 }
 
+/**
+ * An issued invoice or approved bill carrying VAT with no GL journal
+ * (vatUnpostedInvoices.ts). BLOCKING: its VAT is in neither the filed ledger
+ * return nor the GL, so the recon cannot see it.
+ */
+export interface UnpostedInvoiceVatLine {
+  invoiceId: string;
+  invoiceKind: 'customer' | 'supplier';
+  invoiceNumber: string;
+  counterpartyName: string;
+  invoiceDate: string;
+  vat: number;
+}
+
 export interface VatControlRecon {
   outputVat201: number;
   outputGl: number;
@@ -158,6 +172,9 @@ export interface VatExceptionsReport {
   vatNonSupplyLines: VatNonSupplyLine[];
   vatNonSupplyCount: number;
   controlRecon: VatControlRecon;
+  /** BLOCKING: issued invoices / approved bills with VAT and no journal. Capped list; per-side totals are on controlRecon. */
+  unpostedInvoiceVat: UnpostedInvoiceVatLine[];
+  unpostedInvoiceVatCount: number;
   /** BLOCKING: input VAT claimed with no document behind it, or disagreeing with it. Capped list. */
   unsupportedInputVat: InputVatSupportLine[];
   unsupportedInputVatCount: number;
@@ -219,6 +236,17 @@ export function mapTaxIssue(kind: 'customer' | 'supplier') {
     taxAmount: toNum(r.tax_amount),
     issue: r.tax_rate === null || r.tax_rate === undefined ? 'missing_tax_rate' : 'rate_without_vat',
   });
+}
+
+export function mapUnpostedInvoice(r: Row): UnpostedInvoiceVatLine {
+  return {
+    invoiceId: String(r.invoice_id),
+    invoiceKind: String(r.kind) === 'supplier' ? 'supplier' : 'customer',
+    invoiceNumber: String(r.invoice_number ?? ''),
+    counterpartyName: String(r.counterparty_name ?? 'Unknown'),
+    invoiceDate: dateStr(r.invoice_date),
+    vat: r2(toNum(r.unposted_vat)),
+  };
 }
 
 export function mapMismatch(kind: 'customer' | 'supplier') {

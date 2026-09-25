@@ -25,11 +25,13 @@ const report: VatExceptionsReport = {
     netVat201: -30, netGl: -30, netVariance: 0, unpostedCustomerVat: 0, unpostedCustomerCount: 0,
     unpostedSupplierVat: 0, unpostedSupplierCount: 0,
   },
+  unpostedInvoiceVat: [{ invoiceId: 'ci-9', invoiceKind: 'customer', invoiceNumber: 'INV-0099', counterpartyName: 'Acme', invoiceDate: '2026-07-03', vat: 150 }],
+  unpostedInvoiceVatCount: 1,
   unsupportedInputVat: [line({})],
   unsupportedInputVatCount: 1,
   inputVatWithoutTaxInvoice: [line({ journalEntryId: 'je-2', entryNumber: 'JE-2026-00043', supportKind: 'bank', reason: 'no_tax_invoice', description: 'Bank allocation' })],
   inputVatWithoutTaxInvoiceCount: 1,
-  totalExceptions: 1,
+  totalExceptions: 2,
   degradedData: false,
   degradedSources: [],
 };
@@ -40,7 +42,10 @@ it('shows the blocking and the non-blocking input-VAT sections with their rows',
   vi.mocked(apiFetch).mockResolvedValue(new Response(JSON.stringify({ success: true, data: report }), { status: 200 }));
   render(<VAT201ExceptionsPanel from="2026-07-01" to="2026-08-31" reloadKey={1} />);
 
-  await waitFor(() => expect(screen.getByText('1 exception')).toBeTruthy());
+  await waitFor(() => expect(screen.getByText('2 exceptions')).toBeTruthy());
+  fireEvent.click(screen.getByText('Invoices with VAT not posted to the GL'));
+  expect(screen.getByText('INV-0099')).toBeTruthy();
+
   fireEvent.click(screen.getByText('Input VAT with nothing behind it'));
   expect(screen.getByText('JE-2026-00042')).toBeTruthy();
   expect(screen.getByText('No document linked')).toBeTruthy();

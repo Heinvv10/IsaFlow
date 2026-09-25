@@ -1,9 +1,5 @@
-/**
- * VAT201 Pre-filing Exceptions panel.
- * Surfaces uncoded GL VAT lines, invoice tax-code issues, invoice↔GL VAT
- * mismatches, VAT201-box vs GL-control reconciliation and input-VAT support
- * for the selected period. The counted exceptions gate ISV eFiling.
- */
+/** VAT201 pre-filing exceptions for the selected period (reports/vatExceptionsService):
+ *  recon, uncoded lines, unposted and invoice issues, input-VAT support. The counted ones gate ISV eFiling. */
 
 import { useEffect, useRef, useState } from 'react';
 import { AlertTriangle, CheckCircle2, ChevronDown, ChevronRight, Loader2, ShieldAlert } from 'lucide-react';
@@ -11,6 +7,7 @@ import { apiFetch } from '@/lib/apiFetch';
 import type { VatExceptionsReport } from '@/modules/accounting/services/reports/vatExceptionsTypes';
 import VatNonSupplySection from './VatNonSupplySection';
 import VatInputSupportSections from './VatInputSupportSections';
+import VatUnpostedInvoicesSection from './VatUnpostedInvoicesSection';
 
 const fmt = (n: number) =>
   new Intl.NumberFormat('en-ZA', { style: 'currency', currency: 'ZAR' }).format(n);
@@ -172,7 +169,7 @@ export function VAT201ExceptionsPanel({ from, to, reloadKey, onLoaded }: Props) 
             {(recon.unpostedCustomerCount > 0 || recon.unpostedSupplierCount > 0) && (
               <p className="mt-2 text-xs text-[var(--ff-text-tertiary)]">
                 Not yet posted to GL: {recon.unpostedCustomerCount} customer invoice{recon.unpostedCustomerCount === 1 ? '' : 's'} ({fmt(recon.unpostedCustomerVat)} VAT),{' '}
-                {recon.unpostedSupplierCount} supplier invoice{recon.unpostedSupplierCount === 1 ? '' : 's'} ({fmt(recon.unpostedSupplierVat)} VAT) — likely source of any variance.
+                {recon.unpostedSupplierCount} supplier invoice{recon.unpostedSupplierCount === 1 ? '' : 's'} ({fmt(recon.unpostedSupplierVat)} VAT) — in neither column above; listed below, and they block filing.
               </p>
             )}
           </div>
@@ -239,6 +236,7 @@ export function VAT201ExceptionsPanel({ from, to, reloadKey, onLoaded }: Props) 
             <VatNonSupplySection lines={report.vatNonSupplyLines} />
           </Section>
 
+          <VatUnpostedInvoicesSection report={report} Section={Section} />
           <VatInputSupportSections report={report} Section={Section} />
 
           <Section title="Invoices with tax-code issues" count={report.invoiceTaxCodeIssueCount} listed={report.invoiceTaxCodeIssues.length}>
