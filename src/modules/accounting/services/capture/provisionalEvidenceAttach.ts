@@ -42,6 +42,7 @@ import {
   lockCapturedDocumentForUpdate,
   lockWithTimeout,
 } from './captureRowLock';
+import { assertDocumentNotAlreadyPosted } from '@/modules/accounting/services/gl/documentJournalClaimGuard';
 
 export type ProvisionalAttachResult =
   | { kind: 'attached'; bankTxId: string | null }
@@ -85,6 +86,11 @@ export async function attachDocumentToProvisional(
     }
     throw err;
   }
+
+  // One document, one claim, at the GL write side — before the posting claim
+  // below, which is itself the first write. A document already backing a
+  // posted, unreversed journal (invoice, bill, another provisional) refuses here.
+  await assertDocumentNotAlreadyPosted(companyId, documentId, jeId);
 
   // The claim: one predicated UPDATE, so a refusal (already claimed, or rejected) writes nothing.
   const claimRefusal = await claimCapturedDocumentForPosting(companyId, documentId);
