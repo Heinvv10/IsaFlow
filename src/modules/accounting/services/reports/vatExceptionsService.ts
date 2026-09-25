@@ -30,6 +30,7 @@ export type {
   UncodedGlVatLine, InvoiceTaxCodeIssue, InvoiceGlVatMismatch,
   VatControlRecon, VatExceptionsReport,
 } from './vatExceptionsTypes';
+import { VAT_SUBMISSION_CLEARING_SOURCE } from './vatSubmissionClearing';
 
 type Row = DbRow;
 
@@ -74,7 +75,7 @@ export async function getVatExceptions(
           AND je.entry_date >= ${periodStart}::DATE
           AND je.entry_date <= ${periodEnd}::DATE
           AND ga.account_subtype IN ('vat_input', 'vat_output')
-          AND je.source IS DISTINCT FROM 'auto_vat_submission'
+          AND je.source IS DISTINCT FROM ${VAT_SUBMISSION_CLEARING_SOURCE}
           AND jl.vat_type IS NULL
         ORDER BY je.entry_date, je.entry_number
         LIMIT ${LIST_CAP}

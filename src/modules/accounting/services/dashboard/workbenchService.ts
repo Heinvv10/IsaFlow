@@ -8,6 +8,7 @@
 import { sql } from '@/lib/neon';
 import type { DbRow } from '@/lib/neon';
 import { log } from '@/lib/logger';
+import { VAT_SUBMISSION_CLEARING_SOURCE } from '../reports/vatSubmissionClearing';
 
 export interface WorkbenchMetrics {
   unreconciledBankTxns: number;
@@ -158,7 +159,7 @@ async function getVatEstimateCurrentPeriod(companyId: string): Promise<number> {
         -- would drop every NULL-source journal. 'auto_vat_adjustment' is a
         -- separate value in gl_journal_entries_source_check and is still
         -- counted. Full rationale at the same predicate in vatReturnService.
-        AND je.source IS DISTINCT FROM 'auto_vat_submission'
+        AND je.source IS DISTINCT FROM ${VAT_SUBMISSION_CLEARING_SOURCE}
         AND ga.account_subtype IN ('vat_input', 'vat_output')
     )
     SELECT
