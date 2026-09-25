@@ -2197,22 +2197,24 @@
       "correctedTrigger": null,
       "severityRationale": "Source priority only; impact and reachability not yet validated.",
       "auditedSha": "5661d6f0f5f2212705151e95455a3f681ddf840e",
-      "currentSha": "0f16391e",
-      "status": "confirmed",
+      "currentSha": "0ecf6d06e",
+      "status": "fixed-on-master",
       "dependencies": [],
       "testNames": [
-        "tests/integration/k059-dunning-chases-non-debts.int.test.ts"
+        "tests/integration/r096-dunning-skips-unissued-invoices.int.test.ts",
+        "tests/integration/k053-dunning-cron-soft-deleted.int.test.ts"
       ],
       "evidencePaths": [
         "K-059/red.log",
         "K-059/validation.md"
       ],
-      "fixCommit": null,
-      "pr": null,
-      "deployedSha": null,
+      "fixCommit": "2ac13feef;017d0d08f",
+      "pr": "428;413",
+      "deployedSha": "017d0d08f",
       "historicalDataImpact": "Not assessed",
       "canonicalItem": null,
-      "reportedSeverity": "high"
+      "reportedSeverity": "high",
+      "processNotes": "CLOSED ON EVIDENCE 2026-09-25: verified on origin/master 0ecf6d06e by reading the committed code (git show), not the commit message; every fix commit is an ancestor of the live RELEASE_SHA e2a78d699. src/modules/accounting/services/ar/dunningCronService.ts:135 filters the shared documentInPopulationExpr (no draft / pending-approval; R-096, #428), :136 excludes 'paid', :146 requires deleted_at IS NULL (#413)."
     },
     {
       "id": "K-060",
@@ -2228,22 +2230,23 @@
       "correctedTrigger": null,
       "severityRationale": "Source priority only; impact and reachability not yet validated.",
       "auditedSha": "5661d6f0f5f2212705151e95455a3f681ddf840e",
-      "currentSha": "0f16391e",
-      "status": "confirmed",
+      "currentSha": "0ecf6d06e",
+      "status": "fixed-on-master",
       "dependencies": [],
       "testNames": [
-        "tests/integration/k060-quote-number-crosses-tenants.int.test.ts"
+        "tests/integration/k107-quote-number-tenant-scope.int.test.ts"
       ],
       "evidencePaths": [
         "K-060/red.log",
         "K-060/validation.md"
       ],
-      "fixCommit": null,
-      "pr": null,
-      "deployedSha": null,
+      "fixCommit": "5f26d544e",
+      "pr": "411",
+      "deployedSha": "5f26d544e",
       "historicalDataImpact": "Not assessed",
       "canonicalItem": null,
-      "reportedSeverity": "high"
+      "reportedSeverity": "high",
+      "processNotes": "CLOSED ON EVIDENCE 2026-09-25: verified on origin/master 0ecf6d06e by reading the committed code (git show), not the commit message; every fix commit is an ancestor of the live RELEASE_SHA e2a78d699. quoteService.nextQuoteNumber reserves from the company's own 'quotation' sequence (quoteService.ts:201-207); migration 666 adds uq_customer_quotes_company_number."
     },
     {
       "id": "K-061",
@@ -2290,22 +2293,23 @@
       "correctedTrigger": null,
       "severityRationale": "Source priority only; impact and reachability not yet validated.",
       "auditedSha": "5661d6f0f5f2212705151e95455a3f681ddf840e",
-      "currentSha": "0f16391e",
-      "status": "confirmed",
+      "currentSha": "0ecf6d06e",
+      "status": "fixed-on-master",
       "dependencies": [],
       "testNames": [
-        "tests/integration/k062-customer-statement-client-id-only.int.test.ts"
+        "tests/integration/r082-statements-exclude-drafts.int.test.ts"
       ],
       "evidencePaths": [
         "K-062/red.log",
         "K-062/validation.md"
       ],
-      "fixCommit": null,
-      "pr": null,
-      "deployedSha": null,
+      "fixCommit": "9096c1582",
+      "pr": "413",
+      "deployedSha": "9096c1582",
       "historicalDataImpact": "Not assessed",
       "canonicalItem": null,
-      "reportedSeverity": "high"
+      "reportedSeverity": "high",
+      "processNotes": "CLOSED ON EVIDENCE 2026-09-25: verified on origin/master 0ecf6d06e by reading the committed code (git show), not the commit message; every fix commit is an ancestor of the live RELEASE_SHA e2a78d699. pages/api/accounting/customer-statement.ts:92 and :155 match COALESCE(ci.client_id, ci.customer_id). Gap: no test inserts a legacy customer_id-only invoice, so the COALESCE is not pinned by a test."
     },
     {
       "id": "K-063",
@@ -3043,22 +3047,23 @@
       "correctedTrigger": null,
       "severityRationale": "Source priority only; impact and reachability not yet validated.",
       "auditedSha": "5661d6f0f5f2212705151e95455a3f681ddf840e",
-      "currentSha": "31fc2f10",
-      "status": "confirmed",
+      "currentSha": "0ecf6d06e",
+      "status": "fixed-on-master",
       "dependencies": [],
       "testNames": [
-        "tests/integration/k085-k086-stock-adjustment-movement.int.test.ts"
+        "tests/integration/k107-stock-adjustment-numbering.int.test.ts"
       ],
       "evidencePaths": [
         "K-085/red.log",
         "K-085/validation.md"
       ],
-      "fixCommit": null,
-      "pr": null,
-      "deployedSha": null,
+      "fixCommit": "972870495",
+      "pr": "411",
+      "deployedSha": "972870495",
       "historicalDataImpact": "Not assessed",
       "canonicalItem": null,
-      "reportedSeverity": "high"
+      "reportedSeverity": "high",
+      "processNotes": "CLOSED ON EVIDENCE 2026-09-25: verified on origin/master 0ecf6d06e by reading the committed code (git show), not the commit message; every fix commit is an ancestor of the live RELEASE_SHA e2a78d699. pages/api/accounting/stock-adjustments.ts no longer names stock_movements.company_id (the column never existed; the fix drops it rather than adding it). This made K-086 live, as K-086/validation.md warned; K-086 is fixed separately (fix/k086-stocktake-count-absolute-20260925)."
     },
     {
       "id": "K-086",
@@ -3480,22 +3485,24 @@
       "correctedTrigger": null,
       "severityRationale": "Source priority only; impact and reachability not yet validated.",
       "auditedSha": "5661d6f0f5f2212705151e95455a3f681ddf840e",
-      "currentSha": "31fc2f10",
-      "status": "confirmed",
+      "currentSha": "0ecf6d06e",
+      "status": "fixed-on-master",
       "dependencies": [],
       "testNames": [
-        "tests/unit/k098-critical-actions-dead-names.test.ts"
+        "tests/unit/services/adminCriticalActions.test.ts",
+        "tests/unit/services/admin/auditService.test.ts"
       ],
       "evidencePaths": [
         "K-098/red.log",
         "K-098/validation.md"
       ],
-      "fixCommit": null,
-      "pr": null,
-      "deployedSha": null,
+      "fixCommit": "131bf415d",
+      "pr": "401",
+      "deployedSha": "131bf415d",
       "historicalDataImpact": "Not assessed",
       "canonicalItem": null,
-      "reportedSeverity": "high"
+      "reportedSeverity": "high",
+      "processNotes": "CLOSED ON EVIDENCE 2026-09-25: verified on origin/master 0ecf6d06e by reading the committed code (git show), not the commit message; every fix commit is an ancestor of the live RELEASE_SHA e2a78d699. The CRITICAL_ACTIONS allow-list is replaced by an empty BEST_EFFORT_ACTIONS deny-list (src/modules/admin/services/auditService.ts:66), so every logAdminAction call is fail-closed; the dead names (feature.override / feature.remove_override) can no longer leave an action ungoverned."
     },
     {
       "id": "K-099",
@@ -3604,22 +3611,25 @@
       "correctedTrigger": null,
       "severityRationale": "Source priority only; impact and reachability not yet validated.",
       "auditedSha": "5661d6f0f5f2212705151e95455a3f681ddf840e",
-      "currentSha": "31fc2f10",
-      "status": "confirmed",
+      "currentSha": "0ecf6d06e",
+      "status": "fixed-on-master",
       "dependencies": [],
       "testNames": [
-        "tests/integration/k102-portal-missing-columns.int.test.ts"
+        "tests/integration/r095-portal-statement-matches-inapp.int.test.ts",
+        "tests/integration/r095-portal-round4.int.test.ts",
+        "tests/integration/r095-portal-session-scoping.int.test.ts"
       ],
       "evidencePaths": [
         "K-102/red.log",
         "K-102/validation.md"
       ],
-      "fixCommit": null,
-      "pr": null,
-      "deployedSha": null,
+      "fixCommit": "d7b89c8c3",
+      "pr": "444",
+      "deployedSha": "e2af2c121",
       "historicalDataImpact": "Not assessed",
       "canonicalItem": null,
-      "reportedSeverity": "high"
+      "reportedSeverity": "high",
+      "processNotes": "CLOSED ON EVIDENCE 2026-09-25: verified on origin/master 0ecf6d06e by reading the committed code (git show), not the commit message; every fix commit is an ancestor of the live RELEASE_SHA e2a78d699. src/modules/accounting/services/ar/portalService.ts:135-140 reads total_amount; the portal statement is routed through statementEmailService.fetchStatementData (:190), so the missing customer_payments columns are no longer referenced (R-095, rounds through e2af2c121)."
     },
     {
       "id": "K-103",
