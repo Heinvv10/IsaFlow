@@ -142,6 +142,7 @@ export interface UnpostedInvoiceVatLine {
   counterpartyName: string;
   invoiceDate: string;
   vat: number;
+  reason: 'no_journal' | 'journal_not_posted' | 'journal_reversed';
 }
 
 export interface VatControlRecon {
@@ -248,6 +249,9 @@ export function mapUnpostedInvoice(r: Row): UnpostedInvoiceVatLine {
     counterpartyName: String(r.counterparty_name ?? 'Unknown'),
     invoiceDate: dateStr(r.invoice_date),
     vat: r2(toNum(r.unposted_vat)),
+    reason: r.reason === 'journal_reversed' || r.reason === 'journal_not_posted'
+      ? r.reason
+      : 'no_journal',
   };
 }
 

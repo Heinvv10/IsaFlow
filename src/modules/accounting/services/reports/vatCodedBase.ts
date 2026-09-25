@@ -20,7 +20,7 @@
  * a companion carries (gl/vatLateClaimRules.lateClaimBases) and the late-claim
  * qualification (qualifiesForLateClaim), so the three cannot disagree.
  */
-import { classifyVatJournalLine, type VatLineInput } from './vatBoxBasis';
+import { classifyVatJournalLine, RATE_CHECK_TOLERANCE, type VatLineInput } from './vatBoxBasis';
 
 /** Codes that put a supply in a box at nil tax: not part of the base the 15% check is run on. */
 export const UNTAXED_VAT_CODES: readonly string[] = ['zero_rated', 'export', 'exempt', 'no_vat'];
@@ -44,7 +44,14 @@ export function applyCodedBaseRule<T extends VatLineInput>(lines: readonly T[]):
     const c = roles[i]!;
     const f = facts.get(l.journalEntryId) ?? { input: false, output: false, taxedBase: false };
     if (c.role === 'tax' && c.direction === 'input') f.input = true;
-    if (c.role === 'tax' && c.direction === 'output') f.output = true;
+    // A sub-tolerance output leg (e.g. a stray R0.01 credit) is not a real
+    // output supply — VAT201's own R1 RATE_CHECK_TOLERANCE already treats
+    // amounts that small as noise. Counting it as "has an output leg" would
+    // switch the coded-base rule off and let it absorb a real input
+    // over-claim elsewhere in the same journal (B4). Nil-rated output
+    // handling (vat201NilRatedSupplies) is untouched — it only reads
+    // genuine output tax, which this never masks.
+    if (c.role === 'tax' && c.direction === 'output' && Math.abs(c.amount) > RATE_CHECK_TOLERANCE) f.output = true;
     if (c.role === 'base' && isTaxedVatCode(l.vatType)) f.taxedBase = true;
     facts.set(l.journalEntryId, f);
   });

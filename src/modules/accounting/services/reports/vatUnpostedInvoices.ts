@@ -31,7 +31,18 @@ export const ISSUED_CUSTOMER_INVOICE_STATUSES: readonly string[] =
   ['approved', 'sent', 'partially_paid', 'paid', 'overdue'];
 export const APPROVED_BILL_STATUSES: readonly string[] = ['approved', 'partially_paid', 'paid'];
 
-/** One row per document: `kind`, `invoice_id`, `invoice_number`, `invoice_date`, `counterparty_name`, `unposted_vat`. */
+/**
+ * A document counts as unposted invoice VAT not only when it has NO journal
+ * (`reason: 'no_journal'`), but also when its linked journal is not posted
+ * (`'journal_not_posted'`) or has a POSTED reversal dated on or before the
+ * period end (`'journal_reversed'`, B3). A reversal nets the original's VAT
+ * out of the filed ledger (vatEntryMembership) while `status = 'sent'` etc.
+ * on the invoice itself is untouched — reverseJournalEntry carries no
+ * document guard — so without this an issued invoice's output VAT vanishes
+ * from both the ledger AND this exception, filing R0 with zero exceptions. A
+ * reversal dated in a LATER period is left alone: the invoice's VAT is still
+ * filed, correctly, in the reversed journal's own period.
+ */
 export async function findUnpostedInvoiceVat(
   companyId: string, periodStart: string, periodEnd: string,
 ): Promise<DbRow[]> {
@@ -39,27 +50,61 @@ export async function findUnpostedInvoiceVat(
     SELECT * FROM (
       SELECT 'customer' AS kind, ci.id AS invoice_id, ci.invoice_number, ci.invoice_date,
         COALESCE(c.name, cl.name, 'Unknown') AS counterparty_name,
-        COALESCE(ci.tax_amount, 0) AS unposted_vat
+        COALESCE(ci.tax_amount, 0) AS unposted_vat,
+        CASE
+          WHEN ci.gl_journal_entry_id IS NULL THEN 'no_journal'
+          WHEN je.status IS DISTINCT FROM 'posted' THEN 'journal_not_posted'
+          ELSE 'journal_reversed'
+        END AS reason
       FROM customer_invoices ci
       LEFT JOIN customers c ON c.id = ci.customer_id AND c.company_id = ${companyId}::UUID
       LEFT JOIN clients cl ON cl.id = ci.client_id
+      LEFT JOIN gl_journal_entries je
+        ON je.id = ci.gl_journal_entry_id AND je.company_id = ${companyId}::UUID
       WHERE ci.company_id = ${companyId}::UUID
-        AND ci.gl_journal_entry_id IS NULL
         AND ci.deleted_at IS NULL
         AND ci.status = ANY(${ISSUED_CUSTOMER_INVOICE_STATUSES as string[]}::TEXT[])
         AND ci.invoice_date >= ${periodStart}::DATE AND ci.invoice_date <= ${periodEnd}::DATE
+        AND (
+          ci.gl_journal_entry_id IS NULL
+          OR je.status IS DISTINCT FROM 'posted'
+          OR EXISTS (
+            SELECT 1 FROM gl_journal_entries rev
+            WHERE rev.reversal_of_id = ci.gl_journal_entry_id
+              AND rev.company_id = ${companyId}::UUID
+              AND rev.status = 'posted'
+              AND rev.entry_date <= ${periodEnd}::DATE
+          )
+        )
       UNION ALL
       SELECT 'supplier', si.id, si.invoice_number, si.invoice_date,
         COALESCE(s.name, 'Unknown'),
         COALESCE((SELECT SUM(sii.tax_amount) FROM supplier_invoice_items sii
-                  WHERE sii.supplier_invoice_id = si.id), si.tax_amount, 0)
+                  WHERE sii.supplier_invoice_id = si.id), si.tax_amount, 0),
+        CASE
+          WHEN si.gl_journal_entry_id IS NULL THEN 'no_journal'
+          WHEN je.status IS DISTINCT FROM 'posted' THEN 'journal_not_posted'
+          ELSE 'journal_reversed'
+        END
       FROM supplier_invoices si
       LEFT JOIN suppliers s ON s.id = si.supplier_id AND s.company_id = ${companyId}::UUID
+      LEFT JOIN gl_journal_entries je
+        ON je.id = si.gl_journal_entry_id AND je.company_id = ${companyId}::UUID
       WHERE si.company_id = ${companyId}::UUID
-        AND si.gl_journal_entry_id IS NULL
         AND si.deleted_at IS NULL
         AND si.status = ANY(${APPROVED_BILL_STATUSES as string[]}::TEXT[])
         AND si.invoice_date >= ${periodStart}::DATE AND si.invoice_date <= ${periodEnd}::DATE
+        AND (
+          si.gl_journal_entry_id IS NULL
+          OR je.status IS DISTINCT FROM 'posted'
+          OR EXISTS (
+            SELECT 1 FROM gl_journal_entries rev
+            WHERE rev.reversal_of_id = si.gl_journal_entry_id
+              AND rev.company_id = ${companyId}::UUID
+              AND rev.status = 'posted'
+              AND rev.entry_date <= ${periodEnd}::DATE
+          )
+        )
     ) docs
     WHERE unposted_vat <> 0
     ORDER BY invoice_date, invoice_number
