@@ -1,5 +1,6 @@
-# K-086 mutations — 2026-09-25, fix on origin/master 0ecf6d06e
-Each mutation applied alone to pages/api/accounting/stock-adjustments.ts, both k086 files run (withAuth, app_user, disposable fixture). Every one goes red.
+# K-086 mutations — 2026-09-25
+
+## Round 1 (head cdddf1461)
 ```
 ### M1 count back on the delta path
    × a count ABOVE stock on hand raises it and records an inbound correction 205ms
@@ -39,4 +40,90 @@ Each mutation applied alone to pages/api/accounting/stock-adjustments.ts, both k
    × a user in BOTH companies cannot adjust the other company's product from this one 101ms
 ⎯⎯⎯⎯⎯⎯⎯ Failed Tests 1 ⎯⎯⎯⎯⎯⎯⎯
       Tests  1 failed | 11 passed (12)
+```
+
+## Round 2 (after blind review: validator number/2-decimal/unitCost guards, cents arithmetic removed as redundant)
+Each mutation applied alone; both k086 integration files (withAuth, app_user, disposable fixture) plus tests/unit/inventory/inventory-calc.test.ts. The first result line per mutation is integration, the second unit.
+```
+### M1 count back on the delta path
+   × a count ABOVE stock on hand raises it and records an inbound correction 42ms
+   × a count that agrees with stock on hand moves nothing and records no movement 35ms
+   × a two-decimal count is exact: 100 -> 60.35 books 39.65 out, and the document agrees 35ms
+   × a shrinkage count takes its value out of the stock valuation, not just its units 43ms
+   × a count waits for a competing writer and corrects from what it then reads 352ms
+   × K-086: the counted quantity replaces stock, it is not added to it 7ms
+   × K-086: the movement carries the 40-unit correction, not the 60 counted 4ms
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 7 ⎯⎯⎯⎯⎯⎯⎯
+      Tests  7 failed | 10 passed (17)
+      Tests  36 passed (36)
+### M2 movement records the counted quantity, not the correction
+   × a count ABOVE stock on hand raises it and records an inbound correction 45ms
+   × a two-decimal count is exact: 100 -> 60.35 books 39.65 out, and the document agrees 45ms
+   × a shrinkage count takes its value out of the stock valuation, not just its units 72ms
+   × a count waits for a competing writer and corrects from what it then reads 338ms
+   × K-086: the movement carries the 40-unit correction, not the 60 counted 6ms
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 5 ⎯⎯⎯⎯⎯⎯⎯
+      Tests  5 failed | 12 passed (17)
+      Tests  36 passed (36)
+### M3 FOR UPDATE dropped
+   × a count waits for a competing writer and corrects from what it then reads 393ms
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 1 ⎯⎯⎯⎯⎯⎯⎯
+      Tests  1 failed | 16 passed (17)
+      Tests  36 passed (36)
+### M4 count direction fixed to adjustment_out
+   × a count ABOVE stock on hand raises it and records an inbound correction 54ms
+   × a count waits for a competing writer and corrects from what it then reads 358ms
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 2 ⎯⎯⎯⎯⎯⎯⎯
+      Tests  2 failed | 15 passed (17)
+      Tests  36 passed (36)
+### M6 zero-delta movement guard removed
+   × a count that agrees with stock on hand moves nothing and records no movement 46ms
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 1 ⎯⎯⎯⎯⎯⎯⎯
+      Tests  1 failed | 16 passed (17)
+      Tests  36 passed (36)
+### M7 company_id dropped from the lock
+   × a user in BOTH companies cannot adjust the other company's product from this one 47ms
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 1 ⎯⎯⎯⎯⎯⎯⎯
+      Tests  1 failed | 16 passed (17)
+      Tests  36 passed (36)
+### M8 validator number / two-decimal guard removed
+   × a third decimal is refused before anything is written 35ms
+   × "NaN", a string quantity and a count with no unit cost are refused before anything is written 36ms
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 2 ⎯⎯⎯⎯⎯⎯⎯
+      Tests  2 failed | 15 passed (17)
+     × rejects a quantity Postgres would round differently from the route (K-086) 7ms
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 1 ⎯⎯⎯⎯⎯⎯⎯
+      Tests  1 failed | 35 passed (36)
+### M8b validator two-decimal check only removed
+   × a third decimal is refused before anything is written 39ms
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 1 ⎯⎯⎯⎯⎯⎯⎯
+      Tests  1 failed | 16 passed (17)
+     × rejects a quantity Postgres would round differently from the route (K-086) 6ms
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 1 ⎯⎯⎯⎯⎯⎯⎯
+      Tests  1 failed | 35 passed (36)
+### M9 decrease clamp removed
+   × a decrease past zero is still clamped at 0 and books the full requested quantity out 36ms
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 1 ⎯⎯⎯⎯⎯⎯⎯
+      Tests  1 failed | 16 passed (17)
+      Tests  36 passed (36)
+### M10 decrease/transfer fallback movement type changed
+   × a decrease past zero is still clamped at 0 and books the full requested quantity out 43ms
+   × a transfer is still an outbound delta 41ms
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 2 ⎯⎯⎯⎯⎯⎯⎯
+      Tests  2 failed | 15 passed (17)
+      Tests  36 passed (36)
+### M11 unit cost no longer required for a count
+   × "NaN", a string quantity and a count with no unit cost are refused before anything is written 40ms
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 1 ⎯⎯⎯⎯⎯⎯⎯
+      Tests  1 failed | 16 passed (17)
+     × requires a unit cost for a stock count, as for an increase (K-086) 5ms
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 1 ⎯⎯⎯⎯⎯⎯⎯
+      Tests  1 failed | 35 passed (36)
+### M12 unit cost type check removed
+   × "NaN", a string quantity and a count with no unit cost are refused before anything is written 50ms
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 1 ⎯⎯⎯⎯⎯⎯⎯
+      Tests  1 failed | 16 passed (17)
+     × rejects a unit cost that is not a finite number of zero or more 5ms
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 1 ⎯⎯⎯⎯⎯⎯⎯
+      Tests  1 failed | 35 passed (36)
 ```

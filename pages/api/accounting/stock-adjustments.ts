@@ -50,14 +50,14 @@ async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse) {
     // hand, and the movement carries the correction that implies. It used to
     // be signed +1 like an increase, so counting 60 against 100 left 160 and
     // booked a 60-unit adjustment_out. The other types stay deltas, clamp
-    // included. Worked in cents: current_stock is NUMERIC(15,2) and a float
-    // difference would round differently from the stored count.
+    // included. validateStockAdjustment admits only numbers with at most 2
+    // decimals, so any float error here is far below the NUMERIC(15,2)
+    // rounding the columns apply, and document, stock and movement agree.
     const isCount = body.adjustmentType === 'count';
-    const toCents = (n: number) => Math.round(n * 100);
-    const deltaCents = isCount
-      ? toCents(body.quantity) - toCents(onHand)
-      : (body.adjustmentType === 'increase' ? 1 : -1) * toCents(body.quantity);
-    const newStock = isCount ? toCents(body.quantity) / 100 : Math.max(0, toCents(onHand) + deltaCents) / 100;
+    const delta = isCount
+      ? body.quantity - onHand
+      : (body.adjustmentType === 'increase' ? 1 : -1) * body.quantity;
+    const newStock = isCount ? body.quantity : Math.max(0, onHand + delta);
 
     // `ADJ-${COUNT(*)+1}` is not a sequence: it repeats after any deletion and
     // two concurrent adjustments compute the same count. `stock_adjustments`
@@ -86,8 +86,8 @@ async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse) {
     // correction would never reach the valuation. A count that agrees with
     // the shelf moved nothing and records no movement; the stock_adjustments
     // row above still records that the count happened.
-    const magnitude = Math.abs(deltaCents) / 100;
-    const movementType = isCount ? (deltaCents > 0 ? 'adjustment_in' : 'adjustment_out')
+    const magnitude = Math.abs(delta);
+    const movementType = isCount ? (delta > 0 ? 'adjustment_in' : 'adjustment_out')
       : body.adjustmentType === 'increase' ? 'adjustment_in'
       : body.adjustmentType === 'write_off' ? 'write_off' : 'adjustment_out';
     // `stock_movements` has NO company_id column — it never has (244b_inventory.sql
@@ -98,7 +98,7 @@ async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse) {
     // by the ownership check above, which refuses a product of another tenant
     // before anything is written. Adding the column is register item K-085's;
     // this only stops naming a column that does not exist.
-    if (deltaCents !== 0) {
+    if (delta !== 0) {
       await sql`INSERT INTO stock_movements (product_id, warehouse_id, movement_type, quantity, unit_cost, total_cost, reference_type, reference_id, created_by) VALUES (${body.productId}, ${body.warehouseId || null}, ${movementType}, ${magnitude}, ${body.unitCost || 0}, ${(body.unitCost || 0) * magnitude}, 'stock_adjustment', ${String(inserted[0]?.id)}, ${String(req.user.id)})`;
     }
 
