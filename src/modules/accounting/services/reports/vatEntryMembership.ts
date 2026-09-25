@@ -23,6 +23,7 @@ import {
   VAT_LEGITIMATE_BALANCE_SHEET_SUBTYPES,
 } from './vatBalanceSheetExceptions';
 import { VAT_TAX_SUBTYPES } from './vatBoxBasis';
+import { VAT_SUBMISSION_CLEARING_SOURCE } from './vatSubmissionClearing';
 
 export const NON_VAT_TYPES: readonly string[] = ['no_vat'];
 
@@ -38,7 +39,7 @@ export const NON_VAT_TYPES: readonly string[] = ['no_vat'];
  * `source` is the journal's source column expression (`je.source`, `e.source`).
  */
 export function vatEntrySourceAdmitsSql(source: ReturnType<typeof sql>) {
-  return sql`${source} IS DISTINCT FROM 'auto_vat_submission'`;
+  return sql`${source} IS DISTINCT FROM ${VAT_SUBMISSION_CLEARING_SOURCE}`;
 }
 
 /** Column expressions the fragment reads. Default: the real account row. */

@@ -38,6 +38,7 @@ import { sql } from '@/lib/neon';
 import type { DbRow } from '@/lib/neon';
 import { SA_VAT_RATE } from './vatBoxBasis';
 import type { InputVatSupportLine, InputVatSupportKind } from './vatExceptionsTypes';
+import { VAT_SUBMISSION_CLEARING_SOURCE } from './vatSubmissionClearing';
 
 const CENT = 0.005;
 
@@ -151,7 +152,7 @@ export async function findInputVatSupport(
         AND je.status = 'posted'
         AND je.entry_date >= ${periodStart}::DATE
         AND je.entry_date <= ${periodEnd}::DATE
-        AND je.source IS DISTINCT FROM 'auto_vat_submission'
+        AND je.source IS DISTINCT FROM ${VAT_SUBMISSION_CLEARING_SOURCE}
         AND je.reversal_of_id IS NULL
         -- A reversed pair nets, as the per-journal over-claim nets it: a claim
         -- whose POSTED reversal is dated by the period end claims nothing in
