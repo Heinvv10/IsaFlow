@@ -1,6 +1,6 @@
 # R-053 residual — archive step 6 vs the NO ACTION FKs
 
-**Status:** not built. It needs Hein's design decision (below).
+**Status:** not built. **Decided 2026-09-25 (Hein):** keep archiving off and fold this residual into the archive redesign. Nothing is to be built for it on its own.
 **Measured:** 2026-09-25 on origin/master `4faf25ed7`, using the disposable fixture. Production was not queried. See `red.log`.
 
 ## What was measured
