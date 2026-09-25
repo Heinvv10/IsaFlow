@@ -1,0 +1,122 @@
+/**
+ * The pure rules of a LATE INPUT-VAT CLAIM (VAT Act s16(3)).
+ *
+ * Input tax may be deducted in a later tax period, within five years of the
+ * period it first became deductible; output tax may never be deferred. So a
+ * journal dated inside a locked (filed) VAT period whose only VAT is INPUT tax
+ * may be split: the original keeps its date with the input VAT parked on the
+ * "Input VAT - late claims" clearing account, and a companion journal on the
+ * first day after the lock claims it (vatLateClaimSplit.ts). Everything else
+ * keeps today's refusal.
+ *
+ * Pure: no database, so the rules are tested directly. The reading side is
+ * vatLateClaimPlan.ts.
+ */
+import { classifyVatJournalLine } from '../reports/vatBoxBasis';
+import { classifyNonSupplyAccount, claimsVat } from './nonSupplyAccounts';
+
+/** One journal line with the account facts the rules need. */
+export interface LateClaimLine {
+  glAccountId: string;
+  accountType: string;
+  accountSubtype: string | null;
+  accountName: string;
+  vatInputDenied: boolean;
+  vatType: string | null;
+  debit: number;
+  credit: number;
+}
+
+/**
+ * Why a locked-period posting cannot be claimed late. `null` on a verdict means
+ * the journal is not a late-claim candidate at all (nothing to claim, or VAT
+ * the return cannot place) — the caller raises today's plain lock refusal.
+ */
+export type LateClaimRefusalReason =
+  | 'output_vat' | 'input_reduction' | 'expired_5y' | 'claim_period_closed' | 'non_supply';
+
+export type LateClaimVerdict =
+  | { claimable: true; inputTax: number }
+  | { claimable: false; reason: LateClaimRefusalReason | null };
+
+function r2(n: number): number {
+  return Math.round(n * 100) / 100;
+}
+
+/**
+ * May this journal be split? Uses the VAT201's own line classifier, so "input
+ * tax", "base" and "unmapped" mean exactly what the return means by them.
+ * Output VAT outranks every other reason: it can never be deferred.
+ */
+export function qualifiesForLateClaim(lines: readonly LateClaimLine[]): LateClaimVerdict {
+  let inputTax = 0;
+  let reduction = false;
+  let unplaceable = false;
+  let nonSupply = false;
+  for (const l of lines) {
+    const c = classifyVatJournalLine({
+      journalEntryId: '', entryNumber: '', entryDate: '', lineId: '',
+      accountId: l.glAccountId, accountCode: '', accountName: l.accountName,
+      accountType: l.accountType, accountSubtype: l.accountSubtype, vatType: l.vatType,
+      debit: l.debit, credit: l.credit, cancelledSource: false,
+    });
+    const tagged = l.vatType !== null && l.vatType !== 'no_vat';
+    if (c.role === 'tax' && c.direction === 'output') return { claimable: false, reason: 'output_vat' };
+    if (c.role === 'tax') {
+      // Per line, not netted: a credit to input VAT reduces a filed claim.
+      if (l.credit > 0) reduction = true;
+      inputTax = r2(inputTax + l.debit - l.credit);
+    } else if (c.role === 'base' && tagged && l.accountType === 'revenue') {
+      return { claimable: false, reason: 'output_vat' };
+    } else if (c.role === 'unmapped') {
+      unplaceable = true;
+    } else if (c.role === 'base' && claimsVat(l.vatType)
+      && (l.vatInputDenied || classifyNonSupplyAccount(l.accountName) !== null)) {
+      nonSupply = true;
+    }
+  }
+  if (reduction) return { claimable: false, reason: 'input_reduction' };
+  if (unplaceable || inputTax <= 0) return { claimable: false, reason: null };
+  if (nonSupply) return { claimable: false, reason: 'non_supply' };
+  return { claimable: true, inputTax };
+}
+
+function addDays(date: string, days: number): string {
+  const [y, m, d] = date.split('-').map(Number) as [number, number, number];
+  return new Date(Date.UTC(y, m - 1, d + days)).toISOString().slice(0, 10);
+}
+
+export interface LockRange {
+  periodStart: string;
+  periodEnd: string;
+}
+
+/**
+ * The claim date: the first day after the lock covering `originalDate` and
+ * every lock that follows it back to back. A gap ends the run — the day after
+ * the last consecutive lock is an unlocked VAT period. ISO dates compare as
+ * strings. Throws when no lock covers the date: that is a caller bug.
+ */
+export function lateClaimDate(originalDate: string, locks: readonly LockRange[]): string {
+  let cover = locks.find((l) => l.periodStart <= originalDate && l.periodEnd >= originalDate);
+  if (!cover) throw new Error(`lateClaimDate: no lock covers ${originalDate}`);
+  let d = addDays(cover.periodEnd, 1);
+  for (let i = 0; i < locks.length; i++) {
+    cover = locks.find((l) => l.periodStart <= d && l.periodEnd >= d);
+    if (!cover) return d;
+    d = addDays(cover.periodEnd, 1);
+  }
+  return d;
+}
+
+/** The last day a claim may be made: the same calendar day five years on (29 Feb clamps to 28 Feb). */
+export function lateClaimDeadline(originalDate: string): string {
+  const [y, m, d] = originalDate.split('-').map(Number) as [number, number, number];
+  const lastOfMonth = new Date(Date.UTC(y + 5, m, 0)).getUTCDate();
+  const day = Math.min(d, lastOfMonth);
+  return `${y + 5}-${String(m).padStart(2, '0')}-${String(day).padStart(2, '0')}`;
+}
+
+export function isWithinLateClaimWindow(originalDate: string, claimDate: string): boolean {
+  return claimDate <= lateClaimDeadline(originalDate);
+}
