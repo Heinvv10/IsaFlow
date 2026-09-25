@@ -10021,7 +10021,6 @@
         "K-081"
       ],
       "testNames": [
-        "tests/unit/scripts/apply-migrations.test.ts",
         "tests/unit/scripts/migrationNoticeListener.test.ts"
       ],
       "evidencePaths": [],
