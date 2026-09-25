@@ -77,8 +77,7 @@ export const GL_ENTRY_SOURCES = [
   // its own validateJournalEntry check — it INSERTs at status='posted', so no
   // other guard sees it.
   'year_end',
-  // The companion of a late input-VAT claim (migration 701, gl/vatLateClaimSplit).
-  'auto_vat_late_claim',
+  'auto_vat_late_claim', // late input-VAT claim companion (migration 701)
 ] as const;
 
 export type GLEntrySource = (typeof GL_ENTRY_SOURCES)[number];
