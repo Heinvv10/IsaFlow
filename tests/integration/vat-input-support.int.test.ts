@@ -16,6 +16,7 @@ import { approveCreditNote } from '@/modules/accounting/services/ar/creditNoteAp
 import { approveClaim, createClaim, postClaimToGl, submitClaim } from '@/modules/accounting/services/expense/expenseClaimService';
 import { createJournalEntry } from '@/modules/accounting/services/gl/journalEntryCrudService';
 import { postJournalEntry } from '@/modules/accounting/services/gl/journalEntryPostService';
+import { reverseJournalEntry } from '@/modules/accounting/services/gl/journalEntryPostingService';
 import { getVatExceptions } from '@/modules/accounting/services/reports/vatExceptionsService';
 import { evaluateEfilingGate } from '@/modules/accounting/services/reports/sarsEfilingSubmissionService';
 import type { JournalLineInput } from '@/modules/accounting/types/gl.types';
@@ -154,5 +155,31 @@ describeIfDb('pre-filing exceptions: input-VAT support', () => {
     expect(r.unsupportedInputVatCount).toBe(1);
     expect(r.totalExceptions).toBe(1);
     expect(evaluateEfilingGate(r).allowed).toBe(false);
+  });
+
+  // A reversed pair nets, as the per-journal over-claim nets it (JE-2026-04873
+  // on dev: manual R1 VAT, reversed the same day). The claim stands in its own
+  // period only while its reversal is dated AFTER that period.
+  const bareVat = () => [
+    { glAccountId: fx.expenseId, debit: 100, credit: 0, description: 'no document', vatType: 'standard' as const },
+    { glAccountId: fx.vatInputId, debit: 15, credit: 0, description: 'VAT', vatType: 'standard' as const },
+    { glAccountId: fx.bankAccountId, debit: 0, credit: 115, description: 'paid' },
+  ];
+  let bareJe = '';
+  it('a claim reversed in the same period is not unsupported', async () => {
+    bareJe = (await report()).unsupportedInputVat[0]!.journalEntryId;
+    const je = await postJournal('2026-07-26', 'manual', bareVat());
+    await inTx(fx, () => reverseJournalEntry(fx.companyId, je, fx.userId));
+    const r = await report();
+    expect(r.unsupportedInputVat.map((l) => l.journalEntryId)).toEqual([bareJe]);
+  });
+
+  it('a claim reversed only in a LATER period still blocks in its own period', async () => {
+    const je = await postJournal('2026-07-27', 'manual', bareVat());
+    await inTx(fx, () => reverseJournalEntry(fx.companyId, je, fx.userId, { reversalDate: '2026-09-02' }));
+    const r = await report();
+    expect(r.unsupportedInputVat.map((l) => l.journalEntryId)).toEqual([bareJe, je]);
+    const sep = await inTx(fx, () => getVatExceptions(fx.companyId, '2026-09-01', '2026-10-31'));
+    expect(sep.unsupportedInputVat).toEqual([]); // the reversal alone is a reduction, never a claim
   });
 });
