@@ -9,7 +9,7 @@
  * Run: bun scripts/ci/check-workflow-runs-ci.ts
  */
 
-import { readFileSync } from 'node:fs';
+import { readFileSync, readdirSync } from 'node:fs';
 import { load } from 'js-yaml';
 import { checkWorkflowRunsCi } from './workflowRunsCiRule';
 
@@ -18,7 +18,7 @@ const WORKFLOW = '.github/workflows/ci.yml';
 let errors: string[];
 try {
   const pkg = JSON.parse(readFileSync('package.json', 'utf8')) as { scripts?: Record<string, unknown> };
-  errors = checkWorkflowRunsCi(load(readFileSync(WORKFLOW, 'utf8')), pkg.scripts);
+  errors = checkWorkflowRunsCi(load(readFileSync(WORKFLOW, 'utf8')), pkg.scripts, readdirSync('.github/workflows'));
 } catch (err) {
   errors = [`could not read ${WORKFLOW} or package.json: ${(err as Error).message}`];
 }

@@ -60,6 +60,16 @@ const RUNS_ON = ['self-hosted', 'linux', 'velo'];
  * (the job measured 8m13s under load, R-052/green.log).
  */
 const CONCURRENCY = { group: 'ci-${{ github.ref }}', 'cancel-in-progress': true };
+/**
+ * Concurrency groups are repo-wide, across workflows: any other job or
+ * workflow that takes the ci- group cancels quality. Scanning group strings is
+ * another arms race, so the SET is fixed instead: ci.yml is the only workflow
+ * file, its jobs are exactly these, and golden-paths keeps its own group. A new
+ * workflow or job means changing this rule in review.
+ */
+export const WORKFLOW_FILES = ['ci.yml'];
+const JOBS = ['quality', 'golden-paths'];
+const GOLDEN_PATHS_CONCURRENCY = { group: 'golden-paths-dev-demo', 'cancel-in-progress': false };
 const MIN_TIMEOUT_MINUTES = 20;
 const CHECKOUT = /^actions\/checkout@v\d+$/;
 const INSTALL = 'bun install --frozen-lockfile --ignore-scripts';
@@ -93,10 +103,14 @@ function checkTrigger(on: Obj, event: string, errors: string[]): void {
 /**
  * @param workflow ci.yml as parsed by js-yaml (YAML 1.2, so `on` stays a string key)
  * @param scripts package.json `scripts`
+ * @param workflowFiles the file names in .github/workflows/
  * @returns one message per violation; empty means the workflow runs every gate
  */
-export function checkWorkflowRunsCi(workflow: unknown, scripts: unknown): string[] {
+export function checkWorkflowRunsCi(workflow: unknown, scripts: unknown, workflowFiles: string[] = WORKFLOW_FILES): string[] {
   const errors: string[] = [];
+  if (!sameList([...workflowFiles].sort(), WORKFLOW_FILES)) {
+    errors.push(`.github/workflows/ must hold only ${WORKFLOW_FILES.join(', ')} (it holds ${workflowFiles.join(', ') || 'nothing'}); another workflow can take the ci- concurrency group and cancel quality`);
+  }
   const pkg = isObj(scripts) ? scripts : {};
   if (pkg.ci !== CI_SCRIPT) {
     errors.push(`package.json scripts.ci must be exactly "${CI_SCRIPT}" (it is ${JSON.stringify(pkg.ci)})`);
@@ -121,6 +135,17 @@ export function checkWorkflowRunsCi(workflow: unknown, scripts: unknown): string
   }
 
   const jobs = workflow.jobs;
+  if (isObj(jobs)) {
+    if (!sameList(Object.keys(jobs), JOBS)) {
+      errors.push(`ci.yml jobs must be exactly ${JOBS.join(', ')}; another job can take the ci- concurrency group and cancel quality`);
+    }
+    const gp = jobs['golden-paths'];
+    const gpc = isObj(gp) ? gp.concurrency : undefined;
+    if (!isObj(gpc) || extraKeys(gpc, Object.keys(GOLDEN_PATHS_CONCURRENCY)).length
+      || gpc.group !== GOLDEN_PATHS_CONCURRENCY.group || gpc['cancel-in-progress'] !== GOLDEN_PATHS_CONCURRENCY['cancel-in-progress']) {
+      errors.push(`jobs.golden-paths.concurrency must be exactly ${JSON.stringify(GOLDEN_PATHS_CONCURRENCY)}; taking the workflow's own group deadlocks and cancels the run`);
+    }
+  }
   const job = isObj(jobs) ? jobs[QUALITY_JOB] : undefined;
   if (!isObj(job)) return [...errors, `ci.yml has no jobs.${QUALITY_JOB}`];
 
