@@ -116,20 +116,7 @@ async function applyLateClaimSplit(
     await sql`
       UPDATE gl_journal_entries SET late_claim_of_id = ${entry.id}::UUID
       WHERE id = ${companion.id}::UUID AND company_id = ${companyId}::UUID`;
-    // The base behind each claim, on its companion line, so the claim period's
-    // 15% check counts it. Lines with the same account, code and amount are
-    // interchangeable (their bases differ by the rounding cent at most).
-    for (const t of plan.taxLines) {
-      await sql`
-        UPDATE gl_journal_lines SET late_claim_base = ${t.base}
-        WHERE id = (
-          SELECT id FROM gl_journal_lines
-          WHERE company_id = ${companyId}::UUID AND journal_entry_id = ${companion.id}::UUID
-            AND gl_account_id = ${t.glAccountId}::UUID AND debit = ${t.amount}
-            AND vat_type IS NOT DISTINCT FROM ${t.vatType}::TEXT AND late_claim_base IS NULL
-          ORDER BY id LIMIT 1)
-          AND company_id = ${companyId}::UUID`;
-    }
+    await writeLateClaimBases(companyId, companion.id, plan.taxLines);
 
     const lateClaim: LateClaimInfo = {
       claimDate: plan.claimDate,
@@ -192,14 +179,55 @@ export async function planLateClaimCompanionReversal(
 }
 
 /**
+ * The base behind each claim, on its companion line, so the claim period's 15%
+ * check counts it. Lines with the same account, code and amount are
+ * interchangeable (their bases differ by the rounding cent at most).
+ *
+ * EVERY planned line must take its base: a line left NULL would be an entry
+ * without base in the claim period and its claim would escape the check. A
+ * mismatch is a FAULT, not a refusal — a plain Error, so the route answers 5xx
+ * and the split's savepoint rolls the whole claim back.
+ */
+export async function writeLateClaimBases(
+  companyId: string, companionId: string,
+  taxLines: readonly { glAccountId: string; amount: number; vatType: string | null; base: number }[],
+): Promise<void> {
+  let written = 0;
+  for (const t of taxLines) {
+    const rows = (await sql`
+      UPDATE gl_journal_lines SET late_claim_base = ${t.base}
+      WHERE id = (
+        SELECT id FROM gl_journal_lines
+        WHERE company_id = ${companyId}::UUID AND journal_entry_id = ${companionId}::UUID
+          AND gl_account_id = ${t.glAccountId}::UUID AND debit = ${t.amount}
+          AND vat_type IS NOT DISTINCT FROM ${t.vatType}::TEXT AND late_claim_base IS NULL
+        ORDER BY id LIMIT 1)
+        AND company_id = ${companyId}::UUID
+      RETURNING id`) as Row[];
+    written += rows.length;
+  }
+  if (written !== taxLines.length) {
+    throw new Error(`Late claim ${companionId}: the base was written on ${written} of ${taxLines.length} `
+      + 'VAT Input lines; the claim is rolled back.');
+  }
+}
+
+/**
  * A companion's reversal carries each claim's base NEGATED, so the claim and
  * its reversal net to nothing in the 15% check too. Lines pair up by account,
- * code and amount (the contra's credit is the companion's debit).
+ * code and amount (the contra's credit is the companion's debit). Every
+ * companion line with a base must find its partner, or the reversal would
+ * leave a claim's base standing: a plain Error (fault → the reversal rolls back).
  */
 export async function copyLateClaimBaseToReversal(
   companyId: string, companionId: string, reversalId: string,
 ): Promise<void> {
-  await sql`
+  const [c] = (await sql`
+    SELECT COUNT(*)::INT AS n FROM gl_journal_lines
+    WHERE company_id = ${companyId}::UUID AND journal_entry_id = ${companionId}::UUID
+      AND late_claim_base IS NOT NULL`) as Row[];
+  const expected = Number(c?.n ?? 0);
+  const copied = (await sql`
     WITH o AS (
       SELECT late_claim_base, gl_account_id, COALESCE(vat_type, '') AS vt, debit AS amt,
              ROW_NUMBER() OVER (PARTITION BY gl_account_id, COALESCE(vat_type, ''), debit ORDER BY id) AS rn
@@ -214,5 +242,10 @@ export async function copyLateClaimBaseToReversal(
     )
     UPDATE gl_journal_lines l SET late_claim_base = -o.late_claim_base
     FROM o JOIN r USING (gl_account_id, vt, amt, rn)
-    WHERE l.id = r.id AND l.company_id = ${companyId}::UUID`;
+    WHERE l.id = r.id AND l.company_id = ${companyId}::UUID
+    RETURNING l.id`) as Row[];
+  if (copied.length !== expected) {
+    throw new Error(`Reversal ${reversalId} of late claim ${companionId}: the base was carried to `
+      + `${copied.length} of ${expected} lines; the reversal is rolled back.`);
+  }
 }
