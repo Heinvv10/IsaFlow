@@ -111,9 +111,22 @@ describeIfDb('softDelete(supplier_invoice) — held to the cancel plan', () => {
     await refusedLeavingItAlone(bill, /draft journal/);
   });
 
-  it('refuses an approved bill with no approval journal to reverse', async () => {
+  it('refuses an approved bill with no approval journal that no capture created', async () => {
     const bill = await seedBill(fx, { number: `SD${++seq}`, date: '2026-05-06', total: 80 });
     await refusedLeavingItAlone(bill, /no approval journal/);
+  });
+
+  it('deletes a captured, auto-approved bill that was never posted, posting nothing', async () => {
+    const bill = await seedBill(fx, { number: `SD${++seq}`, date: '2026-05-06', total: 80 });
+    const doc = String(((await sql`
+      INSERT INTO captured_documents (company_id, file_name, file_type, document_type, status)
+       VALUES (${fx.companyId}::UUID, 'capture.pdf', 'application/pdf', 'invoice', 'posted') RETURNING id`) as Array<{ id: string }>)[0]!.id);
+    await sql`UPDATE supplier_invoices SET source_document_id = ${doc}::UUID WHERE id = ${bill}::UUID`;
+    const before = (await state(bill)).reversals;
+    await del(bill);
+    const after = await state(bill);
+    expect(after.deleted_at).not.toBeNull();
+    expect(after.reversals).toBe(before);
   });
 
   it('still deletes a clean approved bill, a draft and a cancelled bill', async () => {

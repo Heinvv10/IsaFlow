@@ -204,6 +204,8 @@ export async function dropFixture(fx: Fixture): Promise<void> {
   await sql`DELETE FROM bank_transactions WHERE company_id = ${c}::UUID`;
   await sql`DELETE FROM gl_journal_lines WHERE company_id = ${c}::UUID`;
   await sql`DELETE FROM gl_journal_entries WHERE company_id = ${c}::UUID`;
+  // After the bills and journals that may name them (source_document_id).
+  await sql`DELETE FROM captured_documents WHERE company_id = ${c}::UUID`;
   await sql`DELETE FROM suppliers WHERE company_id = ${c}::UUID`;
   await sql`DELETE FROM customers WHERE company_id = ${c}::UUID`;
   await sql`DELETE FROM gl_account_balances WHERE gl_account_id IN (

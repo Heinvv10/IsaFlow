@@ -215,11 +215,24 @@ describeIfDb('cancel_supplier_invoice — plan and cancel over a real ledger', (
   });
 
   /** Ledger review HIGH: an approved bill with no approval journal (a Sage
-   *  import, a stranded journal) would leave the AP subledger while any
-   *  control-account credit behind it stays. */
-  it('refuses an approved bill that has no approval journal to reverse', async () => {
+   *  import, even one with no sage_invoice_id; a seeded history) may have its
+   *  liability in the GL by other means, so cancelling it is refused. */
+  it('refuses an approved bill with no approval journal that no capture created', async () => {
     const bill = await seedBill(fx, { number: 'NJ1', date: '2026-05-06', total: 80 });
     expect(await refusal(plan(bill))).toContain('no approval journal');
+  });
+
+  /** An approved bill that was never posted (the capture/AI pipeline's
+   *  auto-approve, awaiting Post to GL) put nothing in the GL, so there is
+   *  nothing to reverse: the plan lets it cancel with no contra. */
+  it('plans a plain cancel for a captured, auto-approved bill that was never posted', async () => {
+    const bill = await seedBill(fx, { number: 'NJ2', date: '2026-05-06', total: 80 });
+    const doc = String(((await sql`
+      INSERT INTO captured_documents (company_id, file_name, file_type, document_type, status)
+       VALUES (${fx.companyId}::UUID, 'capture.pdf', 'application/pdf', 'invoice', 'posted') RETURNING id`) as Array<{ id: string }>)[0]!.id);
+    await sql`UPDATE supplier_invoices SET source_document_id = ${doc}::UUID WHERE id = ${bill}::UUID`;
+    const planned = await plan(bill);
+    expect(planned.journal).toBeNull();
   });
 
   /** Ledger review MEDIUM: bank-matched with amount_paid 0 (the legacy path). */
