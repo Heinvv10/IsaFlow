@@ -125,7 +125,9 @@ export interface InputVatSupportLine {
   supportKind: InputVatSupportKind;
   /** The VAT the linked document supports (bank: the rate/(1+rate) ceiling). Null when none. */
   documentVat: number | null;
-  reason: 'no_document' | 'amount_mismatch' | 'no_tax_invoice';
+  reason: 'no_document' | 'amount_mismatch' | 'document_over_claimed' | 'unreadable_document_vat' | 'no_tax_invoice';
+  /** Captured document only: the net VAT every claim naming it has claimed to the period end. */
+  documentClaimedVat: number | null;
 }
 
 /**

@@ -5,15 +5,24 @@
  */
 import { describe, expect, it } from 'vitest';
 import {
-  classifyInputVatSupport, type InputVatSupportFacts,
+  classifyInputVatSupport, readDocumentVat, type InputVatSupportFacts,
 } from '@/modules/accounting/services/reports/vatInputSupport';
 
 const facts = (over: Partial<InputVatSupportFacts>): InputVatSupportFacts => ({
   journalEntryId: 'je', entryNumber: 'JE-1', entryDate: '2026-07-10', source: 'manual', description: '',
-  claimedVat: 150, expenseClaimVat: null, capturedDocumentVat: null, creditNoteVat: null,
-  vatAdjustment: false, bankAmount: null, ...over,
+  claimedVat: 150, claimedToDate: 150, expenseClaimVat: null, capturedDocumentVat: null, documentClaimedVat: null,
+  creditNoteVat: null, vatAdjustment: false, bankAmount: null, ...over,
 });
 const RATE = 0.15;
+
+describe('readDocumentVat — the extracted VAT, read as the capture pipeline reads a printed amount', () => {
+  it.each([[15, 15], ['15.00', 15], ['15,00', 15], ['1 234,50', 1234.5], [null, 0], [undefined, 0]])('%s -> %s', (raw, want) => {
+    expect(readDocumentVat(raw)).toBe(want);
+  });
+  it.each([['fifteen'], ['15,00 VAT'], [''], [{}], [Number.NaN]])('%s is unreadable, never 0', (raw) => {
+    expect(readDocumentVat(raw)).toBe('unreadable');
+  });
+});
 
 describe('classifyInputVatSupport', () => {
   it('no link at all: blocking, no_document', () => {
@@ -35,6 +44,25 @@ describe('classifyInputVatSupport', () => {
   it('captured document: its read VAT supports the claim; a claim over it blocks', () => {
     expect(classifyInputVatSupport(facts({ capturedDocumentVat: 150 }), RATE)).toEqual({ blocking: false, line: null });
     expect(classifyInputVatSupport(facts({ capturedDocumentVat: 0 }), RATE).blocking).toBe(true);
+  });
+
+  it('one document, one claim: two claims naming a R150 document block as document_over_claimed', () => {
+    const v = classifyInputVatSupport(facts({ capturedDocumentVat: 150, documentClaimedVat: 300 }), RATE);
+    expect(v).toMatchObject({ blocking: true, line: { reason: 'document_over_claimed', documentVat: 150, documentClaimedVat: 300 } });
+  });
+
+  it('an unreadable document VAT blocks with its own reason, never as 0 support', () => {
+    const v = classifyInputVatSupport(facts({ capturedDocumentVat: 'unreadable' }), RATE);
+    expect(v).toMatchObject({ blocking: true, line: { supportKind: 'captured_document', reason: 'unreadable_document_vat', documentVat: null } });
+  });
+
+  it('a chain netting to a claim in the period needs support whatever reinstated it', () => {
+    expect(classifyInputVatSupport(facts({ claimedVat: 150, claimedToDate: 150 }), RATE).blocking).toBe(true);
+  });
+
+  it('an expense claim is compared on its chain to date: a claim reversed earlier and reinstated still ties', () => {
+    expect(classifyInputVatSupport(facts({ claimedVat: 15, claimedToDate: 15, expenseClaimVat: 15 }), RATE)).toEqual({ blocking: false, line: null });
+    expect(classifyInputVatSupport(facts({ claimedVat: 15, claimedToDate: 30, expenseClaimVat: 15 }), RATE).blocking).toBe(true);
   });
 
   it('supplier credit note: the reduction matches its tax; a short reduction blocks', () => {
