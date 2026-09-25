@@ -123,6 +123,10 @@ locally. On GitHub every job passed and `mergeStateStatus` was `CLEAN`.
    package.json with its `patches/` file, which bun applies at install even with `--ignore-scripts`,
    so a patched tsc, eslint or vitest could exit 0. An edit to any of these that drops or skips a
    gate is left to code review.
+   Relatedly, `scripts/**` is excluded from `tsconfig.json` (as before this PR), so `tsc` does not
+   check the new rule or its entrypoint. Checked standalone under `--strict`, the rule is clean. The
+   entrypoint's only error is TS7016: js-yaml ships no types. That is harmless because the rule takes
+   `unknown`.
 5. **The runner is persistent and trusts itself.** IsaFlow has one self-hosted runner
    (`velo-server-u`, user `gha-isaflow`). That user owns `~/.bun/bin`. Any job that runs there, such
    as `golden-paths` (which still installs with scripts) or another workflow file, could replace `bun` with a binary that exits 0, and
@@ -133,9 +137,10 @@ locally. On GitHub every job passed and `mergeStateStatus` was `CLEAN`.
 
    Both are infrastructure decisions.
    The same goes for any GitHub credential stored on the runner under `gha-isaflow`, such as a `gh`
-   login or a PAT. A step using it would not be limited by the pinned `{contents: read}` token, and
-   nobody has checked whether one exists, because that user's home is not readable from this
-   account.
+   login or a PAT. A step using it would not be limited by the pinned `{contents: read}` token. None
+   was found on 2026-09-25: `/home/gha-isaflow` has no `~/.config/gh`, `.git-credentials` or
+   `.netrc`. File names were listed with `sudo -n`, and no contents were read. A credential kept inside
+   the runner's own directory, or passed in through a job's env, would not show up that way.
 6. **A `bunfig.toml` `preload`** runs before every bun process, so it could exit 0 ahead of each gate.
    A new first gate refuses it: `no-bunfig`, a bash `test ! -e bunfig.toml` in run-ci.sh, which bun
    cannot preload into.
