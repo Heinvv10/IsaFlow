@@ -113,6 +113,30 @@ gate exit=1
 gate exit=0
 ```
 
+## Round 6 (after /review on #525): the concurrency pin and the timeout floor
+The rule now also pins `concurrency` exactly and requires `timeout-minutes` to be an integer of at
+least 20. Either one could otherwise end the check cancelled rather than red. There are 45 cases. The
+clauses from rounds 2-5 are unchanged, and their log above still holds (39 cases then).
+```
+### R16 concurrency not checked (errors.push disabled)
+     × a concurrency group shared by every ref 3ms
+     × cancel-in-progress switched off 1ms
+     × an extra concurrency key 0ms
+     × concurrency removed from the workflow 0ms
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 4 ⎯⎯⎯⎯⎯⎯⎯
+      Tests  4 failed | 41 passed (45)
+### R17 timeout floor not checked (errors.push disabled)
+     × a timeout too short to finish: the check ends cancelled, never red 3ms
+     × a timeout given as an expression: the check ends cancelled, never red 1ms
+     × no timeout floor (key removed): the check ends cancelled, never red 1ms
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 3 ⎯⎯⎯⎯⎯⎯⎯
+      Tests  3 failed | 42 passed (45)
+### R17b timeout floor lowered to 1
+     × a timeout too short to finish: the check ends cancelled, never red 4ms
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 1 ⎯⎯⎯⎯⎯⎯⎯
+      Tests  1 failed | 44 passed (45)
+```
+
 ## Round 1 (superseded): the grep-based check-workflow-runs-ci.sh
 It caught these four, and blind review then got nine other edits past it, which is why round 2 replaced it.
 ```

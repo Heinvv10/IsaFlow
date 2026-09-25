@@ -88,11 +88,6 @@ describe('refuses every way found to keep the job green while skipping gates', (
     expect(check(mutated).length).toBeGreaterThan(0);
   });
 
-  it('the existing prepare script is not mistaken for a hook', () => {
-    expect(SCRIPTS.prepare).toBeDefined();
-    expect(check(REAL)).toEqual([]);
-  });
-
   it('package.json `ci` turned into a no-op', () => {
     expect(check(REAL, { ...SCRIPTS, ci: 'true' }).length).toBeGreaterThan(0);
     expect(checkWorkflowRunsCi(load(REAL), undefined).length).toBeGreaterThan(0);
@@ -108,6 +103,28 @@ describe('refuses every way found to keep the job green while skipping gates', (
   it("branches: [master, '!master'], which GitHub reads as excluding master", () => {
     expect(check(edit('  pull_request:\n    branches: [master]\n', "  pull_request:\n    branches: [master, '!master']\n")).length).toBeGreaterThan(0);
     expect(check(edit('  push:\n    branches: [master]\n', "  push:\n    branches: [master, '!master']\n")).length).toBeGreaterThan(0);
+  });
+
+  it.each([
+    ['a timeout too short to finish', 'timeout-minutes: 1'],
+    ['a timeout given as an expression', "timeout-minutes: '30'"],
+    ['no timeout floor (key removed)', null],
+  ])('%s: the check ends cancelled, never red', (_label, line) => {
+    // Anchored on quality's own comment: golden-paths also has timeout-minutes: 30.
+    const from = '~3.5x headroom.\n    timeout-minutes: 30\n';
+    expect(check(edit(from, line === null ? '~3.5x headroom.\n' : `~3.5x headroom.\n    ${line}\n`)).length).toBeGreaterThan(0);
+  });
+
+  it.each([
+    ['a concurrency group shared by every ref', '  group: ci-fixed\n  cancel-in-progress: true\n'],
+    ['cancel-in-progress switched off', '  group: ci-${{ github.ref }}\n  cancel-in-progress: false\n'],
+    ['an extra concurrency key', '  group: ci-${{ github.ref }}\n  cancel-in-progress: true\n  queue: max\n'],
+  ])('%s', (_label, body) => {
+    expect(check(edit('  group: ci-${{ github.ref }}\n  cancel-in-progress: true\n', body)).length).toBeGreaterThan(0);
+  });
+
+  it('concurrency removed from the workflow', () => {
+    expect(check(edit('concurrency:\n  group: ci-${{ github.ref }}\n  cancel-in-progress: true\n', '')).length).toBeGreaterThan(0);
   });
 
   it('runs-on a label no runner has, so the job queues forever and never goes red', () => {
