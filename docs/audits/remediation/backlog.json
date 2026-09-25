@@ -10351,7 +10351,7 @@
       "severityRationale": "Duplicate ledger postings and duplicate payment numbers reachable without concurrency, on money tables.",
       "auditedSha": "",
       "currentSha": "",
-      "status": "fix-in-review",
+      "status": "fixed",
       "dependencies": [
         "K-107"
       ],
@@ -10365,9 +10365,9 @@
         "docs/audits/remediation/R-051/red.log",
         "docs/audits/remediation/R-051/mutations.log"
       ],
-      "fixCommit": null,
-      "pr": null,
-      "deployedSha": null,
+      "fixCommit": "2237e40bb",
+      "pr": "511",
+      "deployedSha": "e2a78d699",
       "historicalDataImpact": "Unquantified. K-107 measured the supplier-payment twin directly: bank 2300.00 and amount_paid 2300.00 with two posted journals for one 1150.00 payment.",
       "canonicalItem": null,
       "reportedSeverity": "",
@@ -10375,7 +10375,7 @@
       "title": "The check-then-act posting class survives in AR payments, VAT adjustments and two DB number triggers with no unique index",
       "severity": "high",
       "source": "Inventory produced by the K-107 fixer in round 6, as its scoped hand-off; recorded 2026-09-10",
-      "processNotes": "K-107 fixed eight instances of this class across six modules and was then scoped to STOP and inventory the rest rather than keep absorbing a codebase-wide defect. The inventory is in docs/audits/remediation/K-107/fix.md. Headlines: (1) confirmCustomerPayment / cancelCustomerPayment are the unfixed AR twins of the supplier-payment defect -- HIGH, they post to the ledger. (2) approveVATAdjustment is byte-for-byte the adjustment shape already fixed -- HIGH. (3) generateJournalFromRecurring lacks company_id on its UPDATE -- a multi-tenant violation. (4) The DB triggers trg_cp_payment_number and trg_sp_payment_number mint MAX+1 with NO UNIQUE INDEX on either payments table -- the same shape as the stock-adjustment defect, on the two tables that carry money. This one is a database-level fix and needs its own ledger review. Related: R-043 (journal-entry-number trigger not concurrency-safe), R-044, R-045, R-047. Together these are one missing idiom applied inconsistently, not five bugs. UPDATE 2026-09-10 (K-107 r7 reviewer): the inventory itself was incomplete — its enumeration never walked services/payroll or services/loans. Two more live instances found there: payroll/taxDirectivePaymentService::applyTaxDirective (no unique index on tax_directive_payments) and payroll/uifDeclarationService::markUifDeclarationPaid (unpredicated UPDATE after posting). K-107 is fixing both and re-running the enumeration with the walked directories listed so coverage is auditable. The lesson generalises: that census was complete over the set it looked at, and the SET was the thing that was wrong. Any future sweep for this class must state which directories it walked. 2026-09-24: re-verified on a30e44177 — the AR payment twins, generateJournalFromRecurring, applyTaxDirective and markUifDeclarationPaid are claim-guarded on master. Still live and fixed here: approveVATAdjustment (measured: a second approval that read draft mid-flight posted a second journal; a closed-period refusal left a draft journal behind a 400). Now row-locked with typed refusals and an all-or-nothing savepoint. Still live and split out: the payment-number triggers (R-128)."
+      "processNotes": "K-107 fixed eight instances of this class across six modules and was then scoped to STOP and inventory the rest rather than keep absorbing a codebase-wide defect. The inventory is in docs/audits/remediation/K-107/fix.md. Headlines: (1) confirmCustomerPayment / cancelCustomerPayment are the unfixed AR twins of the supplier-payment defect -- HIGH, they post to the ledger. (2) approveVATAdjustment is byte-for-byte the adjustment shape already fixed -- HIGH. (3) generateJournalFromRecurring lacks company_id on its UPDATE -- a multi-tenant violation. (4) The DB triggers trg_cp_payment_number and trg_sp_payment_number mint MAX+1 with NO UNIQUE INDEX on either payments table -- the same shape as the stock-adjustment defect, on the two tables that carry money. This one is a database-level fix and needs its own ledger review. Related: R-043 (journal-entry-number trigger not concurrency-safe), R-044, R-045, R-047. Together these are one missing idiom applied inconsistently, not five bugs. UPDATE 2026-09-10 (K-107 r7 reviewer): the inventory itself was incomplete — its enumeration never walked services/payroll or services/loans. Two more live instances found there: payroll/taxDirectivePaymentService::applyTaxDirective (no unique index on tax_directive_payments) and payroll/uifDeclarationService::markUifDeclarationPaid (unpredicated UPDATE after posting). K-107 is fixing both and re-running the enumeration with the walked directories listed so coverage is auditable. The lesson generalises: that census was complete over the set it looked at, and the SET was the thing that was wrong. Any future sweep for this class must state which directories it walked. 2026-09-24: re-verified on a30e44177 — the AR payment twins, generateJournalFromRecurring, applyTaxDirective and markUifDeclarationPaid are claim-guarded on master. Still live and fixed here: approveVATAdjustment (measured: a second approval that read draft mid-flight posted a second journal; a closed-period refusal left a draft journal behind a 400). Now row-locked with typed refusals and an all-or-nothing savepoint. Still live and split out: the payment-number triggers (R-128). 2026-09-25: merged (PR #511, 2237e40bb) and deployed to prod in e2a78d699 (07:5x SAST, Hein approved); RELEASE_SHA and the live bundle verified. R-128 remains open."
     },
     {
       "id": "R-128",
@@ -12245,16 +12245,16 @@
       "correctedTrigger": "",
       "auditedSha": "",
       "currentSha": "7d708aac1",
-      "status": "fix-in-review",
+      "status": "fixed",
       "dependencies": [],
       "testNames": [
         "tests/integration/r107-provisional-attach-claim.int.test.ts",
         "tests/integration/r107-provisional-attach-release.int.test.ts",
         "tests/unit/services/capture/provisionalAttachRouteLockOrder.test.ts"
       ],
-      "fixCommit": null,
-      "pr": null,
-      "deployedSha": null,
+      "fixCommit": "e2a78d699",
+      "pr": "512",
+      "deployedSha": "e2a78d699",
       "canonicalItem": null,
       "reportedSeverity": "",
       "branch": "fix/r107-provisional-attach-claim-20260924",
@@ -12273,7 +12273,7 @@
       "title": "provisional/[jeId]/attach.ts links a captured document as evidence for a provisional journal without stamping posted_at, so that document (and any byte-identical copy) stays postable and can expense the same bank line a second time",
       "severity": "high",
       "source": "Found by rev-r088a (R-088 review round 1).",
-      "processNotes": "Registered 2026-09-14 by session 71c707d0 (wave R-1). 2026-09-24: the route had never worked (it read source_document_hash / extraction_confidence from captured_documents, which has neither: 42703 on every call), so the double post was dormant; correcting the columns alone wakes it (red.log stage 2: receipt-to-journal books a second journal, two racers both win). Fixed in provisionalEvidenceAttach.ts: bank line -> journal -> document locks, refusals before any write, the posted_at claim, 409 on contention; both claim releases count an unreversed journal the slip evidences as live. 15/15 mutations red. Byte-identical re-uploads remain R-088. Prod census SQL in fix.md. Side finding registered as R-127."
+      "processNotes": "Registered 2026-09-14 by session 71c707d0 (wave R-1). 2026-09-24: the route had never worked (it read source_document_hash / extraction_confidence from captured_documents, which has neither: 42703 on every call), so the double post was dormant; correcting the columns alone wakes it (red.log stage 2: receipt-to-journal books a second journal, two racers both win). Fixed in provisionalEvidenceAttach.ts: bank line -> journal -> document locks, refusals before any write, the posted_at claim, 409 on contention; both claim releases count an unreversed journal the slip evidences as live. 15/15 mutations red. Byte-identical re-uploads remain R-088. Prod census SQL in fix.md. Side finding registered as R-127. 2026-09-25: merged (PR #512, e2a78d699) and deployed to prod in e2a78d699 (Hein approved); RELEASE_SHA and the live bundle verified. K-157 closed by the same PR (auto-attach savepoint). R-127 remains open."
     },
     {
       "claim": "",
