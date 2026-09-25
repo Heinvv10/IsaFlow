@@ -101,3 +101,19 @@ Display and exception only; no figure.
 | `capture/capturedVatEvidence`, `capture/provisionalPostingService`, `capture/pettyCashJournalService` | Pre-post writers/guards over input lines; unattended paths are not opted in. | Untouched. |
 | `expense/claimVatAdvice` | Reads claim lines, writes `'no_vat'` for denials (not VAT-moving). | Untouched. |
 | `reports/customReportFieldDefs` (`jl.vat_type` column), journal detail UI | Show a blank VAT type on the original's lines. | Cosmetic; the companion shows the code. |
+
+## Decisions (Hein, 2026-09-25)
+
+1. **B1/B2 — date by companion.** For a bill whose approval journal has a posted
+   late-claim companion (`late_claim_of_id`), `generateVAT201`'s supplier and
+   field-8 queries and pre-filing exceptions 5 and 7 date that bill's VAT by the
+   companion's `entry_date`, so it counts in the claim period. Exception 5
+   compares the bill's VAT against the original plus its companion. Tests: P+1
+   has zero exceptions and `evaluateEfilingGate` allows it; fields 7/8 correct
+   for a late-claimed services bill; P's invoice-based figures equal those
+   before the late bill existed.
+2. **N1 — refuse.** The split refuses (today's lock refusal, reason
+   `non_supply` on `VatLateClaimRefusal`) when any VAT-coded expense line sits on
+   a non-supply account or one with `vat_input_denied`.
+3. **N2 — fix.** `vat_input_late_claim` counts as input VAT in the bank-screen
+   lateral and the allocation-mismatch query.
