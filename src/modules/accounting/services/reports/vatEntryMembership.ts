@@ -8,6 +8,8 @@
  *     balance-sheet account with no VAT treatment, or on the generic `tax`
  *     subtype.
  *
+ * Plus one journal-level exclusion, `vatEntrySourceAdmitsSql` below.
+ *
  * ONE rule, as SQL: the snapshot query (vatBoxBasisQuery `vat_entries`)
  * splices it in over the real account rows, and the VAT-lock reclassification
  * check (gl/vatLockLineClassification `memberLineUnderSql`) splices it in with
@@ -23,6 +25,21 @@ import {
 import { VAT_TAX_SUBTYPES } from './vatBoxBasis';
 
 export const NON_VAT_TYPES: readonly string[] = ['no_vat'];
+
+/**
+ * The JOURNAL-level half of the rule: the VAT submission clearing journal
+ * (vatSubmissionService, source 'auto_vat_submission', dated day 1 of the
+ * FOLLOWING period) is never folded in. It settles the previous return — DR
+ * VAT Output / CR VAT Input / the net to accrued — and is no supply, so read
+ * as one it reduced the next period's FILED fields 5 and 10 by the previous
+ * period's tax, and its lock snapshot and export with them (Hein, 2026-09-25;
+ * the V-05 exclusion vatReturnService and vatControlMovement already carry).
+ * IS DISTINCT FROM, not `<>`: `source` is nullable, and NULL <> x is NULL.
+ * `source` is the journal's source column expression (`je.source`, `e.source`).
+ */
+export function vatEntrySourceAdmitsSql(source: ReturnType<typeof sql>) {
+  return sql`${source} IS DISTINCT FROM 'auto_vat_submission'`;
+}
 
 /** Column expressions the fragment reads. Default: the real account row. */
 export interface MemberLineColumns {

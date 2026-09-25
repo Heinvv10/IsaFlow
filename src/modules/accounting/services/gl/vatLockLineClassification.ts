@@ -38,7 +38,7 @@
 import { sql } from '@/lib/neon';
 import { fmtDate } from '@/lib/fmtDate';
 import { classifyVatJournalLine } from '../reports/vatBoxBasis';
-import { vatEntryMemberLineSql } from '../reports/vatEntryMembership';
+import { vatEntryMemberLineSql, vatEntrySourceAdmitsSql } from '../reports/vatEntryMembership';
 import { VatPeriodLockedError, takeVatLockShared, type ActiveVatLock } from './journalVatLockGuard';
 
 export interface AccountVatAttrs {
@@ -204,6 +204,9 @@ export async function findLockedReclassification(
        AND e.entry_date BETWEEN vpl.period_start AND vpl.period_end
       WHERE l.company_id = ${companyId}::UUID AND l.gl_account_id = ANY(${ids}::UUID[])
         AND e.status = 'posted'
+        -- The snapshot never folds in the VAT submission clearing journal, so a
+        -- change that touches only it moves no filed figure.
+        AND ${vatEntrySourceAdmitsSql(sql`e.source`)}
     ),
     mem AS (
       SELECT jr.id,
