@@ -22,6 +22,7 @@ import {
   findVatNonSupplyLines,
   mapVatNonSupplyLine,
 } from './vatNonSupplyExceptions';
+import { findInputVatSupport } from './vatInputSupport';
 import type { VatControlRecon, VatExceptionsReport } from './vatExceptionsTypes';
 
 export type {
@@ -48,7 +49,7 @@ export async function getVatExceptions(
 
   const [
     uncoded, ciTaxIssues, siTaxIssues, ciMismatches, siMismatches, glControl, unposted,
-    balanceSheetVat, nonSupplyVat, vat201,
+    balanceSheetVat, nonSupplyVat, inputSupport, vat201,
   ] =
     await Promise.all([
       // 1. Posted GL lines on VAT control accounts with no vat_type coding.
@@ -181,10 +182,7 @@ export async function getVatExceptions(
         ORDER BY si.invoice_date, si.invoice_number
         LIMIT ${LIST_CAP}
       ` as Promise<Row[]>,
-      // 6. GL VAT control account movement for the period.
-      // Extracted so the long "why this is not getVATReturn, and why the VAT
-      // submission clearing journal is excluded" rationale lives next to the
-      // SQL it governs. Read it before collapsing the two aggregations.
+      // 6. GL VAT control movement — read vatControlMovement.ts before merging it with getVATReturn.
       findVatControlMovement(companyId, periodStart, periodEnd),
       // 7. Invoice VAT not yet posted to the GL (context for recon variance).
       // Supplier side aggregates from supplier_invoice_items when an invoice
@@ -222,11 +220,10 @@ export async function getVatExceptions(
       // donations, exempt financial services. Appended after 8 for the same
       // reason 8 was appended after 7: the test helper queues by index.
       findVatNonSupplyLines(companyId, periodStart, periodEnd),
-      // The FILED figures (fields 5 and 10), not the invoice-derived ones:
-      // generateVAT201 reads bills and invoices only, so VAT on bank
-      // allocations, expense claims, receipts, credit notes and journals showed
-      // as recon variance although it is filed (Hein, 2026-09-25). Invoice-vs-GL
-      // posting gaps stay visible per document in queries 4 and 5.
+      // 10. What supports each input-VAT claim (vatInputSupport.ts). Appended last.
+      findInputVatSupport(companyId, periodStart, periodEnd),
+      // The FILED fields 5/10 (Hein, 2026-09-25): the invoice-only generateVAT201
+      // missed filed VAT on bank, claims, receipts, credit notes and journals.
       getLedgerVAT201(companyId, periodStart, periodEnd),
     ]);
 
@@ -288,9 +285,15 @@ export async function getVatExceptions(
     vatNonSupplyLines,
     vatNonSupplyCount,
     controlRecon,
+    unsupportedInputVat: inputSupport.unsupported.slice(0, LIST_CAP),
+    unsupportedInputVatCount: inputSupport.unsupported.length,
+    inputVatWithoutTaxInvoice: inputSupport.withoutTaxInvoice.slice(0, LIST_CAP),
+    inputVatWithoutTaxInvoiceCount: inputSupport.withoutTaxInvoice.length,
+    // The "no tax invoice on file" list is deliberately NOT counted (Hein).
     totalExceptions:
       uncodedGlLineCount + invoiceTaxCodeIssueCount + invoiceGlMismatchCount
-      + vatOnBalanceSheetCount + vatNonSupplyCount + reconExceptions,
+      + vatOnBalanceSheetCount + vatNonSupplyCount + reconExceptions
+      + inputSupport.unsupported.length,
     degradedData: vat201.degradedSources.length > 0,
     degradedSources: vat201.degradedSources,
   };
