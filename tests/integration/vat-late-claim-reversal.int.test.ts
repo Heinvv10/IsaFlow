@@ -12,6 +12,7 @@ import { approveSupplierInvoice, cancelSupplierInvoice } from '@/modules/account
 import { planSupplierInvoiceCancel } from '@/modules/accounting/services/ap/supplierInvoiceCancelPlan';
 import { reverseJournalEntry } from '@/modules/accounting/services/gl/journalEntryService';
 import { LateClaimCompanionReversalError } from '@/modules/accounting/services/gl/vatLateClaimSplit';
+import { LateClaimClearingAccountError } from '@/modules/accounting/services/gl/lateClaimClearingGuard';
 import { assertNotProductionDb } from '../helpers/assertNotProductionDb';
 import { request, response } from './mfa-impersonation-postgres.helpers';
 import { inTx } from './helpers/l1FifoFixture';
@@ -138,5 +139,20 @@ describeIfDb('late input VAT claim: reversal and cancel', () => {
       { invoice_id: billId, idempotency_key: `live-${companionId}` }, ctx))));
     expect(live.late_claim_reversal).toMatchObject({ companion_entry_id: companionId });
     expect(await reversedAt(companionId)).not.toBeNull();
+  });
+
+  it('the REVERSAL of a late original cannot itself be reversed; the pair stays clean (review C5)', async () => {
+    const clearingBefore = await balanceOf(fx, fx.clearingId);
+    const nextBefore = await vatFigures(fx, NEXT.start, NEXT.end);
+    const { originalId, companionId } = await lateBill();
+    const rev = await inTx(fx, () => reverseJournalEntry(fx.companyId, originalId, fx.userId));
+    const before = await countRows(fx);
+    await expect(inTx(fx, () => reverseJournalEntry(fx.companyId, rev.id, fx.userId)))
+      .rejects.toBeInstanceOf(LateClaimClearingAccountError);
+    expect(await countRows(fx)).toEqual(before);
+    expect(await reversedAt(rev.id)).toBeNull();
+    expect(await reversedAt(companionId)).not.toBeNull();
+    expect(await balanceOf(fx, fx.clearingId)).toBe(clearingBefore);
+    expect((await vatFigures(fx, NEXT.start, NEXT.end)).inputTax).toBeCloseTo(nextBefore.inputTax, 2);
   });
 });

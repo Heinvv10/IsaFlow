@@ -5,8 +5,9 @@
  * other journal would pass through the VAT201 as neither base nor claim.
  *
  * So a new journal may carry a line on it only when it IS a companion (source
- * `auto_vat_late_claim`) or a REVERSAL (which mirrors posted lines, and must be
- * able to undo an original or a companion). The split itself moves lines onto
+ * `auto_vat_late_claim`) or a REVERSAL of an original or a companion (which
+ * mirrors posted lines and must be able to undo them) — not a reversal of a
+ * reversal, which would re-park a late original's VAT with nothing to clear it. The split itself moves lines onto
  * the account by UPDATE, not through here.
  *
  * Its own module so unit tests with positional `sql` mocks can stub it.
