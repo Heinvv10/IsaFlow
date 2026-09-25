@@ -20,7 +20,8 @@ jobs:
   quality:
     name: Type Check, Lint & Test
     runs-on: [self-hosted, linux, velo]
-    timeout-minutes: 15
+    # run-ci.sh ends with a production build, which the old five steps did not.
+    timeout-minutes: 45
 
     steps:
       - uses: actions/checkout@v4
@@ -28,24 +29,18 @@ jobs:
       - name: Install dependencies
         run: bun install --frozen-lockfile
 
-      - name: Agent documentation mirrors
-        run: bun run agent-docs:check
-
-      - name: Type check
-        run: bun run type-check
-
-      - name: Lint
-        run: bun run lint
-
-      # User identity is a string in this schema (users.id varchar,
-      # company_users.user_id text). A ::UUID cast on either throws at RUNTIME,
-      # not compile time, because the SQL is a template string — so neither the
-      # type check nor the lint above can see it. 16 such sites once shipped.
-      - name: User-identity ::UUID casts
-        run: bun scripts/ci/audit-user-id-casts.ts
-
-      - name: Unit tests
-        run: bun run test:unit
+      # The gate list lives in ONE place: scripts/ci/run-ci.sh. This job used
+      # to hand-list five of its steps, so every gate added to run-ci.sh after
+      # that (security-guards, is-active-filters, vat-guard-coverage,
+      # migration-rls, migration-naming, build, ...) ran only locally and a PR
+      # could merge green while failing them (R-052). run-ci.sh reports every
+      # failing gate and exits non-zero if any failed.
+      #
+      # integration-tests still skip here: run-ci.sh runs them only when
+      # DATABASE_URL is non-empty, and this secret is empty. They need a
+      # disposable database, which this runner does not provision.
+      - name: CI gate (scripts/ci/run-ci.sh)
+        run: bun run ci
         env:
           DATABASE_URL: ${{ secrets.DATABASE_URL }}
           JWT_SECRET: test-secret-for-ci-only

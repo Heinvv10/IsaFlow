@@ -24,6 +24,10 @@ run_step "type-check"        bun run type-check
 run_step "lint"              bun run lint
 run_step "agent-docs"        bun run agent-docs:check
 run_step "security-guards"   bash scripts/ci/check-internal-apis.sh
+# User identity is a string in this schema (users.id varchar,
+# company_users.user_id text). A ::UUID cast on either throws at RUNTIME, not
+# compile time, because the SQL is a template string — so neither the type
+# check nor the lint can see it. 16 such sites once shipped.
 run_step "user-id-casts"     bun scripts/ci/audit-user-id-casts.ts
 # Passes today against a baseline of the 13 known files; fails only on a NEW
 # one, so the in-flight sweep is not blocked and no new offender can land.
@@ -40,6 +44,9 @@ run_step "migration-rls"          bun scripts/ci/check-migration-rls.ts
 # an integration test this script SKIPS without DATABASE_URL, so a change that
 # undid 693 would leave CI green. Text-only, so it runs every time.
 run_step "oauth-trust-flags"      bun scripts/ci/check-oauth-trust-flags.ts
+# GitHub's CI job must call this script, not a hand-kept copy of its list
+# (R-052: GitHub ran 5 of these gates while a PR showed green).
+run_step "workflow-runs-ci"       bash scripts/ci/check-workflow-runs-ci.sh
 run_step "unit-tests"        bun run test:unit
 run_step "component-tests"   bun run test:components
 run_step "migration-naming"  bun scripts/audit-migration-naming.ts
