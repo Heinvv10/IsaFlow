@@ -33,8 +33,8 @@ locally. On GitHub every job passed and `mergeStateStatus` was `CLEAN`.
 ## Fix
 
 - **The `quality` job runs `bun run ci`.** run-ci.sh is now the only place the gate list lives. It
-  runs every gate, names each failure and exits non-zero. The timeout is 45 minutes, because the job
-  now includes the production build. `green.log` gives the measured duration.
+  runs every gate, names each failure and exits non-zero. The job now includes the production build. It
+  measured 8m13s, so the timeout is 30 minutes (`green.log`).
 - **A new gate, `workflow-runs-ci`.** It is `scripts/ci/check-workflow-runs-ci.ts`, with the rule in
   `workflowRunsCiRule.ts`. It parses ci.yml and requires one exact shape:
   - **Triggers:** `on.push` and `on.pull_request` have branches exactly `[master]`, with no paths or
@@ -72,9 +72,12 @@ locally. On GitHub every job passed and `mergeStateStatus` was `CLEAN`.
 
 - `mutations.log`: each clause of the rule, disabled alone, fails at least one bypass case.
 - `green.log` holds both GitHub runs:
-  - this PR's own run, where every gate runs on the runner and passes;
-  - canary PR `tmp/r052-canary-green` (#521's file on top of this branch), where the quality job fails
-    on `is-active-filters`.
+  - **#525 at `3c46f3507`:** all 18 gates run on the runner and pass, the build included, installed
+    with `--ignore-scripts`, in 8m13s.
+  - **Canary #526:** #521's file on top of this branch. The quality job fails on exactly
+    `is-active-filters` (`[ci] FAILED: is-active-filters`), and every other gate passes.
+  - The Golden Paths "fail" on both is a cancellation from its own concurrency group, not a failure.
+- The final head's run is recorded as a comment on #525.
 
 ## Residuals — for Hein
 
@@ -117,5 +120,5 @@ locally. On GitHub every job passed and `mergeStateStatus` was `CLEAN`.
 
 ## Historical impact
 
-Every PR merged on a green GitHub check was checked by 5 gates only. This PR's own run shows the
-state of master today.
+Every PR merged on a green GitHub check was checked by 5 gates only. #525's run is master plus this
+change, and all 17 of master's gates pass there, so nothing merged unchecked is failing a gate today.
