@@ -10,6 +10,7 @@ import { sql } from '@/lib/neon';
 import { createJournalEntry, postJournalEntry } from '@/modules/accounting/services/gl/journalEntryService';
 import { VatPeriodLockedError } from '@/modules/accounting/services/gl/journalVatLockGuard';
 import { VatLateClaimRefusal } from '@/modules/accounting/services/gl/vatLateClaimPlan';
+import { LateClaimClearingAccountError } from '@/modules/accounting/services/gl/lateClaimClearingGuard';
 import { assertNotProductionDb } from '../helpers/assertNotProductionDb';
 import { inTx } from './helpers/l1FifoFixture';
 import { countRows, dropLateFixture, seedLateFixture, type LateFixture } from './helpers/vatLateClaimFixture';
@@ -158,5 +159,17 @@ describeIfDb('late input VAT claim: what s16(3) refuses', () => {
     expect(await countRows(fx)).toEqual(count);
     const [h] = (await sql`SELECT status FROM gl_journal_entries WHERE id = ${je.id}::UUID`) as Row[];
     expect(h!.status).toBe('draft');
+  });
+
+  it('a hand-made journal on the late-claim clearing account is refused before anything is written, in ANY period', async () => {
+    const before = await countRows(fx);
+    for (const date of ['2026-07-12', '2026-06-12']) {
+      const err = await inTx(fx, () => createJournalEntry(fx.companyId, { entryDate: date, description: 'fake claim', lines: [
+        { glAccountId: fx.vatInputId, debit: 30, credit: 0, vatType: 'standard' as never },
+        { glAccountId: fx.clearingId, debit: 0, credit: 30 },
+      ] }, fx.userId, undefined, { allowLateInputClaim: true })).then(() => null, (e: unknown) => e);
+      expect(err).toBeInstanceOf(LateClaimClearingAccountError);
+    }
+    expect(await countRows(fx)).toEqual(before);
   });
 });

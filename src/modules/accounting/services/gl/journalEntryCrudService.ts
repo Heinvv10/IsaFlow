@@ -14,6 +14,7 @@ import { defaultHumanMeta, type JournalEntryMeta } from './journalEntryMeta';
 import { ensureFiscalPeriodForDate } from './fiscalPeriodAutoCreate';
 import { assertJournalVatPeriodOpen } from './journalVatLockGuard';
 import { planLockedVatPosting } from './vatLateClaimPlan';
+import { assertNoLateClaimClearingLines } from './lateClaimClearingGuard';
 
 const UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
@@ -207,7 +208,7 @@ async function createJournalEntryInTransaction(
   input: JournalEntryCreateInput,
   userId: string,
   meta?: JournalEntryMeta,
-  opts?: { dimensionAssignmentMode?: DimensionAssignmentMode; allowLateInputClaim?: boolean },
+  opts?: { dimensionAssignmentMode?: DimensionAssignmentMode; allowLateInputClaim?: boolean; reversal?: boolean },
 ): Promise<JournalEntry> {
   try {
     const validation = validateJournalEntry(input.lines);
@@ -217,6 +218,7 @@ async function createJournalEntryInTransaction(
       input.lines,
       opts?.dimensionAssignmentMode,
     ); // journalLineOwnership.ts
+    await assertNoLateClaimClearingLines(companyId, input.lines, input.source, opts?.reversal === true);
     // A journal that moves a VAT figure into a locked (filed) VAT period can
     // never post, so refuse it BEFORE the draft exists: a draft refused only at
     // post was committed by every route that answers the refusal with a 4xx.
@@ -319,7 +321,7 @@ export async function createJournalEntry(
   input: JournalEntryCreateInput,
   userId: string,
   meta?: JournalEntryMeta,
-  opts?: { dimensionAssignmentMode?: DimensionAssignmentMode; allowLateInputClaim?: boolean },
+  opts?: { dimensionAssignmentMode?: DimensionAssignmentMode; allowLateInputClaim?: boolean; reversal?: boolean },
 ): Promise<JournalEntry> {
   return withAlsTransaction({ companyId, userId }, () =>
     createJournalEntryInTransaction(companyId, input, userId, meta, opts));

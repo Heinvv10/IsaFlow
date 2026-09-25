@@ -7,13 +7,16 @@
  */
 import { describe, expect, it } from 'vitest';
 import { deriveVatBoxes, type VatLineInput } from '@/modules/accounting/services/reports/vatBoxBasis';
-import { deriveVatBoxesWithLateClaims } from '@/modules/accounting/services/reports/vatLateClaimBasis';
+import { deriveVatBoxesWithLateClaims, type LateClaimAwareLine } from '@/modules/accounting/services/reports/vatLateClaimBasis';
 
 let n = 0;
-const line = (je: string, over: Partial<VatLineInput>): VatLineInput => ({
+const line = (je: string, over: Partial<LateClaimAwareLine>): LateClaimAwareLine => ({
   journalEntryId: je, entryNumber: je, entryDate: '2026-09-10', lineId: `l${++n}`,
   accountId: 'a', accountCode: '0', accountName: 'x', accountType: 'expense',
-  accountSubtype: 'operating_expense', vatType: null, debit: 0, credit: 0, cancelledSource: false, ...over,
+  accountSubtype: 'operating_expense', vatType: null, debit: 0, credit: 0, cancelledSource: false,
+  // The late-claim companion is recognised by its SOURCE (and so is its reversal, which copies it).
+  entrySource: je === 'comp' || je === 'rev' ? 'auto_vat_late_claim' : 'manual',
+  ...over,
 });
 const vatIn = (je: string, debit: number, credit = 0, vatType = 'standard') =>
   line(je, { accountId: 'vin', accountType: 'asset', accountSubtype: 'vat_input', vatType, debit, credit });
@@ -67,5 +70,27 @@ describe('deriveVatBoxesWithLateClaims', () => {
     const r = deriveVatBoxes([...bill, ...companion]);
     // The clearing credit reads as a NEGATIVE base, so the check fails.
     expect(r.ties).toBe(false);
+  });
+
+  it('a hand-made DR VAT Input / CR clearing journal is NOT a late claim: it is flagged as having no base', () => {
+    const fake = [vatIn('fake', 30), clearing('fake', 0, 30)];
+    const r = deriveVatBoxesWithLateClaims([...bill, ...fake]);
+    expect(r.lateClaimInputTax).toBe(0);
+    expect(r.entriesWithoutBase).toContain('fake');
+    expect(r.ties).toBe(false);
+  });
+
+  it('output tax is never lateClaimTax: a companion-sourced journal with an output leg is an ordinary journal', () => {
+    const sale = [
+      line('comp', { accountId: 'bank', accountType: 'asset', accountSubtype: 'bank', debit: 1149.99 }),
+      clearing('comp', 0.01, 0),
+      line('comp', { accountType: 'revenue', accountSubtype: 'default_revenue', vatType: 'standard', credit: 1000 }),
+      line('comp', { accountId: 'vout', accountType: 'liability', accountSubtype: 'vat_output', vatType: 'standard', credit: 150 }),
+    ];
+    const r = deriveVatBoxesWithLateClaims(sale);
+    const box1 = r.boxes.find((b) => b.direction === 'output' && b.vatType === 'standard')!;
+    expect(box1).toMatchObject({ base: 1000, tax: 150, lateClaimTax: 0 });
+    expect(r.outputTax).toBe(150);
+    expect(r.lateClaimInputTax).toBe(0);
   });
 });
