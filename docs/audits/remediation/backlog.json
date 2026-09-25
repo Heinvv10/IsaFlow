@@ -10474,10 +10474,11 @@
         "docs/audits/remediation/K-015/ci.log",
         "R-052/red.log",
         "R-052/fix.md",
-        "R-052/mutations.log"
+        "R-052/mutations.log",
+        "R-052/green.log"
       ],
       "fixCommit": null,
-      "pr": null,
+      "pr": "https://github.com/Heinvv10/IsaFlow/pull/525",
       "deployedSha": null,
       "historicalDataImpact": "Any PR merged green on GitHub was never checked by eleven of the sixteen gates.",
       "canonicalItem": null,

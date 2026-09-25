@@ -21,7 +21,8 @@ jobs:
     name: Type Check, Lint & Test
     runs-on: [self-hosted, linux, velo]
     # run-ci.sh ends with a production build, which the old five steps did not.
-    timeout-minutes: 45
+    # Measured 8m13s at load ~45 (R-052/green.log); 30 leaves ~3.5x headroom.
+    timeout-minutes: 30
 
     steps:
       - uses: actions/checkout@v4
