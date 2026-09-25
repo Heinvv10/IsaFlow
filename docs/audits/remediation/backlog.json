@@ -12245,16 +12245,24 @@
       "correctedTrigger": "",
       "auditedSha": "",
       "currentSha": "7d708aac1",
-      "status": "confirmed",
+      "status": "fix-in-review",
       "dependencies": [],
-      "testNames": [],
+      "testNames": [
+        "tests/integration/r107-provisional-attach-claim.int.test.ts",
+        "tests/integration/r107-provisional-attach-release.int.test.ts",
+        "tests/unit/services/capture/provisionalAttachRouteLockOrder.test.ts"
+      ],
       "fixCommit": null,
       "pr": null,
       "deployedSha": null,
       "canonicalItem": null,
       "reportedSeverity": "",
-      "branch": null,
-      "evidencePaths": [],
+      "branch": "fix/r107-provisional-attach-claim-20260924",
+      "evidencePaths": [
+        "docs/audits/remediation/R-107/fix.md",
+        "docs/audits/remediation/R-107/red.log",
+        "docs/audits/remediation/R-107/mutations.log"
+      ],
       "id": "R-107",
       "area": "accounting/capture",
       "affectedPaths": [
@@ -12265,7 +12273,7 @@
       "title": "provisional/[jeId]/attach.ts links a captured document as evidence for a provisional journal without stamping posted_at, so that document (and any byte-identical copy) stays postable and can expense the same bank line a second time",
       "severity": "high",
       "source": "Found by rev-r088a (R-088 review round 1).",
-      "processNotes": "Registered 2026-09-14 by session 71c707d0 (wave R-1)."
+      "processNotes": "Registered 2026-09-14 by session 71c707d0 (wave R-1). 2026-09-24: the route had never worked (it read source_document_hash / extraction_confidence from captured_documents, which has neither: 42703 on every call), so the double post was dormant; correcting the columns alone wakes it (red.log stage 2: receipt-to-journal books a second journal, two racers both win). Fixed in provisionalEvidenceAttach.ts: bank line -> journal -> document locks, refusals before any write, the posted_at claim, 409 on contention; both claim releases count an unreversed journal the slip evidences as live. 15/15 mutations red. Byte-identical re-uploads remain R-088. Prod census SQL in fix.md. Side finding registered as R-127."
     },
     {
       "claim": "",
@@ -12924,6 +12932,41 @@
       "branch": null,
       "severity": "low",
       "title": "Purchase-order PUT checks status before the UPDATE instead of in it"
+    },
+    {
+      "id": "R-127",
+      "claim": "attachEvidenceToProvisional (called from capturePostFollowUps after capture/[id]/post creates a supplier invoice, and from ai-invoice-pipeline) flips a matching provisional journal (DR expense / VAT, CR bank) to evidenced by the same slip, and leaves the supplier invoice (DR expense / VAT, CR AP once approved) live. Nothing reverses one of the two, so the expense and input VAT are booked twice and the AP the invoice raises is never settled by that bank line.",
+      "area": "capture",
+      "affectedPaths": [
+        "src/modules/accounting/services/capture/evidenceAttachmentService.ts",
+        "src/modules/accounting/services/capture/capturePostFollowUps.ts",
+        "pages/api/accounting/ai-invoice-pipeline.ts"
+      ],
+      "sourceLabel": "R-107 fixer, side finding",
+      "sourceIds": [],
+      "correctedTrigger": null,
+      "severityRationale": "Provisional HIGH, read not measured: a double expense and double input-VAT claim on every bank-first provisional line later matched by a captured supplier invoice. Needs a design decision: the evidenced provisional journal should settle the invoice (reclass expense -> AP) or be reversed.",
+      "auditedSha": "HEAD",
+      "currentSha": "HEAD",
+      "status": "candidate",
+      "dependencies": [
+        "R-107",
+        "K-157"
+      ],
+      "testNames": [],
+      "evidencePaths": [
+        "docs/audits/remediation/R-107/fix.md"
+      ],
+      "fixCommit": null,
+      "pr": null,
+      "deployedSha": null,
+      "historicalDataImpact": "Unknown; R-107/fix.md census query 2 counts provisional journals evidenced by a slip that also has a live supplier invoice.",
+      "canonicalItem": null,
+      "reportedSeverity": "high",
+      "processNotes": "2026-09-24: registered from R-107. Not reproduced end to end. R-107's release change keeps such a slip claimed while the provisional journal stands (the safe direction).",
+      "branch": null,
+      "severity": "high",
+      "title": "The automatic provisional evidence attach leaves both the provisional journal and the supplier invoice live, booking the expense twice"
     }
   ],
   "sourceInventory": [

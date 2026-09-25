@@ -1,0 +1,74 @@
+# R-107 RED — tests/integration/r107-provisional-attach-claim.int.test.ts against origin/master a30e44177 route code, 2026-09-24T20:57:50+02:00
+# Stage 1: the manual attach route selects captured_documents.source_document_hash / extraction_confidence, which do not exist -> 42703 -> 500 on every call.
+     × evidences the journal from the slip and claims the slip 258ms
+     × the attached slip cannot then be posted again through a capture route 45ms
+     × refuses a slip already posted through capture, and writes nothing 89ms
+     × refuses a rejected slip, and writes nothing 59ms
+     × answers 404 for another company's slip, and claims nothing 84ms
+     × refuses a reversed provisional journal, and claims nothing 161ms
+     × answers 400 for ids that are not uuids 35ms
+     × one slip raced onto two journals lands on exactly one 244ms
+     × two slips raced onto one journal: one wins, and the loser stays unclaimed 73ms
+     × confirm and reject in the capture inbox do not release a slip evidencing a live provisional journal 81ms
+     × a generic release (e.g. a cancelled invoice on the same slip) keeps it claimed while the provisional journal stands 86ms
+     × reversing the provisional journal releases the slip 78ms
+⎯⎯⎯⎯⎯⎯ Failed Tests 12 ⎯⎯⎯⎯⎯⎯⎯
+AssertionError: {"success":false,"data":null,"message":"column \"source_document_hash\" does not exist","code":"INTERNAL_SERVER_ERROR"}: expected 500 to be 200 // Object.is equality
+AssertionError: expected 500 to be 200 // Object.is equality
+AssertionError: {"success":false,"data":null,"message":"column \"source_document_hash\" does not exist","code":"INTERNAL_SERVER_ERROR"}: expected 500 to be 400 // Object.is equality
+AssertionError: {"success":false,"data":null,"message":"column \"source_document_hash\" does not exist","code":"INTERNAL_SERVER_ERROR"}: expected 500 to be 400 // Object.is equality
+AssertionError: {"success":false,"data":null,"message":"column \"source_document_hash\" does not exist","code":"INTERNAL_SERVER_ERROR"}: expected 500 to be 404 // Object.is equality
+AssertionError: {"success":false,"data":null,"message":"column \"source_document_hash\" does not exist","code":"INTERNAL_SERVER_ERROR"}: expected 500 to be 400 // Object.is equality
+AssertionError: expected 500 to be 400 // Object.is equality
+AssertionError: expected [ 500, 500 ] to deeply equal [ 200, 400 ]
+AssertionError: expected [ 500, 500 ] to deeply equal [ 200, 400 ]
+AssertionError: expected 500 to be 200 // Object.is equality
+AssertionError: expected 500 to be 200 // Object.is equality
+AssertionError: expected 500 to be 200 // Object.is equality
+ Test Files  1 failed (1)
+      Tests  12 failed | 1 passed (13)
+
+
+# Stage 2: the SAME tests with ONLY the two column names corrected in attach.ts (raw_bytes_sha256, extracted_data->>'confidence'), no claim — the dormant double post wakes up:
+#   'posted again' -> receipt-to-journal answers 200 and books a SECOND journal for the slip that already evidences the provisional journal;
+#   both racers win (200,200); an already-posted and a rejected slip are accepted; confirm in the inbox is accepted.
+     × evidences the journal from the slip and claims the slip 121ms
+     × the attached slip cannot then be posted again through a capture route 194ms
+     × refuses a slip already posted through capture, and writes nothing 43ms
+     × refuses a rejected slip, and writes nothing 41ms
+     × refuses a reversed provisional journal, and claims nothing 48ms
+     × answers 400 for ids that are not uuids 62ms
+     × one slip raced onto two journals lands on exactly one 84ms
+     × two slips raced onto one journal: one wins, and the loser stays unclaimed 69ms
+     × confirm and reject in the capture inbox do not release a slip evidencing a live provisional journal 80ms
+     × a generic release (e.g. a cancelled invoice on the same slip) keeps it claimed while the provisional journal stands 69ms
+⎯⎯⎯⎯⎯⎯ Failed Tests 10 ⎯⎯⎯⎯⎯⎯⎯
+AssertionError: expected null not to be null
+AssertionError: {"success":true,"data":{"journalEntry":{"id":"4f21f445-28dc-4b1e-ac21-0e37968c60b0","status":"draft"},"receiptType":"fuel","accountSuggestion":null,"autoPosted":false,"amount":115,"inputVatDenied":false,"warnings":[]},"meta":{"timestamp":"2026-09-24T18:58:56.766Z"}}: expected 200 to be 400 // Object.is equality
+AssertionError: {"success":true,"data":{"jeId":"5265909f-e53d-47d9-8093-c13497f3fdee","capturedDocumentId":"504dd1ba-77e7-4ab7-8569-7990fc064bba","bankTxId":"8e8f584c-aa08-4b72-b4ff-9567f14325c1","evidenced":true},"meta":{"timestamp":"2026-09-24T18:58:56.808Z"}}: expected 200 to be 400 // Object.is equality
+AssertionError: {"success":true,"data":{"jeId":"180004e2-427d-48dd-910f-95b6333bb8ff","capturedDocumentId":"6ccd608b-e269-46a6-b4a6-06da16be2f54","bankTxId":"36f7aa8a-a0e8-4079-bea9-970e4cd64cc1","evidenced":true},"meta":{"timestamp":"2026-09-24T18:58:56.853Z"}}: expected 200 to be 400 // Object.is equality
+AssertionError: {"success":true,"data":{"jeId":"d1084d13-e0cc-4c87-8762-80a25a5c5165","capturedDocumentId":"fee75ad4-9128-4e81-9126-5df66962ba02","bankTxId":"535cf9ea-c290-4867-b3c8-fbd96325291c","evidenced":true},"meta":{"timestamp":"2026-09-24T18:58:56.997Z"}}: expected 200 to be 400 // Object.is equality
+AssertionError: expected 500 to be 400 // Object.is equality
+AssertionError: expected [ 200, 200 ] to deeply equal [ 200, 400 ]
+AssertionError: expected [ 200, 200 ] to deeply equal [ 200, 400 ]
+AssertionError: {"success":true,"data":{"id":"f25e9eef-d9cf-442c-b6a1-f950338e904c","fileName":"r107-f25e9eef-d9cf-442c-b6a1-f950338e904c.pdf","fileType":"application/pdf","fileSize":null,"documentType":"receipt","extractedData":{"date":"2026-09-24","subtotal":100,"lineItems":[{"amount":100,"description":"Fuel"}],"vatAmount":15,"confidence":0.93,"vendorName":"Engen Rivonia","totalAmount":115,"documentType":"receipt"},"vendorName":null,"documentDate":null,"referenceNumber":null,"totalAmount":null,"vatAmount":null,"status":"reviewed","matchedInvoiceId":null,"matchedBankTxId":null,"notes":null,"uploadedBy":null,"createdAt":"2026-09-24T18:58:57.256Z"},"message":"Document confirmed","meta":{"timestamp":"2026-09-24T18:58:57.284Z"}}: expected 200 to be 400 // Object.is equality
+AssertionError: expected null not to be null
+ Test Files  1 failed (1)
+      Tests  10 failed | 3 passed (13)
+
+# Review round 1 (rev-r107-general MEDIUM; also K-157): tests/integration/r107-auto-attach-savepoint.int.test.ts with
+# evidenceAttachmentService.ts as on master. (1) A hand-built deadlock (post holds the slip and waits on the bank line;
+# manual attach holds the bank line and reaches for the slip) makes the post's auto-attach the victim: it swallows the
+# 40P01 and the post's next statement is 25P02 — the transaction the route answers 200 for is dead. (2) An auto-attach
+# that matched while a manual attach was in flight overwrites the manual attach's journal.
+     × a deadlock inside the auto-attach rolls back only the attach; the post keeps its transaction and commits 1250ms
+     × an auto-attach that lost the journal to a manual attach does not overwrite it 348ms
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 2 ⎯⎯⎯⎯⎯⎯⎯
+AssertionError: promise rejected "error: current transaction is aborted, co… { …(15) }" instead of resolving
+AssertionError: expected { …(2) } to deeply equal { attachedJeId: null, bankTxId: null }
+      Tests  2 failed (2)
+
+# Review round 1 (rev-r107-adversarial LOW): 'a reversal racing an attach' with journalEntryPostingService.ts as on master —
+# the reversal read the journal before the attach committed and released on that stale (NULL) source_document_id:
+     × releases the slip an attach committed while the reversal waited on the journal
+AssertionError: expected 2026-09-24T19:38:47.913Z to be null

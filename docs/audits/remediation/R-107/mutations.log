@@ -1,0 +1,144 @@
+# R-107 mutations — each applied alone to a248537c9, restored from HEAD after.
+# A mutation is KILLED when at least one test goes red.
+
+## M1 no posted_at claim [src/modules/accounting/services/capture/provisionalEvidenceAttach.ts] -> KILLED
+     × evidences the journal from the slip and claims the slip 85ms
+     × the attached slip cannot then be posted again through a capture route 85ms
+     × refuses a slip already posted through capture, and writes nothing 32ms
+     × refuses a rejected slip, and writes nothing 31ms
+     × one slip raced onto two journals lands on exactly one 66ms
+     × two slips raced onto one journal: one wins, and the loser stays unclaimed 50ms
+     × drops an extraction confidence outside [0, 1] rather than overflowing the journal column 38ms
+     × confirm and reject in the capture inbox do not release a slip evidencing a live provisional journal 52ms
+     × a generic release (e.g. a cancelled invoice on the same slip) keeps it claimed while the provisional journal stands 37ms
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 9 ⎯⎯⎯⎯⎯⎯⎯
+      Tests  9 failed | 9 passed (18)
+
+## M2 no reversed-journal refusal [src/modules/accounting/services/capture/provisionalEvidenceAttach.ts] -> KILLED
+     × refuses a reversed provisional journal, and claims nothing 34ms
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 1 ⎯⎯⎯⎯⎯⎯⎯
+      Tests  1 failed | 17 passed (18)
+
+## M3 no already-evidenced refusal [src/modules/accounting/services/capture/provisionalEvidenceAttach.ts] -> KILLED
+     × refuses a journal that is already evidenced, and claims nothing 50ms
+     × two slips raced onto one journal: one wins, and the loser stays unclaimed 52ms
+     × two slips raced onto a journal with no bank line: the journal lock alone decides it 129ms
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 3 ⎯⎯⎯⎯⎯⎯⎯
+      Tests  3 failed | 15 passed (18)
+
+## M4 journal read without FOR UPDATE [src/modules/accounting/services/capture/provisionalEvidenceAttach.ts] -> KILLED
+     × two slips raced onto a journal with no bank line: the journal lock alone decides it 107ms
+     × answers 409 while another request holds the journal, and claims nothing 30007ms
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 2 ⎯⎯⎯⎯⎯⎯⎯
+      Tests  2 failed | 16 passed (18)
+
+## M5 no bank-line lock [src/modules/accounting/services/capture/provisionalEvidenceAttach.ts] -> KILLED
+     × answers 409 while another request holds the bank line, and claims nothing 30003ms
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 1 ⎯⎯⎯⎯⎯⎯⎯
+      Tests  1 failed | 17 passed (18)
+     × locks bank line, then journal, then document; claims before the first write; updates bank before journal 5ms
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 1 ⎯⎯⎯⎯⎯⎯⎯
+      Tests  1 failed (1)
+
+## M6 no document lock (existence read only) [src/modules/accounting/services/capture/provisionalEvidenceAttach.ts] -> KILLED
+     × answers 409 while another request holds the document, and evidences nothing 30013ms
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 1 ⎯⎯⎯⎯⎯⎯⎯
+      Tests  1 failed | 17 passed (18)
+
+## M7 no uuid validation on capturedDocumentId [pages/api/accounting/provisional/[jeId]/attach.ts] -> KILLED
+     × answers 400 for ids that are not uuids 19ms
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 1 ⎯⎯⎯⎯⎯⎯⎯
+      Tests  1 failed | 17 passed (18)
+
+## M8 no uuid validation on jeId [pages/api/accounting/provisional/[jeId]/attach.ts] -> KILLED
+     × answers 400 for ids that are not uuids 22ms
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 1 ⎯⎯⎯⎯⎯⎯⎯
+      Tests  1 failed | 17 passed (18)
+
+## M9 generic release ignores the evidenced journal [src/modules/accounting/services/capture/capturePostingClaimRelease.ts] -> KILLED
+     × a generic release (e.g. a cancelled invoice on the same slip) keeps it claimed while the provisional journal stands 30ms
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 1 ⎯⎯⎯⎯⎯⎯⎯
+      Tests  1 failed | 17 passed (18)
+
+## M10 inbox release ignores the evidenced journal [src/modules/accounting/services/capture/capturePostingClaimRelease.ts] -> SURVIVED
+      Tests  18 passed (18)
+
+## M11 release treats a reversed evidenced journal as live [src/modules/accounting/services/capture/capturePostingClaimRelease.ts] -> KILLED
+     × reversing the provisional journal releases the slip 55ms
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 1 ⎯⎯⎯⎯⎯⎯⎯
+      Tests  1 failed | 17 passed (18)
+
+## M12 no confidence bound [src/modules/accounting/services/capture/provisionalEvidenceAttach.ts] -> KILLED
+     × drops an extraction confidence outside [0, 1] rather than overflowing the journal column 29ms
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 1 ⎯⎯⎯⎯⎯⎯⎯
+      Tests  1 failed | 17 passed (18)
+
+## M13 contention not answered 409 [src/modules/accounting/services/capture/provisionalEvidenceAttach.ts] -> KILLED
+     × answers 409 while another request holds the bank line, and claims nothing 5042ms
+     × answers 409 while another request holds the journal, and claims nothing 5029ms
+     × answers 409 while another request holds the document, and evidences nothing 5034ms
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 3 ⎯⎯⎯⎯⎯⎯⎯
+      Tests  3 failed | 15 passed (18)
+
+## M14 journal locked before bank line [src/modules/accounting/services/capture/provisionalEvidenceAttach.ts] -> KILLED
+     × locks bank line, then journal, then document; claims before the first write; updates bank before journal 6ms
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 1 ⎯⎯⎯⎯⎯⎯⎯
+      Tests  1 failed (1)
+
+## M15 bank line updated after the journal [src/modules/accounting/services/capture/provisionalEvidenceAttach.ts] -> KILLED
+     × locks bank line, then journal, then document; claims before the first write; updates bank before journal 5ms
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 1 ⎯⎯⎯⎯⎯⎯⎯
+      Tests  1 failed (1)
+
+
+# Re-run on 4a5c4ecf0 after adding the pre-DELETE refusal test:
+## M10 inbox release ignores the evidenced journal [src/modules/accounting/services/capture/capturePostingClaimRelease.ts] -> KILLED
+     × the inbox refuses BEFORE it discards drafts: a draft journal on the slip survives the refused confirm 37ms
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 1 ⎯⎯⎯⎯⎯⎯⎯
+      Tests  1 failed | 18 passed (19)
+
+
+# Review round 1 guards — each applied alone to d96c08750, restored from HEAD after.
+## M16 auto-attach outside its savepoint [src/modules/accounting/services/capture/evidenceAttachmentService.ts] -> KILLED
+     × a deadlock inside the auto-attach rolls back only the attach; the post keeps its transaction and commits 1048ms
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 1 ⎯⎯⎯⎯⎯⎯⎯
+      Tests  1 failed | 21 passed (22)
+
+## M17 auto-attach flips an evidenced journal [src/modules/accounting/services/capture/evidenceAttachmentService.ts] -> KILLED
+     × an auto-attach that lost the journal to a manual attach does not overwrite it 60ms
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 1 ⎯⎯⎯⎯⎯⎯⎯
+      Tests  1 failed | 21 passed (22)
+
+## M18 reversal releases on the pre-claim read [src/modules/accounting/services/gl/journalEntryPostingService.ts] -> KILLED
+     × releases the slip an attach committed while the reversal waited on the journal 77ms
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 1 ⎯⎯⎯⎯⎯⎯⎯
+      Tests  1 failed | 21 passed (22)
+
+## M19 bank UPDATE drops the provisional_je_id re-check [src/modules/accounting/services/capture/provisionalEvidenceAttach.ts] -> SURVIVED
+      Tests  22 passed (22)
+
+
+# Re-run on 676b0b364 after adding the unlinked-line test:
+## M19 bank UPDATE drops the provisional_je_id re-check [src/modules/accounting/services/capture/provisionalEvidenceAttach.ts] -> KILLED
+     × is not marked matched: the write re-checks the link it peeked 109ms
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 1 ⎯⎯⎯⎯⎯⎯⎯
+      Tests  1 failed | 22 passed (23)
+
+
+# /review (pr512-review) LOW 1 — provisionalLinkWriterCensus.test.ts pins 'only postProvisional links a bank line':
+## M20 provisionalDismissService sets provisional_je_id to a value instead of NULL -> KILLED
+     × only postProvisional links a bank line to a provisional journal
++   "src/modules/accounting/services/bank/provisionalDismissService.ts",
+# rev-r107-adversarial LOW on the census (tuple SET, quoted/qualified names, ON CONFLICT, MERGE, the view, scripts/ and migrations): coarse rule added.
+## M21 a schema-qualified UPDATE of bank_transactions naming provisional_je_id in an untracked scripts/fixes/*.sql (git add -N) -> KILLED
++   "scripts/fixes/zz-census-probe.sql",
+## M20 re-run against the rewritten census (dismiss unlink -> link) -> KILLED
+     × only a file classified 'link' gives provisional_je_id a value
+
+# rev-r107-adversarial round on ed404d815 (4 LOW evasions): census made fail-closed — every mention line of provisional_je_id in a listed file is pinned; ONLY allowed; extension filter dropped.
+## E1 extra provisional_je_id mention in reads-only bankIngestionPersistence.ts -> KILLED
+## E2 tuple SET link in unlink-only provisionalDismissService.ts -> KILLED
+## E3 UPDATE ONLY bank_transactions link in a new src file -> KILLED
+## E4 psql UPDATE link in a new scripts/*.sh -> KILLED
+## E5 a migration BEFORE trigger assigning NEW.provisional_je_id (new scripts/migrations/sql/999_zz.sql) -> KILLED (trigger rule added; 675 now listed and pinned)
+# E6 (row copy without naming the column) and E7 (runtime column name) are inherent to a source-text census: named in the header as review's job.
