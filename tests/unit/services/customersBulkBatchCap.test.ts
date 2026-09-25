@@ -26,14 +26,6 @@ vi.mock('@/lib/api-error-handler', () => ({
   withErrorHandler: (fn: unknown) => fn,
 }));
 
-vi.mock('@/lib/cache', () => ({
-  cache: { invalidate: vi.fn() },
-}));
-
-vi.mock('@/lib/cache-keys', () => ({
-  CACHE_KEYS: { customers: (companyId: string) => `customers:${companyId}` },
-}));
-
 vi.mock('@/lib/apiResponse', () => ({
   apiResponse: {
     success: vi.fn((_res: unknown, data: unknown) => ({ success: true, data })),
