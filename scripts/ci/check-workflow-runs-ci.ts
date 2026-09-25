@@ -20,7 +20,7 @@ try {
   const pkg = JSON.parse(readFileSync('package.json', 'utf8')) as { scripts?: Record<string, unknown> };
   errors = checkWorkflowRunsCi(load(readFileSync(WORKFLOW, 'utf8')), pkg.scripts, readdirSync('.github/workflows'));
 } catch (err) {
-  errors = [`could not read ${WORKFLOW} or package.json: ${(err as Error).message}`];
+  errors = [`could not read ${WORKFLOW}, .github/workflows/ or package.json: ${(err as Error).message}`];
 }
 
 if (errors.length) {

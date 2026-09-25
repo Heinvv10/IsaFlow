@@ -112,7 +112,7 @@ function checkTrigger(on: Obj, event: string, errors: string[]): void {
  * @param workflowFiles the file names in .github/workflows/
  * @returns one message per violation; empty means the workflow runs every gate
  */
-export function checkWorkflowRunsCi(workflow: unknown, scripts: unknown, workflowFiles: string[] = WORKFLOW_FILES): string[] {
+export function checkWorkflowRunsCi(workflow: unknown, scripts: unknown, workflowFiles: string[]): string[] {
   const errors: string[] = [];
   if (!sameList([...workflowFiles].sort(), WORKFLOW_FILES)) {
     errors.push(`.github/workflows/ must hold only ${WORKFLOW_FILES.join(', ')} (it holds ${workflowFiles.join(', ') || 'nothing'}); another workflow can take the ci- concurrency group and cancel quality`);
