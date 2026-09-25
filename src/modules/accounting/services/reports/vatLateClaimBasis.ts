@@ -9,8 +9,13 @@
  * supply: fed to `deriveVatBoxes` it reads as a negative base and fails the 15%
  * check, and a journal with no base is listed in `entriesWithoutBase`.
  *
- * So a journal with a leg on the clearing account plays the `late_claim` role:
- * its tax legs are added to their boxes as `lateClaimTax` — counted in `tax`
+ * So a COMPANION plays the `late_claim` role. It is recognised by its source,
+ * `auto_vat_late_claim` — which its reversal copies — and never by the clearing
+ * account: a hand-made DR VAT Input / CR clearing journal is an ordinary,
+ * baseless journal — the clearing leg is never a base — and is flagged as one (createJournalEntry also refuses the
+ * clearing account to any other source). A companion-sourced journal with an
+ * OUTPUT tax leg is not a late claim either: output tax is never deferred.
+ * A companion's tax legs are added to their boxes as `lateClaimTax` — counted in `tax`
  * and in the totals, but left out of the base check, whose variance is
  * `(tax − lateClaimTax) − base × 15%` — and it is never an entry without base.
  * Its reversal (the same legs, swapped) nets it out the same way.
@@ -29,6 +34,12 @@ import {
 /** The clearing account's subtype (migration 701). */
 export const VAT_LATE_CLAIM_SUBTYPE = 'vat_input_late_claim';
 
+/** The companion's source (and its reversal's, which copies it). */
+export const VAT_LATE_CLAIM_SOURCE = 'auto_vat_late_claim';
+
+/** A VAT201 line with its journal's source, which is what marks a late claim. */
+export type LateClaimAwareLine = VatLineInput & { entrySource?: string | null };
+
 export interface LateClaimBoxRow extends VatBoxRow {
   /** Tax in this box claimed late: in `tax`, out of the base check. */
   lateClaimTax: number;
@@ -44,11 +55,18 @@ function r2(n: number): number {
   return Math.round(n * 100) / 100;
 }
 
-export function deriveVatBoxesWithLateClaims(lines: readonly VatLineInput[]): VatBasisWithLateClaims {
+export function deriveVatBoxesWithLateClaims(lines: readonly LateClaimAwareLine[]): VatBasisWithLateClaims {
   const lateEntries = new Set(
-    lines.filter((l) => l.accountSubtype === VAT_LATE_CLAIM_SUBTYPE).map((l) => l.journalEntryId),
+    lines.filter((l) => l.entrySource === VAT_LATE_CLAIM_SOURCE).map((l) => l.journalEntryId),
   );
-  const basis = deriveVatBoxes(lines.filter((l) => !lateEntries.has(l.journalEntryId)));
+  for (const l of lines) {
+    const c = classifyVatJournalLine(l);
+    if (c.role === 'tax' && c.direction === 'output') lateEntries.delete(l.journalEntryId);
+  }
+  // The clearing leg is never the value of a supply: outside a companion it is
+  // left out, so a hand-made DR VAT Input / CR clearing journal has no base.
+  const basis = deriveVatBoxes(lines.filter((l) =>
+    !lateEntries.has(l.journalEntryId) && l.accountSubtype !== VAT_LATE_CLAIM_SUBTYPE));
   const rows = new Map<string, LateClaimBoxRow>(
     basis.boxes.map((b) => [`${b.direction}:${b.vatType}`, { ...b, lateClaimTax: 0 }]),
   );

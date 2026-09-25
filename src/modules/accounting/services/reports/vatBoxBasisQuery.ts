@@ -18,7 +18,7 @@
  */
 import { sql } from '@/lib/neon';
 import type { DbRow } from '@/lib/neon';
-import type { VatLineInput } from './vatBoxBasis';
+import type { LateClaimAwareLine } from './vatLateClaimBasis';
 import { vatEntryMemberLineSql } from './vatEntryMembership';
 
 /**
@@ -30,7 +30,8 @@ import { vatEntryMemberLineSql } from './vatEntryMembership';
 const CANCELLED_STATUSES: readonly string[] = ['cancelled', 'void', 'voided'];
 
 export interface VatPeriodLines {
-  lines: VatLineInput[];
+  /** With the journal's source: `auto_vat_late_claim` marks a late claim (vatLateClaimBasis). */
+  lines: LateClaimAwareLine[];
   /**
    * MAX(created_at) across the journal rows consumed, as ISO-8601. Never
    * `now()`: this is what makes the figure re-derivable, so the same period
@@ -129,6 +130,7 @@ export async function getVatPeriodLines(
       ga.account_type,
       ga.account_subtype,
       jl.vat_type,
+      je.source AS entry_source,
       jl.debit,
       jl.credit,
       GREATEST(je.created_at, jl.created_at) AS row_created_at,
@@ -143,7 +145,7 @@ export async function getVatPeriodLines(
   `) as DbRow[];
 
   let postedThrough = '';
-  const lines: VatLineInput[] = rows.map((r) => {
+  const lines: LateClaimAwareLine[] = rows.map((r) => {
     const created = iso(r.row_created_at);
     if (created > postedThrough) postedThrough = created;
     return {
@@ -157,6 +159,7 @@ export async function getVatPeriodLines(
       accountType: String(r.account_type ?? ''),
       accountSubtype: r.account_subtype == null ? null : String(r.account_subtype),
       vatType: r.vat_type == null ? null : String(r.vat_type),
+      entrySource: r.entry_source == null ? null : String(r.entry_source),
       debit: num(r.debit),
       credit: num(r.credit),
       cancelledSource: r.cancelled_source === true,

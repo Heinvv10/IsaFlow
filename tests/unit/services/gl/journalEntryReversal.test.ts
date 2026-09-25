@@ -329,6 +329,7 @@ describe('reverseJournalEntry — contra attribution', () => {
     });
     expect(mockCreate.mock.calls[0]![4]).toEqual({
       dimensionAssignmentMode: 'historical-copy',
+      reversal: true, // a reversal may mirror a late claim's clearing leg (lateClaimClearingGuard)
     });
   });
 
@@ -340,6 +341,7 @@ describe('reverseJournalEntry — contra attribution', () => {
     expect(mockCreate.mock.calls[0]![3]).toEqual({ postingAgent: 'human' });
     expect(mockCreate.mock.calls[0]![4]).toEqual({
       dimensionAssignmentMode: 'historical-copy',
+      reversal: true, // a reversal may mirror a late claim's clearing leg (lateClaimClearingGuard)
     });
   });
 });

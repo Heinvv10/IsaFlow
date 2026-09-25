@@ -22,6 +22,11 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 
 const sqlMock = vi.fn();
+// createJournalEntry asks whether a line is on the late-claim clearing account
+// (gl/lateClaimClearingGuard); none is here, and the positional sql queue must not see it.
+vi.mock('@/modules/accounting/services/gl/lateClaimClearingGuard', () => ({
+  assertNoLateClaimClearingLines: vi.fn(async () => undefined),
+}));
 vi.mock('@/lib/neon', () => ({
   sql: (...a: unknown[]) => sqlMock(...a),
   withTransaction: vi.fn(),

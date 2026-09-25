@@ -65,10 +65,21 @@ export async function reverseJournalEntry(
   // contra it stands for: a crash anywhere in between rolls both back, and a
   // rerun repairs the entry instead of finding it permanently marked reversed.
   return withReversalTransaction({ companyId, userId }, async () => {
-  // A late-claim original reverses its companion with it, all or nothing; the
-  // companion's reversal is planned (and refused) before any write.
-  const companion = opts?.lateClaimCascade ? null : await planLateClaimCompanionReversal(companyId, id);
-  const body = async (): Promise<ReversalWithLateClaim> => {
+    // A late-claim original reverses its companion with it, all or nothing; the
+    // companion's reversal is planned (and refused) before any write.
+    const companion = opts?.lateClaimCascade ? null : await planLateClaimCompanionReversal(companyId, id);
+    const body = () => reverseJournalEntryInner(companyId, id, userId, opts, companion);
+    return companion ? withSavepoint('reverse_late_claim', body) : body();
+  });
+}
+
+async function reverseJournalEntryInner(
+  companyId: string,
+  id: string,
+  userId: string,
+  opts: (PostingActorOpts & { reversalDate?: string; lateClaimCascade?: boolean }) | undefined,
+  companion: { id: string } | null,
+): Promise<ReversalWithLateClaim> {
   try {
     const entry = await getJournalEntryById(companyId, id);
     if (!entry) throw new Error(`Journal entry ${id} not found`);
@@ -118,6 +129,8 @@ export async function reverseJournalEntry(
         lines: carried.lines,
       }, userId, actorMeta(opts) ?? defaultHumanMeta(userId), {
         dimensionAssignmentMode: 'historical-copy',
+        // A reversal mirrors posted lines — including a late claim's clearing leg.
+        reversal: true,
       });
     } catch (err) {
       // Nothing exists yet, but the claim does. Inside a request transaction the
@@ -228,7 +241,4 @@ export async function reverseJournalEntry(
     log.error('Failed to reverse journal entry', { id, error: err }, 'accounting');
     throw err;
   }
-  };
-  return companion ? withSavepoint('reverse_late_claim', body) : body();
-  });
 }
