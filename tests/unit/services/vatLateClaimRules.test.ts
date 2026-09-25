@@ -142,9 +142,22 @@ describe('qualifiesForLateClaim — the 15% check the VAT201 would run on time',
     expect(qualifiesForLateClaim([expense(1000, 'standard'), expense(500, 'zero_rated'), inputVat(150), payable(1650)]).claimable).toBe(true);
   });
 
-  it('within the R1 tolerance passes; just over it does not', () => {
-    expect(qualifiesForLateClaim([expense(1000, 'standard'), inputVat(151), payable(1151)]).claimable).toBe(true);
-    expect(qualifiesForLateClaim([expense(1000, 'standard'), inputVat(151.02), payable(1151.02)]).claimable).toBe(false);
+  it('the tolerance is rounding only: R0.01 over on a one-line journal passes, R0.02 over does not', () => {
+    expect(qualifiesForLateClaim([expense(100, 'standard'), inputVat(15.01), payable(115.01)]).claimable).toBe(true);
+    expect(qualifiesForLateClaim([expense(100, 'standard'), inputVat(15.02), payable(115.02)])).toEqual({ claimable: false, reason: null });
+  });
+
+  it('a multi-line bill whose per-line VAT rounding sums to a few cents still splits', () => {
+    // Five lines of R33.33, VAT rounded per line to R5.00 each (15% = 4.9995): R0.0025 over per line.
+    const lines = Array.from({ length: 5 }, () => expense(33.33, null));
+    expect(qualifiesForLateClaim([...lines, inputVat(25), payable(191.65)]).claimable).toBe(true);
+    // Seven coded lines of R10.03, VAT R1.51 each (1.5045): R0.04 over on the whole — one cent per line allowed.
+    const coded = Array.from({ length: 7 }, () => expense(10.03, 'standard'));
+    expect(qualifiesForLateClaim([...coded, inputVat(10.57), payable(80.78)]).claimable).toBe(true);
+  });
+
+  it('the allowance does not stack across lines beyond a cent each: R0.99 over on one line is refused', () => {
+    expect(qualifiesForLateClaim([expense(100, 'standard'), inputVat(15.99), payable(115.99)])).toEqual({ claimable: false, reason: null });
   });
 });
 
