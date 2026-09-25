@@ -1,5 +1,74 @@
-# R-052 mutations — scripts/ci/check-workflow-runs-ci.sh against .github/workflows/ci.yml, 2026-09-25
+# R-052 mutations — 2026-09-25
 
+## Round 2: scripts/ci/workflowRunsCiRule.ts, each clause disabled alone, against tests/unit/ci/workflowRunsCiRule.test.ts
+The test file applies every bypass the round-1 reviewers found to the real ci.yml (if: false on step/job, shell override, CI_SKIP_BUILD, earlier step rewriting run-ci.sh, trigger removed/retargeted/paths-ignore, quoted continue-on-error, decoy job, package.json ci no-op, trailing step, checkout swapped).
+```
+### R1 package.json ci script not checked
+     × package.json `ci` turned into a no-op 3ms
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 1 ⎯⎯⎯⎯⎯⎯⎯
+      Tests  1 failed | 22 passed (23)
+### R2 top-level keys not checked
+     × workflow-level env 4ms
+     × workflow-level defaults.run.shell 1ms
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 2 ⎯⎯⎯⎯⎯⎯⎯
+      Tests  2 failed | 21 passed (23)
+### R3 trigger filters (paths/types) allowed
+     × paths-ignore on pull_request 4ms
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 1 ⎯⎯⎯⎯⎯⎯⎯
+      Tests  1 failed | 22 passed (23)
+### R4 trigger branches not checked
+     × pull_request retargeted away from master 3ms
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 1 ⎯⎯⎯⎯⎯⎯⎯
+      Tests  1 failed | 22 passed (23)
+### R5 missing trigger allowed
+     × pull_request trigger removed 4ms
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 1 ⎯⎯⎯⎯⎯⎯⎯
+      Tests  1 failed | 22 passed (23)
+### R6 job-level keys (if/continue-on-error/env) allowed
+     × if: false on the job 3ms
+     × continue-on-error on the job 1ms
+     × job-level env 1ms
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 3 ⎯⎯⎯⎯⎯⎯⎯
+      Tests  3 failed | 20 passed (23)
+### R7 extra steps allowed
+      Tests  23 passed (23)
+### R8 install step not checked
+     × an earlier step rewrites run-ci.sh 3ms
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 1 ⎯⎯⎯⎯⎯⎯⎯
+      Tests  1 failed | 22 passed (23)
+### R9 gate step extra keys (if/shell/continue-on-error) allowed
+     × if: false on the gate step 3ms
+     × shell override prints instead of running 1ms
+     × quoted "continue-on-error" on the step 1ms
+     × flow-style step with continue-on-error 1ms
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 4 ⎯⎯⎯⎯⎯⎯⎯
+      Tests  4 failed | 19 passed (23)
+### R10 gate command not checked
+     × gate replaced by one hand-picked gate 3ms
+     × gate neutralised with || true 1ms
+     × the real step parked in a decoy job while quality runs one gate 0ms
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 3 ⎯⎯⎯⎯⎯⎯⎯
+      Tests  3 failed | 20 passed (23)
+### R11 gate env not allow-listed
+     × CI_SKIP_BUILD in the step env drops the build 3ms
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 1 ⎯⎯⎯⎯⎯⎯⎯
+      Tests  1 failed | 22 passed (23)
+### R12 checkout step not checked
+      Tests  23 passed (23)
+### R7 extra steps allowed (re-run after adding the trailing-step and checkout cases)
+     × a step after the gate (e.g. one that always reports success) 3ms
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 1 ⎯⎯⎯⎯⎯⎯⎯
+      Tests  1 failed | 25 passed (26)
+### R12 checkout step not checked (re-run after adding the trailing-step and checkout cases)
+     × checkout pinned to another ref 5ms
+     × checkout swapped for another action 1ms
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 2 ⎯⎯⎯⎯⎯⎯⎯
+      Tests  2 failed | 24 passed (26)
+```
+
+## Round 1 (superseded): the grep-based check-workflow-runs-ci.sh
+It caught these four, and blind review then got nine other edits past it, which is why round 2 replaced it.
+```
 ### M0 baseline (unmutated)
 exit=0
 ### M1 step reverted to a hand-listed gate (bun run test:unit)
@@ -16,3 +85,4 @@ exit=1
 ### M4 workflow deleted
 ERROR: .github/workflows/ci.yml is missing
 exit=1
+```
