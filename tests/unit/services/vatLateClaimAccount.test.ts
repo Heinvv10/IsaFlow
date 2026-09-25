@@ -10,6 +10,7 @@ import { canonicalSubtype } from '@/modules/accounting/services/gl/accountSubtyp
 import { lineMovesVatFigure } from '@/modules/accounting/services/gl/journalVatLockGuard';
 import { SYSTEM_ACCOUNT_KEYS } from '@/modules/accounting/services/gl/systemAccountKeys';
 import { GL_ACCOUNT_SUBTYPES_BY_TYPE, SYSTEM_RESERVED_SUBTYPES } from '@/modules/accounting/types/glAccountSubtypes';
+import { getTemplateLines } from '@/modules/accounting/services/gl/chartOfAccountsImportService';
 
 const SUBTYPE = 'vat_input_late_claim';
 
@@ -30,4 +31,12 @@ describe('vat_input_late_claim', () => {
     expect(GL_ACCOUNT_SUBTYPES_BY_TYPE.asset as readonly string[]).toContain(SUBTYPE);
     expect(GL_ACCOUNT_SUBTYPES_BY_TYPE.liability as readonly string[]).not.toContain(SUBTYPE);
   });
+
+  it.each(['isaflow_standard', 'xero_compatible', 'sage_compatible'] as const)(
+    'template %s carries exactly one late-claim account, and no two rows share a display order', (t) => {
+      const lines = getTemplateLines(t);
+      expect(lines.filter((l) => l.subtype === SUBTYPE)).toHaveLength(1);
+      const orders = lines.map((l) => l.displayOrder);
+      expect(new Set(orders).size).toBe(orders.length);
+    });
 });

@@ -75,7 +75,7 @@ const XERO_TEMPLATE: TemplateLine[] = [
   { code:'003', name:'Petty Cash',              type:'asset',     normalBalance:'debit',  level:2, displayOrder:12, parentCode:'001' },
   { code:'011', name:'Trade Debtors',           type:'asset',     normalBalance:'debit',  level:2, displayOrder:21, parentCode:'010', subtype:'receivable',               isSystem:true },
   { code:'012', name:'VAT Input',               type:'asset',     normalBalance:'debit',  level:2, displayOrder:22, parentCode:'010', subtype:'vat_input',                isSystem:true },
-  { code:'014', name:'Input VAT - late claims',  type:'asset',     normalBalance:'debit',  level:2, displayOrder:23, parentCode:'010', subtype:'vat_input_late_claim',     isSystem:true },
+  { code:'014', name:'Input VAT - late claims',  type:'asset',     normalBalance:'debit',  level:2, displayOrder:24, parentCode:'010', subtype:'vat_input_late_claim',     isSystem:true },
   { code:'013', name:'Prepayments',             type:'asset',     normalBalance:'debit',  level:2, displayOrder:23, parentCode:'010' },
   { code:'101', name:'Office Equipment',        type:'asset',     normalBalance:'debit',  level:2, displayOrder:31, parentCode:'100', subtype:'fixed_asset' },
   { code:'102', name:'Vehicles',                type:'asset',     normalBalance:'debit',  level:2, displayOrder:32, parentCode:'100', subtype:'fixed_asset' },
@@ -119,7 +119,7 @@ const SAGE_TEMPLATE: TemplateLine[] = [
   { code:'1002', name:'Petty Cash',             type:'asset',     normalBalance:'debit',  level:2, displayOrder:102, parentCode:'1000' },
   { code:'1101', name:'Trade Debtors Control',  type:'asset',     normalBalance:'debit',  level:2, displayOrder:111, parentCode:'1100', subtype:'receivable',               isSystem:true },
   { code:'1201', name:'VAT Input',              type:'asset',     normalBalance:'debit',  level:2, displayOrder:121, parentCode:'1200', subtype:'vat_input',                isSystem:true },
-  { code:'1203', name:'Input VAT - late claims', type:'asset',     normalBalance:'debit',  level:2, displayOrder:122, parentCode:'1200', subtype:'vat_input_late_claim',     isSystem:true },
+  { code:'1203', name:'Input VAT - late claims', type:'asset',     normalBalance:'debit',  level:2, displayOrder:123, parentCode:'1200', subtype:'vat_input_late_claim',     isSystem:true },
   { code:'1202', name:'Prepayments',            type:'asset',     normalBalance:'debit',  level:2, displayOrder:122, parentCode:'1200' },
   { code:'1501', name:'Equipment',              type:'asset',     normalBalance:'debit',  level:2, displayOrder:151, parentCode:'1500', subtype:'fixed_asset' },
   { code:'1502', name:'Vehicles',               type:'asset',     normalBalance:'debit',  level:2, displayOrder:152, parentCode:'1500', subtype:'fixed_asset' },
@@ -166,11 +166,17 @@ export async function seedChartOfAccountsFromTemplate(
       INSERT INTO gl_accounts (
         company_id, account_code, account_name, account_type, account_subtype,
         normal_balance, level, display_order, is_system_account
-      ) VALUES (
+      )
+      SELECT
         ${companyId}, ${acc.code}, ${acc.name}, ${acc.type},
         ${acc.subtype ?? null}, ${acc.normalBalance}, ${acc.level},
         ${acc.displayOrder}, ${acc.isSystem ?? false}
-      )
+      -- One late-claim clearing account per company: migration 701 may have
+      -- given it one already, under another code (a second system account with
+      -- the subtype would leave the resolver choosing by heap order).
+      WHERE ${acc.subtype ?? null}::TEXT IS DISTINCT FROM 'vat_input_late_claim'
+         OR NOT EXISTS (SELECT 1 FROM gl_accounts WHERE company_id = ${companyId}::UUID
+                          AND account_subtype = 'vat_input_late_claim')
       ON CONFLICT (company_id, account_code) DO NOTHING
     `;
   }
