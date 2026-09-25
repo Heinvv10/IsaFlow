@@ -64,6 +64,15 @@ const ALLOWED: Record<string, AllowedEntry> = {
     reason: 'This IS the late-claim guard (qualifiesForLateClaim). The rate is the VAT201\'s own, '
     + 'used only to REFUSE a claim that does not fit its base; it predicts no VAT and posts nothing.',
   },
+  'src/modules/accounting/services/ar/creditNoteApproveService.ts': {
+    kinds: ['vat_field_on_a_posting_path'],
+    reason: 'No claim decided: its only vat_type write is `standard` on the credit note\'s own '
+    + 'VAT leg (2026-09-25), a LABEL on the tax_amount the credit note already carries. The '
+    + 'accounts are fixed system accounts (vat_output / vat_input), nobody picks one, and the '
+    + 'code is box-neutral — the VAT201 read the uncoded leg as standard before it '
+    + '(tests/integration/credit-note-vat-code-backfill.int.test.ts). A credit note REDUCES '
+    + 'VAT on either side; it never turns a claim on.',
+  },
   'src/modules/accounting/services/reports/vatInputSupport.ts': {
     kinds: ['rate_constant'],
     reason: 'Report code: the pre-filing input-VAT support check. The rate bounds the VAT a '

@@ -68,8 +68,10 @@ export async function approveCreditNote(
           description: `Credit note ${cn.credit_note_number}` },
       ];
       if (Number(cn.tax_amount) > 0 && vatAccount) {
+        // Coded 'standard' (2026-09-25): an uncoded VAT leg is a pre-filing
+        // exception, and 'standard' is what the VAT201 already read it as.
         lines.push({ glAccountId: vatAccount.id, debit: Number(cn.tax_amount), credit: 0,
-          description: `VAT reversal: ${cn.credit_note_number}` });
+          description: `VAT reversal: ${cn.credit_note_number}`, vatType: 'standard' });
       }
       lines.push({ glAccountId: arAccount.id, debit: 0, credit: Number(cn.total_amount),
         description: `AR credit: ${cn.credit_note_number}` });
@@ -85,7 +87,7 @@ export async function approveCreditNote(
       ];
       if (Number(cn.tax_amount) > 0 && vatAccount) {
         lines.push({ glAccountId: vatAccount.id, debit: 0, credit: Number(cn.tax_amount),
-          description: `VAT reversal: ${cn.credit_note_number}` });
+          description: `VAT reversal: ${cn.credit_note_number}`, vatType: 'standard' });
       }
       lines.push({ glAccountId: expenseAccount.id, debit: 0, credit: Number(cn.subtotal),
         description: `Expense credit: ${cn.credit_note_number}` });
