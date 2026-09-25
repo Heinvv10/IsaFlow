@@ -250,6 +250,12 @@ describe('Stock Adjustment Validation', () => {
     expect(validateStockAdjustment({ ...validAdjustment, productId: '' }).success).toBe(false);
   });
 
+  it('rejects a non-string productId or reason with a validation error, not a throw', () => {
+    expect(validateStockAdjustment({ ...validAdjustment, productId: 42 as never }).success).toBe(false);
+    expect(validateStockAdjustment({ ...validAdjustment, reason: { x: 1 } as never }).success).toBe(false);
+    expect(validateStockAdjustment({ ...validAdjustment, reason: undefined as never }).success).toBe(false);
+  });
+
   it('rejects missing reason', () => {
     expect(validateStockAdjustment({ ...validAdjustment, reason: '' }).success).toBe(false);
   });

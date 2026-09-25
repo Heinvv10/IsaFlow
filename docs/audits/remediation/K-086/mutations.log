@@ -172,3 +172,42 @@ Route unchanged since round 2, so its mutations above stand. Validator mutations
 ⎯⎯⎯⎯⎯⎯⎯ Failed Tests 1 ⎯⎯⎯⎯⎯⎯⎯
       Tests  1 failed | 35 passed (36)
 ```
+
+## Round 4 (after /review on PR #524: integer-cents correction, total_cost in SQL NUMERIC, company-scoped warehouseId, typed productId/reason)
+Each mutation alone. C1 and C4 survived their first run and got new cases (0.10 on hand / 0.07 counted; a two-company user's warehouse); the re-runs are at the end.
+```
+### C1 float delta instead of integer cents
+      Tests  20 passed (20)
+      Tests  37 passed (37)
+### C2 total_cost multiplied in JS float
+   × a count and a decrease of the same 0.05 cost the same: 0.05 x 0.5 = 0.03, not a float cent off 60ms
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 1 ⎯⎯⎯⎯⎯⎯⎯
+      Tests  1 failed | 19 passed (20)
+      Tests  37 passed (37)
+### C3 warehouse ownership check removed
+   × another tenant's warehouse is refused before any row is written 55ms
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 1 ⎯⎯⎯⎯⎯⎯⎯
+      Tests  1 failed | 19 passed (20)
+      Tests  37 passed (37)
+### C4 warehouse check not company-scoped
+      Tests  20 passed (20)
+      Tests  37 passed (37)
+### C5 productId type guard removed
+      Tests  20 passed (20)
+     × rejects a non-string productId or reason with a validation error, not a throw 4ms
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 1 ⎯⎯⎯⎯⎯⎯⎯
+      Tests  1 failed | 36 passed (37)
+### C6 reason type guard removed
+      Tests  20 passed (20)
+     × rejects a non-string productId or reason with a validation error, not a throw 21ms
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 1 ⎯⎯⎯⎯⎯⎯⎯
+      Tests  1 failed | 36 passed (37)
+### C1 float delta instead of integer cents (re-run after adding the 0.10/0.07 and two-company-warehouse cases)
+   × the count correction is taken in whole cents: 0.10 on hand, 0.07 counted, books 0.03 at 0.015 -> 0.02 54ms
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 1 ⎯⎯⎯⎯⎯⎯⎯
+      Tests  1 failed | 18 passed (19)
+### C4 warehouse check not company-scoped (re-run after adding the 0.10/0.07 and two-company-warehouse cases)
+   × a user in BOTH companies cannot put this company's movement in the other company's warehouse 109ms
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 1 ⎯⎯⎯⎯⎯⎯⎯
+      Tests  1 failed | 18 passed (19)
+```

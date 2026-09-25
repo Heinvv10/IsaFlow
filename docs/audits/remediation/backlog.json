@@ -3096,7 +3096,7 @@
       "historicalDataImpact": "Live since the K-085 fix (972870495, #411) reached production: any count posted via the API since then added the counted quantity to stock. No UI or MCP caller exists. Census SQL in K-086/fix.md, not run.",
       "canonicalItem": null,
       "reportedSeverity": "high",
-      "processNotes": "2026-09-25: re-confirmed on 0ecf6d06e (count 60 vs 100 -> 160). Fixed: FOR UPDATE company-scoped lock, count replaces current_stock, correction booked in cents as adjustment_in/out by sign, no movement for a zero correction. Ported from unpushed c5a52e421. Residuals in fix.md: zero count refused (CHECK quantity > 0), current_stock vs movement-derived on-hand, transfer semantics."
+      "processNotes": "2026-09-25: re-confirmed on 0ecf6d06e (count 60 vs 100 -> 160). Fixed: FOR UPDATE company-scoped lock, count replaces current_stock, correction booked in integer cents as adjustment_in/out by sign with total_cost multiplied in SQL NUMERIC, no movement for a zero correction. Ported from unpushed c5a52e421. Residuals in fix.md: zero count refused (CHECK quantity > 0), current_stock vs movement-derived on-hand, transfer semantics. Review rounds (general + adversarial, then /review on PR #524) added: exact-cents validator for quantity and unitCost (NaN/string/third decimal refused before any write), unitCost required for a count, warehouseId company-scoped before any write, non-string productId/reason refused."
     },
     {
       "id": "K-087",
