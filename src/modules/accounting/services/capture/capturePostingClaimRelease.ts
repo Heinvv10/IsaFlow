@@ -21,10 +21,12 @@ import type { DbRow } from '@/lib/neon';
  * `posted_at` exactly where it was, and the document stayed refused by every
  * route for good.
  *
- * The two NOT EXISTS clauses are the whole safety argument, and they are what
+ * The NOT EXISTS clauses are the whole safety argument, and they are what
  * makes this callable from a generic reversal path: the claim comes back only
- * when NO unreversed capture posting journal and NO uncancelled supplier
- * invoice reference the document any more. A receipt posted down two routes and
+ * when NO unreversed capture posting journal, NO uncancelled supplier invoice,
+ * NO live expense claim and NO unreversed provisional journal the document
+ * EVIDENCES (`evidenced_at`, R-107 — that journal already expensed the bank
+ * line) reference the document any more. A receipt posted down two routes and
  * reversed down one stays claimed, because one of its ledger rows is still
  * standing.
  *
@@ -53,6 +55,13 @@ export async function releaseCapturedDocumentPostingClaim(
           WHERE si.source_document_id = cd.id
             AND si.company_id = cd.company_id
             AND si.status <> 'cancelled'
+       )
+       AND NOT EXISTS (
+         SELECT 1 FROM gl_journal_entries pje
+          WHERE pje.source_document_id = cd.id
+            AND pje.company_id = cd.company_id
+            AND pje.evidenced_at IS NOT NULL
+            AND pje.reversed_at IS NULL
        )
        AND NOT EXISTS (
          SELECT 1 FROM expense_claim_lines ecl
@@ -114,6 +123,13 @@ export async function releaseUnpostedCaptureClaim(
               WHERE si.source_document_id = ${documentId}::uuid
                 AND si.company_id = ${companyId}
                 AND si.status <> 'cancelled'
+           )
+        OR EXISTS (
+             SELECT 1 FROM gl_journal_entries pje
+              WHERE pje.source_document_id = ${documentId}::uuid
+                AND pje.company_id = ${companyId}
+                AND pje.evidenced_at IS NOT NULL
+                AND pje.reversed_at IS NULL
            )
         OR EXISTS (
              SELECT 1 FROM expense_claim_lines ecl

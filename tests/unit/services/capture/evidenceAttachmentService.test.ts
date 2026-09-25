@@ -32,7 +32,13 @@ const { sqlMock } = vi.hoisted(() => {
   return { sqlMock };
 });
 
-vi.mock('@/lib/neon', () => ({ sql: sqlMock, fmtDate: (x: unknown) => String(x) }));
+vi.mock('@/lib/neon', () => ({
+  sql: sqlMock,
+  fmtDate: (x: unknown) => String(x),
+  // Outside a request transaction withSavepoint runs fn directly; the real behaviour is
+  // pinned by tests/integration/r107-auto-attach-savepoint.int.test.ts.
+  withSavepoint: <T>(_name: string, fn: () => Promise<T>) => fn(),
+}));
 vi.mock('@/lib/logger', () => ({
   log: { info: vi.fn(), warn: vi.fn(), error: vi.fn() },
 }));
@@ -80,7 +86,7 @@ describe('attachEvidenceToProvisional', () => {
     vi.mocked(sqlMock).mockResolvedValueOnce([makeDocRow()] as never);       // captured_documents
     vi.mocked(sqlMock).mockResolvedValueOnce([makeMatchRow()] as never);     // provisional match
     vi.mocked(sqlMock).mockResolvedValueOnce([] as never);                   // UPDATE bank_transactions
-    vi.mocked(sqlMock).mockResolvedValueOnce([] as never);                   // UPDATE gl_journal_entries
+    vi.mocked(sqlMock).mockResolvedValueOnce([{ id: 'je' }] as never);                   // UPDATE gl_journal_entries
 
     const result = await attachEvidenceToProvisional(
       COMPANY_ID, DOC_ID, SUPPLIER_ID, MATCHING_AMOUNT, DOCUMENT_DATE,
@@ -94,7 +100,7 @@ describe('attachEvidenceToProvisional', () => {
     vi.mocked(sqlMock).mockResolvedValueOnce([makeDocRow()] as never);
     vi.mocked(sqlMock).mockResolvedValueOnce([makeMatchRow()] as never);
     vi.mocked(sqlMock).mockResolvedValueOnce([] as never);
-    vi.mocked(sqlMock).mockResolvedValueOnce([] as never);
+    vi.mocked(sqlMock).mockResolvedValueOnce([{ id: 'je' }] as never);
 
     await attachEvidenceToProvisional(
       COMPANY_ID, DOC_ID, SUPPLIER_ID, MATCHING_AMOUNT, DOCUMENT_DATE,
@@ -114,7 +120,7 @@ describe('attachEvidenceToProvisional', () => {
     vi.mocked(sqlMock).mockResolvedValueOnce([makeDocRow()] as never);
     vi.mocked(sqlMock).mockResolvedValueOnce([makeMatchRow()] as never);
     vi.mocked(sqlMock).mockResolvedValueOnce([] as never);
-    vi.mocked(sqlMock).mockResolvedValueOnce([] as never);
+    vi.mocked(sqlMock).mockResolvedValueOnce([{ id: 'je' }] as never);
 
     await attachEvidenceToProvisional(
       COMPANY_ID, DOC_ID, SUPPLIER_ID, MATCHING_AMOUNT, DOCUMENT_DATE,
@@ -193,7 +199,7 @@ describe('attachEvidenceToProvisional', () => {
     vi.mocked(sqlMock).mockResolvedValueOnce([makeDocRow()] as never);
     vi.mocked(sqlMock).mockResolvedValueOnce([makeMatchRow({ bt_id: BANK_TX_ID })] as never);
     vi.mocked(sqlMock).mockResolvedValueOnce([] as never);
-    vi.mocked(sqlMock).mockResolvedValueOnce([] as never);
+    vi.mocked(sqlMock).mockResolvedValueOnce([{ id: 'je' }] as never);
 
     const result = await attachEvidenceToProvisional(
       COMPANY_ID, DOC_ID, null, MATCHING_AMOUNT, DOCUMENT_DATE,
@@ -207,7 +213,7 @@ describe('attachEvidenceToProvisional', () => {
     vi.mocked(sqlMock).mockResolvedValueOnce([makeDocRow()] as never);
     vi.mocked(sqlMock).mockResolvedValueOnce([makeMatchRow()] as never);
     vi.mocked(sqlMock).mockResolvedValueOnce([] as never);
-    vi.mocked(sqlMock).mockResolvedValueOnce([] as never);
+    vi.mocked(sqlMock).mockResolvedValueOnce([{ id: 'je' }] as never);
 
     const result = await attachEvidenceToProvisional(
       COMPANY_ID, DOC_ID, SUPPLIER_ID, MATCHING_AMOUNT + 0.01, DOCUMENT_DATE,
@@ -216,6 +222,17 @@ describe('attachEvidenceToProvisional', () => {
     // The service passes the totalAmount ±0.01 window to the query;
     // we model tolerance-passing matches by letting the SELECT return a row
     expect(result.attachedJeId).toBe(JE_ID);
+  });
+
+  it('returns nulls when the journal was evidenced by another request before the flip (predicated UPDATE matched nothing)', async () => {
+    vi.mocked(sqlMock).mockResolvedValueOnce([makeDocRow()] as never);
+    vi.mocked(sqlMock).mockResolvedValueOnce([makeMatchRow()] as never);
+    vi.mocked(sqlMock).mockResolvedValueOnce([] as never);   // UPDATE bank_transactions
+    vi.mocked(sqlMock).mockResolvedValueOnce([] as never);   // UPDATE gl_journal_entries … AND needs_evidence = true
+
+    const result = await attachEvidenceToProvisional(COMPANY_ID, DOC_ID, SUPPLIER_ID, 1150, '2026-04-01');
+
+    expect(result).toEqual({ attachedJeId: null, bankTxId: null });
   });
 
   it('does not throw when no provisional match exists — resolves with nulls gracefully', async () => {
