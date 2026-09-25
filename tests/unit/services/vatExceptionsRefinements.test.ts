@@ -92,7 +92,11 @@ describe('getVatExceptions draft-JE mismatches', () => {
 describe('getVatExceptions unposted-VAT footnote', () => {
   it('aggregates the supplier side from supplier_invoice_items (field10 source parity)', async () => {
     await getVatExceptions('co-1', '2026-01-01', '2026-02-28');
-    const unpostedCall = sqlMock.mock.calls.find((c) => queryText(c).includes('unposted_vat'));
+    // 'unposted_vat' alone is not specific to vatUnpostedInvoices' query — pin
+    // it against 'journal_reversed', the CASE label unique to that query's
+    // reason column, so this cannot silently start matching a different call.
+    const unpostedCall = sqlMock.mock.calls.find((c) =>
+      queryText(c).includes('unposted_vat') && queryText(c).includes('journal_reversed'));
     expect(unpostedCall).toBeDefined();
     expect(queryText(unpostedCall!)).toContain('supplier_invoice_items');
   });

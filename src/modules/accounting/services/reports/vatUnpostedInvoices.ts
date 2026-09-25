@@ -27,9 +27,12 @@
 import { sql } from '@/lib/neon';
 import type { DbRow } from '@/lib/neon';
 
-export const ISSUED_CUSTOMER_INVOICE_STATUSES: readonly string[] =
+// Not exported: no caller outside this file reads them (checked 2026-09-25).
+// If one needs to, test it against shared/documentPopulation's own lists
+// rather than assuming the two never drift.
+const ISSUED_CUSTOMER_INVOICE_STATUSES: readonly string[] =
   ['approved', 'sent', 'partially_paid', 'paid', 'overdue'];
-export const APPROVED_BILL_STATUSES: readonly string[] = ['approved', 'partially_paid', 'paid'];
+const APPROVED_BILL_STATUSES: readonly string[] = ['approved', 'partially_paid', 'paid'];
 
 /**
  * A document counts as unposted invoice VAT not only when it has NO journal
