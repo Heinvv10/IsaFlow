@@ -8,6 +8,7 @@
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { sql } from '@/lib/neon';
 import { approveSupplierInvoice } from '@/modules/accounting/services/ap/supplierInvoiceWorkflowService';
+import { createSupplierInvoice } from '@/modules/accounting/services/ap/supplierInvoiceService';
 import { VatPeriodLockedError } from '@/modules/accounting/services/gl/journalVatLockGuard';
 import { createJournalEntry, postJournalEntry } from '@/modules/accounting/services/gl/journalEntryService';
 import { getVat201Report } from '@/modules/accounting/services/reports/vat201ReportService';
@@ -135,11 +136,29 @@ describeIfDb('late input VAT claim: the split', () => {
       return postJournalEntry(fx.companyId, je.id, fx.userId, { allowLateInputClaim: true });
     });
     const legs = (await sql`
-      SELECT vat_type, debit::NUMERIC AS debit FROM gl_journal_lines
+      SELECT vat_type, debit::NUMERIC AS debit, late_claim_base::NUMERIC AS base FROM gl_journal_lines
       WHERE journal_entry_id = ${posted.lateClaim!.companionEntryId}::UUID AND gl_account_id = ${fx.vatInputId}::UUID
       ORDER BY vat_type`) as Row[];
-    expect(legs.map((l) => [l.vat_type, Number(l.debit)])).toEqual([['capital_goods', 300], ['standard', 150]]);
+    // Each line carries the base behind its own claim: the journal's R3 000 apportioned 300:150.
+    expect(legs.map((l) => [l.vat_type, Number(l.debit), Number(l.base)]))
+      .toEqual([['capital_goods', 300, 2000], ['standard', 150, 1000]]);
     const r = await inTx(fx, () => getVat201Report(fx.companyId, NEXT.start, NEXT.end, { detail: 'summary' }));
-    expect(r.boxes.find((b) => b.box === '14')).toMatchObject({ tax: 300, lateClaimTax: 300 });
+    expect(r.boxes.find((b) => b.box === '14')).toMatchObject({ tax: 300, lateClaimTax: 300, base: 2000, variance: 0 });
+  });
+
+  it('a normal multi-line bill (per-line VAT rounding) splits, and its claim period still ties', async () => {
+    const r0 = await inTx(fx, () => getVat201Report(fx.companyId, NEXT.start, NEXT.end, { detail: 'summary' }));
+    const bill = await inTx(fx, () => createSupplierInvoice(fx.companyId, {
+      supplierId: fx.supplierId, invoiceNumber: `LCM-${fx.tag}`.slice(0, 50), invoiceDate: '2026-06-24',
+      items: [33.33, 33.33, 33.33, 10.03, 10.03].map((unitPrice) => ({
+        description: 'Item', quantity: 1, unitPrice, taxRate: 15, glAccountId: fx.expenseId,
+      })),
+    }, fx.userId));
+    const approved = await inTx(fx, () =>
+      approveSupplierInvoice(fx.companyId, bill.id, fx.userId, { allowLateInputClaim: true }));
+    expect(approved.lateClaim).toBeDefined();
+    const r1 = await inTx(fx, () => getVat201Report(fx.companyId, NEXT.start, NEXT.end, { detail: 'summary' }));
+    expect(Math.abs(r1.rateCheck.inputVariance - r0.rateCheck.inputVariance)).toBeLessThanOrEqual(0.05);
+    expect(r1.rateCheck.entriesWithoutBaseTotal).toBe(r0.rateCheck.entriesWithoutBaseTotal);
   });
 });

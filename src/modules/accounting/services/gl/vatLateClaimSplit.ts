@@ -116,6 +116,20 @@ async function applyLateClaimSplit(
     await sql`
       UPDATE gl_journal_entries SET late_claim_of_id = ${entry.id}::UUID
       WHERE id = ${companion.id}::UUID AND company_id = ${companyId}::UUID`;
+    // The base behind each claim, on its companion line, so the claim period's
+    // 15% check counts it. Lines with the same account, code and amount are
+    // interchangeable (their bases differ by the rounding cent at most).
+    for (const t of plan.taxLines) {
+      await sql`
+        UPDATE gl_journal_lines SET late_claim_base = ${t.base}
+        WHERE id = (
+          SELECT id FROM gl_journal_lines
+          WHERE company_id = ${companyId}::UUID AND journal_entry_id = ${companion.id}::UUID
+            AND gl_account_id = ${t.glAccountId}::UUID AND debit = ${t.amount}
+            AND vat_type IS NOT DISTINCT FROM ${t.vatType}::TEXT AND late_claim_base IS NULL
+          ORDER BY id LIMIT 1)
+          AND company_id = ${companyId}::UUID`;
+    }
 
     const lateClaim: LateClaimInfo = {
       claimDate: plan.claimDate,
@@ -175,4 +189,30 @@ export async function planLateClaimCompanionReversal(
   const { date, vatLockRoll } = await resolveReversalDateDetailed(
     companyId, fmtDate(companion.entryDate), undefined, companion.lines);
   return { id: companion.id, entryNumber: companion.entryNumber, reversalDate: date, vatLockRoll };
+}
+
+/**
+ * A companion's reversal carries each claim's base NEGATED, so the claim and
+ * its reversal net to nothing in the 15% check too. Lines pair up by account,
+ * code and amount (the contra's credit is the companion's debit).
+ */
+export async function copyLateClaimBaseToReversal(
+  companyId: string, companionId: string, reversalId: string,
+): Promise<void> {
+  await sql`
+    WITH o AS (
+      SELECT late_claim_base, gl_account_id, COALESCE(vat_type, '') AS vt, debit AS amt,
+             ROW_NUMBER() OVER (PARTITION BY gl_account_id, COALESCE(vat_type, ''), debit ORDER BY id) AS rn
+      FROM gl_journal_lines
+      WHERE company_id = ${companyId}::UUID AND journal_entry_id = ${companionId}::UUID
+        AND late_claim_base IS NOT NULL
+    ), r AS (
+      SELECT id, gl_account_id, COALESCE(vat_type, '') AS vt, credit AS amt,
+             ROW_NUMBER() OVER (PARTITION BY gl_account_id, COALESCE(vat_type, ''), credit ORDER BY id) AS rn
+      FROM gl_journal_lines
+      WHERE company_id = ${companyId}::UUID AND journal_entry_id = ${reversalId}::UUID
+    )
+    UPDATE gl_journal_lines l SET late_claim_base = -o.late_claim_base
+    FROM o JOIN r USING (gl_account_id, vt, amt, rn)
+    WHERE l.id = r.id AND l.company_id = ${companyId}::UUID`;
 }
