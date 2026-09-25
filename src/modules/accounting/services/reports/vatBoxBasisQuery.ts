@@ -19,7 +19,7 @@
 import { sql } from '@/lib/neon';
 import type { DbRow } from '@/lib/neon';
 import type { LateClaimAwareLine } from './vatLateClaimBasis';
-import { vatEntryMemberLineSql } from './vatEntryMembership';
+import { vatEntryMemberLineSql, vatEntrySourceAdmitsSql } from './vatEntryMembership';
 
 /**
  * A document in one of these states raises no VAT, but its journal may still be
@@ -73,6 +73,9 @@ export async function getVatPeriodLines(
         AND je.entry_date <= ${periodEnd}::DATE
         -- The membership rule, shared with the VAT-lock reclassification check.
         AND ${vatEntryMemberLineSql()}
+        -- Not the VAT submission clearing journal: it settles the previous
+        -- return and is no supply (vatEntrySourceAdmitsSql says why).
+        AND ${vatEntrySourceAdmitsSql(sql`je.source`)}
     )
     , cancelled_entries_base AS (
       SELECT ci.gl_journal_entry_id AS id FROM customer_invoices ci
