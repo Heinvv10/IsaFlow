@@ -34,7 +34,8 @@ describe('deriveVatBoxesWithLateClaims — coded base + per-journal over-claim',
   it('an under-claim no longer hides an over-claim: variance = the over-claim, ties false', () => {
     const r = deriveVatBoxesWithLateClaims([...bill('under', 1000, 100), ...bill('over', 1000, 200)]);
     expect(r.inputTax).toBe(300);
-    expect(r.inputVariance).toBe(50);
+    // 50 less the R0.01 rounding allowance (one taxed input-VAT line, item 3).
+    expect(r.inputVariance).toBe(49.99);
     expect(r.ties).toBe(false);
     // The displayed box is still the signed total.
     expect(r.boxes.find((b) => b.direction === 'input')!.variance).toBe(0);
@@ -42,7 +43,8 @@ describe('deriveVatBoxesWithLateClaims — coded base + per-journal over-claim',
 
   it('a mixed-coded journal no longer hides an over-claim elsewhere', () => {
     const r = deriveVatBoxesWithLateClaims([...mixed, ...bill('over', 1000, 900)]);
-    expect(r.inputVariance).toBe(750);
+    // 750 less the R0.01 rounding allowance (one taxed input-VAT line on 'over').
+    expect(r.inputVariance).toBe(749.99);
   });
 
   it('ordinary bills still tie', () => {

@@ -153,8 +153,8 @@ describe('getVatExceptions — unposted invoice VAT blocks (2026-09-25)', () => 
     expect(report.controlRecon.outputVariance).toBe(0);
     expect(report.unpostedInvoiceVatCount).toBe(2);
     expect(report.unpostedInvoiceVat).toEqual([
-      { invoiceId: 'ci-1', invoiceKind: 'customer', invoiceNumber: 'INV-1', counterpartyName: 'Acme', invoiceDate: '2026-03-05', vat: 150 },
-      { invoiceId: 'si-1', invoiceKind: 'supplier', invoiceNumber: 'BILL-1', counterpartyName: 'Vendor', invoiceDate: '2026-03-06', vat: 45 },
+      { invoiceId: 'ci-1', invoiceKind: 'customer', invoiceNumber: 'INV-1', counterpartyName: 'Acme', invoiceDate: '2026-03-05', vat: 150, reason: 'no_journal' },
+      { invoiceId: 'si-1', invoiceKind: 'supplier', invoiceNumber: 'BILL-1', counterpartyName: 'Vendor', invoiceDate: '2026-03-06', vat: 45, reason: 'no_journal' },
     ]);
     expect(report.totalExceptions).toBe(2);
   });
