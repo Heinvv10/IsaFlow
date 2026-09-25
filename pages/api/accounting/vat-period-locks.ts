@@ -71,8 +71,8 @@ async function lockChecked(res: NextApiResponse, body: LockBody, companyId: stri
   const existing = await getVatPeriodLock(companyId, body.periodStart, body.periodEnd);
   if (!existing && report.rateCheck.ties === false && body.force !== true) {
     return apiResponse.badRequest(res,
-      `This period fails SARS's 15% check: box 1 is out by ${report.rateCheck.outputVariance} and box 15 by `
-      + `${report.rateCheck.inputVariance}. Correct it, or lock with force to record it as filed.`);
+      `This period fails SARS's 15% check: box 1 is out by ${report.rateCheck.outputVariance} and input tax is `
+      + `over-claimed by ${report.rateCheck.inputVariance} (summed per journal). Correct it, or lock with force to record it as filed.`);
   }
   const result = await lockVatPeriod(
     companyId, body.periodStart, body.periodEnd, figures, { userId, actorType: 'human' }, body.notes,

@@ -1,8 +1,8 @@
 /**
  * VAT201 Pre-filing Exceptions panel.
  * Surfaces uncoded GL VAT lines, invoice tax-code issues, invoice↔GL VAT
- * mismatches, and VAT201-box vs GL-control reconciliation for the selected
- * period. Informational only — never blocks generation or submission.
+ * mismatches, VAT201-box vs GL-control reconciliation and input-VAT support
+ * for the selected period. The counted exceptions gate ISV eFiling.
  */
 
 import { useEffect, useRef, useState } from 'react';
@@ -10,6 +10,7 @@ import { AlertTriangle, CheckCircle2, ChevronDown, ChevronRight, Loader2, Shield
 import { apiFetch } from '@/lib/apiFetch';
 import type { VatExceptionsReport } from '@/modules/accounting/services/reports/vatExceptionsTypes';
 import VatNonSupplySection from './VatNonSupplySection';
+import VatInputSupportSections from './VatInputSupportSections';
 
 const fmt = (n: number) =>
   new Intl.NumberFormat('en-ZA', { style: 'currency', currency: 'ZAR' }).format(n);
@@ -237,6 +238,8 @@ export function VAT201ExceptionsPanel({ from, to, reloadKey, onLoaded }: Props) 
           >
             <VatNonSupplySection lines={report.vatNonSupplyLines} />
           </Section>
+
+          <VatInputSupportSections report={report} Section={Section} />
 
           <Section title="Invoices with tax-code issues" count={report.invoiceTaxCodeIssueCount} listed={report.invoiceTaxCodeIssues.length}>
             <table className="min-w-full">
