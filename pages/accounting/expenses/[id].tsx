@@ -12,6 +12,7 @@ import Link from 'next/link';
 import { AppLayout } from '@/components/layout/AppLayout';
 import { apiFetch } from '@/lib/apiFetch';
 import { ClaimHeaderBanners, ClaimToast } from '@/components/accounting/expense/ClaimHeaderBanners';
+import { notifyLateClaims } from '@/components/accounting/lateClaimNotice';
 import {
   ChevronLeft, Loader2, AlertCircle, Send, Check, X, FileCheck,
   MapPin, Receipt, DollarSign,
@@ -195,6 +196,7 @@ export default function ExpenseClaimDetail() {
       setVatAdvice(json.data.warnings ?? []);
       setClaim(json.data.claim);
       showToast(`Claim ${json.data.claim.status}`, true);
+      notifyLateClaims(json); // post: VAT claimed in a later period (s16(3))
       if (endpoint === 'post') setPostMode(false);
     } catch { showToast('Network error', false); }
     finally { setBusy(false); }
