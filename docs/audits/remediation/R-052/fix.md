@@ -52,6 +52,9 @@ locally. On GitHub every job passed and `mergeStateStatus` was `CLEAN`.
     `golden-paths-dev-demo`, no cancel. Concurrency groups are repo-wide, so any other workflow or job
     that took the `ci-` group would cancel quality. Adding a workflow or a job means changing the rule
     in review.
+  - **The token is pinned.** Top-level `permissions` is exactly `{contents: read}`, and no job may set
+    its own. With `actions: write`, any job, golden-paths included, could run `gh run cancel` and end
+    the run cancelled.
   - **Steps:** exactly three:
     1. checkout, with no `with`;
     2. `bun install --frozen-lockfile --ignore-scripts`. Without the flag, bun runs the lifecycle
