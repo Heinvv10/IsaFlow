@@ -39,8 +39,9 @@ const CENT = 0.005;
 
 /**
  * Build the VAT exceptions report for a period.
- * Runs 9 scoped queries plus the LEDGER VAT201 (getLedgerVAT201 — the figures
- * the return files), so the recon ties what is filed to the control accounts.
+ * Runs 10 scoped queries (numbered 1-10 below) plus the LEDGER VAT201
+ * (getLedgerVAT201 — the figures the return files), so the recon ties what is
+ * filed to the control accounts.
  */
 export async function getVatExceptions(
   companyId: string,
