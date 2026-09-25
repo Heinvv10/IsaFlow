@@ -161,7 +161,7 @@ export const lockVatPeriodTool: McpTool = {
 
     if (!existing && report.rateCheck.ties === false && args.force !== true) {
       return toolError(
-        `This period fails SARS's 15% check: box 1 is out by ${report.rateCheck.outputVariance} and box 15 by ${report.rateCheck.inputVariance}. `
+        `This period fails SARS's 15% check: box 1 is out by ${report.rateCheck.outputVariance} and input tax is over-claimed by ${report.rateCheck.inputVariance} (summed per journal). `
         + 'Read vat_status detail="full" to find which journals, or pass force:true to lock it as it stands.',
       );
     }
