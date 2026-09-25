@@ -12,7 +12,9 @@
  * Pure: no database, so the rules are tested directly. The reading side is
  * vatLateClaimPlan.ts.
  */
-import { SA_VAT_RATE, classifyVatJournalLine } from '../reports/vatBoxBasis';
+import {
+  RATE_CHECK_TOLERANCE, SA_VAT_RATE, classifyVatJournalLine, deriveVatBoxes, type VatLineInput,
+} from '../reports/vatBoxBasis';
 import { classifyNonSupplyAccount, claimsVat } from './nonSupplyAccounts';
 
 /** One journal line with the account facts the rules need. */
@@ -46,6 +48,47 @@ function r2(n: number): number {
   return Math.round(n * 100) / 100;
 }
 
+function toVatLine(l: LateClaimLine, i: number): VatLineInput {
+  return {
+    journalEntryId: 'j', entryNumber: '', entryDate: '', lineId: String(i),
+    accountId: l.glAccountId, accountCode: '', accountName: l.accountName,
+    accountType: l.accountType, accountSubtype: l.accountSubtype, vatType: l.vatType,
+    debit: l.debit, credit: l.credit, cancelledSource: false,
+  };
+}
+
+/**
+ * The base behind each claimed tax line (the input-VAT debits, in the order
+ * they appear): exactly what the VAT201's `deriveVatBoxes` would have put in
+ * that line's box for this journal on time — the journal's base apportioned to
+ * each VAT code by its share of the tax — then shared among that code's tax
+ * lines by amount, the last taking the rounding so the code's base is exact.
+ * Stored on the companion as `late_claim_base`; the claim period's 15% check
+ * counts it (reports/vatLateClaimBasis).
+ */
+export function lateClaimBases(lines: readonly LateClaimLine[]): number[] {
+  const boxes = deriveVatBoxes(lines.map(toVatLine)).boxes;
+  const taxLines = lines
+    .map((l, i) => ({ c: classifyVatJournalLine(toVatLine(l, i)), l }))
+    .filter(({ c, l }) => c.role === 'tax' && c.direction === 'input' && l.debit > 0)
+    .map(({ c }) => ({ vatType: c.vatType ?? 'standard', amount: c.amount }));
+  const left = new Map<string, { base: number; tax: number }>();
+  for (const t of taxLines) {
+    const e = left.get(t.vatType) ?? {
+      base: boxes.find((b) => b.direction === 'input' && b.vatType === t.vatType)?.base ?? 0, tax: 0,
+    };
+    e.tax = r2(e.tax + t.amount);
+    left.set(t.vatType, e);
+  }
+  return taxLines.map((t) => {
+    const e = left.get(t.vatType)!;
+    const share = e.tax === t.amount ? e.base : r2(e.base * (t.amount / e.tax));
+    e.base = r2(e.base - share);
+    e.tax = r2(e.tax - t.amount);
+    return share;
+  });
+}
+
 /**
  * May this journal be split? Uses the VAT201's own line classifier, so "input
  * tax", "base" and "unmapped" mean exactly what the return means by them.
@@ -61,12 +104,7 @@ export function qualifiesForLateClaim(lines: readonly LateClaimLine[]): LateClai
   let codedBase = 0;   // base lines carrying a tax-bearing code
   let codedLines = 0;
   for (const l of lines) {
-    const c = classifyVatJournalLine({
-      journalEntryId: '', entryNumber: '', entryDate: '', lineId: '',
-      accountId: l.glAccountId, accountCode: '', accountName: l.accountName,
-      accountType: l.accountType, accountSubtype: l.accountSubtype, vatType: l.vatType,
-      debit: l.debit, credit: l.credit, cancelledSource: false,
-    });
+    const c = classifyVatJournalLine(toVatLine(l, 0));
     const tagged = l.vatType !== null && l.vatType !== 'no_vat';
     if (c.role === 'tax' && c.direction === 'output') return { claimable: false, reason: 'output_vat' };
     if (c.role === 'tax') {
@@ -102,15 +140,15 @@ export function qualifiesForLateClaim(lines: readonly LateClaimLine[]): LateClai
   // as deriveVatBoxes takes it, and only an OVER-claim fails — an untaxed item
   // beside a taxed one legitimately puts the tax under 15% of the whole.
   //
-  // Tolerance: ROUNDING ONLY, one cent per base line checked — never the
-  // VAT201's R1 (RATE_CHECK_TOLERANCE). That R1 is allowed ONCE per return;
-  // a companion is out of its claim period's base check, so an R1 allowance
-  // per late journal would stack unseen (three R0.99 over-claims = R2.97 no
-  // return shows). Per-line VAT rounding on a real bill stays within a cent a line.
+  // Tolerance: the VAT201's own R1 — a COARSE early refusal, so an obviously
+  // padded claim is refused before anything is written. It is not the control:
+  // the companion carries the base behind its claim (late_claim_base) and the
+  // claim period's 15% check counts it under the one per-return tolerance, so
+  // no per-journal allowance can be stacked or inflated.
   const coded = codedLines > 0;
   const implied = r2((coded ? codedBase : base) * SA_VAT_RATE);
   const excess = r2(inputTax - implied);
-  const tolerance = r2(0.01 * (coded ? codedLines : baseLines));
+  const tolerance = RATE_CHECK_TOLERANCE;
   if (coded ? Math.abs(excess) > tolerance : excess > tolerance) {
     return { claimable: false, reason: null };
   }

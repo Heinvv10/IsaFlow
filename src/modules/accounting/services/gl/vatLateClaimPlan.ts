@@ -30,6 +30,7 @@ import { getSystemAccountId } from './systemAccountResolver';
 import {
   isWithinLateClaimWindow,
   lateClaimDate,
+  lateClaimBases,
   lateClaimDeadline,
   qualifiesForLateClaim,
   type LateClaimLine,
@@ -71,7 +72,8 @@ export interface LateClaimPlan {
   claimDate: string;
   inputTax: number;
   /** The draft's input-VAT lines (ids present only for a stored draft). */
-  taxLines: { id?: string; glAccountId: string; amount: number; vatType: string | null }[];
+  /** `base`: the base behind each claim, stored on the companion line (late_claim_base). */
+  taxLines: { id?: string; glAccountId: string; amount: number; vatType: string | null; base: number }[];
 }
 
 const REASON_TEXT: Record<LateClaimRefusalReason, string> = {
@@ -169,8 +171,11 @@ export async function planLockedVatPosting(
   // (MissingSystemAccountError) before createJournalEntry inserts a draft that a
   // 4xx answer would then commit.
   const clearingId = await getSystemAccountId('vat_input_late_claim', companyId);
+  const bases = lateClaimBases(facts); // same lines, same order: the input-VAT debits
   const taxLines = lines
     .filter((l, i) => canonicalSubtype(facts[i]!.accountSubtype) === 'vat_input' && Number(l.debit) > 0)
-    .map((l) => ({ id: l.id, glAccountId: l.glAccountId, amount: Number(l.debit), vatType: l.vatType ?? null }));
+    .map((l, k) => ({
+      id: l.id, glAccountId: l.glAccountId, amount: Number(l.debit), vatType: l.vatType ?? null, base: bases[k] ?? 0,
+    }));
   return { lock, clearingId, claimDate, inputTax: verdict.inputTax, taxLines };
 }

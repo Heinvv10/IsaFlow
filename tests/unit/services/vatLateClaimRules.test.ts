@@ -9,6 +9,7 @@ import {
   lateClaimDate,
   lateClaimDeadline,
   isWithinLateClaimWindow,
+  lateClaimBases,
   type LateClaimLine,
 } from '@/modules/accounting/services/gl/vatLateClaimRules';
 
@@ -142,9 +143,10 @@ describe('qualifiesForLateClaim — the 15% check the VAT201 would run on time',
     expect(qualifiesForLateClaim([expense(1000, 'standard'), expense(500, 'zero_rated'), inputVat(150), payable(1650)]).claimable).toBe(true);
   });
 
-  it('the tolerance is rounding only: R0.01 over on a one-line journal passes, R0.02 over does not', () => {
-    expect(qualifiesForLateClaim([expense(100, 'standard'), inputVat(15.01), payable(115.01)]).claimable).toBe(true);
-    expect(qualifiesForLateClaim([expense(100, 'standard'), inputVat(15.02), payable(115.02)])).toEqual({ claimable: false, reason: null });
+  it('the early check is COARSE (the VAT201\'s R1): R1.00 over passes to the split, R1.01 over is refused', () => {
+    // The real control is the claim period's own 15% check, which counts the claim's base (late_claim_base).
+    expect(qualifiesForLateClaim([expense(100, 'standard'), inputVat(16), payable(116)]).claimable).toBe(true);
+    expect(qualifiesForLateClaim([expense(100, 'standard'), inputVat(16.01), payable(116.01)])).toEqual({ claimable: false, reason: null });
   });
 
   it('a multi-line bill whose per-line VAT rounding sums to a few cents still splits', () => {
@@ -156,9 +158,6 @@ describe('qualifiesForLateClaim — the 15% check the VAT201 would run on time',
     expect(qualifiesForLateClaim([...coded, inputVat(10.57), payable(80.78)]).claimable).toBe(true);
   });
 
-  it('the allowance does not stack across lines beyond a cent each: R0.99 over on one line is refused', () => {
-    expect(qualifiesForLateClaim([expense(100, 'standard'), inputVat(15.99), payable(115.99)])).toEqual({ claimable: false, reason: null });
-  });
 });
 
 describe('lateClaimDate', () => {
@@ -200,3 +199,23 @@ describe('five-year window (s16(3) proviso)', () => {
     expect(isWithinLateClaimWindow('2024-02-29', '2029-03-01')).toBe(false);
   });
 });
+
+describe('lateClaimBases — the base behind each claimed tax line, as the VAT201 derives it', () => {
+  it('a bill: every base line (uncoded) is the base of its one tax line', () => {
+    expect(lateClaimBases([expense(700, null), expense(300, null), inputVat(150), payable(1150)])).toEqual([1000]);
+  });
+
+  it('two codes: the base is apportioned to each code by its share of the tax (deriveVatBoxes pro-rata)', () => {
+    const asset = line({ accountType: 'asset', accountSubtype: 'fixed_asset', accountName: 'Vehicles', debit: 2000, vatType: 'capital_goods' });
+    const lines = [expense(1000, 'standard'), asset, inputVat(150, 0, 'standard'), inputVat(300, 0, 'capital_goods'), payable(3450)];
+    // Whole-journal base 3000, split 150:300 — exactly what the VAT201 does on time.
+    expect(lateClaimBases(lines)).toEqual([1000, 2000]);
+  });
+
+  it('two tax lines of ONE code share that code\'s base by amount, and the cents add up exactly', () => {
+    const bases = lateClaimBases([expense(1000, null), inputVat(100), inputVat(50), payable(1150)]);
+    expect(bases).toEqual([666.67, 333.33]);
+    expect(bases.reduce((a, b) => a + b, 0)).toBeCloseTo(1000, 2);
+  });
+});
+

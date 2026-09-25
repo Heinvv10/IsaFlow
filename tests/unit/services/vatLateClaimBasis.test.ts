@@ -1,9 +1,11 @@
 /**
- * A late-claim companion (DR VAT Input / CR "Input VAT - late claims") carries
- * input tax with NO base leg: its supply was recorded in the locked period, on
- * the original. The VAT201 must put exactly its tax in the right box, keep the
- * 15% base check honest by leaving that tax out of the variance, and not list
- * the companion as a journal without a base.
+ * A late-claim companion (DR VAT Input / CR "Input VAT - late claims") has no
+ * base LEG — its supply was recorded in the locked period, on the original —
+ * but each VAT Input line CARRIES the base behind its claim (late_claim_base,
+ * derived from the original as the VAT201 would have). The claim period's 15%
+ * check counts that base, so a late claim faces exactly the check it would have
+ * faced on time: an over-claim shows as variance, and a companion is never an
+ * entry without base.
  */
 import { describe, expect, it } from 'vitest';
 import { deriveVatBoxes, type VatLineInput } from '@/modules/accounting/services/reports/vatBoxBasis';
@@ -18,8 +20,8 @@ const line = (je: string, over: Partial<LateClaimAwareLine>): LateClaimAwareLine
   entrySource: je === 'comp' || je === 'rev' ? 'auto_vat_late_claim' : 'manual',
   ...over,
 });
-const vatIn = (je: string, debit: number, credit = 0, vatType = 'standard') =>
-  line(je, { accountId: 'vin', accountType: 'asset', accountSubtype: 'vat_input', vatType, debit, credit });
+const vatIn = (je: string, debit: number, credit = 0, vatType = 'standard', lateClaimBase?: number) =>
+  line(je, { accountId: 'vin', accountType: 'asset', accountSubtype: 'vat_input', vatType, debit, credit, lateClaimBase });
 const clearing = (je: string, debit: number, credit: number) =>
   line(je, { accountId: 'clr', accountType: 'asset', accountSubtype: 'vat_input_late_claim', debit, credit });
 
@@ -30,15 +32,16 @@ const bill = [
   line('bill', { accountId: 'ap', accountType: 'liability', accountSubtype: 'payable', credit: 1150 }),
 ];
 // The companion of a bill dated in a locked period: 80 of capital-goods tax, 45 standard.
-const companion = [vatIn('comp', 80, 0, 'capital_goods'), vatIn('comp', 45), clearing('comp', 0, 125)];
+const companion = [vatIn('comp', 80, 0, 'capital_goods', 533.33), vatIn('comp', 45, 0, 'standard', 300), clearing('comp', 0, 125)];
 
 describe('deriveVatBoxesWithLateClaims', () => {
-  it('adds exactly the companion tax to its boxes, and the base check still ties', () => {
+  it('adds the companion tax AND the base behind it to its boxes; the base check ties', () => {
     const r = deriveVatBoxesWithLateClaims([...bill, ...companion]);
     const std = r.boxes.find((b) => b.direction === 'input' && b.vatType === 'standard')!;
     const cap = r.boxes.find((b) => b.direction === 'input' && b.vatType === 'capital_goods')!;
-    expect(std).toMatchObject({ base: 1000, tax: 195, lateClaimTax: 45, impliedTax: 150, variance: 0 });
-    expect(cap).toMatchObject({ base: 0, tax: 80, lateClaimTax: 80, impliedTax: 0, variance: 0 });
+    expect(std).toMatchObject({ base: 1300, tax: 195, lateClaimTax: 45, impliedTax: 195, variance: 0 });
+    expect(cap).toMatchObject({ base: 533.33, tax: 80, lateClaimTax: 80, impliedTax: 80, variance: 0 });
+    expect(r.inputBase).toBe(1833.33);
     expect(r.inputTax).toBe(275);
     expect(r.lateClaimInputTax).toBe(125);
     expect(r.inputVariance).toBe(0);
@@ -58,7 +61,7 @@ describe('deriveVatBoxesWithLateClaims', () => {
   });
 
   it('a companion and its reversal in one period net to nothing', () => {
-    const reversal = [vatIn('rev', 0, 80, 'capital_goods'), vatIn('rev', 0, 45), clearing('rev', 125, 0)];
+    const reversal = [vatIn('rev', 0, 80, 'capital_goods', -533.33), vatIn('rev', 0, 45, 'standard', -300), clearing('rev', 125, 0)];
     const r = deriveVatBoxesWithLateClaims([...bill, ...companion, ...reversal]);
     expect(r.lateClaimInputTax).toBe(0);
     expect(r.inputTax).toBe(150);
@@ -94,5 +97,21 @@ describe('deriveVatBoxesWithLateClaims', () => {
     expect(box1).toMatchObject({ base: 999.99, tax: 150, lateClaimTax: 0 });
     expect(r.outputTax).toBe(150);
     expect(r.lateClaimInputTax).toBe(0);
+  });
+
+  it('an over-claim shows as variance in the claim period, exactly as on time', () => {
+    const lateOver = [vatIn('comp', 16, 0, 'standard', 100), clearing('comp', 0, 16)];
+    const onTime = [line('ot', { debit: 100 }), vatIn('ot', 16), line('ot', { accountId: 'ap', accountType: 'liability', accountSubtype: 'payable', credit: 116 })];
+    const late = deriveVatBoxesWithLateClaims(lateOver);
+    const now = deriveVatBoxesWithLateClaims(onTime);
+    expect(late.inputVariance).toBe(1);
+    expect(late.inputVariance).toBe(now.inputVariance);
+    expect(late.inputBase).toBe(now.inputBase);
+  });
+
+  it('a companion line with no recorded base is listed as an entry without base', () => {
+    const r = deriveVatBoxesWithLateClaims([vatIn('comp', 15), clearing('comp', 0, 15)]);
+    expect(r.entriesWithoutBase).toEqual(['comp']);
+    expect(r.ties).toBe(false);
   });
 });

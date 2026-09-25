@@ -17,7 +17,9 @@ import { resolveReversalDate, resolveReversalDateDetailed, ReversalPeriodError }
 import { VatPeriodLockedError } from './journalVatLockGuard';
 import { releaseCapturedDocumentPostingClaim } from '../capture/capturePostingClaimRelease';
 import { postJournalEntry } from './journalEntryPostService';
-import { LateClaimCompanionReversalError, planLateClaimCompanionReversal } from './vatLateClaimSplit';
+import {
+  LateClaimCompanionReversalError, copyLateClaimBaseToReversal, planLateClaimCompanionReversal,
+} from './vatLateClaimSplit';
 
 /** A reversal of a late-claim original carries its companion's reversal (vatLateClaimSplit.ts). */
 export type ReversalWithLateClaim = ReversalEntry & { lateClaimReversal?: ReversalEntry };
@@ -217,6 +219,8 @@ async function reverseJournalEntryInner(
       }
       throw err;
     }
+    // A companion's contra carries each claim's base negated (vatLateClaimBasis).
+    if (entry.source === 'auto_vat_late_claim') await copyLateClaimBaseToReversal(companyId, id, reversalEntry.id);
 
     // A reversed capture journal releases its document's posting claim, so "Reverse the journal
     // first" works; the helper still refuses while another live journal or invoice references it.

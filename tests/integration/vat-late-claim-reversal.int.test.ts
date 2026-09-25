@@ -11,6 +11,7 @@ import { sql } from '@/lib/neon';
 import { approveSupplierInvoice, cancelSupplierInvoice } from '@/modules/accounting/services/ap/supplierInvoiceWorkflowService';
 import { planSupplierInvoiceCancel } from '@/modules/accounting/services/ap/supplierInvoiceCancelPlan';
 import { reverseJournalEntry } from '@/modules/accounting/services/gl/journalEntryService';
+import { getVat201Report } from '@/modules/accounting/services/reports/vat201ReportService';
 import { LateClaimCompanionReversalError } from '@/modules/accounting/services/gl/vatLateClaimSplit';
 import { LateClaimClearingAccountError } from '@/modules/accounting/services/gl/lateClaimClearingGuard';
 import { assertNotProductionDb } from '../helpers/assertNotProductionDb';
@@ -80,6 +81,8 @@ describeIfDb('late input VAT claim: reversal and cancel', () => {
   });
 
   it('reversing the original reverses the companion on its own date; everything nets to nil', async () => {
+    const rate = async () => (await inTx(fx, () => getVat201Report(fx.companyId, NEXT.start, NEXT.end, { detail: 'summary' }))).rateCheck;
+    const rateBefore = await rate();
     const nextBefore = await vatFigures(fx, NEXT.start, NEXT.end);
     const pBefore = await vatFigures(fx, P.start, P.end);
     const clearingBefore = await balanceOf(fx, fx.clearingId);
@@ -94,6 +97,10 @@ describeIfDb('late input VAT claim: reversal and cancel', () => {
     expect(nextAfter.inputTax).toBeCloseTo(nextBefore.inputTax, 2);
     const pAfter = await vatFigures(fx, P.start, P.end);
     expect({ ...pAfter, postedThrough: '' }).toEqual({ ...pBefore, postedThrough: '' });
+    // The companion's contra carries its base negated, so the 15% check nets too.
+    const rateAfter = await rate();
+    expect(rateAfter.inputVariance).toBeCloseTo(rateBefore.inputVariance, 2);
+    expect(rateAfter.entriesWithoutBaseTotal).toBe(rateBefore.entriesWithoutBaseTotal);
   });
 
   it('cancelling the bill previews and then reverses both; clearing and the claim period net to nil', async () => {

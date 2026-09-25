@@ -44,12 +44,16 @@ describeIfDb('late input VAT claim: adversarial round 3', () => {
 
   afterAll(async () => { if (fx) await dropLateFixture(fx); }, 180000);
 
-  // Per-journal tolerance is rounding only: R0.01 per base line (gl/vatLateClaimRules).
-  it('D0: tolerance edge — R0.01 over is claimable, R0.02 over is refused', async () => {
-    const a = await settle(post('2026-06-01', bill(15.01)));
-    const b = await settle(post('2026-06-01', bill(15.02)));
-    say(`D0 R0.01=${a instanceof Error ? 'REFUSED' : 'SPLIT'} R0.02=${b instanceof Error ? 'REFUSED' : 'SPLIT'}`);
+  // The per-journal check is a COARSE early refusal at the VAT201's R1 (gl/vatLateClaimRules); the real
+  // control is the claim period's 15% check, which counts the claim's base (late_claim_base).
+  it('D0: early-refusal edge — R1.00 over is claimed (and shows in the claim period), R1.01 over is refused', async () => {
+    const r0 = await report();
+    const a = await settle(post('2026-06-01', bill(16.00)));
+    const r1 = await report();
+    const b = await settle(post('2026-06-01', bill(16.01)));
+    say(`D0 R1.00=${a instanceof Error ? 'REFUSED' : 'SPLIT'} R1.01=${b instanceof Error ? 'REFUSED' : 'SPLIT'}`);
     expect(a).not.toBeInstanceOf(Error);
+    expect(r1.rateCheck.inputVariance - r0.rateCheck.inputVariance).toBeCloseTo(1, 2);
     expect(b).toBeInstanceOf(Error);
   });
 
