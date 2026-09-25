@@ -23,6 +23,7 @@ $ vitest run tests/unit/api/dataArchivingExecuteDisabled.test.ts  (the real rout
 
 
 # NO ACTION / RESTRICT FKs into the five relations step 6 deletes (fixture pg_constraint): 37
+# per parent: gl_journal_entries 25, customer_invoices 6, supplier_invoices 3, gl_journal_lines 2, bank_transactions 1
 bank_transactions | ap_payment_document_backfill | ap_payment_document_backfill_bank_transaction_id_fkey | NO ACTION
 gl_journal_entries | accounting_adjustments | accounting_adjustments_gl_journal_entry_id_fkey | NO ACTION
 gl_journal_entries | gl_journal_entries | gl_journal_entries_reversal_of_id_fkey | NO ACTION

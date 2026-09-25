@@ -10453,7 +10453,7 @@
       "sourceLabel": "",
       "sourceIds": [],
       "correctedTrigger": "",
-      "severityRationale": "A feature believed to run has never run; the remaining FK work spans 38 NO ACTION constraints across five relations.",
+      "severityRationale": "A feature believed to run has never run; the remaining FK work spans 37 NO ACTION (38 before migration 694) constraints across five relations.",
       "auditedSha": "",
       "currentSha": "",
       "status": "confirmed",

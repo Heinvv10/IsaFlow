@@ -71,5 +71,6 @@ FROM archive_runs GROUP BY 1, 2 ORDER BY 1, 2;
 SELECT 'je' AS t, count(*) FROM archive_gl_journal_entries
 UNION ALL SELECT 'ci', count(*) FROM archive_customer_invoices
 UNION ALL SELECT 'si', count(*) FROM archive_supplier_invoices
+UNION ALL SELECT 'jl', count(*) FROM archive_gl_journal_lines
 UNION ALL SELECT 'bt', count(*) FROM archive_bank_transactions;
 ```
