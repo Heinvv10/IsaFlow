@@ -9,7 +9,6 @@ import { fmtDate } from '@/lib/fmtDate';
 import type { DbRow } from '@/lib/neon';
 import { log } from '@/lib/logger';
 import { createJournalEntry, postJournalEntry, resolveReversalDate } from '../gl/journalEntryService';
-import { planLateClaimCompanionReversal } from '../gl/vatLateClaimSplit';
 import type { LateClaimInfo } from '../gl/vatLateClaimPlan';
 import { getPeriodStatusForDate } from '../gl/periodStatusService';
 import { loadJournalVatLines } from '../gl/journalVatLockGuard';
@@ -793,8 +792,6 @@ async function assertReversalDatePostable(
     SELECT entry_date FROM gl_journal_entries
     WHERE id = ${journalEntryId}::UUID AND company_id = ${companyId}::UUID`) as Row[];
   if (rows.length === 0) throw new Error('Cannot reverse: journal entry not found');
-  // A late-claim companion is reversed with the journal: refused here, pre-write, if it cannot be.
-  await planLateClaimCompanionReversal(companyId, journalEntryId);
   const originalDate = fmtDate(rows[0]!.entry_date as string | Date);
   // With the journal's lines, so a locked VAT period rolls the date (or
   // refuses, pre-write) exactly as reverseJournalEntry will.

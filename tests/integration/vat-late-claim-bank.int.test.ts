@@ -96,4 +96,51 @@ describeIfDb('late input VAT claim: bank allocation', () => {
     const [row] = (await sql`SELECT status FROM bank_transactions WHERE id = ${tx}::UUID`) as Row[];
     expect(row!.status).toBe('imported');
   });
+
+  async function lateAllocation(amount: number) {
+    const tx = await spend(amount);
+    const state = await callRoute(fx, token, bankTransactionsAction, {
+      action: 'allocate', bankTransactionId: tx, allocationType: 'account',
+      contraAccountId: fx.expenseId, vatCode: 'standard',
+    });
+    expect(state.statusCode, JSON.stringify(state.body)).toBe(200);
+    const d = dataOf<{ journalEntryId: string; lateClaim: { companionEntryId: string } }>(state);
+    return { tx, originalId: d.journalEntryId, companionId: d.lateClaim.companionEntryId };
+  }
+  const reversedAt = async (id: string) => ((await sql`
+    SELECT reversed_at FROM gl_journal_entries WHERE id = ${id}::UUID`) as Row[])[0]!.reversed_at;
+
+  it('reversing a late-claimed allocation (route action=reverse) reverses the companion too', async () => {
+    const nextBefore = await vatFigures(fx, NEXT.start, NEXT.end);
+    const clearingBefore = await balanceOf(fx, fx.clearingId);
+    const { tx, originalId, companionId } = await lateAllocation(69);
+    const state = await callRoute(fx, token, bankTransactionsAction, { action: 'reverse', bankTransactionId: tx });
+    expect(state.statusCode, JSON.stringify(state.body)).toBe(200);
+    expect(await reversedAt(originalId)).not.toBeNull();
+    expect(await reversedAt(companionId)).not.toBeNull();
+    expect(await balanceOf(fx, fx.clearingId)).toBe(clearingBefore);
+    expect((await vatFigures(fx, NEXT.start, NEXT.end)).inputTax).toBeCloseTo(nextBefore.inputTax, 2);
+    const [row] = (await sql`SELECT status FROM bank_transactions WHERE id = ${tx}::UUID`) as Row[];
+    expect(row!.status).toBe('imported');
+  });
+
+  it('when the companion cannot be reversed, the bank reversal is refused (400) before its unwind writes', async () => {
+    const { tx, originalId, companionId } = await lateAllocation(92);
+    // Every date from the companion's to the end of the year is in a filed VAT period.
+    await lockPeriod(fx, NEXT.start, NEXT.end);
+    await lockPeriod(fx, '2026-09-01', '2026-12-31');
+    try {
+      const before = await countRows(fx);
+      const state = await callRoute(fx, token, bankTransactionsAction, { action: 'reverse', bankTransactionId: tx });
+      expect(state.statusCode).toBe(400);
+      expect(JSON.stringify(state.body)).toMatch(/locked/);
+      expect(await countRows(fx)).toEqual(before);
+      expect(await reversedAt(originalId)).toBeNull();
+      expect(await reversedAt(companionId)).toBeNull();
+      const [row] = (await sql`SELECT status FROM bank_transactions WHERE id = ${tx}::UUID`) as Row[];
+      expect(row!.status).toBe('allocated');
+    } finally {
+      await sql`DELETE FROM vat_period_locks WHERE company_id = ${fx.companyId}::UUID AND period_start >= ${NEXT.start}::DATE`;
+    }
+  });
 });
