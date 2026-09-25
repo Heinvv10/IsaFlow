@@ -85,4 +85,13 @@ describeIfDb('late input VAT claim: the claim period files it', () => {
       await sql`UPDATE supplier_invoices SET tax_amount = tax_amount - 1 WHERE id = ${lateBillId}::UUID`;
     }
   });
+
+  it('only APPROVED bills count (Hein): a draft in the filed period is not in its field 8, and approving it late moves nothing out', async () => {
+    const before = await docFigures(P.start, P.end);
+    const draft = await draftBill(fx, '2026-06-25', { vatClassification: 'services' });
+    const withDraft = await docFigures(P.start, P.end);
+    expect(withDraft).toEqual(before);
+    await inTx(fx, () => approveSupplierInvoice(fx.companyId, draft.id, fx.userId, { allowLateInputClaim: true }));
+    expect(await docFigures(P.start, P.end)).toEqual(before);
+  });
 });
