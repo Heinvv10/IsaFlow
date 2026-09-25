@@ -20,6 +20,8 @@ import {
   type LateFixture,
 } from './helpers/vatLateClaimFixture';
 import journalEntriesAction from '../../pages/api/accounting/journal-entries-action';
+import { cancelSupplierInvoiceTool } from '@/lib/mcp/tools/writeCancelSupplierInvoice';
+import type { McpToolContext } from '@/lib/mcp/types';
 
 const DATABASE_URL = process.env.DATABASE_URL;
 const describeIfDb = DATABASE_URL && process.env.JWT_SECRET ? describe : describe.skip;
@@ -123,5 +125,18 @@ describeIfDb('late input VAT claim: reversal and cancel', () => {
     } finally {
       await sql`DELETE FROM vat_period_locks WHERE company_id = ${fx.companyId}::UUID AND period_start = ${NEXT.start}::DATE`;
     }
+  });
+
+  it('MCP cancel_supplier_invoice names the late claim it reverses, in the dry run and the live result', async () => {
+    const { billId, companionId } = await lateBill();
+    const ctx = { companyId: fx.companyId, userId: fx.userId, tokenJti: 'jti-vlv', scopes: [] } as unknown as McpToolContext;
+    const text = (out: unknown) => (out as { content: { text: string }[] }).content[0]!.text;
+    const dry = JSON.parse(text(await inTx(fx, () => cancelSupplierInvoiceTool.handler(
+      { invoice_id: billId, idempotency_key: `dry-${companionId}`, dry_run: true }, ctx))));
+    expect(dry.late_claim_reversal).toMatchObject({ companion_entry_id: companionId, reversal_date: '2026-07-01' });
+    const live = JSON.parse(text(await inTx(fx, () => cancelSupplierInvoiceTool.handler(
+      { invoice_id: billId, idempotency_key: `live-${companionId}` }, ctx))));
+    expect(live.late_claim_reversal).toMatchObject({ companion_entry_id: companionId });
+    expect(await reversedAt(companionId)).not.toBeNull();
   });
 });
