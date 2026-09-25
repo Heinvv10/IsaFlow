@@ -127,3 +127,48 @@ Each mutation applied alone; both k086 integration files (withAuth, app_user, di
 ⎯⎯⎯⎯⎯⎯⎯ Failed Tests 1 ⎯⎯⎯⎯⎯⎯⎯
       Tests  1 failed | 35 passed (36)
 ```
+
+## Round 3 (after re-review: exact-cents helper for quantity and unitCost, typeof checks folded into Number.isFinite)
+Route unchanged since round 2, so its mutations above stand. Validator mutations, each alone; first line integration (adjacent file), second unit. V3 is caught only by the unit suite: the strict equality in the helper also refuses strings, so the route suite cannot tell isFinite apart.
+```
+### V1 quantity exact-cents check disabled
+   × a third decimal is refused before anything is written 44ms
+   × "NaN", a string quantity and a count with no unit cost are refused before anything is written 36ms
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 2 ⎯⎯⎯⎯⎯⎯⎯
+      Tests  2 failed | 12 passed (14)
+     × rejects a quantity Postgres would round differently from the route (K-086) 8ms
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 1 ⎯⎯⎯⎯⎯⎯⎯
+      Tests  1 failed | 35 passed (36)
+### V2 exact equality replaced by a 1e-6 tolerance
+   × a third decimal is refused before anything is written 51ms
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 1 ⎯⎯⎯⎯⎯⎯⎯
+      Tests  1 failed | 13 passed (14)
+     × rejects a quantity Postgres would round differently from the route (K-086) 11ms
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 1 ⎯⎯⎯⎯⎯⎯⎯
+      Tests  1 failed | 35 passed (36)
+### V3 isFinite dropped (strings coerced)
+      Tests  14 passed (14)
+     × rejects a quantity Postgres would round differently from the route (K-086) 7ms
+     × rejects a unit cost that is not a finite number of zero or more 1ms
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 2 ⎯⎯⎯⎯⎯⎯⎯
+      Tests  2 failed | 34 passed (36)
+### V4 unitCost exact-cents check disabled
+   × "NaN", a string quantity and a count with no unit cost are refused before anything is written 47ms
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 1 ⎯⎯⎯⎯⎯⎯⎯
+      Tests  1 failed | 13 passed (14)
+     × rejects a unit cost that is not a finite number of zero or more 6ms
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 1 ⎯⎯⎯⎯⎯⎯⎯
+      Tests  1 failed | 35 passed (36)
+### V5 negative unitCost allowed
+      Tests  14 passed (14)
+     × rejects a unit cost that is not a finite number of zero or more 10ms
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 1 ⎯⎯⎯⎯⎯⎯⎯
+      Tests  1 failed | 35 passed (36)
+### V6 unit cost no longer required for a count
+   × "NaN", a string quantity and a count with no unit cost are refused before anything is written 61ms
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 1 ⎯⎯⎯⎯⎯⎯⎯
+      Tests  1 failed | 13 passed (14)
+     × requires a unit cost for a stock count, as for an increase (K-086) 5ms
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 1 ⎯⎯⎯⎯⎯⎯⎯
+      Tests  1 failed | 35 passed (36)
+```

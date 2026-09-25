@@ -24,18 +24,22 @@ direct API call with a session or API token. The census below says whether anyon
   movement_type `count`, because `stockValuationService` treats that type as non-delta and leaves it
   out of quantity on hand. A count equal to the shelf moves nothing, so it writes no movement; the
   `stock_adjustments` row still records it.
-- `validateStockAdjustment` now refuses a quantity that is not a number, or that has more than
-  2 decimals. This check runs before the first write. A string `"NaN"` used to pass, because it is
-  truthy and not <= 0. `NUMERIC` stores NaN, and Postgres ranks NaN above 0, so
-  `CHECK (quantity > 0)` admitted it too. NaN would have been written into stock, the movement and
-  the adjustment, and into every valuation after them.
-- A `count` now requires `unitCost`, as `increase` already did. `unitCost` must be a finite number
-  of zero or more whenever it is given. The correction is what moves the valuation, which is costed
-  on the movement. Without a cost, shrinkage would leave at R0 and its value would stay on the
-  books. The columns are `NUMERIC(15,2)`, and Postgres
-  rounds `1.005` to `1.01` while JS float arithmetic gives `1.00`. The stored document and the stock
-  it set would then disagree, and that held for every adjustment type, not only `count`. With 2
-  decimals guaranteed, plain arithmetic in the route is exact at the columns' scale.
+- `validateStockAdjustment` now refuses a quantity that is not a finite number that is exactly a
+  whole number of cents. The test is `Math.round(x*100)/100 === x`, with no tolerance, and it runs
+  before the first write.
+  - **Why a third decimal is refused:** the columns are `NUMERIC(15,2)`. Postgres rounds `1.005` to
+    `1.01`, but JS float arithmetic gives `1.00`, so the stored document and the stock it set would
+    disagree. That held for every adjustment type, not only `count`.
+  - **Why no tolerance:** round 2 used a 1e-6 tolerance. That let `100.000000001` through, and it
+    became a `0.00` movement.
+  - **Why a string is refused:** a string `"NaN"` used to pass, because it is truthy and not <= 0.
+    `NUMERIC` stores NaN, and Postgres ranks NaN above 0, so `CHECK (quantity > 0)` admitted it too.
+    NaN would have reached stock, the movement, the adjustment and every valuation after them.
+  - With exact cents guaranteed, plain arithmetic in the route is exact at the columns' scale. An
+    exhaustive check of every 2-decimal value from 0 to 20 000 round-trips.
+- A `count` now requires `unitCost`, as `increase` already did. Whenever `unitCost` is given, it must
+  be exact cents and zero or more. A count's correction is what moves the valuation, which is costed
+  on the movement. Without a cost, shrinkage would leave at R0 and its value would stay on the books.
 - `increase` / `decrease` / `write_off` / `transfer` keep their delta semantics and the clamp at
   zero. The one change for them is that a sub-cent, string or NaN quantity, or a bad `unitCost`, is
   now refused (422).
@@ -104,5 +108,10 @@ have been set to it. The correction needs a human-decided count. Nothing is corr
    split: a `decrease` of 150 against 100 sets stock to 0 but books 150 out, so the movements imply
    -50. Refusing a decrease past zero instead would be Hein's call, and the refusal would have to
    come before the adjustment INSERT. All of this predates K-086.
-3. **`transfer` is booked as an `adjustment_out` delta**, with no destination warehouse, and
+3. **The caller sets the cost of a count's correction, and 0 is accepted.** A shrinkage count sent
+   with `unitCost: 0` removes its units at R0, so their value stays in the valuation. The
+   alternative is to cost outbound corrections at the product's own carrying cost, which the
+   `FOR UPDATE` read could supply. That is a valuation policy, and it is Hein's call. The same holds
+   for `decrease` and `write_off`, and predates K-086.
+4. **`transfer` is booked as an `adjustment_out` delta**, with no destination warehouse, and
    `stock_levels` (per warehouse) is not written by this route at all. Both predate K-086.

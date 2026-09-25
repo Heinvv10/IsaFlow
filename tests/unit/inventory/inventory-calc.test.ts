@@ -223,7 +223,7 @@ describe('Stock Adjustment Validation', () => {
   });
 
   it('rejects a quantity Postgres would round differently from the route (K-086)', () => {
-    for (const quantity of [1.005, 60.555, '10', 'NaN', Number.NaN, Number.POSITIVE_INFINITY]) {
+    for (const quantity of [1.005, 60.555, 100.000000001, 5.00000001, '10', 'NaN', Number.NaN, Number.POSITIVE_INFINITY]) {
       expect(validateStockAdjustment({ ...validAdjustment, quantity: quantity as never }).success).toBe(false);
     }
   });
@@ -234,14 +234,14 @@ describe('Stock Adjustment Validation', () => {
   });
 
   it('rejects a unit cost that is not a finite number of zero or more', () => {
-    for (const unitCost of ['NaN', Number.NaN, -1, '5', Number.POSITIVE_INFINITY]) {
+    for (const unitCost of ['NaN', Number.NaN, -1, '5', Number.POSITIVE_INFINITY, 1.005, 0.004]) {
       expect(validateStockAdjustment({ ...validAdjustment, adjustmentType: 'decrease', unitCost: unitCost as never }).success).toBe(false);
     }
     expect(validateStockAdjustment({ ...validAdjustment, adjustmentType: 'decrease', unitCost: undefined }).success).toBe(true);
   });
 
   it('accepts two decimals, including ones binary floats cannot hold exactly', () => {
-    for (const quantity of [0.01, 1.1, 60.3, 1.15, 99999.99]) {
+    for (const quantity of [0.01, 0.07, 1.1, 60.3, 60.35, 1.15, 4.35, 99999.99, 9999999999999.99]) {
       expect(validateStockAdjustment({ ...validAdjustment, quantity }).success).toBe(true);
     }
   });

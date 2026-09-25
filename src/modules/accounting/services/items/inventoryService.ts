@@ -160,6 +160,17 @@ export function validateProduct(input: ProductInput): ValidationResult {
   return { success: errors.length === 0, ...(errors.length > 0 ? { errors } : {}) };
 }
 
+/**
+ * A finite number that is EXACTLY some whole number of cents. Number.isFinite
+ * does not coerce, so a string ("NaN", "60") is refused. The equality is
+ * exact, not a tolerance: 100.000000001 is refused, where a 1e-6 tolerance let
+ * it through to a 0.00 movement. Every 2-decimal literal JSON can carry
+ * round-trips through Math.round(x * 100) / 100 unchanged.
+ */
+function isTwoDecimalAmount(x: unknown): x is number {
+  return Number.isFinite(x) && Math.round((x as number) * 100) / 100 === x;
+}
+
 export function validateStockAdjustment(input: StockAdjustmentInput): ValidationResult {
   const errors: Array<{ field: string; message: string }> = [];
   if (!input.productId || input.productId.trim() === '') errors.push({ field: 'productId', message: 'Product ID is required' });
@@ -169,8 +180,7 @@ export function validateStockAdjustment(input: StockAdjustmentInput): Validation
   // document from the stock it set. A string must not pass either: "NaN"
   // is truthy, is not <= 0, and NUMERIC stores NaN (which Postgres ranks
   // above 0, so CHECK (quantity > 0) admits it) — it would poison stock.
-  else if (typeof input.quantity !== 'number' || !Number.isFinite(input.quantity)
-    || Math.abs(input.quantity * 100 - Math.round(input.quantity * 100)) > 1e-6) {
+  else if (!isTwoDecimalAmount(input.quantity)) {
     errors.push({ field: 'quantity', message: 'Quantity must be a number with at most 2 decimals' });
   }
   if (!input.reason || input.reason.trim() === '') errors.push({ field: 'reason', message: 'Reason is required' });
@@ -181,8 +191,8 @@ export function validateStockAdjustment(input: StockAdjustmentInput): Validation
   // value would stay on the books (K-086).
   else if (input.adjustmentType === 'count' && (input.unitCost === undefined || input.unitCost === null)) errors.push({ field: 'unitCost', message: 'Unit cost is required for a stock count' });
   else if (input.unitCost !== undefined && input.unitCost !== null
-    && (typeof input.unitCost !== 'number' || !Number.isFinite(input.unitCost) || input.unitCost < 0)) {
-    errors.push({ field: 'unitCost', message: 'Unit cost must be a number of zero or more' });
+    && (!isTwoDecimalAmount(input.unitCost) || input.unitCost < 0)) {
+    errors.push({ field: 'unitCost', message: 'Unit cost must be a number of zero or more with at most 2 decimals' });
   }
   return { success: errors.length === 0, ...(errors.length > 0 ? { errors } : {}) };
 }
