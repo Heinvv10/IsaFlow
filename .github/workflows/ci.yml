@@ -26,8 +26,11 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
+      # --ignore-scripts: bun install otherwise runs lifecycle scripts of the
+      # root, workspace members and trusted dependencies, any of which could
+      # rewrite scripts/ci/run-ci.sh before the gate runs (R-052).
       - name: Install dependencies
-        run: bun install --frozen-lockfile
+        run: bun install --frozen-lockfile --ignore-scripts
 
       # The gate list lives in ONE place: scripts/ci/run-ci.sh. This job used
       # to hand-list five of its steps, so every gate added to run-ci.sh after

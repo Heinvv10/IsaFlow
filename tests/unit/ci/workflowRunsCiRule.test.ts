@@ -32,7 +32,9 @@ const GATE_STEP = [
   '',
 ].join('\n');
 // The install step appears in both jobs; the gate comment makes this quality's.
-const QUALITY_INSTALL = '      - name: Install dependencies\n        run: bun install --frozen-lockfile\n\n      # The gate list';
+const QUALITY_INSTALL = '      - name: Install dependencies\n        run: bun install --frozen-lockfile --ignore-scripts\n\n      # The gate list';
+// Unique to quality: the --ignore-scripts comment follows its checkout.
+const QUALITY_CHECKOUT = '      - uses: actions/checkout@v4\n\n      # --ignore-scripts';
 const QUALITY_HEADER = '  quality:\n    name: Type Check, Lint & Test\n';
 
 describe('the committed workflow', () => {
@@ -51,11 +53,12 @@ describe('refuses every way found to keep the job green while skipping gates', (
     ['if: false on the job', edit(QUALITY_HEADER, `${QUALITY_HEADER}    if: false\n`)],
     ['shell override prints instead of running', edit(GATE_LINE, `${GATE_LINE}        shell: cat {0}\n`)],
     ['CI_SKIP_BUILD in the step env drops the build', edit('          NODE_ENV: test\n', '          NODE_ENV: test\n          CI_SKIP_BUILD: "1"\n')],
-    ['an earlier step rewrites run-ci.sh', edit(QUALITY_INSTALL, QUALITY_INSTALL.replace('--frozen-lockfile', '--frozen-lockfile && printf "exit 0\\n" > scripts/ci/run-ci.sh'))],
+    ['an earlier step rewrites run-ci.sh', edit(QUALITY_INSTALL, QUALITY_INSTALL.replace('--ignore-scripts', '--ignore-scripts && printf "exit 0\\n" > scripts/ci/run-ci.sh'))],
+    ['install without --ignore-scripts (root, workspace-member and trusted-dependency lifecycle scripts run and can rewrite run-ci.sh)', edit(QUALITY_INSTALL, QUALITY_INSTALL.replace(' --ignore-scripts', ''))],
     ['an extra step before the gate', edit(QUALITY_INSTALL, `      - run: echo hi\n${QUALITY_INSTALL}`)],
     ['a step after the gate (e.g. one that always reports success)', edit(GATE_STEP, `${GATE_STEP}      - run: exit 0\n`)],
-    ['checkout pinned to another ref', edit('      - uses: actions/checkout@v4\n\n      - name: Install dependencies\n        run: bun install --frozen-lockfile\n\n      # The gate list', '      - uses: actions/checkout@v4\n        with:\n          ref: master\n\n      - name: Install dependencies\n        run: bun install --frozen-lockfile\n\n      # The gate list')],
-    ['checkout swapped for another action', edit('      - uses: actions/checkout@v4\n\n      - name: Install dependencies\n        run: bun install --frozen-lockfile\n\n      # The gate list', '      - uses: someone/checkout@v4\n\n      - name: Install dependencies\n        run: bun install --frozen-lockfile\n\n      # The gate list')],
+    ['checkout pinned to another ref', edit(QUALITY_CHECKOUT, QUALITY_CHECKOUT.replace('@v4\n', '@v4\n        with:\n          ref: master\n'))],
+    ['checkout swapped for another action', edit(QUALITY_CHECKOUT, QUALITY_CHECKOUT.replace('actions/checkout', 'someone/checkout'))],
     ['pull_request trigger removed', edit('  pull_request:\n    branches: [master]\n', '')],
     ['paths-ignore on pull_request', edit('  pull_request:\n    branches: [master]\n', '  pull_request:\n    branches: [master]\n    paths-ignore: ["**"]\n')],
     ['pull_request retargeted away from master', edit('  pull_request:\n    branches: [master]\n', '  pull_request:\n    branches: [release]\n')],
@@ -90,16 +93,12 @@ describe('refuses every way found to keep the job green while skipping gates', (
     expect(checkWorkflowRunsCi(load(REAL), undefined).length).toBeGreaterThan(0);
   });
 
-  it.each(['preci', 'postci', 'preinstall', 'install', 'postinstall', 'preprepare', 'postprepare'])(
-    'a %s lifecycle script, which bun runs around install or ci and could rewrite run-ci.sh',
+  it.each(['preci', 'postci'])(
+    'a %s script, which `bun run ci` itself runs around the gate and could rewrite run-ci.sh',
     (hook) => {
       expect(check(REAL, { ...SCRIPTS, [hook]: "printf 'exit 0' > scripts/ci/run-ci.sh" }).length).toBeGreaterThan(0);
     },
   );
-
-  it('prepare repointed (it runs inside the allowed bun install)', () => {
-    expect(check(REAL, { ...SCRIPTS, prepare: "printf 'exit 0' > scripts/ci/run-ci.sh" }).length).toBeGreaterThan(0);
-  });
 
   it("branches: [master, '!master'], which GitHub reads as excluding master", () => {
     expect(check(edit('  pull_request:\n    branches: [master]\n', "  pull_request:\n    branches: [master, '!master']\n")).length).toBeGreaterThan(0);

@@ -15,9 +15,11 @@
  *   - dropping the pull_request trigger, or adding `paths-ignore`;
  *   - a quoted `"continue-on-error"`;
  *   - the line parked in a decoy job.
- * Round-2 review found three more: a `preci`/`postinstall` script rewriting
- * run-ci.sh, `branches: [master, '!master']`, and a `runs-on` label no runner
- * has (queued forever, never red). All are refused below.
+ * Later rounds found more: install lifecycle scripts (root, workspace member
+ * or trusted dependency) rewriting run-ci.sh, which the install step's
+ * `--ignore-scripts` closes as a class; `preci`/`postci`, which `bun run ci`
+ * itself runs; `branches: [master, '!master']`; and a `runs-on` label no
+ * runner has (queued forever, never red). All are refused below.
  * Any search admits the shape it did not think of. So the `quality` job, its
  * triggers and package.json's `ci` script are compared against the ONE shape
  * that is known to run every gate, and anything else is refused. To change
@@ -29,8 +31,8 @@
  *     and the pre-push hook.
  *   - It cannot make a red check block a merge. The repo has no required
  *     status checks; see docs/audits/remediation/R-052/fix.md.
- *   - It does not read run-ci.sh, or install-hooks.sh (which `prepare` runs).
- *     An edit there that skips a gate is a code-review matter.
+ *   - It does not read run-ci.sh. An edit there that skips a gate is a
+ *     code-review matter.
  *   - It cannot protect the runner. The self-hosted runner persists between
  *     jobs and its user owns ~/.bun/bin, so any job (golden-paths, another
  *     workflow) could replace bun for every later run. A bunfig.toml preload
@@ -39,13 +41,11 @@
 
 export const QUALITY_JOB = 'quality';
 export const CI_SCRIPT = 'bash scripts/ci/run-ci.sh';
-/** Runs inside the allowed `bun install`; pinned so it cannot be repointed. */
-export const PREPARE_SCRIPT = 'bash scripts/ci/install-hooks.sh || true';
-/** Lifecycle scripts `bun install` or `bun run ci` would run before or after the gate. */
-const FORBIDDEN_SCRIPTS = ['preci', 'postci', 'preinstall', 'install', 'postinstall', 'preprepare', 'postprepare'];
+/** `bun run ci` runs these around the gate; install hooks are off via --ignore-scripts. */
+const FORBIDDEN_SCRIPTS = ['preci', 'postci'];
 const RUNS_ON = ['self-hosted', 'linux', 'velo'];
 const CHECKOUT = /^actions\/checkout@v\d+$/;
-const INSTALL = 'bun install --frozen-lockfile';
+const INSTALL = 'bun install --frozen-lockfile --ignore-scripts';
 const RUN_CI = 'bun run ci';
 /** The only env the gate step may set. CI_SKIP_BUILD / SKIP_CI would drop gates silently. */
 const GATE_ENV = new Set(['DATABASE_URL', 'JWT_SECRET', 'NODE_ENV']);
@@ -84,9 +84,6 @@ export function checkWorkflowRunsCi(workflow: unknown, scripts: unknown): string
   if (pkg.ci !== CI_SCRIPT) {
     errors.push(`package.json scripts.ci must be exactly "${CI_SCRIPT}" (it is ${JSON.stringify(pkg.ci)})`);
   }
-  if (pkg.prepare !== PREPARE_SCRIPT) {
-    errors.push(`package.json scripts.prepare must be exactly "${PREPARE_SCRIPT}"; it runs inside the gate job's install`);
-  }
   const lifecycle = FORBIDDEN_SCRIPTS.filter((k) => k in pkg);
   if (lifecycle.length) errors.push(`package.json sets ${lifecycle.join(', ')}; these run around the gate and could rewrite it`);
   if (!isObj(workflow)) return [...errors, 'ci.yml is not a YAML mapping'];
@@ -122,7 +119,7 @@ export function checkWorkflowRunsCi(workflow: unknown, scripts: unknown): string
     errors.push('step 1 must be only `uses: actions/checkout@vN`');
   }
   if (!isObj(install) || extraKeys(install, ['name', 'run']).length || install.run !== INSTALL) {
-    errors.push(`step 2 must be only \`run: ${INSTALL}\` (a step before the gate can rewrite what it runs)`);
+    errors.push(`step 2 must be only \`run: ${INSTALL}\` (install scripts or a step before the gate can rewrite what it runs)`);
   }
   if (!isObj(gate) || extraKeys(gate, ['name', 'run', 'env']).length || typeof gate.run !== 'string' || gate.run.trim() !== RUN_CI) {
     errors.push(`step 3 must be only \`run: ${RUN_CI}\` (+ name, env); if/shell/continue-on-error/working-directory are refused`);
