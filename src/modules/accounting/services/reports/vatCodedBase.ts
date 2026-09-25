@@ -22,8 +22,9 @@
  */
 import { classifyVatJournalLine, RATE_CHECK_TOLERANCE, type VatLineInput } from './vatBoxBasis';
 
+// Not exported: no caller outside this file reads it (checked 2026-09-25).
 /** Codes that put a supply in a box at nil tax: not part of the base the 15% check is run on. */
-export const UNTAXED_VAT_CODES: readonly string[] = ['zero_rated', 'export', 'exempt', 'no_vat'];
+const UNTAXED_VAT_CODES: readonly string[] = ['zero_rated', 'export', 'exempt', 'no_vat'];
 
 /** A code that carries tax (standard, capital_goods, imported, …). NULL is uncoded, not taxed. */
 export function isTaxedVatCode(vatType: string | null): boolean {

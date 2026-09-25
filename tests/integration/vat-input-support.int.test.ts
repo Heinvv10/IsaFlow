@@ -144,12 +144,36 @@ describeIfDb('pre-filing exceptions: input-VAT support', () => {
     expect(evaluateEfilingGate(r)).toEqual({ allowed: true, reason: null });
   });
 
+  it('a PARTIAL supplier credit note (less than the original bill\'s VAT) is still supported', async () => {
+    const bill = await draftBill(fx, '2026-07-24');
+    await inTx(fx, () => approveSupplierInvoice(fx.companyId, bill.id, fx.userId));
+    // The bill claims R150; this credit note reverses only R50 of it — a
+    // genuine partial credit, not a mismatch, because its own reduction
+    // matches its own tax exactly. The bill's chain is excluded from this
+    // query (findInputVatSupport looks only at non-bill chains); the credit
+    // note's OWN chain is what is classified here.
+    const pcn = await inTx(fx, () => createCreditNote(fx.companyId,
+      { type: 'supplier', supplierId: fx.supplierId, creditDate: '2026-07-24', subtotal: 333.33, taxRate: 15 },
+      fx.userId));
+    await inTx(fx, () => approveCreditNote(fx.companyId, pcn.id, fx.userId));
+    const r = await report();
+    expect(r.unsupportedInputVat).toEqual([]);
+    expect(r.totalExceptions).toBe(0);
+    expect(evaluateEfilingGate(r)).toEqual({ allowed: true, reason: null });
+  });
+
+  // Captured directly from the journal this test posts — never re-derived by
+  // reading it back out of a later report(), so the two tests below do not
+  // depend on running (or having run) straight after this one.
+  let manualBareJe = '';
+
   it('a bare manual VAT journal is exactly one blocking unsupportedInputVat, and the gate refuses', async () => {
     const je = await postJournal('2026-07-25', 'manual', [
       { glAccountId: fx.expenseId, debit: 100, credit: 0, description: 'no document', vatType: 'standard' },
       { glAccountId: fx.vatInputId, debit: 15, credit: 0, description: 'VAT', vatType: 'standard' },
       { glAccountId: fx.bankAccountId, debit: 0, credit: 115, description: 'paid' },
     ]);
+    manualBareJe = je;
     const r = await report();
     expect(r.unsupportedInputVat.map((l) => [l.journalEntryId, l.reason, l.claimedVat])).toEqual([[je, 'no_document', 15]]);
     expect(r.unsupportedInputVatCount).toBe(1);
@@ -165,20 +189,18 @@ describeIfDb('pre-filing exceptions: input-VAT support', () => {
     { glAccountId: fx.vatInputId, debit: 15, credit: 0, description: 'VAT', vatType: 'standard' as const },
     { glAccountId: fx.bankAccountId, debit: 0, credit: 115, description: 'paid' },
   ];
-  let bareJe = '';
   it('a claim reversed in the same period is not unsupported', async () => {
-    bareJe = (await report()).unsupportedInputVat[0]!.journalEntryId;
     const je = await postJournal('2026-07-26', 'manual', bareVat());
     await inTx(fx, () => reverseJournalEntry(fx.companyId, je, fx.userId));
     const r = await report();
-    expect(r.unsupportedInputVat.map((l) => l.journalEntryId)).toEqual([bareJe]);
+    expect(r.unsupportedInputVat.map((l) => l.journalEntryId)).toEqual([manualBareJe]);
   });
 
   it('a claim reversed only in a LATER period still blocks in its own period', async () => {
     const je = await postJournal('2026-07-27', 'manual', bareVat());
     await inTx(fx, () => reverseJournalEntry(fx.companyId, je, fx.userId, { reversalDate: '2026-09-02' }));
     const r = await report();
-    expect(r.unsupportedInputVat.map((l) => l.journalEntryId)).toEqual([bareJe, je]);
+    expect(r.unsupportedInputVat.map((l) => l.journalEntryId)).toEqual([manualBareJe, je]);
     const sep = await inTx(fx, () => getVatExceptions(fx.companyId, '2026-09-01', '2026-10-31'));
     expect(sep.unsupportedInputVat).toEqual([]); // the reversal alone is a reduction, never a claim
   });
