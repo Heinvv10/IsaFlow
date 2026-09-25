@@ -25,7 +25,9 @@
 import { sql, withSavepoint } from '@/lib/neon';
 import { log } from '@/lib/logger';
 import type { JournalEntry } from '../../types/gl.types';
-import { createJournalEntry } from './journalEntryCrudService';
+import { fmtDate } from '@/lib/fmtDate';
+import { createJournalEntry, getJournalEntryById } from './journalEntryCrudService';
+import { resolveReversalDateDetailed, type VatLockRoll } from './journalEntryReversalDate';
 import { assertJournalVatPeriodOpen, loadJournalVatLines } from './journalVatLockGuard';
 import { getSystemAccountId } from './systemAccountResolver';
 import type { JournalEntryMeta } from './journalEntryMeta';
@@ -130,4 +132,48 @@ export async function applyLateClaimSplit(
     log.info('Late input VAT claim split', { originalId: entry.id, companionId: companion.id, ...lateClaim }, 'accounting');
     return { ...posted, lateClaim };
   });
+}
+
+/**
+ * A companion is reversed WITH its original, never alone: reversing it by
+ * itself would put the claimed VAT back on the clearing account with nothing
+ * left to clear it. Code-less, so every route and the MCP boundary surface the
+ * message as the caller's refusal.
+ */
+export class LateClaimCompanionReversalError extends Error {
+  constructor(entryNumber: string) {
+    super(`${entryNumber} is the late input-VAT claim of another journal and cannot be reversed on its own. `
+      + 'Reverse the original journal (or cancel its document): its late claim is reversed with it.');
+    this.name = 'LateClaimCompanionReversalError';
+  }
+}
+
+export interface CompanionReversalPlan {
+  id: string;
+  entryNumber: string;
+  /** The companion's own default reversal date, rolled past any locked VAT period. */
+  reversalDate: string;
+  vatLockRoll: VatLockRoll | null;
+}
+
+/**
+ * The posted, unreversed late-claim companion of `originalId`, and the date its
+ * reversal will take — resolved exactly as reverseJournalEntry will, BEFORE
+ * any write, so a companion that cannot be reversed refuses the original's
+ * reversal (and a bill cancel) while nothing has been written. Null when the
+ * journal has no live companion.
+ */
+export async function planLateClaimCompanionReversal(
+  companyId: string, originalId: string,
+): Promise<CompanionReversalPlan | null> {
+  const [row] = (await sql`
+    SELECT id FROM gl_journal_entries
+    WHERE company_id = ${companyId}::UUID AND late_claim_of_id = ${originalId}::UUID
+      AND status = 'posted' AND reversed_at IS NULL`) as Row[];
+  if (!row) return null;
+  const companion = await getJournalEntryById(companyId, String(row.id));
+  if (!companion) return null;
+  const { date, vatLockRoll } = await resolveReversalDateDetailed(
+    companyId, fmtDate(companion.entryDate), undefined, companion.lines);
+  return { id: companion.id, entryNumber: companion.entryNumber, reversalDate: date, vatLockRoll };
 }
