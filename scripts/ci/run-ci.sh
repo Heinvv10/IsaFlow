@@ -20,6 +20,11 @@ run_step() {
   fi
 }
 
+# A bunfig.toml `preload` runs before every bun process, so one that calls
+# process.exit(0) would pass every gate below that runs under bun, the
+# workflow-runs-ci check included. Checked in bash for that reason; the repo
+# has no bunfig.toml, and adding one means changing this line in review (R-052).
+run_step "no-bunfig"         test ! -e bunfig.toml
 run_step "type-check"        bun run type-check
 run_step "lint"              bun run lint
 run_step "agent-docs"        bun run agent-docs:check

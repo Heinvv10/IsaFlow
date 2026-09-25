@@ -37,19 +37,26 @@ locally. On GitHub every job passed and `mergeStateStatus` was `CLEAN`.
   now includes the production build. `green.log` gives the measured duration.
 - **A new gate, `workflow-runs-ci`.** It is `scripts/ci/check-workflow-runs-ci.ts`, with the rule in
   `workflowRunsCiRule.ts`. It parses ci.yml and requires one exact shape:
-  - **Triggers:** `on.push` and `on.pull_request` target master, with no paths or types filter.
+  - **Triggers:** `on.push` and `on.pull_request` have branches exactly `[master]`, with no paths or
+    types filter. A later `'!master'` would exclude master again.
   - **Top level:** no workflow-level `env` or `defaults`.
   - **The `quality` job** has only `name`, `runs-on`, `timeout-minutes` and `steps`. So there is no
-    job-level `if`, `continue-on-error`, `env`, `defaults` or `strategy`.
+    job-level `if`, `continue-on-error`, `env`, `defaults` or `strategy`. `runs-on` is exactly
+    `[self-hosted, linux, velo]`: an unknown label queues forever and never goes red.
   - **Steps:** exactly three:
     1. checkout, with no `with`;
     2. `bun install --frozen-lockfile`;
     3. `bun run ci`, with only `name` and an env limited to `DATABASE_URL`, `JWT_SECRET` and
        `NODE_ENV`.
-  - **package.json:** `scripts.ci` is exactly `bash scripts/ci/run-ci.sh`.
+  - **package.json:**
+    - `scripts.ci` is exactly `bash scripts/ci/run-ci.sh`.
+    - `prepare`, which runs inside the allowed `bun install`, is pinned to its current value.
+    - There are no `preci`, `postci`, `preinstall`, `install`, `postinstall`, `preprepare` or
+      `postprepare` scripts. Bun runs these around the gate, so they could rewrite it.
 
   Anything else is refused, and changing the job means changing the rule in the same PR. The first
-  version grepped for the line instead. Blind review got nine edits past that grep. Every one of them
+  version grepped for the line instead. Blind review got nine edits past that grep, and three more
+  past the first parsed version. Every one of them
   is a case in `tests/unit/ci/workflowRunsCiRule.test.ts`, and each is refused.
 - `js-yaml` 4.1.1 was already in the lockfile, pulled in through `@eslint/eslintrc`. It is now a
   declared devDependency, so the gate doesn't rest on a transitive dependency.
@@ -87,8 +94,20 @@ locally. On GitHub every job passed and `mergeStateStatus` was `CLEAN`.
 
    The shared fixture `isaflow_schema_fixture` is used by parallel sessions, so pointing the runner
    at it would add a writer. A per-run database is an infrastructure decision.
-4. **run-ci.sh itself is not guarded.** An edit there that drops or skips a gate is left to code
-   review.
+4. **run-ci.sh and `scripts/ci/install-hooks.sh` are not guarded.** `install-hooks.sh` runs via
+   `prepare`. An edit to either that drops or skips a gate is left to code review.
+5. **The runner is persistent and trusts itself.** IsaFlow has one self-hosted runner
+   (`velo-server-u`, user `gha-isaflow`). That user owns `~/.bun/bin`. Any job that runs there, such
+   as `golden-paths` or another workflow file, could replace `bun` with a binary that exits 0, and
+   the replacement would stay for every later run. The rule only constrains `jobs.quality`. Closing
+   this needs one of:
+   - an ephemeral runner;
+   - a quality job that checks bun against a pinned hash.
+
+   Both are infrastructure decisions.
+6. **A `bunfig.toml` `preload`** runs before every bun process, so it could exit 0 ahead of each gate.
+   A new first gate refuses it: `no-bunfig`, a bash `test ! -e bunfig.toml` in run-ci.sh, which bun
+   cannot preload into.
 
 ## Historical impact
 

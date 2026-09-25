@@ -7,13 +7,14 @@
 import { readFileSync } from 'node:fs';
 import { describe, it, expect } from 'vitest';
 import { load } from 'js-yaml';
-import { checkWorkflowRunsCi, CI_SCRIPT } from '../../../scripts/ci/workflowRunsCiRule';
+import { checkWorkflowRunsCi } from '../../../scripts/ci/workflowRunsCiRule';
 
 const REAL = readFileSync('.github/workflows/ci.yml', 'utf8');
+const SCRIPTS = (JSON.parse(readFileSync('package.json', 'utf8')) as { scripts: Record<string, string> }).scripts;
 const GATE_LINE = '        run: bun run ci\n';
 
-function check(yamlText: string, ciScript: unknown = CI_SCRIPT): string[] {
-  return checkWorkflowRunsCi(load(yamlText), ciScript);
+function check(yamlText: string, scripts: unknown = SCRIPTS): string[] {
+  return checkWorkflowRunsCi(load(yamlText), scripts);
 }
 
 function edit(from: string, to: string): string {
@@ -85,8 +86,28 @@ describe('refuses every way found to keep the job green while skipping gates', (
   });
 
   it('package.json `ci` turned into a no-op', () => {
-    expect(check(REAL, 'true').length).toBeGreaterThan(0);
+    expect(check(REAL, { ...SCRIPTS, ci: 'true' }).length).toBeGreaterThan(0);
     expect(checkWorkflowRunsCi(load(REAL), undefined).length).toBeGreaterThan(0);
+  });
+
+  it.each(['preci', 'postci', 'preinstall', 'install', 'postinstall', 'preprepare', 'postprepare'])(
+    'a %s lifecycle script, which bun runs around install or ci and could rewrite run-ci.sh',
+    (hook) => {
+      expect(check(REAL, { ...SCRIPTS, [hook]: "printf 'exit 0' > scripts/ci/run-ci.sh" }).length).toBeGreaterThan(0);
+    },
+  );
+
+  it('prepare repointed (it runs inside the allowed bun install)', () => {
+    expect(check(REAL, { ...SCRIPTS, prepare: "printf 'exit 0' > scripts/ci/run-ci.sh" }).length).toBeGreaterThan(0);
+  });
+
+  it("branches: [master, '!master'], which GitHub reads as excluding master", () => {
+    expect(check(edit('  pull_request:\n    branches: [master]\n', "  pull_request:\n    branches: [master, '!master']\n")).length).toBeGreaterThan(0);
+    expect(check(edit('  push:\n    branches: [master]\n', "  push:\n    branches: [master, '!master']\n")).length).toBeGreaterThan(0);
+  });
+
+  it('runs-on a label no runner has, so the job queues forever and never goes red', () => {
+    expect(check(edit(`${QUALITY_HEADER}    runs-on: [self-hosted, linux, velo]\n`, `${QUALITY_HEADER}    runs-on: [nonexistent-label]\n`)).length).toBeGreaterThan(0);
   });
 
   it('the quality job removed or renamed', () => {

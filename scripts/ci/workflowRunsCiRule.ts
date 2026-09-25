@@ -15,6 +15,9 @@
  *   - dropping the pull_request trigger, or adding `paths-ignore`;
  *   - a quoted `"continue-on-error"`;
  *   - the line parked in a decoy job.
+ * Round-2 review found three more: a `preci`/`postinstall` script rewriting
+ * run-ci.sh, `branches: [master, '!master']`, and a `runs-on` label no runner
+ * has (queued forever, never red). All are refused below.
  * Any search admits the shape it did not think of. So the `quality` job, its
  * triggers and package.json's `ci` script are compared against the ONE shape
  * that is known to run every gate, and anything else is refused. To change
@@ -26,12 +29,21 @@
  *     and the pre-push hook.
  *   - It cannot make a red check block a merge. The repo has no required
  *     status checks; see docs/audits/remediation/R-052/fix.md.
- *   - It does not read run-ci.sh itself. An edit there that skips a gate is a
- *     code-review matter.
+ *   - It does not read run-ci.sh, or install-hooks.sh (which `prepare` runs).
+ *     An edit there that skips a gate is a code-review matter.
+ *   - It cannot protect the runner. The self-hosted runner persists between
+ *     jobs and its user owns ~/.bun/bin, so any job (golden-paths, another
+ *     workflow) could replace bun for every later run. A bunfig.toml preload
+ *     is refused by run-ci.sh's `no-bunfig` step, in bash, not here.
  */
 
 export const QUALITY_JOB = 'quality';
 export const CI_SCRIPT = 'bash scripts/ci/run-ci.sh';
+/** Runs inside the allowed `bun install`; pinned so it cannot be repointed. */
+export const PREPARE_SCRIPT = 'bash scripts/ci/install-hooks.sh || true';
+/** Lifecycle scripts `bun install` or `bun run ci` would run before or after the gate. */
+const FORBIDDEN_SCRIPTS = ['preci', 'postci', 'preinstall', 'install', 'postinstall', 'preprepare', 'postprepare'];
+const RUNS_ON = ['self-hosted', 'linux', 'velo'];
 const CHECKOUT = /^actions\/checkout@v\d+$/;
 const INSTALL = 'bun install --frozen-lockfile';
 const RUN_CI = 'bun run ci';
@@ -40,6 +52,10 @@ const GATE_ENV = new Set(['DATABASE_URL', 'JWT_SECRET', 'NODE_ENV']);
 
 type Obj = Record<string, unknown>;
 const isObj = (v: unknown): v is Obj => typeof v === 'object' && v !== null && !Array.isArray(v);
+
+function sameList(v: unknown, want: string[]): boolean {
+  return Array.isArray(v) && v.length === want.length && v.every((x, i) => x === want[i]);
+}
 
 function extraKeys(o: Obj, allowed: string[]): string[] {
   return Object.keys(o).filter((k) => !allowed.includes(k));
@@ -53,22 +69,26 @@ function checkTrigger(on: Obj, event: string, errors: string[]): void {
   }
   const extra = extraKeys(t, ['branches']);
   if (extra.length) errors.push(`on.${event} sets ${extra.join(', ')}; only \`branches\` is allowed (paths/types filters skip the gate)`);
-  const branches = t.branches;
-  if (!Array.isArray(branches) || !branches.includes('master')) {
-    errors.push(`on.${event}.branches must include master`);
-  }
+  // Exactly [master]: GitHub reads a later '!master' as excluding it again.
+  if (!sameList(t.branches, ['master'])) errors.push(`on.${event}.branches must be exactly [master]`);
 }
 
 /**
  * @param workflow ci.yml as parsed by js-yaml (YAML 1.2, so `on` stays a string key)
- * @param ciScript package.json `scripts.ci`
+ * @param scripts package.json `scripts`
  * @returns one message per violation; empty means the workflow runs every gate
  */
-export function checkWorkflowRunsCi(workflow: unknown, ciScript: unknown): string[] {
+export function checkWorkflowRunsCi(workflow: unknown, scripts: unknown): string[] {
   const errors: string[] = [];
-  if (ciScript !== CI_SCRIPT) {
-    errors.push(`package.json scripts.ci must be exactly "${CI_SCRIPT}" (it is ${JSON.stringify(ciScript)})`);
+  const pkg = isObj(scripts) ? scripts : {};
+  if (pkg.ci !== CI_SCRIPT) {
+    errors.push(`package.json scripts.ci must be exactly "${CI_SCRIPT}" (it is ${JSON.stringify(pkg.ci)})`);
   }
+  if (pkg.prepare !== PREPARE_SCRIPT) {
+    errors.push(`package.json scripts.prepare must be exactly "${PREPARE_SCRIPT}"; it runs inside the gate job's install`);
+  }
+  const lifecycle = FORBIDDEN_SCRIPTS.filter((k) => k in pkg);
+  if (lifecycle.length) errors.push(`package.json sets ${lifecycle.join(', ')}; these run around the gate and could rewrite it`);
   if (!isObj(workflow)) return [...errors, 'ci.yml is not a YAML mapping'];
 
   const topExtra = extraKeys(workflow, ['name', 'on', 'concurrency', 'permissions', 'jobs']);
@@ -87,6 +107,10 @@ export function checkWorkflowRunsCi(workflow: unknown, ciScript: unknown): strin
 
   const jobExtra = extraKeys(job, ['name', 'runs-on', 'timeout-minutes', 'steps']);
   if (jobExtra.length) errors.push(`jobs.${QUALITY_JOB} sets ${jobExtra.join(', ')}; if/continue-on-error/defaults/env/strategy can skip or neutralise the gate`);
+
+  if (!sameList(job['runs-on'], RUNS_ON)) {
+    errors.push(`jobs.${QUALITY_JOB}.runs-on must be exactly [${RUNS_ON.join(', ')}]; an unknown label queues forever and never goes red`);
+  }
 
   const steps = job.steps;
   if (!Array.isArray(steps) || steps.length !== 3) {
