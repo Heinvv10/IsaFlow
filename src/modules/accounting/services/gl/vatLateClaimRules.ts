@@ -15,6 +15,7 @@
 import {
   RATE_CHECK_TOLERANCE, SA_VAT_RATE, classifyVatJournalLine, deriveVatBoxes, type VatLineInput,
 } from '../reports/vatBoxBasis';
+import { applyCodedBaseRule, isTaxedVatCode } from '../reports/vatCodedBase';
 import { classifyNonSupplyAccount, claimsVat } from './nonSupplyAccounts';
 
 /** One journal line with the account facts the rules need. */
@@ -41,9 +42,6 @@ export type LateClaimVerdict =
   | { claimable: true; inputTax: number }
   | { claimable: false; reason: LateClaimRefusalReason | null };
 
-/** Codes that put a supply in a box at nil tax: not part of the base the 15% check is run on. */
-const UNTAXED_CODES: readonly string[] = ['zero_rated', 'export', 'exempt', 'no_vat'];
-
 function r2(n: number): number {
   return Math.round(n * 100) / 100;
 }
@@ -67,7 +65,8 @@ function toVatLine(l: LateClaimLine, i: number): VatLineInput {
  * counts it (reports/vatLateClaimBasis).
  */
 export function lateClaimBases(lines: readonly LateClaimLine[]): number[] {
-  const boxes = deriveVatBoxes(lines.map(toVatLine)).boxes;
+  // The coded-base rule, exactly as the VAT201 applies it on time (vatCodedBase).
+  const boxes = deriveVatBoxes(applyCodedBaseRule(lines.map(toVatLine))).boxes;
   const taxLines = lines
     .map((l, i) => ({ c: classifyVatJournalLine(toVatLine(l, i)), l }))
     .filter(({ c, l }) => c.role === 'tax' && c.direction === 'input' && l.debit > 0)
@@ -100,9 +99,6 @@ export function qualifiesForLateClaim(lines: readonly LateClaimLine[]): LateClai
   let unplaceable = false;
   let nonSupply = false;
   let baseLines = 0;
-  let base = 0;        // every base line — the VAT201's own base for the journal
-  let codedBase = 0;   // base lines carrying a tax-bearing code
-  let codedLines = 0;
   for (const l of lines) {
     const c = classifyVatJournalLine(toVatLine(l, 0));
     const tagged = l.vatType !== null && l.vatType !== 'no_vat';
@@ -117,10 +113,6 @@ export function qualifiesForLateClaim(lines: readonly LateClaimLine[]): LateClai
       unplaceable = true;
     } else if (c.role === 'base') {
       baseLines++;
-      base = r2(base + l.debit - l.credit);
-      if (l.vatType !== null && !UNTAXED_CODES.includes(l.vatType)) {
-        codedLines++; codedBase = r2(codedBase + l.debit - l.credit);
-      }
       // A line on an account where no input tax may be claimed blocks the claim
       // when it claims VAT — or carries NO code at all: an untagged line gives
       // no way to tell the journal's VAT is not its. Only an explicit
@@ -145,8 +137,13 @@ export function qualifiesForLateClaim(lines: readonly LateClaimLine[]): LateClai
   // the companion carries the base behind its claim (late_claim_base) and the
   // claim period's 15% check counts it under the one per-return tolerance, so
   // no per-journal allowance can be stacked or inflated.
-  const coded = codedLines > 0;
-  const implied = r2((coded ? codedBase : base) * SA_VAT_RATE);
+  //
+  // The claiming base is the coded-base rule's (vatCodedBase), shared with the
+  // VAT201 so the two cannot disagree on which lines the tax is on.
+  const kept = applyCodedBaseRule(lines.map(toVatLine))
+    .filter((v) => classifyVatJournalLine(v).role === 'base');
+  const coded = kept.some((v) => isTaxedVatCode(v.vatType));
+  const implied = r2(kept.reduce((s, v) => r2(s + v.debit - v.credit), 0) * SA_VAT_RATE);
   const excess = r2(inputTax - implied);
   const tolerance = RATE_CHECK_TOLERANCE;
   if (coded ? Math.abs(excess) > tolerance : excess > tolerance) {
