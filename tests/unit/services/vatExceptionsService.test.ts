@@ -11,12 +11,12 @@ vi.mock('@/lib/neon', () => ({ sql: vi.fn() }));
 vi.mock('@/lib/logger', () => ({
   log: { info: vi.fn(), error: vi.fn(), warn: vi.fn() },
 }));
-vi.mock('@/modules/accounting/services/reports/vat201Service', () => ({
-  generateVAT201: vi.fn(),
+vi.mock('@/modules/accounting/services/reports/vat201LedgerFields', () => ({
+  getLedgerVAT201: vi.fn(),
 }));
 
 import { sql } from '@/lib/neon';
-import { generateVAT201 } from '@/modules/accounting/services/reports/vat201Service';
+import { getLedgerVAT201 } from '@/modules/accounting/services/reports/vat201LedgerFields';
 import { getVatExceptions } from '@/modules/accounting/services/reports/vatExceptionsService';
 import {
   COMPANY_ID, PERIOD_START, PERIOD_END,
@@ -31,7 +31,7 @@ beforeEach(() => {
 describe('getVatExceptions — uncoded GL VAT lines', () => {
   it('lists uncoded VAT lines with journal metadata and signed amount', async () => {
     mockExceptionsSql({ uncoded: [makeUncodedRow()] });
-    vi.mocked(generateVAT201).mockResolvedValueOnce(makeVat201(0, 0));
+    vi.mocked(getLedgerVAT201).mockResolvedValueOnce(makeVat201(0, 0));
 
     const report = await getVatExceptions(COMPANY_ID, PERIOD_START, PERIOD_END);
 
@@ -58,7 +58,7 @@ describe('getVatExceptions — uncoded GL VAT lines', () => {
         amount: '85.67',
       })],
     });
-    vi.mocked(generateVAT201).mockResolvedValueOnce(makeVat201(0, 0));
+    vi.mocked(getLedgerVAT201).mockResolvedValueOnce(makeVat201(0, 0));
 
     const report = await getVatExceptions(COMPANY_ID, PERIOD_START, PERIOD_END);
 
@@ -71,7 +71,7 @@ describe('getVatExceptions — uncoded GL VAT lines', () => {
       makeUncodedRow({ journal_entry_id: `je-${i}`, total_count: '120' }),
     );
     mockExceptionsSql({ uncoded: rows });
-    vi.mocked(generateVAT201).mockResolvedValueOnce(makeVat201(0, 0));
+    vi.mocked(getLedgerVAT201).mockResolvedValueOnce(makeVat201(0, 0));
 
     const report = await getVatExceptions(COMPANY_ID, PERIOD_START, PERIOD_END);
 
@@ -95,7 +95,7 @@ describe('getVatExceptions — invoice tax-code issues', () => {
         }),
       ],
     });
-    vi.mocked(generateVAT201).mockResolvedValueOnce(makeVat201(0, 0));
+    vi.mocked(getLedgerVAT201).mockResolvedValueOnce(makeVat201(0, 0));
 
     const report = await getVatExceptions(COMPANY_ID, PERIOD_START, PERIOD_END);
 
@@ -126,7 +126,7 @@ describe('getVatExceptions — invoice/GL VAT mismatches', () => {
         }),
       ],
     });
-    vi.mocked(generateVAT201).mockResolvedValueOnce(makeVat201(0, 0));
+    vi.mocked(getLedgerVAT201).mockResolvedValueOnce(makeVat201(0, 0));
 
     const report = await getVatExceptions(COMPANY_ID, PERIOD_START, PERIOD_END);
 
@@ -145,7 +145,7 @@ describe('getVatExceptions — invoice/GL VAT mismatches', () => {
 describe('getVatExceptions — VAT against a balance-sheet account', () => {
   it('reports the line and counts it toward totalExceptions', async () => {
     mockExceptionsSql({ vatOnBalanceSheet: [makeBalanceSheetVatRow()] });
-    vi.mocked(generateVAT201).mockResolvedValueOnce(makeVat201(0, 0));
+    vi.mocked(getLedgerVAT201).mockResolvedValueOnce(makeVat201(0, 0));
 
     const report = await getVatExceptions(COMPANY_ID, PERIOD_START, PERIOD_END);
 
@@ -166,7 +166,7 @@ describe('getVatExceptions — VAT against a balance-sheet account', () => {
 
   it('is absent, and costs nothing, when there is nothing to flag', async () => {
     mockExceptionsSql({});
-    vi.mocked(generateVAT201).mockResolvedValueOnce(makeVat201(0, 0));
+    vi.mocked(getLedgerVAT201).mockResolvedValueOnce(makeVat201(0, 0));
 
     const report = await getVatExceptions(COMPANY_ID, PERIOD_START, PERIOD_END);
 
@@ -179,7 +179,7 @@ describe('getVatExceptions — VAT against a balance-sheet account', () => {
 describe('getVatExceptions — VAT where no supply can arise', () => {
   it('reports the salary line and counts it toward totalExceptions', async () => {
     mockExceptionsSql({ vatNonSupply: [makeNonSupplyVatRow()] });
-    vi.mocked(generateVAT201).mockResolvedValueOnce(makeVat201(0, 0));
+    vi.mocked(getLedgerVAT201).mockResolvedValueOnce(makeVat201(0, 0));
 
     const report = await getVatExceptions(COMPANY_ID, PERIOD_START, PERIOD_END);
 
@@ -206,7 +206,7 @@ describe('getVatExceptions — VAT where no supply can arise', () => {
       vatOnBalanceSheet: [makeBalanceSheetVatRow()],
       vatNonSupply: [makeNonSupplyVatRow()],
     });
-    vi.mocked(generateVAT201).mockResolvedValueOnce(makeVat201(0, 0));
+    vi.mocked(getLedgerVAT201).mockResolvedValueOnce(makeVat201(0, 0));
 
     const report = await getVatExceptions(COMPANY_ID, PERIOD_START, PERIOD_END);
 
@@ -217,7 +217,7 @@ describe('getVatExceptions — VAT where no supply can arise', () => {
 
   it('is absent, and costs nothing, when there is nothing to flag', async () => {
     mockExceptionsSql({});
-    vi.mocked(generateVAT201).mockResolvedValueOnce(makeVat201(0, 0));
+    vi.mocked(getLedgerVAT201).mockResolvedValueOnce(makeVat201(0, 0));
 
     const report = await getVatExceptions(COMPANY_ID, PERIOD_START, PERIOD_END);
 
@@ -230,7 +230,7 @@ describe('getVatExceptions — VAT where no supply can arise', () => {
 describe('getVatExceptions — query scoping and failure', () => {
   it('passes the companyId and period bounds to the queries', async () => {
     mockExceptionsSql({});
-    vi.mocked(generateVAT201).mockResolvedValueOnce(makeVat201(0, 0));
+    vi.mocked(getLedgerVAT201).mockResolvedValueOnce(makeVat201(0, 0));
 
     await getVatExceptions(COMPANY_ID, PERIOD_START, PERIOD_END);
 
@@ -250,7 +250,7 @@ describe('getVatExceptions — query scoping and failure', () => {
 
   it('propagates a query failure instead of returning partial data', async () => {
     vi.mocked(sql).mockRejectedValue(new Error('connection terminated'));
-    vi.mocked(generateVAT201).mockResolvedValue(makeVat201(0, 0));
+    vi.mocked(getLedgerVAT201).mockResolvedValue(makeVat201(0, 0));
 
     await expect(
       getVatExceptions(COMPANY_ID, PERIOD_START, PERIOD_END),
