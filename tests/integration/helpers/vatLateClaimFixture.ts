@@ -55,6 +55,8 @@ export async function dropLateFixture(fx: LateFixture): Promise<void> {
     SELECT id FROM supplier_invoices WHERE company_id = ${c}::UUID)`;
   await sql`UPDATE supplier_invoices SET gl_journal_entry_id = NULL WHERE company_id = ${c}::UUID`;
   await sql`UPDATE gl_journal_entries SET late_claim_of_id = NULL, reversal_of_id = NULL WHERE company_id = ${c}::UUID`;
+  // An account merge records itself; its row names both accounts.
+  await sql`DELETE FROM gl_account_merges WHERE company_id = ${c}::UUID`;
   await dropFixture(fx);
 }
 
