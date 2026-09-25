@@ -89,7 +89,9 @@ describe('deriveVatBoxesWithLateClaims', () => {
     ];
     const r = deriveVatBoxesWithLateClaims(sale);
     const box1 = r.boxes.find((b) => b.direction === 'output' && b.vatType === 'standard')!;
-    expect(box1).toMatchObject({ base: 1000, tax: 150, lateClaimTax: 0 });
+    // Ordinary in EVERY respect, the clearing cent included: it stays a base line, as in any journal
+    // with an output leg, so the discrepancy shows (999.99) instead of being smoothed to 1 000.
+    expect(box1).toMatchObject({ base: 999.99, tax: 150, lateClaimTax: 0 });
     expect(r.outputTax).toBe(150);
     expect(r.lateClaimInputTax).toBe(0);
   });
