@@ -132,8 +132,11 @@ it('a third decimal is refused before anything is written', async () => {
   // Postgres rounds 1.005 to 1.01 while float cents give 1.00, so the stored
   // count and the stock it set would disagree. withAuth commits on a 4xx, so
   // the refusal has to come before the first INSERT.
-  for (const adjustmentType of ['count', 'increase']) {
-    const result = await adjust({ productId: productA, adjustmentType, quantity: 1.005, unitCost: 1, reason: 'sub-cent' });
+  // 100.000000001 against 100 on hand: a tolerance-based check let it through
+  // to a 0.00 adjustment_in, though a count that matches the shelf moves nothing.
+  const inputs: Array<[string, number]> = [['count', 1.005], ['increase', 1.005], ['count', 100.000000001], ['decrease', 5.00000001]];
+  for (const [adjustmentType, quantity] of inputs) {
+    const result = await adjust({ productId: productA, adjustmentType, quantity, unitCost: 1, reason: 'sub-cent' });
     expect(result.state.statusCode).toBe(422);
   }
   const { rows } = await pool.query('SELECT count(*)::int AS n FROM stock_adjustments WHERE company_id=$1', [companyA]);
