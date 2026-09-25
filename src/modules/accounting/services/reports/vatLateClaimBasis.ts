@@ -12,7 +12,8 @@
  * So a COMPANION plays the `late_claim` role. It is recognised by its source,
  * `auto_vat_late_claim` — which its reversal copies — and never by the clearing
  * account: a hand-made DR VAT Input / CR clearing journal is an ordinary,
- * baseless journal — the clearing leg is never a base — and is flagged as one (createJournalEntry also refuses the
+ * baseless journal — the clearing leg is not a base, except in a journal with an output leg, which is
+ * ordinary in every respect — and is flagged as one (createJournalEntry also refuses the
  * clearing account to any other source). A companion-sourced journal with an
  * OUTPUT tax leg is not a late claim either: output tax is never deferred.
  * A companion's tax legs are added to their boxes as `lateClaimTax` — counted in `tax`
@@ -59,14 +60,19 @@ export function deriveVatBoxesWithLateClaims(lines: readonly LateClaimAwareLine[
   const lateEntries = new Set(
     lines.filter((l) => l.entrySource === VAT_LATE_CLAIM_SOURCE).map((l) => l.journalEntryId),
   );
+  // A journal with an output tax leg is ORDINARY in every respect (output tax is
+  // never deferred): not a late claim, and its clearing leg is not stripped.
+  const outputEntries = new Set<string>();
   for (const l of lines) {
     const c = classifyVatJournalLine(l);
-    if (c.role === 'tax' && c.direction === 'output') lateEntries.delete(l.journalEntryId);
+    if (c.role === 'tax' && c.direction === 'output') outputEntries.add(l.journalEntryId);
   }
-  // The clearing leg is never the value of a supply: outside a companion it is
-  // left out, so a hand-made DR VAT Input / CR clearing journal has no base.
-  const basis = deriveVatBoxes(lines.filter((l) =>
-    !lateEntries.has(l.journalEntryId) && l.accountSubtype !== VAT_LATE_CLAIM_SUBTYPE));
+  for (const id of outputEntries) lateEntries.delete(id);
+  // Otherwise the clearing leg is never the value of a supply: outside a
+  // companion it is left out, so a hand-made DR VAT Input / CR clearing journal
+  // has no base.
+  const basis = deriveVatBoxes(lines.filter((l) => !lateEntries.has(l.journalEntryId)
+    && (l.accountSubtype !== VAT_LATE_CLAIM_SUBTYPE || outputEntries.has(l.journalEntryId))));
   const rows = new Map<string, LateClaimBoxRow>(
     basis.boxes.map((b) => [`${b.direction}:${b.vatType}`, { ...b, lateClaimTax: 0 }]),
   );
