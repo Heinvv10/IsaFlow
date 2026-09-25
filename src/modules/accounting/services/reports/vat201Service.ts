@@ -116,7 +116,7 @@ export async function generateVAT201(companyId: string,
         -- period: dated by its posted companion, not by the invoice.
         AND COALESCE((SELECT lc.entry_date FROM gl_journal_entries lc
               WHERE lc.company_id = ${companyId}::UUID AND lc.late_claim_of_id = si.gl_journal_entry_id
-                AND lc.status = 'posted' LIMIT 1), si.invoice_date) BETWEEN ${periodStart}::DATE AND ${periodEnd}::DATE
+                AND lc.status = 'posted' AND lc.reversed_at IS NULL LIMIT 1), si.invoice_date) BETWEEN ${periodStart}::DATE AND ${periodEnd}::DATE
         -- Approved bills only (Hein, 2026-09-25): a draft or pending bill claims nothing.
         AND si.status NOT IN ('cancelled', 'draft', 'pending_approval')
       ORDER BY si.invoice_date
@@ -139,7 +139,7 @@ export async function generateVAT201(companyId: string,
         -- Same late-claim dating as the invoice list above (field 8 follows the claim).
         AND COALESCE((SELECT lc.entry_date FROM gl_journal_entries lc
               WHERE lc.company_id = ${companyId}::UUID AND lc.late_claim_of_id = si.gl_journal_entry_id
-                AND lc.status = 'posted' LIMIT 1), si.invoice_date) BETWEEN ${periodStart}::DATE AND ${periodEnd}::DATE
+                AND lc.status = 'posted' AND lc.reversed_at IS NULL LIMIT 1), si.invoice_date) BETWEEN ${periodStart}::DATE AND ${periodEnd}::DATE
         -- Approved bills only (Hein, 2026-09-25): a draft or pending bill claims nothing.
         AND si.status NOT IN ('cancelled', 'draft', 'pending_approval')
       GROUP BY COALESCE(sii.vat_classification, 'standard')
