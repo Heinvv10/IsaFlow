@@ -173,7 +173,7 @@ function isTwoDecimalAmount(x: unknown): x is number {
 
 export function validateStockAdjustment(input: StockAdjustmentInput): ValidationResult {
   const errors: Array<{ field: string; message: string }> = [];
-  if (!input.productId || input.productId.trim() === '') errors.push({ field: 'productId', message: 'Product ID is required' });
+  if (typeof input.productId !== 'string' || input.productId.trim() === '') errors.push({ field: 'productId', message: 'Product ID is required' });
   if (!input.quantity || input.quantity <= 0) errors.push({ field: 'quantity', message: 'Quantity must be greater than zero' });
   // Quantities are NUMERIC(15,2) (K-086). A third decimal is rounded one way
   // by JS arithmetic and another by Postgres, splitting the adjustment
@@ -183,7 +183,7 @@ export function validateStockAdjustment(input: StockAdjustmentInput): Validation
   else if (!isTwoDecimalAmount(input.quantity)) {
     errors.push({ field: 'quantity', message: 'Quantity must be a number with at most 2 decimals' });
   }
-  if (!input.reason || input.reason.trim() === '') errors.push({ field: 'reason', message: 'Reason is required' });
+  if (typeof input.reason !== 'string' || input.reason.trim() === '') errors.push({ field: 'reason', message: 'Reason is required' });
   if (input.adjustmentType && !VALID_ADJUSTMENT_TYPES.includes(input.adjustmentType as AdjustmentType)) errors.push({ field: 'adjustmentType', message: 'Invalid adjustment type' });
   if (input.adjustmentType === 'increase' && (input.unitCost === undefined || input.unitCost === null)) errors.push({ field: 'unitCost', message: 'Unit cost is required for stock increases' });
   // A stocktake's correction is what moves the valuation, which is costed

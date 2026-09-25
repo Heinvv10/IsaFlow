@@ -1,27 +1,32 @@
-# K-086 green — 2026-09-25, round 3, on origin/master 0ecf6d06e (withAuth, app_user, disposable fixture)
+# K-086 green — 2026-09-25, round 4 (after /review on PR #524), on origin/master 0ecf6d06e (withAuth, app_user, disposable fixture)
 ```
- ✓ tests/integration/k086-stocktake-count-adjacent.int.test.ts > an increase is still a delta: 100 + 25 = 125, movement adjustment_in 25 56ms
- ✓ tests/integration/k086-stocktake-count-adjacent.int.test.ts > a write_off is still a delta: 100 - 30 = 70, movement write_off 30 30ms
- ✓ tests/integration/k086-stocktake-count-adjacent.int.test.ts > a count ABOVE stock on hand raises it and records an inbound correction 29ms
- ✓ tests/integration/k086-stocktake-count-adjacent.int.test.ts > a count that agrees with stock on hand moves nothing and records no movement 28ms
- ✓ tests/integration/k086-stocktake-count-adjacent.int.test.ts > a two-decimal count is exact: 100 -> 60.35 books 39.65 out, and the document agrees 30ms
- ✓ tests/integration/k086-stocktake-count-adjacent.int.test.ts > a third decimal is refused before anything is written 34ms
- ✓ tests/integration/k086-stocktake-count-adjacent.int.test.ts > "NaN", a string quantity and a count with no unit cost are refused before anything is written 24ms
- ✓ tests/integration/k086-stocktake-count-adjacent.int.test.ts > a shrinkage count takes its value out of the stock valuation, not just its units 45ms
- ✓ tests/integration/k086-stocktake-count-adjacent.int.test.ts > a decrease past zero is still clamped at 0 and books the full requested quantity out 30ms
- ✓ tests/integration/k086-stocktake-count-adjacent.int.test.ts > a transfer is still an outbound delta 27ms
- ✓ tests/integration/k086-stocktake-count-adjacent.int.test.ts > a count waits for a competing writer and corrects from what it then reads 329ms
- ✓ tests/integration/k086-stocktake-count-adjacent.int.test.ts > a second company's product is untouched by this company's adjustment 29ms
- ✓ tests/integration/k086-stocktake-count-adjacent.int.test.ts > another tenant's product is refused BEFORE any row is written (K-183) 21ms
- ✓ tests/integration/k086-stocktake-count-adjacent.int.test.ts > a user in BOTH companies cannot adjust the other company's product from this one 23ms
- ✓ tests/integration/k107-stock-adjustment-numbering.int.test.ts > does not re-issue a number that is still in use after an adjustment is deleted 31ms
- ✓ tests/integration/k107-stock-adjustment-numbering.int.test.ts > renumbers past a legacy ADJ- row that already holds the sequence number 9ms
- ✓ tests/integration/k107-stock-adjustment-numbering.int.test.ts > gives two companies their own sequences, and refuses another tenant's product 114ms
- ✓ tests/integration/k107-stock-adjustment-numbering.int.test.ts > refuses a second adjustment under a number already used, rather than duplicating it 7ms
- ✓ tests/integration/k086-stocktake-count-movement.int.test.ts > a stocktake count is accepted and recorded as one stock movement 56ms
+ ✓ tests/integration/k086-stocktake-count-adjacent.int.test.ts > an increase is still a delta: 100 + 25 = 125, movement adjustment_in 25 176ms
+ ✓ tests/integration/k086-stocktake-count-adjacent.int.test.ts > a write_off is still a delta: 100 - 30 = 70, movement write_off 30 57ms
+ ✓ tests/integration/k086-stocktake-count-adjacent.int.test.ts > a count ABOVE stock on hand raises it and records an inbound correction 34ms
+ ✓ tests/integration/k086-stocktake-count-adjacent.int.test.ts > a count that agrees with stock on hand moves nothing and records no movement 70ms
+ ✓ tests/integration/k086-stocktake-count-adjacent.int.test.ts > a two-decimal count is exact: 100 -> 60.35 books 39.65 out, and the document agrees 33ms
+ ✓ tests/integration/k086-stocktake-count-adjacent.int.test.ts > a third decimal is refused before anything is written 48ms
+ ✓ tests/integration/k086-stocktake-count-adjacent.int.test.ts > "NaN", a string quantity and a count with no unit cost are refused before anything is written 60ms
+ ✓ tests/integration/k086-stocktake-count-adjacent.int.test.ts > a shrinkage count takes its value out of the stock valuation, not just its units 75ms
+ ✓ tests/integration/k086-stocktake-count-adjacent.int.test.ts > a count and a decrease of the same 0.05 cost the same: 0.05 x 0.5 = 0.03, not a float cent off 81ms
+ ✓ tests/integration/k086-stocktake-count-adjacent.int.test.ts > the count correction is taken in whole cents: 0.10 on hand, 0.07 counted, books 0.03 at 0.015 -> 0.02 58ms
+ ✓ tests/integration/k086-stocktake-count-adjacent.int.test.ts > another tenant's warehouse is refused before any row is written 57ms
+ ✓ tests/integration/k086-stocktake-count-adjacent.int.test.ts > a user in BOTH companies cannot put this company's movement in the other company's warehouse 51ms
+ ✓ tests/integration/k086-stocktake-count-adjacent.int.test.ts > an own-company warehouse is accepted and recorded on the movement 68ms
+ ✓ tests/integration/k086-stocktake-count-adjacent.int.test.ts > a decrease past zero is still clamped at 0 and books the full requested quantity out 38ms
+ ✓ tests/integration/k086-stocktake-count-adjacent.int.test.ts > a transfer is still an outbound delta 38ms
+ ✓ tests/integration/k086-stocktake-count-adjacent.int.test.ts > a count waits for a competing writer and corrects from what it then reads 381ms
+ ✓ tests/integration/k086-stocktake-count-adjacent.int.test.ts > a second company's product is untouched by this company's adjustment 38ms
+ ✓ tests/integration/k086-stocktake-count-adjacent.int.test.ts > another tenant's product is refused BEFORE any row is written (K-183) 61ms
+ ✓ tests/integration/k086-stocktake-count-adjacent.int.test.ts > a user in BOTH companies cannot adjust the other company's product from this one 82ms
+ ✓ tests/integration/k107-stock-adjustment-numbering.int.test.ts > does not re-issue a number that is still in use after an adjustment is deleted 71ms
+ ✓ tests/integration/k107-stock-adjustment-numbering.int.test.ts > renumbers past a legacy ADJ- row that already holds the sequence number 37ms
+ ✓ tests/integration/k107-stock-adjustment-numbering.int.test.ts > gives two companies their own sequences, and refuses another tenant's product 214ms
+ ✓ tests/integration/k107-stock-adjustment-numbering.int.test.ts > refuses a second adjustment under a number already used, rather than duplicating it 18ms
+ ✓ tests/integration/k086-stocktake-count-movement.int.test.ts > a stocktake count is accepted and recorded as one stock movement 92ms
  ✓ tests/integration/k086-stocktake-count-movement.int.test.ts > K-086: the counted quantity replaces stock, it is not added to it 1ms
  ✓ tests/integration/k086-stocktake-count-movement.int.test.ts > K-086: the movement carries the 40-unit correction, not the 60 counted 1ms
  Test Files  3 passed (3)
-      Tests  21 passed (21)
+      Tests  26 passed (26)
 ```
-Unit: tests/unit/inventory/inventory-calc.test.ts 36/36.
+Unit: tests/unit/inventory/inventory-calc.test.ts —      Tests  37 passed (37)

@@ -35,8 +35,15 @@ direct API call with a session or API token. The census below says whether anyon
   - **Why a string is refused:** a string `"NaN"` used to pass, because it is truthy and not <= 0.
     `NUMERIC` stores NaN, and Postgres ranks NaN above 0, so `CHECK (quantity > 0)` admitted it too.
     NaN would have reached stock, the movement, the adjustment and every valuation after them.
-  - With exact cents guaranteed, plain arithmetic in the route is exact at the columns' scale. An
-    exhaustive check of every 2-decimal value from 0 to 20 000 round-trips.
+  - An exhaustive check of every 2-decimal value from 0 to 20 000 round-trips.
+- **The route works in integer cents, and `total_cost` is multiplied in SQL `NUMERIC`.** Exact-cent
+  inputs are not enough, because a float difference is not exact. With 0.10 on hand, a count of 0.07
+  is a 0.029999999999999992 correction in float, and at 0.5 each its cost rounded to 0.01 instead
+  of 0.02. The `/review` round caught this. The correction is `round(q*100) - round(onHand*100)` in
+  cents, and the cost is `unitCost::NUMERIC * magnitude::NUMERIC`, rounded once by the column.
+- **A `warehouseId` must belong to the company.** It is checked before the first write, the same
+  way as the product. It used to be written into both documents unchecked. The check is company
+  scoped because RLS admits every company the user belongs to.
 - A `count` now requires `unitCost`, as `increase` already did. Whenever `unitCost` is given, it must
   be exact cents and zero or more. A count's correction is what moves the valuation, which is costed
   on the movement. Without a cost, shrinkage would leave at R0 and its value would stay on the books.
@@ -69,8 +76,9 @@ It runs against the disposable fixture.
 - `mutations.log`: each guard, reverted alone, turns at least one test red.
   - M7 (dropping `company_id` from the lock) survived at first, because RLS refused a stranger's
     product on its own. The two-company-user case was added for it.
-  - A cents-arithmetic guard survived once the validator guaranteed 2 decimals. It was redundant, so
-    it was removed rather than kept as untestable code.
+  - In round 2 a cents-arithmetic guard survived and was removed as redundant. That was wrong: the
+    `/review` round showed a float difference still splits `total_cost` by a cent. Integer cents are
+    back, pinned by the 0.10 → 0.07 case (C1), with `total_cost` in SQL (C2).
 - `tests/integration/k107-stock-adjustment-numbering.int.test.ts`: 4 of 4 still pass.
 
 ## Census for Hein (read-only; NOT run, and must not be run by an agent)
@@ -78,7 +86,9 @@ It runs against the disposable fixture.
 Were any counts posted before this fix deployed? The old code has a unique signature. It booked the
 COUNTED quantity as an `adjustment_out` and added the count to stock. After this fix deploys, a
 correct count can also come back unfiltered, so the query keeps only rows with that signature. Set
-`:k086_deployed_at` to the deploy time, or to now() if it has not deployed yet.
+`:k086_deployed_at` to the deploy time as a timestamp literal, for example
+`psql -v k086_deployed_at='2026-09-25 18:30+02'`. If it has not deployed yet, use the current time.
+Do not pass `now()`: the quoted variable would become the string `'now()'`.
 
 ```sql
 SELECT sa.company_id, sa.adjustment_number, sa.product_id, sa.quantity AS counted,
