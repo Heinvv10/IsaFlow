@@ -53,6 +53,7 @@ export function qualifiesForLateClaim(lines: readonly LateClaimLine[]): LateClai
   let reduction = false;
   let unplaceable = false;
   let nonSupply = false;
+  let baseLines = 0;
   for (const l of lines) {
     const c = classifyVatJournalLine({
       journalEntryId: '', entryNumber: '', entryDate: '', lineId: '',
@@ -70,13 +71,20 @@ export function qualifiesForLateClaim(lines: readonly LateClaimLine[]): LateClai
       return { claimable: false, reason: 'output_vat' };
     } else if (c.role === 'unmapped') {
       unplaceable = true;
-    } else if (c.role === 'base' && claimsVat(l.vatType)
-      && (l.vatInputDenied || classifyNonSupplyAccount(l.accountName) !== null)) {
-      nonSupply = true;
+    } else if (c.role === 'base') {
+      baseLines++;
+      // A line on an account where no input tax may be claimed blocks the claim
+      // when it claims VAT — or carries NO code at all: an untagged line gives
+      // no way to tell the journal's VAT is not its. Only an explicit
+      // non-claiming code (no_vat / exempt) clears it.
+      if ((claimsVat(l.vatType) || l.vatType === null)
+        && (l.vatInputDenied || classifyNonSupplyAccount(l.accountName) !== null)) nonSupply = true;
     }
   }
   if (reduction) return { claimable: false, reason: 'input_reduction' };
-  if (unplaceable || inputTax <= 0) return { claimable: false, reason: null };
+  // No base line: the VAT201 lists such a journal in entriesWithoutBase when it
+  // is on time; claimed late it would escape that flag, so it is not claimable.
+  if (unplaceable || inputTax <= 0 || baseLines === 0) return { claimable: false, reason: null };
   if (nonSupply) return { claimable: false, reason: 'non_supply' };
   return { claimable: true, inputTax };
 }

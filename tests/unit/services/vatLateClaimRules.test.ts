@@ -67,7 +67,8 @@ describe('qualifiesForLateClaim', () => {
     const unmapped = line({ accountType: 'liability', accountSubtype: null, accountName: 'Director loan', debit: 1000, vatType: 'standard' });
     expect(qualifiesForLateClaim([unmapped, inputVat(150), payable(1150)]))
       .toEqual({ claimable: false, reason: null });
-    expect(qualifiesForLateClaim([loan, inputVat(150), payable(1150)]).claimable).toBe(true);
+    // A tag on a SETTLEMENT subtype is placeable; with a base line beside it the claim stands.
+    expect(qualifiesForLateClaim([expense(100), loan, inputVat(150), payable(1250)]).claimable).toBe(true);
   });
 
   it('nothing to claim (tagged base only, no input VAT) is today\'s plain refusal', () => {
@@ -85,14 +86,31 @@ describe('qualifiesForLateClaim', () => {
       .toEqual({ claimable: false, reason: 'non_supply' });
   });
 
-  it('a non-supply or denied account WITHOUT a claiming code does not block the split', () => {
+  it('a non-supply or denied account coded as claiming NO VAT (no_vat / exempt) does not block the split', () => {
     const lines = [
       expense(1000),
       expense(200, 'no_vat', { accountName: 'Donations' }),
-      expense(50, null, { vatInputDenied: true, accountName: 'Entertainment' }),
+      expense(50, 'exempt', { vatInputDenied: true, accountName: 'Entertainment' }),
       inputVat(150), payable(1400),
     ];
     expect(qualifiesForLateClaim(lines)).toEqual({ claimable: true, inputTax: 150 });
+  });
+
+  it('an UNTAGGED line on a denied or non-supply account refuses non_supply (the VAT may be its)', () => {
+    expect(qualifiesForLateClaim([expense(100, null, { vatInputDenied: true, accountName: 'Staff functions' }), inputVat(15), payable(115)]))
+      .toEqual({ claimable: false, reason: 'non_supply' });
+    expect(qualifiesForLateClaim([expense(100, null, { accountName: 'Donations' }), inputVat(15), payable(115)]))
+      .toEqual({ claimable: false, reason: 'non_supply' });
+  });
+
+  it('input VAT with NO base line at all (DR VAT Input / CR Bank) is not claimable: the return would flag it', () => {
+    const bank = line({ glAccountId: 'bank', accountType: 'asset', accountSubtype: 'bank', accountName: 'Bank', credit: 15 });
+    expect(qualifiesForLateClaim([inputVat(15), bank])).toEqual({ claimable: false, reason: null });
+  });
+
+  it('an untagged expense line IS a base line: a bill (expense lines carry no code) stays claimable', () => {
+    expect(qualifiesForLateClaim([expense(1000, null), inputVat(150), payable(1150)]))
+      .toEqual({ claimable: true, inputTax: 150 });
   });
 });
 
