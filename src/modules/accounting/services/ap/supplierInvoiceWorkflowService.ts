@@ -20,6 +20,7 @@ import { buildExpenseLines } from './supplierInvoiceExpenseLines';
 import { assertSupplierInvoiceLinesPostable } from './billLineAccountGuard';
 import { planSupplierInvoiceCancel } from './supplierInvoiceCancelPlan';
 import { documentInPopulation } from '../shared/documentPopulation';
+import type { LateClaimInfo, PostJournalOpts } from '../gl/vatLateClaimPlan';
 
 type Row = DbRow;
 
@@ -33,9 +34,9 @@ export async function approveSupplierInvoice(
   // `human:<userId>` — affirmatively claiming the token owner did it by hand,
   // and invisible to list_agent_postings, which filters posting_agent LIKE
   // 'mcp:%'. That review surface is the control the whole agent-write model
-  // rests on.
-  opts?: PostingActorOpts,
-): Promise<SupplierInvoice> {
+  // rests on. `allowLateInputClaim`: human-initiated callers only (gl/vatLateClaimPlan.ts).
+  opts?: PostingActorOpts & PostJournalOpts,
+): Promise<SupplierInvoice & { lateClaim?: LateClaimInfo }> {
   try {
     // Serialise concurrent approvals of the SAME invoice before reading its
     // status. Without this the check-then-act window below is wide open: two
@@ -126,9 +127,9 @@ export async function approveSupplierInvoice(
       description: `Supplier invoice ${invoice.invoiceNumber}`,
       source: 'auto_supplier_invoice',
       lines,
-    }, userId, actorMeta(opts));
+    }, userId, actorMeta(opts), { allowLateInputClaim: opts?.allowLateInputClaim });
 
-    await postJournalEntry(companyId, journalEntry.id, userId);
+    const posted = await postJournalEntry(companyId, journalEntry.id, userId, opts);
 
     const updated = (await sql`
       UPDATE supplier_invoices
@@ -139,7 +140,7 @@ export async function approveSupplierInvoice(
     `) as Row[];
 
     log.info('Approved supplier invoice', { id, journalEntryId: journalEntry.id }, 'accounting');
-    return mapInvoiceRow(updated[0]!);
+    return { ...mapInvoiceRow(updated[0]!), ...(posted.lateClaim ? { lateClaim: posted.lateClaim } : {}) };
   } catch (err) {
     log.error('Failed to approve supplier invoice', { id, error: err }, 'accounting');
     throw err;
@@ -154,8 +155,8 @@ export async function postSupplierInvoiceToGL(
   companyId: string,
   id: string,
   userId: string,
-  opts?: PostingActorOpts,
-): Promise<{ journalEntryId: string; alreadyPosted: boolean }> {
+  opts?: PostingActorOpts & PostJournalOpts,
+): Promise<{ journalEntryId: string; alreadyPosted: boolean; lateClaim?: LateClaimInfo }> {
   // Same check-then-act window approveSupplierInvoice closes at :95, and the
   // same reason: this function decides on `glJournalEntryId` below and then
   // overwrites it. Unlocked, two overlapping "Post to GL" calls both read NULL,
@@ -233,9 +234,9 @@ export async function postSupplierInvoiceToGL(
     description: `Supplier invoice ${invoice.invoiceNumber}`,
     source: 'auto_supplier_invoice',
     lines,
-  }, userId, actorMeta(opts));
+  }, userId, actorMeta(opts), { allowLateInputClaim: opts?.allowLateInputClaim });
 
-  await postJournalEntry(companyId, journalEntry.id, userId);
+  const posted = await postJournalEntry(companyId, journalEntry.id, userId, opts);
 
   await sql`
     UPDATE supplier_invoices
@@ -244,7 +245,10 @@ export async function postSupplierInvoiceToGL(
   `;
 
   log.info('Backfilled supplier invoice GL', { id, journalEntryId: journalEntry.id }, 'accounting');
-  return { journalEntryId: journalEntry.id, alreadyPosted: false };
+  return {
+    journalEntryId: journalEntry.id, alreadyPosted: false,
+    ...(posted.lateClaim ? { lateClaim: posted.lateClaim } : {}),
+  };
 }
 
 export async function cancelSupplierInvoice(

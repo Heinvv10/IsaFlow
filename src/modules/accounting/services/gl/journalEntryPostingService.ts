@@ -4,14 +4,8 @@ import { sql } from '@/lib/neon';
 import { fmtDate } from '@/lib/fmtDate';
 import type { DbRow } from '@/lib/neon';
 import { log } from '@/lib/logger';
-import { validateJournalEntry } from '../../utils/doubleEntry';
 import type { JournalEntry } from '../../types/gl.types';
-import {
-  getJournalEntryById,
-  createJournalEntry,
-  resolveUserUuid,
-  mapEntryRow,
-} from './journalEntryCrudService';
+import { getJournalEntryById, createJournalEntry } from './journalEntryCrudService';
 import { defaultHumanMeta, actorMeta, type PostingActorOpts } from './journalEntryMeta';
 import { buildReversalLines, type ReversalEntry } from './reversalLines';
 import {
@@ -20,8 +14,9 @@ import {
   withReversalTransaction,
 } from './journalEntryReversalClaim';
 import { resolveReversalDate, resolveReversalDateDetailed, ReversalPeriodError } from './journalEntryReversalDate';
-import { assertJournalVatPeriodOpen, VatPeriodLockedError } from './journalVatLockGuard';
+import { VatPeriodLockedError } from './journalVatLockGuard';
 import { releaseCapturedDocumentPostingClaim } from '../capture/capturePostingClaimRelease';
+import { postJournalEntry } from './journalEntryPostService';
 
 // Re-exported: the MCP reverse tool and journalEntryService import them from here.
 export { resolveReversalDate, resolveReversalDateDetailed, ReversalPeriodError, VatPeriodLockedError };
@@ -39,68 +34,10 @@ import {
 // — and every test that mocks this module — reaches them through here.
 export { ClosedFiscalPeriodError, InactiveAccountError, assertNoInactiveAccountLines };
 
-export async function postJournalEntry(companyId: string, id: string, userId: string): Promise<JournalEntry> {
-  try {
-    // Lock the header BEFORE reading it: the VAT-lock guard below decides on
-    // entry_date, and a concurrent edit of the draft's date must not land
-    // between that decision and the status UPDATE.
-    await sql`SELECT id FROM gl_journal_entries WHERE id = ${id}::UUID AND company_id = ${companyId}::UUID FOR UPDATE`;
-    const entry = await getJournalEntryById(companyId, id);
-    if (!entry) throw new Error(`Journal entry ${id} not found`);
-    if (entry.status !== 'draft') throw new Error(`Cannot post entry with status: ${entry.status}`);
-
-    if (entry.fiscalPeriodId) {
-      const period = (await sql`
-        SELECT status FROM fiscal_periods
-        WHERE id = ${entry.fiscalPeriodId} AND company_id = ${companyId}::UUID
-      `) as Row[];
-      if (period.length > 0 && String(period[0]!.status) !== 'open') {
-        throw new ClosedFiscalPeriodError(String(period[0]!.status));
-      }
-    }
-
-    if (entry.lines) {
-      const validation = validateJournalEntry(entry.lines.map(l => ({
-        glAccountId: l.glAccountId,
-        debit: l.debit,
-        credit: l.credit,
-      })));
-      if (!validation.valid) throw new Error(`Entry not balanced: ${validation.errors.join('; ')}`);
-    }
-
-    // A deactivated account must not accept a new posting. is_active means the
-    // account has been withdrawn from the chart, so posting to it contradicts
-    // the flag outright -- and it is the one route by which an account can end
-    // up inactive AND holding money despite the balance guard on
-    // updateAccount/deleteAccount: deactivate while only drafts exist (balance
-    // 0, correctly allowed), then post the draft.
-    //
-    // Refuse the WHOLE entry. Skipping the offending line would leave the
-    // journal unbalanced, and the refusal has to land before the UPDATE so the
-    // surrounding transaction commits nothing (the 400-after-write class).
-    await assertNoInactiveAccountLines(companyId, id);
-
-    // A journal that moves a VAT-return figure may not post inside a locked
-    // (filed) VAT period. Before the UPDATE, like the two refusals above, and
-    // it takes the shared advisory lock a VAT lock's figure snapshot excludes.
-    // Reversals reach here with a date already rolled past any lock.
-    await assertJournalVatPeriodOpen(companyId, entry.entryDate, entry.lines ?? []);
-
-    const safePostUserId = await resolveUserUuid(userId);
-    const rows = (await sql`
-      UPDATE gl_journal_entries
-      SET status = 'posted', posted_by = ${safePostUserId}::UUID, posted_at = NOW()
-      WHERE id = ${id} AND company_id = ${companyId}
-      RETURNING *
-    `) as Row[];
-
-    log.info('Posted journal entry', { id, entryNumber: String(rows[0]!.entry_number) }, 'accounting');
-    return mapEntryRow(rows[0]!);
-  } catch (err) {
-    log.error('Failed to post journal entry', { id, error: err }, 'accounting');
-    throw err;
-  }
-}
+export type { PostJournalOpts } from './vatLateClaimPlan';
+// Split out to hold this file under 300 lines; re-exported because every
+// caller — and every test that mocks this module — reaches it through here.
+export { postJournalEntry } from './journalEntryPostService';
 
 /**
  * Post the contra entry that reverses `id`.
