@@ -9769,7 +9769,7 @@
       "title": "Approval segregation-of-duties guard is bypassed under platform-admin impersonation; audit row names the impersonated user",
       "severity": "high",
       "source": "Raised by blind review of K-043 (review-k043 L7); recorded 2026-09-09",
-      "processNotes": "Raised by blind review of K-043 (review-k043 L7); recorded 2026-09-09"
+      "processNotes": "Raised by blind review of K-043 (review-k043 L7); recorded 2026-09-09\n\nSTILL OPEN, verified 2026-09-25 on origin/master 4faf25ed7: approvalAuthority.ts:113 compares ar.requested_by against decidedBy = req.user.id, which under impersonation is the impersonated user's id; the real actor id exists only in pages/api/admin/users/[id]/impersonate.ts and src/lib/auth/impersonationAssurance.ts and never reaches withAuth or assertMayDecide. No fix commit, no test."
     },
     {
       "id": "R-033",
@@ -10016,15 +10016,18 @@
       "severityRationale": "A safety mechanism relied on by migrations that modify financial data, which has never produced output.",
       "auditedSha": "",
       "currentSha": "",
-      "status": "confirmed",
+      "status": "fixed-on-master",
       "dependencies": [
         "K-081"
       ],
-      "testNames": [],
+      "testNames": [
+        "tests/unit/scripts/apply-migrations.test.ts",
+        "tests/unit/scripts/migrationNoticeListener.test.ts"
+      ],
       "evidencePaths": [],
-      "fixCommit": null,
-      "pr": null,
-      "deployedSha": null,
+      "fixCommit": "317881a85",
+      "pr": "407",
+      "deployedSha": "317881a85",
       "historicalDataImpact": "Any prior migration warning intended for an operator was never seen.",
       "canonicalItem": null,
       "reportedSeverity": "",
@@ -10032,7 +10035,7 @@
       "title": "The migration runner discards every NOTICE and WARNING, so any migration that reports to the operator by RAISE WARNING reports to nobody",
       "severity": "high",
       "source": "Raised by the K-081 r3 blind reviewer; recorded 2026-09-09",
-      "processNotes": "scripts/apply-migrations.ts:121-130 runs client.query(file.content) on a pg.PoolClient and never registers a 'notice' listener, so node-postgres drops every NOTICE/WARNING the server sends. scripts/deploy.sh:146 runs exactly that path against production. Only RAISE EXCEPTION surfaces, because errors travel as errors. Found via K-081's migration 659, whose entire safety argument is that an ambiguous loan key is REFUSED and named in a WARNING for a human -- the human never sees it, and the refused loans then reclassify their full current portion at the next close, a silent GL movement. This is programme-wide, not a K-081 defect: any past or future migration that reports by RAISE WARNING or RAISE NOTICE has been reporting into a void. AUDIT every migration already applied to production for a RAISE WARNING/NOTICE whose output was assumed to have been read. K-081's fixer is adding the listener as the general fix."
+      "processNotes": "scripts/apply-migrations.ts:121-130 runs client.query(file.content) on a pg.PoolClient and never registers a 'notice' listener, so node-postgres drops every NOTICE/WARNING the server sends. scripts/deploy.sh:146 runs exactly that path against production. Only RAISE EXCEPTION surfaces, because errors travel as errors. Found via K-081's migration 659, whose entire safety argument is that an ambiguous loan key is REFUSED and named in a WARNING for a human -- the human never sees it, and the refused loans then reclassify their full current portion at the next close, a silent GL movement. This is programme-wide, not a K-081 defect: any past or future migration that reports by RAISE WARNING or RAISE NOTICE has been reporting into a void. AUDIT every migration already applied to production for a RAISE WARNING/NOTICE whose output was assumed to have been read. K-081's fixer is adding the listener as the general fix.\n\nCLOSED ON EVIDENCE 2026-09-25: Verified 2026-09-25 on origin/master 4faf25ed7 by reading the committed code (git show), not the commit message; the fix commit is an ancestor of the live RELEASE_SHA e2a78d699. scripts/apply-migrations.ts:171 registers client.on('notice', noticeListener) (makeNoticeListener, scripts/migrationNoticeListener.ts), printing every NOTICE/WARNING except the IF NOT EXISTS skip codes; deploy.sh:146 runs that path. Open for Hein, unchanged: past migrations' WARNINGs were never seen."
     },
     {
       "id": "R-042",
@@ -10113,15 +10116,18 @@
       "severityRationale": "Cross-tenant numbering plus a duplicate customer invoice reachable by an ordinary retry.",
       "auditedSha": "",
       "currentSha": "",
-      "status": "confirmed",
+      "status": "fixed-on-master",
       "dependencies": [
         "K-107"
       ],
-      "testNames": [],
+      "testNames": [
+        "tests/integration/k107-quote-number-tenant-scope.int.test.ts",
+        "tests/integration/k107-wip-invoice-double-bill.int.test.ts"
+      ],
       "evidencePaths": [],
-      "fixCommit": null,
-      "pr": null,
-      "deployedSha": null,
+      "fixCommit": "5f26d544e",
+      "pr": "411",
+      "deployedSha": "5f26d544e",
       "historicalDataImpact": "Unquantified: duplicate WIP invoices may already exist.",
       "canonicalItem": null,
       "reportedSeverity": "",
@@ -10129,7 +10135,7 @@
       "title": "quoteService.nextQuoteNumber mints quote numbers with no company_id filter, and the practice WIP invoice path double-bills",
       "severity": "high",
       "source": "Found by the K-107 r4 blind reviewer's independent census; recorded 2026-09-09",
-      "processNotes": "Two defects outside K-107's named scope, found only because the reviewer was asked to run its OWN census after this branch twice fixed a site and left its twin alive. (1) quoteService.nextQuoteNumber draws the next quote number with NO company_id filter -- a multi-tenant violation on a numbering path, against the project's first rule. (2) practiceWipService.generateWipInvoice and pages/api/accounting/time-entries-invoice.ts mint customer invoices under a status read with no lock, no savepoint, and an IGNORED markEntriesBilled row count, so they double-bill -- the same check-then-act class K-107 has now fixed three times elsewhere (recurring runs, quote->invoice, sales-order->invoice). K-107's round 5 is fixing both, so this item exists to record the class and to ensure the census is repeated across every module rather than patched site by site. If K-107 cannot close the practice-module half within its scope, it stays open here."
+      "processNotes": "Two defects outside K-107's named scope, found only because the reviewer was asked to run its OWN census after this branch twice fixed a site and left its twin alive. (1) quoteService.nextQuoteNumber draws the next quote number with NO company_id filter -- a multi-tenant violation on a numbering path, against the project's first rule. (2) practiceWipService.generateWipInvoice and pages/api/accounting/time-entries-invoice.ts mint customer invoices under a status read with no lock, no savepoint, and an IGNORED markEntriesBilled row count, so they double-bill -- the same check-then-act class K-107 has now fixed three times elsewhere (recurring runs, quote->invoice, sales-order->invoice). K-107's round 5 is fixing both, so this item exists to record the class and to ensure the census is repeated across every module rather than patched site by site. If K-107 cannot close the practice-module half within its scope, it stays open here.\n\nCLOSED ON EVIDENCE 2026-09-25: Verified 2026-09-25 on origin/master 4faf25ed7 by reading the committed code (git show), not the commit message; the fix commit is an ancestor of the live RELEASE_SHA e2a78d699. (1) quoteService.ts:11,91 -- nextQuoteNumber's unscoped MAX is gone; quotes go through insertWithReservedNumber (the company's own counter, uq_customer_quotes_company_number). (2) practiceWipService.ts:176,267 -- lockEligibleWipEntries row-locks the entries and markEntriesBilled's count is checked, rolling back on a mismatch. Historical duplicate WIP invoices remain uncounted."
     },
     {
       "id": "R-045",
@@ -10213,17 +10219,21 @@
       "severityRationale": "Duplicate bank credits and duplicate client billing, both reachable without concurrency.",
       "auditedSha": "",
       "currentSha": "",
-      "status": "confirmed",
+      "status": "fixed-on-master",
       "dependencies": [
         "K-107"
       ],
-      "testNames": [],
+      "testNames": [
+        "tests/integration/k107-batch-payment-double-post.int.test.ts",
+        "tests/integration/k107-sales-order-line-rewrite.int.test.ts",
+        "tests/integration/k107-time-entries-invoice-route.int.test.ts"
+      ],
       "evidencePaths": [
         "docs/audits/remediation/K-107/fix.md"
       ],
-      "fixCommit": null,
-      "pr": null,
-      "deployedSha": null,
+      "fixCommit": "5f26d544e",
+      "pr": "411",
+      "deployedSha": "5f26d544e",
       "historicalDataImpact": "Unquantified; no census query written yet.",
       "canonicalItem": null,
       "reportedSeverity": "",
@@ -10231,7 +10241,7 @@
       "title": "Batch payments could post twice and credit the bank twice on two clicks; WIP-invoiced time entries could be billed again with no concurrency",
       "severity": "high",
       "source": "Found by the K-107 fixer's own census in round 5; recorded 2026-09-10",
-      "processNotes": "Three defects found while fixing K-107, all now fixed on that branch, but the DATA they may already have produced is not corrected. (1) batchPaymentService.processBatch read status !== 'approved' then posted DR AP / CR Bank and incremented amount_paid on every invoice, rewriting the batch with WHERE id = $1 -- TWO CLICKS posted two journals and CREDITED THE BANK TWICE. Reachable by an ordinary double-click, no concurrency needed. (2) The two time-entry subsystems disagree on which column means 'billed', so entries already invoiced through WIP could be billed AGAIN through the route -- serially, no race required. (3) updateSalesOrder rewrote the lines of an order someone else had just confirmed. HEIN'S CALL: (1) is real money in the bank GL and (2) is double-billed client time. Neither has had a census query written yet -- one is needed before deploy, and posting_agent / audit_log will identify the batch-payment duplicates."
+      "processNotes": "Three defects found while fixing K-107, all now fixed on that branch, but the DATA they may already have produced is not corrected. (1) batchPaymentService.processBatch read status !== 'approved' then posted DR AP / CR Bank and incremented amount_paid on every invoice, rewriting the batch with WHERE id = $1 -- TWO CLICKS posted two journals and CREDITED THE BANK TWICE. Reachable by an ordinary double-click, no concurrency needed. (2) The two time-entry subsystems disagree on which column means 'billed', so entries already invoiced through WIP could be billed AGAIN through the route -- serially, no race required. (3) updateSalesOrder rewrote the lines of an order someone else had just confirmed. HEIN'S CALL: (1) is real money in the bank GL and (2) is double-billed client time. Neither has had a census query written yet -- one is needed before deploy, and posting_agent / audit_log will identify the batch-payment duplicates.\n\nCLOSED ON EVIDENCE 2026-09-25: Verified 2026-09-25 on origin/master 4faf25ed7 by reading the committed code (git show), not the commit message; the fix commit is an ancestor of the live RELEASE_SHA e2a78d699. (1) batchPaymentService.processBatch claims with UPDATE ... SET status='processed' WHERE status='approved' RETURNING id before posting; otherwise BatchNotProcessableError. (2) time-entries-invoice.ts:75,146 claims on invoiced=false AND billed_at IS NULL and refuses a short claim (TimeEntriesNotClaimedError). (3) salesOrderService.updateSalesOrder:286-289 predicates the header UPDATE on status='draft' and returns before rewriting lines when nothing was claimed. Still open for Hein: the census of batch-payment duplicates already in production."
     },
     {
       "id": "R-048",
@@ -10264,7 +10274,7 @@
       "title": "An admin can lower an admin-level approval rule to manager and re-raise the request, so a manager approves what only an admin should",
       "severity": "high",
       "source": "Found by the K-043 r7 blind reviewer, outside the scope of the required_role ratchet; recorded 2026-09-10",
-      "processNotes": "K-043's migration-669 ratchet (snapshot required_role at raise, rebind may only RAISE it, assertMayDecide demands max(snapshot, live)) held against every lever the reviewer could drive -- except this one, which sits OUTSIDE it. An admin edits an ADMIN-level rule down to manager and then re-raises the request; the new request snapshots the already-lowered role, so the ratchet has nothing higher to hold to. Reproduced end to end: manager approves, 200. The ratchet is the right mechanism and should not be changed for this; the missing control is that lowering a rule's authority is itself a privileged act that an actor at that rank should not be able to perform on their own governing rule. Needs its own item and its own design. Related: R-032 (admin impersonation), R-033 (sole-owner deadlock), R-035 (no enforcement path at all)."
+      "processNotes": "K-043's migration-669 ratchet (snapshot required_role at raise, rebind may only RAISE it, assertMayDecide demands max(snapshot, live)) held against every lever the reviewer could drive -- except this one, which sits OUTSIDE it. An admin edits an ADMIN-level rule down to manager and then re-raises the request; the new request snapshots the already-lowered role, so the ratchet has nothing higher to hold to. Reproduced end to end: manager approves, 200. The ratchet is the right mechanism and should not be changed for this; the missing control is that lowering a rule's authority is itself a privileged act that an actor at that rank should not be able to perform on their own governing rule. Needs its own item and its own design. Related: R-032 (admin impersonation), R-033 (sole-owner deadlock), R-035 (no enforcement path at all).\n\nSTILL OPEN, verified 2026-09-25 on origin/master 4faf25ed7: approvalRuleGuards.ts (assertMayEditRule/assertMayDemand) refuse only when actorRank < requiredRank, so an admin may lower an admin-level rule to manager. 39c900ae3's message carved this out as R-048; nothing since closes it. Needs a design decision."
     },
     {
       "id": "R-049",
@@ -10491,17 +10501,20 @@
       "severityRationale": "A posting route that never ran is now live; two posting routes have no database backstop.",
       "auditedSha": "",
       "currentSha": "",
-      "status": "confirmed",
+      "status": "fixed-on-master",
       "dependencies": [
         "K-072"
       ],
-      "testNames": [],
+      "testNames": [
+        "tests/integration/k072-capture-fourth-route.int.test.ts",
+        "tests/integration/k072-draft-claim-release.int.test.ts"
+      ],
       "evidencePaths": [
         "docs/audits/remediation/K-072/fix.md"
       ],
-      "fixCommit": null,
-      "pr": null,
-      "deployedSha": null,
+      "fixCommit": "85e8baef9",
+      "pr": "426",
+      "deployedSha": "85e8baef9",
       "historicalDataImpact": "None from the pipeline route -- it never created an invoice. The fence gap is forward-looking.",
       "canonicalItem": null,
       "reportedSeverity": "",
@@ -10509,7 +10522,7 @@
       "title": "ai-invoice-pipeline has never created an invoice, and the capture posting fence's unique index cannot reach the two routes that write supplier_invoices",
       "severity": "high",
       "source": "Measured by the K-072 fixer in round 7 while closing the fourth posting route; recorded 2026-09-10",
-      "processNotes": "Two facts, both measured, both correcting earlier assumptions on this programme. (1) ai-invoice-pipeline inserted `company_id` into supplier_invoice_items -- a column that table has NEVER had -- and buildInvoiceFromExtraction always synthesises a line, so every call raised 42703 and rolled back. The route had never created an invoice. This is the FOURTH never-worked feature found (after validateMigration R-050, the portal endpoints, and executeArchive R-053). Note the shape: the R300 duplicate input-tax claim a reviewer measured on this route was LATENT -- one repaired line away from live. K-072 repaired the line and fenced it in the same round, so it is live and guarded now rather than live and unguarded later. (2) The partial unique index uq_gl_je_capture_source_document was believed to be the database backstop behind the application claim. It is on gl_journal_entries; routes 4 and 5 (capture/[id]/post and ai-invoice-pipeline) write supplier_invoices, so the index CANNOT reach them at any `source` value -- the earlier 'a route writing under a different source slips past it' framing was wrong in a more fundamental way than stated. captureRowLock.ts's header asserted the opposite and has been corrected. Those two routes are fenced by the application claim alone. HEIN: a supplier_invoices-side constraint would restore a database backstop for routes 4 and 5; that is a scope change and is why this is an item."
+      "processNotes": "Two facts, both measured, both correcting earlier assumptions on this programme. (1) ai-invoice-pipeline inserted `company_id` into supplier_invoice_items -- a column that table has NEVER had -- and buildInvoiceFromExtraction always synthesises a line, so every call raised 42703 and rolled back. The route had never created an invoice. This is the FOURTH never-worked feature found (after validateMigration R-050, the portal endpoints, and executeArchive R-053). Note the shape: the R300 duplicate input-tax claim a reviewer measured on this route was LATENT -- one repaired line away from live. K-072 repaired the line and fenced it in the same round, so it is live and guarded now rather than live and unguarded later. (2) The partial unique index uq_gl_je_capture_source_document was believed to be the database backstop behind the application claim. It is on gl_journal_entries; routes 4 and 5 (capture/[id]/post and ai-invoice-pipeline) write supplier_invoices, so the index CANNOT reach them at any `source` value -- the earlier 'a route writing under a different source slips past it' framing was wrong in a more fundamental way than stated. captureRowLock.ts's header asserted the opposite and has been corrected. Those two routes are fenced by the application claim alone. HEIN: a supplier_invoices-side constraint would restore a database backstop for routes 4 and 5; that is a scope change and is why this is an item.\n\nCLOSED ON EVIDENCE 2026-09-25: Verified 2026-09-25 on origin/master 4faf25ed7 by reading the committed code (git show), not the commit message; the fix commit is an ancestor of the live RELEASE_SHA e2a78d699. (1) ai-invoice-pipeline.ts:215 -- the company_id insert into supplier_invoice_items is gone. (2) the route reads refusalForPosting (:88) and takes claimCapturedDocumentForPosting (:177) before the supplier_invoices INSERT. The database backstop for routes 4 and 5 was NOT built: they are fenced by the application claim only, as the item recorded (a supplier_invoices-side constraint remains Hein's call)."
     },
     {
       "id": "R-055",
@@ -10524,17 +10537,20 @@
       "severityRationale": "A customer-facing feature that has never worked, with no test covering it.",
       "auditedSha": "",
       "currentSha": "",
-      "status": "confirmed",
+      "status": "fixed-on-master",
       "dependencies": [
         "K-053"
       ],
-      "testNames": [],
+      "testNames": [
+        "tests/integration/r095-portal-round4.int.test.ts",
+        "tests/integration/r095-portal-statement-matches-inapp.int.test.ts"
+      ],
       "evidencePaths": [
         "docs/audits/remediation/K-053/fix.md"
       ],
-      "fixCommit": null,
-      "pr": null,
-      "deployedSha": null,
+      "fixCommit": "d7b89c8c3",
+      "pr": "444",
+      "deployedSha": "d7b89c8c3",
       "historicalDataImpact": "None -- nothing was written. Any customer sent a portal link saw an error.",
       "canonicalItem": null,
       "reportedSeverity": "",
@@ -10542,7 +10558,7 @@
       "title": "Both customer portal endpoints have never worked: portalService selects four columns that do not exist",
       "severity": "high",
       "source": "Verified by the K-053 r7 blind reviewer (42703 measured); first spotted by the K-053 fixer; recorded 2026-09-10",
-      "processNotes": "portalService selects `customer_invoices.total` and `customer_payments.amount` / `.reference` / `.customer_id` -- NONE of those columns exist on this schema. Both portal endpoints raise 42703 in production today. Verified by execution, not inference. This is the FIFTH never-worked feature this programme has found: validateMigration (R-050), the archive (R-053), ai-invoice-pipeline (R-054), and these two endpoints. Distinguishing feature: this one is CUSTOMER-FACING. The other four fail where only staff or a cron would notice; a customer opening a portal link gets an error. No test exercises either endpoint, which is why it survived. Note the correct column for an invoice's outstanding amount is total_amount - COALESCE(amount_paid,0) -- there is no balance_due and no total. Out of K-053's scope (that branch owns dated ledger presence, not the portal) so it gets its own item rather than being folded in. HEIN: worth knowing whether any customer has ever been sent a portal link."
+      "processNotes": "portalService selects `customer_invoices.total` and `customer_payments.amount` / `.reference` / `.customer_id` -- NONE of those columns exist on this schema. Both portal endpoints raise 42703 in production today. Verified by execution, not inference. This is the FIFTH never-worked feature this programme has found: validateMigration (R-050), the archive (R-053), ai-invoice-pipeline (R-054), and these two endpoints. Distinguishing feature: this one is CUSTOMER-FACING. The other four fail where only staff or a cron would notice; a customer opening a portal link gets an error. No test exercises either endpoint, which is why it survived. Note the correct column for an invoice's outstanding amount is total_amount - COALESCE(amount_paid,0) -- there is no balance_due and no total. Out of K-053's scope (that branch owns dated ledger presence, not the portal) so it gets its own item rather than being folded in. HEIN: worth knowing whether any customer has ever been sent a portal link.\n\nCLOSED ON EVIDENCE 2026-09-25: Verified 2026-09-25 on origin/master 4faf25ed7 by reading the committed code (git show), not the commit message; the fix commit is an ancestor of the live RELEASE_SHA e2a78d699. Fixed under R-095. portalService.ts:135-137 selects total_amount and derives (total_amount - COALESCE(amount_paid,0)) AS balance; the statement uses statementEmailService.fetchStatementData (:13) instead of the non-existent customer_payments columns."
     },
     {
       "id": "R-056",
@@ -10595,17 +10611,20 @@
       "severityRationale": "A payroll posting route that has never once succeeded on any tenant, with no test covering it.",
       "auditedSha": "",
       "currentSha": "",
-      "status": "confirmed",
+      "status": "fixed-on-master",
       "dependencies": [
         "K-107"
       ],
-      "testNames": [],
+      "testNames": [
+        "tests/integration/k107-loan-payment-gl-fallback.int.test.ts",
+        "tests/integration/k107-payroll-liability-double-post.int.test.ts"
+      ],
       "evidencePaths": [
         "docs/audits/remediation/K-107/fix.md"
       ],
-      "fixCommit": null,
-      "pr": null,
-      "deployedSha": null,
+      "fixCommit": "2e0ae4f36",
+      "pr": "411",
+      "deployedSha": "2e0ae4f36",
       "historicalDataImpact": "None -- nothing was ever written. Every call raised 42703 at the first GL lookup. There is no historical output to correct; the exposure is that tax-directive payments were never posted to the GL at all, so the liability may be unrecorded.",
       "canonicalItem": null,
       "reportedSeverity": "",
@@ -10613,7 +10632,7 @@
       "title": "The tax-directive apply route has never worked: glByCode selects gl_accounts.code, a column that does not exist",
       "severity": "high",
       "source": "Found by the K-107 r8 fixer; column absence independently confirmed against the schema fixture by the orchestrating session, 2026-09-10",
-      "processNotes": "`glByCode` runs `SELECT id FROM gl_accounts WHERE company_id = $1 AND code = $2`. The column on this schema is `account_code`; `code` does not exist, so every call raises 42703. Confirmed on origin/master at taxDirectivePaymentService.ts:78-82, and the same shape in loans/loanPaymentService. Fixed on the K-107 branch and mutation-proved. Registered so the ACCOUNTING question -- whether tax-directive liabilities are missing from the GL and for how long -- reaches Hein; that is not a code question and no agent may query production to size it."
+      "processNotes": "`glByCode` runs `SELECT id FROM gl_accounts WHERE company_id = $1 AND code = $2`. The column on this schema is `account_code`; `code` does not exist, so every call raises 42703. Confirmed on origin/master at taxDirectivePaymentService.ts:78-82, and the same shape in loans/loanPaymentService. Fixed on the K-107 branch and mutation-proved. Registered so the ACCOUNTING question -- whether tax-directive liabilities are missing from the GL and for how long -- reaches Hein; that is not a code question and no agent may query production to size it.\n\nCLOSED ON EVIDENCE 2026-09-25: Verified 2026-09-25 on origin/master 4faf25ed7 by reading the committed code (git show), not the commit message; the fix commit is an ancestor of the live RELEASE_SHA e2a78d699. glByCode reads account_code in both taxDirectivePaymentService.ts:96 and loans/loanPaymentService.ts:73. Still open for Hein: the accounting question whether tax-directive liabilities are missing from the GL."
     },
     {
       "id": "R-058",
@@ -11033,17 +11052,20 @@
       "severityRationale": "Worse than R-058, which at least had a check to race: here there is no guard, so a repeat call duplicates the document and its journal with no concurrency involved.",
       "auditedSha": "",
       "currentSha": "",
-      "status": "confirmed",
+      "status": "fixed-on-master",
       "dependencies": [
         "R-058"
       ],
-      "testNames": [],
+      "testNames": [
+        "tests/integration/k072-capture-double-post.int.test.ts",
+        "tests/integration/k072-capture-posting-fence.int.test.ts"
+      ],
       "evidencePaths": [
         "docs/audits/remediation/R-058/fix.md"
       ],
-      "fixCommit": null,
-      "pr": null,
-      "deployedSha": null,
+      "fixCommit": "47e73f95b",
+      "pr": "426",
+      "deployedSha": "47e73f95b",
       "historicalDataImpact": "Unknown; production not measured. Any document posted twice through these routes has duplicate output. Impact SQL belongs in the fix's fix.md.",
       "canonicalItem": null,
       "reportedSeverity": "",
@@ -11051,7 +11073,7 @@
       "title": "Two capture posting routes select captured_documents.status and never read it — no already-posted guard at all, so a second call simply posts again",
       "severity": "high",
       "source": "Found by the R-058 fixer; confirmed on origin/master by the orchestrating session — zero comparisons against 'posted' in either file.",
-      "processNotes": "`ai-invoice-pipeline.ts:59` and `receipt-to-journal.ts:43` both `SELECT extracted_data, status FROM captured_documents`, then never compare `status`. Measured on master: 0 occurrences of a comparison against 'posted' in either file; the only refusals are documentId presence, extracted_data presence, validation and default accounts. R-058 fixed the two routes that DO guard (`capture/[id]/post-expense.ts` and `capture/[id]/post.ts`) by locking the row; these two need a refusal first, on a marker to be decided — `captured_documents.status` is a different table from the `capture_events.status` R-058 locks. Not fixed: that decision is a scope change.\n\nRECOMMENDED BACKSTOP (2026-09-10, R-058 reviewer): give `expense_claim_lines` a partial-unique index on its source document, as `gl_journal_entries` already has (`uq_gl_je_capture_source_document`). The employee expense-claim path is the only capture path with NO constraint behind its guard — measured: a re-post there creates a second claim where the other two paths are stopped by a unique index or a fingerprint gate. A database constraint also protects routes that have no guard at all (R-070). Not built in R-058 round 2 — it needs a migration and was not one of that round's scored findings. Pre-flight: count existing duplicate source documents in expense_claim_lines before creating the index, since it will refuse to build over them."
+      "processNotes": "`ai-invoice-pipeline.ts:59` and `receipt-to-journal.ts:43` both `SELECT extracted_data, status FROM captured_documents`, then never compare `status`. Measured on master: 0 occurrences of a comparison against 'posted' in either file; the only refusals are documentId presence, extracted_data presence, validation and default accounts. R-058 fixed the two routes that DO guard (`capture/[id]/post-expense.ts` and `capture/[id]/post.ts`) by locking the row; these two need a refusal first, on a marker to be decided — `captured_documents.status` is a different table from the `capture_events.status` R-058 locks. Not fixed: that decision is a scope change.\n\nRECOMMENDED BACKSTOP (2026-09-10, R-058 reviewer): give `expense_claim_lines` a partial-unique index on its source document, as `gl_journal_entries` already has (`uq_gl_je_capture_source_document`). The employee expense-claim path is the only capture path with NO constraint behind its guard — measured: a re-post there creates a second claim where the other two paths are stopped by a unique index or a fingerprint gate. A database constraint also protects routes that have no guard at all (R-070). Not built in R-058 round 2 — it needs a migration and was not one of that round's scored findings. Pre-flight: count existing duplicate source documents in expense_claim_lines before creating the index, since it will refuse to build over them.\n\nCLOSED ON EVIDENCE 2026-09-25: Verified 2026-09-25 on origin/master 4faf25ed7 by reading the committed code (git show), not the commit message; the fix commit is an ancestor of the live RELEASE_SHA e2a78d699. Both routes now refuse on read and claim before writing: ai-invoice-pipeline.ts:88,177 and receipt-to-journal.ts:80,232 (refusalForPosting, then claimCapturedDocumentForPosting). The recommended expense_claim_lines partial-unique backstop was never built as that index (no uq_expense_claim* migration); the expense-claim path got its own guard under R-105."
     },
     {
       "id": "R-071",
