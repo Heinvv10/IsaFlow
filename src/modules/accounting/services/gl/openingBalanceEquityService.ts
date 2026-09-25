@@ -35,7 +35,6 @@
 import { sql } from '@/lib/neon';
 import type { DbRow } from '@/lib/neon';
 import { log } from '@/lib/logger';
-import { cache } from '@/lib/cache';
 import { clearSystemAccountCache } from './systemAccountResolver';
 
 export const OPENING_BALANCE_EQUITY_SUBTYPE = 'opening_balance_equity';
@@ -132,7 +131,6 @@ export async function ensureOpeningBalanceEquityAccount(
     throw err;
   }
   const r = rows[0]!;
-  cache.invalidatePrefix(`${companyId}:gl-accounts`);
   clearSystemAccountCache(companyId);
   log.info('Created Opening Balance Equity account', { companyId, code }, 'accounting');
   return { id: String(r.id), accountCode: String(r.account_code), accountName: String(r.account_name), created: true };

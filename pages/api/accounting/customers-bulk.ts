@@ -16,8 +16,6 @@ import { withAuth, type CompanyAuthedRequest, withWriteAccess } from '@/lib/auth
 import { withCsrf } from '@/lib/auth/withCsrf';
 import { log } from '@/lib/logger';
 import { withErrorHandler } from '@/lib/api-error-handler';
-import { cache } from '@/lib/cache';
-import { CACHE_KEYS } from '@/lib/cache-keys';
 import { escapeCsv } from '@/lib/csv';
 import { EXPORT_ROW_CEILING } from '@/lib/pagination';
 
@@ -102,7 +100,6 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
           AND  deleted_at IS NULL
         RETURNING id
       `) as { id: string }[];
-      cache.invalidate(CACHE_KEYS.customers(companyId));
       log.info('Customers bulk status updated', {
         action,
         count: updated.length,

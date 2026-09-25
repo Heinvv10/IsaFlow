@@ -33,14 +33,6 @@ import { describe, it, expect, vi } from 'vitest';
 // driver does not attempt to connect (DATABASE_URL is absent in unit tests).
 vi.mock('@/lib/neon', () => ({ sql: vi.fn(), withTransaction: vi.fn() }));
 vi.mock('@/lib/logger', () => ({ log: { info: vi.fn(), error: vi.fn(), warn: vi.fn() } }));
-vi.mock('@/lib/cache', () => ({
-  cacheThrough: vi.fn(),
-  cache: { invalidatePrefix: vi.fn() },
-}));
-vi.mock('@/lib/cache-keys', () => ({
-  CACHE_KEYS: { glAccounts: vi.fn(), glAccountsInactive: vi.fn() },
-  CACHE_TTL: { REFERENCE_DATA: 300 },
-}));
 
 // softDeleteService — only pure export
 import { isValidEntityType } from '@/modules/accounting/services/core/softDeleteService';
