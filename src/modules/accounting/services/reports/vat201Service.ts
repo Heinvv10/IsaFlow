@@ -112,8 +112,11 @@ export async function generateVAT201(companyId: string,
       FROM supplier_invoices si
       LEFT JOIN suppliers s ON s.id = si.supplier_id
       WHERE si.company_id = ${companyId}
-        AND si.invoice_date >= ${periodStart}
-        AND si.invoice_date <= ${periodEnd}
+        -- A late-claimed bill (gl/vatLateClaimSplit) is filed in its claim
+        -- period: dated by its posted companion, not by the invoice.
+        AND COALESCE((SELECT lc.entry_date FROM gl_journal_entries lc
+              WHERE lc.company_id = ${companyId}::UUID AND lc.late_claim_of_id = si.gl_journal_entry_id
+                AND lc.status = 'posted' LIMIT 1), si.invoice_date) BETWEEN ${periodStart}::DATE AND ${periodEnd}::DATE
         AND si.status != 'cancelled'
       ORDER BY si.invoice_date
     `) as Row[];
@@ -132,8 +135,10 @@ export async function generateVAT201(companyId: string,
       FROM supplier_invoice_items sii
       JOIN supplier_invoices si ON si.id = sii.supplier_invoice_id
       WHERE si.company_id = ${companyId}
-        AND si.invoice_date >= ${periodStart}
-        AND si.invoice_date <= ${periodEnd}
+        -- Same late-claim dating as the invoice list above (field 8 follows the claim).
+        AND COALESCE((SELECT lc.entry_date FROM gl_journal_entries lc
+              WHERE lc.company_id = ${companyId}::UUID AND lc.late_claim_of_id = si.gl_journal_entry_id
+                AND lc.status = 'posted' LIMIT 1), si.invoice_date) BETWEEN ${periodStart}::DATE AND ${periodEnd}::DATE
         AND si.status != 'cancelled'
       GROUP BY COALESCE(sii.vat_classification, 'standard')
     `) as Row[];
