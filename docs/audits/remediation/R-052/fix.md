@@ -47,6 +47,11 @@ locally. On GitHub every job passed and `mergeStateStatus` was `CLEAN`.
     exactly `ci-${{ github.ref }}` with `cancel-in-progress: true`. A timeout too short to finish, or
     a group shared across refs, ends the check cancelled rather than red, and this repo has merged
     on cancelled checks.
+  - **The workflow set is fixed.** `ci.yml` is the only file under `.github/workflows/`. Its jobs are
+    exactly `quality` and `golden-paths`, and golden-paths keeps its own group:
+    `golden-paths-dev-demo`, no cancel. Concurrency groups are repo-wide, so any other workflow or job
+    that took the `ci-` group would cancel quality. Adding a workflow or a job means changing the rule
+    in review.
   - **Steps:** exactly three:
     1. checkout, with no `with`;
     2. `bun install --frozen-lockfile --ignore-scripts`. Without the flag, bun runs the lifecycle
