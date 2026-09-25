@@ -137,6 +137,30 @@ clauses from rounds 2-5 are unchanged, and their log above still holds (39 cases
       Tests  1 failed | 44 passed (45)
 ```
 
+## Round 7 (adversarial re-review of f8fa03d1f): the workflow file set and job set are fixed
+Another workflow file or job could take the repo-wide `ci-` concurrency group and cancel quality, or
+golden-paths could request its own workflow's group, which deadlocks. Instead of matching group
+strings, the rule now fixes the set:
+- only ci.yml under .github/workflows/;
+- jobs exactly quality and golden-paths;
+- golden-paths' concurrency exactly `golden-paths-dev-demo`, no cancel.
+There are 49 cases.
+```
+### R18 workflow file set not checked
+     × a second workflow file (concurrency groups are repo-wide, so it can take ci- and cancel quality) 4ms
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 1 ⎯⎯⎯⎯⎯⎯⎯
+      Tests  1 failed | 48 passed (49)
+### R19 ci.yml job set not checked
+     × a third job in ci.yml 4ms
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 1 ⎯⎯⎯⎯⎯⎯⎯
+      Tests  1 failed | 48 passed (49)
+### R20 golden-paths concurrency not pinned
+     × golden-paths moved into the workflow's own ci- group (deadlock cancels the run) 3ms
+     × golden-paths concurrency removed or set to cancel 1ms
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 2 ⎯⎯⎯⎯⎯⎯⎯
+      Tests  2 failed | 47 passed (49)
+```
+
 ## Round 1 (superseded): the grep-based check-workflow-runs-ci.sh
 It caught these four, and blind review then got nine other edits past it, which is why round 2 replaced it.
 ```
