@@ -128,15 +128,17 @@ async function handler(req: CompanyAuthedRequest, res: NextApiResponse) {
           body.description, aType, body.entityId, body.vatCode,
           body.cc1Id, body.cc2Id, body.buId,
           undefined,
-          // Omitted rather than defaulted here: the service owns the default,
-          // and a second copy of it is how two entry points drift apart.
-          body.autoApply ? { autoApply: body.autoApply } : undefined,
+          // autoApply omitted rather than defaulted here: the service owns the
+          // default, and a second copy of it is how two entry points drift apart.
+          // A person allocating: s16(3) late input-VAT claim where allowed.
+          { ...(body.autoApply ? { autoApply: body.autoApply } : {}), allowLateInputClaim: true },
         );
         return apiResponse.success(res, result);
       }
       case 'split_allocate': {
         const splitLines = body.lines as SplitLine[];
-        const splitResult = await splitAllocateTransaction(companyId, body.bankTransactionId, splitLines, userId);
+        const splitResult = await splitAllocateTransaction(
+          companyId, body.bankTransactionId, splitLines, userId, { allowLateInputClaim: true });
         return apiResponse.success(res, splitResult);
       }
       case 'delete': {
