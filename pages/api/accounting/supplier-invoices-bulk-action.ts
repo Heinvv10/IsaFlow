@@ -86,7 +86,8 @@ async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse) {
 
   for (const invoiceId of ordered) {
     try {
-      // A person's bulk action: approve / Post to GL opt in to the s16(3) late claim.
+      // A person's bulk APPROVE opts in to the s16(3) late claim. Post to GL does
+      // not: its bill was already approved, so already in the filed figures.
       const lateClaim = await withSavepoint('bulk_supplier_invoice_item', async () => {
         switch (action) {
           case 'approve':
@@ -95,7 +96,8 @@ async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse) {
             await cancelSupplierInvoice(companyId, invoiceId, userId);
             return undefined;
           case 'post_gl':
-            return (await postSupplierInvoiceToGL(companyId, invoiceId, userId, { allowLateInputClaim: true })).lateClaim;
+            await postSupplierInvoiceToGL(companyId, invoiceId, userId);
+            return undefined;
         }
         return undefined;
       });

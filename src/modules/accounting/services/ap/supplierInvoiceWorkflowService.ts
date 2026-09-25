@@ -155,8 +155,8 @@ export async function postSupplierInvoiceToGL(
   companyId: string,
   id: string,
   userId: string,
-  opts?: PostingActorOpts & PostJournalOpts,
-): Promise<{ journalEntryId: string; alreadyPosted: boolean; lateClaim?: LateClaimInfo }> {
+  opts?: PostingActorOpts,
+): Promise<{ journalEntryId: string; alreadyPosted: boolean }> {
   // Same check-then-act window approveSupplierInvoice closes at :95, and the
   // same reason: this function decides on `glJournalEntryId` below and then
   // overwrites it. Unlocked, two overlapping "Post to GL" calls both read NULL,
@@ -234,9 +234,12 @@ export async function postSupplierInvoiceToGL(
     description: `Supplier invoice ${invoice.invoiceNumber}`,
     source: 'auto_supplier_invoice',
     lines,
-  }, userId, actorMeta(opts), { allowLateInputClaim: opts?.allowLateInputClaim });
+  }, userId, actorMeta(opts));
 
-  const posted = await postJournalEntry(companyId, journalEntry.id, userId, opts);
+  // NEVER a late claim: this posts a bill that is ALREADY approved, so it was in
+  // the figures of the VAT period its date falls in when that return was filed.
+  // Only an approval made in the same act may claim late (approveSupplierInvoice).
+  await postJournalEntry(companyId, journalEntry.id, userId);
 
   await sql`
     UPDATE supplier_invoices
@@ -245,10 +248,7 @@ export async function postSupplierInvoiceToGL(
   `;
 
   log.info('Backfilled supplier invoice GL', { id, journalEntryId: journalEntry.id }, 'accounting');
-  return {
-    journalEntryId: journalEntry.id, alreadyPosted: false,
-    ...(posted.lateClaim ? { lateClaim: posted.lateClaim } : {}),
-  };
+  return { journalEntryId: journalEntry.id, alreadyPosted: false };
 }
 
 export async function cancelSupplierInvoice(

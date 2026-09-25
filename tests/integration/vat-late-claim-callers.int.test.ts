@@ -10,6 +10,7 @@ import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { randomUUID } from 'crypto';
 import { sql } from '@/lib/neon';
 import { createClaim, submitClaim, approveClaim } from '@/modules/accounting/services/expense/expenseClaimService';
+import { postSupplierInvoiceToGL } from '@/modules/accounting/services/ap/supplierInvoiceWorkflowService';
 import { VatPeriodLockedError } from '@/modules/accounting/services/gl/journalVatLockGuard';
 import { approveSupplierInvoiceTool } from '@/lib/mcp/tools/writeSupplierInvoices';
 import { createDraftJournalTool, postJournalTool } from '@/lib/mcp/tools/writeJournals';
@@ -71,18 +72,32 @@ describeIfDb('late input VAT claim: the human-initiated callers opt in', () => {
     expect(dataOf<Late>(state).lateClaim).toMatchObject({ claimDate: '2026-07-01', inputTax: 150 });
   });
 
-  it('supplier-invoices-bulk-action approve and post_gl: each result carries lateClaim', async () => {
+  it('supplier-invoices-bulk-action approve: each result carries lateClaim', async () => {
     const a = await draftBill(fx, '2026-06-13');
     const approve = await callRoute(fx, token, supplierInvoicesBulkAction, { action: 'approve', invoiceIds: [a.id] });
     expect(approve.statusCode, JSON.stringify(approve.body)).toBe(200);
     expect(dataOf<{ results: Late[] }>(approve).results[0]!.lateClaim).toMatchObject({ claimDate: '2026-07-01' });
+  });
 
-    // An approved bill with no journal yet (a capture-created bill awaiting Post to GL).
+  /** Post to GL only ever posts a bill that is ALREADY approved (a capture-created or imported bill): it
+   *  was in the filed period's figures when that return was filed, so claiming its VAT later would move a
+   *  filed figure. Only an approval made in the same act may claim late (review C2). */
+  it('Post to GL of an already-approved bill dated in the lock is refused as today — service and bulk route', async () => {
     const b = await draftBill(fx, '2026-06-14');
     await sql`UPDATE supplier_invoices SET status = 'approved' WHERE id = ${b.id}::UUID`;
+    const before = await countRows(fx);
+    const err = await inTx(fx, () => postSupplierInvoiceToGL(fx.companyId, b.id, fx.userId))
+      .then(() => null, (e: unknown) => e);
+    expect(err).toBeInstanceOf(VatPeriodLockedError);
+    expect((err as Error).name).toBe('VatPeriodLockedError');
     const post = await callRoute(fx, token, supplierInvoicesBulkAction, { action: 'post_gl', invoiceIds: [b.id] });
     expect(post.statusCode, JSON.stringify(post.body)).toBe(200);
-    expect(dataOf<{ results: Late[] }>(post).results[0]!.lateClaim).toMatchObject({ claimDate: '2026-07-01' });
+    const item = dataOf<{ results: (Late & { ok: boolean; error?: string })[] }>(post).results[0]!;
+    expect(item).toMatchObject({ ok: false });
+    expect(item.error).toMatch(/locked/);
+    expect(await countRows(fx)).toEqual(before);
+    const [row] = (await sql`SELECT gl_journal_entry_id FROM supplier_invoices WHERE id = ${b.id}::UUID`) as Row[];
+    expect(row!.gl_journal_entry_id).toBeNull();
   });
 
   it('manual journal: POST journal-entries drafts it, journal-entries-action posts it with lateClaim', async () => {
