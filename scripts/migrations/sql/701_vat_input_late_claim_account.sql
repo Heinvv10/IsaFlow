@@ -15,7 +15,8 @@
 --      companion's source; it is posted through createJournalEntry +
 --      postJournalEntry, so it is fully validated);
 --   3. `gl_journal_entries.late_claim_of_id` → the original, unique while set:
---      one companion per original.
+--      one companion per original;
+--   4. `gl_journal_lines.late_claim_base`, the base behind a companion's claim.
 --
 -- Re-runnable: CREATE OR REPLACE, DROP/ADD the CHECK, ADD COLUMN / CREATE INDEX
 -- IF NOT EXISTS, and the per-company INSERT skips a company that already has
@@ -231,3 +232,12 @@ ALTER TABLE gl_journal_entries
 CREATE UNIQUE INDEX IF NOT EXISTS ux_gl_je_late_claim_of
   ON gl_journal_entries (late_claim_of_id)
   WHERE late_claim_of_id IS NOT NULL;
+
+-- 4. The base behind each companion VAT Input line: the value of the supply the
+-- original journal carried for that line's VAT code, derived as the VAT201
+-- derives it (gl/vatLateClaimRules.lateClaimBases). The claim period's 15% check
+-- counts it as that box's base (reports/vatLateClaimBasis), so a late claim
+-- faces exactly the check it would have faced on time. Written only on a
+-- companion's lines (and negated on its reversal's); NULL everywhere else.
+ALTER TABLE gl_journal_lines
+  ADD COLUMN IF NOT EXISTS late_claim_base NUMERIC(15,2);
