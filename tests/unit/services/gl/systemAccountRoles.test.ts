@@ -247,6 +247,8 @@ describe('the role list is the single source of truth', () => {
     ] as const) {
       expect(SYSTEM_ACCOUNT_KEYS).toContain(key);
     }
-    expect(SYSTEM_ACCOUNT_KEYS).toHaveLength(14);
+    // 15 since migration 701 added vat_input_late_claim (the late-claim clearing account).
+    expect(SYSTEM_ACCOUNT_KEYS).toContain('vat_input_late_claim');
+    expect(SYSTEM_ACCOUNT_KEYS).toHaveLength(15);
   });
 });

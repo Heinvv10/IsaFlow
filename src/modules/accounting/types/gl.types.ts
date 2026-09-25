@@ -15,6 +15,7 @@ export type GLAccountSubtype =
   | 'tax'
   | 'vat_input'
   | 'vat_output'
+  | 'vat_input_late_claim'
   | 'inventory'
   | 'fixed_asset'
   | 'accumulated_depreciation'
@@ -76,6 +77,8 @@ export const GL_ENTRY_SOURCES = [
   // its own validateJournalEntry check — it INSERTs at status='posted', so no
   // other guard sees it.
   'year_end',
+  // The companion of a late input-VAT claim (migration 701, gl/vatLateClaimSplit).
+  'auto_vat_late_claim',
 ] as const;
 
 export type GLEntrySource = (typeof GL_ENTRY_SOURCES)[number];
