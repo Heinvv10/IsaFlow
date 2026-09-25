@@ -1,0 +1,18 @@
+# R-052 mutations — scripts/ci/check-workflow-runs-ci.sh against .github/workflows/ci.yml, 2026-09-25
+
+### M0 baseline (unmutated)
+exit=0
+### M1 step reverted to a hand-listed gate (bun run test:unit)
+ERROR: .github/workflows/ci.yml has no step that runs exactly `bun run ci`.
+Call run-ci.sh rather than listing its gates: a hand-kept list drifts.
+exit=1
+### M2 step neutralised with || true
+ERROR: .github/workflows/ci.yml has no step that runs exactly `bun run ci`.
+Call run-ci.sh rather than listing its gates: a hand-kept list drifts.
+exit=1
+### M3 continue-on-error added
+ERROR: .github/workflows/ci.yml sets continue-on-error; a gate that cannot fail proves nothing.
+exit=1
+### M4 workflow deleted
+ERROR: .github/workflows/ci.yml is missing
+exit=1
