@@ -22,6 +22,21 @@ import { DocumentLineAccountRefusal, assertDocumentLineAccounts } from '@/module
 
 type Row = Record<string, unknown>;
 
+// Keep in step with the status IN (...) guard in the PUT's UPDATE.
+const EDITABLE_STATUSES = ['draft', 'submitted'];
+
+async function readStatus(id: string, companyId: string): Promise<string | null> {
+  const rows = await sql`
+    SELECT status FROM purchase_orders
+    WHERE id = ${id}::UUID AND company_id = ${companyId}::UUID
+  ` as Row[];
+  return rows.length === 0 ? null : String(rows[0]!.status);
+}
+
+function refuseStatus(res: NextApiResponse, status: string) {
+  return apiResponse.badRequest(res, `Cannot edit a ${status} purchase order`);
+}
+
 async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse) {
   const { companyId } = req as CompanyAuthedRequest;
   const id = req.query.id as string;
@@ -86,19 +101,12 @@ async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse) {
       }>;
     };
 
-    // Fetch current PO to verify ownership and status
-    const existing = await sql`
-      SELECT id, status FROM purchase_orders
-      WHERE id = ${id}::UUID AND company_id = ${companyId}::UUID
-    ` as Row[];
-
-    if (existing.length === 0) return apiResponse.notFound(res, 'Purchase order', id);
-
-    const currentStatus = String(existing[0]!.status);
-    const allowedEditStatuses = ['draft', 'submitted'];
-    if (!allowedEditStatuses.includes(currentStatus)) {
-      return apiResponse.badRequest(res, `Cannot edit a ${currentStatus} purchase order`);
-    }
+    // Fetch current PO to verify ownership and answer early on a non-editable
+    // status. This read is not the guard: the status can change before the
+    // UPDATE below, which carries the same check in its WHERE (R-126).
+    const existing = await readStatus(id, companyId);
+    if (existing === null) return apiResponse.notFound(res, 'Purchase order', id);
+    if (!EDITABLE_STATUSES.includes(existing)) return refuseStatus(res, existing);
 
     // R-068: supplier_id comes from the body; refused before the UPDATE.
     try {
@@ -166,14 +174,23 @@ async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse) {
         updated_at             = NOW(),
         updated_by             = ${String(req.user.id)}
       WHERE id = ${id}::UUID AND company_id = ${companyId}::UUID
+        AND status IN ('draft', 'submitted')
       RETURNING *
     ` as Row[];
 
-    if (updated.length === 0) return apiResponse.notFound(res, 'Purchase order', id);
+    if (updated.length === 0) {
+      const now = await readStatus(id, companyId);
+      if (now === null) return apiResponse.notFound(res, 'Purchase order', id);
+      // Editable again by the time of this read: the caller's view is stale.
+      if (EDITABLE_STATUSES.includes(now)) {
+        return apiResponse.conflict(res, 'The purchase order changed while saving; reload and try again');
+      }
+      return refuseStatus(res, now);
+    }
 
     // Replace line items if provided
     if (Array.isArray(items) && items.length > 0) {
-      // Parent-verified: the UPDATE above scopes to company_id and early-returns 404 when no row matches, so this id is tenant-owned.
+      // Parent-verified: the UPDATE above scopes to company_id and returns early when no row matches, so this id is tenant-owned.
       await sql`DELETE FROM po_items WHERE purchase_order_id = ${id}::UUID`;
       for (let i = 0; i < items.length; i++) {
         const item = items[i]!;
