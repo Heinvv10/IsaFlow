@@ -79,7 +79,7 @@ export async function planSupplierInvoiceCancel(
   // cancellable (K-053). One reply for absent and foreign — no existence oracle.
   const rows = (await sql`
     SELECT invoice_number, status, total_amount, COALESCE(amount_paid, 0) AS amount_paid,
-           gl_journal_entry_id, COALESCE(payment_matched, false) AS payment_matched
+           gl_journal_entry_id, COALESCE(payment_matched, false) AS payment_matched, source_document_id
     FROM supplier_invoices
     WHERE id = ${invoiceId}::UUID AND company_id = ${companyId}::UUID AND deleted_at IS NULL`) as DbRow[];
   const bill = rows[0];
@@ -154,17 +154,42 @@ export async function planSupplierInvoiceCancel(
       + 'that journal first, then cancel.',
     );
   }
-  // An approved bill with NO journal behind it (a Sage import, a stranded
-  // journal): cancelling drops it from the AP subledger while any control-account
-  // credit carrying it stays in the GL. A journal already reversed is different —
-  // the GL has already let go of it.
-  if (!entry && FIFO_ELIGIBLE_STATUSES.includes(status)) {
+  // An approved bill with NO journal behind it is refused, because its liability
+  // may sit in the GL by other means (a Sage take-on, a seeded history) and
+  // cancelling drops it from the AP subledger while that credit stays. The ONE
+  // exception is a bill the capture routes created (ai-invoice-pipeline,
+  // capture/[id]/post: the only writers of `source_document_id`). They
+  // auto-approve with no journal, awaiting Post to GL, so nothing of theirs is in
+  // the GL and they cancel as a plain status change. An allowlist, not a
+  // `sage_invoice_id` test: the Sage importer writes NULL there when staging has
+  // no id. A stranded journal naming the bill as its source is refused above
+  // ("other posted journals"). A journal already reversed: the GL has let go.
+  if (!entry && bill.source_document_id == null && FIFO_ELIGIBLE_STATUSES.includes(status)) {
     throw new SupplierInvoiceCancelRefusal(
       `Supplier invoice ${number} is ${status} but has no approval journal to reverse, so cancelling `
       + 'it would take it out of the AP subledger while the general ledger keeps whatever carried it. '
       + 'Reconcile it by hand.',
     );
   }
+  // The capture exemption holds only while the captured document is in no
+  // posted journal. The bank-first flow (capture/evidenceAttachmentService)
+  // evidences a bank journal already posted for this spend by stamping the
+  // document on it, and never links it to the bill: that money IS in the GL.
+  if (!entry && bill.source_document_id != null && FIFO_ELIGIBLE_STATUSES.includes(status)) {
+    const carried = (await sql`
+      SELECT entry_number FROM gl_journal_entries
+      WHERE company_id = ${companyId}::UUID AND source_document_id = ${bill.source_document_id}::UUID
+        AND status = 'posted' AND reversed_at IS NULL
+      ORDER BY entry_number LIMIT 1`) as DbRow[];
+    if (carried[0]) {
+      throw new SupplierInvoiceCancelRefusal(
+        `Supplier invoice ${number} has no approval journal, but its captured document already carries `
+        + `posted journal ${String(carried[0].entry_number)}, so cancelling it would leave that in the GL. `
+        + 'Reverse that journal first (MCP: reverse_journal_entry), then cancel.',
+      );
+    }
+  }
+
   // The cancel reverses only a posted, not-yet-reversed journal — the same test here.
   if (!entry || entry.status !== 'posted' || entry.reversedAt) return { ...base, journal: null };
   if (!entry.lines || entry.lines.length === 0) {
