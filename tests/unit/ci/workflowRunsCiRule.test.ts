@@ -7,14 +7,14 @@
 import { readFileSync } from 'node:fs';
 import { describe, it, expect } from 'vitest';
 import { load } from 'js-yaml';
-import { checkWorkflowRunsCi } from '../../../scripts/ci/workflowRunsCiRule';
+import { checkWorkflowRunsCi, WORKFLOW_FILES } from '../../../scripts/ci/workflowRunsCiRule';
 
 const REAL = readFileSync('.github/workflows/ci.yml', 'utf8');
 const SCRIPTS = (JSON.parse(readFileSync('package.json', 'utf8')) as { scripts: Record<string, string> }).scripts;
 const GATE_LINE = '        run: bun run ci\n';
 
 function check(yamlText: string, scripts: unknown = SCRIPTS): string[] {
-  return checkWorkflowRunsCi(load(yamlText), scripts);
+  return checkWorkflowRunsCi(load(yamlText), scripts, WORKFLOW_FILES);
 }
 
 function edit(from: string, to: string): string {
@@ -90,7 +90,7 @@ describe('refuses every way found to keep the job green while skipping gates', (
 
   it('package.json `ci` turned into a no-op', () => {
     expect(check(REAL, { ...SCRIPTS, ci: 'true' }).length).toBeGreaterThan(0);
-    expect(checkWorkflowRunsCi(load(REAL), undefined).length).toBeGreaterThan(0);
+    expect(checkWorkflowRunsCi(load(REAL), undefined, WORKFLOW_FILES).length).toBeGreaterThan(0);
   });
 
   it.each(['preci', 'postci', 'pretype-check', 'postlint', 'pretest:unit', 'prebuild', 'precheck:routes', 'postinstall', 'preinstall'])(

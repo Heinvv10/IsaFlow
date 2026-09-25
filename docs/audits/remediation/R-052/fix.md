@@ -106,6 +106,10 @@ locally. On GitHub every job passed and `mergeStateStatus` was `CLEAN`.
 2. **The gate on GitHub checks itself.** It runs inside the workflow it checks. An edit that stops
    the workflow running also stops the check. Its real enforcement is the local `bun run ci` and the
    pre-push hook, and `SKIP_CI=1` bypasses the hook.
+   The same limit applies to the workflow-set, concurrency and permission pins. A second workflow
+   or a job that takes the `ci-` group can cancel quality on GitHub before `workflow-runs-ci`
+   reports. On GitHub these pins catch only an edit that does not also cancel the run. The cancelling
+   edit itself is caught locally, by `bun run ci` and the pre-push hook.
 3. **Integration tests still do not run on GitHub.** run-ci.sh runs them only when `DATABASE_URL` is
    non-empty, and the repo secret is empty. They need:
    - a disposable Postgres with the full schema;
@@ -128,6 +132,10 @@ locally. On GitHub every job passed and `mergeStateStatus` was `CLEAN`.
    - a quality job that checks bun against a pinned hash.
 
    Both are infrastructure decisions.
+   The same goes for any GitHub credential stored on the runner under `gha-isaflow`, such as a `gh`
+   login or a PAT. A step using it would not be limited by the pinned `{contents: read}` token, and
+   nobody has checked whether one exists, because that user's home is not readable from this
+   account.
 6. **A `bunfig.toml` `preload`** runs before every bun process, so it could exit 0 ahead of each gate.
    A new first gate refuses it: `no-bunfig`, a bash `test ! -e bunfig.toml` in run-ci.sh, which bun
    cannot preload into.
