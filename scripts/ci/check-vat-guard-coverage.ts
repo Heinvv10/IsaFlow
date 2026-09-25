@@ -64,6 +64,12 @@ const ALLOWED: Record<string, AllowedEntry> = {
     reason: 'This IS the late-claim guard (qualifiesForLateClaim). The rate is the VAT201\'s own, '
     + 'used only to REFUSE a claim that does not fit its base; it predicts no VAT and posts nothing.',
   },
+  'src/modules/accounting/services/reports/vatInputSupport.ts': {
+    kinds: ['rate_constant'],
+    reason: 'Report code: the pre-filing input-VAT support check. The rate bounds the VAT a '
+    + 'bank line can support (rate/(1+rate) of the money) so an over-claim is REPORTED; it '
+    + 'posts nothing and decides no claim.',
+  },
   'src/modules/accounting/services/reports/vatLateClaimBasis.ts': {
     kinds: ['rate_constant'],
     reason: 'Report code: it derives the VAT201 boxes (the 15% base check) including late claims. '
@@ -101,9 +107,11 @@ const ALLOWED: Record<string, AllowedEntry> = {
     + 'chose the coding was shown the s17(2)(a) warning before the ledger write. It decides NO claim of its own: it picks no account, holds '
     + 'no rate, and forwards `line.vatAmount` that the capture route resolved '
     + 'through `resolveVatCodeForAccount` and the line PATCH warns on. Its only '
-    + 'vat_type write is `deniedVatTypeForLine` (claimVatAdvice, a wrapper over '
+    + 'vat_type writes are `deniedVatTypeForLine` (claimVatAdvice, a wrapper over '
     + 'inputVatDenial), which LABELS a zero-VAT leg `no_vat` and never turns a '
-    + 'claim on.',
+    + 'claim on, and `standard` on the VAT Input leg itself (2026-09-25) — a label on '
+    + 'the tax the claim lines already carry, box-neutral because the VAT201 reads an '
+    + 'uncoded input leg as standard; it claims nothing that was not claimed before.',
   },
 
   'pages/api/accounting/bank-match-confirm.ts': {

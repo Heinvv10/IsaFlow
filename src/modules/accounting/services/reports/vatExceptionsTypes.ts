@@ -106,6 +106,28 @@ export interface VatNonSupplyLine {
   journalVat: number | null;
 }
 
+export type InputVatSupportKind =
+  | 'expense_claim' | 'captured_document' | 'credit_note' | 'vat_adjustment' | 'bank' | 'none';
+
+/**
+ * A journal claiming input VAT, and what supports it (vatInputSupport.ts).
+ * `no_document` / `amount_mismatch` rows are BLOCKING (`unsupportedInputVat`);
+ * `no_tax_invoice` rows are the non-blocking "no tax invoice on file" list.
+ */
+export interface InputVatSupportLine {
+  journalEntryId: string;
+  entryNumber: string;
+  entryDate: string;
+  source: string | null;
+  description: string;
+  /** Net vat_input movement on the journal. */
+  claimedVat: number;
+  supportKind: InputVatSupportKind;
+  /** The VAT the linked document supports (bank: the rate/(1+rate) ceiling). Null when none. */
+  documentVat: number | null;
+  reason: 'no_document' | 'amount_mismatch' | 'no_tax_invoice';
+}
+
 export interface VatControlRecon {
   outputVat201: number;
   outputGl: number;
@@ -136,6 +158,12 @@ export interface VatExceptionsReport {
   vatNonSupplyLines: VatNonSupplyLine[];
   vatNonSupplyCount: number;
   controlRecon: VatControlRecon;
+  /** BLOCKING: input VAT claimed with no document behind it, or disagreeing with it. Capped list. */
+  unsupportedInputVat: InputVatSupportLine[];
+  unsupportedInputVatCount: number;
+  /** NOT blocking: input VAT supported only by a bank line or a VAT adjustment. Capped list. */
+  inputVatWithoutTaxInvoice: InputVatSupportLine[];
+  inputVatWithoutTaxInvoiceCount: number;
   totalExceptions: number;
   /** True when generateVAT201 ran on missing sources — recon totals untrustworthy. */
   degradedData: boolean;

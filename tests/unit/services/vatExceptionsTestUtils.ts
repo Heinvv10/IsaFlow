@@ -15,6 +15,8 @@
  *     did not shift the positions the existing six queues rely on)
  *  9. VAT coded against an account on which no supply can arise (appended
  *     after 8 for the same reason)
+ * 10. Input-VAT support: journals claiming input VAT that are not a bill's
+ *     or a reversal (vatInputSupport)
  *
  * All numeric values arrive as strings (pg numeric) — the service must coerce.
  * NOTE: each test file must call vi.mock('@/lib/neon', ...) itself; this
@@ -111,6 +113,8 @@ export interface MockExceptionsOpts {
   unposted?: unknown[];
   vatOnBalanceSheet?: unknown[];
   vatNonSupply?: unknown[];
+  /** Rows of the input-VAT support query (vatInputSupport), appended 10th. */
+  inputSupport?: unknown[];
 }
 
 /** Queue the 9 SQL results in service call order. */
@@ -124,7 +128,8 @@ export function mockExceptionsSql(opts: MockExceptionsOpts) {
     .mockResolvedValueOnce((opts.glControl ?? EMPTY_GL_CONTROL) as never)
     .mockResolvedValueOnce((opts.unposted ?? EMPTY_UNPOSTED) as never)
     .mockResolvedValueOnce((opts.vatOnBalanceSheet ?? []) as never)
-    .mockResolvedValueOnce((opts.vatNonSupply ?? []) as never);
+    .mockResolvedValueOnce((opts.vatNonSupply ?? []) as never)
+    .mockResolvedValueOnce((opts.inputSupport ?? []) as never);
 }
 
 export function makeBalanceSheetVatRow(overrides: Record<string, unknown> = {}) {

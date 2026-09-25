@@ -241,11 +241,11 @@ describe('getVatExceptions — query scoping and failure', () => {
       expect(values).toContain(PERIOD_START);
       expect(values).toContain(PERIOD_END);
     }
-    // Bumped from 7 when the balance-sheet VAT query was added, and from 8
-    // when the non-supply one was. The count is asserted, not just the scoping
+    // Bumped from 7 when the balance-sheet VAT query was added, from 8 when
+    // the non-supply one was, and from 9 for the input-VAT support query. The count is asserted, not just the scoping
     // loop above, so a new query cannot be introduced without someone
     // confirming it is tenant- and period-scoped.
-    expect(vi.mocked(sql).mock.calls).toHaveLength(9);
+    expect(vi.mocked(sql).mock.calls).toHaveLength(10);
   });
 
   it('propagates a query failure instead of returning partial data', async () => {
