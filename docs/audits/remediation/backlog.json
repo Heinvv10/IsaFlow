@@ -10351,13 +10351,19 @@
       "severityRationale": "Duplicate ledger postings and duplicate payment numbers reachable without concurrency, on money tables.",
       "auditedSha": "",
       "currentSha": "",
-      "status": "confirmed",
+      "status": "fix-in-review",
       "dependencies": [
         "K-107"
       ],
-      "testNames": [],
+      "testNames": [
+        "tests/integration/r051-vat-adjustment-approve.int.test.ts",
+        "tests/unit/services/reports/vatAdjustmentService.test.ts"
+      ],
       "evidencePaths": [
-        "docs/audits/remediation/K-107/fix.md"
+        "docs/audits/remediation/K-107/fix.md",
+        "docs/audits/remediation/R-051/fix.md",
+        "docs/audits/remediation/R-051/red.log",
+        "docs/audits/remediation/R-051/mutations.log"
       ],
       "fixCommit": null,
       "pr": null,
@@ -10365,11 +10371,45 @@
       "historicalDataImpact": "Unquantified. K-107 measured the supplier-payment twin directly: bank 2300.00 and amount_paid 2300.00 with two posted journals for one 1150.00 payment.",
       "canonicalItem": null,
       "reportedSeverity": "",
-      "branch": null,
+      "branch": "fix/r051-vat-adjustment-approve-claim-20260924",
       "title": "The check-then-act posting class survives in AR payments, VAT adjustments and two DB number triggers with no unique index",
       "severity": "high",
       "source": "Inventory produced by the K-107 fixer in round 6, as its scoped hand-off; recorded 2026-09-10",
-      "processNotes": "K-107 fixed eight instances of this class across six modules and was then scoped to STOP and inventory the rest rather than keep absorbing a codebase-wide defect. The inventory is in docs/audits/remediation/K-107/fix.md. Headlines: (1) confirmCustomerPayment / cancelCustomerPayment are the unfixed AR twins of the supplier-payment defect -- HIGH, they post to the ledger. (2) approveVATAdjustment is byte-for-byte the adjustment shape already fixed -- HIGH. (3) generateJournalFromRecurring lacks company_id on its UPDATE -- a multi-tenant violation. (4) The DB triggers trg_cp_payment_number and trg_sp_payment_number mint MAX+1 with NO UNIQUE INDEX on either payments table -- the same shape as the stock-adjustment defect, on the two tables that carry money. This one is a database-level fix and needs its own ledger review. Related: R-043 (journal-entry-number trigger not concurrency-safe), R-044, R-045, R-047. Together these are one missing idiom applied inconsistently, not five bugs. UPDATE 2026-09-10 (K-107 r7 reviewer): the inventory itself was incomplete — its enumeration never walked services/payroll or services/loans. Two more live instances found there: payroll/taxDirectivePaymentService::applyTaxDirective (no unique index on tax_directive_payments) and payroll/uifDeclarationService::markUifDeclarationPaid (unpredicated UPDATE after posting). K-107 is fixing both and re-running the enumeration with the walked directories listed so coverage is auditable. The lesson generalises: that census was complete over the set it looked at, and the SET was the thing that was wrong. Any future sweep for this class must state which directories it walked."
+      "processNotes": "K-107 fixed eight instances of this class across six modules and was then scoped to STOP and inventory the rest rather than keep absorbing a codebase-wide defect. The inventory is in docs/audits/remediation/K-107/fix.md. Headlines: (1) confirmCustomerPayment / cancelCustomerPayment are the unfixed AR twins of the supplier-payment defect -- HIGH, they post to the ledger. (2) approveVATAdjustment is byte-for-byte the adjustment shape already fixed -- HIGH. (3) generateJournalFromRecurring lacks company_id on its UPDATE -- a multi-tenant violation. (4) The DB triggers trg_cp_payment_number and trg_sp_payment_number mint MAX+1 with NO UNIQUE INDEX on either payments table -- the same shape as the stock-adjustment defect, on the two tables that carry money. This one is a database-level fix and needs its own ledger review. Related: R-043 (journal-entry-number trigger not concurrency-safe), R-044, R-045, R-047. Together these are one missing idiom applied inconsistently, not five bugs. UPDATE 2026-09-10 (K-107 r7 reviewer): the inventory itself was incomplete — its enumeration never walked services/payroll or services/loans. Two more live instances found there: payroll/taxDirectivePaymentService::applyTaxDirective (no unique index on tax_directive_payments) and payroll/uifDeclarationService::markUifDeclarationPaid (unpredicated UPDATE after posting). K-107 is fixing both and re-running the enumeration with the walked directories listed so coverage is auditable. The lesson generalises: that census was complete over the set it looked at, and the SET was the thing that was wrong. Any future sweep for this class must state which directories it walked. 2026-09-24: re-verified on a30e44177 — the AR payment twins, generateJournalFromRecurring, applyTaxDirective and markUifDeclarationPaid are claim-guarded on master. Still live and fixed here: approveVATAdjustment (measured: a second approval that read draft mid-flight posted a second journal; a closed-period refusal left a draft journal behind a 400). Now row-locked with typed refusals and an all-or-nothing savepoint. Still live and split out: the payment-number triggers (R-128)."
+    },
+    {
+      "id": "R-128",
+      "claim": "trg_cp_payment_number and trg_sp_payment_number (generate_customer_payment_number / generate_supplier_payment_number) mint MAX(sequence)+1 per company and year, and neither customer_payments nor supplier_payments has a unique index on (company_id, payment_number) — confirmed on the schema fixture 2026-09-24. Two payments inserted concurrently get the same number and both commit.",
+      "area": "accounting/numbering",
+      "affectedPaths": [
+        "generate_customer_payment_number",
+        "generate_supplier_payment_number"
+      ],
+      "sourceLabel": "R-051 residual, split out",
+      "sourceIds": [],
+      "correctedTrigger": null,
+      "severityRationale": "Duplicate payment numbers on the two money tables; a document-number collision, not a ledger mis-post. A unique index cannot be added while prod holds duplicates, so the fix is census first, then a migration (with a numbering reservation like the journal/document sequences).",
+      "auditedSha": "a30e44177",
+      "currentSha": "a30e44177",
+      "status": "confirmed",
+      "dependencies": [
+        "R-051",
+        "R-043"
+      ],
+      "testNames": [],
+      "evidencePaths": [
+        "docs/audits/remediation/R-051/fix.md"
+      ],
+      "fixCommit": null,
+      "pr": null,
+      "deployedSha": null,
+      "historicalDataImpact": "Unknown; R-051/fix.md census query 3 lists duplicate payment numbers per company.",
+      "canonicalItem": null,
+      "reportedSeverity": "high",
+      "processNotes": "2026-09-24: split from R-051 so R-051 can close on the VAT adjustment fix. Needs Hein's prod census before any migration.",
+      "branch": null,
+      "severity": "medium",
+      "title": "Customer and supplier payment numbers are minted MAX+1 by trigger with no unique index behind them"
     },
     {
       "id": "R-052",
