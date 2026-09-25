@@ -22,7 +22,11 @@
  *                      the journal; VAT at most rate/(1+rate) of the money.
  *
  * A late-claim companion is classified by the journal it claims for
- * (late_claim_of_id), and a reversal is supported by what it reverses.
+ * (late_claim_of_id). A reversal is never a claim, and a journal whose posted
+ * reversal is dated on or before the period end is left out with it — the
+ * pair nets, exactly as vatInputOverclaim groups it. A reversal dated in a
+ * LATER period does not rescue the original: its claim stands in its own
+ * period, and blocks there unless a document supports it.
  *
  * BLOCKING (`unsupportedInputVat`): a positive claim with no link at all, or
  * a linked claim that disagrees with its document. NOT blocking (Hein,
@@ -149,6 +153,14 @@ export async function findInputVatSupport(
         AND je.entry_date <= ${periodEnd}::DATE
         AND je.source IS DISTINCT FROM 'auto_vat_submission'
         AND je.reversal_of_id IS NULL
+        -- A reversed pair nets, as the per-journal over-claim nets it: a claim
+        -- whose POSTED reversal is dated by the period end claims nothing in
+        -- this return. Reversed only in a later period, it still stands here.
+        AND NOT EXISTS (
+          SELECT 1 FROM gl_journal_entries rv
+          WHERE rv.company_id = ${companyId}::UUID AND rv.reversal_of_id = je.id
+            AND rv.status = 'posted' AND rv.entry_date <= ${periodEnd}::DATE
+        )
         AND ga.account_subtype = 'vat_input'
       GROUP BY je.id
       HAVING ABS(SUM(jl.debit - jl.credit)) > ${CENT}
