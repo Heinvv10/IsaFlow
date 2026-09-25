@@ -117,8 +117,10 @@ export async function generateVAT201(companyId: string,
         AND COALESCE((SELECT lc.entry_date FROM gl_journal_entries lc
               WHERE lc.company_id = ${companyId}::UUID AND lc.late_claim_of_id = si.gl_journal_entry_id
                 AND lc.status = 'posted' AND lc.reversed_at IS NULL LIMIT 1), si.invoice_date) BETWEEN ${periodStart}::DATE AND ${periodEnd}::DATE
-        -- Approved bills only (Hein, 2026-09-25): a draft or pending bill claims nothing.
-        AND si.status NOT IN ('cancelled', 'draft', 'pending_approval')
+        -- Approved bills only (Hein, 2026-09-25), as an ALLOW-list (ap/billAllocatable):
+        -- draft, pending_approval, disputed and cancelled claim nothing, and a status
+        -- added later is left out until someone decides it claims.
+        AND si.status IN ('approved', 'partially_paid', 'paid')
       ORDER BY si.invoice_date
     `) as Row[];
   } catch (err) {
@@ -140,8 +142,10 @@ export async function generateVAT201(companyId: string,
         AND COALESCE((SELECT lc.entry_date FROM gl_journal_entries lc
               WHERE lc.company_id = ${companyId}::UUID AND lc.late_claim_of_id = si.gl_journal_entry_id
                 AND lc.status = 'posted' AND lc.reversed_at IS NULL LIMIT 1), si.invoice_date) BETWEEN ${periodStart}::DATE AND ${periodEnd}::DATE
-        -- Approved bills only (Hein, 2026-09-25): a draft or pending bill claims nothing.
-        AND si.status NOT IN ('cancelled', 'draft', 'pending_approval')
+        -- Approved bills only (Hein, 2026-09-25), as an ALLOW-list (ap/billAllocatable):
+        -- draft, pending_approval, disputed and cancelled claim nothing, and a status
+        -- added later is left out until someone decides it claims.
+        AND si.status IN ('approved', 'partially_paid', 'paid')
       GROUP BY COALESCE(sii.vat_classification, 'standard')
     `) as Row[];
   } catch (err) {
