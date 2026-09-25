@@ -6,6 +6,11 @@
  * retry added another. The refusal must therefore land BEFORE the first write:
  * after each refused call there is no gl_journal_entries row at all.
  *
+ * Since the s16(3) late input-VAT claim (2026-09-25) these routes OPT IN, so
+ * an input-VAT posting in a lock is split rather than refused; the refusals
+ * below are the ones s16(3) keeps — output VAT, VAT on a non-supply account —
+ * and a company with no late-claim clearing account, refused before the draft.
+ *
  * Covered: bank-transactions-action allocate and split_allocate,
  * supplier-invoices-action approve, bank-transfers (refused onto a VAT account;
  * bank-to-bank gets past the guard — see the note on that case), and the
@@ -61,6 +66,17 @@ describeIfDb('VAT-lock refusals through the route handlers leave no journal behi
     fx = await seedFixture('VLRT', DATABASE_URL!);
     acc.expense = await accountBySubtype('default_expense');
     acc.vatInput = await accountBySubtype('vat_input');
+    acc.vatOutput = await accountBySubtype('vat_output');
+    acc.revenue = String(((await sql`
+      INSERT INTO gl_accounts (company_id, account_code, account_name, account_type, account_subtype,
+                               normal_balance, is_active)
+      VALUES (${fx.companyId}::UUID, '4000', ${`Sales ${fx.tag}`}, 'revenue', 'default_revenue', 'credit', true)
+      RETURNING id`) as Row[])[0]!.id);
+    acc.donations = String(((await sql`
+      INSERT INTO gl_accounts (company_id, account_code, account_name, account_type, account_subtype,
+                               normal_balance, is_active)
+      VALUES (${fx.companyId}::UUID, '6900', ${`Donations ${fx.tag}`}, 'expense', 'operating_expense', 'debit', true)
+      RETURNING id`) as Row[])[0]!.id);
     acc.bank2 = String(((await sql`
       INSERT INTO gl_accounts (company_id, account_code, account_name, account_type, account_subtype,
                                normal_balance, is_active)
@@ -91,12 +107,12 @@ describeIfDb('VAT-lock refusals through the route handlers leave no journal behi
     await dropFixture(fx);
   }, 120000);
 
-  it('allocate with a VAT code answers 4xx and commits no draft journal', async () => {
-    const tx = await seedBankTx(fx, { date: '2026-06-15', amount: -115, description: 'VAT spend' });
+  it('allocate with OUTPUT VAT answers 4xx and commits no draft journal', async () => {
+    const tx = await seedBankTx(fx, { date: '2026-06-15', amount: 115, description: 'VAT sale' });
     const before = await journalCount();
     const state = await call(bankTransactionsAction, {
       action: 'allocate', bankTransactionId: tx, allocationType: 'account',
-      contraAccountId: acc.expense, vatCode: 'standard',
+      contraAccountId: acc.revenue, vatCode: 'standard',
     });
     expect(state.statusCode).toBe(400);
     expect(JSON.stringify(state.body)).toMatch(/locked/);
@@ -105,21 +121,21 @@ describeIfDb('VAT-lock refusals through the route handlers leave no journal behi
     expect(st.status).toBe('imported');
   });
 
-  it('split_allocate onto a VAT control account answers 4xx and commits no draft journal', async () => {
-    const tx = await seedBankTx(fx, { date: '2026-06-16', amount: -100, description: 'Split spend' });
+  it('split_allocate onto the OUTPUT VAT account answers 4xx and commits no draft journal', async () => {
+    const tx = await seedBankTx(fx, { date: '2026-06-16', amount: 100, description: 'Split receipt' });
     const before = await journalCount();
     const state = await call(bankTransactionsAction, {
       action: 'split_allocate', bankTransactionId: tx,
-      lines: [{ contraAccountId: acc.expense, amount: 85 }, { contraAccountId: acc.vatInput, amount: 15 }],
+      lines: [{ contraAccountId: acc.revenue, amount: 85 }, { contraAccountId: acc.vatOutput, amount: 15 }],
     });
     expect(state.statusCode).toBe(400);
     expect(await journalCount()).toBe(before);
   });
 
-  it('supplier-invoice approve answers 4xx, leaves the bill a draft and commits no journal', async () => {
+  it('supplier-invoice approve of VAT on a non-supply account answers 4xx, leaves the bill a draft, no journal', async () => {
     const bill = await inTx(fx, () => createSupplierInvoice(fx.companyId, {
       supplierId: fx.supplierId, invoiceNumber: `VLRT-${fx.tag}`.slice(0, 50), invoiceDate: '2026-06-12',
-      items: [{ description: 'Stock', quantity: 1, unitPrice: 100, taxRate: 15, glAccountId: acc.expense }],
+      items: [{ description: 'Gift', quantity: 1, unitPrice: 100, taxRate: 15, glAccountId: acc.donations }],
     }, fx.userId));
     const before = await journalCount();
     const state = await call(supplierInvoicesAction, { action: 'approve', invoiceId: bill.id });
@@ -127,6 +143,22 @@ describeIfDb('VAT-lock refusals through the route handlers leave no journal behi
     expect(await journalCount()).toBe(before);
     const row = ((await sql`SELECT status, gl_journal_entry_id FROM supplier_invoices WHERE id = ${bill.id}::UUID`) as Row[])[0]!;
     expect(row).toEqual({ status: 'draft', gl_journal_entry_id: null });
+  });
+
+  /** This fixture has no "Input VAT - late claims" account (migration 701 seeds
+   *  real companies; the fixture is created after it). An input-VAT allocation
+   *  the late claim WOULD split is refused before createJournalEntry inserts a
+   *  draft — a 4xx after that insert would commit it. */
+  it('an input-VAT allocation with no late-claim account answers 4xx and commits no draft journal', async () => {
+    const tx = await seedBankTx(fx, { date: '2026-06-15', amount: -115, description: 'VAT spend' });
+    const before = await journalCount();
+    const state = await call(bankTransactionsAction, {
+      action: 'allocate', bankTransactionId: tx, allocationType: 'account',
+      contraAccountId: acc.expense, vatCode: 'standard',
+    });
+    expect(state.statusCode).toBe(400);
+    expect(JSON.stringify(state.body)).toMatch(/vat_input_late_claim/);
+    expect(await journalCount()).toBe(before);
   });
 
   it('bank-transfers onto a VAT account inside the lock answers 400 and writes nothing', async () => {
