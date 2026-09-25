@@ -104,7 +104,9 @@ describe('deriveVatBoxesWithLateClaims', () => {
     const onTime = [line('ot', { debit: 100 }), vatIn('ot', 16), line('ot', { accountId: 'ap', accountType: 'liability', accountSubtype: 'payable', credit: 116 })];
     const late = deriveVatBoxesWithLateClaims(lateOver);
     const now = deriveVatBoxesWithLateClaims(onTime);
-    expect(late.inputVariance).toBe(1);
+    // R1 raw over-claim, less the R0.01 rounding allowance (one taxed
+    // input-VAT line, item 3) = R0.99, on both sides.
+    expect(late.inputVariance).toBe(0.99);
     expect(late.inputVariance).toBe(now.inputVariance);
     expect(late.inputBase).toBe(now.inputBase);
   });
