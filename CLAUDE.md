@@ -92,7 +92,7 @@ bash scripts/deploy.sh  # Deploy
 - Unit tests: Vitest in `tests/unit/services/`
 - E2E: Playwright in `tests/e2e/`
 - TDD enforced: tests FIRST, implementation second
-- **CI gate**: `bun run ci` runs type-check + lint + agent-docs + security-guards + unit tests + migration-naming + production build. **Required before any PR.** GitHub's `quality` job runs the same `bun run ci` (R-052), so add a gate to `scripts/ci/run-ci.sh` only — never list gates in `.github/workflows/ci.yml`. Integration tests skip on GitHub (empty `DATABASE_URL`); run them locally.
+- **CI gate**: `bun run ci` runs every gate in `scripts/ci/run-ci.sh` (type-check, lint, the text guards, unit + component tests, migration-naming, integration tests when `DATABASE_URL` is set, production build). **Required before any PR.** GitHub's `quality` job runs the same `bun run ci` (R-052), so add a gate to `run-ci.sh` only — never list gates in `.github/workflows/ci.yml`; the `workflow-runs-ci` gate refuses any change to that job's shape. Integration tests skip on GitHub (empty `DATABASE_URL`); run them locally. GitHub has no required checks on this repo, so a red check does not block a merge — look at it.
 
 ## Module docs (sibling `.claude.md` files)
 
