@@ -250,6 +250,7 @@ describe('supplier-invoices-bulk-action', () => {
       res(),
     );
     expect(postGlMock).toHaveBeenCalledTimes(1);
-    expect(postGlMock).toHaveBeenCalledWith(COMPANY_ID, ID_A, USER_ID, { allowLateInputClaim: true });
+    // Post to GL never claims late: its bill is already approved (gl/vatLateClaimPlan, review C2).
+    expect(postGlMock).toHaveBeenCalledWith(COMPANY_ID, ID_A, USER_ID);
   });
 });
