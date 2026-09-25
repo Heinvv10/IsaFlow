@@ -126,22 +126,21 @@ describeIfDb('pre-filing exceptions: input-VAT support', () => {
     expect(r.inputVatWithoutTaxInvoiceCount).toBe(1);
   });
 
-  it('credit notes (supplier and customer): no recon variance, no unsupported claim; only their UNCODED VAT legs remain', async () => {
-    const cnJournals = await inTx(fx, async () => {
+  it('credit notes (supplier and customer): still 0 blocking exceptions and the gate lets it through', async () => {
+    await inTx(fx, async () => {
       const scn = await createCreditNote(fx.companyId, { type: 'supplier', supplierId: fx.supplierId, creditDate: '2026-07-22', subtotal: 100, taxRate: 15 }, fx.userId);
       const ccn = await createCreditNote(fx.companyId, { type: 'customer', clientId: fx.customerId, creditDate: '2026-07-23', subtotal: 200, taxRate: 15 }, fx.userId);
-      return [(await approveCreditNote(fx.companyId, scn.id, fx.userId)).glJournalEntryId,
-        (await approveCreditNote(fx.companyId, ccn.id, fx.userId)).glJournalEntryId];
+      await approveCreditNote(fx.companyId, scn.id, fx.userId);
+      await approveCreditNote(fx.companyId, ccn.id, fx.userId);
     });
     const r = await report();
     expect(r.unsupportedInputVat).toEqual([]);
     expect(r.controlRecon.outputVariance).toBe(0);
     expect(r.controlRecon.inputVariance).toBe(0);
-    // NOT fixed here, reported: approveCreditNote posts its VAT leg with no
-    // vat_type, so exception 1 still lists it (and blocks). Pinned so the day
-    // it is coded this test says so.
-    expect(r.uncodedGlLines.map((l) => l.journalEntryId).sort()).toEqual([...cnJournals].sort());
-    expect(r.totalExceptions).toBe(2);
+    // approveCreditNote codes its VAT leg (2026-09-25), so no uncoded line either.
+    expect(r.uncodedGlLines).toEqual([]);
+    expect(r.totalExceptions).toBe(0);
+    expect(evaluateEfilingGate(r)).toEqual({ allowed: true, reason: null });
   });
 
   it('a bare manual VAT journal is exactly one blocking unsupportedInputVat, and the gate refuses', async () => {
@@ -153,8 +152,7 @@ describeIfDb('pre-filing exceptions: input-VAT support', () => {
     const r = await report();
     expect(r.unsupportedInputVat.map((l) => [l.journalEntryId, l.reason, l.claimedVat])).toEqual([[je, 'no_document', 15]]);
     expect(r.unsupportedInputVatCount).toBe(1);
-    expect(r.totalExceptions).toBe(3); // 1 + the two uncoded credit-note legs above
-    expect(r.totalExceptions - r.uncodedGlLineCount).toBe(1);
+    expect(r.totalExceptions).toBe(1);
     expect(evaluateEfilingGate(r).allowed).toBe(false);
   });
 });
