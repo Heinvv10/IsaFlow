@@ -26,9 +26,9 @@ const reversal = (je: string, of: string, base: number, tax: number) =>
   [line(je, { credit: base, reversalOfId: of }), vatIn(je, 0, tax, { reversalOfId: of }), ap(je, 0, base + tax, { reversalOfId: of })];
 
 describe('perJournalInputOverclaim', () => {
-  it('an under-claim and an over-claim in one period: the over-claim shows (the signed sum was 0)', () => {
+  it('an under-claim and an over-claim in one period: the over-claim shows, less the R0.01/taxed-line rounding allowance', () => {
     const lines = [...bill('under', 1000, 100), ...bill('over', 1000, 200)];
-    expect(perJournalInputOverclaim(lines, [], RATE)).toBe(50);
+    expect(perJournalInputOverclaim(lines, [], RATE)).toBe(49.99);
   });
 
   it('ordinary bills tie: 0', () => {
@@ -39,15 +39,15 @@ describe('perJournalInputOverclaim', () => {
     expect(perJournalInputOverclaim(bill('u', 1000, 10), [], RATE)).toBe(0);
   });
 
-  it('a journal with input tax and no base: the whole tax is over-claimed', () => {
+  it('a journal with input tax and no base: the whole tax is over-claimed, less the rounding allowance', () => {
     const baseless = [vatIn('nb', 150), line('nb', { accountId: 'bank', accountType: 'asset', accountSubtype: 'bank', credit: 150 })];
-    expect(perJournalInputOverclaim(baseless, [], RATE)).toBe(150);
+    expect(perJournalInputOverclaim(baseless, [], RATE)).toBe(149.99);
   });
 
   it('a supplier credit note that reduces too little input VAT is an over-claim; one that reduces enough is not', () => {
     const cn = (je: string, base: number, tax: number) =>
       [line(je, { credit: base }), vatIn(je, 0, tax), ap(je, 0, base + tax)];
-    expect(perJournalInputOverclaim(cn('short', 1000, 100), [], RATE)).toBe(50);
+    expect(perJournalInputOverclaim(cn('short', 1000, 100), [], RATE)).toBe(49.99);
     expect(perJournalInputOverclaim(cn('full', 1000, 150), [], RATE)).toBe(0);
   });
 
@@ -67,8 +67,8 @@ describe('perJournalInputOverclaim', () => {
     const padded = [vatIn('c2', 180, 0, { lateClaimBase: 1000 }), clr('c2', 180)];
     const noBase = [vatIn('c3', 15, 0, { lateClaimBase: null }), clr('c3', 15)];
     expect(perJournalInputOverclaim([], ok, RATE)).toBe(0);
-    expect(perJournalInputOverclaim([], padded, RATE)).toBe(30);
-    expect(perJournalInputOverclaim([], noBase, RATE)).toBe(15);
+    expect(perJournalInputOverclaim([], padded, RATE)).toBe(29.99);
+    expect(perJournalInputOverclaim([], noBase, RATE)).toBe(14.99);
   });
 
   it('output tax is not input tax: a sale is ignored', () => {
@@ -80,5 +80,29 @@ describe('perJournalInputOverclaim', () => {
 
   it('a cancelled-source journal carries no tax leg and is ignored', () => {
     expect(perJournalInputOverclaim(bill('x', 100, 150, { cancelledSource: true }), [], RATE)).toBe(0);
+  });
+
+  describe('rounding allowance — R0.01 per TAXED input-VAT line, per journal', () => {
+    it('150 bills, each a one-cent per-line rounding tie, sum to 0 (not 150 x R0.01)', () => {
+      // 66.67 x 15% = 10.0005, coded on the invoice at 10.01: one cent of
+      // per-line rounding, exactly the allowance for a journal with one taxed
+      // input-VAT line. 150 separate journals — the allowance is PER journal.
+      const lines = Array.from({ length: 150 }, (_, i) => bill(`b${i}`, 66.67, 10.01)).flat();
+      expect(perJournalInputOverclaim(lines, [], RATE)).toBe(0);
+    });
+
+    it('a real over-claim well beyond the allowance is still flagged', () => {
+      // base 1000 @ 15% = 150; claimed 500 — a genuine R350 over-claim, not rounding.
+      expect(perJournalInputOverclaim(bill('real', 1000, 500), [], RATE)).toBe(349.99);
+    });
+
+    it('200 untaxed (base-only) padding lines on the journal buy it no extra allowance', () => {
+      const core = bill('padded', 1000, 155); // raw over-claim: 155 - 150 = 5
+      const padding = Array.from({ length: 200 }, () => line('padded', { debit: 0, credit: 0 }));
+      // Only the ONE taxed input-VAT line counts toward the allowance (R0.01),
+      // exactly as the unpadded journal would score — never R0.01 x 201.
+      expect(perJournalInputOverclaim([...core, ...padding], [], RATE)).toBe(4.99);
+      expect(perJournalInputOverclaim(bill('unpadded', 1000, 155), [], RATE)).toBe(4.99);
+    });
   });
 });

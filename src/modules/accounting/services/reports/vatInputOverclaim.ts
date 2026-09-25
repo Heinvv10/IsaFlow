@@ -24,6 +24,15 @@
  *
  * The rate is a parameter: the caller passes the rate the boxes were derived
  * at, so this file holds none of its own.
+ *
+ * ROUNDING ALLOWANCE: each of a journal's TAXED input-VAT lines rounds its own
+ * 15% to the cent, so a journal with several such lines can tie out a cent or
+ * two over the flat 15%-of-the-summed-base figure with no real over-claim
+ * behind it — realistic on a multi-line bill. Up to R0.01 per TAXED input-VAT
+ * line (not per line of any kind) is excluded from the journal's over-claim
+ * before it joins the sum, so a real over-claim beyond that allowance still
+ * flags, and padding a journal with untaxed (base-only) lines buys it nothing
+ * — only a line `classifyVatJournalLine` puts in role 'tax' counts.
  */
 import { classifyVatJournalLine, type VatLineInput } from './vatBoxBasis';
 
@@ -42,6 +51,8 @@ interface Acc {
   tax: number;
   base: number;
   hasInput: boolean;
+  /** Count of this journal's lines classified as a taxed input-VAT line. */
+  taxedLines: number;
 }
 
 /**
@@ -57,7 +68,7 @@ export function perJournalInputOverclaim(
   const accs = new Map<string, Acc>();
   const accFor = (l: OverclaimLine): Acc => {
     const key = l.reversalOfId ?? l.journalEntryId;
-    const a = accs.get(key) ?? { tax: 0, base: 0, hasInput: false };
+    const a = accs.get(key) ?? { tax: 0, base: 0, hasInput: false, taxedLines: 0 };
     accs.set(key, a);
     return a;
   };
@@ -68,6 +79,7 @@ export function perJournalInputOverclaim(
       const a = accFor(l);
       a.tax = r2(a.tax + c.amount);
       a.hasInput = true;
+      a.taxedLines += 1;
     } else if (c.role === 'base') {
       const a = accFor(l);
       a.base = r2(a.base + l.debit - l.credit);
@@ -80,12 +92,15 @@ export function perJournalInputOverclaim(
     a.tax = r2(a.tax + c.amount);
     a.base = r2(a.base + (l.lateClaimBase ?? 0));
     a.hasInput = true;
+    a.taxedLines += 1;
   }
 
   let over = 0;
   for (const a of accs.values()) {
     if (!a.hasInput) continue;
-    over = r2(over + Math.max(0, r2(a.tax - r2(a.base * rate))));
+    const raw = Math.max(0, r2(a.tax - r2(a.base * rate)));
+    const allowance = r2(0.01 * a.taxedLines);
+    over = r2(over + Math.max(0, r2(raw - allowance)));
   }
   return over;
 }
