@@ -12,7 +12,7 @@
  * Pure: no database, so the rules are tested directly. The reading side is
  * vatLateClaimPlan.ts.
  */
-import { classifyVatJournalLine } from '../reports/vatBoxBasis';
+import { RATE_CHECK_TOLERANCE, SA_VAT_RATE, classifyVatJournalLine } from '../reports/vatBoxBasis';
 import { classifyNonSupplyAccount, claimsVat } from './nonSupplyAccounts';
 
 /** One journal line with the account facts the rules need. */
@@ -39,6 +39,9 @@ export type LateClaimVerdict =
   | { claimable: true; inputTax: number }
   | { claimable: false; reason: LateClaimRefusalReason | null };
 
+/** Codes that put a supply in a box at nil tax: not part of the base the 15% check is run on. */
+const UNTAXED_CODES: readonly string[] = ['zero_rated', 'export', 'exempt', 'no_vat'];
+
 function r2(n: number): number {
   return Math.round(n * 100) / 100;
 }
@@ -54,6 +57,9 @@ export function qualifiesForLateClaim(lines: readonly LateClaimLine[]): LateClai
   let unplaceable = false;
   let nonSupply = false;
   let baseLines = 0;
+  let base = 0;        // every base line — the VAT201's own base for the journal
+  let codedBase = 0;   // base lines carrying a tax-bearing code
+  let coded = false;
   for (const l of lines) {
     const c = classifyVatJournalLine({
       journalEntryId: '', entryNumber: '', entryDate: '', lineId: '',
@@ -73,6 +79,10 @@ export function qualifiesForLateClaim(lines: readonly LateClaimLine[]): LateClai
       unplaceable = true;
     } else if (c.role === 'base') {
       baseLines++;
+      base = r2(base + l.debit - l.credit);
+      if (l.vatType !== null && !UNTAXED_CODES.includes(l.vatType)) {
+        coded = true; codedBase = r2(codedBase + l.debit - l.credit);
+      }
       // A line on an account where no input tax may be claimed blocks the claim
       // when it claims VAT — or carries NO code at all: an untagged line gives
       // no way to tell the journal's VAT is not its. Only an explicit
@@ -85,6 +95,17 @@ export function qualifiesForLateClaim(lines: readonly LateClaimLine[]): LateClai
   // No base line: the VAT201 lists such a journal in entriesWithoutBase when it
   // is on time; claimed late it would escape that flag, so it is not claimable.
   if (unplaceable || inputTax <= 0 || baseLines === 0) return { claimable: false, reason: null };
+  // The 15% check the VAT201 runs on the journal on time — a late claim's tax is
+  // out of its period's base check, so a claim that fails it is not claimable.
+  // Coded lines are checked both ways against the claiming base; with no coded
+  // line (a bill: its expense lines carry no code) the base is every base line,
+  // as deriveVatBoxes takes it, and only an OVER-claim fails — an untaxed item
+  // beside a taxed one legitimately puts the tax under 15% of the whole.
+  const implied = r2((coded ? codedBase : base) * SA_VAT_RATE);
+  const excess = r2(inputTax - implied);
+  if (coded ? Math.abs(excess) > RATE_CHECK_TOLERANCE : excess > RATE_CHECK_TOLERANCE) {
+    return { claimable: false, reason: null };
+  }
   if (nonSupply) return { claimable: false, reason: 'non_supply' };
   return { claimable: true, inputTax };
 }

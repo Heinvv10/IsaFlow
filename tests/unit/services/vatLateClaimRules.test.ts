@@ -68,7 +68,7 @@ describe('qualifiesForLateClaim', () => {
     expect(qualifiesForLateClaim([unmapped, inputVat(150), payable(1150)]))
       .toEqual({ claimable: false, reason: null });
     // A tag on a SETTLEMENT subtype is placeable; with a base line beside it the claim stands.
-    expect(qualifiesForLateClaim([expense(100), loan, inputVat(150), payable(1250)]).claimable).toBe(true);
+    expect(qualifiesForLateClaim([expense(1000), loan, inputVat(150), payable(2150)]).claimable).toBe(true);
   });
 
   it('nothing to claim (tagged base only, no input VAT) is today\'s plain refusal', () => {
@@ -111,6 +111,40 @@ describe('qualifiesForLateClaim', () => {
   it('an untagged expense line IS a base line: a bill (expense lines carry no code) stays claimable', () => {
     expect(qualifiesForLateClaim([expense(1000, null), inputVat(150), payable(1150)]))
       .toEqual({ claimable: true, inputTax: 150 });
+  });
+});
+
+describe('qualifiesForLateClaim — the 15% check the VAT201 would run on time', () => {
+  const bank = (credit: number) => line({ glAccountId: 'bank', accountType: 'asset', accountSubtype: 'bank', accountName: 'Bank', credit });
+
+  it('a normal bill (untagged expense lines, base = every base line, as the VAT201 derives it) splits', () => {
+    expect(qualifiesForLateClaim([expense(1000, null), inputVat(150), payable(1150)]).claimable).toBe(true);
+  });
+
+  it('a bill with an untaxed item beside a taxed one splits (under 15% of the whole base is not an over-claim)', () => {
+    expect(qualifiesForLateClaim([expense(1000, null), expense(500, null), inputVat(150), payable(1650)]).claimable).toBe(true);
+  });
+
+  it('a padded untagged claim (R15 of VAT on a R0.01 base) is not claimable', () => {
+    expect(qualifiesForLateClaim([expense(0.01, null), inputVat(15), bank(15.01)])).toEqual({ claimable: false, reason: null });
+  });
+
+  it('a padded CODED claim (R15 on a R0.01 standard line) is not claimable', () => {
+    expect(qualifiesForLateClaim([expense(0.01, 'standard'), inputVat(15), bank(15.01)])).toEqual({ claimable: false, reason: null });
+  });
+
+  it('coded lines are checked both ways: R100 on a R1 000 standard base is not claimable, R150 is', () => {
+    expect(qualifiesForLateClaim([expense(1000, 'standard'), inputVat(100), payable(1100)])).toEqual({ claimable: false, reason: null });
+    expect(qualifiesForLateClaim([expense(1000, 'standard'), inputVat(150), payable(1150)]).claimable).toBe(true);
+  });
+
+  it('only TAX-BEARING codes carry the coded base: a zero-rated line beside a standard one does not dilute it', () => {
+    expect(qualifiesForLateClaim([expense(1000, 'standard'), expense(500, 'zero_rated'), inputVat(150), payable(1650)]).claimable).toBe(true);
+  });
+
+  it('within the R1 tolerance passes; just over it does not', () => {
+    expect(qualifiesForLateClaim([expense(1000, 'standard'), inputVat(151), payable(1151)]).claimable).toBe(true);
+    expect(qualifiesForLateClaim([expense(1000, 'standard'), inputVat(151.02), payable(1151.02)]).claimable).toBe(false);
   });
 });
 
