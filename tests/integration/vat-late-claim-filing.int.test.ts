@@ -9,6 +9,7 @@
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { sql } from '@/lib/neon';
 import { approveSupplierInvoice } from '@/modules/accounting/services/ap/supplierInvoiceWorkflowService';
+import { reverseJournalEntry } from '@/modules/accounting/services/gl/journalEntryService';
 import { generateVAT201 } from '@/modules/accounting/services/reports/vat201Service';
 import { getLedgerVAT201 } from '@/modules/accounting/services/reports/vat201LedgerFields';
 import { getVatExceptions } from '@/modules/accounting/services/reports/vatExceptionsService';
@@ -93,5 +94,15 @@ describeIfDb('late input VAT claim: the claim period files it', () => {
     expect(withDraft).toEqual(before);
     await inTx(fx, () => approveSupplierInvoice(fx.companyId, draft.id, fx.userId, { allowLateInputClaim: true }));
     expect(await docFigures(P.start, P.end)).toEqual(before);
+  });
+
+  it('a REVERSED companion no longer dates its bill into the claim period', async () => {
+    const b = await draftBill(fx, '2026-06-26', { vatClassification: 'services' });
+    const approved = await inTx(fx, () => approveSupplierInvoice(fx.companyId, b.id, fx.userId, { allowLateInputClaim: true }));
+    expect((await docFigures(NEXT.start, NEXT.end)).inputInvoiceIds).toContain(b.id);
+    const [row] = (await sql`SELECT gl_journal_entry_id FROM supplier_invoices WHERE id = ${b.id}::UUID`) as Record<string, unknown>[];
+    await inTx(fx, () => reverseJournalEntry(fx.companyId, String(row!.gl_journal_entry_id), fx.userId));
+    expect(approved.lateClaim).toBeDefined();
+    expect((await docFigures(NEXT.start, NEXT.end)).inputInvoiceIds).not.toContain(b.id);
   });
 });
