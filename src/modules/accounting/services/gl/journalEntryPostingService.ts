@@ -130,7 +130,10 @@ async function reverseJournalEntryInner(
       }, userId, actorMeta(opts) ?? defaultHumanMeta(userId), {
         dimensionAssignmentMode: 'historical-copy',
         // A reversal mirrors posted lines — including a late claim's clearing leg.
-        reversal: true,
+        // Not a reversal OF a reversal: undoing the undo of a late original would
+        // re-park its VAT on the clearing account with no companion to clear it,
+        // so that one faces the clearing-account guard like any other journal.
+        reversal: !entry.reversalOfId,
       });
     } catch (err) {
       // Nothing exists yet, but the claim does. Inside a request transaction the
