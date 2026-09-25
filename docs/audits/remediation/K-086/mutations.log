@@ -1,0 +1,42 @@
+# K-086 mutations — 2026-09-25, fix on origin/master 0ecf6d06e
+Each mutation applied alone to pages/api/accounting/stock-adjustments.ts, both k086 files run (withAuth, app_user, disposable fixture). Every one goes red.
+```
+### M1 count back on the delta path
+   × a count ABOVE stock on hand raises it and records an inbound correction 205ms
+   × a count that agrees with stock on hand moves nothing and records no movement 204ms
+   × a count waits for a competing writer and corrects from what it then reads 541ms
+   × K-086: the counted quantity replaces stock, it is not added to it 7ms
+   × K-086: the movement carries the 40-unit correction, not the 60 counted 7ms
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 5 ⎯⎯⎯⎯⎯⎯⎯
+      Tests  5 failed | 6 passed (11)
+### M2 movement records the counted quantity, not the correction
+   × a count ABOVE stock on hand raises it and records an inbound correction 273ms
+   × a fractional count keeps stock and movement in step to the cent 410ms
+   × a count waits for a competing writer and corrects from what it then reads 964ms
+   × K-086: the movement carries the 40-unit correction, not the 60 counted 16ms
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 4 ⎯⎯⎯⎯⎯⎯⎯
+      Tests  4 failed | 7 passed (11)
+### M3 FOR UPDATE dropped
+   × a count waits for a competing writer and corrects from what it then reads 706ms
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 1 ⎯⎯⎯⎯⎯⎯⎯
+      Tests  1 failed | 10 passed (11)
+### M4 count direction fixed to adjustment_out
+   × a count ABOVE stock on hand raises it and records an inbound correction 129ms
+   × a count waits for a competing writer and corrects from what it then reads 467ms
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 2 ⎯⎯⎯⎯⎯⎯⎯
+      Tests  2 failed | 9 passed (11)
+### M5 float arithmetic instead of cents
+   × a fractional count keeps stock and movement in step to the cent 87ms
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 1 ⎯⎯⎯⎯⎯⎯⎯
+      Tests  1 failed | 10 passed (11)
+### M6 zero-delta movement guard removed
+   × a count that agrees with stock on hand moves nothing and records no movement 95ms
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 1 ⎯⎯⎯⎯⎯⎯⎯
+      Tests  1 failed | 10 passed (11)
+### M7 ownership predicate dropped from the lock
+      Tests  11 passed (11)
+### M7 ownership predicate dropped from the lock (re-run with the two-company user case)
+   × a user in BOTH companies cannot adjust the other company's product from this one 101ms
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 1 ⎯⎯⎯⎯⎯⎯⎯
+      Tests  1 failed | 11 passed (12)
+```

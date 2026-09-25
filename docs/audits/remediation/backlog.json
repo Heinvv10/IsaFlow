@@ -3074,24 +3074,29 @@
       "correctedTrigger": null,
       "severityRationale": "Source priority only; impact and reachability not yet validated.",
       "auditedSha": "5661d6f0f5f2212705151e95455a3f681ddf840e",
-      "currentSha": "31fc2f10",
-      "status": "confirmed",
+      "currentSha": "0ecf6d06e",
+      "status": "fix-in-review",
       "dependencies": [
         "Latent behind K-085; ship together"
       ],
       "testNames": [
-        "tests/integration/k085-k086-stock-adjustment-movement.int.test.ts"
+        "tests/integration/k086-stocktake-count-movement.int.test.ts",
+        "tests/integration/k086-stocktake-count-adjacent.int.test.ts"
       ],
       "evidencePaths": [
         "K-086/red.log",
-        "K-086/validation.md"
+        "K-086/validation.md",
+        "K-086/fix.md",
+        "K-086/green.log",
+        "K-086/mutations.log"
       ],
       "fixCommit": null,
       "pr": null,
       "deployedSha": null,
-      "historicalDataImpact": "Not assessed",
+      "historicalDataImpact": "Live since the K-085 fix (972870495, #411) reached production: any count posted via the API since then added the counted quantity to stock. No UI or MCP caller exists. Census SQL in K-086/fix.md, not run.",
       "canonicalItem": null,
-      "reportedSeverity": "high"
+      "reportedSeverity": "high",
+      "processNotes": "2026-09-25: re-confirmed on 0ecf6d06e (count 60 vs 100 -> 160). Fixed: FOR UPDATE company-scoped lock, count replaces current_stock, correction booked in cents as adjustment_in/out by sign, no movement for a zero correction. Ported from unpushed c5a52e421. Residuals in fix.md: zero count refused (CHECK quantity > 0), current_stock vs movement-derived on-hand, transfer semantics."
     },
     {
       "id": "K-087",
