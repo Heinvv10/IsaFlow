@@ -18,7 +18,7 @@ const WORKFLOW = '.github/workflows/ci.yml';
 let errors: string[];
 try {
   const pkg = JSON.parse(readFileSync('package.json', 'utf8')) as { scripts?: Record<string, unknown> };
-  errors = checkWorkflowRunsCi(load(readFileSync(WORKFLOW, 'utf8')), pkg.scripts?.ci);
+  errors = checkWorkflowRunsCi(load(readFileSync(WORKFLOW, 'utf8')), pkg.scripts);
 } catch (err) {
   errors = [`could not read ${WORKFLOW} or package.json: ${(err as Error).message}`];
 }
