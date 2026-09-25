@@ -4759,7 +4759,7 @@
       "severityRationale": "Source priority only; impact and reachability not yet validated.",
       "auditedSha": "5661d6f0f5f2212705151e95455a3f681ddf840e",
       "currentSha": "31fc2f10",
-      "status": "confirmed",
+      "status": "fixed",
       "dependencies": [],
       "testNames": [
         "tests/integration/k137-supplier-invoice-put-silent-noop.int.test.ts"
@@ -4768,16 +4768,16 @@
         "K-137/red.log",
         "K-137/validation.md"
       ],
-      "fixCommit": null,
-      "pr": null,
-      "deployedSha": null,
+      "fixCommit": "e74332131",
+      "pr": "504",
+      "deployedSha": "df5e2dfd6",
       "historicalDataImpact": "Not assessed",
       "canonicalItem": null,
       "reportedSeverity": "medium",
       "sourceReferences": [
         "inputs/2026-09-08-claude-full-code-audit.html:187"
       ],
-      "processNotes": "2026-09-14 reconciliation: branch fix/audit-k137-k139-supplier-routes (3e182b5cc) is ancestor of origin/master; origin/master 7d708aac1 = production. 2026-09-24 correction: reopened. The 2026-09-14 reconciliation took the branch tip being an ancestor of master as proof of a fix, but that tip (3e182b5cc) was the base commit; the fix was never committed. Verified live on origin/master e3212b63b (K-154 red test fails 5/5; K-137/K-139/K-160 code paths unchanged). Fix PRs pending."
+      "processNotes": "2026-09-14 reconciliation: branch fix/audit-k137-k139-supplier-routes (3e182b5cc) is ancestor of origin/master; origin/master 7d708aac1 = production. 2026-09-24 correction: reopened. The 2026-09-14 reconciliation took the branch tip being an ancestor of master as proof of a fix, but that tip (3e182b5cc) was the base commit; the fix was never committed. Verified live on origin/master e3212b63b (K-154 red test fails 5/5; K-137/K-139/K-160 code paths unchanged). Fix PRs pending. 2026-09-24: fixed and deployed at df5e2dfd6 (20:08 SAST, Hein-approved, after hours). Blind review per PR; all SHIP."
     },
     {
       "id": "K-138",
@@ -4841,7 +4841,7 @@
       "severityRationale": "Source priority only; impact and reachability not yet validated.",
       "auditedSha": "5661d6f0f5f2212705151e95455a3f681ddf840e",
       "currentSha": "31fc2f10",
-      "status": "confirmed",
+      "status": "fixed",
       "dependencies": [],
       "testNames": [
         "tests/integration/k139-supplier-cache-key-omits-limit.int.test.ts"
@@ -4850,16 +4850,16 @@
         "K-139/red.log",
         "K-139/validation.md"
       ],
-      "fixCommit": null,
-      "pr": null,
-      "deployedSha": null,
+      "fixCommit": "c769e36f0",
+      "pr": "505",
+      "deployedSha": "df5e2dfd6",
       "historicalDataImpact": "Not assessed",
       "canonicalItem": null,
       "reportedSeverity": "medium",
       "sourceReferences": [
         "inputs/2026-09-08-claude-full-code-audit.html:201"
       ],
-      "processNotes": "2026-09-14 reconciliation: branch fix/audit-k137-k139-supplier-routes (3e182b5cc) is ancestor of origin/master; origin/master 7d708aac1 = production. 2026-09-24 correction: reopened. The 2026-09-14 reconciliation took the branch tip being an ancestor of master as proof of a fix, but that tip (3e182b5cc) was the base commit; the fix was never committed. Verified live on origin/master e3212b63b (K-154 red test fails 5/5; K-137/K-139/K-160 code paths unchanged). Fix PRs pending."
+      "processNotes": "2026-09-14 reconciliation: branch fix/audit-k137-k139-supplier-routes (3e182b5cc) is ancestor of origin/master; origin/master 7d708aac1 = production. 2026-09-24 correction: reopened. The 2026-09-14 reconciliation took the branch tip being an ancestor of master as proof of a fix, but that tip (3e182b5cc) was the base commit; the fix was never committed. Verified live on origin/master e3212b63b (K-154 red test fails 5/5; K-137/K-139/K-160 code paths unchanged). Fix PRs pending. 2026-09-24: fixed and deployed at df5e2dfd6 (20:08 SAST, Hein-approved, after hours). Blind review per PR; all SHIP."
     },
     {
       "id": "K-140",
@@ -5283,7 +5283,7 @@
       "severityRationale": "Source priority only; impact and reachability not yet validated.",
       "auditedSha": "5661d6f0f5f2212705151e95455a3f681ddf840e",
       "currentSha": "31fc2f10",
-      "status": "confirmed",
+      "status": "fixed",
       "dependencies": [],
       "testNames": [
         "tests/unit/services/capture/k154-statement-match-double-consumption.test.ts"
@@ -5292,16 +5292,16 @@
         "K-154/red.log",
         "K-154/validation.md"
       ],
-      "fixCommit": null,
-      "pr": null,
-      "deployedSha": null,
+      "fixCommit": "fcd93b36d",
+      "pr": "507",
+      "deployedSha": "df5e2dfd6",
       "historicalDataImpact": "Not assessed",
       "canonicalItem": null,
       "sourceReferences": [
         "inputs/bank-reconciliation-capture.md:161"
       ],
       "reportedSeverity": "medium",
-      "processNotes": "2026-09-14 reconciliation: branch fix/audit-k154-k160-capture (3e182b5cc) is ancestor of origin/master; origin/master 7d708aac1 = production. 2026-09-24 correction: reopened. The 2026-09-14 reconciliation took the branch tip being an ancestor of master as proof of a fix, but that tip (3e182b5cc) was the base commit; the fix was never committed. Verified live on origin/master e3212b63b (K-154 red test fails 5/5; K-137/K-139/K-160 code paths unchanged). Fix PRs pending."
+      "processNotes": "2026-09-14 reconciliation: branch fix/audit-k154-k160-capture (3e182b5cc) is ancestor of origin/master; origin/master 7d708aac1 = production. 2026-09-24 correction: reopened. The 2026-09-14 reconciliation took the branch tip being an ancestor of master as proof of a fix, but that tip (3e182b5cc) was the base commit; the fix was never committed. Verified live on origin/master e3212b63b (K-154 red test fails 5/5; K-137/K-139/K-160 code paths unchanged). Fix PRs pending. 2026-09-24: fixed and deployed at df5e2dfd6 (20:08 SAST, Hein-approved, after hours). Blind review per PR; all SHIP."
     },
     {
       "id": "K-155",
@@ -5479,7 +5479,7 @@
       "severityRationale": "Source priority only; impact and reachability not yet validated.",
       "auditedSha": "5661d6f0f5f2212705151e95455a3f681ddf840e",
       "currentSha": "31fc2f10",
-      "status": "confirmed",
+      "status": "fixed",
       "dependencies": [],
       "testNames": [
         "tests/integration/k160-twilio-retry-reingest.int.test.ts"
@@ -5488,16 +5488,16 @@
         "K-160/red.log",
         "K-160/validation.md"
       ],
-      "fixCommit": null,
-      "pr": null,
-      "deployedSha": null,
+      "fixCommit": "71863d946",
+      "pr": "502",
+      "deployedSha": "df5e2dfd6",
       "historicalDataImpact": "Not assessed",
       "canonicalItem": null,
       "sourceReferences": [
         "inputs/bank-reconciliation-capture.md:203"
       ],
       "reportedSeverity": "medium",
-      "processNotes": "2026-09-14 reconciliation: branch fix/audit-k154-k160-capture (3e182b5cc) is ancestor of origin/master; origin/master 7d708aac1 = production. 2026-09-24 correction: reopened. The 2026-09-14 reconciliation took the branch tip being an ancestor of master as proof of a fix, but that tip (3e182b5cc) was the base commit; the fix was never committed. Verified live on origin/master e3212b63b (K-154 red test fails 5/5; K-137/K-139/K-160 code paths unchanged). Fix PRs pending."
+      "processNotes": "2026-09-14 reconciliation: branch fix/audit-k154-k160-capture (3e182b5cc) is ancestor of origin/master; origin/master 7d708aac1 = production. 2026-09-24 correction: reopened. The 2026-09-14 reconciliation took the branch tip being an ancestor of master as proof of a fix, but that tip (3e182b5cc) was the base commit; the fix was never committed. Verified live on origin/master e3212b63b (K-154 red test fails 5/5; K-137/K-139/K-160 code paths unchanged). Fix PRs pending. 2026-09-24: fixed and deployed at df5e2dfd6 (20:08 SAST, Hein-approved, after hours). Blind review per PR; all SHIP."
     },
     {
       "id": "K-161",
@@ -12822,6 +12822,68 @@
       "branch": null,
       "severity": "low",
       "title": "A released capture slip keeps status 'matched', so the inbox still shows it as settled"
+    },
+    {
+      "id": "R-125",
+      "claim": "The customer-list and GL-account caches (in-process, 5-minute REFERENCE_DATA TTL) are invalidated only by some writers. customers: 10 files write the table; only customers.ts and customers-bulk.ts invalidate CACHE_KEYS.customers. gl_accounts: 12 files write it; five invalidate the gl-accounts prefix. The cache is per process, so no invalidation reaches other processes. A write through any other path (MCP tools, merges, soft-delete, imports) serves a stale list for up to 5 minutes. Same class as K-139, where the supplier list cache was removed.",
+      "area": "core",
+      "affectedPaths": [
+        "pages/api/accounting/customers.ts",
+        "src/modules/accounting/services/gl/chartOfAccountsService.ts",
+        "src/lib/cache.ts"
+      ],
+      "sourceLabel": "K-139 (PR #505 blind review LOW, widened by census)",
+      "sourceIds": [],
+      "correctedTrigger": null,
+      "severityRationale": "Read-path staleness only; nothing written wrong. The visible symptom is a picker missing or showing a deleted customer or account for up to 5 minutes, which can lead to duplicates or postings to a just-deactivated account.",
+      "auditedSha": "df5e2dfd6",
+      "currentSha": "df5e2dfd6",
+      "status": "candidate",
+      "dependencies": [
+        "K-139"
+      ],
+      "testNames": [],
+      "evidencePaths": [],
+      "fixCommit": null,
+      "pr": null,
+      "deployedSha": null,
+      "historicalDataImpact": "None written.",
+      "canonicalItem": null,
+      "reportedSeverity": "medium",
+      "processNotes": "2026-09-24: registered from the K-139 review. The candidate fix is the K-139 one: drop the cache, or move invalidation to the service layer every writer shares. Measure the list-query cost first.",
+      "branch": null,
+      "severity": "medium",
+      "title": "Customer and GL-account list caches go stale on writes that bypass their routes"
+    },
+    {
+      "id": "R-126",
+      "claim": "PUT on a purchase order reads its status, validates it, then UPDATEs without re-checking it in the WHERE clause (check-then-act). A concurrent status change between the read and the UPDATE lets an edit land on an order that is no longer editable.",
+      "area": "ap",
+      "affectedPaths": [
+        "pages/api/accounting/purchase-orders/[id].ts:88-96"
+      ],
+      "sourceLabel": "K-137 (PR #504 blind review LOW)",
+      "sourceIds": [],
+      "correctedTrigger": null,
+      "severityRationale": "Narrow race window; not reproduced. The K-137 pattern (guard in the UPDATE WHERE, check the row count, re-read to classify) is the proven fix.",
+      "auditedSha": "df5e2dfd6",
+      "currentSha": "df5e2dfd6",
+      "status": "candidate",
+      "dependencies": [
+        "K-137"
+      ],
+      "testNames": [],
+      "evidencePaths": [],
+      "fixCommit": null,
+      "pr": null,
+      "deployedSha": null,
+      "historicalDataImpact": "Not assessed.",
+      "canonicalItem": null,
+      "reportedSeverity": "low",
+      "processNotes": "2026-09-24: registered from the K-137 review; pre-existing, out of that PR's scope.",
+      "branch": null,
+      "severity": "low",
+      "title": "Purchase-order PUT checks status before the UPDATE instead of in it"
     }
   ],
   "sourceInventory": [
