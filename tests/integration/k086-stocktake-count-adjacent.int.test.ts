@@ -221,6 +221,10 @@ it("another tenant's warehouse is refused before any row is written", async () =
     expect(await stockOf(productA)).toBe(100);
     expect(await movementsOf(productA)).toEqual([]);
   } finally {
+    // Rows first: if the check ever regresses, a movement/adjustment points at
+    // the warehouse and its DELETE would fail on the FK, leaking fixture rows.
+    await pool.query('DELETE FROM stock_movements WHERE product_id=$1', [productA]);
+    await pool.query('DELETE FROM stock_adjustments WHERE company_id=$1', [companyA]);
     await pool.query('DELETE FROM warehouses WHERE id=$1', [warehouseB]);
   }
 });
@@ -239,6 +243,10 @@ it("a user in BOTH companies cannot put this company's movement in the other com
     expect(await movementsOf(productA)).toEqual([]);
   } finally {
     await pool.query('DELETE FROM company_users WHERE company_id=$1 AND user_id=$2', [companyB, admin]);
+    // Rows first: if the check ever regresses, a movement/adjustment points at
+    // the warehouse and its DELETE would fail on the FK, leaking fixture rows.
+    await pool.query('DELETE FROM stock_movements WHERE product_id=$1', [productA]);
+    await pool.query('DELETE FROM stock_adjustments WHERE company_id=$1', [companyA]);
     await pool.query('DELETE FROM warehouses WHERE id=$1', [warehouseB]);
   }
 });
@@ -251,6 +259,8 @@ it('an own-company warehouse is accepted and recorded on the movement', async ()
     const { rows } = await pool.query('SELECT warehouse_id FROM stock_movements WHERE product_id=$1', [productA]);
     expect(rows).toEqual([{ warehouse_id: warehouseA }]);
   } finally {
+    // Rows first: if the check ever regresses, a movement/adjustment points at
+    // the warehouse and its DELETE would fail on the FK, leaking fixture rows.
     await pool.query('DELETE FROM stock_movements WHERE product_id=$1', [productA]);
     await pool.query('DELETE FROM stock_adjustments WHERE company_id=$1', [companyA]);
     await pool.query('DELETE FROM warehouses WHERE id=$1', [warehouseA]);
