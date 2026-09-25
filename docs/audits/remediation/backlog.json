@@ -12941,8 +12941,8 @@
       "correctedTrigger": null,
       "severityRationale": "Read-path staleness only; nothing written wrong. The visible symptom is a picker missing or showing a deleted customer or account for up to 5 minutes, which can lead to duplicates or postings to a just-deactivated account.",
       "auditedSha": "df5e2dfd6",
-      "currentSha": "e2a78d699",
-      "status": "fix-in-review",
+      "currentSha": "ae78f05a7",
+      "status": "fixed",
       "dependencies": [
         "K-139"
       ],
@@ -12952,11 +12952,11 @@
       "evidencePaths": [],
       "fixCommit": "bf83b1f85;9217fd63a",
       "pr": "https://github.com/Heinvv10/IsaFlow/pull/515",
-      "deployedSha": null,
+      "deployedSha": "ae78f05a7",
       "historicalDataImpact": "None written.",
       "canonicalItem": null,
       "reportedSeverity": "medium",
-      "processNotes": "2026-09-24: registered from the K-139 review. The candidate fix is the K-139 one: drop the cache, or move invalidation to the service layer every writer shares. Measure the list-query cost first. 2026-09-25: re-verified live on e2a78d699 (census: customers 10 writer files / 2 invalidators, gl_accounts 12 / 5; journal posts never invalidated the cached has_transactions). Fixed by dropping both caches (K-139 precedent); EXPLAIN ANALYZE on a disposable fixture: chart of accounts ~10 ms at 3,000 accounts / 500,000 journal lines, customers ~2.5 ms at 5,000. Integration test 4/4 red on master, green with the fix; reinstating either cache turns its 2 tests red. Blind review: round 1 SHIP with 1 LOW (stale comment), fixed in 9217fd63a; round 2 SHIP.",
+      "processNotes": "2026-09-24: registered from the K-139 review. The candidate fix is the K-139 one: drop the cache, or move invalidation to the service layer every writer shares. Measure the list-query cost first. 2026-09-25: re-verified live on e2a78d699 (census: customers 10 writer files / 2 invalidators, gl_accounts 12 / 5; journal posts never invalidated the cached has_transactions). Fixed by dropping both caches (K-139 precedent); EXPLAIN ANALYZE on a disposable fixture: chart of accounts ~10 ms at 3,000 accounts / 500,000 journal lines, customers ~2.5 ms at 5,000. Integration test 4/4 red on master, green with the fix; reinstating either cache turns its 2 tests red. Blind review: round 1 SHIP with 1 LOW (stale comment), fixed in 9217fd63a; round 2 SHIP. 2026-09-25: deployed to prod at ae78f05a7 (Hein's \"deploy now\"; 0 migrations, deploy CI passed, golden paths green, integrity 16/16, RELEASE_SHA verified, no cache keys in the shipped server bundle). Rollback snapshot e2a78d699.",
       "branch": "fix/r125-reference-cache-staleness-20260925",
       "severity": "medium",
       "title": "Customer and GL-account list caches go stale on writes that bypass their routes"
@@ -12973,8 +12973,8 @@
       "correctedTrigger": null,
       "severityRationale": "Narrow race window; not reproduced. The K-137 pattern (guard in the UPDATE WHERE, check the row count, re-read to classify) is the proven fix.",
       "auditedSha": "df5e2dfd6",
-      "currentSha": "e2a78d699",
-      "status": "fix-in-review",
+      "currentSha": "ae78f05a7",
+      "status": "fixed",
       "dependencies": [
         "K-137"
       ],
@@ -12985,11 +12985,11 @@
       "evidencePaths": [],
       "fixCommit": "ca666eff9;72a314660",
       "pr": "https://github.com/Heinvv10/IsaFlow/pull/516",
-      "deployedSha": null,
+      "deployedSha": "ae78f05a7",
       "historicalDataImpact": "Not assessed; an edit that raced an approval would look like an ordinary edit.",
       "canonicalItem": null,
       "reportedSeverity": "low",
-      "processNotes": "2026-09-24: registered from the K-137 review; pre-existing, out of that PR's scope. 2026-09-25: reproduced on e2a78d699 (an order approved between the status read and the UPDATE: 200 and the edit saved). Fixed with the K-137 pattern: guard in the UPDATE WHERE, re-read company-scoped for 404 / 400 naming the status / 409. 4 mutations each red. Only UI caller ([poId].tsx handleSave) already checks res.ok. Blind review round 1: SHIP, no findings. DELETE on the same route has the same shape; registered as R-129.",
+      "processNotes": "2026-09-24: registered from the K-137 review; pre-existing, out of that PR's scope. 2026-09-25: reproduced on e2a78d699 (an order approved between the status read and the UPDATE: 200 and the edit saved). Fixed with the K-137 pattern: guard in the UPDATE WHERE, re-read company-scoped for 404 / 400 naming the status / 409. 4 mutations each red. Only UI caller ([poId].tsx handleSave) already checks res.ok. Blind review round 1: SHIP, no findings. DELETE on the same route has the same shape; registered as R-129. 2026-09-25: deployed to prod at ae78f05a7 (Hein's \"deploy now\"; 0 migrations, deploy CI passed, golden paths green, integrity 16/16, RELEASE_SHA verified, the new refusal string is in purchase-orders/[id].js). Rollback snapshot e2a78d699.",
       "branch": "fix/r126-po-put-status-guard-20260925",
       "severity": "low",
       "title": "Purchase-order PUT checks status before the UPDATE instead of in it"
