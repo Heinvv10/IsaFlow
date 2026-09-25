@@ -34,6 +34,7 @@ import {
 import { roundToCents } from '@/modules/accounting/utils/doubleEntry';
 import { assertDocumentLineAccounts } from '@/modules/accounting/services/gl/documentLineAccountGuard';
 import type { JournalLineInput } from '@/modules/accounting/types/gl.types';
+import type { LateClaimInfo } from '@/modules/accounting/services/gl/vatLateClaimPlan';
 
 type Row = Record<string, unknown>;
 
@@ -476,13 +477,15 @@ export interface PostClaimOptions {
   userId: string;
   reimbursementAccountId: string;     // CR leg — typically "Employee reimbursements" liability
   vatInputAccountId?: string | null;  // DR leg for VAT — optional
+  /** Human-initiated posting only: the s16(3) late input-VAT claim (gl/vatLateClaimPlan). */
+  allowLateInputClaim?: boolean;
 }
 
 export async function postClaimToGl(
   id: string,
   companyId: string,
   opts: PostClaimOptions,
-): Promise<ExpenseClaim | null> {
+): Promise<(ExpenseClaim & { lateClaim?: LateClaimInfo }) | null> {
   // Lock the claim for the request transaction BEFORE reading its status.
   // Without this, two concurrent posts both read 'approved', both build the
   // same legs and both post — two identical journals and a doubled credit to
@@ -579,9 +582,9 @@ export async function postClaimToGl(
     source: 'auto_expense_claim',
     reference: claim.claimNumber,
     lines,
-  }, opts.userId);
+  }, opts.userId, undefined, { allowLateInputClaim: opts.allowLateInputClaim });
 
-  await postJournalEntry(companyId, entry.id, opts.userId);
+  const posted = await postJournalEntry(companyId, entry.id, opts.userId, { allowLateInputClaim: opts.allowLateInputClaim });
 
   await sql`
     UPDATE expense_claims
@@ -590,5 +593,6 @@ export async function postClaimToGl(
   `;
 
   log.info('expense claim posted to GL', { id, jeId: entry.id, total: totalGross }, 'expense-claims');
-  return await getClaim(id, companyId);
+  const out = await getClaim(id, companyId);
+  return out && posted.lateClaim ? { ...out, lateClaim: posted.lateClaim } : out;
 }

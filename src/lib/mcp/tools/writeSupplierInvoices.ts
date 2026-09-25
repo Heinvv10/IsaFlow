@@ -30,6 +30,7 @@ import {
   strArg,
   toolError,
 } from './toolHelpers';
+import { ALLOW_LATE_INPUT_CLAIM_PROP, allowLateInputClaim, lateClaimResult } from './lateClaimArg';
 
 export const createSupplierInvoiceTool: McpTool = {
   name: 'create_supplier_invoice',
@@ -142,6 +143,7 @@ export const approveSupplierInvoiceTool: McpTool = {
     properties: {
       invoice_id: { type: 'string' },
       idempotency_key: { type: 'string' },
+      allow_late_input_claim: ALLOW_LATE_INPUT_CLAIM_PROP,
     },
     required: ['invoice_id', 'idempotency_key'],
     additionalProperties: false,
@@ -175,6 +177,7 @@ export const approveSupplierInvoiceTool: McpTool = {
     // agent work as the token owner's own.
     const updated = await approveSupplierInvoice(ctx.companyId, invoiceId, ctx.userId, {
       ...mcpPostingOpts(ctx, 'approve_supplier_invoice'),
+      allowLateInputClaim: allowLateInputClaim(args),
     });
 
     return ok({
@@ -183,6 +186,7 @@ export const approveSupplierInvoiceTool: McpTool = {
       status: updated.status,
       total_amount: updated.totalAmount,
       gl_journal_entry_id: updated.glJournalEntryId ?? null,
+      late_claim: lateClaimResult(updated.lateClaim),
     });
   },
 };

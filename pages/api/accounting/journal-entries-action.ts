@@ -60,7 +60,9 @@ async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse) {
     let result;
     switch (action) {
       case 'post':
-        result = await postJournalEntry(companyId, id, userId);
+        // A person posting: s16(3) late input-VAT claim where allowed; the
+        // result's `lateClaim` names the claim date and the locked period.
+        result = await postJournalEntry(companyId, id, userId, { allowLateInputClaim: true });
         break;
       case 'reverse':
         result = await reverseJournalEntry(companyId, id, userId, { reversalDate });

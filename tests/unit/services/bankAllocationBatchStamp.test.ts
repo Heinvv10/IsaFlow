@@ -89,7 +89,7 @@ beforeEach(() => {
     await fn(wTx);
   });
   vi.mocked(createJournalEntry).mockResolvedValue({ id: 'je-new' } as never);
-  vi.mocked(postJournalEntry).mockResolvedValue(undefined as never);
+  vi.mocked(postJournalEntry).mockResolvedValue({} as never); // the caller reads .lateClaim off it
 });
 
 describe('allocateTransaction', () => {
