@@ -117,15 +117,13 @@ describe('getVatExceptions — VAT control reconciliation', () => {
   });
 
   it('aggregates unposted invoice VAT as reconciliation context', async () => {
+    const doc = (kind: string, n: number, vat: string) => ({
+      kind, invoice_id: `${kind}-${n}`, invoice_number: `${kind.toUpperCase()}-${n}`,
+      invoice_date: '2026-03-10', counterparty_name: 'Acme', unposted_vat: vat,
+    });
     mockExceptionsSql({
-      unposted: [
-        {
-          unposted_customer_vat: '420.69',
-          unposted_customer_count: '3',
-          unposted_supplier_vat: '99.99',
-          unposted_supplier_count: '2',
-        },
-      ],
+      unposted: [doc('customer', 1, '200.00'), doc('customer', 2, '200.00'), doc('customer', 3, '20.69'),
+        doc('supplier', 1, '90.00'), doc('supplier', 2, '9.99')],
     });
     vi.mocked(getLedgerVAT201).mockResolvedValueOnce(makeVat201(0, 0));
 
@@ -135,6 +133,30 @@ describe('getVatExceptions — VAT control reconciliation', () => {
     expect(report.controlRecon.unpostedCustomerCount).toBe(3);
     expect(report.controlRecon.unpostedSupplierVat).toBe(99.99);
     expect(report.controlRecon.unpostedSupplierCount).toBe(2);
+  });
+});
+
+describe('getVatExceptions — unposted invoice VAT blocks (2026-09-25)', () => {
+  it('an invoice and a bill carrying VAT with no journal are counted, listed exceptions', async () => {
+    // The ledger and the GL both read R0, so the recon ties: without this the
+    // period would file R0 while the documents carry VAT.
+    mockExceptionsSql({
+      unposted: [
+        { kind: 'customer', invoice_id: 'ci-1', invoice_number: 'INV-1', invoice_date: new Date(2026, 2, 5), counterparty_name: 'Acme', unposted_vat: '150.00' },
+        { kind: 'supplier', invoice_id: 'si-1', invoice_number: 'BILL-1', invoice_date: '2026-03-06', counterparty_name: 'Vendor', unposted_vat: '45.00' },
+      ],
+    });
+    vi.mocked(getLedgerVAT201).mockResolvedValueOnce(makeVat201(0, 0));
+
+    const report = await getVatExceptions(COMPANY_ID, PERIOD_START, PERIOD_END);
+
+    expect(report.controlRecon.outputVariance).toBe(0);
+    expect(report.unpostedInvoiceVatCount).toBe(2);
+    expect(report.unpostedInvoiceVat).toEqual([
+      { invoiceId: 'ci-1', invoiceKind: 'customer', invoiceNumber: 'INV-1', counterpartyName: 'Acme', invoiceDate: '2026-03-05', vat: 150 },
+      { invoiceId: 'si-1', invoiceKind: 'supplier', invoiceNumber: 'BILL-1', counterpartyName: 'Vendor', invoiceDate: '2026-03-06', vat: 45 },
+    ]);
+    expect(report.totalExceptions).toBe(2);
   });
 });
 

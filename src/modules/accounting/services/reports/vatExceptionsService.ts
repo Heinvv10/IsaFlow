@@ -11,7 +11,7 @@ import type { DbRow } from '@/lib/neon';
 import { log } from '@/lib/logger';
 import { getLedgerVAT201 } from './vat201LedgerFields';
 import {
-  mapMismatch, mapTaxIssue, mapUncodedLine, r2, toNum, totalCount,
+  mapMismatch, mapTaxIssue, mapUncodedLine, mapUnpostedInvoice, r2, toNum, totalCount,
 } from './vatExceptionsTypes';
 import {
   findVatOnBalanceSheetLines,
@@ -23,6 +23,7 @@ import {
   mapVatNonSupplyLine,
 } from './vatNonSupplyExceptions';
 import { findInputVatSupport } from './vatInputSupport';
+import { findUnpostedInvoiceVat } from './vatUnpostedInvoices';
 import type { VatControlRecon, VatExceptionsReport } from './vatExceptionsTypes';
 
 export type {
@@ -184,33 +185,9 @@ export async function getVatExceptions(
       ` as Promise<Row[]>,
       // 6. GL VAT control movement — read vatControlMovement.ts before merging it with getVATReturn.
       findVatControlMovement(companyId, periodStart, periodEnd),
-      // 7. Invoice VAT not yet posted to the GL (context for recon variance).
-      // Supplier side aggregates from supplier_invoice_items when an invoice
-      // has items — the same source generateVAT201 uses for field10 — falling
-      // back to the header tax_amount for item-less invoices.
-      sql`
-        WITH unposted_si AS (
-          SELECT COALESCE(
-              (SELECT SUM(sii.tax_amount) FROM supplier_invoice_items sii
-                WHERE sii.supplier_invoice_id = si.id),
-              si.tax_amount, 0) AS eff_vat
-          FROM supplier_invoices si
-          WHERE si.company_id = ${companyId}::UUID AND si.gl_journal_entry_id IS NULL
-            AND si.invoice_date >= ${periodStart}::DATE AND si.invoice_date <= ${periodEnd}::DATE
-            AND si.status != 'cancelled'
-        )
-        SELECT
-          (SELECT COALESCE(SUM(tax_amount), 0) FROM customer_invoices
-            WHERE company_id = ${companyId}::UUID AND gl_journal_entry_id IS NULL
-              AND invoice_date >= ${periodStart}::DATE AND invoice_date <= ${periodEnd}::DATE
-              AND status != 'cancelled' AND COALESCE(tax_amount, 0) <> 0) AS unposted_customer_vat,
-          (SELECT COUNT(*) FROM customer_invoices
-            WHERE company_id = ${companyId}::UUID AND gl_journal_entry_id IS NULL
-              AND invoice_date >= ${periodStart}::DATE AND invoice_date <= ${periodEnd}::DATE
-              AND status != 'cancelled' AND COALESCE(tax_amount, 0) <> 0) AS unposted_customer_count,
-          (SELECT COALESCE(SUM(eff_vat), 0) FROM unposted_si WHERE eff_vat <> 0) AS unposted_supplier_vat,
-          (SELECT COUNT(*) FROM unposted_si WHERE eff_vat <> 0) AS unposted_supplier_count
-      ` as Promise<Row[]>,
+      // 7. Issued invoices / approved bills carrying VAT with no journal —
+      // BLOCKING since the recon reads the ledger (vatUnpostedInvoices.ts).
+      findUnpostedInvoiceVat(companyId, periodStart, periodEnd),
       // 8. VAT claimed against a balance-sheet account with no legitimate
       // reason to carry it. Appended LAST so the existing seven keep their
       // positions — the test helper queues results by index.
@@ -241,7 +218,8 @@ export async function getVatExceptions(
   ];
 
   const gl = glControl[0] ?? {};
-  const up = unposted[0] ?? {};
+  const unpostedInvoiceVat = unposted.map(mapUnpostedInvoice);
+  const side = (k: 'customer' | 'supplier') => unpostedInvoiceVat.filter((u) => u.invoiceKind === k);
   const outputGl = r2(toNum(gl.gl_output));
   const inputGl = r2(toNum(gl.gl_input));
   const outputVat201 = r2(vat201.field5_outputVAT);
@@ -256,10 +234,10 @@ export async function getVatExceptions(
     netVat201: r2(outputVat201 - inputVat201),
     netGl: r2(outputGl - inputGl),
     netVariance: r2((outputVat201 - inputVat201) - (outputGl - inputGl)),
-    unpostedCustomerVat: r2(toNum(up.unposted_customer_vat)),
-    unpostedCustomerCount: toNum(up.unposted_customer_count),
-    unpostedSupplierVat: r2(toNum(up.unposted_supplier_vat)),
-    unpostedSupplierCount: toNum(up.unposted_supplier_count),
+    unpostedCustomerVat: r2(side('customer').reduce((s, u) => s + u.vat, 0)),
+    unpostedCustomerCount: side('customer').length,
+    unpostedSupplierVat: r2(side('supplier').reduce((s, u) => s + u.vat, 0)),
+    unpostedSupplierCount: side('supplier').length,
   };
 
   const uncodedGlLineCount = totalCount(uncoded);
@@ -285,6 +263,8 @@ export async function getVatExceptions(
     vatNonSupplyLines,
     vatNonSupplyCount,
     controlRecon,
+    unpostedInvoiceVat: unpostedInvoiceVat.slice(0, LIST_CAP),
+    unpostedInvoiceVatCount: unpostedInvoiceVat.length,
     unsupportedInputVat: inputSupport.unsupported.slice(0, LIST_CAP),
     unsupportedInputVatCount: inputSupport.unsupported.length,
     inputVatWithoutTaxInvoice: inputSupport.withoutTaxInvoice.slice(0, LIST_CAP),
@@ -293,7 +273,7 @@ export async function getVatExceptions(
     totalExceptions:
       uncodedGlLineCount + invoiceTaxCodeIssueCount + invoiceGlMismatchCount
       + vatOnBalanceSheetCount + vatNonSupplyCount + reconExceptions
-      + inputSupport.unsupported.length,
+      + inputSupport.unsupported.length + unpostedInvoiceVat.length,
     degradedData: vat201.degradedSources.length > 0,
     degradedSources: vat201.degradedSources,
   };

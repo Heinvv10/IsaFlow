@@ -92,7 +92,7 @@ describe('getVatExceptions draft-JE mismatches', () => {
 describe('getVatExceptions unposted-VAT footnote', () => {
   it('aggregates the supplier side from supplier_invoice_items (field10 source parity)', async () => {
     await getVatExceptions('co-1', '2026-01-01', '2026-02-28');
-    const unpostedCall = sqlMock.mock.calls.find((c) => queryText(c).includes('unposted_supplier_vat'));
+    const unpostedCall = sqlMock.mock.calls.find((c) => queryText(c).includes('unposted_vat'));
     expect(unpostedCall).toBeDefined();
     expect(queryText(unpostedCall!)).toContain('supplier_invoice_items');
   });

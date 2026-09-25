@@ -10,7 +10,7 @@
  *  4. Customer invoice ↔ GL VAT mismatches (linked via gl_journal_entry_id)
  *  5. Supplier invoice ↔ GL VAT mismatches
  *  6. GL VAT control movement for the period (one row)
- *  7. Unposted invoice VAT aggregates (one row)
+ *  7. Issued invoices / approved bills carrying VAT with no journal (one row per document)
  *  8. VAT coded against a balance-sheet account (appended last, so adding it
  *     did not shift the positions the existing six queues rely on)
  *  9. VAT coded against an account on which no supply can arise (appended
@@ -94,14 +94,8 @@ export function makeMismatchRow(overrides: Record<string, unknown> = {}) {
 }
 
 export const EMPTY_GL_CONTROL = [{ gl_output: '0', gl_input: '0' }];
-export const EMPTY_UNPOSTED = [
-  {
-    unposted_customer_vat: '0',
-    unposted_customer_count: '0',
-    unposted_supplier_vat: '0',
-    unposted_supplier_count: '0',
-  },
-];
+/** Query 7 returns one row per unposted document (vatUnpostedInvoices); none by default. */
+export const EMPTY_UNPOSTED: unknown[] = [];
 
 export interface MockExceptionsOpts {
   uncoded?: unknown[];
