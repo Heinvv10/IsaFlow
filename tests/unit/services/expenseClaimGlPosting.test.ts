@@ -181,6 +181,17 @@ describe('postClaimToGl', () => {
     expect(lines.find(l => l.glAccountId === REIMBURSEMENT)).toMatchObject({ debit: 0, credit: 1725 });
   });
 
+  it('codes the VAT Input leg vatType standard (2026-09-25) — an uncoded leg was a pre-filing exception', async () => {
+    withClaim({ claimDate: '2026-08-13', lines: vatLines });
+
+    await postClaimToGl(CLAIM, COMPANY, { userId: USER, reimbursementAccountId: REIMBURSEMENT, vatInputAccountId: VAT_INPUT });
+
+    const { lines } = createInput();
+    expect(lines.find(l => l.glAccountId === VAT_INPUT)).toMatchObject({ vatType: 'standard' });
+    // The expense legs are unchanged: no code unless the account denies input VAT.
+    expect(lines.find(l => l.glAccountId === 'acct-travel')?.vatType).toBeUndefined();
+  });
+
   it('REFUSES to post a VAT-bearing claim with no VAT input account', async () => {
     withClaim({ claimDate: '2026-08-13', lines: vatLines });
 
