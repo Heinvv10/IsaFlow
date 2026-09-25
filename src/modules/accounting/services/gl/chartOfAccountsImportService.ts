@@ -6,7 +6,6 @@
 
 import { sql } from '@/lib/neon';
 import { log } from '@/lib/logger';
-import { cache } from '@/lib/cache';
 import type { GLAccountType } from '../../types/gl.types';
 
 export type CoaTemplate = 'isaflow_standard' | 'xero_compatible' | 'sage_compatible' | 'blank';
@@ -185,7 +184,6 @@ export async function seedChartOfAccountsFromTemplate(
     `;
   }
 
-  cache.invalidatePrefix(`${companyId}:gl-accounts`);
   log.info('COA seeded from template', { companyId, template, count: lines.length }, 'accounting');
 }
 

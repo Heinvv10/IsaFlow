@@ -5,11 +5,9 @@ import { describe, it, expect, vi, beforeEach } from 'vitest';
 
 vi.mock('@/lib/neon', () => ({ sql: vi.fn() }));
 vi.mock('@/lib/logger', () => ({ log: { info: vi.fn(), error: vi.fn(), warn: vi.fn(), debug: vi.fn() } }));
-vi.mock('@/lib/cache', () => ({ cache: { invalidatePrefix: vi.fn() } }));
 vi.mock('@/modules/accounting/services/gl/systemAccountResolver', () => ({ clearSystemAccountCache: vi.fn() }));
 
 import { sql } from '@/lib/neon';
-import { cache } from '@/lib/cache';
 import { clearSystemAccountCache } from '@/modules/accounting/services/gl/systemAccountResolver';
 import { ensureOpeningBalanceEquityAccount } from '@/modules/accounting/services/gl/openingBalanceEquityService';
 import { GL_ACCOUNT_SUBTYPES_BY_TYPE, SYSTEM_RESERVED_SUBTYPES } from '@/modules/accounting/types/glAccountSubtypes';
@@ -31,7 +29,7 @@ describe('ensureOpeningBalanceEquityAccount', () => {
     expect(mockSql.mock.calls[0]![1]).toBe(COMPANY);
   });
 
-  it('creates 3300 under the 3000 equity header on first use and busts both caches', async () => {
+  it('creates 3300 under the 3000 equity header on first use and clears the system-account cache', async () => {
     mockSql
       .mockResolvedValueOnce([])                                   // no existing
       .mockResolvedValueOnce([])                                   // no codes taken
@@ -42,7 +40,6 @@ describe('ensureOpeningBalanceEquityAccount', () => {
     const insert = mockSql.mock.calls[3]!;
     expect(textOf(3)).toContain('INSERT INTO gl_accounts');
     expect(insert.slice(1)).toEqual(expect.arrayContaining([COMPANY, '3300', 'opening_balance_equity', 2, 'hdr']));
-    expect(cache.invalidatePrefix).toHaveBeenCalledWith(`${COMPANY}:gl-accounts`);
     expect(clearSystemAccountCache).toHaveBeenCalledWith(COMPANY);
   });
 
