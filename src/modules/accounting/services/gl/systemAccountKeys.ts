@@ -38,6 +38,7 @@ export const SYSTEM_ACCOUNT_KEYS = [
   'payable',                   // Accounts Payable
   'vat_input',                 // VAT Input (claimable)
   'vat_output',                // VAT Output (payable)
+  'vat_input_late_claim',      // Input VAT - late claims (clearing; s16(3), migration 701)
   'retained_earnings',         // Retained Earnings
   'opening_balance_equity',    // Opening Balance Equity (clearing; nets to zero once the opening TB is complete)
   'default_revenue',           // Default revenue account
