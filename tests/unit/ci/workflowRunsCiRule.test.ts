@@ -88,13 +88,18 @@ describe('refuses every way found to keep the job green while skipping gates', (
     expect(check(mutated).length).toBeGreaterThan(0);
   });
 
+  it('the existing prepare script is not mistaken for a hook', () => {
+    expect(SCRIPTS.prepare).toBeDefined();
+    expect(check(REAL)).toEqual([]);
+  });
+
   it('package.json `ci` turned into a no-op', () => {
     expect(check(REAL, { ...SCRIPTS, ci: 'true' }).length).toBeGreaterThan(0);
     expect(checkWorkflowRunsCi(load(REAL), undefined).length).toBeGreaterThan(0);
   });
 
-  it.each(['preci', 'postci'])(
-    'a %s script, which `bun run ci` itself runs around the gate and could rewrite run-ci.sh',
+  it.each(['preci', 'postci', 'pretype-check', 'postlint', 'pretest:unit', 'prebuild', 'precheck:routes', 'postinstall', 'preinstall'])(
+    'a %s script: bun runs pre/post hooks around every bun run inside the gate, so it could defuse later gates',
     (hook) => {
       expect(check(REAL, { ...SCRIPTS, [hook]: "printf 'exit 0' > scripts/ci/run-ci.sh" }).length).toBeGreaterThan(0);
     },

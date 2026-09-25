@@ -51,12 +51,16 @@ locally. On GitHub every job passed and `mergeStateStatus` was `CLEAN`.
        name at a time would not;
     3. `bun run ci`, with only `name` and an env limited to `DATABASE_URL`, `JWT_SECRET` and
        `NODE_ENV`.
-  - **package.json:** `scripts.ci` is exactly `bash scripts/ci/run-ci.sh`. There is no `preci` or
-    `postci`, because `bun run ci` runs those around the gate.
+  - **package.json:** `scripts.ci` is exactly `bash scripts/ci/run-ci.sh`. No script name may start
+    with `pre` or `post`, except the existing `prepare`. Bun runs `preX` and `postX` around every
+    `bun run X`, and run-ci.sh calls type-check, lint, test:unit, build and others that way, so a
+    `pretype-check` could defuse every later gate. The prefix is refused wholesale rather than hook by
+    hook.
 
   Anything else is refused, and changing the job means changing the rule in the same PR. The first
   version grepped for the line instead. Blind review got nine edits past that grep. It then got the
-  job green through lifecycle scripts (root, workspace member, trusted dependency), through
+  job green through lifecycle scripts (root, workspace member, trusted dependency), through a
+  `pre<script>` hook on a nested `bun run`, through
   `branches: [master, '!master']` and through an unknown `runs-on` label. Every one of them
   is a case in `tests/unit/ci/workflowRunsCiRule.test.ts`, and each is refused.
 - `js-yaml` 4.1.1 was already in the lockfile, pulled in through `@eslint/eslintrc`. It is now a
@@ -95,8 +99,9 @@ locally. On GitHub every job passed and `mergeStateStatus` was `CLEAN`.
 
    The shared fixture `isaflow_schema_fixture` is used by parallel sessions, so pointing the runner
    at it would add a writer. A per-run database is an infrastructure decision.
-4. **run-ci.sh itself is not guarded.** An edit there that drops or skips a gate is left to code
-   review.
+4. **run-ci.sh and the bodies of the package scripts it calls are not guarded.** Examples are
+   `"lint": "true"`, or a gate script rewritten to exit 0. An edit there that drops or skips a gate
+   is left to code review.
 5. **The runner is persistent and trusts itself.** IsaFlow has one self-hosted runner
    (`velo-server-u`, user `gha-isaflow`). That user owns `~/.bun/bin`. Any job that runs there, such
    as `golden-paths` (which still installs with scripts) or another workflow file, could replace `bun` with a binary that exits 0, and
