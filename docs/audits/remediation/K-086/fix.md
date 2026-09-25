@@ -126,5 +126,9 @@ have been set to it. The correction needs a human-decided count. Nothing is corr
    alternative is to cost outbound corrections at the product's own carrying cost, which the
    `FOR UPDATE` read could supply. That is a valuation policy, and it is Hein's call. The same holds
    for `decrease` and `write_off`, and predates K-086.
-4. **`transfer` is booked as an `adjustment_out` delta**, with no destination warehouse, and
+4. **Warehouse policy.** A deactivated warehouse (`is_active = false`) still accepts a count or an
+   adjustment, and whether a closed store should refuse stock is Hein's call. A `warehouseId` that
+   is not a UUID answers 500. That is rolled back and writes nothing, but it should be a 422. Both
+   predate K-086.
+5. **`transfer` is booked as an `adjustment_out` delta**, with no destination warehouse, and
    `stock_levels` (per warehouse) is not written by this route at all. Both predate K-086.
