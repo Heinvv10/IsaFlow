@@ -1,0 +1,63 @@
+# R-053 residual — measured 2026-09-25 on origin/master 4faf25ed7, disposable fixture (not prod)
+$ vitest run --config vitest.integration.config.ts tests/integration/k071-archive-delete-order.int.test.ts
+
+ RUN  v4.1.2 /home/hein/Workspace/IsaFlow/.worktrees/r053
+
+{"level":"info","message":"Archive run started","timestamp":"2026-09-25T07:48:52.549Z","component":"data-archiving","data":{"companyId":"767e803e-eab5-4223-a96e-b2ce8fa18aeb","runId":"7c5ae7e7-9273-40c0-9a9c-818a77170f57","cutoffDate":"2005-01-01","userId":"f8327e8f-2f2e-4a8e-a7bd-fbedba5b0e05"}}
+{"level":"info","message":"Archive run completed","timestamp":"2026-09-25T07:48:52.571Z","component":"data-archiving","data":{"companyId":"767e803e-eab5-4223-a96e-b2ce8fa18aeb","runId":"7c5ae7e7-9273-40c0-9a9c-818a77170f57","entriesArchived":1,"linesArchived":1,"transactionsArchived":1,"invoicesArchived":0,"supplierInvoicesArchived":0}}
+{"level":"info","message":"Archive run started","timestamp":"2026-09-25T07:48:52.579Z","component":"data-archiving","data":{"companyId":"49c6a3c7-52b9-4d1c-9f21-1838a0a21be8","runId":"e8bfc436-39d8-43f2-a549-fab8d8b2e436","cutoffDate":"2005-01-01","userId":"f8327e8f-2f2e-4a8e-a7bd-fbedba5b0e05"}}
+{"level":"error","message":"Archive run failed","timestamp":"2026-09-25T07:48:52.587Z","component":"data-archiving","data":{"companyId":"49c6a3c7-52b9-4d1c-9f21-1838a0a21be8","runId":"e8bfc436-39d8-43f2-a549-fab8d8b2e436","error":{"length":429,"name":"error","severity":"ERROR","code":"23503","detail":"Key (id)=(0242ebae-4112-42a2-bba0-a095aa6a91ca) is still referenced from table \"customer_payment_allocations\".","schema":"public","table":"customer_payment_allocations","constraint":"customer_payment_allocations_invoice_id_fkey","file":"ri_triggers.c","line":"2621","routine":"ri_ReportViolation","message":"update or delete on table \"customer_invoices\" violates foreign key constraint \"customer_payment_allocations_invoice_id_fkey\" on table \"customer_payment_allocations\""}}}
+
+ Test Files  1 passed (1)
+      Tests  2 passed (2)
+   Start at  09:48:51
+   Duration  854ms (transform 99ms, setup 0ms, import 88ms, tests 337ms, environment 0ms)
+
+
+$ vitest run tests/unit/api/dataArchivingExecuteDisabled.test.ts  (the real route: POST refuses 403 for every role)
+
+ Test Files  1 passed (1)
+      Tests  3 passed (3)
+   Start at  09:48:53
+   Duration  209ms (transform 55ms, setup 0ms, import 74ms, tests 4ms, environment 0ms)
+
+
+# NO ACTION / RESTRICT FKs into the five relations step 6 deletes (fixture pg_constraint): 37
+# per parent: gl_journal_entries 25, customer_invoices 6, supplier_invoices 3, gl_journal_lines 2, bank_transactions 1
+bank_transactions | ap_payment_document_backfill | ap_payment_document_backfill_bank_transaction_id_fkey | NO ACTION
+gl_journal_entries | accounting_adjustments | accounting_adjustments_gl_journal_entry_id_fkey | NO ACTION
+gl_journal_entries | gl_journal_entries | gl_journal_entries_reversal_of_id_fkey | NO ACTION
+gl_journal_entries | supplier_invoices | supplier_invoices_gl_journal_entry_id_fkey | NO ACTION
+gl_journal_entries | supplier_payments | supplier_payments_gl_journal_entry_id_fkey | NO ACTION
+gl_journal_entries | asset_depreciation_schedule | asset_depreciation_schedule_journal_entry_id_fkey | NO ACTION
+gl_journal_entries | asset_disposals | asset_disposals_journal_entry_id_fkey | NO ACTION
+gl_journal_entries | credit_notes | credit_notes_gl_journal_entry_id_fkey | NO ACTION
+gl_journal_entries | customer_payments | customer_payments_gl_journal_entry_id_fkey | NO ACTION
+gl_journal_entries | customer_write_offs | customer_write_offs_gl_journal_entry_id_fkey | NO ACTION
+gl_journal_entries | expense_claims | expense_claims_posted_je_id_fkey | NO ACTION
+gl_journal_entries | gl_entry_date_corrections | gl_entry_date_corrections_journal_entry_id_fkey | NO ACTION
+gl_journal_entries | intercompany_transactions | intercompany_transactions_source_journal_entry_id_fkey | NO ACTION
+gl_journal_entries | intercompany_transactions | intercompany_transactions_target_journal_entry_id_fkey | NO ACTION
+gl_journal_entries | loan_payments | loan_payments_journal_entry_id_fkey | NO ACTION
+gl_journal_entries | payroll_run_headers | payroll_run_headers_journal_entry_id_fkey | NO ACTION
+gl_journal_entries | reclassification_batch_lines | reclassification_batch_lines_journal_entry_id_fkey | NO ACTION
+gl_journal_entries | sage_ledger_transactions | sage_ledger_transactions_gl_journal_entry_id_fkey | NO ACTION
+gl_journal_entries | soft_delete_journal_reversals | soft_delete_journal_reversals_reversal_journal_entry_id_fkey | NO ACTION
+gl_journal_entries | stock_adjustments | stock_adjustments_journal_entry_id_fkey | NO ACTION
+gl_journal_entries | supplier_payment_batches | supplier_payment_batches_gl_journal_entry_id_fkey | NO ACTION
+gl_journal_entries | tax_directive_payments | tax_directive_payments_journal_entry_id_fkey | NO ACTION
+gl_journal_entries | uif_declarations | uif_declarations_journal_entry_id_fkey | NO ACTION
+gl_journal_entries | vat_adjustments | vat_adjustments_gl_journal_entry_id_fkey | NO ACTION
+gl_journal_entries | vat_returns | vat_returns_journal_entry_id_fkey | NO ACTION
+gl_journal_entries | loan_reclass_postings | loan_reclass_postings_journal_entry_id_fkey | NO ACTION
+gl_journal_lines | bank_transactions | bank_transactions_matched_journal_line_id_fkey | NO ACTION
+gl_journal_lines | reclassification_batch_lines | reclassification_batch_lines_source_line_id_fkey | NO ACTION
+supplier_invoices | credit_notes | credit_notes_supplier_invoice_id_fkey | NO ACTION
+supplier_invoices | payment_allocations | payment_allocations_invoice_id_fkey | NO ACTION
+supplier_invoices | supplier_payment_allocations | supplier_payment_allocations_invoice_id_fkey | NO ACTION
+customer_invoices | credit_notes | credit_notes_customer_invoice_id_fkey | NO ACTION
+customer_invoices | customer_payment_allocations | customer_payment_allocations_invoice_id_fkey | NO ACTION
+customer_invoices | customer_quotes | customer_quotes_converted_invoice_id_fkey | NO ACTION
+customer_invoices | customer_sales_orders | customer_sales_orders_invoice_id_fkey | NO ACTION
+customer_invoices | customer_write_offs | customer_write_offs_invoice_id_fkey | NO ACTION
+customer_invoices | delivery_notes | delivery_notes_invoice_id_fkey | NO ACTION

@@ -20,7 +20,6 @@
 
 import { sql } from '@/lib/neon';
 import { log } from '@/lib/logger';
-import { cache } from '@/lib/cache';
 import type { GLAccount, GLAccountSubtype, GLAccountType } from '../../types/gl.types';
 import { subtypeErrorFor, missingSubtypeError } from './accountSubtypeRules';
 import { ParentAccountError, assertParentUsable } from './accountParentRules';
@@ -256,7 +255,6 @@ export async function reclassifyAccount(
     throw err;
   }
 
-  cache.invalidatePrefix(`${companyId}:gl-accounts`);
   clearSystemAccountCache(companyId);
 
   const updated = await getAccountById(companyId, id);

@@ -12,7 +12,6 @@ import { describe, it, expect, vi, beforeEach } from 'vitest';
 
 vi.mock('@/lib/neon', () => ({ sql: vi.fn() }));
 vi.mock('@/lib/logger', () => ({ log: { info: vi.fn(), error: vi.fn(), warn: vi.fn(), debug: vi.fn() } }));
-vi.mock('@/lib/cache', () => ({ cache: { invalidatePrefix: vi.fn() }, cacheThrough: vi.fn() }));
 
 import { sql } from '@/lib/neon';
 import { missingSubtypeError, defaultIncomeStatementSubtype } from '@/modules/accounting/services/gl/accountSubtypeRules';

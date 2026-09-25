@@ -34,7 +34,6 @@ import { describe, it, expect, vi, beforeEach } from 'vitest';
 const sqlMock = vi.fn();
 vi.mock('@/lib/neon', () => ({ sql: (...a: unknown[]) => sqlMock(...a) }));
 vi.mock('@/lib/logger', () => ({ log: { info: vi.fn(), warn: vi.fn(), error: vi.fn() } }));
-vi.mock('@/lib/cache', () => ({ cache: { invalidatePrefix: vi.fn(), get: vi.fn(), set: vi.fn() } }));
 
 import { updateAccount } from '@/modules/accounting/services/gl/chartOfAccountsService';
 import { getPostedAccountBalance } from '@/modules/accounting/services/gl/glAccountBalance';

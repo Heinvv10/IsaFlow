@@ -24,7 +24,6 @@
  */
 import { sql, withSavepoint } from '@/lib/neon';
 import { log } from '@/lib/logger';
-import { cache } from '@/lib/cache';
 import { clearSystemAccountCache } from './systemAccountResolver';
 import {
   AccountMergeError, MAX_TREE_DEPTH, assertMergeable, loadMergeAccount,
@@ -256,7 +255,6 @@ async function mergeAccountsInner(
      WHERE id = ${sourceId}::UUID AND company_id = ${companyId}::UUID
   `;
 
-  cache.invalidatePrefix(`${companyId}:gl-accounts`);
   clearSystemAccountCache(companyId);
 
   // The record is what makes this recoverable. Merging back does NOT undo a
