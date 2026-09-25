@@ -11,6 +11,7 @@ import { extractPattern } from '@/components/accounting/CreateRuleModal';
 import type { AllocType, VatCode, BankTx, SelectOption, RowSelection } from '@/components/accounting/BankTxTable';
 import type { RulePrompt } from './BankTxBatchPanel';
 import { actionableIds } from './pendingFeedRow';
+import { notifyLateClaims } from '@/components/accounting/lateClaimNotice';
 
 interface ActionDeps {
   transactions: BankTx[];
@@ -82,8 +83,9 @@ export function buildBankTxActions(deps: ActionDeps) {
       if (sel.cc1Id) body.cc1Id = sel.cc1Id;
       if (sel.cc2Id) body.cc2Id = sel.cc2Id;
       if (sel.buId) body.buId = sel.buId;
-      await callAction(body);
+      const allocated = await callAction(body);
       notify.success(sel.type === 'transfer' ? 'Transfer posted' : 'Transaction allocated');
+      notifyLateClaims(allocated); // VAT claimed in a later period (s16(3))
       loadTransactions(); refreshBankAccounts();
       if (sel.type === 'account' && sel.entityId) {
         apiFetch('/api/accounting/smart-categorize', {
@@ -140,6 +142,7 @@ export function buildBankTxActions(deps: ActionDeps) {
     }
     if (toAccept.length === 0) { notify.error('Select transactions with accounts assigned'); return; }
     let ok = 0, fail = 0;
+    const late: unknown[] = [];
     for (const txId of toAccept) {
       try {
         const sel = rowSelections[txId];
@@ -150,10 +153,12 @@ export function buildBankTxActions(deps: ActionDeps) {
         if (sel.cc1Id) body.cc1Id = sel.cc1Id;
         if (sel.cc2Id) body.cc2Id = sel.cc2Id;
         if (sel.buId) body.buId = sel.buId;
-        await callAction(body); ok++;
+        late.push((await callAction(body))?.data?.lateClaim); ok++;
       } catch { fail++; }
     }
-    notify.success(`${ok} allocated${fail ? `, ${fail} failed` : ''}`); setSelectedIds(() => new Set()); loadTransactions(); refreshBankAccounts();
+    notify.success(`${ok} allocated${fail ? `, ${fail} failed` : ''}`);
+    notifyLateClaims({ data: { results: late.map((lateClaim) => ({ lateClaim })) } });
+    setSelectedIds(() => new Set()); loadTransactions(); refreshBankAccounts();
   };
   const handleBatchDelete = async () => {
     if (selectedIds.size === 0) return;

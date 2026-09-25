@@ -18,6 +18,7 @@ import {
 } from './helpers/vatLateClaimFixture';
 import { callRoute, dataOf, dropRouteUser, seedRouteUser } from './helpers/vatLateClaimRoutes';
 import bankTransactionsAction from '../../pages/api/accounting/bank-transactions-action';
+import bankTransactionsManual from '../../pages/api/accounting/bank-transactions-manual';
 
 const DATABASE_URL = process.env.DATABASE_URL;
 const describeIfDb = DATABASE_URL && process.env.JWT_SECRET ? describe : describe.skip;
@@ -142,5 +143,14 @@ describeIfDb('late input VAT claim: bank allocation', () => {
     } finally {
       await sql`DELETE FROM vat_period_locks WHERE company_id = ${fx.companyId}::UUID AND period_start >= ${NEXT.start}::DATE`;
     }
+  });
+
+  it('a manually entered spend through bank-transactions-manual: 201 with lateClaim', async () => {
+    const state = await callRoute(fx, token, bankTransactionsManual, {
+      type: 'spend', bankAccountId: fx.bankAccountId, date: '2026-06-19', amount: 57.5,
+      description: 'Manual VAT spend', allocationType: 'account', contraAccountId: fx.expenseId, vatCode: 'standard',
+    });
+    expect(state.statusCode, JSON.stringify(state.body)).toBe(201);
+    expect(dataOf<{ lateClaim: unknown }>(state).lateClaim).toMatchObject({ claimDate: '2026-07-01', inputTax: 7.5 });
   });
 });
