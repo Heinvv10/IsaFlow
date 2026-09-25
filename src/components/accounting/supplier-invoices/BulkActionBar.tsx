@@ -6,6 +6,7 @@
 
 import type { Dispatch, ReactNode, SetStateAction } from 'react';
 import { apiFetch } from '@/lib/apiFetch';
+import { notifyLateClaims } from '@/components/accounting/lateClaimNotice';
 import { log } from '@/lib/logger';
 
 type BulkAction = 'approve' | 'post_gl' | 'cancel';
@@ -74,6 +75,7 @@ export function BulkActionBar({
       // before it would vanish as soon as it appeared. Join rather than
       // replace, so a failed reload still says the list is stale.
       await onComplete();
+      notifyLateClaims(json); // bills whose VAT was claimed in a later period (s16(3))
       if (failure) onError((prev) => (prev ? `${prev} — ${failure}` : failure));
     } catch (err) {
       log.warn('Bulk action failed', { action, error: err }, 'supplier-invoices');

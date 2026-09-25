@@ -49,7 +49,9 @@ async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse) {
 
     switch (action) {
       case 'approve': {
-        const invoice = await approveSupplierInvoice(companyId, invoiceId, userId);
+        // A person approving: a bill dated in a filed VAT period claims its input
+        // VAT late (s16(3)) where the law allows, and `lateClaim` says so.
+        const invoice = await approveSupplierInvoice(companyId, invoiceId, userId, { allowLateInputClaim: true });
         return apiResponse.success(res, invoice);
       }
       case 'cancel': {

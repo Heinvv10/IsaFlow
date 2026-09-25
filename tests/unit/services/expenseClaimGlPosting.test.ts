@@ -168,7 +168,8 @@ describe('postClaimToGl', () => {
     });
 
     expect(createMock).toHaveBeenCalledTimes(1);
-    expect(postMock).toHaveBeenCalledWith(COMPANY, 'je-claim-1', USER);
+    // No allowLateInputClaim in the options: the post does not opt in.
+    expect(postMock).toHaveBeenCalledWith(COMPANY, 'je-claim-1', USER, { allowLateInputClaim: undefined });
 
     const { lines } = createInput();
     expect(sum(lines, 'debit')).toBe(1725);   // 1000 + 500 net + 225 VAT

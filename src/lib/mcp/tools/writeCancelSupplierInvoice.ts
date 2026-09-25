@@ -100,9 +100,19 @@ export const cancelSupplierInvoiceTool: McpTool = {
       reversal_entry_number: contra ? String(contra.entry_number) : null,
       reversal_date: plan.journal?.reversalDate ?? null,
       reversal_date_roll: plan.journal?.vatLockRoll ?? null,
+      late_claim_reversal: lateClaimReversal(plan),
     });
   },
 };
+
+/** The bill's late input-VAT claim, reversed with it on its own date (gl/vatLateClaimSplit). */
+function lateClaimReversal(plan: SupplierInvoiceCancelPlan) {
+  const c = plan.journal?.lateClaim;
+  return c ? {
+    companion_entry_id: c.id, companion_entry_number: c.entryNumber,
+    reversal_date: c.reversalDate, reversal_date_roll: c.vatLockRoll,
+  } : null;
+}
 
 /** `wroteNothing` keeps the idempotency key free for the real call. */
 function dryRunResult(plan: SupplierInvoiceCancelPlan) {
@@ -131,5 +141,8 @@ function dryRunResult(plan: SupplierInvoiceCancelPlan) {
     journalsTotal: j ? 1 : 0,
     truncated: false,
   };
-  return { ...ok({ ...result, reversal_date_roll: j?.vatLockRoll ?? null }), wroteNothing: true };
+  return {
+    ...ok({ ...result, reversal_date_roll: j?.vatLockRoll ?? null, late_claim_reversal: lateClaimReversal(plan) }),
+    wroteNothing: true,
+  };
 }

@@ -13,6 +13,11 @@ import { describe, it, expect, vi, beforeEach } from 'vitest';
 // account subtypes), which would shift this file's positional sql mock. It is
 // exercised against a real ledger in tests/integration/vat-period-lock-*.int.test.ts;
 // here it is a no-op, and the error class stays real.
+// createJournalEntry asks whether a line is on the late-claim clearing account
+// (gl/lateClaimClearingGuard); none is here, and the positional sql queue must not see it.
+vi.mock('@/modules/accounting/services/gl/lateClaimClearingGuard', () => ({
+  assertNoLateClaimClearingLines: vi.fn(async () => undefined),
+}));
 vi.mock('@/modules/accounting/services/gl/journalVatLockGuard', async (importOriginal) => ({
   ...(await importOriginal<typeof import('@/modules/accounting/services/gl/journalVatLockGuard')>()),
   assertJournalVatPeriodOpen: vi.fn(async () => undefined),

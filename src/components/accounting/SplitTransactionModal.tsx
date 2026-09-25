@@ -10,6 +10,7 @@ import { notify } from '@/utils/toast';
 import { apiFetch } from '@/lib/apiFetch';
 import type { BankTx, SelectOption, VatCode } from './BankTxTable';
 import { VAT_OPTIONS } from './BankTxTable';
+import { notifyLateClaims } from '@/components/accounting/lateClaimNotice';
 
 interface SplitLineState {
   id: string; // local key for React rendering
@@ -106,6 +107,7 @@ export function SplitTransactionModal({ transaction, glAccounts, onClose, onSpli
       const json = await res.json();
       if (!res.ok || json.success === false) throw new Error(json?.error?.message || 'Split failed');
       notify.success(`Transaction split into ${lines.length} lines and allocated`);
+      notifyLateClaims(json); // VAT claimed in a later period (s16(3))
       onSplit();
     } catch (err) {
       notify.error(err instanceof Error ? err.message : 'Split allocation failed');

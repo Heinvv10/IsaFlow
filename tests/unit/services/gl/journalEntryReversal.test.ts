@@ -19,6 +19,12 @@ import { describe, it, expect, vi, beforeEach, type MockedFunction } from 'vites
 // account subtypes), which would shift this file's positional sql mock. It is
 // exercised against a real ledger in tests/integration/vat-period-lock-*.int.test.ts;
 // here it is a no-op, and the error class stays real.
+// reverseJournalEntry first asks whether the entry has a late-claim companion
+// (vatLateClaimSplit); none here, and the positional sql queue must not see it.
+vi.mock('@/modules/accounting/services/gl/vatLateClaimSplit', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('@/modules/accounting/services/gl/vatLateClaimSplit')>()),
+  planLateClaimCompanionReversal: vi.fn(async () => null),
+}));
 vi.mock('@/modules/accounting/services/gl/journalVatLockGuard', async (importOriginal) => ({
   ...(await importOriginal<typeof import('@/modules/accounting/services/gl/journalVatLockGuard')>()),
   assertJournalVatPeriodOpen: vi.fn(async () => undefined),
@@ -323,6 +329,7 @@ describe('reverseJournalEntry — contra attribution', () => {
     });
     expect(mockCreate.mock.calls[0]![4]).toEqual({
       dimensionAssignmentMode: 'historical-copy',
+      reversal: true, // a reversal may mirror a late claim's clearing leg (lateClaimClearingGuard)
     });
   });
 
@@ -334,6 +341,7 @@ describe('reverseJournalEntry — contra attribution', () => {
     expect(mockCreate.mock.calls[0]![3]).toEqual({ postingAgent: 'human' });
     expect(mockCreate.mock.calls[0]![4]).toEqual({
       dimensionAssignmentMode: 'historical-copy',
+      reversal: true, // a reversal may mirror a late claim's clearing leg (lateClaimClearingGuard)
     });
   });
 });

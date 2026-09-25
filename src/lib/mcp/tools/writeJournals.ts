@@ -11,6 +11,7 @@ import { journalVatRefusal } from '@/modules/accounting/services/capture/capture
 import { accountsBelongToCompany } from '@/modules/accounting/services/gl/chartOfAccountsService';
 import type { JournalLineInput } from '@/modules/accounting/types/gl.types';
 import { mcpPostingOpts } from '../mcpActor';
+import { ALLOW_LATE_INPUT_CLAIM_PROP, allowLateInputClaim } from './lateClaimArg';
 import { NOT_FOUND, guardCastableArgs, guardUuidList, ok, safeErrorText, strArg, toolError } from './toolHelpers';
 
 function parseLines(raw: unknown): JournalLineInput[] | null {
@@ -60,6 +61,7 @@ export const createDraftJournalTool: McpTool = {
         },
       },
       idempotency_key: { type: 'string' },
+      allow_late_input_claim: ALLOW_LATE_INPUT_CLAIM_PROP,
     },
     required: ['date', 'lines', 'idempotency_key'],
     additionalProperties: false,
@@ -93,6 +95,7 @@ export const createDraftJournalTool: McpTool = {
         { entryDate, description: strArg(args, 'memo'), lines },
         ctx.userId,
         mcpPostingOpts(ctx, 'create_draft_journal'),
+        { allowLateInputClaim: allowLateInputClaim(args) },
       );
       return ok(entry);
     } catch (err) {
@@ -115,6 +118,7 @@ export const postJournalTool: McpTool = {
     properties: {
       journal_id: { type: 'string' },
       idempotency_key: { type: 'string' },
+      allow_late_input_claim: ALLOW_LATE_INPUT_CLAIM_PROP,
     },
     required: ['journal_id', 'idempotency_key'],
     additionalProperties: false,
@@ -141,6 +145,8 @@ export const postJournalTool: McpTool = {
     // No catch: a closed period, an unbalanced entry or a database failure must
     // reach the registry's savepoint rather than being flattened into a tool
     // error that keeps whatever was written.
-    return ok(await postJournalEntry(ctx.companyId, journalId, ctx.userId));
+    // The result carries `lateClaim` when the VAT was claimed late.
+    return ok(await postJournalEntry(ctx.companyId, journalId, ctx.userId,
+      { allowLateInputClaim: allowLateInputClaim(args) }));
   },
 };

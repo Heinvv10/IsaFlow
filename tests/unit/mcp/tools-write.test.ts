@@ -219,6 +219,8 @@ describe('create_draft_journal', () => {
       }),
       USER_ID,
       { postingAgent: 'mcp:create_draft_journal:v1', actorType: 'agent', actorTokenJti: 'jti-1' },
+      // No allow_late_input_claim argument: no late claim (gl/vatLateClaimPlan).
+      { allowLateInputClaim: false },
     );
   });
 
@@ -287,7 +289,8 @@ describe('post_journal / finalize_invoice (post tools)', () => {
   it('post_journal posts the existing draft via ctx company + user', async () => {
     vi.mocked(postJournalEntry).mockResolvedValue({ id: '97120700-9f09-4fe5-804e-34331ce49b97', status: 'posted' } as never);
     parseOk(await tool('post_journal').handler({ journal_id: '97120700-9f09-4fe5-804e-34331ce49b97', ...KEY }, ctx()));
-    expect(postJournalEntry).toHaveBeenCalledWith(COMPANY_ID, '97120700-9f09-4fe5-804e-34331ce49b97', USER_ID);
+    expect(postJournalEntry).toHaveBeenCalledWith(
+      COMPANY_ID, '97120700-9f09-4fe5-804e-34331ce49b97', USER_ID, { allowLateInputClaim: false });
   });
 
   it('finalize_invoice approves the draft via ctx company + user', async () => {

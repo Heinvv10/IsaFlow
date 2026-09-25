@@ -22,6 +22,7 @@ import {
 } from 'lucide-react';
 import type { JournalEntry } from '@/modules/accounting/types/gl.types';
 import { apiFetch } from '@/lib/apiFetch';
+import { notifyLateClaims } from '@/components/accounting/lateClaimNotice';
 
 export default function JournalEntryDetailPage() {
   const router = useRouter();
@@ -69,6 +70,7 @@ export default function JournalEntryDetailPage() {
         const errData = await res.json();
         throw new Error(errData.message || `Failed to ${action} entry`);
       }
+      notifyLateClaims(await res.json()); // post: VAT claimed in a later period (s16(3))
       await loadEntry();
     } catch (err) {
       const msg = err instanceof Error ? err.message : `Failed to ${action} entry`;

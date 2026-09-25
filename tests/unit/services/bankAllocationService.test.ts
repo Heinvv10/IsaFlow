@@ -104,7 +104,7 @@ function setupHappyPath() {
     description: 'Test expense', status: 'draft', source: 'auto_bank_recon',
   } as unknown as ReturnType<typeof createJournalEntry> extends Promise<infer R> ? R : never);
 
-  mockPostJE.mockResolvedValue(undefined);
+  mockPostJE.mockResolvedValue({} as never); // a posted entry; the caller reads .lateClaim off it
 }
 
 // ── Tests ─────────────────────────────────────────────────────────────────────
@@ -163,7 +163,7 @@ describe('bankAllocationService — VAT allocation (BL-05)', () => {
         id: JE_ID, companyId: COMPANY_ID, entryDate: '2026-02-28',
         description: 'Test expense', status: 'draft', source: 'auto_bank_recon',
       } as unknown as ReturnType<typeof createJournalEntry> extends Promise<infer R> ? R : never);
-      mockPostJE.mockResolvedValue(undefined);
+      mockPostJE.mockResolvedValue({} as never); // a posted entry; the caller reads .lateClaim off it
 
       const { allocateTransaction } = await import(
         '@/modules/accounting/services/bank/bankAllocationService'
@@ -207,7 +207,7 @@ describe('bankAllocationService — VAT allocation (BL-05)', () => {
         id: JE_ID, companyId: COMPANY_ID, entryDate: '2026-02-28',
         description: 'Test expense', status: 'draft', source: 'auto_bank_recon',
       } as unknown as ReturnType<typeof createJournalEntry> extends Promise<infer R> ? R : never);
-      mockPostJE.mockResolvedValue(undefined);
+      mockPostJE.mockResolvedValue({} as never); // a posted entry; the caller reads .lateClaim off it
 
       const { allocateTransaction } = await import(
         '@/modules/accounting/services/bank/bankAllocationService'

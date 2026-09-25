@@ -9,7 +9,7 @@
  *
  * THE LOAD-BEARING TEST IS `a brand-new tenant`. Everything else here inspects
  * charts that already exist; that one creates a company through the same
- * function `create_company_with_owner` calls and then resolves all fourteen
+ * function `create_company_with_owner` calls and then resolves all fifteen
  * roles against it. It is the state every future customer starts in, and the
  * only test that actually proves migration 605 fixed the seed rather than
  * proving 606 patched the tenants we happen to have.
@@ -105,7 +105,7 @@ describe('system account roles (DB)', async () => {
     return client;
   }
 
-  it.skipIf(!reachable)('a brand-new tenant can resolve all fourteen roles', async () => {
+  it.skipIf(!reachable)('a brand-new tenant can resolve all fifteen roles (fourteen, plus vat_input_late_claim since migration 701)', async () => {
     const c = db();
 
     // The same seeder `create_company_with_owner` invokes, so this exercises
@@ -133,12 +133,12 @@ describe('system account roles (DB)', async () => {
       expect(account.accountSubtype).toBe(key);
       resolved.push(`${key}=${account.accountCode}`);
     }
-    expect(resolved).toHaveLength(14);
+    expect(resolved).toHaveLength(15);
 
     const coverage = await asCompany(companyId, () => getSystemRoleCoverage(companyId));
     expect(coverage.empty).toEqual([]);
     expect(coverage.contested).toEqual([]);
-    expect(coverage.roles).toHaveLength(14);
+    expect(coverage.roles).toHaveLength(15);
 
     // The two roles migration 605 added, at the codes that were signed off.
     const byRole = new Map(coverage.roles.map((r) => [r.key, r.holder?.accountCode]));
@@ -169,7 +169,7 @@ describe('system account roles (DB)', async () => {
    * migration file's logic, and it should not be read as proof that 606 is
    * correct — only that whatever ran left the roles resolvable.
    */
-  it.skipIf(!reachable)('every production tenant PRESENT IN THIS DATABASE holds all fourteen roles', async () => {
+  it.skipIf(!reachable)('every production tenant PRESENT IN THIS DATABASE holds all fifteen roles', async () => {
     const c = db();
 
     // The 13 companies measured in production on 2026-09-04.

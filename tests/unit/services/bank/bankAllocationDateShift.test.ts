@@ -94,7 +94,7 @@ describe('bankAllocationService — allocation date survives UTC rendering', () 
   beforeEach(() => {
     vi.clearAllMocks();
     mockWithTx.mockImplementation(async (fn) => { await fn(vi.fn().mockResolvedValue([{ id: 'cp-1' }])); });
-    mockPostJE.mockResolvedValue(undefined);
+    mockPostJE.mockResolvedValue({} as never); // a posted entry; the caller reads .lateClaim off it
     mockGetSystemAccountId.mockResolvedValue('sys-account-id');
     mockCreateJE.mockResolvedValue({
       id: JE_ID, companyId: COMPANY_ID, entryDate: '2026-03-01',

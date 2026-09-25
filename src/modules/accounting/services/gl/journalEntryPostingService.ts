@@ -1,17 +1,11 @@
 /** Post and reverse journals with fiscal-period and balance validation. */
 
-import { sql } from '@/lib/neon';
+import { sql, withSavepoint } from '@/lib/neon';
 import { fmtDate } from '@/lib/fmtDate';
 import type { DbRow } from '@/lib/neon';
 import { log } from '@/lib/logger';
-import { validateJournalEntry } from '../../utils/doubleEntry';
 import type { JournalEntry } from '../../types/gl.types';
-import {
-  getJournalEntryById,
-  createJournalEntry,
-  resolveUserUuid,
-  mapEntryRow,
-} from './journalEntryCrudService';
+import { getJournalEntryById, createJournalEntry } from './journalEntryCrudService';
 import { defaultHumanMeta, actorMeta, type PostingActorOpts } from './journalEntryMeta';
 import { buildReversalLines, type ReversalEntry } from './reversalLines';
 import {
@@ -20,8 +14,15 @@ import {
   withReversalTransaction,
 } from './journalEntryReversalClaim';
 import { resolveReversalDate, resolveReversalDateDetailed, ReversalPeriodError } from './journalEntryReversalDate';
-import { assertJournalVatPeriodOpen, VatPeriodLockedError } from './journalVatLockGuard';
+import { VatPeriodLockedError } from './journalVatLockGuard';
 import { releaseCapturedDocumentPostingClaim } from '../capture/capturePostingClaimRelease';
+import { postJournalEntry } from './journalEntryPostService';
+import {
+  LateClaimCompanionReversalError, copyLateClaimBaseToReversal, planLateClaimCompanionReversal,
+} from './vatLateClaimSplit';
+
+/** A reversal of a late-claim original carries its companion's reversal (vatLateClaimSplit.ts). */
+export type ReversalWithLateClaim = ReversalEntry & { lateClaimReversal?: ReversalEntry };
 
 // Re-exported: the MCP reverse tool and journalEntryService import them from here.
 export { resolveReversalDate, resolveReversalDateDetailed, ReversalPeriodError, VatPeriodLockedError };
@@ -39,68 +40,10 @@ import {
 // — and every test that mocks this module — reaches them through here.
 export { ClosedFiscalPeriodError, InactiveAccountError, assertNoInactiveAccountLines };
 
-export async function postJournalEntry(companyId: string, id: string, userId: string): Promise<JournalEntry> {
-  try {
-    // Lock the header BEFORE reading it: the VAT-lock guard below decides on
-    // entry_date, and a concurrent edit of the draft's date must not land
-    // between that decision and the status UPDATE.
-    await sql`SELECT id FROM gl_journal_entries WHERE id = ${id}::UUID AND company_id = ${companyId}::UUID FOR UPDATE`;
-    const entry = await getJournalEntryById(companyId, id);
-    if (!entry) throw new Error(`Journal entry ${id} not found`);
-    if (entry.status !== 'draft') throw new Error(`Cannot post entry with status: ${entry.status}`);
-
-    if (entry.fiscalPeriodId) {
-      const period = (await sql`
-        SELECT status FROM fiscal_periods
-        WHERE id = ${entry.fiscalPeriodId} AND company_id = ${companyId}::UUID
-      `) as Row[];
-      if (period.length > 0 && String(period[0]!.status) !== 'open') {
-        throw new ClosedFiscalPeriodError(String(period[0]!.status));
-      }
-    }
-
-    if (entry.lines) {
-      const validation = validateJournalEntry(entry.lines.map(l => ({
-        glAccountId: l.glAccountId,
-        debit: l.debit,
-        credit: l.credit,
-      })));
-      if (!validation.valid) throw new Error(`Entry not balanced: ${validation.errors.join('; ')}`);
-    }
-
-    // A deactivated account must not accept a new posting. is_active means the
-    // account has been withdrawn from the chart, so posting to it contradicts
-    // the flag outright -- and it is the one route by which an account can end
-    // up inactive AND holding money despite the balance guard on
-    // updateAccount/deleteAccount: deactivate while only drafts exist (balance
-    // 0, correctly allowed), then post the draft.
-    //
-    // Refuse the WHOLE entry. Skipping the offending line would leave the
-    // journal unbalanced, and the refusal has to land before the UPDATE so the
-    // surrounding transaction commits nothing (the 400-after-write class).
-    await assertNoInactiveAccountLines(companyId, id);
-
-    // A journal that moves a VAT-return figure may not post inside a locked
-    // (filed) VAT period. Before the UPDATE, like the two refusals above, and
-    // it takes the shared advisory lock a VAT lock's figure snapshot excludes.
-    // Reversals reach here with a date already rolled past any lock.
-    await assertJournalVatPeriodOpen(companyId, entry.entryDate, entry.lines ?? []);
-
-    const safePostUserId = await resolveUserUuid(userId);
-    const rows = (await sql`
-      UPDATE gl_journal_entries
-      SET status = 'posted', posted_by = ${safePostUserId}::UUID, posted_at = NOW()
-      WHERE id = ${id} AND company_id = ${companyId}
-      RETURNING *
-    `) as Row[];
-
-    log.info('Posted journal entry', { id, entryNumber: String(rows[0]!.entry_number) }, 'accounting');
-    return mapEntryRow(rows[0]!);
-  } catch (err) {
-    log.error('Failed to post journal entry', { id, error: err }, 'accounting');
-    throw err;
-  }
-}
+export type { PostJournalOpts } from './vatLateClaimPlan';
+// Split out to hold this file under 300 lines; re-exported because every
+// caller — and every test that mocks this module — reaches it through here.
+export { postJournalEntry } from './journalEntryPostService';
 
 /**
  * Post the contra entry that reverses `id`.
@@ -115,14 +58,30 @@ export async function reverseJournalEntry(
   companyId: string,
   id: string,
   userId: string,
-  opts?: PostingActorOpts & { reversalDate?: string },
-): Promise<ReversalEntry> {
+  // lateClaimCascade: internal — set only by the cascade below.
+  opts?: PostingActorOpts & { reversalDate?: string; lateClaimCascade?: boolean },
+): Promise<ReversalWithLateClaim> {
   // One transaction around the whole reversal. Inside a request there already
   // is one and this runs on it; outside one (scripts/fixes, cron) it opens and
   // commits its own. That is what keeps the claim below from outliving the
   // contra it stands for: a crash anywhere in between rolls both back, and a
   // rerun repairs the entry instead of finding it permanently marked reversed.
   return withReversalTransaction({ companyId, userId }, async () => {
+    // A late-claim original reverses its companion with it, all or nothing; the
+    // companion's reversal is planned (and refused) before any write.
+    const companion = opts?.lateClaimCascade ? null : await planLateClaimCompanionReversal(companyId, id);
+    const body = () => reverseJournalEntryInner(companyId, id, userId, opts, companion);
+    return companion ? withSavepoint('reverse_late_claim', body) : body();
+  });
+}
+
+async function reverseJournalEntryInner(
+  companyId: string,
+  id: string,
+  userId: string,
+  opts: (PostingActorOpts & { reversalDate?: string; lateClaimCascade?: boolean }) | undefined,
+  companion: { id: string } | null,
+): Promise<ReversalWithLateClaim> {
   try {
     const entry = await getJournalEntryById(companyId, id);
     if (!entry) throw new Error(`Journal entry ${id} not found`);
@@ -132,6 +91,9 @@ export async function reverseJournalEntry(
     // reversed_at is the marker instead.
     if (entry.reversedAt) throw new Error('Journal entry already reversed');
     if (!entry.lines || entry.lines.length === 0) throw new Error('Entry has no lines');
+    if (entry.source === 'auto_vat_late_claim' && !opts?.lateClaimCascade) {
+      throw new LateClaimCompanionReversalError(entry.entryNumber);
+    }
 
     // Debits and credits swap; every dimension and the VAT classification come
     // across unchanged EXCEPT a legacy tag naming another company's project,
@@ -169,6 +131,11 @@ export async function reverseJournalEntry(
         lines: carried.lines,
       }, userId, actorMeta(opts) ?? defaultHumanMeta(userId), {
         dimensionAssignmentMode: 'historical-copy',
+        // A reversal mirrors posted lines — including a late claim's clearing leg.
+        // Not a reversal OF a reversal: undoing the undo of a late original would
+        // re-park its VAT on the clearing account with no companion to clear it,
+        // so that one faces the clearing-account guard like any other journal.
+        reversal: !entry.reversalOfId,
       });
     } catch (err) {
       // Nothing exists yet, but the claim does. Inside a request transaction the
@@ -252,6 +219,8 @@ export async function reverseJournalEntry(
       }
       throw err;
     }
+    // A companion's contra carries each claim's base negated (vatLateClaimBasis).
+    if (entry.source === 'auto_vat_late_claim') await copyLateClaimBaseToReversal(companyId, id, reversalEntry.id);
 
     // A reversed capture journal releases its document's posting claim, so "Reverse the journal
     // first" works; the helper still refuses while another live journal or invoice references it.
@@ -269,10 +238,14 @@ export async function reverseJournalEntry(
     // contra is not tag-for-tag identical to what it reverses.
     // vatLockRoll rides the same way, so a caller can say the contra was dated
     // later than the default because a filed VAT period was in the way.
-    return { ...reversalEntry, foreignDimensionDroppedLines: carried.droppedLineCount, vatLockRoll };
+    const lateClaimReversal = companion ? await reverseJournalEntry(companyId, companion.id, userId,
+      { ...opts, reversalDate: undefined, lateClaimCascade: true }) : undefined;
+    return {
+      ...reversalEntry, foreignDimensionDroppedLines: carried.droppedLineCount, vatLockRoll,
+      ...(lateClaimReversal ? { lateClaimReversal } : {}),
+    };
   } catch (err) {
     log.error('Failed to reverse journal entry', { id, error: err }, 'accounting');
     throw err;
   }
-  });
 }
