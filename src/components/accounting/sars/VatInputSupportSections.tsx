@@ -35,6 +35,8 @@ const SUPPORT_LABEL: Record<InputVatSupportLine['supportKind'], string> = {
 const REASON_LABEL: Record<InputVatSupportLine['reason'], string> = {
   no_document: 'No document linked',
   amount_mismatch: 'Differs from its document',
+  document_over_claimed: 'Document already claimed by another journal',
+  unreadable_document_vat: 'Document VAT could not be read',
   no_tax_invoice: 'No tax invoice on file',
 };
 
