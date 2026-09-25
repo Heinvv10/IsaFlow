@@ -150,9 +150,13 @@ REVOKE ALL ON FUNCTION public.seed_company_chart_of_accounts(uuid) FROM PUBLIC;
 REVOKE EXECUTE ON FUNCTION public.seed_company_chart_of_accounts(uuid) FROM app_user;
 GRANT EXECUTE ON FUNCTION public.seed_company_chart_of_accounts(uuid) TO migration_admin;
 
--- 1b. Every existing company: one account with the subtype, on the first free
--- code from 1145, beside the company's own VAT Input account (same parent and
--- level). A company that already has one is skipped, so a re-run adds nothing.
+-- 1b. Every existing company WITH A CHART — one that has an active VAT Input
+-- account — gets one account with the subtype, on the first free code from
+-- 1145, beside that VAT Input account (same parent and level). A chartless
+-- company is skipped: its chart comes later from a template seed, which brings
+-- its own late-claim row (chartOfAccountsImportService, which in turn skips it
+-- when the company already has one). A company that already has one is
+-- skipped, so a re-run adds nothing.
 INSERT INTO gl_accounts (
   company_id, account_code, account_name, account_type, account_subtype,
   normal_balance, level, display_order, is_system_account, parent_account_id, is_active
@@ -172,7 +176,11 @@ LEFT JOIN LATERAL (
   ORDER BY g.is_system_account DESC, g.is_active DESC, g.created_at, g.id
   LIMIT 1
 ) vi ON true
-WHERE NOT EXISTS (
+WHERE EXISTS (
+  SELECT 1 FROM gl_accounts g
+  WHERE g.company_id = c.id AND g.account_subtype = 'vat_input' AND g.is_active
+)
+AND NOT EXISTS (
   SELECT 1 FROM gl_accounts g
   WHERE g.company_id = c.id AND g.account_subtype = 'vat_input_late_claim'
 );
