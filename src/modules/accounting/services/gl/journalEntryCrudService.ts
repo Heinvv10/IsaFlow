@@ -15,6 +15,7 @@ import { ensureFiscalPeriodForDate } from './fiscalPeriodAutoCreate';
 import { assertJournalVatPeriodOpen } from './journalVatLockGuard';
 import { planLockedVatPosting } from './vatLateClaimPlan';
 import { assertNoLateClaimClearingLines } from './lateClaimClearingGuard';
+import { assertDocumentNotAlreadyPosted } from './documentJournalClaimGuard';
 
 const UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
@@ -219,6 +220,12 @@ async function createJournalEntryInTransaction(
       opts?.dimensionAssignmentMode,
     ); // journalLineOwnership.ts
     await assertNoLateClaimClearingLines(companyId, input.lines, input.source, opts?.reversal === true);
+    // One document, one claim: a reversal never sets sourceDocumentId (see
+    // journalEntryPostingService#reverseJournalEntryInner), so this never
+    // blocks a reversal — only a second live claim on the same document.
+    if (input.sourceDocumentId) {
+      await assertDocumentNotAlreadyPosted(companyId, input.sourceDocumentId);
+    }
     // A journal that moves a VAT figure into a locked (filed) VAT period can
     // never post, so refuse it BEFORE the draft exists: a draft refused only at
     // post was committed by every route that answers the refusal with a 4xx.

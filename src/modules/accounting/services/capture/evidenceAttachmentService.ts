@@ -9,6 +9,7 @@
 import { sql, withSavepoint } from '@/lib/neon';
 import type { DbRow } from '@/lib/neon';
 import { log } from '@/lib/logger';
+import { assertDocumentNotAlreadyPosted } from '@/modules/accounting/services/gl/documentJournalClaimGuard';
 
 type Row = DbRow;
 
@@ -103,6 +104,12 @@ export async function attachEvidenceToProvisional(
 
       const jeId = String(matchRows[0]!.je_id);
       const btId = String(matchRows[0]!.bt_id);
+
+      // One document, one claim, at the GL write side — before the bank-line
+      // write below. A document that already backs a posted, unreversed
+      // journal (e.g. the invoice this same request just raised) is not
+      // re-attached here; the caller's try/catch treats this as no match.
+      await assertDocumentNotAlreadyPosted(companyId, capturedDocumentId, jeId);
 
       // (1) THE BANK LINE FIRST, then (4) the journal — the canonical order in
       // `bank/.claude.md`, and the twin of the same reorder in
