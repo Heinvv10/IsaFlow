@@ -91,7 +91,9 @@ async function postHandler(req: AuthenticatedNextApiRequest, res: NextApiRespons
       sourceDocumentId,
       fiscalPeriodId,
       lines,
-    }, userId);
+      // A person drafting: a journal dated in a filed VAT period whose only VAT
+      // is input tax may be drafted; posting it claims the VAT late (s16(3)).
+    }, userId, undefined, { allowLateInputClaim: true });
 
     return apiResponse.success(res, entry);
   } catch (err) {

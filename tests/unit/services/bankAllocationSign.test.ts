@@ -170,7 +170,7 @@ function setup(kind: 'supplier' | 'customer', amount: number) {
     id: JE_ID, companyId: COMPANY_ID, entryDate: '2026-02-04',
     description: 'x', status: 'draft', source: 'auto_supplier_payment',
   } as never);
-  mockPostJE.mockResolvedValue(undefined);
+  mockPostJE.mockResolvedValue({} as never); // a posted entry; the caller reads .lateClaim off it
 }
 
 async function allocate(
@@ -290,7 +290,7 @@ describe('allocateTransaction — supplier lines follow the sign', () => {
     mockWithTx.mockImplementation(async (fn) => { await fn(vi.fn().mockResolvedValue([])); });
     mockGetSystemAccountId.mockResolvedValue(AP_ID);
     mockCreateJE.mockResolvedValue({ id: JE_ID } as never);
-    mockPostJE.mockResolvedValue(undefined);
+    mockPostJE.mockResolvedValue({} as never); // a posted entry; the caller reads .lateClaim off it
 
     const { allocateTransaction } = await import(
       '@/modules/accounting/services/bank/bankAllocationService'

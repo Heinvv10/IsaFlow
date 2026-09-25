@@ -138,7 +138,8 @@ describe('supplier-invoices-bulk-action', () => {
       res(),
     );
     expect(approveMock).toHaveBeenCalledTimes(3);
-    expect(approveMock).toHaveBeenNthCalledWith(1, COMPANY_ID, ID_A, USER_ID);
+    // A person's bulk approve opts in to the s16(3) late claim (gl/vatLateClaimPlan).
+    expect(approveMock).toHaveBeenNthCalledWith(1, COMPANY_ID, ID_A, USER_ID, { allowLateInputClaim: true });
     expect((result as { data: { succeeded: number; failed: number } }).data).toEqual(
       expect.objectContaining({ action: 'approve', total: 3, succeeded: 3, failed: 0 }),
     );
@@ -249,6 +250,6 @@ describe('supplier-invoices-bulk-action', () => {
       res(),
     );
     expect(postGlMock).toHaveBeenCalledTimes(1);
-    expect(postGlMock).toHaveBeenCalledWith(COMPANY_ID, ID_A, USER_ID);
+    expect(postGlMock).toHaveBeenCalledWith(COMPANY_ID, ID_A, USER_ID, { allowLateInputClaim: true });
   });
 });
