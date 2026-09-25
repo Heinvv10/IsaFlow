@@ -64,7 +64,10 @@ describeIfDb('late input VAT claim: adversarial round 4', () => {
     const lateVar = r1.rateCheck.inputVariance - r0.rateCheck.inputVariance;
     const onTime = r2.rateCheck.inputVariance - r1.rateCheck.inputVariance;
     say(`D2 late=${late instanceof Error ? 'REFUSED' : 'SPLIT'} lateInputDelta=${(r1.totals.inputTax - r0.totals.inputTax).toFixed(2)} lateVar=${lateVar.toFixed(2)} ties=${r1.rateCheck.ties} | onTimeVar=${onTime.toFixed(2)} ties=${r2.rateCheck.ties}`);
-    expect(onTime).toBeCloseTo(4, 2);
+    // R4 raw over-claim, less the R0.01 rounding allowance — ONE taxed
+    // input-VAT line, never the 400 offsetting BASE-role padding lines
+    // (item 3: only role 'tax' lines count toward the allowance).
+    expect(onTime).toBeCloseTo(3.99, 2);
     if (late instanceof Error) expect(r1.totals.inputTax - r0.totals.inputTax).toBeCloseTo(0, 2);
     else expect(lateVar).toBeCloseTo(onTime, 2);
   });

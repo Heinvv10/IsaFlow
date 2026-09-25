@@ -69,9 +69,9 @@ describeIfDb('VAT201 coded base and per-journal over-claim', () => {
     expect(r.boxes.find((b) => b.box === '15')).toMatchObject({ base: 1000, tax: 150 });
   });
 
-  it('an under-claim no longer hides an over-claim: variance = the over-claim', async () => {
+  it('an under-claim no longer hides an over-claim: variance = the over-claim, less the R0.01 rounding allowance', async () => {
     const r = await report(FEB);
-    expect(r.rateCheck.inputVariance).toBe(50);
+    expect(r.rateCheck.inputVariance).toBe(49.99);
     expect(r.rateCheck.ties).toBe(false);
   });
 
@@ -80,7 +80,7 @@ describeIfDb('VAT201 coded base and per-journal over-claim', () => {
     const feb = await inTx(fx, () => getLedgerVAT201(fx.companyId, FEB.start, FEB.end));
     expect(jan.field10_totalInputVAT).toBe(150);
     expect(feb.field10_totalInputVAT).toBe(300);
-    expect(feb.rateCheck.inputVariance).toBe(50);
+    expect(feb.rateCheck.inputVariance).toBe(49.99);
   });
 
   it('an over-claim reversed in the same period nets to 0', async () => {

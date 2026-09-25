@@ -83,20 +83,26 @@ describeIfDb('VAT pre-filing controls hold against the breaker', () => {
     expect(evaluateEfilingGate(rep).allowed).toBe(false);
   });
 
-  it('B2: one captured document cannot support two claims (receipt journal + manual journal)', async () => {
+  it('B2: one captured document cannot support two claims — now refused at the WRITE side, before B2 can even happen', async () => {
+    // VAT-gaps batch item 1 (documentJournalClaimGuard) closes this exploit
+    // one layer earlier than the report-level catch this test used to pin:
+    // createJournalEntry now refuses a second live claim on the same document
+    // before it writes anything, so field10/the report never see a double claim.
     const S = '2026-11-01', E = '2026-12-31';
     const doc = randomUUID();
     await sql`INSERT INTO captured_documents (id, company_id, file_name, file_type, extracted_data, status)
       VALUES (${doc}::UUID, ${fx.companyId}::UUID, 'slip.jpg', 'image/jpeg', ${JSON.stringify({ vatAmount: 30, totalAmount: 230 })}::JSONB, 'processed')`;
     await post('2026-11-05', 'auto_expense_receipt', claim(30), doc);
-    // What POST /api/accounting/journal-entries allows: source 'manual', any owned captured doc.
-    await post('2026-11-06', 'manual', claim(30), doc);
+    const before = await sql`SELECT COUNT(*)::INT AS n FROM gl_journal_entries WHERE company_id = ${fx.companyId}::UUID` as Row[];
+    // What POST /api/accounting/journal-entries used to allow: source 'manual', any owned captured doc.
+    await expect(post('2026-11-06', 'manual', claim(30), doc)).rejects.toThrow(/already referenced by a posted/);
+    const after = await sql`SELECT COUNT(*)::INT AS n FROM gl_journal_entries WHERE company_id = ${fx.companyId}::UUID` as Row[];
+    expect(after[0]!.n).toBe(before[0]!.n);               // refused before any write
     const rep = await report(S, E);
     const l = await ledger(S, E);
-    expect(l.field10_totalInputVAT).toBe(60);            // R60 claimed on a R30 tax invoice ...
-    expect(rep.unsupportedInputVat.map((u) => [u.supportKind, u.reason, u.documentVat, u.documentClaimedVat]))
-      .toEqual([['captured_document', 'document_over_claimed', 30, 60], ['captured_document', 'document_over_claimed', 30, 60]]);
-    expect(evaluateEfilingGate(rep).allowed).toBe(false);
+    expect(l.field10_totalInputVAT).toBe(30);             // only the first claim ever posted
+    expect(rep.unsupportedInputVat).toEqual([]);          // the receipt is its own support
+    expect(evaluateEfilingGate(rep).allowed).toBe(true);
   });
 
   it('B3: an issued invoice whose journal is reversed is unposted invoice VAT, blocking', async () => {
@@ -144,8 +150,9 @@ describeIfDb('VAT pre-filing controls hold against the breaker', () => {
     const b = await ledger('2027-05-01', '2027-06-30');
     const ra = await report('2027-03-01', '2027-04-30');
     const rb = await report('2027-05-01', '2027-06-30');
-    expect(a.rateCheck.inputVariance).toBe(1350);              // control: over-claim measured
-    expect(b.rateCheck.inputVariance).toBe(1350);              // + 1c output leg: still measured
+    // 1350 less the R0.01 rounding allowance (one taxed input-VAT line, item 3).
+    expect(a.rateCheck.inputVariance).toBe(1349.99);            // control: over-claim measured
+    expect(b.rateCheck.inputVariance).toBe(1349.99);            // + 1c output leg: still measured
     expect(evaluateVat201Filability(a).filable).toBe(false);
     expect(evaluateVat201Filability(b).filable).toBe(false);
     expect(ra.totalExceptions).toBe(rb.totalExceptions);
