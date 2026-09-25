@@ -127,6 +127,24 @@ describe('refuses every way found to keep the job green while skipping gates', (
     expect(check(edit('concurrency:\n  group: ci-${{ github.ref }}\n  cancel-in-progress: true\n', '')).length).toBeGreaterThan(0);
   });
 
+  it('a second workflow file (concurrency groups are repo-wide, so it can take ci- and cancel quality)', () => {
+    expect(checkWorkflowRunsCi(load(REAL), SCRIPTS, ['ci.yml', 'evil.yml']).length).toBeGreaterThan(0);
+    expect(checkWorkflowRunsCi(load(REAL), SCRIPTS, []).length).toBeGreaterThan(0);
+  });
+
+  it("golden-paths moved into the workflow's own ci- group (deadlock cancels the run)", () => {
+    expect(check(edit('    concurrency:\n      group: golden-paths-dev-demo\n', '    concurrency:\n      group: ci-${{ github.ref }}\n')).length).toBeGreaterThan(0);
+  });
+
+  it('golden-paths concurrency removed or set to cancel', () => {
+    expect(check(edit('    concurrency:\n      group: golden-paths-dev-demo\n      cancel-in-progress: false\n', '')).length).toBeGreaterThan(0);
+    expect(check(edit('      cancel-in-progress: false\n', '      cancel-in-progress: true\n')).length).toBeGreaterThan(0);
+  });
+
+  it('a third job in ci.yml', () => {
+    expect(check(`${REAL}  sidecar:\n    runs-on: [self-hosted, linux, velo]\n    concurrency:\n      group: ci-\${{ github.ref }}\n    steps:\n      - run: echo hi\n`).length).toBeGreaterThan(0);
+  });
+
   it('runs-on a label no runner has, so the job queues forever and never goes red', () => {
     expect(check(edit(`${QUALITY_HEADER}    runs-on: [self-hosted, linux, velo]\n`, `${QUALITY_HEADER}    runs-on: [nonexistent-label]\n`)).length).toBeGreaterThan(0);
   });
