@@ -30,12 +30,11 @@ import { getVatPeriodLines } from './vatBoxBasisQuery';
 import {
   SA_VAT_RATE,
   classifyVatJournalLine,
-  deriveVatBoxes,
-  type VatBoxRow,
   type VatDirection,
   type VatExcludedLine,
   type VatLineInput,
 } from './vatBoxBasis';
+import { VAT_LATE_CLAIM_SUBTYPE, deriveVatBoxesWithLateClaims, type LateClaimBoxRow } from './vatLateClaimBasis';
 
 /**
  * (direction, vat_type) → SARS box. Identical to the map `vatReturnService` has
@@ -73,8 +72,10 @@ export interface Vat201Box {
   tax: number;
   /** base x 15%. What SARS expects the tax to be. */
   impliedTax: number;
-  /** tax - impliedTax. Non-zero is a finding, not a rounding artefact. */
+  /** tax - lateClaimTax - impliedTax. Non-zero is a finding, not a rounding artefact. */
   variance: number;
+  /** Input tax claimed late in this period (s16(3)): in `tax`, out of the base check. */
+  lateClaimTax: number;
 }
 
 export interface Vat201Row {
@@ -114,6 +115,8 @@ export interface Vat201Report {
     standardRatedSupplies: number;
     /** Box 15, from the ledger. */
     standardRatedPurchases: number;
+    /** Input tax claimed late in this period (inside `inputTax`) — vatLateClaimBasis. */
+    lateClaimInputTax: number;
   };
   /** SARS runs this check itself. Running it first is the point of the report. */
   rateCheck: {
@@ -146,9 +149,12 @@ function boxFor(direction: VatDirection, vatType: string): { box: string; label:
   return BOX_NUMBERS[`${direction}:${vatType}`] ?? { box: 'unclassified', label: `Unmapped VAT type "${vatType}"` };
 }
 
-function toBox(row: VatBoxRow): Vat201Box {
+function toBox(row: LateClaimBoxRow): Vat201Box {
   const { box, label } = boxFor(row.direction, row.vatType);
-  return { box, label, direction: row.direction, vatType: row.vatType, base: row.base, tax: row.tax, impliedTax: row.impliedTax, variance: row.variance };
+  return {
+    box, label, direction: row.direction, vatType: row.vatType, base: row.base, tax: row.tax,
+    impliedTax: row.impliedTax, variance: row.variance, lateClaimTax: row.lateClaimTax,
+  };
 }
 
 /** Sort key of a tax leg. Last part is the line id, so the order is total. */
@@ -191,7 +197,7 @@ export async function getVat201Report(
   const limit = Math.min(Math.max(options.limit ?? 100, 1), 200);
 
   const { lines, postedThrough } = await getVatPeriodLines(companyId, periodStart, periodEnd);
-  const basis = deriveVatBoxes(lines);
+  const basis = deriveVatBoxesWithLateClaims(lines);
 
   // Base legs, per journal, for detail "full". Built once; a report that
   // re-queried per row would be N+1 against the largest table in the schema.
@@ -199,7 +205,8 @@ export async function getVat201Report(
   const allRows: Vat201Row[] = [];
   for (const line of lines) {
     const c = classifyVatJournalLine(line);
-    if (c.role === 'base') {
+    // A late-claim companion's clearing leg is not the value of any supply.
+    if (c.role === 'base' && line.accountSubtype !== VAT_LATE_CLAIM_SUBTYPE) {
       const list = baseByEntry.get(line.journalEntryId) ?? [];
       list.push({ accountCode: line.accountCode, accountName: line.accountName, amount: r2(line.debit - line.credit) });
       baseByEntry.set(line.journalEntryId, list);
@@ -238,6 +245,7 @@ export async function getVat201Report(
       netVat: r2(basis.outputTax - basis.inputTax),
       standardRatedSupplies: basis.boxes.find((b) => b.direction === 'output' && b.vatType === 'standard')?.base ?? 0,
       standardRatedPurchases: basis.boxes.find((b) => b.direction === 'input' && b.vatType === 'standard')?.base ?? 0,
+      lateClaimInputTax: basis.lateClaimInputTax,
     },
     rateCheck: {
       rate: SA_VAT_RATE,
