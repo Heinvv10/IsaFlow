@@ -68,7 +68,7 @@ export async function postSplitIfLateClaim(
   return plan ? applyLateClaimSplit(companyId, entry, plan, userId, hooks) : null;
 }
 
-export async function applyLateClaimSplit(
+async function applyLateClaimSplit(
   companyId: string,
   entry: JournalEntry,
   plan: LateClaimPlan,
