@@ -21,6 +21,7 @@ In-process LRU cache (single Next.js server, no Redis dependency) with hit/miss 
 - `@/lib/logger` — logs invalidation events
 
 ## Critical notes
+- **No reference list uses this cache** (K-139, R-125): suppliers, customers and GL accounts are read uncached. Before caching any table, count its writers; if they do not all go through one service that invalidates, the cache serves stale data. Invalidating before the transaction commits is also racy: a concurrent read can re-cache the old rows until the TTL expires.
 - **Tenant isolation**: all keys produced by `cache-keys.ts` are prefixed with `companyId`. `invalidateCompany(companyId)` is the correct way to flush a tenant's data after writes — missing this call after mutations is a stale-data bug.
 - **Single-process**: data is not shared across Next.js pods. In a multi-pod deployment, a write on pod A invalidates pod A's cache only. Use a distributed cache (Redis) for cross-pod consistency.
 - **`allowStale: false`**: expired entries are never returned even briefly — there is no stale-while-revalidate window.

@@ -3,10 +3,9 @@
  *
  * List queries extracted from customers.ts and suppliers-list.ts so the MCP
  * read-tool layer can call the exact same functions the API routes use. SQL
- * text and parameter semantics are unchanged from the routes. No caching
- * lives here — cacheThrough wrapping (for the uncached-list case in
- * customers.ts) stays in the route. The supplier list is deliberately not
- * cached (K-139).
+ * text and parameter semantics are unchanged from the routes. Neither list
+ * is cached, here or in the routes: suppliers since K-139, customers since
+ * R-125 (many writers bypass the routes, so no invalidation list was complete).
  */
 
 import { sql, withSavepoint } from '@/lib/neon';
