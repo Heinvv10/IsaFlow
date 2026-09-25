@@ -34,7 +34,7 @@ async function readStatus(id: string, companyId: string): Promise<string | null>
 }
 
 function refuseStatus(res: NextApiResponse, status: string) {
-  return apiResponse.badRequest(res, `Cannot edit a ${status} purchase order`);
+  return apiResponse.badRequest(res, `Only draft or submitted purchase orders can be edited (this one is ${status})`);
 }
 
 async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse) {
