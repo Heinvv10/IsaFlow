@@ -17,8 +17,8 @@
  *   - the line parked in a decoy job.
  * Later rounds found more: install lifecycle scripts (root, workspace member
  * or trusted dependency) rewriting run-ci.sh, which the install step's
- * `--ignore-scripts` closes as a class; `preci`/`postci`, which `bun run ci`
- * itself runs; `branches: [master, '!master']`; and a `runs-on` label no
+ * `--ignore-scripts` closes as a class; pre/post hooks on `ci` or on any
+ * script run-ci.sh calls, which are refused by prefix, not by name; `branches: [master, '!master']`; and a `runs-on` label no
  * runner has (queued forever, never red). All are refused below.
  * Any search admits the shape it did not think of. So the `quality` job, its
  * triggers and package.json's `ci` script are compared against the ONE shape
@@ -31,7 +31,8 @@
  *     and the pre-push hook.
  *   - It cannot make a red check block a merge. The repo has no required
  *     status checks; see docs/audits/remediation/R-052/fix.md.
- *   - It does not read run-ci.sh. An edit there that skips a gate is a
+ *   - It does not read run-ci.sh, nor the BODIES of the package scripts it
+ *     calls (`"lint": "true"`). An edit there that skips a gate is a
  *     code-review matter.
  *   - It cannot protect the runner. The self-hosted runner persists between
  *     jobs and its user owns ~/.bun/bin, so any job (golden-paths, another
@@ -41,8 +42,16 @@
 
 export const QUALITY_JOB = 'quality';
 export const CI_SCRIPT = 'bash scripts/ci/run-ci.sh';
-/** `bun run ci` runs these around the gate; install hooks are off via --ignore-scripts. */
-const FORBIDDEN_SCRIPTS = ['preci', 'postci'];
+/**
+ * Every `bun run X` inside run-ci.sh (type-check, lint, test:unit, build, ...)
+ * runs `preX`/`postX` first/after, and a pretype-check can defuse every later
+ * bash gate. Naming hooks one by one is the arms race this rule exists to end,
+ * so ANY pre/post-prefixed script is refused. `prepare` is the one existing
+ * script with that prefix; it is an npm lifecycle name, not a hook of `pare`,
+ * and --ignore-scripts keeps it from running in the job.
+ */
+const HOOK_PREFIX = /^(pre|post)/;
+const ALLOWED_PREFIXED = new Set(['prepare']);
 const RUNS_ON = ['self-hosted', 'linux', 'velo'];
 const CHECKOUT = /^actions\/checkout@v\d+$/;
 const INSTALL = 'bun install --frozen-lockfile --ignore-scripts';
@@ -84,8 +93,8 @@ export function checkWorkflowRunsCi(workflow: unknown, scripts: unknown): string
   if (pkg.ci !== CI_SCRIPT) {
     errors.push(`package.json scripts.ci must be exactly "${CI_SCRIPT}" (it is ${JSON.stringify(pkg.ci)})`);
   }
-  const lifecycle = FORBIDDEN_SCRIPTS.filter((k) => k in pkg);
-  if (lifecycle.length) errors.push(`package.json sets ${lifecycle.join(', ')}; these run around the gate and could rewrite it`);
+  const hooks = Object.keys(pkg).filter((k) => HOOK_PREFIX.test(k) && !ALLOWED_PREFIXED.has(k));
+  if (hooks.length) errors.push(`package.json sets ${hooks.join(', ')}; bun runs pre/post scripts around every \`bun run\` inside the gate, so any of them could defuse it`);
   if (!isObj(workflow)) return [...errors, 'ci.yml is not a YAML mapping'];
 
   const topExtra = extraKeys(workflow, ['name', 'on', 'concurrency', 'permissions', 'jobs']);

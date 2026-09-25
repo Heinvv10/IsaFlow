@@ -1,94 +1,112 @@
 # R-052 mutations — 2026-09-25
 
-## Rounds 2-4: scripts/ci/workflowRunsCiRule.ts, each clause disabled alone, against tests/unit/ci/workflowRunsCiRule.test.ts (31 cases) at the round-4 head
-The install step is now `bun install --frozen-lockfile --ignore-scripts`, which closes install
-lifecycle scripts (root, workspace member, trusted dependency) as a class. Per-script pins for
-prepare/(pre|post)install were dropped as redundant. The cases apply every bypass blind review found
-to the real ci.yml and package.json:
+## Rounds 2-5: scripts/ci/workflowRunsCiRule.ts, each clause disabled alone, against tests/unit/ci/workflowRunsCiRule.test.ts (39 cases) at the round-5 head
+The install step is `bun install --frozen-lockfile --ignore-scripts`, which closes install lifecycle
+scripts (root, workspace member, trusted dependency) as a class. Package-script hooks are refused by
+prefix: every `pre*`/`post*` except the existing `prepare`. R14b narrows that back to
+`preci`/`postci` by name, and it goes red on the nested-hook cases. The cases apply every bypass
+blind review found to the real ci.yml and package.json:
 - if: false on the step or the job, a shell override, CI_SKIP_BUILD;
 - an install without --ignore-scripts, an extra step before or after the gate, or checkout swapped;
 - a trigger removed, retargeted, path-filtered, or given branches [master, '!master'];
 - a quoted continue-on-error, or a decoy job;
-- a no-op ci script, or preci/postci;
+- a no-op ci script, or pre/post hooks on ci, type-check, lint, test:unit, build or check:routes;
 - an unknown runs-on label.
 G0/G1 test run-ci.sh's bash no-bunfig gate.
 ```
 ### R1 package.json ci script not checked
-     × package.json `ci` turned into a no-op 5ms
+     × package.json `ci` turned into a no-op 4ms
 ⎯⎯⎯⎯⎯⎯⎯ Failed Tests 1 ⎯⎯⎯⎯⎯⎯⎯
-      Tests  1 failed | 30 passed (31)
+      Tests  1 failed | 38 passed (39)
 ### R2 top-level keys not checked
-     × workflow-level env 5ms
+     × workflow-level env 4ms
      × workflow-level defaults.run.shell 1ms
 ⎯⎯⎯⎯⎯⎯⎯ Failed Tests 2 ⎯⎯⎯⎯⎯⎯⎯
-      Tests  2 failed | 29 passed (31)
+      Tests  2 failed | 37 passed (39)
 ### R3 trigger filters (paths/types) allowed
-     × paths-ignore on pull_request 9ms
+     × paths-ignore on pull_request 4ms
 ⎯⎯⎯⎯⎯⎯⎯ Failed Tests 1 ⎯⎯⎯⎯⎯⎯⎯
-      Tests  1 failed | 30 passed (31)
+      Tests  1 failed | 38 passed (39)
 ### R4 trigger branches not checked
-     × pull_request retargeted away from master 12ms
-     × branches: [master, '!master'], which GitHub reads as excluding master 3ms
+     × pull_request retargeted away from master 4ms
+     × branches: [master, '!master'], which GitHub reads as excluding master 1ms
 ⎯⎯⎯⎯⎯⎯⎯ Failed Tests 2 ⎯⎯⎯⎯⎯⎯⎯
-      Tests  2 failed | 29 passed (31)
+      Tests  2 failed | 37 passed (39)
 ### R4b branches only need to include master
      × branches: [master, '!master'], which GitHub reads as excluding master 3ms
 ⎯⎯⎯⎯⎯⎯⎯ Failed Tests 1 ⎯⎯⎯⎯⎯⎯⎯
-      Tests  1 failed | 30 passed (31)
+      Tests  1 failed | 38 passed (39)
 ### R5 missing trigger allowed
-     × pull_request trigger removed 8ms
+     × pull_request trigger removed 4ms
 ⎯⎯⎯⎯⎯⎯⎯ Failed Tests 1 ⎯⎯⎯⎯⎯⎯⎯
-      Tests  1 failed | 30 passed (31)
+      Tests  1 failed | 38 passed (39)
 ### R6 job-level keys (if/continue-on-error/env) allowed
-     × if: false on the job 3ms
+     × if: false on the job 4ms
      × continue-on-error on the job 1ms
      × job-level env 1ms
 ⎯⎯⎯⎯⎯⎯⎯ Failed Tests 3 ⎯⎯⎯⎯⎯⎯⎯
-      Tests  3 failed | 28 passed (31)
+      Tests  3 failed | 36 passed (39)
 ### R7 extra steps allowed
-     × a step after the gate (e.g. one that always reports success) 5ms
+     × a step after the gate (e.g. one that always reports success) 3ms
 ⎯⎯⎯⎯⎯⎯⎯ Failed Tests 1 ⎯⎯⎯⎯⎯⎯⎯
-      Tests  1 failed | 30 passed (31)
+      Tests  1 failed | 38 passed (39)
 ### R8 install step not checked
-     × an earlier step rewrites run-ci.sh 6ms
+     × an earlier step rewrites run-ci.sh 4ms
      × install without --ignore-scripts (root, workspace-member and trusted-dependency lifecycle scripts run and can rewrite run-ci.sh) 2ms
 ⎯⎯⎯⎯⎯⎯⎯ Failed Tests 2 ⎯⎯⎯⎯⎯⎯⎯
-      Tests  2 failed | 29 passed (31)
+      Tests  2 failed | 37 passed (39)
 ### R9 gate step extra keys (if/shell/continue-on-error) allowed
      × if: false on the gate step 4ms
-     × shell override prints instead of running 5ms
+     × shell override prints instead of running 4ms
      × quoted "continue-on-error" on the step 1ms
-     × flow-style step with continue-on-error 0ms
+     × flow-style step with continue-on-error 1ms
 ⎯⎯⎯⎯⎯⎯⎯ Failed Tests 4 ⎯⎯⎯⎯⎯⎯⎯
-      Tests  4 failed | 27 passed (31)
+      Tests  4 failed | 35 passed (39)
 ### R10 gate command not checked
-     × gate replaced by one hand-picked gate 7ms
+     × gate replaced by one hand-picked gate 4ms
      × gate neutralised with || true 1ms
      × the real step parked in a decoy job while quality runs one gate 1ms
 ⎯⎯⎯⎯⎯⎯⎯ Failed Tests 3 ⎯⎯⎯⎯⎯⎯⎯
-      Tests  3 failed | 28 passed (31)
+      Tests  3 failed | 36 passed (39)
 ### R11 gate env not allow-listed
-     × CI_SKIP_BUILD in the step env drops the build 3ms
+     × CI_SKIP_BUILD in the step env drops the build 4ms
 ⎯⎯⎯⎯⎯⎯⎯ Failed Tests 1 ⎯⎯⎯⎯⎯⎯⎯
-      Tests  1 failed | 30 passed (31)
+      Tests  1 failed | 38 passed (39)
 ### R12 checkout step not checked
      × checkout pinned to another ref 4ms
      × checkout swapped for another action 1ms
 ⎯⎯⎯⎯⎯⎯⎯ Failed Tests 2 ⎯⎯⎯⎯⎯⎯⎯
-      Tests  2 failed | 29 passed (31)
+      Tests  2 failed | 37 passed (39)
 ### R13 install step accepts a plain install (scripts run)
      × install without --ignore-scripts (root, workspace-member and trusted-dependency lifecycle scripts run and can rewrite run-ci.sh) 4ms
 ⎯⎯⎯⎯⎯⎯⎯ Failed Tests 1 ⎯⎯⎯⎯⎯⎯⎯
-      Tests  1 failed | 30 passed (31)
-### R14 lifecycle scripts allowed
-     × a preci script, which `bun run ci` itself runs around the gate and could rewrite run-ci.sh 3ms
-     × a postci script, which `bun run ci` itself runs around the gate and could rewrite run-ci.sh 1ms
-⎯⎯⎯⎯⎯⎯⎯ Failed Tests 2 ⎯⎯⎯⎯⎯⎯⎯
-      Tests  2 failed | 29 passed (31)
+      Tests  1 failed | 38 passed (39)
+### R14 pre/post hooks allowed
+     × a preci script: bun runs pre/post hooks around every bun run inside the gate, so it could defuse later gates 3ms
+     × a postci script: bun runs pre/post hooks around every bun run inside the gate, so it could defuse later gates 1ms
+     × a pretype-check script: bun runs pre/post hooks around every bun run inside the gate, so it could defuse later gates 1ms
+     × a postlint script: bun runs pre/post hooks around every bun run inside the gate, so it could defuse later gates 0ms
+     × a pretest:unit script: bun runs pre/post hooks around every bun run inside the gate, so it could defuse later gates 0ms
+     × a prebuild script: bun runs pre/post hooks around every bun run inside the gate, so it could defuse later gates 0ms
+     × a precheck:routes script: bun runs pre/post hooks around every bun run inside the gate, so it could defuse later gates 0ms
+     × a postinstall script: bun runs pre/post hooks around every bun run inside the gate, so it could defuse later gates 0ms
+     × a preinstall script: bun runs pre/post hooks around every bun run inside the gate, so it could defuse later gates 0ms
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 9 ⎯⎯⎯⎯⎯⎯⎯
+      Tests  9 failed | 30 passed (39)
+### R14b hooks narrowed back to preci/postci by name
+     × a pretype-check script: bun runs pre/post hooks around every bun run inside the gate, so it could defuse later gates 3ms
+     × a postlint script: bun runs pre/post hooks around every bun run inside the gate, so it could defuse later gates 1ms
+     × a pretest:unit script: bun runs pre/post hooks around every bun run inside the gate, so it could defuse later gates 0ms
+     × a prebuild script: bun runs pre/post hooks around every bun run inside the gate, so it could defuse later gates 0ms
+     × a precheck:routes script: bun runs pre/post hooks around every bun run inside the gate, so it could defuse later gates 0ms
+     × a postinstall script: bun runs pre/post hooks around every bun run inside the gate, so it could defuse later gates 0ms
+     × a preinstall script: bun runs pre/post hooks around every bun run inside the gate, so it could defuse later gates 0ms
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 7 ⎯⎯⎯⎯⎯⎯⎯
+      Tests  7 failed | 32 passed (39)
 ### R15 runs-on not pinned
-     × runs-on a label no runner has, so the job queues forever and never goes red 14ms
+     × runs-on a label no runner has, so the job queues forever and never goes red 3ms
 ⎯⎯⎯⎯⎯⎯⎯ Failed Tests 1 ⎯⎯⎯⎯⎯⎯⎯
-      Tests  1 failed | 30 passed (31)
+      Tests  1 failed | 38 passed (39)
 ### G1 no-bunfig gate: a bunfig.toml with a preload is present
 gate exit=1
 ### G0 no-bunfig gate: repo as committed
