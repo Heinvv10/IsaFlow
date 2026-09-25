@@ -19,6 +19,7 @@ import { getJournalEntryById } from '../gl/journalEntryService';
 import { resolveReversalDateDetailed, type VatLockRoll } from '../gl/journalEntryReversalDate';
 import { FIFO_ELIGIBLE_STATUSES } from '../ar/invoiceStatusRecompute';
 import { lockSupplierInvoiceForUpdate } from './supplierInvoiceLock';
+import { planLateClaimCompanionReversal, type CompanionReversalPlan } from '../gl/vatLateClaimSplit';
 
 /** A refusal whose message is safe to show the caller. */
 export class SupplierInvoiceCancelRefusal extends Error {
@@ -50,6 +51,8 @@ export interface SupplierInvoiceCancelPlan {
     vatLockRoll: VatLockRoll | null;
     /** The CONTRA's lines: the original's debits and credits swapped. */
     lines: CancelPreviewLine[];
+    /** The journal's late input-VAT claim, reversed with it on its own (rolled) date — or null. */
+    lateClaim: CompanionReversalPlan | null;
   } | null;
 }
 
@@ -205,6 +208,9 @@ export async function planSupplierInvoiceCancel(
   // does this refuse (VatPeriodLockedError, a refusal the MCP boundary shows).
   const { date: reversalDate, vatLockRoll } = await resolveReversalDateDetailed(
     companyId, fmtDate(entry.entryDate), undefined, entry.lines);
+  // A late-claim companion is reversed with the journal; refused here, before
+  // any write, if it cannot be.
+  const lateClaim = await planLateClaimCompanionReversal(companyId, entry.id);
   return {
     ...base,
     journal: {
@@ -219,6 +225,7 @@ export async function planSupplierInvoiceCancel(
         debit: l.credit,
         credit: l.debit,
       })),
+      lateClaim,
     },
   };
 }

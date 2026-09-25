@@ -1,6 +1,6 @@
 /** Post and reverse journals with fiscal-period and balance validation. */
 
-import { sql } from '@/lib/neon';
+import { sql, withSavepoint } from '@/lib/neon';
 import { fmtDate } from '@/lib/fmtDate';
 import type { DbRow } from '@/lib/neon';
 import { log } from '@/lib/logger';
@@ -17,6 +17,10 @@ import { resolveReversalDate, resolveReversalDateDetailed, ReversalPeriodError }
 import { VatPeriodLockedError } from './journalVatLockGuard';
 import { releaseCapturedDocumentPostingClaim } from '../capture/capturePostingClaimRelease';
 import { postJournalEntry } from './journalEntryPostService';
+import { LateClaimCompanionReversalError, planLateClaimCompanionReversal } from './vatLateClaimSplit';
+
+/** A reversal of a late-claim original carries its companion's reversal (vatLateClaimSplit.ts). */
+export type ReversalWithLateClaim = ReversalEntry & { lateClaimReversal?: ReversalEntry };
 
 // Re-exported: the MCP reverse tool and journalEntryService import them from here.
 export { resolveReversalDate, resolveReversalDateDetailed, ReversalPeriodError, VatPeriodLockedError };
@@ -52,14 +56,19 @@ export async function reverseJournalEntry(
   companyId: string,
   id: string,
   userId: string,
-  opts?: PostingActorOpts & { reversalDate?: string },
-): Promise<ReversalEntry> {
+  // lateClaimCascade: internal — set only by the cascade below.
+  opts?: PostingActorOpts & { reversalDate?: string; lateClaimCascade?: boolean },
+): Promise<ReversalWithLateClaim> {
   // One transaction around the whole reversal. Inside a request there already
   // is one and this runs on it; outside one (scripts/fixes, cron) it opens and
   // commits its own. That is what keeps the claim below from outliving the
   // contra it stands for: a crash anywhere in between rolls both back, and a
   // rerun repairs the entry instead of finding it permanently marked reversed.
   return withReversalTransaction({ companyId, userId }, async () => {
+  // A late-claim original reverses its companion with it, all or nothing; the
+  // companion's reversal is planned (and refused) before any write.
+  const companion = opts?.lateClaimCascade ? null : await planLateClaimCompanionReversal(companyId, id);
+  const body = async (): Promise<ReversalWithLateClaim> => {
   try {
     const entry = await getJournalEntryById(companyId, id);
     if (!entry) throw new Error(`Journal entry ${id} not found`);
@@ -69,6 +78,9 @@ export async function reverseJournalEntry(
     // reversed_at is the marker instead.
     if (entry.reversedAt) throw new Error('Journal entry already reversed');
     if (!entry.lines || entry.lines.length === 0) throw new Error('Entry has no lines');
+    if (entry.source === 'auto_vat_late_claim' && !opts?.lateClaimCascade) {
+      throw new LateClaimCompanionReversalError(entry.entryNumber);
+    }
 
     // Debits and credits swap; every dimension and the VAT classification come
     // across unchanged EXCEPT a legacy tag naming another company's project,
@@ -206,10 +218,17 @@ export async function reverseJournalEntry(
     // contra is not tag-for-tag identical to what it reverses.
     // vatLockRoll rides the same way, so a caller can say the contra was dated
     // later than the default because a filed VAT period was in the way.
-    return { ...reversalEntry, foreignDimensionDroppedLines: carried.droppedLineCount, vatLockRoll };
+    const lateClaimReversal = companion ? await reverseJournalEntry(companyId, companion.id, userId,
+      { ...opts, reversalDate: undefined, lateClaimCascade: true }) : undefined;
+    return {
+      ...reversalEntry, foreignDimensionDroppedLines: carried.droppedLineCount, vatLockRoll,
+      ...(lateClaimReversal ? { lateClaimReversal } : {}),
+    };
   } catch (err) {
     log.error('Failed to reverse journal entry', { id, error: err }, 'accounting');
     throw err;
   }
+  };
+  return companion ? withSavepoint('reverse_late_claim', body) : body();
   });
 }

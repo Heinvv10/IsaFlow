@@ -18,6 +18,12 @@
  */
 import { describe, it, expect, vi, beforeEach, type MockedFunction } from 'vitest';
 
+// reverseJournalEntry first asks whether the entry has a late-claim companion
+// (vatLateClaimSplit); none here, and the positional sql queue must not see it.
+vi.mock('@/modules/accounting/services/gl/vatLateClaimSplit', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('@/modules/accounting/services/gl/vatLateClaimSplit')>()),
+  planLateClaimCompanionReversal: vi.fn(async () => null),
+}));
 vi.mock('@/lib/neon', () => {
   // reverseJournalEntry claims the reversal with a predicated UPDATE before it
   // creates the contra; one row back means this caller won it. Everything else
