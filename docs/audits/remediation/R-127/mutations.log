@@ -1,0 +1,43 @@
+# R-127 mutations — each applied alone to a backup-copied file, the named test run,
+# the file restored FROM THE BACKUP and `cmp`-verified identical (restored_identical=True every time).
+# file key: S = ap/provisionalInvoiceSettlement.ts, W = ap/supplierInvoiceWorkflowService.ts,
+#           A = capture/provisionalAttachSettle.ts
+M1  S  drop `je.company_id = $companyId` from the claim query
+    -> guards "another company's provisional carrying the same slip id is ignored"
+    -> Error: Provisional journal <id> not found in company <id>
+       (first run: SURVIVED — getJournalEntryById's own company scope turned the foreign
+        journal into a silent `continue`; that null is impossible for a same-company
+        candidate, so it now throws, and the mutation goes red)
+M2  S  drop `je.status = 'posted'`      -> guards "a provisional that never posted (draft) is not used"   -> expected 'paid' to be 'approved'
+M3  S  drop `je.reversed_at IS NULL`    -> guards "a reversed provisional is not used"                    -> expected 'paid' to be 'approved'
+M4  S  drop `je.needs_evidence = false` -> guards "a provisional still needing evidence is not used, ..." -> expected 'paid' to be 'approved'
+M5  S  drop the live-payment claim check (`if (taken.length > 0) continue`)
+    -> guards "one provisional, two invoices from the same slip: only the first is settled by it"
+    -> error: duplicate key value violates unique constraint "uq_supplier_payments_settles_provisional_je"
+       (the migration-718 index is the backstop; the approval fails instead of completing)
+M6  S  drop `FOR UPDATE OF je`
+    -> race "the second approval waits for the first, then approves without reusing the provisional"
+    -> error: duplicate key value violates unique constraint "uq_gl_je_company_entry_number"
+       (unserialised, B proceeds past the claim check before A commits and fails on the
+        JE-number race — the second approval errors instead of completing)
+M7  W  approve: settle call disabled    -> double-booking "books the R115 bill once ..."                 -> expected 200 to be 100
+M8  W  Post to GL: settle call removed  -> capture "Post to GL on an approved, unposted invoice ..."     -> expected 'approved' to be 'paid'
+M9  S  application not capped (`Math.min(...)` -> bank amount)
+    -> guards "invoice R120 < bank R140: settles the invoice in full and leaves R20 unapplied"
+    -> SupplierPaymentRefusal: R140.00 exceeds the R120.00 outstanding on invoice R127-<id>.
+M10 A  withSavepoint removed
+    -> capture "a settlement that fails AFTER the invoice journal posted rolls back whole, and only itself"
+    -> expected null to be '<doc id>' (the whole request, attach included, rolled back)
+       (first run: SURVIVED against the no-items case — its failure is a JS validation error
+        before any SQL, so nothing needed a savepoint; the trigger-injected test was added)
+M11 S  line-shape refusal disabled (`if (false)`)
+    -> guards "a provisional whose lines do not add up to its bank line refuses the approval ..."
+    -> expected [Function] to throw error matching /do not match its bank line/ but got 'Invalid journal entry: Entry is not b…'
+M12 A  status check removed (settle attempted for non-approved inserts) -> SURVIVED (all 4 green).
+       Masked by R-118: postSupplierInvoiceToGL refuses a draft before any write, and the
+       refusal is caught as best-effort. Kept anyway so a draft is not sent down that path.
+M12' A settle removed entirely (`return attached`) -> capture "ai-invoice-pipeline: ..." -> expected null not to be null
+M13 DB DROP INDEX uq_supplier_payments_settles_provisional_je on the fixture
+    -> guards "the database refuses a second live payment on one provisional, and a cancelled one releases it"
+    -> AssertionError: promise resolved "Result{ command: 'INSERT', …(9) }" instead of rejecting
+       (index re-created by re-running 718; pg_indexes shows the original definition)
