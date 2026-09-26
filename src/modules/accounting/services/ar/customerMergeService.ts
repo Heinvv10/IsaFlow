@@ -21,6 +21,24 @@ import { withTransaction, type TxSql } from '@/lib/neon';
 import { ArRequestError } from './arErrors';
 import { isLockContention } from '../core/lockContention';
 
+/**
+ * The two unique keys a concurrent writer can collide with mid-merge: the
+ * customers are locked FOR NO KEY UPDATE, so a request may still INSERT a
+ * dunning override or a custom field for the TARGET after the merge checked
+ * for one. Same event as a lock timeout — someone else is writing this
+ * customer — and the same answer.
+ */
+const CONTENDED_UNIQUE_KEYS = new Set([
+  'customer_dunning_overrides_pkey',
+  'entity_udf_values_company_id_entity_type_entity_id_field_nu_key',
+]);
+
+function isMergeContention(err: unknown): boolean {
+  if (isLockContention(err)) return true;
+  const e = err as { code?: unknown; constraint?: unknown } | null;
+  return e?.code === '23505' && typeof e.constraint === 'string' && CONTENDED_UNIQUE_KEYS.has(e.constraint);
+}
+
 export interface CustomerMergeResult {
   merged: true;
   target_id: string;
@@ -146,8 +164,8 @@ async function moveRecords(tx: TxSql, c: string, s: string, t: string): Promise<
   await tx`UPDATE customer_activities SET customer_id = ${t}::UUID WHERE customer_id = ${s}::UUID AND company_id = ${c}::UUID`;
   // refuseOrLock already refused the case where both have one. An override
   // created for the target after that check (the customer lock no longer
-  // blocks the FK) makes this UPDATE raise 23505: a 500, and the savepoint
-  // rolls the whole merge back — nothing half-moved.
+  // blocks the FK) makes this UPDATE raise 23505, answered 409 by
+  // isMergeContention; the savepoint rolls the whole merge back.
   await tx`UPDATE customer_dunning_overrides SET customer_id = ${t}::UUID WHERE customer_id = ${s}::UUID AND company_id = ${c}::UUID`;
   await tx`UPDATE bank_categorisation_rules SET client_id = ${t}::UUID WHERE client_id = ${s}::UUID AND company_id = ${c}::UUID`;
   await tx`UPDATE practice_clients SET link_customer_id = ${t}::UUID WHERE link_customer_id = ${s}::UUID AND company_id = ${c}::UUID`;
@@ -211,9 +229,10 @@ export async function mergeCustomers(
     // FAIL CLOSED on contention. A merge touches every row of a customer, so
     // a multi-step settlement (a bulk allocation that takes bank line →
     // invoices → bank line) can still interleave with it however the merge
-    // orders its own locks. The wait is bounded, and a 55P03/40P01 is answered
-    // as "retry": the savepoint rolled back, so nothing was merged.
-    if (isLockContention(err)) {
+    // orders its own locks. The wait is bounded, and a 55P03/40P01 — or a
+    // unique-key collision with a concurrent insert for the target — is
+    // answered as "retry": the savepoint rolled back, so nothing was merged.
+    if (isMergeContention(err)) {
       throw new ArRequestError(
         'Another request is updating this customer (a payment, allocation or recurring run). Nothing was merged — retry in a moment.',
         409,

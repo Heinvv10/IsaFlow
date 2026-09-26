@@ -123,3 +123,12 @@ AssertionError: expected [ 11, 22 ] to deeply equal [ 22, 11 ]
 Error: Test timed out in 30000ms.
 ⎯⎯⎯⎯⎯⎯⎯ Failed Tests 2 ⎯⎯⎯⎯⎯⎯⎯
       Tests  2 failed (2)
+
+================ review round 5 RED: unique-key race tests against customerMergeService.ts at e43a477d5 ================
+   × a custom field inserted for the target during the merge answers 409 and moves nothing
+   × a dunning inserted for the target during the merge answers 409 and moves nothing
+AssertionError: expected 500 to be 409 // Object.is equality
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 2 ⎯⎯⎯⎯⎯⎯⎯
+{"level":"error","message":"customer-merge POST failed","data":{"error":"duplicate key value violates unique constraint \"customer_dunning_overrides_pkey\"","module":"accounting"}}
+{"level":"error","message":"customer-merge POST failed","data":{"error":"duplicate key value violates unique constraint \"entity_udf_values_company_id_entity_type_entity_id_field_nu_key\"","module":"accounting"}}
+      Tests  2 failed | 2 passed (4)

@@ -29,8 +29,8 @@
   - the merge bounds its waits (`SET LOCAL lock_timeout = '5s'`);
   - a 55P03 or 40P01 becomes `ArRequestError(409, 'CUSTOMER_MERGE_CONTENDED')`, which both routes answer as 409 "retry in a moment";
   - this is safe because the merge runs in a savepoint that rolled back, and nothing was written before it;
-  - `k061-customer-merge-contention` pins a held invoice (409, census digest unchanged, then the retry succeeds) and the bulk interleave (never a 500).
-- Consequence: an override created for the target between the dunning check and the move makes that move raise 23505. That is a 500, and the savepoint rolls the whole merge back.
+  - `k061-customer-merge-contention` pins a held invoice (409, census digest unchanged, then the retry succeeds), the bulk interleave (never a 500), and a dunning override or custom field inserted for the target mid-merge (409, nothing moved).
+- Consequence of `NO KEY UPDATE`: a request can insert a dunning override or a custom field for the TARGET mid-merge, because the FK no longer waits. The merge's move then collides on `customer_dunning_overrides_pkey` / `entity_udf_values_…_field_nu_key` (23505). That is the same event as contention (another writer on this customer), so it gets the same answer: 409 retry, with the savepoint rolled back (review round 5).
 - Two merges of the same pair in opposite directions therefore queue. The second re-reads `deleted_at`, finds its customer gone, and gets a 400. Before the fix, both such merges 500'd.
 - The source is soft-deleted:
   - `deleted_at` is now set, where before only `is_active = false` was;
@@ -89,7 +89,7 @@ A new table that stores a customer id must be added to the service AND to `MOVED
 - `pages/accounting/customers/dedup.tsx`
 - `src/lib/apiRoutes.ts`
 
-**Tests.** There are 34 tests across seven files: `tests/integration/k061-customer-merge-{moves,refusals,sage-resync,lock-order}.int.test.ts`, `k061-duplicates-merge-customer.int.test.ts` `k061-recurring-run-lock-order.int.test.ts` and `k061-customer-merge-contention.int.test.ts`.
+**Tests.** There are 36 tests across seven files: `tests/integration/k061-customer-merge-{moves,refusals,sage-resync,lock-order}.int.test.ts`, `k061-duplicates-merge-customer.int.test.ts` `k061-recurring-run-lock-order.int.test.ts` and `k061-customer-merge-contention.int.test.ts`.
 - **Lock-order, same set:** for each of the bank-line, receipt and invoice sets, a settlement holds the lower id and then takes the higher one while a merge is blocked. Neither side may deadlock.
 - **Lock-order, recurring run:** for each of `recurring_invoices` and `recurring_transaction_templates`, a run holds its template, the merge waits on it, and the run inserts an invoice for the source. That invoice must end up on the target.
 - **Lock-order, unrelated allocation:** an allocation on a line the merge does not lock receipts to the source and then applies to its invoice. This pins `FOR NO KEY UPDATE`.
