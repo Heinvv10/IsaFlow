@@ -79,7 +79,7 @@ describe('R-127 guards: a provisional that does not qualify is not used', () => 
     await expectApprovedUnsettled(invoiceId, bt, 204.70);
   });
 
-  it('one provisional, two invoices from the same slip: only the first is settled by it', async () => {
+  it('one provisional, two invoices from the same slip: the second is REFUSED, not approved unsettled', async () => {
     const doc = await seedDoc();
     const { je, bt } = await seedProvisional({ totalAmount: 205.85, evidencedBy: doc });
     const first = await seedInvoice({ documentId: doc, totalAmount: 205.85 });
@@ -88,12 +88,12 @@ describe('R-127 guards: a provisional that does not qualify is not used', () => 
     await approve(first);
     expect((await invoiceState(first)).status).toBe('paid');
 
-    await approve(second);
-    // The second invoice posts its own journal and is left for a human: the cash
-    // behind the provisional has already been spent on the first.
+    // Approving it would book the slip a second time: the bank line behind it
+    // already paid the first. Refused before anything is written.
+    await expect(approve(second)).rejects.toThrow(/already paid/i);
     const inv2 = await invoiceState(second);
-    expect(inv2.status).toBe('approved');
-    expect(inv2.paid).toBe(0);
+    expect(inv2.status).toBe('draft');
+    expect(inv2.gl_journal_entry_id).toBeNull();
     const live = (await pool.query(
       "SELECT COUNT(*)::int AS n FROM supplier_payments WHERE company_id=$1 AND reference=$2 AND status <> 'cancelled'",
       [company, bt],
@@ -134,6 +134,17 @@ describe('R-127 claim: refusals that stop a double booking outright', () => {
     const inv = await invoiceState(invoiceId);
     expect(inv.status).toBe('draft');
     expect(inv.gl_journal_entry_id).toBeNull();
+  });
+
+  it('the database refuses a payment claiming ANOTHER company\'s provisional', async () => {
+    const { je: foreignJe } = await seedProvisional({
+      totalAmount: 208.95, evidencedBy: await seedDoc(), companyId: otherCompany, accounts: otherAccounts,
+    });
+    await expect(pool.query(
+      `INSERT INTO supplier_payments(company_id,supplier_id,payment_date,total_amount,status,created_by,settles_provisional_je_id)
+       VALUES($1,$2,CURRENT_DATE,208.95,'processed',$3,$4)`,
+      [company, supplier, user, foreignJe],
+    )).rejects.toMatchObject({ code: '23503' });
   });
 
   it('the database refuses a second live payment on one provisional, and a cancelled one releases it', async () => {
