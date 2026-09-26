@@ -154,10 +154,11 @@ describe('R-127: unapply is the undo — subledger only, the claim held', () => 
     // Re-approving the original is refused (it is approved), and Post to GL is a no-op.
     await expect(inTx(() => approveSupplierInvoice(company, s.invoiceId, user))).rejects.toThrow(/Cannot approve/);
     expect((await inTx(() => postSupplierInvoiceToGL(company, s.invoiceId, user))).alreadyPosted).toBe(true);
-    // A fresh bill raised from the same slip approves without touching the provisional.
+    // A fresh bill raised from the same slip is refused: the provisional's cash is
+    // still this payment's, unapplied or not.
     const again = await seedInvoice({ documentId: s.doc, totalAmount: 505.90 });
-    await inTx(() => approveSupplierInvoice(company, again, user));
-    expect((await invoiceState(again)).status).toBe('approved');
+    await expect(inTx(() => approveSupplierInvoice(company, again, user))).rejects.toThrow(/already paid/i);
+    expect((await invoiceState(again)).status).toBe('draft');
 
     const live = Number((await pool.query(
       "SELECT COUNT(*) FROM supplier_payments WHERE company_id=$1 AND settles_provisional_je_id=$2 AND status <> 'cancelled'",

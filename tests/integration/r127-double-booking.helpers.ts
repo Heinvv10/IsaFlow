@@ -5,7 +5,8 @@
 // Own tables, own companies — no dependency on any other register item's fixture.
 import { afterAll, beforeAll } from 'vitest';
 import { Pool } from 'pg';
-import { assertDisposable } from './mfa-impersonation-postgres.helpers';
+import { SignJWT } from 'jose';
+import { assertDisposable, request, response } from './mfa-impersonation-postgres.helpers';
 import { als } from '@/lib/als';
 import { clearSystemAccountCache } from '@/modules/accounting/services/gl/systemAccountResolver';
 
@@ -71,6 +72,9 @@ async function purgeCompany(c: string): Promise<void> {
   await pool.query('UPDATE supplier_invoices SET gl_journal_entry_id=NULL WHERE company_id=$1', [c]);
   await pool.query('DELETE FROM supplier_invoice_items WHERE supplier_invoice_id IN (SELECT id FROM supplier_invoices WHERE company_id=$1)', [c]);
   await pool.query('DELETE FROM supplier_coding_history WHERE company_id=$1', [c]);
+  await pool.query('UPDATE bank_transactions SET auto_post_run_id=NULL WHERE company_id=$1', [c]);
+  await pool.query('DELETE FROM bank_auto_post_runs WHERE company_id=$1', [c]);
+  await pool.query('DELETE FROM vat_period_locks WHERE company_id=$1', [c]);
   await pool.query('DELETE FROM supplier_invoices WHERE company_id=$1', [c]);
   await pool.query('DELETE FROM gl_journal_lines WHERE journal_entry_id IN (SELECT id FROM gl_journal_entries WHERE company_id=$1)', [c]);
   await pool.query('UPDATE gl_journal_entries SET reversal_of_id=NULL WHERE company_id=$1', [c]);
@@ -79,6 +83,7 @@ async function purgeCompany(c: string): Promise<void> {
   await pool.query('DELETE FROM captured_documents WHERE company_id=$1', [c]);
   await pool.query('DELETE FROM suppliers WHERE company_id=$1', [c]);
   await pool.query('DELETE FROM gl_account_balances WHERE gl_account_id IN (SELECT id FROM gl_accounts WHERE company_id=$1)', [c]);
+  await pool.query('DELETE FROM cost_centres WHERE company_id=$1', [c]);
   await pool.query('DELETE FROM gl_accounts WHERE company_id=$1', [c]);
   await pool.query('DELETE FROM fiscal_periods WHERE company_id=$1', [c]);
   await pool.query('DELETE FROM company_users WHERE company_id=$1', [c]);
@@ -260,4 +265,31 @@ export async function inTx<T>(fn: () => Promise<T>): Promise<T> {
   } finally {
     c.release();
   }
+}
+
+let token: string | null = null;
+/** POST to a real withAuth route as the fixture user — withAuth COMMITs a 4xx, as in production. */
+export async function callRoute(
+  route: (req: never, res: never) => unknown, url: string, body: Record<string, unknown>,
+): Promise<{ statusCode: number; body: unknown }> {
+  token ??= await new SignJWT({ sub: user, aal: 'aal2' }).setProtectedHeader({ alg: 'HS256' })
+    .setExpirationTime('1h').sign(new TextEncoder().encode(process.env.JWT_SECRET));
+  const req = request({ 'sb-access-token': token, active_company_id: company }, 'POST');
+  req.url = url;
+  req.body = body;
+  const out = response();
+  await route(req as never, out.res as never);
+  return out.state;
+}
+
+/** What an approval could have written, company-wide: compared before and after a refusal. */
+export async function companySnapshot(invoiceId: string) {
+  const count = async (sql: string) => Number((await pool.query(sql, [company])).rows[0].n);
+  return {
+    invoice: await invoiceState(invoiceId),
+    journals: await count('SELECT COUNT(*) AS n FROM gl_journal_entries WHERE company_id=$1'),
+    lines: await count('SELECT COUNT(*) AS n FROM gl_journal_lines WHERE company_id=$1'),
+    payments: await count('SELECT COUNT(*) AS n FROM supplier_payments WHERE company_id=$1'),
+    reversed: await count('SELECT COUNT(*) AS n FROM gl_journal_entries WHERE company_id=$1 AND reversed_at IS NOT NULL'),
+  };
 }

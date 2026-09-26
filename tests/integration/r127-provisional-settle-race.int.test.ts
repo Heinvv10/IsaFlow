@@ -32,7 +32,7 @@ async function waitUntilBlocked(pid: number): Promise<void> {
 }
 
 describe('R-127 race: one provisional cannot settle two concurrently approved invoices', () => {
-  it('the second approval waits for the first, then approves without reusing the provisional', async () => {
+  it('the second approval waits for the first, then is refused without reusing the provisional', async () => {
     const doc = await seedDoc();
     const { je, bt } = await seedProvisional({ totalAmount: 311.10, evidencedBy: doc });
     const first = await seedInvoice({ documentId: doc, totalAmount: 311.10 });
@@ -54,10 +54,8 @@ describe('R-127 race: one provisional cannot settle two concurrently approved in
       await waitUntilBlocked(bPid);
 
       await a.query('COMMIT');
-      const approvedB = await pendingB;
-      await b.query('COMMIT');
-
-      expect(approvedB.status).toBe('approved');
+      await expect(pendingB).rejects.toThrow(/already paid/i);
+      await b.query('ROLLBACK');
     } finally {
       await a.query('ROLLBACK').catch(() => undefined);
       await b.query('ROLLBACK').catch(() => undefined);
@@ -67,7 +65,7 @@ describe('R-127 race: one provisional cannot settle two concurrently approved in
 
     expect((await invoiceState(first)).status).toBe('paid');
     const inv2 = await invoiceState(second);
-    expect(inv2.status).toBe('approved');
+    expect(inv2.status).toBe('draft');
     expect(inv2.paid).toBe(0);
     const live = (await pool.query(
       "SELECT COUNT(*)::int AS n FROM supplier_payments WHERE company_id=$1 AND reference=$2 AND status <> 'cancelled'",
@@ -75,5 +73,27 @@ describe('R-127 race: one provisional cannot settle two concurrently approved in
     )).rows[0].n as number;
     expect(live).toBe(1);
     expect((await slipLedger(je, bt, first)).bank).toBe(-311.10);
+  }, 30_000);
+
+  it('a contended provisional times out with a message that names the provisional, not the invoice', async () => {
+    const doc = await seedDoc();
+    const { je } = await seedProvisional({ totalAmount: 312.20, evidencedBy: doc });
+    const invoiceId = await seedInvoice({ documentId: doc, totalAmount: 312.20 });
+    const holder = await pool.connect();
+    const c = await pool.connect();
+    try {
+      await holder.query('BEGIN');
+      await holder.query('SELECT 1 FROM gl_journal_entries WHERE id=$1 FOR UPDATE', [je]);
+      await c.query('BEGIN');
+      const err = await inCtx(c, () => approveSupplierInvoice(company, invoiceId, user)).then(() => null, (e: unknown) => e);
+      expect((err as Error).message).toMatch(/provisional/i);
+      expect((err as Error).message).not.toMatch(/Supplier invoice .* is being processed/);
+    } finally {
+      await c.query('ROLLBACK').catch(() => undefined);
+      await holder.query('ROLLBACK').catch(() => undefined);
+      c.release();
+      holder.release();
+    }
+    expect((await invoiceState(invoiceId)).status).toBe('draft');
   }, 30_000);
 });
