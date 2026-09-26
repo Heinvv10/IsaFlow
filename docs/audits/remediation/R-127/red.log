@@ -71,3 +71,8 @@ AssertionError: expected null not to be null
  × ai-invoice-pipeline answers draft when ... refused              expected 'approved' to be 'draft'
  × voiding it again is refused with the ordinary status message   expected 500 to be 400
  × (component) a settlement payment's Void says it reverses the settlement ...   Unable to find /reverses the settlement and the bank-first provisional journal/
+
+# --- re-confirm LOWs RED — commit 0f2449262 (3 failed | 4 passed) ---
+ × capture/[id]/post FAILS the request when withdrawing the auto-approval fails   expected 200 to be greater than or equal to 500
+ × capture/[id]/post answers ... draft ...     expected 'auto_approve' to be 'manual_review'
+ × ai-invoice-pipeline answers draft ...       expected 'auto_approve' to be 'manual_review'

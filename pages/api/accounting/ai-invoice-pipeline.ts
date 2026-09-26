@@ -288,7 +288,7 @@ async function handler(req: CompanyAuthedRequest, res: NextApiResponse) {
     invoice: { id: invoice.id, invoiceNumber: invoice.invoice_number, status: provisionalAttach.settlementRefused ? 'draft' : invoice.status },
     supplierMatch: { name: supplierMatch.supplierName, confidence: supplierMatch.confidence },
     pipelineConfidence,
-    approvalRoute,
+    approvalRoute: provisionalAttach.settlementRefused ? 'manual_review' : approvalRoute,
     warnings: validation.warnings,
     threeWayMatch,
     provisionalAttach,

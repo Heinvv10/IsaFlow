@@ -77,23 +77,20 @@ export async function runCapturePostFollowUps(input: CapturePostFollowUpInput): 
     gateOutcome: input.decision.outcome,
   }, 'capture-post');
 
-  // Attempt to attach evidence to a matching provisional JE (best-effort, non-blocking);
-  // an auto-approved invoice is then settled against it (R-127).
-  let provisionalAttach: CapturePostFollowUps['provisionalAttach'] = { attachedJeId: null, bankTxId: null };
-  try {
-    provisionalAttach = await attachEvidenceAndSettleApproved({
-      companyId,
-      userId,
-      documentId,
-      invoiceId,
-      invoiceStatus: input.invoiceStatus,
-      supplierId,
-      totalAmount: input.totalAmount,
-      invoiceDate: input.invoiceDate,
-    });
-  } catch (attachErr) {
-    log.warn('Evidence attach to provisional JE failed — continuing', { eventId, error: attachErr }, 'capture-post');
-  }
+  // Attach evidence to a matching provisional JE; an auto-approved invoice is then
+  // settled against it (R-127). Not caught: the attach and the settlement handle
+  // their own failures, so the only throw is the draft revert failing — the request
+  // must fail then (≥500), not answer 200 over a COMMIT that became a ROLLBACK.
+  const provisionalAttach: CapturePostFollowUps['provisionalAttach'] = await attachEvidenceAndSettleApproved({
+    companyId,
+    userId,
+    documentId,
+    invoiceId,
+    invoiceStatus: input.invoiceStatus,
+    supplierId,
+    totalAmount: input.totalAmount,
+    invoiceDate: input.invoiceDate,
+  });
 
   // Best-effort alert resolution — non-blocking
   resolvePendingAlertForInvoice(
