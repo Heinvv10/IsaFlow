@@ -107,8 +107,12 @@ export type InputVatSupportKind =
 
 /**
  * A journal claiming input VAT, and what supports it (vatInputSupport.ts).
- * `no_document` / `amount_mismatch` rows are BLOCKING (`unsupportedInputVat`);
- * `no_tax_invoice` rows are the non-blocking "no tax invoice on file" list.
+ * `no_document` / `amount_mismatch` / `document_over_claimed` /
+ * `unreadable_document_vat` rows go in `unsupportedInputVat` — visible, with
+ * amounts and reasons, but NOT blocking (Hein, 2026-09-26): holding a valid
+ * tax invoice is the vendor's legal responsibility, and it may be held
+ * outside IsaFlow. `no_tax_invoice` rows are the same, non-blocking, "no tax
+ * invoice on file" list.
  */
 export interface InputVatSupportLine {
   journalEntryId: string;
@@ -197,7 +201,13 @@ export interface VatExceptionsReport {
   /** NOT blocking: same population, marked "VAT declared outside IsaFlow" (migration 705). Capped list. */
   declaredElsewhereVat: DeclaredElsewhereVatLine[];
   declaredElsewhereVatCount: number;
-  /** BLOCKING: input VAT claimed with no document behind it, or disagreeing with it. Capped list. */
+  /**
+   * NOT blocking (Hein, 2026-09-26): input VAT claimed with no document
+   * behind it, or disagreeing with it. Still fully visible — amounts,
+   * reasons, "Link tax invoice" action — because holding the tax invoice is
+   * the vendor's legal responsibility and it may be held outside IsaFlow.
+   * Capped list.
+   */
   unsupportedInputVat: InputVatSupportLine[];
   unsupportedInputVatCount: number;
   /** NOT blocking: input VAT supported only by a bank line or a VAT adjustment. Capped list. */

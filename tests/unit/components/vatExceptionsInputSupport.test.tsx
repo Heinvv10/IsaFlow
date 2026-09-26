@@ -1,6 +1,6 @@
-// VAT201ExceptionsPanel renders the input-VAT support findings: the BLOCKING
-// "nothing behind it" section and the NOT-blocking "no tax invoice on file"
-// section, each with its own count and rows.
+// VAT201ExceptionsPanel renders the input-VAT support findings: both the
+// "nothing behind it" section and the "no tax invoice on file" section are
+// NOT-blocking (Hein, 2026-09-26) warnings, each with its own count and rows.
 import { fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { afterEach, expect, it, vi } from 'vitest';
 
@@ -37,22 +37,24 @@ const report: VatExceptionsReport = {
   unsupportedInputVatCount: 1,
   inputVatWithoutTaxInvoice: [line({ journalEntryId: 'je-2', entryNumber: 'JE-2026-00043', supportKind: 'bank', reason: 'no_tax_invoice', description: 'Bank allocation' })],
   inputVatWithoutTaxInvoiceCount: 1,
-  totalExceptions: 2,
+  // Only unpostedInvoiceVat (1) is blocking; unsupportedInputVat (1) is
+  // listed but no longer counted (Hein, 2026-09-26).
+  totalExceptions: 1,
   degradedData: false,
   degradedSources: [],
 };
 
 afterEach(() => vi.clearAllMocks());
 
-it('shows the blocking and the non-blocking input-VAT sections with their rows', async () => {
+it('shows both input-VAT warning sections with their rows, neither blocking', async () => {
   vi.mocked(apiFetch).mockResolvedValue(new Response(JSON.stringify({ success: true, data: report }), { status: 200 }));
   render(<VAT201ExceptionsPanel from="2026-07-01" to="2026-08-31" reloadKey={1} />);
 
-  await waitFor(() => expect(screen.getByText('2 exceptions')).toBeTruthy());
+  await waitFor(() => expect(screen.getByText('1 exception')).toBeTruthy());
   fireEvent.click(screen.getByText('Invoices with VAT not posted to the GL'));
   expect(screen.getByText('INV-0099')).toBeTruthy();
 
-  fireEvent.click(screen.getByText('Input VAT with nothing behind it'));
+  fireEvent.click(screen.getByText('Input VAT with nothing behind it (not blocking)'));
   expect(screen.getByText('JE-2026-00042')).toBeTruthy();
   expect(screen.getByText('No document linked')).toBeTruthy();
   expect(screen.getByText('Nothing')).toBeTruthy();

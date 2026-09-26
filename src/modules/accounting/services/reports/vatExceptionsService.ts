@@ -278,10 +278,14 @@ export async function getVatExceptions(
     inputVatWithoutTaxInvoice: inputSupport.withoutTaxInvoice.slice(0, LIST_CAP),
     inputVatWithoutTaxInvoiceCount: inputSupport.withoutTaxInvoice.length,
     // The "no tax invoice on file" list is deliberately NOT counted (Hein).
+    // Neither is unsupportedInputVat (Hein, 2026-09-26): holding a valid tax
+    // invoice is the vendor's legal responsibility under s16(2), and the
+    // invoice may be held outside IsaFlow — so it stays fully visible above
+    // (with its amounts and reasons) but no longer blocks filing/locking.
     totalExceptions:
       uncodedGlLineCount + invoiceTaxCodeIssueCount + invoiceGlMismatchCount
       + vatOnBalanceSheetCount + vatNonSupplyCount + reconExceptions
-      + inputSupport.unsupported.length + unpostedInvoiceVat.length,
+      + unpostedInvoiceVat.length,
     degradedData: vat201.degradedSources.length > 0,
     degradedSources: vat201.degradedSources,
   };

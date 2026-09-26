@@ -71,7 +71,7 @@ describeIfDb('VAT pre-filing controls hold against the breaker', () => {
     await dropLateFixture(fx);
   }, 120000);
 
-  it('B1: reversing the reversal re-instates the claim — and the claim needs support', async () => {
+  it('B1: reversing the reversal re-instates the claim — and the claim is still listed as unsupported, but does not block (Hein, 2026-09-26)', async () => {
     const S = '2026-09-01', E = '2026-10-31';
     const j1 = await post('2026-09-10', 'manual', claim(150));
     const r1 = await inTx(fx, () => reverseJournalEntry(fx.companyId, j1, fx.userId));
@@ -80,7 +80,9 @@ describeIfDb('VAT pre-filing controls hold against the breaker', () => {
     const l = await ledger(S, E);
     expect(l.field10_totalInputVAT).toBe(150);          // R150 claimed and filed ...
     expect(rep.unsupportedInputVat.map((u) => [u.journalEntryId, u.reason, u.claimedVat])).toEqual([[j1, 'no_document', 150]]);
-    expect(evaluateEfilingGate(rep).allowed).toBe(false);
+    // Unsupported input VAT no longer blocks filing — the tax invoice is the
+    // vendor's legal responsibility and may be held outside IsaFlow.
+    expect(evaluateEfilingGate(rep).allowed).toBe(true);
   });
 
   it('B2: one captured document cannot support two claims — now refused at the WRITE side, before B2 can even happen', async () => {

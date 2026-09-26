@@ -28,8 +28,8 @@ export const vatExceptionsTool: McpTool = {
   name: 'vat_exceptions',
   description:
     'The pre-filing VAT exceptions for a period — every type, each marked blocking or non-blocking, with its count and its items (journal ids/numbers, invoice numbers, amounts). '
-    + 'BLOCKING types (refuse lock_vat_period and manual mark-submitted unless an owner/admin overrides with a reason; ALWAYS refuse SARS ISV filing, no override): uncodedGlLines, invoiceTaxCodeIssues, invoiceGlMismatches, vatOnBalanceSheetLines, vatNonSupplyLines, controlRecon (its own reconExceptions, from output/input variance), unpostedInvoiceVat, unsupportedInputVat. '
-    + 'NON-BLOCKING (informational — visible, never hidden): declaredElsewhereVat (marked "VAT declared outside IsaFlow", mark_vat_declared_elsewhere) and inputVatWithoutTaxInvoice ("no tax invoice on file" — a claim supported only by a bank line or a VAT adjustment). '
+    + 'BLOCKING types (refuse lock_vat_period and manual mark-submitted unless an owner/admin overrides with a reason; ALWAYS refuse SARS ISV filing, no override): uncodedGlLines, invoiceTaxCodeIssues, invoiceGlMismatches, vatOnBalanceSheetLines, vatNonSupplyLines, controlRecon (its own reconExceptions, from output/input variance), unpostedInvoiceVat. '
+    + 'NON-BLOCKING (informational — visible, never hidden): declaredElsewhereVat (marked "VAT declared outside IsaFlow", mark_vat_declared_elsewhere), inputVatWithoutTaxInvoice ("no tax invoice on file" — a claim supported only by a bank line or a VAT adjustment), and unsupportedInputVat (Hein, 2026-09-26 — input VAT with no document behind it, or disagreeing with it: still listed with amounts and reasons, but holding the tax invoice is the vendor\'s legal responsibility and it may live outside IsaFlow, so it no longer blocks). '
     + 'totalExceptions is the SAME number lock_vat_period and eFiling check. '
     + 'overrideHistory lists every recorded override for this exact period (vat_gate_overrides), newest first — who overrode what, when, and the exception counts at the time. '
     + 'controlRecon ties the FILED ledger VAT201 (fields 5/10) to the GL VAT control account movement; its own output/input variance is what reconExceptions counts. '
@@ -65,9 +65,10 @@ export const vatExceptionsTool: McpTool = {
       { type: 'vatOnBalanceSheetLines', blocking: true, count: report.vatOnBalanceSheetCount, items: report.vatOnBalanceSheetLines },
       { type: 'vatNonSupplyLines', blocking: true, count: report.vatNonSupplyCount, items: report.vatNonSupplyLines },
       { type: 'unpostedInvoiceVat', blocking: true, count: report.unpostedInvoiceVatCount, items: report.unpostedInvoiceVat },
-      { type: 'unsupportedInputVat', blocking: true, count: report.unsupportedInputVatCount, items: report.unsupportedInputVat },
       { type: 'declaredElsewhereVat', blocking: false, count: report.declaredElsewhereVatCount, items: report.declaredElsewhereVat },
       { type: 'inputVatWithoutTaxInvoice', blocking: false, count: report.inputVatWithoutTaxInvoiceCount, items: report.inputVatWithoutTaxInvoice },
+      // NOT blocking (Hein, 2026-09-26): the vendor's legal responsibility.
+      { type: 'unsupportedInputVat', blocking: false, count: report.unsupportedInputVatCount, items: report.unsupportedInputVat },
     ];
 
     return ok({

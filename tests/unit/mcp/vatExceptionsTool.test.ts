@@ -69,7 +69,9 @@ it('marks each category blocking/non-blocking with its count and items', async (
   expect(body.totalExceptions).toBe(2);
   const byType = Object.fromEntries(body.categories.map((c: { type: string }) => [c.type, c]));
   expect(byType.uncodedGlLines).toMatchObject({ blocking: true, count: 1 });
-  expect(byType.unsupportedInputVat).toMatchObject({ blocking: true, count: 1, items: [{ journalEntryId: 'je-1' }] });
+  // Non-blocking (Hein, 2026-09-26): holding a tax invoice is the vendor's
+  // legal responsibility, which may be discharged outside IsaFlow.
+  expect(byType.unsupportedInputVat).toMatchObject({ blocking: false, count: 1, items: [{ journalEntryId: 'je-1' }] });
   expect(byType.declaredElsewhereVat).toMatchObject({ blocking: false, count: 1 });
   expect(byType.inputVatWithoutTaxInvoice).toMatchObject({ blocking: false, count: 0 });
   expect(body.overrideHistory).toEqual([{ id: 'ov-1', reason: 'filed under old system' }]);

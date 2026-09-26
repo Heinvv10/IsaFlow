@@ -41,7 +41,9 @@ describe('blocking exceptions present', () => {
 
   it('a non-owner/admin sees the counts but no reason box', async () => {
     h.role = 'manager';
-    apiFetchMock.mockResolvedValue(okJson({ totalExceptions: 2, unsupportedInputVatCount: 2 }));
+    // unsupportedInputVatCount no longer drives totalExceptions on its own
+    // (Hein, 2026-09-26) — uncodedGlLineCount is a still-blocking category.
+    apiFetchMock.mockResolvedValue(okJson({ totalExceptions: 2, uncodedGlLineCount: 2 }));
     await fillPeriod();
     expect(await screen.findByText(/2 blocking VAT exceptions/)).toBeTruthy();
     expect(screen.queryByLabelText(/Override reason/)).toBeNull();

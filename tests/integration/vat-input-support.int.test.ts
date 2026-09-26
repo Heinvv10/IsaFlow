@@ -4,7 +4,9 @@
  * expense claim, a captured receipt, a late claim, a supplier credit note —
  * and on the output side a customer credit note and a bank receipt with VAT.
  * None of them blocks eFiling; the bank one is listed as "no tax invoice on
- * file". A bare manual VAT journal is exactly one blocking unsupportedInputVat.
+ * file". A bare manual VAT journal is exactly one unsupportedInputVat -
+ * listed, but NOT blocking (Hein, 2026-09-26): holding a valid tax invoice
+ * is the vendor's legal responsibility, and it may be held outside IsaFlow.
  */
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { randomUUID } from 'crypto';
@@ -167,7 +169,7 @@ describeIfDb('pre-filing exceptions: input-VAT support', () => {
   // depend on running (or having run) straight after this one.
   let manualBareJe = '';
 
-  it('a bare manual VAT journal is exactly one blocking unsupportedInputVat, and the gate refuses', async () => {
+  it('a bare manual VAT journal is exactly one unsupportedInputVat, listed but NOT blocking (Hein, 2026-09-26)', async () => {
     const je = await postJournal('2026-07-25', 'manual', [
       { glAccountId: fx.expenseId, debit: 100, credit: 0, description: 'no document', vatType: 'standard' },
       { glAccountId: fx.vatInputId, debit: 15, credit: 0, description: 'VAT', vatType: 'standard' },
@@ -177,8 +179,10 @@ describeIfDb('pre-filing exceptions: input-VAT support', () => {
     const r = await report();
     expect(r.unsupportedInputVat.map((l) => [l.journalEntryId, l.reason, l.claimedVat])).toEqual([[je, 'no_document', 15]]);
     expect(r.unsupportedInputVatCount).toBe(1);
-    expect(r.totalExceptions).toBe(1);
-    expect(evaluateEfilingGate(r).allowed).toBe(false);
+    // Still visible with its amount, but no longer counted toward the
+    // blocking total — the vendor's legal responsibility, not IsaFlow's.
+    expect(r.totalExceptions).toBe(0);
+    expect(evaluateEfilingGate(r).allowed).toBe(true);
   });
 
   // A reversed pair nets, as the per-journal over-claim nets it (JE-2026-04873

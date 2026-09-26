@@ -2,10 +2,13 @@
  * The blocking-exceptions gate for locking a VAT period and for manually
  * marking a VAT201 submission as submitted.
  *
- * getVatExceptions' `totalExceptions` (the recon, unposted invoice VAT,
- * unsupported input VAT, and the older uncoded/mismatch/non-supply types) is
- * already an ABSOLUTE refusal for SARS ISV filing (sarsEfilingSubmissionService
- * .evaluateEfilingGate — no override, ISV stays dark). This module gives the
+ * getVatExceptions' `totalExceptions` (the recon, unposted invoice VAT, and
+ * the older uncoded/mismatch/non-supply types — NOT unsupported input VAT,
+ * which is visible but non-blocking per Hein, 2026-09-26: holding a tax
+ * invoice is the vendor's legal responsibility and it may live outside
+ * IsaFlow) is already an ABSOLUTE refusal for SARS ISV filing
+ * (sarsEfilingSubmissionService.evaluateEfilingGate — no override, ISV stays
+ * dark). This module gives the
  * SAME blocking count a narrow escape hatch for the two actions that record a
  * period as filed WITHOUT going through ISV: an owner or admin may proceed
  * with a non-empty reason, which is recorded (migration 704) and never
