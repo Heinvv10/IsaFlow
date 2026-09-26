@@ -2281,7 +2281,7 @@
       "fixCommit": "d4db06c9f;056ab9215;b69461a9e;88ee44182;00f30a160;b0ee76e1b;e43a477d5;1f2e73533;9a2985e54",
       "pr": "https://github.com/Heinvv10/IsaFlow/pull/530",
       "deployedSha": "34dac5651",
-      "historicalDataImpact": "customer-merge: none (always rolled back). duplicates-merge: customers merged there left rows (incl. active recurring invoices) on the deleted customer; census SQL in K-061/fix.md, correction is Hein's call.",
+      "historicalDataImpact": "None. customer-merge always rolled back. duplicates-merge: prod census 2026-09-26 found 0 invoices, recurring, portal logins, contacts or templates stranded on deleted customers (6 receipts on one deleted demo audit fixture only), and 0 invoices billed after deletion. No correction needed.",
       "canonicalItem": null,
       "reportedSeverity": "high"
     },
