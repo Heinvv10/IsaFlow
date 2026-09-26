@@ -33,7 +33,41 @@ The whole provisional is always reclassed, and the payment is always for the who
 In both cases expense and VAT are the invoice's own figures, booked once. Why not refuse? A refusal either lets the approval through with the double booking still standing, or blocks the approval with no in-product way to un-evidence a provisional. The capped settlement never leaves GL and subledger apart. It puts the difference on a named document, where `list_unapplied_payments`, `reconcile_subledger` and the ageing already show it to a human. The attach matched within ±R0.01, so a difference means the invoice was edited afterwards or the slip is not really that payment. Either way a human looks at an open balance, not at a hidden duplicate.
 
 ### Dates
-The reclass and the payment are dated with the invoice's journal (the invoice date). The pair therefore nets inside one period and never posts into the provisional's period, which may already be filed. The input VAT stays claimed where the provisional claimed it, on the bank date. By construction of the attach match that is within ±2 days of the document date. Limit: if the invoice date falls in a locked VAT period, the reclass's VAT credit is refused (plain `VatPeriodLockedError`, no late-claim split), and so is the approval. That is a refusal, not a silent double booking.
+The reclass and the payment are dated with the invoice's journal (the invoice date). The pair therefore nets inside one period and never posts into the provisional's period, which may already be filed. The input VAT stays claimed where the provisional claimed it, on the bank date. By construction of the attach match, that is within ±2 days of the document date.
+
+**Correction (review round).** An earlier version of this section said a locked invoice date meant "a refusal, not a silent double booking". That was wrong. Through `supplier-invoices-action`, the approval opts into the s16(3) late claim, so the invoice's journal DID post, its VAT split into the next open period. Only then was the reclass refused, and withAuth COMMITs the 400. Result: VAT claimed twice, and the approval could not be retried. Reproduced at f3337c3e9. The log shows `Late input VAT claim split` with claimDate 2026-10-01, then a 400.
+
+### An invoice dated in a filed VAT period (decided: refuse)
+The approval is refused before anything is written (`provisionalSettlementClaim.ts`) when both hold:
+- the invoice date is inside an active VAT lock;
+- the provisional's lines move a VAT figure.
+
+Why refuse:
+- The provisional's input VAT is already in the filed return.
+- The only journal that could cancel the invoice's claim is the reclass's VAT credit. That is an input reduction, which the late-claim rules refuse (`input_reduction`). So it cannot be given the treatment the invoice got.
+- The only date on which the reclass nets the invoice's VAT is inside the filed period.
+
+Refusing leaves VAT claimed exactly once (the provisional's, in the filed return) and the filed period untouched. Test: `r127-approve-vat-lock`, through the route. It checks the 400 naming the filed period, an unchanged snapshot, and company input VAT = R91.50, the provisional's alone.
+
+The remedy is in the message. Leave the bill unapproved or cancel it. If the provisional is wrong, reverse it first; that is allowed while no settlement holds it. The reversal rolls past the lock, and the approval then claims the VAT late, once.
+
+### Atomicity (review HIGH)
+`approveSupplierInvoice` and `postSupplierInvoiceToGL` each run in their own savepoint. Any failure in the settlement takes the invoice's own journal and status with it, even when the caller answers 4xx and withAuth COMMITs.
+
+Every ordinary refusal is decided in the claim, before the first write:
+- the provisional is contended (retryable);
+- it is already taken;
+- its lines don't add up;
+- a line is on a deactivated account (`postJournalEntry` refuses every posting to one, reversals included);
+- the invoice is dated in a filed VAT period (above).
+
+The two remaining failure points from the review are designed out:
+- The reclass carries the provisional's lines in `historical-copy` mode, as a reversal does, so a retired cost centre no longer refuses it.
+- The payable account is passed in rather than read back from the journal.
+
+The application plan cannot refuse by construction: same supplier, amount capped at the outstanding balance, invoice just approved. The savepoint is the backstop.
+
+Tests: `r127-approve-route-atomic`, through the route. A settlement failure injected after the invoice journal leaves an unchanged snapshot. A retired CC1 still settles. A deactivated account gives a clean 400 with an unchanged snapshot. A Post to GL called in a transaction that COMMITs after the throw keeps nothing.
 
 ### The auto-approve paths
 `capture/[id]/post` and `ai-invoice-pipeline` INSERT an auto-approved invoice as `approved`, with no journal and no call to `approveSupplierInvoice`, and then run the attach. Before this fix, when the attach evidenced a provisional, the GL held the bill once but the AP subledger showed it owing. "Post to GL" (`postSupplierInvoiceToGL`, bulk `post_gl`) would then have booked it a second time.
@@ -51,7 +85,7 @@ A settlement payment's journal is the provisional's reclass, not a bank payment.
 The first brief asked for the void to reverse the reclass and end at expense R100, VAT R15, AP R115 open and bank R115 once. Those four figures cannot all hold: R115 of debits against R230 of credits. Hein chose option C:
 - **Void is refused on every path, before any write.** `refuseProvisionalSettlementVoid` (`ap/supplierPaymentGates.ts`) throws a `SupplierPaymentRefusal` naming `unapply_supplier_payment`. It runs in `voidIfUnprocessed`, which serves the `supplier-payments-action` route (answers 400), and in `core/paymentVoidService.voidPaymentDocument`, which serves MCP `void_payment` (coded refusal, surfaced with its message). It reads `settles_provisional_je_id` from the payment row each path has already read under its lock, so it adds no query.
 - The other supplier-payment exits cannot reach a settlement payment. `cancelSupplierPayment` already refuses processed and reconciled payments. Batch reversal only touches batch members, and a settlement payment has no batch. The bank-allocation reversal finds payments through the bank lines matched to their journal, and the reclass has no bank line. Read from code, not tested: `reverse_bank_allocation` pointed at the provisional's own bank line was not exercised; it belongs with the item below.
-- **Unapply is the undo, unchanged.** It moves only the subledger. The invoice reopens (R115, `approved`, `amount_paid` 0). The payment stays `processed` with R115 unapplied on the same supplier. The GL does not move: expense R100, VAT R15, bank R115 once, net AP nil (the bill's R115 against the payment's R115). The payment is still live, so it keeps the provisional's claim. A re-approval cannot settle twice: re-approving the original is refused as already approved, Post to GL is a no-op, and a fresh bill from the same slip approves without settling. The credit applies to another bill of the same supplier through the normal application service.
+- **Unapply is the undo, unchanged.** A second bill raised from the same slip is now REFUSED (review LOW 1). The refusal names the payment and the bill it paid, rather than approving that second bill unsettled. It moves only the subledger. The invoice reopens (R115, `approved`, `amount_paid` 0). The payment stays `processed` with R115 unapplied on the same supplier. The GL does not move: expense R100, VAT R15, bank R115 once, net AP nil (the bill's R115 against the payment's R115). The payment is still live, so it keeps the provisional's claim. A re-approval cannot settle twice: re-approving the original is refused as already approved, Post to GL is a no-op, and a fresh bill from the same slip is refused. The credit applies to another bill of the same supplier through the normal application service.
 - **UI gap:** unapply exists only as the MCP tool `unapply_supplier_payment`. There is no REST route or UI action for it, so a UI-only user who hits the refusal has no in-app remedy.
 
 Tests: `tests/integration/r127-settlement-void.int.test.ts` (6).
@@ -62,8 +96,19 @@ Tests: `tests/integration/r127-settlement-void.int.test.ts` (6).
 - The credit re-applies to another bill.
 - The claim holds after unapply.
 
-## Still open: reversing a CLAIMED provisional
-The mirror direction is not guarded. The generic journal reverse (`journal-entries-action` reverse) and the auto-post run undo (`bank/autoPostUndoService`) can reverse a provisional that a live settlement payment has claimed. That would leave the reclass standing with no provisional under it: expense and VAT nil, bill paid, bank not credited. `dismissProvisionalEntry` is safe, because it refuses an evidenced provisional. A refusal in those two paths needs its own item.
+## Reversing either half of a settlement (review MEDIUM, LOW 4)
+`reverseJournalEntry` refuses, pre-write, to reverse either half of a live settlement (`provisionalSettlementGuards.refuseReversingSettlementJournal`):
+- the provisional a live `supplier_payments.settles_provisional_je_id` names;
+- the reclass, i.e. the journal of such a payment.
+
+Only entries whose source is `auto_bank_recon` or `auto_supplier_payment` are looked up, so every other reversal is decided without a query.
+
+Every caller inherits the refusal:
+- `journal-entries-action` answers 400;
+- MCP `reverse_journal_entry` raises a coded refusal that the registry answers with its message;
+- the auto-post run undo counts the line as `failed` and keeps the run open.
+
+`reverseReconciledTransaction` (`reverse_bank_allocation`, batch, range and REST) used to be able to reach the settled provisional's own bank line. That line has no matched journal line, so the call reversed nothing and set the line back to `imported`, leaving the cash booked and re-allocatable. It now refuses (`refuseSettledProvisionalLine`). `dismissProvisionalEntry` was already safe, because it refuses an evidenced provisional. Tests: `r127-settlement-reverse`.
 
 ## Other limits
 - An approval that reuses an existing journal (the `glJournalEntryId` branch in `approveSupplierInvoice`, legacy "Post to GL then approve" drafts) is not settled. Since R-118 no new rows reach it. Legacy rows show in the census.
@@ -128,3 +173,15 @@ Rows already on production are not repaired by this fix. A backfill that settles
   - `supplierPaymentWorkflowService.ts` (324) and `types/ap.types.ts` (307) are untouched.
   - Every new file is ≤ 300.
 - **RED for the void refusal:** `red.log`, second block. **Mutations V1–V5:** `mutations.log`.
+
+### Review round (REQUEST_CHANGES, 2026-09-26)
+- RED f3337c3e9: 13 assertion failures, all through the real routes or services with their real commit semantics. See `red.log`, third block.
+- Fix 5ec2c3a35 covers atomicity, the pre-write refusals, the reversal chokepoint and the LOW items.
+  - LOW 2: the lock timeout now names the provisional.
+  - LOW 3: 711 gains a same-company trigger (SQLSTATE 23503). `gl_journal_entries` has no UNIQUE (company_id, id), and adding one would build a unique index over the whole journal table for this one column.
+- Mutations R1–R12 are all red. R3 and R4 go red on the message only: the savepoint still keeps the snapshot clean, and the pre-checks are what make those refusals clean and named. See `mutations.log`.
+- File sizes (master → now):
+  - `bankAllocationService.ts` 922 → 879 (`assertReversalDatePostable` moved unchanged to `bank/reversalDatePostable.ts`);
+  - `supplierInvoiceWorkflowService.ts` 512 → 496;
+  - `journalEntryPostingService.ts` 251 → 253;
+  - the claim was split out to `ap/provisionalSettlementClaim.ts` (≈170).

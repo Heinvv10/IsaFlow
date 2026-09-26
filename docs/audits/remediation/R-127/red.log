@@ -30,3 +30,23 @@ AssertionError: expected 200 to be 400 // Object.is equality
 AssertionError: expected null not to be null
       Tests  2 failed | 4 passed (6)
 # The 4 passing pin existing behaviour: tenant not-found, unapply figures, re-apply, claim held.
+
+# --- review round RED — commit f3337c3e9 (13 failed | 19 passed) ---
+ × is refused through the route with nothing written, VAT claimed once
+   AssertionError: expected '{"success":false,"error":{"code":"BAD…' to match /filed VAT period/i
+   (log: "Late input VAT claim split" claimDate 2026-10-01 — the invoice journal posted, then 400, committed)
+ × a settlement failure after the invoice journal posted commits NOTHING
+   AssertionError: expected { Object (invoice, journals, ...) } to deeply equal { …(5) }
+ × a provisional line on an inactive account and an inactive cost centre still settles
+   expected 400 to be 200 — "CC1 must name an active CC1 cost centre in this company"
+   (split after RED into the retired-CC test and the deactivated-account refusal; both proven by R5 / R4)
+ × journal-entries-action refuses to reverse the provisional            expected 200 to be 400
+ × journal-entries-action refuses to reverse the settlement's reclass   expected 200 to be 400
+ × MCP reverse_journal_entry answers the refusal                        expected undefined to be true
+ × the auto-post undo skips the settled provisional's line              expected 1 to be +0
+ × reverse_bank_allocation on the provisional's own bank line           promise resolved "{ invoicesReopened: +0, …(2) }"
+ × the reopened bill cannot be settled a second time                    promise resolved "{ …(31) }" instead of rejecting
+ × one provisional, two invoices: the second is REFUSED                 promise resolved "{ …(31) }" instead of rejecting
+ × the database refuses a payment claiming ANOTHER company's provisional  promise resolved "Result{ command: 'INSERT' …"
+ × the second approval waits, then is refused                           promise resolved "{ …(31) }" instead of rejecting
+ × a contended provisional times out naming the provisional             expected 'Supplier invoice 8f2ce84a-…' to match /provisional/i

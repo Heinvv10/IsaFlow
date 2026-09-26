@@ -49,3 +49,18 @@ V2 V  refusal call removed from voidPaymentDocument -> "the MCP void_payment too
 V3 P  mapPaymentRow drops settlesProvisionalJeId    -> route test                                                  -> expected 200 to be 400
 V4 V  loadPayment maps settlesProvisionalJeId: null -> MCP test                                                    -> expected null not to be null
 V5 G  refusal body returns unconditionally          -> both route and MCP tests                                    -> 200 vs 400; null not to be null
+
+# --- review round (fix 5ec2c3a35); all restored_identical=True
+R1  workflow: approve savepoint removed        -> route-atomic "a settlement failure after the invoice journal posted commits NOTHING" -> snapshot differs
+R2  workflow: Post to GL savepoint removed     -> route-atomic "Post to GL is all-or-nothing on its own ..."                           -> snapshot differs
+R3  claim: VAT-lock pre-check disabled         -> vat-lock "is refused through the route ..." -> message no longer /filed VAT period/ (savepoint keeps snapshot)
+R4  claim: deactivated-account pre-check off   -> route-atomic "deactivated account ..." -> message is postJournalEntry's (savepoint keeps snapshot)
+R5  settle: historical-copy mode removed       -> route-atomic "since-retired cost centre still settles" -> 400 "CC1 must name an active CC1 cost centre"
+R6  reverseJournalEntryInner guard call removed -> settlement-reverse: route provisional, route reclass, MCP, auto-post undo (4 red)
+R7  guard: reclass clause (gl_journal_entry_id) dropped -> "refuses to reverse the settlement's reclass" -> 200 vs 400
+R8  reverseReconciledTransaction line guard removed -> "reverse_bank_allocation on the provisional's own bank line" -> resolved instead of rejecting
+R9  claim: already-settled refusal disabled    -> guards two-invoices, race, void re-approve (3 files, each red: resolved instead of rejecting)
+R10 claim: lock-timeout mapping removed        -> race "contended provisional times out ..." -> 'canceling statement due to lock timeout' not /provisional/
+R11 DB: same-company trigger dropped           -> guards "the database refuses a payment claiming ANOTHER company's provisional" -> INSERT resolved (trigger re-created from 711)
+R12 guard: SETTLEMENT_SOURCES without auto_bank_recon -> route provisional, MCP, undo (3 red)
+Re-run after the move: company filter (M1) and FOR UPDATE (M6) in provisionalSettlementClaim.ts both still red.
