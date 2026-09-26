@@ -13,8 +13,15 @@ const handler: NextApiHandler = async (req, res) => {
   const token = parseCookies(req)[ACCESS_COOKIE];
   if (token) {
     // R-032 (f): a Login-as session ends only itself — the global default would
-    // revoke every session of the target it is impersonating.
-    const scope = (await sessionActorOfToken(token)) === 'impersonation' ? 'local' : 'global';
+    // revoke every session of the target it is impersonating. If the session
+    // store cannot be read, sign out narrowly: this route has no error handler,
+    // and the cookies below must be cleared whatever happens.
+    let scope: 'local' | 'global' = 'local';
+    try {
+      scope = (await sessionActorOfToken(token)) === 'impersonation' ? 'local' : 'global';
+    } catch (err) {
+      log.error('logout: session lookup failed, signing out locally', { message: err instanceof Error ? err.message : String(err) }, 'Auth');
+    }
     try { await gotrueLogout(token, scope); }
     catch (err) { log.info('gotrue logout non-fatal error', { message: err instanceof Error ? err.message : String(err) }, 'Auth'); }
   }

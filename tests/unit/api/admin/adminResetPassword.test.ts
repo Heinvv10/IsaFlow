@@ -44,6 +44,7 @@ const generateLink = vi.fn();
 vi.mock('@/lib/auth/gotrue-admin-link', () => ({ generateLink: (...a: unknown[]) => generateLink(...a) }));
 
 import handler from '../../../../pages/api/admin/users/[id]/reset-password';
+import { log } from '@/lib/logger';
 
 function call() {
   const req = { method: 'POST', query: { id: target.id }, user: { id: 'platform-admin' }, headers: {},
@@ -110,6 +111,11 @@ describe('POST /api/admin/users/[id]/reset-password', () => {
     expect(state.statusCode).toBe(200);
     expect((state.body as { data?: { message?: string } }).data?.message).toBe('Password reset email sent');
     expect(sendEmail).toHaveBeenCalledTimes(1);
+    const logged = vi.mocked(log.error).mock.calls
+      .filter(([message]) => String(message).includes('superseding older links failed'));
+    expect(logged).toHaveLength(1);
+    expect(logged[0]![1]).toMatchObject({ userId: target.id });
+    expect(JSON.stringify(logged)).not.toContain('ours-single-use-token');
   });
 
   it('still refuses to reset a super_admin, and emails nobody', async () => {

@@ -73,12 +73,12 @@ describe('issuePasswordResetToken', () => {
 });
 
 describe('supersedePasswordResetTokens / withdrawPasswordResetToken', () => {
-  it('retires every other unconsumed token of the user, keeping the delivered one', async () => {
+  it('retires only the user\'s tokens issued before the delivered one (ordering proven in r-032-reset-supersede-order)', async () => {
     await supersedePasswordResetTokens(USER_ID, 'keep-hash');
     const text = (sqlMock.mock.calls[0]![0] as unknown as string[]).join('?');
     expect(text).toMatch(/SET consumed_at = now\(\)/);
-    expect(text).toMatch(/token_hash <> \?/);
-    expect(callValues(0)).toEqual([USER_ID, 'keep-hash']);
+    expect(text).toMatch(/\(t\.created_at, t\.id\) < \(k\.created_at, k\.id\)/);
+    expect(callValues(0)).toEqual(['keep-hash', USER_ID]);
   });
 
   it('withdraws exactly the one token that was never sent', async () => {
