@@ -9,7 +9,8 @@
  * asks `currentSessionActor()`.
  */
 import { sql } from '@/lib/neon';
-import { newPlatformAdminClient } from './withPlatformAdmin.pools';
+import { getPlatformAdminPool, newPlatformAdminClient } from './withPlatformAdmin.pools';
+import { verifyTokenSignature } from './gotrue';
 
 /**
  * Must run before any target cookie is issued: if it throws, the impersonation
@@ -58,4 +59,25 @@ export async function currentSessionActor(): Promise<SessionActor> {
   const row = rows[0];
   if (!row?.session_id) return 'unknown';
   return row.impersonated ? 'impersonation' : 'self';
+}
+
+/**
+ * For routes outside withAuth — no request transaction, so no
+ * `request.jwt.claims` for `currentSessionActor` to read: classify the session
+ * a cookie access token belongs to by its own verified `session_id`. Read
+ * through the platform_admin pool (BYPASSRLS): the app pool's policy keys on
+ * the GUC these routes never set. `invalid`: the signature does not verify.
+ */
+export async function sessionActorOfToken(accessToken: string): Promise<SessionActor | 'invalid'> {
+  let sessionId: unknown;
+  try {
+    sessionId = (await verifyTokenSignature(accessToken)).session_id;
+  } catch {
+    return 'invalid';
+  }
+  if (typeof sessionId !== 'string' || !sessionId) return 'unknown';
+  const { rowCount } = await getPlatformAdminPool().query(
+    'SELECT 1 FROM impersonation_sessions WHERE session_id = $1', [sessionId],
+  );
+  return rowCount ? 'impersonation' : 'self';
 }

@@ -17,7 +17,9 @@
  */
 import type { NextApiResponse } from 'next';
 import { apiResponse, ErrorCode } from '@/lib/apiResponse';
-import { currentSessionActor } from './impersonationSessions';
+import type { NextApiRequest } from 'next';
+import { currentSessionActor, sessionActorOfToken } from './impersonationSessions';
+import { parseCookies, ACCESS_COOKIE } from './cookies';
 
 export class ImpersonationForbiddenError extends Error {
   // A literal, not a const reference: tests/unit/mcp/typedRefusalReachesAgent's
@@ -44,4 +46,20 @@ export function respondIfImpersonationForbidden(res: NextApiResponse, err: unkno
   if (!(err instanceof ImpersonationForbiddenError)) return false;
   apiResponse.error(res, ErrorCode.FORBIDDEN, err.message, { reason: err.code });
   return true;
+}
+
+/**
+ * R-032 (f): the account-security routes (change email / password, MFA factor
+ * enrol / confirm / remove) run outside withAuth, so they classify the cookie's
+ * own access token. They refuse a Login-as session AND a token with no session
+ * id — they accept only GoTrue cookies, which always carry one. An invalid
+ * token is left to the route's own authentication, which rejects it. Call
+ * before any read or write; returns true when it answered 403.
+ */
+export async function refuseImpersonatedSession(req: NextApiRequest, res: NextApiResponse): Promise<boolean> {
+  const token = parseCookies(req)[ACCESS_COOKIE];
+  if (!token) return false;
+  const actor = await sessionActorOfToken(token);
+  if (actor !== 'impersonation' && actor !== 'unknown') return false;
+  return respondIfImpersonationForbidden(res, new ImpersonationForbiddenError());
 }

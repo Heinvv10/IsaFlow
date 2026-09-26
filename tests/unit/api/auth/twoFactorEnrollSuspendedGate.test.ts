@@ -13,6 +13,9 @@ process.env.GOTRUE_URL = 'http://example.test/auth/v1';
 
 const cookieJar = vi.hoisted(() => ({ access: '' }));
 
+// R-032 (f): the Login-as refusal reads the session store first; it is covered
+// by tests/integration/r-032-account-security.int.test.ts.
+vi.mock('@/lib/auth/impersonationGuard', () => ({ refuseImpersonatedSession: async () => false }));
 vi.mock('@/lib/logger', () => ({ log: { info: vi.fn(), warn: vi.fn(), error: vi.fn() } }));
 vi.mock('@/lib/auth/withCsrf', () => ({ withCsrf: (h: unknown) => h }));
 vi.mock('@/lib/auth/cookies', () => ({

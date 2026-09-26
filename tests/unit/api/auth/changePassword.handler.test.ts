@@ -11,6 +11,9 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import type { NextApiRequest, NextApiResponse } from 'next';
 
+// R-032 (f): the Login-as refusal reads the session store first; it is covered
+// by tests/integration/r-032-account-security.int.test.ts.
+vi.mock('@/lib/auth/impersonationGuard', () => ({ refuseImpersonatedSession: async () => false }));
 vi.mock('@/lib/rateLimit', () => ({
   withRateLimit: (h: unknown) => h,
   checkRateLimit: vi.fn(async () => true),
