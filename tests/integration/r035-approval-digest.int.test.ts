@@ -206,6 +206,18 @@ describe('rules match the functional (ZAR) total', () => {
     });
   });
 
+  it('treats a soft-deleted customer invoice as no document', async () => {
+    await inTx(async (c, company) => {
+      const customer = crypto.randomUUID();
+      const id = crypto.randomUUID();
+      await c.query('INSERT INTO customers(id,company_id,name) VALUES($1,$2,$3)', [customer, company, 'r035 deleted']);
+      await c.query(
+        `INSERT INTO customer_invoices(id,company_id,invoice_number,customer_id,total_amount,created_by,deleted_at)
+         VALUES($1,$2,$3,$4,100,$5,NOW())`, [id, company, `CI-${id.slice(0, 6)}`, customer, USER]);
+      await expect(resolveApprovalDocument(company, 'customer_invoice', id)).rejects.toThrow(/No customer_invoice/);
+    });
+  });
+
   it('applies to customer invoices too — they carry the same functional_total column', async () => {
     await inTx(async (c, company) => {
       const customer = crypto.randomUUID();
