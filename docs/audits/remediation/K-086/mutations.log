@@ -1,0 +1,222 @@
+# K-086 mutations — 2026-09-25
+
+## Round 1 (head cdddf1461)
+```
+### M1 count back on the delta path
+   × a count ABOVE stock on hand raises it and records an inbound correction 205ms
+   × a count that agrees with stock on hand moves nothing and records no movement 204ms
+   × a count waits for a competing writer and corrects from what it then reads 541ms
+   × K-086: the counted quantity replaces stock, it is not added to it 7ms
+   × K-086: the movement carries the 40-unit correction, not the 60 counted 7ms
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 5 ⎯⎯⎯⎯⎯⎯⎯
+      Tests  5 failed | 6 passed (11)
+### M2 movement records the counted quantity, not the correction
+   × a count ABOVE stock on hand raises it and records an inbound correction 273ms
+   × a fractional count keeps stock and movement in step to the cent 410ms
+   × a count waits for a competing writer and corrects from what it then reads 964ms
+   × K-086: the movement carries the 40-unit correction, not the 60 counted 16ms
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 4 ⎯⎯⎯⎯⎯⎯⎯
+      Tests  4 failed | 7 passed (11)
+### M3 FOR UPDATE dropped
+   × a count waits for a competing writer and corrects from what it then reads 706ms
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 1 ⎯⎯⎯⎯⎯⎯⎯
+      Tests  1 failed | 10 passed (11)
+### M4 count direction fixed to adjustment_out
+   × a count ABOVE stock on hand raises it and records an inbound correction 129ms
+   × a count waits for a competing writer and corrects from what it then reads 467ms
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 2 ⎯⎯⎯⎯⎯⎯⎯
+      Tests  2 failed | 9 passed (11)
+### M5 float arithmetic instead of cents
+   × a fractional count keeps stock and movement in step to the cent 87ms
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 1 ⎯⎯⎯⎯⎯⎯⎯
+      Tests  1 failed | 10 passed (11)
+### M6 zero-delta movement guard removed
+   × a count that agrees with stock on hand moves nothing and records no movement 95ms
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 1 ⎯⎯⎯⎯⎯⎯⎯
+      Tests  1 failed | 10 passed (11)
+### M7 ownership predicate dropped from the lock
+      Tests  11 passed (11)
+### M7 ownership predicate dropped from the lock (re-run with the two-company user case)
+   × a user in BOTH companies cannot adjust the other company's product from this one 101ms
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 1 ⎯⎯⎯⎯⎯⎯⎯
+      Tests  1 failed | 11 passed (12)
+```
+
+## Round 2 (after blind review: validator number/2-decimal/unitCost guards, cents arithmetic removed as redundant)
+Each mutation applied alone; both k086 integration files (withAuth, app_user, disposable fixture) plus tests/unit/inventory/inventory-calc.test.ts. The first result line per mutation is integration, the second unit.
+```
+### M1 count back on the delta path
+   × a count ABOVE stock on hand raises it and records an inbound correction 42ms
+   × a count that agrees with stock on hand moves nothing and records no movement 35ms
+   × a two-decimal count is exact: 100 -> 60.35 books 39.65 out, and the document agrees 35ms
+   × a shrinkage count takes its value out of the stock valuation, not just its units 43ms
+   × a count waits for a competing writer and corrects from what it then reads 352ms
+   × K-086: the counted quantity replaces stock, it is not added to it 7ms
+   × K-086: the movement carries the 40-unit correction, not the 60 counted 4ms
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 7 ⎯⎯⎯⎯⎯⎯⎯
+      Tests  7 failed | 10 passed (17)
+      Tests  36 passed (36)
+### M2 movement records the counted quantity, not the correction
+   × a count ABOVE stock on hand raises it and records an inbound correction 45ms
+   × a two-decimal count is exact: 100 -> 60.35 books 39.65 out, and the document agrees 45ms
+   × a shrinkage count takes its value out of the stock valuation, not just its units 72ms
+   × a count waits for a competing writer and corrects from what it then reads 338ms
+   × K-086: the movement carries the 40-unit correction, not the 60 counted 6ms
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 5 ⎯⎯⎯⎯⎯⎯⎯
+      Tests  5 failed | 12 passed (17)
+      Tests  36 passed (36)
+### M3 FOR UPDATE dropped
+   × a count waits for a competing writer and corrects from what it then reads 393ms
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 1 ⎯⎯⎯⎯⎯⎯⎯
+      Tests  1 failed | 16 passed (17)
+      Tests  36 passed (36)
+### M4 count direction fixed to adjustment_out
+   × a count ABOVE stock on hand raises it and records an inbound correction 54ms
+   × a count waits for a competing writer and corrects from what it then reads 358ms
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 2 ⎯⎯⎯⎯⎯⎯⎯
+      Tests  2 failed | 15 passed (17)
+      Tests  36 passed (36)
+### M6 zero-delta movement guard removed
+   × a count that agrees with stock on hand moves nothing and records no movement 46ms
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 1 ⎯⎯⎯⎯⎯⎯⎯
+      Tests  1 failed | 16 passed (17)
+      Tests  36 passed (36)
+### M7 company_id dropped from the lock
+   × a user in BOTH companies cannot adjust the other company's product from this one 47ms
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 1 ⎯⎯⎯⎯⎯⎯⎯
+      Tests  1 failed | 16 passed (17)
+      Tests  36 passed (36)
+### M8 validator number / two-decimal guard removed
+   × a third decimal is refused before anything is written 35ms
+   × "NaN", a string quantity and a count with no unit cost are refused before anything is written 36ms
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 2 ⎯⎯⎯⎯⎯⎯⎯
+      Tests  2 failed | 15 passed (17)
+     × rejects a quantity Postgres would round differently from the route (K-086) 7ms
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 1 ⎯⎯⎯⎯⎯⎯⎯
+      Tests  1 failed | 35 passed (36)
+### M8b validator two-decimal check only removed
+   × a third decimal is refused before anything is written 39ms
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 1 ⎯⎯⎯⎯⎯⎯⎯
+      Tests  1 failed | 16 passed (17)
+     × rejects a quantity Postgres would round differently from the route (K-086) 6ms
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 1 ⎯⎯⎯⎯⎯⎯⎯
+      Tests  1 failed | 35 passed (36)
+### M9 decrease clamp removed
+   × a decrease past zero is still clamped at 0 and books the full requested quantity out 36ms
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 1 ⎯⎯⎯⎯⎯⎯⎯
+      Tests  1 failed | 16 passed (17)
+      Tests  36 passed (36)
+### M10 decrease/transfer fallback movement type changed
+   × a decrease past zero is still clamped at 0 and books the full requested quantity out 43ms
+   × a transfer is still an outbound delta 41ms
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 2 ⎯⎯⎯⎯⎯⎯⎯
+      Tests  2 failed | 15 passed (17)
+      Tests  36 passed (36)
+### M11 unit cost no longer required for a count
+   × "NaN", a string quantity and a count with no unit cost are refused before anything is written 40ms
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 1 ⎯⎯⎯⎯⎯⎯⎯
+      Tests  1 failed | 16 passed (17)
+     × requires a unit cost for a stock count, as for an increase (K-086) 5ms
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 1 ⎯⎯⎯⎯⎯⎯⎯
+      Tests  1 failed | 35 passed (36)
+### M12 unit cost type check removed
+   × "NaN", a string quantity and a count with no unit cost are refused before anything is written 50ms
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 1 ⎯⎯⎯⎯⎯⎯⎯
+      Tests  1 failed | 16 passed (17)
+     × rejects a unit cost that is not a finite number of zero or more 5ms
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 1 ⎯⎯⎯⎯⎯⎯⎯
+      Tests  1 failed | 35 passed (36)
+```
+
+## Round 3 (after re-review: exact-cents helper for quantity and unitCost, typeof checks folded into Number.isFinite)
+Route unchanged since round 2, so its mutations above stand. Validator mutations, each alone; first line integration (adjacent file), second unit. V3 is caught only by the unit suite: the strict equality in the helper also refuses strings, so the route suite cannot tell isFinite apart.
+```
+### V1 quantity exact-cents check disabled
+   × a third decimal is refused before anything is written 44ms
+   × "NaN", a string quantity and a count with no unit cost are refused before anything is written 36ms
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 2 ⎯⎯⎯⎯⎯⎯⎯
+      Tests  2 failed | 12 passed (14)
+     × rejects a quantity Postgres would round differently from the route (K-086) 8ms
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 1 ⎯⎯⎯⎯⎯⎯⎯
+      Tests  1 failed | 35 passed (36)
+### V2 exact equality replaced by a 1e-6 tolerance
+   × a third decimal is refused before anything is written 51ms
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 1 ⎯⎯⎯⎯⎯⎯⎯
+      Tests  1 failed | 13 passed (14)
+     × rejects a quantity Postgres would round differently from the route (K-086) 11ms
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 1 ⎯⎯⎯⎯⎯⎯⎯
+      Tests  1 failed | 35 passed (36)
+### V3 isFinite dropped (strings coerced)
+      Tests  14 passed (14)
+     × rejects a quantity Postgres would round differently from the route (K-086) 7ms
+     × rejects a unit cost that is not a finite number of zero or more 1ms
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 2 ⎯⎯⎯⎯⎯⎯⎯
+      Tests  2 failed | 34 passed (36)
+### V4 unitCost exact-cents check disabled
+   × "NaN", a string quantity and a count with no unit cost are refused before anything is written 47ms
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 1 ⎯⎯⎯⎯⎯⎯⎯
+      Tests  1 failed | 13 passed (14)
+     × rejects a unit cost that is not a finite number of zero or more 6ms
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 1 ⎯⎯⎯⎯⎯⎯⎯
+      Tests  1 failed | 35 passed (36)
+### V5 negative unitCost allowed
+      Tests  14 passed (14)
+     × rejects a unit cost that is not a finite number of zero or more 10ms
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 1 ⎯⎯⎯⎯⎯⎯⎯
+      Tests  1 failed | 35 passed (36)
+### V6 unit cost no longer required for a count
+   × "NaN", a string quantity and a count with no unit cost are refused before anything is written 61ms
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 1 ⎯⎯⎯⎯⎯⎯⎯
+      Tests  1 failed | 13 passed (14)
+     × requires a unit cost for a stock count, as for an increase (K-086) 5ms
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 1 ⎯⎯⎯⎯⎯⎯⎯
+      Tests  1 failed | 35 passed (36)
+```
+
+## Round 4 (after /review on PR #524: integer-cents correction, total_cost in SQL NUMERIC, company-scoped warehouseId, typed productId/reason)
+Each mutation alone. C1 and C4 survived their first run and got new cases (0.10 on hand / 0.07 counted; a two-company user's warehouse); the re-runs are at the end.
+```
+### C1 float delta instead of integer cents
+      Tests  20 passed (20)
+      Tests  37 passed (37)
+### C2 total_cost multiplied in JS float
+   × a count and a decrease of the same 0.05 cost the same: 0.05 x 0.5 = 0.03, not a float cent off 60ms
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 1 ⎯⎯⎯⎯⎯⎯⎯
+      Tests  1 failed | 19 passed (20)
+      Tests  37 passed (37)
+### C3 warehouse ownership check removed
+   × another tenant's warehouse is refused before any row is written 55ms
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 1 ⎯⎯⎯⎯⎯⎯⎯
+      Tests  1 failed | 19 passed (20)
+      Tests  37 passed (37)
+### C4 warehouse check not company-scoped
+      Tests  20 passed (20)
+      Tests  37 passed (37)
+### C5 productId type guard removed
+      Tests  20 passed (20)
+     × rejects a non-string productId or reason with a validation error, not a throw 4ms
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 1 ⎯⎯⎯⎯⎯⎯⎯
+      Tests  1 failed | 36 passed (37)
+### C6 reason type guard removed
+      Tests  20 passed (20)
+     × rejects a non-string productId or reason with a validation error, not a throw 21ms
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 1 ⎯⎯⎯⎯⎯⎯⎯
+      Tests  1 failed | 36 passed (37)
+### C1 float delta instead of integer cents (re-run after adding the 0.10/0.07 and two-company-warehouse cases)
+   × the count correction is taken in whole cents: 0.10 on hand, 0.07 counted, books 0.03 at 0.015 -> 0.02 54ms
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 1 ⎯⎯⎯⎯⎯⎯⎯
+      Tests  1 failed | 18 passed (19)
+### C4 warehouse check not company-scoped (re-run after adding the 0.10/0.07 and two-company-warehouse cases)
+   × a user in BOTH companies cannot put this company's movement in the other company's warehouse 109ms
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 1 ⎯⎯⎯⎯⎯⎯⎯
+      Tests  1 failed | 18 passed (19)
+```
+
+## Round 5 correction (after /review re-review of dd3cd3e7f)
+The round-4 C2 mutation above was not the bare JS multiply: it also put back a float magnitude for a count, so it proved nothing about total_cost alone. Two reviewers reverted only the multiply and it survived: 0.05 x 0.5 is 0.025 in float too. A case where the float product lands below the half cent (0.03 x 5.5 = 0.16499999999999998) was added, on a decrease and on a count. The bare mutation now goes red:
+```
+### C2 (corrected) total_cost multiplied in JS float, integer-cents magnitude left in place
+   × total_cost is multiplied in SQL NUMERIC: 0.03 x 5.5 = 0.165 -> 0.17 on a decrease and on a count 45ms
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 1 ⎯⎯⎯⎯⎯⎯⎯
+      Tests  1 failed | 19 passed (20)
+```

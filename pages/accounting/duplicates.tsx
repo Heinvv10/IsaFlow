@@ -141,7 +141,10 @@ export default function DuplicatesPage() {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ entityType: mergeDialog.pair.entityType, primaryId, duplicateId }),
       });
-      const json = await res.json() as { data?: { reassignedTransactions: number }; error?: { message?: string } };
+      const json = await res.json() as {
+        data?: { reassignedTransactions: number; pausedRecurring?: number };
+        error?: { message?: string };
+      };
       // apiFetch resolves on a 4xx: a refused merge (e.g. differing DRC VAT
       // flags) must show its reason, not fall into a TypeError below.
       if (!res.ok || !json.data) {
@@ -150,7 +153,11 @@ export default function DuplicatesPage() {
         return;
       }
       const count = json.data.reassignedTransactions;
-      setMergeSuccess(`Merge complete. ${count} transaction${count !== 1 ? 's' : ''} reassigned.`);
+      const paused = json.data.pausedRecurring ?? 0;
+      const pausedNote = paused > 0
+        ? ` ${paused} recurring invoice${paused === 1 ? '' : 's'} paused — review before re-activating.`
+        : '';
+      setMergeSuccess(`Merge complete. ${count} transaction${count !== 1 ? 's' : ''} reassigned.${pausedNote}`);
       const key = pairKey(mergeDialog.pair);
       setDismissed(prev => {
         const next = new Set(prev);

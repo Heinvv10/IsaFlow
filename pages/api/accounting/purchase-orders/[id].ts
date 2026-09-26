@@ -37,6 +37,10 @@ function refuseStatus(res: NextApiResponse, status: string) {
   return apiResponse.badRequest(res, `Only draft or submitted purchase orders can be edited (this one is ${status})`);
 }
 
+function refuseDelete(res: NextApiResponse, status: string) {
+  return apiResponse.badRequest(res, `Only draft purchase orders can be deleted (this one is ${status})`);
+}
+
 async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse) {
   const { companyId } = req as CompanyAuthedRequest;
   const id = req.query.id as string;
@@ -225,17 +229,28 @@ async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse) {
 
   // ── DELETE ─────────────────────────────────────────────────────────────────
   if (req.method === 'DELETE') {
-    const existing = await sql`
-      SELECT id, status FROM purchase_orders
-      WHERE id = ${id}::UUID AND company_id = ${companyId}::UUID
+    // Fast refusal only. The status can change before the DELETE below, which
+    // carries the same check in its WHERE (R-129). po_items go by FK cascade.
+    const existing = await readStatus(id, companyId);
+    if (existing === null) return apiResponse.notFound(res, 'Purchase order', id);
+    if (existing !== 'draft') return refuseDelete(res, existing);
+
+    const deleted = await sql`
+      DELETE FROM purchase_orders
+      WHERE id = ${id}::UUID AND company_id = ${companyId}::UUID AND status = 'draft'
+      RETURNING id
     ` as Row[];
 
-    if (existing.length === 0) return apiResponse.notFound(res, 'Purchase order', id);
-    if (String(existing[0]!.status) !== 'draft') {
-      return apiResponse.badRequest(res, 'Only draft purchase orders can be deleted');
+    if (deleted.length === 0) {
+      const now = await readStatus(id, companyId);
+      if (now === null) return apiResponse.notFound(res, 'Purchase order', id);
+      // A draft again by the time of this read: the caller's view is stale.
+      if (now === 'draft') {
+        return apiResponse.conflict(res, 'The purchase order changed while deleting; reload and try again');
+      }
+      return refuseDelete(res, now);
     }
 
-    await sql`DELETE FROM purchase_orders WHERE id = ${id}::UUID AND company_id = ${companyId}::UUID`;
     log.info('Purchase order deleted', { id }, 'accounting');
     return apiResponse.success(res, { deleted: true, id });
   }
