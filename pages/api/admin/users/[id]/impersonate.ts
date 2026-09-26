@@ -1,5 +1,6 @@
 import { verifyTokenSignature } from '@/lib/auth/gotrue';
 import { mintImpersonationProof } from '@/lib/auth/impersonationAssurance';
+import { registerImpersonationSession } from '@/lib/auth/impersonationSessions';
 /**
  * POST /api/admin/users/:id/impersonate
  * Super-admin "Login as X" — swaps admin's session for target's via GoTrue
@@ -112,6 +113,11 @@ async function handler(req: PlatformAdminRequest, res: NextApiResponse): Promise
     proof = await mintImpersonationProof({
       actorUserId: req.user.id, targetUserId: target.userId, targetSessionId: targetClaims.session_id,
       actorExpiresAt: actorClaims.exp, stashExpiresAt: Math.floor(new Date(stash.expires_at).getTime() / 1000),
+    });
+    // R-032: the proof and stash cookies can be deleted by this browser; this
+    // row cannot. It is what refuses approval decisions from this session.
+    await registerImpersonationSession({
+      sessionId: targetClaims.session_id, actorUserId: req.user.id, targetUserId: target.userId,
     });
   } catch (proofErr) {
     await deleteStash(stashId).catch((cleanupErr: unknown) =>

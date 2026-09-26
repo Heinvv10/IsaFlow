@@ -29,7 +29,7 @@ const owner = crypto.randomUUID();
 const users = [admin, manager, owner];
 const tokens: Record<string, string> = {};
 
-const sign = (id: string) => new SignJWT({ sub: id, aal: 'aal2' })
+const sign = (id: string) => new SignJWT({ sub: id, aal: 'aal2', session_id: crypto.randomUUID() })
   .setProtectedHeader({ alg: 'HS256' })
   .setExpirationTime('1h')
   .sign(new TextEncoder().encode(process.env.JWT_SECRET));
