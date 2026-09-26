@@ -5,7 +5,7 @@
  */
 
 import { sql } from '@/lib/neon';
-import { ApprovalDocumentNotFoundError } from './approvalDocuments';
+import { resolveApprovalDocument } from './approvalDocuments';
 import type { DocumentType } from './approvalService';
 
 /** approve on a request whose document no longer has the content it was raised for. */
@@ -33,7 +33,10 @@ export class ApprovalExpectedDigestRequiredError extends Error {
  * approver would be vouching for figures the document no longer carries, or
  * for figures they never saw.
  *
- *  - document gone (the request had a digest, the document has none): 404;
+ *  - document gone — deleted, soft-deleted, or not this company's — 404,
+ *    checked by EXISTENCE (resolveApprovalDocument), not inferred from the
+ *    digest: a NULL stored digest equals a NULL live one, so a bill
+ *    soft-deleted before migration 708, or any type with no digest, passed;
  *  - request carries a digest but the caller named none: 400;
  *  - any disagreement: 409 DOCUMENT_CHANGED.
  * A request with NO digest (a type with no digest definition) needs none; one
@@ -55,11 +58,10 @@ export async function assertDocumentUnchanged(
   `) as Record<string, unknown>[];
   const row = rows[0];
   if (!row) return;
+  // Throws ApprovalDocumentNotFoundError (the route answers 404).
+  await resolveApprovalDocument(companyId, String(row.document_type) as DocumentType, String(row.document_id));
   const stored = row.stored != null ? String(row.stored) : null;
   const live = row.live != null ? String(row.live) : null;
-  if (stored !== null && live === null) {
-    throw new ApprovalDocumentNotFoundError(String(row.document_type) as DocumentType, String(row.document_id));
-  }
   const expected = expectedDigest ? expectedDigest : null;
   if (stored !== null && expected === null) throw new ApprovalExpectedDigestRequiredError(requestId);
   if (expected !== stored || stored !== live) throw new ApprovalDocumentChangedError(requestId);
