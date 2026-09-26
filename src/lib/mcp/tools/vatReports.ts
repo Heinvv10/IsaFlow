@@ -22,6 +22,7 @@ import {
 } from '@/modules/accounting/services/reports/vatGateOverrideService';
 import { getVatExceptions } from '@/modules/accounting/services/reports/vatExceptionsService';
 import { guardCastableArgs, ok, strArg, toolError } from './toolHelpers';
+import { withSavepoint } from '@/lib/neon';
 
 function periodArgs(args: Record<string, unknown>): { start: string; end: string } | string {
   const start = strArg(args, 'period_start');
@@ -205,25 +206,30 @@ export const lockVatPeriodTool: McpTool = {
     }
 
     // Blocking VAT exceptions gate — owner/admin only, with a reason. MCP
-    // carries no role on ctx, so it is read fresh from company_users.
+    // carries no role on ctx, so it is read fresh from company_users. The
+    // override record and the lock write run in ONE savepoint: if
+    // lockVatPeriod then fails, the override row rolls back with it — an
+    // override must never stand for a lock that never actually happened.
+    let result;
     try {
-      const role = (await getCompanyRoleForUser(ctx.companyId, actor.userId)) ?? '';
-      await assertVatGateClear(
-        ctx.companyId, period.start, period.end, 'vat_period_lock', null,
-        { userId: actor.userId, role }, overrideReason,
-      );
+      result = await withSavepoint('vat_gate_lock_mcp', async () => {
+        const role = (await getCompanyRoleForUser(ctx.companyId, actor.userId)) ?? '';
+        await assertVatGateClear(
+          ctx.companyId, period.start, period.end, 'vat_period_lock', null,
+          { userId: actor.userId, role }, overrideReason,
+        );
+        return lockVatPeriod(
+          ctx.companyId, period.start, period.end, figures,
+          { userId: actor.userId, actorType: actor.actorType, tokenJti: actor.tokenJti },
+          strArg(args, 'notes'),
+        );
+      });
     } catch (err) {
       if (err instanceof VatGateBlockedError || err instanceof VatGateOverrideForbiddenError) {
         return toolError(err.message);
       }
       throw err;
     }
-
-    const result = await lockVatPeriod(
-      ctx.companyId, period.start, period.end, figures,
-      { userId: actor.userId, actorType: actor.actorType, tokenJti: actor.tokenJti },
-      strArg(args, 'notes'),
-    );
 
     return {
       ...ok({ locked: result.lock, created: result.created, rateCheck: report.rateCheck }),

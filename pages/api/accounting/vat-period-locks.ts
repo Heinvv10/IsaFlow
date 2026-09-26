@@ -23,6 +23,7 @@ import type { NextApiRequest, NextApiResponse } from 'next';
 import { z } from 'zod';
 import { withErrorHandler } from '@/lib/api-error-handler';
 import { apiResponse } from '@/lib/apiResponse';
+import { withSavepoint } from '@/lib/neon';
 import {
   withAuth, withRole, withWriteAccess, type AuthenticatedNextApiRequest, type CompanyAuthedRequest,
 } from '@/lib/auth';
@@ -89,15 +90,21 @@ async function lockChecked(
   }
   // Blocking VAT exceptions — separate from the rateCheck/force refusal above.
   // Runs before lockVatPeriod's write; only an owner/admin with a reason may
-  // proceed with exceptions outstanding.
+  // proceed with exceptions outstanding. Both the override record and the
+  // lock write run in ONE savepoint: if lockVatPeriod then refuses or fails,
+  // the override row rolls back with it — an override must never stand for a
+  // lock that never actually happened.
   const companyRole = (req as CompanyAuthedRequest).companyRole;
-  const gate = await assertVatGateClear(
-    companyId, body.periodStart, body.periodEnd, 'vat_period_lock', null,
-    { userId, role: companyRole }, body.overrideReason,
-  );
-  const result = await lockVatPeriod(
-    companyId, body.periodStart, body.periodEnd, figures, { userId, actorType: 'human' }, body.notes,
-  );
+  const { gate, result } = await withSavepoint('vat_gate_lock', async () => {
+    const g = await assertVatGateClear(
+      companyId, body.periodStart, body.periodEnd, 'vat_period_lock', null,
+      { userId, role: companyRole }, body.overrideReason,
+    );
+    const r = await lockVatPeriod(
+      companyId, body.periodStart, body.periodEnd, figures, { userId, actorType: 'human' }, body.notes,
+    );
+    return { gate: g, result: r };
+  });
   log.info('VAT period lock via API', { companyId, lockId: result.lock.id, created: result.created }, 'accounting-api');
   return apiResponse.success(res, {
     lock: result.lock, created: result.created, rateCheck: report.rateCheck,
