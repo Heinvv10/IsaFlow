@@ -277,15 +277,19 @@ export async function getVatExceptions(
     unsupportedInputVatCount: inputSupport.unsupported.length,
     inputVatWithoutTaxInvoice: inputSupport.withoutTaxInvoice.slice(0, LIST_CAP),
     inputVatWithoutTaxInvoiceCount: inputSupport.withoutTaxInvoice.length,
-    // The "no tax invoice on file" list is deliberately NOT counted (Hein).
-    // Neither is unsupportedInputVat (Hein, 2026-09-26): holding a valid tax
-    // invoice is the vendor's legal responsibility under s16(2), and the
-    // invoice may be held outside IsaFlow — so it stays fully visible above
-    // (with its amounts and reasons) but no longer blocks filing/locking.
+    // The "no tax invoice on file" list is deliberately NOT counted (Hein) —
+    // inputSupport.unsupported now holds only `amount_mismatch` /
+    // `document_over_claimed` rows (Hein, 2026-09-26): `no_document` and
+    // `unreadable_document_vat` moved into the non-blocking
+    // inputVatWithoutTaxInvoice list (classifyInputVatSupport,
+    // vatInputSupport.ts) because they mean a RECORD is missing, not that the
+    // return's figures are wrong. What remains here means the claimed VAT
+    // does not tie to what supports it — the figures ARE wrong — so it still
+    // counts.
     totalExceptions:
       uncodedGlLineCount + invoiceTaxCodeIssueCount + invoiceGlMismatchCount
       + vatOnBalanceSheetCount + vatNonSupplyCount + reconExceptions
-      + unpostedInvoiceVat.length,
+      + inputSupport.unsupported.length + unpostedInvoiceVat.length,
     degradedData: vat201.degradedSources.length > 0,
     degradedSources: vat201.degradedSources,
   };

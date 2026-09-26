@@ -28,12 +28,9 @@ interface Props {
   exceptionsHref?: string;
 }
 
-// unsupportedInputVatCount is deliberately absent (Hein, 2026-09-26): it no
-// longer contributes to totalExceptions, so listing it here as a cause of a
-// "blocking VAT exception" would misrepresent it — it stays visible in the
-// exceptions panel instead.
 const LABELS: Array<[keyof VatGateCounts, string]> = [
   ['unpostedInvoiceVatCount', 'unposted invoice/bill VAT'],
+  ['unsupportedInputVatCount', 'input VAT that exceeds its support'],
   ['uncodedGlLineCount', 'uncoded GL VAT lines'],
   ['invoiceTaxCodeIssueCount', 'invoice tax-code issues'],
   ['invoiceGlMismatchCount', 'invoice ↔ GL VAT mismatches'],

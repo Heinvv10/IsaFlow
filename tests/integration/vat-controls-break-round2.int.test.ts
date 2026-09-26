@@ -115,12 +115,13 @@ describeIfDb('VAT input-support control: unlink/relink double-claim (round 2)', 
 
     // CORRECT: the document's R1000 cannot support R2000 across the two
     // claims that have EVER carried an active link to it — journal B's claim
-    // must be flagged (over-claimed against the document), regardless of what
-    // unlinking did to A's OWN report (A's own re-run is a separate, correct
-    // concern — this asserts the cross-claim ceiling holds looking forward
-    // from B). Unsupported input VAT no longer blocks filing on its own
-    // (Hein, 2026-09-26) — the flag stays, the gate does not.
+    // must be flagged `document_over_claimed` (over-claimed against the
+    // document) and STILL BLOCK filing (Hein, 2026-09-26: this means the
+    // return's figures are wrong, unlike a bare missing-document claim),
+    // regardless of what unlinking did to A's OWN report (A's own re-run is a
+    // separate, correct concern — this asserts the cross-claim ceiling holds
+    // looking forward from B).
     expect(repB.unsupportedInputVat.map((u) => u.journalEntryId)).toContain(jB);
-    expect(evaluateEfilingGate(repB).allowed).toBe(true);
+    expect(evaluateEfilingGate(repB).allowed).toBe(false);
   }, 60000);
 });

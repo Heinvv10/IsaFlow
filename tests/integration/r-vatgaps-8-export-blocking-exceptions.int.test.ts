@@ -72,12 +72,13 @@ describeIfDb('exportVat201.blockingExceptions', () => {
   it('the DIRTY period carries the same counts exportVat201 and getVatExceptions agree on, and still exports', async () => {
     const direct = await inTx(fx, () => getVatExceptions(fx.companyId, DIRTY.start, DIRTY.end));
     const expected = vatGateExceptionCounts(direct);
-    // The uncoded GL line still blocks; the unsupported input-VAT claim is
-    // listed (unsupportedInputVatCount > 0) but no longer contributes to
-    // totalExceptions on its own (Hein, 2026-09-26).
+    // The uncoded GL line still blocks. The bare (no_document) unsupported
+    // claim is listed under inputVatWithoutTaxInvoice, not unsupportedInputVat
+    // — it means only a record is missing, not that the figures are wrong
+    // (Hein, 2026-09-26), so it does not contribute to totalExceptions.
     expect(expected.uncodedGlLineCount).toBeGreaterThan(0);
     expect(expected.totalExceptions).toBeGreaterThan(0);
-    expect(expected.unsupportedInputVatCount).toBeGreaterThan(0);
+    expect(direct.inputVatWithoutTaxInvoiceCount).toBeGreaterThan(0);
 
     const out = await inTx(fx, () => exportVat201(fx.companyId, DIRTY.start, DIRTY.end));
 

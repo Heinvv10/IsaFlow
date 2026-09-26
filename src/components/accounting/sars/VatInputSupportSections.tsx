@@ -1,16 +1,18 @@
 /**
  * The two input-VAT support sections of the pre-filing exceptions panel
- * (reports/vatInputSupport.ts) — BOTH warnings, neither blocking:
+ * (reports/vatInputSupport.ts). The cut (Hein, 2026-09-26) is whether the
+ * return's FIGURES would be wrong, not whether a document is attached:
  *
- *   - "Input VAT with nothing behind it" — NOT blocking (Hein, 2026-09-26).
- *     A claim linked to no document, or one that disagrees with the document
- *     it is linked to. Holding a valid tax invoice is the vendor's legal
- *     responsibility, and it may be held outside IsaFlow, so this no longer
- *     refuses locking/mark-submitted/eFiling — it stays visible, with its
- *     amount and a "Link tax invoice" action, so it can be cleared up.
- *   - "Input VAT with no tax invoice on file" — NOT blocking (Hein,
- *     2026-09-25). Supported by a bank line or an approved VAT adjustment:
- *     the money moved, but the tax invoice should be attached.
+ *   - "Input VAT that exceeds its support" — BLOCKING. `amount_mismatch`
+ *     (credit note, expense claim, captured document, bank ceiling) or
+ *     `document_over_claimed`: the claimed VAT does not tie to what actually
+ *     supports it, so the return's figures are wrong.
+ *   - "Input VAT with no tax invoice on file" — NOT blocking. Supported only
+ *     by a bank line or an approved VAT adjustment (Hein, 2026-09-25); linked
+ *     to no document at all, or to one whose VAT couldn't be read (Hein,
+ *     2026-09-26). Only a RECORD is missing — holding the tax invoice is the
+ *     vendor's legal responsibility, and it may be held outside IsaFlow, so
+ *     attaching or linking it here is optional.
  *
  * Split out of VAT201ExceptionsPanel for the 300-line file limit; the panel
  * passes its collapsible <Section> shell in so both look the same.
@@ -83,26 +85,28 @@ export default function VatInputSupportSections({ report, Section }: {
 }) {
   return (
     <>
-      <Section title="Input VAT with nothing behind it (not blocking)" count={report.unsupportedInputVatCount}
+      <Section title="Input VAT that exceeds its support" count={report.unsupportedInputVatCount}
         listed={report.unsupportedInputVat.length}>
         <p className={`${td} !border-0 text-slate-500 whitespace-normal`}>
-          Every input-VAT claim needs a document behind it. These journals claim input VAT that
-          is linked to no bill, expense claim, captured receipt, credit note or bank line, or
-          that differs from the document they are linked to. Holding a valid tax invoice for this
-          input VAT is the vendor&apos;s legal responsibility, and it may be held outside
-          IsaFlow — so this does not block filing. Attaching or linking it here is optional.
+          These journals claim more input VAT than the bill, expense claim, captured receipt,
+          credit note or bank line they are linked to actually supports — or the same document
+          twice over. The return&apos;s figures are wrong until this is fixed. They block filing:
+          link the correct document, correct the claim, or reverse it.
         </p>
         <SupportTable lines={report.unsupportedInputVat} linkable />
       </Section>
       <Section title="Input VAT with no tax invoice on file (not blocking)" count={report.inputVatWithoutTaxInvoiceCount}
         listed={report.inputVatWithoutTaxInvoice.length}>
         <p className={`${td} !border-0 text-slate-500 whitespace-normal`}>
-          These claims are supported by the bank line (or an approved VAT adjustment), so the
-          money moved — but no tax invoice is attached. They do not block filing; attach the tax
-          invoice so the deduction can be substantiated. An invoice attached to the bank line
-          itself (bank-transactions) also clears the claim from this list.
+          These claims are supported only by a bank line or an approved VAT adjustment, or are
+          linked to no document at all, or to one whose VAT amount couldn&apos;t be read — so the
+          money moved but no tax invoice is on file here. Holding a valid tax invoice for this
+          input VAT is the vendor&apos;s legal responsibility, and it may be held outside IsaFlow,
+          so this does not block filing. Attaching or linking it here is optional. An invoice
+          attached to the bank line itself (bank-transactions) also clears a bank-only claim from
+          this list.
         </p>
-        <SupportTable lines={report.inputVatWithoutTaxInvoice} />
+        <SupportTable lines={report.inputVatWithoutTaxInvoice} linkable />
       </Section>
     </>
   );

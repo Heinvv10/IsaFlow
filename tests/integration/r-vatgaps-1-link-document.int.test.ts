@@ -2,11 +2,13 @@
  * VAT-gaps batch item 1: linking a captured document to a posted journal
  * against a real ledger (gl/journalDocumentLinkService, migration 706).
  *
- * Covers: linking clears unsupportedInputVat; the claim is still judged
- * against the document's VAT (a smaller document can't support a bigger
- * claim); another company's document is refused; a document already used
- * (via source_document_id OR another active link) is refused; unlinking
- * restores the block.
+ * Covers: an unlinked journal's `no_document` row is non-blocking (Hein,
+ * 2026-09-26); linking clears it from inputVatWithoutTaxInvoice; the claim
+ * is still judged against the document's VAT (a smaller document can't
+ * support a bigger claim — `amount_mismatch`, still blocking); another
+ * company's document is refused; a document already used (via
+ * source_document_id OR another active link) is refused; unlinking returns
+ * the journal to the non-blocking no_document row.
  *
  * Item 2 (bank attachment): an invoice attached to the bank line behind a
  * bank-only-supported journal moves it off "no tax invoice on file"
@@ -86,19 +88,21 @@ describeIfDb('VAT-gaps item 1: link a document to a posted journal', () => {
     await dropFixture(otherFx);
   }, 120000);
 
-  it('a bare manual VAT journal is blocking with no link', async () => {
+  it('a bare manual VAT journal with no link is listed as no_document, NOT blocking (Hein, 2026-09-26)', async () => {
     const je = await manualVatJournal(30);
     const support = await inTx(fx, () => findInputVatSupport(fx.companyId, PERIOD_START, PERIOD_END));
-    expect(support.unsupported.some((u) => u.journalEntryId === je)).toBe(true);
+    expect(support.unsupported.some((u) => u.journalEntryId === je)).toBe(false);
+    expect(support.withoutTaxInvoice.find((u) => u.journalEntryId === je)?.reason).toBe('no_document');
   });
 
-  it('linking a matching document clears it from unsupportedInputVat', async () => {
+  it('linking a matching document clears it from inputVatWithoutTaxInvoice', async () => {
     const je = await manualVatJournal(30);
     const doc = await captureDoc(fx, 30);
     await inTx(fx, () => linkDocumentToJournal(fx.companyId, je, doc, fx.userId, 'Invoice attached'));
 
     const support = await inTx(fx, () => findInputVatSupport(fx.companyId, PERIOD_START, PERIOD_END));
     expect(support.unsupported.some((u) => u.journalEntryId === je)).toBe(false);
+    expect(support.withoutTaxInvoice.some((u) => u.journalEntryId === je)).toBe(false);
   });
 
   it('the claim is still judged against the document VAT — a R30 document cannot support R60', async () => {
@@ -167,16 +171,18 @@ describeIfDb('VAT-gaps item 1: link a document to a posted journal', () => {
     }
   });
 
-  it('unlinking restores the block', async () => {
+  it('unlinking returns the journal to the non-blocking no_document row (Hein, 2026-09-26)', async () => {
     const je = await manualVatJournal(30);
     const doc = await captureDoc(fx, 30);
     await inTx(fx, () => linkDocumentToJournal(fx.companyId, je, doc, fx.userId, 'Invoice attached'));
     let support = await inTx(fx, () => findInputVatSupport(fx.companyId, PERIOD_START, PERIOD_END));
     expect(support.unsupported.some((u) => u.journalEntryId === je)).toBe(false);
+    expect(support.withoutTaxInvoice.some((u) => u.journalEntryId === je)).toBe(false);
 
     await inTx(fx, () => unlinkDocumentFromJournal(fx.companyId, je, doc, fx.userId, 'wrong document'));
     support = await inTx(fx, () => findInputVatSupport(fx.companyId, PERIOD_START, PERIOD_END));
-    expect(support.unsupported.some((u) => u.journalEntryId === je)).toBe(true);
+    expect(support.unsupported.some((u) => u.journalEntryId === je)).toBe(false);
+    expect(support.withoutTaxInvoice.find((u) => u.journalEntryId === je)?.reason).toBe('no_document');
   });
 });
 
