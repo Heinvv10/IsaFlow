@@ -6,8 +6,9 @@
  */
 import { useState } from 'react';
 import { Loader2 } from 'lucide-react';
-import { apiFetch } from '@/lib/apiFetch';
+import { apiFetch, ApiRequestError, assertOk } from '@/lib/apiFetch';
 import { useCompany } from '@/contexts/CompanyContext';
+import { log } from '@/lib/logger';
 import type { VatExceptionsReport } from '@/modules/accounting/services/reports/vatExceptionsTypes';
 
 const OVERRIDE_ROLES = ['owner', 'admin', 'super_admin'];
@@ -22,6 +23,7 @@ export default function VatDeclaredElsewhereSection({ report, onChanged }: {
   const { companyRole } = useCompany();
   const isOwnerOrAdmin = OVERRIDE_ROLES.includes(companyRole ?? '');
   const [busyId, setBusyId] = useState<string | null>(null);
+  const [error, setError] = useState<string | null>(null);
 
   if (report.declaredElsewhereVatCount === 0) return null;
 
@@ -29,12 +31,17 @@ export default function VatDeclaredElsewhereSection({ report, onChanged }: {
     const reason = window.prompt('Why is this being unmarked (restoring the block)?');
     if (!reason || !reason.trim()) return;
     setBusyId(invoiceId);
+    setError(null);
     try {
-      await apiFetch('/api/accounting/vat-declared-elsewhere', {
+      const res = await apiFetch('/api/accounting/vat-declared-elsewhere', {
         method: 'POST',
         body: JSON.stringify({ action: 'unmark', kind, invoiceIds: [invoiceId], reason: reason.trim() }),
       });
+      await assertOk(res, 'Could not unmark this document');
       onChanged();
+    } catch (err) {
+      log.warn('VatDeclaredElsewhereSection: unmark failed', { error: err }, 'VatDeclaredElsewhereSection');
+      setError(err instanceof ApiRequestError ? err.message : 'Could not unmark this document');
     } finally {
       setBusyId(null);
     }
@@ -48,6 +55,7 @@ export default function VatDeclaredElsewhereSection({ report, onChanged }: {
       <p className={`${td} !border-0 text-slate-500 whitespace-normal`}>
         Not blocking filing — marked by an owner/admin as historical/already declared.
       </p>
+      {error && <p className={`${td} !border-0 text-red-400 whitespace-normal`}>{error}</p>}
       <table className="min-w-full mt-2">
         <thead><tr>
           <th className={th}>Invoice</th><th className={th}>Type</th><th className={th}>Counterparty</th>

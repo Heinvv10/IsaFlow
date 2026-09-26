@@ -4,7 +4,10 @@ import { fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { afterEach, expect, it, vi } from 'vitest';
 
 const h = vi.hoisted(() => ({ apiFetchMock: vi.fn() }));
-vi.mock('@/lib/apiFetch', () => ({ apiFetch: h.apiFetchMock }));
+vi.mock('@/lib/apiFetch', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('@/lib/apiFetch')>()),
+  apiFetch: h.apiFetchMock,
+}));
 
 import { LinkTaxInvoiceButton } from '@/components/accounting/gl/LinkTaxInvoiceButton';
 
@@ -50,4 +53,39 @@ it('shows an active link with an unlink action instead of the picker', async () 
   render(<LinkTaxInvoiceButton journalEntryId="je-1" />);
   fireEvent.click(screen.getByText(/Link tax invoice/));
   expect(await screen.findByText(/Unlink/)).toBeTruthy();
+});
+
+it('a refused link (400) shows the server message, stays open, and never reports success', async () => {
+  const errRes = new Response(JSON.stringify({ success: false, message: 'Captured document already linked' }), { status: 400 });
+  h.apiFetchMock
+    .mockResolvedValueOnce(jsonRes({ links: [], candidates: [{ id: 'doc-1', fileName: 'invoice.pdf', documentType: null }] }))
+    .mockResolvedValueOnce(errRes);
+  window.prompt = vi.fn().mockReturnValue('Matches the bill');
+  const onChanged = vi.fn();
+  render(<LinkTaxInvoiceButton journalEntryId="je-1" onChanged={onChanged} />);
+  fireEvent.click(screen.getByText(/Link tax invoice/));
+  await screen.findByText(/invoice\.pdf/);
+  fireEvent.click(screen.getByText('Link'));
+
+  expect(await screen.findByText(/Captured document already linked/)).toBeTruthy();
+  expect(onChanged).not.toHaveBeenCalled();
+  // Still open, picker still visible — not silently closed as if it worked.
+  expect(screen.getByText('Link')).toBeTruthy();
+});
+
+it('an unlink that fails on the server shows the error and does not clear the active link', async () => {
+  const errRes = new Response(JSON.stringify({ success: false, message: 'No active link found' }), { status: 400 });
+  h.apiFetchMock
+    .mockResolvedValueOnce(jsonRes({ links: [{ id: 'link-1', capturedDocumentId: 'doc-1' }], candidates: [] }))
+    .mockResolvedValueOnce(errRes);
+  window.prompt = vi.fn().mockReturnValue('Wrong entry');
+  const onChanged = vi.fn();
+  render(<LinkTaxInvoiceButton journalEntryId="je-1" onChanged={onChanged} />);
+  fireEvent.click(screen.getByText(/Link tax invoice/));
+  await screen.findByText(/Unlink/);
+  fireEvent.click(screen.getByText(/Unlink/));
+
+  expect(await screen.findByText(/No active link found/)).toBeTruthy();
+  expect(onChanged).not.toHaveBeenCalled();
+  expect(screen.getByText(/Unlink/)).toBeTruthy();
 });

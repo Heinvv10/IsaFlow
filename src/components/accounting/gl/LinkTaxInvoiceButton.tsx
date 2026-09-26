@@ -10,7 +10,8 @@
  */
 import { useCallback, useEffect, useState } from 'react';
 import { Link2, Loader2, Unlink } from 'lucide-react';
-import { apiFetch } from '@/lib/apiFetch';
+import { apiFetch, ApiRequestError, assertOk } from '@/lib/apiFetch';
+import { log } from '@/lib/logger';
 
 interface LinkableDocument {
   id: string;
@@ -34,6 +35,7 @@ export function LinkTaxInvoiceButton({ journalEntryId, onChanged }: Props) {
   const [links, setLinks] = useState<ActiveLink[]>([]);
   const [candidates, setCandidates] = useState<LinkableDocument[]>([]);
   const [selectedId, setSelectedId] = useState('');
+  const [error, setError] = useState<string | null>(null);
 
   const load = useCallback(async () => {
     const res = await apiFetch(`/api/accounting/journal-document-links?journal_entry_id=${journalEntryId}`);
@@ -54,15 +56,20 @@ export function LinkTaxInvoiceButton({ journalEntryId, onChanged }: Props) {
     const reason = window.prompt('Why does this document back this journal\'s VAT claim?');
     if (!reason || !reason.trim()) return;
     setBusy(true);
+    setError(null);
     try {
-      await apiFetch('/api/accounting/journal-document-links', {
+      const res = await apiFetch('/api/accounting/journal-document-links', {
         method: 'POST',
         body: JSON.stringify({
           action: 'link', journalEntryId, capturedDocumentId: selectedId, reason: reason.trim(),
         }),
       });
+      await assertOk(res, 'Could not link this document');
       setOpen(false);
       onChanged?.();
+    } catch (err) {
+      log.warn('LinkTaxInvoiceButton: link failed', { error: err }, 'LinkTaxInvoiceButton');
+      setError(err instanceof ApiRequestError ? err.message : 'Could not link this document');
     } finally {
       setBusy(false);
     }
@@ -72,15 +79,20 @@ export function LinkTaxInvoiceButton({ journalEntryId, onChanged }: Props) {
     const reason = window.prompt('Why is this document being unlinked?');
     if (!reason || !reason.trim()) return;
     setBusy(true);
+    setError(null);
     try {
-      await apiFetch('/api/accounting/journal-document-links', {
+      const res = await apiFetch('/api/accounting/journal-document-links', {
         method: 'POST',
         body: JSON.stringify({
           action: 'unlink', journalEntryId, capturedDocumentId, reason: reason.trim(),
         }),
       });
+      await assertOk(res, 'Could not unlink this document');
       await load();
       onChanged?.();
+    } catch (err) {
+      log.warn('LinkTaxInvoiceButton: unlink failed', { error: err }, 'LinkTaxInvoiceButton');
+      setError(err instanceof ApiRequestError ? err.message : 'Could not unlink this document');
     } finally {
       setBusy(false);
     }
@@ -100,6 +112,7 @@ export function LinkTaxInvoiceButton({ journalEntryId, onChanged }: Props) {
 
   return (
     <div className="rounded-lg border border-[var(--ff-border-light)] bg-[var(--ff-bg-tertiary)] p-3 space-y-2 text-xs">
+      {error && <p className="text-red-400">{error}</p>}
       {links.map((l) => (
         <div key={l.id} className="flex items-center justify-between gap-2">
           <span className="text-[var(--ff-text-secondary)]">Linked document: {l.capturedDocumentId}</span>
