@@ -99,6 +99,8 @@ export function mapMismatch(kind: 'customer' | 'supplier') {
 }
 
 export function mapDeclaredElsewhere(r: Row): DeclaredElsewhereVatLine {
+  const markedBy = String(r.marked_by ?? '');
+  const markedByName = r.marked_by_name == null ? '' : String(r.marked_by_name).trim();
   return {
     invoiceId: String(r.invoice_id),
     invoiceKind: String(r.kind) === 'supplier' ? 'supplier' : 'customer',
@@ -107,7 +109,10 @@ export function mapDeclaredElsewhere(r: Row): DeclaredElsewhereVatLine {
     invoiceDate: dateStr(r.invoice_date),
     vat: r2(toNum(r.unposted_vat)),
     markedAt: r.marked_at instanceof Date ? r.marked_at.toISOString() : String(r.marked_at ?? ''),
-    markedBy: String(r.marked_by ?? ''),
+    markedBy,
+    // A joined display name (first + last, else email), falling back to the
+    // raw id only when no user row resolves (e.g. the user was deleted).
+    markedByName: markedByName !== '' ? markedByName : markedBy,
     markedReason: String(r.marked_reason ?? ''),
   };
 }

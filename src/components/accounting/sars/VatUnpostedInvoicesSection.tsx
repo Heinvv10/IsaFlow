@@ -10,10 +10,10 @@
  * is unsafe for an imported document. Never posts a journal.
  */
 import { useState, type ReactNode } from 'react';
-import { Loader2 } from 'lucide-react';
 import { apiFetch, ApiRequestError, assertOk } from '@/lib/apiFetch';
 import { useCompany } from '@/contexts/CompanyContext';
 import { log } from '@/lib/logger';
+import { InlineReasonForm } from '@/components/shared/InlineReasonForm';
 import type { VatExceptionsReport } from '@/modules/accounting/services/reports/vatExceptionsTypes';
 
 const OVERRIDE_ROLES = ['owner', 'admin', 'super_admin'];
@@ -35,6 +35,7 @@ export default function VatUnpostedInvoicesSection({ report, Section, onChanged 
   const isOwnerOrAdmin = OVERRIDE_ROLES.includes(companyRole ?? '');
   const { unpostedCustomerVat, unpostedSupplierVat } = report.controlRecon;
   const [selected, setSelected] = useState<Set<string>>(new Set());
+  const [confirming, setConfirming] = useState(false);
   const [marking, setMarking] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -48,10 +49,8 @@ export default function VatUnpostedInvoicesSection({ report, Section, onChanged 
     });
   };
 
-  const markSelected = async () => {
+  const markSelected = async (reason: string) => {
     if (selected.size === 0) return;
-    const reason = window.prompt(`Mark ${selected.size} document(s) "VAT declared outside IsaFlow" — why?`);
-    if (!reason || !reason.trim()) return;
     setMarking(true);
     setError(null);
     try {
@@ -63,7 +62,7 @@ export default function VatUnpostedInvoicesSection({ report, Section, onChanged 
       for (const [kind, invoiceIds] of byKind) {
         const res = await apiFetch('/api/accounting/vat-declared-elsewhere', {
           method: 'POST',
-          body: JSON.stringify({ action: 'mark', kind, invoiceIds, reason: reason.trim() }),
+          body: JSON.stringify({ action: 'mark', kind, invoiceIds, reason }),
         });
         // Any batch failing stops here — the selection is left untouched (not
         // cleared) so the user can see exactly what still needs marking and
@@ -71,6 +70,7 @@ export default function VatUnpostedInvoicesSection({ report, Section, onChanged 
         await assertOk(res, `Could not mark ${kind} document(s) declared elsewhere`);
       }
       setSelected(new Set());
+      setConfirming(false);
       onChanged?.();
     } catch (err) {
       log.warn('VatUnpostedInvoicesSection: mark failed', { error: err }, 'VatUnpostedInvoicesSection');
@@ -89,14 +89,25 @@ export default function VatUnpostedInvoicesSection({ report, Section, onChanged 
         (approve / finalise) before filing, or — for an imported historical document only — an
         owner/admin can mark it VAT declared outside IsaFlow below.
       </p>
-      {isOwnerOrAdmin && (
+      {isOwnerOrAdmin && !confirming && (
         <button
-          type="button" disabled={selected.size === 0 || marking}
-          onClick={() => void markSelected()}
+          type="button" disabled={selected.size === 0}
+          onClick={() => setConfirming(true)}
           className="mb-2 inline-flex items-center gap-1.5 rounded-lg bg-amber-600 px-3 py-1.5 text-xs font-medium text-white hover:bg-amber-700 disabled:opacity-50"
         >
-          {marking && <Loader2 className="h-3 w-3 animate-spin" />} Mark {selected.size || ''} declared elsewhere
+          Mark {selected.size || ''} declared elsewhere
         </button>
+      )}
+      {isOwnerOrAdmin && confirming && (
+        <div className="mb-2">
+          <InlineReasonForm
+            label={`Mark ${selected.size} document(s) "VAT declared outside IsaFlow" — why?`}
+            confirmLabel="Mark"
+            busy={marking}
+            onConfirm={(reason) => void markSelected(reason)}
+            onCancel={() => setConfirming(false)}
+          />
+        </div>
       )}
       {error && <p className={`${td} !border-0 text-red-400 whitespace-normal`}>{error}</p>}
       <table className="min-w-full">

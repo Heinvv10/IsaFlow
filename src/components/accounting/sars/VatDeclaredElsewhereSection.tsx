@@ -71,7 +71,7 @@ export default function VatDeclaredElsewhereSection({ report, onChanged }: {
               <td className={td}>{d.counterpartyName}</td>
               <td className={td}>{d.invoiceDate}</td>
               <td className={`${td} text-right tabular-nums`}>{fmt(d.vat)}</td>
-              <td className={td}>{d.markedBy}</td>
+              <td className={td}>{d.markedByName}</td>
               <td className={`${td} max-w-[16rem] truncate`}>{d.markedReason}</td>
               {isOwnerOrAdmin && (
                 <td className={td}>
