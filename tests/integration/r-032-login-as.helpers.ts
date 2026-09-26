@@ -18,6 +18,8 @@ export interface LoginAsFixture {
   company: string;
   platformAdmin: string;
   target: string;
+  /** Non-GoTrue URLs the code under test tried to fetch (all refused). */
+  outbound: string[];
   setUp(): Promise<void>;
   tearDown(): Promise<void>;
   /** Cookies of a "Login as target" session started through the real route. */
@@ -31,10 +33,11 @@ export function loginAsFixture(pool: Pool, label: string): LoginAsFixture {
   const company = crypto.randomUUID();
   const platformAdmin = crypto.randomUUID();
   const target = crypto.randomUUID();
-  const gotrue: FakeGotrue = { nextSessionId: crypto.randomUUID(), minted: [] };
+  const outbound: string[] = [];
+  const gotrue: FakeGotrue = { nextSessionId: crypto.randomUUID(), minted: [], outbound };
 
   return {
-    company, platformAdmin, target,
+    company, platformAdmin, target, outbound,
 
     async setUp() {
       vi.stubEnv('SUPABASE_ANON_KEY', 'r032-anon');
