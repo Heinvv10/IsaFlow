@@ -14,6 +14,9 @@ import { sql } from '@/lib/neon';
 import type { DbRow } from '@/lib/neon';
 import { SupplierPaymentRefusal } from './supplierPaymentRefusal';
 
+/** How every settlement refusal names the undo — the UI action first. */
+export const UNAPPLY_REMEDY = 'Unapply on the payment page (or the unapply_supplier_payment tool)';
+
 /** Only these sources can be either half; anything else is decided without a query. */
 const SETTLEMENT_SOURCES = new Set(['auto_bank_recon', 'auto_supplier_payment']);
 
@@ -37,8 +40,8 @@ export async function refuseReversingSettlementJournal(
     : 'is the reclass that made its provisional the settlement of';
   throw new SupplierPaymentRefusal(
     `Journal entry ${entry.entryNumber} ${half} a supplier bill through payment ${String(row.payment_number)}. `
-    + 'Reversing it alone would leave that settlement half-booked. Unapply the payment '
-    + '(unapply_supplier_payment) to reopen the bill; the provisional and its reclass stay as they are.',
+    + `Reversing it alone would leave that settlement half-booked. To undo it, use ${UNAPPLY_REMEDY}, then `
+    + 'void the payment: that reverses the provisional and its reclass together and frees the bank line.',
   );
 }
 
@@ -62,7 +65,7 @@ export async function refuseSettledProvisionalLine(
   if (!row) return;
   throw new SupplierPaymentRefusal(
     `This bank line's provisional journal settled a supplier bill through payment ${String(row.payment_number)}. `
-    + 'Resetting the line would leave that cash booked and allocatable again. Unapply the payment '
-    + '(unapply_supplier_payment) to reopen the bill instead.',
+    + `Resetting the line would leave that cash booked and allocatable again. To undo it, use ${UNAPPLY_REMEDY}, `
+    + 'then void the payment: that reverses both journals and frees this line.',
   );
 }

@@ -12,12 +12,15 @@
  * reclasses the provisional into the invoice's payment
  * (`ap/provisionalInvoiceSettlement.ts`) and leaves it paid.
  *
- * Best-effort, like the attach itself, and in its OWN savepoint: a failure (an
- * invoice with no line items cannot post a balanced journal) rolls back only
- * the settlement, leaving the invoice approved and unposted exactly as before,
- * and never the request that created it.
+ * In its OWN savepoint: a failure (an invoice with no line items cannot post a
+ * balanced journal; a refusal such as a filed VAT period) rolls back only the
+ * settlement, never the request that created the invoice. The auto-approval is
+ * then WITHDRAWN — the bill goes back to 'draft' with the reason in its notes and
+ * in the response. Left 'approved' with no journal it read as owing in the AP
+ * ageing a bill the provisional has already paid, and paying it would pay twice;
+ * a draft is outside the AP population until a person approves it.
  */
-import { withSavepoint } from '@/lib/neon';
+import { sql, withSavepoint } from '@/lib/neon';
 import { log } from '@/lib/logger';
 import { postSupplierInvoiceToGL } from '@/modules/accounting/services/ap/supplierInvoiceWorkflowService';
 import { attachEvidenceToProvisional, type AttachResult } from './evidenceAttachmentService';
@@ -34,7 +37,9 @@ export interface AttachAndSettleInput {
   invoiceDate: string;
 }
 
-export async function attachEvidenceAndSettleApproved(input: AttachAndSettleInput): Promise<AttachResult> {
+export async function attachEvidenceAndSettleApproved(
+  input: AttachAndSettleInput,
+): Promise<AttachResult & { settlementRefused?: string }> {
   const { companyId, documentId, invoiceId } = input;
   const attached = await attachEvidenceToProvisional(
     companyId, documentId, input.supplierId, input.totalAmount, input.invoiceDate,
@@ -44,10 +49,20 @@ export async function attachEvidenceAndSettleApproved(input: AttachAndSettleInpu
   try {
     await withSavepoint('provisional_settle', () => postSupplierInvoiceToGL(companyId, invoiceId, input.userId));
   } catch (err) {
-    log.warn('Auto-approved invoice could not be settled against its provisional — left approved and unposted', {
-      companyId, invoiceId, provisionalJeId: attached.attachedJeId,
-      error: err instanceof Error ? err.message : String(err),
+    const reason = err instanceof Error ? err.message : String(err);
+    log.warn('Auto-approved invoice could not be settled against its provisional — returned to draft', {
+      companyId, invoiceId, provisionalJeId: attached.attachedJeId, error: reason,
     }, 'evidence-attachment');
+    // Outside the savepoint, on the request transaction: no journal was left, so
+    // only the status moves back. Not caught — a failure here must fail the request.
+    await sql`
+      UPDATE supplier_invoices
+      SET status = 'draft',
+          notes = concat_ws(E'\n', notes, ${`Auto-approval withdrawn: this bill's slip is already booked by a bank-first provisional journal, and settling the bill against it failed (${reason}). Review it and approve it by hand.`}::TEXT)
+      WHERE id = ${invoiceId}::UUID AND company_id = ${companyId}::UUID
+        AND status = 'approved' AND gl_journal_entry_id IS NULL
+    `;
+    return { ...attached, settlementRefused: reason };
   }
   return attached;
 }

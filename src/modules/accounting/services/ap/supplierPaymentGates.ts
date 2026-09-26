@@ -13,6 +13,7 @@
 import { assertAllocationsStillAllocatable } from './supplierBatchAllocationPlan';
 import { voidUnprocessedPayment } from './supplierPaymentCancel';
 import { SupplierPaymentRefusal } from './supplierPaymentRefusal';
+import { voidProvisionalSettlement } from './provisionalSettlementVoid';
 import type { SupplierPayment } from '../../types/ap.types';
 import type { ProvisionalSettlementMark } from './supplierPaymentService';
 
@@ -38,15 +39,24 @@ export async function assertPaymentStillProcessable(companyId: string, payment: 
 
 /**
  * Void: refuse what may not be voided here; void a draft/approved payment as a
- * status change (it moved nothing) and answer true; answer false for a
- * processed payment, whose journal the caller reverses.
+ * status change (it moved nothing), or undo a bank-first settlement whole, and
+ * answer true; answer false for a processed payment, whose journal the caller reverses.
  */
 export async function voidIfUnprocessed(
   companyId: string,
   payment: SupplierPayment & ProvisionalSettlementMark,
+  userId: string,
 ): Promise<boolean> {
   refuseBatchMember(payment, 'void');
-  refuseProvisionalSettlementVoid(payment);
+  // R-127: a bank-first settlement is undone whole (provisionalSettlementVoid.ts),
+  // or refused while it still pays a bill — never voided as a plain payment.
+  if (payment.settlesProvisionalJeId) {
+    await voidProvisionalSettlement(companyId, {
+      id: payment.id, paymentNumber: payment.paymentNumber,
+      settlesProvisionalJeId: payment.settlesProvisionalJeId, journalEntryId: payment.glJournalEntryId ?? null,
+    }, userId);
+    return true;
+  }
   if (payment.status === 'draft' || payment.status === 'approved') {
     await voidUnprocessedPayment(companyId, payment);
     return true;
@@ -60,26 +70,4 @@ export async function voidIfUnprocessed(
     throw new SupplierPaymentRefusal(`Only draft, approved, processed or fully applied payments can be voided (status: ${payment.status})`);
   }
   return false;
-}
-
-/**
- * R-127 (Hein, option C): a payment that settled a bill out of a bank-first
- * provisional journal carries the RECLASS of that provisional as its journal,
- * not a bank payment. Voiding it would reverse only the reclass: the bill
- * reopens while the provisional still books its expense and VAT, so both stand
- * twice. Refused on every void path (`voidIfUnprocessed` above,
- * `core/paymentVoidService.voidPaymentDocument`), before any write, from the
- * payment row each has already read under its lock — no query of its own. Unapply is
- * the undo — it moves only the subledger, and the payment stays a live credit
- * that still holds the provisional's claim.
- */
-export function refuseProvisionalSettlementVoid(
-  payment: { paymentNumber: string | null; settlesProvisionalJeId?: string | null },
-): void {
-  if (!payment.settlesProvisionalJeId) return;
-  throw new SupplierPaymentRefusal(
-    `Payment ${payment.paymentNumber ?? ''} settled its bill out of a bank-first provisional journal and cannot `
-    + 'be voided: that would reverse only the reclass and book the bill\'s expense and VAT twice. Unapply it '
-    + 'instead (unapply_supplier_payment): the bill reopens and the payment stays as a credit to apply to the right bill.',
-  );
 }

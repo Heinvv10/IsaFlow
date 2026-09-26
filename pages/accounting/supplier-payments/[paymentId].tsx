@@ -54,6 +54,24 @@ interface PaymentDetail {
   allocations: Allocation[];
 }
 
+const DIALOGS = {
+  cancel: {
+    title: 'Cancel this payment?',
+    message: 'Nothing has been posted for this payment yet. Cancelling stops it for good and releases the bills it was going to pay — no journal is created or reversed. To undo a payment that has already been processed, use Void instead.',
+    label: 'Cancel payment',
+  },
+  void: {
+    title: 'Void this processed payment?',
+    message: 'The payment has been posted. Void reverses its journal (DR Bank / CR Accounts Payable) and reopens the bills it paid.',
+    label: 'Void payment',
+  },
+  unapply: {
+    title: 'Unapply this payment?',
+    message: 'Takes the payment off every bill it pays and reopens the bills it pays. The payment and its journal stay; its cash becomes an unapplied credit you can apply to the right bill, or void.',
+    label: 'Unapply payment',
+  },
+} as const;
+
 export default function SupplierPaymentDetailPage() {
   const router = useRouter();
   const paymentId = router.query.paymentId as string;
@@ -62,7 +80,7 @@ export default function SupplierPaymentDetailPage() {
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState('');
   const [actionBusy, setActionBusy] = useState('');
-  const [confirming, setConfirming] = useState<'' | 'cancel' | 'void'>('');
+  const [confirming, setConfirming] = useState<'' | keyof typeof DIALOGS>('');
 
   const load = useCallback(async () => {
     if (!paymentId) return;
@@ -152,6 +170,12 @@ export default function SupplierPaymentDetailPage() {
                   <button onClick={() => setConfirming('cancel')} disabled={!!actionBusy}
                     className="inline-flex items-center gap-2 px-4 py-2 bg-red-600/10 text-red-400 rounded-lg hover:bg-red-600/20 text-sm font-medium disabled:opacity-50">
                     Cancel payment
+                  </button>
+                )}
+                {(payment.status === 'processed' || payment.status === 'reconciled') && (payment.allocations?.length ?? 0) > 0 && (
+                  <button onClick={() => setConfirming('unapply')} disabled={!!actionBusy}
+                    className="inline-flex items-center gap-2 px-4 py-2 bg-amber-600/10 text-amber-400 rounded-lg hover:bg-amber-600/20 text-sm font-medium disabled:opacity-50">
+                    Unapply
                   </button>
                 )}
                 {payment.status === 'processed' && (
@@ -261,11 +285,9 @@ export default function SupplierPaymentDetailPage() {
       </div>
       <ConfirmDialog
         open={confirming !== ''}
-        title={confirming === 'void' ? 'Void this processed payment?' : 'Cancel this payment?'}
-        message={confirming === 'void'
-          ? 'The payment has been posted. Void reverses its journal (DR Bank / CR Accounts Payable) and reopens the bills it paid.'
-          : 'Nothing has been posted for this payment yet. Cancelling stops it for good and releases the bills it was going to pay — no journal is created or reversed. To undo a payment that has already been processed, use Void instead.'}
-        confirmLabel={confirming === 'void' ? 'Void payment' : 'Cancel payment'}
+        title={DIALOGS[confirming || 'cancel'].title}
+        message={DIALOGS[confirming || 'cancel'].message}
+        confirmLabel={DIALOGS[confirming || 'cancel'].label}
         cancelLabel="Keep it"
         confirmTone="danger"
         busy={actionBusy !== ''}
