@@ -191,7 +191,6 @@ export const approvePayRunTool: McpTool = {
     const blocker = await findApprovalBlocker(ctx.companyId, runId);
     if (blocker) return toolError(`The journal for this run cannot post, so it was not approved: ${blocker.detail}`);
 
-
     if (args.dry_run === true) {
       return ok({
         dryRun: true,

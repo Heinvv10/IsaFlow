@@ -193,6 +193,27 @@ describe('buildPayrollJournalPlan — ETI offsets PAYE payable (K-079)', () => {
 });
 
 describe('buildPayrollJournalPlan — what would stop the post', () => {
+  it('blocks a run whose period is closed, naming the status (the GL poster refuses it)', async () => {
+    routeMock([{ match: 'FROM fiscal_periods', rows: [{ status: 'closed' }] }, ...standardRoutes()]);
+    const plan = await buildPayrollJournalPlan(COMPANY, RUN);
+    const blocker = plan!.blockers.find((b) => b.code === 'closed_period');
+    expect(blocker?.detail).toContain("'closed'");
+    expect(blocker?.detail).toContain('2026-12-31');
+  });
+
+  it('does not block an open period', async () => {
+    routeMock([{ match: 'FROM fiscal_periods', rows: [{ status: 'open' }] }, ...standardRoutes()]);
+    const plan = await buildPayrollJournalPlan(COMPANY, RUN);
+    expect(plan!.blockers).toEqual([]);
+  });
+
+  it('blocks a run with nothing to post (every line zero)', async () => {
+    routeMock(standardRoutes({ header: [{ ...HEADER, total_gross: 0, total_paye: 0, total_uif: 0, total_sdl: 0, total_net: 0 }] }));
+    const plan = await buildPayrollJournalPlan(COMPANY, RUN);
+    expect(plan!.lines).toEqual([]);
+    expect(plan!.blockers.map((b) => b.code)).toContain('nothing_to_post');
+  });
+
   it('blocks a run that is not approved, naming the status it is in', async () => {
     routeMock(standardRoutes({ header: [{ ...HEADER, status: 'calculated' }] }));
     const plan = await buildPayrollJournalPlan(COMPANY, RUN);

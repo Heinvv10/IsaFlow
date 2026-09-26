@@ -30,9 +30,14 @@ export class PayrollApprovalRefusedError extends Error {
 }
 
 /**
- * The first reason this run's journal cannot post, judged before approval —
+ * The first reason this run's journal cannot post, judged before approval:
  * every plan blocker except 'run_not_approved', which approval itself
- * resolves. Null when the run is not in this company.
+ * resolves, and 'already_posted', which the poster answers idempotently — a
+ * run reopened after approval keeps its journal_entry_id (reopenPayrollRun
+ * does not reverse it) and re-approving it returns that journal. Also a
+ * deactivated target account: the plan reports it as an advisory, but the GL
+ * poster refuses it (assertNoInactiveAccountLines). Null when the run is not
+ * in this company.
  */
 export async function findApprovalBlocker(
   companyId: string,
@@ -40,7 +45,10 @@ export async function findApprovalBlocker(
 ): Promise<PayrollJournalNote | null> {
   const plan = await buildPayrollJournalPlan(companyId, runId);
   if (!plan) return null;
-  return plan.blockers.find((b) => b.code !== 'run_not_approved') ?? null;
+  const blocker = plan.blockers.find((b) => b.code !== 'run_not_approved' && b.code !== 'already_posted');
+  if (blocker) return blocker;
+  if (plan.alreadyPostedJournalId) return null;
+  return plan.advisories.find((a) => a.code === 'inactive_target_account') ?? null;
 }
 
 /**
@@ -52,7 +60,8 @@ export async function findApprovalBlocker(
  * (K-079): withAuth commits a 4xx, so a journal blocker found after the write
  * left the run 'approved' with no journal. A failure after the write is thrown
  * as-is and must roll the request back. An 'approved' run with no journal
- * (stranded before this fix) is re-approvable and posts.
+ * (stranded before this fix) is re-approvable and posts; a reopened run that
+ * still carries its journal is re-approved onto that journal.
  */
 export async function approvePayrollRun(
   companyId: string,

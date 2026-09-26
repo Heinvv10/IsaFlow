@@ -230,6 +230,28 @@ export async function buildPayrollJournalPlan(
     });
   }
 
+  // The GL poster refuses both of these; saying so here lets the dry run and
+  // approval refuse BEFORE anything is written, with the reason (K-079).
+  if (lines.length < 2) {
+    blockers.push({
+      code: 'nothing_to_post',
+      detail: 'The run has no amounts to post — every journal line is zero. Calculate the run first.',
+    });
+  }
+  const entryDate = lastDayOfMonthIso(periodYear, periodMonth);
+  const periodRows = (await sql`
+    SELECT status FROM fiscal_periods
+    WHERE company_id = ${companyId}::uuid
+      AND start_date <= ${entryDate}::date AND end_date >= ${entryDate}::date
+  `) as Row[];
+  const closed = periodRows.find((p) => String(p.status) !== 'open');
+  if (closed) {
+    blockers.push({
+      code: 'closed_period',
+      detail: `The fiscal period covering ${entryDate} is '${String(closed.status)}', so the payroll journal cannot post into it.`,
+    });
+  }
+
   const totalDebit = round2(lines.reduce((s, l) => s + l.debit, 0));
   const totalCredit = round2(lines.reduce((s, l) => s + l.credit, 0));
   if (Math.abs(Math.round((totalDebit - totalCredit) * 100)) > 1) {
@@ -247,7 +269,7 @@ export async function buildPayrollJournalPlan(
     periodYear,
     employeeCount: Number(hdr.employee_count) || 0,
     alreadyPostedJournalId: hdr.journal_entry_id == null ? null : String(hdr.journal_entry_id),
-    entryDate: lastDayOfMonthIso(periodYear, periodMonth),
+    entryDate,
     description: `Payroll run ${periodYear}-${mm}`,
     reference: `PAY-${periodYear}-${mm}`,
     lines,

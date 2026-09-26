@@ -3,17 +3,38 @@
  *
  * Driven through the real route, POST /api/payroll/runs/[id]/approve: withAuth
  * (app_user, RLS), withCsrf, withWriteAccess, approvePayrollRun, the builder
- * and the GL poster. Nothing is mocked.
+ * and the GL poster. Nothing is mocked; one case injects a failure into the
+ * poster (it otherwise delegates to the real one) to prove a failure AFTER the
+ * status write rolls back.
  *
  * Hein, 2026-09-26: ETI is netted off labour cost and capped at the run's
  * PAYE (etiUsed = min(eti, paye)), so CR 2140 = paye − etiUsed, which is the
  * EMP201 PAYE payable. withAuth COMMITs on a 4xx, so a refusal must leave the
  * run exactly as it was — not 'approved' with no journal.
  */
-import { afterAll, beforeAll, describe, expect, it } from 'vitest';
+import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
 import { Pool } from 'pg';
 import { SignJWT } from 'jose';
 import approve from '../../pages/api/payroll/runs/[id]/approve';
+import reopen from '../../pages/api/payroll/runs/[id]/reopen';
+
+const fault = vi.hoisted(() => ({ armed: false, fired: false }));
+vi.mock('@/modules/accounting/services/payroll/payrollJournalPostingService', async (importOriginal) => {
+  const actual = await importOriginal<
+    typeof import('@/modules/accounting/services/payroll/payrollJournalPostingService')
+  >();
+  return {
+    ...actual,
+    postPayrollRunJournal: async (...args: Parameters<typeof actual.postPayrollRunJournal>) => {
+      if (fault.armed) {
+        fault.armed = false;
+        fault.fired = true;
+        throw new Error('K079 injected failure after the status write');
+      }
+      return actual.postPayrollRunJournal(...args);
+    },
+  };
+});
 import { assertDisposable, request, response } from './mfa-impersonation-postgres.helpers';
 
 assertDisposable();
@@ -35,15 +56,19 @@ async function run(company: string, month: number, t: Totals): Promise<string> {
     [company, month, t.gross, t.paye, t.uif, t.sdl, t.eti, t.net])).rows[0]!.id;
 }
 
-async function callApprove(runId: string, company = companyA) {
+async function call(route: typeof approve, action: string, runId: string, company = companyA, body?: unknown) {
   const req = request({ 'sb-access-token': token, active_company_id: company }, 'POST', runId) as never as {
-    url: string;
+    url: string; body: unknown;
   };
-  req.url = `/api/payroll/runs/${runId}/approve`;
+  req.url = `/api/payroll/runs/${runId}/${action}`;
+  req.body = body;
   const result = response();
-  await approve(req as never, result.res);
+  await route(req as never, result.res);
   return result.state;
 }
+const callApprove = (runId: string, company = companyA) => call(approve, 'approve', runId, company);
+const approvedJournal = (res: { body: unknown }) =>
+  (res.body as { data: { journalEntryId: string } }).data.journalEntryId;
 
 async function header(runId: string) {
   return (await pool.query<{ status: string; journal_entry_id: string | null }>(
@@ -161,9 +186,7 @@ describe('K-079: approving a run that claims ETI', () => {
     expect(await header(id)).toEqual({ status: 'cancelled', journal_entry_id: null });
   });
 
-  it('a failure AFTER the status write is a 500 and rolls the approval back', async () => {
-    // A closed period is not a plan blocker: the GL poster refuses it after
-    // approvePayrollRun has written 'approved'. A 400 here would COMMIT that.
+  it('a closed period is refused BEFORE the status write, with the reason', async () => {
     // Earlier cases auto-create the fiscal year, so close August where it exists.
     const closed = await pool.query(
       `UPDATE fiscal_periods SET status='closed'
@@ -175,8 +198,63 @@ describe('K-079: approving a run that claims ETI', () => {
     }
     const id = await run(companyA, 8, { gross: 100000, paye: 20000, uif: 1500, sdl: 1000, eti: 500, net: 79250 });
     const res = await callApprove(id);
+    expect(res.statusCode).toBe(400);
+    expect(JSON.stringify(res.body)).toContain("'closed'");
+    expect(await header(id)).toEqual({ status: 'calculated', journal_entry_id: null });
+  });
+
+  it('a failure AFTER the status write is a 5xx and rolls the approval back', async () => {
+    const id = await run(companyA, 11, { gross: 100000, paye: 20000, uif: 1500, sdl: 1000, eti: 500, net: 79250 });
+    fault.armed = true;
+    fault.fired = false;
+    const res = await callApprove(id);
+    expect(fault.fired).toBe(true);
     expect(res.statusCode).toBeGreaterThanOrEqual(500);
     expect(await header(id)).toEqual({ status: 'calculated', journal_entry_id: null });
+  });
+
+  it('a run stranded approved with no journal (before this fix) re-approves and posts', async () => {
+    const id = await run(companyA, 10, { gross: 100000, paye: 20000, uif: 1500, sdl: 1000, eti: 500, net: 79250 });
+    await pool.query("UPDATE payroll_run_headers SET status='approved' WHERE id=$1", [id]);
+    const res = await callApprove(id);
+    expect(res.statusCode).toBe(200);
+    const h = await header(id);
+    expect(h.status).toBe('approved');
+    const j = await journal(h.journal_entry_id!);
+    expect(j.debit).toBe(j.credit);
+    expect(j.by('2140').map((l) => Number(l.credit))).toEqual([19500]);
+  });
+
+  it('a run reopened after approval keeps its journal and re-approves onto it', async () => {
+    const id = await run(companyA, 9, { gross: 100000, paye: 20000, uif: 1500, sdl: 1000, eti: 500, net: 79250 });
+    const first = await callApprove(id);
+    expect(first.statusCode).toBe(200);
+    const journalId = approvedJournal(first);
+
+    const reopened = await call(reopen as typeof approve, 'reopen', id, companyA, { reason: 'K079 reopen and re-approve' });
+    expect(reopened.statusCode).toBe(200);
+    expect(await header(id)).toEqual({ status: 'calculated', journal_entry_id: journalId });
+
+    const again = await callApprove(id);
+    expect(again.statusCode).toBe(200);
+    expect(approvedJournal(again)).toBe(journalId);
+    expect(await header(id)).toEqual({ status: 'approved', journal_entry_id: journalId });
+    const { rows } = await pool.query(
+      "SELECT count(*)::int AS n FROM gl_journal_entries WHERE company_id=$1 AND description='Payroll run 2026-09'", [companyA]);
+    expect(rows[0].n).toBe(1);
+  });
+
+  it('a deactivated target account is refused BEFORE the status write (the GL poster refuses it)', async () => {
+    const id = await run(companyB, 5, { gross: 100000, paye: 20000, uif: 1500, sdl: 1000, eti: 500, net: 79250 });
+    await pool.query("UPDATE gl_accounts SET is_active=false WHERE company_id=$1 AND account_code='2160'", [companyB]);
+    try {
+      const res = await callApprove(id, companyB);
+      expect(res.statusCode).toBe(400);
+      expect(JSON.stringify(res.body)).toContain('2160');
+      expect(await header(id)).toEqual({ status: 'calculated', journal_entry_id: null });
+    } finally {
+      await pool.query("UPDATE gl_accounts SET is_active=true WHERE company_id=$1 AND account_code='2160'", [companyB]);
+    }
   });
 
   it('a run the journal cannot post for is refused BEFORE it is marked approved', async () => {
