@@ -159,8 +159,13 @@ export async function buildLabourLines(
     employeeCostCentre[employeeId] = r.cost_centre_id == null ? null : String(r.cost_centre_id);
     runLines.push({ employeeId, labourAmount: round2(grossShare * costBeforeEti - etiShare * etiUsed) });
   }
+  // Tie only ROUNDING — at most half a cent per line. A bigger gap means the
+  // run lines disagree with the header; absorbing it would move real cost onto
+  // one cost centre silently, so it is left for the plan's exact balance check
+  // to refuse as 'unbalanced'.
   const residual = round2(labourDebit - runLines.reduce((s, l) => s + l.labourAmount, 0));
-  if (residual !== 0) {
+  const roundingCents = Math.ceil(runLines.length / 2);
+  if (residual !== 0 && Math.abs(Math.round(residual * 100)) <= roundingCents) {
     const largest = runLines.reduce((a, b) => (b.labourAmount > a.labourAmount ? b : a));
     largest.labourAmount = round2(largest.labourAmount + residual);
   }

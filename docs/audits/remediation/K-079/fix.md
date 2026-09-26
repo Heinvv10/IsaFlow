@@ -83,8 +83,9 @@ Hein chose:
   - The result carries the plan's `advisories`, so `eti_beyond_paye` reaches the API and MCP
     caller rather than only the log.
 - **Route** (`pages/api/payroll/runs/[id]/approve.ts`) answers only `PayrollApprovalRefusedError` as a 400
-  and rethrows everything else, so a failure after the status write (e.g. a closed fiscal period,
-  which is not a plan blocker) is a 500 and withAuth rolls the approval back.
+  and rethrows everything else, so a failure after the status write (one the plan could not
+  foresee, e.g. a concurrent change between the check and the post) is a 500 and withAuth rolls
+  the approval back.
 - **Stranded runs recover in-app.** A run already stranded at `approved` with no journal is
   re-approvable (`alreadyApprovedButUnposted`, unchanged), and now posts.
 - **MCP:**

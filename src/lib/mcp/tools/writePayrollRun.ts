@@ -186,46 +186,48 @@ export const approvePayRunTool: McpTool = {
       );
     }
 
-    // The service refuses a run whose journal cannot post BEFORE it approves
-    // it (K-079). Asked here too, so the dry run refuses what the live call
-    // refuses, and the live refusal is answered while nothing is written.
-    const blocker = await findApprovalBlocker(ctx.companyId, runId);
-    if (blocker) return toolError(`The journal for this run cannot post, so it was not approved: ${blocker.detail}`);
+    const preview = (skipped: Array<{ id: string; reason: string; detail: string }>) => ok({
+      dryRun: true,
+      wroteNothing: true,
+      journals: [],
+      effects: [
+        // A reopened run keeps its journal; the live call posts nothing and returns it.
+        run.journalEntryId
+          ? `Approve run ${run.periodMonth}/${run.periodYear}. It already carries journal `
+            + `${run.journalEntryId}, which is returned — nothing new is posted.`
+          : `Approve run ${run.periodMonth}/${run.periodYear} and POST its journal: `
+            + `${run.employeeCount} employees, gross ${run.totalGross}, PAYE ${run.totalPaye}, `
+            + `UIF ${run.totalUif}, SDL ${run.totalSdl}, net ${run.totalNet}.`,
+      ],
+      skipped,
+      current: runPayload(run),
+    });
 
-    if (args.dry_run === true) {
-      return ok({
-        dryRun: true,
-        wroteNothing: true,
-        journals: [],
-        effects: [
-          // A reopened run keeps its journal; the live call posts nothing and returns it.
-          run.journalEntryId
-            ? `Approve run ${run.periodMonth}/${run.periodYear}. It already carries journal `
-              + `${run.journalEntryId}, which is returned — nothing new is posted.`
-            : `Approve run ${run.periodMonth}/${run.periodYear} and POST its journal: `
-              + `${run.employeeCount} employees, gross ${run.totalGross}, PAYE ${run.totalPaye}, `
-              + `UIF ${run.totalUif}, SDL ${run.totalSdl}, net ${run.totalNet}.`,
-        ],
-        skipped: run.employeeCount === 0
-          ? [{ id: run.id, reason: 'run_not_costed', detail: 'No lines — run calculate_pay_run first.' }]
-          : [],
-        current: runPayload(run),
-      });
-    }
-
-    // REFUSED on the LIVE path, not warned — and after the dry run, so a
-    // preview still previews. Approving sets status 'approved', which is a
-    // LOCKED status: `calculate_pay_run` is refused permanently thereafter and
-    // there is no MCP tool to reopen a run. An agent that approved a run
-    // costing nobody would lock the month with an empty journal and have no
-    // connector path back out.
+    // An uncosted run is answered first, by name: its plan would otherwise be
+    // refused as `nothing_to_post`, which does not say what to do. The preview
+    // still previews (flagged skipped); the LIVE call is refused, not warned.
+    // Approving sets status 'approved', which is a LOCKED status:
+    // `calculate_pay_run` is refused permanently thereafter and there is no MCP
+    // tool to reopen a run. An agent that approved a run costing nobody would
+    // lock the month with an empty journal and have no connector path back out.
     if (run.employeeCount === 0) {
+      if (args.dry_run === true) {
+        return preview([{ id: run.id, reason: 'run_not_costed', detail: 'No lines — run calculate_pay_run first.' }]);
+      }
       return toolError(
         'This run has costed nobody — approving it would lock the month with an empty journal '
         + 'and there is no connector tool to reopen a locked run. '
         + 'Assign pay components and run calculate_pay_run first.',
       );
     }
+
+    // The service refuses a run whose journal cannot post BEFORE it approves
+    // it (K-079). Asked here too, so the dry run refuses what the live call
+    // refuses, and the live refusal is answered while nothing is written.
+    const blocker = await findApprovalBlocker(ctx.companyId, runId);
+    if (blocker) return toolError(`The journal for this run cannot post, so it was not approved: ${blocker.detail}`);
+
+    if (args.dry_run === true) return preview([]);
 
     // No catch. The refusals above are the only ones answerable from a
     // read; a failure during approve-and-post must reach the registry's
