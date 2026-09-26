@@ -115,7 +115,7 @@ export async function claimEvidencedProvisional(
     if (taken.length > 0) continue;
 
     const entry = await getJournalEntryById(companyId, jeId);
-    if (!entry) continue;
+    if (!entry) throw new Error(`Provisional journal ${jeId} not found in company ${companyId}`);
     const bankAccountId = String(c.bank_account_id);
     const bankAmount = round2(Math.abs(Number(c.amount)));
     const bankLines = entry.lines.filter((l) => l.glAccountId === bankAccountId);

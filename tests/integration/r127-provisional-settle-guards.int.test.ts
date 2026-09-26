@@ -6,15 +6,24 @@
 // already consumed by another invoice qualifies. Everything else must leave the
 // approval exactly as it was before R-127: the invoice's journal posts, no
 // payment is created, and the invoice stays approved and unpaid.
-import { describe, expect, it } from 'vitest';
+import { beforeAll, describe, expect, it } from 'vitest';
 import { approveSupplierInvoice } from '@/modules/accounting/services/ap/supplierInvoiceWorkflowService';
 import { reverseJournalEntry } from '@/modules/accounting/services/gl/journalEntryService';
 import {
   company, inTx, invoiceState, jeState, otherAccounts, otherCompany, paymentsFor, pool,
-  seedDoc, seedInvoice, seedProvisional, slipLedger, useR127Fixture, user,
+  seedDoc, seedInvoice, seedProvisional, slipLedger, supplier, useR127Fixture, user,
 } from './r127-double-booking.helpers';
 
 useR127Fixture();
+
+const otherBankAccount = crypto.randomUUID();
+beforeAll(async () => {
+  await pool.query(
+    `INSERT INTO gl_accounts(id,company_id,account_code,account_name,account_type,normal_balance,is_active,account_subtype)
+     VALUES($1,$2,'R127BK2','R127 Second bank','asset','debit',true,'bank')`,
+    [otherBankAccount, company],
+  );
+});
 
 const approve = (invoiceId: string) => inTx(() => approveSupplierInvoice(company, invoiceId, user));
 
@@ -110,6 +119,35 @@ describe('R-127 guards: a provisional that does not qualify is not used', () => 
     const foreign = await jeState(foreignJe);
     expect(foreign.reversed_at).toBeNull();
     expect(foreign.status).toBe('posted');
+  });
+});
+
+describe('R-127 claim: refusals that stop a double booking outright', () => {
+  it('a provisional whose lines do not add up to its bank line refuses the approval instead of double-booking', async () => {
+    const doc = await seedDoc();
+    const { bt } = await seedProvisional({ totalAmount: 207.10, evidencedBy: doc });
+    // The bank line now names an account the provisional never credited: the
+    // reclass could only be a guess, so nothing may post.
+    await pool.query('UPDATE bank_transactions SET bank_account_id=$2 WHERE id=$1', [bt, otherBankAccount]);
+    const invoiceId = await seedInvoice({ documentId: doc, totalAmount: 207.10 });
+    await expect(approve(invoiceId)).rejects.toThrow(/do not match its bank line/);
+    const inv = await invoiceState(invoiceId);
+    expect(inv.status).toBe('draft');
+    expect(inv.gl_journal_entry_id).toBeNull();
+  });
+
+  it('the database refuses a second live payment on one provisional, and a cancelled one releases it', async () => {
+    const doc = await seedDoc();
+    const { je } = await seedProvisional({ totalAmount: 208.20, evidencedBy: doc });
+    const insert = (status: string) => pool.query(
+      `INSERT INTO supplier_payments(company_id,supplier_id,payment_date,total_amount,status,created_by,settles_provisional_je_id)
+       VALUES($1,$2,CURRENT_DATE,208.20,$3,$4,$5) RETURNING id`,
+      [company, supplier, status, user, je],
+    );
+    const first = (await insert('processed')).rows[0].id as string;
+    await expect(insert('processed')).rejects.toMatchObject({ code: '23505' });
+    await pool.query("UPDATE supplier_payments SET status='cancelled' WHERE id=$1", [first]);
+    await expect(insert('processed')).resolves.toBeDefined();
   });
 });
 

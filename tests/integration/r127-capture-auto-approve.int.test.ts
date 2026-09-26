@@ -114,6 +114,39 @@ describe('R-127: auto-approved captured invoices settle against the provisional 
     expect(await slipLedger(je, bt, invoiceId)).toEqual({ expense: 351.00, vat: 52.65, ap: 0, bank: -403.65 });
   });
 
+  it('a settlement that fails AFTER the invoice journal posted rolls back whole, and only itself', async () => {
+    const { je, bt } = await seedProvisional({ totalAmount: 405.95, supplierId: supplier });
+    const doc = await seedDoc();
+    const invoiceId = await seedInvoice({ documentId: doc, totalAmount: 405.95, status: 'approved' });
+    // Fixture-only fault: the payment INSERT — after the invoice journal and the
+    // reclass have posted — raises, which aborts the transaction it runs in.
+    await pool.query(`CREATE OR REPLACE FUNCTION r127_fail_payment() RETURNS trigger LANGUAGE plpgsql
+                      AS $$ BEGIN RAISE EXCEPTION 'r127 injected failure'; END $$`);
+    await pool.query(`CREATE TRIGGER r127_fail_payment BEFORE INSERT ON supplier_payments FOR EACH ROW
+                      WHEN (NEW.company_id = '${company}'::uuid AND NEW.total_amount = 405.95)
+                      EXECUTE FUNCTION r127_fail_payment()`);
+    try {
+      const out = await inTx(() => runCapturePostFollowUps({
+        companyId: company, userId: user, eventId: crypto.randomUUID(), documentId: doc, invoiceId,
+        invoiceStatus: 'approved', supplierId: supplier, supplierName: 'R127 Supplies CC',
+        vendorVatNumber: null, totalAmount: 405.95, invoiceDate: today,
+        decision: { outcome: 'route_review', reasons: ['test'], rule: null },
+      }));
+      expect(out.provisionalAttach.attachedJeId).toBe(je);
+    } finally {
+      await pool.query('DROP TRIGGER IF EXISTS r127_fail_payment ON supplier_payments');
+      await pool.query('DROP FUNCTION IF EXISTS r127_fail_payment()');
+    }
+
+    // The attach committed with the request; the half-done settlement did not —
+    // no invoice journal left standing beside the provisional.
+    expect((await jeState(je)).source_document_id).toBe(doc);
+    const inv = await invoiceState(invoiceId);
+    expect(inv.status).toBe('approved');
+    expect(inv.gl_journal_entry_id).toBeNull();
+    expect(await slipLedger(je, bt, invoiceId)).toEqual({ expense: 353.00, vat: 52.95, ap: 0, bank: -405.95 });
+  });
+
   it('Post to GL on an approved, unposted invoice whose slip evidences a provisional settles it', async () => {
     const doc = await seedDoc();
     const { je, bt } = await seedProvisional({ totalAmount: 404.80, evidencedBy: doc });
