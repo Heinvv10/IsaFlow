@@ -24,7 +24,7 @@
 \endif
 
 WITH starts AS (
-  SELECT s.admin_user_id, s.target_id AS target_user_id, s.created_at AS started_at,
+  SELECT s.admin_user_id, s.target_id::text AS target_user_id, s.created_at AS started_at,
          s.details ->> 'stash_id' AS stash_id
   FROM admin_audit_log s
   WHERE s.action = 'impersonation_start' AND s.target_type = 'user'
@@ -34,7 +34,7 @@ windows AS (
          COALESCE(
            (SELECT min(e.created_at) FROM admin_audit_log e
              WHERE e.action = 'impersonation_end'
-               AND e.target_id = st.target_user_id
+               AND e.target_id::text = st.target_user_id
                AND e.details ->> 'stash_id' = st.stash_id
                AND e.created_at >= st.started_at),
            st.started_at + interval '1 hour'
