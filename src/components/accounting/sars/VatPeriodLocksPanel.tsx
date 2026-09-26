@@ -41,12 +41,21 @@ export function VatPeriodLocksPanel() {
 
   useEffect(() => { void load(); }, [load]);
 
-  const lock = async (periodStart: string, periodEnd: string, notes: string): Promise<string | null> => {
+  const lock = async (
+    periodStart: string, periodEnd: string, notes: string, overrideReason: string,
+  ): Promise<string | null> => {
     const res = await apiFetch('/api/accounting/vat-period-locks', {
       method: 'POST',
-      body: JSON.stringify({ action: 'lock', periodStart, periodEnd, ...(notes ? { notes } : {}) }),
+      body: JSON.stringify({
+        action: 'lock', periodStart, periodEnd,
+        ...(notes ? { notes } : {}),
+        ...(overrideReason ? { overrideReason } : {}),
+      }),
     });
-    if (!res.ok) return errorMessage(res);
+    if (!res.ok) {
+      const msg = await errorMessage(res);
+      return res.status === 403 ? 'Only an owner or admin can override blocking VAT exceptions.' : msg;
+    }
     await load();
     return null;
   };
