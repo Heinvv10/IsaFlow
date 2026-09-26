@@ -39,6 +39,14 @@ export async function approveSupplierInvoice(
   // rests on. `allowLateInputClaim`: human-initiated callers only (gl/vatLateClaimPlan.ts).
   opts?: PostingActorOpts & PostJournalOpts,
 ): Promise<SupplierInvoice & { lateClaim?: LateClaimInfo }> {
+  // All-or-nothing (R-127): the provisional settlement runs AFTER the journal and
+  // the status UPDATE, and every route answers a throw 4xx, which withAuth COMMITs.
+  return withSavepoint('approve_supplier_invoice', () => approveInner(companyId, id, userId, opts));
+}
+
+async function approveInner(
+  companyId: string, id: string, userId: string, opts?: PostingActorOpts & PostJournalOpts,
+): Promise<SupplierInvoice & { lateClaim?: LateClaimInfo }> {
   try {
     // Serialise concurrent approvals of the SAME invoice before reading its
     // status. Without this the check-then-act window below is wide open: two
@@ -142,7 +150,7 @@ export async function approveSupplierInvoice(
       WHERE id = ${id} AND company_id = ${companyId}::UUID
       RETURNING *
     `) as Row[];
-    const settled = await settleClaimedProvisional(companyId, provisional, invoice, journalEntry.id, userId, opts);
+    const settled = await settleClaimedProvisional(companyId, provisional, invoice, apAccount.id, userId, opts);
 
     log.info('Approved supplier invoice', { id, journalEntryId: journalEntry.id }, 'accounting');
     return { ...mapInvoiceRow(settled ?? updated[0]!), ...(posted.lateClaim ? { lateClaim: posted.lateClaim } : {}) };
@@ -161,6 +169,13 @@ export async function postSupplierInvoiceToGL(
   id: string,
   userId: string,
   opts?: PostingActorOpts,
+): Promise<{ journalEntryId: string; alreadyPosted: boolean }> {
+  // All-or-nothing, as approveSupplierInvoice (R-127).
+  return withSavepoint('post_supplier_invoice_gl', () => postToGLInner(companyId, id, userId, opts));
+}
+
+async function postToGLInner(
+  companyId: string, id: string, userId: string, opts?: PostingActorOpts,
 ): Promise<{ journalEntryId: string; alreadyPosted: boolean }> {
   // Same check-then-act window approveSupplierInvoice closes at :95, and the
   // same reason: this function decides on `glJournalEntryId` below and then
@@ -252,7 +267,7 @@ export async function postSupplierInvoiceToGL(
     SET gl_journal_entry_id = ${journalEntry.id}::UUID
     WHERE id = ${id}::UUID AND company_id = ${companyId}::UUID
   `;
-  await settleClaimedProvisional(companyId, provisional, invoice, journalEntry.id, userId, opts);
+  await settleClaimedProvisional(companyId, provisional, invoice, apAccount.id, userId, opts);
 
   log.info('Backfilled supplier invoice GL', { id, journalEntryId: journalEntry.id }, 'accounting');
   return { journalEntryId: journalEntry.id, alreadyPosted: false };

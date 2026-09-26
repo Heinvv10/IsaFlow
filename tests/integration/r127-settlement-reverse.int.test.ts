@@ -12,6 +12,7 @@
 import { describe, expect, it } from 'vitest';
 import journalEntriesAction from '../../pages/api/accounting/journal-entries-action';
 import { reverseJournalEntryTool } from '@/lib/mcp/tools/writeJournalReverse';
+import { isRefusalCoded } from '@/lib/mcp/tools/toolHelpers';
 import { approveSupplierInvoice } from '@/modules/accounting/services/ap/supplierInvoiceWorkflowService';
 import { undoRun } from '@/modules/accounting/services/bank/autoPostUndoService';
 import { reverseReconciledTransaction } from '@/modules/accounting/services/bank/bankAllocationService';
@@ -53,13 +54,15 @@ describe('R-127: the journals holding a settlement up cannot be reversed on thei
     expect(await companySnapshot(s.invoiceId)).toEqual(before);
   });
 
-  it('MCP reverse_journal_entry answers the refusal, not a generic failure', async () => {
+  it('MCP reverse_journal_entry raises a coded refusal the registry answers with its message', async () => {
     const s = await settled(803.30);
     const ctx = { companyId: company, userId: user, scopes: ['write:journals', 'write:post'], tokenJti: null, oauthAppId: null };
-    const out = await inTx(() => reverseJournalEntryTool.handler(
-      { journal_entry_id: s.je, idempotency_key: crypto.randomUUID() }, ctx as never));
-    expect(out.isError).toBe(true);
-    expect(out.content[0]!.text).toMatch(/settle/i);
+    // The handler does not catch (a mid-write failure must reach the registry's
+    // savepoint); the registry answers a refusal-coded throw with its own message.
+    const err = await inTx(() => reverseJournalEntryTool.handler(
+      { journal_entry_id: s.je, idempotency_key: crypto.randomUUID() }, ctx as never)).then(() => null, (e: unknown) => e);
+    expect(isRefusalCoded(err)).toBe(true);
+    expect((err as Error).message).toMatch(/settle/i);
     expect((await jeState(s.je)).reversed_at).toBeNull();
   });
 

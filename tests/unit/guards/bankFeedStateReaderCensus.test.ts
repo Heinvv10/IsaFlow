@@ -90,7 +90,7 @@ const CLASSIFICATION: Readonly<Record<string, string>> = {
   'pages/api/landing-stats.ts': 'filtered',
   'src/modules/accounting/services/ap/paymentJournalReversal.ts': "exempt: reads only bank rows matched to a payment journal (matched_journal_line_id), which a non-posted row cannot carry (CHECK bank_tx_nonposted_unlinked, migration 675)",
   'src/modules/accounting/services/ap/supplierBankPaymentService.ts': 'exempt: writer (Task 3) — read-before-write plan phase',
-  'src/modules/accounting/services/ap/provisionalInvoiceSettlement.ts': "exempt: the claim joins on provisional_je_id, which a non-posted row cannot carry (trigger 675); no total or queue scope",
+  'src/modules/accounting/services/ap/provisionalSettlementClaim.ts': "exempt: the claim joins on provisional_je_id, which a non-posted row cannot carry (trigger 675); no total or queue scope",
   'src/modules/accounting/services/ar/customerMergeService.ts': "exempt: lock-only read (SELECT id … FOR UPDATE ORDER BY id) of the merge source's suggested lines before re-pointing suggested_client_id — a suggestion, not a total/count/KPI; every feed_state moves with its customer (K-061)",
   'src/modules/accounting/services/bank/autoPostGateService.ts': 'exempt: writer (Task 3) — the auto-post gate itself',
   'src/modules/accounting/services/bank/autoPostHandCorrection.ts': "exempt: the only read is the run-close check `WHERE auto_post_run_id = …`. Trigger 675 refuses an UPDATE that tags a non-posted row and no writer INSERTs one with a run id (the 675 CHECK bank_tx_nonposted_unlinked omits that column — registered); if one ever existed the run would merely stay open. The line itself is read through the row lock (bankTxLock) — writer (Task 3)",
