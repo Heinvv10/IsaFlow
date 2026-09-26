@@ -16,6 +16,8 @@ import type { AuthenticatedNextApiRequest } from '@/lib/auth';
 import { log } from '@/lib/logger';
 import { mergeEntities } from '@/modules/accounting/services/core/duplicateDetectionService';
 import { SupplierMergeRefusal } from '@/modules/accounting/services/core/duplicateMergeService';
+import { ArRequestError } from '@/modules/accounting/services/ar/arErrors';
+import { isUuidParam } from '@/lib/validation';
 
 const VALID_ENTITY_TYPES = ['customer', 'supplier', 'item'] as const;
 type EntityType = typeof VALID_ENTITY_TYPES[number];
@@ -46,6 +48,10 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
     return apiResponse.badRequest(res, 'entityType, primaryId, and duplicateId are required');
   }
 
+  if (!isUuidParam(primaryId) || !isUuidParam(duplicateId)) {
+    return apiResponse.badRequest(res, 'primaryId and duplicateId must be ids');
+  }
+
   if (!VALID_ENTITY_TYPES.includes(entityType as EntityType)) {
     return apiResponse.badRequest(res, `entityType must be one of: ${VALID_ENTITY_TYPES.join(', ')}`);
   }
@@ -72,6 +78,7 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
   } catch (err) {
     // Refused before anything moved — the caller can act on the message.
     if (err instanceof SupplierMergeRefusal) return apiResponse.badRequest(res, err.message);
+    if (err instanceof ArRequestError) return apiResponse.badRequest(res, err.message);
     log.error('Entity merge failed', { error: err, companyId, entityType, primaryId, duplicateId }, 'duplicates-api');
     return apiResponse.internalError(res, err, 'Failed to merge entities');
   }

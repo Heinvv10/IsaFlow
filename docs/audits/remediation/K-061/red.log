@@ -74,3 +74,15 @@ AssertionError: expected 500 to be 200 // Object.is equality
 ⎯⎯⎯⎯⎯⎯ Failed Tests 13 ⎯⎯⎯⎯⎯⎯⎯
  Test Files  3 failed (3)
       Tests  13 failed | 4 passed (17)
+
+================ duplicates-merge path RED: tests/integration/k061-duplicates-merge-customer.int.test.ts against origin/master's duplicateMergeService.ts + duplicates-merge.ts (5ec5e7334) ================
+{"level":"error","message":"Entity merge failed","component":"duplicates-api","data":{"error":{"name":"Error","message":"One or both customers not found for this company","stack":"Error: One or both customers not found for this company\n    at mergeCustomers (/home/hein/Workspace/IsaFlow/.worktrees/
+   × moves every census reference off the duplicate and counts the documents it re-parented 558ms
+   × refuses with 400 and changes nothing when both customers have a dunning override 600ms
+   × refuses another tenant's customer and a non-UUID id with 400, changing nothing 681ms
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 3 ⎯⎯⎯⎯⎯⎯⎯
+AssertionError: expected { …(24) } to deeply equal { …(24) }
+AssertionError: expected 200 to be 400 // Object.is equality
+AssertionError: expected 500 to be 400 // Object.is equality
+ Test Files  1 failed (1)
+      Tests  3 failed (3)
