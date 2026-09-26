@@ -84,6 +84,24 @@ describe('approving binds to the content that was requested', () => {
     expect((await stored(requestId)).status).toBe('approved');
   });
 
+  it('refreshes the digest on re-request even when no rule governs the bill any more', async () => {
+    // The rebind keeps a pending request's authority when today's rule is laxer
+    // or gone, but its CONTENT binding must follow the bill — else every approve
+    // is DOCUMENT_CHANGED and re-requesting cannot fix it.
+    const company = await newCompany(pool, [[admin, 'admin'], [owner, 'owner']], companies);
+    const rule = await plantRule(pool, company, 'owner');
+    const bill = await plantBill(pool, company, admin);
+    const requestId = await raise(admin, company, bill.id);
+    await pool.query('UPDATE approval_rules SET is_active = false WHERE id = $1', [rule]);
+    await pool.query('UPDATE supplier_invoices SET total_amount = 2000 WHERE id = $1', [bill.id]);
+
+    expect(await raise(admin, company, bill.id)).toBe(requestId);
+    const row = (await pool.query('SELECT required_role, document_digest FROM approval_requests WHERE id = $1', [requestId])).rows[0];
+    expect(row.required_role).toBe('owner');
+    expect(row.document_digest).toBe(await liveDigest(company, bill.id));
+    expect((await post(owner, company, { action: 'approve', requestId })).state.statusCode).toBe(200);
+  });
+
   it('approves again once the edit is reverted to identical content (Q9)', async () => {
     const company = await newCompany(pool, [[admin, 'admin'], [owner, 'owner']], companies);
     await plantRule(pool, company, 'owner');

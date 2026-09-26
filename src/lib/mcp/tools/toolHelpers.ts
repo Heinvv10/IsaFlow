@@ -145,6 +145,9 @@ function truncateForMessage(value: unknown): string {
 const REFUSAL_CODES: ReadonlySet<string> = new Set([
   'ADJUSTMENT_NOT_APPROVABLE',
   'APPROVAL_REQUEST_LOCK_TIMEOUT',
+  // R-035 approval gate (gl/approvalGate): names the caller's own document
+  // number, the demanded role and the rule's name; raised before any write.
+  'APPROVAL_REQUIRED',
   'BANK_ALLOCATION_REFUSED',
   'BANK_MATCH_UNAVAILABLE',
   'BANK_TX_ALLOCATED',
@@ -170,6 +173,9 @@ const REFUSAL_CODES: ReadonlySet<string> = new Set([
   'CREDIT_NOTE_LOCK_TIMEOUT',
   'CUSTOMER_INVOICE_LOCK_TIMEOUT',
   'CUSTOMER_NOT_FOUND',
+  // R-035: approve on a request whose document changed since it was raised.
+  // Names only the request id the caller passed; nothing is written.
+  'DOCUMENT_CHANGED',
   'DOCUMENT_CLAIM_LOCK_TIMEOUT',
   // Inactive or not-this-company line account (gl/documentLineAccountGuard): names only the caller's own account.
   'DOCUMENT_LINE_ACCOUNT_REFUSED',
@@ -181,6 +187,8 @@ const REFUSAL_CODES: ReadonlySet<string> = new Set([
   'HAND_CORRECTION_REFUSED',
   'JOURNAL_REVERSAL_LOCK_TIMEOUT',
   'LOAN_POST_LOCK_TIMEOUT',
+  // R-035: enabling approval enforcement for a type not yet wired. Names only the type.
+  'NOT_ENFORCEABLE',
   'PAYMENT_LOCK_TIMEOUT',
   'PAYMENT_POSTED_DURING_VOID',
   'PAYROLL_LOAN_LOCK_TIMEOUT',
