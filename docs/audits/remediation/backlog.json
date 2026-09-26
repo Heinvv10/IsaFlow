@@ -2197,8 +2197,8 @@
       "correctedTrigger": null,
       "severityRationale": "Source priority only; impact and reachability not yet validated.",
       "auditedSha": "5661d6f0f5f2212705151e95455a3f681ddf840e",
-      "currentSha": "0ecf6d06e",
-      "status": "fixed-on-master",
+      "currentSha": "34dac5651",
+      "status": "fixed",
       "dependencies": [],
       "testNames": [
         "tests/integration/r096-dunning-skips-unissued-invoices.int.test.ts",
@@ -2210,11 +2210,11 @@
       ],
       "fixCommit": "2ac13feef;017d0d08f",
       "pr": "428;413",
-      "deployedSha": "017d0d08f",
+      "deployedSha": "34dac5651",
       "historicalDataImpact": "Not assessed",
       "canonicalItem": null,
       "reportedSeverity": "high",
-      "processNotes": "CLOSED ON EVIDENCE 2026-09-25: verified on origin/master 0ecf6d06e by reading the committed code (git show), not the commit message; every fix commit is an ancestor of the live RELEASE_SHA e2a78d699. src/modules/accounting/services/ar/dunningCronService.ts:135 filters the shared documentInPopulationExpr (no draft / pending-approval; R-096, #428), :136 excludes 'paid', :146 requires deleted_at IS NULL (#413)."
+      "processNotes": "CLOSED ON EVIDENCE 2026-09-25: verified on origin/master 0ecf6d06e by reading the committed code (git show), not the commit message; every fix commit is an ancestor of the live RELEASE_SHA e2a78d699. src/modules/accounting/services/ar/dunningCronService.ts:135 filters the shared documentInPopulationExpr (no draft / pending-approval; R-096, #428), :136 excludes 'paid', :146 requires deleted_at IS NULL (#413). 2026-09-26: verified LIVE at prod RELEASE_SHA 34dac5651 (it was first live at or before that SHA; the earliest deploy was not traced). Every recorded fix commit is an ancestor of 34dac5651, and the guard is present in the code at that SHA (git show, not disk): dunning selection carries documentInPopulationExpr, != 'paid', deleted_at IS NULL (dunningCronService.ts:139-146). Schema parts ride migrations that deploy.sh applies before rsync; prod DB not queried."
     },
     {
       "id": "K-060",
@@ -2230,8 +2230,8 @@
       "correctedTrigger": null,
       "severityRationale": "Source priority only; impact and reachability not yet validated.",
       "auditedSha": "5661d6f0f5f2212705151e95455a3f681ddf840e",
-      "currentSha": "0ecf6d06e",
-      "status": "fixed-on-master",
+      "currentSha": "34dac5651",
+      "status": "fixed",
       "dependencies": [],
       "testNames": [
         "tests/integration/k107-quote-number-tenant-scope.int.test.ts"
@@ -2242,11 +2242,11 @@
       ],
       "fixCommit": "5f26d544e",
       "pr": "411",
-      "deployedSha": "5f26d544e",
+      "deployedSha": "34dac5651",
       "historicalDataImpact": "Not assessed",
       "canonicalItem": null,
       "reportedSeverity": "high",
-      "processNotes": "CLOSED ON EVIDENCE 2026-09-25: verified on origin/master 0ecf6d06e by reading the committed code (git show), not the commit message; every fix commit is an ancestor of the live RELEASE_SHA e2a78d699. quoteService.nextQuoteNumber reserves from the company's own 'quotation' sequence (quoteService.ts:201-207); migration 666 adds uq_customer_quotes_company_number."
+      "processNotes": "CLOSED ON EVIDENCE 2026-09-25: verified on origin/master 0ecf6d06e by reading the committed code (git show), not the commit message; every fix commit is an ancestor of the live RELEASE_SHA e2a78d699. quoteService.nextQuoteNumber reserves from the company's own 'quotation' sequence (quoteService.ts:201-207); migration 666 adds uq_customer_quotes_company_number. 2026-09-26: verified LIVE at prod RELEASE_SHA 34dac5651 (it was first live at or before that SHA; the earliest deploy was not traced). Every recorded fix commit is an ancestor of 34dac5651, and the guard is present in the code at that SHA (git show, not disk): quote number from the company's quotation sequence, constraint list incl. uq_customer_quotes_company_quote_number (quoteService.ts:87-104). Schema parts ride migrations that deploy.sh applies before rsync; prod DB not queried."
     },
     {
       "id": "K-061",
@@ -2299,8 +2299,8 @@
       "correctedTrigger": null,
       "severityRationale": "Source priority only; impact and reachability not yet validated.",
       "auditedSha": "5661d6f0f5f2212705151e95455a3f681ddf840e",
-      "currentSha": "0ecf6d06e",
-      "status": "fixed-on-master",
+      "currentSha": "34dac5651",
+      "status": "fixed",
       "dependencies": [],
       "testNames": [
         "tests/integration/r082-statements-exclude-drafts.int.test.ts"
@@ -2311,11 +2311,11 @@
       ],
       "fixCommit": "9096c1582",
       "pr": "413",
-      "deployedSha": "9096c1582",
+      "deployedSha": "34dac5651",
       "historicalDataImpact": "Not assessed",
       "canonicalItem": null,
       "reportedSeverity": "high",
-      "processNotes": "CLOSED ON EVIDENCE 2026-09-25: verified on origin/master 0ecf6d06e by reading the committed code (git show), not the commit message; every fix commit is an ancestor of the live RELEASE_SHA e2a78d699. pages/api/accounting/customer-statement.ts:92 and :155 match COALESCE(ci.client_id, ci.customer_id). Gap: no test inserts a legacy customer_id-only invoice, so the COALESCE is not pinned by a test."
+      "processNotes": "CLOSED ON EVIDENCE 2026-09-25: verified on origin/master 0ecf6d06e by reading the committed code (git show), not the commit message; every fix commit is an ancestor of the live RELEASE_SHA e2a78d699. pages/api/accounting/customer-statement.ts:92 and :155 match COALESCE(ci.client_id, ci.customer_id). Gap: no test inserts a legacy customer_id-only invoice, so the COALESCE is not pinned by a test. 2026-09-26: verified LIVE at prod RELEASE_SHA 34dac5651 (it was first live at or before that SHA; the earliest deploy was not traced). Every recorded fix commit is an ancestor of 34dac5651, and the guard is present in the code at that SHA (git show, not disk): COALESCE(ci.client_id, ci.customer_id) in both statement reads (customer-statement.ts:92,155). Schema parts ride migrations that deploy.sh applies before rsync; prod DB not queried."
     },
     {
       "id": "K-063",
@@ -3053,8 +3053,8 @@
       "correctedTrigger": null,
       "severityRationale": "Source priority only; impact and reachability not yet validated.",
       "auditedSha": "5661d6f0f5f2212705151e95455a3f681ddf840e",
-      "currentSha": "0ecf6d06e",
-      "status": "fixed-on-master",
+      "currentSha": "34dac5651",
+      "status": "fixed",
       "dependencies": [],
       "testNames": [
         "tests/integration/k107-stock-adjustment-numbering.int.test.ts"
@@ -3065,11 +3065,11 @@
       ],
       "fixCommit": "972870495",
       "pr": "411",
-      "deployedSha": "972870495",
+      "deployedSha": "34dac5651",
       "historicalDataImpact": "Not assessed",
       "canonicalItem": null,
       "reportedSeverity": "high",
-      "processNotes": "CLOSED ON EVIDENCE 2026-09-25: verified on origin/master 0ecf6d06e by reading the committed code (git show), not the commit message; every fix commit is an ancestor of the live RELEASE_SHA e2a78d699. pages/api/accounting/stock-adjustments.ts no longer names stock_movements.company_id (the column never existed; the fix drops it rather than adding it). This made K-086 live, as K-086/validation.md warned; K-086 is fixed separately (fix/k086-stocktake-count-absolute-20260925)."
+      "processNotes": "CLOSED ON EVIDENCE 2026-09-25: verified on origin/master 0ecf6d06e by reading the committed code (git show), not the commit message; every fix commit is an ancestor of the live RELEASE_SHA e2a78d699. pages/api/accounting/stock-adjustments.ts no longer names stock_movements.company_id (the column never existed; the fix drops it rather than adding it). This made K-086 live, as K-086/validation.md warned; K-086 is fixed separately (fix/k086-stocktake-count-absolute-20260925). 2026-09-26: verified LIVE at prod RELEASE_SHA 34dac5651 (it was first live at or before that SHA; the earliest deploy was not traced). Every recorded fix commit is an ancestor of 34dac5651, and the guard is present in the code at that SHA (git show, not disk): stock_movements INSERT has no company_id column (stock-adjustments.ts:110). Schema parts ride migrations that deploy.sh applies before rsync; prod DB not queried."
     },
     {
       "id": "K-086",
@@ -3496,8 +3496,8 @@
       "correctedTrigger": null,
       "severityRationale": "Source priority only; impact and reachability not yet validated.",
       "auditedSha": "5661d6f0f5f2212705151e95455a3f681ddf840e",
-      "currentSha": "0ecf6d06e",
-      "status": "fixed-on-master",
+      "currentSha": "34dac5651",
+      "status": "fixed",
       "dependencies": [],
       "testNames": [
         "tests/unit/services/adminCriticalActions.test.ts",
@@ -3509,11 +3509,11 @@
       ],
       "fixCommit": "131bf415d",
       "pr": "401",
-      "deployedSha": "131bf415d",
+      "deployedSha": "34dac5651",
       "historicalDataImpact": "Not assessed",
       "canonicalItem": null,
       "reportedSeverity": "high",
-      "processNotes": "CLOSED ON EVIDENCE 2026-09-25: verified on origin/master 0ecf6d06e by reading the committed code (git show), not the commit message; every fix commit is an ancestor of the live RELEASE_SHA e2a78d699. The CRITICAL_ACTIONS allow-list is replaced by an empty BEST_EFFORT_ACTIONS deny-list (src/modules/admin/services/auditService.ts:66), so every logAdminAction call is fail-closed; the dead names (feature.override / feature.remove_override) can no longer leave an action ungoverned."
+      "processNotes": "CLOSED ON EVIDENCE 2026-09-25: verified on origin/master 0ecf6d06e by reading the committed code (git show), not the commit message; every fix commit is an ancestor of the live RELEASE_SHA e2a78d699. The CRITICAL_ACTIONS allow-list is replaced by an empty BEST_EFFORT_ACTIONS deny-list (src/modules/admin/services/auditService.ts:66), so every logAdminAction call is fail-closed; the dead names (feature.override / feature.remove_override) can no longer leave an action ungoverned. 2026-09-26: verified LIVE at prod RELEASE_SHA 34dac5651 (it was first live at or before that SHA; the earliest deploy was not traced). Every recorded fix commit is an ancestor of 34dac5651, and the guard is present in the code at that SHA (git show, not disk): the CRITICAL_ACTIONS allow-list is gone; every admin action now fails closed except an empty BEST_EFFORT_ACTIONS deny-list (auditService.ts:40-66). Schema parts ride migrations that deploy.sh applies before rsync; prod DB not queried."
     },
     {
       "id": "K-099",
@@ -3622,8 +3622,8 @@
       "correctedTrigger": null,
       "severityRationale": "Source priority only; impact and reachability not yet validated.",
       "auditedSha": "5661d6f0f5f2212705151e95455a3f681ddf840e",
-      "currentSha": "0ecf6d06e",
-      "status": "fixed-on-master",
+      "currentSha": "34dac5651",
+      "status": "fixed",
       "dependencies": [],
       "testNames": [
         "tests/integration/r095-portal-statement-matches-inapp.int.test.ts",
@@ -3636,11 +3636,11 @@
       ],
       "fixCommit": "d7b89c8c3",
       "pr": "444",
-      "deployedSha": "e2af2c121",
+      "deployedSha": "34dac5651",
       "historicalDataImpact": "Not assessed",
       "canonicalItem": null,
       "reportedSeverity": "high",
-      "processNotes": "CLOSED ON EVIDENCE 2026-09-25: verified on origin/master 0ecf6d06e by reading the committed code (git show), not the commit message; every fix commit is an ancestor of the live RELEASE_SHA e2a78d699. src/modules/accounting/services/ar/portalService.ts:135-140 reads total_amount; the portal statement is routed through statementEmailService.fetchStatementData (:190), so the missing customer_payments columns are no longer referenced (R-095, rounds through e2af2c121)."
+      "processNotes": "CLOSED ON EVIDENCE 2026-09-25: verified on origin/master 0ecf6d06e by reading the committed code (git show), not the commit message; every fix commit is an ancestor of the live RELEASE_SHA e2a78d699. src/modules/accounting/services/ar/portalService.ts:135-140 reads total_amount; the portal statement is routed through statementEmailService.fetchStatementData (:190), so the missing customer_payments columns are no longer referenced (R-095, rounds through e2af2c121). 2026-09-26: verified LIVE at prod RELEASE_SHA 34dac5651 (it was first live at or before that SHA; the earliest deploy was not traced). Every recorded fix commit is an ancestor of 34dac5651, and the guard is present in the code at that SHA (git show, not disk): portalService reads total_amount and routes the statement through fetchStatementData (portalService.ts:13,135). Schema parts ride migrations that deploy.sh applies before rsync; prod DB not queried."
     },
     {
       "id": "K-103",
@@ -10036,8 +10036,8 @@
       "correctedTrigger": "",
       "severityRationale": "A safety mechanism relied on by migrations that modify financial data, which has never produced output.",
       "auditedSha": "",
-      "currentSha": "",
-      "status": "fixed-on-master",
+      "currentSha": "34dac5651",
+      "status": "fixed",
       "dependencies": [
         "K-081"
       ],
@@ -10047,7 +10047,7 @@
       "evidencePaths": [],
       "fixCommit": "317881a85",
       "pr": "407",
-      "deployedSha": "317881a85",
+      "deployedSha": "34dac5651",
       "historicalDataImpact": "Any prior migration warning intended for an operator was never seen.",
       "canonicalItem": null,
       "reportedSeverity": "",
@@ -10055,7 +10055,7 @@
       "title": "The migration runner discards every NOTICE and WARNING, so any migration that reports to the operator by RAISE WARNING reports to nobody",
       "severity": "high",
       "source": "Raised by the K-081 r3 blind reviewer; recorded 2026-09-09",
-      "processNotes": "scripts/apply-migrations.ts:121-130 runs client.query(file.content) on a pg.PoolClient and never registers a 'notice' listener, so node-postgres drops every NOTICE/WARNING the server sends. scripts/deploy.sh:146 runs exactly that path against production. Only RAISE EXCEPTION surfaces, because errors travel as errors. Found via K-081's migration 659, whose entire safety argument is that an ambiguous loan key is REFUSED and named in a WARNING for a human -- the human never sees it, and the refused loans then reclassify their full current portion at the next close, a silent GL movement. This is programme-wide, not a K-081 defect: any past or future migration that reports by RAISE WARNING or RAISE NOTICE has been reporting into a void. AUDIT every migration already applied to production for a RAISE WARNING/NOTICE whose output was assumed to have been read. K-081's fixer is adding the listener as the general fix.\n\nCLOSED ON EVIDENCE 2026-09-25: Verified 2026-09-25 on origin/master 4faf25ed7 by reading the committed code (git show), not the commit message; the fix commit is an ancestor of the live RELEASE_SHA e2a78d699. scripts/apply-migrations.ts:171 registers client.on('notice', noticeListener) (makeNoticeListener, scripts/migrationNoticeListener.ts), printing every NOTICE/WARNING except the IF NOT EXISTS skip codes; deploy.sh:146 runs that path. Open for Hein, unchanged: past migrations' WARNINGs were never seen."
+      "processNotes": "scripts/apply-migrations.ts:121-130 runs client.query(file.content) on a pg.PoolClient and never registers a 'notice' listener, so node-postgres drops every NOTICE/WARNING the server sends. scripts/deploy.sh:146 runs exactly that path against production. Only RAISE EXCEPTION surfaces, because errors travel as errors. Found via K-081's migration 659, whose entire safety argument is that an ambiguous loan key is REFUSED and named in a WARNING for a human -- the human never sees it, and the refused loans then reclassify their full current portion at the next close, a silent GL movement. This is programme-wide, not a K-081 defect: any past or future migration that reports by RAISE WARNING or RAISE NOTICE has been reporting into a void. AUDIT every migration already applied to production for a RAISE WARNING/NOTICE whose output was assumed to have been read. K-081's fixer is adding the listener as the general fix.\n\nCLOSED ON EVIDENCE 2026-09-25: Verified 2026-09-25 on origin/master 4faf25ed7 by reading the committed code (git show), not the commit message; the fix commit is an ancestor of the live RELEASE_SHA e2a78d699. scripts/apply-migrations.ts:171 registers client.on('notice', noticeListener) (makeNoticeListener, scripts/migrationNoticeListener.ts), printing every NOTICE/WARNING except the IF NOT EXISTS skip codes; deploy.sh:146 runs that path. Open for Hein, unchanged: past migrations' WARNINGs were never seen. 2026-09-26: verified LIVE at prod RELEASE_SHA 34dac5651 (it was first live at or before that SHA; the earliest deploy was not traced). Every recorded fix commit is an ancestor of 34dac5651, and the guard is present in the code at that SHA (git show, not disk): apply-migrations.ts attaches makeNoticeListener (:18,:168). Schema parts ride migrations that deploy.sh applies before rsync; prod DB not queried."
     },
     {
       "id": "R-042",
@@ -10135,8 +10135,8 @@
       "correctedTrigger": "",
       "severityRationale": "Cross-tenant numbering plus a duplicate customer invoice reachable by an ordinary retry.",
       "auditedSha": "",
-      "currentSha": "",
-      "status": "fixed-on-master",
+      "currentSha": "34dac5651",
+      "status": "fixed",
       "dependencies": [
         "K-107"
       ],
@@ -10147,7 +10147,7 @@
       "evidencePaths": [],
       "fixCommit": "5f26d544e",
       "pr": "411",
-      "deployedSha": "5f26d544e",
+      "deployedSha": "34dac5651",
       "historicalDataImpact": "Unquantified: duplicate WIP invoices may already exist.",
       "canonicalItem": null,
       "reportedSeverity": "",
@@ -10155,7 +10155,7 @@
       "title": "quoteService.nextQuoteNumber mints quote numbers with no company_id filter, and the practice WIP invoice path double-bills",
       "severity": "high",
       "source": "Found by the K-107 r4 blind reviewer's independent census; recorded 2026-09-09",
-      "processNotes": "Two defects outside K-107's named scope, found only because the reviewer was asked to run its OWN census after this branch twice fixed a site and left its twin alive. (1) quoteService.nextQuoteNumber draws the next quote number with NO company_id filter -- a multi-tenant violation on a numbering path, against the project's first rule. (2) practiceWipService.generateWipInvoice and pages/api/accounting/time-entries-invoice.ts mint customer invoices under a status read with no lock, no savepoint, and an IGNORED markEntriesBilled row count, so they double-bill -- the same check-then-act class K-107 has now fixed three times elsewhere (recurring runs, quote->invoice, sales-order->invoice). K-107's round 5 is fixing both, so this item exists to record the class and to ensure the census is repeated across every module rather than patched site by site. If K-107 cannot close the practice-module half within its scope, it stays open here.\n\nCLOSED ON EVIDENCE 2026-09-25: Verified 2026-09-25 on origin/master 4faf25ed7 by reading the committed code (git show), not the commit message; the fix commit is an ancestor of the live RELEASE_SHA e2a78d699. (1) quoteService.ts:11,91 -- nextQuoteNumber's unscoped MAX is gone; quotes go through insertWithReservedNumber (the company's own counter, uq_customer_quotes_company_number). (2) practiceWipService.ts:176,267 -- lockEligibleWipEntries row-locks the entries and markEntriesBilled's count is checked, rolling back on a mismatch. Historical duplicate WIP invoices remain uncounted."
+      "processNotes": "Two defects outside K-107's named scope, found only because the reviewer was asked to run its OWN census after this branch twice fixed a site and left its twin alive. (1) quoteService.nextQuoteNumber draws the next quote number with NO company_id filter -- a multi-tenant violation on a numbering path, against the project's first rule. (2) practiceWipService.generateWipInvoice and pages/api/accounting/time-entries-invoice.ts mint customer invoices under a status read with no lock, no savepoint, and an IGNORED markEntriesBilled row count, so they double-bill -- the same check-then-act class K-107 has now fixed three times elsewhere (recurring runs, quote->invoice, sales-order->invoice). K-107's round 5 is fixing both, so this item exists to record the class and to ensure the census is repeated across every module rather than patched site by site. If K-107 cannot close the practice-module half within its scope, it stays open here.\n\nCLOSED ON EVIDENCE 2026-09-25: Verified 2026-09-25 on origin/master 4faf25ed7 by reading the committed code (git show), not the commit message; the fix commit is an ancestor of the live RELEASE_SHA e2a78d699. (1) quoteService.ts:11,91 -- nextQuoteNumber's unscoped MAX is gone; quotes go through insertWithReservedNumber (the company's own counter, uq_customer_quotes_company_number). (2) practiceWipService.ts:176,267 -- lockEligibleWipEntries row-locks the entries and markEntriesBilled's count is checked, rolling back on a mismatch. Historical duplicate WIP invoices remain uncounted. 2026-09-26: verified LIVE at prod RELEASE_SHA 34dac5651 (it was first live at or before that SHA; the earliest deploy was not traced). Every recorded fix commit is an ancestor of 34dac5651, and the guard is present in the code at that SHA (git show, not disk): company-scoped quote sequence (quoteService.ts:87-104); WIP billing requires billed_at IS NULL (practiceWipService.ts:88,114; time-entries-invoice.ts:75). Schema parts ride migrations that deploy.sh applies before rsync; prod DB not queried."
     },
     {
       "id": "R-045",
@@ -10238,8 +10238,8 @@
       "correctedTrigger": "",
       "severityRationale": "Duplicate bank credits and duplicate client billing, both reachable without concurrency.",
       "auditedSha": "",
-      "currentSha": "",
-      "status": "fixed-on-master",
+      "currentSha": "34dac5651",
+      "status": "fixed",
       "dependencies": [
         "K-107"
       ],
@@ -10253,7 +10253,7 @@
       ],
       "fixCommit": "5f26d544e",
       "pr": "411",
-      "deployedSha": "5f26d544e",
+      "deployedSha": "34dac5651",
       "historicalDataImpact": "Unquantified; no census query written yet.",
       "canonicalItem": null,
       "reportedSeverity": "",
@@ -10261,7 +10261,7 @@
       "title": "Batch payments could post twice and credit the bank twice on two clicks; WIP-invoiced time entries could be billed again with no concurrency",
       "severity": "high",
       "source": "Found by the K-107 fixer's own census in round 5; recorded 2026-09-10",
-      "processNotes": "Three defects found while fixing K-107, all now fixed on that branch, but the DATA they may already have produced is not corrected. (1) batchPaymentService.processBatch read status !== 'approved' then posted DR AP / CR Bank and incremented amount_paid on every invoice, rewriting the batch with WHERE id = $1 -- TWO CLICKS posted two journals and CREDITED THE BANK TWICE. Reachable by an ordinary double-click, no concurrency needed. (2) The two time-entry subsystems disagree on which column means 'billed', so entries already invoiced through WIP could be billed AGAIN through the route -- serially, no race required. (3) updateSalesOrder rewrote the lines of an order someone else had just confirmed. HEIN'S CALL: (1) is real money in the bank GL and (2) is double-billed client time. Neither has had a census query written yet -- one is needed before deploy, and posting_agent / audit_log will identify the batch-payment duplicates.\n\nCLOSED ON EVIDENCE 2026-09-25: Verified 2026-09-25 on origin/master 4faf25ed7 by reading the committed code (git show), not the commit message; the fix commit is an ancestor of the live RELEASE_SHA e2a78d699. (1) batchPaymentService.processBatch claims with UPDATE ... SET status='processed' WHERE status='approved' RETURNING id before posting; otherwise BatchNotProcessableError. (2) time-entries-invoice.ts:75,146 claims on invoiced=false AND billed_at IS NULL and refuses a short claim (TimeEntriesNotClaimedError). (3) salesOrderService.updateSalesOrder:286-289 predicates the header UPDATE on status='draft' and returns before rewriting lines when nothing was claimed. Still open for Hein: the census of batch-payment duplicates already in production."
+      "processNotes": "Three defects found while fixing K-107, all now fixed on that branch, but the DATA they may already have produced is not corrected. (1) batchPaymentService.processBatch read status !== 'approved' then posted DR AP / CR Bank and incremented amount_paid on every invoice, rewriting the batch with WHERE id = $1 -- TWO CLICKS posted two journals and CREDITED THE BANK TWICE. Reachable by an ordinary double-click, no concurrency needed. (2) The two time-entry subsystems disagree on which column means 'billed', so entries already invoiced through WIP could be billed AGAIN through the route -- serially, no race required. (3) updateSalesOrder rewrote the lines of an order someone else had just confirmed. HEIN'S CALL: (1) is real money in the bank GL and (2) is double-billed client time. Neither has had a census query written yet -- one is needed before deploy, and posting_agent / audit_log will identify the batch-payment duplicates.\n\nCLOSED ON EVIDENCE 2026-09-25: Verified 2026-09-25 on origin/master 4faf25ed7 by reading the committed code (git show), not the commit message; the fix commit is an ancestor of the live RELEASE_SHA e2a78d699. (1) batchPaymentService.processBatch claims with UPDATE ... SET status='processed' WHERE status='approved' RETURNING id before posting; otherwise BatchNotProcessableError. (2) time-entries-invoice.ts:75,146 claims on invoiced=false AND billed_at IS NULL and refuses a short claim (TimeEntriesNotClaimedError). (3) salesOrderService.updateSalesOrder:286-289 predicates the header UPDATE on status='draft' and returns before rewriting lines when nothing was claimed. Still open for Hein: the census of batch-payment duplicates already in production. 2026-09-26: verified LIVE at prod RELEASE_SHA 34dac5651 (it was first live at or before that SHA; the earliest deploy was not traced). Every recorded fix commit is an ancestor of 34dac5651, and the guard is present in the code at that SHA (git show, not disk): batchPaymentService locks the batch FOR UPDATE (:161); WIP billed_at IS NULL guards as R-044. Schema parts ride migrations that deploy.sh applies before rsync; prod DB not queried."
     },
     {
       "id": "R-048",
@@ -10566,8 +10566,8 @@
       "correctedTrigger": "",
       "severityRationale": "A posting route that never ran is now live; two posting routes have no database backstop.",
       "auditedSha": "",
-      "currentSha": "",
-      "status": "fixed-on-master",
+      "currentSha": "34dac5651",
+      "status": "fixed",
       "dependencies": [
         "K-072"
       ],
@@ -10580,7 +10580,7 @@
       ],
       "fixCommit": "85e8baef9",
       "pr": "426",
-      "deployedSha": "85e8baef9",
+      "deployedSha": "34dac5651",
       "historicalDataImpact": "None from the pipeline route -- it never created an invoice. The fence gap is forward-looking.",
       "canonicalItem": null,
       "reportedSeverity": "",
@@ -10588,7 +10588,7 @@
       "title": "ai-invoice-pipeline has never created an invoice, and the capture posting fence's unique index cannot reach the two routes that write supplier_invoices",
       "severity": "high",
       "source": "Measured by the K-072 fixer in round 7 while closing the fourth posting route; recorded 2026-09-10",
-      "processNotes": "Two facts, both measured, both correcting earlier assumptions on this programme. (1) ai-invoice-pipeline inserted `company_id` into supplier_invoice_items -- a column that table has NEVER had -- and buildInvoiceFromExtraction always synthesises a line, so every call raised 42703 and rolled back. The route had never created an invoice. This is the FOURTH never-worked feature found (after validateMigration R-050, the portal endpoints, and executeArchive R-053). Note the shape: the R300 duplicate input-tax claim a reviewer measured on this route was LATENT -- one repaired line away from live. K-072 repaired the line and fenced it in the same round, so it is live and guarded now rather than live and unguarded later. (2) The partial unique index uq_gl_je_capture_source_document was believed to be the database backstop behind the application claim. It is on gl_journal_entries; routes 4 and 5 (capture/[id]/post and ai-invoice-pipeline) write supplier_invoices, so the index CANNOT reach them at any `source` value -- the earlier 'a route writing under a different source slips past it' framing was wrong in a more fundamental way than stated. captureRowLock.ts's header asserted the opposite and has been corrected. Those two routes are fenced by the application claim alone. HEIN: a supplier_invoices-side constraint would restore a database backstop for routes 4 and 5; that is a scope change and is why this is an item.\n\nCLOSED ON EVIDENCE 2026-09-25: Verified 2026-09-25 on origin/master 4faf25ed7 by reading the committed code (git show), not the commit message; the fix commit is an ancestor of the live RELEASE_SHA e2a78d699. (1) ai-invoice-pipeline.ts:215 -- the company_id insert into supplier_invoice_items is gone. (2) the route reads refusalForPosting (:88) and takes claimCapturedDocumentForPosting (:177) before the supplier_invoices INSERT. The database backstop for routes 4 and 5 was NOT built: they are fenced by the application claim only, as the item recorded (a supplier_invoices-side constraint remains Hein's call)."
+      "processNotes": "Two facts, both measured, both correcting earlier assumptions on this programme. (1) ai-invoice-pipeline inserted `company_id` into supplier_invoice_items -- a column that table has NEVER had -- and buildInvoiceFromExtraction always synthesises a line, so every call raised 42703 and rolled back. The route had never created an invoice. This is the FOURTH never-worked feature found (after validateMigration R-050, the portal endpoints, and executeArchive R-053). Note the shape: the R300 duplicate input-tax claim a reviewer measured on this route was LATENT -- one repaired line away from live. K-072 repaired the line and fenced it in the same round, so it is live and guarded now rather than live and unguarded later. (2) The partial unique index uq_gl_je_capture_source_document was believed to be the database backstop behind the application claim. It is on gl_journal_entries; routes 4 and 5 (capture/[id]/post and ai-invoice-pipeline) write supplier_invoices, so the index CANNOT reach them at any `source` value -- the earlier 'a route writing under a different source slips past it' framing was wrong in a more fundamental way than stated. captureRowLock.ts's header asserted the opposite and has been corrected. Those two routes are fenced by the application claim alone. HEIN: a supplier_invoices-side constraint would restore a database backstop for routes 4 and 5; that is a scope change and is why this is an item.\n\nCLOSED ON EVIDENCE 2026-09-25: Verified 2026-09-25 on origin/master 4faf25ed7 by reading the committed code (git show), not the commit message; the fix commit is an ancestor of the live RELEASE_SHA e2a78d699. (1) ai-invoice-pipeline.ts:215 -- the company_id insert into supplier_invoice_items is gone. (2) the route reads refusalForPosting (:88) and takes claimCapturedDocumentForPosting (:177) before the supplier_invoices INSERT. The database backstop for routes 4 and 5 was NOT built: they are fenced by the application claim only, as the item recorded (a supplier_invoices-side constraint remains Hein's call). 2026-09-26: verified LIVE at prod RELEASE_SHA 34dac5651 (it was first live at or before that SHA; the earliest deploy was not traced). Every recorded fix commit is an ancestor of 34dac5651, and the guard is present in the code at that SHA (git show, not disk): ai-invoice-pipeline goes through the capture claim / uq_gl_je_capture_source_document (ai-invoice-pipeline.ts:75). Schema parts ride migrations that deploy.sh applies before rsync; prod DB not queried."
     },
     {
       "id": "R-055",
@@ -10602,8 +10602,8 @@
       "correctedTrigger": "",
       "severityRationale": "A customer-facing feature that has never worked, with no test covering it.",
       "auditedSha": "",
-      "currentSha": "",
-      "status": "fixed-on-master",
+      "currentSha": "34dac5651",
+      "status": "fixed",
       "dependencies": [
         "K-053"
       ],
@@ -10616,7 +10616,7 @@
       ],
       "fixCommit": "d7b89c8c3",
       "pr": "444",
-      "deployedSha": "d7b89c8c3",
+      "deployedSha": "34dac5651",
       "historicalDataImpact": "None -- nothing was written. Any customer sent a portal link saw an error.",
       "canonicalItem": null,
       "reportedSeverity": "",
@@ -10624,7 +10624,7 @@
       "title": "Both customer portal endpoints have never worked: portalService selects four columns that do not exist",
       "severity": "high",
       "source": "Verified by the K-053 r7 blind reviewer (42703 measured); first spotted by the K-053 fixer; recorded 2026-09-10",
-      "processNotes": "portalService selects `customer_invoices.total` and `customer_payments.amount` / `.reference` / `.customer_id` -- NONE of those columns exist on this schema. Both portal endpoints raise 42703 in production today. Verified by execution, not inference. This is the FIFTH never-worked feature this programme has found: validateMigration (R-050), the archive (R-053), ai-invoice-pipeline (R-054), and these two endpoints. Distinguishing feature: this one is CUSTOMER-FACING. The other four fail where only staff or a cron would notice; a customer opening a portal link gets an error. No test exercises either endpoint, which is why it survived. Note the correct column for an invoice's outstanding amount is total_amount - COALESCE(amount_paid,0) -- there is no balance_due and no total. Out of K-053's scope (that branch owns dated ledger presence, not the portal) so it gets its own item rather than being folded in. HEIN: worth knowing whether any customer has ever been sent a portal link.\n\nCLOSED ON EVIDENCE 2026-09-25: Verified 2026-09-25 on origin/master 4faf25ed7 by reading the committed code (git show), not the commit message; the fix commit is an ancestor of the live RELEASE_SHA e2a78d699. Fixed under R-095. portalService.ts:135-137 selects total_amount and derives (total_amount - COALESCE(amount_paid,0)) AS balance; the statement uses statementEmailService.fetchStatementData (:13) instead of the non-existent customer_payments columns."
+      "processNotes": "portalService selects `customer_invoices.total` and `customer_payments.amount` / `.reference` / `.customer_id` -- NONE of those columns exist on this schema. Both portal endpoints raise 42703 in production today. Verified by execution, not inference. This is the FIFTH never-worked feature this programme has found: validateMigration (R-050), the archive (R-053), ai-invoice-pipeline (R-054), and these two endpoints. Distinguishing feature: this one is CUSTOMER-FACING. The other four fail where only staff or a cron would notice; a customer opening a portal link gets an error. No test exercises either endpoint, which is why it survived. Note the correct column for an invoice's outstanding amount is total_amount - COALESCE(amount_paid,0) -- there is no balance_due and no total. Out of K-053's scope (that branch owns dated ledger presence, not the portal) so it gets its own item rather than being folded in. HEIN: worth knowing whether any customer has ever been sent a portal link.\n\nCLOSED ON EVIDENCE 2026-09-25: Verified 2026-09-25 on origin/master 4faf25ed7 by reading the committed code (git show), not the commit message; the fix commit is an ancestor of the live RELEASE_SHA e2a78d699. Fixed under R-095. portalService.ts:135-137 selects total_amount and derives (total_amount - COALESCE(amount_paid,0)) AS balance; the statement uses statementEmailService.fetchStatementData (:13) instead of the non-existent customer_payments columns. 2026-09-26: verified LIVE at prod RELEASE_SHA 34dac5651 (it was first live at or before that SHA; the earliest deploy was not traced). Every recorded fix commit is an ancestor of 34dac5651, and the guard is present in the code at that SHA (git show, not disk): portalService as K-102 (portalService.ts:13,135). Schema parts ride migrations that deploy.sh applies before rsync; prod DB not queried."
     },
     {
       "id": "R-056",
@@ -10642,8 +10642,8 @@
       "correctedTrigger": "",
       "severityRationale": "Published annual financial statements carry wrong figures, and note 27 drives the going-concern conclusion.",
       "auditedSha": "",
-      "currentSha": "",
-      "status": "fixed-on-master",
+      "currentSha": "34dac5651",
+      "status": "fixed",
       "dependencies": [
         "K-091"
       ],
@@ -10653,7 +10653,7 @@
       ],
       "fixCommit": null,
       "pr": null,
-      "deployedSha": null,
+      "deployedSha": "34dac5651",
       "historicalDataImpact": "No data is wrong -- nothing is written. Every AFS pack ALREADY PRODUCED from a period containing a credit note, rebate or reversal shows overstated note figures that do not tie to the income statement. Any pack already issued to a lender, SARS or a shareholder is affected and may need reissuing. Scope must be established before Hein decides; do not query production from an agent.",
       "canonicalItem": null,
       "reportedSeverity": "",
@@ -10661,7 +10661,7 @@
       "title": "Every GL aggregate using SUM(ABS(credit-debit)) counts a contra line as an addition: AFS notes 18/19/27, IFRS note 5, the VAT201 revenue reconciliation and an integrity check",
       "severity": "high",
       "source": "Found by the K-091 r5 blind reviewer; the shape independently confirmed on origin/master by the orchestrating session, 2026-09-10",
-      "processNotes": "`SUM(ABS(gjl.credit - gjl.debit))` applies ABS to each LINE before summing, so a contra line adds instead of subtracting. Correct is `ABS(SUM(...))` or a plain signed SUM. Confirmed present on origin/master at notes16to20.ts:125,163,173 and notes26to30.ts:82,85 -- i.e. deployed, not branch-introduced. Measured on the fixture: R100,000 sales less an R8,000 credit note prints R108,000 in note 18 while the income statement says R92,000; note 19 prints R4,000 vs R2,000; note 27 prints a 'profit of R 9 000,00' where net profit is R19,000. `bun run ci` passes all 15 gates at exit 0 because integration-tests self-skips without DATABASE_URL, so the gate cannot catch it. The code fix is in flight on K-091 r6; what needs Hein is the question of already-issued packs.\n\nEXTENDED 2026-09-10 after a census BY DEFECT SHAPE (`ABS(` inside a GL aggregate) rather than by call site, run on the K-091 r6 round. Three further sites confirmed on origin/master by the orchestrating session: `reports/disclosureNoteGenerators.ts:199` (IFRS note 5, same `SUM(ABS(credit - debit))` shape); `reports/vatReconciliationService.ts:83,322` — the GL revenue arm of the VAT201 reconciliation, which invents a revenue variance of TWICE every credit note and reports it as a ledger discrepancy, so the figure users reconcile their VAT201 against is wrong in the direction that makes the ledger look at fault; and `gl/integrityChecks/accountChecks.ts:220,236`, which reports gross throughput under a finding about a balance. 11 further sites were examined and are immune, each tabled with a reason in the K-091 fix.md. The code fix for all of these is on the K-091 branch; what still needs Hein is the scope of already-issued AFS packs and VAT201 reconciliations.\n\nEXTENDED AGAIN 2026-09-10: the same arithmetic occurs in a DIFFERENT SPELLING that a census for `ABS(` cannot find. `afs/noteGenerators/notes16to20.ts:72-73` (note 17, income tax) uses `SUM(gjl.debit)` with no credit side for both `current_tax` and `deferred_tax`, so an overprovision credit is ignored and the tax note overstates. Confirmed on origin/master by the orchestrating session, and decisive: the SIBLING query two lines below at :80-81 correctly uses `SUM(debit - credit)` / `SUM(credit - debit)`. Measured on the fixture: tax debit 5000 with an overprovision credit 2000 prints note 17 at 5 000,00 where net movement and income-statement Other Expenses are 3 000,00. Six sites now, not five. The lesson recorded in the briefs is to census by the ARITHMETIC a site performs, not by the token it is written with, and to compare each aggregate against its nearest sibling.\n\nEXTENDED 2026-09-10 (K-091 r9 blind reviewer): a SEVENTH site. `reports/disclosureNoteGenerators.ts` IFRS note 7 (Taxation) sums `SUM(debit) FILTER (vat_input)` and `SUM(credit) FILTER (vat_output)` — each one-sided on a different account, so a credit note never reduces it. Confirmed present on origin/master by the orchestrator. Fixture probe: output VAT prints 1 500,00 against a correct 1 350,00, net VAT 1 300,00 against 1 200,00; the sibling `vatControlMovement.ts:66-69` nets correctly. On isaflow_dev 1,249 non-settlement vat_output debits (R848,235.00) across 2 companies would be mis-stated. The K-091 census had filed these two sums as 'paired' although the fixer's own one-sided list named them.\n\nFIXED ON MASTER 2026-09-10 by K-091 (PR #414, master e86b10664): all seven sites net; no per-line ABS and no one-sided VAT sum remain in the note generators (verified on master). NOT deployed. Already-issued AFS packs and VAT201 reconciliations are NOT restated by the fix — that remains Hein's decision."
+      "processNotes": "`SUM(ABS(gjl.credit - gjl.debit))` applies ABS to each LINE before summing, so a contra line adds instead of subtracting. Correct is `ABS(SUM(...))` or a plain signed SUM. Confirmed present on origin/master at notes16to20.ts:125,163,173 and notes26to30.ts:82,85 -- i.e. deployed, not branch-introduced. Measured on the fixture: R100,000 sales less an R8,000 credit note prints R108,000 in note 18 while the income statement says R92,000; note 19 prints R4,000 vs R2,000; note 27 prints a 'profit of R 9 000,00' where net profit is R19,000. `bun run ci` passes all 15 gates at exit 0 because integration-tests self-skips without DATABASE_URL, so the gate cannot catch it. The code fix is in flight on K-091 r6; what needs Hein is the question of already-issued packs.\n\nEXTENDED 2026-09-10 after a census BY DEFECT SHAPE (`ABS(` inside a GL aggregate) rather than by call site, run on the K-091 r6 round. Three further sites confirmed on origin/master by the orchestrating session: `reports/disclosureNoteGenerators.ts:199` (IFRS note 5, same `SUM(ABS(credit - debit))` shape); `reports/vatReconciliationService.ts:83,322` — the GL revenue arm of the VAT201 reconciliation, which invents a revenue variance of TWICE every credit note and reports it as a ledger discrepancy, so the figure users reconcile their VAT201 against is wrong in the direction that makes the ledger look at fault; and `gl/integrityChecks/accountChecks.ts:220,236`, which reports gross throughput under a finding about a balance. 11 further sites were examined and are immune, each tabled with a reason in the K-091 fix.md. The code fix for all of these is on the K-091 branch; what still needs Hein is the scope of already-issued AFS packs and VAT201 reconciliations.\n\nEXTENDED AGAIN 2026-09-10: the same arithmetic occurs in a DIFFERENT SPELLING that a census for `ABS(` cannot find. `afs/noteGenerators/notes16to20.ts:72-73` (note 17, income tax) uses `SUM(gjl.debit)` with no credit side for both `current_tax` and `deferred_tax`, so an overprovision credit is ignored and the tax note overstates. Confirmed on origin/master by the orchestrating session, and decisive: the SIBLING query two lines below at :80-81 correctly uses `SUM(debit - credit)` / `SUM(credit - debit)`. Measured on the fixture: tax debit 5000 with an overprovision credit 2000 prints note 17 at 5 000,00 where net movement and income-statement Other Expenses are 3 000,00. Six sites now, not five. The lesson recorded in the briefs is to census by the ARITHMETIC a site performs, not by the token it is written with, and to compare each aggregate against its nearest sibling.\n\nEXTENDED 2026-09-10 (K-091 r9 blind reviewer): a SEVENTH site. `reports/disclosureNoteGenerators.ts` IFRS note 7 (Taxation) sums `SUM(debit) FILTER (vat_input)` and `SUM(credit) FILTER (vat_output)` — each one-sided on a different account, so a credit note never reduces it. Confirmed present on origin/master by the orchestrator. Fixture probe: output VAT prints 1 500,00 against a correct 1 350,00, net VAT 1 300,00 against 1 200,00; the sibling `vatControlMovement.ts:66-69` nets correctly. On isaflow_dev 1,249 non-settlement vat_output debits (R848,235.00) across 2 companies would be mis-stated. The K-091 census had filed these two sums as 'paired' although the fixer's own one-sided list named them.\n\nFIXED ON MASTER 2026-09-10 by K-091 (PR #414, master e86b10664): all seven sites net; no per-line ABS and no one-sided VAT sum remain in the note generators (verified on master). NOT deployed. Already-issued AFS packs and VAT201 reconciliations are NOT restated by the fix — that remains Hein's decision. 2026-09-26: verified LIVE at prod RELEASE_SHA 34dac5651 (it was first live at or before that SHA; the earliest deploy was not traced). Every recorded fix commit is an ancestor of 34dac5651, and the guard is present in the code at that SHA (git show, not disk): no one-sided FILTER (vat_input/vat_output) sum remains under afs/noteGenerators (git grep empty); fix commit e86b10664 (#414) is an ancestor. Schema parts ride migrations that deploy.sh applies before rsync; prod DB not queried."
     },
     {
       "id": "R-057",
@@ -10676,8 +10676,8 @@
       "correctedTrigger": "",
       "severityRationale": "A payroll posting route that has never once succeeded on any tenant, with no test covering it.",
       "auditedSha": "",
-      "currentSha": "",
-      "status": "fixed-on-master",
+      "currentSha": "34dac5651",
+      "status": "fixed",
       "dependencies": [
         "K-107"
       ],
@@ -10690,7 +10690,7 @@
       ],
       "fixCommit": "2e0ae4f36",
       "pr": "411",
-      "deployedSha": "2e0ae4f36",
+      "deployedSha": "34dac5651",
       "historicalDataImpact": "None -- nothing was ever written. Every call raised 42703 at the first GL lookup. There is no historical output to correct; the exposure is that tax-directive payments were never posted to the GL at all, so the liability may be unrecorded.",
       "canonicalItem": null,
       "reportedSeverity": "",
@@ -10698,7 +10698,7 @@
       "title": "The tax-directive apply route has never worked: glByCode selects gl_accounts.code, a column that does not exist",
       "severity": "high",
       "source": "Found by the K-107 r8 fixer; column absence independently confirmed against the schema fixture by the orchestrating session, 2026-09-10",
-      "processNotes": "`glByCode` runs `SELECT id FROM gl_accounts WHERE company_id = $1 AND code = $2`. The column on this schema is `account_code`; `code` does not exist, so every call raises 42703. Confirmed on origin/master at taxDirectivePaymentService.ts:78-82, and the same shape in loans/loanPaymentService. Fixed on the K-107 branch and mutation-proved. Registered so the ACCOUNTING question -- whether tax-directive liabilities are missing from the GL and for how long -- reaches Hein; that is not a code question and no agent may query production to size it.\n\nCLOSED ON EVIDENCE 2026-09-25: Verified 2026-09-25 on origin/master 4faf25ed7 by reading the committed code (git show), not the commit message; the fix commit is an ancestor of the live RELEASE_SHA e2a78d699. glByCode reads account_code in both taxDirectivePaymentService.ts:96 and loans/loanPaymentService.ts:73. Still open for Hein: the accounting question whether tax-directive liabilities are missing from the GL."
+      "processNotes": "`glByCode` runs `SELECT id FROM gl_accounts WHERE company_id = $1 AND code = $2`. The column on this schema is `account_code`; `code` does not exist, so every call raises 42703. Confirmed on origin/master at taxDirectivePaymentService.ts:78-82, and the same shape in loans/loanPaymentService. Fixed on the K-107 branch and mutation-proved. Registered so the ACCOUNTING question -- whether tax-directive liabilities are missing from the GL and for how long -- reaches Hein; that is not a code question and no agent may query production to size it.\n\nCLOSED ON EVIDENCE 2026-09-25: Verified 2026-09-25 on origin/master 4faf25ed7 by reading the committed code (git show), not the commit message; the fix commit is an ancestor of the live RELEASE_SHA e2a78d699. glByCode reads account_code in both taxDirectivePaymentService.ts:96 and loans/loanPaymentService.ts:73. Still open for Hein: the accounting question whether tax-directive liabilities are missing from the GL. 2026-09-26: verified LIVE at prod RELEASE_SHA 34dac5651 (it was first live at or before that SHA; the earliest deploy was not traced). Every recorded fix commit is an ancestor of 34dac5651, and the guard is present in the code at that SHA (git show, not disk): glByCode selects account_code (taxDirectivePaymentService.ts:96). Schema parts ride migrations that deploy.sh applies before rsync; prod DB not queried."
     },
     {
       "id": "R-058",
@@ -10981,8 +10981,8 @@
       "correctedTrigger": "",
       "severityRationale": "HIGH via the customer portal. Authenticated PDF routes are protected: `customers` has FORCED row-level security with a tenant_isolation policy for app_user, and withAuth switches to app_user, so a foreign customer prints blank. But pages/api/portal/invoice/[token]/pdf.ts is not behind withAuth; it resolves its token via portalTokenService (not R-055's broken portalService, so it is live) and renders via generateInvoicePdf as the connection role `postgres`, which bypasses RLS. There the missing company_id is the only barrier. With R-067, a tenant can plant another tenant's customer on its own invoice and read that customer's name, VAT number and billing address through its own portal link. POPIA-relevant; likelihood is limited only by customer ids being random UUIDs.",
       "auditedSha": "",
-      "currentSha": "",
-      "status": "fixed-on-master",
+      "currentSha": "34dac5651",
+      "status": "fixed",
       "dependencies": [
         "K-091",
         "R-067"
@@ -10993,7 +10993,7 @@
       ],
       "fixCommit": null,
       "pr": null,
-      "deployedSha": null,
+      "deployedSha": "34dac5651",
       "historicalDataImpact": "Unknown; production not measured. Any invoice whose client_id/customer_id resolves to another tenant's customer has printed that tenant's data. Impact SQL for Hein: invoices whose customer row belongs to a different company.",
       "canonicalItem": null,
       "reportedSeverity": "",
@@ -11001,7 +11001,7 @@
       "title": "The tax-invoice PDF joins the customer by id alone, with no company_id: a foreign customer id prints another tenant's name, VAT number and address",
       "severity": "high",
       "source": "Surfaced by the K-091 branch, which fixes it; confirmed on origin/master by the orchestrating session, 2026-09-10",
-      "processNotes": "origin/master invoicePdfBuilder.ts:34 is `LEFT JOIN customers c ON c.id = COALESCE(ci.client_id, ci.customer_id)` with no `c.company_id = ci.company_id`. The invoice itself is scoped (`ci.company_id = companyId`, :39) and master already scopes the projects join (:37); the customer join is the gap. `customer_invoices.client_id` has no FK, so nothing in the schema stops a foreign id. K-091 adds the predicate on its branch. Impact SQL: SELECT count(*) FROM customer_invoices ci JOIN customers c ON c.id = COALESCE(ci.client_id, ci.customer_id) WHERE c.company_id <> ci.company_id;\n\nSEVERITY RAISED 2026-09-10 after measurement in the disposable fixture (built from the same migrations as production; production itself not queried): customers and customer_invoices have relrowsecurity=true and relforcerowsecurity=true, policy tenant_isolation FOR ALL TO app_user USING (company_id IN (SELECT auth.user_companies())); app_user is neither superuser nor BYPASSRLS; postgres is both; production's DATABASE_URL user is postgres. The portal route can only work by bypassing RLS — as app_user with no user claim, auth.user_companies() is empty and the invoice itself would be hidden — so it necessarily runs unprotected. Fix components: (1) K-091 adds c.company_id = ci.company_id to the PDF join (closes the disclosure once merged AND deployed); (2) R-067 — the ownership check, not on any branch; (3) consider running portal routes under a role scoped to the token's company rather than as superuser.\n\nFIXED ON MASTER 2026-09-10 by K-091 (PR #414, master e86b10664): the customer join now carries `AND c.company_id = ci.company_id`. Closes the disclosure; the create-path hole is R-067 (in progress). NOT deployed — production still runs the unfixed code until a master deploy."
+      "processNotes": "origin/master invoicePdfBuilder.ts:34 is `LEFT JOIN customers c ON c.id = COALESCE(ci.client_id, ci.customer_id)` with no `c.company_id = ci.company_id`. The invoice itself is scoped (`ci.company_id = companyId`, :39) and master already scopes the projects join (:37); the customer join is the gap. `customer_invoices.client_id` has no FK, so nothing in the schema stops a foreign id. K-091 adds the predicate on its branch. Impact SQL: SELECT count(*) FROM customer_invoices ci JOIN customers c ON c.id = COALESCE(ci.client_id, ci.customer_id) WHERE c.company_id <> ci.company_id;\n\nSEVERITY RAISED 2026-09-10 after measurement in the disposable fixture (built from the same migrations as production; production itself not queried): customers and customer_invoices have relrowsecurity=true and relforcerowsecurity=true, policy tenant_isolation FOR ALL TO app_user USING (company_id IN (SELECT auth.user_companies())); app_user is neither superuser nor BYPASSRLS; postgres is both; production's DATABASE_URL user is postgres. The portal route can only work by bypassing RLS — as app_user with no user claim, auth.user_companies() is empty and the invoice itself would be hidden — so it necessarily runs unprotected. Fix components: (1) K-091 adds c.company_id = ci.company_id to the PDF join (closes the disclosure once merged AND deployed); (2) R-067 — the ownership check, not on any branch; (3) consider running portal routes under a role scoped to the token's company rather than as superuser.\n\nFIXED ON MASTER 2026-09-10 by K-091 (PR #414, master e86b10664): the customer join now carries `AND c.company_id = ci.company_id`. Closes the disclosure; the create-path hole is R-067 (in progress). NOT deployed — production still runs the unfixed code until a master deploy. 2026-09-26: verified LIVE at prod RELEASE_SHA 34dac5651 (it was first live at or before that SHA; the earliest deploy was not traced). Every recorded fix commit is an ancestor of 34dac5651, and the guard is present in the code at that SHA (git show, not disk): PDF customer join carries AND c.company_id = ci.company_id (invoicePdfBuilder.ts:39); fix commit e86b10664 (#414) is an ancestor. Schema parts ride migrations that deploy.sh applies before rsync; prod DB not queried."
     },
     {
       "id": "R-067",
@@ -11085,8 +11085,8 @@
       "correctedTrigger": "",
       "severityRationale": "CLOSED — fixed on master before this entry existed. Historically it derived company A's next quote number from whichever quote was newest ACROSS THE PLATFORM, leaking another tenant's numbering and silently re-issuing a number A had already used, since nothing enforced uniqueness.",
       "auditedSha": "",
-      "currentSha": "",
-      "status": "fixed-on-master",
+      "currentSha": "34dac5651",
+      "status": "fixed",
       "dependencies": [],
       "testNames": [],
       "evidencePaths": [
@@ -11094,7 +11094,7 @@
       ],
       "fixCommit": null,
       "pr": null,
-      "deployedSha": null,
+      "deployedSha": "34dac5651",
       "historicalDataImpact": "Quote numbers issued before K-107 may repeat within a company or follow another tenant's sequence. Migration 666 will refuse to apply where duplicates exist and names them. Production not measured.",
       "canonicalItem": null,
       "reportedSeverity": "",
@@ -11102,7 +11102,7 @@
       "title": "nextQuoteNumber reads customer_quotes with no company_id filter, so a superuser path numbers a quote from another tenant's sequence",
       "severity": "low",
       "source": "Noted by the R-067 fixer against its base `ec669170e`, 2026-09-10. CLOSED on evidence read from origin/master, not inference: `ar/quoteService.ts` states 'The quote number comes from the company's own quotation sequence' and describes the replaced code as the unscoped `SELECT quote_number FROM customer_quotes ORDER BY created_at DESC LIMIT 1`. Fixed by K-107's numbering work plus migration 666 (`uq_customer_quotes_company_number`).",
-      "processNotes": "`quoteService.ts` `nextQuoteNumber()` selects from `customer_quotes` without `company_id`. Every other numbering path in the repo scopes by company. Fix: add the predicate. Pre-existing and unrelated to R-067; not fixed there.\n\nCLOSED 2026-09-10 on evidence. Note for whoever owns K-060: master's quoteService accepts TWO constraint names — `uq_customer_quotes_company_number` (K-107, now on master) and `uq_customer_quotes_company_quote_number` (K-060's name for the same index). If both migrations reach a database, it gets two unique indexes on the same columns."
+      "processNotes": "`quoteService.ts` `nextQuoteNumber()` selects from `customer_quotes` without `company_id`. Every other numbering path in the repo scopes by company. Fix: add the predicate. Pre-existing and unrelated to R-067; not fixed there.\n\nCLOSED 2026-09-10 on evidence. Note for whoever owns K-060: master's quoteService accepts TWO constraint names — `uq_customer_quotes_company_number` (K-107, now on master) and `uq_customer_quotes_company_quote_number` (K-060's name for the same index). If both migrations reach a database, it gets two unique indexes on the same columns. 2026-09-26: verified LIVE at prod RELEASE_SHA 34dac5651 (it was first live at or before that SHA; the earliest deploy was not traced). Every recorded fix commit is an ancestor of 34dac5651, and the guard is present in the code at that SHA (git show, not disk): quote numbering is the company-scoped sequence, the unscoped SELECT is gone (quoteService.ts:87-104). Schema parts ride migrations that deploy.sh applies before rsync; prod DB not queried."
     },
     {
       "id": "R-070",
@@ -11117,8 +11117,8 @@
       "correctedTrigger": "",
       "severityRationale": "Worse than R-058, which at least had a check to race: here there is no guard, so a repeat call duplicates the document and its journal with no concurrency involved.",
       "auditedSha": "",
-      "currentSha": "",
-      "status": "fixed-on-master",
+      "currentSha": "34dac5651",
+      "status": "fixed",
       "dependencies": [
         "R-058"
       ],
@@ -11131,7 +11131,7 @@
       ],
       "fixCommit": "47e73f95b",
       "pr": "426",
-      "deployedSha": "47e73f95b",
+      "deployedSha": "34dac5651",
       "historicalDataImpact": "Unknown; production not measured. Any document posted twice through these routes has duplicate output. Impact SQL belongs in the fix's fix.md.",
       "canonicalItem": null,
       "reportedSeverity": "",
@@ -11139,7 +11139,7 @@
       "title": "Two capture posting routes select captured_documents.status and never read it — no already-posted guard at all, so a second call simply posts again",
       "severity": "high",
       "source": "Found by the R-058 fixer; confirmed on origin/master by the orchestrating session — zero comparisons against 'posted' in either file.",
-      "processNotes": "`ai-invoice-pipeline.ts:59` and `receipt-to-journal.ts:43` both `SELECT extracted_data, status FROM captured_documents`, then never compare `status`. Measured on master: 0 occurrences of a comparison against 'posted' in either file; the only refusals are documentId presence, extracted_data presence, validation and default accounts. R-058 fixed the two routes that DO guard (`capture/[id]/post-expense.ts` and `capture/[id]/post.ts`) by locking the row; these two need a refusal first, on a marker to be decided — `captured_documents.status` is a different table from the `capture_events.status` R-058 locks. Not fixed: that decision is a scope change.\n\nRECOMMENDED BACKSTOP (2026-09-10, R-058 reviewer): give `expense_claim_lines` a partial-unique index on its source document, as `gl_journal_entries` already has (`uq_gl_je_capture_source_document`). The employee expense-claim path is the only capture path with NO constraint behind its guard — measured: a re-post there creates a second claim where the other two paths are stopped by a unique index or a fingerprint gate. A database constraint also protects routes that have no guard at all (R-070). Not built in R-058 round 2 — it needs a migration and was not one of that round's scored findings. Pre-flight: count existing duplicate source documents in expense_claim_lines before creating the index, since it will refuse to build over them.\n\nCLOSED ON EVIDENCE 2026-09-25: Verified 2026-09-25 on origin/master 4faf25ed7 by reading the committed code (git show), not the commit message; the fix commit is an ancestor of the live RELEASE_SHA e2a78d699. Both routes now refuse on read and claim before writing: ai-invoice-pipeline.ts:88,177 and receipt-to-journal.ts:80,232 (refusalForPosting, then claimCapturedDocumentForPosting). The recommended expense_claim_lines partial-unique backstop was never built as that index (no uq_expense_claim* migration); the expense-claim path got its own guard under R-105."
+      "processNotes": "`ai-invoice-pipeline.ts:59` and `receipt-to-journal.ts:43` both `SELECT extracted_data, status FROM captured_documents`, then never compare `status`. Measured on master: 0 occurrences of a comparison against 'posted' in either file; the only refusals are documentId presence, extracted_data presence, validation and default accounts. R-058 fixed the two routes that DO guard (`capture/[id]/post-expense.ts` and `capture/[id]/post.ts`) by locking the row; these two need a refusal first, on a marker to be decided — `captured_documents.status` is a different table from the `capture_events.status` R-058 locks. Not fixed: that decision is a scope change.\n\nRECOMMENDED BACKSTOP (2026-09-10, R-058 reviewer): give `expense_claim_lines` a partial-unique index on its source document, as `gl_journal_entries` already has (`uq_gl_je_capture_source_document`). The employee expense-claim path is the only capture path with NO constraint behind its guard — measured: a re-post there creates a second claim where the other two paths are stopped by a unique index or a fingerprint gate. A database constraint also protects routes that have no guard at all (R-070). Not built in R-058 round 2 — it needs a migration and was not one of that round's scored findings. Pre-flight: count existing duplicate source documents in expense_claim_lines before creating the index, since it will refuse to build over them.\n\nCLOSED ON EVIDENCE 2026-09-25: Verified 2026-09-25 on origin/master 4faf25ed7 by reading the committed code (git show), not the commit message; the fix commit is an ancestor of the live RELEASE_SHA e2a78d699. Both routes now refuse on read and claim before writing: ai-invoice-pipeline.ts:88,177 and receipt-to-journal.ts:80,232 (refusalForPosting, then claimCapturedDocumentForPosting). The recommended expense_claim_lines partial-unique backstop was never built as that index (no uq_expense_claim* migration); the expense-claim path got its own guard under R-105. 2026-09-26: verified LIVE at prod RELEASE_SHA 34dac5651 (it was first live at or before that SHA; the earliest deploy was not traced). Every recorded fix commit is an ancestor of 34dac5651, and the guard is present in the code at that SHA (git show, not disk): receipt-to-journal locks and claims the captured document (lockCapturedDocumentForUpdate / claimCapturedDocumentForPosting, receipt-to-journal.ts:30,66). Schema parts ride migrations that deploy.sh applies before rsync; prod DB not queried."
     },
     {
       "id": "R-071",
