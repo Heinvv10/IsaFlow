@@ -18,7 +18,7 @@ import type { McpTool } from '../types';
 import { MUTATION_ARG_SCHEMA, actorForMcp } from '../contracts';
 import {
   markVatDeclaredElsewhereBulk, unmarkVatDeclaredElsewhere,
-  VatDeclaredElsewhereForbiddenError, type VatDocKind,
+  VatDeclaredElsewhereForbiddenError, VatDeclaredElsewhereRefusal, type VatDocKind,
 } from '@/modules/accounting/services/reports/vatDeclaredElsewhereService';
 import { getCompanyRoleForUser } from '@/modules/accounting/services/reports/vatGateOverrideService';
 import { guardUuidList, ok, strArg, toolError } from './toolHelpers';
@@ -43,8 +43,9 @@ export const markVatDeclaredElsewhereTool: McpTool = {
     + 'RUN dry_run FIRST — it reports which ids exist in this company and are eligible, without writing anything.',
   scope: 'read:vat',
   write: true,
-  // NOT requiresPost/write:post — this never posts a journal. write:vat's
-  // consent label names clearing a VAT pre-filing exception explicitly (item 10).
+  // NOT requiresPost/write:post — this never posts a journal. Requires the
+  // 'write:vat' scope instead, whose consent label names clearing a VAT
+  // pre-filing exception explicitly (item 10).
   requiresScope: 'write:vat',
   inputSchema: {
     type: 'object',
@@ -82,10 +83,15 @@ export const markVatDeclaredElsewhereTool: McpTool = {
     // The role check inside the service runs BEFORE any write, on every call,
     // deterministically for this actor — so a forbidden role always fails on
     // the FIRST id, before anything is written, and is safe to answer as a
-    // toolError. A per-id refusal (not found / not currently marked) for a
-    // LATER id in the batch can follow ids that already wrote successfully —
-    // that failure MUST rethrow so the savepoint rolls back the whole batch,
-    // per the write convention (only pre-write validation returns toolError).
+    // toolError. markVatDeclaredElsewhereBulk (VAT-gaps breaker fix) validates
+    // EVERY id's eligibility BEFORE writing any of them, so a
+    // VatDeclaredElsewhereRefusal from it is always pre-write too and is
+    // likewise safe to answer as a toolError. unmarkVatDeclaredElsewhere is
+    // called per id below with no batch pre-check, so a refusal there (not
+    // found / not currently marked) for a LATER id can follow ids that
+    // already wrote successfully — that one MUST rethrow so the savepoint
+    // rolls back the whole batch, per the write convention (only pre-write
+    // validation returns toolError).
     const role = (await getCompanyRoleForUser(ctx.companyId, actor.userId)) ?? '';
     try {
       if (action === 'mark') {
@@ -101,6 +107,7 @@ export const markVatDeclaredElsewhereTool: McpTool = {
       return ok({ action, results });
     } catch (err) {
       if (err instanceof VatDeclaredElsewhereForbiddenError) return toolError(err.message);
+      if (action === 'mark' && err instanceof VatDeclaredElsewhereRefusal) return toolError(err.message);
       throw err;
     }
   },
