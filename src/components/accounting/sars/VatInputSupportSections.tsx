@@ -13,6 +13,7 @@
  */
 import type { ReactNode } from 'react';
 import type { InputVatSupportLine, VatExceptionsReport } from '@/modules/accounting/services/reports/vatExceptionsTypes';
+import { LinkTaxInvoiceButton } from '@/components/accounting/gl/LinkTaxInvoiceButton';
 
 const fmt = (n: number) =>
   new Intl.NumberFormat('en-ZA', { style: 'currency', currency: 'ZAR' }).format(n);
@@ -40,13 +41,14 @@ const REASON_LABEL: Record<InputVatSupportLine['reason'], string> = {
   no_tax_invoice: 'No tax invoice on file',
 };
 
-function SupportTable({ lines }: { lines: InputVatSupportLine[] }) {
+function SupportTable({ lines, linkable }: { lines: InputVatSupportLine[]; linkable?: boolean }) {
   return (
     <table className="min-w-full">
       <thead><tr>
         <th className={th}>Entry</th><th className={th}>Date</th><th className={th}>Supported by</th>
         <th className={th}>Finding</th><th className={th}>Description</th>
         <th className={`${th} text-right`}>VAT claimed</th><th className={`${th} text-right`}>Document VAT</th>
+        {linkable && <th className={th} />}
       </tr></thead>
       <tbody>
         {lines.map((l) => (
@@ -58,6 +60,11 @@ function SupportTable({ lines }: { lines: InputVatSupportLine[] }) {
             <td className={`${td} max-w-[16rem] truncate`}>{l.description}</td>
             <td className={tdNum}>{fmt(l.claimedVat)}</td>
             <td className={tdNum}>{l.documentVat === null ? '—' : fmt(l.documentVat)}</td>
+            {linkable && (
+              <td className={td}>
+                <LinkTaxInvoiceButton journalEntryId={l.journalEntryId} />
+              </td>
+            )}
           </tr>
         ))}
       </tbody>
@@ -80,14 +87,15 @@ export default function VatInputSupportSections({ report, Section }: {
           that differs from the document they are linked to. They block filing: attach or post
           the document, or reverse the claim.
         </p>
-        <SupportTable lines={report.unsupportedInputVat} />
+        <SupportTable lines={report.unsupportedInputVat} linkable />
       </Section>
       <Section title="Input VAT with no tax invoice on file (not blocking)" count={report.inputVatWithoutTaxInvoiceCount}
         listed={report.inputVatWithoutTaxInvoice.length}>
         <p className={`${td} !border-0 text-slate-500 whitespace-normal`}>
           These claims are supported by the bank line (or an approved VAT adjustment), so the
           money moved — but no tax invoice is attached. They do not block filing; attach the tax
-          invoice so the deduction can be substantiated.
+          invoice so the deduction can be substantiated. An invoice attached to the bank line
+          itself (bank-transactions) also clears the claim from this list.
         </p>
         <SupportTable lines={report.inputVatWithoutTaxInvoice} />
       </Section>
