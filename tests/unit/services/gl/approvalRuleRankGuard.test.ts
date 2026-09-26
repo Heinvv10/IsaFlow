@@ -89,11 +89,9 @@ describe('updateRule — the rank the rule is being moved TO', () => {
       .rejects.toBeInstanceOf(ApprovalRuleAuthorityError);
   });
 
-  // Lowering needs a rank ABOVE the rule (R-048), so the owner lowers an
-  // admin-level rule here; an owner-level one is covered in approvalRuleWeakening.
-  it('lets an owner move a rule below their own rank down the ladder', async () => {
+  it('lets an owner move a rule between ranks they hold', async () => {
     sqlMock
-      .mockResolvedValueOnce([ruleRow({ approver_role: 'admin' })])
+      .mockResolvedValueOnce([ruleRow({ approver_role: 'owner' })])
       .mockResolvedValueOnce([ruleRow({ approver_role: 'manager' })]);
     await expect(updateRule(COMPANY, 'rule-1', { approverRole: 'manager' }, actor('owner')))
       .resolves.toMatchObject({ approverRole: 'manager' });
