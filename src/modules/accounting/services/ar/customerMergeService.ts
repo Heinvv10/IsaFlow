@@ -17,13 +17,13 @@
  *     new, empty customer; the moved Sage invoices are not booked twice.
  */
 import { withTransaction, type TxSql } from '@/lib/neon';
-
-/** A merge the caller asked for that must not happen. Raised before any write. */
-export class CustomerMergeRefusal extends Error {}
+import { ArRequestError } from './arErrors';
 
 export interface CustomerMergeResult {
   merged: true;
   target_id: string;
+  /** Invoices, receipts, credit notes, quotes and sales orders re-parented. */
+  movedDocuments: number;
   pausedRecurring: number;
   revokedPortalLogins: number;
 }
@@ -41,28 +41,51 @@ async function refuseOrLock(tx: TxSql, companyId: string, sourceId: string, targ
     FOR UPDATE
   `;
   if (live.length !== 2) {
-    throw new CustomerMergeRefusal('One or both customers not found or do not belong to this company');
+    throw new ArRequestError('One or both customers not found or do not belong to this company');
   }
   const dunning = await tx`
     SELECT count(*)::int AS n FROM customer_dunning_overrides
     WHERE company_id = ${companyId}::UUID AND customer_id IN (${sourceId}::UUID, ${targetId}::UUID)
   ` as Array<{ n: number }>;
   if (dunning[0]!.n === 2) {
-    throw new CustomerMergeRefusal('Both customers have dunning settings — remove one first, then merge');
+    throw new ArRequestError('Both customers have dunning settings — remove one first, then merge');
   }
 }
 
-/** Documents: every customer column moves independently; a NULL stays NULL. */
-async function moveDocuments(tx: TxSql, c: string, s: string, t: string): Promise<void> {
+/**
+ * The canonical lock order (bank/.claude.md): bank lines, then receipts, then
+ * invoices ORDER BY id. A merge re-parents every one of a customer's documents,
+ * so it contends with any settlement running for that customer; taking them
+ * in any other order deadlocks against it (40P01 → 500).
+ */
+async function lockSettlementRows(tx: TxSql, c: string, s: string): Promise<{ payments: number; invoices: number }> {
+  await tx`
+    SELECT id FROM bank_transactions
+    WHERE suggested_client_id = ${s}::UUID AND company_id = ${c}::UUID ORDER BY id FOR UPDATE
+  `;
+  const payments = await tx`
+    SELECT id FROM customer_payments
+    WHERE client_id = ${s}::UUID AND company_id = ${c}::UUID ORDER BY id FOR UPDATE
+  `;
+  const invoices = await tx`
+    SELECT id FROM customer_invoices
+    WHERE (customer_id = ${s}::UUID OR client_id = ${s}::UUID) AND company_id = ${c}::UUID ORDER BY id FOR UPDATE
+  `;
+  return { payments: payments.length, invoices: invoices.length };
+}
+
+/** Documents: every customer column moves independently; a NULL stays NULL. Returns the other documents moved. */
+async function moveDocuments(tx: TxSql, c: string, s: string, t: string): Promise<number> {
+  await tx`UPDATE bank_transactions SET suggested_client_id = ${t}::UUID WHERE suggested_client_id = ${s}::UUID AND company_id = ${c}::UUID`;
+  await tx`UPDATE customer_payments SET client_id = ${t}::UUID WHERE client_id = ${s}::UUID AND company_id = ${c}::UUID`;
   await tx`UPDATE customer_invoices SET customer_id = ${t}::UUID WHERE customer_id = ${s}::UUID AND company_id = ${c}::UUID`;
   await tx`UPDATE customer_invoices SET client_id = ${t}::UUID WHERE client_id = ${s}::UUID AND company_id = ${c}::UUID`;
   await tx`UPDATE archive_customer_invoices SET customer_id = ${t}::UUID WHERE customer_id = ${s}::UUID AND company_id = ${c}::UUID`;
   await tx`UPDATE archive_customer_invoices SET client_id = ${t}::UUID WHERE client_id = ${s}::UUID AND company_id = ${c}::UUID`;
-  await tx`UPDATE customer_payments SET client_id = ${t}::UUID WHERE client_id = ${s}::UUID AND company_id = ${c}::UUID`;
-  await tx`UPDATE credit_notes SET client_id = ${t}::UUID WHERE client_id = ${s}::UUID AND company_id = ${c}::UUID`;
+  const notes = await tx`UPDATE credit_notes SET client_id = ${t}::UUID WHERE client_id = ${s}::UUID AND company_id = ${c}::UUID RETURNING id`;
   await tx`UPDATE customer_write_offs SET client_id = ${t}::UUID WHERE client_id = ${s}::UUID AND company_id = ${c}::UUID`;
-  await tx`UPDATE customer_quotes SET client_id = ${t}::UUID WHERE client_id = ${s}::UUID AND company_id = ${c}::UUID`;
-  await tx`UPDATE customer_sales_orders SET customer_id = ${t}::UUID WHERE customer_id = ${s}::UUID AND company_id = ${c}::UUID`;
+  const quotes = await tx`UPDATE customer_quotes SET client_id = ${t}::UUID WHERE client_id = ${s}::UUID AND company_id = ${c}::UUID RETURNING id`;
+  const orders = await tx`UPDATE customer_sales_orders SET customer_id = ${t}::UUID WHERE customer_id = ${s}::UUID AND company_id = ${c}::UUID RETURNING id`;
   await tx`UPDATE delivery_notes SET customer_id = ${t}::UUID WHERE customer_id = ${s}::UUID AND company_id = ${c}::UUID`;
   await tx`UPDATE projects SET client_id = ${t}::UUID WHERE client_id = ${s}::UUID AND company_id = ${c}::UUID`;
   await tx`UPDATE time_entries SET customer_id = ${t}::UUID WHERE customer_id = ${s}::UUID AND company_id = ${c}::UUID`;
@@ -77,6 +100,7 @@ async function moveDocuments(tx: TxSql, c: string, s: string, t: string): Promis
     WHERE client_id = ${s}::UUID
       AND invoice_id IN (SELECT id FROM customer_invoices WHERE company_id = ${c}::UUID)
   `;
+  return notes.length + quotes.length + orders.length;
 }
 
 /** Customer records: the target's primary contact, default address and custom fields win. */
@@ -101,7 +125,6 @@ async function moveRecords(tx: TxSql, c: string, s: string, t: string): Promise<
   // refuseOrLock already refused the case where both have one.
   await tx`UPDATE customer_dunning_overrides SET customer_id = ${t}::UUID WHERE customer_id = ${s}::UUID AND company_id = ${c}::UUID`;
   await tx`UPDATE bank_categorisation_rules SET client_id = ${t}::UUID WHERE client_id = ${s}::UUID AND company_id = ${c}::UUID`;
-  await tx`UPDATE bank_transactions SET suggested_client_id = ${t}::UUID WHERE suggested_client_id = ${s}::UUID AND company_id = ${c}::UUID`;
   await tx`UPDATE practice_clients SET link_customer_id = ${t}::UUID WHERE link_customer_id = ${s}::UUID AND company_id = ${c}::UUID`;
   await tx`
     DELETE FROM entity_udf_values v
@@ -123,11 +146,12 @@ export async function mergeCustomers(
   targetId: string,
 ): Promise<CustomerMergeResult> {
   if (sourceId === targetId) {
-    throw new CustomerMergeRefusal('source_id and target_id must be different customers');
+    throw new ArRequestError('source_id and target_id must be different customers');
   }
   return withTransaction(async (tx) => {
     await refuseOrLock(tx, companyId, sourceId, targetId);
-    await moveDocuments(tx, companyId, sourceId, targetId);
+    const locked = await lockSettlementRows(tx, companyId, sourceId);
+    const others = await moveDocuments(tx, companyId, sourceId, targetId);
     await moveRecords(tx, companyId, sourceId, targetId);
 
     const paused = await tx`
@@ -152,6 +176,12 @@ export async function mergeCustomers(
       SET is_active = false, deleted_at = NOW(), name = name || ' [MERGED]'
       WHERE id = ${sourceId}::UUID AND company_id = ${companyId}::UUID
     `;
-    return { merged: true, target_id: targetId, pausedRecurring: paused.length, revokedPortalLogins: revoked.length };
+    return {
+      merged: true,
+      target_id: targetId,
+      movedDocuments: locked.payments + locked.invoices + others,
+      pausedRecurring: paused.length,
+      revokedPortalLogins: revoked.length,
+    };
   });
 }

@@ -8,6 +8,7 @@
 import type { Pool } from 'pg';
 import { SignJWT } from 'jose';
 import customerMerge from '../../pages/api/accounting/customer-merge';
+import duplicatesMerge from '../../pages/api/accounting/duplicates-merge';
 import { request, response } from './mfa-impersonation-postgres.helpers';
 
 /** [table, column, extra predicate] for every reference a merge must move. */
@@ -156,16 +157,21 @@ export function k061(pool: Pool) {
     return parts.join('\n');
   }
 
-  function merge(body: Record<string, unknown>, company = companyA) {
+  function call(route: typeof customerMerge, url: string, body: Record<string, unknown>, company: string) {
     const req = request({ 'sb-access-token': token, active_company_id: company }, 'POST') as never as {
       url: string; body: unknown; query: Record<string, string>;
     };
-    req.url = '/api/accounting/customer-merge';
+    req.url = url;
     req.query = {};
     req.body = body;
     const result = response();
-    return customerMerge(req as never, result.res).then(() => result);
+    return route(req as never, result.res).then(() => result);
   }
+  const merge = (body: Record<string, unknown>, company = companyA) =>
+    call(customerMerge, '/api/accounting/customer-merge', body, company);
+  /** The /accounting/duplicates page's route: primaryId survives, duplicateId goes. */
+  const mergeDuplicate = (body: Record<string, unknown>, company = companyA) =>
+    call(duplicatesMerge as typeof customerMerge, '/api/accounting/duplicates-merge', body, company);
 
-  return { companyA, companyB, admin, setUp, wipe, tearDown, customer, footprint, references, snapshot, merge };
+  return { companyA, companyB, admin, setUp, wipe, tearDown, customer, footprint, references, snapshot, merge, mergeDuplicate };
 }

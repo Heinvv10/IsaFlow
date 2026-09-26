@@ -15,7 +15,8 @@ import { withCsrf } from '@/lib/auth/withCsrf';
 import { withErrorHandler } from '@/lib/api-error-handler';
 import { log } from '@/lib/logger';
 import { isUuidParam } from '@/lib/validation';
-import { CustomerMergeRefusal, mergeCustomers } from '@/modules/accounting/services/ar/customerMergeService';
+import { ArRequestError } from '@/modules/accounting/services/ar/arErrors';
+import { mergeCustomers } from '@/modules/accounting/services/ar/customerMergeService';
 
 async function handler(req: NextApiRequest, res: NextApiResponse) {
   if (req.method !== 'POST') {
@@ -34,7 +35,7 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
     log.info('Customer merge completed', { source_id, companyId, ...result, module: 'accounting' });
     return apiResponse.success(res, result);
   } catch (err: unknown) {
-    if (err instanceof CustomerMergeRefusal) {
+    if (err instanceof ArRequestError) {
       return apiResponse.badRequest(res, err.message);
     }
     log.error('customer-merge POST failed', {
