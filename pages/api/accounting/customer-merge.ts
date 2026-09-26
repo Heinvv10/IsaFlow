@@ -36,6 +36,7 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
     return apiResponse.success(res, result);
   } catch (err: unknown) {
     if (err instanceof ArRequestError) {
+      if (err.status === 409) return apiResponse.conflict(res, err.message);
       return apiResponse.badRequest(res, err.message);
     }
     log.error('customer-merge POST failed', {
