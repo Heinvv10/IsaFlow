@@ -22,7 +22,8 @@ export interface FakeGotrue {
 }
 
 export function signSession(sub: string, sessionId: string | undefined, aal: 'aal1' | 'aal2'): Promise<string> {
-  const claims: Record<string, unknown> = { role: 'authenticated', aal };
+  // Real GoTrue tokens carry the email; the users rows in these fixtures are `${id}@test.local`.
+  const claims: Record<string, unknown> = { role: 'authenticated', aal, email: `${sub}@test.local` };
   if (sessionId !== undefined) claims.session_id = sessionId;
   return new SignJWT(claims).setProtectedHeader({ alg: 'HS256' }).setSubject(sub)
     .setIssuedAt().setExpirationTime('1h').sign(new TextEncoder().encode(process.env.JWT_SECRET));

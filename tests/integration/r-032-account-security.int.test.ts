@@ -21,6 +21,7 @@ import profile from '../../pages/api/auth/profile';
 import logout from '../../pages/api/auth/logout';
 import { assertDisposable } from './mfa-impersonation-postgres.helpers';
 import { loginAsFixture, reasonOf, type Call, type Jar } from './r-032-login-as.helpers';
+import { signSession } from './r-032-fake-gotrue.helpers';
 
 assertDisposable();
 const pool = new Pool({ connectionString: process.env.DATABASE_URL, max: 3 });
@@ -61,6 +62,15 @@ describe('R-032 (f) — a Login-as session changes none of the target\'s credent
     expect(result.state.statusCode, JSON.stringify(result.state.body)).toBe(403);
     expect(reasonOf(result)).toBe('IMPERSONATION_FORBIDDEN');
     expect(await account()).toEqual(before);
+    expect(fx.gotrueCalls.slice(callsBefore)).toEqual([]);
+  });
+
+  it('refuses a cookie token with no session id — these routes accept only GoTrue sessions (fails closed)', async () => {
+    const noSession = { 'sb-access-token': await signSession(fx.target, undefined, 'aal2'), active_company_id: fx.company };
+    const callsBefore = fx.gotrueCalls.length;
+    const result = await fx.call(changePassword, noSession, CASES[1]!.call);
+    expect(result.state.statusCode, JSON.stringify(result.state.body)).toBe(403);
+    expect(reasonOf(result)).toBe('IMPERSONATION_FORBIDDEN');
     expect(fx.gotrueCalls.slice(callsBefore)).toEqual([]);
   });
 
