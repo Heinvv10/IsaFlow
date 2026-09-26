@@ -35,6 +35,7 @@ import {
 import { vatStatusTool } from './tools/vat';
 import { chartOfAccountsHealthTool, dataIntegrityChecksTool } from './tools/integrity';
 import { lockVatPeriodTool, vat201ExportTool, vatReconciliationTool } from './tools/vatReports';
+import { markVatDeclaredElsewhereTool } from './tools/vatDeclaredElsewhere';
 import { listAgentPostingsTool } from './tools/agentActivity';
 import { auditTrailTool } from './tools/auditTrail';
 import {
@@ -309,6 +310,9 @@ export const MCP_TOOLS = [
   // Records that a VAT period has been filed. requiresPost because it freezes
   // a filed return: a control an agent can set without write:post is not one.
   lockVatPeriodTool,
+  // Marks/unmarks a document "VAT declared outside IsaFlow" — never posts to
+  // the GL. requiresPost because it changes what blocks a VAT period lock.
+  markVatDeclaredElsewhereTool,
 ] as const;
 
 export const mcpRegistry = new McpRegistry();
