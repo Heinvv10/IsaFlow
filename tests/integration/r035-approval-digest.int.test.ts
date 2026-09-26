@@ -19,6 +19,7 @@ import { als } from '../../src/lib/als';
 import { getPoolForTests } from '../../src/lib/neon';
 import { resolveApprovalDocument } from '../../src/modules/accounting/services/gl/approvalDocuments';
 import { checkApproval } from '../../src/modules/accounting/services/gl/approvalMatching';
+import { getSupplierInvoiceById } from '../../src/modules/accounting/services/ap/supplierInvoiceService';
 import { assertDisposable } from './mfa-impersonation-postgres.helpers';
 import { newCompany, plantBill, plantRule, type Bill } from './r035-approval.helpers';
 
@@ -87,10 +88,10 @@ const NOT_HASHED: [string, string][] = [
 ];
 
 describe('the digest covers every column an approval vouches for', () => {
-  it('is a stable md5 for a supplier invoice', async () => {
+  it('is a stable sha256 for a supplier invoice', async () => {
     await inTx(async (_c, company, bill) => {
       const first = await digestOf(company, bill.id);
-      expect(first).toMatch(/^[0-9a-f]{32}$/);
+      expect(first).toMatch(/^[0-9a-f]{64}$/);
       expect(await digestOf(company, bill.id)).toBe(first);
     });
   });
@@ -98,7 +99,7 @@ describe('the digest covers every column an approval vouches for', () => {
   it.each(HASHED)('changes when %s changes', async (_name, mutation) => {
     await inTx(async (c, company, bill) => {
       const before = await digestOf(company, bill.id);
-      expect(before).toMatch(/^[0-9a-f]{32}$/);
+      expect(before).toMatch(/^[0-9a-f]{64}$/);
       await c.query(`CREATE TEMP TABLE s2 ON COMMIT DROP AS SELECT gen_random_uuid() AS id`);
       await c.query('INSERT INTO suppliers(id,company_id,name) SELECT id, $1, $2 FROM s2', [company, 'r035 other']);
       await c.query(mutation, [bill.id]);
@@ -109,7 +110,7 @@ describe('the digest covers every column an approval vouches for', () => {
   it.each(NOT_HASHED)('does NOT change when %s changes', async (_name, mutation) => {
     await inTx(async (c, company, bill) => {
       const before = await digestOf(company, bill.id);
-      expect(before).toMatch(/^[0-9a-f]{32}$/);
+      expect(before).toMatch(/^[0-9a-f]{64}$/);
       await c.query(mutation, [bill.id]);
       expect(await digestOf(company, bill.id)).toBe(before);
     });
@@ -122,8 +123,44 @@ describe('the digest covers every column an approval vouches for', () => {
       await c.query(
         `INSERT INTO supplier_invoice_items(supplier_invoice_id,description,quantity,unit_price,tax_rate,tax_amount,line_total,gl_account_id)
          VALUES($1,'Line B',1,400,15,60,400,$3),($1,'Line A',2,300,15,90,600,$2)`, [bill.id, bill.accountA, bill.accountB]);
-      expect(before).toMatch(/^[0-9a-f]{32}$/);
+      expect(before).toMatch(/^[0-9a-f]{64}$/);
       expect(await digestOf(company, bill.id)).toBe(before);
+    });
+  });
+
+  it('hashes lines in POSTING order: moving a line earlier changes the digest', async () => {
+    // buildExpenseLines puts the rounding residual on the LAST line, so which
+    // line is last is part of what gets posted (review MED-3).
+    await inTx(async (c, company, bill) => {
+      const before = await digestOf(company, bill.id);
+      await c.query(`UPDATE supplier_invoice_items SET created_at = created_at - interval '1 minute'
+                     WHERE supplier_invoice_id = $1 AND description = 'Line B'`, [bill.id]);
+      expect(await digestOf(company, bill.id)).not.toBe(before);
+    });
+  });
+
+  it('reads tied lines for posting in a deterministic content order, not heap order', async () => {
+    await inTx(async (c, company, bill) => {
+      await c.query('DELETE FROM supplier_invoice_items WHERE supplier_invoice_id = $1', [bill.id]);
+      await c.query(
+        `INSERT INTO supplier_invoice_items(supplier_invoice_id,description,quantity,unit_price,line_total,gl_account_id)
+         VALUES($1,'Line B',1,400,400,$2)`, [bill.id, bill.accountB]);
+      await c.query(
+        `INSERT INTO supplier_invoice_items(supplier_invoice_id,description,quantity,unit_price,line_total,gl_account_id)
+         VALUES($1,'Line A',2,300,600,$2)`, [bill.id, bill.accountA]);
+      const invoice = await getSupplierInvoiceById(company, bill.id);
+      expect(invoice?.items.map((i) => i.description)).toEqual(['Line A', 'Line B']);
+    });
+  });
+
+  it('hashes a NULL line account as NULL — the default expense account is not resolved (documented limit)', async () => {
+    await inTx(async (c, company, bill) => {
+      await c.query("UPDATE supplier_invoice_items SET gl_account_id = NULL WHERE supplier_invoice_id = $1 AND description = 'Line A'", [bill.id]);
+      const withNull = await digestOf(company, bill.id);
+      await c.query(
+        `INSERT INTO gl_accounts(company_id,account_code,account_name,account_type,normal_balance,account_subtype)
+         VALUES($1,'DEFX','default expense','expense','debit','default_expense')`, [company]);
+      expect(await digestOf(company, bill.id)).toBe(withNull);
     });
   });
 
