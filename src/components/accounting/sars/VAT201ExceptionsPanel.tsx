@@ -1,13 +1,14 @@
 /** VAT201 pre-filing exceptions for the selected period (reports/vatExceptionsService):
  *  recon, uncoded lines, unposted and invoice issues, input-VAT support. The counted ones gate ISV eFiling. */
 
-import { useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { AlertTriangle, CheckCircle2, ChevronDown, ChevronRight, Loader2, ShieldAlert } from 'lucide-react';
 import { apiFetch } from '@/lib/apiFetch';
 import type { VatExceptionsReport } from '@/modules/accounting/services/reports/vatExceptionsTypes';
 import VatNonSupplySection from './VatNonSupplySection';
 import VatInputSupportSections from './VatInputSupportSections';
 import VatUnpostedInvoicesSection from './VatUnpostedInvoicesSection';
+import VatDeclaredElsewhereSection from './VatDeclaredElsewhereSection';
 
 const fmt = (n: number) =>
   new Intl.NumberFormat('en-ZA', { style: 'currency', currency: 'ZAR' }).format(n);
@@ -73,24 +74,29 @@ export function VAT201ExceptionsPanel({ from, to, reloadKey, onLoaded }: Props) 
   const onLoadedRef = useRef(onLoaded);
   onLoadedRef.current = onLoaded;
 
+  const load = useCallback(async (cancelledRef?: { current: boolean }) => {
+    setLoading(true); setError('');
+    try {
+      const res = await apiFetch(`/api/accounting/sars/vat-exceptions?from=${from}&to=${to}`, { credentials: 'include' });
+      const json = await res.json();
+      if (!res.ok) throw new Error(json.error?.message || json.message || 'Failed');
+      if (!cancelledRef?.current) { setReport(json.data); onLoadedRef.current?.(json.data); }
+    } catch (err) {
+      if (!cancelledRef?.current) {
+        setReport(null); onLoadedRef.current?.(null);
+        setError(err instanceof Error ? err.message : 'Failed to load exceptions');
+      }
+    } finally {
+      if (!cancelledRef?.current) setLoading(false);
+    }
+  }, [from, to]);
+
   useEffect(() => {
     if (!from || !to || reloadKey === 0) return;
-    let cancelled = false;
-    void (async () => {
-      setLoading(true); setError('');
-      try {
-        const res = await apiFetch(`/api/accounting/sars/vat-exceptions?from=${from}&to=${to}`, { credentials: 'include' });
-        const json = await res.json();
-        if (!res.ok) throw new Error(json.error?.message || json.message || 'Failed');
-        if (!cancelled) { setReport(json.data); onLoadedRef.current?.(json.data); }
-      } catch (err) {
-        if (!cancelled) { setReport(null); onLoadedRef.current?.(null); setError(err instanceof Error ? err.message : 'Failed to load exceptions'); }
-      } finally {
-        if (!cancelled) setLoading(false);
-      }
-    })();
-    return () => { cancelled = true; };
-  }, [from, to, reloadKey]);
+    const cancelledRef = { current: false };
+    void load(cancelledRef);
+    return () => { cancelledRef.current = true; };
+  }, [from, to, reloadKey, load]);
 
   if (reloadKey === 0) return null;
 
@@ -236,7 +242,8 @@ export function VAT201ExceptionsPanel({ from, to, reloadKey, onLoaded }: Props) 
             <VatNonSupplySection lines={report.vatNonSupplyLines} />
           </Section>
 
-          <VatUnpostedInvoicesSection report={report} Section={Section} />
+          <VatUnpostedInvoicesSection report={report} Section={Section} onChanged={() => void load()} />
+          <VatDeclaredElsewhereSection report={report} onChanged={() => void load()} />
           <VatInputSupportSections report={report} Section={Section} />
 
           <Section title="Invoices with tax-code issues" count={report.invoiceTaxCodeIssueCount} listed={report.invoiceTaxCodeIssues.length}>

@@ -4,10 +4,18 @@
  * neither the filed return nor the control account, so the recon ties at R0
  * without it. Split out of VAT201ExceptionsPanel for the 300-line limit; the
  * panel passes its <Section> shell in.
+ *
+ * Owner/admin can bulk-select rows here and mark them "VAT declared outside
+ * IsaFlow" (vat-declared-elsewhere API) — REPLACES posting to the GL, which
+ * is unsafe for an imported document. Never posts a journal.
  */
-import type { ReactNode } from 'react';
+import { useState, type ReactNode } from 'react';
+import { Loader2 } from 'lucide-react';
+import { apiFetch } from '@/lib/apiFetch';
+import { useCompany } from '@/contexts/CompanyContext';
 import type { VatExceptionsReport } from '@/modules/accounting/services/reports/vatExceptionsTypes';
 
+const OVERRIDE_ROLES = ['owner', 'admin', 'super_admin'];
 const fmt = (n: number) =>
   new Intl.NumberFormat('en-ZA', { style: 'currency', currency: 'ZAR' }).format(n);
 
@@ -17,27 +25,86 @@ const tdNum = `${td} text-right tabular-nums`;
 
 type SectionShell = (props: { title: string; count: number; listed: number; children: ReactNode }) => ReactNode;
 
-export default function VatUnpostedInvoicesSection({ report, Section }: {
+export default function VatUnpostedInvoicesSection({ report, Section, onChanged }: {
   report: Pick<VatExceptionsReport, 'unpostedInvoiceVat' | 'unpostedInvoiceVatCount' | 'controlRecon'>;
   Section: SectionShell;
+  onChanged?: () => void;
 }) {
+  const { companyRole } = useCompany();
+  const isOwnerOrAdmin = OVERRIDE_ROLES.includes(companyRole ?? '');
   const { unpostedCustomerVat, unpostedSupplierVat } = report.controlRecon;
+  const [selected, setSelected] = useState<Set<string>>(new Set());
+  const [marking, setMarking] = useState(false);
+
+  const key = (kind: string, id: string) => `${kind}:${id}`;
+  const toggle = (kind: string, id: string) => {
+    const k = key(kind, id);
+    setSelected((prev) => {
+      const next = new Set(prev);
+      if (next.has(k)) next.delete(k); else next.add(k);
+      return next;
+    });
+  };
+
+  const markSelected = async () => {
+    if (selected.size === 0) return;
+    const reason = window.prompt(`Mark ${selected.size} document(s) "VAT declared outside IsaFlow" — why?`);
+    if (!reason || !reason.trim()) return;
+    setMarking(true);
+    try {
+      const byKind = new Map<string, string[]>();
+      for (const k of selected) {
+        const [kind, id] = k.split(':') as [string, string];
+        byKind.set(kind, [...(byKind.get(kind) ?? []), id]);
+      }
+      for (const [kind, invoiceIds] of byKind) {
+        await apiFetch('/api/accounting/vat-declared-elsewhere', {
+          method: 'POST',
+          body: JSON.stringify({ action: 'mark', kind, invoiceIds, reason: reason.trim() }),
+        });
+      }
+      setSelected(new Set());
+      onChanged?.();
+    } finally {
+      setMarking(false);
+    }
+  };
+
   return (
     <Section title="Invoices with VAT not posted to the GL" count={report.unpostedInvoiceVatCount}
       listed={report.unpostedInvoiceVat.length}>
       <p className={`${td} !border-0 text-slate-500 whitespace-normal`}>
         Their VAT is in neither the return nor the VAT control account, so filing now would leave it
         out — output VAT {fmt(unpostedCustomerVat)}, input VAT {fmt(unpostedSupplierVat)}. Post them
-        (approve / finalise) before filing.
+        (approve / finalise) before filing, or — for an imported historical document only — an
+        owner/admin can mark it VAT declared outside IsaFlow below.
       </p>
+      {isOwnerOrAdmin && (
+        <button
+          type="button" disabled={selected.size === 0 || marking}
+          onClick={() => void markSelected()}
+          className="mb-2 inline-flex items-center gap-1.5 rounded-lg bg-amber-600 px-3 py-1.5 text-xs font-medium text-white hover:bg-amber-700 disabled:opacity-50"
+        >
+          {marking && <Loader2 className="h-3 w-3 animate-spin" />} Mark {selected.size || ''} declared elsewhere
+        </button>
+      )}
       <table className="min-w-full">
         <thead><tr>
+          {isOwnerOrAdmin && <th className={th}></th>}
           <th className={th}>Invoice</th><th className={th}>Type</th><th className={th}>Counterparty</th>
           <th className={th}>Date</th><th className={`${th} text-right`}>VAT</th>
         </tr></thead>
         <tbody>
           {report.unpostedInvoiceVat.map((u) => (
             <tr key={`${u.invoiceKind}-${u.invoiceId}`}>
+              {isOwnerOrAdmin && (
+                <td className={td}>
+                  <input
+                    type="checkbox" checked={selected.has(key(u.invoiceKind, u.invoiceId))}
+                    onChange={() => toggle(u.invoiceKind, u.invoiceId)}
+                  />
+                </td>
+              )}
               <td className={td}>{u.invoiceNumber}</td>
               <td className={td}>{u.invoiceKind}</td>
               <td className={td}>{u.counterpartyName}</td>
