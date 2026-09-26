@@ -16,7 +16,7 @@
  */
 
 import crypto from 'crypto';
-import { sql, withTransaction } from '@/lib/neon';
+import { sql } from '@/lib/neon';
 import { log } from '@/lib/logger';
 
 const RESET_TOKEN_EXPIRY_MS = 60 * 60 * 1000; // 1 hour
@@ -26,36 +26,44 @@ function hashToken(rawToken: string): string {
 }
 
 /**
- * Mint a single-use reset token for a GoTrue user. Invalidates any prior
- * unconsumed tokens for that user (in the same transaction) so only the most
- * recent link is ever live. Returns the RAW token (for the email link) — the
- * caller must never persist it.
+ * Mint a single-use reset token for a GoTrue user. Prior unconsumed tokens stay
+ * live until `supersedePasswordResetTokens` runs after the new link is
+ * delivered — a send that fails must not kill the link the user already has.
+ * Returns the RAW token (for the email link) — the caller must never persist
+ * it — and its hash, which is what the follow-up calls name it by.
  */
-export async function createPasswordResetToken(
+export async function issuePasswordResetToken(
   userId: string,
-): Promise<{ token: string; expiresAt: Date }> {
+): Promise<{ token: string; tokenHash: string; expiresAt: Date }> {
   const token = crypto.randomBytes(32).toString('hex'); // 256-bit
   const tokenHash = hashToken(token);
   const expiresAt = new Date(Date.now() + RESET_TOKEN_EXPIRY_MS);
-
-  // Atomic: either both the invalidation and the new token land, or neither —
-  // never a window where an old token survives alongside a freshly issued one.
-  await withTransaction(async (tx) => {
-    await tx`
-      UPDATE auth_password_reset_tokens
-      SET consumed_at = now()
-      WHERE user_id = ${userId}::uuid
-        AND consumed_at IS NULL
-        AND expires_at > now()
-    `;
-    await tx`
-      INSERT INTO auth_password_reset_tokens (user_id, token_hash, expires_at)
-      VALUES (${userId}::uuid, ${tokenHash}, ${expiresAt.toISOString()}::timestamptz)
-    `;
-  });
-
+  await sql`
+    INSERT INTO auth_password_reset_tokens (user_id, token_hash, expires_at)
+    VALUES (${userId}::uuid, ${tokenHash}, ${expiresAt.toISOString()}::timestamptz)
+  `;
   log.info('Password reset token created', { userId }, 'passwordResetService');
-  return { token, expiresAt };
+  return { token, tokenHash, expiresAt };
+}
+
+/** The new link was delivered: retire every other unconsumed token of the user, so only it is live. */
+export async function supersedePasswordResetTokens(userId: string, keepTokenHash: string): Promise<void> {
+  await sql`
+    UPDATE auth_password_reset_tokens
+    SET consumed_at = now()
+    WHERE user_id = ${userId}::uuid
+      AND token_hash <> ${keepTokenHash}
+      AND consumed_at IS NULL
+      AND expires_at > now()
+  `;
+}
+
+/** The link never went out: retire just this token. */
+export async function withdrawPasswordResetToken(tokenHash: string): Promise<void> {
+  await sql`
+    UPDATE auth_password_reset_tokens SET consumed_at = now()
+    WHERE token_hash = ${tokenHash} AND consumed_at IS NULL
+  `;
 }
 
 /**
