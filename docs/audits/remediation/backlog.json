@@ -10453,8 +10453,8 @@
       "correctedTrigger": null,
       "severityRationale": "Narrow race window; not reproduced. Same shape as R-126; the fix is DELETE ... AND status = 'draft' RETURNING id, then a re-read to classify.",
       "auditedSha": "e2a78d699",
-      "currentSha": "5ec5e7334",
-      "status": "fix-in-review",
+      "currentSha": "34dac5651",
+      "status": "fixed",
       "dependencies": [
         "R-126"
       ],
@@ -10466,11 +10466,11 @@
       "evidencePaths": [],
       "fixCommit": "26fd779da;5b6fc3d6d",
       "pr": "https://github.com/Heinvv10/IsaFlow/pull/528",
-      "deployedSha": null,
+      "deployedSha": "34dac5651",
       "historicalDataImpact": "Not assessed; a raced delete leaves no row to find.",
       "canonicalItem": null,
       "reportedSeverity": "low",
-      "processNotes": "2026-09-25: registered from R-126; out of that PR's scope. 2026-09-26: re-verified live on 5ec5e7334 and reproduced on a disposable fixture: an order submitted by another connection between the status read and the DELETE was hard-deleted (status read back null). Fixed with the R-126 pattern: DELETE ... AND status = 'draft' RETURNING id; zero rows -> company-scoped re-read, 404 gone / 400 naming the status / 409 draft again. po_items go by ON DELETE CASCADE (no orphans, tested). The detail page ([poId].tsx handleDelete) swallowed every refusal; it now shows the API message. 5 mutations each red on a named test. goods_received_notes' NO ACTION FK is unreachable from a draft delete (receipts need approved/partially_received). Blind review round 1: SHIP with 2 LOWs (round trips: by design; GRN doc: corrected in 5b6fc3d6d); round 2: SHIP.",
+      "processNotes": "2026-09-25: registered from R-126; out of that PR's scope. 2026-09-26: re-verified live on 5ec5e7334 and reproduced on a disposable fixture: an order submitted by another connection between the status read and the DELETE was hard-deleted (status read back null). Fixed with the R-126 pattern: DELETE ... AND status = 'draft' RETURNING id; zero rows -> company-scoped re-read, 404 gone / 400 naming the status / 409 draft again. po_items go by ON DELETE CASCADE (no orphans, tested). The detail page ([poId].tsx handleDelete) swallowed every refusal; it now shows the API message. 5 mutations each red on a named test. goods_received_notes' NO ACTION FK is unreachable from a draft delete (receipts need approved/partially_received). Blind review round 1: SHIP with 2 LOWs (round trips: by design; GRN doc: corrected in 5b6fc3d6d); round 2: SHIP. 2026-09-26: merged as 2d540b5f6 (#528) and 54e501741 (#529, register) on Hein's \"merge\". Deployed to prod at 34dac5651 (Hein's \"deploy now\"; the deploy.sh run was a peer session's, shipping K-061 #530 with it). RELEASE_SHA 34dac5651, service active, health 200; the guarded DELETE (status = 'draft'), the 400 'this one is <status>' and the 409 'changed while deleting' strings are in the live purchase-orders/[id].js, and the page chunk carries the UI change.",
       "branch": "fix/r129-po-delete-status-guard-20260926",
       "severity": "low",
       "title": "Purchase-order DELETE checks draft status before the DELETE instead of in it"
