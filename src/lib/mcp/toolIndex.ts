@@ -310,11 +310,13 @@ export const MCP_TOOLS = [
   reopenFiscalPeriodTool,
   yearEndCloseTool,
   performBankReconciliationTool,
-  // Records that a VAT period has been filed. requiresPost because it freezes
-  // a filed return: a control an agent can set without write:post is not one.
+  // Records that a VAT period has been filed. requiresScope 'write:vat' (NOT
+  // requiresPost — it never posts a journal) because it freezes a filed
+  // return: a control an agent can set without that scope is not one.
   lockVatPeriodTool,
   // Marks/unmarks a document "VAT declared outside IsaFlow" — never posts to
-  // the GL. requiresPost because it changes what blocks a VAT period lock.
+  // the GL. requiresScope 'write:vat' (NOT requiresPost) because it changes
+  // what blocks a VAT period lock.
   markVatDeclaredElsewhereTool,
   // Links/unlinks a captured document to a posted journal — never posts to
   // the GL. requiresPost because it changes what blocks a VAT exception/lock.
