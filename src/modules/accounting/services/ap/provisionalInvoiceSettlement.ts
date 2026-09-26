@@ -31,38 +31,25 @@
  * (possibly already filed) period; the input VAT stays claimed where the
  * provisional claimed it.
  *
- * THE CLAIM. `claimEvidencedProvisional` locks the provisional (bounded wait)
- * BEFORE any write of the approval and only then reads whether a live payment
- * already consumed it; the partial unique index on
- * `supplier_payments.settles_provisional_je_id` (migration 711) backs that.
+ * THE CLAIM, and every refusal, is `provisionalSettlementClaim.ts`, run before
+ * the approval's first write. Both callers run inside a savepoint that takes the
+ * invoice's own posting down with any failure here (review HIGH: the routes answer
+ * a throw 4xx, and withAuth COMMITs a 4xx).
  */
 
 import { sql } from '@/lib/neon';
 import type { DbRow } from '@/lib/neon';
 import { log } from '@/lib/logger';
-import { createJournalEntry, getJournalEntryById, postJournalEntry } from '../gl/journalEntryService';
+import { createJournalEntry, postJournalEntry } from '../gl/journalEntryService';
 import { resolveUserUuid } from '../gl/journalEntryCrudService';
 import { buildReversalLines } from '../gl/reversalLines';
 import { actorMeta, type PostingActorOpts } from '../gl/journalEntryMeta';
-import type { JournalLine } from '../../types/gl.types';
 import type { SupplierInvoice } from '../../types/ap.types';
-import { withSupplierInvoiceLock } from './supplierInvoiceLock';
 import { round2 } from './supplierAllocationLines';
 import { applySupplierPaymentPlan, planSupplierPaymentApplication } from './supplierPaymentApplicationService';
+import type { ProvisionalClaim } from './provisionalSettlementClaim';
 
-const CENT = 0.005;
-
-export interface ProvisionalClaim {
-  journalEntryId: string;
-  entryNumber: string;
-  bankTxId: string;
-  /** bank_transactions.bank_account_id — a gl_accounts id. */
-  bankAccountId: string;
-  /** The absolute bank outflow the provisional credited. */
-  bankAmount: number;
-  /** The provisional's expense / VAT lines — everything but its bank line. */
-  settleLines: JournalLine[];
-}
+export { claimEvidencedProvisional, type ProvisionalClaim } from './provisionalSettlementClaim';
 
 export interface ProvisionalSettlement {
   provisionalJournalId: string;
@@ -73,75 +60,6 @@ export interface ProvisionalSettlement {
 }
 
 /**
- * The evidenced provisional behind this invoice's source document, LOCKED, or
- * null when there is none this invoice may use. Call before the approval's
- * first write. Throws only for a qualifying provisional whose lines do not add
- * up to its bank line — posting the invoice beside it would double-book, and
- * reclassing it would be a guess.
- */
-export async function claimEvidencedProvisional(
-  companyId: string,
-  invoiceId: string,
-): Promise<ProvisionalClaim | null> {
-  const [inv] = (await sql`
-    SELECT source_document_id FROM supplier_invoices
-    WHERE id = ${invoiceId}::UUID AND company_id = ${companyId}::UUID
-  `) as DbRow[];
-  const documentId = inv?.source_document_id ? String(inv.source_document_id) : null;
-  if (!documentId) return null;
-
-  // Locked before anything is decided on it; two approvals of two invoices from
-  // one slip serialise here, and the loser reads the winner's payment below.
-  const candidates = (await withSupplierInvoiceLock('claimEvidencedProvisional', invoiceId, () => sql`
-    SELECT je.id AS je_id, je.entry_number, bt.id AS bt_id, bt.bank_account_id, bt.amount
-    FROM gl_journal_entries je
-    JOIN bank_transactions bt ON bt.provisional_je_id = je.id AND bt.company_id = je.company_id
-    WHERE je.company_id = ${companyId}::UUID
-      AND je.source_document_id = ${documentId}::UUID
-      AND je.status = 'posted'
-      AND je.reversed_at IS NULL
-      AND je.needs_evidence = false
-    ORDER BY je.id
-    FOR UPDATE OF je
-  `)) as DbRow[];
-
-  for (const c of candidates) {
-    const jeId = String(c.je_id);
-    const taken = (await sql`
-      SELECT 1 FROM supplier_payments
-      WHERE company_id = ${companyId}::UUID AND settles_provisional_je_id = ${jeId}::UUID
-        AND status <> 'cancelled'
-    `) as DbRow[];
-    if (taken.length > 0) continue;
-
-    const entry = await getJournalEntryById(companyId, jeId);
-    if (!entry) throw new Error(`Provisional journal ${jeId} not found in company ${companyId}`);
-    const bankAccountId = String(c.bank_account_id);
-    const bankAmount = round2(Math.abs(Number(c.amount)));
-    const bankLines = entry.lines.filter((l) => l.glAccountId === bankAccountId);
-    const settleLines = entry.lines.filter((l) => l.glAccountId !== bankAccountId);
-    const bankCredit = round2(bankLines.reduce((s, l) => s + l.credit - l.debit, 0));
-    const settleDebit = round2(settleLines.reduce((s, l) => s + l.debit - l.credit, 0));
-    if (Math.abs(bankCredit - bankAmount) > CENT || Math.abs(settleDebit - bankAmount) > CENT) {
-      throw new Error(
-        `Provisional journal ${String(c.entry_number)} is evidenced by this invoice's document, but its lines `
-        + `(bank R${bankCredit.toFixed(2)}, other R${settleDebit.toFixed(2)}) do not match its bank line of `
-        + `R${bankAmount.toFixed(2)}. Approving would book the bill twice; correct or reverse the provisional first.`,
-      );
-    }
-    return {
-      journalEntryId: jeId,
-      entryNumber: String(c.entry_number),
-      bankTxId: String(c.bt_id),
-      bankAccountId,
-      bankAmount,
-      settleLines,
-    };
-  }
-  return null;
-}
-
-/**
  * Reclass the claimed provisional into the invoice's payment. Runs after the
  * invoice's journal has posted and the invoice is in an allocatable status.
  */
@@ -149,23 +67,14 @@ export async function settleInvoiceFromProvisional(
   companyId: string,
   params: {
     invoice: SupplierInvoice;
-    invoiceJournalId: string;
+    /** The payable account the invoice's own journal credited. */
+    apAccountId: string;
     claim: ProvisionalClaim;
     userId: string;
     opts?: PostingActorOpts;
   },
 ): Promise<ProvisionalSettlement> {
-  const { invoice, invoiceJournalId, claim, userId } = params;
-
-  // The invoice's supplier control account is the one its own journal credited.
-  const apRows = (await sql`
-    SELECT DISTINCT gl_account_id FROM gl_journal_lines
-    WHERE journal_entry_id = ${invoiceJournalId}::UUID AND company_id = ${companyId}::UUID AND credit > 0
-  `) as DbRow[];
-  if (apRows.length !== 1) {
-    throw new Error(`Supplier invoice ${invoice.invoiceNumber}: its journal does not credit exactly one payable account`);
-  }
-  const apAccountId = String(apRows[0]!.gl_account_id);
+  const { invoice, apAccountId, claim, userId } = params;
 
   const reclass = await buildReversalLines(companyId, claim.settleLines);
   const lines = [
@@ -182,7 +91,11 @@ export async function settleInvoiceFromProvisional(
     description: `Provisional ${claim.entryNumber} becomes payment of supplier invoice ${invoice.invoiceNumber}`,
     source: 'auto_supplier_payment',
     lines,
-  }, userId, actorMeta(params.opts));
+  }, userId, actorMeta(params.opts), {
+    // The lines are the provisional's, carried forward as a reversal carries them:
+    // an account or cost centre retired since it posted must not refuse the reclass.
+    dimensionAssignmentMode: 'historical-copy',
+  });
   await postJournalEntry(companyId, journal.id, userId);
 
   const createdBy = await resolveUserUuid(userId);
@@ -220,7 +133,8 @@ export async function settleInvoiceFromProvisional(
 
 /**
  * The one-line hook both posting paths (`approveSupplierInvoice`,
- * `postSupplierInvoiceToGL`) call once their journal is posted and linked:
+ * `postSupplierInvoiceToGL`) call once their journal is posted and linked, with
+ * the payable account that journal credited:
  * settle against the provisional they claimed, if any, and return the invoice
  * row as it now stands (null when there was nothing to settle).
  */
@@ -228,12 +142,12 @@ export async function settleClaimedProvisional(
   companyId: string,
   claim: ProvisionalClaim | null,
   invoice: SupplierInvoice,
-  invoiceJournalId: string,
+  apAccountId: string,
   userId: string,
   opts?: PostingActorOpts,
 ): Promise<DbRow | null> {
   if (!claim) return null;
-  await settleInvoiceFromProvisional(companyId, { invoice, invoiceJournalId, claim, userId, opts });
+  await settleInvoiceFromProvisional(companyId, { invoice, apAccountId, claim, userId, opts });
   const [row] = (await sql`
     SELECT * FROM supplier_invoices WHERE id = ${invoice.id}::UUID AND company_id = ${companyId}::UUID
   `) as DbRow[];

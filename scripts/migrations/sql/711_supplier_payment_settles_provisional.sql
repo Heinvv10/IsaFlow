@@ -16,3 +16,26 @@ ALTER TABLE supplier_payments
 CREATE UNIQUE INDEX IF NOT EXISTS uq_supplier_payments_settles_provisional_je
   ON supplier_payments (settles_provisional_je_id)
   WHERE settles_provisional_je_id IS NOT NULL AND status <> 'cancelled';
+
+-- Same company. gl_journal_entries has no UNIQUE (company_id, id) for a
+-- composite FK to reference, and adding one would build a new unique index
+-- over the whole journal table for this column alone — so a trigger refuses a
+-- payment naming another company's journal, with the FK's own SQLSTATE.
+CREATE OR REPLACE FUNCTION supplier_payments_settles_provisional_same_company()
+RETURNS trigger LANGUAGE plpgsql SET search_path = public, pg_temp AS $$
+BEGIN
+  IF NEW.settles_provisional_je_id IS NOT NULL AND NOT EXISTS (
+    SELECT 1 FROM gl_journal_entries
+    WHERE id = NEW.settles_provisional_je_id AND company_id = NEW.company_id
+  ) THEN
+    RAISE EXCEPTION 'supplier payment % names provisional journal % of another company',
+      NEW.id, NEW.settles_provisional_je_id
+      USING ERRCODE = 'foreign_key_violation';
+  END IF;
+  RETURN NEW;
+END $$;
+
+DROP TRIGGER IF EXISTS trg_sp_settles_provisional_same_company ON supplier_payments;
+CREATE TRIGGER trg_sp_settles_provisional_same_company
+  BEFORE INSERT OR UPDATE OF settles_provisional_je_id, company_id ON supplier_payments
+  FOR EACH ROW EXECUTE FUNCTION supplier_payments_settles_provisional_same_company();
