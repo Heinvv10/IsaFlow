@@ -478,6 +478,9 @@ describe('write-tool manifest invariants', () => {
       // freezes a filed return, and a control an agent can set without the
       // posting permission is not a control.
       'lock_vat_period',
+      // mark_vat_declared_elsewhere posts no journal either — it changes what
+      // blocks a VAT period lock, same reasoning as lock_vat_period.
+      'mark_vat_declared_elsewhere',
       // merge_gl_accounts posts no journal, and rewrites POSTED journal lines
       // in place — potentially thousands at once. write:post is the scope that
       // gates changing what is in the ledger, so it gates this too.
@@ -611,6 +614,9 @@ describe('write-tool manifest invariants', () => {
       // lock_vat_period refuses on the missing period before reading anything;
       // behaviour is covered in vatPeriodLock.db.test.ts against a real ledger.
       lock_vat_period: { ...KEY },
+      // Refuses on the missing action/kind/invoice_ids/reason before any
+      // service call; behaviour in vatDeclaredElsewhereTool.test.ts.
+      mark_vat_declared_elsewhere: { ...KEY },
       create_job_category: { ...KEY },
       create_work_item: { ...KEY },
       log_time_entry: { ...KEY },

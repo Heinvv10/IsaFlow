@@ -376,6 +376,9 @@ const TOOL_FLOW_OPERATIONS: Record<string, FlowOperationCode | null> = {
   // app does not meter it either, and pricing a control that stops a period
   // being changed after filing would discourage using it.
   lock_vat_period: null,
+  // Posts nothing to the ledger either — a flag on the document, not a
+  // journal. Same reasoning as lock_vat_period.
+  mark_vat_declared_elsewhere: null,
 };
 
 /**

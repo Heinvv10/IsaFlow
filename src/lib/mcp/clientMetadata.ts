@@ -46,6 +46,7 @@ export const CLIENT_MCP_TOOL_NAMES = [
   'data_integrity_checks',
   'chart_of_accounts_health',
   'lock_vat_period',
+  'mark_vat_declared_elsewhere',
   'list_agent_postings',
   'audit_trail',
   'list_documents',
