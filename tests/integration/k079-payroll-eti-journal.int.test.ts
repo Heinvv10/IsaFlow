@@ -150,6 +150,9 @@ describe('K-079: approving a run that claims ETI', () => {
     expect(h.status).toBe('approved');
     const j = await journal(h.journal_entry_id!);
     expect(j.debit).toBe(j.credit);
+    // The unbooked ETI is reported to the caller, not only logged.
+    const advisories = (res.body as { data: { advisories: Array<{ code: string; detail: string }> } }).data.advisories;
+    expect(advisories.find((a) => a.code === 'eti_beyond_paye')?.detail).toContain('R2200.00');
     // 2140 nets to zero, so no PAYE line; labour is reduced by the 300 used.
     expect(j.by('2140').reduce((s, l) => s + Number(l.credit) - Number(l.debit), 0)).toBe(0);
     expect(j.by('5200').map((l) => Number(l.debit))).toEqual([10000 + 100 - 300]);

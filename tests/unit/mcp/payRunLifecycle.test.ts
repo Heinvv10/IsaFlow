@@ -216,7 +216,7 @@ describe('approve_pay_run', () => {
     vi.clearAllMocks();
     vi.mocked(getPayrollRun).mockResolvedValue(run({ status: 'calculated' }) as never);
     vi.mocked(approvePayrollRun).mockResolvedValue(
-      { ...run({ status: 'approved' }), journalEntryId: JE } as never,
+      { ...run({ status: 'approved' }), journalEntryId: JE, advisories: [{ code: 'eti_beyond_paye', detail: 'R2200.00 not booked' }] } as never,
     );
     vi.mocked(findApprovalBlocker).mockResolvedValue(null);
   });
@@ -239,6 +239,7 @@ describe('approve_pay_run', () => {
     const out = parseOk(await approvePayRunTool.handler({ run_id: RUN, ...KEY }, ctx()));
     expect(out.status).toBe('approved');
     expect(out.journal_entry_id).toBe(JE);
+    expect(out.advisories).toEqual([{ code: 'eti_beyond_paye', detail: 'R2200.00 not booked' }]);
     expect(approvePayrollRun).toHaveBeenCalledWith(
       COMPANY, RUN, ctx().userId, { postingAgent: 'mcp:approve_pay_run:v1' },
     );

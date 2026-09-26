@@ -232,6 +232,7 @@ export const approvePayRunTool: McpTool = {
     return ok({
       ...runPayload(approved),
       journal_entry_id: approved.journalEntryId,
+      advisories: approved.advisories,
     });
   },
 };

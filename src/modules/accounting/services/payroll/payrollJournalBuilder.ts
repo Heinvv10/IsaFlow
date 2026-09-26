@@ -128,8 +128,9 @@ export async function buildPayrollJournalPlan(
   const eti = Number(hdr.total_eti) || 0;
   const net = Number(hdr.total_net) || 0;
 
-  const employerUif = round2(uif / 2);
   const employeeUif = round2(uif / 2);
+  // The two halves sum to uif exactly, so an odd cent cannot unbalance the journal.
+  const employerUif = round2(uif - employeeUif);
   const etiUsed = round2(Math.min(eti, paye));
   const labourDebit = round2(gross + employerUif + sdl - etiUsed);
   const otherDeductions = round2(gross - paye - employeeUif - net);
@@ -186,7 +187,7 @@ export async function buildPayrollJournalPlan(
   const built: PayrollJournalPlanLine[] = [];
   const labourAccountId = accounts.get('5200')?.id;
   if (labourAccountId) {
-    const labour = await buildLabourLines(companyId, runId, labourDebit, gross, labourAccountId);
+    const labour = await buildLabourLines(companyId, runId, labourDebit, gross, labourAccountId, etiUsed);
     // The split can route a share to a cost-centre account other than 5200;
     // report each under 5200's flags only when it IS 5200.
     for (const l of labour) {
@@ -238,6 +239,13 @@ export async function buildPayrollJournalPlan(
       detail: 'The run has no amounts to post — every journal line is zero. Calculate the run first.',
     });
   }
+  const negative = lines.filter((l) => l.debit < 0 || l.credit < 0);
+  if (negative.length > 0) {
+    blockers.push({
+      code: 'negative_amount',
+      detail: `The run totals give a negative amount on ${negative.map((l) => l.accountCode || l.glAccountId).join(', ')}, which a journal line cannot carry. Check the run's totals.`,
+    });
+  }
   const entryDate = lastDayOfMonthIso(periodYear, periodMonth);
   const periodRows = (await sql`
     SELECT status FROM fiscal_periods
@@ -254,7 +262,9 @@ export async function buildPayrollJournalPlan(
 
   const totalDebit = round2(lines.reduce((s, l) => s + l.debit, 0));
   const totalCredit = round2(lines.reduce((s, l) => s + l.credit, 0));
-  if (Math.abs(Math.round((totalDebit - totalCredit) * 100)) > 1) {
+  // Exact to the cent, as the GL's validateJournalEntry is: a 1-cent tolerance
+  // here let a plan pass that the live post then refused.
+  if (Math.round((totalDebit - totalCredit) * 100) !== 0) {
     blockers.push({
       code: 'unbalanced',
       detail: `Payroll journal unbalanced by ${(totalDebit - totalCredit).toFixed(2)} (DR ${totalDebit.toFixed(2)} vs CR ${totalCredit.toFixed(2)}).`,
