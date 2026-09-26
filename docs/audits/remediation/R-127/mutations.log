@@ -86,3 +86,8 @@ L4  gate: cancelled check removed               -> undo "voiding it again is ref
 L5a attach-settle: approval fields not cleared  -> capture "no line items ... back to draft" red
 L5b capture/[id]/post: finalStatus = INSERT's   -> capture "capture/[id]/post answers the bill's status" red
 L5c ai-invoice-pipeline: status = INSERT's      -> capture "ai-invoice-pipeline answers draft" red
+
+# --- re-confirm LOWs; all restored_identical=True
+R1 follow-ups: catch-and-continue restored around attachEvidenceAndSettleApproved -> "capture/[id]/post FAILS the request ..." -> expected 200 to be >= 500
+R2 capture/[id]/post: finalRoute = approvalRoute     -> "capture/[id]/post answers the bill's status ..." red
+R3 ai-invoice-pipeline: approvalRoute unconditioned  -> "ai-invoice-pipeline answers draft ..." red

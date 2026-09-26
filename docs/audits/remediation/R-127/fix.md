@@ -204,3 +204,8 @@ Rows already on production are not repaired by this fix. A backfill that settles
 - **L5:** the draft revert clears `approved_by`/`approved_at`, and `capture/[id]/post` and `ai-invoice-pipeline` answer `draft`.
 - **L6:** the note is under "Other limits" above.
 - Mutations L1, L3, L4, L5a–c: all red; see `mutations.log`.
+
+### Re-confirm LOWs (2026-09-26)
+- **L1:** `capturePostFollowUps` no longer swallows a failed draft revert. `capture/[id]/post` now fails the request (≥500, nothing kept) instead of answering 200 over a COMMIT that became a ROLLBACK. This matches `ai-invoice-pipeline`. Tested with the revert forced to throw.
+- **L2:** a withdrawn auto-approval reports `approvalRoute: 'manual_review'` on both routes.
+- RED 0f2449262. Mutations R1–R3 are all red.
