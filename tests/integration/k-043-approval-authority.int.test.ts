@@ -13,6 +13,7 @@ import { SignJWT } from 'jose';
 import { assertDisposable, response } from './mfa-impersonation-postgres.helpers';
 import type { NextApiRequest } from 'next';
 import approvalRequests from '../../pages/api/accounting/approval-requests';
+import { deletePlantedDocuments, plantDocument, withExpectedDigest } from './approval-document.helpers';
 
 assertDisposable();
 
@@ -53,7 +54,7 @@ async function decide(userId: string, companyId: string, action: 'approve' | 're
       cookie: Object.entries(cookies).map(([k, v]) => `${k}=${v}`).join('; '),
       'x-csrf-token': csrf,
     },
-    body: { action, requestId, notes: `k043 ${action}` },
+    body: await withExpectedDigest(pool, { action, requestId, notes: `k043 ${action}` }),
     socket: { remoteAddress: '127.0.0.85' },
   } as unknown as NextApiRequest;
   const result = response();
@@ -89,17 +90,20 @@ beforeAll(async () => {
     `INSERT INTO approval_rules(id,company_id,name,document_type,condition_field,condition_operator,condition_value,approver_role,is_active,priority)
      VALUES($1,$2,'K043 company B owner-only rule','supplier_invoice','total','greater_than',0,'owner',true,10)`,
     [foreignRuleId, companyB]);
-  for (const id of [approveRequest, rejectRequest, crossTenantRequest, ownerApproveRequest, raceRequest]) {
+  // Each request names a REAL bill and carries its digest: since R-035 an
+  // approve needs the document to exist and to match what was requested.
+  const plantRequest = async (id: string, by: string) => {
+    const documentId = await plantDocument(pool, companyA, 'supplier_invoice', 250000, by);
     await pool.query(
-      `INSERT INTO approval_requests(id,company_id,rule_id,document_type,document_id,amount,status,requested_by)
-       VALUES($1,$2,$3,'supplier_invoice',$4,250000,'pending',$5)`,
-      [id, companyA, ruleId, crypto.randomUUID(), requester]);
+      `INSERT INTO approval_requests(id,company_id,rule_id,document_type,document_id,amount,status,requested_by,document_digest)
+       VALUES($1,$2,$3,'supplier_invoice',$4,250000,'pending',$5,approval_document_digest($2,'supplier_invoice',$4))`,
+      [id, companyA, ruleId, documentId, by]);
+  };
+  for (const id of [approveRequest, rejectRequest, crossTenantRequest, ownerApproveRequest, raceRequest]) {
+    await plantRequest(id, requester);
   }
   // Raised by the owner — the one person whose role does satisfy the rule.
-  await pool.query(
-    `INSERT INTO approval_requests(id,company_id,rule_id,document_type,document_id,amount,status,requested_by)
-     VALUES($1,$2,$3,'supplier_invoice',$4,250000,'pending',$5)`,
-    [ownerOwnRequest, companyA, ruleId, crypto.randomUUID(), owner]);
+  await plantRequest(ownerOwnRequest, owner);
   // Written directly: requestApproval now refuses a foreign rule id, but rows
   // predating that guard exist and still have to be decided safely.
   await pool.query(
@@ -112,6 +116,7 @@ afterAll(async () => {
   try {
     await pool.query('DELETE FROM approval_requests WHERE company_id = ANY($1)', [[companyA, companyB]]);
     await pool.query('DELETE FROM approval_rules WHERE company_id = ANY($1)', [[companyA, companyB]]);
+    await deletePlantedDocuments(pool, [companyA, companyB]);
     await pool.query('DELETE FROM company_users WHERE company_id = ANY($1)', [[companyA, companyB]]);
     await pool.query('DELETE FROM companies WHERE id = ANY($1)', [[companyA, companyB]]);
     await pool.query('DELETE FROM users WHERE id = ANY($1)', [[requester, otherManager, owner, outsider, adminDecider, idleOwner]]);
