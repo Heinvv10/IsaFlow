@@ -10,6 +10,7 @@
  */
 
 import { log } from '@/lib/logger';
+import { assertNotImpersonating } from '@/lib/auth/impersonationGuard';
 
 const NETCASH_BASE_URL = 'https://api.netcash.co.za';
 const REQUEST_TIMEOUT_MS = 30_000;
@@ -55,6 +56,7 @@ export async function submitEftBatch(
   payoutsKey: string,
   payments: NetcashPayment[],
 ): Promise<NetcashSubmitResult> {
+  await assertNotImpersonating(); // R-032 L5: first, before any read or write
   if (!serviceKey || !payoutsKey) {
     log.warn('Netcash EFT submit called without API keys — returning mock response', {}, 'netcash');
     return {

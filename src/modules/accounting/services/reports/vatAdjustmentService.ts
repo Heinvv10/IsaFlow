@@ -14,6 +14,7 @@ import { resolveUserUuid } from '../gl/journalEntryCrudService';
 import { isLockContention } from '../core/lockContention';
 import type { VATAdjustment, VATAdjustmentCreateInput } from '../../types/gl.types';
 import type { JournalLineInput } from '../../types/gl.types';
+import { assertNotImpersonating } from '@/lib/auth/impersonationGuard';
 type Row = DbRow;
 
 
@@ -121,6 +122,7 @@ export async function approveVATAdjustment(companyId: string,
   id: string,
   userId: string
 ): Promise<VATAdjustment> {
+  await assertNotImpersonating(); // R-032 L5: first, before any read or write
   const safeUserId = await resolveUserUuid(userId);
   const va = await lockAdjustmentForUpdate(companyId, id);
   if (!va) throw new VatAdjustmentRefusal('not_found', 'VAT adjustment not found');

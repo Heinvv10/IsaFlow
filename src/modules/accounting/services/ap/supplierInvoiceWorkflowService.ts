@@ -21,6 +21,7 @@ import { assertSupplierInvoiceLinesPostable } from './billLineAccountGuard';
 import { planSupplierInvoiceCancel } from './supplierInvoiceCancelPlan';
 import { documentInPopulation } from '../shared/documentPopulation';
 import type { LateClaimInfo, PostJournalOpts } from '../gl/vatLateClaimPlan';
+import { assertNotImpersonating } from '@/lib/auth/impersonationGuard';
 
 type Row = DbRow;
 
@@ -37,6 +38,7 @@ export async function approveSupplierInvoice(
   // rests on. `allowLateInputClaim`: human-initiated callers only (gl/vatLateClaimPlan.ts).
   opts?: PostingActorOpts & PostJournalOpts,
 ): Promise<SupplierInvoice & { lateClaim?: LateClaimInfo }> {
+  await assertNotImpersonating(); // R-032 L5: first, before any read or write
   try {
     // Serialise concurrent approvals of the SAME invoice before reading its
     // status. Without this the check-then-act window below is wide open: two
@@ -157,6 +159,7 @@ export async function postSupplierInvoiceToGL(
   userId: string,
   opts?: PostingActorOpts,
 ): Promise<{ journalEntryId: string; alreadyPosted: boolean }> {
+  await assertNotImpersonating(); // R-032 L5: first, before any read or write
   // Same check-then-act window approveSupplierInvoice closes at :95, and the
   // same reason: this function decides on `glJournalEntryId` below and then
   // overwrites it. Unlocked, two overlapping "Post to GL" calls both read NULL,

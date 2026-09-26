@@ -10,6 +10,7 @@ import { withErrorHandler } from '@/lib/api-error-handler';
 import { apiResponse } from '@/lib/apiResponse';
 import { log } from '@/lib/logger';
 import { approvePracticeEntries } from '@/modules/accounting/services/practice/practiceTimeEntryWorkflow';
+import { respondIfImpersonationForbidden } from '@/lib/auth/impersonationGuard';
 
 async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse) {
   if (req.method !== 'POST') {
@@ -27,6 +28,7 @@ async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse) {
     const count = await approvePracticeEntries(companyId, ids as string[], req.user.id);
     return apiResponse.success(res, { count });
   } catch (err) {
+    if (respondIfImpersonationForbidden(res, err)) return;
     log.error('Practice time entries approve failed', { error: err }, 'practice-api');
     return apiResponse.badRequestFromError(res, err, 'Approve failed');
   }

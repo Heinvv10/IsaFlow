@@ -2,7 +2,8 @@
  * R-032 L5: every other approve / post / process / sign-off / decide route
  * refuses a "Login as" session, and refuses it FIRST.
  *
- * Each call names a document that does not exist. The guard runs before the
+ * Each call names a document that does not exist (the supplier credit note
+ * excepted: its route reads the note before posting). The guard runs before the
  * approving service reads anything, so a Login-as session gets 403
  * IMPERSONATION_FORBIDDEN where an ordinary session gets the route's own answer
  * for a missing document (404, 400, 409 — anything but the impersonation
@@ -38,6 +39,7 @@ const fx = loginAsFixture(pool, 'R032 L5 routes');
 const missing = crypto.randomUUID();
 const other = crypto.randomUUID();
 const reimbursementAccount = crypto.randomUUID();
+const supplierCreditNote = crypto.randomUUID();
 
 beforeAll(async () => {
   await fx.setUp();
@@ -47,6 +49,11 @@ beforeAll(async () => {
   // Expense-claim post validates its reimbursement account before the claim.
   await pool.query(`INSERT INTO gl_accounts(id,company_id,account_code,account_name,account_type,normal_balance)
     VALUES($1,$2,'8899','R032 reimbursements','liability','credit')`, [reimbursementAccount, fx.company]);
+  // The supplier credit-note route reads the note (type 'supplier') before it posts, so a real draft is needed.
+  const supplier = crypto.randomUUID();
+  await pool.query('INSERT INTO suppliers(id,company_id,name) VALUES($1,$2,$3)', [supplier, fx.company, 'R032 supplier']);
+  await pool.query(`INSERT INTO credit_notes(id,company_id,credit_note_number,type,supplier_id,credit_date,total_amount,created_by)
+    VALUES($1,$2,'SCN-R032','supplier',$3,CURRENT_DATE,115,$4)`, [supplierCreditNote, fx.company, supplier, fx.target]);
 });
 afterAll(async () => {
   try { await fx.tearDown(); } finally { await pool.end(); }
@@ -55,7 +62,10 @@ afterAll(async () => {
 type Case = { name: string; handler: NextApiHandler; call: Call };
 const CASES: Case[] = [
   { name: 'supplier credit note post', handler: supplierCreditNotes,
-    call: { method: 'PATCH', body: { id: missing, action: 'post' } } },
+    call: { method: 'PATCH', body: { id: supplierCreditNote, action: 'post' } } },
+  { name: 'supplier credit note create-and-post', handler: supplierCreditNotes, call: { body: {
+    supplierId: missing, creditDate: '2026-09-26', submitAction: 'post',
+    lineItems: [{ description: 'R032', quantity: 1, unitPrice: 100, vatType: 'standard' }] } } },
   { name: 'batch payment approve', handler: batchPaymentsAction, call: { body: { action: 'approve', id: missing } } },
   { name: 'batch payment process', handler: batchPaymentsAction, call: { body: { action: 'process', id: missing } } },
   { name: 'Netcash EFT submit', handler: netcashSubmit, call: { body: { payments: [
@@ -82,6 +92,7 @@ const CASES: Case[] = [
 
 const ledgerAndAudit = async () => (await pool.query(`SELECT
     (SELECT count(*) FROM gl_journal_entries WHERE company_id=$1) AS journals,
+    (SELECT count(*) FROM credit_notes WHERE company_id=$1) AS credit_notes,
     (SELECT count(*) FROM audit_log WHERE company_id=$1) AS audits,
     (SELECT count(*) FROM netcash_submissions WHERE company_id=$1) AS netcash`, [fx.company])).rows[0];
 
