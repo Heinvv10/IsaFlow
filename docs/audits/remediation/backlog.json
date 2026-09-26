@@ -3080,7 +3080,7 @@
       "severityRationale": "Source priority only; impact and reachability not yet validated.",
       "auditedSha": "5661d6f0f5f2212705151e95455a3f681ddf840e",
       "currentSha": "0ecf6d06e",
-      "status": "fix-in-review",
+      "status": "fixed",
       "dependencies": [
         "Latent behind K-085; ship together"
       ],
@@ -3095,13 +3095,13 @@
         "K-086/green.log",
         "K-086/mutations.log"
       ],
-      "fixCommit": null,
-      "pr": null,
-      "deployedSha": null,
+      "fixCommit": "cdddf1461;2b7285e4b;c47805db9;dd3cd3e7f;a305e4069;a0c845251;0c8335bc6",
+      "pr": "https://github.com/Heinvv10/IsaFlow/pull/524",
+      "deployedSha": "4cb44bc63",
       "historicalDataImpact": "Live since the K-085 fix (972870495, #411) reached production: any count posted via the API since then added the counted quantity to stock. No UI or MCP caller exists. Census SQL in K-086/fix.md, not run.",
       "canonicalItem": null,
       "reportedSeverity": "high",
-      "processNotes": "2026-09-25: re-confirmed on 0ecf6d06e (count 60 vs 100 -> 160). Fixed: FOR UPDATE company-scoped lock, count replaces current_stock, correction booked in integer cents as adjustment_in/out by sign with total_cost multiplied in SQL NUMERIC, no movement for a zero correction. Ported from unpushed c5a52e421. Residuals in fix.md: zero count refused (CHECK quantity > 0), current_stock vs movement-derived on-hand, transfer semantics. Review rounds (general + adversarial, then /review on PR #524) added: exact-cents validator for quantity and unitCost (NaN/string/third decimal refused before any write), unitCost required for a count, warehouseId company-scoped before any write, non-string productId/reason refused."
+      "processNotes": "2026-09-25: re-confirmed on 0ecf6d06e (count 60 vs 100 -> 160). Fixed: FOR UPDATE company-scoped lock, count replaces current_stock, correction booked in integer cents as adjustment_in/out by sign with total_cost multiplied in SQL NUMERIC, no movement for a zero correction. Ported from unpushed c5a52e421. Residuals in fix.md: zero count refused (CHECK quantity > 0), current_stock vs movement-derived on-hand, transfer semantics. Review rounds (general + adversarial, then /review on PR #524) added: exact-cents validator for quantity and unitCost (NaN/string/third decimal refused before any write), unitCost required for a count, warehouseId company-scoped before any write, non-string productId/reason refused. 2026-09-26: merged as cd7b710e1 and deployed to prod at 4cb44bc63 (Hein's 'merge all + deploy now', after hours; shipped with #520 + migration 701 on Hein's explicit choice). Deploy CI passed, golden paths 13/13, integrity 16/16, RELEASE_SHA verified, 'Unit cost is required for a stock count' present in the shipped .next/server/pages/api/accounting/stock-adjustments.js. Census SQL in K-086/fix.md is for Hein (set k086_deployed_at to the deploy time). Rollback snapshot ae78f05a7."
     },
     {
       "id": "K-087",
@@ -10479,7 +10479,7 @@
       "severityRationale": "Every guard this programme added is unenforced on the path code actually merges through.",
       "auditedSha": "",
       "currentSha": "0ecf6d06e",
-      "status": "fix-in-review",
+      "status": "fixed",
       "dependencies": [],
       "testNames": [
         "tests/unit/ci/workflowRunsCiRule.test.ts",
@@ -10492,9 +10492,9 @@
         "R-052/mutations.log",
         "R-052/green.log"
       ],
-      "fixCommit": null,
+      "fixCommit": "4b2c1eb9d..e745e15df (merge b6e9d70e7)",
       "pr": "https://github.com/Heinvv10/IsaFlow/pull/525",
-      "deployedSha": null,
+      "deployedSha": "4cb44bc63",
       "historicalDataImpact": "Any PR merged green on GitHub was never checked by eleven of the sixteen gates.",
       "canonicalItem": null,
       "reportedSeverity": "",
@@ -10502,7 +10502,7 @@
       "title": "Eleven of the sixteen CI gates never run on GitHub, so a PR can be green while the repo's own guards fail",
       "severity": "high",
       "source": "Found while investigating why K-015's local CI failed on a PR GitHub reported green; recorded 2026-09-10",
-      "processNotes": "scripts/ci/run-ci.sh defines 16 gates. .github/workflows/ci.yml runs only FIVE of them: agent-docs, type-check, lint, user-id-casts, unit-tests (plus the separate Golden Paths job). NEVER run on GitHub: security-guards, is-active-filters, raw-transactions, vat-guard-coverage, self-defining-universe, findings-numbering, migration-rls, component-tests, migration-naming, integration-tests, build. Several of those are financial-integrity guards this very programme wrote -- is-active-filters, vat-guard-coverage, migration-rls, migration-naming. They fire only when a human or agent runs `bun run ci` locally. PROVEN, not theorised: K-015 at 57779e48d fails `is-active-filters` locally (a balance query filtering is_active, which would hide a real opening-balance residual) while GitHub reports 'Type Check, Lint & Test: SUCCESS' and 'Golden Paths E2E: SUCCESS' and the PR shows mergeStateStatus CLEAN. Only the branch being a DRAFT stopped it being mergeable. This is the same family as R-041 (migration warnings printed into a void): a guard exists, is believed to be running, and is not. It also explains how defects of the audited classes reached master in the first place. HEIN: the cheap fix is to make the GitHub job run `bun run ci` (or the gate subset that does not need a database) rather than five hand-listed steps that drift from run-ci.sh every time a gate is added. 2026-09-25: re-proved with canary PR #521 (is-active-filters violation; GitHub green, mergeStateStatus CLEAN). On 0ecf6d06e run-ci.sh has 17 gates and GitHub ran 5. Fixed: the quality job runs `bun run ci`; new gate workflow-runs-ci (YAML-parsed exact allow-list of triggers, job keys, the 3 steps, gate env and package.json scripts.ci) refuses every bypass found in blind review. MAIN RESIDUAL, Hein's call: no required status checks exist (branch protection API 403 on this plan), so a red check does not block merge -- #496 merged with Type Check FAILED. Also: integration tests still skip on GitHub (empty DATABASE_URL secret)."
+      "processNotes": "scripts/ci/run-ci.sh defines 16 gates. .github/workflows/ci.yml runs only FIVE of them: agent-docs, type-check, lint, user-id-casts, unit-tests (plus the separate Golden Paths job). NEVER run on GitHub: security-guards, is-active-filters, raw-transactions, vat-guard-coverage, self-defining-universe, findings-numbering, migration-rls, component-tests, migration-naming, integration-tests, build. Several of those are financial-integrity guards this very programme wrote -- is-active-filters, vat-guard-coverage, migration-rls, migration-naming. They fire only when a human or agent runs `bun run ci` locally. PROVEN, not theorised: K-015 at 57779e48d fails `is-active-filters` locally (a balance query filtering is_active, which would hide a real opening-balance residual) while GitHub reports 'Type Check, Lint & Test: SUCCESS' and 'Golden Paths E2E: SUCCESS' and the PR shows mergeStateStatus CLEAN. Only the branch being a DRAFT stopped it being mergeable. This is the same family as R-041 (migration warnings printed into a void): a guard exists, is believed to be running, and is not. It also explains how defects of the audited classes reached master in the first place. HEIN: the cheap fix is to make the GitHub job run `bun run ci` (or the gate subset that does not need a database) rather than five hand-listed steps that drift from run-ci.sh every time a gate is added. 2026-09-25: re-proved with canary PR #521 (is-active-filters violation; GitHub green, mergeStateStatus CLEAN). On 0ecf6d06e run-ci.sh has 17 gates and GitHub ran 5. Fixed: the quality job runs `bun run ci`; new gate workflow-runs-ci (YAML-parsed exact allow-list of triggers, job keys, the 3 steps, gate env and package.json scripts.ci) refuses every bypass found in blind review. MAIN RESIDUAL, Hein's call: no required status checks exist (branch protection API 403 on this plan), so a red check does not block merge -- #496 merged with Type Check FAILED. Also: integration tests still skip on GitHub (empty DATABASE_URL secret). 2026-09-26: merged as b6e9d70e7 (CI-only; effective on GitHub from the merge, no prod runtime change). Final-head GitHub run 36131157091: quality pass (all 18 non-skipped gates), Golden Paths pass. Residual 1 decided by Hein 2026-09-26: merge convention (gh pr checks all-pass on the exact head, then --match-head-commit) recorded in CLAUDE.md."
     },
     {
       "id": "R-053",
