@@ -32,13 +32,17 @@ async function refuseOrLock(tx: TxSql, companyId: string, sourceId: string, targ
   // Locked in id order so two merges of the same pair, in either direction,
   // queue instead of deadlocking. A merge that waited re-reads deleted_at
   // after the first commits, finds its customer gone, and is refused.
+  // NO KEY UPDATE, not UPDATE: a bank allocation holding a line this merge is
+  // about to wait for inserts a receipt naming the customer, and that FK takes
+  // FOR KEY SHARE on the customer row. FOR UPDATE would block it — a 40P01
+  // cycle. The merge changes no key column of customers, so it needs no more.
   const live = await tx`
     SELECT id FROM customers
     WHERE id IN (${sourceId}::UUID, ${targetId}::UUID)
       AND company_id = ${companyId}::UUID
       AND deleted_at IS NULL
     ORDER BY id
-    FOR UPDATE
+    FOR NO KEY UPDATE
   `;
   if (live.length !== 2) {
     throw new ArRequestError('One or both customers not found or do not belong to this company');
@@ -122,7 +126,10 @@ async function moveRecords(tx: TxSql, c: string, s: string, t: string): Promise<
     WHERE customer_id = ${s}::UUID AND company_id = ${c}::UUID
   `;
   await tx`UPDATE customer_activities SET customer_id = ${t}::UUID WHERE customer_id = ${s}::UUID AND company_id = ${c}::UUID`;
-  // refuseOrLock already refused the case where both have one.
+  // refuseOrLock already refused the case where both have one. An override
+  // created for the target after that check (the customer lock no longer
+  // blocks the FK) makes this UPDATE raise 23505: a 500, and the savepoint
+  // rolls the whole merge back — nothing half-moved.
   await tx`UPDATE customer_dunning_overrides SET customer_id = ${t}::UUID WHERE customer_id = ${s}::UUID AND company_id = ${c}::UUID`;
   await tx`UPDATE bank_categorisation_rules SET client_id = ${t}::UUID WHERE client_id = ${s}::UUID AND company_id = ${c}::UUID`;
   await tx`UPDATE practice_clients SET link_customer_id = ${t}::UUID WHERE link_customer_id = ${s}::UUID AND company_id = ${c}::UUID`;
