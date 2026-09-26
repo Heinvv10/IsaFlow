@@ -46,6 +46,7 @@ export async function releaseCapturedDocumentPostingClaim(
            posted_content_sha256 = NULL,
            posted_receipt_key = NULL,
            posted_duplicate_of = NULL,
+           posted_duplicate_confirmed_by = NULL,
            updated_at = NOW()
      WHERE cd.id = ${documentId}::uuid
        AND cd.company_id = ${companyId}

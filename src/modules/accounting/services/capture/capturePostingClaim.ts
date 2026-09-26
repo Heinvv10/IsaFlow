@@ -9,8 +9,15 @@
  * callers import from one place.
  */
 
+import { ErrorCode } from '@/lib/apiResponse.types';
 import { sql } from '@/lib/neon';
 import type { DbRow } from '@/lib/neon';
+import {
+  findPostedContent,
+  lockPostedContent,
+  PostedContentBusyError,
+  type ContentSpend,
+} from './postedContentFence';
 
 /**
  * Why a posting route refused the document.
@@ -19,12 +26,26 @@ import type { DbRow } from '@/lib/neon';
  * about a document that was merely rejected — or merely attached to a bank
  * transaction — is a false statement about the ledger, and the only undo the
  * product offered for it was the confirm button, which is itself a bypass.
+ *
+ * The two `content_*` reasons are the claim's own posted-content check
+ * (R-088): the same FILE is already booked from another upload, or another
+ * request holds that file's fingerprint past the bounded wait.
  */
-export type CapturedDocumentRefusal = 'already_posted' | 'rejected';
+export type CapturedDocumentRefusal = 'already_posted' | 'rejected' | 'content_posted' | 'content_busy';
 
 export const CAPTURED_DOCUMENT_REFUSAL_MESSAGE: Record<CapturedDocumentRefusal, string> = {
   already_posted: 'Document already posted',
   rejected: 'Document was rejected — reopen it before posting',
+  content_posted: 'The same file was already posted from another upload — it cannot be booked twice',
+  content_busy: 'Another request is posting a document with the same content — retry in a moment',
+};
+
+/** The status a route answers each refusal with: a conflict with other content is a 409. */
+export const CAPTURED_DOCUMENT_REFUSAL_ERROR_CODE: Record<CapturedDocumentRefusal, ErrorCode> = {
+  already_posted: ErrorCode.BAD_REQUEST,
+  rejected: ErrorCode.BAD_REQUEST,
+  content_posted: ErrorCode.CONFLICT,
+  content_busy: ErrorCode.CONFLICT,
 };
 
 /**
@@ -65,11 +86,15 @@ export class CapturedDocumentAlreadyPostedError extends Error {
 
 /** What a receipt was posted under — see `receiptDuplicateGuard.ts`. */
 export interface PostedReceiptFingerprint {
-  contentSha256: string | null;
   receiptKey: string | null;
-  /** The earlier document a person confirmed this one repeats; null otherwise. */
+  /** The earlier document a person confirmed this one repeats (a details match only); null otherwise. */
   duplicateOf: string | null;
+  /** The user who confirmed it; null when nothing was confirmed. */
+  confirmedBy: string | null;
 }
+
+/** What the claim is for, and — on a receipt path — what `checkReceiptDuplicate` cleared. */
+export type ClaimContent = { spend: ContentSpend } & Partial<PostedReceiptFingerprint>;
 
 /**
  * Claim the document for posting: stamp `posted_at`, but only from a row that
@@ -95,29 +120,53 @@ export interface PostedReceiptFingerprint {
  * the thing that decides it. `document_category` is stamped for the two routes
  * that set it; passing null leaves the column untouched.
  *
- * `fingerprint` is the content a RECEIPT path posts under (R-088), from
- * `checkReceiptDuplicate`. It is stamped in this same UPDATE so the claim and
- * the partial unique index behind it (migration 710) land or fail together:
- * a second live claim on the same bytes raises 23505 here, before any
- * ledger write, and rolls the request back. Paths that post no receipt pass
- * nothing and the columns stay NULL.
+ * `content` (R-088) is required, so no caller can forget it. Unless the
+ * claim is a provisional evidence attach (`spend: 'evidence'`, which books
+ * nothing — see `postedContentFence.ts`), it first refuses a FILE already
+ * booked from another upload in this company ('content_posted'), under the
+ * fingerprint's advisory lock, and then stamps `posted_content_sha256` from
+ * the row's own `raw_bytes_sha256` in the same UPDATE as the claim. The
+ * partial unique index on that column (migration 710) is the backstop: a
+ * writer that stamps and skips the check raises 23505 and rolls back. A
+ * receipt path also stamps the key it posted under and, for a confirmed
+ * repeat, the earlier document and who confirmed it.
  *
  * Returns null when the claim succeeded, otherwise the reason it did not.
  */
 export async function claimCapturedDocumentForPosting(
   companyId: string,
   documentId: string,
-  documentCategory: string | null = null,
-  fingerprint: PostedReceiptFingerprint | null = null,
+  documentCategory: string | null,
+  content: ClaimContent,
 ): Promise<CapturedDocumentRefusal | null> {
+  const books = content.spend !== 'evidence';
+  if (books) {
+    const [doc] = (await sql`
+      SELECT raw_bytes_sha256 FROM captured_documents
+      WHERE id = ${documentId}::uuid AND company_id = ${companyId}`) as DbRow[];
+    const contentSha256 = (doc?.raw_bytes_sha256 as string | null | undefined) ?? null;
+    if (contentSha256) {
+      try {
+        await lockPostedContent(companyId, [`sha:${contentSha256}`]);
+      } catch (err) {
+        if (err instanceof PostedContentBusyError) return 'content_busy';
+        throw err;
+      }
+      if (await findPostedContent(companyId, documentId, { contentSha256, spend: content.spend })) {
+        return 'content_posted';
+      }
+    }
+  }
+
   const rows = (await sql`
     UPDATE captured_documents
        SET posted_at = NOW(),
            status = 'matched',
            document_category = COALESCE(${documentCategory}, document_category),
-           posted_content_sha256 = ${fingerprint?.contentSha256 ?? null},
-           posted_receipt_key = ${fingerprint?.receiptKey ?? null},
-           posted_duplicate_of = ${fingerprint?.duplicateOf ?? null}::uuid,
+           posted_content_sha256 = CASE WHEN ${books}::boolean THEN raw_bytes_sha256 END,
+           posted_receipt_key = ${content.receiptKey ?? null},
+           posted_duplicate_of = ${content.duplicateOf ?? null}::uuid,
+           posted_duplicate_confirmed_by = ${content.confirmedBy ?? null},
            updated_at = NOW()
      WHERE id = ${documentId}::uuid
        AND company_id = ${companyId}
