@@ -104,6 +104,14 @@ describe('POST /api/admin/users/[id]/reset-password', () => {
     expect(supersedePasswordResetTokens).not.toHaveBeenCalled();
   });
 
+  it('reports success when the email went out but retiring older links failed (R-032 LOW-1)', async () => {
+    supersedePasswordResetTokens.mockImplementationOnce(async () => { throw new Error('connection reset'); });
+    const state = await call();
+    expect(state.statusCode).toBe(200);
+    expect((state.body as { data?: { message?: string } }).data?.message).toBe('Password reset email sent');
+    expect(sendEmail).toHaveBeenCalledTimes(1);
+  });
+
   it('still refuses to reset a super_admin, and emails nobody', async () => {
     fx.userRow = { ...target, role: 'super_admin' };
     const state = await call();
