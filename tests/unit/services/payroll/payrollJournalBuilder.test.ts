@@ -129,28 +129,66 @@ describe('buildPayrollJournalPlan — the employment cost the ledger never sees'
   });
 });
 
-describe('buildPayrollJournalPlan — ETI unbalances the journal, and the plan says so', () => {
-  // FINDING, not a bug in this builder. postPayrollRunJournal subtracts ETI
-  // from the labour DEBIT and credits it nowhere, so credits exceed debits by
-  // exactly the ETI every time. Algebraically:
-  //   credits = paye + uif + sdl + net + (gross − paye − employeeUif − net)
-  //           = gross + employerUif + sdl
-  //   debits  = gross + employerUif + sdl − eti
-  // ETI is an offset against PAYE remitted to SARS, so the correct treatment
-  // reduces CR 2140, not DR 5200. Every one of the 86 production pay runs has
-  // total_eti = 0.00, which is why nobody has hit it — but the ETI engine
-  // exists, and the first run that claims ETI will fail to post.
-  //
-  // The plan reports what WOULD happen rather than quietly correcting it: a
-  // dry run that balanced a journal the live path rejects is worse than no dry
-  // run. Changing the poster's accounting treatment is a decision for a human.
-  it('reports the unbalanced blocker, and the gap is exactly the ETI', async () => {
+describe('buildPayrollJournalPlan — ETI offsets PAYE payable (K-079)', () => {
+  // Hein, 2026-09-26: ETI is netted off labour cost and capped at the run's
+  // PAYE. etiUsed = min(eti, paye); DR 5200 falls by etiUsed and CR 2140 is
+  // paye − etiUsed, which is the EMP201 PAYE payable. Before K-079 the
+  // labour debit fell by ETI while 2140 carried full PAYE, so every run with
+  // ETI was unbalanced by exactly the ETI and could not post.
+  const credit = (plan: Awaited<ReturnType<typeof buildPayrollJournalPlan>>, code: string) =>
+    plan!.lines.filter((l) => l.accountCode === code).reduce((s, l) => s + l.credit, 0);
+  const debit = (plan: Awaited<ReturnType<typeof buildPayrollJournalPlan>>, code: string) =>
+    plan!.lines.filter((l) => l.accountCode === code).reduce((s, l) => s + l.debit, 0);
+
+  it('ETI below PAYE: balances, credits 2140 net of ETI, and reduces labour by it', async () => {
     routeMock(standardRoutes({ header: [{ ...HEADER, total_eti: 500 }] }));
     const plan = await buildPayrollJournalPlan(COMPANY, RUN);
 
-    expect(plan!.blockers.map((b) => b.code)).toContain('unbalanced');
-    expect(plan!.totalCredit - plan!.totalDebit).toBeCloseTo(500, 2);
-    expect(plan!.totals.eti).toBe(500);
+    expect(plan!.blockers.map((b) => b.code)).not.toContain('unbalanced');
+    expect(plan!.totalDebit).toBe(plan!.totalCredit);
+    expect(credit(plan, '2140')).toBe(19500);
+    expect(debit(plan, '5200')).toBe(100000 + 1000 + 1000 - 500);
+    expect(plan!.totals).toMatchObject({ eti: 500, etiUsed: 500 });
+    expect(plan!.advisories.map((a) => a.code)).not.toContain('eti_beyond_paye');
+  });
+
+  it('ETI above PAYE: books only the ETI PAYE absorbs, drops the zero 2140 line, and says so', async () => {
+    routeMock(standardRoutes({ header: [{ ...HEADER, total_paye: 300, total_eti: 2500, total_net: 95700 }] }));
+    const plan = await buildPayrollJournalPlan(COMPANY, RUN);
+
+    expect(plan!.blockers).toEqual([]);
+    expect(plan!.totalDebit).toBe(plan!.totalCredit);
+    expect(plan!.lines.some((l) => l.accountCode === '2140')).toBe(false);
+    expect(debit(plan, '5200')).toBe(100000 + 1000 + 1000 - 300);
+    expect(plan!.totals).toMatchObject({ eti: 2500, etiUsed: 300 });
+    const advisory = plan!.advisories.find((a) => a.code === 'eti_beyond_paye');
+    expect(advisory?.detail).toContain('R2200.00');
+  });
+
+  it('ETI exactly equal to PAYE is fully booked and raises no advisory', async () => {
+    routeMock(standardRoutes({ header: [{ ...HEADER, total_eti: 20000 }] }));
+    const plan = await buildPayrollJournalPlan(COMPANY, RUN);
+
+    expect(plan!.totals.etiUsed).toBe(20000);
+    expect(plan!.totalDebit).toBe(plan!.totalCredit);
+    expect(plan!.advisories.map((a) => a.code)).not.toContain('eti_beyond_paye');
+  });
+
+  it('no ETI: 2140 carries the full PAYE', async () => {
+    routeMock(standardRoutes());
+    const plan = await buildPayrollJournalPlan(COMPANY, RUN);
+
+    expect(credit(plan, '2140')).toBe(20000);
+    expect(plan!.totals.etiUsed).toBe(0);
+  });
+
+  it('drops a zero statutory line (SDL-exempt), which the GL would reject', async () => {
+    routeMock(standardRoutes({ header: [{ ...HEADER, total_sdl: 0 }] }));
+    const plan = await buildPayrollJournalPlan(COMPANY, RUN);
+
+    expect(plan!.lines.some((l) => l.accountCode === '2160')).toBe(false);
+    expect(plan!.lines.every((l) => l.debit !== 0 || l.credit !== 0)).toBe(true);
+    expect(plan!.totalDebit).toBe(plan!.totalCredit);
   });
 });
 

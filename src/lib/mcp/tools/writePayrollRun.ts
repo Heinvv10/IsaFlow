@@ -29,7 +29,10 @@ import {
   getPayrollRun,
   type PayrollRunSummary,
 } from '@/modules/accounting/services/payroll/payrollRunService';
-import { approvePayrollRun } from '@/modules/accounting/services/payroll/payrollApprovalService';
+import {
+  approvePayrollRun,
+  findApprovalBlocker,
+} from '@/modules/accounting/services/payroll/payrollApprovalService';
 import { PayrollRunLockedError } from '@/modules/accounting/services/payroll/payrollRunLock';
 import {
   PayrollLoanLockTimeoutError,
@@ -181,6 +184,12 @@ export const approvePayRunTool: McpTool = {
         + 'An approved run whose journal did not post is completed with post_payroll_journal.',
       );
     }
+
+    // The service refuses a run whose journal cannot post BEFORE it approves
+    // it (K-079). Asked here too, so the dry run refuses what the live call
+    // refuses, and the live refusal is answered while nothing is written.
+    const blocker = await findApprovalBlocker(ctx.companyId, runId);
+    if (blocker) return toolError(`The journal for this run cannot post, so it was not approved: ${blocker.detail}`);
 
 
     if (args.dry_run === true) {

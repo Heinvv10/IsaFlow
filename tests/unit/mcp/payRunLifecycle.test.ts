@@ -24,6 +24,7 @@ vi.mock('@/modules/accounting/services/payroll/payrollRunService', () => ({
 }));
 vi.mock('@/modules/accounting/services/payroll/payrollApprovalService', () => ({
   approvePayrollRun: vi.fn(),
+  findApprovalBlocker: vi.fn(),
 }));
 // The error classes must be the real ones — the tool branches on them, and a
 // stubbed sentinel would let those branches pass by accident.
@@ -42,7 +43,10 @@ import {
   calculatePayrollRun,
   getPayrollRun,
 } from '@/modules/accounting/services/payroll/payrollRunService';
-import { approvePayrollRun } from '@/modules/accounting/services/payroll/payrollApprovalService';
+import {
+  approvePayrollRun,
+  findApprovalBlocker,
+} from '@/modules/accounting/services/payroll/payrollApprovalService';
 import { PayrollRunLockedError } from '@/modules/accounting/services/payroll/payrollRunLock';
 import {
   PayrollLoanLockTimeoutError,
@@ -214,6 +218,21 @@ describe('approve_pay_run', () => {
     vi.mocked(approvePayrollRun).mockResolvedValue(
       { ...run({ status: 'approved' }), journalEntryId: JE } as never,
     );
+    vi.mocked(findApprovalBlocker).mockResolvedValue(null);
+  });
+
+  it('refuses a run whose journal cannot post, before approving it (K-079)', async () => {
+    vi.mocked(findApprovalBlocker).mockResolvedValue({ code: 'missing_gl_accounts', detail: 'no GL account for 2140' });
+    expect(errText(await approvePayRunTool.handler({ run_id: RUN, ...KEY }, ctx())))
+      .toContain('no GL account for 2140');
+    expect(findApprovalBlocker).toHaveBeenCalledWith(COMPANY, RUN);
+    expect(approvePayrollRun).not.toHaveBeenCalled();
+  });
+
+  it('dry run refuses the same blocked run the live call refuses', async () => {
+    vi.mocked(findApprovalBlocker).mockResolvedValue({ code: 'unbalanced', detail: 'unbalanced by 5.00' });
+    expect(errText(await approvePayRunTool.handler({ run_id: RUN, dry_run: true, ...KEY }, ctx())))
+      .toContain('unbalanced by 5.00');
   });
 
   it('approves, posts, and returns the journal it wrote', async () => {
