@@ -33,5 +33,10 @@ CREATE POLICY impersonation_sessions_own_session ON impersonation_sessions
   FOR SELECT TO app_user
   USING (session_id = NULLIF(current_setting('request.jwt.claims', true), '')::jsonb ->> 'session_id');
 
+-- Default privileges (migrations 348/352) grant app_user and platform_admin
+-- INSERT/UPDATE/DELETE on every new table. A tenant session must not write a
+-- record, and nobody may alter or remove one once written.
+REVOKE INSERT, UPDATE, DELETE, TRUNCATE ON TABLE impersonation_sessions FROM app_user;
+REVOKE UPDATE, DELETE, TRUNCATE ON TABLE impersonation_sessions FROM platform_admin;
 GRANT SELECT ON TABLE impersonation_sessions TO app_user;
 GRANT SELECT, INSERT ON TABLE impersonation_sessions TO platform_admin;
