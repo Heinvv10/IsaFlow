@@ -11,7 +11,7 @@ import {
 const facts = (over: Partial<InputVatSupportFacts>): InputVatSupportFacts => ({
   journalEntryId: 'je', entryNumber: 'JE-1', entryDate: '2026-07-10', source: 'manual', description: '',
   claimedVat: 150, claimedToDate: 150, expenseClaimVat: null, capturedDocumentVat: null, documentClaimedVat: null,
-  creditNoteVat: null, vatAdjustment: false, bankAmount: null, ...over,
+  creditNoteVat: null, vatAdjustment: false, bankAmount: null, hasBankAttachment: false, ...over,
 });
 const RATE = 0.15;
 
@@ -78,6 +78,16 @@ describe('classifyInputVatSupport', () => {
   it('bank: VAT above rate/(1+rate) of the money blocks', () => {
     const v = classifyInputVatSupport(facts({ claimedVat: 16, bankAmount: 115 }), RATE);
     expect(v).toMatchObject({ blocking: true, line: { supportKind: 'bank', documentVat: 15, reason: 'amount_mismatch' } });
+  });
+
+  it('item 2: an invoice attached to the bank line fully supports the claim — off the list entirely', () => {
+    const v = classifyInputVatSupport(facts({ claimedVat: 15, bankAmount: 115, hasBankAttachment: true }), RATE);
+    expect(v).toEqual({ blocking: false, line: null });
+  });
+
+  it('item 2: an attachment does not excuse a genuine over-claim above the bank ceiling', () => {
+    const v = classifyInputVatSupport(facts({ claimedVat: 16, bankAmount: 115, hasBankAttachment: true }), RATE);
+    expect(v).toMatchObject({ blocking: true, line: { supportKind: 'bank', reason: 'amount_mismatch' } });
   });
 
   it('a document link outranks the bank: a matched receipt is supported by the receipt', () => {

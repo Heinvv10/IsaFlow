@@ -91,6 +91,8 @@ export interface InputVatSupportFacts {
   vatAdjustment: boolean;
   /** Σ |amount| of the bank lines behind the journal (matched or provisional). */
   bankAmount: number | null;
+  /** Item 2: an invoice attached to the SAME bank line — presence only, no VAT to compare. */
+  hasBankAttachment: boolean;
 }
 
 export type SupportVerdict =
@@ -161,9 +163,13 @@ export function classifyInputVatSupport(f: InputVatSupportFacts, rate: number): 
   if (f.vatAdjustment) return { blocking: false, line: line(f, 'vat_adjustment', null, 'no_tax_invoice') };
   if (f.bankAmount !== null) {
     const ceiling = r2(f.bankAmount * rate / (1 + rate));
-    return f.claimedVat > ceiling + CENT
-      ? { blocking: true, line: line(f, 'bank', ceiling, 'amount_mismatch') }
-      : { blocking: false, line: line(f, 'bank', null, 'no_tax_invoice') };
+    if (f.claimedVat > ceiling + CENT) {
+      return { blocking: true, line: line(f, 'bank', ceiling, 'amount_mismatch') };
+    }
+    // Item 2: an invoice attached to the bank line is a tax invoice on file —
+    // the journal is fully supported, not merely "no tax invoice on file".
+    if (f.hasBankAttachment) return none;
+    return { blocking: false, line: line(f, 'bank', null, 'no_tax_invoice') };
   }
   return { blocking: true, line: line(f, 'none', null, 'no_document') };
 }
@@ -194,6 +200,7 @@ export async function findInputVatSupport(
       creditNoteVat: num(r.credit_note_vat),
       vatAdjustment: r.is_vat_adjustment === true,
       bankAmount: num(r.bank_amount),
+      hasBankAttachment: r.has_bank_attachment === true,
     }, SA_VAT_RATE);
     if (verdict.blocking) result.unsupported.push(verdict.line);
     else if (verdict.line) result.withoutTaxInvoice.push(verdict.line);
