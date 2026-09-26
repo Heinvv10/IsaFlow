@@ -15,7 +15,7 @@
  * is a genuine repeat purchase (two identical coffees on one day) resends with
  * `confirmDuplicate: true`, and the posting is stamped with the document it
  * repeats (`posted_duplicate_of`), which is what takes it outside the partial
- * unique index on the posted bytes (migration 708) that backs this check.
+ * unique index on the posted bytes (migration 710) that backs this check.
  *
  * THE CHECK IS SERIALISED, not just read: two uploads of one slip are two rows,
  * so the document row locks do not order them, and two concurrent posts would
