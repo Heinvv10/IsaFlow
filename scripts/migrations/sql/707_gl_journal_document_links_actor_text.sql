@@ -11,6 +11,13 @@
 -- company_id/captured_document_id/journal_entry_id; the tenant_isolation
 -- policy filters on company_id only), so neither survives changing type by
 -- accident — there is nothing to rebuild.
+--
+-- ALTER COLUMN ... TYPE rewrites the whole table under an ACCESS EXCLUSIVE
+-- lock (blocks reads and writes for the duration) — acceptable here only
+-- because gl_journal_document_links is a brand-new table (706, this same
+-- batch) with a handful of rows on isaflow_dev. Not a pattern to copy onto an
+-- established table without a NOT VALID + VALIDATE-style split (see 705's
+-- CHECK constraint for that shape) or an online rewrite strategy.
 DO $$
 BEGIN
   IF EXISTS (
