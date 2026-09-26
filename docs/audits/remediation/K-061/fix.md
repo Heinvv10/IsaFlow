@@ -148,4 +148,7 @@ SELECT company_id, count(*) FROM customer_dunning_overrides GROUP BY 1 ORDER BY 
 - `recurringTransactionInvoices` (via `assertCustomerInCompany`) does not refuse a soft-deleted customer. A merge now moves and pauses its templates. A customer deleted any other way keeps an active template running, and that is a separate item.
 - The duplicates page (`duplicates.tsx`) still reads its response with a hand-written `res.json()` cast, not `apiJson`. It now shows the paused count.
 - `softDeleteRowOps.restoreRow('customer')` can un-delete a merged-away source. It comes back empty, with ` [MERGED]` in its name and its portal logins off.
-- Four mutants survive, and all four are equivalent (mutations.log explains each). Three drop a company-scope predicate that `app_user` RLS already enforces. One drops the customers' `ORDER BY id`, and this merge is the only path that locks two customer rows.
+- Five of 64 mutants survive, and all five are equivalent (mutations.log explains each):
+  - three drop a company-scope predicate that `app_user` RLS already enforces;
+  - one drops the customers' `ORDER BY id`, and this merge is the only path that locks two customer rows;
+  - one drops the `lock_timeout = DEFAULT` restore, which runs after the request's last statement.

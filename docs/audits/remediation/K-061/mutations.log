@@ -1,153 +1,212 @@
-# K-061 mutation log — each mutant applied alone to the code at the branch head, full K-061 integration suite run, then restored.
-# Runner: scratchpad mutate.py. Mutants 0-25: each write/lock statement of customerMergeService deleted in turn. 26+: named guard mutants.
-# 0/45/46/47 re-run after k061-customer-merge-lock-order.int.test.ts was added (they SURVIVED the first sweep); results below are the re-run.
-# RESULT: 44 of 48 RED; 4 SURVIVED, each an equivalent mutant explained inline.
+# K-061 mutation log — final sweep on 1f2e73533 (code identical at the PR head). Each mutant applied alone,
+# the full K-061 integration suite (7 files, 36 tests, real routes) run, then restored. Runner: scratchpad mutate.py.
+# Mutants 0-N: every write/lock statement of customerMergeService deleted in turn; then named guard mutants across
+# the service, both merge routes, duplicateMergeService and recurring-invoices-run.
+# RESULT: 59 of 64 RED; 5 SURVIVED, each an equivalent mutant explained inline.
 
-0	RED	delete: await tx` SELECT id FROM bank_transactions WHERE suggested_client_id = ${s}::UUID AND company_id = ${c}::UUID 	1 failed | 22 passed (23)
+0	RED	delete: await tx` SELECT id FROM bank_transactions WHERE suggested_client_id = ${s}::UUID AND company_id = ${c}::UUID 	3 failed | 33 passed (36)
+		  - k061-customer-merge-contention: a bulk allocation interleaving bank → invoices → bank with a merge never produces a 500
+		  - k061-customer-merge-lock-order: a customer refund holding a bank line and then locking the customer does not deadlock against a merg
 		  - k061-customer-merge-lock-order: bank_transactions: a settlement locking ORDER BY id does not deadlock against a merge
-1	RED	delete: await tx`UPDATE bank_transactions SET suggested_client_id = ${t}::UUID WHERE suggested_client_id = ${s}::UUID 	2 failed | 18 passed (20)
+1	RED	delete: await tx` SELECT id FROM recurring_invoices WHERE client_id = ${s}::UUID AND company_id = ${c}::UUID ORDER BY 	1 failed | 35 passed (36)
+		  - k061-customer-merge-lock-order: recurring_invoices: an invoice a running recurring run creates during a merge is moved, not stranded
+2	RED	delete: await tx` SELECT id FROM recurring_transaction_templates WHERE company_id = ${c}::UUID AND entity_type = 'cust	1 failed | 35 passed (36)
+		  - k061-customer-merge-lock-order: recurring_transaction_templates: an invoice a running recurring run creates during a merge is moved,
+3	RED	delete: await tx`UPDATE bank_transactions SET suggested_client_id = ${t}::UUID WHERE suggested_client_id = ${s}::UUID 	2 failed | 34 passed (36)
 		  - k061-customer-merge-moves: moves every census reference to the target and leaves the source with none
 		  - k061-duplicates-merge-customer: moves every census reference off the duplicate and counts the documents it re-parented
-2	RED	delete: await tx`UPDATE customer_payments SET client_id = ${t}::UUID WHERE client_id = ${s}::UUID AND company_id = ${c	3 failed | 17 passed (20)
+4	RED	delete: await tx`UPDATE customer_payments SET client_id = ${t}::UUID WHERE client_id = ${s}::UUID AND company_id = ${c	4 failed | 32 passed (36)
+		  - k061-customer-merge-lock-order: a bank allocation creating a receipt for the source does not deadlock against a merge
 		  - k061-customer-merge-moves: moves every census reference to the target and leaves the source with none
 		  - k061-customer-merge-moves: the target owes both customers' debt and the source owes nothing
 		  - k061-duplicates-merge-customer: moves every census reference off the duplicate and counts the documents it re-parented
-3	RED	delete: await tx`UPDATE customer_invoices SET customer_id = ${t}::UUID WHERE customer_id = ${s}::UUID AND company_id =	6 failed | 14 passed (20)
+5	RED	delete: await tx`UPDATE customer_invoices SET customer_id = ${t}::UUID WHERE customer_id = ${s}::UUID AND company_id =	9 failed | 27 passed (36)
+		  - k061-customer-merge-lock-order: recurring_invoices: an invoice a running recurring run creates during a merge is moved, not stranded
+		  - k061-customer-merge-lock-order: recurring_transaction_templates: an invoice a running recurring run creates during a merge is moved,
+		  - k061-customer-merge-moves: an invoice whose columns name different customers moves only the column naming the source
+		  - k061-customer-merge-moves: moves every census reference to the target and leaves the source with none
+6	RED	delete: await tx`UPDATE customer_invoices SET client_id = ${t}::UUID WHERE client_id = ${s}::UUID AND company_id = ${c	6 failed | 30 passed (36)
+		  - k061-customer-merge-moves: an invoice whose columns name different customers moves only the column naming the source
 		  - k061-customer-merge-moves: moves every census reference to the target and leaves the source with none
 		  - k061-customer-merge-moves: moves invoices on both columns, keeping a NULL client_id NULL, so COALESCE names the target
 		  - k061-customer-merge-moves: the target owes both customers' debt and the source owes nothing
-		  - k061-customer-merge-refusals: two merges racing in opposite directions: exactly one succeeds and nothing is split
-4	RED	delete: await tx`UPDATE customer_invoices SET client_id = ${t}::UUID WHERE client_id = ${s}::UUID AND company_id = ${c	5 failed | 15 passed (20)
-		  - k061-customer-merge-moves: moves every census reference to the target and leaves the source with none
-		  - k061-customer-merge-moves: moves invoices on both columns, keeping a NULL client_id NULL, so COALESCE names the target
-		  - k061-customer-merge-moves: the target owes both customers' debt and the source owes nothing
-		  - k061-customer-merge-refusals: two merges racing in opposite directions: exactly one succeeds and nothing is split
-5	RED	delete: await tx`UPDATE archive_customer_invoices SET customer_id = ${t}::UUID WHERE customer_id = ${s}::UUID AND comp	2 failed | 18 passed (20)
+7	RED	delete: await tx`UPDATE archive_customer_invoices SET customer_id = ${t}::UUID WHERE customer_id = ${s}::UUID AND comp	2 failed | 34 passed (36)
 		  - k061-customer-merge-moves: moves every census reference to the target and leaves the source with none
 		  - k061-duplicates-merge-customer: moves every census reference off the duplicate and counts the documents it re-parented
-6	RED	delete: await tx`UPDATE archive_customer_invoices SET client_id = ${t}::UUID WHERE client_id = ${s}::UUID AND company_	2 failed | 18 passed (20)
+8	RED	delete: await tx`UPDATE archive_customer_invoices SET client_id = ${t}::UUID WHERE client_id = ${s}::UUID AND company_	2 failed | 34 passed (36)
 		  - k061-customer-merge-moves: moves every census reference to the target and leaves the source with none
 		  - k061-duplicates-merge-customer: moves every census reference off the duplicate and counts the documents it re-parented
-7	RED	delete: await tx`UPDATE customer_write_offs SET client_id = ${t}::UUID WHERE client_id = ${s}::UUID AND company_id = $	2 failed | 18 passed (20)
+9	RED	delete: await tx`UPDATE customer_write_offs SET client_id = ${t}::UUID WHERE client_id = ${s}::UUID AND company_id = $	2 failed | 34 passed (36)
 		  - k061-customer-merge-moves: moves every census reference to the target and leaves the source with none
 		  - k061-duplicates-merge-customer: moves every census reference off the duplicate and counts the documents it re-parented
-8	RED	delete: await tx`UPDATE delivery_notes SET customer_id = ${t}::UUID WHERE customer_id = ${s}::UUID AND company_id = ${	2 failed | 18 passed (20)
+10	RED	delete: await tx`UPDATE delivery_notes SET customer_id = ${t}::UUID WHERE customer_id = ${s}::UUID AND company_id = ${	2 failed | 34 passed (36)
 		  - k061-customer-merge-moves: moves every census reference to the target and leaves the source with none
 		  - k061-duplicates-merge-customer: moves every census reference off the duplicate and counts the documents it re-parented
-9	RED	delete: await tx`UPDATE projects SET client_id = ${t}::UUID WHERE client_id = ${s}::UUID AND company_id = ${c}::UUID`;	2 failed | 18 passed (20)
+11	RED	delete: await tx`UPDATE projects SET client_id = ${t}::UUID WHERE client_id = ${s}::UUID AND company_id = ${c}::UUID`;	2 failed | 34 passed (36)
 		  - k061-customer-merge-moves: moves every census reference to the target and leaves the source with none
 		  - k061-duplicates-merge-customer: moves every census reference off the duplicate and counts the documents it re-parented
-10	RED	delete: await tx`UPDATE time_entries SET customer_id = ${t}::UUID WHERE customer_id = ${s}::UUID AND company_id = ${c}	2 failed | 18 passed (20)
+12	RED	delete: await tx`UPDATE time_entries SET customer_id = ${t}::UUID WHERE customer_id = ${s}::UUID AND company_id = ${c}	2 failed | 34 passed (36)
 		  - k061-customer-merge-moves: moves every census reference to the target and leaves the source with none
 		  - k061-duplicates-merge-customer: moves every census reference off the duplicate and counts the documents it re-parented
-11	RED	delete: await tx`UPDATE payment_transactions SET customer_id = ${t}::UUID WHERE customer_id = ${s}::UUID AND company_i	2 failed | 18 passed (20)
+13	RED	delete: await tx`UPDATE payment_transactions SET customer_id = ${t}::UUID WHERE customer_id = ${s}::UUID AND company_i	2 failed | 34 passed (36)
 		  - k061-customer-merge-moves: moves every census reference to the target and leaves the source with none
 		  - k061-duplicates-merge-customer: moves every census reference off the duplicate and counts the documents it re-parented
-12	RED	delete: await tx` UPDATE accounting_adjustments SET entity_id = ${t}::UUID WHERE entity_type = 'customer' AND entity_i	2 failed | 18 passed (20)
+14	RED	delete: await tx` UPDATE accounting_adjustments SET entity_id = ${t}::UUID WHERE entity_type = 'customer' AND entity_i	2 failed | 34 passed (36)
 		  - k061-customer-merge-moves: moves every census reference to the target and leaves the source with none
 		  - k061-duplicates-merge-customer: moves every census reference off the duplicate and counts the documents it re-parented
-13	RED	delete: await tx` UPDATE portal_payment_links SET client_id = ${t}::UUID WHERE client_id = ${s}::UUID AND invoice_id I	2 failed | 18 passed (20)
+15	RED	delete: await tx` UPDATE portal_payment_links SET client_id = ${t}::UUID WHERE client_id = ${s}::UUID AND invoice_id I	2 failed | 34 passed (36)
 		  - k061-customer-merge-moves: moves every census reference to the target and leaves the source with none
 		  - k061-duplicates-merge-customer: moves every census reference off the duplicate and counts the documents it re-parented
-14	RED	delete: await tx` UPDATE customer_contacts SET customer_id = ${t}::UUID, is_primary = is_primary AND NOT EXISTS ( SELE	3 failed | 17 passed (20)
+16	RED	delete: await tx` UPDATE customer_contacts SET customer_id = ${t}::UUID, is_primary = is_primary AND NOT EXISTS ( SELE	3 failed | 33 passed (36)
 		  - k061-customer-merge-moves: keeps the target's primary contact and default address; the moved ones are not primary or default
 		  - k061-customer-merge-moves: moves every census reference to the target and leaves the source with none
 		  - k061-duplicates-merge-customer: moves every census reference off the duplicate and counts the documents it re-parented
-15	RED	delete: await tx` UPDATE customer_delivery_addresses SET customer_id = ${t}::UUID, is_default = is_default AND NOT EXI	3 failed | 17 passed (20)
+17	RED	delete: await tx` UPDATE customer_delivery_addresses SET customer_id = ${t}::UUID, is_default = is_default AND NOT EXI	3 failed | 33 passed (36)
 		  - k061-customer-merge-moves: keeps the target's primary contact and default address; the moved ones are not primary or default
 		  - k061-customer-merge-moves: moves every census reference to the target and leaves the source with none
 		  - k061-duplicates-merge-customer: moves every census reference off the duplicate and counts the documents it re-parented
-16	RED	delete: await tx`UPDATE customer_activities SET customer_id = ${t}::UUID WHERE customer_id = ${s}::UUID AND company_id	2 failed | 18 passed (20)
+18	RED	delete: await tx`UPDATE customer_activities SET customer_id = ${t}::UUID WHERE customer_id = ${s}::UUID AND company_id	2 failed | 34 passed (36)
 		  - k061-customer-merge-moves: moves every census reference to the target and leaves the source with none
 		  - k061-duplicates-merge-customer: moves every census reference off the duplicate and counts the documents it re-parented
-17	RED	delete: await tx`UPDATE customer_dunning_overrides SET customer_id = ${t}::UUID WHERE customer_id = ${s}::UUID AND com	3 failed | 17 passed (20)
+19	RED	delete: await tx`UPDATE customer_dunning_overrides SET customer_id = ${t}::UUID WHERE customer_id = ${s}::UUID AND com	5 failed | 31 passed (36)
+		  - k061-customer-merge-contention: a custom field inserted for the target during the merge answers 409 and moves nothing
+		  - k061-customer-merge-contention: a dunning inserted for the target during the merge answers 409 and moves nothing
 		  - k061-customer-merge-moves: moves a dunning override that only the source has
 		  - k061-customer-merge-moves: moves every census reference to the target and leaves the source with none
-		  - k061-duplicates-merge-customer: moves every census reference off the duplicate and counts the documents it re-parented
-18	RED	delete: await tx`UPDATE bank_categorisation_rules SET client_id = ${t}::UUID WHERE client_id = ${s}::UUID AND company_	2 failed | 18 passed (20)
+20	RED	delete: await tx`UPDATE bank_categorisation_rules SET client_id = ${t}::UUID WHERE client_id = ${s}::UUID AND company_	2 failed | 34 passed (36)
 		  - k061-customer-merge-moves: moves every census reference to the target and leaves the source with none
 		  - k061-duplicates-merge-customer: moves every census reference off the duplicate and counts the documents it re-parented
-19	RED	delete: await tx`UPDATE practice_clients SET link_customer_id = ${t}::UUID WHERE link_customer_id = ${s}::UUID AND com	2 failed | 18 passed (20)
+21	RED	delete: await tx`UPDATE practice_clients SET link_customer_id = ${t}::UUID WHERE link_customer_id = ${s}::UUID AND com	2 failed | 34 passed (36)
 		  - k061-customer-merge-moves: moves every census reference to the target and leaves the source with none
 		  - k061-duplicates-merge-customer: moves every census reference off the duplicate and counts the documents it re-parented
-20	RED	delete: await tx` DELETE FROM entity_udf_values v WHERE v.entity_type = 'customer' AND v.entity_id = ${s}::UUID AND v.	11 failed | 9 passed (20)
+22	RED	delete: await tx` DELETE FROM entity_udf_values v WHERE v.entity_type = 'customer' AND v.entity_id = ${s}::UUID AND v.	13 failed | 23 passed (36)
 		  - k061-customer-merge-moves: a custom field both customers set keeps the target's value; one only the source set moves
+		  - k061-customer-merge-moves: a recurring template whose JSON spells the source id in upper case still moves and pauses
+		  - k061-customer-merge-moves: an invoice whose columns name different customers moves only the column naming the source
 		  - k061-customer-merge-moves: keeps the target's primary contact and default address; the moved ones are not primary or default
-		  - k061-customer-merge-moves: moves a dunning override that only the source has
-		  - k061-customer-merge-moves: moves every census reference to the target and leaves the source with none
-21	RED	delete: await tx` UPDATE entity_udf_values SET entity_id = ${t}::UUID WHERE entity_type = 'customer' AND entity_id = $	1 failed | 19 passed (20)
+23	RED	delete: await tx` UPDATE entity_udf_values SET entity_id = ${t}::UUID WHERE entity_type = 'customer' AND entity_id = $	2 failed | 34 passed (36)
+		  - k061-customer-merge-contention: a custom field inserted for the target during the merge answers 409 and moves nothing
 		  - k061-customer-merge-moves: a custom field both customers set keeps the target's value; one only the source set moves
-22	RED	delete: await tx` UPDATE recurring_invoices SET client_id = ${targetId}::UUID WHERE client_id = ${sourceId}::UUID AND 	3 failed | 17 passed (20)
+24	RED	delete: await tx`UPDATE recurring_invoices SET client_id = ${t}::UUID WHERE client_id = ${s}::UUID AND company_id = ${	3 failed | 33 passed (36)
 		  - k061-customer-merge-moves: moves every census reference to the target and leaves the source with none
-		  - k061-customer-merge-moves: moves the source's recurring templates paused, reports how many, and leaves the target's running
+		  - k061-customer-merge-moves: moves the source's recurring invoices AND recurring transaction templates paused, counts both, leave
 		  - k061-duplicates-merge-customer: moves every census reference off the duplicate and counts the documents it re-parented
-23	RED	delete: await tx` UPDATE customers SET is_active = false, deleted_at = NOW(), name = name || ' [MERGED]' WHERE id = ${	4 failed | 16 passed (20)
+25	RED	delete: await tx` UPDATE recurring_transaction_templates SET template_data = jsonb_set(template_data, '{clientId}', to	4 failed | 32 passed (36)
+		  - k061-customer-merge-moves: a recurring template whose JSON spells the source id in upper case still moves and pauses
+		  - k061-customer-merge-moves: moves every census reference to the target and leaves the source with none
+		  - k061-customer-merge-moves: moves the source's recurring invoices AND recurring transaction templates paused, counts both, leave
+		  - k061-duplicates-merge-customer: moves every census reference off the duplicate and counts the documents it re-parented
+26	RED	delete: await tx`SET LOCAL lock_timeout = '5s'`;	4 failed | 32 passed (36)
+		  - k061-customer-merge-contention: a bulk allocation interleaving bank → invoices → bank with a merge never produces a 500
+		  - k061-customer-merge-contention: a custom field inserted for the target during the merge answers 409 and moves nothing
+		  - k061-customer-merge-contention: a dunning inserted for the target during the merge answers 409 and moves nothing
+		  - k061-customer-merge-contention: a merge that cannot get its rows within the bound answers 409 and moves nothing
+27	RED	delete: await tx` UPDATE customers SET is_active = false, deleted_at = NOW(), name = name || ' [MERGED]' WHERE id = ${	4 failed | 32 passed (36)
 		  - k061-customer-merge-moves: soft-deletes the source, and a second merge of it is refused
 		  - k061-customer-merge-refusals: two merges racing in opposite directions: exactly one succeeds and nothing is split
 		  - k061-customer-merge-sage-resync: a re-sync after a merge re-creates the name but cannot book the moved Sage invoice twice
 		  - k061-duplicates-merge-customer: moves every census reference off the duplicate and counts the documents it re-parented
-24	RED	lock: drop company_id scope	3 failed | 17 passed (20)
+28	SURVIVED	delete: await tx`SET LOCAL lock_timeout = DEFAULT`;	36 passed (36)
+		  EQUIVALENT: the merge is the request's last database work, so the restore changes no later statement. Kept so a future caller that runs more work after the merge inherits the default, as every sibling lock helper does.
+29	RED	lock: drop company_id scope	3 failed | 33 passed (36)
 		  - k061-customer-merge-refusals: refuses another tenant's customer as the source, changing nothing in either tenant
 		  - k061-customer-merge-refusals: refuses another tenant's customer as the target, changing nothing in either tenant
 		  - k061-duplicates-merge-customer: refuses another tenant's customer and a non-UUID id with 400, changing nothing
-25	RED	lock: drop deleted_at IS NULL	3 failed | 17 passed (20)
+30	RED	lock: drop deleted_at IS NULL	3 failed | 33 passed (36)
 		  - k061-customer-merge-moves: soft-deletes the source, and a second merge of it is refused
 		  - k061-customer-merge-refusals: refuses a soft-deleted target
 		  - k061-customer-merge-refusals: two merges racing in opposite directions: exactly one succeeds and nothing is split
-26	RED	lock: drop FOR UPDATE	1 failed | 19 passed (20)
+31	RED	lock: drop FOR NO KEY UPDATE	1 failed | 35 passed (36)
 		  - k061-customer-merge-refusals: two merges racing in opposite directions: exactly one succeeds and nothing is split
-27	SURVIVED	lock: drop ORDER BY id	23 passed (23)
-		  EQUIVALENT: every path that locks two customer rows is this merge; both directions scan the same plan, so with or without ORDER BY they take the rows in the same order. Kept as the documented intent.
-28	RED	refuse: dunning conflict never refused	2 failed | 18 passed (20)
+32	SURVIVED	lock: drop ORDER BY id	36 passed (36)
+		  EQUIVALENT: this merge is the only path that locks two customer rows; both directions scan with the same plan, so they take the rows in the same order with or without ORDER BY. Kept as the documented intent.
+33	RED	refuse: dunning conflict never refused	2 failed | 34 passed (36)
 		  - k061-customer-merge-refusals: refuses when both customers have a dunning override, naming the conflict
 		  - k061-duplicates-merge-customer: refuses with 400 and changes nothing when both customers have a dunning override
-29	RED	refuse: self-merge check off	1 failed | 19 passed (20)
+34	RED	refuse: self-merge check off	2 failed | 34 passed (36)
 		  - k061-customer-merge-refusals: refuses a merge into itself, saying why
-30	RED	contacts: moved primary kept	1 failed | 19 passed (20)
+		  - k061-customer-merge-refusals: refuses the same id spelled in two letter cases as a self-merge
+35	RED	contacts: moved primary kept	1 failed | 35 passed (36)
 		  - k061-customer-merge-moves: keeps the target's primary contact and default address; the moved ones are not primary or default
-31	RED	addresses: moved default kept	1 failed | 19 passed (20)
+36	RED	addresses: moved default kept	1 failed | 35 passed (36)
 		  - k061-customer-merge-moves: keeps the target's primary contact and default address; the moved ones are not primary or default
-32	RED	recurring: nothing paused	2 failed | 18 passed (20)
-		  - k061-customer-merge-moves: moves the source's recurring templates paused, reports how many, and leaves the target's running
+37	RED	recurring: nothing paused	2 failed | 34 passed (36)
+		  - k061-customer-merge-moves: moves the source's recurring invoices AND recurring transaction templates paused, counts both, leave
 		  - k061-duplicates-merge-customer: moves every census reference off the duplicate and counts the documents it re-parented
-33	RED	portal: nothing revoked	2 failed | 18 passed (20)
+38	RED	templates: nothing paused	3 failed | 33 passed (36)
+		  - k061-customer-merge-moves: a recurring template whose JSON spells the source id in upper case still moves and pauses
+		  - k061-customer-merge-moves: moves the source's recurring invoices AND recurring transaction templates paused, counts both, leave
+		  - k061-duplicates-merge-customer: moves every census reference off the duplicate and counts the documents it re-parented
+39	RED	ids: source not lower-cased	1 failed | 35 passed (36)
+		  - k061-customer-merge-refusals: refuses the same id spelled in two letter cases as a self-merge
+40	RED	lock: customers before settlement rows	1 failed | 35 passed (36)
+		  - k061-customer-merge-lock-order: a customer refund holding a bank line and then locking the customer does not deadlock against a merg
+41	RED	portal: nothing revoked	2 failed | 34 passed (36)
 		  - k061-customer-merge-moves: revokes the source's portal logins and leaves the target's alone
 		  - k061-duplicates-merge-customer: moves every census reference off the duplicate and counts the documents it re-parented
-34	RED	source: not soft-deleted	4 failed | 16 passed (20)
+42	RED	source: not soft-deleted	4 failed | 32 passed (36)
 		  - k061-customer-merge-moves: soft-deletes the source, and a second merge of it is refused
 		  - k061-customer-merge-refusals: two merges racing in opposite directions: exactly one succeeds and nothing is split
 		  - k061-customer-merge-sage-resync: a re-sync after a merge re-creates the name but cannot book the moved Sage invoice twice
 		  - k061-duplicates-merge-customer: moves every census reference off the duplicate and counts the documents it re-parented
-35	RED	udf: wrong conflict predicate	11 failed | 9 passed (20)
+43	RED	udf: wrong conflict predicate	13 failed | 23 passed (36)
 		  - k061-customer-merge-moves: a custom field both customers set keeps the target's value; one only the source set moves
+		  - k061-customer-merge-moves: a recurring template whose JSON spells the source id in upper case still moves and pauses
+		  - k061-customer-merge-moves: an invoice whose columns name different customers moves only the column naming the source
 		  - k061-customer-merge-moves: keeps the target's primary contact and default address; the moved ones are not primary or default
-		  - k061-customer-merge-moves: moves a dunning override that only the source has
-		  - k061-customer-merge-moves: moves every census reference to the target and leaves the source with none
-36	SURVIVED	portal: drop company EXISTS scope	20 passed (20)
+44	SURVIVED	portal: drop company EXISTS scope	36 passed (36)
 		  EQUIVALENT: the WHERE already names the source, which refuseOrLock proved is this company's; the EXISTS restates company scoping for a table with no company_id (CLAUDE.md: every query scoped).
-37	SURVIVED	payment links: drop invoice company scope	20 passed (20)
+45	SURVIVED	payment links: drop invoice company scope	36 passed (36)
 		  EQUIVALENT under app_user: portal_payment_links RLS (tenant_isolation_via_parent) hides another tenant's links; the invoice sub-select is belt-and-braces scoping for a table with no company_id.
-38	SURVIVED	payments: drop company_id (representative)	20 passed (20)
-		  EQUIVALENT under app_user: tenant_isolation RLS on every census table hides another tenant's rows, so dropping one statement's company_id changes nothing observable. Representative of all 24 company_id predicates, kept per CLAUDE.md.
-39	RED	route: uuid validation off	1 failed | 19 passed (20)
+46	SURVIVED	payments: drop company_id (representative)	36 passed (36)
+		  EQUIVALENT under app_user: tenant_isolation RLS on every census table hides another tenant's rows. Representative of every company_id predicate, kept per CLAUDE.md.
+47	RED	lock: customers FOR UPDATE (blocks FK KEY SHARE)	3 failed | 33 passed (36)
+		  - k061-customer-merge-contention: a custom field inserted for the target during the merge answers 409 and moves nothing
+		  - k061-customer-merge-contention: a dunning inserted for the target during the merge answers 409 and moves nothing
+		  - k061-customer-merge-lock-order: an allocation on an unrelated line that receipts to the source and then applies it does not deadlock
+48	RED	invoices: one combined UPDATE overwrites a third customer	1 failed | 35 passed (36)
+		  - k061-customer-merge-moves: an invoice whose columns name different customers moves only the column naming the source
+49	RED	templates: case-sensitive match	1 failed | 35 passed (36)
+		  - k061-customer-merge-moves: a recurring template whose JSON spells the source id in upper case still moves and pauses
+50	RED	run-all: id-order sort dropped	1 failed | 35 passed (36)
+		  - k061-recurring-run-lock-order: runs due templates in id order, whatever their due dates
+51	RED	contention: not mapped (500)	4 failed | 32 passed (36)
+		  - k061-customer-merge-contention: a bulk allocation interleaving bank → invoices → bank with a merge never produces a 500
+		  - k061-customer-merge-contention: a custom field inserted for the target during the merge answers 409 and moves nothing
+		  - k061-customer-merge-contention: a dunning inserted for the target during the merge answers 409 and moves nothing
+		  - k061-customer-merge-contention: a merge that cannot get its rows within the bound answers 409 and moves nothing
+52	RED	route: 409 answered as 400	4 failed | 32 passed (36)
+		  - k061-customer-merge-contention: a bulk allocation interleaving bank → invoices → bank with a merge never produces a 500
+		  - k061-customer-merge-contention: a custom field inserted for the target during the merge answers 409 and moves nothing
+		  - k061-customer-merge-contention: a dunning inserted for the target during the merge answers 409 and moves nothing
+		  - k061-customer-merge-contention: a merge that cannot get its rows within the bound answers 409 and moves nothing
+53	RED	contention: unique-key race not mapped	2 failed | 34 passed (36)
+		  - k061-customer-merge-contention: a custom field inserted for the target during the merge answers 409 and moves nothing
+		  - k061-customer-merge-contention: a dunning inserted for the target during the merge answers 409 and moves nothing
+54	RED	route: uuid validation off	1 failed | 35 passed (36)
 		  - k061-customer-merge-refusals: refuses ids that are not UUIDs with a 400, not a 500
-40	RED	route: refusal mapped to 500	7 failed | 13 passed (20)
-		  - k061-customer-merge-moves: soft-deletes the source, and a second merge of it is refused
-		  - k061-customer-merge-refusals: refuses a merge into itself, saying why
+55	RED	route: refusal mapped to 500	12 failed | 24 passed (36)
+		  - k061-customer-merge-contention: a bulk allocation interleaving bank → invoices → bank with a merge never produces a 500
+		  - k061-customer-merge-contention: a custom field inserted for the target during the merge answers 409 and moves nothing
+		  - k061-customer-merge-contention: a dunning inserted for the target during the merge answers 409 and moves nothing
+		  - k061-customer-merge-contention: a merge that cannot get its rows within the bound answers 409 and moves nothing
+56	RED	duplicates route: refusal mapped to 500	3 failed | 33 passed (36)
 		  - k061-customer-merge-refusals: refuses a soft-deleted target
-		  - k061-customer-merge-refusals: refuses another tenant's customer as the source, changing nothing in either tenant
-41	RED	duplicates route: refusal mapped to 500	2 failed | 18 passed (20)
 		  - k061-duplicates-merge-customer: refuses another tenant's customer and a non-UUID id with 400, changing nothing
 		  - k061-duplicates-merge-customer: refuses with 400 and changes nothing when both customers have a dunning override
-42	RED	duplicates route: uuid validation off	1 failed | 19 passed (20)
+57	RED	duplicates route: uuid validation off	1 failed | 35 passed (36)
 		  - k061-duplicates-merge-customer: refuses another tenant's customer and a non-UUID id with 400, changing nothing
-43	RED	duplicates: source/target swapped	1 failed | 19 passed (20)
+58	RED	duplicates: source/target swapped	1 failed | 35 passed (36)
 		  - k061-duplicates-merge-customer: moves every census reference off the duplicate and counts the documents it re-parented
-44	RED	duplicates: count dropped	1 failed | 19 passed (20)
+59	RED	duplicates: count dropped	1 failed | 35 passed (36)
 		  - k061-duplicates-merge-customer: moves every census reference off the duplicate and counts the documents it re-parented
-45	RED	lock: payments not locked	1 failed | 22 passed (23)
+60	RED	duplicates: paused count dropped	1 failed | 35 passed (36)
+		  - k061-duplicates-merge-customer: moves every census reference off the duplicate and counts the documents it re-parented
+61	RED	lock: payments not locked	1 failed | 35 passed (36)
 		  - k061-customer-merge-lock-order: customer_payments: a settlement locking ORDER BY id does not deadlock against a merge
-46	RED	lock: bank lines not locked	1 failed | 22 passed (23)
+62	RED	lock: bank lines not locked	3 failed | 33 passed (36)
+		  - k061-customer-merge-contention: a bulk allocation interleaving bank → invoices → bank with a merge never produces a 500
+		  - k061-customer-merge-lock-order: a customer refund holding a bank line and then locking the customer does not deadlock against a merg
 		  - k061-customer-merge-lock-order: bank_transactions: a settlement locking ORDER BY id does not deadlock against a merge
-47	RED	lock: invoices not locked	1 failed | 22 passed (23)
-		  - k061-customer-merge-lock-order: customer_invoices: a settlement locking ORDER BY id does not deadlock against a merge
+63	RED	lock: invoices not locked	1 failed | 35 passed (36)
+		  - k061-customer-merge-lock-order: recurring_transaction_templates: an invoice a running recurring run creates during a merge is moved,
