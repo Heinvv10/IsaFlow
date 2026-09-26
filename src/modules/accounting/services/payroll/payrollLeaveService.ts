@@ -12,6 +12,7 @@ import {
   endOfMonthIso,
   type AccrualRule,
 } from '@/modules/accounting/services/payroll/leaveAccrualService';
+import { assertNotImpersonating } from '@/lib/auth/impersonationGuard';
 
 type Row = DbRow;
 
@@ -263,6 +264,8 @@ export async function updateLeaveRequest(
   companyId: string,
   update: { status: 'approved' | 'rejected' | 'cancelled'; approvedBy?: string },
 ): Promise<LeaveRequest> {
+  // R-032: approving or rejecting is a decision; cancelling is not.
+  if (update.status !== 'cancelled') await assertNotImpersonating();
   const now = new Date().toISOString();
   await sql`
     UPDATE payroll_leave_requests
