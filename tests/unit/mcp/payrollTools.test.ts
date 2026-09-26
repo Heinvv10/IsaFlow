@@ -104,7 +104,7 @@ const PLAN = {
     { glAccountId: 'a2175', accountCode: '2175', accountName: 'Other Deductions', debit: 0, credit: 3000, description: 'Other deductions', inactiveAccount: false },
   ],
   totalDebit: 102000, totalCredit: 102000,
-  totals: { gross: 100000, paye: 20000, uif: 2000, sdl: 1000, eti: 700, etiUsed: 500, net: 76000, employerUif: 1000, otherDeductions: 3000 },
+  totals: { gross: 100000, paye: 20000, uif: 2000, sdl: 1000, eti: 0, etiUsed: 0, net: 76000, employerUif: 1000, otherDeductions: 3000 },
   blockers: [] as Array<{ code: string; detail: string }>,
   advisories: [] as Array<{ code: string; detail: string }>,
 };
@@ -294,8 +294,23 @@ describe('post_payroll_journal — the dry run is the deliverable', () => {
     // R102,000 of employment cost against R76,000 of net pay: the R26,000 gap
     // is the whole finding.
     expect(j.totalDebit - out.employment_cost.net_pay).toBe(26000);
-    // K-079: the ETI claimed and the ETI booked are reported separately.
-    expect(out.employment_cost).toMatchObject({ eti: 700, eti_used: 500 });
+  });
+
+  it('reports the ETI claimed and the ETI booked separately (K-079)', async () => {
+    // A low-wage run as the builder would plan it: ETI 700 against PAYE 300,
+    // so 300 is booked (labour 10 000 + 100 employer UIF − 300) and 2140 nets
+    // to zero and is dropped.
+    vi.mocked(buildPayrollJournalPlan).mockResolvedValue(plan({
+      lines: [
+        { glAccountId: 'a5200', accountCode: '5200', accountName: 'Labour Costs', debit: 9800, credit: 0, description: 'Labour costs', inactiveAccount: false },
+        { glAccountId: 'a2150', accountCode: '2150', accountName: 'UIF Payable', debit: 0, credit: 200, description: 'UIF payable', inactiveAccount: false },
+        { glAccountId: 'a1110', accountCode: '1110', accountName: 'Bank - Primary', debit: 0, credit: 9600, description: 'Net pay', inactiveAccount: false },
+      ],
+      totalDebit: 9800, totalCredit: 9800,
+      totals: { gross: 10000, paye: 300, uif: 200, sdl: 0, eti: 700, etiUsed: 300, net: 9600, employerUif: 100, otherDeductions: 0 },
+    }) as never);
+    const out = json(await postPayrollJournalTool.handler({ run_id: RUN, dry_run: true, ...KEY }, ctx));
+    expect(out.employment_cost).toMatchObject({ eti: 700, eti_used: 300 });
   });
 
   it('sets wroteNothing on the dry run so the real call is not served the preview', async () => {
