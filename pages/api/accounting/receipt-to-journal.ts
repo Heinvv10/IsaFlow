@@ -25,7 +25,7 @@ import {
   MEALS_VAT_HELD_SUFFIX,
 } from '@/modules/accounting/services/bank/receiptToJournalService';
 import {
-  CAPTURED_DOCUMENT_REFUSAL_MESSAGE,
+  CAPTURED_DOCUMENT_REFUSAL_ERROR_CODE, CAPTURED_DOCUMENT_REFUSAL_MESSAGE,
   CaptureRowLockTimeoutError,
   claimCapturedDocumentForPosting,
   lockCapturedDocumentForUpdate,
@@ -238,7 +238,7 @@ async function handler(req: CompanyAuthedRequest, res: NextApiResponse) {
 
   const refusal = await claimCapturedDocumentForPosting(companyId, documentId, null, { spend: 'expense', ...duplicate.fingerprint });
   if (refusal) {
-    return apiResponse.badRequest(res, CAPTURED_DOCUMENT_REFUSAL_MESSAGE[refusal]);
+    return apiResponse.error(res, CAPTURED_DOCUMENT_REFUSAL_ERROR_CODE[refusal], CAPTURED_DOCUMENT_REFUSAL_MESSAGE[refusal]);
   }
 
   const entry = await createJournalEntry(companyId, {

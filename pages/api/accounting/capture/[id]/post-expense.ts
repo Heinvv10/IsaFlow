@@ -18,7 +18,7 @@ import { sql } from '@/lib/neon';
 import type { ExtractedDocument } from '@/modules/accounting/types/documentCapture.types';
 import { resolveCaptureExpenseAccount } from '@/modules/accounting/services/capture/captureExpenseAccount';
 import {
-  CAPTURED_DOCUMENT_REFUSAL_MESSAGE,
+  CAPTURED_DOCUMENT_REFUSAL_ERROR_CODE, CAPTURED_DOCUMENT_REFUSAL_MESSAGE,
   CaptureRowLockTimeoutError,
   CapturedDocumentAlreadyPostedError,
   claimCapturedDocumentForPosting,
@@ -202,7 +202,7 @@ async function handler(req: CompanyAuthedRequest, res: NextApiResponse) {
     // `withAuth`'s commit-on-4xx commits nothing.
     const claimRefusal = await claimCapturedDocumentForPosting(companyId, documentId, 'expense', { spend: 'expense', ...duplicate.fingerprint });
     if (claimRefusal) {
-      return apiResponse.badRequest(res, CAPTURED_DOCUMENT_REFUSAL_MESSAGE[claimRefusal]);
+      return apiResponse.error(res, CAPTURED_DOCUMENT_REFUSAL_ERROR_CODE[claimRefusal], CAPTURED_DOCUMENT_REFUSAL_MESSAGE[claimRefusal]);
     }
 
     // The pre-check above holds its FOR SHARE lock to commit, so this cannot
@@ -272,7 +272,7 @@ async function handler(req: CompanyAuthedRequest, res: NextApiResponse) {
     // The service claims the document after its last SELECT, so this is a 4xx
     // that commits nothing either.
     if (err instanceof CapturedDocumentAlreadyPostedError) {
-      return apiResponse.badRequest(res, err.message);
+      return apiResponse.error(res, CAPTURED_DOCUMENT_REFUSAL_ERROR_CODE[err.refusal], err.message);
     }
     // A receipt dated in a locked (filed) VAT period. The service refuses it
     // before claiming the document — its first write — so this 4xx commits

@@ -12,9 +12,13 @@ a receipt journal could be posted again from the capture inbox as a supplier inv
 - `claimCapturedDocumentForPosting` takes a required `content: { spend, ... }`. Unless the claim is
   a provisional evidence attach, it refuses a FILE (`raw_bytes_sha256`) already booked from another
   upload in the company, under a per-fingerprint advisory lock, and stamps `posted_content_sha256`
-  in the claim UPDATE. `claimLineSourceDocuments` does the same for manual claim lines. So every
+  in the claim UPDATE. `claimLineSourceDocuments` does the same for manual claim lines (and stamps
+  the receipt key; one file uploaded twice onto two lines is refused as `duplicate_file`). So every
   claimer is fenced: receipt-to-journal, both post-expense branches, `capture/[id]/post`,
-  `ai-invoice-pipeline`, expense-claim lines. The invoice routes answer the refusal 409.
+  `ai-invoice-pipeline`, expense-claim lines. Every route answers the claim's content refusal 409.
+- Lock order is the same everywhere: the document row(s), then the content fingerprints. A claim
+  line used to take them the other way round and deadlocked against a route post of the same
+  document (measured: 40P01 after `deadlock_timeout`, answered busy).
 - The receipt routes also run `checkReceiptDuplicate`: the same bytes, or the same normalised
   vendor|date|total|VAT unless both reads printed different slip numbers. A same-file match is
   final; a same-details match can be confirmed (`confirmDuplicate: true`), recording the earlier
@@ -28,8 +32,9 @@ a receipt journal could be posted again from the capture inbox as a supplier inv
 
 - **Evidence attach (R-127).** `provisionalEvidenceAttach` neither checks nor stamps: it books
   nothing new. The invoice routes skip an unstamped slip that evidences a live provisional
-  journal, so a provisional followed by that slip's supplier invoice — the flow R-127 makes
-  legitimate — still posts. The expense routes still count it: a receipt journal would expense the
+  journal and has no live supplier invoice, so a provisional followed by that slip's supplier
+  invoice — the flow R-127 makes legitimate — still posts, while a pre-710 slip that was invoiced
+  and then evidenced still counts. The expense routes still count it: a receipt journal would expense the
   bank line twice. Not covered: an evidence attach of a slip whose file is already booked.
 - **Slip numbers.** A details match is ignored when both reads printed different reference
   numbers — two identical coffees have two slip numbers.

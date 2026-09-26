@@ -67,7 +67,7 @@ vi.mock('@/modules/accounting/services/gl/systemAccountResolver', () => ({
 // R-088's duplicate check has its own real-PG coverage (r088-receipt-content-dedupe); here it is clear.
 vi.mock('@/modules/accounting/services/capture/receiptDuplicateGuard', () => ({
   checkReceiptDuplicate: vi.fn(async () => ({
-    kind: 'clear', fingerprint: { contentSha256: null, receiptKey: null, duplicateOf: null },
+    kind: 'clear', fingerprint: { receiptKey: null, duplicateOf: null, confirmedBy: null },
   })),
 }));
 

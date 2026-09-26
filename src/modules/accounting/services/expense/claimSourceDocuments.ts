@@ -27,9 +27,10 @@ import {
   lockPostedContent,
   PostedContentBusyError,
 } from '@/modules/accounting/services/capture/postedContentFence';
+import { receiptContentKey } from '@/modules/accounting/services/capture/receiptFingerprint';
 
 export type ClaimSourceDocumentRefusal =
-  'not_found' | 'already_posted' | 'on_claim' | 'rejected' | 'duplicate' | 'busy' | 'content_posted';
+  'not_found' | 'already_posted' | 'on_claim' | 'rejected' | 'duplicate' | 'duplicate_file' | 'busy' | 'content_posted';
 
 const MESSAGE: Record<ClaimSourceDocumentRefusal, string> = {
   not_found: 'Source document not found',
@@ -37,6 +38,7 @@ const MESSAGE: Record<ClaimSourceDocumentRefusal, string> = {
   on_claim: 'Document is already on another expense claim',
   rejected: 'Document was rejected — reopen it before posting',
   duplicate: 'The same source document is on more than one line',
+  duplicate_file: 'The same file was uploaded twice and is on more than one line — keep one of them',
   busy: 'A source document is being posted by another request — retry in a moment',
   content_posted: 'The same file was already posted from another upload — it cannot be booked twice',
 };
@@ -70,25 +72,37 @@ export class ClaimSourceDocumentError extends Error {
 
 /**
  * R-088: a slip whose FILE is already booked from another upload is refused,
- * as is one file on two lines — each would expense the same purchase twice.
- * Under the fingerprints' advisory locks, which hold to commit, so a concurrent
- * post of the same file waits for this one. The UPDATE below stamps the bytes
- * it books (`posted_content_sha256`), inside migration 710's unique index.
+ * as is one file uploaded twice onto two lines — each would expense the same
+ * purchase twice. Called with the rows already locked, then takes the
+ * fingerprints' advisory locks: the same row-then-fingerprint order as every
+ * posting route (`captureRowLock` → `checkReceiptDuplicate` / the claim), so a
+ * claim line and a route post of one document cannot deadlock. The locks hold
+ * to commit, so a concurrent post of the same file or receipt waits for this
+ * one. Returns each slip's receipt key for the UPDATE to stamp, so the
+ * receipt routes can match a re-encoded copy of a slip booked here; the key is
+ * locked but not checked here — a manual claim line has no confirm flow, and
+ * the file check is the one this path can refuse on without a person's say.
  */
-async function refuseFilesAlreadyPosted(companyId: string, ids: string[]): Promise<void> {
+async function refuseFilesAlreadyPosted(companyId: string, ids: string[]): Promise<Map<string, string | null>> {
   const rows = (await sql`
-    SELECT id, raw_bytes_sha256 FROM captured_documents
+    SELECT id, raw_bytes_sha256, extracted_data FROM captured_documents
      WHERE id = ANY(${ids}::uuid[]) AND company_id = ${companyId}
-       AND raw_bytes_sha256 IS NOT NULL
      ORDER BY id`) as DbRow[];
+  const keys = new Map<string, string | null>();
   const byHash = new Map<string, string>();
   for (const row of rows) {
+    const id = String(row.id);
+    keys.set(id, receiptContentKey((row.extracted_data as Record<string, unknown> | null) ?? {}));
+    if (!row.raw_bytes_sha256) continue;
     const hash = String(row.raw_bytes_sha256);
-    if (byHash.has(hash)) throw new ClaimSourceDocumentError('duplicate', String(row.id));
-    byHash.set(hash, String(row.id));
+    if (byHash.has(hash)) throw new ClaimSourceDocumentError('duplicate_file', id);
+    byHash.set(hash, id);
   }
   try {
-    await lockPostedContent(companyId, [...byHash.keys()].map((h) => `sha:${h}`));
+    await lockPostedContent(companyId, [
+      ...[...byHash.keys()].map((h) => `sha:${h}`),
+      ...[...keys.values()].map((k) => (k ? `key:${k}` : null)),
+    ]);
   } catch (err) {
     if (err instanceof PostedContentBusyError) throw new ClaimSourceDocumentError('busy', ids[0]!);
     throw err;
@@ -98,6 +112,7 @@ async function refuseFilesAlreadyPosted(companyId: string, ids: string[]): Promi
       throw new ClaimSourceDocumentError('content_posted', id);
     }
   }
+  return keys;
 }
 
 /**
@@ -138,10 +153,18 @@ export async function claimLineSourceDocuments(
   // does nothing, so the claim would guard nothing: refuse to run there.
   const client = als.getStore()?.client;
   if (!client) throw new ClaimOutsideTransactionError('source document');
-  await refuseFilesAlreadyPosted(companyId, ids);
   await client.query("SET LOCAL lock_timeout = '5s'");
   let claimed: DbRow[];
   try {
+    // Rows first, in id order, then the content fingerprints — the order every
+    // posting route takes them in (R-088). The CTE below re-locks rows this
+    // transaction already holds, so it does not wait.
+    await sql`
+      SELECT id FROM captured_documents
+       WHERE id = ANY(${ids}::uuid[]) AND company_id = ${companyId}
+       ORDER BY id
+       FOR UPDATE`;
+    const keys = await refuseFilesAlreadyPosted(companyId, ids);
     claimed = (await sql`
     WITH eligible AS (
       SELECT id FROM captured_documents
@@ -161,7 +184,9 @@ export async function claimLineSourceDocuments(
     )
     UPDATE captured_documents cd
        SET posted_at = NOW(), status = 'matched', updated_at = NOW(),
-           posted_content_sha256 = cd.raw_bytes_sha256
+           posted_content_sha256 = cd.raw_bytes_sha256,
+           posted_receipt_key = (SELECT k.key FROM unnest(${ids}::uuid[], ${ids.map((id) => keys.get(id) ?? null)}::text[]) AS k(id, key)
+                                  WHERE k.id = cd.id)
      WHERE cd.id IN (SELECT id FROM eligible)
        AND (SELECT COUNT(*) FROM eligible) = ${ids.length}
     RETURNING cd.id`) as DbRow[];
