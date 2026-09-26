@@ -2872,6 +2872,7 @@
         "tests/unit/services/payroll/payrollJournalBuilder.test.ts",
         "tests/unit/services/payroll/payrollJournalBuilder-k079.test.ts",
         "tests/unit/mcp/payRunLifecycle.test.ts",
+        "tests/unit/mcp/payRunLifecycle-k079.test.ts",
         "tests/unit/mcp/payrollTools.test.ts"
       ],
       "evidencePaths": [
