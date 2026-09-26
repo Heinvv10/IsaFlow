@@ -15,7 +15,9 @@ import { sql } from '@/lib/neon';
 import type { DbRow } from '@/lib/neon';
 import { log } from '@/lib/logger';
 import { logAuditOrThrow } from '../core/auditTrailService';
-import { assertDocumentNotAlreadyPosted } from './documentJournalClaimGuard';
+import {
+  assertDocumentNotAlreadyPosted, DocumentAlreadyPostedRefusal, DocumentAlreadyLinkedRefusal,
+} from './documentJournalClaimGuard';
 
 export class JournalDocumentLinkRefusal extends Error {
   readonly code = 'JOURNAL_DOCUMENT_LINK_REFUSED';
@@ -89,8 +91,18 @@ export async function linkDocumentToJournal(
   }
 
   // Both directions of "one document, one claim": already backing another
-  // posted journal via source_document_id, or already an active link.
-  await assertDocumentNotAlreadyPosted(companyId, capturedDocumentId);
+  // posted journal via source_document_id, or already an active link. Both
+  // throws are pre-write here — wrap them so every caller (API route, MCP
+  // tool) can catch this one refusal type and answer 400, rather than the
+  // guard's own error reaching an uncaught 500.
+  try {
+    await assertDocumentNotAlreadyPosted(companyId, capturedDocumentId);
+  } catch (err) {
+    if (err instanceof DocumentAlreadyPostedRefusal || err instanceof DocumentAlreadyLinkedRefusal) {
+      throw new JournalDocumentLinkRefusal(err.message);
+    }
+    throw err;
+  }
 
   const rows = (await sql`
     INSERT INTO gl_journal_document_links (company_id, journal_entry_id, captured_document_id, linked_by, reason)
