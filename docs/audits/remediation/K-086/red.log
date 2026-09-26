@@ -76,3 +76,26 @@ AssertionError: expected +0 to be 1 // Object.is equality
    Duration  2.24s (transform 657ms, setup 0ms, import 1.48s, tests 237ms, environment 0ms)
 
 error: script "test:integration" exited with code 1
+
+## Re-run 2026-09-25 on origin/master 0ecf6d06e (K-085 fixed, so K-086 now fires)
+Tests ported from the unpushed 2026-09-09 branch fix/audit-k085-k086-stock-adjustments (c5a52e421), run through the real route (withAuth -> SET LOCAL ROLE app_user) on a disposable fixture.
+```
+   × a count ABOVE stock on hand raises it and records an inbound correction 34ms
+   × a count that agrees with stock on hand moves nothing and records no movement 27ms
+   × a count waits for a competing writer and corrects from what it then reads 337ms
+   × K-086: the counted quantity replaces stock, it is not added to it 6ms
+   × K-086: the movement carries the 40-unit correction, not the 60 counted 2ms
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 5 ⎯⎯⎯⎯⎯⎯⎯
+ FAIL  tests/integration/k086-stocktake-count-adjacent.int.test.ts > a count ABOVE stock on hand raises it and records an inbound correction
+AssertionError: expected 240 to be 140 // Object.is equality
+ FAIL  tests/integration/k086-stocktake-count-adjacent.int.test.ts > a count that agrees with stock on hand moves nothing and records no movement
+AssertionError: expected 200 to be 100 // Object.is equality
+ FAIL  tests/integration/k086-stocktake-count-adjacent.int.test.ts > a count waits for a competing writer and corrects from what it then reads
+AssertionError: expected 115 to be 60 // Object.is equality
+ FAIL  tests/integration/k086-stocktake-count-movement.int.test.ts > K-086: the counted quantity replaces stock, it is not added to it
+AssertionError: expected 160 to be 60 // Object.is equality
+ FAIL  tests/integration/k086-stocktake-count-movement.int.test.ts > K-086: the movement carries the 40-unit correction, not the 60 counted
+AssertionError: expected 60 to be 40 // Object.is equality
+ Test Files  2 failed (2)
+      Tests  5 failed | 5 passed (10)
+```
