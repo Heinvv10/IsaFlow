@@ -28,8 +28,7 @@ import {
 } from '@/modules/accounting/services/capture/captureDeduplicationService';
 import { recordCoding } from '@/modules/accounting/services/capture/supplierRulesService';
 import {
-  CAPTURED_DOCUMENT_REFUSAL_ERROR_CODE,
-  CAPTURED_DOCUMENT_REFUSAL_MESSAGE,
+  CAPTURED_DOCUMENT_REFUSAL_ERROR_CODE, CAPTURED_DOCUMENT_REFUSAL_MESSAGE,
   CaptureRowLockTimeoutError,
   claimCapturedDocumentForPosting,
   lockCapturedDocumentForUpdate,
