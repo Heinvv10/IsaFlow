@@ -4,9 +4,9 @@
  * expense claim, a captured receipt, a late claim, a supplier credit note —
  * and on the output side a customer credit note and a bank receipt with VAT.
  * None of them blocks eFiling; the bank one is listed as "no tax invoice on
- * file". A bare manual VAT journal is exactly one unsupportedInputVat -
- * listed, but NOT blocking (Hein, 2026-09-26): holding a valid tax invoice
- * is the vendor's legal responsibility, and it may be held outside IsaFlow.
+ * file", alongside a bare manual VAT journal (`no_document` — no link at
+ * all): NOT blocking (Hein, 2026-09-26), since holding a valid tax invoice
+ * is the vendor's legal responsibility and it may be held outside IsaFlow.
  */
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { randomUUID } from 'crypto';
@@ -169,7 +169,7 @@ describeIfDb('pre-filing exceptions: input-VAT support', () => {
   // depend on running (or having run) straight after this one.
   let manualBareJe = '';
 
-  it('a bare manual VAT journal is exactly one unsupportedInputVat, listed but NOT blocking (Hein, 2026-09-26)', async () => {
+  it('a bare manual VAT journal is a no_document row in inputVatWithoutTaxInvoice, NOT blocking (Hein, 2026-09-26)', async () => {
     const je = await postJournal('2026-07-25', 'manual', [
       { glAccountId: fx.expenseId, debit: 100, credit: 0, description: 'no document', vatType: 'standard' },
       { glAccountId: fx.vatInputId, debit: 15, credit: 0, description: 'VAT', vatType: 'standard' },
@@ -177,8 +177,14 @@ describeIfDb('pre-filing exceptions: input-VAT support', () => {
     ]);
     manualBareJe = je;
     const r = await report();
-    expect(r.unsupportedInputVat.map((l) => [l.journalEntryId, l.reason, l.claimedVat])).toEqual([[je, 'no_document', 15]]);
-    expect(r.unsupportedInputVatCount).toBe(1);
+    // `no_document` (no link at all) means only a record is missing, not
+    // that the return's figures are wrong — it does not block, and lists
+    // under inputVatWithoutTaxInvoice (alongside the bank-only row from
+    // setup), not unsupportedInputVat.
+    expect(r.unsupportedInputVat).toEqual([]);
+    expect(r.unsupportedInputVatCount).toBe(0);
+    expect(r.inputVatWithoutTaxInvoice.find((l) => l.journalEntryId === je))
+      .toMatchObject({ reason: 'no_document', claimedVat: 15 });
     // Still visible with its amount, but no longer counted toward the
     // blocking total — the vendor's legal responsibility, not IsaFlow's.
     expect(r.totalExceptions).toBe(0);
@@ -193,19 +199,23 @@ describeIfDb('pre-filing exceptions: input-VAT support', () => {
     { glAccountId: fx.vatInputId, debit: 15, credit: 0, description: 'VAT', vatType: 'standard' as const },
     { glAccountId: fx.bankAccountId, debit: 0, credit: 115, description: 'paid' },
   ];
-  it('a claim reversed in the same period is not unsupported', async () => {
+  it('a claim reversed in the same period is not listed at all', async () => {
     const je = await postJournal('2026-07-26', 'manual', bareVat());
     await inTx(fx, () => reverseJournalEntry(fx.companyId, je, fx.userId));
     const r = await report();
-    expect(r.unsupportedInputVat.map((l) => l.journalEntryId)).toEqual([manualBareJe]);
+    const ids = r.inputVatWithoutTaxInvoice.map((l) => l.journalEntryId);
+    expect(ids).toContain(manualBareJe);
+    expect(ids).not.toContain(je);
   });
 
-  it('a claim reversed only in a LATER period still blocks in its own period', async () => {
+  it('a claim reversed only in a LATER period is still listed (but not blocking) in its own period', async () => {
     const je = await postJournal('2026-07-27', 'manual', bareVat());
     await inTx(fx, () => reverseJournalEntry(fx.companyId, je, fx.userId, { reversalDate: '2026-09-02' }));
     const r = await report();
-    expect(r.unsupportedInputVat.map((l) => l.journalEntryId)).toEqual([manualBareJe, je]);
+    const ids = r.inputVatWithoutTaxInvoice.map((l) => l.journalEntryId);
+    expect(ids).toContain(manualBareJe);
+    expect(ids).toContain(je);
     const sep = await inTx(fx, () => getVatExceptions(fx.companyId, '2026-09-01', '2026-10-31'));
-    expect(sep.unsupportedInputVat).toEqual([]); // the reversal alone is a reduction, never a claim
+    expect(sep.inputVatWithoutTaxInvoice).toEqual([]); // the reversal alone is a reduction, never a claim
   });
 });

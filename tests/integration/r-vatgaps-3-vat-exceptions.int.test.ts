@@ -69,20 +69,24 @@ describeIfDb('VAT-gaps item 3: vat_exceptions tool', () => {
     await dropFixture(fxB);
   }, 120000);
 
-  it('reports the NON-blocking unsupportedInputVat category for company A, with items and counts (Hein, 2026-09-26)', async () => {
+  it('reports the bare unsupported claim in the NON-blocking inputVatWithoutTaxInvoice category for company A (Hein, 2026-09-26)', async () => {
     const result = await inTx(fxA, () => vatExceptionsTool.handler(
       { period_start: PERIOD_START, period_end: PERIOD_END }, ctxFor(fxA),
     ));
     const b = body(result);
-    // Unsupported input VAT is the ONLY exception here, and no longer blocks:
-    // the vendor's legal responsibility to hold a tax invoice, which may live
-    // outside IsaFlow.
+    // A `no_document` claim (no link at all) means only a RECORD is missing,
+    // not that the return's figures are wrong — it is the ONLY exception
+    // here and does not block: the vendor's legal responsibility to hold a
+    // tax invoice, which may live outside IsaFlow.
     expect(b.totalExceptions).toBe(0);
     const categories = b.categories as { type: string; blocking: boolean; count: number; items: unknown[] }[];
     const unsupported = categories.find((c) => c.type === 'unsupportedInputVat')!;
-    expect(unsupported.blocking).toBe(false);
-    expect(unsupported.count).toBeGreaterThanOrEqual(1);
-    expect(unsupported.items.length).toBeGreaterThanOrEqual(1);
+    expect(unsupported.blocking).toBe(true);
+    expect(unsupported.count).toBe(0);
+    const withoutTaxInvoice = categories.find((c) => c.type === 'inputVatWithoutTaxInvoice')!;
+    expect(withoutTaxInvoice.blocking).toBe(false);
+    expect(withoutTaxInvoice.count).toBeGreaterThanOrEqual(1);
+    expect(withoutTaxInvoice.items.length).toBeGreaterThanOrEqual(1);
     const declaredElsewhere = categories.find((c) => c.type === 'declaredElsewhereVat')!;
     expect(declaredElsewhere.blocking).toBe(false);
   });

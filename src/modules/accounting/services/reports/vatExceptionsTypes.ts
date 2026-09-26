@@ -107,12 +107,17 @@ export type InputVatSupportKind =
 
 /**
  * A journal claiming input VAT, and what supports it (vatInputSupport.ts).
- * `no_document` / `amount_mismatch` / `document_over_claimed` /
- * `unreadable_document_vat` rows go in `unsupportedInputVat` — visible, with
- * amounts and reasons, but NOT blocking (Hein, 2026-09-26): holding a valid
- * tax invoice is the vendor's legal responsibility, and it may be held
- * outside IsaFlow. `no_tax_invoice` rows are the same, non-blocking, "no tax
- * invoice on file" list.
+ * The cut (Hein, 2026-09-26) is whether the return's FIGURES would be wrong,
+ * not whether a document is attached in IsaFlow:
+ *   - `amount_mismatch` / `document_over_claimed` rows go in
+ *     `unsupportedInputVat` — BLOCKING, still counted in `totalExceptions`:
+ *     the claimed VAT does not tie to what supports it.
+ *   - `no_document` / `unreadable_document_vat` rows go in
+ *     `inputVatWithoutTaxInvoice` — NOT blocking: only a record is missing
+ *     (no link at all, or a document whose VAT couldn't be read), and holding
+ *     the tax invoice is the vendor's legal responsibility, possibly outside
+ *     IsaFlow. Same list, same treatment, as the existing `no_tax_invoice`
+ *     (bank-only / VAT-adjustment) rows.
  */
 export interface InputVatSupportLine {
   journalEntryId: string;
@@ -202,15 +207,21 @@ export interface VatExceptionsReport {
   declaredElsewhereVat: DeclaredElsewhereVatLine[];
   declaredElsewhereVatCount: number;
   /**
-   * NOT blocking (Hein, 2026-09-26): input VAT claimed with no document
-   * behind it, or disagreeing with it. Still fully visible — amounts,
-   * reasons, "Link tax invoice" action — because holding the tax invoice is
-   * the vendor's legal responsibility and it may be held outside IsaFlow.
-   * Capped list.
+   * BLOCKING: input VAT claimed that disagrees with what supports it —
+   * `amount_mismatch` (credit note, expense claim, captured document, bank
+   * ceiling) or `document_over_claimed`. The return's FIGURES would be
+   * wrong, not merely under-documented. Capped list.
    */
   unsupportedInputVat: InputVatSupportLine[];
   unsupportedInputVatCount: number;
-  /** NOT blocking: input VAT supported only by a bank line or a VAT adjustment. Capped list. */
+  /**
+   * NOT blocking: input VAT supported only by a bank line or a VAT
+   * adjustment (`no_tax_invoice`), or with no link at all / an unreadable
+   * document VAT (`no_document` / `unreadable_document_vat`, Hein,
+   * 2026-09-26) — a RECORD is missing, not a wrong figure. Holding the tax
+   * invoice is the vendor's legal responsibility, possibly outside IsaFlow.
+   * Capped list.
+   */
   inputVatWithoutTaxInvoice: InputVatSupportLine[];
   inputVatWithoutTaxInvoiceCount: number;
   totalExceptions: number;

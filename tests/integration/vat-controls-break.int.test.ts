@@ -71,7 +71,7 @@ describeIfDb('VAT pre-filing controls hold against the breaker', () => {
     await dropLateFixture(fx);
   }, 120000);
 
-  it('B1: reversing the reversal re-instates the claim — and the claim is still listed as unsupported, but does not block (Hein, 2026-09-26)', async () => {
+  it('B1: reversing the reversal re-instates the claim — a no_document claim is listed but does not block (Hein, 2026-09-26)', async () => {
     const S = '2026-09-01', E = '2026-10-31';
     const j1 = await post('2026-09-10', 'manual', claim(150));
     const r1 = await inTx(fx, () => reverseJournalEntry(fx.companyId, j1, fx.userId));
@@ -79,9 +79,11 @@ describeIfDb('VAT pre-filing controls hold against the breaker', () => {
     const rep = await report(S, E);
     const l = await ledger(S, E);
     expect(l.field10_totalInputVAT).toBe(150);          // R150 claimed and filed ...
-    expect(rep.unsupportedInputVat.map((u) => [u.journalEntryId, u.reason, u.claimedVat])).toEqual([[j1, 'no_document', 150]]);
-    // Unsupported input VAT no longer blocks filing — the tax invoice is the
-    // vendor's legal responsibility and may be held outside IsaFlow.
+    // `no_document` (no link at all) means only a record is missing, not that
+    // the figures are wrong — it lists under inputVatWithoutTaxInvoice, not
+    // unsupportedInputVat, and does not block.
+    expect(rep.unsupportedInputVat).toEqual([]);
+    expect(rep.inputVatWithoutTaxInvoice.map((u) => [u.journalEntryId, u.reason, u.claimedVat])).toEqual([[j1, 'no_document', 150]]);
     expect(evaluateEfilingGate(rep).allowed).toBe(true);
   });
 

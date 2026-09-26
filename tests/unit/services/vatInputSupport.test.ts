@@ -1,7 +1,11 @@
 /**
- * classifyInputVatSupport (reports/vatInputSupport): a claim with nothing
- * behind it BLOCKS; a claim that disagrees with its document BLOCKS; a claim
- * supported only by the bank line or a VAT adjustment is listed, not blocking.
+ * classifyInputVatSupport (reports/vatInputSupport). The cut (Hein,
+ * 2026-09-26) is whether the return's FIGURES would be wrong: a claim that
+ * DISAGREES with its document (`amount_mismatch` / `document_over_claimed`)
+ * BLOCKS; a claim with no document link at all (`no_document`), one whose
+ * document VAT couldn't be read (`unreadable_document_vat`), one supported
+ * only by the bank line, or a VAT adjustment, is listed but NOT blocking —
+ * only a RECORD is missing, not a wrong figure.
  */
 import { describe, expect, it } from 'vitest';
 import {
@@ -25,9 +29,9 @@ describe('readDocumentVat — the extracted VAT, read as the capture pipeline re
 });
 
 describe('classifyInputVatSupport', () => {
-  it('no link at all: blocking, no_document', () => {
+  it('no link at all: NOT blocking, no_document (Hein, 2026-09-26 — a missing record, not a wrong figure)', () => {
     const v = classifyInputVatSupport(facts({}), RATE);
-    expect(v.blocking).toBe(true);
+    expect(v.blocking).toBe(false);
     expect(v.line).toMatchObject({ supportKind: 'none', reason: 'no_document', claimedVat: 150 });
   });
 
@@ -51,13 +55,15 @@ describe('classifyInputVatSupport', () => {
     expect(v).toMatchObject({ blocking: true, line: { reason: 'document_over_claimed', documentVat: 150, documentClaimedVat: 300 } });
   });
 
-  it('an unreadable document VAT blocks with its own reason, never as 0 support', () => {
+  it('an unreadable document VAT is NOT blocking, with its own reason, never as 0 support (Hein, 2026-09-26)', () => {
     const v = classifyInputVatSupport(facts({ capturedDocumentVat: 'unreadable' }), RATE);
-    expect(v).toMatchObject({ blocking: true, line: { supportKind: 'captured_document', reason: 'unreadable_document_vat', documentVat: null } });
+    expect(v).toMatchObject({ blocking: false, line: { supportKind: 'captured_document', reason: 'unreadable_document_vat', documentVat: null } });
   });
 
-  it('a chain netting to a claim in the period needs support whatever reinstated it', () => {
-    expect(classifyInputVatSupport(facts({ claimedVat: 150, claimedToDate: 150 }), RATE).blocking).toBe(true);
+  it('a chain netting to a claim in the period needs support whatever reinstated it (no link: listed, not blocking)', () => {
+    const v = classifyInputVatSupport(facts({ claimedVat: 150, claimedToDate: 150 }), RATE);
+    expect(v.blocking).toBe(false);
+    expect(v.line).toMatchObject({ reason: 'no_document' });
   });
 
   it('an expense claim is compared on its chain to date: a claim reversed earlier and reinstated still ties', () => {
