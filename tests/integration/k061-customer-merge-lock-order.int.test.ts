@@ -125,3 +125,32 @@ it('a bank allocation creating a receipt for the source does not deadlock agains
   }
   expect(allocated).toBe(true);
 });
+
+/**
+ * A customer refund's lock sequence (bankAllocationService → planCustomerRefund
+ * → lockContactForRefund): the bank line FOR UPDATE, then the customer FOR
+ * UPDATE. A merge that locked the customers before the bank lines would be
+ * the inverse order. It takes the settlement rows first, so the refund gets
+ * its customer while the merge waits on the line.
+ */
+it('a customer refund holding a bank line and then locking the customer does not deadlock against a merge', async () => {
+  const lineId = crypto.randomUUID();
+  await seeders.bank_transactions!(lineId, 'refund');
+  const refund: PoolClient = await pool.connect();
+  let refunded = false;
+  try {
+    await refund.query('BEGIN');
+    await refund.query('SELECT id FROM bank_transactions WHERE id=$1 FOR UPDATE', [lineId]);
+    const merging = h.merge({ source_id: source, target_id: target });
+    await waitUntilMergeBlocked('bank_transactions');
+    await refund.query("SET LOCAL lock_timeout = '10s'");
+    await refund.query('SELECT id FROM customers WHERE id=$1 FOR UPDATE', [source]);
+    await refund.query('COMMIT');
+    refunded = true;
+    expect((await merging).state.statusCode).toBe(200);
+  } finally {
+    if (!refunded) await refund.query('ROLLBACK').catch(() => undefined);
+    refund.release();
+  }
+  expect(refunded).toBe(true);
+});

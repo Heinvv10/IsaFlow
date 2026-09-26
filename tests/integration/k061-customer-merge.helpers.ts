@@ -28,6 +28,7 @@ export const MOVED: ReadonlyArray<readonly [string, string, string]> = [
   ['customer_delivery_addresses', 'customer_id', ''],
   ['customer_activities', 'customer_id', ''],
   ['recurring_invoices', 'client_id', ''],
+  ['recurring_transaction_templates', "template_data->>'clientId'", "AND entity_type = 'customer_invoice'"],
   ['customer_dunning_overrides', 'customer_id', ''],
   ['bank_categorisation_rules', 'client_id', ''],
   ['bank_transactions', 'suggested_client_id', ''],
@@ -68,7 +69,7 @@ export function k061(pool: Pool) {
     for (const t of ['customer_write_offs', 'credit_notes', 'customer_payments', 'customer_invoices',
       'archive_customer_invoices', 'customer_quotes', 'delivery_notes', 'customer_sales_orders', 'projects',
       'customer_contacts', 'customer_delivery_addresses', 'customer_activities', 'recurring_invoices',
-      'customer_dunning_overrides', 'bank_categorisation_rules', 'bank_transactions', 'payment_transactions',
+      'customer_dunning_overrides', 'recurring_transaction_templates', 'bank_categorisation_rules', 'bank_transactions', 'payment_transactions',
       'time_entries', 'practice_clients', 'accounting_adjustments', 'entity_udf_values', 'customers']) {
       await pool.query(`DELETE FROM ${t} WHERE company_id = ANY($1)`, [ids]);
     }
@@ -114,6 +115,8 @@ export function k061(pool: Pool) {
     await q("INSERT INTO customer_activities(company_id,customer_id,activity_type,description,created_by) VALUES($1,$2,'note','k061',$3)", [company, cust, admin]);
     await q(`INSERT INTO recurring_invoices(company_id,client_id,template_name,frequency,next_run_date,status,created_by)
        VALUES($1,$2,$3,'monthly','2026-10-01','active',$4)`, [company, cust, `R-${n}`, admin]);
+    await q(`INSERT INTO recurring_transaction_templates(company_id,name,entity_type,template_data,frequency,next_run_date,is_active,created_by)
+       VALUES($1,$2,'customer_invoice',jsonb_build_object('clientId',$3::text,'lines','[]'::jsonb),'monthly','2026-10-01',true,$4)`, [company, `T-${n}`, cust, admin]);
     await q("INSERT INTO customer_dunning_overrides(company_id,customer_id,suppress_dunning) VALUES($1,$2,false)", [company, cust]);
     await q("INSERT INTO bank_categorisation_rules(company_id,client_id,rule_name,match_pattern) VALUES($1,$2,$3,'k061')", [company, cust, `Rule ${n}`]);
     await q(`INSERT INTO bank_transactions(company_id,bank_account_id,transaction_date,amount,suggested_client_id)
@@ -133,7 +136,7 @@ export function k061(pool: Pool) {
   async function references(cust: string): Promise<Record<string, number>> {
     const out: Record<string, number> = {};
     for (const [table, column, extra] of MOVED) {
-      const { rows } = await pool.query(`SELECT count(*)::int AS n FROM ${table} WHERE ${column} = $1 ${extra}`, [cust]);
+      const { rows } = await pool.query(`SELECT count(*)::int AS n FROM ${table} WHERE (${column})::text = $1::text ${extra}`, [cust]);
       out[`${table}.${column}`] = rows[0].n;
     }
     return out;

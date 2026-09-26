@@ -19,9 +19,10 @@
   - either customer not live in this company, including another tenant's;
   - both customers holding a dunning override.
 - Locks, in this order, before any write:
-  - both customers `FOR NO KEY UPDATE`, in id order;
-  - the source's bank lines, then its receipts, then its invoices, each set `ORDER BY id` (the canonical order in `bank/.claude.md`).
-- The customers are locked `NO KEY UPDATE`, not `UPDATE`. A bank allocation locks the line first and then inserts a receipt naming the customer, and that FK takes `FOR KEY SHARE` on the customer row. `FOR UPDATE` blocks `KEY SHARE`, so a merge waiting on that line would deadlock the allocation (40P01 → 500). A reviewer caught this and the lock-order test reproduced it. `NO KEY UPDATE` still conflicts with itself, so two merges still queue.
+  - the source's bank lines, then its receipts, then its invoices, each set `ORDER BY id` (the canonical order in `bank/.claude.md`);
+  - then both customers `FOR NO KEY UPDATE`, in id order, followed by the refusal checks.
+- **Why settlement rows come first:** a bank allocation or refund takes the bank line and THEN the customer. That is either `lockContactForRefund`'s `FOR UPDATE`, or the FK `KEY SHARE` of the receipt it inserts. A merge that took the customers first was the inverse order and deadlocked both shapes (40P01 → 500). Review caught it, and both shapes were reproduced RED in `k061-customer-merge-lock-order`.
+- **Why `NO KEY UPDATE`:** it does not wait on an FK `KEY SHARE`, and it still conflicts with itself, so two merges queue.
 - Consequence: an override created for the target between the dunning check and the move makes that move raise 23505. That is a 500, and the savepoint rolls the whole merge back.
 - Two merges of the same pair in opposite directions therefore queue. The second re-reads `deleted_at`, finds its customer gone, and gets a 400. Before the fix, both such merges 500'd.
 - The source is soft-deleted:
@@ -52,6 +53,7 @@
 | customer_activities | customer_id | MOVE |
 | customer_dunning_overrides | customer_id (PK with company) | MOVE when only the source has one. **REFUSE when both do** (Hein) |
 | recurring_invoices | client_id | MOVE and **pause** the source's active templates; they are counted in the response (Hein) |
+| recurring_transaction_templates | `template_data->>'clientId'` (entity_type 'customer_invoice', JSON) | MOVE (`jsonb_set`) and **pause** (`is_active = false`), counted with the above. The runner (`recurringTransactionInvoices`) reads the id from the JSON, so an unmoved template would keep invoicing the merged-away customer. Review caught it: the first census searched columns, not JSON |
 | portal_access | client_id | **DEACTIVATE** the source's logins; never move them (Hein). The table has no `company_id` and no RLS, so it is scoped through the customer |
 | bank_categorisation_rules | client_id | MOVE. Otherwise a rule would keep allocating to a deleted customer |
 | bank_transactions | suggested_client_id | MOVE (a suggestion only) |
@@ -61,6 +63,7 @@
 | customers.opening_balance | — | SKIP. It is set at creation and read by no statement, aging or ledger. The figure the books opened with lives in the journals |
 | gl_journal_lines / gl_journal_entries | — | none: no customer column. Journals follow their source documents |
 | audit_log | entity_id | SKIP: history stays as written |
+| custom_report_templates.filters, share_links.params, other JSON columns | — | SKIP. Every jsonb/array column was listed. Report filters match on customer NAME (text), and no other JSON holds a customer id a code path reads |
 | sage_customer_invoices | customer_name | SKIP: staging matches by name (see Sage below) |
 | document_links, procurement_documents, loans | linked_entity_id / entity_id / counterparty_id | SKIP: no code path links them to a customer |
 | customer_invoice_* children (disputes, views, dunning_sends, paystack/stitch requests) | customer_invoice_id | none: they follow their invoice |
@@ -77,8 +80,9 @@ A new table that stores a customer id must be added to the service AND to `MOVED
 - `pages/accounting/customers/dedup.tsx`
 - `src/lib/apiRoutes.ts`
 
-**Tests.** There are 25 tests across five files: `tests/integration/k061-customer-merge-{moves,refusals,sage-resync,lock-order}.int.test.ts` and `k061-duplicates-merge-customer.int.test.ts`.
+**Tests.** There are 27 tests across five files: `tests/integration/k061-customer-merge-{moves,refusals,sage-resync,lock-order}.int.test.ts` and `k061-duplicates-merge-customer.int.test.ts`.
 - **Lock-order, same set:** for each of the bank-line, receipt and invoice sets, a settlement holds the lower id and then takes the higher one while a merge is blocked. Neither side may deadlock.
+- **Lock-order, refund:** a refund holds the bank line, then locks the customer `FOR UPDATE`.
 - **Lock-order, allocator:** one case replays the bank allocator's own lock sequence: line `FOR UPDATE`, then `INSERT` of a receipt naming the source. It runs those statements directly rather than calling `allocateTransaction`, because the lock cycle depends only on those two statements.
 - **Split columns:** an invoice whose two columns name different customers moves only the column that names the source.
 
@@ -110,7 +114,8 @@ UNION ALL SELECT 'customer_payments', count(*) FROM customer_payments p JOIN cus
 UNION ALL SELECT 'credit_notes', count(*) FROM credit_notes n JOIN customers c ON c.id = n.client_id WHERE c.deleted_at IS NOT NULL
 UNION ALL SELECT 'recurring_invoices (active)', count(*) FROM recurring_invoices r JOIN customers c ON c.id = r.client_id WHERE c.deleted_at IS NOT NULL AND r.status = 'active'
 UNION ALL SELECT 'portal_access (active)', count(*) FROM portal_access p JOIN customers c ON c.id = p.client_id WHERE c.deleted_at IS NOT NULL AND p.is_active
-UNION ALL SELECT 'customer_contacts', count(*) FROM customer_contacts x JOIN customers c ON c.id = x.customer_id WHERE c.deleted_at IS NOT NULL;
+UNION ALL SELECT 'customer_contacts', count(*) FROM customer_contacts x JOIN customers c ON c.id = x.customer_id WHERE c.deleted_at IS NOT NULL
+UNION ALL SELECT 'recurring_transaction_templates (active)', count(*) FROM recurring_transaction_templates r JOIN customers c ON c.id::text = lower(r.template_data->>'clientId') WHERE r.entity_type = 'customer_invoice' AND c.deleted_at IS NOT NULL AND r.is_active;
 
 -- 2b. Invoices generated for a deleted customer AFTER it was deleted (a duplicates-page merge leaving recurring billing on).
 SELECT ci.company_id, c.name, count(*) AS invoices, sum(ci.total_amount) AS total
@@ -126,5 +131,7 @@ SELECT company_id, count(*) FROM customer_dunning_overrides GROUP BY 1 ORDER BY 
 - A document created for the source by another request while a merge is running, and committed after it, stays on the now-deleted source. Invoice and receipt creation do not lock the customer row. The merge does lock both customers, so a second merge cannot interleave.
 - `src/components/accounting/customers/MergeCustomersModal.tsx` also calls this route and reads `json.message`, so it would show a generic error on a refusal. Nothing imports it; it is left alone as unrelated dead code.
 - The source's conflicting custom-field values are deleted, not archived.
+- `recurringTransactionInvoices` (via `assertCustomerInCompany`) does not refuse a soft-deleted customer. A merge now moves and pauses its templates. A customer deleted any other way keeps an active template running, and that is a separate item.
+- The duplicates page (`duplicates.tsx`) still reads its response with a hand-written `res.json()` cast, not `apiJson`. It now shows the paused count.
 - `softDeleteRowOps.restoreRow('customer')` can un-delete a merged-away source. It comes back empty, with ` [MERGED]` in its name and its portal logins off.
 - Four mutants survive, and all four are equivalent (mutations.log explains each). Three drop a company-scope predicate that `app_user` RLS already enforces. One drops the customers' `ORDER BY id`, and this merge is the only path that locks two customer rows.
