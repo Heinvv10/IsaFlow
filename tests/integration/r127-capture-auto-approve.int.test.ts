@@ -1,0 +1,130 @@
+// R-127 — the paths that approve a captured invoice WITHOUT approveSupplierInvoice.
+//
+// ai-invoice-pipeline and capture/[id]/post INSERT the invoice as 'approved' on
+// the auto-approve route, with no journal, and then run the evidence attach. If
+// that attach turns a provisional into the slip's evidence, the ledger already
+// holds the bill (expense / VAT / bank) while the AP subledger shows it owing —
+// and the "Post to GL" action (postSupplierInvoiceToGL) would then post the
+// bill a second time. These paths must end where approval does: the invoice's
+// journal, the provisional reclassed into its payment, the invoice paid.
+import { beforeAll, describe, expect, it } from 'vitest';
+import { SignJWT } from 'jose';
+import pipelineRoute from '../../pages/api/accounting/ai-invoice-pipeline';
+import { postSupplierInvoiceToGL } from '@/modules/accounting/services/ap/supplierInvoiceWorkflowService';
+import { runCapturePostFollowUps } from '@/modules/accounting/services/capture/capturePostFollowUps';
+import { request, response } from './mfa-impersonation-postgres.helpers';
+import {
+  company, inTx, invoiceState, jeState, paymentsFor, pool, seedDoc, seedInvoice, seedProvisional,
+  slipLedger, supplier, today, useR127Fixture, user,
+} from './r127-double-booking.helpers';
+
+useR127Fixture();
+
+let token = '';
+beforeAll(async () => {
+  token = await new SignJWT({ sub: user, aal: 'aal2' })
+    .setProtectedHeader({ alg: 'HS256' }).setExpirationTime('1h')
+    .sign(new TextEncoder().encode(process.env.JWT_SECRET));
+});
+
+// checkAiRateLimit keys on the IP with a persistent counter; one address per run.
+const clientIp = `127.2.${Math.floor(Math.random() * 254) + 1}.${Math.floor(Math.random() * 254) + 1}`;
+
+async function runPipeline(documentId: string) {
+  const req = request({ 'sb-access-token': token, active_company_id: company }, 'POST');
+  (req.socket as { remoteAddress: string }).remoteAddress = clientIp;
+  req.url = '/api/accounting/ai-invoice-pipeline';
+  req.body = { documentId };
+  const result = response();
+  await pipelineRoute(req as never, result.res as never);
+  return result.state;
+}
+
+/** An unclaimed captured slip whose extraction the pipeline auto-approves (clean, low value). */
+async function seedExtractedDoc(total: number): Promise<string> {
+  const id = crypto.randomUUID();
+  const net = Math.round((total / 1.15) * 100) / 100;
+  const vat = Math.round((total - net) * 100) / 100;
+  const extracted = {
+    documentType: 'invoice', vendorName: 'R127 Supplies CC', date: today,
+    referenceNumber: `R127-${id.slice(0, 8)}`, currency: 'ZAR', subtotal: net, vatAmount: vat, vatRate: 15,
+    totalAmount: total, lineItems: [{ description: 'Stationery', quantity: 1, unitPrice: net, total: net }],
+    rawText: `TAX INVOICE\nSub Total ${net.toFixed(2)}\nVAT ${vat.toFixed(2)}\nTotal ${total.toFixed(2)}`,
+    confidence: 0.9, warnings: [], extractionMethod: 'vlm',
+  };
+  await pool.query(
+    `INSERT INTO captured_documents(id,company_id,file_name,file_type,document_type,extracted_data,status)
+     VALUES($1,$2,$3,'application/pdf','invoice',$4::jsonb,'pending')`,
+    [id, company, `r127-${id}.pdf`, JSON.stringify(extracted)],
+  );
+  return id;
+}
+
+async function invoiceForDoc(documentId: string): Promise<string> {
+  const { rows } = await pool.query(
+    'SELECT id FROM supplier_invoices WHERE company_id=$1 AND source_document_id=$2', [company, documentId],
+  );
+  expect(rows).toHaveLength(1);
+  return String(rows[0].id);
+}
+
+describe('R-127: auto-approved captured invoices settle against the provisional they evidence', () => {
+  it('ai-invoice-pipeline: an auto-approved slip that evidences a provisional ends paid, booked once', async () => {
+    const { je, bt } = await seedProvisional({ totalAmount: 402.50, supplierId: supplier });
+    const doc = await seedExtractedDoc(402.50);
+
+    const res = await runPipeline(doc);
+    expect(res.statusCode).toBe(200);
+    const body = res.body as { data: { invoice: { status: string }; provisionalAttach: { attachedJeId: string | null } } };
+    expect(body.data.provisionalAttach.attachedJeId).toBe(je);
+
+    const invoiceId = await invoiceForDoc(doc);
+    const inv = await invoiceState(invoiceId);
+    expect(inv.gl_journal_entry_id).not.toBeNull();
+    expect(inv.status).toBe('paid');
+    expect(inv.paid).toBe(402.50);
+    const payments = await paymentsFor(bt, invoiceId);
+    expect(payments).toHaveLength(1);
+    expect(payments[0]!.allocated).toBe(402.50);
+    expect(await slipLedger(je, bt, invoiceId)).toEqual({ expense: 350.00, vat: 52.50, ap: 0, bank: -402.50 });
+  });
+
+  it('capture/[id]/post shape (approved, no line items): the follow-ups neither double-book nor lose the invoice', async () => {
+    const { je, bt } = await seedProvisional({ totalAmount: 403.65, supplierId: supplier });
+    const doc = await seedDoc();
+    const invoiceId = await seedInvoice({ documentId: doc, totalAmount: 403.65, status: 'approved', withItems: false });
+
+    const out = await inTx(() => runCapturePostFollowUps({
+      companyId: company, userId: user, eventId: crypto.randomUUID(), documentId: doc, invoiceId,
+      invoiceStatus: 'approved', supplierId: supplier, supplierName: 'R127 Supplies CC',
+      vendorVatNumber: null, totalAmount: 403.65, invoiceDate: today,
+      decision: { outcome: 'route_review', reasons: ['test'], rule: null },
+    }));
+    expect(out.provisionalAttach.attachedJeId).toBe(je);
+
+    // The invoice survived the request's COMMIT, its attach included. With no line
+    // items it cannot post a journal (a separate defect, see R-127 fix.md), so it is
+    // left approved and unposted — but nothing was booked a second time.
+    const inv = await invoiceState(invoiceId);
+    expect(inv).toBeDefined();
+    expect(inv.status).toBe('approved');
+    expect(inv.gl_journal_entry_id).toBeNull();
+    expect((await jeState(je)).source_document_id).toBe(doc);
+    expect(await paymentsFor(bt, invoiceId)).toHaveLength(0);
+    expect(await slipLedger(je, bt, invoiceId)).toEqual({ expense: 351.00, vat: 52.65, ap: 0, bank: -403.65 });
+  });
+
+  it('Post to GL on an approved, unposted invoice whose slip evidences a provisional settles it', async () => {
+    const doc = await seedDoc();
+    const { je, bt } = await seedProvisional({ totalAmount: 404.80, evidencedBy: doc });
+    const invoiceId = await seedInvoice({ documentId: doc, totalAmount: 404.80, status: 'approved' });
+
+    const posted = await inTx(() => postSupplierInvoiceToGL(company, invoiceId, user));
+    expect(posted.alreadyPosted).toBe(false);
+
+    const inv = await invoiceState(invoiceId);
+    expect(inv.status).toBe('paid');
+    expect(inv.paid).toBe(404.80);
+    expect(await slipLedger(je, bt, invoiceId)).toEqual({ expense: 352.00, vat: 52.80, ap: 0, bank: -404.80 });
+  });
+});
