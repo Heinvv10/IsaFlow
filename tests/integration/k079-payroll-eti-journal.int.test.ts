@@ -204,6 +204,10 @@ describe('K-079: approving a run that claims ETI', () => {
     expect(res.statusCode).toBe(400);
     expect(JSON.stringify(res.body)).toContain("'closed'");
     expect(await header(id)).toEqual({ status: 'calculated', journal_entry_id: null });
+
+    // The same month in another tenant is not closed by this one's period.
+    const other = await run(companyB, 8, { gross: 100000, paye: 20000, uif: 1500, sdl: 1000, eti: 500, net: 79250 });
+    expect((await callApprove(other, companyB)).statusCode).toBe(200);
   });
 
   it('a failure AFTER the status write is a 5xx and rolls the approval back', async () => {
