@@ -86,8 +86,11 @@ export async function findUnpostedInvoiceVat(
       UNION ALL
       SELECT 'supplier', si.id, si.invoice_number, si.invoice_date,
         COALESCE(s.name, 'Unknown'),
+        -- supplier_invoice_items carries no company_id of its own (same as
+        -- vat201Service.ts:138) — scoped explicitly via si.company_id here
+        -- too, not merely by si.id already being a company-scoped row.
         COALESCE((SELECT SUM(sii.tax_amount) FROM supplier_invoice_items sii
-                  WHERE sii.supplier_invoice_id = si.id), si.tax_amount, 0),
+                  WHERE sii.supplier_invoice_id = si.id AND si.company_id = ${companyId}::UUID), si.tax_amount, 0),
         CASE
           WHEN si.gl_journal_entry_id IS NULL THEN 'no_journal'
           WHEN je.status IS DISTINCT FROM 'posted' THEN 'journal_not_posted'
@@ -149,8 +152,9 @@ export async function findVatDeclaredElsewhere(
       UNION ALL
       SELECT 'supplier', si.id, si.invoice_number, si.invoice_date,
         COALESCE(s.name, 'Unknown'),
+        -- Same explicit company scoping as the query above (item 12).
         COALESCE((SELECT SUM(sii.tax_amount) FROM supplier_invoice_items sii
-                  WHERE sii.supplier_invoice_id = si.id), si.tax_amount, 0),
+                  WHERE sii.supplier_invoice_id = si.id AND si.company_id = ${companyId}::UUID), si.tax_amount, 0),
         si.vat_declared_elsewhere_at, si.vat_declared_elsewhere_by, si.vat_declared_elsewhere_reason
       FROM supplier_invoices si
       LEFT JOIN suppliers s ON s.id = si.supplier_id AND s.company_id = ${companyId}::UUID
