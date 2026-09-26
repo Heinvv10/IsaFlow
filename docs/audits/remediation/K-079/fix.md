@@ -42,12 +42,35 @@ Hein chose:
   When ETI absorbs all of PAYE, 2140 is 0, so the decided treatment would still fail to post
   without this. The same rule fixes the SDL-exempt run (`sdl = 0` made a zero 2160 line that
   refused every such journal), which was not registered.
+- **The cost-centre split ties to the cent** (`payrollJournalParts.buildLabourLines`, review round 2).
+  - Each employee's share of the labour debit was rounded separately and never tied back, and ETI
+    makes the residual routine: 3 × 9 866.67 = 29 600.01 against a debit of 29 600.
+  - The plan tolerated 1 cent; the GL tolerates none. The residual now lands on the largest share,
+    and the plan's balance check is exact.
+  - The UIF halves are `employeeUif = round2(uif/2)`, `employerUif = uif − employeeUif`, so they sum
+    exactly.
+- **ETI comes off the cost of the employees who earned it.**
+  - Each employee carries a gross-share of the cost before ETI, less their share of `etiUsed`
+    apportioned by the `eti` on their run line (gross-share when the lines carry none).
+  - Spreading it by gross put 900 of a low-wage employee's ETI onto a high earner's cost-centre
+    account.
+- **The GL poster's own refusals are named in the plan**, so approval refuses them before writing
+  and with a reason, instead of a masked production 500:
+  - `nothing_to_post` (every line zero);
+  - `negative_amount`;
+  - `closed_period` (the fiscal period covering the entry date is not open; company-scoped).
+  A deactivated target account stays a plan advisory (`inactive_target_account`), but approval
+  refuses it, because `assertNoInactiveAccountLines` would.
 - **Refusals come before the first write** (`payrollApprovalService.ts`):
-  - `approvePayrollRun` throws `PayrollApprovalRefusedError` for a missing run, a
-    non-approvable status, and every plan blocker except `run_not_approved`
-    (`findApprovalBlocker`), all before `UPDATE … status = 'approved'`.
-  - `already_posted` is deliberately NOT excluded. An approvable-status run carrying a journal is
-    unreachable (reversal clears the link), so refusing it fails closed.
+  - `approvePayrollRun` throws `PayrollApprovalRefusedError` for a missing run, a non-approvable
+    status, a deactivated target account, and every plan blocker except `run_not_approved` and
+    `already_posted`, all before `UPDATE … status = 'approved'`.
+  - `already_posted` is excluded because it is reachable (review round 1, HIGH).
+    `reopenPayrollRun` moves an approved run back to `calculated` and KEEPS `journal_entry_id`.
+    Re-approving it returns that journal (the poster is idempotent), which the golden path
+    `h-payroll-run.spec.ts` relies on. `reversePayrollRunJournal` has no caller.
+  - The result carries the plan's `advisories`, so `eti_beyond_paye` reaches the API and MCP
+    caller rather than only the log.
 - **Route** (`pages/api/payroll/runs/[id]/approve.ts`) answers only `PayrollApprovalRefusedError` as a 400
   and rethrows everything else, so a failure after the status write (e.g. a closed fiscal period,
   which is not a plan blocker) is a 500 and withAuth rolls the approval back.
@@ -72,26 +95,35 @@ Hein chose:
 
 ## Tests
 
-- `tests/integration/k079-payroll-eti-journal.int.test.ts`: 7 cases through the real route
-  (withAuth, app_user, RLS, withCsrf, withWriteAccess), nothing mocked:
+- `tests/integration/k079-payroll-eti-journal.int.test.ts`: 11 cases through the real routes
+  (approve and reopen; withAuth, app_user, RLS, withCsrf, withWriteAccess):
   - ETI < PAYE: balanced, posted, 2140 = 19 500, run linked;
-  - ETI > PAYE: balanced, no 2140 line, labour reduced by 300 only;
+  - ETI > PAYE: balanced, no 2140 line, labour reduced by 300 only, `eti_beyond_paye` returned;
   - ETI = 0: unchanged;
   - another tenant's run: 4xx, untouched, no journal in that tenant;
   - cancelled run: 400, untouched;
-  - closed period (a post-write failure): 5xx, run still `calculated`;
-  - missing 2175: 400, run still `calculated`.
-- `tests/unit/services/payroll/payrollJournalBuilder.test.ts`: the old "ETI unbalances the journal"
-  finding test (which asserted the defect) is rewritten as five cases: ETI below, above and equal
-  to PAYE; no ETI; SDL-exempt.
+  - closed period: 400 naming it, untouched; the same month in another tenant still approves;
+  - a post-write failure (fault injected into the poster, asserted to have fired): 5xx, run still
+    `calculated`;
+  - a stranded `approved` run with no journal: re-approves and posts;
+  - reopen → re-approve: the same journal, no second one;
+  - a deactivated 2160: 400, untouched;
+  - missing 2175: 400, untouched.
+- `tests/unit/services/payroll/payrollJournalBuilder.test.ts`:
+  - The old "ETI unbalances the journal" finding test, which asserted the defect, is rewritten as
+    five cases: ETI below, above and equal to PAYE; no ETI; SDL-exempt.
+  - Split: ties to the cent; ETI on the cost-centre account of the employee who earned it.
+  - Blockers: closed and open period, nothing to post, negative amount, a 1-cent imbalance.
+  - Odd-cent UIF balances.
 - `tests/unit/mcp/payRunLifecycle.test.ts`: `approve_pay_run` refuses a blocked run, live and dry run.
 - `tests/unit/mcp/payrollTools.test.ts`: `eti_used` in the preview.
 - Evidence:
   - `red.log` (validation, unit) and `red.int.log`: 3/5 integration cases RED on `origin/master`
     code — ETI < PAYE, ETI > PAYE, and the run marked approved on refusal.
   - `green.log`.
-  - `mutations.log`: 18/18 mutants RED, covering every changed code line, including the original
-    defect (`2140 = paye`) and the old catch-all 400 in the route.
+  - `mutations.log`: a green baseline, then every changed code line mutated. This includes the
+    original defect (`2140 = paye`), the old catch-all 400 in the route and the old 1-cent
+    tolerance.
 
 ## Migration / rollback
 
@@ -100,8 +132,10 @@ None. Rollback is reverting the PR.
 ## Historical-data impact
 
 None to correct. Nothing wrong was ever posted: every ETI run failed to post at all. Possible
-residue: runs stranded `approved` with no journal (by ETI or by any other blocker, e.g. a missing
-2175 or a zero SDL line). They post normally when re-approved after deploy.
+residue: runs stranded `approved` with no journal, by ETI or by any other refusal (a missing 2175,
+a zero SDL line, a closed period, a deactivated account). After deploy, re-approving posts them
+when the cause is gone. Otherwise it answers a 400 naming the cause, and the run is left
+unchanged.
 
 Read-only census for Hein to run on prod. The agent never ran it.
 
@@ -125,6 +159,13 @@ GROUP BY company_id;
 ```
 
 ## Follow-ups (not in this fix)
+
+- A reopened run keeps its original journal: re-approval returns it even if the run was
+  recalculated in between (pre-existing; the reopen route says the journal is not reversed).
+- `post_payroll_journal`'s dry run reports a deactivated account as an advisory, while the live
+  post refuses it (pre-existing parity gap; approval now refuses it up front).
+- A cost-centre labour account that is deactivated is not flagged by the plan (only 5200 is). The
+  GL refuses it after the status write, and the request rolls back (5xx).
 
 - EMP201 does not carry unused ETI forward to later months (SARS allows it). New register item.
 - K-080: the ETI engine returns 0 below the wage floor; needs Hein's SARS-table decision.
