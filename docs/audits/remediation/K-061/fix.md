@@ -152,3 +152,11 @@ SELECT company_id, count(*) FROM customer_dunning_overrides GROUP BY 1 ORDER BY 
   - three drop a company-scope predicate that `app_user` RLS already enforces;
   - one drops the customers' `ORDER BY id`, and this merge is the only path that locks two customer rows;
   - one drops the `lock_timeout = DEFAULT` restore, which runs after the request's last statement.
+
+**Deployed.** 2026-09-26 08:28 SAST, master `34dac5651` (#530; the same deploy shipped #528 R-129, at Hein's choice).
+- Deploy CI passed, and 0 migrations were applied.
+- Golden paths 13/13; integrity 16/16.
+- `RELEASE_SHA` is `34dac5651`.
+- `CUSTOMER_MERGE_CONTENDED` is in the live `.next/server/pages/api/accounting/customer-merge.js`.
+- Health 200. An unauthenticated merge answers 401.
+- Rollback: `4cb44bc63`, code only.
