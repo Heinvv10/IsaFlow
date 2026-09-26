@@ -5,7 +5,8 @@
  * /recover flow. GoTrue cannot distinguish a recovery session from a
  * magiclink/impersonation session (both surface as amr:otp and verify
  * interchangeably), so a GoTrue credential is too broad to gate a password
- * change. These tokens are minted ONLY by /api/auth/forgot-password and
+ * change. These tokens are minted ONLY through passwordResetEmail.ts (by
+ * /api/auth/forgot-password and the admin "Reset password" action) and
  * consumed ONLY by /api/auth/do-reset-password.
  *
  * The raw token never leaves this process except in the emailed link: only
