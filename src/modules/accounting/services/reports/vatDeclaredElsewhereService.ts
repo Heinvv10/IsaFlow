@@ -18,9 +18,12 @@ import { sql } from '@/lib/neon';
 import type { DbRow } from '@/lib/neon';
 import { log } from '@/lib/logger';
 import { logAuditOrThrow } from '../core/auditTrailService';
-import { isEligibleForVatDeclaredElsewhereMark } from './vatUnpostedInvoices';
+import { isEligibleForVatDeclaredElsewhereMark, type VatDocKind } from './vatUnpostedInvoices';
 
-export type VatDocKind = 'customer' | 'supplier';
+// Single definition lives in vatUnpostedInvoices.ts (the population predicate
+// module); re-exported here so existing callers of this service keep their
+// import path unchanged.
+export type { VatDocKind };
 
 const OVERRIDE_ROLES: readonly string[] = ['owner', 'admin', 'super_admin'];
 
