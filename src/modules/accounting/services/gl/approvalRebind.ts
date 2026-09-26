@@ -37,7 +37,10 @@ type Row = Record<string, unknown>;
  * changed, the request now vouches for new content, so it is re-stamped as
  * raised by `requestedBy`, now — requested_by, requested_at and the roster
  * snapshot. Keeping the original requester let an editor approve their own
- * edit: A requests, B edits and re-requests, B approves as "not self".
+ * edit: A requests, B edits and re-requests, B approves as "not self". The
+ * requester it replaces joins `past_requesters`, none of whom may approve —
+ * else the author sheds the role instead: A requests, A edits, C re-requests,
+ * A approves.
  */
 export async function rebindPendingRequest(
   companyId: string,
@@ -73,6 +76,8 @@ export async function rebindPendingRequest(
       amount = ${document.amount}::NUMERIC,
       document_reference = ${document.reference}::TEXT,
       document_digest = ${document.digest}::TEXT,
+      past_requesters = CASE WHEN ${digestChanged}::BOOLEAN AND ar.requested_by <> ${requestedBy}::UUID
+                             THEN array_append(ar.past_requesters, ar.requested_by) ELSE ar.past_requesters END,
       requested_by = CASE WHEN ${digestChanged}::BOOLEAN THEN ${requestedBy}::UUID ELSE ar.requested_by END,
       requested_at = CASE WHEN ${digestChanged}::BOOLEAN THEN NOW() ELSE ar.requested_at END,
       approver_roster = CASE WHEN ${digestChanged}::BOOLEAN THEN (
