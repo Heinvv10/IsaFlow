@@ -140,3 +140,24 @@ describe('fails closed, and is shaped so it cannot silently stop seeing', () => 
     });
   });
 });
+
+describe('approval_enforcement under RLS (review LOW-4)', () => {
+  const insert = (c: PoolClient, company: string, by: string) => c.query(
+    "INSERT INTO public.approval_enforcement(company_id, document_type, enabled_by) VALUES($1,'supplier_invoice',$2)", [company, by]);
+
+  it('lets app_user switch on its OWN company', async () => {
+    await inTx(async ({ c, me, company }) => {
+      await asRequest(c, me, company);
+      await insert(c, company, me);
+      const { rows } = await c.query('SELECT company_id FROM public.approval_enforcement');
+      expect(rows.map((r) => r.company_id)).toEqual([company]);
+    });
+  });
+
+  it("refuses app_user writing ANOTHER company's row — the WITH CHECK", async () => {
+    await inTx(async ({ c, me, company, foreign }) => {
+      await asRequest(c, me, company);
+      await expect(insert(c, foreign, me)).rejects.toThrow(/row-level security/);
+    });
+  });
+});
