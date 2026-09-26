@@ -31,6 +31,21 @@ export interface ApprovalDocument {
   amount: number;
   /** The document's own number, so the request's reference is not caller text either. */
   reference: string | null;
+  /**
+   * approval_document_digest() — WHAT an approval of this document vouches for
+   * (migration 708). NULL for a type with no digest definition yet, and a NULL
+   * digest never clears the approval gate.
+   */
+  digest: string | null;
+}
+
+/** approve on a request whose document no longer has the content it was raised for. */
+export class ApprovalDocumentChangedError extends Error {
+  readonly code = 'DOCUMENT_CHANGED';
+  constructor(requestId: string) {
+    super(`The document changed after approval request ${requestId} was raised. Submit it for approval again.`);
+    this.name = 'ApprovalDocumentChangedError';
+  }
 }
 
 type Row = Record<string, unknown>;
@@ -41,6 +56,13 @@ const first = (rows: Row[]): Row | undefined => rows[0];
  * One statement per document type — the table name cannot come from a parameter,
  * and `payment` covers both sides of the ledger, so it looks in each in turn.
  * A journal entry carries no amount column; its size is the sum of its debits.
+ *
+ * `digest` is approval_document_digest() — the one SQL definition — read in
+ * the same statement as the amount.
+ *
+ * Invoices are matched on their FUNCTIONAL (ZAR) total where they carry one:
+ * `total_amount` is in the document's own currency, so a USD 5 000 bill
+ * (about R92 500) slipped under a R50 000 rule.
  */
 async function findDocument(
   companyId: string,
@@ -50,27 +72,32 @@ async function findDocument(
   switch (documentType) {
     case 'customer_invoice':
       return first((await sql`
-        SELECT COALESCE(total_amount, 0) AS amount, invoice_number AS reference
+        SELECT COALESCE(functional_total, total_amount, 0) AS amount, invoice_number AS reference,
+               approval_document_digest(company_id, 'customer_invoice', id) AS digest
         FROM customer_invoices WHERE id = ${documentId}::UUID AND company_id = ${companyId}
       `) as Row[]);
     case 'supplier_invoice':
       return first((await sql`
-        SELECT COALESCE(total_amount, 0) AS amount, invoice_number AS reference
+        SELECT COALESCE(functional_total, total_amount, 0) AS amount, invoice_number AS reference,
+               approval_document_digest(company_id, 'supplier_invoice', id) AS digest
         FROM supplier_invoices WHERE id = ${documentId}::UUID AND company_id = ${companyId}
       `) as Row[]);
     case 'credit_note':
       return first((await sql`
-        SELECT COALESCE(total_amount, 0) AS amount, credit_note_number AS reference
+        SELECT COALESCE(total_amount, 0) AS amount, credit_note_number AS reference,
+               approval_document_digest(company_id, 'credit_note', id) AS digest
         FROM credit_notes WHERE id = ${documentId}::UUID AND company_id = ${companyId}
       `) as Row[]);
     case 'payment': {
       const customer = first((await sql`
-        SELECT COALESCE(total_amount, 0) AS amount, payment_number AS reference
+        SELECT COALESCE(total_amount, 0) AS amount, payment_number AS reference,
+               approval_document_digest(company_id, 'payment', id) AS digest
         FROM customer_payments WHERE id = ${documentId}::UUID AND company_id = ${companyId}
       `) as Row[]);
       if (customer) return customer;
       return first((await sql`
-        SELECT COALESCE(total_amount, 0) AS amount, payment_number AS reference
+        SELECT COALESCE(total_amount, 0) AS amount, payment_number AS reference,
+               approval_document_digest(company_id, 'payment', id) AS digest
         FROM supplier_payments WHERE id = ${documentId}::UUID AND company_id = ${companyId}
       `) as Row[]);
     }
@@ -80,7 +107,8 @@ async function findDocument(
                  SELECT SUM(jl.debit) FROM gl_journal_lines jl
                  WHERE jl.journal_entry_id = je.id AND jl.company_id = ${companyId}
                ), 0) AS amount,
-               je.entry_number AS reference
+               je.entry_number AS reference,
+               approval_document_digest(je.company_id, 'journal_entry', je.id) AS digest
         FROM gl_journal_entries je WHERE je.id = ${documentId}::UUID AND je.company_id = ${companyId}
       `) as Row[]);
   }
@@ -101,7 +129,25 @@ export async function resolveApprovalDocument(
   return {
     amount: Number(row.amount ?? 0),
     reference: row.reference != null ? String(row.reference) : null,
+    digest: row.digest != null ? String(row.digest) : null,
   };
+}
+
+/**
+ * Refuses an approve when the request's document no longer has the content the
+ * request was raised (or last re-bound) for — otherwise the approver would be
+ * vouching for figures the document no longer carries. Compared in SQL against
+ * the one digest definition. Silent when the request is gone or decided: the
+ * decide's own UPDATE reports that.
+ */
+export async function assertDocumentUnchanged(companyId: string, requestId: string): Promise<void> {
+  const rows = (await sql`
+    SELECT ar.document_digest IS DISTINCT FROM
+           approval_document_digest(ar.company_id, ar.document_type, ar.document_id) AS changed
+    FROM approval_requests ar
+    WHERE ar.id = ${requestId}::UUID AND ar.company_id = ${companyId} AND ar.status = 'pending'
+  `) as Row[];
+  if (rows[0]?.changed === true) throw new ApprovalDocumentChangedError(requestId);
 }
 
 /**
@@ -131,17 +177,32 @@ export async function rebindPendingRequest(
   matched: ApprovalRule | null,
   document: ApprovalDocument
 ): Promise<ApprovalRequest> {
-  // No active rule governs the document now. The pending request keeps the
-  // authority it was raised under rather than being silently freed.
-  if (!matched) return existing;
   // checkApproval fills `requiredRole` from the bound rule for rows raised
   // before migration 669, so this is never a free pass. It stays NULL only where
   // no rule of this company is bound at all — and the decide path demands the
   // 'admin' column default for exactly those, so the floor is the same one.
   const currentRole = existing.requiredRole ?? 'admin';
-  if (requiredRank(matched.approverRole) < requiredRank(currentRole)) return existing;
+  const digestChanged = existing.documentDigest !== document.digest;
+  // No active rule governs the document now, or today's rule is laxer: the
+  // pending request keeps the authority it was raised under rather than being
+  // silently freed. Its CONTENT binding still follows the document — a pending
+  // request has no approval yet, so refreshing its digest grants nothing, and
+  // leaving it stale would refuse every approve DOCUMENT_CHANGED with no way
+  // to resubmit.
+  if (!matched || requiredRank(matched.approverRole) < requiredRank(currentRole)) {
+    if (!digestChanged) return existing;
+    const refreshed = (await sql`
+      UPDATE approval_requests SET
+        amount = ${document.amount}::NUMERIC,
+        document_reference = ${document.reference}::TEXT,
+        document_digest = ${document.digest}::TEXT
+      WHERE id = ${existing.id}::UUID AND company_id = ${companyId} AND status = 'pending'
+      RETURNING *
+    `) as Row[];
+    return refreshed[0] ? mapRequest(refreshed[0]) : existing;
+  }
   if (existing.ruleId === matched.id && Number(existing.amount ?? 0) === document.amount
-      && existing.requiredRole === matched.approverRole) {
+      && existing.requiredRole === matched.approverRole && !digestChanged) {
     return existing;
   }
 
@@ -150,7 +211,8 @@ export async function rebindPendingRequest(
       rule_id = ${matched.id}::UUID,
       amount = ${document.amount}::NUMERIC,
       document_reference = ${document.reference}::TEXT,
-      required_role = ${matched.approverRole}::TEXT
+      required_role = ${matched.approverRole}::TEXT,
+      document_digest = ${document.digest}::TEXT
     WHERE id = ${existing.id}::UUID AND company_id = ${companyId} AND status = 'pending'
     RETURNING *
   `) as Row[];
@@ -202,10 +264,10 @@ export async function requestApproval(companyId: string, input: {
   // `is_active` is re-checked because checkApproval only considered active rules:
   // one deactivated in between must not be bound to a new request.
   const insert = async () => (await sql`
-    INSERT INTO approval_requests (company_id, rule_id, document_type, document_id, document_reference, amount, requested_by, required_role)
+    INSERT INTO approval_requests (company_id, rule_id, document_type, document_id, document_reference, amount, requested_by, required_role, document_digest)
     SELECT ${companyId}::UUID, rl.id, ${input.documentType}::TEXT, ${input.documentId}::UUID,
            ${document.reference}::TEXT, ${document.amount}::NUMERIC,
-           ${input.requestedBy}::UUID, rl.approver_role
+           ${input.requestedBy}::UUID, rl.approver_role, ${document.digest}::TEXT
     FROM approval_rules rl
     WHERE rl.id = ${matchedRule.id}::UUID AND rl.company_id = ${companyId} AND rl.is_active = true
     RETURNING *

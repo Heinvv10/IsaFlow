@@ -18,7 +18,7 @@ import {
   ApprovalRequestNotFoundError,
 } from '@/modules/accounting/services/gl/approvalAuthority';
 import {
-  ApprovalDocumentNotFoundError, resolveApprovalDocument,
+  ApprovalDocumentChangedError, ApprovalDocumentNotFoundError, resolveApprovalDocument,
 } from '@/modules/accounting/services/gl/approvalDocuments';
 import { ApprovalRequestLockTimeoutError } from '@/modules/accounting/services/gl/approvalRequestLock';
 import { isUuidParam } from '@/lib/validation';
@@ -132,6 +132,11 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
         // Another request held the row past the 5s budget — the decide never
         // ran, so it is a retry, not a fault.
         if (error instanceof ApprovalRequestLockTimeoutError) {
+          return apiResponse.conflict(res, error.message, { reason: error.code });
+        }
+        // The document was edited after the request was raised: approving would
+        // vouch for figures it no longer carries. Nothing was written.
+        if (error instanceof ApprovalDocumentChangedError) {
           return apiResponse.conflict(res, error.message, { reason: error.code });
         }
         throw error;

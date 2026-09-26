@@ -89,7 +89,7 @@ describe('assertMayDecide — decider rank fallback', () => {
   // nothing, and was told the rule "requires the admin role".
   it('lets a bookkeeper clear a rule that demands bookkeeper', async () => {
     row({ approver_role: 'bookkeeper', decider_role: 'bookkeeper' });
-    await expect(decide()).resolves.toBeUndefined();
+    await expect(decide()).resolves.toBeNull();
   });
 
   it('still refuses a bookkeeper on an accountant rule', async () => {
@@ -108,7 +108,7 @@ describe('assertMayDecide — rule rank fallback', () => {
 
   it('lets an admin clear that same unreadable rule', async () => {
     row({ approver_role: 'Owner', decider_role: 'admin' });
-    await expect(decide()).resolves.toBeUndefined();
+    await expect(decide()).resolves.toBeNull();
   });
 
   it('applies the same admin floor to an Object.prototype key in approver_role', async () => {
