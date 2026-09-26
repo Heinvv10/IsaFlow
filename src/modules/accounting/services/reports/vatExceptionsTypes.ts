@@ -109,15 +109,20 @@ export type InputVatSupportKind =
  * A journal claiming input VAT, and what supports it (vatInputSupport.ts).
  * The cut (Hein, 2026-09-26) is whether the return's FIGURES would be wrong,
  * not whether a document is attached in IsaFlow:
- *   - `amount_mismatch` / `document_over_claimed` rows go in
- *     `unsupportedInputVat` — BLOCKING, still counted in `totalExceptions`:
- *     the claimed VAT does not tie to what supports it.
+ *   - `amount_mismatch` / `document_over_claimed` / `document_unlinked` rows
+ *     go in `unsupportedInputVat` — BLOCKING, still counted in
+ *     `totalExceptions`: `amount_mismatch`/`document_over_claimed` mean the
+ *     claimed VAT does not tie to what supports it; `document_unlinked`
+ *     (breaker round 2) means a document WAS linked, evidencing the claim,
+ *     and no longer is, with nothing else supporting it — different from
+ *     never having had one.
  *   - `no_document` / `unreadable_document_vat` rows go in
  *     `inputVatWithoutTaxInvoice` — NOT blocking: only a record is missing
- *     (no link at all, or a document whose VAT couldn't be read), and holding
- *     the tax invoice is the vendor's legal responsibility, possibly outside
- *     IsaFlow. Same list, same treatment, as the existing `no_tax_invoice`
- *     (bank-only / VAT-adjustment) rows.
+ *     (never linked at all, or a document whose VAT couldn't be read — and
+ *     even then only once the bank-ceiling check, if a bank line exists,
+ *     clears), and holding the tax invoice is the vendor's legal
+ *     responsibility, possibly outside IsaFlow. Same list, same treatment, as
+ *     the existing `no_tax_invoice` (bank-only / VAT-adjustment) rows.
  */
 export interface InputVatSupportLine {
   journalEntryId: string;
@@ -130,7 +135,9 @@ export interface InputVatSupportLine {
   supportKind: InputVatSupportKind;
   /** The VAT the linked document supports (bank: the rate/(1+rate) ceiling). Null when none. */
   documentVat: number | null;
-  reason: 'no_document' | 'amount_mismatch' | 'document_over_claimed' | 'unreadable_document_vat' | 'no_tax_invoice';
+  reason:
+    | 'no_document' | 'amount_mismatch' | 'document_over_claimed' | 'unreadable_document_vat'
+    | 'no_tax_invoice' | 'document_unlinked';
   /** Captured document only: the net VAT every claim naming it has claimed to the period end. */
   documentClaimedVat: number | null;
 }
@@ -209,8 +216,11 @@ export interface VatExceptionsReport {
   /**
    * BLOCKING: input VAT claimed that disagrees with what supports it —
    * `amount_mismatch` (credit note, expense claim, captured document, bank
-   * ceiling) or `document_over_claimed`. The return's FIGURES would be
-   * wrong, not merely under-documented. Capped list.
+   * ceiling) or `document_over_claimed` — or that WAS evidenced by a linked
+   * document and no longer is, with nothing else supporting it
+   * (`document_unlinked`, Hein, 2026-09-26). The return's FIGURES would be
+   * wrong, or the evidence for them was withdrawn — not merely
+   * under-documented from the start. Capped list.
    */
   unsupportedInputVat: InputVatSupportLine[];
   unsupportedInputVatCount: number;

@@ -5,9 +5,11 @@
  * getVatExceptions' `totalExceptions` (the recon, unposted invoice VAT, the
  * older uncoded/mismatch/non-supply types, and — per Hein, 2026-09-26 — the
  * unsupported-input-VAT rows that mean the return's FIGURES are wrong
- * (`amount_mismatch` / `document_over_claimed`; NOT the `no_document` /
- * `unreadable_document_vat` rows, which only mean a record is missing and
- * are visible but non-blocking, in `inputVatWithoutTaxInvoice`) is already an
+ * (`amount_mismatch` / `document_over_claimed`, or `document_unlinked` —
+ * breaker round 2: a document WAS linked and no longer is, with nothing else
+ * supporting the claim; NOT the `no_document` / `unreadable_document_vat`
+ * rows, which only mean a record is missing and are visible but
+ * non-blocking, in `inputVatWithoutTaxInvoice`) is already an
  * ABSOLUTE refusal for SARS ISV filing
  * (sarsEfilingSubmissionService.evaluateEfilingGate — no override, ISV stays
  * dark). This module gives the
