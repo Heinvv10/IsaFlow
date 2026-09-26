@@ -7,14 +7,13 @@
  * must never do (docs/mcp/CONTRACTS.md §5 — one figure, one query). So the
  * arithmetic lives here once and `postPayrollRunJournal` consumes it.
  *
- * WHAT THE PLAN SAYS ABOUT DEACTIVATED ACCOUNTS. `gl_accounts.is_active` is a
- * picker flag. It decides whether an account appears in a dropdown and says
- * nothing about whether it holds money — Brightsphere carries all five payroll
- * accounts deactivated and Velocity Fibre carries 1110 deactivated, and the
- * poster has never filtered on it, so the money DOES land there. Filtering the
- * line out would understate the journal; saying nothing would hide that the
- * balance is parked where no human can pick it. So an inactive target is an
- * ADVISORY, not a blocker, and the line is built either way.
+ * WHAT THE PLAN SAYS ABOUT DEACTIVATED ACCOUNTS. The line is built either way —
+ * filtering it out would understate the journal — and the account is named in
+ * an `inactive_target_account` BLOCKER. It was an advisory on the premise that
+ * the money lands there, but `postJournalEntry` refuses a deactivated account
+ * (`assertNoInactiveAccountLines`), so a preview that passed it greenlit a post
+ * the live path refused (K-079 review). Brightsphere carries all five payroll
+ * accounts deactivated and Velocity Fibre 1110: they must reactivate or remap.
  *
  * Balance formula:
  *   DR 5200 Labour = gross + employer UIF + SDL − ETI used, split by cost centre
@@ -225,9 +224,9 @@ export async function buildPayrollJournalPlan(
 
   const inactive = [...new Set(lines.filter((l) => l.inactiveAccount).map((l) => l.accountCode))];
   if (inactive.length > 0) {
-    advisories.push({
+    blockers.push({
       code: 'inactive_target_account',
-      detail: `This journal posts into deactivated accounts: ${inactive.join(', ')}. is_active is a picker flag, so the amounts DO land there — but the accounts cannot be selected in the UI and any report that filters on is_active will drop the balance.`,
+      detail: `This journal posts into deactivated accounts: ${inactive.join(', ')}. The ledger refuses a posting to a deactivated account; reactivate them before posting.`,
     });
   }
 
