@@ -18,6 +18,7 @@ import { ConfirmDialog } from '@/components/ui/ConfirmDialog';
 import { Breadcrumb } from '@/components/ui/Breadcrumb';
 import { buildInvoiceTrail } from '@/components/accounting/invoiceReturnContext';
 import { useCustomerInvoiceActions } from '@/modules/accounting/hooks/useCustomerInvoiceActions';
+import { MarkVatDeclaredElsewhereButton } from '@/components/accounting/sars/MarkVatDeclaredElsewhereButton';
 import type { CustomerInvoiceDetail } from '@/modules/accounting/types/customerInvoice.types';
 import { CUSTOMER_INVOICE_STATUS_COLORS } from '@/modules/accounting/types/customerInvoice.types';
 
@@ -245,6 +246,11 @@ export default function CustomerInvoiceDetailPage() {
               <FileText className="h-4 w-4" /> View GL Journal Entry
             </Link>
           )}
+          <MarkVatDeclaredElsewhereButton
+            kind="customer" invoiceId={invoiceId as string}
+            glJournalEntryId={invoice.gl_journal_entry_id || null} taxAmount={invoice.tax_amount}
+            onMarked={() => void loadInvoice()}
+          />
           <AccountingDocumentPanel
             entityType="customer_invoice"
             entityId={invoiceId as string}

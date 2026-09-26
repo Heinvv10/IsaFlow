@@ -129,6 +129,35 @@ describe('McpRegistry — fence order', () => {
     }
   });
 
+  it('requiresScope without that scope → rejected pre-handler (item 10, write:vat)', async () => {
+    const handler = vi.fn();
+    registry.register(makeTool({
+      name: 'lock_vat_period', write: true, scope: 'read:vat', requiresScope: 'write:vat', handler,
+    }));
+    const r = await registry.call(
+      'lock_vat_period',
+      { idempotency_key: 'k1' },
+      // Holds write:post (the OLD, less-honest scope this tool used to sit
+      // under) but not write:vat — must still be refused.
+      ctxWithScopes(['read:vat', 'write:post']),
+    );
+    expect(r.isError).toBe(true);
+    expect(handler).not.toHaveBeenCalled();
+    expect(String(r.content[0]!.text)).toContain('write:vat');
+  });
+
+  it('requiresScope satisfied → handler runs', async () => {
+    const handler = vi.fn(async () => ({ content: [{ type: 'text' as const, text: '"ok"' }] }));
+    registry.register(makeTool({
+      name: 'lock_vat_period', write: true, scope: 'read:vat', requiresScope: 'write:vat', handler,
+    }));
+    const r = await registry.call(
+      'lock_vat_period', { idempotency_key: 'k1' }, ctxWithScopes(['read:vat', 'write:vat']),
+    );
+    expect(r.isError).toBeUndefined();
+    expect(handler).toHaveBeenCalledTimes(1);
+  });
+
   it('acquires an advisory lock BEFORE the replay-check for write tools (serialises concurrent same-key calls)', async () => {
     const handler = vi.fn(async () => ({ content: [{ type: 'text' as const, text: '"ok"' }] }));
     registry.register(makeTool({ name: 'w', write: true, scope: 'write:invoices', handler }));

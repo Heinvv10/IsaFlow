@@ -6,6 +6,7 @@ import { afterEach, expect, it, vi } from 'vitest';
 import type { NextApiResponse } from 'next';
 
 vi.mock('@/lib/apiFetch', async (original) => ({ ...await original<typeof import('@/lib/apiFetch')>(), apiFetch: vi.fn() }));
+vi.mock('@/contexts/CompanyContext', () => ({ useCompany: () => ({ companyRole: 'owner' }) }));
 
 import { apiFetch } from '@/lib/apiFetch';
 import { apiResponse } from '@/lib/apiResponse';

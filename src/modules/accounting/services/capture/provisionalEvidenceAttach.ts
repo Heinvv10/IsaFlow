@@ -42,6 +42,11 @@ import {
   lockCapturedDocumentForUpdate,
   lockWithTimeout,
 } from './captureRowLock';
+import {
+  assertDocumentNotAlreadyPosted,
+  DocumentAlreadyPostedRefusal,
+  DocumentAlreadyLinkedRefusal,
+} from '@/modules/accounting/services/gl/documentJournalClaimGuard';
 
 export type ProvisionalAttachResult =
   | { kind: 'attached'; bankTxId: string | null }
@@ -82,6 +87,23 @@ export async function attachDocumentToProvisional(
     if (err instanceof BankTransactionLockTimeoutError || err instanceof CaptureRowLockTimeoutError
       || isLockContention(err)) {
       return { kind: 'contended', message: CONTENDED };
+    }
+    throw err;
+  }
+
+  // One document, one claim, at the GL write side — before the posting claim
+  // below, which is itself the first write. A document already backing a
+  // posted, unreversed journal (invoice, bill, another provisional — via
+  // source_document_id OR an active gl_journal_document_links row, item 7)
+  // refuses here. Caught and returned as an ordinary 'refused' result rather
+  // than left to bubble into an uncaught 500: this is a normal business
+  // refusal, not an unexpected error, and every other refusal on this path
+  // already answers the same way.
+  try {
+    await assertDocumentNotAlreadyPosted(companyId, documentId, jeId);
+  } catch (err) {
+    if (err instanceof DocumentAlreadyPostedRefusal || err instanceof DocumentAlreadyLinkedRefusal) {
+      return { kind: 'refused', message: err.message };
     }
     throw err;
   }

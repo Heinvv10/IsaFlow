@@ -77,6 +77,11 @@ export const PAT_SCOPE_META: Record<PatScope, PatScopeMeta> = {
     label: 'Read VAT status',
     desc: 'Current VAT201 period summary and VAT return status',
   },
+  'write:vat': {
+    label: 'Write VAT controls',
+    // Deliberately separate from write:post — neither action posts a journal.
+    desc: 'Lock a VAT period as filed (stops later postings from moving its figures) and clear a VAT pre-filing exception with a reason, so eFiling or a manual mark-submitted may proceed. Posts nothing to the ledger.',
+  },
   'write:post': {
     label: 'Post, finalize & allocate (irreversible)',
     desc: 'Allows this token to POST journals, finalize documents, allocate bank transactions, and REVERSE posted entries on its own — an allocation posts an AP/AR journal, records a customer payment as confirmed, and marks a supplier invoice paid; cancelling a credit note reverses its journal. Grant only if you trust this integration.',

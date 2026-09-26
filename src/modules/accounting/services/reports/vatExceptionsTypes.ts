@@ -3,10 +3,6 @@
  * Query orchestration lives in vatExceptionsService.ts.
  */
 
-import type { DbRow } from '@/lib/neon';
-
-type Row = DbRow;
-
 export interface UncodedGlVatLine {
   journalEntryId: string;
   entryNumber: string;
@@ -106,6 +102,65 @@ export interface VatNonSupplyLine {
   journalVat: number | null;
 }
 
+export type InputVatSupportKind =
+  | 'expense_claim' | 'captured_document' | 'credit_note' | 'vat_adjustment' | 'bank' | 'none';
+
+/**
+ * A journal claiming input VAT, and what supports it (vatInputSupport.ts).
+ * `no_document` / `amount_mismatch` rows are BLOCKING (`unsupportedInputVat`);
+ * `no_tax_invoice` rows are the non-blocking "no tax invoice on file" list.
+ */
+export interface InputVatSupportLine {
+  journalEntryId: string;
+  entryNumber: string;
+  entryDate: string;
+  source: string | null;
+  description: string;
+  /** Net vat_input movement on the journal. */
+  claimedVat: number;
+  supportKind: InputVatSupportKind;
+  /** The VAT the linked document supports (bank: the rate/(1+rate) ceiling). Null when none. */
+  documentVat: number | null;
+  reason: 'no_document' | 'amount_mismatch' | 'document_over_claimed' | 'unreadable_document_vat' | 'no_tax_invoice';
+  /** Captured document only: the net VAT every claim naming it has claimed to the period end. */
+  documentClaimedVat: number | null;
+}
+
+/**
+ * An issued invoice or approved bill carrying VAT with no GL journal
+ * (vatUnpostedInvoices.ts). BLOCKING: its VAT is in neither the filed ledger
+ * return nor the GL, so the recon cannot see it.
+ */
+export interface UnpostedInvoiceVatLine {
+  invoiceId: string;
+  invoiceKind: 'customer' | 'supplier';
+  invoiceNumber: string;
+  counterpartyName: string;
+  invoiceDate: string;
+  vat: number;
+  reason: 'no_journal' | 'journal_not_posted' | 'journal_reversed';
+}
+
+/**
+ * An issued invoice / approved bill marked "VAT declared outside IsaFlow"
+ * (migration 705) — would otherwise be `UnpostedInvoiceVatLine`, but the
+ * block has been lifted by an owner/admin. NON-blocking; not counted in
+ * totalExceptions.
+ */
+export interface DeclaredElsewhereVatLine {
+  invoiceId: string;
+  invoiceKind: 'customer' | 'supplier';
+  invoiceNumber: string;
+  counterpartyName: string;
+  invoiceDate: string;
+  vat: number;
+  markedAt: string;
+  markedBy: string;
+  /** Display name (or email) for markedBy, falling back to the raw id when no user row resolves. */
+  markedByName: string;
+  markedReason: string;
+}
+
 export interface VatControlRecon {
   outputVat201: number;
   outputGl: number;
@@ -136,79 +191,28 @@ export interface VatExceptionsReport {
   vatNonSupplyLines: VatNonSupplyLine[];
   vatNonSupplyCount: number;
   controlRecon: VatControlRecon;
+  /** BLOCKING: issued invoices / approved bills with VAT and no journal. Capped list; per-side totals are on controlRecon. */
+  unpostedInvoiceVat: UnpostedInvoiceVatLine[];
+  unpostedInvoiceVatCount: number;
+  /** NOT blocking: same population, marked "VAT declared outside IsaFlow" (migration 705). Capped list. */
+  declaredElsewhereVat: DeclaredElsewhereVatLine[];
+  declaredElsewhereVatCount: number;
+  /** BLOCKING: input VAT claimed with no document behind it, or disagreeing with it. Capped list. */
+  unsupportedInputVat: InputVatSupportLine[];
+  unsupportedInputVatCount: number;
+  /** NOT blocking: input VAT supported only by a bank line or a VAT adjustment. Capped list. */
+  inputVatWithoutTaxInvoice: InputVatSupportLine[];
+  inputVatWithoutTaxInvoiceCount: number;
   totalExceptions: number;
   /** True when generateVAT201 ran on missing sources — recon totals untrustworthy. */
   degradedData: boolean;
   degradedSources: string[];
 }
 
-export function toNum(v: unknown): number {
-  const n = Number(v);
-  return isNaN(n) ? 0 : n;
-}
-
-export function r2(n: number): number {
-  return Math.round(n * 100) / 100;
-}
-
-export function dateStr(v: unknown): string {
-  if (v instanceof Date) {
-    // pg returns DATE columns as Date objects at local midnight — format with
-    // local components; toISOString() would shift the day in UTC+ timezones.
-    const m = String(v.getMonth() + 1).padStart(2, '0');
-    const d = String(v.getDate()).padStart(2, '0');
-    return `${v.getFullYear()}-${m}-${d}`;
-  }
-  return String(v ?? '');
-}
-
-export function totalCount(rows: Row[]): number {
-  return rows.length > 0 ? toNum(rows[0]!.total_count) : 0;
-}
-
-export function mapUncodedLine(r: Row): UncodedGlVatLine {
-  return {
-    journalEntryId: String(r.journal_entry_id),
-    entryNumber: String(r.entry_number ?? ''),
-    entryDate: dateStr(r.entry_date),
-    accountCode: String(r.account_code ?? ''),
-    accountName: String(r.account_name ?? ''),
-    subtype: String(r.account_subtype) === 'vat_input' ? 'vat_input' : 'vat_output',
-    description: String(r.description ?? ''),
-    amount: r2(toNum(r.amount)),
-  };
-}
-
-export function mapTaxIssue(kind: 'customer' | 'supplier') {
-  return (r: Row): InvoiceTaxCodeIssue => ({
-    invoiceId: String(r.invoice_id),
-    invoiceKind: kind,
-    invoiceNumber: String(r.invoice_number ?? ''),
-    counterpartyName: String(r.counterparty_name ?? 'Unknown'),
-    invoiceDate: dateStr(r.invoice_date),
-    subtotal: toNum(r.subtotal),
-    taxRate: r.tax_rate === null || r.tax_rate === undefined ? null : toNum(r.tax_rate),
-    taxAmount: toNum(r.tax_amount),
-    issue: r.tax_rate === null || r.tax_rate === undefined ? 'missing_tax_rate' : 'rate_without_vat',
-  });
-}
-
-export function mapMismatch(kind: 'customer' | 'supplier') {
-  return (r: Row): InvoiceGlVatMismatch => {
-    const invoiceVat = toNum(r.invoice_vat);
-    const glVat = toNum(r.gl_vat);
-    return {
-      invoiceId: String(r.invoice_id),
-      invoiceKind: kind,
-      invoiceNumber: String(r.invoice_number ?? ''),
-      counterpartyName: String(r.counterparty_name ?? 'Unknown'),
-      invoiceDate: dateStr(r.invoice_date),
-      invoiceVat,
-      glVat,
-      variance: r2(invoiceVat - glVat),
-      // je_status comes from an unconditional join on the linked JE; the
-      // mismatch query itself only sums VAT from POSTED lines.
-      reason: r.je_status != null && String(r.je_status) !== 'posted' ? 'je_not_posted' : 'amount_mismatch',
-    };
-  };
-}
+// Row mappers and the small numeric/date helpers behind them live in
+// vatExceptionsMappers.ts (item 11, file-size limit) and are re-exported here
+// so every existing caller of this module keeps working unchanged.
+export {
+  toNum, r2, dateStr, totalCount,
+  mapUncodedLine, mapTaxIssue, mapUnpostedInvoice, mapMismatch, mapDeclaredElsewhere,
+} from './vatExceptionsMappers';

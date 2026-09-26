@@ -1,6 +1,7 @@
 /**
  * PR #158 review refinements to the VAT exceptions report:
- *  - degraded-data flag when generateVAT201 ran on missing sources
+ *  - degraded-data flag when the document-derived figures (generateVAT201,
+ *    reached through getLedgerVAT201) ran on missing sources
  *  - invoices linked to a non-posted (draft) JE labeled 'je_not_posted'
  *    instead of listing as an amount mismatch with GL 0.00
  *  - unposted-VAT footnote aggregates input VAT from supplier_invoice_items
@@ -12,9 +13,9 @@ const sqlMock = vi.fn();
 vi.mock('@/lib/neon', () => ({ sql: (...a: unknown[]) => sqlMock(...a) }));
 vi.mock('@/lib/logger', () => ({ log: { info: vi.fn(), warn: vi.fn(), error: vi.fn() } }));
 
-const generateVAT201 = vi.fn();
-vi.mock('@/modules/accounting/services/reports/vat201Service', () => ({
-  generateVAT201: (...a: unknown[]) => generateVAT201(...a),
+const getLedgerVAT201 = vi.fn();
+vi.mock('@/modules/accounting/services/reports/vat201LedgerFields', () => ({
+  getLedgerVAT201: (...a: unknown[]) => getLedgerVAT201(...a),
 }));
 
 import { getVatExceptions } from '@/modules/accounting/services/reports/vatExceptionsService';
@@ -35,7 +36,7 @@ function queryText(call: unknown[]): string {
 beforeEach(() => {
   vi.clearAllMocks();
   sqlMock.mockImplementation(async () => []);
-  generateVAT201.mockResolvedValue(HEALTHY_VAT201);
+  getLedgerVAT201.mockResolvedValue(HEALTHY_VAT201);
 });
 
 describe('getVatExceptions degraded-data flag', () => {
@@ -45,8 +46,8 @@ describe('getVatExceptions degraded-data flag', () => {
     expect(report.degradedSources).toEqual([]);
   });
 
-  it('surfaces degraded sources from generateVAT201', async () => {
-    generateVAT201.mockResolvedValue({ ...HEALTHY_VAT201, degradedSources: ['customer_invoices'] });
+  it('surfaces degraded sources from getLedgerVAT201', async () => {
+    getLedgerVAT201.mockResolvedValue({ ...HEALTHY_VAT201, degradedSources: ['customer_invoices'] });
     const report = await getVatExceptions('co-1', '2026-01-01', '2026-02-28');
     expect(report.degradedData).toBe(true);
     expect(report.degradedSources).toEqual(['customer_invoices']);
@@ -91,7 +92,11 @@ describe('getVatExceptions draft-JE mismatches', () => {
 describe('getVatExceptions unposted-VAT footnote', () => {
   it('aggregates the supplier side from supplier_invoice_items (field10 source parity)', async () => {
     await getVatExceptions('co-1', '2026-01-01', '2026-02-28');
-    const unpostedCall = sqlMock.mock.calls.find((c) => queryText(c).includes('unposted_supplier_vat'));
+    // 'unposted_vat' alone is not specific to vatUnpostedInvoices' query — pin
+    // it against 'journal_reversed', the CASE label unique to that query's
+    // reason column, so this cannot silently start matching a different call.
+    const unpostedCall = sqlMock.mock.calls.find((c) =>
+      queryText(c).includes('unposted_vat') && queryText(c).includes('journal_reversed'));
     expect(unpostedCall).toBeDefined();
     expect(queryText(unpostedCall!)).toContain('supplier_invoice_items');
   });

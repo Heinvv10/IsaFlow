@@ -564,6 +564,10 @@ export async function postClaimToGl(
       debit: totalVat > 0 ? totalVat : 0,
       credit: totalVat < 0 ? -totalVat : 0,
       description: `VAT Input ${claim.claimNumber}`,
+      // Coded, so the VAT201's pre-filing check does not list it as an uncoded
+      // VAT line. Box-neutral: the return reads an uncoded input leg as
+      // standard (migration 702 backfilled the legs posted before this).
+      vatType: 'standard',
     });
   }
 

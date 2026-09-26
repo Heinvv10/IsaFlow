@@ -14,7 +14,7 @@ export const MCP_AUTH_SERVER_METADATA_PATH = '/.well-known/oauth-authorization-s
 export const MCP_PROTECTED_RESOURCE_METADATA_PATH = '/.well-known/oauth-protected-resource';
 
 /**
- * All MCP tool names — 64 read + 47 write = 111. Drift-guarded against
+ * All MCP tool names — 65 read + 48 write = 113. Drift-guarded against
  * toolIndex.ts by tests/unit/mcp/clientMetadata.test.ts, which compares the
  * ARRAY rather than this comment; the comment is the part that can rot, so it
  * is derived by counting `MCP_TOOLS.filter(t => !t.write)` and not by hand.
@@ -43,9 +43,11 @@ export const CLIENT_MCP_TOOL_NAMES = [
   'vat_status',
   'vat_reconciliation',
   'vat201_export',
+  'vat_exceptions',
   'data_integrity_checks',
   'chart_of_accounts_health',
   'lock_vat_period',
+  'mark_vat_declared_elsewhere',
   'list_agent_postings',
   'audit_trail',
   'list_documents',
@@ -160,4 +162,5 @@ export const CLIENT_MCP_TOOL_NAMES = [
   'perform_bank_reconciliation',
   'create_pay_run',
   'post_payroll_journal',
+  'link_document_to_journal',
 ] as const;

@@ -29,7 +29,7 @@
  *
  * ── WHAT THEY DO SHARE ──────────────────────────────────────────────────────
  *
- * `je.source IS DISTINCT FROM 'auto_vat_submission'` (V-05).
+ * `je.source IS DISTINCT FROM ${VAT_SUBMISSION_CLEARING_SOURCE}` (V-05).
  * `vatSubmissionService` posts its settlement journal against these same
  * control accounts, moving the period's entire output and input tax back off
  * them — so without the predicate the GL side of the recon collapsed to
@@ -48,6 +48,7 @@
 
 import { sql } from '@/lib/neon';
 import type { DbRow } from '@/lib/neon';
+import { VAT_SUBMISSION_CLEARING_SOURCE } from './vatSubmissionClearing';
 
 /**
  * One row: `gl_output` (credit − debit on vat_output accounts) and `gl_input`
@@ -75,7 +76,7 @@ export async function findVatControlMovement(
       AND je.status = 'posted'
       AND je.entry_date >= ${periodStart}::DATE
       AND je.entry_date <= ${periodEnd}::DATE
-      AND je.source IS DISTINCT FROM 'auto_vat_submission'
+      AND je.source IS DISTINCT FROM ${VAT_SUBMISSION_CLEARING_SOURCE}
       AND ga.account_subtype IN ('vat_input', 'vat_output')
   ` as Promise<DbRow[]>;
 }

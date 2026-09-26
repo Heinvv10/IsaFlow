@@ -2,18 +2,24 @@
  * Shared builders/mocks for vatExceptionsService tests.
  *
  * The service runs 9 SQL queries (in declaration order inside Promise.all)
- * plus one generateVAT201 call. mockExceptionsSql queues each in sequence:
+ * plus one getLedgerVAT201 call (the FILED figures the recon ties to the GL
+ * control accounts). mockExceptionsSql queues each in sequence:
  *  1. Uncoded GL VAT lines (vat_type IS NULL on vat_input/vat_output accounts)
  *  2. Customer invoices with tax-code issues
  *  3. Supplier invoices with tax-code issues
  *  4. Customer invoice ↔ GL VAT mismatches (linked via gl_journal_entry_id)
  *  5. Supplier invoice ↔ GL VAT mismatches
  *  6. GL VAT control movement for the period (one row)
- *  7. Unposted invoice VAT aggregates (one row)
+ *  7. Issued invoices / approved bills carrying VAT with no journal (one row per document)
  *  8. VAT coded against a balance-sheet account (appended last, so adding it
  *     did not shift the positions the existing six queues rely on)
  *  9. VAT coded against an account on which no supply can arise (appended
  *     after 8 for the same reason)
+ * 10. Input-VAT support: journals claiming input VAT that are not a bill's
+ *     or a reversal (vatInputSupport)
+ * 11. Issued invoices / approved bills marked "VAT declared outside IsaFlow"
+ *     (migration 705) — same population as 7, appended last. getLedgerVAT201
+ *     is NOT a `sql` call from here — it is mocked separately by the caller.
  *
  * All numeric values arrive as strings (pg numeric) — the service must coerce.
  * NOTE: each test file must call vi.mock('@/lib/neon', ...) itself; this
@@ -91,14 +97,8 @@ export function makeMismatchRow(overrides: Record<string, unknown> = {}) {
 }
 
 export const EMPTY_GL_CONTROL = [{ gl_output: '0', gl_input: '0' }];
-export const EMPTY_UNPOSTED = [
-  {
-    unposted_customer_vat: '0',
-    unposted_customer_count: '0',
-    unposted_supplier_vat: '0',
-    unposted_supplier_count: '0',
-  },
-];
+/** Query 7 returns one row per unposted document (vatUnpostedInvoices); none by default. */
+export const EMPTY_UNPOSTED: unknown[] = [];
 
 export interface MockExceptionsOpts {
   uncoded?: unknown[];
@@ -110,9 +110,13 @@ export interface MockExceptionsOpts {
   unposted?: unknown[];
   vatOnBalanceSheet?: unknown[];
   vatNonSupply?: unknown[];
+  /** Rows of the input-VAT support query (vatInputSupport), appended 10th. */
+  inputSupport?: unknown[];
+  /** Rows of findVatDeclaredElsewhere (migration 705), appended 11th (last). */
+  declaredElsewhere?: unknown[];
 }
 
-/** Queue the 9 SQL results in service call order. */
+/** Queue the 11 SQL results in service call order. */
 export function mockExceptionsSql(opts: MockExceptionsOpts) {
   vi.mocked(sql)
     .mockResolvedValueOnce((opts.uncoded ?? []) as never)
@@ -123,7 +127,9 @@ export function mockExceptionsSql(opts: MockExceptionsOpts) {
     .mockResolvedValueOnce((opts.glControl ?? EMPTY_GL_CONTROL) as never)
     .mockResolvedValueOnce((opts.unposted ?? EMPTY_UNPOSTED) as never)
     .mockResolvedValueOnce((opts.vatOnBalanceSheet ?? []) as never)
-    .mockResolvedValueOnce((opts.vatNonSupply ?? []) as never);
+    .mockResolvedValueOnce((opts.vatNonSupply ?? []) as never)
+    .mockResolvedValueOnce((opts.inputSupport ?? []) as never)
+    .mockResolvedValueOnce((opts.declaredElsewhere ?? []) as never);
 }
 
 export function makeBalanceSheetVatRow(overrides: Record<string, unknown> = {}) {
