@@ -187,10 +187,10 @@ describe('R-032 — approval decisions under platform-admin impersonation', () =
     expect(gotrue.minted).toContain(sessionId);
     // L4: the refused start is still on the record, its stash is cleaned up, and
     // the cleanup ran on a usable transaction (no 25P02 logged as a cleanup failure).
-    expect(await countOf(auditQuery)).toBe(auditsBefore + 1);
-    expect(await countOf(stashQuery)).toBe(stashesBefore);
     const cleanupFailures = logged.filter(([message]) => String(message).includes('cleanup failed'));
     expect(cleanupFailures).toEqual([]);
+    expect(await countOf(auditQuery)).toBe(auditsBefore + 1);
+    expect(await countOf(stashQuery)).toBe(stashesBefore);
   });
 
   it('lets the same target approve on their OWN session', async () => {
