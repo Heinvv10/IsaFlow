@@ -21,6 +21,7 @@ import { assertSupplierInvoiceLinesPostable } from './billLineAccountGuard';
 import { planSupplierInvoiceCancel } from './supplierInvoiceCancelPlan';
 import { documentInPopulation } from '../shared/documentPopulation';
 import type { LateClaimInfo, PostJournalOpts } from '../gl/vatLateClaimPlan';
+import { claimEvidencedProvisional, settleInvoiceFromProvisional } from './provisionalInvoiceSettlement';
 
 type Row = DbRow;
 
@@ -94,6 +95,10 @@ export async function approveSupplierInvoice(
       return mapInvoiceRow(reused[0]!);
     }
 
+    // R-127: a bank-first provisional this invoice's slip already evidences is
+    // this invoice's payment. Locked here, before the first write; settled below.
+    const provisional = await claimEvidencedProvisional(companyId, id);
+
     // Auto-post GL entry: DR Expense + DR VAT Input, CR Accounts Payable
     const apAccount = await getSystemAccount('payable', companyId);
     const vatAccount = await getSystemAccount('vat_input', companyId);
@@ -131,13 +136,21 @@ export async function approveSupplierInvoice(
 
     const posted = await postJournalEntry(companyId, journalEntry.id, userId, opts);
 
-    const updated = (await sql`
+    let updated = (await sql`
       UPDATE supplier_invoices
       SET status = 'approved', approved_by = ${userId}::UUID, approved_at = NOW(),
           gl_journal_entry_id = ${journalEntry.id}::UUID
       WHERE id = ${id} AND company_id = ${companyId}::UUID
       RETURNING *
     `) as Row[];
+    if (provisional) {
+      await settleInvoiceFromProvisional(companyId, {
+        invoice, invoiceJournalId: journalEntry.id, claim: provisional, userId, opts,
+      });
+      updated = (await sql`
+        SELECT * FROM supplier_invoices WHERE id = ${id} AND company_id = ${companyId}::UUID
+      `) as Row[];
+    }
 
     log.info('Approved supplier invoice', { id, journalEntryId: journalEntry.id }, 'accounting');
     return { ...mapInvoiceRow(updated[0]!), ...(posted.lateClaim ? { lateClaim: posted.lateClaim } : {}) };
@@ -205,6 +218,10 @@ export async function postSupplierInvoiceToGL(
     );
   }
 
+  // R-127: as in approveSupplierInvoice — this is how an auto-approved captured
+  // invoice gets its journal, and the provisional its slip evidences settles it.
+  const provisional = await claimEvidencedProvisional(companyId, id);
+
   const apAccount = await getSystemAccount('payable', companyId);
   const vatAccount = await getSystemAccount('vat_input', companyId);
   const defaultExpenseAccount = await getSystemAccount('default_expense', companyId);
@@ -246,6 +263,11 @@ export async function postSupplierInvoiceToGL(
     SET gl_journal_entry_id = ${journalEntry.id}::UUID
     WHERE id = ${id}::UUID AND company_id = ${companyId}::UUID
   `;
+  if (provisional) {
+    await settleInvoiceFromProvisional(companyId, {
+      invoice, invoiceJournalId: journalEntry.id, claim: provisional, userId, opts,
+    });
+  }
 
   log.info('Backfilled supplier invoice GL', { id, journalEntryId: journalEntry.id }, 'accounting');
   return { journalEntryId: journalEntry.id, alreadyPosted: false };

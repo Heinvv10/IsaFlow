@@ -13,7 +13,7 @@
 import { log } from '@/lib/logger';
 import { sql } from '@/lib/neon';
 import { recordCoding, type SupplierRule } from './supplierRulesService';
-import { attachEvidenceToProvisional } from './evidenceAttachmentService';
+import { attachEvidenceAndSettleApproved } from './provisionalAttachSettle';
 import { resolvePendingAlertForInvoice } from './alertResolutionService';
 import { performThreeWayMatch } from '@/modules/accounting/services/ap/supplierInvoiceWorkflowService';
 
@@ -27,6 +27,8 @@ export interface CapturePostFollowUpInput {
   eventId: string;
   documentId: string;
   invoiceId: string;
+  /** The status the route inserted the invoice with ('approved' on auto-approve). */
+  invoiceStatus: string;
   supplierId: string;
   supplierName: string;
   vendorVatNumber: string | null | undefined;
@@ -75,16 +77,20 @@ export async function runCapturePostFollowUps(input: CapturePostFollowUpInput): 
     gateOutcome: input.decision.outcome,
   }, 'capture-post');
 
-  // Attempt to attach evidence to a matching provisional JE (best-effort, non-blocking)
+  // Attempt to attach evidence to a matching provisional JE (best-effort, non-blocking);
+  // an auto-approved invoice is then settled against it (R-127).
   let provisionalAttach: CapturePostFollowUps['provisionalAttach'] = { attachedJeId: null, bankTxId: null };
   try {
-    provisionalAttach = await attachEvidenceToProvisional(
+    provisionalAttach = await attachEvidenceAndSettleApproved({
       companyId,
+      userId,
       documentId,
+      invoiceId,
+      invoiceStatus: input.invoiceStatus,
       supplierId,
-      input.totalAmount,
-      input.invoiceDate,
-    );
+      totalAmount: input.totalAmount,
+      invoiceDate: input.invoiceDate,
+    });
   } catch (attachErr) {
     log.warn('Evidence attach to provisional JE failed — continuing', { eventId, error: attachErr }, 'capture-post');
   }
