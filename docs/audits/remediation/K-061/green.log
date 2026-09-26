@@ -1,0 +1,40 @@
+# K-061 GREEN — code at 9a2985e54 (fix/k061-customer-merge-20260926), 2026-09-26T02:32:14Z
+# all tests/integration/k061-*.int.test.ts on isaflow_schema_fixture, through the real routes (withAuth → app_user), --reporter=verbose
+ ✓ tests/integration/k061-customer-merge-lock-order.int.test.ts > bank_transactions: a settlement locking ORDER BY id does not deadlock against a merge
+ ✓ tests/integration/k061-customer-merge-lock-order.int.test.ts > customer_payments: a settlement locking ORDER BY id does not deadlock against a merge
+ ✓ tests/integration/k061-customer-merge-lock-order.int.test.ts > customer_invoices: a settlement locking ORDER BY id does not deadlock against a merge
+ ✓ tests/integration/k061-recurring-run-lock-order.int.test.ts > runs due templates in id order, whatever their due dates
+ ✓ tests/integration/k061-duplicates-merge-customer.int.test.ts > moves every census reference off the duplicate and counts the documents it re-parented
+ ✓ tests/integration/k061-customer-merge-lock-order.int.test.ts > a bank allocation creating a receipt for the source does not deadlock against a merge
+ ✓ tests/integration/k061-customer-merge-moves.int.test.ts > moves every census reference to the target and leaves the source with none
+ ✓ tests/integration/k061-customer-merge-sage-resync.int.test.ts > a re-sync after a merge re-creates the name but cannot book the moved Sage invoice twice
+ ✓ tests/integration/k061-customer-merge-lock-order.int.test.ts > a customer refund holding a bank line and then locking the customer does not deadlock against a merge
+ ✓ tests/integration/k061-customer-merge-refusals.int.test.ts > refuses another tenant's customer as the source, changing nothing in either tenant
+ ✓ tests/integration/k061-customer-merge-lock-order.int.test.ts > an allocation on an unrelated line that receipts to the source and then applies it does not deadlock against a merge
+ ✓ tests/integration/k061-customer-merge-lock-order.int.test.ts > recurring_invoices: an invoice a running recurring run creates during a merge is moved, not stranded
+ ✓ tests/integration/k061-duplicates-merge-customer.int.test.ts > refuses with 400 and changes nothing when both customers have a dunning override
+ ✓ tests/integration/k061-customer-merge-lock-order.int.test.ts > recurring_transaction_templates: an invoice a running recurring run creates during a merge is moved, not stranded
+ ✓ tests/integration/k061-customer-merge-moves.int.test.ts > moves invoices on both columns, keeping a NULL client_id NULL, so COALESCE names the target
+ ✓ tests/integration/k061-customer-merge-refusals.int.test.ts > refuses another tenant's customer as the target, changing nothing in either tenant
+ ✓ tests/integration/k061-duplicates-merge-customer.int.test.ts > refuses another tenant's customer and a non-UUID id with 400, changing nothing
+ ✓ tests/integration/k061-customer-merge-moves.int.test.ts > the target owes both customers' debt and the source owes nothing
+ ✓ tests/integration/k061-customer-merge-refusals.int.test.ts > refuses a merge into itself, saying why
+ ✓ tests/integration/k061-customer-merge-moves.int.test.ts > soft-deletes the source, and a second merge of it is refused
+ ✓ tests/integration/k061-customer-merge-refusals.int.test.ts > refuses the same id spelled in two letter cases as a self-merge
+ ✓ tests/integration/k061-customer-merge-moves.int.test.ts > revokes the source's portal logins and leaves the target's alone
+ ✓ tests/integration/k061-customer-merge-moves.int.test.ts > moves the source's recurring invoices AND recurring transaction templates paused, counts both, leaves the target's running
+ ✓ tests/integration/k061-customer-merge-refusals.int.test.ts > refuses a soft-deleted target
+ ✓ tests/integration/k061-customer-merge-moves.int.test.ts > keeps the target's primary contact and default address; the moved ones are not primary or default
+ ✓ tests/integration/k061-customer-merge-refusals.int.test.ts > refuses ids that are not UUIDs with a 400, not a 500
+ ✓ tests/integration/k061-customer-merge-moves.int.test.ts > a custom field both customers set keeps the target's value; one only the source set moves
+ ✓ tests/integration/k061-customer-merge-refusals.int.test.ts > refuses when both customers have a dunning override, naming the conflict
+ ✓ tests/integration/k061-customer-merge-moves.int.test.ts > moves a dunning override that only the source has
+ ✓ tests/integration/k061-customer-merge-refusals.int.test.ts > two merges racing in opposite directions: exactly one succeeds and nothing is split
+ ✓ tests/integration/k061-customer-merge-moves.int.test.ts > an invoice whose columns name different customers moves only the column naming the source
+ ✓ tests/integration/k061-customer-merge-contention.int.test.ts > a merge that cannot get its rows within the bound answers 409 and moves nothing
+ ✓ tests/integration/k061-customer-merge-moves.int.test.ts > a recurring template whose JSON spells the source id in upper case still moves and pauses
+ ✓ tests/integration/k061-customer-merge-contention.int.test.ts > a bulk allocation interleaving bank → invoices → bank with a merge never produces a 500
+ ✓ tests/integration/k061-customer-merge-contention.int.test.ts > a dunning inserted for the target during the merge answers 409 and moves nothing
+ ✓ tests/integration/k061-customer-merge-contention.int.test.ts > a custom field inserted for the target during the merge answers 409 and moves nothing
+ Test Files  7 passed (7)
+      Tests  36 passed (36)

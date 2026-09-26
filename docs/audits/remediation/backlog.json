@@ -2259,23 +2259,29 @@
       "sourceIds": [
         "A H5"
       ],
-      "correctedTrigger": null,
+      "correctedTrigger": "Every customer-merge POST raised 42703 on customer_payments.customer_id and rolled back; the second path (duplicates-merge) moved 5 of 24 customer references and left active recurring invoices on the deleted customer.",
       "severityRationale": "Source priority only; impact and reachability not yet validated.",
       "auditedSha": "5661d6f0f5f2212705151e95455a3f681ddf840e",
       "currentSha": "0f16391e",
-      "status": "confirmed",
+      "status": "fix-in-review",
       "dependencies": [],
       "testNames": [
-        "tests/integration/k061-customer-merge-nonexistent-column.int.test.ts"
+        "tests/integration/k061-customer-merge-moves.int.test.ts",
+        "tests/integration/k061-customer-merge-refusals.int.test.ts",
+        "tests/integration/k061-customer-merge-sage-resync.int.test.ts",
+        "tests/integration/k061-duplicates-merge-customer.int.test.ts"
       ],
       "evidencePaths": [
+        "K-061/validation.md",
+        "K-061/fix.md",
         "K-061/red.log",
-        "K-061/validation.md"
+        "K-061/green.log",
+        "K-061/mutations.log"
       ],
       "fixCommit": null,
       "pr": null,
       "deployedSha": null,
-      "historicalDataImpact": "Not assessed",
+      "historicalDataImpact": "customer-merge: none (always rolled back). duplicates-merge: customers merged there left rows (incl. active recurring invoices) on the deleted customer; census SQL in K-061/fix.md, correction is Hein's call.",
       "canonicalItem": null,
       "reportedSeverity": "high"
     },
