@@ -1,23 +1,23 @@
-## HEAD ae9a168e5 — unit (DATABASE_URL unset)
+## HEAD efb4e3197 — unit (DATABASE_URL unset)
  RUN  v4.1.2 /home/hein/Workspace/IsaFlow/.worktrees/k079
- Test Files  3 passed (3)
-      Tests  79 passed (79)
-   Start at  18:07:23
-   Duration  2.59s (transform 2.09s, setup 0ms, import 2.77s, tests 36ms, environment 0ms)
+ Test Files  4 passed (4)
+      Tests  81 passed (81)
+   Start at  18:29:35
+   Duration  2.61s (transform 2.23s, setup 0ms, import 2.92s, tests 47ms, environment 0ms)
 ## integration (isaflow_schema_fixture, real routes)
  RUN  v4.1.2 /home/hein/Workspace/IsaFlow/.worktrees/k079
- ✓ tests/integration/k079-payroll-eti-journal.int.test.ts > K-079: approving a run that claims ETI > ETI below PAYE: posts a balanced journal with 2140 = paye − eti and links it to the run 83ms
- ✓ tests/integration/k079-payroll-eti-journal.int.test.ts > K-079: approving a run that claims ETI > ETI above PAYE: books only the ETI PAYE can absorb, and still posts balanced 25ms
- ✓ tests/integration/k079-payroll-eti-journal.int.test.ts > K-079: approving a run that claims ETI > no ETI: the journal is unchanged — 2140 carries the full PAYE 28ms
- ✓ tests/integration/k079-payroll-eti-journal.int.test.ts > K-079: approving a run that claims ETI > another tenant's run is refused and left exactly as it was 9ms
- ✓ tests/integration/k079-payroll-eti-journal.int.test.ts > K-079: approving a run that claims ETI > a status approval refuses is a 400 and leaves the run as it was 11ms
- ✓ tests/integration/k079-payroll-eti-journal.int.test.ts > K-079: approving a run that claims ETI > a closed period is refused BEFORE the status write, with the reason 47ms
- ✓ tests/integration/k079-payroll-eti-journal.int.test.ts > K-079: approving a run that claims ETI > a failure AFTER the status write is a 5xx and rolls the approval back 13ms
- ✓ tests/integration/k079-payroll-eti-journal.int.test.ts > K-079: approving a run that claims ETI > a run stranded approved with no journal (before this fix) re-approves and posts 28ms
- ✓ tests/integration/k079-payroll-eti-journal.int.test.ts > K-079: approving a run that claims ETI > a run reopened after approval keeps its journal and re-approves onto it 49ms
- ✓ tests/integration/k079-payroll-eti-journal.int.test.ts > K-079: approving a run that claims ETI > a deactivated target account is refused BEFORE the status write (the GL poster refuses it) 13ms
- ✓ tests/integration/k079-payroll-eti-journal.int.test.ts > K-079: approving a run that claims ETI > a run the journal cannot post for is refused BEFORE it is marked approved 9ms
+ ✓ tests/integration/k079-payroll-eti-journal.int.test.ts > K-079: approving a run that claims ETI > ETI below PAYE: posts a balanced journal with 2140 = paye − eti and links it to the run 74ms
+ ✓ tests/integration/k079-payroll-eti-journal.int.test.ts > K-079: approving a run that claims ETI > ETI above PAYE: books only the ETI PAYE can absorb, and still posts balanced 23ms
+ ✓ tests/integration/k079-payroll-eti-journal.int.test.ts > K-079: approving a run that claims ETI > no ETI: the journal is unchanged — 2140 carries the full PAYE 19ms
+ ✓ tests/integration/k079-payroll-eti-journal.int.test.ts > K-079: approving a run that claims ETI > another tenant's run is refused and left exactly as it was 6ms
+ ✓ tests/integration/k079-payroll-eti-journal.int.test.ts > K-079: approving a run that claims ETI > a status approval refuses is a 400 and leaves the run as it was 12ms
+ ✓ tests/integration/k079-payroll-eti-journal.int.test.ts > K-079: approving a run that claims ETI > a closed period is refused BEFORE the status write, with the reason 35ms
+ ✓ tests/integration/k079-payroll-eti-journal.int.test.ts > K-079: approving a run that claims ETI > a failure AFTER the status write is a 5xx and rolls the approval back 17ms
+ ✓ tests/integration/k079-payroll-eti-journal.int.test.ts > K-079: approving a run that claims ETI > a run stranded approved with no journal (before this fix) re-approves and posts 27ms
+ ✓ tests/integration/k079-payroll-eti-journal.int.test.ts > K-079: approving a run that claims ETI > a run reopened after approval keeps its journal and re-approves onto it 46ms
+ ✓ tests/integration/k079-payroll-eti-journal.int.test.ts > K-079: approving a run that claims ETI > a deactivated target account is refused BEFORE the status write (the GL poster refuses it) 16ms
+ ✓ tests/integration/k079-payroll-eti-journal.int.test.ts > K-079: approving a run that claims ETI > a run the journal cannot post for is refused BEFORE it is marked approved 7ms
  Test Files  1 passed (1)
       Tests  11 passed (11)
-   Start at  18:07:26
-   Duration  1.29s (transform 394ms, setup 0ms, import 701ms, tests 470ms, environment 0ms)
+   Start at  18:29:38
+   Duration  1.21s (transform 374ms, setup 0ms, import 654ms, tests 432ms, environment 0ms)

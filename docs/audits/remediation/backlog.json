@@ -2870,6 +2870,7 @@
       "testNames": [
         "tests/integration/k079-payroll-eti-journal.int.test.ts",
         "tests/unit/services/payroll/payrollJournalBuilder.test.ts",
+        "tests/unit/services/payroll/payrollJournalBuilder-k079.test.ts",
         "tests/unit/mcp/payRunLifecycle.test.ts",
         "tests/unit/mcp/payrollTools.test.ts"
       ],
@@ -2882,7 +2883,7 @@
         "K-079/mutations.log"
       ],
       "fixCommit": null,
-      "pr": null,
+      "pr": "https://github.com/Heinvv10/IsaFlow/pull/538",
       "deployedSha": null,
       "historicalDataImpact": "None to correct: nothing wrong posted. Possible stranded approved runs with no journal; they post when re-approved. Census SQL in K-079/fix.md, not run on prod.",
       "canonicalItem": null,

@@ -45,8 +45,10 @@ Hein chose:
 - **The cost-centre split ties to the cent** (`payrollJournalParts.buildLabourLines`, review round 2).
   - Each employee's share of the labour debit was rounded separately and never tied back, and ETI
     makes the residual routine: 3 × 9 866.67 = 29 600.01 against a debit of 29 600.
-  - The plan tolerated 1 cent; the GL tolerates none. The residual now lands on the largest share,
-    and the plan's balance check is exact.
+  - The plan tolerated 1 cent; the GL tolerates none. The ROUNDING residual (at most half a cent
+    per line) now lands on the largest share, and the plan's balance check is exact.
+  - A larger gap (run lines that disagree with the header) is not absorbed onto one cost centre;
+    it is refused as `unbalanced` (/review).
   - The UIF halves are `employeeUif = round2(uif/2)`, `employerUif = uif − employeeUif`, so they sum
     exactly.
 - **ETI comes off the cost of the employees who earned it.**
@@ -122,7 +124,7 @@ Hein chose:
     second one;
   - a deactivated 2160: 400, untouched;
   - missing 2175: 400, untouched.
-- `tests/unit/services/payroll/payrollJournalBuilder.test.ts`:
+- `tests/unit/services/payroll/payrollJournalBuilder.test.ts` and `payrollJournalBuilder-k079.test.ts`:
   - The old "ETI unbalances the journal" finding test, which asserted the defect, is rewritten as
     five cases: ETI below, above and equal to PAYE; no ETI; SDL-exempt.
   - Split: ties to the cent; ETI on the cost-centre account of the employee who earned it.
@@ -134,7 +136,7 @@ Hein chose:
   - `red.log` (validation, unit) and `red.int.log`: 3/5 integration cases RED on `origin/master`
     code — ETI < PAYE, ETI > PAYE, and the run marked approved on refusal.
   - `green.log`.
-  - `mutations.log`: a green baseline, then every changed code line mutated (36/36 RED). This includes the
+  - `mutations.log`: a green baseline, then every changed code line mutated (39/39 RED). This includes the
     original defect (`2140 = paye`), the old catch-all 400 in the route and the old 1-cent
     tolerance.
 

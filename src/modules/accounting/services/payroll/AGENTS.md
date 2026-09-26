@@ -34,8 +34,9 @@ Invoked by `withCompany`-wrapped API routes in `pages/api/accounting/payroll/*`.
 - **ETI in the journal (K-079, Hein 2026-09-26).** ETI offsets PAYE payable and is presented net of labour cost, capped at the run's PAYE: `etiUsed = min(total_eti, total_paye)` reduces both DR 5200 and CR 2140, so CR 2140 equals `emp201Service`'s `payePayable` (floored at 0; one run per company per period). ETI beyond PAYE is not booked and is reported as the `eti_beyond_paye` advisory; EMP201 carries none forward. Before the fix the labour debit fell by ETI while 2140 carried full PAYE, so every ETI run was unbalanced and could not post. Never change `etiEngine` here (K-080 is Hein's SARS-table decision).
 - **Payroll journal plan = what the GL will accept (K-079).**
   - The balance check is exact to the cent. The cost-centre labour split ties to the labour debit
-    (residual on the largest share), and ETI comes off the cost of the employees whose run lines
-    carry it.
+    (residual on the largest share), but only the rounding residual (half a cent per line). A
+    bigger gap means the lines disagree with the header, and it is refused as `unbalanced`. ETI
+    comes off the cost of the employees whose run lines carry it.
   - The GL poster's refusals are plan blockers (`nothing_to_post`, `negative_amount`,
     `closed_period`, `inactive_target_account`).
   - The deactivated-account check covers cost-centre labour accounts, resolved by id. It is not
