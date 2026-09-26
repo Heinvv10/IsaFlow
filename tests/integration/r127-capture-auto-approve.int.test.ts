@@ -194,6 +194,8 @@ describe('R-127: auto-approved captured invoices settle against the provisional 
     // auto-approval is withdrawn — and the response must not still say 'approved'.
     expect((await invoiceState(invoiceId)).status).toBe('draft');
     expect((res.state.body as { data: { invoice: { status: string } } }).data.invoice.status).toBe('draft');
+    // The auto-approval was withdrawn: the route it reports is the one needing a human.
+    expect((res.state.body as { data: { approvalRoute: string } }).data.approvalRoute).toBe('manual_review');
   });
 
   it('ai-invoice-pipeline answers draft when the settlement of its auto-approval is refused', async () => {
@@ -211,9 +213,42 @@ describe('R-127: auto-approved captured invoices settle against the provisional 
       const invoiceId = await invoiceForDoc(doc);
       expect((await invoiceState(invoiceId)).status).toBe('draft');
       expect((res.body as { data: { invoice: { status: string } } }).data.invoice.status).toBe('draft');
+      expect((res.body as { data: { approvalRoute: string } }).data.approvalRoute).toBe('manual_review');
     } finally {
       await pool.query('UPDATE vat_period_locks SET unlocked_at=NOW(), unlocked_by=$2, unlock_reason=$3 WHERE id=$1',
         [lock, user, 'R127 test cleanup']);
     }
+  });
+
+  it('capture/[id]/post FAILS the request (≥500, nothing kept) when withdrawing the auto-approval fails', async () => {
+    await seedProvisional({ totalAmount: 3408.80, supplierId: supplier });
+    const doc = await seedExtractedDoc(3408.80);
+    const eventId = crypto.randomUUID();
+    await pool.query(
+      "INSERT INTO capture_events(id,company_id,channel,status,captured_document_id) VALUES($1,$2,'api','extracted',$3)",
+      [eventId, company, doc]);
+    // Fixture-only fault: the approved → draft revert raises, aborting the request transaction.
+    await pool.query(`CREATE OR REPLACE FUNCTION r127_fail_revert() RETURNS trigger LANGUAGE plpgsql
+                      AS $$ BEGIN RAISE EXCEPTION 'r127 injected revert failure'; END $$`);
+    await pool.query(`CREATE TRIGGER r127_fail_revert BEFORE UPDATE ON supplier_invoices FOR EACH ROW
+                      WHEN (OLD.status = 'approved' AND NEW.status = 'draft' AND NEW.company_id = '${company}'::uuid)
+                      EXECUTE FUNCTION r127_fail_revert()`);
+    const res = response();
+    try {
+      const req = request({ 'sb-access-token': token, active_company_id: company }, 'POST');
+      req.url = `/api/accounting/capture/${eventId}/post`;
+      (req as unknown as { query: Record<string, string> }).query = { id: eventId };
+      req.body = {};
+      await capturePostRoute(req as never, res.res as never);
+    } finally {
+      await pool.query('DROP TRIGGER IF EXISTS r127_fail_revert ON supplier_invoices');
+      await pool.query('DROP FUNCTION IF EXISTS r127_fail_revert()');
+    }
+    // Not a 200 over a COMMIT that silently became a ROLLBACK.
+    expect(res.state.statusCode).toBeGreaterThanOrEqual(500);
+    const kept = await pool.query('SELECT id FROM supplier_invoices WHERE company_id=$1 AND source_document_id=$2', [company, doc]);
+    expect(kept.rows).toHaveLength(0);
+    const event = (await pool.query('SELECT status FROM capture_events WHERE id=$1', [eventId])).rows[0].status as string;
+    expect(event).toBe('extracted');
   });
 });
