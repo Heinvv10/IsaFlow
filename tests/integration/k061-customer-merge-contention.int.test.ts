@@ -97,3 +97,43 @@ it('a bulk allocation interleaving bank → invoices → bank with a merge never
     bulk.release();
   }
 }, 30000);
+
+/**
+ * A request inserts a dunning override / custom field for the TARGET while
+ * the merge runs (the customers are FOR NO KEY UPDATE, so the FK does not
+ * wait). The merge's move then collides on the unique key: 409 retry, nothing
+ * moved — not a 500.
+ */
+const racingInserts: Record<string, { table: string; insert: string; pre?: string }> = {
+  dunning: {
+    table: 'customer_dunning_overrides',
+    insert: 'INSERT INTO customer_dunning_overrides(company_id,customer_id) VALUES($1,$2)',
+  },
+  'custom field': {
+    table: 'entity_udf_values',
+    pre: "INSERT INTO entity_udf_values(company_id,entity_type,entity_id,field_number,value) VALUES($1,'customer',$2,2,'source only')",
+    insert: "INSERT INTO entity_udf_values(company_id,entity_type,entity_id,field_number,value) VALUES($1,'customer',$2,2,'racing')",
+  },
+};
+
+for (const [what, race] of Object.entries(racingInserts)) {
+  it(`a ${what} inserted for the target during the merge answers 409 and moves nothing`, async () => {
+    await pool.query('DELETE FROM customer_dunning_overrides WHERE customer_id=$1', [target]);
+    if (race.pre) await pool.query(race.pre, [h.companyA, source]);
+    const sourceBefore = await h.references(source);
+    const writer: PoolClient = await pool.connect();
+    try {
+      await writer.query('BEGIN');
+      await writer.query(race.insert, [h.companyA, target]);
+      const merging = h.merge({ source_id: source, target_id: target });
+      await waitUntilMergeBlocked(race.table);
+      await writer.query('COMMIT');
+      const merged = await merging;
+      expect(merged.state.statusCode).toBe(409);
+      expect(JSON.stringify(merged.state.body)).toMatch(/retry/);
+    } finally {
+      writer.release();
+    }
+    expect(await h.references(source)).toEqual(sourceBefore);
+  }, 30000);
+}
