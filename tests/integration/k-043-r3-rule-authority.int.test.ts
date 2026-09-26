@@ -99,16 +99,18 @@ describe('HIGH-2 — an admin cannot weaken a rule that demands more than they h
 
   // The guard must not lock out legitimate administration, which is the whole
   // reason it ranks rather than demanding 'owner' for every write.
+  // Weakening one (deactivate, lower, delete, narrow) needs a rank ABOVE it —
+  // R-048, pinned in r048-approval-rule-lowering.int.test.ts.
   it('lets the same admin edit an admin-level rule', async () => {
     const ruleId = await plantRule(alpha, 'admin level', 'admin');
-    const res = await call(approvalRules, admin, 'PUT', { id: ruleId, isActive: false });
+    const res = await call(approvalRules, admin, 'PUT', { id: ruleId, name: 'admin level renamed' });
     expect(res.state.statusCode).toBe(200);
-    const stored = await pool.query('SELECT is_active FROM approval_rules WHERE id=$1', [ruleId]);
-    expect(stored.rows[0].is_active).toBe(false);
+    const stored = await pool.query('SELECT name FROM approval_rules WHERE id=$1', [ruleId]);
+    expect(stored.rows[0].name).toBe('admin level renamed');
   });
 
-  it('lets an owner deactivate the owner-only rule', async () => {
-    const ruleId = await plantRule(alpha, 'owner clears own', 'owner');
+  it('lets an owner deactivate an admin-level rule', async () => {
+    const ruleId = await plantRule(alpha, 'owner clears admin', 'admin');
     const res = await call(approvalRules, owner, 'PUT', { id: ruleId, isActive: false });
     expect(res.state.statusCode).toBe(200);
     const stored = await pool.query('SELECT is_active FROM approval_rules WHERE id=$1', [ruleId]);
@@ -118,7 +120,7 @@ describe('HIGH-2 — an admin cannot weaken a rule that demands more than they h
   it('records every rule change in audit_log, since approval_rules keeps no history', async () => {
     const created = await call(approvalRules, owner, 'POST', {
       name: 'audited rule', documentType: 'payment',
-      conditionField: 'amount', conditionOperator: 'any', conditionValue: 0, approverRole: 'owner',
+      conditionField: 'amount', conditionOperator: 'any', conditionValue: 0, approverRole: 'admin',
     });
     expect(created.state.statusCode).toBe(200);
     const ruleId = (created.state.body as { data: { id: string } }).data.id;
@@ -134,7 +136,7 @@ describe('HIGH-2 — an admin cannot weaken a rule that demands more than they h
     expect(trail.rows.every(r => r.user_id === owner)).toBe(true);
     const roleChange = (trail.rows[1].changes as { fields: { field: string; old: string; new: string }[] })
       .fields.find(f => f.field === 'approver_role');
-    expect(roleChange).toMatchObject({ old: 'owner', new: 'manager' });
+    expect(roleChange).toMatchObject({ old: 'admin', new: 'manager' });
   });
 });
 
