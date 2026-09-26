@@ -9,6 +9,7 @@ import { Loader2 } from 'lucide-react';
 import { apiFetch, ApiRequestError, assertOk } from '@/lib/apiFetch';
 import { useCompany } from '@/contexts/CompanyContext';
 import { log } from '@/lib/logger';
+import { InlineReasonForm } from '@/components/shared/InlineReasonForm';
 import type { VatExceptionsReport } from '@/modules/accounting/services/reports/vatExceptionsTypes';
 
 const OVERRIDE_ROLES = ['owner', 'admin', 'super_admin'];
@@ -23,21 +24,21 @@ export default function VatDeclaredElsewhereSection({ report, onChanged }: {
   const { companyRole } = useCompany();
   const isOwnerOrAdmin = OVERRIDE_ROLES.includes(companyRole ?? '');
   const [busyId, setBusyId] = useState<string | null>(null);
+  const [unmarking, setUnmarking] = useState<{ id: string; kind: 'customer' | 'supplier'; number: string } | null>(null);
   const [error, setError] = useState<string | null>(null);
 
   if (report.declaredElsewhereVatCount === 0) return null;
 
-  const unmark = async (invoiceId: string, kind: 'customer' | 'supplier') => {
-    const reason = window.prompt('Why is this being unmarked (restoring the block)?');
-    if (!reason || !reason.trim()) return;
+  const unmark = async (invoiceId: string, kind: 'customer' | 'supplier', reason: string) => {
     setBusyId(invoiceId);
     setError(null);
     try {
       const res = await apiFetch('/api/accounting/vat-declared-elsewhere', {
         method: 'POST',
-        body: JSON.stringify({ action: 'unmark', kind, invoiceIds: [invoiceId], reason: reason.trim() }),
+        body: JSON.stringify({ action: 'unmark', kind, invoiceIds: [invoiceId], reason }),
       });
       await assertOk(res, 'Could not unmark this document');
+      setUnmarking(null);
       onChanged();
     } catch (err) {
       log.warn('VatDeclaredElsewhereSection: unmark failed', { error: err }, 'VatDeclaredElsewhereSection');
@@ -56,6 +57,18 @@ export default function VatDeclaredElsewhereSection({ report, onChanged }: {
         Not blocking filing — marked by an owner/admin as historical/already declared.
       </p>
       {error && <p className={`${td} !border-0 text-red-400 whitespace-normal`}>{error}</p>}
+      {unmarking && (
+        <div className="mt-2">
+          <InlineReasonForm
+            key={unmarking.id}
+            label={`Why is ${unmarking.number} being unmarked (restoring the block)?`}
+            confirmLabel="Confirm unmark"
+            busy={busyId === unmarking.id}
+            onConfirm={(reason) => void unmark(unmarking.id, unmarking.kind, reason)}
+            onCancel={() => setUnmarking(null)}
+          />
+        </div>
+      )}
       <table className="min-w-full mt-2">
         <thead><tr>
           <th className={th}>Invoice</th><th className={th}>Type</th><th className={th}>Counterparty</th>
@@ -77,7 +90,7 @@ export default function VatDeclaredElsewhereSection({ report, onChanged }: {
                 <td className={td}>
                   <button
                     type="button" disabled={busyId === d.invoiceId}
-                    onClick={() => void unmark(d.invoiceId, d.invoiceKind)}
+                    onClick={() => setUnmarking({ id: d.invoiceId, kind: d.invoiceKind, number: d.invoiceNumber })}
                     className="text-xs text-red-400 underline disabled:opacity-50"
                   >
                     {busyId === d.invoiceId ? <Loader2 className="h-3 w-3 animate-spin inline" /> : 'Unmark'}
