@@ -1,9 +1,13 @@
 /**
  * The two input-VAT support sections of the pre-filing exceptions panel
- * (reports/vatInputSupport.ts):
+ * (reports/vatInputSupport.ts) — BOTH warnings, neither blocking:
  *
- *   - "Input VAT with nothing behind it" — BLOCKING. A claim linked to no
- *     document, or one that disagrees with the document it is linked to.
+ *   - "Input VAT with nothing behind it" — NOT blocking (Hein, 2026-09-26).
+ *     A claim linked to no document, or one that disagrees with the document
+ *     it is linked to. Holding a valid tax invoice is the vendor's legal
+ *     responsibility, and it may be held outside IsaFlow, so this no longer
+ *     refuses locking/mark-submitted/eFiling — it stays visible, with its
+ *     amount and a "Link tax invoice" action, so it can be cleared up.
  *   - "Input VAT with no tax invoice on file" — NOT blocking (Hein,
  *     2026-09-25). Supported by a bank line or an approved VAT adjustment:
  *     the money moved, but the tax invoice should be attached.
@@ -79,13 +83,14 @@ export default function VatInputSupportSections({ report, Section }: {
 }) {
   return (
     <>
-      <Section title="Input VAT with nothing behind it" count={report.unsupportedInputVatCount}
+      <Section title="Input VAT with nothing behind it (not blocking)" count={report.unsupportedInputVatCount}
         listed={report.unsupportedInputVat.length}>
         <p className={`${td} !border-0 text-slate-500 whitespace-normal`}>
           Every input-VAT claim needs a document behind it. These journals claim input VAT that
           is linked to no bill, expense claim, captured receipt, credit note or bank line, or
-          that differs from the document they are linked to. They block filing: attach or post
-          the document, or reverse the claim.
+          that differs from the document they are linked to. Holding a valid tax invoice for this
+          input VAT is the vendor&apos;s legal responsibility, and it may be held outside
+          IsaFlow — so this does not block filing. Attaching or linking it here is optional.
         </p>
         <SupportTable lines={report.unsupportedInputVat} linkable />
       </Section>

@@ -51,8 +51,10 @@ describeIfDb('VAT-gaps item 3: vat_exceptions tool', () => {
     await inTx(fxA, async () => {
       const je = await createJournalEntry(fxA.companyId, {
         entryDate: '2026-07-10', description: 'manual VAT claim', source: 'manual',
+        // vatType: 'standard' so this is ONLY an unsupported input-VAT claim,
+        // not also an uncoded GL VAT line.
         lines: [
-          { glAccountId: vatInputAccA, debit: 30, credit: 0 },
+          { glAccountId: vatInputAccA, debit: 30, credit: 0, vatType: 'standard' },
           { glAccountId: expenseAccA, debit: 0, credit: 30 },
         ],
       }, fxA.userId);
@@ -67,15 +69,18 @@ describeIfDb('VAT-gaps item 3: vat_exceptions tool', () => {
     await dropFixture(fxB);
   }, 120000);
 
-  it('reports the blocking unsupportedInputVat category for company A, with items and counts', async () => {
+  it('reports the NON-blocking unsupportedInputVat category for company A, with items and counts (Hein, 2026-09-26)', async () => {
     const result = await inTx(fxA, () => vatExceptionsTool.handler(
       { period_start: PERIOD_START, period_end: PERIOD_END }, ctxFor(fxA),
     ));
     const b = body(result);
-    expect(b.totalExceptions).toBeGreaterThanOrEqual(1);
+    // Unsupported input VAT is the ONLY exception here, and no longer blocks:
+    // the vendor's legal responsibility to hold a tax invoice, which may live
+    // outside IsaFlow.
+    expect(b.totalExceptions).toBe(0);
     const categories = b.categories as { type: string; blocking: boolean; count: number; items: unknown[] }[];
     const unsupported = categories.find((c) => c.type === 'unsupportedInputVat')!;
-    expect(unsupported.blocking).toBe(true);
+    expect(unsupported.blocking).toBe(false);
     expect(unsupported.count).toBeGreaterThanOrEqual(1);
     expect(unsupported.items.length).toBeGreaterThanOrEqual(1);
     const declaredElsewhere = categories.find((c) => c.type === 'declaredElsewhereVat')!;

@@ -39,11 +39,15 @@
  * it cannot read is `unreadable_document_vat` and blocks — never a silent 0.
  * No VAT read at all is none claimable.
  *
- * BLOCKING (`unsupportedInputVat`): a positive claim with no link at all, or
- * a linked claim that disagrees with its document. NOT blocking (Hein,
- * 2026-09-25): a claim supported only by the bank line or a VAT adjustment is
- * listed as "no tax invoice on file" — real money moved, but s16(2) wants the
- * tax invoice before the deduction, so somebody should attach it.
+ * `unsupportedInputVat`: a positive claim with no link at all, or a linked
+ * claim that disagrees with its document. NOT blocking (Hein, 2026-09-26):
+ * holding a valid tax invoice for the claim is the vendor's legal
+ * responsibility under s16(2), and the invoice may be held outside IsaFlow —
+ * so the list stays fully visible (amounts, reasons, a "Link tax invoice"
+ * action) but no longer blocks locking, mark-submitted or eFiling. Likewise
+ * NOT blocking (Hein, 2026-09-25): a claim supported only by the bank line or
+ * a VAT adjustment is listed as "no tax invoice on file" — real money moved,
+ * so somebody should attach it, but nothing here refuses to file without it.
  */
 import { AMOUNT, parseAmount } from '@/modules/accounting/services/core/ocrAmountParsing';
 import { SA_VAT_RATE } from './vatBoxBasis';
