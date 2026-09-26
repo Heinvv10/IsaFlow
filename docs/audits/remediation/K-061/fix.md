@@ -160,3 +160,10 @@ SELECT company_id, count(*) FROM customer_dunning_overrides GROUP BY 1 ORDER BY 
 - `CUSTOMER_MERGE_CONTENDED` is in the live `.next/server/pages/api/accounting/customer-merge.js`.
 - Health 200. An unauthenticated merge answers 401.
 - Rollback: `4cb44bc63`, code only.
+
+**Prod census result (2026-09-26 ~09:40 SAST, read-only session `default_transaction_read_only=on`, run at Hein's instruction).** Prod is clean.
+- Query 1: 0 `[MERGED]` customers.
+- Query 2: 0 live invoices, 0 credit notes, 0 active recurring invoices, 0 active portal logins, 0 contacts and 0 active recurring templates on deleted customers. There are 6 receipts, all on one deleted demo customer: "AUDIT-0704 Customer", ISAFlow Demo, deleted 2026-07-04, an audit fixture rather than a merge.
+- Query 2b: 0 invoices generated after a customer's deletion.
+- Query 3: 0 dunning overrides on prod.
+- The old duplicates-merge path therefore left nothing behind on prod, and no correction is needed.
