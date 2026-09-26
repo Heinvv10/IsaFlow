@@ -1,7 +1,7 @@
 /**
  * Receipt-to-Journal API
  * POST /api/accounting/receipt-to-journal
- * Body: { documentId } or multipart file upload
+ * Body: { documentId, confirmDuplicate? } or multipart file upload
  */
 
 import type { NextApiResponse } from 'next';
@@ -31,6 +31,7 @@ import {
   lockCapturedDocumentForUpdate,
   refusalForPosting,
 } from '@/modules/accounting/services/capture/captureRowLock';
+import { checkReceiptDuplicate } from '@/modules/accounting/services/capture/receiptDuplicateGuard';
 import { MissingSystemAccountError } from '@/modules/accounting/services/gl/systemAccountKeys';
 import { getSystemAccountId } from '@/modules/accounting/services/gl/systemAccountResolver';
 import {
@@ -50,7 +51,7 @@ async function handler(req: CompanyAuthedRequest, res: NextApiResponse) {
 
   const { companyId } = req;
   const userId: string = req.user?.id || '';
-  const { documentId } = req.body as { documentId?: string };
+  const { documentId, confirmDuplicate } = req.body as { documentId?: string; confirmDuplicate?: boolean };
 
   if (!documentId) return apiResponse.badRequest(res, 'documentId is required');
 
@@ -229,7 +230,13 @@ async function handler(req: CompanyAuthedRequest, res: NextApiResponse) {
     throw err;
   }
 
-  const refusal = await claimCapturedDocumentForPosting(companyId, documentId);
+  // A re-upload of a receipt already posted from ANOTHER document (R-088):
+  // the checks above are all about this row, and a second upload is a second
+  // row. Still before the first write, so the 409 commits nothing.
+  const duplicate = await checkReceiptDuplicate(companyId, documentId, extracted, confirmDuplicate === true);
+  if (duplicate.kind !== 'clear') return apiResponse.conflict(res, duplicate.message, duplicate.details);
+
+  const refusal = await claimCapturedDocumentForPosting(companyId, documentId, null, duplicate.fingerprint);
   if (refusal) {
     return apiResponse.badRequest(res, CAPTURED_DOCUMENT_REFUSAL_MESSAGE[refusal]);
   }

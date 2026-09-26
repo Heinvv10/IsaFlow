@@ -101,6 +101,25 @@ describe('R-088 a receipt posts once however many times it is uploaded', () => {
     expect(await bankCredit()).toBe(before + 1150);
   });
 
+  it('posts a same-total receipt from the same vendor that printed a different slip number', async () => {
+    // Two genuine purchases: same vendor, day, total and VAT, two slip numbers.
+    const morning = await upload('slip-waltons-805-a', { total: 805, reference: 'TS-4471' });
+    const afternoon = await upload('slip-waltons-805-b', { total: 805, reference: 'TS-4502' });
+    expect((await receiptToJournal(morning)).state.statusCode).toBe(200);
+    expect((await receiptToJournal(afternoon)).state.statusCode).toBe(200);
+    expect(await journalCount([morning, afternoon])).toBe(2);
+    // A copy of the morning slip that lost its number in the read is still refused.
+    const copy = await upload('slip-waltons-805-a-photo', { total: 805 });
+    expectDuplicateRefusal(await receiptToJournal(copy), morning, 'details');
+  });
+
+  it('does not read two rows with no stored hash as the same file', async () => {
+    const first = await upload(null, { total: 690, reference: 'TS-5001' });
+    const second = await upload(null, { total: 690, reference: 'TS-5002' });
+    expect((await receiptToJournal(first)).state.statusCode).toBe(200);
+    expect((await receiptToJournal(second)).state.statusCode).toBe(200);
+  });
+
   it('still posts a different receipt', async () => {
     const other = await upload('slip-waltons-575', { total: 575 });
     expect((await receiptToJournal(other)).state.statusCode).toBe(200);
@@ -138,6 +157,21 @@ describe('R-088 a receipt posts once however many times it is uploaded', () => {
 
     expect((await postExpense(eventId, { ...body, confirmDuplicate: true })).state.statusCode).toBe(200);
     expect(await claimLineCount(documentId)).toBe(1);
+  });
+
+  it('a slip posted from the capture inbox refuses a re-encoded copy on the other route', async () => {
+    // Both inbox branches must RECORD the key they posted under, or the copy
+    // (different bytes) finds nothing to match.
+    const office = accounts[company]!.office;
+    const pettyCash = await uploadToInbox('slip-cna-1265', { total: 1265, vendor: 'CNA' });
+    expect((await postExpense(pettyCash.eventId, { glAccountId: office })).state.statusCode).toBe(200);
+    const claimed = await uploadToInbox('slip-cna-1380', { total: 1380, vendor: 'CNA' });
+    expect((await postExpense(claimed.eventId, { employeeId: employee, glAccountId: office })).state.statusCode).toBe(200);
+
+    const pettyCopy = await upload('slip-cna-1265-scan', { total: 1265, vendor: 'CNA (Pty) Ltd' });
+    expectDuplicateRefusal(await receiptToJournal(pettyCopy), pettyCash.documentId, 'details');
+    const claimCopy = await upload('slip-cna-1380-scan', { total: 1380, vendor: 'CNA (Pty) Ltd' });
+    expectDuplicateRefusal(await receiptToJournal(claimCopy), claimed.documentId, 'details');
   });
 
   it('frees the fingerprint when the earlier posting is undone', async () => {
@@ -183,7 +217,7 @@ describe('R-088 a receipt posts once however many times it is uploaded', () => {
 
 // The fence behind the check: a posting path that forgets to ask — or one
 // written later — still cannot land a second live claim on the same content.
-describe('R-088 backstop: the partial unique indexes on the posted fingerprint', () => {
+describe('R-088 backstop: the partial unique index on the posted bytes', () => {
   it('refuses a second live claim on the same bytes and admits a confirmed repeat', async () => {
     const [x1, x2, x3] = [
       await upload('slip-backstop', { total: 920 }),
@@ -196,15 +230,5 @@ describe('R-088 backstop: the partial unique indexes on the posted fingerprint',
       .rejects.toThrow(/uq_captured_documents_posted_content/);
     expect(await postedAt(x2)).toBeNull();
     expect(await claimCapturedDocumentForPosting(company, x3, null, { ...fingerprint, duplicateOf: x1 })).toBeNull();
-  });
-
-  it('refuses a second live claim on the same receipt key', async () => {
-    const [y1, y2] = [await upload('slip-key-1', { total: 910 }), await upload('slip-key-2', { total: 910 })];
-    const key = 'v1|backstop|2026-09-26|91000|11870';
-    expect(await claimCapturedDocumentForPosting(company, y1, null,
-      { contentSha256: bytesHash('slip-key-1'), receiptKey: key, duplicateOf: null })).toBeNull();
-    await expect(claimCapturedDocumentForPosting(company, y2, null,
-      { contentSha256: bytesHash('slip-key-2'), receiptKey: key, duplicateOf: null }))
-      .rejects.toThrow(/uq_captured_documents_posted_receipt_key/);
   });
 });

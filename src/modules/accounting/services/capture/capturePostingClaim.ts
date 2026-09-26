@@ -63,6 +63,14 @@ export class CapturedDocumentAlreadyPostedError extends Error {
   }
 }
 
+/** What a receipt was posted under — see `receiptDuplicateGuard.ts`. */
+export interface PostedReceiptFingerprint {
+  contentSha256: string | null;
+  receiptKey: string | null;
+  /** The earlier document a person confirmed this one repeats; null otherwise. */
+  duplicateOf: string | null;
+}
+
 /**
  * Claim the document for posting: stamp `posted_at`, but only from a row that
  * has not been claimed and has not been rejected.
@@ -87,18 +95,29 @@ export class CapturedDocumentAlreadyPostedError extends Error {
  * the thing that decides it. `document_category` is stamped for the two routes
  * that set it; passing null leaves the column untouched.
  *
+ * `fingerprint` is the content a RECEIPT path posts under (R-088), from
+ * `checkReceiptDuplicate`. It is stamped in this same UPDATE so the claim and
+ * the partial unique index behind it (migration 708) land or fail together:
+ * a second live claim on the same bytes raises 23505 here, before any
+ * ledger write, and rolls the request back. Paths that post no receipt pass
+ * nothing and the columns stay NULL.
+ *
  * Returns null when the claim succeeded, otherwise the reason it did not.
  */
 export async function claimCapturedDocumentForPosting(
   companyId: string,
   documentId: string,
   documentCategory: string | null = null,
+  fingerprint: PostedReceiptFingerprint | null = null,
 ): Promise<CapturedDocumentRefusal | null> {
   const rows = (await sql`
     UPDATE captured_documents
        SET posted_at = NOW(),
            status = 'matched',
            document_category = COALESCE(${documentCategory}, document_category),
+           posted_content_sha256 = ${fingerprint?.contentSha256 ?? null},
+           posted_receipt_key = ${fingerprint?.receiptKey ?? null},
+           posted_duplicate_of = ${fingerprint?.duplicateOf ?? null}::uuid,
            updated_at = NOW()
      WHERE id = ${documentId}::uuid
        AND company_id = ${companyId}

@@ -25,14 +25,14 @@ export const today = new Date().toISOString().slice(0, 10);
 /** The hash an intake path stores for these bytes. */
 export const bytesHash = (bytes: string): string => createHash('sha256').update(Buffer.from(bytes)).digest('hex');
 
-export interface Slip { total: number; vendor?: string; confidence?: number }
+export interface Slip { total: number; vendor?: string; confidence?: number; reference?: string }
 
-function extracted({ total, vendor = 'Waltons Stationery', confidence = 0.95 }: Slip) {
+function extracted({ total, vendor = 'Waltons Stationery', confidence = 0.95, reference }: Slip) {
   const subtotal = Math.round((total / 1.15) * 100) / 100;
   const vat = Math.round((total - subtotal) * 100) / 100;
   return {
     documentType: 'receipt', vendorName: vendor, date: today,
-    referenceNumber: null, currency: 'ZAR', subtotal, vatAmount: vat,
+    referenceNumber: reference ?? null, currency: 'ZAR', subtotal, vatAmount: vat,
     vatRate: 15, totalAmount: total, lineItems: [], confidence,
     rawText: `${vendor}\nTAX INVOICE\nSub Total ${subtotal.toFixed(2)}\nVAT ${vat.toFixed(2)}\nTotal ${total.toFixed(2)}`,
     warnings: [], extractionMethod: 'vlm',
@@ -42,14 +42,15 @@ function extracted({ total, vendor = 'Waltons Stationery', confidence = 0.95 }: 
 const documents: string[] = [];
 const events: string[] = [];
 
-/** One upload: a captured_documents row for `bytes`, read as `slip`. */
-export async function upload(bytes: string, slip: Slip, owner = company): Promise<string> {
+/** One upload: a captured_documents row for `bytes` (null: a row with no stored hash), read as `slip`. */
+export async function upload(bytes: string | null, slip: Slip, owner = company): Promise<string> {
   const id = crypto.randomUUID();
   documents.push(id);
   await pool.query(
     `INSERT INTO captured_documents(id,company_id,file_name,file_type,document_type,extracted_data,status,raw_bytes_sha256,raw_bytes_size)
      VALUES($1,$2,$3,'image/jpeg','receipt',$4::jsonb,'pending',$5,$6)`,
-    [id, owner, `r088-${id.slice(0, 8)}.jpg`, JSON.stringify(extracted(slip)), bytesHash(bytes), bytes.length],
+    [id, owner, `r088-${id.slice(0, 8)}.jpg`, JSON.stringify(extracted(slip)),
+      bytes === null ? null : bytesHash(bytes), bytes?.length ?? null],
   );
   return id;
 }

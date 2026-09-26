@@ -150,6 +150,7 @@ export {
   claimCapturedDocumentForPosting,
   refusalForPosting,
   type CapturedDocumentRefusal,
+  type PostedReceiptFingerprint,
 } from './capturePostingClaim';
 
 /** The two rows a capture-inbox post has to agree on, read under both locks. */
