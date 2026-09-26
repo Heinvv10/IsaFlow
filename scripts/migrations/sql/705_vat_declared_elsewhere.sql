@@ -32,6 +32,13 @@ ALTER TABLE supplier_invoices ADD COLUMN IF NOT EXISTS vat_declared_elsewhere_at
 ALTER TABLE supplier_invoices ADD COLUMN IF NOT EXISTS vat_declared_elsewhere_by     TEXT;
 ALTER TABLE supplier_invoices ADD COLUMN IF NOT EXISTS vat_declared_elsewhere_reason TEXT;
 
+-- Security review, item 3: a plain ADD CONSTRAINT ... CHECK takes an
+-- ACCESS EXCLUSIVE lock for the FULL scan+validate in one step. NOT VALID
+-- takes the same lock only long enough to add the constraint (existing rows
+-- unchecked, new/updated rows enforced immediately); a separate VALIDATE
+-- CONSTRAINT then does the table scan under a much weaker lock
+-- (SHARE UPDATE EXCLUSIVE), which does not block reads or writes. Guarded so
+-- re-running this file is a no-op once both steps have applied.
 DO $$
 BEGIN
   IF NOT EXISTS (
@@ -43,7 +50,7 @@ BEGIN
       OR (vat_declared_elsewhere_at IS NOT NULL
           AND vat_declared_elsewhere_by IS NOT NULL AND btrim(vat_declared_elsewhere_by) <> ''
           AND vat_declared_elsewhere_reason IS NOT NULL AND btrim(vat_declared_elsewhere_reason) <> '')
-    );
+    ) NOT VALID;
   END IF;
   IF NOT EXISTS (
     SELECT 1 FROM pg_constraint
@@ -54,6 +61,9 @@ BEGIN
       OR (vat_declared_elsewhere_at IS NOT NULL
           AND vat_declared_elsewhere_by IS NOT NULL AND btrim(vat_declared_elsewhere_by) <> ''
           AND vat_declared_elsewhere_reason IS NOT NULL AND btrim(vat_declared_elsewhere_reason) <> '')
-    );
+    ) NOT VALID;
   END IF;
 END $$;
+
+ALTER TABLE customer_invoices VALIDATE CONSTRAINT customer_invoices_vat_declared_elsewhere_ck;
+ALTER TABLE supplier_invoices VALIDATE CONSTRAINT supplier_invoices_vat_declared_elsewhere_ck;
