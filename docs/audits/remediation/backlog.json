@@ -2263,7 +2263,7 @@
       "severityRationale": "Source priority only; impact and reachability not yet validated.",
       "auditedSha": "5661d6f0f5f2212705151e95455a3f681ddf840e",
       "currentSha": "0f16391e",
-      "status": "fix-in-review",
+      "status": "fixed",
       "dependencies": [],
       "testNames": [
         "tests/integration/k061-customer-merge-moves.int.test.ts",
@@ -2278,9 +2278,9 @@
         "K-061/green.log",
         "K-061/mutations.log"
       ],
-      "fixCommit": null,
-      "pr": null,
-      "deployedSha": null,
+      "fixCommit": "d4db06c9f;056ab9215;b69461a9e;88ee44182;00f30a160;b0ee76e1b;e43a477d5;1f2e73533;9a2985e54",
+      "pr": "https://github.com/Heinvv10/IsaFlow/pull/530",
+      "deployedSha": "34dac5651",
       "historicalDataImpact": "customer-merge: none (always rolled back). duplicates-merge: customers merged there left rows (incl. active recurring invoices) on the deleted customer; census SQL in K-061/fix.md, correction is Hein's call.",
       "canonicalItem": null,
       "reportedSeverity": "high"
