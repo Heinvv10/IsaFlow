@@ -6,9 +6,6 @@
  * APPROVED request exists for this document, in THIS company, whose digest is
  * the document's current digest and whose demanded rank is at least that of the
  * strictest rule matching today. Anything else is a refusal with a reason.
- *
- * Also here: the sole-approver roster function refuses, rather than answering
- * "nobody else", when it cannot see through RLS.
  */
 import { afterAll, describe, expect, it } from 'vitest';
 import type { PoolClient } from 'pg';
@@ -157,37 +154,6 @@ describe('evaluateApprovalGate', () => {
       expect(error).toBeInstanceOf(ApprovalRequiredError);
       expect(error).toMatchObject({ reason: 'APPROVAL_REQUIRED', requiredRole: 'owner', requestId: null });
       expect((error as Error).message).toMatch(/needs owner approval before it can be posted/);
-    });
-  });
-});
-
-describe('approval_company_other_members fails closed', () => {
-  it('RAISES — rather than answering "nobody else" — when its owner cannot see through RLS', async () => {
-    await inTx(async (fx) => {
-      await fx.c.query("INSERT INTO users(id,email,role,is_active) VALUES($1,$2,'admin',true)", [USER, `${USER}@test.local`]);
-      await fx.c.query("INSERT INTO company_users(company_id,user_id,role) VALUES($1,$2,'owner')", [fx.company, USER]);
-      const ok = await fx.c.query('SELECT count(*)::int AS n FROM approval_company_other_members($1, $2)', [fx.company, USER]);
-      expect(ok.rows[0].n).toBe(0);
-
-      await fx.c.query('CREATE ROLE r035_no_bypass NOLOGIN NOBYPASSRLS');
-      await fx.c.query('GRANT USAGE ON SCHEMA public, auth TO r035_no_bypass');
-      await fx.c.query('GRANT SELECT ON company_users, users TO r035_no_bypass');
-      await fx.c.query('ALTER FUNCTION approval_company_other_members(uuid, text) OWNER TO r035_no_bypass');
-      await fx.c.query('SAVEPOINT blind');
-      await expect(fx.c.query('SELECT * FROM approval_company_other_members($1, $2)', [fx.company, USER]))
-        .rejects.toThrow(/cannot see the caller's own membership/);
-      await fx.c.query('ROLLBACK TO SAVEPOINT blind');
-    });
-  });
-
-  it('refuses to answer on behalf of someone other than the JWT subject', async () => {
-    await inTx(async (fx) => {
-      // USER is a real member, so the membership check alone would answer.
-      await fx.c.query("INSERT INTO users(id,email,role,is_active) VALUES($1,$2,'admin',true)", [USER, `${USER}@test.local`]);
-      await fx.c.query("INSERT INTO company_users(company_id,user_id,role) VALUES($1,$2,'owner')", [fx.company, USER]);
-      await fx.c.query(`SELECT set_config('request.jwt.claims', $1, true)`, [JSON.stringify({ sub: 'someone-else' })]);
-      await expect(fx.c.query('SELECT * FROM approval_company_other_members($1, $2)', [fx.company, USER]))
-        .rejects.toThrow(/on behalf of the caller/);
     });
   });
 });

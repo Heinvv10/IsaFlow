@@ -7,9 +7,10 @@
  * of that type (the same ladder as rule edits) and writes an audit row through
  * logAuditOrThrow. Rows are planted directly to test the disable half.
  */
-import { afterAll, beforeAll, describe, expect, it } from 'vitest';
+import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
 import { Pool } from 'pg';
 import approvalEnforcement from '../../pages/api/accounting/approval-enforcement';
+import { log } from '../../src/lib/logger';
 import { ENFORCEABLE_DOCUMENT_TYPES } from '../../src/modules/accounting/services/gl/approvalEnforcement';
 import { assertDisposable } from './mfa-impersonation-postgres.helpers';
 import { callRoute, cleanup, createUser, newCompany, plantRule, reasonOf } from './r035-approval.helpers';
@@ -74,11 +75,17 @@ describe('disabling is a weakening act', () => {
     await plantRule(pool, company, 'owner', { operator: 'greater_than', value: 100000 });
     await plantEnforcement(company, 'supplier_invoice');
 
+    const warn = vi.spyOn(log, 'warn');
     const res = await call(admin, company, 'POST', { documentType: 'supplier_invoice', enabled: false });
     expect(res.state.statusCode).toBe(403);
     expect(reasonOf(res)).toBe('RULE_AUTHORITY_REQUIRED');
     expect(await enforced(company)).toEqual(['supplier_invoice']);
     expect(await audits(company)).toEqual([]);
+    // Not in audit_log (no action fits a refusal) — but not silent either.
+    expect(warn).toHaveBeenCalledWith('Approval enforcement disable refused', expect.objectContaining({
+      companyId: company, documentType: 'supplier_invoice', actorId: admin, actorRole: 'admin', strictestRuleRole: 'owner',
+    }), 'accounting');
+    warn.mockRestore();
   });
 
   it('lets the owner disable it — 200, row gone, one delete audit row naming the actor', async () => {
