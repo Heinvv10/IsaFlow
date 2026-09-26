@@ -28,6 +28,7 @@ vi.mock('@/modules/accounting/services/payroll/costCentreGlMappingService', () =
 }));
 
 import { buildPayrollJournalPlan } from '@/modules/accounting/services/payroll/payrollJournalBuilder';
+import { getMappingLookup } from '@/modules/accounting/services/payroll/costCentreGlMappingService';
 
 const COMPANY = 'aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa';
 const RUN = 'bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb';
@@ -192,7 +193,65 @@ describe('buildPayrollJournalPlan — ETI offsets PAYE payable (K-079)', () => {
   });
 });
 
+describe('buildPayrollJournalPlan — ETI through the cost-centre split (K-079)', () => {
+  /** Run lines are read by the split; allocations first, because both queries name payroll_run_lines. */
+  const splitRoutes = (header: Record<string, unknown>, lines: unknown[]): Route[] => [
+    { match: 'payroll_employee_cost_allocations', rows: [] },
+    { match: 'payroll_run_lines prl', rows: lines },
+    ...standardRoutes({ header: [header] }),
+  ];
+
+  it('ties the split labour lines to the labour debit to the cent', async () => {
+    // Three equal employees, R1 000 ETI on the header but none on the lines:
+    // each share is 10 200 − 333.33 = 9 866.67, and 3 × that is 29 600.01.
+    const header = { ...HEADER, total_gross: 30000, total_paye: 3000, total_uif: 600, total_sdl: 300,
+      total_eti: 1000, total_net: 26700 };
+    const lines = [1, 2, 3].map((n) => ({ employee_id: `e${n}`, gross_pay: 10000, eti: 0, cost_centre_id: null }));
+    routeMock(splitRoutes(header, lines));
+    const plan = await buildPayrollJournalPlan(COMPANY, RUN);
+
+    expect(plan!.blockers).toEqual([]);
+    expect(plan!.totalDebit).toBe(29600);
+    expect(plan!.totalCredit).toBe(29600);
+  });
+
+  it('takes ETI off the labour cost of the employee who earned it, not by gross', async () => {
+    // A (centre X → 5210) earns R4 000 and all R1 000 of ETI; B (centre Y → 5220) R36 000.
+    // Cost before ETI 40 800 split by gross: A 4 080, B 36 720; A alone carries the ETI.
+    vi.mocked(getMappingLookup).mockResolvedValueOnce({ X: 'acc-5210', Y: 'acc-5220' });
+    const header = { ...HEADER, total_gross: 40000, total_paye: 8000, total_uif: 800, total_sdl: 400,
+      total_eti: 1000, total_net: 31600 };
+    const lines = [
+      { employee_id: 'A', gross_pay: 4000, eti: 1000, cost_centre_id: 'X' },
+      { employee_id: 'B', gross_pay: 36000, eti: 0, cost_centre_id: 'Y' },
+    ];
+    routeMock(splitRoutes(header, lines));
+    const plan = await buildPayrollJournalPlan(COMPANY, RUN);
+
+    const debitOn = (id: string) => plan!.lines.find((l) => l.glAccountId === id)?.debit;
+    expect(debitOn('acc-5210')).toBe(3080);
+    expect(debitOn('acc-5220')).toBe(36720);
+    expect(plan!.totalDebit).toBe(plan!.totalCredit);
+  });
+});
+
 describe('buildPayrollJournalPlan — what would stop the post', () => {
+  it('blocks a negative amount, which a journal line cannot carry', async () => {
+    // Net pay above gross − PAYE − employee UIF: the residual deductions line
+    // is skipped and nothing balances — but a negative 1110 must be named.
+    routeMock(standardRoutes({ header: [{ ...HEADER, total_net: -500 }] }));
+    const plan = await buildPayrollJournalPlan(COMPANY, RUN);
+    expect(plan!.blockers.find((b) => b.code === 'negative_amount')?.detail).toContain('1110');
+  });
+
+  it('blocks a 1-cent imbalance — the GL rejects it, so the plan must too', async () => {
+    // Net pay one cent above the residual: other deductions come to −0.01,
+    // are skipped, and credits exceed debits by R0.01.
+    routeMock(standardRoutes({ header: [{ ...HEADER, total_net: 79000.01 }] }));
+    const plan = await buildPayrollJournalPlan(COMPANY, RUN);
+    expect(plan!.blockers.map((b) => b.code)).toContain('unbalanced');
+  });
+
   it('blocks a run whose period is closed, naming the status (the GL poster refuses it)', async () => {
     routeMock([{ match: 'FROM fiscal_periods', rows: [{ status: 'closed' }] }, ...standardRoutes()]);
     const plan = await buildPayrollJournalPlan(COMPANY, RUN);

@@ -79,6 +79,13 @@ export async function resolveAccounts(companyId: string): Promise<Map<string, Re
  * Builds the labour-debit lines, split across per-cost-centre expense accounts
  * where mappings exist. Lifted wholesale from the poster so both paths split
  * identically.
+ *
+ * K-079: each employee carries a gross-share of the cost BEFORE ETI
+ * (labourDebit + etiUsed) less their own share of `etiUsed`, apportioned by
+ * the ETI on their run line — ETI is earned by the low-wage staff, so spreading
+ * it by gross moved cost between cost-centre accounts. The per-employee
+ * amounts are then tied to `labourDebit` to the cent (residual on the largest),
+ * because the GL rejects a journal that is out by even R0.01.
  */
 export async function buildLabourLines(
   companyId: string,
@@ -86,6 +93,7 @@ export async function buildLabourLines(
   labourDebit: number,
   totalGross: number,
   defaultAccountId: string,
+  etiUsed: number,
 ): Promise<Array<{ glAccountId: string; debit: number; description: string }>> {
   const fallback = [{
     glAccountId: defaultAccountId,
@@ -95,7 +103,7 @@ export async function buildLabourLines(
   if (labourDebit === 0 || totalGross === 0) return fallback;
 
   const lineRows = (await sql`
-    SELECT prl.employee_id, prl.gross_pay, e.cost_centre_id
+    SELECT prl.employee_id, prl.gross_pay, prl.eti, e.cost_centre_id
       FROM payroll_run_lines prl
       JOIN payroll_employees e ON e.id = prl.employee_id
      WHERE prl.run_id = ${runId}::uuid
@@ -113,11 +121,20 @@ export async function buildLabourLines(
   const mappings = await getMappingLookup(companyId);
   const employeeCostCentre: Record<string, string | null> = {};
   const runLines: RunLabourLine[] = [];
+  const costBeforeEti = labourDebit + etiUsed;
+  const lineEti = lineRows.reduce((s, r) => s + (Number(r.eti) || 0), 0);
   for (const r of lineRows) {
     const employeeId = String(r.employee_id);
-    const grossShare = Number(r.gross_pay) || 0;
+    const grossShare = (Number(r.gross_pay) || 0) / totalGross;
+    // No ETI on the lines (an imported or hand-edited header): fall back to gross.
+    const etiShare = lineEti > 0 ? (Number(r.eti) || 0) / lineEti : grossShare;
     employeeCostCentre[employeeId] = r.cost_centre_id == null ? null : String(r.cost_centre_id);
-    runLines.push({ employeeId, labourAmount: round2((grossShare / totalGross) * labourDebit) });
+    runLines.push({ employeeId, labourAmount: round2(grossShare * costBeforeEti - etiShare * etiUsed) });
+  }
+  const residual = round2(labourDebit - runLines.reduce((s, l) => s + l.labourAmount, 0));
+  if (residual !== 0) {
+    const largest = runLines.reduce((a, b) => (b.labourAmount > a.labourAmount ? b : a));
+    largest.labourAmount = round2(largest.labourAmount + residual);
   }
 
   const employeeAllocations: Record<string, AllocationShare[]> = {};

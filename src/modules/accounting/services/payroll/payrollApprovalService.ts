@@ -10,12 +10,18 @@ import type { DbRow } from '@/lib/neon';
 import { log } from '@/lib/logger';
 import { mapRunRow, type PayrollRunSummary } from './payrollRunService';
 import { postPayrollRunJournal } from './payrollJournalPostingService';
-import { buildPayrollJournalPlan, type PayrollJournalNote } from './payrollJournalBuilder';
+import {
+  buildPayrollJournalPlan,
+  type PayrollJournalNote,
+  type PayrollJournalPlan,
+} from './payrollJournalBuilder';
 
 type Row = DbRow;
 
 export interface ApprovePayrollRunResult extends PayrollRunSummary {
   journalEntryId: string;
+  /** The journal plan's advisories (e.g. `eti_beyond_paye`), for the caller to show. */
+  advisories: PayrollJournalNote[];
 }
 
 /**
@@ -44,7 +50,10 @@ export async function findApprovalBlocker(
   runId: string,
 ): Promise<PayrollJournalNote | null> {
   const plan = await buildPayrollJournalPlan(companyId, runId);
-  if (!plan) return null;
+  return plan ? approvalBlocker(plan) : null;
+}
+
+function approvalBlocker(plan: PayrollJournalPlan): PayrollJournalNote | null {
   const blocker = plan.blockers.find((b) => b.code !== 'run_not_approved' && b.code !== 'already_posted');
   if (blocker) return blocker;
   if (plan.alreadyPostedJournalId) return null;
@@ -87,7 +96,9 @@ export async function approvePayrollRun(
     );
   }
 
-  const blocker = await findApprovalBlocker(companyId, runId);
+  const plan = await buildPayrollJournalPlan(companyId, runId);
+  if (!plan) throw new PayrollApprovalRefusedError('Payroll run not found');
+  const blocker = approvalBlocker(plan);
   if (blocker) throw new PayrollApprovalRefusedError(blocker.detail);
 
   const updatedRows = (await sql`
@@ -113,5 +124,6 @@ export async function approvePayrollRun(
     ...mapRunRow(updatedRows[0]),
     status: 'approved',
     journalEntryId,
+    advisories: plan.advisories,
   };
 }
