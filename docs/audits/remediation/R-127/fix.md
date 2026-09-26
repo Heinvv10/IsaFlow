@@ -22,7 +22,7 @@ Code: `src/modules/accounting/services/ap/provisionalInvoiceSettlement.ts` (`cla
 
 ### The claim
 - `claimEvidencedProvisional` runs before the approval's first write. It locks the provisional with `FOR UPDATE OF je` (bounded to 5 s via `withSupplierInvoiceLock`). Only after holding the lock does it read whether a live payment already names the provisional. Two approvals of two invoices from one slip therefore serialise, and the second one reads the first one's payment.
-- Migration 718 adds `supplier_payments.settles_provisional_je_id` with a partial unique index (`WHERE settles_provisional_je_id IS NOT NULL AND status <> 'cancelled'`). This is the constraint behind the lock. A voided (cancelled) payment releases the claim.
+- Migration 711 adds `supplier_payments.settles_provisional_je_id` with a partial unique index (`WHERE settles_provisional_je_id IS NOT NULL AND status <> 'cancelled'`). This is the constraint behind the lock. A voided (cancelled) payment releases the claim.
 - If a qualifying provisional's lines do not add up to its bank line, the approval is refused with an error. Posting the invoice beside it would double-book, and reclassing it would be a guess.
 
 ### Amounts that differ (decided: settle, capped, never refuse)
@@ -64,7 +64,7 @@ This fix does (c) and does not decide the question.
 - `kind`: `double_booked_gl`, where the invoice's own journal is live, or `subledger_only`, where the invoice was auto-approved with no journal;
 - `already_settled`: a live payment with reference = the bank transaction id is applied to the invoice.
 
-It does not read migration 718's column, so it runs before or after the deploy.
+It does not read migration 711's column, so it runs before or after the deploy.
 
 Checked on the fixture, inside a rolled-back transaction, against four seeded slips:
 - a double-booked slip was reported as `double_booked_gl, f`;

@@ -34,7 +34,7 @@
  * THE CLAIM. `claimEvidencedProvisional` locks the provisional (bounded wait)
  * BEFORE any write of the approval and only then reads whether a live payment
  * already consumed it; the partial unique index on
- * `supplier_payments.settles_provisional_je_id` (migration 718) backs that.
+ * `supplier_payments.settles_provisional_je_id` (migration 711) backs that.
  */
 
 import { sql } from '@/lib/neon';

@@ -14,7 +14,7 @@ M4  S  drop `je.needs_evidence = false` -> guards "a provisional still needing e
 M5  S  drop the live-payment claim check (`if (taken.length > 0) continue`)
     -> guards "one provisional, two invoices from the same slip: only the first is settled by it"
     -> error: duplicate key value violates unique constraint "uq_supplier_payments_settles_provisional_je"
-       (the migration-718 index is the backstop; the approval fails instead of completing)
+       (the migration-711 index is the backstop; the approval fails instead of completing)
 M6  S  drop `FOR UPDATE OF je`
     -> race "the second approval waits for the first, then approves without reusing the provisional"
     -> error: duplicate key value violates unique constraint "uq_gl_je_company_entry_number"
@@ -40,4 +40,4 @@ M12' A settle removed entirely (`return attached`) -> capture "ai-invoice-pipeli
 M13 DB DROP INDEX uq_supplier_payments_settles_provisional_je on the fixture
     -> guards "the database refuses a second live payment on one provisional, and a cancelled one releases it"
     -> AssertionError: promise resolved "Result{ command: 'INSERT', …(9) }" instead of rejecting
-       (index re-created by re-running 718; pg_indexes shows the original definition)
+       (index re-created by re-running 711; pg_indexes shows the original definition)
