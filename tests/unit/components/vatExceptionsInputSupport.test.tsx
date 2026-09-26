@@ -70,3 +70,14 @@ it('shows the blocking "exceeds its support" section and the non-blocking "no ta
   expect(screen.getByText('Bank line only')).toBeTruthy();
   expect(screen.getByText('No tax invoice on file')).toBeTruthy();
 });
+
+it('a document_unlinked row says its document was removed, not "Nothing"', async () => {
+  const unlinked = { ...report, unsupportedInputVat: [line({ supportKind: 'none', reason: 'document_unlinked', documentVat: null })] };
+  vi.mocked(apiFetch).mockResolvedValue(new Response(JSON.stringify({ success: true, data: unlinked }), { status: 200 }));
+  render(<VAT201ExceptionsPanel from="2026-07-01" to="2026-08-31" reloadKey={1} />);
+
+  await waitFor(() => expect(screen.getByText('2 exceptions')).toBeTruthy());
+  fireEvent.click(screen.getByText('Input VAT that exceeds its support'));
+  expect(screen.getByText('Document removed')).toBeTruthy();
+  expect(screen.queryByText('Nothing')).toBeNull();
+});
