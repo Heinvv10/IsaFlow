@@ -9,6 +9,7 @@
  * that sends nothing and returns a recovery session to whoever called it.
  */
 import { als } from '@/lib/als';
+import { log } from '@/lib/logger';
 import {
   issuePasswordResetToken, supersedePasswordResetTokens, withdrawPasswordResetToken,
 } from './passwordResetService';
@@ -60,6 +61,14 @@ export async function sendPasswordResetEmail(userId: string, email: string): Pro
       await withdrawPasswordResetToken(tokenHash);
       throw new PasswordResetEmailNotSentError(result.error ?? 'unknown mail failure');
     }
-    await supersedePasswordResetTokens(userId, tokenHash);
+    // The email is out: a failure to retire older links must not turn that
+    // into a reported failure. Those links still expire within the hour.
+    try {
+      await supersedePasswordResetTokens(userId, tokenHash);
+    } catch (err) {
+      log.error('Password reset sent, but superseding older links failed', {
+        userId, error: err instanceof Error ? err.message : String(err),
+      }, 'passwordResetEmail');
+    }
   });
 }

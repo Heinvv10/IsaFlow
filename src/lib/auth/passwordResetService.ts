@@ -46,15 +46,25 @@ export async function issuePasswordResetToken(
   return { token, tokenHash, expiresAt };
 }
 
-/** The new link was delivered: retire every other unconsumed token of the user, so only it is live. */
+/**
+ * The new link was delivered: retire the user's unconsumed tokens issued
+ * BEFORE it. Only older ones — two interleaved resets (a detached
+ * forgot-password beside an admin reset, a double click) each supersede after
+ * their own send, and retiring "every other" token let the run that finished
+ * last kill the NEWER link too, leaving the user none. A created_at tie is
+ * broken by id, so of two tied tokens exactly one survives.
+ */
 export async function supersedePasswordResetTokens(userId: string, keepTokenHash: string): Promise<void> {
   await sql`
-    UPDATE auth_password_reset_tokens
+    UPDATE auth_password_reset_tokens t
     SET consumed_at = now()
-    WHERE user_id = ${userId}::uuid
-      AND token_hash <> ${keepTokenHash}
-      AND consumed_at IS NULL
-      AND expires_at > now()
+    FROM auth_password_reset_tokens k
+    WHERE k.token_hash = ${keepTokenHash}
+      AND k.user_id = ${userId}::uuid
+      AND t.user_id = k.user_id
+      AND (t.created_at, t.id) < (k.created_at, k.id)
+      AND t.consumed_at IS NULL
+      AND t.expires_at > now()
   `;
 }
 
