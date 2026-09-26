@@ -26,8 +26,10 @@ export interface SoleApproverSelfApproval {
  * Read through `approval_company_other_members` (migration 708, SECURITY
  * DEFINER): under withAuth this runs as app_user, which sees only its own
  * `users` row, so a direct query would find nobody else and allow every
- * self-approval. The function RAISES when it cannot see the caller's own
- * membership, so an RLS-blinded read fails the decide instead of clearing it.
+ * self-approval. The function answers only for the request asking (the JWT
+ * subject and withAuth's company GUC), and RAISES when it cannot see the
+ * caller's own membership, so an RLS-blinded read fails the decide instead of
+ * clearing it. It therefore works only inside withAuth's transaction.
  */
 export async function otherActiveMemberRoles(companyId: string, userId: string): Promise<string[]> {
   const rows = (await sql`
