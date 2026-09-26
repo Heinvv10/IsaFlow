@@ -13,6 +13,17 @@
  * DOCUMENTS ARE COUNTED ACROSS CLAIMS (B2). A captured document's VAT supports
  * ONE claim: `document_claimed_vat` is the net input VAT of every chain whose
  * root names the document, over every period up to the period end.
+ *
+ * VAT-gaps batch item 1: `document_id` is `source_document_id`, OR — when
+ * that is NULL — the company's ACTIVE `gl_journal_document_links` row on the
+ * journal (migration 706). A manual/recurring/Sage-GL-import/migration
+ * journal linked after posting is classified identically to one created
+ * from a capture.
+ *
+ * VAT-gaps batch item 2: `has_bank_attachment` is true when the bank line
+ * behind the journal (the same one `bank_amount` sums) carries a row in
+ * `bank_transaction_attachments` — PRESENCE only, it carries no extracted VAT
+ * to compare against the claim.
  */
 import { sql } from '@/lib/neon';
 import type { DbRow } from '@/lib/neon';
@@ -55,12 +66,18 @@ export async function queryInputVatSupport(
     ),
     attributed AS (
       -- The journal whose links count: a late-claim companion's original.
+      -- document_id prefers source_document_id; a journal with none (manual,
+      -- recurring, Sage-GL-import, migration) falls back to an ACTIVE
+      -- gl_journal_document_links row on THAT SAME journal (migration 706).
       SELECT ro.*, rj.entry_number, rj.entry_date, rj.source, COALESCE(rj.description, '') AS description,
         COALESCE(rj.late_claim_of_id, rj.id) AS doc_je_id, orig.source AS doc_source,
-        orig.source_record_id AS doc_record_id, orig.source_document_id AS document_id
+        orig.source_record_id AS doc_record_id,
+        COALESCE(orig.source_document_id, jdl.captured_document_id) AS document_id
       FROM roots ro
       JOIN gl_journal_entries rj ON rj.id = ro.root AND rj.company_id = ${companyId}::UUID
       JOIN gl_journal_entries orig ON orig.id = COALESCE(rj.late_claim_of_id, rj.id) AND orig.company_id = ${companyId}::UUID
+      LEFT JOIN gl_journal_document_links jdl
+        ON jdl.journal_entry_id = orig.id AND jdl.company_id = ${companyId}::UUID AND jdl.unlinked_at IS NULL
     ),
     doc_claims AS (
       SELECT a.document_id, SUM(a.claimed_to_date) AS document_claimed_vat
@@ -84,7 +101,17 @@ export async function queryInputVatSupport(
         WHERE bt.company_id = ${companyId}::UUID
           AND (bt.provisional_je_id = a.doc_je_id
             OR bt.matched_journal_line_id IN (SELECT ml.id FROM gl_journal_lines ml
-                 WHERE ml.company_id = ${companyId}::UUID AND ml.journal_entry_id = a.doc_je_id))) AS bank_amount
+                 WHERE ml.company_id = ${companyId}::UUID AND ml.journal_entry_id = a.doc_je_id))) AS bank_amount,
+      -- Item 2: an invoice attached to that SAME bank line counts as a tax
+      -- invoice on file — presence only, no VAT amount to compare.
+      EXISTS (
+        SELECT 1 FROM bank_transactions bt
+        JOIN bank_transaction_attachments bta ON bta.bank_transaction_id = bt.id
+        WHERE bt.company_id = ${companyId}::UUID
+          AND (bt.provisional_je_id = a.doc_je_id
+            OR bt.matched_journal_line_id IN (SELECT ml.id FROM gl_journal_lines ml
+                 WHERE ml.company_id = ${companyId}::UUID AND ml.journal_entry_id = a.doc_je_id))
+      ) AS has_bank_attachment
     FROM attributed a
     LEFT JOIN doc_claims dc ON dc.document_id = a.document_id
     LEFT JOIN captured_documents cd ON cd.id = a.document_id AND cd.company_id = ${companyId}::UUID

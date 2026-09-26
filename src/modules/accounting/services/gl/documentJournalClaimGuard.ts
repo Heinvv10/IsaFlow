@@ -15,6 +15,17 @@
  * leaves the original `status = 'posted'` (standard-accounting reversal, see
  * journalEntryPostingService.ts) but stamps `reversed_at`, and that is what
  * frees the document for reuse — not a status flip.
+ *
+ * VAT-gaps batch item 1 (migration 706): a document may ALSO back a posted
+ * journal through `gl_journal_document_links` — the after-the-fact link a
+ * manual/recurring/Sage-GL-import/migration journal uses, because those
+ * journals were never "created from" the document (`source_document_id`
+ * would be a false claim for them; see the migration header and
+ * `journalDocumentLinkService.ts`). One document, one claim holds across
+ * BOTH mechanisms: this guard now also refuses a document that is already an
+ * ACTIVE link target, and `journalDocumentLinkService.linkDocumentToJournal`
+ * calls this SAME function before creating a new link, so a document already
+ * claimed via `source_document_id` cannot be linked either.
  */
 import { sql } from '@/lib/neon';
 import type { DbRow } from '@/lib/neon';
@@ -34,27 +45,55 @@ export class DocumentAlreadyPostedRefusal extends Error {
   }
 }
 
+export class DocumentAlreadyLinkedRefusal extends Error {
+  constructor(
+    public readonly capturedDocumentId: string,
+    public readonly journalEntryId: string,
+  ) {
+    super(
+      `Captured document ${capturedDocumentId} is already linked to journal entry ${journalEntryId}. ` +
+      'Unlink it first, or use a different document.',
+    );
+    this.name = 'DocumentAlreadyLinkedRefusal';
+  }
+}
+
 /**
  * Refuses BEFORE any write when `sourceDocumentId` already backs a posted,
- * unreversed journal of `companyId`. Pass `excludeJournalId` when the caller
- * is about to UPDATE an existing journal row in place (evidence attach), so
- * the check does not trip on the very row it is claiming.
+ * unreversed journal of `companyId` — via `source_document_id` OR an ACTIVE
+ * row in `gl_journal_document_links`. Pass `excludeJournalId` when the caller
+ * is about to UPDATE an existing journal row in place (evidence attach) or
+ * create a link ON that same journal, so the check does not trip on the very
+ * row it is claiming.
  */
 export async function assertDocumentNotAlreadyPosted(
   companyId: string,
   sourceDocumentId: string,
   excludeJournalId?: string,
 ): Promise<void> {
+  const exclude = excludeJournalId ?? NIL_UUID;
   const rows = (await sql`
     SELECT id FROM gl_journal_entries
     WHERE company_id = ${companyId}::UUID
       AND source_document_id = ${sourceDocumentId}::UUID
       AND status = 'posted'
       AND reversed_at IS NULL
-      AND id <> ${excludeJournalId ?? NIL_UUID}::UUID
+      AND id <> ${exclude}::UUID
     LIMIT 1
   `) as DbRow[];
   if (rows.length > 0) {
     throw new DocumentAlreadyPostedRefusal(sourceDocumentId, String(rows[0]!.id));
+  }
+
+  const linkRows = (await sql`
+    SELECT journal_entry_id FROM gl_journal_document_links
+    WHERE company_id = ${companyId}::UUID
+      AND captured_document_id = ${sourceDocumentId}::UUID
+      AND unlinked_at IS NULL
+      AND journal_entry_id <> ${exclude}::UUID
+    LIMIT 1
+  `) as DbRow[];
+  if (linkRows.length > 0) {
+    throw new DocumentAlreadyLinkedRefusal(sourceDocumentId, String(linkRows[0]!.journal_entry_id));
   }
 }
