@@ -24,11 +24,13 @@
  * re-raise it: the new request snapshotted the lowered role and a manager
  * approved it. Lowering the role, deactivating, deleting, or narrowing the
  * amounts a rule matches now needs a rank STRICTLY ABOVE the rule's current
- * level, so nobody can lower the level that governs them.
+ * level, so nobody can lower the level that governs them — except the owner,
+ * the top of a company's ladder, who may weaken an owner-level rule (Hein):
+ * otherwise nobody in the company could ever relax one.
  */
 
 import { sql } from '@/lib/neon';
-import { actorRank, requiredRank } from './approvalAuthority';
+import { actorRank, requiredRank, APPROVER_RANK } from './approvalAuthority';
 import { logAuditOrThrow, type AuditFieldChange } from '../core/auditTrailService';
 
 /** Who is editing, as withAuth established it — never as the caller claimed it. */
@@ -128,7 +130,8 @@ export function assertMayDemand(actor: RuleActor, ruleRole: string | undefined):
 
 /**
  * Refuses when `actor` ranks below the rule's current `approver_role` — or, for
- * a `change` that weakens the rule, does not rank strictly ABOVE it — and
+ * a `change` that weakens the rule, does not rank strictly ABOVE it (an owner
+ * may weaken an owner-level rule: nobody in a company ranks above them) — and
  * returns the row so the caller can record what it looked like before.
  * Returns null when the id names no rule this company can see — the caller
  * reports that (a 404), this guard does not turn it into a 403.
@@ -153,10 +156,11 @@ export async function assertMayEditRule(
   // column default, rather than 0 — which would make every unknown role editable
   // by anybody who can reach the route.
   const ruleRole = row.approver_role != null ? String(row.approver_role) : 'admin';
-  if (actorRank(actor.role) < requiredRank(ruleRole)) {
+  const rank = actorRank(actor.role);
+  if (rank < requiredRank(ruleRole)) {
     throw new ApprovalRuleAuthorityError(ruleRole);
   }
-  if (weakensRule(row, change) && actorRank(actor.role) <= requiredRank(ruleRole)) {
+  if (weakensRule(row, change) && rank <= requiredRank(ruleRole) && rank < APPROVER_RANK.owner!) {
     throw new ApprovalRuleAuthorityError(ruleRole, true);
   }
   return row;

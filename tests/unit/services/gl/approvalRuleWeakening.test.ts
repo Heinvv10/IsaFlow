@@ -59,6 +59,24 @@ describe('who may weaken', () => {
     await expect(edit('manager', { approverRole: 'accountant' })).rejects.toBeInstanceOf(ApprovalRuleAuthorityError);
   });
 
+  // The one exception to "strictly above": nobody in a company outranks the
+  // owner, so without it an owner-level rule could never be relaxed.
+  it('lets the owner weaken an owner-level rule, and still refuses the admin', async () => {
+    for (const change of [{ approverRole: 'admin' }, { isActive: false }, 'delete'] as RuleChange[]) {
+      stored({ approver_role: 'owner' });
+      await expect(edit('owner', change)).resolves.toMatchObject({ id: RULE });
+      stored({ approver_role: 'owner' });
+      await expect(edit('admin', change)).rejects.toBeInstanceOf(ApprovalRuleAuthorityError);
+    }
+  });
+
+  it('keeps "strictly above" for every rank below the owner, system included', async () => {
+    stored({ approver_role: 'system' });
+    await expect(edit('system', { isActive: false })).rejects.toBeInstanceOf(ApprovalRuleAuthorityError);
+    stored({ approver_role: 'system' });
+    await expect(edit('owner', { isActive: false })).resolves.toMatchObject({ id: RULE });
+  });
+
   it('ranks an unknown or NULL stored role as admin: the owner may weaken it, the admin may not', async () => {
     for (const role of ['Owner', null]) {
       stored({ approver_role: role });

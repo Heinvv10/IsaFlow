@@ -10,7 +10,8 @@
  * Decision (Hein): WEAKENING a rule — lowering its role, deactivating it,
  * deleting it, or narrowing the amounts it matches — needs a rank STRICTLY
  * ABOVE the rule's current level. Strengthening and neutral edits keep the old
- * at-or-above rule.
+ * at-or-above rule. The one exception is the top of a company's ladder: an
+ * owner may weaken an owner-level rule, or nobody in the company ever could.
  */
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { Pool } from 'pg';
@@ -176,9 +177,22 @@ describe('R-048 — weakening needs a rank strictly above the rule', () => {
     }
   });
 
-  it('refuses the owner lowering an owner-level rule — nobody lowers their own governing level', async () => {
-    const { res, before, after } = await attempt(owner, { role: 'owner' }, { approverRole: 'admin' });
+});
+
+describe('R-048 — the owner is the top of the ladder', () => {
+  const OWNER_LEVEL = WEAKENINGS.map(([label, rule, change]) => [label, { ...rule, role: 'owner' },
+    change !== 'delete' && change.approverRole ? { approverRole: 'admin' } : change] as const);
+
+  it.each(OWNER_LEVEL)('lets the owner go %s on an owner-level rule', async (_label, rule, change) => {
+    const { res, before, after } = await attempt(owner, rule, change);
+    expect(res.state.statusCode).toBe(200);
+    expect(after).not.toEqual(before);
+  });
+
+  it.each(OWNER_LEVEL)('still refuses an admin %s on an owner-level rule', async (_label, rule, change) => {
+    const { res, before, after } = await attempt(admin, rule, change);
     expect(res.state.statusCode).toBe(403);
+    expect(reasonOf(res)).toBe('RULE_AUTHORITY_REQUIRED');
     expect(after).toEqual(before);
   });
 });

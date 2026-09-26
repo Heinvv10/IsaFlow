@@ -109,8 +109,8 @@ describe('HIGH-2 — an admin cannot weaken a rule that demands more than they h
     expect(stored.rows[0].name).toBe('admin level renamed');
   });
 
-  it('lets an owner deactivate an admin-level rule', async () => {
-    const ruleId = await plantRule(alpha, 'owner clears admin', 'admin');
+  it('lets an owner deactivate the owner-only rule', async () => {
+    const ruleId = await plantRule(alpha, 'owner clears own', 'owner');
     const res = await call(approvalRules, owner, 'PUT', { id: ruleId, isActive: false });
     expect(res.state.statusCode).toBe(200);
     const stored = await pool.query('SELECT is_active FROM approval_rules WHERE id=$1', [ruleId]);
@@ -120,7 +120,7 @@ describe('HIGH-2 — an admin cannot weaken a rule that demands more than they h
   it('records every rule change in audit_log, since approval_rules keeps no history', async () => {
     const created = await call(approvalRules, owner, 'POST', {
       name: 'audited rule', documentType: 'payment',
-      conditionField: 'amount', conditionOperator: 'any', conditionValue: 0, approverRole: 'admin',
+      conditionField: 'amount', conditionOperator: 'any', conditionValue: 0, approverRole: 'owner',
     });
     expect(created.state.statusCode).toBe(200);
     const ruleId = (created.state.body as { data: { id: string } }).data.id;
@@ -136,7 +136,7 @@ describe('HIGH-2 — an admin cannot weaken a rule that demands more than they h
     expect(trail.rows.every(r => r.user_id === owner)).toBe(true);
     const roleChange = (trail.rows[1].changes as { fields: { field: string; old: string; new: string }[] })
       .fields.find(f => f.field === 'approver_role');
-    expect(roleChange).toMatchObject({ old: 'admin', new: 'manager' });
+    expect(roleChange).toMatchObject({ old: 'owner', new: 'manager' });
   });
 });
 
