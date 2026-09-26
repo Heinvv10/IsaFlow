@@ -17,6 +17,9 @@
  *     after 8 for the same reason)
  * 10. Input-VAT support: journals claiming input VAT that are not a bill's
  *     or a reversal (vatInputSupport)
+ * 11. Issued invoices / approved bills marked "VAT declared outside IsaFlow"
+ *     (migration 705) — same population as 7, appended last. getLedgerVAT201
+ *     is NOT a `sql` call from here — it is mocked separately by the caller.
  *
  * All numeric values arrive as strings (pg numeric) — the service must coerce.
  * NOTE: each test file must call vi.mock('@/lib/neon', ...) itself; this
@@ -109,9 +112,11 @@ export interface MockExceptionsOpts {
   vatNonSupply?: unknown[];
   /** Rows of the input-VAT support query (vatInputSupport), appended 10th. */
   inputSupport?: unknown[];
+  /** Rows of findVatDeclaredElsewhere (migration 705), appended 11th (last). */
+  declaredElsewhere?: unknown[];
 }
 
-/** Queue the 9 SQL results in service call order. */
+/** Queue the 11 SQL results in service call order. */
 export function mockExceptionsSql(opts: MockExceptionsOpts) {
   vi.mocked(sql)
     .mockResolvedValueOnce((opts.uncoded ?? []) as never)
@@ -123,7 +128,8 @@ export function mockExceptionsSql(opts: MockExceptionsOpts) {
     .mockResolvedValueOnce((opts.unposted ?? EMPTY_UNPOSTED) as never)
     .mockResolvedValueOnce((opts.vatOnBalanceSheet ?? []) as never)
     .mockResolvedValueOnce((opts.vatNonSupply ?? []) as never)
-    .mockResolvedValueOnce((opts.inputSupport ?? []) as never);
+    .mockResolvedValueOnce((opts.inputSupport ?? []) as never)
+    .mockResolvedValueOnce((opts.declaredElsewhere ?? []) as never);
 }
 
 export function makeBalanceSheetVatRow(overrides: Record<string, unknown> = {}) {
