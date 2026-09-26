@@ -1,7 +1,8 @@
-HEAD ae9a168e5. Baseline: unit=green int=green
+HEAD efb4e3197. Baseline: unit=green int=green
 
 RED      unit=red int=red  payrollJournalBuilder.ts: etiUsed uncapped
 RED      unit=red int=red  payrollJournalBuilder.ts: etiUsed zero
+RED      unit=red int=green  payrollJournalBuilder.ts: etiUsed not floored at 0
 RED      unit=red int=red  payrollJournalBuilder.ts: labour less full eti
 RED      unit=red int=red  payrollJournalBuilder.ts: labour ignores eti
 RED      unit=red int=red  payrollJournalBuilder.ts: 2140 full paye (THE DEFECT)
@@ -18,6 +19,7 @@ RED      unit=green int=red  payrollJournalBuilder.ts: closed_period not tenant-
 RED      unit=red int=green  payrollJournalBuilder.ts: 1-cent tolerance (old)
 RED      unit=red int=green  payrollJournalBuilder.ts: split not told etiUsed
 RED      unit=red int=green  payrollJournalParts.ts: split residual not tied
+RED      unit=red int=green  payrollJournalParts.ts: split residual unbounded
 RED      unit=red int=green  payrollJournalParts.ts: ETI spread by gross
 RED      unit=red int=green  payrollJournalParts.ts: no gross fallback
 RED      unit=red int=green  payrollJournalParts.ts: cost base excludes eti
@@ -35,6 +37,7 @@ RED      unit=green int=red  approve.ts: route 500s refusals
 RED      unit=red int=green  writePayrollRun.ts: mcp no blocker refusal
 RED      unit=red int=green  writePayrollRun.ts: mcp drops advisories
 RED      unit=red int=green  writePayrollRun.ts: mcp preview ignores existing journal
+RED      unit=red int=green  writePayrollRun.ts: mcp uncosted not answered first
 RED      unit=red int=green  writePayroll.ts: mcp eti_used = eti
 
-36/36 RED
+39/39 RED
