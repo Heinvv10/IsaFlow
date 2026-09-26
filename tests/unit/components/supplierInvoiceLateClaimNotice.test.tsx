@@ -8,6 +8,7 @@ import React from 'react';
 import { render, screen, fireEvent, waitFor } from '@testing-library/react';
 
 vi.mock('@/lib/apiFetch', () => ({ apiFetch: vi.fn() }));
+vi.mock('@/contexts/CompanyContext', () => ({ useCompany: () => ({ companyRole: 'owner' }) }));
 vi.mock('@/utils/toast', () => ({ notify: { info: vi.fn(), success: vi.fn(), error: vi.fn(), warning: vi.fn() } }));
 vi.mock('next/router', () => ({ useRouter: () => ({ query: { invoiceId: 'inv-1' } }) }));
 vi.mock('@/components/layout/AppLayout', () => ({

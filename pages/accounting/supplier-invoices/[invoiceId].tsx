@@ -13,6 +13,7 @@ import type { SupplierInvoice, SupplierInvoiceItem } from '@/modules/accounting/
 import { AccountingDocumentPanel } from '@/modules/accounting/documents';
 import { apiFetch } from '@/lib/apiFetch';
 import { ThreeWayMatchPanel } from '@/components/accounting/ap/ThreeWayMatchPanel';
+import { MarkVatDeclaredElsewhereButton } from '@/components/accounting/sars/MarkVatDeclaredElsewhereButton';
 import { InvoiceActionBar } from '@/components/invoices/InvoiceActionBar';
 import { SupplierInvoiceSummary } from '@/components/invoices/SupplierInvoiceSummary';
 import { ConfirmDialog } from '@/components/ui/ConfirmDialog';
@@ -177,6 +178,11 @@ export default function SupplierInvoiceDetailPage() {
               <FileText className="h-4 w-4" /> View GL Journal Entry
             </Link>
           )}
+          <MarkVatDeclaredElsewhereButton
+            kind="supplier" invoiceId={invoiceId as string}
+            glJournalEntryId={invoice.glJournalEntryId || null} taxAmount={invoice.taxAmount}
+            onMarked={() => void loadInvoice()}
+          />
 
           <ThreeWayMatchPanel invoiceId={invoiceId as string} />
 

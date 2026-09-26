@@ -14,6 +14,7 @@ import React from 'react';
 import { render, screen, fireEvent, waitFor } from '@testing-library/react';
 
 vi.mock('@/lib/apiFetch', () => ({ apiFetch: vi.fn() }));
+vi.mock('@/contexts/CompanyContext', () => ({ useCompany: () => ({ companyRole: 'owner' }) }));
 vi.mock('next/router', () => ({
   useRouter: () => ({ query: { invoiceId: 'inv-1' } }),
 }));
