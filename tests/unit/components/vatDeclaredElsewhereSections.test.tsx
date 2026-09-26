@@ -110,10 +110,11 @@ describe('VatDeclaredElsewhereSection', () => {
 
   it('an owner can unmark, which posts and calls onChanged', async () => {
     h.apiFetchMock.mockResolvedValue(ok());
-    window.prompt = vi.fn().mockReturnValue('Reopen');
     const onChanged = vi.fn();
     render(<VatDeclaredElsewhereSection report={declaredReport} onChanged={onChanged} />);
     fireEvent.click(screen.getByText('Unmark'));
+    fireEvent.change(screen.getByRole('textbox'), { target: { value: '  Reopen  ' } });
+    fireEvent.click(screen.getByRole('button', { name: 'Confirm unmark' }));
     await Promise.resolve(); await Promise.resolve();
     expect(h.apiFetchMock).toHaveBeenCalledWith('/api/accounting/vat-declared-elsewhere', expect.objectContaining({
       method: 'POST', body: JSON.stringify({ action: 'unmark', kind: 'customer', invoiceIds: ['ci-2'], reason: 'Reopen' }),
@@ -130,15 +131,28 @@ describe('VatDeclaredElsewhereSection', () => {
 
   it('a refused unmark (400) shows the server message and never calls onChanged', async () => {
     h.apiFetchMock.mockResolvedValue(refused('No active mark found'));
-    window.prompt = vi.fn().mockReturnValue('Reopen');
     const onChanged = vi.fn();
     render(<VatDeclaredElsewhereSection report={declaredReport} onChanged={onChanged} />);
     fireEvent.click(screen.getByText('Unmark'));
+    fireEvent.change(screen.getByRole('textbox'), { target: { value: 'Reopen' } });
+    fireEvent.click(screen.getByRole('button', { name: 'Confirm unmark' }));
 
     expect(await screen.findByText(/No active mark found/)).toBeTruthy();
     expect(onChanged).not.toHaveBeenCalled();
     // The row is still there, unmark still offered — nothing was silently cleared.
     expect(screen.getByText('INV-2')).toBeTruthy();
     expect(screen.getByText('Unmark')).toBeTruthy();
+  });
+
+  it('unmark: confirm stays disabled until a reason is typed, and cancel posts nothing', () => {
+    render(<VatDeclaredElsewhereSection report={declaredReport} onChanged={vi.fn()} />);
+    fireEvent.click(screen.getByText('Unmark'));
+    const confirm = screen.getByRole('button', { name: 'Confirm unmark' }) as HTMLButtonElement;
+    expect(confirm.disabled).toBe(true);
+    fireEvent.change(screen.getByRole('textbox'), { target: { value: '   ' } });
+    expect(confirm.disabled).toBe(true);
+    fireEvent.click(screen.getByText('Cancel'));
+    expect(screen.queryByRole('textbox')).toBeNull();
+    expect(h.apiFetchMock).not.toHaveBeenCalled();
   });
 });
