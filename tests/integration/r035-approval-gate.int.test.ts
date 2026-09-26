@@ -134,6 +134,23 @@ describe('evaluateApprovalGate', () => {
     }, { enforce: false });
   });
 
+  it('never clears a type with no digest definition yet (NULL current digest)', async () => {
+    await inTx(async (fx) => {
+      const customer = crypto.randomUUID();
+      const noteId = crypto.randomUUID();
+      await fx.c.query('INSERT INTO customers(id,company_id,name) VALUES($1,$2,$3)', [customer, fx.company, 'r035 gate']);
+      await fx.c.query(
+        `INSERT INTO credit_notes(id,company_id,credit_note_number,type,client_id,credit_date,total_amount,created_by)
+         VALUES($1,$2,$3,'customer',$4,CURRENT_DATE,100,$5)`, [noteId, fx.company, `CN-${noteId.slice(0, 6)}`, customer, USER]);
+      await plantRule(fx.c, fx.company, 'owner', { documentType: 'credit_note' });
+      await fx.c.query("INSERT INTO approval_enforcement(company_id, document_type, enabled_by) VALUES($1,'credit_note',$2)", [fx.company, USER]);
+      await fx.c.query(
+        `INSERT INTO approval_requests(company_id, document_type, document_id, status, requested_by, required_role)
+         VALUES($1, 'credit_note', $2, 'approved', $3, 'owner')`, [fx.company, noteId, USER]);
+      expect(await evaluateApprovalGate(fx.company, 'credit_note', noteId)).toMatchObject({ reason: 'APPROVAL_STALE' });
+    });
+  });
+
   it('assertApprovalCleared throws ApprovalRequiredError carrying the reason and role', async () => {
     await inTx(async (fx) => {
       const error = await assertApprovalCleared(fx.company, 'supplier_invoice', fx.bill.id).then(() => null, (e: unknown) => e);
@@ -165,6 +182,9 @@ describe('approval_company_other_members fails closed', () => {
 
   it('refuses to answer on behalf of someone other than the JWT subject', async () => {
     await inTx(async (fx) => {
+      // USER is a real member, so the membership check alone would answer.
+      await fx.c.query("INSERT INTO users(id,email,role,is_active) VALUES($1,$2,'admin',true)", [USER, `${USER}@test.local`]);
+      await fx.c.query("INSERT INTO company_users(company_id,user_id,role) VALUES($1,$2,'owner')", [fx.company, USER]);
       await fx.c.query(`SELECT set_config('request.jwt.claims', $1, true)`, [JSON.stringify({ sub: 'someone-else' })]);
       await expect(fx.c.query('SELECT * FROM approval_company_other_members($1, $2)', [fx.company, USER]))
         .rejects.toThrow(/on behalf of the caller/);
