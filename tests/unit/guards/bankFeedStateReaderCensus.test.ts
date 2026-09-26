@@ -136,7 +136,7 @@ const CLASSIFICATION: Readonly<Record<string, string>> = {
   'src/modules/accounting/services/core/costCentreUsageGuard.ts': 'exempt: FK/usage guard before delete/merge — must see every feed_state',
   'src/modules/accounting/services/core/documentQueryService.ts': 'filtered',
   'src/modules/accounting/services/core/globalSearchService.ts': 'filtered',
-  'src/modules/accounting/services/core/paymentVoidService.ts': "exempt: status IN ('allocated','matched','reconciled') is only reachable via a posted row (Task 2/3 invariant)",
+  'src/modules/accounting/services/core/paymentVoidReads.ts': "exempt: status IN ('allocated','matched','reconciled') is only reachable via a posted row (Task 2/3 invariant)",
   'src/modules/accounting/services/core/smartCategorizationLearningService.ts': 'exempt: writer (Task 3) — learning pass write path',
   'src/modules/accounting/services/core/smartCategorizationMatchingService.ts': "exempt: non-posted rows cannot carry matched_journal_line_id (trigger 675)",
   'src/modules/accounting/services/core/smartCategorizationService.ts': 'exempt: writer (Task 3) — categorization apply write path',
