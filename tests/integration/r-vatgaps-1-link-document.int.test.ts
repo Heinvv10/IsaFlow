@@ -148,6 +148,25 @@ describeIfDb('VAT-gaps item 1: link a document to a posted journal', () => {
       .rejects.toBeInstanceOf(JournalDocumentLinkRefusal);
   });
 
+  // Item 5 (VAT-gaps review): users.id is VARCHAR(255), not uuid — linked_by/
+  // unlinked_by must be TEXT (migration 707) and bound as plain text, or an
+  // actor id that is not UUID-shaped (a Sage import bot, a legacy account)
+  // fails to link at all.
+  it('links and unlinks as a user whose id is a non-UUID string', async () => {
+    const botUserId = `sage-import-bot-${fx.tag}`;
+    await sql`INSERT INTO users (id, email, role, is_active) VALUES (${botUserId}, ${`${botUserId}@test.local`}, 'admin', true)`;
+    try {
+      const je = await manualVatJournal(30);
+      const doc = await captureDoc(fx, 30);
+      const link = await inTx(fx, () => linkDocumentToJournal(fx.companyId, je, doc, botUserId, 'Sage import'));
+      expect(link.linkedBy).toBe(botUserId);
+      await inTx(fx, () => unlinkDocumentFromJournal(fx.companyId, je, doc, botUserId, 'wrong document'));
+    } finally {
+      await sql`DELETE FROM audit_log WHERE user_id = ${botUserId}`;
+      await sql`DELETE FROM users WHERE id = ${botUserId}`;
+    }
+  });
+
   it('unlinking restores the block', async () => {
     const je = await manualVatJournal(30);
     const doc = await captureDoc(fx, 30);
