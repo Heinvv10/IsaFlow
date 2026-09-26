@@ -11,8 +11,9 @@
  */
 import { useState, type ReactNode } from 'react';
 import { Loader2 } from 'lucide-react';
-import { apiFetch } from '@/lib/apiFetch';
+import { apiFetch, ApiRequestError, assertOk } from '@/lib/apiFetch';
 import { useCompany } from '@/contexts/CompanyContext';
+import { log } from '@/lib/logger';
 import type { VatExceptionsReport } from '@/modules/accounting/services/reports/vatExceptionsTypes';
 
 const OVERRIDE_ROLES = ['owner', 'admin', 'super_admin'];
@@ -35,6 +36,7 @@ export default function VatUnpostedInvoicesSection({ report, Section, onChanged 
   const { unpostedCustomerVat, unpostedSupplierVat } = report.controlRecon;
   const [selected, setSelected] = useState<Set<string>>(new Set());
   const [marking, setMarking] = useState(false);
+  const [error, setError] = useState<string | null>(null);
 
   const key = (kind: string, id: string) => `${kind}:${id}`;
   const toggle = (kind: string, id: string) => {
@@ -51,6 +53,7 @@ export default function VatUnpostedInvoicesSection({ report, Section, onChanged 
     const reason = window.prompt(`Mark ${selected.size} document(s) "VAT declared outside IsaFlow" — why?`);
     if (!reason || !reason.trim()) return;
     setMarking(true);
+    setError(null);
     try {
       const byKind = new Map<string, string[]>();
       for (const k of selected) {
@@ -58,13 +61,20 @@ export default function VatUnpostedInvoicesSection({ report, Section, onChanged 
         byKind.set(kind, [...(byKind.get(kind) ?? []), id]);
       }
       for (const [kind, invoiceIds] of byKind) {
-        await apiFetch('/api/accounting/vat-declared-elsewhere', {
+        const res = await apiFetch('/api/accounting/vat-declared-elsewhere', {
           method: 'POST',
           body: JSON.stringify({ action: 'mark', kind, invoiceIds, reason: reason.trim() }),
         });
+        // Any batch failing stops here — the selection is left untouched (not
+        // cleared) so the user can see exactly what still needs marking and
+        // retry, rather than the UI reporting success on a partial write.
+        await assertOk(res, `Could not mark ${kind} document(s) declared elsewhere`);
       }
       setSelected(new Set());
       onChanged?.();
+    } catch (err) {
+      log.warn('VatUnpostedInvoicesSection: mark failed', { error: err }, 'VatUnpostedInvoicesSection');
+      setError(err instanceof ApiRequestError ? err.message : 'Could not mark the selected document(s)');
     } finally {
       setMarking(false);
     }
@@ -88,6 +98,7 @@ export default function VatUnpostedInvoicesSection({ report, Section, onChanged 
           {marking && <Loader2 className="h-3 w-3 animate-spin" />} Mark {selected.size || ''} declared elsewhere
         </button>
       )}
+      {error && <p className={`${td} !border-0 text-red-400 whitespace-normal`}>{error}</p>}
       <table className="min-w-full">
         <thead><tr>
           {isOwnerOrAdmin && <th className={th}></th>}
