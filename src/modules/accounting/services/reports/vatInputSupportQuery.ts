@@ -120,7 +120,8 @@ export async function queryInputVatSupport(
       -- journal linked and relinked to the SAME document is not double-counted.
       SELECT DISTINCT a.root, orig2.source_document_id AS document_id
       FROM attributed a
-      JOIN gl_journal_entries orig2 ON orig2.id = a.doc_je_id AND orig2.source_document_id IS NOT NULL
+      JOIN gl_journal_entries orig2 ON orig2.id = a.doc_je_id AND orig2.company_id = ${companyId}::UUID
+        AND orig2.source_document_id IS NOT NULL
       UNION
       SELECT DISTINCT a.root, jdl2.captured_document_id AS document_id
       FROM attributed a
