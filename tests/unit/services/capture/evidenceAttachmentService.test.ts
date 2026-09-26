@@ -11,10 +11,12 @@
  *   2. SELECT gl_journal_entries JOIN bank_transactions (provisional match)
  *   3. SELECT gl_journal_entries (documentJournalClaimGuard: one document,
  *      one claim — VAT-gaps batch item 1)
- *   4. UPDATE bank_transactions  (status = 'matched')
- *   5. UPDATE gl_journal_entries (flip to evidenced)
+ *   4. SELECT gl_journal_document_links (documentJournalClaimGuard: not
+ *      already an active link — VAT-gaps batch item 1, migration 706)
+ *   5. UPDATE bank_transactions  (status = 'matched')
+ *   6. UPDATE gl_journal_entries (flip to evidenced)
  *
- * CALLS 4 AND 5 ARE IN THAT ORDER ON PURPOSE — the canonical lock order in
+ * CALLS 5 AND 6 ARE IN THAT ORDER ON PURPOSE — the canonical lock order in
  * `bank/.claude.md` is bank line before a PRE-EXISTING journal, and reversed
  * these two writes invert every settlement path that holds a bank line and then
  * reaches a journal. This docblock said 3=GL, 4=bank until round 10 — after the
@@ -88,6 +90,7 @@ describe('attachEvidenceToProvisional', () => {
     vi.mocked(sqlMock).mockResolvedValueOnce([makeDocRow()] as never);       // captured_documents
     vi.mocked(sqlMock).mockResolvedValueOnce([makeMatchRow()] as never);     // provisional match
     vi.mocked(sqlMock).mockResolvedValueOnce([] as never);                   // documentJournalClaimGuard: not already posted
+    vi.mocked(sqlMock).mockResolvedValueOnce([] as never);                   // documentJournalClaimGuard: not already linked
     vi.mocked(sqlMock).mockResolvedValueOnce([] as never);                   // UPDATE bank_transactions
     vi.mocked(sqlMock).mockResolvedValueOnce([{ id: 'je' }] as never);                   // UPDATE gl_journal_entries
 
@@ -103,6 +106,7 @@ describe('attachEvidenceToProvisional', () => {
     vi.mocked(sqlMock).mockResolvedValueOnce([makeDocRow()] as never);
     vi.mocked(sqlMock).mockResolvedValueOnce([makeMatchRow()] as never);
     vi.mocked(sqlMock).mockResolvedValueOnce([] as never); // documentJournalClaimGuard
+    vi.mocked(sqlMock).mockResolvedValueOnce([] as never); // documentJournalClaimGuard: not already linked
     vi.mocked(sqlMock).mockResolvedValueOnce([] as never);
     vi.mocked(sqlMock).mockResolvedValueOnce([{ id: 'je' }] as never);
 
@@ -116,14 +120,15 @@ describe('attachEvidenceToProvisional', () => {
     const statementAt = (n: number): string =>
       (vi.mocked(sqlMock).mock.calls[n]![0] as unknown as string[]).join(' ');
 
-    expect(statementAt(3)).toMatch(/UPDATE\s+bank_transactions/);
-    expect(statementAt(4)).toMatch(/UPDATE\s+gl_journal_entries/);
+    expect(statementAt(4)).toMatch(/UPDATE\s+bank_transactions/);
+    expect(statementAt(5)).toMatch(/UPDATE\s+gl_journal_entries/);
   });
 
-  it('issues exactly 5 SQL calls on the happy path (1 doc SELECT + 1 match SELECT + 1 guard SELECT + 2 UPDATEs)', async () => {
+  it('issues exactly 6 SQL calls on the happy path (1 doc SELECT + 1 match SELECT + 2 guard SELECTs + 2 UPDATEs)', async () => {
     vi.mocked(sqlMock).mockResolvedValueOnce([makeDocRow()] as never);
     vi.mocked(sqlMock).mockResolvedValueOnce([makeMatchRow()] as never);
     vi.mocked(sqlMock).mockResolvedValueOnce([] as never); // documentJournalClaimGuard
+    vi.mocked(sqlMock).mockResolvedValueOnce([] as never); // documentJournalClaimGuard: not already linked
     vi.mocked(sqlMock).mockResolvedValueOnce([] as never);
     vi.mocked(sqlMock).mockResolvedValueOnce([{ id: 'je' }] as never);
 
@@ -131,7 +136,7 @@ describe('attachEvidenceToProvisional', () => {
       COMPANY_ID, DOC_ID, SUPPLIER_ID, MATCHING_AMOUNT, DOCUMENT_DATE,
     );
 
-    expect(vi.mocked(sqlMock)).toHaveBeenCalledTimes(5);
+    expect(vi.mocked(sqlMock)).toHaveBeenCalledTimes(6);
   });
 
   it('returns nulls and issues no UPDATEs when the captured_documents row is not found', async () => {
@@ -204,6 +209,7 @@ describe('attachEvidenceToProvisional', () => {
     vi.mocked(sqlMock).mockResolvedValueOnce([makeDocRow()] as never);
     vi.mocked(sqlMock).mockResolvedValueOnce([makeMatchRow({ bt_id: BANK_TX_ID })] as never);
     vi.mocked(sqlMock).mockResolvedValueOnce([] as never); // documentJournalClaimGuard
+    vi.mocked(sqlMock).mockResolvedValueOnce([] as never); // documentJournalClaimGuard: not already linked
     vi.mocked(sqlMock).mockResolvedValueOnce([] as never);
     vi.mocked(sqlMock).mockResolvedValueOnce([{ id: 'je' }] as never);
 
@@ -219,6 +225,7 @@ describe('attachEvidenceToProvisional', () => {
     vi.mocked(sqlMock).mockResolvedValueOnce([makeDocRow()] as never);
     vi.mocked(sqlMock).mockResolvedValueOnce([makeMatchRow()] as never);
     vi.mocked(sqlMock).mockResolvedValueOnce([] as never); // documentJournalClaimGuard
+    vi.mocked(sqlMock).mockResolvedValueOnce([] as never); // documentJournalClaimGuard: not already linked
     vi.mocked(sqlMock).mockResolvedValueOnce([] as never);
     vi.mocked(sqlMock).mockResolvedValueOnce([{ id: 'je' }] as never);
 
@@ -235,6 +242,7 @@ describe('attachEvidenceToProvisional', () => {
     vi.mocked(sqlMock).mockResolvedValueOnce([makeDocRow()] as never);
     vi.mocked(sqlMock).mockResolvedValueOnce([makeMatchRow()] as never);
     vi.mocked(sqlMock).mockResolvedValueOnce([] as never);   // documentJournalClaimGuard
+    vi.mocked(sqlMock).mockResolvedValueOnce([] as never);   // documentJournalClaimGuard: not already linked
     vi.mocked(sqlMock).mockResolvedValueOnce([] as never);   // UPDATE bank_transactions
     vi.mocked(sqlMock).mockResolvedValueOnce([] as never);   // UPDATE gl_journal_entries … AND needs_evidence = true
 
