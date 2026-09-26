@@ -226,6 +226,12 @@ const REFUSAL_CODES: ReadonlySet<string> = new Set([
   // caller's own document, scoped by company_id. Pre-write.
   'VAT_DECLARED_ELSEWHERE_FORBIDDEN',
   'VAT_DECLARED_ELSEWHERE_REFUSED',
+  // Link/unlink a captured document to a posted journal refused: blank
+  // reason, journal not found/not posted/reversed, document not found, or
+  // the document already backs another claim (gl/journalDocumentLinkService,
+  // VAT-gaps batch item 1). Names no id/amount beyond the caller's own
+  // journal/document, scoped by company_id. Pre-write.
+  'JOURNAL_DOCUMENT_LINK_REFUSED',
   // The exclusive VAT-lock key was not free within 5s (posts in flight).
   // Says "retry"; raised before any write.
   // Blocking VAT exceptions refused a lock/mark-submitted with no override, or

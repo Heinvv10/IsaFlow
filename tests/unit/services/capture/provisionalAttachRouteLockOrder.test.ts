@@ -74,6 +74,10 @@ function answer(strings: TemplateStringsArray): unknown[] {
     events.push('guard: document not already posted');
     return [];
   }
+  if (/FROM gl_journal_document_links/.test(text)) {
+    events.push('guard: document not already linked');
+    return [];
+  }
   if (/FROM captured_documents/.test(text)) { events.push('read evidence'); return [{ raw_bytes_sha256: 'h', confidence: '0.9' }]; }
   if (/UPDATE\s+bank_transactions/.test(text)) { events.push('update bank'); return [{ id: BANK_TX_ID }]; }
   if (/UPDATE\s+gl_journal_entries/.test(text)) { events.push('update journal'); return []; }
@@ -97,6 +101,7 @@ describe('provisional evidence attach — canonical lock order', () => {
       'lock journal',
       'lock document',
       'guard: document not already posted',
+      'guard: document not already linked',
       'claim document',
       'read evidence',
       'update bank',
