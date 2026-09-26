@@ -25,6 +25,7 @@ vi.mock('@/lib/apiResponse', () => ({
     success: vi.fn((_res: unknown, data: unknown) => ({ kind: 'success', data })),
     badRequest: vi.fn((_res: unknown, error: string) => ({ kind: 'badRequest', error })),
     conflict: vi.fn((_res: unknown, error: string) => ({ kind: 'conflict', error })),
+    forbidden: vi.fn((_res: unknown, error: string) => ({ kind: 'forbidden', error })),
     validationError: vi.fn((_res: unknown, errors: unknown) => ({ kind: 'validationError', errors })),
     methodNotAllowed: vi.fn(() => ({ kind: 'methodNotAllowed' })),
   },
@@ -36,6 +37,7 @@ const m = vi.hoisted(() => ({
   getVatPeriodLock: vi.fn(),
   listVatPeriodLocks: vi.fn(),
   computeVatLockFigures: vi.fn(),
+  assertVatGateClear: vi.fn(),
 }));
 vi.mock('@/modules/accounting/services/reports/vatPeriodLockService', () => {
   class VatPeriodLockRefusal extends Error {}
@@ -52,11 +54,23 @@ vi.mock('@/modules/accounting/services/reports/vatPeriodLockService', () => {
 vi.mock('@/modules/accounting/services/reports/vatPeriodLockFigures', () => ({
   computeVatLockFigures: m.computeVatLockFigures,
 }));
+vi.mock('@/modules/accounting/services/reports/vatGateOverrideService', () => {
+  class VatGateBlockedError extends Error { counts: unknown; constructor(counts: unknown) { super('blocked'); this.counts = counts; } }
+  class VatGateOverrideForbiddenError extends Error {}
+  return {
+    assertVatGateClear: m.assertVatGateClear,
+    VatGateBlockedError,
+    VatGateOverrideForbiddenError,
+  };
+});
 
 import handler from '../../../pages/api/accounting/vat-period-locks';
 import {
   VatLockTimeoutError, VatPeriodLockRefusal, VatPeriodUnlockRefusal,
 } from '@/modules/accounting/services/reports/vatPeriodLockService';
+import {
+  VatGateBlockedError, VatGateOverrideForbiddenError,
+} from '@/modules/accounting/services/reports/vatGateOverrideService';
 
 const COMPANY = 'aaaaaaaa-0000-4000-8000-aaaaaaaaaaaa';
 const USER = 'bbbbbbbb-0000-4000-8000-bbbbbbbbbbbb';
@@ -83,6 +97,7 @@ beforeEach(() => {
   m.getVatPeriodLock.mockResolvedValue(null);
   m.computeVatLockFigures.mockResolvedValue({ figures: FIGURES, report: { rateCheck: { ties: true } } });
   m.lockVatPeriod.mockResolvedValue({ lock: { id: LOCK_ID }, created: true });
+  m.assertVatGateClear.mockResolvedValue({ overridden: false, counts: { totalExceptions: 0 } });
 });
 
 describe('unlock is owner/admin only', () => {
@@ -149,6 +164,37 @@ describe('lock', () => {
     const out = await call('admin', { ...lockBody, periodStart: '2026-05-01' });
     expect(out.kind).toBe('badRequest');
     expect(m.computeVatLockFigures).not.toHaveBeenCalled();
+  });
+});
+
+describe('blocking VAT exceptions gate (vatGateOverrideService)', () => {
+  it('checks the gate with the period, the authenticated actor and any overrideReason, before locking', async () => {
+    await call('owner', { ...lockBody, overrideReason: 'Filed manually last quarter' });
+    expect(m.assertVatGateClear).toHaveBeenCalledWith(
+      COMPANY, '2026-03-01', '2026-04-30', 'vat_period_lock', null,
+      { userId: USER, role: 'owner' }, 'Filed manually last quarter',
+    );
+  });
+
+  it('answers a block with 400 carrying the exception counts, and never locks', async () => {
+    m.assertVatGateClear.mockRejectedValue(new VatGateBlockedError({ totalExceptions: 5 }));
+    const out = await call('manager', lockBody);
+    expect(out.kind).toBe('badRequest');
+    expect(m.lockVatPeriod).not.toHaveBeenCalled();
+  });
+
+  it('answers a non-owner/admin override attempt with 403, and never locks', async () => {
+    m.assertVatGateClear.mockRejectedValue(new VatGateOverrideForbiddenError());
+    const out = await call('manager', { ...lockBody, overrideReason: 'trust me' });
+    expect(out.kind).toBe('forbidden');
+    expect(m.lockVatPeriod).not.toHaveBeenCalled();
+  });
+
+  it('reports exceptionsOverridden on the success payload when the gate overrode', async () => {
+    m.assertVatGateClear.mockResolvedValue({ overridden: true, counts: { totalExceptions: 2 } });
+    const out = await call('owner', { ...lockBody, overrideReason: 'ok' }) as { kind: string; data?: { exceptionsOverridden?: boolean } };
+    expect(out.kind).toBe('success');
+    expect(out.data?.exceptionsOverridden).toBe(true);
   });
 });
 

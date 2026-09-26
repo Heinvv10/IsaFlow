@@ -222,6 +222,11 @@ const REFUSAL_CODES: ReadonlySet<string> = new Set([
   'VAT_ADJUSTMENT_REFUSED',
   // The exclusive VAT-lock key was not free within 5s (posts in flight).
   // Says "retry"; raised before any write.
+  // Blocking VAT exceptions refused a lock/mark-submitted with no override, or
+  // an override reason from a non-owner/admin (reports/vatGateOverrideService).
+  // Names only the caller's own exception counts; pre-write.
+  'VAT_GATE_BLOCKED',
+  'VAT_GATE_OVERRIDE_FORBIDDEN',
   'VAT_LOCK_TIMEOUT',
   // A journal that moves a VAT-return figure, dated inside a locked (filed) VAT
   // period (gl/journalVatLockGuard). The message names the caller's own period

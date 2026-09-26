@@ -17,6 +17,10 @@ import {
 } from '@/modules/accounting/services/reports/vatPeriodLockService';
 import { computeVatLockFigures } from '@/modules/accounting/services/reports/vatPeriodLockFigures';
 import { VatPeriodLockRefusal, assertLockablePeriod } from '@/modules/accounting/services/reports/vatPeriodLockBounds';
+import {
+  assertVatGateClear, getCompanyRoleForUser, vatGateExceptionCounts, VatGateBlockedError, VatGateOverrideForbiddenError,
+} from '@/modules/accounting/services/reports/vatGateOverrideService';
+import { getVatExceptions } from '@/modules/accounting/services/reports/vatExceptionsService';
 import { guardCastableArgs, ok, strArg, toolError } from './toolHelpers';
 
 function periodArgs(args: Record<string, unknown>): { start: string; end: string } | string {
@@ -84,6 +88,7 @@ export const vat201ExportTool: McpTool = {
     + 'format: "sars_payload" (the default) returns the field codes; "csv" returns a spreadsheet of every box with its base, tax, implied tax at 15% and variance, and the VAT the boxes could not place. '
     + 'rateCheck is carried through: DO NOT FILE a return whose ties is false without reading the per-box variance first — that is the check SARS runs. '
     + 'If the period has been locked by lock_vat_period, the lock is returned, and driftSinceLock is non-null when the ledger no longer computes what was filed. That is evidence that something was posted into a filed period, not an updated return. '
+    + 'blockingExceptions carries getVatExceptions\' blocking counts as a WARNING ONLY — this tool never refuses on them, unlike lock_vat_period and manual mark-submitted. '
     + 'LIMITS: it produces the payload; it does not submit anything to SARS and does not create a vat_returns record.',
   scope: 'read:vat',
   write: false,
@@ -131,6 +136,13 @@ export const lockVatPeriodTool: McpTool = {
         type: 'boolean',
         description: 'Lock even though the 15% check fails. Records the decision; it does not make the return correct.',
       },
+      override_reason: {
+        type: 'string',
+        description:
+          'Required to lock a period with blocking VAT exceptions outstanding (getVatExceptions). '
+          + 'Owner/admin only — refused for any other role even with a reason. Recorded (never a silent bypass), '
+          + 'and unrelated to force: force answers the 15% check, this answers whether the VAT is actually accounted for.',
+      },
       ...MUTATION_ARG_SCHEMA,
     },
     required: ['period_start', 'period_end', 'idempotency_key'],
@@ -166,7 +178,15 @@ export const lockVatPeriodTool: McpTool = {
       );
     }
 
+    const actor = actorForMcp(ctx, 'mcp:lock_vat_period:v1');
+    const overrideReason = strArg(args, 'override_reason');
+
     if (args.dry_run === true) {
+      // Read-only preview: getVatExceptions directly rather than
+      // assertVatGateClear, which WRITES the override record when one is
+      // supplied — a dry run must not create that row.
+      const exceptionsReport = await getVatExceptions(ctx.companyId, period.start, period.end);
+      const counts = vatGateExceptionCounts(exceptionsReport);
       return {
         ...ok({
           dryRun: true,
@@ -175,6 +195,8 @@ export const lockVatPeriodTool: McpTool = {
           figures,
           rateCheck: report.rateCheck,
           excludedRows: report.excludedRows,
+          exceptionCounts: counts,
+          wouldRequireOverride: counts.totalExceptions > 0,
         }),
         // Without this the preview is stored under the idempotency key and the
         // real call that follows is served it forever.
@@ -182,7 +204,21 @@ export const lockVatPeriodTool: McpTool = {
       };
     }
 
-    const actor = actorForMcp(ctx, 'mcp:lock_vat_period:v1');
+    // Blocking VAT exceptions gate — owner/admin only, with a reason. MCP
+    // carries no role on ctx, so it is read fresh from company_users.
+    try {
+      const role = (await getCompanyRoleForUser(ctx.companyId, actor.userId)) ?? '';
+      await assertVatGateClear(
+        ctx.companyId, period.start, period.end, 'vat_period_lock', null,
+        { userId: actor.userId, role }, overrideReason,
+      );
+    } catch (err) {
+      if (err instanceof VatGateBlockedError || err instanceof VatGateOverrideForbiddenError) {
+        return toolError(err.message);
+      }
+      throw err;
+    }
+
     const result = await lockVatPeriod(
       ctx.companyId, period.start, period.end, figures,
       { userId: actor.userId, actorType: actor.actorType, tokenJti: actor.tokenJti },
