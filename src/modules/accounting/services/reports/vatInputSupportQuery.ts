@@ -24,10 +24,24 @@
  * behind the journal (the same one `bank_amount` sums) carries a row in
  * `bank_transaction_attachments` — PRESENCE only, it carries no extracted VAT
  * to compare against the claim.
+ *
+ * BREAKER ROUND 2 (item 1): `document_claimed_vat` sums every root that has
+ * EVER been tied to the document — via the immutable `source_document_id`, or
+ * ANY row in `gl_journal_document_links` regardless of `unlinked_at`
+ * (`gl/documentLinkHistorySql.allDocumentLinksSql`, the SAME fragment the
+ * write-side guard uses). Unlinking and relinking a document to a new journal
+ * no longer drops the old journal's still-standing claim out of the total —
+ * a document's VAT can support at most its own amount across every claim it
+ * has ever backed, not merely the one currently linked to it. Each row's own
+ * `document_id` (used to look up the document's own extracted VAT) stays the
+ * CURRENT attribution — source_document_id, else the active link — so the
+ * verdict is still keyed on what the journal is claimed to be supported by
+ * today.
  */
 import { sql } from '@/lib/neon';
 import type { DbRow } from '@/lib/neon';
 import { VAT_SUBMISSION_CLEARING_SOURCE } from './vatSubmissionClearing';
+import { allDocumentLinksSql } from '../gl/documentLinkHistorySql';
 
 export async function queryInputVatSupport(
   companyId: string, periodStart: string, periodEnd: string, cent: number,
@@ -79,9 +93,23 @@ export async function queryInputVatSupport(
       LEFT JOIN gl_journal_document_links jdl
         ON jdl.journal_entry_id = orig.id AND jdl.company_id = ${companyId}::UUID AND jdl.unlinked_at IS NULL
     ),
+    doc_history AS (
+      -- Every document a root's underlying journal has EVER been tied to:
+      -- the immutable source_document_id, or ANY link row ever recorded for
+      -- it (active or unlinked). Deduplicated per (root, document) so a
+      -- journal linked and relinked to the SAME document is not double-counted.
+      SELECT DISTINCT a.root, orig2.source_document_id AS document_id
+      FROM attributed a
+      JOIN gl_journal_entries orig2 ON orig2.id = a.doc_je_id AND orig2.source_document_id IS NOT NULL
+      UNION
+      SELECT DISTINCT a.root, l.captured_document_id AS document_id
+      FROM attributed a
+      JOIN (${allDocumentLinksSql(companyId)}) l ON l.journal_entry_id = a.doc_je_id
+    ),
     doc_claims AS (
-      SELECT a.document_id, SUM(a.claimed_to_date) AS document_claimed_vat
-      FROM attributed a WHERE a.document_id IS NOT NULL GROUP BY a.document_id
+      SELECT dh.document_id, SUM(ro.claimed_to_date) AS document_claimed_vat
+      FROM doc_history dh JOIN roots ro ON ro.root = dh.root
+      GROUP BY dh.document_id
     )
     SELECT a.root AS id, a.entry_number, a.entry_date, a.source, a.description,
       a.claimed_vat, a.claimed_to_date, a.document_id, dc.document_claimed_vat,

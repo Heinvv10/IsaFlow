@@ -26,9 +26,27 @@
  * ACTIVE link target, and `journalDocumentLinkService.linkDocumentToJournal`
  * calls this SAME function before creating a new link, so a document already
  * claimed via `source_document_id` cannot be linked either.
+ *
+ * Breaker round 2 (item 1): this guard's active-link check now reads from the
+ * SAME base fragment the over-claim report sums
+ * (`documentLinkHistorySql.allDocumentLinksSql`), filtered here to the
+ * currently active row — unlinking stays a normal, allowed reassignment
+ * (a document may need to move from a mis-captured entry to the right one),
+ * so this guard does not itself refuse the relink in vat-controls-break-round2's
+ * scenario. What changed is the REPORT: `vatInputSupportQuery` now sums a
+ * document's claimed VAT across EVERY journal it has ever been linked to
+ * (active or not), so a relinked document that still leaves an old,
+ * still-posted claim standing is flagged `unsupportedInputVat` /
+ * `document_over_claimed` and blocks eFiling — the write-time guard remains
+ * the "at most one ACTIVE link" rule it always was; deliberately not extended
+ * to a historical block, since that would refuse the very reassignment this
+ * guard's header above says is legitimate (evidence attached to the wrong
+ * entry, corrected by re-linking it to the right one), and would also refuse
+ * the reference scenario this fix must pass.
  */
 import { sql } from '@/lib/neon';
 import type { DbRow } from '@/lib/neon';
+import { allDocumentLinksSql } from './documentLinkHistorySql';
 
 const NIL_UUID = '00000000-0000-0000-0000-000000000000';
 
@@ -86,11 +104,13 @@ export async function assertDocumentNotAlreadyPosted(
   }
 
   const linkRows = (await sql`
-    SELECT journal_entry_id FROM gl_journal_document_links
-    WHERE company_id = ${companyId}::UUID
-      AND captured_document_id = ${sourceDocumentId}::UUID
-      AND unlinked_at IS NULL
-      AND journal_entry_id <> ${exclude}::UUID
+    SELECT je.id AS journal_entry_id
+    FROM (${allDocumentLinksSql(companyId)}) l
+    JOIN gl_journal_entries je ON je.id = l.journal_entry_id AND je.company_id = ${companyId}::UUID
+    WHERE l.captured_document_id = ${sourceDocumentId}::UUID
+      AND l.unlinked_at IS NULL
+      AND je.status = 'posted' AND je.reversed_at IS NULL
+      AND je.id <> ${exclude}::UUID
     LIMIT 1
   `) as DbRow[];
   if (linkRows.length > 0) {
