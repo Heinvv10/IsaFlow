@@ -1,7 +1,27 @@
 /**
- * classifyInputVatSupport (reports/vatInputSupport): a claim with nothing
- * behind it BLOCKS; a claim that disagrees with its document BLOCKS; a claim
- * supported only by the bank line or a VAT adjustment is listed, not blocking.
+ * classifyInputVatSupport (reports/vatInputSupport). The cut (Hein,
+ * 2026-09-26) is whether the return's FIGURES would be wrong: a claim that
+ * DISAGREES with its document (`amount_mismatch` / `document_over_claimed`)
+ * BLOCKS; a claim with no document link at all and never linked
+ * (`no_document`), one whose document VAT couldn't be read and clears any
+ * bank line (`unreadable_document_vat`), one supported only by the bank
+ * line, or a VAT adjustment, is listed but NOT blocking — only a RECORD is
+ * missing, not a wrong figure.
+ *
+ * Breaker fixes (Hein, 2026-09-26, round 2):
+ *   1. An unreadable document must not launder a bank over-claim: the
+ *      bank-ceiling check still runs when `bankAmount !== null`, even though
+ *      the document itself can't be read. Exceeding the ceiling BLOCKS as
+ *      `amount_mismatch` on `bank`; only a clearing or absent bank line falls
+ *      through to the non-blocking `unreadable_document_vat`.
+ *   2. Unlinking a document must not silently downgrade a block to a
+ *      warning: `hadDocumentLink` (any `gl_journal_document_links` row ever
+ *      recorded for the chain, active or unlinked) makes the "no active
+ *      link, no other support" fallback BLOCK as `document_unlinked` instead
+ *      of warning as `no_document`. It clears only when a document is linked
+ *      again (the normal document checks then apply) or another support
+ *      (bank/credit-note/VAT-adjustment) exists — a NEVER-linked journal
+ *      still warns as `no_document`.
  */
 import { describe, expect, it } from 'vitest';
 import {
@@ -11,7 +31,8 @@ import {
 const facts = (over: Partial<InputVatSupportFacts>): InputVatSupportFacts => ({
   journalEntryId: 'je', entryNumber: 'JE-1', entryDate: '2026-07-10', source: 'manual', description: '',
   claimedVat: 150, claimedToDate: 150, expenseClaimVat: null, capturedDocumentVat: null, documentClaimedVat: null,
-  creditNoteVat: null, vatAdjustment: false, bankAmount: null, hasBankAttachment: false, ...over,
+  creditNoteVat: null, vatAdjustment: false, bankAmount: null, hasBankAttachment: false, hadDocumentLink: false,
+  ...over,
 });
 const RATE = 0.15;
 
@@ -25,9 +46,9 @@ describe('readDocumentVat — the extracted VAT, read as the capture pipeline re
 });
 
 describe('classifyInputVatSupport', () => {
-  it('no link at all: blocking, no_document', () => {
+  it('no link at all: NOT blocking, no_document (Hein, 2026-09-26 — a missing record, not a wrong figure)', () => {
     const v = classifyInputVatSupport(facts({}), RATE);
-    expect(v.blocking).toBe(true);
+    expect(v.blocking).toBe(false);
     expect(v.line).toMatchObject({ supportKind: 'none', reason: 'no_document', claimedVat: 150 });
   });
 
@@ -51,13 +72,25 @@ describe('classifyInputVatSupport', () => {
     expect(v).toMatchObject({ blocking: true, line: { reason: 'document_over_claimed', documentVat: 150, documentClaimedVat: 300 } });
   });
 
-  it('an unreadable document VAT blocks with its own reason, never as 0 support', () => {
+  it('an unreadable document VAT is NOT blocking, with its own reason, never as 0 support (Hein, 2026-09-26)', () => {
     const v = classifyInputVatSupport(facts({ capturedDocumentVat: 'unreadable' }), RATE);
-    expect(v).toMatchObject({ blocking: true, line: { supportKind: 'captured_document', reason: 'unreadable_document_vat', documentVat: null } });
+    expect(v).toMatchObject({ blocking: false, line: { supportKind: 'captured_document', reason: 'unreadable_document_vat', documentVat: null } });
   });
 
-  it('a chain netting to a claim in the period needs support whatever reinstated it', () => {
-    expect(classifyInputVatSupport(facts({ claimedVat: 150, claimedToDate: 150 }), RATE).blocking).toBe(true);
+  it('breaker fix: an unreadable document does not launder a bank over-claim — still BLOCKS as amount_mismatch on bank', () => {
+    const v = classifyInputVatSupport(facts({ capturedDocumentVat: 'unreadable', claimedVat: 500, bankAmount: 100 }), RATE);
+    expect(v).toMatchObject({ blocking: true, line: { supportKind: 'bank', reason: 'amount_mismatch' } });
+  });
+
+  it('an unreadable document with a bank line that CLEARS the ceiling: NOT blocking, unreadable_document_vat', () => {
+    const v = classifyInputVatSupport(facts({ capturedDocumentVat: 'unreadable', claimedVat: 15, bankAmount: 115 }), RATE);
+    expect(v).toMatchObject({ blocking: false, line: { supportKind: 'captured_document', reason: 'unreadable_document_vat' } });
+  });
+
+  it('a chain netting to a claim in the period needs support whatever reinstated it (no link: listed, not blocking)', () => {
+    const v = classifyInputVatSupport(facts({ claimedVat: 150, claimedToDate: 150 }), RATE);
+    expect(v.blocking).toBe(false);
+    expect(v.line).toMatchObject({ reason: 'no_document' });
   });
 
   it('an expense claim is compared on its chain to date: a claim reversed earlier and reinstated still ties', () => {
@@ -98,5 +131,30 @@ describe('classifyInputVatSupport', () => {
   it('VAT adjustment: listed, not blocking', () => {
     const v = classifyInputVatSupport(facts({ vatAdjustment: true }), RATE);
     expect(v).toMatchObject({ blocking: false, line: { supportKind: 'vat_adjustment', reason: 'no_tax_invoice' } });
+  });
+
+  it('breaker fix: a journal that had a document link, now has none and no other support, BLOCKS as document_unlinked', () => {
+    const v = classifyInputVatSupport(facts({ hadDocumentLink: true }), RATE);
+    expect(v).toMatchObject({ blocking: true, line: { supportKind: 'none', reason: 'document_unlinked' } });
+  });
+
+  it('a NEVER-linked journal with no support still warns as no_document, not document_unlinked', () => {
+    const v = classifyInputVatSupport(facts({ hadDocumentLink: false }), RATE);
+    expect(v).toMatchObject({ blocking: false, line: { supportKind: 'none', reason: 'no_document' } });
+  });
+
+  it('a relink to a matching document clears document_unlinked — the normal document check applies', () => {
+    const v = classifyInputVatSupport(facts({ hadDocumentLink: true, capturedDocumentVat: 150 }), RATE);
+    expect(v).toEqual({ blocking: false, line: null });
+  });
+
+  it('a relink to an over-claiming document still blocks — as document_over_claimed, not document_unlinked', () => {
+    const v = classifyInputVatSupport(facts({ hadDocumentLink: true, capturedDocumentVat: 150, documentClaimedVat: 300 }), RATE);
+    expect(v).toMatchObject({ blocking: true, line: { reason: 'document_over_claimed' } });
+  });
+
+  it('a previously-linked journal with a clearing bank line is "other support" — not document_unlinked', () => {
+    const v = classifyInputVatSupport(facts({ hadDocumentLink: true, claimedVat: 15, bankAmount: 115 }), RATE);
+    expect(v).toMatchObject({ blocking: false, line: { supportKind: 'bank', reason: 'no_tax_invoice' } });
   });
 });
