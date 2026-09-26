@@ -150,9 +150,9 @@ describeIfDb('VAT pre-filing controls hold against the breaker', () => {
     const b = await ledger('2027-05-01', '2027-06-30');
     const ra = await report('2027-03-01', '2027-04-30');
     const rb = await report('2027-05-01', '2027-06-30');
-    // 1350 less the R0.01 rounding allowance (one taxed input-VAT line, item 3).
-    expect(a.rateCheck.inputVariance).toBe(1349.99);            // control: over-claim measured
-    expect(b.rateCheck.inputVariance).toBe(1349.99);            // + 1c output leg: still measured
+    // 1350 shown in full — a single taxed input-VAT line's R0.005 rounding allowance (item 9) does not survive cent-rounding.
+    expect(a.rateCheck.inputVariance).toBe(1350);               // control: over-claim measured
+    expect(b.rateCheck.inputVariance).toBe(1350);               // + 1c output leg: still measured
     expect(evaluateVat201Filability(a).filable).toBe(false);
     expect(evaluateVat201Filability(b).filable).toBe(false);
     expect(ra.totalExceptions).toBe(rb.totalExceptions);

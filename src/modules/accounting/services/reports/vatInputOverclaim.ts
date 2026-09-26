@@ -25,14 +25,20 @@
  * The rate is a parameter: the caller passes the rate the boxes were derived
  * at, so this file holds none of its own.
  *
- * ROUNDING ALLOWANCE: each of a journal's TAXED input-VAT lines rounds its own
- * 15% to the cent, so a journal with several such lines can tie out a cent or
- * two over the flat 15%-of-the-summed-base figure with no real over-claim
- * behind it — realistic on a multi-line bill. Up to R0.01 per TAXED input-VAT
- * line (not per line of any kind) is excluded from the journal's over-claim
- * before it joins the sum, so a real over-claim beyond that allowance still
- * flags, and padding a journal with untaxed (base-only) lines buys it nothing
- * — only a line `classifyVatJournalLine` puts in role 'tax' counts.
+ * ROUNDING ALLOWANCE (Hein, 2026-09-26 — replaces the earlier flat R0.01):
+ * each of a journal's TAXED input-VAT lines rounds its own 15% to the
+ * nearest CENT, so its own rounding error is at most HALF a cent either way
+ * — the true per-line rounding bound is R0.005, not R0.01. A journal with
+ * several such lines can therefore tie out up to R0.005 per line over the
+ * flat 15%-of-the-summed-base figure with no real over-claim behind it. The
+ * allowance is compared against the RAW over-claim unrounded (not pre-cent-
+ * rounded itself, since half a cent has no cent representation of its own),
+ * and only the amount ABOVE it — if any — is rounded to the cent and joins
+ * the sum. A real over-claim beyond that allowance still flags; a single
+ * TAXED line's exact R0.01 excess is no longer absorbed as "rounding" (a
+ * whole cent is twice the true half-cent bound for one line) — it shows.
+ * Padding a journal with untaxed (base-only) lines buys it nothing — only a
+ * line `classifyVatJournalLine` puts in role 'tax' counts.
  */
 import { classifyVatJournalLine, type VatLineInput } from './vatBoxBasis';
 
@@ -99,8 +105,12 @@ export function perJournalInputOverclaim(
   for (const a of accs.values()) {
     if (!a.hasInput) continue;
     const raw = Math.max(0, r2(a.tax - r2(a.base * rate)));
-    const allowance = r2(0.01 * a.taxedLines);
-    over = r2(over + Math.max(0, r2(raw - allowance)));
+    // R0.005 per TAXED input-VAT line — the true per-line rounding bound, not
+    // rounded to the cent itself (see the file header). Only the excess above
+    // it, if any, is rounded and charged.
+    const allowance = 0.005 * a.taxedLines;
+    const excess = raw > allowance ? r2(raw - allowance) : 0;
+    over = r2(over + excess);
   }
   return over;
 }
