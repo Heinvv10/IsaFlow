@@ -7,7 +7,7 @@ import { describe, it, expect, vi, beforeEach } from 'vitest';
 vi.mock('@/lib/logger', () => ({ log: { info: vi.fn(), error: vi.fn(), warn: vi.fn(), debug: vi.fn() } }));
 
 const m = vi.hoisted(() => ({ sql: vi.fn(), logAuditOrThrow: vi.fn() }));
-vi.mock('@/lib/neon', () => ({ sql: m.sql }));
+vi.mock('@/lib/neon', () => ({ sql: m.sql, withSavepoint: (_name: string, fn: () => unknown) => fn() }));
 vi.mock('@/modules/accounting/services/core/auditTrailService', () => ({
   logAuditOrThrow: m.logAuditOrThrow,
 }));
@@ -82,6 +82,35 @@ describe('linkDocumentToJournal', () => {
     expect(m.logAuditOrThrow).toHaveBeenCalledWith(expect.objectContaining({
       companyId: COMPANY, userId: USER, action: 'update', entityType: 'gl_journal_entry', entityId: JOURNAL,
     }));
+  });
+
+  // Item 4 (VAT-gaps review): a concurrent double-link loses the race on
+  // migration 706's partial unique index. The sequential pre-check (the
+  // "already an active link" test above) cannot catch that race — only the
+  // INSERT itself can — so the 23505 on THAT constraint must convert to the
+  // same JournalDocumentLinkRefusal, not surface as an uncaught 500.
+  it('converts a concurrent-link 23505 on the active-link index to JournalDocumentLinkRefusal', async () => {
+    m.sql
+      .mockResolvedValueOnce([{ id: JOURNAL }]) // loadLinkableJournal
+      .mockResolvedValueOnce([{ id: DOC }]) // documentBelongsToCompany
+      .mockResolvedValueOnce([]) // source_document_id check: clear
+      .mockResolvedValueOnce([]) // active link check: clear (raced after this read)
+      .mockRejectedValueOnce(Object.assign(new Error('duplicate key'), {
+        code: '23505', constraint: 'uq_gl_journal_document_links_active_document',
+      }));
+    await expect(linkDocumentToJournal(COMPANY, JOURNAL, DOC, USER, 'Invoice attached'))
+      .rejects.toBeInstanceOf(JournalDocumentLinkRefusal);
+  });
+
+  it('rethrows a 23505 on a different constraint (or any other error) unconverted', async () => {
+    m.sql
+      .mockResolvedValueOnce([{ id: JOURNAL }])
+      .mockResolvedValueOnce([{ id: DOC }])
+      .mockResolvedValueOnce([])
+      .mockResolvedValueOnce([])
+      .mockRejectedValueOnce(Object.assign(new Error('fk violation'), { code: '23503' }));
+    await expect(linkDocumentToJournal(COMPANY, JOURNAL, DOC, USER, 'Invoice attached'))
+      .rejects.not.toBeInstanceOf(JournalDocumentLinkRefusal);
   });
 });
 

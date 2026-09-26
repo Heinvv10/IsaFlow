@@ -11,13 +11,26 @@
  * extra role) — this does not change what the journal posted, only what
  * evidences it.
  */
-import { sql } from '@/lib/neon';
+import { sql, withSavepoint } from '@/lib/neon';
 import type { DbRow } from '@/lib/neon';
 import { log } from '@/lib/logger';
 import { logAuditOrThrow } from '../core/auditTrailService';
 import {
   assertDocumentNotAlreadyPosted, DocumentAlreadyPostedRefusal, DocumentAlreadyLinkedRefusal,
 } from './documentJournalClaimGuard';
+
+/**
+ * Whether `err` is the migration-706 partial unique index firing: a
+ * concurrent link on the SAME document won the race between this call's own
+ * `assertDocumentNotAlreadyPosted` read and its INSERT. Matching the named
+ * constraint (not bare 23505) keeps this from swallowing a future, unrelated
+ * duplicate on this table under the same wrong message.
+ */
+function isConcurrentActiveLinkConflict(err: unknown): boolean {
+  if (typeof err !== 'object' || err === null) return false;
+  const e = err as { code?: string; constraint?: string };
+  return e.code === '23505' && e.constraint === 'uq_gl_journal_document_links_active_document';
+}
 
 export class JournalDocumentLinkRefusal extends Error {
   readonly code = 'JOURNAL_DOCUMENT_LINK_REFUSED';
@@ -104,11 +117,24 @@ export async function linkDocumentToJournal(
     throw err;
   }
 
-  const rows = (await sql`
-    INSERT INTO gl_journal_document_links (company_id, journal_entry_id, captured_document_id, linked_by, reason)
-    VALUES (${companyId}::UUID, ${journalEntryId}::UUID, ${capturedDocumentId}::UUID, ${userId}::UUID, ${why})
-    RETURNING id, journal_entry_id, captured_document_id, linked_by, linked_at, reason
-  `) as DbRow[];
+  // The sequential pre-check above cannot see a link committed by another
+  // request AFTER it read and BEFORE this INSERT — only the partial unique
+  // index catches that race. Run the INSERT in its own savepoint: a caught
+  // SQL error inside a transaction otherwise poisons the whole transaction,
+  // and `withSavepoint` is what leaves it usable for the caller's own COMMIT.
+  let rows: DbRow[];
+  try {
+    rows = (await withSavepoint('journal_document_link_insert', () => sql`
+      INSERT INTO gl_journal_document_links (company_id, journal_entry_id, captured_document_id, linked_by, reason)
+      VALUES (${companyId}::UUID, ${journalEntryId}::UUID, ${capturedDocumentId}::UUID, ${userId}, ${why})
+      RETURNING id, journal_entry_id, captured_document_id, linked_by, linked_at, reason
+    `)) as DbRow[];
+  } catch (err) {
+    if (isConcurrentActiveLinkConflict(err)) {
+      throw new JournalDocumentLinkRefusal(`Captured document ${capturedDocumentId} is already linked to another journal entry. Unlink it first, or use a different document.`);
+    }
+    throw err;
+  }
   const link = mapLink(rows[0]!);
 
   await logAuditOrThrow({
@@ -150,7 +176,7 @@ export async function unlinkDocumentFromJournal(
 
   const rows = (await sql`
     UPDATE gl_journal_document_links
-    SET unlinked_at = now(), unlinked_by = ${userId}::UUID, unlink_reason = ${why}
+    SET unlinked_at = now(), unlinked_by = ${userId}, unlink_reason = ${why}
     WHERE company_id = ${companyId}::UUID AND journal_entry_id = ${journalEntryId}::UUID
       AND captured_document_id = ${capturedDocumentId}::UUID AND unlinked_at IS NULL
     RETURNING id
