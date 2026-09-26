@@ -14,6 +14,12 @@
  * permits it, and permits it without an approver rank, which is what makes the
  * state escapable for a requester who ranks below their own request's demand.
  * Everything else stays exactly as round 6 left it.
+ *
+ * R-035 (decision Q2, 2026-09-26): a requester who is the SOLE holder of the
+ * demanded rank may now approve their own request (audited distinctly —
+ * r035-approval-decide.int.test.ts). The cases below that assert the
+ * self-approval ban therefore plant a SECOND owner, `owner2`, who never acts:
+ * the ban still holds whenever another eligible approver exists.
  */
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { Pool } from 'pg';
@@ -29,7 +35,8 @@ const companies: string[] = [];
 const admin = crypto.randomUUID();
 const manager = crypto.randomUUID();
 const owner = crypto.randomUUID();
-const users = [admin, manager, owner];
+const owner2 = crypto.randomUUID();
+const users = [admin, manager, owner, owner2];
 const tokens: Record<string, string> = {};
 
 const sign = (id: string) => new SignJWT({ sub: id, aal: 'aal2' })
@@ -45,10 +52,12 @@ beforeAll(async () => {
   }
 });
 
-async function newCompany(): Promise<string> {
+async function newCompany(secondOwner = false): Promise<string> {
   const id = crypto.randomUUID();
   await pool.query('INSERT INTO companies(id,name) VALUES($1,$2)', [id, `K043r7 ${id.slice(0, 8)}`]);
-  for (const [userId, role] of [[admin, 'admin'], [manager, 'manager'], [owner, 'owner']] as const) {
+  const members: [string, string][] = [[admin, 'admin'], [manager, 'manager'], [owner, 'owner']];
+  if (secondOwner) members.push([owner2, 'owner']);
+  for (const [userId, role] of members) {
     await pool.query('INSERT INTO company_users(company_id,user_id,role) VALUES($1,$2,$3)', [id, userId, role]);
   }
   companies.push(id);
@@ -94,9 +103,13 @@ async function plantRule(companyId: string, name: string, approverRole: string):
 const storedRequest = async (documentId: string) => (await pool.query(
   'SELECT id, status, required_role, decided_by FROM approval_requests WHERE document_id=$1', [documentId])).rows[0];
 
-/** The R-033 shape: the requester is the only actor holding the demanded rank. */
-async function ownerRaisedOwnerOnly(): Promise<{ company: string; rule: string; documentId: string; requestId: string }> {
-  const company = await newCompany();
+/**
+ * The R-033 shape: the requester is the only actor who ACTS holding the
+ * demanded rank. `secondOwner` plants an idle second owner so the self-approval
+ * ban (not Q2's sole-approver allowance) is what an own-approve meets.
+ */
+async function ownerRaisedOwnerOnly(secondOwner = false): Promise<{ company: string; rule: string; documentId: string; requestId: string }> {
+  const company = await newCompany(secondOwner);
   const rule = await plantRule(company, 'r7 owner any', 'owner');
   const documentId = await plantDocument(pool, company, 'supplier_invoice', 500000, owner);
   const raised = await call(approvalRequests, owner, company, 'POST', {
@@ -110,7 +123,7 @@ async function ownerRaisedOwnerOnly(): Promise<{ company: string; rule: string; 
 
 describe('R-033 — the requester may withdraw a request nobody else can clear', () => {
   it('lets the owner reject their own request after the ratchet has locked every other route', async () => {
-    const { company, rule, documentId, requestId } = await ownerRaisedOwnerOnly();
+    const { company, rule, documentId, requestId } = await ownerRaisedOwnerOnly(true);
 
     // The legitimate relaxation that used to be the escape hatch.
     const relaxed = await call(approvalRules, owner, company, 'PUT', { id: rule, approverRole: 'manager' });
@@ -161,8 +174,8 @@ describe('R-033 — the requester may withdraw a request nobody else can clear',
 });
 
 describe('what the withdrawal must NOT open', () => {
-  it('still refuses the requester their own APPROVE', async () => {
-    const { company, requestId, documentId } = await ownerRaisedOwnerOnly();
+  it('still refuses the requester their own APPROVE while another owner could approve it', async () => {
+    const { company, requestId, documentId } = await ownerRaisedOwnerOnly(true);
     const selfApprove = await call(approvalRequests, owner, company, 'POST', { action: 'approve', requestId });
     expect(selfApprove.state.statusCode).toBe(403);
     expect(reasonOf(selfApprove)).toBe('SELF_APPROVAL_FORBIDDEN');
