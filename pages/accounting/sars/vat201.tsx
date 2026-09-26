@@ -13,6 +13,7 @@ import { VAT201SummaryForm } from '@/components/accounting/sars/VAT201SummaryFor
 import { VAT201SubmitModal } from '@/components/accounting/sars/VAT201SubmitModal';
 import { VAT201ExceptionsPanel } from '@/components/accounting/sars/VAT201ExceptionsPanel';
 import { VAT201SarsSubmit } from '@/components/accounting/sars/VAT201SarsSubmit';
+import type { VatGateCounts } from '@/components/accounting/sars/VatGateOverrideBox';
 import {
   vatQuickPeriods, defaultVatQuickPeriod, normalizeVatAlignment, normalizeVatSetting,
   type VatQuickPeriod,
@@ -39,8 +40,11 @@ interface VAT201Data {
 const fmt = (n: number) =>
   new Intl.NumberFormat('en-ZA', { style: 'currency', currency: 'ZAR' }).format(n);
 
+const OVERRIDE_ROLES = ['owner', 'admin', 'super_admin'];
+
 export default function VAT201Page() {
-  const { activeCompany } = useCompany();
+  const { activeCompany, companyRole } = useCompany();
+  const isOwnerOrAdmin = OVERRIDE_ROLES.includes(companyRole ?? '');
   const { isRegistered, known } = useVatRegistration();
   const [alignment, setAlignment] = useState<'odd' | 'even'>('odd');
   const [vatPeriod, setVatPeriod] = useState<'monthly' | 'bi-monthly'>('bi-monthly');
@@ -58,6 +62,8 @@ export default function VAT201Page() {
   const [sarsRef, setSarsRef] = useState('');
   const [savedId, setSavedId] = useState('');
   const [showSubmitModal, setShowSubmitModal] = useState(false);
+  const [submitBlockedCounts, setSubmitBlockedCounts] = useState<VatGateCounts | null>(null);
+  const [overrideReason, setOverrideReason] = useState('');
   const [exceptionsKey, setExceptionsKey] = useState(0);
   const [exceptionsReport, setExceptionsReport] = useState<VatExceptionsReport | null>(null);
   const exceptionsReady = exceptionsReport !== null;
@@ -131,12 +137,22 @@ export default function VAT201Page() {
     try {
       const res = await apiFetch('/api/accounting/sars/sars-submissions', {
         method: 'POST', headers: { 'Content-Type': 'application/json' }, credentials: 'include',
-        body: JSON.stringify({ id: savedId, action: 'mark_submitted', reference: sarsRef.trim() }),
+        body: JSON.stringify({
+          id: savedId, action: 'mark_submitted', reference: sarsRef.trim(),
+          ...(overrideReason.trim() ? { overrideReason: overrideReason.trim() } : {}),
+        }),
       });
       const json = await res.json();
-      if (!res.ok) throw new Error(json.error?.message || json.message || 'Failed');
+      if (!res.ok) {
+        // The gate refusal carries getVatExceptions' blocking counts
+        // (error.details.counts) — show the blocking list, and (owner/admin
+        // only) the override box, instead of only a generic error banner.
+        const counts = json.error?.details?.counts as VatGateCounts | undefined;
+        if (counts) setSubmitBlockedCounts(counts);
+        throw new Error(json.error?.message || json.message || 'Failed');
+      }
       setSuccess('VAT201 marked as submitted to SARS');
-      setShowSubmitModal(false); setSarsRef('');
+      setShowSubmitModal(false); setSarsRef(''); setSubmitBlockedCounts(null); setOverrideReason('');
     } catch (err) { setError(err instanceof Error ? err.message : 'Failed to mark as submitted'); }
     finally { setSubmitting(false); }
   };
@@ -249,7 +265,7 @@ export default function VAT201Page() {
                   {saving ? <Loader2 className="h-4 w-4 animate-spin" /> : <Save className="h-4 w-4" />} Save Draft
                 </button>
                 {savedId && (
-                  <button onClick={() => setShowSubmitModal(true)}
+                  <button onClick={() => { setSubmitBlockedCounts(null); setOverrideReason(''); setShowSubmitModal(true); }}
                     className="inline-flex items-center gap-1.5 px-4 py-2 rounded-lg border border-[var(--ff-border-light)] text-sm text-[var(--ff-text-secondary)] hover:text-[var(--ff-text-primary)]">
                     <Send className="h-4 w-4" /> Mark as Submitted (manual)
                   </button>
@@ -267,7 +283,11 @@ export default function VAT201Page() {
           sarsRef={sarsRef} submitting={submitting}
           onRefChange={setSarsRef}
           onConfirm={() => void markSubmitted()}
-          onClose={() => setShowSubmitModal(false)}
+          onClose={() => { setShowSubmitModal(false); setSubmitBlockedCounts(null); setOverrideReason(''); }}
+          blockingCounts={submitBlockedCounts}
+          isOwnerOrAdmin={isOwnerOrAdmin}
+          overrideReason={overrideReason}
+          onOverrideReasonChange={setOverrideReason}
         />
       )}
     </AppLayout>
