@@ -56,7 +56,6 @@ export async function findApprovalBlocker(
 function approvalBlocker(plan: PayrollJournalPlan): PayrollJournalNote | null {
   const blocker = plan.blockers.find((b) => b.code !== 'run_not_approved' && b.code !== 'already_posted');
   if (blocker) return blocker;
-  if (plan.alreadyPostedJournalId) return null;
   return plan.advisories.find((a) => a.code === 'inactive_target_account') ?? null;
 }
 

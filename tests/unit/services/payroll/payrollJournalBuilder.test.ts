@@ -244,6 +244,13 @@ describe('buildPayrollJournalPlan — what would stop the post', () => {
     expect(plan!.blockers.find((b) => b.code === 'negative_amount')?.detail).toContain('1110');
   });
 
+  it('an odd-cent UIF total still balances: the two halves sum to it exactly', async () => {
+    routeMock(standardRoutes({ header: [{ ...HEADER, total_uif: 2000.01 }] }));
+    const plan = await buildPayrollJournalPlan(COMPANY, RUN);
+    expect(plan!.blockers).toEqual([]);
+    expect(plan!.totalDebit).toBe(plan!.totalCredit);
+  });
+
   it('blocks a 1-cent imbalance — the GL rejects it, so the plan must too', async () => {
     // Net pay one cent above the residual: other deductions come to −0.01,
     // are skipped, and credits exceed debits by R0.01.
