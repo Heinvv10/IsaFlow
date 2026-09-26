@@ -220,6 +220,12 @@ const REFUSAL_CODES: ReadonlySet<string> = new Set([
   'TIME_ENTRY_LOCK_TIMEOUT',
   // VAT adjustment approve/cancel refusals (reports/vatAdjustmentService): not found, not draft, contended.
   'VAT_ADJUSTMENT_REFUSED',
+  // Mark/unmark "VAT declared outside IsaFlow" refused: not owner/admin,
+  // blank reason, document not found, or not currently marked (unmark) —
+  // reports/vatDeclaredElsewhereService. Names no id/amount/table beyond the
+  // caller's own document, scoped by company_id. Pre-write.
+  'VAT_DECLARED_ELSEWHERE_FORBIDDEN',
+  'VAT_DECLARED_ELSEWHERE_REFUSED',
   // The exclusive VAT-lock key was not free within 5s (posts in flight).
   // Says "retry"; raised before any write.
   // Blocking VAT exceptions refused a lock/mark-submitted with no override, or

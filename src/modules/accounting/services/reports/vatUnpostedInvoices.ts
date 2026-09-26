@@ -23,6 +23,9 @@
  *     have a late-claim companion, so the companion dating never applies);
  *   - soft-deleted documents (`deleted_at`) are left out: a deleted document
  *     raises no VAT, and listing it would block a period nobody can clear.
+ *   - a document marked "VAT declared outside IsaFlow" (migration 705,
+ *     vatDeclaredElsewhereService) is left out here and appears instead in
+ *     `findVatDeclaredElsewhere` below — NON-blocking, but still visible.
  */
 import { sql } from '@/lib/neon';
 import type { DbRow } from '@/lib/neon';
@@ -66,6 +69,7 @@ export async function findUnpostedInvoiceVat(
         ON je.id = ci.gl_journal_entry_id AND je.company_id = ${companyId}::UUID
       WHERE ci.company_id = ${companyId}::UUID
         AND ci.deleted_at IS NULL
+        AND ci.vat_declared_elsewhere_at IS NULL
         AND ci.status = ANY(${ISSUED_CUSTOMER_INVOICE_STATUSES as string[]}::TEXT[])
         AND ci.invoice_date >= ${periodStart}::DATE AND ci.invoice_date <= ${periodEnd}::DATE
         AND (
@@ -95,6 +99,7 @@ export async function findUnpostedInvoiceVat(
         ON je.id = si.gl_journal_entry_id AND je.company_id = ${companyId}::UUID
       WHERE si.company_id = ${companyId}::UUID
         AND si.deleted_at IS NULL
+        AND si.vat_declared_elsewhere_at IS NULL
         AND si.status = ANY(${APPROVED_BILL_STATUSES as string[]}::TEXT[])
         AND si.invoice_date >= ${periodStart}::DATE AND si.invoice_date <= ${periodEnd}::DATE
         AND (
@@ -108,6 +113,52 @@ export async function findUnpostedInvoiceVat(
               AND rev.entry_date <= ${periodEnd}::DATE
           )
         )
+    ) docs
+    WHERE unposted_vat <> 0
+    ORDER BY invoice_date, invoice_number
+  ` as Promise<DbRow[]>;
+}
+
+/**
+ * Issued invoices / approved bills marked "VAT declared outside IsaFlow"
+ * (migration 705) that would otherwise appear in `findUnpostedInvoiceVat` —
+ * i.e. still carrying VAT with no live journal, but the block has been
+ * lifted. NON-blocking; kept visible rather than dropped so the mark is
+ * auditable from the exceptions panel itself. Population dates and statuses
+ * mirror `findUnpostedInvoiceVat` exactly — the same document must appear in
+ * exactly one of the two lists, never both and never neither.
+ */
+export async function findVatDeclaredElsewhere(
+  companyId: string, periodStart: string, periodEnd: string,
+): Promise<DbRow[]> {
+  return sql`
+    SELECT * FROM (
+      SELECT 'customer' AS kind, ci.id AS invoice_id, ci.invoice_number, ci.invoice_date,
+        COALESCE(c.name, cl.name, 'Unknown') AS counterparty_name,
+        COALESCE(ci.tax_amount, 0) AS unposted_vat,
+        ci.vat_declared_elsewhere_at AS marked_at, ci.vat_declared_elsewhere_by AS marked_by,
+        ci.vat_declared_elsewhere_reason AS marked_reason
+      FROM customer_invoices ci
+      LEFT JOIN customers c ON c.id = ci.customer_id AND c.company_id = ${companyId}::UUID
+      LEFT JOIN clients cl ON cl.id = ci.client_id
+      WHERE ci.company_id = ${companyId}::UUID
+        AND ci.deleted_at IS NULL
+        AND ci.vat_declared_elsewhere_at IS NOT NULL
+        AND ci.status = ANY(${ISSUED_CUSTOMER_INVOICE_STATUSES as string[]}::TEXT[])
+        AND ci.invoice_date >= ${periodStart}::DATE AND ci.invoice_date <= ${periodEnd}::DATE
+      UNION ALL
+      SELECT 'supplier', si.id, si.invoice_number, si.invoice_date,
+        COALESCE(s.name, 'Unknown'),
+        COALESCE((SELECT SUM(sii.tax_amount) FROM supplier_invoice_items sii
+                  WHERE sii.supplier_invoice_id = si.id), si.tax_amount, 0),
+        si.vat_declared_elsewhere_at, si.vat_declared_elsewhere_by, si.vat_declared_elsewhere_reason
+      FROM supplier_invoices si
+      LEFT JOIN suppliers s ON s.id = si.supplier_id AND s.company_id = ${companyId}::UUID
+      WHERE si.company_id = ${companyId}::UUID
+        AND si.deleted_at IS NULL
+        AND si.vat_declared_elsewhere_at IS NOT NULL
+        AND si.status = ANY(${APPROVED_BILL_STATUSES as string[]}::TEXT[])
+        AND si.invoice_date >= ${periodStart}::DATE AND si.invoice_date <= ${periodEnd}::DATE
     ) docs
     WHERE unposted_vat <> 0
     ORDER BY invoice_date, invoice_number

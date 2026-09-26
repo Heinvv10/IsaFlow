@@ -145,6 +145,38 @@ export interface UnpostedInvoiceVatLine {
   reason: 'no_journal' | 'journal_not_posted' | 'journal_reversed';
 }
 
+/**
+ * An issued invoice / approved bill marked "VAT declared outside IsaFlow"
+ * (migration 705) — would otherwise be `UnpostedInvoiceVatLine`, but the
+ * block has been lifted by an owner/admin. NON-blocking; not counted in
+ * totalExceptions.
+ */
+export interface DeclaredElsewhereVatLine {
+  invoiceId: string;
+  invoiceKind: 'customer' | 'supplier';
+  invoiceNumber: string;
+  counterpartyName: string;
+  invoiceDate: string;
+  vat: number;
+  markedAt: string;
+  markedBy: string;
+  markedReason: string;
+}
+
+export function mapDeclaredElsewhere(r: Row): DeclaredElsewhereVatLine {
+  return {
+    invoiceId: String(r.invoice_id),
+    invoiceKind: String(r.kind) === 'supplier' ? 'supplier' : 'customer',
+    invoiceNumber: String(r.invoice_number ?? ''),
+    counterpartyName: String(r.counterparty_name ?? 'Unknown'),
+    invoiceDate: dateStr(r.invoice_date),
+    vat: r2(toNum(r.unposted_vat)),
+    markedAt: r.marked_at instanceof Date ? r.marked_at.toISOString() : String(r.marked_at ?? ''),
+    markedBy: String(r.marked_by ?? ''),
+    markedReason: String(r.marked_reason ?? ''),
+  };
+}
+
 export interface VatControlRecon {
   outputVat201: number;
   outputGl: number;
@@ -178,6 +210,9 @@ export interface VatExceptionsReport {
   /** BLOCKING: issued invoices / approved bills with VAT and no journal. Capped list; per-side totals are on controlRecon. */
   unpostedInvoiceVat: UnpostedInvoiceVatLine[];
   unpostedInvoiceVatCount: number;
+  /** NOT blocking: same population, marked "VAT declared outside IsaFlow" (migration 705). Capped list. */
+  declaredElsewhereVat: DeclaredElsewhereVatLine[];
+  declaredElsewhereVatCount: number;
   /** BLOCKING: input VAT claimed with no document behind it, or disagreeing with it. Capped list. */
   unsupportedInputVat: InputVatSupportLine[];
   unsupportedInputVatCount: number;

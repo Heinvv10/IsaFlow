@@ -23,7 +23,8 @@ import {
   mapVatNonSupplyLine,
 } from './vatNonSupplyExceptions';
 import { findInputVatSupport } from './vatInputSupport';
-import { findUnpostedInvoiceVat } from './vatUnpostedInvoices';
+import { findUnpostedInvoiceVat, findVatDeclaredElsewhere } from './vatUnpostedInvoices';
+import { mapDeclaredElsewhere } from './vatExceptionsTypes';
 import type { VatControlRecon, VatExceptionsReport } from './vatExceptionsTypes';
 
 export type {
@@ -52,7 +53,7 @@ export async function getVatExceptions(
 
   const [
     uncoded, ciTaxIssues, siTaxIssues, ciMismatches, siMismatches, glControl, unposted,
-    balanceSheetVat, nonSupplyVat, inputSupport, vat201,
+    balanceSheetVat, nonSupplyVat, inputSupport, vat201, declaredElsewhere,
   ] =
     await Promise.all([
       // 1. Posted GL lines on VAT control accounts with no vat_type coding.
@@ -204,6 +205,9 @@ export async function getVatExceptions(
       // The FILED fields 5/10 (Hein, 2026-09-25): the invoice-only generateVAT201
       // missed filed VAT on bank, claims, receipts, credit notes and journals.
       getLedgerVAT201(companyId, periodStart, periodEnd),
+      // 12. The same population as 7, marked "VAT declared outside IsaFlow"
+      // (migration 705) — NOT blocking, appended last so nothing above shifts.
+      findVatDeclaredElsewhere(companyId, periodStart, periodEnd),
     ]);
 
   const uncodedGlLines = uncoded.map(mapUncodedLine);
@@ -267,6 +271,8 @@ export async function getVatExceptions(
     controlRecon,
     unpostedInvoiceVat: unpostedInvoiceVat.slice(0, LIST_CAP),
     unpostedInvoiceVatCount: unpostedInvoiceVat.length,
+    declaredElsewhereVat: declaredElsewhere.map(mapDeclaredElsewhere).slice(0, LIST_CAP),
+    declaredElsewhereVatCount: declaredElsewhere.length,
     unsupportedInputVat: inputSupport.unsupported.slice(0, LIST_CAP),
     unsupportedInputVatCount: inputSupport.unsupported.length,
     inputVatWithoutTaxInvoice: inputSupport.withoutTaxInvoice.slice(0, LIST_CAP),
