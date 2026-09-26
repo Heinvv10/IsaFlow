@@ -20,6 +20,7 @@ import { postJournalEntry } from '@/modules/accounting/services/gl/journalEntryP
 import { reverseJournalEntry } from '@/modules/accounting/services/gl/journalEntryPostingService';
 import { getVatExceptions } from '@/modules/accounting/services/reports/vatExceptionsService';
 import { evaluateEfilingGate } from '@/modules/accounting/services/reports/sarsEfilingSubmissionService';
+import { getLedgerVAT201 } from '@/modules/accounting/services/reports/vat201LedgerFields';
 import {
   markVatDeclaredElsewhere, VatDeclaredElsewhereRefusal, type VatDocKind,
 } from '@/modules/accounting/services/reports/vatDeclaredElsewhereService';
@@ -155,6 +156,40 @@ describeIfDb('VAT-gaps breaker fix: mark-declared-elsewhere GL guard', () => {
         expect(r.declaredElsewhereVat.map((d) => d.invoiceId)).not.toContain(docId);
         expect(r.totalExceptions).toBeGreaterThan(0);
         expect(evaluateEfilingGate(r).allowed).toBe(false);
+      });
+
+      // Round 3 review, item 1 (HIGH): a marked document whose journal is
+      // later posted (and NEVER reversed) must fall off BOTH lists — its VAT
+      // is correctly in the ledger, so a stale "declared outside IsaFlow"
+      // label is not an exception. Before this fix, findVatDeclaredElsewhere
+      // kept listing it forever purely because vat_declared_elsewhere_at was
+      // still set.
+      it('mark an unposted document, then post it (no reversal): neither list, VAT still correctly filed', async () => {
+        const docId = kind === 'customer'
+          ? await seedInvoice(fx, { number: `INV-FILED-${kind}`, date: '2026-05-05', total: 1150, status: 'sent' })
+          : await seedBill(fx, { number: `BILL-FILED-${kind}`, date: '2026-05-05', total: 1150, status: 'approved' });
+        const table = kind === 'customer' ? 'customer_invoices' : 'supplier_invoices';
+        await withVat(table, docId);
+
+        // 1. Mark while genuinely unposted — allowed.
+        await inTx(fx, () => markVatDeclaredElsewhere(fx.companyId, kind, docId, { userId: fx.userId, role: 'owner' }, 'Historical import'));
+        let r = await report();
+        expect(r.declaredElsewhereVat.map((d) => d.invoiceId)).toContain(docId);
+
+        // 2. Post it correctly. No reversal.
+        await postAndLink(kind, docId);
+
+        // 3. Neither list — the mark is stale, but the VAT is filed.
+        r = await report();
+        expect(r.unpostedInvoiceVat.map((u) => u.invoiceId)).not.toContain(docId);
+        expect(r.declaredElsewhereVat.map((d) => d.invoiceId)).not.toContain(docId);
+
+        const ledger = await inTx(fx, () => getLedgerVAT201(fx.companyId, PERIOD.start, PERIOD.end));
+        if (kind === 'customer') {
+          expect(ledger.field5_outputVAT).toBeGreaterThanOrEqual(150);
+        } else {
+          expect(ledger.field10_totalInputVAT).toBeGreaterThanOrEqual(150);
+        }
       });
     });
   }
