@@ -78,7 +78,9 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
   } catch (err) {
     // Refused before anything moved — the caller can act on the message.
     if (err instanceof SupplierMergeRefusal) return apiResponse.badRequest(res, err.message);
-    if (err instanceof ArRequestError) return apiResponse.badRequest(res, err.message);
+    if (err instanceof ArRequestError) {
+      return err.status === 409 ? apiResponse.conflict(res, err.message) : apiResponse.badRequest(res, err.message);
+    }
     log.error('Entity merge failed', { error: err, companyId, entityType, primaryId, duplicateId }, 'duplicates-api');
     return apiResponse.internalError(res, err, 'Failed to merge entities');
   }

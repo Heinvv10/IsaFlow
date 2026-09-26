@@ -116,3 +116,10 @@ AssertionError: expected 1 to be +0 // Object.is equality
 ⎯⎯⎯⎯⎯⎯⎯ Failed Tests 1 ⎯⎯⎯⎯⎯⎯⎯
 AssertionError: expected [ 11, 22 ] to deeply equal [ 22, 11 ]
       Tests  1 failed (1)
+
+================ review round 4 RED: k061-customer-merge-contention against customerMergeService.ts + customer-merge.ts at b0ee76e1b (no bound, no 409) ================
+   × a bulk allocation interleaving bank → invoices → bank with a merge never produces a 500
+   × a merge that cannot get its rows within the bound answers 409 and moves nothing
+Error: Test timed out in 30000ms.
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 2 ⎯⎯⎯⎯⎯⎯⎯
+      Tests  2 failed (2)

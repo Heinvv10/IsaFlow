@@ -19,6 +19,7 @@
  */
 import { withTransaction, type TxSql } from '@/lib/neon';
 import { ArRequestError } from './arErrors';
+import { isLockContention } from '../core/lockContention';
 
 export interface CustomerMergeResult {
   merged: true;
@@ -204,36 +205,60 @@ export async function mergeCustomers(
   if (sourceId === targetId) {
     throw new ArRequestError('source_id and target_id must be different customers');
   }
-  return withTransaction(async (tx) => {
-    // Settlement rows BEFORE the customers: a bank allocation or refund takes
-    // the bank line and then the customer (lockContactForRefund FOR UPDATE, or
-    // the FK KEY SHARE of its receipt INSERT). Customers first would be the
-    // inverse order — a 40P01 cycle. Locks are not writes: every refusal
-    // below still precedes the first write.
-    const locked = await lockSettlementRows(tx, companyId, sourceId);
-    await refuseOrLock(tx, companyId, sourceId, targetId);
-    const others = await moveDocuments(tx, companyId, sourceId, targetId);
-    await moveRecords(tx, companyId, sourceId, targetId);
-    const pausedRecurring = await moveRecurring(tx, companyId, sourceId, targetId);
-    // portal_access has no company_id and no RLS: scope it through the
-    // customer, which refuseOrLock proved is this company's.
-    const revoked = await tx`
-      UPDATE portal_access SET is_active = false, updated_at = NOW()
-      WHERE client_id = ${sourceId}::UUID AND is_active
-        AND EXISTS (SELECT 1 FROM customers WHERE id = ${sourceId}::UUID AND company_id = ${companyId}::UUID)
-      RETURNING id
-    `;
-    await tx`
-      UPDATE customers
-      SET is_active = false, deleted_at = NOW(), name = name || ' [MERGED]'
-      WHERE id = ${sourceId}::UUID AND company_id = ${companyId}::UUID
-    `;
-    return {
-      merged: true,
-      target_id: targetId,
-      movedDocuments: locked.payments + locked.invoices + others,
-      pausedRecurring,
-      revokedPortalLogins: revoked.length,
-    };
-  });
+  try {
+    return await withTransaction((tx) => mergeInSavepoint(tx, companyId, sourceId, targetId));
+  } catch (err) {
+    // FAIL CLOSED on contention. A merge touches every row of a customer, so
+    // a multi-step settlement (a bulk allocation that takes bank line →
+    // invoices → bank line) can still interleave with it however the merge
+    // orders its own locks. The wait is bounded, and a 55P03/40P01 is answered
+    // as "retry": the savepoint rolled back, so nothing was merged.
+    if (isLockContention(err)) {
+      throw new ArRequestError(
+        'Another request is updating this customer (a payment, allocation or recurring run). Nothing was merged — retry in a moment.',
+        409,
+        'CUSTOMER_MERGE_CONTENDED',
+      );
+    }
+    throw err;
+  }
+}
+
+async function mergeInSavepoint(
+  tx: TxSql, companyId: string, sourceId: string, targetId: string,
+): Promise<CustomerMergeResult> {
+  // Bounded wait; restored below on success, and by the savepoint's ROLLBACK
+  // TO on failure (SET LOCAL is subtransaction-aware).
+  await tx`SET LOCAL lock_timeout = '5s'`;
+  // Settlement rows BEFORE the customers: a bank allocation or refund takes
+  // the bank line and then the customer (lockContactForRefund FOR UPDATE, or
+  // the FK KEY SHARE of its receipt INSERT). Customers first would be the
+  // inverse order — a 40P01 cycle. Locks are not writes: every refusal
+  // below still precedes the first write.
+  const locked = await lockSettlementRows(tx, companyId, sourceId);
+  await refuseOrLock(tx, companyId, sourceId, targetId);
+  const others = await moveDocuments(tx, companyId, sourceId, targetId);
+  await moveRecords(tx, companyId, sourceId, targetId);
+  const pausedRecurring = await moveRecurring(tx, companyId, sourceId, targetId);
+  // portal_access has no company_id and no RLS: scope it through the
+  // customer, which refuseOrLock proved is this company's.
+  const revoked = await tx`
+    UPDATE portal_access SET is_active = false, updated_at = NOW()
+    WHERE client_id = ${sourceId}::UUID AND is_active
+      AND EXISTS (SELECT 1 FROM customers WHERE id = ${sourceId}::UUID AND company_id = ${companyId}::UUID)
+    RETURNING id
+  `;
+  await tx`
+    UPDATE customers
+    SET is_active = false, deleted_at = NOW(), name = name || ' [MERGED]'
+    WHERE id = ${sourceId}::UUID AND company_id = ${companyId}::UUID
+  `;
+  await tx`SET LOCAL lock_timeout = DEFAULT`;
+  return {
+    merged: true,
+    target_id: targetId,
+    movedDocuments: locked.payments + locked.invoices + others,
+    pausedRecurring,
+    revokedPortalLogins: revoked.length,
+  };
 }
