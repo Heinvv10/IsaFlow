@@ -1,4 +1,4 @@
-HEAD 2130d5f98. Baseline: unit=green int=green
+HEAD be47b3da1. Baseline: unit=green int=green
 
 RED      unit=red int=red  payrollJournalBuilder.ts: etiUsed uncapped
 RED      unit=red int=red  payrollJournalBuilder.ts: etiUsed zero
@@ -23,8 +23,10 @@ RED      unit=red int=green  payrollJournalParts.ts: no gross fallback
 RED      unit=red int=green  payrollJournalParts.ts: cost base excludes eti
 RED      unit=green int=red  payrollApprovalService.ts: no pre-write blocker check
 RED      unit=green int=red  payrollApprovalService.ts: run_not_approved not excluded
-RED      unit=green int=red  payrollApprovalService.ts: already_posted not excluded (reopen)
-RED      unit=green int=red  payrollApprovalService.ts: inactive account not refused
+RED      unit=red int=green  payrollJournalParts.ts: centre accounts not tenant-scoped
+RED      unit=red int=green  payrollJournalBuilder.ts: centre inactive flag ignored
+RED      unit=green int=red  payrollApprovalService.ts: reopened run gets posting checks
+RED      unit=red int=red  payrollJournalBuilder.ts: inactive target back to advisory
 RED      unit=green int=red  payrollApprovalService.ts: not-found untyped
 RED      unit=green int=red  payrollApprovalService.ts: status refusal untyped
 RED      unit=green int=red  payrollApprovalService.ts: approve drops advisories
@@ -34,4 +36,4 @@ RED      unit=red int=green  writePayrollRun.ts: mcp no blocker refusal
 RED      unit=red int=green  writePayrollRun.ts: mcp drops advisories
 RED      unit=red int=green  writePayroll.ts: mcp eti_used = eti
 
-33/33 RED
+35/35 RED
