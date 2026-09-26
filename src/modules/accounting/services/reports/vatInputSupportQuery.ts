@@ -36,6 +36,13 @@
  * — source_document_id, else the active link — so the verdict is still keyed
  * on what the journal is claimed to be supported by today.
  *
+ * BREAKER ROUND 2 (item 2): `had_document_link` reuses `doc_history` (already
+ * built for the sum above, already company_id-scoped on every join) to say
+ * whether the root's journal has EVER carried a `gl_journal_document_links`
+ * row, active or not. `vatInputSupport.ts` uses it to tell "never evidenced"
+ * (`no_document`, a warning) apart from "was evidenced, isn't any more"
+ * (`document_unlinked`, blocking) when nothing else supports the claim.
+ *
  * NOTE ON THE `gl_journal_document_links` SCAN: this is inlined directly
  * rather than shared via a `gl/documentLinkHistorySql`-style helper that
  * builds its own `sql\`...\`` fragment and splices it in (the LazyQuery
@@ -113,7 +120,8 @@ export async function queryInputVatSupport(
       -- journal linked and relinked to the SAME document is not double-counted.
       SELECT DISTINCT a.root, orig2.source_document_id AS document_id
       FROM attributed a
-      JOIN gl_journal_entries orig2 ON orig2.id = a.doc_je_id AND orig2.source_document_id IS NOT NULL
+      JOIN gl_journal_entries orig2 ON orig2.id = a.doc_je_id AND orig2.company_id = ${companyId}::UUID
+        AND orig2.source_document_id IS NOT NULL
       UNION
       SELECT DISTINCT a.root, jdl2.captured_document_id AS document_id
       FROM attributed a
@@ -128,6 +136,11 @@ export async function queryInputVatSupport(
     SELECT a.root AS id, a.entry_number, a.entry_date, a.source, a.description,
       a.claimed_vat, a.claimed_to_date, a.document_id, dc.document_claimed_vat,
       cd.id IS NOT NULL AS has_document, cd.extracted_data -> 'vatAmount' AS document_vat_raw,
+      -- Breaker fix (item 2, Hein 2026-09-26): has this chain's journal EVER
+      -- carried a document link (active or unlinked)? doc_history already
+      -- scopes by company_id on every join; reused here so an unlink alone
+      -- (no active row left) still reads as "had one".
+      EXISTS (SELECT 1 FROM doc_history dh WHERE dh.root = a.root) AS had_document_link,
       (SELECT SUM(ecl.vat_amount) FROM expense_claims ec
         JOIN expense_claim_lines ecl ON ecl.claim_id = ec.id AND ecl.company_id = ${companyId}::UUID
         WHERE ec.company_id = ${companyId}::UUID AND ec.posted_je_id = a.doc_je_id) AS expense_claim_vat,
