@@ -78,3 +78,11 @@ U9  page: Unapply button never rendered      -> component (2 red) -> Unable to f
 U10 claim: reclass not re-dated              -> vat-lock-later -> 400 "Cannot post on 2026-08-31 ... locked"
 U11 claim: both-filed refusal disabled       -> vat-lock -> message no longer /filed VAT period/ (savepoint keeps the snapshot)
 U12 attach-settle: draft UPDATE neutered     -> capture no-items + post-journal failure (2 red)
+
+# --- undo-round LOWs (fix 2bbb2954b); all restored_identical=True
+L1  page: settlement dialog branch disabled     -> component "a settlement payment's Void says ..." red
+L3  undo: reclass roll forced to null           -> undo-vat "MCP void_payment names the reclass contra's roll" red
+L4  gate: cancelled check removed               -> undo "voiding it again is refused with the ordinary status message" red (500)
+L5a attach-settle: approval fields not cleared  -> capture "no line items ... back to draft" red
+L5b capture/[id]/post: finalStatus = INSERT's   -> capture "capture/[id]/post answers the bill's status" red
+L5c ai-invoice-pipeline: status = INSERT's      -> capture "ai-invoice-pipeline answers draft" red
