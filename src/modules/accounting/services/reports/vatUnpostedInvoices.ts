@@ -69,7 +69,20 @@ export async function findUnpostedInvoiceVat(
         ON je.id = ci.gl_journal_entry_id AND je.company_id = ${companyId}::UUID
       WHERE ci.company_id = ${companyId}::UUID
         AND ci.deleted_at IS NULL
-        AND ci.vat_declared_elsewhere_at IS NULL
+        -- Breaker fix (2026-09-26): a mark is ignored for a document whose
+        -- journal was posted then reversed — its VAT DID reach the GL and
+        -- then left it, so it must still block (as 'journal_reversed'
+        -- below), never sit unseen in the declared-elsewhere list instead.
+        AND (
+          ci.vat_declared_elsewhere_at IS NULL
+          OR EXISTS (
+            SELECT 1 FROM gl_journal_entries rev
+            WHERE rev.reversal_of_id = ci.gl_journal_entry_id
+              AND rev.company_id = ${companyId}::UUID
+              AND rev.status = 'posted'
+              AND rev.entry_date <= ${periodEnd}::DATE
+          )
+        )
         AND ci.status = ANY(${ISSUED_CUSTOMER_INVOICE_STATUSES as string[]}::TEXT[])
         AND ci.invoice_date >= ${periodStart}::DATE AND ci.invoice_date <= ${periodEnd}::DATE
         AND (
@@ -102,7 +115,17 @@ export async function findUnpostedInvoiceVat(
         ON je.id = si.gl_journal_entry_id AND je.company_id = ${companyId}::UUID
       WHERE si.company_id = ${companyId}::UUID
         AND si.deleted_at IS NULL
-        AND si.vat_declared_elsewhere_at IS NULL
+        -- Same reasoning as the customer branch above.
+        AND (
+          si.vat_declared_elsewhere_at IS NULL
+          OR EXISTS (
+            SELECT 1 FROM gl_journal_entries rev
+            WHERE rev.reversal_of_id = si.gl_journal_entry_id
+              AND rev.company_id = ${companyId}::UUID
+              AND rev.status = 'posted'
+              AND rev.entry_date <= ${periodEnd}::DATE
+          )
+        )
         AND si.status = ANY(${APPROVED_BILL_STATUSES as string[]}::TEXT[])
         AND si.invoice_date >= ${periodStart}::DATE AND si.invoice_date <= ${periodEnd}::DATE
         AND (
@@ -120,6 +143,59 @@ export async function findUnpostedInvoiceVat(
     WHERE unposted_vat <> 0
     ORDER BY invoice_date, invoice_number
   ` as Promise<DbRow[]>;
+}
+
+export type VatDocKind = 'customer' | 'supplier';
+
+/**
+ * Whether a document is currently eligible to be marked "VAT declared
+ * outside IsaFlow" (VAT-gaps breaker fix, 2026-09-26): true only when its
+ * VAT has NEVER reached the GL — no journal, or a journal that was never
+ * posted. A document whose `gl_journal_entry_id` points at a journal that IS
+ * or WAS posted (including one posted then reversed) is NOT eligible, even
+ * though a reversed one still counts as blocking in `findUnpostedInvoiceVat`
+ * — that population is deliberately wider than what may be marked. Reuses
+ * the same status allow-lists and GL-state predicate as
+ * `findUnpostedInvoiceVat`/`findVatDeclaredElsewhere` — one source of truth
+ * for "which documents carry filable VAT" — but ignores the period (marking
+ * is not period-scoped) and `vat_declared_elsewhere_at` (checked before any
+ * mark exists). Scoped by `company_id`; a foreign or absent id returns
+ * `false` with no existence oracle.
+ */
+export async function isEligibleForVatDeclaredElsewhereMark(
+  companyId: string, kind: VatDocKind, invoiceId: string,
+): Promise<boolean> {
+  const rows = kind === 'customer'
+    ? await sql`
+        SELECT 1 FROM customer_invoices ci
+        LEFT JOIN gl_journal_entries je
+          ON je.id = ci.gl_journal_entry_id AND je.company_id = ${companyId}::UUID
+        WHERE ci.id = ${invoiceId}::UUID AND ci.company_id = ${companyId}::UUID
+          AND ci.deleted_at IS NULL
+          AND ci.status = ANY(${ISSUED_CUSTOMER_INVOICE_STATUSES as string[]}::TEXT[])
+          AND COALESCE(ci.tax_amount, 0) <> 0
+          AND (ci.gl_journal_entry_id IS NULL OR je.status IS DISTINCT FROM 'posted')
+          AND NOT EXISTS (
+            SELECT 1 FROM gl_journal_entries rev
+            WHERE rev.reversal_of_id = ci.gl_journal_entry_id AND rev.company_id = ${companyId}::UUID AND rev.status = 'posted'
+          )
+      `
+    : await sql`
+        SELECT 1 FROM supplier_invoices si
+        LEFT JOIN gl_journal_entries je
+          ON je.id = si.gl_journal_entry_id AND je.company_id = ${companyId}::UUID
+        WHERE si.id = ${invoiceId}::UUID AND si.company_id = ${companyId}::UUID
+          AND si.deleted_at IS NULL
+          AND si.status = ANY(${APPROVED_BILL_STATUSES as string[]}::TEXT[])
+          AND COALESCE((SELECT SUM(sii.tax_amount) FROM supplier_invoice_items sii
+                        WHERE sii.supplier_invoice_id = si.id AND si.company_id = ${companyId}::UUID), si.tax_amount, 0) <> 0
+          AND (si.gl_journal_entry_id IS NULL OR je.status IS DISTINCT FROM 'posted')
+          AND NOT EXISTS (
+            SELECT 1 FROM gl_journal_entries rev
+            WHERE rev.reversal_of_id = si.gl_journal_entry_id AND rev.company_id = ${companyId}::UUID AND rev.status = 'posted'
+          )
+      `;
+  return (rows as DbRow[]).length > 0;
 }
 
 /**
@@ -157,6 +233,16 @@ export async function findVatDeclaredElsewhere(
         AND ci.vat_declared_elsewhere_at IS NOT NULL
         AND ci.status = ANY(${ISSUED_CUSTOMER_INVOICE_STATUSES as string[]}::TEXT[])
         AND ci.invoice_date >= ${periodStart}::DATE AND ci.invoice_date <= ${periodEnd}::DATE
+        -- Breaker fix (2026-09-26): a document whose journal was posted then
+        -- reversed shows in the BLOCKING list instead (see
+        -- findUnpostedInvoiceVat) — never both, never neither.
+        AND NOT EXISTS (
+          SELECT 1 FROM gl_journal_entries rev
+          WHERE rev.reversal_of_id = ci.gl_journal_entry_id
+            AND rev.company_id = ${companyId}::UUID
+            AND rev.status = 'posted'
+            AND rev.entry_date <= ${periodEnd}::DATE
+        )
       UNION ALL
       SELECT 'supplier', si.id, si.invoice_number, si.invoice_date,
         COALESCE(s.name, 'Unknown'),
@@ -174,6 +260,14 @@ export async function findVatDeclaredElsewhere(
         AND si.vat_declared_elsewhere_at IS NOT NULL
         AND si.status = ANY(${APPROVED_BILL_STATUSES as string[]}::TEXT[])
         AND si.invoice_date >= ${periodStart}::DATE AND si.invoice_date <= ${periodEnd}::DATE
+        -- Same reasoning as the customer branch above.
+        AND NOT EXISTS (
+          SELECT 1 FROM gl_journal_entries rev
+          WHERE rev.reversal_of_id = si.gl_journal_entry_id
+            AND rev.company_id = ${companyId}::UUID
+            AND rev.status = 'posted'
+            AND rev.entry_date <= ${periodEnd}::DATE
+        )
     ) docs
     WHERE unposted_vat <> 0
     ORDER BY invoice_date, invoice_number

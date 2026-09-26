@@ -24,7 +24,9 @@ vi.mock('@/modules/accounting/services/reports/vatGateOverrideService', () => ({
 }));
 
 import { markVatDeclaredElsewhereTool } from '@/lib/mcp/tools/vatDeclaredElsewhere';
-import { VatDeclaredElsewhereForbiddenError } from '@/modules/accounting/services/reports/vatDeclaredElsewhereService';
+import {
+  VatDeclaredElsewhereForbiddenError, VatDeclaredElsewhereRefusal,
+} from '@/modules/accounting/services/reports/vatDeclaredElsewhereService';
 import type { McpToolContext } from '@/lib/mcp/types';
 
 const COMPANY = 'aaaaaaaa-0000-4000-8000-aaaaaaaaaaaa';
@@ -68,6 +70,17 @@ it('returns a toolError, not a throw, for a non-owner/admin refusal', async () =
   m.markVatDeclaredElsewhereBulk.mockRejectedValue(new VatDeclaredElsewhereForbiddenError());
   const result = await markVatDeclaredElsewhereTool.handler(args, ctx);
   expect(result.isError).toBe(true);
+});
+
+// Breaker fix (VAT-gaps review, item 1c): the eligibility refusal (VAT is or
+// was in the GL) is pre-write for every id in the batch — the tool must
+// surface it as a toolError with the refusal code, not rethrow it as a
+// generic failure.
+it('returns a toolError, not a throw, when a document is ineligible (VAT in the GL)', async () => {
+  m.markVatDeclaredElsewhereBulk.mockRejectedValue(new VatDeclaredElsewhereRefusal('not eligible'));
+  const result = await markVatDeclaredElsewhereTool.handler(args, ctx);
+  expect(result.isError).toBe(true);
+  expect(result.content[0]!.text).toContain('not eligible');
 });
 
 it('refuses a missing reason before any lookup', async () => {

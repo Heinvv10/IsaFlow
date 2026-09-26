@@ -18,6 +18,7 @@ import { sql } from '@/lib/neon';
 import type { DbRow } from '@/lib/neon';
 import { log } from '@/lib/logger';
 import { logAuditOrThrow } from '../core/auditTrailService';
+import { isEligibleForVatDeclaredElsewhereMark } from './vatUnpostedInvoices';
 
 export type VatDocKind = 'customer' | 'supplier';
 
@@ -78,6 +79,19 @@ export async function markVatDeclaredElsewhere(
   const why = reason.trim();
   if (!why) throw new VatDeclaredElsewhereRefusal('A reason is required to mark VAT declared outside IsaFlow.');
 
+  // Breaker fix (2026-09-26): only a document whose VAT has NEVER reached the
+  // GL may be marked. Reuses vatUnpostedInvoices.ts's own population
+  // predicate (one source of truth) — a document that is not currently in
+  // the blocking unposted-invoice-VAT list, OR whose gl_journal_entry_id
+  // points at a journal that is or was posted (including a posted-then-
+  // reversed one), is refused BEFORE any write.
+  if (!(await isEligibleForVatDeclaredElsewhereMark(companyId, kind, invoiceId))) {
+    throw new VatDeclaredElsewhereRefusal(
+      `${kind === 'customer' ? 'Customer invoice' : 'Supplier invoice'} is not eligible to be marked "VAT declared outside IsaFlow": `
+      + 'its VAT is not currently unposted, or it has already reached the general ledger (even if that journal was later reversed).',
+    );
+  }
+
   const tbl = table(kind);
   const rows = (kind === 'customer'
     ? await sql`
@@ -108,7 +122,12 @@ export async function markVatDeclaredElsewhere(
   return { invoiceId, marked: true };
 }
 
-/** Bulk mark — one row per id, same actor/reason. Stops at the first refusal (nothing partial recorded past it). */
+/**
+ * Bulk mark — one row per id, same actor/reason. ALL ids are validated for
+ * eligibility BEFORE any of them is written: a 4xx refusal here still commits
+ * whatever came before it (withAuth rolls back only on >=500), so a mid-batch
+ * refusal must never be allowed to follow a mid-batch write.
+ */
 export async function markVatDeclaredElsewhereBulk(
   companyId: string,
   kind: VatDocKind,
@@ -117,6 +136,14 @@ export async function markVatDeclaredElsewhereBulk(
   reason: string,
 ): Promise<MarkResult[]> {
   assertOverrideRole(actor.role);
+  for (const id of invoiceIds) {
+    if (!(await isEligibleForVatDeclaredElsewhereMark(companyId, kind, id))) {
+      throw new VatDeclaredElsewhereRefusal(
+        `${kind === 'customer' ? 'Customer invoice' : 'Supplier invoice'} ${id} is not eligible to be marked "VAT declared outside IsaFlow": `
+        + 'its VAT is not currently unposted, or it has already reached the general ledger (even if that journal was later reversed).',
+      );
+    }
+  }
   const results: MarkResult[] = [];
   for (const id of invoiceIds) {
     results.push(await markVatDeclaredElsewhere(companyId, kind, id, actor, reason));
