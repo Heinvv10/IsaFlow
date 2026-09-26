@@ -4,7 +4,7 @@
  * "Login as" gives the admin a genuine session for the target, so the request
  * itself cannot say who is acting, and the proof/stash cookies that mark it can
  * be deleted by the admin's own browser. The minted session's `session_id` is
- * recorded server-side instead (migration 708) — never reused, unchanged by
+ * recorded server-side instead (migration 709) — never reused, unchanged by
  * refresh, never deleted — and a control that must know who is really acting
  * asks `currentSessionActor()`.
  */
