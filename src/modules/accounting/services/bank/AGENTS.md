@@ -55,6 +55,7 @@
 | `cancelCustomerInvoice`, `cancelSupplierInvoiceInner`, `supplierInvoiceWorkflowService` | invoice → GL |
 | `attachEvidenceToProvisional` (`capture/evidenceAttachmentService`), `POST /api/accounting/provisional/[jeId]/attach` | bank → GL — **both took GL first until round 9** |
 | `mergeCustomers` (`ar/customerMergeService`, both merge routes since K-061) | bank lines (`suggested_client_id`, id order) → payments (id order) → invoices (id order) → recurring_invoices / recurring_transaction_templates (id order) → customers (both, id order, `FOR NO KEY UPDATE`) — no GL. Customers LAST: refunds/allocations take bank → customer (`lockContactForRefund`, receipt-INSERT FK `KEY SHARE`), so customers-first was a 40P01 cycle (K-061 review) |
+| `recurring-invoices-run` "run all due" (K-061 r3) | each template `FOR UPDATE` (held to request end) → invoice INSERT — templates CHOSEN by `next_run_date` but PROCESSED in id order, so they are taken in the same order as `mergeCustomers` |
 | `mergeSuppliers` (`core/duplicateMergeService`) | payment → invoices — **took invoices first until round 9**; a merge reassigns EVERY document of one counterparty |
 | `archiveExecutionService` step 6 | bank → invoices → GL lines → GL entries — **took GL first until round 9**, which was also an FK violation (below) |
 | `bankRuleAutoPostLine` | bank, then `DELETE FROM gl_journal_entries` on the entry `createJournalEntry` INSERTed in the same tx — **exempt** on the GL leg, see below |
