@@ -39,6 +39,15 @@
  * whole cent is twice the true half-cent bound for one line) — it shows.
  * Padding a journal with untaxed (base-only) lines buys it nothing — only a
  * line `classifyVatJournalLine` puts in role 'tax' counts.
+ *
+ * KNOWN LIMIT (Hein, 2026-09-26 — accepted, not a defect): padding a journal
+ * with correctly-taxed input-VAT lines DOES grow its allowance, and that
+ * slack can absorb a real over-claim elsewhere on the same journal — at most
+ * R0.005 per added taxed line (hiding R1 takes ~200 of them). A journal line
+ * is not paired with its own base, so a padded journal cannot be told apart
+ * from a bill of many identical items that all round the same way; any cap
+ * below the worst case would flag those bills instead. The worst-case bound
+ * is kept.
  */
 import { classifyVatJournalLine, type VatLineInput } from './vatBoxBasis';
 
@@ -107,9 +116,10 @@ export function perJournalInputOverclaim(
     const raw = Math.max(0, r2(a.tax - r2(a.base * rate)));
     // R0.005 per TAXED input-VAT line — the true per-line rounding bound, not
     // rounded to the cent itself (see the file header). Only the excess above
-    // it, if any, is rounded and charged.
-    const allowance = 0.005 * a.taxedLines;
-    const excess = raw > allowance ? r2(raw - allowance) : 0;
+    // it, if any, is rounded and charged. Counted in whole half-cents: in
+    // floats 1.20 − 0.005 = 1.1949… and a half-cent excess would round down.
+    const excessHalfCents = Math.round(raw * 200) - a.taxedLines;
+    const excess = excessHalfCents > 0 ? Math.ceil(excessHalfCents / 2) / 100 : 0;
     over = r2(over + excess);
   }
   return over;
