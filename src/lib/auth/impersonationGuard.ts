@@ -19,10 +19,10 @@ import type { NextApiResponse } from 'next';
 import { apiResponse, ErrorCode } from '@/lib/apiResponse';
 import { currentSessionActor } from './impersonationSessions';
 
-export const IMPERSONATION_FORBIDDEN = 'IMPERSONATION_FORBIDDEN';
-
 export class ImpersonationForbiddenError extends Error {
-  readonly code = IMPERSONATION_FORBIDDEN;
+  // A literal, not a const reference: tests/unit/mcp/typedRefusalReachesAgent's
+  // census reads `readonly code = '...'` to hold every refusal to a decision.
+  readonly code = 'IMPERSONATION_FORBIDDEN';
 
   constructor() {
     super('This action cannot be taken while impersonating another user. End the impersonation and act as yourself.');
