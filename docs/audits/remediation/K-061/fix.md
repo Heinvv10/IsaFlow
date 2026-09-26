@@ -75,6 +75,16 @@ A new table that stores a customer id must be added to the service AND to `MOVED
 
 **Tests.** `tests/integration/k061-customer-merge-{moves,refusals,sage-resync}.int.test.ts` and `k061-duplicates-merge-customer.int.test.ts`, and `k061-customer-merge-lock-order.int.test.ts` hold 23 tests. The lock-order file covers each of the bank-line, receipt and invoice sets. In each, a settlement holds the lower id and then takes the higher one while a merge is blocked, and neither side may deadlock. They run through the real exported route: withAuth, app_user, RLS, CSRF and write access, with no mocks. Every refusal asserts an md5 digest of every census table across both tenants, so a refusal cannot commit a partial write. Evidence: `red.log`, `green.log` and `mutations.log`.
 
+**Browser acceptance (dev, 2026-09-26, `isaflow_dev`, Brightsphere, reporting-qa user, `next dev` from this branch).**
+- Setup: two customers sharing an email were seeded, "K061 Acceptance Traders" (R2 300 invoice) and "… Duplicate" (R1 150 invoice, an active recurring template and a primary contact).
+- `/accounting/customers/dedup` then did the following:
+  - Scan paired them (`acceptance-1-pair.png`).
+  - Merge → Confirm Merge (`acceptance-2-confirm.png`).
+  - Merge Now → 200 `{movedDocuments:1, pausedRecurring:1, revokedPortalLogins:0}`, and the toast read "… merged into "K061 Acceptance Traders". 1 recurring invoice paused — review before re-activating." (`acceptance-3-merged.png`).
+- The survivor's Activity tab lists both invoices (`acceptance-4-survivor-activity.png`), and its Contacts tab shows the moved contact (`acceptance-5-survivor-contacts.png`).
+- In the DB, both invoices name the survivor on both columns, the template is `paused`, and the source is `… [MERGED]` with `deleted_at` set.
+- The seeded rows were deleted afterwards.
+
 **Migration / rollback.** None. Rollback is reverting the PR.
 
 **Historical-data impact.**
