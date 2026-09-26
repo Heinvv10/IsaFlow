@@ -1,0 +1,21 @@
+# R-127 RED — commit dee75d345 (tests only; production code as on origin/master c82cb65d2)
+# fixture: isaflow-fixture-r127fix (clone of isaflow-fixture-r112 schema + migrations 692-707)
+$ vitest run --config vitest.integration.config.ts tests/integration/r127-*.int.test.ts
+     × books the R115 bill once: expense R100, VAT R15, AP nil, bank R115 credited once; the invoice reads paid
+     × the second approval waits for the first, then approves without reusing the provisional
+     × one provisional, two invoices from the same slip: only the first is settled by it
+     × invoice R130 > bank R115: settles R115, leaves R15 open on AP, books the invoice's own figures
+     × invoice R120 < bank R140: settles the invoice in full and leaves R20 unapplied on the payment
+     × ai-invoice-pipeline: an auto-approved slip that evidences a provisional ends paid, booked once
+     × Post to GL on an approved, unposted invoice whose slip evidences a provisional settles it
+ FAIL  r127-capture-auto-approve > ai-invoice-pipeline: ...        AssertionError: expected null not to be null
+ FAIL  r127-capture-auto-approve > Post to GL on an approved, ...  AssertionError: expected 'approved' to be 'paid'
+ FAIL  r127-double-booking > books the R115 bill once: ...          AssertionError: expected 200 to be 100
+ FAIL  r127-provisional-settle-guards > one provisional, two ...    AssertionError: expected 'approved' to be 'paid'
+ FAIL  r127-provisional-settle-guards > invoice R130 > bank R115    AssertionError: expected 'approved' to be 'partially_paid'
+ FAIL  r127-provisional-settle-guards > invoice R120 < bank R140    AssertionError: expected 'approved' to be 'paid'
+ FAIL  r127-provisional-settle-race > the second approval waits...  AssertionError: expected 'approved' to be 'paid'
+ Test Files  4 failed (4)
+      Tests  7 failed | 6 passed (13)
+# The 6 passing at RED pin pre-fix behaviour that must not change: no provisional,
+# not evidenced, reversed, draft, other tenant, capture/[id]/post no-items shape.
