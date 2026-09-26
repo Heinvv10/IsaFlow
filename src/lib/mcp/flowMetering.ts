@@ -131,6 +131,7 @@ const TOOL_FLOW_OPERATIONS: Record<string, FlowOperationCode | null> = {
   vat_status: null,
   vat_reconciliation: null,
   vat201_export: null,
+  vat_exceptions: null,
   // The integrity suite is free for the same reason list_agent_postings is:
   // it is a control surface. Putting a price on the call that finds a
   // R1,058,000 invoice missing from the aging is the wrong incentive, and it
@@ -376,6 +377,11 @@ const TOOL_FLOW_OPERATIONS: Record<string, FlowOperationCode | null> = {
   // app does not meter it either, and pricing a control that stops a period
   // being changed after filing would discourage using it.
   lock_vat_period: null,
+  // Posts nothing to the ledger either — a flag on the document, not a
+  // journal. Same reasoning as lock_vat_period.
+  mark_vat_declared_elsewhere: null,
+  // Posts nothing to the ledger — links/unlinks evidence, same reasoning.
+  link_document_to_journal: null,
 };
 
 /**

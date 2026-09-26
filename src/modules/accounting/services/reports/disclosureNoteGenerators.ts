@@ -10,6 +10,7 @@ import { isVatRegistered, normalizeVatBasis } from '@/modules/bureau/services/va
 import { getFiscalRange } from '@/modules/accounting/services/afs/afsFiscalPeriod';
 import { agedBucketTable, getAgedBucketTotals } from './agedBucketTotals';
 import { CASH_SUBTYPES } from '@/modules/accounting/services/gl/accountSubtypes';
+import { VAT_SUBMISSION_CLEARING_SOURCE } from './vatSubmissionClearing';
 
 function fmt(n: number | null | undefined): string {
   if (n == null) return '—';
@@ -229,7 +230,7 @@ export async function noteTaxation(companyId: string, fiscalYear: number): Promi
       -- under the same source, would restore them. IS DISTINCT FROM, not <>:
       -- source is nullable. 'auto_vat_adjustment' is a separate source value and
       -- is still counted. Full rationale at the same predicate in vatReturnService.
-      AND gje.source IS DISTINCT FROM 'auto_vat_submission'
+      AND gje.source IS DISTINCT FROM ${VAT_SUBMISSION_CLEARING_SOURCE}
   ` as DbRow[];
 
   const r = rows[0] ?? {};

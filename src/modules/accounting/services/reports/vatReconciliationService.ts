@@ -4,6 +4,7 @@
 
 import { sql } from '@/lib/neon';
 import { log } from '@/lib/logger';
+import { VAT_SUBMISSION_CLEARING_SOURCE } from './vatSubmissionClearing';
 
 type DbRow = Record<string, unknown>;
 
@@ -108,7 +109,7 @@ export async function getVatReconciliation(
         -- automated VAT adjustments are still counted. Full rationale at the
         -- same predicate in vatReturnService. The revenue arm of this query is
         -- unaffected: the clearing journal posts no revenue line.
-        AND gje.source IS DISTINCT FROM 'auto_vat_submission'
+        AND gje.source IS DISTINCT FROM ${VAT_SUBMISSION_CLEARING_SOURCE}
         -- K-053: the reversal a SOFT-DELETE posts is not trade. The invoice leg
         -- (query 2) is deliberately undated — it keeps a deleted invoice in the
         -- month it was raised, which is what the document-based return did when
@@ -187,7 +188,7 @@ export async function getVatReconciliation(
         -- happen to drop — so today it is excluded BY LUCK, not by rule.
         -- Excluding by SOURCE keeps it excluded if the clearing entry ever
         -- starts stamping vat_type.
-        AND gje.source IS DISTINCT FROM 'auto_vat_submission'
+        AND gje.source IS DISTINCT FROM ${VAT_SUBMISSION_CLEARING_SOURCE}
         -- K-053: same predicate, same reason as the monthly GL query above.
         AND NOT EXISTS (
           SELECT 1 FROM soft_delete_journal_reversals sdjr
@@ -361,7 +362,7 @@ export async function getVatMultiYearSummary(
         -- itself away and the multi-year trend was the settlement schedule, not
         -- the trade. Revenue is unaffected — the clearing journal posts no
         -- revenue line. IS DISTINCT FROM, not <>: source is nullable.
-        AND gje.source IS DISTINCT FROM 'auto_vat_submission'
+        AND gje.source IS DISTINCT FROM ${VAT_SUBMISSION_CLEARING_SOURCE}
         -- K-053: same predicate, same reason as the monthly GL query above.
         AND NOT EXISTS (
           SELECT 1 FROM soft_delete_journal_reversals sdjr

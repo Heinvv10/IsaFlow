@@ -261,11 +261,19 @@ describe('getVatExceptions — V-05 excludes the VAT submission clearing journal
 
       const r = await run(client, f);
 
-      expect(r.controlRecon.outputVat201).toBeCloseTo(1250, 2);
+      // Since 2026-09-25 the recon ties the FILED ledger VAT201 to the GL
+      // (Hein). The ledger excludes the clearing journal too (vatEntryMembership
+      // vatEntrySourceAdmitsSql), so both sides read the R1,000 posted: had the
+      // ledger still read it, outputVat201 would be 0 and the recon would show
+      // the clearing journal as a R1,000 variance.
+      expect(r.controlRecon.outputVat201).toBeCloseTo(1000, 2);
       expect(r.controlRecon.outputGl).toBeCloseTo(1000, 2);
+      expect(r.controlRecon.outputVariance).toBeCloseTo(0, 2);
       // The posting gap is the point of the report. A fix that made this come
-      // out clean would have over-corrected.
-      expect(r.controlRecon.outputVariance).toBeCloseTo(250, 2);
+      // out clean would have over-corrected: the invoice carries R1,250, the
+      // ledger R1,000 — measured per invoice, in exception 4.
+      expect(r.invoiceGlMismatches).toHaveLength(1);
+      expect(r.invoiceGlMismatches[0]).toMatchObject({ invoiceVat: 1250, glVat: 1000, variance: 250 });
     });
   });
 

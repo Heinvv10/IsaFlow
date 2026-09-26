@@ -32,6 +32,13 @@ export const SCOPE_LABELS: Record<OAuthScope, string> = {
   // asserts it.
   'write:contacts': 'Create and edit your customers and suppliers, including supplier banking details',
   'read:vat': 'Read your VAT status',
+  // Deliberately separate from write:post: neither lock_vat_period nor
+  // mark_vat_declared_elsewhere posts a journal — the honest description of
+  // what they do is locking a filed period and clearing a pre-filing block,
+  // not "posting irreversible entries". Item 10 (VAT-gaps breaker LOW): both
+  // tools previously sat under write:post's label, which never mentioned
+  // either action.
+  'write:vat': 'Lock VAT periods and clear VAT pre-filing exceptions',
   'read:practice': 'Read your practice clients, job categories and logged time',
   'write:practice': 'Create job categories and work items, and log and submit time entries',
   // Named explicitly because payroll data is personal information under POPIA

@@ -19,7 +19,7 @@
 import { sql } from '@/lib/neon';
 import type { DbRow } from '@/lib/neon';
 import type { LateClaimAwareLine } from './vatLateClaimBasis';
-import { vatEntryMemberLineSql } from './vatEntryMembership';
+import { vatEntryMemberLineSql, vatEntrySourceAdmitsSql } from './vatEntryMembership';
 
 /**
  * A document in one of these states raises no VAT, but its journal may still be
@@ -73,6 +73,9 @@ export async function getVatPeriodLines(
         AND je.entry_date <= ${periodEnd}::DATE
         -- The membership rule, shared with the VAT-lock reclassification check.
         AND ${vatEntryMemberLineSql()}
+        -- Not the VAT submission clearing journal: it settles the previous
+        -- return and is no supply (vatEntrySourceAdmitsSql says why).
+        AND ${vatEntrySourceAdmitsSql(sql`je.source`)}
     )
     , cancelled_entries_base AS (
       SELECT ci.gl_journal_entry_id AS id FROM customer_invoices ci
@@ -131,6 +134,7 @@ export async function getVatPeriodLines(
       ga.account_subtype,
       jl.vat_type,
       je.source AS entry_source,
+      je.reversal_of_id::TEXT  AS reversal_of_id,
       jl.late_claim_base,
       jl.debit,
       jl.credit,
@@ -162,6 +166,7 @@ export async function getVatPeriodLines(
       vatType: r.vat_type == null ? null : String(r.vat_type),
       entrySource: r.entry_source == null ? null : String(r.entry_source),
       lateClaimBase: r.late_claim_base == null ? null : num(r.late_claim_base),
+      reversalOfId: r.reversal_of_id == null ? null : String(r.reversal_of_id),
       debit: num(r.debit),
       credit: num(r.credit),
       cancelledSource: r.cancelled_source === true,

@@ -154,9 +154,12 @@ export async function submitVAT201ToSars(
   }
 
   // Regenerate the authoritative box totals for the period FROM THE LEDGER.
-  // The invoice-derived `generateVAT201` — which the exceptions report still
-  // reconciles against — cannot see credit notes or manual VAT journals, so
-  // filing its figures would file a return higher than the books (K-031).
+  // The invoice-derived `generateVAT201` cannot see credit notes or manual
+  // VAT journals, so filing its figures would file a return higher than the
+  // books (K-031). The exceptions report's control recon (`getVatExceptions`,
+  // above) reconciles against THIS SAME `getLedgerVAT201` fields 5/10 (2026-09-25,
+  // fdcfe53d6) — invoice-vs-GL posting gaps still surface per document
+  // (queries 4/5), but the two no longer disagree on what "the return" is.
   const vat201 = await getLedgerVAT201(companyId, submission.periodStart, submission.periodEnd);
 
   // The form's own arithmetic, which the invoice-population exceptions report

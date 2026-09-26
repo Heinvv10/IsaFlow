@@ -474,10 +474,13 @@ describe('write-tool manifest invariants', () => {
       // completing a reconciliation marks transactions terminally reconciled.
       'close_fiscal_period',
       'finalize_invoice',
-      // lock_vat_period posts no journal, and requires write:post anyway: it
-      // freezes a filed return, and a control an agent can set without the
-      // posting permission is not a control.
-      'lock_vat_period',
+      // link_document_to_journal posts no journal — it changes what blocks a
+      // VAT exception/lock. (lock_vat_period and mark_vat_declared_elsewhere
+      // used to sit here too, for the same reasoning — item 10 moved both off
+      // write:post onto a dedicated write:vat scope instead, since neither
+      // posts a journal and write:post's consent label never named either
+      // action.)
+      'link_document_to_journal',
       // merge_gl_accounts posts no journal, and rewrites POSTED journal lines
       // in place — potentially thousands at once. write:post is the scope that
       // gates changing what is in the ledger, so it gates this too.
@@ -611,6 +614,9 @@ describe('write-tool manifest invariants', () => {
       // lock_vat_period refuses on the missing period before reading anything;
       // behaviour is covered in vatPeriodLock.db.test.ts against a real ledger.
       lock_vat_period: { ...KEY },
+      // Refuses on the missing action/kind/invoice_ids/reason before any
+      // service call; behaviour in vatDeclaredElsewhereTool.test.ts.
+      mark_vat_declared_elsewhere: { ...KEY },
       create_job_category: { ...KEY },
       create_work_item: { ...KEY },
       log_time_entry: { ...KEY },
@@ -681,6 +687,9 @@ describe('write-tool manifest invariants', () => {
       end_employee_component: { ...KEY },
       calculate_pay_run: { ...KEY },
       approve_pay_run: { ...KEY },
+      // Refuses on the missing action before reading anything; behaviour in
+      // journalDocumentLinkService.test.ts and journalDocumentLinksRoute.test.ts.
+      link_document_to_journal: { ...KEY },
     };
     let corpus = JSON.stringify(MCP_TOOLS.map((t) => ({ n: t.name, s: t.inputSchema })));
     for (const name of WRITE_NAMES) {

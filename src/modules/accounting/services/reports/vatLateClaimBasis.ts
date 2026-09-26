@@ -25,7 +25,9 @@
  * without base.
  *
  * A separate file so vatBoxBasis.ts does not grow; every other journal goes
- * through `deriveVatBoxes` unchanged.
+ * through `deriveVatBoxes` after the coded-base rule (vatCodedBase). The INPUT
+ * variance — and so `ties` — is the per-journal over-claim (vatInputOverclaim),
+ * not the signed box total: an under-claim cannot absorb an over-claim.
  */
 import {
   MAX_LISTED_ENTRIES_WITHOUT_BASE,
@@ -37,6 +39,8 @@ import {
   type VatBoxRow,
   type VatLineInput,
 } from './vatBoxBasis';
+import { applyCodedBaseRule } from './vatCodedBase';
+import { perJournalInputOverclaim } from './vatInputOverclaim';
 
 /** The clearing account's subtype (migration 701). */
 export const VAT_LATE_CLAIM_SUBTYPE = 'vat_input_late_claim';
@@ -49,6 +53,8 @@ export type LateClaimAwareLine = VatLineInput & {
   entrySource?: string | null;
   /** On a companion's VAT Input line: the base behind the claim (gl_journal_lines.late_claim_base). */
   lateClaimBase?: number | null;
+  /** gl_journal_entries.reversal_of_id — the per-journal over-claim measures a reversal with its original. */
+  reversalOfId?: string | null;
 };
 
 export interface LateClaimBoxRow extends VatBoxRow {
@@ -81,8 +87,10 @@ export function deriveVatBoxesWithLateClaims(lines: readonly LateClaimAwareLine[
   // Otherwise the clearing leg is never the value of a supply: outside a
   // companion it is left out, so a hand-made DR VAT Input / CR clearing journal
   // has no base.
-  const basis = deriveVatBoxes(lines.filter((l) => !lateEntries.has(l.journalEntryId)
+  // The coded-base rule (vatCodedBase) decides which base lines the tax is on.
+  const ordinary = applyCodedBaseRule(lines.filter((l) => !lateEntries.has(l.journalEntryId)
     && (l.accountSubtype !== VAT_LATE_CLAIM_SUBTYPE || outputEntries.has(l.journalEntryId))));
+  const basis = deriveVatBoxes(ordinary);
   const rows = new Map<string, LateClaimBoxRow>(
     basis.boxes.map((b) => [`${b.direction}:${b.vatType}`, { ...b, lateClaimTax: 0 }]),
   );
@@ -123,7 +131,12 @@ export function deriveVatBoxesWithLateClaims(lines: readonly LateClaimAwareLine[
   const outputImpliedTax = r2(outputBase * SA_VAT_RATE);
   const inputImpliedTax = r2(inputBase * SA_VAT_RATE);
   const outputVariance = r2(outputTax - outputImpliedTax);
-  const inputVariance = r2(inputTax - inputImpliedTax);
+  // Per journal, over-claims only (vatInputOverclaim): an under-claim on one
+  // bill no longer absorbs an over-claim on another. The boxes keep their
+  // signed per-box variance; this is the figure `ties` and filing gate on.
+  const inputVariance = perJournalInputOverclaim(
+    ordinary, lines.filter((l) => lateEntries.has(l.journalEntryId)), SA_VAT_RATE,
+  );
   const entriesWithoutBaseTotal = basis.entriesWithoutBaseTotal + lateWithoutBase.size;
 
   return {
