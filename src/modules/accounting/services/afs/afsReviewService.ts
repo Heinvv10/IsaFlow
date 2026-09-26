@@ -3,6 +3,7 @@ import { sql } from '@/lib/neon';
 import { log } from '@/lib/logger';
 import type { SectionStatus, DocumentStatus } from './afsTypes';
 import { SECTION_STATUS_ORDER } from './afsTypes';
+import { assertNotImpersonating } from '@/lib/auth/impersonationGuard';
 
 // ── Error ───────────────────────────────────────────────────────────────────
 
@@ -167,6 +168,7 @@ export async function signOffSection(
   sectionId: string,
   userId: string
 ): Promise<{ sectionId: string; newStatus: SectionStatus }> {
+  await assertNotImpersonating(); // R-032 L5: first, before any read or write
   const { section, document } = await getSectionWithDocument(companyId, sectionId);
 
   if (!section || !document || document.id !== documentId) {
@@ -240,6 +242,7 @@ export async function signOffDocument(
   documentId: string,
   userId: string
 ): Promise<{ documentId: string; newStatus: DocumentStatus }> {
+  await assertNotImpersonating(); // R-032 L5: first, before any read or write
   const doc = await getDocument(companyId, documentId);
   if (!doc) throw new ReviewError('Document not found', 'NOT_FOUND');
 
