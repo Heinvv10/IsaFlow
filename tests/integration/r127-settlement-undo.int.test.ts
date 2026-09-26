@@ -83,6 +83,18 @@ describe('R-127: voiding a fully unapplied settlement undoes it', () => {
     expect(await netOver([s.je, s.reclassJe, s.invoiceJe])).toEqual({ expense: 100, vat: 15, ap: -115, bank: 0 });
   });
 
+  it('voiding it again is refused with the ordinary status message, not a concurrency error', async () => {
+    const s = await settled(906.10);
+    await inTx(() => unapplySupplierPayment(company, { paymentId: s.paymentId }, user));
+    expect((await action('void', s.paymentId)).statusCode).toBe(200);
+    const before = await companySnapshot(s.invoiceId);
+    const again = await action('void', s.paymentId);
+    expect(again.statusCode).toBe(400);
+    expect(JSON.stringify(again.body)).toMatch(/status: cancelled/);
+    expect(JSON.stringify(again.body)).not.toMatch(/concurrently/);
+    expect(await companySnapshot(s.invoiceId)).toEqual(before);
+  });
+
   it('through MCP void_payment: the same undo', async () => {
     const s = await settled(902.70);
     await inTx(() => unapplySupplierPayment(company, { paymentId: s.paymentId }, user));
