@@ -44,39 +44,39 @@ beforeEach(() => {
 describe('assertMayEditRule', () => {
   it('refuses an admin editing an owner-only rule', async () => {
     ruleRow('owner');
-    await expect(assertMayEditRule(COMPANY, RULE, actor('admin')))
+    await expect(assertMayEditRule(COMPANY, RULE, actor('admin'), {}))
       .rejects.toBeInstanceOf(ApprovalRuleAuthorityError);
   });
 
   it('names the role in the refusal so the UI can say why', async () => {
     ruleRow('owner');
-    await expect(assertMayEditRule(COMPANY, RULE, actor('admin')))
+    await expect(assertMayEditRule(COMPANY, RULE, actor('admin'), {}))
       .rejects.toThrow(/requires the owner role/);
   });
 
-  it('allows an equal rank — the guard is about weakening, not about ownership', async () => {
+  it('allows an equal rank for an edit that weakens nothing (R-048 covers the ones that do)', async () => {
     ruleRow('admin');
-    await expect(assertMayEditRule(COMPANY, RULE, actor('admin'))).resolves.toMatchObject({ id: RULE });
+    await expect(assertMayEditRule(COMPANY, RULE, actor('admin'), {})).resolves.toMatchObject({ id: RULE });
   });
 
   it('allows a higher rank', async () => {
     ruleRow('manager');
-    await expect(assertMayEditRule(COMPANY, RULE, actor('owner'))).resolves.toMatchObject({ id: RULE });
+    await expect(assertMayEditRule(COMPANY, RULE, actor('owner'), {})).resolves.toMatchObject({ id: RULE });
   });
 
   // The mirror of requiredRank's fallback: an approver_role written before
   // validation existed must not become a rule anybody can edit.
   it('treats an approver_role the ladder does not know as admin, not as rank 0', async () => {
     ruleRow('Owner');
-    await expect(assertMayEditRule(COMPANY, RULE, actor('manager')))
+    await expect(assertMayEditRule(COMPANY, RULE, actor('manager'), {}))
       .rejects.toBeInstanceOf(ApprovalRuleAuthorityError);
     ruleRow('Owner');
-    await expect(assertMayEditRule(COMPANY, RULE, actor('admin'))).resolves.toMatchObject({ id: RULE });
+    await expect(assertMayEditRule(COMPANY, RULE, actor('admin'), {})).resolves.toMatchObject({ id: RULE });
   });
 
   it('treats a NULL approver_role as admin', async () => {
     ruleRow(null);
-    await expect(assertMayEditRule(COMPANY, RULE, actor('manager')))
+    await expect(assertMayEditRule(COMPANY, RULE, actor('manager'), {}))
       .rejects.toBeInstanceOf(ApprovalRuleAuthorityError);
   });
 
@@ -85,7 +85,7 @@ describe('assertMayEditRule', () => {
   it('gives an actor role the ladder does not know no authority at all', async () => {
     for (const role of ['storeman', 'toString', '']) {
       ruleRow('admin');
-      await expect(assertMayEditRule(COMPANY, RULE, actor(role)))
+      await expect(assertMayEditRule(COMPANY, RULE, actor(role), {}))
         .rejects.toBeInstanceOf(ApprovalRuleAuthorityError);
     }
   });
@@ -93,7 +93,7 @@ describe('assertMayEditRule', () => {
   it('returns null — not a refusal — when the id names no rule this company owns', async () => {
     sqlMock.mockReset();
     sqlMock.mockResolvedValueOnce([]);
-    await expect(assertMayEditRule(COMPANY, RULE, actor('viewer'))).resolves.toBeNull();
+    await expect(assertMayEditRule(COMPANY, RULE, actor('viewer'), {})).resolves.toBeNull();
   });
 });
 

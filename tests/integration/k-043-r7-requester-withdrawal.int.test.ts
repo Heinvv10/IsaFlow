@@ -112,9 +112,10 @@ describe('R-033 — the requester may withdraw a request nobody else can clear',
   it('lets the owner reject their own request after the ratchet has locked every other route', async () => {
     const { company, rule, documentId, requestId } = await ownerRaisedOwnerOnly();
 
-    // The legitimate relaxation that used to be the escape hatch.
+    // The relaxation that used to be the escape hatch is closed too: nobody may
+    // lower the level that governs them, the owner included (R-048).
     const relaxed = await call(approvalRules, owner, company, 'PUT', { id: rule, approverRole: 'manager' });
-    expect(relaxed.state.statusCode).toBe(200);
+    expect(relaxed.state.statusCode).toBe(403);
 
     // Every route round 6 leaves closed, still closed.
     const selfApprove = await call(approvalRequests, owner, company, 'POST', { action: 'approve', requestId });
