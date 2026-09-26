@@ -27,21 +27,34 @@
  *
  * BREAKER ROUND 2 (item 1): `document_claimed_vat` sums every root that has
  * EVER been tied to the document — via the immutable `source_document_id`, or
- * ANY row in `gl_journal_document_links` regardless of `unlinked_at`
- * (`gl/documentLinkHistorySql.allDocumentLinksSql`, the SAME fragment the
- * write-side guard uses). Unlinking and relinking a document to a new journal
- * no longer drops the old journal's still-standing claim out of the total —
- * a document's VAT can support at most its own amount across every claim it
- * has ever backed, not merely the one currently linked to it. Each row's own
- * `document_id` (used to look up the document's own extracted VAT) stays the
- * CURRENT attribution — source_document_id, else the active link — so the
- * verdict is still keyed on what the journal is claimed to be supported by
- * today.
+ * ANY row in `gl_journal_document_links` regardless of `unlinked_at`.
+ * Unlinking and relinking a document to a new journal no longer drops the old
+ * journal's still-standing claim out of the total — a document's VAT can
+ * support at most its own amount across every claim it has ever backed, not
+ * merely the one currently linked to it. Each row's own `document_id` (used
+ * to look up the document's own extracted VAT) stays the CURRENT attribution
+ * — source_document_id, else the active link — so the verdict is still keyed
+ * on what the journal is claimed to be supported by today.
+ *
+ * NOTE ON THE `gl_journal_document_links` SCAN: this is inlined directly
+ * rather than shared via a `gl/documentLinkHistorySql`-style helper that
+ * builds its own `sql\`...\`` fragment and splices it in (the LazyQuery
+ * embedding `lib/neon.ts` supports). That splicing only works against the
+ * REAL `sql` tag; a test that mocks `sql` as a bare `vi.fn()` with a
+ * positional queue of resolved values (vatExceptionsService.test.ts and
+ * friends, via `vatExceptionsTestUtils.mockExceptionsSql`) has no such
+ * splicing behaviour — constructing the fragment calls the mock an EXTRA
+ * time to build a value that is then embedded as an opaque object, silently
+ * consuming one queued mock result and shifting every later query's result
+ * by one position (this broke `declaredElsewhere`, the query queued right
+ * after this one, until fixed). Same reasoning as `documentJournalClaimGuard
+ * .ts`'s header on why IT doesn't use the shared fragment either — a helper
+ * that calls `sql` to build a piece of a bigger query is only safe to use
+ * inside code no low-level `sql`-mocked test exercises.
  */
 import { sql } from '@/lib/neon';
 import type { DbRow } from '@/lib/neon';
 import { VAT_SUBMISSION_CLEARING_SOURCE } from './vatSubmissionClearing';
-import { allDocumentLinksSql } from '../gl/documentLinkHistorySql';
 
 export async function queryInputVatSupport(
   companyId: string, periodStart: string, periodEnd: string, cent: number,
@@ -102,9 +115,10 @@ export async function queryInputVatSupport(
       FROM attributed a
       JOIN gl_journal_entries orig2 ON orig2.id = a.doc_je_id AND orig2.source_document_id IS NOT NULL
       UNION
-      SELECT DISTINCT a.root, l.captured_document_id AS document_id
+      SELECT DISTINCT a.root, jdl2.captured_document_id AS document_id
       FROM attributed a
-      JOIN (${allDocumentLinksSql(companyId)}) l ON l.journal_entry_id = a.doc_je_id
+      JOIN gl_journal_document_links jdl2
+        ON jdl2.journal_entry_id = a.doc_je_id AND jdl2.company_id = ${companyId}::UUID
     ),
     doc_claims AS (
       SELECT dh.document_id, SUM(ro.claimed_to_date) AS document_claimed_vat
