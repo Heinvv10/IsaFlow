@@ -247,6 +247,7 @@ async function handler(req: CompanyAuthedRequest, res: NextApiResponse) {
     eventId,
     documentId,
     invoiceId: invoice.id as string,
+    invoiceStatus: String(invoice.status),
     supplierId: supplierMatch.supplierId,
     supplierName: supplierMatch.supplierName,
     vendorVatNumber: extracted.vendorVatNumber,

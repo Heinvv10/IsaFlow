@@ -35,7 +35,7 @@ import {
   refusalForPosting,
 } from '@/modules/accounting/services/capture/captureRowLock';
 import { performThreeWayMatch } from '@/modules/accounting/services/ap/supplierInvoiceWorkflowService';
-import { attachEvidenceToProvisional } from '@/modules/accounting/services/capture/evidenceAttachmentService';
+import { attachEvidenceAndSettleApproved } from '@/modules/accounting/services/capture/provisionalAttachSettle';
 import { resolvePendingAlertForInvoice } from '@/modules/accounting/services/capture/alertResolutionService';
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -259,19 +259,12 @@ async function handler(req: CompanyAuthedRequest, res: NextApiResponse) {
     log.error('3-way match failed post-pipeline — continuing', { invoiceId: invoice.id, error: matchErr }, 'ai-pipeline');
   }
 
-  // Attempt to attach evidence to a matching provisional JE (best-effort, non-blocking)
-  let provisionalAttach: { attachedJeId: string | null; bankTxId: string | null } = { attachedJeId: null, bankTxId: null };
-  try {
-    provisionalAttach = await attachEvidenceToProvisional(
-      companyId,
-      documentId,
-      supplierMatch.supplierId,
-      invoiceInput.totalAmount,
-      invoiceInput.invoiceDate,
-    );
-  } catch (attachErr) {
-    log.warn('Evidence attach to provisional JE failed — continuing', { documentId, error: attachErr }, 'ai-pipeline');
-  }
+  // Attach evidence to a matching provisional JE and, when this invoice was
+  // auto-approved, settle it against that provisional (R-127). Best-effort: never throws.
+  const provisionalAttach = await attachEvidenceAndSettleApproved({
+    companyId, userId, documentId, invoiceId: invoice.id as string, invoiceStatus: String(invoice.status),
+    supplierId: supplierMatch.supplierId, totalAmount: invoiceInput.totalAmount, invoiceDate: invoiceInput.invoiceDate,
+  });
 
   // Best-effort alert resolution — non-blocking
   resolvePendingAlertForInvoice(
