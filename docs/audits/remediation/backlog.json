@@ -2197,22 +2197,24 @@
       "correctedTrigger": null,
       "severityRationale": "Source priority only; impact and reachability not yet validated.",
       "auditedSha": "5661d6f0f5f2212705151e95455a3f681ddf840e",
-      "currentSha": "0f16391e",
-      "status": "confirmed",
+      "currentSha": "0ecf6d06e",
+      "status": "fixed-on-master",
       "dependencies": [],
       "testNames": [
-        "tests/integration/k059-dunning-chases-non-debts.int.test.ts"
+        "tests/integration/r096-dunning-skips-unissued-invoices.int.test.ts",
+        "tests/integration/k053-dunning-cron-soft-deleted.int.test.ts"
       ],
       "evidencePaths": [
         "K-059/red.log",
         "K-059/validation.md"
       ],
-      "fixCommit": null,
-      "pr": null,
-      "deployedSha": null,
+      "fixCommit": "2ac13feef;017d0d08f",
+      "pr": "428;413",
+      "deployedSha": "017d0d08f",
       "historicalDataImpact": "Not assessed",
       "canonicalItem": null,
-      "reportedSeverity": "high"
+      "reportedSeverity": "high",
+      "processNotes": "CLOSED ON EVIDENCE 2026-09-25: verified on origin/master 0ecf6d06e by reading the committed code (git show), not the commit message; every fix commit is an ancestor of the live RELEASE_SHA e2a78d699. src/modules/accounting/services/ar/dunningCronService.ts:135 filters the shared documentInPopulationExpr (no draft / pending-approval; R-096, #428), :136 excludes 'paid', :146 requires deleted_at IS NULL (#413)."
     },
     {
       "id": "K-060",
@@ -2228,22 +2230,23 @@
       "correctedTrigger": null,
       "severityRationale": "Source priority only; impact and reachability not yet validated.",
       "auditedSha": "5661d6f0f5f2212705151e95455a3f681ddf840e",
-      "currentSha": "0f16391e",
-      "status": "confirmed",
+      "currentSha": "0ecf6d06e",
+      "status": "fixed-on-master",
       "dependencies": [],
       "testNames": [
-        "tests/integration/k060-quote-number-crosses-tenants.int.test.ts"
+        "tests/integration/k107-quote-number-tenant-scope.int.test.ts"
       ],
       "evidencePaths": [
         "K-060/red.log",
         "K-060/validation.md"
       ],
-      "fixCommit": null,
-      "pr": null,
-      "deployedSha": null,
+      "fixCommit": "5f26d544e",
+      "pr": "411",
+      "deployedSha": "5f26d544e",
       "historicalDataImpact": "Not assessed",
       "canonicalItem": null,
-      "reportedSeverity": "high"
+      "reportedSeverity": "high",
+      "processNotes": "CLOSED ON EVIDENCE 2026-09-25: verified on origin/master 0ecf6d06e by reading the committed code (git show), not the commit message; every fix commit is an ancestor of the live RELEASE_SHA e2a78d699. quoteService.nextQuoteNumber reserves from the company's own 'quotation' sequence (quoteService.ts:201-207); migration 666 adds uq_customer_quotes_company_number."
     },
     {
       "id": "K-061",
@@ -2256,23 +2259,29 @@
       "sourceIds": [
         "A H5"
       ],
-      "correctedTrigger": null,
+      "correctedTrigger": "Every customer-merge POST raised 42703 on customer_payments.customer_id and rolled back; the second path (duplicates-merge) moved 5 of 24 customer references and left active recurring invoices on the deleted customer.",
       "severityRationale": "Source priority only; impact and reachability not yet validated.",
       "auditedSha": "5661d6f0f5f2212705151e95455a3f681ddf840e",
       "currentSha": "0f16391e",
-      "status": "confirmed",
+      "status": "fix-in-review",
       "dependencies": [],
       "testNames": [
-        "tests/integration/k061-customer-merge-nonexistent-column.int.test.ts"
+        "tests/integration/k061-customer-merge-moves.int.test.ts",
+        "tests/integration/k061-customer-merge-refusals.int.test.ts",
+        "tests/integration/k061-customer-merge-sage-resync.int.test.ts",
+        "tests/integration/k061-duplicates-merge-customer.int.test.ts"
       ],
       "evidencePaths": [
+        "K-061/validation.md",
+        "K-061/fix.md",
         "K-061/red.log",
-        "K-061/validation.md"
+        "K-061/green.log",
+        "K-061/mutations.log"
       ],
       "fixCommit": null,
       "pr": null,
       "deployedSha": null,
-      "historicalDataImpact": "Not assessed",
+      "historicalDataImpact": "customer-merge: none (always rolled back). duplicates-merge: customers merged there left rows (incl. active recurring invoices) on the deleted customer; census SQL in K-061/fix.md, correction is Hein's call.",
       "canonicalItem": null,
       "reportedSeverity": "high"
     },
@@ -2290,22 +2299,23 @@
       "correctedTrigger": null,
       "severityRationale": "Source priority only; impact and reachability not yet validated.",
       "auditedSha": "5661d6f0f5f2212705151e95455a3f681ddf840e",
-      "currentSha": "0f16391e",
-      "status": "confirmed",
+      "currentSha": "0ecf6d06e",
+      "status": "fixed-on-master",
       "dependencies": [],
       "testNames": [
-        "tests/integration/k062-customer-statement-client-id-only.int.test.ts"
+        "tests/integration/r082-statements-exclude-drafts.int.test.ts"
       ],
       "evidencePaths": [
         "K-062/red.log",
         "K-062/validation.md"
       ],
-      "fixCommit": null,
-      "pr": null,
-      "deployedSha": null,
+      "fixCommit": "9096c1582",
+      "pr": "413",
+      "deployedSha": "9096c1582",
       "historicalDataImpact": "Not assessed",
       "canonicalItem": null,
-      "reportedSeverity": "high"
+      "reportedSeverity": "high",
+      "processNotes": "CLOSED ON EVIDENCE 2026-09-25: verified on origin/master 0ecf6d06e by reading the committed code (git show), not the commit message; every fix commit is an ancestor of the live RELEASE_SHA e2a78d699. pages/api/accounting/customer-statement.ts:92 and :155 match COALESCE(ci.client_id, ci.customer_id). Gap: no test inserts a legacy customer_id-only invoice, so the COALESCE is not pinned by a test."
     },
     {
       "id": "K-063",
@@ -3043,22 +3053,23 @@
       "correctedTrigger": null,
       "severityRationale": "Source priority only; impact and reachability not yet validated.",
       "auditedSha": "5661d6f0f5f2212705151e95455a3f681ddf840e",
-      "currentSha": "31fc2f10",
-      "status": "confirmed",
+      "currentSha": "0ecf6d06e",
+      "status": "fixed-on-master",
       "dependencies": [],
       "testNames": [
-        "tests/integration/k085-k086-stock-adjustment-movement.int.test.ts"
+        "tests/integration/k107-stock-adjustment-numbering.int.test.ts"
       ],
       "evidencePaths": [
         "K-085/red.log",
         "K-085/validation.md"
       ],
-      "fixCommit": null,
-      "pr": null,
-      "deployedSha": null,
+      "fixCommit": "972870495",
+      "pr": "411",
+      "deployedSha": "972870495",
       "historicalDataImpact": "Not assessed",
       "canonicalItem": null,
-      "reportedSeverity": "high"
+      "reportedSeverity": "high",
+      "processNotes": "CLOSED ON EVIDENCE 2026-09-25: verified on origin/master 0ecf6d06e by reading the committed code (git show), not the commit message; every fix commit is an ancestor of the live RELEASE_SHA e2a78d699. pages/api/accounting/stock-adjustments.ts no longer names stock_movements.company_id (the column never existed; the fix drops it rather than adding it). This made K-086 live, as K-086/validation.md warned; K-086 is fixed separately (fix/k086-stocktake-count-absolute-20260925)."
     },
     {
       "id": "K-086",
@@ -3074,24 +3085,29 @@
       "correctedTrigger": null,
       "severityRationale": "Source priority only; impact and reachability not yet validated.",
       "auditedSha": "5661d6f0f5f2212705151e95455a3f681ddf840e",
-      "currentSha": "31fc2f10",
-      "status": "confirmed",
+      "currentSha": "0ecf6d06e",
+      "status": "fixed",
       "dependencies": [
         "Latent behind K-085; ship together"
       ],
       "testNames": [
-        "tests/integration/k085-k086-stock-adjustment-movement.int.test.ts"
+        "tests/integration/k086-stocktake-count-movement.int.test.ts",
+        "tests/integration/k086-stocktake-count-adjacent.int.test.ts"
       ],
       "evidencePaths": [
         "K-086/red.log",
-        "K-086/validation.md"
+        "K-086/validation.md",
+        "K-086/fix.md",
+        "K-086/green.log",
+        "K-086/mutations.log"
       ],
-      "fixCommit": null,
-      "pr": null,
-      "deployedSha": null,
-      "historicalDataImpact": "Not assessed",
+      "fixCommit": "cdddf1461;2b7285e4b;c47805db9;dd3cd3e7f;a305e4069;a0c845251;0c8335bc6",
+      "pr": "https://github.com/Heinvv10/IsaFlow/pull/524",
+      "deployedSha": "4cb44bc63",
+      "historicalDataImpact": "Live since the K-085 fix (972870495, #411) reached production: any count posted via the API since then added the counted quantity to stock. No UI or MCP caller exists. Census SQL in K-086/fix.md, not run.",
       "canonicalItem": null,
-      "reportedSeverity": "high"
+      "reportedSeverity": "high",
+      "processNotes": "2026-09-25: re-confirmed on 0ecf6d06e (count 60 vs 100 -> 160). Fixed: FOR UPDATE company-scoped lock, count replaces current_stock, correction booked in integer cents as adjustment_in/out by sign with total_cost multiplied in SQL NUMERIC, no movement for a zero correction. Ported from unpushed c5a52e421. Residuals in fix.md: zero count refused (CHECK quantity > 0), current_stock vs movement-derived on-hand, transfer semantics. Review rounds (general + adversarial, then /review on PR #524) added: exact-cents validator for quantity and unitCost (NaN/string/third decimal refused before any write), unitCost required for a count, warehouseId company-scoped before any write, non-string productId/reason refused. 2026-09-26: merged as cd7b710e1 and deployed to prod at 4cb44bc63 (Hein's 'merge all + deploy now', after hours; shipped with #520 + migration 701 on Hein's explicit choice). Deploy CI passed, golden paths 13/13, integrity 16/16, RELEASE_SHA verified, 'Unit cost is required for a stock count' present in the shipped .next/server/pages/api/accounting/stock-adjustments.js. Census SQL in K-086/fix.md is for Hein (set k086_deployed_at to the deploy time). Rollback snapshot ae78f05a7."
     },
     {
       "id": "K-087",
@@ -3480,22 +3496,24 @@
       "correctedTrigger": null,
       "severityRationale": "Source priority only; impact and reachability not yet validated.",
       "auditedSha": "5661d6f0f5f2212705151e95455a3f681ddf840e",
-      "currentSha": "31fc2f10",
-      "status": "confirmed",
+      "currentSha": "0ecf6d06e",
+      "status": "fixed-on-master",
       "dependencies": [],
       "testNames": [
-        "tests/unit/k098-critical-actions-dead-names.test.ts"
+        "tests/unit/services/adminCriticalActions.test.ts",
+        "tests/unit/services/admin/auditService.test.ts"
       ],
       "evidencePaths": [
         "K-098/red.log",
         "K-098/validation.md"
       ],
-      "fixCommit": null,
-      "pr": null,
-      "deployedSha": null,
+      "fixCommit": "131bf415d",
+      "pr": "401",
+      "deployedSha": "131bf415d",
       "historicalDataImpact": "Not assessed",
       "canonicalItem": null,
-      "reportedSeverity": "high"
+      "reportedSeverity": "high",
+      "processNotes": "CLOSED ON EVIDENCE 2026-09-25: verified on origin/master 0ecf6d06e by reading the committed code (git show), not the commit message; every fix commit is an ancestor of the live RELEASE_SHA e2a78d699. The CRITICAL_ACTIONS allow-list is replaced by an empty BEST_EFFORT_ACTIONS deny-list (src/modules/admin/services/auditService.ts:66), so every logAdminAction call is fail-closed; the dead names (feature.override / feature.remove_override) can no longer leave an action ungoverned."
     },
     {
       "id": "K-099",
@@ -3604,22 +3622,25 @@
       "correctedTrigger": null,
       "severityRationale": "Source priority only; impact and reachability not yet validated.",
       "auditedSha": "5661d6f0f5f2212705151e95455a3f681ddf840e",
-      "currentSha": "31fc2f10",
-      "status": "confirmed",
+      "currentSha": "0ecf6d06e",
+      "status": "fixed-on-master",
       "dependencies": [],
       "testNames": [
-        "tests/integration/k102-portal-missing-columns.int.test.ts"
+        "tests/integration/r095-portal-statement-matches-inapp.int.test.ts",
+        "tests/integration/r095-portal-round4.int.test.ts",
+        "tests/integration/r095-portal-session-scoping.int.test.ts"
       ],
       "evidencePaths": [
         "K-102/red.log",
         "K-102/validation.md"
       ],
-      "fixCommit": null,
-      "pr": null,
-      "deployedSha": null,
+      "fixCommit": "d7b89c8c3",
+      "pr": "444",
+      "deployedSha": "e2af2c121",
       "historicalDataImpact": "Not assessed",
       "canonicalItem": null,
-      "reportedSeverity": "high"
+      "reportedSeverity": "high",
+      "processNotes": "CLOSED ON EVIDENCE 2026-09-25: verified on origin/master 0ecf6d06e by reading the committed code (git show), not the commit message; every fix commit is an ancestor of the live RELEASE_SHA e2a78d699. src/modules/accounting/services/ar/portalService.ts:135-140 reads total_amount; the portal statement is routed through statementEmailService.fetchStatementData (:190), so the missing customer_payments columns are no longer referenced (R-095, rounds through e2af2c121)."
     },
     {
       "id": "K-103",
@@ -10432,21 +10453,25 @@
       "correctedTrigger": null,
       "severityRationale": "Narrow race window; not reproduced. Same shape as R-126; the fix is DELETE ... AND status = 'draft' RETURNING id, then a re-read to classify.",
       "auditedSha": "e2a78d699",
-      "currentSha": "e2a78d699",
-      "status": "candidate",
+      "currentSha": "5ec5e7334",
+      "status": "fix-in-review",
       "dependencies": [
         "R-126"
       ],
-      "testNames": [],
+      "testNames": [
+        "tests/integration/r129-po-delete-status-guard.int.test.ts",
+        "tests/unit/api/purchaseOrderDeleteStatusRace.test.ts",
+        "tests/unit/components/purchaseOrderDeleteError.test.tsx"
+      ],
       "evidencePaths": [],
-      "fixCommit": null,
-      "pr": null,
+      "fixCommit": "26fd779da;5b6fc3d6d",
+      "pr": "https://github.com/Heinvv10/IsaFlow/pull/528",
       "deployedSha": null,
-      "historicalDataImpact": "Not assessed.",
+      "historicalDataImpact": "Not assessed; a raced delete leaves no row to find.",
       "canonicalItem": null,
       "reportedSeverity": "low",
-      "processNotes": "2026-09-25: registered from R-126; out of that PR's scope.",
-      "branch": null,
+      "processNotes": "2026-09-25: registered from R-126; out of that PR's scope. 2026-09-26: re-verified live on 5ec5e7334 and reproduced on a disposable fixture: an order submitted by another connection between the status read and the DELETE was hard-deleted (status read back null). Fixed with the R-126 pattern: DELETE ... AND status = 'draft' RETURNING id; zero rows -> company-scoped re-read, 404 gone / 400 naming the status / 409 draft again. po_items go by ON DELETE CASCADE (no orphans, tested). The detail page ([poId].tsx handleDelete) swallowed every refusal; it now shows the API message. 5 mutations each red on a named test. goods_received_notes' NO ACTION FK is unreachable from a draft delete (receipts need approved/partially_received). Blind review round 1: SHIP with 2 LOWs (round trips: by design; GRN doc: corrected in 5b6fc3d6d); round 2: SHIP.",
+      "branch": "fix/r129-po-delete-status-guard-20260926",
       "severity": "low",
       "title": "Purchase-order DELETE checks draft status before the DELETE instead of in it"
     },
@@ -10463,16 +10488,23 @@
       "correctedTrigger": "",
       "severityRationale": "Every guard this programme added is unenforced on the path code actually merges through.",
       "auditedSha": "",
-      "currentSha": "",
-      "status": "confirmed",
+      "currentSha": "0ecf6d06e",
+      "status": "fixed",
       "dependencies": [],
-      "testNames": [],
-      "evidencePaths": [
-        "docs/audits/remediation/K-015/ci.log"
+      "testNames": [
+        "tests/unit/ci/workflowRunsCiRule.test.ts",
+        "scripts/ci/check-workflow-runs-ci.ts (gate workflow-runs-ci)"
       ],
-      "fixCommit": null,
-      "pr": null,
-      "deployedSha": null,
+      "evidencePaths": [
+        "docs/audits/remediation/K-015/ci.log",
+        "R-052/red.log",
+        "R-052/fix.md",
+        "R-052/mutations.log",
+        "R-052/green.log"
+      ],
+      "fixCommit": "4b2c1eb9d..e745e15df (merge b6e9d70e7)",
+      "pr": "https://github.com/Heinvv10/IsaFlow/pull/525",
+      "deployedSha": "4cb44bc63",
       "historicalDataImpact": "Any PR merged green on GitHub was never checked by eleven of the sixteen gates.",
       "canonicalItem": null,
       "reportedSeverity": "",
@@ -10480,7 +10512,7 @@
       "title": "Eleven of the sixteen CI gates never run on GitHub, so a PR can be green while the repo's own guards fail",
       "severity": "high",
       "source": "Found while investigating why K-015's local CI failed on a PR GitHub reported green; recorded 2026-09-10",
-      "processNotes": "scripts/ci/run-ci.sh defines 16 gates. .github/workflows/ci.yml runs only FIVE of them: agent-docs, type-check, lint, user-id-casts, unit-tests (plus the separate Golden Paths job). NEVER run on GitHub: security-guards, is-active-filters, raw-transactions, vat-guard-coverage, self-defining-universe, findings-numbering, migration-rls, component-tests, migration-naming, integration-tests, build. Several of those are financial-integrity guards this very programme wrote -- is-active-filters, vat-guard-coverage, migration-rls, migration-naming. They fire only when a human or agent runs `bun run ci` locally. PROVEN, not theorised: K-015 at 57779e48d fails `is-active-filters` locally (a balance query filtering is_active, which would hide a real opening-balance residual) while GitHub reports 'Type Check, Lint & Test: SUCCESS' and 'Golden Paths E2E: SUCCESS' and the PR shows mergeStateStatus CLEAN. Only the branch being a DRAFT stopped it being mergeable. This is the same family as R-041 (migration warnings printed into a void): a guard exists, is believed to be running, and is not. It also explains how defects of the audited classes reached master in the first place. HEIN: the cheap fix is to make the GitHub job run `bun run ci` (or the gate subset that does not need a database) rather than five hand-listed steps that drift from run-ci.sh every time a gate is added."
+      "processNotes": "scripts/ci/run-ci.sh defines 16 gates. .github/workflows/ci.yml runs only FIVE of them: agent-docs, type-check, lint, user-id-casts, unit-tests (plus the separate Golden Paths job). NEVER run on GitHub: security-guards, is-active-filters, raw-transactions, vat-guard-coverage, self-defining-universe, findings-numbering, migration-rls, component-tests, migration-naming, integration-tests, build. Several of those are financial-integrity guards this very programme wrote -- is-active-filters, vat-guard-coverage, migration-rls, migration-naming. They fire only when a human or agent runs `bun run ci` locally. PROVEN, not theorised: K-015 at 57779e48d fails `is-active-filters` locally (a balance query filtering is_active, which would hide a real opening-balance residual) while GitHub reports 'Type Check, Lint & Test: SUCCESS' and 'Golden Paths E2E: SUCCESS' and the PR shows mergeStateStatus CLEAN. Only the branch being a DRAFT stopped it being mergeable. This is the same family as R-041 (migration warnings printed into a void): a guard exists, is believed to be running, and is not. It also explains how defects of the audited classes reached master in the first place. HEIN: the cheap fix is to make the GitHub job run `bun run ci` (or the gate subset that does not need a database) rather than five hand-listed steps that drift from run-ci.sh every time a gate is added. 2026-09-25: re-proved with canary PR #521 (is-active-filters violation; GitHub green, mergeStateStatus CLEAN). On 0ecf6d06e run-ci.sh has 17 gates and GitHub ran 5. Fixed: the quality job runs `bun run ci`; new gate workflow-runs-ci (YAML-parsed exact allow-list of triggers, job keys, the 3 steps, gate env and package.json scripts.ci) refuses every bypass found in blind review. MAIN RESIDUAL, Hein's call: no required status checks exist (branch protection API 403 on this plan), so a red check does not block merge -- #496 merged with Type Check FAILED. Also: integration tests still skip on GitHub (empty DATABASE_URL secret). 2026-09-26: merged as b6e9d70e7 (CI-only; effective on GitHub from the merge, no prod runtime change). Final-head GitHub run 36131157091: quality pass (all 18 non-skipped gates), Golden Paths pass. Residual 1 decided by Hein 2026-09-26: merge convention (gh pr checks all-pass on the exact head, then --match-head-commit) recorded in CLAUDE.md."
     },
     {
       "id": "R-053",
@@ -12941,8 +12973,8 @@
       "correctedTrigger": null,
       "severityRationale": "Read-path staleness only; nothing written wrong. The visible symptom is a picker missing or showing a deleted customer or account for up to 5 minutes, which can lead to duplicates or postings to a just-deactivated account.",
       "auditedSha": "df5e2dfd6",
-      "currentSha": "e2a78d699",
-      "status": "fix-in-review",
+      "currentSha": "ae78f05a7",
+      "status": "fixed",
       "dependencies": [
         "K-139"
       ],
@@ -12952,11 +12984,11 @@
       "evidencePaths": [],
       "fixCommit": "bf83b1f85;9217fd63a",
       "pr": "https://github.com/Heinvv10/IsaFlow/pull/515",
-      "deployedSha": null,
+      "deployedSha": "ae78f05a7",
       "historicalDataImpact": "None written.",
       "canonicalItem": null,
       "reportedSeverity": "medium",
-      "processNotes": "2026-09-24: registered from the K-139 review. The candidate fix is the K-139 one: drop the cache, or move invalidation to the service layer every writer shares. Measure the list-query cost first. 2026-09-25: re-verified live on e2a78d699 (census: customers 10 writer files / 2 invalidators, gl_accounts 12 / 5; journal posts never invalidated the cached has_transactions). Fixed by dropping both caches (K-139 precedent); EXPLAIN ANALYZE on a disposable fixture: chart of accounts ~10 ms at 3,000 accounts / 500,000 journal lines, customers ~2.5 ms at 5,000. Integration test 4/4 red on master, green with the fix; reinstating either cache turns its 2 tests red. Blind review: round 1 SHIP with 1 LOW (stale comment), fixed in 9217fd63a; round 2 SHIP.",
+      "processNotes": "2026-09-24: registered from the K-139 review. The candidate fix is the K-139 one: drop the cache, or move invalidation to the service layer every writer shares. Measure the list-query cost first. 2026-09-25: re-verified live on e2a78d699 (census: customers 10 writer files / 2 invalidators, gl_accounts 12 / 5; journal posts never invalidated the cached has_transactions). Fixed by dropping both caches (K-139 precedent); EXPLAIN ANALYZE on a disposable fixture: chart of accounts ~10 ms at 3,000 accounts / 500,000 journal lines, customers ~2.5 ms at 5,000. Integration test 4/4 red on master, green with the fix; reinstating either cache turns its 2 tests red. Blind review: round 1 SHIP with 1 LOW (stale comment), fixed in 9217fd63a; round 2 SHIP. 2026-09-25: deployed to prod at ae78f05a7 (Hein's \"deploy now\"; 0 migrations, deploy CI passed, golden paths green, integrity 16/16, RELEASE_SHA verified, no cache keys in the shipped server bundle). Rollback snapshot e2a78d699.",
       "branch": "fix/r125-reference-cache-staleness-20260925",
       "severity": "medium",
       "title": "Customer and GL-account list caches go stale on writes that bypass their routes"
@@ -12973,8 +13005,8 @@
       "correctedTrigger": null,
       "severityRationale": "Narrow race window; not reproduced. The K-137 pattern (guard in the UPDATE WHERE, check the row count, re-read to classify) is the proven fix.",
       "auditedSha": "df5e2dfd6",
-      "currentSha": "e2a78d699",
-      "status": "fix-in-review",
+      "currentSha": "ae78f05a7",
+      "status": "fixed",
       "dependencies": [
         "K-137"
       ],
@@ -12985,11 +13017,11 @@
       "evidencePaths": [],
       "fixCommit": "ca666eff9;72a314660",
       "pr": "https://github.com/Heinvv10/IsaFlow/pull/516",
-      "deployedSha": null,
+      "deployedSha": "ae78f05a7",
       "historicalDataImpact": "Not assessed; an edit that raced an approval would look like an ordinary edit.",
       "canonicalItem": null,
       "reportedSeverity": "low",
-      "processNotes": "2026-09-24: registered from the K-137 review; pre-existing, out of that PR's scope. 2026-09-25: reproduced on e2a78d699 (an order approved between the status read and the UPDATE: 200 and the edit saved). Fixed with the K-137 pattern: guard in the UPDATE WHERE, re-read company-scoped for 404 / 400 naming the status / 409. 4 mutations each red. Only UI caller ([poId].tsx handleSave) already checks res.ok. Blind review round 1: SHIP, no findings. DELETE on the same route has the same shape; registered as R-129.",
+      "processNotes": "2026-09-24: registered from the K-137 review; pre-existing, out of that PR's scope. 2026-09-25: reproduced on e2a78d699 (an order approved between the status read and the UPDATE: 200 and the edit saved). Fixed with the K-137 pattern: guard in the UPDATE WHERE, re-read company-scoped for 404 / 400 naming the status / 409. 4 mutations each red. Only UI caller ([poId].tsx handleSave) already checks res.ok. Blind review round 1: SHIP, no findings. DELETE on the same route has the same shape; registered as R-129. 2026-09-25: deployed to prod at ae78f05a7 (Hein's \"deploy now\"; 0 migrations, deploy CI passed, golden paths green, integrity 16/16, RELEASE_SHA verified, the new refusal string is in purchase-orders/[id].js). Rollback snapshot e2a78d699.",
       "branch": "fix/r126-po-put-status-guard-20260925",
       "severity": "low",
       "title": "Purchase-order PUT checks status before the UPDATE instead of in it"

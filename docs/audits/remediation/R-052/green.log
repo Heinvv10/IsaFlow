@@ -1,0 +1,71 @@
+# R-052 GREEN — GitHub runs on the self-hosted runner (velo-server-u), 2026-09-25
+
+## 1. PR #525 at 3c46f3507: the quality job runs every run-ci.sh gate and passes
+Run 36127016646, job 108045359983, "Type Check, Lint & Test": **success**, 2026-09-25T11:11:07Z -> 2026-09-25T11:19:20Z (8m13s).
+This is the first run to install with `--ignore-scripts`, and the production build passes on it.
+```
+##[group]Run bun install --frozen-lockfile --ignore-scripts
+[ci] no-bunfig PASS
+[ci] type-check PASS
+[ci] lint PASS
+[ci] agent-docs PASS
+[ci] security-guards PASS
+[ci] user-id-casts PASS
+[ci] is-active-filters PASS
+[ci] raw-transactions PASS
+[ci] vat-guard-coverage PASS
+[ci] self-defining-universe PASS
+[ci] findings-numbering PASS
+[ci] migration-rls PASS
+[ci] oauth-trust-flags PASS
+[ci] workflow-runs-ci PASS
+[ci] unit-tests PASS
+[ci] component-tests PASS
+[ci] migration-naming PASS
+[skip] integration-tests: DATABASE_URL not set
+[ci] build PASS
+[ci] all checks passed
+```
+
+## 2. Canary PR #526 at c8edb2950 (3c46f3507 + src/lib/r052Canary.ts): red on exactly is-active-filters
+Run 36127041585, job 108045434167, "Type Check, Lint & Test": **failure**, 2026-09-25T11:03:17Z -> 2026-09-25T11:11:04Z.
+This is the same file that was green on GitHub before the fix (red.log, #521).
+```
+##[group]Run bun install --frozen-lockfile --ignore-scripts
+[ci] no-bunfig PASS
+[ci] type-check PASS
+[ci] lint PASS
+[ci] agent-docs PASS
+[ci] security-guards PASS
+[ci] user-id-casts PASS
+[ci] is-active-filters FAIL
+[ci] raw-transactions PASS
+[ci] vat-guard-coverage PASS
+[ci] self-defining-universe PASS
+[ci] findings-numbering PASS
+[ci] migration-rls PASS
+[ci] oauth-trust-flags PASS
+[ci] workflow-runs-ci PASS
+[ci] unit-tests PASS
+[ci] component-tests PASS
+[ci] migration-naming PASS
+[skip] integration-tests: DATABASE_URL not set
+[ci] build PASS
+[ci] FAILED: is-active-filters
+```
+
+## 3. Golden Paths "fail" on both PRs: cancellations, not failures
+- #525: job 108045360295 is `conclusion: cancelled`, and its annotation reads "Canceling since a
+  higher priority waiting request for golden-paths-dev-demo exists".
+- #526: job 108045434526 is also `cancelled`.
+- The golden-paths job is unchanged by this PR. Its `concurrency: golden-paths-dev-demo` group lets
+  one run hold the shared Demo company, and a master push at 11:05 UTC took the slot. This is the
+  pattern #454, #473, #474 and #506 merged under (fix.md, residual 1).
+
+## 4. The head that merges
+Later commits change only workflowRunsCiRule.ts, its unit test, docs, and the job timeout. The run on
+the final head is recorded as a PR comment on #525. A commit cannot contain the record of its own run.
+
+## Timeout
+The measured job took 8m13s (the canary 7m47s) at load average ~45 on 32 cores. timeout-minutes is set to 30: about 3.5x
+the measured time, for heavier load. A floor of 20 minutes is now enforced by workflow-runs-ci.

@@ -10,7 +10,7 @@
 import { useState, useCallback } from 'react';
 import { AppLayout } from '@/components/layout/AppLayout';
 import { Users2, Loader2, AlertCircle, Search, Info, CheckCircle2 } from 'lucide-react';
-import { apiFetch } from '@/lib/apiFetch';
+import { apiErrorMessage, apiFetch, apiJson } from '@/lib/apiFetch';
 import type { DuplicatePair } from '@/types/customer-duplicates';
 import {
   ConfirmModal,
@@ -59,15 +59,11 @@ export default function CustomerDedupPage() {
     if (!pending) return;
     setIsMerging(true);
     try {
-      const res = await apiFetch('/api/accounting/customer-merge', {
+      const result = await apiJson('/api/accounting/customer-merge', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ target_id: pending.keepId, source_id: pending.mergeId }),
       });
-      if (!res.ok) {
-        const body = await res.json() as { message?: string };
-        throw new Error(body.message ?? `HTTP ${res.status}`);
-      }
       // Remove all pairs that involved either customer
       setPairs((prev) =>
         prev.filter(
@@ -76,10 +72,12 @@ export default function CustomerDedupPage() {
             p.id_b !== pending.mergeId
         )
       );
-      showToast(`"${pending.mergeName}" merged into "${pending.keepName}"`, 'success');
+      const paused = result.pausedRecurring > 0
+        ? ` ${result.pausedRecurring} recurring invoice${result.pausedRecurring === 1 ? '' : 's'} paused — review before re-activating.`
+        : '';
+      showToast(`"${pending.mergeName}" merged into "${pending.keepName}".${paused}`, 'success');
     } catch (err: unknown) {
-      const msg = err instanceof Error ? err.message : String(err);
-      showToast(`Merge failed: ${msg}`, 'error');
+      showToast(`Merge failed: ${apiErrorMessage(err, 'please try again')}`, 'error');
     } finally {
       setIsMerging(false);
       setPending(null);
