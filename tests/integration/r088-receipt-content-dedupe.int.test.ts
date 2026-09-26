@@ -10,7 +10,7 @@ import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
 
 // The race window: request A is held right after its posting claim — locks
 // taken, claim written, nothing committed — while request B runs.
-const race = vi.hoisted(() => ({
+const hold = vi.hoisted(() => ({
   documentId: '' as string,
   entered: null as (() => void) | null,
   release: null as Promise<void> | null,
@@ -19,11 +19,11 @@ vi.mock('@/lib/neon', async (importOriginal) => {
   const original = await importOriginal<typeof import('@/lib/neon')>();
   const sql = (strings: TemplateStringsArray, ...values: unknown[]) => {
     const isClaim = /UPDATE\s+captured_documents\s+SET\s+posted_at\s*=\s*NOW\(\)/.test(strings.join(' '));
-    if (isClaim && race.documentId && values.includes(race.documentId) && race.release) {
-      const release = race.release;
-      race.documentId = '';
+    if (isClaim && hold.documentId && values.includes(hold.documentId) && hold.release) {
+      const release = hold.release;
+      hold.documentId = '';
       return original.sql(strings, ...values).then(async (rows) => {
-        race.entered?.();
+        hold.entered?.();
         await release;
         return rows;
       });
@@ -41,12 +41,11 @@ vi.mock('@/lib/neon', async (importOriginal) => {
 import receiptRoute from '../../pages/api/accounting/receipt-to-journal';
 import postExpenseRoute from '../../pages/api/accounting/capture/[id]/post-expense';
 import actionRoute from '../../pages/api/accounting/document-capture-action';
-import { claimCapturedDocumentForPosting } from '@/modules/accounting/services/capture/captureRowLock';
 import { clearSystemAccountCache } from '@/modules/accounting/services/gl/systemAccountResolver';
 import { assertDisposable } from './mfa-impersonation-postgres.helpers';
 import {
-  accounts, bankCredit, bytesHash, call, claimLineCount, company, employee, errorOf, journalCount, lockWaiters,
-  otherCompany, pool, postedAt, purge, seed, upload, uploadToInbox, type Result,
+  accounts, bankCredit, call, claimLineCount, company, employee, errorOf, journalCount, lockWaiters,
+  otherCompany, pool, postedAt, purge, seed, stamped, upload, uploadToInbox, user, type Result,
 } from './r088-receipt-content-dedupe.helpers';
 
 assertDisposable();
@@ -61,7 +60,8 @@ const reject = (documentId: string) =>
 function expectDuplicateRefusal(result: Result, earlierDocumentId: string, matchedOn: 'file' | 'details') {
   expect(result.state.statusCode).toBe(409);
   const error = errorOf(result);
-  expect(error.details).toMatchObject({ code: 'DUPLICATE_RECEIPT', earlierDocumentId, matchedOn });
+  // Only a details match can be confirmed as a repeat: the same file is the same slip.
+  expect(error.details).toMatchObject({ code: 'DUPLICATE_RECEIPT', earlierDocumentId, matchedOn, canConfirm: matchedOn === 'details' });
   expect(error.message).toContain(`r088-${earlierDocumentId.slice(0, 8)}.jpg`);
 }
 
@@ -92,13 +92,24 @@ describe('R-088 a receipt posts once however many times it is uploaded', () => {
     expect(await journalCount([forwarded])).toBe(0);
   });
 
-  it('posts a genuine repeat purchase once a person confirms it', async () => {
-    const repeat = await upload('slip-waltons-1150', { total: 1150 });
+  it('refuses to let a person confirm a byte-identical re-upload as a repeat', async () => {
+    const reupload = await upload('slip-waltons-1150', { total: 1150 });
+    const before = await bankCredit();
+    expectDuplicateRefusal(await receiptToJournal(reupload, { confirmDuplicate: true }), original, 'file');
+    expect(await journalCount([reupload])).toBe(0);
+    expect(await postedAt(reupload)).toBeNull();
+    expect(await bankCredit()).toBe(before);
+  });
+
+  it('posts a genuine repeat purchase once a person confirms it, and records who did', async () => {
+    const repeat = await upload('slip-waltons-1150-second-coffee', { total: 1150 });
+    expectDuplicateRefusal(await receiptToJournal(repeat), original, 'details');
     const before = await bankCredit();
     const confirmed = await receiptToJournal(repeat, { confirmDuplicate: true });
     expect(confirmed.state.statusCode).toBe(200);
     expect(await journalCount([repeat])).toBe(1);
     expect(await bankCredit()).toBe(before + 1150);
+    expect(await stamped(repeat)).toMatchObject({ duplicate_of: original, confirmed_by: user });
   });
 
   it('posts a same-total receipt from the same vendor that printed a different slip number', async () => {
@@ -133,30 +144,38 @@ describe('R-088 a receipt posts once however many times it is uploaded', () => {
     expect(await bankCredit(otherCompany)).toBe(1150);
   });
 
-  it('refuses the capture inbox petty-cash post of a re-upload, and posts it on confirmation', async () => {
+  it('refuses the capture inbox petty-cash post of a re-upload, confirmed or not', async () => {
     const { documentId, eventId } = await uploadToInbox('slip-waltons-1150', { total: 1150 });
     const before = await bankCredit();
     const body = { glAccountId: accounts[company]!.office };
 
     expectDuplicateRefusal(await postExpense(eventId, body), original, 'file');
+    expectDuplicateRefusal(await postExpense(eventId, { ...body, confirmDuplicate: true }), original, 'file');
     expect(await journalCount([documentId])).toBe(0);
     expect(await postedAt(documentId)).toBeNull();
     expect(await bankCredit()).toBe(before);
 
-    expect((await postExpense(eventId, { ...body, confirmDuplicate: true })).state.statusCode).toBe(200);
-    expect(await journalCount([documentId])).toBe(1);
+    // A different photo of a same-looking purchase is a person's call.
+    const repeat = await uploadToInbox('slip-waltons-1150-petty-repeat', { total: 1150 });
+    expectDuplicateRefusal(await postExpense(repeat.eventId, body), original, 'details');
+    expect((await postExpense(repeat.eventId, { ...body, confirmDuplicate: true })).state.statusCode).toBe(200);
+    expect(await journalCount([repeat.documentId])).toBe(1);
+    expect(await stamped(repeat.documentId)).toMatchObject({ duplicate_of: original, confirmed_by: user });
   });
 
-  it('refuses the capture inbox expense-claim post of a re-upload', async () => {
+  it('refuses the capture inbox expense-claim post of a re-upload, confirmed or not', async () => {
     const { documentId, eventId } = await uploadToInbox('slip-waltons-1150', { total: 1150 });
     const body = { employeeId: employee, glAccountId: accounts[company]!.office };
 
     expectDuplicateRefusal(await postExpense(eventId, body), original, 'file');
+    expectDuplicateRefusal(await postExpense(eventId, { ...body, confirmDuplicate: true }), original, 'file');
     expect(await claimLineCount(documentId)).toBe(0);
     expect(await postedAt(documentId)).toBeNull();
 
-    expect((await postExpense(eventId, { ...body, confirmDuplicate: true })).state.statusCode).toBe(200);
-    expect(await claimLineCount(documentId)).toBe(1);
+    const repeat = await uploadToInbox('slip-waltons-1150-claim-repeat', { total: 1150 });
+    expect((await postExpense(repeat.eventId, { ...body, confirmDuplicate: true })).state.statusCode).toBe(200);
+    expect(await claimLineCount(repeat.documentId)).toBe(1);
+    expect(await stamped(repeat.documentId)).toMatchObject({ duplicate_of: original, confirmed_by: user });
   });
 
   it('a slip posted from the capture inbox refuses a re-encoded copy on the other route', async () => {
@@ -187,13 +206,13 @@ describe('R-088 a receipt posts once however many times it is uploaded', () => {
     expect(await journalCount([reupload])).toBe(1);
   });
 
-  it('lands exactly one of two concurrent posts of the same bytes', async () => {
-    const first = await upload('slip-waltons-2300', { total: 2300 });
-    const second = await upload('slip-waltons-2300', { total: 2300 });
+  // Request A is held right after its claim, locks taken and nothing committed,
+  // while request B runs; B must wait for A, then read A's posting and refuse.
+  async function race(first: string, second: string) {
     let letGo!: () => void;
-    const entered = new Promise<void>((resolve) => { race.entered = resolve; });
-    race.release = new Promise<void>((resolve) => { letGo = resolve; });
-    race.documentId = first;
+    const entered = new Promise<void>((resolve) => { hold.entered = resolve; });
+    hold.release = new Promise<void>((resolve) => { letGo = resolve; });
+    hold.documentId = first;
 
     const a = receiptToJournal(first);
     await entered;
@@ -205,6 +224,13 @@ describe('R-088 a receipt posts once however many times it is uploaded', () => {
     }
     letGo();
     const [ra, rb] = await Promise.all([a, b]);
+    return { ra, rb, parked };
+  }
+
+  it('lands exactly one of two concurrent posts of the same bytes', async () => {
+    const first = await upload('slip-waltons-2300', { total: 2300 });
+    const second = await upload('slip-waltons-2300', { total: 2300 });
+    const { ra, rb, parked } = await race(first, second);
 
     expect(await journalCount([first, second])).toBe(1);
     expect(ra.state.statusCode).toBe(200);
@@ -213,22 +239,16 @@ describe('R-088 a receipt posts once however many times it is uploaded', () => {
     // The window was entered: B reached the database while A held its claim open.
     expect(parked).toBe(true);
   });
-});
 
-// The fence behind the check: a posting path that forgets to ask — or one
-// written later — still cannot land a second live claim on the same content.
-describe('R-088 backstop: the partial unique index on the posted bytes', () => {
-  it('refuses a second live claim on the same bytes and admits a confirmed repeat', async () => {
-    const [x1, x2, x3] = [
-      await upload('slip-backstop', { total: 920 }),
-      await upload('slip-backstop', { total: 920 }),
-      await upload('slip-backstop', { total: 920 }),
-    ];
-    const fingerprint = { contentSha256: bytesHash('slip-backstop'), receiptKey: null, duplicateOf: null };
-    expect(await claimCapturedDocumentForPosting(company, x1, null, fingerprint)).toBeNull();
-    await expect(claimCapturedDocumentForPosting(company, x2, null, fingerprint))
-      .rejects.toThrow(/uq_captured_documents_posted_content/);
-    expect(await postedAt(x2)).toBeNull();
-    expect(await claimCapturedDocumentForPosting(company, x3, null, { ...fingerprint, duplicateOf: x1 })).toBeNull();
+  it('lands exactly one of two concurrent posts of one slip in different bytes', async () => {
+    // Different files, one vendor/date/total/VAT: only the key lock orders them.
+    const first = await upload('slip-waltons-2530-email', { total: 2530 });
+    const second = await upload('slip-waltons-2530-whatsapp', { total: 2530, vendor: 'Waltons Stationery (Pty) Ltd' });
+    const { ra, rb, parked } = await race(first, second);
+
+    expect(await journalCount([first, second])).toBe(1);
+    expect(ra.state.statusCode).toBe(200);
+    expectDuplicateRefusal(rb, first, 'details');
+    expect(parked).toBe(true);
   });
 });
