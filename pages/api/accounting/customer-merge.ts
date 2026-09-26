@@ -2,22 +2,21 @@
  * Customer Merge API
  * POST /api/accounting/customer-merge
  *
- * Re-parents all FK references from source_id → target_id within a single
- * transaction, then soft-deletes the source customer.
+ * Moves everything that belongs to source_id onto target_id in one
+ * transaction, then soft-deletes the source. The rules live in
+ * customerMergeService (K-061); this route only validates the ids and maps a
+ * refusal to 400.
  */
 
 import type { NextApiRequest, NextApiResponse } from 'next';
-import { withTransaction } from '@/lib/neon';
 import { apiResponse } from '@/lib/apiResponse';
 import { withAuth, type CompanyAuthedRequest, withWriteAccess } from '@/lib/auth';
 import { withCsrf } from '@/lib/auth/withCsrf';
 import { withErrorHandler } from '@/lib/api-error-handler';
 import { log } from '@/lib/logger';
-
-interface MergeBody {
-  source_id: string;
-  target_id: string;
-}
+import { isUuidParam } from '@/lib/validation';
+import { ArRequestError } from '@/modules/accounting/services/ar/arErrors';
+import { mergeCustomers } from '@/modules/accounting/services/ar/customerMergeService';
 
 async function handler(req: NextApiRequest, res: NextApiResponse) {
   if (req.method !== 'POST') {
@@ -25,96 +24,24 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
   }
 
   const { companyId } = req as CompanyAuthedRequest;
-  const body = req.body as MergeBody;
-  const { source_id, target_id } = body;
+  const { source_id, target_id } = (req.body ?? {}) as Record<string, unknown>;
 
-  if (!source_id?.trim() || !target_id?.trim()) {
-    return apiResponse.badRequest(res, 'source_id and target_id are required');
-  }
-  if (source_id === target_id) {
-    return apiResponse.badRequest(res, 'source_id and target_id must be different customers');
+  if (!isUuidParam(source_id) || !isUuidParam(target_id)) {
+    return apiResponse.badRequest(res, 'source_id and target_id must be customer ids');
   }
 
   try {
-    await withTransaction(async (tx) => {
-      // 1. Validate both customers belong to this company and are active
-      const customers = await tx`
-        SELECT id, name
-        FROM customers
-        WHERE id IN (${source_id}, ${target_id})
-          AND company_id = ${companyId}
-          AND deleted_at IS NULL
-      `;
-
-      if ((customers as { id: string; name: string }[]).length !== 2) {
-        throw new Error('One or both customers not found or do not belong to this company');
-      }
-
-      // 2. Re-parent customer_invoices
-      await tx`
-        UPDATE customer_invoices
-        SET customer_id = ${target_id}
-        WHERE customer_id = ${source_id}
-          AND company_id = ${companyId}
-      `;
-
-      // 3. Re-parent customer_payments
-      await tx`
-        UPDATE customer_payments
-        SET customer_id = ${target_id}
-        WHERE customer_id = ${source_id}
-          AND company_id = ${companyId}
-      `;
-
-      // 4. Re-parent customer_contacts
-      await tx`
-        UPDATE customer_contacts
-        SET customer_id = ${target_id}
-        WHERE customer_id = ${source_id}
-          AND company_id = ${companyId}
-      `;
-
-      // 5. Re-parent customer_delivery_addresses
-      await tx`
-        UPDATE customer_delivery_addresses
-        SET customer_id = ${target_id}
-        WHERE customer_id = ${source_id}
-          AND company_id = ${companyId}
-      `;
-
-      // 6. Re-parent customer_activities
-      await tx`
-        UPDATE customer_activities
-        SET customer_id = ${target_id}
-        WHERE customer_id = ${source_id}
-          AND company_id = ${companyId}
-      `;
-
-      // 7. Soft-delete the source customer
-      await tx`
-        UPDATE customers
-        SET is_active = false,
-            name = name || ' [MERGED]'
-        WHERE id = ${source_id}
-          AND company_id = ${companyId}
-      `;
-    });
-
-    log.info('Customer merge completed', {
-      source_id,
-      target_id,
-      companyId,
-      module: 'accounting',
-    });
-
-    return apiResponse.success(res, { merged: true, target_id });
+    const result = await mergeCustomers(companyId, source_id, target_id);
+    log.info('Customer merge completed', { source_id, companyId, ...result, module: 'accounting' });
+    return apiResponse.success(res, result);
   } catch (err: unknown) {
-    const message = err instanceof Error ? err.message : String(err);
-    log.error('customer-merge POST failed', { error: message, module: 'accounting' });
-
-    if (message.includes('not found or do not belong')) {
-      return apiResponse.badRequest(res, message);
+    if (err instanceof ArRequestError) {
+      if (err.status === 409) return apiResponse.conflict(res, err.message);
+      return apiResponse.badRequest(res, err.message);
     }
+    log.error('customer-merge POST failed', {
+      error: err instanceof Error ? err.message : String(err), module: 'accounting',
+    });
     return apiResponse.internalError(res, err, 'Failed to merge customers');
   }
 }
