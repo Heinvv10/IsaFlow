@@ -53,9 +53,10 @@ describeIfDb('late input VAT claim: adversarial round 3', () => {
     const b = await settle(post('2026-06-01', bill(16.01)));
     say(`D0 R1.00=${a instanceof Error ? 'REFUSED' : 'SPLIT'} R1.01=${b instanceof Error ? 'REFUSED' : 'SPLIT'}`);
     expect(a).not.toBeInstanceOf(Error);
-    // R1.00 raw over-claim, less the R0.01 rounding allowance (one taxed
-    // input-VAT line, item 3) = R0.99 measured.
-    expect(r1.rateCheck.inputVariance - r0.rateCheck.inputVariance).toBeCloseTo(0.99, 2);
+    // R1.00 raw over-claim, shown in full — a single taxed input-VAT line's
+    // R0.005 rounding allowance (item 9, 2026-09-26) cannot survive rounding
+    // to the cent.
+    expect(r1.rateCheck.inputVariance - r0.rateCheck.inputVariance).toBeCloseTo(1, 2);
     expect(b).toBeInstanceOf(Error);
   });
 
@@ -69,9 +70,10 @@ describeIfDb('late input VAT claim: adversarial round 3', () => {
     const late = r1.rateCheck.inputVariance - r0.rateCheck.inputVariance;
     const onTime = r2.rateCheck.inputVariance - r1.rateCheck.inputVariance;
     say(`D1 lateInputDelta=${(r1.totals.inputTax - r0.totals.inputTax).toFixed(2)} lateVar=${late.toFixed(2)} ties=${r1.rateCheck.ties} | onTimeVar=${onTime.toFixed(2)} ties=${r2.rateCheck.ties}`);
-    // 3 x R0.99 raw over-claim, each less its own R0.01 rounding allowance
-    // (one taxed input-VAT line per journal, item 3) = 3 x R0.98 = R2.94.
-    expect(onTime).toBeCloseTo(2.94, 2);
+    // 3 x R0.99 raw over-claim, each shown in full — a single taxed
+    // input-VAT line's R0.005 rounding allowance (item 9, 2026-09-26) cannot
+    // survive rounding to the cent = 3 x R0.99 = R2.97.
+    expect(onTime).toBeCloseTo(2.97, 2);
     // Correct: each over-claim is refused (nothing claimed, nothing hidden) — or, if claimed, it shows.
     const claimed = lateResults.filter((r) => !(r instanceof Error)).length;
     say(`D1 lateClaimed=${claimed}`);
