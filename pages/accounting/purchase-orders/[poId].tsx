@@ -215,13 +215,19 @@ export default function PurchaseOrderDetailPage() {
     if (!po || po.status !== 'draft') return;
     if (!confirm(`Delete PO ${po.po_number}? This cannot be undone.`)) return;
     setDeleting(true);
+    setSaveError('');
     try {
       const res = await apiFetch(`/api/accounting/purchase-orders/${poId}`, {
         method: 'DELETE', credentials: 'include',
       });
-      if (!res.ok) throw new Error('Delete failed');
+      if (!res.ok) {
+        // A non-JSON body (a proxy error page) falls back to the generic message.
+        const json = await res.json().catch(() => null) as { error?: { message?: string } } | null;
+        throw new Error(json?.error?.message || 'Delete failed');
+      }
       void router.push('/accounting/purchase-orders');
-    } catch {
+    } catch (err) {
+      setSaveError(err instanceof Error ? err.message : 'Delete failed');
       setDeleting(false);
     }
   };
