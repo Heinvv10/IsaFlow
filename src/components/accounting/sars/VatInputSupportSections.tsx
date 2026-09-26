@@ -6,7 +6,10 @@
  *   - "Input VAT that exceeds its support" — BLOCKING. `amount_mismatch`
  *     (credit note, expense claim, captured document, bank ceiling) or
  *     `document_over_claimed`: the claimed VAT does not tie to what actually
- *     supports it, so the return's figures are wrong.
+ *     supports it, so the return's figures are wrong. Also `document_unlinked`
+ *     (breaker round 2, Hein 2026-09-26): a document WAS linked, evidencing
+ *     the claim, and someone removed the link without replacing it or
+ *     reversing the claim — different from never having had one.
  *   - "Input VAT with no tax invoice on file" — NOT blocking. Supported only
  *     by a bank line or an approved VAT adjustment (Hein, 2026-09-25); linked
  *     to no document at all, or to one whose VAT couldn't be read (Hein,
@@ -43,6 +46,7 @@ const REASON_LABEL: Record<InputVatSupportLine['reason'], string> = {
   no_document: 'No document linked',
   amount_mismatch: 'Differs from its document',
   document_over_claimed: 'Document already claimed by another journal',
+  document_unlinked: 'Document unlinked — evidence removed',
   unreadable_document_vat: 'Document VAT could not be read',
   no_tax_invoice: 'No tax invoice on file',
 };
@@ -89,9 +93,11 @@ export default function VatInputSupportSections({ report, Section }: {
         listed={report.unsupportedInputVat.length}>
         <p className={`${td} !border-0 text-slate-500 whitespace-normal`}>
           These journals claim more input VAT than the bill, expense claim, captured receipt,
-          credit note or bank line they are linked to actually supports — or the same document
-          twice over. The return&apos;s figures are wrong until this is fixed. They block filing:
-          link the correct document, correct the claim, or reverse it.
+          credit note or bank line they are linked to actually supports — the same document
+          twice over — or once had a document linked and no longer do, with nothing else
+          supporting the claim. The return&apos;s figures are wrong (or the evidence for them was
+          withdrawn) until this is fixed. They block filing: link the correct document, correct
+          the claim, or reverse it.
         </p>
         <SupportTable lines={report.unsupportedInputVat} linkable />
       </Section>
