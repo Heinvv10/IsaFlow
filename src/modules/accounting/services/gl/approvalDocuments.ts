@@ -52,6 +52,8 @@ const first = (rows: Row[]): Row | undefined => rows[0];
  * `digest` is approval_document_digest() — the one SQL definition — read in
  * the same statement as the amount.
  *
+ * A soft-deleted invoice (`deleted_at` set) is no document: not found.
+ *
  * Invoices are matched on their FUNCTIONAL (ZAR) total where they carry one:
  * `total_amount` is in the document's own currency, so a USD 5 000 bill
  * (about R92 500) slipped under a R50 000 rule.
@@ -66,13 +68,13 @@ async function findDocument(
       return first((await sql`
         SELECT COALESCE(functional_total, total_amount, 0) AS amount, invoice_number AS reference,
                approval_document_digest(company_id, 'customer_invoice', id) AS digest
-        FROM customer_invoices WHERE id = ${documentId}::UUID AND company_id = ${companyId}
+        FROM customer_invoices WHERE id = ${documentId}::UUID AND company_id = ${companyId} AND deleted_at IS NULL
       `) as Row[]);
     case 'supplier_invoice':
       return first((await sql`
         SELECT COALESCE(functional_total, total_amount, 0) AS amount, invoice_number AS reference,
                approval_document_digest(company_id, 'supplier_invoice', id) AS digest
-        FROM supplier_invoices WHERE id = ${documentId}::UUID AND company_id = ${companyId}
+        FROM supplier_invoices WHERE id = ${documentId}::UUID AND company_id = ${companyId} AND deleted_at IS NULL
       `) as Row[]);
     case 'credit_note':
       return first((await sql`

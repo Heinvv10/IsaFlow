@@ -27,6 +27,12 @@ ALTER TABLE approval_requests ADD COLUMN IF NOT EXISTS document_digest TEXT;
 -- equals it: company_users keeps no history, so a demotion after the request
 -- is otherwise invisible. NULL = no snapshot = no self-approval.
 ALTER TABLE approval_requests ADD COLUMN IF NOT EXISTS approver_roster JSONB;
+-- Everyone this request was ever re-stamped AWAY from. A content change makes
+-- the re-requester the requester; without this list the content's author could
+-- shed the role (A requests, A edits, a colleague re-requests, A approves).
+-- None of them may approve. Partial: the full fix refuses the content's last
+-- EDITOR, which needs an editor column the documents do not have (PR2).
+ALTER TABLE approval_requests ADD COLUMN IF NOT EXISTS past_requesters UUID[] NOT NULL DEFAULT '{}';
 
 -- ── 2. Opt-in, per company and per document type ───────────────────────────
 CREATE TABLE IF NOT EXISTS approval_enforcement (
@@ -58,7 +64,8 @@ END $$;
 
 -- ── 3. The content an approval covers ──────────────────────────────────────
 -- Supplier invoices only for now; every other type returns NULL, and a NULL
--- digest never clears the gate. Covered: every header column the posting
+-- digest never clears the gate. A soft-deleted bill (deleted_at set) has none:
+-- it is no document, so a decide on it is a 404. Covered: every header column the posting
 -- (approveSupplierInvoice + buildExpenseLines), the AP subledger or the VAT201
 -- reads, and every line column buildExpenseLines or the VAT201 reads.
 -- Deliberately NOT covered:
@@ -110,7 +117,7 @@ AS $$
         ), '[]'::jsonb)
       )::TEXT, 'UTF8')), 'hex')
       FROM public.supplier_invoices si
-      WHERE si.id = p_document_id AND si.company_id = p_company_id
+      WHERE si.id = p_document_id AND si.company_id = p_company_id AND si.deleted_at IS NULL
     )
   END
 $$;
