@@ -35,15 +35,14 @@
  * relink itself to succeed so the REPORT can catch the resulting over-claim.
  * What changed is the report: `vatInputSupportQuery` now sums a document's
  * claimed VAT across EVERY journal it has ever been linked to (active or
- * not, via the same `documentLinkHistorySql.allDocumentLinksSql` base
- * fragment), so a relinked document that still leaves an old, still-posted
- * claim standing is flagged `unsupportedInputVat` / `document_over_claimed`
- * and blocks eFiling. (This guard's own query is NOT built from that shared
- * fragment: unit tests mock `sql` as a flat call-counted stub with no
- * LazyQuery-splicing semantics, so embedding a nested `sql\`...\`` fragment
- * here — unlike in the report, which no unit test mocks that way — silently
- * consumes an extra mocked call and breaks call-count assertions. The
- * predicate stayed textually identical to keep those tests green.)
+ * not), inlined directly there — see that file's header for why a shared
+ * `sql`-tag-building helper is NOT used for this scan: it breaks any caller
+ * exercised by a test that mocks `sql` as a flat positional-queue stub —
+ * `tests/unit/services/capture/evidenceAttachmentService.test.ts` for THIS
+ * guard's own active-link check (caught before it was ever committed), and
+ * `vatExceptionsService.test.ts`/`.recon.test.ts` (via
+ * `vatExceptionsTestUtils.mockExceptionsSql`) for the report, which a first
+ * attempt at sharing the fragment actually broke.
  */
 import { sql } from '@/lib/neon';
 import type { DbRow } from '@/lib/neon';
