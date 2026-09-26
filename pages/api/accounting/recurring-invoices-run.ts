@@ -72,7 +72,14 @@ async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse) {
     LIMIT ${RUN_BATCH_CAP + 1}
   `) as DbRow[];
 
-  const dueRows = dueRowsRaw.slice(0, RUN_BATCH_CAP);
+  // Chosen by due date, PROCESSED in id order. Each template stays locked
+  // (FOR UPDATE, recurringInvoiceLock) until this request ends, and a customer
+  // merge locks the same customer's templates ORDER BY id (K-061). Walking them
+  // by due date instead was the inverse order for any two whose dates and ids
+  // disagree: a 40P01 cycle. pg returns lower-case uuid text, whose string
+  // order is Postgres's uuid order.
+  const dueRows = dueRowsRaw.slice(0, RUN_BATCH_CAP)
+    .sort((a, b) => (String(a.id) < String(b.id) ? -1 : String(a.id) > String(b.id) ? 1 : 0));
   if (dueRowsRaw.length > RUN_BATCH_CAP) {
     result.remaining = true;
     log.warn('Recurring run batch cap hit — more due invoices remain', {

@@ -110,3 +110,9 @@ AssertionError: expected '{"success":false,"error":{"code":"BAD…' to match /di
 ⎯⎯⎯⎯⎯⎯⎯ Failed Tests 2 ⎯⎯⎯⎯⎯⎯⎯
 AssertionError: expected 1 to be +0 // Object.is equality
       Tests  2 failed | 6 passed (8)
+
+================ review round 3 RED: k061-recurring-run-lock-order against recurring-invoices-run.ts at 00f30a160 (due-date order) ================
+   × runs due templates in id order, whatever their due dates
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 1 ⎯⎯⎯⎯⎯⎯⎯
+AssertionError: expected [ 11, 22 ] to deeply equal [ 22, 11 ]
+      Tests  1 failed (1)

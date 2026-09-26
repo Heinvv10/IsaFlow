@@ -176,5 +176,9 @@ export function k061(pool: Pool) {
   const mergeDuplicate = (body: Record<string, unknown>, company = companyA) =>
     call(duplicatesMerge as typeof customerMerge, '/api/accounting/duplicates-merge', body, company);
 
-  return { companyA, companyB, admin, setUp, wipe, tearDown, customer, footprint, references, snapshot, merge, mergeDuplicate };
+  /** Any other real route, same session. */
+  const post = (route: typeof customerMerge, url: string, body: Record<string, unknown>, company = companyA) =>
+    call(route, url, body, company);
+
+  return { companyA, companyB, admin, setUp, wipe, tearDown, customer, footprint, references, snapshot, merge, mergeDuplicate, post };
 }
