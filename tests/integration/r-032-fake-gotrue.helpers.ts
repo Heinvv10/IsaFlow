@@ -15,6 +15,8 @@ export interface FakeGotrue {
   nextSessionId: string;
   /** Every session id `/verify` has minted, in order. */
   minted: string[];
+  /** Every non-GoTrue URL something tried to reach (refused) — e.g. SARS or Netcash. */
+  outbound?: string[];
 }
 
 export function signSession(sub: string, sessionId: string | undefined, aal: 'aal1' | 'aal2'): Promise<string> {
@@ -32,7 +34,10 @@ export function fakeGotrueFetch(targetFor: (email: string) => string, state: Fak
   const emails = new Map<string, string>();
   return async (input: Parameters<typeof fetch>[0], init?: Parameters<typeof fetch>[1]): Promise<Response> => {
     const url = String(input);
-    if (!url.startsWith(base)) throw new Error(`r-032 fake GoTrue: unexpected fetch ${url}`);
+    if (!url.startsWith(base)) {
+      state.outbound?.push(url);
+      throw new Error(`r-032 fake GoTrue: unexpected fetch ${url}`);
+    }
     const path = url.slice(base.length);
     if (path === '/admin/generate_link') {
       const { email } = JSON.parse(String(init?.body)) as { email: string };
