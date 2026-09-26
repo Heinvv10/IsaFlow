@@ -44,6 +44,9 @@ describe('R-127: an invoice dated in a filed VAT period whose slip backs a provi
 
     expect(res.statusCode).toBe(400);
     expect(JSON.stringify(res.body)).toMatch(/filed VAT period/i);
+    // No remedy that strands the bank line: reversing the provisional by itself
+    // leaves its line 'matched' to nothing (re-check LOW a).
+    expect(JSON.stringify(res.body)).not.toMatch(/reverse it first/i);
     expect(await companySnapshot(invoiceId)).toEqual(before);
     // Input VAT across the company: the provisional's R91.50 and nothing else.
     const vat = Number((await pool.query(

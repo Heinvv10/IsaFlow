@@ -12,6 +12,7 @@ import { SignJWT } from 'jose';
 import pipelineRoute from '../../pages/api/accounting/ai-invoice-pipeline';
 import { postSupplierInvoiceToGL } from '@/modules/accounting/services/ap/supplierInvoiceWorkflowService';
 import { runCapturePostFollowUps } from '@/modules/accounting/services/capture/capturePostFollowUps';
+import { getAPAgingDetail } from '@/modules/accounting/services/ap/apAgingService';
 import { request, response } from './mfa-impersonation-postgres.helpers';
 import {
   company, inTx, invoiceState, jeState, paymentsFor, pool, seedDoc, seedInvoice, seedProvisional,
@@ -89,7 +90,7 @@ describe('R-127: auto-approved captured invoices settle against the provisional 
     expect(await slipLedger(je, bt, invoiceId)).toEqual({ expense: 350.00, vat: 52.50, ap: 0, bank: -402.50 });
   });
 
-  it('capture/[id]/post shape (approved, no line items): the follow-ups neither double-book nor lose the invoice', async () => {
+  it('capture/[id]/post shape (approved, no line items): an unsettleable auto-approval goes back to draft, off AP', async () => {
     const { je, bt } = await seedProvisional({ totalAmount: 403.65, supplierId: supplier });
     const doc = await seedDoc();
     const invoiceId = await seedInvoice({ documentId: doc, totalAmount: 403.65, status: 'approved', withItems: false });
@@ -103,12 +104,20 @@ describe('R-127: auto-approved captured invoices settle against the provisional 
     expect(out.provisionalAttach.attachedJeId).toBe(je);
 
     // The invoice survived the request's COMMIT, its attach included. With no line
-    // items it cannot post a journal (a separate defect, see R-127 fix.md), so it is
-    // left approved and unposted — but nothing was booked a second time.
+    // items it cannot post a journal (a separate defect, see R-127 fix.md). Left
+    // 'approved', it read as owing a bill the provisional already paid — and paying
+    // it would pay twice — so its auto-approval is withdrawn: DRAFT, with the reason
+    // on the bill and in the response, and nothing booked a second time.
     const inv = await invoiceState(invoiceId);
     expect(inv).toBeDefined();
-    expect(inv.status).toBe('approved');
+    expect(inv.status).toBe('draft');
     expect(inv.gl_journal_entry_id).toBeNull();
+    expect(out.provisionalAttach.settlementRefused).toMatch(/.+/);
+    const notes = String((await pool.query('SELECT notes FROM supplier_invoices WHERE id=$1', [invoiceId])).rows[0].notes);
+    expect(notes).toMatch(/provisional/i);
+    const ageing = await getAPAgingDetail(company, supplier);
+    expect(ageing.invoices.map((i) => i.invoiceNumber)).not.toContain(
+      (await pool.query('SELECT invoice_number FROM supplier_invoices WHERE id=$1', [invoiceId])).rows[0].invoice_number);
     expect((await jeState(je)).source_document_id).toBe(doc);
     expect(await paymentsFor(bt, invoiceId)).toHaveLength(0);
     expect(await slipLedger(je, bt, invoiceId)).toEqual({ expense: 351.00, vat: 52.65, ap: 0, bank: -403.65 });
@@ -142,7 +151,7 @@ describe('R-127: auto-approved captured invoices settle against the provisional 
     // no invoice journal left standing beside the provisional.
     expect((await jeState(je)).source_document_id).toBe(doc);
     const inv = await invoiceState(invoiceId);
-    expect(inv.status).toBe('approved');
+    expect(inv.status).toBe('draft');
     expect(inv.gl_journal_entry_id).toBeNull();
     expect(await slipLedger(je, bt, invoiceId)).toEqual({ expense: 353.00, vat: 52.95, ap: 0, bank: -405.95 });
   });

@@ -163,7 +163,7 @@ export async function seedDoc(companyId: string = company): Promise<string> {
  * `withItems: false` is capture/[id]/post's shape (no supplier_invoice_items).
  */
 export async function seedInvoice(opts: {
-  documentId: string; totalAmount: number; status?: 'draft' | 'approved'; withItems?: boolean;
+  documentId: string; totalAmount: number; status?: 'draft' | 'approved'; withItems?: boolean; invoiceDate?: string;
 }): Promise<string> {
   const id = crypto.randomUUID();
   const net = Math.round((opts.totalAmount * 100 / 115) * 100) / 100;
@@ -173,7 +173,7 @@ export async function seedInvoice(opts: {
                                    subtotal,tax_rate,tax_amount,total_amount,payment_terms,status,created_by,
                                    source_document_id,duplicate_fingerprint)
      VALUES($1,$2,$3,$4,$5,$5,$6,15,$7,$8,'net30',$9,$10,$11,$12)`,
-    [id, company, `R127-${id.slice(0, 8)}`, supplier, today, net, vat, opts.totalAmount,
+    [id, company, `R127-${id.slice(0, 8)}`, supplier, opts.invoiceDate ?? today, net, vat, opts.totalAmount,
       opts.status ?? 'draft', user, opts.documentId, `r127-${id}`],
   );
   if (opts.withItems !== false) {

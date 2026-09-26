@@ -147,6 +147,27 @@ describe('R-127 claim: refusals that stop a double booking outright', () => {
     )).rejects.toMatchObject({ code: '23503' });
   });
 
+  it('as app_user with the request GUCs, a forged payment naming another company\'s provisional is refused', async () => {
+    const { je: foreignJe } = await seedProvisional({
+      totalAmount: 209.05, evidencedBy: await seedDoc(), companyId: otherCompany, accounts: otherAccounts,
+    });
+    const c = await pool.connect();
+    try {
+      await c.query('BEGIN');
+      await c.query('SET LOCAL ROLE app_user');
+      await c.query("SELECT set_config('request.jwt.claims', $1, true)", [JSON.stringify({ sub: user })]);
+      await c.query("SELECT set_config('app.current_company_id', $1, true)", [company]);
+      await expect(c.query(
+        `INSERT INTO supplier_payments(company_id,supplier_id,payment_date,total_amount,status,created_by,settles_provisional_je_id)
+         VALUES($1,$2,CURRENT_DATE,209.05,'processed',$3,$4)`,
+        [company, supplier, user, foreignJe],
+      )).rejects.toMatchObject({ code: '23503' });
+    } finally {
+      await c.query('ROLLBACK');
+      c.release();
+    }
+  });
+
   it('the database refuses a second live payment on one provisional, and a cancelled one releases it', async () => {
     const doc = await seedDoc();
     const { je } = await seedProvisional({ totalAmount: 208.20, evidencedBy: doc });
