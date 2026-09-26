@@ -41,3 +41,11 @@ M13 DB DROP INDEX uq_supplier_payments_settles_provisional_je on the fixture
     -> guards "the database refuses a second live payment on one provisional, and a cancelled one releases it"
     -> AssertionError: promise resolved "Result{ command: 'INSERT', …(9) }" instead of rejecting
        (index re-created by re-running 711; pg_indexes shows the original definition)
+
+# --- follow-up: void refusal (fix fb0aaa6f7), test file r127-settlement-void; all restored_identical=True
+# G = ap/supplierPaymentGates.ts, V = core/paymentVoidService.ts, P = ap/supplierPaymentService.ts
+V1 G  refusal call removed from voidIfUnprocessed   -> "the supplier-payments-action route answers 400 naming unapply" -> expected 200 to be 400
+V2 V  refusal call removed from voidPaymentDocument -> "the MCP void_payment tool is refused ..."                   -> expected null not to be null
+V3 P  mapPaymentRow drops settlesProvisionalJeId    -> route test                                                  -> expected 200 to be 400
+V4 V  loadPayment maps settlesProvisionalJeId: null -> MCP test                                                    -> expected null not to be null
+V5 G  refusal body returns unconditionally          -> both route and MCP tests                                    -> 200 vs 400; null not to be null

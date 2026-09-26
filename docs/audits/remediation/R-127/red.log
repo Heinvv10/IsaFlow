@@ -19,3 +19,14 @@ $ vitest run --config vitest.integration.config.ts tests/integration/r127-*.int.
       Tests  7 failed | 6 passed (13)
 # The 6 passing at RED pin pre-fix behaviour that must not change: no provisional,
 # not evidenced, reversed, draft, other tenant, capture/[id]/post no-items shape.
+
+# --- follow-up: void refusal (Hein option C) — RED commit e18c4b0d1 ---
+$ vitest run --config vitest.integration.config.ts tests/integration/r127-settlement-void.int.test.ts
+     × the supplier-payments-action route answers 400 naming unapply
+     × the MCP void_payment tool is refused with a coded refusal naming unapply
+ FAIL  ... > the supplier-payments-action route answers 400 naming unapply
+AssertionError: expected 200 to be 400 // Object.is equality
+ FAIL  ... > the MCP void_payment tool is refused with a coded refusal naming unapply
+AssertionError: expected null not to be null
+      Tests  2 failed | 4 passed (6)
+# The 4 passing pin existing behaviour: tenant not-found, unapply figures, re-apply, claim held.
