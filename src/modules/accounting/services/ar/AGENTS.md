@@ -58,7 +58,7 @@ Invoked by `withCompany`-wrapped API routes in `pages/api/accounting/ar/*` and `
 - 2026-09-26 (K-061): **customer merge works, and both merge routes run the same one.** `customer-merge` used to die on `customer_payments.customer_id` (42703) and never merged anything. `duplicates-merge` did run, but moved only 5 tables, and left the duplicate's active recurring invoices billing a deleted customer. `customerMergeService.mergeCustomers` now moves every table in the census (`docs/audits/remediation/K-061/fix.md`).
   - Invoices move on `customer_id` and `client_id` independently, and a NULL stays NULL.
   - Refusals (`ArRequestError`) all come before the first write: self-merge, a customer not live in this company, and both customers holding a dunning override (Hein).
-  - Locks: bank lines, then receipts, then invoices (each `ORDER BY id`), THEN both customers `FOR NO KEY UPDATE` in id order. Settlement paths take the bank line before the customer (`lockContactForRefund`, or the FK `KEY SHARE` of a receipt INSERT), so customers-first deadlocks (pinned in `k061-customer-merge-lock-order`).
+  - Locks: bank lines, then receipts, then invoices, then both recurring stores (each `ORDER BY id`), THEN both customers `FOR NO KEY UPDATE` in id order. Settlement paths take the bank line before the customer (`lockContactForRefund`, or the FK `KEY SHARE` of a receipt INSERT), so customers-first deadlocks (pinned in `k061-customer-merge-lock-order`).
   - `recurring_transaction_templates` whose `template_data.clientId` names the source move and pause too; that is a customer id inside JSON.
   - The source's portal logins are deactivated, and its active recurring templates move paused and counted (Hein).
   - The source is soft-deleted with ` [MERGED]`.
