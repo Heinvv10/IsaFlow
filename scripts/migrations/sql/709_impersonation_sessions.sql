@@ -1,4 +1,4 @@
--- scripts/migrations/sql/708_impersonation_sessions.sql
+-- scripts/migrations/sql/709_impersonation_sessions.sql
 -- R-032: approval decisions are refused while the session is an impersonation.
 --
 -- "Login as" (pages/api/admin/users/[id]/impersonate.ts) hands the platform
