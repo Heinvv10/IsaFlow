@@ -113,6 +113,11 @@ export async function disableEnforcement(companyId: string, documentType: Docume
     .map((r) => (r.approver_role != null ? String(r.approver_role) : 'admin'))
     .reduce<string | null>((top, role) => (top === null || requiredRank(role) > requiredRank(top) ? role : top), null);
   if (strictest !== null && actorRank(actor.role) < requiredRank(strictest)) {
+    // No audit_log action fits a refusal, and withAuth commits a 4xx — so the
+    // attempt to weaken the control is recorded here rather than not at all.
+    log.warn('Approval enforcement disable refused', {
+      companyId, documentType, actorId: actor.userId, actorRole: actor.role, strictestRuleRole: strictest,
+    }, 'accounting');
     throw new ApprovalEnforcementAuthorityError(documentType, strictest);
   }
   const rows = (await sql`

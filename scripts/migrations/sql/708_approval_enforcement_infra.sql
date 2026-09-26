@@ -60,10 +60,10 @@ END $$;
 -- Lines are aggregated content-sorted, so their storage order is irrelevant.
 -- trim_scale() makes 100 and 100.00 the same value.
 CREATE OR REPLACE FUNCTION public.approval_document_digest(
-  p_company_id UUID, p_document_type TEXT, p_document_id UUID
-) RETURNS TEXT
+  p_company_id pg_catalog.uuid, p_document_type pg_catalog.text, p_document_id pg_catalog.uuid
+) RETURNS pg_catalog.text
 LANGUAGE sql STABLE
-SET search_path = public, pg_temp
+SET search_path = pg_catalog, public, pg_temp
 AS $$
   SELECT CASE p_document_type
     WHEN 'supplier_invoice' THEN (
@@ -82,12 +82,12 @@ AS $$
               trim_scale(sii.line_total), sii.project_id, sii.cost_center_id,
               sii.vat_classification
             ) AS line
-            FROM supplier_invoice_items sii
+            FROM public.supplier_invoice_items sii
             WHERE sii.supplier_invoice_id = si.id
           ) l
         ), '[]'::jsonb)
       )::TEXT)
-      FROM supplier_invoices si
+      FROM public.supplier_invoices si
       WHERE si.id = p_document_id AND si.company_id = p_company_id
     )
   END
@@ -106,33 +106,46 @@ WHERE ar.status = 'pending' AND ar.document_type = 'supplier_invoice'
 -- withAuth runs as app_user, and under RLS app_user reads only its own users
 -- row (users_self_read) and, below admin, only its own company_users row. A
 -- count taken as app_user would therefore find nobody else and ALLOW every
--- self-approval. SECURITY DEFINER reads past that — and because "cannot see"
--- must never look like "nobody else", it RAISES when it cannot see the
--- caller's own membership and profile (an owner without BYPASSRLS, say).
--- Only the columns the rank and account-standing checks need are returned;
--- the rank ladder itself stays in TypeScript (APPROVER_RANK), one copy.
+-- self-approval. SECURITY DEFINER reads past that, so it must refuse anything
+-- but the request that is asking:
+--   * the subject must be the JWT subject withAuth set (request.jwt.claims),
+--   * the company must be the one withAuth set (app.current_company_id), and
+--   * the subject must be a visible member of it.
+-- The last check doubles as the fail-closed guard: "cannot see" (an owner
+-- without BYPASSRLS under FORCE RLS) RAISES instead of looking like "nobody
+-- else". plpgsql with explicit RAISEs, not a SQL CASE — a privilege guard
+-- must not be a branch a planner can fold away. search_path is pinned with
+-- pg_temp LAST and every relation and type is schema-qualified: pg_temp
+-- shadows relations AND types. Only the columns the rank and account-standing
+-- checks need are returned; the rank ladder stays in TypeScript (APPROVER_RANK).
 CREATE OR REPLACE FUNCTION public.approval_company_other_members(
-  p_company_id UUID, p_user_id TEXT
-) RETURNS TABLE (role TEXT, is_active BOOLEAN, status TEXT, suspended_at TIMESTAMPTZ)
+  p_company_id pg_catalog.uuid, p_user_id pg_catalog.text
+) RETURNS TABLE (
+  role pg_catalog.text, is_active pg_catalog.bool, status pg_catalog.text, suspended_at pg_catalog.timestamptz
+)
 LANGUAGE plpgsql STABLE SECURITY DEFINER
-SET search_path = public, pg_temp
+SET search_path = pg_catalog, public, pg_temp
 AS $$
 BEGIN
-  IF auth.uid() IS NOT NULL AND auth.uid() IS DISTINCT FROM p_user_id THEN
+  IF auth.uid() IS NULL OR auth.uid() IS DISTINCT FROM p_user_id THEN
     RAISE EXCEPTION 'approval_company_other_members: may only be asked on behalf of the caller'
       USING ERRCODE = '42501';
   END IF;
+  IF app.current_company_id() IS NULL OR app.current_company_id() IS DISTINCT FROM p_company_id THEN
+    RAISE EXCEPTION 'approval_company_other_members: answers only for the request''s own company'
+      USING ERRCODE = '42501';
+  END IF;
   IF NOT EXISTS (
-    SELECT 1 FROM company_users cu JOIN users u ON u.id = cu.user_id
+    SELECT 1 FROM public.company_users cu JOIN public.users u ON u.id = cu.user_id
     WHERE cu.company_id = p_company_id AND cu.user_id = p_user_id
   ) THEN
     RAISE EXCEPTION 'approval_company_other_members: cannot see the caller''s own membership in this company'
       USING ERRCODE = '42501';
   END IF;
   RETURN QUERY
-    SELECT cu.role::TEXT, u.is_active, u.status::TEXT, u.suspended_at
-    FROM company_users cu
-    LEFT JOIN users u ON u.id = cu.user_id
+    SELECT cu.role::pg_catalog.text, u.is_active, u.status::pg_catalog.text, u.suspended_at
+    FROM public.company_users cu
+    LEFT JOIN public.users u ON u.id = cu.user_id
     WHERE cu.company_id = p_company_id AND cu.user_id <> p_user_id;
 END
 $$;
@@ -147,5 +160,15 @@ BEGIN
   END IF;
   IF NOT has_function_privilege('app_user', 'public.approval_company_other_members(uuid, text)', 'EXECUTE') THEN
     RAISE EXCEPTION 'migration 708: app_user cannot execute approval_company_other_members';
+  END IF;
+  -- FORCE RLS on company_users/users binds the definer's owner too: an owner
+  -- without BYPASSRLS would see nothing (the function then refuses every
+  -- self-approval — closed, but broken). Refuse to ship it that way.
+  IF NOT EXISTS (
+    SELECT 1 FROM pg_catalog.pg_proc p JOIN pg_catalog.pg_roles r ON r.oid = p.proowner
+    WHERE p.oid = 'public.approval_company_other_members(uuid, text)'::pg_catalog.regprocedure
+      AND (r.rolbypassrls OR r.rolsuper)
+  ) THEN
+    RAISE EXCEPTION 'migration 708: the owner of approval_company_other_members must bypass RLS';
   END IF;
 END $$;
