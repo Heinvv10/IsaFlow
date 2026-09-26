@@ -1,0 +1,20 @@
+RED      unit=red int=red  payrollJournalBuilder.ts: etiUsed uncapped
+RED      unit=red int=red  payrollJournalBuilder.ts: etiUsed zero
+RED      unit=red int=red  payrollJournalBuilder.ts: labour less full eti
+RED      unit=red int=red  payrollJournalBuilder.ts: labour ignores eti
+RED      unit=red int=red  payrollJournalBuilder.ts: 2140 full paye (the defect)
+RED      unit=red int=red  payrollJournalBuilder.ts: 2140 less full eti
+RED      unit=red int=red  payrollJournalBuilder.ts: keep zero lines
+RED      unit=red int=green  payrollJournalBuilder.ts: no advisory
+RED      unit=red int=green  payrollJournalBuilder.ts: advisory threshold
+RED      unit=red int=green  payrollJournalBuilder.ts: totals.etiUsed = eti
+RED      unit=green int=red  payrollApprovalService.ts: no pre-write blocker check
+RED      unit=green int=red  payrollApprovalService.ts: run_not_approved not excluded
+RED      unit=green int=red  payrollApprovalService.ts: not-found untyped
+RED      unit=green int=red  payrollApprovalService.ts: status refusal untyped
+RED      unit=green int=red  approve.ts: route 400s everything (old)
+RED      unit=green int=red  approve.ts: route 500s refusals
+RED      unit=red int=green  writePayrollRun.ts: mcp no blocker refusal
+RED      unit=red int=green  writePayroll.ts: mcp eti_used = eti
+
+18/18 RED
