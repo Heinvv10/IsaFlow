@@ -217,3 +217,25 @@ export async function settleInvoiceFromProvisional(
   log.info('Provisional journal settled supplier invoice', { invoiceId: invoice.id, ...settlement }, 'accounting');
   return settlement;
 }
+
+/**
+ * The one-line hook both posting paths (`approveSupplierInvoice`,
+ * `postSupplierInvoiceToGL`) call once their journal is posted and linked:
+ * settle against the provisional they claimed, if any, and return the invoice
+ * row as it now stands (null when there was nothing to settle).
+ */
+export async function settleClaimedProvisional(
+  companyId: string,
+  claim: ProvisionalClaim | null,
+  invoice: SupplierInvoice,
+  invoiceJournalId: string,
+  userId: string,
+  opts?: PostingActorOpts,
+): Promise<DbRow | null> {
+  if (!claim) return null;
+  await settleInvoiceFromProvisional(companyId, { invoice, invoiceJournalId, claim, userId, opts });
+  const [row] = (await sql`
+    SELECT * FROM supplier_invoices WHERE id = ${invoice.id}::UUID AND company_id = ${companyId}::UUID
+  `) as DbRow[];
+  return row ?? null;
+}
