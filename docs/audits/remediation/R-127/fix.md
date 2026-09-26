@@ -109,6 +109,7 @@ Every caller inherits the refusal:
 `reverseReconciledTransaction` (`reverse_bank_allocation`, batch, range and REST) used to be able to reach the settled provisional's own bank line. That line has no matched journal line, so the call reversed nothing and set the line back to `imported`, leaving the cash booked and re-allocatable. It now refuses (`refuseSettledProvisionalLine`). `dismissProvisionalEntry` was already safe, because it refuses an evidenced provisional. Tests: `r127-settlement-reverse`.
 
 ## Other limits
+- **A freed bank line can be expensed again while its bill is open** (undo-round L6). This is a general hazard, not R-127-specific, and the lead is registering it. The undo returns the bank line to `imported`, the same state every other un-allocation leaves. From there `postProvisional`, or the auto-post / categorisation sweep, may pick it up again and expense it (DR expense / CR bank) while the bill it paid is still open on AP. That would book the bill twice: once through the bill's own journal, and once through the new provisional. It matters here because the undo leaves the bill open by design. The intended next step is to allocate the freed line to that bill (tested: booked once). Nothing yet stops a sweep getting there first.
 - An approval that reuses an existing journal (the `glJournalEntryId` branch in `approveSupplierInvoice`, legacy "Post to GL then approve" drafts) is not settled. Since R-118 no new rows reach it. Legacy rows show in the census.
 
 ## Census (READ-ONLY; run on the fixture only)
@@ -193,3 +194,13 @@ Rows already on production are not repaired by this fix. A backfill that settles
   - The reasoning is in 711's header. A test pins it: as app_user with the request GUCs, a forged payment naming another company's provisional is refused with 23503.
 - Mutations U1–U12 are all red; see `mutations.log`.
 - Sizes: `supplierPaymentWorkflowService.ts` 324 (unchanged; the call gained an argument on the same line), `paymentVoidService.ts` 266, the payment page 277 → 299, `supplier-payments-action.ts` 113 → 122. New: `provisionalSettlementVoid.ts`.
+
+### Undo-round LOWs (2026-09-26)
+- RED e5114c596: 5 integration and 1 component failures. Fix 2bbb2954b.
+- **L1:** the settlement Void dialog copy. Component test for both variants.
+- **L2:** browser proof is deferred to the deploy steps in `ap/.claude.md`.
+- **L3:** the reclass contra's VAT-lock roll is reported (`reclass_reversal_date_roll`). The test settles in last month, files it, then undoes via MCP.
+- **L4:** a re-void of an undone settlement now answers 400 with the ordinary status message.
+- **L5:** the draft revert clears `approved_by`/`approved_at`, and `capture/[id]/post` and `ai-invoice-pipeline` answer `draft`.
+- **L6:** the note is under "Other limits" above.
+- Mutations L1, L3, L4, L5a–c: all red; see `mutations.log`.

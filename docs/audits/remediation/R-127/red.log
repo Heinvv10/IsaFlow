@@ -63,3 +63,11 @@ AssertionError: expected null not to be null
  × capture/[id]/post shape ... back to draft          expected 'approved' to be 'draft'
  × a settlement that fails AFTER the invoice journal  expected 'approved' to be 'draft'
  × (component) a processed / reconciled payment that pays bills offers Unapply   Unable to find role="button" and name "Unapply"
+
+# --- undo-round LOWs RED — commit e5114c596 (5 integration failed | 41 passed; 1 component failed) ---
+ × MCP void_payment names the reclass contra's roll ...          expected undefined to be truthy
+ × capture/[id]/post shape ... back to draft, off AP             expected { …(2) } to deeply equal { approved_by: null, approved_at: null }
+ × capture/[id]/post answers the bill's status as it ends         expected 'approved' to be 'draft'
+ × ai-invoice-pipeline answers draft when ... refused              expected 'approved' to be 'draft'
+ × voiding it again is refused with the ordinary status message   expected 500 to be 400
+ × (component) a settlement payment's Void says it reverses the settlement ...   Unable to find /reverses the settlement and the bank-first provisional journal/
