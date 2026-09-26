@@ -87,7 +87,7 @@ export async function settleInvoiceFromProvisional(
     ...reclass.lines.map((l) => ({ ...l, description: `Settled by ${invoice.invoiceNumber}: ${l.description?.replace(/^Reversal: /, '') ?? ''}` })),
   ];
   const journal = await createJournalEntry(companyId, {
-    entryDate: invoice.invoiceDate,
+    entryDate: claim.reclassDate,
     description: `Provisional ${claim.entryNumber} becomes payment of supplier invoice ${invoice.invoiceNumber}`,
     source: 'auto_supplier_payment',
     lines,
@@ -106,7 +106,7 @@ export async function settleInvoiceFromProvisional(
       reference, description, status, gl_journal_entry_id, settles_provisional_je_id,
       created_by, approved_by, approved_at, processed_at
     ) VALUES (
-      ${companyId}::UUID, ${invoice.supplierId}::UUID, ${invoice.invoiceDate}, ${claim.bankAmount}, 'eft',
+      ${companyId}::UUID, ${invoice.supplierId}::UUID, ${claim.reclassDate}, ${claim.bankAmount}, 'eft',
       ${claim.bankAccountId}::UUID, ${claim.bankTxId}, ${description}, 'processed', ${journal.id}::UUID,
       ${claim.journalEntryId}::UUID, ${createdBy}::UUID, ${createdBy}::UUID, NOW(), NOW()
     )

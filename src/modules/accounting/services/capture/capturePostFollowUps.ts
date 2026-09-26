@@ -38,7 +38,7 @@ export interface CapturePostFollowUpInput {
 }
 
 export interface CapturePostFollowUps {
-  provisionalAttach: { attachedJeId: string | null; bankTxId: string | null };
+  provisionalAttach: { attachedJeId: string | null; bankTxId: string | null; settlementRefused?: string };
   threeWayMatch: Awaited<ReturnType<typeof performThreeWayMatch>> | null;
 }
 

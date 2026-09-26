@@ -60,7 +60,7 @@ import {
 import { reverseReconciledTransaction } from '../bank/bankAllocationService';
 import { lockBankTransactionForUpdate } from '../bank/bankTxLock';
 import { findBankTransactions, peekPaymentJournal } from './paymentVoidReads';
-import { refuseProvisionalSettlementVoid } from '../ap/supplierPaymentGates';
+import { voidSettlementDocument } from '../ap/provisionalSettlementVoid';
 import type { PostingActorOpts } from '../gl/journalEntryMeta';
 import type { VatLockRoll } from '../gl/journalEntryReversalVatRoll';
 
@@ -177,7 +177,7 @@ export async function voidPaymentDocument(
   if (!VOIDABLE_STATUSES[kind].includes(payment.status)) {
     return { refusal: 'not_applied', status: payment.status };
   }
-  refuseProvisionalSettlementVoid(payment); // R-127, pre-write
+  if (payment.settlesProvisionalJeId) return voidSettlementDocument(companyId, payment, userId, opts); // R-127
   if (payment.journalEntryId !== peekedJournalId) {
     // `gl_journal_entry_id` is written once, when the payment posts, and never
     // reassigned — so the row posted between the peek and the lock and the line

@@ -21,6 +21,21 @@ CREATE UNIQUE INDEX IF NOT EXISTS uq_supplier_payments_settles_provisional_je
 -- composite FK to reference, and adding one would build a new unique index
 -- over the whole journal table for this column alone — so a trigger refuses a
 -- payment naming another company's journal, with the FK's own SQLSTATE.
+--
+-- SECURITY INVOKER on purpose. Its lookup reads gl_journal_entries under the
+-- caller's RLS, and that cannot refuse a legitimate row:
+--   * every app_user context (withAuth, the MCP bearer pipeline, extension and
+--     invite tokens, platform admin) sets request.jwt.claims AND
+--     app.current_company_id together; a context with neither runs as the
+--     connection role, which RLS does not restrict;
+--   * the one writer of the column (ap/provisionalInvoiceSettlement.ts) takes
+--     the journal id from a read of gl_journal_entries made in the SAME
+--     transaction under the SAME RLS view (provisionalSettlementClaim.ts), so
+--     whenever it can name the journal, this lookup can see it.
+-- A forged row naming a journal the caller cannot see is refused either way.
+-- SECURITY DEFINER would need an owner with BYPASSRLS, which migration_admin
+-- does not have on every database this runs on; asserting it would fail the
+-- migration there, and making the assertion conditional would make it absent.
 CREATE OR REPLACE FUNCTION supplier_payments_settles_provisional_same_company()
 RETURNS trigger LANGUAGE plpgsql SET search_path = public, pg_temp AS $$
 BEGIN

@@ -15,11 +15,12 @@
  *                  payment that did): approving this one too books the slip twice;
  *   - lines      — its lines do not add up to its bank line: a reclass would be a guess;
  *   - retired    — a line is on a deactivated account, which refuses every posting;
- *   - filed VAT  — the invoice is dated in a locked VAT period. The provisional's
- *                  input VAT is in that filed return; the invoice's would be claimed
- *                  late, and the reclass that nets it is an input REDUCTION on a locked
- *                  date, which the late-claim rules refuse ('input_reduction').
- *                  Refusing keeps VAT claimed exactly once and the filed period untouched.
+ *   - filed VAT  — the invoice AND the provisional are both dated in locked VAT
+ *                  periods. The provisional's input VAT is in a filed return; the
+ *                  invoice's would be claimed late, and the reclass that nets it is an
+ *                  input REDUCTION, which the late-claim rules refuse ('input_reduction')
+ *                  and no open date can carry. When only the invoice's period is filed,
+ *                  the reclass is dated with the provisional and nets its claim there.
  */
 import { sql } from '@/lib/neon';
 import type { DbRow } from '@/lib/neon';
@@ -44,6 +45,8 @@ export interface ProvisionalClaim {
   bankAmount: number;
   /** The provisional's expense / VAT lines — everything but its bank line. */
   settleLines: JournalLine[];
+  /** The reclass's and the payment's date: the invoice's, or the provisional's when the invoice's is filed. */
+  reclassDate: string;
 }
 
 /** The candidates, row-locked under a 5 s budget whose timeout names the provisional. */
@@ -147,16 +150,28 @@ export async function claimEvidencedProvisional(
         + 'Reactivate the account, then approve.',
       );
     }
-    const lock = await findActiveVatLock(companyId, fmtDate(inv.invoice_date as string | Date));
+    // Dated with the invoice, so the reclass nets the invoice's VAT in its own
+    // period — unless that period is filed: then with the provisional, whose own
+    // claim it nets instead (the invoice's VAT is claimed late, once). Only when
+    // both periods are filed is there no date that leaves the filed return alone.
+    const invoiceDate = fmtDate(inv.invoice_date as string | Date);
+    let reclassDate = invoiceDate;
+    const lock = await findActiveVatLock(companyId, invoiceDate);
     if (lock && await journalMovesVatFigure(companyId, settleLines)) {
-      throw new SupplierPaymentRefusal(
-        `This bill is dated in a filed VAT period (${lock.periodStart} to ${lock.periodEnd}), and its slip is already `
-        + `booked, VAT included, by bank-first provisional journal ${entryNumber}, whose input VAT that return claimed. `
-        + 'Approving it would claim the same VAT again. Leave the bill unapproved or cancel it; if the provisional '
-        + 'is wrong, reverse it first and then approve.',
-      );
+      const provisionalDate = fmtDate(entry.entryDate);
+      if (await findActiveVatLock(companyId, provisionalDate)) {
+        throw new SupplierPaymentRefusal(
+          `This bill is dated in a filed VAT period (${lock.periodStart} to ${lock.periodEnd}), and its slip is `
+          + `already booked, VAT included, by bank-first provisional journal ${entryNumber}, dated ${provisionalDate} `
+          + 'in a filed period too, whose input VAT that return claimed. Approving the bill would claim the same '
+          + 'VAT again. The provisional already books this slip in full: leave the bill unapproved, or cancel it.',
+        );
+      }
+      reclassDate = provisionalDate;
     }
-    return { journalEntryId: jeId, entryNumber, bankTxId: String(c.bt_id), bankAccountId, bankAmount, settleLines };
+    return {
+      journalEntryId: jeId, entryNumber, bankTxId: String(c.bt_id), bankAccountId, bankAmount, settleLines, reclassDate,
+    };
   }
 
   if (taken) {
