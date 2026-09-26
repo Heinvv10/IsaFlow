@@ -50,3 +50,16 @@ AssertionError: expected null not to be null
  × the database refuses a payment claiming ANOTHER company's provisional  promise resolved "Result{ command: 'INSERT' …"
  × the second approval waits, then is refused                           promise resolved "{ …(31) }" instead of rejecting
  × a contended provisional times out naming the provisional             expected 'Supplier invoice 8f2ce84a-…' to match /provisional/i
+
+# --- re-check round RED — commit afc920625 (10 integration failed | 32 passed; 2 component failed | 2 passed) ---
+ × supplier-payments-action unapply ...             expected 400 to be 200 — "Unknown action: unapply"
+ × through the route: both journals reversed ...     expected 400 to be 200 — "... cannot be voided ... Unapply it instead (unapply_supplier_payment) ..."
+ × through MCP void_payment: the same undo           (coded refusal thrown)
+ × after the undo the bank line pays the bill once   expected 400 to be 200
+ × refused while the payment still pays a bill, pointing to the Unapply action   expected '…' to match /Unapply on the payment/
+ × refused while the bank line is reconciled          expected '…' to match /reconcil/i
+ × is refused through the route ... (filed VAT)       expected '…' not to match /reverse it first/i
+ × settles, dating the reclass with the provisional   expected 400 to be 200 — "This bill is dated in a filed VAT period (2026-08-01 to 2026-08-31) ..."
+ × capture/[id]/post shape ... back to draft          expected 'approved' to be 'draft'
+ × a settlement that fails AFTER the invoice journal  expected 'approved' to be 'draft'
+ × (component) a processed / reconciled payment that pays bills offers Unapply   Unable to find role="button" and name "Unapply"
