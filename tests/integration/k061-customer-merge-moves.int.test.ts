@@ -143,3 +143,16 @@ it('an invoice whose columns name different customers moves only the column nami
     { invoice_number: 'K061-X-2', customer_id: third, client_id: target, owner: target },
   ]);
 });
+
+it('a recurring template whose JSON spells the source id in upper case still moves and pauses', async () => {
+  await pool.query(
+    `INSERT INTO recurring_transaction_templates(company_id,name,entity_type,template_data,frequency,next_run_date,is_active,created_by)
+     VALUES($1,'T-upper','customer_invoice',jsonb_build_object('clientId',upper($2::text),'lines','[]'::jsonb),'monthly','2026-10-01',true,$3)`,
+    [h.companyA, source, h.admin]);
+  const result = await h.merge({ source_id: source, target_id: target });
+  expect(result.state.statusCode).toBe(200);
+  const { rows } = await pool.query(
+    "SELECT template_data->>'clientId' AS client, is_active FROM recurring_transaction_templates WHERE company_id=$1 AND name='T-upper'",
+    [h.companyA]);
+  expect(rows).toEqual([{ client: target, is_active: false }]);
+});

@@ -20,6 +20,7 @@
   - both customers holding a dunning override.
 - Locks, in this order, before any write:
   - the source's bank lines, then its receipts, then its invoices, each set `ORDER BY id` (the canonical order in `bank/.claude.md`);
+  - then the source's `recurring_invoices` and `recurring_transaction_templates`, each set `ORDER BY id`, so a recurring run already in progress commits first and its invoice is moved;
   - then both customers `FOR NO KEY UPDATE`, in id order, followed by the refusal checks.
 - **Why settlement rows come first:** a bank allocation or refund takes the bank line and THEN the customer. That is either `lockContactForRefund`'s `FOR UPDATE`, or the FK `KEY SHARE` of the receipt it inserts. A merge that took the customers first was the inverse order and deadlocked both shapes (40P01 → 500). Review caught it, and both shapes were reproduced RED in `k061-customer-merge-lock-order`.
 - **Why `NO KEY UPDATE`:** it does not wait on an FK `KEY SHARE`, and it still conflicts with itself, so two merges queue.
@@ -80,8 +81,11 @@ A new table that stores a customer id must be added to the service AND to `MOVED
 - `pages/accounting/customers/dedup.tsx`
 - `src/lib/apiRoutes.ts`
 
-**Tests.** There are 27 tests across five files: `tests/integration/k061-customer-merge-{moves,refusals,sage-resync,lock-order}.int.test.ts` and `k061-duplicates-merge-customer.int.test.ts`.
+**Tests.** There are 31 tests across five files: `tests/integration/k061-customer-merge-{moves,refusals,sage-resync,lock-order}.int.test.ts` and `k061-duplicates-merge-customer.int.test.ts`.
 - **Lock-order, same set:** for each of the bank-line, receipt and invoice sets, a settlement holds the lower id and then takes the higher one while a merge is blocked. Neither side may deadlock.
+- **Lock-order, recurring run:** for each of `recurring_invoices` and `recurring_transaction_templates`, a run holds its template, the merge waits on it, and the run inserts an invoice for the source. That invoice must end up on the target.
+- **Lock-order, unrelated allocation:** an allocation on a line the merge does not lock receipts to the source and then applies to its invoice. This pins `FOR NO KEY UPDATE`.
+- **Upper-case template id:** a template whose JSON spells the source id in upper case still moves.
 - **Lock-order, refund:** a refund holds the bank line, then locks the customer `FOR UPDATE`.
 - **Lock-order, allocator:** one case replays the bank allocator's own lock sequence: line `FOR UPDATE`, then `INSERT` of a receipt naming the source. It runs those statements directly rather than calling `allocateTransaction`, because the lock cycle depends only on those two statements.
 - **Split columns:** an invoice whose two columns name different customers moves only the column that names the source.
@@ -128,7 +132,9 @@ SELECT company_id, count(*) FROM customer_dunning_overrides GROUP BY 1 ORDER BY 
 ```
 
 **Residuals.**
-- A document created for the source by another request while a merge is running, and committed after it, stays on the now-deleted source. Invoice and receipt creation do not lock the customer row. The merge does lock both customers, so a second merge cannot interleave.
+- A document that another request inserts for the source can end up on the now-deleted source. This happens when the insert commits after the merge's UPDATE for that table has run, and the insert is not held back by any row the merge locks. Invoice and receipt creation do not lock the customer row.
+  - The merge closes the two paths that did hold such a lock. Running recurring invoices and recurring templates are locked before any UPDATE, so a run the merge waits for commits first and its invoice is moved (review round 2). An allocation on a line the merge locks also commits first.
+  - What remains is an unrelated create racing the merge. The merge does lock both customers, so a second merge cannot interleave.
 - `src/components/accounting/customers/MergeCustomersModal.tsx` also calls this route and reads `json.message`, so it would show a generic error on a refusal. Nothing imports it; it is left alone as unrelated dead code.
 - The source's conflicting custom-field values are deleted, not archived.
 - `recurringTransactionInvoices` (via `assertCustomerInCompany`) does not refuse a soft-deleted customer. A merge now moves and pauses its templates. A customer deleted any other way keeps an active template running, and that is a separate item.

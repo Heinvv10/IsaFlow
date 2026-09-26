@@ -77,6 +77,21 @@ async function lockSettlementRows(tx: TxSql, c: string, s: string): Promise<{ pa
     SELECT id FROM customer_invoices
     WHERE (customer_id = ${s}::UUID OR client_id = ${s}::UUID) AND company_id = ${c}::UUID ORDER BY id FOR UPDATE
   `;
+  // Both recurring runners lock their template and then INSERT an invoice
+  // naming the customer. Taking the templates here, before any UPDATE runs,
+  // means a run already in progress commits first and the invoice UPDATE in
+  // moveDocuments then sees — and moves — the invoice it created. Taken after
+  // the moves, the merge waited for that run and then stranded its invoice.
+  await tx`
+    SELECT id FROM recurring_invoices
+    WHERE client_id = ${s}::UUID AND company_id = ${c}::UUID ORDER BY id FOR UPDATE
+  `;
+  await tx`
+    SELECT id FROM recurring_transaction_templates
+    WHERE company_id = ${c}::UUID AND entity_type = 'customer_invoice'
+      AND lower(template_data->>'clientId') = ${s}
+    ORDER BY id FOR UPDATE
+  `;
   return { payments: payments.length, invoices: invoices.length };
 }
 

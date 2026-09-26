@@ -103,3 +103,10 @@ AssertionError: expected '{"success":false,"error":{"code":"BAD…' to match /di
    × refuses the same id spelled in two letter cases as a self-merge 640ms
  Test Files  4 failed | 1 passed (5)
       Tests  5 failed | 22 passed (27)
+
+================ review round 2 RED: recurring-run tests against customerMergeService.ts at 88ee44182 ================
+   × recurring_invoices: an invoice a running recurring run creates during a merge is moved, not stranded
+   × recurring_transaction_templates: an invoice a running recurring run creates during a merge is moved, not stranded
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 2 ⎯⎯⎯⎯⎯⎯⎯
+AssertionError: expected 1 to be +0 // Object.is equality
+      Tests  2 failed | 6 passed (8)

@@ -154,3 +154,92 @@ it('a customer refund holding a bank line and then locking the customer does not
   }
   expect(refunded).toBe(true);
 });
+
+/**
+ * Why the customers are locked FOR NO KEY UPDATE and not FOR UPDATE. An
+ * allocation on a line the merge does NOT lock inserts a receipt for the
+ * source (FK KEY SHARE on the customer), then applies it — locking the
+ * source's invoices. The merge holds those invoices by the time it reaches the
+ * customers. FOR UPDATE would wait on the KEY SHARE: a 40P01 cycle.
+ */
+it('an allocation on an unrelated line that receipts to the source and then applies it does not deadlock against a merge', async () => {
+  const lineId = crypto.randomUUID();
+  const invoiceId = crypto.randomUUID();
+  await pool.query(
+    `INSERT INTO bank_transactions(id,company_id,bank_account_id,transaction_date,amount)
+     VALUES($1,$2,$3,'2026-06-05',10)`, [lineId, h.companyA, await bankId()]);
+  await seeders.customer_invoices!(invoiceId, 'apply');
+  const allocator: PoolClient = await pool.connect();
+  let allocated = false;
+  try {
+    await allocator.query('BEGIN');
+    await allocator.query('SELECT id FROM bank_transactions WHERE id=$1 FOR UPDATE', [lineId]);
+    await allocator.query(
+      `INSERT INTO customer_payments(company_id,client_id,payment_date,total_amount,payment_method,status,created_by)
+       VALUES($1,$2,'2026-06-05',10,'eft','confirmed',$3)`, [h.companyA, source, h.admin]);
+    let done = false;
+    const merging = h.merge({ source_id: source, target_id: target }).finally(() => { done = true; });
+    // Either the merge finishes (it never waits on the KEY SHARE), or it is
+    // stuck on the customers — then applying the receipt closes the cycle.
+    for (let i = 0; i < 200 && !done; i++) {
+      const { rows } = await pool.query(
+        `SELECT count(*)::int AS n FROM pg_stat_activity
+         WHERE wait_event_type = 'Lock' AND query ILIKE '%FROM customers%' AND pid <> pg_backend_pid()`);
+      if (rows[0].n > 0) break;
+      await new Promise((r) => setTimeout(r, 25));
+    }
+    await allocator.query("SET LOCAL lock_timeout = '10s'");
+    await allocator.query('SELECT id FROM customer_invoices WHERE id=$1 FOR UPDATE', [invoiceId]);
+    await allocator.query('COMMIT');
+    allocated = true;
+    expect((await merging).state.statusCode).toBe(200);
+  } finally {
+    if (!allocated) await allocator.query('ROLLBACK').catch(() => undefined);
+    allocator.release();
+  }
+  expect(allocated).toBe(true);
+});
+
+/**
+ * A recurring run holds its template, then INSERTs an invoice naming the
+ * customer. A merge that meets the template only after moving invoices waits
+ * for that run and then strands the invoice it created. The merge locks both
+ * recurring stores before any UPDATE, so the run's invoice is moved too.
+ */
+const recurringStores: Record<string, (id: string) => Promise<unknown>> = {
+  recurring_invoices: (id) => pool.query(
+    `INSERT INTO recurring_invoices(id,company_id,client_id,template_name,frequency,next_run_date,status,created_by)
+     VALUES($1,$2,$3,'K061 lock run','monthly','2026-10-01','active',$4)`, [id, h.companyA, source, h.admin]),
+  recurring_transaction_templates: (id) => pool.query(
+    `INSERT INTO recurring_transaction_templates(id,company_id,name,entity_type,template_data,frequency,next_run_date,is_active,created_by)
+     VALUES($1,$2,'K061 lock run','customer_invoice',jsonb_build_object('clientId',$3::text),'monthly','2026-10-01',true,$4)`,
+    [id, h.companyA, source, h.admin]),
+};
+
+for (const store of Object.keys(recurringStores)) {
+  it(`${store}: an invoice a running recurring run creates during a merge is moved, not stranded`, async () => {
+    const templateId = crypto.randomUUID();
+    await recurringStores[store]!(templateId);
+    const run: PoolClient = await pool.connect();
+    let ran = false;
+    try {
+      await run.query('BEGIN');
+      await run.query(`SELECT id FROM ${store} WHERE id=$1 FOR UPDATE`, [templateId]);
+      const merging = h.merge({ source_id: source, target_id: target });
+      await waitUntilMergeBlocked(store);
+      await run.query(
+        `INSERT INTO customer_invoices(company_id,invoice_number,customer_id,invoice_date,subtotal,total_amount,status,created_by)
+         VALUES($1,'K061-RUN-1',$2,'2026-10-01',10,10,'approved',$3)`, [h.companyA, source, h.admin]);
+      await run.query('COMMIT');
+      ran = true;
+      expect((await merging).state.statusCode).toBe(200);
+      const { rows } = await pool.query(
+        'SELECT count(*)::int AS n FROM customer_invoices WHERE $1 IN (customer_id, client_id)', [source]);
+      expect(rows[0].n).toBe(0);
+    } finally {
+      if (!ran) await run.query('ROLLBACK').catch(() => undefined);
+      run.release();
+    }
+    expect(ran).toBe(true);
+  });
+}
