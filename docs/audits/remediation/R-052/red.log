@@ -1,0 +1,43 @@
+# R-052 RED — 2026-09-25, origin/master 0ecf6d06e
+
+Canary: draft PR #521, head 09af70cf5bf37457c988d77707de5dcd5bb68f1b (branch tmp/r052-canary-red),
+= origin/master + one file, src/lib/r052Canary.ts, a balance query filtering is_active.
+It violates exactly one gate, is-active-filters, which run-ci.sh runs and ci.yml does not.
+
+## Locally, the gate refuses it
+```
+$ bash scripts/ci/check-is-active-in-balances.sh
+=== is_active must not filter a query that computes a balance ===
+ERROR: NEW file(s) filtering is_active in a balance query:
+src/lib/r052Canary.ts
+...
+gate exit=1
+```
+
+## On GitHub, the PR is green and mergeable (run 36123371064)
+```
+Type Check, Lint & Test: success
+  - Set up job: success
+  - Run actions/checkout@v4: success
+  - Install dependencies: success
+  - Agent documentation mirrors: success
+  - Type check: success
+  - Lint: success
+  - User-identity ::UUID casts: success
+  - Unit tests: success
+  - Post Run actions/checkout@v4: success
+  - Complete job: success
+Golden Paths E2E (blocking): success
+  - Set up job: success
+  - Run actions/checkout@v4: success
+  - Install dependencies: success
+  - Boot dev server and run golden paths: success
+  - Post Run actions/checkout@v4: success
+  - Complete job: success
+mergeStateStatus: CLEAN
+```
+
+Five of run-ci.sh gates ran (agent-docs, type-check, lint, user-id-casts, unit-tests). The other
+eleven never did: security-guards, is-active-filters, raw-transactions, vat-guard-coverage,
+self-defining-universe, findings-numbering, migration-rls, oauth-trust-flags, component-tests,
+migration-naming, build (integration-tests is DATABASE_URL-gated and skips either way).
