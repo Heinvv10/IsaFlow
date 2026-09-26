@@ -156,6 +156,8 @@ export interface DeclaredElsewhereVatLine {
   vat: number;
   markedAt: string;
   markedBy: string;
+  /** Display name (or email) for markedBy, falling back to the raw id when no user row resolves. */
+  markedByName: string;
   markedReason: string;
 }
 

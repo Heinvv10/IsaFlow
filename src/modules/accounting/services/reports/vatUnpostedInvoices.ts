@@ -130,6 +130,12 @@ export async function findUnpostedInvoiceVat(
  * auditable from the exceptions panel itself. Population dates and statuses
  * mirror `findUnpostedInvoiceVat` exactly — the same document must appear in
  * exactly one of the two lists, never both and never neither.
+ *
+ * `marked_by_name` resolves `vat_declared_elsewhere_by` (users.id) to a
+ * display name via the same LEFT JOIN users + CONCAT_WS(first_name,
+ * last_name), falling back to email, pattern as
+ * vatPeriodLockService.listVatPeriodLocks's `locked_by_name`. `users` is a
+ * platform table, not company-scoped, so the join carries no company_id.
  */
 export async function findVatDeclaredElsewhere(
   companyId: string, periodStart: string, periodEnd: string,
@@ -140,10 +146,12 @@ export async function findVatDeclaredElsewhere(
         COALESCE(c.name, cl.name, 'Unknown') AS counterparty_name,
         COALESCE(ci.tax_amount, 0) AS unposted_vat,
         ci.vat_declared_elsewhere_at AS marked_at, ci.vat_declared_elsewhere_by AS marked_by,
+        COALESCE(NULLIF(TRIM(CONCAT_WS(' ', mu.first_name, mu.last_name)), ''), mu.email) AS marked_by_name,
         ci.vat_declared_elsewhere_reason AS marked_reason
       FROM customer_invoices ci
       LEFT JOIN customers c ON c.id = ci.customer_id AND c.company_id = ${companyId}::UUID
       LEFT JOIN clients cl ON cl.id = ci.client_id
+      LEFT JOIN users mu ON mu.id::TEXT = ci.vat_declared_elsewhere_by::TEXT
       WHERE ci.company_id = ${companyId}::UUID
         AND ci.deleted_at IS NULL
         AND ci.vat_declared_elsewhere_at IS NOT NULL
@@ -155,9 +163,12 @@ export async function findVatDeclaredElsewhere(
         -- Same explicit company scoping as the query above (item 12).
         COALESCE((SELECT SUM(sii.tax_amount) FROM supplier_invoice_items sii
                   WHERE sii.supplier_invoice_id = si.id AND si.company_id = ${companyId}::UUID), si.tax_amount, 0),
-        si.vat_declared_elsewhere_at, si.vat_declared_elsewhere_by, si.vat_declared_elsewhere_reason
+        si.vat_declared_elsewhere_at, si.vat_declared_elsewhere_by,
+        COALESCE(NULLIF(TRIM(CONCAT_WS(' ', mu.first_name, mu.last_name)), ''), mu.email),
+        si.vat_declared_elsewhere_reason
       FROM supplier_invoices si
       LEFT JOIN suppliers s ON s.id = si.supplier_id AND s.company_id = ${companyId}::UUID
+      LEFT JOIN users mu ON mu.id::TEXT = si.vat_declared_elsewhere_by::TEXT
       WHERE si.company_id = ${companyId}::UUID
         AND si.deleted_at IS NULL
         AND si.vat_declared_elsewhere_at IS NOT NULL

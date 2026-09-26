@@ -30,12 +30,13 @@ const unpostedReport = {
 describe('VatUnpostedInvoicesSection bulk mark', () => {
   it('an owner sees the checkbox and mark button; selecting + confirming posts a mark for that invoice', async () => {
     h.apiFetchMock.mockResolvedValue(ok());
-    window.prompt = vi.fn().mockReturnValue('Historical import');
     const onChanged = vi.fn();
     render(<VatUnpostedInvoicesSection report={unpostedReport} Section={Section} onChanged={onChanged} />);
 
     fireEvent.click(screen.getByRole('checkbox'));
     fireEvent.click(screen.getByText(/Mark 1 declared elsewhere/));
+    fireEvent.change(screen.getByRole('textbox'), { target: { value: 'Historical import' } });
+    fireEvent.click(screen.getByRole('button', { name: 'Mark' }));
     await Promise.resolve(); await Promise.resolve();
 
     expect(h.apiFetchMock).toHaveBeenCalledWith('/api/accounting/vat-declared-elsewhere', expect.objectContaining({
@@ -51,24 +52,32 @@ describe('VatUnpostedInvoicesSection bulk mark', () => {
     expect(screen.queryByText(/declared elsewhere/)).toBeNull();
   });
 
-  it('does nothing when the prompt is cancelled', async () => {
-    window.prompt = vi.fn().mockReturnValue(null);
+  it('the confirm button is disabled until a reason is typed, and cancel discards it without posting', async () => {
     render(<VatUnpostedInvoicesSection report={unpostedReport} Section={Section} />);
     fireEvent.click(screen.getByRole('checkbox'));
     fireEvent.click(screen.getByText(/Mark 1 declared elsewhere/));
+
+    const confirmButton = screen.getByRole('button', { name: 'Mark' }) as HTMLButtonElement;
+    expect(confirmButton.disabled).toBe(true);
+
+    fireEvent.change(screen.getByRole('textbox'), { target: { value: '   ' } });
+    expect(confirmButton.disabled).toBe(true);
+
+    fireEvent.click(screen.getByText('Cancel'));
     await Promise.resolve();
     expect(h.apiFetchMock).not.toHaveBeenCalled();
   });
 
   it('a refused mark (400) shows the server message, keeps the selection, and never calls onChanged', async () => {
     h.apiFetchMock.mockResolvedValue(refused('Only an owner or admin can mark this'));
-    window.prompt = vi.fn().mockReturnValue('Historical import');
     const onChanged = vi.fn();
     render(<VatUnpostedInvoicesSection report={unpostedReport} Section={Section} onChanged={onChanged} />);
 
     const checkbox = screen.getByRole('checkbox') as HTMLInputElement;
     fireEvent.click(checkbox);
     fireEvent.click(screen.getByText(/Mark 1 declared elsewhere/));
+    fireEvent.change(screen.getByRole('textbox'), { target: { value: 'Historical import' } });
+    fireEvent.click(screen.getByRole('button', { name: 'Mark' }));
 
     expect(await screen.findByText(/Only an owner or admin can mark this/)).toBeTruthy();
     expect(onChanged).not.toHaveBeenCalled();
@@ -82,10 +91,17 @@ describe('VatDeclaredElsewhereSection', () => {
   const declaredReport = {
     declaredElsewhereVat: [{
       invoiceId: 'ci-2', invoiceKind: 'customer' as const, invoiceNumber: 'INV-2', counterpartyName: 'Beta',
-      invoiceDate: '2026-07-02', vat: 90, markedAt: '2026-07-10T00:00:00.000Z', markedBy: 'u-1', markedReason: 'Historical',
+      invoiceDate: '2026-07-02', vat: 90, markedAt: '2026-07-10T00:00:00.000Z',
+      markedBy: '4b6a1e2a-0000-4000-8000-000000000001', markedByName: 'Jane Doe', markedReason: 'Historical',
     }],
     declaredElsewhereVatCount: 1,
   };
+
+  it('renders the marked-by display name, not the raw user id', () => {
+    render(<VatDeclaredElsewhereSection report={declaredReport} onChanged={vi.fn()} />);
+    expect(screen.getByText('Jane Doe')).toBeTruthy();
+    expect(screen.queryByText('4b6a1e2a-0000-4000-8000-000000000001')).toBeNull();
+  });
 
   it('renders nothing when there is nothing marked', () => {
     const { container } = render(<VatDeclaredElsewhereSection report={{ declaredElsewhereVat: [], declaredElsewhereVatCount: 0 }} onChanged={vi.fn()} />);

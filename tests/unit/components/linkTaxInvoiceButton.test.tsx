@@ -35,17 +35,33 @@ it('linking posts the selected document and reason', async () => {
   h.apiFetchMock
     .mockResolvedValueOnce(jsonRes({ links: [], candidates: [{ id: 'doc-1', fileName: 'invoice.pdf', documentType: null }] }))
     .mockResolvedValueOnce(jsonRes({ link: { id: 'link-1' } }));
-  window.prompt = vi.fn().mockReturnValue('Matches the bill');
   const onChanged = vi.fn();
   render(<LinkTaxInvoiceButton journalEntryId="je-1" onChanged={onChanged} />);
   fireEvent.click(screen.getByText(/Link tax invoice/));
   await screen.findByText(/invoice\.pdf/);
-  fireEvent.click(screen.getByText('Link'));
+  fireEvent.click(screen.getByRole('button', { name: 'Link' }));
+  fireEvent.change(screen.getByRole('textbox'), { target: { value: 'Matches the bill' } });
+  fireEvent.click(screen.getByRole('button', { name: 'Link' }));
   await waitFor(() => expect(h.apiFetchMock).toHaveBeenCalledWith('/api/accounting/journal-document-links', expect.objectContaining({
     method: 'POST',
     body: JSON.stringify({ action: 'link', journalEntryId: 'je-1', capturedDocumentId: 'doc-1', reason: 'Matches the bill' }),
   })));
   expect(onChanged).toHaveBeenCalled();
+});
+
+it('the confirm button is disabled until a reason is typed', async () => {
+  h.apiFetchMock.mockResolvedValueOnce(jsonRes({ links: [], candidates: [{ id: 'doc-1', fileName: 'invoice.pdf', documentType: null }] }));
+  render(<LinkTaxInvoiceButton journalEntryId="je-1" />);
+  fireEvent.click(screen.getByText(/Link tax invoice/));
+  await screen.findByText(/invoice\.pdf/);
+  fireEvent.click(screen.getByRole('button', { name: 'Link' }));
+
+  const confirmButton = screen.getByRole('button', { name: 'Link' }) as HTMLButtonElement;
+  expect(confirmButton.disabled).toBe(true);
+  fireEvent.change(screen.getByRole('textbox'), { target: { value: '  ' } });
+  expect(confirmButton.disabled).toBe(true);
+  fireEvent.change(screen.getByRole('textbox'), { target: { value: 'A real reason' } });
+  expect(confirmButton.disabled).toBe(false);
 });
 
 it('shows an active link with an unlink action instead of the picker', async () => {
@@ -60,17 +76,18 @@ it('a refused link (400) shows the server message, stays open, and never reports
   h.apiFetchMock
     .mockResolvedValueOnce(jsonRes({ links: [], candidates: [{ id: 'doc-1', fileName: 'invoice.pdf', documentType: null }] }))
     .mockResolvedValueOnce(errRes);
-  window.prompt = vi.fn().mockReturnValue('Matches the bill');
   const onChanged = vi.fn();
   render(<LinkTaxInvoiceButton journalEntryId="je-1" onChanged={onChanged} />);
   fireEvent.click(screen.getByText(/Link tax invoice/));
   await screen.findByText(/invoice\.pdf/);
-  fireEvent.click(screen.getByText('Link'));
+  fireEvent.click(screen.getByRole('button', { name: 'Link' }));
+  fireEvent.change(screen.getByRole('textbox'), { target: { value: 'Matches the bill' } });
+  fireEvent.click(screen.getByRole('button', { name: 'Link' }));
 
   expect(await screen.findByText(/Captured document already linked/)).toBeTruthy();
   expect(onChanged).not.toHaveBeenCalled();
-  // Still open, picker still visible — not silently closed as if it worked.
-  expect(screen.getByText('Link')).toBeTruthy();
+  // Still open, the reason form still visible — not silently closed as if it worked.
+  expect(screen.getByRole('textbox')).toBeTruthy();
 });
 
 it('an unlink that fails on the server shows the error and does not clear the active link', async () => {
@@ -78,14 +95,15 @@ it('an unlink that fails on the server shows the error and does not clear the ac
   h.apiFetchMock
     .mockResolvedValueOnce(jsonRes({ links: [{ id: 'link-1', capturedDocumentId: 'doc-1' }], candidates: [] }))
     .mockResolvedValueOnce(errRes);
-  window.prompt = vi.fn().mockReturnValue('Wrong entry');
   const onChanged = vi.fn();
   render(<LinkTaxInvoiceButton journalEntryId="je-1" onChanged={onChanged} />);
   fireEvent.click(screen.getByText(/Link tax invoice/));
   await screen.findByText(/Unlink/);
   fireEvent.click(screen.getByText(/Unlink/));
+  fireEvent.change(screen.getByRole('textbox'), { target: { value: 'Wrong entry' } });
+  fireEvent.click(screen.getByRole('button', { name: 'Unlink' }));
 
   expect(await screen.findByText(/No active link found/)).toBeTruthy();
   expect(onChanged).not.toHaveBeenCalled();
-  expect(screen.getByText(/Unlink/)).toBeTruthy();
+  expect(screen.getByRole('textbox')).toBeTruthy();
 });

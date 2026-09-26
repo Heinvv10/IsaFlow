@@ -35,10 +35,11 @@ it('is hidden for a non-owner/admin even when eligible', () => {
 
 it('an owner marks it, which posts and shows a confirmation', async () => {
   h.apiFetchMock.mockResolvedValue(ok());
-  window.prompt = vi.fn().mockReturnValue('Historical import');
   const onMarked = vi.fn();
   render(<MarkVatDeclaredElsewhereButton kind="supplier" invoiceId="bill-1" glJournalEntryId={null} taxAmount={45} onMarked={onMarked} />);
   fireEvent.click(screen.getByText(/Mark VAT declared/));
+  fireEvent.change(screen.getByRole('textbox'), { target: { value: 'Historical import' } });
+  fireEvent.click(screen.getByRole('button', { name: 'Mark' }));
   await Promise.resolve(); await Promise.resolve();
   expect(h.apiFetchMock).toHaveBeenCalledWith('/api/accounting/vat-declared-elsewhere', expect.objectContaining({
     method: 'POST', body: JSON.stringify({ action: 'mark', kind: 'supplier', invoiceIds: ['bill-1'], reason: 'Historical import' }),
@@ -47,16 +48,33 @@ it('an owner marks it, which posts and shows a confirmation', async () => {
   expect(await screen.findByText(/Marked VAT declared outside IsaFlow/)).toBeTruthy();
 });
 
+it('the confirm button is disabled until the trimmed reason is non-empty', () => {
+  render(<MarkVatDeclaredElsewhereButton kind="supplier" invoiceId="bill-1" glJournalEntryId={null} taxAmount={45} />);
+  fireEvent.click(screen.getByText(/Mark VAT declared/));
+  const confirmButton = screen.getByRole('button', { name: 'Mark' }) as HTMLButtonElement;
+  expect(confirmButton.disabled).toBe(true);
+
+  fireEvent.change(screen.getByRole('textbox'), { target: { value: '   ' } });
+  expect(confirmButton.disabled).toBe(true);
+
+  fireEvent.change(screen.getByRole('textbox'), { target: { value: 'A reason' } });
+  expect(confirmButton.disabled).toBe(false);
+
+  fireEvent.click(screen.getByText('Cancel'));
+  expect(h.apiFetchMock).not.toHaveBeenCalled();
+});
+
 it('a refusal (400) shows the server message, does not call onMarked, and does not show the confirmation', async () => {
   h.apiFetchMock.mockResolvedValue(refused('Only an owner or admin can mark this'));
-  window.prompt = vi.fn().mockReturnValue('Historical import');
   const onMarked = vi.fn();
   render(<MarkVatDeclaredElsewhereButton kind="supplier" invoiceId="bill-1" glJournalEntryId={null} taxAmount={45} onMarked={onMarked} />);
   fireEvent.click(screen.getByText(/Mark VAT declared/));
+  fireEvent.change(screen.getByRole('textbox'), { target: { value: 'Historical import' } });
+  fireEvent.click(screen.getByRole('button', { name: 'Mark' }));
 
   expect(await screen.findByText(/Only an owner or admin can mark this/)).toBeTruthy();
   expect(onMarked).not.toHaveBeenCalled();
   expect(screen.queryByText(/Marked VAT declared outside IsaFlow/)).toBeNull();
-  // The button is still there — the caller can retry.
-  expect(screen.getByText(/Mark VAT declared/)).toBeTruthy();
+  // The form is still there — the caller can retry.
+  expect(screen.getByRole('textbox')).toBeTruthy();
 });
