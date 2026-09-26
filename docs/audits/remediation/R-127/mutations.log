@@ -64,3 +64,17 @@ R10 claim: lock-timeout mapping removed        -> race "contended provisional ti
 R11 DB: same-company trigger dropped           -> guards "the database refuses a payment claiming ANOTHER company's provisional" -> INSERT resolved (trigger re-created from 711)
 R12 guard: SETTLEMENT_SOURCES without auto_bank_recon -> route provisional, MCP, undo (3 red)
 Re-run after the move: company filter (M1) and FOR UPDATE (M6) in provisionalSettlementClaim.ts both still red.
+
+# --- re-check round (fix 009bed32b); all restored_identical=True
+U1  gates: settlement branch disabled        -> undo "through the route" 400 (the reversal guard refuses the plain void — defence in depth), + re-allocate, reconciled (3 red)
+U2  paymentVoidService: settlement line removed -> undo "through MCP void_payment" -> expected null not to be null
+U3  void: still-applied refusal disabled     -> "refused while the payment still pays a bill" -> expected 200 to be 400
+U4  void: reconciled refusal disabled        -> "refused while the bank line is reconciled" -> expected 200 to be 400
+U5  void: bank line reset removed            -> route/MCP/re-allocate (3 red) -> expected 'matched' to be 'imported'
+U6  void: provisional reversal removed       -> route/MCP/re-allocate (3 red) -> expected null not to be null (reversed_at)
+U7  void: payment not cancelled (claim held) -> route/MCP/re-allocate (3 red) -> 400 from the reversal guard
+U8  route: unapply action removed            -> "supplier-payments-action unapply ..." -> 400 Unknown action
+U9  page: Unapply button never rendered      -> component (2 red) -> Unable to find role="button" name "Unapply"
+U10 claim: reclass not re-dated              -> vat-lock-later -> 400 "Cannot post on 2026-08-31 ... locked"
+U11 claim: both-filed refusal disabled       -> vat-lock -> message no longer /filed VAT period/ (savepoint keeps the snapshot)
+U12 attach-settle: draft UPDATE neutered     -> capture no-items + post-journal failure (2 red)
