@@ -1,4 +1,4 @@
-HEAD be47b3da1. Baseline: unit=green int=green
+HEAD ae9a168e5. Baseline: unit=green int=green
 
 RED      unit=red int=red  payrollJournalBuilder.ts: etiUsed uncapped
 RED      unit=red int=red  payrollJournalBuilder.ts: etiUsed zero
@@ -34,6 +34,7 @@ RED      unit=green int=red  approve.ts: route 400s everything (old)
 RED      unit=green int=red  approve.ts: route 500s refusals
 RED      unit=red int=green  writePayrollRun.ts: mcp no blocker refusal
 RED      unit=red int=green  writePayrollRun.ts: mcp drops advisories
+RED      unit=red int=green  writePayrollRun.ts: mcp preview ignores existing journal
 RED      unit=red int=green  writePayroll.ts: mcp eti_used = eti
 
-35/35 RED
+36/36 RED
