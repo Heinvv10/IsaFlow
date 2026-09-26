@@ -18,7 +18,7 @@ Sub-routes for single-PO operations + supplier-scoped unmatched-PO helper. Prima
 ## Business rules
 - PUT blocked on `status` not in `('draft','submitted')` — approved/received POs immutable via this route. The guard is in the UPDATE's WHERE, not only the earlier read; a zero-row UPDATE is classified by a company-scoped re-read: 404 gone, 400 naming the status, 409 if editable again (R-126)
 - PUT line-item replacement is delete-all + re-insert, not diff/patch
-- DELETE is hard-delete, `draft` only. The guard is in the DELETE's WHERE (`AND status = 'draft' RETURNING id`); a zero-row DELETE is classified by a company-scoped re-read: 404 gone, 400 naming the status, 409 if a draft again (R-129). `po_items` go by `ON DELETE CASCADE`. `goods_received_notes` references the PO with NO ACTION, so deleting a PO that has a GRN fails on the FK (unmapped, 500) rather than removing it
+- DELETE is hard-delete, `draft` only. The guard is in the DELETE's WHERE (`AND status = 'draft' RETURNING id`); a zero-row DELETE is classified by a company-scoped re-read: 404 gone, 400 naming the status, 409 if a draft again (R-129). `po_items` go by `ON DELETE CASCADE`. `goods_received_notes` references the PO with NO ACTION, but a PO with a GRN is never a draft: receipts need `approved`/`partially_received` (`goodsReceivedService.ts`), and the PUT cannot move those back, so the DELETE never reaches that FK
 - `unmatched` requires `supplierId`; `purchaseOrderId` optional filter; `include` defaults to `both`
 - Unmatched PO filter: `status IN ('submitted','approved','partially_received','received')` AND ≥1 item with `quantity_invoiced < quantity`
 - Line totals computed server-side as `quantity * unit_price`; tax defaults to 15% when not supplied
