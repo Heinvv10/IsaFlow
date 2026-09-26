@@ -2852,29 +2852,39 @@
       "claim": "Payroll journal is unbalanced by ETIThe labour debit subtracts ETI but PAYE is credited in full, so any run with ETI never posts while approval has already flipped the run.",
       "area": "payroll",
       "affectedPaths": [
-        "src/modules/accounting/services/payroll/payrollJournalBuilder.ts:121"
+        "src/modules/accounting/services/payroll/payrollJournalBuilder.ts:121",
+        "src/modules/accounting/services/payroll/payrollJournalBuilder.ts:195",
+        "src/modules/accounting/services/payroll/payrollApprovalService.ts:54",
+        "pages/api/payroll/runs/[id]/approve.ts:34"
       ],
       "sourceLabel": "AA H1",
       "sourceIds": [
         "A H1"
       ],
-      "correctedTrigger": null,
-      "severityRationale": "Source priority only; impact and reachability not yet validated.",
+      "correctedTrigger": "Labour debit fell by ETI while 2140 carried full PAYE: every run with ETI was unbalanced by the ETI and refused. The approve route answered the refusal with a 400, which withAuth commits, so the run stayed approved with journal_entry_id NULL. A zero statutory line (SDL-exempt, or ETI absorbing all PAYE) was also refused by validateJournalLine.",
+      "severityRationale": "High: no payroll run with ETI can reach the ledger, and approval strands the run. Latent in prod today only because the ETI engine returns 0 (K-080).",
       "auditedSha": "5661d6f0f5f2212705151e95455a3f681ddf840e",
       "currentSha": "31fc2f10",
-      "status": "confirmed",
+      "status": "in-progress",
       "dependencies": [],
       "testNames": [
-        "tests/unit/services/payroll/payrollJournalBuilder.test.ts"
+        "tests/integration/k079-payroll-eti-journal.int.test.ts",
+        "tests/unit/services/payroll/payrollJournalBuilder.test.ts",
+        "tests/unit/mcp/payRunLifecycle.test.ts",
+        "tests/unit/mcp/payrollTools.test.ts"
       ],
       "evidencePaths": [
+        "K-079/validation.md",
+        "K-079/fix.md",
         "K-079/red.log",
-        "K-079/validation.md"
+        "K-079/red.int.log",
+        "K-079/green.log",
+        "K-079/mutations.log"
       ],
       "fixCommit": null,
       "pr": null,
       "deployedSha": null,
-      "historicalDataImpact": "Not assessed",
+      "historicalDataImpact": "None to correct: nothing wrong posted. Possible stranded approved runs with no journal; they post when re-approved. Census SQL in K-079/fix.md, not run on prod.",
       "canonicalItem": null,
       "reportedSeverity": "high"
     },

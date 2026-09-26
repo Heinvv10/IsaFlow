@@ -1,0 +1,19 @@
+## HEAD cab55cefc — unit
+ RUN  v4.1.2 /home/hein/Workspace/IsaFlow/.worktrees/k079
+ Test Files  3 passed (3)
+      Tests  68 passed (68)
+   Start at  16:34:30
+   Duration  2.24s (transform 1.79s, setup 0ms, import 2.40s, tests 28ms, environment 0ms)
+## integration (isaflow_schema_fixture, real route)
+ RUN  v4.1.2 /home/hein/Workspace/IsaFlow/.worktrees/k079
+ ✓ tests/integration/k079-payroll-eti-journal.int.test.ts > K-079: approving a run that claims ETI > ETI below PAYE: posts a balanced journal with 2140 = paye − eti and links it to the run 97ms
+ ✓ tests/integration/k079-payroll-eti-journal.int.test.ts > K-079: approving a run that claims ETI > ETI above PAYE: books only the ETI PAYE can absorb, and still posts balanced 27ms
+ ✓ tests/integration/k079-payroll-eti-journal.int.test.ts > K-079: approving a run that claims ETI > no ETI: the journal is unchanged — 2140 carries the full PAYE 21ms
+ ✓ tests/integration/k079-payroll-eti-journal.int.test.ts > K-079: approving a run that claims ETI > another tenant's run is refused and left exactly as it was 7ms
+ ✓ tests/integration/k079-payroll-eti-journal.int.test.ts > K-079: approving a run that claims ETI > a status approval refuses is a 400 and leaves the run as it was 9ms
+ ✓ tests/integration/k079-payroll-eti-journal.int.test.ts > K-079: approving a run that claims ETI > a failure AFTER the status write is a 500 and rolls the approval back 25ms
+ ✓ tests/integration/k079-payroll-eti-journal.int.test.ts > K-079: approving a run that claims ETI > a run the journal cannot post for is refused BEFORE it is marked approved 10ms
+ Test Files  1 passed (1)
+      Tests  7 passed (7)
+   Start at  16:34:33
+   Duration  1.01s (transform 329ms, setup 0ms, import 568ms, tests 324ms, environment 0ms)
