@@ -29,6 +29,10 @@ const rejectRequest = crypto.randomUUID();
 const crossTenantRequest = crypto.randomUUID();
 const ownerOwnRequest = crypto.randomUUID();
 const adminDecider = crypto.randomUUID();
+// A second owner of company A who never acts. Since R-035 decision Q2 a SOLE
+// holder of the demanded rank may approve their own request; the self-approval
+// ban asserted below is the one that holds while another eligible approver exists.
+const idleOwner = crypto.randomUUID();
 const ownerApproveRequest = crypto.randomUUID();
 const foreignRuleId = crypto.randomUUID();
 const foreignRuleRequest = crypto.randomUUID();
@@ -67,15 +71,15 @@ beforeAll(async () => {
     [companyA, 'K043 company A', companyB, 'K043 company B']);
   // users.role is the platform-level role (no 'owner' in its CHECK); the
   // per-company role that the rule is matched against lives in company_users.
-  for (const [id, role] of [[requester, 'manager'], [otherManager, 'manager'], [owner, 'admin'], [outsider, 'admin'], [adminDecider, 'admin']] as const) {
+  for (const [id, role] of [[requester, 'manager'], [otherManager, 'manager'], [owner, 'admin'], [outsider, 'admin'], [adminDecider, 'admin'], [idleOwner, 'admin']] as const) {
     await pool.query('INSERT INTO users(id,email,role,is_active) VALUES($1,$2,$3,true)',
       [id, `k043-${id}@test.local`, role]);
     tokens[id] = await mint(id);
   }
   await pool.query(
     `INSERT INTO company_users(company_id,user_id,role)
-     VALUES($1,$2,'manager'),($1,$3,'manager'),($1,$4,'owner'),($5,$6,'owner'),($1,$7,'admin')`,
-    [companyA, requester, otherManager, owner, companyB, outsider, adminDecider]);
+     VALUES($1,$2,'manager'),($1,$3,'manager'),($1,$4,'owner'),($5,$6,'owner'),($1,$7,'admin'),($1,$8,'owner')`,
+    [companyA, requester, otherManager, owner, companyB, outsider, adminDecider, idleOwner]);
   await pool.query(
     `INSERT INTO approval_rules(id,company_id,name,document_type,condition_field,condition_operator,condition_value,approver_role,is_active,priority)
      VALUES($1,$2,'K043 owner-only rule','supplier_invoice','total','greater_than',0,'owner',true,10)`,
@@ -110,7 +114,7 @@ afterAll(async () => {
     await pool.query('DELETE FROM approval_rules WHERE company_id = ANY($1)', [[companyA, companyB]]);
     await pool.query('DELETE FROM company_users WHERE company_id = ANY($1)', [[companyA, companyB]]);
     await pool.query('DELETE FROM companies WHERE id = ANY($1)', [[companyA, companyB]]);
-    await pool.query('DELETE FROM users WHERE id = ANY($1)', [[requester, otherManager, owner, outsider, adminDecider]]);
+    await pool.query('DELETE FROM users WHERE id = ANY($1)', [[requester, otherManager, owner, outsider, adminDecider, idleOwner]]);
   } finally { await pool.end(); }
 });
 

@@ -247,9 +247,12 @@ describe('adjacent cases', () => {
     const ownerRule = await plantRule(company, 'r6 legacy owner', 'supplier_invoice', 'owner');
     const documentId = await plantDocument(pool, company, 'supplier_invoice', 500000, admin);
     const requestId = crypto.randomUUID();
+    // document_digest: migration 708 binds every pending supplier-invoice row
+    // to the bill's content as it stood when it ran, so a legacy row carries
+    // one; without it the approve is a 409 DOCUMENT_CHANGED (R-035).
     await pool.query(
-      `INSERT INTO approval_requests(id,company_id,rule_id,document_type,document_id,amount,requested_by,required_role)
-       VALUES($1,$2,$3,'supplier_invoice',$4,500000,$5,NULL)`,
+      `INSERT INTO approval_requests(id,company_id,rule_id,document_type,document_id,amount,requested_by,required_role,document_digest)
+       VALUES($1,$2,$3,'supplier_invoice',$4,500000,$5,NULL,approval_document_digest($2,'supplier_invoice',$4))`,
       [requestId, company, ownerRule, documentId, admin]);
 
     const tooLow = await call(approvalRequests, manager, company, 'POST', { action: 'approve', requestId });

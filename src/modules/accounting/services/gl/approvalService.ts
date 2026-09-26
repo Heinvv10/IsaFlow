@@ -10,6 +10,8 @@ import {
   assertMayDecide, isApproverRole, APPROVER_ROLES,
   ApprovalRuleNotFoundError, ApprovalRequestNotFoundError,
 } from './approvalAuthority';
+import { assertDocumentUnchanged } from './approvalDocuments';
+import { auditSoleApproverSelfApproval } from './approvalSelfApproval';
 import { mapRule, mapRequest, isConditionOperator, CONDITION_OPERATORS } from './approvalMatching';
 import { assertMayDemand, assertMayEditRule, auditRuleChange, type RuleActor } from './approvalRuleGuards';
 import { lockApprovalRequestForUpdate } from './approvalRequestLock';
@@ -56,6 +58,8 @@ export interface ApprovalRequest {
   documentId: string;
   documentReference: string | null;
   amount: number | null;
+  /** approval_document_digest() of the content requested (migration 708); NULL = binds nothing. */
+  documentDigest: string | null;
   status: ApprovalStatus;
   requestedBy: string;
   requestedByName?: string;
@@ -261,7 +265,8 @@ export async function decideRequest(companyId: string,
   // the row this UPDATE writes. A concurrent rebind can otherwise move the
   // request onto a different rule between the two statements.
   await lockApprovalRequestForUpdate(companyId, requestId);
-  await assertMayDecide(companyId, requestId, decidedBy, decision);
+  const selfApproval = await assertMayDecide(companyId, requestId, decidedBy, decision);
+  if (decision === 'approved') await assertDocumentUnchanged(companyId, requestId);
   const rows = (await sql`
     UPDATE approval_requests SET
       status = ${decision},
@@ -272,6 +277,7 @@ export async function decideRequest(companyId: string,
     RETURNING *
   `) as Record<string, unknown>[];
   if (!rows[0]) throw new ApprovalRequestNotFoundError(requestId);
+  if (selfApproval) await auditSoleApproverSelfApproval(companyId, decidedBy, rows[0], selfApproval);
   log.info('Approval decided', { id: requestId, decision }, 'accounting');
   return mapRequest(rows[0]);
 }

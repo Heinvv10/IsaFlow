@@ -82,7 +82,7 @@ const NOT_HASHED: [string, string][] = [
   ['match_status', `UPDATE supplier_invoices SET match_status = 'po_matched' WHERE id = $1`],
   ['status', `UPDATE supplier_invoices SET status = 'pending_approval' WHERE id = $1`],
   ['notes/reference/due_date', `UPDATE supplier_invoices SET notes = 'n', reference = 'r', due_date = due_date + 7 WHERE id = $1`],
-  ['amount_paid/balance', `UPDATE supplier_invoices SET amount_paid = 10, balance = 1140 WHERE id = $1`],
+  ['amount_paid', `UPDATE supplier_invoices SET amount_paid = 10 WHERE id = $1`],
   ['100 vs 100.00', `UPDATE supplier_invoice_items SET quantity = 2.0000 WHERE supplier_invoice_id = $1 AND description = 'Line A'`],
 ];
 

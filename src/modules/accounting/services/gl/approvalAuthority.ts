@@ -1,12 +1,14 @@
 /**
  * Company-scoped guards for the approval workflow.
  * Two invariants the decide path has to hold: the person who raised a request
- * may never decide it, and the decider must hold the role the matched
+ * may never approve it (unless nobody else in the company could — R-035 Q2),
+ * and the decider must hold the role the matched
  * approval rule demands. Both are checked against the database, company-scoped,
  * never against anything the caller supplied.
  */
 
 import { sql } from '@/lib/neon';
+import { otherActiveMemberRoles, type SoleApproverSelfApproval } from './approvalSelfApproval';
 
 export type ApprovalDecisionErrorCode = 'SELF_APPROVAL_FORBIDDEN' | 'APPROVER_ROLE_REQUIRED';
 
@@ -96,8 +98,13 @@ export const actorRank = (role: string): number =>
 
 /**
  * Throws ApprovalDecisionError when `decidedBy` may not take `decision` on
- * `requestId`. Silent when the request does not exist or is already decided —
- * the caller's status-predicated UPDATE reports that case.
+ * `requestId`. Returns null when the request does not exist or is already
+ * decided — the caller's status-predicated UPDATE reports that case — and for
+ * every ordinary decision.
+ *
+ * Returns a SoleApproverSelfApproval when the decider is approving their OWN
+ * request and that is allowed only because nobody else could (decision Q2);
+ * the caller must audit it as such.
  *
  * `decision` is required rather than defaulted: only `approve` is the controlled
  * act, and a caller that forgets to say which one it is must not silently get
@@ -108,7 +115,7 @@ export async function assertMayDecide(
   requestId: string,
   decidedBy: string,
   decision: 'approved' | 'rejected'
-): Promise<void> {
+): Promise<SoleApproverSelfApproval | null> {
   const rows = (await sql`
     SELECT (ar.requested_by::TEXT = ${decidedBy}) AS is_self,
            ar.rule_id,
@@ -123,21 +130,50 @@ export async function assertMayDecide(
   `) as Record<string, unknown>[];
 
   const row = rows[0];
-  if (!row) return;
+  if (!row) return null;
 
+  // Rejecting your OWN request is a withdrawal, not a separation-of-duties
+  // breach: it grants nothing and closes the row. Allowing it is what makes a
+  // request escapable when the ratchet's snapshot demands a rank only the
+  // requester holds (a sole owner, say) — before this, such a row could be
+  // neither approved nor rejected by anybody, and there is no cancel action.
+  // The rank check below is skipped with it, for the same reason: a withdrawal
+  // needs no approver authority.
+  if (row.is_self === true && decision === 'rejected') return null;
+
+  // The demand RATCHETS: the higher of the role the request was raised under
+  // (`required_role`, migration 669) and the bound rule's role today.
+  //
+  // Reading the live rule alone made this guard worth only what the write path
+  // to the rule is worth, and rule authority deliberately lets an actor edit any
+  // rule at or below their own rank. An admin facing an admin-only request of
+  // their OWN therefore had two ways to hand it to a manager: lower the bound
+  // rule's approver_role, or push the rule out of the candidate set and re-POST
+  // so the request rebound to a laxer one. Taking the maximum closes both, and
+  // still lets a policy change apply to everything raised after it.
+  //
+  // A row from before 669 carries no snapshot and is governed by the live rule
+  // exactly as it always was.
+  const ruleRole = row.approver_role != null ? String(row.approver_role) : 'admin';
+  const snapshotRole = row.required_role != null ? String(row.required_role) : null;
+  const demandedRole = snapshotRole != null && requiredRank(snapshotRole) > requiredRank(ruleRole)
+    ? snapshotRole
+    : ruleRole;
+
+  // Approving your OWN request stays forbidden (K-043) unless nobody else in the
+  // company could approve it (decision Q2): no OTHER active member ranks at or
+  // above the demand. It then still faces every check below — rule visibility,
+  // membership, rank — and the digest check in decideRequest.
   if (row.is_self === true) {
-    // Rejecting your OWN request is a withdrawal, not a separation-of-duties
-    // breach: it grants nothing and closes the row. Allowing it is what makes a
-    // request escapable when the ratchet's snapshot demands a rank only the
-    // requester holds (a sole owner, say) — before this, such a row could be
-    // neither approved nor rejected by anybody, and there is no cancel action.
-    // The rank check below is skipped with it, for the same reason: a withdrawal
-    // needs no approver authority.
-    if (decision === 'rejected') return;
-    throw new ApprovalDecisionError(
+    const forbidden = () => new ApprovalDecisionError(
       'SELF_APPROVAL_FORBIDDEN',
-      'You cannot approve an approval request you raised yourself'
+      'You cannot approve an approval request you raised yourself while another member can approve it'
     );
+    // No membership: the roster function would refuse anyway, and the answer
+    // must name the segregation breach, not the missing role.
+    if (row.decider_role == null) throw forbidden();
+    const others = await otherActiveMemberRoles(companyId, decidedBy);
+    if (others.some((role) => actorRank(role) >= requiredRank(demandedRole))) throw forbidden();
   }
 
   // A request naming a rule this company cannot see (another tenant's, or one of
@@ -160,24 +196,6 @@ export async function assertMayDecide(
     );
   }
 
-  // The demand RATCHETS: the higher of the role the request was raised under
-  // (`required_role`, migration 669) and the bound rule's role today.
-  //
-  // Reading the live rule alone made this guard worth only what the write path
-  // to the rule is worth, and rule authority deliberately lets an actor edit any
-  // rule at or below their own rank. An admin facing an admin-only request of
-  // their OWN therefore had two ways to hand it to a manager: lower the bound
-  // rule's approver_role, or push the rule out of the candidate set and re-POST
-  // so the request rebound to a laxer one. Taking the maximum closes both, and
-  // still lets a policy change apply to everything raised after it.
-  //
-  // A row from before 669 carries no snapshot and is governed by the live rule
-  // exactly as it always was.
-  const ruleRole = row.approver_role != null ? String(row.approver_role) : 'admin';
-  const snapshotRole = row.required_role != null ? String(row.required_role) : null;
-  const demandedRole = snapshotRole != null && requiredRank(snapshotRole) > requiredRank(ruleRole)
-    ? snapshotRole
-    : ruleRole;
   const userRole = String(row.decider_role);
   if (actorRank(userRole) < requiredRank(demandedRole)) {
     throw new ApprovalDecisionError(
@@ -185,4 +203,5 @@ export async function assertMayDecide(
       `This approval requires the ${demandedRole} role`
     );
   }
+  return row.is_self === true ? { selfApproval: 'sole_approver', requiredRole: demandedRole } : null;
 }
