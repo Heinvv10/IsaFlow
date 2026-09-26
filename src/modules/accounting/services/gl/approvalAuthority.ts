@@ -8,7 +8,7 @@
  */
 
 import { sql } from '@/lib/neon';
-import { otherActiveMemberRoles, type SoleApproverSelfApproval } from './approvalSelfApproval';
+import { soleApproverFacts, type SoleApproverSelfApproval } from './approvalSelfApproval';
 
 export type ApprovalDecisionErrorCode = 'SELF_APPROVAL_FORBIDDEN' | 'APPROVER_ROLE_REQUIRED';
 
@@ -122,7 +122,9 @@ export async function assertMayDecide(
            ar.required_role,
            rl.id AS resolved_rule_id,
            rl.approver_role,
-           cu.role AS decider_role
+           cu.role AS decider_role,
+           EXISTS (SELECT 1 FROM approval_enforcement ae
+                   WHERE ae.company_id = ar.company_id AND ae.document_type = ar.document_type) AS enforced
     FROM approval_requests ar
     LEFT JOIN approval_rules rl ON rl.id = ar.rule_id AND rl.company_id = ${companyId}
     LEFT JOIN company_users cu ON cu.company_id = ${companyId} AND cu.user_id = ${decidedBy}
@@ -161,19 +163,27 @@ export async function assertMayDecide(
     : ruleRole;
 
   // Approving your OWN request stays forbidden (K-043) unless nobody else in the
-  // company could approve it (decision Q2): no OTHER active member ranks at or
-  // above the demand. It then still faces every check below — rule visibility,
-  // membership, rank — and the digest check in decideRequest.
+  // company could approve it (decision Q2), and then only while ALL of these
+  // hold: enforcement is ON for the document type (off, nothing is gated, so
+  // there is nothing to be stuck on — dead everywhere in PR1); the roster is
+  // unchanged since the request (a snapshot taken then — see
+  // approvalSelfApproval); and no OTHER active member ranks at or above the
+  // demand — platform roles (system, super_admin) included, which fails closed.
+  // It then still faces every check below and the digest check in decideRequest.
+  let approverRoster: unknown = null;
   if (row.is_self === true) {
-    const forbidden = () => new ApprovalDecisionError(
+    const forbidden = (why = 'while another member can approve it') => new ApprovalDecisionError(
       'SELF_APPROVAL_FORBIDDEN',
-      'You cannot approve an approval request you raised yourself while another member can approve it'
+      `You cannot approve an approval request you raised yourself ${why}`
     );
     // No membership: the roster function would refuse anyway, and the answer
     // must name the segregation breach, not the missing role.
     if (row.decider_role == null) throw forbidden();
-    const others = await otherActiveMemberRoles(companyId, decidedBy);
-    if (others.some((role) => actorRank(role) >= requiredRank(demandedRole))) throw forbidden();
+    if (row.enforced !== true) throw forbidden('unless approval enforcement is on for this document type');
+    const facts = await soleApproverFacts(companyId, requestId, decidedBy);
+    if (!facts.rosterUnchanged) throw forbidden('— the company members or roles changed since it was raised');
+    if (facts.otherRoles.some((role) => actorRank(role) >= requiredRank(demandedRole))) throw forbidden();
+    approverRoster = facts.roster;
   }
 
   // A request naming a rule this company cannot see (another tenant's, or one of
@@ -203,5 +213,5 @@ export async function assertMayDecide(
       `This approval requires the ${demandedRole} role`
     );
   }
-  return row.is_self === true ? { selfApproval: 'sole_approver', requiredRole: demandedRole } : null;
+  return row.is_self === true ? { selfApproval: 'sole_approver', requiredRole: demandedRole, approverRoster } : null;
 }
