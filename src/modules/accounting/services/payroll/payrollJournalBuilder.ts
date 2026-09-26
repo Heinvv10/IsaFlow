@@ -131,7 +131,7 @@ export async function buildPayrollJournalPlan(
   const employeeUif = round2(uif / 2);
   // The two halves sum to uif exactly, so an odd cent cannot unbalance the journal.
   const employerUif = round2(uif - employeeUif);
-  const etiUsed = round2(Math.min(eti, paye));
+  const etiUsed = round2(Math.max(0, Math.min(eti, paye)));
   const labourDebit = round2(gross + employerUif + sdl - etiUsed);
   const otherDeductions = round2(gross - paye - employeeUif - net);
 
@@ -237,7 +237,7 @@ export async function buildPayrollJournalPlan(
 
   // The GL poster refuses both of these; saying so here lets the dry run and
   // approval refuse BEFORE anything is written, with the reason (K-079).
-  if (lines.length < 2) {
+  if (lines.length === 0) {
     blockers.push({
       code: 'nothing_to_post',
       detail: 'The run has no amounts to post — every journal line is zero. Calculate the run first.',

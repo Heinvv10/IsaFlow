@@ -282,7 +282,10 @@ describe('approve_pay_run', () => {
   });
 
   it('dry run flags an uncosted run as skipped', async () => {
+    // Its real plan is refused as nothing_to_post; the uncosted answer, which
+    // says what to do, must win.
     vi.mocked(getPayrollRun).mockResolvedValue(run({ employeeCount: 0 }) as never);
+    vi.mocked(findApprovalBlocker).mockResolvedValue({ code: 'nothing_to_post', detail: 'every journal line is zero' });
     const out = parseOk(await approvePayRunTool.handler(
       { run_id: RUN, dry_run: true, ...KEY }, ctx(),
     ));
@@ -306,6 +309,8 @@ describe('approve_pay_run — the empty month is refused, not warned', () => {
     vi.mocked(getPayrollRun).mockResolvedValue(
       run({ status: 'calculated', employeeCount: 0, totalGross: 0 }) as never,
     );
+    // The plan of an uncosted run is nothing_to_post; the named answer wins.
+    vi.mocked(findApprovalBlocker).mockResolvedValue({ code: 'nothing_to_post', detail: 'every journal line is zero' });
     const r = await approvePayRunTool.handler({ run_id: RUN, ...KEY }, ctx());
     expect(r.isError).toBe(true);
     expect(r.content[0]!.text).toContain('costed nobody');
