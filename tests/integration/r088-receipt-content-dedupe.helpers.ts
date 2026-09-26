@@ -25,15 +25,16 @@ export const today = new Date().toISOString().slice(0, 10);
 /** The hash an intake path stores for these bytes. */
 export const bytesHash = (bytes: string): string => createHash('sha256').update(Buffer.from(bytes)).digest('hex');
 
-export interface Slip { total: number; vendor?: string; confidence?: number; reference?: string }
+export interface Slip { total: number; vendor?: string; confidence?: number; reference?: string; invoice?: boolean }
 
-function extracted({ total, vendor = 'Waltons Stationery', confidence = 0.95, reference }: Slip) {
+function extracted({ total, vendor = 'Waltons Stationery', confidence = 0.95, reference, invoice }: Slip) {
   const subtotal = Math.round((total / 1.15) * 100) / 100;
   const vat = Math.round((total - subtotal) * 100) / 100;
   return {
-    documentType: 'receipt', vendorName: vendor, date: today,
+    documentType: invoice ? 'invoice' : 'receipt', vendorName: vendor, date: today,
     referenceNumber: reference ?? null, currency: 'ZAR', subtotal, vatAmount: vat,
-    vatRate: 15, totalAmount: total, lineItems: [], confidence,
+    vatRate: 15, totalAmount: total, confidence,
+    lineItems: invoice ? [{ description: 'Copy paper', quantity: 1, unitPrice: subtotal, total: subtotal }] : [],
     rawText: `${vendor}\nTAX INVOICE\nSub Total ${subtotal.toFixed(2)}\nVAT ${vat.toFixed(2)}\nTotal ${total.toFixed(2)}`,
     warnings: [], extractionMethod: 'vlm',
   };
@@ -69,10 +70,18 @@ export async function uploadToInbox(bytes: string, slip: Slip): Promise<{ docume
 }
 
 let token = '';
+// ai-invoice-pipeline's rate limit keys on the client IP with a persistent
+// counter; one address per run keeps the counter this file's own.
+const clientIp = `127.2.${Math.floor(Math.random() * 254) + 1}.${Math.floor(Math.random() * 254) + 1}`;
 type Route = (req: never, res: never) => Promise<unknown> | unknown;
 
-export function call(route: Route, url: string, body: Record<string, unknown>, targetId?: string, owner = company) {
+export function call(
+  route: Route, url: string, body: Record<string, unknown>, targetId?: string, owner = company,
+  query?: Record<string, string>,
+) {
   const req = request({ 'sb-access-token': token, active_company_id: owner }, 'POST', targetId);
+  if (query) req.query = query;
+  (req.socket as { remoteAddress: string }).remoteAddress = clientIp;
   req.url = url;
   req.body = body;
   const result = response();
@@ -104,6 +113,43 @@ export async function claimLineCount(documentId: string): Promise<number> {
   )).rows[0].n as number;
 }
 
+export async function invoiceCount(documentId: string): Promise<number> {
+  return (await pool.query(
+    'SELECT COUNT(*)::int AS n FROM supplier_invoices WHERE company_id=$1 AND source_document_id=$2',
+    [company, documentId],
+  )).rows[0].n as number;
+}
+
+/** The fingerprint columns a posting stamped (read through to_jsonb so a missing column reads as null). */
+export async function stamped(documentId: string): Promise<Record<string, string | null>> {
+  const row = (await pool.query(
+    `SELECT to_jsonb(cd)->>'posted_content_sha256' AS content, to_jsonb(cd)->>'posted_receipt_key' AS key,
+            to_jsonb(cd)->>'posted_duplicate_of' AS duplicate_of,
+            to_jsonb(cd)->>'posted_duplicate_confirmed_by' AS confirmed_by
+       FROM captured_documents cd WHERE id=$1`, [documentId])).rows[0];
+  return row as Record<string, string | null>;
+}
+
+/** A posted provisional journal (DR expense / CR bank) awaiting evidence, and its bank line. */
+export async function seedProvisional(amount: number): Promise<string> {
+  const je = crypto.randomUUID();
+  const a = accounts[company]!;
+  await pool.query(
+    `INSERT INTO gl_journal_entries(id,company_id,entry_number,entry_date,description,source,status,created_by,posting_agent,needs_evidence)
+     VALUES($1,$2,$3,CURRENT_DATE,'R088 provisional','auto_bank_recon','draft',$4,'ai-provisional:v1',true)`,
+    [je, company, `R088-${je.slice(0, 8)}`, user]);
+  await pool.query(
+    `INSERT INTO gl_journal_lines(company_id,journal_entry_id,gl_account_id,debit,credit,description)
+     VALUES($1,$2,$3,$5,0,'R088 provisional'),($1,$2,$4,0,$5,'R088 provisional')`,
+    [company, je, a.expense, a.bank, amount]);
+  await pool.query(`UPDATE gl_journal_entries SET status='posted', posted_at=NOW(), posted_by=$2 WHERE id=$1`, [je, user]);
+  await pool.query(
+    `INSERT INTO bank_transactions(id,company_id,bank_account_id,transaction_date,amount,description,status,provisional_je_id)
+     VALUES($1,$2,$3,CURRENT_DATE,$4,'WALTONS','provisional',$5)`,
+    [crypto.randomUUID(), company, a.bank, -amount, je]);
+  return je;
+}
+
 export async function postedAt(documentId: string): Promise<Date | null> {
   return (await pool.query('SELECT posted_at FROM captured_documents WHERE id=$1', [documentId])).rows[0]?.posted_at ?? null;
 }
@@ -118,6 +164,11 @@ export async function lockWaiters(): Promise<number> {
 
 export async function purge(): Promise<void> {
   const owners = [company, otherCompany];
+  await pool.query('DELETE FROM supplier_invoice_items WHERE supplier_invoice_id IN (SELECT id FROM supplier_invoices WHERE company_id=ANY($1::uuid[]))', [owners]);
+  await pool.query('DELETE FROM supplier_invoices WHERE company_id=ANY($1::uuid[])', [owners]);
+  await pool.query('DELETE FROM suppliers WHERE company_id=ANY($1::uuid[])', [owners]);
+  await pool.query('UPDATE bank_transactions SET provisional_je_id=NULL WHERE company_id=ANY($1::uuid[])', [owners]);
+  await pool.query('DELETE FROM bank_transactions WHERE company_id=ANY($1::uuid[])', [owners]);
   await pool.query('DELETE FROM expense_claim_lines WHERE company_id=ANY($1::uuid[])', [owners]);
   await pool.query('DELETE FROM expense_claims WHERE company_id=ANY($1::uuid[])', [owners]);
   await pool.query('DELETE FROM capture_events WHERE id=ANY($1::uuid[])', [events]);
@@ -158,6 +209,8 @@ export async function seed(): Promise<void> {
       [a.bank, a.vatInput, a.expense, a.office, owner],
     );
   }
+  await pool.query('INSERT INTO suppliers(id,company_id,name,is_active) VALUES($1,$2,$3,true)',
+    [crypto.randomUUID(), company, 'Waltons Stationery']);
   token = await new SignJWT({ sub: user, aal: 'aal2' })
     .setProtectedHeader({ alg: 'HS256' }).setExpirationTime('1h')
     .sign(new TextEncoder().encode(process.env.JWT_SECRET));
