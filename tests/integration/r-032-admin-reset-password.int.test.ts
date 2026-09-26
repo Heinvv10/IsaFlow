@@ -5,9 +5,10 @@
  * mocked — no real email leaves the test.
  */
 import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
+import { createHash } from 'node:crypto';
 import { Pool } from 'pg';
 
-const sendEmail = vi.hoisted(() => vi.fn(async (_opts: { to: string; html: string }) => ({ success: true })));
+const sendEmail = vi.hoisted(() => vi.fn(async (_opts: { to: string; html: string }): Promise<{ success: boolean; error?: string }> => ({ success: true })));
 vi.mock('@/modules/accounting/services/core/emailService', () => ({ sendEmail }));
 
 import resetPassword from '../../pages/api/admin/users/[id]/reset-password';
@@ -39,6 +40,16 @@ afterAll(async () => {
   }
 });
 
+const tokenIn = (html: string) => /\/reset-password#token=([0-9a-f]{64})/.exec(html)?.[1];
+const hashOf = (token: string) => createHash('sha256').update(token).digest('hex');
+
+async function adminReset() {
+  const jar = { 'sb-access-token': await signSession(platformAdmin, crypto.randomUUID(), 'aal2') };
+  const result = response();
+  await resetPassword(request(jar, 'POST', target), result.res);
+  return result;
+}
+
 describe('R-032 M2 — admin password reset through the real route', () => {
   it('emails our single-use token, returns no link, and audits the reset', async () => {
     const jar = { 'sb-access-token': await signSession(platformAdmin, crypto.randomUUID(), 'aal2') };
@@ -63,5 +74,34 @@ describe('R-032 M2 — admin password reset through the real route', () => {
     const audit = await pool.query(`SELECT action FROM admin_audit_log WHERE admin_user_id=$1 AND target_id=$2`,
       [platformAdmin, target]);
     expect(audit.rows.map((r: { action: string }) => r.action)).toEqual(['user.reset_password']);
+  });
+});
+
+describe('R-032 re-check LOW — the reset token is durable before the email, and a failed send changes nothing', () => {
+  it('commits the token before the email goes out (another connection can read it at send time)', async () => {
+    let visibleAtSend: boolean | undefined;
+    sendEmail.mockImplementationOnce(async (opts) => {
+      const token = tokenIn(opts.html)!;
+      const row = await pool.query('SELECT 1 FROM auth_password_reset_tokens WHERE token_hash=$1', [hashOf(token)]);
+      visibleAtSend = row.rowCount === 1;
+      return { success: true };
+    });
+    const result = await adminReset();
+    expect(result.state.statusCode, JSON.stringify(result.state.body)).toBe(200);
+    expect(visibleAtSend).toBe(true);
+  });
+
+  it('leaves the user\'s outstanding link valid, and issues no live link, when the send fails', async () => {
+    sendEmail.mockClear();
+    expect((await adminReset()).state.statusCode).toBe(200);
+    const outstanding = tokenIn(sendEmail.mock.calls[0]![0].html)!;
+
+    sendEmail.mockImplementationOnce(async () => ({ success: false, error: 'SMTP down' }));
+    const failed = await adminReset();
+    expect(failed.state.statusCode).toBe(503);
+    const unsent = tokenIn(sendEmail.mock.calls[1]![0].html)!;
+
+    await expect(consumePasswordResetToken(unsent)).resolves.toBeNull();
+    await expect(consumePasswordResetToken(outstanding)).resolves.toEqual({ userId: target });
   });
 });
