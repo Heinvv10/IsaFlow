@@ -27,7 +27,9 @@ vi.mock('@/lib/logger', () => ({
 
 import { sql } from '@/lib/neon';
 import {
-  createPasswordResetToken,
+  issuePasswordResetToken,
+  supersedePasswordResetTokens,
+  withdrawPasswordResetToken,
   consumePasswordResetToken,
 } from '@/lib/auth/passwordResetService';
 
@@ -48,23 +50,42 @@ beforeEach(() => {
   sqlMock.mockResolvedValue([]);
 });
 
-describe('createPasswordResetToken', () => {
-  it('returns a high-entropy token and a future expiry', async () => {
-    const { token, expiresAt } = await createPasswordResetToken(USER_ID);
+describe('issuePasswordResetToken', () => {
+  it('returns a high-entropy token, its hash and a future expiry', async () => {
+    const { token, tokenHash, expiresAt } = await issuePasswordResetToken(USER_ID);
     expect(token).toMatch(/^[a-f0-9]{64}$/); // 32 bytes hex
+    expect(tokenHash).toBe(sha256(token));
     expect(expiresAt.getTime()).toBeGreaterThan(Date.now());
   });
 
   it('persists only the sha256 hash of the token, never the raw token', async () => {
-    const { token } = await createPasswordResetToken(USER_ID);
+    const { token } = await issuePasswordResetToken(USER_ID);
     const allValues = sqlMock.mock.calls.flatMap((_, i) => callValues(i));
     expect(allValues).not.toContain(token); // raw token never hits the DB
     expect(allValues).toContain(sha256(token)); // hash is the INSERT'd token_hash
   });
 
-  it('invalidates prior unconsumed tokens then inserts (two statements in a tx)', async () => {
-    await createPasswordResetToken(USER_ID);
-    expect(sqlMock).toHaveBeenCalledTimes(2); // UPDATE (invalidate) + INSERT
+  it('only inserts — prior links stay live until the new one is delivered (R-032)', async () => {
+    await issuePasswordResetToken(USER_ID);
+    expect(sqlMock).toHaveBeenCalledTimes(1);
+    expect(String((sqlMock.mock.calls[0]![0] as unknown as string[]).join('?'))).toMatch(/INSERT INTO auth_password_reset_tokens/);
+  });
+});
+
+describe('supersedePasswordResetTokens / withdrawPasswordResetToken', () => {
+  it('retires every other unconsumed token of the user, keeping the delivered one', async () => {
+    await supersedePasswordResetTokens(USER_ID, 'keep-hash');
+    const text = (sqlMock.mock.calls[0]![0] as unknown as string[]).join('?');
+    expect(text).toMatch(/SET consumed_at = now\(\)/);
+    expect(text).toMatch(/token_hash <> \?/);
+    expect(callValues(0)).toEqual([USER_ID, 'keep-hash']);
+  });
+
+  it('withdraws exactly the one token that was never sent', async () => {
+    await withdrawPasswordResetToken('unsent-hash');
+    const text = (sqlMock.mock.calls[0]![0] as unknown as string[]).join('?');
+    expect(text).toMatch(/WHERE token_hash = \? AND consumed_at IS NULL/);
+    expect(callValues(0)).toEqual(['unsent-hash']);
   });
 });
 

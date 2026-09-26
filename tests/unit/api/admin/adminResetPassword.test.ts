@@ -25,12 +25,16 @@ vi.mock('@/lib/logger', () => ({ log: { info: vi.fn(), warn: vi.fn(), error: vi.
 vi.mock('@/lib/neon', () => ({ sql: vi.fn(async () => (fx.userRow ? [fx.userRow] : [])) }));
 const logAdminAction = vi.fn(async () => { calls.push('audit'); });
 vi.mock('@/modules/admin/services/auditService', () => ({ logAdminAction: (...a: unknown[]) => logAdminAction(...(a as [])) }));
-const createPasswordResetToken = vi.fn(async (userId: string) => {
+const issuePasswordResetToken = vi.fn(async (userId: string) => {
   calls.push(`token:${userId}`);
-  return { token: 'ours-single-use-token', expiresAt: new Date(Date.now() + 3_600_000) };
+  return { token: 'ours-single-use-token', tokenHash: 'ours-hash', expiresAt: new Date(Date.now() + 3_600_000) };
 });
+const supersedePasswordResetTokens = vi.fn(async (_userId: string, _keep: string) => { calls.push('supersede'); });
+const withdrawPasswordResetToken = vi.fn(async (_hash: string) => { calls.push('withdraw'); });
 vi.mock('@/lib/auth/passwordResetService', () => ({
-  createPasswordResetToken: (userId: string) => createPasswordResetToken(userId),
+  issuePasswordResetToken: (userId: string) => issuePasswordResetToken(userId),
+  supersedePasswordResetTokens: (u: string, k: string) => supersedePasswordResetTokens(u, k),
+  withdrawPasswordResetToken: (h: string) => withdrawPasswordResetToken(h),
 }));
 const sendEmail = vi.fn(async (opts: { to: string }) => { calls.push(`send:${opts.to}`); return fx.send; });
 vi.mock('@/modules/accounting/services/core/emailService', () => ({
@@ -76,7 +80,7 @@ describe('POST /api/admin/users/[id]/reset-password', () => {
 
   it('emails one reset link, built on our own token, to the target', async () => {
     await call();
-    expect(createPasswordResetToken).toHaveBeenCalledWith(target.id);
+    expect(issuePasswordResetToken).toHaveBeenCalledWith(target.id);
     expect(sendEmail).toHaveBeenCalledTimes(1);
     const sent = sendEmail.mock.calls[0]![0] as { to: string; html: string };
     expect(sent.to).toBe(target.email);
@@ -85,7 +89,8 @@ describe('POST /api/admin/users/[id]/reset-password', () => {
 
   it('writes the audit row before the email goes out', async () => {
     await call();
-    expect(calls).toEqual(['audit', `token:${target.id}`, `send:${target.email}`]);
+    expect(calls).toEqual(['audit', `token:${target.id}`, `send:${target.email}`, 'supersede']);
+    expect(supersedePasswordResetTokens).toHaveBeenCalledWith(target.id, 'ours-hash');
   });
 
   it('says so when the email could not be sent — never "sent"', async () => {
@@ -94,6 +99,9 @@ describe('POST /api/admin/users/[id]/reset-password', () => {
     expect(state.statusCode).toBeGreaterThanOrEqual(500);
     expect(JSON.stringify(state.body)).not.toMatch(/email sent/i);
     expect(JSON.stringify(state.body)).toMatch(/could not be sent/i);
+    // R-032 re-check: the unsent link is withdrawn and the user's outstanding links are left alone.
+    expect(withdrawPasswordResetToken).toHaveBeenCalledWith('ours-hash');
+    expect(supersedePasswordResetTokens).not.toHaveBeenCalled();
   });
 
   it('still refuses to reset a super_admin, and emails nobody', async () => {
@@ -101,6 +109,6 @@ describe('POST /api/admin/users/[id]/reset-password', () => {
     const state = await call();
     expect(state.statusCode).toBeGreaterThanOrEqual(400);
     expect(sendEmail).not.toHaveBeenCalled();
-    expect(createPasswordResetToken).not.toHaveBeenCalled();
+    expect(issuePasswordResetToken).not.toHaveBeenCalled();
   });
 });

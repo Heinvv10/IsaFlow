@@ -9,13 +9,15 @@
  * asks `currentSessionActor()`.
  */
 import { sql } from '@/lib/neon';
-import { getPlatformAdminPool } from './withPlatformAdmin.pools';
+import { newPlatformAdminClient } from './withPlatformAdmin.pools';
 
 /**
  * Must run before any target cookie is issued: if it throws, the impersonation
  * must not start.
  *
- * Written on its OWN autocommit connection, not the request transaction:
+ * Written on its OWN one-off autocommit connection — not the request
+ * transaction, and not a second connection from the platform_admin pool the
+ * request already holds one of (that deadlocks once the pool is exhausted):
  * withPlatformAdmin COMMITs only after the handler returns and does not hold
  * the response, so a row written inside it is invisible to the approve route
  * when the cookies go out, and is lost if that transaction then rolls back. A
@@ -24,10 +26,16 @@ import { getPlatformAdminPool } from './withPlatformAdmin.pools';
 export async function registerImpersonationSession(input: {
   sessionId: string; actorUserId: string; targetUserId: string;
 }): Promise<void> {
-  await getPlatformAdminPool().query(
-    `INSERT INTO impersonation_sessions (session_id, actor_user_id, target_user_id) VALUES ($1, $2, $3)`,
-    [input.sessionId, input.actorUserId, input.targetUserId],
-  );
+  const client = newPlatformAdminClient();
+  await client.connect();
+  try {
+    await client.query(
+      `INSERT INTO impersonation_sessions (session_id, actor_user_id, target_user_id) VALUES ($1, $2, $3)`,
+      [input.sessionId, input.actorUserId, input.targetUserId],
+    );
+  } finally {
+    await client.end();
+  }
 }
 
 /**
