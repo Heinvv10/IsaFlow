@@ -233,6 +233,26 @@ describe('buildPayrollJournalPlan — ETI through the cost-centre split (K-079)'
     expect(debitOn('acc-5220')).toBe(36720);
     expect(plan!.totalDebit).toBe(plan!.totalCredit);
   });
+
+  it('blocks a deactivated cost-centre labour account, as the GL poster would', async () => {
+    vi.mocked(getMappingLookup).mockResolvedValueOnce({ X: 'acc-5210' });
+    const header = { ...HEADER, total_gross: 40000, total_paye: 8000, total_uif: 800, total_sdl: 400,
+      total_eti: 0, total_net: 31600 };
+    const lines = [
+      { employee_id: 'A', gross_pay: 4000, eti: 0, cost_centre_id: 'X' },
+      { employee_id: 'B', gross_pay: 36000, eti: 0, cost_centre_id: null },
+    ];
+    routeMock([
+      { match: 'id = ANY', rows: [{ id: 'acc-5210', account_code: '5210', account_name: 'Site labour', is_active: false }] },
+      ...splitRoutes(header, lines),
+    ]);
+    const plan = await buildPayrollJournalPlan(COMPANY, RUN);
+
+    expect(plan!.lines.find((l) => l.glAccountId === 'acc-5210')).toMatchObject({ accountCode: '5210', inactiveAccount: true });
+    expect(plan!.blockers.find((b) => b.code === 'inactive_target_account')?.detail).toContain('5210');
+    const scoped = sqlCalls.find((c) => c.sql.includes('id = ANY'));
+    expect(scoped!.values).toContain(COMPANY);
+  });
 });
 
 describe('buildPayrollJournalPlan — what would stop the post', () => {
