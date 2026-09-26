@@ -77,6 +77,11 @@ describe('who may weaken', () => {
     await expect(edit('owner', { isActive: false })).resolves.toMatchObject({ id: RULE });
   });
 
+  it('keys the exception on the rule being OWNER-level, not on the actor ranking owner or higher', async () => {
+    stored({ approver_role: 'super_admin' });
+    await expect(edit('super_admin', { isActive: false })).rejects.toBeInstanceOf(ApprovalRuleAuthorityError);
+  });
+
   it('ranks an unknown or NULL stored role as admin: the owner may weaken it, the admin may not', async () => {
     for (const role of ['Owner', null]) {
       stored({ approver_role: role });

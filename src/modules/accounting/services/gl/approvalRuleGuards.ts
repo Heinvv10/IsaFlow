@@ -157,10 +157,13 @@ export async function assertMayEditRule(
   // by anybody who can reach the route.
   const ruleRole = row.approver_role != null ? String(row.approver_role) : 'admin';
   const rank = actorRank(actor.role);
-  if (rank < requiredRank(ruleRole)) {
+  const ruleRank = requiredRank(ruleRole);
+  if (rank < ruleRank) {
     throw new ApprovalRuleAuthorityError(ruleRole);
   }
-  if (weakensRule(row, change) && rank <= requiredRank(ruleRole) && rank < APPROVER_RANK.owner!) {
+  // At or above suffices only on an owner-level rule: nobody in a company ranks
+  // above the owner. Every other level needs a rank strictly above it.
+  if (weakensRule(row, change) && ruleRank !== APPROVER_RANK.owner && rank <= ruleRank) {
     throw new ApprovalRuleAuthorityError(ruleRole, true);
   }
   return row;
