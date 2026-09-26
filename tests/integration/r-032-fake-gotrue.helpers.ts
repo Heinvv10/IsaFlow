@@ -17,6 +17,8 @@ export interface FakeGotrue {
   minted: string[];
   /** Every non-GoTrue URL something tried to reach (refused) — e.g. SARS or Netcash. */
   outbound?: string[];
+  /** Every GoTrue call made, as "METHOD /path?query". */
+  gotrueCalls?: string[];
 }
 
 export function signSession(sub: string, sessionId: string | undefined, aal: 'aal1' | 'aal2'): Promise<string> {
@@ -39,6 +41,7 @@ export function fakeGotrueFetch(targetFor: (email: string) => string, state: Fak
       throw new Error(`r-032 fake GoTrue: unexpected fetch ${url}`);
     }
     const path = url.slice(base.length);
+    state.gotrueCalls?.push(`${init?.method ?? 'GET'} ${path}`);
     if (path === '/admin/generate_link') {
       const { email } = JSON.parse(String(init?.body)) as { email: string };
       const token = crypto.randomUUID();
@@ -56,11 +59,17 @@ export function fakeGotrueFetch(targetFor: (email: string) => string, state: Fak
       return json({ access_token: await signSession(targetFor(email), sessionId, 'aal1'),
         refresh_token: `refresh-${sessionId}`, expires_in: 3600, token_type: 'bearer' });
     }
+    if (path.startsWith('/logout')) return new Response(null, { status: 204 });
     if (path === '/user') {
       const headers = new Headers(init?.headers);
       const bearer = headers.get('authorization')?.replace(/^Bearer /, '') ?? '';
       return json({ id: decodeJwt(bearer).sub, factors: [] });
     }
-    throw new Error(`r-032 fake GoTrue: unhandled path ${path}`);
+    // Any other GoTrue endpoint (MFA factors, /token, admin user updates) is
+    // answered as a refusal, so the caller's own error path runs; the call is
+    // still recorded above.
+    return new Response(JSON.stringify({ msg: `r-032 fake GoTrue: unhandled path ${path}` }), {
+      status: 400, headers: { 'content-type': 'application/json' },
+    });
   };
 }
