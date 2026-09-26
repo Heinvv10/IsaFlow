@@ -72,5 +72,14 @@ export interface McpTool {
   perUserIdempotency?: boolean;
   /** Additionally requires the 'write:post' scope (posting/finalizing). */
   requiresPost?: boolean;
+  /**
+   * Additionally requires this specific scope, distinct from `write:post`.
+   * Item 10 (VAT-gaps): `lock_vat_period` and `mark_vat_declared_elsewhere`
+   * neither of which posts a journal, require `write:vat` this way rather
+   * than `requiresPost`/`write:post` — an honest consent label for what they
+   * actually do (lock a period, clear a pre-filing block), not "posts
+   * irreversible entries".
+   */
+  requiresScope?: string;
   handler(args: Record<string, unknown>, ctx: McpToolContext): Promise<McpToolResult>;
 }

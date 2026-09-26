@@ -126,7 +126,9 @@ export const lockVatPeriodTool: McpTool = {
     + 'LIMITS: there is no MCP unlock, deliberately — a lock an agent can lift with one call is not a control. An owner or admin unlocks it in the app, with a reason, and the unlocked lock is kept as history.',
   scope: 'read:vat',
   write: true,
-  requiresPost: true,
+  // NOT requiresPost/write:post — this never posts a journal. write:vat's
+  // consent label names locking a VAT period explicitly (item 10).
+  requiresScope: 'write:vat',
   inputSchema: {
     type: 'object',
     properties: {

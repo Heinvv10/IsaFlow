@@ -51,7 +51,7 @@ import type { McpToolContext } from '@/lib/mcp/types';
 
 const COMPANY = 'aaaaaaaa-0000-4000-8000-aaaaaaaaaaaa';
 const USER = 'bbbbbbbb-0000-4000-8000-bbbbbbbbbbbb';
-const ctx: McpToolContext = { userId: USER, companyId: COMPANY, scopes: ['read:vat', 'write:post'], tokenJti: 'tok-1', oauthAppId: null };
+const ctx: McpToolContext = { userId: USER, companyId: COMPANY, scopes: ['read:vat', 'write:vat'], tokenJti: 'tok-1', oauthAppId: null };
 const FIGURES = { outputTax: 150, inputTax: 45, netVat: 105, postedThrough: '2026-04-30T10:00:00.000Z' };
 const REPORT = { rateCheck: { ties: true }, excludedRows: [] };
 const args = { period_start: '2026-03-01', period_end: '2026-04-30', idempotency_key: 'key-1' };
