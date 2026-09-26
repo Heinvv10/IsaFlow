@@ -1,4 +1,4 @@
--- 718 (R-127): a bank-first provisional journal can become the payment of ONE
+-- 711 (R-127): a bank-first provisional journal can become the payment of ONE
 -- supplier invoice.
 --
 -- When a supplier invoice is approved and its source document already

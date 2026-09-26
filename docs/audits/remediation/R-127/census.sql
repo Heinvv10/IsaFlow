@@ -1,6 +1,6 @@
 -- R-127 census — READ-ONLY. Supplier invoices in the AP population whose source
 -- document ALSO evidences a live bank-first provisional journal in the same
--- company. Does not reference migration 718's column, so it runs before or
+-- company. Does not reference migration 711's column, so it runs before or
 -- after the deploy.
 --   kind = 'double_booked_gl' : the invoice's own journal is posted and live —
 --          expense and input VAT are in the GL twice and the AP it raised is
