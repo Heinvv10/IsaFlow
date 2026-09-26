@@ -101,6 +101,8 @@ export interface ProvisionalOpts {
   draft?: boolean;
   companyId?: string;
   accounts?: { bank: string; expense: string; vat: string };
+  /** Bank date and journal date; today by default. */
+  date?: string;
 }
 
 /**
@@ -122,7 +124,7 @@ export async function seedProvisional(opts: ProvisionalOpts): Promise<{ je: stri
     `INSERT INTO gl_journal_entries(id,company_id,entry_date,description,source,status,created_by,
                                     posting_agent,needs_evidence,source_document_id)
      VALUES($1,$2,$3,'R127 provisional bank allocation','auto_bank_recon','draft',$4,$5,$6,$7)`,
-    [je, c, today, user, evidenced ? 'ai-evidenced:v1' : 'ai-provisional:v1',
+    [je, c, opts.date ?? today, user, evidenced ? 'ai-evidenced:v1' : 'ai-provisional:v1',
       opts.needsEvidence ?? !evidenced, opts.evidencedBy ?? null],
   );
   await pool.query(
@@ -139,7 +141,7 @@ export async function seedProvisional(opts: ProvisionalOpts): Promise<{ je: stri
     `INSERT INTO bank_transactions(id,company_id,bank_account_id,transaction_date,amount,description,status,
                                    provisional_je_id,predicted_supplier_id,prediction_confidence)
      VALUES($1,$2,$3,$4,$5,'R127 SUPPLIES CC',$6,$7,$8,0.9)`,
-    [bt, c, acc.bank, today, -opts.totalAmount, evidenced ? 'matched' : 'provisional', je,
+    [bt, c, acc.bank, opts.date ?? today, -opts.totalAmount, evidenced ? 'matched' : 'provisional', je,
       opts.supplierId === undefined ? (c === company ? supplier : null) : opts.supplierId],
   );
   return { je, bt };

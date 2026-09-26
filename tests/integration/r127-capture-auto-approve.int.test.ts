@@ -10,6 +10,7 @@
 import { beforeAll, describe, expect, it } from 'vitest';
 import { SignJWT } from 'jose';
 import pipelineRoute from '../../pages/api/accounting/ai-invoice-pipeline';
+import capturePostRoute from '../../pages/api/accounting/capture/[id]/post';
 import { postSupplierInvoiceToGL } from '@/modules/accounting/services/ap/supplierInvoiceWorkflowService';
 import { runCapturePostFollowUps } from '@/modules/accounting/services/capture/capturePostFollowUps';
 import { getAPAgingDetail } from '@/modules/accounting/services/ap/apAgingService';
@@ -94,6 +95,8 @@ describe('R-127: auto-approved captured invoices settle against the provisional 
     const { je, bt } = await seedProvisional({ totalAmount: 403.65, supplierId: supplier });
     const doc = await seedDoc();
     const invoiceId = await seedInvoice({ documentId: doc, totalAmount: 403.65, status: 'approved', withItems: false });
+    // As an approval leaves it: who approved it, and when.
+    await pool.query('UPDATE supplier_invoices SET approved_by=$2, approved_at=NOW() WHERE id=$1', [invoiceId, user]);
 
     const out = await inTx(() => runCapturePostFollowUps({
       companyId: company, userId: user, eventId: crypto.randomUUID(), documentId: doc, invoiceId,
@@ -113,6 +116,8 @@ describe('R-127: auto-approved captured invoices settle against the provisional 
     expect(inv.status).toBe('draft');
     expect(inv.gl_journal_entry_id).toBeNull();
     expect(out.provisionalAttach.settlementRefused).toMatch(/.+/);
+    const approval = (await pool.query('SELECT approved_by, approved_at FROM supplier_invoices WHERE id=$1', [invoiceId])).rows[0];
+    expect(approval).toEqual({ approved_by: null, approved_at: null });
     const notes = String((await pool.query('SELECT notes FROM supplier_invoices WHERE id=$1', [invoiceId])).rows[0].notes);
     expect(notes).toMatch(/provisional/i);
     const ageing = await getAPAgingDetail(company, supplier);
@@ -168,5 +173,47 @@ describe('R-127: auto-approved captured invoices settle against the provisional 
     expect(inv.status).toBe('paid');
     expect(inv.paid).toBe(404.80);
     expect(await slipLedger(je, bt, invoiceId)).toEqual({ expense: 352.00, vat: 52.80, ap: 0, bank: -404.80 });
+  });
+
+  it('capture/[id]/post answers the bill\'s status as it ends — draft when its settlement was refused', async () => {
+    await seedProvisional({ totalAmount: 1406.50, supplierId: supplier });
+    const doc = await seedExtractedDoc(1406.50);
+    const eventId = crypto.randomUUID();
+    await pool.query(
+      "INSERT INTO capture_events(id,company_id,channel,status,captured_document_id) VALUES($1,$2,'api','extracted',$3)",
+      [eventId, company, doc]);
+    const req = request({ 'sb-access-token': token, active_company_id: company }, 'POST');
+    req.url = `/api/accounting/capture/${eventId}/post`;
+    (req as unknown as { query: Record<string, string> }).query = { id: eventId };
+    req.body = {};
+    const res = response();
+    await capturePostRoute(req as never, res.res as never);
+    expect(res.state.statusCode, JSON.stringify(res.state.body)).toBe(200);
+    const invoiceId = await invoiceForDoc(doc);
+    // capture/[id]/post writes no line items, so the settlement fails and the
+    // auto-approval is withdrawn — and the response must not still say 'approved'.
+    expect((await invoiceState(invoiceId)).status).toBe('draft');
+    expect((res.state.body as { data: { invoice: { status: string } } }).data.invoice.status).toBe('draft');
+  });
+
+  it('ai-invoice-pipeline answers draft when the settlement of its auto-approval is refused', async () => {
+    await seedProvisional({ totalAmount: 2407.65, supplierId: supplier });
+    const doc = await seedExtractedDoc(2407.65);
+    const monthStart = `${today.slice(0, 8)}01`;
+    const monthEnd = new Date(Date.UTC(Number(today.slice(0, 4)), Number(today.slice(5, 7)), 0)).toISOString().slice(0, 10);
+    // Both the bank date and the slip date are filed: the settlement is refused.
+    const lock = (await pool.query(
+      `INSERT INTO vat_period_locks(company_id,period_start,period_end,output_tax,input_tax,net_vat,posted_through,locked_by,actor_type)
+       VALUES($1,$2,$3,0,0,0,NOW(),$4,'human') RETURNING id`, [company, monthStart, monthEnd, user])).rows[0].id as string;
+    try {
+      const res = await runPipeline(doc);
+      expect(res.statusCode, JSON.stringify(res.body)).toBe(200);
+      const invoiceId = await invoiceForDoc(doc);
+      expect((await invoiceState(invoiceId)).status).toBe('draft');
+      expect((res.body as { data: { invoice: { status: string } } }).data.invoice.status).toBe('draft');
+    } finally {
+      await pool.query('UPDATE vat_period_locks SET unlocked_at=NOW(), unlocked_by=$2, unlock_reason=$3 WHERE id=$1',
+        [lock, user, 'R127 test cleanup']);
+    }
   });
 });
