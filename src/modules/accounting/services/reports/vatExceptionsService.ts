@@ -278,8 +278,9 @@ export async function getVatExceptions(
     inputVatWithoutTaxInvoice: inputSupport.withoutTaxInvoice.slice(0, LIST_CAP),
     inputVatWithoutTaxInvoiceCount: inputSupport.withoutTaxInvoice.length,
     // The "no tax invoice on file" list is deliberately NOT counted (Hein) —
-    // inputSupport.unsupported now holds only `amount_mismatch` /
-    // `document_over_claimed` rows (Hein, 2026-09-26): `no_document` and
+    // inputSupport.unsupported now holds only `amount_mismatch`,
+    // `document_over_claimed` and `document_unlinked` rows (a chain that once
+    // had a document and no longer does) (Hein, 2026-09-26): `no_document` and
     // `unreadable_document_vat` moved into the non-blocking
     // inputVatWithoutTaxInvoice list (classifyInputVatSupport,
     // vatInputSupport.ts) because they mean a RECORD is missing, not that the
