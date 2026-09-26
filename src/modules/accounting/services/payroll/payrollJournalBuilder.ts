@@ -22,7 +22,7 @@
  *
  * ETI (K-079, Hein 2026-09-26). ETI is an offset against the PAYE remitted, so
  * it reduces the 2140 credit, and it is presented net of labour cost. Only the
- * ETI this run's PAYE can absorb is booked — `etiUsed = min(eti, paye)` — which
+ * ETI this run's PAYE can absorb is booked — `etiUsed = max(0, min(eti, paye))` — which
  * makes CR 2140 equal EMP201's PAYE payable (`emp201Service` floors it at zero;
  * one run per company per period). ETI beyond PAYE is not booked; the plan
  * says so in an advisory.
@@ -89,7 +89,7 @@ export interface PayrollJournalPlan {
     uif: number;
     sdl: number;
     eti: number;
-    /** The ETI booked: min(eti, paye). The rest is reported in `eti_beyond_paye`. */
+    /** The ETI booked: max(0, min(eti, paye)). The rest is reported in `eti_beyond_paye`. */
     etiUsed: number;
     net: number;
     employerUif: number;

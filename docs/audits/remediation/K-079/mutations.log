@@ -1,4 +1,4 @@
-HEAD efb4e3197. Baseline: unit=green int=green
+HEAD 305d13594. Baseline: unit=green int=green
 
 RED      unit=red int=red  payrollJournalBuilder.ts: etiUsed uncapped
 RED      unit=red int=red  payrollJournalBuilder.ts: etiUsed zero
@@ -34,10 +34,12 @@ RED      unit=green int=red  payrollApprovalService.ts: status refusal untyped
 RED      unit=green int=red  payrollApprovalService.ts: approve drops advisories
 RED      unit=green int=red  approve.ts: route 400s everything (old)
 RED      unit=green int=red  approve.ts: route 500s refusals
-RED      unit=red int=green  writePayrollRun.ts: mcp no blocker refusal
+RED      unit=red int=green  writePayrollRun.ts: mcp dry run no blocker refusal
+RED      unit=red int=green  writePayrollRun.ts: mcp live refusal not returned
+RED      unit=red int=green  writePayrollRun.ts: mcp live catches everything
 RED      unit=red int=green  writePayrollRun.ts: mcp drops advisories
 RED      unit=red int=green  writePayrollRun.ts: mcp preview ignores existing journal
 RED      unit=red int=green  writePayrollRun.ts: mcp uncosted not answered first
 RED      unit=red int=green  writePayroll.ts: mcp eti_used = eti
 
-39/39 RED
+41/41 RED

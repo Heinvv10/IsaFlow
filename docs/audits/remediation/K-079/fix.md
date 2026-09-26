@@ -33,7 +33,7 @@ Hein chose:
 ## Before / after
 
 - **Builder** (`payrollJournalBuilder.ts`):
-  - `etiUsed = round2(min(eti, paye))`;
+  - `etiUsed = round2(max(0, min(eti, paye)))` (floored at 0 so a negative PAYE header books no ETI);
   - labour debit `gross + employerUif + sdl − etiUsed`; 2140 credit `paye − etiUsed`;
   - `totals.etiUsed` reported alongside `totals.eti`;
   - ETI beyond PAYE raises an `eti_beyond_paye` **advisory** (not a blocker: Hein chose to cap, so
@@ -91,9 +91,10 @@ Hein chose:
 - **Stranded runs recover in-app.** A run already stranded at `approved` with no journal is
   re-approvable (`alreadyApprovedButUnposted`, unchanged), and now posts.
 - **MCP:**
-  - `approve_pay_run` asks `findApprovalBlocker` before its dry-run branch, so preview and live
-    refuse the same run (dry-run parity), and the live refusal is a `toolError` while nothing is
-    written.
+  - `approve_pay_run`'s dry run asks `findApprovalBlocker`. The live call returns the service's
+    pre-write `PayrollApprovalRefusedError` as a tool error and rethrows everything else, so
+    preview and live refuse the same run (dry-run parity), and the live refusal is a `toolError`
+    while nothing is written.
   - `post_payroll_journal`'s preview reports `employment_cost.eti_used`.
   - The tool description and `figures.ts` no longer describe the defect.
 - `etiEngine.ts` is untouched (K-080 is Hein's SARS-table decision). With K-080 fixed, runs with
@@ -130,13 +131,13 @@ Hein chose:
   - Split: ties to the cent; ETI on the cost-centre account of the employee who earned it.
   - Blockers: closed and open period, nothing to post, negative amount, a 1-cent imbalance.
   - Odd-cent UIF balances.
-- `tests/unit/mcp/payRunLifecycle.test.ts`: `approve_pay_run` refuses a blocked run, live and dry run.
+- `tests/unit/mcp/payRunLifecycle.test.ts` and `payRunLifecycle-k079.test.ts`: `approve_pay_run` refuses a blocked run, live and dry run.
 - `tests/unit/mcp/payrollTools.test.ts`: `eti_used` in the preview.
 - Evidence:
   - `red.log` (validation, unit) and `red.int.log`: 3/5 integration cases RED on `origin/master`
     code — ETI < PAYE, ETI > PAYE, and the run marked approved on refusal.
   - `green.log`.
-  - `mutations.log`: a green baseline, then every changed code line mutated (39/39 RED). This includes the
+  - `mutations.log`: a green baseline, then every changed code line mutated (41/41 RED). This includes the
     original defect (`2140 = paye`), the old catch-all 400 in the route and the old 1-cent
     tolerance.
 

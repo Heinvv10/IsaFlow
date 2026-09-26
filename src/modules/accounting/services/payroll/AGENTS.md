@@ -20,8 +20,8 @@ Invoked by `withCompany`-wrapped API routes in `pages/api/accounting/payroll/*`.
 
 ## Main function signatures
 - `createPayrollRun(companyId, input) / getPayrollRun(companyId, id) / calculatePayrollRun(runId, companyId)`.
-- `approvePayrollRun(companyId, runId, userId)` — status `draft|calculated|processed → approved`, posts JE, links `payroll_run_headers.journal_entry_id`. Every refusal (not found, status, any journal-plan blocker via `findApprovalBlocker`) is thrown BEFORE the status write as `PayrollApprovalRefusedError`; callers answer only that as a 4xx and rethrow the rest, so a post-write failure rolls back (K-079). Returns the plan's `advisories`.
-- `postPayrollRunJournal(companyId, runId, userId)` — DR 5200 Labour = gross + (total_uif÷2) + sdl − etiUsed; CR 2140 PAYE = paye − etiUsed; CR 2150 UIF (employee+employer combined); CR 2160 SDL; CR 1110 Bank (net); zero lines dropped. `etiUsed = min(eti, paye)` (see Business rules).
+- `approvePayrollRun(companyId, runId, userId)` — status `draft|calculated|processed → approved`, posts JE, links `payroll_run_headers.journal_entry_id`. Every refusal (not found, status, any journal-plan blocker via `findApprovalBlocker`) is thrown BEFORE the status write as `PayrollApprovalRefusedError` (its own module, `payrollApprovalRefusal.ts`); callers answer only that as a 4xx and rethrow the rest, so a post-write failure rolls back (K-079). Returns the plan's `advisories`.
+- `postPayrollRunJournal(companyId, runId, userId)` — DR 5200 Labour = gross + (total_uif÷2) + sdl − etiUsed; CR 2140 PAYE = paye − etiUsed; CR 2150 UIF (employee+employer combined); CR 2160 SDL; CR 1110 Bank (net); zero lines dropped. `etiUsed = max(0, min(eti, paye))` (see Business rules).
 - `calculatePayrollLine(input): PayrollLineResult` — pure orchestrator.
 - `markUifDeclarationPaid(companyId, declarationId, userId)` — idempotent (returns existing row when already paid).
 - `applyTaxDirective(companyId, directiveId, input)` — one payment per directive.
@@ -31,7 +31,7 @@ Invoked by `withCompany`-wrapped API routes in `pages/api/accounting/payroll/*`.
 - `getParallelRunReport(companyId, importId, runId?)` — resolves the run by the import's period when runId omitted; `run`/`comparison` null when no run exists.
 
 ## Business rules
-- **ETI in the journal (K-079, Hein 2026-09-26).** ETI offsets PAYE payable and is presented net of labour cost, capped at the run's PAYE: `etiUsed = min(total_eti, total_paye)` reduces both DR 5200 and CR 2140, so CR 2140 equals `emp201Service`'s `payePayable` (floored at 0; one run per company per period). ETI beyond PAYE is not booked and is reported as the `eti_beyond_paye` advisory; EMP201 carries none forward. Before the fix the labour debit fell by ETI while 2140 carried full PAYE, so every ETI run was unbalanced and could not post. Never change `etiEngine` here (K-080 is Hein's SARS-table decision).
+- **ETI in the journal (K-079, Hein 2026-09-26).** ETI offsets PAYE payable and is presented net of labour cost, capped at the run's PAYE: `etiUsed = max(0, min(total_eti, total_paye))` reduces both DR 5200 and CR 2140, so CR 2140 equals `emp201Service`'s `payePayable` (floored at 0; one run per company per period). ETI beyond PAYE is not booked and is reported as the `eti_beyond_paye` advisory; EMP201 carries none forward. Before the fix the labour debit fell by ETI while 2140 carried full PAYE, so every ETI run was unbalanced and could not post. Never change `etiEngine` here (K-080 is Hein's SARS-table decision).
 - **Payroll journal plan = what the GL will accept (K-079).**
   - The balance check is exact to the cent. The cost-centre labour split ties to the labour debit
     (residual on the largest share), but only the rounding residual (half a cent per line). A
