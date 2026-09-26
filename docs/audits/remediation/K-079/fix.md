@@ -133,7 +133,7 @@ Hein chose:
   - `red.log` (validation, unit) and `red.int.log`: 3/5 integration cases RED on `origin/master`
     code — ETI < PAYE, ETI > PAYE, and the run marked approved on refusal.
   - `green.log`.
-  - `mutations.log`: a green baseline, then every changed code line mutated. This includes the
+  - `mutations.log`: a green baseline, then every changed code line mutated (36/36 RED). This includes the
     original defect (`2140 = paye`), the old catch-all 400 in the route and the old 1-cent
     tolerance.
 
