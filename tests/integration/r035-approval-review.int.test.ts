@@ -70,6 +70,18 @@ describe('HIGH — whoever re-requests a changed document becomes its requester'
     expect((await row(requestId)).status).toBe('pending');
   });
 
+  it('keeps the requester when a re-request moves the request to a stricter rule without a content change', async () => {
+    const company = await newCompany(pool, [[u.a, 'admin'], [u.b, 'owner']], companies);
+    await plantRule(pool, company, 'admin');
+    const bill = await plantBill(pool, company, u.a);
+    const requestId = await raise(u.a, company, bill.id);
+    await plantRule(pool, company, 'owner');
+    await raise(u.b, company, bill.id);
+    const after = (await pool.query('SELECT requested_by, required_role FROM approval_requests WHERE id = $1', [requestId])).rows[0];
+    expect(after).toEqual({ requested_by: u.a, required_role: 'owner' });
+    expect((await approve(u.b, company, requestId)).state.statusCode).toBe(200);
+  });
+
   it('keeps the original requester when a re-request changes nothing', async () => {
     const company = await newCompany(pool, [[u.a, 'admin'], [u.b, 'owner']], companies);
     await plantRule(pool, company, 'owner');
@@ -123,6 +135,27 @@ describe('MED-1 — sole-approver self-approval is narrow and evidenced', () => 
     expect(decided.state.statusCode).toBe(403);
     expect(reasonOf(decided)).toBe('SELF_APPROVAL_FORBIDDEN');
     expect((await row(requestId)).status).toBe('pending');
+  });
+
+  it("is refused when the requester's OWN role changed after the request", async () => {
+    const company = await newCompany(pool, [[u.admin, 'admin'], [u.a, 'manager']], companies);
+    await plantRule(pool, company, 'admin');
+    await enforce(company);
+    const requestId = await raise(u.admin, company, (await plantBill(pool, company, u.admin)).id);
+    await pool.query("UPDATE company_users SET role = 'owner' WHERE company_id = $1 AND user_id = $2", [company, u.admin]);
+    expect(reasonOf(await approve(u.admin, company, requestId))).toBe('SELF_APPROVAL_FORBIDDEN');
+  });
+
+  it('re-snapshots the roster for a re-requester, who may then self-approve as the sole approver', async () => {
+    const company = await newCompany(pool, [[u.a, 'admin'], [u.b, 'owner']], companies);
+    await plantRule(pool, company, 'owner');
+    await enforce(company);
+    const bill = await plantBill(pool, company, u.a);
+    const requestId = await raise(u.a, company, bill.id);
+    await pool.query('UPDATE supplier_invoices SET total_amount = 2000 WHERE id = $1', [bill.id]);
+    await raise(u.b, company, bill.id);
+    expect((await rosterOf(requestId)).requester_role).toBe('owner');
+    expect((await approve(u.b, company, requestId)).state.statusCode).toBe(200);
   });
 
   it('records the roster snapshot — ids and roles of every other member — on the audit row', async () => {

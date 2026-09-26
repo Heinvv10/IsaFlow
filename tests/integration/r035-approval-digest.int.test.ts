@@ -139,17 +139,21 @@ describe('the digest covers every column an approval vouches for', () => {
     });
   });
 
-  it('reads tied lines for posting in a deterministic content order, not heap order', async () => {
+  it('reads tied lines for posting in a deterministic content order, not heap or sort-tie order', async () => {
+    // Eight lines inserted together (so their created_at ties) in a SHUFFLED
+    // description order, all on one account so the gl_accounts join cannot
+    // order them by accident. A tie-only ORDER BY returns them in whatever
+    // order the scan and sort produce; the posting order must be the content's.
     await inTx(async (c, company, bill) => {
       await c.query('DELETE FROM supplier_invoice_items WHERE supplier_invoice_id = $1', [bill.id]);
-      await c.query(
-        `INSERT INTO supplier_invoice_items(supplier_invoice_id,description,quantity,unit_price,line_total,gl_account_id)
-         VALUES($1,'Line B',1,400,400,$2)`, [bill.id, bill.accountB]);
-      await c.query(
-        `INSERT INTO supplier_invoice_items(supplier_invoice_id,description,quantity,unit_price,line_total,gl_account_id)
-         VALUES($1,'Line A',2,300,600,$2)`, [bill.id, bill.accountA]);
+      const names = ['C', 'H', 'A', 'F', 'B', 'E', 'D', 'G'].map((x) => `Line ${x}`);
+      for (const name of names) {
+        await c.query(
+          `INSERT INTO supplier_invoice_items(supplier_invoice_id,description,quantity,unit_price,line_total,gl_account_id)
+           VALUES($1,$2,1,100,100,$3)`, [bill.id, name, bill.accountA]);
+      }
       const invoice = await getSupplierInvoiceById(company, bill.id);
-      expect(invoice?.items.map((i) => i.description)).toEqual(['Line A', 'Line B']);
+      expect(invoice?.items.map((i) => i.description)).toEqual([...names].sort());
     });
   });
 
