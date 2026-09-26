@@ -17,8 +17,11 @@
  * supplier invoice for a slip that evidences a bank-first provisional is the
  * R-127 flow, where the invoice is settled against the provisional, and
  * refusing it here would block the documented path. So `spend: 'invoice'`
- * skips a candidate that carries no stamp and evidences a live provisional
- * journal, and every other spend counts it.
+ * skips a candidate that carries no stamp, evidences a live provisional
+ * journal AND has no live supplier invoice of its own; every other spend
+ * counts it. The invoice test matters for rows posted before 710, which carry
+ * no stamp either: a slip the inbox invoiced and the auto-attach then used as
+ * evidence (the R-127 same-document flow) is booked, and counts.
  *
  * SERIALISED, NOT JUST READ. Two uploads are two rows, so their row locks do
  * not order two concurrent posts; each would read "nothing posted" and post.
@@ -121,7 +124,12 @@ export async function findPostedContent(
                WHERE pje.source_document_id = cd.id
                  AND pje.company_id = cd.company_id
                  AND pje.evidenced_at IS NOT NULL
-                 AND pje.reversed_at IS NULL))
+                 AND pje.reversed_at IS NULL)
+         OR EXISTS (
+              SELECT 1 FROM supplier_invoices si
+               WHERE si.source_document_id = cd.id
+                 AND si.company_id = cd.company_id
+                 AND si.status <> 'cancelled'))
      ORDER BY cd.posted_at, cd.id`) as DbRow[];
   const hit = rows.find((r) => r.same_file === true)
     ?? rows.find((r) => !referencesDistinguish(r.reference, q.referenceNumber));
