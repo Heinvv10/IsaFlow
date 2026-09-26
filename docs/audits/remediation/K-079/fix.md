@@ -58,14 +58,25 @@ Hein chose:
   and with a reason, instead of a masked production 500:
   - `nothing_to_post` (every line zero);
   - `negative_amount`;
-  - `closed_period` (the fiscal period covering the entry date is not open; company-scoped).
-  A deactivated target account stays a plan advisory (`inactive_target_account`), but approval
-  refuses it, because `assertNoInactiveAccountLines` would.
+  - `closed_period` (the fiscal period covering the entry date is not open; company-scoped);
+  - `inactive_target_account`.
+- **A deactivated target account is a blocker now, not an advisory** (review round 3).
+  - The advisory rested on "is_active is a picker flag, so the money lands there". That was never
+    true: `postJournalEntry` refuses a deactivated account (`assertNoInactiveAccountLines`, #300,
+    the same day as the advisory, #310). So `post_payroll_journal`'s preview greenlit a post the
+    live call refused.
+  - The line is still built and shown.
+  - Cost-centre labour accounts are resolved by id (`resolveAccountsById`), so they carry their
+    own code and active flag and are caught too.
+  - Brightsphere (all five payroll accounts deactivated) and Velocity Fibre (1110) must
+    reactivate before a payroll journal can post, which was already the case in the GL.
 - **Refusals come before the first write** (`payrollApprovalService.ts`):
   - `approvePayrollRun` throws `PayrollApprovalRefusedError` for a missing run, a non-approvable
-    status, a deactivated target account, and every plan blocker except `run_not_approved` and
-    `already_posted`, all before `UPDATE … status = 'approved'`.
-  - `already_posted` is excluded because it is reachable (review round 1, HIGH).
+    status, and every plan blocker except `run_not_approved`, all before
+    `UPDATE … status = 'approved'`.
+  - A run that already carries its journal is refused by none of them (review rounds 1 and 3):
+    re-approval posts nothing, so a closed period or a later-deactivated account must not strand
+    it at `calculated`.
     `reopenPayrollRun` moves an approved run back to `calculated` and KEEPS `journal_entry_id`.
     Re-approving it returns that journal (the poster is idempotent), which the golden path
     `h-payroll-run.spec.ts` relies on. `reversePayrollRunJournal` has no caller.
@@ -106,7 +117,8 @@ Hein chose:
   - a post-write failure (fault injected into the poster, asserted to have fired): 5xx, run still
     `calculated`;
   - a stranded `approved` run with no journal: re-approves and posts;
-  - reopen → re-approve: the same journal, no second one;
+  - reopen → re-approve, with the period since closed and 2160 deactivated: the same journal, no
+    second one;
   - a deactivated 2160: 400, untouched;
   - missing 2175: 400, untouched.
 - `tests/unit/services/payroll/payrollJournalBuilder.test.ts`:
@@ -160,12 +172,9 @@ GROUP BY company_id;
 
 ## Follow-ups (not in this fix)
 
-- A reopened run keeps its original journal: re-approval returns it even if the run was
-  recalculated in between (pre-existing; the reopen route says the journal is not reversed).
-- `post_payroll_journal`'s dry run reports a deactivated account as an advisory, while the live
-  post refuses it (pre-existing parity gap; approval now refuses it up front).
-- A cost-centre labour account that is deactivated is not flagged by the plan (only 5200 is). The
-  GL refuses it after the status write, and the request rolls back (5xx).
+- Reopen → recalculate → re-approve returns the ORIGINAL journal. EMP201 then shows the new PAYE
+  while 2140 holds the old credit (pre-existing; reopen does not reverse the journal). This needs
+  a new register item.
 
 - EMP201 does not carry unused ETI forward to later months (SARS allows it). New register item.
 - K-080: the ETI engine returns 0 below the wage floor; needs Hein's SARS-table decision.

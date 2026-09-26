@@ -38,6 +38,7 @@ import {
   buildLabourLines,
   lastDayOfMonthIso,
   resolveAccounts,
+  resolveAccountsById,
 } from './payrollJournalParts';
 
 type Row = DbRow;
@@ -188,17 +189,21 @@ export async function buildPayrollJournalPlan(
   if (labourAccountId) {
     const labour = await buildLabourLines(companyId, runId, labourDebit, gross, labourAccountId, etiUsed);
     // The split can route a share to a cost-centre account other than 5200;
-    // report each under 5200's flags only when it IS 5200.
+    // each line carries its own account's code and active flag.
+    const centres = await resolveAccountsById(
+      companyId, labour.map((l) => l.glAccountId).filter((id) => id !== labourAccountId));
     for (const l of labour) {
-      const isDefault = l.glAccountId === labourAccountId;
+      const acc = l.glAccountId === labourAccountId
+        ? { code: '5200', ...accounts.get('5200')! }
+        : centres.get(l.glAccountId);
       built.push({
         glAccountId: l.glAccountId,
-        accountCode: isDefault ? '5200' : '',
-        accountName: isDefault ? (accounts.get('5200')?.name ?? '') : '',
+        accountCode: acc?.code ?? '',
+        accountName: acc?.name ?? '',
         debit: round2(l.debit),
         credit: 0,
         description: l.description,
-        inactiveAccount: isDefault ? !(accounts.get('5200')?.isActive ?? true) : false,
+        inactiveAccount: acc ? !acc.isActive : false,
       });
     }
   } else {

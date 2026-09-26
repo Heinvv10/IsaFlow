@@ -76,6 +76,33 @@ export async function resolveAccounts(companyId: string): Promise<Map<string, Re
 }
 
 /**
+ * The cost-centre labour accounts a split routed money to, by id, with their
+ * code and active flag — so a deactivated one is caught by the plan, as the GL
+ * poster would catch it, rather than after approval's status write (K-079).
+ */
+export async function resolveAccountsById(
+  companyId: string,
+  ids: string[],
+): Promise<Map<string, ResolvedAccount & { code: string }>> {
+  const map = new Map<string, ResolvedAccount & { code: string }>();
+  if (ids.length === 0) return map;
+  const rows = (await sql`
+    SELECT id, account_code, account_name, is_active
+    FROM gl_accounts
+    WHERE company_id = ${companyId}::uuid AND id = ANY(${ids}::uuid[])
+  `) as Row[];
+  for (const r of rows) {
+    map.set(String(r.id), {
+      id: String(r.id),
+      code: String(r.account_code ?? ''),
+      name: String(r.account_name ?? ''),
+      isActive: r.is_active !== false,
+    });
+  }
+  return map;
+}
+
+/**
  * Builds the labour-debit lines, split across per-cost-centre expense accounts
  * where mappings exist. Lifted wholesale from the poster so both paths split
  * identically.
