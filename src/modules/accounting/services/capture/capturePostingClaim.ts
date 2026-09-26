@@ -97,7 +97,7 @@ export interface PostedReceiptFingerprint {
  *
  * `fingerprint` is the content a RECEIPT path posts under (R-088), from
  * `checkReceiptDuplicate`. It is stamped in this same UPDATE so the claim and
- * the partial unique index behind it (migration 708) land or fail together:
+ * the partial unique index behind it (migration 710) land or fail together:
  * a second live claim on the same bytes raises 23505 here, before any
  * ledger write, and rolls the request back. Paths that post no receipt pass
  * nothing and the columns stay NULL.

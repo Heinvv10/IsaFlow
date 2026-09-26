@@ -30,7 +30,7 @@ import type { DbRow } from '@/lib/neon';
  * reversed down one stays claimed, because one of its ledger rows is still
  * standing.
  *
- * The content fingerprint the claim was stamped with (R-088, migration 708)
+ * The content fingerprint the claim was stamped with (R-088, migration 710)
  * goes with it: a posting that was undone no longer books that slip, so a
  * re-upload of it must be free to post.
  *

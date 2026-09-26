@@ -1,4 +1,4 @@
--- 708: R-088 — the content fingerprint a receipt is POSTED under.
+-- 710: R-088 — the content fingerprint a receipt is POSTED under.
 --
 -- Every upload is a new captured_documents row, so the per-document fence
 -- (`posted_at`, migration 672) never sees a second upload of the same slip:
