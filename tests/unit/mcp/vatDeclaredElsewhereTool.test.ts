@@ -30,7 +30,7 @@ import type { McpToolContext } from '@/lib/mcp/types';
 const COMPANY = 'aaaaaaaa-0000-4000-8000-aaaaaaaaaaaa';
 const USER = 'bbbbbbbb-0000-4000-8000-bbbbbbbbbbbb';
 const INV = 'cccccccc-0000-4000-8000-cccccccccccc';
-const ctx: McpToolContext = { userId: USER, companyId: COMPANY, scopes: ['read:vat', 'write:post'], tokenJti: 'tok-1', oauthAppId: null };
+const ctx: McpToolContext = { userId: USER, companyId: COMPANY, scopes: ['read:vat', 'write:vat'], tokenJti: 'tok-1', oauthAppId: null };
 const args = { action: 'mark', kind: 'customer', invoice_ids: [INV], reason: 'Historical import', idempotency_key: 'k-1' };
 
 function text(result: { content: { text: string }[] }) {

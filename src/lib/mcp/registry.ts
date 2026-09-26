@@ -105,6 +105,10 @@ export class McpRegistry {
       );
     }
 
+    if (tool.requiresScope && !ctx.scopes.includes(tool.requiresScope)) {
+      return reject(insufficientScopeMessage(tool.requiresScope), null);
+    }
+
     // Assert-only company guard. Runs before the idempotency-key check so a
     // mismatch never burns a key, and before any handler so nothing is
     // written. Applied to writes only: a read against the wrong company

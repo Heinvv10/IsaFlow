@@ -31,6 +31,15 @@ export const SCOPE_REMEDIATION: Partial<Record<PatScope, string>> = {
     + 'connector (or mint a new personal access token) and include "Write contacts" — the grant '
     + 'that covers creating and editing customers and suppliers, including supplier banking '
     + 'details. Existing permissions are unaffected and nothing else needs to change.',
+  // lock_vat_period and mark_vat_declared_elsewhere moved off write:post onto
+  // this dedicated scope (item 10, VAT-gaps) — every connection authorised
+  // before this change lacks it, even ones that already hold write:post.
+  'write:vat': 'This connection cannot lock a VAT period or clear a VAT pre-filing exception. '
+    + 'write:vat was added after this connection was authorised (previously covered, less honestly, '
+    + 'by write:post), so re-authorise the connector (or mint a new personal access token) and '
+    + 'include "Write VAT controls" — the grant that covers locking a VAT period as filed and '
+    + 'clearing a VAT pre-filing exception with a reason. Existing permissions are unaffected and '
+    + 'nothing else needs to change.',
 };
 
 /**

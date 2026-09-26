@@ -43,7 +43,9 @@ export const markVatDeclaredElsewhereTool: McpTool = {
     + 'RUN dry_run FIRST — it reports which ids exist in this company and are eligible, without writing anything.',
   scope: 'read:vat',
   write: true,
-  requiresPost: true,
+  // NOT requiresPost/write:post — this never posts a journal. write:vat's
+  // consent label names clearing a VAT pre-filing exception explicitly (item 10).
+  requiresScope: 'write:vat',
   inputSchema: {
     type: 'object',
     properties: {

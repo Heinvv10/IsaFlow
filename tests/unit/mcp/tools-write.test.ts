@@ -475,15 +475,12 @@ describe('write-tool manifest invariants', () => {
       'close_fiscal_period',
       'finalize_invoice',
       // link_document_to_journal posts no journal — it changes what blocks a
-      // VAT exception/lock, same reasoning as lock_vat_period below.
+      // VAT exception/lock. (lock_vat_period and mark_vat_declared_elsewhere
+      // used to sit here too, for the same reasoning — item 10 moved both off
+      // write:post onto a dedicated write:vat scope instead, since neither
+      // posts a journal and write:post's consent label never named either
+      // action.)
       'link_document_to_journal',
-      // lock_vat_period posts no journal, and requires write:post anyway: it
-      // freezes a filed return, and a control an agent can set without the
-      // posting permission is not a control.
-      'lock_vat_period',
-      // mark_vat_declared_elsewhere posts no journal either — it changes what
-      // blocks a VAT period lock, same reasoning as lock_vat_period.
-      'mark_vat_declared_elsewhere',
       // merge_gl_accounts posts no journal, and rewrites POSTED journal lines
       // in place — potentially thousands at once. write:post is the scope that
       // gates changing what is in the ledger, so it gates this too.
