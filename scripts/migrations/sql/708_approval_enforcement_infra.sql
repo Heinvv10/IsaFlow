@@ -11,11 +11,22 @@
 --      default off (Hein, 2026-09-26). Presence of a row means enforced.
 --   3. approval_document_digest() — the ONE definition of that content, so
 --      the TypeScript read path and a later DB trigger cannot disagree.
---   4. approval_company_other_members() — the roster the sole-approver
---      self-approval rule needs, which app_user cannot read under RLS.
+--   4. approval_company_other_members() / approval_roster_snapshot() — the
+--      roster the sole-approver self-approval rule needs, which app_user
+--      cannot read under RLS, and the snapshot of it taken at request time.
+--
+-- Live in PR1 although nothing is enforced: approving a request whose
+-- document changed is refused (409), approve must name the digest it saw, and
+-- rules match invoices on their functional (ZAR) total.
 
 -- ── 1. The digest an approval is bound to ──────────────────────────────────
 ALTER TABLE approval_requests ADD COLUMN IF NOT EXISTS document_digest TEXT;
+-- The company roster as it stood when the request was raised (or its
+-- requester changed), taken only while enforcement is on for the type. A
+-- sole-approver self-approval (Q2) is allowed only while the live roster still
+-- equals it: company_users keeps no history, so a demotion after the request
+-- is otherwise invisible. NULL = no snapshot = no self-approval.
+ALTER TABLE approval_requests ADD COLUMN IF NOT EXISTS approver_roster JSONB;
 
 -- ── 2. Opt-in, per company and per document type ───────────────────────────
 CREATE TABLE IF NOT EXISTS approval_enforcement (
@@ -51,14 +62,26 @@ END $$;
 -- (approveSupplierInvoice + buildExpenseLines), the AP subledger or the VAT201
 -- reads, and every line column buildExpenseLines or the VAT201 reads.
 -- Deliberately NOT covered:
---   * line ids and created_at — the draft edit deletes and re-inserts every
---     line, so identical content must hash identically (Q9);
+--   * line ids and created_at VALUES — the draft edit deletes and re-inserts
+--     every line, so identical content in the same order hashes identically (Q9);
 --   * 3-way match state (line_match_status, *_variance_pct, match_computed_at,
 --     match_status) — written by the matcher, not by an editor;
 --   * status, payment and approval bookkeeping, timestamps, notes, reference,
---     due_date, payment_terms — none changes what is posted or owed.
--- Lines are aggregated content-sorted, so their storage order is irrelevant.
--- trim_scale() makes 100 and 100.00 the same value.
+--     due_date, payment_terms — none changes what is posted or owed;
+--   * the account a NULL line account RESOLVES to. buildExpenseLines posts such
+--     a line to the company's default_expense system account; the digest hashes
+--     the NULL. Resolving it here would be a second copy of systemAccountResolver
+--     (subtype lookup) that can drift from the one the posting uses. Re-pointing
+--     default_expense is a chart-of-accounts change by an admin, and does not
+--     make an approval stale — a documented limit.
+-- Lines are hashed in POSTING order: buildExpenseLines puts the rounding
+-- residual on the LAST line, so which line is last is part of what is posted.
+-- That order is `created_at`, then the line's content, then id — the same
+-- ORDER BY supplierInvoiceService.getSupplierInvoiceById reads the lines in
+-- for posting (keep the two identical). Lines inserted together share
+-- created_at (one transaction), so a delete-and-re-insert of identical content
+-- keeps the order and the digest; moving a line earlier or later does not.
+-- trim_scale() makes 100 and 100.00 the same value; sha256 over UTF-8.
 CREATE OR REPLACE FUNCTION public.approval_document_digest(
   p_company_id pg_catalog.uuid, p_document_type pg_catalog.text, p_document_id pg_catalog.uuid
 ) RETURNS pg_catalog.text
@@ -67,26 +90,25 @@ SET search_path = pg_catalog, public, pg_temp
 AS $$
   SELECT CASE p_document_type
     WHEN 'supplier_invoice' THEN (
-      SELECT md5(jsonb_build_array(
+      SELECT encode(sha256(convert_to(jsonb_build_array(
         si.supplier_id, si.invoice_number, si.invoice_date,
         si.currency, si.currency_code, trim_scale(si.exchange_rate),
         trim_scale(si.subtotal), trim_scale(si.tax_rate), trim_scale(si.tax_amount),
         trim_scale(si.total_amount), trim_scale(si.functional_total),
         si.project_id, si.cost_center_id, si.is_drc,
         COALESCE((
-          SELECT jsonb_agg(l.line ORDER BY l.line::TEXT)
-          FROM (
-            SELECT jsonb_build_array(
-              sii.gl_account_id, sii.description, trim_scale(sii.quantity),
-              trim_scale(sii.unit_price), trim_scale(sii.tax_rate), trim_scale(sii.tax_amount),
-              trim_scale(sii.line_total), sii.project_id, sii.cost_center_id,
-              sii.vat_classification
-            ) AS line
-            FROM public.supplier_invoice_items sii
-            WHERE sii.supplier_invoice_id = si.id
-          ) l
+          SELECT jsonb_agg(jsonb_build_array(
+                   sii.gl_account_id, sii.description, trim_scale(sii.quantity),
+                   trim_scale(sii.unit_price), trim_scale(sii.tax_rate), trim_scale(sii.tax_amount),
+                   trim_scale(sii.line_total), sii.project_id, sii.cost_center_id,
+                   sii.vat_classification)
+                 ORDER BY sii.created_at, sii.description, sii.gl_account_id, sii.quantity,
+                          sii.unit_price, sii.tax_rate, sii.tax_amount, sii.line_total,
+                          sii.project_id, sii.cost_center_id, sii.vat_classification, sii.id)
+          FROM public.supplier_invoice_items sii
+          WHERE sii.supplier_invoice_id = si.id
         ), '[]'::jsonb)
-      )::TEXT)
+      )::TEXT, 'UTF8')), 'hex')
       FROM public.supplier_invoices si
       WHERE si.id = p_document_id AND si.company_id = p_company_id
     )
@@ -118,10 +140,13 @@ WHERE ar.status = 'pending' AND ar.document_type = 'supplier_invoice'
 -- pg_temp LAST and every relation and type is schema-qualified: pg_temp
 -- shadows relations AND types. Only the columns the rank and account-standing
 -- checks need are returned; the rank ladder stays in TypeScript (APPROVER_RANK).
-CREATE OR REPLACE FUNCTION public.approval_company_other_members(
+-- DROP first: the result gained user_id, which CREATE OR REPLACE cannot change.
+DROP FUNCTION IF EXISTS public.approval_company_other_members(pg_catalog.uuid, pg_catalog.text);
+CREATE FUNCTION public.approval_company_other_members(
   p_company_id pg_catalog.uuid, p_user_id pg_catalog.text
 ) RETURNS TABLE (
-  role pg_catalog.text, is_active pg_catalog.bool, status pg_catalog.text, suspended_at pg_catalog.timestamptz
+  user_id pg_catalog.text, role pg_catalog.text, is_active pg_catalog.bool,
+  status pg_catalog.text, suspended_at pg_catalog.timestamptz
 )
 LANGUAGE plpgsql STABLE SECURITY DEFINER
 SET search_path = pg_catalog, public, pg_temp
@@ -143,7 +168,7 @@ BEGIN
       USING ERRCODE = '42501';
   END IF;
   RETURN QUERY
-    SELECT cu.role::pg_catalog.text, u.is_active, u.status::pg_catalog.text, u.suspended_at
+    SELECT cu.user_id::pg_catalog.text, cu.role::pg_catalog.text, u.is_active, u.status::pg_catalog.text, u.suspended_at
     FROM public.company_users cu
     LEFT JOIN public.users u ON u.id = cu.user_id
     WHERE cu.company_id = p_company_id AND cu.user_id <> p_user_id;
@@ -172,3 +197,27 @@ BEGIN
     RAISE EXCEPTION 'migration 708: the owner of approval_company_other_members must bypass RLS';
   END IF;
 END $$;
+
+-- ── 5. The roster snapshot (Q2 evidence) ───────────────────────────────────
+-- One definition, used when a request is raised (and when its requester
+-- changes) and again at decide time: the requester's own role plus every
+-- other member's id, role and standing, ordered by id. Equality of the two is
+-- what "the roster has not changed since the request" means. SECURITY INVOKER:
+-- the requester's own row is visible to app_user, and the others come through
+-- approval_company_other_members, which enforces the request context.
+CREATE OR REPLACE FUNCTION public.approval_roster_snapshot(
+  p_company_id pg_catalog.uuid, p_user_id pg_catalog.text
+) RETURNS pg_catalog.jsonb
+LANGUAGE sql STABLE
+SET search_path = pg_catalog, public, pg_temp
+AS $$
+  SELECT jsonb_build_object(
+    'requester_role', (SELECT cu.role FROM public.company_users cu
+                       WHERE cu.company_id = p_company_id AND cu.user_id = p_user_id),
+    'others', COALESCE((
+      SELECT jsonb_agg(jsonb_build_object(
+               'user_id', m.user_id, 'role', m.role, 'is_active', m.is_active,
+               'status', m.status, 'suspended', m.suspended_at IS NOT NULL) ORDER BY m.user_id)
+      FROM public.approval_company_other_members(p_company_id, p_user_id) m
+    ), '[]'::jsonb))
+$$;

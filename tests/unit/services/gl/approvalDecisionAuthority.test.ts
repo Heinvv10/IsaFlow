@@ -33,7 +33,7 @@ const REQUEST = 'request-1';
 const DECIDER = 'decider-1';
 
 /** One pending request, its resolved rule, and the decider's membership row. */
-const row = (over: { approver_role?: unknown; decider_role?: unknown; is_self?: boolean } = {}) => {
+const row = (over: { approver_role?: unknown; decider_role?: unknown; is_self?: boolean; enforced?: boolean } = {}) => {
   sqlMock.mockReset();
   sqlMock.mockResolvedValueOnce([{
     is_self: over.is_self === true,
@@ -41,14 +41,22 @@ const row = (over: { approver_role?: unknown; decider_role?: unknown; is_self?: 
     resolved_rule_id: 'rule-1',
     approver_role: 'approver_role' in over ? over.approver_role : 'admin',
     decider_role: 'decider_role' in over ? over.decider_role : 'admin',
+    enforced: over.enforced ?? true,
   }]);
 };
 
-/** The roster approval_company_other_members returns: the requester's colleagues. */
-const otherMembers = (members: { role: string; is_active?: boolean; suspended_at?: string | null }[]) => {
-  sqlMock.mockResolvedValueOnce(members.map((m) => ({
-    role: m.role, is_active: m.is_active ?? true, status: null, suspended_at: m.suspended_at ?? null,
-  })));
+const ROSTER = { requester_role: 'owner', others: [] };
+
+/** soleApproverFacts' one row: the colleagues now, and whether the request-time roster still holds. */
+const otherMembers = (members: { role: string; is_active?: boolean; suspended_at?: string | null }[],
+  rosterUnchanged = true) => {
+  sqlMock.mockResolvedValueOnce([{
+    roster: ROSTER,
+    roster_unchanged: rosterUnchanged,
+    others: members.map((m) => ({
+      role: m.role, is_active: m.is_active ?? true, status: null, suspended_at: m.suspended_at ?? null,
+    })),
+  }]);
 };
 
 const decide = (decision: 'approved' | 'rejected' = 'approved') =>
@@ -174,7 +182,7 @@ describe('assertMayDecide — sole-approver self-approval', () => {
   it('allows it when nobody else holds the demanded rank, and says so', async () => {
     row({ is_self: true, approver_role: 'owner', decider_role: 'owner' });
     otherMembers([{ role: 'admin' }, { role: 'manager' }]);
-    await expect(decide('approved')).resolves.toEqual({ selfApproval: 'sole_approver', requiredRole: 'owner' });
+    await expect(decide('approved')).resolves.toEqual({ selfApproval: 'sole_approver', requiredRole: 'owner', approverRoster: ROSTER });
   });
 
   it('counts a HIGHER rank as able to approve', async () => {
@@ -199,10 +207,22 @@ describe('assertMayDecide — sole-approver self-approval', () => {
     sqlMock.mockReset();
     sqlMock.mockResolvedValueOnce([{
       is_self: true, rule_id: 'rule-1', resolved_rule_id: 'rule-1',
-      approver_role: 'manager', required_role: 'owner', decider_role: 'owner',
+      approver_role: 'manager', required_role: 'owner', decider_role: 'owner', enforced: true,
     }]);
     otherMembers([{ role: 'admin' }]);
-    await expect(decide('approved')).resolves.toEqual({ selfApproval: 'sole_approver', requiredRole: 'owner' });
+    await expect(decide('approved')).resolves.toEqual({ selfApproval: 'sole_approver', requiredRole: 'owner', approverRoster: ROSTER });
+  });
+
+  it('is refused while enforcement is off for the document type', async () => {
+    row({ is_self: true, approver_role: 'owner', decider_role: 'owner', enforced: false });
+    otherMembers([]);
+    await expect(decide('approved')).rejects.toMatchObject({ code: 'SELF_APPROVAL_FORBIDDEN' });
+  });
+
+  it('is refused when the roster changed since the request', async () => {
+    row({ is_self: true, approver_role: 'owner', decider_role: 'owner' });
+    otherMembers([], false);
+    await expect(decide('approved')).rejects.toMatchObject({ code: 'SELF_APPROVAL_FORBIDDEN' });
   });
 
   it('returns null for an ordinary decision by someone else', async () => {

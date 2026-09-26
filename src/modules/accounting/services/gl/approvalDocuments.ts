@@ -14,9 +14,10 @@
 
 import { sql, withSavepoint } from '@/lib/neon';
 import { log } from '@/lib/logger';
-import type { ApprovalRequest, ApprovalRule, DocumentType } from './approvalService';
+import type { ApprovalRequest, DocumentType } from './approvalService';
 import { checkApproval as checkApprovalRules, mapRequest } from './approvalMatching';
-import { ApprovalNotRequiredError, ApprovalRuleNotFoundError, requiredRank } from './approvalAuthority';
+import { ApprovalNotRequiredError, ApprovalRuleNotFoundError } from './approvalAuthority';
+import { rebindPendingRequest } from './approvalRebind';
 
 /** The id names no document of that type in this company. */
 export class ApprovalDocumentNotFoundError extends Error {
@@ -37,15 +38,6 @@ export interface ApprovalDocument {
    * digest never clears the approval gate.
    */
   digest: string | null;
-}
-
-/** approve on a request whose document no longer has the content it was raised for. */
-export class ApprovalDocumentChangedError extends Error {
-  readonly code = 'DOCUMENT_CHANGED';
-  constructor(requestId: string) {
-    super(`The document changed after approval request ${requestId} was raised. Submit it for approval again.`);
-    this.name = 'ApprovalDocumentChangedError';
-  }
 }
 
 type Row = Record<string, unknown>;
@@ -133,97 +125,6 @@ export async function resolveApprovalDocument(
   };
 }
 
-/**
- * Refuses an approve when the request's document no longer has the content the
- * request was raised (or last re-bound) for — otherwise the approver would be
- * vouching for figures the document no longer carries. Compared in SQL against
- * the one digest definition. Silent when the request is gone or decided: the
- * decide's own UPDATE reports that.
- */
-export async function assertDocumentUnchanged(companyId: string, requestId: string): Promise<void> {
-  const rows = (await sql`
-    SELECT ar.document_digest IS DISTINCT FROM
-           approval_document_digest(ar.company_id, ar.document_type, ar.document_id) AS changed
-    FROM approval_requests ar
-    WHERE ar.id = ${requestId}::UUID AND ar.company_id = ${companyId} AND ar.status = 'pending'
-  `) as Row[];
-  if (rows[0]?.changed === true) throw new ApprovalDocumentChangedError(requestId);
-}
-
-/**
- * Bring a pending request onto the rule the CURRENT facts choose — but only
- * ever UPWARDS.
- *
- * Returning the existing row unconditionally let the FIRST request for a
- * document pin its authority permanently: one raised under a laxer rule stayed
- * governed by that rule even when the document's own amount, re-resolved, chose
- * a stricter one. Re-binding in BOTH directions was the inverse of that defect,
- * and the worse half: the requester does not have to touch the document to
- * change which rule today's facts choose, because rule authority deliberately
- * lets them edit any rule at or below their own rank. An admin facing an
- * admin-only request of their own raised that rule's `condition_value` out of
- * range (or deactivated it), re-POSTed, and the pending row moved to the
- * `manager any` rule beside it — a manager then cleared their R500 000 bill.
- *
- * So: new facts may make a pending request STRICTER; nothing may make it laxer.
- * The comparison is against `requiredRole`, the snapshot taken when the request
- * was raised, not against the bound rule's live role — the live role is itself
- * editable downwards by the same actor (approvalAuthority takes the higher of
- * the two for the same reason).
- */
-export async function rebindPendingRequest(
-  companyId: string,
-  existing: ApprovalRequest,
-  matched: ApprovalRule | null,
-  document: ApprovalDocument
-): Promise<ApprovalRequest> {
-  // checkApproval fills `requiredRole` from the bound rule for rows raised
-  // before migration 669, so this is never a free pass. It stays NULL only where
-  // no rule of this company is bound at all — and the decide path demands the
-  // 'admin' column default for exactly those, so the floor is the same one.
-  const currentRole = existing.requiredRole ?? 'admin';
-  const digestChanged = existing.documentDigest !== document.digest;
-  // No active rule governs the document now, or today's rule is laxer: the
-  // pending request keeps the authority it was raised under rather than being
-  // silently freed. Its CONTENT binding still follows the document — a pending
-  // request has no approval yet, so refreshing its digest grants nothing, and
-  // leaving it stale would refuse every approve DOCUMENT_CHANGED with no way
-  // to resubmit.
-  if (!matched || requiredRank(matched.approverRole) < requiredRank(currentRole)) {
-    if (!digestChanged) return existing;
-    const refreshed = (await sql`
-      UPDATE approval_requests SET
-        amount = ${document.amount}::NUMERIC,
-        document_reference = ${document.reference}::TEXT,
-        document_digest = ${document.digest}::TEXT
-      WHERE id = ${existing.id}::UUID AND company_id = ${companyId} AND status = 'pending'
-      RETURNING *
-    `) as Row[];
-    return refreshed[0] ? mapRequest(refreshed[0]) : existing;
-  }
-  if (existing.ruleId === matched.id && Number(existing.amount ?? 0) === document.amount
-      && existing.requiredRole === matched.approverRole && !digestChanged) {
-    return existing;
-  }
-
-  const rows = (await sql`
-    UPDATE approval_requests SET
-      rule_id = ${matched.id}::UUID,
-      amount = ${document.amount}::NUMERIC,
-      document_reference = ${document.reference}::TEXT,
-      required_role = ${matched.approverRole}::TEXT,
-      document_digest = ${document.digest}::TEXT
-    WHERE id = ${existing.id}::UUID AND company_id = ${companyId} AND status = 'pending'
-    RETURNING *
-  `) as Row[];
-  // Decided between the read and the write: nothing pending to re-bind.
-  if (!rows[0]) return existing;
-  log.info('Approval request re-bound to the governing rule', {
-    id: existing.id, fromRuleId: existing.ruleId, toRuleId: matched.id,
-  }, 'accounting');
-  return mapRequest(rows[0]);
-}
-
 /** uq_approval_requests_pending losing the race, not a fault. */
 const isUniqueViolation = (error: unknown): boolean =>
   typeof error === 'object' && error !== null && (error as { code?: unknown }).code === '23505';
@@ -253,7 +154,7 @@ export async function requestApproval(companyId: string, input: {
   // re-bound to the rule TODAY's facts choose first: an existing row governed by
   // a laxer rule used to pin the document's authority permanently.
   if (check.existingRequest) {
-    return rebindPendingRequest(companyId, check.existingRequest, check.matchedRule, document);
+    return rebindPendingRequest(companyId, check.existingRequest, check.matchedRule, document, input.requestedBy);
   }
   if (!check.matchedRule) throw new ApprovalNotRequiredError(input.documentType, input.documentId);
   const matchedRule = check.matchedRule;
@@ -263,11 +164,17 @@ export async function requestApproval(companyId: string, input: {
   // alone does not help — a foreign-key check bypasses RLS and is global.
   // `is_active` is re-checked because checkApproval only considered active rules:
   // one deactivated in between must not be bound to a new request.
+  // `approver_roster` (migration 708): the roster snapshot a sole-approver
+  // self-approval is later checked against — taken only while enforcement is on
+  // for the type, since Q2 applies only then.
   const insert = async () => (await sql`
-    INSERT INTO approval_requests (company_id, rule_id, document_type, document_id, document_reference, amount, requested_by, required_role, document_digest)
+    INSERT INTO approval_requests (company_id, rule_id, document_type, document_id, document_reference, amount, requested_by, required_role, document_digest, approver_roster)
     SELECT ${companyId}::UUID, rl.id, ${input.documentType}::TEXT, ${input.documentId}::UUID,
            ${document.reference}::TEXT, ${document.amount}::NUMERIC,
-           ${input.requestedBy}::UUID, rl.approver_role, ${document.digest}::TEXT
+           ${input.requestedBy}::UUID, rl.approver_role, ${document.digest}::TEXT,
+           (SELECT approval_roster_snapshot(${companyId}::UUID, ${input.requestedBy}::TEXT)
+            WHERE EXISTS (SELECT 1 FROM approval_enforcement ae
+                          WHERE ae.company_id = ${companyId}::UUID AND ae.document_type = ${input.documentType}::TEXT))
     FROM approval_rules rl
     WHERE rl.id = ${matchedRule.id}::UUID AND rl.company_id = ${companyId} AND rl.is_active = true
     RETURNING *
@@ -283,7 +190,7 @@ export async function requestApproval(companyId: string, input: {
     // choose the rule.
     const raced = await checkApprovalRules(companyId, input.documentType, input.documentId, document.amount);
     if (!raced.existingRequest) throw error;
-    return rebindPendingRequest(companyId, raced.existingRequest, raced.matchedRule, document);
+    return rebindPendingRequest(companyId, raced.existingRequest, raced.matchedRule, document, input.requestedBy);
   }
   if (!rows[0]) throw new ApprovalRuleNotFoundError(matchedRule.id);
   log.info('Approval requested', {

@@ -10,7 +10,7 @@ import {
   assertMayDecide, isApproverRole, APPROVER_ROLES,
   ApprovalRuleNotFoundError, ApprovalRequestNotFoundError,
 } from './approvalAuthority';
-import { assertDocumentUnchanged } from './approvalDocuments';
+import { assertDocumentUnchanged } from './approvalDecideDocument';
 import { auditSoleApproverSelfApproval } from './approvalSelfApproval';
 import { mapRule, mapRequest, isConditionOperator, CONDITION_OPERATORS } from './approvalMatching';
 import { assertMayDemand, assertMayEditRule, auditRuleChange, type RuleActor } from './approvalRuleGuards';
@@ -259,14 +259,16 @@ export async function decideRequest(companyId: string,
   requestId: string,
   decision: 'approved' | 'rejected',
   decidedBy: string,
-  notes?: string
+  notes?: string,
+  /** The document digest the approver was shown; required to approve a request that carries one. */
+  expectedDigest?: string | null,
 ): Promise<ApprovalRequest> {
   // Lock BEFORE the authority is computed, so the row assertMayDecide reads is
   // the row this UPDATE writes. A concurrent rebind can otherwise move the
   // request onto a different rule between the two statements.
   await lockApprovalRequestForUpdate(companyId, requestId);
   const selfApproval = await assertMayDecide(companyId, requestId, decidedBy, decision);
-  if (decision === 'approved') await assertDocumentUnchanged(companyId, requestId);
+  if (decision === 'approved') await assertDocumentUnchanged(companyId, requestId, expectedDigest);
   const rows = (await sql`
     UPDATE approval_requests SET
       status = ${decision},
