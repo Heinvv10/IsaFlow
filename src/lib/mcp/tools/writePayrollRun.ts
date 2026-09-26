@@ -33,6 +33,7 @@ import {
   approvePayrollRun,
   findApprovalBlocker,
 } from '@/modules/accounting/services/payroll/payrollApprovalService';
+import { PayrollApprovalRefusedError } from '@/modules/accounting/services/payroll/payrollApprovalRefusal';
 import { PayrollRunLockedError } from '@/modules/accounting/services/payroll/payrollRunLock';
 import {
   PayrollLoanLockTimeoutError,
@@ -222,20 +223,28 @@ export const approvePayRunTool: McpTool = {
     }
 
     // The service refuses a run whose journal cannot post BEFORE it approves
-    // it (K-079). Asked here too, so the dry run refuses what the live call
-    // refuses, and the live refusal is answered while nothing is written.
-    const blocker = await findApprovalBlocker(ctx.companyId, runId);
-    if (blocker) return toolError(`The journal for this run cannot post, so it was not approved: ${blocker.detail}`);
+    // it (K-079). The dry run asks the same question, so it refuses what the
+    // live call refuses.
+    if (args.dry_run === true) {
+      const blocker = await findApprovalBlocker(ctx.companyId, runId);
+      if (blocker) return toolError(`The journal for this run cannot post, so it was not approved: ${blocker.detail}`);
+      return preview([]);
+    }
 
-    if (args.dry_run === true) return preview([]);
-
-    // No catch. The refusals above are the only ones answerable from a
-    // read; a failure during approve-and-post must reach the registry's
+    // Only the service's own pre-write refusal is returned: nothing has been
+    // written, so releasing the savepoint commits nothing. Everything else is
+    // rethrown — a failure during approve-and-post must reach the registry's
     // savepoint, because a returned error there would RELEASE it and commit a
     // run marked approved against a journal that did not post.
-    const approved = await approvePayrollRun(ctx.companyId, runId, ctx.userId, {
-      postingAgent: APPROVE_TOOL_AGENT,
-    });
+    let approved;
+    try {
+      approved = await approvePayrollRun(ctx.companyId, runId, ctx.userId, {
+        postingAgent: APPROVE_TOOL_AGENT,
+      });
+    } catch (err) {
+      if (err instanceof PayrollApprovalRefusedError) return toolError(`Not approved: ${err.message}`);
+      throw err;
+    }
     return ok({
       ...runPayload(approved),
       journal_entry_id: approved.journalEntryId,
