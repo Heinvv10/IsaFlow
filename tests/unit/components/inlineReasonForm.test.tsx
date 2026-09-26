@@ -6,6 +6,11 @@ import { describe, expect, it, vi } from 'vitest';
 import { InlineReasonForm } from '@/components/shared/InlineReasonForm';
 
 describe('InlineReasonForm', () => {
+  it('the label names the textarea (programmatically associated)', () => {
+    render(<InlineReasonForm label="Why?" onConfirm={vi.fn()} onCancel={vi.fn()} />);
+    expect(screen.getByLabelText('Why?').tagName).toBe('TEXTAREA');
+  });
+
   it('disables Confirm until the trimmed reason is non-empty', () => {
     render(<InlineReasonForm label="Why?" onConfirm={vi.fn()} onCancel={vi.fn()} />);
     const confirmButton = screen.getByRole('button', { name: 'Confirm' }) as HTMLButtonElement;

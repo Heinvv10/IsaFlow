@@ -132,9 +132,9 @@ export async function findUnpostedInvoiceVat(
  * exactly one of the two lists, never both and never neither.
  *
  * `marked_by_name` resolves `vat_declared_elsewhere_by` (users.id) to a
- * display name via the same LEFT JOIN users + CONCAT_WS(first_name,
- * last_name), falling back to email, pattern as
- * vatPeriodLockService.listVatPeriodLocks's `locked_by_name`. `users` is a
+ * display name with the LEFT JOIN users + CONCAT_WS(first_name, last_name)
+ * that vatPeriodLockService.listVatPeriodLocks uses for `locked_by_name`;
+ * unlike that one, the email fallback is done here in SQL. `users` is a
  * platform table, not company-scoped, so the join carries no company_id.
  */
 export async function findVatDeclaredElsewhere(

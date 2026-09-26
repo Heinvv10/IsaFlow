@@ -5,7 +5,7 @@
  * VatGateOverrideBox's override-reason box. Confirm stays disabled until the
  * trimmed reason is non-empty; onConfirm always receives the trimmed value.
  */
-import { useState } from 'react';
+import { useId, useState } from 'react';
 import { Loader2 } from 'lucide-react';
 
 interface Props {
@@ -19,12 +19,14 @@ interface Props {
 
 export function InlineReasonForm({ label, placeholder, busy = false, confirmLabel = 'Confirm', onConfirm, onCancel }: Props) {
   const [reason, setReason] = useState('');
+  const id = useId();
   const trimmed = reason.trim();
 
   return (
     <div className="rounded-lg border border-[var(--ff-border-light)] bg-[var(--ff-bg-tertiary)] p-3 space-y-2">
-      <label className="block text-xs font-medium text-[var(--ff-text-secondary)]">{label}</label>
+      <label htmlFor={id} className="block text-xs font-medium text-[var(--ff-text-secondary)]">{label}</label>
       <textarea
+        id={id}
         value={reason}
         onChange={(e) => setReason(e.target.value)}
         rows={2}
