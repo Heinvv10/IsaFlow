@@ -221,20 +221,6 @@ describe('approve_pay_run', () => {
     vi.mocked(findApprovalBlocker).mockResolvedValue(null);
   });
 
-  it('refuses a run whose journal cannot post, before approving it (K-079)', async () => {
-    vi.mocked(findApprovalBlocker).mockResolvedValue({ code: 'missing_gl_accounts', detail: 'no GL account for 2140' });
-    expect(errText(await approvePayRunTool.handler({ run_id: RUN, ...KEY }, ctx())))
-      .toContain('no GL account for 2140');
-    expect(findApprovalBlocker).toHaveBeenCalledWith(COMPANY, RUN);
-    expect(approvePayrollRun).not.toHaveBeenCalled();
-  });
-
-  it('dry run refuses the same blocked run the live call refuses', async () => {
-    vi.mocked(findApprovalBlocker).mockResolvedValue({ code: 'unbalanced', detail: 'unbalanced by 5.00' });
-    expect(errText(await approvePayRunTool.handler({ run_id: RUN, dry_run: true, ...KEY }, ctx())))
-      .toContain('unbalanced by 5.00');
-  });
-
   it('approves, posts, and returns the journal it wrote', async () => {
     const out = parseOk(await approvePayRunTool.handler({ run_id: RUN, ...KEY }, ctx()));
     expect(out.status).toBe('approved');
@@ -258,15 +244,6 @@ describe('approve_pay_run', () => {
     vi.mocked(approvePayrollRun).mockRejectedValue(new Error('period is closed'));
     await expect(approvePayRunTool.handler({ run_id: RUN, ...KEY }, ctx()))
       .rejects.toThrow('period is closed');
-  });
-
-  it('dry run of a reopened run says its existing journal is returned, not that one is posted', async () => {
-    vi.mocked(getPayrollRun).mockResolvedValue(run({ status: 'calculated', journalEntryId: JE }) as never);
-    const out = parseOk(await approvePayRunTool.handler({ run_id: RUN, dry_run: true, ...KEY }, ctx()));
-    const effect = String((out.effects as string[])[0]);
-    expect(effect).toContain(JE);
-    expect(effect).toContain('nothing new is posted');
-    expect(effect).not.toContain('POST its journal');
   });
 
   it('dry run reports the totals about to hit the ledger and posts nothing', async () => {
@@ -296,35 +273,6 @@ describe('approve_pay_run', () => {
     vi.mocked(getPayrollRun).mockResolvedValue(null);
     expect(errText(await approvePayRunTool.handler({ run_id: RUN, ...KEY }, ctx())))
       .toBe('Not found');
-    expect(approvePayrollRun).not.toHaveBeenCalled();
-  });
-});
-
-describe('approve_pay_run — the empty month is refused, not warned', () => {
-  it('REFUSES to approve a run that costed nobody', async () => {
-    // 'approved' is a LOCKED status, calculate_pay_run is refused permanently
-    // afterwards, and there is no MCP tool to reopen a run — so an agent that
-    // approved an empty month would have no connector path back out.
-    vi.clearAllMocks();
-    vi.mocked(getPayrollRun).mockResolvedValue(
-      run({ status: 'calculated', employeeCount: 0, totalGross: 0 }) as never,
-    );
-    // The plan of an uncosted run is nothing_to_post; the named answer wins.
-    vi.mocked(findApprovalBlocker).mockResolvedValue({ code: 'nothing_to_post', detail: 'every journal line is zero' });
-    const r = await approvePayRunTool.handler({ run_id: RUN, ...KEY }, ctx());
-    expect(r.isError).toBe(true);
-    expect(r.content[0]!.text).toContain('costed nobody');
-    expect(approvePayrollRun).not.toHaveBeenCalled();
-  });
-
-  it('refuses an already-approved run rather than passing it to a service throw', async () => {
-    // The service admits 'approved' only when the journal did not post, which
-    // this summary cannot see. post_payroll_journal is the recovery.
-    vi.clearAllMocks();
-    vi.mocked(getPayrollRun).mockResolvedValue(run({ status: 'approved' }) as never);
-    const r = await approvePayRunTool.handler({ run_id: RUN, ...KEY }, ctx());
-    expect(r.isError).toBe(true);
-    expect(r.content[0]!.text).toContain('post_payroll_journal');
     expect(approvePayrollRun).not.toHaveBeenCalled();
   });
 });

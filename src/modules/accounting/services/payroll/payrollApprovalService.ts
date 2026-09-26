@@ -10,6 +10,7 @@ import type { DbRow } from '@/lib/neon';
 import { log } from '@/lib/logger';
 import { mapRunRow, type PayrollRunSummary } from './payrollRunService';
 import { postPayrollRunJournal } from './payrollJournalPostingService';
+import { PayrollApprovalRefusedError } from './payrollApprovalRefusal';
 import {
   buildPayrollJournalPlan,
   type PayrollJournalNote,
@@ -18,21 +19,12 @@ import {
 
 type Row = DbRow;
 
+export { PayrollApprovalRefusedError } from './payrollApprovalRefusal';
+
 export interface ApprovePayrollRunResult extends PayrollRunSummary {
   journalEntryId: string;
   /** The journal plan's advisories (e.g. `eti_beyond_paye`), for the caller to show. */
   advisories: PayrollJournalNote[];
-}
-
-/**
- * A refusal raised before approvePayrollRun writes anything. Callers answer it
- * as a 4xx; anything else may follow the status write and must roll back.
- */
-export class PayrollApprovalRefusedError extends Error {
-  constructor(message: string) {
-    super(message);
-    this.name = 'PayrollApprovalRefusedError';
-  }
 }
 
 /**
