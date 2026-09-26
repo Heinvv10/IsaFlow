@@ -4,13 +4,14 @@
  * payrollJournalBuilder.ts to keep both files under the 300-line cap; the
  * builder is the assembler, this is the machinery.
  *
- * The account lookup deliberately carries NO `is_active` filter. That column
- * is a picker flag — it decides whether an account appears in a dropdown and
- * says nothing about whether it holds money. The poster has never filtered on
- * it, so the money DOES land in a deactivated account; the builder reports
- * that as an advisory instead. Filtering here would silently understate the
- * journal, which is the casewareExportService defect (R130,000 dropped from a
- * balanced export) in a new place.
+ * The account lookups deliberately carry NO `is_active` filter. Filtering here
+ * would silently drop the line and understate the journal — the
+ * casewareExportService defect (R130,000 dropped from a balanced export) in a
+ * new place. The flag is read instead, and the builder turns a deactivated
+ * target into the `inactive_target_account` BLOCKER, because `postJournalEntry`
+ * refuses a posting to a deactivated account (`assertNoInactiveAccountLines`).
+ * It must stay a blocker: as an advisory the preview passed a post the live
+ * call refused (K-079).
  */
 
 import { sql } from '@/lib/neon';
@@ -55,8 +56,8 @@ export async function resolveAccounts(companyId: string): Promise<Map<string, Re
     ...REQUIRED_PAYROLL_ACCOUNT_CODES,
     ...OPTIONAL_PAYROLL_ACCOUNT_CODES,
   ] as unknown as string[];
-  // No is_active filter: this query resolves where money WILL land, not what a
-  // human may pick. See the file header.
+  // No is_active filter: a filtered account would vanish from the journal. The
+  // flag is read and the builder blocks on it. See the file header.
   const rows = (await sql`
     SELECT account_code, id, account_name, is_active
     FROM gl_accounts

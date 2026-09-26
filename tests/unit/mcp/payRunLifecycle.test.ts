@@ -260,6 +260,15 @@ describe('approve_pay_run', () => {
       .rejects.toThrow('period is closed');
   });
 
+  it('dry run of a reopened run says its existing journal is returned, not that one is posted', async () => {
+    vi.mocked(getPayrollRun).mockResolvedValue(run({ status: 'calculated', journalEntryId: JE }) as never);
+    const out = parseOk(await approvePayRunTool.handler({ run_id: RUN, dry_run: true, ...KEY }, ctx()));
+    const effect = String((out.effects as string[])[0]);
+    expect(effect).toContain(JE);
+    expect(effect).toContain('nothing new is posted');
+    expect(effect).not.toContain('POST its journal');
+  });
+
   it('dry run reports the totals about to hit the ledger and posts nothing', async () => {
     const out = parseOk(await approvePayRunTool.handler(
       { run_id: RUN, dry_run: true, ...KEY }, ctx(),
