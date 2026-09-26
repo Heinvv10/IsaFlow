@@ -10,6 +10,7 @@ import type { DbRow } from '@/lib/neon';
 import { log } from '@/lib/logger';
 import { mapRunRow, type PayrollRunSummary } from './payrollRunService';
 import { postPayrollRunJournal } from './payrollJournalPostingService';
+import { buildPayrollJournalPlan, type PayrollJournalNote } from './payrollJournalBuilder';
 
 type Row = DbRow;
 
@@ -18,14 +19,40 @@ export interface ApprovePayrollRunResult extends PayrollRunSummary {
 }
 
 /**
+ * A refusal raised before approvePayrollRun writes anything. Callers answer it
+ * as a 4xx; anything else may follow the status write and must roll back.
+ */
+export class PayrollApprovalRefusedError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = 'PayrollApprovalRefusedError';
+  }
+}
+
+/**
+ * The first reason this run's journal cannot post, judged before approval —
+ * every plan blocker except 'run_not_approved', which approval itself
+ * resolves. Null when the run is not in this company.
+ */
+export async function findApprovalBlocker(
+  companyId: string,
+  runId: string,
+): Promise<PayrollJournalNote | null> {
+  const plan = await buildPayrollJournalPlan(companyId, runId);
+  if (!plan) return null;
+  return plan.blockers.find((b) => b.code !== 'run_not_approved') ?? null;
+}
+
+/**
  * Approve a payroll run and post its GL journal entry.
  * Valid prior statuses: 'draft', 'calculated', 'processed'.
  *
  * The run transitions to 'approved' then the GL journal is created and posted.
- * NOTE: The Neon http driver does not support SAVEPOINT across service calls,
- * so these are sequential operations. If the journal post fails after the status
- * update, the run stays 'approved' with no journal_entry_id — re-calling approve
- * is safe because postPayrollRunJournal is idempotent (skips if already posted).
+ * Every refusal comes BEFORE the status write, as PayrollApprovalRefusedError
+ * (K-079): withAuth commits a 4xx, so a journal blocker found after the write
+ * left the run 'approved' with no journal. A failure after the write is thrown
+ * as-is and must roll the request back. An 'approved' run with no journal
+ * (stranded before this fix) is re-approvable and posts.
  */
 export async function approvePayrollRun(
   companyId: string,
@@ -39,17 +66,20 @@ export async function approvePayrollRun(
     SELECT * FROM payroll_run_headers
     WHERE id = ${runId}::uuid AND company_id = ${companyId}::uuid
   `) as Row[];
-  if (runRows.length === 0 || !runRows[0]) throw new Error('Payroll run not found');
+  if (runRows.length === 0 || !runRows[0]) throw new PayrollApprovalRefusedError('Payroll run not found');
 
   const currentStatus = String(runRows[0].status);
   const APPROVABLE = ['draft', 'calculated', 'processed'];
   const alreadyApprovedButUnposted = currentStatus === 'approved' && runRows[0].journal_entry_id == null;
   if (!APPROVABLE.includes(currentStatus) && !alreadyApprovedButUnposted) {
-    throw new Error(
+    throw new PayrollApprovalRefusedError(
       `Cannot approve payroll run with status '${currentStatus}' ` +
       `(expected one of: ${APPROVABLE.join(', ')})`
     );
   }
+
+  const blocker = await findApprovalBlocker(companyId, runId);
+  if (blocker) throw new PayrollApprovalRefusedError(blocker.detail);
 
   const updatedRows = (await sql`
     UPDATE payroll_run_headers

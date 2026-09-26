@@ -16,10 +16,20 @@
  * balance is parked where no human can pick it. So an inactive target is an
  * ADVISORY, not a blocker, and the line is built either way.
  *
- * Balance formula (unchanged from the poster it was extracted from):
- *   DR 5200 Labour = gross + employer UIF + SDL − ETI, split by cost centre
- *   CR 2140 PAYE   CR 2150 UIF (both halves)   CR 2160 SDL
+ * Balance formula:
+ *   DR 5200 Labour = gross + employer UIF + SDL − ETI used, split by cost centre
+ *   CR 2140 PAYE = PAYE − ETI used   CR 2150 UIF (both halves)   CR 2160 SDL
  *   CR 2175 Other employee deductions (residual)   CR 1110 Bank (net pay)
+ *
+ * ETI (K-079, Hein 2026-09-26). ETI is an offset against the PAYE remitted, so
+ * it reduces the 2140 credit, and it is presented net of labour cost. Only the
+ * ETI this run's PAYE can absorb is booked — `etiUsed = min(eti, paye)` — which
+ * makes CR 2140 equal EMP201's PAYE payable (`emp201Service` floors it at zero;
+ * one run per company per period). ETI beyond PAYE is not booked; the plan
+ * says so in an advisory.
+ *
+ * A zero line is dropped: the GL rejects a line with neither debit nor credit,
+ * and an SDL-exempt run, or one whose PAYE the ETI absorbs, has one.
  */
 
 import { sql } from '@/lib/neon';
@@ -79,6 +89,8 @@ export interface PayrollJournalPlan {
     uif: number;
     sdl: number;
     eti: number;
+    /** The ETI booked: min(eti, paye). The rest is reported in `eti_beyond_paye`. */
+    etiUsed: number;
     net: number;
     employerUif: number;
     otherDeductions: number;
@@ -118,7 +130,8 @@ export async function buildPayrollJournalPlan(
 
   const employerUif = round2(uif / 2);
   const employeeUif = round2(uif / 2);
-  const labourDebit = round2(gross + employerUif + sdl - eti);
+  const etiUsed = round2(Math.min(eti, paye));
+  const labourDebit = round2(gross + employerUif + sdl - etiUsed);
   const otherDeductions = round2(gross - paye - employeeUif - net);
 
   const accounts = await resolveAccounts(companyId);
@@ -170,7 +183,7 @@ export async function buildPayrollJournalPlan(
     };
   };
 
-  const lines: PayrollJournalPlanLine[] = [];
+  const built: PayrollJournalPlanLine[] = [];
   const labourAccountId = accounts.get('5200')?.id;
   if (labourAccountId) {
     const labour = await buildLabourLines(companyId, runId, labourDebit, gross, labourAccountId);
@@ -178,7 +191,7 @@ export async function buildPayrollJournalPlan(
     // report each under 5200's flags only when it IS 5200.
     for (const l of labour) {
       const isDefault = l.glAccountId === labourAccountId;
-      lines.push({
+      built.push({
         glAccountId: l.glAccountId,
         accountCode: isDefault ? '5200' : '',
         accountName: isDefault ? (accounts.get('5200')?.name ?? '') : '',
@@ -189,15 +202,24 @@ export async function buildPayrollJournalPlan(
       });
     }
   } else {
-    lines.push(line('5200', labourDebit, 0, 'Labour costs — gross pay + statutory employer contributions − ETI'));
+    built.push(line('5200', labourDebit, 0, 'Labour costs — gross pay + statutory employer contributions − ETI'));
   }
 
-  lines.push(line('2140', 0, paye, 'PAYE payable'));
-  lines.push(line('2150', 0, uif, 'UIF payable (employee + employer)'));
-  lines.push(line('2160', 0, sdl, 'SDL payable'));
-  lines.push(line('1110', 0, net, 'Net pay — bank disbursement'));
+  built.push(line('2140', 0, paye - etiUsed, 'PAYE payable, net of ETI'));
+  built.push(line('2150', 0, uif, 'UIF payable (employee + employer)'));
+  built.push(line('2160', 0, sdl, 'SDL payable'));
+  built.push(line('1110', 0, net, 'Net pay — bank disbursement'));
   if (otherDeductions > 0.005) {
-    lines.push(line('2175', 0, otherDeductions, 'Other employee deductions (medical aid, pension, RA, etc.)'));
+    built.push(line('2175', 0, otherDeductions, 'Other employee deductions (medical aid, pension, RA, etc.)'));
+  }
+
+  const lines = built.filter((l) => l.debit !== 0 || l.credit !== 0);
+
+  if (eti - etiUsed > 0.005) {
+    advisories.push({
+      code: 'eti_beyond_paye',
+      detail: `The run claims R${eti.toFixed(2)} of ETI but its PAYE is R${paye.toFixed(2)}, so only R${etiUsed.toFixed(2)} is booked. The remaining R${(eti - etiUsed).toFixed(2)} is not booked: EMP201 floors PAYE payable at zero and carries no ETI forward.`,
+    });
   }
 
   const inactive = [...new Set(lines.filter((l) => l.inactiveAccount).map((l) => l.accountCode))];
@@ -231,7 +253,7 @@ export async function buildPayrollJournalPlan(
     lines,
     totalDebit,
     totalCredit,
-    totals: { gross, paye, uif, sdl, eti, net, employerUif, otherDeductions },
+    totals: { gross, paye, uif, sdl, eti, etiUsed, net, employerUif, otherDeductions },
     blockers,
     advisories,
   };
