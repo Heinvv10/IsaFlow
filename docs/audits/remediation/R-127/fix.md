@@ -45,19 +45,28 @@ Both routes now call `capture/provisionalAttachSettle.attachEvidenceAndSettleApp
 ## Separate defect (not fixed here): capture/[id]/post creates invoices without line items
 `pages/api/accounting/capture/[id]/post.ts` INSERTs `supplier_invoices` directly and never writes `supplier_invoice_items`. `buildExpenseLines` therefore produces no expense lines, and every journal attempted for such an invoice is unbalanced (DR VAT only, CR AP total). This affects `approveSupplierInvoice` for its drafts and `postSupplierInvoiceToGL` for its auto-approved invoices. Such an invoice can never be posted. The R-127 repro fixture adds an item for this reason. `ai-invoice-pipeline` does write items. This needs its own register item.
 
-## Open question for Hein: voiding the settlement payment
-Verified on the fixture: `voidSupplierPayment` on a settlement payment succeeds. It reverses only the reclass, and it un-applies the invoice back to `approved`, R115 open. The provisional still stands, so the ledger returns to the double-booked state (expense R200, VAT R30, AP R115 CR, bank R115 CR). The void is a deliberate human action, and the result stays visible as an open bill beside an evidenced provisional. The census finds it. It is still a UI path back into the defect.
+## Undoing a settlement: void refused, unapply is the undo (Hein, option C)
+A settlement payment's journal is the provisional's reclass, not a bank payment. Before this change, voiding it succeeded (verified on the fixture). It reversed only the reclass and put the invoice back to `approved`, R115 open, while the provisional still stood. The ledger went back to the double-booked state: expense R200, VAT R30, AP R115 CR, bank R115 CR.
 
-The options are:
-- (a) refuse voiding a payment that has `settles_provisional_je_id`, and name the remedy;
-- (b) have the void also reverse the provisional and return the bank line to `imported`;
-- (c) leave it as it is.
+The first brief asked for the void to reverse the reclass and end at expense R100, VAT R15, AP R115 open and bank R115 once. Those four figures cannot all hold: R115 of debits against R230 of credits. Hein chose option C:
+- **Void is refused on every path, before any write.** `refuseProvisionalSettlementVoid` (`ap/supplierPaymentGates.ts`) throws a `SupplierPaymentRefusal` naming `unapply_supplier_payment`. It runs in `voidIfUnprocessed`, which serves the `supplier-payments-action` route (answers 400), and in `core/paymentVoidService.voidPaymentDocument`, which serves MCP `void_payment` (coded refusal, surfaced with its message). It reads `settles_provisional_je_id` from the payment row each path has already read under its lock, so it adds no query.
+- The other supplier-payment exits cannot reach a settlement payment. `cancelSupplierPayment` already refuses processed and reconciled payments. Batch reversal only touches batch members, and a settlement payment has no batch. The bank-allocation reversal finds payments through the bank lines matched to their journal, and the reclass has no bank line. Read from code, not tested: `reverse_bank_allocation` pointed at the provisional's own bank line was not exercised; it belongs with the item below.
+- **Unapply is the undo, unchanged.** It moves only the subledger. The invoice reopens (R115, `approved`, `amount_paid` 0). The payment stays `processed` with R115 unapplied on the same supplier. The GL does not move: expense R100, VAT R15, bank R115 once, net AP nil (the bill's R115 against the payment's R115). The payment is still live, so it keeps the provisional's claim. A re-approval cannot settle twice: re-approving the original is refused as already approved, Post to GL is a no-op, and a fresh bill from the same slip approves without settling. The credit applies to another bill of the same supplier through the normal application service.
+- **UI gap:** unapply exists only as the MCP tool `unapply_supplier_payment`. There is no REST route or UI action for it, so a UI-only user who hits the refusal has no in-app remedy.
 
-This fix does (c) and does not decide the question.
+Tests: `tests/integration/r127-settlement-void.int.test.ts` (6).
+- Route void answers 400 and a full snapshot is unchanged (ledger, invoice, payment, journal count).
+- MCP void_payment raises a coded refusal and the snapshot is unchanged.
+- Another company gets not-found, with nothing about the settlement in the message.
+- Unapply leaves the exact figures above.
+- The credit re-applies to another bill.
+- The claim holds after unapply.
+
+## Still open: reversing a CLAIMED provisional
+The mirror direction is not guarded. The generic journal reverse (`journal-entries-action` reverse) and the auto-post run undo (`bank/autoPostUndoService`) can reverse a provisional that a live settlement payment has claimed. That would leave the reclass standing with no provisional under it: expense and VAT nil, bill paid, bank not credited. `dismissProvisionalEntry` is safe, because it refuses an evidenced provisional. A refusal in those two paths needs its own item.
 
 ## Other limits
 - An approval that reuses an existing journal (the `glJournalEntryId` branch in `approveSupplierInvoice`, legacy "Post to GL then approve" drafts) is not settled. Since R-118 no new rows reach it. Legacy rows show in the census.
-- Unapplying the settlement payment (`unapplySupplierPayment`) was NOT exercised. By construction the bill should reopen with the payment's unapplied remainder equal to GL AP, but this is unverified.
 
 ## Census (READ-ONLY; run on the fixture only)
 `census.sql`, in this folder, lists every invoice in the AP population (`approved` / `partially_paid` / `paid`) whose source document also evidences a live bank-first provisional in the same company. For each row it gives:
@@ -101,7 +110,7 @@ Rows already on production are not repaired by this fix. A backfill that settles
 
 ## Evidence
 - RED: `red.log` (commit dee75d345). 7 assertion failures, plus 6 green that pin the behaviour that must not change.
-- GREEN: 4 files, 16 tests, all passing on the fixture:
+- GREEN: 5 files, 22 tests, all passing on the fixture (the void file's 6 are listed above):
   - `r127-double-booking` (1)
   - `r127-provisional-settle-guards` (10)
   - `r127-provisional-settle-race` (1)
@@ -110,3 +119,12 @@ Rows already on production are not repaired by this fix. A backfill that settles
   - M1: a silent `continue` masked the company guard. It now throws.
   - M10: the savepoint was only exercised by a failure before any SQL. A trigger-injected failure after the invoice journal was added.
   M12, the status check, is masked by R-118's draft refusal and is kept as defence.
+
+### Follow-up round (2026-09-26)
+- **Migration renumbered to 711.** 708–710 are reserved for R-035, R-032 and R-088. `audit-migration-naming` is clean.
+- **File sizes.**
+  - `supplierInvoiceWorkflowService.ts`: 512 on master, 481 now. The wiring is two one-line hooks per path, and the private row mapper moved, byte-identical, to `ap/supplierInvoiceWorkflowRow.ts`.
+  - `core/paymentVoidService.ts`: 310, now 266. Its two pre-lock reads moved to `core/paymentVoidReads.ts`.
+  - `supplierPaymentWorkflowService.ts` (324) and `types/ap.types.ts` (307) are untouched.
+  - Every new file is ≤ 300.
+- **RED for the void refusal:** `red.log`, second block. **Mutations V1–V5:** `mutations.log`.
