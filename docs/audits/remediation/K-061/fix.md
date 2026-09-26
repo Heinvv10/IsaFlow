@@ -18,8 +18,12 @@
   - a merge into itself;
   - either customer not live in this company, including another tenant's;
   - both customers holding a dunning override.
-- Locks follow the canonical order in `bank/.claude.md`: both customers `FOR UPDATE` in id order, then the source's bank lines, then its receipts, then its invoices (each set `ORDER BY id`). Only then do the writes start. The old duplicates path already took payments before invoices; this keeps that order and adds the bank leg.
-- Both customer rows are locked `FOR UPDATE` in id order. Two merges of the same pair in opposite directions therefore queue. The second re-reads `deleted_at`, finds its customer gone, and gets a 400. Before the fix, both such merges 500'd.
+- Locks, in this order, before any write:
+  - both customers `FOR NO KEY UPDATE`, in id order;
+  - the source's bank lines, then its receipts, then its invoices, each set `ORDER BY id` (the canonical order in `bank/.claude.md`).
+- The customers are locked `NO KEY UPDATE`, not `UPDATE`. A bank allocation locks the line first and then inserts a receipt naming the customer, and that FK takes `FOR KEY SHARE` on the customer row. `FOR UPDATE` blocks `KEY SHARE`, so a merge waiting on that line would deadlock the allocation (40P01 → 500). A reviewer caught this and the lock-order test reproduced it. `NO KEY UPDATE` still conflicts with itself, so two merges still queue.
+- Consequence: an override created for the target between the dunning check and the move makes that move raise 23505. That is a 500, and the savepoint rolls the whole merge back.
+- Two merges of the same pair in opposite directions therefore queue. The second re-reads `deleted_at`, finds its customer gone, and gets a 400. Before the fix, both such merges 500'd.
 - The source is soft-deleted:
   - `deleted_at` is now set, where before only `is_active = false` was;
   - its name gets ` [MERGED]`;
@@ -73,7 +77,10 @@ A new table that stores a customer id must be added to the service AND to `MOVED
 - `pages/accounting/customers/dedup.tsx`
 - `src/lib/apiRoutes.ts`
 
-**Tests.** `tests/integration/k061-customer-merge-{moves,refusals,sage-resync}.int.test.ts` and `k061-duplicates-merge-customer.int.test.ts`, and `k061-customer-merge-lock-order.int.test.ts` hold 23 tests. The lock-order file covers each of the bank-line, receipt and invoice sets. In each, a settlement holds the lower id and then takes the higher one while a merge is blocked, and neither side may deadlock. They run through the real exported route: withAuth, app_user, RLS, CSRF and write access, with no mocks. Every refusal asserts an md5 digest of every census table across both tenants, so a refusal cannot commit a partial write. Evidence: `red.log`, `green.log` and `mutations.log`.
+**Tests.** There are 25 tests across five files: `tests/integration/k061-customer-merge-{moves,refusals,sage-resync,lock-order}.int.test.ts` and `k061-duplicates-merge-customer.int.test.ts`.
+- **Lock-order, same set:** for each of the bank-line, receipt and invoice sets, a settlement holds the lower id and then takes the higher one while a merge is blocked. Neither side may deadlock.
+- **Lock-order, allocator:** one case replays the bank allocator's own lock sequence: line `FOR UPDATE`, then `INSERT` of a receipt naming the source. It runs those statements directly rather than calling `allocateTransaction`, because the lock cycle depends only on those two statements.
+- **Split columns:** an invoice whose two columns name different customers moves only the column that names the source.
 
 **Browser acceptance (dev, 2026-09-26, `isaflow_dev`, Brightsphere, reporting-qa user, `next dev` from this branch).**
 - Setup: two customers sharing an email were seeded, "K061 Acceptance Traders" (R2 300 invoice) and "… Duplicate" (R1 150 invoice, an active recurring template and a primary contact).

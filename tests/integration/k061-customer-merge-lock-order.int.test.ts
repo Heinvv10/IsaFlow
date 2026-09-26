@@ -89,3 +89,39 @@ for (const table of Object.keys(seeders)) {
     expect(settled).toBe(true);
   });
 }
+
+/**
+ * The bank allocator's own lock sequence for a customer receipt
+ * (bankAllocationService.allocateTransaction): lockBankTransactionForUpdate on
+ * the line, then INSERT INTO customer_payments naming the customer — whose FK
+ * takes FOR KEY SHARE on the customer row. A merge holding the customers FOR
+ * UPDATE while it waits for that bank line closes a cycle (40P01). It must
+ * hold them FOR NO KEY UPDATE, which the FK's KEY SHARE does not wait on.
+ */
+it('a bank allocation creating a receipt for the source does not deadlock against a merge', async () => {
+  const lineId = crypto.randomUUID();
+  await seeders.bank_transactions!(lineId, 'line');
+  const allocator: PoolClient = await pool.connect();
+  let allocated = false;
+  try {
+    await allocator.query('BEGIN');
+    await allocator.query('SELECT id FROM bank_transactions WHERE id=$1 FOR UPDATE', [lineId]);
+    const merging = h.merge({ source_id: source, target_id: target });
+    await waitUntilMergeBlocked('bank_transactions');
+    await allocator.query("SET LOCAL lock_timeout = '10s'");
+    await allocator.query(
+      `INSERT INTO customer_payments(company_id,client_id,payment_date,total_amount,payment_method,status,created_by)
+       VALUES($1,$2,'2026-06-05',10,'eft','confirmed',$3)`, [h.companyA, source, h.admin]);
+    await allocator.query('COMMIT');
+    allocated = true;
+    const merged = await merging;
+    expect(merged.state.statusCode).toBe(200);
+    // The receipt committed before the merge read receipts, so it moved too.
+    const { rows } = await pool.query('SELECT count(*)::int AS n FROM customer_payments WHERE client_id=$1', [source]);
+    expect(rows[0].n).toBe(0);
+  } finally {
+    if (!allocated) await allocator.query('ROLLBACK').catch(() => undefined);
+    allocator.release();
+  }
+  expect(allocated).toBe(true);
+});

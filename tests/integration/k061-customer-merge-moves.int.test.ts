@@ -122,3 +122,20 @@ it('moves a dunning override that only the source has', async () => {
   const { rows } = await pool.query('SELECT customer_id FROM customer_dunning_overrides WHERE company_id=$1', [h.companyA]);
   expect(rows).toEqual([{ customer_id: target }]);
 });
+
+it('an invoice whose columns name different customers moves only the column naming the source', async () => {
+  const third = await h.customer(h.companyA, 'K061 Third Party');
+  const ins = `INSERT INTO customer_invoices(company_id,invoice_number,customer_id,client_id,invoice_date,subtotal,total_amount,status,created_by)
+               VALUES($1,$2,$3,$4,'2026-06-09',70,70,'approved',$5)`;
+  await pool.query(ins, [h.companyA, 'K061-X-1', source, third, h.admin]); // belongs to third (COALESCE)
+  await pool.query(ins, [h.companyA, 'K061-X-2', third, source, h.admin]); // belongs to source
+  const result = await h.merge({ source_id: source, target_id: target });
+  expect(result.state.statusCode).toBe(200);
+  const { rows } = await pool.query(
+    `SELECT invoice_number, customer_id, client_id, COALESCE(client_id, customer_id) AS owner
+     FROM customer_invoices WHERE company_id=$1 AND invoice_number LIKE 'K061-X-%' ORDER BY invoice_number`, [h.companyA]);
+  expect(rows).toEqual([
+    { invoice_number: 'K061-X-1', customer_id: target, client_id: third, owner: third },
+    { invoice_number: 'K061-X-2', customer_id: third, client_id: target, owner: target },
+  ]);
+});
