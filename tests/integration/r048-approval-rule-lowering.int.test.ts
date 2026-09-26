@@ -80,6 +80,8 @@ function call(handler: typeof approvalRules, as: string, companyId: string, meth
 
 const reasonOf = (result: Awaited<ReturnType<typeof call>>) =>
   (result.state.body as { error?: { details?: { reason?: string } } }).error?.details?.reason;
+const authorityReasonOf = (result: Awaited<ReturnType<typeof call>>) =>
+  (result.state.body as { error?: { details?: { authorityReason?: string } } }).error?.details?.authorityReason;
 
 async function plantRule(companyId: string, approverRole: string, operator = 'any', value = 0): Promise<string> {
   const id = crypto.randomUUID();
@@ -152,6 +154,8 @@ describe('R-048 — weakening needs a rank strictly above the rule', () => {
     const { res, before, after } = await attempt(admin, rule, change);
     expect(res.state.statusCode).toBe(403);
     expect(reasonOf(res)).toBe('RULE_AUTHORITY_REQUIRED');
+    // The admin HOLDS the rule's rank; what they lack is the rank above it.
+    expect(authorityReasonOf(res)).toBe('WEAKENING_REQUIRES_HIGHER_RANK');
     expect(after).toEqual(before);
   });
 
@@ -193,6 +197,8 @@ describe('R-048 — the owner is the top of the ladder', () => {
     const { res, before, after } = await attempt(admin, rule, change);
     expect(res.state.statusCode).toBe(403);
     expect(reasonOf(res)).toBe('RULE_AUTHORITY_REQUIRED');
+    // Below the rule altogether: refused before weakening is even considered.
+    expect(authorityReasonOf(res)).toBe('RANK_REQUIRED');
     expect(after).toEqual(before);
   });
 });

@@ -41,14 +41,23 @@ export interface RuleActor {
   email?: string;
 }
 
+/**
+ * Which refusal: the actor ranks below the rule at all, or holds its rank but
+ * not the rank ABOVE it that weakening needs (R-048). `code` stays the same for
+ * both so existing consumers and the MCP refusal allowlist are unaffected.
+ */
+export type ApprovalRuleAuthorityReason = 'RANK_REQUIRED' | 'WEAKENING_REQUIRES_HIGHER_RANK';
+
 export class ApprovalRuleAuthorityError extends Error {
   readonly code = 'RULE_AUTHORITY_REQUIRED';
+  readonly reason: ApprovalRuleAuthorityReason;
 
   constructor(ruleRole: string, weakening = false) {
     super(weakening
       ? `Only a role above ${ruleRole} can lower, deactivate, delete or narrow this ${ruleRole}-level rule`
       : `This rule requires the ${ruleRole} role; you do not hold it, so you cannot create, change or delete it`);
     this.name = 'ApprovalRuleAuthorityError';
+    this.reason = weakening ? 'WEAKENING_REQUIRES_HIGHER_RANK' : 'RANK_REQUIRED';
   }
 }
 
