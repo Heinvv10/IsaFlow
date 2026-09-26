@@ -49,7 +49,7 @@ export async function voidProvisionalSettlement(
   payment: SettlementPaymentRef,
   userId: string,
   opts?: PostingActorOpts,
-): Promise<{ bankTransactionId: string | null; vatLockRoll: VatLockRoll | null }> {
+): Promise<{ bankTransactionId: string | null; vatLockRoll: VatLockRoll | null; reclassVatLockRoll: VatLockRoll | null }> {
   const reclassJournalId = payment.journalEntryId;
   if (!reclassJournalId) throw new Error(`Settlement payment ${payment.id} has no journal`);
   return withSavepoint('void_provisional_settlement', async () => {
@@ -93,7 +93,7 @@ export async function voidProvisionalSettlement(
     if (cancelled.length !== 1) throw new Error('Payment state changed concurrently — void aborted');
 
     // The claim is released above, so neither reversal is refused as half a settlement.
-    await reverseJournalEntry(companyId, reclassJournalId, userId, opts);
+    const reclass = await reverseJournalEntry(companyId, reclassJournalId, userId, opts);
     const provisional = await reverseJournalEntry(companyId, payment.settlesProvisionalJeId, userId, opts);
     if (bankTransactionId) {
       await sql`
@@ -105,7 +105,11 @@ export async function voidProvisionalSettlement(
       companyId, paymentId: payment.id, reclassJournalId,
       provisionalJournalId: payment.settlesProvisionalJeId, bankTransactionId,
     }, 'accounting');
-    return { bankTransactionId, vatLockRoll: provisional.vatLockRoll ?? null };
+    return {
+      bankTransactionId,
+      vatLockRoll: provisional.vatLockRoll ?? null,
+      reclassVatLockRoll: reclass.vatLockRoll ?? null,
+    };
   });
 }
 
@@ -129,5 +133,6 @@ export async function voidSettlementDocument(
     journalEntryId: payment.journalEntryId,
     bankTransactionId: undone.bankTransactionId,
     vatLockRoll: undone.vatLockRoll,
+    reclassVatLockRoll: undone.reclassVatLockRoll,
   };
 }

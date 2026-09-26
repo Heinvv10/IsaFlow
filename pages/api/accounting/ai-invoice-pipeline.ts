@@ -285,7 +285,7 @@ async function handler(req: CompanyAuthedRequest, res: NextApiResponse) {
   }, 'ai-pipeline');
 
   return apiResponse.success(res, {
-    invoice: { id: invoice.id, invoiceNumber: invoice.invoice_number, status: invoice.status },
+    invoice: { id: invoice.id, invoiceNumber: invoice.invoice_number, status: provisionalAttach.settlementRefused ? 'draft' : invoice.status },
     supplierMatch: { name: supplierMatch.supplierName, confidence: supplierMatch.confidence },
     pipelineConfidence,
     approvalRoute,

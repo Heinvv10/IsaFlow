@@ -256,9 +256,10 @@ async function handler(req: CompanyAuthedRequest, res: NextApiResponse) {
     decision: publishedDecision,
   });
 
+  const finalStatus = provisionalAttach.settlementRefused ? 'draft' : invoice.status; // R-127: withdrawn auto-approval
   if (publishedDecision.outcome === 'route_review') {
     return apiResponse.success(res, {
-      invoice: { id: invoice.id, invoiceNumber: invoice.invoice_number, status: invoice.status },
+      invoice: { id: invoice.id, invoiceNumber: invoice.invoice_number, status: finalStatus },
       supplierMatch: { name: supplierMatch.supplierName, confidence: supplierMatch.confidence },
       pipelineConfidence,
       approvalRoute,
@@ -271,7 +272,7 @@ async function handler(req: CompanyAuthedRequest, res: NextApiResponse) {
   }
 
   return apiResponse.success(res, {
-    invoice: { id: invoice.id, invoiceNumber: invoice.invoice_number, status: invoice.status },
+    invoice: { id: invoice.id, invoiceNumber: invoice.invoice_number, status: finalStatus },
     supplierMatch: { name: supplierMatch.supplierName, confidence: supplierMatch.confidence },
     pipelineConfidence,
     approvalRoute,

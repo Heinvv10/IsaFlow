@@ -57,7 +57,7 @@ export async function attachEvidenceAndSettleApproved(
     // only the status moves back. Not caught — a failure here must fail the request.
     await sql`
       UPDATE supplier_invoices
-      SET status = 'draft',
+      SET status = 'draft', approved_by = NULL, approved_at = NULL,
           notes = concat_ws(E'\n', notes, ${`Auto-approval withdrawn: this bill's slip is already booked by a bank-first provisional journal, and settling the bill against it failed (${reason}). Review it and approve it by hand.`}::TEXT)
       WHERE id = ${invoiceId}::UUID AND company_id = ${companyId}::UUID
         AND status = 'approved' AND gl_journal_entry_id IS NULL

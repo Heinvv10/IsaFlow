@@ -12,6 +12,7 @@ import { AccountingDocumentPanel } from '@/modules/accounting/documents';
 import { formatCurrency, formatDate } from '@/utils/formatters';
 import { apiErrorMessage, apiFetch, assertOk } from '@/lib/apiFetch';
 import { ConfirmDialog } from '@/components/accounting/ConfirmDialog';
+import { SUPPLIER_PAYMENT_DIALOGS as DIALOGS, type SupplierPaymentDialog } from '@/components/accounting/ap/supplierPaymentDialogs';
 
 function StatusBadge({ status }: { status: string }) {
   const colors: Record<string, string> = {
@@ -51,26 +52,10 @@ interface PaymentDetail {
   status: string;
   journalEntryId?: string;
   batchId?: string;
+  /** Set on a bank-first settlement payment (R-127): its Void undoes the settlement. */
+  settlesProvisionalJeId?: string;
   allocations: Allocation[];
 }
-
-const DIALOGS = {
-  cancel: {
-    title: 'Cancel this payment?',
-    message: 'Nothing has been posted for this payment yet. Cancelling stops it for good and releases the bills it was going to pay — no journal is created or reversed. To undo a payment that has already been processed, use Void instead.',
-    label: 'Cancel payment',
-  },
-  void: {
-    title: 'Void this processed payment?',
-    message: 'The payment has been posted. Void reverses its journal (DR Bank / CR Accounts Payable) and reopens the bills it paid.',
-    label: 'Void payment',
-  },
-  unapply: {
-    title: 'Unapply this payment?',
-    message: 'Takes the payment off every bill it pays and reopens the bills it pays. The payment and its journal stay; its cash becomes an unapplied credit you can apply to the right bill, or void.',
-    label: 'Unapply payment',
-  },
-} as const;
 
 export default function SupplierPaymentDetailPage() {
   const router = useRouter();
@@ -80,7 +65,7 @@ export default function SupplierPaymentDetailPage() {
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState('');
   const [actionBusy, setActionBusy] = useState('');
-  const [confirming, setConfirming] = useState<'' | keyof typeof DIALOGS>('');
+  const [confirming, setConfirming] = useState<'' | Exclude<SupplierPaymentDialog, 'voidSettlement'>>('');
 
   const load = useCallback(async () => {
     if (!paymentId) return;
@@ -98,6 +83,8 @@ export default function SupplierPaymentDetailPage() {
   }, [paymentId]);
 
   useEffect(() => { void load(); }, [load]);
+  const dialog: SupplierPaymentDialog = confirming === 'void' && payment?.settlesProvisionalJeId
+    ? 'voidSettlement' : confirming || 'cancel';
 
   async function handleAction(action: string) {
     if (!payment) return;
@@ -285,9 +272,9 @@ export default function SupplierPaymentDetailPage() {
       </div>
       <ConfirmDialog
         open={confirming !== ''}
-        title={DIALOGS[confirming || 'cancel'].title}
-        message={DIALOGS[confirming || 'cancel'].message}
-        confirmLabel={DIALOGS[confirming || 'cancel'].label}
+        title={DIALOGS[dialog].title}
+        message={DIALOGS[dialog].message}
+        confirmLabel={DIALOGS[dialog].label}
         cancelLabel="Keep it"
         confirmTone="danger"
         busy={actionBusy !== ''}

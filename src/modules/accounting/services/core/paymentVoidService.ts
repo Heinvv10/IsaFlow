@@ -80,6 +80,8 @@ export interface VoidPaymentResult {
   bankTransactionId: string | null;
   /** Non-null when a locked VAT period moved the contra's default date forward. */
   vatLockRoll: VatLockRoll | null;
+  /** R-127: a settlement undo reverses a second journal, the reclass; its roll, when it had one. */
+  reclassVatLockRoll?: VatLockRoll | null;
 }
 
 /** Why a void was refused. Distinguished so the caller can word each one. */

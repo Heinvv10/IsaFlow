@@ -50,7 +50,8 @@ export async function voidIfUnprocessed(
   refuseBatchMember(payment, 'void');
   // R-127: a bank-first settlement is undone whole (provisionalSettlementVoid.ts),
   // or refused while it still pays a bill — never voided as a plain payment.
-  if (payment.settlesProvisionalJeId) {
+  // A cancelled one (already undone) falls through to the ordinary status refusal.
+  if (payment.settlesProvisionalJeId && payment.status !== 'cancelled') {
     await voidProvisionalSettlement(companyId, {
       id: payment.id, paymentNumber: payment.paymentNumber,
       settlesProvisionalJeId: payment.settlesProvisionalJeId, journalEntryId: payment.glJournalEntryId ?? null,
