@@ -89,7 +89,7 @@ export default function VatDeclaredElsewhereSection({ report, onChanged }: {
               {isOwnerOrAdmin && (
                 <td className={td}>
                   <button
-                    type="button" disabled={busyId === d.invoiceId}
+                    type="button" disabled={busyId !== null}
                     onClick={() => setUnmarking({ id: d.invoiceId, kind: d.invoiceKind, number: d.invoiceNumber })}
                     className="text-xs text-red-400 underline disabled:opacity-50"
                   >

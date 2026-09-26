@@ -155,4 +155,23 @@ describe('VatDeclaredElsewhereSection', () => {
     expect(screen.queryByRole('textbox')).toBeNull();
     expect(h.apiFetchMock).not.toHaveBeenCalled();
   });
+
+  it('while one unmark is in flight, no other row can start one', async () => {
+    let release: (r: Response) => void = () => {};
+    h.apiFetchMock.mockReturnValue(new Promise<Response>((r) => { release = r; }));
+    const two = {
+      declaredElsewhereVat: [declaredReport.declaredElsewhereVat[0],
+        { ...declaredReport.declaredElsewhereVat[0], invoiceId: 'ci-3', invoiceNumber: 'INV-3' }],
+      declaredElsewhereVatCount: 2,
+    };
+    render(<VatDeclaredElsewhereSection report={two} onChanged={vi.fn()} />);
+    fireEvent.click(screen.getAllByText('Unmark')[0]);
+    fireEvent.change(screen.getByRole('textbox'), { target: { value: 'Reopen' } });
+    fireEvent.click(screen.getByRole('button', { name: 'Confirm unmark' }));
+    const rowButtons = screen.getAllByRole('button').filter((b) => b.closest('tbody'));
+    expect(rowButtons.length).toBe(2);
+    for (const b of rowButtons) expect((b as HTMLButtonElement).disabled).toBe(true);
+    release(ok());
+    await screen.findAllByText('Unmark');
+  });
 });
