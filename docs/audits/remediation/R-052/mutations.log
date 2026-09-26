@@ -1,0 +1,202 @@
+# R-052 mutations — 2026-09-25
+
+## Rounds 2-5: scripts/ci/workflowRunsCiRule.ts, each clause disabled alone, against tests/unit/ci/workflowRunsCiRule.test.ts (39 cases) at the round-5 head
+The install step is `bun install --frozen-lockfile --ignore-scripts`, which closes install lifecycle
+scripts (root, workspace member, trusted dependency) as a class. Package-script hooks are refused by
+prefix: every `pre*`/`post*` except the existing `prepare`. R14b narrows that back to
+`preci`/`postci` by name, and it goes red on the nested-hook cases. The cases apply every bypass
+blind review found to the real ci.yml and package.json:
+- if: false on the step or the job, a shell override, CI_SKIP_BUILD;
+- an install without --ignore-scripts, an extra step before or after the gate, or checkout swapped;
+- a trigger removed, retargeted, path-filtered, or given branches [master, '!master'];
+- a quoted continue-on-error, or a decoy job;
+- a no-op ci script, or pre/post hooks on ci, type-check, lint, test:unit, build or check:routes;
+- an unknown runs-on label.
+G0/G1 test run-ci.sh's bash no-bunfig gate.
+```
+### R1 package.json ci script not checked
+     × package.json `ci` turned into a no-op 4ms
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 1 ⎯⎯⎯⎯⎯⎯⎯
+      Tests  1 failed | 38 passed (39)
+### R2 top-level keys not checked
+     × workflow-level env 4ms
+     × workflow-level defaults.run.shell 1ms
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 2 ⎯⎯⎯⎯⎯⎯⎯
+      Tests  2 failed | 37 passed (39)
+### R3 trigger filters (paths/types) allowed
+     × paths-ignore on pull_request 4ms
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 1 ⎯⎯⎯⎯⎯⎯⎯
+      Tests  1 failed | 38 passed (39)
+### R4 trigger branches not checked
+     × pull_request retargeted away from master 4ms
+     × branches: [master, '!master'], which GitHub reads as excluding master 1ms
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 2 ⎯⎯⎯⎯⎯⎯⎯
+      Tests  2 failed | 37 passed (39)
+### R4b branches only need to include master
+     × branches: [master, '!master'], which GitHub reads as excluding master 3ms
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 1 ⎯⎯⎯⎯⎯⎯⎯
+      Tests  1 failed | 38 passed (39)
+### R5 missing trigger allowed
+     × pull_request trigger removed 4ms
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 1 ⎯⎯⎯⎯⎯⎯⎯
+      Tests  1 failed | 38 passed (39)
+### R6 job-level keys (if/continue-on-error/env) allowed
+     × if: false on the job 4ms
+     × continue-on-error on the job 1ms
+     × job-level env 1ms
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 3 ⎯⎯⎯⎯⎯⎯⎯
+      Tests  3 failed | 36 passed (39)
+### R7 extra steps allowed
+     × a step after the gate (e.g. one that always reports success) 3ms
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 1 ⎯⎯⎯⎯⎯⎯⎯
+      Tests  1 failed | 38 passed (39)
+### R8 install step not checked
+     × an earlier step rewrites run-ci.sh 4ms
+     × install without --ignore-scripts (root, workspace-member and trusted-dependency lifecycle scripts run and can rewrite run-ci.sh) 2ms
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 2 ⎯⎯⎯⎯⎯⎯⎯
+      Tests  2 failed | 37 passed (39)
+### R9 gate step extra keys (if/shell/continue-on-error) allowed
+     × if: false on the gate step 4ms
+     × shell override prints instead of running 4ms
+     × quoted "continue-on-error" on the step 1ms
+     × flow-style step with continue-on-error 1ms
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 4 ⎯⎯⎯⎯⎯⎯⎯
+      Tests  4 failed | 35 passed (39)
+### R10 gate command not checked
+     × gate replaced by one hand-picked gate 4ms
+     × gate neutralised with || true 1ms
+     × the real step parked in a decoy job while quality runs one gate 1ms
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 3 ⎯⎯⎯⎯⎯⎯⎯
+      Tests  3 failed | 36 passed (39)
+### R11 gate env not allow-listed
+     × CI_SKIP_BUILD in the step env drops the build 4ms
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 1 ⎯⎯⎯⎯⎯⎯⎯
+      Tests  1 failed | 38 passed (39)
+### R12 checkout step not checked
+     × checkout pinned to another ref 4ms
+     × checkout swapped for another action 1ms
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 2 ⎯⎯⎯⎯⎯⎯⎯
+      Tests  2 failed | 37 passed (39)
+### R13 install step accepts a plain install (scripts run)
+     × install without --ignore-scripts (root, workspace-member and trusted-dependency lifecycle scripts run and can rewrite run-ci.sh) 4ms
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 1 ⎯⎯⎯⎯⎯⎯⎯
+      Tests  1 failed | 38 passed (39)
+### R14 pre/post hooks allowed
+     × a preci script: bun runs pre/post hooks around every bun run inside the gate, so it could defuse later gates 3ms
+     × a postci script: bun runs pre/post hooks around every bun run inside the gate, so it could defuse later gates 1ms
+     × a pretype-check script: bun runs pre/post hooks around every bun run inside the gate, so it could defuse later gates 1ms
+     × a postlint script: bun runs pre/post hooks around every bun run inside the gate, so it could defuse later gates 0ms
+     × a pretest:unit script: bun runs pre/post hooks around every bun run inside the gate, so it could defuse later gates 0ms
+     × a prebuild script: bun runs pre/post hooks around every bun run inside the gate, so it could defuse later gates 0ms
+     × a precheck:routes script: bun runs pre/post hooks around every bun run inside the gate, so it could defuse later gates 0ms
+     × a postinstall script: bun runs pre/post hooks around every bun run inside the gate, so it could defuse later gates 0ms
+     × a preinstall script: bun runs pre/post hooks around every bun run inside the gate, so it could defuse later gates 0ms
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 9 ⎯⎯⎯⎯⎯⎯⎯
+      Tests  9 failed | 30 passed (39)
+### R14b hooks narrowed back to preci/postci by name
+     × a pretype-check script: bun runs pre/post hooks around every bun run inside the gate, so it could defuse later gates 3ms
+     × a postlint script: bun runs pre/post hooks around every bun run inside the gate, so it could defuse later gates 1ms
+     × a pretest:unit script: bun runs pre/post hooks around every bun run inside the gate, so it could defuse later gates 0ms
+     × a prebuild script: bun runs pre/post hooks around every bun run inside the gate, so it could defuse later gates 0ms
+     × a precheck:routes script: bun runs pre/post hooks around every bun run inside the gate, so it could defuse later gates 0ms
+     × a postinstall script: bun runs pre/post hooks around every bun run inside the gate, so it could defuse later gates 0ms
+     × a preinstall script: bun runs pre/post hooks around every bun run inside the gate, so it could defuse later gates 0ms
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 7 ⎯⎯⎯⎯⎯⎯⎯
+      Tests  7 failed | 32 passed (39)
+### R15 runs-on not pinned
+     × runs-on a label no runner has, so the job queues forever and never goes red 3ms
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 1 ⎯⎯⎯⎯⎯⎯⎯
+      Tests  1 failed | 38 passed (39)
+### G1 no-bunfig gate: a bunfig.toml with a preload is present
+gate exit=1
+### G0 no-bunfig gate: repo as committed
+gate exit=0
+```
+
+## Round 6 (after /review on #525): the concurrency pin and the timeout floor
+The rule now also pins `concurrency` exactly and requires `timeout-minutes` to be an integer of at
+least 20. Either one could otherwise end the check cancelled rather than red. There are 45 cases. The
+clauses from rounds 2-5 are unchanged, and their log above still holds (39 cases then).
+```
+### R16 concurrency not checked (errors.push disabled)
+     × a concurrency group shared by every ref 3ms
+     × cancel-in-progress switched off 1ms
+     × an extra concurrency key 0ms
+     × concurrency removed from the workflow 0ms
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 4 ⎯⎯⎯⎯⎯⎯⎯
+      Tests  4 failed | 41 passed (45)
+### R17 timeout floor not checked (errors.push disabled)
+     × a timeout too short to finish: the check ends cancelled, never red 3ms
+     × a timeout given as an expression: the check ends cancelled, never red 1ms
+     × no timeout floor (key removed): the check ends cancelled, never red 1ms
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 3 ⎯⎯⎯⎯⎯⎯⎯
+      Tests  3 failed | 42 passed (45)
+### R17b timeout floor lowered to 1
+     × a timeout too short to finish: the check ends cancelled, never red 4ms
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 1 ⎯⎯⎯⎯⎯⎯⎯
+      Tests  1 failed | 44 passed (45)
+```
+
+## Round 7 (adversarial re-review of f8fa03d1f): the workflow file set and job set are fixed
+Another workflow file or job could take the repo-wide `ci-` concurrency group and cancel quality, or
+golden-paths could request its own workflow's group, which deadlocks. Instead of matching group
+strings, the rule now fixes the set:
+- only ci.yml under .github/workflows/;
+- jobs exactly quality and golden-paths;
+- golden-paths' concurrency exactly `golden-paths-dev-demo`, no cancel.
+There are 49 cases.
+```
+### R18 workflow file set not checked
+     × a second workflow file (concurrency groups are repo-wide, so it can take ci- and cancel quality) 4ms
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 1 ⎯⎯⎯⎯⎯⎯⎯
+      Tests  1 failed | 48 passed (49)
+### R19 ci.yml job set not checked
+     × a third job in ci.yml 4ms
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 1 ⎯⎯⎯⎯⎯⎯⎯
+      Tests  1 failed | 48 passed (49)
+### R20 golden-paths concurrency not pinned
+     × golden-paths moved into the workflow's own ci- group (deadlock cancels the run) 3ms
+     × golden-paths concurrency removed or set to cancel 1ms
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 2 ⎯⎯⎯⎯⎯⎯⎯
+      Tests  2 failed | 47 passed (49)
+```
+
+## Round 8 (re-reviews of 130796360): the token is pinned and the timeout must be an integer
+Top-level `permissions` must be exactly `{contents: read}` and no job may set its own, because
+`actions: write` lets any job cancel the run. The timeout check is now `Number.isInteger`, since
+the separate typeof check was redundant, and a 20.5 case covers it. There are 52 cases.
+```
+### R21 top-level permissions not pinned
+     × actions: write on the workflow token (any job could then cancel the run) 4ms
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 1 ⎯⎯⎯⎯⎯⎯⎯
+      Tests  1 failed | 51 passed (52)
+### R22 job-level permissions allowed
+     × a job widening its own token 4ms
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 1 ⎯⎯⎯⎯⎯⎯⎯
+      Tests  1 failed | 51 passed (52)
+### R23 integer check dropped (typeof number only)
+     × a fractional timeout: the check ends cancelled, never red 2ms
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 1 ⎯⎯⎯⎯⎯⎯⎯
+      Tests  1 failed | 51 passed (52)
+```
+
+## Round 1 (superseded): the grep-based check-workflow-runs-ci.sh
+It caught these four, and blind review then got nine other edits past it, which is why round 2 replaced it.
+```
+### M0 baseline (unmutated)
+exit=0
+### M1 step reverted to a hand-listed gate (bun run test:unit)
+ERROR: .github/workflows/ci.yml has no step that runs exactly `bun run ci`.
+Call run-ci.sh rather than listing its gates: a hand-kept list drifts.
+exit=1
+### M2 step neutralised with || true
+ERROR: .github/workflows/ci.yml has no step that runs exactly `bun run ci`.
+Call run-ci.sh rather than listing its gates: a hand-kept list drifts.
+exit=1
+### M3 continue-on-error added
+ERROR: .github/workflows/ci.yml sets continue-on-error; a gate that cannot fail proves nothing.
+exit=1
+### M4 workflow deleted
+ERROR: .github/workflows/ci.yml is missing
+exit=1
+```
