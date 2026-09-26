@@ -18,7 +18,7 @@ Sub-routes for single-PO operations + supplier-scoped unmatched-PO helper. Prima
 ## Business rules
 - PUT blocked on `status` not in `('draft','submitted')` — approved/received POs immutable via this route. The guard is in the UPDATE's WHERE, not only the earlier read; a zero-row UPDATE is classified by a company-scoped re-read: 404 gone, 400 naming the status, 409 if editable again (R-126)
 - PUT line-item replacement is delete-all + re-insert, not diff/patch
-- DELETE is hard-delete, `draft` only
+- DELETE is hard-delete, `draft` only. The guard is in the DELETE's WHERE (`AND status = 'draft' RETURNING id`); a zero-row DELETE is classified by a company-scoped re-read: 404 gone, 400 naming the status, 409 if a draft again (R-129). `po_items` go by `ON DELETE CASCADE`. `goods_received_notes` references the PO with NO ACTION, so deleting a PO that has a GRN fails on the FK (unmapped, 500) rather than removing it
 - `unmatched` requires `supplierId`; `purchaseOrderId` optional filter; `include` defaults to `both`
 - Unmatched PO filter: `status IN ('submitted','approved','partially_received','received')` AND ≥1 item with `quantity_invoiced < quantity`
 - Line totals computed server-side as `quantity * unit_price`; tax defaults to 15% when not supplied
@@ -30,6 +30,7 @@ Sub-routes for single-PO operations + supplier-scoped unmatched-PO helper. Prima
 - Schema: `po_items` table
 
 ## Recent changes
+- 2026-09-26: R-129 — `[id].ts` DELETE re-checks `status = 'draft'` in the DELETE's WHERE (same shape as R-126). Before, an order submitted between the status read and the DELETE was hard-deleted. The detail page (`pages/accounting/purchase-orders/[poId].tsx`) now shows the API's refusal message instead of swallowing it.
 - 2026-09-25: R-126 — `[id].ts` PUT re-checks the status in the UPDATE's WHERE (K-137 pattern). Before, an order approved between the status read and the UPDATE still took the edit.
 - 2026-09-24: `[id].ts` PUT checks each replacement item's `gl_account_id`, except that each account is exempt up to the number of lines the PO already had on it (the PUT replaces all lines, so an untouched line on a since-deactivated account must not block an unrelated edit, but an EXTRA line on that account is new and is refused) with `gl/documentLineAccountGuard.assertDocumentLineAccounts` before the `po_items` DELETE+INSERT — refuses an inactive or another company's account (400, nothing written). Closes the "Known limit" a GL account merge left open for PO lines (see `gl/.claude.md`).
 - 2026-04-24: PR-8 L-tier IDOR code-smell cleanup
