@@ -22,6 +22,7 @@ import endImpersonation from '../../pages/api/auth/end-impersonation';
 import { applyCookies, assertDisposable, request, response } from './mfa-impersonation-postgres.helpers';
 import { deletePlantedDocuments, plantDocument } from './approval-document.helpers';
 import { fakeGotrueFetch, signSession, type FakeGotrue } from './r-032-fake-gotrue.helpers';
+import { log } from '@/lib/logger';
 
 assertDisposable();
 const pool = new Pool({ connectionString: process.env.DATABASE_URL, max: 2 });
@@ -165,13 +166,31 @@ describe('R-032 — approval decisions under platform-admin impersonation', () =
       'sb-access-token': await signSession(platformAdmin, crypto.randomUUID(), 'aal2'),
       'sb-refresh-token': 'admin-refresh',
     };
+    const countOf = async (query: string) => Number((await pool.query(query, [platformAdmin, target])).rows[0].n);
+    const auditQuery = `SELECT count(*) AS n FROM admin_audit_log
+      WHERE admin_user_id=$1 AND target_id=$2 AND action='impersonation_start'`;
+    const stashQuery = 'SELECT count(*) AS n FROM admin_impersonation_stash WHERE admin_user_id=$1 AND target_user_id=$2';
+    const [auditsBefore, stashesBefore] = [await countOf(auditQuery), await countOf(stashQuery)];
+    const errors = vi.spyOn(log, 'error');
     const started = response();
-    await startImpersonation(request(jar, 'POST', target), started.res);
+    let logged: unknown[][];
+    try {
+      await startImpersonation(request(jar, 'POST', target), started.res);
+    } finally {
+      logged = [...errors.mock.calls]; // mockRestore clears the recording
+      errors.mockRestore();
+    }
     expect(started.state.statusCode).toBe(500);
     const issued = ((started.headers.get('set-cookie') as string[] | undefined) ?? []).map((c) => c.split('=')[0]);
     expect(issued).not.toContain('sb-access-token');
     expect(issued).not.toContain('sb-admin-stash');
     expect(gotrue.minted).toContain(sessionId);
+    // L4: the refused start is still on the record, its stash is cleaned up, and
+    // the cleanup ran on a usable transaction (no 25P02 logged as a cleanup failure).
+    expect(await countOf(auditQuery)).toBe(auditsBefore + 1);
+    expect(await countOf(stashQuery)).toBe(stashesBefore);
+    const cleanupFailures = logged.filter(([message]) => String(message).includes('cleanup failed'));
+    expect(cleanupFailures).toEqual([]);
   });
 
   it('lets the same target approve on their OWN session', async () => {
