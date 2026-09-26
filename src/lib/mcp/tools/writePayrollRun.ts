@@ -198,9 +198,13 @@ export const approvePayRunTool: McpTool = {
         wroteNothing: true,
         journals: [],
         effects: [
-          `Approve run ${run.periodMonth}/${run.periodYear} and POST its journal: `
-          + `${run.employeeCount} employees, gross ${run.totalGross}, PAYE ${run.totalPaye}, `
-          + `UIF ${run.totalUif}, SDL ${run.totalSdl}, net ${run.totalNet}.`,
+          // A reopened run keeps its journal; the live call posts nothing and returns it.
+          run.journalEntryId
+            ? `Approve run ${run.periodMonth}/${run.periodYear}. It already carries journal `
+              + `${run.journalEntryId}, which is returned — nothing new is posted.`
+            : `Approve run ${run.periodMonth}/${run.periodYear} and POST its journal: `
+              + `${run.employeeCount} employees, gross ${run.totalGross}, PAYE ${run.totalPaye}, `
+              + `UIF ${run.totalUif}, SDL ${run.totalSdl}, net ${run.totalNet}.`,
         ],
         skipped: run.employeeCount === 0
           ? [{ id: run.id, reason: 'run_not_costed', detail: 'No lines — run calculate_pay_run first.' }]
