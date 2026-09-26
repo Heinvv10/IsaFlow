@@ -161,7 +161,7 @@ export async function postReceiptAsPettyCashJournal(
   // route's 4xx for it commits nothing and the document stays claimable.
   await assertJournalVatPeriodOpen(companyId, entryDate, postableLines);
 
-  const refusal = await claimCapturedDocumentForPosting(companyId, documentId, 'expense', fingerprint);
+  const refusal = await claimCapturedDocumentForPosting(companyId, documentId, 'expense', { spend: 'expense', ...fingerprint });
   if (refusal) {
     throw new CapturedDocumentAlreadyPostedError(refusal);
   }

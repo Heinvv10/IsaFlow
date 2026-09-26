@@ -22,9 +22,14 @@ import type { DbRow } from '@/lib/neon';
 import { als } from '@/lib/als';
 import { ClaimOutsideTransactionError } from '@/modules/accounting/services/core/documentClaimLock';
 import { releaseCapturedDocumentPostingClaim } from '@/modules/accounting/services/capture/capturePostingClaimRelease';
+import {
+  findPostedContent,
+  lockPostedContent,
+  PostedContentBusyError,
+} from '@/modules/accounting/services/capture/postedContentFence';
 
 export type ClaimSourceDocumentRefusal =
-  'not_found' | 'already_posted' | 'on_claim' | 'rejected' | 'duplicate' | 'busy';
+  'not_found' | 'already_posted' | 'on_claim' | 'rejected' | 'duplicate' | 'busy' | 'content_posted';
 
 const MESSAGE: Record<ClaimSourceDocumentRefusal, string> = {
   not_found: 'Source document not found',
@@ -33,6 +38,7 @@ const MESSAGE: Record<ClaimSourceDocumentRefusal, string> = {
   rejected: 'Document was rejected — reopen it before posting',
   duplicate: 'The same source document is on more than one line',
   busy: 'A source document is being posted by another request — retry in a moment',
+  content_posted: 'The same file was already posted from another upload — it cannot be booked twice',
 };
 
 /**
@@ -59,6 +65,38 @@ export class ClaimSourceDocumentError extends Error {
   constructor(readonly refusal: ClaimSourceDocumentRefusal, readonly documentId: string) {
     super(MESSAGE[refusal]);
     this.name = 'ClaimSourceDocumentError';
+  }
+}
+
+/**
+ * R-088: a slip whose FILE is already booked from another upload is refused,
+ * as is one file on two lines — each would expense the same purchase twice.
+ * Under the fingerprints' advisory locks, which hold to commit, so a concurrent
+ * post of the same file waits for this one. The UPDATE below stamps the bytes
+ * it books (`posted_content_sha256`), inside migration 710's unique index.
+ */
+async function refuseFilesAlreadyPosted(companyId: string, ids: string[]): Promise<void> {
+  const rows = (await sql`
+    SELECT id, raw_bytes_sha256 FROM captured_documents
+     WHERE id = ANY(${ids}::uuid[]) AND company_id = ${companyId}
+       AND raw_bytes_sha256 IS NOT NULL
+     ORDER BY id`) as DbRow[];
+  const byHash = new Map<string, string>();
+  for (const row of rows) {
+    const hash = String(row.raw_bytes_sha256);
+    if (byHash.has(hash)) throw new ClaimSourceDocumentError('duplicate', String(row.id));
+    byHash.set(hash, String(row.id));
+  }
+  try {
+    await lockPostedContent(companyId, [...byHash.keys()].map((h) => `sha:${h}`));
+  } catch (err) {
+    if (err instanceof PostedContentBusyError) throw new ClaimSourceDocumentError('busy', ids[0]!);
+    throw err;
+  }
+  for (const [contentSha256, id] of byHash) {
+    if (await findPostedContent(companyId, id, { contentSha256, spend: 'expense' })) {
+      throw new ClaimSourceDocumentError('content_posted', id);
+    }
   }
 }
 
@@ -100,6 +138,7 @@ export async function claimLineSourceDocuments(
   // does nothing, so the claim would guard nothing: refuse to run there.
   const client = als.getStore()?.client;
   if (!client) throw new ClaimOutsideTransactionError('source document');
+  await refuseFilesAlreadyPosted(companyId, ids);
   await client.query("SET LOCAL lock_timeout = '5s'");
   let claimed: DbRow[];
   try {
@@ -121,7 +160,8 @@ export async function claimLineSourceDocuments(
        FOR UPDATE
     )
     UPDATE captured_documents cd
-       SET posted_at = NOW(), status = 'matched', updated_at = NOW()
+       SET posted_at = NOW(), status = 'matched', updated_at = NOW(),
+           posted_content_sha256 = cd.raw_bytes_sha256
      WHERE cd.id IN (SELECT id FROM eligible)
        AND (SELECT COUNT(*) FROM eligible) = ${ids.length}
     RETURNING cd.id`) as DbRow[];

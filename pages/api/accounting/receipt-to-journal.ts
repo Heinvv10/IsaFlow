@@ -233,10 +233,10 @@ async function handler(req: CompanyAuthedRequest, res: NextApiResponse) {
   // A re-upload of a receipt already posted from ANOTHER document (R-088):
   // the checks above are all about this row, and a second upload is a second
   // row. Still before the first write, so the 409 commits nothing.
-  const duplicate = await checkReceiptDuplicate(companyId, documentId, extracted, confirmDuplicate === true);
+  const duplicate = await checkReceiptDuplicate(companyId, documentId, extracted, { confirmDuplicate: confirmDuplicate === true, userId });
   if (duplicate.kind !== 'clear') return apiResponse.conflict(res, duplicate.message, duplicate.details);
 
-  const refusal = await claimCapturedDocumentForPosting(companyId, documentId, null, duplicate.fingerprint);
+  const refusal = await claimCapturedDocumentForPosting(companyId, documentId, null, { spend: 'expense', ...duplicate.fingerprint });
   if (refusal) {
     return apiResponse.badRequest(res, CAPTURED_DOCUMENT_REFUSAL_MESSAGE[refusal]);
   }

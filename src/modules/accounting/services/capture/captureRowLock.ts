@@ -145,11 +145,13 @@ export async function lockCaptureEventForUpdate(
 // The claim itself lives in `capturePostingClaim.ts`; re-exported so every
 // posting route keeps importing the lock and the claim from one module.
 export {
+  CAPTURED_DOCUMENT_REFUSAL_ERROR_CODE,
   CAPTURED_DOCUMENT_REFUSAL_MESSAGE,
   CapturedDocumentAlreadyPostedError,
   claimCapturedDocumentForPosting,
   refusalForPosting,
   type CapturedDocumentRefusal,
+  type ClaimContent,
   type PostedReceiptFingerprint,
 } from './capturePostingClaim';
 

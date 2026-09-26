@@ -145,7 +145,7 @@ async function handler(req: CompanyAuthedRequest, res: NextApiResponse) {
   }
 
   // R-088: the same slip already posted from ANOTHER upload. Before any write, so the 409 commits nothing.
-  const duplicate = await checkReceiptDuplicate(companyId, documentId, extracted, confirmDuplicate === true);
+  const duplicate = await checkReceiptDuplicate(companyId, documentId, extracted, { confirmDuplicate: confirmDuplicate === true, userId });
   if (duplicate.kind !== 'clear') return apiResponse.conflict(res, duplicate.message, duplicate.details);
 
   // ------------------------------------------------------------------
@@ -200,7 +200,7 @@ async function handler(req: CompanyAuthedRequest, res: NextApiResponse) {
     // check-then-act, and this `posted_at IS NULL` UPDATE is what settles it. Last
     // point at which a 4xx is safe — a refusal matched no row, so
     // `withAuth`'s commit-on-4xx commits nothing.
-    const claimRefusal = await claimCapturedDocumentForPosting(companyId, documentId, 'expense', duplicate.fingerprint);
+    const claimRefusal = await claimCapturedDocumentForPosting(companyId, documentId, 'expense', { spend: 'expense', ...duplicate.fingerprint });
     if (claimRefusal) {
       return apiResponse.badRequest(res, CAPTURED_DOCUMENT_REFUSAL_MESSAGE[claimRefusal]);
     }
