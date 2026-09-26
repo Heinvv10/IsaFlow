@@ -52,9 +52,11 @@ const events = [raceEvent, journalFirstEvent, inboxFirstEvent, crossRaceEvent];
 const today = new Date().toISOString().slice(0, 10);
 let token = '';
 
-const extracted = () => ({
+// One slip number per document: these are different receipts, and since R-088
+// one vendor/date/total/VAT with the SAME number is refused as a re-upload.
+const extracted = (reference: string) => ({
   documentType: 'receipt', vendorName: 'Waltons Stationery', date: today,
-  referenceNumber: 'REC-K072C', currency: 'ZAR', subtotal: 1000, vatAmount: 150,
+  referenceNumber: reference, currency: 'ZAR', subtotal: 1000, vatAmount: 150,
   vatRate: 15, totalAmount: 1150, lineItems: [], rawText: '', confidence: 0.9,
   warnings: [], extractionMethod: 'vlm',
 });
@@ -63,7 +65,7 @@ async function seedDoc(id: string): Promise<void> {
   await pool.query(
     `INSERT INTO captured_documents(id,company_id,file_name,file_type,document_type,extracted_data,status)
      VALUES($1,$2,$3,'application/pdf','receipt',$4::jsonb,'pending')`,
-    [id, company, `k072c-${id}.pdf`, JSON.stringify(extracted())],
+    [id, company, `k072c-${id}.pdf`, JSON.stringify(extracted(`REC-K072C-${id.slice(0, 8)}`))],
   );
 }
 

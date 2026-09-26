@@ -5,7 +5,7 @@
  * employeeId is provided) or posts a direct GL journal entry (anonymous till
  * slip / petty-cash route) instead of a supplier invoice.
  *
- * Body: { employeeId?: string, costCentreId?: string, glAccountId?: string }
+ * Body: { employeeId?: string, costCentreId?: string, glAccountId?: string, confirmDuplicate?: boolean }
  */
 
 import type { NextApiResponse } from 'next';
@@ -26,6 +26,7 @@ import {
   refusalForPosting,
 } from '@/modules/accounting/services/capture/captureRowLock';
 import { isCaptureEventPostable } from '@/modules/accounting/services/capture/captureEventLock';
+import { checkReceiptDuplicate } from '@/modules/accounting/services/capture/receiptDuplicateGuard';
 import { MissingSystemAccountError } from '@/modules/accounting/services/gl/systemAccountKeys';
 import { getSystemAccountId } from '@/modules/accounting/services/gl/systemAccountResolver';
 import {
@@ -51,6 +52,7 @@ interface PostExpenseBody {
   employeeId?: string;
   costCentreId?: string;
   glAccountId?: string;
+  confirmDuplicate?: boolean;
 }
 
 async function handler(req: CompanyAuthedRequest, res: NextApiResponse) {
@@ -115,7 +117,7 @@ async function handler(req: CompanyAuthedRequest, res: NextApiResponse) {
   const documentId = event.documentId;
   const extracted = event.extractedData as ExtractedDocument;
 
-  const { employeeId, costCentreId, glAccountId: bodyGlAccountId } = req.body as PostExpenseBody;
+  const { employeeId, costCentreId, glAccountId: bodyGlAccountId, confirmDuplicate } = req.body as PostExpenseBody;
 
   // ------------------------------------------------------------------
   // 2. Resolve GL expense account
@@ -141,6 +143,10 @@ async function handler(req: CompanyAuthedRequest, res: NextApiResponse) {
       { companyId, eventId, err: err.message }, 'capture-post-expense');
     return apiResponse.badRequest(res, 'VAT Input system account not configured — set it up in Default Accounts');
   }
+
+  // R-088: the same slip already posted from ANOTHER upload. Before any write, so the 409 commits nothing.
+  const duplicate = await checkReceiptDuplicate(companyId, documentId, extracted, confirmDuplicate === true);
+  if (duplicate.kind !== 'clear') return apiResponse.conflict(res, duplicate.message, duplicate.details);
 
   // ------------------------------------------------------------------
   // 3a. Employee path → create expense claim + auto-submit
@@ -194,7 +200,7 @@ async function handler(req: CompanyAuthedRequest, res: NextApiResponse) {
     // check-then-act, and this `posted_at IS NULL` UPDATE is what settles it. Last
     // point at which a 4xx is safe — a refusal matched no row, so
     // `withAuth`'s commit-on-4xx commits nothing.
-    const claimRefusal = await claimCapturedDocumentForPosting(companyId, documentId, 'expense');
+    const claimRefusal = await claimCapturedDocumentForPosting(companyId, documentId, 'expense', duplicate.fingerprint);
     if (claimRefusal) {
       return apiResponse.badRequest(res, CAPTURED_DOCUMENT_REFUSAL_MESSAGE[claimRefusal]);
     }
@@ -254,15 +260,10 @@ async function handler(req: CompanyAuthedRequest, res: NextApiResponse) {
   let result;
   try {
     result = await postReceiptAsPettyCashJournal({
-      companyId,
-      userId,
-      eventId,
-      documentId,
-      extracted,
+      companyId, userId, eventId, documentId, extracted,
       confirmedVendorName: event.documentVendorName,
-      resolvedGlAccountId,
-      vatInputAccountId,
-      costCentreId,
+      resolvedGlAccountId, vatInputAccountId, costCentreId,
+      fingerprint: duplicate.fingerprint,
     });
   } catch (err) {
     if (err instanceof ReceiptDoesNotBalanceError) {

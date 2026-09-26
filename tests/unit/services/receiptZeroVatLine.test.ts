@@ -64,6 +64,12 @@ vi.mock('@/modules/accounting/services/gl/journalEntryService', () => ({
 vi.mock('@/modules/accounting/services/gl/systemAccountResolver', () => ({
   getSystemAccountId: vi.fn(async (key: string) => `acct-${key}`),
 }));
+// R-088's duplicate check has its own real-PG coverage (r088-receipt-content-dedupe); here it is clear.
+vi.mock('@/modules/accounting/services/capture/receiptDuplicateGuard', () => ({
+  checkReceiptDuplicate: vi.fn(async () => ({
+    kind: 'clear', fingerprint: { contentSha256: null, receiptKey: null, duplicateOf: null },
+  })),
+}));
 
 // receiptToJournalService is deliberately NOT mocked — the whole point is that
 // the REAL builder emits the zero leg the route has to filter.
