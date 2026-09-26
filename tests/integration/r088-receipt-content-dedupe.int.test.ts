@@ -41,10 +41,11 @@ vi.mock('@/lib/neon', async (importOriginal) => {
 import receiptRoute from '../../pages/api/accounting/receipt-to-journal';
 import postExpenseRoute from '../../pages/api/accounting/capture/[id]/post-expense';
 import actionRoute from '../../pages/api/accounting/document-capture-action';
+import capturePostRoute from '../../pages/api/accounting/capture/[id]/post';
 import { clearSystemAccountCache } from '@/modules/accounting/services/gl/systemAccountResolver';
 import { assertDisposable } from './mfa-impersonation-postgres.helpers';
 import {
-  accounts, bankCredit, call, claimLineCount, company, employee, errorOf, journalCount, lockWaiters,
+  accounts, bankCredit, call, claimLineCount, company, employee, errorOf, invoiceCount, journalCount, lockWaiters,
   otherCompany, pool, postedAt, purge, seed, stamped, upload, uploadToInbox, user, type Result,
 } from './r088-receipt-content-dedupe.helpers';
 
@@ -54,6 +55,8 @@ const receiptToJournal = (documentId: string, extra: Record<string, unknown> = {
   call(receiptRoute, '/api/accounting/receipt-to-journal', { documentId, ...extra }, undefined, owner);
 const postExpense = (eventId: string, body: Record<string, unknown>) =>
   call(postExpenseRoute, `/api/accounting/capture/${eventId}/post-expense`, body, eventId);
+const inboxPost = (eventId: string) =>
+  call(capturePostRoute, `/api/accounting/capture/${eventId}/post`, {}, eventId);
 const reject = (documentId: string) =>
   call(actionRoute, '/api/accounting/document-capture-action', { id: documentId, action: 'reject' });
 
@@ -110,6 +113,17 @@ describe('R-088 a receipt posts once however many times it is uploaded', () => {
     expect(await journalCount([repeat])).toBe(1);
     expect(await bankCredit()).toBe(before + 1150);
     expect(await stamped(repeat)).toMatchObject({ duplicate_of: original, confirmed_by: user });
+  });
+
+  it('names the same-file match, not an earlier same-details one, and holds it final', async () => {
+    const byDetails = await upload('pref-details', { total: 3335 });
+    expect((await receiptToJournal(byDetails)).state.statusCode).toBe(200);
+    const byFile = await upload('pref-file', { total: 3565 });
+    expect((await receiptToJournal(byFile)).state.statusCode).toBe(200);
+    // The same file as byFile, read with byDetails' figures.
+    const copy = await upload('pref-file', { total: 3335 });
+    expectDuplicateRefusal(await receiptToJournal(copy, { confirmDuplicate: true }), byFile, 'file');
+    expect(await journalCount([copy])).toBe(0);
   });
 
   it('posts a same-total receipt from the same vendor that printed a different slip number', async () => {
@@ -198,6 +212,12 @@ describe('R-088 a receipt posts once however many times it is uploaded', () => {
     // releases the claim, so the slip was never booked and the re-upload posts.
     const draft = await upload('slip-waltons-3450', { total: 3450, confidence: 0.5 });
     expect((await receiptToJournal(draft)).state.statusCode).toBe(200);
+    // A confirmed repeat of it, released the same way, gives back every stamp.
+    const repeat = await upload('slip-waltons-3450-repeat', { total: 3450, confidence: 0.5 });
+    expect((await receiptToJournal(repeat, { confirmDuplicate: true })).state.statusCode).toBe(200);
+    expect(await stamped(repeat)).toMatchObject({ duplicate_of: draft, confirmed_by: user });
+    expect((await reject(repeat)).state.statusCode).toBe(200);
+    expect(await stamped(repeat)).toEqual({ content: null, key: null, duplicate_of: null, confirmed_by: null });
     expect((await reject(draft)).state.statusCode).toBe(200);
     expect(await postedAt(draft)).toBeNull();
 
@@ -208,15 +228,15 @@ describe('R-088 a receipt posts once however many times it is uploaded', () => {
 
   // Request A is held right after its claim, locks taken and nothing committed,
   // while request B runs; B must wait for A, then read A's posting and refuse.
-  async function race(first: string, second: string) {
+  async function race(first: string, second: string, post: (id: string) => Promise<Result> = receiptToJournal) {
     let letGo!: () => void;
     const entered = new Promise<void>((resolve) => { hold.entered = resolve; });
     hold.release = new Promise<void>((resolve) => { letGo = resolve; });
     hold.documentId = first;
 
-    const a = receiptToJournal(first);
+    const a = post(first);
     await entered;
-    const b = receiptToJournal(second);
+    const b = post(second);
     let parked = false;
     for (let i = 0; i < 50 && !parked; i++) {
       parked = (await lockWaiters()) > 0;
@@ -249,6 +269,19 @@ describe('R-088 a receipt posts once however many times it is uploaded', () => {
     expect(await journalCount([first, second])).toBe(1);
     expect(ra.state.statusCode).toBe(200);
     expectDuplicateRefusal(rb, first, 'details');
+    expect(parked).toBe(true);
+  });
+
+  it('lands exactly one of two concurrent capture-inbox invoices of the same file', async () => {
+    // No receipt pre-check on this route: the claim's own lock orders them.
+    const first = await uploadToInbox('inv-waltons-3680', { total: 3680, invoice: true });
+    const second = await uploadToInbox('inv-waltons-3680', { total: 3680, invoice: true });
+    const events = new Map([[first.documentId, first.eventId], [second.documentId, second.eventId]]);
+    const { ra, rb, parked } = await race(first.documentId, second.documentId, (id) => inboxPost(events.get(id)!));
+
+    expect(ra.state.statusCode).toBe(200);
+    expect(rb.state.statusCode, JSON.stringify(rb.state.body)).toBe(409);
+    expect(await invoiceCount(first.documentId) + await invoiceCount(second.documentId)).toBe(1);
     expect(parked).toBe(true);
   });
 });

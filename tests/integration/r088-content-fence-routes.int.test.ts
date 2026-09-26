@@ -134,6 +134,20 @@ describe('R-088 an evidence attach spends a slip for expense routes only', () =>
     expect(refused.state.statusCode).toBe(409);
     expect(await journalCount([receipt])).toBe(0);
   });
+
+  it('refuses a receipt journal for a slip that only evidences a provisional', async () => {
+    // No invoice in between: the evidence attach alone must count on an expense route.
+    const je = await seedProvisional(3220);
+    const evidence = await upload('evidence-3220', { total: 3220 });
+    expect((await call(attachRoute, `/api/accounting/provisional/${je}/attach`,
+      { capturedDocumentId: evidence }, undefined, company, { jeId: je })).state.statusCode).toBe(200);
+
+    const receipt = await upload('evidence-3220', { total: 3220 });
+    const refused = await receiptToJournal(receipt);
+    expect(refused.state.statusCode).toBe(409);
+    expect(errorOf(refused).details).toMatchObject({ earlierDocumentId: evidence, matchedOn: 'file' });
+    expect(await journalCount([receipt])).toBe(0);
+  });
 });
 
 // The fence behind the checks: a writer that stamps but skips the check —
