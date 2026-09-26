@@ -135,6 +135,23 @@ describe('R-088 an evidence attach spends a slip for expense routes only', () =>
     expect(await journalCount([receipt])).toBe(0);
   });
 
+  it('counts a pre-710 slip that is both invoiced and evidences a provisional', async () => {
+    // The R-127 same-document flow before 710: the inbox raised the invoice and
+    // the auto-attach evidenced a provisional with the same slip; no stamp.
+    const first = await uploadToInbox('pre710-3335', { total: 3335, invoice: true });
+    expect((await inboxPost(first.eventId)).state.statusCode).toBe(200);
+    const je = await seedProvisional(3335);
+    await pool.query('UPDATE captured_documents SET posted_content_sha256 = NULL WHERE id = $1', [first.documentId]);
+    await pool.query(
+      'UPDATE gl_journal_entries SET source_document_id = $1, evidenced_at = NOW(), needs_evidence = false WHERE id = $2',
+      [first.documentId, je]);
+
+    // The same file, its total misread, so the invoice duplicate gate does not see it.
+    const copy = await uploadToInbox('pre710-3335', { total: 3535, invoice: true });
+    expectContentRefusal(await inboxPost(copy.eventId), 409);
+    expect(await invoiceCount(copy.documentId)).toBe(0);
+  });
+
   it('refuses a receipt journal for a slip that only evidences a provisional', async () => {
     // No invoice in between: the evidence attach alone must count on an expense route.
     const je = await seedProvisional(3220);
