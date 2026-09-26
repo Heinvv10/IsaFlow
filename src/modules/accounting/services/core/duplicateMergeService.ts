@@ -12,6 +12,10 @@ import { mergeCustomers } from '../ar/customerMergeService';
 
 export interface MergeResult {
   reassignedTransactions: number;
+  /** Customer merges only: recurring invoices/templates moved paused (K-061). */
+  pausedRecurring?: number;
+  /** Customer merges only: the duplicate's portal logins switched off. */
+  revokedPortalLogins?: number;
 }
 
 /** A merge refused before anything moved; its message is safe to show. */
@@ -73,7 +77,11 @@ export async function mergeEntities(
   // tables and leave the duplicate's recurring invoices billing a deleted customer.
   if (entityType === 'customer') {
     const merged = await mergeCustomers(companyId, duplicateId, primaryId);
-    return { reassignedTransactions: merged.movedDocuments };
+    return {
+      reassignedTransactions: merged.movedDocuments,
+      pausedRecurring: merged.pausedRecurring,
+      revokedPortalLogins: merged.revokedPortalLogins,
+    };
   }
   if (entityType === 'supplier') return mergeSuppliers(companyId, primaryId, duplicateId);
   return mergeItems(companyId, primaryId, duplicateId);

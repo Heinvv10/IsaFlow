@@ -86,3 +86,20 @@ AssertionError: expected 200 to be 400 // Object.is equality
 AssertionError: expected 500 to be 400 // Object.is equality
  Test Files  1 failed (1)
       Tests  3 failed (3)
+
+================ review round 1 RED: new/changed tests against customerMergeService.ts at b69461a9e (before the round-2 fix) ================
+   × a customer refund holding a bank line and then locking the customer does not deadlock against a merge 1093ms
+AssertionError: expected 1 to be 2 // Object.is equality
+AssertionError: expected { …(25) } to deeply equal { …(25) }
+AssertionError: expected 500 to be 200 // Object.is equality
+AssertionError: expected '{"success":false,"error":{"code":"BAD…' to match /different customers/
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 5 ⎯⎯⎯⎯⎯⎯⎯
+{"level":"error","message":"customer-merge POST failed","data":{"error":"deadlock detected","module":"accounting"}}
+{"level":"error","message":"Internal Server Error","component":"ApiResponse","data":{"message":"deadlock detected","stack":"error: deadlock detected\n    at /home/hein/Workspace/IsaFlow/.worktrees/k061-customer-merge/node_modules/pg/lib/cli
+{"level":"error","message":"withTransaction rolled back (request savepoint)","component":"DB","data":{"message":"deadlock detected"}}
+   × moves every census reference off the duplicate and counts the documents it re-parented 281ms
+   × moves every census reference to the target and leaves the source with none 307ms
+   × moves the source's recurring invoices AND recurring transaction templates paused, counts both, leaves the target's running 472ms
+   × refuses the same id spelled in two letter cases as a self-merge 640ms
+ Test Files  4 failed | 1 passed (5)
+      Tests  5 failed | 22 passed (27)

@@ -86,12 +86,16 @@ it('revokes the source\'s portal logins and leaves the target\'s alone', async (
   expect(rows).toEqual([{ client_id: source, is_active: false }, { client_id: target, is_active: true }]);
 });
 
-it('moves the source\'s recurring templates paused, reports how many, and leaves the target\'s running', async () => {
+it('moves the source\'s recurring invoices AND recurring transaction templates paused, counts both, leaves the target\'s running', async () => {
   const result = await h.merge({ source_id: source, target_id: target });
-  expect((result.state.body as { data: { pausedRecurring: number } }).data.pausedRecurring).toBe(1);
+  expect((result.state.body as { data: { pausedRecurring: number } }).data.pausedRecurring).toBe(2);
   const { rows } = await pool.query(
     'SELECT template_name, status FROM recurring_invoices WHERE client_id=$1 ORDER BY template_name', [target]);
   expect(rows).toEqual([{ template_name: 'R-s', status: 'paused' }, { template_name: 'R-t', status: 'active' }]);
+  const t = await pool.query(
+    `SELECT name, is_active FROM recurring_transaction_templates
+     WHERE company_id=$1 AND template_data->>'clientId' = $2::text ORDER BY name`, [h.companyA, target]);
+  expect(t.rows).toEqual([{ name: 'T-s', is_active: false }, { name: 'T-t', is_active: true }]);
 });
 
 it('keeps the target\'s primary contact and default address; the moved ones are not primary or default', async () => {

@@ -50,6 +50,11 @@ it('refuses a merge into itself, saying why', async () => {
   expect(JSON.stringify(result.state.body)).toMatch(/different customers/);
 });
 
+it('refuses the same id spelled in two letter cases as a self-merge', async () => {
+  const result = await refusedUntouched({ source_id: source.toUpperCase(), target_id: source });
+  expect(JSON.stringify(result.state.body)).toMatch(/different customers/);
+});
+
 it('refuses a soft-deleted target', async () => {
   await pool.query('UPDATE customers SET deleted_at = NOW() WHERE id=$1', [target]);
   await refusedUntouched({ source_id: source, target_id: target });

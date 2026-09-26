@@ -32,7 +32,10 @@ it('moves every census reference off the duplicate and counts the documents it r
   const result = await h.mergeDuplicate({ entityType: 'customer', primaryId: primary, duplicateId: duplicate });
   expect(result.state.statusCode).toBe(200);
   // 2 invoices, 1 receipt, 1 credit note, 1 quote, 1 sales order.
-  expect((result.state.body as { data: { reassignedTransactions: number } }).data.reassignedTransactions).toBe(6);
+  const data = (result.state.body as { data: { reassignedTransactions: number; pausedRecurring: number } }).data;
+  expect(data.reassignedTransactions).toBe(6);
+  // The page shows this count: one recurring invoice + one recurring template.
+  expect(data.pausedRecurring).toBe(2);
   expect(await h.references(duplicate)).toEqual(Object.fromEntries(MOVED.map(([t, c]) => [`${t}.${c}`, 0])));
   const { rows } = await pool.query(
     `SELECT (SELECT status FROM recurring_invoices WHERE template_name='R-d' AND company_id=$1) AS recurring,

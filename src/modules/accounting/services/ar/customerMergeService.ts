@@ -11,7 +11,8 @@
  * Product rules (Hein, 2026-09-26):
  *   - both customers with a dunning override → refused, nothing written;
  *   - the source's portal logins are deactivated, never moved;
- *   - the source's active recurring templates move PAUSED, and are counted;
+ *   - the source's active recurring invoices AND recurring transaction
+ *     templates (customer id inside template_data) move PAUSED, and are counted;
  *   - the source keeps its name + ' [MERGED]' and its Sage history. A Sage
  *     re-sync matches customers by name and so re-creates the old name as a
  *     new, empty customer; the moved Sage invoices are not booked twice.
@@ -32,10 +33,11 @@ async function refuseOrLock(tx: TxSql, companyId: string, sourceId: string, targ
   // Locked in id order so two merges of the same pair, in either direction,
   // queue instead of deadlocking. A merge that waited re-reads deleted_at
   // after the first commits, finds its customer gone, and is refused.
-  // NO KEY UPDATE, not UPDATE: a bank allocation holding a line this merge is
-  // about to wait for inserts a receipt naming the customer, and that FK takes
-  // FOR KEY SHARE on the customer row. FOR UPDATE would block it — a 40P01
-  // cycle. The merge changes no key column of customers, so it needs no more.
+  // NO KEY UPDATE, not UPDATE: a receipt INSERT naming the customer takes FK
+  // FOR KEY SHARE on its row, which FOR UPDATE would block for the whole
+  // merge. The merge changes no key column of customers, so it needs no more,
+  // and NO KEY UPDATE still conflicts with itself. Taken AFTER the settlement
+  // rows — see mergeCustomers.
   const live = await tx`
     SELECT id FROM customers
     WHERE id IN (${sourceId}::UUID, ${targetId}::UUID)
@@ -147,29 +149,57 @@ async function moveRecords(tx: TxSql, c: string, s: string, t: string): Promise<
   `;
 }
 
+/**
+ * Both recurring stores move to the target PAUSED (Hein): `recurring_invoices`
+ * by column, and `recurring_transaction_templates` whose customer_invoice
+ * template names the customer inside its JSON (`template_data.clientId`, read
+ * by recurringTransactionInvoices). Returns how many running ones were paused.
+ */
+async function moveRecurring(tx: TxSql, c: string, s: string, t: string): Promise<number> {
+  const paused = await tx`
+    UPDATE recurring_invoices SET status = 'paused'
+    WHERE client_id = ${s}::UUID AND company_id = ${c}::UUID AND status = 'active'
+    RETURNING id
+  `;
+  await tx`UPDATE recurring_invoices SET client_id = ${t}::UUID WHERE client_id = ${s}::UUID AND company_id = ${c}::UUID`;
+  const pausedTemplates = await tx`
+    UPDATE recurring_transaction_templates SET is_active = false
+    WHERE company_id = ${c}::UUID AND entity_type = 'customer_invoice'
+      AND lower(template_data->>'clientId') = ${s} AND is_active = true
+    RETURNING id
+  `;
+  await tx`
+    UPDATE recurring_transaction_templates
+    SET template_data = jsonb_set(template_data, '{clientId}', to_jsonb(${t}::TEXT))
+    WHERE company_id = ${c}::UUID AND entity_type = 'customer_invoice'
+      AND lower(template_data->>'clientId') = ${s}
+  `;
+  return paused.length + pausedTemplates.length;
+}
+
 export async function mergeCustomers(
   companyId: string,
-  sourceId: string,
-  targetId: string,
+  sourceIdIn: string,
+  targetIdIn: string,
 ): Promise<CustomerMergeResult> {
+  // Callers validate with a case-insensitive UUID pattern; one spelling here
+  // makes "same customer" a string comparison and the JSON match exact.
+  const sourceId = sourceIdIn.toLowerCase();
+  const targetId = targetIdIn.toLowerCase();
   if (sourceId === targetId) {
     throw new ArRequestError('source_id and target_id must be different customers');
   }
   return withTransaction(async (tx) => {
-    await refuseOrLock(tx, companyId, sourceId, targetId);
+    // Settlement rows BEFORE the customers: a bank allocation or refund takes
+    // the bank line and then the customer (lockContactForRefund FOR UPDATE, or
+    // the FK KEY SHARE of its receipt INSERT). Customers first would be the
+    // inverse order — a 40P01 cycle. Locks are not writes: every refusal
+    // below still precedes the first write.
     const locked = await lockSettlementRows(tx, companyId, sourceId);
+    await refuseOrLock(tx, companyId, sourceId, targetId);
     const others = await moveDocuments(tx, companyId, sourceId, targetId);
     await moveRecords(tx, companyId, sourceId, targetId);
-
-    const paused = await tx`
-      UPDATE recurring_invoices SET status = 'paused'
-      WHERE client_id = ${sourceId}::UUID AND company_id = ${companyId}::UUID AND status = 'active'
-      RETURNING id
-    `;
-    await tx`
-      UPDATE recurring_invoices SET client_id = ${targetId}::UUID
-      WHERE client_id = ${sourceId}::UUID AND company_id = ${companyId}::UUID
-    `;
+    const pausedRecurring = await moveRecurring(tx, companyId, sourceId, targetId);
     // portal_access has no company_id and no RLS: scope it through the
     // customer, which refuseOrLock proved is this company's.
     const revoked = await tx`
@@ -187,7 +217,7 @@ export async function mergeCustomers(
       merged: true,
       target_id: targetId,
       movedDocuments: locked.payments + locked.invoices + others,
-      pausedRecurring: paused.length,
+      pausedRecurring,
       revokedPortalLogins: revoked.length,
     };
   });
