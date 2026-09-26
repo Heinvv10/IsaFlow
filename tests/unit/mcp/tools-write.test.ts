@@ -474,6 +474,9 @@ describe('write-tool manifest invariants', () => {
       // completing a reconciliation marks transactions terminally reconciled.
       'close_fiscal_period',
       'finalize_invoice',
+      // link_document_to_journal posts no journal — it changes what blocks a
+      // VAT exception/lock, same reasoning as lock_vat_period below.
+      'link_document_to_journal',
       // lock_vat_period posts no journal, and requires write:post anyway: it
       // freezes a filed return, and a control an agent can set without the
       // posting permission is not a control.
@@ -687,6 +690,9 @@ describe('write-tool manifest invariants', () => {
       end_employee_component: { ...KEY },
       calculate_pay_run: { ...KEY },
       approve_pay_run: { ...KEY },
+      // Refuses on the missing action before reading anything; behaviour in
+      // journalDocumentLinkService.test.ts and journalDocumentLinksRoute.test.ts.
+      link_document_to_journal: { ...KEY },
     };
     let corpus = JSON.stringify(MCP_TOOLS.map((t) => ({ n: t.name, s: t.inputSchema })));
     for (const name of WRITE_NAMES) {

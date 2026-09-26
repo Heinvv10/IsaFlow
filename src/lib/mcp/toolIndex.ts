@@ -36,6 +36,8 @@ import { vatStatusTool } from './tools/vat';
 import { chartOfAccountsHealthTool, dataIntegrityChecksTool } from './tools/integrity';
 import { lockVatPeriodTool, vat201ExportTool, vatReconciliationTool } from './tools/vatReports';
 import { markVatDeclaredElsewhereTool } from './tools/vatDeclaredElsewhere';
+import { vatExceptionsTool } from './tools/vatExceptions';
+import { linkDocumentToJournalTool } from './tools/journalDocumentLink';
 import { listAgentPostingsTool } from './tools/agentActivity';
 import { auditTrailTool } from './tools/auditTrail';
 import {
@@ -173,6 +175,7 @@ export const MCP_TOOLS = [
   vatStatusTool,
   vatReconciliationTool,
   vat201ExportTool,
+  vatExceptionsTool,
   dataIntegrityChecksTool,
   chartOfAccountsHealthTool,
   listAgentPostingsTool,
@@ -313,6 +316,9 @@ export const MCP_TOOLS = [
   // Marks/unmarks a document "VAT declared outside IsaFlow" — never posts to
   // the GL. requiresPost because it changes what blocks a VAT period lock.
   markVatDeclaredElsewhereTool,
+  // Links/unlinks a captured document to a posted journal — never posts to
+  // the GL. requiresPost because it changes what blocks a VAT exception/lock.
+  linkDocumentToJournalTool,
 ] as const;
 
 export const mcpRegistry = new McpRegistry();
