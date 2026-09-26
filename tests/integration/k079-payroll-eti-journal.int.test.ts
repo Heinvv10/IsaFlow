@@ -242,7 +242,15 @@ describe('K-079: approving a run that claims ETI', () => {
     expect(reopened.statusCode).toBe(200);
     expect(await header(id)).toEqual({ status: 'calculated', journal_entry_id: journalId });
 
-    const again = await callApprove(id);
+    // Posting checks do not apply to a run that already carries its journal:
+    // with September closed AND a payroll account deactivated, re-approval
+    // still returns the journal it posted before.
+    await pool.query(
+      `UPDATE fiscal_periods SET status='closed'
+        WHERE company_id=$1 AND start_date <= DATE '2026-09-30' AND end_date >= DATE '2026-09-30'`, [companyA]);
+    await pool.query("UPDATE gl_accounts SET is_active=false WHERE company_id=$1 AND account_code='2160'", [companyA]);
+    const again = await callApprove(id).finally(() =>
+      pool.query("UPDATE gl_accounts SET is_active=true WHERE company_id=$1 AND account_code='2160'", [companyA]));
     expect(again.statusCode).toBe(200);
     expect(approvedJournal(again)).toBe(journalId);
     expect(await header(id)).toEqual({ status: 'approved', journal_entry_id: journalId });

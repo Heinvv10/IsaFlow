@@ -319,14 +319,15 @@ describe('post_payroll_journal — the dry run is the deliverable', () => {
     expect(postPayrollRunJournal).not.toHaveBeenCalled();
   });
 
-  it('reports a deactivated target account rather than dropping the line', async () => {
+  it('refuses a deactivated target account in the preview, as the live post would', async () => {
     vi.mocked(buildPayrollJournalPlan).mockResolvedValue(plan({
       lines: PLAN.lines.map((l) => (l.accountCode === '1110' ? { ...l, inactiveAccount: true } : l)),
-      advisories: [{ code: 'inactive_target_account', detail: 'posts into deactivated accounts: 1110' }],
+      blockers: [{ code: 'inactive_target_account', detail: 'posts into deactivated accounts: 1110' }],
     }));
-    const out = json(await postPayrollJournalTool.handler({ run_id: RUN, dry_run: true, ...KEY }, ctx));
-    expect(out.journals[0].lines.find((l: { accountCode: string }) => l.accountCode === '1110').credit).toBe(76000);
-    expect(out.advisories[0].code).toBe('inactive_target_account');
+    const res = await postPayrollJournalTool.handler({ run_id: RUN, dry_run: true, ...KEY }, ctx);
+    expect(res.isError).toBe(true);
+    expect(text(res)).toContain('inactive_target_account');
+    expect(postPayrollRunJournal).not.toHaveBeenCalled();
   });
 
   it('the dry run refuses everything the live path would refuse', async () => {

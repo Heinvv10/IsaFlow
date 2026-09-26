@@ -147,8 +147,9 @@ export const approvePayRunTool: McpTool = {
     + '(including employer UIF and SDL) / CR PAYE, UIF, SDL, deductions and net pay. '
     + 'This is not a status flip: it writes to the general ledger, and it requires the '
     + 'write:post permission. Approvable from draft, calculated or processed. '
-    + 'Run calculate_pay_run first and check the totals — approving an uncosted run posts nothing '
-    + 'but marks the month done. Reversal is by a reversing journal, not by re-approving.',
+    + 'Run calculate_pay_run first and check the totals — an uncosted run, or one whose journal '
+    + 'cannot post (closed period, deactivated account, missing account), is refused before it is '
+    + 'approved. Reversal is by a reversing journal, not by re-approving.',
   scope: 'write:payroll',
   write: true,
   requiresPost: true,

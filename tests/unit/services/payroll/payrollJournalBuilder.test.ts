@@ -310,23 +310,20 @@ describe('buildPayrollJournalPlan — what would stop the post', () => {
   });
 });
 
-describe('buildPayrollJournalPlan — deactivated accounts are reported, never filtered', () => {
-  it('still builds the journal into an inactive account and reports it as an advisory', async () => {
-    // gl_accounts.is_active is a PICKER flag. Brightsphere carries all five
-    // payroll accounts deactivated and Velocity Fibre carries 1110 deactivated;
-    // the poster does not filter on is_active, so the money DOES land there.
-    // Dropping the line would understate the journal; silence would hide that
-    // the balance is parked where no human can pick it.
+describe('buildPayrollJournalPlan — deactivated accounts block the post, and the line is still built', () => {
+  it('builds the journal into an inactive account and BLOCKS it, naming the account', async () => {
+    // Brightsphere carries all five payroll accounts deactivated and Velocity
+    // Fibre 1110. The line is kept (dropping it would understate the journal),
+    // but postJournalEntry refuses a deactivated account, so the plan must too —
+    // an advisory here greenlit a dry run the live post refused (K-079 review).
     routeMock(standardRoutes({
       accounts: ACCOUNTS.map((a) => (a.account_code === '1110' ? { ...a, is_active: false } : a)),
     }));
     const plan = await buildPayrollJournalPlan(COMPANY, RUN);
 
     expect(plan!.lines.find((l) => l.accountCode === '1110')!.credit).toBeCloseTo(76000, 2);
-    expect(plan!.blockers.map((b) => b.code)).not.toContain('inactive_target_account');
-    const advisory = plan!.advisories.find((a) => a.code === 'inactive_target_account');
-    expect(advisory).toBeDefined();
-    expect(advisory!.detail).toContain('1110');
+    const blocker = plan!.blockers.find((b) => b.code === 'inactive_target_account');
+    expect(blocker!.detail).toContain('1110');
   });
 
   it('never puts is_active in the account query — a mocked row set cannot catch that', async () => {
@@ -340,12 +337,12 @@ describe('buildPayrollJournalPlan — deactivated accounts are reported, never f
     expect(accountQuery!.sql).not.toMatch(/is_active\s*=/);
   });
 
-  it('reports every inactive target account, not just the first', async () => {
+  it('names every inactive target account, not just the first', async () => {
     routeMock(standardRoutes({ accounts: ACCOUNTS.map((a) => ({ ...a, is_active: false })) }));
     const plan = await buildPayrollJournalPlan(COMPANY, RUN);
-    const advisory = plan!.advisories.find((a) => a.code === 'inactive_target_account');
+    const blocker = plan!.blockers.find((b) => b.code === 'inactive_target_account');
     for (const code of ['5200', '2140', '2150', '2160', '1110', '2175']) {
-      expect(advisory!.detail).toContain(code);
+      expect(blocker!.detail).toContain(code);
     }
   });
 });
