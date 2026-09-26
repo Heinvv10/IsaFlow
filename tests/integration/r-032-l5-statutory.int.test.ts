@@ -3,8 +3,9 @@
  * with SARS and closes no year. VAT201 filing through the ISV channel, the
  * manual "mark as submitted", the VAT return submission and the year-end close
  * each answer 403 IMPERSONATION_FORBIDDEN with nothing written — no eFiling
- * event, no submission status change, no VAT return, no journal — and no
- * outbound SARS call (every fetch outside GoTrue is faked and recorded).
+ * event, no submission status change, no VAT return, no journal, no PAYG
+ * wallet movement — and no outbound SARS call (every fetch outside GoTrue is
+ * faked and recorded).
  */
 import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
 import { Pool } from 'pg';
@@ -36,12 +37,29 @@ beforeAll(async () => {
   vi.stubEnv('SARS_EFILING_ISV_LOGIN', 'r032');
   vi.stubEnv('SARS_EFILING_ISV_KEY', 'r032');
   await pool.query(`UPDATE companies SET vat_number='4123456789' WHERE id=$1`, [fx.company]);
+  // PAYG, so the year-end route is metered: a refusal must not debit (and refund) the wallet.
+  await pool.query(`INSERT INTO subscriptions(company_id,plan_id,status)
+    SELECT $1, id, 'active' FROM plans WHERE code='payg'`, [fx.company]);
+  await pool.query('INSERT INTO flow_wallet(company_id,balance_flows) VALUES($1,1000)', [fx.company]);
 });
 afterAll(async () => {
   try {
     await pool.query('DELETE FROM sars_efiling_events WHERE company_id=$1', [fx.company]);
     await pool.query('DELETE FROM sars_submissions WHERE company_id=$1', [fx.company]);
     await pool.query('DELETE FROM vat_returns WHERE company_id=$1', [fx.company]);
+    // flow_ledger is append-only by trigger (the own-session close below is
+    // metered: debit, then refund). Same teardown as the k095 suites.
+    const c = await pool.connect();
+    try {
+      await c.query('BEGIN');
+      await c.query('SET LOCAL session_replication_role = replica');
+      await c.query('DELETE FROM flow_ledger WHERE company_id=$1', [fx.company]);
+      await c.query('DELETE FROM flow_wallet WHERE company_id=$1', [fx.company]);
+      await c.query('DELETE FROM subscriptions WHERE company_id=$1', [fx.company]);
+      await c.query('COMMIT');
+    } finally {
+      c.release();
+    }
     await fx.tearDown();
   } finally { await pool.end(); }
 });
@@ -52,7 +70,9 @@ const state = async () => (await pool.query(`SELECT
        FROM sars_submissions WHERE company_id=$1) AS submissions,
     (SELECT count(*) FROM vat_returns WHERE company_id=$1) AS vat_returns,
     (SELECT count(*) FROM gl_journal_entries WHERE company_id=$1) AS journals,
-    (SELECT count(*) FROM audit_log WHERE company_id=$1) AS audits`, [fx.company])).rows[0];
+    (SELECT count(*) FROM audit_log WHERE company_id=$1) AS audits,
+    (SELECT count(*) FROM flow_ledger WHERE company_id=$1) AS flow_ledger,
+    (SELECT balance_flows FROM flow_wallet WHERE company_id=$1) AS wallet`, [fx.company])).rows[0];
 
 type Case = { name: string; handler: NextApiHandler; call: () => Promise<Call> };
 const CASES: Case[] = [
