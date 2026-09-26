@@ -7,9 +7,11 @@
 // ROLLBACKs on a throw and hid this.
 import { describe, expect, it, vi } from 'vitest';
 import supplierInvoicesAction from '../../pages/api/accounting/supplier-invoices-action';
+import { als } from '@/lib/als';
+import { postSupplierInvoiceToGL } from '@/modules/accounting/services/ap/supplierInvoiceWorkflowService';
 import {
   callRoute, company, companySnapshot, invoiceState, pool, seedDoc, seedInvoice, seedProvisional,
-  slipLedger, useR127Fixture, bankGl, vatGl,
+  slipLedger, useR127Fixture, user, bankGl, vatGl,
 } from './r127-double-booking.helpers';
 
 // Fault injection ONLY: the real application service, except that a plan for
@@ -47,6 +49,31 @@ describe('R-127: approval through the route is all-or-nothing', () => {
     } finally {
       inject.amount = -1;
     }
+    expect(await companySnapshot(invoiceId)).toEqual(before);
+  });
+
+  it('Post to GL is all-or-nothing on its own: a caller that COMMITs after the throw keeps nothing', async () => {
+    const doc = await seedDoc();
+    await seedProvisional({ totalAmount: 604.60, evidencedBy: doc });
+    const invoiceId = await seedInvoice({ documentId: doc, totalAmount: 604.60, status: 'approved' });
+    const before = await companySnapshot(invoiceId);
+
+    // Every caller today wraps this in a savepoint of its own; this pins the
+    // function's own contract for the next one that does not (withAuth-style:
+    // the error is answered 4xx and the transaction COMMITs).
+    inject.amount = 604.60;
+    const c = await pool.connect();
+    let err: unknown = null;
+    try {
+      await c.query('BEGIN');
+      await als.run({ client: c, userId: user, companyId: company, claims: {} } as never,
+        () => postSupplierInvoiceToGL(company, invoiceId, user)).catch((e: unknown) => { err = e; });
+      await c.query('COMMIT');
+    } finally {
+      inject.amount = -1;
+      c.release();
+    }
+    expect((err as Error).message).toMatch(/injected/);
     expect(await companySnapshot(invoiceId)).toEqual(before);
   });
 
