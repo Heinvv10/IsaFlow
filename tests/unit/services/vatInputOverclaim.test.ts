@@ -150,5 +150,22 @@ describe('perJournalInputOverclaim', () => {
       const lines = [line(je, { debit: 1000 }), ...taxLines, ap(je, 1151)];
       expect(perJournalInputOverclaim(lines, [], RATE)).toBe(0.95);
     });
+
+    it('KNOWN LIMIT: correctly-taxed padding lines absorb at most R0.005 each of an unrelated over-claim — never more', () => {
+      // A real R1.20 over-claim (base 1000 @ 15% = 150; claimed 151.20) plus N
+      // exactly-correct padding bills-in-one (base 100, VAT 15). The allowance
+      // is N+1 lines x R0.005. 250 padding lines: 251 x 0.005 = 1.255 >= 1.20,
+      // hidden. 200 padding lines: 201 x 0.005 = 1.005, so R0.195 -> R0.20
+      // (half-up, not the float 0.1949... -> 0.19) still shows. Pins that the
+      // slack never exceeds half a cent per line.
+      const je = (pad: number) => [
+        line(`pad${pad}`, { debit: 1000 }), vatIn(`pad${pad}`, 151.2),
+        ...Array.from({ length: pad }, () => [line(`pad${pad}`, { debit: 100 }), vatIn(`pad${pad}`, 15)]).flat(),
+        ap(`pad${pad}`, 1151.2 + pad * 115),
+      ];
+      expect(perJournalInputOverclaim(je(0), [], RATE)).toBe(1.2);
+      expect(perJournalInputOverclaim(je(200), [], RATE)).toBe(0.2);
+      expect(perJournalInputOverclaim(je(250), [], RATE)).toBe(0);
+    });
   });
 });
