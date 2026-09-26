@@ -45,3 +45,21 @@ CREATE INDEX IF NOT EXISTS idx_gl_journal_document_links_journal
 
 CREATE INDEX IF NOT EXISTS idx_gl_journal_document_links_document
   ON gl_journal_document_links (company_id, captured_document_id);
+
+-- Security review, item 2: this table shipped with no RLS at all, same gap
+-- 704 (vat_gate_overrides) closed for itself. Enforce it the same way here.
+ALTER TABLE gl_journal_document_links ENABLE ROW LEVEL SECURITY;
+ALTER TABLE gl_journal_document_links FORCE ROW LEVEL SECURITY;
+
+DO $$
+BEGIN
+  IF NOT EXISTS (
+    SELECT 1 FROM pg_policies
+    WHERE schemaname = 'public' AND tablename = 'gl_journal_document_links' AND policyname = 'tenant_isolation'
+  ) THEN
+    CREATE POLICY tenant_isolation ON gl_journal_document_links
+      TO app_user
+      USING (company_id IN (SELECT auth.user_companies()))
+      WITH CHECK (company_id = app.current_company_id());
+  END IF;
+END $$;
