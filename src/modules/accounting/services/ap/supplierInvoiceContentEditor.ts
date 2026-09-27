@@ -11,16 +11,22 @@
  * write in this: the detail PUT and MCP update_supplier_invoice here; the
  * account and supplier merges stamp their own sets of bills.
  *
- * The edit and its stamp share a savepoint: a caller that answers a throw with
+ * The row is locked before the before-digest is read, and the edit and its
+ * stamp share a savepoint: a caller that answers a throw with
  * a 4xx (withAuth COMMITs those) must not keep an edit whose author went
  * unrecorded — that author could then approve their own content.
  */
 import { sql, withSavepoint } from '@/lib/neon';
+import { lockSupplierInvoiceForUpdate } from './supplierInvoiceLock';
 
 export async function withContentEditorStamp<T>(
   companyId: string, invoiceId: string, editedBy: string, edit: () => Promise<T>,
 ): Promise<T> {
   return withSavepoint('content_editor_stamp', async () => {
+    // The before-digest is read UNDER the row lock (review LOW-1): read unlocked,
+    // a concurrent edit committing between this read and the write made a
+    // reverting edit look like no change, and its author went unrecorded.
+    await lockSupplierInvoiceForUpdate(companyId, invoiceId);
     const [before] = (await sql`
       SELECT approval_document_digest(${companyId}::UUID, 'supplier_invoice', ${invoiceId}::UUID) AS digest
     `) as { digest: string | null }[];
