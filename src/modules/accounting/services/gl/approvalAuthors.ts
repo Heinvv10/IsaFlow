@@ -37,18 +37,25 @@ export interface ContentAuthorFacts {
 type MemberRow = { user_id: string; role: string; is_active: boolean | null; status: string | null; suspended_at: string | null };
 
 /**
- * Other members in good standing who could approve: rank enough (`qualifies`,
- * the caller's ladder), neither the requester nor an author. Read through
- * approval_company_other_members (SECURITY DEFINER; app_user cannot see the
- * roster), which answers only for the request's own user and company.
+ * Who, besides the decider, could approve: other members in good standing
+ * with rank enough (`qualifies`, the caller's ladder) who are neither the
+ * requester nor an author (`eligible`), and whether the REQUESTER is such a
+ * member apart from having raised it (`requesterCould` — the path that opens
+ * if an author re-submits). Read through approval_company_other_members
+ * (SECURITY DEFINER; app_user cannot see the roster), which answers only for
+ * the request's own user and company.
  */
-async function eligibleOthers(companyId: string, decidedBy: string, excluded: Set<string>,
-  qualifies: (role: string) => boolean): Promise<number> {
+async function approversLeft(companyId: string, decidedBy: string, requester: string, authors: Set<string>,
+  qualifies: (role: string) => boolean): Promise<{ eligible: number; requesterCould: boolean }> {
   const members = (await sql`
     SELECT m.user_id, m.role, m.is_active, m.status, m.suspended_at
     FROM approval_company_other_members(${companyId}::UUID, ${decidedBy}::TEXT) m
   `) as MemberRow[];
-  return members.filter((m) => isActiveUserAccount(m) && !excluded.has(String(m.user_id)) && qualifies(String(m.role))).length;
+  const able = members.filter((m) => isActiveUserAccount(m) && qualifies(String(m.role)) && !authors.has(String(m.user_id)));
+  return {
+    eligible: able.filter((m) => String(m.user_id) !== requester).length,
+    requesterCould: able.some((m) => String(m.user_id) === requester),
+  };
 }
 
 /** The refusal message when `decidedBy` may not approve as an author, else null. */
@@ -62,11 +69,18 @@ export async function contentAuthorRefusal(companyId: string, decidedBy: string,
   const authors = new Set([...facts.liveAuthors, ...facts.snapshotAuthors]);
   if (!authors.has(decidedBy)) return null;
 
-  const n = await eligibleOthers(companyId, decidedBy, new Set([facts.requester, ...authors]), qualifies);
-  const who = n > 0
-    ? `${n} other member${n === 1 ? '' : 's'} with the ${demandedRole} role or above ${n === 1 ? 'qualifies' : 'qualify'}`
-    : `no other member with the ${demandedRole} role or above qualifies — reject this request and have its author `
-      + 'submit it again; the previous requester may then approve it';
-  return 'You cannot approve this request: you authored the content it covers (you created the document or made '
-    + `an edit that changed it). It needs a member who neither raised the request nor authored the content — ${who}.`;
+  const { eligible: n, requesterCould } = await approversLeft(companyId, decidedBy, facts.requester, authors, qualifies);
+  const refusal = 'You cannot approve this request: you authored the content it covers (you created the document or '
+    + 'made an edit that changed it).';
+  if (n > 0) {
+    return `${refusal} It needs a member who neither raised the request nor authored the content — ${n} other `
+      + `member${n === 1 ? '' : 's'} with the ${demandedRole} role or above ${n === 1 ? 'qualifies' : 'qualify'}.`;
+  }
+  if (requesterCould) {
+    return `${refusal} No other member with the ${demandedRole} role or above qualifies — reject this request and `
+      + 'have one of its authors submit it again; the previous requester may then approve it.';
+  }
+  return `${refusal} No eligible approver remains: every member with the ${demandedRole} role or above either `
+    + 'authored the content or raised the request. Cancel and re-enter the bill, or have someone with the '
+    + `${demandedRole} role or above who did not author it approve it.`;
 }
