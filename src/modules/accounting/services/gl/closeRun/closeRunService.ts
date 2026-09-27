@@ -30,6 +30,7 @@ import type {
   Decision,
   AccuracyStats,
 } from './closeRunTypes';
+import { assertNotImpersonating } from '@/lib/auth/impersonationGuard';
 
 export const CLOSE_AGENT = 'close-agent:v1';
 
@@ -110,6 +111,7 @@ export async function decideProposal(
   decision: Decision,
   userId: string,
 ): Promise<CloseProposal> {
+  await assertNotImpersonating(); // R-032 L5: first, before any read or write
   const proposal = await repo.getProposalById(companyId, proposalId);
   if (!proposal || proposal.closeRunId !== runId) {
     throw new CloseRunNotFoundError(`Proposal ${proposalId} not found in close run ${runId}`);

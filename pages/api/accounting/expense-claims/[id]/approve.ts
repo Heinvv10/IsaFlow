@@ -7,6 +7,7 @@ import { withAuth, withWriteAccess, type CompanyAuthedRequest } from '@/lib/auth
 import { withCsrf } from '@/lib/auth/withCsrf';
 import { claimInputVatWarnings } from '@/modules/accounting/services/expense/claimVatAdvice';
 import { approveClaim, rejectClaim } from '@/modules/accounting/services/expense/expenseClaimService';
+import { respondIfImpersonationForbidden } from '@/lib/auth/impersonationGuard';
 
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
@@ -32,6 +33,7 @@ async function handler(req: CompanyAuthedRequest, res: NextApiResponse) {
     const warnings = body.decision === 'reject' ? [] : await claimInputVatWarnings(id, companyId);
     return apiResponse.success(res, { claim, warnings });
   } catch (err) {
+    if (respondIfImpersonationForbidden(res, err)) return;
     return apiResponse.badRequestFromError(res, err, 'Request failed');
   }
 }

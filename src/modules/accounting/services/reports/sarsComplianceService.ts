@@ -14,6 +14,7 @@ export { getTaxPeriods, getComplianceCalendar } from './sarsTaxPeriodsService';
 
 import type { ComplianceEvent } from './sarsTaxPeriodsService';
 import type { DbRow } from '@/types/db';
+import { assertNotImpersonating } from '@/lib/auth/impersonationGuard';
 
 export interface SARSSubmission {
   id: string;
@@ -104,6 +105,7 @@ export async function markSubmitted(companyId: string,
   id: string,
   reference: string
 ): Promise<SARSSubmission> {
+  await assertNotImpersonating(); // R-032 L5: first, before any read or write
   log.info('Marking submission as submitted', { id, reference }, 'sarsComplianceService');
 
   const rows = (await sql`

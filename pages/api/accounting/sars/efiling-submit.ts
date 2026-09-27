@@ -23,6 +23,7 @@ import {
   EfilingSubmissionNotFoundError,
   EfilingAlreadyFiledError,
 } from '@/modules/accounting/services/reports/sarsEfilingSubmissionService';
+import { respondIfImpersonationForbidden } from '@/lib/auth/impersonationGuard';
 
 async function handler(req: NextApiRequest, res: NextApiResponse) {
   if (req.method !== 'POST') {
@@ -43,6 +44,7 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
       : await submitVAT201ToSars(companyId, submissionId, userId);
     return apiResponse.success(res, result);
   } catch (err) {
+    if (respondIfImpersonationForbidden(res, err)) return;
     if (err instanceof EfilingSubmissionNotFoundError) {
       return apiResponse.notFound(res, 'SARS submission', submissionId);
     }

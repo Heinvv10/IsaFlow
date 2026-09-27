@@ -19,6 +19,7 @@ type Row = Record<string, unknown>;
  *  server-side consumers. Layer 2 (OAuth) extends this. */
 export { PAT_SCOPES, type PatScope } from './patScopes';
 import { PAT_SCOPES } from './patScopes';
+import { assertNotImpersonating } from './impersonationGuard';
 
 export interface PatContext {
   patId: string;
@@ -132,6 +133,7 @@ export interface CreatePatInput {
 }
 
 export async function createPat(input: CreatePatInput): Promise<{ id: string; raw: string; prefix: string }> {
+  await assertNotImpersonating(); // R-032: a Login-as session mints no credential as the target
   // Defence-in-depth — API layer also validates against PAT_SCOPES, but if
   // createPat is ever called from another path (e.g. future OAuth Layer 2
   // re-using the table) we must not accept arbitrary scope strings.

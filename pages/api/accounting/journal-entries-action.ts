@@ -19,6 +19,7 @@ import {
   postJournalEntry,
   reverseJournalEntry,
 } from '@/modules/accounting/services/gl/journalEntryService';
+import { assertNotImpersonating, respondIfImpersonationForbidden } from '@/lib/auth/impersonationGuard';
 
 const JournalEntryActionSchema = z.object({
   id: UUID,
@@ -60,6 +61,9 @@ async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse) {
     let result;
     switch (action) {
       case 'post':
+        // R-032 L5: postJournalEntry is the posting primitive every workflow shares,
+        // so the explicit "post this journal" act is guarded here, not inside it.
+        await assertNotImpersonating();
         // A person posting: s16(3) late input-VAT claim where allowed; the
         // result's `lateClaim` names the claim date and the locked period.
         result = await postJournalEntry(companyId, id, userId, { allowLateInputClaim: true });
@@ -73,6 +77,7 @@ async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse) {
 
     return apiResponse.success(res, result);
   } catch (err) {
+    if (respondIfImpersonationForbidden(res, err)) return;
     const message = err instanceof Error ? err.message : 'Failed to perform journal entry action';
     log.error('Failed to perform journal entry action', { error: err }, 'accounting-api');
     return apiResponse.badRequest(res, message);
