@@ -136,3 +136,28 @@ describe('the author refusal says truthfully who may still approve (re-check L1)
     expect((await r.decide(pool, u.d, c, again)).state.statusCode).toBe(200);
   });
 });
+
+describe('the sole approver who authored the bill (re-confirm nit)', () => {
+  it('is told to reject and submit it themselves — and the sole-approver route then works', async () => {
+    // Owner A created the bill and is the only owner; manager C raised the request.
+    const c = await postableCompany(pool, [[u.a, 'owner'], [u.c, 'manager']], companies);
+    await plantRule(pool, c, 'owner');
+    await enforce(pool, c, u.a);
+    const bill = await plantBill(pool, c, u.a);
+    const requestId = await raisedBy(u.c, c, bill.id);
+
+    const refused = await r.decide(pool, u.a, c, requestId);
+    expect(reasonOf(refused)).toBe('SELF_APPROVAL_FORBIDDEN');
+    const text = (refused.state.body as { error: { message: string } }).error.message;
+    expect(text).toMatch(/only eligible approver/i);
+    expect(text).toMatch(/submit it for approval yourself/i);
+    expect(text).not.toMatch(/no eligible approver remains/i);
+
+    // The route it names: reject, re-raise as A, approve as the sole approver, post.
+    expect((await r.decide(pool, u.a, c, requestId, 'reject')).state.statusCode).toBe(200);
+    const own = await raisedBy(u.a, c, bill.id);
+    const approved = await r.decide(pool, u.a, c, own);
+    expect(approved.state.statusCode, JSON.stringify(approved.state.body)).toBe(200);
+    expect((await r.approveBill(u.a, c, bill.id)).state.statusCode).toBe(200);
+  });
+});
