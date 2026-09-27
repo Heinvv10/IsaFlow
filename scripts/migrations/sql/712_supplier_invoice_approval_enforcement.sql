@@ -2,15 +2,16 @@
 --
 -- Four pieces:
 --   1. WHO AUTHORED the content an approval vouches for. supplier_invoices
---      gains content_edited_by/_at, written by every edit path whose change
---      moves the approval digest (detail PUT, MCP update_supplier_invoice,
---      account merge); approval_requests gains content_author, the author as
---      it stood when the request was raised or re-stamped. The decide path
---      refuses both, and the current requester (Hein, 2026-09-27: only the
---      real authors — a past requester who did not author the current content
+--      gains content_authors (append-only) / content_edited_at, added to by
+--      every edit path whose change moves the approval digest (detail PUT,
+--      MCP update_supplier_invoice, account merge, supplier merge);
+--      approval_requests gains content_authors, the authors as they stood when
+--      the request was raised or re-stamped. The decide path refuses all of
+--      them, and the current requester (Hein, 2026-09-27: only the real
+--      authors — a past requester who authored none of the current content
 --      may approve).
---   2. approval_document_author() — the one definition of "author": the last
---      editor, or the creator of content nobody has edited since.
+--   2. approval_document_authors() — the one definition of "the authors": the
+--      creator plus every digest-moving editor (approval_add_author appends).
 --   3. approval_supplier_invoice_gate_amount() — the amount a rule sees, the
 --      larger of what posts and the ZAR value — and
 --      approval_supplier_invoice_rule_matches(), the SQL copy of rule matching.
@@ -30,36 +31,54 @@
 -- the duration of their write (withApprovalGateExempt). A census test pins
 -- those setters (tests/unit/services/gl/approvalGateExemptCensus.test.ts).
 
--- ── 1. The author ─────────────────────────────────────────────────────────
+-- ── 1. The authors ────────────────────────────────────────────────────────
+-- Everyone who authored the current content (review MEDIUM-1: "last editor"
+-- let someone else's small edit strip the creator's authorship, and an account
+-- merge re-attributed a bill wholesale). Append-only: each user whose edit
+-- moved the approval digest is added, nobody is ever removed.
 -- users.id is varchar but every user id is a uuid (created_by is UUID NOT NULL).
-ALTER TABLE supplier_invoices ADD COLUMN IF NOT EXISTS content_edited_by UUID;
+ALTER TABLE supplier_invoices ADD COLUMN IF NOT EXISTS content_authors UUID[] NOT NULL DEFAULT '{}';
 ALTER TABLE supplier_invoices ADD COLUMN IF NOT EXISTS content_edited_at TIMESTAMPTZ;
-ALTER TABLE approval_requests ADD COLUMN IF NOT EXISTS content_author UUID;
+-- The authors as they stood when the request was raised or re-stamped.
+ALTER TABLE approval_requests ADD COLUMN IF NOT EXISTS content_authors UUID[];
 
--- ── 2. One definition of "author" ──────────────────────────────────────────
--- NULL for a type with no editor tracking yet: the decide path then keeps
--- PR1's past-requester refusal for it (fail closed until its own PR).
-CREATE OR REPLACE FUNCTION public.approval_document_author(
+-- Add one author, once. Every stamping path writes through this.
+CREATE OR REPLACE FUNCTION public.approval_add_author(
+  p_authors pg_catalog.uuid[], p_user pg_catalog.uuid
+) RETURNS pg_catalog.uuid[]
+LANGUAGE sql IMMUTABLE
+SET search_path = pg_catalog, public, pg_temp
+AS $$
+  SELECT CASE WHEN p_user IS NULL OR p_user = ANY (COALESCE(p_authors, '{}')) THEN COALESCE(p_authors, '{}')
+              ELSE pg_catalog.array_append(COALESCE(p_authors, '{}'), p_user) END
+$$;
+
+-- ── 2. One definition of "the authors" ─────────────────────────────────────
+-- The creator plus every digest-moving editor. A system or agent creator (a
+-- uuid no member holds) refuses nobody. NULL for a type with no editor
+-- tracking yet: the decide path then keeps PR1's past-requester refusal for
+-- it (fail closed until its own PR).
+CREATE OR REPLACE FUNCTION public.approval_document_authors(
   p_company_id pg_catalog.uuid, p_document_type pg_catalog.text, p_document_id pg_catalog.uuid
-) RETURNS pg_catalog.text
+) RETURNS pg_catalog.uuid[]
 LANGUAGE sql STABLE
 SET search_path = pg_catalog, public, pg_temp
 AS $$
   SELECT CASE p_document_type
     WHEN 'supplier_invoice' THEN (
-      SELECT COALESCE(si.content_edited_by, si.created_by)::pg_catalog.text
+      SELECT public.approval_add_author(si.content_authors, si.created_by)
       FROM public.supplier_invoices si
       WHERE si.id = p_document_id AND si.company_id = p_company_id AND si.deleted_at IS NULL
     )
   END
 $$;
 
--- Pending requests raised before this migration: bind them to the author as it
--- stands now, which is the content their approver will see.
+-- Pending requests raised before this migration: bind them to the authors as
+-- they stand now, which is the content their approver will see.
 UPDATE approval_requests ar
-SET content_author = public.approval_document_author(ar.company_id, ar.document_type, ar.document_id)::UUID
+SET content_authors = public.approval_document_authors(ar.company_id, ar.document_type, ar.document_id)
 WHERE ar.status = 'pending' AND ar.document_type = 'supplier_invoice'
-  AND ar.content_author IS NULL AND ar.company_id IS NOT NULL;
+  AND ar.content_authors IS NULL AND ar.company_id IS NOT NULL;
 
 -- ── 3. The amount a rule sees, and whether an active rule governs it ───────
 -- The amount an approval must cover is the LARGER of what posts and what the

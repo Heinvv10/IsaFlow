@@ -1,15 +1,16 @@
 /**
  * Who AUTHORED the content an approval vouches for, and so may not approve it
- * (R-035 PR2; Hein, 2026-09-27).
+ * (R-035 PR2; Hein, 2026-09-27: refuse the real authors).
  *
  * Refused: the current requester (assertMayDecide's own K-043 check, with the
- * sole-approver exception) and the content's author — `approval_document_author`
- * (migration 712): the last editor whose edit changed the approval digest, or
- * the creator of content nobody has edited since. Both the author as it stands
- * NOW and the author snapshotted on the request when it was raised or
- * re-stamped (`approval_requests.content_author`) are refused: without the
- * snapshot, a third person editing the bill and reverting it would become the
- * "author" and launder the one who actually wrote the content requested.
+ * sole-approver exception) and EVERY author of the content —
+ * `approval_document_authors` (migration 712): the creator plus every user
+ * whose edit moved the approval digest, accumulated and never removed (review
+ * MEDIUM-1: "last editor" let a colleague's small edit, or an account merge,
+ * strip the creator's authorship). Both the authors as they stand NOW and as
+ * snapshotted on the request when it was raised or re-stamped
+ * (`approval_requests.content_authors`) are refused. A system or agent creator
+ * (a uuid no member holds) refuses nobody.
  *
  * A PAST requester who authored nothing current MAY approve — this replaces
  * PR1's blanket past-requester refusal, which left small companies with nobody
@@ -25,10 +26,10 @@ import { isActiveUserAccount } from '@/lib/auth/userAccountStatus';
 
 export interface ContentAuthorFacts {
   requester: string;
-  /** approval_document_author() now; null for a type with no editor tracking. */
-  liveAuthor: string | null;
-  /** approval_requests.content_author, taken at raise / re-stamp. */
-  snapshotAuthor: string | null;
+  /** approval_document_authors() now; null for a type with no editor tracking. */
+  liveAuthors: string[] | null;
+  /** approval_requests.content_authors, taken at raise / re-stamp. */
+  snapshotAuthors: string[];
   /** The decider is in approval_requests.past_requesters. */
   wasRequester: boolean;
 }
@@ -53,12 +54,12 @@ async function eligibleOthers(companyId: string, decidedBy: string, excluded: Se
 /** The refusal message when `decidedBy` may not approve as an author, else null. */
 export async function contentAuthorRefusal(companyId: string, decidedBy: string, facts: ContentAuthorFacts,
   demandedRole: string, qualifies: (role: string) => boolean): Promise<string | null> {
-  if (facts.liveAuthor === null) {
+  if (facts.liveAuthors === null) {
     return facts.wasRequester
       ? 'You cannot approve an approval request you raised for an earlier version of this document'
       : null;
   }
-  const authors = new Set([facts.liveAuthor, facts.snapshotAuthor].filter((a): a is string => a !== null));
+  const authors = new Set([...facts.liveAuthors, ...facts.snapshotAuthors]);
   if (!authors.has(decidedBy)) return null;
 
   const n = await eligibleOthers(companyId, decidedBy, new Set([facts.requester, ...authors]), qualifies);
@@ -67,5 +68,5 @@ export async function contentAuthorRefusal(companyId: string, decidedBy: string,
     : `no other member with the ${demandedRole} role or above qualifies — reject this request and have its author `
       + 'submit it again; the previous requester may then approve it';
   return 'You cannot approve this request: you authored the content it covers (you created the document or made '
-    + `the last edit that changed it). It needs a member who neither raised the request nor authored the content — ${who}.`;
+    + `an edit that changed it). It needs a member who neither raised the request nor authored the content — ${who}.`;
 }

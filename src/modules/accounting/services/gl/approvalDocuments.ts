@@ -173,17 +173,17 @@ export async function requestApproval(companyId: string, input: {
   // alone does not help — a foreign-key check bypasses RLS and is global.
   // `is_active` is re-checked because checkApproval only considered active rules:
   // one deactivated in between must not be bound to a new request.
-  // `content_author` (migration 712): who wrote the content this request
-  // vouches for — refused as approver (approvalAuthors).
+  // `content_authors` (migration 712): who wrote the content this request
+  // vouches for — refused as approvers (approvalAuthors).
   // `approver_roster` (migration 708): the roster snapshot a sole-approver
   // self-approval is later checked against — taken only while enforcement is on
   // for the type, since Q2 applies only then.
   const insert = async () => (await sql`
-    INSERT INTO approval_requests (company_id, rule_id, document_type, document_id, document_reference, amount, requested_by, required_role, document_digest, content_author, approver_roster)
+    INSERT INTO approval_requests (company_id, rule_id, document_type, document_id, document_reference, amount, requested_by, required_role, document_digest, content_authors, approver_roster)
     SELECT ${companyId}::UUID, rl.id, ${input.documentType}::TEXT, ${input.documentId}::UUID,
            ${document.reference}::TEXT, ${document.amount}::NUMERIC,
            ${input.requestedBy}::UUID, rl.approver_role, ${document.digest}::TEXT,
-           approval_document_author(${companyId}::UUID, ${input.documentType}::TEXT, ${input.documentId}::UUID)::UUID,
+           approval_document_authors(${companyId}::UUID, ${input.documentType}::TEXT, ${input.documentId}::UUID),
            (SELECT approval_roster_snapshot(${companyId}::UUID, ${input.requestedBy}::TEXT)
             WHERE EXISTS (SELECT 1 FROM approval_enforcement ae
                           WHERE ae.company_id = ${companyId}::UUID AND ae.document_type = ${input.documentType}::TEXT))

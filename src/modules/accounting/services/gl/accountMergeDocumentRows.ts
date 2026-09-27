@@ -66,8 +66,8 @@ function ids(rows: unknown): string[] {
  * Repoint the source's document rows onto the target. Only this company's rows move.
  *
  * A bill line's account is part of the content an approval covers (R-035), so
- * every bill whose lines moved records the merging user as its content author
- * (`content_edited_by`), whom the decide path refuses as approver (decision
+ * every bill whose lines moved adds the merging user to its content authors
+ * (`content_authors`), whom the decide path refuses as approvers (decision
  * Q10: the merge also stales any approval on those bills).
  */
 export async function repointDocumentRows(
@@ -84,7 +84,7 @@ export async function repointDocumentRows(
       RETURNING i.id, i.supplier_invoice_id
     ), authored AS (
       UPDATE supplier_invoices si
-         SET content_edited_by = COALESCE(${editedBy ?? null}::UUID, si.content_edited_by), content_edited_at = NOW()
+         SET content_authors = approval_add_author(si.content_authors, ${editedBy ?? null}::UUID), content_edited_at = NOW()
        WHERE si.company_id = ${companyId}::UUID AND si.id IN (SELECT supplier_invoice_id FROM moved)
       RETURNING si.id
     )
