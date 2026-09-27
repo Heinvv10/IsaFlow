@@ -102,9 +102,21 @@ describe('disabling is a weakening act', () => {
     expect(rows[0].changes.metadata).toMatchObject({ actorRole: 'owner', strictestRuleRole: 'owner', enforcementId: id });
   });
 
-  it('lets an admin disable when the strictest ACTIVE rule is admin (an inactive owner rule does not count)', async () => {
+  it('refuses an admin when the strictest active rule is admin — weakening needs a rank strictly above (R-048)', async () => {
     const company = await twoMemberCompany();
     await plantRule(pool, company, 'admin');
+    await plantEnforcement(company, 'supplier_invoice');
+
+    const res = await call(admin, company, 'POST', { documentType: 'supplier_invoice', enabled: false });
+    expect(res.state.statusCode).toBe(403);
+    expect(reasonOf(res)).toBe('RULE_AUTHORITY_REQUIRED');
+    expect(await enforced(company)).toEqual(['supplier_invoice']);
+    expect(await audits(company)).toEqual([]);
+  });
+
+  it('lets an admin disable when the strictest ACTIVE rule is manager (an inactive owner rule does not count)', async () => {
+    const company = await twoMemberCompany();
+    await plantRule(pool, company, 'manager');
     const inactive = await plantRule(pool, company, 'owner');
     await pool.query('UPDATE approval_rules SET is_active = false WHERE id = $1', [inactive]);
     await plantEnforcement(company, 'supplier_invoice');
@@ -114,6 +126,16 @@ describe('disabling is a weakening act', () => {
     expect(await enforced(company)).toEqual([]);
     expect(await audits(company)).toHaveLength(1);
   });
+
+  it.each([['owner', 'owner'], ['owner', 'admin'], ['admin', 'manager']])(
+    'lets an %s disable over an %s-level strictest rule', async (actor, ruleRole) => {
+      const company = await twoMemberCompany();
+      await plantRule(pool, company, ruleRole);
+      await plantEnforcement(company, 'supplier_invoice');
+      const res = await call(actor === 'owner' ? owner : admin, company, 'POST', { documentType: 'supplier_invoice', enabled: false });
+      expect(res.state.statusCode).toBe(200);
+      expect(await enforced(company)).toEqual([]);
+    });
 
   it('ranks only rules of the SAME document type', async () => {
     const company = await twoMemberCompany();
