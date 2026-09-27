@@ -160,4 +160,24 @@ describe('the sole approver who authored the bill (re-confirm nit)', () => {
     expect(approved.state.statusCode, JSON.stringify(approved.state.body)).toBe(200);
     expect((await r.approveBill(u.a, c, bill.id)).state.statusCode).toBe(200);
   });
+
+  it('with enforcement off there is no sole-approver route, so it is not offered', async () => {
+    const c = await postableCompany(pool, [[u.a, 'owner'], [u.c, 'manager']], companies);
+    await plantRule(pool, c, 'owner');
+    const bill = await plantBill(pool, c, u.a);
+    const requestId = await raisedBy(u.c, c, bill.id);
+    const refused = await r.decide(pool, u.a, c, requestId);
+    expect((refused.state.body as { error: { message: string } }).error.message).toMatch(/no eligible approver remains/i);
+  });
+
+  it('an author below the rank is not offered the sole-approver route', async () => {
+    // Nobody holds the owner role: managers A (creator) and C (requester).
+    const c = await postableCompany(pool, [[u.a, 'manager'], [u.c, 'manager']], companies);
+    await plantRule(pool, c, 'owner');
+    await enforce(pool, c, u.c);
+    const bill = await plantBill(pool, c, u.a);
+    const requestId = await raisedBy(u.c, c, bill.id);
+    const refused = await r.decide(pool, u.a, c, requestId);
+    expect((refused.state.body as { error: { message: string } }).error.message).toMatch(/no eligible approver remains/i);
+  });
 });

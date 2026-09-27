@@ -204,6 +204,8 @@ export async function assertMayDecide(
       liveAuthors: Array.isArray(row.live_authors) ? row.live_authors.map(String) : null,
       snapshotAuthors: Array.isArray(row.snapshot_authors) ? row.snapshot_authors.map(String) : [],
       wasRequester: row.was_requester === true,
+      deciderRole: row.decider_role != null ? String(row.decider_role) : null,
+      enforced: row.enforced === true,
     }, demandedRole, (role) => actorRank(role) >= requiredRank(demandedRole));
     if (refusal) throw new ApprovalDecisionError('SELF_APPROVAL_FORBIDDEN', refusal);
   }
