@@ -26,6 +26,7 @@ import {
 import {
   assertVatGateClear, VatGateBlockedError, VatGateOverrideForbiddenError,
 } from '@/modules/accounting/services/reports/vatGateOverrideService';
+import { respondIfImpersonationForbidden } from '@/lib/auth/impersonationGuard';
 
 async function handler(req: NextApiRequest, res: NextApiResponse) {
   const { companyId } = req as CompanyAuthedRequest;
@@ -77,6 +78,7 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
         });
         return apiResponse.success(res, submission, 'Submission marked as submitted');
       } catch (err) {
+        if (respondIfImpersonationForbidden(res, err)) return;
         if (err instanceof VatGateOverrideForbiddenError) return apiResponse.forbidden(res, err.message);
         if (err instanceof VatGateBlockedError) return apiResponse.badRequest(res, err.message, { counts: err.counts });
         log.error('Failed to mark submission', { error: err }, 'sars-api');

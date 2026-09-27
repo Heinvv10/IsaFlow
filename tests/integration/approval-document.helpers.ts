@@ -99,3 +99,16 @@ export async function deletePlantedDocuments(pool: Pool, companyIds: string[]): 
   await pool.query('DELETE FROM customers WHERE company_id = ANY($1)', [companyIds]);
   await pool.query('DELETE FROM suppliers WHERE company_id = ANY($1)', [companyIds]);
 }
+
+/**
+ * R-035 MED-2: an approve must name the digest the approver was shown. The
+ * approvals list returns it on each request; these tests stand in for that by
+ * reading the request's stored digest. Anything but an approve passes through.
+ */
+export async function withExpectedDigest(pool: Pool, body: unknown): Promise<unknown> {
+  const b = body as { action?: unknown; requestId?: unknown; expectedDigest?: unknown } | null;
+  if (!b || b.action !== 'approve' || 'expectedDigest' in b || typeof b.requestId !== 'string') return body;
+  const { rows } = await pool.query(
+    'SELECT document_digest FROM approval_requests WHERE id::TEXT = $1', [b.requestId]);
+  return { ...b, expectedDigest: rows[0]?.document_digest ?? undefined };
+}

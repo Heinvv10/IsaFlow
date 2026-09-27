@@ -1,14 +1,18 @@
 /**
  * Company-scoped guards for the approval workflow.
  * Two invariants the decide path has to hold: the person who raised a request
- * may never decide it, and the decider must hold the role the matched
+ * may never approve it (unless nobody else in the company could — R-035 Q2),
+ * and the decider must hold the role the matched
  * approval rule demands. Both are checked against the database, company-scoped,
  * never against anything the caller supplied.
  */
 
 import { sql } from '@/lib/neon';
+import { soleApproverFacts, type SoleApproverSelfApproval } from './approvalSelfApproval';
+import { currentSessionActor } from '@/lib/auth/impersonationSessions';
 
-export type ApprovalDecisionErrorCode = 'SELF_APPROVAL_FORBIDDEN' | 'APPROVER_ROLE_REQUIRED';
+export type ApprovalDecisionErrorCode =
+  | 'SELF_APPROVAL_FORBIDDEN' | 'APPROVER_ROLE_REQUIRED' | 'IMPERSONATION_FORBIDDEN';
 
 export class ApprovalDecisionError extends Error {
   readonly code: ApprovalDecisionErrorCode;
@@ -96,8 +100,15 @@ export const actorRank = (role: string): number =>
 
 /**
  * Throws ApprovalDecisionError when `decidedBy` may not take `decision` on
- * `requestId`. Silent when the request does not exist or is already decided —
- * the caller's status-predicated UPDATE reports that case.
+ * `requestId`. Returns null when the request does not exist or is already
+ * decided — the caller's status-predicated UPDATE reports that case — and for
+ * every ordinary decision; an impersonation session is refused before any
+ * authority, digest or roster read (R-032). decideRequest's row lock runs
+ * first and reads only the request id.
+ *
+ * Returns a SoleApproverSelfApproval when the decider is approving their OWN
+ * request and that is allowed only because nobody else could (decision Q2);
+ * the caller must audit it as such.
  *
  * `decision` is required rather than defaulted: only `approve` is the controlled
  * act, and a caller that forgets to say which one it is must not silently get
@@ -108,14 +119,32 @@ export async function assertMayDecide(
   requestId: string,
   decidedBy: string,
   decision: 'approved' | 'rejected'
-): Promise<void> {
+): Promise<SoleApproverSelfApproval | null> {
+  // R-032: under "Login as", `decidedBy` is the TARGET's id — the admin's real
+  // identity never reaches this request — so the self-approval check below
+  // would measure the wrong person and `decided_by` would name someone who
+  // decided nothing. No decision, approve or reject, is taken from such a
+  // session, nor from one that cannot be ruled out as one.
+  const actor = await currentSessionActor();
+  if (actor !== 'self') {
+    throw new ApprovalDecisionError(
+      'IMPERSONATION_FORBIDDEN',
+      actor === 'impersonation'
+        ? 'Approval decisions cannot be made while impersonating another user. End the impersonation and decide as yourself.'
+        : 'Approval decisions are refused: this session cannot confirm it is not an impersonation.'
+    );
+  }
+
   const rows = (await sql`
     SELECT (ar.requested_by::TEXT = ${decidedBy}) AS is_self,
+           (${decidedBy} = ANY (ar.past_requesters::TEXT[])) AS was_requester,
            ar.rule_id,
            ar.required_role,
            rl.id AS resolved_rule_id,
            rl.approver_role,
-           cu.role AS decider_role
+           cu.role AS decider_role,
+           EXISTS (SELECT 1 FROM approval_enforcement ae
+                   WHERE ae.company_id = ar.company_id AND ae.document_type = ar.document_type) AS enforced
     FROM approval_requests ar
     LEFT JOIN approval_rules rl ON rl.id = ar.rule_id AND rl.company_id = ${companyId}
     LEFT JOIN company_users cu ON cu.company_id = ${companyId} AND cu.user_id = ${decidedBy}
@@ -123,42 +152,16 @@ export async function assertMayDecide(
   `) as Record<string, unknown>[];
 
   const row = rows[0];
-  if (!row) return;
+  if (!row) return null;
 
-  if (row.is_self === true) {
-    // Rejecting your OWN request is a withdrawal, not a separation-of-duties
-    // breach: it grants nothing and closes the row. Allowing it is what makes a
-    // request escapable when the ratchet's snapshot demands a rank only the
-    // requester holds (a sole owner, say) — before this, such a row could be
-    // neither approved nor rejected by anybody, and there is no cancel action.
-    // The rank check below is skipped with it, for the same reason: a withdrawal
-    // needs no approver authority.
-    if (decision === 'rejected') return;
-    throw new ApprovalDecisionError(
-      'SELF_APPROVAL_FORBIDDEN',
-      'You cannot approve an approval request you raised yourself'
-    );
-  }
-
-  // A request naming a rule this company cannot see (another tenant's, or one of
-  // migration 234's company_id-NULL seeds) must not fall back to the admin
-  // default — that would silently lower an owner-only requirement.
-  if (row.rule_id != null && row.resolved_rule_id == null) {
-    throw new ApprovalDecisionError(
-      'APPROVER_ROLE_REQUIRED',
-      'This approval names a rule that does not belong to this company and cannot be decided'
-    );
-  }
-
-  // No company_users row means no role to rank. Refuse outright rather than
-  // ranking '' as 0: a rule demanding 'viewer' is also rank 0, and 0 < 0 is
-  // false, so the comparison below would let a non-member decide it.
-  if (row.decider_role == null) {
-    throw new ApprovalDecisionError(
-      'APPROVER_ROLE_REQUIRED',
-      'You have no role in this company and cannot decide approvals'
-    );
-  }
+  // Rejecting your OWN request is a withdrawal, not a separation-of-duties
+  // breach: it grants nothing and closes the row. Allowing it is what makes a
+  // request escapable when the ratchet's snapshot demands a rank only the
+  // requester holds (a sole owner, say) — before this, such a row could be
+  // neither approved nor rejected by anybody, and there is no cancel action.
+  // The rank check below is skipped with it, for the same reason: a withdrawal
+  // needs no approver authority.
+  if (row.is_self === true && decision === 'rejected') return null;
 
   // The demand RATCHETS: the higher of the role the request was raised under
   // (`required_role`, migration 669) and the bound rule's role today.
@@ -181,6 +184,59 @@ export async function assertMayDecide(
   const demandedRole = snapshotRole != null && requiredRank(snapshotRole) > requiredRank(ruleRole)
     ? snapshotRole
     : ruleRole;
+
+  // Approving your OWN request stays forbidden (K-043) unless nobody else in the
+  // company could approve it (decision Q2), and then only while ALL of these
+  // hold: enforcement is ON for the document type (off, nothing is gated, so
+  // there is nothing to be stuck on — dead everywhere in PR1); the roster is
+  // unchanged since the request (a snapshot taken then — see
+  // approvalSelfApproval); and no OTHER active member ranks at or above the
+  // demand — platform roles (system, super_admin) included, which fails closed.
+  // It then still faces every check below and the digest check in decideRequest.
+  // A PAST requester (re-stamped away by a content change) may never approve:
+  // they are the likeliest author of the content. No sole-approver exception.
+  if (decision === 'approved' && row.is_self !== true && row.was_requester === true) {
+    throw new ApprovalDecisionError(
+      'SELF_APPROVAL_FORBIDDEN',
+      'You cannot approve an approval request you raised for an earlier version of this document'
+    );
+  }
+  let approverRoster: unknown = null;
+  if (row.is_self === true) {
+    const forbidden = (why = 'while another member can approve it') => new ApprovalDecisionError(
+      'SELF_APPROVAL_FORBIDDEN',
+      `You cannot approve an approval request you raised yourself ${why}`
+    );
+    // No membership: the roster function would refuse anyway, and the answer
+    // must name the segregation breach, not the missing role.
+    if (row.decider_role == null) throw forbidden();
+    if (row.enforced !== true) throw forbidden('unless approval enforcement is on for this document type');
+    const facts = await soleApproverFacts(companyId, requestId, decidedBy);
+    if (!facts.rosterUnchanged) throw forbidden('— the company members or roles changed since it was raised');
+    if (facts.otherRoles.some((role) => actorRank(role) >= requiredRank(demandedRole))) throw forbidden();
+    approverRoster = facts.roster;
+  }
+
+  // A request naming a rule this company cannot see (another tenant's, or one of
+  // migration 234's company_id-NULL seeds) must not fall back to the admin
+  // default — that would silently lower an owner-only requirement.
+  if (row.rule_id != null && row.resolved_rule_id == null) {
+    throw new ApprovalDecisionError(
+      'APPROVER_ROLE_REQUIRED',
+      'This approval names a rule that does not belong to this company and cannot be decided'
+    );
+  }
+
+  // No company_users row means no role to rank. Refuse outright rather than
+  // ranking '' as 0: a rule demanding 'viewer' is also rank 0, and 0 < 0 is
+  // false, so the comparison below would let a non-member decide it.
+  if (row.decider_role == null) {
+    throw new ApprovalDecisionError(
+      'APPROVER_ROLE_REQUIRED',
+      'You have no role in this company and cannot decide approvals'
+    );
+  }
+
   const userRole = String(row.decider_role);
   if (actorRank(userRole) < requiredRank(demandedRole)) {
     throw new ApprovalDecisionError(
@@ -188,4 +244,5 @@ export async function assertMayDecide(
       `This approval requires the ${demandedRole} role`
     );
   }
+  return row.is_self === true ? { selfApproval: 'sole_approver', requiredRole: demandedRole, approverRoster } : null;
 }

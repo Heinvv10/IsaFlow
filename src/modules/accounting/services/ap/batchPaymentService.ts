@@ -15,6 +15,7 @@ import { assertBatchAllocatable, assertBatchMembersStillAllocatable } from './su
 import { SupplierPaymentRefusal } from './supplierPaymentRefusal';
 import type { SupplierPaymentBatch, BatchPaymentCreateInput } from '../../types/ap.types';
 import type { JournalLineInput } from '../../types/gl.types';
+import { assertNotImpersonating } from '@/lib/auth/impersonationGuard';
 
 type Row = DbRow;
 
@@ -124,6 +125,7 @@ export async function createBatch(companyId: string,
 }
 
 export async function approveBatch(companyId: string, id: string, _userId: string): Promise<void> {
+  await assertNotImpersonating(); // R-032 L5: first, before any read or write
   await withTransaction(async (tx) => {
     await tx`UPDATE supplier_payment_batches SET status = 'approved' WHERE id = ${id} AND company_id = ${companyId} AND status = 'draft'`;
     await tx`UPDATE supplier_payments SET status = 'approved' WHERE batch_id = ${id}::UUID AND status = 'draft'
@@ -147,6 +149,7 @@ export class BatchNotProcessableError extends Error {
 }
 
 export async function processBatch(companyId: string, id: string, userId: string): Promise<void> {
+  await assertNotImpersonating(); // R-032 L5: first, before any read or write
   const batch = await getBatchById(companyId, id);
   if (!batch) throw new Error('Batch not found');
 

@@ -13,6 +13,7 @@ import {
   type CompanyAuthedRequest,
 } from '@/lib/auth';
 import { approvePayrollRun } from '@/modules/accounting/services/payroll/payrollApprovalService';
+import { respondIfImpersonationForbidden } from '@/lib/auth/impersonationGuard';
 
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
@@ -32,6 +33,7 @@ async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse): 
     const result = await approvePayrollRun(companyId, id, user.id);
     return apiResponse.success(res, result);
   } catch (err) {
+    if (respondIfImpersonationForbidden(res, err)) return;
     const message = err instanceof Error ? err.message : String(err);
     return apiResponse.badRequest(res, message);
   }

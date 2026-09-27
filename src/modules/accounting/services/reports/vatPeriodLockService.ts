@@ -27,6 +27,7 @@ import type { DbRow } from '@/lib/neon';
 import { log } from '@/lib/logger';
 import { takeVatLockExclusive } from '../gl/journalVatLockGuard';
 import { VatPeriodLockRefusal, assertLockablePeriod } from './vatPeriodLockBounds';
+import { assertNotImpersonating } from '@/lib/auth/impersonationGuard';
 
 export { VatPeriodLockRefusal } from './vatPeriodLockBounds';
 export { VatLockTimeoutError } from '../gl/journalVatLockGuard';
@@ -203,6 +204,7 @@ export async function lockVatPeriod(
   actor: VatLockActor,
   notes?: string,
 ): Promise<LockVatPeriodResult> {
+  await assertNotImpersonating(); // R-032: period controls are refused to a Login-as session
   // Exclusive against every post of the company until this transaction ends
   // (journalVatLockGuard). The caller that computed `figures` should already
   // hold it — computeVatLockFigures takes it — and re-taking it is a no-op.
@@ -266,6 +268,7 @@ export async function unlockVatPeriod(
   userId: string,
   reason: string,
 ): Promise<VatPeriodLock> {
+  await assertNotImpersonating(); // R-032: period controls are refused to a Login-as session
   const why = reason.trim();
   if (!why) throw new VatPeriodUnlockRefusal('A reason is required to unlock a VAT period.');
 

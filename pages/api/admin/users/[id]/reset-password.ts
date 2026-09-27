@@ -1,13 +1,14 @@
 /**
  * Admin User Reset Password API
- * POST /api/admin/users/[id]/reset-password — Generate a temporary password
+ * POST /api/admin/users/[id]/reset-password — Email the user a single-use reset link
  */
 
 import type { NextApiResponse } from 'next';
 import { type AuthenticatedNextApiRequest } from '@/lib/auth';
 import { withCsrf } from '@/lib/auth/withCsrf';
 import { withAdmin } from '@/modules/admin/middleware/withAdmin';
-import { apiResponse } from '@/lib/apiResponse';
+import { apiResponse, ErrorCode } from '@/lib/apiResponse';
+import { PasswordResetEmailNotSentError } from '@/lib/auth/passwordResetEmail';
 import { log } from '@/lib/logger';
 import { resetPassword } from '@/modules/admin/services/adminUserActionsService';
 import { logAdminAction } from '@/modules/admin/services/auditService';
@@ -19,10 +20,9 @@ async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse) {
 
   if (req.method === 'POST') {
     try {
-      // M6: audit-then-act. resetPassword() mints a GoTrue recovery link — an
-      // external, non-transactional side-effect that a tx rollback cannot undo.
-      // Writing the (critical) audit row first means a failed audit throws
-      // BEFORE the link is generated, so a reset can never occur unaudited.
+      // M6: audit-then-act. The reset email is an external side-effect a tx
+      // rollback cannot undo, so the (critical) audit row is written first: a
+      // failed audit throws BEFORE anything is sent.
       await logAdminAction(
         req.user.id,
         'user.reset_password',
@@ -32,15 +32,17 @@ async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse) {
         getIp(req)
       );
 
-      const { reset_link } = await resetPassword(userId);
+      // R-032 M2: the link goes to the user only — never into this response.
+      await resetPassword(userId);
 
       log.info('Password reset performed', { userId }, 'admin-api');
-      return apiResponse.success(res, {
-        success: true,
-        message: 'Password reset link generated. Share with the user if they did not receive the email.',
-        reset_link,
-      });
+      return apiResponse.success(res, { message: 'Password reset email sent' });
     } catch (err) {
+      if (err instanceof PasswordResetEmailNotSentError) {
+        log.error('Password reset email not sent', { userId, error: err.message }, 'admin-api');
+        return apiResponse.error(res, ErrorCode.SERVICE_UNAVAILABLE,
+          'The password reset email could not be sent. The user has not been emailed.');
+      }
       log.error('Failed to reset user password', { userId, error: err }, 'admin-api');
       return apiResponse.internalError(res, err, 'Failed to reset user password');
     }
