@@ -57,7 +57,9 @@ const first = (rows: Row[]): Row | undefined => rows[0];
  *
  * Invoices are matched on their FUNCTIONAL (ZAR) total where they carry one:
  * `total_amount` is in the document's own currency, so a USD 5 000 bill
- * (about R92 500) slipped under a R50 000 rule.
+ * (about R92 500) slipped under a R50 000 rule. A supplier invoice is matched
+ * on the LARGER of the two (approval_supplier_invoice_gate_amount, migration
+ * 712): its approval posts total_amount, so an exchange rate must not shrink it.
  */
 async function findDocument(
   companyId: string,
@@ -73,7 +75,8 @@ async function findDocument(
       `) as Row[]);
     case 'supplier_invoice':
       return first((await sql`
-        SELECT COALESCE(functional_total, total_amount, 0) AS amount, invoice_number AS reference,
+        SELECT approval_supplier_invoice_gate_amount(total_amount, functional_total) AS amount,
+               invoice_number AS reference,
                approval_document_digest(company_id, 'supplier_invoice', id) AS digest
         FROM supplier_invoices WHERE id = ${documentId}::UUID AND company_id = ${companyId} AND deleted_at IS NULL
       `) as Row[]);

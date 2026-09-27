@@ -26,6 +26,7 @@ import type { PostingActorOpts } from '../gl/journalEntryMeta';
 import { DEFAULT_SUPPLIER_TAX_RATE } from '../../constants/supplierInvoiceDefaults';
 import { assertSupplierInCompany } from '../core/contactDirectoryService';
 import { assertBillLineAccounts } from './billLineAccountGuard';
+import { resolveBillCurrency } from './supplierInvoiceCurrency';
 import {
   assertSupplierInvoiceLines,
   computeSupplierInvoiceTotals,
@@ -100,10 +101,8 @@ export async function createSupplierInvoice(
 
     const dueDate = input.dueDate || calculateDueDate(input.invoiceDate, input.paymentTerms);
 
-    // Currency fields — default to ZAR / 1.0 for functional currency pass-through
-    const currencyCode = input.currencyCode?.trim().toUpperCase() || 'ZAR';
-    const exchangeRate = (typeof input.exchangeRate === 'number' && input.exchangeRate > 0)
-      ? input.exchangeRate : 1.0;
+    // Currency fields — default to ZAR / 1.0; the company's own currency at exactly 1 (R-035).
+    const { currencyCode, exchangeRate } = await resolveBillCurrency(companyId, input.currencyCode, input.exchangeRate);
     const functionalTotal = Math.round(totalAmount * exchangeRate * 100) / 100;
 
     // Fetch supplier VAT number for duplicate fingerprint
