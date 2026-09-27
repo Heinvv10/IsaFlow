@@ -62,7 +62,10 @@ async function insertTx(
  * Two journal lines no bank transaction in the company is matched to yet.
  * `uq_bank_tx_matched_line` (migration 657) allows one transaction per
  * (company, journal line), so the matched and the allocated fixture rows need
- * a line each, and neither may be one a real row already holds.
+ * a line each, and neither may be one a real row already holds. Called inside
+ * the test's transaction: FOR UPDATE conflicts with the KEY SHARE a concurrent
+ * match's foreign key takes, so no other writer can claim the two lines
+ * between this read and the fixture INSERTs.
  */
 async function findFreeJournalLines(client: PoolClient, companyId: string): Promise<[string, string] | null> {
   const { rows } = await client.query<{ id: string }>(
@@ -70,7 +73,8 @@ async function findFreeJournalLines(client: PoolClient, companyId: string): Prom
       WHERE l.company_id = $1
         AND NOT EXISTS (SELECT 1 FROM bank_transactions t
                          WHERE t.company_id = l.company_id AND t.matched_journal_line_id = l.id)
-      ORDER BY l.id LIMIT 2`, [companyId],
+      ORDER BY l.id LIMIT 2
+      FOR UPDATE OF l`, [companyId],
   );
   return rows.length === 2 ? [rows[0]!.id, rows[1]!.id] : null;
 }
@@ -84,11 +88,10 @@ describe('cancelReconciliation (real DB)', async () => {
     try {
       const fixture = await findBankFixture(client);
       if (!fixture) { ctx.skip('no company with a bank + expense GL account'); return; }
+      await client.query('BEGIN');
       const lines = await findFreeJournalLines(client, fixture.companyId);
       if (!lines) { ctx.skip('no two unmatched journal lines for the fixture'); return; }
       const [matchedLineId, journalLineId] = lines;
-
-      await client.query('BEGIN');
       const reconId = await insertRecon(client, fixture);
       const matchedTx = await insertTx(client, fixture, reconId, 'matched', matchedLineId);
       const allocatedTx = await insertTx(client, fixture, reconId, 'allocated', journalLineId);
