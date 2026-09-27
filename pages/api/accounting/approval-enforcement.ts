@@ -1,6 +1,7 @@
 /**
  * Approval Enforcement API (R-035)
- * GET  — this company's enforced document types, and which types may be enabled
+ * GET  — this company's enforced document types, which types may be enabled, and
+ *        per enforceable type how many unposted documents it holds now (`preview`)
  * POST — { documentType, enabled } switch enforcement on or off for one type
  *
  * Enabling a type not in ENFORCEABLE_DOCUMENT_TYPES is a 400 NOT_ENFORCEABLE
@@ -22,6 +23,7 @@ import {
   ApprovalEnforcementAuthorityError, ApprovalEnforcementUnavailableError, ENFORCEABLE_DOCUMENT_TYPES,
   disableEnforcement, enableEnforcement, listEnforcement,
 } from '@/modules/accounting/services/gl/approvalEnforcement';
+import { previewEnforcement } from '@/modules/accounting/services/gl/approvalEnforcementPreview';
 
 const DOCUMENT_TYPES = new Set<DocumentType>(['customer_invoice', 'supplier_invoice', 'payment', 'journal_entry', 'credit_note']);
 const isDocumentType = (value: unknown): value is DocumentType => typeof value === 'string' && DOCUMENT_TYPES.has(value as DocumentType);
@@ -33,7 +35,8 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
 
   if (req.method === 'GET') {
     const items = await listEnforcement(companyId);
-    return apiResponse.success(res, { items, enforceable: ENFORCEABLE_DOCUMENT_TYPES });
+    const preview = await previewEnforcement(companyId);
+    return apiResponse.success(res, { items, enforceable: ENFORCEABLE_DOCUMENT_TYPES, preview });
   }
 
   if (req.method === 'POST') {
