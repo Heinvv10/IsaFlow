@@ -28,7 +28,7 @@ import {
 } from '@/modules/accounting/services/capture/captureDeduplicationService';
 import { recordCoding } from '@/modules/accounting/services/capture/supplierRulesService';
 import {
-  CAPTURED_DOCUMENT_REFUSAL_MESSAGE,
+  CAPTURED_DOCUMENT_REFUSAL_ERROR_CODE, CAPTURED_DOCUMENT_REFUSAL_MESSAGE,
   CaptureRowLockTimeoutError,
   claimCapturedDocumentForPosting,
   lockCapturedDocumentForUpdate,
@@ -174,9 +174,9 @@ async function handler(req: CompanyAuthedRequest, res: NextApiResponse) {
   // This is the last point at which a 4xx is safe here: everything between the
   // duplicate branch and this line is a SELECT or a pure function, and a refusal
   // matched no row.
-  const claimRefusal = await claimCapturedDocumentForPosting(companyId, documentId);
+  const claimRefusal = await claimCapturedDocumentForPosting(companyId, documentId, null, { spend: 'invoice' });
   if (claimRefusal) {
-    return apiResponse.badRequest(res, CAPTURED_DOCUMENT_REFUSAL_MESSAGE[claimRefusal]);
+    return apiResponse.error(res, CAPTURED_DOCUMENT_REFUSAL_ERROR_CODE[claimRefusal], CAPTURED_DOCUMENT_REFUSAL_MESSAGE[claimRefusal]);
   }
 
   // Create supplier invoice (evidence columns stamped; hash backfilled by worker)

@@ -30,7 +30,7 @@ interface Props {
 
 const LABELS: Array<[keyof VatGateCounts, string]> = [
   ['unpostedInvoiceVatCount', 'unposted invoice/bill VAT'],
-  ['unsupportedInputVatCount', 'unsupported input VAT'],
+  ['unsupportedInputVatCount', 'input VAT that exceeds its support'],
   ['uncodedGlLineCount', 'uncoded GL VAT lines'],
   ['invoiceTaxCodeIssueCount', 'invoice tax-code issues'],
   ['invoiceGlMismatchCount', 'invoice ↔ GL VAT mismatches'],
