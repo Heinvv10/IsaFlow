@@ -9775,8 +9775,8 @@
       "correctedTrigger": "",
       "severityRationale": "",
       "auditedSha": "",
-      "currentSha": "c82cb65d2",
-      "status": "fix-in-review",
+      "currentSha": "3edfa5c5d",
+      "status": "fixed",
       "dependencies": [],
       "testNames": [
         "tests/integration/r-032-approval-impersonation.int.test.ts",
@@ -9786,7 +9786,7 @@
       "evidencePaths": [],
       "fixCommit": "3fde11f9c;6394182fa;9f10a5509;a61af4272;7288619ad;d84d36a4f;cf1605eb2;25a10c3e0;b35f0df43;462cf437b",
       "pr": "https://github.com/Heinvv10/IsaFlow/pull/541",
-      "deployedSha": null,
+      "deployedSha": "3edfa5c5d",
       "historicalDataImpact": "",
       "canonicalItem": null,
       "reportedSeverity": "",
@@ -9794,7 +9794,7 @@
       "title": "Approval segregation-of-duties guard is bypassed under platform-admin impersonation; audit row names the impersonated user",
       "severity": "high",
       "source": "Raised by blind review of K-043 (review-k043 L7); recorded 2026-09-09",
-      "processNotes": "Raised by blind review of K-043 (review-k043 L7); recorded 2026-09-09\n\nSTILL OPEN, verified 2026-09-25 on origin/master 4faf25ed7: approvalAuthority.ts:113 compares ar.requested_by against decidedBy = req.user.id, which under impersonation is the impersonated user's id; the real actor id exists only in pages/api/admin/users/[id]/impersonate.ts and src/lib/auth/impersonationAssurance.ts and never reaches withAuth or assertMayDecide. No fix commit, no test. 2026-09-26: fixed and widened per Hein — Login-as sessions (recorded in impersonation_sessions, migration 709) are refused approval decisions, every approve/post/decide service, VAT201/SARS/VAT-return/year-end, fiscal and VAT period controls, bearer-credential mints and account-security changes; admin reset no longer returns a GoTrue recovery link (own token email flow; supersede race fixed). Blind review: 5 rounds, final SHIP. Verified 193/193. Limits registered separately: pre-fix credentials (census), GoTrue reachable on the tailnet."
+      "processNotes": "Raised by blind review of K-043 (review-k043 L7); recorded 2026-09-09\n\nSTILL OPEN, verified 2026-09-25 on origin/master 4faf25ed7: approvalAuthority.ts:113 compares ar.requested_by against decidedBy = req.user.id, which under impersonation is the impersonated user's id; the real actor id exists only in pages/api/admin/users/[id]/impersonate.ts and src/lib/auth/impersonationAssurance.ts and never reaches withAuth or assertMayDecide. No fix commit, no test. 2026-09-26: fixed and widened per Hein — Login-as sessions (recorded in impersonation_sessions, migration 709) are refused approval decisions, every approve/post/decide service, VAT201/SARS/VAT-return/year-end, fiscal and VAT period controls, bearer-credential mints and account-security changes; admin reset no longer returns a GoTrue recovery link (own token email flow; supersede race fixed). Blind review: 5 rounds, final SHIP. Verified 193/193. Limits registered separately: pre-fix credentials (census), GoTrue reachable on the tailnet. 2026-09-27: merged and deployed to prod at 3edfa5c5d (Hein's \"go now\", Sunday 09:29–09:38 SAST): deploy CI gate passed (14355 unit incl. DB-backed, 726 component), Applied 4 migrations (708–711), build integrity 1157, golden paths 13/13, integrity 16/16, RELEASE_SHA 3edfa5c5d verified, fix strings present in the live .next/server bundle. Rollback snapshot 9549185d0."
     },
     {
       "id": "R-033",
@@ -9860,7 +9860,7 @@
       "correctedTrigger": "",
       "severityRationale": "A financial control that is documented and configurable but has no enforcement path at all.",
       "auditedSha": "",
-      "currentSha": "c82cb65d2",
+      "currentSha": "3edfa5c5d",
       "status": "in-progress",
       "dependencies": [],
       "testNames": [
@@ -9879,7 +9879,7 @@
       "title": "Approvals are not enforced anywhere: checkApproval and requestApproval have no caller, so any document posts under an active owner-only rule with no approval ever requested",
       "severity": "critical",
       "source": "Raised by the K-043 fixer while closing review-k043-r3 M2; recorded 2026-09-09",
-      "processNotes": "Confirmed by the K-043 r4 blind reviewer, who grepped every caller: checkApproval and requestApproval have NO caller at all -- not in the five posting services, not in the UI. K-043 enforces WHO may decide an approval that exists; nothing creates one and nothing blocks posting without one. Today an operator can post any invoice, bill, payment, journal or credit note of any amount under an active owner-only rule with no approval request ever existing, i.e. the approvals feature is decorative in production and any control relying on it is not operating. The reviewer ruled deferring this out of K-043 defensible -- it spans five posting services and needs a document-level approval_status -- but it must not be left implicit. K-043's module doc and fix.md are being corrected to say only the DECIDE path is enforced. HEIN: if approvals are being represented to anyone as a control, that representation is currently false. 2026-09-26: PR1 of the enforcement series (#540, infra, nothing enforced yet: digest binding, per-company/per-type opt-in enforcement table, gate module, sole-approver rule per Hein Q2, requester re-stamp + past-requester refusal). Hein's decisions: enforce path by path starting with supplier invoices; opt-in default off; imports exempt; payments = instructions only; journals = manual only. PR2 must: refuse the content's last editor; gate honours only approvals decided >= enabled_at; settle past-requester UX. Deploy step: browser-approve one supplier-invoice request on dev after 708. Before enabling anywhere Hein runs the census in the R-035 design (active rules per company)."
+      "processNotes": "Confirmed by the K-043 r4 blind reviewer, who grepped every caller: checkApproval and requestApproval have NO caller at all -- not in the five posting services, not in the UI. K-043 enforces WHO may decide an approval that exists; nothing creates one and nothing blocks posting without one. Today an operator can post any invoice, bill, payment, journal or credit note of any amount under an active owner-only rule with no approval request ever existing, i.e. the approvals feature is decorative in production and any control relying on it is not operating. The reviewer ruled deferring this out of K-043 defensible -- it spans five posting services and needs a document-level approval_status -- but it must not be left implicit. K-043's module doc and fix.md are being corrected to say only the DECIDE path is enforced. HEIN: if approvals are being represented to anyone as a control, that representation is currently false. 2026-09-26: PR1 of the enforcement series (#540, infra, nothing enforced yet: digest binding, per-company/per-type opt-in enforcement table, gate module, sole-approver rule per Hein Q2, requester re-stamp + past-requester refusal). Hein's decisions: enforce path by path starting with supplier invoices; opt-in default off; imports exempt; payments = instructions only; journals = manual only. PR2 must: refuse the content's last editor; gate honours only approvals decided >= enabled_at; settle past-requester UX. Deploy step: browser-approve one supplier-invoice request on dev after 708. Before enabling anywhere Hein runs the census in the R-035 design (active rules per company). 2026-09-27: PR1 (#540, merged 36eed4aab) deployed at 3edfa5c5d — infrastructure only, nothing enforced; merge round aligned disable-enforcement with R-048's ladder (shared mayWeakenAtLevel) and composed with R-032's guard. Status stays in-progress until PR2 (supplier-invoice enforcement) ships; PR2 must-list in services/gl/.claude.md."
     },
     {
       "id": "R-036",
@@ -10283,8 +10283,8 @@
       "correctedTrigger": "",
       "severityRationale": "A documented separation-of-duties control that an admin can route around in two ordinary steps.",
       "auditedSha": "",
-      "currentSha": "c82cb65d2",
-      "status": "fix-in-review",
+      "currentSha": "3edfa5c5d",
+      "status": "fixed",
       "dependencies": [
         "K-043"
       ],
@@ -10297,7 +10297,7 @@
       ],
       "fixCommit": "3b95d055b;38f2246af;20dc1b468;e98c4b294",
       "pr": "https://github.com/Heinvv10/IsaFlow/pull/537",
-      "deployedSha": null,
+      "deployedSha": "3edfa5c5d",
       "historicalDataImpact": "See R-049 -- past instances are not retrospectively detectable.",
       "canonicalItem": null,
       "reportedSeverity": "",
@@ -10305,7 +10305,7 @@
       "title": "An admin can lower an admin-level approval rule to manager and re-raise the request, so a manager approves what only an admin should",
       "severity": "high",
       "source": "Found by the K-043 r7 blind reviewer, outside the scope of the required_role ratchet; recorded 2026-09-10",
-      "processNotes": "K-043's migration-669 ratchet (snapshot required_role at raise, rebind may only RAISE it, assertMayDecide demands max(snapshot, live)) held against every lever the reviewer could drive -- except this one, which sits OUTSIDE it. An admin edits an ADMIN-level rule down to manager and then re-raises the request; the new request snapshots the already-lowered role, so the ratchet has nothing higher to hold to. Reproduced end to end: manager approves, 200. The ratchet is the right mechanism and should not be changed for this; the missing control is that lowering a rule's authority is itself a privileged act that an actor at that rank should not be able to perform on their own governing rule. Needs its own item and its own design. Related: R-032 (admin impersonation), R-033 (sole-owner deadlock), R-035 (no enforcement path at all).\n\nSTILL OPEN, verified 2026-09-25 on origin/master 4faf25ed7: approvalRuleGuards.ts (assertMayEditRule/assertMayDemand) refuse only when actorRank < requiredRank, so an admin may lower an admin-level rule to manager. 39c900ae3's message carved this out as R-048; nothing since closes it. Needs a design decision. 2026-09-26: fixed per Hein — weakening a rule (lower role, deactivate, delete, narrowing operator/threshold) needs a rank strictly above the rule's level; an owner may weaken an owner-level rule. Rule row read FOR UPDATE. 15 mutations red. Blind review: SHIP x2 (2 LOWs fixed). Verified 112/112 on a disposable fixture."
+      "processNotes": "K-043's migration-669 ratchet (snapshot required_role at raise, rebind may only RAISE it, assertMayDecide demands max(snapshot, live)) held against every lever the reviewer could drive -- except this one, which sits OUTSIDE it. An admin edits an ADMIN-level rule down to manager and then re-raises the request; the new request snapshots the already-lowered role, so the ratchet has nothing higher to hold to. Reproduced end to end: manager approves, 200. The ratchet is the right mechanism and should not be changed for this; the missing control is that lowering a rule's authority is itself a privileged act that an actor at that rank should not be able to perform on their own governing rule. Needs its own item and its own design. Related: R-032 (admin impersonation), R-033 (sole-owner deadlock), R-035 (no enforcement path at all).\n\nSTILL OPEN, verified 2026-09-25 on origin/master 4faf25ed7: approvalRuleGuards.ts (assertMayEditRule/assertMayDemand) refuse only when actorRank < requiredRank, so an admin may lower an admin-level rule to manager. 39c900ae3's message carved this out as R-048; nothing since closes it. Needs a design decision. 2026-09-26: fixed per Hein — weakening a rule (lower role, deactivate, delete, narrowing operator/threshold) needs a rank strictly above the rule's level; an owner may weaken an owner-level rule. Rule row read FOR UPDATE. 15 mutations red. Blind review: SHIP x2 (2 LOWs fixed). Verified 112/112 on a disposable fixture. 2026-09-27: merged and deployed to prod at 3edfa5c5d (Hein's \"go now\", Sunday 09:29–09:38 SAST): deploy CI gate passed (14355 unit incl. DB-backed, 726 component), Applied 4 migrations (708–711), build integrity 1157, golden paths 13/13, integrity 16/16, RELEASE_SHA 3edfa5c5d verified, fix strings present in the live .next/server bundle. Rollback snapshot 9549185d0."
     },
     {
       "id": "R-049",
@@ -10768,6 +10768,64 @@
       "branch": null,
       "severity": "low",
       "title": "Supplier credit note create-and-post Login-as test cannot prove no draft is committed"
+    },
+    {
+      "id": "R-140",
+      "claim": "When a supplier invoice is approved before its slip evidences the provisional (the auto-attach missed: date >2 days, supplier or amount mismatch), nothing links the two afterwards: the manual attach refuses the invoiced slip, and R-127 settles only at approval / Post to GL. The provisional and the bill both stay live (a double booking a person must fix by journal).",
+      "area": "ap",
+      "affectedPaths": [
+        "src/modules/accounting/services/capture/provisionalEvidenceAttach.ts",
+        "src/modules/accounting/services/ap/provisionalInvoiceSettlement.ts"
+      ],
+      "sourceLabel": "R-127 / R-032 merge-round review 2026-09-27",
+      "sourceIds": [],
+      "correctedTrigger": null,
+      "severityRationale": "Registered during the high-severity fix batch; severity provisional, read not measured.",
+      "auditedSha": "3edfa5c5d",
+      "currentSha": "3edfa5c5d",
+      "status": "candidate",
+      "dependencies": [],
+      "testNames": [],
+      "evidencePaths": [],
+      "fixCommit": null,
+      "pr": null,
+      "deployedSha": null,
+      "historicalDataImpact": "Not assessed.",
+      "canonicalItem": null,
+      "reportedSeverity": "medium",
+      "processNotes": "2026-09-27: Found by the R-127 blind review (merge round). Needed: a \"settle this approved bill against that provisional\" action reusing R-127's claim + reclass.",
+      "branch": null,
+      "severity": "medium",
+      "title": "No action settles an already-approved bill against its bank-first provisional"
+    },
+    {
+      "id": "R-141",
+      "claim": "capture/[id]/post and ai-invoice-pipeline insert an auto-approved supplier invoice without the R-032 assertNotImpersonating guard; the subsequent settlement is refused (guard in postSupplierInvoiceToGL) and the bill reverts to draft, so it is safe today, but the approval act itself runs under a Login-as session.",
+      "area": "auth",
+      "affectedPaths": [
+        "pages/api/accounting/capture/[id]/post.ts",
+        "pages/api/accounting/ai-invoice-pipeline.ts"
+      ],
+      "sourceLabel": "R-127 / R-032 merge-round review 2026-09-27",
+      "sourceIds": [],
+      "correctedTrigger": null,
+      "severityRationale": "Registered during the high-severity fix batch; severity provisional, read not measured.",
+      "auditedSha": "3edfa5c5d",
+      "currentSha": "3edfa5c5d",
+      "status": "candidate",
+      "dependencies": [],
+      "testNames": [],
+      "evidencePaths": [],
+      "fixCommit": null,
+      "pr": null,
+      "deployedSha": null,
+      "historicalDataImpact": "Not assessed.",
+      "canonicalItem": null,
+      "reportedSeverity": "low",
+      "processNotes": "2026-09-27: Noted by the R-127 reviewer as R-032 scope.",
+      "branch": null,
+      "severity": "low",
+      "title": "Capture auto-approval INSERT is not refused under Login-as"
     },
     {
       "id": "R-052",
@@ -12018,8 +12076,8 @@
       "correctedTrigger": "",
       "severityRationale": "Each upload is a new captured document, so R-058's row lock and the posted-status guards (which stop a double-click on ONE document) do not apply. A user who re-uploads a slip, or forwards the same receipt by email and WhatsApp, books the expense and the bank credit again with no refusal. No marker rule (COPY/REPRINT) can close it, because the re-upload is byte-identical to the original.",
       "auditedSha": "",
-      "currentSha": "c82cb65d2",
-      "status": "fix-in-review",
+      "currentSha": "3edfa5c5d",
+      "status": "fixed",
       "dependencies": [
         "K-072",
         "R-058",
@@ -12034,7 +12092,7 @@
       ],
       "fixCommit": "d4c1a095a;1451cd5f3;752ed20e6;b2b6e30a2",
       "pr": "https://github.com/Heinvv10/IsaFlow/pull/539",
-      "deployedSha": null,
+      "deployedSha": "3edfa5c5d",
       "historicalDataImpact": "Unknown; production not measured. Count captured documents per company with identical content hash or identical (vendor, date, total) that each produced a journal.",
       "canonicalItem": null,
       "reportedSeverity": "",
@@ -12042,7 +12100,7 @@
       "title": "The same receipt uploaded more than once posts once per upload: neither receipt path de-duplicates by content",
       "severity": "high",
       "source": "Measured by the K-072 round-23 blind reviewer in an integration probe: one slip uploaded three times posted 3 journals, a R3,450 bank credit for a R1,150 receipt.",
-      "processNotes": "Fix direction: a content fingerprint (file hash, and a normalised vendor+date+total+VAT key) checked before auto-post, and a partial-unique constraint as the backstop, as gl_journal_entries already has for source documents. Refuse to auto-post a match; let a human confirm a genuine repeat purchase. Related: R-070 (two routes with no already-posted guard). Fix after K-072 merges: it touches the same routes. 2026-09-26: fixed — the posting claim itself checks and stamps the file fingerprint for every claimer (receipt-to-journal, post-expense, capture post, ai-invoice-pipeline, claim lines); normalised vendor/date/total/VAT key with slip-number exception; override only for details matches, recorded with actor; partial unique index backstop (migration 710); one lock order. Blind review: 4 rounds, final SHIP. Verified 207/208 (1 = pre-existing master failure). Limit: re-encoded copies of receipts posted before 710 need the read-only census/backfill script run by Hein."
+      "processNotes": "Fix direction: a content fingerprint (file hash, and a normalised vendor+date+total+VAT key) checked before auto-post, and a partial-unique constraint as the backstop, as gl_journal_entries already has for source documents. Refuse to auto-post a match; let a human confirm a genuine repeat purchase. Related: R-070 (two routes with no already-posted guard). Fix after K-072 merges: it touches the same routes. 2026-09-26: fixed — the posting claim itself checks and stamps the file fingerprint for every claimer (receipt-to-journal, post-expense, capture post, ai-invoice-pipeline, claim lines); normalised vendor/date/total/VAT key with slip-number exception; override only for details matches, recorded with actor; partial unique index backstop (migration 710); one lock order. Blind review: 4 rounds, final SHIP. Verified 207/208 (1 = pre-existing master failure). Limit: re-encoded copies of receipts posted before 710 need the read-only census/backfill script run by Hein. 2026-09-27: merged and deployed to prod at 3edfa5c5d (Hein's \"go now\", Sunday 09:29–09:38 SAST): deploy CI gate passed (14355 unit incl. DB-backed, 726 component), Applied 4 migrations (708–711), build integrity 1157, golden paths 13/13, integrity 16/16, RELEASE_SHA 3edfa5c5d verified, fix strings present in the live .next/server bundle. Rollback snapshot 9549185d0."
     },
     {
       "id": "R-089",
@@ -13337,8 +13395,8 @@
       "correctedTrigger": null,
       "severityRationale": "Provisional HIGH, read not measured: a double expense and double input-VAT claim on every bank-first provisional line later matched by a captured supplier invoice. Needs a design decision: the evidenced provisional journal should settle the invoice (reclass expense -> AP) or be reversed.",
       "auditedSha": "HEAD",
-      "currentSha": "c82cb65d2",
-      "status": "fix-in-review",
+      "currentSha": "3edfa5c5d",
+      "status": "fixed",
       "dependencies": [
         "R-107",
         "K-157"
@@ -13352,13 +13410,13 @@
       "evidencePaths": [
         "docs/audits/remediation/R-107/fix.md"
       ],
-      "fixCommit": "ab91138b7;5ec2c3a35;009bed32b;2bbb2954b;994bbb35d",
+      "fixCommit": "ab91138b7;5ec2c3a35;009bed32b;2bbb2954b;994bbb35d;0afd6f3e9;175bff814;3d71cd5dc;f0c3aa23e",
       "pr": "https://github.com/Heinvv10/IsaFlow/pull/542",
-      "deployedSha": null,
+      "deployedSha": "3edfa5c5d",
       "historicalDataImpact": "Unknown; R-107/fix.md census query 2 counts provisional journals evidenced by a slip that also has a live supplier invoice.",
       "canonicalItem": null,
       "reportedSeverity": "high",
-      "processNotes": "2026-09-24: registered from R-107. Not reproduced end to end. R-107's release change keeps such a slip claimed while the provisional journal stands (the safe direction). 2026-09-26: reproduced (expense R200 / VAT R30 on a R100+R15 slip, AP never settled). Fixed per Hein: on approval the evidenced provisional becomes the invoice's payment (reclass DR AP / CR expense+VAT, payment tied to the bank line, claim unique per provisional, migration 711); approve is atomic (savepoint); filed-VAT-period approvals re-date to the provisional or are refused when both are filed; reversing a settled provisional or its reclass is refused; a fully unapplied settlement can be voided (undo reverses both and frees the bank line); UI Unapply. Blind review: 4 rounds, each SHIP from round 2; round 4 (at 994bbb35d) raised 2 LOWs that are being fixed, and the same reviewer re-confirms before merge. Prod census SQL in docs/audits/remediation/R-127/census.sql for Hein.",
+      "processNotes": "2026-09-24: registered from R-107. Not reproduced end to end. R-107's release change keeps such a slip claimed while the provisional journal stands (the safe direction). 2026-09-26: reproduced (expense R200 / VAT R30 on a R100+R15 slip, AP never settled). Fixed per Hein: on approval the evidenced provisional becomes the invoice's payment (reclass DR AP / CR expense+VAT, payment tied to the bank line, claim unique per provisional, migration 711); approve is atomic (savepoint); filed-VAT-period approvals re-date to the provisional or are refused when both are filed; reversing a settled provisional or its reclass is refused; a fully unapplied settlement can be voided (undo reverses both and frees the bank line); UI Unapply. Blind review: 4 rounds, each SHIP from round 2; round 4 (at 994bbb35d) raised 2 LOWs that are being fixed, and the same reviewer re-confirms before merge. Prod census SQL in docs/audits/remediation/R-127/census.sql for Hein. 2026-09-27: merged and deployed to prod at 3edfa5c5d (Hein's \"go now\", Sunday 09:29–09:38 SAST): deploy CI gate passed (14355 unit incl. DB-backed, 726 component), Applied 4 migrations (708–711), build integrity 1157, golden paths 13/13, integrity 16/16, RELEASE_SHA 3edfa5c5d verified, fix strings present in the live .next/server bundle. Rollback snapshot 9549185d0. Merge round (before merge): R-088×R-127 second-upload double booking closed (an evidenced slip counts for every spend; the evidence claim locks and checks), R-032 guard composed ahead of the approve savepoint; final blind review SHIP. Merged as 3edfa5c5d (#542).",
       "branch": "fix/r127-provisional-settles-invoice-20260926",
       "severity": "high",
       "title": "The automatic provisional evidence attach leaves both the provisional journal and the supplier invoice live, booking the expense twice"
