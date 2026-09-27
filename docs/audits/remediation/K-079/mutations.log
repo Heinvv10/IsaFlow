@@ -1,0 +1,45 @@
+HEAD 305d13594. Baseline: unit=green int=green
+
+RED      unit=red int=red  payrollJournalBuilder.ts: etiUsed uncapped
+RED      unit=red int=red  payrollJournalBuilder.ts: etiUsed zero
+RED      unit=red int=green  payrollJournalBuilder.ts: etiUsed not floored at 0
+RED      unit=red int=red  payrollJournalBuilder.ts: labour less full eti
+RED      unit=red int=red  payrollJournalBuilder.ts: labour ignores eti
+RED      unit=red int=red  payrollJournalBuilder.ts: 2140 full paye (THE DEFECT)
+RED      unit=red int=red  payrollJournalBuilder.ts: 2140 less full eti
+RED      unit=red int=red  payrollJournalBuilder.ts: keep zero lines
+RED      unit=red int=red  payrollJournalBuilder.ts: no advisory
+RED      unit=red int=green  payrollJournalBuilder.ts: advisory threshold
+RED      unit=red int=green  payrollJournalBuilder.ts: totals.etiUsed = eti
+RED      unit=red int=green  payrollJournalBuilder.ts: employer UIF half rounded independently
+RED      unit=red int=green  payrollJournalBuilder.ts: no nothing_to_post
+RED      unit=red int=green  payrollJournalBuilder.ts: no negative_amount
+RED      unit=red int=red  payrollJournalBuilder.ts: no closed_period
+RED      unit=green int=red  payrollJournalBuilder.ts: closed_period not tenant-scoped
+RED      unit=red int=green  payrollJournalBuilder.ts: 1-cent tolerance (old)
+RED      unit=red int=green  payrollJournalBuilder.ts: split not told etiUsed
+RED      unit=red int=green  payrollJournalParts.ts: split residual not tied
+RED      unit=red int=green  payrollJournalParts.ts: split residual unbounded
+RED      unit=red int=green  payrollJournalParts.ts: ETI spread by gross
+RED      unit=red int=green  payrollJournalParts.ts: no gross fallback
+RED      unit=red int=green  payrollJournalParts.ts: cost base excludes eti
+RED      unit=green int=red  payrollApprovalService.ts: no pre-write blocker check
+RED      unit=green int=red  payrollApprovalService.ts: run_not_approved not excluded
+RED      unit=red int=green  payrollJournalParts.ts: centre accounts not tenant-scoped
+RED      unit=red int=green  payrollJournalBuilder.ts: centre inactive flag ignored
+RED      unit=green int=red  payrollApprovalService.ts: reopened run gets posting checks
+RED      unit=red int=red  payrollJournalBuilder.ts: inactive target back to advisory
+RED      unit=green int=red  payrollApprovalService.ts: not-found untyped
+RED      unit=green int=red  payrollApprovalService.ts: status refusal untyped
+RED      unit=green int=red  payrollApprovalService.ts: approve drops advisories
+RED      unit=green int=red  approve.ts: route 400s everything (old)
+RED      unit=green int=red  approve.ts: route 500s refusals
+RED      unit=red int=green  writePayrollRun.ts: mcp dry run no blocker refusal
+RED      unit=red int=green  writePayrollRun.ts: mcp live refusal not returned
+RED      unit=red int=green  writePayrollRun.ts: mcp live catches everything
+RED      unit=red int=green  writePayrollRun.ts: mcp drops advisories
+RED      unit=red int=green  writePayrollRun.ts: mcp preview ignores existing journal
+RED      unit=red int=green  writePayrollRun.ts: mcp uncosted not answered first
+RED      unit=red int=green  writePayroll.ts: mcp eti_used = eti
+
+41/41 RED

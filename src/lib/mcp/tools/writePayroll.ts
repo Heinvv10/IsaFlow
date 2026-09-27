@@ -101,9 +101,8 @@ export const postPayrollJournalTool: McpTool = {
   description:
     'Post the general-ledger journal for an APPROVED payroll run: debit labour cost with gross pay plus the employer UIF and SDL the company owes on top of it, and credit PAYE payable, UIF payable (both halves), SDL payable, any voluntary deductions, and net pay. ' +
     'This is the entry that is missing from these books. Today net pay alone is coded to Salaries & Wages, so employment cost is understated by every employer contribution and no PAYE, UIF or SDL liability is ever raised. ' +
-    'ALWAYS call it with dry_run: true first. The preview returns the complete journal — every line, both totals, the fiscal period the date falls in, and the run totals it was derived from — and it applies every check the live call applies: the run must be approved, it must not already carry a journal, the five required GL accounts (5200 labour, 2140 PAYE, 2150 UIF, 2160 SDL, 1110 bank) must exist, and account 2175 must exist if there are voluntary deductions. If any of those fails, BOTH the preview and the live call refuse and name the reason. ' +
-    'It reports rather than repairs. An advisory of inactive_target_account means the journal posts into deactivated accounts — is_active is only a picker flag, so the money does land there, but no one can select those accounts in the UI and any report that filters on is_active will drop the balance. It does not activate them. ' +
-    'It also does not calculate or approve the run, does not pay anyone, and does not file an EMP201. A run with ETI will report an unbalanced blocker: ETI is currently subtracted from the labour debit and credited nowhere, so the journal will not balance and cannot post until that is corrected by a human. ' +
+    'ALWAYS call it with dry_run: true first. The preview returns the complete journal — every line, both totals, the fiscal period the date falls in, and the run totals it was derived from — and it applies every check the live call applies: the run must be approved, it must not already carry a journal, the five required GL accounts (5200 labour, 2140 PAYE, 2150 UIF, 2160 SDL, 1110 bank) must exist, account 2175 must exist if there are voluntary deductions, no target account may be deactivated (inactive_target_account — the ledger refuses the posting; it does not activate them), the fiscal period covering the date must be open, the run must have something to post, and the journal must balance to the cent. If any of those fails, BOTH the preview and the live call refuse and name the reason. ' +
+    'It also does not calculate or approve the run, does not pay anyone, and does not file an EMP201. ETI is booked net of labour cost and against PAYE payable, capped at the PAYE of the run: the labour debit and the PAYE credit both fall by min(ETI, PAYE), so the PAYE credit equals the EMP201 PAYE payable. ETI beyond PAYE is not booked and is reported as an eti_beyond_paye advisory. ' +
     'Reverse a posted payroll journal in the app; this tool will refuse a run that already has one rather than post a second.',
   scope: 'write:payroll',
   write: true,
@@ -166,6 +165,7 @@ export const postPayrollJournalTool: McpTool = {
           employer_uif: plan.totals.employerUif,
           sdl: plan.totals.sdl,
           eti: plan.totals.eti,
+          eti_used: plan.totals.etiUsed,
           net_pay: plan.totals.net,
           paye: plan.totals.paye,
           other_deductions: plan.totals.otherDeductions,

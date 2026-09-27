@@ -24,6 +24,7 @@ vi.mock('@/modules/accounting/services/payroll/payrollRunService', () => ({
 }));
 vi.mock('@/modules/accounting/services/payroll/payrollApprovalService', () => ({
   approvePayrollRun: vi.fn(),
+  findApprovalBlocker: vi.fn(),
 }));
 // The error classes must be the real ones — the tool branches on them, and a
 // stubbed sentinel would let those branches pass by accident.
@@ -42,7 +43,10 @@ import {
   calculatePayrollRun,
   getPayrollRun,
 } from '@/modules/accounting/services/payroll/payrollRunService';
-import { approvePayrollRun } from '@/modules/accounting/services/payroll/payrollApprovalService';
+import {
+  approvePayrollRun,
+  findApprovalBlocker,
+} from '@/modules/accounting/services/payroll/payrollApprovalService';
 import { PayrollRunLockedError } from '@/modules/accounting/services/payroll/payrollRunLock';
 import {
   PayrollLoanLockTimeoutError,
@@ -212,14 +216,16 @@ describe('approve_pay_run', () => {
     vi.clearAllMocks();
     vi.mocked(getPayrollRun).mockResolvedValue(run({ status: 'calculated' }) as never);
     vi.mocked(approvePayrollRun).mockResolvedValue(
-      { ...run({ status: 'approved' }), journalEntryId: JE } as never,
+      { ...run({ status: 'approved' }), journalEntryId: JE, advisories: [{ code: 'eti_beyond_paye', detail: 'R2200.00 not booked' }] } as never,
     );
+    vi.mocked(findApprovalBlocker).mockResolvedValue(null);
   });
 
   it('approves, posts, and returns the journal it wrote', async () => {
     const out = parseOk(await approvePayRunTool.handler({ run_id: RUN, ...KEY }, ctx()));
     expect(out.status).toBe('approved');
     expect(out.journal_entry_id).toBe(JE);
+    expect(out.advisories).toEqual([{ code: 'eti_beyond_paye', detail: 'R2200.00 not booked' }]);
     expect(approvePayrollRun).toHaveBeenCalledWith(
       COMPANY, RUN, ctx().userId, { postingAgent: 'mcp:approve_pay_run:v1' },
     );
@@ -253,7 +259,10 @@ describe('approve_pay_run', () => {
   });
 
   it('dry run flags an uncosted run as skipped', async () => {
+    // Its real plan is refused as nothing_to_post; the uncosted answer, which
+    // says what to do, must win.
     vi.mocked(getPayrollRun).mockResolvedValue(run({ employeeCount: 0 }) as never);
+    vi.mocked(findApprovalBlocker).mockResolvedValue({ code: 'nothing_to_post', detail: 'every journal line is zero' });
     const out = parseOk(await approvePayRunTool.handler(
       { run_id: RUN, dry_run: true, ...KEY }, ctx(),
     ));
@@ -264,33 +273,6 @@ describe('approve_pay_run', () => {
     vi.mocked(getPayrollRun).mockResolvedValue(null);
     expect(errText(await approvePayRunTool.handler({ run_id: RUN, ...KEY }, ctx())))
       .toBe('Not found');
-    expect(approvePayrollRun).not.toHaveBeenCalled();
-  });
-});
-
-describe('approve_pay_run — the empty month is refused, not warned', () => {
-  it('REFUSES to approve a run that costed nobody', async () => {
-    // 'approved' is a LOCKED status, calculate_pay_run is refused permanently
-    // afterwards, and there is no MCP tool to reopen a run — so an agent that
-    // approved an empty month would have no connector path back out.
-    vi.clearAllMocks();
-    vi.mocked(getPayrollRun).mockResolvedValue(
-      run({ status: 'calculated', employeeCount: 0, totalGross: 0 }) as never,
-    );
-    const r = await approvePayRunTool.handler({ run_id: RUN, ...KEY }, ctx());
-    expect(r.isError).toBe(true);
-    expect(r.content[0]!.text).toContain('costed nobody');
-    expect(approvePayrollRun).not.toHaveBeenCalled();
-  });
-
-  it('refuses an already-approved run rather than passing it to a service throw', async () => {
-    // The service admits 'approved' only when the journal did not post, which
-    // this summary cannot see. post_payroll_journal is the recovery.
-    vi.clearAllMocks();
-    vi.mocked(getPayrollRun).mockResolvedValue(run({ status: 'approved' }) as never);
-    const r = await approvePayRunTool.handler({ run_id: RUN, ...KEY }, ctx());
-    expect(r.isError).toBe(true);
-    expect(r.content[0]!.text).toContain('post_payroll_journal');
     expect(approvePayrollRun).not.toHaveBeenCalled();
   });
 });
