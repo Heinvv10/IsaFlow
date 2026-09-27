@@ -13,6 +13,7 @@ import { assertCustomerInCompany } from '../core/contactDirectoryService';
 import { claimUnderLockTimeout } from '../core/documentClaimLock';
 import type { CustomerWriteOff, WriteOffCreateInput } from '../../types/ar.types';
 import type { JournalLineInput } from '../../types/gl.types';
+import { assertNotImpersonating } from '@/lib/auth/impersonationGuard';
 
 type Row = DbRow;
 
@@ -115,6 +116,7 @@ export class WriteOffNotApprovableError extends Error {
 }
 
 export async function approveWriteOff(companyId: string, id: string, userId: string): Promise<CustomerWriteOff> {
+  await assertNotImpersonating(); // R-032 L5: first, before any read or write
   const woRows = (await sql`
     SELECT wo.*, ci.invoice_number FROM customer_write_offs wo
     LEFT JOIN customer_invoices ci ON ci.id = wo.invoice_id

@@ -1,9 +1,7 @@
 // pages/api/auth/forgot-password.ts
 import type { NextApiHandler } from 'next';
 import { adminGetUserByEmail } from '@/lib/auth/gotrue';
-import { createPasswordResetToken } from '@/lib/auth/passwordResetService';
-import { sendEmail } from '@/modules/accounting/services/core/emailService';
-import { emailLayout, ctaButton } from '@/lib/email-templates-shared';
+import { sendPasswordResetEmail } from '@/lib/auth/passwordResetEmail';
 import { checkRateLimit, getClientIp, withRateLimit } from '@/lib/rateLimit';
 import { log } from '@/lib/logger';
 
@@ -15,25 +13,7 @@ import { log } from '@/lib/logger';
 async function deliverResetEmail(cleanEmail: string): Promise<void> {
   try {
     const user = await adminGetUserByEmail(cleanEmail);
-    const { token } = await createPasswordResetToken(user.id);
-    const appUrl = process.env.NEXT_PUBLIC_APP_URL ?? 'http://localhost:3000';
-    // Token goes in the URL fragment, never the query string: fragments are not
-    // sent to the server, not logged, not put in the Referer header, and not
-    // seen by the analytics tracker that runs on every page.
-    const resetUrl = `${appUrl}/reset-password#token=${token}`;
-    const html = emailLayout(`
-      <h2>Reset your ISAFlow password</h2>
-      <p>We received a request to reset the password for this account.</p>
-      <p>Click the button below to choose a new password. This link expires in 1 hour and can be used once.</p>
-      ${ctaButton('Reset Password', resetUrl)}
-      <p style="font-size:12px;color:#94a3b8;">If you did not request this, you can safely ignore this email — your password will not change.</p>
-    `);
-    await sendEmail({
-      to: cleanEmail,
-      subject: 'Reset your ISAFlow password',
-      html,
-      _log: { companyId: null, emailType: 'other', sentBy: null },
-    });
+    await sendPasswordResetEmail(user.id, cleanEmail);
   } catch (err) {
     log.info('forgot-password non-fatal', { message: err instanceof Error ? err.message : String(err) }, 'Auth');
   }

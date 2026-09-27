@@ -1,8 +1,11 @@
 // tests/integration/admin-password-reset.int.test.ts
-import { describe, it, expect, beforeAll, afterAll } from 'vitest';
+import { describe, it, expect, beforeAll, afterAll, vi } from 'vitest';
 import { Pool } from 'pg';
 import { adminCreateUser, adminDeleteUser } from '@/lib/auth/gotrue';
 import { resetPassword } from '@/modules/admin/services/adminUserActionsService';
+
+const sendEmail = vi.hoisted(() => vi.fn(async (_opts: { to: string; html: string }) => ({ success: true })));
+vi.mock('@/modules/accounting/services/core/emailService', () => ({ sendEmail }));
 
 const MIGRATION_ADMIN_DATABASE_URL = process.env.MIGRATION_ADMIN_DATABASE_URL;
 if (!MIGRATION_ADMIN_DATABASE_URL) throw new Error('MIGRATION_ADMIN_DATABASE_URL required');
@@ -30,9 +33,13 @@ describe('admin password reset - GoTrue recovery link (integration)', () => {
     await seedPool.end();
   });
 
-  it('resetPassword returns a GoTrue recovery action_link', async () => {
-    const result = await resetPassword(targetId);
-    expect(result.reset_link).toMatch(/\/auth\/v1\/verify\?.*type=recovery/);
+  // R-032 M2: no GoTrue recovery link any more — our single-use link, emailed.
+  it('resetPassword emails the target our reset link and returns nothing', async () => {
+    await expect(resetPassword(targetId)).resolves.toBeUndefined();
+    expect(sendEmail).toHaveBeenCalledTimes(1);
+    const sent = sendEmail.mock.calls[0]![0];
+    expect(sent.to).toBe(TARGET_EMAIL);
+    expect(sent.html).toMatch(/\/reset-password#token=[0-9a-f]{64}/);
   });
 
   it('refuses to reset a super_admin', async () => {

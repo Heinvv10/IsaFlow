@@ -8,7 +8,7 @@
 import { sql } from '@/lib/neon';
 import type { DbRow } from '@/lib/neon';
 import { log } from '@/lib/logger';
-import { generateLink } from '@/lib/auth/gotrue-admin-link';
+import { sendPasswordResetEmail } from '@/lib/auth/passwordResetEmail';
 import { adminRevokeAllUserSessions } from '@/lib/auth/gotrue';
 import { revokeAllUserPats } from '@/lib/auth/personalAccessTokens';
 import { revokeAllUserAuthorisations } from '@/lib/auth/oauth';
@@ -91,10 +91,11 @@ export async function activateUser(userId: string): Promise<void> {
 }
 
 /**
- * Initiate a password reset for a user via GoTrue's generate_link(recovery) API.
- * GoTrue sends the recovery email directly; no password_reset_tokens row needed.
+ * Email a user our self-owned, single-use reset link (the forgot-password flow).
+ * Returns nothing a caller could hand on: the link exists only in the email.
+ * Throws PasswordResetEmailNotSentError when the email could not be sent.
  */
-export async function resetPassword(userId: string): Promise<{ reset_link: string }> {
+export async function resetPassword(userId: string): Promise<void> {
   type UserRow = { id: string; email: string; role: string };
   const rows = await sql<UserRow>`
     SELECT id, email, role FROM users WHERE id = ${userId} LIMIT 1
@@ -103,11 +104,8 @@ export async function resetPassword(userId: string): Promise<{ reset_link: strin
   if (!target) throw new Error(`User ${userId} not found`);
   if (target.role === 'super_admin') throw new Error('CANNOT_RESET_SUPER_ADMIN');
 
-  const redirectTo = `${process.env.NEXT_PUBLIC_APP_URL ?? 'https://app.isaflow.co.za'}/reset-password`;
-  const { action_link } = await generateLink('recovery', target.email, redirectTo);
-
-  log.info('resetPassword — GoTrue recovery link generated', { userId }, 'AdminUserActionsService');
-  return { reset_link: action_link };
+  await sendPasswordResetEmail(target.id, target.email);
+  log.info('resetPassword — reset email sent', { userId }, 'AdminUserActionsService');
 }
 
 /**

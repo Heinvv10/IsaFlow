@@ -15,6 +15,12 @@ import { describe, it, expect, vi, beforeEach, type MockedFunction } from 'vites
 
 // ── Module mocks ─────────────────────────────────────────────────────────────
 
+// R-032 L5: the Login-as guard runs its own query first; it is covered by
+// tests/unit/auth/impersonationGuard.test.ts and the r-032 integration suites.
+vi.mock('@/lib/auth/impersonationGuard', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('@/lib/auth/impersonationGuard')>()),
+  assertNotImpersonating: async () => undefined,
+}));
 vi.mock('@/lib/neon', () => {
   const sqlMock = Object.assign(vi.fn(), {
     transaction: vi.fn(),

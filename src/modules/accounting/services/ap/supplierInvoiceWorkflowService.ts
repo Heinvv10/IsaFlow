@@ -23,6 +23,7 @@ import { documentInPopulation } from '../shared/documentPopulation';
 import type { LateClaimInfo, PostJournalOpts } from '../gl/vatLateClaimPlan';
 import { claimEvidencedProvisional, settleClaimedProvisional } from './provisionalInvoiceSettlement';
 import { mapInvoiceRow } from './supplierInvoiceWorkflowRow';
+import { assertNotImpersonating } from '@/lib/auth/impersonationGuard';
 
 type Row = DbRow;
 
@@ -39,6 +40,7 @@ export async function approveSupplierInvoice(
   // rests on. `allowLateInputClaim`: human-initiated callers only (gl/vatLateClaimPlan.ts).
   opts?: PostingActorOpts & PostJournalOpts,
 ): Promise<SupplierInvoice & { lateClaim?: LateClaimInfo }> {
+  await assertNotImpersonating(); // R-032 L5: first, before any read or write
   // All-or-nothing (R-127): the provisional settlement runs AFTER the journal and
   // the status UPDATE, and every route answers a throw 4xx, which withAuth COMMITs.
   return withSavepoint('approve_supplier_invoice', () => approveInner(companyId, id, userId, opts));
@@ -170,6 +172,7 @@ export async function postSupplierInvoiceToGL(
   userId: string,
   opts?: PostingActorOpts,
 ): Promise<{ journalEntryId: string; alreadyPosted: boolean }> {
+  await assertNotImpersonating(); // R-032 L5: first, before any read or write
   // All-or-nothing, as approveSupplierInvoice (R-127).
   return withSavepoint('post_supplier_invoice_gl', () => postToGLInner(companyId, id, userId, opts));
 }

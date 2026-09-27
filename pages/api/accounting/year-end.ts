@@ -14,6 +14,7 @@ import { withFlowMeter, markFlowNoOp } from '@/lib/billing/withFlowMeter';
 import { getFlowCost } from '@/modules/billing/services/flowOperationCatalog';
 import { log } from '@/lib/logger';
 import { listFiscalYears, closeFiscalYear } from '@/modules/accounting/services/gl/yearEndService';
+import { assertNotImpersonating, respondIfImpersonationForbidden } from '@/lib/auth/impersonationGuard';
 
 /**
  * Postgres "undefined_table" / "undefined_column" SQLSTATEs. Schema-not-ready
@@ -143,6 +144,7 @@ async function postHandler(req: NextApiRequest, res: NextApiResponse) {
     if (result.alreadyClosed) markFlowNoOp(req);
     return apiResponse.success(res, result);
   } catch (err) {
+    if (respondIfImpersonationForbidden(res, err)) return;
     log.error('Failed to process year-end', { error: err, yearLabel, module: 'accounting' });
     return apiResponse.databaseError(res, err, 'Failed to process year-end');
   }
@@ -152,7 +154,11 @@ const meteredPost = withFlowMeter('yearend.close', getFlowCost('yearend.close'))
 
 async function mux(req: NextApiRequest, res: NextApiResponse) {
   if (req.method === 'GET') return getHandler(req, res);
-  if (req.method === 'POST') return meteredPost(req, res);
+  if (req.method === 'POST') {
+    // R-032 L5: refused before the PAYG meter debits (and refunds) the wallet.
+    await assertNotImpersonating();
+    return meteredPost(req, res);
+  }
   return apiResponse.methodNotAllowed(res, req.method || 'UNKNOWN', ['GET', 'POST']);
 }
 

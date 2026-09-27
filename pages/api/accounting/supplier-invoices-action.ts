@@ -17,6 +17,7 @@ import {
   cancelSupplierInvoice,
   performThreeWayMatch,
 } from '@/modules/accounting/services/ap/supplierInvoiceService';
+import { respondIfImpersonationForbidden } from '@/lib/auth/impersonationGuard';
 // TODO(PRD-05): When a human-driven CREATE path is added to this handler
 // (or to pages/api/accounting/supplier-invoices.ts), call:
 //   recordCoding({ companyId, supplierId, supplierInvoiceId, glAccountId, vatCode,
@@ -66,6 +67,7 @@ async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse) {
         return apiResponse.badRequest(res, `Unknown action: ${action}`);
     }
   } catch (err) {
+    if (respondIfImpersonationForbidden(res, err)) return;
     const message = err instanceof Error ? err.message : 'Action failed';
     log.error('Supplier invoice action failed', { error: err }, 'accounting-api');
     return apiResponse.badRequest(res, message);

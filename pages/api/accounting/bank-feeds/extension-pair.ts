@@ -22,6 +22,7 @@ import { BANK_SUBTYPES } from '@/modules/accounting/services/gl/accountSubtypes'
 import { log } from '@/lib/logger';
 import { createBankFeedConnection } from '@/modules/accounting/services/bank/openBankingConnectionService';
 import type { DbRow } from '@/types/db';
+import { assertNotImpersonating } from '@/lib/auth/impersonationGuard';
 
 const SUPPORTED_BANKS = ['absa'] as const;
 
@@ -36,6 +37,10 @@ async function handler(req: CompanyAuthedRequest, res: NextApiResponse) {
   if (req.method !== 'POST') {
     return apiResponse.methodNotAllowed(res, req.method!, ['POST']);
   }
+
+  // R-032: a Login-as session mints no credential as the target. Checked before
+  // the connection row is written — signing comes after it.
+  await assertNotImpersonating();
 
   const parsed = PairSchema.safeParse(req.body);
   if (!parsed.success) {
