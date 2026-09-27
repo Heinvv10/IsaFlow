@@ -34,7 +34,8 @@ describeIfDb('exportVat201.blockingExceptions', () => {
     fx = await seedLateFixture('RVG8', DATABASE_URL!);
 
     // An unsupported input-VAT claim (no document, no bill, no bank line) in
-    // the DIRTY period — a plain manual journal debiting VAT Input.
+    // the DIRTY period — a plain manual journal debiting VAT Input. Listed,
+    // but NOT blocking on its own (Hein, 2026-09-26).
     const je = await inTx(fx, () => createJournalEntry(fx.companyId, {
       entryDate: '2029-03-15', description: 'r-vatgaps-8 unsupported claim', source: 'manual',
       lines: [
@@ -43,6 +44,18 @@ describeIfDb('exportVat201.blockingExceptions', () => {
       ],
     }, fx.userId));
     await inTx(fx, () => postJournalEntry(fx.companyId, je.id, fx.userId));
+
+    // A genuinely blocking exception in the same DIRTY period — an uncoded
+    // VAT-input GL line — so this test still exercises a non-zero
+    // totalExceptions after the above stopped counting toward it.
+    const uncodedJe = await inTx(fx, () => createJournalEntry(fx.companyId, {
+      entryDate: '2029-03-16', description: 'r-vatgaps-8 uncoded line', source: 'manual',
+      lines: [
+        { glAccountId: fx.vatInputId, debit: 50, credit: 0, description: 'uncoded' },
+        { glAccountId: fx.expenseId, debit: 0, credit: 50, description: 'uncoded' },
+      ],
+    }, fx.userId));
+    await inTx(fx, () => postJournalEntry(fx.companyId, uncodedJe.id, fx.userId));
   }, 120000);
 
   afterAll(async () => {
@@ -59,8 +72,13 @@ describeIfDb('exportVat201.blockingExceptions', () => {
   it('the DIRTY period carries the same counts exportVat201 and getVatExceptions agree on, and still exports', async () => {
     const direct = await inTx(fx, () => getVatExceptions(fx.companyId, DIRTY.start, DIRTY.end));
     const expected = vatGateExceptionCounts(direct);
+    // The uncoded GL line still blocks. The bare (no_document) unsupported
+    // claim is listed under inputVatWithoutTaxInvoice, not unsupportedInputVat
+    // — it means only a record is missing, not that the figures are wrong
+    // (Hein, 2026-09-26), so it does not contribute to totalExceptions.
+    expect(expected.uncodedGlLineCount).toBeGreaterThan(0);
     expect(expected.totalExceptions).toBeGreaterThan(0);
-    expect(expected.unsupportedInputVatCount).toBeGreaterThan(0);
+    expect(direct.inputVatWithoutTaxInvoiceCount).toBeGreaterThan(0);
 
     const out = await inTx(fx, () => exportVat201(fx.companyId, DIRTY.start, DIRTY.end));
 

@@ -154,6 +154,9 @@ export async function assertMayDecide(
   // rule's approver_role, or push the rule out of the candidate set and re-POST
   // so the request rebound to a laxer one. Taking the maximum closes both, and
   // still lets a policy change apply to everything raised after it.
+  // (Since R-048 weakening a rule needs a rank ABOVE it, so that admin can no
+  // longer pull either lever — but the owner legitimately can, and the ratchet
+  // is what keeps that change out of requests already pending.)
   //
   // A row from before 669 carries no snapshot and is governed by the live rule
   // exactly as it always was.

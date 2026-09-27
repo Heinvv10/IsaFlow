@@ -2,11 +2,19 @@
  * VAT-gaps batch item 1: linking a captured document to a posted journal
  * against a real ledger (gl/journalDocumentLinkService, migration 706).
  *
- * Covers: linking clears unsupportedInputVat; the claim is still judged
- * against the document's VAT (a smaller document can't support a bigger
- * claim); another company's document is refused; a document already used
- * (via source_document_id OR another active link) is refused; unlinking
- * restores the block.
+ * Covers: an unlinked journal's `no_document` row is non-blocking (Hein,
+ * 2026-09-26); linking clears it from inputVatWithoutTaxInvoice; the claim
+ * is still judged against the document's VAT (a smaller document can't
+ * support a bigger claim — `amount_mismatch`, still blocking); another
+ * company's document is refused; a document already used (via
+ * source_document_id OR another active link) is refused.
+ *
+ * Breaker fix (round 2, Hein 2026-09-26): UNLINKING a document that WAS
+ * evidencing a claim, with no other support, BLOCKS as `document_unlinked`
+ * (`unsupportedInputVat`) — never falls back to the warning `no_document`,
+ * which is reserved for a journal that never had a document link at all.
+ * It clears by linking a document again (the normal document checks apply)
+ * or by an owner/admin override (`assertVatGateClear`).
  *
  * Item 2 (bank attachment): an invoice attached to the bank line behind a
  * bank-only-supported journal moves it off "no tax invoice on file"
@@ -21,6 +29,9 @@ import {
   linkDocumentToJournal, unlinkDocumentFromJournal, JournalDocumentLinkRefusal,
 } from '@/modules/accounting/services/gl/journalDocumentLinkService';
 import { findInputVatSupport } from '@/modules/accounting/services/reports/vatInputSupport';
+import { getVatExceptions } from '@/modules/accounting/services/reports/vatExceptionsService';
+import { evaluateEfilingGate } from '@/modules/accounting/services/reports/sarsEfilingSubmissionService';
+import { assertVatGateClear, VatGateBlockedError } from '@/modules/accounting/services/reports/vatGateOverrideService';
 import { allocateTransaction } from '@/modules/accounting/services/bank/bankAllocationService';
 import { dropFixture, inTx, seedBankTx, seedFixture, type Fixture } from './helpers/l1FifoFixture';
 import { assertNotProductionDb } from '../helpers/assertNotProductionDb';
@@ -86,19 +97,21 @@ describeIfDb('VAT-gaps item 1: link a document to a posted journal', () => {
     await dropFixture(otherFx);
   }, 120000);
 
-  it('a bare manual VAT journal is blocking with no link', async () => {
+  it('a bare manual VAT journal with no link is listed as no_document, NOT blocking (Hein, 2026-09-26)', async () => {
     const je = await manualVatJournal(30);
     const support = await inTx(fx, () => findInputVatSupport(fx.companyId, PERIOD_START, PERIOD_END));
-    expect(support.unsupported.some((u) => u.journalEntryId === je)).toBe(true);
+    expect(support.unsupported.some((u) => u.journalEntryId === je)).toBe(false);
+    expect(support.withoutTaxInvoice.find((u) => u.journalEntryId === je)?.reason).toBe('no_document');
   });
 
-  it('linking a matching document clears it from unsupportedInputVat', async () => {
+  it('linking a matching document clears it from inputVatWithoutTaxInvoice', async () => {
     const je = await manualVatJournal(30);
     const doc = await captureDoc(fx, 30);
     await inTx(fx, () => linkDocumentToJournal(fx.companyId, je, doc, fx.userId, 'Invoice attached'));
 
     const support = await inTx(fx, () => findInputVatSupport(fx.companyId, PERIOD_START, PERIOD_END));
     expect(support.unsupported.some((u) => u.journalEntryId === je)).toBe(false);
+    expect(support.withoutTaxInvoice.some((u) => u.journalEntryId === je)).toBe(false);
   });
 
   it('the claim is still judged against the document VAT — a R30 document cannot support R60', async () => {
@@ -167,16 +180,67 @@ describeIfDb('VAT-gaps item 1: link a document to a posted journal', () => {
     }
   });
 
-  it('unlinking restores the block', async () => {
+  it('breaker fix: unlinking a matching document BLOCKS as document_unlinked, and the gate refuses without override', async () => {
     const je = await manualVatJournal(30);
     const doc = await captureDoc(fx, 30);
     await inTx(fx, () => linkDocumentToJournal(fx.companyId, je, doc, fx.userId, 'Invoice attached'));
     let support = await inTx(fx, () => findInputVatSupport(fx.companyId, PERIOD_START, PERIOD_END));
     expect(support.unsupported.some((u) => u.journalEntryId === je)).toBe(false);
+    expect(support.withoutTaxInvoice.some((u) => u.journalEntryId === je)).toBe(false);
 
     await inTx(fx, () => unlinkDocumentFromJournal(fx.companyId, je, doc, fx.userId, 'wrong document'));
     support = await inTx(fx, () => findInputVatSupport(fx.companyId, PERIOD_START, PERIOD_END));
-    expect(support.unsupported.some((u) => u.journalEntryId === je)).toBe(true);
+    expect(support.withoutTaxInvoice.some((u) => u.journalEntryId === je)).toBe(false);
+    expect(support.unsupported.find((u) => u.journalEntryId === je)?.reason).toBe('document_unlinked');
+
+    const r = await inTx(fx, () => getVatExceptions(fx.companyId, PERIOD_START, PERIOD_END));
+    expect(evaluateEfilingGate(r).allowed).toBe(false);
+    await expect(
+      inTx(fx, () => assertVatGateClear(fx.companyId, PERIOD_START, PERIOD_END, 'vat_period_lock', null, { userId: fx.userId, role: 'owner' }, undefined)),
+    ).rejects.toBeInstanceOf(VatGateBlockedError);
+    await expect(
+      inTx(fx, () => assertVatGateClear(fx.companyId, PERIOD_START, PERIOD_END, 'sars_submission', null, { userId: fx.userId, role: 'owner' }, undefined)),
+    ).rejects.toBeInstanceOf(VatGateBlockedError);
+    // An owner/admin override still proceeds.
+    const overridden = await inTx(fx, () => assertVatGateClear(
+      fx.companyId, PERIOD_START, PERIOD_END, 'vat_period_lock', null, { userId: fx.userId, role: 'owner' }, 'reviewed manually',
+    ));
+    expect(overridden.overridden).toBe(true);
+    await sql`DELETE FROM vat_gate_overrides WHERE company_id = ${fx.companyId}::UUID`;
+  });
+
+  it('breaker fix: linking an over-claiming document BLOCKS; unlinking it still blocks (document_unlinked)', async () => {
+    const je = await manualVatJournal(60);
+    const doc = await captureDoc(fx, 30);
+    await inTx(fx, () => linkDocumentToJournal(fx.companyId, je, doc, fx.userId, 'Invoice attached'));
+    let support = await inTx(fx, () => findInputVatSupport(fx.companyId, PERIOD_START, PERIOD_END));
+    expect(support.unsupported.find((u) => u.journalEntryId === je)?.reason).toBe('amount_mismatch');
+
+    await inTx(fx, () => unlinkDocumentFromJournal(fx.companyId, je, doc, fx.userId, 'wrong document'));
+    support = await inTx(fx, () => findInputVatSupport(fx.companyId, PERIOD_START, PERIOD_END));
+    expect(support.unsupported.find((u) => u.journalEntryId === je)?.reason).toBe('document_unlinked');
+  });
+
+  it('breaker fix: relinking the RIGHT document clears document_unlinked — the normal document check applies', async () => {
+    const je = await manualVatJournal(30);
+    const doc = await captureDoc(fx, 30);
+    await inTx(fx, () => linkDocumentToJournal(fx.companyId, je, doc, fx.userId, 'Invoice attached'));
+    await inTx(fx, () => unlinkDocumentFromJournal(fx.companyId, je, doc, fx.userId, 'wrong document'));
+    let support = await inTx(fx, () => findInputVatSupport(fx.companyId, PERIOD_START, PERIOD_END));
+    expect(support.unsupported.find((u) => u.journalEntryId === je)?.reason).toBe('document_unlinked');
+
+    const doc2 = await captureDoc(fx, 30);
+    await inTx(fx, () => linkDocumentToJournal(fx.companyId, je, doc2, fx.userId, 'correct invoice'));
+    support = await inTx(fx, () => findInputVatSupport(fx.companyId, PERIOD_START, PERIOD_END));
+    expect(support.unsupported.some((u) => u.journalEntryId === je)).toBe(false);
+    expect(support.withoutTaxInvoice.some((u) => u.journalEntryId === je)).toBe(false);
+  });
+
+  it('a journal that NEVER had a document link still warns as no_document, not document_unlinked', async () => {
+    const je = await manualVatJournal(30);
+    const support = await inTx(fx, () => findInputVatSupport(fx.companyId, PERIOD_START, PERIOD_END));
+    expect(support.unsupported.some((u) => u.journalEntryId === je)).toBe(false);
+    expect(support.withoutTaxInvoice.find((u) => u.journalEntryId === je)?.reason).toBe('no_document');
   });
 });
 

@@ -220,7 +220,7 @@ describe('K-108 — a legacy unreadable rule can still be switched off (review L
       await client.query(`ALTER TABLE approval_rules DROP CONSTRAINT ${CONSTRAINT}`);
       await client.query(
         `INSERT INTO approval_rules(id,company_id,name,document_type,condition_field,condition_operator,condition_value,approver_role,is_active)
-         VALUES($1,$2,'legacy less_than','payment','amount','less_than',1000,'admin',true)`, [id, alpha]);
+         VALUES($1,$2,'legacy less_than','payment','amount','less_than',1000,'manager',true)`, [id, alpha]);
       await client.query(`ALTER TABLE approval_rules ADD CONSTRAINT ${CONSTRAINT} ${def}`);
       await client.query('COMMIT');
     } catch (error) {

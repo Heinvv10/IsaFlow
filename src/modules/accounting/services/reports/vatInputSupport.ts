@@ -34,16 +34,30 @@
  * ONE DOCUMENT, ONE CLAIM (B2). A captured document's VAT is compared with the
  * net claims of EVERY chain naming it, over every period to the period end:
  * two journals claiming the same R30 slip claim R60 and both block as
- * `document_over_claimed`. The document's VAT is `extracted_data.vatAmount`,
- * read as the capture pipeline reads a printed amount (`parseAmount`); a value
- * it cannot read is `unreadable_document_vat` and blocks — never a silent 0.
- * No VAT read at all is none claimable.
+ * `document_over_claimed` — the return's figures are WRONG (someone over-
+ * claimed), not merely under-documented. The document's VAT is
+ * `extracted_data.vatAmount`, read as the capture pipeline reads a printed
+ * amount (`parseAmount`); a value it cannot read is `unreadable_document_vat`
+ * — a document exists, so the figures are not necessarily wrong, only its VAT
+ * couldn't be read (NOT blocking, Hein, 2026-09-26). No VAT read at all is
+ * none claimable.
  *
- * BLOCKING (`unsupportedInputVat`): a positive claim with no link at all, or
- * a linked claim that disagrees with its document. NOT blocking (Hein,
- * 2026-09-25): a claim supported only by the bank line or a VAT adjustment is
- * listed as "no tax invoice on file" — real money moved, but s16(2) wants the
- * tax invoice before the deduction, so somebody should attach it.
+ * BLOCKING vs WARNING (Hein, 2026-09-26): the cut is "would the return's
+ * figures be wrong", not "is a document attached in IsaFlow". BLOCKING
+ * (`unsupportedInputVat`, counted in `totalExceptions`): `amount_mismatch`
+ * (credit note, expense claim, captured document, bank ceiling exceeded) and
+ * `document_over_claimed` — each means the claimed VAT does not tie to what
+ * actually supports it, so the figures ARE wrong. NOT blocking
+ * (`inputVatWithoutTaxInvoice`): `no_document` (nothing to compare against —
+ * a hand journal with no link at all) and `unreadable_document_vat` (a
+ * document exists, its amount just couldn't be read) — holding a valid tax
+ * invoice is the vendor's legal responsibility under s16(2) and it may be
+ * held outside IsaFlow, so these stay fully visible (amounts, reasons, a
+ * "Link tax invoice" action) but no longer block locking, mark-submitted or
+ * eFiling — same as the existing (Hein, 2026-09-25) bank-only / VAT-adjustment
+ * "no tax invoice on file" rows in that same list: real money moved, or a
+ * document exists, so somebody should attach the tax invoice, but nothing
+ * here refuses to file without it.
  */
 import { AMOUNT, parseAmount } from '@/modules/accounting/services/core/ocrAmountParsing';
 import { SA_VAT_RATE } from './vatBoxBasis';
@@ -93,6 +107,15 @@ export interface InputVatSupportFacts {
   bankAmount: number | null;
   /** Item 2: an invoice attached to the SAME bank line — presence only, no VAT to compare. */
   hasBankAttachment: boolean;
+  /**
+   * Breaker fix (Hein, 2026-09-26, round 2): true when this chain's journal
+   * has EVER carried a `gl_journal_document_links` row — active or unlinked.
+   * Without any other support, this turns the "nothing at all" fallback from
+   * the warning `no_document` into the blocking `document_unlinked`: a
+   * document was there, evidencing the claim, and someone removed it without
+   * replacing it or reversing the claim.
+   */
+  hadDocumentLink: boolean;
 }
 
 export type SupportVerdict =
@@ -149,7 +172,19 @@ export function classifyInputVatSupport(f: InputVatSupportFacts, rate: number): 
       : none;
   }
   if (f.capturedDocumentVat === 'unreadable') {
-    return { blocking: true, line: line(f, 'captured_document', null, 'unreadable_document_vat') };
+    // Breaker fix (Hein, 2026-09-26, round 2): an unreadable document must
+    // not launder a genuine bank over-claim — the bank ceiling still applies
+    // even though the document itself can't be read.
+    if (f.bankAmount !== null) {
+      const ceiling = r2(f.bankAmount * rate / (1 + rate));
+      if (f.claimedVat > ceiling + CENT) {
+        return { blocking: true, line: line(f, 'bank', ceiling, 'amount_mismatch') };
+      }
+    }
+    // NOT blocking (Hein, 2026-09-26): a document exists, so the figures on
+    // the return are not necessarily wrong — only its VAT couldn't be read.
+    // The record is the gap, not the return; warn, don't block.
+    return { blocking: false, line: line(f, 'captured_document', null, 'unreadable_document_vat') };
   }
   if (f.capturedDocumentVat !== null) {
     const onDocument = f.documentClaimedVat ?? f.claimedToDate;
@@ -171,7 +206,19 @@ export function classifyInputVatSupport(f: InputVatSupportFacts, rate: number): 
     if (f.hasBankAttachment) return none;
     return { blocking: false, line: line(f, 'bank', null, 'no_tax_invoice') };
   }
-  return { blocking: true, line: line(f, 'none', null, 'no_document') };
+  // Breaker fix (Hein, 2026-09-26, round 2): a chain that has EVER carried a
+  // document link, but has none active now and no other support, is NOT the
+  // same as one that was never evidenced at all — a document was there and
+  // is now gone. That BLOCKS as `document_unlinked` until a document is
+  // linked again (the checks above then apply) or an owner/admin overrides.
+  if (f.hadDocumentLink) {
+    return { blocking: true, line: line(f, 'none', null, 'document_unlinked') };
+  }
+  // NOT blocking (Hein, 2026-09-26): no document, no bank line, NEVER linked
+  // — the return's figures are not wrong, only a supporting record is
+  // missing from IsaFlow, and holding it is the vendor's legal
+  // responsibility (s16(2)), possibly outside IsaFlow entirely.
+  return { blocking: false, line: line(f, 'none', null, 'no_document') };
 }
 
 export interface InputVatSupportResult {
@@ -201,6 +248,7 @@ export async function findInputVatSupport(
       vatAdjustment: r.is_vat_adjustment === true,
       bankAmount: num(r.bank_amount),
       hasBankAttachment: r.has_bank_attachment === true,
+      hadDocumentLink: r.had_document_link === true,
     }, SA_VAT_RATE);
     if (verdict.blocking) result.unsupported.push(verdict.line);
     else if (verdict.line) result.withoutTaxInvoice.push(verdict.line);

@@ -158,16 +158,17 @@ const REFUSAL_CODES: ReadonlySet<string> = new Set([
   'BATCH_ALREADY_REVERSED',
   'BATCH_NOT_PROCESSABLE',
   'BILL_LINE_ACCOUNT_REFUSED',
-  // A captured document already claimed for posting, or rejected (K-072). Two
-  // fixed messages naming no id, amount or table, raised only after the
+  // A captured document already claimed for posting, or rejected (K-072), or its
+  // file already posted from another upload / held by another request (R-088).
+  // Four fixed messages naming no id, amount or table, raised only after the
   // service read the document by company_id — the caller's own document.
   'CAPTURED_DOCUMENT_ALREADY_POSTED',
   'CAPTURE_EVENT_LOCKED',
   // Another request holds the capture row (K-072): says "retry", names only the
   // id the caller passed, and the row is locked by id AND company_id.
   'CAPTURE_ROW_LOCK_TIMEOUT',
-  // A manual expense-claim line's source document could not be claimed (R-105).
-  // Six fixed messages naming no id, amount or table, raised before any write;
+  // A manual expense-claim line's source document could not be claimed (R-105,
+  // R-088). Eight fixed messages naming no id, amount or table, raised before any write;
   // the claim is scoped by company_id. No MCP tool creates expense claims today.
   'CLAIM_SOURCE_DOCUMENT_REFUSED',
   'CREDIT_NOTE_LOCK_TIMEOUT',
@@ -195,6 +196,9 @@ const REFUSAL_CODES: ReadonlySet<string> = new Set([
   'PAYMENT_POSTED_DURING_VOID',
   'PAYROLL_LOAN_LOCK_TIMEOUT',
   'PAYROLL_RUN_JOURNAL_POSTED',
+  // Another request is posting a document with the same content (R-088): one
+  // fixed "retry" sentence naming no document, raised before any write.
+  'RECEIPT_POST_BUSY',
   'RECEIPT_REFUSED',
   'RECLASS_LINE_LOCK_TIMEOUT',
   // Rematch of a statement already marked reconciled (R-059 r11). The message
