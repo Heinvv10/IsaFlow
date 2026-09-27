@@ -230,6 +230,12 @@ const REFUSAL_CODES: ReadonlySet<string> = new Set([
   // caller's own document, scoped by company_id. Pre-write.
   'VAT_DECLARED_ELSEWHERE_FORBIDDEN',
   'VAT_DECLARED_ELSEWHERE_REFUSED',
+  // R-032 L5: an approve/post/file/close act refused to a platform-admin
+  // "Login as" session (auth/impersonationGuard). A fixed message naming no
+  // id, amount or table; raised as the approving service's first statement,
+  // before any read or write. Bearer callers carry no session id and are not
+  // refused today — listed because every `readonly code` must be decided.
+  'IMPERSONATION_FORBIDDEN',
   // Link/unlink a captured document to a posted journal refused: blank
   // reason, journal not found/not posted/reversed, document not found, or
   // the document already backs another claim (gl/journalDocumentLinkService,

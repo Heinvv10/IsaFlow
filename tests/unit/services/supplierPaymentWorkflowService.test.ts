@@ -23,6 +23,12 @@ const { mockTx } = vi.hoisted(() => ({
     client: { query: (t: string) => { mockTx.queries.push(t); return Promise.resolve(undefined); } },
   },
 }));
+// R-032 L5: the Login-as guard runs its own query first; it is covered by
+// tests/unit/auth/impersonationGuard.test.ts and the r-032 integration suites.
+vi.mock('@/lib/auth/impersonationGuard', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('@/lib/auth/impersonationGuard')>()),
+  assertNotImpersonating: async () => undefined,
+}));
 vi.mock('@/lib/als', async () => {
   const actual = await vi.importActual<typeof import('@/lib/als')>('@/lib/als');
   // Spreading the ALS instance keeps `getStore` stubbed but loses the

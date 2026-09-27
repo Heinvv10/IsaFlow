@@ -47,4 +47,5 @@ and its audit row commit together.
 - Both RLS ENABLE+FORCE + `tenant_isolation` (membership predicate, mirrors mig 498). Primary guard remains the explicit `company_id =` filter.
 
 ## Recent changes
+- 2026-09-26 (R-032 L5): `decideProposal` (approve, reject and dismiss) now call `assertNotImpersonating()` (`src/lib/auth/impersonationGuard.ts`) as their FIRST statement: a platform-admin "Login as" session gets `ImpersonationForbiddenError` → 403 `IMPERSONATION_FORBIDDEN` before anything is read or written. Bearer callers (MCP, PATs) and jobs carry no `session_id` and pass. The guard runs one `sql` query, so a unit test that mocks `sql` with a positional queue must also mock the guard (`vi.mock('@/lib/auth/impersonationGuard', ...)` with `assertNotImpersonating: async () => undefined`) or every later query shifts by one.
 - 2026-07-06: created (P5.1 close-run engine). Surface (Month-End tab home + bureau rollup) lands in P5.2.

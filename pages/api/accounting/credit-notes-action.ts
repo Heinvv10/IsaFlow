@@ -17,6 +17,7 @@ import {
   CREDIT_NOTE_AUTO_APPLY,
   listCreditNoteAllocations,
 } from '@/modules/accounting/services/shared/creditNoteFifo';
+import { respondIfImpersonationForbidden } from '@/lib/auth/impersonationGuard';
 
 const CreditNoteActionSchema = z.discriminatedUnion('action', [
   // autoApply defaults to 'fifo' — approving a note applies its remainder to the
@@ -80,6 +81,7 @@ async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse) {
       }
     }
   } catch (err) {
+    if (respondIfImpersonationForbidden(res, err)) return;
     const message = err instanceof Error ? err.message : 'Action failed';
     log.error('Credit note action failed', { error: err }, 'accounting-api');
     return apiResponse.badRequest(res, message);

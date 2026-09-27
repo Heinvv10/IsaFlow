@@ -55,6 +55,7 @@ export type {
 import type {
   CloseYearDryRunResult, CloseYearError, CloseYearOptions, CloseYearResult,
 } from './yearEndCloseTypes';
+import { assertNotImpersonating } from '@/lib/auth/impersonationGuard';
 
 export async function closeFiscalYear(
   companyId: string,
@@ -63,6 +64,9 @@ export async function closeFiscalYear(
   options: CloseYearOptions = {},
 ): Promise<CloseYearResult | CloseYearDryRunResult | CloseYearError> {
   const dryRun = options.dryRun === true;
+  // R-032 L5: a real close is refused to a Login-as session before any read or
+  // write. A dry run writes nothing and stays open for support to preview.
+  if (!dryRun) await assertNotImpersonating();
 
   // 1. Every period must be closed. Named, not counted: "3 periods are open" is
   //    not something a caller can act on.

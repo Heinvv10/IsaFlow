@@ -52,3 +52,15 @@ export function getPlatformAdminPool(): pg.Pool {
   );
   return _adminPool;
 }
+
+/**
+ * A one-off platform_admin connection for a write that must commit on its own
+ * while the caller already holds a pool connection (R-032: the impersonation
+ * session record). Taking a second connection from the same pool deadlocks
+ * once the pool is exhausted. The caller connects, writes and ends it.
+ */
+export function newPlatformAdminClient(): pg.Client {
+  const url = process.env.PLATFORM_ADMIN_DATABASE_URL;
+  if (!url) throw new Error('PLATFORM_ADMIN_DATABASE_URL required');
+  return new pg.Client({ connectionString: url, connectionTimeoutMillis: 5000, ssl: sslOpt() });
+}

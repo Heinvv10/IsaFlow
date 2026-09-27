@@ -25,6 +25,7 @@ Called by `pages/api/accounting/commentary/*` under `withAuth`; company always f
 - The draft builder never writes `approved_text`. Nothing generated reaches a share link without a person.
 
 ## Recent changes
+- 2026-09-26 (R-032 L5): `approveCommentary`, `rejectCommentary` now call `assertNotImpersonating()` (`src/lib/auth/impersonationGuard.ts`) as their FIRST statement: a platform-admin "Login as" session gets `ImpersonationForbiddenError` → 403 `IMPERSONATION_FORBIDDEN` before anything is read or written. Bearer callers (MCP, PATs) and jobs carry no `session_id` and pass. The guard runs one `sql` query, so a unit test that mocks `sql` with a positional queue must also mock the guard (`vi.mock('@/lib/auth/impersonationGuard', ...)` with `assertNotImpersonating: async () => undefined`) or every later query shifts by one.
 - 2026-09-06: the list route's GET arm is owner/admin/manager (`canReadSharingSurface`). It returns DRAFT text, and `withWriteAccess` lets every read method through.
 - 2026-09-06: migration 612 adds `withdrawn_by` / `withdrawn_at`; the replace path stamps them and leaves the approval columns intact.
 - 2026-09-06: `useCommentary` no longer accepts a `sectionRef` it ignored, and a 2xx carrying the wrong envelope arm throws `ApiEnvelopeError` instead of rendering as "no commentary".
