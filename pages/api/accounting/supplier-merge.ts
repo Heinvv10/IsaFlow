@@ -32,7 +32,7 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
     return apiResponse.methodNotAllowed(res, req.method ?? 'UNKNOWN', ['POST']);
   }
 
-  const { companyId } = req as CompanyAuthedRequest;
+  const { companyId, user } = req as CompanyAuthedRequest;
   const parsed = MergeBodySchema.safeParse(req.body);
   if (!parsed.success) {
     return apiResponse.validationError(res, parsed.error.flatten().fieldErrors);
@@ -56,10 +56,12 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
         throw new Error('One or both suppliers not found or do not belong to this company');
       }
 
-      // 2. Re-parent supplier_invoices
+      // 2. Re-parent supplier_invoices. supplier_id is approval content (R-035):
+      // the merging user becomes an author of every bill it moves.
       await tx`
         UPDATE supplier_invoices
-        SET supplier_id = ${target_id}
+        SET supplier_id = ${target_id},
+            content_authors = approval_add_author(content_authors, ${user.id}::UUID), content_edited_at = NOW()
         WHERE supplier_id = ${source_id}
           AND company_id = ${companyId}
       `;
