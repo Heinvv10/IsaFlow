@@ -102,8 +102,9 @@ export const actorRank = (role: string): number =>
  * Throws ApprovalDecisionError when `decidedBy` may not take `decision` on
  * `requestId`. Returns null when the request does not exist or is already
  * decided — the caller's status-predicated UPDATE reports that case — and for
- * every ordinary decision; an impersonation session is refused before the
- * request is read at all (R-032).
+ * every ordinary decision; an impersonation session is refused before any
+ * authority, digest or roster read (R-032). decideRequest's row lock runs
+ * first and reads only the request id.
  *
  * Returns a SoleApproverSelfApproval when the decider is approving their OWN
  * request and that is allowed only because nobody else could (decision Q2);
