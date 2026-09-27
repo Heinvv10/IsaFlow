@@ -45,6 +45,7 @@ import { getSystemAccount } from '../gl/systemAccountResolver';
 import { getFiscalPeriodIdForDate } from '../gl/fiscalPeriodService';
 import { isAutoCreatableYear } from '../gl/fiscalPeriodAutoCreate';
 import type { JournalLineInput } from '../../types/gl.types';
+import { assertNotImpersonating } from '@/lib/auth/impersonationGuard';
 
 /**
  * Resolve the "net VAT" clearing account.
@@ -208,6 +209,7 @@ export async function submitVATReturn(
   input: VATSubmitInput,
   userId: string,
 ): Promise<VATReturnRecord> {
+  await assertNotImpersonating(); // R-032 L5: first, before any read or write
   const { periodStart, periodEnd, sarsReference } = input;
 
   // Resolved up front: an unparseable periodEnd must refuse BEFORE any write,

@@ -41,7 +41,7 @@ const raceRequest = crypto.randomUUID();
 const tokens: Record<string, string> = {};
 
 async function mint(userId: string) {
-  return new SignJWT({ sub: userId, aal: 'aal2' }).setProtectedHeader({ alg: 'HS256' })
+  return new SignJWT({ sub: userId, aal: 'aal2', session_id: crypto.randomUUID() }).setProtectedHeader({ alg: 'HS256' })
     .setExpirationTime('1h').sign(new TextEncoder().encode(process.env.JWT_SECRET));
 }
 

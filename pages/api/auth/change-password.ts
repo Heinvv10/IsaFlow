@@ -7,11 +7,14 @@ import { rotateSessionRevokingOthers } from '@/lib/auth/sessionRevocation';
 import { setAuthCookies, parseCookies, REMEMBER_ME_COOKIE } from '@/lib/auth/cookies';
 import { withRateLimit } from '@/lib/rateLimit';
 import { log } from '@/lib/logger';
+import { refuseImpersonatedSession } from '@/lib/auth/impersonationGuard';
 
 const handler: NextApiHandler = async (req, res) => {
   if (req.method !== 'POST') {
     return res.status(405).json({ success: false, error: { code: 'METHOD_NOT_ALLOWED', message: 'POST required' } });
   }
+  // R-032 (f): a Login-as session changes none of the target's credentials.
+  if (await refuseImpersonatedSession(req, res)) return;
   const user = (req as UserAuthedRequest).user;
   // Accept legacy `oldPassword` alongside `currentPassword` — the /my-account
   // form still uses the old field name.

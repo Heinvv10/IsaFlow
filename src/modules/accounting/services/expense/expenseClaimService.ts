@@ -35,6 +35,7 @@ import { roundToCents } from '@/modules/accounting/utils/doubleEntry';
 import { assertDocumentLineAccounts } from '@/modules/accounting/services/gl/documentLineAccountGuard';
 import type { JournalLineInput } from '@/modules/accounting/types/gl.types';
 import type { LateClaimInfo } from '@/modules/accounting/services/gl/vatLateClaimPlan';
+import { assertNotImpersonating } from '@/lib/auth/impersonationGuard';
 
 type Row = Record<string, unknown>;
 
@@ -399,6 +400,7 @@ export async function approveClaim(
   companyId: string,
   approverUserId: string,
 ): Promise<ExpenseClaim | null> {
+  await assertNotImpersonating(); // R-032 L5: first, before any read or write
   const claim = await getClaim(id, companyId);
   if (!claim) return null;
   if (claim.status !== 'submitted') throw new Error(`Cannot approve claim in status '${claim.status}'`);
@@ -418,6 +420,7 @@ export async function rejectClaim(
   approverUserId: string,
   reason: string,
 ): Promise<ExpenseClaim | null> {
+  await assertNotImpersonating(); // R-032 L5: first, before any read or write
   const claim = await getClaim(id, companyId);
   if (!claim) return null;
   if (claim.status !== 'submitted') throw new Error(`Cannot reject claim in status '${claim.status}'`);
@@ -486,6 +489,7 @@ export async function postClaimToGl(
   companyId: string,
   opts: PostClaimOptions,
 ): Promise<(ExpenseClaim & { lateClaim?: LateClaimInfo }) | null> {
+  await assertNotImpersonating(); // R-032 L5: first, before any read or write
   // Lock the claim for the request transaction BEFORE reading its status.
   // Without this, two concurrent posts both read 'approved', both build the
   // same legs and both post — two identical journals and a doubled credit to

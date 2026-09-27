@@ -9,8 +9,10 @@
 
 import { sql } from '@/lib/neon';
 import { soleApproverFacts, type SoleApproverSelfApproval } from './approvalSelfApproval';
+import { currentSessionActor } from '@/lib/auth/impersonationSessions';
 
-export type ApprovalDecisionErrorCode = 'SELF_APPROVAL_FORBIDDEN' | 'APPROVER_ROLE_REQUIRED';
+export type ApprovalDecisionErrorCode =
+  | 'SELF_APPROVAL_FORBIDDEN' | 'APPROVER_ROLE_REQUIRED' | 'IMPERSONATION_FORBIDDEN';
 
 export class ApprovalDecisionError extends Error {
   readonly code: ApprovalDecisionErrorCode;
@@ -100,7 +102,8 @@ export const actorRank = (role: string): number =>
  * Throws ApprovalDecisionError when `decidedBy` may not take `decision` on
  * `requestId`. Returns null when the request does not exist or is already
  * decided — the caller's status-predicated UPDATE reports that case — and for
- * every ordinary decision.
+ * every ordinary decision; an impersonation session is refused before the
+ * request is read at all (R-032).
  *
  * Returns a SoleApproverSelfApproval when the decider is approving their OWN
  * request and that is allowed only because nobody else could (decision Q2);
@@ -116,6 +119,21 @@ export async function assertMayDecide(
   decidedBy: string,
   decision: 'approved' | 'rejected'
 ): Promise<SoleApproverSelfApproval | null> {
+  // R-032: under "Login as", `decidedBy` is the TARGET's id — the admin's real
+  // identity never reaches this request — so the self-approval check below
+  // would measure the wrong person and `decided_by` would name someone who
+  // decided nothing. No decision, approve or reject, is taken from such a
+  // session, nor from one that cannot be ruled out as one.
+  const actor = await currentSessionActor();
+  if (actor !== 'self') {
+    throw new ApprovalDecisionError(
+      'IMPERSONATION_FORBIDDEN',
+      actor === 'impersonation'
+        ? 'Approval decisions cannot be made while impersonating another user. End the impersonation and decide as yourself.'
+        : 'Approval decisions are refused: this session cannot confirm it is not an impersonation.'
+    );
+  }
+
   const rows = (await sql`
     SELECT (ar.requested_by::TEXT = ${decidedBy}) AS is_self,
            (${decidedBy} = ANY (ar.past_requesters::TEXT[])) AS was_requester,

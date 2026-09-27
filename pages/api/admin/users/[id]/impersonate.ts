@@ -1,5 +1,6 @@
 import { verifyTokenSignature } from '@/lib/auth/gotrue';
 import { mintImpersonationProof } from '@/lib/auth/impersonationAssurance';
+import { registerImpersonationSession } from '@/lib/auth/impersonationSessions';
 /**
  * POST /api/admin/users/:id/impersonate
  * Super-admin "Login as X" — swaps admin's session for target's via GoTrue
@@ -72,9 +73,11 @@ async function handler(req: PlatformAdminRequest, res: NextApiResponse): Promise
     targetUserId: target.userId,
   });
 
-  // Pentest H11: impersonation_start is a CRITICAL_ACTION. withAdmin opens NO
-  // transaction, so ordering is the guarantee: the audit INSERT is awaited
-  // BEFORE cookies are set — if it throws, impersonation never starts. On
+  // Pentest H11: impersonation_start is a CRITICAL_ACTION. The handler runs in
+  // withPlatformAdmin's transaction, which COMMITs after the handler returns
+  // (a 500 answered by withErrorHandler included) and does not hold the
+  // response — so ordering is the guarantee: the audit INSERT is awaited
+  // BEFORE cookies are set, and if it throws, impersonation never starts. On
   // failure we also remove the freshly-stashed admin tokens so no orphan row
   // remains.
   try {
@@ -112,6 +115,14 @@ async function handler(req: PlatformAdminRequest, res: NextApiResponse): Promise
     proof = await mintImpersonationProof({
       actorUserId: req.user.id, targetUserId: target.userId, targetSessionId: targetClaims.session_id,
       actorExpiresAt: actorClaims.exp, stashExpiresAt: Math.floor(new Date(stash.expires_at).getTime() / 1000),
+    });
+    // R-032: the proof and stash cookies can be deleted by this browser; this
+    // row cannot. It is what refuses approval decisions from this session, so
+    // it is committed on its own connection before any cookie is set. A failure
+    // here leaves this transaction usable: the stash cleanup below runs, and
+    // the impersonation_start row above records the refused attempt.
+    await registerImpersonationSession({
+      sessionId: targetClaims.session_id, actorUserId: req.user.id, targetUserId: target.userId,
     });
   } catch (proofErr) {
     await deleteStash(stashId).catch((cleanupErr: unknown) =>

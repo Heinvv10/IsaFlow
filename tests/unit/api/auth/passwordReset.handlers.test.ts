@@ -22,10 +22,12 @@ vi.mock('@/lib/rateLimit', () => ({
 vi.mock('@/lib/logger', () => ({ log: { info: vi.fn(), warn: vi.fn(), error: vi.fn() } }));
 
 const consumePasswordResetToken = vi.fn();
-const createPasswordResetToken = vi.fn();
+const issuePasswordResetToken = vi.fn();
 vi.mock('@/lib/auth/passwordResetService', () => ({
   consumePasswordResetToken: (...a: unknown[]) => consumePasswordResetToken(...a),
-  createPasswordResetToken: (...a: unknown[]) => createPasswordResetToken(...a),
+  issuePasswordResetToken: (...a: unknown[]) => issuePasswordResetToken(...a),
+  supersedePasswordResetTokens: vi.fn(async () => undefined),
+  withdrawPasswordResetToken: vi.fn(async () => undefined),
 }));
 
 const adminUpdateUser = vi.fn();
@@ -137,7 +139,7 @@ describe('POST /api/auth/do-reset-password', () => {
 describe('POST /api/auth/forgot-password', () => {
   it('returns 200 for an existing email', async () => {
     adminGetUserByEmail.mockResolvedValueOnce({ id: 'user-1' });
-    createPasswordResetToken.mockResolvedValueOnce({ token: 'tok', expiresAt: new Date(Date.now() + 1000) });
+    issuePasswordResetToken.mockResolvedValueOnce({ token: 'tok', tokenHash: 'h', expiresAt: new Date(Date.now() + 1000) });
     const { req, res } = mockReqRes({ email: 'real@example.com' });
     await (forgotHandler as unknown as Handler)(req, res);
     expect(res.statusCode).toBe(200);
@@ -156,5 +158,29 @@ describe('POST /api/auth/forgot-password', () => {
     const { req, res } = mockReqRes({});
     await (forgotHandler as unknown as Handler)(req, res);
     expect(res.statusCode).toBe(400);
+  });
+
+  // R-032 M2 regression pin: the admin reset now shares this email; forgot-password
+  // must still send exactly this, to the address asked for, built on our own token.
+  it('emails one reset link built on our own token to the requested address', async () => {
+    adminGetUserByEmail.mockResolvedValueOnce({ id: 'user-1' });
+    issuePasswordResetToken.mockResolvedValueOnce({ token: 'tok-own', tokenHash: 'h-own', expiresAt: new Date(Date.now() + 1000) });
+    const { req, res } = mockReqRes({ email: ' Real@Example.com ' });
+    await (forgotHandler as unknown as Handler)(req, res);
+    await vi.waitFor(() => expect(sendEmail).toHaveBeenCalledTimes(1));
+    expect(issuePasswordResetToken).toHaveBeenCalledWith('user-1');
+    const sent = (sendEmail.mock.calls[0] as unknown[])[0] as { to: string; subject: string; html: string };
+    expect(sent.to).toBe('real@example.com');
+    expect(sent.subject).toBe('Reset your ISAFlow password');
+    expect(sent.html).toContain('/reset-password#token=tok-own');
+  });
+
+  it('emails nobody for an unknown address', async () => {
+    adminGetUserByEmail.mockRejectedValueOnce(new Error('no gotrue user'));
+    const { req, res } = mockReqRes({ email: 'ghost@example.com' });
+    await (forgotHandler as unknown as Handler)(req, res);
+    await new Promise((r) => setTimeout(r, 20));
+    expect(issuePasswordResetToken).not.toHaveBeenCalled();
+    expect(sendEmail).not.toHaveBeenCalled();
   });
 });
