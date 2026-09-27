@@ -22,6 +22,7 @@ const line = (over: Partial<InputVatSupportLine>): InputVatSupportLine => ({
 const report: VatExceptionsReport = {
   periodStart: '2026-07-01', periodEnd: '2026-08-31',
   uncodedGlLines: [], uncodedGlLineCount: 0, invoiceTaxCodeIssues: [], invoiceTaxCodeIssueCount: 0,
+  billTaxCodeWarnings: [], billTaxCodeWarningCount: 0, billTaxCodeWarningPotentialVat: 0,
   invoiceGlMismatches: [], invoiceGlMismatchCount: 0, vatOnBalanceSheetLines: [], vatOnBalanceSheetCount: 0,
   vatNonSupplyLines: [], vatNonSupplyCount: 0,
   controlRecon: {
