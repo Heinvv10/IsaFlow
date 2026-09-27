@@ -293,7 +293,7 @@ async function handler(req: CompanyAuthedRequest, res: NextApiResponse) {
     approvalRoute: provisionalAttach.settlementRefused ? 'manual_review' : approvalRoute,
     warnings: validation.warnings,
     threeWayMatch,
-    provisionalAttach, approvalRequest,
+    provisionalAttach, approvalRequired: approval.gated, approvalRequest,
   });
 }
 
