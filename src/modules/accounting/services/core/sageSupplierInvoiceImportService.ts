@@ -20,6 +20,7 @@ import { lockMigrationImport } from './migrationPostingSupport';
 import type { DbRow } from '@/types/db';
 import { computeFingerprint } from '../capture/captureDeduplicationService';
 import { deriveSageVat, SAGE_VAT_NOT_STATED_NOTE } from '../shared/sageVatDerivation';
+import { withApprovalGateExempt } from '../gl/approvalGateExempt';
 
 // ── Supplier Invoice Import ─────────────────────────────────────────────────
 
@@ -134,7 +135,8 @@ export async function importSupplierInvoices(companyId: string, userId: string):
             );
 
             // BL-40: Added company_id to INSERT — was missing, causing NOT NULL violation
-            const newInv = (await sql`
+            // R-035 Q1: approved in Sage, so exempt from the approval backstop.
+            const newInv = (await withApprovalGateExempt(() => sql`
               INSERT INTO supplier_invoices (
                 company_id, invoice_number, supplier_id, invoice_date, due_date,
                 subtotal, tax_rate, tax_amount, total_amount,
@@ -148,7 +150,7 @@ export async function importSupplierInvoices(companyId: string, userId: string):
                 ${rowVatNotStated ? SAGE_VAT_NOT_STATED_NOTE : null}, ${userId},
                 ${dupFingerprint}
               ) RETURNING id
-            `) as DbRow[];
+            `)) as DbRow[];
             billId = String(newInv[0]!.id);
           }
 

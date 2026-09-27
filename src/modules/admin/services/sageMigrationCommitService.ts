@@ -17,6 +17,7 @@ import { assertNoInactiveAccountLines } from '@/modules/accounting/services/gl/j
 import { assertJournalVatPeriodOpen } from '@/modules/accounting/services/gl/journalVatLockGuard';
 import { postCustomerInvoiceToGL } from '@/modules/accounting/services/ar/customerPaymentAllocationService';
 import { recomputeInvoiceStatus } from '@/modules/accounting/services/ar/invoiceStatusRecompute';
+import { withApprovalGateExempt } from '@/modules/accounting/services/gl/approvalGateExempt';
 import type {
   Row,
   MappedCustomer,
@@ -264,7 +265,8 @@ export async function commitAPInvoice(
 
   await assertNoInactiveAccountLines(companyId, je.id);
   await sql`UPDATE gl_journal_entries SET status = 'posted', posted_at = NOW() WHERE id = ${je.id}::UUID AND company_id = ${companyId}::UUID`;
-  await sql`UPDATE supplier_invoices SET status = 'approved', approved_at = NOW(), amount_paid = ${amountPaid}, gl_journal_entry_id = ${je.id}::UUID WHERE id = ${created.id}::UUID AND company_id = ${companyId}::UUID`;
+  // R-035 Q1: approved in Sage, so exempt from the approval backstop.
+  await withApprovalGateExempt(() => sql`UPDATE supplier_invoices SET status = 'approved', approved_at = NOW(), amount_paid = ${amountPaid}, gl_journal_entry_id = ${je.id}::UUID WHERE id = ${created.id}::UUID AND company_id = ${companyId}::UUID`);
   // Same as AR: 'approved' is the open default, narrowed from amount_paid.
   if (amountPaid > 0) await recomputeInvoiceStatus(companyId, 'supplier', created.id);
   return { invoiceId: created.id, created: true, warning: settled.warning };
