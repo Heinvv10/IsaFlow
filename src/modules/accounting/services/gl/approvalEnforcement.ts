@@ -4,8 +4,7 @@
  * off). A row in `approval_enforcement` (migration 708) means enforced.
  *
  * ENFORCEABLE_DOCUMENT_TYPES grows by one type per PR, as each type's posting
- * paths are wired to `approvalGate`. It is EMPTY in PR1: nothing can be
- * switched on, so nothing changes. Per-type rather than one company flag so a
+ * paths are wired to `approvalGate` — supplier invoices since PR2. Per-type rather than one company flag so a
  * company that opted into supplier invoices is not silently enrolled in
  * journals when that PR lands.
  *
@@ -23,7 +22,7 @@ import { requiredRank } from './approvalAuthority';
 import { mayWeakenAtLevel, type RuleActor } from './approvalRuleGuards';
 import { logAuditOrThrow } from '../core/auditTrailService';
 
-export const ENFORCEABLE_DOCUMENT_TYPES: readonly DocumentType[] = [];
+export const ENFORCEABLE_DOCUMENT_TYPES: readonly DocumentType[] = ['supplier_invoice'];
 
 export interface ApprovalEnforcement {
   documentType: DocumentType;
