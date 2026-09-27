@@ -67,7 +67,7 @@ describe('assertMayDecide — impersonation sessions (R-032)', () => {
   });
 
   it('lets an ordinary session through to the authority checks', async () => {
-    await expect(decide()).resolves.toBeUndefined();
+    await expect(decide()).resolves.toBeNull(); // R-035: null = an ordinary decision (no sole-approver self-approval)
     expect(state.approvalReads).toBe(1);
   });
 });
