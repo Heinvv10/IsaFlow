@@ -20,7 +20,7 @@ import approvalRequests from '../../pages/api/accounting/approval-requests';
 import startImpersonation from '../../pages/api/admin/users/[id]/impersonate';
 import endImpersonation from '../../pages/api/auth/end-impersonation';
 import { applyCookies, assertDisposable, request, response } from './mfa-impersonation-postgres.helpers';
-import { deletePlantedDocuments, plantDocument } from './approval-document.helpers';
+import { deletePlantedDocuments, plantDocument, withExpectedDigest } from './approval-document.helpers';
 import { fakeGotrueFetch, signSession, type FakeGotrue } from './r-032-fake-gotrue.helpers';
 import { log } from '@/lib/logger';
 
@@ -79,7 +79,8 @@ const ownSession = async (userId: string): Promise<Jar> => ({
 
 async function decide(jar: Jar, body: Record<string, unknown>) {
   const req = request(jar, 'POST') as never as { body: unknown; url: string };
-  req.body = body;
+  // R-035: an approve names the digest the approver was shown.
+  req.body = await withExpectedDigest(pool, body);
   req.url = '/api/accounting/approval-requests';
   const result = response();
   await approvalRequests(req as never, result.res);
