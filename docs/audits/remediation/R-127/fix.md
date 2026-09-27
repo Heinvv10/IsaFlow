@@ -209,3 +209,6 @@ Rows already on production are not repaired by this fix. A backfill that settles
 - **L1:** `capturePostFollowUps` no longer swallows a failed draft revert. `capture/[id]/post` now fails the request (≥500, nothing kept) instead of answering 200 over a COMMIT that became a ROLLBACK. This matches `ai-invoice-pipeline`. Tested with the revert forced to throw.
 - **L2:** a withdrawn auto-approval reports `approvalRoute: 'manual_review'` on both routes.
 - RED 0f2449262. Mutations R1–R3 are all red.
+
+### R-088 × R-127 second upload (2026-09-27)
+R-088's posted-content fence let the invoice routes through for a slip whose OTHER upload evidenced a provisional, on the promise that R-127 would settle the invoice. R-127 settles only an invoice whose own document evidences the provisional, so a second upload's invoice was approved beside it and booked the bill twice (R6 900 for a R3 450 slip, end to end). Fixed in the fence: an evidenced slip now counts for every spend, and that second upload answers 409 `content_posted`. The same-document R-127 flow is unaffected and tested. RED 4f48f35c5; see R-088's fix.md.
