@@ -50,11 +50,13 @@ describeIfDb('VAT gate override + lock write are atomic (item 6)', () => {
   beforeAll(async () => {
     assertNotProductionDb('r-vatgaps-6');
     fx = await seedLateFixture('RVG6', DATABASE_URL!);
-    // An unsupported input-VAT claim in the FUTURE period, so the gate has a
-    // blocking exception to override.
+    // An uncoded VAT-input GL line in the FUTURE period, so the gate has a
+    // blocking exception to override. (A bare unsupported input-VAT claim no
+    // longer blocks — Hein, 2026-09-26 — so this test needs a still-blocking
+    // category instead.)
     await post(FUTURE.start, 'manual', [
-      { glAccountId: fx.vatInputId, debit: 200, credit: 0, description: 'unsupported', vatType: 'standard' as const },
-      { glAccountId: fx.expenseId, debit: 0, credit: 200, description: 'unsupported' },
+      { glAccountId: fx.vatInputId, debit: 200, credit: 0, description: 'uncoded' },
+      { glAccountId: fx.expenseId, debit: 0, credit: 200, description: 'uncoded' },
     ]);
   }, 120000);
 
