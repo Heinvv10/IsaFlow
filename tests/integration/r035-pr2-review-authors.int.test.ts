@@ -99,3 +99,40 @@ describe('the edit reads its before-digest under the row lock (LOW-1)', () => {
     expect(reasonOf(await r.decide(pool, u.b, c, requestId))).toBe('SELF_APPROVAL_FORBIDDEN');
   });
 });
+
+describe('the author refusal says truthfully who may still approve (re-check L1)', () => {
+  it('when every member of the rank authored or raised it, it says no eligible approver remains', async () => {
+    // Owners A (creator) and B (editor); C is a manager who raises the request.
+    const c = await postableCompany(pool, [[u.a, 'owner'], [u.b, 'owner'], [u.c, 'manager']], companies);
+    await plantRule(pool, c, 'owner');
+    await enforce(pool, c, u.a);
+    const bill = await plantBill(pool, c, u.a);
+    expect((await r.editBill(u.b, c, { id: bill.id, invoiceDate: '2026-09-03' })).state.statusCode).toBe(200);
+    const requestId = await raisedBy(u.c, c, bill.id);
+
+    const refusedB = await r.decide(pool, u.b, c, requestId);
+    expect(reasonOf(refusedB)).toBe('SELF_APPROVAL_FORBIDDEN');
+    const text = (refusedB.state.body as { error: { message: string } }).error.message;
+    expect(text).toMatch(/no eligible approver remains/i);
+    expect(text).toMatch(/cancel and re-enter/i);
+    expect(text).not.toMatch(/previous requester/i);
+    // And there is indeed no approval path.
+    expect(reasonOf(await r.decide(pool, u.a, c, requestId))).toBe('SELF_APPROVAL_FORBIDDEN');
+    expect(reasonOf(await r.decide(pool, u.c, c, requestId))).toBe('SELF_APPROVAL_FORBIDDEN');
+    expect((await pool.query('SELECT status FROM approval_requests WHERE id = $1', [requestId])).rows[0].status).toBe('pending');
+  });
+
+  it('when only the requester holds the rank and authored nothing, it names that path — and the path works', async () => {
+    // Owners A (creator) and D (requester, authored nothing).
+    const c = await postableCompany(pool, [[u.a, 'owner'], [u.d, 'owner']], companies);
+    await plantRule(pool, c, 'owner');
+    await enforce(pool, c, u.a);
+    const bill = await plantBill(pool, c, u.a);
+    const requestId = await raisedBy(u.d, c, bill.id);
+    const refused = await r.decide(pool, u.a, c, requestId);
+    expect((refused.state.body as { error: { message: string } }).error.message).toMatch(/requester may then approve/i);
+    expect((await r.decide(pool, u.a, c, requestId, 'reject')).state.statusCode).toBe(200);
+    const again = await raisedBy(u.a, c, bill.id);
+    expect((await r.decide(pool, u.d, c, again)).state.statusCode).toBe(200);
+  });
+});
