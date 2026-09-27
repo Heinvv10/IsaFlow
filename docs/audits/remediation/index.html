@@ -2,7 +2,7 @@
 <html lang="en"><meta charset="utf-8"><title>IsaFlow remediation evidence</title>
 <style>body{font:16px system-ui;margin:2rem;max-width:1400px}table{border-collapse:collapse;width:100%}td,th{padding:.7rem;text-align:left;border-bottom:1px solid #ccc;vertical-align:top}th{background:#eee}a{color:#164d8c}</style>
 <h1>IsaFlow remediation evidence</h1>
-<p>140 fixed, 7 false-positive, 20 in-progress, 1 already-fixed-verified, 89 confirmed, 148 candidate, 5 code-verified. Code verification and deployment are separate states; production deployment is authorized, subject to standard gates and live verification.</p>
+<p>145 fixed, 7 false-positive, 20 in-progress, 1 already-fixed-verified, 85 confirmed, 163 candidate, 5 code-verified. Code verification and deployment are separate states; production deployment is authorized, subject to standard gates and live verification.</p>
 <p>All 130 explicit numbered sources mapped by claim/location to 129 unique K rows (including 10 split-source mappings). All 118 medium/low detail headings have K counterparts. Scope remains OPEN: unnumbered compound and latent claims, aggregate discrepancies, and source coverage gaps are documented in reconciliation.md; no candidate is code-validated by this mapping. Two supplemental unnumbered AP-import claims are retained as R-001/R-002, dependent on K-015; K-281 lists all six required subchecks. Remediation-discovered R-003 retains the unverified first-registration WhatsApp ownership boundary; it is not an original audit ID.</p>
 <p>Baseline: <code>5661d6f0f5f2212705151e95455a3f681ddf840e</code></p>
 <p><a href="backlog.json">Finding register</a> · <a href="inputs.json">Input hashes</a> · <a href="evidence/baseline-ci.log">Baseline CI output</a> · <a href="HANDOFF.md">Execution handoff</a></p>
@@ -84,7 +84,7 @@
 <tr><td>K-076</td><td>fixed</td><td>capture</td><td>OCR total and VAT regexes match anywhere in the documentThe total pattern has no left word boundary so Subtotal matches, and the VAT pattern matches a VAT registration number.</td><td>A H33</td></tr>
 <tr><td>K-077</td><td>confirmed</td><td>capture</td><td>IMAP stores a MIME type where the router expects an extensionMirrored invoices never match the extraction router, so they are never extracted.</td><td>A H46</td></tr>
 <tr><td>K-078</td><td>confirmed</td><td>capture</td><td>auto_publish self-promotesThe learning counter counts the rule confirming its own default, so a rule reaches the auto-publish threshold on its own output.</td><td>A H47</td></tr>
-<tr><td>K-079</td><td>in-progress</td><td>payroll</td><td>Payroll journal is unbalanced by ETIThe labour debit subtracts ETI but PAYE is credited in full, so any run with ETI never posts while approval has already flipped the run.</td><td>A H1</td></tr>
+<tr><td>K-079</td><td>fixed</td><td>payroll</td><td>Payroll journal is unbalanced by ETIThe labour debit subtracts ETI but PAYE is credited in full, so any run with ETI never posts while approval has already flipped the run.</td><td>A H1</td></tr>
 <tr><td>K-080</td><td>confirmed</td><td>payroll</td><td>ETI returns zero below the wage floorThe SARS formula gives 50% of remuneration below R2,000; the engine gives R0, so the lowest-paid eligible employees get nothing.</td><td>A H2</td></tr>
 <tr><td>K-081</td><td>fixed</td><td>loans</td><td>Loan period close re-posts the full current-portion reclass monthlyThe reclass is posted in full each period with no reversal of the prior one, compounding the balance-sheet split.</td><td>A H20</td></tr>
 <tr><td>K-082</td><td>fixed</td><td>loans</td><td>IFRS 9 days-past-due measured against a future instalmentcomputeDaysPastDue compares against the next due date, so DPD is always zero and every exposure stays stage 1.</td><td>A H21</td></tr>
@@ -318,10 +318,10 @@
 <tr><td>R-029</td><td>confirmed</td><td>core</td><td>purgeExpiredDeletes has no caller, so soft deletes are permanent and the advertised 5-minute undo window never expires; deleted rows remain in every table indefinitely.</td><td></td></tr>
 <tr><td>R-030</td><td>in-progress</td><td>auth</td><td>The /accept-invite flow (invitation system 1) is dead: the token route&#x27;s join to companies is filtered by the companies_member_read RLS policy, so every valid invitation answers 410.</td><td></td></tr>
 <tr><td>R-031</td><td>candidate</td><td>gl</td><td>customer_invoices and supplier_invoices carry no cancelled_at, and cancellation NULLs gl_journal_entry_id, so an invoice cancelled after a period end cannot be rewound to its as-at state; close-readiness keeps a residual variance when the cancellation reversal is dated into a later period.</td><td></td></tr>
-<tr><td>R-032</td><td>confirmed</td><td>gl/approvals</td><td></td><td></td></tr>
+<tr><td>R-032</td><td>fixed</td><td>gl/approvals</td><td></td><td></td></tr>
 <tr><td>R-033</td><td>confirmed</td><td>gl/approvals</td><td></td><td></td></tr>
 <tr><td>R-034</td><td>confirmed</td><td>core/migration</td><td></td><td></td></tr>
-<tr><td>R-035</td><td>confirmed</td><td>accounting/approvals</td><td></td><td></td></tr>
+<tr><td>R-035</td><td>in-progress</td><td>accounting/approvals</td><td></td><td></td></tr>
 <tr><td>R-036</td><td>confirmed</td><td>ci/testing</td><td></td><td></td></tr>
 <tr><td>R-037</td><td>confirmed</td><td>accounting/ar-ap</td><td></td><td></td></tr>
 <tr><td>R-038</td><td>confirmed</td><td>accounting/ar</td><td></td><td></td></tr>
@@ -334,12 +334,24 @@
 <tr><td>R-045</td><td>confirmed</td><td>accounting/ar</td><td></td><td></td></tr>
 <tr><td>R-046</td><td>confirmed</td><td>accounting/migration</td><td></td><td></td></tr>
 <tr><td>R-047</td><td>fixed</td><td>accounting/ap</td><td></td><td></td></tr>
-<tr><td>R-048</td><td>confirmed</td><td>accounting/approvals</td><td></td><td></td></tr>
+<tr><td>R-048</td><td>fixed</td><td>accounting/approvals</td><td></td><td></td></tr>
 <tr><td>R-049</td><td>confirmed</td><td>accounting/approvals</td><td></td><td></td></tr>
 <tr><td>R-050</td><td>confirmed</td><td>accounting/migration</td><td></td><td></td></tr>
 <tr><td>R-051</td><td>fixed</td><td>accounting/posting</td><td></td><td></td></tr>
 <tr><td>R-128</td><td>confirmed</td><td>accounting/numbering</td><td>trg_cp_payment_number and trg_sp_payment_number (generate_customer_payment_number / generate_supplier_payment_number) mint MAX(sequence)+1 per company and year, and neither customer_payments nor supplier_payments has a unique index on (company_id, payment_number) — confirmed on the schema fixture 2026-09-24. Two payments inserted concurrently get the same number and both commit.</td><td></td></tr>
 <tr><td>R-129</td><td>fixed</td><td>ap</td><td>DELETE on a purchase order reads its status, refuses unless it is draft, then deletes by id + company_id without the status in the WHERE (check-then-act). A concurrent submit/approve between the read and the DELETE lets a no-longer-draft order be hard-deleted.</td><td></td></tr>
+<tr><td>R-130</td><td>candidate</td><td>capture</td><td>The integration test fails on clean origin/master (expected 400 to be 200 at line ~392): a supplier-invoice cancel errors where the test expects the claim to be held. Either the claim-release path or the test is wrong.</td><td></td></tr>
+<tr><td>R-131</td><td>candidate</td><td>ap</td><td>The raw INSERT in capture/[id]/post writes supplier_invoices without supplier_invoice_items, so an auto-approved bill cannot post a balancing journal; it sits approved with no journal (AP subledger overstated vs GL) unless R-127 reverts it to draft.</td><td></td></tr>
+<tr><td>R-132</td><td>candidate</td><td>auth</td><td>PATs, OAuth grants, developer apps, capture keys and extension pairings created by a target user while an admin was impersonating them before R-032 are indistinguishable from the user&#x27;s own. Candidates by time window: docs/audits/remediation/R-032/credential-census.sql (read-only).</td><td></td></tr>
+<tr><td>R-133</td><td>candidate</td><td>infra</td><td>A Login-as session holds the target&#x27;s real GoTrue token; GoTrue at 100.96.203.105:7770 accepts PUT /auth/v1/user and /factors from the tailnet, bypassing the app-level R-032 guards.</td><td></td></tr>
+<tr><td>R-134</td><td>candidate</td><td>ap</td><td>Batch payment approve answers 200 {status:&quot;approved&quot;} for a nonexistent batch id instead of 404.</td><td></td></tr>
+<tr><td>R-135</td><td>candidate</td><td>payroll</td><td>PUT /api/payroll/leave/[id] writes approved_by from the body, so any caller can name any approver.</td><td></td></tr>
+<tr><td>R-136</td><td>candidate</td><td>payroll</td><td>PUT /api/payroll/leave/[id] is not wrapped in withWriteAccess, so a viewer can approve leave.</td><td></td></tr>
+<tr><td>R-137</td><td>candidate</td><td>bank</td><td>Any bank line in status imported that is the payment of an approved, unpaid bill (e.g. after an R-127 settlement undo) can be expensed by postProvisional or a categorisation sweep while the bill is open, booking the cost twice.</td><td></td></tr>
+<tr><td>R-138</td><td>candidate</td><td>reports</td><td>tests/unit/components/ReportPageDrillDimensions.test.tsx &quot;income statement carries a selected business unit…&quot; fails intermittently at load &gt;30 (waitFor), failing pre-push CI; passes alone.</td><td></td></tr>
+<tr><td>R-139</td><td>candidate</td><td>tests</td><td>The R-032 L5 test for supplier credit note create-and-post errors before creating a draft (unknown supplier), so it proves the 403 but not that no draft is committed.</td><td></td></tr>
+<tr><td>R-140</td><td>candidate</td><td>ap</td><td>When a supplier invoice is approved before its slip evidences the provisional (the auto-attach missed: date &gt;2 days, supplier or amount mismatch), nothing links the two afterwards: the manual attach refuses the invoiced slip, and R-127 settles only at approval / Post to GL. The provisional and the bill both stay live (a double booking a person must fix by journal).</td><td></td></tr>
+<tr><td>R-141</td><td>candidate</td><td>auth</td><td>capture/[id]/post and ai-invoice-pipeline insert an auto-approved supplier invoice without the R-032 assertNotImpersonating guard; the subsequent settlement is refused (guard in postSupplierInvoiceToGL) and the bill reverts to draft, so it is safe today, but the approval act itself runs under a Login-as session.</td><td></td></tr>
 <tr><td>R-052</td><td>fixed</td><td>ci</td><td></td><td></td></tr>
 <tr><td>R-053</td><td>confirmed</td><td>accounting/core</td><td></td><td></td></tr>
 <tr><td>R-054</td><td>fixed</td><td>accounting/capture</td><td></td><td></td></tr>
@@ -376,7 +388,7 @@
 <tr><td>R-085</td><td>fixed</td><td>reports</td><td></td><td></td></tr>
 <tr><td>R-086</td><td>fixed</td><td>accounting/migration</td><td></td><td></td></tr>
 <tr><td>R-087</td><td>confirmed</td><td>accounting/ap</td><td></td><td></td></tr>
-<tr><td>R-088</td><td>confirmed</td><td>accounting/capture</td><td></td><td></td></tr>
+<tr><td>R-088</td><td>fixed</td><td>accounting/capture</td><td></td><td></td></tr>
 <tr><td>R-089</td><td>fixed</td><td>accounting/migration</td><td></td><td></td></tr>
 <tr><td>R-090</td><td>confirmed</td><td>accounting/bank</td><td></td><td></td></tr>
 <tr><td>R-091</td><td>fixed</td><td>accounting/capture</td><td></td><td></td></tr>
@@ -415,4 +427,8 @@
 <tr><td>R-124</td><td>candidate</td><td>capture</td><td>releaseCapturedDocumentPostingClaim clears captured_documents.posted_at but leaves status = &#x27;matched&#x27;, which the capture inbox reads as settled. After a claim rejection or cancel (rejectClaim/cancelClaim), and after R-105&#x27;s line/draft-claim delete, a released slip is postable again but does not reappear as to-do in the inbox. rejectClaim&#x27;s comment says the slips &#x27;go back to the capture inbox&#x27;.</td><td></td></tr>
 <tr><td>R-125</td><td>fixed</td><td>core</td><td>The customer-list and GL-account caches (in-process, 5-minute REFERENCE_DATA TTL) are invalidated only by some writers. customers: 10 files write the table; only customers.ts and customers-bulk.ts invalidate CACHE_KEYS.customers. gl_accounts: 12 files write it; five invalidate the gl-accounts prefix. The cache is per process, so no invalidation reaches other processes. A write through any other path (MCP tools, merges, soft-delete, imports) serves a stale list for up to 5 minutes. Same class as K-139, where the supplier list cache was removed.</td><td></td></tr>
 <tr><td>R-126</td><td>fixed</td><td>ap</td><td>PUT on a purchase order reads its status, validates it, then UPDATEs without re-checking it in the WHERE clause (check-then-act). A concurrent status change between the read and the UPDATE lets an edit land on an order that is no longer editable.</td><td></td></tr>
-<tr><td>R-127</td><td>candidate</td><td>capture</td><td>attachEvidenceToProvisional (called from capturePostFollowUps after capture/[id]/post creates a supplier invoice, and from ai-invoice-pipeline) flips a matching provisional journal (DR expense / VAT, CR bank) to evidenced by the same slip, and leaves the supplier invoice (DR expense / VAT, CR AP once approved) live. Nothing reverses one of the two, so the expense and input VAT are booked twice and the AP the invoice raises is never settled by that bank line.</td><td></td></tr></tbody></table></html>
+<tr><td>R-127</td><td>fixed</td><td>capture</td><td>attachEvidenceToProvisional (called from capturePostFollowUps after capture/[id]/post creates a supplier invoice, and from ai-invoice-pipeline) flips a matching provisional journal (DR expense / VAT, CR bank) to evidenced by the same slip, and leaves the supplier invoice (DR expense / VAT, CR AP once approved) live. Nothing reverses one of the two, so the expense and input VAT are booked twice and the AP the invoice raises is never settled by that bank line.</td><td></td></tr>
+<tr><td>R-142</td><td>candidate</td><td>payroll</td><td>emp201Service floors PAYE payable at max(0, paye - eti) and drops ETI beyond PAYE; SARS allows the excess to be carried forward within the reconciliation period. Since K-079 the journal books only min(eti, paye) (eti_beyond_paye advisory), so the unused ETI is neither booked nor claimed later.</td><td></td></tr>
+<tr><td>R-143</td><td>candidate</td><td>payroll</td><td>reopenPayrollRun moves an approved run to calculated and keeps journal_entry_id; calculatePayrollRun can then rewrite the run totals, and re-approval returns the ORIGINAL journal (the poster is idempotent). The run header (and EMP201) show the new PAYE while 2140 holds the old credit.</td><td></td></tr>
+<tr><td>R-144</td><td>candidate</td><td>payroll</td><td>Reversing a payroll journal with the generic reverse_journal_entry / GL reversal does not clear payroll_run_headers.journal_entry_id, so the run still reads as posted and cannot be re-posted, while the ledger nets to zero.</td><td></td></tr>
+<tr><td>R-145</td><td>candidate</td><td>payroll</td><td>payrollJournalPostingService.reversePayrollRunJournal (the only code that clears journal_entry_id) is called from nowhere in src/ or pages/, so there is no in-app path to reverse a payroll journal AND unlink the run.</td><td></td></tr></tbody></table></html>
