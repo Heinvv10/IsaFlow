@@ -9,6 +9,7 @@
 
 import { sql } from '@/lib/neon';
 import { soleApproverFacts, type SoleApproverSelfApproval } from './approvalSelfApproval';
+import { contentAuthorRefusal } from './approvalAuthors';
 import { currentSessionActor } from '@/lib/auth/impersonationSessions';
 
 export type ApprovalDecisionErrorCode =
@@ -138,6 +139,8 @@ export async function assertMayDecide(
   const rows = (await sql`
     SELECT (ar.requested_by::TEXT = ${decidedBy}) AS is_self,
            (${decidedBy} = ANY (ar.past_requesters::TEXT[])) AS was_requester,
+           ar.requested_by::TEXT AS requester, ar.content_authors::TEXT[] AS snapshot_authors,
+           approval_document_authors(ar.company_id, ar.document_type, ar.document_id)::TEXT[] AS live_authors,
            ar.rule_id,
            ar.required_role,
            rl.id AS resolved_rule_id,
@@ -193,13 +196,18 @@ export async function assertMayDecide(
   // approvalSelfApproval); and no OTHER active member ranks at or above the
   // demand — platform roles (system, super_admin) included, which fails closed.
   // It then still faces every check below and the digest check in decideRequest.
-  // A PAST requester (re-stamped away by a content change) may never approve:
-  // they are the likeliest author of the content. No sole-approver exception.
-  if (decision === 'approved' && row.is_self !== true && row.was_requester === true) {
-    throw new ApprovalDecisionError(
-      'SELF_APPROVAL_FORBIDDEN',
-      'You cannot approve an approval request you raised for an earlier version of this document'
-    );
+  // The content's AUTHOR may not approve either (approvalAuthors; R-035 PR2) —
+  // no sole-approver exception for a decider who is not the requester.
+  if (decision === 'approved' && row.is_self !== true) {
+    const refusal = await contentAuthorRefusal(companyId, decidedBy, {
+      requester: String(row.requester),
+      liveAuthors: Array.isArray(row.live_authors) ? row.live_authors.map(String) : null,
+      snapshotAuthors: Array.isArray(row.snapshot_authors) ? row.snapshot_authors.map(String) : [],
+      wasRequester: row.was_requester === true,
+      deciderRole: row.decider_role != null ? String(row.decider_role) : null,
+      enforced: row.enforced === true,
+    }, demandedRole, (role) => actorRank(role) >= requiredRank(demandedRole));
+    if (refusal) throw new ApprovalDecisionError('SELF_APPROVAL_FORBIDDEN', refusal);
   }
   let approverRoster: unknown = null;
   if (row.is_self === true) {

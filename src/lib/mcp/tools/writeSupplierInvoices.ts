@@ -21,6 +21,7 @@ import { invoiceVatRefusals } from '@/modules/accounting/services/capture/captur
 import { supplierBelongsToCompany } from '@/modules/accounting/services/core/contactDirectoryService';
 import { billLineAccountRefusal } from '@/modules/accounting/services/ap/billLineAccountGuard';
 import { mcpPostingOpts } from '../mcpActor';
+import { agentApprovalRefusal } from '@/modules/accounting/services/gl/approvalUnattended';
 import { MAX_LINES, SUPPLIER_INVOICE_TEXT_LIMITS as TEXT_LIMITS, parseSupplierInvoiceInput } from './invoiceCreateArgs';
 import {
   NOT_FOUND,
@@ -164,6 +165,10 @@ export const approveSupplierInvoiceTool: McpTool = {
     if (invoice.status !== 'draft' && invoice.status !== 'pending_approval') {
       return toolError(`Cannot approve invoice with status: ${invoice.status}`);
     }
+    // R-035 (Q6): a bill an enforced approval rule governs is refused from this
+    // read too — an agent can neither raise nor decide the approval it needs.
+    const approvalRefusal = await agentApprovalRefusal(ctx.companyId, 'supplier_invoice', invoiceId);
+    if (approvalRefusal) return toolError(approvalRefusal);
     // K-072 r30–r36: a VAT the captured document never showed, or a meals merchant's VAT, is not an agent's to post.
     const vatRefusal = (await invoiceVatRefusals(ctx.companyId, [invoiceId])).get(invoiceId);
     if (vatRefusal) return toolError(`Cannot approve invoice: ${vatRefusal}.`);

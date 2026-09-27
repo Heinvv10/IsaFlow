@@ -181,6 +181,9 @@ const REFUSAL_CODES: ReadonlySet<string> = new Set([
   // Inactive or not-this-company line account (gl/documentLineAccountGuard): names only the caller's own account.
   'DOCUMENT_LINE_ACCOUNT_REFUSED',
   'DOCUMENT_NUMBER_LOCK_TIMEOUT',
+  // R-035 review HIGH-1 (ap/supplierInvoiceCurrency): names the currency and
+  // the rate the caller sent; raised before any write.
+  'EXCHANGE_RATE_INVALID',
   // R-035: approve without the digest the approver was shown. Names only the request id.
   'EXPECTED_DIGEST_REQUIRED',
   'GL_ACCOUNT_LOCK_TIMEOUT',
@@ -246,6 +249,9 @@ const REFUSAL_CODES: ReadonlySet<string> = new Set([
   // before any read or write. Bearer callers carry no session id and are not
   // refused today — listed because every `readonly code` must be decided.
   'IMPERSONATION_FORBIDDEN',
+  // R-035 review HIGH-2 (gl/approvalGateExempt): names the demanded role and the
+  // caller's own; raised before an import writes anything.
+  'IMPORT_APPROVAL_AUTHORITY_REQUIRED',
   // Link/unlink a captured document to a posted journal refused: blank
   // reason, journal not found/not posted/reversed, document not found, or
   // the document already backs another claim (gl/journalDocumentLinkService,

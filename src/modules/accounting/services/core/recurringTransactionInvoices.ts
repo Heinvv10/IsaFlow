@@ -16,6 +16,8 @@ import { RecurringTemplateLineAccountError } from './recurringTransactionErrors'
 import { headerTotals, normaliseLines } from './recurringTemplateLines';
 import type { RecurringTemplate } from './recurringTransactionService';
 import { assertNonNegativeDocumentTotal } from '../shared/documentTotalSign';
+import { evaluateApprovalGate } from '../gl/approvalGate';
+import { raiseUnattendedApproval } from '../gl/approvalUnattended';
 
 export async function mintRecurringCustomerInvoice(
   companyId: string,
@@ -188,6 +190,12 @@ export async function mintRecurringSupplierInvoice(
     // approved, partially_paid, paid, disputed, cancelled), so every auto-post
     // AP template raised 23514 on every run. approveSupplierInvoice is the path
     // that both sets the status and posts the Expense / VAT input / AP journal.
+    // R-035 (A6): a bill an enforced approval rule governs is left a draft,
+    // with the request raised as the runner — not refused after the INSERT.
+    if (await evaluateApprovalGate(companyId, 'supplier_invoice', entityId)) {
+      await raiseUnattendedApproval(companyId, 'supplier_invoice', entityId, userId);
+      return { entityId, posted: false };
+    }
     const { approveSupplierInvoice } = await import('../ap/supplierInvoiceWorkflowService');
     await approveSupplierInvoice(companyId, entityId, userId);
     posted = true;

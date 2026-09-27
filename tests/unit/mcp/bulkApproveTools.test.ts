@@ -25,6 +25,9 @@ vi.mock('@/lib/mcp/tools/bulkApprovePeriods', () => ({
 vi.mock('@/modules/accounting/services/ap/billLineAccountGuard', () => ({
   supplierInvoiceLineAccountRefusals: vi.fn(async () => new Map<string, string>()),
 }));
+// R-035: the approval gate has its own integration suite (r035-pr2-unattended);
+// here no enforced rule governs any bill.
+vi.mock('@/modules/accounting/services/gl/approvalUnattended', () => ({ agentApprovalRefusals: vi.fn(async () => new Map()) }));
 vi.mock('@/modules/accounting/services/capture/capturedVatEvidence', () => ({
   invoiceVatRefusals: vi.fn(async () => new Map<string, string>()),
 }));

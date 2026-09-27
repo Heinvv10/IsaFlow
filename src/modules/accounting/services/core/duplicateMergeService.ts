@@ -83,13 +83,13 @@ export async function mergeEntities(
       revokedPortalLogins: merged.revokedPortalLogins,
     };
   }
-  if (entityType === 'supplier') return mergeSuppliers(companyId, primaryId, duplicateId);
+  if (entityType === 'supplier') return mergeSuppliers(companyId, primaryId, duplicateId, userId);
   return mergeItems(companyId, primaryId, duplicateId);
 }
 
 // ── Supplier merge ────────────────────────────────────────────────────────────
 
-async function mergeSuppliers(companyId: string, primaryId: string, duplicateId: string): Promise<MergeResult> {
+async function mergeSuppliers(companyId: string, primaryId: string, duplicateId: string, userId: string): Promise<MergeResult> {
   // Also the existence check: both live suppliers of this company.
   await assertSupplierMergeKeepsDrcFlag(companyId, primaryId, duplicateId);
 
@@ -104,8 +104,10 @@ async function mergeSuppliers(companyId: string, primaryId: string, duplicateId:
   `;
   count += r1.length;
 
+  // supplier_id is approval content (R-035): the merging user becomes an author of every moved bill.
   const r2 = await sql`
-    UPDATE supplier_invoices SET supplier_id = ${primaryId}::UUID
+    UPDATE supplier_invoices SET supplier_id = ${primaryId}::UUID,
+      content_authors = approval_add_author(content_authors, ${userId}::UUID), content_edited_at = NOW()
     WHERE company_id = ${companyId}::UUID AND supplier_id = ${duplicateId}::UUID
     RETURNING id
   `;

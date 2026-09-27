@@ -1,6 +1,8 @@
 /**
  * Approval Enforcement API (R-035)
- * GET  — this company's enforced document types, and which types may be enabled
+ * GET  — this company's enforced document types and which types may be enabled;
+ *        with `?preview=1`, also per enforceable type how many unposted documents
+ *        it holds now (`preview` — computed on demand, it hashes every such bill)
  * POST — { documentType, enabled } switch enforcement on or off for one type
  *
  * Enabling a type not in ENFORCEABLE_DOCUMENT_TYPES is a 400 NOT_ENFORCEABLE
@@ -22,6 +24,7 @@ import {
   ApprovalEnforcementAuthorityError, ApprovalEnforcementUnavailableError, ENFORCEABLE_DOCUMENT_TYPES,
   disableEnforcement, enableEnforcement, listEnforcement,
 } from '@/modules/accounting/services/gl/approvalEnforcement';
+import { previewEnforcement } from '@/modules/accounting/services/gl/approvalEnforcementPreview';
 
 const DOCUMENT_TYPES = new Set<DocumentType>(['customer_invoice', 'supplier_invoice', 'payment', 'journal_entry', 'credit_note']);
 const isDocumentType = (value: unknown): value is DocumentType => typeof value === 'string' && DOCUMENT_TYPES.has(value as DocumentType);
@@ -33,7 +36,10 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
 
   if (req.method === 'GET') {
     const items = await listEnforcement(companyId);
-    return apiResponse.success(res, { items, enforceable: ENFORCEABLE_DOCUMENT_TYPES });
+    // Hashes every unposted bill: only on demand (the Enforce switch asks), never on the plain read.
+    if (req.query.preview !== '1') return apiResponse.success(res, { items, enforceable: ENFORCEABLE_DOCUMENT_TYPES });
+    const preview = await previewEnforcement(companyId);
+    return apiResponse.success(res, { items, enforceable: ENFORCEABLE_DOCUMENT_TYPES, preview });
   }
 
   if (req.method === 'POST') {

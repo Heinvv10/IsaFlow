@@ -12,6 +12,12 @@ import { describe, it, expect, vi, beforeEach } from 'vitest';
 
 const { sqlMock } = vi.hoisted(() => ({ sqlMock: vi.fn() }));
 
+// R-035 PR2: the import exemption (a set_config pair in a savepoint) is
+// covered in r035-pr2-trigger.int.test.ts; here it only wraps the write.
+vi.mock('@/modules/accounting/services/gl/approvalGateExempt', () => ({
+  assertMayImportOpenBills: async () => undefined,
+  withApprovalGateExempt: <T,>(_importer: unknown, write: () => Promise<T>) => write(),
+}));
 vi.mock('@/lib/neon', () => ({
   sql: Object.assign(sqlMock, { unsafe: vi.fn((s: string) => s) }),
   withSavepoint: vi.fn((_name: string, fn: () => unknown) => fn()),

@@ -22,6 +22,7 @@ import {
 import type { ExtractedDocument } from '@/modules/accounting/types/documentCapture.types';
 import { refusesUnattendedApproval } from '@/modules/accounting/services/core/unattendedPostingGate';
 import { decide } from '@/modules/accounting/services/capture/autoPublishGateService';
+import { raiseUnattendedApproval, unattendedBillStatus } from '@/modules/accounting/services/gl/approvalUnattended';
 import { isCaptureEventPostable } from '@/modules/accounting/services/capture/captureEventLock';
 import { computeFingerprint } from '@/modules/accounting/services/capture/captureDeduplicationService';
 import {
@@ -188,6 +189,8 @@ async function handler(req: CompanyAuthedRequest, res: NextApiResponse) {
   const invoiceStatus = unattendedRefused
     ? 'draft'
     : gateDecision.outcome === 'auto_publish' ? 'approved' : (approvalRoute === 'auto_approve' ? 'approved' : 'draft');
+  // R-035 (B1): under an enforced approval rule an auto-approval becomes a draft plus a request.
+  const approval = await unattendedBillStatus(companyId, invoiceStatus === 'approved', invoiceInput.totalAmount);
 
   // Claim the document BEFORE the first ledger write, and AFTER the
   // duplicate-blocked branch above — that branch answers 409 having written the
@@ -229,7 +232,7 @@ async function handler(req: CompanyAuthedRequest, res: NextApiResponse) {
       ${invoiceInput.totalAmount - invoiceInput.taxAmount}, ${invoiceInput.taxRate},
       ${invoiceInput.taxAmount}, ${invoiceInput.totalAmount},
       ${invoiceInput.paymentTerms ?? 'net30'}, ${invoiceInput.reference ?? null},
-      ${invoiceStatus}, ${userId}, ${invoiceInput.notes ?? null},
+      ${approval.status}, ${userId}, ${invoiceInput.notes ?? null},
       ${captureFingerprint},
       ${documentId}::uuid
     )
@@ -237,6 +240,8 @@ async function handler(req: CompanyAuthedRequest, res: NextApiResponse) {
   ` as Row[];
 
   if (!invoice) return apiResponse.internalError(res, null, 'Failed to create invoice');
+  const approvalRequest = approval.gated
+    ? await raiseUnattendedApproval(companyId, 'supplier_invoice', invoice.id as string, userId) : null;
 
   // Record coding for the learning loop (both auto_publish and route_review paths).
   // At this point gateDecision is guaranteed to be auto_publish | route_review
@@ -269,7 +274,7 @@ async function handler(req: CompanyAuthedRequest, res: NextApiResponse) {
       reason: 'routed for review',
       reasons: publishedDecision.reasons,
       threeWayMatch,
-      provisionalAttach,
+      provisionalAttach, approvalRequired: approval.gated, approvalRequest,
     });
   }
 
@@ -282,7 +287,7 @@ async function handler(req: CompanyAuthedRequest, res: NextApiResponse) {
     gateOutcome: publishedDecision.outcome,
     gateReason: publishedDecision.reason,
     threeWayMatch,
-    provisionalAttach,
+    provisionalAttach, approvalRequired: approval.gated, approvalRequest,
   });
 }
 

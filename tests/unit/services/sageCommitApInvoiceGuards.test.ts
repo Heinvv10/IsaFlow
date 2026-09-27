@@ -25,6 +25,12 @@ vi.mock('@/lib/neon', () => ({
   withTransaction: vi.fn(),
 }));
 vi.mock('@/lib/logger', () => ({ log: { info: vi.fn(), warn: vi.fn(), error: vi.fn(), debug: vi.fn() } }));
+// R-035: the import exemption (rank check + transaction-local GUC) has its own
+// integration suites (r035-pr2-trigger, r035-pr2-review-imports); here it only wraps the write.
+vi.mock('@/modules/accounting/services/gl/approvalGateExempt', () => ({
+  assertMayImportOpenBills: async () => undefined,
+  withApprovalGateExempt: <T,>(_importer: unknown, write: () => Promise<T>) => write(),
+}));
 
 const createJournalEntry = vi.fn(async () => ({ id: 'je-ap-1' }));
 const createSupplierInvoice = vi.fn(async () => ({ id: 'si-1' }));
