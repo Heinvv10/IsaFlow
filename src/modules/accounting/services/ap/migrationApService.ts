@@ -12,6 +12,7 @@ import { updateSession, type ImportResult, type ImportRowContext, type Migration
 import { matchContact } from '../core/migrationImportService';
 import { assertNoOpeningControlTotal, buildTakeOnLines, lockMigrationImport, resolveTakeOnClearingAccountId } from '../core/migrationPostingSupport';
 import { computeFingerprint } from '../capture/captureDeduplicationService';
+import { withApprovalGateExempt } from '../gl/approvalGateExempt';
 type Row = DbRow;
 
 
@@ -228,7 +229,7 @@ export async function importAPInvoices(
           return false;
         }
 
-        const invRows = (await sql`
+        const invRows = (await withApprovalGateExempt(() => sql`
           INSERT INTO supplier_invoices (
             company_id, supplier_id, invoice_number, invoice_date, due_date,
             subtotal, tax_amount, total_amount, amount_paid,
@@ -243,7 +244,7 @@ export async function importAPInvoices(
             ${migFingerprint}
           )
           RETURNING id
-        `) as Row[];
+        `)) as Row[]; // R-035 Q1: approved at the source
 
         if (invRows.length === 0) return false;
         const invoiceId = String(invRows[0]!.id);
