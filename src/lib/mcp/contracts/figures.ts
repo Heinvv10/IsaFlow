@@ -286,9 +286,9 @@ export const FIGURE_DEFINITIONS: Readonly<Record<string, FigureDefinition>> = {
     label: 'Employment cost for a pay run',
     owner: 'payroll/payrollJournalBuilder#buildPayrollJournalPlan',
     includes:
-      'Gross pay plus the EMPLOYER share of UIF plus SDL — the full cost of employing the staff in the period, as it would be debited to labour.',
+      'Gross pay plus the EMPLOYER share of UIF plus SDL — the full cost of employing the staff in the period. The labour debit is this figure less the ETI booked (min(ETI, PAYE)), because ETI is presented net of labour cost.',
     excludes:
-      'The employee halves of PAYE and UIF, which are deductions from gross rather than an additional cost, and ETI, which is an offset against PAYE remitted rather than a reduction in cost. The poster currently subtracts ETI from the labour debit and credits it nowhere, which leaves the journal unbalanced by exactly the ETI — reported as a blocker, not corrected here.',
+      'The employee halves of PAYE and UIF, which are deductions from gross rather than an additional cost, and ETI. ETI is an offset against PAYE remitted: the journal books min(ETI, PAYE) as a reduction of both the labour debit and the PAYE payable credit, so the PAYE credit equals the EMP201 PAYE payable (K-079).',
   }),
   'payroll.netpay.v1': def({
     id: 'payroll.netpay.v1',

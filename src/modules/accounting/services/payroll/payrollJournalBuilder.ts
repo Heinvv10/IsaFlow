@@ -7,19 +7,28 @@
  * must never do (docs/mcp/CONTRACTS.md §5 — one figure, one query). So the
  * arithmetic lives here once and `postPayrollRunJournal` consumes it.
  *
- * WHAT THE PLAN SAYS ABOUT DEACTIVATED ACCOUNTS. `gl_accounts.is_active` is a
- * picker flag. It decides whether an account appears in a dropdown and says
- * nothing about whether it holds money — Brightsphere carries all five payroll
- * accounts deactivated and Velocity Fibre carries 1110 deactivated, and the
- * poster has never filtered on it, so the money DOES land there. Filtering the
- * line out would understate the journal; saying nothing would hide that the
- * balance is parked where no human can pick it. So an inactive target is an
- * ADVISORY, not a blocker, and the line is built either way.
+ * WHAT THE PLAN SAYS ABOUT DEACTIVATED ACCOUNTS. The line is built either way —
+ * filtering it out would understate the journal — and the account is named in
+ * an `inactive_target_account` BLOCKER. It was an advisory on the premise that
+ * the money lands there, but `postJournalEntry` refuses a deactivated account
+ * (`assertNoInactiveAccountLines`), so a preview that passed it greenlit a post
+ * the live path refused (K-079 review). Brightsphere carries all five payroll
+ * accounts deactivated and Velocity Fibre 1110: they must reactivate or remap.
  *
- * Balance formula (unchanged from the poster it was extracted from):
- *   DR 5200 Labour = gross + employer UIF + SDL − ETI, split by cost centre
- *   CR 2140 PAYE   CR 2150 UIF (both halves)   CR 2160 SDL
+ * Balance formula:
+ *   DR 5200 Labour = gross + employer UIF + SDL − ETI used, split by cost centre
+ *   CR 2140 PAYE = PAYE − ETI used   CR 2150 UIF (both halves)   CR 2160 SDL
  *   CR 2175 Other employee deductions (residual)   CR 1110 Bank (net pay)
+ *
+ * ETI (K-079, Hein 2026-09-26). ETI is an offset against the PAYE remitted, so
+ * it reduces the 2140 credit, and it is presented net of labour cost. Only the
+ * ETI this run's PAYE can absorb is booked — `etiUsed = max(0, min(eti, paye))` — which
+ * makes CR 2140 equal EMP201's PAYE payable (`emp201Service` floors it at zero;
+ * one run per company per period). ETI beyond PAYE is not booked; the plan
+ * says so in an advisory.
+ *
+ * A zero line is dropped: the GL rejects a line with neither debit nor credit,
+ * and an SDL-exempt run, or one whose PAYE the ETI absorbs, has one.
  */
 
 import { sql } from '@/lib/neon';
@@ -29,6 +38,7 @@ import {
   buildLabourLines,
   lastDayOfMonthIso,
   resolveAccounts,
+  resolveAccountsById,
 } from './payrollJournalParts';
 
 type Row = DbRow;
@@ -79,6 +89,8 @@ export interface PayrollJournalPlan {
     uif: number;
     sdl: number;
     eti: number;
+    /** The ETI booked: max(0, min(eti, paye)). The rest is reported in `eti_beyond_paye`. */
+    etiUsed: number;
     net: number;
     employerUif: number;
     otherDeductions: number;
@@ -116,9 +128,11 @@ export async function buildPayrollJournalPlan(
   const eti = Number(hdr.total_eti) || 0;
   const net = Number(hdr.total_net) || 0;
 
-  const employerUif = round2(uif / 2);
   const employeeUif = round2(uif / 2);
-  const labourDebit = round2(gross + employerUif + sdl - eti);
+  // The two halves sum to uif exactly, so an odd cent cannot unbalance the journal.
+  const employerUif = round2(uif - employeeUif);
+  const etiUsed = round2(Math.max(0, Math.min(eti, paye)));
+  const labourDebit = round2(gross + employerUif + sdl - etiUsed);
   const otherDeductions = round2(gross - paye - employeeUif - net);
 
   const accounts = await resolveAccounts(companyId);
@@ -170,47 +184,91 @@ export async function buildPayrollJournalPlan(
     };
   };
 
-  const lines: PayrollJournalPlanLine[] = [];
+  const built: PayrollJournalPlanLine[] = [];
   const labourAccountId = accounts.get('5200')?.id;
   if (labourAccountId) {
-    const labour = await buildLabourLines(companyId, runId, labourDebit, gross, labourAccountId);
+    const labour = await buildLabourLines(companyId, runId, labourDebit, gross, labourAccountId, etiUsed);
     // The split can route a share to a cost-centre account other than 5200;
-    // report each under 5200's flags only when it IS 5200.
+    // each line carries its own account's code and active flag.
+    const centres = await resolveAccountsById(
+      companyId, labour.map((l) => l.glAccountId).filter((id) => id !== labourAccountId));
     for (const l of labour) {
-      const isDefault = l.glAccountId === labourAccountId;
-      lines.push({
+      const acc = l.glAccountId === labourAccountId
+        ? { code: '5200', ...accounts.get('5200')! }
+        : centres.get(l.glAccountId);
+      built.push({
         glAccountId: l.glAccountId,
-        accountCode: isDefault ? '5200' : '',
-        accountName: isDefault ? (accounts.get('5200')?.name ?? '') : '',
+        accountCode: acc?.code ?? '',
+        accountName: acc?.name ?? '',
         debit: round2(l.debit),
         credit: 0,
         description: l.description,
-        inactiveAccount: isDefault ? !(accounts.get('5200')?.isActive ?? true) : false,
+        inactiveAccount: acc ? !acc.isActive : false,
       });
     }
   } else {
-    lines.push(line('5200', labourDebit, 0, 'Labour costs — gross pay + statutory employer contributions − ETI'));
+    built.push(line('5200', labourDebit, 0, 'Labour costs — gross pay + statutory employer contributions − ETI'));
   }
 
-  lines.push(line('2140', 0, paye, 'PAYE payable'));
-  lines.push(line('2150', 0, uif, 'UIF payable (employee + employer)'));
-  lines.push(line('2160', 0, sdl, 'SDL payable'));
-  lines.push(line('1110', 0, net, 'Net pay — bank disbursement'));
+  built.push(line('2140', 0, paye - etiUsed, 'PAYE payable, net of ETI'));
+  built.push(line('2150', 0, uif, 'UIF payable (employee + employer)'));
+  built.push(line('2160', 0, sdl, 'SDL payable'));
+  built.push(line('1110', 0, net, 'Net pay — bank disbursement'));
   if (otherDeductions > 0.005) {
-    lines.push(line('2175', 0, otherDeductions, 'Other employee deductions (medical aid, pension, RA, etc.)'));
+    built.push(line('2175', 0, otherDeductions, 'Other employee deductions (medical aid, pension, RA, etc.)'));
+  }
+
+  const lines = built.filter((l) => l.debit !== 0 || l.credit !== 0);
+
+  if (eti - etiUsed > 0.005) {
+    advisories.push({
+      code: 'eti_beyond_paye',
+      detail: `The run claims R${eti.toFixed(2)} of ETI but its PAYE is R${paye.toFixed(2)}, so only R${etiUsed.toFixed(2)} is booked. The remaining R${(eti - etiUsed).toFixed(2)} is not booked: EMP201 floors PAYE payable at zero and carries no ETI forward.`,
+    });
   }
 
   const inactive = [...new Set(lines.filter((l) => l.inactiveAccount).map((l) => l.accountCode))];
   if (inactive.length > 0) {
-    advisories.push({
+    blockers.push({
       code: 'inactive_target_account',
-      detail: `This journal posts into deactivated accounts: ${inactive.join(', ')}. is_active is a picker flag, so the amounts DO land there — but the accounts cannot be selected in the UI and any report that filters on is_active will drop the balance.`,
+      detail: `This journal posts into deactivated accounts: ${inactive.join(', ')}. The ledger refuses a posting to a deactivated account; reactivate them before posting.`,
+    });
+  }
+
+  // The GL poster refuses both of these; saying so here lets the dry run and
+  // approval refuse BEFORE anything is written, with the reason (K-079).
+  if (lines.length === 0) {
+    blockers.push({
+      code: 'nothing_to_post',
+      detail: 'The run has no amounts to post — every journal line is zero. Calculate the run first.',
+    });
+  }
+  const negative = lines.filter((l) => l.debit < 0 || l.credit < 0);
+  if (negative.length > 0) {
+    blockers.push({
+      code: 'negative_amount',
+      detail: `The run totals give a negative amount on ${negative.map((l) => l.accountCode || l.glAccountId).join(', ')}, which a journal line cannot carry. Check the run's totals.`,
+    });
+  }
+  const entryDate = lastDayOfMonthIso(periodYear, periodMonth);
+  const periodRows = (await sql`
+    SELECT status FROM fiscal_periods
+    WHERE company_id = ${companyId}::uuid
+      AND start_date <= ${entryDate}::date AND end_date >= ${entryDate}::date
+  `) as Row[];
+  const closed = periodRows.find((p) => String(p.status) !== 'open');
+  if (closed) {
+    blockers.push({
+      code: 'closed_period',
+      detail: `The fiscal period covering ${entryDate} is '${String(closed.status)}', so the payroll journal cannot post into it.`,
     });
   }
 
   const totalDebit = round2(lines.reduce((s, l) => s + l.debit, 0));
   const totalCredit = round2(lines.reduce((s, l) => s + l.credit, 0));
-  if (Math.abs(Math.round((totalDebit - totalCredit) * 100)) > 1) {
+  // Exact to the cent, as the GL's validateJournalEntry is: a 1-cent tolerance
+  // here let a plan pass that the live post then refused.
+  if (Math.round((totalDebit - totalCredit) * 100) !== 0) {
     blockers.push({
       code: 'unbalanced',
       detail: `Payroll journal unbalanced by ${(totalDebit - totalCredit).toFixed(2)} (DR ${totalDebit.toFixed(2)} vs CR ${totalCredit.toFixed(2)}).`,
@@ -225,13 +283,13 @@ export async function buildPayrollJournalPlan(
     periodYear,
     employeeCount: Number(hdr.employee_count) || 0,
     alreadyPostedJournalId: hdr.journal_entry_id == null ? null : String(hdr.journal_entry_id),
-    entryDate: lastDayOfMonthIso(periodYear, periodMonth),
+    entryDate,
     description: `Payroll run ${periodYear}-${mm}`,
     reference: `PAY-${periodYear}-${mm}`,
     lines,
     totalDebit,
     totalCredit,
-    totals: { gross, paye, uif, sdl, eti, net, employerUif, otherDeductions },
+    totals: { gross, paye, uif, sdl, eti, etiUsed, net, employerUif, otherDeductions },
     blockers,
     advisories,
   };
