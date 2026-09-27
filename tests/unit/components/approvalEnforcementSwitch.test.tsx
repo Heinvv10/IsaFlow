@@ -21,7 +21,9 @@ function answer(enforced: boolean, post: () => Response = () => json({ success: 
     if (path.startsWith('/api/accounting/approval-enforcement')) {
       return json({ data: {
         items: enforced ? [{ documentType: 'supplier_invoice', enabledAt: '2026-09-27T08:00:00Z', enabledBy: 'u' }] : [],
-        enforceable: ['supplier_invoice'], preview: { supplier_invoice: 3 },
+        enforceable: ['supplier_invoice'],
+        // The server computes the preview only when asked (review LOW-3).
+        ...(path.includes('preview=1') ? { preview: { supplier_invoice: 3 } } : {}),
       } });
     }
     return json({ data: { items: [] } });

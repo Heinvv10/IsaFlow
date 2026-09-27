@@ -24,6 +24,7 @@
  * leaving the rest of the transaction exempt.
  */
 import { sql, withSavepoint } from '@/lib/neon';
+import { als } from '@/lib/als';
 import { log } from '@/lib/logger';
 import { actorRank, requiredRank } from './approvalAuthority';
 import { isEnforced, strictestActiveRuleRole } from './approvalEnforcement';
@@ -61,6 +62,11 @@ export interface ApprovalGateImporter {
 }
 
 export async function withApprovalGateExempt<T>(importer: ApprovalGateImporter, write: () => Promise<T>): Promise<T> {
+  // The GUC is transaction-local: with no request transaction it would last one
+  // autocommit statement and the write would run unexempt (review LOW-4).
+  if (!als.getStore()?.client) {
+    throw new Error('withApprovalGateExempt must run inside a request transaction (withAuth, or an ALS-bound client).');
+  }
   if (importer.open) await assertMayImportOpenBills(importer.companyId, importer.userId);
   return withSavepoint('approval_gate_exempt', async () => {
     await sql`SELECT set_config('isaflow.approval_gate_exempt', 'import', true)`;
