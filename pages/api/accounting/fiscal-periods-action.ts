@@ -24,6 +24,7 @@ import {
   reopenPeriod,
   closeYear,
 } from '@/modules/accounting/services/gl/fiscalPeriodService';
+import { ImpersonationForbiddenError, respondIfImpersonationForbidden } from '@/lib/auth/impersonationGuard';
 
 async function handler(req: NextApiRequest, res: NextApiResponse) {
   if (req.method !== 'POST') {
@@ -70,6 +71,8 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
           await bulkOp(periodId);
           results.push({ id: periodId, ok: true });
         } catch (err) {
+          // R-032: the session, not this period, is refused — every id would be. Answer 403.
+          if (err instanceof ImpersonationForbiddenError) throw err;
           results.push({ id: periodId, ok: false, error: err instanceof Error ? err.message : 'Failed' });
         }
       }
@@ -104,6 +107,7 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
 
     return apiResponse.success(res, result);
   } catch (err) {
+    if (respondIfImpersonationForbidden(res, err)) return;
     const message = err instanceof Error ? err.message : 'Failed to perform period action';
     log.error('Failed to perform period action', { error: err }, 'accounting-api');
     return apiResponse.badRequest(res, message);

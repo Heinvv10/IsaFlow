@@ -13,6 +13,7 @@ import { withCsrf } from '@/lib/auth/withCsrf';
 import { log } from '@/lib/logger';
 import { sql } from '@/lib/neon';
 import { generateCaptureApiKey } from '@/lib/auth/captureApiKeyAuth';
+import { assertNotImpersonating } from '@/lib/auth/impersonationGuard';
 
 type Row = Record<string, unknown>;
 
@@ -42,6 +43,8 @@ async function handler(req: CompanyAuthedRequest, res: NextApiResponse) {
 
   // ── POST — generate a new key ─────────────────────────────────────────────
   if (req.method === 'POST') {
+    // R-032: a Login-as session mints no credential as the target.
+    await assertNotImpersonating();
     const body = req.body as Record<string, unknown>;
     const label = typeof body?.label === 'string' ? body.label.trim() : '';
 

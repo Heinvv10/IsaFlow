@@ -41,6 +41,7 @@ import {
 } from '@/modules/accounting/services/ap/supplierInvoiceService';
 import { postSupplierInvoiceToGL } from '@/modules/accounting/services/ap/supplierInvoiceWorkflowService';
 import type { LateClaimInfo } from '@/modules/accounting/services/gl/vatLateClaimPlan';
+import { ImpersonationForbiddenError } from '@/lib/auth/impersonationGuard';
 
 const Schema = z.object({
   action: z.enum(['approve', 'cancel', 'post_gl']),
@@ -103,6 +104,8 @@ async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse) {
       });
       results.push({ invoiceId, ok: true, ...(lateClaim ? { lateClaim } : {}) });
     } catch (err) {
+      // R-032 L5: the session, not this id, is refused — every id would be. Answer 403.
+      if (err instanceof ImpersonationForbiddenError) throw err;
       const message = err instanceof Error ? err.message : 'Action failed';
       log.warn('Bulk supplier invoice action failed for one id', {
         action, invoiceId, error: message,

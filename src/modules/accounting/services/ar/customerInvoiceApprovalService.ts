@@ -14,6 +14,7 @@ import { log } from '@/lib/logger';
 import { postCustomerInvoiceToGL } from '@/modules/accounting/services/ar/customerPaymentService';
 import { snapshotInvoicePdf } from '@/modules/accounting/services/ar/invoicePdfSnapshotService';
 import type { PostingActorOpts } from '../gl/journalEntryMeta';
+import { assertNotImpersonating } from '@/lib/auth/impersonationGuard';
 
 type Row = DbRow;
 
@@ -86,6 +87,7 @@ export async function approveCustomerInvoice(
   userId: string,
   opts?: PostingActorOpts,
 ): Promise<ApproveCustomerInvoiceResult> {
+  await assertNotImpersonating(); // R-032 L5: first, before any read or write
   // A COMPARE-AND-SWAP IS STRONGER THAN A LOCK AGAINST DOUBLE-POSTING, AND
   // WEAKER AGAINST HANGING. The guarded UPDATE below means two callers cannot
   // both win, so no lock is needed to stop a second journal — but the loser

@@ -7,6 +7,7 @@ import { sql } from '@/lib/neon';
 import { log } from '@/lib/logger';
 import { assertCustomerInCompany } from './contactDirectoryService';
 import type { DbRow } from '@/types/db';
+import { assertNotImpersonating } from '@/lib/auth/impersonationGuard';
 
 /** An edit the operator asked for that this path refuses, with the reason (R-120). */
 export class TimeEntryEditRefusal extends Error {
@@ -249,6 +250,7 @@ export async function approveEntries(
   companyId: string,
   ids: string[],
 ): Promise<number> {
+  await assertNotImpersonating(); // R-032 L5: first, before any read or write
   if (!ids.length) return 0;
   const result = (await sql`
     -- approved_at: the date WIP is measured from (practice/wipAsOf). This path

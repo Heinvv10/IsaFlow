@@ -17,6 +17,7 @@ import {
 import { isLockContention } from '@/modules/accounting/services/core/lockContention';
 import { ClosedFiscalPeriodError, InactiveAccountError } from '@/modules/accounting/services/gl/journalEntryPostingGuards';
 import { VatPeriodLockedError } from '@/modules/accounting/services/gl/journalVatLockGuard';
+import { respondIfImpersonationForbidden } from '@/lib/auth/impersonationGuard';
 
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
@@ -52,6 +53,7 @@ async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse) {
         return apiResponse.badRequest(res, `Unknown action: ${action}`);
     }
   } catch (err) {
+    if (respondIfImpersonationForbidden(res, err)) return;
     if (err instanceof VatAdjustmentRefusal) {
       if (err.kind === 'not_found') return apiResponse.notFound(res, 'VAT adjustment', String(req.body?.id));
       if (err.kind === 'contended') return apiResponse.conflict(res, err.message);

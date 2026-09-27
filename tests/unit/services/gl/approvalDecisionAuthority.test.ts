@@ -23,6 +23,10 @@ vi.mock('@/lib/neon', () => {
   return { sql: sqlMock, withTransaction: vi.fn(), fmtDate: (d: unknown) => String(d) };
 });
 
+// R-032's session check is covered in approvalImpersonationGuard.test.ts; these
+// tests are about the approval row, so every session here is the decider's own.
+vi.mock('@/lib/auth/impersonationSessions', () => ({ currentSessionActor: async () => 'self' }));
+
 import { sql } from '@/lib/neon';
 import { assertMayDecide, ApprovalDecisionError } from '@/modules/accounting/services/gl/approvalAuthority';
 

@@ -22,6 +22,7 @@ import {
   BatchNotFoundError,
   BatchNotEditableError,
 } from '@/modules/accounting/services/payroll/payrollBatchService';
+import { respondIfImpersonationForbidden } from '@/lib/auth/impersonationGuard';
 
 async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse): Promise<void> {
   if (req.method !== 'POST') {
@@ -40,6 +41,7 @@ async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse): 
     const result = await postBatch(companyId, id, user.id);
     return apiResponse.success(res, result);
   } catch (err) {
+    if (respondIfImpersonationForbidden(res, err)) return;
     if (err instanceof BatchNotFoundError) return apiResponse.notFound(res, err.message);
     if (err instanceof BatchNotEditableError) return apiResponse.badRequest(res, err.message);
     return apiResponse.badRequestFromError(res, err, 'Post failed');

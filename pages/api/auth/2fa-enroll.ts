@@ -7,6 +7,7 @@ import { verifyToken } from '@/lib/auth/gotrue';
 import { log } from '@/lib/logger';
 import { withCsrf } from '@/lib/auth/withCsrf';
 import { requireActiveAccount } from '@/lib/auth/requireActiveAccount';
+import { refuseImpersonatedSession } from '@/lib/auth/impersonationGuard';
 
 const handler: NextApiHandler = async (req, res) => {
   if (req.method !== 'POST') {
@@ -17,6 +18,8 @@ const handler: NextApiHandler = async (req, res) => {
   if (!token) {
     return res.status(401).json({ success: false, error: { code: 'UNAUTHORIZED', message: 'Authentication required' } });
   }
+  // R-032 (f): a Login-as session changes none of the target's credentials.
+  if (await refuseImpersonatedSession(req, res)) return;
   let email: string;
   let userId: string;
   try {

@@ -27,6 +27,7 @@ import {
 } from '@/modules/accounting/services/shared/creditNoteFifo';
 import { VatPeriodLockedError } from '@/modules/accounting/services/gl/journalVatLockGuard';
 import { ReversalBeforeOriginalError } from '@/modules/accounting/services/gl/journalEntryReversalDate';
+import { assertNotImpersonating, respondIfImpersonationForbidden } from '@/lib/auth/impersonationGuard';
 
 async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse) {
   const { companyId } = req as CompanyAuthedRequest;
@@ -72,6 +73,8 @@ async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse) {
         submitAction?: 'draft' | 'post';
       };
 
+      // R-032 L5: create-and-post is a posting; refuse it before the draft is written.
+      if (submitAction === 'post') await assertNotImpersonating();
       if (!supplierId) return apiResponse.badRequest(res, 'supplierId is required');
       if (!creditDate) return apiResponse.badRequest(res, 'creditDate is required');
       if (!lineItems || lineItems.length === 0) return apiResponse.badRequest(res, 'At least one line item is required');
@@ -121,6 +124,7 @@ async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse) {
       log.info('Supplier credit note created as draft', { id: note.id }, 'accounting-api');
       return apiResponse.created(res, note);
     } catch (err) {
+      if (respondIfImpersonationForbidden(res, err)) return;
       log.error('supplier-credit-notes POST failed', { error: err }, 'accounting-api');
       return apiResponse.internalError(res, err, 'Failed to create supplier credit note');
     }
@@ -165,6 +169,7 @@ async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse) {
       // credit-note row lock and reads — so this 4xx commits nothing. 'post'
       // (approveCreditNote) refuses in createJournalEntry before its draft,
       // after only reads of the note.
+      if (respondIfImpersonationForbidden(res, err)) return;
       if (err instanceof VatPeriodLockedError || err instanceof ReversalBeforeOriginalError) {
         return apiResponse.badRequest(res, err.message);
       }
