@@ -173,6 +173,7 @@ describe('tenant isolation (test 6)', () => {
   it("a forged approved row in company B carrying A's bill id does not clear A's bill", async () => {
     const { c, bill } = await gated();
     const other = await company();
+    await enforce(pool, other, u.b); // B enforces too: only company_id can keep its row off A's bill
     const digest = (await pool.query("SELECT approval_document_digest($1,'supplier_invoice',$2) AS d", [c, bill.id])).rows[0].d;
     await asAppUser(u.b, other, (client) => client.query(
       `INSERT INTO approval_requests(company_id, document_type, document_id, status, requested_by, required_role,

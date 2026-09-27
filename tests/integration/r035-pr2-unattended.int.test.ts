@@ -112,6 +112,9 @@ describe('MCP (A4, A5, Q6)', () => {
     const { c, bill } = await fixture();
     const cleared = await plantBill(pool, c, u.a);
     await approvedByB(c, cleared.id);
+    // Decided from a READ: the dry run already lists it as skipped.
+    const preview = await mcp(c, 'bulk_approve_supplier_invoices', { invoice_ids: [bill.id, cleared.id], dry_run: true, idempotency_key: `r035-dry-${bill.id}` });
+    expect(JSON.parse(text(preview))).toMatchObject({ would_post_ids: [cleared.id], skipped: [expect.objectContaining({ document_id: bill.id })] });
     const res = await mcp(c, 'bulk_approve_supplier_invoices', { invoice_ids: [bill.id, cleared.id], idempotency_key: `r035-bulk-${bill.id}` });
     expect(res.isError, text(res)).toBeFalsy();
     const body = JSON.parse(text(res)) as { posted: number; skipped: { document_id: string; reason: string }[] };
