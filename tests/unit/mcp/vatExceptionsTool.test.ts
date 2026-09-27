@@ -29,6 +29,7 @@ const REPORT = {
   periodStart: '2026-07-01', periodEnd: '2026-08-31',
   uncodedGlLines: [{ id: 1 }], uncodedGlLineCount: 1,
   invoiceTaxCodeIssues: [], invoiceTaxCodeIssueCount: 0,
+  billTaxCodeWarnings: [{ invoiceId: 'si-9' }], billTaxCodeWarningCount: 1, billTaxCodeWarningPotentialVat: 75,
   invoiceGlMismatches: [], invoiceGlMismatchCount: 0,
   vatOnBalanceSheetLines: [], vatOnBalanceSheetCount: 0,
   vatNonSupplyLines: [], vatNonSupplyCount: 0,
@@ -75,4 +76,12 @@ it('marks each category blocking/non-blocking with its count and items', async (
   expect(byType.declaredElsewhereVat).toMatchObject({ blocking: false, count: 1 });
   expect(byType.inputVatWithoutTaxInvoice).toMatchObject({ blocking: false, count: 0 });
   expect(body.overrideHistory).toEqual([{ id: 'ov-1', reason: 'filed under old system' }]);
+});
+
+it('surfaces supplier bill tax-code issues as non-blocking, with the potential input VAT total', async () => {
+  const result = await vatExceptionsTool.handler({ period_start: '2026-07-01', period_end: '2026-08-31' }, ctx);
+  const body = text(result);
+  const byType = Object.fromEntries(body.categories.map((c: { type: string }) => [c.type, c]));
+  expect(byType.billTaxCodeWarnings).toMatchObject({ blocking: false, count: 1, items: [{ invoiceId: 'si-9' }] });
+  expect(body.billTaxCodeWarningPotentialVat).toBe(75);
 });
