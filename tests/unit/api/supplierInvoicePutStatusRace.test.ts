@@ -18,6 +18,8 @@ vi.mock('@/lib/auth', () => ({
 vi.mock('@/lib/api-error-handler', () => ({ withErrorHandler: (handler: unknown) => handler }));
 vi.mock('@/lib/auth/withCsrf', () => ({ withCsrf: (handler: unknown) => handler }));
 vi.mock('@/modules/accounting/services/ap/supplierInvoiceService', () => ({ getSupplierInvoiceById: mocks.getById }));
+// R-035 LOW-1: the edit locks the row before reading its digest; the lock has its own integration test.
+vi.mock('@/modules/accounting/services/ap/supplierInvoiceLock', () => ({ lockSupplierInvoiceForUpdate: async () => null }));
 
 import handler from '../../../pages/api/accounting/supplier-invoices-detail';
 
