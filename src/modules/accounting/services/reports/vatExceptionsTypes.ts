@@ -178,6 +178,13 @@ export interface InputVatSupportLine {
  * An issued invoice or approved bill carrying VAT with no GL journal
  * (vatUnpostedInvoices.ts). BLOCKING: its VAT is in neither the filed ledger
  * return nor the GL, so the recon cannot see it.
+ *
+ * `journal_dated_after_period` (Hein, 2026-09-27, CUSTOMER invoices only): the
+ * journal IS posted and unreversed, but its `entry_date` is after the
+ * invoice's own period end — time of supply is the invoice date, so this
+ * period's output VAT is under-declared even though the journal eventually
+ * posted. SUPPLIER bills never carry this reason: a bill's journal dated
+ * later is a legitimate late input-VAT claim (s16(3)).
  */
 export interface UnpostedInvoiceVatLine {
   invoiceId: string;
@@ -186,7 +193,7 @@ export interface UnpostedInvoiceVatLine {
   counterpartyName: string;
   invoiceDate: string;
   vat: number;
-  reason: 'no_journal' | 'journal_not_posted' | 'journal_reversed';
+  reason: 'no_journal' | 'journal_not_posted' | 'journal_reversed' | 'journal_dated_after_period';
 }
 
 /**
