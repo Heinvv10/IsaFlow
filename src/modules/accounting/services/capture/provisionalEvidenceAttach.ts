@@ -109,7 +109,8 @@ export async function attachDocumentToProvisional(
   }
 
   // The claim: one predicated UPDATE, so a refusal (already claimed, or rejected) writes nothing.
-  const claimRefusal = await claimCapturedDocumentForPosting(companyId, documentId);
+  // An evidence attach books nothing new, so it neither checks nor stamps posted content (R-088).
+  const claimRefusal = await claimCapturedDocumentForPosting(companyId, documentId, null, { spend: 'evidence' });
   if (claimRefusal) return { kind: 'refused', message: CAPTURED_DOCUMENT_REFUSAL_MESSAGE[claimRefusal] };
 
   // captured_documents keeps the file hash in raw_bytes_sha256 (mig 410) and the

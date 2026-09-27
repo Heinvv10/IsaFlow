@@ -51,8 +51,10 @@ const today = new Date().toISOString().slice(0, 10);
 let token = '';
 
 interface Extract { vendorName: string; subtotal: number | null; vatAmount: number | null; total: number }
-const extracted = (e: Extract) => ({
-  documentType: 'receipt', vendorName: e.vendorName, date: today, referenceNumber: 'REC-K072B',
+// One slip number per document: these are different receipts, and since R-088
+// one vendor/date/total/VAT with the SAME number is refused as a re-upload.
+const extracted = (e: Extract, reference: string) => ({
+  documentType: 'receipt', vendorName: e.vendorName, date: today, referenceNumber: reference,
   currency: 'ZAR', subtotal: e.subtotal, vatAmount: e.vatAmount, vatRate: 15, totalAmount: e.total,
   lineItems: [], rawText: '', confidence: 0.9, warnings: [], extractionMethod: 'vlm',
 });
@@ -61,7 +63,7 @@ async function seed(docId: string, eventId: string, owner: string, e: Extract): 
   await pool.query(
     `INSERT INTO captured_documents(id,company_id,file_name,file_type,document_type,extracted_data,status)
      VALUES($1,$2,$3,'application/pdf','receipt',$4::jsonb,'pending')`,
-    [docId, owner, `k072b-${docId}.pdf`, JSON.stringify(extracted(e))],
+    [docId, owner, `k072b-${docId}.pdf`, JSON.stringify(extracted(e, `REC-K072B-${docId.slice(0, 8)}`))],
   );
   await pool.query(
     `INSERT INTO capture_events(id,company_id,channel,status,captured_document_id)
