@@ -68,6 +68,23 @@ describe('VatUnpostedInvoicesSection bulk mark', () => {
     expect(h.apiFetchMock).not.toHaveBeenCalled();
   });
 
+  it('shows a Reason column with a plain-English label per row (Hein, 2026-09-27)', () => {
+    const report = {
+      ...unpostedReport,
+      unpostedInvoiceVat: [
+        { ...unpostedReport.unpostedInvoiceVat[0]!, reason: 'no_journal' as const },
+        { ...unpostedReport.unpostedInvoiceVat[0]!, invoiceId: 'ci-2', invoiceNumber: 'INV-2', reason: 'journal_not_posted' as const },
+        { ...unpostedReport.unpostedInvoiceVat[0]!, invoiceId: 'ci-3', invoiceNumber: 'INV-3', reason: 'journal_reversed' as const },
+        { ...unpostedReport.unpostedInvoiceVat[0]!, invoiceId: 'ci-4', invoiceNumber: 'INV-4', reason: 'journal_dated_after_period' as const },
+      ],
+    };
+    render(<VatUnpostedInvoicesSection report={report} Section={Section} />);
+    expect(screen.getByText('No journal')).toBeTruthy();
+    expect(screen.getByText('Journal not posted')).toBeTruthy();
+    expect(screen.getByText('Journal reversed')).toBeTruthy();
+    expect(screen.getByText('Journal dated after the VAT period')).toBeTruthy();
+  });
+
   it('a refused mark (400) shows the server message, keeps the selection, and never calls onChanged', async () => {
     h.apiFetchMock.mockResolvedValue(refused('Only an owner or admin can mark this'));
     const onChanged = vi.fn();

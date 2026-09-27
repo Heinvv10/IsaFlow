@@ -25,17 +25,19 @@
  *     raises no VAT, and listing it would block a period nobody can clear.
  *   - a document marked "VAT declared outside IsaFlow" (migration 705,
  *     vatDeclaredElsewhereService) is left out here and appears instead in
- *     `findVatDeclaredElsewhere` below — NON-blocking, but still visible.
+ *     `findVatDeclaredElsewhere` (vatDeclaredElsewhereQuery.ts, re-exported
+ *     below) — NON-blocking, but still visible.
  */
 import { sql } from '@/lib/neon';
 import type { DbRow } from '@/lib/neon';
 
-// Not exported: no caller outside this file reads them (checked 2026-09-25).
-// If one needs to, test it against shared/documentPopulation's own lists
-// rather than assuming the two never drift.
-const ISSUED_CUSTOMER_INVOICE_STATUSES: readonly string[] =
+// Exported so vatDeclaredElsewhereQuery.ts (split out, 2026-09-27, file-size
+// limit) shares the exact same population — test either against
+// shared/documentPopulation's own lists rather than assuming the two never
+// drift.
+export const ISSUED_CUSTOMER_INVOICE_STATUSES: readonly string[] =
   ['approved', 'sent', 'partially_paid', 'paid', 'overdue'];
-const APPROVED_BILL_STATUSES: readonly string[] = ['approved', 'partially_paid', 'paid'];
+export const APPROVED_BILL_STATUSES: readonly string[] = ['approved', 'partially_paid', 'paid'];
 
 /**
  * A document counts as unposted invoice VAT not only when it has NO journal
@@ -48,6 +50,28 @@ const APPROVED_BILL_STATUSES: readonly string[] = ['approved', 'partially_paid',
  * from both the ledger AND this exception, filing R0 with zero exceptions. A
  * reversal dated in a LATER period is left alone: the invoice's VAT is still
  * filed, correctly, in the reversed journal's own period.
+ *
+ * CUSTOMER invoices only (Hein, 2026-09-27): a journal that IS posted and
+ * carries no such early reversal, but whose OWN `entry_date` is AFTER the
+ * period end, also blocks — `'journal_dated_after_period'`. Time of supply is
+ * the invoice date, and the ledger VAT201 reads by journal date, so that
+ * output VAT is absent from the period the invoice belongs to with no
+ * exception raised, under-declaring it. A journal dated BEFORE the period
+ * start is out of scope — the earlier period is a different concern. SUPPLIER
+ * bills are deliberately NOT given this check: a bill's journal dated after
+ * its own invoice period is a legitimate late input-VAT claim (s16(3)), the
+ * same reasoning `generateVAT201`'s late-claim companion dating already
+ * applies — so this arm is customer-only, unlike the two above it.
+ *
+ * Tie-break (deterministic, never both): a journal that is BOTH dated after
+ * the period end AND reversed by a POSTED reversal dated on or before the
+ * period end reads as `'journal_reversed'` — that check is evaluated first,
+ * exactly as it already runs ahead of this new one in the CASE below. In
+ * practice `reverseJournalEntry` refuses to date a reversal before the entry
+ * it reverses, so an original dated after the period end can only ever gain a
+ * reversal dated after it too, and this combination should not occur via the
+ * app — the ordering still matters for whatever other data reaches this
+ * query (a historical import, a direct fix).
  */
 export async function findUnpostedInvoiceVat(
   companyId: string, periodStart: string, periodEnd: string,
@@ -60,7 +84,14 @@ export async function findUnpostedInvoiceVat(
         CASE
           WHEN ci.gl_journal_entry_id IS NULL THEN 'no_journal'
           WHEN je.status IS DISTINCT FROM 'posted' THEN 'journal_not_posted'
-          ELSE 'journal_reversed'
+          WHEN EXISTS (
+            SELECT 1 FROM gl_journal_entries rev
+            WHERE rev.reversal_of_id = ci.gl_journal_entry_id
+              AND rev.company_id = ${companyId}::UUID
+              AND rev.status = 'posted'
+              AND rev.entry_date <= ${periodEnd}::DATE
+          ) THEN 'journal_reversed'
+          ELSE 'journal_dated_after_period'
         END AS reason
       FROM customer_invoices ci
       LEFT JOIN customers c ON c.id = ci.customer_id AND c.company_id = ${companyId}::UUID
@@ -73,6 +104,22 @@ export async function findUnpostedInvoiceVat(
         -- journal was posted then reversed — its VAT DID reach the GL and
         -- then left it, so it must still block (as 'journal_reversed'
         -- below), never sit unseen in the declared-elsewhere list instead.
+        -- Extended 2026-09-27: also ignored when the journal is posted,
+        -- unreversed, but dated AFTER the period end — its VAT reached the
+        -- GL, just under the wrong period, so a mark placed before that
+        -- journal ever posted must not hide it as 'journal_dated_after_period'
+        -- below. (isEligibleForVatDeclaredElsewhereMark already refuses to
+        -- mark a document once its journal IS posted, so this only matters
+        -- for a mark made earlier, on a document whose journal posts later.)
+        -- HIGH fix (review, 2026-09-27, on a6cb6ea71): this OR carried no
+        -- je.status = 'posted' guard — entry_date is NOT NULL even on a
+        -- DRAFT journal, so a mark on a document whose journal never even
+        -- posted (dated after the period end but still draft) was overridden
+        -- and the document wrongly appeared on the BLOCKING list as
+        -- journal_not_posted instead of staying on the non-blocking
+        -- declared-elsewhere list. The guard now matches the reason CASE
+        -- above, which only reaches journal_dated_after_period once the
+        -- journal is already known to be posted and unreversed.
         AND (
           ci.vat_declared_elsewhere_at IS NULL
           OR EXISTS (
@@ -82,6 +129,7 @@ export async function findUnpostedInvoiceVat(
               AND rev.status = 'posted'
               AND rev.entry_date <= ${periodEnd}::DATE
           )
+          OR (je.status = 'posted' AND je.entry_date > ${periodEnd}::DATE)
         )
         AND ci.status = ANY(${ISSUED_CUSTOMER_INVOICE_STATUSES as string[]}::TEXT[])
         AND ci.invoice_date >= ${periodStart}::DATE AND ci.invoice_date <= ${periodEnd}::DATE
@@ -95,6 +143,10 @@ export async function findUnpostedInvoiceVat(
               AND rev.status = 'posted'
               AND rev.entry_date <= ${periodEnd}::DATE
           )
+          -- CUSTOMER only (see the doc-comment above): a posted, unreversed
+          -- journal dated after time-of-supply's own period under-declares
+          -- output VAT with no exception otherwise.
+          OR je.entry_date > ${periodEnd}::DATE
         )
       UNION ALL
       SELECT 'supplier', si.id, si.invoice_number, si.invoice_date,
@@ -198,105 +250,7 @@ export async function isEligibleForVatDeclaredElsewhereMark(
   return (rows as DbRow[]).length > 0;
 }
 
-/**
- * Issued invoices / approved bills marked "VAT declared outside IsaFlow"
- * (migration 705) that would otherwise appear in `findUnpostedInvoiceVat` —
- * i.e. still carrying VAT with no live journal, but the block has been
- * lifted. NON-blocking; kept visible rather than dropped so the mark is
- * auditable from the exceptions panel itself. Population dates and statuses
- * mirror `findUnpostedInvoiceVat`, further restricted to documents whose VAT
- * has NEVER reached the GL — `gl_journal_entry_id IS NULL`, or the journal is
- * not posted and carries no posted reversal (dated on or before the period
- * end, same bound the blocking query uses). A marked document whose journal
- * is later posted (unreversed) is on NEITHER list — its VAT is correctly in
- * the ledger, so it is not an exception at all, stale mark or not. A marked
- * document whose journal was posted then reversed is on the BLOCKING list
- * ONLY (`findUnpostedInvoiceVat`'s mark-ignoring branch). So: the two lists
- * together cover exactly the documents whose VAT is not currently in the GL
- * — never both, but a properly-filed marked document is neither, on purpose.
- *
- * `marked_by_name` resolves `vat_declared_elsewhere_by` (users.id) to a
- * display name with the LEFT JOIN users + CONCAT_WS(first_name, last_name)
- * that vatPeriodLockService.listVatPeriodLocks uses for `locked_by_name`;
- * unlike that one, the email fallback is done here in SQL. `users` is a
- * platform table, not company-scoped, so the join carries no company_id.
- */
-export async function findVatDeclaredElsewhere(
-  companyId: string, periodStart: string, periodEnd: string,
-): Promise<DbRow[]> {
-  return sql`
-    SELECT * FROM (
-      SELECT 'customer' AS kind, ci.id AS invoice_id, ci.invoice_number, ci.invoice_date,
-        COALESCE(c.name, cl.name, 'Unknown') AS counterparty_name,
-        COALESCE(ci.tax_amount, 0) AS unposted_vat,
-        ci.vat_declared_elsewhere_at AS marked_at, ci.vat_declared_elsewhere_by AS marked_by,
-        COALESCE(NULLIF(TRIM(CONCAT_WS(' ', mu.first_name, mu.last_name)), ''), mu.email) AS marked_by_name,
-        ci.vat_declared_elsewhere_reason AS marked_reason
-      FROM customer_invoices ci
-      LEFT JOIN customers c ON c.id = ci.customer_id AND c.company_id = ${companyId}::UUID
-      LEFT JOIN clients cl ON cl.id = ci.client_id
-      LEFT JOIN users mu ON mu.id::TEXT = ci.vat_declared_elsewhere_by::TEXT
-      LEFT JOIN gl_journal_entries je
-        ON je.id = ci.gl_journal_entry_id AND je.company_id = ${companyId}::UUID
-      WHERE ci.company_id = ${companyId}::UUID
-        AND ci.deleted_at IS NULL
-        AND ci.vat_declared_elsewhere_at IS NOT NULL
-        AND ci.status = ANY(${ISSUED_CUSTOMER_INVOICE_STATUSES as string[]}::TEXT[])
-        AND ci.invoice_date >= ${periodStart}::DATE AND ci.invoice_date <= ${periodEnd}::DATE
-        -- Round 3 fix (2026-09-26): a marked document is listed here only
-        -- while its VAT has NEVER reached the GL. A document whose journal
-        -- was posted then reversed shows in the BLOCKING list instead (see
-        -- findUnpostedInvoiceVat's mark-ignoring branch); a document whose
-        -- journal is posted and UNREVERSED is on neither list — its VAT is
-        -- correctly filed, so the stale mark is not an exception at all.
-        AND (
-          ci.gl_journal_entry_id IS NULL
-          OR (
-            je.status IS DISTINCT FROM 'posted'
-            AND NOT EXISTS (
-              SELECT 1 FROM gl_journal_entries rev
-              WHERE rev.reversal_of_id = ci.gl_journal_entry_id
-                AND rev.company_id = ${companyId}::UUID
-                AND rev.status = 'posted'
-                AND rev.entry_date <= ${periodEnd}::DATE
-            )
-          )
-        )
-      UNION ALL
-      SELECT 'supplier', si.id, si.invoice_number, si.invoice_date,
-        COALESCE(s.name, 'Unknown'),
-        -- Same explicit company scoping as the query above (item 12).
-        COALESCE((SELECT SUM(sii.tax_amount) FROM supplier_invoice_items sii
-                  WHERE sii.supplier_invoice_id = si.id AND si.company_id = ${companyId}::UUID), si.tax_amount, 0),
-        si.vat_declared_elsewhere_at, si.vat_declared_elsewhere_by,
-        COALESCE(NULLIF(TRIM(CONCAT_WS(' ', mu.first_name, mu.last_name)), ''), mu.email),
-        si.vat_declared_elsewhere_reason
-      FROM supplier_invoices si
-      LEFT JOIN suppliers s ON s.id = si.supplier_id AND s.company_id = ${companyId}::UUID
-      LEFT JOIN users mu ON mu.id::TEXT = si.vat_declared_elsewhere_by::TEXT
-      LEFT JOIN gl_journal_entries je
-        ON je.id = si.gl_journal_entry_id AND je.company_id = ${companyId}::UUID
-      WHERE si.company_id = ${companyId}::UUID
-        AND si.deleted_at IS NULL
-        AND si.vat_declared_elsewhere_at IS NOT NULL
-        AND si.status = ANY(${APPROVED_BILL_STATUSES as string[]}::TEXT[])
-        AND si.invoice_date >= ${periodStart}::DATE AND si.invoice_date <= ${periodEnd}::DATE
-        -- Same reasoning as the customer branch above.
-        AND (
-          si.gl_journal_entry_id IS NULL
-          OR (
-            je.status IS DISTINCT FROM 'posted'
-            AND NOT EXISTS (
-              SELECT 1 FROM gl_journal_entries rev
-              WHERE rev.reversal_of_id = si.gl_journal_entry_id
-                AND rev.company_id = ${companyId}::UUID
-                AND rev.status = 'posted'
-                AND rev.entry_date <= ${periodEnd}::DATE
-            )
-          )
-        )
-    ) docs
-    WHERE unposted_vat <> 0
-    ORDER BY invoice_date, invoice_number
-  ` as Promise<DbRow[]>;
-}
+// `findVatDeclaredElsewhere` split out to vatDeclaredElsewhereQuery.ts
+// (2026-09-27, file-size limit) — re-exported below so no caller's import
+// path changes.
+export { findVatDeclaredElsewhere } from './vatDeclaredElsewhereQuery';

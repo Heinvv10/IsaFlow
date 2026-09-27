@@ -14,9 +14,15 @@ import { apiFetch, ApiRequestError, assertOk } from '@/lib/apiFetch';
 import { useCompany } from '@/contexts/CompanyContext';
 import { log } from '@/lib/logger';
 import { InlineReasonForm } from '@/components/shared/InlineReasonForm';
-import type { VatExceptionsReport } from '@/modules/accounting/services/reports/vatExceptionsTypes';
+import type { UnpostedInvoiceVatLine, VatExceptionsReport } from '@/modules/accounting/services/reports/vatExceptionsTypes';
 
 const OVERRIDE_ROLES = ['owner', 'admin', 'super_admin'];
+const REASON_LABEL: Record<UnpostedInvoiceVatLine['reason'], string> = {
+  no_journal: 'No journal',
+  journal_not_posted: 'Journal not posted',
+  journal_reversed: 'Journal reversed',
+  journal_dated_after_period: 'Journal dated after the VAT period',
+};
 const fmt = (n: number) =>
   new Intl.NumberFormat('en-ZA', { style: 'currency', currency: 'ZAR' }).format(n);
 
@@ -114,7 +120,7 @@ export default function VatUnpostedInvoicesSection({ report, Section, onChanged 
         <thead><tr>
           {isOwnerOrAdmin && <th className={th}></th>}
           <th className={th}>Invoice</th><th className={th}>Type</th><th className={th}>Counterparty</th>
-          <th className={th}>Date</th><th className={`${th} text-right`}>VAT</th>
+          <th className={th}>Date</th><th className={th}>Reason</th><th className={`${th} text-right`}>VAT</th>
         </tr></thead>
         <tbody>
           {report.unpostedInvoiceVat.map((u) => (
@@ -131,6 +137,7 @@ export default function VatUnpostedInvoicesSection({ report, Section, onChanged 
               <td className={td}>{u.invoiceKind}</td>
               <td className={td}>{u.counterpartyName}</td>
               <td className={td}>{u.invoiceDate}</td>
+              <td className={td}>{REASON_LABEL[u.reason]}</td>
               <td className={tdNum}>{fmt(u.vat)}</td>
             </tr>
           ))}
