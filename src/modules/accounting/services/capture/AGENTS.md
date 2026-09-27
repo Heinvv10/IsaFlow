@@ -78,6 +78,7 @@ Invoked by `withAuth`-wrapped API routes in `pages/api/accounting/capture/**` (a
 - `docs/prd/PRD-05-autonomous-capture-evidence-ledger.md` — spec.
 
 ## Recent changes
+- 2026-09-27 (R-035 PR2): `capture/[id]/post` and `ai-invoice-pipeline` ask `gl/approvalUnattended.unattendedBillStatus` BEFORE the claim whether an enforced approval rule governs the bill they would auto-approve; if so they insert it as a DRAFT (off the AP ageing, no settlement) and, after its lines, raise the approval request as the uploader (`raiseUnattendedApproval`; nothing raised under Login-as). Responses carry `approvalRequest`. Without enforcement nothing changes.
 - 2026-09-27 (R-088 × R-127 L2 re-check): the evidence claim CHECKS too — `claimCapturedDocumentForPosting` runs `findPostedContent` for every spend (the stamp skip stays), so a manual attach of a slip another upload has booked answers `content_posted`. Tests `r088-evidence-attach-check` (sequential; deadlock with either side the victim).
 - 2026-09-27 (R-088 × R-127 L2): `claimCapturedDocumentForPosting` takes the file's advisory lock for `spend: 'evidence'` too, so a manual attach and a same-bytes post from another upload serialise (race test `r088-evidence-attach-race`).
 - 2026-09-27 (R-088 × R-127): `findPostedContent` counts an evidenced slip for every spend — the invoice exception is gone, so a second upload of a slip that evidences a provisional answers 409 `content_posted` on `capture/[id]/post` and `ai-invoice-pipeline` instead of raising an invoice R-127 cannot settle.
