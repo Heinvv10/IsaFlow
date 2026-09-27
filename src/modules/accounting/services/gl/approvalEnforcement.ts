@@ -100,18 +100,26 @@ export async function enableEnforcement(companyId: string, documentType: Documen
 }
 
 /**
- * Refuses (ApprovalEnforcementAuthorityError, a 403) when the actor may not
- * weaken the strictest active rule of the type (`mayWeakenAtLevel`). Idempotent otherwise.
+ * The role the strictest ACTIVE rule of the type demands, or null when none is
+ * active. An unreadable approver_role ranks as 'admin', the same floor the
+ * decide path uses. Shared by disabling and by the import exemption's rank check.
  */
-export async function disableEnforcement(companyId: string, documentType: DocumentType, actor: RuleActor): Promise<void> {
+export async function strictestActiveRuleRole(companyId: string, documentType: DocumentType): Promise<string | null> {
   const rules = (await sql`
     SELECT approver_role FROM approval_rules
     WHERE company_id = ${companyId} AND document_type = ${documentType} AND is_active = true
   `) as Row[];
-  // An unreadable approver_role ranks as 'admin', the same floor the decide path uses.
-  const strictest = rules
+  return rules
     .map((r) => (r.approver_role != null ? String(r.approver_role) : 'admin'))
     .reduce<string | null>((top, role) => (top === null || requiredRank(role) > requiredRank(top) ? role : top), null);
+}
+
+/**
+ * Refuses (ApprovalEnforcementAuthorityError, a 403) when the actor may not
+ * weaken the strictest active rule of the type (`mayWeakenAtLevel`). Idempotent otherwise.
+ */
+export async function disableEnforcement(companyId: string, documentType: DocumentType, actor: RuleActor): Promise<void> {
+  const strictest = await strictestActiveRuleRole(companyId, documentType);
   if (strictest !== null && !mayWeakenAtLevel(actor.role, strictest)) {
     // No audit_log action fits a refusal, and withAuth commits a 4xx — so the
     // attempt to weaken the control is recorded here rather than not at all.

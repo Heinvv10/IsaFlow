@@ -17,7 +17,7 @@ import { assertNoInactiveAccountLines } from '@/modules/accounting/services/gl/j
 import { assertJournalVatPeriodOpen } from '@/modules/accounting/services/gl/journalVatLockGuard';
 import { postCustomerInvoiceToGL } from '@/modules/accounting/services/ar/customerPaymentAllocationService';
 import { recomputeInvoiceStatus } from '@/modules/accounting/services/ar/invoiceStatusRecompute';
-import { withApprovalGateExempt } from '@/modules/accounting/services/gl/approvalGateExempt';
+import { assertMayImportOpenBills, withApprovalGateExempt } from '@/modules/accounting/services/gl/approvalGateExempt';
 import type {
   Row,
   MappedCustomer,
@@ -200,6 +200,9 @@ export async function commitAPInvoice(
     WHERE company_id = ${companyId}::UUID AND invoice_number = ${inv.invoiceNumber} LIMIT 1
   `) as Row[];
   if (dupe.length) return { invoiceId: String(dupe[0]!.id), created: false };
+  // R-035 HIGH-2: an open bill past enforcement needs the strictest rule's rank — before any write.
+  const open = Number(inv.amountPaid ?? 0) < Number(inv.totalAmount);
+  if (open) await assertMayImportOpenBills(companyId, userId);
 
   const supplierId = await resolveSupplierId(companyId, inv.supplierName);
   if (!supplierId) throw new Error(`Supplier not found: ${inv.supplierName}`);
@@ -266,7 +269,7 @@ export async function commitAPInvoice(
   await assertNoInactiveAccountLines(companyId, je.id);
   await sql`UPDATE gl_journal_entries SET status = 'posted', posted_at = NOW() WHERE id = ${je.id}::UUID AND company_id = ${companyId}::UUID`;
   // R-035 Q1: approved in Sage, so exempt from the approval backstop.
-  await withApprovalGateExempt(() => sql`UPDATE supplier_invoices SET status = 'approved', approved_at = NOW(), amount_paid = ${amountPaid}, gl_journal_entry_id = ${je.id}::UUID WHERE id = ${created.id}::UUID AND company_id = ${companyId}::UUID`);
+  await withApprovalGateExempt({ companyId, userId, open }, () => sql`UPDATE supplier_invoices SET status = 'approved', approved_at = NOW(), amount_paid = ${amountPaid}, gl_journal_entry_id = ${je.id}::UUID WHERE id = ${created.id}::UUID AND company_id = ${companyId}::UUID`);
   // Same as AR: 'approved' is the open default, narrowed from amount_paid.
   if (amountPaid > 0) await recomputeInvoiceStatus(companyId, 'supplier', created.id);
   return { invoiceId: created.id, created: true, warning: settled.warning };

@@ -12,7 +12,7 @@ import { updateSession, type ImportResult, type ImportRowContext, type Migration
 import { matchContact } from '../core/migrationImportService';
 import { assertNoOpeningControlTotal, buildTakeOnLines, lockMigrationImport, resolveTakeOnClearingAccountId } from '../core/migrationPostingSupport';
 import { computeFingerprint } from '../capture/captureDeduplicationService';
-import { withApprovalGateExempt } from '../gl/approvalGateExempt';
+import { assertMayImportOpenBills, withApprovalGateExempt } from '../gl/approvalGateExempt';
 type Row = DbRow;
 
 
@@ -55,6 +55,8 @@ export async function importAPInvoices(
   let imported = 0;
   let skipped = errors.length;
 
+  // R-035 HIGH-2: open bills past enforcement need the strictest rule's rank — before any write.
+  if (invoices.some((i) => i.totalAmount - (i.amountPaid ?? 0) > 0)) await assertMayImportOpenBills(companyId, userId);
   // Before any read: the idempotency check below is a read-then-write.
   await lockMigrationImport(companyId);
   await assertNoOpeningControlTotal(companyId, sessionId, 'payable');
@@ -229,7 +231,7 @@ export async function importAPInvoices(
           return false;
         }
 
-        const invRows = (await withApprovalGateExempt(() => sql`
+        const invRows = (await withApprovalGateExempt({ companyId, userId, open: status !== 'paid' }, () => sql`
           INSERT INTO supplier_invoices (
             company_id, supplier_id, invoice_number, invoice_date, due_date,
             subtotal, tax_amount, total_amount, amount_paid,

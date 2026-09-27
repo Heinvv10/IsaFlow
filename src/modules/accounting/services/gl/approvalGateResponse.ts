@@ -6,11 +6,22 @@
  * Returns true when it answered, for a route's catch to `return` on.
  */
 import type { NextApiResponse } from 'next';
-import { apiResponse } from '@/lib/apiResponse';
+import { apiResponse, ErrorCode } from '@/lib/apiResponse';
 import { ApprovalRequiredError } from './approvalGate';
+import { ApprovalImportAuthorityError } from './approvalGateExempt';
 
 export function respondIfApprovalRequired(res: NextApiResponse, err: unknown): boolean {
   if (!(err instanceof ApprovalRequiredError)) return false;
   apiResponse.conflict(res, err.message, { reason: err.reason, requiredRole: err.requiredRole, requestId: err.requestId });
+  return true;
+}
+
+/**
+ * 403 for an import of open bills past enforcement by a role below the
+ * strictest rule (review HIGH-2). The importers raise it before their first write.
+ */
+export function respondIfImportRefused(res: NextApiResponse, err: unknown): boolean {
+  if (!(err instanceof ApprovalImportAuthorityError)) return false;
+  apiResponse.error(res, ErrorCode.FORBIDDEN, err.message, { reason: err.code });
   return true;
 }
