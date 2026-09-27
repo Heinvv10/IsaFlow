@@ -183,3 +183,20 @@ GROUP BY company_id;
 - EMP201 does not carry unused ETI forward to later months (SARS allows it). New register item.
 - K-080: the ETI engine returns 0 below the wage floor; needs Hein's SARS-table decision.
 - K-171 (candidate): the owner cash panel treats excess ETI as spendable cash.
+
+## Deployed (2026-09-27, Hein's "go on green")
+
+- #538 merged as `8f93deb7b`, after a merge of master kept R-032's impersonation guard (the approve route answers 403 first, then K-079's 400). It was deployed with the test-only #545 as master `d660ddf1a` at about 11:20 SAST on Sunday.
+- The first attempt (`8f93deb7b`) stopped in the deploy's own CI with prod untouched. `bankReconciliationCancelDb` collided with migration 657, which had just been applied to isaflow_dev; #545 fixed the test.
+- Prod was `3edfa5c5d`. The code delta was only the 8 K-079 source files, with 0 migrations and the lockfile unchanged; `git cherry` showed 0 `+`.
+- Deploy CI: `[ci] all checks passed`, "Applied 0 migrations".
+- Golden paths: 13/13, including `h-payroll-run` (reopen → re-approve onto the same journal).
+- Integrity: green.
+- `RELEASE_SHA`: `d660ddf1a`.
+- Live bundle:
+  - `eti_beyond_paye`, `nothing_to_post` and `PayrollApprovalRefusedError` are in `pages/api/payroll/runs/[id]/approve.js`;
+  - `eti_used` and "nothing new is posted" are in `pages/api/mcp.js`.
+- `/api/health` returns 200, and an unauthenticated approve returns 401.
+- Rollback target: `3edfa5c5d`, code only.
+- **Still owed:** Hein runs the census SQL above on prod.
+- **Follow-ups registered:** R-142 (EMP201 ETI carry-forward), R-143 (reopen/recalculate keeps the stale journal), R-144 (a GL-reversed payroll journal stays linked), R-145 (`reversePayrollRunJournal` has no caller).
