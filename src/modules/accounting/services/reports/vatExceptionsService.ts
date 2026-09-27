@@ -24,6 +24,7 @@ import {
 } from './vatNonSupplyExceptions';
 import { findInputVatSupport } from './vatInputSupport';
 import { findUnpostedInvoiceVat, findVatDeclaredElsewhere } from './vatUnpostedInvoices';
+import { findCustomerTaxCodeIssues, findSupplierTaxCodeIssues } from './vatTaxCodeIssues';
 import { mapDeclaredElsewhere } from './vatExceptionsTypes';
 import type { VatControlRecon, VatExceptionsReport } from './vatExceptionsTypes';
 
@@ -82,48 +83,16 @@ export async function getVatExceptions(
         ORDER BY je.entry_date, je.entry_number
         LIMIT ${LIST_CAP}
       ` as Promise<Row[]>,
-      // 2. Customer invoices with no tax rate, or a rate but zero VAT
-      sql`
-        SELECT ci.id AS invoice_id, ci.invoice_number, ci.invoice_date,
-          ci.subtotal, ci.tax_rate, ci.tax_amount,
-          COALESCE(c.name, cl.name, 'Unknown') AS counterparty_name,
-          COUNT(*) OVER() AS total_count
-        FROM customer_invoices ci
-        LEFT JOIN customers c ON c.id = ci.customer_id
-        LEFT JOIN clients cl ON cl.id = ci.client_id
-        WHERE ci.company_id = ${companyId}::UUID
-          AND ci.invoice_date >= ${periodStart}::DATE
-          AND ci.invoice_date <= ${periodEnd}::DATE
-          AND ci.status != 'cancelled'
-          AND (ci.tax_rate IS NULL
-            OR (ci.tax_rate > 0 AND COALESCE(ci.tax_amount, 0) = 0 AND ci.subtotal > 0))
-        ORDER BY ci.invoice_date, ci.invoice_number
-        LIMIT ${LIST_CAP}
-      ` as Promise<Row[]>,
+      // 2. Customer invoices with no tax rate, or a rate but zero VAT —
+      // BLOCKING (vatTaxCodeIssues.ts).
+      findCustomerTaxCodeIssues(companyId, periodStart, periodEnd),
       // 3. Supplier bills with the same record problem — NOT blocking (Hein,
       // 2026-09-27): a missing/zero-rated tax code on a bill can only mean
       // LESS input VAT was claimed than the bill's own rate supports, never
       // more, so it cannot put the return wrong in SARS's favour against the
-      // vendor. potential_vat_total is a window SUM over every matching row
-      // (before LIMIT), so it is the true total, not just the capped page's.
-      sql`
-        SELECT si.id AS invoice_id, si.invoice_number, si.invoice_date,
-          si.subtotal, si.tax_rate, si.tax_amount,
-          COALESCE(s.name, 'Unknown') AS counterparty_name,
-          COUNT(*) OVER() AS total_count,
-          COALESCE(SUM(CASE WHEN si.tax_rate IS NOT NULL THEN si.subtotal * si.tax_rate / 100 ELSE 0 END)
-            OVER(), 0) AS potential_vat_total
-        FROM supplier_invoices si
-        LEFT JOIN suppliers s ON s.id = si.supplier_id
-        WHERE si.company_id = ${companyId}::UUID
-          AND si.invoice_date >= ${periodStart}::DATE
-          AND si.invoice_date <= ${periodEnd}::DATE
-          AND si.status != 'cancelled'
-          AND (si.tax_rate IS NULL
-            OR (si.tax_rate > 0 AND COALESCE(si.tax_amount, 0) = 0 AND si.subtotal > 0))
-        ORDER BY si.invoice_date, si.invoice_number
-        LIMIT ${LIST_CAP}
-      ` as Promise<Row[]>,
+      // vendor (vatTaxCodeIssues.ts; potential_vat_total is a window SUM over
+      // every matching row, before LIMIT, so it is the true total).
+      findSupplierTaxCodeIssues(companyId, periodStart, periodEnd),
       // 4. Customer invoices whose posted GL output VAT differs from invoice VAT.
       // je_any (no status filter) supplies the linked JE's status so a draft
       // JE can be labeled 'je_not_posted' instead of an amount mismatch.
