@@ -32,6 +32,9 @@ export interface ContentAuthorFacts {
   snapshotAuthors: string[];
   /** The decider is in approval_requests.past_requesters. */
   wasRequester: boolean;
+  /** The decider's company role, and whether enforcement is on — the sole-approver route needs both. */
+  deciderRole: string | null;
+  enforced: boolean;
 }
 
 type MemberRow = { user_id: string; role: string; is_active: boolean | null; status: string | null; suspended_at: string | null };
@@ -46,7 +49,7 @@ type MemberRow = { user_id: string; role: string; is_active: boolean | null; sta
  * the request's own user and company.
  */
 async function approversLeft(companyId: string, decidedBy: string, requester: string, authors: Set<string>,
-  qualifies: (role: string) => boolean): Promise<{ eligible: number; requesterCould: boolean }> {
+  qualifies: (role: string) => boolean): Promise<{ eligible: number; requesterCould: boolean; anyOtherOfRank: boolean }> {
   const members = (await sql`
     SELECT m.user_id, m.role, m.is_active, m.status, m.suspended_at
     FROM approval_company_other_members(${companyId}::UUID, ${decidedBy}::TEXT) m
@@ -55,6 +58,8 @@ async function approversLeft(companyId: string, decidedBy: string, requester: st
   return {
     eligible: able.filter((m) => String(m.user_id) !== requester).length,
     requesterCould: able.some((m) => String(m.user_id) === requester),
+    // assertMayDecide's sole-approver test: any OTHER active member of the rank, author or not.
+    anyOtherOfRank: members.some((m) => isActiveUserAccount(m) && qualifies(String(m.role))),
   };
 }
 
@@ -69,7 +74,8 @@ export async function contentAuthorRefusal(companyId: string, decidedBy: string,
   const authors = new Set([...facts.liveAuthors, ...facts.snapshotAuthors]);
   if (!authors.has(decidedBy)) return null;
 
-  const { eligible: n, requesterCould } = await approversLeft(companyId, decidedBy, facts.requester, authors, qualifies);
+  const { eligible: n, requesterCould, anyOtherOfRank } =
+    await approversLeft(companyId, decidedBy, facts.requester, authors, qualifies);
   const refusal = 'You cannot approve this request: you authored the content it covers (you created the document or '
     + 'made an edit that changed it).';
   if (n > 0) {
@@ -79,6 +85,12 @@ export async function contentAuthorRefusal(companyId: string, decidedBy: string,
   if (requesterCould) {
     return `${refusal} No other member with the ${demandedRole} role or above qualifies — reject this request and `
       + 'have one of its authors submit it again; the previous requester may then approve it.';
+  }
+  // The decider alone holds the rank: as their OWN request, the sole-approver
+  // exception (assertMayDecide, Q2) lets them approve it even as its author.
+  if (facts.enforced && facts.deciderRole !== null && qualifies(facts.deciderRole) && !anyOtherOfRank) {
+    return `${refusal} You are the only eligible approver (the only member with the ${demandedRole} role or above): `
+      + 'reject this request and submit it for approval yourself — as the sole approver you may then approve your own request.';
   }
   return `${refusal} No eligible approver remains: every member with the ${demandedRole} role or above either `
     + 'authored the content or raised the request. Cancel and re-enter the bill, or have someone with the '
