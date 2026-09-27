@@ -61,6 +61,20 @@ export class ApprovalRuleAuthorityError extends Error {
   }
 }
 
+/**
+ * May `actorRole` WEAKEN a control set at `ruleRole` (R-048)? Holding the rank
+ * is not enough: it takes a rank STRICTLY ABOVE, so nobody can lower the level
+ * that governs them — except at owner level, where nobody in a company ranks
+ * above the owner, so at-or-above suffices. The one predicate for every
+ * weakening act: rule edits here, and switching approval enforcement off
+ * (approvalEnforcement.disableEnforcement).
+ */
+export function mayWeakenAtLevel(actorRole: string, ruleRole: string): boolean {
+  const rank = actorRank(actorRole);
+  const ruleRank = requiredRank(ruleRole);
+  return ruleRank === APPROVER_RANK.owner ? rank >= ruleRank : rank > ruleRank;
+}
+
 /** The fields of an update that can move a rule's authority, or a delete. */
 export type RuleChange = 'delete' | Partial<{
   approverRole: string;
@@ -165,14 +179,12 @@ export async function assertMayEditRule(
   // column default, rather than 0 — which would make every unknown role editable
   // by anybody who can reach the route.
   const ruleRole = row.approver_role != null ? String(row.approver_role) : 'admin';
-  const rank = actorRank(actor.role);
-  const ruleRank = requiredRank(ruleRole);
-  if (rank < ruleRank) {
+  if (actorRank(actor.role) < requiredRank(ruleRole)) {
     throw new ApprovalRuleAuthorityError(ruleRole);
   }
   // At or above suffices only on an owner-level rule: nobody in a company ranks
   // above the owner. Every other level needs a rank strictly above it.
-  if (weakensRule(row, change) && ruleRank !== APPROVER_RANK.owner && rank <= ruleRank) {
+  if (weakensRule(row, change) && !mayWeakenAtLevel(actor.role, ruleRole)) {
     throw new ApprovalRuleAuthorityError(ruleRole, true);
   }
   return row;
