@@ -20,6 +20,7 @@ import { postJournalEntry } from '@/modules/accounting/services/gl/journalEntryP
 import { getVatExceptions } from '@/modules/accounting/services/reports/vatExceptionsService';
 import { evaluateEfilingGate } from '@/modules/accounting/services/reports/sarsEfilingSubmissionService';
 import { assertVatGateClear, VatGateBlockedError } from '@/modules/accounting/services/reports/vatGateOverrideService';
+import { markVatDeclaredElsewhere } from '@/modules/accounting/services/reports/vatDeclaredElsewhereService';
 import type { GLEntrySource, JournalLineInput } from '@/modules/accounting/types/gl.types';
 import { assertNotProductionDb } from '../helpers/assertNotProductionDb';
 import { dropFixture, inTx, seedBill, seedFixture, seedInvoice, type Fixture } from './helpers/l1FifoFixture';
@@ -82,9 +83,17 @@ describeIfDb('a customer invoice whose journal posts after its VAT period (Hein,
     acct.sales = String(((await sql`
       INSERT INTO gl_accounts (company_id, account_code, account_name, account_type, account_subtype, normal_balance, is_active)
       VALUES (${fx.companyId}::UUID, '4000', ${`Sales ${fx.tag}`}, 'revenue', 'sales', 'credit', true) RETURNING id`) as Row[])[0]!.id);
+    // A real users row: markVatDeclaredElsewhere's audit log has an FK to it.
+    await sql`INSERT INTO users (id, email, role, is_active) VALUES (${fx.userId}, ${`vjap-${fx.userId}@isaflow.test`}, 'admin', true)`;
   }, 180000);
 
-  afterAll(async () => { if (fx) await dropFixture(fx); }, 120000);
+  afterAll(async () => {
+    if (fx) {
+      await sql`DELETE FROM audit_log WHERE company_id = ${fx.companyId}::UUID`;
+      await sql`DELETE FROM users WHERE id = ${fx.userId}`;
+      await dropFixture(fx);
+    }
+  }, 120000);
 
   it('1. invoice in period, journal posted after period end: blocks as journal_dated_after_period, gate refuses without override', async () => {
     const S = '2026-01-01', E = '2026-02-28';
@@ -161,5 +170,47 @@ describeIfDb('a customer invoice whose journal posts after its VAT period (Hein,
     const rows = rep.unpostedInvoiceVat.filter((u) => u.invoiceId === inv);
     expect(rows).toHaveLength(1);
     expect(rows[0]!.reason).toBe('journal_reversed');
+  });
+
+  it('6. HIGH fix — marked invoice with a DRAFT journal dated after the period stays declared-elsewhere ONLY, never blocking', async () => {
+    // The mark-ignoring OR in the customer branch's WHERE must require
+    // je.status = 'posted' before comparing entry_date — entry_date is
+    // NOT NULL even on a draft, so an unguarded `je.entry_date > periodEnd`
+    // overrode the mark for a document whose journal never even posted.
+    const S = '2026-01-01', E = '2026-02-28';
+    const inv = await seedInvoice(fx, { number: 'VJAP-6', date: '2026-02-21', total: 1150, status: 'sent' });
+    await sql`UPDATE customer_invoices SET subtotal = 1000, tax_rate = 15, tax_amount = 150 WHERE id = ${inv}::UUID AND company_id = ${fx.companyId}::UUID`;
+    // Mark while eligible: no journal yet.
+    await inTx(fx, () => markVatDeclaredElsewhere(fx.companyId, 'customer', inv, actor(), 'Historical import'));
+    // Attach a DRAFT (never posted) journal dated after the period end.
+    const je = await inTx(fx, () => createJournalEntry(fx.companyId, {
+      entryDate: '2026-03-09', description: 'draft after period', source: 'manual', lines: [
+        { glAccountId: acct.receivable!, debit: 1150, credit: 0, description: 'AR' },
+        { glAccountId: acct.sales!, debit: 0, credit: 1000, description: 'sale', vatType: 'standard' },
+        { glAccountId: acct.vat_output!, debit: 0, credit: 150, description: 'VAT', vatType: 'standard' },
+      ],
+    }, fx.userId));
+    await sql`UPDATE customer_invoices SET gl_journal_entry_id = ${je.id}::UUID WHERE id = ${inv}::UUID AND company_id = ${fx.companyId}::UUID`;
+
+    const rep = await report(S, E);
+    expect(rep.unpostedInvoiceVat.map((u) => u.invoiceId)).not.toContain(inv);
+    expect(rep.declaredElsewhereVat.map((d) => d.invoiceId)).toContain(inv);
+  });
+
+  it('7. complement — marked invoice with a POSTED journal dated after the period moves to blocking ONLY', async () => {
+    const S = '2026-01-01', E = '2026-02-28';
+    const inv = await seedInvoice(fx, { number: 'VJAP-7', date: '2026-02-22', total: 1150, status: 'sent' });
+    await sql`UPDATE customer_invoices SET subtotal = 1000, tax_rate = 15, tax_amount = 150 WHERE id = ${inv}::UUID AND company_id = ${fx.companyId}::UUID`;
+    // Mark while eligible: no journal yet.
+    await inTx(fx, () => markVatDeclaredElsewhere(fx.companyId, 'customer', inv, actor(), 'Historical import'));
+    // Post its journal, dated after the period end — the mark must not hide
+    // VAT that has now genuinely (if mis-dated) reached the GL.
+    await postInvoiceJournal(inv, '2026-03-10');
+
+    const rep = await report(S, E);
+    expect(rep.unpostedInvoiceVat.map((u) => [u.invoiceId, u.reason])).toEqual(
+      expect.arrayContaining([[inv, 'journal_dated_after_period']]),
+    );
+    expect(rep.declaredElsewhereVat.map((d) => d.invoiceId)).not.toContain(inv);
   });
 });
