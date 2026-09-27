@@ -10,7 +10,7 @@ import { request, response } from './mfa-impersonation-postgres.helpers';
 type Db = Pool | PoolClient;
 type Handler = (req: never, res: never) => unknown;
 
-export const sign = (id: string) => new SignJWT({ sub: id, aal: 'aal2' })
+export const sign = (id: string) => new SignJWT({ sub: id, aal: 'aal2', session_id: crypto.randomUUID() })
   .setProtectedHeader({ alg: 'HS256' })
   .setExpirationTime('1h')
   .sign(new TextEncoder().encode(process.env.JWT_SECRET));
