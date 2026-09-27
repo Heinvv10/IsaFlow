@@ -153,6 +153,18 @@ describe('the content author may not approve', () => {
   });
 });
 
+describe('a bill created by no human (a system or agent identity)', () => {
+  it('has no human author: only the requester is refused, and an eligible member approves', async () => {
+    const { c } = await fixture();
+    const system = '00000000-0000-0000-0000-000000000000';
+    const bill = await plantBill(pool, c, system);
+    expect((await pool.query("SELECT approval_document_author($1,'supplier_invoice',$2) AS a", [c, bill.id])).rows[0].a).toBe(system);
+    const requestId = await raise(u.a, c, bill.id);
+    expect(reasonOf(await r.decide(pool, u.a, c, requestId))).toBe('SELF_APPROVAL_FORBIDDEN');
+    expect((await r.decide(pool, u.b, c, requestId)).state.statusCode).toBe(200);
+  });
+});
+
 describe('raising under Login-as (PR2-must 4)', () => {
   it('is refused 403 IMPERSONATION_FORBIDDEN, and nothing is written', async () => {
     const { c, bill } = await fixture();
