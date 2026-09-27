@@ -134,6 +134,17 @@ describe('the content author may not approve', () => {
     expect((await r.decide(pool, u.d, c, requestId)).state.statusCode).toBe(200);
   });
 
+  it('a re-stamp re-snapshots the author, so a later edit-and-revert cannot launder it either', async () => {
+    const { c, bill } = await fixture();
+    const requestId = await raise(u.a, c, bill.id);
+    expect((await r.editBill(u.b, c, { id: bill.id, invoiceDate: '2026-09-03' })).state.statusCode).toBe(200);
+    await raise(u.a, c, bill.id);
+    expect((await r.editBill(u.c, c, { id: bill.id, invoiceDate: '2026-09-04' })).state.statusCode).toBe(200);
+    expect((await r.editBill(u.c, c, { id: bill.id, invoiceDate: '2026-09-03' })).state.statusCode).toBe(200);
+    expect(reasonOf(await r.decide(pool, u.b, c, requestId))).toBe('SELF_APPROVAL_FORBIDDEN');
+    expect((await r.decide(pool, u.d, c, requestId)).state.statusCode).toBe(200);
+  });
+
   it('the creator of never-edited content is its author', async () => {
     const { c, bill } = await fixture();
     const requestId = await raise(u.b, c, bill.id);
