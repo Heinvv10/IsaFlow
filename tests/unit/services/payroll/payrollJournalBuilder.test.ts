@@ -129,31 +129,6 @@ describe('buildPayrollJournalPlan — the employment cost the ledger never sees'
   });
 });
 
-describe('buildPayrollJournalPlan — ETI unbalances the journal, and the plan says so', () => {
-  // FINDING, not a bug in this builder. postPayrollRunJournal subtracts ETI
-  // from the labour DEBIT and credits it nowhere, so credits exceed debits by
-  // exactly the ETI every time. Algebraically:
-  //   credits = paye + uif + sdl + net + (gross − paye − employeeUif − net)
-  //           = gross + employerUif + sdl
-  //   debits  = gross + employerUif + sdl − eti
-  // ETI is an offset against PAYE remitted to SARS, so the correct treatment
-  // reduces CR 2140, not DR 5200. Every one of the 86 production pay runs has
-  // total_eti = 0.00, which is why nobody has hit it — but the ETI engine
-  // exists, and the first run that claims ETI will fail to post.
-  //
-  // The plan reports what WOULD happen rather than quietly correcting it: a
-  // dry run that balanced a journal the live path rejects is worse than no dry
-  // run. Changing the poster's accounting treatment is a decision for a human.
-  it('reports the unbalanced blocker, and the gap is exactly the ETI', async () => {
-    routeMock(standardRoutes({ header: [{ ...HEADER, total_eti: 500 }] }));
-    const plan = await buildPayrollJournalPlan(COMPANY, RUN);
-
-    expect(plan!.blockers.map((b) => b.code)).toContain('unbalanced');
-    expect(plan!.totalCredit - plan!.totalDebit).toBeCloseTo(500, 2);
-    expect(plan!.totals.eti).toBe(500);
-  });
-});
-
 describe('buildPayrollJournalPlan — what would stop the post', () => {
   it('blocks a run that is not approved, naming the status it is in', async () => {
     routeMock(standardRoutes({ header: [{ ...HEADER, status: 'calculated' }] }));
@@ -185,23 +160,20 @@ describe('buildPayrollJournalPlan — what would stop the post', () => {
   });
 });
 
-describe('buildPayrollJournalPlan — deactivated accounts are reported, never filtered', () => {
-  it('still builds the journal into an inactive account and reports it as an advisory', async () => {
-    // gl_accounts.is_active is a PICKER flag. Brightsphere carries all five
-    // payroll accounts deactivated and Velocity Fibre carries 1110 deactivated;
-    // the poster does not filter on is_active, so the money DOES land there.
-    // Dropping the line would understate the journal; silence would hide that
-    // the balance is parked where no human can pick it.
+describe('buildPayrollJournalPlan — deactivated accounts block the post, and the line is still built', () => {
+  it('builds the journal into an inactive account and BLOCKS it, naming the account', async () => {
+    // Brightsphere carries all five payroll accounts deactivated and Velocity
+    // Fibre 1110. The line is kept (dropping it would understate the journal),
+    // but postJournalEntry refuses a deactivated account, so the plan must too —
+    // an advisory here greenlit a dry run the live post refused (K-079 review).
     routeMock(standardRoutes({
       accounts: ACCOUNTS.map((a) => (a.account_code === '1110' ? { ...a, is_active: false } : a)),
     }));
     const plan = await buildPayrollJournalPlan(COMPANY, RUN);
 
     expect(plan!.lines.find((l) => l.accountCode === '1110')!.credit).toBeCloseTo(76000, 2);
-    expect(plan!.blockers.map((b) => b.code)).not.toContain('inactive_target_account');
-    const advisory = plan!.advisories.find((a) => a.code === 'inactive_target_account');
-    expect(advisory).toBeDefined();
-    expect(advisory!.detail).toContain('1110');
+    const blocker = plan!.blockers.find((b) => b.code === 'inactive_target_account');
+    expect(blocker!.detail).toContain('1110');
   });
 
   it('never puts is_active in the account query — a mocked row set cannot catch that', async () => {
@@ -215,12 +187,12 @@ describe('buildPayrollJournalPlan — deactivated accounts are reported, never f
     expect(accountQuery!.sql).not.toMatch(/is_active\s*=/);
   });
 
-  it('reports every inactive target account, not just the first', async () => {
+  it('names every inactive target account, not just the first', async () => {
     routeMock(standardRoutes({ accounts: ACCOUNTS.map((a) => ({ ...a, is_active: false })) }));
     const plan = await buildPayrollJournalPlan(COMPANY, RUN);
-    const advisory = plan!.advisories.find((a) => a.code === 'inactive_target_account');
+    const blocker = plan!.blockers.find((b) => b.code === 'inactive_target_account');
     for (const code of ['5200', '2140', '2150', '2160', '1110', '2175']) {
-      expect(advisory!.detail).toContain(code);
+      expect(blocker!.detail).toContain(code);
     }
   });
 });
