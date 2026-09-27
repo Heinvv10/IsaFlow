@@ -9,17 +9,18 @@
  * company that opted into supplier invoices is not silently enrolled in
  * journals when that PR lands.
  *
- * Turning enforcement OFF weakens a control, so it demands rank >= the
- * strictest ACTIVE rule of that type — the same ladder as rule edits — and is
- * audited. Otherwise an admin switches enforcement off to post their own bill,
- * the round-3 bypass by another lever.
+ * Turning enforcement OFF weakens a control, so it demands the authority to
+ * WEAKEN the strictest ACTIVE rule of that type — `mayWeakenAtLevel`, the one
+ * predicate rule edits use (R-048): a rank strictly above that rule, or owner
+ * at owner level — and is audited. Otherwise an admin switches enforcement off
+ * to post their own bill, the round-3 bypass by another lever.
  */
 
 import { sql } from '@/lib/neon';
 import { log } from '@/lib/logger';
 import type { DocumentType } from './approvalService';
-import { actorRank, requiredRank } from './approvalAuthority';
-import type { RuleActor } from './approvalRuleGuards';
+import { requiredRank } from './approvalAuthority';
+import { mayWeakenAtLevel, type RuleActor } from './approvalRuleGuards';
 import { logAuditOrThrow } from '../core/auditTrailService';
 
 export const ENFORCEABLE_DOCUMENT_TYPES: readonly DocumentType[] = [];
@@ -39,11 +40,11 @@ export class ApprovalEnforcementUnavailableError extends Error {
   }
 }
 
-/** Disabling needs the rank of the strictest active rule of the type. Same reason code as rule edits. */
+/** Disabling needs the authority to weaken the strictest active rule of the type (R-048). Same reason code as rule edits. */
 export class ApprovalEnforcementAuthorityError extends Error {
   readonly code = 'RULE_AUTHORITY_REQUIRED';
   constructor(documentType: string, ruleRole: string) {
-    super(`An active ${documentType} approval rule requires the ${ruleRole} role; you do not hold it, so you cannot switch enforcement off`);
+    super(`Switching ${documentType} approval enforcement off weakens an active ${ruleRole}-level rule: only a role above ${ruleRole} (or the owner, for an owner-level rule) may do it`);
     this.name = 'ApprovalEnforcementAuthorityError';
   }
 }
@@ -100,8 +101,8 @@ export async function enableEnforcement(companyId: string, documentType: Documen
 }
 
 /**
- * Refuses (ApprovalEnforcementAuthorityError, a 403) when the actor ranks below the
- * strictest active rule of the type. Idempotent otherwise.
+ * Refuses (ApprovalEnforcementAuthorityError, a 403) when the actor may not
+ * weaken the strictest active rule of the type (`mayWeakenAtLevel`). Idempotent otherwise.
  */
 export async function disableEnforcement(companyId: string, documentType: DocumentType, actor: RuleActor): Promise<void> {
   const rules = (await sql`
@@ -112,7 +113,7 @@ export async function disableEnforcement(companyId: string, documentType: Docume
   const strictest = rules
     .map((r) => (r.approver_role != null ? String(r.approver_role) : 'admin'))
     .reduce<string | null>((top, role) => (top === null || requiredRank(role) > requiredRank(top) ? role : top), null);
-  if (strictest !== null && actorRank(actor.role) < requiredRank(strictest)) {
+  if (strictest !== null && !mayWeakenAtLevel(actor.role, strictest)) {
     // No audit_log action fits a refusal, and withAuth commits a 4xx — so the
     // attempt to weaken the control is recorded here rather than not at all.
     log.warn('Approval enforcement disable refused', {

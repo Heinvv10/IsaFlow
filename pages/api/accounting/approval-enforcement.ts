@@ -4,8 +4,10 @@
  * POST — { documentType, enabled } switch enforcement on or off for one type
  *
  * Enabling a type not in ENFORCEABLE_DOCUMENT_TYPES is a 400 NOT_ENFORCEABLE
- * (every type in PR1). Disabling needs rank >= the strictest active rule of the
- * type: below it is a 403 RULE_AUTHORITY_REQUIRED. Both writes are audited.
+ * (every type in PR1). Disabling needs the authority to WEAKEN the strictest
+ * active rule of the type (mayWeakenAtLevel, R-048: a rank strictly above it,
+ * or the owner at owner level); otherwise 403 RULE_AUTHORITY_REQUIRED. Both
+ * writes are audited.
  */
 
 import type { NextApiRequest, NextApiResponse } from 'next';
