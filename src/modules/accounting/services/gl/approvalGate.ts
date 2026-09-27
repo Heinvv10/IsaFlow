@@ -28,6 +28,7 @@ import { checkApproval } from './approvalMatching';
 import { requiredRank } from './approvalAuthority';
 import { resolveApprovalDocument } from './approvalDocuments';
 import { isEnforced } from './approvalEnforcement';
+import type { ApprovalState, DocumentApprovalState } from '../../types/approval.types';
 
 export type ApprovalGateReason = 'APPROVAL_REQUIRED' | 'APPROVAL_PENDING' | 'APPROVAL_STALE';
 
@@ -80,16 +81,7 @@ export class ApprovalRequiredError extends Error {
 
 type Row = Record<string, unknown>;
 
-/** What the detail page shows: why a document can or cannot be posted now. */
-export type ApprovalState = 'not_required' | 'required' | 'pending' | 'approved' | 'stale';
-
-export interface DocumentApprovalState {
-  state: ApprovalState;
-  enforced: boolean;
-  requiredRole: string | null;
-  ruleName: string | null;
-  requestId: string | null;
-}
+export type { ApprovalState, DocumentApprovalState };
 
 const STATE_OF: Record<ApprovalGateReason, ApprovalState> = {
   APPROVAL_REQUIRED: 'required', APPROVAL_PENDING: 'pending', APPROVAL_STALE: 'stale',

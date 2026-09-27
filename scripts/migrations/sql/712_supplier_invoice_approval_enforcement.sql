@@ -1,6 +1,6 @@
 -- 712: R-035 PR2 — approval enforcement on SUPPLIER INVOICES.
 --
--- Three pieces:
+-- Four pieces:
 --   1. WHO AUTHORED the content an approval vouches for. supplier_invoices
 --      gains content_edited_by/_at, written by every edit path whose change
 --      moves the approval digest (detail PUT, MCP update_supplier_invoice,
@@ -11,7 +11,8 @@
 --      may approve).
 --   2. approval_document_author() — the one definition of "author": the last
 --      editor, or the creator of content nobody has edited since.
---   3. A backstop trigger: a supplier invoice may not ENTER the AP population
+--   3. approval_supplier_invoice_rule_matches() — the SQL copy of rule matching.
+--   4. A backstop trigger: a supplier invoice may not ENTER the AP population
 --      (insert into, or move from draft / pending_approval / cancelled to, any
 --      other status) while enforcement is on for the company, an active rule
 --      matches it, and no APPROVED request for its CURRENT digest, decided at
@@ -58,15 +59,35 @@ SET content_author = public.approval_document_author(ar.company_id, ar.document_
 WHERE ar.status = 'pending' AND ar.document_type = 'supplier_invoice'
   AND ar.content_author IS NULL AND ar.company_id IS NOT NULL;
 
--- ── 3. The backstop ────────────────────────────────────────────────────────
+-- ── 3. Does an active rule govern a bill of this amount? ────────────────────
+-- Mirrors checkApproval (approvalMatching.ts): 'any', and any operator it
+-- cannot evaluate, match (fail closed); a NULL threshold is 0. One SQL copy,
+-- read by the backstop below and by the enforcement preview
+-- (approvalEnforcementPreview.ts).
+CREATE OR REPLACE FUNCTION public.approval_supplier_invoice_rule_matches(
+  p_company_id pg_catalog.uuid, p_amount pg_catalog.numeric
+) RETURNS pg_catalog.bool
+LANGUAGE sql STABLE
+SET search_path = pg_catalog, public, pg_temp
+AS $$
+  SELECT EXISTS (
+    SELECT 1 FROM public.approval_rules r
+    WHERE r.company_id = p_company_id AND r.document_type = 'supplier_invoice' AND r.is_active = true
+      AND CASE r.condition_operator
+            WHEN 'greater_than' THEN p_amount > COALESCE(r.condition_value, 0)
+            WHEN 'greater_equal' THEN p_amount >= COALESCE(r.condition_value, 0)
+            ELSE true
+          END
+  )
+$$;
+
+-- ── 4. The backstop ────────────────────────────────────────────────────────
 -- AFTER, not BEFORE: the digest function reads the stored row, and only an
 -- AFTER trigger sees the row this statement wrote (an UPDATE that changes the
 -- content and the status together must be judged on the NEW content).
 -- SECURITY DEFINER: under withAuth this runs as app_user, and a caller whose
 -- RLS context hides approval_enforcement (a job with no claims) would read
 -- "not enforced" and pass — the owner must bypass RLS, asserted below.
--- The rule match mirrors checkApproval (approvalMatching.ts): 'any', and any
--- operator it cannot evaluate, match (fail closed); a NULL threshold is 0.
 CREATE OR REPLACE FUNCTION public.supplier_invoice_approval_gate()
 RETURNS trigger
 LANGUAGE plpgsql SECURITY DEFINER
@@ -74,7 +95,6 @@ SET search_path = pg_catalog, public, pg_temp
 AS $$
 DECLARE
   v_enabled_at pg_catalog.timestamptz;
-  v_amount pg_catalog.numeric;
 BEGIN
   IF COALESCE(NEW.status, '') IN ('draft', 'pending_approval', 'cancelled') THEN RETURN NULL; END IF;
   IF TG_OP = 'UPDATE' AND COALESCE(OLD.status, '') NOT IN ('draft', 'pending_approval', 'cancelled') THEN
@@ -89,16 +109,8 @@ BEGIN
   WHERE ae.company_id = NEW.company_id AND ae.document_type = 'supplier_invoice';
   IF NOT FOUND THEN RETURN NULL; END IF;
 
-  v_amount := COALESCE(NEW.functional_total, NEW.total_amount, 0);
-  IF NOT EXISTS (
-    SELECT 1 FROM public.approval_rules r
-    WHERE r.company_id = NEW.company_id AND r.document_type = 'supplier_invoice' AND r.is_active = true
-      AND CASE r.condition_operator
-            WHEN 'greater_than' THEN v_amount > COALESCE(r.condition_value, 0)
-            WHEN 'greater_equal' THEN v_amount >= COALESCE(r.condition_value, 0)
-            ELSE true
-          END
-  ) THEN
+  IF NOT public.approval_supplier_invoice_rule_matches(
+    NEW.company_id, COALESCE(NEW.functional_total, NEW.total_amount, 0)) THEN
     RETURN NULL;
   END IF;
 
