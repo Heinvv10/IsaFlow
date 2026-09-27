@@ -20,6 +20,9 @@ import {
 import {
   ApprovalDocumentNotFoundError, resolveApprovalDocument,
 } from '@/modules/accounting/services/gl/approvalDocuments';
+import {
+  ApprovalDocumentChangedError, ApprovalExpectedDigestRequiredError,
+} from '@/modules/accounting/services/gl/approvalDecideDocument';
 import { ApprovalRequestLockTimeoutError } from '@/modules/accounting/services/gl/approvalRequestLock';
 import { isUuidParam } from '@/lib/validation';
 
@@ -106,7 +109,7 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
     }
 
     if (action === 'approve' || action === 'reject') {
-      const { requestId, notes } = req.body;
+      const { requestId, notes, expectedDigest } = req.body;
       if (!requestId) return apiResponse.badRequest(res, 'requestId is required');
       // An id that is not a UUID names no request, so it gets the same answer as
       // one that names a request this company cannot see — the contract the
@@ -114,9 +117,14 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
       if (!isUuidParam(requestId)) {
         return apiResponse.notFound(res, `Approval request ${requestId} not found or already decided`);
       }
+      // The digest of the document as the approver was shown it (each request
+      // in the list carries `documentDigest`). Required to approve one that has a digest.
+      if (expectedDigest !== undefined && expectedDigest !== null && typeof expectedDigest !== 'string') {
+        return apiResponse.badRequest(res, 'expectedDigest must be a string');
+      }
       const decision = action === 'approve' ? 'approved' : 'rejected';
       try {
-        const result = await decideRequest(companyId, requestId, decision, userId, notes);
+        const result = await decideRequest(companyId, requestId, decision, userId, notes, expectedDigest);
         return apiResponse.success(res, result);
       } catch (error) {
         // Segregation-of-duties refusals are a 403, not a 500 — withAuth would
@@ -133,6 +141,18 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
         // ran, so it is a retry, not a fault.
         if (error instanceof ApprovalRequestLockTimeoutError) {
           return apiResponse.conflict(res, error.message, { reason: error.code });
+        }
+        // The document was edited after the request was raised: approving would
+        // vouch for figures it no longer carries. Nothing was written.
+        if (error instanceof ApprovalDocumentChangedError) {
+          return apiResponse.conflict(res, error.message, { reason: error.code });
+        }
+        if (error instanceof ApprovalExpectedDigestRequiredError) {
+          return apiResponse.badRequest(res, error.message, { reason: error.code });
+        }
+        // The document was deleted after the request was raised.
+        if (error instanceof ApprovalDocumentNotFoundError) {
+          return apiResponse.notFound(res, error.message);
         }
         throw error;
       }
