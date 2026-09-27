@@ -20,7 +20,7 @@ import { lockMigrationImport } from './migrationPostingSupport';
 import type { DbRow } from '@/types/db';
 import { computeFingerprint } from '../capture/captureDeduplicationService';
 import { deriveSageVat, SAGE_VAT_NOT_STATED_NOTE } from '../shared/sageVatDerivation';
-import { withApprovalGateExempt } from '../gl/approvalGateExempt';
+import { assertMayImportOpenBills, withApprovalGateExempt } from '../gl/approvalGateExempt';
 
 // ── Supplier Invoice Import ─────────────────────────────────────────────────
 
@@ -60,6 +60,8 @@ type RowOutcome = 'imported' | 'already_in_ap' | 'failed';
  * lock, so two concurrent runs cannot race the same pending rows.
  */
 export async function importSupplierInvoices(companyId: string, userId: string): Promise<MigrationRun> {
+  // R-035 HIGH-2: every staged bill is open (amount_paid 0) — refuse before the run is recorded.
+  await assertMayImportOpenBills(companyId, userId);
   const runId = await startRun('invoice_import', userId, companyId);
 
   return withRunRecovery(runId, companyId, async () => {
@@ -136,7 +138,7 @@ export async function importSupplierInvoices(companyId: string, userId: string):
 
             // BL-40: Added company_id to INSERT — was missing, causing NOT NULL violation
             // R-035 Q1: approved in Sage, so exempt from the approval backstop.
-            const newInv = (await withApprovalGateExempt(() => sql`
+            const newInv = (await withApprovalGateExempt({ companyId, userId, open: true }, () => sql`
               INSERT INTO supplier_invoices (
                 company_id, invoice_number, supplier_id, invoice_date, due_date,
                 subtotal, tax_rate, tax_amount, total_amount,

@@ -10,6 +10,7 @@ import { apiResponse } from '@/lib/apiResponse';
 import { withAuth, type CompanyAuthedRequest, type AuthenticatedNextApiRequest, withWriteAccess} from '@/lib/auth';
 import { withCsrf } from '@/lib/auth/withCsrf';
 import { log } from '@/lib/logger';
+import { respondIfImportRefused } from '@/modules/accounting/services/gl/approvalGateResponse';
 import {
   APInvoiceRowSchema,
   ImportEnvelopeSchema,
@@ -54,10 +55,17 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
     APInvoiceRowSchema, 'ap_invoices', invoices,
   );
 
-  const result = await importAPInvoices(companyId, sessionId, rows, userId, {
-    sourceRows,
-    priorErrors: rowErrors,
-  });
+  let result;
+  try {
+    result = await importAPInvoices(companyId, sessionId, rows, userId, {
+      sourceRows,
+      priorErrors: rowErrors,
+    });
+  } catch (err) {
+    // R-035 HIGH-2: raised before the first write, so the 4xx commits nothing.
+    if (respondIfImportRefused(res, err)) return;
+    throw err;
+  }
 
   log.info('AP invoices imported', {
     companyId,

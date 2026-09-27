@@ -249,6 +249,9 @@ const REFUSAL_CODES: ReadonlySet<string> = new Set([
   // before any read or write. Bearer callers carry no session id and are not
   // refused today — listed because every `readonly code` must be decided.
   'IMPERSONATION_FORBIDDEN',
+  // R-035 review HIGH-2 (gl/approvalGateExempt): names the demanded role and the
+  // caller's own; raised before an import writes anything.
+  'IMPORT_APPROVAL_AUTHORITY_REQUIRED',
   // Link/unlink a captured document to a posted journal refused: blank
   // reason, journal not found/not posted/reversed, document not found, or
   // the document already backs another claim (gl/journalDocumentLinkService,
