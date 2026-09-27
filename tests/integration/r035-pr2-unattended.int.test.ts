@@ -26,13 +26,13 @@ import pipelineRoute from '../../pages/api/accounting/ai-invoice-pipeline';
 import capturePostRoute from '../../pages/api/accounting/capture/[id]/post';
 import { assertDisposable, request, response } from './mfa-impersonation-postgres.helpers';
 import { callRoute, createUser, plantBill, plantRule, reasonOf, type Bill } from './r035-approval.helpers';
-import { billState, cleanupPr2, dataOf, enforce, postableCompany, routes } from './r035-pr2.helpers';
+import { billState, cleanupPr2, dataOf, enforce, impersonationToken, postableCompany, routes } from './r035-pr2.helpers';
 
 assertDisposable();
 const pool = new Pool({ connectionString: process.env.DATABASE_URL });
 const companies: string[] = [];
 const tokens: Record<string, string> = {};
-const u = { a: '', b: '' };
+const u = { a: '', b: '', admin: '' };
 const r = routes(tokens);
 const templates: string[] = [];
 
@@ -194,6 +194,45 @@ describe('capture and the AI pipeline (B1, B2)', () => {
     const ageing = await asUser(u.a, c, () => getAPAgingDetail(c, supplier));
     expect(ageing.invoices).toEqual([]);
   }
+
+  async function capturePost(c: string, doc: string, accessToken: string) {
+    const eventId = crypto.randomUUID();
+    await pool.query("INSERT INTO capture_events(id,company_id,channel,status,captured_document_id) VALUES($1,$2,'api','extracted',$3)", [eventId, c, doc]);
+    const req = request({ 'sb-access-token': accessToken, active_company_id: c }, 'POST');
+    req.url = `/api/accounting/capture/${eventId}/post`;
+    (req as unknown as { query: Record<string, string> }).query = { id: eventId };
+    req.body = {};
+    const res = response();
+    await capturePostRoute(req as never, res.res as never);
+    return res.state;
+  }
+
+  it('under Login-as: capture still inserts the draft, raises nothing, and says approval is required', async () => {
+    const { c } = await fixture();
+    const { doc } = await extractedDoc(c);
+    const res = await capturePost(c, doc, await impersonationToken(pool, u.a, u.admin));
+    expect(res.statusCode, JSON.stringify(res.body)).toBe(200);
+    expect((res.body as { data: { approvalRequired: boolean; approvalRequest: unknown } }).data)
+      .toMatchObject({ approvalRequired: true, approvalRequest: null });
+    const billId = await billFor(c, doc);
+    expect(await billState(pool, billId)).toMatchObject({ status: 'draft', journals: 0 });
+    expect(await pendingRequests(billId)).toEqual([]);
+  });
+
+  it('ai-invoice-pipeline says whether approval is required', async () => {
+    const { c } = await fixture();
+    const { doc } = await extractedDoc(c);
+    const req = request({ 'sb-access-token': await impersonationToken(pool, u.a, u.admin), active_company_id: c }, 'POST');
+    (req.socket as { remoteAddress: string }).remoteAddress = clientIp;
+    req.url = '/api/accounting/ai-invoice-pipeline';
+    req.body = { documentId: doc };
+    const res = response();
+    await pipelineRoute(req as never, res.res as never);
+    expect(res.state.statusCode, JSON.stringify(res.state.body)).toBe(200);
+    expect((res.state.body as { data: { approvalRequired: boolean; approvalRequest: unknown } }).data)
+      .toMatchObject({ approvalRequired: true, approvalRequest: null });
+    expect(await pendingRequests(await billFor(c, doc))).toEqual([]);
+  });
 
   it('capture/[id]/post inserts a draft and raises the request', async () => {
     const { c } = await fixture();
