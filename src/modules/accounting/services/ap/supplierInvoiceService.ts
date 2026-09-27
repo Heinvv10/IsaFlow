@@ -61,7 +61,13 @@ export async function getSupplierInvoiceById(
       FROM supplier_invoice_items sii
       LEFT JOIN gl_accounts a ON a.id = sii.gl_account_id
       WHERE sii.supplier_invoice_id = ${id}
-      ORDER BY sii.created_at
+      -- Posting order: buildExpenseLines puts the rounding residual on the LAST
+      -- line. Lines inserted together tie on created_at, so the content (then
+      -- id) breaks the tie instead of heap order. approval_document_digest
+      -- (migration 708) hashes the lines in exactly this order — keep them equal.
+      ORDER BY sii.created_at, sii.description, sii.gl_account_id, sii.quantity,
+               sii.unit_price, sii.tax_rate, sii.tax_amount, sii.line_total,
+               sii.project_id, sii.cost_center_id, sii.vat_classification, sii.id
     `) as Row[];
 
     return { ...mapInvoiceRow(rows[0]!), items: itemRows.map(mapItemRow) };

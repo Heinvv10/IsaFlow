@@ -5,7 +5,8 @@
  * /recover flow. GoTrue cannot distinguish a recovery session from a
  * magiclink/impersonation session (both surface as amr:otp and verify
  * interchangeably), so a GoTrue credential is too broad to gate a password
- * change. These tokens are minted ONLY by /api/auth/forgot-password and
+ * change. These tokens are minted ONLY through passwordResetEmail.ts (by
+ * /api/auth/forgot-password and the admin "Reset password" action) and
  * consumed ONLY by /api/auth/do-reset-password.
  *
  * The raw token never leaves this process except in the emailed link: only
@@ -15,7 +16,7 @@
  */
 
 import crypto from 'crypto';
-import { sql, withTransaction } from '@/lib/neon';
+import { sql } from '@/lib/neon';
 import { log } from '@/lib/logger';
 
 const RESET_TOKEN_EXPIRY_MS = 60 * 60 * 1000; // 1 hour
@@ -25,36 +26,54 @@ function hashToken(rawToken: string): string {
 }
 
 /**
- * Mint a single-use reset token for a GoTrue user. Invalidates any prior
- * unconsumed tokens for that user (in the same transaction) so only the most
- * recent link is ever live. Returns the RAW token (for the email link) — the
- * caller must never persist it.
+ * Mint a single-use reset token for a GoTrue user. Prior unconsumed tokens stay
+ * live until `supersedePasswordResetTokens` runs after the new link is
+ * delivered — a send that fails must not kill the link the user already has.
+ * Returns the RAW token (for the email link) — the caller must never persist
+ * it — and its hash, which is what the follow-up calls name it by.
  */
-export async function createPasswordResetToken(
+export async function issuePasswordResetToken(
   userId: string,
-): Promise<{ token: string; expiresAt: Date }> {
+): Promise<{ token: string; tokenHash: string; expiresAt: Date }> {
   const token = crypto.randomBytes(32).toString('hex'); // 256-bit
   const tokenHash = hashToken(token);
   const expiresAt = new Date(Date.now() + RESET_TOKEN_EXPIRY_MS);
-
-  // Atomic: either both the invalidation and the new token land, or neither —
-  // never a window where an old token survives alongside a freshly issued one.
-  await withTransaction(async (tx) => {
-    await tx`
-      UPDATE auth_password_reset_tokens
-      SET consumed_at = now()
-      WHERE user_id = ${userId}::uuid
-        AND consumed_at IS NULL
-        AND expires_at > now()
-    `;
-    await tx`
-      INSERT INTO auth_password_reset_tokens (user_id, token_hash, expires_at)
-      VALUES (${userId}::uuid, ${tokenHash}, ${expiresAt.toISOString()}::timestamptz)
-    `;
-  });
-
+  await sql`
+    INSERT INTO auth_password_reset_tokens (user_id, token_hash, expires_at)
+    VALUES (${userId}::uuid, ${tokenHash}, ${expiresAt.toISOString()}::timestamptz)
+  `;
   log.info('Password reset token created', { userId }, 'passwordResetService');
-  return { token, expiresAt };
+  return { token, tokenHash, expiresAt };
+}
+
+/**
+ * The new link was delivered: retire the user's unconsumed tokens issued
+ * BEFORE it. Only older ones — two interleaved resets (a detached
+ * forgot-password beside an admin reset, a double click) each supersede after
+ * their own send, and retiring "every other" token let the run that finished
+ * last kill the NEWER link too, leaving the user none. A created_at tie is
+ * broken by id, so of two tied tokens exactly one survives.
+ */
+export async function supersedePasswordResetTokens(userId: string, keepTokenHash: string): Promise<void> {
+  await sql`
+    UPDATE auth_password_reset_tokens t
+    SET consumed_at = now()
+    FROM auth_password_reset_tokens k
+    WHERE k.token_hash = ${keepTokenHash}
+      AND k.user_id = ${userId}::uuid
+      AND t.user_id = k.user_id
+      AND (t.created_at, t.id) < (k.created_at, k.id)
+      AND t.consumed_at IS NULL
+      AND t.expires_at > now()
+  `;
+}
+
+/** The link never went out: retire just this token. */
+export async function withdrawPasswordResetToken(tokenHash: string): Promise<void> {
+  await sql`
+    UPDATE auth_password_reset_tokens SET consumed_at = now()
+    WHERE token_hash = ${tokenHash} AND consumed_at IS NULL
+  `;
 }
 
 /**

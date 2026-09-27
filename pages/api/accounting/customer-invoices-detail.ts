@@ -97,6 +97,12 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
         return { kind: 'not_draft' as const };
       }
       const existingRate = Number(ownedRows[0]!.exchange_rate ?? 1);
+      // A currency change needs its rate: recomputing at the OLD one left a ZAR
+      // invoice re-labelled USD with functional_total = the USD figure, which is
+      // what approval rules match on (R-035).
+      if (fxCode && fxCode !== String(ownedRows[0]!.currency_code ?? 'ZAR').toUpperCase() && fxRateOverride === null) {
+        return { kind: 'rate_required' as const };
+      }
 
       // Defence-in-depth: clientId must belong to the same tenant. The FK
       // alone does not check company_id, so without this guard a caller could
@@ -181,6 +187,7 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
     if (result.kind === 'not_found') return apiResponse.notFound(res, 'Invoice', id);
     if (result.kind === 'not_draft') return apiResponse.badRequest(res, 'Only draft invoices can be edited');
     if (result.kind === 'bad_client') return apiResponse.badRequest(res, 'clientId does not belong to this company');
+    if (result.kind === 'rate_required') return apiResponse.badRequest(res, 'exchangeRate is required when currencyCode changes');
 
     log.info('Customer invoice updated', { id, hasItems: Boolean(items) });
     return apiResponse.success(res, { updated: true });

@@ -145,6 +145,9 @@ function truncateForMessage(value: unknown): string {
 const REFUSAL_CODES: ReadonlySet<string> = new Set([
   'ADJUSTMENT_NOT_APPROVABLE',
   'APPROVAL_REQUEST_LOCK_TIMEOUT',
+  // R-035 approval gate (gl/approvalGate): names the caller's own document
+  // number, the demanded role and the rule's name; raised before any write.
+  'APPROVAL_REQUIRED',
   'BANK_ALLOCATION_REFUSED',
   'BANK_MATCH_UNAVAILABLE',
   'BANK_TX_ALLOCATED',
@@ -155,25 +158,31 @@ const REFUSAL_CODES: ReadonlySet<string> = new Set([
   'BATCH_ALREADY_REVERSED',
   'BATCH_NOT_PROCESSABLE',
   'BILL_LINE_ACCOUNT_REFUSED',
-  // A captured document already claimed for posting, or rejected (K-072). Two
-  // fixed messages naming no id, amount or table, raised only after the
+  // A captured document already claimed for posting, or rejected (K-072), or its
+  // file already posted from another upload / held by another request (R-088).
+  // Four fixed messages naming no id, amount or table, raised only after the
   // service read the document by company_id — the caller's own document.
   'CAPTURED_DOCUMENT_ALREADY_POSTED',
   'CAPTURE_EVENT_LOCKED',
   // Another request holds the capture row (K-072): says "retry", names only the
   // id the caller passed, and the row is locked by id AND company_id.
   'CAPTURE_ROW_LOCK_TIMEOUT',
-  // A manual expense-claim line's source document could not be claimed (R-105).
-  // Six fixed messages naming no id, amount or table, raised before any write;
+  // A manual expense-claim line's source document could not be claimed (R-105,
+  // R-088). Eight fixed messages naming no id, amount or table, raised before any write;
   // the claim is scoped by company_id. No MCP tool creates expense claims today.
   'CLAIM_SOURCE_DOCUMENT_REFUSED',
   'CREDIT_NOTE_LOCK_TIMEOUT',
   'CUSTOMER_INVOICE_LOCK_TIMEOUT',
   'CUSTOMER_NOT_FOUND',
+  // R-035: approve on a request whose document changed since it was raised.
+  // Names only the request id the caller passed; nothing is written.
+  'DOCUMENT_CHANGED',
   'DOCUMENT_CLAIM_LOCK_TIMEOUT',
   // Inactive or not-this-company line account (gl/documentLineAccountGuard): names only the caller's own account.
   'DOCUMENT_LINE_ACCOUNT_REFUSED',
   'DOCUMENT_NUMBER_LOCK_TIMEOUT',
+  // R-035: approve without the digest the approver was shown. Names only the request id.
+  'EXPECTED_DIGEST_REQUIRED',
   'GL_ACCOUNT_LOCK_TIMEOUT',
   // Confirming a manual journal as the correction of an auto-posted line was
   // refused (R-079). Twelve fixed messages written for the user, naming no id,
@@ -181,10 +190,15 @@ const REFUSAL_CODES: ReadonlySet<string> = new Set([
   'HAND_CORRECTION_REFUSED',
   'JOURNAL_REVERSAL_LOCK_TIMEOUT',
   'LOAN_POST_LOCK_TIMEOUT',
+  // R-035: enabling approval enforcement for a type not yet wired. Names only the type.
+  'NOT_ENFORCEABLE',
   'PAYMENT_LOCK_TIMEOUT',
   'PAYMENT_POSTED_DURING_VOID',
   'PAYROLL_LOAN_LOCK_TIMEOUT',
   'PAYROLL_RUN_JOURNAL_POSTED',
+  // Another request is posting a document with the same content (R-088): one
+  // fixed "retry" sentence naming no document, raised before any write.
+  'RECEIPT_POST_BUSY',
   'RECEIPT_REFUSED',
   'RECLASS_LINE_LOCK_TIMEOUT',
   // Rematch of a statement already marked reconciled (R-059 r11). The message
@@ -226,6 +240,12 @@ const REFUSAL_CODES: ReadonlySet<string> = new Set([
   // caller's own document, scoped by company_id. Pre-write.
   'VAT_DECLARED_ELSEWHERE_FORBIDDEN',
   'VAT_DECLARED_ELSEWHERE_REFUSED',
+  // R-032 L5: an approve/post/file/close act refused to a platform-admin
+  // "Login as" session (auth/impersonationGuard). A fixed message naming no
+  // id, amount or table; raised as the approving service's first statement,
+  // before any read or write. Bearer callers carry no session id and are not
+  // refused today — listed because every `readonly code` must be decided.
+  'IMPERSONATION_FORBIDDEN',
   // Link/unlink a captured document to a posted journal refused: blank
   // reason, journal not found/not posted/reversed, document not found, or
   // the document already backs another claim (gl/journalDocumentLinkService,

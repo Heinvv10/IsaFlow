@@ -18,6 +18,7 @@ import { mayDecorate } from '@/lib/auth/consentAppView';
 import { isReservedClientName } from '@/lib/auth/reservedClientName';
 import { sql } from '@/lib/neon';
 import { log } from '@/lib/logger';
+import { assertNotImpersonating } from './impersonationGuard';
 
 type Row = Record<string, unknown>;
 
@@ -81,6 +82,7 @@ export class ReservedClientNameError extends Error {
 }
 
 export async function registerOauthApp(input: RegisterAppInput): Promise<RegisteredApp> {
+  await assertNotImpersonating(); // R-032: a Login-as session mints no credential as the target
   if (input.redirectUris.length === 0) {
     throw new Error('registerOauthApp: at least one redirect URI required');
   }
@@ -265,6 +267,7 @@ export interface CreateCodeInput {
 }
 
 export async function createAuthorisationCode(input: CreateCodeInput): Promise<string> {
+  await assertNotImpersonating(); // R-032: a Login-as session mints no credential as the target
   const code = `oac_${base62(32)}`;
   const codeHash = sha256Hex(code);
   await sql`

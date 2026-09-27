@@ -22,6 +22,7 @@ import {
   applyPollResult,
   insertEfilingEvent,
 } from './sarsEfilingRepo';
+import { assertNotImpersonating } from '@/lib/auth/impersonationGuard';
 
 export class EfilingNotConfiguredError extends Error {
   constructor() {
@@ -119,6 +120,7 @@ export async function submitVAT201ToSars(
   submissionId: string,
   userId: string,
 ): Promise<SubmitOutcome> {
+  await assertNotImpersonating(); // R-032 L5: first, before any read, write or outbound call
   const config = getEfilingConfig();
   if (!config) throw new EfilingNotConfiguredError();
 

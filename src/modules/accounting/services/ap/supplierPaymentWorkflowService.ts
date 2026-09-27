@@ -20,6 +20,7 @@ import {
 } from './paymentJournalReversal';
 import type { SupplierPayment } from '../../types/ap.types';
 import type { JournalLineInput } from '../../types/gl.types';
+import { assertNotImpersonating } from '@/lib/auth/impersonationGuard';
 type Row = DbRow;
 
 /**
@@ -37,6 +38,7 @@ export async function approveSupplierPayment(
   id: string,
   userId: string,
 ): Promise<SupplierPayment> {
+  await assertNotImpersonating(); // R-032 L5: first, before any read or write
   try {
     const payment = await getSupplierPaymentById(companyId, id);
     if (!payment) throw new SupplierPaymentNotFoundError(id);
@@ -85,6 +87,7 @@ export async function processSupplierPayment(
   userId: string,
   opts?: { postingAgent?: string },
 ): Promise<SupplierPayment> {
+  await assertNotImpersonating(); // R-032 L5: first, before any read or write
   try {
     // (2) THE PAYMENT FIRST — same canonical order as the void below. Without
     // it this path took `supplier_invoices` (the allocation loop) before
@@ -237,7 +240,7 @@ async function voidSupplierPaymentInner(
     if (!payment) throw new SupplierPaymentNotFoundError(id);
     // Refuses reconciled, batch members and other statuses; a draft/approved
     // payment is voided as a status change. Only a processed one continues.
-    if (await voidIfUnprocessed(companyId, payment)) return { ...payment, status: 'cancelled' };
+    if (await voidIfUnprocessed(companyId, payment, userId)) return { ...payment, status: 'cancelled' };
     assertSameJournal(journalId, payment.glJournalEntryId);
     // A bank ALLOCATION posted this journal: undo it the MCP void's way — bills,
     // payment, contra and bank line in one call (`voidViaBankAllocation`).

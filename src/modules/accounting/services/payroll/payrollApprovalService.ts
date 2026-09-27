@@ -16,6 +16,7 @@ import {
   type PayrollJournalNote,
   type PayrollJournalPlan,
 } from './payrollJournalBuilder';
+import { assertNotImpersonating } from '@/lib/auth/impersonationGuard';
 
 type Row = DbRow;
 
@@ -67,6 +68,7 @@ export async function approvePayrollRun(
   userId: string,
   opts?: { postingAgent?: string },
 ): Promise<ApprovePayrollRunResult> {
+  await assertNotImpersonating(); // R-032 L5: first, before any read or write
   log.info('Approving payroll run', { companyId, runId }, 'payrollApproval');
 
   const runRows = (await sql`

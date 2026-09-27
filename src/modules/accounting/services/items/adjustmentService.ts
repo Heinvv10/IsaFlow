@@ -13,6 +13,7 @@ import { assertCustomerInCompany, assertSupplierInCompany } from '../core/contac
 import { claimUnderLockTimeout } from '../core/documentClaimLock';
 import type { AccountingAdjustment, AdjustmentCreateInput } from '../../types/ar.types';
 import type { JournalLineInput } from '../../types/gl.types';
+import { assertNotImpersonating } from '@/lib/auth/impersonationGuard';
 
 type Row = DbRow;
 
@@ -110,6 +111,7 @@ export class AdjustmentNotApprovableError extends Error {
 }
 
 export async function approveAdjustment(companyId: string, id: string, userId: string): Promise<AccountingAdjustment> {
+  await assertNotImpersonating(); // R-032 L5: first, before any read or write
   const adjRows = (await sql`SELECT * FROM accounting_adjustments WHERE id = ${id} AND company_id = ${companyId}`) as Row[];
   if (!adjRows[0]) throw new Error('Adjustment not found');
 

@@ -4,8 +4,10 @@
  * migration journals — see migration 706's header and
  * `documentJournalClaimGuard.ts`). The pre-filing input-VAT support check
  * (`reports/vatInputSupport.ts`) reads this link the same way it reads
- * `source_document_id`, so linking a tax invoice clears `unsupportedInputVat`
- * for that journal.
+ * `source_document_id`: linking a tax invoice re-classifies the journal
+ * against the document's own VAT (fully supported, `amount_mismatch`, or
+ * `document_over_claimed`), moving it off whichever list it was in —
+ * `unsupportedInputVat` (blocking) or `inputVatWithoutTaxInvoice` (warning).
  *
  * Same write permission as any other journal edit (`withWriteAccess`, no
  * extra role) — this does not change what the journal posted, only what
@@ -160,9 +162,17 @@ export async function getActiveLinksForJournal(companyId: string, journalEntryId
 }
 
 /**
- * Unlink — restores the block (the journal returns to `unsupportedInputVat`
- * unless it has other support). Refuses a link that is not active or not in
- * this company.
+ * Unlink — the journal's classification (reports/vatInputSupport.ts) reads
+ * only the ACTIVE link, so after this the journal falls through to whatever
+ * else supports it. Breaker fix (Hein, 2026-09-26, round 2): this UNLINK ROW
+ * ITSELF (kept, `unlinked_at` set — never deleted) is what makes
+ * `hadDocumentLink` true afterwards, so a journal with no other support
+ * BLOCKS again as `document_unlinked` (`unsupportedInputVat`) — not the
+ * warning `no_document`, which is reserved for a journal that never had a
+ * document link at all. It clears only by linking a document again (the
+ * normal document checks then apply) or another support existing (bank /
+ * credit note / VAT adjustment), or by an owner/admin override. Refuses a
+ * link that is not active or not in this company.
  */
 export async function unlinkDocumentFromJournal(
   companyId: string,

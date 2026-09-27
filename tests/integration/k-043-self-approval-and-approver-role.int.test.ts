@@ -39,7 +39,7 @@ beforeAll(async () => {
     `INSERT INTO approval_requests(id,company_id,rule_id,document_type,document_id,amount,status,requested_by)
      VALUES($1,$2,$3,'supplier_invoice',$4,250000,'pending',$5)`,
     [requestId, company, ruleId, documentId, requester]);
-  token = await new SignJWT({ sub: requester, aal: 'aal2' }).setProtectedHeader({ alg: 'HS256' })
+  token = await new SignJWT({ sub: requester, aal: 'aal2', session_id: crypto.randomUUID() }).setProtectedHeader({ alg: 'HS256' })
     .setExpirationTime('1h').sign(new TextEncoder().encode(process.env.JWT_SECRET));
 });
 

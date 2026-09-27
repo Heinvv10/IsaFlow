@@ -14,9 +14,10 @@
 
 import { sql, withSavepoint } from '@/lib/neon';
 import { log } from '@/lib/logger';
-import type { ApprovalRequest, ApprovalRule, DocumentType } from './approvalService';
+import type { ApprovalRequest, DocumentType } from './approvalService';
 import { checkApproval as checkApprovalRules, mapRequest } from './approvalMatching';
-import { ApprovalNotRequiredError, ApprovalRuleNotFoundError, requiredRank } from './approvalAuthority';
+import { ApprovalNotRequiredError, ApprovalRuleNotFoundError } from './approvalAuthority';
+import { rebindPendingRequest } from './approvalRebind';
 
 /** The id names no document of that type in this company. */
 export class ApprovalDocumentNotFoundError extends Error {
@@ -31,6 +32,12 @@ export interface ApprovalDocument {
   amount: number;
   /** The document's own number, so the request's reference is not caller text either. */
   reference: string | null;
+  /**
+   * approval_document_digest() — WHAT an approval of this document vouches for
+   * (migration 708). NULL for a type with no digest definition yet, and a NULL
+   * digest never clears the approval gate.
+   */
+  digest: string | null;
 }
 
 type Row = Record<string, unknown>;
@@ -41,6 +48,15 @@ const first = (rows: Row[]): Row | undefined => rows[0];
  * One statement per document type — the table name cannot come from a parameter,
  * and `payment` covers both sides of the ledger, so it looks in each in turn.
  * A journal entry carries no amount column; its size is the sum of its debits.
+ *
+ * `digest` is approval_document_digest() — the one SQL definition — read in
+ * the same statement as the amount.
+ *
+ * A soft-deleted invoice (`deleted_at` set) is no document: not found.
+ *
+ * Invoices are matched on their FUNCTIONAL (ZAR) total where they carry one:
+ * `total_amount` is in the document's own currency, so a USD 5 000 bill
+ * (about R92 500) slipped under a R50 000 rule.
  */
 async function findDocument(
   companyId: string,
@@ -50,27 +66,32 @@ async function findDocument(
   switch (documentType) {
     case 'customer_invoice':
       return first((await sql`
-        SELECT COALESCE(total_amount, 0) AS amount, invoice_number AS reference
-        FROM customer_invoices WHERE id = ${documentId}::UUID AND company_id = ${companyId}
+        SELECT COALESCE(functional_total, total_amount, 0) AS amount, invoice_number AS reference,
+               approval_document_digest(company_id, 'customer_invoice', id) AS digest
+        FROM customer_invoices WHERE id = ${documentId}::UUID AND company_id = ${companyId} AND deleted_at IS NULL
       `) as Row[]);
     case 'supplier_invoice':
       return first((await sql`
-        SELECT COALESCE(total_amount, 0) AS amount, invoice_number AS reference
-        FROM supplier_invoices WHERE id = ${documentId}::UUID AND company_id = ${companyId}
+        SELECT COALESCE(functional_total, total_amount, 0) AS amount, invoice_number AS reference,
+               approval_document_digest(company_id, 'supplier_invoice', id) AS digest
+        FROM supplier_invoices WHERE id = ${documentId}::UUID AND company_id = ${companyId} AND deleted_at IS NULL
       `) as Row[]);
     case 'credit_note':
       return first((await sql`
-        SELECT COALESCE(total_amount, 0) AS amount, credit_note_number AS reference
+        SELECT COALESCE(total_amount, 0) AS amount, credit_note_number AS reference,
+               approval_document_digest(company_id, 'credit_note', id) AS digest
         FROM credit_notes WHERE id = ${documentId}::UUID AND company_id = ${companyId}
       `) as Row[]);
     case 'payment': {
       const customer = first((await sql`
-        SELECT COALESCE(total_amount, 0) AS amount, payment_number AS reference
+        SELECT COALESCE(total_amount, 0) AS amount, payment_number AS reference,
+               approval_document_digest(company_id, 'payment', id) AS digest
         FROM customer_payments WHERE id = ${documentId}::UUID AND company_id = ${companyId}
       `) as Row[]);
       if (customer) return customer;
       return first((await sql`
-        SELECT COALESCE(total_amount, 0) AS amount, payment_number AS reference
+        SELECT COALESCE(total_amount, 0) AS amount, payment_number AS reference,
+               approval_document_digest(company_id, 'payment', id) AS digest
         FROM supplier_payments WHERE id = ${documentId}::UUID AND company_id = ${companyId}
       `) as Row[]);
     }
@@ -80,7 +101,8 @@ async function findDocument(
                  SELECT SUM(jl.debit) FROM gl_journal_lines jl
                  WHERE jl.journal_entry_id = je.id AND jl.company_id = ${companyId}
                ), 0) AS amount,
-               je.entry_number AS reference
+               je.entry_number AS reference,
+               approval_document_digest(je.company_id, 'journal_entry', je.id) AS digest
         FROM gl_journal_entries je WHERE je.id = ${documentId}::UUID AND je.company_id = ${companyId}
       `) as Row[]);
   }
@@ -101,65 +123,8 @@ export async function resolveApprovalDocument(
   return {
     amount: Number(row.amount ?? 0),
     reference: row.reference != null ? String(row.reference) : null,
+    digest: row.digest != null ? String(row.digest) : null,
   };
-}
-
-/**
- * Bring a pending request onto the rule the CURRENT facts choose — but only
- * ever UPWARDS.
- *
- * Returning the existing row unconditionally let the FIRST request for a
- * document pin its authority permanently: one raised under a laxer rule stayed
- * governed by that rule even when the document's own amount, re-resolved, chose
- * a stricter one. Re-binding in BOTH directions was the inverse of that defect,
- * and the worse half: the requester does not have to touch the document to
- * change which rule today's facts choose, because rule authority deliberately
- * lets them edit any rule at or below their own rank. An admin facing an
- * admin-only request of their own raised that rule's `condition_value` out of
- * range (or deactivated it), re-POSTed, and the pending row moved to the
- * `manager any` rule beside it — a manager then cleared their R500 000 bill.
- *
- * So: new facts may make a pending request STRICTER; nothing may make it laxer.
- * The comparison is against `requiredRole`, the snapshot taken when the request
- * was raised, not against the bound rule's live role — the live role is itself
- * editable downwards by the same actor (approvalAuthority takes the higher of
- * the two for the same reason).
- */
-export async function rebindPendingRequest(
-  companyId: string,
-  existing: ApprovalRequest,
-  matched: ApprovalRule | null,
-  document: ApprovalDocument
-): Promise<ApprovalRequest> {
-  // No active rule governs the document now. The pending request keeps the
-  // authority it was raised under rather than being silently freed.
-  if (!matched) return existing;
-  // checkApproval fills `requiredRole` from the bound rule for rows raised
-  // before migration 669, so this is never a free pass. It stays NULL only where
-  // no rule of this company is bound at all — and the decide path demands the
-  // 'admin' column default for exactly those, so the floor is the same one.
-  const currentRole = existing.requiredRole ?? 'admin';
-  if (requiredRank(matched.approverRole) < requiredRank(currentRole)) return existing;
-  if (existing.ruleId === matched.id && Number(existing.amount ?? 0) === document.amount
-      && existing.requiredRole === matched.approverRole) {
-    return existing;
-  }
-
-  const rows = (await sql`
-    UPDATE approval_requests SET
-      rule_id = ${matched.id}::UUID,
-      amount = ${document.amount}::NUMERIC,
-      document_reference = ${document.reference}::TEXT,
-      required_role = ${matched.approverRole}::TEXT
-    WHERE id = ${existing.id}::UUID AND company_id = ${companyId} AND status = 'pending'
-    RETURNING *
-  `) as Row[];
-  // Decided between the read and the write: nothing pending to re-bind.
-  if (!rows[0]) return existing;
-  log.info('Approval request re-bound to the governing rule', {
-    id: existing.id, fromRuleId: existing.ruleId, toRuleId: matched.id,
-  }, 'accounting');
-  return mapRequest(rows[0]);
 }
 
 /** uq_approval_requests_pending losing the race, not a fault. */
@@ -191,7 +156,7 @@ export async function requestApproval(companyId: string, input: {
   // re-bound to the rule TODAY's facts choose first: an existing row governed by
   // a laxer rule used to pin the document's authority permanently.
   if (check.existingRequest) {
-    return rebindPendingRequest(companyId, check.existingRequest, check.matchedRule, document);
+    return rebindPendingRequest(companyId, check.existingRequest, check.matchedRule, document, input.requestedBy);
   }
   if (!check.matchedRule) throw new ApprovalNotRequiredError(input.documentType, input.documentId);
   const matchedRule = check.matchedRule;
@@ -201,11 +166,17 @@ export async function requestApproval(companyId: string, input: {
   // alone does not help — a foreign-key check bypasses RLS and is global.
   // `is_active` is re-checked because checkApproval only considered active rules:
   // one deactivated in between must not be bound to a new request.
+  // `approver_roster` (migration 708): the roster snapshot a sole-approver
+  // self-approval is later checked against — taken only while enforcement is on
+  // for the type, since Q2 applies only then.
   const insert = async () => (await sql`
-    INSERT INTO approval_requests (company_id, rule_id, document_type, document_id, document_reference, amount, requested_by, required_role)
+    INSERT INTO approval_requests (company_id, rule_id, document_type, document_id, document_reference, amount, requested_by, required_role, document_digest, approver_roster)
     SELECT ${companyId}::UUID, rl.id, ${input.documentType}::TEXT, ${input.documentId}::UUID,
            ${document.reference}::TEXT, ${document.amount}::NUMERIC,
-           ${input.requestedBy}::UUID, rl.approver_role
+           ${input.requestedBy}::UUID, rl.approver_role, ${document.digest}::TEXT,
+           (SELECT approval_roster_snapshot(${companyId}::UUID, ${input.requestedBy}::TEXT)
+            WHERE EXISTS (SELECT 1 FROM approval_enforcement ae
+                          WHERE ae.company_id = ${companyId}::UUID AND ae.document_type = ${input.documentType}::TEXT))
     FROM approval_rules rl
     WHERE rl.id = ${matchedRule.id}::UUID AND rl.company_id = ${companyId} AND rl.is_active = true
     RETURNING *
@@ -221,7 +192,7 @@ export async function requestApproval(companyId: string, input: {
     // choose the rule.
     const raced = await checkApprovalRules(companyId, input.documentType, input.documentId, document.amount);
     if (!raced.existingRequest) throw error;
-    return rebindPendingRequest(companyId, raced.existingRequest, raced.matchedRule, document);
+    return rebindPendingRequest(companyId, raced.existingRequest, raced.matchedRule, document, input.requestedBy);
   }
   if (!rows[0]) throw new ApprovalRuleNotFoundError(matchedRule.id);
   log.info('Approval requested', {

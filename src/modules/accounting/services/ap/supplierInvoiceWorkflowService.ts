@@ -21,6 +21,9 @@ import { assertSupplierInvoiceLinesPostable } from './billLineAccountGuard';
 import { planSupplierInvoiceCancel } from './supplierInvoiceCancelPlan';
 import { documentInPopulation } from '../shared/documentPopulation';
 import type { LateClaimInfo, PostJournalOpts } from '../gl/vatLateClaimPlan';
+import { claimEvidencedProvisional, settleClaimedProvisional } from './provisionalInvoiceSettlement';
+import { mapInvoiceRow } from './supplierInvoiceWorkflowRow';
+import { assertNotImpersonating } from '@/lib/auth/impersonationGuard';
 
 type Row = DbRow;
 
@@ -36,6 +39,15 @@ export async function approveSupplierInvoice(
   // 'mcp:%'. That review surface is the control the whole agent-write model
   // rests on. `allowLateInputClaim`: human-initiated callers only (gl/vatLateClaimPlan.ts).
   opts?: PostingActorOpts & PostJournalOpts,
+): Promise<SupplierInvoice & { lateClaim?: LateClaimInfo }> {
+  await assertNotImpersonating(); // R-032 L5: first, before any read or write
+  // All-or-nothing (R-127): the provisional settlement runs AFTER the journal and
+  // the status UPDATE, and every route answers a throw 4xx, which withAuth COMMITs.
+  return withSavepoint('approve_supplier_invoice', () => approveInner(companyId, id, userId, opts));
+}
+
+async function approveInner(
+  companyId: string, id: string, userId: string, opts?: PostingActorOpts & PostJournalOpts,
 ): Promise<SupplierInvoice & { lateClaim?: LateClaimInfo }> {
   try {
     // Serialise concurrent approvals of the SAME invoice before reading its
@@ -94,6 +106,8 @@ export async function approveSupplierInvoice(
       return mapInvoiceRow(reused[0]!);
     }
 
+    const provisional = await claimEvidencedProvisional(companyId, id); // R-127: locked before the first write
+
     // Auto-post GL entry: DR Expense + DR VAT Input, CR Accounts Payable
     const apAccount = await getSystemAccount('payable', companyId);
     const vatAccount = await getSystemAccount('vat_input', companyId);
@@ -138,9 +152,10 @@ export async function approveSupplierInvoice(
       WHERE id = ${id} AND company_id = ${companyId}::UUID
       RETURNING *
     `) as Row[];
+    const settled = await settleClaimedProvisional(companyId, provisional, invoice, apAccount.id, userId, opts);
 
     log.info('Approved supplier invoice', { id, journalEntryId: journalEntry.id }, 'accounting');
-    return { ...mapInvoiceRow(updated[0]!), ...(posted.lateClaim ? { lateClaim: posted.lateClaim } : {}) };
+    return { ...mapInvoiceRow(settled ?? updated[0]!), ...(posted.lateClaim ? { lateClaim: posted.lateClaim } : {}) };
   } catch (err) {
     log.error('Failed to approve supplier invoice', { id, error: err }, 'accounting');
     throw err;
@@ -156,6 +171,14 @@ export async function postSupplierInvoiceToGL(
   id: string,
   userId: string,
   opts?: PostingActorOpts,
+): Promise<{ journalEntryId: string; alreadyPosted: boolean }> {
+  await assertNotImpersonating(); // R-032 L5: first, before any read or write
+  // All-or-nothing, as approveSupplierInvoice (R-127).
+  return withSavepoint('post_supplier_invoice_gl', () => postToGLInner(companyId, id, userId, opts));
+}
+
+async function postToGLInner(
+  companyId: string, id: string, userId: string, opts?: PostingActorOpts,
 ): Promise<{ journalEntryId: string; alreadyPosted: boolean }> {
   // Same check-then-act window approveSupplierInvoice closes at :95, and the
   // same reason: this function decides on `glJournalEntryId` below and then
@@ -205,6 +228,7 @@ export async function postSupplierInvoiceToGL(
     );
   }
 
+  const provisional = await claimEvidencedProvisional(companyId, id); // R-127, as in approve
   const apAccount = await getSystemAccount('payable', companyId);
   const vatAccount = await getSystemAccount('vat_input', companyId);
   const defaultExpenseAccount = await getSystemAccount('default_expense', companyId);
@@ -246,6 +270,7 @@ export async function postSupplierInvoiceToGL(
     SET gl_journal_entry_id = ${journalEntry.id}::UUID
     WHERE id = ${id}::UUID AND company_id = ${companyId}::UUID
   `;
+  await settleClaimedProvisional(companyId, provisional, invoice, apAccount.id, userId, opts);
 
   log.info('Backfilled supplier invoice GL', { id, journalEntryId: journalEntry.id }, 'accounting');
   return { journalEntryId: journalEntry.id, alreadyPosted: false };
@@ -468,45 +493,7 @@ export async function performThreeWayMatch(
   return { invoiceId, matchStatus: overallStatus, itemResults };
 }
 
-// ── Private mapper (duplicated from supplierInvoiceService to avoid circular import) ──
-import { fmtDate } from '@/lib/fmtDate';
 import type { VatType } from '../../types/gl.types';
 import type { SupplierInvoiceItem } from '../../types/ap.types';
-
-function mapInvoiceRow(row: Row): SupplierInvoice {
-  return {
-    id: String(row.id),
-    invoiceNumber: String(row.invoice_number),
-    supplierId: String(row.supplier_id),
-    purchaseOrderId: row.purchase_order_id ? String(row.purchase_order_id) : undefined,
-    grnId: row.grn_id ? String(row.grn_id) : undefined,
-    invoiceDate: fmtDate(row.invoice_date),
-    dueDate: row.due_date ? fmtDate(row.due_date) : undefined,
-    receivedDate: row.received_date ? fmtDate(row.received_date) : undefined,
-    subtotal: Number(row.subtotal),
-    taxRate: Number(row.tax_rate),
-    taxAmount: Number(row.tax_amount),
-    totalAmount: Number(row.total_amount),
-    amountPaid: Number(row.amount_paid),
-    balance: Number(row.balance),
-    paymentTerms: row.payment_terms ? String(row.payment_terms) : undefined,
-    currency: String(row.currency),
-    reference: row.reference ? String(row.reference) : undefined,
-    status: String(row.status) as SupplierInvoice['status'],
-    matchStatus: String(row.match_status) as SupplierInvoice['matchStatus'],
-    projectId: row.project_id ? String(row.project_id) : undefined,
-    costCenterId: row.cost_center_id ? String(row.cost_center_id) : undefined,
-    glJournalEntryId: row.gl_journal_entry_id ? String(row.gl_journal_entry_id) : undefined,
-    sageInvoiceId: row.sage_invoice_id ? String(row.sage_invoice_id) : undefined,
-    notes: row.notes ? String(row.notes) : undefined,
-    createdBy: String(row.created_by),
-    approvedBy: row.approved_by ? String(row.approved_by) : undefined,
-    approvedAt: row.approved_at ? String(row.approved_at) : undefined,
-    createdAt: String(row.created_at),
-    updatedAt: String(row.updated_at),
-    supplierName: row.supplier_name ? String(row.supplier_name) : undefined,
-    poNumber: row.po_number ? String(row.po_number) : undefined,
-  };
-}
 
 export type { SupplierInvoiceItem, VatType };

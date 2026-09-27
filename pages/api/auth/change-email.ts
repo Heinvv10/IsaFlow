@@ -26,6 +26,7 @@ import { signIn, adminUpdateUser } from '@/lib/auth/gotrue';
 import { withRateLimit } from '@/lib/rateLimit';
 import { sql } from '@/lib/neon';
 import { log } from '@/lib/logger';
+import { refuseImpersonatedSession } from '@/lib/auth/impersonationGuard';
 
 const Body = z.object({
   newEmail: z.email('Invalid email address').max(254),
@@ -37,6 +38,8 @@ const handler: NextApiHandler = async (req, res) => {
     return res.status(405).json({ success: false, error: { code: 'METHOD_NOT_ALLOWED', message: 'POST required' } });
   }
 
+  // R-032 (f): a Login-as session changes none of the target's credentials.
+  if (await refuseImpersonatedSession(req, res)) return;
   const parsed = Body.safeParse(req.body ?? {});
   if (!parsed.success) {
     return res.status(400).json({

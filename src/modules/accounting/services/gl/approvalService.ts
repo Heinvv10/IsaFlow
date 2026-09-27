@@ -10,6 +10,8 @@ import {
   assertMayDecide, isApproverRole, APPROVER_ROLES,
   ApprovalRuleNotFoundError, ApprovalRequestNotFoundError,
 } from './approvalAuthority';
+import { assertDocumentUnchanged } from './approvalDecideDocument';
+import { auditSoleApproverSelfApproval } from './approvalSelfApproval';
 import { mapRule, mapRequest, isConditionOperator, CONDITION_OPERATORS } from './approvalMatching';
 import { assertMayDemand, assertMayEditRule, auditRuleChange, type RuleActor } from './approvalRuleGuards';
 import { lockApprovalRequestForUpdate } from './approvalRequestLock';
@@ -56,6 +58,8 @@ export interface ApprovalRequest {
   documentId: string;
   documentReference: string | null;
   amount: number | null;
+  /** approval_document_digest() of the content requested (migration 708); NULL = binds nothing. */
+  documentDigest: string | null;
   status: ApprovalStatus;
   requestedBy: string;
   requestedByName?: string;
@@ -190,7 +194,7 @@ export async function updateRule(companyId: string, id: string, input: Partial<{
   // ranks the one it is being moved to. Ranking only the current role let an
   // admin lower an admin-level rule to `viewer`.
   assertMayDemand(actor, input.approverRole);
-  const before = await assertMayEditRule(companyId, id, actor);
+  const before = await assertMayEditRule(companyId, id, actor, input);
   if (!before) throw new ApprovalRuleNotFoundError(id);
   const rows = (await sql`
     UPDATE approval_rules SET
@@ -210,7 +214,7 @@ export async function updateRule(companyId: string, id: string, input: Partial<{
 
 /** False when the id names no rule this company owns — the route answers 404. */
 export async function deleteRule(companyId: string, id: string, actor: RuleActor): Promise<boolean> {
-  const before = await assertMayEditRule(companyId, id, actor);
+  const before = await assertMayEditRule(companyId, id, actor, 'delete');
   if (!before) return false;
   const rows = (await sql`
     DELETE FROM approval_rules WHERE id = ${id}::UUID AND company_id = ${companyId} RETURNING id
@@ -255,13 +259,16 @@ export async function decideRequest(companyId: string,
   requestId: string,
   decision: 'approved' | 'rejected',
   decidedBy: string,
-  notes?: string
+  notes?: string,
+  /** The document digest the approver was shown; required to approve a request that carries one. */
+  expectedDigest?: string | null,
 ): Promise<ApprovalRequest> {
   // Lock BEFORE the authority is computed, so the row assertMayDecide reads is
   // the row this UPDATE writes. A concurrent rebind can otherwise move the
   // request onto a different rule between the two statements.
   await lockApprovalRequestForUpdate(companyId, requestId);
-  await assertMayDecide(companyId, requestId, decidedBy, decision);
+  const selfApproval = await assertMayDecide(companyId, requestId, decidedBy, decision);
+  if (decision === 'approved') await assertDocumentUnchanged(companyId, requestId, expectedDigest);
   const rows = (await sql`
     UPDATE approval_requests SET
       status = ${decision},
@@ -272,6 +279,7 @@ export async function decideRequest(companyId: string,
     RETURNING *
   `) as Record<string, unknown>[];
   if (!rows[0]) throw new ApprovalRequestNotFoundError(requestId);
+  if (selfApproval) await auditSoleApproverSelfApproval(companyId, decidedBy, rows[0], selfApproval);
   log.info('Approval decided', { id: requestId, decision }, 'accounting');
   return mapRequest(rows[0]);
 }

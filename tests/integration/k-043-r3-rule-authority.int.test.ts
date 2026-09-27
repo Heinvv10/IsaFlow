@@ -20,7 +20,7 @@ const companies = [alpha, beta];
 const users = [admin, owner];
 const tokens: Record<string, string> = {};
 
-const sign = (id: string) => new SignJWT({ sub: id, aal: 'aal2' })
+const sign = (id: string) => new SignJWT({ sub: id, aal: 'aal2', session_id: crypto.randomUUID() })
   .setProtectedHeader({ alg: 'HS256' })
   .setExpirationTime('1h')
   .sign(new TextEncoder().encode(process.env.JWT_SECRET));
@@ -99,12 +99,14 @@ describe('HIGH-2 — an admin cannot weaken a rule that demands more than they h
 
   // The guard must not lock out legitimate administration, which is the whole
   // reason it ranks rather than demanding 'owner' for every write.
+  // Weakening one (deactivate, lower, delete, narrow) needs a rank ABOVE it —
+  // R-048, pinned in r048-approval-rule-lowering.int.test.ts.
   it('lets the same admin edit an admin-level rule', async () => {
     const ruleId = await plantRule(alpha, 'admin level', 'admin');
-    const res = await call(approvalRules, admin, 'PUT', { id: ruleId, isActive: false });
+    const res = await call(approvalRules, admin, 'PUT', { id: ruleId, name: 'admin level renamed' });
     expect(res.state.statusCode).toBe(200);
-    const stored = await pool.query('SELECT is_active FROM approval_rules WHERE id=$1', [ruleId]);
-    expect(stored.rows[0].is_active).toBe(false);
+    const stored = await pool.query('SELECT name FROM approval_rules WHERE id=$1', [ruleId]);
+    expect(stored.rows[0].name).toBe('admin level renamed');
   });
 
   it('lets an owner deactivate the owner-only rule', async () => {
