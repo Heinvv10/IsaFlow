@@ -111,6 +111,15 @@ export async function findUnpostedInvoiceVat(
         -- below. (isEligibleForVatDeclaredElsewhereMark already refuses to
         -- mark a document once its journal IS posted, so this only matters
         -- for a mark made earlier, on a document whose journal posts later.)
+        -- HIGH fix (review, 2026-09-27, on a6cb6ea71): this OR carried no
+        -- je.status = 'posted' guard — entry_date is NOT NULL even on a
+        -- DRAFT journal, so a mark on a document whose journal never even
+        -- posted (dated after the period end but still draft) was overridden
+        -- and the document wrongly appeared on the BLOCKING list as
+        -- journal_not_posted instead of staying on the non-blocking
+        -- declared-elsewhere list. The guard now matches the reason CASE
+        -- above, which only reaches journal_dated_after_period once the
+        -- journal is already known to be posted and unreversed.
         AND (
           ci.vat_declared_elsewhere_at IS NULL
           OR EXISTS (
@@ -120,7 +129,7 @@ export async function findUnpostedInvoiceVat(
               AND rev.status = 'posted'
               AND rev.entry_date <= ${periodEnd}::DATE
           )
-          OR je.entry_date > ${periodEnd}::DATE
+          OR (je.status = 'posted' AND je.entry_date > ${periodEnd}::DATE)
         )
         AND ci.status = ANY(${ISSUED_CUSTOMER_INVOICE_STATUSES as string[]}::TEXT[])
         AND ci.invoice_date >= ${periodStart}::DATE AND ci.invoice_date <= ${periodEnd}::DATE
