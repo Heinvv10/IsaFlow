@@ -115,21 +115,70 @@ export function VatUncodedAndBalanceSheetSections({ report }: { report: VatExcep
   );
 }
 
+/**
+ * NOT blocking (Hein, 2026-09-27): supplier bills with no tax rate, or a
+ * rate but zero VAT, can only mean less input VAT was claimed than the
+ * bill's own rate supports, never more — so unlike the customer-invoice
+ * section above, this cannot put the return wrong in SARS's favour against
+ * the vendor. Styled like the other non-blocking sections (e.g. "no tax
+ * invoice on file").
+ */
+export function VatBillTaxCodeWarningSection({ report }: {
+  report: Pick<VatExceptionsReport, 'billTaxCodeWarnings' | 'billTaxCodeWarningCount' | 'billTaxCodeWarningPotentialVat'>;
+}) {
+  return (
+    <Section
+      title="Supplier bills with a VAT rate but no VAT — possible unclaimed input VAT (not blocking)"
+      count={report.billTaxCodeWarningCount}
+      listed={report.billTaxCodeWarnings.length}
+    >
+      <p className={`${td} !border-0 text-slate-500 whitespace-normal`}>
+        These bills carry no tax code, or a tax rate with zero VAT recorded — a record problem
+        that can only mean LESS input VAT was claimed than the bill&apos;s own rate would support,
+        never more, so it does not block filing. Potential input VAT at the bill&apos;s rate:{' '}
+        <span className="font-semibold">{fmt(report.billTaxCodeWarningPotentialVat)}</span>.
+        If the supplier is a VAT vendor this input VAT can still be claimed (a late claim);
+        otherwise, correct the rate to zero-rated or exempt.
+      </p>
+      <table className="min-w-full">
+        <thead><tr>
+          <th className={th}>Bill</th><th className={th}>Supplier</th>
+          <th className={th}>Date</th><th className={th}>Issue</th>
+          <th className={`${th} text-right`}>Subtotal</th><th className={`${th} text-right`}>Potential input VAT</th>
+        </tr></thead>
+        <tbody>
+          {report.billTaxCodeWarnings.map((b, i) => (
+            <tr key={`${b.invoiceId}-${i}`}>
+              <td className={td}>{b.invoiceNumber}</td>
+              <td className={td}>{b.counterpartyName}</td>
+              <td className={td}>{b.invoiceDate}</td>
+              <td className={`${td} text-amber-400`}>
+                {b.issue === 'missing_tax_rate' ? 'No tax code' : 'Tax code set, zero VAT'}
+              </td>
+              <td className={tdNum}>{fmt(b.subtotal)}</td>
+              <td className={tdNum}>{fmt(b.potentialInputVat)}</td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
+    </Section>
+  );
+}
+
 /** The two invoice-issue sections, rendered last — after input-support. */
 export function VatInvoiceIssueSections({ report }: { report: VatExceptionsReport }) {
   return (
     <>
-      <Section title="Invoices with tax-code issues" count={report.invoiceTaxCodeIssueCount} listed={report.invoiceTaxCodeIssues.length}>
+      <Section title="Customer invoices with tax-code issues" count={report.invoiceTaxCodeIssueCount} listed={report.invoiceTaxCodeIssues.length}>
         <table className="min-w-full">
           <thead><tr>
-            <th className={th}>Invoice</th><th className={th}>Type</th><th className={th}>Counterparty</th>
+            <th className={th}>Invoice</th><th className={th}>Counterparty</th>
             <th className={th}>Date</th><th className={th}>Issue</th><th className={`${th} text-right`}>Subtotal</th>
           </tr></thead>
           <tbody>
             {report.invoiceTaxCodeIssues.map((inv, i) => (
               <tr key={`${inv.invoiceId}-${i}`}>
                 <td className={td}>{inv.invoiceNumber}</td>
-                <td className={td}>{inv.invoiceKind}</td>
                 <td className={td}>{inv.counterpartyName}</td>
                 <td className={td}>{inv.invoiceDate}</td>
                 <td className={`${td} text-amber-400`}>

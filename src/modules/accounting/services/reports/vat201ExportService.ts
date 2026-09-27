@@ -50,6 +50,13 @@ export interface Vat201Export {
    * override.
    */
   blockingExceptions: VatGateExceptionCounts;
+  /**
+   * WARNING ONLY, NOT in blockingExceptions (Hein, 2026-09-27): supplier
+   * bills with no tax rate, or a rate but zero VAT — can only mean less
+   * input VAT was claimed than the bill's own rate supports, never more.
+   */
+  billTaxCodeWarningCount: number;
+  billTaxCodeWarningPotentialVat: number;
 }
 
 function r2(n: number): number {
@@ -116,6 +123,8 @@ export async function exportVat201(
     driftSinceLock,
     postedThrough: report.postedThrough,
     blockingExceptions,
+    billTaxCodeWarningCount: exceptionsReport.billTaxCodeWarningCount,
+    billTaxCodeWarningPotentialVat: exceptionsReport.billTaxCodeWarningPotentialVat,
   };
 
   if (format === 'csv') return { ...base, csv: toCsv(report) };

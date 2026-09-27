@@ -7,7 +7,7 @@
  */
 import type { DbRow } from '@/lib/neon';
 import type {
-  UncodedGlVatLine, InvoiceTaxCodeIssue, InvoiceGlVatMismatch,
+  UncodedGlVatLine, InvoiceTaxCodeIssue, BillTaxCodeWarning, InvoiceGlVatMismatch,
   UnpostedInvoiceVatLine, DeclaredElsewhereVatLine,
 } from './vatExceptionsTypes';
 
@@ -50,10 +50,11 @@ export function mapUncodedLine(r: Row): UncodedGlVatLine {
   };
 }
 
-export function mapTaxIssue(kind: 'customer' | 'supplier') {
-  return (r: Row): InvoiceTaxCodeIssue => ({
+/** CUSTOMER invoices only — BLOCKING (Hein, 2026-09-27). See BillTaxCodeWarning for supplier bills. */
+export function mapTaxIssue(r: Row): InvoiceTaxCodeIssue {
+  return {
     invoiceId: String(r.invoice_id),
-    invoiceKind: kind,
+    invoiceKind: 'customer',
     invoiceNumber: String(r.invoice_number ?? ''),
     counterpartyName: String(r.counterparty_name ?? 'Unknown'),
     invoiceDate: dateStr(r.invoice_date),
@@ -61,7 +62,31 @@ export function mapTaxIssue(kind: 'customer' | 'supplier') {
     taxRate: r.tax_rate === null || r.tax_rate === undefined ? null : toNum(r.tax_rate),
     taxAmount: toNum(r.tax_amount),
     issue: r.tax_rate === null || r.tax_rate === undefined ? 'missing_tax_rate' : 'rate_without_vat',
-  });
+  };
+}
+
+/**
+ * SUPPLIER bills only — NOT blocking (Hein, 2026-09-27): the record can only
+ * mean less input VAT was claimed than the bill's rate supports, never more.
+ * `potential_vat_total` is a window-function total (COUNT(*)/SUM(...) OVER())
+ * over EVERY matching row, computed before the query's LIMIT — every mapped
+ * row in a page carries the same true total, so reading it off row 0 is safe.
+ */
+export function mapBillTaxCodeWarning(r: Row): BillTaxCodeWarning {
+  const taxRate = r.tax_rate === null || r.tax_rate === undefined ? null : toNum(r.tax_rate);
+  const subtotal = toNum(r.subtotal);
+  return {
+    invoiceId: String(r.invoice_id),
+    invoiceKind: 'supplier',
+    invoiceNumber: String(r.invoice_number ?? ''),
+    counterpartyName: String(r.counterparty_name ?? 'Unknown'),
+    invoiceDate: dateStr(r.invoice_date),
+    subtotal,
+    taxRate,
+    taxAmount: toNum(r.tax_amount),
+    issue: taxRate === null ? 'missing_tax_rate' : 'rate_without_vat',
+    potentialInputVat: taxRate === null ? 0 : r2(subtotal * (taxRate / 100)),
+  };
 }
 
 export function mapUnpostedInvoice(r: Row): UnpostedInvoiceVatLine {

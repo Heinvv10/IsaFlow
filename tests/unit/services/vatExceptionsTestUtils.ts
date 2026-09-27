@@ -83,6 +83,22 @@ export function makeTaxIssueRow(overrides: Record<string, unknown> = {}) {
   };
 }
 
+/** Query 3 (supplier bills) carries potential_vat_total, a window SUM over every matching row. */
+export function makeBillTaxIssueRow(overrides: Record<string, unknown> = {}) {
+  return {
+    invoice_id: 'si-1',
+    invoice_number: 'SINV-001',
+    counterparty_name: 'Gamma Suppliers',
+    invoice_date: '2026-03-10',
+    subtotal: '2000.00',
+    tax_rate: '15.00',
+    tax_amount: '0',
+    total_count: '1',
+    potential_vat_total: '300.00',
+    ...overrides,
+  };
+}
+
 export function makeMismatchRow(overrides: Record<string, unknown> = {}) {
   return {
     invoice_id: 'ci-9',

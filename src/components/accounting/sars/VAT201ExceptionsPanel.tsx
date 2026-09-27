@@ -10,7 +10,9 @@ import VatInputSupportSections from './VatInputSupportSections';
 import VatUnpostedInvoicesSection from './VatUnpostedInvoicesSection';
 import VatDeclaredElsewhereSection from './VatDeclaredElsewhereSection';
 import { Section } from './vatExceptionsUi';
-import { VatReconTable, VatUncodedAndBalanceSheetSections, VatInvoiceIssueSections } from './VatReconAndBasicSections';
+import {
+  VatReconTable, VatUncodedAndBalanceSheetSections, VatInvoiceIssueSections, VatBillTaxCodeWarningSection,
+} from './VatReconAndBasicSections';
 
 interface Props {
   from: string;
@@ -108,6 +110,7 @@ export function VAT201ExceptionsPanel({ from, to, reloadKey, onLoaded }: Props) 
           <VatDeclaredElsewhereSection report={report} onChanged={() => void load()} />
           <VatInputSupportSections report={report} Section={Section} />
           <VatInvoiceIssueSections report={report} />
+          <VatBillTaxCodeWarningSection report={report} />
         </>
       )}
     </div>
