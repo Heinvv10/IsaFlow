@@ -20,6 +20,7 @@ import { DEFAULT_SUPPLIER_TAX_RATE } from '../../constants/supplierInvoiceDefaul
 import { computeFingerprint } from '../capture/captureDeduplicationService';
 import { supplierBelongsToCompany } from '../core/contactDirectoryService';
 import { lockSupplierInvoiceForUpdate } from './supplierInvoiceLock';
+import { withContentEditorStamp } from './supplierInvoiceContentEditor';
 import { defaultVatClassification, type SupplierInvoiceTotals } from './supplierInvoiceTotals';
 import {
   SupplierInvoiceDraftUpdateRefusal,
@@ -175,10 +176,14 @@ export async function lockAndPlanSupplierInvoiceDraftUpdate(
   };
 }
 
-/** Write the plan. Refuses nothing — call it with no catch. */
+/**
+ * Write the plan. Refuses nothing — call it with no catch. `editedBy` becomes
+ * the bill's content author when the write moves the approval digest (R-035).
+ */
 export async function applySupplierInvoiceDraftUpdate(
   companyId: string,
   plan: SupplierInvoiceDraftUpdatePlan,
+  editedBy: string,
 ): Promise<void> {
   if (plan.changed.length === 0) return;
   const totals = plan.lines;
@@ -193,7 +198,7 @@ export async function applySupplierInvoiceDraftUpdate(
     );
   }
 
-  await withTransaction(async (tx) => {
+  await withContentEditorStamp(companyId, plan.invoiceId, editedBy, () => withTransaction(async (tx) => {
     await tx`
       UPDATE supplier_invoices SET
         supplier_id = ${plan.supplierId}::UUID,
@@ -224,5 +229,5 @@ export async function applySupplierInvoiceDraftUpdate(
           ${defaultVatClassification(item.taxRate)}
         )`;
     }
-  });
+  }));
 }

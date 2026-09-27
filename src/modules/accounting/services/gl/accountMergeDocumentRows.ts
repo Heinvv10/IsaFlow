@@ -62,18 +62,33 @@ function ids(rows: unknown): string[] {
   return (rows as { id: string }[]).map((r) => String(r.id)).sort();
 }
 
-/** Repoint the source's document rows onto the target. Only this company's rows move. */
+/**
+ * Repoint the source's document rows onto the target. Only this company's rows move.
+ *
+ * A bill line's account is part of the content an approval covers (R-035), so
+ * every bill whose lines moved records the merging user as its content author
+ * (`content_edited_by`), whom the decide path refuses as approver (decision
+ * Q10: the merge also stales any approval on those bills).
+ */
 export async function repointDocumentRows(
-  companyId: string, sourceId: string, targetId: string,
+  companyId: string, sourceId: string, targetId: string, editedBy?: string,
 ): Promise<MovedDocumentRows> {
   const supplierInvoiceItems = ids(await sql`
-    UPDATE supplier_invoice_items i
-       SET gl_account_id = ${targetId}::UUID, updated_at = NOW()
-      FROM supplier_invoices si
-     WHERE si.id = i.supplier_invoice_id
-       AND si.company_id = ${companyId}::UUID
-       AND i.gl_account_id = ${sourceId}::UUID
-    RETURNING i.id
+    WITH moved AS (
+      UPDATE supplier_invoice_items i
+         SET gl_account_id = ${targetId}::UUID, updated_at = NOW()
+        FROM supplier_invoices si
+       WHERE si.id = i.supplier_invoice_id
+         AND si.company_id = ${companyId}::UUID
+         AND i.gl_account_id = ${sourceId}::UUID
+      RETURNING i.id, i.supplier_invoice_id
+    ), authored AS (
+      UPDATE supplier_invoices si
+         SET content_edited_by = COALESCE(${editedBy ?? null}::UUID, si.content_edited_by), content_edited_at = NOW()
+       WHERE si.company_id = ${companyId}::UUID AND si.id IN (SELECT supplier_invoice_id FROM moved)
+      RETURNING si.id
+    )
+    SELECT id FROM moved
   `);
   const expenseClaimLines = ids(await sql`
     UPDATE expense_claim_lines

@@ -9,7 +9,7 @@ import type { NextApiRequest, NextApiResponse } from 'next';
 
 const mocks = vi.hoisted(() => ({ sql: vi.fn(), getById: vi.fn() }));
 
-vi.mock('@/lib/neon', () => ({ sql: mocks.sql }));
+vi.mock('@/lib/neon', () => ({ sql: mocks.sql, withSavepoint: (_name: string, fn: () => Promise<unknown>) => fn() }));
 vi.mock('@/lib/logger', () => ({ log: { info: vi.fn(), error: vi.fn(), warn: vi.fn(), debug: vi.fn() } }));
 vi.mock('@/lib/auth', () => ({
   withAuth: (handler: unknown) => handler,
@@ -28,7 +28,7 @@ function response() {
   return { status: vi.fn().mockReturnThis(), json: vi.fn(), setHeader: vi.fn() } as unknown as NextApiResponse;
 }
 const put = () =>
-  ({ method: 'PUT', companyId: COMPANY, query: {}, body: { id: INVOICE, notes: 'x' } }) as unknown as NextApiRequest;
+  ({ method: 'PUT', companyId: COMPANY, user: { id: '33333333-3333-4333-8333-333333333333' }, query: {}, body: { id: INVOICE, notes: 'x' } }) as unknown as NextApiRequest;
 const status = (res: NextApiResponse) => vi.mocked(res.status).mock.calls[0]?.[0];
 const text = (res: NextApiResponse) => JSON.stringify(vi.mocked(res.json).mock.calls[0]?.[0]);
 
