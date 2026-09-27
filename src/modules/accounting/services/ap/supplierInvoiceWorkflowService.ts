@@ -24,6 +24,7 @@ import type { LateClaimInfo, PostJournalOpts } from '../gl/vatLateClaimPlan';
 import { claimEvidencedProvisional, settleClaimedProvisional } from './provisionalInvoiceSettlement';
 import { mapInvoiceRow } from './supplierInvoiceWorkflowRow';
 import { assertNotImpersonating } from '@/lib/auth/impersonationGuard';
+import { assertApprovalCleared } from '../gl/approvalGate';
 
 type Row = DbRow;
 
@@ -70,6 +71,7 @@ async function approveInner(
     if (invoice.status !== 'draft' && invoice.status !== 'pending_approval') {
       throw new Error(`Cannot approve invoice with status: ${invoice.status}`);
     }
+    await assertApprovalCleared(companyId, 'supplier_invoice', id); // R-035: under the lock, before any write
 
     // A DRAFT can already carry a journal, and posting a second one is the
     // worst outcome this function has.

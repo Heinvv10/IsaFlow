@@ -1,8 +1,8 @@
 /**
  * R-035 PR1: the per-company, per-document-type enforcement switch.
  *
- * Enabling is refused for any type not in ENFORCEABLE_DOCUMENT_TYPES — which
- * is EMPTY in PR1, so nothing can be switched on and no posting path changes.
+ * Enabling is refused for any type not in ENFORCEABLE_DOCUMENT_TYPES — only
+ * supplier_invoice since PR2, the one type whose posting paths consult the gate.
  * Disabling weakens a control, so it demands rank >= the strictest ACTIVE rule
  * of that type (the same ladder as rule edits) and writes an audit row through
  * logAuditOrThrow. Rows are planted directly to test the disable half.
@@ -47,12 +47,12 @@ const audits = async (company: string) => (await pool.query(
 
 const twoMemberCompany = () => newCompany(pool, [[owner, 'owner'], [admin, 'admin']], companies);
 
-describe('PR1 enforces nothing', () => {
-  it('ships with an empty ENFORCEABLE_DOCUMENT_TYPES', () => {
-    expect(ENFORCEABLE_DOCUMENT_TYPES).toEqual([]);
+describe('only wired types can be enforced', () => {
+  it('PR2 makes supplier_invoice, and only it, enforceable', () => {
+    expect(ENFORCEABLE_DOCUMENT_TYPES).toEqual(['supplier_invoice']);
   });
 
-  it.each(['supplier_invoice', 'journal_entry'])('refuses to enable %s — not enforceable yet', async (documentType) => {
+  it.each(['customer_invoice', 'journal_entry'])('refuses to enable %s — not enforceable yet', async (documentType) => {
     const company = await twoMemberCompany();
     const res = await call(owner, company, 'POST', { documentType, enabled: true });
     expect(res.state.statusCode).toBe(400);
@@ -170,6 +170,6 @@ describe('listing is tenant-scoped', () => {
     expect(res.state.statusCode).toBe(200);
     const data = (res.state.body as { data: { items: { documentType: string }[]; enforceable: string[] } }).data;
     expect(data.items.map((i) => i.documentType)).toEqual(['credit_note']);
-    expect(data.enforceable).toEqual([]);
+    expect(data.enforceable).toEqual(['supplier_invoice']);
   });
 });
