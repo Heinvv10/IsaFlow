@@ -139,8 +139,8 @@ export async function assertMayDecide(
   const rows = (await sql`
     SELECT (ar.requested_by::TEXT = ${decidedBy}) AS is_self,
            (${decidedBy} = ANY (ar.past_requesters::TEXT[])) AS was_requester,
-           ar.requested_by::TEXT AS requester, ar.content_author::TEXT AS snapshot_author,
-           approval_document_author(ar.company_id, ar.document_type, ar.document_id) AS live_author,
+           ar.requested_by::TEXT AS requester, ar.content_authors::TEXT[] AS snapshot_authors,
+           approval_document_authors(ar.company_id, ar.document_type, ar.document_id)::TEXT[] AS live_authors,
            ar.rule_id,
            ar.required_role,
            rl.id AS resolved_rule_id,
@@ -201,8 +201,8 @@ export async function assertMayDecide(
   if (decision === 'approved' && row.is_self !== true) {
     const refusal = await contentAuthorRefusal(companyId, decidedBy, {
       requester: String(row.requester),
-      liveAuthor: row.live_author != null ? String(row.live_author) : null,
-      snapshotAuthor: row.snapshot_author != null ? String(row.snapshot_author) : null,
+      liveAuthors: Array.isArray(row.live_authors) ? row.live_authors.map(String) : null,
+      snapshotAuthors: Array.isArray(row.snapshot_authors) ? row.snapshot_authors.map(String) : [],
       wasRequester: row.was_requester === true,
     }, demandedRole, (role) => actorRank(role) >= requiredRank(demandedRole));
     if (refusal) throw new ApprovalDecisionError('SELF_APPROVAL_FORBIDDEN', refusal);

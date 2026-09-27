@@ -40,7 +40,7 @@ type Row = Record<string, unknown>;
  * raised by `requestedBy`, now — requested_by, requested_at and the roster
  * snapshot. Keeping the original requester let an editor approve their own
  * edit: A requests, B edits and re-requests, B approves as "not self". The
- * request also re-snapshots the content's AUTHOR (`content_author`, migration
+ * request also re-snapshots the content's AUTHORS (`content_authors`, migration
  * 712), whom the decide path refuses — so A requests, A edits, C re-requests,
  * A approves is refused as authorship, while a past requester who wrote none
  * of the current content may approve (approvalAuthors). The requester it
@@ -81,9 +81,9 @@ export async function rebindPendingRequest(
       amount = ${document.amount}::NUMERIC,
       document_reference = ${document.reference}::TEXT,
       document_digest = ${document.digest}::TEXT,
-      content_author = CASE WHEN ${digestChanged}::BOOLEAN
-                            THEN approval_document_author(ar.company_id, ar.document_type, ar.document_id)::UUID
-                            ELSE ar.content_author END,
+      content_authors = CASE WHEN ${digestChanged}::BOOLEAN
+                             THEN approval_document_authors(ar.company_id, ar.document_type, ar.document_id)
+                             ELSE ar.content_authors END,
       past_requesters = CASE WHEN ${digestChanged}::BOOLEAN AND ar.requested_by <> ${requestedBy}::UUID
                              THEN array_append(ar.past_requesters, ar.requested_by) ELSE ar.past_requesters END,
       requested_by = CASE WHEN ${digestChanged}::BOOLEAN THEN ${requestedBy}::UUID ELSE ar.requested_by END,
