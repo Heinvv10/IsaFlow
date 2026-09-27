@@ -27,6 +27,7 @@ import { getSystemAccountId } from '@/modules/accounting/services/gl/systemAccou
 import {
   CapturedDocumentAlreadyPostedError,
   claimCapturedDocumentForPosting,
+  type PostedReceiptFingerprint,
 } from '@/modules/accounting/services/capture/captureRowLock';
 import {
   INPUT_VAT_DENIED_ADVICE,
@@ -52,6 +53,8 @@ export interface PettyCashJournalInput {
   resolvedGlAccountId: string;
   vatInputAccountId: string;
   costCentreId?: string;
+  /** What `checkReceiptDuplicate` cleared this receipt to post under (R-088); stamped by the claim. */
+  fingerprint: PostedReceiptFingerprint;
 }
 
 /**
@@ -88,7 +91,7 @@ export async function postReceiptAsPettyCashJournal(
 ): Promise<PettyCashJournalResult> {
   const {
     companyId, userId, eventId, documentId,
-    extracted, confirmedVendorName, resolvedGlAccountId, vatInputAccountId, costCentreId,
+    extracted, confirmedVendorName, resolvedGlAccountId, vatInputAccountId, costCentreId, fingerprint,
   } = input;
 
   const entryDate = extracted.date ?? new Date().toISOString().slice(0, 10);
@@ -158,7 +161,7 @@ export async function postReceiptAsPettyCashJournal(
   // route's 4xx for it commits nothing and the document stays claimable.
   await assertJournalVatPeriodOpen(companyId, entryDate, postableLines);
 
-  const refusal = await claimCapturedDocumentForPosting(companyId, documentId, 'expense');
+  const refusal = await claimCapturedDocumentForPosting(companyId, documentId, 'expense', { spend: 'expense', ...fingerprint });
   if (refusal) {
     throw new CapturedDocumentAlreadyPostedError(refusal);
   }

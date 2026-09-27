@@ -1,12 +1,21 @@
 /**
  * The two input-VAT support sections of the pre-filing exceptions panel
- * (reports/vatInputSupport.ts):
+ * (reports/vatInputSupport.ts). The cut (Hein, 2026-09-26) is whether the
+ * return's FIGURES would be wrong, not whether a document is attached:
  *
- *   - "Input VAT with nothing behind it" — BLOCKING. A claim linked to no
- *     document, or one that disagrees with the document it is linked to.
- *   - "Input VAT with no tax invoice on file" — NOT blocking (Hein,
- *     2026-09-25). Supported by a bank line or an approved VAT adjustment:
- *     the money moved, but the tax invoice should be attached.
+ *   - "Input VAT that exceeds its support" — BLOCKING. `amount_mismatch`
+ *     (credit note, expense claim, captured document, bank ceiling) or
+ *     `document_over_claimed`: the claimed VAT does not tie to what actually
+ *     supports it, so the return's figures are wrong. Also `document_unlinked`
+ *     (breaker round 2, Hein 2026-09-26): a document WAS linked, evidencing
+ *     the claim, and someone removed the link without replacing it or
+ *     reversing the claim — different from never having had one.
+ *   - "Input VAT with no tax invoice on file" — NOT blocking. Supported only
+ *     by a bank line or an approved VAT adjustment (Hein, 2026-09-25); linked
+ *     to no document at all, or to one whose VAT couldn't be read (Hein,
+ *     2026-09-26). Only a RECORD is missing — holding the tax invoice is the
+ *     vendor's legal responsibility, and it may be held outside IsaFlow, so
+ *     attaching or linking it here is optional.
  *
  * Split out of VAT201ExceptionsPanel for the 300-line file limit; the panel
  * passes its collapsible <Section> shell in so both look the same.
@@ -37,6 +46,7 @@ const REASON_LABEL: Record<InputVatSupportLine['reason'], string> = {
   no_document: 'No document linked',
   amount_mismatch: 'Differs from its document',
   document_over_claimed: 'Document already claimed by another journal',
+  document_unlinked: 'Document unlinked — evidence removed',
   unreadable_document_vat: 'Document VAT could not be read',
   no_tax_invoice: 'No tax invoice on file',
 };
@@ -55,7 +65,8 @@ function SupportTable({ lines, linkable }: { lines: InputVatSupportLine[]; linka
           <tr key={l.journalEntryId}>
             <td className={td}>{l.entryNumber}</td>
             <td className={td}>{l.entryDate}</td>
-            <td className={td}>{SUPPORT_LABEL[l.supportKind]}</td>
+            {/* An unlinked chain had a document; "Nothing" would read as never evidenced. */}
+            <td className={td}>{l.reason === 'document_unlinked' ? 'Document removed' : SUPPORT_LABEL[l.supportKind]}</td>
             <td className={`${td} text-amber-400`}>{REASON_LABEL[l.reason]}</td>
             <td className={`${td} max-w-[16rem] truncate`}>{l.description}</td>
             <td className={tdNum}>{fmt(l.claimedVat)}</td>
@@ -79,25 +90,30 @@ export default function VatInputSupportSections({ report, Section }: {
 }) {
   return (
     <>
-      <Section title="Input VAT with nothing behind it" count={report.unsupportedInputVatCount}
+      <Section title="Input VAT that exceeds its support" count={report.unsupportedInputVatCount}
         listed={report.unsupportedInputVat.length}>
         <p className={`${td} !border-0 text-slate-500 whitespace-normal`}>
-          Every input-VAT claim needs a document behind it. These journals claim input VAT that
-          is linked to no bill, expense claim, captured receipt, credit note or bank line, or
-          that differs from the document they are linked to. They block filing: attach or post
-          the document, or reverse the claim.
+          These journals claim more input VAT than the bill, expense claim, captured receipt,
+          credit note or bank line they are linked to actually supports — the same document
+          twice over — or once had a document linked and no longer do, with nothing else
+          supporting the claim. The return&apos;s figures are wrong (or the evidence for them was
+          withdrawn) until this is fixed. They block filing: link the correct document, correct
+          the claim, or reverse it.
         </p>
         <SupportTable lines={report.unsupportedInputVat} linkable />
       </Section>
       <Section title="Input VAT with no tax invoice on file (not blocking)" count={report.inputVatWithoutTaxInvoiceCount}
         listed={report.inputVatWithoutTaxInvoice.length}>
         <p className={`${td} !border-0 text-slate-500 whitespace-normal`}>
-          These claims are supported by the bank line (or an approved VAT adjustment), so the
-          money moved — but no tax invoice is attached. They do not block filing; attach the tax
-          invoice so the deduction can be substantiated. An invoice attached to the bank line
-          itself (bank-transactions) also clears the claim from this list.
+          These claims are supported only by a bank line or an approved VAT adjustment, or are
+          linked to no document at all, or to one whose VAT amount couldn&apos;t be read — so the
+          money moved but no tax invoice is on file here. Holding a valid tax invoice for this
+          input VAT is the vendor&apos;s legal responsibility, and it may be held outside IsaFlow,
+          so this does not block filing. Attaching or linking it here is optional. An invoice
+          attached to the bank line itself (bank-transactions) also clears a bank-only claim from
+          this list.
         </p>
-        <SupportTable lines={report.inputVatWithoutTaxInvoice} />
+        <SupportTable lines={report.inputVatWithoutTaxInvoice} linkable />
       </Section>
     </>
   );
