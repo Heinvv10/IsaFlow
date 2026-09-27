@@ -29,6 +29,7 @@ import {
   type PublishedDecision,
 } from '@/modules/accounting/services/capture/capturePostFollowUps';
 import {
+  CAPTURED_DOCUMENT_REFUSAL_ERROR_CODE,
   CAPTURED_DOCUMENT_REFUSAL_MESSAGE,
   CaptureRowLockTimeoutError,
   claimCapturedDocumentForPosting,
@@ -195,9 +196,9 @@ async function handler(req: CompanyAuthedRequest, res: NextApiResponse) {
   //
   // This is the last point at which a 4xx is safe here: everything above is a
   // SELECT or a pure function, and a refusal matched no row.
-  const claimRefusal = await claimCapturedDocumentForPosting(companyId, documentId);
+  const claimRefusal = await claimCapturedDocumentForPosting(companyId, documentId, null, { spend: 'invoice' });
   if (claimRefusal) {
-    return apiResponse.badRequest(res, CAPTURED_DOCUMENT_REFUSAL_MESSAGE[claimRefusal]);
+    return apiResponse.error(res, CAPTURED_DOCUMENT_REFUSAL_ERROR_CODE[claimRefusal], CAPTURED_DOCUMENT_REFUSAL_MESSAGE[claimRefusal]);
   }
 
   // ONE producer of duplicate_fingerprint, never an inline expression. This

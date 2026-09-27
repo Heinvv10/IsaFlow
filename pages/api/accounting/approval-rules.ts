@@ -58,7 +58,9 @@ function respondToRuleWriteError(res: NextApiResponse, error: unknown, onDelete 
     return true;
   }
   if (error instanceof ApprovalRuleAuthorityError) {
-    apiResponse.error(res, ErrorCode.FORBIDDEN, error.message, { reason: error.code });
+    // `reason` keeps carrying the code existing callers match on; which of the
+    // two refusals it was travels beside it.
+    apiResponse.error(res, ErrorCode.FORBIDDEN, error.message, { reason: error.code, authorityReason: error.reason });
     return true;
   }
   if (error instanceof ApprovalRuleNotFoundError) {

@@ -309,8 +309,8 @@ describe('K-072 the claim statement is a fence on its own', () => {
     // route tests cannot tell whether `AND posted_at IS NULL` on the UPDATE is
     // doing anything. Called directly, twice, it is the only thing between the
     // two callers — deleting that predicate makes the second call succeed.
-    expect(await claimCapturedDocumentForPosting(company, twiceClaimedDoc)).toBeNull();
-    expect(await claimCapturedDocumentForPosting(company, twiceClaimedDoc)).toBe('already_posted');
+    expect(await claimCapturedDocumentForPosting(company, twiceClaimedDoc, null, { spend: 'expense' })).toBeNull();
+    expect(await claimCapturedDocumentForPosting(company, twiceClaimedDoc, null, { spend: 'expense' })).toBe('already_posted');
   });
 });
 

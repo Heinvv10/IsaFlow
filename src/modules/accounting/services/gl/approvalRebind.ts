@@ -31,7 +31,9 @@ type Row = Record<string, unknown>;
  * The comparison is against `requiredRole`, the snapshot taken when the request
  * was raised, not against the bound rule's live role — the live role is itself
  * editable downwards by the same actor (approvalAuthority takes the higher of
- * the two for the same reason).
+ * the two for the same reason). Since R-048 that actor must rank ABOVE the
+ * rule to weaken it; a higher rank still can, and must not reach back into a
+ * request already pending.
  *
  * CONTENT follows the document in every branch (R-035): when the digest
  * changed, the request now vouches for new content, so it is re-stamped as

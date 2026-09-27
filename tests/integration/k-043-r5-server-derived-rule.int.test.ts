@@ -345,7 +345,8 @@ describe('MEDIUM-2 — deleting a rule that has requests is a 400, not a 500 wit
        VALUES($1,$2,$3,'customer_invoice',$4,100,'pending',$5)`,
       [crypto.randomUUID(), company, ruleId, crypto.randomUUID(), admin]);
 
-    const deleted = await call(approvalRules, admin, company, 'DELETE', { id: ruleId }, { id: ruleId });
+    // The owner: deleting an admin-level rule needs a rank above it (R-048).
+    const deleted = await call(approvalRules, owner, company, 'DELETE', { id: ruleId }, { id: ruleId });
     expect(deleted.state.statusCode).toBe(400);
     const message = (deleted.state.body as { error?: { message?: string } }).error?.message ?? '';
     expect(message).toContain('cannot be deleted');
