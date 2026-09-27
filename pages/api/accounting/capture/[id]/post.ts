@@ -274,7 +274,7 @@ async function handler(req: CompanyAuthedRequest, res: NextApiResponse) {
       reason: 'routed for review',
       reasons: publishedDecision.reasons,
       threeWayMatch,
-      provisionalAttach, approvalRequest,
+      provisionalAttach, approvalRequired: approval.gated, approvalRequest,
     });
   }
 
@@ -287,7 +287,7 @@ async function handler(req: CompanyAuthedRequest, res: NextApiResponse) {
     gateOutcome: publishedDecision.outcome,
     gateReason: publishedDecision.reason,
     threeWayMatch,
-    provisionalAttach, approvalRequest,
+    provisionalAttach, approvalRequired: approval.gated, approvalRequest,
   });
 }
 
