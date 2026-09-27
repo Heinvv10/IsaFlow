@@ -30,6 +30,10 @@ import type { DbRow } from '@/lib/neon';
  * reversed down one stays claimed, because one of its ledger rows is still
  * standing.
  *
+ * The content fingerprint the claim was stamped with (R-088, migration 710)
+ * goes with it: a posting that was undone no longer books that slip, so a
+ * re-upload of it must be free to post.
+ *
  * Returns true when the claim was released.
  */
 export async function releaseCapturedDocumentPostingClaim(
@@ -39,6 +43,10 @@ export async function releaseCapturedDocumentPostingClaim(
   const rows = (await sql`
     UPDATE captured_documents cd
        SET posted_at = NULL,
+           posted_content_sha256 = NULL,
+           posted_receipt_key = NULL,
+           posted_duplicate_of = NULL,
+           posted_duplicate_confirmed_by = NULL,
            updated_at = NOW()
      WHERE cd.id = ${documentId}::uuid
        AND cd.company_id = ${companyId}
